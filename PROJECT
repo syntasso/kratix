@@ -1,0 +1,6 @@
+domain: synpl.syntasso.io
+layout:
+- go.kubebuilder.io/v3
+projectName: synpl-platform
+repo: github.com/syntasso/synpl-platform
+version: "3"
