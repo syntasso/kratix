@@ -1,0 +1,7 @@
+apiVersion: platform.synpl.syntasso.io/v1alpha1
+kind: Promise
+metadata:
+  name: promise-sample
+spec:
+  # Add fields here
+  foo: bar
