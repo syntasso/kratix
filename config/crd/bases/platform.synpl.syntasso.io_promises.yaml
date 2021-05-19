@@ -36,10 +36,11 @@ spec:
           spec:
             description: PromiseSpec defines the desired state of Promise
             properties:
-              foo:
-                description: Foo is an example field of Promise. Edit promise_types.go
-                  to remove/update
-                type: string
+              crd:
+                description: X's CustomResourceDefinition to create the X-aaS offering
+                type: object
+                x-kubernetes-embedded-resource: true
+                x-kubernetes-preserve-unknown-fields: true
             type: object
           status:
             description: PromiseStatus defines the observed state of Promise

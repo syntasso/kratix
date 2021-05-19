@@ -3,5 +3,16 @@ kind: Promise
 metadata:
   name: promise-sample
 spec:
-  # Add fields here
-  foo: bar
+  crd:
+    apiVersion: something
+    kind: Redis
+    metadata:
+      name: redis.pennys-platform.acme.io
+    spec:
+      group: pennys-platform.acme.io
+      names:
+        kind: Redis
+        listKind: RedisList
+        plural: Redii
+        singular: Redis
+      scope: Namespaced

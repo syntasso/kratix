@@ -18,6 +18,7 @@ package v1alpha1
 
 import (
 	metav1 "k8s.io/apimachinery/pkg/apis/meta/v1"
+	"k8s.io/apimachinery/pkg/runtime"
 )
 
 // EDIT THIS FILE!  THIS IS SCAFFOLDING FOR YOU TO OWN!
@@ -25,11 +26,23 @@ import (
 
 // PromiseSpec defines the desired state of Promise
 type PromiseSpec struct {
+
 	// INSERT ADDITIONAL SPEC FIELDS - desired state of cluster
 	// Important: Run "make" to regenerate code after modifying this file
 
-	// Foo is an example field of Promise. Edit promise_types.go to remove/update
-	Foo string `json:"foo,omitempty"`
+	// TODO: apiextemnsion.CustomResourceDefinitionSpec struct(s) don't have the required jsontags and
+	// cannot be used as a Type. See https://github.com/kubernetes-sigs/controller-tools/pull/528
+	// && https://github.com/kubernetes-sigs/controller-tools/issues/291
+	//
+	// OPA Validation pattern:
+	// https://github.com/open-policy-agent/frameworks/blob/1307ba72bce38ee3cf44f94def1bbc41eb4ffa90/constraint/pkg/apis/templates/v1beta1/constrainttemplate_types.go#L46
+	// CRD runtime.RawExtension      `json:"crd,omitempty"`
+
+	// X's CustomResourceDefinition to create the X-aaS offering
+	//
+	// +kubebuilder:pruning:PreserveUnknownFields
+	// +kubebuilder:validation:EmbeddedResource
+	CRD runtime.RawExtension `json:"crd,omitempty"`
 }
 
 // PromiseStatus defines the observed state of Promise
