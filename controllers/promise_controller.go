@@ -18,20 +18,28 @@ package controllers
 
 import (
 	"context"
+	"encoding/json"
+	"fmt"
 
 	"github.com/go-logr/logr"
+	apiextensionsv1 "k8s.io/apiextensions-apiserver/pkg/apis/apiextensions/v1"
+	"k8s.io/apiextensions-apiserver/pkg/client/clientset/clientset"
+	metav1 "k8s.io/apimachinery/pkg/apis/meta/v1"
 	"k8s.io/apimachinery/pkg/runtime"
+
 	ctrl "sigs.k8s.io/controller-runtime"
 	"sigs.k8s.io/controller-runtime/pkg/client"
 
+	"github.com/syntasso/synpl-platform/api/v1alpha1"
 	platformv1alpha1 "github.com/syntasso/synpl-platform/api/v1alpha1"
 )
 
 // PromiseReconciler reconciles a Promise object
 type PromiseReconciler struct {
 	client.Client
-	Log    logr.Logger
-	Scheme *runtime.Scheme
+	ApiextensionsClient *clientset.Clientset
+	Log                 logr.Logger
+	Scheme              *runtime.Scheme
 }
 
 //+kubebuilder:rbac:groups=platform.synpl.syntasso.io,resources=promises,verbs=get;list;watch;create;update;patch;delete
@@ -50,7 +58,28 @@ type PromiseReconciler struct {
 func (r *PromiseReconciler) Reconcile(ctx context.Context, req ctrl.Request) (ctrl.Result, error) {
 	_ = r.Log.WithValues("promise", req.NamespacedName)
 
-	// your logic here
+	promise := &v1alpha1.Promise{}
+	err := r.Client.Get(ctx, req.NamespacedName, promise)
+	if err != nil {
+		r.Log.Error(err, "Failed getting Promise")
+		fmt.Println(err.Error())
+		return ctrl.Result{}, nil
+	}
+
+	crdToCreate := &apiextensionsv1.CustomResourceDefinition{}
+	err = json.Unmarshal(promise.Spec.CRD.Raw, crdToCreate)
+	if err != nil {
+		r.Log.Error(err, "Failed unmarshalling CRD")
+		return ctrl.Result{}, nil
+	}
+
+	_, err = r.ApiextensionsClient.ApiextensionsV1().
+		CustomResourceDefinitions().
+		Create(ctx, crdToCreate, metav1.CreateOptions{})
+	if err != nil {
+		r.Log.Error(err, "Failed creating CRD")
+		return ctrl.Result{}, nil
+	}
 
 	return ctrl.Result{}, nil
 }
