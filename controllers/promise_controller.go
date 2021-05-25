@@ -26,6 +26,7 @@ import (
 	"github.com/go-logr/logr"
 	minio "github.com/minio/minio-go/v7"
 	"github.com/minio/minio-go/v7/pkg/credentials"
+	"gopkg.in/yaml.v3"
 	apiextensionsv1 "k8s.io/apiextensions-apiserver/pkg/apis/apiextensions/v1"
 	"k8s.io/apiextensions-apiserver/pkg/client/clientset/clientset"
 	metav1 "k8s.io/apimachinery/pkg/apis/meta/v1"
@@ -133,7 +134,7 @@ func (r *dynamicController) Reconcile(ctx context.Context, req ctrl.Request) (ct
 		return ctrl.Result{}, nil
 	}
 
-	toPrint, _ := unstructuredCRD.MarshalJSON()
+	toPrint, _ := yaml.Marshal(unstructuredCRD.Object)
 	//todo - this minio object name should have GVK + namespace + resource name to be per-cluster unique
 	err = yamlUploader(req.Name+".yaml", toPrint)
 	if err != nil {
