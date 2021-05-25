@@ -1,0 +1,52 @@
+apiVersion: v1
+kind: Namespace
+metadata:
+  creationTimestamp: null
+  name: synpl-system
+---
+apiVersion: v1
+kind: Service
+metadata:
+  creationTimestamp: null
+  name: minio
+  namespace: synpl-system
+spec:
+  ports:
+  - port: 80
+    protocol: TCP
+    targetPort: 9000
+    nodePort: 31337
+  selector:
+    run: minio
+  type: NodePort
+---
+apiVersion: apps/v1
+kind: Deployment
+metadata:
+  creationTimestamp: null
+  labels:
+    run: minio
+  name: minio
+  namespace: synpl-system
+spec:
+  replicas: 1
+  selector:
+    matchLabels:
+      run: minio
+  template:
+    metadata:
+      labels:
+        run: minio
+    spec:
+      containers:
+      - image: minio/minio
+        name: minio
+        args: ["server", "/data"]
+        ports:
+        - containerPort: 9000
+        volumeMounts:
+        - mountPath: /data
+          name: data-volume
+      volumes:
+      - name: data-volume
+        emptyDir: {}

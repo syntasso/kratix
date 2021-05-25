@@ -17,18 +17,21 @@ limitations under the License.
 package controllers
 
 import (
+	"bytes"
 	"context"
 	"encoding/json"
 	"fmt"
+	"log"
 
 	"github.com/go-logr/logr"
+	minio "github.com/minio/minio-go/v7"
+	"github.com/minio/minio-go/v7/pkg/credentials"
 	apiextensionsv1 "k8s.io/apiextensions-apiserver/pkg/apis/apiextensions/v1"
 	"k8s.io/apiextensions-apiserver/pkg/client/clientset/clientset"
 	metav1 "k8s.io/apimachinery/pkg/apis/meta/v1"
+	"k8s.io/apimachinery/pkg/apis/meta/v1/unstructured"
 	"k8s.io/apimachinery/pkg/runtime"
 	"k8s.io/apimachinery/pkg/runtime/schema"
-
-	"k8s.io/apimachinery/pkg/apis/meta/v1/unstructured"
 	ctrl "sigs.k8s.io/controller-runtime"
 	"sigs.k8s.io/controller-runtime/pkg/client"
 
@@ -120,5 +123,67 @@ func (r *PromiseReconciler) SetupWithManager(mgr ctrl.Manager) error {
 
 func (r *dynamicController) Reconcile(ctx context.Context, req ctrl.Request) (ctrl.Result, error) {
 	fmt.Println("Dynamically Reconciling: " + req.Name)
+
+	unstructuredCRD := &unstructured.Unstructured{}
+	unstructuredCRD.SetGroupVersionKind(*r.gvk)
+
+	err := r.client.Get(ctx, req.NamespacedName, unstructuredCRD)
+	if err != nil {
+		fmt.Print("Failed getting Promise " + err.Error())
+		return ctrl.Result{}, nil
+	}
+
+	toPrint, _ := unstructuredCRD.MarshalJSON()
+	//todo - this minio object name should have GVK + namespace + resource name to be per-cluster unique
+	err = yamlUploader(req.Name+".yaml", toPrint)
+	if err != nil {
+		fmt.Print("Failed uploading to Minio" + err.Error())
+		return ctrl.Result{}, nil
+	}
+
 	return ctrl.Result{}, nil
+}
+
+func yamlUploader(objectName string, fluxYaml []byte) error {
+	ctx := context.Background()
+	endpoint := "minio.synpl-system.svc.cluster.local"
+	accessKeyID := "minioadmin"
+	secretAccessKey := "minioadmin"
+	useSSL := false
+
+	// Initialize minio client object.
+	minioClient, err := minio.New(endpoint, &minio.Options{
+		Creds:  credentials.NewStaticV4(accessKeyID, secretAccessKey, ""),
+		Secure: useSSL,
+	})
+	if err != nil {
+		log.Fatalln(err)
+	}
+
+	// Make a new bucket called mymusic.
+	bucketName := "snypl"
+	location := "local-minio"
+
+	err = minioClient.MakeBucket(ctx, bucketName, minio.MakeBucketOptions{Region: location})
+	if err != nil {
+		// Check to see if we already own this bucket (which happens if you run this twice)
+		exists, errBucketExists := minioClient.BucketExists(ctx, bucketName)
+		if errBucketExists == nil && exists {
+			log.Printf("We already own %s\n", bucketName)
+		} else {
+			log.Fatalln(err)
+		}
+	} else {
+		log.Printf("Successfully created %s\n", bucketName)
+	}
+
+	//objectName := "namespace.yaml"
+	contentType := "text/x-yaml"
+	reader := bytes.NewReader(fluxYaml)
+
+	_, err = minioClient.PutObject(ctx, bucketName, objectName, reader, -1, minio.PutObjectOptions{ContentType: contentType})
+	if err != nil {
+		log.Fatalln(err)
+	}
+	return err
 }
