@@ -26,12 +26,13 @@ import (
 	"k8s.io/apiextensions-apiserver/pkg/client/clientset/clientset"
 	metav1 "k8s.io/apimachinery/pkg/apis/meta/v1"
 	"k8s.io/apimachinery/pkg/runtime"
+	"k8s.io/apimachinery/pkg/runtime/schema"
 
+	"k8s.io/apimachinery/pkg/apis/meta/v1/unstructured"
 	ctrl "sigs.k8s.io/controller-runtime"
 	"sigs.k8s.io/controller-runtime/pkg/client"
 
 	"github.com/syntasso/synpl-platform/api/v1alpha1"
-	platformv1alpha1 "github.com/syntasso/synpl-platform/api/v1alpha1"
 )
 
 // PromiseReconciler reconciles a Promise object
@@ -40,6 +41,13 @@ type PromiseReconciler struct {
 	ApiextensionsClient *clientset.Clientset
 	Log                 logr.Logger
 	Scheme              *runtime.Scheme
+	Manager             ctrl.Manager
+}
+
+type dynamicController struct {
+	client client.Client
+	gvk    *schema.GroupVersionKind
+	scheme *runtime.Scheme
 }
 
 //+kubebuilder:rbac:groups=platform.synpl.syntasso.io,resources=promises,verbs=get;list;watch;create;update;patch;delete
@@ -78,8 +86,27 @@ func (r *PromiseReconciler) Reconcile(ctx context.Context, req ctrl.Request) (ct
 		Create(ctx, crdToCreate, metav1.CreateOptions{})
 	if err != nil {
 		r.Log.Error(err, "Failed creating CRD")
-		return ctrl.Result{}, nil
+		//todo test for existance and handle gracefully.
+		//return ctrl.Result{}, nil
 	}
+
+	gvk := schema.GroupVersionKind{
+		Group:   crdToCreate.Spec.Group,
+		Version: crdToCreate.Spec.Versions[0].Name,
+		Kind:    crdToCreate.Spec.Names.Kind,
+	}
+	unstructuredCRD := &unstructured.Unstructured{}
+	unstructuredCRD.SetGroupVersionKind(gvk)
+
+	dynamicController := &dynamicController{
+		client: r.Manager.GetClient(),
+		scheme: r.Manager.GetScheme(),
+		gvk:    &gvk,
+	}
+
+	ctrl.NewControllerManagedBy(r.Manager).
+		For(unstructuredCRD).
+		Complete(dynamicController)
 
 	return ctrl.Result{}, nil
 }
@@ -87,6 +114,11 @@ func (r *PromiseReconciler) Reconcile(ctx context.Context, req ctrl.Request) (ct
 // SetupWithManager sets up the controller with the Manager.
 func (r *PromiseReconciler) SetupWithManager(mgr ctrl.Manager) error {
 	return ctrl.NewControllerManagedBy(mgr).
-		For(&platformv1alpha1.Promise{}).
+		For(&v1alpha1.Promise{}).
 		Complete(r)
+}
+
+func (r *dynamicController) Reconcile(ctx context.Context, req ctrl.Request) (ctrl.Result, error) {
+	fmt.Println("Dynamically Reconciling: " + req.Name)
+	return ctrl.Result{}, nil
 }
