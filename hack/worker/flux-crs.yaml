@@ -1,0 +1,37 @@
+---
+apiVersion: source.toolkit.fluxcd.io/v1beta1
+kind: Bucket 
+metadata:
+  name: syntasso-workload 
+  namespace: flux-system
+spec:
+  interval: 10s
+  provider: generic
+  bucketName: snypl
+  endpoint: 172.18.0.2:31337
+  insecure: true
+  secretRef:
+    name: minio-credentials
+---
+apiVersion: v1
+kind: Secret
+metadata:
+  name: minio-credentials
+  namespace: flux-system
+type: Opaque
+data:
+  accesskey: bWluaW9hZG1pbg==
+  secretkey: bWluaW9hZG1pbg== 
+---
+apiVersion: kustomize.toolkit.fluxcd.io/v1beta1
+kind: Kustomization
+metadata:
+  name: syntasso-workload 
+  namespace: flux-system 
+spec:
+  interval: 5s
+  prune: true
+  sourceRef:
+    kind: Bucket 
+    name: syntasso-workload 
+  validation: client
