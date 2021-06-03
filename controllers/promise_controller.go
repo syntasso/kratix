@@ -27,6 +27,9 @@ import (
 	minio "github.com/minio/minio-go/v7"
 	"github.com/minio/minio-go/v7/pkg/credentials"
 	"gopkg.in/yaml.v3"
+	v1 "k8s.io/api/core/v1"
+	rbacv1 "k8s.io/api/rbac/v1"
+
 	apiextensionsv1 "k8s.io/apiextensions-apiserver/pkg/apis/apiextensions/v1"
 	"k8s.io/apiextensions-apiserver/pkg/client/clientset/clientset"
 	metav1 "k8s.io/apimachinery/pkg/apis/meta/v1"
@@ -99,6 +102,59 @@ func (r *PromiseReconciler) Reconcile(ctx context.Context, req ctrl.Request) (ct
 		Version: crdToCreate.Spec.Versions[0].Name,
 		Kind:    crdToCreate.Spec.Names.Kind,
 	}
+
+	cr := rbacv1.ClusterRole{
+		ObjectMeta: metav1.ObjectMeta{
+			Name: "redis-promise-reader",
+		},
+		Rules: []rbacv1.PolicyRule{
+			{
+				APIGroups: []string{gvk.Group},
+				Resources: []string{gvk.Kind},
+				Verbs:     []string{"get", "list", "update", "create", "patch"},
+			},
+		},
+	}
+	err = r.Client.Create(ctx, &cr)
+	if err != nil {
+		fmt.Println(err.Error())
+	}
+
+	crb := rbacv1.ClusterRoleBinding{
+		ObjectMeta: metav1.ObjectMeta{
+			Name: "redis-promise-reader-binding",
+		},
+		RoleRef: rbacv1.RoleRef{
+			Kind:     "ClusterRole",
+			APIGroup: "rbac.authorization.k8s.io",
+			Name:     cr.Name,
+		},
+		Subjects: []rbacv1.Subject{
+			{
+				Kind:      "ServiceAccount",
+				Namespace: "default",
+				Name:      "redis-promise-sa",
+			},
+		},
+	}
+	err = r.Client.Create(ctx, &crb)
+	if err != nil {
+		fmt.Println(err.Error())
+	}
+
+	fmt.Println("Creating SA")
+	sa := v1.ServiceAccount{
+		ObjectMeta: metav1.ObjectMeta{
+			Name:      "redis-promise-sa",
+			Namespace: "default",
+		},
+	}
+	err = r.Client.Create(ctx, &sa)
+	if err != nil {
+		fmt.Println(err.Error())
+	}
+	fmt.Println("Created SA")
+
 	unstructuredCRD := &unstructured.Unstructured{}
 	unstructuredCRD.SetGroupVersionKind(gvk)
 
