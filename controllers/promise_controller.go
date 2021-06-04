@@ -22,11 +22,11 @@ import (
 	"encoding/json"
 	"fmt"
 	"log"
+	"strings"
 
 	"github.com/go-logr/logr"
 	minio "github.com/minio/minio-go/v7"
 	"github.com/minio/minio-go/v7/pkg/credentials"
-	"gopkg.in/yaml.v3"
 	v1 "k8s.io/api/core/v1"
 	rbacv1 "k8s.io/api/rbac/v1"
 
@@ -56,6 +56,10 @@ type dynamicController struct {
 	gvk    *schema.GroupVersionKind
 	scheme *runtime.Scheme
 }
+
+const (
+	ServiceAccountName string = "redis-promise-sa"
+)
 
 //+kubebuilder:rbac:groups=platform.synpl.syntasso.io,resources=promises,verbs=get;list;watch;create;update;patch;delete
 //+kubebuilder:rbac:groups=platform.synpl.syntasso.io,resources=promises/status,verbs=get;update;patch
@@ -110,7 +114,7 @@ func (r *PromiseReconciler) Reconcile(ctx context.Context, req ctrl.Request) (ct
 		Rules: []rbacv1.PolicyRule{
 			{
 				APIGroups: []string{gvk.Group},
-				Resources: []string{gvk.Kind},
+				Resources: []string{strings.ToLower(gvk.Kind)},
 				Verbs:     []string{"get", "list", "update", "create", "patch"},
 			},
 		},
@@ -133,7 +137,7 @@ func (r *PromiseReconciler) Reconcile(ctx context.Context, req ctrl.Request) (ct
 			{
 				Kind:      "ServiceAccount",
 				Namespace: "default",
-				Name:      "redis-promise-sa",
+				Name:      ServiceAccountName,
 			},
 		},
 	}
@@ -145,7 +149,7 @@ func (r *PromiseReconciler) Reconcile(ctx context.Context, req ctrl.Request) (ct
 	fmt.Println("Creating SA")
 	sa := v1.ServiceAccount{
 		ObjectMeta: metav1.ObjectMeta{
-			Name:      "redis-promise-sa",
+			Name:      ServiceAccountName,
 			Namespace: "default",
 		},
 	}
@@ -190,13 +194,75 @@ func (r *dynamicController) Reconcile(ctx context.Context, req ctrl.Request) (ct
 		return ctrl.Result{}, nil
 	}
 
-	toPrint, _ := yaml.Marshal(unstructuredCRD.Object)
-	//todo - this minio object name should have GVK + namespace + resource name to be per-cluster unique
-	err = yamlUploader(req.Name+".yaml", toPrint)
-	if err != nil {
-		fmt.Print("Failed uploading to Minio" + err.Error())
-		return ctrl.Result{}, nil
+	//POD!! AHHHH
+	pod := v1.Pod{
+		ObjectMeta: metav1.ObjectMeta{
+			Name:      "pipeline",
+			Namespace: "default",
+		},
+		Spec: v1.PodSpec{
+			RestartPolicy:      v1.RestartPolicyOnFailure,
+			ServiceAccountName: ServiceAccountName,
+			Containers: []v1.Container{
+				{
+					Name:    "writer",
+					Image:   "bitnami/kubectl",
+					Command: []string{"sh", "-c", "kubectl apply -f /test/output.yaml && sleep 100000"},
+					VolumeMounts: []v1.VolumeMount{
+						{
+							MountPath: "/test",
+							Name:      "volume",
+						},
+					},
+				},
+			},
+			InitContainers: []v1.Container{
+				{
+					Name:    "reader",
+					Image:   "bitnami/kubectl",
+					Command: []string{"sh", "-c", "kubectl get redis.redis.redis.opstreelabs.in opstree-redis -oyaml > /test/object.yaml"},
+					VolumeMounts: []v1.VolumeMount{
+						{
+							MountPath: "/test",
+							Name:      "volume",
+						},
+					},
+				},
+				{
+					Name:    "kustomize",
+					Image:   "syntasso/kustomize-tester",
+					Command: []string{"sh", "-c", "cp /transfer/* /test/; kustomize build /test/ > /test/output.yaml"},
+					VolumeMounts: []v1.VolumeMount{
+						{
+							MountPath: "/test",
+							Name:      "volume",
+						},
+					},
+				},
+			},
+			Volumes: []v1.Volume{
+				{
+					Name: "volume",
+					VolumeSource: v1.VolumeSource{
+						EmptyDir: &v1.EmptyDirVolumeSource{},
+					},
+				},
+			},
+		},
 	}
+
+	err = r.client.Create(ctx, &pod)
+	if err != nil {
+		fmt.Println(err.Error())
+	}
+
+	// toPrint, _ := yaml.Marshal(unstructuredCRD.Object)
+	// //todo - this minio object name should have GVK + namespace + resource name to be per-cluster unique
+	// err = yamlUploader(req.Name+".yaml", toPrint)
+	// if err != nil {
+	// 	fmt.Print("Failed uploading to Minio" + err.Error())
+	// 	return ctrl.Result{}, nil
+	// }
 
 	return ctrl.Result{}, nil
 }
