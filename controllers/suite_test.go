@@ -24,7 +24,10 @@ import (
 
 	. "github.com/onsi/ginkgo"
 	. "github.com/onsi/gomega"
-	v1 "k8s.io/apimachinery/pkg/apis/meta/v1"
+	v1 "k8s.io/api/core/v1"
+	metav1 "k8s.io/apimachinery/pkg/apis/meta/v1"
+	"k8s.io/apimachinery/pkg/apis/meta/v1/unstructured"
+	"k8s.io/apimachinery/pkg/types"
 	"k8s.io/apimachinery/pkg/util/yaml"
 	"k8s.io/client-go/kubernetes/scheme"
 	"k8s.io/client-go/rest"
@@ -125,14 +128,44 @@ var _ = Context("Promise Reconciler", func() {
 					crd, _ := apiextensionClient.
 						ApiextensionsV1().
 						CustomResourceDefinitions().
-						Get(context.Background(), expectedAPI, v1.GetOptions{})
+						Get(context.Background(), expectedAPI, metav1.GetOptions{})
 
 					// The returned CRD is missing the expected metadata,
 					// therefore we need to reach inside of the spec to get the
 					// underlying Redis crd defintion to allow us to assert correctly.
 					return crd.Spec.Names.Singular + "." + crd.Spec.Group
 				}, timeout, interval).Should(Equal(expectedAPI))
+			})
+		})
+	})
 
+	Describe("Creating a Redis CR", func() {
+		Describe("Creates a valid pod spec for the transformation pipeline", func() {
+			It("Creates a pod spec", func() {
+				yamlFile, err := ioutil.ReadFile("../config/samples/redis-resource-request.yaml")
+				Expect(err).ToNot(HaveOccurred())
+
+				redisRequest := &unstructured.Unstructured{}
+				err = yaml.Unmarshal(yamlFile, redisRequest)
+				Expect(err).ToNot(HaveOccurred())
+
+				redisRequest.SetNamespace("default")
+				err = k8sClient.Create(context.Background(), redisRequest)
+				Expect(err).ToNot(HaveOccurred())
+
+				createdPod := v1.Pod{}
+				expectedName := types.NamespacedName{
+					Name:      "pipeline",
+					Namespace: "default",
+				}
+
+				Eventually(func() string {
+					err := k8sClient.Get(context.Background(), expectedName, &createdPod)
+					if err != nil {
+						return ""
+					}
+					return createdPod.Spec.Containers[0].Name
+				}).Should(Equal("writer"))
 			})
 		})
 	})
