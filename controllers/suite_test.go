@@ -21,7 +21,6 @@ import (
 	"io/ioutil"
 	"path/filepath"
 	"testing"
-	"time"
 
 	. "github.com/onsi/ginkgo"
 	. "github.com/onsi/gomega"
@@ -96,6 +95,7 @@ var _ = BeforeSuite(func() {
 	Expect(err).ToNot(HaveOccurred())
 
 	go func() {
+		defer GinkgoRecover()
 		err = k8sManager.Start(ctrl.SetupSignalHandler())
 		Expect(err).ToNot(HaveOccurred())
 	}()
@@ -106,23 +106,33 @@ var _ = Context("Promise Reconciler", func() {
 	Describe("Creating Redis Promise CR", func() {
 		Describe("Dynamic Redis CRD is applied from Redis Promise CR", func() {
 			It("Creates an API for redis.redis.redis", func() {
-				promiseCR := &platformv1alpha1.Promise{}
 
 				yamlFile, err := ioutil.ReadFile("../config/samples/redis-promise.yaml")
-
 				Expect(err).ToNot(HaveOccurred())
+
+				promiseCR := &platformv1alpha1.Promise{}
 				err = yaml.Unmarshal(yamlFile, promiseCR)
+				promiseCR.Namespace = "default"
 				Expect(err).ToNot(HaveOccurred())
 
-				promiseCR.Namespace = "default"
 				err = k8sClient.Create(context.Background(), promiseCR)
 				Expect(err).ToNot(HaveOccurred())
 
-				time.Sleep(4 * time.Second)
+				var expectedAPI = "redis.redis.redis.opstreelabs.in"
+				var timeout = "30s"
+				var interval = "3s"
+				Eventually(func() string {
+					crd, _ := apiextensionClient.
+						ApiextensionsV1().
+						CustomResourceDefinitions().
+						Get(context.Background(), expectedAPI, v1.GetOptions{})
 
-				redisCRD, err := apiextensionClient.ApiextensionsV1().CustomResourceDefinitions().Get(context.Background(), "redis.redis.redis.opstreelabs.in", v1.GetOptions{})
-				Expect(err).ToNot(HaveOccurred())
-				Expect(redisCRD).ToNot(BeNil())
+					// The returned CRD is missing the expected metadata,
+					// therefore we need to reach inside of the spec to get the
+					// underlying Redis crd defintion to allow us to assert correctly.
+					return crd.Spec.Names.Singular + "." + crd.Spec.Group
+				}, timeout, interval).Should(Equal(expectedAPI))
+
 			})
 		})
 	})
@@ -130,6 +140,5 @@ var _ = Context("Promise Reconciler", func() {
 
 var _ = AfterSuite(func() {
 	By("tearing down the test environment")
-	err := testEnv.Stop()
-	Expect(err).NotTo(HaveOccurred())
+	testEnv.Stop()
 })

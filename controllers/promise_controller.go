@@ -20,6 +20,8 @@ import (
 	"bytes"
 	"context"
 	"encoding/json"
+	"time"
+
 	"fmt"
 	"log"
 	"strings"
@@ -36,6 +38,7 @@ import (
 	"k8s.io/apimachinery/pkg/apis/meta/v1/unstructured"
 	"k8s.io/apimachinery/pkg/runtime"
 	"k8s.io/apimachinery/pkg/runtime/schema"
+
 	ctrl "sigs.k8s.io/controller-runtime"
 	"sigs.k8s.io/controller-runtime/pkg/client"
 
@@ -86,6 +89,7 @@ func (r *PromiseReconciler) Reconcile(ctx context.Context, req ctrl.Request) (ct
 	}
 
 	crdToCreate := &apiextensionsv1.CustomResourceDefinition{}
+
 	err = json.Unmarshal(promise.Spec.CRD.Raw, crdToCreate)
 	if err != nil {
 		r.Log.Error(err, "Failed unmarshalling CRD")
@@ -96,10 +100,11 @@ func (r *PromiseReconciler) Reconcile(ctx context.Context, req ctrl.Request) (ct
 		CustomResourceDefinitions().
 		Create(ctx, crdToCreate, metav1.CreateOptions{})
 	if err != nil {
-		r.Log.Error(err, "Failed creating CRD")
+		r.Log.Error(err, "CRD already exists. todo: handle this gracefully")
 		//todo test for existance and handle gracefully.
 		//return ctrl.Result{}, nil
 	}
+	time.Sleep(10 * time.Second)
 
 	gvk := schema.GroupVersionKind{
 		Group:   crdToCreate.Spec.Group,
@@ -168,6 +173,10 @@ func (r *PromiseReconciler) Reconcile(ctx context.Context, req ctrl.Request) (ct
 		gvk:    &gvk,
 	}
 
+	// We can only create the dynamicController once the creation of the Dynamic CRD has complete,
+	// else k8s has no gvk to attatch the controller to.
+
+	//Test that the CRD exists, if not then requeue
 	ctrl.NewControllerManagedBy(r.Manager).
 		For(unstructuredCRD).
 		Complete(dynamicController)
@@ -189,6 +198,7 @@ func (r *dynamicController) Reconcile(ctx context.Context, req ctrl.Request) (ct
 	unstructuredCRD.SetGroupVersionKind(*r.gvk)
 
 	err := r.client.Get(ctx, req.NamespacedName, unstructuredCRD)
+
 	if err != nil {
 		fmt.Print("Failed getting Promise " + err.Error())
 		return ctrl.Result{}, nil
