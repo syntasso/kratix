@@ -29,20 +29,18 @@ import (
 	"github.com/go-logr/logr"
 	minio "github.com/minio/minio-go/v7"
 	"github.com/minio/minio-go/v7/pkg/credentials"
+	"github.com/syntasso/synpl-platform/api/v1alpha1"
 	v1 "k8s.io/api/core/v1"
 	rbacv1 "k8s.io/api/rbac/v1"
-
 	apiextensionsv1 "k8s.io/apiextensions-apiserver/pkg/apis/apiextensions/v1"
 	"k8s.io/apiextensions-apiserver/pkg/client/clientset/clientset"
+	apierrors "k8s.io/apimachinery/pkg/api/errors"
 	metav1 "k8s.io/apimachinery/pkg/apis/meta/v1"
 	"k8s.io/apimachinery/pkg/apis/meta/v1/unstructured"
 	"k8s.io/apimachinery/pkg/runtime"
 	"k8s.io/apimachinery/pkg/runtime/schema"
-
 	ctrl "sigs.k8s.io/controller-runtime"
 	"sigs.k8s.io/controller-runtime/pkg/client"
-
-	"github.com/syntasso/synpl-platform/api/v1alpha1"
 )
 
 // PromiseReconciler reconciles a Promise object
@@ -104,7 +102,6 @@ func (r *PromiseReconciler) Reconcile(ctx context.Context, req ctrl.Request) (ct
 		//todo test for existance and handle gracefully.
 		//return ctrl.Result{}, nil
 	}
-	time.Sleep(10 * time.Second)
 
 	gvk := schema.GroupVersionKind{
 		Group:   crdToCreate.Spec.Group,
@@ -177,11 +174,28 @@ func (r *PromiseReconciler) Reconcile(ctx context.Context, req ctrl.Request) (ct
 	// else k8s has no gvk to attatch the controller to.
 
 	//Test that the CRD exists, if not then requeue
+	// crdToCreate.Spec.Versions[0].Name
+	if r.crdDoesNotExist("redis.redis.redis.opstreelabs.in") {
+		fmt.Println("REQUEUE")
+		return ctrl.Result{RequeueAfter: 5 * time.Second}, nil
+	}
+
+	fmt.Println("NOT REQUEUE")
 	ctrl.NewControllerManagedBy(r.Manager).
 		For(unstructuredCRD).
 		Complete(dynamicController)
 
 	return ctrl.Result{}, nil
+}
+
+func (r *PromiseReconciler) crdDoesNotExist(crdName string) bool {
+	_, err := r.ApiextensionsClient.
+		ApiextensionsV1().
+		CustomResourceDefinitions().
+		Get(context.Background(), crdName, metav1.GetOptions{})
+		//Check for any valid data in the retrieved CRD
+
+	return apierrors.IsNotFound(err)
 }
 
 // SetupWithManager sets up the controller with the Manager.
