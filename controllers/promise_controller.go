@@ -34,7 +34,6 @@ import (
 	rbacv1 "k8s.io/api/rbac/v1"
 	apiextensionsv1 "k8s.io/apiextensions-apiserver/pkg/apis/apiextensions/v1"
 	"k8s.io/apiextensions-apiserver/pkg/client/clientset/clientset"
-	apierrors "k8s.io/apimachinery/pkg/api/errors"
 	metav1 "k8s.io/apimachinery/pkg/apis/meta/v1"
 	"k8s.io/apimachinery/pkg/apis/meta/v1/unstructured"
 	"k8s.io/apimachinery/pkg/runtime"
@@ -172,15 +171,11 @@ func (r *PromiseReconciler) Reconcile(ctx context.Context, req ctrl.Request) (ct
 
 	// We can only create the dynamicController once the creation of the Dynamic CRD has complete,
 	// else k8s has no gvk to attatch the controller to.
-
-	//Test that the CRD exists, if not then requeue
-	// crdToCreate.Spec.Versions[0].Name
-	if r.crdDoesNotExist("redis.redis.redis.opstreelabs.in") {
+	if r.gvkDoesNotExist(gvk) {
 		fmt.Println("REQUEUE")
 		return ctrl.Result{RequeueAfter: 5 * time.Second}, nil
 	}
 
-	fmt.Println("NOT REQUEUE")
 	ctrl.NewControllerManagedBy(r.Manager).
 		For(unstructuredCRD).
 		Complete(dynamicController)
@@ -188,14 +183,9 @@ func (r *PromiseReconciler) Reconcile(ctx context.Context, req ctrl.Request) (ct
 	return ctrl.Result{}, nil
 }
 
-func (r *PromiseReconciler) crdDoesNotExist(crdName string) bool {
-	_, err := r.ApiextensionsClient.
-		ApiextensionsV1().
-		CustomResourceDefinitions().
-		Get(context.Background(), crdName, metav1.GetOptions{})
-		//Check for any valid data in the retrieved CRD
-
-	return apierrors.IsNotFound(err)
+func (r *PromiseReconciler) gvkDoesNotExist(gvk schema.GroupVersionKind) bool {
+	_, err := r.Manager.GetRESTMapper().RESTMapping(gvk.GroupKind(), gvk.Version)
+	return err != nil
 }
 
 // SetupWithManager sets up the controller with the Manager.
