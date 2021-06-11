@@ -18,6 +18,7 @@ package controllers
 
 import (
 	"context"
+	"fmt"
 	"io/ioutil"
 	"path/filepath"
 	"testing"
@@ -159,13 +160,16 @@ var _ = Context("Promise Reconciler", func() {
 					Namespace: "default",
 				}
 
+				var timeout = "30s"
+				var interval = "3s"
 				Eventually(func() string {
 					err := k8sClient.Get(context.Background(), expectedName, &createdPod)
 					if err != nil {
+						fmt.Println(err.Error())
 						return ""
 					}
 					return createdPod.Spec.Containers[0].Name
-				}).Should(Equal("writer"))
+				}, timeout, interval).Should(Equal("writer"))
 			})
 		})
 	})
