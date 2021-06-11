@@ -28,6 +28,7 @@ import (
 	v1 "k8s.io/api/core/v1"
 	metav1 "k8s.io/apimachinery/pkg/apis/meta/v1"
 	"k8s.io/apimachinery/pkg/apis/meta/v1/unstructured"
+	"k8s.io/apimachinery/pkg/runtime/schema"
 	"k8s.io/apimachinery/pkg/types"
 	"k8s.io/apimachinery/pkg/util/yaml"
 	"k8s.io/client-go/kubernetes/scheme"
@@ -170,6 +171,41 @@ var _ = Context("Promise Reconciler", func() {
 					}
 					return createdPod.Spec.Containers[0].Name
 				}, timeout, interval).Should(Equal("writer"))
+			})
+
+			// Test switched off
+			//
+			// This test needs to run against a k8s deployment that can run containers in order to execute the
+			// transfomation we're asserting.
+			//
+			// TODO: Enable this in https://www.pivotaltracker.com/story/show/178496362
+			XIt("Transforms the redis-resource-request", func() {
+				var timeout = "10s"
+				var interval = "3s"
+				Eventually(func() string {
+					gvk := schema.GroupVersionKind{
+						Group:   "redis.redis.opstreelabs.in",
+						Version: "v1beta1",
+						Kind:    "Redis",
+					}
+
+					redisRequest := &unstructured.Unstructured{}
+					redisRequest.SetGroupVersionKind(gvk)
+
+					expectedName := types.NamespacedName{
+						Name:      "opstree-redis",
+						Namespace: "default",
+					}
+
+					err := k8sClient.Get(context.Background(), expectedName, redisRequest)
+					if err != nil {
+						fmt.Println(err.Error())
+						return ""
+					}
+					fmt.Println(redisRequest)
+					annotations := redisRequest.Object["annotations"]
+					return fmt.Sprintf("%v", annotations)
+				}, timeout, interval).Should(Equal("syntasso: true"))
 			})
 		})
 	})
