@@ -63,6 +63,9 @@ build: generate fmt vet ## Build manager binary.
 run: manifests generate fmt vet ## Run a controller from your host.
 	go run ./main.go
 
+debug-run: manifests generate fmt vet ## Run a controller in debug mode from your host
+	dlv --listen=:2345 --headless=true --api-version=2 --accept-multiclient debug ./main.go
+
 docker-build: test ## Build docker image with the manager.
 	docker build -t ${IMG} .
 
