@@ -116,9 +116,67 @@ func (r *PromiseReconciler) Reconcile(ctx context.Context, req ctrl.Request) (ct
 		Kind:    crdToCreate.Spec.Names.Kind,
 	}
 
+	// We should only proceed once the new gvk has been created in the API server
+	if r.gvkDoesNotExist(gvk) {
+		fmt.Println("REQUEUE")
+		return ctrl.Result{RequeueAfter: 5 * time.Second}, nil
+	}
+
+	// CONTROLLER RBAC
 	cr := rbacv1.ClusterRole{
 		ObjectMeta: metav1.ObjectMeta{
-			Name: "redis-promise-reader",
+			Name: "redis-promise-controller",
+		},
+		Rules: []rbacv1.PolicyRule{
+			{
+				APIGroups: []string{gvk.Group},
+				Resources: []string{strings.ToLower(gvk.Kind)},
+				Verbs:     []string{"get", "list", "update", "create", "patch", "delete", "watch"},
+			},
+			{
+				APIGroups: []string{gvk.Group},
+				Resources: []string{strings.ToLower(gvk.Kind) + "/finalizers"},
+				Verbs:     []string{"update"},
+			},
+			{
+				APIGroups: []string{gvk.Group},
+				Resources: []string{strings.ToLower(gvk.Kind) + "/status"},
+				Verbs:     []string{"get", "update", "patch"},
+			},
+		},
+	}
+	err = r.Client.Create(ctx, &cr)
+	if err != nil {
+		fmt.Println(err.Error())
+	}
+
+	crb := rbacv1.ClusterRoleBinding{
+		ObjectMeta: metav1.ObjectMeta{
+			Name: "redis-promise-controller-binding",
+		},
+		RoleRef: rbacv1.RoleRef{
+			Kind:     "ClusterRole",
+			APIGroup: "rbac.authorization.k8s.io",
+			Name:     cr.Name,
+		},
+		Subjects: []rbacv1.Subject{
+			{
+				Kind:      "ServiceAccount",
+				Namespace: "synpl-platform-system",
+				Name:      "synpl-platform-controller-manager",
+			},
+		},
+	}
+	err = r.Client.Create(ctx, &crb)
+	if err != nil {
+		fmt.Println(err.Error())
+	}
+	// END CONTROLLER RBAC
+
+	// PIPELINE RBAC
+	cr = rbacv1.ClusterRole{
+		ObjectMeta: metav1.ObjectMeta{
+			Name: "redis-promise-pipeline-reader",
 		},
 		Rules: []rbacv1.PolicyRule{
 			{
@@ -133,9 +191,9 @@ func (r *PromiseReconciler) Reconcile(ctx context.Context, req ctrl.Request) (ct
 		fmt.Println(err.Error())
 	}
 
-	crb := rbacv1.ClusterRoleBinding{
+	crb = rbacv1.ClusterRoleBinding{
 		ObjectMeta: metav1.ObjectMeta{
-			Name: "redis-promise-reader-binding",
+			Name: "redis-promise-pipeline-reader-binding",
 		},
 		RoleRef: rbacv1.RoleRef{
 			Kind:     "ClusterRole",
@@ -167,6 +225,7 @@ func (r *PromiseReconciler) Reconcile(ctx context.Context, req ctrl.Request) (ct
 		fmt.Println(err.Error())
 	}
 	fmt.Println("Created SA")
+	// END PIPELINE RBAC
 
 	unstructuredCRD := &unstructured.Unstructured{}
 	unstructuredCRD.SetGroupVersionKind(gvk)
@@ -175,13 +234,6 @@ func (r *PromiseReconciler) Reconcile(ctx context.Context, req ctrl.Request) (ct
 		client: r.Manager.GetClient(),
 		scheme: r.Manager.GetScheme(),
 		gvk:    &gvk,
-	}
-
-	// We can only create the dynamicController once the creation of the Dynamic CRD has complete,
-	// else k8s has no gvk to attatch the controller to.
-	if r.gvkDoesNotExist(gvk) {
-		fmt.Println("REQUEUE")
-		return ctrl.Result{RequeueAfter: 5 * time.Second}, nil
 	}
 
 	ctrl.NewControllerManagedBy(r.Manager).
