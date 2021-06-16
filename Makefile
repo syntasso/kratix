@@ -52,6 +52,9 @@ vet: ## Run go vet against code.
 int-test: manifests generate fmt vet deploy ## Run integrations tests.
 	go test ./test/integration -coverprofile cover.out
 
+kind-load-image: docker-build ## Load locally built image into KinD
+	kind load docker-image ${IMG}
+
 ENVTEST_ASSETS_DIR=$(shell pwd)/testbin
 test: manifests generate fmt vet ## Run tests.
 	mkdir -p ${ENVTEST_ASSETS_DIR}
