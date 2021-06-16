@@ -105,7 +105,7 @@ func isRedisAPIResourcePresent() bool {
 }
 
 func applyRedisResourceRequest() {
-	yamlFile, err := ioutil.ReadFile("../../config/samples/redis-resource-request.yaml")
+	yamlFile, err := ioutil.ReadFile("../../config/samples/redis/redis-resource-request.yaml")
 	Expect(err).ToNot(HaveOccurred())
 
 	redisRequest := &unstructured.Unstructured{}
@@ -119,7 +119,7 @@ func applyRedisResourceRequest() {
 
 func applyRedisPromiseCRD() {
 	promiseCR := &platformv1alpha1.Promise{}
-	yamlFile, err := ioutil.ReadFile("../../config/samples/redis-promise.yaml")
+	yamlFile, err := ioutil.ReadFile("../../config/samples/redis/redis-promise.yaml")
 	Expect(err).NotTo(HaveOccurred())
 
 	err = yaml.Unmarshal(yamlFile, promiseCR)

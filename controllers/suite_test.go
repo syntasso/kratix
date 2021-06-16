@@ -112,7 +112,7 @@ var _ = Context("Promise Reconciler", func() {
 		Describe("Dynamic Redis CRD is applied from Redis Promise CR", func() {
 			It("Creates an API for redis.redis.redis", func() {
 
-				yamlFile, err := ioutil.ReadFile("../config/samples/redis-promise.yaml")
+				yamlFile, err := ioutil.ReadFile("../config/samples/redis/redis-promise.yaml")
 				Expect(err).ToNot(HaveOccurred())
 
 				promiseCR := &platformv1alpha1.Promise{}
@@ -144,7 +144,7 @@ var _ = Context("Promise Reconciler", func() {
 	Describe("Creating a Redis CR", func() {
 		Describe("Creates a valid pod spec for the transformation pipeline", func() {
 			It("Creates a pod spec", func() {
-				yamlFile, err := ioutil.ReadFile("../config/samples/redis-resource-request.yaml")
+				yamlFile, err := ioutil.ReadFile("../config/samples/redis/redis-resource-request.yaml")
 				Expect(err).ToNot(HaveOccurred())
 
 				redisRequest := &unstructured.Unstructured{}
