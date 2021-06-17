@@ -52,14 +52,11 @@ type PromiseReconciler struct {
 }
 
 type dynamicController struct {
-	client client.Client
-	gvk    *schema.GroupVersionKind
-	scheme *runtime.Scheme
+	client            client.Client
+	gvk               *schema.GroupVersionKind
+	scheme            *runtime.Scheme
+	promiseIdentifier string
 }
-
-const (
-	ServiceAccountName string = "redis-promise-sa"
-)
 
 //+kubebuilder:rbac:groups=platform.synpl.syntasso.io,resources=promises,verbs=get;list;watch;create;update;patch;delete
 //+kubebuilder:rbac:groups=platform.synpl.syntasso.io,resources=promises/status,verbs=get;update;patch
@@ -122,25 +119,37 @@ func (r *PromiseReconciler) Reconcile(ctx context.Context, req ctrl.Request) (ct
 		return ctrl.Result{RequeueAfter: 5 * time.Second}, nil
 	}
 
+	promiseIdentifier := promise.Name + "-" + promise.Namespace
+	/*
+	   promise identifier = x
+	   x={promise.meta-data.name}-{promise.metadata.namespace}
+	   redis-promise in default
+	   redis-promise-default-sa
+	   x-sa
+	   x-clusterrole
+	   x-clusterrolebinding
+	   x-pipelinepod-y
+	*/
+
 	// CONTROLLER RBAC
 	cr := rbacv1.ClusterRole{
 		ObjectMeta: metav1.ObjectMeta{
-			Name: "redis-promise-controller",
+			Name: promiseIdentifier + "-promise-controller",
 		},
 		Rules: []rbacv1.PolicyRule{
 			{
 				APIGroups: []string{gvk.Group},
-				Resources: []string{strings.ToLower(gvk.Kind)},
+				Resources: []string{crdToCreate.Spec.Names.Plural},
 				Verbs:     []string{"get", "list", "update", "create", "patch", "delete", "watch"},
 			},
 			{
 				APIGroups: []string{gvk.Group},
-				Resources: []string{strings.ToLower(gvk.Kind) + "/finalizers"},
+				Resources: []string{crdToCreate.Spec.Names.Plural + "/finalizers"},
 				Verbs:     []string{"update"},
 			},
 			{
 				APIGroups: []string{gvk.Group},
-				Resources: []string{strings.ToLower(gvk.Kind) + "/status"},
+				Resources: []string{crdToCreate.Spec.Names.Plural + "/status"},
 				Verbs:     []string{"get", "update", "patch"},
 			},
 		},
@@ -152,7 +161,7 @@ func (r *PromiseReconciler) Reconcile(ctx context.Context, req ctrl.Request) (ct
 
 	crb := rbacv1.ClusterRoleBinding{
 		ObjectMeta: metav1.ObjectMeta{
-			Name: "redis-promise-controller-binding",
+			Name: promiseIdentifier + "-promise-controller-binding",
 		},
 		RoleRef: rbacv1.RoleRef{
 			Kind:     "ClusterRole",
@@ -176,7 +185,7 @@ func (r *PromiseReconciler) Reconcile(ctx context.Context, req ctrl.Request) (ct
 	// PIPELINE RBAC
 	cr = rbacv1.ClusterRole{
 		ObjectMeta: metav1.ObjectMeta{
-			Name: "redis-promise-pipeline-reader",
+			Name: promiseIdentifier + "-promise-pipeline-reader",
 		},
 		Rules: []rbacv1.PolicyRule{
 			{
@@ -193,7 +202,7 @@ func (r *PromiseReconciler) Reconcile(ctx context.Context, req ctrl.Request) (ct
 
 	crb = rbacv1.ClusterRoleBinding{
 		ObjectMeta: metav1.ObjectMeta{
-			Name: "redis-promise-pipeline-reader-binding",
+			Name: promiseIdentifier + "-promise-pipeline-reader-binding",
 		},
 		RoleRef: rbacv1.RoleRef{
 			Kind:     "ClusterRole",
@@ -204,7 +213,7 @@ func (r *PromiseReconciler) Reconcile(ctx context.Context, req ctrl.Request) (ct
 			{
 				Kind:      "ServiceAccount",
 				Namespace: "default",
-				Name:      ServiceAccountName,
+				Name:      promiseIdentifier + "-sa",
 			},
 		},
 	}
@@ -216,7 +225,7 @@ func (r *PromiseReconciler) Reconcile(ctx context.Context, req ctrl.Request) (ct
 	fmt.Println("Creating SA")
 	sa := v1.ServiceAccount{
 		ObjectMeta: metav1.ObjectMeta{
-			Name:      ServiceAccountName,
+			Name:      promiseIdentifier + "-sa",
 			Namespace: "default",
 		},
 	}
@@ -231,9 +240,10 @@ func (r *PromiseReconciler) Reconcile(ctx context.Context, req ctrl.Request) (ct
 	unstructuredCRD.SetGroupVersionKind(gvk)
 
 	dynamicController := &dynamicController{
-		client: r.Manager.GetClient(),
-		scheme: r.Manager.GetScheme(),
-		gvk:    &gvk,
+		client:            r.Manager.GetClient(),
+		scheme:            r.Manager.GetScheme(),
+		gvk:               &gvk,
+		promiseIdentifier: promiseIdentifier,
 	}
 
 	ctrl.NewControllerManagedBy(r.Manager).
@@ -264,7 +274,7 @@ func (r *dynamicController) Reconcile(ctx context.Context, req ctrl.Request) (ct
 	err := r.client.Get(ctx, req.NamespacedName, unstructuredCRD)
 
 	if err != nil {
-		fmt.Print("Failed getting Promise " + err.Error())
+		fmt.Print("Failed getting Promise CRD " + err.Error())
 		return ctrl.Result{}, nil
 	}
 
@@ -276,7 +286,7 @@ func (r *dynamicController) Reconcile(ctx context.Context, req ctrl.Request) (ct
 		},
 		Spec: v1.PodSpec{
 			RestartPolicy:      v1.RestartPolicyOnFailure,
-			ServiceAccountName: ServiceAccountName,
+			ServiceAccountName: r.promiseIdentifier + "-sa",
 			Containers: []v1.Container{
 				{
 					Name:    "writer",

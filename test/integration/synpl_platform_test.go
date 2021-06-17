@@ -37,6 +37,25 @@ var (
 
 	interval = "3s"
 	timeout  = "35s"
+
+	redis_gvk = schema.GroupVersionKind{
+		Group:   "redis.redis.opstreelabs.in",
+		Version: "v1beta1",
+		Kind:    "Redis",
+	}
+
+	postgres_gvk = schema.GroupVersionKind{
+		Group:   "postgresql.dev4devs.com",
+		Version: "v1alpha1",
+		Kind:    "Database",
+	}
+)
+
+const (
+	REDIS_CRD         = "../../config/samples/redis/redis-promise.yaml"
+	REDIS_RESOURCE    = "../../config/samples/redis/redis-resource-request.yaml"
+	POSTGRES_CRD      = "../../config/samples/postgres/postgres-promise.yaml"
+	POSTGRES_RESOURCE = "../../config/samples/postgres/postgres-resource-request.yaml"
 )
 
 var _ = Describe("SynplPlatform Integration Test", func() {
@@ -50,42 +69,60 @@ var _ = Describe("SynplPlatform Integration Test", func() {
 		}, timeout, interval).Should(BeTrue())
 	})
 
-	It("Applying a Redis Promise CRD manifests a Redis api-resource", func() {
-		applyRedisPromiseCRD()
+	Context("Redis", func() {
+		It("Applying a Redis Promise CRD manifests a Redis api-resource", func() {
+			applyPromiseCRD(REDIS_CRD)
 
-		Eventually(func() bool {
-			return isRedisAPIResourcePresent()
-		}, timeout, interval).Should(BeTrue())
+			Eventually(func() bool {
+				return isAPIResourcePresent(redis_gvk)
+			}, timeout, interval).Should(BeTrue())
+		})
+
+		It("Applying Redis resource triggers the TransformationPipeline™", func() {
+			applyResourceRequest(REDIS_RESOURCE)
+
+			expectedName := types.NamespacedName{
+				Name:      "opstree-redis",
+				Namespace: "default",
+			}
+			Eventually(func() bool {
+				return isSyntassoAnnotationApplied(redis_gvk, expectedName)
+			}, timeout, interval).Should(BeTrue())
+		})
 	})
 
-	It("Applying Redis resource triggers the TransformationPipeline™", func() {
-		applyRedisResourceRequest()
+	Context("Postgres", func() {
+		It("Applying a Postgres Promise CRD manifests a Redis api-resource", func() {
+			applyPromiseCRD(POSTGRES_CRD)
 
-		Eventually(func() bool {
-			return isSyntassoAnnotationApplied()
-		}, timeout, interval).Should(BeTrue())
+			Eventually(func() bool {
+				return isAPIResourcePresent(postgres_gvk)
+			}, timeout, interval).Should(BeTrue())
+		})
+
+		It("Applying Postgres resource triggers the TransformationPipeline™", func() {
+			applyResourceRequest(POSTGRES_RESOURCE)
+
+			expectedName := types.NamespacedName{
+				Name:      "database",
+				Namespace: "default",
+			}
+			Eventually(func() bool {
+				return isSyntassoAnnotationApplied(postgres_gvk, expectedName)
+			}, timeout, interval).Should(BeTrue())
+		})
 	})
 })
 
 //TODO Refactor this lot into own function. We can reuse this logic in controllers/suite_test.go
-func isSyntassoAnnotationApplied() bool {
-	gvk := schema.GroupVersionKind{
-		Group:   "redis.redis.opstreelabs.in",
-		Version: "v1beta1",
-		Kind:    "Redis",
-	}
-	redisRequest := &unstructured.Unstructured{}
-	redisRequest.SetGroupVersionKind(gvk)
+func isSyntassoAnnotationApplied(gvk schema.GroupVersionKind, expectedName types.NamespacedName) bool {
+	resource := &unstructured.Unstructured{}
+	resource.SetGroupVersionKind(gvk)
 
-	expectedName := types.NamespacedName{
-		Name:      "opstree-redis",
-		Namespace: "default",
-	}
-
-	err := k8sClient.Get(context.Background(), expectedName, redisRequest)
+	err := k8sClient.Get(context.Background(), expectedName, resource)
 	Expect(err).ToNot(HaveOccurred())
 
-	annotations := redisRequest.GetAnnotations()
+	annotations := resource.GetAnnotations()
 
 	if val, ok := annotations["syntasso"]; ok {
 		return val == "true"
@@ -94,32 +131,27 @@ func isSyntassoAnnotationApplied() bool {
 	return false
 }
 
-func isRedisAPIResourcePresent() bool {
-	gvk := schema.GroupVersionKind{
-		Group:   "redis.redis.opstreelabs.in",
-		Version: "v1beta1",
-		Kind:    "Redis",
-	}
+func isAPIResourcePresent(gvk schema.GroupVersionKind) bool {
 	_, err := k8sClient.RESTMapper().RESTMapping(gvk.GroupKind(), gvk.Version)
 	return err == nil
 }
 
-func applyRedisResourceRequest() {
-	yamlFile, err := ioutil.ReadFile("../../config/samples/redis/redis-resource-request.yaml")
+func applyResourceRequest(filepath string) {
+	yamlFile, err := ioutil.ReadFile(filepath)
 	Expect(err).ToNot(HaveOccurred())
 
-	redisRequest := &unstructured.Unstructured{}
-	err = yaml.Unmarshal(yamlFile, redisRequest)
+	request := &unstructured.Unstructured{}
+	err = yaml.Unmarshal(yamlFile, request)
 	Expect(err).ToNot(HaveOccurred())
 
-	redisRequest.SetNamespace("default")
-	err = k8sClient.Create(context.Background(), redisRequest)
+	request.SetNamespace("default")
+	err = k8sClient.Create(context.Background(), request)
 	Expect(err).ToNot(HaveOccurred())
 }
 
-func applyRedisPromiseCRD() {
+func applyPromiseCRD(filepath string) {
 	promiseCR := &platformv1alpha1.Promise{}
-	yamlFile, err := ioutil.ReadFile("../../config/samples/redis/redis-promise.yaml")
+	yamlFile, err := ioutil.ReadFile(filepath)
 	Expect(err).NotTo(HaveOccurred())
 
 	err = yaml.Unmarshal(yamlFile, promiseCR)
