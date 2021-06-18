@@ -43,6 +43,9 @@ type PromiseSpec struct {
 	// +kubebuilder:pruning:PreserveUnknownFields
 	// +kubebuilder:validation:EmbeddedResource
 	CRD runtime.RawExtension `json:"crd,omitempty"`
+
+	// Array of Image tags to transform from input request custom resource to output resource(s)
+	RequestPipeline []string `json:"requestPipeline,omitempty"`
 }
 
 // PromiseStatus defines the observed state of Promise

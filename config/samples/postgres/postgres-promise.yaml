@@ -4,6 +4,8 @@ kind: Promise
 metadata:
   name: postgres-promise
 spec:
+  requestPipeline:
+    - syntasso/kustomize-postgres
   crd:
     apiVersion: apiextensions.k8s.io/v1
     kind: CustomResourceDefinition

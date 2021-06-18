@@ -41,6 +41,12 @@ spec:
                 type: object
                 x-kubernetes-embedded-resource: true
                 x-kubernetes-preserve-unknown-fields: true
+              requestPipeline:
+                description: Array of Image tags to transform from input request custom
+                  resource to output resource(s)
+                items:
+                  type: string
+                type: array
             type: object
           status:
             description: PromiseStatus defines the observed state of Promise

@@ -143,7 +143,7 @@ var _ = Context("Promise Reconciler", func() {
 
 	Describe("Creating a Redis CR", func() {
 		Describe("Creates a valid pod spec for the transformation pipeline", func() {
-			It("Creates a pod spec", func() {
+			PIt("Creates a pod spec", func() {
 				yamlFile, err := ioutil.ReadFile("../config/samples/redis/redis-resource-request.yaml")
 				Expect(err).ToNot(HaveOccurred())
 

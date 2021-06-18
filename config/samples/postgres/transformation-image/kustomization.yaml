@@ -1,0 +1,4 @@
+bases:
+  - object.yaml
+patches:
+  - patch.yaml
