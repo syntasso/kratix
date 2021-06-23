@@ -57,6 +57,32 @@ rules:
   - patch
   - update
 - apiGroups:
+  - platform.synpl.syntasso.io
+  resources:
+  - works
+  verbs:
+  - create
+  - delete
+  - get
+  - list
+  - patch
+  - update
+  - watch
+- apiGroups:
+  - platform.synpl.syntasso.io
+  resources:
+  - works/finalizers
+  verbs:
+  - update
+- apiGroups:
+  - platform.synpl.syntasso.io
+  resources:
+  - works/status
+  verbs:
+  - get
+  - patch
+  - update
+- apiGroups:
   - rbac.authorization.k8s.io
   resources:
   - clusterrolebindings

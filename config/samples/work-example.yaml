@@ -1,0 +1,27 @@
+apiVersion: platform.synpl.syntasso.io/v1alpha1
+kind: Work
+metadata:
+  name: work-sample
+spec:
+  workload:
+    manifests: 
+      - apiVersion: apps/v1
+        kind: Deployment
+        metadata:
+          name: deploy
+        spec:
+          template:
+            spec:
+              containers:
+              - name: nginx
+                image: nginx:latest 
+      - apiVersion: apps/v1
+        kind: Deployment
+        metadata:
+          name: deploy2
+        spec:
+          template:
+            spec:
+              containers:
+              - name: nginx
+                image: nginx:latest 

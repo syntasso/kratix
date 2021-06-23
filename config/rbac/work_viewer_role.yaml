@@ -1,0 +1,20 @@
+# permissions for end users to view works.
+apiVersion: rbac.authorization.k8s.io/v1
+kind: ClusterRole
+metadata:
+  name: work-viewer-role
+rules:
+- apiGroups:
+  - platform.synpl.syntasso.io
+  resources:
+  - works
+  verbs:
+  - get
+  - list
+  - watch
+- apiGroups:
+  - platform.synpl.syntasso.io
+  resources:
+  - works/status
+  verbs:
+  - get

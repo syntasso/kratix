@@ -91,7 +91,6 @@ func (r *PromiseReconciler) Reconcile(ctx context.Context, req ctrl.Request) (ct
 		fmt.Println(err.Error())
 		return ctrl.Result{}, nil
 	}
-
 	crdToCreate := &apiextensionsv1.CustomResourceDefinition{}
 
 	err = json.Unmarshal(promise.Spec.CRD.Raw, crdToCreate)
