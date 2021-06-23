@@ -18,6 +18,7 @@ package controllers
 
 import (
 	"context"
+	"fmt"
 
 	"github.com/go-logr/logr"
 	"k8s.io/apimachinery/pkg/runtime"
@@ -50,7 +51,23 @@ type WorkReconciler struct {
 func (r *WorkReconciler) Reconcile(ctx context.Context, req ctrl.Request) (ctrl.Result, error) {
 	_ = r.Log.WithValues("work", req.NamespacedName)
 
-	// your logic here
+	fmt.Println("Reconciling Works")
+
+	work := &platformv1alpha1.Work{}
+	err := r.Client.Get(context.Background(), req.NamespacedName, work)
+	if err != nil {
+		fmt.Println(err.Error())
+	}
+
+	fmt.Println("Setting Work labels")
+	labels := map[string]string{}
+	labels["cluster"] = "worker"
+	work.SetLabels(labels)
+
+	err = r.Client.Update(context.Background(), work)
+	if err != nil {
+		fmt.Println(err.Error())
+	}
 
 	return ctrl.Result{}, nil
 }

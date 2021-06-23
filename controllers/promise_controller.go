@@ -108,14 +108,14 @@ func (r *PromiseReconciler) Reconcile(ctx context.Context, req ctrl.Request) (ct
 		//return ctrl.Result{}, nil
 	}
 
-	promisedGvk := schema.GroupVersionKind{
+	crdToCreateGvk := schema.GroupVersionKind{
 		Group:   crdToCreate.Spec.Group,
 		Version: crdToCreate.Spec.Versions[0].Name,
 		Kind:    crdToCreate.Spec.Names.Kind,
 	}
 
 	// We should only proceed once the new gvk has been created in the API server
-	if r.gvkDoesNotExist(promisedGvk) {
+	if r.gvkDoesNotExist(crdToCreateGvk) {
 		fmt.Println("REQUEUE")
 		return ctrl.Result{RequeueAfter: 5 * time.Second}, nil
 	}
@@ -129,17 +129,17 @@ func (r *PromiseReconciler) Reconcile(ctx context.Context, req ctrl.Request) (ct
 		},
 		Rules: []rbacv1.PolicyRule{
 			{
-				APIGroups: []string{promisedGvk.Group},
+				APIGroups: []string{crdToCreateGvk.Group},
 				Resources: []string{crdToCreate.Spec.Names.Plural},
 				Verbs:     []string{"get", "list", "update", "create", "patch", "delete", "watch"},
 			},
 			{
-				APIGroups: []string{promisedGvk.Group},
+				APIGroups: []string{crdToCreateGvk.Group},
 				Resources: []string{crdToCreate.Spec.Names.Plural + "/finalizers"},
 				Verbs:     []string{"update"},
 			},
 			{
-				APIGroups: []string{promisedGvk.Group},
+				APIGroups: []string{crdToCreateGvk.Group},
 				Resources: []string{crdToCreate.Spec.Names.Plural + "/status"},
 				Verbs:     []string{"get", "update", "patch"},
 			},
@@ -181,7 +181,7 @@ func (r *PromiseReconciler) Reconcile(ctx context.Context, req ctrl.Request) (ct
 		},
 		Rules: []rbacv1.PolicyRule{
 			{
-				APIGroups: []string{promisedGvk.Group},
+				APIGroups: []string{crdToCreateGvk.Group},
 				Resources: []string{crdToCreate.Spec.Names.Plural},
 				Verbs:     []string{"get", "list", "update", "create", "patch"},
 			},
@@ -234,12 +234,12 @@ func (r *PromiseReconciler) Reconcile(ctx context.Context, req ctrl.Request) (ct
 	// END PIPELINE RBAC
 
 	unstructuredCRD := &unstructured.Unstructured{}
-	unstructuredCRD.SetGroupVersionKind(promisedGvk)
+	unstructuredCRD.SetGroupVersionKind(crdToCreateGvk)
 
 	dynamicController := &dynamicController{
 		client:            r.Manager.GetClient(),
 		scheme:            r.Manager.GetScheme(),
-		gvk:               &promisedGvk,
+		gvk:               &crdToCreateGvk,
 		promiseIdentifier: promiseIdentifier,
 		requestPipeline:   promise.Spec.RequestPipeline,
 	}

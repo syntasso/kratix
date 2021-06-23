@@ -12,7 +12,7 @@ import (
 	"k8s.io/apimachinery/pkg/util/yaml"
 
 	v1 "k8s.io/api/core/v1"
-
+	metav1 "k8s.io/apimachinery/pkg/apis/meta/v1"
 	"k8s.io/apimachinery/pkg/apis/meta/v1/unstructured"
 
 	"k8s.io/apimachinery/pkg/labels"
@@ -32,6 +32,9 @@ import (
  ensure that `deploy` is executed
  3. `export IMG=syntasso/synpl-platform:dev make kind-load-image`
  4. `make int-test`
+
+ Cleanup:
+ k delete databases.postgresql.dev4devs.com database && k delete crd databases.postgresql.dev4devs.com && k delete promises.platform.synpl.syntasso.io postgres-promise
 */
 var (
 	k8sClient client.Client
@@ -77,7 +80,7 @@ var _ = Describe("SynplPlatform Integration Test", func() {
 		}, timeout, interval).Should(BeTrue())
 	})
 
-	Context("Redis", func() {
+	XContext("Redis", func() {
 		It("Applying a Redis Promise CRD manifests a Redis api-resource", func() {
 			applyPromiseCRD(REDIS_CRD)
 
@@ -108,16 +111,32 @@ var _ = Describe("SynplPlatform Integration Test", func() {
 			}, timeout, interval).Should(BeTrue())
 		})
 
-		It("Applying Postgres resource triggers the TransformationPipeline™", func() {
-			applyResourceRequest(POSTGRES_RESOURCE)
+		Describe("Applying Postgres resource triggers the TransformationPipeline™", func() {
+			It("Should have created a Work resource", func() {
+				applyResourceRequest(POSTGRES_RESOURCE)
+				expectedName := types.NamespacedName{
+					Name:      "work-sample",
+					Namespace: "default",
+				}
+				Eventually(func() bool {
+					return hasResourceBeenApplied(work_gvk, expectedName)
+				}, timeout, interval).Should(BeTrue())
+			})
 
-			expectedName := types.NamespacedName{
-				Name:      "work-sample",
-				Namespace: "default",
-			}
-			Eventually(func() bool {
-				return hasResourceBeenApplied(work_gvk, expectedName)
-			}, timeout, interval).Should(BeTrue())
+			It("should label the created Work resource with a target workload cluster", func() {
+				Eventually(func() bool {
+					expectedName := types.NamespacedName{
+						Name:      "work-sample",
+						Namespace: "default",
+					}
+
+					work := &platformv1alpha1.Work{}
+					err := k8sClient.Get(context.Background(), expectedName, work)
+					Expect(err).ToNot(HaveOccurred())
+
+					return metav1.HasLabel(work.ObjectMeta, "cluster")
+				}, timeout, interval).Should(BeTrue())
+			})
 		})
 	})
 })
