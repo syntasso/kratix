@@ -23,14 +23,16 @@ import (
 )
 
 /*
-* Run these tests using `make int-test` to ensure that the correct resources are applied
-* to the k8s cluster under test.
-*
-* Assumptions:
-* 1. A 'clean' k8s cluster
-* 2. `make deploy` has been run. Note: `make int-test` will
-* ensure that `deploy` is executed
- */
+ Run these tests using `make int-test` to ensure that the correct resources are applied
+ to the k8s cluster under test.
+
+ Assumptions:
+ 1. A 'clean' k8s cluster
+ 2. `make deploy` has been run. Note: `make int-test` will
+ ensure that `deploy` is executed
+ 3. `export IMG=syntasso/synpl-platform:dev make kind-load-image`
+ 4. `make int-test`
+*/
 var (
 	k8sClient client.Client
 	err       error
@@ -48,6 +50,12 @@ var (
 		Group:   "postgresql.dev4devs.com",
 		Version: "v1alpha1",
 		Kind:    "Database",
+	}
+
+	work_gvk = schema.GroupVersionKind{
+		Group:   "platform.synpl.syntasso.io",
+		Version: "v1alpha1",
+		Kind:    "Work",
 	}
 )
 
@@ -86,13 +94,13 @@ var _ = Describe("SynplPlatform Integration Test", func() {
 				Namespace: "default",
 			}
 			Eventually(func() bool {
-				return isSyntassoAnnotationApplied(redis_gvk, expectedName)
+				return hasResourceBeenApplied(redis_gvk, expectedName)
 			}, timeout, interval).Should(BeTrue())
 		})
 	})
 
 	Context("Postgres", func() {
-		It("Applying a Postgres Promise CRD manifests a Redis api-resource", func() {
+		It("Applying a Postgres Promise CRD manifests a Postgres api-resource", func() {
 			applyPromiseCRD(POSTGRES_CRD)
 
 			Eventually(func() bool {
@@ -104,31 +112,23 @@ var _ = Describe("SynplPlatform Integration Test", func() {
 			applyResourceRequest(POSTGRES_RESOURCE)
 
 			expectedName := types.NamespacedName{
-				Name:      "database",
+				Name:      "work-sample",
 				Namespace: "default",
 			}
 			Eventually(func() bool {
-				return isSyntassoAnnotationApplied(postgres_gvk, expectedName)
+				return hasResourceBeenApplied(work_gvk, expectedName)
 			}, timeout, interval).Should(BeTrue())
 		})
 	})
 })
 
 //TODO Refactor this lot into own function. We can reuse this logic in controllers/suite_test.go
-func isSyntassoAnnotationApplied(gvk schema.GroupVersionKind, expectedName types.NamespacedName) bool {
+func hasResourceBeenApplied(gvk schema.GroupVersionKind, expectedName types.NamespacedName) bool {
 	resource := &unstructured.Unstructured{}
 	resource.SetGroupVersionKind(gvk)
 
 	err := k8sClient.Get(context.Background(), expectedName, resource)
-	Expect(err).ToNot(HaveOccurred())
-
-	annotations := resource.GetAnnotations()
-
-	if val, ok := annotations["syntasso"]; ok {
-		return val == "true"
-	}
-
-	return false
+	return err == nil
 }
 
 func isAPIResourcePresent(gvk schema.GroupVersionKind) bool {

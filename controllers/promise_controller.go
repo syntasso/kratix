@@ -108,29 +108,19 @@ func (r *PromiseReconciler) Reconcile(ctx context.Context, req ctrl.Request) (ct
 		//return ctrl.Result{}, nil
 	}
 
-	gvk := schema.GroupVersionKind{
+	promisedGvk := schema.GroupVersionKind{
 		Group:   crdToCreate.Spec.Group,
 		Version: crdToCreate.Spec.Versions[0].Name,
 		Kind:    crdToCreate.Spec.Names.Kind,
 	}
 
 	// We should only proceed once the new gvk has been created in the API server
-	if r.gvkDoesNotExist(gvk) {
+	if r.gvkDoesNotExist(promisedGvk) {
 		fmt.Println("REQUEUE")
 		return ctrl.Result{RequeueAfter: 5 * time.Second}, nil
 	}
 
 	promiseIdentifier := promise.Name + "-" + promise.Namespace
-	/*
-	   promise identifier = x
-	   x={promise.meta-data.name}-{promise.metadata.namespace}
-	   redis-promise in default
-	   redis-promise-default-sa
-	   x-sa
-	   x-clusterrole
-	   x-clusterrolebinding
-	   x-pipelinepod-y
-	*/
 
 	// CONTROLLER RBAC
 	cr := rbacv1.ClusterRole{
@@ -139,17 +129,17 @@ func (r *PromiseReconciler) Reconcile(ctx context.Context, req ctrl.Request) (ct
 		},
 		Rules: []rbacv1.PolicyRule{
 			{
-				APIGroups: []string{gvk.Group},
+				APIGroups: []string{promisedGvk.Group},
 				Resources: []string{crdToCreate.Spec.Names.Plural},
 				Verbs:     []string{"get", "list", "update", "create", "patch", "delete", "watch"},
 			},
 			{
-				APIGroups: []string{gvk.Group},
+				APIGroups: []string{promisedGvk.Group},
 				Resources: []string{crdToCreate.Spec.Names.Plural + "/finalizers"},
 				Verbs:     []string{"update"},
 			},
 			{
-				APIGroups: []string{gvk.Group},
+				APIGroups: []string{promisedGvk.Group},
 				Resources: []string{crdToCreate.Spec.Names.Plural + "/status"},
 				Verbs:     []string{"get", "update", "patch"},
 			},
@@ -184,15 +174,21 @@ func (r *PromiseReconciler) Reconcile(ctx context.Context, req ctrl.Request) (ct
 	// END CONTROLLER RBAC
 
 	// PIPELINE RBAC
+
 	cr = rbacv1.ClusterRole{
 		ObjectMeta: metav1.ObjectMeta{
-			Name: promiseIdentifier + "-promise-pipeline-reader",
+			Name: promiseIdentifier + "-promise-pipeline",
 		},
 		Rules: []rbacv1.PolicyRule{
 			{
-				APIGroups: []string{gvk.Group},
+				APIGroups: []string{promisedGvk.Group},
 				Resources: []string{crdToCreate.Spec.Names.Plural},
 				Verbs:     []string{"get", "list", "update", "create", "patch"},
+			},
+			{
+				APIGroups: []string{"platform.synpl.syntasso.io"},
+				Resources: []string{"works"},
+				Verbs:     []string{"get", "update", "create", "patch"},
 			},
 		},
 	}
@@ -203,7 +199,7 @@ func (r *PromiseReconciler) Reconcile(ctx context.Context, req ctrl.Request) (ct
 
 	crb = rbacv1.ClusterRoleBinding{
 		ObjectMeta: metav1.ObjectMeta{
-			Name: promiseIdentifier + "-promise-pipeline-reader-binding",
+			Name: promiseIdentifier + "-promise-pipeline-binding",
 		},
 		RoleRef: rbacv1.RoleRef{
 			Kind:     "ClusterRole",
@@ -238,12 +234,12 @@ func (r *PromiseReconciler) Reconcile(ctx context.Context, req ctrl.Request) (ct
 	// END PIPELINE RBAC
 
 	unstructuredCRD := &unstructured.Unstructured{}
-	unstructuredCRD.SetGroupVersionKind(gvk)
+	unstructuredCRD.SetGroupVersionKind(promisedGvk)
 
 	dynamicController := &dynamicController{
 		client:            r.Manager.GetClient(),
 		scheme:            r.Manager.GetScheme(),
-		gvk:               &gvk,
+		gvk:               &promisedGvk,
 		promiseIdentifier: promiseIdentifier,
 		requestPipeline:   promise.Spec.RequestPipeline,
 	}
@@ -294,8 +290,8 @@ func (r *dynamicController) Reconcile(ctx context.Context, req ctrl.Request) (ct
 			Containers: []v1.Container{
 				{
 					Name:    "writer",
-					Image:   "bitnami/kubectl",
-					Command: []string{"sh", "-c", "kubectl apply -f /input/"},
+					Image:   "syntasso/test-work-writer",
+					Command: []string{"sh", "-c", "kubectl apply -f /output/; sleep 10000"},
 					VolumeMounts: []v1.VolumeMount{
 						{
 							MountPath: "/input",
