@@ -13,4 +13,4 @@ kind: Kustomization
 images:
 - name: controller
   newName: syntasso/synpl-platform
-  newTag: latest
+  newTag: dev

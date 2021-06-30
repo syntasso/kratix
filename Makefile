@@ -1,6 +1,6 @@
 
 # Image URL to use all building/pushing image targets
-IMG ?= syntasso/synpl-platform:latest
+IMG ?= syntasso/synpl-platform:dev
 # Produce CRDs that work back to Kubernetes 1.11 (no version conversion)
 CRD_OPTIONS ?= "crd:trivialVersions=true,preserveUnknownFields=false"
 
