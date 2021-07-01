@@ -2,21 +2,26 @@ package integration_test
 
 import (
 	"context"
+	"io"
 	"io/ioutil"
 
+	"github.com/minio/minio-go/v7"
+	"github.com/minio/minio-go/v7/pkg/credentials"
 	. "github.com/onsi/ginkgo"
 	. "github.com/onsi/gomega"
 	platformv1alpha1 "github.com/syntasso/synpl-platform/api/v1alpha1"
+
+	v1 "k8s.io/api/core/v1"
 	"k8s.io/apimachinery/pkg/runtime/schema"
 	"k8s.io/apimachinery/pkg/types"
 	"k8s.io/apimachinery/pkg/util/yaml"
 
-	v1 "k8s.io/api/core/v1"
 	metav1 "k8s.io/apimachinery/pkg/apis/meta/v1"
 	"k8s.io/apimachinery/pkg/apis/meta/v1/unstructured"
 
 	"k8s.io/apimachinery/pkg/labels"
 	"k8s.io/apimachinery/pkg/selection"
+
 	"k8s.io/client-go/kubernetes/scheme"
 	ctrl "sigs.k8s.io/controller-runtime"
 	"sigs.k8s.io/controller-runtime/pkg/client"
@@ -34,14 +39,14 @@ import (
  4. `make int-test`
 
  Cleanup:
- k delete databases.postgresql.dev4devs.com database && k delete crd databases.postgresql.dev4devs.com && k delete promises.platform.synpl.syntasso.io postgres-promise
+ k delete databases.postgresql.dev4devs.com database && k delete crd databases.postgresql.dev4devs.com && k delete promises.platform.synpl.syntasso.io postgres-promise && k delete works.platform.synpl.syntasso.io work-sample
 */
 var (
 	k8sClient client.Client
 	err       error
 
 	interval = "3s"
-	timeout  = "35s"
+	timeout  = "120s"
 
 	redis_gvk = schema.GroupVersionKind{
 		Group:   "redis.redis.opstreelabs.in",
@@ -102,7 +107,7 @@ var _ = Describe("SynplPlatform Integration Test", func() {
 		})
 	})
 
-	Context("Postgres", func() {
+	FContext("Postgres", func() {
 		It("Applying a Postgres Promise CRD manifests a Postgres api-resource", func() {
 			applyPromiseCRD(POSTGRES_CRD)
 
@@ -124,6 +129,7 @@ var _ = Describe("SynplPlatform Integration Test", func() {
 			})
 
 			It("should label the created Work resource with a target workload cluster", func() {
+				//applyResourceRequest(POSTGRES_RESOURCE)
 				Eventually(func() bool {
 					expectedName := types.NamespacedName{
 						Name:      "work-sample",
@@ -137,9 +143,80 @@ var _ = Describe("SynplPlatform Integration Test", func() {
 					return metav1.HasLabel(work.ObjectMeta, "cluster")
 				}, timeout, interval).Should(BeTrue())
 			})
+
+			It("should write a Postgres resource to Minio", func() {
+				// applyPromiseCRD(POSTGRES_CRD)
+				// applyResourceRequest(POSTGRES_RESOURCE)
+				Eventually(func() bool {
+					workloadNamespacedName := types.NamespacedName{
+						Name:      "work-sample",
+						Namespace: "default",
+					}
+
+					//Read from Minio
+					//Assert that the Postgres resource is present
+					resourceName := "database"
+					resourceKind := "Database"
+
+					return minioHasWorkloadWithResourceWithNameAndKind(workloadNamespacedName, resourceName, resourceKind)
+				}, timeout, interval).Should(BeTrue())
+			})
 		})
 	})
 })
+
+func minioHasWorkloadWithResourceWithNameAndKind(workloadNamespacedName types.NamespacedName, resourceName string, resourceKind string) bool {
+
+	// endpoint := "minio.synpl-system.svc.cluster.local"
+	endpoint := "172.18.0.2:31337"
+	accessKeyID := "minioadmin"
+	secretAccessKey := "minioadmin"
+	useSSL := false
+
+	// Initialize minio client object.
+	minioClient, err := minio.New(endpoint, &minio.Options{
+		Creds:  credentials.NewStaticV4(accessKeyID, secretAccessKey, ""),
+		Secure: useSSL,
+	})
+	Expect(err).ToNot(HaveOccurred())
+
+	bucketName := "synpl"
+	// unique file name := "{workload metadata.name}-{workload metadata.namespace}"
+	objectName := workloadNamespacedName.Namespace + "-" + workloadNamespacedName.Name + ".yaml"
+
+	minioObject, err := minioClient.GetObject(context.Background(), bucketName, objectName, minio.GetObjectOptions{})
+	Expect(err).ToNot(HaveOccurred())
+
+	decoder := yaml.NewYAMLOrJSONDecoder(minioObject, 2048)
+
+	ul := []unstructured.Unstructured{}
+	for {
+		us := unstructured.Unstructured{}
+		err = decoder.Decode(&us)
+		if err == io.EOF {
+			//We reached the end of the file, move on to looking for the resource
+			break
+		} else if err != nil {
+			/* There has been an error reading from Minio. It's likely that the
+			   document has not been created in Minio yet, therefore we return
+			   control to the ginkgo.Eventually to re-execute the assertions */
+			return false
+		} else {
+			//append the first resource to the resource slice, and go back through the loop
+			ul = append(ul, us)
+		}
+	}
+
+	for _, us := range ul {
+		if us.GetKind() == resourceKind && us.GetName() == resourceName {
+			//Hooray! we found the resource we're looking for!
+			return true
+		}
+	}
+
+	//We cannot find the resource and kind we are looking for
+	return false
+}
 
 //TODO Refactor this lot into own function. We can reuse this logic in controllers/suite_test.go
 func hasResourceBeenApplied(gvk schema.GroupVersionKind, expectedName types.NamespacedName) bool {

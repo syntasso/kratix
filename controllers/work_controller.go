@@ -56,7 +56,7 @@ func (r *WorkReconciler) Reconcile(ctx context.Context, req ctrl.Request) (ctrl.
 	work := &platformv1alpha1.Work{}
 	err := r.Client.Get(context.Background(), req.NamespacedName, work)
 	if err != nil {
-		fmt.Println(err.Error())
+		fmt.Println("Get Error " + err.Error())
 	}
 
 	fmt.Println("Setting Work labels")
@@ -66,7 +66,8 @@ func (r *WorkReconciler) Reconcile(ctx context.Context, req ctrl.Request) (ctrl.
 
 	err = r.Client.Update(context.Background(), work)
 	if err != nil {
-		fmt.Println(err.Error())
+		fmt.Println("Update Error " + err.Error())
+		return ctrl.Result{Requeue: false}, err
 	}
 
 	return ctrl.Result{}, nil

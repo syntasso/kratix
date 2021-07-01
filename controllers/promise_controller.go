@@ -17,18 +17,14 @@ limitations under the License.
 package controllers
 
 import (
-	"bytes"
 	"context"
 	"encoding/json"
 	"time"
 
 	"fmt"
-	"log"
 	"strings"
 
 	"github.com/go-logr/logr"
-	minio "github.com/minio/minio-go/v7"
-	"github.com/minio/minio-go/v7/pkg/credentials"
 	"github.com/syntasso/synpl-platform/api/v1alpha1"
 	v1 "k8s.io/api/core/v1"
 	rbacv1 "k8s.io/api/rbac/v1"
@@ -359,48 +355,4 @@ func (r *dynamicController) Reconcile(ctx context.Context, req ctrl.Request) (ct
 	// }
 
 	return ctrl.Result{}, nil
-}
-
-func yamlUploader(objectName string, fluxYaml []byte) error {
-	ctx := context.Background()
-	endpoint := "minio.synpl-system.svc.cluster.local"
-	accessKeyID := "minioadmin"
-	secretAccessKey := "minioadmin"
-	useSSL := false
-
-	// Initialize minio client object.
-	minioClient, err := minio.New(endpoint, &minio.Options{
-		Creds:  credentials.NewStaticV4(accessKeyID, secretAccessKey, ""),
-		Secure: useSSL,
-	})
-	if err != nil {
-		log.Fatalln(err)
-	}
-
-	// Make a new bucket called mymusic.
-	bucketName := "snypl"
-	location := "local-minio"
-
-	err = minioClient.MakeBucket(ctx, bucketName, minio.MakeBucketOptions{Region: location})
-	if err != nil {
-		// Check to see if we already own this bucket (which happens if you run this twice)
-		exists, errBucketExists := minioClient.BucketExists(ctx, bucketName)
-		if errBucketExists == nil && exists {
-			log.Printf("We already own %s\n", bucketName)
-		} else {
-			log.Fatalln(err)
-		}
-	} else {
-		log.Printf("Successfully created %s\n", bucketName)
-	}
-
-	//objectName := "namespace.yaml"
-	contentType := "text/x-yaml"
-	reader := bytes.NewReader(fluxYaml)
-
-	_, err = minioClient.PutObject(ctx, bucketName, objectName, reader, -1, minio.PutObjectOptions{ContentType: contentType})
-	if err != nil {
-		log.Fatalln(err)
-	}
-	return err
 }
