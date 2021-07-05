@@ -25,6 +25,7 @@ import (
 	"github.com/go-logr/logr"
 	minio "github.com/minio/minio-go/v7"
 	"github.com/minio/minio-go/v7/pkg/credentials"
+	v1 "k8s.io/api/core/v1"
 	metav1 "k8s.io/apimachinery/pkg/apis/meta/v1"
 	"k8s.io/apimachinery/pkg/runtime"
 	"k8s.io/apimachinery/pkg/runtime/serializer/json"
@@ -76,6 +77,7 @@ func (r *WorkWriterReconciler) Reconcile(ctx context.Context, req ctrl.Request) 
 	*/
 	fmt.Println("Writing to Mino innit")
 	return ctrl.Result{}, nil
+
 }
 
 func writeToMinio(work *platformv1alpha1.Work) error {
@@ -95,21 +97,22 @@ func writeToMinio(work *platformv1alpha1.Work) error {
 			Strict: true,
 		},
 	)
-	byteArray := []byte{}
-	buffer := bytes.NewBuffer(byteArray)
+
+	buffer := bytes.NewBuffer([]byte{})
+	writer := json.YAMLFramer.NewFrameWriter(buffer)
 
 	///in a loop
 	for _, manifest := range work.Spec.Workload.Manifests {
-		serializer.Encode(&manifest, buffer)
+		serializer.Encode(&manifest, writer)
 	}
-	//
+
 	fmt.Println("Our bytes are " + buffer.String())
 	return yamlUploader(objectName, buffer.Bytes())
 }
 
 func yamlUploader(objectName string, fluxYaml []byte) error {
 	ctx := context.Background()
-	endpoint := "minio.synpl-system.svc.cluster.local"
+	endpoint := "minio.synpl-platform-system.svc.cluster.local"
 	accessKeyID := "minioadmin"
 	secretAccessKey := "minioadmin"
 	useSSL := false

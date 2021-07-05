@@ -2,14 +2,14 @@ apiVersion: v1
 kind: Namespace
 metadata:
   creationTimestamp: null
-  name: synpl-system
+  name: synpl-platform-system
 ---
 apiVersion: v1
 kind: Service
 metadata:
   creationTimestamp: null
   name: minio
-  namespace: synpl-system
+  namespace: synpl-platform-system
 spec:
   ports:
   - port: 80
@@ -27,7 +27,7 @@ metadata:
   labels:
     run: minio
   name: minio
-  namespace: synpl-system
+  namespace: synpl-platform-system
 spec:
   replicas: 1
   selector:
