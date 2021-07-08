@@ -26,11 +26,23 @@ var _ = Describe("WorkCreator", func() {
 		BeforeEach(func() {
 			//don't run main
 			workCreator := pipeline.WorkCreator{
-				K8sClient:  k8sClient,
-				Identifier: getWorkResourceIdentifer(),
+				K8sClient: k8sClient,
 			}
 
-			workCreator.Execute(inputDirectory)
+			workCreator.Execute(inputDirectory, getWorkResourceIdentifer())
+
+			// //to test main
+			// mainPath, err := gexec.Build("github.com/syntasso/synpl-platform/work-creator/pipeline/cmd")
+			// Expect(err).NotTo(HaveOccurred())
+
+			// cmd := exec.Command(mainPath)
+			// cmd.Args =
+			// _, err = gexec.Start(cmd, GinkgoWriter, GinkgoWriter)
+			// Expect(err).NotTo(HaveOccurred())
+
+			//after
+			//gexec.CleanupBuildArtifacts()
+
 		})
 
 		It("has a correctly configured Work resource", func() {
@@ -103,6 +115,7 @@ func getCreatedWorkResource() platformv1alpha1.Work {
 	return work
 }
 
+//our test identifer
 func getWorkResourceIdentifer() string {
 	return "promise-targetnamespace-mydatabase"
 }

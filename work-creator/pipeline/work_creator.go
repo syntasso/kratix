@@ -15,16 +15,19 @@ import (
 )
 
 type WorkCreator struct {
-	Identifier string
-	K8sClient  client.Client
+	K8sClient client.Client
 }
 
-func (w *WorkCreator) Execute(input_directory string) {
-	files, _ := ioutil.ReadDir(input_directory)
+func (w *WorkCreator) Execute(inputDirectory string, identifier string) error {
+	files, err := ioutil.ReadDir(inputDirectory)
+	if err != nil {
+		return err
+	}
+
 	resources := []unstructured.Unstructured{}
 
 	for _, fileInfo := range files {
-		fileName := filepath.Join(input_directory, fileInfo.Name())
+		fileName := filepath.Join(inputDirectory, fileInfo.Name())
 
 		file, _ := os.Open(fileName)
 
@@ -43,7 +46,7 @@ func (w *WorkCreator) Execute(input_directory string) {
 	}
 
 	work := platformv1alpha1.Work{}
-	work.Name = w.Identifier
+	work.Name = identifier
 	work.Namespace = "default"
 
 	manifests := &work.Spec.Workload.Manifests
@@ -54,8 +57,11 @@ func (w *WorkCreator) Execute(input_directory string) {
 		*manifests = append(*manifests, manifest)
 	}
 
-	err := w.K8sClient.Create(context.Background(), &work)
+	err = w.K8sClient.Create(context.Background(), &work)
 	if err != nil {
-		fmt.Println(err.Error())
+		return err
 	}
+
+	fmt.Println("Work " + identifier + " created")
+	return nil
 }
