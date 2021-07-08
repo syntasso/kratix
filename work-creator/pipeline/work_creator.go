@@ -3,7 +3,9 @@ package pipeline
 import (
 	"context"
 	"fmt"
+	"io"
 	"io/ioutil"
+	"os"
 	"path/filepath"
 
 	platformv1alpha1 "github.com/syntasso/synpl-platform/api/v1alpha1"
@@ -23,10 +25,21 @@ func (w *WorkCreator) Execute(input_directory string) {
 
 	for _, fileInfo := range files {
 		fileName := filepath.Join(input_directory, fileInfo.Name())
-		bytes, _ := ioutil.ReadFile(fileName)
-		unstructured := &unstructured.Unstructured{}
-		yaml.Unmarshal(bytes, unstructured)
-		resources = append(resources, *unstructured)
+
+		file, _ := os.Open(fileName)
+
+		decoder := yaml.NewYAMLOrJSONDecoder(file, 2048)
+		for {
+			us := &unstructured.Unstructured{}
+			err := decoder.Decode(&us)
+			if err == io.EOF {
+				//We reached the end of the file, move on to looking for the resource
+				break
+			} else {
+				//append the first resource to the resource slice, and go back through the loop
+				resources = append(resources, *us)
+			}
+		}
 	}
 
 	work := platformv1alpha1.Work{}

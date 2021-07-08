@@ -2,79 +2,102 @@ package integration_test
 
 import (
 	"context"
+	"io"
+	"io/ioutil"
+	"os"
 	"path/filepath"
 
 	. "github.com/onsi/ginkgo"
 	. "github.com/onsi/gomega"
 	platformv1alpha1 "github.com/syntasso/synpl-platform/api/v1alpha1"
 	"github.com/syntasso/synpl-platform/work-creator/pipeline"
+	"k8s.io/apimachinery/pkg/apis/meta/v1/unstructured"
 	"k8s.io/apimachinery/pkg/types"
-	"k8s.io/client-go/kubernetes/scheme"
-	"sigs.k8s.io/controller-runtime/pkg/client"
-	"sigs.k8s.io/controller-runtime/pkg/envtest"
-)
-
-var (
-	testEnv   *envtest.Environment
-	k8sClient client.Client
+	"k8s.io/apimachinery/pkg/util/yaml"
 )
 
 var _ = Describe("WorkCreator", func() {
 
-	BeforeSuite(func() {
-		//Env Test
-		By("bootstrapping test environment")
-		testEnv = &envtest.Environment{
-			CRDDirectoryPaths:     []string{filepath.Join("..", "..", "..", "config", "crd", "bases")},
-			ErrorIfCRDPathMissing: true,
-		}
+	var inputDirectory = getInputDirectory()
 
-		cfg, err := testEnv.Start()
-		Expect(err).NotTo(HaveOccurred())
-		Expect(cfg).NotTo(BeNil())
+	When("WorkCreator Executes", func() {
+		var workResource platformv1alpha1.Work
 
-		//Setup the k8s client
-		err = platformv1alpha1.AddToScheme(scheme.Scheme)
-		Expect(err).NotTo(HaveOccurred())
-		k8sClient, err = client.New(cfg, client.Options{Scheme: scheme.Scheme})
-		Expect(err).NotTo(HaveOccurred())
-		Expect(k8sClient).NotTo(BeNil())
-
-		//don't run main
-		workCreator := pipeline.WorkCreator{
-			K8sClient:  k8sClient,
-			Identifier: getWorkResourceIdentifer(),
-		}
-		inputDirectory, err := filepath.Abs("samples")
-		Expect(err).NotTo(HaveOccurred())
-		workCreator.Execute(inputDirectory)
-	}, 60)
-
-	Describe("Work in the API server", func() {
-		var work platformv1alpha1.Work
 		BeforeEach(func() {
-			work = getWork()
+			//don't run main
+			workCreator := pipeline.WorkCreator{
+				K8sClient:  k8sClient,
+				Identifier: getWorkResourceIdentifer(),
+			}
+
+			workCreator.Execute(inputDirectory)
 		})
 
 		It("has a correctly configured Work resource", func() {
-			Expect(work.Name).To(Equal(getWorkResourceIdentifer()))
-			Expect(work.Spec.Workload.Manifests).To(HaveLen(1))
+			workResource = getCreatedWorkResource()
+			Expect(workResource.GetName()).To(Equal(getWorkResourceIdentifer()))
+			//Expect(workResource.Kind).To(Equal("Work"))
+			//Expect(workResource.APIVersion).To(Equal("platform.synpl.syntasso.io/v1alpha1"))
 		})
-	})
 
-	AfterSuite(func() {
-		By("tearing down the test environment")
-		testEnv.Stop()
+		Describe("the Work resource manifests list", func() {
+			It("has three items", func() {
+				expectedManifestsCount := len(getExpectedManifests())
+				Expect(workResource.Spec.Workload.Manifests).To(HaveLen(expectedManifestsCount))
+			})
+
+			for _, expectedManifest := range getExpectedManifests() {
+				It("contains the expected resource with name: "+expectedManifest.GetName(), func() {
+					actualManifests := workResource.Spec.Workload.Manifests
+					Expect(actualManifests).To(ContainManifest(expectedManifest))
+				})
+			}
+		})
 	})
 })
 
-func getWork() platformv1alpha1.Work {
-	work := platformv1alpha1.Work{}
+func getInputDirectory() string {
+	d, _ := filepath.Abs("samples")
+	return d
+}
+
+// Returns a []unstructured.Unstructured created from all Yaml documents contained
+// in all files located in inputDirectory
+func getExpectedManifests() []unstructured.Unstructured {
+	inputDirectory := getInputDirectory()
+	files, _ := ioutil.ReadDir(inputDirectory)
+	ul := []unstructured.Unstructured{}
+
+	for _, fileInfo := range files {
+		fileName := filepath.Join(inputDirectory, fileInfo.Name())
+
+		file, err := os.Open(fileName)
+		Expect(err).ToNot(HaveOccurred())
+
+		decoder := yaml.NewYAMLOrJSONDecoder(file, 2048)
+		for {
+			us := unstructured.Unstructured{}
+			err = decoder.Decode(&us)
+			if err == io.EOF {
+				//We reached the end of the file, move on to looking for the resource
+				break
+			} else {
+				//append the first resource to the resource slice, and go back through the loop
+				ul = append(ul, us)
+			}
+		}
+	}
+
+	return ul
+}
+
+func getCreatedWorkResource() platformv1alpha1.Work {
 	expectedName := types.NamespacedName{
 		Name:      getWorkResourceIdentifer(),
 		Namespace: "default",
 	}
 	Expect(k8sClient).ToNot(BeNil())
+	work := platformv1alpha1.Work{}
 	err := k8sClient.Get(context.Background(), expectedName, &work)
 	Expect(err).ToNot(HaveOccurred())
 	return work
