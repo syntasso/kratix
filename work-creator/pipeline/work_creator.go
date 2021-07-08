@@ -18,9 +18,6 @@ type WorkCreator struct {
 }
 
 func (w *WorkCreator) Execute(input_directory string) {
-
-	fmt.Println(input_directory)
-	//Read all files from input_directory
 	files, _ := ioutil.ReadDir(input_directory)
 	resources := []unstructured.Unstructured{}
 
