@@ -42,7 +42,8 @@ var _ = Describe("WorkCreator", func() {
 
 		//don't run main
 		workCreator := pipeline.WorkCreator{
-			K8sClient: k8sClient,
+			K8sClient:  k8sClient,
+			Identifier: getWorkResourceIdentifer(),
 		}
 		inputDirectory, err := filepath.Abs("samples")
 		Expect(err).NotTo(HaveOccurred())
@@ -56,7 +57,7 @@ var _ = Describe("WorkCreator", func() {
 		})
 
 		It("has a correctly configured Work resource", func() {
-			Expect(work.Name).To(Equal("database"))
+			Expect(work.Name).To(Equal(getWorkResourceIdentifer()))
 			Expect(work.Spec.Workload.Manifests).To(HaveLen(1))
 		})
 	})
@@ -70,12 +71,15 @@ var _ = Describe("WorkCreator", func() {
 func getWork() platformv1alpha1.Work {
 	work := platformv1alpha1.Work{}
 	expectedName := types.NamespacedName{
-		//Name:      "${promise-identifier}-${namespace-anne-request}-${anne-request-name}",
-		Name:      "database",
+		Name:      getWorkResourceIdentifer(),
 		Namespace: "default",
 	}
 	Expect(k8sClient).ToNot(BeNil())
 	err := k8sClient.Get(context.Background(), expectedName, &work)
 	Expect(err).ToNot(HaveOccurred())
 	return work
+}
+
+func getWorkResourceIdentifer() string {
+	return "promise-targetnamespace-mydatabase"
 }

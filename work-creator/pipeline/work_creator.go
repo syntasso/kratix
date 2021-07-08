@@ -13,7 +13,8 @@ import (
 )
 
 type WorkCreator struct {
-	K8sClient client.Client
+	Identifier string
+	K8sClient  client.Client
 }
 
 func (w *WorkCreator) Execute(input_directory string) {
@@ -32,7 +33,7 @@ func (w *WorkCreator) Execute(input_directory string) {
 	}
 
 	work := platformv1alpha1.Work{}
-	work.Name = "database"
+	work.Name = w.Identifier
 	work.Namespace = "default"
 
 	manifests := &work.Spec.Workload.Manifests
