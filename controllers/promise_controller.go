@@ -275,6 +275,10 @@ func (r *dynamicController) Reconcile(ctx context.Context, req ctrl.Request) (ct
 	//kubectl get redis.redis.redis.opstreelabs.in opstree-redis --namespace default -oyaml > /output/object.yaml
 	resourceRequestCommand := fmt.Sprintf("kubectl get %s.%s %s --namespace %s -oyaml > /output/object.yaml", strings.ToLower(r.gvk.Kind), r.gvk.Group, req.Name, req.Namespace)
 
+	//promise-targetnamespace-mydatabase
+	identifier := fmt.Sprintf("%s-%s-%s", r.promiseIdentifier, req.Namespace, req.Name)
+	workCreatorCommand := fmt.Sprintf("./work-creator -identifier %s -input-directory /input", identifier)
+
 	pod := v1.Pod{
 		ObjectMeta: metav1.ObjectMeta{
 			Name:      "request-pipeline-" + r.promiseIdentifier + "-" + string(uuid.NewUUID()[0:5]),
@@ -286,8 +290,8 @@ func (r *dynamicController) Reconcile(ctx context.Context, req ctrl.Request) (ct
 			Containers: []v1.Container{
 				{
 					Name:    "writer",
-					Image:   "syntasso/test-work-writer",
-					Command: []string{"sh", "-c", "kubectl apply -f /output/; sleep 10000"},
+					Image:   "syntasso/synpl-platform-work-creator:dev",
+					Command: []string{"sh", "-c", workCreatorCommand},
 					VolumeMounts: []v1.VolumeMount{
 						{
 							MountPath: "/input",

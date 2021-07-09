@@ -85,7 +85,7 @@ var _ = Describe("SynplPlatform Integration Test", func() {
 		}, timeout, interval).Should(BeTrue())
 	})
 
-	XContext("Redis", func() {
+	Context("Redis", func() {
 		It("Applying a Redis Promise CRD manifests a Redis api-resource", func() {
 			applyPromiseCRD(REDIS_CRD)
 
@@ -94,20 +94,56 @@ var _ = Describe("SynplPlatform Integration Test", func() {
 			}, timeout, interval).Should(BeTrue())
 		})
 
-		It("Applying Redis resource triggers the TransformationPipeline™", func() {
-			applyResourceRequest(REDIS_RESOURCE)
+		Describe("Applying Redis resource triggers the TransformationPipeline™", func() {
+			It("Applying Redis resource triggers the TransformationPipeline™", func() {
+				applyResourceRequest(REDIS_RESOURCE)
 
-			expectedName := types.NamespacedName{
-				Name:      "opstree-redis",
-				Namespace: "default",
-			}
-			Eventually(func() bool {
-				return hasResourceBeenApplied(redis_gvk, expectedName)
-			}, timeout, interval).Should(BeTrue())
+				expectedName := types.NamespacedName{
+					Name:      "redis-promise-default-default-opstree-redis",
+					Namespace: "default",
+				}
+				Eventually(func() bool {
+					return hasResourceBeenApplied(work_gvk, expectedName)
+				}, timeout, interval).Should(BeTrue())
+			})
+
+			It("should label the created Work resource with a target workload cluster", func() {
+				//applyResourceRequest(REDIS_RESOURCE)
+				Eventually(func() bool {
+					expectedName := types.NamespacedName{
+						Name:      "redis-promise-default-default-opstree-redis",
+						Namespace: "default",
+					}
+
+					work := &platformv1alpha1.Work{}
+					err := k8sClient.Get(context.Background(), expectedName, work)
+					Expect(err).ToNot(HaveOccurred())
+
+					return metav1.HasLabel(work.ObjectMeta, "cluster")
+				}, timeout, interval).Should(BeTrue())
+			})
+
+			It("should write a Redis resource to Minio", func() {
+				// applyPromiseCRD(REDIS_CRD)
+				// applyResourceRequest(REDIS_RESOURCE)
+				Eventually(func() bool {
+					workloadNamespacedName := types.NamespacedName{
+						Name:      "redis-promise-default-default-opstree-redis",
+						Namespace: "default",
+					}
+
+					//Read from Minio
+					//Assert that the Postgres resource is present
+					resourceName := "opstree-redis"
+					resourceKind := "Redis"
+
+					return minioHasWorkloadWithResourceWithNameAndKind(workloadNamespacedName, resourceName, resourceKind)
+				}, timeout, interval).Should(BeTrue())
+			})
 		})
 	})
 
-	FContext("Postgres", func() {
+	Context("Postgres", func() {
 		It("Applying a Postgres Promise CRD manifests a Postgres api-resource", func() {
 			applyPromiseCRD(POSTGRES_CRD)
 
@@ -120,7 +156,7 @@ var _ = Describe("SynplPlatform Integration Test", func() {
 			It("Should have created a Work resource", func() {
 				applyResourceRequest(POSTGRES_RESOURCE)
 				expectedName := types.NamespacedName{
-					Name:      "work-sample",
+					Name:      "postgres-promise-default-default-database",
 					Namespace: "default",
 				}
 				Eventually(func() bool {
@@ -132,7 +168,7 @@ var _ = Describe("SynplPlatform Integration Test", func() {
 				//applyResourceRequest(POSTGRES_RESOURCE)
 				Eventually(func() bool {
 					expectedName := types.NamespacedName{
-						Name:      "work-sample",
+						Name:      "postgres-promise-default-default-database",
 						Namespace: "default",
 					}
 
@@ -149,7 +185,7 @@ var _ = Describe("SynplPlatform Integration Test", func() {
 				// applyResourceRequest(POSTGRES_RESOURCE)
 				Eventually(func() bool {
 					workloadNamespacedName := types.NamespacedName{
-						Name:      "work-sample",
+						Name:      "postgres-promise-default-default-database",
 						Namespace: "default",
 					}
 
