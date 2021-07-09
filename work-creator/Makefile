@@ -1,3 +1,6 @@
+# Image URL to use all building/pushing image targets
+IMG ?= syntasso/synpl-platform-work-creator:dev
+
 # Setting SHELL to bash allows bash commands to be executed by recipes.
 # This is a requirement for 'setup-envtest.sh' in the test target.
 # Options are set to exit when a recipe line exits non-zero or a piped command fails.
@@ -14,3 +17,11 @@ int-test: ## Run tests.
 	mkdir -p ${ENVTEST_ASSETS_DIR}
 	test -f ${ENVTEST_ASSETS_DIR}/setup-envtest.sh || curl -sSLo ${ENVTEST_ASSETS_DIR}/setup-envtest.sh https://raw.githubusercontent.com/kubernetes-sigs/controller-runtime/v0.7.2/hack/setup-envtest.sh
 	source ${ENVTEST_ASSETS_DIR}/setup-envtest.sh; fetch_envtest_tools $(ENVTEST_ASSETS_DIR); setup_envtest_env $(ENVTEST_ASSETS_DIR); ACK_GINKGO_DEPRECATIONS=1.16.4 ginkgo -r  --coverprofile cover.out
+
+##@ Build
+
+docker-build: test ## Build docker image with work-creator binary
+	docker build -f ../DockerfileWorkCreator -t ${IMG} ../
+
+docker-push: ## Push docker image with work-creator binary
+	docker push ${IMG}
