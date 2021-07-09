@@ -18,3 +18,6 @@ FROM bitnami/kubectl
 WORKDIR /
 COPY --from=builder /workspace/work-creator/main ./work-creator
 USER 65532:65532
+
+ENTRYPOINT []
+CMD []
