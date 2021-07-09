@@ -49,7 +49,10 @@ fmt: ## Run go fmt against code.
 vet: ## Run go vet against code.
 	go vet ./...
 
-int-test: manifests generate fmt vet deploy ## Run integrations tests.
+install-test-minio: ### Install test Minio server 
+	kubectl apply -f hack/platform/minio-install.yaml
+
+int-test: manifests generate fmt vet deploy install-test-minio ## Run integrations tests.
 	go test ./test/integration -coverprofile cover.out
 
 kind-load-image: docker-build ## Load locally built image into KinD, use export IMG=syntasso/synpl-platform:dev
