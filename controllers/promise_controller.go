@@ -55,6 +55,7 @@ type dynamicController struct {
 	scheme            *runtime.Scheme
 	promiseIdentifier string
 	requestPipeline   []string
+	log               logr.Logger
 }
 
 //+kubebuilder:rbac:groups=platform.synpl.syntasso.io,resources=promises,verbs=get;list;watch;create;update;patch;delete
@@ -175,7 +176,6 @@ func (r *PromiseReconciler) Reconcile(ctx context.Context, req ctrl.Request) (ct
 	// END CONTROLLER RBAC
 
 	// PIPELINE RBAC
-
 	cr = rbacv1.ClusterRole{
 		ObjectMeta: metav1.ObjectMeta{
 			Name: promiseIdentifier + "-promise-pipeline",
@@ -220,7 +220,7 @@ func (r *PromiseReconciler) Reconcile(ctx context.Context, req ctrl.Request) (ct
 		fmt.Println(err.Error())
 	}
 
-	fmt.Println("Creating SA")
+	fmt.Println("Creating Service Account for " + promiseIdentifier)
 	sa := v1.ServiceAccount{
 		ObjectMeta: metav1.ObjectMeta{
 			Name:      promiseIdentifier + "-sa",
@@ -229,10 +229,11 @@ func (r *PromiseReconciler) Reconcile(ctx context.Context, req ctrl.Request) (ct
 	}
 	err = r.Client.Create(ctx, &sa)
 	if err != nil {
+		r.Log.Error(err, "Error creating Service Account for Promise "+promiseIdentifier)
 		fmt.Println(err.Error())
+	} else {
+		r.Log.Info("Created ServiceAccount for Promise " + promiseIdentifier)
 	}
-	fmt.Println("Created SA")
-	// END PIPELINE RBAC
 
 	unstructuredCRD := &unstructured.Unstructured{}
 	unstructuredCRD.SetGroupVersionKind(crdToCreateGvk)
@@ -243,6 +244,7 @@ func (r *PromiseReconciler) Reconcile(ctx context.Context, req ctrl.Request) (ct
 		gvk:               &crdToCreateGvk,
 		promiseIdentifier: promiseIdentifier,
 		requestPipeline:   promise.Spec.RequestPipeline,
+		log:               r.Log,
 	}
 
 	ctrl.NewControllerManagedBy(r.Manager).
@@ -271,9 +273,8 @@ func (r *dynamicController) Reconcile(ctx context.Context, req ctrl.Request) (ct
 	unstructuredCRD.SetGroupVersionKind(*r.gvk)
 
 	err := r.client.Get(ctx, req.NamespacedName, unstructuredCRD)
-
 	if err != nil {
-		fmt.Print("Failed getting Promise CRD " + err.Error())
+		r.log.Error(err, "Failed getting Promise CRD")
 		return ctrl.Result{}, nil
 	}
 
@@ -350,9 +351,10 @@ func (r *dynamicController) Reconcile(ctx context.Context, req ctrl.Request) (ct
 		},
 	}
 
+	r.log.Info("Creating Pipeline for Promise resource request: " + identifier + ". The pipeline will now execute...")
 	err = r.client.Create(ctx, &pod)
 	if err != nil {
-		fmt.Println(err.Error())
+		r.log.Error(err, "Error creating Pod")
 	}
 
 	return ctrl.Result{}, nil

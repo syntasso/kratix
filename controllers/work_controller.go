@@ -18,7 +18,6 @@ package controllers
 
 import (
 	"context"
-	"fmt"
 
 	"github.com/go-logr/logr"
 	"k8s.io/apimachinery/pkg/runtime"
@@ -51,23 +50,23 @@ type WorkReconciler struct {
 func (r *WorkReconciler) Reconcile(ctx context.Context, req ctrl.Request) (ctrl.Result, error) {
 	_ = r.Log.WithValues("work", req.NamespacedName)
 
-	fmt.Println("Reconciling Works")
+	r.Log.Info("Reconciling Work " + req.Name)
 
 	work := &platformv1alpha1.Work{}
 	err := r.Client.Get(context.Background(), req.NamespacedName, work)
 	if err != nil {
-		fmt.Println("Get Error " + err.Error())
+		r.Log.Error(err, "Error getting Work")
 		return ctrl.Result{Requeue: false}, err
 	}
 
-	fmt.Println("Setting Work labels")
+	r.Log.Info("Decorating Work " + req.Name + " with Label: cluster=worker")
 	labels := map[string]string{}
 	labels["cluster"] = "worker"
 	work.SetLabels(labels)
 
 	err = r.Client.Update(context.Background(), work)
 	if err != nil {
-		fmt.Println("Update Error " + err.Error())
+		r.Log.Error(err, "Error updating Work with new Labels")
 		return ctrl.Result{Requeue: false}, err
 	}
 
