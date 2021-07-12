@@ -68,25 +68,13 @@ func (r *WorkWriterReconciler) Reconcile(ctx context.Context, req ctrl.Request) 
 		writeToMinio(work)
 	}
 
-	/*if yes
-	grab the manifests
-
-
-	write them to minio as apply-able yaml objects i.e. "---"
-	*/
 	fmt.Println("Writing to Mino innit")
 	return ctrl.Result{}, nil
 
 }
 
 func writeToMinio(work *platformv1alpha1.Work) error {
-	// manifests := work.Spec.Workload.Manifests
 	objectName := work.GetNamespace() + "-" + work.GetName() + ".yaml"
-
-	//manifestYaml := yaml.
-
-	//Get each manifest from work
-	// add each manifest to a slice
 
 	serializer := json.NewSerializerWithOptions(
 		json.DefaultMetaFactory, nil, nil,
@@ -100,7 +88,6 @@ func writeToMinio(work *platformv1alpha1.Work) error {
 	buffer := bytes.NewBuffer([]byte{})
 	writer := json.YAMLFramer.NewFrameWriter(buffer)
 
-	///in a loop
 	for _, manifest := range work.Spec.Workload.Manifests {
 		serializer.Encode(&manifest, writer)
 	}
@@ -125,7 +112,6 @@ func yamlUploader(objectName string, fluxYaml []byte) error {
 		log.Fatalln(err)
 	}
 
-	// Make a new bucket called mymusic.
 	bucketName := "synpl"
 	location := "local-minio"
 
