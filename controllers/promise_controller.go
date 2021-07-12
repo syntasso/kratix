@@ -30,6 +30,7 @@ import (
 	rbacv1 "k8s.io/api/rbac/v1"
 	apiextensionsv1 "k8s.io/apiextensions-apiserver/pkg/apis/apiextensions/v1"
 	"k8s.io/apiextensions-apiserver/pkg/client/clientset/clientset"
+	"k8s.io/apimachinery/pkg/api/errors"
 	metav1 "k8s.io/apimachinery/pkg/apis/meta/v1"
 	"k8s.io/apimachinery/pkg/apis/meta/v1/unstructured"
 	"k8s.io/apimachinery/pkg/runtime"
@@ -99,9 +100,13 @@ func (r *PromiseReconciler) Reconcile(ctx context.Context, req ctrl.Request) (ct
 		CustomResourceDefinitions().
 		Create(ctx, crdToCreate, metav1.CreateOptions{})
 	if err != nil {
-		r.Log.Error(err, "CRD already exists. todo: handle this gracefully")
-		//todo test for existance and handle gracefully.
-		//return ctrl.Result{}, nil
+		if errors.IsAlreadyExists(err) {
+			//todo test for existence and handle gracefully.
+			r.Log.Info("CRD " + req.Name + "already exists")
+			//return ctrl.Result{}, nil
+		} else {
+			r.Log.Error(err, "Error creating crd")
+		}
 	}
 
 	crdToCreateGvk := schema.GroupVersionKind{
