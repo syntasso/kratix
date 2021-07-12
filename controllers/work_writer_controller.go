@@ -91,7 +91,6 @@ func writeToMinio(work *platformv1alpha1.Work) error {
 		serializer.Encode(&manifest, writer)
 	}
 
-	fmt.Println("Our bytes are " + buffer.String())
 	return yamlUploader(objectName, buffer.Bytes())
 }
 
