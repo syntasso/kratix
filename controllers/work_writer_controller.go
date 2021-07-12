@@ -68,7 +68,6 @@ func (r *WorkWriterReconciler) Reconcile(ctx context.Context, req ctrl.Request) 
 		writeToMinio(work)
 	}
 
-	fmt.Println("Writing to Mino innit")
 	return ctrl.Result{}, nil
 
 }
@@ -120,21 +119,21 @@ func yamlUploader(objectName string, fluxYaml []byte) error {
 		// Check to see if we already own this bucket (which happens if you run this twice)
 		exists, errBucketExists := minioClient.BucketExists(ctx, bucketName)
 		if errBucketExists == nil && exists {
-			log.Printf("We already own %s\n", bucketName)
+			log.Printf("Minio Bucket %s already exists\n", bucketName)
 		} else {
+			fmt.Println("AHAHAHHHHHHHHH")
 			log.Fatalln(err)
 		}
 	} else {
-		log.Printf("Successfully created %s\n", bucketName)
+		log.Printf("Successfully created Minio Bucket %s\n", bucketName)
 	}
 
-	//objectName := "namespace.yaml"
 	contentType := "text/x-yaml"
 	reader := bytes.NewReader(fluxYaml)
 
 	_, err = minioClient.PutObject(ctx, bucketName, objectName, reader, -1, minio.PutObjectOptions{ContentType: contentType})
 	if err != nil {
-		log.Fatalln(err)
+		log.Printf("Minio Error: %s", err.Error())
 	}
 	return err
 }
