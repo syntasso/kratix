@@ -59,15 +59,18 @@ func (w *WorkCreator) Execute(inputDirectory string, identifier string) error {
 	}
 
 	err = w.K8sClient.Create(context.Background(), &work)
-	if err != nil {
-		if errors.IsAlreadyExists(err) {
-			fmt.Println("Work " + identifier + " already exists")
-		} else {
-			return err
 
+	if errors.IsAlreadyExists(err) {
+		fmt.Println("Work " + identifier + " already exists")
+		err = w.K8sClient.Update(context.Background(), &work)
+		if err != nil {
+			fmt.Println("Error updating Work " + identifier + " " + err.Error())
 		}
+		return nil
+	} else if err != nil {
+		return err
+	} else {
+		fmt.Println("Work " + identifier + " created")
+		return nil
 	}
-
-	fmt.Println("Work " + identifier + " created")
-	return nil
 }

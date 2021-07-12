@@ -29,7 +29,8 @@ var _ = Describe("WorkCreator", func() {
 				K8sClient: k8sClient,
 			}
 
-			workCreator.Execute(inputDirectory, getWorkResourceIdentifer())
+			err := workCreator.Execute(inputDirectory, getWorkResourceIdentifer())
+			Expect(err).ToNot(HaveOccurred())
 
 			// //to test main
 			// mainPath, err := gexec.Build("github.com/syntasso/synpl-platform/work-creator/pipeline/cmd")
