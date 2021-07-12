@@ -12,6 +12,7 @@ import (
 	platformv1alpha1 "github.com/syntasso/synpl-platform/api/v1alpha1"
 
 	v1 "k8s.io/api/core/v1"
+	"k8s.io/apimachinery/pkg/api/errors"
 	"k8s.io/apimachinery/pkg/runtime/schema"
 	"k8s.io/apimachinery/pkg/types"
 	"k8s.io/apimachinery/pkg/util/yaml"
@@ -68,10 +69,10 @@ var (
 )
 
 const (
-	REDIS_CRD         = "../../config/samples/redis/redis-promise.yaml"
-	REDIS_RESOURCE    = "../../config/samples/redis/redis-resource-request.yaml"
-	POSTGRES_CRD      = "../../config/samples/postgres/postgres-promise.yaml"
-	POSTGRES_RESOURCE = "../../config/samples/postgres/postgres-resource-request.yaml"
+	REDIS_CRD                 = "../../config/samples/redis/redis-promise.yaml"
+	REDIS_RESOURCE_REQUEST    = "../../config/samples/redis/redis-resource-request.yaml"
+	POSTGRES_CRD              = "../../config/samples/postgres/postgres-promise.yaml"
+	POSTGRES_RESOURCE_REQUEST = "../../config/samples/postgres/postgres-resource-request.yaml"
 )
 
 var _ = Describe("SynplPlatform Integration Test", func() {
@@ -96,7 +97,7 @@ var _ = Describe("SynplPlatform Integration Test", func() {
 
 		Describe("Applying Redis resource triggers the TransformationPipeline™", func() {
 			It("Applying Redis resource triggers the TransformationPipeline™", func() {
-				applyResourceRequest(REDIS_RESOURCE)
+				applyResourceRequest(REDIS_RESOURCE_REQUEST)
 
 				expectedName := types.NamespacedName{
 					Name:      "redis-promise-default-default-opstree-redis",
@@ -154,7 +155,7 @@ var _ = Describe("SynplPlatform Integration Test", func() {
 
 		Describe("Applying Postgres resource triggers the TransformationPipeline™", func() {
 			It("Should have created a Work resource", func() {
-				applyResourceRequest(POSTGRES_RESOURCE)
+				applyResourceRequest(POSTGRES_RESOURCE_REQUEST)
 				expectedName := types.NamespacedName{
 					Name:      "postgres-promise-default-default-database",
 					Namespace: "default",
@@ -278,7 +279,9 @@ func applyResourceRequest(filepath string) {
 
 	request.SetNamespace("default")
 	err = k8sClient.Create(context.Background(), request)
-	Expect(err).ToNot(HaveOccurred())
+	if !errors.IsAlreadyExists(err) {
+		Expect(err).ToNot(HaveOccurred())
+	}
 }
 
 func applyPromiseCRD(filepath string) {
@@ -291,7 +294,9 @@ func applyPromiseCRD(filepath string) {
 
 	promiseCR.Namespace = "default"
 	err = k8sClient.Create(context.Background(), promiseCR)
-	Expect(err).ToNot(HaveOccurred())
+	if !errors.IsAlreadyExists(err) {
+		Expect(err).ToNot(HaveOccurred())
+	}
 }
 
 func isPodRunning(pod v1.Pod) bool {

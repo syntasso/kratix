@@ -57,6 +57,7 @@ func (r *WorkReconciler) Reconcile(ctx context.Context, req ctrl.Request) (ctrl.
 	err := r.Client.Get(context.Background(), req.NamespacedName, work)
 	if err != nil {
 		fmt.Println("Get Error " + err.Error())
+		return ctrl.Result{Requeue: false}, err
 	}
 
 	fmt.Println("Setting Work labels")

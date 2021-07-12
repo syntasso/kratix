@@ -21,6 +21,7 @@ import (
 	"context"
 	"fmt"
 	"log"
+	"time"
 
 	"github.com/go-logr/logr"
 	minio "github.com/minio/minio-go/v7"
@@ -65,7 +66,11 @@ func (r *WorkWriterReconciler) Reconcile(ctx context.Context, req ctrl.Request) 
 
 	//	see if the workload has the necessary label
 	if metav1.HasLabel(work.ObjectMeta, "cluster") {
-		writeToMinio(work)
+		err = writeToMinio(work)
+		if err != nil {
+			fmt.Println("Minio error, will try again in 5 seconds")
+			return ctrl.Result{RequeueAfter: 5 * time.Second}, nil
+		}
 	}
 
 	return ctrl.Result{}, nil
@@ -120,8 +125,8 @@ func yamlUploader(objectName string, fluxYaml []byte) error {
 		if errBucketExists == nil && exists {
 			log.Printf("Minio Bucket %s already exists\n", bucketName)
 		} else {
-			fmt.Println("AHAHAHHHHHHHHH")
-			log.Fatalln(err)
+			fmt.Println("Error connecting to Minio")
+			return errBucketExists
 		}
 	} else {
 		log.Printf("Successfully created Minio Bucket %s\n", bucketName)
