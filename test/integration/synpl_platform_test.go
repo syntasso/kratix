@@ -85,7 +85,7 @@ var _ = Describe("SynplPlatform Integration Test", func() {
 		}, timeout, interval).Should(BeTrue())
 	})
 
-	Context("Redis", func() {
+	Describe("Redis Promise lifecycle", func() {
 		It("Applying a Redis Promise CRD manifests a Redis api-resource", func() {
 			applyPromiseCRD(REDIS_CRD)
 
@@ -143,7 +143,7 @@ var _ = Describe("SynplPlatform Integration Test", func() {
 		})
 	})
 
-	Context("Postgres", func() {
+	Describe("Postgres Promise lifecycle", func() {
 		It("Applying a Postgres Promise CRD manifests a Postgres api-resource", func() {
 			applyPromiseCRD(POSTGRES_CRD)
 
