@@ -9,6 +9,7 @@ import (
 	"path/filepath"
 
 	platformv1alpha1 "github.com/syntasso/synpl-platform/api/v1alpha1"
+	"k8s.io/apimachinery/pkg/api/errors"
 	"k8s.io/apimachinery/pkg/apis/meta/v1/unstructured"
 	"k8s.io/apimachinery/pkg/util/yaml"
 	"sigs.k8s.io/controller-runtime/pkg/client"
@@ -59,7 +60,12 @@ func (w *WorkCreator) Execute(inputDirectory string, identifier string) error {
 
 	err = w.K8sClient.Create(context.Background(), &work)
 	if err != nil {
-		return err
+		if errors.IsAlreadyExists(err) {
+			fmt.Println("Work " + identifier + " already exists")
+		} else {
+			return err
+
+		}
 	}
 
 	fmt.Println("Work " + identifier + " created")
