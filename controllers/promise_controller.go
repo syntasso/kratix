@@ -355,13 +355,5 @@ func (r *dynamicController) Reconcile(ctx context.Context, req ctrl.Request) (ct
 		fmt.Println(err.Error())
 	}
 
-	// toPrint, _ := yaml.Marshal(unstructuredCRD.Object)
-	// //todo - this minio object name should have GVK + namespace + resource name to be per-cluster unique
-	// err = yamlUploader(req.Name+".yaml", toPrint)
-	// if err != nil {
-	// 	fmt.Print("Failed uploading to Minio" + err.Error())
-	// 	return ctrl.Result{}, nil
-	// }
-
 	return ctrl.Result{}, nil
 }
