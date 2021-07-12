@@ -20,7 +20,6 @@ import (
 	"bytes"
 	"context"
 	"fmt"
-	"log"
 	"time"
 
 	"github.com/go-logr/logr"
@@ -61,14 +60,15 @@ func (r *WorkWriterReconciler) Reconcile(ctx context.Context, req ctrl.Request) 
 	work := &platformv1alpha1.Work{}
 	err := r.Client.Get(context.Background(), req.NamespacedName, work)
 	if err != nil {
-		fmt.Println(err.Error())
+		r.Log.Error(err, "Error getting Work: "+req.Name)
+		return ctrl.Result{RequeueAfter: 5 * time.Second}, nil
 	}
 
 	//	see if the workload has the necessary label
 	if metav1.HasLabel(work.ObjectMeta, "cluster") {
-		err = writeToMinio(work)
+		err = r.writeToMinio(work)
 		if err != nil {
-			fmt.Println("Minio error, will try again in 5 seconds")
+			r.Log.Error(err, "Minio error, will try again in 5 seconds")
 			return ctrl.Result{RequeueAfter: 5 * time.Second}, nil
 		}
 	}
@@ -77,7 +77,7 @@ func (r *WorkWriterReconciler) Reconcile(ctx context.Context, req ctrl.Request) 
 
 }
 
-func writeToMinio(work *platformv1alpha1.Work) error {
+func (r *WorkWriterReconciler) writeToMinio(work *platformv1alpha1.Work) error {
 	objectName := work.GetNamespace() + "-" + work.GetName() + ".yaml"
 
 	serializer := json.NewSerializerWithOptions(
@@ -96,10 +96,10 @@ func writeToMinio(work *platformv1alpha1.Work) error {
 		serializer.Encode(&manifest, writer)
 	}
 
-	return yamlUploader(objectName, buffer.Bytes())
+	return r.yamlUploader(objectName, buffer.Bytes())
 }
 
-func yamlUploader(objectName string, fluxYaml []byte) error {
+func (r *WorkWriterReconciler) yamlUploader(objectName string, fluxYaml []byte) error {
 	ctx := context.Background()
 	endpoint := "minio.synpl-platform-system.svc.cluster.local"
 	accessKeyID := "minioadmin"
@@ -111,8 +111,10 @@ func yamlUploader(objectName string, fluxYaml []byte) error {
 		Creds:  credentials.NewStaticV4(accessKeyID, secretAccessKey, ""),
 		Secure: useSSL,
 	})
+
 	if err != nil {
-		log.Fatalln(err)
+		r.Log.Error(err, "Error initalising Mino client")
+		return err
 	}
 
 	bucketName := "synpl"
@@ -123,23 +125,30 @@ func yamlUploader(objectName string, fluxYaml []byte) error {
 		// Check to see if we already own this bucket (which happens if you run this twice)
 		exists, errBucketExists := minioClient.BucketExists(ctx, bucketName)
 		if errBucketExists == nil && exists {
-			log.Printf("Minio Bucket %s already exists\n", bucketName)
+			r.Log.Info("Minio Bucket " + bucketName + "already exists, will not recreate\n")
 		} else {
-			fmt.Println("Error connecting to Minio")
+			r.Log.Error(err, "Error connecting to Minio")
 			return errBucketExists
 		}
 	} else {
-		log.Printf("Successfully created Minio Bucket %s\n", bucketName)
+		r.Log.Info("Successfully created Minio Bucket " + bucketName)
 	}
+
+	fmt.Println("1")
 
 	contentType := "text/x-yaml"
 	reader := bytes.NewReader(fluxYaml)
 
-	_, err = minioClient.PutObject(ctx, bucketName, objectName, reader, -1, minio.PutObjectOptions{ContentType: contentType})
+	r.Log.Info("Creating Minio object " + objectName)
+	_, err = minioClient.PutObject(ctx, bucketName, objectName, reader, reader.Size(), minio.PutObjectOptions{ContentType: contentType})
+	r.Log.Info("Minio object " + objectName + " written")
 	if err != nil {
-		log.Printf("Minio Error: %s", err.Error())
+		r.Log.Error(err, "Minio Error")
+		return err
 	}
-	return err
+
+	r.Log.Info(objectName + ". Check worker for next action...")
+	return nil
 }
 
 // SetupWithManager sets up the controller with the Manager.
