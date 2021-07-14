@@ -69,10 +69,11 @@ var (
 )
 
 const (
-	REDIS_CRD                 = "../../config/samples/redis/redis-promise.yaml"
-	REDIS_RESOURCE_REQUEST    = "../../config/samples/redis/redis-resource-request.yaml"
-	POSTGRES_CRD              = "../../config/samples/postgres/postgres-promise.yaml"
-	POSTGRES_RESOURCE_REQUEST = "../../config/samples/postgres/postgres-resource-request.yaml"
+	REDIS_CRD                     = "../../config/samples/redis/redis-promise.yaml"
+	REDIS_RESOURCE_REQUEST        = "../../config/samples/redis/redis-resource-request.yaml"
+	REDIS_RESOURCE_UPDATE_REQUEST = "../../config/samples/redis/redis-resource-update-request.yaml"
+	POSTGRES_CRD                  = "../../config/samples/postgres/postgres-promise.yaml"
+	POSTGRES_RESOURCE_REQUEST     = "../../config/samples/postgres/postgres-resource-request.yaml"
 )
 
 var _ = Describe("SynplPlatform Integration Test", func() {
@@ -138,7 +139,34 @@ var _ = Describe("SynplPlatform Integration Test", func() {
 					resourceName := "opstree-redis"
 					resourceKind := "Redis"
 
-					return minioHasWorkloadWithResourceWithNameAndKind(workloadNamespacedName, resourceName, resourceKind)
+					found, _ := minioHasWorkloadWithResourceWithNameAndKind(workloadNamespacedName, resourceName, resourceKind)
+					return found
+				}, timeout, interval).Should(BeTrue())
+			})
+
+			It("should update a Redis resource in Minio", func() {
+				updateResourceRequest(REDIS_RESOURCE_UPDATE_REQUEST)
+
+				Eventually(func() bool {
+					workloadNamespacedName := types.NamespacedName{
+						Name:      "redis-promise-default-default-opstree-redis",
+						Namespace: "default",
+					}
+
+					//Read from Minio
+					//Assert that the Postgres resource is present
+					resourceName := "opstree-redis"
+					resourceKind := "Redis"
+
+					found, obj := minioHasWorkloadWithResourceWithNameAndKind(workloadNamespacedName, resourceName, resourceKind)
+					if found {
+						spec := obj.Object["spec"]
+						global := spec.(map[string]interface{})["global"]
+						password := global.(map[string]interface{})["password"]
+						return password == "Opstree@12345"
+					}
+					return false
+
 				}, timeout, interval).Should(BeTrue())
 			})
 		})
@@ -195,14 +223,15 @@ var _ = Describe("SynplPlatform Integration Test", func() {
 					resourceName := "database"
 					resourceKind := "Database"
 
-					return minioHasWorkloadWithResourceWithNameAndKind(workloadNamespacedName, resourceName, resourceKind)
+					found, _ := minioHasWorkloadWithResourceWithNameAndKind(workloadNamespacedName, resourceName, resourceKind)
+					return found
 				}, timeout, interval).Should(BeTrue())
 			})
 		})
 	})
 })
 
-func minioHasWorkloadWithResourceWithNameAndKind(workloadNamespacedName types.NamespacedName, resourceName string, resourceKind string) bool {
+func minioHasWorkloadWithResourceWithNameAndKind(workloadNamespacedName types.NamespacedName, resourceName string, resourceKind string) (bool, unstructured.Unstructured) {
 
 	// endpoint := "minio.synpl-system.svc.cluster.local"
 	endpoint := "172.18.0.2:31337"
@@ -237,7 +266,7 @@ func minioHasWorkloadWithResourceWithNameAndKind(workloadNamespacedName types.Na
 			/* There has been an error reading from Minio. It's likely that the
 			   document has not been created in Minio yet, therefore we return
 			   control to the ginkgo.Eventually to re-execute the assertions */
-			return false
+			return false, unstructured.Unstructured{}
 		} else {
 			//append the first resource to the resource slice, and go back through the loop
 			ul = append(ul, us)
@@ -247,12 +276,12 @@ func minioHasWorkloadWithResourceWithNameAndKind(workloadNamespacedName types.Na
 	for _, us := range ul {
 		if us.GetKind() == resourceKind && us.GetName() == resourceName {
 			//Hooray! we found the resource we're looking for!
-			return true
+			return true, us
 		}
 	}
 
 	//We cannot find the resource and kind we are looking for
-	return false
+	return false, unstructured.Unstructured{}
 }
 
 //TODO Refactor this lot into own function. We can reuse this logic in controllers/suite_test.go
@@ -282,6 +311,32 @@ func applyResourceRequest(filepath string) {
 	if !errors.IsAlreadyExists(err) {
 		Expect(err).ToNot(HaveOccurred())
 	}
+}
+
+func updateResourceRequest(filepath string) {
+	yamlFile, err := ioutil.ReadFile(filepath)
+	Expect(err).ToNot(HaveOccurred())
+
+	request := &unstructured.Unstructured{}
+	err = yaml.Unmarshal(yamlFile, request)
+	Expect(err).ToNot(HaveOccurred())
+
+	request.SetNamespace("default")
+
+	currentResource := unstructured.Unstructured{}
+	key := types.NamespacedName{
+		Name:      request.GetName(),
+		Namespace: request.GetNamespace(),
+	}
+	currentResource.SetGroupVersionKind(redis_gvk)
+
+	err = k8sClient.Get(context.Background(), key, &currentResource)
+	Expect(err).ToNot(HaveOccurred())
+
+	//casting and stuff here
+	currentResource.Object["spec"] = request.Object["spec"]
+	err = k8sClient.Update(context.Background(), &currentResource)
+	Expect(err).ToNot(HaveOccurred())
 }
 
 func applyPromiseCRD(filepath string) {

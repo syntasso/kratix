@@ -11,6 +11,7 @@ import (
 	platformv1alpha1 "github.com/syntasso/synpl-platform/api/v1alpha1"
 	"k8s.io/apimachinery/pkg/api/errors"
 	"k8s.io/apimachinery/pkg/apis/meta/v1/unstructured"
+	"k8s.io/apimachinery/pkg/types"
 	"k8s.io/apimachinery/pkg/util/yaml"
 	"sigs.k8s.io/controller-runtime/pkg/client"
 )
@@ -61,11 +62,25 @@ func (w *WorkCreator) Execute(inputDirectory string, identifier string) error {
 	err = w.K8sClient.Create(context.Background(), &work)
 
 	if errors.IsAlreadyExists(err) {
-		fmt.Println("Work " + identifier + " already exists")
-		err = w.K8sClient.Update(context.Background(), &work)
+		fmt.Println("Work " + identifier + " already exists. Will update...")
+		currentWork := platformv1alpha1.Work{}
+		key := types.NamespacedName{
+			Name:      work.Name,
+			Namespace: work.Namespace,
+		}
+
+		err := w.K8sClient.Get(context.Background(), key, &currentWork)
+		if err != nil {
+			fmt.Println("Error retrieving Work " + identifier + " " + err.Error())
+		}
+
+		currentWork.Spec.Workload.Manifests = *manifests
+		err = w.K8sClient.Update(context.Background(), &currentWork)
+
 		if err != nil {
 			fmt.Println("Error updating Work " + identifier + " " + err.Error())
 		}
+		fmt.Println("Work " + identifier + " updated")
 		return nil
 	} else if err != nil {
 		return err
