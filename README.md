@@ -21,7 +21,7 @@
 * `kubectl apply -f hack/worker/flux-crs.yaml`
 
 ### Create Redis Promise
-* `k config --context=kind-platform`
+* `k config use-context kind-platform`
 * `kubectl apply -f config/samples/redis-promise.yaml`
 
 ### Request a Redis
