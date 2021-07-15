@@ -7,7 +7,7 @@ metadata:
 spec:
   interval: 10s
   provider: generic
-  bucketName: snypl
+  bucketName: synpl
   endpoint: 172.18.0.2:31337
   insecure: true
   secretRef:
