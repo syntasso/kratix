@@ -17,6 +17,9 @@
 * `kubectl apply -f hack/worker/flux-install.yaml`
 * `kubectl apply -f hack/worker/flux-crs.yaml`
 
+### Target Platform Cluster
+* `k config use-context kind-platform`
+
 ### Optional: Modify the Promise so Penny gets a custom annotation
 * `cd config/samples/redis/transformation-image/`
 * `vim patch.yaml`
@@ -25,7 +28,6 @@
 * `cd -`
 
 ### Create Redis Promise
-* `k config use-context kind-platform`
 * `kubectl apply -f config/samples/redis/redis-promise.yaml`
 
 ### Request a Redis
