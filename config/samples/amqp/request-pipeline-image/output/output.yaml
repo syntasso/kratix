@@ -1,0 +1,23 @@
+apiVersion: rabbitmq.com/v1beta1
+kind: Queue
+metadata:
+  labels:
+    environment: development
+    syntasso: "true"
+  name: test
+  namespace: rabbitmq-system
+spec:
+  autoDelete: false
+  durable: true
+  name: test
+  rabbitmqClusterReference:
+    name: example-rabbit
+---
+apiVersion: rabbitmq.com/v1beta1
+kind: RabbitmqCluster
+metadata:
+  labels:
+    environment: development
+    syntasso: "true"
+  name: rabbitmq-system
+  namespace: default
