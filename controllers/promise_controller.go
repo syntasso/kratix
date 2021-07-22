@@ -89,8 +89,27 @@ func (r *PromiseReconciler) Reconcile(ctx context.Context, req ctrl.Request) (ct
 		fmt.Println(err.Error())
 		return ctrl.Result{}, nil
 	}
-	crdToCreate := &apiextensionsv1.CustomResourceDefinition{}
 
+	promiseIdentifier := promise.Name + "-" + promise.Namespace
+
+	//Cluster-Level Reconciliation
+	workToCreate := &v1alpha1.Work{}
+	workToCreate.Name = promiseIdentifier
+	workToCreate.Namespace = "default"
+	for _, u := range promise.Spec.WorkerResources {
+		workToCreate.Spec.Workload.Manifests = append(workToCreate.Spec.Workload.Manifests, v1alpha1.Manifest{Unstructured: u.Unstructured})
+	}
+
+	r.Log.Info("Creating Work resource for promise: " + promiseIdentifier)
+	err = r.Client.Create(ctx, workToCreate)
+	if err != nil {
+		r.Log.Error(err, "Failed Creating Work for Promise: "+promiseIdentifier)
+		return ctrl.Result{}, nil
+	}
+	r.Log.Info("Creating Work resource for promise: " + promiseIdentifier + " created")
+
+	//Instance-Level Reconciliation
+	crdToCreate := &apiextensionsv1.CustomResourceDefinition{}
 	err = json.Unmarshal(promise.Spec.CRD.Raw, crdToCreate)
 	if err != nil {
 		r.Log.Error(err, "Failed unmarshalling CRD")
@@ -121,8 +140,6 @@ func (r *PromiseReconciler) Reconcile(ctx context.Context, req ctrl.Request) (ct
 		fmt.Println("REQUEUE")
 		return ctrl.Result{RequeueAfter: 5 * time.Second}, nil
 	}
-
-	promiseIdentifier := promise.Name + "-" + promise.Namespace
 
 	// CONTROLLER RBAC
 	cr := rbacv1.ClusterRole{

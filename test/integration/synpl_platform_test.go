@@ -47,7 +47,7 @@ var (
 	err       error
 
 	interval = "3s"
-	timeout  = "120s"
+	timeout  = "60s"
 
 	redis_gvk = schema.GroupVersionKind{
 		Group:   "redis.redis.opstreelabs.in",
@@ -88,12 +88,33 @@ var _ = Describe("SynplPlatform Integration Test", func() {
 	})
 
 	Describe("Redis Promise lifecycle", func() {
-		It("Applying a Redis Promise CRD manifests a Redis api-resource", func() {
-			applyPromiseCRD(REDIS_CRD)
+		FDescribe("Applying Redis Promise", func() {
+			It("Applying a Promise CRD manifests a Redis api-resource", func() {
+				applyPromiseCRD(REDIS_CRD)
 
-			Eventually(func() bool {
-				return isAPIResourcePresent(redis_gvk)
-			}, timeout, interval).Should(BeTrue())
+				Eventually(func() bool {
+					return isAPIResourcePresent(redis_gvk)
+				}, timeout, interval).Should(BeTrue())
+			})
+
+			It("writes the resources to Minio that are defined in the Promise manifest", func() {
+				// applyPromiseCRD(REDIS_CRD)
+
+				//what is this for cluster level?
+				workloadNamespacedName := types.NamespacedName{
+					Name:      "redis-promise-default",
+					Namespace: "default",
+				}
+				Eventually(func() bool {
+					//Read from Minio
+					//Assert that the Postgres resource is present
+					resourceName := "redis.redis.redis.opstreelabs.in"
+					resourceKind := "CustomResourceDefinition"
+
+					found, _ := minioHasWorkloadWithResourceWithNameAndKind(workloadNamespacedName, resourceName, resourceKind)
+					return found
+				}, timeout, interval).Should(BeTrue(), "has the Redis CRD")
+			})
 		})
 
 		Describe("Applying Redis resource triggers the TransformationPipeline™", func() {

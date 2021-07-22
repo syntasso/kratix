@@ -41,18 +41,18 @@ type Work struct {
 
 // WorkSpec defines the desired state of Work
 type WorkSpec struct {
-	// Workload represents the manifest workload to be deployed on managed cluster
+	// Workload represents the manifest workload to be deployed on worker cluster
 	Workload WorkloadTemplate `json:"workload,omitempty"`
 }
 
-// WorkloadTemplate represents the manifest workload to be deployed on managed cluster
+// WorkloadTemplate represents the manifest workload to be deployed on worker cluster
 type WorkloadTemplate struct {
-	// Manifests represents a list of kuberenetes resources to be deployed on the managed cluster.
+	// Manifests represents a list of kuberenetes resources to be deployed on the worker cluster.
 	// +optional
 	Manifests []Manifest `json:"manifests,omitempty"`
 }
 
-// Manifest represents a resource to be deployed on managed cluster
+// Manifest represents a resource to be deployed on worker cluster
 type Manifest struct {
 	// +kubebuilder:validation:EmbeddedResource
 	// +kubebuilder:pruning:PreserveUnknownFields

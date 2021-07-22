@@ -18,6 +18,7 @@ package v1alpha1
 
 import (
 	metav1 "k8s.io/apimachinery/pkg/apis/meta/v1"
+	"k8s.io/apimachinery/pkg/apis/meta/v1/unstructured"
 	"k8s.io/apimachinery/pkg/runtime"
 )
 
@@ -46,6 +47,17 @@ type PromiseSpec struct {
 
 	// Array of Image tags to transform from input request custom resource to output resource(s)
 	RequestPipeline []string `json:"requestPipeline,omitempty"`
+
+	WorkerResources []WorkerResource `json:"workerResources,omitempty"`
+}
+
+// Resources represents the manifest workload to be deployed on worker cluster
+type WorkerResource struct {
+	// Manifests represents a list of kubernetes resources to be deployed on the worker cluster.
+	// +optional
+	// +kubebuilder:validation:EmbeddedResource
+	// +kubebuilder:pruning:PreserveUnknownFields
+	unstructured.Unstructured `json:",inline"`
 }
 
 // PromiseStatus defines the observed state of Promise

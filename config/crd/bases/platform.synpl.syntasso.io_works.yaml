@@ -38,14 +38,14 @@ spec:
             properties:
               workload:
                 description: Workload represents the manifest workload to be deployed
-                  on managed cluster
+                  on worker cluster
                 properties:
                   manifests:
                     description: Manifests represents a list of kuberenetes resources
-                      to be deployed on the managed cluster.
+                      to be deployed on the worker cluster.
                     items:
                       description: Manifest represents a resource to be deployed on
-                        managed cluster
+                        worker cluster
                       type: object
                       x-kubernetes-embedded-resource: true
                       x-kubernetes-preserve-unknown-fields: true
