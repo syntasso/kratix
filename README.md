@@ -8,7 +8,6 @@
 ### Setup Platform Cluster
 * `kind create cluster --name platform`
 * `kubectl apply -f hack/platform/minio-install.yaml`
-* `mc mb kind/synpl`
 * `make deploy`
 
 ### Setup Worker Cluster
