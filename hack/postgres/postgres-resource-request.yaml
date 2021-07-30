@@ -1,0 +1,7 @@
+---
+apiVersion: example.promise.syntasso.io/v1
+kind: Postgres
+metadata:
+  name: annes-database
+spec:
+  preparedDatabases: annes-database
