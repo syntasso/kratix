@@ -1,0 +1,7 @@
+---
+apiVersion: example.promise.syntasso.io/v1
+kind: AMQP
+metadata:
+  name: small-amqp-server
+spec:
+  envType: development # production / development
