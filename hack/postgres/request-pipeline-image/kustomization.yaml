@@ -4,5 +4,24 @@ kind: Kustomization
 commonLabels:
   syntasso: "true"
 
+#Remove fields created by the Platform that will conflict with the Worker
+patches:
+- target:
+    kind: postgresql
+  patch: |-
+    - op: remove
+      path: /metadata/resourceVersion
+    - op: remove
+      path: /metadata/uid
+    - op: remove
+      path: /metadata/annotations
+    - op: remove
+      path: /metadata/creationTimestamp
+    - op: remove
+      path: /metadata/generation
+
+patchesStrategicMerge:
+  - object.yaml
+
 resources:
 - minimal-postgres-manifest.yaml

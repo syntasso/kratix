@@ -3,6 +3,8 @@ kind: postgresql
 metadata:
   name: acid-minimal-cluster
   namespace: default
+  resourceVersion: nil
+  uid: nil
 spec:
   teamId: "acid"
   volume:

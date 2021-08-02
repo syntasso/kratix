@@ -1,7 +1,10 @@
 ---
-apiVersion: example.promise.syntasso.io/v1
-kind: Postgres
+apiVersion: "acid.zalan.do/v1"
+kind: postgresql
 metadata:
-  name: annes-database
+  name: acid-minimal-cluster
+  namespace: default
 spec:
-  preparedDatabases: annes-database
+  preparedDatabases:
+    anne: {}
+    annedev: {}
