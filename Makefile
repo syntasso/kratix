@@ -1,6 +1,6 @@
 
 # Image URL to use all building/pushing image targets
-IMG ?= syntasso/synpl-platform:dev
+IMG ?= syntasso/kratix-platform:dev
 # Produce CRDs that work back to Kubernetes 1.11 (no version conversion)
 CRD_OPTIONS ?= "crd:trivialVersions=true,preserveUnknownFields=false"
 
@@ -55,7 +55,7 @@ install-test-minio: ### Install test Minio server
 int-test: manifests generate fmt vet deploy install-test-minio ## Run integrations tests.
 	go test ./test/integration -coverprofile cover.out
 
-kind-load-image: docker-build ## Load locally built image into KinD, use export IMG=syntasso/synpl-platform:dev
+kind-load-image: docker-build ## Load locally built image into KinD, use export IMG=syntasso/kratix-platform:dev
 	kind load docker-image ${IMG}
 
 ENVTEST_ASSETS_DIR=$(shell pwd)/testbin

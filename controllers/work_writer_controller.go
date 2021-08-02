@@ -31,7 +31,7 @@ import (
 	ctrl "sigs.k8s.io/controller-runtime"
 	"sigs.k8s.io/controller-runtime/pkg/client"
 
-	platformv1alpha1 "github.com/syntasso/synpl-platform/api/v1alpha1"
+	platformv1alpha1 "github.com/syntasso/kratix/api/v1alpha1"
 )
 
 // WorkReconciler reconciles a Work object
@@ -41,9 +41,9 @@ type WorkWriterReconciler struct {
 	Scheme *runtime.Scheme
 }
 
-//+kubebuilder:rbac:groups=platform.synpl.syntasso.io,resources=works,verbs=get;list;watch;create;update;patch;delete
-//+kubebuilder:rbac:groups=platform.synpl.syntasso.io,resources=works/status,verbs=get;update;patch
-//+kubebuilder:rbac:groups=platform.synpl.syntasso.io,resources=works/finalizers,verbs=update
+//+kubebuilder:rbac:groups=platform.kratix.syntasso.io,resources=works,verbs=get;list;watch;create;update;patch;delete
+//+kubebuilder:rbac:groups=platform.kratix.syntasso.io,resources=works/status,verbs=get;update;patch
+//+kubebuilder:rbac:groups=platform.kratix.syntasso.io,resources=works/finalizers,verbs=update
 
 // Reconcile is part of the main kubernetes reconciliation loop which aims to
 // move the current state of the cluster closer to the desired state.
@@ -101,7 +101,7 @@ func (r *WorkWriterReconciler) writeToMinio(work *platformv1alpha1.Work) error {
 
 func (r *WorkWriterReconciler) yamlUploader(objectName string, fluxYaml []byte) error {
 	ctx := context.Background()
-	endpoint := "minio.synpl-platform-system.svc.cluster.local"
+	endpoint := "minio.kratix-platform-system.svc.cluster.local"
 	accessKeyID := "minioadmin"
 	secretAccessKey := "minioadmin"
 	useSSL := false
@@ -117,7 +117,7 @@ func (r *WorkWriterReconciler) yamlUploader(objectName string, fluxYaml []byte) 
 		return err
 	}
 
-	bucketName := "synpl"
+	bucketName := "kratix"
 	location := "local-minio"
 
 	err = minioClient.MakeBucket(ctx, bucketName, minio.MakeBucketOptions{Region: location})

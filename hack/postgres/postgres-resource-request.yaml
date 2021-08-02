@@ -7,4 +7,3 @@ metadata:
 spec:
   preparedDatabases:
     anne: {}
-    annedev: {}

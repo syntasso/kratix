@@ -1,25 +1,25 @@
-domain: synpl.syntasso.io
+domain: kratix.syntasso.io
 layout:
 - go.kubebuilder.io/v3
-projectName: synpl-platform
-repo: github.com/syntasso/synpl-platform
+projectName: kratix
+repo: github.com/syntasso/kratix
 resources:
 - api:
     crdVersion: v1
     namespaced: true
   controller: true
-  domain: synpl.syntasso.io
+  domain: kratix.syntasso.io
   group: platform
   kind: Promise
-  path: github.com/syntasso/synpl-platform/api/v1alpha1
+  path: github.com/syntasso/kratix/api/v1alpha1
   version: v1alpha1
 - api:
     crdVersion: v1
     namespaced: true
   controller: true
-  domain: synpl.syntasso.io
+  domain: kratix.syntasso.io
   group: platform
   kind: Work
-  path: github.com/syntasso/synpl-platform/api/v1alpha1
+  path: github.com/syntasso/kratix/api/v1alpha1
   version: v1alpha1
 version: "3"

@@ -1,4 +1,4 @@
-# SynPl FTW
+# kratix FTW
 
 ## Installation 
 

@@ -9,8 +9,8 @@ import (
 
 	. "github.com/onsi/ginkgo"
 	. "github.com/onsi/gomega"
-	platformv1alpha1 "github.com/syntasso/synpl-platform/api/v1alpha1"
-	"github.com/syntasso/synpl-platform/work-creator/pipeline"
+	platformv1alpha1 "github.com/syntasso/kratix/api/v1alpha1"
+	"github.com/syntasso/kratix/work-creator/pipeline"
 	"k8s.io/apimachinery/pkg/apis/meta/v1/unstructured"
 	"k8s.io/apimachinery/pkg/types"
 	"k8s.io/apimachinery/pkg/util/yaml"
@@ -33,7 +33,7 @@ var _ = Describe("WorkCreator", func() {
 			Expect(err).ToNot(HaveOccurred())
 
 			// //to test main
-			// mainPath, err := gexec.Build("github.com/syntasso/synpl-platform/work-creator/pipeline/cmd")
+			// mainPath, err := gexec.Build("github.com/syntasso/kratix/work-creator/pipeline/cmd")
 			// Expect(err).NotTo(HaveOccurred())
 
 			// cmd := exec.Command(mainPath)
@@ -50,7 +50,7 @@ var _ = Describe("WorkCreator", func() {
 			workResource = getCreatedWorkResource()
 			Expect(workResource.GetName()).To(Equal(getWorkResourceIdentifer()))
 			//Expect(workResource.Kind).To(Equal("Work"))
-			//Expect(workResource.APIVersion).To(Equal("platform.synpl.syntasso.io/v1alpha1"))
+			//Expect(workResource.APIVersion).To(Equal("platform.kratix.syntasso.io/v1alpha1"))
 		})
 
 		Describe("the Work resource manifests list", func() {

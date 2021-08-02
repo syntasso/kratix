@@ -6,20 +6,20 @@ metadata:
   annotations:
     controller-gen.kubebuilder.io/version: v0.4.1
   creationTimestamp: null
-  name: promises.platform.synpl.syntasso.io
+  name: works.platform.kratix.syntasso.io
 spec:
-  group: platform.synpl.syntasso.io
+  group: platform.kratix.syntasso.io
   names:
-    kind: Promise
-    listKind: PromiseList
-    plural: promises
-    singular: promise
+    kind: Work
+    listKind: WorkList
+    plural: works
+    singular: work
   scope: Namespaced
   versions:
   - name: v1alpha1
     schema:
       openAPIV3Schema:
-        description: Promise is the Schema for the promises API
+        description: Work is the Schema for the works API
         properties:
           apiVersion:
             description: 'APIVersion defines the versioned schema of this representation
@@ -34,30 +34,26 @@ spec:
           metadata:
             type: object
           spec:
-            description: PromiseSpec defines the desired state of Promise
+            description: WorkSpec defines the desired state of Work
             properties:
-              crd:
-                description: X's CustomResourceDefinition to create the X-aaS offering
+              workload:
+                description: Workload represents the manifest workload to be deployed
+                  on worker cluster
+                properties:
+                  manifests:
+                    description: Manifests represents a list of kuberenetes resources
+                      to be deployed on the worker cluster.
+                    items:
+                      description: Manifest represents a resource to be deployed on
+                        worker cluster
+                      type: object
+                      x-kubernetes-embedded-resource: true
+                      x-kubernetes-preserve-unknown-fields: true
+                    type: array
                 type: object
-                x-kubernetes-embedded-resource: true
-                x-kubernetes-preserve-unknown-fields: true
-              requestPipeline:
-                description: Array of Image tags to transform from input request custom
-                  resource to output resource(s)
-                items:
-                  type: string
-                type: array
-              workerResources:
-                items:
-                  description: Resources represents the manifest workload to be deployed
-                    on worker cluster
-                  type: object
-                  x-kubernetes-embedded-resource: true
-                  x-kubernetes-preserve-unknown-fields: true
-                type: array
             type: object
           status:
-            description: PromiseStatus defines the observed state of Promise
+            description: WorkStatus defines the observed state of Work
             type: object
         type: object
     served: true

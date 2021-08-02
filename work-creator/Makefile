@@ -1,5 +1,5 @@
 # Image URL to use all building/pushing image targets
-IMG ?= syntasso/synpl-platform-work-creator:dev
+IMG ?= syntasso/kratix-platform-work-creator:dev
 
 # Setting SHELL to bash allows bash commands to be executed by recipes.
 # This is a requirement for 'setup-envtest.sh' in the test target.

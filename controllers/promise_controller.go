@@ -25,7 +25,7 @@ import (
 	"strings"
 
 	"github.com/go-logr/logr"
-	"github.com/syntasso/synpl-platform/api/v1alpha1"
+	"github.com/syntasso/kratix/api/v1alpha1"
 	v1 "k8s.io/api/core/v1"
 	rbacv1 "k8s.io/api/rbac/v1"
 	apiextensionsv1 "k8s.io/apiextensions-apiserver/pkg/apis/apiextensions/v1"
@@ -58,9 +58,9 @@ type dynamicController struct {
 	log               logr.Logger
 }
 
-//+kubebuilder:rbac:groups=platform.synpl.syntasso.io,resources=promises,verbs=get;list;watch;create;update;patch;delete
-//+kubebuilder:rbac:groups=platform.synpl.syntasso.io,resources=promises/status,verbs=get;update;patch
-//+kubebuilder:rbac:groups=platform.synpl.syntasso.io,resources=promises/finalizers,verbs=update
+//+kubebuilder:rbac:groups=platform.kratix.syntasso.io,resources=promises,verbs=get;list;watch;create;update;patch;delete
+//+kubebuilder:rbac:groups=platform.kratix.syntasso.io,resources=promises/status,verbs=get;update;patch
+//+kubebuilder:rbac:groups=platform.kratix.syntasso.io,resources=promises/finalizers,verbs=update
 
 //+kubebuilder:rbac:groups=apiextensions.k8s.io,resources=customresourcedefinitions,verbs=get;list;watch;create;update;patch;delete
 
@@ -181,8 +181,8 @@ func (r *PromiseReconciler) Reconcile(ctx context.Context, req ctrl.Request) (ct
 		Subjects: []rbacv1.Subject{
 			{
 				Kind:      "ServiceAccount",
-				Namespace: "synpl-platform-system",
-				Name:      "synpl-platform-controller-manager",
+				Namespace: "kratix-platform-system",
+				Name:      "kratix-platform-controller-manager",
 			},
 		},
 	}
@@ -204,7 +204,7 @@ func (r *PromiseReconciler) Reconcile(ctx context.Context, req ctrl.Request) (ct
 				Verbs:     []string{"get", "list", "update", "create", "patch"},
 			},
 			{
-				APIGroups: []string{"platform.synpl.syntasso.io"},
+				APIGroups: []string{"platform.kratix.syntasso.io"},
 				Resources: []string{"works"},
 				Verbs:     []string{"get", "update", "create", "patch"},
 			},
@@ -313,7 +313,7 @@ func (r *dynamicController) Reconcile(ctx context.Context, req ctrl.Request) (ct
 			Containers: []v1.Container{
 				{
 					Name:    "writer",
-					Image:   "syntasso/synpl-platform-work-creator:dev",
+					Image:   "syntasso/kratix-platform-work-creator:dev",
 					Command: []string{"sh", "-c", workCreatorCommand},
 					VolumeMounts: []v1.VolumeMount{
 						{

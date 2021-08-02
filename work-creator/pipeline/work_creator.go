@@ -8,7 +8,7 @@ import (
 	"os"
 	"path/filepath"
 
-	platformv1alpha1 "github.com/syntasso/synpl-platform/api/v1alpha1"
+	platformv1alpha1 "github.com/syntasso/kratix/api/v1alpha1"
 	"k8s.io/apimachinery/pkg/api/errors"
 	"k8s.io/apimachinery/pkg/apis/meta/v1/unstructured"
 	"k8s.io/apimachinery/pkg/types"

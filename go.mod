@@ -1,4 +1,4 @@
-module github.com/syntasso/synpl-platform
+module github.com/syntasso/kratix
 
 go 1.15
 

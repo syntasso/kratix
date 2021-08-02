@@ -9,7 +9,7 @@ import (
 	"github.com/minio/minio-go/v7/pkg/credentials"
 	. "github.com/onsi/ginkgo"
 	. "github.com/onsi/gomega"
-	platformv1alpha1 "github.com/syntasso/synpl-platform/api/v1alpha1"
+	platformv1alpha1 "github.com/syntasso/kratix/api/v1alpha1"
 
 	v1 "k8s.io/api/core/v1"
 	"k8s.io/apimachinery/pkg/api/errors"
@@ -36,11 +36,11 @@ import (
  1. A 'clean' k8s cluster
  2. `make deploy` has been run. Note: `make int-test` will
  ensure that `deploy` is executed
- 3. `export IMG=syntasso/synpl-platform:dev make kind-load-image`
+ 3. `export IMG=syntasso/kratix-platform:dev make kind-load-image`
  4. `make int-test`
 
  Cleanup:
- k delete databases.postgresql.dev4devs.com database && k delete crd databases.postgresql.dev4devs.com && k delete promises.platform.synpl.syntasso.io postgres-promise && k delete works.platform.synpl.syntasso.io work-sample
+ k delete databases.postgresql.dev4devs.com database && k delete crd databases.postgresql.dev4devs.com && k delete promises.platform.kratix.syntasso.io postgres-promise && k delete works.platform.kratix.syntasso.io work-sample
 */
 var (
 	k8sClient client.Client
@@ -62,7 +62,7 @@ var (
 	}
 
 	work_gvk = schema.GroupVersionKind{
-		Group:   "platform.synpl.syntasso.io",
+		Group:   "platform.kratix.syntasso.io",
 		Version: "v1alpha1",
 		Kind:    "Work",
 	}
@@ -76,13 +76,13 @@ const (
 	POSTGRES_RESOURCE_REQUEST     = "../../config/samples/postgres/postgres-resource-request.yaml"
 )
 
-var _ = Describe("SynplPlatform Integration Test", func() {
+var _ = Describe("kratix Platform Integration Test", func() {
 	BeforeSuite(func() {
 		initK8sClient()
 
-		By("SynPl is running")
+		By("kratix is running")
 		Eventually(func() bool {
-			pod := getSynPlControllerPod()
+			pod := getKratixControllerPod()
 			return isPodRunning(pod)
 		}, timeout, interval).Should(BeTrue())
 	})
@@ -254,7 +254,7 @@ var _ = Describe("SynplPlatform Integration Test", func() {
 
 func minioHasWorkloadWithResourceWithNameAndKind(workloadNamespacedName types.NamespacedName, resourceName string, resourceKind string) (bool, unstructured.Unstructured) {
 
-	// endpoint := "minio.synpl-system.svc.cluster.local"
+	// endpoint := "minio.kratix-system.svc.cluster.local"
 	endpoint := "172.18.0.2:31337"
 	accessKeyID := "minioadmin"
 	secretAccessKey := "minioadmin"
@@ -267,7 +267,7 @@ func minioHasWorkloadWithResourceWithNameAndKind(workloadNamespacedName types.Na
 	})
 	Expect(err).ToNot(HaveOccurred())
 
-	bucketName := "synpl"
+	bucketName := "kratix"
 	// unique file name := "{workload metadata.name}-{workload metadata.namespace}"
 	objectName := workloadNamespacedName.Namespace + "-" + workloadNamespacedName.Name + ".yaml"
 
@@ -384,13 +384,13 @@ func isPodRunning(pod v1.Pod) bool {
 	}
 }
 
-func getSynPlControllerPod() v1.Pod {
+func getKratixControllerPod() v1.Pod {
 	isController, _ := labels.NewRequirement("control-plane", selection.Equals, []string{"controller-manager"})
 	selector := labels.NewSelector().
 		Add(*isController)
 
 	listOps := &client.ListOptions{
-		Namespace:     "synpl-platform-system",
+		Namespace:     "kratix-platform-system",
 		LabelSelector: selector,
 	}
 

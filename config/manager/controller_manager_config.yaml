@@ -8,4 +8,4 @@ webhook:
   port: 9443
 leaderElection:
   leaderElect: true
-  resourceName: 2743c979.synpl.syntasso.io
+  resourceName: 2743c979.kratix.syntasso.io

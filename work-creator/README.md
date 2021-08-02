@@ -1,5 +1,5 @@
 * Start KinD
-* `make deploy` in root of SynPl
+* `make deploy` in root of kratix
 * `cd work-creator/pipeline/cmd`
 * Start work creator (note `-input-directory` needs to be an absolute path)
 ** `go run main.go -identifier=dave -input-directory=${PWD}/work-creator/test/integration/samples`

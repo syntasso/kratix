@@ -5,8 +5,8 @@ import (
 	"fmt"
 	"os"
 
-	platformv1alpha1 "github.com/syntasso/synpl-platform/api/v1alpha1"
-	"github.com/syntasso/synpl-platform/work-creator/pipeline"
+	platformv1alpha1 "github.com/syntasso/kratix/api/v1alpha1"
+	"github.com/syntasso/kratix/work-creator/pipeline"
 	"k8s.io/client-go/kubernetes/scheme"
 	ctrl "sigs.k8s.io/controller-runtime"
 	"sigs.k8s.io/controller-runtime/pkg/client"
