@@ -8,6 +8,7 @@ commonLabels:
 patches:
 - target:
     kind: postgresql
+    name: TBD
   patch: |-
     - op: remove
       path: /metadata/resourceVersion
