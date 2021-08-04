@@ -1,5 +1,3 @@
-#https://github.com/jenkinsci/kubernetes-operator
----
 apiVersion: v1
 kind: ServiceAccount
 metadata:
