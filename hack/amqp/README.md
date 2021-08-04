@@ -1,8 +1,10 @@
 # Promise Creation
 Decide on the abstractions. Create Promise CRD, properties, and validation are the important bit -- lots of effort to get this right. I wonder if Kubebuilder could help here somehow. 
 
+# Dependencies 
+Install Cert Manager Promnise as RMQ depends on it. 
+
 # Cluster Level Install
-1. Install Certmanager
 1. Install RMQ Cluster Operator 
 1. Install RMQ messaging topology Operator 
 
