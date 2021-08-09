@@ -1,9 +1,10 @@
 ---
-apiVersion: "acid.zalan.do/v1"
-kind: postgresql
+apiVersion: example.promise.syntasso.io/v1
+kind: postgres
 metadata:
   name: acid-minimal-cluster
   namespace: default
 spec:
   preparedDatabases:
     anne: {}
+    penny: {}
