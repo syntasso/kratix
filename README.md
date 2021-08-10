@@ -1,4 +1,4 @@
-# kratix FTW
+# Kratix FTW
 
 ## Installation 
 
