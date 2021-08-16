@@ -19,7 +19,6 @@ package controllers
 import (
 	"bytes"
 	"context"
-	"fmt"
 	"time"
 
 	"github.com/go-logr/logr"
@@ -78,8 +77,6 @@ func (r *WorkWriterReconciler) Reconcile(ctx context.Context, req ctrl.Request) 
 }
 
 func (r *WorkWriterReconciler) writeToMinio(work *platformv1alpha1.Work) error {
-	objectName := work.GetNamespace() + "-" + work.GetName() + ".yaml"
-
 	serializer := json.NewSerializerWithOptions(
 		json.DefaultMetaFactory, nil, nil,
 		json.SerializerOptions{
@@ -89,17 +86,45 @@ func (r *WorkWriterReconciler) writeToMinio(work *platformv1alpha1.Work) error {
 		},
 	)
 
-	buffer := bytes.NewBuffer([]byte{})
-	writer := json.YAMLFramer.NewFrameWriter(buffer)
+	crdBuffer := bytes.NewBuffer([]byte{})
+	crdWriter := json.YAMLFramer.NewFrameWriter(crdBuffer)
+	resourceBuffer := bytes.NewBuffer([]byte{})
+	resourceWriter := json.YAMLFramer.NewFrameWriter(resourceBuffer)
 
 	for _, manifest := range work.Spec.Workload.Manifests {
-		serializer.Encode(&manifest, writer)
+		if manifest.GetKind() == "CustomResourceDefinition" {
+			serializer.Encode(&manifest, crdWriter)
+		} else {
+			serializer.Encode(&manifest, resourceWriter)
+		}
 	}
 
-	return r.yamlUploader(objectName, buffer.Bytes())
+	// Upload CRDs to Minio in separate files to other resources. The 00-crds files are applied before 01-resources by the Kustomise controller when it autogenerates its manifest. This is to ensure the APIs for resources exist before the resources are applied.
+	// See https://github.com/fluxcd/kustomize-controller/blob/main/docs/spec/v1beta1/kustomization.md#generate-kustomizationyaml .
+	crdObjectName := "00-" + work.GetNamespace() + "-" + work.GetName() + "-crds.yaml"
+	err := r.yamlUploader(crdObjectName, crdBuffer.Bytes())
+	if err != nil {
+		r.Log.Error(err, "Error uploadding CRDs to Minio")
+		return err
+	}
+
+	resourcesObjectName := "01-" + work.GetNamespace() + "-" + work.GetName() + "-resources.yaml"
+	err = r.yamlUploader(resourcesObjectName, resourceBuffer.Bytes())
+	if err != nil {
+		r.Log.Error(err, "Error uploadding resources to Minio")
+		return err
+	}
+
+	return nil
 }
 
 func (r *WorkWriterReconciler) yamlUploader(objectName string, fluxYaml []byte) error {
+
+	if len(fluxYaml) == 0 {
+		r.Log.Info("Empty byte[]. Nothing to write to Minio for " + objectName)
+		return nil
+	}
+
 	ctx := context.Background()
 	endpoint := "minio.kratix-platform-system.svc.cluster.local"
 	accessKeyID := "minioadmin"
@@ -113,7 +138,7 @@ func (r *WorkWriterReconciler) yamlUploader(objectName string, fluxYaml []byte) 
 	})
 
 	if err != nil {
-		r.Log.Error(err, "Error initalising Mino client")
+		r.Log.Error(err, "Error initalising Minio client")
 		return err
 	}
 
@@ -133,8 +158,6 @@ func (r *WorkWriterReconciler) yamlUploader(objectName string, fluxYaml []byte) 
 	} else {
 		r.Log.Info("Successfully created Minio Bucket " + bucketName)
 	}
-
-	fmt.Println("1")
 
 	contentType := "text/x-yaml"
 	reader := bytes.NewReader(fluxYaml)

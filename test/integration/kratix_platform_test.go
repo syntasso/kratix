@@ -87,8 +87,8 @@ var _ = Describe("kratix Platform Integration Test", func() {
 		}, timeout, interval).Should(BeTrue())
 	})
 
-	Describe("Redis Promise lifecycle", func() {
-		FDescribe("Applying Redis Promise", func() {
+	FDescribe("Redis Promise lifecycle", func() {
+		Describe("Applying Redis Promise", func() {
 			It("Applying a Promise CRD manifests a Redis api-resource", func() {
 				applyPromiseCRD(REDIS_CRD)
 
@@ -111,7 +111,7 @@ var _ = Describe("kratix Platform Integration Test", func() {
 					resourceName := "redis.redis.redis.opstreelabs.in"
 					resourceKind := "CustomResourceDefinition"
 
-					found, _ := minioHasWorkloadWithResourceWithNameAndKind(workloadNamespacedName, resourceName, resourceKind)
+					found, _ := minioHasCrd(workloadNamespacedName, resourceName, resourceKind)
 					return found
 				}, timeout, interval).Should(BeTrue(), "has the Redis CRD")
 			})
@@ -160,7 +160,7 @@ var _ = Describe("kratix Platform Integration Test", func() {
 					resourceName := "opstree-redis"
 					resourceKind := "Redis"
 
-					found, _ := minioHasWorkloadWithResourceWithNameAndKind(workloadNamespacedName, resourceName, resourceKind)
+					found, _ := minioHasResource(workloadNamespacedName, resourceName, resourceKind)
 					return found
 				}, timeout, interval).Should(BeTrue())
 			})
@@ -179,7 +179,7 @@ var _ = Describe("kratix Platform Integration Test", func() {
 					resourceName := "opstree-redis"
 					resourceKind := "Redis"
 
-					found, obj := minioHasWorkloadWithResourceWithNameAndKind(workloadNamespacedName, resourceName, resourceKind)
+					found, obj := minioHasResource(workloadNamespacedName, resourceName, resourceKind)
 					if found {
 						spec := obj.Object["spec"]
 						global := spec.(map[string]interface{})["global"]
@@ -244,7 +244,7 @@ var _ = Describe("kratix Platform Integration Test", func() {
 					resourceName := "database"
 					resourceKind := "Database"
 
-					found, _ := minioHasWorkloadWithResourceWithNameAndKind(workloadNamespacedName, resourceName, resourceKind)
+					found, _ := minioHasResource(workloadNamespacedName, resourceName, resourceKind)
 					return found
 				}, timeout, interval).Should(BeTrue())
 			})
@@ -252,7 +252,17 @@ var _ = Describe("kratix Platform Integration Test", func() {
 	})
 })
 
-func minioHasWorkloadWithResourceWithNameAndKind(workloadNamespacedName types.NamespacedName, resourceName string, resourceKind string) (bool, unstructured.Unstructured) {
+func minioHasCrd(workloadNamespacedName types.NamespacedName, resourceName string, resourceKind string) (bool, unstructured.Unstructured) {
+	objectName := "00-" + workloadNamespacedName.Namespace + "-" + workloadNamespacedName.Name + "-crds.yaml"
+	return minioHasWorkloadWithResourceWithNameAndKind(objectName, resourceName, resourceKind)
+}
+
+func minioHasResource(workloadNamespacedName types.NamespacedName, resourceName string, resourceKind string) (bool, unstructured.Unstructured) {
+	objectName := "01-" + workloadNamespacedName.Namespace + "-" + workloadNamespacedName.Name + "-resources.yaml"
+	return minioHasWorkloadWithResourceWithNameAndKind(objectName, resourceName, resourceKind)
+}
+
+func minioHasWorkloadWithResourceWithNameAndKind(objectName string, resourceName string, resourceKind string) (bool, unstructured.Unstructured) {
 
 	// endpoint := "minio.kratix-system.svc.cluster.local"
 	endpoint := "172.18.0.2:31337"
@@ -268,9 +278,6 @@ func minioHasWorkloadWithResourceWithNameAndKind(workloadNamespacedName types.Na
 	Expect(err).ToNot(HaveOccurred())
 
 	bucketName := "kratix"
-	// unique file name := "{workload metadata.name}-{workload metadata.namespace}"
-	objectName := workloadNamespacedName.Namespace + "-" + workloadNamespacedName.Name + ".yaml"
-
 	minioObject, err := minioClient.GetObject(context.Background(), bucketName, objectName, minio.GetObjectOptions{})
 	Expect(err).ToNot(HaveOccurred())
 
