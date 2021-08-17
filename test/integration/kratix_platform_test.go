@@ -254,15 +254,17 @@ var _ = Describe("kratix Platform Integration Test", func() {
 
 func minioHasCrd(workloadNamespacedName types.NamespacedName, resourceName string, resourceKind string) (bool, unstructured.Unstructured) {
 	objectName := "00-" + workloadNamespacedName.Namespace + "-" + workloadNamespacedName.Name + "-crds.yaml"
-	return minioHasWorkloadWithResourceWithNameAndKind(objectName, resourceName, resourceKind)
+	bucketName := "kratix-crds"
+	return minioHasWorkloadWithResourceWithNameAndKind(bucketName, objectName, resourceName, resourceKind)
 }
 
 func minioHasResource(workloadNamespacedName types.NamespacedName, resourceName string, resourceKind string) (bool, unstructured.Unstructured) {
 	objectName := "01-" + workloadNamespacedName.Namespace + "-" + workloadNamespacedName.Name + "-resources.yaml"
-	return minioHasWorkloadWithResourceWithNameAndKind(objectName, resourceName, resourceKind)
+	bucketName := "kratix-resources"
+	return minioHasWorkloadWithResourceWithNameAndKind(bucketName, objectName, resourceName, resourceKind)
 }
 
-func minioHasWorkloadWithResourceWithNameAndKind(objectName string, resourceName string, resourceKind string) (bool, unstructured.Unstructured) {
+func minioHasWorkloadWithResourceWithNameAndKind(bucketName string, objectName string, resourceName string, resourceKind string) (bool, unstructured.Unstructured) {
 
 	// endpoint := "minio.kratix-system.svc.cluster.local"
 	endpoint := "172.18.0.2:31337"
@@ -277,7 +279,6 @@ func minioHasWorkloadWithResourceWithNameAndKind(objectName string, resourceName
 	})
 	Expect(err).ToNot(HaveOccurred())
 
-	bucketName := "kratix"
 	minioObject, err := minioClient.GetObject(context.Background(), bucketName, objectName, minio.GetObjectOptions{})
 	Expect(err).ToNot(HaveOccurred())
 

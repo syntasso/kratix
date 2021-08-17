@@ -102,14 +102,14 @@ func (r *WorkWriterReconciler) writeToMinio(work *platformv1alpha1.Work) error {
 	// Upload CRDs to Minio in separate files to other resources. The 00-crds files are applied before 01-resources by the Kustomise controller when it autogenerates its manifest. This is to ensure the APIs for resources exist before the resources are applied.
 	// See https://github.com/fluxcd/kustomize-controller/blob/main/docs/spec/v1beta1/kustomization.md#generate-kustomizationyaml .
 	crdObjectName := "00-" + work.GetNamespace() + "-" + work.GetName() + "-crds.yaml"
-	err := r.yamlUploader(crdObjectName, crdBuffer.Bytes())
+	err := r.writeCrdsToMinio(crdObjectName, crdBuffer.Bytes())
 	if err != nil {
 		r.Log.Error(err, "Error uploadding CRDs to Minio")
 		return err
 	}
 
 	resourcesObjectName := "01-" + work.GetNamespace() + "-" + work.GetName() + "-resources.yaml"
-	err = r.yamlUploader(resourcesObjectName, resourceBuffer.Bytes())
+	err = r.writeResourcesToMinio(resourcesObjectName, resourceBuffer.Bytes())
 	if err != nil {
 		r.Log.Error(err, "Error uploadding resources to Minio")
 		return err
@@ -118,7 +118,17 @@ func (r *WorkWriterReconciler) writeToMinio(work *platformv1alpha1.Work) error {
 	return nil
 }
 
-func (r *WorkWriterReconciler) yamlUploader(objectName string, fluxYaml []byte) error {
+func (r *WorkWriterReconciler) writeResourcesToMinio(objectName string, fluxYaml []byte) error {
+	bucketName := "kratix-resources"
+	return r.yamlUploader(bucketName, objectName, fluxYaml)
+}
+
+func (r *WorkWriterReconciler) writeCrdsToMinio(objectName string, fluxYaml []byte) error {
+	bucketName := "kratix-crds"
+	return r.yamlUploader(bucketName, objectName, fluxYaml)
+}
+
+func (r *WorkWriterReconciler) yamlUploader(bucketName string, objectName string, fluxYaml []byte) error {
 
 	if len(fluxYaml) == 0 {
 		r.Log.Info("Empty byte[]. Nothing to write to Minio for " + objectName)
@@ -142,7 +152,6 @@ func (r *WorkWriterReconciler) yamlUploader(objectName string, fluxYaml []byte) 
 		return err
 	}
 
-	bucketName := "kratix"
 	location := "local-minio"
 
 	err = minioClient.MakeBucket(ctx, bucketName, minio.MakeBucketOptions{Region: location})

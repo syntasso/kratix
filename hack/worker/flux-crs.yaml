@@ -2,12 +2,26 @@
 apiVersion: source.toolkit.fluxcd.io/v1beta1
 kind: Bucket 
 metadata:
-  name: syntasso-workload 
+  name: syntasso-workload-crds 
   namespace: flux-system
 spec:
   interval: 10s
   provider: generic
-  bucketName: kratix
+  bucketName: kratix-crds
+  endpoint: 172.18.0.2:31337
+  insecure: true
+  secretRef:
+    name: minio-credentials
+---
+apiVersion: source.toolkit.fluxcd.io/v1beta1
+kind: Bucket 
+metadata:
+  name: syntasso-workload-resources 
+  namespace: flux-system
+spec:
+  interval: 10s
+  provider: generic
+  bucketName: kratix-resources
   endpoint: 172.18.0.2:31337
   insecure: true
   secretRef:
@@ -26,12 +40,27 @@ data:
 apiVersion: kustomize.toolkit.fluxcd.io/v1beta1
 kind: Kustomization
 metadata:
-  name: syntasso-workload 
+  name: syntasso-workload-resources 
+  namespace: flux-system 
+spec:
+  interval: 5s
+  prune: true
+  dependsOn: 
+    - name: syntasso-workload-crds
+  sourceRef:
+    kind: Bucket 
+    name: syntasso-workload-resources 
+  validation: client
+---
+apiVersion: kustomize.toolkit.fluxcd.io/v1beta1
+kind: Kustomization
+metadata:
+  name: syntasso-workload-crds 
   namespace: flux-system 
 spec:
   interval: 5s
   prune: true
   sourceRef:
     kind: Bucket 
-    name: syntasso-workload 
-  validation: client
+    name: syntasso-workload-crds 
+  validation: client  
