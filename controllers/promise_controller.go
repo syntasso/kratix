@@ -86,7 +86,6 @@ func (r *PromiseReconciler) Reconcile(ctx context.Context, req ctrl.Request) (ct
 	err := r.Client.Get(ctx, req.NamespacedName, promise)
 	if err != nil {
 		r.Log.Error(err, "Failed getting Promise")
-		fmt.Println(err.Error())
 		return ctrl.Result{}, nil
 	}
 
@@ -101,12 +100,14 @@ func (r *PromiseReconciler) Reconcile(ctx context.Context, req ctrl.Request) (ct
 	}
 
 	r.Log.Info("Creating Work resource for promise: " + promiseIdentifier)
-	err = r.Client.Create(ctx, workToCreate)
-	if err != nil {
-		r.Log.Error(err, "Failed Creating Work for Promise: "+promiseIdentifier)
-		return ctrl.Result{}, nil
+	if r.gvkDoesNotExist(workToCreate.GroupVersionKind()) {
+		err = r.Client.Create(ctx, workToCreate)
+		if err != nil {
+			r.Log.Error(err, "Failed Creating Work for Promise: "+promiseIdentifier)
+			return ctrl.Result{}, nil
+		}
+		r.Log.Info("Creating Work resource for promise: " + promiseIdentifier + " created")
 	}
-	r.Log.Info("Creating Work resource for promise: " + promiseIdentifier + " created")
 
 	//Instance-Level Reconciliation
 	crdToCreate := &apiextensionsv1.CustomResourceDefinition{}
@@ -137,7 +138,7 @@ func (r *PromiseReconciler) Reconcile(ctx context.Context, req ctrl.Request) (ct
 
 	// We should only proceed once the new gvk has been created in the API server
 	if r.gvkDoesNotExist(crdToCreateGvk) {
-		fmt.Println("REQUEUE")
+		r.Log.Info("Requeue:" + crdToCreate.Name + " is not ready on the API server yet.")
 		return ctrl.Result{RequeueAfter: 5 * time.Second}, nil
 	}
 
@@ -166,7 +167,7 @@ func (r *PromiseReconciler) Reconcile(ctx context.Context, req ctrl.Request) (ct
 	}
 	err = r.Client.Create(ctx, &cr)
 	if err != nil {
-		fmt.Println(err.Error())
+		r.Log.Error(err, "Error creating ClusterRole")
 	}
 
 	crb := rbacv1.ClusterRoleBinding{
@@ -188,7 +189,7 @@ func (r *PromiseReconciler) Reconcile(ctx context.Context, req ctrl.Request) (ct
 	}
 	err = r.Client.Create(ctx, &crb)
 	if err != nil {
-		fmt.Println(err.Error())
+		r.Log.Error(err, "Error creating ClusterRoleBinding")
 	}
 	// END CONTROLLER RBAC
 
@@ -212,7 +213,7 @@ func (r *PromiseReconciler) Reconcile(ctx context.Context, req ctrl.Request) (ct
 	}
 	err = r.Client.Create(ctx, &cr)
 	if err != nil {
-		fmt.Println(err.Error())
+		r.Log.Error(err, "Error creating ClusterRole")
 	}
 
 	crb = rbacv1.ClusterRoleBinding{
@@ -234,10 +235,10 @@ func (r *PromiseReconciler) Reconcile(ctx context.Context, req ctrl.Request) (ct
 	}
 	err = r.Client.Create(ctx, &crb)
 	if err != nil {
-		fmt.Println(err.Error())
+		r.Log.Error(err, "Error creating ClusterRoleBinding")
 	}
 
-	fmt.Println("Creating Service Account for " + promiseIdentifier)
+	r.Log.Info("Creating Service Account for " + promiseIdentifier)
 	sa := v1.ServiceAccount{
 		ObjectMeta: metav1.ObjectMeta{
 			Name:      promiseIdentifier + "-sa",
@@ -247,7 +248,6 @@ func (r *PromiseReconciler) Reconcile(ctx context.Context, req ctrl.Request) (ct
 	err = r.Client.Create(ctx, &sa)
 	if err != nil {
 		r.Log.Error(err, "Error creating Service Account for Promise "+promiseIdentifier)
-		fmt.Println(err.Error())
 	} else {
 		r.Log.Info("Created ServiceAccount for Promise " + promiseIdentifier)
 	}
@@ -284,7 +284,7 @@ func (r *PromiseReconciler) SetupWithManager(mgr ctrl.Manager) error {
 }
 
 func (r *dynamicController) Reconcile(ctx context.Context, req ctrl.Request) (ctrl.Result, error) {
-	fmt.Println("Dynamically Reconciling: " + req.Name)
+	r.log.Info("Dynamically Reconciling: " + req.Name)
 
 	unstructuredCRD := &unstructured.Unstructured{}
 	unstructuredCRD.SetGroupVersionKind(*r.gvk)
