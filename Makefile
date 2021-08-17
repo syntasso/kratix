@@ -56,7 +56,7 @@ int-test: manifests generate fmt vet deploy install-test-minio ## Run integratio
 	CK_GINKGO_DEPRECATIONS=1.16.4 ginkgo ./test/integration/  -r  --coverprofile cover.out
 
 kind-load-image: docker-build ## Load locally built image into KinD, use export IMG=syntasso/kratix-platform:dev
-	kind load docker-image ${IMG}
+	kind load docker-image ${IMG} --name platform
 
 ENVTEST_ASSETS_DIR=$(shell pwd)/testbin
 test: manifests generate fmt vet ## Run tests.
