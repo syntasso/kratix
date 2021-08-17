@@ -87,7 +87,7 @@ var _ = Describe("kratix Platform Integration Test", func() {
 		}, timeout, interval).Should(BeTrue())
 	})
 
-	FDescribe("Redis Promise lifecycle", func() {
+	Describe("Redis Promise lifecycle", func() {
 		Describe("Applying Redis Promise", func() {
 			It("Applying a Promise CRD manifests a Redis api-resource", func() {
 				applyPromiseCRD(REDIS_CRD)
