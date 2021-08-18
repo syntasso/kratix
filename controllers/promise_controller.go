@@ -100,13 +100,16 @@ func (r *PromiseReconciler) Reconcile(ctx context.Context, req ctrl.Request) (ct
 	}
 
 	r.Log.Info("Creating Work resource for promise: " + promiseIdentifier)
-	if r.gvkDoesNotExist(workToCreate.GroupVersionKind()) {
-		err = r.Client.Create(ctx, workToCreate)
-		if err != nil {
-			r.Log.Error(err, "Failed Creating Work for Promise: "+promiseIdentifier)
+
+	err = r.Client.Create(ctx, workToCreate)
+	if err != nil {
+		if errors.IsAlreadyExists(err) {
+			//todo test for existence and handle gracefully.
+			r.Log.Info("Works " + promiseIdentifier + "already exists")
+		} else {
+			r.Log.Error(err, "Error creating Works "+promiseIdentifier)
 			return ctrl.Result{}, nil
 		}
-		r.Log.Info("Creating Work resource for promise: " + promiseIdentifier + " created")
 	}
 
 	//Instance-Level Reconciliation
