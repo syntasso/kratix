@@ -194,17 +194,39 @@ var _ = Describe("kratix Platform Integration Test", func() {
 	})
 
 	Describe("Postgres Promise lifecycle", func() {
-		It("Applying a Postgres Promise CRD manifests a Postgres api-resource", func() {
-			applyPromiseCRD(POSTGRES_CRD)
+		Describe("Applying Postgres Promise", func() {
+			It("Applying a Promise CRD manifests a Postgres api-resource", func() {
+				applyPromiseCRD(POSTGRES_CRD)
 
-			Eventually(func() bool {
-				return isAPIResourcePresent(postgres_gvk)
-			}, timeout, interval).Should(BeTrue())
+				Eventually(func() bool {
+					return isAPIResourcePresent(postgres_gvk)
+				}, timeout, interval).Should(BeTrue())
+			})
+
+			It("writes the resources to Minio that are defined in the Promise manifest", func() {
+				// applyPromiseCRD(POSTGRES_CRD)
+
+				//what is this for cluster level?
+				workloadNamespacedName := types.NamespacedName{
+					Name:      "postgres-promise-default",
+					Namespace: "default",
+				}
+				Eventually(func() bool {
+					//Read from Minio
+					//Assert that the Postgres resource is present
+					resourceName := "databases.postgresql.dev4devs.com"
+					resourceKind := "CustomResourceDefinition"
+
+					found, _ := minioHasCrd(workloadNamespacedName, resourceName, resourceKind)
+					return found
+				}, timeout, interval).Should(BeTrue(), "has the Postgres CRD")
+			})
 		})
 
 		Describe("Applying Postgres resource triggers the TransformationPipeline™", func() {
-			It("Should have created a Work resource", func() {
+			It("Applying Postgres resource triggers the TransformationPipeline™", func() {
 				applyResourceRequest(POSTGRES_RESOURCE_REQUEST)
+
 				expectedName := types.NamespacedName{
 					Name:      "postgres-promise-default-default-database",
 					Namespace: "default",
@@ -215,7 +237,7 @@ var _ = Describe("kratix Platform Integration Test", func() {
 			})
 
 			It("should label the created Work resource with a target workload cluster", func() {
-				//applyResourceRequest(POSTGRES_RESOURCE)
+				//applyResourceRequest(POSTGRES_RESOURCE_REQUEST)
 				Eventually(func() bool {
 					expectedName := types.NamespacedName{
 						Name:      "postgres-promise-default-default-database",
@@ -232,7 +254,7 @@ var _ = Describe("kratix Platform Integration Test", func() {
 
 			It("should write a Postgres resource to Minio", func() {
 				// applyPromiseCRD(POSTGRES_CRD)
-				// applyResourceRequest(POSTGRES_RESOURCE)
+				// applyResourceRequest(POSTGRES_RESOURCE_REQUEST)
 				Eventually(func() bool {
 					workloadNamespacedName := types.NamespacedName{
 						Name:      "postgres-promise-default-default-database",
