@@ -1,0 +1,9 @@
+apiVersion: v1
+kind: ServiceAccount
+metadata:
+  name: tutorial-service-account
+  namespace: default
+secrets:
+- name: tutorial-registry-credentials
+imagePullSecrets:
+- name: tutorial-registry-credentials

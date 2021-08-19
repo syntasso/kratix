@@ -1,0 +1,10 @@
+---
+apiVersion: example.promise.syntasso.io/v1
+kind: appstack
+metadata:
+  name: annes-appstack
+spec:
+  applicationName: appstack-example-app
+  gitRepo: https://github.com/syntasso/appstack-example-app
+  appImageTag: syntasso/appstack-example-app
+  builderImageTag: syntasso/appstack-builder

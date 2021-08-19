@@ -1,0 +1,21 @@
+apiVersion: kpack.io/v1alpha1
+kind: Builder
+metadata:
+  name: appstack-example-app-builder
+  namespace: default
+spec:
+  serviceAccount: tutorial-service-account
+  tag: syntasso/appstack-builder
+  stack:
+    name: base
+    kind: ClusterStack
+  store:
+    name: default
+    kind: ClusterStore
+  order:
+  - group:
+    - id: paketo-buildpacks/go
+  - group:
+    - id: paketo-buildpacks/java
+  - group:
+    - id: paketo-buildpacks/nodejs

@@ -1,0 +1,15 @@
+apiVersion: kpack.io/v1alpha1
+kind: Image
+metadata:
+  name: appstack-example-app
+  namespace: default
+spec:
+  tag: syntasso/appstack-example-app
+  serviceAccount: tutorial-service-account
+  builder:
+    name: appstack-example-app-builder
+    kind: Builder
+  source:
+    git:
+      url: https://github.com/syntasso/appstack-example-app
+      revision: main

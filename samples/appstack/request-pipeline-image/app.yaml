@@ -1,0 +1,28 @@
+apiVersion: kappctrl.k14s.io/v1alpha1
+kind: App
+metadata:
+  name: <tbr-applicationName>-app
+  namespace: default
+spec:
+  paused: true # stop this killing my Docker account
+  serviceAccountName: default-ns-sa
+  fetch:
+  - image:
+      url: index.docker.io/<tbr-appImageTag>
+  template:
+  - ytt:
+      inline:
+        paths:
+          knative-serving.yml: |
+            apiVersion: serving.knative.dev/v1
+            kind: Service
+            metadata:
+              name: <tbr-applicationName>
+              namespace: default 
+            spec:
+              template:
+                spec:
+                  containers:
+                  - image: index.docker.io/<tbr-appImageTag>:latest
+  deploy:
+  - kapp: {}
