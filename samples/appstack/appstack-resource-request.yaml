@@ -8,3 +8,4 @@ spec:
   gitRepo: https://github.com/syntasso/appstack-example-app
   appImageTag: syntasso/appstack-example-app
   builderImageTag: syntasso/appstack-builder
+  dockerConfigJson: ENTER HERE

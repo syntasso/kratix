@@ -5,7 +5,7 @@ metadata:
   namespace: default
 spec:
   tag: <tbr-appImageTag>
-  serviceAccount: tutorial-service-account
+  serviceAccount: <tbr-applicationName>-service-account
   builder:
     name: <tbr-applicationName>-builder
     kind: Builder

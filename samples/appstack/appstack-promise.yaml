@@ -29,6 +29,8 @@ spec:
                     type: string
                   builderImageTag:
                     type: string
+                  dockerConfigJson:
+                    type: string
                   gitRepo:
                     type: string
                 type: object
@@ -38,14 +40,6 @@ spec:
   requestPipeline:
   - syntasso/appstack-request-pipeline
   workerResources:
-  - apiVersion: v1
-    data:
-      .dockerconfigjson: eyJhdXRocyI6eyJodHRwczovL2luZGV4LmRvY2tlci5pby92MS8iOnsidXNlcm5hbWUiOiJjZ2hzeXN0ZW1zIiwicGFzc3dvcmQiOiJteXR3eU0taHlnY2FrLThtYXNxaSIsImF1dGgiOiJZMmRvYzNsemRHVnRjenB0ZVhSM2VVMHRhSGxuWTJGckxUaHRZWE54YVE9PSJ9fX0=
-    kind: Secret
-    metadata:
-      name: tutorial-registry-credentials
-      namespace: default
-    type: kubernetes.io/dockerconfigjson
   - apiVersion: rbac.authorization.k8s.io/v1beta1
     kind: ClusterRoleBinding
     metadata:
@@ -5838,15 +5832,6 @@ spec:
     - kind: ServiceAccount
       name: webhook
       namespace: kpack
-  - apiVersion: v1
-    imagePullSecrets:
-    - name: tutorial-registry-credentials
-    kind: ServiceAccount
-    metadata:
-      name: tutorial-service-account
-      namespace: default
-    secrets:
-    - name: tutorial-registry-credentials
   - apiVersion: v1
     kind: Namespace
     metadata:

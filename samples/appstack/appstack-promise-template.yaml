@@ -39,3 +39,5 @@ spec:
                      type: string
                    builderImageTag:
                      type: string
+                   dockerConfigJson:
+                     type: string
