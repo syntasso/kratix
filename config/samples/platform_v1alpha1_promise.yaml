@@ -7,9 +7,9 @@ spec:
     apiVersion: something
     kind: Redis
     metadata:
-      name: redis.pennys-platform.acme.io
+      name: redis.test-platform.acme.io
     spec:
-      group: pennys-platform.acme.io
+      group: test-platform.acme.io
       names:
         kind: Redis
         listKind: RedisList

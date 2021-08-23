@@ -2,6 +2,6 @@
 apiVersion: example.promise.syntasso.io/v1
 kind: AMQP
 metadata:
-  name: annes-production-amqp
+  name: my-production-amqp
 spec:
   envType: production #production or development

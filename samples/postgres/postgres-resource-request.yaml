@@ -6,5 +6,4 @@ metadata:
   namespace: default
 spec:
   preparedDatabases:
-    anne: {}
-    penny: {}
+    mydb: {}

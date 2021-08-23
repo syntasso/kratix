@@ -2,7 +2,7 @@
 apiVersion: example.promise.syntasso.io/v1
 kind: appstack
 metadata:
-  name: annes-appstack
+  name: my-appstack
 spec:
   applicationName: appstack-example-app
   gitRepo: https://github.com/syntasso/appstack-example-app
