@@ -58,9 +58,9 @@ type dynamicController struct {
 	log               logr.Logger
 }
 
-//+kubebuilder:rbac:groups=platform.kratix.syntasso.io,resources=promises,verbs=get;list;watch;create;update;patch;delete
-//+kubebuilder:rbac:groups=platform.kratix.syntasso.io,resources=promises/status,verbs=get;update;patch
-//+kubebuilder:rbac:groups=platform.kratix.syntasso.io,resources=promises/finalizers,verbs=update
+//+kubebuilder:rbac:groups=platform.kratix.io,resources=promises,verbs=get;list;watch;create;update;patch;delete
+//+kubebuilder:rbac:groups=platform.kratix.io,resources=promises/status,verbs=get;update;patch
+//+kubebuilder:rbac:groups=platform.kratix.io,resources=promises/finalizers,verbs=update
 
 //+kubebuilder:rbac:groups=apiextensions.k8s.io,resources=customresourcedefinitions,verbs=get;list;watch;create;update;patch;delete
 
@@ -208,7 +208,7 @@ func (r *PromiseReconciler) Reconcile(ctx context.Context, req ctrl.Request) (ct
 				Verbs:     []string{"get", "list", "update", "create", "patch"},
 			},
 			{
-				APIGroups: []string{"platform.kratix.syntasso.io"},
+				APIGroups: []string{"platform.kratix.io"},
 				Resources: []string{"works"},
 				Verbs:     []string{"get", "update", "create", "patch"},
 			},

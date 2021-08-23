@@ -1,4 +1,4 @@
-domain: kratix.syntasso.io
+domain: kratix.io
 layout:
 - go.kubebuilder.io/v3
 projectName: kratix
@@ -8,7 +8,7 @@ resources:
     crdVersion: v1
     namespaced: true
   controller: true
-  domain: kratix.syntasso.io
+  domain: kratix.io
   group: platform
   kind: Promise
   path: github.com/syntasso/kratix/api/v1alpha1
@@ -17,7 +17,7 @@ resources:
     crdVersion: v1
     namespaced: true
   controller: true
-  domain: kratix.syntasso.io
+  domain: kratix.io
   group: platform
   kind: Work
   path: github.com/syntasso/kratix/api/v1alpha1

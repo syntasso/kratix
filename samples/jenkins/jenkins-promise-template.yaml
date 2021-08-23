@@ -1,4 +1,4 @@
-apiVersion: platform.kratix.syntasso.io/v1alpha1
+apiVersion: platform.kratix.io/v1alpha1
 kind: Promise
 metadata:
   name: jenkins-promise

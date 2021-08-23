@@ -50,7 +50,7 @@ var _ = Describe("WorkCreator", func() {
 			workResource = getCreatedWorkResource()
 			Expect(workResource.GetName()).To(Equal(getWorkResourceIdentifer()))
 			//Expect(workResource.Kind).To(Equal("Work"))
-			//Expect(workResource.APIVersion).To(Equal("platform.kratix.syntasso.io/v1alpha1"))
+			//Expect(workResource.APIVersion).To(Equal("platform.kratix.io/v1alpha1"))
 		})
 
 		Describe("the Work resource manifests list", func() {

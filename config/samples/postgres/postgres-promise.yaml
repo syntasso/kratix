@@ -1,5 +1,5 @@
 #https://github.com/dev4devs-com/postgresql-operator
-apiVersion: platform.kratix.syntasso.io/v1alpha1
+apiVersion: platform.kratix.io/v1alpha1
 kind: Promise
 metadata:
   name: postgres-promise

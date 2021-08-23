@@ -6,9 +6,9 @@ metadata:
   annotations:
     controller-gen.kubebuilder.io/version: v0.4.1
   creationTimestamp: null
-  name: promises.platform.kratix.syntasso.io
+  name: promises.platform.kratix.io
 spec:
-  group: platform.kratix.syntasso.io
+  group: platform.kratix.io
   names:
     kind: Promise
     listKind: PromiseList

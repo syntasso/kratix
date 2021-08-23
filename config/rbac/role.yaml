@@ -31,7 +31,7 @@ rules:
   - update
   - watch
 - apiGroups:
-  - platform.kratix.syntasso.io
+  - platform.kratix.io
   resources:
   - promises
   verbs:
@@ -43,13 +43,13 @@ rules:
   - update
   - watch
 - apiGroups:
-  - platform.kratix.syntasso.io
+  - platform.kratix.io
   resources:
   - promises/finalizers
   verbs:
   - update
 - apiGroups:
-  - platform.kratix.syntasso.io
+  - platform.kratix.io
   resources:
   - promises/status
   verbs:
@@ -57,7 +57,7 @@ rules:
   - patch
   - update
 - apiGroups:
-  - platform.kratix.syntasso.io
+  - platform.kratix.io
   resources:
   - works
   verbs:
@@ -69,13 +69,13 @@ rules:
   - update
   - watch
 - apiGroups:
-  - platform.kratix.syntasso.io
+  - platform.kratix.io
   resources:
   - works/finalizers
   verbs:
   - update
 - apiGroups:
-  - platform.kratix.syntasso.io
+  - platform.kratix.io
   resources:
   - works/status
   verbs:

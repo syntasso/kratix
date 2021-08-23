@@ -73,7 +73,7 @@ func main() {
 		Port:                   9443,
 		HealthProbeBindAddress: probeAddr,
 		LeaderElection:         enableLeaderElection,
-		LeaderElectionID:       "2743c979.kratix.syntasso.io",
+		LeaderElectionID:       "2743c979.kratix.io",
 	})
 	if err != nil {
 		setupLog.Error(err, "unable to start manager")

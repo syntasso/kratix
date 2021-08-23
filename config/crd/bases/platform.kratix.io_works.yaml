@@ -6,9 +6,9 @@ metadata:
   annotations:
     controller-gen.kubebuilder.io/version: v0.4.1
   creationTimestamp: null
-  name: works.platform.kratix.syntasso.io
+  name: works.platform.kratix.io
 spec:
-  group: platform.kratix.syntasso.io
+  group: platform.kratix.io
   names:
     kind: Work
     listKind: WorkList

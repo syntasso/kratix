@@ -40,7 +40,7 @@ import (
  4. `make int-test`
 
  Cleanup:
- k delete databases.postgresql.dev4devs.com database && k delete crd databases.postgresql.dev4devs.com && k delete promises.platform.kratix.syntasso.io postgres-promise && k delete works.platform.kratix.syntasso.io work-sample
+ k delete databases.postgresql.dev4devs.com database && k delete crd databases.postgresql.dev4devs.com && k delete promises.platform.kratix.io postgres-promise && k delete works.platform.kratix.io work-sample
 */
 var (
 	k8sClient client.Client
@@ -62,7 +62,7 @@ var (
 	}
 
 	work_gvk = schema.GroupVersionKind{
-		Group:   "platform.kratix.syntasso.io",
+		Group:   "platform.kratix.io",
 		Version: "v1alpha1",
 		Kind:    "Work",
 	}
