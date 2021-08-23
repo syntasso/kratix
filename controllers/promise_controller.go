@@ -339,7 +339,7 @@ func (r *dynamicController) Reconcile(ctx context.Context, req ctrl.Request) (ct
 					},
 				},
 				{
-					Name:  "kustomize",
+					Name:  "resource-request-pipeline-stage-1",
 					Image: r.requestPipeline[0],
 					//Command: Supplied by the image author via ENTRYPOINT/CMD
 					VolumeMounts: []v1.VolumeMount{
