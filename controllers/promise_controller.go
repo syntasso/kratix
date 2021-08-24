@@ -95,7 +95,7 @@ func (r *PromiseReconciler) Reconcile(ctx context.Context, req ctrl.Request) (ct
 	workToCreate := &v1alpha1.Work{}
 	workToCreate.Name = promiseIdentifier
 	workToCreate.Namespace = "default"
-	for _, u := range promise.Spec.WorkerResources {
+	for _, u := range promise.Spec.ClusterWorkerResources {
 		workToCreate.Spec.Workload.Manifests = append(workToCreate.Spec.Workload.Manifests, v1alpha1.Manifest{Unstructured: u.Unstructured})
 	}
 

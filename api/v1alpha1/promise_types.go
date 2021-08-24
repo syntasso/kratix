@@ -48,11 +48,11 @@ type PromiseSpec struct {
 	// Array of Image tags to transform from input request custom resource to output resource(s)
 	RequestPipeline []string `json:"requestPipeline,omitempty"`
 
-	WorkerResources []WorkerResource `json:"workerResources,omitempty"`
+	ClusterWorkerResources []ClusterWorkerResource `json:"clusterWorkerResources,omitempty"`
 }
 
 // Resources represents the manifest workload to be deployed on worker cluster
-type WorkerResource struct {
+type ClusterWorkerResource struct {
 	// Manifests represents a list of kubernetes resources to be deployed on the worker cluster.
 	// +optional
 	// +kubebuilder:validation:EmbeddedResource

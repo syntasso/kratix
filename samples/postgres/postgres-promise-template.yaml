@@ -4,7 +4,7 @@ metadata:
   name: ha-postgres-promise
 spec:
   #To build wrokerResources list run `worker-resource-builder -k8s-resources-directory ${PWD}/resources -promise ${PWD}/postgres-promise-template.yaml > postgres-promise.yaml`
-  workerResources: 
+  clusterWorkerResources: 
     - nil
   requestPipeline:
     - syntasso/postgres-request-pipeline
