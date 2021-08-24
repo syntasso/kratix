@@ -44,17 +44,17 @@ spec:
                   x-kubernetes-embedded-resource: true
                   x-kubernetes-preserve-unknown-fields: true
                 type: array
-              crd:
-                description: X's CustomResourceDefinition to create the X-aaS offering
-                type: object
-                x-kubernetes-embedded-resource: true
-                x-kubernetes-preserve-unknown-fields: true
               requestPipeline:
                 description: Array of Image tags to transform from input request custom
                   resource to output resource(s)
                 items:
                   type: string
                 type: array
+              xaasCrd:
+                description: X's CustomResourceDefinition to create the X-aaS offering
+                type: object
+                x-kubernetes-embedded-resource: true
+                x-kubernetes-preserve-unknown-fields: true
             type: object
           status:
             description: PromiseStatus defines the observed state of Promise

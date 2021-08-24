@@ -3,7 +3,7 @@ kind: Promise
 metadata:
   name: promise-sample
 spec:
-  crd:
+  xaasCrd:
     apiVersion: something
     kind: Redis
     metadata:

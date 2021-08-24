@@ -114,7 +114,7 @@ func (r *PromiseReconciler) Reconcile(ctx context.Context, req ctrl.Request) (ct
 
 	//Instance-Level Reconciliation
 	crdToCreate := &apiextensionsv1.CustomResourceDefinition{}
-	err = json.Unmarshal(promise.Spec.CRD.Raw, crdToCreate)
+	err = json.Unmarshal(promise.Spec.XaasCrd.Raw, crdToCreate)
 	if err != nil {
 		r.Log.Error(err, "Failed unmarshalling CRD")
 		return ctrl.Result{}, nil

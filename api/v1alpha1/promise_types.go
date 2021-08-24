@@ -37,13 +37,13 @@ type PromiseSpec struct {
 	//
 	// OPA Validation pattern:
 	// https://github.com/open-policy-agent/frameworks/blob/1307ba72bce38ee3cf44f94def1bbc41eb4ffa90/constraint/pkg/apis/templates/v1beta1/constrainttemplate_types.go#L46
-	// CRD runtime.RawExtension      `json:"crd,omitempty"`
+	// XaasCrd runtime.RawExtension      `json:"xaasCrd,omitempty"`
 
 	// X's CustomResourceDefinition to create the X-aaS offering
 	//
 	// +kubebuilder:pruning:PreserveUnknownFields
 	// +kubebuilder:validation:EmbeddedResource
-	CRD runtime.RawExtension `json:"crd,omitempty"`
+	XaasCrd runtime.RawExtension `json:"xaasCrd,omitempty"`
 
 	// Array of Image tags to transform from input request custom resource to output resource(s)
 	RequestPipeline []string `json:"requestPipeline,omitempty"`

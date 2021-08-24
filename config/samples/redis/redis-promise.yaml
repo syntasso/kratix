@@ -2588,7 +2588,7 @@ spec:
           storage: true
           subresources:
             status: {}
-  crd:
+  xaasCrd:
     apiVersion: apiextensions.k8s.io/v1
     kind: CustomResourceDefinition
     metadata:
