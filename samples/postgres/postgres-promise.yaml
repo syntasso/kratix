@@ -47,7 +47,7 @@ spec:
             type: object
         served: true
         storage: true
-  requestPipeline:
+  xaasRequestPipeline:
   - syntasso/postgres-request-pipeline
   clusterWorkerResources:
   - apiVersion: v1

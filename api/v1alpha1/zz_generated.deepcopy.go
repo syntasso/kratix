@@ -119,8 +119,8 @@ func (in *PromiseList) DeepCopyObject() runtime.Object {
 func (in *PromiseSpec) DeepCopyInto(out *PromiseSpec) {
 	*out = *in
 	in.XaasCrd.DeepCopyInto(&out.XaasCrd)
-	if in.RequestPipeline != nil {
-		in, out := &in.RequestPipeline, &out.RequestPipeline
+	if in.XaasRequestPipeline != nil {
+		in, out := &in.XaasRequestPipeline, &out.XaasRequestPipeline
 		*out = make([]string, len(*in))
 		copy(*out, *in)
 	}

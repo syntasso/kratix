@@ -30,7 +30,7 @@ spec:
             type: object
         served: true
         storage: true
-  requestPipeline:
+  xaasRequestPipeline:
   - syntasso/jenkins-request-pipeline
   clusterWorkerResources:
   - apiVersion: v1

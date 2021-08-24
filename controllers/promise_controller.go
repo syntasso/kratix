@@ -50,12 +50,12 @@ type PromiseReconciler struct {
 }
 
 type dynamicController struct {
-	client            client.Client
-	gvk               *schema.GroupVersionKind
-	scheme            *runtime.Scheme
-	promiseIdentifier string
-	requestPipeline   []string
-	log               logr.Logger
+	client              client.Client
+	gvk                 *schema.GroupVersionKind
+	scheme              *runtime.Scheme
+	promiseIdentifier   string
+	xaasRequestPipeline []string
+	log                 logr.Logger
 }
 
 //+kubebuilder:rbac:groups=platform.kratix.io,resources=promises,verbs=get;list;watch;create;update;patch;delete
@@ -259,12 +259,12 @@ func (r *PromiseReconciler) Reconcile(ctx context.Context, req ctrl.Request) (ct
 	unstructuredCRD.SetGroupVersionKind(crdToCreateGvk)
 
 	dynamicController := &dynamicController{
-		client:            r.Manager.GetClient(),
-		scheme:            r.Manager.GetScheme(),
-		gvk:               &crdToCreateGvk,
-		promiseIdentifier: promiseIdentifier,
-		requestPipeline:   promise.Spec.RequestPipeline,
-		log:               r.Log,
+		client:              r.Manager.GetClient(),
+		scheme:              r.Manager.GetScheme(),
+		gvk:                 &crdToCreateGvk,
+		promiseIdentifier:   promiseIdentifier,
+		xaasRequestPipeline: promise.Spec.XaasRequestPipeline,
+		log:                 r.Log,
 	}
 
 	ctrl.NewControllerManagedBy(r.Manager).
@@ -339,8 +339,8 @@ func (r *dynamicController) Reconcile(ctx context.Context, req ctrl.Request) (ct
 					},
 				},
 				{
-					Name:  "resource-request-pipeline-stage-1",
-					Image: r.requestPipeline[0],
+					Name:  "xaas-request-pipeline-stage-1",
+					Image: r.xaasRequestPipeline[0],
 					//Command: Supplied by the image author via ENTRYPOINT/CMD
 					VolumeMounts: []v1.VolumeMount{
 						{

@@ -37,7 +37,7 @@ spec:
             type: object
         served: true
         storage: true
-  requestPipeline:
+  xaasRequestPipeline:
   - syntasso/appstack-request-pipeline
   clusterWorkerResources:
   - apiVersion: rbac.authorization.k8s.io/v1beta1

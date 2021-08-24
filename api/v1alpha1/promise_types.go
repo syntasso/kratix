@@ -46,7 +46,7 @@ type PromiseSpec struct {
 	XaasCrd runtime.RawExtension `json:"xaasCrd,omitempty"`
 
 	// Array of Image tags to transform from input request custom resource to output resource(s)
-	RequestPipeline []string `json:"requestPipeline,omitempty"`
+	XaasRequestPipeline []string `json:"xaasRequestPipeline,omitempty"`
 
 	ClusterWorkerResources []ClusterWorkerResource `json:"clusterWorkerResources,omitempty"`
 }
