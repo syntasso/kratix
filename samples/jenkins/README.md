@@ -13,3 +13,5 @@
 
 # Warning
 Currenlty the request pipeline is only configred to stamp one instance of Jenkins per cluster due to the name clash.
+
+Takes 2 or 3 mintues to move to 'Running' state.  
