@@ -1,8 +1,9 @@
-
+# Version to use for building/releasing artifacts
+VERSION ?= dev
 # Image URL to use all building/pushing image targets
-IMG ?= syntasso/kratix-platform:dev
+IMG ?= syntasso/kratix-platform:${VERSION}
 # Image URL to use for work creator image in promise_controller.go
-WC_IMG ?= syntasso/kratix-platform-work-creator:dev
+WC_IMG ?= syntasso/kratix-platform-work-creator:${VERSION}
 # Produce CRDs that work back to Kubernetes 1.11 (no version conversion)
 CRD_OPTIONS ?= "crd:trivialVersions=true,preserveUnknownFields=false"
 
@@ -96,13 +97,17 @@ deploy: manifests kustomize ## Deploy controller to the K8s cluster specified in
 	cd config/manager && $(KUSTOMIZE) edit set image controller=${IMG}
 	WC_IMG=${WC_IMG} $(KUSTOMIZE) build config/default | kubectl apply -f -
 
-distribution: manifests
+distribution: manifests ## Create a deployment manifest in /distribution/kratix.yaml
 	cd config/manager && $(KUSTOMIZE) edit set image controller=${IMG}
 	WC_IMG=${WC_IMG} $(KUSTOMIZE) build config/default --output distribution/kratix.yaml
 
+release: distribution docker-build docker-push work-creator-docker-build-and-push ## Create a release. Set VERSION env var to "vX.Y.Z-n".
+
+work-creator-docker-build-and-push: 
+	WC_IMG=${WC_IMG} $(MAKE) -C work-creator docker-build docker-push
+
 undeploy: ## Undeploy controller from the K8s cluster specified in ~/.kube/config.
 	$(KUSTOMIZE) build config/default | kubectl delete -f -
-
 
 CONTROLLER_GEN = $(shell pwd)/bin/controller-gen
 controller-gen: ## Download controller-gen locally if necessary.
