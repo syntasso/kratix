@@ -1,5 +1,5 @@
 # Image URL to use all building/pushing image targets
-IMG ?= syntasso/kratix-platform-work-creator:dev
+WC_IMG ?= syntasso/kratix-platform-work-creator:dev
 
 # Setting SHELL to bash allows bash commands to be executed by recipes.
 # This is a requirement for 'setup-envtest.sh' in the test target.
@@ -21,7 +21,7 @@ int-test: ## Run tests.
 ##@ Build
 
 docker-build: test ## Build docker image with work-creator binary
-	docker build -f ../DockerfileWorkCreator -t ${IMG} ../
+	docker build -f ../DockerfileWorkCreator -t ${WC_IMG} ../
 
 docker-push: ## Push docker image with work-creator binary
-	docker push ${IMG}
+	docker push ${WC_IMG}

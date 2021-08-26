@@ -19,6 +19,7 @@ package controllers
 import (
 	"context"
 	"encoding/json"
+	"os"
 	"time"
 
 	"fmt"
@@ -315,8 +316,9 @@ func (r *dynamicController) Reconcile(ctx context.Context, req ctrl.Request) (ct
 			ServiceAccountName: r.promiseIdentifier + "-sa",
 			Containers: []v1.Container{
 				{
-					Name:    "writer",
-					Image:   "syntasso/kratix-platform-work-creator:dev",
+					Name: "writer",
+					//Image:   "syntasso/kratix-platform-work-creator:dev",
+					Image:   os.Getenv("WC_IMG"),
 					Command: []string{"sh", "-c", workCreatorCommand},
 					VolumeMounts: []v1.VolumeMount{
 						{
