@@ -331,7 +331,7 @@ func (r *dynamicController) Reconcile(ctx context.Context, req ctrl.Request) (ct
 			InitContainers: []v1.Container{
 				{
 					Name:    "reader",
-					Image:   "bitnami/kubectl",
+					Image:   "bitnami/kubectl:1.20.10",
 					Command: []string{"sh", "-c", resourceRequestCommand},
 					VolumeMounts: []v1.VolumeMount{
 						{
