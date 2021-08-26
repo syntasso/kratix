@@ -68,6 +68,7 @@ test: manifests generate fmt vet ## Run tests.
 
 ##@ Build
 
+# Generate manifests for distributed installation
 build: generate fmt vet ## Build manager binary.
 	go build -o bin/manager main.go
 
@@ -94,6 +95,10 @@ uninstall: manifests kustomize ## Uninstall CRDs from the K8s cluster specified 
 deploy: manifests kustomize ## Deploy controller to the K8s cluster specified in ~/.kube/config.
 	cd config/manager && $(KUSTOMIZE) edit set image controller=${IMG}
 	WC_IMG=${WC_IMG} $(KUSTOMIZE) build config/default | kubectl apply -f -
+
+distribution: manifests
+	cd config/manager && $(KUSTOMIZE) edit set image controller=${IMG}
+	WC_IMG=${WC_IMG} $(KUSTOMIZE) build config/default --output distribution/kratix.yaml
 
 undeploy: ## Undeploy controller from the K8s cluster specified in ~/.kube/config.
 	$(KUSTOMIZE) build config/default | kubectl delete -f -
