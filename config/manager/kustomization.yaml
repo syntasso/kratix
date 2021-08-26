@@ -7,12 +7,12 @@ resources:
 generatorOptions:
   disableNameSuffixHash: true
 
+# The wc-img-config config map drives the WC_IMG env var, which is used by the promise
+# controller as the last container in the XaaS request pipeline pod spec.
 configMapGenerator:
 - files:
   - controller_manager_config.yaml
   name: manager-config
-# This config map drives the WC_IMG env var, which is used by the promise
-# controller as the last container in the XaaS request pipeline pod spec.
 - envs:
   - wc-img-config.properties
   name: wc-img-config
