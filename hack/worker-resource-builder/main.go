@@ -5,6 +5,7 @@ import (
 	"fmt"
 	"io"
 	"io/ioutil"
+	"log"
 	"os"
 	"path/filepath"
 
@@ -62,7 +63,13 @@ func main() {
 	//Read Promise
 	promiseFile, _ := os.ReadFile(promisePath)
 	promise := platformv1alpha1.Promise{}
-	yaml.Unmarshal(promiseFile, &promise)
+	err = yaml.Unmarshal(promiseFile, &promise)
+	//If there's an error unmarshalling from the template, log to stderr so it doesn't silently go to the promise
+	if err != nil {
+		l := log.New(os.Stderr, "", 0)
+		l.Println(err.Error())
+		os.Exit(1)
+	}
 	promise.Spec.ClusterWorkerResources = resources
 
 	//Write Promise (with clusterWorkerResources) to stdout
