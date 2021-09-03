@@ -6,7 +6,7 @@ The Platform Gap represents an opportunity for an economomy of scope. If multipl
 
 How does an organisation create an internal platform? By creating, growing, and sustaining an internal platform team. [Team Topologies provides a vocabulary for us to describe the team structures and interaction modes relevant to the internal platform](https://teamtopologies.com/key-concepts).
 - Stream-aligned teams must cross the platform gap between their infrastructure and their product value
-- The platform team delivers a "Platform as a Product" to reduce the cognitive load, by closing the platform gap, for the stream-aligned teams
+- The platform team delivers a "Platform as a Product" to reduce the cognitive load, closing the platform gap, for the stream-aligned teams
 - The platform team collaborates with stream-aligned teams to discover, understand, prioritise, and encapsulate platform gap solutions as "Promises".
 - The platform team keeps their Promises, X-as-a-Service, via the Platform-as-a-Product.
 These team topologies and interaction modes provide a template for the future of DevOps at scale.
