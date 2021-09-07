@@ -18,8 +18,8 @@ import (
 func main() {
 	var resourcesPath string
 	var promisePath string
-	flag.StringVar(&resourcesPath, "k8s-resources-directory", "", "Absolute Path to k8s resources to build clusterWorkerResources from")
-	flag.StringVar(&promisePath, "promise", "", "Absolute path  to Promise to insert clusterWorkerResources into")
+	flag.StringVar(&resourcesPath, "k8s-resources-directory", "", "Absolute Path of k8s resources to build clusterWorkerResources from")
+	flag.StringVar(&promisePath, "promise", "", "Absolute path of Promise to insert clusterWorkerResources into")
 	flag.Parse()
 
 	if resourcesPath == "" {
