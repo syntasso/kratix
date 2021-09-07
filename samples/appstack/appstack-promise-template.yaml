@@ -4,8 +4,8 @@ metadata:
   name: appstack-promise
 spec:
   #injected via: ./worker-resource-builder/worker-resource-builder -k8s-resources-directory ${PWD}/resources -promise ${PWD}/{promise-template}.yaml > appstack-promise.yaml
-  clusterWorkerResources: 
-    - nil
+  #clusterWorkerResources: 
+  #  - kind: to be injected
   xaasRequestPipeline:
     - syntasso/appstack-request-pipeline
   xaasCrd:

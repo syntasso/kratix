@@ -4,6 +4,8 @@ metadata:
   name: kubeflow-pipelines-promise
 spec:
   #To build clusterWorkerResources list run `go run ../../hack/worker-resource-builder/main.go -k8s-resources-directory ${PWD}/resources -promise ${PWD}/kubeflow-pipelines-promise-template.yaml > kubeflow-pipelines-promise.yaml`
+  #clusterWorkerResources: 
+  #  - kind: to be injected
   xaasRequestPipeline:
     - syntasso/kubeflow-pipelines-request-pipeline
   xaasCrd:
@@ -25,5 +27,3 @@ spec:
               type: object
           served: true
           storage: true
-    clusterWorkerResources: 
-    - kind: nil
