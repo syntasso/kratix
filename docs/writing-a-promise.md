@@ -199,16 +199,17 @@ Kratix takes no opinion on the tooling used within a pipeline. Kratix will pass 
 cat > execute-pipeline.sh <<EOF
 #!/bin/sh 
 #Get the name from the Promise Custom resource
-instanceName=$(yq eval '.spec.applicationName' /input/object.yaml) ; \
+instanceName=\$(yq eval '.spec.name' /input/object.yaml) ; \
 
 # Inject the name into the Jenkins resources
-find /tmp/transfer -type f -exec sed -i \
-  -e "s/<tbr-name>/$name//\//\\/}/g" \
+find /tmp/transfer -type f -exec sed -i \\
+  -e "s/<tbr-name>/\${instanceName//\//\\/}/g" \\
   {} \;  
 
 cp /tmp/transfer/* /output/
 EOF
 ```
+Then make it executable: `chmod +x execute-pipeline.sh`
 
 Next, we create a simple `Dockerfile` that will copy our `jenkins-instance.yaml` doc into Kratix where it can be amended by our `execute-pipeline.sh` script and passed to the Worker cluster ready for execution.
 
@@ -217,7 +218,7 @@ cat > Dockerfile <<EOF
 FROM "mikefarah/yq:4"
 RUN [ "mkdir", "/tmp/transfer" ]
 
-ADD jenkins-instance.yaml /transfer/jenkins-instance.yaml
+ADD jenkins-instance.yaml /tmp/transfer/jenkins-instance.yaml
 ADD execute-pipeline.sh execute-pipeline.sh
 
 CMD [ "sh", "-c", "./execute-pipeline.sh"]
