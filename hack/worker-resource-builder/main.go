@@ -50,11 +50,12 @@ func main() {
 		for {
 			us := &unstructured.Unstructured{}
 			err := decoder.Decode(&us)
-			if err == io.EOF {
-				//We reached the end of the file, move on to looking for the resource
+
+			if us == nil {
+				continue
+			} else if err == io.EOF {
 				break
 			} else {
-				//append the first resource to the resource slice, and go back through the loop
 				resources = append(resources, platformv1alpha1.ClusterWorkerResource{Unstructured: *us})
 			}
 		}
