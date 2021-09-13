@@ -246,6 +246,8 @@ cat >> input/object.yaml <<EOF
 apiVersion: promise.example.com/v1
 kind: jenkins
 metadata:
+  name: my-jenkins-promise-request
+spec:
   name: my-amazing-jenkins
 EOF
 ```
