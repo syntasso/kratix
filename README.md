@@ -2,7 +2,7 @@
 
 The modern digital organisation is populated with customer-focused teams delivering business value. These teams need to create differentiated products for their customers, but are too often dragged down into wrangling commodity infrastructure components. This is the "Platform Gap": the chasm each team must cross between the infrastructure and their meaningful work adding product value.
 
-The Platform Gap represents an opportunity for an economomy of scope. If multiple teams are utilising similar infrastructure components, an internal platform should be created based on the discovery and understanding of those common needs, and it should serve to reduce cognitive load for its users by meeting those needs "as-a-service", i.e. on demand and self-service. The ongoing objective of the platform should be to make the customer-focused teams more productive, efficient, and secure.
+The Platform Gap represents an opportunity for an economy of scope. If multiple teams are utilising similar infrastructure components, an internal platform should be created based on the discovery and understanding of those common needs, and it should serve to reduce cognitive load for its users by meeting those needs "as-a-service", i.e. on demand and self-service. The ongoing objective of the platform should be to make the customer-focused teams more productive, efficient, and secure.
 
 How does an organisation create an internal platform? By creating, growing, and sustaining an internal platform team. [Team Topologies provides a vocabulary for us to describe the team structures and interaction modes relevant to the internal platform](https://teamtopologies.com/key-concepts).
 - Stream-aligned teams(SATs) must cross the platform gap between their infrastructure and their product value
@@ -28,7 +28,7 @@ Next, we will create a "worker" Kubernetes cluster to host the workloads deliver
 Then we're going to add a sample Postgres Promise to our Kratix-powered platform API, so our SATs can request instances of Postgres "on demand" from our platform. The Postgres Promise encapsulates the knowledge of:
 - The information the platform team needs to know from the SAT to create a PostGres instance on-demand (name, databases, etc).
 - Which resources need to be present on the worker cluster to host instances (the Postgres operator).
-- How to security check, scan, validate, and mutate etc. from the SAT's instance request to a set of per-intance Kubernetes resources to be applied on the worker cluster (a simple yaml transformation in this example).
+- How to security check, scan, validate, and mutate etc. from the SAT's instance request to a set of per-instance Kubernetes resources to be applied on the worker cluster (a simple yaml transformation in this example).
 The Promise enables the platform team to promise an organisationally-relevant Postgres service - or whichever services are of value in their platform - to the SATs, and to keep their promise.
 
 Lastly, we're going to assume the role of a SAT member, make a request to the platform API for an instance of Postgres, and watch the instance get created in real time on the worker cluster. Postgres is now delivered X-as-a-service from the platform team to our SATs.
