@@ -255,7 +255,7 @@ EOF
 Now we can run our container and examine the output.
 
 ```bash
-docker run -v ${PWD}/input:/input -v ${PWD}/output <your-org-name/name-of-your-image>
+docker run -v ${PWD}/input:/input -v ${PWD}/output:/output <your-org-name/name-of-your-image>
 cat /output/*
 ```
 
