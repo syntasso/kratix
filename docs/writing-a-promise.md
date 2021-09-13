@@ -329,7 +329,7 @@ See a Jenkins Operator.
 Next, we change hats from Platform team member and become the customer of the Platform teams. We should now be able to request instances of Jenkins on-demand 
 
 ```bash
-cat >> input/jenkins-resource-request.yaml <<EOF
+cat >> jenkins-resource-request.yaml <<EOF
 apiVersion: promise.example.com/v1
 kind: jenkins
 metadata:
@@ -343,6 +343,10 @@ kubectl apply -f jenkins-resource-request.yaml
 
 
 
-After a few minutes the Jenkins operator will have received the request and asked the k8s worker to start an instance of Jenkins. We can go to the Worker cluster and run `kubectl get pods -A` to see our Jenkins instance with the defined name of `my-amazing-jenkins`!
+After a few minutes the Jenkins operator will have received the request and asked the k8s worker to start an instance of Jenkins. We can go to the Worker cluster and run `kubectl get pods -A` to see our Jenkins instance with the defined name of `jenkins-my-amazing-jenkins`! (The Jenkins operator prepends the instance name with `jenkins` hence `jenkins-my-amazing-jenkins`)
 
-We can see the Jenkins in our browsers if we run `kubectl port-forward jenkins-<cr_name> 8080:8080` and navigate to http://localhost:8080
+We can see the Jenkins UI in our browsers:
+1. Get the username: `kubectl get secret jenkins-operator-credentials-my-amazing-jenkins -o 'jsonpath={.data.user}' | base64 -d`
+2. Get the password: `kubectl get secret jenkins-operator-credentials-my-amazing-jenkins -o 'jsonpath={.data.password}' | base64 -d`
+3. `kubectl port-forward jenkins-my-amazing-jenkins 8080:8080` 
+4. Navigate to http://localhost:8080
