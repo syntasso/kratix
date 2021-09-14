@@ -159,7 +159,9 @@ We created an internal platform API, and a worker cluster to host workloads for 
     - [Messaging with RabbitMQ](https://github.com/Syntasso/kratix/tree/main/samples/amqp)
     - [CI/CD with Jenkins](https://github.com/Syntasso/kratix/tree/main/samples/jenkins)
 - [Author your own Promises](docs/writing-a-promise.md) to extend your platform API with bespoke services for your organisation.
-- **[Give feedback on Kratix](mailto:feedback@syntasso.io?subject=Kratix%20Feedback). Please, please, please!**
+- **Give feedback on Kratix Please, please, please!**
+  - [Via email](mailto:feedback@syntasso.io?subject=Kratix%20Feedback)
+  - [Google Form](https://forms.gle/WVXwVRJsqVFkHfJ79)
 - **[Work with Kratix's originators, Syntasso, to deliver your organisation's Platform-as-a-Product.](https://www.syntasso.io/how-we-help)**
 
 ## Known Issues
