@@ -39,9 +39,9 @@ You will learn how to:
 1. [Install Kratix across 2 Kind clusters](../README.md)
 2. Install Kubernetes-in-Docker(KinD). See [the quick start guide](https://kind.sigs.k8s.io/docs/user/quick-start/). Tested on 0.9.0 and 0.10.0.
     - Ensure no KinD clusters are currently running. `kind get clusters` should return "No kind clusters found."
-3 Install Kubectl. See [the install guide](https://kubernetes.io/docs/tasks tools/#kubectl). Tested on 1.16.13 and 1.21.2.
-3. A Docker Hub account with push permissions (or similar registry).
-4. [The Docker cli](https://docs.docker.com/get-docker/) -- to build and push images.    
+3. Install Kubectl. See [the install guide](https://kubernetes.io/docs/tasks tools/#kubectl). Tested on 1.16.13 and 1.21.2.
+4. A Docker Hub account with push permissions (or similar registry).
+5. [The Docker cli](https://docs.docker.com/get-docker/) -- to build and push images.    
 
 To begin writing a Promise we will need a basic directory structure to work in.
 
@@ -68,7 +68,7 @@ kind: Promise
 metadata:
   name: jenkins-promise
 spec:
-  #injected via: worker-resource-builder/worker-resource-builder -k8s-resources-directory ${PWD}/resources -promise ${PWD}/{promise-template}.yaml > jenkins-promise.yaml
+  #injected via: go run path/to/kratix/hack/worker-resource-builder/main.go -k8s-resources-directory ${PWD}/resources -promise ${PWD}/jenkins-promise-template.yaml > jenkins-promise.yaml
   #clusterWorkerResources: 
   xaasRequestPipeline:
   xaasCrd:
@@ -193,7 +193,7 @@ EOF
 </details>
 <p>
 
-Kratix takes no opinion on the tooling used within a pipeline. Kratix will pass in a set of resources the pipeline, and expect back a set of resources. What happens withing the pipeline, and what tooling is used is entirely a decision left to the promise author. As our pipeline is very simple (we're taking a name from the Promise custom resource input, and passing it to the Jenkins custom resource output) we're going to keep-it-simple and use a combination of `sed` and `yq` todo our work. 
+Kratix takes no opinion on the tooling used within a pipeline. Kratix will pass in a set of resources the pipeline, and expect back a set of resources. What happens withing the pipeline, and what tooling is used, is entirely a decision left to the promise author. As our pipeline is very simple (we're taking a name from the Promise custom resource input, and passing it to the Jenkins custom resource output) we're going to keep-it-simple and use a combination of `sed` and `yq` todo our work. 
 
 ```bash
 cat > execute-pipeline.sh <<EOF
@@ -289,7 +289,7 @@ We have:
 - Pushed our image to our registry
 - Added the image to our Promise definition in the `xaasRequestPipeline` array
 
-Please note: at time of writing, only the first image will be executed. Multiple image functionality will be available soon.
+*Please note: at time of writing, only the first image in the `xaasRequestPipeline` array will be executed. Multiple image functionality will be available soon.*
 
 
 ### Cluster Worker Resources
@@ -316,17 +316,17 @@ NAME                          CREATED AT
 jenkins.promise.example.com   2021-09-09T11:21:10Z
 ```
 
-The complexities of what happens when installing a Promise are beyond this tutorial, but for now it's good to understand that a k8s Controller is now listening for Jenkins resource requests. 
+The complexities of what happens when installing a Promise are beyond this tutorial, but for now it's good to understand that a k8s Controller is now responding to Jenkins resource requests on the platform cluster. 
 
 After a few minutes we can go to the Worker cluster and see we have a Jenkins operator running. 
 
-`kubectl get pods -A`
+`kubectl --context=kind-worker get pods -A`
 
 See a Jenkins Operator. 
 
 ### Create and submit a resource request
 
-Next, we change hats from Platform team member and become the customer of the Platform teams. We should now be able to request instances of Jenkins on-demand 
+Next, we change hats from Platform team member and become the customer of the Platform team. We should now be able to request instances of Jenkins on-demand.
 
 ```bash
 cat >> jenkins-resource-request.yaml <<EOF
@@ -341,9 +341,7 @@ EOF
 kubectl apply -f jenkins-resource-request.yaml
 ```
 
-
-
-After a few minutes the Jenkins operator will have received the request and asked the k8s worker to start an instance of Jenkins. We can go to the Worker cluster and run `kubectl get pods -A` to see our Jenkins instance with the defined name of `jenkins-my-amazing-jenkins`! (The Jenkins operator prepends the instance name with `jenkins` hence `jenkins-my-amazing-jenkins`)
+After a few minutes the Jenkins operator will have received the request and asked the k8s worker to start an instance of Jenkins. We can go to the Worker cluster (`kubectl config use-context kind-worker`) and run `kubectl get pods -A` to see our Jenkins instance with the defined name of `jenkins-my-amazing-jenkins`! (The Jenkins operator prepends the instance name with `jenkins-` hence `jenkins-my-amazing-jenkins`)
 
 We can see the Jenkins UI in our browsers:
 1. Get the username: `kubectl get secret jenkins-operator-credentials-my-amazing-jenkins -o 'jsonpath={.data.user}' | base64 -d`
