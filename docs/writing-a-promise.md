@@ -12,6 +12,8 @@
     - [X-as-a-Service Request Pipeline](#x-as-a-service-request-pipeline)
     - [Cluster Worker Resources](#cluster-worker-resources)
     - [Create and submit a resource request](#create-and-submit-a-resource-request)
+  - [Summary](#summary)
+  - [Where Next?](#where-next)
 
 ## What's the Problem? 
 Syntasso understands being a Platform team member is challenging. These teams relentlessly feel tensions from many directions, and often face: 
