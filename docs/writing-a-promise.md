@@ -357,6 +357,16 @@ We can see the Jenkins UI in our browsers (all commands on worker cluster):
 3. `kubectl port-forward jenkins-my-amazing-jenkins 8080:8080` 
 4. Navigate to http://localhost:8080
 
+## Summary
+
+We built a Jenkins-as-a-Service offering, by creating a Jenkins Promise, and adding the Promise to our Kratix-based platform.
+
+We created the three elements of a Promise for Jenkins:
+- `xaasCrd`
+- `xaasRequestPipeline`
+- `clusterWorkerResources`
+and added them to our single Jenkins Promise yaml document. We then applied our Jenkins Promise to our platform cluster, which created the Jenkins-as-a-Service API, and configured our worker cluster such that it could create and manage Jenkins instances. Lastly, we assumed the role of our customer, and applied a yaml document to our platform cluster, triggering the creation of a Jenkins instance on the worker cluster.
+
 ## Where Next?
 
 Create your own Promises for your the customers of your platform. Where they may be of use to others, share them! Public repository information will be available in the future.
