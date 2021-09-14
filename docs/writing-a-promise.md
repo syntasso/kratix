@@ -350,3 +350,7 @@ We can see the Jenkins UI in our browsers:
 2. Get the password: `kubectl get secret jenkins-operator-credentials-my-amazing-jenkins -o 'jsonpath={.data.password}' | base64 -d`
 3. `kubectl port-forward jenkins-my-amazing-jenkins 8080:8080` 
 4. Navigate to http://localhost:8080
+
+## Where Next?
+
+Create your own Promises for your the customers of your platform. Where they may be of use to others, share them! Public repository information will be available in the future.
