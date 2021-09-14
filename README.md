@@ -1,15 +1,17 @@
 # Kratix
 
-"κρατήστε μια υπόσχεση"
+κρατήστε μια υπόσχεση
+
 *kratíste mia ypóschesi*
+
 **Keep a promise**
 
 Kratix is a framework for delivering platforms. A platform team deploys Kratix on Kubernetes clusters, adds valuable functionality in the form of "Promises", and sustainably grows their platform over time by adding and adapting Promises in response to user needs.
 
-- [The Problem](## The Problem)
-- [Getting Started](## Getting Started)
-- [Where Next?](## Where Next?)
-- [Known Issues](## Known Issues)
+- [The Problem](#the-problem)
+- [Getting Started](#getting-started)
+- [Where Next?](#where-next?)
+- [Known Issues](#known-issues)
 
 ## The Problem
 
