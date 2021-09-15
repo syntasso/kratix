@@ -37,6 +37,8 @@ You will learn how to:
 
 ## Writing a Promise
 
+![Writing a Promise Step One](images/writing-a-promise-1.png)
+
 ### Prerequisites:
 1. [Install Kratix across 2 Kind clusters](../README.md)
 2. Install Kubernetes-in-Docker(KinD). See [the quick start guide](https://kind.sigs.k8s.io/docs/user/quick-start/). Tested on 0.9.0 and 0.10.0.
@@ -58,6 +60,8 @@ Conceptually a Promise is Broken down into three parts:
 1. `xaasCrd`: this is the CRD that is exposed to the users of the Promise. Imagine the order form for a product. What do you need to know from your customer? Size? Location? Name?
 2. `xaasRequestPipeline`: this is the pipeline that will create the Jenkins resources requried to run Jenkins on a worker cluster decorated with whatever you need to run Jenkins from your own Platform. Do you need to scan images? Do you need to send a request to an external API for approval? Do you need to inject resources for storage, mesh, networking, etc.? These activities happen in the pipeline.
 3. `clusterWorkerResources`: this contains all of the Kuberentes resources required on a cluster for it to be able to run an instance Jenkins such as CRDs, Operators and Deployments. Think about the required prerequisites necessary on the worker cluster, so that the resources declared by your pipeline are able to converge.
+
+![Writing a Promise Step Two](images/writing-a-promise-2.png)
 
 ### Promise template
 
@@ -81,6 +85,8 @@ We will fill the `spec` scalars as we progress through the tutorial.
 
 ### X-as-a-Service Custom Resource Definition 
 This is the user-facing API. For the purpose of this tutorial we will create an API that accepts a single `string` parameter called `name`. This API can be as complex or as simple as you need it to be for your own needs.
+
+![Writing a Promise Step Three](images/writing-a-promise-3.png)
 
 Add the below to the `xaasCrd` scalar in `jenkins-promise-template.yaml`. Ensure the indentation is correct (`xaasCrd` is nested under `spec`).
 
@@ -125,7 +131,9 @@ The contract with each container is simple and straightforward.
 - The container writes any resources to be created to /output/.
 - The resources in /output of the last container in the `xaasRequestPipeline` array will be scheduled and applied to the appropriate worker clusters.
 
-In more advanced Promises, each of these 'stages' will take on responsibilities such as vulnerability scanning, licence checking, and secure certificate injection; the possibilities are endless. Look out for partnerships in this space to provide integrations for common services and tooling.  
+In more advanced Promises, each of these 'stages' will take on responsibilities such as vulnerability scanning, licence checking, and secure certificate injection; the possibilities are endless. Look out for partnerships in this space to provide integrations for common services and tooling.
+
+![Writing a Promise Step Four](images/writing-a-promise-4.png)
 
 `cd request-pipeline-image`
 
@@ -304,6 +312,8 @@ We have:
 
 ### Cluster Worker Resources
 
+![Writing a Promise Step Five](images/writing-a-promise-5.png)
+
  Jenkins.io has a [great Operator](https://jenkinsci.github.io/kubernetes-operator/docs/getting-started/latest/installing-the-operator/) that ships in two files.
 1. [Jenkins CRDS](https://raw.githubusercontent.com/jenkinsci/kubernetes-operator/master/config/crd/bases/jenkins.io_jenkins.yaml)
 2. [The Operator](https://raw.githubusercontent.com/jenkinsci/kubernetes-operator/master/deploy/all-in-one-v1alpha2.yaml) and other required resources such as Service Accounts, Role Bindings and Deployments.
@@ -335,6 +345,8 @@ After a few minutes we can go to the Worker cluster and see we have a Jenkins op
 See a Jenkins Operator.
 
 ### Create and submit a resource request
+
+![Writing a Promise Summary](images/writing-a-promise-1.png)
 
 Next, we change hats from Platform team member and become the customer of the Platform team. We should now be able to request instances of Jenkins on-demand.
 
