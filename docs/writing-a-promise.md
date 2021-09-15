@@ -367,6 +367,7 @@ We created the three elements of a Promise for Jenkins:
 - `xaasCrd`
 - `xaasRequestPipeline`
 - `clusterWorkerResources`
+                                         
 and added them to our single Jenkins Promise yaml document. We then applied our Jenkins Promise to our platform cluster, which created the Jenkins-as-a-Service API, and configured our worker cluster such that it could create and manage Jenkins instances. Lastly, we assumed the role of our customer, and applied a yaml document to our platform cluster, triggering the creation of a Jenkins instance on the worker cluster.
 
 ## Where Next?
