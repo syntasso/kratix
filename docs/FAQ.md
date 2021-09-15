@@ -26,7 +26,7 @@ Quite the opposite, Kratix is at its most powerful when deploying complex servic
 
 ### My organisation would like to add all of our tooling as Promises to our platform, and some of our tools are challenging to deploy and manage. I worry a single platform team would get overwhelmed. How do I scale up?
 
-Platform teams do not need to author all, or any, of the Promises in their platform. Off-the-shelf Promises should be used when suitable (see [samples](../samples). Where bespoke Promises are necessary, follow Team Topologies; where possible "Complicated Subsystem Teams" should collaboratively author Promises with stream-aligned teams, and add them to the platform. Thus multiple complicated subsystem teams can contribute to a platform delivered by a platform team.
+Platform teams do not need to author all, or any, of the Promises in their platform. Off-the-shelf Promises should be used when suitable (see [samples](../samples)). Where bespoke Promises are necessary, follow Team Topologies; where possible "Complicated Subsystem Teams" should collaboratively author Promises with stream-aligned teams, and add them to the platform. Thus multiple complicated subsystem teams can contribute to a platform delivered by a platform team.
 
 ### How do I manage roles/teams/credentials/identity/networking/other?
 
@@ -68,4 +68,4 @@ The big public cloud providers offer tremendous power and functionality. Unfortu
 
 ### I'd like to invest/partner/buy. Who do I talk to?
 
-Please [contact Syntasso](mailto:contact@syntasso.io?subject=Kratix%20Enquiry).
+Please [contact Syntasso](mailto:hello@syntasso.io?subject=Kratix%20Enquiry).
