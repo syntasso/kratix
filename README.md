@@ -61,6 +61,8 @@ Lastly, we're going to assume the role of a SAT member, make a request to the pl
 
 ### Setup Platform Cluster and Install Kratix
 
+![Getting Started Step One](docs/images/getting-started-step-1.png)
+
 This will create our platform cluster and install Kratix. We'll also install Minio to power our GitOps pipelines to the worker clusters. For production installations, Git or S3 can easily be used instead, depending on your preference.
 
 * `kind create cluster --name platform`
@@ -95,6 +97,8 @@ kratix-worker-system   Active   4m2s
 
 ### Apply Postgres-as-a-Service Promise on the Platform Cluster
 
+![Getting Started Step Two](docs/images/getting-started-step-2.png)
+
 Now we have Kratix available to power our platform API, we need to put it to good use. We should spend time with our SATs to understand their needs, combine those needs with the organisation's needs around security, governance, and compliance, and encode this knowledge in a Promise. For the purpose of this walkthrough let's install the provided Postgres-as-a-service Promise.
 
 * `kubectl config use-context kind-platform`
@@ -121,6 +125,8 @@ postgres-operator-55b8549cff-s77q7   1/1     Running   0          51s
 ```
 
 ### Request a Postgres Instance on the Platform Cluster
+
+![Getting Started Step Three](docs/images/getting-started-step-3.png)
 
 We now assume the role of a member of a stream-aligned team, and request a Postgres server from the platform API.
 
