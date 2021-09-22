@@ -50,13 +50,13 @@ Lastly, we're going to assume the role of a SAT member, make a request to the pl
 
 ### Quick Start
 
-We recommend that you follow this tutorial to see the power of Kratix's multi-cluster deployment capabilities. We understand that some users require a simpler getting started experience. For those who wish to deploy Kratix in "single-cluster mode" follow [this guide](docs/single-cluster.md).
+We recommend that you follow the tutorial below to see the power of Kratix's multi-cluster deployment capabilities. We understand that some users require a simpler getting started experience. For those who wish to deploy Kratix in "single-cluster" mode, or a non-KinD installation, follow [this guide](docs/single-cluster.md).
 
 ### Prerequisites
 - A reasonably powerful computer. We test on:
     - Linux(Mint), i7, 16GB, KinD on native Docker.
     - Mac, i7, 32GB, KinD on a Docker Desktop VM(6 vCPU / 24GB).
-- Install Kubernetes-in-Docker(KinD). See [the quick start guide](https://kind.sigs.k8s.io/docs/user/quick-start/). Tested on 0.9.0 and 0.10.0.
+- Install Kubernetes-in-Docker(KinD). See [the quick start guide](https://kind.sigs.k8s.io/docs/user/quick-start/). Tested on 0.9.0 and 0.10.0. See the [Quick Start](docs/single-cluster.md) for non-KinD installations.
     - Ensure no KinD clusters are currently running. `kind get clusters` should return "No kind clusters found."
 - Install Kubectl. See [the install guide](https://kubernetes.io/docs/tasks/tools/#kubectl). Tested on 1.16.13 and 1.21.2.
 
