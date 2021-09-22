@@ -8,29 +8,14 @@
 
 Kratix is a framework for delivering platforms. A platform team deploys Kratix on Kubernetes clusters, adds valuable functionality in the form of "Promises", and sustainably grows their platform over time by adding and adapting Promises in response to user needs.
 
-- [The Problem](#the-problem)
+- [The Problem Kratix Solves](#the-problem-kratix-solves)
 - [Getting Started](#getting-started)
 - [Where Next?](#where-next)
 - [Known Issues](#known-issues)
 
-## The Problem
+## The Problem Kratix Solves
 
-The modern digital organisation is populated with customer-focused teams delivering business value. These teams need to create differentiated products for their customers, but are too often dragged down into wrangling commodity infrastructure components. This is the "Platform Gap": the chasm each team must cross between the infrastructure and their meaningful work adding product value.
-
-The Platform Gap represents an opportunity for an economy of scope. If multiple teams are utilising similar infrastructure components, an internal platform should be created based on the discovery and understanding of those common needs, and it should serve to reduce cognitive load for its users by meeting those needs "as-a-service", i.e. on demand and self-service. The ongoing objective of the platform should be to make the customer-focused teams more productive, efficient, and secure.
-
-How does an organisation create an internal platform? By creating, growing, and sustaining an internal platform team. [Team Topologies provides a vocabulary for us to describe the team structures and interaction modes relevant to the internal platform](https://teamtopologies.com/key-concepts).
-- Stream-aligned teams(SATs, often known as "app teams" or "dev teams") must cross the platform gap between their infrastructure and their product value
-- The platform team delivers a "Platform as a Product" to reduce the cognitive load, closing the platform gap, for the SATs
-- The platform team collaborates with stream-aligned teams to discover, understand, prioritise, and encapsulate platform gap solutions as "Promises".
-- The platform team keeps their Promises, X-as-a-Service, via the Platform-as-a-Product.
-These team topologies and interaction modes provide a template for the future of DevOps at scale.
-
-The Platform-as-a-Product must be self-service, API-consumable, compliant, governed, and in most cases, bespoke and customised to the organisation. Off-the-shelf or generic public cloud platforms don't meet the unique needs of modern digital organisations. A curated blend of off-the-shelf, composed, and self-created services are required in any organisation operating at scale.
-
-Kubernetes is the infrastructure foundation layer for modern platforms, but is not the platform itself. Organisations operating at scale consume tens, hundreds, thousands of Kubernetes clusters. Multi-cluster, composable, extensible platforms based on Kubernetes's constructs are required. Kubernetes "operators" will drive software deployments on individual clusters, but are a long way from a full digital platform. A higher-level framework, above operators, is necessary to drive multi-team platforms across numerous Kubernetes clusters. Kratix is that framework.
-
-Kratix has been created to enable platform teams to easily compose internal platforms that are relevant and valuable to their organisation, to utilise the best of the Kubernetes ecosystem, and to balance the concerns of delivery speed with operational excellence.
+See the ["Crossing the Platform Gap" article on Syntasso.io](https://www.syntasso.io/post/crossing-the-platform-gap).
 
 ## Getting Started
 
