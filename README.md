@@ -17,6 +17,8 @@ Kratix is a framework for delivering platforms. A platform team deploys Kratix o
 
 See the ["Crossing the Platform Gap" article on Syntasso.io](https://www.syntasso.io/post/crossing-the-platform-gap).
 
+- **[Work with Kratix's originators, Syntasso, to deliver your organisation's Platform-as-a-Product.](https://www.syntasso.io/how-we-help)**
+
 ## Getting Started
 
 In order to understand the power of internal platforms, let's build a demonstration platform using Kratix!
