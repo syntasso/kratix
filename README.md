@@ -48,6 +48,10 @@ The Promise enables the platform team to promise an organisationally-relevant Po
 
 Lastly, we're going to assume the role of a SAT member, make a request to the platform API for an instance of Postgres, and watch the instance get created in real time on the worker cluster. Postgres is now delivered X-as-a-service from the platform team to our SATs.
 
+### Quick Start
+
+We recommend that you follow this tutorial to see the power of Kratix's multi-cluster deployment capabilities. We understand that some users require a simpler getting started experience. For those who wish to deploy Kratix in "single-cluster mode" follow [this guide](docs/single-cluster.md).
+
 ### Prerequisites
 - A reasonably powerful computer. We test on:
     - Linux(Mint), i7, 16GB, KinD on native Docker.
