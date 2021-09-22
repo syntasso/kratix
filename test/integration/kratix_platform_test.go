@@ -288,7 +288,7 @@ func minioHasResource(workloadNamespacedName types.NamespacedName, resourceName 
 
 func minioHasWorkloadWithResourceWithNameAndKind(bucketName string, objectName string, resourceName string, resourceKind string) (bool, unstructured.Unstructured) {
 
-	// endpoint := "minio.kratix-system.svc.cluster.local"
+	// endpoint := "minio.kratix-platform-system.svc.cluster.local"
 	endpoint := "172.18.0.2:31337"
 	accessKeyID := "minioadmin"
 	secretAccessKey := "minioadmin"
