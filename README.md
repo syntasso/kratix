@@ -46,7 +46,7 @@ We recommend that you follow the tutorial below to see the power of Kratix's mul
 - Install Kubectl. See [the install guide](https://kubernetes.io/docs/tasks/tools/#kubectl). Tested on 1.16.13 and 1.21.2.
 
 ### Clone Kratix
-* `git clone git@github.com:Syntasso/kratix.git`
+* `git clone https://github.com/syntasso/kratix.git`
 
 ### Setup Platform Cluster and Install Kratix
 
