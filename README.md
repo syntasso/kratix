@@ -9,6 +9,7 @@ Kratix is a framework for delivering platforms. A platform team deploys Kratix o
 - [The Problem Kratix Solves](#the-problem-kratix-solves)
 - [Getting Started](#getting-started)
 - [Where Next?](#where-next)
+- [Frequently Asked Questions (FAQ)](/docs/FAQ.md)
 - [Known Issues](#known-issues)
 
 ## The Problem Kratix Solves
@@ -17,11 +18,25 @@ See the ["Crossing the Platform Gap" article on Syntasso.io](https://www.syntass
 
 **[Work with Kratix's originators, Syntasso, to deliver your organisation's Platform-as-a-Product.](https://www.syntasso.io/how-we-help)**
 
+## The Value of Kratix
+
+### A Platform Team can:
+- Curate a bespoke platform API to offer a compelling Platform as a Product.
+- Codify their organisation's policies and opinions (security, compliance, etc) into their as-a-Service software supply chain.
+- Provide usable on-demand services composed from lower-level Kubernetes "operators".
+- Use familiar Kubernetes tools and native constructs.
+- Start small on a laptop and expand to multi-team multi-cluster multi-region multi-cloud with a consistent API everywhere.
+- Discover and share on-demand multi-cluster software (Promises) with the Kratix ecosystem.
+
+### A Steam-Aligned / Application Team can:
+- Discover and consume the services in their organisation on-demand using standard Kubernetes APIs.
+- Consume as-a-Service from the platform, safe in the knowledge that the service is fit for purpose in their organisation.
+
 ## Getting Started
 
 In order to understand the power of internal platforms, let's build a demonstration platform using Kratix!
 
-First, we're going to assume the role of a platform team member. We're going to create an internal platform for our SATs. Our first step is to create a "platform" Kubernetes cluster to host our internal platform, and install Kratix on our platform cluster to power our platform API. We're now ready to add functionality to our platform.
+First, we're going to assume the role of a platform team member. We're going to create an internal platform for our steam-aligned teams (SATs, a.k.a. "application" or "development" teams). Our first step is to create a "platform" Kubernetes cluster to host our internal platform, and install Kratix on our platform cluster to power our platform API. We're now ready to add functionality to our platform.
 
 Next, we will create a "worker" Kubernetes cluster to host the workloads delivered, X-as-a-Service, to our SATs. It is possible to add as many clusters as you wish to Kratix, and to dynamically create new clusters when desired, but right now we'll stick with one worker cluster for demonstration purposes. We'll also configure our worker cluster to join the platform cluster's Kratix topology. We're now ready to host workloads for our SATs.
 
