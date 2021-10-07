@@ -9,7 +9,8 @@ Kratix is a framework for delivering platforms. A platform team deploys Kratix o
 - [The Problem Kratix Solves](#the-problem-kratix-solves)
 - [Getting Started](#getting-started)
 - [Where Next?](#where-next)
-- [Frequently Asked Questions (FAQ)](/docs/FAQ.md)
+- [How does Kratix compare to other tools?](./docs/compare.md)
+- [Frequently Asked Questions (FAQ)](./docs/FAQ.md)
 - [Known Issues](#known-issues)
 
 ## The Problem Kratix Solves
