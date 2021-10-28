@@ -28,7 +28,15 @@ kubectl apply -f hack/platform/minio-install.yaml
 ```
 
 The Kratix API should now be available.
- 
+
+### Multi-Cluster Networking
+Some KinD installations use not-standard networking, to ensure cross-cluster communication we need to run this script. 
+
+```
+PLATFORM_CLUSTER_IP=`docker inspect platform-control-plane | grep '"IPAddress": "172' | awk '{print $2}' | awk -F '"' '{print $2}'` 
+sed -i'' -e "s/172.18.0.2/$PLATFORM_CLUSTER_IP/g" hack/worker/gitops-tk-resources.yaml
+```
+
 ```
 kubectl get crds
 ```
