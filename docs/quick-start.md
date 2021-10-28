@@ -2,15 +2,15 @@
 
 In this tutorial we will learn how to:
 1. Install multi-cluster Kratix on a local environment. 
-2. Install a Jenkins Promise
-3. Issue Jenkins instances on-demand 
+2. Install a Jenkins Promise.
+3. Issue Jenkins instances on-demand.
 
 
 ## Part 1: Kratix Multi-Cluster Install
 
 ### Install KinD
 
-See [the KinD quick start guide](https://kind.sigs.k8s.io/docs/user/quick-start/) to install KinD
+See [the KinD quick start guide](https://kind.sigs.k8s.io/docs/user/quick-start/) to install KinD.
 
 ### Clone Kratix
 ```
@@ -19,7 +19,7 @@ git clone https://github.com/syntasso/kratix.git
 
 ### Setup Platform Cluster
 
-The below commands will create our Platform cluster and install Kratix.
+The below commands will create our platform cluster and install Kratix.
 
 ```
 kind create cluster --name platform
@@ -30,7 +30,7 @@ kubectl apply -f hack/platform/minio-install.yaml
 The Kratix API should now be available.
 
 ### Multi-Cluster Networking
-Some KinD installations use not-standard networking, to ensure cross-cluster communication we need to run this script. 
+Some KinD installations use not-standard networking; to ensure cross-cluster communication we need to run this script: 
 
 ```
 PLATFORM_CLUSTER_IP=`docker inspect platform-control-plane | grep '"IPAddress": "172' | awk '{print $2}' | awk -F '"' '{print $2}'` 
@@ -49,15 +49,15 @@ works.platform.kratix.io                 2021-09-03T11:59:16Z
 ```
 
 ### Setup Worker Cluster
-This will create a cluster for running the X-as-a-service workloads
+This will create a cluster for running the X-as-a-service workloads:
 
 ```
-kind create cluster --name worker
+kind create cluster --name worker #Also switches kubectl context to worker
 kubectl apply -f hack/worker/gitops-tk-install.yaml
 kubectl apply -f hack/worker/gitops-tk-resources.yaml
 ```
 
-Once Flux is installed and running (this may take a few minutes), the Kratix resources should now be visible on the worker cluster.
+Once Flux is installed and running (this may take a few minutes), the Kratix resources should be visible on the worker cluster.
 
 ```
 kubectl get ns kratix-worker-system
@@ -69,7 +69,7 @@ NAME                   STATUS   AGE
 kratix-worker-system   Active   4m2s
 ```
 
-Congratulations! Kratix is now Installed.
+Congratulations! Kratix is now installed.
 
 ## Part 2: Install a Jenkins Promise 
 
@@ -80,7 +80,7 @@ kubectl config use-context kind-platform
 kubectl apply -f samples/jenkins/jenkins-promise.yaml
 ```
 
-On the Platform Cluster we should now see the ability to create Jenkins instances.
+On the platform cluster we should now see the ability to create Jenkins instances.
 
 ```
 kubectl get crds jenkins.example.promise.syntasso.io
@@ -92,7 +92,7 @@ NAME                                     CREATED AT
 jenkins.example.promise.syntasso.io   2021-09-03T12:02:20Z
 ```
 
-On and our Worker cluster, we should see that the Jenkins Operator has been installed. 
+On our worker cluster we should see that the Jenkins operator has been installed. 
 
 ```
 kubectl get pods --namespace default --context kind-worker
@@ -104,7 +104,7 @@ NAME                                READY   STATUS    RESTARTS   AGE
 jenkins-operator-7886c47f9c-zschr   1/1     Running   0          4m1s
 ```
 
-Congratulations! You have now installed your first Promise. The machinery to issue Jenkins instances on demand by Application teams has now been installed.
+Congratulations! You have now installed your first Promise. The machinery to issue Jenkins instances on demand by application teams has now been installed.
 
 ## Part 3: Request a Jenkins Instance
 
@@ -124,9 +124,9 @@ NAME                   AGE
 my-jenkins   27s
 ```
 
-Review created Jenkins Instance on the Worker Cluster
+### Review created Jenkins instance on the worker cluster
 
-Once Kratix has applied the new configuration to the Worker cluster (this will take a few minutes), the Jenkins instance will be created.
+Once Kratix has applied the new configuration to the worker cluster (this will take a few minutes), the Jenkins instance will be created.
 
 ```
 kubectl get pods --namespace default --context kind-worker
@@ -139,7 +139,7 @@ jenkins-example                     1/1     Running   0          113s
 jenkins-operator-7886c47f9c-zschr   1/1     Running   0          19m
 ```
 
-Congratulations! You have now created an instance of Jenkins. 
+Congratulations! You have now created an instance of Jenkins.
 
 ### Using your Jenkins instance
 
@@ -152,10 +152,11 @@ We can see the Jenkins UI in our browsers (all commands on worker cluster):
 
 
 
-### What have we learned?
+## What have we learned?
 
-1. We created an internal Platform API, and a Worker cluster to host workloads. 
-2. We then decorated our platform API by Promising Jenkins-as-a-service. 3. We adopted the role of a Application team member and requested a Jenkins instance from the platform. The Jenkins instance was created on the worker cluster.
+1. We created an internal platform API, and a worker cluster to host workloads. 
+2. We then decorated our platform API by Promising Jenkins-as-a-service.
+3. We adopted the role of an application team member and requested a Jenkins instance from the platform. The Jenkins instance was created on the worker cluster.
 
 ## Challenge 
-Create a second Jenkins instance.  
+[Write your own Promise](./writing-a-promise.md), with a custom pipeline image, and share it with the world!
