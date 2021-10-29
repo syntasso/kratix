@@ -1,4 +1,4 @@
-# Kratix Quick Start.
+# Kratix Quick Start
 
 In this tutorial we will learn how to:
 1. Install multi-cluster Kratix on a local environment. 
