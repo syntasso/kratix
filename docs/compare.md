@@ -1,4 +1,4 @@
-# How does Kratix compare to other tools?
+# How Kratix Compares to Other Technologies in the Ecosystem?
 
 ## Kubernetes Operators
 
