@@ -32,6 +32,6 @@ Kratix is deployed to a "platform" cluster, and uses the GitOps Toolkit to orche
 
 **[Work with Kratix's originators, Syntasso, to deliver your organisation's Platform-as-a-Product.](https://www.syntasso.io/how-we-help)**
 
-### **Give feedback on Kratix Please, please, please!**
+### **Give feedback on Kratix**
   - [Via email](mailto:feedback@syntasso.io?subject=Kratix%20Feedback)
   - [Google Form](https://forms.gle/WVXwVRJsqVFkHfJ79)
