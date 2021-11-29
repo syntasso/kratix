@@ -20,11 +20,11 @@ Kratix is deployed to a "platform" cluster, and uses the GitOps Toolkit to orche
   <!-- - [Architecture](./docs/writing-a-promise.md) -->
 - Deploying Kratix
   - [Quick Start](./docs/quick-start.md)
-  - [Detailed Installation](./docs/hard-start.md)
+  - [Detailed Installation](./docs/detailed-start.md)
   - [Promise Samples](./docs/promise-samples.md)
 - Promises
   - [What is a Promise?](./docs/promises.md)
-  - [Writing a Promise](./docs/writing-promise.md)
+  - [Writing a Promise](./docs/writing-a-promise.md)
   - [Promise Samples](./docs/promise-samples.md)
 - [How Kratix Compares to Other Technologies in the Ecosystem](./docs/compare.md)
 - [FAQs](docs/FAQ.md)

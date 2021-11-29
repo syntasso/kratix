@@ -20,7 +20,7 @@ Lastly, we're going to assume the role of a SAT member, make a request to the pl
 - A reasonably powerful computer. We test on:
     - Linux(Mint), i7, 16GB, KinD on native Docker.
     - Mac, i7, 32GB, KinD on a Docker Desktop VM(6 vCPU / 24GB).
-- Install Kubernetes-in-Docker(KinD). See [the KinD quick start guide](https://kind.sigs.k8s.io/docs/user/quick-start/) to install KinD. Tested on 0.9.0 and 0.10.0. Use the [Kratix Quick Start](docs/single-cluster.md) for non-KinD installations.
+- Install Kubernetes-in-Docker(KinD). See [the KinD quick start guide](https://kind.sigs.k8s.io/docs/user/quick-start/) to install KinD. Tested on 0.9.0 and 0.10.0. Use the [Kratix Quick Start](./single-cluster.md) for non-KinD installations.
     - Ensure no KinD clusters are currently running. `kind get clusters` should return "No kind clusters found."
 - Install Kubectl. See [the install guide](https://kubernetes.io/docs/tasks/tools/#kubectl). Tested on 1.16.13 and 1.21.2.
 
@@ -29,7 +29,7 @@ Lastly, we're going to assume the role of a SAT member, make a request to the pl
 
 ### Setup Platform Cluster and Install Kratix
 
-![Getting Started Step One](docs/images/getting-started-step-1.png)
+![Getting Started Step One](./images/getting-started-step-1.png)
 
 This will create our platform cluster and install Kratix. We'll also install Minio to power our GitOps pipelines to the worker clusters. For production installations, Git or S3 can easily be used instead, depending on your preference.
 
@@ -65,7 +65,7 @@ kratix-worker-system   Active   4m2s
 
 ### Apply Postgres-as-a-Service Promise on the Platform Cluster
 
-![Getting Started Step Two](docs/images/getting-started-step-2.png)
+![Getting Started Step Two](./images/getting-started-step-2.png)
 
 Now we have Kratix available to power our platform API, we need to put it to good use. We should spend time with our SATs to understand their needs, combine those needs with the organisation's needs around security, governance, and compliance, and encode this knowledge in a Promise. For the purpose of this walkthrough let's install the provided Postgres-as-a-service Promise.
 
@@ -94,7 +94,7 @@ postgres-operator-55b8549cff-s77q7   1/1     Running   0          51s
 
 ### Request a Postgres Instance on the Platform Cluster
 
-![Getting Started Step Three](docs/images/getting-started-step-3.png)
+![Getting Started Step Three](./images/getting-started-step-3.png)
 
 We now assume the role of a member of a stream-aligned team, and request a Postgres server from the platform API.
 
