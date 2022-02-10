@@ -4,12 +4,21 @@
 
 κρατήστε μια υπόσχεση | *kratíste mia ypóschesi* | **Keep a promise**
 
-
 ## What is Kratix?
 
-Kratix is a framework for building Platform-as-a-Product. Kratix enables platform teams to easily deliver a curated Kubernetes-native platform API, over fleets of Kubernetes clusters, to increase flow across your organisation. 
+Kratix is a framework that enables co-creation of capabilities by providing a clear contract between application and platform teams through the definition and creation of “Promises”. Using the GitOps workflow and Kubernetes-native constructs, Kratix provides a flexible solution to empower your platform team to curate an API-driven, curated, bespoke platform that can easily be kept secure and up-to-date, as well as evolving as business needs change.
 
-Kratix is deployed to a "platform" cluster, and uses the GitOps Toolkit to orchestrate a  topology of "worker" clusters. The Kratix installation is then loaded with "Promises" to create a rich platform API. Each "Promise" is a definition of an on-demand service.
+Promises:
+- provide the right abstractions to make your developers as productive, efficient, and secure as possible. Any capability can be encoded and delivered via a Promise, and once “Promised” the capability is available on-demand, at scale, across the organisation.
+- codify the contract between platform teams and application teams for the delivery of a specific service, e.g. a database, an identity service, a supply chain, or a complete development pipeline of patterns and tools.
+- can be shared and reused between platforms, teams, business units, even other organisations.
+- are easy to build, deploy, and update. Bespoke business logic can be added to each Promise’s pipeline.
+- can create “Workloads”, which are deployed, via the GitOps Toolkit, across fleets of Kubernetes clusters.
+
+A Promise is comprised of three elements:
+- Custom Resource Definition: input from an app team to create instances of a capability.
+- Worker Cluster Resources: dependencies necessary for any created Workloads.
+- Request Pipeline: business logic required when an instance of a capability is requested.
 
 ### Contents
 - Context

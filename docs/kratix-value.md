@@ -2,6 +2,8 @@
 
 ## The Value of Kratix
 
+Unlike other frameworks and tooling which focus exclusively on application-developer experience, Kratix focuses on empowering platform engineers to build better platforms. By using Kubernetes as the building block, Kratix brings together the power and flexibility of raw Kubernetes and enables platform teams to simplify the experience for application teams by reducing complexity. In addition, Kratix enables the injection of business-specific requirements such as compliance, security, and billing so that the “Promises” delivered by the platform represent the Golden Paths to production; making the right way the easy way.
+
 ### A Platform Team can:
 - Curate a bespoke platform API to offer a compelling Platform as a Product.
 - Codify their organisation's policies and opinions (security, compliance, etc) into their as-a-Service software supply chain.
