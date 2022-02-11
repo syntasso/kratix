@@ -22,7 +22,7 @@ A Promise is comprised of three elements:
 
 ### Contents
 - Context
-  - [Value of Kratix](./docs/kratix-value.md) 
+  - [The Value of Kratix](./docs/kratix-value.md) 
   - [Crossing the Platform Gap](https://www.syntasso.io/post/crossing-the-platform-gap) 
   <!-- - [Personas](./docs/personas.md)  -->
   <!-- - [Team Story](./docs/success.md) -->
