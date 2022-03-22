@@ -33,11 +33,12 @@ import (
  to the k8s cluster under test.
 
  Assumptions:
- 1. A 'clean' k8s cluster
+ 1. `kind create cluster --name=platform`
  2. `make deploy` has been run. Note: `make int-test` will
  ensure that `deploy` is executed
- 3. `export IMG=syntasso/kratix-platform:dev make kind-load-image`
- 4. `make int-test`
+ 3. `export IMG=syntasso/kratix-platform:dev`
+ 4. `make kind-load-image`
+ 5. `make int-test`
 
  Cleanup:
  k delete databases.postgresql.dev4devs.com database && k delete crd databases.postgresql.dev4devs.com && k delete promises.platform.kratix.io postgres-promise && k delete works.platform.kratix.io work-sample
