@@ -28,7 +28,6 @@ import (
 	v1 "k8s.io/api/core/v1"
 	metav1 "k8s.io/apimachinery/pkg/apis/meta/v1"
 	"k8s.io/apimachinery/pkg/apis/meta/v1/unstructured"
-	"k8s.io/apimachinery/pkg/runtime/schema"
 	"k8s.io/apimachinery/pkg/types"
 	"k8s.io/apimachinery/pkg/util/yaml"
 	"k8s.io/client-go/kubernetes/scheme"
@@ -141,9 +140,11 @@ var _ = Context("Promise Reconciler", func() {
 		})
 	})
 
+	//MISSING TEST: a Work is created with WCRs in it
+
 	Describe("Creating a Redis CR", func() {
 		Describe("Creates a valid pod spec for the transformation pipeline", func() {
-			PIt("Creates a pod spec", func() {
+			It("Creates a pod spec", func() {
 				yamlFile, err := ioutil.ReadFile("../config/samples/redis/redis-resource-request.yaml")
 				Expect(err).ToNot(HaveOccurred())
 
@@ -157,7 +158,8 @@ var _ = Context("Promise Reconciler", func() {
 
 				createdPod := v1.Pod{}
 				expectedName := types.NamespacedName{
-					Name:      "pipeline",
+					//The name of the pod is generated dynamically by the Promise Controller. For testing purposes, we set a TEST_PROMISE_CONTROLLER_POD_IDENTIFIER_UUID via an environment variable in the Makefile to make the name deterministic
+					Name:      "request-pipeline-redis-promise-default-12345",
 					Namespace: "default",
 				}
 
@@ -171,41 +173,6 @@ var _ = Context("Promise Reconciler", func() {
 					}
 					return createdPod.Spec.Containers[0].Name
 				}, timeout, interval).Should(Equal("writer"))
-			})
-
-			// Test switched off
-			//
-			// This test needs to run against a k8s deployment that can run containers in order to execute the
-			// transfomation we're asserting.
-			//
-			// TODO: Enable this in https://www.pivotaltracker.com/story/show/178496362
-			XIt("Transforms the redis-resource-request", func() {
-				var timeout = "10s"
-				var interval = "3s"
-				Eventually(func() string {
-					gvk := schema.GroupVersionKind{
-						Group:   "redis.redis.opstreelabs.in",
-						Version: "v1beta1",
-						Kind:    "Redis",
-					}
-
-					redisRequest := &unstructured.Unstructured{}
-					redisRequest.SetGroupVersionKind(gvk)
-
-					expectedName := types.NamespacedName{
-						Name:      "opstree-redis",
-						Namespace: "default",
-					}
-
-					err := k8sClient.Get(context.Background(), expectedName, redisRequest)
-					if err != nil {
-						fmt.Println(err.Error())
-						return ""
-					}
-					fmt.Println(redisRequest)
-					annotations := redisRequest.Object["annotations"]
-					return fmt.Sprintf("%v", annotations)
-				}, timeout, interval).Should(Equal("syntasso: true"))
 			})
 		})
 	})
