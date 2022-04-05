@@ -1,4 +1,4 @@
-FROM golang:1.15 as builder
+FROM golang:1.17 as builder
 
 WORKDIR /workspace
 # Copy the Go Modules manifests
@@ -14,7 +14,7 @@ RUN go mod download
 RUN CGO_ENABLED=0 GOOS=linux GOARCH=amd64 GO111MODULE=on go build -a -o work-creator work-creator/pipeline/cmd/main.go
 
 # Use bitnami/kubectl to get ./kubeconfig 
-FROM bitnami/kubectl:1.20.10
+FROM bitnami/kubectl:1.23.5
 WORKDIR /
 COPY --from=builder /workspace/work-creator/main ./work-creator
 USER 65532:65532
