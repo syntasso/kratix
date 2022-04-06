@@ -26,3 +26,6 @@ __debug_bin
 *.swp
 *.swo
 *~
+
+# Generated Kratix distribution yaml - contains pointers to images
+distribution/kratix.yaml 
