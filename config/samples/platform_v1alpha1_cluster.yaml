@@ -1,0 +1,6 @@
+apiVersion: platform.kratix.io/v1alpha1
+kind: Cluster
+metadata:
+  name: cluster-sample
+spec:
+  id: something-unique
