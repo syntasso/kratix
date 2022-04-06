@@ -10,7 +10,7 @@
     - [Promise template](#promise-template)
     - [X-as-a-Service Custom Resource Definition](#x-as-a-service-custom-resource-definition)
     - [X-as-a-Service Request Pipeline](#x-as-a-service-request-pipeline)
-    - [Cluster Worker Resources](#cluster-worker-resources)
+    - [Worker Cluster Resources](#worker-cluster-resources)
     - [Create and submit a resource request](#create-and-submit-a-resource-request)
   - [Summary](#summary)
   - [Where Next?](#where-next)
@@ -59,7 +59,7 @@ Conceptually a Promise is Broken down into three parts:
 
 1. `xaasCrd`: this is the CRD that is exposed to the users of the Promise. Imagine the order form for a product. What do you need to know from your customer? Size? Location? Name?
 2. `xaasRequestPipeline`: this is the pipeline that will create the Jenkins resources requried to run Jenkins on a worker cluster decorated with whatever you need to run Jenkins from your own Platform. Do you need to scan images? Do you need to send a request to an external API for approval? Do you need to inject resources for storage, mesh, networking, etc.? These activities happen in the pipeline.
-3. `clusterWorkerResources`: this contains all of the Kubernetes resources required on a cluster for it to be able to run an instance Jenkins such as CRDs, Operators and Deployments. Think about the required prerequisites necessary on the worker cluster, so that the resources declared by your pipeline are able to converge.
+3. `workerClusterResources`: this contains all of the Kubernetes resources required on a cluster for it to be able to run an instance Jenkins such as CRDs, Operators and Deployments. Think about the required prerequisites necessary on the worker cluster, so that the resources declared by your pipeline are able to converge.
 
 ![Writing a Promise Step Two](images/writing-a-promise-2.png)
 
@@ -75,7 +75,7 @@ metadata:
   name: jenkins-promise
 spec:
   #injected via: go run path/to/kratix/hack/worker-resource-builder/main.go -k8s-resources-directory ${PWD}/resources -promise ${PWD}/jenkins-promise-template.yaml > jenkins-promise.yaml
-  #clusterWorkerResources: 
+  #workerClusterResources: 
   xaasRequestPipeline:
   xaasCrd:
 EOF
@@ -273,7 +273,7 @@ docker run -v ${PWD}/input:/input -v ${PWD}/output:/output <your-org-name/name-o
 cat output/*
 ```
 
-*If we already have the "Cluster Worker Resources" (see beneath) installed on a test cluster, we can optionally apply the resources in the /output directory and test to see if the Jenkins instance is created.*
+*If we already have the "Worker Cluster Resources" (see beneath) installed on a test cluster, we can optionally apply the resources in the /output directory and test to see if the Jenkins instance is created.*
 
 Once we are satisified with the image, we can push it so it's ready for use in our pipeline.
 ```bash
@@ -310,7 +310,7 @@ We have:
 *Please note: at time of writing, only the first image in the `xaasRequestPipeline` array will be executed. Multiple image functionality will be available soon.*
 
 
-### Cluster Worker Resources
+### Worker Cluster Resources
 
 ![Writing a Promise Step Five](images/writing-a-promise-5.png)
 
@@ -322,7 +322,7 @@ We will need to download both.
 * `wget https://raw.githubusercontent.com/jenkinsci/kubernetes-operator/master/config/crd/bases/jenkins.io_jenkins.yaml -P resources`
 * `wget https://raw.githubusercontent.com/jenkinsci/kubernetes-operator/master/deploy/all-in-one-v1alpha2.yaml -P resources`  
 
-Next we need to inject Jenkins files into our `jenkins-promise-template.yaml`. To make this step simpler we have written a _very basic_ tool to grab all YAML documents from all YAML files located in `resources` and inject them into the `clusterWorkerResources` scalar. 
+Next we need to inject Jenkins files into our `jenkins-promise-template.yaml`. To make this step simpler we have written a _very basic_ tool to grab all YAML documents from all YAML files located in `resources` and inject them into the `workerClusterResources` scalar. 
 
 `path/to/kratix/hack/worker-resource-builder/worker-resource-builder -k8s-resources-directory ${PWD}/resources -promise ${PWD}/jenkins-promise-template.yaml > jenkins-promise.yaml`
 
@@ -378,7 +378,7 @@ We built a Jenkins-as-a-Service offering, by creating a Jenkins Promise, and add
 We created the three elements of a Promise for Jenkins:
 - `xaasCrd`
 - `xaasRequestPipeline`
-- `clusterWorkerResources`
+- `workerClusterResources`
                                          
 and added them to our single Jenkins Promise yaml document. We then applied our Jenkins Promise to our platform cluster, which created the Jenkins-as-a-Service API, and configured our worker cluster such that it could create and manage Jenkins instances. Lastly, we assumed the role of our customer, and applied a yaml document to our platform cluster, triggering the creation of a Jenkins instance on the worker cluster.
 

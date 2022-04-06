@@ -18,8 +18,8 @@ import (
 func main() {
 	var resourcesPath string
 	var promisePath string
-	flag.StringVar(&resourcesPath, "k8s-resources-directory", "", "Absolute Path of k8s resources to build clusterWorkerResources from")
-	flag.StringVar(&promisePath, "promise", "", "Absolute path of Promise to insert clusterWorkerResources into")
+	flag.StringVar(&resourcesPath, "k8s-resources-directory", "", "Absolute Path of k8s resources to build workerClusterResources from")
+	flag.StringVar(&promisePath, "promise", "", "Absolute path of Promise to insert workerClusterResources into")
 	flag.Parse()
 
 	if resourcesPath == "" {
@@ -39,7 +39,7 @@ func main() {
 		os.Exit(1)
 	}
 
-	resources := []platformv1alpha1.ClusterWorkerResource{}
+	resources := []platformv1alpha1.WorkerClusterResource{}
 
 	for _, fileInfo := range files {
 		fileName := filepath.Join(resourcesPath, fileInfo.Name())
@@ -56,7 +56,7 @@ func main() {
 			} else if err == io.EOF {
 				break
 			} else {
-				resources = append(resources, platformv1alpha1.ClusterWorkerResource{Unstructured: *us})
+				resources = append(resources, platformv1alpha1.WorkerClusterResource{Unstructured: *us})
 			}
 		}
 	}
@@ -71,9 +71,9 @@ func main() {
 		l.Println(err.Error())
 		os.Exit(1)
 	}
-	promise.Spec.ClusterWorkerResources = resources
+	promise.Spec.WorkerClusterResources = resources
 
-	//Write Promise (with clusterWorkerResources) to stdout
+	//Write Promise (with workerClusterResources) to stdout
 	bytes, _ := yamlsig.Marshal(promise)
 	fmt.Println(string(bytes))
 }

@@ -4,7 +4,7 @@ metadata:
   name: rabbitmq-promise
 spec:
   #injected via: ./worker-resource-builder/worker-resource-builder -k8s-resources-directory ${PWD}/crds -promise ${PWD}/amqp-promise.yaml > amqp-full-promise.yaml
-  #clusterWorkerResources: 
+  #workerClusterResources: 
   #  - kind: to be injected 
   xaasRequestPipeline:
     - syntasso/amqp-hack

@@ -32,7 +32,7 @@ spec:
         storage: true
   xaasRequestPipeline:
   - syntasso/jenkins-request-pipeline
-  clusterWorkerResources:
+  workerClusterResources:
   - apiVersion: v1
     kind: ServiceAccount
     metadata:

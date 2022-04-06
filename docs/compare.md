@@ -2,7 +2,7 @@
 
 ## Kubernetes Operators
 
-Kubernetes Operators work hand-in-hand with Kratix. In nearly all cases Operators will need to be deployed in the `clusterWorkerResources` part of a Promise, to worker clusters, to ensure worker clusters are able to manage requested instances.
+Kubernetes Operators work hand-in-hand with Kratix. In nearly all cases Operators will need to be deployed in the `workerClusterResources` part of a Promise, to worker clusters, to ensure worker clusters are able to manage requested instances.
 
 ## Helm
 

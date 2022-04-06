@@ -127,7 +127,7 @@ var _ = Context("Promise Reconciler", func() {
 			}, timeout, interval).Should(Equal(expectedAPI))
 		})
 
-		It("Creates Redis Cluster Worker Resources", func() {
+		It("Creates Redis Worker Cluster Resources", func() {
 			var timeout = "30s"
 			var interval = "3s"
 			Eventually(func() bool {
