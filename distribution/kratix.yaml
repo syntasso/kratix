@@ -9,7 +9,7 @@ apiVersion: apiextensions.k8s.io/v1
 kind: CustomResourceDefinition
 metadata:
   annotations:
-    controller-gen.kubebuilder.io/version: v0.4.1
+    controller-gen.kubebuilder.io/version: v0.8.0
   creationTimestamp: null
   name: promises.platform.kratix.io
 spec:
@@ -37,7 +37,7 @@ spec:
           spec:
             description: PromiseSpec defines the desired state of Promise
             properties:
-              clusterWorkerResources:
+              workerClusterResources:
                 items:
                   description: Resources represents the manifest workload to be deployed on worker cluster
                   type: object
@@ -74,7 +74,7 @@ apiVersion: apiextensions.k8s.io/v1
 kind: CustomResourceDefinition
 metadata:
   annotations:
-    controller-gen.kubebuilder.io/version: v0.4.1
+    controller-gen.kubebuilder.io/version: v0.8.0
   creationTimestamp: null
   name: works.platform.kratix.io
 spec:
@@ -360,7 +360,7 @@ metadata:
 ---
 apiVersion: v1
 data:
-  WC_IMG: syntasso/kratix-platform-work-creator:v0.0.0-1
+  WC_IMG: syntasso/kratix-platform-work-creator:v0.0.0-2
 kind: ConfigMap
 metadata:
   name: kratix-platform-wc-img-config
@@ -421,7 +421,7 @@ spec:
             configMapKeyRef:
               key: WC_IMG
               name: kratix-platform-wc-img-config
-        image: syntasso/kratix-platform:v0.0.0-1
+        image: syntasso/kratix-platform:v0.0.0-2
         livenessProbe:
           httpGet:
             path: /healthz
