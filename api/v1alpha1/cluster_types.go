@@ -29,7 +29,8 @@ type ClusterSpec struct {
 	// Important: Run "make" to regenerate code after modifying this file
 
 	// Unique identifier of a Cluster
-	Id string `json:"id"`
+	Id         string `json:"id"`
+	BucketPath string `json:"bucketPath"`
 }
 
 // ClusterStatus defines the observed state of Cluster

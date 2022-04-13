@@ -4,3 +4,4 @@ metadata:
   name: cluster-sample
 spec:
   id: something-unique
+  bucketPath: worker-cluster-1-bucket-path
