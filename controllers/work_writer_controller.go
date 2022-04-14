@@ -123,11 +123,10 @@ func (r *WorkWriterReconciler) writeResourcesToMinio(objectName string, fluxYaml
 }
 
 func (r *WorkWriterReconciler) writeCrdsToWorkerClusters(objectName string, fluxYaml []byte) error {
-	//var err error
-	// for _, workerClustersBucketPath := range r.getWorkerClustersBucketPaths() {
-	//  err = r.yamlUploader(workerClustersBucketPath+"-kratix-crds", objectName, fluxYaml)
-	// }
-	err := r.yamlUploader("kratix-crds", objectName, fluxYaml)
+	var err error
+	for _, workerClustersBucketPath := range r.getWorkerClustersBucketPaths() {
+		err = r.yamlUploader(workerClustersBucketPath+"-kratix-crds", objectName, fluxYaml)
+	}
 	return err
 }
 

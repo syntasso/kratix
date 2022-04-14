@@ -2,7 +2,6 @@ package integration_test
 
 import (
 	"context"
-	"fmt"
 	"io"
 	"io/ioutil"
 
@@ -98,8 +97,9 @@ var _ = Describe("kratix Platform Integration Test", func() {
 		By("A Worker Cluster is registered")
 		applyResourceRequest(WORKER_CLUSTER_RESOURCE_REQUEST)
 
+		//defined in config/samples/platform_v1alpha1_cluster.yaml
 		expectedName := types.NamespacedName{
-			Name:      "cluster-sample",
+			Name:      "worker-cluster-1",
 			Namespace: "default",
 		}
 		Eventually(func() bool {
@@ -108,42 +108,6 @@ var _ = Describe("kratix Platform Integration Test", func() {
 	})
 
 	Describe("Redis Promise lifecycle", func() {
-		XIt("THIS", func() {
-			workerClusters := &platformv1alpha1.ClusterList{}
-			err := k8sClient.List(context.Background(), workerClusters, &client.ListOptions{})
-			workerClustersBucketPaths := make([]string, len(workerClusters.Items))
-			if err == nil {
-				for x, cluster := range workerClusters.Items {
-					workerClustersBucketPaths[x] = cluster.Spec.BucketPath
-				}
-			} else {
-				fmt.Println(err.Error())
-			}
-
-			fmt.Println(workerClustersBucketPaths)
-		})
-
-		XIt("creates me a bucket", func() {
-			// endpoint := "minio.kratix-platform-system.svc.cluster.local"
-			endpoint := "172.18.0.2:31337"
-			accessKeyID := "minioadmin"
-			secretAccessKey := "minioadmin"
-			useSSL := false
-
-			// Initialize minio client object.
-			minioClient, _ := minio.New(endpoint, &minio.Options{
-				Creds:  credentials.NewStaticV4(accessKeyID, secretAccessKey, ""),
-				Secure: useSSL,
-			})
-			ctx := context.Background()
-			exists, err := minioClient.BucketExists(ctx, "kratix-crds")
-			Expect(err).ToNot(HaveOccurred())
-			Expect(exists).To(BeTrue())
-
-			_, err = minioClient.StatObject(ctx, "kratix-crds", "nest/crds-not.yaml", minio.GetObjectOptions{})
-			Expect(err).ToNot(HaveOccurred())
-		})
-
 		Describe("Applying Redis Promise", func() {
 			It("Applying a Promise CRD manifests a Redis api-resource", func() {
 				applyPromiseCRD(REDIS_CRD)
@@ -337,8 +301,7 @@ func getTestWorkerClusterBucketPath() string {
 
 func minioHasCrd(workloadNamespacedName types.NamespacedName, resourceName, resourceKind, workerClusterBucketPath string) (bool, unstructured.Unstructured) {
 	objectName := "00-" + workloadNamespacedName.Namespace + "-" + workloadNamespacedName.Name + "-crds.yaml"
-	//return minioHasWorkloadWithResourceWithNameAndKind(workerClusterBucketPath+"-kratix-crds", objectName, resourceName, resourceKind)
-	return minioHasWorkloadWithResourceWithNameAndKind("kratix-crds", objectName, resourceName, resourceKind)
+	return minioHasWorkloadWithResourceWithNameAndKind(workerClusterBucketPath+"-kratix-crds", objectName, resourceName, resourceKind)
 }
 
 func minioHasResource(workloadNamespacedName types.NamespacedName, resourceName string, resourceKind string) (bool, unstructured.Unstructured) {

@@ -47,8 +47,8 @@ spec:
         command: ["/bin/sh", "-c"]
         args: 
           - | 
-            mkdir /data/kratix-crds /data/kratix-resources;
-            cat > /data/kratix-crds/kratix-crds.yaml << EOF1
+            mkdir /data/worker-cluster-1-kratix-crds /data/kratix-resources;
+            cat > /data/worker-cluster-1-kratix-crds/kratix-crds.yaml << EOF1
             apiVersion: v1
             kind: Namespace
             metadata:
