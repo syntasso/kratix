@@ -22,8 +22,6 @@ import (
 	"time"
 
 	"github.com/go-logr/logr"
-	minio "github.com/minio/minio-go/v7"
-	"github.com/minio/minio-go/v7/pkg/credentials"
 	metav1 "k8s.io/apimachinery/pkg/apis/meta/v1"
 	"k8s.io/apimachinery/pkg/runtime"
 	"k8s.io/apimachinery/pkg/runtime/serializer/json"
@@ -36,8 +34,9 @@ import (
 // WorkReconciler reconciles a Work object
 type WorkWriterReconciler struct {
 	client.Client
-	Log    logr.Logger
-	Scheme *runtime.Scheme
+	Log          logr.Logger
+	Scheme       *runtime.Scheme
+	BucketWriter BucketWriter
 }
 
 //+kubebuilder:rbac:groups=platform.kratix.io,resources=works,verbs=get;list;watch;create;update;patch;delete
@@ -119,69 +118,15 @@ func (r *WorkWriterReconciler) writeToMinio(work *platformv1alpha1.Work) error {
 
 func (r *WorkWriterReconciler) writeResourcesToMinio(objectName string, fluxYaml []byte) error {
 	bucketName := "kratix-resources"
-	return r.yamlUploader(bucketName, objectName, fluxYaml)
+	return r.BucketWriter.WriteObject(bucketName, objectName, fluxYaml)
 }
 
 func (r *WorkWriterReconciler) writeCrdsToWorkerClusters(objectName string, fluxYaml []byte) error {
 	var err error
 	for _, workerClustersBucketPath := range r.getWorkerClustersBucketPaths() {
-		err = r.yamlUploader(workerClustersBucketPath+"-kratix-crds", objectName, fluxYaml)
+		err = r.BucketWriter.WriteObject(workerClustersBucketPath+"-kratix-crds", objectName, fluxYaml)
 	}
 	return err
-}
-
-func (r *WorkWriterReconciler) yamlUploader(bucketName string, objectName string, fluxYaml []byte) error {
-	if len(fluxYaml) == 0 {
-		r.Log.Info("Empty byte[]. Nothing to write to Minio for " + objectName)
-		return nil
-	}
-
-	ctx := context.Background()
-	endpoint := "minio.kratix-platform-system.svc.cluster.local"
-	accessKeyID := "minioadmin"
-	secretAccessKey := "minioadmin"
-	useSSL := false
-
-	// Initialize minio client object.
-	minioClient, err := minio.New(endpoint, &minio.Options{
-		Creds:  credentials.NewStaticV4(accessKeyID, secretAccessKey, ""),
-		Secure: useSSL,
-	})
-
-	if err != nil {
-		r.Log.Error(err, "Error initalising Minio client")
-		return err
-	}
-
-	location := "local-minio"
-
-	err = minioClient.MakeBucket(ctx, bucketName, minio.MakeBucketOptions{Region: location})
-	if err != nil {
-		// Check to see if we already own this bucket (which happens if you run this twice)
-		exists, errBucketExists := minioClient.BucketExists(ctx, bucketName)
-		if errBucketExists == nil && exists {
-			r.Log.Info("Minio Bucket " + bucketName + " already exists, will not recreate\n")
-		} else {
-			r.Log.Error(err, "Error connecting to Minio")
-			return errBucketExists
-		}
-	} else {
-		r.Log.Info("Successfully created Minio Bucket " + bucketName)
-	}
-
-	contentType := "text/x-yaml"
-	reader := bytes.NewReader(fluxYaml)
-
-	r.Log.Info("Creating Minio object " + objectName)
-	_, err = minioClient.PutObject(ctx, bucketName, objectName, reader, reader.Size(), minio.PutObjectOptions{ContentType: contentType})
-	r.Log.Info("Minio object " + objectName + " written")
-	if err != nil {
-		r.Log.Error(err, "Minio Error")
-		return err
-	}
-
-	r.Log.Info(objectName + ". Check worker for next action...")
-	return nil
 }
 
 func (r *WorkWriterReconciler) getWorkerClustersBucketPaths() []string {

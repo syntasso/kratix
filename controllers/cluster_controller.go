@@ -19,18 +19,23 @@ package controllers
 import (
 	"context"
 
+	v1 "k8s.io/api/core/v1"
+	metav1 "k8s.io/apimachinery/pkg/apis/meta/v1"
 	"k8s.io/apimachinery/pkg/runtime"
 	ctrl "sigs.k8s.io/controller-runtime"
 	"sigs.k8s.io/controller-runtime/pkg/client"
-	"sigs.k8s.io/controller-runtime/pkg/log"
+	"sigs.k8s.io/yaml"
 
+	"github.com/go-logr/logr"
 	platformv1alpha1 "github.com/syntasso/kratix/api/v1alpha1"
 )
 
 // ClusterReconciler reconciles a Cluster object
 type ClusterReconciler struct {
 	client.Client
-	Scheme *runtime.Scheme
+	Scheme       *runtime.Scheme
+	Log          logr.Logger
+	BucketWriter BucketWriter
 }
 
 //+kubebuilder:rbac:groups=platform.kratix.io,resources=clusters,verbs=get;list;watch;create;update;patch;delete
@@ -47,11 +52,27 @@ type ClusterReconciler struct {
 // For more details, check Reconcile and its Result here:
 // - https://pkg.go.dev/sigs.k8s.io/controller-runtime@v0.11.0/pkg/reconcile
 func (r *ClusterReconciler) Reconcile(ctx context.Context, req ctrl.Request) (ctrl.Result, error) {
-	_ = log.FromContext(ctx)
+	_ = r.Log.WithValues("cluster", req.NamespacedName)
 
-	// TODO(user): your logic here
+	cluster := &platformv1alpha1.Cluster{}
+	r.Log.Info("Regsitering Cluster: " + req.Name)
+	err := r.Client.Get(context.Background(), req.NamespacedName, cluster)
 
-	return ctrl.Result{}, nil
+	if err == nil {
+		kratixNamespace := &v1.Namespace{
+			TypeMeta: metav1.TypeMeta{
+				Kind:       "Namespace",
+				APIVersion: "v1",
+			},
+			ObjectMeta: metav1.ObjectMeta{Name: "kratix-worker-system"},
+		}
+		nsBytes, _ := yaml.Marshal(kratixNamespace)
+
+		r.Log.Info("Creating namespaces fuck\n" + string(nsBytes))
+		r.BucketWriter.
+			WriteObject(cluster.Spec.BucketPath+"-kratix-crds", "kratix-crds.yaml", nsBytes)
+	}
+	return ctrl.Result{}, err
 }
 
 // SetupWithManager sets up the controller with the Manager.
