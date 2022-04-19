@@ -59,20 +59,56 @@ func (r *ClusterReconciler) Reconcile(ctx context.Context, req ctrl.Request) (ct
 	err := r.Client.Get(context.Background(), req.NamespacedName, cluster)
 
 	if err == nil {
-		kratixNamespace := &v1.Namespace{
-			TypeMeta: metav1.TypeMeta{
-				Kind:       "Namespace",
-				APIVersion: "v1",
-			},
-			ObjectMeta: metav1.ObjectMeta{Name: "kratix-worker-system"},
-		}
-		nsBytes, _ := yaml.Marshal(kratixNamespace)
-
-		r.Log.Info("Creating namespaces fuck\n" + string(nsBytes))
-		r.BucketWriter.
-			WriteObject(cluster.Spec.BucketPath+"-kratix-crds", "kratix-crds.yaml", nsBytes)
+		bucketPath := cluster.Spec.BucketPath
+		r.createWorkerClusterResourceBucket(bucketPath)
+		r.createWorkerResources(bucketPath)
 	}
 	return ctrl.Result{}, err
+}
+
+func (r *ClusterReconciler) createWorkerResources(bucketPath string) {
+	// mkdir  /data/kratix-resources;
+	//         cat > /data/kratix-resources/kratix-resources.yaml << EOF2
+	//         apiVersion: v1
+	//         kind: ConfigMap
+	//         metadata:
+	//           name: kratix-info
+	//           namespace: kratix-worker-system
+	//         data:
+	//           clusterName: worker-1
+	//         EOF2
+
+	kratixConfigMap := &v1.ConfigMap{
+		TypeMeta: metav1.TypeMeta{
+			Kind:       "ConfigMap",
+			APIVersion: "v1",
+		},
+		ObjectMeta: metav1.ObjectMeta{
+			Name:      "kratix-info",
+			Namespace: "kratix-worker-system",
+		},
+		Data: map[string]string{
+			"BucketPath": bucketPath,
+		},
+	}
+	nsBytes, _ := yaml.Marshal(kratixConfigMap)
+
+	bucketName := bucketPath + "-kratix-resources"
+	r.BucketWriter.WriteObject(bucketName, "kratix-resources.yaml", nsBytes)
+}
+
+func (r *ClusterReconciler) createWorkerClusterResourceBucket(bucketPath string) {
+	kratixNamespace := &v1.Namespace{
+		TypeMeta: metav1.TypeMeta{
+			Kind:       "Namespace",
+			APIVersion: "v1",
+		},
+		ObjectMeta: metav1.ObjectMeta{Name: "kratix-worker-system"},
+	}
+	nsBytes, _ := yaml.Marshal(kratixNamespace)
+
+	bucketName := bucketPath + "-kratix-crds"
+	r.BucketWriter.WriteObject(bucketName, "kratix-crds.yaml", nsBytes)
 }
 
 // SetupWithManager sets up the controller with the Manager.

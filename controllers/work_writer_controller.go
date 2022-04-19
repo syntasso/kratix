@@ -100,14 +100,14 @@ func (r *WorkWriterReconciler) writeToMinio(work *platformv1alpha1.Work) error {
 	// Upload CRDs to Minio in separate files to other resources. The 00-crds files are applied before 01-resources by the Kustomise controller when it autogenerates its manifest. This is to ensure the APIs for resources exist before the resources are applied.
 	// See https://github.com/fluxcd/kustomize-controller/blob/main/docs/spec/v1beta1/kustomization.md#generate-kustomizationyaml .
 	crdObjectName := "00-" + work.GetNamespace() + "-" + work.GetName() + "-crds.yaml"
-	err := r.writeCrdsToWorkerClusters(crdObjectName, crdBuffer.Bytes())
+	err := r.writeClusterWorkerCRDs(crdObjectName, crdBuffer.Bytes())
 	if err != nil {
 		r.Log.Error(err, "Error Writing CRDS to Worker Clusters")
 		return err
 	}
 
 	resourcesObjectName := "01-" + work.GetNamespace() + "-" + work.GetName() + "-resources.yaml"
-	err = r.writeResourcesToMinio(resourcesObjectName, resourceBuffer.Bytes())
+	err = r.writeClusterWorkerResources(resourcesObjectName, resourceBuffer.Bytes())
 	if err != nil {
 		r.Log.Error(err, "Error uploading resources to Minio")
 		return err
@@ -116,12 +116,16 @@ func (r *WorkWriterReconciler) writeToMinio(work *platformv1alpha1.Work) error {
 	return nil
 }
 
-func (r *WorkWriterReconciler) writeResourcesToMinio(objectName string, fluxYaml []byte) error {
-	bucketName := "kratix-resources"
-	return r.BucketWriter.WriteObject(bucketName, objectName, fluxYaml)
+func (r *WorkWriterReconciler) writeClusterWorkerResources(objectName string, fluxYaml []byte) error {
+	var err error
+	for _, workerClustersBucketPath := range r.getWorkerClustersBucketPaths() {
+		bucketName := workerClustersBucketPath + "-kratix-resources"
+		err = r.BucketWriter.WriteObject(bucketName, objectName, fluxYaml)
+	}
+	return err
 }
 
-func (r *WorkWriterReconciler) writeCrdsToWorkerClusters(objectName string, fluxYaml []byte) error {
+func (r *WorkWriterReconciler) writeClusterWorkerCRDs(objectName string, fluxYaml []byte) error {
 	var err error
 	for _, workerClustersBucketPath := range r.getWorkerClustersBucketPaths() {
 		err = r.BucketWriter.WriteObject(workerClustersBucketPath+"-kratix-crds", objectName, fluxYaml)
@@ -130,11 +134,6 @@ func (r *WorkWriterReconciler) writeCrdsToWorkerClusters(objectName string, flux
 }
 
 func (r *WorkWriterReconciler) getWorkerClustersBucketPaths() []string {
-
-	//Get all Clusters registered with the platform
-	//Iterate over clusters
-	//Add each cluster.BucketPath to an array
-	//return the array.
 	workerClusters := &platformv1alpha1.ClusterList{}
 	err := r.Client.List(context.Background(), workerClusters, &client.ListOptions{})
 	workerClustersBucketPaths := make([]string, len(workerClusters.Items))

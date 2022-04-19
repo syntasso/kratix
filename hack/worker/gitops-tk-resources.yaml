@@ -21,7 +21,7 @@ metadata:
 spec:
   interval: 10s
   provider: generic
-  bucketName: kratix-resources
+  bucketName: worker-cluster-1-kratix-resources
   endpoint: 172.18.0.2:31337
   insecure: true
   secretRef:
