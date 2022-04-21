@@ -100,14 +100,14 @@ func (r *WorkWriterReconciler) writeToMinio(work *platformv1alpha1.Work) error {
 	// Upload CRDs to Minio in separate files to other resources. The 00-crds files are applied before 01-resources by the Kustomise controller when it autogenerates its manifest. This is to ensure the APIs for resources exist before the resources are applied.
 	// See https://github.com/fluxcd/kustomize-controller/blob/main/docs/spec/v1beta1/kustomization.md#generate-kustomizationyaml .
 	crdObjectName := "00-" + work.GetNamespace() + "-" + work.GetName() + "-crds.yaml"
-	err := r.writeClusterWorkerCRDs(crdObjectName, crdBuffer.Bytes())
+	err := r.writeWorkerClusterCRDs(crdObjectName, crdBuffer.Bytes())
 	if err != nil {
 		r.Log.Error(err, "Error Writing CRDS to Worker Clusters")
 		return err
 	}
 
 	resourcesObjectName := "01-" + work.GetNamespace() + "-" + work.GetName() + "-resources.yaml"
-	err = r.writeClusterWorkerResources(resourcesObjectName, resourceBuffer.Bytes())
+	err = r.writeWorkerClusterResources(resourcesObjectName, resourceBuffer.Bytes())
 	if err != nil {
 		r.Log.Error(err, "Error uploading resources to Minio")
 		return err
@@ -116,7 +116,7 @@ func (r *WorkWriterReconciler) writeToMinio(work *platformv1alpha1.Work) error {
 	return nil
 }
 
-func (r *WorkWriterReconciler) writeClusterWorkerResources(objectName string, fluxYaml []byte) error {
+func (r *WorkWriterReconciler) writeWorkerClusterResources(objectName string, fluxYaml []byte) error {
 	var err error
 	for _, workerClustersBucketPath := range r.getWorkerClustersBucketPaths() {
 		bucketName := workerClustersBucketPath + "-kratix-resources"
@@ -125,7 +125,7 @@ func (r *WorkWriterReconciler) writeClusterWorkerResources(objectName string, fl
 	return err
 }
 
-func (r *WorkWriterReconciler) writeClusterWorkerCRDs(objectName string, fluxYaml []byte) error {
+func (r *WorkWriterReconciler) writeWorkerClusterCRDs(objectName string, fluxYaml []byte) error {
 	var err error
 	for _, workerClustersBucketPath := range r.getWorkerClustersBucketPaths() {
 		err = r.BucketWriter.WriteObject(workerClustersBucketPath+"-kratix-crds", objectName, fluxYaml)
