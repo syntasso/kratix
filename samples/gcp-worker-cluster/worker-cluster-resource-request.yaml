@@ -1,0 +1,9 @@
+---
+apiVersion: example.promise.syntasso.io/v1
+kind: workercluster
+metadata:
+  name: my-cluster-1
+spec:
+  gcpProject: <INSERT YOUR GCP PROJECT NAME>
+  gcpServiceAccount: <INSERT YOUR GCP SERVICE ACCOUNT>
+  gcpSecretName: <INSERT YOUR GCP SECRET NAME>

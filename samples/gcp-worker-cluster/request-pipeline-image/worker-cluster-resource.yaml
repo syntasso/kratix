@@ -1,0 +1,6 @@
+apiVersion: fmtok8s.salaboy.com/v1alpha1
+kind: WorkerCluster
+metadata:
+  name: my-worker-cluster
+spec:
+  clusterVersion: "1.19"
