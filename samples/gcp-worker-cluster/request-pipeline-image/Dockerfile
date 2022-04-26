@@ -15,6 +15,7 @@ RUN apt-get update && apt-get install google-cloud-cli
 ADD worker-cluster-resource.yaml worker-cluster-resource.yaml
 ADD worker-cluster.yaml worker-cluster.yaml
 ADD execute-pipeline.sh execute-pipeline.sh
+ADD gitops-tk-resources.yaml gitops-tk-resources.yaml
 
 CMD [ "sh", "-c", "./execute-pipeline.sh"]
 ENTRYPOINT []

@@ -3,10 +3,7 @@ INPUT="/input/object.yaml"
 SERVICE_ACCOUNT=$(grep 'gcpServiceAccount:' $INPUT | tail -n1 | awk '{ print $2}')
 PROJECT=$(grep 'gcpProject:' $INPUT | tail -n1 | awk '{ print $2}')
 GCP_CREDS_SECRET_NAME=$(grep 'gcpSecretName:' $INPUT | tail -n1 | awk '{ print $2}')
-
-echo $SERVICE_ACCOUNT 
-echo $PROJECT
-echo $GCP_CREDS_SECRET_NAME
+MINIO_ENDPOINT=$(grep 'minioEndpoint:' $INPUT | tail -n1 | awk '{ print $2}')
 
 kubectl crossplane install configuration salaboy/worker-cluster-gcp:0.1.0
 
@@ -30,6 +27,16 @@ gcloud auth activate-service-account $SERVICE_ACCOUNT --key-file=gcloud-creds.js
 ## Sets KubeConfig to new GKE Cluster
 gcloud container clusters get-credentials hc-my-worker-cluster --region us-central1 --project $PROJECT
 
+
+find gitops-tk-resources.yaml -type f -exec sed -i -e "s/<tbr-minio-endpoint>/${MINIO_ENDPOINT//\//\\/}/g" {} +; 
+
 ## Make GKE Cluster a Kratix Worker Cluster
 kubectl apply -f https://raw.githubusercontent.com/syntasso/kratix/dev/hack/worker/gitops-tk-install.yaml
-kubectl apply -f https://raw.githubusercontent.com/syntasso/kratix/dev/hack/worker/gitops-tk-resources.yaml
+kubectl apply -f gitops-tk-resources.yaml
+
+# Switch back to platform cluster
+kubectl apply -f https://raw.githubusercontent.com/syntasso/kratix/dev/hack/worker/gitops-tk-install.yaml
+
+# Apply Knative Promise 
+
+# Apply Knative resource request 

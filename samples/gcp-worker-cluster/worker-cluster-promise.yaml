@@ -29,6 +29,8 @@ spec:
                     type: string
                   gcpProject:
                     type: string
+                  minioEndpoint:
+                    type: string
                 type: object
             type: object     
         served: true
