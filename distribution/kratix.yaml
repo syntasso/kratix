@@ -37,10 +37,13 @@ spec:
           spec:
             description: ClusterSpec defines the desired state of Cluster
             properties:
+              bucketPath:
+                type: string
               id:
                 description: Unique identifier of a Cluster
                 type: string
             required:
+            - bucketPath
             - id
             type: object
           status:
