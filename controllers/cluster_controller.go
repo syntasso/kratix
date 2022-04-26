@@ -67,17 +67,6 @@ func (r *ClusterReconciler) Reconcile(ctx context.Context, req ctrl.Request) (ct
 }
 
 func (r *ClusterReconciler) createWorkerResources(bucketPath string) {
-	// mkdir  /data/kratix-resources;
-	//         cat > /data/kratix-resources/kratix-resources.yaml << EOF2
-	//         apiVersion: v1
-	//         kind: ConfigMap
-	//         metadata:
-	//           name: kratix-info
-	//           namespace: kratix-worker-system
-	//         data:
-	//           clusterName: worker-1
-	//         EOF2
-
 	kratixConfigMap := &v1.ConfigMap{
 		TypeMeta: metav1.TypeMeta{
 			Kind:       "ConfigMap",

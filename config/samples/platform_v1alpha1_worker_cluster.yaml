@@ -2,6 +2,8 @@ apiVersion: platform.kratix.io/v1alpha1
 kind: Cluster
 metadata:
   name: worker-cluster-1
+  labels:
+    targetCluster: worker-cluster-1
 spec:
   id: something-unique
   bucketPath: worker-cluster-1
