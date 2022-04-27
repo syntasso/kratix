@@ -83,8 +83,8 @@ const (
 	POSTGRES_RESOURCE_REQUEST = "../../config/samples/postgres/postgres-resource-request.yaml"
 
 	//Clusters
-	WORKER_CLUSTER_RESOURCE_REQUEST   = "../../config/samples/platform_v1alpha1_worker_cluster.yaml"
-	WORKER_CLUSTER_2_RESOURCE_REQUEST = "../../config/samples/platform_v1alpha1_worker_cluster_2.yaml"
+	WORKER_CLUSTER_1 = "../../config/samples/platform_v1alpha1_worker_cluster.yaml"
+	WORKER_CLUSTER_2 = "../../config/samples/platform_v1alpha1_worker_cluster_2.yaml"
 )
 
 var _ = Describe("kratix Platform Integration Test", func() {
@@ -98,10 +98,10 @@ var _ = Describe("kratix Platform Integration Test", func() {
 		}, timeout, interval).Should(BeTrue())
 
 		By("A Worker Cluster is registered")
-		registerWorkerCluster("worker-cluster-1", WORKER_CLUSTER_RESOURCE_REQUEST)
+		registerWorkerCluster("worker-cluster-1", WORKER_CLUSTER_1)
 
 		By("A Second Worker Cluster is registered")
-		registerWorkerCluster("worker-cluster-2", WORKER_CLUSTER_2_RESOURCE_REQUEST)
+		registerWorkerCluster("worker-cluster-2", WORKER_CLUSTER_2)
 	})
 
 	Describe("Redis Promise lifecycle", func() {
@@ -270,8 +270,8 @@ var _ = Describe("kratix Platform Integration Test", func() {
 					resourceName := "database"
 					resourceKind := "Database"
 
-					foundCluster1, _ := clusterHasResource(workloadNamespacedName, resourceName, resourceKind, WORKER_CLUSTER_RESOURCE_REQUEST)
-					foundCluster2, _ := clusterHasResource(workloadNamespacedName, resourceName, resourceKind, WORKER_CLUSTER_2_RESOURCE_REQUEST)
+					foundCluster1, _ := clusterHasResource(workloadNamespacedName, resourceName, resourceKind, WORKER_CLUSTER_1)
+					foundCluster2, _ := clusterHasResource(workloadNamespacedName, resourceName, resourceKind, WORKER_CLUSTER_2)
 					return foundCluster1 && foundCluster2
 				}, timeout, interval).Should(BeTrue())
 			})
@@ -293,7 +293,7 @@ func registerWorkerCluster(clusterName, clusterConfig string) {
 }
 
 func getTestWorkerClusterBucketPath() string {
-	return getClusterConfigPath(WORKER_CLUSTER_RESOURCE_REQUEST)
+	return getClusterConfigPath(WORKER_CLUSTER_1)
 }
 
 func getClusterConfigPath(clusterConfig string) string {
