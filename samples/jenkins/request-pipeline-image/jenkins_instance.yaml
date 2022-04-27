@@ -18,7 +18,7 @@ spec:
     disableCSRFProtection: false
     containers:
       - name: jenkins-master
-        image: jenkins/jenkins:2.277.4-lts-alpine
+        image: jenkins/jenkins:2.332.2-lts-alpine
         imagePullPolicy: Always
         livenessProbe:
           failureThreshold: 12
