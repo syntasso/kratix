@@ -4,8 +4,8 @@ kind: workercluster
 metadata:
   name: my-cluster-1
 spec:
-  gcpProject:  windy-orb-347910
-  gcpServiceAccount: kratix-service-account@windy-orb-347910.iam.gserviceaccount.com
-  gcpSecretName: gcp-creds
-  minioEndpoint: 172.18.0.2:31337
+  gcpProject: <INSERT YOUR GCP PROJECT NAME>
+  gcpServiceAccount: <INSERT YOUR GCP SERVICE ACCOUNT>
+  gcpSecretName: <INSERT YOUR GCP SECRET NAME>
+  minioEndpoint: <INSERT YOUR MINIO ENDPOINT>
 
