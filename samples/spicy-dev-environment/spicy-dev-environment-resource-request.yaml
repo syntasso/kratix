@@ -1,8 +1,8 @@
 ---
 apiVersion: example.promise.syntasso.io/v1
-kind: workercluster
+kind: spicydevenvironment
 metadata:
-  name: my-cluster-1
+  name: my-spicy-dev-environment
 spec:
   gcpProject: <INSERT YOUR GCP PROJECT NAME>
   gcpServiceAccount: <INSERT YOUR GCP SERVICE ACCOUNT>

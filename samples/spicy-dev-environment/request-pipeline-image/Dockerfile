@@ -13,7 +13,7 @@ RUN curl https://packages.cloud.google.com/apt/doc/apt-key.gpg | apt-key --keyri
 RUN apt-get update && apt-get install google-cloud-cli
 
 ADD worker-cluster-resource.yaml worker-cluster-resource.yaml
-ADD worker-cluster.yaml worker-cluster.yaml
+ADD kratix-worker-cluster.yaml kratix-worker-cluster.yaml
 ADD execute-pipeline.sh execute-pipeline.sh
 ADD gitops-tk-resources.yaml gitops-tk-resources.yaml
 

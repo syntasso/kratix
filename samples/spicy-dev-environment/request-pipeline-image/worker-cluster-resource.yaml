@@ -1,6 +1,6 @@
 apiVersion: fmtok8s.salaboy.com/v1alpha1
-kind: WorkerCluster
+kind: SpicyProjectTemplateGCP
 metadata:
-  name: my-worker-cluster
+  name: my-spicy-project-gcp
 spec:
   clusterVersion: "1.19"

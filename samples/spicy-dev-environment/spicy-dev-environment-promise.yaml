@@ -2,19 +2,19 @@ apiVersion: platform.kratix.io/v1alpha1
 kind: Promise
 metadata:
   creationTimestamp: null
-  name: worker-cluster-promise
+  name: spicy-dev-environment-promise
 spec:
   xaasCrd:
     apiVersion: apiextensions.k8s.io/v1
     kind: CustomResourceDefinition
     metadata:
-      name: workerclusters.example.promise.syntasso.io
+      name: spicydevenvironments.example.promise.syntasso.io
     spec:
       group: example.promise.syntasso.io
       names:
-        kind: workercluster
-        plural: workerclusters
-        singular: workercluster
+        kind: spicydevenvironment
+        plural: spicydevenvironments
+        singular: spicydevenvironment
       scope: Namespaced
       versions:
       - name: v1
@@ -36,4 +36,4 @@ spec:
         served: true
         storage: true
   xaasRequestPipeline:
-  - syntasso/worker-cluster-request-pipeline
+  - syntasso/spicy-dev-environment-request-pipeline
