@@ -1,7 +1,7 @@
 apiVersion: platform.kratix.io/v1alpha1
 kind: Cluster
 metadata:
-  name: worker-cluster-1
+  name: <tbr-name>
 spec:
   id: something-unique
   bucketPath: worker-cluster-1
