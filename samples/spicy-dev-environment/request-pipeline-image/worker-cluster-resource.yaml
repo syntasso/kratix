@@ -3,4 +3,4 @@ kind: SpicyProjectTemplateGCP
 metadata:
   name: <tbr-name>
 spec:
-  clusterVersion: "1.19"
+  clusterVersion: "1.21"
