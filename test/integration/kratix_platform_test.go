@@ -168,8 +168,18 @@ var _ = Describe("kratix Platform Integration Test", func() {
 					resourceName := "opstree-redis"
 					resourceKind := "Redis"
 
-					found, _ := testWorkerClusterHasResource(workloadNamespacedName, resourceName, resourceKind)
-					return found
+					foundCluster1, _ := clusterHasResource(workloadNamespacedName, resourceName, resourceKind, WORKER_CLUSTER_1)
+					foundCluster2, _ := clusterHasResource(workloadNamespacedName, resourceName, resourceKind, WORKER_CLUSTER_2)
+
+					if foundCluster1 && foundCluster2 {
+						return false
+					}
+
+					if !foundCluster1 && !foundCluster2 {
+						return false
+					}
+					return true
+
 				}, timeout, interval).Should(BeTrue())
 			})
 
@@ -183,18 +193,36 @@ var _ = Describe("kratix Platform Integration Test", func() {
 					}
 
 					//Read from Minio
-					//Assert that the Postgres resource is present
+					//Assert that the Redis resource is present
 					resourceName := "opstree-redis"
 					resourceKind := "Redis"
 
-					found, obj := testWorkerClusterHasResource(workloadNamespacedName, resourceName, resourceKind)
-					if found {
-						spec := obj.Object["spec"]
-						global := spec.(map[string]interface{})["global"]
-						password := global.(map[string]interface{})["password"]
-						return password == "Opstree@12345"
+					foundCluster1, obj1 := clusterHasResource(workloadNamespacedName, resourceName, resourceKind, WORKER_CLUSTER_1)
+					foundCluster2, obj2 := clusterHasResource(workloadNamespacedName, resourceName, resourceKind, WORKER_CLUSTER_2)
+
+					if foundCluster1 && foundCluster2 {
+						return false
 					}
-					return false
+
+					if !foundCluster1 && !foundCluster2 {
+						return false
+					}
+
+					//make it work, make it pretty (it works needs to be made pretty)
+					var obj unstructured.Unstructured
+					if foundCluster1 {
+						obj = obj1
+					} else if foundCluster2 {
+						obj = obj2
+					} else {
+						return false
+					}
+					//
+
+					spec := obj.Object["spec"]
+					global := spec.(map[string]interface{})["global"]
+					password := global.(map[string]interface{})["password"]
+					return password == "Opstree@12345"
 
 				}, timeout, interval).Should(BeTrue())
 			})
@@ -260,7 +288,7 @@ var _ = Describe("kratix Platform Integration Test", func() {
 				}, timeout, interval).Should(BeTrue())
 			})
 
-			It("should write a Postgres resource to All Worker Clusters", func() {
+			It("should write a Postgres resource to ONE Worker Clusters", func() {
 				Eventually(func() bool {
 					workloadNamespacedName := types.NamespacedName{
 						Name:      "postgres-promise-default-default-database",
@@ -272,7 +300,16 @@ var _ = Describe("kratix Platform Integration Test", func() {
 
 					foundCluster1, _ := clusterHasResource(workloadNamespacedName, resourceName, resourceKind, WORKER_CLUSTER_1)
 					foundCluster2, _ := clusterHasResource(workloadNamespacedName, resourceName, resourceKind, WORKER_CLUSTER_2)
-					return foundCluster1 && foundCluster2
+
+					if foundCluster1 && foundCluster2 {
+						return false
+					}
+
+					if !foundCluster1 && !foundCluster2 {
+						return false
+					}
+
+					return true
 				}, timeout, interval).Should(BeTrue())
 			})
 		})
@@ -309,12 +346,6 @@ func getClusterConfigPath(clusterConfig string) string {
 func workerHasCRD(workloadNamespacedName types.NamespacedName, resourceName, resourceKind string) (bool, unstructured.Unstructured) {
 	objectName := "00-" + workloadNamespacedName.Namespace + "-" + workloadNamespacedName.Name + "-crds.yaml"
 	bucketName := getTestWorkerClusterBucketPath() + "-kratix-crds"
-	return minioHasWorkloadWithResourceWithNameAndKind(bucketName, objectName, resourceName, resourceKind)
-}
-
-func testWorkerClusterHasResource(workloadNamespacedName types.NamespacedName, resourceName, resourceKind string) (bool, unstructured.Unstructured) {
-	objectName := "01-" + workloadNamespacedName.Namespace + "-" + workloadNamespacedName.Name + "-resources.yaml"
-	bucketName := getTestWorkerClusterBucketPath() + "-kratix-resources"
 	return minioHasWorkloadWithResourceWithNameAndKind(bucketName, objectName, resourceName, resourceKind)
 }
 

@@ -25,6 +25,7 @@ import (
 	metav1 "k8s.io/apimachinery/pkg/apis/meta/v1"
 	"k8s.io/apimachinery/pkg/runtime"
 	"k8s.io/apimachinery/pkg/runtime/serializer/json"
+	"k8s.io/apimachinery/pkg/types"
 	ctrl "sigs.k8s.io/controller-runtime"
 	"sigs.k8s.io/controller-runtime/pkg/client"
 
@@ -107,7 +108,7 @@ func (r *WorkWriterReconciler) writeToMinio(work *platformv1alpha1.Work) error {
 	}
 
 	resourcesObjectName := "01-" + work.GetNamespace() + "-" + work.GetName() + "-resources.yaml"
-	err = r.writeWorkerClusterResources(resourcesObjectName, resourceBuffer.Bytes())
+	err = r.writeWorkerClusterResources(work, resourcesObjectName, resourceBuffer.Bytes())
 	if err != nil {
 		r.Log.Error(err, "Error uploading resources to Minio")
 		return err
@@ -116,24 +117,32 @@ func (r *WorkWriterReconciler) writeToMinio(work *platformv1alpha1.Work) error {
 	return nil
 }
 
-func (r *WorkWriterReconciler) writeWorkerClusterResources(objectName string, fluxYaml []byte) error {
-	var err error
-	for _, workerClustersBucketPath := range r.getWorkerClustersBucketPaths() {
-		bucketName := workerClustersBucketPath + "-kratix-resources"
-		err = r.BucketWriter.WriteObject(bucketName, objectName, fluxYaml)
+func (r *WorkWriterReconciler) writeWorkerClusterResources(work *platformv1alpha1.Work, objectName string, fluxYaml []byte) error {
+	clusterName := types.NamespacedName{
+		Name:      work.GetLabels()["cluster"],
+		Namespace: "default",
 	}
+	scheduledWorkerCluster := &platformv1alpha1.Cluster{}
+	err := r.Client.Get(context.Background(), clusterName, scheduledWorkerCluster)
+	if err != nil {
+		r.Log.Error(err, "Error listing available clusters")
+	}
+	workerClustersBucketPath := scheduledWorkerCluster.Spec.BucketPath
+	bucketName := workerClustersBucketPath + "-kratix-resources"
+	err = r.BucketWriter.WriteObject(bucketName, objectName, fluxYaml)
+
 	return err
 }
 
 func (r *WorkWriterReconciler) writeWorkerClusterCRDs(objectName string, fluxYaml []byte) error {
 	var err error
-	for _, workerClustersBucketPath := range r.getWorkerClustersBucketPaths() {
+	for _, workerClustersBucketPath := range r.getWorkerClusterBucketPaths() {
 		err = r.BucketWriter.WriteObject(workerClustersBucketPath+"-kratix-crds", objectName, fluxYaml)
 	}
 	return err
 }
 
-func (r *WorkWriterReconciler) getWorkerClustersBucketPaths() []string {
+func (r *WorkWriterReconciler) getWorkerClusterBucketPaths() []string {
 	workerClusters := &platformv1alpha1.ClusterList{}
 	err := r.Client.List(context.Background(), workerClusters, &client.ListOptions{})
 	workerClustersBucketPaths := make([]string, len(workerClusters.Items))
