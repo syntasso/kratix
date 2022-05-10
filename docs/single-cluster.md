@@ -35,7 +35,7 @@ works.platform.kratix.io      2022-05-10T11:10:57Z
 
 This stage would typically be setup on a Worker cluster.  
 
-* `kubectl apply -f config/samples/platform_v1alpha1_worker_cluster.yaml`
+* `kubectl apply -f config/samples/platform_v1alpha1_worker_cluster.yaml #register the cluster`
 * `kubectl apply -f hack/worker/gitops-tk-install.yaml`
 * `kubectl apply -f hack/worker/gitops-tk-resources-single-cluster.yaml`
 
