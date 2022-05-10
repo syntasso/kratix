@@ -54,7 +54,7 @@ This will create a cluster for running the X-as-a-service workloads:
 
 ```
 kind create cluster --name worker #Also switches kubectl context to worker
-kubectl apply -f config/samples/platform_v1alpha1_worker_cluster.yaml --context kind-platform #register the new cluster with the kratix platform
+kubectl apply -f config/samples/platform_v1alpha1_worker_cluster.yaml --context kind-platform #register the worker cluster with the platform cluster
 kubectl apply -f hack/worker/gitops-tk-install.yaml
 kubectl apply -f hack/worker/gitops-tk-resources.yaml
 ```
