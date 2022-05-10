@@ -5,8 +5,8 @@ In this tutorial we will learn how to:
 2. Install a Jenkins Promise.
 3. Issue Jenkins instances on-demand.
 
-
 ## Part 1: Kratix Multi-Cluster Install
+_To install on a single cluster use the [Single Cluster Quick Start Guide](./single-cluster.md)._
 
 ### Install KinD
 
