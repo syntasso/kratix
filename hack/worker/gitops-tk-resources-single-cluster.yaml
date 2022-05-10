@@ -7,7 +7,7 @@ metadata:
 spec:
   interval: 10s
   provider: generic
-  bucketName: kratix-crds
+  bucketName: worker-cluster-1-kratix-crds
   endpoint: minio.kratix-platform-system.svc.cluster.local
   insecure: true
   secretRef:
@@ -21,7 +21,7 @@ metadata:
 spec:
   interval: 10s
   provider: generic
-  bucketName: kratix-resources
+  bucketName: worker-cluster-1-kratix-resources
   endpoint: minio.kratix-platform-system.svc.cluster.local
   insecure: true
   secretRef:

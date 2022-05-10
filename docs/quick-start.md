@@ -36,8 +36,9 @@ kubectl get crds
 The above command will give an output similar to:
 ```
 NAME                                     CREATED AT
-promises.platform.kratix.io              2021-09-03T11:59:16Z
-works.platform.kratix.io                 2021-09-03T11:59:16Z
+clusters.platform.kratix.io   2022-05-10T11:10:57Z
+promises.platform.kratix.io   2022-05-10T11:10:57Z
+works.platform.kratix.io      2022-05-10T11:10:57Z
 ```
 
 ### Multi-Cluster Networking
@@ -53,6 +54,7 @@ This will create a cluster for running the X-as-a-service workloads:
 
 ```
 kind create cluster --name worker #Also switches kubectl context to worker
+kubectl apply -f config/samples/platform_v1alpha1_worker_cluster.yaml --context kind-platform #register the new cluster with the kratix platform
 kubectl apply -f hack/worker/gitops-tk-install.yaml
 kubectl apply -f hack/worker/gitops-tk-resources.yaml
 ```
