@@ -164,7 +164,7 @@ var _ = Describe("kratix Platform Integration Test", func() {
 						Namespace: "default",
 					}
 
-					//Assert that the Postgres resource is present
+					//Assert that the Redis resource is present
 					resourceName := "opstree-redis"
 					resourceKind := "Redis"
 
