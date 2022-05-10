@@ -53,7 +53,7 @@ works.platform.kratix.io      2022-05-10T11:10:57Z
 This will create a cluster for running the X-as-a-service workloads, and install GitOps Toolkit components to continuously converge the worker cluster on the desired state.
 
 * `kind create cluster --name worker`
-* `kubectl apply -f config/samples/platform_v1alpha1_worker_cluster.yaml --context kind-platform`
+* `kubectl apply -f config/samples/platform_v1alpha1_worker_cluster.yaml --context kind-platform #register the worker cluster with the platform cluster`
 * `kubectl apply -f hack/worker/gitops-tk-install.yaml`
 * `kubectl apply -f hack/worker/gitops-tk-resources.yaml`
 
