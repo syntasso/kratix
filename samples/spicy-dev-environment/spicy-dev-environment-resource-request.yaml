@@ -1,0 +1,11 @@
+---
+apiVersion: example.promise.syntasso.io/v1
+kind: spicydevenvironment
+metadata:
+  name: my-spicy-dev-environment
+spec:
+  gcpProject: <INSERT YOUR GCP PROJECT NAME>
+  gcpServiceAccount: <INSERT YOUR GCP SERVICE ACCOUNT>
+  gcpSecretName: <INSERT YOUR GCP SECRET NAME>
+  minioEndpoint: <INSERT YOUR MINIO ENDPOINT>
+

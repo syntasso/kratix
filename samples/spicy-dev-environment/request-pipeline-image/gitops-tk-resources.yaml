@@ -8,7 +8,7 @@ spec:
   interval: 10s
   provider: generic
   bucketName: worker-cluster-1-kratix-crds
-  endpoint: minio.kratix-platform-system.svc.cluster.local
+  endpoint: <tbr-minio-endpoint>
   insecure: true
   secretRef:
     name: minio-credentials
@@ -22,7 +22,7 @@ spec:
   interval: 10s
   provider: generic
   bucketName: worker-cluster-1-kratix-resources
-  endpoint: minio.kratix-platform-system.svc.cluster.local
+  endpoint: <tbr-minio-endpoint>
   insecure: true
   secretRef:
     name: minio-credentials

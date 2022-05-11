@@ -22,11 +22,10 @@ import (
 	"time"
 
 	"github.com/go-logr/logr"
-	minio "github.com/minio/minio-go/v7"
-	"github.com/minio/minio-go/v7/pkg/credentials"
 	metav1 "k8s.io/apimachinery/pkg/apis/meta/v1"
 	"k8s.io/apimachinery/pkg/runtime"
 	"k8s.io/apimachinery/pkg/runtime/serializer/json"
+	"k8s.io/apimachinery/pkg/types"
 	ctrl "sigs.k8s.io/controller-runtime"
 	"sigs.k8s.io/controller-runtime/pkg/client"
 
@@ -36,8 +35,9 @@ import (
 // WorkReconciler reconciles a Work object
 type WorkWriterReconciler struct {
 	client.Client
-	Log    logr.Logger
-	Scheme *runtime.Scheme
+	Log          logr.Logger
+	Scheme       *runtime.Scheme
+	BucketWriter BucketWriter
 }
 
 //+kubebuilder:rbac:groups=platform.kratix.io,resources=works,verbs=get;list;watch;create;update;patch;delete
@@ -73,7 +73,6 @@ func (r *WorkWriterReconciler) Reconcile(ctx context.Context, req ctrl.Request) 
 	}
 
 	return ctrl.Result{}, nil
-
 }
 
 func (r *WorkWriterReconciler) writeToMinio(work *platformv1alpha1.Work) error {
@@ -102,85 +101,57 @@ func (r *WorkWriterReconciler) writeToMinio(work *platformv1alpha1.Work) error {
 	// Upload CRDs to Minio in separate files to other resources. The 00-crds files are applied before 01-resources by the Kustomise controller when it autogenerates its manifest. This is to ensure the APIs for resources exist before the resources are applied.
 	// See https://github.com/fluxcd/kustomize-controller/blob/main/docs/spec/v1beta1/kustomization.md#generate-kustomizationyaml .
 	crdObjectName := "00-" + work.GetNamespace() + "-" + work.GetName() + "-crds.yaml"
-	err := r.writeCrdsToMinio(crdObjectName, crdBuffer.Bytes())
+	err := r.writeWorkerClusterCRDs(crdObjectName, crdBuffer.Bytes())
 	if err != nil {
-		r.Log.Error(err, "Error uploadding CRDs to Minio")
+		r.Log.Error(err, "Error Writing CRDS to Worker Clusters")
 		return err
 	}
 
 	resourcesObjectName := "01-" + work.GetNamespace() + "-" + work.GetName() + "-resources.yaml"
-	err = r.writeResourcesToMinio(resourcesObjectName, resourceBuffer.Bytes())
+	err = r.writeWorkerClusterResources(work, resourcesObjectName, resourceBuffer.Bytes())
 	if err != nil {
-		r.Log.Error(err, "Error uploadding resources to Minio")
+		r.Log.Error(err, "Error uploading resources to Minio")
 		return err
 	}
 
 	return nil
 }
 
-func (r *WorkWriterReconciler) writeResourcesToMinio(objectName string, fluxYaml []byte) error {
-	bucketName := "kratix-resources"
-	return r.yamlUploader(bucketName, objectName, fluxYaml)
+func (r *WorkWriterReconciler) writeWorkerClusterResources(work *platformv1alpha1.Work, objectName string, fluxYaml []byte) error {
+	clusterName := types.NamespacedName{
+		Name:      work.GetLabels()["cluster"],
+		Namespace: "default",
+	}
+	scheduledWorkerCluster := &platformv1alpha1.Cluster{}
+	err := r.Client.Get(context.Background(), clusterName, scheduledWorkerCluster)
+	if err != nil {
+		r.Log.Error(err, "Error listing available clusters")
+	}
+	workerClustersBucketPath := scheduledWorkerCluster.Spec.BucketPath
+	bucketName := workerClustersBucketPath + "-kratix-resources"
+	err = r.BucketWriter.WriteObject(bucketName, objectName, fluxYaml)
+
+	return err
 }
 
-func (r *WorkWriterReconciler) writeCrdsToMinio(objectName string, fluxYaml []byte) error {
-	bucketName := "kratix-crds"
-	return r.yamlUploader(bucketName, objectName, fluxYaml)
+func (r *WorkWriterReconciler) writeWorkerClusterCRDs(objectName string, fluxYaml []byte) error {
+	var err error
+	for _, workerClustersBucketPath := range r.getWorkerClusterBucketPaths() {
+		err = r.BucketWriter.WriteObject(workerClustersBucketPath+"-kratix-crds", objectName, fluxYaml)
+	}
+	return err
 }
 
-func (r *WorkWriterReconciler) yamlUploader(bucketName string, objectName string, fluxYaml []byte) error {
-
-	if len(fluxYaml) == 0 {
-		r.Log.Info("Empty byte[]. Nothing to write to Minio for " + objectName)
-		return nil
-	}
-
-	ctx := context.Background()
-	endpoint := "minio.kratix-platform-system.svc.cluster.local"
-	accessKeyID := "minioadmin"
-	secretAccessKey := "minioadmin"
-	useSSL := false
-
-	// Initialize minio client object.
-	minioClient, err := minio.New(endpoint, &minio.Options{
-		Creds:  credentials.NewStaticV4(accessKeyID, secretAccessKey, ""),
-		Secure: useSSL,
-	})
-
-	if err != nil {
-		r.Log.Error(err, "Error initalising Minio client")
-		return err
-	}
-
-	location := "local-minio"
-
-	err = minioClient.MakeBucket(ctx, bucketName, minio.MakeBucketOptions{Region: location})
-	if err != nil {
-		// Check to see if we already own this bucket (which happens if you run this twice)
-		exists, errBucketExists := minioClient.BucketExists(ctx, bucketName)
-		if errBucketExists == nil && exists {
-			r.Log.Info("Minio Bucket " + bucketName + "already exists, will not recreate\n")
-		} else {
-			r.Log.Error(err, "Error connecting to Minio")
-			return errBucketExists
+func (r *WorkWriterReconciler) getWorkerClusterBucketPaths() []string {
+	workerClusters := &platformv1alpha1.ClusterList{}
+	err := r.Client.List(context.Background(), workerClusters, &client.ListOptions{})
+	workerClustersBucketPaths := make([]string, len(workerClusters.Items))
+	if err == nil {
+		for x, cluster := range workerClusters.Items {
+			workerClustersBucketPaths[x] = cluster.Spec.BucketPath
 		}
-	} else {
-		r.Log.Info("Successfully created Minio Bucket " + bucketName)
 	}
-
-	contentType := "text/x-yaml"
-	reader := bytes.NewReader(fluxYaml)
-
-	r.Log.Info("Creating Minio object " + objectName)
-	_, err = minioClient.PutObject(ctx, bucketName, objectName, reader, reader.Size(), minio.PutObjectOptions{ContentType: contentType})
-	r.Log.Info("Minio object " + objectName + " written")
-	if err != nil {
-		r.Log.Error(err, "Minio Error")
-		return err
-	}
-
-	r.Log.Info(objectName + ". Check worker for next action...")
-	return nil
+	return workerClustersBucketPaths
 }
 
 // SetupWithManager sets up the controller with the Manager.

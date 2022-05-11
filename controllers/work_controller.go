@@ -18,8 +18,11 @@ package controllers
 
 import (
 	"context"
+	"math/rand"
+	"time"
 
 	"github.com/go-logr/logr"
+	metav1 "k8s.io/apimachinery/pkg/apis/meta/v1"
 	"k8s.io/apimachinery/pkg/runtime"
 	ctrl "sigs.k8s.io/controller-runtime"
 	"sigs.k8s.io/controller-runtime/pkg/client"
@@ -59,18 +62,40 @@ func (r *WorkReconciler) Reconcile(ctx context.Context, req ctrl.Request) (ctrl.
 		return ctrl.Result{Requeue: false}, err
 	}
 
-	r.Log.Info("Decorating Work " + req.Name + " with Label: cluster=worker")
-	labels := map[string]string{}
-	labels["cluster"] = "worker"
-	work.SetLabels(labels)
+	if !metav1.HasLabel(work.ObjectMeta, "cluster") {
+		targetCluster := r.getTargetCluster()
+		r.Log.Info("Decorating Work " + req.Name + " with Label: cluster=" + targetCluster)
+		labels := map[string]string{}
+		labels["cluster"] = targetCluster
+		work.SetLabels(labels)
 
-	err = r.Client.Update(context.Background(), work)
-	if err != nil {
-		r.Log.Error(err, "Error updating Work with new Labels")
-		return ctrl.Result{Requeue: false}, err
+		err = r.Client.Update(context.Background(), work)
+		if err != nil {
+			r.Log.Error(err, "Error updating Work with new Labels")
+			return ctrl.Result{Requeue: false}, err
+		}
+	} else {
+		r.Log.Info("Work " + req.Name + " already scheduled to cluster" + work.ObjectMeta.Labels["cluster"])
 	}
 
 	return ctrl.Result{}, nil
+}
+
+func (r *WorkReconciler) getTargetCluster() string {
+	workerClusters := r.getWorkerClusters()
+	items := workerClusters.Items
+	rand.Seed(time.Now().UnixNano())
+	randomClusterIndex := rand.Intn(len(items))
+	return items[randomClusterIndex].Name
+}
+
+func (r *WorkReconciler) getWorkerClusters() *platformv1alpha1.ClusterList {
+	workerClusters := &platformv1alpha1.ClusterList{}
+	err := r.Client.List(context.Background(), workerClusters, &client.ListOptions{})
+	if err != nil {
+		r.Log.Error(err, "Error listing available clusters")
+	}
+	return workerClusters
 }
 
 // SetupWithManager sets up the controller with the Manager.

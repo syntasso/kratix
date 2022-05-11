@@ -10,7 +10,6 @@ import (
 	. "github.com/onsi/ginkgo"
 	. "github.com/onsi/gomega"
 	platformv1alpha1 "github.com/syntasso/kratix/api/v1alpha1"
-
 	v1 "k8s.io/api/core/v1"
 	"k8s.io/apimachinery/pkg/api/errors"
 	"k8s.io/apimachinery/pkg/runtime/schema"
@@ -22,7 +21,6 @@ import (
 
 	"k8s.io/apimachinery/pkg/labels"
 	"k8s.io/apimachinery/pkg/selection"
-
 	"k8s.io/client-go/kubernetes/scheme"
 	ctrl "sigs.k8s.io/controller-runtime"
 	"sigs.k8s.io/controller-runtime/pkg/client"
@@ -34,10 +32,10 @@ import (
 
  Assumptions:
  1. `kind create cluster --name=platform`
- 2. `make deploy` has been run. Note: `make int-test` will
+ 2. `export IMG=syntasso/kratix-platform:dev`
+ 3. `make kind-load-image`
+ 4. `make deploy` has been run. Note: `make int-test` will
  ensure that `deploy` is executed
- 3. `export IMG=syntasso/kratix-platform:dev`
- 4. `make kind-load-image`
  5. `make int-test`
 
  Cleanup:
@@ -67,14 +65,26 @@ var (
 		Version: "v1alpha1",
 		Kind:    "Work",
 	}
+
+	cluster_gvk = schema.GroupVersionKind{
+		Group:   "platform.kratix.io",
+		Version: "v1alpha1",
+		Kind:    "Cluster",
+	}
 )
 
 const (
+	//Targets only cluster-worker-1
 	REDIS_CRD                     = "../../config/samples/redis/redis-promise.yaml"
 	REDIS_RESOURCE_REQUEST        = "../../config/samples/redis/redis-resource-request.yaml"
 	REDIS_RESOURCE_UPDATE_REQUEST = "../../config/samples/redis/redis-resource-update-request.yaml"
 	POSTGRES_CRD                  = "../../config/samples/postgres/postgres-promise.yaml"
-	POSTGRES_RESOURCE_REQUEST     = "../../config/samples/postgres/postgres-resource-request.yaml"
+	//Targets All clusters
+	POSTGRES_RESOURCE_REQUEST = "../../config/samples/postgres/postgres-resource-request.yaml"
+
+	//Clusters
+	WORKER_CLUSTER_1 = "../../config/samples/platform_v1alpha1_worker_cluster.yaml"
+	WORKER_CLUSTER_2 = "../../config/samples/platform_v1alpha1_worker_cluster_2.yaml"
 )
 
 var _ = Describe("kratix Platform Integration Test", func() {
@@ -86,6 +96,12 @@ var _ = Describe("kratix Platform Integration Test", func() {
 			pod := getKratixControllerPod()
 			return isPodRunning(pod)
 		}, timeout, interval).Should(BeTrue())
+
+		By("A Worker Cluster is registered")
+		registerWorkerCluster("worker-cluster-1", WORKER_CLUSTER_1)
+
+		By("A Second Worker Cluster is registered")
+		registerWorkerCluster("worker-cluster-2", WORKER_CLUSTER_2)
 	})
 
 	Describe("Redis Promise lifecycle", func() {
@@ -99,20 +115,15 @@ var _ = Describe("kratix Platform Integration Test", func() {
 			})
 
 			It("writes the resources to Minio that are defined in the Promise manifest", func() {
-				// applyPromiseCRD(REDIS_CRD)
-
-				//what is this for cluster level?
 				workloadNamespacedName := types.NamespacedName{
 					Name:      "redis-promise-default",
 					Namespace: "default",
 				}
 				Eventually(func() bool {
-					//Read from Minio
-					//Assert that the Postgres resource is present
 					resourceName := "redis.redis.redis.opstreelabs.in"
 					resourceKind := "CustomResourceDefinition"
 
-					found, _ := minioHasCrd(workloadNamespacedName, resourceName, resourceKind)
+					found, _ := workerHasCRD(workloadNamespacedName, resourceName, resourceKind)
 					return found
 				}, timeout, interval).Should(BeTrue(), "has the Redis CRD")
 			})
@@ -132,7 +143,6 @@ var _ = Describe("kratix Platform Integration Test", func() {
 			})
 
 			It("should label the created Work resource with a target workload cluster", func() {
-				//applyResourceRequest(REDIS_RESOURCE)
 				Eventually(func() bool {
 					expectedName := types.NamespacedName{
 						Name:      "redis-promise-default-default-opstree-redis",
@@ -147,22 +157,29 @@ var _ = Describe("kratix Platform Integration Test", func() {
 				}, timeout, interval).Should(BeTrue())
 			})
 
-			It("should write a Redis resource to Minio", func() {
-				// applyPromiseCRD(REDIS_CRD)
-				// applyResourceRequest(REDIS_RESOURCE)
+			It("should write a Redis resource to Worker Cluster", func() {
 				Eventually(func() bool {
 					workloadNamespacedName := types.NamespacedName{
 						Name:      "redis-promise-default-default-opstree-redis",
 						Namespace: "default",
 					}
 
-					//Read from Minio
-					//Assert that the Postgres resource is present
+					//Assert that the Redis resource is present
 					resourceName := "opstree-redis"
 					resourceKind := "Redis"
 
-					found, _ := minioHasResource(workloadNamespacedName, resourceName, resourceKind)
-					return found
+					foundCluster1, _ := clusterHasResource(workloadNamespacedName, resourceName, resourceKind, WORKER_CLUSTER_1)
+					foundCluster2, _ := clusterHasResource(workloadNamespacedName, resourceName, resourceKind, WORKER_CLUSTER_2)
+
+					if foundCluster1 && foundCluster2 {
+						return false
+					}
+
+					if !foundCluster1 && !foundCluster2 {
+						return false
+					}
+					return true
+
 				}, timeout, interval).Should(BeTrue())
 			})
 
@@ -176,18 +193,36 @@ var _ = Describe("kratix Platform Integration Test", func() {
 					}
 
 					//Read from Minio
-					//Assert that the Postgres resource is present
+					//Assert that the Redis resource is present
 					resourceName := "opstree-redis"
 					resourceKind := "Redis"
 
-					found, obj := minioHasResource(workloadNamespacedName, resourceName, resourceKind)
-					if found {
-						spec := obj.Object["spec"]
-						global := spec.(map[string]interface{})["global"]
-						password := global.(map[string]interface{})["password"]
-						return password == "Opstree@12345"
+					foundCluster1, obj1 := clusterHasResource(workloadNamespacedName, resourceName, resourceKind, WORKER_CLUSTER_1)
+					foundCluster2, obj2 := clusterHasResource(workloadNamespacedName, resourceName, resourceKind, WORKER_CLUSTER_2)
+
+					if foundCluster1 && foundCluster2 {
+						return false
 					}
-					return false
+
+					if !foundCluster1 && !foundCluster2 {
+						return false
+					}
+
+					//make it work, make it pretty (it works needs to be made pretty)
+					var obj unstructured.Unstructured
+					if foundCluster1 {
+						obj = obj1
+					} else if foundCluster2 {
+						obj = obj2
+					} else {
+						return false
+					}
+					//
+
+					spec := obj.Object["spec"]
+					global := spec.(map[string]interface{})["global"]
+					password := global.(map[string]interface{})["password"]
+					return password == "Opstree@12345"
 
 				}, timeout, interval).Should(BeTrue())
 			})
@@ -218,7 +253,7 @@ var _ = Describe("kratix Platform Integration Test", func() {
 					resourceName := "databases.postgresql.dev4devs.com"
 					resourceKind := "CustomResourceDefinition"
 
-					found, _ := minioHasCrd(workloadNamespacedName, resourceName, resourceKind)
+					found, _ := workerHasCRD(workloadNamespacedName, resourceName, resourceKind)
 					return found
 				}, timeout, interval).Should(BeTrue(), "has the Postgres CRD")
 			})
@@ -253,43 +288,74 @@ var _ = Describe("kratix Platform Integration Test", func() {
 				}, timeout, interval).Should(BeTrue())
 			})
 
-			It("should write a Postgres resource to Minio", func() {
-				// applyPromiseCRD(POSTGRES_CRD)
-				// applyResourceRequest(POSTGRES_RESOURCE_REQUEST)
+			It("should write a Postgres resource to ONE Worker Clusters", func() {
 				Eventually(func() bool {
 					workloadNamespacedName := types.NamespacedName{
 						Name:      "postgres-promise-default-default-database",
 						Namespace: "default",
 					}
 
-					//Read from Minio
-					//Assert that the Postgres resource is present
 					resourceName := "database"
 					resourceKind := "Database"
 
-					found, _ := minioHasResource(workloadNamespacedName, resourceName, resourceKind)
-					return found
+					foundCluster1, _ := clusterHasResource(workloadNamespacedName, resourceName, resourceKind, WORKER_CLUSTER_1)
+					foundCluster2, _ := clusterHasResource(workloadNamespacedName, resourceName, resourceKind, WORKER_CLUSTER_2)
+
+					if foundCluster1 && foundCluster2 {
+						return false
+					}
+
+					if !foundCluster1 && !foundCluster2 {
+						return false
+					}
+
+					return true
 				}, timeout, interval).Should(BeTrue())
 			})
 		})
 	})
 })
 
-func minioHasCrd(workloadNamespacedName types.NamespacedName, resourceName string, resourceKind string) (bool, unstructured.Unstructured) {
+func registerWorkerCluster(clusterName, clusterConfig string) {
+	applyResourceRequest(clusterConfig)
+
+	//defined in config/samples/platform_v1alpha1_worker_*_cluster.yaml
+	expectedName := types.NamespacedName{
+		Name:      clusterName,
+		Namespace: "default",
+	}
+	Eventually(func() bool {
+		return hasResourceBeenApplied(cluster_gvk, expectedName)
+	}, timeout, interval).Should(BeTrue())
+}
+
+func getTestWorkerClusterBucketPath() string {
+	return getClusterConfigPath(WORKER_CLUSTER_1)
+}
+
+func getClusterConfigPath(clusterConfig string) string {
+	yamlFile, err := ioutil.ReadFile(clusterConfig)
+	Expect(err).ToNot(HaveOccurred())
+
+	cluster := &platformv1alpha1.Cluster{}
+	err = yaml.Unmarshal(yamlFile, cluster)
+	Expect(err).ToNot(HaveOccurred())
+	return cluster.Spec.BucketPath
+}
+
+func workerHasCRD(workloadNamespacedName types.NamespacedName, resourceName, resourceKind string) (bool, unstructured.Unstructured) {
 	objectName := "00-" + workloadNamespacedName.Namespace + "-" + workloadNamespacedName.Name + "-crds.yaml"
-	bucketName := "kratix-crds"
+	bucketName := getTestWorkerClusterBucketPath() + "-kratix-crds"
 	return minioHasWorkloadWithResourceWithNameAndKind(bucketName, objectName, resourceName, resourceKind)
 }
 
-func minioHasResource(workloadNamespacedName types.NamespacedName, resourceName string, resourceKind string) (bool, unstructured.Unstructured) {
+func clusterHasResource(workloadNamespacedName types.NamespacedName, resourceName, resourceKind, clusterConfig string) (bool, unstructured.Unstructured) {
 	objectName := "01-" + workloadNamespacedName.Namespace + "-" + workloadNamespacedName.Name + "-resources.yaml"
-	bucketName := "kratix-resources"
+	bucketName := getClusterConfigPath(clusterConfig) + "-kratix-resources"
 	return minioHasWorkloadWithResourceWithNameAndKind(bucketName, objectName, resourceName, resourceKind)
 }
 
 func minioHasWorkloadWithResourceWithNameAndKind(bucketName string, objectName string, resourceName string, resourceKind string) (bool, unstructured.Unstructured) {
-
-	// endpoint := "minio.kratix-platform-system.svc.cluster.local"
 	endpoint := "172.18.0.2:31337"
 	accessKeyID := "minioadmin"
 	secretAccessKey := "minioadmin"

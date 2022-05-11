@@ -5,8 +5,8 @@ In this tutorial we will learn how to:
 2. Install a Jenkins Promise.
 3. Issue Jenkins instances on-demand.
 
-
 ## Part 1: Kratix Multi-Cluster Install
+_To install on a single cluster use the [Single Cluster Quick Start Guide](./single-cluster.md)._
 
 ### Install KinD
 
@@ -36,8 +36,9 @@ kubectl get crds
 The above command will give an output similar to:
 ```
 NAME                                     CREATED AT
-promises.platform.kratix.io              2021-09-03T11:59:16Z
-works.platform.kratix.io                 2021-09-03T11:59:16Z
+clusters.platform.kratix.io   2022-05-10T11:10:57Z
+promises.platform.kratix.io   2022-05-10T11:10:57Z
+works.platform.kratix.io      2022-05-10T11:10:57Z
 ```
 
 ### Multi-Cluster Networking
@@ -53,6 +54,7 @@ This will create a cluster for running the X-as-a-service workloads:
 
 ```
 kind create cluster --name worker #Also switches kubectl context to worker
+kubectl apply -f config/samples/platform_v1alpha1_worker_cluster.yaml --context kind-platform #register the worker cluster with the platform cluster
 kubectl apply -f hack/worker/gitops-tk-install.yaml
 kubectl apply -f hack/worker/gitops-tk-resources.yaml
 ```

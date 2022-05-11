@@ -32,6 +32,32 @@ rules:
 - apiGroups:
   - platform.kratix.io
   resources:
+  - clusters
+  verbs:
+  - create
+  - delete
+  - get
+  - list
+  - patch
+  - update
+  - watch
+- apiGroups:
+  - platform.kratix.io
+  resources:
+  - clusters/finalizers
+  verbs:
+  - update
+- apiGroups:
+  - platform.kratix.io
+  resources:
+  - clusters/status
+  verbs:
+  - get
+  - patch
+  - update
+- apiGroups:
+  - platform.kratix.io
+  resources:
   - promises
   verbs:
   - create
