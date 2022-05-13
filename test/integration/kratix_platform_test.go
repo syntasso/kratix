@@ -114,7 +114,7 @@ var _ = Describe("kratix Platform Integration Test", func() {
 				}, timeout, interval).Should(BeTrue())
 			})
 
-			It("writes the resources to Minio that are defined in the Promise manifest", func() {
+			PIt("writes the resources to Minio that are defined in the Promise manifest", func() {
 				workloadNamespacedName := types.NamespacedName{
 					Name:      "redis-promise-default",
 					Namespace: "default",
@@ -123,8 +123,12 @@ var _ = Describe("kratix Platform Integration Test", func() {
 					resourceName := "redis.redis.redis.opstreelabs.in"
 					resourceKind := "CustomResourceDefinition"
 
-					found, _ := workerHasCRD(workloadNamespacedName, resourceName, resourceKind)
-					return found
+					foundCrdWorker1, _ := workerHasCRD(workloadNamespacedName, resourceName, resourceKind, WORKER_CLUSTER_1)
+					foundResourceWorker1, _ := workerHasResource(workloadNamespacedName, "a-non-crd-resource", "Namespace", WORKER_CLUSTER_1)
+					foundCrdWorker2, _ := workerHasCRD(workloadNamespacedName, resourceName, resourceKind, WORKER_CLUSTER_2)
+					foundResourceWorker2, _ := workerHasResource(workloadNamespacedName, "a-non-crd-resource", "Namespace", WORKER_CLUSTER_1)
+
+					return foundCrdWorker1 && foundCrdWorker2 && foundResourceWorker1 && foundResourceWorker2
 				}, timeout, interval).Should(BeTrue(), "has the Redis CRD")
 			})
 		})
@@ -168,8 +172,8 @@ var _ = Describe("kratix Platform Integration Test", func() {
 					resourceName := "opstree-redis"
 					resourceKind := "Redis"
 
-					foundCluster1, _ := clusterHasResource(workloadNamespacedName, resourceName, resourceKind, WORKER_CLUSTER_1)
-					foundCluster2, _ := clusterHasResource(workloadNamespacedName, resourceName, resourceKind, WORKER_CLUSTER_2)
+					foundCluster1, _ := workerHasResource(workloadNamespacedName, resourceName, resourceKind, WORKER_CLUSTER_1)
+					foundCluster2, _ := workerHasResource(workloadNamespacedName, resourceName, resourceKind, WORKER_CLUSTER_2)
 
 					if foundCluster1 && foundCluster2 {
 						return false
@@ -197,8 +201,8 @@ var _ = Describe("kratix Platform Integration Test", func() {
 					resourceName := "opstree-redis"
 					resourceKind := "Redis"
 
-					foundCluster1, obj1 := clusterHasResource(workloadNamespacedName, resourceName, resourceKind, WORKER_CLUSTER_1)
-					foundCluster2, obj2 := clusterHasResource(workloadNamespacedName, resourceName, resourceKind, WORKER_CLUSTER_2)
+					foundCluster1, obj1 := workerHasResource(workloadNamespacedName, resourceName, resourceKind, WORKER_CLUSTER_1)
+					foundCluster2, obj2 := workerHasResource(workloadNamespacedName, resourceName, resourceKind, WORKER_CLUSTER_2)
 
 					if foundCluster1 && foundCluster2 {
 						return false
@@ -253,7 +257,7 @@ var _ = Describe("kratix Platform Integration Test", func() {
 					resourceName := "databases.postgresql.dev4devs.com"
 					resourceKind := "CustomResourceDefinition"
 
-					found, _ := workerHasCRD(workloadNamespacedName, resourceName, resourceKind)
+					found, _ := workerHasCRD(workloadNamespacedName, resourceName, resourceKind, WORKER_CLUSTER_1)
 					return found
 				}, timeout, interval).Should(BeTrue(), "has the Postgres CRD")
 			})
@@ -298,8 +302,8 @@ var _ = Describe("kratix Platform Integration Test", func() {
 					resourceName := "database"
 					resourceKind := "Database"
 
-					foundCluster1, _ := clusterHasResource(workloadNamespacedName, resourceName, resourceKind, WORKER_CLUSTER_1)
-					foundCluster2, _ := clusterHasResource(workloadNamespacedName, resourceName, resourceKind, WORKER_CLUSTER_2)
+					foundCluster1, _ := workerHasResource(workloadNamespacedName, resourceName, resourceKind, WORKER_CLUSTER_1)
+					foundCluster2, _ := workerHasResource(workloadNamespacedName, resourceName, resourceKind, WORKER_CLUSTER_2)
 
 					if foundCluster1 && foundCluster2 {
 						return false
@@ -329,10 +333,6 @@ func registerWorkerCluster(clusterName, clusterConfig string) {
 	}, timeout, interval).Should(BeTrue())
 }
 
-func getTestWorkerClusterBucketPath() string {
-	return getClusterConfigPath(WORKER_CLUSTER_1)
-}
-
 func getClusterConfigPath(clusterConfig string) string {
 	yamlFile, err := ioutil.ReadFile(clusterConfig)
 	Expect(err).ToNot(HaveOccurred())
@@ -343,13 +343,13 @@ func getClusterConfigPath(clusterConfig string) string {
 	return cluster.Spec.BucketPath
 }
 
-func workerHasCRD(workloadNamespacedName types.NamespacedName, resourceName, resourceKind string) (bool, unstructured.Unstructured) {
+func workerHasCRD(workloadNamespacedName types.NamespacedName, resourceName, resourceKind, clusterConfig string) (bool, unstructured.Unstructured) {
 	objectName := "00-" + workloadNamespacedName.Namespace + "-" + workloadNamespacedName.Name + "-crds.yaml"
-	bucketName := getTestWorkerClusterBucketPath() + "-kratix-crds"
+	bucketName := getClusterConfigPath(clusterConfig) + "-kratix-crds"
 	return minioHasWorkloadWithResourceWithNameAndKind(bucketName, objectName, resourceName, resourceKind)
 }
 
-func clusterHasResource(workloadNamespacedName types.NamespacedName, resourceName, resourceKind, clusterConfig string) (bool, unstructured.Unstructured) {
+func workerHasResource(workloadNamespacedName types.NamespacedName, resourceName, resourceKind, clusterConfig string) (bool, unstructured.Unstructured) {
 	objectName := "01-" + workloadNamespacedName.Namespace + "-" + workloadNamespacedName.Name + "-resources.yaml"
 	bucketName := getClusterConfigPath(clusterConfig) + "-kratix-resources"
 	return minioHasWorkloadWithResourceWithNameAndKind(bucketName, objectName, resourceName, resourceKind)
