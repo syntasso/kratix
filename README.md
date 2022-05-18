@@ -6,7 +6,7 @@
 
 ## What is Kratix?
 
-Kratix is a framework that enables co-creation of capabilities by providing a clear contract between application and platform teams through the definition and creation of “Promises”. Using the GitOps workflow and Kubernetes-native constructs, Kratix provides a flexible solution to empower your platform team to curate an API-driven, curated, bespoke platform that can easily be kept secure and up-to-date, as well as evolving as business needs change.
+Kratix is a framework that enables co-creation of capabilities by providing a clear contract between application and platform teams through the definition and creation of “Promises”. Using the GitOps workflow and Kubernetes-native constructs, Kratix provides a flexible solution to empower your platform team to curate an API-driven, bespoke platform that can easily be kept secure and up-to-date, as well as evolving as business needs change.
 
 Promises:
 - provide the right abstractions to make your developers as productive, efficient, and secure as possible. Any capability can be encoded and delivered via a Promise, and once “Promised” the capability is available on-demand, at scale, across the organisation.
