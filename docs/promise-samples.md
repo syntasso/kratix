@@ -1,6 +1,6 @@
 ## Promise Samples
 
-Kratix is only as powerful as the Promises that it serves. gere Here are some samples to showcase the Power of Kratix and Promises. \
+Kratix is only as powerful as the Promises that it serves. Here are some samples to showcase the Power of Kratix and Promises.
 
 If you need help writing your own Promise check out [these docs](./writing-a-promise.md), or [contact us](mailto:feedback@syntasso.io?subject=Kratix%20Promise%20Help) via email
 
