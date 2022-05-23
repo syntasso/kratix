@@ -10,7 +10,7 @@ Unlike other frameworks and tooling which focus exclusively on application-devel
 - Start small on a laptop and expand to multi-team multi-cluster multi-region multi-cloud with a consistent API everywhere.
 - Discover and share on-demand multi-cluster software (Promises) with the Kratix ecosystem.
 
-### A Steam-Aligned / Application Team can:
+### A Stream-Aligned / Application Team can:
 - Discover and consume the services in their organisation on-demand using standard Kubernetes APIs.
 - Consume as-a-Service from the platform, safe in the knowledge that the service is fit for purpose in their organisation.
 
