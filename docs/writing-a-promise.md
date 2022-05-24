@@ -1,8 +1,6 @@
 # Writing your own promise
  
 - [Writing your own promise](#writing-your-own-promise)
-  - [What's the Problem?](#whats-the-problem)
-  - [What's the Solution?](#whats-the-solution)
   - [What will I learn?](#what-will-i-learn)
   - [Writing a Promise](#writing-a-promise)
     - [Prerequisites:](#prerequisites)
@@ -15,20 +13,8 @@
   - [Summary](#summary)
   - [Where Next?](#where-next)
 
-## What's the Problem? 
-Syntasso understands being a Platform team member is challenging. These teams relentlessly feel tensions from many directions, and often face: 
-* Demands from their customers, who increasingly expect software served from internal platforms be as simple, quick to consume, and performant as commodity public-cloud services.
-* Huge learning curves as they take software from large vendors, figure out how to tweak the seemingly endless configuration options to introduce the "right" level of opinions: not too opinionated to reduce utility for their users, but opinionated enough to meet their own internal SLI/SLO requirements.
-* Demands from their own internal security, audit, and compliance teams who expect all internal software to be secure, traceable, up-to-date, and compliant with industry regulations.
-
-## What's the Solution? 
-This is where Promises can help. The aim of a Promise is simple: 
-* To enable Platform teams to take complex software, modify the settings needed to meet their internal requirements, inject their own organisational opinions, and finally to expose a simplified API to _their_ users to enable frictionless creation and consumption of services that meet the needs of all stakeholders.  
-   
-The more Promises a platform can deliver, the richer that platform becomes, and while commercial entities will provide high-quality Promises that meet the demands of a broad base of platform teams, it is inevitable teams in organisations at scale will have to respond to requests to add further custom as-a-Service capabilities. 
-
 ## What will I learn?
-We will walk through the steps needed to create your own Promise, configure it for your needs, decorate it with your own opinions, and expose it as-a-Service ready for consumption by your platform users. 
+We will walk through the steps needed to create your own Promise, configure it for your needs, decorate it with your own opinions, and expose it as-a-Service ready for consumption by your platform users. If you are unsure of what a promise is and what problem it solves, check out [this page](promises.md).
 
 You will learn how to:
 * Build a Promise for complex software, and expose it via a simple custom API which captures the data needed from users to configure the Promise for consumption "as-a-Service".
