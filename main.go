@@ -81,7 +81,12 @@ func main() {
 	}
 
 	bucketWriter := controllers.BucketWriter{
-		Log: ctrl.Log.WithName("controllers").WithName("ControllerWriter"),
+		Log: ctrl.Log.WithName("controllers").WithName("BucketWriter"),
+	}
+
+	scheduler := controllers.Scheduler{
+		Client: mgr.GetClient(),
+		Log:    ctrl.Log.WithName("controllers").WithName("Scheduler"),
 	}
 
 	if err = (&controllers.PromiseReconciler{
@@ -95,9 +100,10 @@ func main() {
 		os.Exit(1)
 	}
 	if err = (&controllers.WorkReconciler{
-		Client: mgr.GetClient(),
-		Log:    ctrl.Log.WithName("controllers").WithName("Work"),
-		Scheme: mgr.GetScheme(),
+		Client:    mgr.GetClient(),
+		Log:       ctrl.Log.WithName("controllers").WithName("Work"),
+		Scheme:    mgr.GetScheme(),
+		Scheduler: &scheduler,
 	}).SetupWithManager(mgr); err != nil {
 		setupLog.Error(err, "unable to create controller", "controller", "Work")
 		os.Exit(1)
@@ -121,8 +127,10 @@ func main() {
 		os.Exit(1)
 	}
 	if err = (&controllers.WorkPlacementReconciler{
-		Client: mgr.GetClient(),
-		Scheme: mgr.GetScheme(),
+		Client:       mgr.GetClient(),
+		Scheme:       mgr.GetScheme(),
+		Log:          ctrl.Log.WithName("controllers").WithName("WorkPlacementController"),
+		BucketWriter: bucketWriter,
 	}).SetupWithManager(mgr); err != nil {
 		setupLog.Error(err, "unable to create controller", "controller", "WorkPlacement")
 		os.Exit(1)

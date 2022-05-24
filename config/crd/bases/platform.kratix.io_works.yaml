@@ -35,6 +35,10 @@ spec:
           spec:
             description: WorkSpec defines the desired state of Work
             properties:
+              replicas:
+                description: -1 denotes Cluster Worker Resources, 1 denotes Resource
+                  Request
+                type: integer
               workload:
                 description: Workload represents the manifest workload to be deployed
                   on worker cluster

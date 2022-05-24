@@ -28,8 +28,9 @@ type WorkPlacementSpec struct {
 	// INSERT ADDITIONAL SPEC FIELDS - desired state of cluster
 	// Important: Run "make" to regenerate code after modifying this file
 
-	// Foo is an example field of WorkPlacement. Edit workplacement_types.go to remove/update
-	Foo string `json:"foo,omitempty"`
+	// The unique identifier of the Work parent
+	WorkName          string `json:"workName,omitempty"`
+	TargetClusterName string `json:"targetClusterName,omitempty"`
 }
 
 // WorkPlacementStatus defines the observed state of WorkPlacement

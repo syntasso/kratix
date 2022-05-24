@@ -20,7 +20,6 @@ import (
 	"context"
 	"fmt"
 	"io/ioutil"
-	"path/filepath"
 
 	. "github.com/onsi/ginkgo"
 	. "github.com/onsi/gomega"
@@ -29,71 +28,11 @@ import (
 	"k8s.io/apimachinery/pkg/apis/meta/v1/unstructured"
 	"k8s.io/apimachinery/pkg/types"
 	"k8s.io/apimachinery/pkg/util/yaml"
-	"k8s.io/client-go/kubernetes/scheme"
-	"k8s.io/client-go/rest"
-	"sigs.k8s.io/controller-runtime/pkg/client"
-	"sigs.k8s.io/controller-runtime/pkg/envtest"
-	logf "sigs.k8s.io/controller-runtime/pkg/log"
-	"sigs.k8s.io/controller-runtime/pkg/log/zap"
 
 	"github.com/syntasso/kratix/api/v1alpha1"
 	platformv1alpha1 "github.com/syntasso/kratix/api/v1alpha1"
-
 	//+kubebuilder:scaffold:imports
-
-	"k8s.io/apiextensions-apiserver/pkg/client/clientset/clientset"
-	ctrl "sigs.k8s.io/controller-runtime"
 )
-
-var cfg *rest.Config
-var k8sClient client.Client
-var apiextensionClient *clientset.Clientset
-var testEnv *envtest.Environment
-
-var _ = BeforeSuite(func() {
-	logf.SetLogger(zap.New(zap.WriteTo(GinkgoWriter), zap.UseDevMode(true)))
-
-	By("bootstrapping test environment")
-	testEnv = &envtest.Environment{
-		CRDDirectoryPaths:     []string{filepath.Join("..", "config", "crd", "bases")},
-		ErrorIfCRDPathMissing: true,
-	}
-
-	cfg, err := testEnv.Start()
-	Expect(err).NotTo(HaveOccurred())
-	Expect(cfg).NotTo(BeNil())
-
-	err = platformv1alpha1.AddToScheme(scheme.Scheme)
-	Expect(err).NotTo(HaveOccurred())
-
-	//+kubebuilder:scaffold:scheme
-
-	apiextensionClient = clientset.NewForConfigOrDie(cfg)
-	k8sClient, err = client.New(cfg, client.Options{Scheme: scheme.Scheme})
-	Expect(err).NotTo(HaveOccurred())
-	Expect(k8sClient).NotTo(BeNil())
-
-	k8sManager, err := ctrl.NewManager(cfg, ctrl.Options{
-		Scheme: scheme.Scheme,
-	})
-	Expect(err).ToNot(HaveOccurred())
-
-	err = (&PromiseReconciler{
-		Manager:             k8sManager,
-		ApiextensionsClient: apiextensionClient,
-		Client:              k8sManager.GetClient(),
-		Scheme:              k8sManager.GetScheme(),
-		Log:                 ctrl.Log.WithName("controllers").WithName("PromiseReconciler"),
-	}).SetupWithManager(k8sManager)
-	Expect(err).ToNot(HaveOccurred())
-
-	go func() {
-		defer GinkgoRecover()
-		err = k8sManager.Start(ctrl.SetupSignalHandler())
-		Expect(err).ToNot(HaveOccurred())
-	}()
-
-}, 60)
 
 var _ = Context("Promise Reconciler", func() {
 	Describe("Apply a Redis Promise", func() {
@@ -174,9 +113,4 @@ var _ = Context("Promise Reconciler", func() {
 			}, timeout, interval).Should(Equal("writer"))
 		})
 	})
-})
-
-var _ = AfterSuite(func() {
-	By("tearing down the test environment")
-	testEnv.Stop()
 })

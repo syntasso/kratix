@@ -16,7 +16,6 @@ import (
 	"k8s.io/apimachinery/pkg/types"
 	"k8s.io/apimachinery/pkg/util/yaml"
 
-	metav1 "k8s.io/apimachinery/pkg/apis/meta/v1"
 	"k8s.io/apimachinery/pkg/apis/meta/v1/unstructured"
 
 	"k8s.io/apimachinery/pkg/labels"
@@ -114,7 +113,7 @@ var _ = Describe("kratix Platform Integration Test", func() {
 				}, timeout, interval).Should(BeTrue())
 			})
 
-			PIt("writes the resources to Minio that are defined in the Promise manifest", func() {
+			It("places the resources to Workers as defined in the Promise", func() {
 				workloadNamespacedName := types.NamespacedName{
 					Name:      "redis-promise-default",
 					Namespace: "default",
@@ -146,22 +145,7 @@ var _ = Describe("kratix Platform Integration Test", func() {
 				}, timeout, interval).Should(BeTrue())
 			})
 
-			It("should label the created Work resource with a target workload cluster", func() {
-				Eventually(func() bool {
-					expectedName := types.NamespacedName{
-						Name:      "redis-promise-default-default-opstree-redis",
-						Namespace: "default",
-					}
-
-					work := &platformv1alpha1.Work{}
-					err := k8sClient.Get(context.Background(), expectedName, work)
-					Expect(err).ToNot(HaveOccurred())
-
-					return metav1.HasLabel(work.ObjectMeta, "cluster")
-				}, timeout, interval).Should(BeTrue())
-			})
-
-			It("should write a Redis resource to Worker Cluster", func() {
+			It("should place a Redis resource request to one Worker", func() {
 				Eventually(func() bool {
 					workloadNamespacedName := types.NamespacedName{
 						Name:      "redis-promise-default-default-opstree-redis",
@@ -187,7 +171,7 @@ var _ = Describe("kratix Platform Integration Test", func() {
 				}, timeout, interval).Should(BeTrue())
 			})
 
-			It("should update a Redis resource in Minio", func() {
+			PIt("Updates an existing Redis resource on the Worker", func() {
 				updateResourceRequest(REDIS_RESOURCE_UPDATE_REQUEST)
 
 				Eventually(func() bool {
@@ -242,28 +226,9 @@ var _ = Describe("kratix Platform Integration Test", func() {
 					return isAPIResourcePresent(postgres_gvk)
 				}, timeout, interval).Should(BeTrue())
 			})
-
-			It("writes the resources to Minio that are defined in the Promise manifest", func() {
-				// applyPromiseCRD(POSTGRES_CRD)
-
-				//what is this for cluster level?
-				workloadNamespacedName := types.NamespacedName{
-					Name:      "postgres-promise-default",
-					Namespace: "default",
-				}
-				Eventually(func() bool {
-					//Read from Minio
-					//Assert that the Postgres resource is present
-					resourceName := "databases.postgresql.dev4devs.com"
-					resourceKind := "CustomResourceDefinition"
-
-					found, _ := workerHasCRD(workloadNamespacedName, resourceName, resourceKind, WORKER_CLUSTER_1)
-					return found
-				}, timeout, interval).Should(BeTrue(), "has the Postgres CRD")
-			})
 		})
 
-		Describe("Applying Postgres resource triggers the TransformationPipeline™", func() {
+		Describe("Applying Postgres resource request triggers the TransformationPipeline™", func() {
 			It("Applying Postgres resource triggers the TransformationPipeline™", func() {
 				applyResourceRequest(POSTGRES_RESOURCE_REQUEST)
 
@@ -276,23 +241,11 @@ var _ = Describe("kratix Platform Integration Test", func() {
 				}, timeout, interval).Should(BeTrue())
 			})
 
-			It("should label the created Work resource with a target workload cluster", func() {
-				//applyResourceRequest(POSTGRES_RESOURCE_REQUEST)
-				Eventually(func() bool {
-					expectedName := types.NamespacedName{
-						Name:      "postgres-promise-default-default-database",
-						Namespace: "default",
-					}
+			PIt("Places a CRD that is defined in the resource request to only ONE Worker", func() {
 
-					work := &platformv1alpha1.Work{}
-					err := k8sClient.Get(context.Background(), expectedName, work)
-					Expect(err).ToNot(HaveOccurred())
-
-					return metav1.HasLabel(work.ObjectMeta, "cluster")
-				}, timeout, interval).Should(BeTrue())
 			})
 
-			It("should write a Postgres resource to ONE Worker Clusters", func() {
+			It("Places a Postgres resources to ONE Worker", func() {
 				Eventually(func() bool {
 					workloadNamespacedName := types.NamespacedName{
 						Name:      "postgres-promise-default-default-database",

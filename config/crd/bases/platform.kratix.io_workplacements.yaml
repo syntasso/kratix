@@ -35,9 +35,10 @@ spec:
           spec:
             description: WorkPlacementSpec defines the desired state of WorkPlacement
             properties:
-              foo:
-                description: Foo is an example field of WorkPlacement. Edit workplacement_types.go
-                  to remove/update
+              targetClusterName:
+                type: string
+              workName:
+                description: The unique identifier of the Work parent
                 type: string
             type: object
           status:
