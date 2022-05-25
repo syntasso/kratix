@@ -108,15 +108,6 @@ func main() {
 		setupLog.Error(err, "unable to create controller", "controller", "Work")
 		os.Exit(1)
 	}
-	if err = (&controllers.WorkWriterReconciler{
-		Client:       mgr.GetClient(),
-		BucketWriter: bucketWriter,
-		Log:          ctrl.Log.WithName("controllers").WithName("WorkWriter"),
-		Scheme:       mgr.GetScheme(),
-	}).SetupWithManager(mgr); err != nil {
-		setupLog.Error(err, "unable to create controller", "controller", "WorkWriter")
-		os.Exit(1)
-	}
 	if err = (&controllers.ClusterReconciler{
 		Client:       mgr.GetClient(),
 		Scheme:       mgr.GetScheme(),
