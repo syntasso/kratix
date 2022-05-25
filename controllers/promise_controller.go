@@ -94,7 +94,7 @@ func (r *PromiseReconciler) Reconcile(ctx context.Context, req ctrl.Request) (ct
 	promiseIdentifier := promise.Name + "-" + promise.Namespace
 
 	workToCreate := &v1alpha1.Work{}
-	workToCreate.Spec.Replicas = v1alpha1.CLUSTER_WORKER_RESOURCE_REPLICAS
+	workToCreate.Spec.Replicas = v1alpha1.WORKER_RESOURCE_REPLICAS
 	workToCreate.Name = promiseIdentifier
 	workToCreate.Namespace = "default"
 	for _, u := range promise.Spec.WorkerClusterResources {

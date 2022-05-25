@@ -44,7 +44,6 @@ func (r *Scheduler) createWorkplacementsForTargetClusters(workName string, targe
 // Where Work is a Resource Request return one random Cluster name, where Work is a
 // ClusterWorkerResource return all Cluster names
 func (r *Scheduler) getTargetClusterNames(work *platformv1alpha1.Work) []string {
-	replicas := work.Spec.Replicas
 	workerClusters := r.getWorkerClusters()
 
 	if len(workerClusters) == 0 {
@@ -59,7 +58,7 @@ func (r *Scheduler) getTargetClusterNames(work *platformv1alpha1.Work) []string 
 		targetClusterNames[0] = workerClusters[randomClusterIndex].Name
 		r.Log.Info("Adding Worker Cluster: " + targetClusterNames[0])
 		return targetClusterNames
-	} else if work.IsClusterWorkerResource() {
+	} else if work.IsWorkerResource() {
 		r.Log.Info("Getting Worker cluster names for Worker Resources")
 		var targetClusterNames = make([]string, len(workerClusters))
 		for i := 0; i < len(workerClusters); i++ {
@@ -68,6 +67,7 @@ func (r *Scheduler) getTargetClusterNames(work *platformv1alpha1.Work) []string 
 		}
 		return targetClusterNames
 	} else {
+		replicas := work.Spec.Replicas
 		r.Log.Info("Cannot interpret replica count: " + fmt.Sprint(replicas))
 		return make([]string, 0)
 	}

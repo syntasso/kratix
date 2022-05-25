@@ -79,6 +79,7 @@ func (r *WorkReconciler) Reconcile(ctx context.Context, req ctrl.Request) (ctrl.
 		}
 	}
 
+	// If Work does not have a WorkPlacement then schedule the Work
 	r.Log.Info("Requesting scheduling for Work " + req.Name)
 	err = r.Scheduler.ReconcileWork(work)
 	if err != nil {

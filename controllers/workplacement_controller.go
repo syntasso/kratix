@@ -61,15 +61,13 @@ func (r *WorkPlacementReconciler) Reconcile(ctx context.Context, req ctrl.Reques
 		return ctrl.Result{RequeueAfter: 5 * time.Second}, nil
 	}
 
-	if workPlacement != nil {
-		work := r.getWork(workPlacement.Spec.WorkName)
-		workerClusterBucketPath, _ := r.getWorkerClusterBucketPath(workPlacement.Spec.TargetClusterName)
+	work := r.getWork(workPlacement.Spec.WorkName)
+	workerClusterBucketPath, _ := r.getWorkerClusterBucketPath(workPlacement.Spec.TargetClusterName)
 
-		err = r.writeWorkToMinioBucket(work, workerClusterBucketPath)
-		if err != nil {
-			r.Log.Error(err, "Minio error, will try again in 5 seconds")
-			return ctrl.Result{RequeueAfter: 5 * time.Second}, nil
-		}
+	err = r.writeWorkToMinioBucket(work, workerClusterBucketPath)
+	if err != nil {
+		r.Log.Error(err, "Minio error, will try again in 5 seconds")
+		return ctrl.Result{RequeueAfter: 5 * time.Second}, nil
 	}
 
 	return ctrl.Result{}, nil

@@ -21,7 +21,7 @@ import (
 	"k8s.io/apimachinery/pkg/apis/meta/v1/unstructured"
 )
 
-const CLUSTER_WORKER_RESOURCE_REPLICAS = -1
+const WORKER_RESOURCE_REPLICAS = -1
 const RESOURCE_REQUEST_REPLICAS = 1
 
 // WorkStatus defines the observed state of Work
@@ -55,8 +55,8 @@ func (w *Work) IsResourceRequest() bool {
 	return w.Spec.Replicas == RESOURCE_REQUEST_REPLICAS
 }
 
-func (w *Work) IsClusterWorkerResource() bool {
-	return w.Spec.Replicas == CLUSTER_WORKER_RESOURCE_REPLICAS
+func (w *Work) IsWorkerResource() bool {
+	return w.Spec.Replicas == WORKER_RESOURCE_REPLICAS
 }
 
 // WorkloadTemplate represents the manifest workload to be deployed on worker cluster
