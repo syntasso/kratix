@@ -41,7 +41,7 @@ spec:
             path: /login
             port: http
             scheme: HTTP
-          initialDelaySeconds: 100
+          initialDelaySeconds: 240
           periodSeconds: 10
           successThreshold: 1
           timeoutSeconds: 5
@@ -51,17 +51,17 @@ spec:
             path: /login
             port: http
             scheme: HTTP
-          initialDelaySeconds: 80
+          initialDelaySeconds: 240
           periodSeconds: 10
           successThreshold: 1
           timeoutSeconds: 1
         resources:
           limits:
-            cpu: 1500m
+            cpu: "3"
             memory: 3Gi
           requests:
-            cpu: "1"
-            memory: 500Mi
+            cpu: "2"
+            memory: 1Gi
   seedJobs:
     - id: jenkins-operator
       targets: "cicd/jobs/*.jenkins"
