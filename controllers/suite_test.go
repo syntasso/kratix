@@ -14,7 +14,7 @@ See the License for the specific language governing permissions and
 limitations under the License.
 */
 
-package controllers
+package controllers_test
 
 import (
 	"path/filepath"
@@ -23,6 +23,7 @@ import (
 	. "github.com/onsi/ginkgo"
 	. "github.com/onsi/gomega"
 	platformv1alpha1 "github.com/syntasso/kratix/api/v1alpha1"
+	. "github.com/syntasso/kratix/controllers"
 	"k8s.io/apiextensions-apiserver/pkg/client/clientset/clientset"
 	"k8s.io/client-go/kubernetes/scheme"
 	"k8s.io/client-go/rest"

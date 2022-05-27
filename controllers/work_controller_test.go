@@ -14,10 +14,12 @@ See the License for the specific language governing permissions and
 limitations under the License.
 */
 
-package controllers
+package controllers_test
 
 import (
 	"context"
+
+	. "github.com/syntasso/kratix/controllers"
 
 	. "github.com/onsi/ginkgo"
 	. "github.com/onsi/gomega"
