@@ -5,20 +5,20 @@ metadata:
   annotations:
     controller-gen.kubebuilder.io/version: v0.8.0
   creationTimestamp: null
-  name: works.platform.kratix.io
+  name: workplacements.platform.kratix.io
 spec:
   group: platform.kratix.io
   names:
-    kind: Work
-    listKind: WorkList
-    plural: works
-    singular: work
+    kind: WorkPlacement
+    listKind: WorkPlacementList
+    plural: workplacements
+    singular: workplacement
   scope: Namespaced
   versions:
   - name: v1alpha1
     schema:
       openAPIV3Schema:
-        description: Work is the Schema for the works API
+        description: WorkPlacement is the Schema for the workplacements API
         properties:
           apiVersion:
             description: 'APIVersion defines the versioned schema of this representation
@@ -33,30 +33,16 @@ spec:
           metadata:
             type: object
           spec:
-            description: WorkSpec defines the desired state of Work
+            description: WorkPlacementSpec defines the desired state of WorkPlacement
             properties:
-              replicas:
-                description: -1 denotes Cluster Worker Resources, 1 denotes Resource
-                  Request
-                type: integer
-              workload:
-                description: Workload represents the manifest workload to be deployed
-                  on worker cluster
-                properties:
-                  manifests:
-                    description: Manifests represents a list of kuberenetes resources
-                      to be deployed on the worker cluster.
-                    items:
-                      description: Manifest represents a resource to be deployed on
-                        worker cluster
-                      type: object
-                      x-kubernetes-embedded-resource: true
-                      x-kubernetes-preserve-unknown-fields: true
-                    type: array
-                type: object
+              targetClusterName:
+                type: string
+              workName:
+                description: The unique identifier of the Work parent
+                type: string
             type: object
           status:
-            description: WorkStatus defines the observed state of Work
+            description: WorkPlacementStatus defines the observed state of WorkPlacement
             type: object
         type: object
     served: true

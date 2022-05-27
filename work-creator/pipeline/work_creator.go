@@ -50,6 +50,7 @@ func (w *WorkCreator) Execute(inputDirectory string, identifier string) error {
 	work := platformv1alpha1.Work{}
 	work.Name = identifier
 	work.Namespace = "default"
+	work.Spec.Replicas = platformv1alpha1.RESOURCE_REQUEST_REPLICAS
 
 	manifests := &work.Spec.Workload.Manifests
 	for _, resource := range resources {

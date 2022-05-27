@@ -18,23 +18,21 @@ package controllers
 
 import (
 	"context"
-	"math/rand"
-	"time"
+	"fmt"
 
 	"github.com/go-logr/logr"
-	metav1 "k8s.io/apimachinery/pkg/apis/meta/v1"
+	platformv1alpha1 "github.com/syntasso/kratix/api/v1alpha1"
 	"k8s.io/apimachinery/pkg/runtime"
 	ctrl "sigs.k8s.io/controller-runtime"
 	"sigs.k8s.io/controller-runtime/pkg/client"
-
-	platformv1alpha1 "github.com/syntasso/kratix/api/v1alpha1"
 )
 
 // WorkReconciler reconciles a Work object
 type WorkReconciler struct {
 	client.Client
-	Log    logr.Logger
-	Scheme *runtime.Scheme
+	Log       logr.Logger
+	Scheme    *runtime.Scheme
+	Scheduler *Scheduler
 }
 
 //+kubebuilder:rbac:groups=platform.kratix.io,resources=works,verbs=get;list;watch;create;update;patch;delete
@@ -52,7 +50,6 @@ type WorkReconciler struct {
 // - https://pkg.go.dev/sigs.k8s.io/controller-runtime@v0.7.2/pkg/reconcile
 func (r *WorkReconciler) Reconcile(ctx context.Context, req ctrl.Request) (ctrl.Result, error) {
 	_ = r.Log.WithValues("work", req.NamespacedName)
-
 	r.Log.Info("Reconciling Work " + req.Name)
 
 	work := &platformv1alpha1.Work{}
@@ -62,40 +59,35 @@ func (r *WorkReconciler) Reconcile(ctx context.Context, req ctrl.Request) (ctrl.
 		return ctrl.Result{Requeue: false}, err
 	}
 
-	if !metav1.HasLabel(work.ObjectMeta, "cluster") {
-		targetCluster := r.getTargetCluster()
-		r.Log.Info("Decorating Work " + req.Name + " with Label: cluster=" + targetCluster)
-		labels := map[string]string{}
-		labels["cluster"] = targetCluster
-		work.SetLabels(labels)
-
-		err = r.Client.Update(context.Background(), work)
-		if err != nil {
-			r.Log.Error(err, "Error updating Work with new Labels")
-			return ctrl.Result{Requeue: false}, err
-		}
-	} else {
-		r.Log.Info("Work " + req.Name + " already scheduled to cluster" + work.ObjectMeta.Labels["cluster"])
+	// If Work already has a WorkPlacement then return
+	workPlacementList := &platformv1alpha1.WorkPlacementList{}
+	workPlacementListOptions := &client.ListOptions{
+		Namespace: "default",
 	}
-
-	return ctrl.Result{}, nil
-}
-
-func (r *WorkReconciler) getTargetCluster() string {
-	workerClusters := r.getWorkerClusters()
-	items := workerClusters.Items
-	rand.Seed(time.Now().UnixNano())
-	randomClusterIndex := rand.Intn(len(items))
-	return items[randomClusterIndex].Name
-}
-
-func (r *WorkReconciler) getWorkerClusters() *platformv1alpha1.ClusterList {
-	workerClusters := &platformv1alpha1.ClusterList{}
-	err := r.Client.List(context.Background(), workerClusters, &client.ListOptions{})
+	r.Log.Info("Listing Workplacements with WorkName: " + work.Name)
+	err = r.Client.List(context.Background(), workPlacementList, workPlacementListOptions)
 	if err != nil {
-		r.Log.Error(err, "Error listing available clusters")
+		r.Log.Error(err, "Error getting WorkPlacements")
+		return ctrl.Result{Requeue: true}, err
 	}
-	return workerClusters
+	r.Log.Info("Found WorkPlacements for WorkName " + fmt.Sprint(len(workPlacementList.Items)))
+
+	for _, workPlacement := range workPlacementList.Items {
+		if workPlacement.Spec.WorkName == work.Name {
+			r.Log.Info("WorkPlacements for work exist." + req.Name)
+			return ctrl.Result{}, nil
+		}
+	}
+
+	// If Work does not have a WorkPlacement then schedule the Work
+	r.Log.Info("Requesting scheduling for Work " + req.Name)
+	err = r.Scheduler.ReconcileWork(work)
+	if err != nil {
+		r.Log.Error(err, "Error scheduling Work, will retry...")
+		return ctrl.Result{Requeue: true}, err
+	}
+	return ctrl.Result{}, nil
+
 }
 
 // SetupWithManager sets up the controller with the Manager.

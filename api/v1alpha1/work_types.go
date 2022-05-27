@@ -21,6 +21,9 @@ import (
 	"k8s.io/apimachinery/pkg/apis/meta/v1/unstructured"
 )
 
+const WORKER_RESOURCE_REPLICAS = -1
+const RESOURCE_REQUEST_REPLICAS = 1
+
 // WorkStatus defines the observed state of Work
 type WorkStatus struct {
 	// INSERT ADDITIONAL STATUS FIELD - define observed state of cluster
@@ -43,6 +46,17 @@ type Work struct {
 type WorkSpec struct {
 	// Workload represents the manifest workload to be deployed on worker cluster
 	Workload WorkloadTemplate `json:"workload,omitempty"`
+
+	// -1 denotes Cluster Worker Resources, 1 denotes Resource Request
+	Replicas int `json:"replicas,omitempty"`
+}
+
+func (w *Work) IsResourceRequest() bool {
+	return w.Spec.Replicas == RESOURCE_REQUEST_REPLICAS
+}
+
+func (w *Work) IsWorkerResource() bool {
+	return w.Spec.Replicas == WORKER_RESOURCE_REPLICAS
 }
 
 // WorkloadTemplate represents the manifest workload to be deployed on worker cluster

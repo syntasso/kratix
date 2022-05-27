@@ -21,61 +21,59 @@ import (
 	"context"
 	"time"
 
-	"github.com/go-logr/logr"
-	metav1 "k8s.io/apimachinery/pkg/apis/meta/v1"
 	"k8s.io/apimachinery/pkg/runtime"
 	"k8s.io/apimachinery/pkg/runtime/serializer/json"
 	"k8s.io/apimachinery/pkg/types"
 	ctrl "sigs.k8s.io/controller-runtime"
 	"sigs.k8s.io/controller-runtime/pkg/client"
 
+	"github.com/go-logr/logr"
 	platformv1alpha1 "github.com/syntasso/kratix/api/v1alpha1"
 )
 
-// WorkReconciler reconciles a Work object
-type WorkWriterReconciler struct {
+// WorkPlacementReconciler reconciles a WorkPlacement object
+type WorkPlacementReconciler struct {
 	client.Client
-	Log          logr.Logger
 	Scheme       *runtime.Scheme
+	Log          logr.Logger
 	BucketWriter BucketWriter
 }
 
-//+kubebuilder:rbac:groups=platform.kratix.io,resources=works,verbs=get;list;watch;create;update;patch;delete
-//+kubebuilder:rbac:groups=platform.kratix.io,resources=works/status,verbs=get;update;patch
-//+kubebuilder:rbac:groups=platform.kratix.io,resources=works/finalizers,verbs=update
+//+kubebuilder:rbac:groups=platform.kratix.io,resources=workplacements,verbs=get;list;watch;create;update;patch;delete
+//+kubebuilder:rbac:groups=platform.kratix.io,resources=workplacements/status,verbs=get;update;patch
+//+kubebuilder:rbac:groups=platform.kratix.io,resources=workplacements/finalizers,verbs=update
 
 // Reconcile is part of the main kubernetes reconciliation loop which aims to
 // move the current state of the cluster closer to the desired state.
 // TODO(user): Modify the Reconcile function to compare the state specified by
-// the Work object against the actual cluster state, and then
+// the WorkPlacement object against the actual cluster state, and then
 // perform operations to make the cluster state reflect the state specified by
 // the user.
 //
 // For more details, check Reconcile and its Result here:
-// - https://pkg.go.dev/sigs.k8s.io/controller-runtime@v0.7.2/pkg/reconcile
-func (r *WorkWriterReconciler) Reconcile(ctx context.Context, req ctrl.Request) (ctrl.Result, error) {
-	_ = r.Log.WithValues("work-writer", req.NamespacedName)
-	// get the workload
-	work := &platformv1alpha1.Work{}
-	err := r.Client.Get(context.Background(), req.NamespacedName, work)
+// - https://pkg.go.dev/sigs.k8s.io/controller-runtime@v0.11.0/pkg/reconcile
+func (r *WorkPlacementReconciler) Reconcile(ctx context.Context, req ctrl.Request) (ctrl.Result, error) {
+	_ = r.Log.WithValues("work-placement-controller", req.NamespacedName)
+	workPlacement := &platformv1alpha1.WorkPlacement{}
+	err := r.Client.Get(context.Background(), req.NamespacedName, workPlacement)
 	if err != nil {
-		r.Log.Error(err, "Error getting Work: "+req.Name)
+		r.Log.Error(err, "Error getting WorkPlacement: "+req.Name)
 		return ctrl.Result{RequeueAfter: 5 * time.Second}, nil
 	}
 
-	//	see if the workload has the necessary label
-	if metav1.HasLabel(work.ObjectMeta, "cluster") {
-		err = r.writeToMinio(work)
-		if err != nil {
-			r.Log.Error(err, "Minio error, will try again in 5 seconds")
-			return ctrl.Result{RequeueAfter: 5 * time.Second}, nil
-		}
+	work := r.getWork(workPlacement.Spec.WorkName)
+	workerClusterBucketPath, _ := r.getWorkerClusterBucketPath(workPlacement.Spec.TargetClusterName)
+
+	err = r.writeWorkToMinioBucket(work, workerClusterBucketPath)
+	if err != nil {
+		r.Log.Error(err, "Minio error, will try again in 5 seconds")
+		return ctrl.Result{RequeueAfter: 5 * time.Second}, nil
 	}
 
 	return ctrl.Result{}, nil
 }
 
-func (r *WorkWriterReconciler) writeToMinio(work *platformv1alpha1.Work) error {
+func (r *WorkPlacementReconciler) writeWorkToMinioBucket(work *platformv1alpha1.Work, workerClusterBucketPath string) error {
 	serializer := json.NewSerializerWithOptions(
 		json.DefaultMetaFactory, nil, nil,
 		json.SerializerOptions{
@@ -100,15 +98,16 @@ func (r *WorkWriterReconciler) writeToMinio(work *platformv1alpha1.Work) error {
 
 	// Upload CRDs to Minio in separate files to other resources. The 00-crds files are applied before 01-resources by the Kustomise controller when it autogenerates its manifest. This is to ensure the APIs for resources exist before the resources are applied.
 	// See https://github.com/fluxcd/kustomize-controller/blob/main/docs/spec/v1beta1/kustomization.md#generate-kustomizationyaml .
+
 	crdObjectName := "00-" + work.GetNamespace() + "-" + work.GetName() + "-crds.yaml"
-	err := r.writeWorkerClusterCRDs(crdObjectName, crdBuffer.Bytes())
+	err := r.writeWorkerClusterCRDs(workerClusterBucketPath, crdObjectName, crdBuffer.Bytes())
 	if err != nil {
 		r.Log.Error(err, "Error Writing CRDS to Worker Clusters")
 		return err
 	}
 
 	resourcesObjectName := "01-" + work.GetNamespace() + "-" + work.GetName() + "-resources.yaml"
-	err = r.writeWorkerClusterResources(work, resourcesObjectName, resourceBuffer.Bytes())
+	err = r.writeWorkerClusterResources(workerClusterBucketPath, resourcesObjectName, resourceBuffer.Bytes())
 	if err != nil {
 		r.Log.Error(err, "Error uploading resources to Minio")
 		return err
@@ -117,47 +116,43 @@ func (r *WorkWriterReconciler) writeToMinio(work *platformv1alpha1.Work) error {
 	return nil
 }
 
-func (r *WorkWriterReconciler) writeWorkerClusterResources(work *platformv1alpha1.Work, objectName string, fluxYaml []byte) error {
+func (r *WorkPlacementReconciler) writeWorkerClusterResources(workerClustersBucketPath string, objectName string, fluxYaml []byte) error {
+	bucketName := workerClustersBucketPath + "-kratix-resources"
+	return r.BucketWriter.WriteObject(bucketName, objectName, fluxYaml)
+}
+
+func (r *WorkPlacementReconciler) writeWorkerClusterCRDs(workerClustersBucketPath, objectName string, fluxYaml []byte) error {
+	bucketName := workerClustersBucketPath + "-kratix-crds"
+	return r.BucketWriter.WriteObject(bucketName, objectName, fluxYaml)
+}
+
+func (r *WorkPlacementReconciler) getWorkerClusterBucketPath(targetCluster string) (string, error) {
+	scheduledWorkerCluster := &platformv1alpha1.Cluster{}
 	clusterName := types.NamespacedName{
-		Name:      work.GetLabels()["cluster"],
+		Name:      targetCluster,
 		Namespace: "default",
 	}
-	scheduledWorkerCluster := &platformv1alpha1.Cluster{}
 	err := r.Client.Get(context.Background(), clusterName, scheduledWorkerCluster)
 	if err != nil {
 		r.Log.Error(err, "Error listing available clusters")
+		return "", err
 	}
-	workerClustersBucketPath := scheduledWorkerCluster.Spec.BucketPath
-	bucketName := workerClustersBucketPath + "-kratix-resources"
-	err = r.BucketWriter.WriteObject(bucketName, objectName, fluxYaml)
-
-	return err
+	return scheduledWorkerCluster.Spec.BucketPath, nil
 }
 
-func (r *WorkWriterReconciler) writeWorkerClusterCRDs(objectName string, fluxYaml []byte) error {
-	var err error
-	for _, workerClustersBucketPath := range r.getWorkerClusterBucketPaths() {
-		err = r.BucketWriter.WriteObject(workerClustersBucketPath+"-kratix-crds", objectName, fluxYaml)
+func (r *WorkPlacementReconciler) getWork(workName string) *platformv1alpha1.Work {
+	work := &platformv1alpha1.Work{}
+	namespaceName := types.NamespacedName{
+		Namespace: "default",
+		Name:      workName,
 	}
-	return err
-}
-
-func (r *WorkWriterReconciler) getWorkerClusterBucketPaths() []string {
-	workerClusters := &platformv1alpha1.ClusterList{}
-	err := r.Client.List(context.Background(), workerClusters, &client.ListOptions{})
-	workerClustersBucketPaths := make([]string, len(workerClusters.Items))
-	if err == nil {
-		for x, cluster := range workerClusters.Items {
-			workerClustersBucketPaths[x] = cluster.Spec.BucketPath
-		}
-	}
-	return workerClustersBucketPaths
+	r.Client.Get(context.Background(), namespaceName, work)
+	return work
 }
 
 // SetupWithManager sets up the controller with the Manager.
-func (r *WorkWriterReconciler) SetupWithManager(mgr ctrl.Manager) error {
+func (r *WorkPlacementReconciler) SetupWithManager(mgr ctrl.Manager) error {
 	return ctrl.NewControllerManagedBy(mgr).
-		For(&platformv1alpha1.Work{}).
-		Named("work-writer").
+		For(&platformv1alpha1.WorkPlacement{}).
 		Complete(r)
 }

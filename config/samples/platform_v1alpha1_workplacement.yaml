@@ -1,0 +1,6 @@
+apiVersion: platform.kratix.io/v1alpha1
+kind: WorkPlacement
+metadata:
+  name: workplacement-sample
+spec:
+  # TODO(user): Add fields here
