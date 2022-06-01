@@ -1,5 +1,5 @@
 # Writing your own promise
- 
+
 - [Writing your own promise](#writing-your-own-promise)
   - [What will I learn?](#what-will-i-learn)
   - [Writing a Promise](#writing-a-promise)
@@ -18,7 +18,7 @@ We will walk through the steps needed to create your own Promise, configure it f
 
 You will learn how to:
 * Build a Promise for complex software, and expose it via a simple custom API which captures the data needed from users to configure the Promise for consumption "as-a-Service".
-* Wrap, and deploy the underlying Kubernetes CRDs, Operators, and resources required to run your Promise. 
+* Wrap, and deploy the underlying Kubernetes CRDs, Operators, and resources required to run your Promise.
 * Create a Promise pipeline to inject captured user-data into the underlying Kubernetes resources, and decorate the Promised software with custom behavior so the running Promise reflects your your organisational, and users' requirements.
 
 ## Writing a Promise
@@ -31,14 +31,14 @@ You will learn how to:
     - Ensure no KinD clusters are currently running. `kind get clusters` should return "No kind clusters found."
 3. Install Kubectl. See [the install guide](https://kubernetes.io/docs/tasks tools/#kubectl). Tested on 1.16.13 and 1.21.2.
 4. A Docker Hub account with push permissions (or similar registry).
-5. [The Docker cli](https://docs.docker.com/get-docker/) -- to build and push images.    
+5. [The Docker cli](https://docs.docker.com/get-docker/) -- to build and push images.
 
 To begin writing a Promise we will need a basic directory structure to work in.
 
  ```
 mkdir -p jenkins-promise/{resources,request-pipeline-image}
 cd jenkins-promise
-``` 
+```
 
 ### Promise basics
 Conceptually a Promise is Broken down into three parts:
@@ -61,7 +61,7 @@ metadata:
   name: jenkins-promise
 spec:
   #injected via: go run path/to/kratix/hack/worker-resource-builder/main.go -k8s-resources-directory ${PWD}/resources -promise ${PWD}/jenkins-promise-template.yaml > jenkins-promise.yaml
-  #workerClusterResources: 
+  #workerClusterResources:
   xaasRequestPipeline:
   xaasCrd:
 EOF
@@ -69,7 +69,7 @@ EOF
 
 We will fill the `spec` scalars as we progress through the tutorial.
 
-### X-as-a-Service Custom Resource Definition 
+### X-as-a-Service Custom Resource Definition
 This is the user-facing API. For the purpose of this tutorial we will create an API that accepts a single `string` parameter called `name`. This API can be as complex or as simple as you need it to be for your own needs.
 
 ![Writing a Promise Step Three](images/writing-a-promise-3.png)
@@ -109,7 +109,7 @@ We have now created our as-a-Service API.
 ### X-as-a-Service Request Pipeline
 Next we will build the pipeline required to transform a Promise request into the Kubernetes resources required to create a running instance of the Promised service.
 
-The `xaasRequestPipeline` is an array of container images that execute in a defined order. Each Docker image can take on a single responsibility required for the creation of the service. We will create a step that takes the `name` parameter -- as defined in the previous tutorial stage -- and pass it into the Jenkins Custom resource. 
+The `xaasRequestPipeline` is an array of container images that execute in a defined order. Each Docker image can take on a single responsibility required for the creation of the service. We will create a step that takes the `name` parameter -- as defined in the previous tutorial stage -- and pass it into the Jenkins Custom resource.
 
 The contract with each container is simple and straightforward:
 - The first container in the list receives the resource created by the user when they applied their request. This document, by definition, will be a valid Kubernetes resource as defined by the `xaasCrd`. The document will be available in `/input/object.yaml`.
@@ -189,18 +189,18 @@ EOF
 </details>
 
 
-Kratix takes no opinion on the tooling used within a pipeline. Kratix will pass in a set of resources to the pipeline, and expect back a set of resources. What happens within the pipeline, and what tooling is used, is a decision left entirely to the promise author. As our pipeline is very simple (we're taking a name from the Promise custom resource input, and passing it to the Jenkins custom resource output) we're going to keep-it-simple and use a combination of `sed` and `yq` todo our work. 
+Kratix takes no opinion on the tooling used within a pipeline. Kratix will pass in a set of resources to the pipeline, and expect back a set of resources. What happens within the pipeline, and what tooling is used, is a decision left entirely to the promise author. As our pipeline is very simple (we're taking a name from the Promise custom resource input, and passing it to the Jenkins custom resource output) we're going to keep-it-simple and use a combination of `sed` and `yq` todo our work.
 
 ```bash
 cat > execute-pipeline.sh <<EOF
-#!/bin/sh 
+#!/bin/sh
 #Get the name from the Promise Custom resource
 instanceName=\$(yq eval '.spec.name' /input/object.yaml)
 
 # Inject the name into the Jenkins resources
 find /tmp/transfer -type f -exec sed -i \\
   -e "s/<tbr-name>/\${instanceName//\//\\/}/g" \\
-  {} \;  
+  {} \;
 
 cp /tmp/transfer/* /output/
 EOF
@@ -239,7 +239,9 @@ Let's create the test input and output directories locally.
 mkdir {input,output}
 ```
 
-We need a sample user request:
+The /input directory is where user resource request will be written when a user applies a resource to the Custom Resource Definition (`xaasCrd`) in the Promise (see above).
+
+We need to add a sample user resource request to the /input directory:
 
 ```bash
 cat > input/object.yaml <<EOF
@@ -259,7 +261,9 @@ docker run -v ${PWD}/input:/input -v ${PWD}/output:/output <your-org-name/name-o
 cat output/*
 ```
 
-*If we already have the "Worker Cluster Resources" (see beneath) installed on a test cluster, we can optionally apply the resources in the /output directory and test to see if the Jenkins instance is created.*
+The contents of the /output directory will be scheduled and deployed by Kratix to a worker cluster. They need to be valid Kubernetes resources that can be applied to any cluster with the Promise's `workerClusterResources` installed (see beneath).
+
+*If we already have the "Worker Cluster Resources" installed on a test cluster, we can optionally apply the resources in the /output directory and test to see if the Jenkins instance is created. This provides a fast feedback loop for developing a Promise. Continue to iterate on the container image, and running the image with input+output directories as above, until the files created in /output have the desired result when applied to a cluster with the worker cluster resources installed.*
 
 Once we are satisified with the image, we can push it so it's ready for use in our pipeline.
 ```bash
@@ -310,7 +314,7 @@ wget https://raw.githubusercontent.com/jenkinsci/kubernetes-operator/master/conf
 wget https://raw.githubusercontent.com/jenkinsci/kubernetes-operator/master/deploy/all-in-one-v1alpha2.yaml -P resources
 ```
 
-Next we need to inject Jenkins files into our `jenkins-promise-template.yaml`. To make this step simpler we have written a _very basic_ tool to grab all YAML documents from all YAML files located in `resources` and inject them into the `workerClusterResources` scalar. 
+Next we need to inject Jenkins files into our `jenkins-promise-template.yaml`. To make this step simpler we have written a _very basic_ tool to grab all YAML documents from all YAML files located in `resources` and inject them into the `workerClusterResources` scalar.
 
 ```
 go run path/to/kratix/hack/worker-resource-builder/main.go \
@@ -330,9 +334,9 @@ NAME                          CREATED AT
 jenkins.promise.example.com   2021-09-09T11:21:10Z
 ```
 
-The complexities of what happens when installing a Promise are beyond this tutorial, but for now it's good to understand that a k8s Controller is now responding to Jenkins resource requests on the platform cluster. 
+The complexities of what happens when installing a Promise are beyond this tutorial, but for now it's good to understand that a k8s Controller is now responding to Jenkins resource requests on the platform cluster.
 
-After a few minutes we can go to the Worker cluster and see we have a Jenkins operator running. 
+After a few minutes we can go to the Worker cluster and see we have a Jenkins operator running.
 
 `kubectl --context=kind-worker get pods -A`
 
@@ -362,7 +366,7 @@ After a few minutes the Jenkins operator will have received the request and aske
 We can see the Jenkins UI in our browsers (all commands on worker cluster):
 1. Get the username: `kubectl get secret jenkins-operator-credentials-my-amazing-jenkins -o 'jsonpath={.data.user}' | base64 -d`
 2. Get the password: `kubectl get secret jenkins-operator-credentials-my-amazing-jenkins -o 'jsonpath={.data.password}' | base64 -d`
-3. `kubectl port-forward jenkins-my-amazing-jenkins 8080:8080` 
+3. `kubectl port-forward jenkins-my-amazing-jenkins 8080:8080`
 4. Navigate to http://localhost:8080
 
 ## Summary
@@ -373,7 +377,7 @@ We created the three elements of a Promise for Jenkins:
 - `xaasCrd`
 - `xaasRequestPipeline`
 - `workerClusterResources`
-                                         
+
 and added them to our single Jenkins Promise yaml document. We then applied our Jenkins Promise to our platform cluster, which created the Jenkins-as-a-Service API, and configured our worker cluster such that it could create and manage Jenkins instances. Lastly, we assumed the role of our customer, and applied a yaml document to our platform cluster, triggering the creation of a Jenkins instance on the worker cluster.
 
 ## Where Next?
