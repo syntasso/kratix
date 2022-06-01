@@ -107,6 +107,14 @@ Minio's Access Key and Secret key can be obtained by:
 > kubectl --namespace flux-system --context kind-worker get secret minio-credentials --output 'jsonpath={.data.secretkey}' | base64 --decode
 ```
 
+### Multi-Cluster Networking
+Some KinD installations use non-standard networking. To ensure cross-cluster communication we need to run this script: 
+
+```
+PLATFORM_CLUSTER_IP=`docker inspect platform-control-plane | grep '"IPAddress": "172' | awk '{print $2}' | awk -F '"' '{print $2}'` 
+sed -i'' -e "s/172.18.0.2/$PLATFORM_CLUSTER_IP/g" hack/worker/gitops-tk-resources.yaml
+```
+
 ### Setup Worker Cluster
 
 This will create a cluster for running the _X-as-a-service_ workloads, and install the GitOps Toolkit components to continuously converge the worker cluster on the desired state.
