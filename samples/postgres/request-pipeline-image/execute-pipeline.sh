@@ -1,5 +1,6 @@
 #!/bin/sh 
 
+set -x
 cp -r /tmp/transfer/* /input/
 
 cat /input/minimal-postgres-manifest.yaml |  \

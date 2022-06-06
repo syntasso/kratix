@@ -34,7 +34,7 @@ cd kratix
 
 ### Setup Platform Cluster and Install Kratix
 
-This will create our platform cluster and install Kratix. We'll also install Minio to power our GitOps pipelines to the worker clusters. For production installations, Git or S3 can easily be used instead, depending on your preference.
+This will create our platform cluster and install Kratix. We'll also install MinIO to power our GitOps pipelines to the worker clusters. For production installations, Git or S3 can easily be used instead, depending on your preference.
 
 ```bash
 # Create the platform cluster using kind. It also switch the kubectl context to the newly created cluster.
@@ -57,9 +57,10 @@ The Kratix API should now be available. You can validate that by running:
 ```bash
 kubectl --context kind-platform get crds
 # NAME                                    CREATED AT
-# clusters.platform.kratix.io   2022-05-10T11:10:57Z
-# promises.platform.kratix.io   2022-05-10T11:10:57Z
-# works.platform.kratix.io      2022-05-10T11:10:57Z
+# clusters.platform.kratix.io         2022-05-10T11:10:57Z
+# promises.platform.kratix.io         2022-05-10T11:10:57Z
+# workplacements.platform.kratix.io   2022-05-10T11:10:57Z
+# works.platform.kratix.io            2022-05-10T11:10:57Z
 
 kubectl --context kind-platform get pods --namespace kratix-platform-system
 # NAME                                                  READY   STATUS    RESTARTS   AGE
@@ -76,43 +77,41 @@ kubectl --context kind-platform get pods --namespace kratix-platform-system
 kubectl logs --namespace kratix-platform-system kratix-platform-controller-manager-85d94795bd-sgw7s manager
 ```
 
-### Install Minio
+### Install MinIO
 
-The communication mechanism between the clusters are via the GitOps toolkit (Flux). The platform cluster writes resource definitions into the GitOps toolkit, which we use to continuosly synchronise the clusters. For our example, we will use Minio, but this could be replaced by other storage mechanisms that can speak either S3 or Git.
+The communication mechanism between the clusters are via the GitOps toolkit (Flux). The platform cluster writes resource definitions into the GitOps toolkit, which we use to continuously synchronise the clusters. For our example, we will use MinIO, but this could be replaced by other storage mechanisms that can speak either S3 or Git.
 
-To install Minio, run:
+To install MinIO, run:
 ```
 kubectl apply --filename hack/platform/minio-install.yaml
 ```
 
-Minio should now be up and running on your platform cluster, as a pod in the `kratix-platform-system` namespace. You can now access Minio on http://localhost:9000 by running the following commands:
+MinIO should now be up and running on your platform cluster, as a pod in the `kratix-platform-system` namespace. To access, first port forward the service:
 
 ```bash
 # Get the name of the minio pod
 minio_pod=$(kubectl --context kind-platform --namespace kratix-platform-system  get pods --selector run=minio --output custom-columns=:metadata.name --no-headers)
 
 # Port-forward the service
-kubectl --context kind-platform --namespace kratix-platform-system port-forward ${minio_pod} 8080:9000
+kubectl --context kind-platform --namespace kratix-platform-system port-forward ${minio_pod} 9000:9000
 ```
 
-Alternativaly, you can use the [Minio Client](https://docs.min.io/docs/minio-client-quickstart-guide.html) to navigate the buckets.
+To access, you can navigate to http://localhost:9000 and sign in with the default `Access Key` and `Secret Key` as `minioadmin`.
 
-Minio's Access Key and Secret key can be obtained by:
-
+Alternatively, you can use the [MinIO Client](https://docs.min.io/docs/minio-client-quickstart-guide.html) to navigate the buckets.
 ```bash
-# Access Key
-> kubectl --namespace flux-system --context kind-worker get secret minio-credentials --output 'jsonpath={.data.accesskey}' | base64 --decode
-
-# Secret Key
-> kubectl --namespace flux-system --context kind-worker get secret minio-credentials --output 'jsonpath={.data.secretkey}' | base64 --decode
+mc alias set kind http://localhost:9000 minioadmin minioadmin
+mc ls kind
 ```
+
+Keep in mind that at this point we will not have any objects or buckets in MinIO.
 
 ### Multi-Cluster Networking
 Some KinD installations use non-standard networking. To ensure cross-cluster communication we need to run this script:
 
 ```
-PLATFORM_CLUSTER_IP=`docker inspect platform-control-plane | grep '"IPAddress": "172' | awk '{print $2}' | awk -F '"' '{print $2}'`
-sed -i'' -e "s/172.18.0.2/$PLATFORM_CLUSTER_IP/g" hack/worker/gitops-tk-resources.yaml
+platform_cluster_ip=`docker inspect platform-control-plane | grep '"IPAddress": "172' | awk '{print $2}' | awk -F '"' '{print $2}'`
+sed -i'' -e "s/172.18.0.2/$platform_cluster_ip/g" hack/worker/gitops-tk-resources.yaml
 ```
 
 ### Setup Worker Cluster
@@ -127,7 +126,7 @@ kind create cluster --name worker
 kubectl --context kind-platform apply --filename config/samples/platform_v1alpha1_worker_cluster.yaml
 ```
 
-Have a look in Minio now. There should be two buckets for the worker cluster: one for CRDs and one for resources:
+Have a look in MinIO now. There should be two buckets for the worker cluster, one for CRDs and one for resources:
 
 ```bash
 mc ls kind
@@ -180,7 +179,7 @@ By the now, your setup looks like the following diagram:
 
 ### Apply the Postgres promise
 
-Now we have Kratix available to power our platform API, we need to put it to good use. We should spend time with our SATs to understand their needs, combine those needs with the organisation's needs around security, governance, and compliance, and encode this knowledge in a Promise. For the purpose of this walkthrough let's install the provided Postgres-as-a-service Promise.
+Now we have Kratix available to power our platform API, we need to put it to good use. We should spend time with our stream aligned teams (SATs) to understand their needs, combine those needs with the organisation's needs around security, governance, and compliance, and encode this knowledge in a Promise. For the purpose of this walkthrough let's install the provided Postgres-as-a-service Promise.
 
 ```bash
 kubectl --context kind-platform apply --filename samples/postgres/postgres-promise.yaml
@@ -199,10 +198,15 @@ kubectl --context kind-platform get crds
 kubectl --context kind-platform logs --namespace kratix-platform-system --container manager [kratix-pod-name]
 
 # Worker cluster resources: check the running pods, you should (eventually) see the operator
-# Also check Minio and whether Flux has applied the changes
 kubectl --context kind-worker get pods
 # NAME                                 READY   STATUS    RESTARTS   AGE
 # postgres-operator-55b8549cff-s77q7   1/1     Running   0          51s
+
+# Check MinIO for the postgres resource files:
+mc ls kind/worker-cluster-1-kratix-resources
+
+# And finally, verify flux successfully applied the new resources:
+kubectl --context kind-worker get --namespace flux-system kustomizations.kustomize.toolkit.fluxcd.io kratix-workload-resources
 ```
 
 By the now, your setup looks like the following diagram:
@@ -219,7 +223,7 @@ kubectl --context kind-platform apply --filename samples/postgres/postgres-resou
 We can see the request on the platform cluster.
 
 ```bash
-kubectl get postgreses.example.promise.syntasso.io
+kubectl --context kind-platform get postgreses.example.promise.syntasso.io
 # NAME                   AGE
 # acid-minimal-cluster   27s
 ```
@@ -241,11 +245,13 @@ kubectl --context kind-platform get pods
 
 You can access the pipeline logs by running:
 ```bash
-kubectl --context kind-platform logs request-pipeline-ha-postgres-promise-default-53903 xaas-request-pipeline-stage-1
-# For the postgres pipeline, it will be empty if successfull
+kubectl --context kind-platform logs --container xaas-request-pipeline-stage-1 request-pipeline-ha-postgres-promise-<POD_SHA>
 ```
 
-The output of the pipeline is a _Work_. At this point, you will find two _works_ on your platform cluster: one for the worker cluster resources (operator + CRD), one for the resource request (Postgres itself):
+The output of the pipeline is a _Work_. At this point, you will find two _works_ on your platform cluster: 
+1. The worker cluster resources (operator + CRD)
+2. The resource request (Postgres itself)
+
 ```bash
 kubectl --context kind-platform get works
 # NAME                                                       AGE
@@ -263,19 +269,19 @@ The Scheduler generates a _work placement_,  where you can verify to which clust
 
 ```bash
 kubectl --context kind-platform get workplacements.platform.kratix.io
-kubectl --context kind-platform get workplacements.platform.kratix.io ha-postgres-promise-default.worker-cluster-1 -- output yaml
+kubectl --context kind-platform get workplacements.platform.kratix.io ha-postgres-promise-default.worker-cluster-1 --output yaml
 ```
 
-Finally, you can verify that the BucketWriter has written to the Minio buckets. You should see a line similar to the following in the manager logs:
+Finally, you can verify that the BucketWriter has written to the MinIO buckets. You should see a line similar to the following in the manager logs:
 
 ```bash
 INFO    controllers.BucketWriter        Creating Minio object 01-default-postgres-promise-default-default-acid-minimal-cluster-resources.yaml
 ```
 
-You should find a new object on your Minio bucket at this point:
+You should find a new object on your MinIO bucket at this point:
 
 ```bash
-mc ls worker-cluster-1-kratix-resources
+mc ls kind/worker-cluster-1-kratix-resources
 # ...
 # [2022-05-31 18:15:31 BST] 1.7KiB worker-cluster-1-kratix-resources/01-default-ha-postgres-promise-default-resources.yaml
 # ...
@@ -288,7 +294,7 @@ Once the GitOps Toolkit has applied the new configuration to the worker cluster 
 You can check the Postgres Operator logs with:
 
 ```bash
-kubectl -context kind-worker logs postgres-operator-6c6dbd4459-5gqhf postgres-operator
+kubectl --context kind-worker logs --container postgres-operator postgres-operator-<POD_SHA>
 ```
 
 You can also review the created instances with:

@@ -3,8 +3,6 @@ kind: postgresql
 metadata:
   name: TBD
   namespace: default
-  resourceVersion: nil
-  uid: nil
 spec:
   teamId: "acid"
   volume:
