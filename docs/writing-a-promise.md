@@ -54,7 +54,7 @@ Conceptually a Promise is Broken down into three parts:
 Create a basic `jenkins-promise-template.yaml` to work with:
 
 ```bash
-cat > jenkins-promise-template.yaml <EOF
+cat > jenkins-promise-template.yaml <<EOF
 apiVersion: platform.kratix.io/v1alpha1
 kind: Promise
 metadata:
