@@ -63,9 +63,14 @@ kind-load-image: docker-build ## Load locally built image into KinD, use export 
 
 # ENVTEST_K8S_VERSION refers to the version of kubebuilder assets to be downloaded by envtest binary.                                        
 ENVTEST_K8S_VERSION = 1.23
-.PHONY: test                              
+# kubebuilder-tools does not yet support darwin/arm64. The following is a workaround (see https://github.com/kubernetes-sigs/controller-runtime/issues/1657)
+ARCH_FLAG =
+ifeq ($(shell uname -sm),Darwin arm64)
+	ARCH_FLAG = --arch=amd64
+endif
+.PHONY: test
 test: manifests generate fmt vet envtest ## Run tests.
-	KUBEBUILDER_ASSETS="$(shell $(ENVTEST) use $(ENVTEST_K8S_VERSION) -p path)" WC_IMG=${WC_IMG} TEST_PROMISE_CONTROLLER_POD_IDENTIFIER_UUID=12345 ACK_GINKGO_DEPRECATIONS=1.16.4 go run github.com/onsi/ginkgo/ginkgo -r  --coverprofile cover.out --skipPackage=integration
+	KUBEBUILDER_ASSETS="$(shell $(ENVTEST) $(ARCH_FLAG) use $(ENVTEST_K8S_VERSION) -p path)" WC_IMG=${WC_IMG} TEST_PROMISE_CONTROLLER_POD_IDENTIFIER_UUID=12345 ACK_GINKGO_DEPRECATIONS=1.16.4 go run github.com/onsi/ginkgo/ginkgo -r  --coverprofile cover.out --skipPackage=integration
 
 ENVTEST = $(shell pwd)/bin/setup-envtest
 .PHONY: envtest
