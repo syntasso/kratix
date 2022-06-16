@@ -52,7 +52,7 @@ fmt: ## Run go fmt against code.
 vet: ## Run go vet against code.
 	go vet ./...
 
-install-test-minio: ### Install test Minio server 
+install-test-minio: ### Install test Minio server
 	kubectl apply -f hack/platform/minio-install.yaml
 
 int-test: manifests generate fmt vet deploy install-test-minio ## Run integrations tests.
@@ -61,7 +61,7 @@ int-test: manifests generate fmt vet deploy install-test-minio ## Run integratio
 kind-load-image: docker-build ## Load locally built image into KinD, use export IMG=syntasso/kratix-platform:dev
 	kind load docker-image ${IMG} --name platform
 
-# ENVTEST_K8S_VERSION refers to the version of kubebuilder assets to be downloaded by envtest binary.                                        
+# ENVTEST_K8S_VERSION refers to the version of kubebuilder assets to be downloaded by envtest binary.
 ENVTEST_K8S_VERSION = 1.23
 # kubebuilder-tools does not yet support darwin/arm64. The following is a workaround (see https://github.com/kubernetes-sigs/controller-runtime/issues/1657)
 ARCH_FLAG =
@@ -113,7 +113,7 @@ distribution: manifests ## Create a deployment manifest in /distribution/kratix.
 
 release: distribution docker-build docker-push work-creator-docker-build-and-push ## Create a release. Set VERSION env var to "vX.Y.Z-n".
 
-work-creator-docker-build-and-push: 
+work-creator-docker-build-and-push:
 	WC_IMG=${WC_IMG} $(MAKE) -C work-creator docker-build docker-push
 
 undeploy: ## Undeploy controller from the K8s cluster specified in ~/.kube/config.
