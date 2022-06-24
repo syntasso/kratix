@@ -57,11 +57,11 @@ spec:
           timeoutSeconds: 1
         resources:
           limits:
-            cpu: "3"
+            cpu: "1.5"
             memory: 3Gi
           requests:
-            cpu: "2"
-            memory: 1Gi
+            cpu: "1.5"
+            memory: 3Gi
   seedJobs:
     - id: jenkins-operator
       targets: "cicd/jobs/*.jenkins"
