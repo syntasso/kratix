@@ -92,8 +92,11 @@ debug-run: manifests generate fmt vet ## Run a controller in debug mode from you
 docker-build: test ## Build docker image with the manager.
 	docker build -t ${IMG} .
 
-docker-push: ## Push docker image with the manager.
-	docker push ${IMG}
+docker-build-and-push: ## Push multi-arch docker image with the manager.
+	if ! docker buildx ls | grep -q "kratix-image-builder"; then \
+		docker buildx create --name kratix-image-builder; \
+	fi;
+	docker buildx build --builder kratix-image-builder --push --platform linux/arm64,linux/amd64 -t ${IMG} .
 
 ##@ Deployment
 
@@ -111,7 +114,7 @@ distribution: manifests kustomize ## Create a deployment manifest in /distributi
 	cd config/manager && $(KUSTOMIZE) edit set image controller=${IMG}
 	WC_IMG=${WC_IMG} $(KUSTOMIZE) build config/default --output distribution/kratix.yaml
 
-release: distribution docker-build docker-push work-creator-docker-build-and-push ## Create a release. Set VERSION env var to "vX.Y.Z-n".
+release: distribution docker-build-and-push work-creator-docker-build-and-push ## Create a release. Set VERSION env var to "vX.Y.Z-n".
 
 work-creator-docker-build-and-push:
 	WC_IMG=${WC_IMG} $(MAKE) -C work-creator docker-build docker-push
