@@ -29,11 +29,19 @@ import (
  Run these tests using `make int-test` to ensure that the correct resources are applied
  to the k8s cluster under test.
 
+ WARNING: NETWORKING!!!
+ Currently the tests require access to Minio to assert assets are being written correctly.
+ The tests require access to `endpoint := "172.18.0.2:31337"`. To run the tests we need
+ to ensure the host running the tests has access to mino on this address.
+
+ On a Mac you can do this by using a tool such as `KWT net` (other tools are available such `kubefwd`).
+ You could also reconfigure the the test to match your host newtworking.
+
  Assumptions:
  1. `kind create cluster --name=platform`
  2. `export IMG=syntasso/kratix-platform:dev`
  3. `make kind-load-image`
- 4. `make deploy` has been run. Note: `make int-test` will
+ 4. `make deploy` has been run and minio is accessible. Note: `make int-test` will
  ensure that `deploy` is executed
  5. `make int-test`
 

@@ -56,7 +56,7 @@ install-test-minio: ### Install test Minio server
 	kubectl apply -f hack/platform/minio-install.yaml
 
 int-test: manifests generate fmt vet deploy install-test-minio ## Run integrations tests.
-	CK_GINKGO_DEPRECATIONS=1.16.4 ginkgo ./test/integration/  -r  --coverprofile cover.out
+	CK_GINKGO_DEPRECATIONS=1.16.4 go run github.com/onsi/ginkgo/ginkgo ./test/integration/  -r  --coverprofile cover.out
 
 kind-load-image: docker-build ## Load locally built image into KinD, use export IMG=syntasso/kratix-platform:dev
 	kind load docker-image ${IMG} --name platform
