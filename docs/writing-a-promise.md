@@ -18,8 +18,8 @@ We will walk through the steps needed to create your own Promise, configure it f
 
 You will learn how to:
 * Build a Promise for complex software, and expose it via a simple custom API which captures the data needed from users to configure the Promise for consumption "as-a-Service".
-* Wrap, and deploy the underlying Kubernetes CRDs, Operators, and resources required to run your Promise.
-* Create a Promise pipeline to inject captured user-data into the underlying Kubernetes resources, and decorate the Promised software with custom behavior so the running Promise reflects your your organisational, and users' requirements.
+* Wrap and deploy the underlying Kubernetes CRDs, Operators, and resources required to run your Promise.
+* Create a Promise pipeline to inject captured user-data into the underlying Kubernetes resources, and decorate the Promised software with custom behavior so the running Promise reflects your organisational and users' requirements.
 
 ## Writing a Promise
 
