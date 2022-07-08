@@ -13,7 +13,7 @@ Follow this guide if you wish to _quick start_ to see Kratix work on a single cl
 ### Clone Kratix
 * `git clone git@github.com:Syntasso/kratix.git`
 
-### Setup Platform Cluster and Install Kratix
+### Set up Platform Cluster and Install Kratix
 
 This will create our platform cluster and install Kratix. We'll also install Minio to power our GitOps pipelines to the worker clusters (if we were multi-cluster). For production installations, Git or S3 can easily be used instead, depending on your preference.
 
@@ -31,9 +31,9 @@ promises.platform.kratix.io   2022-05-10T11:10:57Z
 works.platform.kratix.io      2022-05-10T11:10:57Z
 ```
 
-### Setup the Gitops toolkit
+### Set up the Gitops toolkit
 
-This stage would typically be setup on a Worker cluster.  
+This stage would typically be set up on a Worker cluster.  
 
 * `kubectl apply -f config/samples/platform_v1alpha1_worker_cluster.yaml #register the cluster`
 * `kubectl apply -f hack/worker/gitops-tk-install.yaml`
@@ -49,7 +49,7 @@ kratix-worker-system   Active   4m2s
 
 ### Apply Postgres-as-a-Service Promise
 
-Now we have Kratix available to power our platform API, we need to put it to good use. We should spend time with our SATs to understand their needs, combine those needs with the organisation's needs around security, governance, and compliance, and encode this knowledge in a Promise. For the purpose of this walkthrough let's install the provided Postgres-as-a-service Promise.
+Now we have Kratix available to power our platform API, we need to put it to good use. We should spend time with our application teams (or Stream-Aligned Teams) to understand their needs, combine those needs with the organisation's needs around security, governance, and compliance, and encode this knowledge in a Promise. For the purpose of this walkthrough let's install the provided Postgres-as-a-service Promise.
 
 * `kubectl apply -f samples/postgres/postgres-promise.yaml`
 
@@ -74,7 +74,7 @@ postgres-operator-55b8549cff-s77q7   1/1     Running   0          51s
 
 ### Request a Postgres Instance 
 
-We now assume the role of a member of a stream-aligned team, and request a Postgres server from the platform API.
+We now assume the role of a member of an application / stream-aligned team, and request a Postgres server from the platform API.
 
 * `kubectl apply -f samples/postgres/postgres-resource-request.yaml`
 
