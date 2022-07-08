@@ -41,7 +41,7 @@ cd jenkins-promise
 ```
 
 ### Promise basics
-Conceptually a Promise is Broken down into three parts:
+Conceptually a Promise consists of three parts:
 
 1. `xaasCrd`: this is the CRD that is exposed to the users of the Promise. Imagine the order form for a product. What do you need to know from your customer? Size? Location? Name?
 2. `xaasRequestPipeline`: this is the pipeline that will create the Jenkins resources requried to run Jenkins on a worker cluster decorated with whatever you need to run Jenkins from your own Platform. Do you need to scan images? Do you need to send a request to an external API for approval? Do you need to inject resources for storage, mesh, networking, etc.? These activities happen in the pipeline.
@@ -70,7 +70,7 @@ EOF
 We will fill the `spec` scalars as we progress through the tutorial.
 
 ### X-as-a-Service Custom Resource Definition
-This is the user-facing API. For the purpose of this tutorial we will create an API that accepts a single `string` parameter called `name`. This API can be as complex or as simple as you need it to be for your own needs.
+This is the user-facing API. For the purpose of this tutorial we will create an API that accepts a single `string` parameter called `name`. This API can be as complex or as simple as you design it to be.
 
 ![Writing a Promise Step Three](images/writing-a-promise-3.png)
 
@@ -189,7 +189,7 @@ EOF
 </details>
 
 
-Kratix takes no opinion on the tooling used within a pipeline. Kratix will pass in a set of resources to the pipeline, and expect back a set of resources. What happens within the pipeline, and what tooling is used, is a decision left entirely to the promise author. As our pipeline is very simple (we're taking a name from the Promise custom resource input, and passing it to the Jenkins custom resource output) we're going to keep-it-simple and use a combination of `sed` and `yq` todo our work.
+Kratix takes no opinion on the tooling used within a pipeline. Kratix will pass a set of resources to the pipeline, and expect back a set of resources. What happens within the pipeline, and what tooling is used, is a decision left entirely to the promise author. As our pipeline is simple (we're taking a name from the Promise custom resource input, and passing it to the Jenkins custom resource output) we're going to keep-it-simple and use a combination of `sed` and `yq` to do our work.
 
 ```bash
 cat > execute-pipeline.sh <<EOF
@@ -334,7 +334,7 @@ NAME                          CREATED AT
 jenkins.promise.example.com   2021-09-09T11:21:10Z
 ```
 
-The complexities of what happens when installing a Promise are beyond this tutorial, but for now it's good to understand that a k8s Controller is now responding to Jenkins resource requests on the platform cluster.
+The complexities of what happens when installing a Promise are beyond this tutorial, but it's good to understand that a k8s Controller is now responding to Jenkins resource requests on the Platform cluster.
 
 After a few minutes we can go to the Worker cluster and see we have a Jenkins operator running.
 
@@ -371,15 +371,15 @@ We can see the Jenkins UI in our browsers (all commands on worker cluster):
 
 ## Summary
 
-We built a Jenkins-as-a-Service offering, by creating a Jenkins Promise, and adding the Promise to our Kratix-based platform.
+We built a Jenkins-as-a-Service offering, by creating a Jenkins Promise, and adding the Promise to our Kratix platform.
 
 We created the three elements of a Promise for Jenkins:
 - `xaasCrd`
 - `xaasRequestPipeline`
 - `workerClusterResources`
 
-and added them to our single Jenkins Promise yaml document. We then applied our Jenkins Promise to our platform cluster, which created the Jenkins-as-a-Service API, and configured our worker cluster such that it could create and manage Jenkins instances. Lastly, we assumed the role of our customer, and applied a yaml document to our platform cluster, triggering the creation of a Jenkins instance on the worker cluster.
+and added them to our single Jenkins Promise yaml document. We then applied our Jenkins Promise to our platform cluster, which created the Jenkins-as-a-Service API, and configured our worker cluster such that it could create and manage Jenkins instances. Lastly, we assumed the role of our customer, and applied a yaml document to our Platform cluster, triggering the creation of a Jenkins instance on the Worker cluster.
 
 ## Where Next?
 
-Create your own Promises for your the customers of your platform. Where they may be of use to others, share them! Public repository information will be available in the future.
+Create your own Promises for the customers of your platform. Where they may be useful to others, share them! Public repository information will be available in the future.
