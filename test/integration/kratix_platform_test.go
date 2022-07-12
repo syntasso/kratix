@@ -133,9 +133,9 @@ var _ = Describe("kratix Platform Integration Test", func() {
 					foundCrdWorker1, _ := workerHasCRD(workloadNamespacedName, resourceName, resourceKind, WORKER_CLUSTER_1)
 					foundResourceWorker1, _ := workerHasResource(workloadNamespacedName, "a-non-crd-resource", "Namespace", WORKER_CLUSTER_1)
 					foundCrdWorker2, _ := workerHasCRD(workloadNamespacedName, resourceName, resourceKind, WORKER_CLUSTER_2)
-					foundResourceWorker2, _ := workerHasResource(workloadNamespacedName, "a-non-crd-resource", "Namespace", WORKER_CLUSTER_1)
+					foundResourceWorker2, _ := workerHasResource(workloadNamespacedName, "a-non-crd-resource", "Namespace", WORKER_CLUSTER_2)
 
-					return foundCrdWorker1 && foundCrdWorker2 && foundResourceWorker1 && foundResourceWorker2
+					return foundCrdWorker1 && !foundCrdWorker2 && foundResourceWorker1 && !foundResourceWorker2
 				}, timeout, interval).Should(BeTrue(), "has the Redis CRD")
 			})
 		})

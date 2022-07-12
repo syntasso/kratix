@@ -35,6 +35,12 @@ spec:
           spec:
             description: WorkSpec defines the desired state of Work
             properties:
+              clusterSelector:
+                additionalProperties:
+                  type: string
+                description: ClusterSelector is the selector to use for selecting
+                  the worker cluster
+                type: object
               replicas:
                 description: -1 denotes Cluster Worker Resources, 1 denotes Resource
                   Request

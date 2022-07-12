@@ -3,7 +3,7 @@ kind: Cluster
 metadata:
   name: worker-cluster-2
   labels:
-    targetCluster: worker-cluster-2
+    environment: production
 spec:
-  id: something-unique
+  id: worker-cluster-2-id
   bucketPath: worker-cluster-2

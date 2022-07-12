@@ -35,20 +35,20 @@ import (
 )
 
 var _ = Context("Promise Reconciler", func() {
+	BeforeEach(func() {
+		yamlFile, err := ioutil.ReadFile("../config/samples/redis/redis-promise.yaml")
+		Expect(err).ToNot(HaveOccurred())
+
+		promiseCR := &platformv1alpha1.Promise{}
+		err = yaml.Unmarshal(yamlFile, promiseCR)
+		promiseCR.Namespace = "default"
+		Expect(err).ToNot(HaveOccurred())
+
+		//Works once, then fails as the promiseCR already exists. Consider building check here.
+		k8sClient.Create(context.Background(), promiseCR)
+	})
+
 	Describe("Apply a Redis Promise", func() {
-		BeforeEach(func() {
-			yamlFile, err := ioutil.ReadFile("../config/samples/redis/redis-promise.yaml")
-			Expect(err).ToNot(HaveOccurred())
-
-			promiseCR := &platformv1alpha1.Promise{}
-			err = yaml.Unmarshal(yamlFile, promiseCR)
-			promiseCR.Namespace = "default"
-			Expect(err).ToNot(HaveOccurred())
-
-			//Works once, then fails as the promiseCR already exists. Consider building check here.
-			k8sClient.Create(context.Background(), promiseCR)
-		})
-
 		It("Creates an API for redis.redis.redis", func() {
 			var expectedAPI = "redis.redis.redis.opstreelabs.in"
 			var timeout = "30s"

@@ -57,13 +57,6 @@ var _ = Context("WorkReconciler.Reconcile()", func() {
 
 	})
 
-	AfterEach(func() {
-		err := k8sClient.Delete(context.Background(), worker, &client.DeleteOptions{})
-		Expect(err).ToNot(HaveOccurred())
-		err = k8sClient.Delete(context.Background(), work, &client.DeleteOptions{})
-		Expect(err).ToNot(HaveOccurred())
-	})
-
 	Describe("On Work Creation", func() {
 		It("creates a WorkPlacement when other WorkPlacements exist", func() {
 			var timeout = "30s"

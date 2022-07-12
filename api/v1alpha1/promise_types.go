@@ -49,6 +49,8 @@ type PromiseSpec struct {
 	XaasRequestPipeline []string `json:"xaasRequestPipeline,omitempty"`
 
 	WorkerClusterResources []WorkerClusterResource `json:"workerClusterResources,omitempty"`
+
+	ClusterSelector map[string]string `json:"clusterSelector,omitempty"`
 }
 
 // Resources represents the manifest workload to be deployed on worker cluster
