@@ -16,7 +16,7 @@ ENVTEST_ASSETS_DIR=$(shell pwd)/../testbin
 int-test: ## Run tests.
 	mkdir -p ${ENVTEST_ASSETS_DIR}
 	test -f ${ENVTEST_ASSETS_DIR}/setup-envtest.sh || curl -sSLo ${ENVTEST_ASSETS_DIR}/setup-envtest.sh https://raw.githubusercontent.com/kubernetes-sigs/controller-runtime/v0.7.2/hack/setup-envtest.sh
-	source ${ENVTEST_ASSETS_DIR}/setup-envtest.sh; fetch_envtest_tools $(ENVTEST_ASSETS_DIR); setup_envtest_env $(ENVTEST_ASSETS_DIR); ACK_GINKGO_DEPRECATIONS=1.16.4 ginkgo -r  --coverprofile cover.out
+	source ${ENVTEST_ASSETS_DIR}/setup-envtest.sh;  ENVTEST_K8S_VERSION=1.24.2 fetch_envtest_tools $(ENVTEST_ASSETS_DIR); setup_envtest_env $(ENVTEST_ASSETS_DIR); CK_GINKGO_DEPRECATIONS=1.16.4 go run github.com/onsi/ginkgo/ginkgo ./test/integration/ -r  --coverprofile cover.out
 
 ##@ Build
 
