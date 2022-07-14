@@ -74,6 +74,7 @@ func (r *Scheduler) getTargetClusterNames(work *platformv1alpha1.Work) []string 
 	}
 }
 
+// By default, all worker clusters are returned. However, if there are selectors provided, only matching clusters will be returned.
 func (r *Scheduler) getWorkerClustersForWork(work *platformv1alpha1.Work) []platformv1alpha1.Cluster {
 	workerClusters := &platformv1alpha1.ClusterList{}
 	lo := &client.ListOptions{

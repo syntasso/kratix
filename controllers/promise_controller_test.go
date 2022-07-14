@@ -82,6 +82,8 @@ var _ = Context("Promise Reconciler", func() {
 	})
 
 	Describe("Creating a Redis Custom Resource", func() {
+		createdPod := v1.Pod{}
+
 		It("Creates a valid pod spec for the transformation pipeline", func() {
 			yamlFile, err := ioutil.ReadFile("../config/samples/redis/redis-resource-request.yaml")
 			Expect(err).ToNot(HaveOccurred())
@@ -94,7 +96,6 @@ var _ = Context("Promise Reconciler", func() {
 			err = k8sClient.Create(context.Background(), redisRequest)
 			Expect(err).ToNot(HaveOccurred())
 
-			createdPod := v1.Pod{}
 			expectedName := types.NamespacedName{
 				//The name of the pod is generated dynamically by the Promise Controller. For testing purposes, we set a TEST_PROMISE_CONTROLLER_POD_IDENTIFIER_UUID via an environment variable in the Makefile to make the name deterministic
 				Name:      "request-pipeline-redis-promise-default-12345",

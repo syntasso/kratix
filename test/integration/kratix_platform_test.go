@@ -41,6 +41,7 @@ import (
  1. `kind create cluster --name=platform`
  2. `export IMG=syntasso/kratix-platform:dev`
  3. `make kind-load-image`
+ 3.b If you have changed the WorkCreator remember to kind load image the WorkCreator image before you run your tests.
  4. `make deploy` has been run and minio is accessible. Note: `make int-test` will
  ensure that `deploy` is executed
  5. `make int-test`
@@ -90,8 +91,9 @@ const (
 	POSTGRES_RESOURCE_REQUEST = "../../config/samples/postgres/postgres-resource-request.yaml"
 
 	//Clusters
-	WORKER_CLUSTER_1 = "../../config/samples/platform_v1alpha1_worker_cluster.yaml"
-	WORKER_CLUSTER_2 = "../../config/samples/platform_v1alpha1_worker_cluster_2.yaml"
+	DEV_WORKER_CLUSTER_1      = "./assets/worker_cluster_1.yaml"
+	DEV_WORKER_CLUSTER_2      = "./assets/worker_cluster_2.yaml"
+	PRODUCTION_WORKER_CLUSTER = "./assets/worker_cluster_3.yaml"
 )
 
 var _ = Describe("kratix Platform Integration Test", func() {
@@ -104,11 +106,14 @@ var _ = Describe("kratix Platform Integration Test", func() {
 			return isPodRunning(pod)
 		}, timeout, interval).Should(BeTrue())
 
-		By("A Worker Cluster is registered")
-		registerWorkerCluster("worker-cluster-1", WORKER_CLUSTER_1)
+		By("A Cluster labelled as dev is registered")
+		registerWorkerCluster("worker-cluster-1", DEV_WORKER_CLUSTER_1)
 
-		By("A Second Worker Cluster is registered")
-		registerWorkerCluster("worker-cluster-2", WORKER_CLUSTER_2)
+		By("A Cluster labelled as dev && cache is registered")
+		registerWorkerCluster("worker-cluster-2", DEV_WORKER_CLUSTER_2)
+
+		By("A Cluster labelled as production is registered")
+		registerWorkerCluster("worker-cluster-3", PRODUCTION_WORKER_CLUSTER)
 	})
 
 	Describe("Redis Promise lifecycle", func() {
@@ -126,17 +131,28 @@ var _ = Describe("kratix Platform Integration Test", func() {
 					Name:      "redis-promise-default",
 					Namespace: "default",
 				}
-				Eventually(func() bool {
+				Eventually(func(g Gomega) {
 					resourceName := "redis.redis.redis.opstreelabs.in"
 					resourceKind := "CustomResourceDefinition"
 
-					foundCrdWorker1, _ := workerHasCRD(workloadNamespacedName, resourceName, resourceKind, WORKER_CLUSTER_1)
-					foundResourceWorker1, _ := workerHasResource(workloadNamespacedName, "a-non-crd-resource", "Namespace", WORKER_CLUSTER_1)
-					foundCrdWorker2, _ := workerHasCRD(workloadNamespacedName, resourceName, resourceKind, WORKER_CLUSTER_2)
-					foundResourceWorker2, _ := workerHasResource(workloadNamespacedName, "a-non-crd-resource", "Namespace", WORKER_CLUSTER_2)
+					devClusterHasCrd, _ := workerHasCRD(workloadNamespacedName, resourceName, resourceKind, DEV_WORKER_CLUSTER_1)
+					g.Expect(devClusterHasCrd).To(BeTrue(), "dev cluster 1 should have the crds")
 
-					return foundCrdWorker1 && !foundCrdWorker2 && foundResourceWorker1 && !foundResourceWorker2
-				}, timeout, interval).Should(BeTrue(), "has the Redis CRD")
+					devClusterHasResources, _ := workerHasResource(workloadNamespacedName, "a-non-crd-resource", "Namespace", DEV_WORKER_CLUSTER_1)
+					g.Expect(devClusterHasResources).To(BeTrue(), "dev cluster 1 should have the resources")
+
+					devCacheClusterHasCrd, _ := workerHasCRD(workloadNamespacedName, resourceName, resourceKind, DEV_WORKER_CLUSTER_2)
+					g.Expect(devCacheClusterHasCrd).To(BeTrue(), "dev cluster 2 should have the crds")
+
+					devCacheClusterHasResources, _ := workerHasResource(workloadNamespacedName, "a-non-crd-resource", "Namespace", DEV_WORKER_CLUSTER_2)
+					g.Expect(devCacheClusterHasResources).To(BeTrue(), "dev cluster 2 should have the resources")
+
+					prodClusterHasCrd, _ := workerHasCRD(workloadNamespacedName, resourceName, resourceKind, PRODUCTION_WORKER_CLUSTER)
+					g.Expect(prodClusterHasCrd).To(BeFalse(), "production cluster should not have the crds")
+
+					prodClusterHasResources, _ := workerHasResource(workloadNamespacedName, "a-non-crd-resource", "Namespace", PRODUCTION_WORKER_CLUSTER)
+					g.Expect(prodClusterHasResources).To(BeFalse(), "production cluster should not have the resources")
+				}, timeout, interval).Should(Succeed(), "has the Redis CRD in the expected cluster")
 			})
 		})
 
@@ -153,8 +169,8 @@ var _ = Describe("kratix Platform Integration Test", func() {
 				}, timeout, interval).Should(BeTrue())
 			})
 
-			It("should place a Redis resource request to one Worker", func() {
-				Eventually(func() bool {
+			It("Should place a Redis resource request to one Worker`", func() {
+				Eventually(func(g Gomega) {
 					workloadNamespacedName := types.NamespacedName{
 						Name:      "redis-promise-default-default-opstree-redis",
 						Namespace: "default",
@@ -164,19 +180,28 @@ var _ = Describe("kratix Platform Integration Test", func() {
 					resourceName := "opstree-redis"
 					resourceKind := "Redis"
 
-					foundCluster1, _ := workerHasResource(workloadNamespacedName, resourceName, resourceKind, WORKER_CLUSTER_1)
-					foundCluster2, _ := workerHasResource(workloadNamespacedName, resourceName, resourceKind, WORKER_CLUSTER_2)
+					By("asserting the created work has the right cluster selectors", func() {
+						var work platformv1alpha1.Work
+						k8sClient.Get(context.Background(), workloadNamespacedName, &work)
+						g.Expect(work.Spec.ClusterSelector).To(Equal(
+							map[string]string{
+								"environment": "dev",
+								"data":        "cache",
+							},
+						))
+					})
 
-					if foundCluster1 && foundCluster2 {
-						return false
-					}
+					By("asserting the resource definitions are in a matching cluster", func() {
+						devClusterHasResources, _ := workerHasResource(workloadNamespacedName, resourceName, resourceKind, DEV_WORKER_CLUSTER_1)
+						g.Expect(devClusterHasResources).To(BeFalse(), "dev cluster should not have the resources")
 
-					if !foundCluster1 && !foundCluster2 {
-						return false
-					}
-					return true
+						devCacheClusterHasResources, _ := workerHasResource(workloadNamespacedName, resourceName, resourceKind, DEV_WORKER_CLUSTER_2)
+						g.Expect(devCacheClusterHasResources).To(BeTrue(), "dev cache cluster should have the resources")
 
-				}, timeout, interval).Should(BeTrue())
+						productionClusterHasResources, _ := workerHasResource(workloadNamespacedName, resourceName, resourceKind, PRODUCTION_WORKER_CLUSTER)
+						g.Expect(productionClusterHasResources).To(BeFalse(), "production cluster should not have the resources")
+					})
+				}, timeout, interval).Should(Succeed())
 			})
 
 			PIt("Updates an existing Redis resource on the Worker", func() {
@@ -193,8 +218,8 @@ var _ = Describe("kratix Platform Integration Test", func() {
 					resourceName := "opstree-redis"
 					resourceKind := "Redis"
 
-					foundCluster1, obj1 := workerHasResource(workloadNamespacedName, resourceName, resourceKind, WORKER_CLUSTER_1)
-					foundCluster2, obj2 := workerHasResource(workloadNamespacedName, resourceName, resourceKind, WORKER_CLUSTER_2)
+					foundCluster1, obj1 := workerHasResource(workloadNamespacedName, resourceName, resourceKind, DEV_WORKER_CLUSTER_1)
+					foundCluster2, obj2 := workerHasResource(workloadNamespacedName, resourceName, resourceKind, PRODUCTION_WORKER_CLUSTER)
 
 					if foundCluster1 && foundCluster2 {
 						return false
@@ -253,8 +278,8 @@ var _ = Describe("kratix Platform Integration Test", func() {
 
 			})
 
-			It("Places a Postgres resources to ONE Worker", func() {
-				Eventually(func() bool {
+			It("Places a Postgres resources to one worker", func() {
+				Eventually(func(g Gomega) {
 					workloadNamespacedName := types.NamespacedName{
 						Name:      "postgres-promise-default-default-database",
 						Namespace: "default",
@@ -263,19 +288,15 @@ var _ = Describe("kratix Platform Integration Test", func() {
 					resourceName := "database"
 					resourceKind := "Database"
 
-					foundCluster1, _ := workerHasResource(workloadNamespacedName, resourceName, resourceKind, WORKER_CLUSTER_1)
-					foundCluster2, _ := workerHasResource(workloadNamespacedName, resourceName, resourceKind, WORKER_CLUSTER_2)
+					devClusterHasResources, _ := workerHasResource(workloadNamespacedName, resourceName, resourceKind, DEV_WORKER_CLUSTER_1)
+					devCacheClusterHasResources, _ := workerHasResource(workloadNamespacedName, resourceName, resourceKind, DEV_WORKER_CLUSTER_2)
+					prodClusterHasResources, _ := workerHasResource(workloadNamespacedName, resourceName, resourceKind, PRODUCTION_WORKER_CLUSTER)
 
-					if foundCluster1 && foundCluster2 {
-						return false
-					}
+					g.Expect([]bool{devClusterHasResources, devCacheClusterHasResources, prodClusterHasResources}).To(
+						ContainElements(false, false, true),
+					)
 
-					if !foundCluster1 && !foundCluster2 {
-						return false
-					}
-
-					return true
-				}, timeout, interval).Should(BeTrue())
+				}, timeout, interval).Should(Succeed(), "Postgres should only be placed in only one worker")
 			})
 		})
 	})
@@ -317,9 +338,9 @@ func workerHasResource(workloadNamespacedName types.NamespacedName, resourceName
 }
 
 func minioHasWorkloadWithResourceWithNameAndKind(bucketName string, objectName string, resourceName string, resourceKind string) (bool, unstructured.Unstructured) {
-	endpoint := "172.18.0.2:31337"
-	accessKeyID := "minioadmin"
+	endpoint := "localhost:31337"
 	secretAccessKey := "minioadmin"
+	accessKeyID := "minioadmin"
 	useSSL := false
 
 	// Initialize minio client object.
