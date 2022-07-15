@@ -1,37 +1,49 @@
-# Writing your own promise
+# Writing your own Jenkins Promise for Kratix
 
-- [Writing your own promise](#writing-your-own-promise)
-  - [What will I learn?](#what-will-i-learn)
-  - [Writing a Promise](#writing-a-promise)
-    - [Prerequisites:](#prerequisites)
-    - [Promise basics](#promise-basics)
-    - [Promise template](#promise-template)
-    - [X-as-a-Service Custom Resource Definition](#x-as-a-service-custom-resource-definition)
-    - [X-as-a-Service Request Pipeline](#x-as-a-service-request-pipeline)
-    - [Worker Cluster Resources](#worker-cluster-resources)
-    - [Create and submit a resource request](#create-and-submit-a-resource-request)
-  - [Summary](#summary)
-  - [Where Next?](#where-next)
+- [What will you do?](#what-will-you-do)
+- [What will you learn?](#what-will-you-learn)
+- [Writing a Promise](#writing-a-promise)
+  - [Prerequisites](#prerequisites)
+  - [Promise basics](#promise-basics)
+  - [Promise template](#promise-template)
+  - [X-as-a-Service Custom Resource Definition](#x-as-a-service-custom-resource-definition)
+  - [X-as-a-Service Request Pipeline](#x-as-a-service-request-pipeline)
+  - [Worker Cluster Resources](#worker-cluster-resources)
+  - [Create and submit a resource request](#create-and-submit-a-resource-request)
+- [Summary](#summary)
+- [Where Next?](#where-next)
 
-## What will I learn?
-We will walk through the steps needed to create your own Promise, configure it for your needs, decorate it with your own opinions, and expose it as-a-Service ready for consumption by your platform users. If you are unsure of what a promise is and what problem it solves, check out [this page](promises.md).
+This guide illustrates how to write your own Promise, which allows you to use Kratix to expose as-a-Service functionality for your platform users. 
+
+If you are unsure of what a Promise is and what problem it solves, check out [this page](promises.md).
+
+## What will you do?
+
+You will:
+
+* create your own example Jenkins Promise. 
+* configure your Jenkins Promise for your needs.
+* decorate your Jenkins Promise with your opinions.
+* expose your Jenkins Promise as-a-Service ready for consumption by your platform users.
+
+## What will you learn?
 
 You will learn how to:
-* Build a Promise for complex software, and expose it via a simple custom API which captures the data needed from users to configure the Promise for consumption "as-a-Service".
-* Wrap and deploy the underlying Kubernetes CRDs, Operators, and resources required to run your Promise.
-* Create a Promise pipeline to inject captured user-data into the underlying Kubernetes resources, and decorate the Promised software with custom behavior so the running Promise reflects your organisational and users' requirements.
+
+* build a Promise for complex software and expose it via a simple custom API. This API will capture data needed from users to configure the Promise for consumption as-a-Service.
+* wrap and deploy underlying Kubernetes CRDs, Operators, and resources required to run your Promise.
+* create a Promise pipeline to inject captured user data into the underlying Kubernetes resources and decorate the Promised software with custom behavior. The result is a Promise that reflects the requirements of your organisation and your users.
 
 ## Writing a Promise
 
 ![Writing a Promise Step One](images/writing-a-promise-1.png)
 
-### Prerequisites:
-1. [Install Kratix across 2 Kind clusters](../README.md)
-2. Install Kubernetes-in-Docker(KinD). See [the quick start guide](https://kind.sigs.k8s.io/docs/user/quick-start/). Tested on 0.9.0 and 0.10.0.
-    - Ensure no KinD clusters are currently running. `kind get clusters` should return "No kind clusters found."
-3. Install Kubectl. See [the install guide](https://kubernetes.io/docs/tasks tools/#kubectl). Tested on 1.16.13 and 1.21.2.
-4. A Docker Hub account with push permissions (or similar registry).
-5. [The Docker cli](https://docs.docker.com/get-docker/) -- to build and push images.
+### Prerequisites
+1. An account on Docker Hub that has push permissions.
+1. `docker`: The Docker CLI, which allows you to build and push images of your Promise. See [installation instructions in the Docker docs](https://docs.docker.com/get-docker/).
+1. `kind`: The Kubernetes-in-Docker(KinD) CLI, which is used to manage local clusters. See [KinD's quick start guide](https://kind.sigs.k8s.io/docs/user/quick-start/). KinD versions 0.9.0 and 0.10.0 have been tested.
+1. `kubectl`: The Kubernetes CLI, which allows you to run commands against Kubernetes clusters. See [installation instructions in the Kubernetes docs](https://kubernetes.io/docs/tasks/tools/#kubectl). Kubectl versions 1.16.13 and 1.21.2 have been tested.
+1. An installation of Kratix across two KinD clusters. [See Part 1 of our Quick Start guide](../README.md)
 
 To begin writing a Promise we will need a basic directory structure to work in.
 
