@@ -128,7 +128,7 @@ Create the <code>jenkins-instance.yaml</code> by running the below command.
 <summary><b>Note:</b> the code is folded for brevity</summary>
 
 ```bash
-cat > jenkins-instance.yaml <EOF
+cat > jenkins-instance.yaml <<EOF
 apiVersion: jenkins.io/v1alpha2
 kind: Jenkins
 metadata:
@@ -146,10 +146,25 @@ spec:
   jenkinsAPISettings:
     authorizationStrategy: createUser
   master:
+    basePlugins:
+    - name: kubernetes
+      version: "1.31.3"
+    - name: workflow-job
+      version: "1180.v04c4e75dce43"
+    - name: workflow-aggregator
+      version: "2.7"
+    - name: git
+      version: "4.11.0"
+    - name: job-dsl
+      version: "1.79"
+    - name: configuration-as-code
+      version: "1414.v878271fc496f"
+    - name: kubernetes-credentials-provider
+      version: "0.20"
     disableCSRFProtection: false
     containers:
       - name: jenkins-master
-        image: jenkins/jenkins:2.277.4-lts-alpine
+        image: jenkins/jenkins:2.332.2-lts
         imagePullPolicy: Always
         livenessProbe:
           failureThreshold: 12
