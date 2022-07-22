@@ -1,0 +1,9 @@
+---
+apiVersion: example.promise.syntasso.io/v1
+kind: postgres
+metadata:
+  name: acid-minimal-cluster
+  namespace: default
+spec:
+  preparedDatabases:
+    mydb: {}

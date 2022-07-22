@@ -1,0 +1,10 @@
+apiVersion: platform.kratix.io/v1alpha1
+kind: Cluster
+metadata:
+  name: CLUSTER_NAME
+  labels:
+    environment: ENVIRONMENT_VALUE
+    data: cache
+spec:
+  id: CLUSTER_NAME-id
+  bucketPath: CLUSTER_NAME

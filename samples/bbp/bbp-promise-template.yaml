@@ -1,0 +1,36 @@
+apiVersion: platform.kratix.io/v1alpha1
+kind: Promise
+metadata:
+  name: bbp-promise
+spec:
+  clusterSelector: 
+    environment: platform
+  #injected via: go run path/to/kratix/hack/worker-resource-builder/main.go -k8s-resources-directory ${PWD}/resources -promise ${PWD}/bbp-promise-template.yaml > bbp-promise.yaml
+  #workerClusterResources:
+  xaasRequestPipeline:
+  - syntasso/bbp-request-pipeline:dev
+  xaasCrd:
+    apiVersion: apiextensions.k8s.io/v1
+    kind: CustomResourceDefinition
+    metadata:
+      name: bbps.example.promise.syntasso.io
+    spec:
+      group: example.promise.syntasso.io
+      names:
+        kind: bbp
+        plural: bbps
+        singular: bbp
+      scope: Namespaced
+      versions:
+      - name: v1
+        schema:
+          openAPIV3Schema:
+            properties:
+              spec:
+                properties:
+                  name:
+                    type: string
+                type: object
+            type: object
+        served: true
+        storage: true

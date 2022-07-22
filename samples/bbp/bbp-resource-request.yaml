@@ -1,0 +1,8 @@
+---
+apiVersion: example.promise.syntasso.io/v1
+kind: bbp
+metadata:
+  name: my-2-bbp-request
+  namespace: default
+spec:
+  name: notused2
