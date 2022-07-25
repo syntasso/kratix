@@ -40,15 +40,22 @@ func (w *WorkCreator) Execute(rootDirectory string, identifier string) error {
 
 		decoder := yaml.NewYAMLOrJSONDecoder(file, 2048)
 		for {
-			us := &unstructured.Unstructured{}
+			us := unstructured.Unstructured{}
+
 			err := decoder.Decode(&us)
-			if err == io.EOF {
-				//We reached the end of the file, move on to looking for the resource
-				break
-			} else {
-				//append the first resource to the resource slice, and go back through the loop
-				resources = append(resources, *us)
+			if err != nil {
+				if err == io.EOF {
+					//We reached the end of the file, move on to looking for the resource
+					break
+				}
+				return err
 			}
+			if len(us.Object) == 0 {
+				// Empty yaml documents (including only containing comments) should not be appended
+				continue
+			}
+			//append the first resource to the resource slice, and go back through the loop
+			resources = append(resources, us)
 		}
 	}
 

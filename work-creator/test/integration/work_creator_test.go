@@ -65,7 +65,7 @@ var _ = Describe("WorkCreator", func() {
 
 			Describe("the Work resource manifests list", func() {
 				It("has three items", func() {
-					expectedManifestsCount := len(getExpectedManifests(inputDirectory))
+					expectedManifestsCount := 3 // This is the number of valid yaml resources defined in the input directory
 					Expect(workResource.Spec.Workload.Manifests).To(HaveLen(expectedManifestsCount))
 				})
 

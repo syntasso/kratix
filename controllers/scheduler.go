@@ -21,7 +21,7 @@ type Scheduler struct {
 func (r *Scheduler) ReconcileWork(work *platformv1alpha1.Work) error {
 	targetClusterNames := r.getTargetClusterNames(work)
 	if len(targetClusterNames) == 0 {
-		return errors.New("no Clusters registered")
+		return errors.New("no Clusters can be selected for clusterSelector " + labels.FormatLabels(work.Spec.ClusterSelector))
 	}
 	return r.createWorkplacementsForTargetClusters(work.Name, targetClusterNames)
 }

@@ -1,3 +1,5 @@
+# Adding comment before first yaml document divider as this can fail to decode as yaml
+---
 apiVersion: v1
 kind: Namespace
 metadata:
@@ -7,4 +9,3 @@ apiVersion: v1
 kind: Namespace
 metadata:
   name: messaging
-

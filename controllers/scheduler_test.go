@@ -106,7 +106,7 @@ var _ = Describe("Controllers/Scheduler", func() {
 
 			It("creates no workplacements", func() {
 				err := scheduler.ReconcileWork(&work)
-				Expect(err).To(MatchError("no Clusters registered"))
+				Expect(err).To(MatchError("no Clusters can be selected for clusterSelector environment=staging"))
 
 				Expect(k8sClient.List(context.Background(), &workPlacements)).To(Succeed())
 				Expect(workPlacements.Items).To(BeEmpty())
