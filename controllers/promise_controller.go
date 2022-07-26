@@ -93,30 +93,6 @@ func (r *PromiseReconciler) Reconcile(ctx context.Context, req ctrl.Request) (ct
 		return ctrl.Result{}, nil
 	}
 
-	promiseIdentifier := promise.Name + "-" + promise.Namespace
-
-	workToCreate := &v1alpha1.Work{}
-	workToCreate.Spec.Replicas = v1alpha1.WORKER_RESOURCE_REPLICAS
-	workToCreate.Name = promiseIdentifier
-	workToCreate.Namespace = "default"
-	workToCreate.Spec.ClusterSelector = promise.Spec.ClusterSelector
-	for _, u := range promise.Spec.WorkerClusterResources {
-		workToCreate.Spec.Workload.Manifests = append(workToCreate.Spec.Workload.Manifests, v1alpha1.Manifest{Unstructured: u.Unstructured})
-	}
-
-	r.Log.Info("Creating Work resource for promise: " + promiseIdentifier)
-
-	err = r.Client.Create(ctx, workToCreate)
-	if err != nil {
-		if errors.IsAlreadyExists(err) {
-			//todo test for existence and handle gracefully.
-			r.Log.Info("Works " + promiseIdentifier + "already exists")
-		} else {
-			r.Log.Error(err, "Error creating Works "+promiseIdentifier)
-			return ctrl.Result{}, nil
-		}
-	}
-
 	//Instance-Level Reconciliation
 	crdToCreate := &apiextensionsv1.CustomResourceDefinition{}
 	err = json.Unmarshal(promise.Spec.XaasCrd.Raw, crdToCreate)
@@ -148,6 +124,28 @@ func (r *PromiseReconciler) Reconcile(ctx context.Context, req ctrl.Request) (ct
 	if r.gvkDoesNotExist(crdToCreateGvk) {
 		r.Log.Info("Requeue:" + crdToCreate.Name + " is not ready on the API server yet.")
 		return ctrl.Result{RequeueAfter: 5 * time.Second}, nil
+	}
+
+	promiseIdentifier := promise.Name + "-" + promise.Namespace
+	workToCreate := &v1alpha1.Work{}
+	workToCreate.Spec.Replicas = v1alpha1.WORKER_RESOURCE_REPLICAS
+	workToCreate.Name = promiseIdentifier
+	workToCreate.Namespace = "default"
+	workToCreate.Spec.ClusterSelector = promise.Spec.ClusterSelector
+	for _, u := range promise.Spec.WorkerClusterResources {
+		workToCreate.Spec.Workload.Manifests = append(workToCreate.Spec.Workload.Manifests, v1alpha1.Manifest{Unstructured: u.Unstructured})
+	}
+
+	r.Log.Info("Creating Work resource for promise: " + promiseIdentifier)
+	err = r.Client.Create(ctx, workToCreate)
+	if err != nil {
+		if errors.IsAlreadyExists(err) {
+			//todo test for existence and handle gracefully.
+			r.Log.Info("Works " + promiseIdentifier + " already exists")
+		} else {
+			r.Log.Error(err, "Error creating Works "+promiseIdentifier)
+		}
+		return ctrl.Result{}, nil
 	}
 
 	// CONTROLLER RBAC
