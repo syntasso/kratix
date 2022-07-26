@@ -55,7 +55,19 @@ vet: ## Run go vet against code.
 install-test-minio: ### Install test Minio server
 	kubectl apply -f hack/platform/minio-install.yaml
 
-int-test: manifests generate fmt vet deploy install-test-minio ## Run integrations tests.
+delete-platform-cluster: ## Removes all test infrastructure
+	kind delete cluster --name platform
+
+create-platform-cluster: delete-platform-cluster ## Builds and runs pre-reqs to run int-test
+	kind create cluster --name platform --config <(echo "{kind: Cluster, apiVersion: kind.x-k8s.io/v1alpha4, nodes: [{role: control-plane, extraPortMappings: [{containerPort: 31337, hostPort: 31337}]}]}")
+
+deploy-int-test-env: create-platform-cluster
+	IMG=syntasso/kratix-platform:dev make kind-load-image
+	WC_IMG=syntasso/kratix-platform-work-creator:dev make -C work-creator kind-load-image
+	make deploy
+	make install-test-minio
+
+int-test: generate fmt vet deploy-int-test-env ## Run integrations tests.
 	CK_GINKGO_DEPRECATIONS=1.16.4 go run github.com/onsi/ginkgo/ginkgo ./test/integration/  -r  --coverprofile cover.out
 
 kind-load-image: docker-build ## Load locally built image into KinD, use export IMG=syntasso/kratix-platform:dev
