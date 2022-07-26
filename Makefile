@@ -6,6 +6,8 @@ IMG ?= syntasso/kratix-platform:${VERSION}
 WC_IMG ?= syntasso/kratix-platform-work-creator:${VERSION}
 # Produce CRDs that work back to Kubernetes 1.11 (no version conversion)
 CRD_OPTIONS ?= "crd"
+# Enable buildkit for docker
+DOCKER_BUILDKIT ?= 1
 
 # Get the currently used golang install path (in GOPATH/bin, unless GOBIN is set)
 ifeq (,$(shell go env GOBIN))
@@ -52,22 +54,32 @@ fmt: ## Run go fmt against code.
 vet: ## Run go vet against code.
 	go vet ./...
 
-install-test-minio: ### Install test Minio server
-	kubectl apply -f hack/platform/minio-install.yaml
+build-and-load-int-test-images: ## Builds and loads all int-test required pipeline images
+	docker build --tag syntasso/kustomize-redis ./config/samples/redis/transformation-image
+	docker build --tag syntasso/kustomize-postgres ./config/samples/postgres/transformation-image
+	kind load docker-image syntasso/kustomize-redis syntasso/kustomize-postgres --name platform
 
-delete-platform-cluster: ## Removes all test infrastructure
+install-flux-on-platform: ## Installs flux onto platform cluster
+	kubectl --context kind-platform apply -f test/integration/assets/platform_worker_cluster_1.yaml
+	kubectl --context kind-platform apply -f hack/worker/gitops-tk-install.yaml
+	kubectl --context kind-platform apply -f test/integration/assets/platform_worker_cluster_1_gitops-tk-resources.yaml
+
+install-minio: ## Install test Minio server
+	kubectl --context kind-platform apply -f hack/platform/minio-install.yaml
+
+delete-int-test-infra: ## Removes all test infrastructure
 	kind delete cluster --name platform
 
-create-platform-cluster: delete-platform-cluster ## Builds and runs pre-reqs to run int-test
+create-int-test-infra: delete-int-test-infra ## Builds and runs pre-reqs to run int-test
 	kind create cluster --name platform --config <(echo "{kind: Cluster, apiVersion: kind.x-k8s.io/v1alpha4, nodes: [{role: control-plane, extraPortMappings: [{containerPort: 31337, hostPort: 31337}]}]}")
 
-deploy-int-test-env: create-platform-cluster
+deploy-int-test-env: create-int-test-infra build-and-load-int-test-images ## Builds and deploys dev version software on int-test infrastructure
 	IMG=syntasso/kratix-platform:dev make kind-load-image
 	WC_IMG=syntasso/kratix-platform-work-creator:dev make -C work-creator kind-load-image
 	make deploy
-	make install-test-minio
+	make install-minio
 
-int-test: generate fmt vet deploy-int-test-env ## Run integrations tests.
+int-test: generate fmt vet deploy-int-test-env install-flux-on-platform ## Run integrations tests.
 	CK_GINKGO_DEPRECATIONS=1.16.4 go run github.com/onsi/ginkgo/ginkgo ./test/integration/  -r  --coverprofile cover.out
 
 kind-load-image: docker-build ## Load locally built image into KinD, use export IMG=syntasso/kratix-platform:dev

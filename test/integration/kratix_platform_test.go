@@ -28,26 +28,6 @@ import (
 /*
  Run these tests using `make int-test` to ensure that the correct resources are applied
  to the k8s cluster under test.
-
- WARNING: NETWORKING!!!
- Currently the tests require access to Minio to assert assets are being written correctly.
- The tests require access to `endpoint := "172.18.0.2:31337"`. To run the tests we need
- to ensure the host running the tests has access to mino on this address.
-
- On a Mac you can do this by using a tool such as `KWT net` (other tools are available such `kubefwd`).
- You could also reconfigure the the test to match your host newtworking.
-
- Assumptions:
- 1. `kind create cluster --name=platform`
- 2. `export IMG=syntasso/kratix-platform:dev`
- 3. `make kind-load-image`
- 3.b If you have changed the WorkCreator remember to kind load image the WorkCreator image before you run your tests.
- 4. `make deploy` has been run and minio is accessible. Note: `make int-test` will
- ensure that `deploy` is executed
- 5. `make int-test`
-
- Cleanup:
- k delete databases.postgresql.dev4devs.com database && k delete crd databases.postgresql.dev4devs.com && k delete promises.platform.kratix.io postgres-promise && k delete works.platform.kratix.io work-sample
 */
 var (
 	k8sClient client.Client
@@ -91,6 +71,7 @@ const (
 	POSTGRES_RESOURCE_REQUEST = "../../config/samples/postgres/postgres-resource-request.yaml"
 
 	//Clusters
+	PLATFORM_WORKER_CLUSTER_1 = "./assets/platform_worker_cluster_1.yaml"
 	DEV_WORKER_CLUSTER_1      = "./assets/worker_cluster_1.yaml"
 	DEV_WORKER_CLUSTER_2      = "./assets/worker_cluster_2.yaml"
 	PRODUCTION_WORKER_CLUSTER = "./assets/worker_cluster_3.yaml"
@@ -291,9 +272,10 @@ var _ = Describe("kratix Platform Integration Test", func() {
 					devClusterHasResources, _ := workerHasResource(workloadNamespacedName, resourceName, resourceKind, DEV_WORKER_CLUSTER_1)
 					devCacheClusterHasResources, _ := workerHasResource(workloadNamespacedName, resourceName, resourceKind, DEV_WORKER_CLUSTER_2)
 					prodClusterHasResources, _ := workerHasResource(workloadNamespacedName, resourceName, resourceKind, PRODUCTION_WORKER_CLUSTER)
+					platformClusterHasResources, _ := workerHasResource(workloadNamespacedName, resourceName, resourceKind, PLATFORM_WORKER_CLUSTER_1)
 
-					g.Expect([]bool{devClusterHasResources, devCacheClusterHasResources, prodClusterHasResources}).To(
-						ContainElements(false, false, true),
+					g.Expect([]bool{devClusterHasResources, devCacheClusterHasResources, prodClusterHasResources, platformClusterHasResources}).To(
+						ContainElements(false, false, false, true),
 					)
 
 				}, timeout, interval).Should(Succeed(), "Postgres should only be placed in only one worker")
