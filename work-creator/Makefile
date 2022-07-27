@@ -1,5 +1,7 @@
 # Image URL to use all building/pushing image targets
 WC_IMG ?= syntasso/kratix-platform-work-creator:dev
+# Enable buildkit for docker
+DOCKER_BUILDKIT ?= 1
 
 # Setting SHELL to bash allows bash commands to be executed by recipes.
 # This is a requirement for 'setup-envtest.sh' in the test target.
@@ -25,7 +27,10 @@ kind-load-image: docker-build ## Load locally built image into KinD, use export 
 ##@ Build
 
 docker-build: test ## Build docker image with work-creator binary
-	DOCKER_BUILDKIT=1 docker build -f ../DockerfileWorkCreator -t ${WC_IMG} ../
+	docker build -f ../DockerfileWorkCreator --tag ${WC_IMG} ../
 
-docker-push: ## Push docker image with work-creator binary
-	docker push ${WC_IMG} 
+docker-build-and-push: ## Push multi-arch docker image with the manager.
+	if ! docker buildx ls | grep -q "kratix-image-builder"; then \
+		docker buildx create --name kratix-image-builder; \
+	fi;
+	docker buildx build --builder kratix-image-builder --push --platform linux/arm64,linux/amd64 --file ../DockerfileWorkCreator --tag ${WC_IMG} ../

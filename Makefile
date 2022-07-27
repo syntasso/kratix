@@ -114,7 +114,7 @@ debug-run: manifests generate fmt vet ## Run a controller in debug mode from you
 	dlv --listen=:2345 --headless=true --api-version=2 --accept-multiclient debug ./main.go
 
 docker-build: test ## Build docker image with the manager.
-	DOCKER_BUILDKIT=1 docker build -t ${IMG} .
+	docker build -t ${IMG} .
 
 docker-build-and-push: ## Push multi-arch docker image with the manager.
 	if ! docker buildx ls | grep -q "kratix-image-builder"; then \
@@ -141,7 +141,7 @@ distribution: manifests kustomize ## Create a deployment manifest in /distributi
 release: distribution docker-build-and-push work-creator-docker-build-and-push ## Create a release. Set VERSION env var to "vX.Y.Z-n".
 
 work-creator-docker-build-and-push:
-	WC_IMG=${WC_IMG} $(MAKE) -C work-creator docker-build docker-push
+	WC_IMG=${WC_IMG} $(MAKE) -C work-creator docker-build-and-push
 
 undeploy: ## Undeploy controller from the K8s cluster specified in ~/.kube/config.
 	$(KUSTOMIZE) build config/default | kubectl delete -f -
