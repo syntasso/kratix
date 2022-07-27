@@ -1,8 +1,8 @@
 ---
 apiVersion: example.promise.syntasso.io/v1
-kind: bbp
+kind: paved-path-demo
 metadata:
-  name: my-2-bbp-request
+  name: my-paved-path-demo-request
   namespace: default
 spec:
-  name: notused2
+  name: example

@@ -2,7 +2,7 @@ apiVersion: platform.kratix.io/v1alpha1
 kind: Promise
 metadata:
   creationTimestamp: null
-  name: bbp-promise
+  name: paved-path-demo-promise
 spec:
   clusterSelector:
     environment: platform
@@ -5177,13 +5177,13 @@ spec:
     apiVersion: apiextensions.k8s.io/v1
     kind: CustomResourceDefinition
     metadata:
-      name: bbps.example.promise.syntasso.io
+      name: paved-path-demos.example.promise.syntasso.io
     spec:
       group: example.promise.syntasso.io
       names:
-        kind: bbp
-        plural: bbps
-        singular: bbp
+        kind: paved-path-demo
+        plural: paved-path-demos
+        singular: paved-path-demo
       scope: Namespaced
       versions:
       - name: v1
@@ -5199,6 +5199,6 @@ spec:
         served: true
         storage: true
   xaasRequestPipeline:
-  - bbp-request-pipeline:abby
+  - syntasso/paved-path-demo-request-pipeline
 status: {}
 
