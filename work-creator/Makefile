@@ -30,7 +30,7 @@ docker-build: test ## Build docker image with work-creator binary
 	docker build -f ../DockerfileWorkCreator --tag ${WC_IMG} ../
 
 docker-build-and-push: ## Push multi-arch docker image with the manager.
-	if ! docker buildx ls | grep -q "kratix-image-builder"; then \
-		docker buildx create --name kratix-image-builder; \
+	if ! docker buildx ls | grep -q "work-creator-image-builder"; then \
+		docker buildx create --name work-creator-image-builder; \
 	fi;
-	docker buildx build --builder kratix-image-builder --push --platform linux/arm64,linux/amd64 --file ../DockerfileWorkCreator --tag ${WC_IMG} ../
+	docker buildx build --builder work-creator-image-builder --push --platform linux/arm64,linux/amd64 --file ../DockerfileWorkCreator --tag ${WC_IMG} ../
