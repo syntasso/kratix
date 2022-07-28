@@ -55,9 +55,9 @@ vet: ## Run go vet against code.
 	go vet ./...
 
 build-and-load-int-test-images: ## Builds and loads all int-test required pipeline images
-	docker build --tag syntasso/kustomize-redis ./config/samples/redis/transformation-image
-	docker build --tag syntasso/kustomize-postgres ./config/samples/postgres/transformation-image
-	kind load docker-image syntasso/kustomize-redis syntasso/kustomize-postgres --name platform
+	docker build --tag syntasso/kustomize-redis:latest ./config/samples/redis/transformation-image
+	docker build --tag syntasso/kustomize-postgres:latest ./config/samples/postgres/transformation-image
+	kind load docker-image syntasso/kustomize-redis:latest syntasso/kustomize-postgres:latest --name platform
 
 install-flux-on-platform: ## Installs flux onto platform cluster
 	kubectl --context kind-platform apply -f test/integration/assets/platform_worker_cluster_1.yaml
