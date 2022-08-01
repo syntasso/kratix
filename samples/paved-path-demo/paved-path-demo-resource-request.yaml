@@ -1,0 +1,8 @@
+---
+apiVersion: example.promise.syntasso.io/v1
+kind: paved-path-demo
+metadata:
+  name: my-paved-path-demo-request
+  namespace: default
+spec:
+  name: example

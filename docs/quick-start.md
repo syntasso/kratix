@@ -17,7 +17,7 @@ See [the KinD quick start guide](https://kind.sigs.k8s.io/docs/user/quick-start/
 git clone https://github.com/syntasso/kratix.git
 ```
 
-### Setup Platform Cluster
+### Set up Platform Cluster
 
 The below commands will create our platform cluster and install Kratix.
 
@@ -49,7 +49,7 @@ PLATFORM_CLUSTER_IP=`docker inspect platform-control-plane | grep '"IPAddress": 
 sed -i'' -e "s/172.18.0.2/$PLATFORM_CLUSTER_IP/g" hack/worker/gitops-tk-resources.yaml
 ```
 
-### Setup Worker Cluster
+### Set up Worker Cluster
 This will create a cluster for running the X-as-a-service workloads:
 
 ```
@@ -59,7 +59,7 @@ kubectl apply -f hack/worker/gitops-tk-install.yaml
 kubectl apply -f hack/worker/gitops-tk-resources.yaml
 ```
 
-Once Flux is installed and running (this may take a few minutes), the Kratix resources should be visible on the worker cluster.
+Once Flux is installed and running (this may take a few minutes), the Kratix resources will be visible on the worker cluster.
 
 ```
 kubectl get ns kratix-worker-system
@@ -82,7 +82,7 @@ kubectl config use-context kind-platform
 kubectl apply -f samples/jenkins/jenkins-promise.yaml
 ```
 
-On the platform cluster we should now see the ability to create Jenkins instances.
+On the platform cluster we can now see the ability to create Jenkins instances.
 
 ```
 kubectl get crds jenkins.example.promise.syntasso.io

@@ -1,11 +1,18 @@
 #!/bin/sh 
 
 set -x
+
+# Store all input files in a known location
 cp -r /tmp/transfer/* /input/
 
+# Read current values from the provided resource request
+export NAME=$(yq eval '.metadata.name' /input/object.yaml)
+export NAMESPACE=$(yq eval '.metadata.namespace' /input/object.yaml)
+export PREPARED_DBS=$(yq eval '.spec.preparedDatabases' /input/object.yaml)
+
+# Replace defaults with user provided values
 cat /input/minimal-postgres-manifest.yaml |  \
-  NAME=$(yq eval '.metadata.name' /input/object.yaml) \
-  NAMESPACE=$(yq eval '.metadata.namespace' /input/object.yaml) \
-  PREPARED_DBS=$(yq eval '.spec.preparedDatabases' /input/object.yaml) \
-  yq eval '.metadata.namespace = env(NAMESPACE) | .metadata.name = env(NAME) | .spec.preparedDatabases = env(PREPARED_DBS)' - \
+  yq eval '.metadata.name = env(NAME) |
+          .metadata.namespace = env(NAMESPACE) |
+          .spec.preparedDatabases = env(PREPARED_DBS)' - \
   > /output/output.yaml

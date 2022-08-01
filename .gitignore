@@ -1,4 +1,3 @@
-
 # Binaries for programs and plugins
 *.exe
 *.exe~
@@ -28,4 +27,7 @@ __debug_bin
 *~
 
 # Generated Kratix distribution yaml - contains pointers to images
-distribution/kratix.yaml 
+distribution/kratix.yaml
+
+.DS_Store
+.vscode

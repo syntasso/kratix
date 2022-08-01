@@ -34,6 +34,7 @@ import (
 	"k8s.io/apimachinery/pkg/api/errors"
 	metav1 "k8s.io/apimachinery/pkg/apis/meta/v1"
 	"k8s.io/apimachinery/pkg/apis/meta/v1/unstructured"
+	"k8s.io/apimachinery/pkg/labels"
 	"k8s.io/apimachinery/pkg/runtime"
 	"k8s.io/apimachinery/pkg/runtime/schema"
 	"k8s.io/apimachinery/pkg/util/uuid"
@@ -52,12 +53,13 @@ type PromiseReconciler struct {
 }
 
 type dynamicController struct {
-	client              client.Client
-	gvk                 *schema.GroupVersionKind
-	scheme              *runtime.Scheme
-	promiseIdentifier   string
-	xaasRequestPipeline []string
-	log                 logr.Logger
+	client                 client.Client
+	gvk                    *schema.GroupVersionKind
+	scheme                 *runtime.Scheme
+	promiseIdentifier      string
+	promiseClusterSelector labels.Set
+	xaasRequestPipeline    []string
+	log                    logr.Logger
 }
 
 //+kubebuilder:rbac:groups=platform.kratix.io,resources=promises,verbs=get;list;watch;create;update;patch;delete
@@ -89,29 +91,6 @@ func (r *PromiseReconciler) Reconcile(ctx context.Context, req ctrl.Request) (ct
 	if err != nil {
 		r.Log.Error(err, "Failed getting Promise")
 		return ctrl.Result{}, nil
-	}
-
-	promiseIdentifier := promise.Name + "-" + promise.Namespace
-
-	workToCreate := &v1alpha1.Work{}
-	workToCreate.Spec.Replicas = v1alpha1.WORKER_RESOURCE_REPLICAS
-	workToCreate.Name = promiseIdentifier
-	workToCreate.Namespace = "default"
-	for _, u := range promise.Spec.WorkerClusterResources {
-		workToCreate.Spec.Workload.Manifests = append(workToCreate.Spec.Workload.Manifests, v1alpha1.Manifest{Unstructured: u.Unstructured})
-	}
-
-	r.Log.Info("Creating Work resource for promise: " + promiseIdentifier)
-
-	err = r.Client.Create(ctx, workToCreate)
-	if err != nil {
-		if errors.IsAlreadyExists(err) {
-			//todo test for existence and handle gracefully.
-			r.Log.Info("Works " + promiseIdentifier + "already exists")
-		} else {
-			r.Log.Error(err, "Error creating Works "+promiseIdentifier)
-			return ctrl.Result{}, nil
-		}
 	}
 
 	//Instance-Level Reconciliation
@@ -147,6 +126,28 @@ func (r *PromiseReconciler) Reconcile(ctx context.Context, req ctrl.Request) (ct
 		return ctrl.Result{RequeueAfter: 5 * time.Second}, nil
 	}
 
+	promiseIdentifier := promise.Name + "-" + promise.Namespace
+	workToCreate := &v1alpha1.Work{}
+	workToCreate.Spec.Replicas = v1alpha1.WORKER_RESOURCE_REPLICAS
+	workToCreate.Name = promiseIdentifier
+	workToCreate.Namespace = "default"
+	workToCreate.Spec.ClusterSelector = promise.Spec.ClusterSelector
+	for _, u := range promise.Spec.WorkerClusterResources {
+		workToCreate.Spec.Workload.Manifests = append(workToCreate.Spec.Workload.Manifests, v1alpha1.Manifest{Unstructured: u.Unstructured})
+	}
+
+	r.Log.Info("Creating Work resource for promise: " + promiseIdentifier)
+	err = r.Client.Create(ctx, workToCreate)
+	if err != nil {
+		if errors.IsAlreadyExists(err) {
+			//todo test for existence and handle gracefully.
+			r.Log.Info("Works " + promiseIdentifier + " already exists")
+		} else {
+			r.Log.Error(err, "Error creating Works "+promiseIdentifier)
+		}
+		return ctrl.Result{}, nil
+	}
+
 	// CONTROLLER RBAC
 	cr := rbacv1.ClusterRole{
 		ObjectMeta: metav1.ObjectMeta{
@@ -167,6 +168,11 @@ func (r *PromiseReconciler) Reconcile(ctx context.Context, req ctrl.Request) (ct
 				APIGroups: []string{crdToCreateGvk.Group},
 				Resources: []string{crdToCreate.Spec.Names.Plural + "/status"},
 				Verbs:     []string{"get", "update", "patch"},
+			},
+			{
+				APIGroups: []string{""},
+				Resources: []string{"configmaps"},
+				Verbs:     []string{"create"},
 			},
 		},
 	}
@@ -261,12 +267,13 @@ func (r *PromiseReconciler) Reconcile(ctx context.Context, req ctrl.Request) (ct
 	unstructuredCRD.SetGroupVersionKind(crdToCreateGvk)
 
 	dynamicController := &dynamicController{
-		client:              r.Manager.GetClient(),
-		scheme:              r.Manager.GetScheme(),
-		gvk:                 &crdToCreateGvk,
-		promiseIdentifier:   promiseIdentifier,
-		xaasRequestPipeline: promise.Spec.XaasRequestPipeline,
-		log:                 r.Log,
+		client:                 r.Manager.GetClient(),
+		scheme:                 r.Manager.GetScheme(),
+		gvk:                    &crdToCreateGvk,
+		promiseIdentifier:      promiseIdentifier,
+		promiseClusterSelector: promise.Spec.ClusterSelector,
+		xaasRequestPipeline:    promise.Spec.XaasRequestPipeline,
+		log:                    r.Log,
 	}
 
 	ctrl.NewControllerManagedBy(r.Manager).
@@ -300,12 +307,21 @@ func (r *dynamicController) Reconcile(ctx context.Context, req ctrl.Request) (ct
 		return ctrl.Result{}, nil
 	}
 
-	//kubectl get redis.redis.redis.opstreelabs.in opstree-redis --namespace default -oyaml > /output/object.yaml
 	resourceRequestCommand := fmt.Sprintf("kubectl get %s.%s %s --namespace %s -oyaml > /output/object.yaml", strings.ToLower(r.gvk.Kind), r.gvk.Group, req.Name, req.Namespace)
 
 	//promise-targetnamespace-mydatabase
 	identifier := fmt.Sprintf("%s-%s-%s", r.promiseIdentifier, req.Namespace, req.Name)
-	workCreatorCommand := fmt.Sprintf("./work-creator -identifier %s -input-directory /input", identifier)
+	workCreatorCommand := fmt.Sprintf("./work-creator -identifier %s -input-directory /work-creator-files", identifier)
+
+	configMap := v1.ConfigMap{
+		ObjectMeta: metav1.ObjectMeta{
+			Name:      "cluster-selectors-" + r.promiseIdentifier,
+			Namespace: "default",
+		},
+		Data: map[string]string{
+			"selectors": labels.FormatLabels(r.promiseClusterSelector),
+		},
+	}
 
 	pod := v1.Pod{
 		ObjectMeta: metav1.ObjectMeta{
@@ -323,8 +339,16 @@ func (r *dynamicController) Reconcile(ctx context.Context, req ctrl.Request) (ct
 					Command: []string{"sh", "-c", workCreatorCommand},
 					VolumeMounts: []v1.VolumeMount{
 						{
-							MountPath: "/input",
+							MountPath: "/work-creator-files/input",
 							Name:      "output",
+						},
+						{
+							MountPath: "/work-creator-files/metadata",
+							Name:      "metadata",
+						},
+						{
+							MountPath: "/work-creator-files/kratix-system",
+							Name:      "promise-cluster-selectors",
 						},
 					},
 				},
@@ -354,6 +378,10 @@ func (r *dynamicController) Reconcile(ctx context.Context, req ctrl.Request) (ct
 							MountPath: "/output",
 							Name:      "output",
 						},
+						{
+							MountPath: "/metadata",
+							Name:      "metadata",
+						},
 					},
 				},
 			},
@@ -370,11 +398,39 @@ func (r *dynamicController) Reconcile(ctx context.Context, req ctrl.Request) (ct
 						EmptyDir: &v1.EmptyDirVolumeSource{},
 					},
 				},
+				{
+					Name: "metadata",
+					VolumeSource: v1.VolumeSource{
+						EmptyDir: &v1.EmptyDirVolumeSource{},
+					},
+				},
+				{
+					Name: "promise-cluster-selectors",
+					VolumeSource: v1.VolumeSource{
+						ConfigMap: &v1.ConfigMapVolumeSource{
+							LocalObjectReference: v1.LocalObjectReference{
+								Name: "cluster-selectors-" + r.promiseIdentifier,
+							},
+							Items: []v1.KeyToPath{
+								{
+									Key:  "selectors",
+									Path: "promise-cluster-selectors",
+								},
+							},
+						},
+					},
+				},
 			},
 		},
 	}
 
 	r.log.Info("Creating Pipeline for Promise resource request: " + identifier + ". The pipeline will now execute...")
+	err = r.client.Create(ctx, &configMap)
+	if err != nil {
+		r.log.Error(err, "Error creating config map")
+		y, _ := yaml.Marshal(&configMap)
+		r.log.Error(err, string(y))
+	}
 	err = r.client.Create(ctx, &pod)
 	if err != nil {
 		r.log.Error(err, "Error creating Pod")

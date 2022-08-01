@@ -47,6 +47,9 @@ type WorkSpec struct {
 	// Workload represents the manifest workload to be deployed on worker cluster
 	Workload WorkloadTemplate `json:"workload,omitempty"`
 
+	// ClusterSelector is the selector to use for selecting the worker cluster
+	ClusterSelector map[string]string `json:"clusterSelector,omitempty"`
+
 	// -1 denotes Cluster Worker Resources, 1 denotes Resource Request
 	Replicas int `json:"replicas,omitempty"`
 }
@@ -57,6 +60,10 @@ func (w *Work) IsResourceRequest() bool {
 
 func (w *Work) IsWorkerResource() bool {
 	return w.Spec.Replicas == WORKER_RESOURCE_REPLICAS
+}
+
+func (w *Work) HasClusterSelector() bool {
+	return len(w.Spec.ClusterSelector) > 0
 }
 
 // WorkloadTemplate represents the manifest workload to be deployed on worker cluster

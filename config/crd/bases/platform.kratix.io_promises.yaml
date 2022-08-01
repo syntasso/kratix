@@ -35,6 +35,10 @@ spec:
           spec:
             description: PromiseSpec defines the desired state of Promise
             properties:
+              clusterSelector:
+                additionalProperties:
+                  type: string
+                type: object
               workerClusterResources:
                 items:
                   description: Resources represents the manifest workload to be deployed

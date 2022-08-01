@@ -4,6 +4,8 @@ kind: Promise
 metadata:
   name: redis-promise
 spec:
+  clusterSelector: 
+    environment: dev
   xaasRequestPipeline:
     - syntasso/kustomize-redis
   workerClusterResources:

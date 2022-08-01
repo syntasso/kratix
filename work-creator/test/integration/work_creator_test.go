@@ -18,19 +18,14 @@ import (
 
 var _ = Describe("WorkCreator", func() {
 
-	var inputDirectory = getInputDirectory()
-
 	When("WorkCreator Executes", func() {
-		var workResource platformv1alpha1.Work
+		var workCreator pipeline.WorkCreator
 
 		BeforeEach(func() {
 			//don't run main
-			workCreator := pipeline.WorkCreator{
+			workCreator = pipeline.WorkCreator{
 				K8sClient: k8sClient,
 			}
-
-			err := workCreator.Execute(inputDirectory, getWorkResourceIdentifer())
-			Expect(err).ToNot(HaveOccurred())
 
 			// //to test main
 			// mainPath, err := gexec.Build("github.com/syntasso/kratix/work-creator/pipeline/cmd")
@@ -46,44 +41,76 @@ var _ = Describe("WorkCreator", func() {
 
 		})
 
-		It("has a correctly configured Work resource", func() {
-			workResource = getCreatedWorkResource()
-			Expect(workResource.GetName()).To(Equal(getWorkResourceIdentifer()))
-			//Expect(workResource.Kind).To(Equal("Work"))
-			//Expect(workResource.APIVersion).To(Equal("platform.kratix.io/v1alpha1"))
-		})
+		Context("complete set of inputs", func() {
+			var workResource platformv1alpha1.Work
+			var inputDirectory string
 
-		Describe("the Work resource manifests list", func() {
-			It("has three items", func() {
-				expectedManifestsCount := len(getExpectedManifests())
-				Expect(workResource.Spec.Workload.Manifests).To(HaveLen(expectedManifestsCount))
+			BeforeEach(func() {
+				inputDirectory = filepath.Join(getRootDirectory(), "complete")
+				err := workCreator.Execute(inputDirectory, getWorkResourceIdentifer())
+				Expect(err).ToNot(HaveOccurred())
+
+				workResource = getCreatedWorkResource()
 			})
 
-			for _, expectedManifest := range getExpectedManifests() {
-				It("contains the expected resource with name: "+expectedManifest.GetName(), func() {
-					actualManifests := workResource.Spec.Workload.Manifests
-					Expect(actualManifests).To(ContainManifest(expectedManifest))
+			It("has a correctly configured Work resource", func() {
+				Expect(workResource.GetName()).To(Equal(getWorkResourceIdentifer()))
+				Expect(workResource.Spec.ClusterSelector).To(Equal(
+					map[string]string{
+						"environment": "dev",
+						"region":      "europe",
+					},
+				))
+			})
+
+			Describe("the Work resource manifests list", func() {
+				It("has three items", func() {
+					expectedManifestsCount := 3 // This is the number of valid yaml resources defined in the input directory
+					Expect(workResource.Spec.Workload.Manifests).To(HaveLen(expectedManifestsCount))
 				})
-			}
+
+				for _, expectedManifest := range getExpectedManifests(inputDirectory) {
+					It("contains the expected resource with name: "+expectedManifest.GetName(), func() {
+						actualManifests := workResource.Spec.Workload.Manifests
+						Expect(actualManifests).To(ContainManifest(expectedManifest))
+					})
+				}
+			})
+		})
+
+		Context("with empty metadata directory", func() {
+			BeforeEach(func() {
+				err := workCreator.Execute(filepath.Join(getRootDirectory(), "empty-metadata"), getWorkResourceIdentifer())
+				Expect(err).ToNot(HaveOccurred())
+			})
+
+			It("does not try to apply the metadata/cluster-selectors.yaml when its not present", func() {
+				workResource := getCreatedWorkResource()
+				Expect(workResource.GetName()).To(Equal(getWorkResourceIdentifer()))
+				Expect(workResource.Spec.ClusterSelector).To(Equal(
+					map[string]string{
+						"environment": "dev",
+					},
+				))
+			})
 		})
 	})
 })
 
-func getInputDirectory() string {
-	d, _ := filepath.Abs("samples")
+func getRootDirectory() string {
+	d, _ := filepath.Abs("samples/")
 	return d
 }
 
 // Returns a []unstructured.Unstructured created from all Yaml documents contained
-// in all files located in inputDirectory
-func getExpectedManifests() []unstructured.Unstructured {
-	inputDirectory := getInputDirectory()
+// in all files located in rootDirectory
+func getExpectedManifests(rootDirectory string) []unstructured.Unstructured {
+	inputDirectory := filepath.Join(rootDirectory, "/input")
 	files, _ := ioutil.ReadDir(inputDirectory)
 	ul := []unstructured.Unstructured{}
 
 	for _, fileInfo := range files {
 		fileName := filepath.Join(inputDirectory, fileInfo.Name())
-
 		file, err := os.Open(fileName)
 		Expect(err).ToNot(HaveOccurred())
 
@@ -95,6 +122,7 @@ func getExpectedManifests() []unstructured.Unstructured {
 				//We reached the end of the file, move on to looking for the resource
 				break
 			} else {
+				Expect(err).To(BeNil())
 				//append the first resource to the resource slice, and go back through the loop
 				ul = append(ul, us)
 			}

@@ -1,5 +1,7 @@
 # Image URL to use all building/pushing image targets
 WC_IMG ?= syntasso/kratix-platform-work-creator:dev
+# Enable buildkit for docker
+DOCKER_BUILDKIT ?= 1
 
 # Setting SHELL to bash allows bash commands to be executed by recipes.
 # This is a requirement for 'setup-envtest.sh' in the test target.
@@ -13,15 +15,22 @@ help: ## Display this help.
 ##@ Development
 
 ENVTEST_ASSETS_DIR=$(shell pwd)/../testbin
-int-test: ## Run tests.
+.PHONY: test
+test: ## Run tests.
 	mkdir -p ${ENVTEST_ASSETS_DIR}
 	test -f ${ENVTEST_ASSETS_DIR}/setup-envtest.sh || curl -sSLo ${ENVTEST_ASSETS_DIR}/setup-envtest.sh https://raw.githubusercontent.com/kubernetes-sigs/controller-runtime/v0.7.2/hack/setup-envtest.sh
-	source ${ENVTEST_ASSETS_DIR}/setup-envtest.sh; fetch_envtest_tools $(ENVTEST_ASSETS_DIR); setup_envtest_env $(ENVTEST_ASSETS_DIR); ACK_GINKGO_DEPRECATIONS=1.16.4 ginkgo -r  --coverprofile cover.out
+	source ${ENVTEST_ASSETS_DIR}/setup-envtest.sh;  ENVTEST_K8S_VERSION=1.24.2 fetch_envtest_tools $(ENVTEST_ASSETS_DIR); setup_envtest_env $(ENVTEST_ASSETS_DIR); CK_GINKGO_DEPRECATIONS=1.16.4 go run github.com/onsi/ginkgo/ginkgo ./test/integration/ -r  --coverprofile cover.out
+
+kind-load-image: docker-build ## Load locally built image into KinD, use export WC_IMG=syntasso/kratix-platform-work-creator:dev
+	kind load docker-image ${WC_IMG} --name platform
 
 ##@ Build
 
 docker-build: test ## Build docker image with work-creator binary
-	docker build -f ../DockerfileWorkCreator -t ${WC_IMG} ../
+	docker build -f ../DockerfileWorkCreator --tag ${WC_IMG} ../
 
-docker-push: ## Push docker image with work-creator binary
-	docker push ${WC_IMG}
+docker-build-and-push: ## Push multi-arch docker image with the manager.
+	if ! docker buildx ls | grep -q "work-creator-image-builder"; then \
+		docker buildx create --name work-creator-image-builder; \
+	fi;
+	docker buildx build --builder work-creator-image-builder --push --platform linux/arm64,linux/amd64 --file ../DockerfileWorkCreator --tag ${WC_IMG} ../

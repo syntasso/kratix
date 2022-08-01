@@ -27,10 +27,14 @@ spec:
         description: Cluster is the Schema for the clusters API
         properties:
           apiVersion:
-            description: 'APIVersion defines the versioned schema of this representation of an object. Servers should convert recognized schemas to the latest internal value, and may reject unrecognized values. More info: https://git.k8s.io/community/contributors/devel/sig-architecture/api-conventions.md#resources'
+            description: 'APIVersion defines the versioned schema of this representation
+              of an object. Servers should convert recognized schemas to the latest
+              internal value, and may reject unrecognized values. More info: https://git.k8s.io/community/contributors/devel/sig-architecture/api-conventions.md#resources'
             type: string
           kind:
-            description: 'Kind is a string value representing the REST resource this object represents. Servers may infer this from the endpoint the client submits requests to. Cannot be updated. In CamelCase. More info: https://git.k8s.io/community/contributors/devel/sig-architecture/api-conventions.md#types-kinds'
+            description: 'Kind is a string value representing the REST resource this
+              object represents. Servers may infer this from the endpoint the client
+              submits requests to. Cannot be updated. In CamelCase. More info: https://git.k8s.io/community/contributors/devel/sig-architecture/api-conventions.md#types-kinds'
             type: string
           metadata:
             type: object
@@ -83,19 +87,28 @@ spec:
         description: Promise is the Schema for the promises API
         properties:
           apiVersion:
-            description: 'APIVersion defines the versioned schema of this representation of an object. Servers should convert recognized schemas to the latest internal value, and may reject unrecognized values. More info: https://git.k8s.io/community/contributors/devel/sig-architecture/api-conventions.md#resources'
+            description: 'APIVersion defines the versioned schema of this representation
+              of an object. Servers should convert recognized schemas to the latest
+              internal value, and may reject unrecognized values. More info: https://git.k8s.io/community/contributors/devel/sig-architecture/api-conventions.md#resources'
             type: string
           kind:
-            description: 'Kind is a string value representing the REST resource this object represents. Servers may infer this from the endpoint the client submits requests to. Cannot be updated. In CamelCase. More info: https://git.k8s.io/community/contributors/devel/sig-architecture/api-conventions.md#types-kinds'
+            description: 'Kind is a string value representing the REST resource this
+              object represents. Servers may infer this from the endpoint the client
+              submits requests to. Cannot be updated. In CamelCase. More info: https://git.k8s.io/community/contributors/devel/sig-architecture/api-conventions.md#types-kinds'
             type: string
           metadata:
             type: object
           spec:
             description: PromiseSpec defines the desired state of Promise
             properties:
+              clusterSelector:
+                additionalProperties:
+                  type: string
+                type: object
               workerClusterResources:
                 items:
-                  description: Resources represents the manifest workload to be deployed on worker cluster
+                  description: Resources represents the manifest workload to be deployed
+                    on worker cluster
                   type: object
                   x-kubernetes-embedded-resource: true
                   x-kubernetes-preserve-unknown-fields: true
@@ -106,7 +119,8 @@ spec:
                 x-kubernetes-embedded-resource: true
                 x-kubernetes-preserve-unknown-fields: true
               xaasRequestPipeline:
-                description: Array of Image tags to transform from input request custom resource to output resource(s)
+                description: Array of Image tags to transform from input request custom
+                  resource to output resource(s)
                 items:
                   type: string
                 type: array
@@ -148,10 +162,14 @@ spec:
         description: WorkPlacement is the Schema for the workplacements API
         properties:
           apiVersion:
-            description: 'APIVersion defines the versioned schema of this representation of an object. Servers should convert recognized schemas to the latest internal value, and may reject unrecognized values. More info: https://git.k8s.io/community/contributors/devel/sig-architecture/api-conventions.md#resources'
+            description: 'APIVersion defines the versioned schema of this representation
+              of an object. Servers should convert recognized schemas to the latest
+              internal value, and may reject unrecognized values. More info: https://git.k8s.io/community/contributors/devel/sig-architecture/api-conventions.md#resources'
             type: string
           kind:
-            description: 'Kind is a string value representing the REST resource this object represents. Servers may infer this from the endpoint the client submits requests to. Cannot be updated. In CamelCase. More info: https://git.k8s.io/community/contributors/devel/sig-architecture/api-conventions.md#types-kinds'
+            description: 'Kind is a string value representing the REST resource this
+              object represents. Servers may infer this from the endpoint the client
+              submits requests to. Cannot be updated. In CamelCase. More info: https://git.k8s.io/community/contributors/devel/sig-architecture/api-conventions.md#types-kinds'
             type: string
           metadata:
             type: object
@@ -201,26 +219,40 @@ spec:
         description: Work is the Schema for the works API
         properties:
           apiVersion:
-            description: 'APIVersion defines the versioned schema of this representation of an object. Servers should convert recognized schemas to the latest internal value, and may reject unrecognized values. More info: https://git.k8s.io/community/contributors/devel/sig-architecture/api-conventions.md#resources'
+            description: 'APIVersion defines the versioned schema of this representation
+              of an object. Servers should convert recognized schemas to the latest
+              internal value, and may reject unrecognized values. More info: https://git.k8s.io/community/contributors/devel/sig-architecture/api-conventions.md#resources'
             type: string
           kind:
-            description: 'Kind is a string value representing the REST resource this object represents. Servers may infer this from the endpoint the client submits requests to. Cannot be updated. In CamelCase. More info: https://git.k8s.io/community/contributors/devel/sig-architecture/api-conventions.md#types-kinds'
+            description: 'Kind is a string value representing the REST resource this
+              object represents. Servers may infer this from the endpoint the client
+              submits requests to. Cannot be updated. In CamelCase. More info: https://git.k8s.io/community/contributors/devel/sig-architecture/api-conventions.md#types-kinds'
             type: string
           metadata:
             type: object
           spec:
             description: WorkSpec defines the desired state of Work
             properties:
+              clusterSelector:
+                additionalProperties:
+                  type: string
+                description: ClusterSelector is the selector to use for selecting
+                  the worker cluster
+                type: object
               replicas:
-                description: -1 denotes Cluster Worker Resources, 1 denotes Resource Request
+                description: -1 denotes Cluster Worker Resources, 1 denotes Resource
+                  Request
                 type: integer
               workload:
-                description: Workload represents the manifest workload to be deployed on worker cluster
+                description: Workload represents the manifest workload to be deployed
+                  on worker cluster
                 properties:
                   manifests:
-                    description: Manifests represents a list of kuberenetes resources to be deployed on the worker cluster.
+                    description: Manifests represents a list of kuberenetes resources
+                      to be deployed on the worker cluster.
                     items:
-                      description: Manifest represents a resource to be deployed on worker cluster
+                      description: Manifest represents a resource to be deployed on
+                        worker cluster
                       type: object
                       x-kubernetes-embedded-resource: true
                       x-kubernetes-preserve-unknown-fields: true

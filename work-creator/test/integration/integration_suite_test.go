@@ -1,6 +1,7 @@
 package integration_test
 
 import (
+	"context"
 	"fmt"
 	"path/filepath"
 	"testing"
@@ -52,6 +53,13 @@ var _ = BeforeSuite(func() {
 var _ = AfterSuite(func() {
 	By("tearing down the test environment")
 	testEnv.Stop()
+})
+
+var _ = AfterEach(func() {
+	Expect(k8sClient.DeleteAllOf(context.Background(), &platformv1alpha1.Cluster{}, client.InNamespace("default"))).To(Succeed())
+	Expect(k8sClient.DeleteAllOf(context.Background(), &platformv1alpha1.Promise{}, client.InNamespace("default"))).To(Succeed())
+	Expect(k8sClient.DeleteAllOf(context.Background(), &platformv1alpha1.Work{}, client.InNamespace("default"))).To(Succeed())
+	Expect(k8sClient.DeleteAllOf(context.Background(), &platformv1alpha1.WorkPlacement{}, client.InNamespace("default"))).To(Succeed())
 })
 
 func ContainManifest(expectedManifest unstructured.Unstructured) types.GomegaMatcher {
