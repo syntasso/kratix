@@ -4,6 +4,7 @@ import (
 	"context"
 	"io"
 	"io/ioutil"
+	"os"
 
 	"github.com/minio/minio-go/v7"
 	"github.com/minio/minio-go/v7/pkg/credentials"
@@ -69,12 +70,19 @@ const (
 	POSTGRES_CRD                  = "../../config/samples/postgres/postgres-promise.yaml"
 	//Targets All clusters
 	POSTGRES_RESOURCE_REQUEST = "../../config/samples/postgres/postgres-resource-request.yaml"
+	// Targets the platform cluster
+	PavedPathCRD             = "../../samples/paved-path-demo/paved-path-demo-promise.yaml"
+	PavedPathResourceRequest = "../../samples/paved-path-demo/paved-path-demo-resource-request.yaml"
 
 	//Clusters
 	PLATFORM_WORKER_CLUSTER_1 = "./assets/platform_worker_cluster_1.yaml"
 	DEV_WORKER_CLUSTER_1      = "./assets/worker_cluster_1.yaml"
 	DEV_WORKER_CLUSTER_2      = "./assets/worker_cluster_2.yaml"
 	PRODUCTION_WORKER_CLUSTER = "./assets/worker_cluster_3.yaml"
+
+	// Flux related files
+	GitOpsTKInstall         = "../../hack/worker/gitops-tk-install.yaml"
+	PlatformGitOpsResources = "./assets/platform_worker_cluster_1_gitops-tk-resources.yaml"
 )
 
 var _ = Describe("kratix Platform Integration Test", func() {
@@ -95,6 +103,12 @@ var _ = Describe("kratix Platform Integration Test", func() {
 
 		By("A Cluster labelled as production is registered")
 		registerWorkerCluster("worker-cluster-3", PRODUCTION_WORKER_CLUSTER)
+
+		By("registering the platform cluster")
+		registerWorkerCluster("platform-cluster-worker-1", PLATFORM_WORKER_CLUSTER_1)
+
+		By("installing flux on the platform")
+		installFlux("platform-cluster-worker-1", PlatformGitOpsResources)
 	})
 
 	Describe("Redis Promise lifecycle", func() {
@@ -282,6 +296,182 @@ var _ = Describe("kratix Platform Integration Test", func() {
 			})
 		})
 	})
+
+	Describe("paved path promise lifecycle", func() {
+		Describe("applying the promise", func() {
+			var ppd_gvk = schema.GroupVersionKind{
+				Group:   "example.promise.syntasso.io",
+				Version: "v1",
+				Kind:    "paved-path-demo",
+			}
+
+			It("places the resources and crds on the right clusters", func() {
+				applyPromiseCRD(PavedPathCRD)
+
+				By("creates the a paved-path-demo api resource", func() {
+					Eventually(func() bool {
+						return isAPIResourcePresent(ppd_gvk)
+					}, timeout, interval).Should(BeTrue())
+				})
+
+				By("creating the paved-path-demo resources on the platform cluster", func() {
+					ppdWorkload := types.NamespacedName{
+						Name:      "paved-path-demo-promise-default",
+						Namespace: "default",
+					}
+					resourceKind := "Promise"
+
+					var testCases = []struct {
+						cluster string
+						exists  bool
+					}{
+						{cluster: PLATFORM_WORKER_CLUSTER_1, exists: true},
+						{cluster: DEV_WORKER_CLUSTER_1, exists: false},
+						{cluster: DEV_WORKER_CLUSTER_2, exists: false},
+						{cluster: PRODUCTION_WORKER_CLUSTER, exists: false},
+					}
+
+					Eventually(func(g Gomega) {
+						for _, testCase := range testCases {
+							knativeResource, _ := workerHasResource(ppdWorkload, "knative-serving-promise", resourceKind, testCase.cluster)
+							postgresResource, _ := workerHasResource(ppdWorkload, "ha-postgres-promise", resourceKind, testCase.cluster)
+							g.Expect(knativeResource).To(Equal(testCase.exists), testCase.cluster)
+							g.Expect(postgresResource).To(Equal(testCase.exists), testCase.cluster)
+						}
+					}, timeout, interval).Should(Succeed())
+				})
+
+				By("creating the knative crds on the dev clusters", func() {
+					resourceName := "services.serving.knative.dev"
+					resourceKind := "CustomResourceDefinition"
+					knativeWorkload := types.NamespacedName{
+						Name:      "knative-serving-promise-default",
+						Namespace: "default",
+					}
+					Eventually(func(g Gomega) {
+						platformHasCrd, _ := workerHasCRD(knativeWorkload, resourceName, resourceKind, PLATFORM_WORKER_CLUSTER_1)
+						prodClusterHasCrd, _ := workerHasCRD(knativeWorkload, resourceName, resourceKind, PRODUCTION_WORKER_CLUSTER)
+						devClusterHasCrd, _ := workerHasCRD(knativeWorkload, resourceName, resourceKind, DEV_WORKER_CLUSTER_1)
+						devCluster2HasCrd, _ := workerHasCRD(knativeWorkload, resourceName, resourceKind, DEV_WORKER_CLUSTER_2)
+
+						g.Expect(platformHasCrd).To(BeFalse(), "platform cluster should not have the crds")
+						g.Expect(prodClusterHasCrd).To(BeFalse(), "prod cluster should not have the crds")
+						g.Expect(devClusterHasCrd).To(BeTrue(), "dev cluster 1 should have the crds")
+						g.Expect(devCluster2HasCrd).To(BeTrue(), "dev cluster 2 should have the crds")
+					}, timeout, interval).Should(Succeed())
+				})
+
+				By("creating the postgres resources on the dev clusters", func() {
+					resourceName := "postgres-operator"
+					resourceKind := "ConfigMap"
+					postgresWorkload := types.NamespacedName{
+						Name:      "ha-postgres-promise-default",
+						Namespace: "default",
+					}
+					Eventually(func(g Gomega) {
+						platformHasResource, _ := workerHasResource(postgresWorkload, resourceName, resourceKind, PLATFORM_WORKER_CLUSTER_1)
+						prodClusterHasCrd, _ := workerHasResource(postgresWorkload, resourceName, resourceKind, PRODUCTION_WORKER_CLUSTER)
+						devClusterHasResource, _ := workerHasResource(postgresWorkload, resourceName, resourceKind, DEV_WORKER_CLUSTER_1)
+						devCluster2HasResource, _ := workerHasResource(postgresWorkload, resourceName, resourceKind, DEV_WORKER_CLUSTER_2)
+
+						g.Expect(platformHasResource).To(BeFalse(), "platform cluster should not have the crds")
+						g.Expect(prodClusterHasCrd).To(BeFalse(), "prod cluster should not have the crds")
+						g.Expect(devClusterHasResource).To(BeTrue(), "dev cluster 1 should have the crds")
+						g.Expect(devCluster2HasResource).To(BeTrue(), "dev cluster 2 should have the crds")
+					}, timeout, interval).Should(Succeed())
+				})
+			})
+		})
+
+		Describe("applying a paved-path-demo resource request", func() {
+			var ppdPromiseWork = types.NamespacedName{
+				Name:      "paved-path-demo-promise-default",
+				Namespace: "default",
+			}
+
+			It("creates the instances on the dev clusters", func() {
+				applyResourceRequest(PavedPathResourceRequest)
+
+				By("triggering the request pipeline", func() {
+					Eventually(func() bool {
+						return hasResourceBeenApplied(work_gvk, ppdPromiseWork)
+					}, timeout, interval).Should(BeTrue(), "paved path demo pipeline has not been triggered")
+				})
+
+				By("creating a work for the platform cluster", func() {
+					Eventually(func(g Gomega) {
+						var work platformv1alpha1.Work
+						k8sClient.Get(context.Background(), ppdPromiseWork, &work)
+						g.Expect(work.Spec.ClusterSelector).To(Equal(
+							map[string]string{
+								"environment": "platform",
+							},
+						))
+					}, timeout, interval).Should(Succeed(), "paved path promise work does not have the right cluster selectors")
+				})
+
+				By("creating two works for the dev clusters", func() {
+					testCases := []struct {
+						name string
+					}{
+						{name: "knative-serving-promise-default-default-knative-serving"},
+						{name: "ha-postgres-promise-default-default-acid-minimal-cluster"},
+					}
+
+					for _, testCase := range testCases {
+						Eventually(func(g Gomega) {
+							expectedWork := types.NamespacedName{
+								Name:      testCase.name,
+								Namespace: "default",
+							}
+							var work platformv1alpha1.Work
+							k8sClient.Get(context.Background(), expectedWork, &work)
+							g.Expect(work.Spec.ClusterSelector).To(Equal(
+								map[string]string{
+									"environment": "dev",
+								},
+							))
+						}, timeout, interval).Should(Succeed())
+					}
+				})
+
+				By("placing the resource yamls at one of the dev cluster buckets", func() {
+					testCases := []struct {
+						name         string
+						kind         string
+						metadataName string
+					}{
+						{
+							name:         "ha-postgres-promise-default-default-acid-minimal-cluster",
+							kind:         "postgresql",
+							metadataName: "acid-minimal-cluster",
+						},
+						{
+							name:         "knative-serving-promise-default-default-knative-serving",
+							kind:         "Namespace",
+							metadataName: "kourier-system",
+						},
+					}
+
+					for _, testCase := range testCases {
+						Eventually(func(g Gomega) {
+							workloadNamespacedName := types.NamespacedName{
+								Name:      testCase.name,
+								Namespace: "default",
+							}
+							devClusterHasResources, _ := workerHasResource(workloadNamespacedName, testCase.metadataName, testCase.kind, DEV_WORKER_CLUSTER_1)
+							devCluster2HasResources, _ := workerHasResource(workloadNamespacedName, testCase.metadataName, testCase.kind, DEV_WORKER_CLUSTER_2)
+							platformClusterHasResources, _ := workerHasResource(workloadNamespacedName, testCase.metadataName, testCase.kind, PLATFORM_WORKER_CLUSTER_1)
+							productionClusterHasResources, _ := workerHasResource(workloadNamespacedName, testCase.metadataName, testCase.kind, PRODUCTION_WORKER_CLUSTER)
+
+							g.Expect(devClusterHasResources || devCluster2HasResources).To(BeTrue(), "one of the dev cluster should have the resources")
+							g.Expect(platformClusterHasResources && productionClusterHasResources).To(BeFalse(), "neither prod nor platform cluster should have the resources")
+						}, timeout, interval).Should(Succeed())
+					}
+				})
+			})
+		})
+	})
 })
 
 func registerWorkerCluster(clusterName, clusterConfig string) {
@@ -295,6 +485,20 @@ func registerWorkerCluster(clusterName, clusterConfig string) {
 	Eventually(func() bool {
 		return hasResourceBeenApplied(cluster_gvk, expectedName)
 	}, timeout, interval).Should(BeTrue())
+}
+
+func installFlux(clusterName string, gitopsResourcePath string) {
+	kubeCreate(GitOpsTKInstall)
+	kubeCreate(gitopsResourcePath)
+
+	Eventually(func(g Gomega) {
+		namespace := &v1.Namespace{}
+		resource := types.NamespacedName{
+			Name: "kratix-worker-system",
+		}
+		k8sClient.Get(context.Background(), resource, namespace)
+		g.Expect(err).ToNot(HaveOccurred())
+	}, "120s", interval).Should(Succeed(), "timed out waiting for `kratix-worker-system` namespace (on "+clusterName+")")
 }
 
 func getClusterConfigPath(clusterConfig string) string {
@@ -381,17 +585,39 @@ func isAPIResourcePresent(gvk schema.GroupVersionKind) bool {
 }
 
 func applyResourceRequest(filepath string) {
-	yamlFile, err := ioutil.ReadFile(filepath)
+	kubeCreate(filepath, "default")
+}
+
+func kubeCreate(filepath string, opts ...string) {
+	yamlFile, err := os.Open(filepath)
 	Expect(err).ToNot(HaveOccurred())
 
-	request := &unstructured.Unstructured{}
-	err = yaml.Unmarshal(yamlFile, request)
-	Expect(err).ToNot(HaveOccurred())
+	resources := []*unstructured.Unstructured{}
+	decoder := yaml.NewYAMLOrJSONDecoder(yamlFile, 2048)
+	for {
+		us := unstructured.Unstructured{}
 
-	request.SetNamespace("default")
-	err = k8sClient.Create(context.Background(), request)
-	if !errors.IsAlreadyExists(err) {
-		Expect(err).ToNot(HaveOccurred())
+		err := decoder.Decode(&us)
+		if err != nil {
+			if err == io.EOF {
+				break
+			}
+			Fail(err.Error())
+		}
+		if len(us.Object) == 0 {
+			continue
+		}
+		resources = append(resources, &us)
+	}
+
+	for _, resource := range resources {
+		if len(opts) != 0 {
+			resource.SetNamespace(opts[0])
+		}
+		err = k8sClient.Create(context.Background(), resource)
+		if err != nil && !errors.IsAlreadyExists(err) {
+			Fail(err.Error())
+		}
 	}
 }
 

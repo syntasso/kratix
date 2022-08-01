@@ -79,7 +79,7 @@ deploy-int-test-env: create-int-test-infra build-and-load-int-test-images ## Bui
 	make deploy
 	make install-minio
 
-int-test: generate fmt vet deploy-int-test-env install-flux-on-platform ## Run integrations tests.
+int-test: generate fmt vet deploy-int-test-env ## Run integrations tests.
 	CK_GINKGO_DEPRECATIONS=1.16.4 go run github.com/onsi/ginkgo/ginkgo ./test/integration/  -r  --coverprofile cover.out
 
 kind-load-image: docker-build ## Load locally built image into KinD, use export IMG=syntasso/kratix-platform:${VERSION}
