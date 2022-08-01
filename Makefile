@@ -74,15 +74,15 @@ create-int-test-infra: delete-int-test-infra ## Builds and runs pre-reqs to run 
 	kind create cluster --name platform --config <(echo "{kind: Cluster, apiVersion: kind.x-k8s.io/v1alpha4, nodes: [{role: control-plane, extraPortMappings: [{containerPort: 31337, hostPort: 31337}]}]}")
 
 deploy-int-test-env: create-int-test-infra build-and-load-int-test-images ## Builds and deploys dev version software on int-test infrastructure
-	IMG=syntasso/kratix-platform:dev make kind-load-image
-	WC_IMG=syntasso/kratix-platform-work-creator:dev make -C work-creator kind-load-image
+	IMG=syntasso/kratix-platform:${VERSION} make kind-load-image
+	WC_IMG=syntasso/kratix-platform-work-creator:${VERSION} make -C work-creator kind-load-image
 	make deploy
 	make install-minio
 
 int-test: generate fmt vet deploy-int-test-env install-flux-on-platform ## Run integrations tests.
 	CK_GINKGO_DEPRECATIONS=1.16.4 go run github.com/onsi/ginkgo/ginkgo ./test/integration/  -r  --coverprofile cover.out
 
-kind-load-image: docker-build ## Load locally built image into KinD, use export IMG=syntasso/kratix-platform:dev
+kind-load-image: docker-build ## Load locally built image into KinD, use export IMG=syntasso/kratix-platform:${VERSION}
 	kind load docker-image ${IMG} --name platform
 
 # ENVTEST_K8S_VERSION refers to the version of kubebuilder assets to be downloaded by envtest binary.
