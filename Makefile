@@ -85,6 +85,11 @@ int-test: generate fmt vet deploy-int-test-env ## Run integrations tests.
 kind-load-image: docker-build ## Load locally built image into KinD, use export IMG=syntasso/kratix-platform:${VERSION}
 	kind load docker-image ${IMG} --name platform
 
+quick-start:
+	./scripts/quick-start.sh --recreate --local
+
+dev-env: quick-start install-flux-on-platform ## Sets up a local, developmenmt environment
+
 # ENVTEST_K8S_VERSION refers to the version of kubebuilder assets to be downloaded by envtest binary.
 ENVTEST_K8S_VERSION = 1.23
 # kubebuilder-tools does not yet support darwin/arm64. The following is a workaround (see https://github.com/kubernetes-sigs/controller-runtime/issues/1657)
