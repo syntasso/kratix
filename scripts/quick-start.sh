@@ -14,7 +14,6 @@ source "${ROOT}/scripts/utils.sh"
 
 RECREATE=false
 LOCAL_IMAGES=false
-WAIT="0s"
 
 usage() {
     echo -e "Usage: quick-start.sh [--help] [--recreate] [--local]"
@@ -41,7 +40,7 @@ load_options() {
       case "$opt" in
         'r') RECREATE=true ;;
         'h') usage ;;
-        'l') LOCAL_IMAGES=true; WAIT="0s" ;;
+        'l') LOCAL_IMAGES=true ;;
         *) usage 1 ;;
       esac
     done
@@ -138,8 +137,7 @@ install_kratix() {
 
     log -n "Creating platform cluster..."
     if ! run kind create cluster --name platform \
-        --config ${ROOT}/hack/platform/kind-minio-portforward.yaml \
-        --wait ${WAIT}
+        --config ${ROOT}/hack/platform/kind-minio-portforward.yaml
     then
         log "\tCould not create platform cluster"
     fi
