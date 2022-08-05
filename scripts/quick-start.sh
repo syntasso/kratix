@@ -101,8 +101,8 @@ build_and_load_local_images() {
     ) &
 
     (
-        docker build --tag syntasso/kratix-platform-work-creator:dev --file DockerfileWorkCreator
-        kind load docker-image syntasso/kratix-platform-work-creator:dev --platform
+        docker build --tag syntasso/kratix-platform-work-creator:dev --file DockerfileWorkCreator .
+        kind load docker-image syntasso/kratix-platform-work-creator:dev --name platform
     ) &
 
     wait
