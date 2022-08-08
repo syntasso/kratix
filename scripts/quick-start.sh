@@ -120,15 +120,7 @@ setup_worker_cluster() {
 }
 
 wait_for_minio() {
-    loops=0
-    set -x
-    while ! kubectl --context kind-platform get pods -n kratix-platform-system --selector run=minio --field-selector=status.phase=Running >/dev/null 2>&1; do
-        if (( loops > 20 )); then
-            exit 1
-        fi
-        sleep 5
-        loops=$(( loops + 1 ))
-    done
+    kubectl wait pod --context kind-platform -n kratix-platform-system --selector run=minio --for=condition=ready
     success_mark
 }
 
