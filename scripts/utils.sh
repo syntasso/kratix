@@ -2,6 +2,7 @@ RED=$'\033[1;31m'
 GREEN=$'\033[1;32m'
 BLUE=$'\033[1;34m'
 NOCOLOR=$'\033[0m'
+VERBOSE=false
 
 log() {
     echo -e $@
@@ -28,7 +29,11 @@ error() {
 }
 
 run() {
-    $@ >/dev/null 2>/dev/null & pid=$! # Process Id of the previous running command
+    stdout="$(mktemp)"
+    stderr="$(mktemp)"
+    trap "rm $stdout $stderr" EXIT
+
+    $@ > $stdout 2>$stderr & pid=$! # Process Id of the previous running command
 
     spin='-\|/'
 
@@ -49,6 +54,9 @@ run() {
         success_mark
     else
         error_mark
+        info "Combined output:"
+        cat $stdout $stderr
+        log
     fi
 
     return $exit_code

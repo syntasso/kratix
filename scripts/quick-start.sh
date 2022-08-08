@@ -14,6 +14,7 @@ source "${ROOT}/scripts/utils.sh"
 
 RECREATE=false
 LOCAL_IMAGES=false
+VERSION=${VERSION:-"main"}
 
 usage() {
     echo -e "Usage: quick-start.sh [--help] [--recreate] [--local]"
@@ -72,6 +73,14 @@ verify_prerequisites() {
     fi
     success_mark
 
+    log -n "Looking for distribution/kratix.yaml... "
+    if [ ! -f "${ROOT}/distribution/kratix.yaml" ]; then
+        error " not found"
+        log "\tEnsure you are on the $(info main) branch or run $(info make distribution)"
+        exit 1
+    fi
+    success_mark
+
     if ${RECREATE}; then
         log -n "Deleting pre-existing clusters..."
         run kind delete clusters platform worker
@@ -94,23 +103,33 @@ patch_kind_networking() {
     rm -f ${ROOT}/hack/worker/gitops-tk-resources.yaml-e
 }
 
+
+_build_kratix_image() {
+    docker build --tag syntasso/kratix-platform:${VERSION} --quiet --file ${ROOT}/Dockerfile ${ROOT} &&
+    kind load docker-image syntasso/kratix-platform:${VERSION} --name platform
+}
+
+_build_work_creator_image() {
+    docker build --tag syntasso/kratix-platform-work-creator:${VERSION} --quiet --file ${ROOT}/DockerfileWorkCreator ${ROOT} &&
+    kind load docker-image syntasso/kratix-platform-work-creator:${VERSION} --name platform
+}
+
 build_and_load_local_images() {
-    (
-        docker build --tag syntasso/kratix-platform:dev .
-        kind load docker-image syntasso/kratix-platform:dev --name platform
-    ) &
-
-    (
-        docker build --tag syntasso/kratix-platform-work-creator:dev --file DockerfileWorkCreator .
-        kind load docker-image syntasso/kratix-platform-work-creator:dev --name platform
-    ) &
-
-    wait $(jobs -p)
+    log -n "Building and loading Kratix image locally..."
+    if ! run _build_kratix_image; then
+        error "Failed to build Kratix image"
+        exit 1;
+    fi
+    log -n "Building and loading Work Creator image locally..."
+    if ! run _build_work_creator_image; then
+        error "Failed to build Work Creator image"
+        exit 1;
+    fi
 }
 
 setup_platform_cluster() {
-    kubectl --context kind-platform apply --filename "${KRATIX_DISTRIBUTION}"
     kubectl --context kind-platform apply --filename "${MINIO_INSTALL}"
+    kubectl --context kind-platform apply --filename "${KRATIX_DISTRIBUTION}"
 }
 
 setup_worker_cluster() {
@@ -144,12 +163,12 @@ install_kratix() {
     if ! run kind create cluster --name platform \
         --config ${ROOT}/hack/platform/kind-minio-portforward.yaml
     then
-        log "\tCould not create platform cluster"
+        error "Could not create platform cluster"
+        exit 1
     fi
 
     if ${LOCAL_IMAGES}; then
-        log -n "Building and loading images locally..."
-        run build_and_load_local_images
+        build_and_load_local_images
     fi
 
     log -n "Setting up platform cluster..."
@@ -159,7 +178,8 @@ install_kratix() {
 
     log -n "Creating worker cluster..."
     if ! run kind create cluster --name worker; then
-        log "\tCould not create worker cluster"
+        error "Could not create worker cluster"
+        exit 1
     fi
 
     log -n "Waiting for MinIO to be running..."
