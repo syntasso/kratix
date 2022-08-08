@@ -105,7 +105,7 @@ build_and_load_local_images() {
         kind load docker-image syntasso/kratix-platform-work-creator:dev --name platform
     ) &
 
-    wait
+    wait $(jobs -p)
 }
 
 setup_platform_cluster() {
@@ -117,6 +117,19 @@ setup_worker_cluster() {
     kubectl --context kind-platform apply --filename "${PLATFORM_WORKER}"
     kubectl --context kind-worker apply  --filename "${GITOPS_WORKER_INSTALL}"
     kubectl --context kind-worker apply --filename "${GITOPS_WORKER_RESOURCES}"
+}
+
+wait_for_minio() {
+    loops=0
+    set -x
+    while ! kubectl --context kind-platform get pods -n kratix-platform-system --selector run=minio --field-selector=status.phase=Running >/dev/null 2>&1; do
+        if (( loops > 20 )); then
+            exit 1
+        fi
+        sleep 5
+        loops=$(( loops + 1 ))
+    done
+    success_mark
 }
 
 wait_for_namespace() {
@@ -156,6 +169,9 @@ install_kratix() {
     if ! run kind create cluster --name worker; then
         log "\tCould not create worker cluster"
     fi
+
+    log -n "Waiting for MinIO to be running..."
+    run wait_for_minio
 
     log -n "Setting up worker cluster..."
     run setup_worker_cluster
