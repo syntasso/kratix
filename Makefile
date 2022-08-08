@@ -88,7 +88,7 @@ kind-load-image: docker-build ## Load locally built image into KinD, use export 
 quick-start:
 	./scripts/quick-start.sh --recreate --local
 
-dev-env: quick-start install-flux-on-platform ## Sets up a local, developmenmt environment
+dev-env: distribution quick-start install-flux-on-platform ## Tears down existing resources and sets up a local development environment
 
 # ENVTEST_K8S_VERSION refers to the version of kubebuilder assets to be downloaded by envtest binary.
 ENVTEST_K8S_VERSION = 1.23
