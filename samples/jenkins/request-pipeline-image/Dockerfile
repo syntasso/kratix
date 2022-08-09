@@ -1,7 +1,10 @@
-FROM line/kubectl-kustomize:1.24.2-4.5.5
-RUN [ "mkdir", "/transfer" ]
+FROM "mikefarah/yq:4"
+RUN [ "mkdir", "/tmp/transfer" ]
 
-ADD jenkins_instance.yaml /transfer/jenkins_instance.yaml
-ADD kustomization.yaml /transfer/kustomization.yaml
+ADD execute-pipeline.sh execute-pipeline.sh
+ADD jenkins_instance.yaml /tmp/transfer/jenkins_instance.yaml
+ADD service_account.yaml /tmp/transfer/service_account.yaml
 
-CMD [ "-c", "cp -r /transfer/* /input/; kustomize build /input > /output/output.yaml" ]
+CMD [ "sh", "-c", "./execute-pipeline.sh"]
+ENTRYPOINT []
+

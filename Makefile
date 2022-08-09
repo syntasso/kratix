@@ -79,11 +79,16 @@ deploy-int-test-env: create-int-test-infra build-and-load-int-test-images ## Bui
 	make deploy
 	make install-minio
 
-int-test: generate fmt vet deploy-int-test-env install-flux-on-platform ## Run integrations tests.
+int-test: generate fmt vet deploy-int-test-env ## Run integrations tests.
 	CK_GINKGO_DEPRECATIONS=1.16.4 go run github.com/onsi/ginkgo/ginkgo ./test/integration/  -r  --coverprofile cover.out
 
 kind-load-image: docker-build ## Load locally built image into KinD, use export IMG=syntasso/kratix-platform:${VERSION}
 	kind load docker-image ${IMG} --name platform
+
+quick-start:
+	VERSION=dev DOCKER_BUILDKIT=1 ./scripts/quick-start.sh --recreate --local
+
+dev-env: distribution quick-start install-flux-on-platform ## Tears down existing resources and sets up a local development environment
 
 # ENVTEST_K8S_VERSION refers to the version of kubebuilder assets to be downloaded by envtest binary.
 ENVTEST_K8S_VERSION = 1.23
