@@ -54,9 +54,11 @@ run() {
         success_mark
     else
         error_mark
-        info "Combined output:"
-        cat $stdout $stderr
-        log
+        if [[ -s "$stdout" || -s "$stderr" ]]; then
+            info "Combined output:"
+            cat $stdout $stderr
+            log
+        fi
     fi
 
     return $exit_code

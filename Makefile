@@ -86,7 +86,7 @@ kind-load-image: docker-build ## Load locally built image into KinD, use export 
 	kind load docker-image ${IMG} --name platform
 
 quick-start:
-	VERSION=dev ./scripts/quick-start.sh --recreate --local
+	VERSION=dev DOCKER_BUILDKIT=1 ./scripts/quick-start.sh --recreate --local
 
 dev-env: distribution quick-start install-flux-on-platform ## Tears down existing resources and sets up a local development environment
 

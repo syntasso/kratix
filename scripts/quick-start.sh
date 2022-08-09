@@ -3,6 +3,7 @@
 set -eu
 
 ROOT=$( cd -- "$( dirname -- "${BASH_SOURCE[0]}" )/.." &> /dev/null && pwd )
+source "${ROOT}/scripts/utils.sh"
 
 KRATIX_DISTRIBUTION="${ROOT}/distribution/kratix.yaml"
 MINIO_INSTALL="${ROOT}/hack/platform/minio-install.yaml"
@@ -10,11 +11,10 @@ PLATFORM_WORKER="${ROOT}/config/samples/platform_v1alpha1_worker_cluster.yaml"
 GITOPS_WORKER_INSTALL="${ROOT}/hack/worker/gitops-tk-install.yaml"
 GITOPS_WORKER_RESOURCES="${ROOT}/hack/worker/gitops-tk-resources.yaml"
 
-source "${ROOT}/scripts/utils.sh"
-
 RECREATE=false
 LOCAL_IMAGES=false
-VERSION=${VERSION:-"main"}
+VERSION=${VERSION:-"$(git branch --show-current)"}
+DOCKER_BUILDKIT="${DOCKER_BUILDKIT:-1}"
 
 usage() {
     echo -e "Usage: quick-start.sh [--help] [--recreate] [--local]"
@@ -46,6 +46,11 @@ load_options() {
       esac
     done
     shift $(expr $OPTIND - 1)
+
+    # Always build local images when running from `dev`
+    if [ "${VERSION}" = "dev" ]; then
+        LOCAL_IMAGES=true
+    fi
 }
 
 verify_prerequisites() {
@@ -115,11 +120,14 @@ _build_work_creator_image() {
 }
 
 build_and_load_local_images() {
+    export DOCKER_BUILDKIT
+
     log -n "Building and loading Kratix image locally..."
     if ! run _build_kratix_image; then
         error "Failed to build Kratix image"
         exit 1;
     fi
+
     log -n "Building and loading Work Creator image locally..."
     if ! run _build_work_creator_image; then
         error "Failed to build Work Creator image"
@@ -139,21 +147,19 @@ setup_worker_cluster() {
 }
 
 wait_for_minio() {
-    kubectl wait pod --context kind-platform -n kratix-platform-system --selector run=minio --for=condition=ready
-    success_mark
+    kubectl wait pod --context kind-platform -n kratix-platform-system --selector run=minio --for=condition=ready --timeout=60s
 }
 
 wait_for_namespace() {
     loops=0
-    set -x
     while ! kubectl --context kind-worker get namespace kratix-worker-system >/dev/null 2>&1; do
         if (( loops > 20 )); then
-            exit 1
+            return 1
         fi
         sleep 5
         loops=$(( loops + 1 ))
     done
-    success_mark
+    return 0
 }
 
 install_kratix() {
@@ -172,7 +178,10 @@ install_kratix() {
     fi
 
     log -n "Setting up platform cluster..."
-    run setup_platform_cluster
+    if ! run setup_platform_cluster; then
+        error " failed"
+        exit 1
+    fi
 
     patch_kind_networking
 
@@ -183,10 +192,18 @@ install_kratix() {
     fi
 
     log -n "Waiting for MinIO to be running..."
-    run wait_for_minio
+    if ! run wait_for_minio; then
+        error " timed out waiting for MinIO."
+        log "\tIt took longer than 60s for MinIO to start."
+        log "\tCheck the platform pods for further debugging information."
+        exit 1
+    fi
 
     log -n "Setting up worker cluster..."
-    run setup_worker_cluster
+    if ! run setup_worker_cluster; then
+        error " failed"
+        exit 1
+    fi
 
     log -n "Waiting for system to reconcile... "
     if ! run wait_for_namespace; then
