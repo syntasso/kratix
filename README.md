@@ -27,13 +27,8 @@ A Promise is comprised of three elements:
   <!-- - [Personas](./docs/personas.md)  -->
   <!-- - [Team Story](./docs/success.md) -->
   <!-- - [Architecture](./docs/writing-a-promise.md) -->
-- Deploying Kratix
-  - [Quick Start](./docs/quick-start.md)
-  - [Detailed Installation](./docs/detailed-start.md)
-  - [Promise Samples](./docs/promise-samples.md)
-- Promises
-  - [What is a Promise?](./docs/promises.md)
-  - [Writing a Promise](./docs/writing-a-promise.md)
+- Get started with Kratix
+  - [Quick Start Tutorial](https://github.com/syntasso/workshop/blob/main/README.md)
   - [Promise Samples](./docs/promise-samples.md)
 - [How Kratix Compares to Other Technologies in the Ecosystem](./docs/compare.md)
 - [FAQs](docs/FAQ.md)
