@@ -4,6 +4,8 @@ metadata:
   creationTimestamp: null
   name: jenkins-promise
 spec:
+  clusterSelector:
+    environment: dev
   workerClusterResources:
   - apiVersion: v1
     kind: ServiceAccount
