@@ -26,8 +26,12 @@ import (
 	v1 "k8s.io/api/core/v1"
 	metav1 "k8s.io/apimachinery/pkg/apis/meta/v1"
 	"k8s.io/apimachinery/pkg/apis/meta/v1/unstructured"
+	"k8s.io/apimachinery/pkg/labels"
+	"k8s.io/apimachinery/pkg/runtime/schema"
+	"k8s.io/apimachinery/pkg/selection"
 	"k8s.io/apimachinery/pkg/types"
 	"k8s.io/apimachinery/pkg/util/yaml"
+	"sigs.k8s.io/controller-runtime/pkg/client"
 
 	"github.com/syntasso/kratix/api/v1alpha1"
 	platformv1alpha1 "github.com/syntasso/kratix/api/v1alpha1"
@@ -84,23 +88,27 @@ var _ = Context("Promise Reconciler", func() {
 	Describe("Creating a Redis Custom Resource", func() {
 		createdPod := v1.Pod{}
 
-		It("Creates a valid pod spec for the transformation pipeline", func() {
+		redisRequest := &unstructured.Unstructured{}
+
+		expectedName := types.NamespacedName{
+			//The name of the pod is generated dynamically by the Promise Controller. For testing purposes, we set a TEST_PROMISE_CONTROLLER_POD_IDENTIFIER_UUID via an environment variable in the Makefile to make the name deterministic
+			Name:      "request-pipeline-redis-promise-default-12345",
+			Namespace: "default",
+		}
+
+		BeforeEach(func() {
 			yamlFile, err := ioutil.ReadFile("../config/samples/redis/redis-resource-request.yaml")
 			Expect(err).ToNot(HaveOccurred())
 
-			redisRequest := &unstructured.Unstructured{}
 			err = yaml.Unmarshal(yamlFile, redisRequest)
 			Expect(err).ToNot(HaveOccurred())
 
 			redisRequest.SetNamespace("default")
-			err = k8sClient.Create(context.Background(), redisRequest)
-			Expect(err).ToNot(HaveOccurred())
+		})
 
-			expectedName := types.NamespacedName{
-				//The name of the pod is generated dynamically by the Promise Controller. For testing purposes, we set a TEST_PROMISE_CONTROLLER_POD_IDENTIFIER_UUID via an environment variable in the Makefile to make the name deterministic
-				Name:      "request-pipeline-redis-promise-default-12345",
-				Namespace: "default",
-			}
+		It("Creates a valid pod spec for the transformation pipeline", func() {
+			err := k8sClient.Create(context.Background(), redisRequest)
+			Expect(err).ToNot(HaveOccurred())
 
 			var timeout = "30s"
 			var interval = "3s"
@@ -112,6 +120,49 @@ var _ = Context("Promise Reconciler", func() {
 				}
 				return createdPod.Spec.Containers[0].Name
 			}, timeout, interval).Should(Equal("writer"))
+		})
+
+		It("Takes no action on update", func() {
+			existingResourceRequest := &unstructured.Unstructured{}
+			gvk := schema.GroupVersionKind{
+				Group:   "redis.redis.opstreelabs.in",
+				Version: "v1beta1",
+				Kind:    "Redis",
+			}
+			existingResourceRequest.SetGroupVersionKind(gvk)
+			ns := types.NamespacedName{
+				Name:      redisRequest.GetName(),
+				Namespace: redisRequest.GetNamespace(),
+			}
+			err := k8sClient.Get(context.Background(), ns, existingResourceRequest)
+			Expect(err).ToNot(HaveOccurred())
+
+			existingResourceRequest.SetAnnotations(map[string]string{
+				"new-annotation": "auto-added",
+			})
+			err = k8sClient.Update(context.Background(), existingResourceRequest)
+			Expect(err).ToNot(HaveOccurred())
+
+			var timeout = "30s"
+			var interval = "3s"
+			Consistently(func() int {
+				isPromise, _ := labels.NewRequirement("kratix-promise-id", selection.Equals, []string{"redis-promise-default"})
+				selector := labels.NewSelector().
+					Add(*isPromise)
+
+				listOps := &client.ListOptions{
+					Namespace:     "default",
+					LabelSelector: selector,
+				}
+
+				ol := &v1.PodList{}
+				err := k8sClient.List(context.Background(), ol, listOps)
+				if err != nil {
+					fmt.Println(err.Error())
+					return -1
+				}
+				return len(ol.Items)
+			}, timeout, interval).Should(Equal(1))
 		})
 	})
 })
