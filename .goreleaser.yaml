@@ -1,0 +1,17 @@
+project_name: worker-resource-builder
+
+env:
+  - CGO_ENABLED=0
+  - GO111MODULE=on
+
+builds:
+  - binary: "{{ .ProjectName }}-v{{ .Env.WRB_VERSION }}-{{ .Os }}-{{ .Arch }}"
+    goos:
+      - linux
+      - windows
+      - darwin
+    main: ./hack/worker-resource-builder/main.go
+    no_unique_dist_dir: true
+
+snapshot:
+  name_template: "v{{ .Env.WRB_VERSION }}-SNAPSHOT-{{.ShortCommit}}"

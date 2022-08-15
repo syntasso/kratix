@@ -4,6 +4,8 @@ VERSION ?= dev
 IMG ?= syntasso/kratix-platform:${VERSION}
 # Image URL to use for work creator image in promise_controller.go
 WC_IMG ?= syntasso/kratix-platform-work-creator:${VERSION}
+# Version of the worker-resource-builder binary to build and release
+WRB_VERSION ?= 0.0.0
 # Produce CRDs that work back to Kubernetes 1.11 (no version conversion)
 CRD_OPTIONS ?= "crd"
 # Enable buildkit for docker
@@ -150,6 +152,10 @@ work-creator-docker-build-and-push:
 
 undeploy: ## Undeploy controller from the K8s cluster specified in ~/.kube/config.
 	$(KUSTOMIZE) build config/default | kubectl delete -f -
+
+# If not installed, use: go install github.com/goreleaser/goreleaser@latest
+build-worker-resource-builder-binary: ## Uses the goreleaser config to generate binaries
+	goreleaser release --rm-dist --snapshot
 
 CONTROLLER_GEN = $(shell pwd)/bin/controller-gen
 controller-gen: ## Download controller-gen locally if necessary.
