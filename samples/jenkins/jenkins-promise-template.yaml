@@ -3,6 +3,8 @@ kind: Promise
 metadata:
   name: jenkins-promise
 spec:
+  clusterSelector:
+    environment: dev
   #injected via: ./worker-resource-builder/worker-resource-builder -k8s-resources-directory ${PWD}/resources -promise ${PWD}/{promise-template}.yaml > jenkins-promise.yaml
   #workerClusterResources: 
   #  - kind: to be injected
