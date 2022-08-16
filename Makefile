@@ -61,7 +61,7 @@ build-and-load-int-test-images: ## Builds and loads all int-test required pipeli
 	docker build --tag syntasso/kustomize-postgres:latest ./config/samples/postgres/transformation-image
 	kind load docker-image syntasso/kustomize-redis:latest syntasso/kustomize-postgres:latest --name platform
 
-install-flux-on-platform: ## Installs flux onto platform cluster
+prepare-platform-cluster-as-worker: ## Installs flux onto platform cluster and registers as a worker
 	kubectl --context kind-platform apply -f test/integration/assets/platform_worker_cluster_1.yaml
 	kubectl --context kind-platform apply -f hack/worker/gitops-tk-install.yaml
 	kubectl --context kind-platform apply -f test/integration/assets/platform_worker_cluster_1_gitops-tk-resources.yaml
@@ -90,7 +90,7 @@ kind-load-image: docker-build ## Load locally built image into KinD, use export 
 quick-start:
 	VERSION=dev DOCKER_BUILDKIT=1 ./scripts/quick-start.sh --recreate --local
 
-dev-env: distribution quick-start install-flux-on-platform ## Tears down existing resources and sets up a local development environment
+dev-env: distribution quick-start prepare-platform-cluster-as-worker ## Tears down existing resources and sets up a local development environment
 
 # ENVTEST_K8S_VERSION refers to the version of kubebuilder assets to be downloaded by envtest binary.
 ENVTEST_K8S_VERSION = 1.23
