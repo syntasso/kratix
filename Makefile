@@ -62,9 +62,7 @@ build-and-load-int-test-images: ## Builds and loads all int-test required pipeli
 	kind load docker-image syntasso/kustomize-redis:latest syntasso/kustomize-postgres:latest --name platform
 
 prepare-platform-cluster-as-worker: ## Installs flux onto platform cluster and registers as a worker
-	kubectl --context kind-platform apply -f test/integration/assets/platform_worker_cluster_1.yaml
-	kubectl --context kind-platform apply -f hack/worker/gitops-tk-install.yaml
-	kubectl --context kind-platform apply -f test/integration/assets/platform_worker_cluster_1_gitops-tk-resources.yaml
+	./scripts/prepare-platform-cluster-as-worker.sh
 
 install-minio: ## Install test Minio server
 	kubectl --context kind-platform apply -f hack/platform/minio-install.yaml
