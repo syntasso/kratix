@@ -54,29 +54,35 @@ load_options() {
 }
 
 verify_prerequisites() {
+    exit_code=0
     log -n "Looking for KinD..."
     if ! which kind > /dev/null; then
-        error "kind not found in PATH"
-        log "Please install KinD before running this script"
-        exit 1
+        error "KinD not found in PATH"
+        exit_code=1
+    else
+        success_mark
     fi
-    success_mark
 
     log -n "Looking for kubectl..."
     if ! which kubectl > /dev/null; then
         error "kubectl not found in PATH"
-        log "Please install kubectl before running this script"
-        exit 1
+        exit_code=1
+    else
+        success_mark
     fi
-    success_mark
 
     log -n "Looking for docker..."
-    if ! which kubectl > /dev/null; then
+    if ! which docker > /dev/null; then
         error "docker not found in PATH"
-        log "Please install docker before running this script"
-        exit 1
+        exit_code=1
+    else
+        success_mark
     fi
-    success_mark
+
+    if [[ exit_code -gt 0 ]]; then
+        log "\nPlease confirm you have the above prerequisites before re-running this script"
+        exit $((exit_code))
+    fi
 
     log -n "Looking for distribution/kratix.yaml... "
     if [ ! -f "${ROOT}/distribution/kratix.yaml" ]; then
@@ -93,10 +99,11 @@ verify_prerequisites() {
         log -n "Verifying no clusters exist..."
         if kind get clusters 2>&1 | grep --quiet --regexp "platform\|worker"; then
             error_mark
-            log "Please ensure there's no KinD clusters named $(info platform) or $(info worker)."
-            log "You can remove them clusters by running: "
+            log ""
+            log "🚨 Please ensure there's no KinD clusters named $(info platform) or $(info worker)."
+            log "You can run this script with $(info --recreate)"
+            log "Or you can manually remove the current clusters by running: "
             log "\tkind delete clusters platform worker"
-            log "You can also run this script with $(info --recreate)"
             exit 1
         fi
     fi
