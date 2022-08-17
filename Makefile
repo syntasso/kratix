@@ -56,10 +56,21 @@ fmt: ## Run go fmt against code.
 vet: ## Run go vet against code.
 	go vet ./...
 
-build-and-load-int-test-images: ## Builds and loads all int-test required pipeline images
+build-and-load-redis:
 	docker build --tag syntasso/kustomize-redis:latest ./config/samples/redis/transformation-image
+	kind load docker-image syntasso/kustomize-redis:latest --name platform
+
+build-and-load-postgres:
 	docker build --tag syntasso/kustomize-postgres:latest ./config/samples/postgres/transformation-image
-	kind load docker-image syntasso/kustomize-redis:latest syntasso/kustomize-postgres:latest --name platform
+	kind load docker-image syntasso/kustomize-postgres:latest --name platform
+
+build-and-load-kratix:
+	IMG=syntasso/kratix-platform:${VERSION} make kind-load-image
+
+build-and-load-worker-creator:
+	WC_IMG=syntasso/kratix-platform-work-creator:${VERSION} make -C work-creator kind-load-image
+
+build-and-load-int-test-images: build-and-load-kratix build-and-load-worker-creator build-and-load-redis build-and-load-postgres ## Builds and loads all int-test required pipeline images
 
 prepare-platform-cluster-as-worker: ## Installs flux onto platform cluster and registers as a worker
 	./scripts/prepare-platform-cluster-as-worker.sh
@@ -73,9 +84,8 @@ delete-int-test-infra: ## Removes all test infrastructure
 create-int-test-infra: delete-int-test-infra ## Builds and runs pre-reqs to run int-test
 	kind create cluster --name platform --config <(echo "{kind: Cluster, apiVersion: kind.x-k8s.io/v1alpha4, nodes: [{role: control-plane, extraPortMappings: [{containerPort: 31337, hostPort: 31337}]}]}")
 
-deploy-int-test-env: create-int-test-infra build-and-load-int-test-images ## Builds and deploys dev version software on int-test infrastructure
-	IMG=syntasso/kratix-platform:${VERSION} make kind-load-image
-	WC_IMG=syntasso/kratix-platform-work-creator:${VERSION} make -C work-creator kind-load-image
+deploy-int-test-env: create-int-test-infra ## Builds and deploys dev version software on int-test infrastructure
+	make build-and-load-int-test-images
 	make deploy
 	make install-minio
 
@@ -118,7 +128,7 @@ run: manifests generate fmt vet ## Run a controller from your host.
 debug-run: manifests generate fmt vet ## Run a controller in debug mode from your host
 	dlv --listen=:2345 --headless=true --api-version=2 --accept-multiclient debug ./main.go
 
-docker-build: test ## Build docker image with the manager.
+docker-build: ## Build docker image with the manager.
 	docker build -t ${IMG} .
 
 docker-build-and-push: ## Push multi-arch docker image with the manager.

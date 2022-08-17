@@ -26,7 +26,7 @@ kind-load-image: docker-build ## Load locally built image into KinD, use export 
 
 ##@ Build
 
-docker-build: test ## Build docker image with work-creator binary
+docker-build: ## Build docker image with work-creator binary
 	docker build -f ../DockerfileWorkCreator --tag ${WC_IMG} ../
 
 docker-build-and-push: ## Push multi-arch docker image with the manager.
