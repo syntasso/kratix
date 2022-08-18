@@ -10,6 +10,7 @@ WRB_VERSION ?= 0.0.0
 CRD_OPTIONS ?= "crd"
 # Enable buildkit for docker
 DOCKER_BUILDKIT ?= 1
+export DOCKER_BUILDKIT
 
 # Get the currently used golang install path (in GOPATH/bin, unless GOBIN is set)
 ifeq (,$(shell go env GOBIN))
