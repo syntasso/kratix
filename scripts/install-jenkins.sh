@@ -16,7 +16,7 @@ while ! kubectl --context kind-worker get pods | grep -q jenkins-example; do
     loops=$(( loops + 1 ))
 done
 
-if ! kubectl --context kind-worker wait pod jenkins-example --for=condition=ready --timeout 120s; then
+if ! kubectl --context kind-worker wait pod jenkins-example --for=condition=ready --timeout 180s; then
     echo "================ LOGS ================"
     kubectl --context kind-worker logs jenkins-example
     echo "============== DESCRIBE =============="
