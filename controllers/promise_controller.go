@@ -37,6 +37,7 @@ import (
 	"k8s.io/apimachinery/pkg/labels"
 	"k8s.io/apimachinery/pkg/runtime"
 	"k8s.io/apimachinery/pkg/runtime/schema"
+	"k8s.io/apimachinery/pkg/selection"
 	"k8s.io/apimachinery/pkg/util/uuid"
 	ctrl "sigs.k8s.io/controller-runtime"
 	"sigs.k8s.io/controller-runtime/pkg/client"
@@ -68,7 +69,7 @@ type dynamicController struct {
 
 //+kubebuilder:rbac:groups=apiextensions.k8s.io,resources=customresourcedefinitions,verbs=get;list;watch;create;update;patch;delete
 
-//+kubebuilder:rbac:groups="",resources=pods,verbs=create
+//+kubebuilder:rbac:groups="",resources=pods,verbs=create;list;watch
 //+kubebuilder:rbac:groups="",resources=serviceaccounts,verbs=create
 
 //+kubebuilder:rbac:groups=rbac.authorization.k8s.io,resources=clusterroles,verbs=create;escalate;bind
@@ -107,7 +108,7 @@ func (r *PromiseReconciler) Reconcile(ctx context.Context, req ctrl.Request) (ct
 	if err != nil {
 		if errors.IsAlreadyExists(err) {
 			//todo test for existence and handle gracefully.
-			r.Log.Info("CRD " + req.Name + "already exists")
+			r.Log.Info("CRD " + req.Name + " already exists")
 			//return ctrl.Result{}, nil
 		} else {
 			r.Log.Error(err, "Error creating crd")
@@ -309,9 +310,14 @@ func (r *dynamicController) Reconcile(ctx context.Context, req ctrl.Request) (ct
 
 	resourceRequestCommand := fmt.Sprintf("kubectl get %s.%s %s --namespace %s -oyaml > /output/object.yaml", strings.ToLower(r.gvk.Kind), r.gvk.Group, req.Name, req.Namespace)
 
-	//promise-targetnamespace-mydatabase
-	identifier := fmt.Sprintf("%s-%s-%s", r.promiseIdentifier, req.Namespace, req.Name)
-	workCreatorCommand := fmt.Sprintf("./work-creator -identifier %s -input-directory /work-creator-files", identifier)
+	resourceRequestIdentifier := fmt.Sprintf("%s-%s-%s", r.promiseIdentifier, req.Namespace, req.Name)
+
+	if r.pipelineHasExecuted(resourceRequestIdentifier) {
+		r.log.Info("Cannot execute update on pre-existing pipeline for Promise resource request " + resourceRequestIdentifier)
+		return ctrl.Result{}, nil
+	}
+
+	workCreatorCommand := fmt.Sprintf("./work-creator -identifier %s -input-directory /work-creator-files", resourceRequestIdentifier)
 
 	configMap := v1.ConfigMap{
 		ObjectMeta: metav1.ObjectMeta{
@@ -327,6 +333,10 @@ func (r *dynamicController) Reconcile(ctx context.Context, req ctrl.Request) (ct
 		ObjectMeta: metav1.ObjectMeta{
 			Name:      "request-pipeline-" + r.promiseIdentifier + "-" + getShortUuid(),
 			Namespace: "default",
+			Labels: map[string]string{
+				"kratix-promise-id":                  r.promiseIdentifier,
+				"kratix-promise-resource-request-id": resourceRequestIdentifier,
+			},
 		},
 		Spec: v1.PodSpec{
 			RestartPolicy:      v1.RestartPolicyOnFailure,
@@ -424,7 +434,7 @@ func (r *dynamicController) Reconcile(ctx context.Context, req ctrl.Request) (ct
 		},
 	}
 
-	r.log.Info("Creating Pipeline for Promise resource request: " + identifier + ". The pipeline will now execute...")
+	r.log.Info("Creating Pipeline for Promise resource request: " + resourceRequestIdentifier + ". The pipeline will now execute...")
 	err = r.client.Create(ctx, &configMap)
 	if err != nil {
 		r.log.Error(err, "Error creating config map")
@@ -439,6 +449,25 @@ func (r *dynamicController) Reconcile(ctx context.Context, req ctrl.Request) (ct
 	}
 
 	return ctrl.Result{}, nil
+}
+
+func (r *dynamicController) pipelineHasExecuted(resourceRequestIdentifier string) bool {
+	isPromise, _ := labels.NewRequirement("kratix-promise-resource-request-id", selection.Equals, []string{resourceRequestIdentifier})
+	selector := labels.NewSelector().
+		Add(*isPromise)
+
+	listOps := &client.ListOptions{
+		Namespace:     "default",
+		LabelSelector: selector,
+	}
+
+	ol := &v1.PodList{}
+	err := r.client.List(context.Background(), ol, listOps)
+	if err != nil {
+		fmt.Println(err.Error())
+		return false
+	}
+	return len(ol.Items) > 0
 }
 
 func getShortUuid() string {

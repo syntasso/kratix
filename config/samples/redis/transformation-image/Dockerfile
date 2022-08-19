@@ -4,7 +4,6 @@ FROM line/kubectl-kustomize:1.24.2-4.5.5
 # This container mounts 3 dirs (/input, /output, /metadata) which will overwrite any existing data at those paths.
 # Instead, we will add our files to transfer dirs at build time, and moving the to the kubernetes mounted dirs at runtime.
 ADD cluster-selectors.yaml /transfer-metadata/cluster-selectors.yaml
-ADD patch.yaml /transfer-input/patch.yaml
 ADD kustomization.yaml /transfer-input/kustomization.yaml
 
 # To debug: 

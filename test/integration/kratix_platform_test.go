@@ -2,6 +2,7 @@ package integration_test
 
 import (
 	"context"
+	"fmt"
 	"io"
 	"io/ioutil"
 	"os"
@@ -67,6 +68,7 @@ const (
 	REDIS_CRD                     = "../../config/samples/redis/redis-promise.yaml"
 	REDIS_RESOURCE_REQUEST        = "../../config/samples/redis/redis-resource-request.yaml"
 	REDIS_RESOURCE_UPDATE_REQUEST = "../../config/samples/redis/redis-resource-update-request.yaml"
+	REDIS_RESOURCE_SECOND_REQUEST = "./assets/redis-resource-second-request.yaml"
 	POSTGRES_CRD                  = "../../config/samples/postgres/postgres-promise.yaml"
 	//Targets All clusters
 	POSTGRES_RESOURCE_REQUEST = "../../config/samples/postgres/postgres-resource-request.yaml"
@@ -199,48 +201,51 @@ var _ = Describe("kratix Platform Integration Test", func() {
 				}, timeout, interval).Should(Succeed())
 			})
 
-			PIt("Updates an existing Redis resource on the Worker", func() {
+			It("Update to an existing Redis resource on the Worker does nothing", func() {
 				updateResourceRequest(REDIS_RESOURCE_UPDATE_REQUEST)
 
-				Eventually(func() bool {
-					workloadNamespacedName := types.NamespacedName{
-						Name:      "redis-promise-default-default-opstree-redis",
-						Namespace: "default",
+				timeout = "30s"
+				Consistently(func() int {
+					isPromise, _ := labels.NewRequirement("kratix-promise-id", selection.Equals, []string{"redis-promise-default"})
+					selector := labels.NewSelector().
+						Add(*isPromise)
+
+					listOps := &client.ListOptions{
+						Namespace:     "default",
+						LabelSelector: selector,
 					}
 
-					//Read from Minio
-					//Assert that the Redis resource is present
-					resourceName := "opstree-redis"
-					resourceKind := "Redis"
+					redisPipelines := &v1.PodList{}
+					err := k8sClient.List(context.Background(), redisPipelines, listOps)
+					if err != nil {
+						fmt.Println(err.Error())
+						return -1
+					}
+					return len(redisPipelines.Items)
+				}, timeout, interval).Should(Equal(1))
+			})
 
-					foundCluster1, obj1 := workerHasResource(workloadNamespacedName, resourceName, resourceKind, DEV_WORKER_CLUSTER_1)
-					foundCluster2, obj2 := workerHasResource(workloadNamespacedName, resourceName, resourceKind, PRODUCTION_WORKER_CLUSTER)
+			It("Should create more than one unique resource from a single promise", func() {
+				applyResourceRequest(REDIS_RESOURCE_SECOND_REQUEST)
 
-					if foundCluster1 && foundCluster2 {
-						return false
+				Eventually(func() int {
+					isPromise, _ := labels.NewRequirement("kratix-promise-id", selection.Equals, []string{"redis-promise-default"})
+					selector := labels.NewSelector().
+						Add(*isPromise)
+
+					listOps := &client.ListOptions{
+						Namespace:     "default",
+						LabelSelector: selector,
 					}
 
-					if !foundCluster1 && !foundCluster2 {
-						return false
+					redisPipelines := &v1.PodList{}
+					err := k8sClient.List(context.Background(), redisPipelines, listOps)
+					if err != nil {
+						fmt.Println(err.Error())
+						return -1
 					}
-
-					//make it work, make it pretty (it works needs to be made pretty)
-					var obj unstructured.Unstructured
-					if foundCluster1 {
-						obj = obj1
-					} else if foundCluster2 {
-						obj = obj2
-					} else {
-						return false
-					}
-					//
-
-					spec := obj.Object["spec"]
-					global := spec.(map[string]interface{})["global"]
-					password := global.(map[string]interface{})["password"]
-					return password == "Opstree@12345"
-
-				}, timeout, interval).Should(BeTrue())
+					return len(redisPipelines.Items)
+				}, timeout, interval).Should(Equal(2))
 			})
 		})
 	})
@@ -338,7 +343,7 @@ var _ = Describe("kratix Platform Integration Test", func() {
 							g.Expect(knativeResource).To(Equal(testCase.exists), testCase.cluster)
 							g.Expect(postgresResource).To(Equal(testCase.exists), testCase.cluster)
 						}
-					}, timeout, interval).Should(Succeed())
+					}, "60s", interval).Should(Succeed())
 				})
 
 				By("creating the knative crds on the dev clusters", func() {
@@ -431,7 +436,7 @@ var _ = Describe("kratix Platform Integration Test", func() {
 									"environment": "dev",
 								},
 							))
-						}, timeout, interval).Should(Succeed())
+						}, "60s", interval).Should(Succeed())
 					}
 				})
 

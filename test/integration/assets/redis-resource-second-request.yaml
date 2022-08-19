@@ -1,0 +1,43 @@
+#https://raw.githubusercontent.com/OT-CONTAINER-KIT/redis-operator/master/example/redis-standalone-example.yaml
+---
+apiVersion: redis.redis.opstreelabs.in/v1beta1
+kind: Redis
+metadata:
+  name: second-opstree-redis
+spec:
+  mode: standalone
+  global:
+    image: quay.io/opstree/redis:v6.2
+    imagePullPolicy: IfNotPresent
+    password: "Opstree@12345"
+    resources:
+      requests:
+        cpu: 100m
+        memory: 128Mi
+      limits:
+        cpu: 100m
+        memory: 128Mi
+  service:
+    type: ClusterIP
+  redisConfig: {}
+  redisExporter:
+    enabled: true
+    image: quay.io/opstree/redis-exporter:1.0
+    imagePullPolicy: Always
+    resources:
+      requests:
+        cpu: 100m
+        memory: 128Mi
+      limits:
+        cpu: 100m
+        memory: 128Mi
+  storage:
+    volumeClaimTemplate:
+      spec:
+        storageClassName: csi-cephfs-sc
+        accessModes: ["ReadWriteOnce"]
+        resources:
+          requests:
+            storage: 1Gi
+  # nodeSelector:
+  #   kubernetes.io/hostname: minikube

@@ -1,4 +1,9 @@
 bases:
   - object.yaml
-patches:
-  - patch.yaml
+patches:  
+- patch: |-
+    - op: add
+      path:  /metadata/annotations/syntasso
+      value: "true"
+  target:
+    kind: Redis

@@ -42,7 +42,7 @@ run() {
     while kill -0 $pid 2>/dev/null
     do
         i=$(( (i+1) %4 ))
-        echo -ne "\b${spin:$i:1}"
+        [[ -z ${CIRCLECI:-""} ]] && echo -ne "\b${spin:$i:1}"
         sleep .1
     done
     echo -ne "\b\b"
