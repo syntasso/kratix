@@ -43,6 +43,7 @@ jobs:
           name: Run tests
           command: |
             make test
+            make -C work-creator test
 
   int-tests:
     executor: machine-large
