@@ -33,8 +33,12 @@ spec:
     disableCSRFProtection: false
     containers:
       - name: jenkins-master
-        image: jenkins/jenkins:2.332.2-lts
+        image: jenkins/jenkins:2.332.2-jdk17
         imagePullPolicy: Always
+        command:
+          - bash
+          - -c
+          - /var/jenkins/scripts/init.sh && /usr/bin/tini -s -- /usr/local/bin/jenkins.sh
         livenessProbe:
           failureThreshold: 12
           httpGet:
