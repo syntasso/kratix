@@ -16,6 +16,8 @@ LOCAL_IMAGES=false
 VERSION=${VERSION:-"$(git branch --show-current)"}
 DOCKER_BUILDKIT="${DOCKER_BUILDKIT:-1}"
 
+MINIO_TIMEOUT="180s"
+
 usage() {
     echo -e "Usage: quick-start.sh [--help] [--recreate] [--local]"
     echo -e "\t--help, -h\t Prints this message"
@@ -154,7 +156,7 @@ setup_worker_cluster() {
 }
 
 wait_for_minio() {
-    kubectl wait pod --context kind-platform -n kratix-platform-system --selector run=minio --for=condition=ready --timeout=60s
+    kubectl wait pod --context kind-platform -n kratix-platform-system --selector run=minio --for=condition=ready --timeout="${MINIO_TIMEOUT}"
 }
 
 wait_for_namespace() {
