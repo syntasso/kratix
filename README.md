@@ -1,5 +1,7 @@
 # Kratix
 
+[![syntasso](https://circleci.com/gh/syntasso/kratix.svg?style=shield)](https://app.circleci.com/pipelines/github/syntasso/kratix?branch=main)
+
 ![Kratix](docs/images/white_logo_color_background.jpg)
 
 κρατήστε μια υπόσχεση | *kratíste mia ypóschesi* | **Keep a promise**
