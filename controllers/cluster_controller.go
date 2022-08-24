@@ -35,6 +35,7 @@ type ClusterReconciler struct {
 	client.Client
 	Scheme       *runtime.Scheme
 	Log          logr.Logger
+	Scheduler    *Scheduler
 	BucketWriter BucketWriter
 }
 
@@ -55,14 +56,16 @@ func (r *ClusterReconciler) Reconcile(ctx context.Context, req ctrl.Request) (ct
 	_ = r.Log.WithValues("cluster", req.NamespacedName)
 
 	cluster := &platformv1alpha1.Cluster{}
-	r.Log.Info("Regsitering Cluster: " + req.Name)
-	err := r.Client.Get(context.Background(), req.NamespacedName, cluster)
-
-	if err == nil {
-		bucketPath := cluster.Spec.BucketPath
-		r.createWorkerClusterResourceBucket(bucketPath)
-		r.createWorkerResources(bucketPath)
+	r.Log.Info("Registering Cluster: " + req.Name)
+	if err := r.Client.Get(context.Background(), req.NamespacedName, cluster); err != nil {
+		return ctrl.Result{}, err
 	}
+
+	bucketPath := cluster.Spec.BucketPath
+	r.createWorkerClusterResourceBucket(bucketPath)
+	r.createWorkerResources(bucketPath)
+
+	err := r.Scheduler.ReconcileCluster(cluster)
 	return ctrl.Result{}, err
 }
 

@@ -2,13 +2,13 @@ package controllers
 
 import (
 	"context"
-	"errors"
 	"fmt"
 	"math/rand"
 	"time"
 
 	"github.com/go-logr/logr"
 	platformv1alpha1 "github.com/syntasso/kratix/api/v1alpha1"
+	"k8s.io/apimachinery/pkg/api/errors"
 	"k8s.io/apimachinery/pkg/labels"
 	"sigs.k8s.io/controller-runtime/pkg/client"
 )
@@ -18,10 +18,30 @@ type Scheduler struct {
 	Log logr.Logger
 }
 
+func (r *Scheduler) ReconcileCluster(cluster *platformv1alpha1.Cluster) error {
+	works := platformv1alpha1.WorkList{}
+	lo := &client.ListOptions{
+		Namespace: "default",
+	}
+	if err := r.Client.List(context.Background(), &works, lo); err != nil {
+		return err
+	}
+
+	for _, work := range works.Items {
+		if work.IsWorkerResource() {
+			if err := r.ReconcileWork(&work); err != nil {
+				r.Log.Error(err, "Failed reconciling Work: ")
+			}
+		}
+	}
+
+	return nil
+}
+
 func (r *Scheduler) ReconcileWork(work *platformv1alpha1.Work) error {
 	targetClusterNames := r.getTargetClusterNames(work)
 	if len(targetClusterNames) == 0 {
-		return errors.New("no Clusters can be selected for clusterSelector " + labels.FormatLabels(work.Spec.ClusterSelector))
+		return fmt.Errorf("no Clusters can be selected for clusterSelector " + labels.FormatLabels(work.Spec.ClusterSelector))
 	}
 	return r.createWorkplacementsForTargetClusters(work.Name, targetClusterNames)
 }
@@ -33,8 +53,12 @@ func (r *Scheduler) createWorkplacementsForTargetClusters(workName string, targe
 		workPlacement.Name = workName + "." + targetClusterName
 		workPlacement.Spec.WorkName = workName
 		workPlacement.Spec.TargetClusterName = targetClusterName
-		err := r.Client.Create(context.Background(), &workPlacement)
-		if err != nil {
+
+		if err := r.Client.Create(context.Background(), &workPlacement); err != nil {
+			if errors.IsAlreadyExists(err) {
+				continue
+			}
+
 			r.Log.Error(err, "Error creating new WorkPlacement: "+workPlacement.Name)
 			return err
 		}
