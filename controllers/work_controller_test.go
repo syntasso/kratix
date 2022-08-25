@@ -73,7 +73,7 @@ var _ = Context("WorkReconciler.Reconcile()", func() {
 			work = &platformv1alpha1.Work{}
 			work.Name = "work-controller-test-resource-request"
 			work.Namespace = "default"
-			work.Spec.Replicas = platformv1alpha1.RESOURCE_REQUEST_REPLICAS
+			work.Spec.Replicas = platformv1alpha1.ResourceRequestReplicas
 			err = k8sClient.Create(context.Background(), work)
 			Expect(err).ToNot(HaveOccurred())
 

@@ -50,7 +50,7 @@ var _ = Describe("Controllers/Scheduler", func() {
 				Namespace: "default",
 			},
 			Spec: WorkSpec{
-				Replicas: WORKER_RESOURCE_REPLICAS,
+				Replicas: WorkerResourceReplicas,
 			},
 		}
 
@@ -60,7 +60,7 @@ var _ = Describe("Controllers/Scheduler", func() {
 				Namespace: "default",
 			},
 			Spec: WorkSpec{
-				Replicas: WORKER_RESOURCE_REPLICAS,
+				Replicas: WorkerResourceReplicas,
 				ClusterSelector: map[string]string{
 					"environment": "prod",
 				},
@@ -73,7 +73,7 @@ var _ = Describe("Controllers/Scheduler", func() {
 				Namespace: "default",
 			},
 			Spec: WorkSpec{
-				Replicas: WORKER_RESOURCE_REPLICAS,
+				Replicas: WorkerResourceReplicas,
 				ClusterSelector: map[string]string{
 					"environment": "dev",
 				},
