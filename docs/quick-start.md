@@ -169,7 +169,6 @@ We can see the Jenkins UI in our browsers (all commands on worker cluster):
 2. Get the Jenkins password: `kubectl --context kind-worker get secret jenkins-operator-credentials-example -o 'jsonpath={.data.password}' | base64 -d`
 3. `kubectl --context kind-worker port-forward jenkins-example 8080:8080`
 4. Navigate to http://localhost:8080 and login using the username and password captured in steps one and two.
-5. You should see a Seed Job in the Jenkins UI, and a corresponding Pod on your Worker cluster.
 
 ## What have we learned?
 
