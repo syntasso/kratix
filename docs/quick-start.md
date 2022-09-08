@@ -39,7 +39,7 @@ Promise.
 The below commands will create our platform cluster and install Kratix.
 
 ```
-kind create cluster --name platform
+kind create cluster --name platform --image kindest/node:v1.24.0
 kubectl apply -f distribution/kratix.yaml
 kubectl apply -f hack/platform/minio-install.yaml
 ```
@@ -71,7 +71,7 @@ sed -i'' -e "s/172.18.0.2/$PLATFORM_CLUSTER_IP/g" hack/worker/gitops-tk-resource
 This will create a cluster for running the X-as-a-service workloads:
 
 ```
-kind create cluster --name worker #Also switches kubectl context to worker
+kind create cluster --name worker --image kindest/node:v1.24.0 #Also switches kubectl context to worker
 kubectl apply -f config/samples/platform_v1alpha1_worker_cluster.yaml --context kind-platform #register the worker cluster with the platform cluster
 kubectl apply -f hack/worker/gitops-tk-install.yaml
 kubectl apply -f hack/worker/gitops-tk-resources.yaml

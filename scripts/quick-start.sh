@@ -175,7 +175,7 @@ install_kratix() {
     verify_prerequisites
 
     log -n "Creating platform cluster..."
-    if ! run kind create cluster --name platform \
+    if ! run kind create cluster --name platform --image kindest/node:v1.24.0 \
         --config ${ROOT}/hack/platform/kind-minio-portforward.yaml
     then
         error "Could not create platform cluster"
@@ -195,7 +195,7 @@ install_kratix() {
     patch_kind_networking
 
     log -n "Creating worker cluster..."
-    if ! run kind create cluster --name worker; then
+    if ! run kind create cluster --name worker --image kindest/node:v1.24.0; then
         error "Could not create worker cluster"
         exit 1
     fi

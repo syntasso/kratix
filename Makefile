@@ -83,7 +83,7 @@ delete-int-test-infra: ## Removes all test infrastructure
 	kind delete cluster --name platform
 
 create-int-test-infra: delete-int-test-infra ## Builds and runs pre-reqs to run int-test
-	kind create cluster --name platform --config <(echo "{kind: Cluster, apiVersion: kind.x-k8s.io/v1alpha4, nodes: [{role: control-plane, extraPortMappings: [{containerPort: 31337, hostPort: 31337}]}]}")
+	kind create cluster --name platform --image kindest/node:v1.24.0 --config <(echo "{kind: Cluster, apiVersion: kind.x-k8s.io/v1alpha4, nodes: [{role: control-plane, extraPortMappings: [{containerPort: 31337, hostPort: 31337}]}]}")
 
 deploy-int-test-env: create-int-test-infra ## Builds and deploys dev version software on int-test infrastructure
 	make build-and-load-int-test-images
