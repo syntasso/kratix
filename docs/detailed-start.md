@@ -38,7 +38,7 @@ This will create our platform cluster and install Kratix. We'll also install Min
 
 ```bash
 # Create the platform cluster using kind. It also switch the kubectl context to the newly created cluster.
-kind create cluster --name platform
+kind create cluster --name platform --image kindest/node:v1.24.0
 ```
 
 You can validate if your cluster was created successfully by running the following commands:
@@ -120,7 +120,7 @@ This will create a cluster for running the _X-as-a-service_ workloads, and insta
 
 ```bash
 # Creates a new cluster with kind. It also switch the kubectl context to the newly created cluster.
-kind create cluster --name worker
+kind create cluster --name worker --image kindest/node:v1.24.0
 
 # Register the worker cluster with the platform cluster
 kubectl --context kind-platform apply --filename config/samples/platform_v1alpha1_worker_cluster.yaml
