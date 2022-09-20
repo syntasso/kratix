@@ -36,7 +36,7 @@ var (
 	err       error
 
 	interval = "3s"
-	timeout  = "60s"
+	timeout  = "120s"
 
 	redis_gvk = schema.GroupVersionKind{
 		Group:   "redis.redis.opstreelabs.in",
