@@ -193,12 +193,6 @@ spec:
           requests:
             cpu: "1"
             memory: 500Mi
-  seedJobs:
-    - id: jenkins-operator
-      targets: "cicd/jobs/*.jenkins"
-      description: "Jenkins Operator repository"
-      repositoryBranch: master
-      repositoryUrl: https://github.com/jenkinsci/kubernetes-operator.git
 EOF
 ```
 </details>

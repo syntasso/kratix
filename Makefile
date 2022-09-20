@@ -83,7 +83,7 @@ delete-int-test-infra: ## Removes all test infrastructure
 	kind delete cluster --name platform
 
 create-int-test-infra: delete-int-test-infra ## Builds and runs pre-reqs to run int-test
-	kind create cluster --name platform --config <(echo "{kind: Cluster, apiVersion: kind.x-k8s.io/v1alpha4, nodes: [{role: control-plane, extraPortMappings: [{containerPort: 31337, hostPort: 31337}]}]}")
+	kind create cluster --name platform --image kindest/node:v1.24.0 --config <(echo "{kind: Cluster, apiVersion: kind.x-k8s.io/v1alpha4, nodes: [{role: control-plane, extraPortMappings: [{containerPort: 31337, hostPort: 31337}]}]}")
 
 deploy-int-test-env: create-int-test-infra ## Builds and deploys dev version software on int-test infrastructure
 	make build-and-load-int-test-images
@@ -191,3 +191,8 @@ endef
 .PHONY: list
 list:
 	@$(MAKE) -pRrq -f $(lastword $(MAKEFILE_LIST)) : 2>/dev/null | awk -v RS= -F: '/^# File/,/^# Finished Make data base/ {if ($$1 !~ "^[#.]") {print $$1}}' | sort | egrep -v -e '^[^[:alnum:]]' -e '^$@$$'
+
+JENKINS_PIPELINE_IMAGE ?= syntasso/jenkins-request-pipeline
+build-and-push-jenkins-pipeline-image:
+	docker build --platform linux/amd64 --tag ${JENKINS_PIPELINE_IMAGE} --file samples/jenkins/request-pipeline-image/Dockerfile samples/jenkins/request-pipeline-image
+	docker push ${JENKINS_PIPELINE_IMAGE}

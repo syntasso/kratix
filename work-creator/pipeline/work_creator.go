@@ -62,7 +62,7 @@ func (w *WorkCreator) Execute(rootDirectory string, identifier string) error {
 	work := platformv1alpha1.Work{}
 	work.Name = identifier
 	work.Namespace = "default"
-	work.Spec.Replicas = platformv1alpha1.RESOURCE_REQUEST_REPLICAS
+	work.Spec.Replicas = platformv1alpha1.ResourceRequestReplicas
 
 	work.Spec.ClusterSelector, err = w.getMergedClusterSelector(rootDirectory)
 

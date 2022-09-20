@@ -65,22 +65,23 @@ var (
 
 const (
 	//Targets only cluster-worker-1
-	REDIS_CRD                     = "../../config/samples/redis/redis-promise.yaml"
-	REDIS_RESOURCE_REQUEST        = "../../config/samples/redis/redis-resource-request.yaml"
-	REDIS_RESOURCE_UPDATE_REQUEST = "../../config/samples/redis/redis-resource-update-request.yaml"
-	REDIS_RESOURCE_SECOND_REQUEST = "./assets/redis-resource-second-request.yaml"
-	POSTGRES_CRD                  = "../../config/samples/postgres/postgres-promise.yaml"
+	RedisCRD                   = "../../config/samples/redis/redis-promise.yaml"
+	RedisResourceRequest       = "../../config/samples/redis/redis-resource-request.yaml"
+	RedisResourceUpdateRequest = "../../config/samples/redis/redis-resource-update-request.yaml"
+	RedisResourceSecondRequest = "./assets/redis-resource-second-request.yaml"
+	PostgresCRD                = "../../config/samples/postgres/postgres-promise.yaml"
 	//Targets All clusters
-	POSTGRES_RESOURCE_REQUEST = "../../config/samples/postgres/postgres-resource-request.yaml"
+	PostgresResourceRequest = "../../config/samples/postgres/postgres-resource-request.yaml"
 	// Targets the platform cluster
 	PavedPathCRD             = "../../samples/paved-path-demo/paved-path-demo-promise.yaml"
 	PavedPathResourceRequest = "../../samples/paved-path-demo/paved-path-demo-resource-request.yaml"
 
 	//Clusters
-	PLATFORM_WORKER_CLUSTER_1 = "./assets/platform_worker_cluster_1.yaml"
-	DEV_WORKER_CLUSTER_1      = "./assets/worker_cluster_1.yaml"
-	DEV_WORKER_CLUSTER_2      = "./assets/worker_cluster_2.yaml"
-	PRODUCTION_WORKER_CLUSTER = "./assets/worker_cluster_3.yaml"
+	PlatformWorkerCluster1  = "./assets/platform_worker_cluster_1.yaml"
+	DevWorkerCluster1       = "./assets/worker_cluster_1.yaml"
+	DevWorkerCluster2       = "./assets/worker_cluster_2.yaml"
+	DevCacheWorkerCluster2  = "./assets/dev_cache_worker_cluster_2.yaml"
+	ProductionWorkerCluster = "./assets/worker_cluster_3.yaml"
 
 	// Flux related files
 	GitOpsTKInstall         = "../../hack/worker/gitops-tk-install.yaml"
@@ -98,16 +99,16 @@ var _ = Describe("kratix Platform Integration Test", func() {
 		}, timeout, interval).Should(BeTrue())
 
 		By("A Cluster labelled as dev is registered")
-		registerWorkerCluster("worker-cluster-1", DEV_WORKER_CLUSTER_1)
+		registerWorkerCluster("worker-cluster-1", DevWorkerCluster1)
 
 		By("A Cluster labelled as dev && cache is registered")
-		registerWorkerCluster("worker-cluster-2", DEV_WORKER_CLUSTER_2)
+		registerWorkerCluster("worker-cluster-2", DevWorkerCluster2)
 
 		By("A Cluster labelled as production is registered")
-		registerWorkerCluster("worker-cluster-3", PRODUCTION_WORKER_CLUSTER)
+		registerWorkerCluster("worker-cluster-3", ProductionWorkerCluster)
 
 		By("registering the platform cluster")
-		registerWorkerCluster("platform-cluster-worker-1", PLATFORM_WORKER_CLUSTER_1)
+		registerWorkerCluster("platform-cluster-worker-1", PlatformWorkerCluster1)
 
 		By("installing flux on the platform")
 		installFlux("platform-cluster-worker-1", PlatformGitOpsResources)
@@ -116,7 +117,7 @@ var _ = Describe("kratix Platform Integration Test", func() {
 	Describe("Redis Promise lifecycle", func() {
 		Describe("Applying Redis Promise", func() {
 			It("Applying a Promise CRD manifests a Redis api-resource", func() {
-				applyPromiseCRD(REDIS_CRD)
+				applyPromiseCRD(RedisCRD)
 
 				Eventually(func() bool {
 					return isAPIResourcePresent(redis_gvk)
@@ -132,22 +133,22 @@ var _ = Describe("kratix Platform Integration Test", func() {
 					resourceName := "redis.redis.redis.opstreelabs.in"
 					resourceKind := "CustomResourceDefinition"
 
-					devClusterHasCrd, _ := workerHasCRD(workloadNamespacedName, resourceName, resourceKind, DEV_WORKER_CLUSTER_1)
+					devClusterHasCrd, _ := workerHasCRD(workloadNamespacedName, resourceName, resourceKind, DevWorkerCluster1)
 					g.Expect(devClusterHasCrd).To(BeTrue(), "dev cluster 1 should have the crds")
 
-					devClusterHasResources, _ := workerHasResource(workloadNamespacedName, "a-non-crd-resource", "Namespace", DEV_WORKER_CLUSTER_1)
+					devClusterHasResources, _ := workerHasResource(workloadNamespacedName, "a-non-crd-resource", "Namespace", DevWorkerCluster1)
 					g.Expect(devClusterHasResources).To(BeTrue(), "dev cluster 1 should have the resources")
 
-					devCacheClusterHasCrd, _ := workerHasCRD(workloadNamespacedName, resourceName, resourceKind, DEV_WORKER_CLUSTER_2)
+					devCacheClusterHasCrd, _ := workerHasCRD(workloadNamespacedName, resourceName, resourceKind, DevWorkerCluster2)
 					g.Expect(devCacheClusterHasCrd).To(BeTrue(), "dev cluster 2 should have the crds")
 
-					devCacheClusterHasResources, _ := workerHasResource(workloadNamespacedName, "a-non-crd-resource", "Namespace", DEV_WORKER_CLUSTER_2)
+					devCacheClusterHasResources, _ := workerHasResource(workloadNamespacedName, "a-non-crd-resource", "Namespace", DevWorkerCluster2)
 					g.Expect(devCacheClusterHasResources).To(BeTrue(), "dev cluster 2 should have the resources")
 
-					prodClusterHasCrd, _ := workerHasCRD(workloadNamespacedName, resourceName, resourceKind, PRODUCTION_WORKER_CLUSTER)
+					prodClusterHasCrd, _ := workerHasCRD(workloadNamespacedName, resourceName, resourceKind, ProductionWorkerCluster)
 					g.Expect(prodClusterHasCrd).To(BeFalse(), "production cluster should not have the crds")
 
-					prodClusterHasResources, _ := workerHasResource(workloadNamespacedName, "a-non-crd-resource", "Namespace", PRODUCTION_WORKER_CLUSTER)
+					prodClusterHasResources, _ := workerHasResource(workloadNamespacedName, "a-non-crd-resource", "Namespace", ProductionWorkerCluster)
 					g.Expect(prodClusterHasResources).To(BeFalse(), "production cluster should not have the resources")
 				}, timeout, interval).Should(Succeed(), "has the Redis CRD in the expected cluster")
 			})
@@ -155,7 +156,7 @@ var _ = Describe("kratix Platform Integration Test", func() {
 
 		Describe("Applying Redis resource triggers the TransformationPipeline™", func() {
 			It("Applying Redis resource triggers the TransformationPipeline™", func() {
-				applyResourceRequest(REDIS_RESOURCE_REQUEST)
+				applyResourceRequest(RedisResourceRequest)
 
 				expectedName := types.NamespacedName{
 					Name:      "redis-promise-default-default-opstree-redis",
@@ -189,20 +190,20 @@ var _ = Describe("kratix Platform Integration Test", func() {
 					})
 
 					By("asserting the resource definitions are in a matching cluster", func() {
-						devClusterHasResources, _ := workerHasResource(workloadNamespacedName, resourceName, resourceKind, DEV_WORKER_CLUSTER_1)
+						devClusterHasResources, _ := workerHasResource(workloadNamespacedName, resourceName, resourceKind, DevWorkerCluster1)
 						g.Expect(devClusterHasResources).To(BeFalse(), "dev cluster should not have the resources")
 
-						devCacheClusterHasResources, _ := workerHasResource(workloadNamespacedName, resourceName, resourceKind, DEV_WORKER_CLUSTER_2)
+						devCacheClusterHasResources, _ := workerHasResource(workloadNamespacedName, resourceName, resourceKind, DevWorkerCluster2)
 						g.Expect(devCacheClusterHasResources).To(BeTrue(), "dev cache cluster should have the resources")
 
-						productionClusterHasResources, _ := workerHasResource(workloadNamespacedName, resourceName, resourceKind, PRODUCTION_WORKER_CLUSTER)
+						productionClusterHasResources, _ := workerHasResource(workloadNamespacedName, resourceName, resourceKind, ProductionWorkerCluster)
 						g.Expect(productionClusterHasResources).To(BeFalse(), "production cluster should not have the resources")
 					})
 				}, timeout, interval).Should(Succeed())
 			})
 
 			It("Update to an existing Redis resource on the Worker does nothing", func() {
-				updateResourceRequest(REDIS_RESOURCE_UPDATE_REQUEST)
+				updateResourceRequest(RedisResourceUpdateRequest)
 
 				timeout = "30s"
 				Consistently(func() int {
@@ -226,7 +227,7 @@ var _ = Describe("kratix Platform Integration Test", func() {
 			})
 
 			It("Should create more than one unique resource from a single promise", func() {
-				applyResourceRequest(REDIS_RESOURCE_SECOND_REQUEST)
+				applyResourceRequest(RedisResourceSecondRequest)
 
 				Eventually(func() int {
 					isPromise, _ := labels.NewRequirement("kratix-promise-id", selection.Equals, []string{"redis-promise-default"})
@@ -253,7 +254,7 @@ var _ = Describe("kratix Platform Integration Test", func() {
 	Describe("Postgres Promise lifecycle", func() {
 		Describe("Applying Postgres Promise", func() {
 			It("Applying a Promise CRD manifests a Postgres api-resource", func() {
-				applyPromiseCRD(POSTGRES_CRD)
+				applyPromiseCRD(PostgresCRD)
 
 				Eventually(func() bool {
 					return isAPIResourcePresent(postgres_gvk)
@@ -263,7 +264,7 @@ var _ = Describe("kratix Platform Integration Test", func() {
 
 		Describe("Applying Postgres resource request triggers the TransformationPipeline™", func() {
 			It("Applying Postgres resource triggers the TransformationPipeline™", func() {
-				applyResourceRequest(POSTGRES_RESOURCE_REQUEST)
+				applyResourceRequest(PostgresResourceRequest)
 
 				expectedName := types.NamespacedName{
 					Name:      "postgres-promise-default-default-database",
@@ -288,10 +289,10 @@ var _ = Describe("kratix Platform Integration Test", func() {
 					resourceName := "database"
 					resourceKind := "Database"
 
-					devClusterHasResources, _ := workerHasResource(workloadNamespacedName, resourceName, resourceKind, DEV_WORKER_CLUSTER_1)
-					devCacheClusterHasResources, _ := workerHasResource(workloadNamespacedName, resourceName, resourceKind, DEV_WORKER_CLUSTER_2)
-					prodClusterHasResources, _ := workerHasResource(workloadNamespacedName, resourceName, resourceKind, PRODUCTION_WORKER_CLUSTER)
-					platformClusterHasResources, _ := workerHasResource(workloadNamespacedName, resourceName, resourceKind, PLATFORM_WORKER_CLUSTER_1)
+					devClusterHasResources, _ := workerHasResource(workloadNamespacedName, resourceName, resourceKind, DevWorkerCluster1)
+					devCacheClusterHasResources, _ := workerHasResource(workloadNamespacedName, resourceName, resourceKind, DevWorkerCluster2)
+					prodClusterHasResources, _ := workerHasResource(workloadNamespacedName, resourceName, resourceKind, ProductionWorkerCluster)
+					platformClusterHasResources, _ := workerHasResource(workloadNamespacedName, resourceName, resourceKind, PlatformWorkerCluster1)
 
 					g.Expect([]bool{devClusterHasResources, devCacheClusterHasResources, prodClusterHasResources, platformClusterHasResources}).To(
 						ContainElements(false, false, false, true),
@@ -330,10 +331,10 @@ var _ = Describe("kratix Platform Integration Test", func() {
 						cluster string
 						exists  bool
 					}{
-						{cluster: PLATFORM_WORKER_CLUSTER_1, exists: true},
-						{cluster: DEV_WORKER_CLUSTER_1, exists: false},
-						{cluster: DEV_WORKER_CLUSTER_2, exists: false},
-						{cluster: PRODUCTION_WORKER_CLUSTER, exists: false},
+						{cluster: PlatformWorkerCluster1, exists: true},
+						{cluster: DevWorkerCluster1, exists: false},
+						{cluster: DevWorkerCluster2, exists: false},
+						{cluster: ProductionWorkerCluster, exists: false},
 					}
 
 					Eventually(func(g Gomega) {
@@ -354,10 +355,10 @@ var _ = Describe("kratix Platform Integration Test", func() {
 						Namespace: "default",
 					}
 					Eventually(func(g Gomega) {
-						platformHasCrd, _ := workerHasCRD(knativeWorkload, resourceName, resourceKind, PLATFORM_WORKER_CLUSTER_1)
-						prodClusterHasCrd, _ := workerHasCRD(knativeWorkload, resourceName, resourceKind, PRODUCTION_WORKER_CLUSTER)
-						devClusterHasCrd, _ := workerHasCRD(knativeWorkload, resourceName, resourceKind, DEV_WORKER_CLUSTER_1)
-						devCluster2HasCrd, _ := workerHasCRD(knativeWorkload, resourceName, resourceKind, DEV_WORKER_CLUSTER_2)
+						platformHasCrd, _ := workerHasCRD(knativeWorkload, resourceName, resourceKind, PlatformWorkerCluster1)
+						prodClusterHasCrd, _ := workerHasCRD(knativeWorkload, resourceName, resourceKind, ProductionWorkerCluster)
+						devClusterHasCrd, _ := workerHasCRD(knativeWorkload, resourceName, resourceKind, DevWorkerCluster1)
+						devCluster2HasCrd, _ := workerHasCRD(knativeWorkload, resourceName, resourceKind, DevWorkerCluster2)
 
 						g.Expect(platformHasCrd).To(BeFalse(), "platform cluster should not have the crds")
 						g.Expect(prodClusterHasCrd).To(BeFalse(), "prod cluster should not have the crds")
@@ -374,10 +375,10 @@ var _ = Describe("kratix Platform Integration Test", func() {
 						Namespace: "default",
 					}
 					Eventually(func(g Gomega) {
-						platformHasResource, _ := workerHasResource(postgresWorkload, resourceName, resourceKind, PLATFORM_WORKER_CLUSTER_1)
-						prodClusterHasCrd, _ := workerHasResource(postgresWorkload, resourceName, resourceKind, PRODUCTION_WORKER_CLUSTER)
-						devClusterHasResource, _ := workerHasResource(postgresWorkload, resourceName, resourceKind, DEV_WORKER_CLUSTER_1)
-						devCluster2HasResource, _ := workerHasResource(postgresWorkload, resourceName, resourceKind, DEV_WORKER_CLUSTER_2)
+						platformHasResource, _ := workerHasResource(postgresWorkload, resourceName, resourceKind, PlatformWorkerCluster1)
+						prodClusterHasCrd, _ := workerHasResource(postgresWorkload, resourceName, resourceKind, ProductionWorkerCluster)
+						devClusterHasResource, _ := workerHasResource(postgresWorkload, resourceName, resourceKind, DevWorkerCluster1)
+						devCluster2HasResource, _ := workerHasResource(postgresWorkload, resourceName, resourceKind, DevWorkerCluster2)
 
 						g.Expect(platformHasResource).To(BeFalse(), "platform cluster should not have the crds")
 						g.Expect(prodClusterHasCrd).To(BeFalse(), "prod cluster should not have the crds")
@@ -464,10 +465,10 @@ var _ = Describe("kratix Platform Integration Test", func() {
 								Name:      testCase.name,
 								Namespace: "default",
 							}
-							devClusterHasResources, _ := workerHasResource(workloadNamespacedName, testCase.metadataName, testCase.kind, DEV_WORKER_CLUSTER_1)
-							devCluster2HasResources, _ := workerHasResource(workloadNamespacedName, testCase.metadataName, testCase.kind, DEV_WORKER_CLUSTER_2)
-							platformClusterHasResources, _ := workerHasResource(workloadNamespacedName, testCase.metadataName, testCase.kind, PLATFORM_WORKER_CLUSTER_1)
-							productionClusterHasResources, _ := workerHasResource(workloadNamespacedName, testCase.metadataName, testCase.kind, PRODUCTION_WORKER_CLUSTER)
+							devClusterHasResources, _ := workerHasResource(workloadNamespacedName, testCase.metadataName, testCase.kind, DevWorkerCluster1)
+							devCluster2HasResources, _ := workerHasResource(workloadNamespacedName, testCase.metadataName, testCase.kind, DevWorkerCluster2)
+							platformClusterHasResources, _ := workerHasResource(workloadNamespacedName, testCase.metadataName, testCase.kind, PlatformWorkerCluster1)
+							productionClusterHasResources, _ := workerHasResource(workloadNamespacedName, testCase.metadataName, testCase.kind, ProductionWorkerCluster)
 
 							g.Expect(devClusterHasResources || devCluster2HasResources).To(BeTrue(), "one of the dev cluster should have the resources")
 							g.Expect(platformClusterHasResources && productionClusterHasResources).To(BeFalse(), "neither prod nor platform cluster should have the resources")
@@ -475,6 +476,30 @@ var _ = Describe("kratix Platform Integration Test", func() {
 					}
 				})
 			})
+		})
+	})
+
+	When("a new Cluster is created with labels dev and cache", func() {
+		BeforeEach(func() {
+			By("registering a new dev/cache labelled cluster")
+			registerWorkerCluster("dev-cache-worker-cluster-2", DevCacheWorkerCluster2)
+		})
+
+		It("registers pre-existing dev cache promises", func() {
+			workloadNamespacedName := types.NamespacedName{
+				Name:      "redis-promise-default",
+				Namespace: "default",
+			}
+			Eventually(func(g Gomega) {
+				resourceName := "redis.redis.redis.opstreelabs.in"
+				resourceKind := "CustomResourceDefinition"
+
+				devClusterHasCrd, _ := workerHasCRD(workloadNamespacedName, resourceName, resourceKind, DevCacheWorkerCluster2)
+				g.Expect(devClusterHasCrd).To(BeTrue(), "dev-cache-worker-cluster-2 should have the crds")
+
+				devClusterHasResources, _ := workerHasResource(workloadNamespacedName, "a-non-crd-resource", "Namespace", DevCacheWorkerCluster2)
+				g.Expect(devClusterHasResources).To(BeTrue(), "dev-cache-worker-cluster-2 should have the resources")
+			}, timeout, interval).Should(Succeed(), "has the Redis CRD in the expected cluster")
 		})
 	})
 })

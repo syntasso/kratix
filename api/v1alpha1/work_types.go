@@ -21,8 +21,8 @@ import (
 	"k8s.io/apimachinery/pkg/apis/meta/v1/unstructured"
 )
 
-const WORKER_RESOURCE_REPLICAS = -1
-const RESOURCE_REQUEST_REPLICAS = 1
+const WorkerResourceReplicas = -1
+const ResourceRequestReplicas = 1
 
 // WorkStatus defines the observed state of Work
 type WorkStatus struct {
@@ -55,11 +55,11 @@ type WorkSpec struct {
 }
 
 func (w *Work) IsResourceRequest() bool {
-	return w.Spec.Replicas == RESOURCE_REQUEST_REPLICAS
+	return w.Spec.Replicas == ResourceRequestReplicas
 }
 
 func (w *Work) IsWorkerResource() bool {
-	return w.Spec.Replicas == WORKER_RESOURCE_REPLICAS
+	return w.Spec.Replicas == WorkerResourceReplicas
 }
 
 func (w *Work) HasClusterSelector() bool {

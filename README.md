@@ -4,6 +4,8 @@
 
 κρατήστε μια υπόσχεση | *kratíste mia ypóschesi* | **Keep a promise**
 
+[![syntasso](https://circleci.com/gh/syntasso/kratix.svg?style=shield)](https://app.circleci.com/pipelines/github/syntasso/kratix?branch=main)
+
 ## What is Kratix?
 
 Kratix is a framework that enables co-creation of capabilities by providing a clear contract between application and platform teams through the definition and creation of “Promises”. Using the GitOps workflow and Kubernetes-native constructs, Kratix provides a flexible solution to empower your platform team to curate an API-driven, bespoke platform that can easily be kept secure and up-to-date, as well as evolving as business needs change.

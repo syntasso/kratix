@@ -33,8 +33,15 @@ spec:
     disableCSRFProtection: false
     containers:
       - name: jenkins-master
-        image: jenkins/jenkins:2.332.2-lts
+        image: jenkins/jenkins:2.332.2-jdk17
         imagePullPolicy: Always
+        command:
+          - bash
+          - -c
+          - /var/jenkins/scripts/init.sh && /usr/bin/tini -s -- /usr/local/bin/jenkins.sh
+        env:
+          - name: JAVA_OPTS
+            value: -Xmx125m -XX:MinRAMPercentage=50.0 -XX:MaxRAMPercentage=80.0 -Djenkins.install.runSetupWizard=false -Djava.awt.headless=true
         livenessProbe:
           failureThreshold: 12
           httpGet:
@@ -62,9 +69,3 @@ spec:
           requests:
             cpu: "1"
             memory: 500Mi
-  seedJobs:
-    - id: jenkins-operator
-      targets: "cicd/jobs/*.jenkins"
-      description: "Jenkins Operator repository"
-      repositoryBranch: master
-      repositoryUrl: https://github.com/jenkinsci/kubernetes-operator.git
