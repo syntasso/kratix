@@ -13,7 +13,7 @@ GITOPS_WORKER_RESOURCES="${ROOT}/hack/worker/gitops-tk-resources.yaml"
 
 RECREATE=false
 LOCAL_IMAGES=false
-VERSION=${VERSION:-"$(git branch --show-current)"}
+VERSION=${VERSION:-"$(cd $ROOT; git branch --show-current)"}
 DOCKER_BUILDKIT="${DOCKER_BUILDKIT:-1}"
 
 MINIO_TIMEOUT="180s"
