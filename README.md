@@ -22,10 +22,14 @@ A Promise is comprised of three elements:
 - Worker Cluster Resources: dependencies necessary for any created Workloads.
 - Request Pipeline: business logic required when an instance of a capability is requested.
 
+### Want to see Kratix in action?
+
+* [Watch a demo of Kratix here](https://youtu.be/ZZUD2NUCBJI)
+
 ### Contents
 - Context
-  - [The Value of Kratix](./docs/kratix-value.md) 
-  - [Crossing the Platform Gap](https://www.syntasso.io/post/crossing-the-platform-gap) 
+  - [The Value of Kratix](./docs/kratix-value.md)
+  - [Crossing the Platform Gap](https://www.syntasso.io/post/crossing-the-platform-gap)
   <!-- - [Personas](./docs/personas.md)  -->
   <!-- - [Team Story](./docs/success.md) -->
   <!-- - [Architecture](./docs/writing-a-promise.md) -->
@@ -34,7 +38,7 @@ A Promise is comprised of three elements:
   - [Promise Samples](./docs/promise-samples.md)
 - [How Kratix Compares to Other Technologies in the Ecosystem](./docs/compare.md)
 - [FAQs](docs/FAQ.md)
-- [Known issues](./docs/known-issues.md)  
+- [Known issues](./docs/known-issues.md)
 
 **[Work with Kratix's originators, Syntasso, to deliver your organisation's Platform-as-a-Product.](https://www.syntasso.io/how-we-help)**
 
