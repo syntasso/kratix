@@ -26,18 +26,21 @@ A Promise is comprised of three elements:
 
 * [Watch a demo of Kratix here](https://youtu.be/ZZUD2NUCBJI)
 
+### Getting Started
+
+Check our documentation on [kratix.io](https://kratix.io)
 ### Contents
 - Context
-  - [The Value of Kratix](./docs/kratix-value.md)
+  - [The Value of Kratix](https://syntasso.github.io/kratix-docs/docs/main/value-of-kratix?utm_source=github&utm_medium=readme&utm_campaign=kratix)
   - [Crossing the Platform Gap](https://www.syntasso.io/post/crossing-the-platform-gap)
   <!-- - [Personas](./docs/personas.md)  -->
   <!-- - [Team Story](./docs/success.md) -->
   <!-- - [Architecture](./docs/writing-a-promise.md) -->
 - Get started with Kratix
-  - [Quick Start Tutorial](https://github.com/syntasso/workshop/blob/main/README.md)
-  - [Promise Samples](./docs/promise-samples.md)
-- [How Kratix Compares to Other Technologies in the Ecosystem](./docs/compare.md)
-- [FAQs](docs/FAQ.md)
+  - [Quick Start Tutorial](https://syntasso.github.io/kratix-docs/docs/workshop/intro?utm_source=github&utm_medium=readme&utm_campaign=kratix)
+  - [Promise Samples](./samples)
+- [How Kratix Compares to Other Technologies in the Ecosystem](https://syntasso.github.io/kratix-docs/docs/main/value-of-kratix#comparison-with-other-tools?utm_source=github&utm_medium=readme&utm_campaign=kratix)
+- [FAQs](https://syntasso.github.io/kratix-docs/docs/main/faq?utm_source=github&utm_medium=readme&utm_campaign=kratix)
 - [Known issues](./docs/known-issues.md)
 
 **[Work with Kratix's originators, Syntasso, to deliver your organisation's Platform-as-a-Product.](https://www.syntasso.io/how-we-help)**
