@@ -194,5 +194,13 @@ list:
 
 JENKINS_PIPELINE_IMAGE ?= syntasso/jenkins-request-pipeline
 build-and-push-jenkins-pipeline-image:
-	docker build --platform linux/amd64 --tag ${JENKINS_PIPELINE_IMAGE} --file samples/jenkins/request-pipeline-image/Dockerfile samples/jenkins/request-pipeline-image
-	docker push ${JENKINS_PIPELINE_IMAGE}
+	if ! docker buildx ls | grep -q "jenkins-pipeline-builder"; then \
+		docker buildx create --name jenkins-pipeline-builder; \
+	fi;
+	docker buildx build \
+		--builder jenkins-pipeline-builder \
+		--platform linux/arm64,linux/amd64 \
+		--tag ${JENKINS_PIPELINE_IMAGE} \
+		--push \
+		--file samples/jenkins/request-pipeline-image/Dockerfile \
+		samples/jenkins/request-pipeline-image

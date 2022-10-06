@@ -13,7 +13,7 @@ GITOPS_WORKER_RESOURCES="${ROOT}/hack/worker/gitops-tk-resources.yaml"
 
 RECREATE=false
 LOCAL_IMAGES=false
-VERSION=${VERSION:-"$(git branch --show-current)"}
+VERSION=${VERSION:-"$(cd $ROOT; git branch --show-current)"}
 DOCKER_BUILDKIT="${DOCKER_BUILDKIT:-1}"
 
 MINIO_TIMEOUT="180s"
@@ -112,7 +112,7 @@ verify_prerequisites() {
 }
 
 patch_kind_networking() {
-    PLATFORM_CLUSTER_IP=`docker inspect platform-control-plane | grep '"IPAddress": "172' | awk '{print $2}' | awk -F '"' '{print $2}'` 
+    PLATFORM_CLUSTER_IP=`docker inspect platform-control-plane | grep '"IPAddress": "172' | awk '{print $2}' | awk -F '"' '{print $2}'`
     sed -i'' -e "s/172.18.0.2/$PLATFORM_CLUSTER_IP/g" ${ROOT}/hack/worker/gitops-tk-resources.yaml
     rm -f ${ROOT}/hack/worker/gitops-tk-resources.yaml-e
 }
@@ -156,13 +156,19 @@ setup_worker_cluster() {
 }
 
 wait_for_minio() {
-    kubectl wait pod --context kind-platform -n kratix-platform-system --selector run=minio --for=condition=ready --timeout="${MINIO_TIMEOUT}"
+    local timeout_flag="${1:-""}"
+    opts=""
+    if [ -z "${timeout_flag}" ]; then
+        opts="--timeout=${MINIO_TIMEOUT}"
+    fi
+    kubectl wait pod --context kind-platform -n kratix-platform-system --selector run=minio --for=condition=ready ${opts}
 }
 
 wait_for_namespace() {
+    local timeout_flag="${1:-""}"
     loops=0
     while ! kubectl --context kind-worker get namespace kratix-worker-system >/dev/null 2>&1; do
-        if (( loops > 20 )); then
+        if [ -z "${timeout_flag}" ] && (( loops > 20 )); then
             return 1
         fi
         sleep 5
@@ -201,11 +207,12 @@ install_kratix() {
     fi
 
     log -n "Waiting for MinIO to be running..."
-    if ! run wait_for_minio; then
-        error " timed out waiting for MinIO."
-        log "\tIt took longer than 60s for MinIO to start."
-        log "\tCheck the platform pods for further debugging information."
-        exit 1
+    if ! SUPRESS_OUTPUT=true run wait_for_minio; then
+        log "\n\nIt's taking longer than usual for MinIO to start."
+        log "You can check the platform pods to ensure there are no errors."
+        log "This script will continue to wait for MinIO to come up. You can kill it with $(info "CTRL+C.")"
+        log -n "\nWaiting for MinIO to be running... "
+        run wait_for_minio --no-timeout
     fi
 
     log -n "Setting up worker cluster..."
@@ -215,10 +222,12 @@ install_kratix() {
     fi
 
     log -n "Waiting for system to reconcile... "
-    if ! run wait_for_namespace; then
-        log "\tSomething went wrong with your Kratix installation."
-        log "\tCheck the pods on the platform and worker clusters for debugging information."
-        exit 1
+    if ! SUPRESS_OUTPUT=true run wait_for_namespace; then
+        log "\n\nIt's taking longer than usual for the system to reconcile."
+        log "You can check the pods on the platform and worker clusters for debugging information."
+        log "This script will continue to wait. You can kill it with $(info "CTRL+C.")"
+        log -n "\nWaiting for MinIO to be running... "
+        run wait_for_namespace --no-timeout
     fi
 
     kubectl config use-context kind-platform >/dev/null

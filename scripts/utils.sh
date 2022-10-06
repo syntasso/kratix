@@ -29,6 +29,7 @@ error() {
 }
 
 run() {
+    SUPRESS_OUTPUT=${SUPRESS_OUTPUT:-false}
     stdout="$(mktemp)"
     stderr="$(mktemp)"
     trap "rm $stdout $stderr" EXIT
@@ -53,11 +54,13 @@ run() {
     if [ "$exit_code" -eq "0" ]; then
         success_mark
     else
-        error_mark
-        if [[ -s "$stdout" || -s "$stderr" ]]; then
-            info "Combined output:"
-            cat $stdout $stderr
-            log
+        if ! ${SUPRESS_OUTPUT}; then
+            error_mark
+            if [[ -s "$stdout" || -s "$stderr" ]]; then
+                info "Combined output:"
+                cat $stdout $stderr
+                log
+            fi
         fi
     fi
 
