@@ -1,6 +1,6 @@
 # Kratix
 
-![Kratix](docs/deprecated/images/white_logo_color_background.jpg)
+![Kratix](docs/images/white_logo_color_background.jpg)
 
 κρατήστε μια υπόσχεση | *kratíste mia ypóschesi* | **Keep a promise**
 
