@@ -41,7 +41,7 @@ Check our documentation on [kratix.io](https://kratix.io)
   - [Promise Samples](./samples)
 - [How Kratix Compares to Other Technologies in the Ecosystem](https://syntasso.github.io/kratix-docs/docs/main/value-of-kratix#comparison-with-other-tools?utm_source=github&utm_medium=readme&utm_campaign=kratix)
 - [FAQs](https://syntasso.github.io/kratix-docs/docs/main/faq?utm_source=github&utm_medium=readme&utm_campaign=kratix)
-- [Known issues](./docs/known-issues.md)
+- [Known issues](./docs/deprecated/known-issues.md)
 
 **[Work with Kratix's originators, Syntasso, to deliver your organisation's Platform-as-a-Product.](https://www.syntasso.io/how-we-help)**
 
