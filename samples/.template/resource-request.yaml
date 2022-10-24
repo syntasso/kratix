@@ -1,0 +1,7 @@
+---
+apiVersion: example.syntasso.io/v1
+kind: <TODO-REPLACE> # Should be same as Kind in xaasCRD
+metadata:
+  name: example-resource-request
+spec:
+  foo: bar # TODO-REPLACE
