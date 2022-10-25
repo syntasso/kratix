@@ -4,7 +4,7 @@ FROM "mikefarah/yq:4"
 ADD execute-pipeline.sh execute-pipeline.sh
 
 # add any assests required by your pipeline script
-ADD example-asset.yaml example-asset.yaml
+ADD asset.yaml asset.yaml
 
 CMD [ "sh", "-c", "./execute-pipeline.sh"]
 ENTRYPOINT []
