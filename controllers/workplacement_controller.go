@@ -26,6 +26,7 @@ import (
 	"k8s.io/apimachinery/pkg/types"
 	ctrl "sigs.k8s.io/controller-runtime"
 	"sigs.k8s.io/controller-runtime/pkg/client"
+	"sigs.k8s.io/controller-runtime/pkg/controller/controllerutil"
 
 	"github.com/go-logr/logr"
 	platformv1alpha1 "github.com/syntasso/kratix/api/v1alpha1"
@@ -36,8 +37,10 @@ type WorkPlacementReconciler struct {
 	client.Client
 	Scheme       *runtime.Scheme
 	Log          logr.Logger
-	BucketWriter BucketWriter
+	BucketWriter *BucketWriter
 }
+
+const WorkPlacementFinalizer = "finalizers.workplacement.kratix.io/repo-cleanup"
 
 //+kubebuilder:rbac:groups=platform.kratix.io,resources=workplacements,verbs=get;list;watch;create;update;patch;delete
 //+kubebuilder:rbac:groups=platform.kratix.io,resources=workplacements/status,verbs=get;update;patch
@@ -63,6 +66,33 @@ func (r *WorkPlacementReconciler) Reconcile(ctx context.Context, req ctrl.Reques
 
 	work := r.getWork(workPlacement.Spec.WorkName)
 	workerClusterBucketPath, _ := r.getWorkerClusterBucketPath(workPlacement.Spec.TargetClusterName)
+
+	if workPlacement.DeletionTimestamp.IsZero() {
+		if !controllerutil.ContainsFinalizer(workPlacement, WorkPlacementFinalizer) {
+			controllerutil.AddFinalizer(workPlacement, WorkPlacementFinalizer)
+			if err := r.Update(ctx, workPlacement); err != nil {
+				r.Log.Error(err, "failed to add finalizer to WorkPlacement")
+				return ctrl.Result{}, err
+			}
+			return ctrl.Result{}, nil
+		}
+	} else {
+		if controllerutil.ContainsFinalizer(workPlacement, WorkPlacementFinalizer) {
+			r.Log.Info("cleaning up files on Repository for " + workPlacement.Name)
+			err = r.removeWorkFromRepository(work, workerClusterBucketPath)
+			if err != nil {
+				r.Log.Error(err, "Minio error removing work from repository, will try again in 5 seconds")
+				return ctrl.Result{RequeueAfter: 5 * time.Second}, nil
+			}
+
+			controllerutil.RemoveFinalizer(workPlacement, WorkPlacementFinalizer)
+			if err := r.Update(ctx, workPlacement); err != nil {
+				return ctrl.Result{}, err
+			}
+		}
+
+		return ctrl.Result{}, nil
+	}
 
 	err = r.writeWorkToMinioBucket(work, workerClusterBucketPath)
 	if err != nil {
@@ -113,6 +143,25 @@ func (r *WorkPlacementReconciler) writeWorkToMinioBucket(work *platformv1alpha1.
 		return err
 	}
 
+	return nil
+}
+
+func (r *WorkPlacementReconciler) removeWorkFromRepository(work *platformv1alpha1.Work, workerClusterBucketPath string) error {
+	resourcesObjectName := "01-" + work.GetNamespace() + "-" + work.GetName() + "-resources.yaml"
+	crdObjectName := "00-" + work.GetNamespace() + "-" + work.GetName() + "-crds.yaml"
+	resourceBucketName := workerClusterBucketPath + "-kratix-resources"
+	crdsBucketName := workerClusterBucketPath + "-kratix-crds"
+
+	r.Log.Info("removeWorkFromRepository about to RemoveObject")
+	if err := r.BucketWriter.RemoveObject(resourceBucketName, resourcesObjectName); err != nil {
+		r.Log.Error(err, "Error removing resources from Minio", resourceBucketName)
+		return err
+	}
+
+	if err := r.BucketWriter.RemoveObject(crdsBucketName, crdObjectName); err != nil {
+		r.Log.Error(err, "Error removing crds from Minio", crdsBucketName)
+		return err
+	}
 	return nil
 }
 

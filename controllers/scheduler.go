@@ -11,6 +11,7 @@ import (
 	"k8s.io/apimachinery/pkg/api/errors"
 	"k8s.io/apimachinery/pkg/labels"
 	"sigs.k8s.io/controller-runtime/pkg/client"
+	"sigs.k8s.io/controller-runtime/pkg/controller/controllerutil"
 )
 
 type Scheduler struct {
@@ -53,6 +54,7 @@ func (r *Scheduler) createWorkplacementsForTargetClusters(workName string, targe
 		workPlacement.Name = workName + "." + targetClusterName
 		workPlacement.Spec.WorkName = workName
 		workPlacement.Spec.TargetClusterName = targetClusterName
+		controllerutil.AddFinalizer(&workPlacement, WorkPlacementFinalizer)
 
 		if err := r.Client.Create(context.Background(), &workPlacement); err != nil {
 			if errors.IsAlreadyExists(err) {

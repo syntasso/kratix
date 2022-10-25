@@ -80,8 +80,12 @@ func main() {
 		os.Exit(1)
 	}
 
-	bucketWriter := controllers.BucketWriter{
-		Log: ctrl.Log.WithName("controllers").WithName("BucketWriter"),
+	bucketWriter, err := controllers.NewBucketWriter(
+		ctrl.Log.WithName("controllers").WithName("BucketWriter"),
+	)
+	if err != nil {
+		setupLog.Error(err, "unable to create BucketWriter")
+		os.Exit(1)
 	}
 
 	scheduler := controllers.Scheduler{

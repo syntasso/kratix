@@ -15,7 +15,7 @@ import (
 var _ = Describe("Controllers/Scheduler", func() {
 
 	var devCluster, devCluster2, prodCluster Cluster
-	var work, prodWork, devWork Work
+	var work, prodWork, devWork, resRequestWork Work
 	var workPlacements WorkPlacementList
 	var scheduler *Scheduler
 
@@ -80,6 +80,19 @@ var _ = Describe("Controllers/Scheduler", func() {
 			},
 		}
 
+		resRequestWork = Work{
+			ObjectMeta: v1.ObjectMeta{
+				Name:      "rr-work-name",
+				Namespace: "default",
+			},
+			Spec: WorkSpec{
+				Replicas: ResourceRequestReplicas,
+				ClusterSelector: map[string]string{
+					"environment": "prod",
+				},
+			},
+		}
+
 		scheduler = &Scheduler{
 			Client: k8sClient,
 			Log:    ctrl.Log.WithName("controllers").WithName("Scheduler"),
@@ -131,6 +144,22 @@ var _ = Describe("Controllers/Scheduler", func() {
 	})
 
 	Describe("#ReconcileWork", func() {
+		It("creates a WorkPlacement for a given Work", func() {
+			err := scheduler.ReconcileWork(&resRequestWork)
+			Expect(err).ToNot(HaveOccurred())
+
+			Expect(k8sClient.List(context.Background(), &workPlacements)).To(Succeed())
+
+			Expect(workPlacements.Items).To(HaveLen(1))
+			workPlacement := workPlacements.Items[0]
+			Expect(workPlacement.Namespace).To(Equal("default"))
+			Expect(workPlacement.Name).To(Equal("rr-work-name.prod-cluster"))
+			Expect(workPlacement.Spec.WorkName).To(Equal("rr-work-name"))
+			Expect(workPlacement.Spec.TargetClusterName).To(Equal("prod-cluster"))
+			Expect(workPlacement.Finalizers).To(HaveLen(1), "expected one finalizer")
+			Expect(workPlacement.Finalizers[0]).To(Equal("finalizers.workplacement.kratix.io/repo-cleanup"))
+		})
+
 		When("the Work has no selector", func() {
 			It("creates Workplacement for all registered clusters", func() {
 				err := scheduler.ReconcileWork(&work)
