@@ -42,6 +42,11 @@ type WorkPlacementReconciler struct {
 
 const WorkPlacementFinalizer = "finalizers.workplacement.kratix.io/repo-cleanup"
 
+type repoFilePaths struct {
+	ResourcesBucket, ResourcesName string
+	CRDsBucket, CRDsName           string
+}
+
 //+kubebuilder:rbac:groups=platform.kratix.io,resources=workplacements,verbs=get;list;watch;create;update;patch;delete
 //+kubebuilder:rbac:groups=platform.kratix.io,resources=workplacements/status,verbs=get;update;patch
 //+kubebuilder:rbac:groups=platform.kratix.io,resources=workplacements/finalizers,verbs=update
@@ -57,6 +62,7 @@ const WorkPlacementFinalizer = "finalizers.workplacement.kratix.io/repo-cleanup"
 // - https://pkg.go.dev/sigs.k8s.io/controller-runtime@v0.11.0/pkg/reconcile
 func (r *WorkPlacementReconciler) Reconcile(ctx context.Context, req ctrl.Request) (ctrl.Result, error) {
 	_ = r.Log.WithValues("work-placement-controller", req.NamespacedName)
+
 	workPlacement := &platformv1alpha1.WorkPlacement{}
 	err := r.Client.Get(context.Background(), req.NamespacedName, workPlacement)
 	if err != nil {
@@ -65,45 +71,45 @@ func (r *WorkPlacementReconciler) Reconcile(ctx context.Context, req ctrl.Reques
 	}
 
 	work := r.getWork(workPlacement.Spec.WorkName)
-	workerClusterBucketPath, _ := r.getWorkerClusterBucketPath(workPlacement.Spec.TargetClusterName)
+	paths, _ := r.getRepoFilePaths(workPlacement.Spec.TargetClusterName, work.GetNamespace(), work.GetName())
 
-	if workPlacement.DeletionTimestamp.IsZero() {
-		if !controllerutil.ContainsFinalizer(workPlacement, WorkPlacementFinalizer) {
-			controllerutil.AddFinalizer(workPlacement, WorkPlacementFinalizer)
-			if err := r.Update(ctx, workPlacement); err != nil {
-				r.Log.Error(err, "failed to add finalizer to WorkPlacement")
-				return ctrl.Result{}, err
-			}
-			return ctrl.Result{}, nil
-		}
-	} else {
-		if controllerutil.ContainsFinalizer(workPlacement, WorkPlacementFinalizer) {
-			r.Log.Info("cleaning up files on Repository for " + workPlacement.Name)
-			err = r.removeWorkFromRepository(work, workerClusterBucketPath)
-			if err != nil {
-				r.Log.Error(err, "Minio error removing work from repository, will try again in 5 seconds")
-				return ctrl.Result{RequeueAfter: 5 * time.Second}, nil
-			}
-
-			controllerutil.RemoveFinalizer(workPlacement, WorkPlacementFinalizer)
-			if err := r.Update(ctx, workPlacement); err != nil {
-				return ctrl.Result{}, err
-			}
-		}
-
-		return ctrl.Result{}, nil
+	if !workPlacement.DeletionTimestamp.IsZero() {
+		return r.deleteWorkPlacement(ctx, work, workPlacement, paths)
 	}
 
-	err = r.writeWorkToMinioBucket(work, workerClusterBucketPath)
+	// Ensure the finalizer is present
+	if !controllerutil.ContainsFinalizer(workPlacement, WorkPlacementFinalizer) {
+		return r.addFinalizer(ctx, workPlacement)
+	}
+
+	err = r.writeWorkToRepository(work, paths)
 	if err != nil {
-		r.Log.Error(err, "Minio error, will try again in 5 seconds")
+		r.Log.Error(err, "Error writing to repository, will try again in 5 seconds")
 		return ctrl.Result{RequeueAfter: 5 * time.Second}, nil
 	}
 
 	return ctrl.Result{}, nil
 }
 
-func (r *WorkPlacementReconciler) writeWorkToMinioBucket(work *platformv1alpha1.Work, workerClusterBucketPath string) error {
+func (r *WorkPlacementReconciler) deleteWorkPlacement(ctx context.Context, work *platformv1alpha1.Work, workPlacement *platformv1alpha1.WorkPlacement, bucketPath repoFilePaths) (ctrl.Result, error) {
+	if controllerutil.ContainsFinalizer(workPlacement, WorkPlacementFinalizer) {
+		r.Log.Info("cleaning up files on repository for " + workPlacement.Name)
+		err := r.removeWorkFromRepository(work, bucketPath)
+		if err != nil {
+			r.Log.Error(err, "error removing work from repository, will try again in 5 seconds")
+			return ctrl.Result{RequeueAfter: 5 * time.Second}, nil
+		}
+
+		controllerutil.RemoveFinalizer(workPlacement, WorkPlacementFinalizer)
+		if err := r.Update(ctx, workPlacement); err != nil {
+			return ctrl.Result{}, err
+		}
+	}
+
+	return ctrl.Result{}, nil
+}
+
+func (r *WorkPlacementReconciler) writeWorkToRepository(work *platformv1alpha1.Work, paths repoFilePaths) error {
 	serializer := json.NewSerializerWithOptions(
 		json.DefaultMetaFactory, nil, nil,
 		json.SerializerOptions{
@@ -126,56 +132,42 @@ func (r *WorkPlacementReconciler) writeWorkToMinioBucket(work *platformv1alpha1.
 		}
 	}
 
-	// Upload CRDs to Minio in separate files to other resources. The 00-crds files are applied before 01-resources by the Kustomise controller when it autogenerates its manifest. This is to ensure the APIs for resources exist before the resources are applied.
-	// See https://github.com/fluxcd/kustomize-controller/blob/main/docs/spec/v1beta1/kustomization.md#generate-kustomizationyaml .
+	// Upload CRDs to repository in separate files to other resources to ensure
+	// the APIs for resources exist before the resources are applied. The
+	// 00-crds files are applied before 01-resources by the Kustomise controller
+	// when it autogenerates its manifest.
+	// https://github.com/fluxcd/kustomize-controller/blob/main/docs/spec/v1beta1/kustomization.md#generate-kustomizationyaml
 
-	crdObjectName := "00-" + work.GetNamespace() + "-" + work.GetName() + "-crds.yaml"
-	err := r.writeWorkerClusterCRDs(workerClusterBucketPath, crdObjectName, crdBuffer.Bytes())
+	err := r.BucketWriter.WriteObject(paths.CRDsBucket, paths.CRDsName, crdBuffer.Bytes())
 	if err != nil {
-		r.Log.Error(err, "Error Writing CRDS to Worker Clusters")
+		r.Log.Error(err, "Error Writing CRDS to repository")
 		return err
 	}
 
-	resourcesObjectName := "01-" + work.GetNamespace() + "-" + work.GetName() + "-resources.yaml"
-	err = r.writeWorkerClusterResources(workerClusterBucketPath, resourcesObjectName, resourceBuffer.Bytes())
+	err = r.BucketWriter.WriteObject(paths.ResourcesBucket, paths.ResourcesName, resourceBuffer.Bytes())
 	if err != nil {
-		r.Log.Error(err, "Error uploading resources to Minio")
+		r.Log.Error(err, "Error uploading resources to repository")
 		return err
 	}
 
 	return nil
 }
 
-func (r *WorkPlacementReconciler) removeWorkFromRepository(work *platformv1alpha1.Work, workerClusterBucketPath string) error {
-	resourcesObjectName := "01-" + work.GetNamespace() + "-" + work.GetName() + "-resources.yaml"
-	crdObjectName := "00-" + work.GetNamespace() + "-" + work.GetName() + "-crds.yaml"
-	resourceBucketName := workerClusterBucketPath + "-kratix-resources"
-	crdsBucketName := workerClusterBucketPath + "-kratix-crds"
-
-	r.Log.Info("removeWorkFromRepository about to RemoveObject")
-	if err := r.BucketWriter.RemoveObject(resourceBucketName, resourcesObjectName); err != nil {
-		r.Log.Error(err, "Error removing resources from Minio", resourceBucketName)
+func (r *WorkPlacementReconciler) removeWorkFromRepository(work *platformv1alpha1.Work, paths repoFilePaths) error {
+	r.Log.Info("Removing objects from repository")
+	if err := r.BucketWriter.RemoveObject(paths.ResourcesBucket, paths.ResourcesName); err != nil {
+		r.Log.Error(err, "Error removing resources from repository", paths.ResourcesBucket)
 		return err
 	}
 
-	if err := r.BucketWriter.RemoveObject(crdsBucketName, crdObjectName); err != nil {
-		r.Log.Error(err, "Error removing crds from Minio", crdsBucketName)
+	if err := r.BucketWriter.RemoveObject(paths.CRDsBucket, paths.CRDsName); err != nil {
+		r.Log.Error(err, "Error removing crds from repository", paths.CRDsBucket)
 		return err
 	}
 	return nil
 }
 
-func (r *WorkPlacementReconciler) writeWorkerClusterResources(workerClustersBucketPath string, objectName string, fluxYaml []byte) error {
-	bucketName := workerClustersBucketPath + "-kratix-resources"
-	return r.BucketWriter.WriteObject(bucketName, objectName, fluxYaml)
-}
-
-func (r *WorkPlacementReconciler) writeWorkerClusterCRDs(workerClustersBucketPath, objectName string, fluxYaml []byte) error {
-	bucketName := workerClustersBucketPath + "-kratix-crds"
-	return r.BucketWriter.WriteObject(bucketName, objectName, fluxYaml)
-}
-
-func (r *WorkPlacementReconciler) getWorkerClusterBucketPath(targetCluster string) (string, error) {
+func (r *WorkPlacementReconciler) getRepoFilePaths(targetCluster, workNamespace, workName string) (repoFilePaths, error) {
 	scheduledWorkerCluster := &platformv1alpha1.Cluster{}
 	clusterName := types.NamespacedName{
 		Name:      targetCluster,
@@ -184,9 +176,16 @@ func (r *WorkPlacementReconciler) getWorkerClusterBucketPath(targetCluster strin
 	err := r.Client.Get(context.Background(), clusterName, scheduledWorkerCluster)
 	if err != nil {
 		r.Log.Error(err, "Error listing available clusters")
-		return "", err
+		return repoFilePaths{}, err
 	}
-	return scheduledWorkerCluster.Spec.BucketPath, nil
+
+	base := scheduledWorkerCluster.Spec.BucketPath
+	return repoFilePaths{
+		ResourcesBucket: base + "-kratix-resources",
+		ResourcesName:   "01-" + workNamespace + "-" + workName + "-resources.yaml",
+		CRDsBucket:      base + "-kratix-crds",
+		CRDsName:        "00-" + workNamespace + "-" + workName + "-crds.yaml",
+	}, nil
 }
 
 func (r *WorkPlacementReconciler) getWork(workName string) *platformv1alpha1.Work {
@@ -197,6 +196,15 @@ func (r *WorkPlacementReconciler) getWork(workName string) *platformv1alpha1.Wor
 	}
 	r.Client.Get(context.Background(), namespaceName, work)
 	return work
+}
+
+func (r *WorkPlacementReconciler) addFinalizer(ctx context.Context, workPlacement *platformv1alpha1.WorkPlacement) (ctrl.Result, error) {
+	controllerutil.AddFinalizer(workPlacement, WorkPlacementFinalizer)
+	if err := r.Update(ctx, workPlacement); err != nil {
+		r.Log.Error(err, "failed to add finalizer to WorkPlacement")
+		return ctrl.Result{}, err
+	}
+	return ctrl.Result{}, nil
 }
 
 // SetupWithManager sets up the controller with the Manager.
