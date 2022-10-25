@@ -1,6 +1,0 @@
-# Example asset is used by the pipeline script
-apiVersion: v1
-kind: Namespace
-metadata:
-  name: <TODO-REPLACE>
-
