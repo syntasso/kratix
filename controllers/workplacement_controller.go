@@ -19,6 +19,7 @@ package controllers
 import (
 	"bytes"
 	"context"
+	"github.com/go-logr/logr"
 	"time"
 
 	"k8s.io/apimachinery/pkg/runtime"
@@ -28,7 +29,6 @@ import (
 	"sigs.k8s.io/controller-runtime/pkg/client"
 	"sigs.k8s.io/controller-runtime/pkg/controller/controllerutil"
 
-	"github.com/go-logr/logr"
 	platformv1alpha1 "github.com/syntasso/kratix/api/v1alpha1"
 )
 
@@ -61,42 +61,51 @@ type repoFilePaths struct {
 // For more details, check Reconcile and its Result here:
 // - https://pkg.go.dev/sigs.k8s.io/controller-runtime@v0.11.0/pkg/reconcile
 func (r *WorkPlacementReconciler) Reconcile(ctx context.Context, req ctrl.Request) (ctrl.Result, error) {
-	_ = r.Log.WithValues("work-placement-controller", req.NamespacedName)
+	logger := r.Log.WithValues("work-placement-controller", req.NamespacedName)
 
 	workPlacement := &platformv1alpha1.WorkPlacement{}
 	err := r.Client.Get(context.Background(), req.NamespacedName, workPlacement)
 	if err != nil {
-		r.Log.Error(err, "Error getting WorkPlacement: "+req.Name)
+		logger.Error(err, "Error getting WorkPlacement: "+req.Name)
 		return ctrl.Result{RequeueAfter: 5 * time.Second}, nil
 	}
 
-	work := r.getWork(workPlacement.Spec.WorkName)
-	paths, _ := r.getRepoFilePaths(workPlacement.Spec.TargetClusterName, work.GetNamespace(), work.GetName())
+	//TODO should we check if the owners exist? what if we have more than 1?
+	if len(workPlacement.GetOwnerReferences()) == 0 {
+		logger.Error(err, "Error getting ownership wtf: "+req.Name)
+	}
+
+	paths, err := r.getRepoFilePaths(workPlacement.Spec.TargetClusterName, workPlacement.GetNamespace(), workPlacement.GetOwnerReferences()[0].Name, logger)
+	if err != nil {
+		logger.Error(err, "Error getting file paths for the repository")
+		return ctrl.Result{RequeueAfter: 5 * time.Second}, nil
+	}
 
 	if !workPlacement.DeletionTimestamp.IsZero() {
-		return r.deleteWorkPlacement(ctx, work, workPlacement, paths)
+		return r.deleteWorkPlacement(ctx, workPlacement, paths, logger)
 	}
 
 	// Ensure the finalizer is present
 	if !controllerutil.ContainsFinalizer(workPlacement, WorkPlacementFinalizer) {
-		return r.addFinalizer(ctx, workPlacement)
+		return r.addFinalizer(ctx, workPlacement, logger)
 	}
 
-	err = r.writeWorkToRepository(work, paths)
+	work := r.getWork(workPlacement.Spec.WorkName, logger)
+	err = r.writeWorkToRepository(work, paths, logger)
 	if err != nil {
-		r.Log.Error(err, "Error writing to repository, will try again in 5 seconds")
+		logger.Error(err, "Error writing to repository, will try again in 5 seconds")
 		return ctrl.Result{RequeueAfter: 5 * time.Second}, nil
 	}
 
 	return ctrl.Result{}, nil
 }
 
-func (r *WorkPlacementReconciler) deleteWorkPlacement(ctx context.Context, work *platformv1alpha1.Work, workPlacement *platformv1alpha1.WorkPlacement, bucketPath repoFilePaths) (ctrl.Result, error) {
+func (r *WorkPlacementReconciler) deleteWorkPlacement(ctx context.Context, workPlacement *platformv1alpha1.WorkPlacement, bucketPath repoFilePaths, logger logr.Logger) (ctrl.Result, error) {
 	if controllerutil.ContainsFinalizer(workPlacement, WorkPlacementFinalizer) {
-		r.Log.Info("cleaning up files on repository for " + workPlacement.Name)
-		err := r.removeWorkFromRepository(work, bucketPath)
+		logger.Info("cleaning up files on repository for " + workPlacement.Name)
+		err := r.removeWorkFromRepository(bucketPath, logger)
 		if err != nil {
-			r.Log.Error(err, "error removing work from repository, will try again in 5 seconds")
+			logger.Error(err, "error removing work from repository, will try again in 5 seconds")
 			return ctrl.Result{RequeueAfter: 5 * time.Second}, nil
 		}
 
@@ -109,7 +118,7 @@ func (r *WorkPlacementReconciler) deleteWorkPlacement(ctx context.Context, work 
 	return ctrl.Result{}, nil
 }
 
-func (r *WorkPlacementReconciler) writeWorkToRepository(work *platformv1alpha1.Work, paths repoFilePaths) error {
+func (r *WorkPlacementReconciler) writeWorkToRepository(work *platformv1alpha1.Work, paths repoFilePaths, logger logr.Logger) error {
 	serializer := json.NewSerializerWithOptions(
 		json.DefaultMetaFactory, nil, nil,
 		json.SerializerOptions{
@@ -140,34 +149,34 @@ func (r *WorkPlacementReconciler) writeWorkToRepository(work *platformv1alpha1.W
 
 	err := r.BucketWriter.WriteObject(paths.CRDsBucket, paths.CRDsName, crdBuffer.Bytes())
 	if err != nil {
-		r.Log.Error(err, "Error Writing CRDS to repository")
+		logger.Error(err, "Error Writing CRDS to repository")
 		return err
 	}
 
 	err = r.BucketWriter.WriteObject(paths.ResourcesBucket, paths.ResourcesName, resourceBuffer.Bytes())
 	if err != nil {
-		r.Log.Error(err, "Error uploading resources to repository")
+		logger.Error(err, "Error uploading resources to repository")
 		return err
 	}
 
 	return nil
 }
 
-func (r *WorkPlacementReconciler) removeWorkFromRepository(work *platformv1alpha1.Work, paths repoFilePaths) error {
-	r.Log.Info("Removing objects from repository")
+func (r *WorkPlacementReconciler) removeWorkFromRepository(paths repoFilePaths, logger logr.Logger) error {
+	logger.Info("Removing objects from repository")
 	if err := r.BucketWriter.RemoveObject(paths.ResourcesBucket, paths.ResourcesName); err != nil {
-		r.Log.Error(err, "Error removing resources from repository", paths.ResourcesBucket)
+		logger.Error(err, "Error removing resources from repository", paths.ResourcesBucket)
 		return err
 	}
 
 	if err := r.BucketWriter.RemoveObject(paths.CRDsBucket, paths.CRDsName); err != nil {
-		r.Log.Error(err, "Error removing crds from repository", paths.CRDsBucket)
+		logger.Error(err, "Error removing crds from repository", paths.CRDsBucket)
 		return err
 	}
 	return nil
 }
 
-func (r *WorkPlacementReconciler) getRepoFilePaths(targetCluster, workNamespace, workName string) (repoFilePaths, error) {
+func (r *WorkPlacementReconciler) getRepoFilePaths(targetCluster, workNamespace, workName string, logger logr.Logger) (repoFilePaths, error) {
 	scheduledWorkerCluster := &platformv1alpha1.Cluster{}
 	clusterName := types.NamespacedName{
 		Name:      targetCluster,
@@ -175,7 +184,7 @@ func (r *WorkPlacementReconciler) getRepoFilePaths(targetCluster, workNamespace,
 	}
 	err := r.Client.Get(context.Background(), clusterName, scheduledWorkerCluster)
 	if err != nil {
-		r.Log.Error(err, "Error listing available clusters")
+		logger.Error(err, "Error listing available clusters")
 		return repoFilePaths{}, err
 	}
 
@@ -188,7 +197,7 @@ func (r *WorkPlacementReconciler) getRepoFilePaths(targetCluster, workNamespace,
 	}, nil
 }
 
-func (r *WorkPlacementReconciler) getWork(workName string) *platformv1alpha1.Work {
+func (r *WorkPlacementReconciler) getWork(workName string, logger logr.Logger) *platformv1alpha1.Work {
 	work := &platformv1alpha1.Work{}
 	namespaceName := types.NamespacedName{
 		Namespace: "default",
@@ -198,10 +207,10 @@ func (r *WorkPlacementReconciler) getWork(workName string) *platformv1alpha1.Wor
 	return work
 }
 
-func (r *WorkPlacementReconciler) addFinalizer(ctx context.Context, workPlacement *platformv1alpha1.WorkPlacement) (ctrl.Result, error) {
+func (r *WorkPlacementReconciler) addFinalizer(ctx context.Context, workPlacement *platformv1alpha1.WorkPlacement, logger logr.Logger) (ctrl.Result, error) {
 	controllerutil.AddFinalizer(workPlacement, WorkPlacementFinalizer)
 	if err := r.Update(ctx, workPlacement); err != nil {
-		r.Log.Error(err, "failed to add finalizer to WorkPlacement")
+		logger.Error(err, "failed to add finalizer to WorkPlacement")
 		return ctrl.Result{}, err
 	}
 	return ctrl.Result{}, nil

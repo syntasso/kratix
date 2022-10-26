@@ -65,7 +65,7 @@ func (r *ClusterReconciler) Reconcile(ctx context.Context, req ctrl.Request) (ct
 	r.createWorkerClusterResourceBucket(bucketPath)
 	r.createWorkerResources(bucketPath)
 
-	err := r.Scheduler.ReconcileCluster(cluster)
+	err := r.Scheduler.ReconcileCluster(cluster, r.Scheme)
 	return ctrl.Result{}, err
 }
 

@@ -38,6 +38,8 @@ type WorkReconciler struct {
 //+kubebuilder:rbac:groups=platform.kratix.io,resources=works,verbs=get;list;watch;create;update;patch;delete
 //+kubebuilder:rbac:groups=platform.kratix.io,resources=works/status,verbs=get;update;patch
 //+kubebuilder:rbac:groups=platform.kratix.io,resources=works/finalizers,verbs=update
+//+kubebuilder:rbac:groups=platform.kratix.io,resources=workplacements,verbs=get;list;watch;create;update;patch;delete
+//+kubebuilder:rbac:groups=platform.kratix.io,resources=workplacements/status,verbs=get
 
 // Reconcile is part of the main kubernetes reconciliation loop which aims to
 // move the current state of the cluster closer to the desired state.
@@ -81,7 +83,7 @@ func (r *WorkReconciler) Reconcile(ctx context.Context, req ctrl.Request) (ctrl.
 
 	// If Work does not have a WorkPlacement then schedule the Work
 	r.Log.Info("Requesting scheduling for Work " + req.Name)
-	err = r.Scheduler.ReconcileWork(work)
+	err = r.Scheduler.ReconcileWork(work, r.Scheme)
 	if err != nil {
 		r.Log.Error(err, "Error scheduling Work, will retry...")
 		return ctrl.Result{Requeue: true}, err
@@ -94,5 +96,6 @@ func (r *WorkReconciler) Reconcile(ctx context.Context, req ctrl.Request) (ctrl.
 func (r *WorkReconciler) SetupWithManager(mgr ctrl.Manager) error {
 	return ctrl.NewControllerManagedBy(mgr).
 		For(&platformv1alpha1.Work{}).
+		Owns(&platformv1alpha1.WorkPlacement{}).
 		Complete(r)
 }

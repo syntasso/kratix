@@ -19,11 +19,11 @@ package controllers_test
 import (
 	"context"
 
-	. "github.com/syntasso/kratix/controllers"
-
 	. "github.com/onsi/ginkgo"
 	. "github.com/onsi/gomega"
+	. "github.com/syntasso/kratix/controllers"
 	"k8s.io/apimachinery/pkg/fields"
+	"k8s.io/apimachinery/pkg/types"
 	ctrl "sigs.k8s.io/controller-runtime"
 	"sigs.k8s.io/controller-runtime/pkg/client"
 
@@ -58,40 +58,39 @@ var _ = Context("WorkReconciler.Reconcile()", func() {
 	})
 
 	Describe("On Work Creation", func() {
-		It("creates a WorkPlacement when other WorkPlacements exist", func() {
+		It("creates a WorkPlacement", func() {
 			var timeout = "30s"
 			var interval = "3s"
-
-			workPlacement := platformv1alpha1.WorkPlacement{}
-			workPlacement.Name = "some-other-work-placement"
-			workPlacement.Namespace = "default"
-			workPlacement.Spec.WorkName = "some-other-work"
-			workPlacement.Spec.TargetClusterName = worker.Name
-			err := k8sClient.Create(context.Background(), &workPlacement)
-			Expect(err).ToNot(HaveOccurred())
 
 			work = &platformv1alpha1.Work{}
 			work.Name = "work-controller-test-resource-request"
 			work.Namespace = "default"
 			work.Spec.Replicas = platformv1alpha1.ResourceRequestReplicas
-			err = k8sClient.Create(context.Background(), work)
+			err := k8sClient.Create(context.Background(), work)
 			Expect(err).ToNot(HaveOccurred())
 
-			workPlacementList := &platformv1alpha1.WorkPlacementList{}
-			Eventually(func() int {
+			Eventually(func(g Gomega) {
+				workPlacementList := &platformv1alpha1.WorkPlacementList{}
 				workPlacementListOptions := &client.ListOptions{
 					Namespace:     "default",
 					FieldSelector: fields.OneTermEqualSelector("metadata.name", "work-controller-test-resource-request.worker-1"),
 				}
 				err := k8sClient.List(context.Background(), workPlacementList, workPlacementListOptions)
-				Expect(err).ToNot(HaveOccurred())
-				return len(workPlacementList.Items)
-			}, timeout, interval).Should(Equal(1))
+				g.Expect(err).ToNot(HaveOccurred())
+				g.Expect(workPlacementList.Items).To(HaveLen(1), "expected one WorkPlacement")
 
-			for _, workPlacement := range workPlacementList.Items {
-				err := k8sClient.Delete(context.Background(), &workPlacement, &client.DeleteOptions{})
-				Expect(err).ToNot(HaveOccurred())
-			}
+				var createdWork platformv1alpha1.Work
+				err = k8sClient.Get(context.Background(), types.NamespacedName{
+					Namespace: work.Namespace,
+					Name:      work.Name,
+				}, &createdWork)
+				g.Expect(err).ToNot(HaveOccurred())
+
+				workPlacement := workPlacementList.Items[0]
+				g.Expect(workPlacement.GetOwnerReferences()[0].UID).To(Equal(createdWork.GetUID()))
+
+			}, timeout, interval).Should(Succeed(), "WorkPlacement was not created")
 		})
 	})
+
 })
