@@ -72,12 +72,7 @@ func (r *WorkPlacementReconciler) Reconcile(ctx context.Context, req ctrl.Reques
 		return ctrl.Result{RequeueAfter: 5 * time.Second}, nil
 	}
 
-	//TODO should we check if the owners exist? what if we have more than 1?
-	if len(workPlacement.GetOwnerReferences()) == 0 {
-		logger.Error(err, "Error getting ownership wtf: "+req.Name)
-	}
-
-	paths, err := r.getRepoFilePaths(workPlacement.Spec.TargetClusterName, workPlacement.GetNamespace(), workPlacement.GetOwnerReferences()[0].Name, logger)
+	paths, err := r.getRepoFilePaths(workPlacement.Spec.TargetClusterName, workPlacement.GetNamespace(), workPlacement.Spec.WorkName, logger)
 	if err != nil {
 		logger.Error(err, "Error getting file paths for the repository")
 		return ctrl.Result{RequeueAfter: 5 * time.Second}, nil
