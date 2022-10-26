@@ -28,13 +28,22 @@ commands:
               curl -L https://github.com/kubernetes-sigs/kind/releases/download/v0.14.0/kind-linux-amd64 -o ~/bin/kind
               chmod +x ~/bin/kind
             fi
-      - checkout
+      - attach_workspace:
+          at: .
       - run:
           name: Install Dependencies
           command: |
             go mod download
 
 jobs:
+  git-clone:
+    executor: machine-medium
+    steps:
+      - checkout
+      - persist_to_workspace:
+          root: .
+          paths:
+            - .
   unit-tests:
     executor: machine-medium
     steps:
@@ -68,9 +77,47 @@ jobs:
           command: |
             ./scripts/install-jenkins.sh
 
+  do-release:
+    executor: machine-large
+    steps:
+    - install_software
+    - add_ssh_keys:
+        # Add github deploy key
+        # https://circleci.com/docs/github-integration#create-a-github-deploy-key
+        fingerprints:
+          - "5e:1e:ea:52:8b:1b:ad:a2:66:1a:40:98:a3:f5:96:f5"
+    - run:
+        # see https://circleci.com/docs/github-integration#establish-the-authenticity-of-an-ssh-host
+        name: setup git
+        command: |
+          mkdir -p ~/.ssh
+          ssh-keyscan github.com > ~/.ssh/known_hosts
+
+          git config --global user.name "syntassodev"
+          git config --global user.email "kratix@syntasso.io"
+    - run:
+        name: Run Release script
+        command: |
+          ./scripts/release.sh
+
 workflows:
   run-tests:
     jobs:
-      - unit-tests
-      - int-tests
-      - e2e-demo-test
+      - git-clone
+      - unit-tests:
+          requires: [git-clone]
+      - int-tests:
+          requires: [git-clone]
+      - e2e-demo-test:
+          requires: [git-clone]
+      - release:
+          type: approval
+          requires:
+            - unit-tests
+            - int-tests
+            - e2e-demo-test
+          filters:
+            branches:
+              only: dev
+      - do-release:
+          requires: [release]
