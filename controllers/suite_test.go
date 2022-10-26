@@ -97,6 +97,14 @@ var _ = AfterSuite(func() {
 })
 
 var _ = AfterEach(func() {
+	var workPlacements platformv1alpha1.WorkPlacementList
+	k8sClient.List(context.Background(), &workPlacements)
+
+	for _, wp := range workPlacements.Items {
+		wp.Finalizers = nil
+		k8sClient.Update(context.Background(), &wp)
+	}
+
 	Expect(k8sClient.DeleteAllOf(context.Background(), &platformv1alpha1.Cluster{}, client.InNamespace("default"))).To(Succeed())
 	Expect(k8sClient.DeleteAllOf(context.Background(), &platformv1alpha1.Promise{}, client.InNamespace("default"))).To(Succeed())
 	Expect(k8sClient.DeleteAllOf(context.Background(), &platformv1alpha1.Work{}, client.InNamespace("default"))).To(Succeed())

@@ -249,6 +249,40 @@ var _ = Describe("kratix Platform Integration Test", func() {
 				}, timeout, interval).Should(Equal(2))
 			})
 		})
+
+		Describe("Deleting the WorkPlacement resource", func() {
+			It("deletes the associated Minio files", func() {
+				workplacementNamespacedName := types.NamespacedName{
+					Name:      "redis-promise-default-default-opstree-redis",
+					Namespace: "default",
+				}
+
+				// make sure file exists
+				Eventually(func(g Gomega) {
+					minioFileWereDeleted, _ := workerHasResource(workplacementNamespacedName, "opstree-redis", "Redis", DevWorkerCluster2)
+					g.Expect(minioFileWereDeleted).To(BeTrue(), "workplacement minio file should exist")
+				}, timeout, interval).Should(Succeed(), "minio files do not exist")
+
+				// delete workplacement
+				var workPlacement platformv1alpha1.WorkPlacement
+				ppdPromiseWorkPlacement := types.NamespacedName{
+					Name:      "redis-promise-default-default-opstree-redis.worker-cluster-2",
+					Namespace: "default",
+				}
+
+				err := k8sClient.Get(context.Background(), ppdPromiseWorkPlacement, &workPlacement)
+				Expect(err).ToNot(HaveOccurred())
+
+				err = k8sClient.Delete(context.Background(), &workPlacement)
+				Expect(err).ToNot(HaveOccurred())
+
+				// make sure file does not exist
+				Eventually(func(g Gomega) {
+					minioFileWereDeleted, _ := workerHasResource(workplacementNamespacedName, "opstree-redis", "Redis", DevWorkerCluster2)
+					g.Expect(minioFileWereDeleted).To(BeFalse(), "workplacement minio file should have been deleted")
+				}, timeout, interval).Should(Succeed(), "minio files were not deleted")
+			})
+		})
 	})
 
 	Describe("Postgres Promise lifecycle", func() {

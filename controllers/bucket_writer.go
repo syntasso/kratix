@@ -3,6 +3,7 @@ package controllers
 import (
 	"bytes"
 	"context"
+	"fmt"
 
 	"github.com/go-logr/logr"
 	minio "github.com/minio/minio-go/v7"
@@ -10,7 +11,29 @@ import (
 )
 
 type BucketWriter struct {
-	Log logr.Logger
+	Log        logr.Logger
+	RepoClient *minio.Client
+}
+
+func NewBucketWriter(logger logr.Logger) (*BucketWriter, error) {
+	endpoint := "minio.kratix-platform-system.svc.cluster.local"
+	accessKeyID := "minioadmin"
+	secretAccessKey := "minioadmin"
+	useSSL := false
+	minioClient, err := minio.New(endpoint, &minio.Options{
+		Creds:  credentials.NewStaticV4(accessKeyID, secretAccessKey, ""),
+		Secure: useSSL,
+	})
+
+	if err != nil {
+		logger.Error(err, "Error initalising Minio client")
+		return nil, err
+	}
+
+	return &BucketWriter{
+		Log:        logger,
+		RepoClient: minioClient,
+	}, nil
 }
 
 func (b *BucketWriter) WriteObject(bucketName string, objectName string, toWrite []byte) error {
@@ -20,28 +43,11 @@ func (b *BucketWriter) WriteObject(bucketName string, objectName string, toWrite
 	}
 
 	ctx := context.Background()
-	endpoint := "minio.kratix-platform-system.svc.cluster.local"
-	accessKeyID := "minioadmin"
-	secretAccessKey := "minioadmin"
-	useSSL := false
 
-	// Initialize minio client object.
-	minioClient, err := minio.New(endpoint, &minio.Options{
-		Creds:  credentials.NewStaticV4(accessKeyID, secretAccessKey, ""),
-		Secure: useSSL,
-	})
-
-	if err != nil {
-		b.Log.Error(err, "Error initalising Minio client")
-		return err
-	}
-
-	location := "local-minio"
-
-	err = minioClient.MakeBucket(ctx, bucketName, minio.MakeBucketOptions{Region: location})
+	err := b.RepoClient.MakeBucket(ctx, bucketName, minio.MakeBucketOptions{Region: "local-minio"})
 	if err != nil {
 		// Check to see if we already own this bucket (which happens if you run this twice)
-		exists, errBucketExists := minioClient.BucketExists(ctx, bucketName)
+		exists, errBucketExists := b.RepoClient.BucketExists(ctx, bucketName)
 		if errBucketExists == nil && exists {
 			b.Log.Info("Minio Bucket " + bucketName + " already exists, will not recreate\n")
 		} else {
@@ -56,10 +62,22 @@ func (b *BucketWriter) WriteObject(bucketName string, objectName string, toWrite
 	reader := bytes.NewReader(toWrite)
 
 	b.Log.Info("Creating Minio object " + objectName)
-	_, err = minioClient.PutObject(ctx, bucketName, objectName, reader, reader.Size(), minio.PutObjectOptions{ContentType: contentType})
-	b.Log.Info("Minio object " + objectName + " written to " + bucketName)
+	_, err = b.RepoClient.PutObject(ctx, bucketName, objectName, reader, reader.Size(), minio.PutObjectOptions{ContentType: contentType})
 	if err != nil {
 		b.Log.Error(err, "Minio Error")
+		return err
+	}
+	b.Log.Info("Minio object " + objectName + " written to " + bucketName)
+
+	return nil
+}
+
+func (b *BucketWriter) RemoveObject(bucketName string, objectName string) error {
+	ctx := context.Background()
+
+	err := b.RepoClient.RemoveObject(ctx, bucketName, objectName, minio.RemoveObjectOptions{})
+	if err != nil {
+		b.Log.Error(err, fmt.Sprintf("could not delete %s/%s", bucketName, objectName))
 		return err
 	}
 

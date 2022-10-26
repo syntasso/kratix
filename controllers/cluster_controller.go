@@ -36,7 +36,7 @@ type ClusterReconciler struct {
 	Scheme       *runtime.Scheme
 	Log          logr.Logger
 	Scheduler    *Scheduler
-	BucketWriter BucketWriter
+	BucketWriter *BucketWriter
 }
 
 //+kubebuilder:rbac:groups=platform.kratix.io,resources=clusters,verbs=get;list;watch;create;update;patch;delete
