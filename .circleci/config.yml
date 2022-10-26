@@ -96,6 +96,11 @@ jobs:
           git config --global user.name "syntassodev"
           git config --global user.email "kratix@syntasso.io"
     - run:
+        # https://circleci.com/docs/building-docker-images/#run-docker-commands-using-the-machine-executor
+        name: Docker Auth
+        command: |
+          echo "$DOCKER_PASSWORD" | docker login --username $DOCKER_USERNAME --password-stdin
+    - run:
         name: Run Release script
         command: |
           ./scripts/release.sh
