@@ -3,6 +3,7 @@ package controllers
 import (
 	"context"
 	"fmt"
+	"k8s.io/apimachinery/pkg/runtime"
 	"math/rand"
 	"time"
 
@@ -19,7 +20,7 @@ type Scheduler struct {
 	Log logr.Logger
 }
 
-func (r *Scheduler) ReconcileCluster(cluster *platformv1alpha1.Cluster) error {
+func (r *Scheduler) ReconcileCluster(cluster *platformv1alpha1.Cluster, scheme *runtime.Scheme) error {
 	works := platformv1alpha1.WorkList{}
 	lo := &client.ListOptions{
 		Namespace: "default",
@@ -30,7 +31,7 @@ func (r *Scheduler) ReconcileCluster(cluster *platformv1alpha1.Cluster) error {
 
 	for _, work := range works.Items {
 		if work.IsWorkerResource() {
-			if err := r.ReconcileWork(&work); err != nil {
+			if err := r.ReconcileWork(&work, scheme); err != nil {
 				r.Log.Error(err, "Failed reconciling Work: ")
 			}
 		}
@@ -39,22 +40,29 @@ func (r *Scheduler) ReconcileCluster(cluster *platformv1alpha1.Cluster) error {
 	return nil
 }
 
-func (r *Scheduler) ReconcileWork(work *platformv1alpha1.Work) error {
+func (r *Scheduler) ReconcileWork(work *platformv1alpha1.Work, scheme *runtime.Scheme) error {
 	targetClusterNames := r.getTargetClusterNames(work)
 	if len(targetClusterNames) == 0 {
 		return fmt.Errorf("no Clusters can be selected for clusterSelector " + labels.FormatLabels(work.Spec.ClusterSelector))
 	}
-	return r.createWorkplacementsForTargetClusters(work.Name, targetClusterNames)
+	return r.createWorkplacementsForTargetClusters(work, targetClusterNames, scheme)
 }
 
-func (r *Scheduler) createWorkplacementsForTargetClusters(workName string, targetClusterNames []string) error {
+func (r *Scheduler) createWorkplacementsForTargetClusters(work *platformv1alpha1.Work, targetClusterNames []string, scheme *runtime.Scheme) error {
 	for _, targetClusterName := range targetClusterNames {
 		workPlacement := platformv1alpha1.WorkPlacement{}
 		workPlacement.Namespace = "default"
-		workPlacement.Name = workName + "." + targetClusterName
-		workPlacement.Spec.WorkName = workName
+		workPlacement.Name = work.Name + "." + targetClusterName
+		workPlacement.Spec.WorkName = work.Name
 		workPlacement.Spec.TargetClusterName = targetClusterName
 		controllerutil.AddFinalizer(&workPlacement, WorkPlacementFinalizer)
+
+		if scheme != nil {
+			if err := controllerutil.SetControllerReference(work, &workPlacement, scheme); err != nil {
+				r.Log.Error(err, "Error setting ownership")
+				return err
+			}
+		}
 
 		if err := r.Client.Create(context.Background(), &workPlacement); err != nil {
 			if errors.IsAlreadyExists(err) {

@@ -27,7 +27,6 @@ import (
 	. "github.com/syntasso/kratix/controllers"
 	"k8s.io/apiextensions-apiserver/pkg/client/clientset/clientset"
 	"k8s.io/client-go/kubernetes/scheme"
-	"k8s.io/client-go/rest"
 	ctrl "sigs.k8s.io/controller-runtime"
 	"sigs.k8s.io/controller-runtime/pkg/client"
 	"sigs.k8s.io/controller-runtime/pkg/envtest"
@@ -40,7 +39,6 @@ import (
 // These tests use Ginkgo (BDD-style Go testing framework). Refer to
 // http://onsi.github.io/ginkgo/ to learn more about Ginkgo.
 
-var cfg *rest.Config
 var k8sClient client.Client
 var apiextensionClient *clientset.Clientset
 var testEnv *envtest.Environment
@@ -61,7 +59,6 @@ var _ = BeforeSuite(func() {
 
 	err = platformv1alpha1.AddToScheme(scheme.Scheme)
 	Expect(err).NotTo(HaveOccurred())
-
 	//+kubebuilder:scaffold:scheme
 
 	apiextensionClient = clientset.NewForConfigOrDie(cfg)

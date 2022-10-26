@@ -9,6 +9,7 @@ import (
 	. "github.com/syntasso/kratix/controllers"
 	v1 "k8s.io/apimachinery/pkg/apis/meta/v1"
 	"k8s.io/apimachinery/pkg/types"
+	"k8s.io/client-go/kubernetes/scheme"
 	ctrl "sigs.k8s.io/controller-runtime"
 )
 
@@ -117,7 +118,7 @@ var _ = Describe("Controllers/Scheduler", func() {
 			Expect(k8sClient.Create(context.Background(), &devCluster3)).To(Succeed())
 			Expect(k8sClient.Create(context.Background(), &prodWork)).To(Succeed())
 			Expect(k8sClient.Create(context.Background(), &devWork)).To(Succeed())
-			scheduler.ReconcileCluster(&devCluster3)
+			scheduler.ReconcileCluster(&devCluster3, scheme.Scheme)
 		})
 
 		When("A new cluster is added", func() {
@@ -145,7 +146,7 @@ var _ = Describe("Controllers/Scheduler", func() {
 
 	Describe("#ReconcileWork", func() {
 		It("creates a WorkPlacement for a given Work", func() {
-			err := scheduler.ReconcileWork(&resRequestWork)
+			err := scheduler.ReconcileWork(&resRequestWork, nil)
 			Expect(err).ToNot(HaveOccurred())
 
 			Expect(k8sClient.List(context.Background(), &workPlacements)).To(Succeed())
@@ -162,7 +163,7 @@ var _ = Describe("Controllers/Scheduler", func() {
 
 		When("the Work has no selector", func() {
 			It("creates Workplacement for all registered clusters", func() {
-				err := scheduler.ReconcileWork(&work)
+				err := scheduler.ReconcileWork(&work, nil)
 				Expect(err).ToNot(HaveOccurred())
 
 				Expect(k8sClient.List(context.Background(), &workPlacements)).To(Succeed())
@@ -172,7 +173,7 @@ var _ = Describe("Controllers/Scheduler", func() {
 
 		When("the Work matches a single cluster", func() {
 			It("creates a single WorkPlacement", func() {
-				err := scheduler.ReconcileWork(&prodWork)
+				err := scheduler.ReconcileWork(&prodWork, nil)
 				Expect(err).ToNot(HaveOccurred())
 
 				Expect(k8sClient.List(context.Background(), &workPlacements)).To(Succeed())
@@ -184,7 +185,7 @@ var _ = Describe("Controllers/Scheduler", func() {
 
 		When("the Work matches multiple clusters", func() {
 			It("creates WorkPlacements for the clusters with the label", func() {
-				err := scheduler.ReconcileWork(&devWork)
+				err := scheduler.ReconcileWork(&devWork, nil)
 				Expect(err).ToNot(HaveOccurred())
 
 				Expect(k8sClient.List(context.Background(), &workPlacements)).To(Succeed())
@@ -206,7 +207,7 @@ var _ = Describe("Controllers/Scheduler", func() {
 			})
 
 			It("creates no workplacements", func() {
-				err := scheduler.ReconcileWork(&work)
+				err := scheduler.ReconcileWork(&work, nil)
 				Expect(err).To(MatchError("no Clusters can be selected for clusterSelector environment=staging"))
 
 				Expect(k8sClient.List(context.Background(), &workPlacements)).To(Succeed())
