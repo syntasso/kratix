@@ -22,7 +22,6 @@ import (
 	"github.com/go-logr/logr"
 	"time"
 
-	"k8s.io/apimachinery/pkg/runtime"
 	"k8s.io/apimachinery/pkg/runtime/serializer/json"
 	"k8s.io/apimachinery/pkg/types"
 	ctrl "sigs.k8s.io/controller-runtime"
@@ -35,7 +34,6 @@ import (
 // WorkPlacementReconciler reconciles a WorkPlacement object
 type WorkPlacementReconciler struct {
 	client.Client
-	Scheme       *runtime.Scheme
 	Log          logr.Logger
 	BucketWriter *BucketWriter
 }

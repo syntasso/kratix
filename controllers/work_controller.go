@@ -22,7 +22,6 @@ import (
 
 	"github.com/go-logr/logr"
 	platformv1alpha1 "github.com/syntasso/kratix/api/v1alpha1"
-	"k8s.io/apimachinery/pkg/runtime"
 	ctrl "sigs.k8s.io/controller-runtime"
 	"sigs.k8s.io/controller-runtime/pkg/client"
 )
@@ -31,7 +30,6 @@ import (
 type WorkReconciler struct {
 	client.Client
 	Log       logr.Logger
-	Scheme    *runtime.Scheme
 	Scheduler *Scheduler
 }
 
@@ -83,7 +81,7 @@ func (r *WorkReconciler) Reconcile(ctx context.Context, req ctrl.Request) (ctrl.
 
 	// If Work does not have a WorkPlacement then schedule the Work
 	r.Log.Info("Requesting scheduling for Work " + req.Name)
-	err = r.Scheduler.ReconcileWork(work, r.Scheme)
+	err = r.Scheduler.ReconcileWork(work)
 	if err != nil {
 		r.Log.Error(err, "Error scheduling Work, will retry...")
 		return ctrl.Result{Requeue: true}, err

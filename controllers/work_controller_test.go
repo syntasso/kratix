@@ -43,7 +43,6 @@ var _ = Context("WorkReconciler.Reconcile()", func() {
 
 		err := (&WorkReconciler{
 			Client:    k8sClient,
-			Scheme:    k8sManager.GetScheme(),
 			Scheduler: scheduler,
 			Log:       ctrl.Log.WithName("controllers").WithName("WorkReconciler"),
 		}).SetupWithManager(k8sManager)

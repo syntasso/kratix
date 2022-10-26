@@ -25,9 +25,8 @@ import (
 	"k8s.io/apiextensions-apiserver/pkg/client/clientset/clientset"
 	_ "k8s.io/client-go/plugin/pkg/client/auth"
 
-	"k8s.io/apimachinery/pkg/runtime"
 	utilruntime "k8s.io/apimachinery/pkg/util/runtime"
-	clientgoscheme "k8s.io/client-go/kubernetes/scheme"
+	"k8s.io/client-go/kubernetes/scheme"
 	ctrl "sigs.k8s.io/controller-runtime"
 	"sigs.k8s.io/controller-runtime/pkg/healthz"
 	"sigs.k8s.io/controller-runtime/pkg/log/zap"
@@ -37,15 +36,10 @@ import (
 	//+kubebuilder:scaffold:imports
 )
 
-var (
-	scheme   = runtime.NewScheme()
-	setupLog = ctrl.Log.WithName("setup")
-)
+var setupLog = ctrl.Log.WithName("setup")
 
 func init() {
-	utilruntime.Must(clientgoscheme.AddToScheme(scheme))
-
-	utilruntime.Must(platformv1alpha1.AddToScheme(scheme))
+	utilruntime.Must(platformv1alpha1.AddToScheme(scheme.Scheme))
 	//+kubebuilder:scaffold:scheme
 }
 
@@ -68,7 +62,7 @@ func main() {
 
 	config := ctrl.GetConfigOrDie()
 	mgr, err := ctrl.NewManager(config, ctrl.Options{
-		Scheme:                 scheme,
+		Scheme:                 scheme.Scheme,
 		MetricsBindAddress:     metricsAddr,
 		Port:                   9443,
 		HealthProbeBindAddress: probeAddr,
@@ -97,7 +91,6 @@ func main() {
 		ApiextensionsClient: clientset.NewForConfigOrDie(config),
 		Client:              mgr.GetClient(),
 		Log:                 ctrl.Log.WithName("controllers").WithName("Promise"),
-		Scheme:              mgr.GetScheme(),
 		Manager:             mgr,
 	}).SetupWithManager(mgr); err != nil {
 		setupLog.Error(err, "unable to create controller", "controller", "Promise")
@@ -106,7 +99,6 @@ func main() {
 	if err = (&controllers.WorkReconciler{
 		Client:    mgr.GetClient(),
 		Log:       ctrl.Log.WithName("controllers").WithName("Work"),
-		Scheme:    mgr.GetScheme(),
 		Scheduler: &scheduler,
 	}).SetupWithManager(mgr); err != nil {
 		setupLog.Error(err, "unable to create controller", "controller", "Work")
@@ -114,7 +106,6 @@ func main() {
 	}
 	if err = (&controllers.ClusterReconciler{
 		Client:       mgr.GetClient(),
-		Scheme:       mgr.GetScheme(),
 		BucketWriter: bucketWriter,
 		Scheduler:    &scheduler,
 		Log:          ctrl.Log.WithName("controllers").WithName("ClusterController"),
@@ -124,7 +115,6 @@ func main() {
 	}
 	if err = (&controllers.WorkPlacementReconciler{
 		Client:       mgr.GetClient(),
-		Scheme:       mgr.GetScheme(),
 		Log:          ctrl.Log.WithName("controllers").WithName("WorkPlacementController"),
 		BucketWriter: bucketWriter,
 	}).SetupWithManager(mgr); err != nil {

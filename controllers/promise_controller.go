@@ -49,7 +49,6 @@ type PromiseReconciler struct {
 	client.Client
 	ApiextensionsClient *clientset.Clientset
 	Log                 logr.Logger
-	Scheme              *runtime.Scheme
 	Manager             ctrl.Manager
 }
 

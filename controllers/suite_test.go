@@ -75,7 +75,6 @@ var _ = BeforeSuite(func() {
 		Manager:             k8sManager,
 		ApiextensionsClient: apiextensionClient,
 		Client:              k8sManager.GetClient(),
-		Scheme:              k8sManager.GetScheme(),
 		Log:                 ctrl.Log.WithName("controllers").WithName("PromiseReconciler"),
 	}).SetupWithManager(k8sManager)
 	Expect(err).ToNot(HaveOccurred())
