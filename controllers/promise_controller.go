@@ -89,6 +89,9 @@ func (r *PromiseReconciler) Reconcile(ctx context.Context, req ctrl.Request) (ct
 	promise := &v1alpha1.Promise{}
 	err := r.Client.Get(ctx, req.NamespacedName, promise)
 	if err != nil {
+		if errors.IsNotFound(err) {
+			return ctrl.Result{}, nil
+		}
 		r.Log.Error(err, "Failed getting Promise")
 		return ctrl.Result{}, nil
 	}
@@ -303,6 +306,9 @@ func (r *dynamicController) Reconcile(ctx context.Context, req ctrl.Request) (ct
 
 	err := r.client.Get(ctx, req.NamespacedName, unstructuredCRD)
 	if err != nil {
+		if errors.IsNotFound(err) {
+			return ctrl.Result{}, nil
+		}
 		r.log.Error(err, "Failed getting Promise CRD")
 		return ctrl.Result{}, nil
 	}

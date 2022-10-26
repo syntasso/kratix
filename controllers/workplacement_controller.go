@@ -20,6 +20,7 @@ import (
 	"bytes"
 	"context"
 	"github.com/go-logr/logr"
+	"k8s.io/apimachinery/pkg/api/errors"
 	"time"
 
 	"k8s.io/apimachinery/pkg/runtime/serializer/json"
@@ -64,6 +65,9 @@ func (r *WorkPlacementReconciler) Reconcile(ctx context.Context, req ctrl.Reques
 	workPlacement := &platformv1alpha1.WorkPlacement{}
 	err := r.Client.Get(context.Background(), req.NamespacedName, workPlacement)
 	if err != nil {
+		if errors.IsNotFound(err) {
+			return ctrl.Result{}, nil
+		}
 		logger.Error(err, "Error getting WorkPlacement: "+req.Name)
 		return ctrl.Result{RequeueAfter: 5 * time.Second}, nil
 	}

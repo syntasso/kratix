@@ -18,6 +18,7 @@ package controllers
 
 import (
 	"context"
+	"k8s.io/apimachinery/pkg/api/errors"
 
 	v1 "k8s.io/api/core/v1"
 	metav1 "k8s.io/apimachinery/pkg/apis/meta/v1"
@@ -56,6 +57,9 @@ func (r *ClusterReconciler) Reconcile(ctx context.Context, req ctrl.Request) (ct
 	cluster := &platformv1alpha1.Cluster{}
 	r.Log.Info("Registering Cluster: " + req.Name)
 	if err := r.Client.Get(ctx, req.NamespacedName, cluster); err != nil {
+		if errors.IsNotFound(err) {
+			return ctrl.Result{}, nil
+		}
 		return ctrl.Result{}, err
 	}
 
