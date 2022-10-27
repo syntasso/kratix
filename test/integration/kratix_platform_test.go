@@ -250,7 +250,7 @@ var _ = Describe("kratix Platform Integration Test", func() {
 			})
 		})
 
-		Describe("Deleting the Work resource", func() {
+		Describe("Deleting the Resource Request resource", func() {
 			It("deletes the associated Minio files", func() {
 				workName := types.NamespacedName{
 					Name:      "redis-promise-default-default-opstree-redis",
@@ -264,12 +264,7 @@ var _ = Describe("kratix Platform Integration Test", func() {
 				}, timeout, interval).Should(Succeed(), "minio files do not exist")
 
 				// delete
-				var work platformv1alpha1.Work
-				err := k8sClient.Get(context.Background(), workName, &work)
-				Expect(err).ToNot(HaveOccurred())
-
-				err = k8sClient.Delete(context.Background(), &work)
-				Expect(err).ToNot(HaveOccurred())
+				kubeDelete(RedisResourceRequest)
 
 				// make sure file does not exist
 				Eventually(func(g Gomega) {
@@ -675,6 +670,39 @@ func kubeCreate(filepath string, opts ...string) {
 		}
 		err = k8sClient.Create(context.Background(), resource)
 		if err != nil && !errors.IsAlreadyExists(err) {
+			Fail(err.Error())
+		}
+	}
+}
+
+func kubeDelete(filepath string, opts ...string) {
+	yamlFile, err := os.Open(filepath)
+	Expect(err).ToNot(HaveOccurred())
+
+	resources := []*unstructured.Unstructured{}
+	decoder := yaml.NewYAMLOrJSONDecoder(yamlFile, 2048)
+	for {
+		us := unstructured.Unstructured{}
+
+		err := decoder.Decode(&us)
+		if err != nil {
+			if err == io.EOF {
+				break
+			}
+			Fail(err.Error())
+		}
+		if len(us.Object) == 0 {
+			continue
+		}
+		resources = append(resources, &us)
+	}
+
+	for _, resource := range resources {
+		if len(opts) != 0 {
+			resource.SetNamespace(opts[0])
+		}
+		err = k8sClient.Delete(context.Background(), resource)
+		if err != nil && !errors.IsNotFound(err) {
 			Fail(err.Error())
 		}
 	}

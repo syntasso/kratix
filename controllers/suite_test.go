@@ -39,11 +39,15 @@ import (
 // These tests use Ginkgo (BDD-style Go testing framework). Refer to
 // http://onsi.github.io/ginkgo/ to learn more about Ginkgo.
 
-var k8sClient client.Client
-var apiextensionClient *clientset.Clientset
-var testEnv *envtest.Environment
-var k8sManager ctrl.Manager
+var (
+	k8sClient          client.Client
+	apiextensionClient *clientset.Clientset
+	testEnv            *envtest.Environment
+	k8sManager         ctrl.Manager
 
+	timeout  = "30s"
+	interval = "3s"
+)
 var _ = BeforeSuite(func() {
 	logf.SetLogger(zap.New(zap.WriteTo(GinkgoWriter), zap.UseDevMode(true)))
 

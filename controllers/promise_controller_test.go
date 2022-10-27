@@ -19,11 +19,11 @@ package controllers_test
 import (
 	"context"
 	"fmt"
-	"io/ioutil"
-
 	. "github.com/onsi/ginkgo"
 	. "github.com/onsi/gomega"
+	"io/ioutil"
 	v1 "k8s.io/api/core/v1"
+	"k8s.io/apimachinery/pkg/api/errors"
 	metav1 "k8s.io/apimachinery/pkg/apis/meta/v1"
 	"k8s.io/apimachinery/pkg/apis/meta/v1/unstructured"
 	"k8s.io/apimachinery/pkg/labels"
@@ -85,7 +85,7 @@ var _ = Context("Promise Reconciler", func() {
 		})
 	})
 
-	Describe("Creating a Redis Custom Resource", func() {
+	Describe("Lifecycle of a Redis Custom Resource", func() {
 		createdPod := v1.Pod{}
 
 		redisRequest := &unstructured.Unstructured{}
@@ -106,10 +106,11 @@ var _ = Context("Promise Reconciler", func() {
 			redisRequest.SetNamespace("default")
 		})
 
-		It("Creates a valid pod spec for the transformation pipeline", func() {
+		It("Creates", func() {
 			err := k8sClient.Create(context.Background(), redisRequest)
 			Expect(err).ToNot(HaveOccurred())
 
+			By("defining a valid pod spec for the transformation pipeline")
 			var timeout = "30s"
 			var interval = "3s"
 			Eventually(func() string {
@@ -120,6 +121,21 @@ var _ = Context("Promise Reconciler", func() {
 				}
 				return createdPod.Spec.Containers[0].Name
 			}, timeout, interval).Should(Equal("writer"))
+
+			By("setting the finalizer on the resource")
+			Eventually(func() []string {
+				createdRedisRequest := &unstructured.Unstructured{}
+				createdRedisRequest.SetGroupVersionKind(redisRequest.GroupVersionKind())
+				err := k8sClient.Get(context.Background(), types.NamespacedName{
+					Namespace: redisRequest.GetNamespace(),
+					Name:      redisRequest.GetName(),
+				}, createdRedisRequest)
+				if err != nil {
+					fmt.Println(err.Error())
+					return nil
+				}
+				return createdRedisRequest.GetFinalizers()
+			}, timeout, interval).Should(ConsistOf("finalizers.redis.resource-request.kratix.io/work-cleanup"))
 		})
 
 		It("Takes no action on update", func() {
@@ -143,8 +159,6 @@ var _ = Context("Promise Reconciler", func() {
 			err = k8sClient.Update(context.Background(), existingResourceRequest)
 			Expect(err).ToNot(HaveOccurred())
 
-			var timeout = "30s"
-			var interval = "3s"
 			Consistently(func() int {
 				isPromise, _ := labels.NewRequirement("kratix-promise-id", selection.Equals, []string{"redis-promise-default"})
 				selector := labels.NewSelector().
@@ -163,6 +177,37 @@ var _ = Context("Promise Reconciler", func() {
 				}
 				return len(ol.Items)
 			}, timeout, interval).Should(Equal(1))
+		})
+
+		It("Deletes the associated Work when it is deleted", func() {
+			//create what the pipeline would of creatd: Work
+			work = &platformv1alpha1.Work{}
+			work.Name = "redis-promise-default-default-opstree-redis"
+			work.Namespace = "default"
+			err := k8sClient.Create(context.Background(), work)
+			Expect(err).ToNot(HaveOccurred())
+
+			//test delete
+			err = k8sClient.Delete(context.Background(), redisRequest)
+			Expect(err).ToNot(HaveOccurred())
+
+			Eventually(func() bool {
+				work = &platformv1alpha1.Work{}
+				work.Name = "redis-promise-default-default-opstree-redis"
+				work.Namespace = "default"
+				err := k8sClient.Get(context.Background(), client.ObjectKeyFromObject(work), work)
+				return errors.IsNotFound(err)
+			}, timeout, interval).Should(BeTrue(), "Expected the Work to be deleted")
+
+			Eventually(func() bool {
+				createdRedisRequest := &unstructured.Unstructured{}
+				createdRedisRequest.SetGroupVersionKind(redisRequest.GroupVersionKind())
+				err := k8sClient.Get(context.Background(), types.NamespacedName{
+					Namespace: redisRequest.GetNamespace(),
+					Name:      redisRequest.GetName(),
+				}, createdRedisRequest)
+				return errors.IsNotFound(err)
+			}, timeout, interval).Should(BeTrue(), "Expected the Redis resource to be deleted")
 		})
 	})
 })

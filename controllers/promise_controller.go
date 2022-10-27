@@ -19,7 +19,9 @@ package controllers
 import (
 	"context"
 	"encoding/json"
+	"k8s.io/apimachinery/pkg/types"
 	"os"
+	"sigs.k8s.io/controller-runtime/pkg/controller/controllerutil"
 	"time"
 
 	"fmt"
@@ -301,6 +303,8 @@ func (r *PromiseReconciler) SetupWithManager(mgr ctrl.Manager) error {
 func (r *dynamicController) Reconcile(ctx context.Context, req ctrl.Request) (ctrl.Result, error) {
 	r.log.Info("Dynamically Reconciling: " + req.Name)
 
+	resourceRequestIdentifier := fmt.Sprintf("%s-%s-%s", r.promiseIdentifier, req.Namespace, req.Name)
+
 	unstructuredCRD := &unstructured.Unstructured{}
 	unstructuredCRD.SetGroupVersionKind(*r.gvk)
 
@@ -313,9 +317,23 @@ func (r *dynamicController) Reconcile(ctx context.Context, req ctrl.Request) (ct
 		return ctrl.Result{}, nil
 	}
 
-	resourceRequestCommand := fmt.Sprintf("kubectl get %s.%s %s --namespace %s -oyaml > /output/object.yaml", strings.ToLower(r.gvk.Kind), r.gvk.Group, req.Name, req.Namespace)
+	finalizer := fmt.Sprintf("finalizers.%s.resource-request.kratix.io/work-cleanup", strings.ToLower(unstructuredCRD.GetKind()))
 
-	resourceRequestIdentifier := fmt.Sprintf("%s-%s-%s", r.promiseIdentifier, req.Namespace, req.Name)
+	if !unstructuredCRD.GetDeletionTimestamp().IsZero() {
+		return r.deleteWork(ctx, unstructuredCRD, resourceRequestIdentifier, finalizer, r.log)
+	}
+
+	// Ensure the finalizer is present
+	if !controllerutil.ContainsFinalizer(unstructuredCRD, finalizer) {
+		//refactor shared func
+		controllerutil.AddFinalizer(unstructuredCRD, finalizer)
+		if err := r.client.Update(ctx, unstructuredCRD); err != nil {
+			//setup logger
+			//logger.Error(err, "failed to add finalizer")
+			return ctrl.Result{}, err
+		}
+		return ctrl.Result{}, nil
+	}
 
 	if r.pipelineHasExecuted(resourceRequestIdentifier) {
 		r.log.Info("Cannot execute update on pre-existing pipeline for Promise resource request " + resourceRequestIdentifier)
@@ -333,6 +351,7 @@ func (r *dynamicController) Reconcile(ctx context.Context, req ctrl.Request) (ct
 			"selectors": labels.FormatLabels(r.promiseClusterSelector),
 		},
 	}
+	resourceRequestCommand := fmt.Sprintf("kubectl get %s.%s %s --namespace %s -oyaml > /output/object.yaml", strings.ToLower(r.gvk.Kind), r.gvk.Group, req.Name, req.Namespace)
 
 	pod := v1.Pod{
 		ObjectMeta: metav1.ObjectMeta{
@@ -473,6 +492,45 @@ func (r *dynamicController) pipelineHasExecuted(resourceRequestIdentifier string
 		return false
 	}
 	return len(ol.Items) > 0
+}
+
+func (r *dynamicController) deleteWork(ctx context.Context, resourceRequest *unstructured.Unstructured, workName string, finalizer string, logger logr.Logger) (ctrl.Result, error) {
+	if controllerutil.ContainsFinalizer(resourceRequest, finalizer) {
+		work := &v1alpha1.Work{}
+		err := r.client.Get(ctx, types.NamespacedName{
+			Namespace: "default",
+			Name:      workName,
+		}, work)
+		if err != nil {
+			if errors.IsNotFound(err) {
+				// only remove finalizer at this point because deletion success is guaranteed
+				controllerutil.RemoveFinalizer(resourceRequest, finalizer)
+				if err := r.client.Update(ctx, resourceRequest); err != nil {
+					return ctrl.Result{}, err
+				}
+			}
+
+			logger.Error(err, "Error locating Work %s, will try again in 5 seconds", "workName", workName)
+			return ctrl.Result{RequeueAfter: 5 * time.Second}, err
+		}
+
+		err = r.client.Delete(ctx, work)
+		if err != nil {
+			if errors.IsNotFound(err) {
+				// only remove finalizer at this point because deletion success is guaranteed
+				controllerutil.RemoveFinalizer(resourceRequest, finalizer)
+				if err := r.client.Update(ctx, resourceRequest); err != nil {
+					return ctrl.Result{}, err
+				}
+			}
+
+			logger.Error(err, "Error deleting Work %s, will try again in 5 seconds", "workName", workName)
+			return ctrl.Result{RequeueAfter: 5 * time.Second}, err
+		}
+	}
+
+	// requeue to ensure finalizer is removed
+	return ctrl.Result{RequeueAfter: 5 * time.Second}, nil
 }
 
 func getShortUuid() string {
