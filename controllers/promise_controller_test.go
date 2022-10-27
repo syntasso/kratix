@@ -126,10 +126,7 @@ var _ = Context("Promise Reconciler", func() {
 			Eventually(func() []string {
 				createdRedisRequest := &unstructured.Unstructured{}
 				createdRedisRequest.SetGroupVersionKind(redisRequest.GroupVersionKind())
-				err := k8sClient.Get(context.Background(), types.NamespacedName{
-					Namespace: redisRequest.GetNamespace(),
-					Name:      redisRequest.GetName(),
-				}, createdRedisRequest)
+				err := k8sClient.Get(context.Background(), client.ObjectKeyFromObject(redisRequest), createdRedisRequest)
 				if err != nil {
 					fmt.Println(err.Error())
 					return nil
@@ -146,10 +143,7 @@ var _ = Context("Promise Reconciler", func() {
 				Kind:    "Redis",
 			}
 			existingResourceRequest.SetGroupVersionKind(gvk)
-			ns := types.NamespacedName{
-				Name:      redisRequest.GetName(),
-				Namespace: redisRequest.GetNamespace(),
-			}
+			ns := client.ObjectKeyFromObject(redisRequest)
 			err := k8sClient.Get(context.Background(), ns, existingResourceRequest)
 			Expect(err).ToNot(HaveOccurred())
 
@@ -202,10 +196,7 @@ var _ = Context("Promise Reconciler", func() {
 			Eventually(func() bool {
 				createdRedisRequest := &unstructured.Unstructured{}
 				createdRedisRequest.SetGroupVersionKind(redisRequest.GroupVersionKind())
-				err := k8sClient.Get(context.Background(), types.NamespacedName{
-					Namespace: redisRequest.GetNamespace(),
-					Name:      redisRequest.GetName(),
-				}, createdRedisRequest)
+				err := k8sClient.Get(context.Background(), client.ObjectKeyFromObject(redisRequest), createdRedisRequest)
 				return errors.IsNotFound(err)
 			}, timeout, interval).Should(BeTrue(), "Expected the Redis resource to be deleted")
 		})

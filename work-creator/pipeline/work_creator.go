@@ -14,7 +14,6 @@ import (
 	"k8s.io/apimachinery/pkg/api/errors"
 	"k8s.io/apimachinery/pkg/apis/meta/v1/unstructured"
 	"k8s.io/apimachinery/pkg/labels"
-	"k8s.io/apimachinery/pkg/types"
 	"k8s.io/apimachinery/pkg/util/yaml"
 	"sigs.k8s.io/controller-runtime/pkg/client"
 )
@@ -83,10 +82,7 @@ func (w *WorkCreator) Execute(rootDirectory string, identifier string) error {
 	if errors.IsAlreadyExists(err) {
 		fmt.Println("Work " + identifier + " already exists. Will update...")
 		currentWork := platformv1alpha1.Work{}
-		key := types.NamespacedName{
-			Name:      work.Name,
-			Namespace: work.Namespace,
-		}
+		key := client.ObjectKeyFromObject(&work)
 
 		err := w.K8sClient.Get(context.Background(), key, &currentWork)
 		if err != nil {

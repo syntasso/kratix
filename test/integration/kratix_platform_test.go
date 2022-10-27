@@ -719,10 +719,7 @@ func updateResourceRequest(filepath string) {
 	request.SetNamespace("default")
 
 	currentResource := unstructured.Unstructured{}
-	key := types.NamespacedName{
-		Name:      request.GetName(),
-		Namespace: request.GetNamespace(),
-	}
+	key := client.ObjectKeyFromObject(request)
 	currentResource.SetGroupVersionKind(redis_gvk)
 
 	err = k8sClient.Get(context.Background(), key, &currentResource)
