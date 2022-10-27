@@ -86,7 +86,7 @@ type dynamicController struct {
 // For more details, check Reconcile and its Result here:
 // - https://pkg.go.dev/sigs.k8s.io/controller-runtime@v0.7.2/pkg/reconcile
 func (r *PromiseReconciler) Reconcile(ctx context.Context, req ctrl.Request) (ctrl.Result, error) {
-	_ = r.Log.WithValues("promise", req.NamespacedName)
+	logger := r.Log.WithValues("promise", req.NamespacedName)
 
 	promise := &v1alpha1.Promise{}
 	err := r.Client.Get(ctx, req.NamespacedName, promise)
@@ -94,7 +94,7 @@ func (r *PromiseReconciler) Reconcile(ctx context.Context, req ctrl.Request) (ct
 		if errors.IsNotFound(err) {
 			return ctrl.Result{}, nil
 		}
-		r.Log.Error(err, "Failed getting Promise")
+		logger.Error(err, "Failed getting Promise")
 		return ctrl.Result{}, nil
 	}
 
@@ -102,7 +102,7 @@ func (r *PromiseReconciler) Reconcile(ctx context.Context, req ctrl.Request) (ct
 	crdToCreate := &apiextensionsv1.CustomResourceDefinition{}
 	err = json.Unmarshal(promise.Spec.XaasCrd.Raw, crdToCreate)
 	if err != nil {
-		r.Log.Error(err, "Failed unmarshalling CRD")
+		logger.Error(err, "Failed unmarshalling CRD")
 		return ctrl.Result{}, nil
 	}
 
@@ -112,10 +112,10 @@ func (r *PromiseReconciler) Reconcile(ctx context.Context, req ctrl.Request) (ct
 	if err != nil {
 		if errors.IsAlreadyExists(err) {
 			//todo test for existence and handle gracefully.
-			r.Log.Info("CRD " + req.Name + " already exists")
+			logger.Info("CRD " + req.Name + " already exists")
 			//return ctrl.Result{}, nil
 		} else {
-			r.Log.Error(err, "Error creating crd")
+			logger.Error(err, "Error creating crd")
 		}
 	}
 
@@ -127,7 +127,7 @@ func (r *PromiseReconciler) Reconcile(ctx context.Context, req ctrl.Request) (ct
 
 	// We should only proceed once the new gvk has been created in the API server
 	if r.gvkDoesNotExist(crdToCreateGvk) {
-		r.Log.Info("Requeue:" + crdToCreate.Name + " is not ready on the API server yet.")
+		logger.Info("Requeue:" + crdToCreate.Name + " is not ready on the API server yet.")
 		return ctrl.Result{RequeueAfter: 5 * time.Second}, nil
 	}
 
@@ -141,14 +141,14 @@ func (r *PromiseReconciler) Reconcile(ctx context.Context, req ctrl.Request) (ct
 		workToCreate.Spec.Workload.Manifests = append(workToCreate.Spec.Workload.Manifests, v1alpha1.Manifest{Unstructured: u.Unstructured})
 	}
 
-	r.Log.Info("Creating Work resource for promise: " + promiseIdentifier)
+	logger.Info("Creating Work resource for promise: " + promiseIdentifier)
 	err = r.Client.Create(ctx, workToCreate)
 	if err != nil {
 		if errors.IsAlreadyExists(err) {
 			//todo test for existence and handle gracefully.
-			r.Log.Info("Works " + promiseIdentifier + " already exists")
+			logger.Info("Works " + promiseIdentifier + " already exists")
 		} else {
-			r.Log.Error(err, "Error creating Works "+promiseIdentifier)
+			logger.Error(err, "Error creating Works "+promiseIdentifier)
 		}
 		return ctrl.Result{}, nil
 	}
@@ -183,7 +183,7 @@ func (r *PromiseReconciler) Reconcile(ctx context.Context, req ctrl.Request) (ct
 	}
 	err = r.Client.Create(ctx, &cr)
 	if err != nil {
-		r.Log.Error(err, "Error creating ClusterRole")
+		logger.Error(err, "Error creating ClusterRole")
 	}
 
 	crb := rbacv1.ClusterRoleBinding{
@@ -205,7 +205,7 @@ func (r *PromiseReconciler) Reconcile(ctx context.Context, req ctrl.Request) (ct
 	}
 	err = r.Client.Create(ctx, &crb)
 	if err != nil {
-		r.Log.Error(err, "Error creating ClusterRoleBinding")
+		logger.Error(err, "Error creating ClusterRoleBinding")
 	}
 	// END CONTROLLER RBAC
 
@@ -229,7 +229,7 @@ func (r *PromiseReconciler) Reconcile(ctx context.Context, req ctrl.Request) (ct
 	}
 	err = r.Client.Create(ctx, &cr)
 	if err != nil {
-		r.Log.Error(err, "Error creating ClusterRole")
+		logger.Error(err, "Error creating ClusterRole")
 	}
 
 	crb = rbacv1.ClusterRoleBinding{
@@ -251,10 +251,10 @@ func (r *PromiseReconciler) Reconcile(ctx context.Context, req ctrl.Request) (ct
 	}
 	err = r.Client.Create(ctx, &crb)
 	if err != nil {
-		r.Log.Error(err, "Error creating ClusterRoleBinding")
+		logger.Error(err, "Error creating ClusterRoleBinding")
 	}
 
-	r.Log.Info("Creating Service Account for " + promiseIdentifier)
+	logger.Info("Creating Service Account for " + promiseIdentifier)
 	sa := v1.ServiceAccount{
 		ObjectMeta: metav1.ObjectMeta{
 			Name:      promiseIdentifier + "-sa",
@@ -263,9 +263,9 @@ func (r *PromiseReconciler) Reconcile(ctx context.Context, req ctrl.Request) (ct
 	}
 	err = r.Client.Create(ctx, &sa)
 	if err != nil {
-		r.Log.Error(err, "Error creating Service Account for Promise "+promiseIdentifier)
+		logger.Error(err, "Error creating Service Account for Promise "+promiseIdentifier)
 	} else {
-		r.Log.Info("Created ServiceAccount for Promise " + promiseIdentifier)
+		logger.Info("Created ServiceAccount for Promise " + promiseIdentifier)
 	}
 
 	unstructuredCRD := &unstructured.Unstructured{}
@@ -301,7 +301,7 @@ func (r *PromiseReconciler) SetupWithManager(mgr ctrl.Manager) error {
 }
 
 func (r *dynamicController) Reconcile(ctx context.Context, req ctrl.Request) (ctrl.Result, error) {
-	r.log.Info("Dynamically Reconciling: " + req.Name)
+	logger := r.log.WithValues(r.promiseIdentifier, req.NamespacedName)
 
 	resourceRequestIdentifier := fmt.Sprintf("%s-%s-%s", r.promiseIdentifier, req.Namespace, req.Name)
 
@@ -313,7 +313,7 @@ func (r *dynamicController) Reconcile(ctx context.Context, req ctrl.Request) (ct
 		if errors.IsNotFound(err) {
 			return ctrl.Result{}, nil
 		}
-		r.log.Error(err, "Failed getting Promise CRD")
+		logger.Error(err, "Failed getting Promise CRD")
 		return ctrl.Result{}, nil
 	}
 
@@ -336,7 +336,7 @@ func (r *dynamicController) Reconcile(ctx context.Context, req ctrl.Request) (ct
 	}
 
 	if r.pipelineHasExecuted(resourceRequestIdentifier) {
-		r.log.Info("Cannot execute update on pre-existing pipeline for Promise resource request " + resourceRequestIdentifier)
+		logger.Info("Cannot execute update on pre-existing pipeline for Promise resource request " + resourceRequestIdentifier)
 		return ctrl.Result{}, nil
 	}
 
@@ -458,18 +458,18 @@ func (r *dynamicController) Reconcile(ctx context.Context, req ctrl.Request) (ct
 		},
 	}
 
-	r.log.Info("Creating Pipeline for Promise resource request: " + resourceRequestIdentifier + ". The pipeline will now execute...")
+	logger.Info("Creating Pipeline for Promise resource request: " + resourceRequestIdentifier + ". The pipeline will now execute...")
 	err = r.client.Create(ctx, &configMap)
 	if err != nil {
-		r.log.Error(err, "Error creating config map")
+		logger.Error(err, "Error creating config map")
 		y, _ := yaml.Marshal(&configMap)
-		r.log.Error(err, string(y))
+		logger.Error(err, string(y))
 	}
 	err = r.client.Create(ctx, &pod)
 	if err != nil {
-		r.log.Error(err, "Error creating Pod")
+		logger.Error(err, "Error creating Pod")
 		y, _ := yaml.Marshal(&pod)
-		r.log.Error(err, string(y))
+		logger.Error(err, string(y))
 	}
 
 	return ctrl.Result{}, nil

@@ -52,10 +52,10 @@ type ClusterReconciler struct {
 // For more details, check Reconcile and its Result here:
 // - https://pkg.go.dev/sigs.k8s.io/controller-runtime@v0.11.0/pkg/reconcile
 func (r *ClusterReconciler) Reconcile(ctx context.Context, req ctrl.Request) (ctrl.Result, error) {
-	_ = r.Log.WithValues("cluster", req.NamespacedName)
+	logger := r.Log.WithValues("cluster", req.NamespacedName)
 
 	cluster := &platformv1alpha1.Cluster{}
-	r.Log.Info("Registering Cluster: " + req.Name)
+	logger.Info("Registering Cluster: " + req.Name)
 	if err := r.Client.Get(ctx, req.NamespacedName, cluster); err != nil {
 		if errors.IsNotFound(err) {
 			return ctrl.Result{}, nil
