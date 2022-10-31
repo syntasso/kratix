@@ -144,7 +144,7 @@ func getCreatedWorkResource() platformv1alpha1.Work {
 	return work
 }
 
-//our test identifer
+// our test identifer
 func getWorkResourceIdentifer() string {
 	return "promise-targetnamespace-mydatabase"
 }

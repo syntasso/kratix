@@ -1,0 +1,12 @@
+apiVersion: example.promise.syntasso.io/v1
+kind: jenkins
+metadata:
+  annotations:
+    kubectl.kubernetes.io/last-applied-configuration: |
+      {"apiVersion":"example.promise.syntasso.io/v1","kind":"jenkins","metadata":{"annotations":{},"creationTimestamp":"2022-10-28T10:33:20Z","generation":1,"name":"example","namespace":"default","resourceVersion":"965","uid":"31cbbdf5-f751-41a4-addd-ace50384057b"}}
+  creationTimestamp: "2022-10-31T11:32:05Z"
+  generation: 1
+  name: example
+  namespace: default
+  resourceVersion: "411295"
+  uid: 4c5073e3-cec6-4cda-ba54-10abca65b03a

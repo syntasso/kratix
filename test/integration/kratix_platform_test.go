@@ -3,20 +3,19 @@ package integration_test
 import (
 	"context"
 	"fmt"
-	"io"
-	"io/ioutil"
-	"os"
-
 	"github.com/minio/minio-go/v7"
 	"github.com/minio/minio-go/v7/pkg/credentials"
 	. "github.com/onsi/ginkgo"
 	. "github.com/onsi/gomega"
 	platformv1alpha1 "github.com/syntasso/kratix/api/v1alpha1"
+	"io"
+	"io/ioutil"
 	v1 "k8s.io/api/core/v1"
 	"k8s.io/apimachinery/pkg/api/errors"
 	"k8s.io/apimachinery/pkg/runtime/schema"
 	"k8s.io/apimachinery/pkg/types"
 	"k8s.io/apimachinery/pkg/util/yaml"
+	"os"
 
 	"k8s.io/apimachinery/pkg/apis/meta/v1/unstructured"
 
@@ -28,8 +27,8 @@ import (
 )
 
 /*
- Run these tests using `make int-test` to ensure that the correct resources are applied
- to the k8s cluster under test.
+Run these tests using `make int-test` to ensure that the correct resources are applied
+to the k8s cluster under test.
 */
 var (
 	k8sClient client.Client
@@ -37,6 +36,7 @@ var (
 
 	interval = "3s"
 	timeout  = "120s"
+	extendedTimeout = "180s"
 
 	redis_gvk = schema.GroupVersionKind{
 		Group:   "redis.redis.opstreelabs.in",
@@ -251,7 +251,7 @@ var _ = Describe("kratix Platform Integration Test", func() {
 		})
 
 		Describe("Deleting the Resource Request resource", func() {
-			It("deletes the associated Minio files", func() {
+			It("deletes the associated Minio files and pipeline pods", func() {
 				workName := types.NamespacedName{
 					Name:      "redis-promise-default-default-opstree-redis",
 					Namespace: "default",
@@ -271,6 +271,24 @@ var _ = Describe("kratix Platform Integration Test", func() {
 					fileExists, _ := workerHasResource(workName, "opstree-redis", "Redis", DevWorkerCluster2)
 					g.Expect(fileExists).To(BeFalse(), "minio file should have been deleted")
 				}, timeout, interval).Should(Succeed(), "minio files were not deleted")
+
+				// make sure pipeline pod does not exist
+				Eventually(func() int {
+					pods := &v1.PodList{}
+
+					podLabels := map[string]string{
+						"kratix-promise-id":                  "redis-promise-default", // promise.Name + "-" + promise.Namespace
+						"kratix-promise-resource-request-id": "redis-promise-default-default-opstree-redis",
+					}
+					listOptions := client.ListOptions{LabelSelector: labels.SelectorFromSet(podLabels)}
+
+					err := k8sClient.List(context.Background(), pods, &listOptions)
+					if err != nil {
+						fmt.Println("error getting pods list", err.Error())
+						return -1 // by returning negative, we will never pass validation on error
+					}
+					return len(pods.Items)
+				}, timeout, interval).Should(Equal(0), "expected pipeline pods to have been deleted")
 			})
 		})
 	})
@@ -294,16 +312,16 @@ var _ = Describe("kratix Platform Integration Test", func() {
 					Name:      "postgres-promise-default-default-database",
 					Namespace: "default",
 				}
-				Eventually(func() bool {
-					return hasResourceBeenApplied(work_gvk, expectedName)
-				}, timeout, interval).Should(BeTrue())
+				Eventually(func() error {
+					return checkResource(work_gvk, expectedName)
+				}, extendedTimeout, interval).ShouldNot(HaveOccurred(), fmt.Sprintf("expected resource request %s to have been applied", expectedName.Name))
 			})
 
 			PIt("Places a CRD that is defined in the resource request to only ONE Worker", func() {
 
 			})
 
-			It("Places a Postgres resources to one worker", func() {
+			It("Places Postgres resources on one worker", func() {
 				Eventually(func(g Gomega) {
 					workloadNamespacedName := types.NamespacedName{
 						Name:      "postgres-promise-default-default-database",
@@ -624,7 +642,13 @@ func minioHasWorkloadWithResourceWithNameAndKind(bucketName string, objectName s
 	return false, unstructured.Unstructured{}
 }
 
-//TODO Refactor this lot into own function. We can reuse this logic in controllers/suite_test.go
+func checkResource(gvk schema.GroupVersionKind, expectedName types.NamespacedName) error {
+	resource := &unstructured.Unstructured{}
+	resource.SetGroupVersionKind(gvk)
+
+	return k8sClient.Get(context.Background(), expectedName, resource)
+}
+
 func hasResourceBeenApplied(gvk schema.GroupVersionKind, expectedName types.NamespacedName) bool {
 	resource := &unstructured.Unstructured{}
 	resource.SetGroupVersionKind(gvk)

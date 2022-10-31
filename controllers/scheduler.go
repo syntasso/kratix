@@ -55,7 +55,7 @@ func (r *Scheduler) createWorkplacementsForTargetClusters(work *platformv1alpha1
 		workPlacement.Name = work.Name + "." + targetClusterName
 		workPlacement.Spec.WorkName = work.Name
 		workPlacement.Spec.TargetClusterName = targetClusterName
-		controllerutil.AddFinalizer(&workPlacement, WorkPlacementFinalizer)
+		controllerutil.AddFinalizer(&workPlacement, repoCleanupWorkPlacementFinalizer)
 
 		if err := controllerutil.SetControllerReference(work, &workPlacement, scheme.Scheme); err != nil {
 			r.Log.Error(err, "Error setting ownership")

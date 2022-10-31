@@ -132,7 +132,7 @@ var _ = Context("Promise Reconciler", func() {
 					return nil
 				}
 				return createdRedisRequest.GetFinalizers()
-			}, timeout, interval).Should(ConsistOf("finalizers.redis.resource-request.kratix.io/work-cleanup"))
+			}, timeout, interval).Should(ConsistOf("finalizers.redis.resource-request.kratix.io/work-cleanup", "finalizers.redis.resource-request.kratix.io/pipeline-cleanup"))
 		})
 
 		It("Takes no action on update", func() {
@@ -173,8 +173,8 @@ var _ = Context("Promise Reconciler", func() {
 			}, timeout, interval).Should(Equal(1))
 		})
 
-		It("Deletes the associated Work when it is deleted", func() {
-			//create what the pipeline would of creatd: Work
+		It("Deletes the associated resources", func() {
+			//create what the pipeline would have created: Work
 			work = &platformv1alpha1.Work{}
 			work.Name = "redis-promise-default-default-opstree-redis"
 			work.Namespace = "default"
@@ -192,6 +192,12 @@ var _ = Context("Promise Reconciler", func() {
 				err := k8sClient.Get(context.Background(), client.ObjectKeyFromObject(work), work)
 				return errors.IsNotFound(err)
 			}, timeout, interval).Should(BeTrue(), "Expected the Work to be deleted")
+
+			Eventually(func() bool {
+				pipeline := &v1.Pod{}
+				err := k8sClient.Get(context.Background(), expectedName, pipeline)
+				return errors.IsNotFound(err)
+			}, timeout, interval).Should(BeTrue(), "Expected the request pipeline to be deleted")
 
 			Eventually(func() bool {
 				createdRedisRequest := &unstructured.Unstructured{}
