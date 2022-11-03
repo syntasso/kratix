@@ -97,7 +97,7 @@ func (r *dynamicController) Reconcile(ctx context.Context, req ctrl.Request) (ct
 		return operation.result, operation.err
 	}
 
-	// Ensure the workFinalizer is present
+	// Reconcile necessary finalizers
 	if !controllerutil.ContainsFinalizer(unstructuredCRD, workFinalizer) ||
 		!controllerutil.ContainsFinalizer(unstructuredCRD, pipelineFinalizer) {
 		//refactor shared func
