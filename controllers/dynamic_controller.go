@@ -117,15 +117,6 @@ func (r *dynamicController) Reconcile(ctx context.Context, req ctrl.Request) (ct
 
 	workCreatorCommand := fmt.Sprintf("./work-creator -identifier %s -input-directory /work-creator-files", resourceRequestIdentifier)
 
-	configMap := v1.ConfigMap{
-		ObjectMeta: metav1.ObjectMeta{
-			Name:      "cluster-selectors-" + r.promiseIdentifier,
-			Namespace: "default",
-		},
-		Data: map[string]string{
-			"selectors": labels.FormatLabels(r.promiseClusterSelector),
-		},
-	}
 	resourceRequestCommand := fmt.Sprintf("kubectl get %s.%s %s --namespace %s -oyaml > /output/object.yaml", strings.ToLower(r.gvk.Kind), r.gvk.Group, req.Name, req.Namespace)
 
 	pod := v1.Pod{
@@ -234,12 +225,6 @@ func (r *dynamicController) Reconcile(ctx context.Context, req ctrl.Request) (ct
 	}
 
 	logger.Info("Creating Pipeline for Promise resource request: " + resourceRequestIdentifier + ". The pipeline will now execute...")
-	err = r.client.Create(ctx, &configMap)
-	if err != nil {
-		logger.Error(err, "Error creating config map")
-		y, _ := yaml.Marshal(&configMap)
-		logger.Error(err, string(y))
-	}
 	err = r.client.Create(ctx, &pod)
 	if err != nil {
 		logger.Error(err, "Error creating Pod")

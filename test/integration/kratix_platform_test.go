@@ -34,8 +34,8 @@ var (
 	k8sClient client.Client
 	err       error
 
-	interval = "3s"
-	timeout  = "120s"
+	interval        = "3s"
+	timeout         = "120s"
 	extendedTimeout = "180s"
 
 	redis_gvk = schema.GroupVersionKind{
