@@ -43,7 +43,7 @@ import (
 	"sigs.k8s.io/yaml"
 )
 
-type dynamicController struct {
+type dynamicResourceRequestController struct {
 	client                 client.Client
 	gvk                    *schema.GroupVersionKind
 	scheme                 *runtime.Scheme
@@ -51,6 +51,7 @@ type dynamicController struct {
 	promiseClusterSelector labels.Set
 	xaasRequestPipeline    []string
 	log                    logr.Logger
+	finalizers             []string
 }
 
 //+kubebuilder:rbac:groups="",resources=pods,verbs=create;list;watch;delete
@@ -72,7 +73,7 @@ func (o *operation) errored() bool {
 	return o.err != nil
 }
 
-func (r *dynamicController) Reconcile(ctx context.Context, req ctrl.Request) (ctrl.Result, error) {
+func (r *dynamicResourceRequestController) Reconcile(ctx context.Context, req ctrl.Request) (ctrl.Result, error) {
 	logger := r.log.WithValues(r.promiseIdentifier, req.NamespacedName)
 
 	resourceRequestIdentifier := fmt.Sprintf("%s-%s-%s", r.promiseIdentifier, req.Namespace, req.Name)
@@ -235,7 +236,7 @@ func (r *dynamicController) Reconcile(ctx context.Context, req ctrl.Request) (ct
 	return ctrl.Result{}, nil
 }
 
-func (r *dynamicController) pipelineHasExecuted(resourceRequestIdentifier string) bool {
+func (r *dynamicResourceRequestController) pipelineHasExecuted(resourceRequestIdentifier string) bool {
 	isPromise, _ := labels.NewRequirement("kratix-promise-resource-request-id", selection.Equals, []string{resourceRequestIdentifier})
 	selector := labels.NewSelector().
 		Add(*isPromise)
@@ -254,7 +255,7 @@ func (r *dynamicController) pipelineHasExecuted(resourceRequestIdentifier string
 	return len(ol.Items) > 0
 }
 
-func (r *dynamicController) deleteResources(ctx context.Context, resourceRequest *unstructured.Unstructured, resourceRequestIdentifier string, workFinalizer string, pipelineFinalizer string, logger logr.Logger) operation {
+func (r *dynamicResourceRequestController) deleteResources(ctx context.Context, resourceRequest *unstructured.Unstructured, resourceRequestIdentifier string, workFinalizer string, pipelineFinalizer string, logger logr.Logger) operation {
 	operation := r.deleteWork(ctx, resourceRequest, resourceRequestIdentifier, workFinalizer, logger)
 	if operation.errored() || !operation.isFinished() {
 		return operation
@@ -263,7 +264,7 @@ func (r *dynamicController) deleteResources(ctx context.Context, resourceRequest
 	return r.deletePipeline(ctx, resourceRequest, resourceRequestIdentifier, pipelineFinalizer, logger)
 }
 
-func (r *dynamicController) deleteWork(ctx context.Context, resourceRequest *unstructured.Unstructured, workName string, finalizer string, logger logr.Logger) operation {
+func (r *dynamicResourceRequestController) deleteWork(ctx context.Context, resourceRequest *unstructured.Unstructured, workName string, finalizer string, logger logr.Logger) operation {
 	if !controllerutil.ContainsFinalizer(resourceRequest, finalizer) {
 		return operation{err: nil, result: ctrl.Result{}}
 	}
@@ -284,7 +285,7 @@ func (r *dynamicController) deleteWork(ctx context.Context, resourceRequest *uns
 		}
 
 		logger.Error(err, "Error locating Work, will try again in 5 seconds", "workName", workName)
-		return operation{err: nil, result: ctrl.Result{RequeueAfter: 5 * time.Second}}
+		return operation{err: err, result: ctrl.Result{RequeueAfter: 5 * time.Second}}
 	}
 
 	err = r.client.Delete(ctx, work)
@@ -306,7 +307,7 @@ func (r *dynamicController) deleteWork(ctx context.Context, resourceRequest *uns
 	return operation{err: nil, result: ctrl.Result{RequeueAfter: 5 * time.Second}}
 }
 
-func (r *dynamicController) deletePipeline(ctx context.Context, resourceRequest *unstructured.Unstructured, resourceRequestIdentifier, finalizer string, logger logr.Logger) operation {
+func (r *dynamicResourceRequestController) deletePipeline(ctx context.Context, resourceRequest *unstructured.Unstructured, resourceRequestIdentifier, finalizer string, logger logr.Logger) operation {
 	if !controllerutil.ContainsFinalizer(resourceRequest, finalizer) {
 		return operation{err: nil, result: ctrl.Result{}}
 	}

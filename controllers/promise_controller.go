@@ -19,7 +19,10 @@ package controllers
 import (
 	"context"
 	"encoding/json"
+	"k8s.io/apimachinery/pkg/types"
 	"time"
+
+	controllerutil "sigs.k8s.io/controller-runtime/pkg/controller/controllerutil"
 
 	"github.com/go-logr/logr"
 	"github.com/syntasso/kratix/api/v1alpha1"
@@ -44,9 +47,12 @@ type PromiseReconciler struct {
 	Manager             ctrl.Manager
 }
 
+const clusterSelectorsConfigMapCleanupFinalizer = "finalizers.workplacement.kratix.io/cluster-selectors-config-map-cleanup"
+
 //+kubebuilder:rbac:groups=platform.kratix.io,resources=promises,verbs=get;list;watch;create;update;patch;delete
 //+kubebuilder:rbac:groups=platform.kratix.io,resources=promises/status,verbs=get;update;patch
 //+kubebuilder:rbac:groups=platform.kratix.io,resources=promises/finalizers,verbs=update
+//+kubebuilder:rbac:groups="",resources=configmaps,verbs=create;list;watch;delete
 
 //+kubebuilder:rbac:groups=apiextensions.k8s.io,resources=customresourcedefinitions,verbs=get;list;watch;create;update;patch;delete
 
@@ -61,6 +67,24 @@ func (r *PromiseReconciler) Reconcile(ctx context.Context, req ctrl.Request) (ct
 		}
 		logger.Error(err, "Failed getting Promise")
 		return ctrl.Result{}, nil
+	}
+
+	promiseIdentifier := promise.Name + "-" + promise.Namespace
+	configMapName := "cluster-selectors-" + promiseIdentifier
+	configMapNamespace := "default"
+
+	if !promise.DeletionTimestamp.IsZero() {
+		operation := r.deletePromise(ctx, promise, configMapName, configMapNamespace, logger)
+		return operation.result, operation.err
+	}
+
+	// Ensure the finalizer is present
+	if !controllerutil.ContainsFinalizer(promise, clusterSelectorsConfigMapCleanupFinalizer) {
+		logger.Info("Adding missing finalizers",
+			"expectedFinalizers", clusterSelectorsConfigMapCleanupFinalizer,
+			"existingFinalizers", promise.Finalizers,
+		)
+		return r.addFinalizer(ctx, promise, logger)
 	}
 
 	//Instance-Level Reconciliation
@@ -78,7 +102,6 @@ func (r *PromiseReconciler) Reconcile(ctx context.Context, req ctrl.Request) (ct
 		if errors.IsAlreadyExists(err) {
 			//todo test for existence and handle gracefully.
 			logger.Info("CRD " + req.Name + " already exists")
-			//return ctrl.Result{}, nil
 		} else {
 			logger.Error(err, "Error creating crd")
 		}
@@ -96,7 +119,6 @@ func (r *PromiseReconciler) Reconcile(ctx context.Context, req ctrl.Request) (ct
 		return ctrl.Result{RequeueAfter: 5 * time.Second}, nil
 	}
 
-	promiseIdentifier := promise.Name + "-" + promise.Namespace
 	workToCreate := &v1alpha1.Work{}
 	workToCreate.Spec.Replicas = v1alpha1.WorkerResourceReplicas
 	workToCreate.Name = promiseIdentifier
@@ -115,7 +137,7 @@ func (r *PromiseReconciler) Reconcile(ctx context.Context, req ctrl.Request) (ct
 		} else {
 			logger.Error(err, "Error creating Works "+promiseIdentifier)
 		}
-		return ctrl.Result{}, nil
+		return ctrl.Result{}, err
 	}
 
 	// CONTROLLER RBAC
@@ -138,11 +160,6 @@ func (r *PromiseReconciler) Reconcile(ctx context.Context, req ctrl.Request) (ct
 				APIGroups: []string{crdToCreateGvk.Group},
 				Resources: []string{crdToCreate.Spec.Names.Plural + "/status"},
 				Verbs:     []string{"get", "update", "patch"},
-			},
-			{
-				APIGroups: []string{""},
-				Resources: []string{"configmaps"},
-				Verbs:     []string{"create"},
 			},
 		},
 	}
@@ -235,8 +252,8 @@ func (r *PromiseReconciler) Reconcile(ctx context.Context, req ctrl.Request) (ct
 
 	configMap := v1.ConfigMap{
 		ObjectMeta: metav1.ObjectMeta{
-			Name:      "cluster-selectors-" + promiseIdentifier,
-			Namespace: "default",
+			Name:      configMapName,
+			Namespace: configMapNamespace,
 		},
 		Data: map[string]string{
 			"selectors": labels.FormatLabels(promise.Spec.ClusterSelector),
@@ -254,7 +271,7 @@ func (r *PromiseReconciler) Reconcile(ctx context.Context, req ctrl.Request) (ct
 	unstructuredCRD := &unstructured.Unstructured{}
 	unstructuredCRD.SetGroupVersionKind(crdToCreateGvk)
 
-	dynamicController := &dynamicController{
+	dynamicResourceRequestController := &dynamicResourceRequestController{
 		client:                 r.Manager.GetClient(),
 		scheme:                 r.Manager.GetScheme(),
 		gvk:                    &crdToCreateGvk,
@@ -266,7 +283,7 @@ func (r *PromiseReconciler) Reconcile(ctx context.Context, req ctrl.Request) (ct
 
 	ctrl.NewControllerManagedBy(r.Manager).
 		For(unstructuredCRD).
-		Complete(dynamicController)
+		Complete(dynamicResourceRequestController)
 
 	return ctrl.Result{}, nil
 }
@@ -274,6 +291,48 @@ func (r *PromiseReconciler) Reconcile(ctx context.Context, req ctrl.Request) (ct
 func (r *PromiseReconciler) gvkDoesNotExist(gvk schema.GroupVersionKind) bool {
 	_, err := r.Manager.GetRESTMapper().RESTMapping(gvk.GroupKind(), gvk.Version)
 	return err != nil
+}
+
+func (r *PromiseReconciler) deletePromise(ctx context.Context, promise *v1alpha1.Promise, cmName, cmNamespace string, logger logr.Logger) operation {
+	if !controllerutil.ContainsFinalizer(promise, clusterSelectorsConfigMapCleanupFinalizer) {
+		return operation{err: nil, result: ctrl.Result{}}
+	}
+
+	configMap := &v1.ConfigMap{}
+	err := r.Client.Get(ctx, types.NamespacedName{
+		Namespace: cmNamespace,
+		Name:      cmName,
+	}, configMap)
+	if err != nil {
+		if errors.IsNotFound(err) {
+			// only remove finalizer at this point because deletion success is guaranteed
+			controllerutil.RemoveFinalizer(promise, clusterSelectorsConfigMapCleanupFinalizer)
+			if err := r.Client.Update(ctx, promise); err != nil {
+				return operation{err: err, result: ctrl.Result{RequeueAfter: 5 * time.Second}}
+			}
+			return operation{err: nil, result: ctrl.Result{}}
+		}
+
+		logger.Error(err, "Error locating config map, will try again in 5 seconds", "configMap", cmName)
+		return operation{err: err, result: ctrl.Result{RequeueAfter: 5 * time.Second}}
+	}
+
+	err = r.Client.Delete(ctx, configMap)
+	if err != nil {
+
+		return operation{err: err, result: ctrl.Result{RequeueAfter: 5 * time.Second}}
+	}
+
+	return operation{err: nil, result: ctrl.Result{RequeueAfter: 5 * time.Second}}
+}
+
+func (r *PromiseReconciler) addFinalizer(ctx context.Context, promise *v1alpha1.Promise, logger logr.Logger) (ctrl.Result, error) {
+	controllerutil.AddFinalizer(promise, clusterSelectorsConfigMapCleanupFinalizer)
+	if err := r.Update(ctx, promise); err != nil {
+		logger.Error(err, "failed to add finalizer to Promise")
+		return ctrl.Result{}, err
+	}
+	return ctrl.Result{RequeueAfter: 5 * time.Second}, nil
 }
 
 // SetupWithManager sets up the controller with the Manager.

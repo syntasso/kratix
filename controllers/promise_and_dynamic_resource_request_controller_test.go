@@ -19,9 +19,10 @@ package controllers_test
 import (
 	"context"
 	"fmt"
+	"io/ioutil"
+
 	. "github.com/onsi/ginkgo"
 	. "github.com/onsi/gomega"
-	"io/ioutil"
 	v1 "k8s.io/api/core/v1"
 	"k8s.io/apimachinery/pkg/api/errors"
 	metav1 "k8s.io/apimachinery/pkg/apis/meta/v1"
@@ -39,11 +40,14 @@ import (
 )
 
 var _ = Context("Promise Reconciler", func() {
+	var promiseCR *platformv1alpha1.Promise
+
+	//Should this be in the describe apply a redis promise?
+	// Why the heck is the test failing if we get a cm?????
 	BeforeEach(func() {
+		promiseCR = &platformv1alpha1.Promise{}
 		yamlFile, err := ioutil.ReadFile("../config/samples/redis/redis-promise.yaml")
 		Expect(err).ToNot(HaveOccurred())
-
-		promiseCR := &platformv1alpha1.Promise{}
 		err = yaml.Unmarshal(yamlFile, promiseCR)
 		promiseCR.Namespace = "default"
 		Expect(err).ToNot(HaveOccurred())
@@ -52,37 +56,83 @@ var _ = Context("Promise Reconciler", func() {
 		k8sClient.Create(context.Background(), promiseCR)
 	})
 
-	Describe("Apply a Redis Promise", func() {
-		It("Creates an API for redis.redis.redis", func() {
-			var expectedAPI = "redis.redis.redis.opstreelabs.in"
-			var timeout = "30s"
-			var interval = "3s"
-			Eventually(func() string {
-				crd, _ := apiextensionClient.
-					ApiextensionsV1().
-					CustomResourceDefinitions().
-					Get(context.Background(), expectedAPI, metav1.GetOptions{})
+	It("Controls the lifecycle of a Redis Promise", func() {
+		expectedPromise := types.NamespacedName{
+			Namespace: "default",
+			Name:      "redis-promise",
+		}
 
-				// The returned CRD is missing the expected metadata,
-				// therefore we need to reach inside of the spec to get the
-				// underlying Redis crd defintion to allow us to assert correctly.
-				return crd.Spec.Names.Singular + "." + crd.Spec.Group
-			}, timeout, interval).Should(Equal(expectedAPI))
-		})
+		By("Creating an API for redis.redis.redis")
+		var expectedAPI = "redis.redis.redis.opstreelabs.in"
+		Eventually(func() string {
+			crd, _ := apiextensionClient.
+				ApiextensionsV1().
+				CustomResourceDefinitions().
+				Get(context.Background(), expectedAPI, metav1.GetOptions{})
 
-		It("Creates Redis Worker Cluster Resources", func() {
-			var timeout = "30s"
-			var interval = "3s"
-			Eventually(func() bool {
-				//Get the works object
-				expectedName := types.NamespacedName{
-					Name:      "redis-promise-default",
-					Namespace: "default",
-				}
-				err := k8sClient.Get(context.Background(), expectedName, &v1alpha1.Work{})
-				return err == nil
-			}, timeout, interval).Should(BeTrue())
-		})
+			// The returned CRD is missing the expected metadata,
+			// therefore we need to reach inside the spec to get the
+			// underlying Redis crd definition to allow us to assert correctly.
+			return crd.Spec.Names.Singular + "." + crd.Spec.Group
+		}, timeout, interval).Should(Equal(expectedAPI))
+
+		By("Creating a configMap to store promise selectors")
+		Eventually(func() string {
+			cm := &v1.ConfigMap{}
+			expectedCM := types.NamespacedName{
+				Namespace: "default",
+				Name:      "cluster-selectors-redis-promise-default",
+			}
+
+			err := k8sClient.Get(context.Background(), expectedCM, cm)
+			if err != nil {
+				fmt.Println(err.Error())
+			}
+
+			return cm.Data["selectors"]
+		}, timeout, interval).Should(Equal(labels.FormatLabels(promiseCR.Spec.ClusterSelector)), "Expected redis cluster selectors to be in configMap")
+
+		promise := &v1alpha1.Promise{}
+
+		err := k8sClient.Get(context.Background(), expectedPromise, promise)
+		Expect(err).NotTo(HaveOccurred())
+		Expect(promise.GetFinalizers()).Should(ConsistOf("finalizers.workplacement.kratix.io/cluster-selectors-config-map-cleanup"), "Promise should have a finalizer set for the configMap")
+
+		By("Creating Redis Worker Cluster Resources")
+		Eventually(func() error {
+			expectedName := types.NamespacedName{
+				Name:      "redis-promise-default",
+				Namespace: "default",
+			}
+			err := k8sClient.Get(context.Background(), expectedName, &v1alpha1.Work{})
+			return err
+		}, timeout, interval).Should(BeNil())
+
+		By("Deleting the Promise")
+
+		By("Deleting the config map")
+		err = k8sClient.Delete(context.Background(), promiseCR)
+		Expect(err).NotTo(HaveOccurred())
+
+		Eventually(func() bool {
+			cm := &v1.ConfigMap{}
+			expectedCM := types.NamespacedName{
+				Namespace: "default",
+				Name:      "cluster-selectors-redis-promise-default",
+			}
+
+			err := k8sClient.Get(context.Background(), expectedCM, cm)
+			return errors.IsNotFound(err)
+		}, timeout, interval).Should(BeTrue(), "Expected configMap to not be found")
+
+		By("Ensuring the finalizer was removed and the Promise was successfully deleted")
+		Eventually(func() bool {
+			promise := &v1alpha1.Promise{}
+
+			err := k8sClient.Get(context.Background(), expectedPromise, promise)
+			return errors.IsNotFound(err)
+		}, timeout, interval).Should(BeTrue(), "Expected Promise to not be found")
+
 	})
 
 	Describe("Lifecycle of a Redis Custom Resource", func() {

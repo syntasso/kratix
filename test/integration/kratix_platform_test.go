@@ -164,7 +164,7 @@ var _ = Describe("kratix Platform Integration Test", func() {
 				}
 				Eventually(func() bool {
 					return hasResourceBeenApplied(work_gvk, expectedName)
-				}, timeout, interval).Should(BeTrue())
+				}, timeout, interval).Should(BeTrue(), "expected resource request to exist")
 			})
 
 			It("Should place a Redis resource request to one Worker`", func() {
@@ -205,7 +205,7 @@ var _ = Describe("kratix Platform Integration Test", func() {
 			It("Update to an existing Redis resource on the Worker does nothing", func() {
 				updateResourceRequest(RedisResourceUpdateRequest)
 
-				timeout = "30s"
+				timeout = "45s"
 				Consistently(func() int {
 					isPromise, _ := labels.NewRequirement("kratix-promise-id", selection.Equals, []string{"redis-promise-default"})
 					selector := labels.NewSelector().
@@ -223,7 +223,7 @@ var _ = Describe("kratix Platform Integration Test", func() {
 						return -1
 					}
 					return len(redisPipelines.Items)
-				}, timeout, interval).Should(Equal(1))
+				}, timeout, interval).Should(Equal(1), "unexpected number of pipelines")
 			})
 
 			It("Should create more than one unique resource from a single promise", func() {
@@ -246,7 +246,7 @@ var _ = Describe("kratix Platform Integration Test", func() {
 						return -1
 					}
 					return len(redisPipelines.Items)
-				}, timeout, interval).Should(Equal(2))
+				}, timeout, interval).Should(Equal(2), "unexpected number of pipelines")
 			})
 		})
 
@@ -289,6 +289,17 @@ var _ = Describe("kratix Platform Integration Test", func() {
 					}
 					return len(pods.Items)
 				}, timeout, interval).Should(Equal(0), "expected pipeline pods to have been deleted")
+			})
+		})
+
+		Describe("Deleting the Promise", func() {
+			It("deletes the Promise", func() {
+				redisPromiseNamespacedName := types.NamespacedName{Name: "redis-promise", Namespace: "default"}
+				kubeDelete(RedisCRD, redisPromiseNamespacedName.Namespace)
+				Eventually(func() bool {
+					err := k8sClient.Get(context.Background(), redisPromiseNamespacedName, &platformv1alpha1.Promise{})
+					return errors.IsNotFound(err)
+				}, timeout, interval).Should(BeTrue(), "expected Promise %q to have been deleted:", redisPromiseNamespacedName.Name)
 			})
 		})
 	})
