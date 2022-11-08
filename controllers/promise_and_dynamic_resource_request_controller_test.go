@@ -150,7 +150,7 @@ var _ = Context("Promise Reconciler", func() {
 
 			err := k8sClient.Get(context.Background(), expectedCM, cm)
 			return errors.IsNotFound(err)
-		}, timeout, interval).Should(BeTrue(), "Expected configMap to not be found")
+		}, timeout, interval).Should(BeTrue(), "ConfigMap should have been deleted")
 
 		By("ensures the Promise was successfully deleted")
 		Eventually(func() bool {

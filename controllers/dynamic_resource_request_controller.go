@@ -60,19 +60,6 @@ type dynamicResourceRequestController struct {
 //+kubebuilder:rbac:groups=rbac.authorization.k8s.io,resources=clusterroles,verbs=create;escalate;bind
 //+kubebuilder:rbac:groups=rbac.authorization.k8s.io,resources=clusterrolebindings,verbs=create
 
-type operation struct {
-	err    error
-	result ctrl.Result
-}
-
-func (o *operation) isFinished() bool {
-	return o.result.IsZero()
-}
-
-func (o *operation) errored() bool {
-	return o.err != nil
-}
-
 func (r *dynamicResourceRequestController) Reconcile(ctx context.Context, req ctrl.Request) (ctrl.Result, error) {
 	logger := r.log.WithValues(r.promiseIdentifier, req.NamespacedName)
 
@@ -94,25 +81,12 @@ func (r *dynamicResourceRequestController) Reconcile(ctx context.Context, req ct
 	pipelineFinalizer := fmt.Sprintf("finalizers.%s.resource-request.kratix.io/pipeline-cleanup", strings.ToLower(unstructuredCRD.GetKind()))
 
 	if !unstructuredCRD.GetDeletionTimestamp().IsZero() {
-		operation := r.deleteResources(ctx, unstructuredCRD, resourceRequestIdentifier, workFinalizer, pipelineFinalizer, logger)
-		return operation.result, operation.err
+		return r.deleteResources(ctx, unstructuredCRD, resourceRequestIdentifier, workFinalizer, pipelineFinalizer, logger)
 	}
 
 	// Reconcile necessary finalizers
-	if !controllerutil.ContainsFinalizer(unstructuredCRD, workFinalizer) ||
-		!controllerutil.ContainsFinalizer(unstructuredCRD, pipelineFinalizer) {
-		logger.Info("Adding missing finalizers",
-			"expectedFinalizers", []string{workFinalizer, pipelineFinalizer},
-			"existingFinalizers", unstructuredCRD.GetFinalizers(),
-		)
-		//refactor shared func
-		controllerutil.AddFinalizer(unstructuredCRD, workFinalizer)
-		controllerutil.AddFinalizer(unstructuredCRD, pipelineFinalizer)
-		if err := r.client.Update(ctx, unstructuredCRD); err != nil {
-			logger.Error(err, "failed to add finalizers")
-			return ctrl.Result{}, err
-		}
-		return ctrl.Result{RequeueAfter: 5 * time.Second}, nil
+	if finalizersAreMissing(unstructuredCRD, []string{workFinalizer, pipelineFinalizer}) {
+		return addFinalizers(ctx, r.client, unstructuredCRD, []string{workFinalizer, pipelineFinalizer}, logger)
 	}
 
 	if r.pipelineHasExecuted(resourceRequestIdentifier) {
@@ -259,20 +233,25 @@ func (r *dynamicResourceRequestController) pipelineHasExecuted(resourceRequestId
 	return len(ol.Items) > 0
 }
 
-func (r *dynamicResourceRequestController) deleteResources(ctx context.Context, resourceRequest *unstructured.Unstructured, resourceRequestIdentifier string, workFinalizer string, pipelineFinalizer string, logger logr.Logger) operation {
-	operation := r.deleteWork(ctx, resourceRequest, resourceRequestIdentifier, workFinalizer, logger)
-	if operation.errored() || !operation.isFinished() {
-		return operation
+func (r *dynamicResourceRequestController) deleteResources(ctx context.Context, resourceRequest *unstructured.Unstructured, resourceRequestIdentifier string, workFinalizer string, pipelineFinalizer string, logger logr.Logger) (ctrl.Result, error) {
+	if finalizersAreDeleted(resourceRequest, []string{workFinalizer, pipelineFinalizer}) {
+		return ctrl.Result{}, nil
 	}
 
-	return r.deletePipeline(ctx, resourceRequest, resourceRequestIdentifier, pipelineFinalizer, logger)
+	if controllerutil.ContainsFinalizer(resourceRequest, workFinalizer) {
+		err := r.deleteWork(ctx, resourceRequest, resourceRequestIdentifier, workFinalizer, logger)
+		return ctrl.Result{RequeueAfter: 5 * time.Second}, err
+	}
+
+	if controllerutil.ContainsFinalizer(resourceRequest, pipelineFinalizer) {
+		err := r.deletePipeline(ctx, resourceRequest, resourceRequestIdentifier, pipelineFinalizer, logger)
+		return ctrl.Result{RequeueAfter: 5 * time.Second}, err
+	}
+
+	return ctrl.Result{RequeueAfter: 5 * time.Second}, nil
 }
 
-func (r *dynamicResourceRequestController) deleteWork(ctx context.Context, resourceRequest *unstructured.Unstructured, workName string, finalizer string, logger logr.Logger) operation {
-	if !controllerutil.ContainsFinalizer(resourceRequest, finalizer) {
-		return operation{err: nil, result: ctrl.Result{}}
-	}
-
+func (r *dynamicResourceRequestController) deleteWork(ctx context.Context, resourceRequest *unstructured.Unstructured, workName string, finalizer string, logger logr.Logger) error {
 	work := &v1alpha1.Work{}
 	err := r.client.Get(ctx, types.NamespacedName{
 		Namespace: "default",
@@ -283,13 +262,13 @@ func (r *dynamicResourceRequestController) deleteWork(ctx context.Context, resou
 			// only remove finalizer at this point because deletion success is guaranteed
 			controllerutil.RemoveFinalizer(resourceRequest, finalizer)
 			if err := r.client.Update(ctx, resourceRequest); err != nil {
-				return operation{err: err, result: ctrl.Result{RequeueAfter: 5 * time.Second}}
+				return err
 			}
-			return operation{err: nil, result: ctrl.Result{}}
+			return nil
 		}
 
 		logger.Error(err, "Error locating Work, will try again in 5 seconds", "workName", workName)
-		return operation{err: err, result: ctrl.Result{RequeueAfter: 5 * time.Second}}
+		return err
 	}
 
 	err = r.client.Delete(ctx, work)
@@ -298,23 +277,19 @@ func (r *dynamicResourceRequestController) deleteWork(ctx context.Context, resou
 			// only remove finalizer at this point because deletion success is guaranteed
 			controllerutil.RemoveFinalizer(resourceRequest, finalizer)
 			if err := r.client.Update(ctx, resourceRequest); err != nil {
-				return operation{err: err, result: ctrl.Result{RequeueAfter: 5 * time.Second}}
+				return err
 			}
-			return operation{err: nil, result: ctrl.Result{}}
+			return nil
 		}
 
 		logger.Error(err, "Error deleting Work %s, will try again in 5 seconds", "workName", workName)
-		return operation{err: err, result: ctrl.Result{RequeueAfter: 5 * time.Second}}
+		return err
 	}
 
-	// requeue to ensure finalizer is removed
-	return operation{err: nil, result: ctrl.Result{RequeueAfter: 5 * time.Second}}
+	return nil
 }
 
-func (r *dynamicResourceRequestController) deletePipeline(ctx context.Context, resourceRequest *unstructured.Unstructured, resourceRequestIdentifier, finalizer string, logger logr.Logger) operation {
-	if !controllerutil.ContainsFinalizer(resourceRequest, finalizer) {
-		return operation{err: nil, result: ctrl.Result{}}
-	}
+func (r *dynamicResourceRequestController) deletePipeline(ctx context.Context, resourceRequest *unstructured.Unstructured, resourceRequestIdentifier, finalizer string, logger logr.Logger) error {
 	pods := &v1.PodList{}
 	podLabels := map[string]string{
 		"kratix-promise-id":                  r.promiseIdentifier,
@@ -324,26 +299,26 @@ func (r *dynamicResourceRequestController) deletePipeline(ctx context.Context, r
 
 	err := r.client.List(ctx, pods, &listOptions)
 	if err != nil {
-		return operation{err: err, result: ctrl.Result{RequeueAfter: 5 * time.Second}}
+		return err
 	}
 
 	if len(pods.Items) == 0 {
 		controllerutil.RemoveFinalizer(resourceRequest, finalizer)
 		if err := r.client.Update(ctx, resourceRequest); err != nil {
-			return operation{err: err, result: ctrl.Result{RequeueAfter: 5 * time.Second}}
+			return err
 		}
-		return operation{err: nil, result: ctrl.Result{}}
+		return nil
 	}
 
 	for _, pod := range pods.Items {
 		err = r.client.Delete(ctx, &pod)
 		if err != nil && !errors.IsNotFound(err) {
 			logger.Error(err, "Error deleting Pod, will try again in 5 seconds", "pod", pod.GetName())
-			return operation{err: err, result: ctrl.Result{RequeueAfter: 5 * time.Second}}
+			return err
 		}
 	}
-	// requeue to ensure finalizer is removed
-	return operation{err: nil, result: ctrl.Result{RequeueAfter: 5 * time.Second}}
+
+	return nil
 
 }
 
