@@ -101,6 +101,10 @@ func (r *dynamicResourceRequestController) Reconcile(ctx context.Context, req ct
 	// Reconcile necessary finalizers
 	if !controllerutil.ContainsFinalizer(unstructuredCRD, workFinalizer) ||
 		!controllerutil.ContainsFinalizer(unstructuredCRD, pipelineFinalizer) {
+		logger.Info("Adding missing finalizers",
+			"expectedFinalizers", []string{workFinalizer, pipelineFinalizer},
+			"existingFinalizers", unstructuredCRD.GetFinalizers(),
+		)
 		//refactor shared func
 		controllerutil.AddFinalizer(unstructuredCRD, workFinalizer)
 		controllerutil.AddFinalizer(unstructuredCRD, pipelineFinalizer)
@@ -108,7 +112,7 @@ func (r *dynamicResourceRequestController) Reconcile(ctx context.Context, req ct
 			logger.Error(err, "failed to add finalizers")
 			return ctrl.Result{}, err
 		}
-		return ctrl.Result{}, nil
+		return ctrl.Result{RequeueAfter: 5 * time.Second}, nil
 	}
 
 	if r.pipelineHasExecuted(resourceRequestIdentifier) {

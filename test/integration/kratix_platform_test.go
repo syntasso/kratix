@@ -3,19 +3,20 @@ package integration_test
 import (
 	"context"
 	"fmt"
+	"io"
+	"io/ioutil"
+	"os"
+
 	"github.com/minio/minio-go/v7"
 	"github.com/minio/minio-go/v7/pkg/credentials"
 	. "github.com/onsi/ginkgo"
 	. "github.com/onsi/gomega"
 	platformv1alpha1 "github.com/syntasso/kratix/api/v1alpha1"
-	"io"
-	"io/ioutil"
 	v1 "k8s.io/api/core/v1"
 	"k8s.io/apimachinery/pkg/api/errors"
 	"k8s.io/apimachinery/pkg/runtime/schema"
 	"k8s.io/apimachinery/pkg/types"
 	"k8s.io/apimachinery/pkg/util/yaml"
-	"os"
 
 	"k8s.io/apimachinery/pkg/apis/meta/v1/unstructured"
 
@@ -64,14 +65,19 @@ var (
 )
 
 const (
+	redisPromiseID     = "redis-promise-default" // promise.Name + "-" + promise.Namespace
+	redisDefaultRRName = redisPromiseID + "-default-opstree-redis"
+
 	//Targets only cluster-worker-1
-	RedisCRD                   = "../../config/samples/redis/redis-promise.yaml"
+	RedisPromise               = "../../config/samples/redis/redis-promise.yaml"
 	RedisResourceRequest       = "../../config/samples/redis/redis-resource-request.yaml"
 	RedisResourceUpdateRequest = "../../config/samples/redis/redis-resource-update-request.yaml"
 	RedisResourceSecondRequest = "./assets/redis-resource-second-request.yaml"
 	PostgresCRD                = "../../config/samples/postgres/postgres-promise.yaml"
+
 	//Targets All clusters
 	PostgresResourceRequest = "../../config/samples/postgres/postgres-resource-request.yaml"
+
 	// Targets the platform cluster
 	PavedPathCRD             = "../../samples/paved-path-demo/paved-path-demo-promise.yaml"
 	PavedPathResourceRequest = "../../samples/paved-path-demo/paved-path-demo-resource-request.yaml"
@@ -117,7 +123,7 @@ var _ = Describe("kratix Platform Integration Test", func() {
 	Describe("Redis Promise lifecycle", func() {
 		Describe("Applying Redis Promise", func() {
 			It("Applying a Promise CRD manifests a Redis api-resource", func() {
-				applyPromiseCRD(RedisCRD)
+				applyPromiseCRD(RedisPromise)
 
 				Eventually(func() bool {
 					return isAPIResourcePresent(redis_gvk)
@@ -126,7 +132,7 @@ var _ = Describe("kratix Platform Integration Test", func() {
 
 			It("places the resources to Workers as defined in the Promise", func() {
 				workloadNamespacedName := types.NamespacedName{
-					Name:      "redis-promise-default",
+					Name:      redisPromiseID,
 					Namespace: "default",
 				}
 				Eventually(func(g Gomega) {
@@ -159,7 +165,7 @@ var _ = Describe("kratix Platform Integration Test", func() {
 				applyResourceRequest(RedisResourceRequest)
 
 				expectedName := types.NamespacedName{
-					Name:      "redis-promise-default-default-opstree-redis",
+					Name:      redisDefaultRRName,
 					Namespace: "default",
 				}
 				Eventually(func() bool {
@@ -170,7 +176,7 @@ var _ = Describe("kratix Platform Integration Test", func() {
 			It("Should place a Redis resource request to one Worker`", func() {
 				Eventually(func(g Gomega) {
 					workloadNamespacedName := types.NamespacedName{
-						Name:      "redis-promise-default-default-opstree-redis",
+						Name:      redisDefaultRRName,
 						Namespace: "default",
 					}
 
@@ -207,7 +213,7 @@ var _ = Describe("kratix Platform Integration Test", func() {
 
 				timeout = "45s"
 				Consistently(func() int {
-					isPromise, _ := labels.NewRequirement("kratix-promise-id", selection.Equals, []string{"redis-promise-default"})
+					isPromise, _ := labels.NewRequirement("kratix-promise-id", selection.Equals, []string{redisPromiseID})
 					selector := labels.NewSelector().
 						Add(*isPromise)
 
@@ -230,7 +236,7 @@ var _ = Describe("kratix Platform Integration Test", func() {
 				applyResourceRequest(RedisResourceSecondRequest)
 
 				Eventually(func() int {
-					isPromise, _ := labels.NewRequirement("kratix-promise-id", selection.Equals, []string{"redis-promise-default"})
+					isPromise, _ := labels.NewRequirement("kratix-promise-id", selection.Equals, []string{redisPromiseID})
 					selector := labels.NewSelector().
 						Add(*isPromise)
 
@@ -250,35 +256,37 @@ var _ = Describe("kratix Platform Integration Test", func() {
 			})
 		})
 
-		Describe("Deleting the Resource Request resource", func() {
-			It("deletes the associated Minio files and pipeline pods", func() {
-				workName := types.NamespacedName{
-					Name:      "redis-promise-default-default-opstree-redis",
-					Namespace: "default",
-				}
+		Describe("Deleting the Promise", func() {
+			workName := types.NamespacedName{
+				Name:      redisDefaultRRName,
+				Namespace: "default",
+			}
 
-				// make sure file exists
+			BeforeEach(func() {
+				// ensure resource request files exist in repo
 				Eventually(func(g Gomega) {
 					fileExists, _ := workerHasResource(workName, "opstree-redis", "Redis", DevWorkerCluster2)
 					g.Expect(fileExists).To(BeTrue(), "minio file should exist")
 				}, timeout, interval).Should(Succeed(), "minio files do not exist")
+			})
 
-				// delete
-				kubeDelete(RedisResourceRequest)
+			It("deletes the associated resources", func() {
+				redisPromiseNamespacedName := types.NamespacedName{Name: "redis-promise", Namespace: "default"}
+				kubeDelete(RedisPromise, redisPromiseNamespacedName.Namespace)
 
-				// make sure file does not exist
+				By("deleting the files in the repo")
 				Eventually(func(g Gomega) {
 					fileExists, _ := workerHasResource(workName, "opstree-redis", "Redis", DevWorkerCluster2)
 					g.Expect(fileExists).To(BeFalse(), "minio file should have been deleted")
 				}, timeout, interval).Should(Succeed(), "minio files were not deleted")
 
-				// make sure pipeline pod does not exist
+				By("deleting the request pipeline pods")
 				Eventually(func() int {
 					pods := &v1.PodList{}
 
 					podLabels := map[string]string{
-						"kratix-promise-id":                  "redis-promise-default", // promise.Name + "-" + promise.Namespace
-						"kratix-promise-resource-request-id": "redis-promise-default-default-opstree-redis",
+						"kratix-promise-id":                  redisPromiseID,
+						"kratix-promise-resource-request-id": redisDefaultRRName,
 					}
 					listOptions := client.ListOptions{LabelSelector: labels.SelectorFromSet(podLabels)}
 
@@ -289,13 +297,7 @@ var _ = Describe("kratix Platform Integration Test", func() {
 					}
 					return len(pods.Items)
 				}, timeout, interval).Should(Equal(0), "expected pipeline pods to have been deleted")
-			})
-		})
 
-		Describe("Deleting the Promise", func() {
-			It("deletes the Promise", func() {
-				redisPromiseNamespacedName := types.NamespacedName{Name: "redis-promise", Namespace: "default"}
-				kubeDelete(RedisCRD, redisPromiseNamespacedName.Namespace)
 				Eventually(func() bool {
 					err := k8sClient.Get(context.Background(), redisPromiseNamespacedName, &platformv1alpha1.Promise{})
 					return errors.IsNotFound(err)
@@ -540,7 +542,7 @@ var _ = Describe("kratix Platform Integration Test", func() {
 
 		It("registers pre-existing dev cache promises", func() {
 			workloadNamespacedName := types.NamespacedName{
-				Name:      "redis-promise-default",
+				Name:      redisPromiseID,
 				Namespace: "default",
 			}
 			Eventually(func(g Gomega) {

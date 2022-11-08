@@ -76,6 +76,18 @@ var _ = Context("Promise Reconciler", func() {
 			return crd.Spec.Names.Singular + "." + crd.Spec.Group
 		}, timeout, interval).Should(Equal(expectedAPI))
 
+		By("being able to create RRs")
+		yamlFile, err := ioutil.ReadFile("../config/samples/redis/redis-resource-request.yaml")
+		Expect(err).ToNot(HaveOccurred())
+
+		redisRequest := &unstructured.Unstructured{}
+		err = yaml.Unmarshal(yamlFile, redisRequest)
+		Expect(err).ToNot(HaveOccurred())
+
+		redisRequest.SetNamespace("default")
+		err = k8sClient.Create(context.Background(), redisRequest)
+		Expect(err).ToNot(HaveOccurred())
+
 		By("Creating a configMap to store promise selectors")
 		Eventually(func() string {
 			cm := &v1.ConfigMap{}
@@ -94,9 +106,14 @@ var _ = Context("Promise Reconciler", func() {
 
 		promise := &v1alpha1.Promise{}
 
-		err := k8sClient.Get(context.Background(), expectedPromise, promise)
+		err = k8sClient.Get(context.Background(), expectedPromise, promise)
 		Expect(err).NotTo(HaveOccurred())
-		Expect(promise.GetFinalizers()).Should(ConsistOf("finalizers.workplacement.kratix.io/cluster-selectors-config-map-cleanup"), "Promise should have a finalizer set for the configMap")
+		Expect(promise.GetFinalizers()).Should(
+			ConsistOf(
+				"finalizers.workplacement.kratix.io/cluster-selectors-config-map-cleanup",
+				"finalizers.workplacement.kratix.io/resource-request-cleanup",
+			),
+			"Promise should have finalizers set")
 
 		By("Creating Redis Worker Cluster Resources")
 		Eventually(func() error {
@@ -109,11 +126,21 @@ var _ = Context("Promise Reconciler", func() {
 		}, timeout, interval).Should(BeNil())
 
 		By("Deleting the Promise")
-
-		By("Deleting the config map")
 		err = k8sClient.Delete(context.Background(), promiseCR)
 		Expect(err).NotTo(HaveOccurred())
 
+		By("deletes the resource requests")
+		Eventually(func() int {
+			rrList := &unstructured.UnstructuredList{}
+			rrList.SetGroupVersionKind(redisRequest.GroupVersionKind())
+			err := k8sClient.List(context.Background(), rrList)
+			if err != nil {
+				return -1
+			}
+			return len(rrList.Items)
+		}, timeout, interval).Should(BeZero(), "Expected all RRs to be deleted")
+
+		By("deletes the config map")
 		Eventually(func() bool {
 			cm := &v1.ConfigMap{}
 			expectedCM := types.NamespacedName{
@@ -125,7 +152,7 @@ var _ = Context("Promise Reconciler", func() {
 			return errors.IsNotFound(err)
 		}, timeout, interval).Should(BeTrue(), "Expected configMap to not be found")
 
-		By("Ensuring the finalizer was removed and the Promise was successfully deleted")
+		By("ensures the Promise was successfully deleted")
 		Eventually(func() bool {
 			promise := &v1alpha1.Promise{}
 

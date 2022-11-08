@@ -17,9 +17,10 @@ limitations under the License.
 package controllers_test
 
 import (
-	"golang.org/x/net/context"
 	"path/filepath"
 	"testing"
+
+	"golang.org/x/net/context"
 
 	. "github.com/onsi/ginkgo"
 	. "github.com/onsi/gomega"
@@ -105,6 +106,9 @@ var _ = AfterEach(func() {
 	}
 	Expect(k8sClient.DeleteAllOf(context.Background(), &platformv1alpha1.Promise{}, client.InNamespace("default"))).To(Succeed())
 
+	Expect(k8sClient.DeleteAllOf(context.Background(), &platformv1alpha1.Cluster{}, client.InNamespace("default"))).To(Succeed())
+	Expect(k8sClient.DeleteAllOf(context.Background(), &platformv1alpha1.Work{}, client.InNamespace("default"))).To(Succeed())
+
 	var workPlacements platformv1alpha1.WorkPlacementList
 	k8sClient.List(context.Background(), &workPlacements)
 	for _, wp := range workPlacements.Items {
@@ -112,9 +116,6 @@ var _ = AfterEach(func() {
 		k8sClient.Update(context.Background(), &wp)
 	}
 	Expect(k8sClient.DeleteAllOf(context.Background(), &platformv1alpha1.WorkPlacement{}, client.InNamespace("default"))).To(Succeed())
-
-	Expect(k8sClient.DeleteAllOf(context.Background(), &platformv1alpha1.Cluster{}, client.InNamespace("default"))).To(Succeed())
-	Expect(k8sClient.DeleteAllOf(context.Background(), &platformv1alpha1.Work{}, client.InNamespace("default"))).To(Succeed())
 })
 
 func TestAPIs(t *testing.T) {

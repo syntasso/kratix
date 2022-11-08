@@ -19,8 +19,9 @@ package controllers
 import (
 	"context"
 	"encoding/json"
-	"k8s.io/apimachinery/pkg/types"
 	"time"
+
+	"k8s.io/apimachinery/pkg/types"
 
 	controllerutil "sigs.k8s.io/controller-runtime/pkg/controller/controllerutil"
 
@@ -47,7 +48,11 @@ type PromiseReconciler struct {
 	Manager             ctrl.Manager
 }
 
-const clusterSelectorsConfigMapCleanupFinalizer = "finalizers.workplacement.kratix.io/cluster-selectors-config-map-cleanup"
+const (
+	finalizerPrefix                           = "finalizers.workplacement.kratix.io/"
+	clusterSelectorsConfigMapCleanupFinalizer = finalizerPrefix + "cluster-selectors-config-map-cleanup"
+	resourceRequestCleanupFinalizer           = finalizerPrefix + "resource-request-cleanup"
+)
 
 //+kubebuilder:rbac:groups=platform.kratix.io,resources=promises,verbs=get;list;watch;create;update;patch;delete
 //+kubebuilder:rbac:groups=platform.kratix.io,resources=promises/status,verbs=get;update;patch
@@ -73,26 +78,33 @@ func (r *PromiseReconciler) Reconcile(ctx context.Context, req ctrl.Request) (ct
 	configMapName := "cluster-selectors-" + promiseIdentifier
 	configMapNamespace := "default"
 
-	if !promise.DeletionTimestamp.IsZero() {
-		operation := r.deletePromise(ctx, promise, configMapName, configMapNamespace, logger)
-		return operation.result, operation.err
-	}
-
-	// Ensure the finalizer is present
-	if !controllerutil.ContainsFinalizer(promise, clusterSelectorsConfigMapCleanupFinalizer) {
-		logger.Info("Adding missing finalizers",
-			"expectedFinalizers", clusterSelectorsConfigMapCleanupFinalizer,
-			"existingFinalizers", promise.Finalizers,
-		)
-		return r.addFinalizer(ctx, promise, logger)
-	}
-
 	//Instance-Level Reconciliation
 	crdToCreate := &apiextensionsv1.CustomResourceDefinition{}
 	err = json.Unmarshal(promise.Spec.XaasCrd.Raw, crdToCreate)
 	if err != nil {
 		logger.Error(err, "Failed unmarshalling CRD")
 		return ctrl.Result{}, nil
+	}
+
+	crdToCreateGvk := schema.GroupVersionKind{
+		Group:   crdToCreate.Spec.Group,
+		Version: crdToCreate.Spec.Versions[0].Name,
+		Kind:    crdToCreate.Spec.Names.Kind,
+	}
+
+	if !promise.DeletionTimestamp.IsZero() {
+		operation := r.deletePromise(ctx, promise, configMapName, configMapNamespace, crdToCreateGvk, logger)
+		return operation.result, operation.err
+	}
+
+	// Ensure the finalizer is present
+	if !controllerutil.ContainsFinalizer(promise, clusterSelectorsConfigMapCleanupFinalizer) ||
+		!controllerutil.ContainsFinalizer(promise, resourceRequestCleanupFinalizer) {
+		logger.Info("Adding missing finalizers",
+			"expectedFinalizers", []string{clusterSelectorsConfigMapCleanupFinalizer, resourceRequestCleanupFinalizer},
+			"existingFinalizers", promise.GetFinalizers(),
+		)
+		return r.addFinalizer(ctx, promise, logger)
 	}
 
 	_, err = r.ApiextensionsClient.ApiextensionsV1().
@@ -105,12 +117,6 @@ func (r *PromiseReconciler) Reconcile(ctx context.Context, req ctrl.Request) (ct
 		} else {
 			logger.Error(err, "Error creating crd")
 		}
-	}
-
-	crdToCreateGvk := schema.GroupVersionKind{
-		Group:   crdToCreate.Spec.Group,
-		Version: crdToCreate.Spec.Versions[0].Name,
-		Kind:    crdToCreate.Spec.Names.Kind,
 	}
 
 	// We should only proceed once the new gvk has been created in the API server
@@ -293,11 +299,51 @@ func (r *PromiseReconciler) gvkDoesNotExist(gvk schema.GroupVersionKind) bool {
 	return err != nil
 }
 
-func (r *PromiseReconciler) deletePromise(ctx context.Context, promise *v1alpha1.Promise, cmName, cmNamespace string, logger logr.Logger) operation {
-	if !controllerutil.ContainsFinalizer(promise, clusterSelectorsConfigMapCleanupFinalizer) {
+func (r *PromiseReconciler) deletePromise(ctx context.Context, promise *v1alpha1.Promise, cmName, cmNamespace string, rrGVK schema.GroupVersionKind, logger logr.Logger) operation {
+	if !controllerutil.ContainsFinalizer(promise, clusterSelectorsConfigMapCleanupFinalizer) &&
+		!controllerutil.ContainsFinalizer(promise, resourceRequestCleanupFinalizer) {
 		return operation{err: nil, result: ctrl.Result{}}
 	}
 
+	if controllerutil.ContainsFinalizer(promise, resourceRequestCleanupFinalizer) {
+		return r.deleteResourceRequests(ctx, promise, rrGVK, logger)
+	}
+
+	if controllerutil.ContainsFinalizer(promise, clusterSelectorsConfigMapCleanupFinalizer) {
+		return r.deleteConfigMap(ctx, promise, cmName, cmNamespace, logger)
+	}
+
+	return operation{err: nil, result: ctrl.Result{RequeueAfter: 5 * time.Second}}
+}
+
+func (r *PromiseReconciler) deleteResourceRequests(ctx context.Context, promise *v1alpha1.Promise, rrGVK schema.GroupVersionKind, logger logr.Logger) operation {
+	rrList := &unstructured.UnstructuredList{}
+	rrList.SetGroupVersionKind(rrGVK)
+	err := r.Client.List(context.Background(), rrList)
+	if err != nil {
+		return operation{err: nil, result: ctrl.Result{RequeueAfter: 5 * time.Second}}
+	}
+
+	if len(rrList.Items) == 0 {
+		// only remove finalizer at this point because there are no more resource requests
+		controllerutil.RemoveFinalizer(promise, resourceRequestCleanupFinalizer)
+		if err := r.Client.Update(ctx, promise); err != nil {
+			return operation{err: err, result: ctrl.Result{RequeueAfter: 5 * time.Second}}
+		}
+		return operation{err: nil, result: ctrl.Result{}}
+	}
+
+	for _, rr := range rrList.Items {
+		err = r.Client.Delete(ctx, &rr)
+		if err != nil {
+			return operation{err: err, result: ctrl.Result{RequeueAfter: 5 * time.Second}}
+		}
+	}
+
+	return operation{err: nil, result: ctrl.Result{RequeueAfter: 5 * time.Second}}
+}
+
+func (r *PromiseReconciler) deleteConfigMap(ctx context.Context, promise *v1alpha1.Promise, cmName, cmNamespace string, logger logr.Logger) operation {
 	configMap := &v1.ConfigMap{}
 	err := r.Client.Get(ctx, types.NamespacedName{
 		Namespace: cmNamespace,
@@ -319,15 +365,14 @@ func (r *PromiseReconciler) deletePromise(ctx context.Context, promise *v1alpha1
 
 	err = r.Client.Delete(ctx, configMap)
 	if err != nil {
-
 		return operation{err: err, result: ctrl.Result{RequeueAfter: 5 * time.Second}}
 	}
 
 	return operation{err: nil, result: ctrl.Result{RequeueAfter: 5 * time.Second}}
 }
-
 func (r *PromiseReconciler) addFinalizer(ctx context.Context, promise *v1alpha1.Promise, logger logr.Logger) (ctrl.Result, error) {
 	controllerutil.AddFinalizer(promise, clusterSelectorsConfigMapCleanupFinalizer)
+	controllerutil.AddFinalizer(promise, resourceRequestCleanupFinalizer)
 	if err := r.Update(ctx, promise); err != nil {
 		logger.Error(err, "failed to add finalizer to Promise")
 		return ctrl.Result{}, err
