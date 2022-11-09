@@ -151,6 +151,9 @@ rules:
   - clusterrolebindings
   verbs:
   - create
+  - delete
+  - get
+  - list
 - apiGroups:
   - rbac.authorization.k8s.io
   resources:
@@ -158,4 +161,7 @@ rules:
   verbs:
   - bind
   - create
+  - delete
   - escalate
+  - get
+  - list

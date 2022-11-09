@@ -49,17 +49,21 @@ type PromiseReconciler struct {
 }
 
 const (
-	finalizerPrefix                           = "finalizers.workplacement.kratix.io/"
-	clusterSelectorsConfigMapCleanupFinalizer = finalizerPrefix + "cluster-selectors-config-map-cleanup"
-	resourceRequestCleanupFinalizer           = finalizerPrefix + "resource-request-cleanup"
+	finalizerPrefix                                    = "kratix.io/"
+	clusterSelectorsConfigMapCleanupFinalizer          = finalizerPrefix + "cluster-selectors-config-map-cleanup"
+	resourceRequestCleanupFinalizer                    = finalizerPrefix + "resource-request-cleanup"
+	dynamicControllerDependantResourcesCleaupFinalizer = finalizerPrefix + "dynamic-controller-dependant-resources-cleanup"
 )
 
-var promiseFinalizers = []string{clusterSelectorsConfigMapCleanupFinalizer, resourceRequestCleanupFinalizer}
+var promiseFinalizers = []string{clusterSelectorsConfigMapCleanupFinalizer, resourceRequestCleanupFinalizer, dynamicControllerDependantResourcesCleaupFinalizer}
 
 //+kubebuilder:rbac:groups=platform.kratix.io,resources=promises,verbs=get;list;watch;create;update;patch;delete
 //+kubebuilder:rbac:groups=platform.kratix.io,resources=promises/status,verbs=get;update;patch
 //+kubebuilder:rbac:groups=platform.kratix.io,resources=promises/finalizers,verbs=update
 //+kubebuilder:rbac:groups="",resources=configmaps,verbs=create;list;watch;delete
+
+//+kubebuilder:rbac:groups=rbac.authorization.k8s.io,resources=clusterroles,verbs=create;escalate;bind;list;get;delete
+//+kubebuilder:rbac:groups=rbac.authorization.k8s.io,resources=clusterrolebindings,verbs=create;list;get;delete
 
 //+kubebuilder:rbac:groups=apiextensions.k8s.io,resources=customresourcedefinitions,verbs=get;list;watch;create;update;patch;delete
 
@@ -76,8 +80,7 @@ func (r *PromiseReconciler) Reconcile(ctx context.Context, req ctrl.Request) (ct
 		return ctrl.Result{}, nil
 	}
 
-	promiseIdentifier := promise.Name + "-" + promise.Namespace
-	configMapName := "cluster-selectors-" + promiseIdentifier
+	configMapName := "cluster-selectors-" + promise.GetIdentifier()
 	configMapNamespace := "default"
 
 	//Instance-Level Reconciliation
@@ -95,17 +98,18 @@ func (r *PromiseReconciler) Reconcile(ctx context.Context, req ctrl.Request) (ct
 	}
 
 	if !promise.DeletionTimestamp.IsZero() {
-		return r.deletePromise(ctx, promise, configMapName, configMapNamespace, crdToCreateGvk, logger)
+		return r.deletePromise(ctx, promise, crdToCreateGvk, logger)
 	}
 
 	if finalizersAreMissing(promise, promiseFinalizers) {
 		logger.Info("Adding missing finalizers",
-			"expectedFinalizers", []string{clusterSelectorsConfigMapCleanupFinalizer, resourceRequestCleanupFinalizer},
+			"expectedFinalizers", promiseFinalizers,
 			"existingFinalizers", promise.GetFinalizers(),
 		)
 		return addFinalizers(ctx, r.Client, promise, promiseFinalizers, logger)
 	}
 
+	//this needs to be after RR deletion
 	_, err = r.ApiextensionsClient.ApiextensionsV1().
 		CustomResourceDefinitions().
 		Create(ctx, crdToCreate, metav1.CreateOptions{})
@@ -126,21 +130,21 @@ func (r *PromiseReconciler) Reconcile(ctx context.Context, req ctrl.Request) (ct
 
 	workToCreate := &v1alpha1.Work{}
 	workToCreate.Spec.Replicas = v1alpha1.WorkerResourceReplicas
-	workToCreate.Name = promiseIdentifier
+	workToCreate.Name = promise.GetIdentifier()
 	workToCreate.Namespace = "default"
 	workToCreate.Spec.ClusterSelector = promise.Spec.ClusterSelector
 	for _, u := range promise.Spec.WorkerClusterResources {
 		workToCreate.Spec.Workload.Manifests = append(workToCreate.Spec.Workload.Manifests, v1alpha1.Manifest{Unstructured: u.Unstructured})
 	}
 
-	logger.Info("Creating Work resource for promise: " + promiseIdentifier)
+	logger.Info("Creating Work resource for promise: " + promise.GetIdentifier())
 	err = r.Client.Create(ctx, workToCreate)
 	if err != nil {
 		if errors.IsAlreadyExists(err) {
 			//todo test for existence and handle gracefully.
-			logger.Info("Works " + promiseIdentifier + " already exists")
+			logger.Info("Works " + promise.GetIdentifier() + " already exists")
 		} else {
-			logger.Error(err, "Error creating Works "+promiseIdentifier)
+			logger.Error(err, "Error creating Works "+promise.GetIdentifier())
 		}
 		return ctrl.Result{}, err
 	}
@@ -148,7 +152,7 @@ func (r *PromiseReconciler) Reconcile(ctx context.Context, req ctrl.Request) (ct
 	// CONTROLLER RBAC
 	cr := rbacv1.ClusterRole{
 		ObjectMeta: metav1.ObjectMeta{
-			Name: promiseIdentifier + "-promise-controller",
+			Name: promise.GetIdentifier() + "-promise-controller",
 		},
 		Rules: []rbacv1.PolicyRule{
 			{
@@ -175,7 +179,7 @@ func (r *PromiseReconciler) Reconcile(ctx context.Context, req ctrl.Request) (ct
 
 	crb := rbacv1.ClusterRoleBinding{
 		ObjectMeta: metav1.ObjectMeta{
-			Name: promiseIdentifier + "-promise-controller-binding",
+			Name: promise.GetControllerClusterRoleBindingName(),
 		},
 		RoleRef: rbacv1.RoleRef{
 			Kind:     "ClusterRole",
@@ -199,7 +203,7 @@ func (r *PromiseReconciler) Reconcile(ctx context.Context, req ctrl.Request) (ct
 	// PIPELINE RBAC
 	cr = rbacv1.ClusterRole{
 		ObjectMeta: metav1.ObjectMeta{
-			Name: promiseIdentifier + "-promise-pipeline",
+			Name: promise.GetIdentifier() + "-promise-pipeline",
 		},
 		Rules: []rbacv1.PolicyRule{
 			{
@@ -221,7 +225,7 @@ func (r *PromiseReconciler) Reconcile(ctx context.Context, req ctrl.Request) (ct
 
 	crb = rbacv1.ClusterRoleBinding{
 		ObjectMeta: metav1.ObjectMeta{
-			Name: promiseIdentifier + "-promise-pipeline-binding",
+			Name: promise.GetPipelineClusterRoleBindingName(),
 		},
 		RoleRef: rbacv1.RoleRef{
 			Kind:     "ClusterRole",
@@ -232,7 +236,7 @@ func (r *PromiseReconciler) Reconcile(ctx context.Context, req ctrl.Request) (ct
 			{
 				Kind:      "ServiceAccount",
 				Namespace: "default",
-				Name:      promiseIdentifier + "-sa",
+				Name:      promise.GetIdentifier() + "-sa",
 			},
 		},
 	}
@@ -241,18 +245,18 @@ func (r *PromiseReconciler) Reconcile(ctx context.Context, req ctrl.Request) (ct
 		logger.Error(err, "Error creating ClusterRoleBinding")
 	}
 
-	logger.Info("Creating Service Account for " + promiseIdentifier)
+	logger.Info("Creating Service Account for " + promise.GetIdentifier())
 	sa := v1.ServiceAccount{
 		ObjectMeta: metav1.ObjectMeta{
-			Name:      promiseIdentifier + "-sa",
+			Name:      promise.GetIdentifier() + "-sa",
 			Namespace: "default",
 		},
 	}
 	err = r.Client.Create(ctx, &sa)
 	if err != nil {
-		logger.Error(err, "Error creating Service Account for Promise "+promiseIdentifier)
+		logger.Error(err, "Error creating Service Account for Promise "+promise.GetIdentifier())
 	} else {
-		logger.Info("Created ServiceAccount for Promise " + promiseIdentifier)
+		logger.Info("Created ServiceAccount for Promise " + promise.GetIdentifier())
 	}
 
 	configMap := v1.ConfigMap{
@@ -268,7 +272,7 @@ func (r *PromiseReconciler) Reconcile(ctx context.Context, req ctrl.Request) (ct
 	err = r.Client.Create(ctx, &configMap)
 	if err != nil {
 		logger.Error(err, "Error creating config map",
-			"promiseIdentifier", promiseIdentifier,
+			"promiseIdentifier", promise.GetIdentifier(),
 			"configMap", configMap.Name,
 		)
 	}
@@ -276,11 +280,12 @@ func (r *PromiseReconciler) Reconcile(ctx context.Context, req ctrl.Request) (ct
 	unstructuredCRD := &unstructured.Unstructured{}
 	unstructuredCRD.SetGroupVersionKind(crdToCreateGvk)
 
+	//delete dyanmic controller before CRD
 	dynamicResourceRequestController := &dynamicResourceRequestController{
 		client:                 r.Manager.GetClient(),
 		scheme:                 r.Manager.GetScheme(),
 		gvk:                    &crdToCreateGvk,
-		promiseIdentifier:      promiseIdentifier,
+		promiseIdentifier:      promise.GetIdentifier(),
 		promiseClusterSelector: promise.Spec.ClusterSelector,
 		xaasRequestPipeline:    promise.Spec.XaasRequestPipeline,
 		log:                    r.Log,
@@ -298,7 +303,7 @@ func (r *PromiseReconciler) gvkDoesNotExist(gvk schema.GroupVersionKind) bool {
 	return err != nil
 }
 
-func (r *PromiseReconciler) deletePromise(ctx context.Context, promise *v1alpha1.Promise, cmName, cmNamespace string, rrGVK schema.GroupVersionKind, logger logr.Logger) (ctrl.Result, error) {
+func (r *PromiseReconciler) deletePromise(ctx context.Context, promise *v1alpha1.Promise, rrGVK schema.GroupVersionKind, logger logr.Logger) (ctrl.Result, error) {
 	if finalizersAreDeleted(promise, promiseFinalizers) {
 		return ctrl.Result{}, nil
 	}
@@ -308,12 +313,51 @@ func (r *PromiseReconciler) deletePromise(ctx context.Context, promise *v1alpha1
 		return ctrl.Result{RequeueAfter: 5 * time.Second}, err
 	}
 
+	//delete dynamic controller
+	//delete CR/CRB/SA after deleting the dyanmic controller
+	//delete CRD, in any order
+
 	if controllerutil.ContainsFinalizer(promise, clusterSelectorsConfigMapCleanupFinalizer) {
-		err := r.deleteConfigMap(ctx, promise, cmName, cmNamespace, logger)
+		err := r.deleteConfigMap(ctx, promise, logger)
 		return ctrl.Result{RequeueAfter: 5 * time.Second}, err
 	}
 
+	if controllerutil.ContainsFinalizer(promise, dynamicControllerDependantResourcesCleaupFinalizer) {
+		err := r.deleteDynamicControllerResources(ctx, promise, logger)
+		return ctrl.Result{RequeueAfter: 5 * time.Second}, err
+	}
+
+	//delete work for workerClusterResources
+
 	return ctrl.Result{RequeueAfter: 5 * time.Second}, nil
+}
+
+func (r *PromiseReconciler) deleteDynamicControllerResources(ctx context.Context, promise *v1alpha1.Promise, logger logr.Logger) error {
+	clusterRoleBinding := &rbacv1.ClusterRoleBinding{}
+	clusterRoleBindingNamespacedName := types.NamespacedName{
+		Name: promise.GetControllerClusterRoleBindingName(),
+	}
+	err := r.Client.Get(ctx, clusterRoleBindingNamespacedName, clusterRoleBinding)
+	if err != nil {
+		if errors.IsNotFound(err) {
+			// only remove finalizer at this point because deletion success is guaranteed
+			controllerutil.RemoveFinalizer(promise, dynamicControllerDependantResourcesCleaupFinalizer)
+			if err := r.Client.Update(ctx, promise); err != nil {
+				return err
+			}
+			return nil
+		}
+
+		logger.Error(err, "Error locating clusterRoleBinding, will try again in 5 seconds", "configMap", promise.GetControllerClusterRoleBindingName())
+		return err
+	}
+
+	err = r.Client.Delete(ctx, clusterRoleBinding)
+	if err != nil {
+		return err
+	}
+
+	return nil
 }
 
 func (r *PromiseReconciler) deleteResourceRequests(ctx context.Context, promise *v1alpha1.Promise, rrGVK schema.GroupVersionKind, logger logr.Logger) error {
@@ -343,11 +387,11 @@ func (r *PromiseReconciler) deleteResourceRequests(ctx context.Context, promise 
 	return nil
 }
 
-func (r *PromiseReconciler) deleteConfigMap(ctx context.Context, promise *v1alpha1.Promise, cmName, cmNamespace string, logger logr.Logger) error {
+func (r *PromiseReconciler) deleteConfigMap(ctx context.Context, promise *v1alpha1.Promise, logger logr.Logger) error {
 	configMap := &v1.ConfigMap{}
 	err := r.Client.Get(ctx, types.NamespacedName{
-		Namespace: cmNamespace,
-		Name:      cmName,
+		Namespace: promise.GetConfigMapNamespace(),
+		Name:      promise.GetConfigMapName(),
 	}, configMap)
 	if err != nil {
 		if errors.IsNotFound(err) {
@@ -359,7 +403,7 @@ func (r *PromiseReconciler) deleteConfigMap(ctx context.Context, promise *v1alph
 			return nil
 		}
 
-		logger.Error(err, "Error locating config map, will try again in 5 seconds", "configMap", cmName)
+		logger.Error(err, "Error locating config map, will try again in 5 seconds", "configMap", promise.GetConfigMapName())
 		return err
 	}
 
@@ -378,6 +422,7 @@ func (r *PromiseReconciler) SetupWithManager(mgr ctrl.Manager) error {
 		Complete(r)
 }
 
+// finalizers must be less than 64 characters
 func addFinalizers(ctx context.Context, client client.Client, resource client.Object, finalizers []string, logger logr.Logger) (ctrl.Result, error) {
 	logger.Info("Adding missing finalizers",
 		"expectedFinalizers", finalizers,

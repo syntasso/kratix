@@ -43,6 +43,13 @@ import (
 	"sigs.k8s.io/yaml"
 )
 
+const (
+	workFinalizer     = finalizerPrefix + "work-cleanup"
+	pipelineFinalizer = finalizerPrefix + "pipeline-cleanup"
+)
+
+var rrFinalizers = []string{workFinalizer, pipelineFinalizer}
+
 type dynamicResourceRequestController struct {
 	client                 client.Client
 	gvk                    *schema.GroupVersionKind
@@ -56,9 +63,6 @@ type dynamicResourceRequestController struct {
 
 //+kubebuilder:rbac:groups="",resources=pods,verbs=create;list;watch;delete
 //+kubebuilder:rbac:groups="",resources=serviceaccounts,verbs=create
-
-//+kubebuilder:rbac:groups=rbac.authorization.k8s.io,resources=clusterroles,verbs=create;escalate;bind
-//+kubebuilder:rbac:groups=rbac.authorization.k8s.io,resources=clusterrolebindings,verbs=create
 
 func (r *dynamicResourceRequestController) Reconcile(ctx context.Context, req ctrl.Request) (ctrl.Result, error) {
 	logger := r.log.WithValues(r.promiseIdentifier, req.NamespacedName)
@@ -77,11 +81,8 @@ func (r *dynamicResourceRequestController) Reconcile(ctx context.Context, req ct
 		return ctrl.Result{}, nil
 	}
 
-	workFinalizer := fmt.Sprintf("finalizers.%s.resource-request.kratix.io/work-cleanup", strings.ToLower(unstructuredCRD.GetKind()))
-	pipelineFinalizer := fmt.Sprintf("finalizers.%s.resource-request.kratix.io/pipeline-cleanup", strings.ToLower(unstructuredCRD.GetKind()))
-
 	if !unstructuredCRD.GetDeletionTimestamp().IsZero() {
-		return r.deleteResources(ctx, unstructuredCRD, resourceRequestIdentifier, workFinalizer, pipelineFinalizer, logger)
+		return r.deleteResources(ctx, unstructuredCRD, resourceRequestIdentifier, logger)
 	}
 
 	// Reconcile necessary finalizers
@@ -233,8 +234,8 @@ func (r *dynamicResourceRequestController) pipelineHasExecuted(resourceRequestId
 	return len(ol.Items) > 0
 }
 
-func (r *dynamicResourceRequestController) deleteResources(ctx context.Context, resourceRequest *unstructured.Unstructured, resourceRequestIdentifier string, workFinalizer string, pipelineFinalizer string, logger logr.Logger) (ctrl.Result, error) {
-	if finalizersAreDeleted(resourceRequest, []string{workFinalizer, pipelineFinalizer}) {
+func (r *dynamicResourceRequestController) deleteResources(ctx context.Context, resourceRequest *unstructured.Unstructured, resourceRequestIdentifier string, logger logr.Logger) (ctrl.Result, error) {
+	if finalizersAreDeleted(resourceRequest, rrFinalizers) {
 		return ctrl.Result{}, nil
 	}
 

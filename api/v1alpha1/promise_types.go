@@ -80,6 +80,26 @@ type Promise struct {
 	Status PromiseStatus `json:"status,omitempty"`
 }
 
+func (p *Promise) GetIdentifier() string {
+	return p.GetName() + "-" + p.GetNamespace()
+}
+
+func (p *Promise) GetControllerClusterRoleBindingName() string {
+	return p.GetIdentifier() + "-promise-controller-binding"
+}
+
+func (p *Promise) GetPipelineClusterRoleBindingName() string {
+	return p.GetIdentifier() + "-promise-pipeline-binding"
+}
+
+func (p *Promise) GetConfigMapName() string {
+	return "cluster-selectors-" + p.GetIdentifier()
+}
+
+func (p *Promise) GetConfigMapNamespace() string {
+	return "default"
+}
+
 //+kubebuilder:object:root=true
 
 // PromiseList contains a list of Promise

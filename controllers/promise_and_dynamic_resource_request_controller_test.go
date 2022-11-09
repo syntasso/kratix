@@ -24,6 +24,7 @@ import (
 	. "github.com/onsi/ginkgo"
 	. "github.com/onsi/gomega"
 	v1 "k8s.io/api/core/v1"
+	rbacv1 "k8s.io/api/rbac/v1"
 	"k8s.io/apimachinery/pkg/api/errors"
 	metav1 "k8s.io/apimachinery/pkg/apis/meta/v1"
 	"k8s.io/apimachinery/pkg/apis/meta/v1/unstructured"
@@ -57,12 +58,13 @@ var _ = Context("Promise Reconciler", func() {
 	})
 
 	It("Controls the lifecycle of a Redis Promise", func() {
+		promiseIdentifier := "redis-promise-default"
 		expectedPromise := types.NamespacedName{
 			Namespace: "default",
 			Name:      "redis-promise",
 		}
 
-		By("Creating an API for redis.redis.redis")
+		By("creating an API for redis.redis.redis")
 		var expectedAPI = "redis.redis.redis.opstreelabs.in"
 		Eventually(func() string {
 			crd, _ := apiextensionClient.
@@ -76,6 +78,13 @@ var _ = Context("Promise Reconciler", func() {
 			return crd.Spec.Names.Singular + "." + crd.Spec.Group
 		}, timeout, interval).Should(Equal(expectedAPI))
 
+		By("creating a clusterRoleBinding for the controller")
+		Eventually(func() error {
+			binding := &rbacv1.ClusterRoleBinding{}
+			err := k8sClient.Get(context.Background(), types.NamespacedName{Name: promiseIdentifier + "-promise-controller-binding"}, binding)
+			return err
+		}, timeout, interval).Should(BeNil(), "Expected ClusterRoleBinding to exist")
+
 		By("being able to create RRs")
 		yamlFile, err := ioutil.ReadFile("../config/samples/redis/redis-resource-request.yaml")
 		Expect(err).ToNot(HaveOccurred())
@@ -88,12 +97,12 @@ var _ = Context("Promise Reconciler", func() {
 		err = k8sClient.Create(context.Background(), redisRequest)
 		Expect(err).ToNot(HaveOccurred())
 
-		By("Creating a configMap to store promise selectors")
+		By("creating a configMap to store Promise selectors")
 		Eventually(func() string {
 			cm := &v1.ConfigMap{}
 			expectedCM := types.NamespacedName{
 				Namespace: "default",
-				Name:      "cluster-selectors-redis-promise-default",
+				Name:      "cluster-selectors-" + promiseIdentifier,
 			}
 
 			err := k8sClient.Get(context.Background(), expectedCM, cm)
@@ -110,26 +119,27 @@ var _ = Context("Promise Reconciler", func() {
 		Expect(err).NotTo(HaveOccurred())
 		Expect(promise.GetFinalizers()).Should(
 			ConsistOf(
-				"finalizers.workplacement.kratix.io/cluster-selectors-config-map-cleanup",
-				"finalizers.workplacement.kratix.io/resource-request-cleanup",
+				"kratix.io/cluster-selectors-config-map-cleanup",
+				"kratix.io/resource-request-cleanup",
+				"kratix.io/dynamic-controller-dependant-resources-cleanup",
 			),
 			"Promise should have finalizers set")
 
-		By("Creating Redis Worker Cluster Resources")
+		By("creating Redis Worker Cluster Resources")
+		workNamespacedName := types.NamespacedName{
+			Name:      promiseIdentifier,
+			Namespace: "default",
+		}
 		Eventually(func() error {
-			expectedName := types.NamespacedName{
-				Name:      "redis-promise-default",
-				Namespace: "default",
-			}
-			err := k8sClient.Get(context.Background(), expectedName, &v1alpha1.Work{})
+			err := k8sClient.Get(context.Background(), workNamespacedName, &v1alpha1.Work{})
 			return err
 		}, timeout, interval).Should(BeNil())
 
-		By("Deleting the Promise")
+		By("deleting the Promise")
 		err = k8sClient.Delete(context.Background(), promiseCR)
 		Expect(err).NotTo(HaveOccurred())
 
-		By("deletes the resource requests")
+		By("also deleting the resource requests")
 		Eventually(func() int {
 			rrList := &unstructured.UnstructuredList{}
 			rrList.SetGroupVersionKind(redisRequest.GroupVersionKind())
@@ -140,7 +150,7 @@ var _ = Context("Promise Reconciler", func() {
 			return len(rrList.Items)
 		}, timeout, interval).Should(BeZero(), "Expected all RRs to be deleted")
 
-		By("deletes the config map")
+		By("also deleting the config map")
 		Eventually(func() bool {
 			cm := &v1.ConfigMap{}
 			expectedCM := types.NamespacedName{
@@ -152,14 +162,19 @@ var _ = Context("Promise Reconciler", func() {
 			return errors.IsNotFound(err)
 		}, timeout, interval).Should(BeTrue(), "ConfigMap should have been deleted")
 
-		By("ensures the Promise was successfully deleted")
+		By("also deleting the ClusterRoleBinding for the controller")
 		Eventually(func() bool {
-			promise := &v1alpha1.Promise{}
+			binding := &rbacv1.ClusterRoleBinding{}
 
-			err := k8sClient.Get(context.Background(), expectedPromise, promise)
+			err := k8sClient.Get(context.Background(), types.NamespacedName{Name: promiseIdentifier + "-promise-controller-binding"}, binding)
+			return errors.IsNotFound(err)
+		}, timeout, interval).Should(BeTrue(), "Expected ClusterRoleBinding to not be found")
+
+		By("finally deleting the Promise itself")
+		Eventually(func() bool {
+			err := k8sClient.Get(context.Background(), expectedPromise, &v1alpha1.Promise{})
 			return errors.IsNotFound(err)
 		}, timeout, interval).Should(BeTrue(), "Expected Promise to not be found")
-
 	})
 
 	Describe("Lifecycle of a Redis Custom Resource", func() {
@@ -209,7 +224,7 @@ var _ = Context("Promise Reconciler", func() {
 					return nil
 				}
 				return createdRedisRequest.GetFinalizers()
-			}, timeout, interval).Should(ConsistOf("finalizers.redis.resource-request.kratix.io/work-cleanup", "finalizers.redis.resource-request.kratix.io/pipeline-cleanup"))
+			}, timeout, interval).Should(ConsistOf("kratix.io/work-cleanup", "kratix.io/pipeline-cleanup"))
 		})
 
 		It("Takes no action on update", func() {
