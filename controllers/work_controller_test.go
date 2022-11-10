@@ -23,7 +23,6 @@ import (
 	. "github.com/onsi/gomega"
 	. "github.com/syntasso/kratix/controllers"
 	"k8s.io/apimachinery/pkg/fields"
-	"k8s.io/apimachinery/pkg/types"
 	ctrl "sigs.k8s.io/controller-runtime"
 	"sigs.k8s.io/controller-runtime/pkg/client"
 
@@ -43,7 +42,6 @@ var _ = Context("WorkReconciler.Reconcile()", func() {
 
 		err := (&WorkReconciler{
 			Client:    k8sClient,
-			Scheme:    k8sManager.GetScheme(),
 			Scheduler: scheduler,
 			Log:       ctrl.Log.WithName("controllers").WithName("WorkReconciler"),
 		}).SetupWithManager(k8sManager)
@@ -80,10 +78,7 @@ var _ = Context("WorkReconciler.Reconcile()", func() {
 				g.Expect(workPlacementList.Items).To(HaveLen(1), "expected one WorkPlacement")
 
 				var createdWork platformv1alpha1.Work
-				err = k8sClient.Get(context.Background(), types.NamespacedName{
-					Namespace: work.Namespace,
-					Name:      work.Name,
-				}, &createdWork)
+				err = k8sClient.Get(context.Background(), client.ObjectKeyFromObject(work), &createdWork)
 				g.Expect(err).ToNot(HaveOccurred())
 
 				workPlacement := workPlacementList.Items[0]

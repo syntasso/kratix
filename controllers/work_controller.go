@@ -22,7 +22,6 @@ import (
 
 	"github.com/go-logr/logr"
 	platformv1alpha1 "github.com/syntasso/kratix/api/v1alpha1"
-	"k8s.io/apimachinery/pkg/runtime"
 	ctrl "sigs.k8s.io/controller-runtime"
 	"sigs.k8s.io/controller-runtime/pkg/client"
 )
@@ -31,7 +30,6 @@ import (
 type WorkReconciler struct {
 	client.Client
 	Log       logr.Logger
-	Scheme    *runtime.Scheme
 	Scheduler *Scheduler
 }
 
@@ -51,13 +49,13 @@ type WorkReconciler struct {
 // For more details, check Reconcile and its Result here:
 // - https://pkg.go.dev/sigs.k8s.io/controller-runtime@v0.7.2/pkg/reconcile
 func (r *WorkReconciler) Reconcile(ctx context.Context, req ctrl.Request) (ctrl.Result, error) {
-	_ = r.Log.WithValues("work", req.NamespacedName)
-	r.Log.Info("Reconciling Work " + req.Name)
+	logger := r.Log.WithValues("work", req.NamespacedName)
+	logger.Info("Reconciling Work " + req.Name)
 
 	work := &platformv1alpha1.Work{}
 	err := r.Client.Get(context.Background(), req.NamespacedName, work)
 	if err != nil {
-		r.Log.Error(err, "Error getting Work")
+		logger.Error(err, "Error getting Work")
 		return ctrl.Result{Requeue: false}, err
 	}
 
@@ -66,26 +64,26 @@ func (r *WorkReconciler) Reconcile(ctx context.Context, req ctrl.Request) (ctrl.
 	workPlacementListOptions := &client.ListOptions{
 		Namespace: "default",
 	}
-	r.Log.Info("Listing Workplacements with WorkName: " + work.Name)
+	logger.Info("Listing Workplacements with WorkName: " + work.Name)
 	err = r.Client.List(context.Background(), workPlacementList, workPlacementListOptions)
 	if err != nil {
-		r.Log.Error(err, "Error getting WorkPlacements")
+		logger.Error(err, "Error getting WorkPlacements")
 		return ctrl.Result{Requeue: true}, err
 	}
-	r.Log.Info("Found WorkPlacements for WorkName " + fmt.Sprint(len(workPlacementList.Items)))
+	logger.Info("Found WorkPlacements for WorkName " + fmt.Sprint(len(workPlacementList.Items)))
 
 	for _, workPlacement := range workPlacementList.Items {
 		if workPlacement.Spec.WorkName == work.Name {
-			r.Log.Info("WorkPlacements for work exist." + req.Name)
+			logger.Info("WorkPlacements for work exist." + req.Name)
 			return ctrl.Result{}, nil
 		}
 	}
 
 	// If Work does not have a WorkPlacement then schedule the Work
-	r.Log.Info("Requesting scheduling for Work " + req.Name)
-	err = r.Scheduler.ReconcileWork(work, r.Scheme)
+	logger.Info("Requesting scheduling for Work " + req.Name)
+	err = r.Scheduler.ReconcileWork(work)
 	if err != nil {
-		r.Log.Error(err, "Error scheduling Work, will retry...")
+		logger.Error(err, "Error scheduling Work, will retry...")
 		return ctrl.Result{Requeue: true}, err
 	}
 	return ctrl.Result{}, nil

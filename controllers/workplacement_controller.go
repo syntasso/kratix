@@ -20,9 +20,9 @@ import (
 	"bytes"
 	"context"
 	"github.com/go-logr/logr"
+	"k8s.io/apimachinery/pkg/api/errors"
 	"time"
 
-	"k8s.io/apimachinery/pkg/runtime"
 	"k8s.io/apimachinery/pkg/runtime/serializer/json"
 	"k8s.io/apimachinery/pkg/types"
 	ctrl "sigs.k8s.io/controller-runtime"
@@ -35,12 +35,11 @@ import (
 // WorkPlacementReconciler reconciles a WorkPlacement object
 type WorkPlacementReconciler struct {
 	client.Client
-	Scheme       *runtime.Scheme
 	Log          logr.Logger
 	BucketWriter *BucketWriter
 }
 
-const WorkPlacementFinalizer = "finalizers.workplacement.kratix.io/repo-cleanup"
+const repoCleanupWorkPlacementFinalizer = "finalizers.workplacement.kratix.io/repo-cleanup"
 
 type repoFilePaths struct {
 	ResourcesBucket, ResourcesName string
@@ -66,16 +65,14 @@ func (r *WorkPlacementReconciler) Reconcile(ctx context.Context, req ctrl.Reques
 	workPlacement := &platformv1alpha1.WorkPlacement{}
 	err := r.Client.Get(context.Background(), req.NamespacedName, workPlacement)
 	if err != nil {
+		if errors.IsNotFound(err) {
+			return ctrl.Result{}, nil
+		}
 		logger.Error(err, "Error getting WorkPlacement: "+req.Name)
 		return ctrl.Result{RequeueAfter: 5 * time.Second}, nil
 	}
 
-	//TODO should we check if the owners exist? what if we have more than 1?
-	if len(workPlacement.GetOwnerReferences()) == 0 {
-		logger.Error(err, "Error getting ownership wtf: "+req.Name)
-	}
-
-	paths, err := r.getRepoFilePaths(workPlacement.Spec.TargetClusterName, workPlacement.GetNamespace(), workPlacement.GetOwnerReferences()[0].Name, logger)
+	paths, err := r.getRepoFilePaths(workPlacement.Spec.TargetClusterName, workPlacement.GetNamespace(), workPlacement.Spec.WorkName, logger)
 	if err != nil {
 		logger.Error(err, "Error getting file paths for the repository")
 		return ctrl.Result{RequeueAfter: 5 * time.Second}, nil
@@ -86,7 +83,7 @@ func (r *WorkPlacementReconciler) Reconcile(ctx context.Context, req ctrl.Reques
 	}
 
 	// Ensure the finalizer is present
-	if !controllerutil.ContainsFinalizer(workPlacement, WorkPlacementFinalizer) {
+	if !controllerutil.ContainsFinalizer(workPlacement, repoCleanupWorkPlacementFinalizer) {
 		return r.addFinalizer(ctx, workPlacement, logger)
 	}
 
@@ -94,28 +91,26 @@ func (r *WorkPlacementReconciler) Reconcile(ctx context.Context, req ctrl.Reques
 	err = r.writeWorkToRepository(work, paths, logger)
 	if err != nil {
 		logger.Error(err, "Error writing to repository, will try again in 5 seconds")
-		return ctrl.Result{RequeueAfter: 5 * time.Second}, nil
+		return ctrl.Result{RequeueAfter: 5 * time.Second}, err
 	}
 
 	return ctrl.Result{}, nil
 }
 
 func (r *WorkPlacementReconciler) deleteWorkPlacement(ctx context.Context, workPlacement *platformv1alpha1.WorkPlacement, bucketPath repoFilePaths, logger logr.Logger) (ctrl.Result, error) {
-	if controllerutil.ContainsFinalizer(workPlacement, WorkPlacementFinalizer) {
-		logger.Info("cleaning up files on repository for " + workPlacement.Name)
-		err := r.removeWorkFromRepository(bucketPath, logger)
-		if err != nil {
-			logger.Error(err, "error removing work from repository, will try again in 5 seconds")
-			return ctrl.Result{RequeueAfter: 5 * time.Second}, nil
-		}
-
-		controllerutil.RemoveFinalizer(workPlacement, WorkPlacementFinalizer)
-		if err := r.Update(ctx, workPlacement); err != nil {
-			return ctrl.Result{}, err
-		}
+	if !controllerutil.ContainsFinalizer(workPlacement, repoCleanupWorkPlacementFinalizer) {
+		return ctrl.Result{}, nil
+	}
+	logger.Info("cleaning up files on repository for " + workPlacement.Name)
+	err := r.removeWorkFromRepository(bucketPath, logger)
+	if err != nil {
+		logger.Error(err, "error removing work from repository, will try again in 5 seconds")
+		return ctrl.Result{RequeueAfter: 5 * time.Second}, nil
 	}
 
-	return ctrl.Result{}, nil
+	controllerutil.RemoveFinalizer(workPlacement, repoCleanupWorkPlacementFinalizer)
+	err = r.Update(ctx, workPlacement)
+	return ctrl.Result{}, err
 }
 
 func (r *WorkPlacementReconciler) writeWorkToRepository(work *platformv1alpha1.Work, paths repoFilePaths, logger logr.Logger) error {
@@ -208,7 +203,7 @@ func (r *WorkPlacementReconciler) getWork(workName string, logger logr.Logger) *
 }
 
 func (r *WorkPlacementReconciler) addFinalizer(ctx context.Context, workPlacement *platformv1alpha1.WorkPlacement, logger logr.Logger) (ctrl.Result, error) {
-	controllerutil.AddFinalizer(workPlacement, WorkPlacementFinalizer)
+	controllerutil.AddFinalizer(workPlacement, repoCleanupWorkPlacementFinalizer)
 	if err := r.Update(ctx, workPlacement); err != nil {
 		logger.Error(err, "failed to add finalizer to WorkPlacement")
 		return ctrl.Result{}, err

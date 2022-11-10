@@ -17,9 +17,10 @@ limitations under the License.
 package controllers_test
 
 import (
-	"context"
 	"path/filepath"
 	"testing"
+
+	"golang.org/x/net/context"
 
 	. "github.com/onsi/ginkgo"
 	. "github.com/onsi/gomega"
@@ -39,11 +40,15 @@ import (
 // These tests use Ginkgo (BDD-style Go testing framework). Refer to
 // http://onsi.github.io/ginkgo/ to learn more about Ginkgo.
 
-var k8sClient client.Client
-var apiextensionClient *clientset.Clientset
-var testEnv *envtest.Environment
-var k8sManager ctrl.Manager
+var (
+	k8sClient          client.Client
+	apiextensionClient *clientset.Clientset
+	testEnv            *envtest.Environment
+	k8sManager         ctrl.Manager
 
+	timeout  = "30s"
+	interval = "3s"
+)
 var _ = BeforeSuite(func() {
 	logf.SetLogger(zap.New(zap.WriteTo(GinkgoWriter), zap.UseDevMode(true)))
 
@@ -75,7 +80,6 @@ var _ = BeforeSuite(func() {
 		Manager:             k8sManager,
 		ApiextensionsClient: apiextensionClient,
 		Client:              k8sManager.GetClient(),
-		Scheme:              k8sManager.GetScheme(),
 		Log:                 ctrl.Log.WithName("controllers").WithName("PromiseReconciler"),
 	}).SetupWithManager(k8sManager)
 	Expect(err).ToNot(HaveOccurred())
@@ -94,17 +98,23 @@ var _ = AfterSuite(func() {
 })
 
 var _ = AfterEach(func() {
+	var promises platformv1alpha1.PromiseList
+	k8sClient.List(context.Background(), &promises)
+	for _, p := range promises.Items {
+		p.Finalizers = nil
+		k8sClient.Update(context.Background(), &p)
+	}
+	Expect(k8sClient.DeleteAllOf(context.Background(), &platformv1alpha1.Promise{}, client.InNamespace("default"))).To(Succeed())
+
+	Expect(k8sClient.DeleteAllOf(context.Background(), &platformv1alpha1.Cluster{}, client.InNamespace("default"))).To(Succeed())
+	Expect(k8sClient.DeleteAllOf(context.Background(), &platformv1alpha1.Work{}, client.InNamespace("default"))).To(Succeed())
+
 	var workPlacements platformv1alpha1.WorkPlacementList
 	k8sClient.List(context.Background(), &workPlacements)
-
 	for _, wp := range workPlacements.Items {
 		wp.Finalizers = nil
 		k8sClient.Update(context.Background(), &wp)
 	}
-
-	Expect(k8sClient.DeleteAllOf(context.Background(), &platformv1alpha1.Cluster{}, client.InNamespace("default"))).To(Succeed())
-	Expect(k8sClient.DeleteAllOf(context.Background(), &platformv1alpha1.Promise{}, client.InNamespace("default"))).To(Succeed())
-	Expect(k8sClient.DeleteAllOf(context.Background(), &platformv1alpha1.Work{}, client.InNamespace("default"))).To(Succeed())
 	Expect(k8sClient.DeleteAllOf(context.Background(), &platformv1alpha1.WorkPlacement{}, client.InNamespace("default"))).To(Succeed())
 })
 

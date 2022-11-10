@@ -327,9 +327,19 @@ rules:
 - apiGroups:
   - ""
   resources:
+  - configmaps
+  verbs:
+  - create
+  - delete
+  - list
+  - watch
+- apiGroups:
+  - ""
+  resources:
   - pods
   verbs:
   - create
+  - delete
   - list
   - watch
 - apiGroups:
@@ -460,6 +470,9 @@ rules:
   - clusterrolebindings
   verbs:
   - create
+  - delete
+  - get
+  - list
 - apiGroups:
   - rbac.authorization.k8s.io
   resources:
@@ -467,7 +480,10 @@ rules:
   verbs:
   - bind
   - create
+  - delete
   - escalate
+  - get
+  - list
 ---
 apiVersion: rbac.authorization.k8s.io/v1
 kind: ClusterRole

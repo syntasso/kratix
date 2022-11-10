@@ -18,10 +18,10 @@ package controllers
 
 import (
 	"context"
+	"k8s.io/apimachinery/pkg/api/errors"
 
 	v1 "k8s.io/api/core/v1"
 	metav1 "k8s.io/apimachinery/pkg/apis/meta/v1"
-	"k8s.io/apimachinery/pkg/runtime"
 	ctrl "sigs.k8s.io/controller-runtime"
 	"sigs.k8s.io/controller-runtime/pkg/client"
 	"sigs.k8s.io/yaml"
@@ -33,7 +33,6 @@ import (
 // ClusterReconciler reconciles a Cluster object
 type ClusterReconciler struct {
 	client.Client
-	Scheme       *runtime.Scheme
 	Log          logr.Logger
 	Scheduler    *Scheduler
 	BucketWriter *BucketWriter
@@ -53,11 +52,14 @@ type ClusterReconciler struct {
 // For more details, check Reconcile and its Result here:
 // - https://pkg.go.dev/sigs.k8s.io/controller-runtime@v0.11.0/pkg/reconcile
 func (r *ClusterReconciler) Reconcile(ctx context.Context, req ctrl.Request) (ctrl.Result, error) {
-	_ = r.Log.WithValues("cluster", req.NamespacedName)
+	logger := r.Log.WithValues("cluster", req.NamespacedName)
 
 	cluster := &platformv1alpha1.Cluster{}
-	r.Log.Info("Registering Cluster: " + req.Name)
-	if err := r.Client.Get(context.Background(), req.NamespacedName, cluster); err != nil {
+	logger.Info("Registering Cluster: " + req.Name)
+	if err := r.Client.Get(ctx, req.NamespacedName, cluster); err != nil {
+		if errors.IsNotFound(err) {
+			return ctrl.Result{}, nil
+		}
 		return ctrl.Result{}, err
 	}
 
@@ -65,7 +67,7 @@ func (r *ClusterReconciler) Reconcile(ctx context.Context, req ctrl.Request) (ct
 	r.createWorkerClusterResourceBucket(bucketPath)
 	r.createWorkerResources(bucketPath)
 
-	err := r.Scheduler.ReconcileCluster(cluster, r.Scheme)
+	err := r.Scheduler.ReconcileCluster()
 	return ctrl.Result{}, err
 }
 
