@@ -115,8 +115,7 @@ workflows:
           requires: [git-clone]
       - e2e-demo-test:
           requires: [git-clone]
-      - release:
-          type: approval
+      - do-release:
           requires:
             - unit-tests
             - int-tests
@@ -124,5 +123,3 @@ workflows:
           filters:
             branches:
               only: dev
-      - do-release:
-          requires: [release]
