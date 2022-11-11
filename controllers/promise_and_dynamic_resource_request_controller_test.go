@@ -78,12 +78,42 @@ var _ = Context("Promise Reconciler", func() {
 			return crd.Spec.Names.Singular + "." + crd.Spec.Group
 		}, timeout, interval).Should(Equal(expectedAPI))
 
-		By("creating a clusterRoleBinding for the controller")
+		controllerResourceNamespacedName := types.NamespacedName{Name: promiseIdentifier + "-promise-controller"}
+		piplineResourceNamespacedName := types.NamespacedName{Name: promiseIdentifier + "-promise-pipeline"}
+
+		By("creating clusterRoleBindings for the controller and pipeline")
 		Eventually(func() error {
 			binding := &rbacv1.ClusterRoleBinding{}
-			err := k8sClient.Get(context.Background(), types.NamespacedName{Name: promiseIdentifier + "-promise-controller-binding"}, binding)
+			err := k8sClient.Get(context.Background(), controllerResourceNamespacedName, binding)
 			return err
-		}, timeout, interval).Should(BeNil(), "Expected ClusterRoleBinding to exist")
+		}, timeout, interval).Should(BeNil(), "Expected controller ClusterRoleBinding to exist")
+
+		Eventually(func() error {
+			binding := &rbacv1.ClusterRoleBinding{}
+			err := k8sClient.Get(context.Background(), piplineResourceNamespacedName, binding)
+			return err
+		}, timeout, interval).Should(BeNil(), "Expected pipeline ClusterRoleBinding to exist")
+
+		By("creating clusterRoles for the controller and pipeline")
+		Eventually(func() error {
+			clusterRole := &rbacv1.ClusterRole{}
+			err := k8sClient.Get(context.Background(), controllerResourceNamespacedName, clusterRole)
+			return err
+		}, timeout, interval).Should(BeNil(), "Expected controller ClusterRole to exist")
+
+		Eventually(func() error {
+			clusterRole := &rbacv1.ClusterRole{}
+			err := k8sClient.Get(context.Background(), piplineResourceNamespacedName, clusterRole)
+			return err
+		}, timeout, interval).Should(BeNil(), "Expected pipeline ClusterRole to exist")
+
+		By("creating a serviceAccount for the pipeline")
+		pipelineServiceAccountNamespacedName := types.NamespacedName{Name: piplineResourceNamespacedName.Name, Namespace: "default"}
+		Eventually(func() error {
+			serviceAccount := &v1.ServiceAccount{}
+			err := k8sClient.Get(context.Background(), pipelineServiceAccountNamespacedName, serviceAccount)
+			return err
+		}, timeout, interval).Should(BeNil(), "Expected pipeline ServiceAccount to exist")
 
 		By("being able to create RRs")
 		yamlFile, err := ioutil.ReadFile("../config/samples/redis/redis-resource-request.yaml")
@@ -162,19 +192,44 @@ var _ = Context("Promise Reconciler", func() {
 			return errors.IsNotFound(err)
 		}, timeout, interval).Should(BeTrue(), "ConfigMap should have been deleted")
 
-		By("also deleting the ClusterRoleBinding for the controller")
+		By("also deleting the ClusterRoleBinding for the controller and pipeline")
 		Eventually(func() bool {
 			binding := &rbacv1.ClusterRoleBinding{}
-
-			err := k8sClient.Get(context.Background(), types.NamespacedName{Name: promiseIdentifier + "-promise-controller-binding"}, binding)
+			err := k8sClient.Get(context.Background(), piplineResourceNamespacedName, binding)
 			return errors.IsNotFound(err)
-		}, timeout, interval).Should(BeTrue(), "Expected ClusterRoleBinding to not be found")
+		}, timeout, interval).Should(BeTrue(), "Expected pipeline ClusterRoleBinding not to be found")
+
+		Eventually(func() bool {
+			binding := &rbacv1.ClusterRoleBinding{}
+			err := k8sClient.Get(context.Background(), controllerResourceNamespacedName, binding)
+			return errors.IsNotFound(err)
+		}, timeout, interval).Should(BeTrue(), "Expected controller ClusterRoleBinding not to be found")
+
+		By("also deleting the ClusterRole for the controller and pipeline")
+		Eventually(func() bool {
+			binding := &rbacv1.ClusterRole{}
+			err := k8sClient.Get(context.Background(), piplineResourceNamespacedName, binding)
+			return errors.IsNotFound(err)
+		}, timeout, interval).Should(BeTrue(), "Expected pipeline ClusterRole not to be found")
+
+		Eventually(func() bool {
+			binding := &rbacv1.ClusterRole{}
+			err := k8sClient.Get(context.Background(), controllerResourceNamespacedName, binding)
+			return errors.IsNotFound(err)
+		}, timeout, interval).Should(BeTrue(), "Expected controller ClusterRole not to be found")
+
+		By("also deleting the serviceAccount for the pipeline")
+		Eventually(func() bool {
+			serviceAccount := &v1.ServiceAccount{}
+			err := k8sClient.Get(context.Background(), pipelineServiceAccountNamespacedName, serviceAccount)
+			return errors.IsNotFound(err)
+		}, timeout, interval).Should(BeTrue(), "Expected pipleine ServiceAccount not to be found")
 
 		By("finally deleting the Promise itself")
 		Eventually(func() bool {
 			err := k8sClient.Get(context.Background(), expectedPromise, &v1alpha1.Promise{})
 			return errors.IsNotFound(err)
-		}, timeout, interval).Should(BeTrue(), "Expected Promise to not be found")
+		}, timeout, interval).Should(BeTrue(), "Expected Promise not to be found")
 	})
 
 	Describe("Lifecycle of a Redis Custom Resource", func() {

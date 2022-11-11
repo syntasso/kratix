@@ -27,6 +27,12 @@ import (
 	"sigs.k8s.io/controller-runtime/pkg/client"
 )
 
+const (
+	interval        = "3s"
+	timeout         = "120s"
+	extendedTimeout = "180s"
+)
+
 /*
 Run these tests using `make int-test` to ensure that the correct resources are applied
 to the k8s cluster under test.
@@ -34,10 +40,6 @@ to the k8s cluster under test.
 var (
 	k8sClient client.Client
 	err       error
-
-	interval        = "3s"
-	timeout         = "120s"
-	extendedTimeout = "180s"
 
 	redis_gvk = schema.GroupVersionKind{
 		Group:   "redis.redis.opstreelabs.in",
@@ -211,7 +213,7 @@ var _ = Describe("kratix Platform Integration Test", func() {
 			It("Update to an existing Redis resource on the Worker does nothing", func() {
 				updateResourceRequest(RedisResourceUpdateRequest)
 
-				timeout = "45s"
+				timeoutOverride := "45s"
 				Consistently(func() int {
 					isPromise, _ := labels.NewRequirement("kratix-promise-id", selection.Equals, []string{redisPromiseID})
 					selector := labels.NewSelector().
@@ -229,7 +231,7 @@ var _ = Describe("kratix Platform Integration Test", func() {
 						return -1
 					}
 					return len(redisPipelines.Items)
-				}, timeout, interval).Should(Equal(1), "unexpected number of pipelines")
+				}, timeoutOverride, interval).Should(Equal(1), "unexpected number of pipelines")
 			})
 
 			It("Should create more than one unique resource from a single promise", func() {
