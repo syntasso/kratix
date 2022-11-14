@@ -9,7 +9,7 @@ cd $ROOT
 git checkout main
 git merge --no-ff --no-edit dev
 
-export VERSION="main"
+export VERSION="$(git rev-list --no-merges -n 1 HEAD)"
 export DOCKER_BUILDKIT=1
 
 make distribution
