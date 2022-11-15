@@ -61,9 +61,15 @@ const (
 	clusterSelectorsConfigMapCleanupFinalizer          = finalizerPrefix + "cluster-selectors-config-map-cleanup"
 	resourceRequestCleanupFinalizer                    = finalizerPrefix + "resource-request-cleanup"
 	dynamicControllerDependantResourcesCleaupFinalizer = finalizerPrefix + "dynamic-controller-dependant-resources-cleanup"
+	crdCleanupFinalizer                                = finalizerPrefix + "crd-cleanup"
 )
 
-var promiseFinalizers = []string{clusterSelectorsConfigMapCleanupFinalizer, resourceRequestCleanupFinalizer, dynamicControllerDependantResourcesCleaupFinalizer}
+var promiseFinalizers = []string{
+	clusterSelectorsConfigMapCleanupFinalizer,
+	resourceRequestCleanupFinalizer,
+	dynamicControllerDependantResourcesCleaupFinalizer,
+	crdCleanupFinalizer,
+}
 
 //+kubebuilder:rbac:groups=platform.kratix.io,resources=promises,verbs=get;list;watch;create;update;patch;delete
 //+kubebuilder:rbac:groups=platform.kratix.io,resources=promises/status,verbs=get;update;patch
@@ -89,6 +95,10 @@ func (r *PromiseReconciler) Reconcile(ctx context.Context, req ctrl.Request) (ct
 		return ctrl.Result{}, nil
 	}
 
+	resourceLabels := map[string]string{
+		"kratix-promise-id": promise.GetIdentifier(),
+	}
+
 	configMapName := "cluster-selectors-" + promise.GetIdentifier()
 	configMapNamespace := "default"
 
@@ -99,15 +109,12 @@ func (r *PromiseReconciler) Reconcile(ctx context.Context, req ctrl.Request) (ct
 		logger.Error(err, "Failed unmarshalling CRD")
 		return ctrl.Result{}, nil
 	}
+	crdToCreate.Labels = labels.Merge(crdToCreate.Labels, resourceLabels)
 
 	crdToCreateGvk := schema.GroupVersionKind{
 		Group:   crdToCreate.Spec.Group,
 		Version: crdToCreate.Spec.Versions[0].Name,
 		Kind:    crdToCreate.Spec.Names.Kind,
-	}
-
-	resourceLabels := map[string]string{
-		"kratix-promise-id": promise.GetIdentifier(),
 	}
 
 	if !promise.DeletionTimestamp.IsZero() {
@@ -346,7 +353,6 @@ func (r *PromiseReconciler) deletePromise(ctx context.Context, promise *v1alpha1
 		return ctrl.Result{RequeueAfter: fastRequeue}, err
 	}
 
-	//delete CR/CRB/SA after deleting the dyanmic controller
 	if controllerutil.ContainsFinalizer(promise, dynamicControllerDependantResourcesCleaupFinalizer) {
 		logger.Info("deleting resources associated with finalizer", "finalizer", dynamicControllerDependantResourcesCleaupFinalizer)
 		err := r.deleteDynamicControllerResources(ctx, promise, resourceLabels, logger)
@@ -356,7 +362,15 @@ func (r *PromiseReconciler) deletePromise(ctx context.Context, promise *v1alpha1
 		return ctrl.Result{RequeueAfter: fastRequeue}, err
 	}
 
-	//delete CRD
+	if controllerutil.ContainsFinalizer(promise, crdCleanupFinalizer) {
+		logger.Info("deleting CRDs associated with finalizer", "finalizer", crdCleanupFinalizer)
+		err := r.deleteCRDs(ctx, promise, resourceLabels, logger)
+		if err != nil {
+			return ctrl.Result{RequeueAfter: defaultRequeue}, err
+		}
+		return ctrl.Result{RequeueAfter: fastRequeue}, err
+	}
+
 	//delete work for workerClusterResources
 
 	return ctrl.Result{RequeueAfter: fastRequeue}, nil
@@ -435,6 +449,7 @@ func getResourceNames(items []unstructured.Unstructured) []string {
 }
 
 func (r *PromiseReconciler) deleteResourceRequests(ctx context.Context, promise *v1alpha1.Promise, rrGVK schema.GroupVersionKind, logger logr.Logger) error {
+	// No need to pass labels since all resource requests are of Kind
 	resourcesRemaining, err := r.deleteAllResourcesWithKindMatchingLabel(ctx, rrGVK, nil, logger)
 	if err != nil {
 		return err
@@ -474,6 +489,30 @@ func (r *PromiseReconciler) deleteConfigMap(ctx context.Context, promise *v1alph
 
 	err = r.Client.Delete(ctx, configMap)
 	if err != nil {
+		return err
+	}
+
+	return nil
+}
+
+func (r *PromiseReconciler) deleteCRDs(ctx context.Context, promise *v1alpha1.Promise, resourceLabels map[string]string, logger logr.Logger) error {
+	crdGVK := schema.GroupVersionKind{
+		Group:   apiextensionsv1.SchemeGroupVersion.Group,
+		Version: apiextensionsv1.SchemeGroupVersion.Version,
+		Kind:    "CustomResourceDefinition",
+	}
+
+	resourcesRemaining, err := r.deleteAllResourcesWithKindMatchingLabel(ctx, crdGVK, resourceLabels, logger)
+	if err != nil {
+		return err
+	}
+
+	if resourcesRemaining {
+		return nil
+	}
+
+	controllerutil.RemoveFinalizer(promise, crdCleanupFinalizer)
+	if err := r.Client.Update(ctx, promise); err != nil {
 		return err
 	}
 

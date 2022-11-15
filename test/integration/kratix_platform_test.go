@@ -13,6 +13,7 @@ import (
 	. "github.com/onsi/gomega"
 	platformv1alpha1 "github.com/syntasso/kratix/api/v1alpha1"
 	v1 "k8s.io/api/core/v1"
+	apiextensionsv1 "k8s.io/apiextensions-apiserver/pkg/apis/apiextensions/v1"
 	"k8s.io/apimachinery/pkg/api/errors"
 	"k8s.io/apimachinery/pkg/runtime/schema"
 	"k8s.io/apimachinery/pkg/types"
@@ -128,7 +129,7 @@ var _ = Describe("kratix Platform Integration Test", func() {
 				applyPromiseCRD(RedisPromise)
 
 				Eventually(func() bool {
-					return isAPIResourcePresent(redis_gvk)
+					return isAPIResourceCreated(redis_gvk)
 				}, timeout, interval).Should(BeTrue())
 			})
 
@@ -300,6 +301,17 @@ var _ = Describe("kratix Platform Integration Test", func() {
 					return len(pods.Items)
 				}, timeout, interval).Should(Equal(0), "expected pipeline pods to have been deleted")
 
+				By("deleting the CRD")
+				Eventually(func() bool {
+					expectedCRDName := types.NamespacedName{
+						Name: "redis.redis.redis.opstreelabs.in",
+					}
+					crd := &apiextensionsv1.CustomResourceDefinition{}
+					err := k8sClient.Get(context.Background(), expectedCRDName, crd)
+					fmt.Printf("\nerr: %v\n crd: %v\n", err, crd)
+					return errors.IsNotFound(err)
+				}, timeout, interval).Should(BeTrue(), "expected CRD %v to have been deleted:", redis_gvk)
+
 				Eventually(func() bool {
 					err := k8sClient.Get(context.Background(), redisPromiseNamespacedName, &platformv1alpha1.Promise{})
 					return errors.IsNotFound(err)
@@ -314,7 +326,7 @@ var _ = Describe("kratix Platform Integration Test", func() {
 				applyPromiseCRD(PostgresCRD)
 
 				Eventually(func() bool {
-					return isAPIResourcePresent(postgres_gvk)
+					return isAPIResourceCreated(postgres_gvk)
 				}, timeout, interval).Should(BeTrue())
 			})
 		})
@@ -373,7 +385,7 @@ var _ = Describe("kratix Platform Integration Test", func() {
 
 				By("creates the a paved-path-demo api resource", func() {
 					Eventually(func() bool {
-						return isAPIResourcePresent(ppd_gvk)
+						return isAPIResourceCreated(ppd_gvk)
 					}, timeout, interval).Should(BeTrue())
 				})
 
@@ -672,7 +684,7 @@ func hasResourceBeenApplied(gvk schema.GroupVersionKind, expectedName types.Name
 	return err == nil
 }
 
-func isAPIResourcePresent(gvk schema.GroupVersionKind) bool {
+func isAPIResourceCreated(gvk schema.GroupVersionKind) bool {
 	_, err := k8sClient.RESTMapper().RESTMapping(gvk.GroupKind(), gvk.Version)
 	return err == nil
 }
@@ -816,6 +828,8 @@ func initK8sClient() {
 	cfg := ctrl.GetConfigOrDie()
 
 	err = platformv1alpha1.AddToScheme(scheme.Scheme)
+	Expect(err).NotTo(HaveOccurred())
+	err = apiextensionsv1.AddToScheme(scheme.Scheme)
 	Expect(err).NotTo(HaveOccurred())
 	k8sClient, err = client.New(cfg, client.Options{Scheme: scheme.Scheme})
 	Expect(err).NotTo(HaveOccurred())
