@@ -260,17 +260,25 @@ var _ = Describe("kratix Platform Integration Test", func() {
 		})
 
 		Describe("Deleting the Promise", func() {
-			workName := types.NamespacedName{
+			wcrWorkName := types.NamespacedName{
+				Name:      redisPromiseID,
+				Namespace: "default",
+			}
+			rrWorkName := types.NamespacedName{
 				Name:      redisDefaultRRName,
 				Namespace: "default",
 			}
 
 			BeforeEach(func() {
-				// ensure resource request files exist in repo
 				Eventually(func(g Gomega) {
-					fileExists, _ := workerHasResource(workName, "opstree-redis", "Redis", DevWorkerCluster2)
-					g.Expect(fileExists).To(BeTrue(), "minio file should exist")
-				}, timeout, interval).Should(Succeed(), "minio files do not exist")
+					wcrFileExists, _ := workerHasResource(wcrWorkName, "a-non-crd-resource", "Namespace", DevWorkerCluster2)
+					g.Expect(wcrFileExists).To(BeTrue(), "workerClusterResource files should exist in minio")
+				}, timeout, interval).Should(Succeed(), "workerClusterResource files do not exist in minio")
+
+				Eventually(func(g Gomega) {
+					rrFileExists, _ := workerHasResource(rrWorkName, "opstree-redis", "Redis", DevWorkerCluster2)
+					g.Expect(rrFileExists).To(BeTrue(), "resourceRequest files should exist in minio")
+				}, timeout, interval).Should(Succeed(), "resourceRequest files do not exist in minio")
 			})
 
 			It("deletes the associated resources", func() {
@@ -279,9 +287,13 @@ var _ = Describe("kratix Platform Integration Test", func() {
 
 				By("deleting the files in the repo")
 				Eventually(func(g Gomega) {
-					fileExists, _ := workerHasResource(workName, "opstree-redis", "Redis", DevWorkerCluster2)
-					g.Expect(fileExists).To(BeFalse(), "minio file should have been deleted")
-				}, timeout, interval).Should(Succeed(), "minio files were not deleted")
+					wcrFileExists, _ := workerHasResource(wcrWorkName, "a-non-crd-resource", "Namespace", DevWorkerCluster2)
+					g.Expect(wcrFileExists).To(BeFalse(), "workerClusterResource files should not exist in minio")
+				}, timeout, interval).Should(Succeed(), "workerClusterResource files still exist in minio")
+				Eventually(func(g Gomega) {
+					rrFileExists, _ := workerHasResource(rrWorkName, "opstree-redis", "Redis", DevWorkerCluster2)
+					g.Expect(rrFileExists).To(BeFalse(), "resourceRequest files should not exist in minio")
+				}, timeout, interval).Should(Succeed(), "resourceRequest files still exist in minio")
 
 				By("deleting the request pipeline pods")
 				Eventually(func() int {
@@ -308,7 +320,6 @@ var _ = Describe("kratix Platform Integration Test", func() {
 					}
 					crd := &apiextensionsv1.CustomResourceDefinition{}
 					err := k8sClient.Get(context.Background(), expectedCRDName, crd)
-					fmt.Printf("\nerr: %v\n crd: %v\n", err, crd)
 					return errors.IsNotFound(err)
 				}, timeout, interval).Should(BeTrue(), "expected CRD %v to have been deleted:", redis_gvk)
 

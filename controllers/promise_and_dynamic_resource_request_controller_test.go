@@ -155,6 +155,7 @@ var _ = Context("Promise Reconciler", func() {
 				"kratix.io/resource-request-cleanup",
 				"kratix.io/dynamic-controller-dependant-resources-cleanup",
 				"kratix.io/crd-cleanup",
+				"kratix.io/worker-cluster-resources-cleanup",
 			),
 			"Promise should have finalizers set")
 
@@ -237,6 +238,12 @@ var _ = Context("Promise Reconciler", func() {
 
 			return errors.IsNotFound(err)
 		}, timeout, interval).Should(BeTrue(), "Expected CRD to not be found")
+
+		By("also deleting the Work")
+		Eventually(func() bool {
+			err := k8sClient.Get(context.Background(), workNamespacedName, &v1alpha1.Work{})
+			return errors.IsNotFound(err)
+		}, timeout, interval).Should(BeTrue(), "Expected Work to not be found")
 
 		By("finally deleting the Promise itself")
 		Eventually(func() bool {
