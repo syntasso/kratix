@@ -259,6 +259,30 @@ var _ = Describe("kratix Platform Integration Test", func() {
 			})
 		})
 
+		Describe("Scheduling to any new Clusters created with labels dev and cache", func() {
+			BeforeEach(func() {
+				By("registering a new dev/cache labelled cluster")
+				registerWorkerCluster("dev-cache-worker-cluster-2", DevCacheWorkerCluster2)
+			})
+
+			It("registers pre-existing dev cache promises", func() {
+				workloadNamespacedName := types.NamespacedName{
+					Name:      redisPromiseID,
+					Namespace: "default",
+				}
+				Eventually(func(g Gomega) {
+					resourceName := "redis.redis.redis.opstreelabs.in"
+					resourceKind := "CustomResourceDefinition"
+
+					devClusterHasCrd, _ := workerHasCRD(workloadNamespacedName, resourceName, resourceKind, DevCacheWorkerCluster2)
+					g.Expect(devClusterHasCrd).To(BeTrue(), "dev-cache-worker-cluster-2 should have the crds")
+
+					devClusterHasResources, _ := workerHasResource(workloadNamespacedName, "a-non-crd-resource", "Namespace", DevCacheWorkerCluster2)
+					g.Expect(devClusterHasResources).To(BeTrue(), "dev-cache-worker-cluster-2 should have the resources")
+				}, timeout, interval).Should(Succeed(), "has the Redis CRD in the expected cluster")
+			})
+		})
+
 		Describe("Deleting the Promise", func() {
 			wcrWorkName := types.NamespacedName{
 				Name:      redisPromiseID,
@@ -556,30 +580,6 @@ var _ = Describe("kratix Platform Integration Test", func() {
 					}
 				})
 			})
-		})
-	})
-
-	When("a new Cluster is created with labels dev and cache", func() {
-		BeforeEach(func() {
-			By("registering a new dev/cache labelled cluster")
-			registerWorkerCluster("dev-cache-worker-cluster-2", DevCacheWorkerCluster2)
-		})
-
-		It("registers pre-existing dev cache promises", func() {
-			workloadNamespacedName := types.NamespacedName{
-				Name:      redisPromiseID,
-				Namespace: "default",
-			}
-			Eventually(func(g Gomega) {
-				resourceName := "redis.redis.redis.opstreelabs.in"
-				resourceKind := "CustomResourceDefinition"
-
-				devClusterHasCrd, _ := workerHasCRD(workloadNamespacedName, resourceName, resourceKind, DevCacheWorkerCluster2)
-				g.Expect(devClusterHasCrd).To(BeTrue(), "dev-cache-worker-cluster-2 should have the crds")
-
-				devClusterHasResources, _ := workerHasResource(workloadNamespacedName, "a-non-crd-resource", "Namespace", DevCacheWorkerCluster2)
-				g.Expect(devClusterHasResources).To(BeTrue(), "dev-cache-worker-cluster-2 should have the resources")
-			}, timeout, interval).Should(Succeed(), "has the Redis CRD in the expected cluster")
 		})
 	})
 })
