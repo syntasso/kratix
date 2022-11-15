@@ -19,7 +19,6 @@ package controllers
 import (
 	"context"
 	"os"
-	"time"
 
 	"k8s.io/apimachinery/pkg/types"
 	"sigs.k8s.io/controller-runtime/pkg/controller/controllerutil"
@@ -110,7 +109,7 @@ func (r *dynamicResourceRequestController) Reconcile(ctx context.Context, req ct
 		},
 		Spec: v1.PodSpec{
 			RestartPolicy:      v1.RestartPolicyOnFailure,
-			ServiceAccountName: r.promiseIdentifier + "-sa",
+			ServiceAccountName: r.promiseIdentifier + "-promise-pipeline",
 			Containers: []v1.Container{
 				{
 					Name: "writer",
@@ -241,15 +240,15 @@ func (r *dynamicResourceRequestController) deleteResources(ctx context.Context, 
 
 	if controllerutil.ContainsFinalizer(resourceRequest, workFinalizer) {
 		err := r.deleteWork(ctx, resourceRequest, resourceRequestIdentifier, workFinalizer, logger)
-		return ctrl.Result{RequeueAfter: 5 * time.Second}, err
+		return ctrl.Result{RequeueAfter: defaultRequeue}, err
 	}
 
 	if controllerutil.ContainsFinalizer(resourceRequest, pipelineFinalizer) {
 		err := r.deletePipeline(ctx, resourceRequest, resourceRequestIdentifier, pipelineFinalizer, logger)
-		return ctrl.Result{RequeueAfter: 5 * time.Second}, err
+		return ctrl.Result{RequeueAfter: defaultRequeue}, err
 	}
 
-	return ctrl.Result{RequeueAfter: 5 * time.Second}, nil
+	return ctrl.Result{RequeueAfter: defaultRequeue}, nil
 }
 
 func (r *dynamicResourceRequestController) deleteWork(ctx context.Context, resourceRequest *unstructured.Unstructured, workName string, finalizer string, logger logr.Logger) error {

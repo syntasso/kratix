@@ -348,6 +348,10 @@ rules:
   - serviceaccounts
   verbs:
   - create
+  - delete
+  - get
+  - list
+  - watch
 - apiGroups:
   - apiextensions.k8s.io
   resources:
@@ -473,6 +477,7 @@ rules:
   - delete
   - get
   - list
+  - watch
 - apiGroups:
   - rbac.authorization.k8s.io
   resources:
@@ -484,6 +489,7 @@ rules:
   - escalate
   - get
   - list
+  - watch
 ---
 apiVersion: rbac.authorization.k8s.io/v1
 kind: ClusterRole
@@ -574,7 +580,7 @@ metadata:
 ---
 apiVersion: v1
 data:
-  WC_IMG: syntasso/kratix-platform-work-creator:c48b0ce0f9abc1d373ab24f8899a30a816214527
+  WC_IMG: syntasso/kratix-platform-work-creator:cf6886c439bca8a3d90d13b04b4d33adc3540105
 kind: ConfigMap
 metadata:
   name: kratix-platform-wc-img-config
@@ -635,7 +641,7 @@ spec:
             configMapKeyRef:
               key: WC_IMG
               name: kratix-platform-wc-img-config
-        image: syntasso/kratix-platform:c48b0ce0f9abc1d373ab24f8899a30a816214527
+        image: syntasso/kratix-platform:cf6886c439bca8a3d90d13b04b4d33adc3540105
         livenessProbe:
           httpGet:
             path: /healthz

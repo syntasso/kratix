@@ -84,19 +84,19 @@ func (p *Promise) GetIdentifier() string {
 	return p.GetName() + "-" + p.GetNamespace()
 }
 
-func (p *Promise) GetControllerClusterRoleBindingName() string {
-	return p.GetIdentifier() + "-promise-controller-binding"
+func (p *Promise) GetControllerResourceName() string {
+	return p.GetIdentifier() + "-promise-controller"
 }
 
-func (p *Promise) GetPipelineClusterRoleBindingName() string {
-	return p.GetIdentifier() + "-promise-pipeline-binding"
+func (p *Promise) GetPipelineResourceName() string {
+	return p.GetIdentifier() + "-promise-pipeline"
 }
 
 func (p *Promise) GetConfigMapName() string {
 	return "cluster-selectors-" + p.GetIdentifier()
 }
 
-func (p *Promise) GetConfigMapNamespace() string {
+func (p *Promise) GetPipelineResourceNamespace() string {
 	return "default"
 }
 

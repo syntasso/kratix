@@ -19,10 +19,9 @@ package controllers
 import (
 	"bytes"
 	"context"
+
 	"github.com/go-logr/logr"
 	"k8s.io/apimachinery/pkg/api/errors"
-	"time"
-
 	"k8s.io/apimachinery/pkg/runtime/serializer/json"
 	"k8s.io/apimachinery/pkg/types"
 	ctrl "sigs.k8s.io/controller-runtime"
@@ -69,13 +68,13 @@ func (r *WorkPlacementReconciler) Reconcile(ctx context.Context, req ctrl.Reques
 			return ctrl.Result{}, nil
 		}
 		logger.Error(err, "Error getting WorkPlacement: "+req.Name)
-		return ctrl.Result{RequeueAfter: 5 * time.Second}, nil
+		return ctrl.Result{RequeueAfter: defaultRequeue}, nil
 	}
 
 	paths, err := r.getRepoFilePaths(workPlacement.Spec.TargetClusterName, workPlacement.GetNamespace(), workPlacement.Spec.WorkName, logger)
 	if err != nil {
 		logger.Error(err, "Error getting file paths for the repository")
-		return ctrl.Result{RequeueAfter: 5 * time.Second}, nil
+		return ctrl.Result{RequeueAfter: defaultRequeue}, nil
 	}
 
 	if !workPlacement.DeletionTimestamp.IsZero() {
@@ -91,7 +90,7 @@ func (r *WorkPlacementReconciler) Reconcile(ctx context.Context, req ctrl.Reques
 	err = r.writeWorkToRepository(work, paths, logger)
 	if err != nil {
 		logger.Error(err, "Error writing to repository, will try again in 5 seconds")
-		return ctrl.Result{RequeueAfter: 5 * time.Second}, err
+		return ctrl.Result{RequeueAfter: defaultRequeue}, err
 	}
 
 	return ctrl.Result{}, nil
@@ -105,7 +104,7 @@ func (r *WorkPlacementReconciler) deleteWorkPlacement(ctx context.Context, workP
 	err := r.removeWorkFromRepository(bucketPath, logger)
 	if err != nil {
 		logger.Error(err, "error removing work from repository, will try again in 5 seconds")
-		return ctrl.Result{RequeueAfter: 5 * time.Second}, nil
+		return ctrl.Result{RequeueAfter: defaultRequeue}, nil
 	}
 
 	controllerutil.RemoveFinalizer(workPlacement, repoCleanupWorkPlacementFinalizer)
