@@ -41,7 +41,10 @@ import (
 )
 
 var _ = Context("Promise Reconciler", func() {
-	var promiseCR *platformv1alpha1.Promise
+	var (
+		promiseCR       *platformv1alpha1.Promise
+		expectedCRDName = "redis.redis.redis.opstreelabs.in"
+	)
 
 	//Should this be in the describe apply a redis promise?
 	// Why the heck is the test failing if we get a cm?????
@@ -55,6 +58,19 @@ var _ = Context("Promise Reconciler", func() {
 
 		//Works once, then fails as the promiseCR already exists. Consider building check here.
 		k8sClient.Create(context.Background(), promiseCR)
+
+		By("creating a CRD for redis.redis.redis")
+		Eventually(func() string {
+			crd, _ := apiextensionClient.
+				ApiextensionsV1().
+				CustomResourceDefinitions().
+				Get(context.Background(), expectedCRDName, metav1.GetOptions{})
+
+			// The returned CRD is missing the expected metadata,
+			// therefore we need to reach inside the spec to get the
+			// underlying Redis crd definition to allow us to assert correctly.
+			return crd.Spec.Names.Singular + "." + crd.Spec.Group
+		}, timeout, interval).Should(Equal(expectedCRDName))
 	})
 
 	It("Controls the lifecycle of a Redis Promise", func() {
@@ -63,20 +79,6 @@ var _ = Context("Promise Reconciler", func() {
 			Namespace: "default",
 			Name:      "redis-promise",
 		}
-
-		By("creating an API for redis.redis.redis")
-		var expectedAPI = "redis.redis.redis.opstreelabs.in"
-		Eventually(func() string {
-			crd, _ := apiextensionClient.
-				ApiextensionsV1().
-				CustomResourceDefinitions().
-				Get(context.Background(), expectedAPI, metav1.GetOptions{})
-
-			// The returned CRD is missing the expected metadata,
-			// therefore we need to reach inside the spec to get the
-			// underlying Redis crd definition to allow us to assert correctly.
-			return crd.Spec.Names.Singular + "." + crd.Spec.Group
-		}, timeout, interval).Should(Equal(expectedAPI))
 
 		controllerResourceNamespacedName := types.NamespacedName{Name: promiseIdentifier + "-promise-controller"}
 		piplineResourceNamespacedName := types.NamespacedName{Name: promiseIdentifier + "-promise-pipeline"}
@@ -152,6 +154,7 @@ var _ = Context("Promise Reconciler", func() {
 				"kratix.io/cluster-selectors-config-map-cleanup",
 				"kratix.io/resource-request-cleanup",
 				"kratix.io/dynamic-controller-dependant-resources-cleanup",
+				"kratix.io/crd-cleanup",
 			),
 			"Promise should have finalizers set")
 
@@ -224,6 +227,16 @@ var _ = Context("Promise Reconciler", func() {
 			err := k8sClient.Get(context.Background(), pipelineServiceAccountNamespacedName, serviceAccount)
 			return errors.IsNotFound(err)
 		}, timeout, interval).Should(BeTrue(), "Expected pipleine ServiceAccount not to be found")
+
+		By("also deleting the CRD")
+		Eventually(func() bool {
+			_, err := apiextensionClient.
+				ApiextensionsV1().
+				CustomResourceDefinitions().
+				Get(context.Background(), expectedCRDName, metav1.GetOptions{})
+
+			return errors.IsNotFound(err)
+		}, timeout, interval).Should(BeTrue(), "Expected CRD to not be found")
 
 		By("finally deleting the Promise itself")
 		Eventually(func() bool {
