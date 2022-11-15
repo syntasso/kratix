@@ -92,6 +92,7 @@ func main() {
 		Client:              mgr.GetClient(),
 		Log:                 ctrl.Log.WithName("controllers").WithName("Promise"),
 		Manager:             mgr,
+		DynamicControllers:  map[string]*bool{},
 	}).SetupWithManager(mgr); err != nil {
 		setupLog.Error(err, "unable to create controller", "controller", "Promise")
 		os.Exit(1)

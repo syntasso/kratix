@@ -54,6 +54,7 @@ type PromiseReconciler struct {
 	ApiextensionsClient *clientset.Clientset
 	Log                 logr.Logger
 	Manager             ctrl.Manager
+	DynamicControllers  map[string]*bool
 }
 
 const (
@@ -308,7 +309,10 @@ func (r *PromiseReconciler) Reconcile(ctx context.Context, req ctrl.Request) (ct
 	unstructuredCRD := &unstructured.Unstructured{}
 	unstructuredCRD.SetGroupVersionKind(crdToCreateGvk)
 
-	//delete dyanmic controller before CRD
+	//temporary fix until https://github.com/kubernetes-sigs/controller-runtime/issues/1884 is resolved
+	//once resolved, delete dynamic controller rather than disable
+	enabled := true
+	r.DynamicControllers[string(promise.GetUID())] = &enabled
 	dynamicResourceRequestController := &dynamicResourceRequestController{
 		client:                 r.Manager.GetClient(),
 		scheme:                 r.Manager.GetScheme(),
@@ -317,6 +321,8 @@ func (r *PromiseReconciler) Reconcile(ctx context.Context, req ctrl.Request) (ct
 		promiseClusterSelector: promise.Spec.ClusterSelector,
 		xaasRequestPipeline:    promise.Spec.XaasRequestPipeline,
 		log:                    r.Log,
+		uid:                    getShortUuid(),
+		enabled:                &enabled,
 	}
 
 	ctrl.NewControllerManagedBy(r.Manager).
@@ -345,7 +351,11 @@ func (r *PromiseReconciler) deletePromise(ctx context.Context, promise *v1alpha1
 		return ctrl.Result{RequeueAfter: fastRequeue}, err
 	}
 
-	//delete dynamic controller
+	//temporary fix until https://github.com/kubernetes-sigs/controller-runtime/issues/1884 is resolved
+	//once resolved, delete dynamic controller rather than disable
+	if enabled, exists := r.DynamicControllers[string(promise.GetUID())]; exists {
+		*enabled = false
+	}
 
 	if controllerutil.ContainsFinalizer(promise, clusterSelectorsConfigMapCleanupFinalizer) {
 		logger.Info("deleting resources associated with finalizer", "finalizer", clusterSelectorsConfigMapCleanupFinalizer)

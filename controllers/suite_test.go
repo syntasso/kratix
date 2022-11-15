@@ -81,6 +81,7 @@ var _ = BeforeSuite(func() {
 		ApiextensionsClient: apiextensionClient,
 		Client:              k8sManager.GetClient(),
 		Log:                 ctrl.Log.WithName("controllers").WithName("PromiseReconciler"),
+		DynamicControllers:  map[string]*bool{},
 	}).SetupWithManager(k8sManager)
 	Expect(err).ToNot(HaveOccurred())
 
