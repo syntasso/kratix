@@ -66,3 +66,7 @@ run() {
 
     return $exit_code
 }
+
+commit_sha() {
+    git rev-list --no-merges -n 1 HEAD
+}
