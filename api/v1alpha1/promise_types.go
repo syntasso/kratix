@@ -80,6 +80,11 @@ type Promise struct {
 	Status PromiseStatus `json:"status,omitempty"`
 }
 
+func (p *Promise) GenerateSharedLabels() map[string]string {
+	return map[string]string{
+		"kratix-promise-id": p.GetIdentifier(),
+	}
+}
 func (p *Promise) GetIdentifier() string {
 	return p.GetName() + "-" + p.GetNamespace()
 }
