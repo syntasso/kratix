@@ -6,15 +6,9 @@ set -eu
 
 cd $ROOT
 
-git checkout main
-git merge --no-ff --no-edit dev
-
-export VERSION="$(git rev-list --no-merges -n 1 HEAD)"
+source "$ROOT/scripts/utils.sh"
+export VERSION="$(commit_sha)"
 export DOCKER_BUILDKIT=1
-
-make distribution
-make test
-make int-test
 
 # Kratix Platform image
 make docker-build-and-push
@@ -35,8 +29,3 @@ docker build --platform linux/amd64 --tag syntasso/postgres-request-pipeline \
 
 docker push syntasso/knative-serving-pipeline
 docker push syntasso/postgres-request-pipeline
-
-git add -f config/
-git add -f distribution/kratix.yaml
-git commit --amend --no-edit
-git push origin main

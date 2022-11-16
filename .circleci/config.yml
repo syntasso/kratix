@@ -77,10 +77,39 @@ jobs:
           command: |
             ./scripts/install-jenkins.sh
 
-  do-release:
+  git-merge:
     executor: machine-large
     steps:
-    - install_software
+      - install_software
+      - run:
+          name: Merge dev to main
+          command: |
+            ./scripts/merge-dev.sh
+      - persist_to_workspace:
+          root: .
+          paths:
+            - .
+
+  build-and-push-docker-images:
+    executor: machine-large
+    steps:
+      - attach_workspace:
+          at: .
+      - run:
+          # https://circleci.com/docs/building-docker-images/#run-docker-commands-using-the-machine-executor
+          name: Docker Auth
+          command: |
+            echo "$DOCKER_PASSWORD" | docker login --username $DOCKER_USERNAME --password-stdin
+      - run:
+          name: Run Release script
+          command: |
+            ./scripts/build-all-images.sh
+
+  git-push:
+    executor: machine-large
+    steps:
+    - attach_workspace:
+        at: .
     - add_ssh_keys:
         # Add github deploy key
         # https://circleci.com/docs/github-integration#create-a-github-deploy-key
@@ -96,14 +125,14 @@ jobs:
           git config --global user.name "syntassodev"
           git config --global user.email "kratix@syntasso.io"
     - run:
-        # https://circleci.com/docs/building-docker-images/#run-docker-commands-using-the-machine-executor
-        name: Docker Auth
+        name: Push main
         command: |
-          echo "$DOCKER_PASSWORD" | docker login --username $DOCKER_USERNAME --password-stdin
-    - run:
-        name: Run Release script
-        command: |
-          ./scripts/release.sh
+          git add -f config/
+          git add -f distribution/kratix.yaml
+          git add -f distribution/single-cluster/
+
+          git commit --amend --no-edit
+          git push origin main
 
 workflows:
   run-tests:
@@ -115,7 +144,7 @@ workflows:
           requires: [git-clone]
       - e2e-demo-test:
           requires: [git-clone]
-      - do-release:
+      - git-merge:
           requires:
             - unit-tests
             - int-tests
@@ -123,3 +152,9 @@ workflows:
           filters:
             branches:
               only: dev
+      - build-and-push-docker-images:
+          requires:
+            - git-merge
+      - git-push:
+          requires:
+            - build-and-push-docker-images
