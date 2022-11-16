@@ -38,14 +38,6 @@ import (
 	"sigs.k8s.io/controller-runtime/pkg/client"
 )
 
-const (
-	defaultRequeue = 5 * time.Second
-	// fastRequeue can be used whenever we want to quickly requeue, and we don't expect
-	// an error to occur. Example: we delete a resource, we then requeue
-	// to check it's been deleted. Here we can use a fastRequeue instead of a defaultRequeue
-	fastRequeue = 1 * time.Second
-)
-
 // PromiseReconciler reconciles a Promise object
 type PromiseReconciler struct {
 	Client              client.Client
@@ -64,13 +56,21 @@ const (
 	workerClusterResourcesCleanupFinalizer             = finalizerPrefix + "worker-cluster-resources-cleanup"
 )
 
-var promiseFinalizers = []string{
-	clusterSelectorsConfigMapCleanupFinalizer,
-	resourceRequestCleanupFinalizer,
-	dynamicControllerDependantResourcesCleaupFinalizer,
-	crdCleanupFinalizer,
-	workerClusterResourcesCleanupFinalizer,
-}
+var (
+	promiseFinalizers = []string{
+		clusterSelectorsConfigMapCleanupFinalizer,
+		resourceRequestCleanupFinalizer,
+		dynamicControllerDependantResourcesCleaupFinalizer,
+		crdCleanupFinalizer,
+		workerClusterResourcesCleanupFinalizer,
+	}
+
+	// fastRequeue can be used whenever we want to quickly requeue, and we don't expect
+	// an error to occur. Example: we delete a resource, we then requeue
+	// to check it's been deleted. Here we can use a fastRequeue instead of a defaultRequeue
+	fastRequeue    = ctrl.Result{RequeueAfter: 1 * time.Second}
+	defaultRequeue = ctrl.Result{RequeueAfter: 5 * time.Second}
+)
 
 //+kubebuilder:rbac:groups=platform.kratix.io,resources=promises,verbs=get;list;watch;create;update;patch;delete
 //+kubebuilder:rbac:groups=platform.kratix.io,resources=promises/status,verbs=get;update;patch
@@ -93,7 +93,7 @@ func (r *PromiseReconciler) Reconcile(ctx context.Context, req ctrl.Request) (ct
 			return ctrl.Result{}, nil
 		}
 		logger.Error(err, "Failed getting Promise")
-		return ctrl.Result{}, nil
+		return defaultRequeue, nil
 	}
 
 	configMapName := "cluster-selectors-" + promise.GetIdentifier()
@@ -138,7 +138,7 @@ func (r *PromiseReconciler) Reconcile(ctx context.Context, req ctrl.Request) (ct
 	// We should only proceed once the new gvk has been created in the API server
 	if r.gvkDoesNotExist(crdToCreateGvk) {
 		logger.Info("Requeue:" + crdToCreate.Name + " is not ready on the API server yet.")
-		return ctrl.Result{RequeueAfter: defaultRequeue}, nil
+		return defaultRequeue, nil
 	}
 
 	workToCreate := &v1alpha1.Work{}
@@ -338,9 +338,9 @@ func (r *PromiseReconciler) deletePromise(ctx context.Context, promise *v1alpha1
 		logger.Info("deleting resources associated with finalizer", "finalizer", resourceRequestCleanupFinalizer)
 		err := r.deleteResourceRequests(ctx, promise, rrGVK, logger)
 		if err != nil {
-			return ctrl.Result{RequeueAfter: defaultRequeue}, err
+			return defaultRequeue, err
 		}
-		return ctrl.Result{RequeueAfter: fastRequeue}, err
+		return fastRequeue, nil
 	}
 
 	//temporary fix until https://github.com/kubernetes-sigs/controller-runtime/issues/1884 is resolved
@@ -353,39 +353,39 @@ func (r *PromiseReconciler) deletePromise(ctx context.Context, promise *v1alpha1
 		logger.Info("deleting resources associated with finalizer", "finalizer", clusterSelectorsConfigMapCleanupFinalizer)
 		err := r.deleteConfigMap(ctx, promise, logger)
 		if err != nil {
-			return ctrl.Result{RequeueAfter: defaultRequeue}, err
+			return defaultRequeue, err
 		}
-		return ctrl.Result{RequeueAfter: fastRequeue}, err
+		return fastRequeue, nil
 	}
 
 	if controllerutil.ContainsFinalizer(promise, dynamicControllerDependantResourcesCleaupFinalizer) {
 		logger.Info("deleting resources associated with finalizer", "finalizer", dynamicControllerDependantResourcesCleaupFinalizer)
 		err := r.deleteDynamicControllerResources(ctx, promise, logger)
 		if err != nil {
-			return ctrl.Result{RequeueAfter: defaultRequeue}, err
+			return defaultRequeue, err
 		}
-		return ctrl.Result{RequeueAfter: fastRequeue}, err
+		return fastRequeue, nil
 	}
 
 	if controllerutil.ContainsFinalizer(promise, crdCleanupFinalizer) {
 		logger.Info("deleting CRDs associated with finalizer", "finalizer", crdCleanupFinalizer)
 		err := r.deleteCRDs(ctx, promise, logger)
 		if err != nil {
-			return ctrl.Result{RequeueAfter: defaultRequeue}, err
+			return defaultRequeue, err
 		}
-		return ctrl.Result{RequeueAfter: fastRequeue}, err
+		return fastRequeue, nil
 	}
 
 	if controllerutil.ContainsFinalizer(promise, workerClusterResourcesCleanupFinalizer) {
 		logger.Info("deleting Work associated with finalizer", "finalizer", workerClusterResourcesCleanupFinalizer)
 		err := r.deleteWork(ctx, promise, logger)
 		if err != nil {
-			return ctrl.Result{RequeueAfter: defaultRequeue}, err
+			return defaultRequeue, err
 		}
-		return ctrl.Result{RequeueAfter: fastRequeue}, err
+		return fastRequeue, nil
 	}
 
-	return ctrl.Result{RequeueAfter: fastRequeue}, nil
+	return fastRequeue, nil
 }
 
 // crb + cr + sa things we create for the pipeline

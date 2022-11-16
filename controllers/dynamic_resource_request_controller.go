@@ -85,7 +85,7 @@ func (r *dynamicResourceRequestController) Reconcile(ctx context.Context, req ct
 			return ctrl.Result{}, nil
 		}
 		logger.Error(err, "Failed getting Promise CRD")
-		return ctrl.Result{}, nil
+		return defaultRequeue, nil
 	}
 
 	if !unstructuredCRD.GetDeletionTimestamp().IsZero() {
@@ -248,15 +248,21 @@ func (r *dynamicResourceRequestController) deleteResources(ctx context.Context, 
 
 	if controllerutil.ContainsFinalizer(resourceRequest, workFinalizer) {
 		err := r.deleteWork(ctx, resourceRequest, resourceRequestIdentifier, workFinalizer, logger)
-		return ctrl.Result{RequeueAfter: defaultRequeue}, err
+		if err != nil {
+			return defaultRequeue, err
+		}
+		return fastRequeue, nil
 	}
 
 	if controllerutil.ContainsFinalizer(resourceRequest, pipelineFinalizer) {
 		err := r.deletePipeline(ctx, resourceRequest, resourceRequestIdentifier, pipelineFinalizer, logger)
-		return ctrl.Result{RequeueAfter: defaultRequeue}, err
+		if err != nil {
+			return defaultRequeue, err
+		}
+		return fastRequeue, nil
 	}
 
-	return ctrl.Result{RequeueAfter: defaultRequeue}, nil
+	return fastRequeue, nil
 }
 
 func (r *dynamicResourceRequestController) deleteWork(ctx context.Context, resourceRequest *unstructured.Unstructured, workName string, finalizer string, logger logr.Logger) error {

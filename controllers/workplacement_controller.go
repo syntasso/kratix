@@ -70,13 +70,13 @@ func (r *WorkPlacementReconciler) Reconcile(ctx context.Context, req ctrl.Reques
 			return ctrl.Result{}, nil
 		}
 		logger.Error(err, "Error getting WorkPlacement: "+req.Name)
-		return ctrl.Result{RequeueAfter: defaultRequeue}, nil
+		return defaultRequeue, nil
 	}
 
 	paths, err := r.getRepoFilePaths(workPlacement.Spec.TargetClusterName, workPlacement.GetNamespace(), workPlacement.Spec.WorkName, logger)
 	if err != nil {
 		logger.Error(err, "Error getting file paths for the repository")
-		return ctrl.Result{RequeueAfter: defaultRequeue}, nil
+		return defaultRequeue, nil
 	}
 
 	if !workPlacement.DeletionTimestamp.IsZero() {
@@ -91,7 +91,7 @@ func (r *WorkPlacementReconciler) Reconcile(ctx context.Context, req ctrl.Reques
 	err = r.writeWorkToRepository(work, paths, logger)
 	if err != nil {
 		logger.Error(err, "Error writing to repository, will try again in 5 seconds")
-		return ctrl.Result{RequeueAfter: defaultRequeue}, err
+		return defaultRequeue, err
 	}
 
 	return ctrl.Result{}, nil
@@ -101,16 +101,20 @@ func (r *WorkPlacementReconciler) deleteWorkPlacement(ctx context.Context, workP
 	if !controllerutil.ContainsFinalizer(workPlacement, repoCleanupWorkPlacementFinalizer) {
 		return ctrl.Result{}, nil
 	}
+
 	logger.Info("cleaning up files on repository for " + workPlacement.Name)
 	err := r.removeWorkFromRepository(bucketPath, logger)
 	if err != nil {
 		logger.Error(err, "error removing work from repository, will try again in 5 seconds")
-		return ctrl.Result{RequeueAfter: defaultRequeue}, nil
+		return defaultRequeue, err
 	}
 
 	controllerutil.RemoveFinalizer(workPlacement, repoCleanupWorkPlacementFinalizer)
 	err = r.Client.Update(ctx, workPlacement)
-	return ctrl.Result{}, err
+	if err != nil {
+		return defaultRequeue, err
+	}
+	return fastRequeue, nil
 }
 
 func (r *WorkPlacementReconciler) writeWorkToRepository(work *platformv1alpha1.Work, paths repoFilePaths, logger logr.Logger) error {
