@@ -393,13 +393,14 @@ var _ = Describe("kratix Platform Integration Test", func() {
 					resourceName := "database"
 					resourceKind := "Database"
 
-					devClusterHasResources, _ := workerHasResource(workloadNamespacedName, resourceName, resourceKind, DevWorkerCluster1)
-					devCacheClusterHasResources, _ := workerHasResource(workloadNamespacedName, resourceName, resourceKind, DevWorkerCluster2)
+					devCluster1HasResources, _ := workerHasResource(workloadNamespacedName, resourceName, resourceKind, DevWorkerCluster1)
+					devCluster2HasResources, _ := workerHasResource(workloadNamespacedName, resourceName, resourceKind, DevWorkerCluster2)
+					devCacheClusterHasResources, _ := workerHasResource(workloadNamespacedName, resourceName, resourceKind, DevCacheWorkerCluster2)
 					prodClusterHasResources, _ := workerHasResource(workloadNamespacedName, resourceName, resourceKind, ProductionWorkerCluster)
 					platformClusterHasResources, _ := workerHasResource(workloadNamespacedName, resourceName, resourceKind, PlatformWorkerCluster1)
 
-					g.Expect([]bool{devClusterHasResources, devCacheClusterHasResources, prodClusterHasResources, platformClusterHasResources}).To(
-						ContainElements(false, false, false, true),
+					g.Expect([]bool{devCluster1HasResources, devCluster2HasResources, devCacheClusterHasResources, prodClusterHasResources, platformClusterHasResources}).To(
+						ContainElements(false, false, false, false, true),
 					)
 
 				}, timeout, interval).Should(Succeed(), "Postgres should only be placed in only one worker")
@@ -438,6 +439,7 @@ var _ = Describe("kratix Platform Integration Test", func() {
 						{cluster: PlatformWorkerCluster1, exists: true},
 						{cluster: DevWorkerCluster1, exists: false},
 						{cluster: DevWorkerCluster2, exists: false},
+						{cluster: DevCacheWorkerCluster2, exists: false},
 						{cluster: ProductionWorkerCluster, exists: false},
 					}
 
@@ -463,11 +465,13 @@ var _ = Describe("kratix Platform Integration Test", func() {
 						prodClusterHasCrd, _ := workerHasCRD(knativeWorkload, resourceName, resourceKind, ProductionWorkerCluster)
 						devClusterHasCrd, _ := workerHasCRD(knativeWorkload, resourceName, resourceKind, DevWorkerCluster1)
 						devCluster2HasCrd, _ := workerHasCRD(knativeWorkload, resourceName, resourceKind, DevWorkerCluster2)
+						devCacheCluster2HasCrd, _ := workerHasCRD(knativeWorkload, resourceName, resourceKind, DevCacheWorkerCluster2)
 
 						g.Expect(platformHasCrd).To(BeFalse(), "platform cluster should not have the crds")
 						g.Expect(prodClusterHasCrd).To(BeFalse(), "prod cluster should not have the crds")
 						g.Expect(devClusterHasCrd).To(BeTrue(), "dev cluster 1 should have the crds")
 						g.Expect(devCluster2HasCrd).To(BeTrue(), "dev cluster 2 should have the crds")
+						g.Expect(devCacheCluster2HasCrd).To(BeTrue(), "dev cache cluster 2 should have the crds")
 					}, timeout, interval).Should(Succeed())
 				})
 
@@ -483,11 +487,14 @@ var _ = Describe("kratix Platform Integration Test", func() {
 						prodClusterHasCrd, _ := workerHasResource(postgresWorkload, resourceName, resourceKind, ProductionWorkerCluster)
 						devClusterHasResource, _ := workerHasResource(postgresWorkload, resourceName, resourceKind, DevWorkerCluster1)
 						devCluster2HasResource, _ := workerHasResource(postgresWorkload, resourceName, resourceKind, DevWorkerCluster2)
+						devCacheCluster2HasResource, _ := workerHasResource(postgresWorkload, resourceName, resourceKind, DevCacheWorkerCluster2)
 
 						g.Expect(platformHasResource).To(BeFalse(), "platform cluster should not have the crds")
 						g.Expect(prodClusterHasCrd).To(BeFalse(), "prod cluster should not have the crds")
 						g.Expect(devClusterHasResource).To(BeTrue(), "dev cluster 1 should have the crds")
 						g.Expect(devCluster2HasResource).To(BeTrue(), "dev cluster 2 should have the crds")
+						g.Expect(devCacheCluster2HasResource).To(BeTrue(), "dev cache cluster 2 should have the crds")
+
 					}, timeout, interval).Should(Succeed())
 				})
 			})
