@@ -571,10 +571,12 @@ var _ = Describe("kratix Platform Integration Test", func() {
 							}
 							devClusterHasResources, _ := workerHasResource(workloadNamespacedName, testCase.metadataName, testCase.kind, DevWorkerCluster1)
 							devCluster2HasResources, _ := workerHasResource(workloadNamespacedName, testCase.metadataName, testCase.kind, DevWorkerCluster2)
+							devCacheClusterHasResources, _ := workerHasResource(workloadNamespacedName, testCase.metadataName, testCase.kind, DevCacheWorkerCluster2)
+
 							platformClusterHasResources, _ := workerHasResource(workloadNamespacedName, testCase.metadataName, testCase.kind, PlatformWorkerCluster1)
 							productionClusterHasResources, _ := workerHasResource(workloadNamespacedName, testCase.metadataName, testCase.kind, ProductionWorkerCluster)
 
-							g.Expect(devClusterHasResources || devCluster2HasResources).To(BeTrue(), "one of the dev cluster should have the resources")
+							g.Expect(devClusterHasResources || devCluster2HasResources || devCacheClusterHasResources).To(BeTrue(), "one of the dev cluster should have the resources")
 							g.Expect(platformClusterHasResources && productionClusterHasResources).To(BeFalse(), "neither prod nor platform cluster should have the resources")
 						}, timeout, interval).Should(Succeed())
 					}
