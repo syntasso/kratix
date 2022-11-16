@@ -29,7 +29,7 @@ import (
 
 // WorkReconciler reconciles a Work object
 type WorkReconciler struct {
-	client.Client
+	Client    client.Client
 	Log       logr.Logger
 	Scheduler *Scheduler
 }
@@ -72,7 +72,7 @@ func (r *WorkReconciler) Reconcile(ctx context.Context, req ctrl.Request) (ctrl.
 	err = r.Client.List(context.Background(), workPlacementList, workPlacementListOptions)
 	if err != nil {
 		logger.Error(err, "Error getting WorkPlacements")
-		return ctrl.Result{Requeue: true}, err
+		return defaultRequeue, err
 	}
 	logger.Info("Found WorkPlacements for WorkName " + fmt.Sprint(len(workPlacementList.Items)))
 
@@ -88,7 +88,7 @@ func (r *WorkReconciler) Reconcile(ctx context.Context, req ctrl.Request) (ctrl.
 	err = r.Scheduler.ReconcileWork(work)
 	if err != nil {
 		logger.Error(err, "Error scheduling Work, will retry...")
-		return ctrl.Result{Requeue: true}, err
+		return defaultRequeue, err
 	}
 	return ctrl.Result{}, nil
 

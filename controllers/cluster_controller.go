@@ -32,7 +32,7 @@ import (
 
 // ClusterReconciler reconciles a Cluster object
 type ClusterReconciler struct {
-	client.Client
+	Client       client.Client
 	Log          logr.Logger
 	Scheduler    *Scheduler
 	BucketWriter *BucketWriter

@@ -38,17 +38,9 @@ import (
 	"sigs.k8s.io/controller-runtime/pkg/client"
 )
 
-const (
-	defaultRequeue = 5 * time.Second
-	// fastRequeue can be used whenever we want to quickly requeue, and we don't expect
-	// an error to occur. Example: we delete a resource, we then requeue
-	// to check it's been deleted. Here we can use a fastRequeue instead of a defaultRequeue
-	fastRequeue = 1 * time.Second
-)
-
 // PromiseReconciler reconciles a Promise object
 type PromiseReconciler struct {
-	client.Client
+	Client              client.Client
 	ApiextensionsClient *clientset.Clientset
 	Log                 logr.Logger
 	Manager             ctrl.Manager
@@ -64,13 +56,21 @@ const (
 	workerClusterResourcesCleanupFinalizer             = finalizerPrefix + "worker-cluster-resources-cleanup"
 )
 
-var promiseFinalizers = []string{
-	clusterSelectorsConfigMapCleanupFinalizer,
-	resourceRequestCleanupFinalizer,
-	dynamicControllerDependantResourcesCleaupFinalizer,
-	crdCleanupFinalizer,
-	workerClusterResourcesCleanupFinalizer,
-}
+var (
+	promiseFinalizers = []string{
+		clusterSelectorsConfigMapCleanupFinalizer,
+		resourceRequestCleanupFinalizer,
+		dynamicControllerDependantResourcesCleaupFinalizer,
+		crdCleanupFinalizer,
+		workerClusterResourcesCleanupFinalizer,
+	}
+
+	// fastRequeue can be used whenever we want to quickly requeue, and we don't expect
+	// an error to occur. Example: we delete a resource, we then requeue
+	// to check it's been deleted. Here we can use a fastRequeue instead of a defaultRequeue
+	fastRequeue    = ctrl.Result{RequeueAfter: 1 * time.Second}
+	defaultRequeue = ctrl.Result{RequeueAfter: 5 * time.Second}
+)
 
 //+kubebuilder:rbac:groups=platform.kratix.io,resources=promises,verbs=get;list;watch;create;update;patch;delete
 //+kubebuilder:rbac:groups=platform.kratix.io,resources=promises/status,verbs=get;update;patch
@@ -93,7 +93,7 @@ func (r *PromiseReconciler) Reconcile(ctx context.Context, req ctrl.Request) (ct
 			return ctrl.Result{}, nil
 		}
 		logger.Error(err, "Failed getting Promise")
-		return ctrl.Result{}, nil
+		return defaultRequeue, nil
 	}
 
 	configMapName := "cluster-selectors-" + promise.GetIdentifier()
@@ -119,10 +119,6 @@ func (r *PromiseReconciler) Reconcile(ctx context.Context, req ctrl.Request) (ct
 	}
 
 	if finalizersAreMissing(promise, promiseFinalizers) {
-		logger.Info("Adding missing finalizers",
-			"expectedFinalizers", promiseFinalizers,
-			"existingFinalizers", promise.GetFinalizers(),
-		)
 		return addFinalizers(ctx, r.Client, promise, promiseFinalizers, logger)
 	}
 
@@ -142,7 +138,7 @@ func (r *PromiseReconciler) Reconcile(ctx context.Context, req ctrl.Request) (ct
 	// We should only proceed once the new gvk has been created in the API server
 	if r.gvkDoesNotExist(crdToCreateGvk) {
 		logger.Info("Requeue:" + crdToCreate.Name + " is not ready on the API server yet.")
-		return ctrl.Result{RequeueAfter: defaultRequeue}, nil
+		return defaultRequeue, nil
 	}
 
 	workToCreate := &v1alpha1.Work{}
@@ -310,14 +306,14 @@ func (r *PromiseReconciler) Reconcile(ctx context.Context, req ctrl.Request) (ct
 	enabled := true
 	r.DynamicControllers[string(promise.GetUID())] = &enabled
 	dynamicResourceRequestController := &dynamicResourceRequestController{
-		client:                 r.Manager.GetClient(),
+		Client:                 r.Manager.GetClient(),
 		scheme:                 r.Manager.GetScheme(),
 		gvk:                    &crdToCreateGvk,
 		promiseIdentifier:      promise.GetIdentifier(),
 		promiseClusterSelector: promise.Spec.ClusterSelector,
 		xaasRequestPipeline:    promise.Spec.XaasRequestPipeline,
 		log:                    r.Log,
-		uid:                    getShortUuid(),
+		uid:                    string(promise.GetUID())[0:5],
 		enabled:                &enabled,
 	}
 
@@ -342,9 +338,9 @@ func (r *PromiseReconciler) deletePromise(ctx context.Context, promise *v1alpha1
 		logger.Info("deleting resources associated with finalizer", "finalizer", resourceRequestCleanupFinalizer)
 		err := r.deleteResourceRequests(ctx, promise, rrGVK, logger)
 		if err != nil {
-			return ctrl.Result{RequeueAfter: defaultRequeue}, err
+			return defaultRequeue, err
 		}
-		return ctrl.Result{RequeueAfter: fastRequeue}, err
+		return fastRequeue, nil
 	}
 
 	//temporary fix until https://github.com/kubernetes-sigs/controller-runtime/issues/1884 is resolved
@@ -357,39 +353,39 @@ func (r *PromiseReconciler) deletePromise(ctx context.Context, promise *v1alpha1
 		logger.Info("deleting resources associated with finalizer", "finalizer", clusterSelectorsConfigMapCleanupFinalizer)
 		err := r.deleteConfigMap(ctx, promise, logger)
 		if err != nil {
-			return ctrl.Result{RequeueAfter: defaultRequeue}, err
+			return defaultRequeue, err
 		}
-		return ctrl.Result{RequeueAfter: fastRequeue}, err
+		return fastRequeue, nil
 	}
 
 	if controllerutil.ContainsFinalizer(promise, dynamicControllerDependantResourcesCleaupFinalizer) {
 		logger.Info("deleting resources associated with finalizer", "finalizer", dynamicControllerDependantResourcesCleaupFinalizer)
 		err := r.deleteDynamicControllerResources(ctx, promise, logger)
 		if err != nil {
-			return ctrl.Result{RequeueAfter: defaultRequeue}, err
+			return defaultRequeue, err
 		}
-		return ctrl.Result{RequeueAfter: fastRequeue}, err
+		return fastRequeue, nil
 	}
 
 	if controllerutil.ContainsFinalizer(promise, crdCleanupFinalizer) {
 		logger.Info("deleting CRDs associated with finalizer", "finalizer", crdCleanupFinalizer)
 		err := r.deleteCRDs(ctx, promise, logger)
 		if err != nil {
-			return ctrl.Result{RequeueAfter: defaultRequeue}, err
+			return defaultRequeue, err
 		}
-		return ctrl.Result{RequeueAfter: fastRequeue}, err
+		return fastRequeue, nil
 	}
 
 	if controllerutil.ContainsFinalizer(promise, workerClusterResourcesCleanupFinalizer) {
 		logger.Info("deleting Work associated with finalizer", "finalizer", workerClusterResourcesCleanupFinalizer)
 		err := r.deleteWork(ctx, promise, logger)
 		if err != nil {
-			return ctrl.Result{RequeueAfter: defaultRequeue}, err
+			return defaultRequeue, err
 		}
-		return ctrl.Result{RequeueAfter: fastRequeue}, err
+		return fastRequeue, nil
 	}
 
-	return ctrl.Result{RequeueAfter: fastRequeue}, nil
+	return fastRequeue, nil
 }
 
 // crb + cr + sa things we create for the pipeline
@@ -427,39 +423,6 @@ func (r *PromiseReconciler) deleteDynamicControllerResources(ctx context.Context
 
 	controllerutil.RemoveFinalizer(promise, dynamicControllerDependantResourcesCleaupFinalizer)
 	return r.Client.Update(ctx, promise)
-}
-
-// pass in nil resourceLabels to delete all resources of the GVK
-func deleteAllResourcesWithKindMatchingLabel(ctx context.Context, kClient client.Client, gvk schema.GroupVersionKind, resourceLabels map[string]string, logger logr.Logger) (bool, error) {
-	resourceList := &unstructured.UnstructuredList{}
-	resourceList.SetGroupVersionKind(gvk)
-	listOptions := client.ListOptions{LabelSelector: labels.SelectorFromSet(resourceLabels)}
-	err := kClient.List(ctx, resourceList, &listOptions)
-	if err != nil {
-		return true, err
-	}
-
-	logger.Info("deleting resources", "kind", resourceList.GetKind(), "withLabels", resourceLabels, "resources", getResourceNames(resourceList.Items))
-
-	for _, resource := range resourceList.Items {
-		err = kClient.Delete(ctx, &resource)
-		if err != nil && !errors.IsNotFound(err) {
-			logger.Error(err, "Error deleting resource, will try again in 5 seconds", "name", resource.GetName(), "kind", resource.GetKind())
-			return true, err
-		}
-		logger.Info("successfully triggered deletion of resource", "name", resource.GetName(), "kind", resource.GetKind())
-	}
-
-	return len(resourceList.Items) != 0, nil
-}
-
-func getResourceNames(items []unstructured.Unstructured) []string {
-	var names []string
-	for _, item := range items {
-		names = append(names, item.GetName())
-	}
-
-	return names
 }
 
 func (r *PromiseReconciler) deleteResourceRequests(ctx context.Context, promise *v1alpha1.Promise, rrGVK schema.GroupVersionKind, logger logr.Logger) error {
@@ -548,37 +511,4 @@ func (r *PromiseReconciler) SetupWithManager(mgr ctrl.Manager) error {
 	return ctrl.NewControllerManagedBy(mgr).
 		For(&v1alpha1.Promise{}).
 		Complete(r)
-}
-
-// finalizers must be less than 64 characters
-func addFinalizers(ctx context.Context, client client.Client, resource client.Object, finalizers []string, logger logr.Logger) (ctrl.Result, error) {
-	logger.Info("Adding missing finalizers",
-		"expectedFinalizers", finalizers,
-		"existingFinalizers", resource.GetFinalizers(),
-	)
-	for _, finalizer := range finalizers {
-		controllerutil.AddFinalizer(resource, finalizer)
-	}
-	if err := client.Update(ctx, resource); err != nil {
-		return ctrl.Result{}, err
-	}
-	return ctrl.Result{RequeueAfter: defaultRequeue}, nil
-}
-
-func finalizersAreMissing(resource client.Object, finalizers []string) bool {
-	for _, finalizer := range finalizers {
-		if !controllerutil.ContainsFinalizer(resource, finalizer) {
-			return true
-		}
-	}
-	return false
-}
-
-func finalizersAreDeleted(resource client.Object, finalizers []string) bool {
-	for _, finalizer := range finalizers {
-		if controllerutil.ContainsFinalizer(resource, finalizer) {
-			return false
-		}
-	}
-	return true
 }

@@ -16,8 +16,8 @@ import (
 )
 
 type Scheduler struct {
-	client.Client
-	Log logr.Logger
+	Client client.Client
+	Log    logr.Logger
 }
 
 func (r *Scheduler) ReconcileCluster() error {
