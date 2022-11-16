@@ -297,36 +297,30 @@ func (r *dynamicResourceRequestController) deleteWork(ctx context.Context, resou
 }
 
 func (r *dynamicResourceRequestController) deletePipeline(ctx context.Context, resourceRequest *unstructured.Unstructured, resourceRequestIdentifier, finalizer string, logger logr.Logger) error {
-	pods := &v1.PodList{}
+	podGVK := schema.GroupVersionKind{
+		Group:   v1.SchemeGroupVersion.Group,
+		Version: v1.SchemeGroupVersion.Version,
+		Kind:    "Pod",
+	}
+
 	podLabels := map[string]string{
 		"kratix-promise-id":                  r.promiseIdentifier,
 		"kratix-promise-resource-request-id": resourceRequestIdentifier,
 	}
-	listOptions := client.ListOptions{LabelSelector: labels.SelectorFromSet(podLabels)}
 
-	err := r.client.List(ctx, pods, &listOptions)
+	resourcesRemaining, err := deleteAllResourcesWithKindMatchingLabel(ctx, r.client, podGVK, podLabels, logger)
 	if err != nil {
 		return err
 	}
 
-	if len(pods.Items) == 0 {
+	if !resourcesRemaining {
 		controllerutil.RemoveFinalizer(resourceRequest, finalizer)
 		if err := r.client.Update(ctx, resourceRequest); err != nil {
-			return err
-		}
-		return nil
-	}
-
-	for _, pod := range pods.Items {
-		err = r.client.Delete(ctx, &pod)
-		if err != nil && !errors.IsNotFound(err) {
-			logger.Error(err, "Error deleting Pod, will try again in 5 seconds", "pod", pod.GetName())
 			return err
 		}
 	}
 
 	return nil
-
 }
 
 func getShortUuid() string {

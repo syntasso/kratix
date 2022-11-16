@@ -21,8 +21,6 @@ import (
 	"encoding/json"
 	"time"
 
-	"k8s.io/apimachinery/pkg/types"
-
 	controllerutil "sigs.k8s.io/controller-runtime/pkg/controller/controllerutil"
 
 	"github.com/go-logr/logr"
@@ -98,10 +96,6 @@ func (r *PromiseReconciler) Reconcile(ctx context.Context, req ctrl.Request) (ct
 		return ctrl.Result{}, nil
 	}
 
-	resourceLabels := map[string]string{
-		"kratix-promise-id": promise.GetIdentifier(),
-	}
-
 	configMapName := "cluster-selectors-" + promise.GetIdentifier()
 	configMapNamespace := "default"
 
@@ -112,7 +106,7 @@ func (r *PromiseReconciler) Reconcile(ctx context.Context, req ctrl.Request) (ct
 		logger.Error(err, "Failed unmarshalling CRD")
 		return ctrl.Result{}, nil
 	}
-	crdToCreate.Labels = labels.Merge(crdToCreate.Labels, resourceLabels)
+	crdToCreate.Labels = labels.Merge(crdToCreate.Labels, promise.GenerateSharedLabels())
 
 	crdToCreateGvk := schema.GroupVersionKind{
 		Group:   crdToCreate.Spec.Group,
@@ -121,7 +115,7 @@ func (r *PromiseReconciler) Reconcile(ctx context.Context, req ctrl.Request) (ct
 	}
 
 	if !promise.DeletionTimestamp.IsZero() {
-		return r.deletePromise(ctx, promise, resourceLabels, crdToCreateGvk, logger)
+		return r.deletePromise(ctx, promise, crdToCreateGvk, logger)
 	}
 
 	if finalizersAreMissing(promise, promiseFinalizers) {
@@ -155,7 +149,7 @@ func (r *PromiseReconciler) Reconcile(ctx context.Context, req ctrl.Request) (ct
 	workToCreate.Spec.Replicas = v1alpha1.WorkerResourceReplicas
 	workToCreate.Name = promise.GetIdentifier()
 	workToCreate.Namespace = "default"
-	workToCreate.Labels = resourceLabels
+	workToCreate.Labels = promise.GenerateSharedLabels()
 	workToCreate.Spec.ClusterSelector = promise.Spec.ClusterSelector
 	for _, u := range promise.Spec.WorkerClusterResources {
 		workToCreate.Spec.Workload.Manifests = append(workToCreate.Spec.Workload.Manifests, v1alpha1.Manifest{Unstructured: u.Unstructured})
@@ -177,7 +171,7 @@ func (r *PromiseReconciler) Reconcile(ctx context.Context, req ctrl.Request) (ct
 	cr := rbacv1.ClusterRole{
 		ObjectMeta: metav1.ObjectMeta{
 			Name:   promise.GetControllerResourceName(),
-			Labels: resourceLabels,
+			Labels: promise.GenerateSharedLabels(),
 		},
 		Rules: []rbacv1.PolicyRule{
 			{
@@ -205,7 +199,7 @@ func (r *PromiseReconciler) Reconcile(ctx context.Context, req ctrl.Request) (ct
 	crb := rbacv1.ClusterRoleBinding{
 		ObjectMeta: metav1.ObjectMeta{
 			Name:   promise.GetControllerResourceName(),
-			Labels: resourceLabels,
+			Labels: promise.GenerateSharedLabels(),
 		},
 		RoleRef: rbacv1.RoleRef{
 			Kind:     "ClusterRole",
@@ -230,7 +224,7 @@ func (r *PromiseReconciler) Reconcile(ctx context.Context, req ctrl.Request) (ct
 	cr = rbacv1.ClusterRole{
 		ObjectMeta: metav1.ObjectMeta{
 			Name:   promise.GetPipelineResourceName(),
-			Labels: resourceLabels,
+			Labels: promise.GenerateSharedLabels(),
 		},
 		Rules: []rbacv1.PolicyRule{
 			{
@@ -255,13 +249,14 @@ func (r *PromiseReconciler) Reconcile(ctx context.Context, req ctrl.Request) (ct
 		ObjectMeta: metav1.ObjectMeta{
 			Name:      promise.GetPipelineResourceName(),
 			Namespace: "default",
+			Labels:    promise.GenerateSharedLabels(),
 		},
 	}
 
 	crb = rbacv1.ClusterRoleBinding{
 		ObjectMeta: metav1.ObjectMeta{
 			Name:   promise.GetPipelineResourceName(),
-			Labels: resourceLabels,
+			Labels: promise.GenerateSharedLabels(),
 		},
 		RoleRef: rbacv1.RoleRef{
 			Kind:     "ClusterRole",
@@ -292,6 +287,7 @@ func (r *PromiseReconciler) Reconcile(ctx context.Context, req ctrl.Request) (ct
 		ObjectMeta: metav1.ObjectMeta{
 			Name:      configMapName,
 			Namespace: configMapNamespace,
+			Labels:    promise.GenerateSharedLabels(),
 		},
 		Data: map[string]string{
 			"selectors": labels.FormatLabels(promise.Spec.ClusterSelector),
@@ -337,7 +333,7 @@ func (r *PromiseReconciler) gvkDoesNotExist(gvk schema.GroupVersionKind) bool {
 	return err != nil
 }
 
-func (r *PromiseReconciler) deletePromise(ctx context.Context, promise *v1alpha1.Promise, resourceLabels map[string]string, rrGVK schema.GroupVersionKind, logger logr.Logger) (ctrl.Result, error) {
+func (r *PromiseReconciler) deletePromise(ctx context.Context, promise *v1alpha1.Promise, rrGVK schema.GroupVersionKind, logger logr.Logger) (ctrl.Result, error) {
 	if finalizersAreDeleted(promise, promiseFinalizers) {
 		return ctrl.Result{}, nil
 	}
@@ -368,7 +364,7 @@ func (r *PromiseReconciler) deletePromise(ctx context.Context, promise *v1alpha1
 
 	if controllerutil.ContainsFinalizer(promise, dynamicControllerDependantResourcesCleaupFinalizer) {
 		logger.Info("deleting resources associated with finalizer", "finalizer", dynamicControllerDependantResourcesCleaupFinalizer)
-		err := r.deleteDynamicControllerResources(ctx, promise, resourceLabels, logger)
+		err := r.deleteDynamicControllerResources(ctx, promise, logger)
 		if err != nil {
 			return ctrl.Result{RequeueAfter: defaultRequeue}, err
 		}
@@ -377,7 +373,7 @@ func (r *PromiseReconciler) deletePromise(ctx context.Context, promise *v1alpha1
 
 	if controllerutil.ContainsFinalizer(promise, crdCleanupFinalizer) {
 		logger.Info("deleting CRDs associated with finalizer", "finalizer", crdCleanupFinalizer)
-		err := r.deleteCRDs(ctx, promise, resourceLabels, logger)
+		err := r.deleteCRDs(ctx, promise, logger)
 		if err != nil {
 			return ctrl.Result{RequeueAfter: defaultRequeue}, err
 		}
@@ -386,7 +382,7 @@ func (r *PromiseReconciler) deletePromise(ctx context.Context, promise *v1alpha1
 
 	if controllerutil.ContainsFinalizer(promise, workerClusterResourcesCleanupFinalizer) {
 		logger.Info("deleting Work associated with finalizer", "finalizer", workerClusterResourcesCleanupFinalizer)
-		err := r.deleteWork(ctx, promise, resourceLabels, logger)
+		err := r.deleteWork(ctx, promise, logger)
 		if err != nil {
 			return ctrl.Result{RequeueAfter: defaultRequeue}, err
 		}
@@ -398,14 +394,28 @@ func (r *PromiseReconciler) deletePromise(ctx context.Context, promise *v1alpha1
 
 // crb + cr + sa things we create for the pipeline
 // crb + cr attach to our existing service account
-func (r *PromiseReconciler) deleteDynamicControllerResources(ctx context.Context, promise *v1alpha1.Promise, resourceLabels map[string]string, logger logr.Logger) error {
-	for _, kind := range []string{"ClusterRoleBinding", "ClusterRole"} {
-		crbGVK := schema.GroupVersionKind{
-			Group:   rbacv1.SchemeGroupVersion.Group,
-			Version: rbacv1.SchemeGroupVersion.Version,
-			Kind:    kind,
-		}
-		resourcesRemaining, err := r.deleteAllResourcesWithKindMatchingLabel(ctx, crbGVK, resourceLabels, logger)
+func (r *PromiseReconciler) deleteDynamicControllerResources(ctx context.Context, promise *v1alpha1.Promise, logger logr.Logger) error {
+	var resourcesToDelete []schema.GroupVersionKind
+	resourcesToDelete = append(resourcesToDelete, schema.GroupVersionKind{
+		Group:   rbacv1.SchemeGroupVersion.Group,
+		Version: rbacv1.SchemeGroupVersion.Version,
+		Kind:    "ClusterRoleBinding",
+	})
+
+	resourcesToDelete = append(resourcesToDelete, schema.GroupVersionKind{
+		Group:   rbacv1.SchemeGroupVersion.Group,
+		Version: rbacv1.SchemeGroupVersion.Version,
+		Kind:    "ClusterRole",
+	})
+
+	resourcesToDelete = append(resourcesToDelete, schema.GroupVersionKind{
+		Group:   v1.SchemeGroupVersion.Group,
+		Version: v1.SchemeGroupVersion.Version,
+		Kind:    "ServiceAccount",
+	})
+
+	for _, gvk := range resourcesToDelete {
+		resourcesRemaining, err := deleteAllResourcesWithKindMatchingLabel(ctx, r.Client, gvk, promise.GenerateSharedLabels(), logger)
 		if err != nil {
 			return err
 		}
@@ -415,40 +425,24 @@ func (r *PromiseReconciler) deleteDynamicControllerResources(ctx context.Context
 		}
 	}
 
-	serviceAccount := &v1.ServiceAccount{}
-	err := r.Client.Get(ctx, types.NamespacedName{
-		Namespace: promise.GetPipelineResourceNamespace(),
-		Name:      promise.GetPipelineResourceName(),
-	}, serviceAccount)
-
-	if err != nil {
-		if errors.IsNotFound(err) {
-			controllerutil.RemoveFinalizer(promise, dynamicControllerDependantResourcesCleaupFinalizer)
-			if err := r.Client.Update(ctx, promise); err != nil {
-				return err
-			}
-			return nil
-		}
-		logger.Error(err, "Error locating service account, will try again in 5 seconds", "serviceAccount", promise.GetPipelineResourceName())
-		return err
-	}
-
-	return r.Client.Delete(ctx, serviceAccount)
+	controllerutil.RemoveFinalizer(promise, dynamicControllerDependantResourcesCleaupFinalizer)
+	return r.Client.Update(ctx, promise)
 }
 
-func (r *PromiseReconciler) deleteAllResourcesWithKindMatchingLabel(ctx context.Context, gvk schema.GroupVersionKind, resourceLabels map[string]string, logger logr.Logger) (bool, error) {
+// pass in nil resourceLabels to delete all resources of the GVK
+func deleteAllResourcesWithKindMatchingLabel(ctx context.Context, kClient client.Client, gvk schema.GroupVersionKind, resourceLabels map[string]string, logger logr.Logger) (bool, error) {
 	resourceList := &unstructured.UnstructuredList{}
 	resourceList.SetGroupVersionKind(gvk)
 	listOptions := client.ListOptions{LabelSelector: labels.SelectorFromSet(resourceLabels)}
-	err := r.Client.List(ctx, resourceList, &listOptions)
+	err := kClient.List(ctx, resourceList, &listOptions)
 	if err != nil {
 		return true, err
 	}
 
-	logger.Info("deleting resources", "kind", resourceList.GetKind(), "resources", getResourceNames(resourceList.Items))
+	logger.Info("deleting resources", "kind", resourceList.GetKind(), "withLabels", resourceLabels, "resources", getResourceNames(resourceList.Items))
 
 	for _, resource := range resourceList.Items {
-		err = r.Client.Delete(ctx, &resource)
+		err = kClient.Delete(ctx, &resource)
 		if err != nil && !errors.IsNotFound(err) {
 			logger.Error(err, "Error deleting resource, will try again in 5 seconds", "name", resource.GetName(), "kind", resource.GetKind())
 			return true, err
@@ -470,94 +464,80 @@ func getResourceNames(items []unstructured.Unstructured) []string {
 
 func (r *PromiseReconciler) deleteResourceRequests(ctx context.Context, promise *v1alpha1.Promise, rrGVK schema.GroupVersionKind, logger logr.Logger) error {
 	// No need to pass labels since all resource requests are of Kind
-	resourcesRemaining, err := r.deleteAllResourcesWithKindMatchingLabel(ctx, rrGVK, nil, logger)
+	resourcesRemaining, err := deleteAllResourcesWithKindMatchingLabel(ctx, r.Client, rrGVK, nil, logger)
 	if err != nil {
 		return err
 	}
 
-	if resourcesRemaining {
-		return nil
-	}
-
-	controllerutil.RemoveFinalizer(promise, resourceRequestCleanupFinalizer)
-	if err := r.Client.Update(ctx, promise); err != nil {
-		return err
+	if !resourcesRemaining {
+		controllerutil.RemoveFinalizer(promise, resourceRequestCleanupFinalizer)
+		if err := r.Client.Update(ctx, promise); err != nil {
+			return err
+		}
 	}
 
 	return nil
 }
 
 func (r *PromiseReconciler) deleteConfigMap(ctx context.Context, promise *v1alpha1.Promise, logger logr.Logger) error {
-	configMap := &v1.ConfigMap{}
-	err := r.Client.Get(ctx, types.NamespacedName{
-		Namespace: promise.GetPipelineResourceNamespace(),
-		Name:      promise.GetConfigMapName(),
-	}, configMap)
-	if err != nil {
-		if errors.IsNotFound(err) {
-			// only remove finalizer at this point because deletion success is guaranteed
-			controllerutil.RemoveFinalizer(promise, clusterSelectorsConfigMapCleanupFinalizer)
-			if err := r.Client.Update(ctx, promise); err != nil {
-				return err
-			}
-			return nil
-		}
+	gvk := schema.GroupVersionKind{
+		Group:   v1.SchemeGroupVersion.Group,
+		Version: v1.SchemeGroupVersion.Version,
+		Kind:    "ConfigMap",
+	}
 
-		logger.Error(err, "Error locating config map, will try again in 5 seconds", "configMap", promise.GetConfigMapName())
+	resourcesRemaining, err := deleteAllResourcesWithKindMatchingLabel(ctx, r.Client, gvk, promise.GenerateSharedLabels(), logger)
+	if err != nil {
 		return err
 	}
 
-	err = r.Client.Delete(ctx, configMap)
-	if err != nil {
-		return err
+	if !resourcesRemaining {
+		controllerutil.RemoveFinalizer(promise, clusterSelectorsConfigMapCleanupFinalizer)
+		return r.Client.Update(ctx, promise)
 	}
 
 	return nil
 }
 
-func (r *PromiseReconciler) deleteCRDs(ctx context.Context, promise *v1alpha1.Promise, resourceLabels map[string]string, logger logr.Logger) error {
+func (r *PromiseReconciler) deleteCRDs(ctx context.Context, promise *v1alpha1.Promise, logger logr.Logger) error {
 	crdGVK := schema.GroupVersionKind{
 		Group:   apiextensionsv1.SchemeGroupVersion.Group,
 		Version: apiextensionsv1.SchemeGroupVersion.Version,
 		Kind:    "CustomResourceDefinition",
 	}
 
-	resourcesRemaining, err := r.deleteAllResourcesWithKindMatchingLabel(ctx, crdGVK, resourceLabels, logger)
+	resourcesRemaining, err := deleteAllResourcesWithKindMatchingLabel(ctx, r.Client, crdGVK, promise.GenerateSharedLabels(), logger)
 	if err != nil {
 		return err
 	}
 
-	if resourcesRemaining {
-		return nil
-	}
-
-	controllerutil.RemoveFinalizer(promise, crdCleanupFinalizer)
-	if err := r.Client.Update(ctx, promise); err != nil {
-		return err
+	if !resourcesRemaining {
+		controllerutil.RemoveFinalizer(promise, crdCleanupFinalizer)
+		if err := r.Client.Update(ctx, promise); err != nil {
+			return err
+		}
 	}
 
 	return nil
 }
 
-func (r *PromiseReconciler) deleteWork(ctx context.Context, promise *v1alpha1.Promise, resourceLabels map[string]string, logger logr.Logger) error {
+func (r *PromiseReconciler) deleteWork(ctx context.Context, promise *v1alpha1.Promise, logger logr.Logger) error {
 	workGVK := schema.GroupVersionKind{
 		Group:   v1alpha1.GroupVersion.Group,
 		Version: v1alpha1.GroupVersion.Version,
 		Kind:    "Work",
 	}
 
-	resourcesRemaining, err := r.deleteAllResourcesWithKindMatchingLabel(ctx, workGVK, resourceLabels, logger)
+	resourcesRemaining, err := deleteAllResourcesWithKindMatchingLabel(ctx, r.Client, workGVK, promise.GenerateSharedLabels(), logger)
 	if err != nil {
 		return err
 	}
 
-	if resourcesRemaining {
-		return nil
-	}
-
-	controllerutil.RemoveFinalizer(promise, workerClusterResourcesCleanupFinalizer)
-	if err := r.Client.Update(ctx, promise); err != nil {
-		return err
+	if !resourcesRemaining {
+		controllerutil.RemoveFinalizer(promise, workerClusterResourcesCleanupFinalizer)
+		if err := r.Client.Update(ctx, promise); err != nil {
+			return err
+		}
 	}
 
 	return nil
