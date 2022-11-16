@@ -48,7 +48,7 @@ const (
 
 // PromiseReconciler reconciles a Promise object
 type PromiseReconciler struct {
-	client.Client
+	Client              client.Client
 	ApiextensionsClient *clientset.Clientset
 	Log                 logr.Logger
 	Manager             ctrl.Manager
@@ -310,7 +310,7 @@ func (r *PromiseReconciler) Reconcile(ctx context.Context, req ctrl.Request) (ct
 	enabled := true
 	r.DynamicControllers[string(promise.GetUID())] = &enabled
 	dynamicResourceRequestController := &dynamicResourceRequestController{
-		client:                 r.Manager.GetClient(),
+		Client:                 r.Manager.GetClient(),
 		scheme:                 r.Manager.GetScheme(),
 		gvk:                    &crdToCreateGvk,
 		promiseIdentifier:      promise.GetIdentifier(),

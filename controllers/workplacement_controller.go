@@ -33,7 +33,7 @@ import (
 
 // WorkPlacementReconciler reconciles a WorkPlacement object
 type WorkPlacementReconciler struct {
-	client.Client
+	Client       client.Client
 	Log          logr.Logger
 	BucketWriter *BucketWriter
 }
@@ -108,7 +108,7 @@ func (r *WorkPlacementReconciler) deleteWorkPlacement(ctx context.Context, workP
 	}
 
 	controllerutil.RemoveFinalizer(workPlacement, repoCleanupWorkPlacementFinalizer)
-	err = r.Update(ctx, workPlacement)
+	err = r.Client.Update(ctx, workPlacement)
 	return ctrl.Result{}, err
 }
 
@@ -203,7 +203,7 @@ func (r *WorkPlacementReconciler) getWork(workName string, logger logr.Logger) *
 
 func (r *WorkPlacementReconciler) addFinalizer(ctx context.Context, workPlacement *platformv1alpha1.WorkPlacement, logger logr.Logger) (ctrl.Result, error) {
 	controllerutil.AddFinalizer(workPlacement, repoCleanupWorkPlacementFinalizer)
-	if err := r.Update(ctx, workPlacement); err != nil {
+	if err := r.Client.Update(ctx, workPlacement); err != nil {
 		logger.Error(err, "failed to add finalizer to WorkPlacement")
 		return ctrl.Result{}, err
 	}

@@ -29,7 +29,7 @@ import (
 
 // WorkReconciler reconciles a Work object
 type WorkReconciler struct {
-	client.Client
+	Client    client.Client
 	Log       logr.Logger
 	Scheduler *Scheduler
 }

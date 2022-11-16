@@ -50,7 +50,8 @@ const (
 var rrFinalizers = []string{workFinalizer, pipelineFinalizer}
 
 type dynamicResourceRequestController struct {
-	client                 client.Client
+	//use same naming conventions as other controllers
+	Client                 client.Client
 	gvk                    *schema.GroupVersionKind
 	scheme                 *runtime.Scheme
 	promiseIdentifier      string
@@ -78,7 +79,7 @@ func (r *dynamicResourceRequestController) Reconcile(ctx context.Context, req ct
 	unstructuredCRD := &unstructured.Unstructured{}
 	unstructuredCRD.SetGroupVersionKind(*r.gvk)
 
-	err := r.client.Get(ctx, req.NamespacedName, unstructuredCRD)
+	err := r.Client.Get(ctx, req.NamespacedName, unstructuredCRD)
 	if err != nil {
 		if errors.IsNotFound(err) {
 			return ctrl.Result{}, nil
@@ -93,7 +94,7 @@ func (r *dynamicResourceRequestController) Reconcile(ctx context.Context, req ct
 
 	// Reconcile necessary finalizers
 	if finalizersAreMissing(unstructuredCRD, []string{workFinalizer, pipelineFinalizer}) {
-		return addFinalizers(ctx, r.client, unstructuredCRD, []string{workFinalizer, pipelineFinalizer}, logger)
+		return addFinalizers(ctx, r.Client, unstructuredCRD, []string{workFinalizer, pipelineFinalizer}, logger)
 	}
 
 	if r.pipelineHasExecuted(resourceRequestIdentifier) {
@@ -211,7 +212,7 @@ func (r *dynamicResourceRequestController) Reconcile(ctx context.Context, req ct
 	}
 
 	logger.Info("Creating Pipeline for Promise resource request: " + resourceRequestIdentifier + ". The pipeline will now execute...")
-	err = r.client.Create(ctx, &pod)
+	err = r.Client.Create(ctx, &pod)
 	if err != nil {
 		logger.Error(err, "Error creating Pod")
 		y, _ := yaml.Marshal(&pod)
@@ -232,7 +233,7 @@ func (r *dynamicResourceRequestController) pipelineHasExecuted(resourceRequestId
 	}
 
 	ol := &v1.PodList{}
-	err := r.client.List(context.Background(), ol, listOps)
+	err := r.Client.List(context.Background(), ol, listOps)
 	if err != nil {
 		fmt.Println(err.Error())
 		return false
@@ -260,7 +261,7 @@ func (r *dynamicResourceRequestController) deleteResources(ctx context.Context, 
 
 func (r *dynamicResourceRequestController) deleteWork(ctx context.Context, resourceRequest *unstructured.Unstructured, workName string, finalizer string, logger logr.Logger) error {
 	work := &v1alpha1.Work{}
-	err := r.client.Get(ctx, types.NamespacedName{
+	err := r.Client.Get(ctx, types.NamespacedName{
 		Namespace: "default",
 		Name:      workName,
 	}, work)
@@ -268,7 +269,7 @@ func (r *dynamicResourceRequestController) deleteWork(ctx context.Context, resou
 		if errors.IsNotFound(err) {
 			// only remove finalizer at this point because deletion success is guaranteed
 			controllerutil.RemoveFinalizer(resourceRequest, finalizer)
-			if err := r.client.Update(ctx, resourceRequest); err != nil {
+			if err := r.Client.Update(ctx, resourceRequest); err != nil {
 				return err
 			}
 			return nil
@@ -278,12 +279,12 @@ func (r *dynamicResourceRequestController) deleteWork(ctx context.Context, resou
 		return err
 	}
 
-	err = r.client.Delete(ctx, work)
+	err = r.Client.Delete(ctx, work)
 	if err != nil {
 		if errors.IsNotFound(err) {
 			// only remove finalizer at this point because deletion success is guaranteed
 			controllerutil.RemoveFinalizer(resourceRequest, finalizer)
-			if err := r.client.Update(ctx, resourceRequest); err != nil {
+			if err := r.Client.Update(ctx, resourceRequest); err != nil {
 				return err
 			}
 			return nil
@@ -308,14 +309,14 @@ func (r *dynamicResourceRequestController) deletePipeline(ctx context.Context, r
 		"kratix-promise-resource-request-id": resourceRequestIdentifier,
 	}
 
-	resourcesRemaining, err := deleteAllResourcesWithKindMatchingLabel(ctx, r.client, podGVK, podLabels, logger)
+	resourcesRemaining, err := deleteAllResourcesWithKindMatchingLabel(ctx, r.Client, podGVK, podLabels, logger)
 	if err != nil {
 		return err
 	}
 
 	if !resourcesRemaining {
 		controllerutil.RemoveFinalizer(resourceRequest, finalizer)
-		if err := r.client.Update(ctx, resourceRequest); err != nil {
+		if err := r.Client.Update(ctx, resourceRequest); err != nil {
 			return err
 		}
 	}
