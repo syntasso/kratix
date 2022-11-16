@@ -22,6 +22,7 @@ import (
 
 	"github.com/go-logr/logr"
 	platformv1alpha1 "github.com/syntasso/kratix/api/v1alpha1"
+	"k8s.io/apimachinery/pkg/api/errors"
 	ctrl "sigs.k8s.io/controller-runtime"
 	"sigs.k8s.io/controller-runtime/pkg/client"
 )
@@ -55,6 +56,9 @@ func (r *WorkReconciler) Reconcile(ctx context.Context, req ctrl.Request) (ctrl.
 	work := &platformv1alpha1.Work{}
 	err := r.Client.Get(context.Background(), req.NamespacedName, work)
 	if err != nil {
+		if errors.IsNotFound(err) {
+			return ctrl.Result{}, nil
+		}
 		logger.Error(err, "Error getting Work")
 		return ctrl.Result{Requeue: false}, err
 	}

@@ -58,14 +58,21 @@ type dynamicResourceRequestController struct {
 	xaasRequestPipeline    []string
 	log                    logr.Logger
 	finalizers             []string
+	uid                    string
+	enabled                *bool
 }
 
 //+kubebuilder:rbac:groups="",resources=pods,verbs=create;list;watch;delete
 //+kubebuilder:rbac:groups="",resources=serviceaccounts,verbs=create
 
 func (r *dynamicResourceRequestController) Reconcile(ctx context.Context, req ctrl.Request) (ctrl.Result, error) {
-	logger := r.log.WithValues(r.promiseIdentifier, req.NamespacedName)
+	if !*r.enabled {
+		//temporary fix until https://github.com/kubernetes-sigs/controller-runtime/issues/1884 is resolved
+		//once resolved, this won't be necessary since the dynamic controller will be deleted
+		return ctrl.Result{}, nil
+	}
 
+	logger := r.log.WithValues("uid", r.uid, r.promiseIdentifier, req.NamespacedName)
 	resourceRequestIdentifier := fmt.Sprintf("%s-%s-%s", r.promiseIdentifier, req.Namespace, req.Name)
 
 	unstructuredCRD := &unstructured.Unstructured{}

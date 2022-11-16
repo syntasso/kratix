@@ -54,6 +54,7 @@ type PromiseReconciler struct {
 	ApiextensionsClient *clientset.Clientset
 	Log                 logr.Logger
 	Manager             ctrl.Manager
+	DynamicControllers  map[string]*bool
 }
 
 const (
@@ -62,6 +63,7 @@ const (
 	resourceRequestCleanupFinalizer                    = finalizerPrefix + "resource-request-cleanup"
 	dynamicControllerDependantResourcesCleaupFinalizer = finalizerPrefix + "dynamic-controller-dependant-resources-cleanup"
 	crdCleanupFinalizer                                = finalizerPrefix + "crd-cleanup"
+	workerClusterResourcesCleanupFinalizer             = finalizerPrefix + "worker-cluster-resources-cleanup"
 )
 
 var promiseFinalizers = []string{
@@ -69,6 +71,7 @@ var promiseFinalizers = []string{
 	resourceRequestCleanupFinalizer,
 	dynamicControllerDependantResourcesCleaupFinalizer,
 	crdCleanupFinalizer,
+	workerClusterResourcesCleanupFinalizer,
 }
 
 //+kubebuilder:rbac:groups=platform.kratix.io,resources=promises,verbs=get;list;watch;create;update;patch;delete
@@ -152,6 +155,7 @@ func (r *PromiseReconciler) Reconcile(ctx context.Context, req ctrl.Request) (ct
 	workToCreate.Spec.Replicas = v1alpha1.WorkerResourceReplicas
 	workToCreate.Name = promise.GetIdentifier()
 	workToCreate.Namespace = "default"
+	workToCreate.Labels = resourceLabels
 	workToCreate.Spec.ClusterSelector = promise.Spec.ClusterSelector
 	for _, u := range promise.Spec.WorkerClusterResources {
 		workToCreate.Spec.Workload.Manifests = append(workToCreate.Spec.Workload.Manifests, v1alpha1.Manifest{Unstructured: u.Unstructured})
@@ -305,7 +309,10 @@ func (r *PromiseReconciler) Reconcile(ctx context.Context, req ctrl.Request) (ct
 	unstructuredCRD := &unstructured.Unstructured{}
 	unstructuredCRD.SetGroupVersionKind(crdToCreateGvk)
 
-	//delete dyanmic controller before CRD
+	//temporary fix until https://github.com/kubernetes-sigs/controller-runtime/issues/1884 is resolved
+	//once resolved, delete dynamic controller rather than disable
+	enabled := true
+	r.DynamicControllers[string(promise.GetUID())] = &enabled
 	dynamicResourceRequestController := &dynamicResourceRequestController{
 		client:                 r.Manager.GetClient(),
 		scheme:                 r.Manager.GetScheme(),
@@ -314,6 +321,8 @@ func (r *PromiseReconciler) Reconcile(ctx context.Context, req ctrl.Request) (ct
 		promiseClusterSelector: promise.Spec.ClusterSelector,
 		xaasRequestPipeline:    promise.Spec.XaasRequestPipeline,
 		log:                    r.Log,
+		uid:                    getShortUuid(),
+		enabled:                &enabled,
 	}
 
 	ctrl.NewControllerManagedBy(r.Manager).
@@ -342,7 +351,11 @@ func (r *PromiseReconciler) deletePromise(ctx context.Context, promise *v1alpha1
 		return ctrl.Result{RequeueAfter: fastRequeue}, err
 	}
 
-	//delete dynamic controller
+	//temporary fix until https://github.com/kubernetes-sigs/controller-runtime/issues/1884 is resolved
+	//once resolved, delete dynamic controller rather than disable
+	if enabled, exists := r.DynamicControllers[string(promise.GetUID())]; exists {
+		*enabled = false
+	}
 
 	if controllerutil.ContainsFinalizer(promise, clusterSelectorsConfigMapCleanupFinalizer) {
 		logger.Info("deleting resources associated with finalizer", "finalizer", clusterSelectorsConfigMapCleanupFinalizer)
@@ -371,7 +384,14 @@ func (r *PromiseReconciler) deletePromise(ctx context.Context, promise *v1alpha1
 		return ctrl.Result{RequeueAfter: fastRequeue}, err
 	}
 
-	//delete work for workerClusterResources
+	if controllerutil.ContainsFinalizer(promise, workerClusterResourcesCleanupFinalizer) {
+		logger.Info("deleting Work associated with finalizer", "finalizer", workerClusterResourcesCleanupFinalizer)
+		err := r.deleteWork(ctx, promise, resourceLabels, logger)
+		if err != nil {
+			return ctrl.Result{RequeueAfter: defaultRequeue}, err
+		}
+		return ctrl.Result{RequeueAfter: fastRequeue}, err
+	}
 
 	return ctrl.Result{RequeueAfter: fastRequeue}, nil
 }
@@ -512,6 +532,30 @@ func (r *PromiseReconciler) deleteCRDs(ctx context.Context, promise *v1alpha1.Pr
 	}
 
 	controllerutil.RemoveFinalizer(promise, crdCleanupFinalizer)
+	if err := r.Client.Update(ctx, promise); err != nil {
+		return err
+	}
+
+	return nil
+}
+
+func (r *PromiseReconciler) deleteWork(ctx context.Context, promise *v1alpha1.Promise, resourceLabels map[string]string, logger logr.Logger) error {
+	workGVK := schema.GroupVersionKind{
+		Group:   v1alpha1.GroupVersion.Group,
+		Version: v1alpha1.GroupVersion.Version,
+		Kind:    "Work",
+	}
+
+	resourcesRemaining, err := r.deleteAllResourcesWithKindMatchingLabel(ctx, workGVK, resourceLabels, logger)
+	if err != nil {
+		return err
+	}
+
+	if resourcesRemaining {
+		return nil
+	}
+
+	controllerutil.RemoveFinalizer(promise, workerClusterResourcesCleanupFinalizer)
 	if err := r.Client.Update(ctx, promise); err != nil {
 		return err
 	}

@@ -71,7 +71,18 @@ build-and-load-kratix:
 build-and-load-worker-creator:
 	WC_IMG=syntasso/kratix-platform-work-creator:${VERSION} make -C work-creator kind-load-image
 
-build-and-load-int-test-images: build-and-load-kratix build-and-load-worker-creator build-and-load-redis build-and-load-postgres ## Builds and loads all int-test required pipeline images
+load-pipeline-images:
+	docker pull docker.io/bitnami/kubectl:1.20.10
+	kind load docker-image docker.io/bitnami/kubectl:1.20.10 --name platform
+	docker pull syntasso/knative-serving-pipeline:latest
+	kind load docker-image syntasso/knative-serving-pipeline:latest --name platform
+	docker pull syntasso/postgres-request-pipeline:latest
+	kind load docker-image syntasso/postgres-request-pipeline:latest --name platform
+	docker pull syntasso/paved-path-demo-request-pipeline:latest
+	kind load docker-image syntasso/paved-path-demo-request-pipeline:latest --name platform
+
+
+build-and-load-int-test-images: build-and-load-kratix build-and-load-worker-creator build-and-load-redis build-and-load-postgres load-pipeline-images ## Builds and loads all int-test required pipeline images
 
 prepare-platform-cluster-as-worker: ## Installs flux onto platform cluster and registers as a worker
 	./scripts/prepare-platform-cluster-as-worker.sh
