@@ -40,6 +40,8 @@ type WorkPlacementReconciler struct {
 
 const repoCleanupWorkPlacementFinalizer = "finalizers.workplacement.kratix.io/repo-cleanup"
 
+var workPlacementFinalizers = []string{repoCleanupWorkPlacementFinalizer}
+
 type repoFilePaths struct {
 	ResourcesBucket, ResourcesName string
 	CRDsBucket, CRDsName           string
@@ -81,9 +83,8 @@ func (r *WorkPlacementReconciler) Reconcile(ctx context.Context, req ctrl.Reques
 		return r.deleteWorkPlacement(ctx, workPlacement, paths, logger)
 	}
 
-	// Ensure the finalizer is present
-	if !controllerutil.ContainsFinalizer(workPlacement, repoCleanupWorkPlacementFinalizer) {
-		return r.addFinalizer(ctx, workPlacement, logger)
+	if finalizersAreMissing(workPlacement, workPlacementFinalizers) {
+		return addFinalizers(ctx, r.Client, workPlacement, workPlacementFinalizers, logger)
 	}
 
 	work := r.getWork(workPlacement.Spec.WorkName, logger)

@@ -119,10 +119,6 @@ func (r *PromiseReconciler) Reconcile(ctx context.Context, req ctrl.Request) (ct
 	}
 
 	if finalizersAreMissing(promise, promiseFinalizers) {
-		logger.Info("Adding missing finalizers",
-			"expectedFinalizers", promiseFinalizers,
-			"existingFinalizers", promise.GetFinalizers(),
-		)
 		return addFinalizers(ctx, r.Client, promise, promiseFinalizers, logger)
 	}
 
