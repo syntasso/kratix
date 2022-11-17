@@ -34,6 +34,17 @@ commands:
           name: Install Dependencies
           command: |
             go mod download
+  setup_git:
+    steps:
+      - run:
+          # see https://circleci.com/docs/github-integration#establish-the-authenticity-of-an-ssh-host
+          name: setup git
+          command: |
+            mkdir -p ~/.ssh
+            ssh-keyscan github.com > ~/.ssh/known_hosts
+
+            git config --global user.name "syntassodev"
+            git config --global user.email "kratix@syntasso.io"
 
 jobs:
   git-clone:
@@ -81,6 +92,7 @@ jobs:
     executor: machine-large
     steps:
       - install_software
+      - setup_git
       - run:
           name: Merge dev to main
           command: |
@@ -115,15 +127,7 @@ jobs:
         # https://circleci.com/docs/github-integration#create-a-github-deploy-key
         fingerprints:
           - "5e:1e:ea:52:8b:1b:ad:a2:66:1a:40:98:a3:f5:96:f5"
-    - run:
-        # see https://circleci.com/docs/github-integration#establish-the-authenticity-of-an-ssh-host
-        name: setup git
-        command: |
-          mkdir -p ~/.ssh
-          ssh-keyscan github.com > ~/.ssh/known_hosts
-
-          git config --global user.name "syntassodev"
-          git config --global user.email "kratix@syntasso.io"
+    - setup_git
     - run:
         name: Push main
         command: |
