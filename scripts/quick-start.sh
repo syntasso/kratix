@@ -230,6 +230,7 @@ install_kratix() {
         run wait_for_namespace --no-timeout
     fi
 
+    git checkout hack/
     kubectl config use-context kind-platform >/dev/null
     success "Kratix installation is complete!"
 }
@@ -239,4 +240,7 @@ main() {
     install_kratix
 }
 
-main $@
+
+if [ "$0" = "${BASH_SOURCE[0]}" ]; then
+    main $@
+fi
