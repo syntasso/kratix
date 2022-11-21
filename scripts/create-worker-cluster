@@ -1,0 +1,48 @@
+#!/usr/bin/env bash
+
+ROOT=$( cd -- "$( dirname -- "${BASH_SOURCE[0]}" )/.." &> /dev/null && pwd )
+source "$ROOT/scripts/quick-start.sh"
+
+set -euo pipefail
+cd $ROOT
+
+usage() {
+    echo "create-worker-cluster <name>"
+    echo ""
+    echo "name: Required. The name of the Kubernetes cluster"
+}
+
+patch_flux_resources() {
+    local name="${1}"
+    sed -i'' -e "s/worker-cluster-1/${name}/g" ${ROOT}/hack/worker/gitops-tk-resources.yaml
+    rm -f ${ROOT}/hack/worker/gitops-tk-resources.yaml-e
+}
+
+
+main() {
+    local name=${1-""}
+
+    if [ -z "${name}" ]; then
+        usage
+        exit 1
+    fi
+
+    kind create cluster --name ${name}
+
+    ctx="kind-${name}"
+
+    # install flux crds
+    kubectl --context "${ctx}" apply --filename ${ROOT}/hack/worker/gitops-tk-install.yaml
+    patch_kind_networking
+    patch_flux_resources "${ctx}"
+
+    # create flux resources
+    kubectl --context "${ctx}" apply --filename ${ROOT}/hack/worker/gitops-tk-resources.yaml
+
+    git checkout hack/
+    kubectl config use-context kind-platform
+}
+
+if [ "$0" = "${BASH_SOURCE[0]}" ]; then
+    main $@
+fi
