@@ -40,12 +40,12 @@ spec:
     spec:
       initContainers:
       - name: make-buckets
-        image: ghcr.io/aclevername/minio:RELEASE.2022-06-30T20-58-09Z
+        image: minio/minio:RELEASE.2022-06-30T20-58-09Z
         volumeMounts:
         - mountPath: /data
           name: data-volume
       containers:
-      - image: ghcr.io/aclevername/minio:RELEASE.2022-06-30T20-58-09Z
+      - image: minio/minio:RELEASE.2022-06-30T20-58-09Z
         name: minio
         args: ["server", "/data"]
         ports:
