@@ -122,7 +122,7 @@ func (r *dynamicResourceRequestController) Reconcile(ctx context.Context, req ct
 				{
 					Name: "writer",
 					//Image:   "syntasso/kratix-platform-work-creator:dev",
-					Image:   "ghcr.io/aclevername/kratix-platform-work-creator:dce41352bc18ced746352529bfdb94d49935ff12",
+					Image:   os.Getenv("WC_IMG"),
 					Command: []string{"sh", "-c", workCreatorCommand},
 					VolumeMounts: []v1.VolumeMount{
 						{
@@ -143,7 +143,7 @@ func (r *dynamicResourceRequestController) Reconcile(ctx context.Context, req ct
 			InitContainers: []v1.Container{
 				{
 					Name:    "reader",
-					Image:   "ghcr.io/aclevername/kubectl:1.20.10",
+					Image:   "bitnami/kubectl:1.20.10",
 					Command: []string{"sh", "-c", resourceRequestCommand},
 					VolumeMounts: []v1.VolumeMount{
 						{
