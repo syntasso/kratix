@@ -7,9 +7,9 @@ set -euo pipefail
 cd $ROOT
 
 usage() {
-    echo "create-worker-cluster <name>"
+    echo "${BASH_SOURCE[0]} <name>"
     echo ""
-    echo "name: Required. The name of the Kubernetes cluster"
+    echo "name: Required. The name of the KinD cluster"
 }
 
 patch_flux_resources() {
@@ -27,14 +27,12 @@ main() {
         exit 1
     fi
 
-    kind create cluster --name ${name}
-
     ctx="kind-${name}"
 
     # install flux crds
     kubectl --context "${ctx}" apply --filename ${ROOT}/hack/worker/gitops-tk-install.yaml
     patch_kind_networking
-    patch_flux_resources "${ctx}"
+    patch_flux_resources "${name}"
 
     # create flux resources
     kubectl --context "${ctx}" apply --filename ${ROOT}/hack/worker/gitops-tk-resources.yaml
