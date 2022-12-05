@@ -35,7 +35,7 @@ import (
 type WorkPlacementReconciler struct {
 	Client       client.Client
 	Log          logr.Logger
-	BucketWriter *BucketWriter
+	BucketWriter BucketWriter
 }
 
 const repoCleanupWorkPlacementFinalizer = "finalizers.workplacement.kratix.io/repo-cleanup"

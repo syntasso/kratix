@@ -18,6 +18,7 @@ package controllers
 
 import (
 	"context"
+
 	"k8s.io/apimachinery/pkg/api/errors"
 
 	v1 "k8s.io/api/core/v1"
@@ -35,7 +36,7 @@ type ClusterReconciler struct {
 	Client       client.Client
 	Log          logr.Logger
 	Scheduler    *Scheduler
-	BucketWriter *BucketWriter
+	BucketWriter BucketWriter
 }
 
 //+kubebuilder:rbac:groups=platform.kratix.io,resources=clusters,verbs=get;list;watch;create;update;patch;delete

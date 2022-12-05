@@ -10,12 +10,17 @@ import (
 	"github.com/minio/minio-go/v7/pkg/credentials"
 )
 
-type BucketWriter struct {
+type MinIOWriter struct {
 	Log        logr.Logger
 	RepoClient *minio.Client
 }
 
-func NewBucketWriter(logger logr.Logger) (*BucketWriter, error) {
+type BucketWriter interface {
+	WriteObject(bucketName string, objectName string, toWrite []byte) error
+	RemoveObject(bucketName string, objectName string) error
+}
+
+func NewBucketWriter(logger logr.Logger) (BucketWriter, error) {
 	endpoint := "minio.kratix-platform-system.svc.cluster.local"
 	accessKeyID := "minioadmin"
 	secretAccessKey := "minioadmin"
@@ -30,13 +35,14 @@ func NewBucketWriter(logger logr.Logger) (*BucketWriter, error) {
 		return nil, err
 	}
 
-	return &BucketWriter{
+	return &MinIOWriter{
 		Log:        logger,
 		RepoClient: minioClient,
 	}, nil
+
 }
 
-func (b *BucketWriter) WriteObject(bucketName string, objectName string, toWrite []byte) error {
+func (b *MinIOWriter) WriteObject(bucketName string, objectName string, toWrite []byte) error {
 	if len(toWrite) == 0 {
 		b.Log.Info("Empty byte[]. Nothing to write to Minio for " + objectName)
 		return nil
@@ -72,7 +78,7 @@ func (b *BucketWriter) WriteObject(bucketName string, objectName string, toWrite
 	return nil
 }
 
-func (b *BucketWriter) RemoveObject(bucketName string, objectName string) error {
+func (b *MinIOWriter) RemoveObject(bucketName string, objectName string) error {
 	ctx := context.Background()
 
 	err := b.RepoClient.RemoveObject(ctx, bucketName, objectName, minio.RemoveObjectOptions{})
