@@ -29,6 +29,7 @@ import (
 
 	"github.com/go-logr/logr"
 	platformv1alpha1 "github.com/syntasso/kratix/api/v1alpha1"
+	"github.com/syntasso/kratix/lib/writers"
 )
 
 // ClusterReconciler reconciles a Cluster object
@@ -36,7 +37,7 @@ type ClusterReconciler struct {
 	Client       client.Client
 	Log          logr.Logger
 	Scheduler    *Scheduler
-	BucketWriter BucketWriter
+	BucketWriter writers.BucketWriter
 }
 
 //+kubebuilder:rbac:groups=platform.kratix.io,resources=clusters,verbs=get;list;watch;create;update;patch;delete

@@ -182,7 +182,7 @@ install_kratix() {
 
     log -n "Creating platform cluster..."
     if ! run kind create cluster --name platform --image kindest/node:v1.24.0 \
-        --config ${ROOT}/hack/platform/kind-minio-portforward.yaml
+        --config ${ROOT}/hack/platform/kind-platform-config.yaml
     then
         error "Could not create platform cluster"
         exit 1
