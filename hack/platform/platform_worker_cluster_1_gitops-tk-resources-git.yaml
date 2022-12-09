@@ -17,7 +17,7 @@ metadata:
   namespace: flux-system
 spec:
   interval: 5s
-  url: https://172.18.0.2:31333/gitea_admin/worker-cluster-1-kratix-resources
+  url: https://gitea-http.gitea.svc.cluster.local/gitea_admin/platform-cluster-worker-1-kratix-resources
   ref:
     branch: master
   secretRef:
@@ -45,7 +45,7 @@ metadata:
   namespace: flux-system
 spec:
   interval: 5s
-  url: https://172.18.0.2:31333/gitea_admin/worker-cluster-1-kratix-crds
+  url: https://gitea-http.gitea.svc.cluster.local/gitea_admin/platform-cluster-worker-1-kratix-crds
   ref:
     branch: master
   secretRef:
