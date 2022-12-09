@@ -11,10 +11,12 @@ spec:
     kind: ServiceAccount
     metadata:
       name: jenkins-operator
+      namespace: default
   - apiVersion: rbac.authorization.k8s.io/v1
     kind: Role
     metadata:
       name: leader-election-role
+      namespace: default
     rules:
     - apiGroups:
       - ""
@@ -41,6 +43,7 @@ spec:
     kind: RoleBinding
     metadata:
       name: leader-election-rolebinding
+      namespace: default
     roleRef:
       apiGroup: rbac.authorization.k8s.io
       kind: Role
@@ -52,6 +55,7 @@ spec:
     kind: Role
     metadata:
       name: jenkins-operator
+      namespace: default
     rules:
     - apiGroups:
       - apps
@@ -216,6 +220,7 @@ spec:
     kind: RoleBinding
     metadata:
       name: manager-rolebinding
+      namespace: default
     roleRef:
       apiGroup: rbac.authorization.k8s.io
       kind: Role
@@ -229,6 +234,7 @@ spec:
       labels:
         control-plane: controller-manager
       name: jenkins-operator
+      namespace: default
     spec:
       replicas: 1
       selector:

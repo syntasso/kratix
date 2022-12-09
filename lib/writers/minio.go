@@ -1,4 +1,4 @@
-package controllers
+package writers
 
 import (
 	"bytes"
@@ -6,7 +6,7 @@ import (
 	"fmt"
 
 	"github.com/go-logr/logr"
-	minio "github.com/minio/minio-go/v7"
+	"github.com/minio/minio-go/v7"
 	"github.com/minio/minio-go/v7/pkg/credentials"
 )
 
@@ -15,12 +15,7 @@ type MinIOWriter struct {
 	RepoClient *minio.Client
 }
 
-type BucketWriter interface {
-	WriteObject(bucketName string, objectName string, toWrite []byte) error
-	RemoveObject(bucketName string, objectName string) error
-}
-
-func NewBucketWriter(logger logr.Logger) (BucketWriter, error) {
+func newMinIOBucketWriter(logger logr.Logger) (BucketWriter, error) {
 	endpoint := "minio.kratix-platform-system.svc.cluster.local"
 	accessKeyID := "minioadmin"
 	secretAccessKey := "minioadmin"
@@ -39,12 +34,11 @@ func NewBucketWriter(logger logr.Logger) (BucketWriter, error) {
 		Log:        logger,
 		RepoClient: minioClient,
 	}, nil
-
 }
 
 func (b *MinIOWriter) WriteObject(bucketName string, objectName string, toWrite []byte) error {
 	if len(toWrite) == 0 {
-		b.Log.Info("Empty byte[]. Nothing to write to Minio for " + objectName)
+		b.Log.Info("Empty byte[]. Nothing to write to Minio", "objectName", objectName)
 		return nil
 	}
 
@@ -73,7 +67,7 @@ func (b *MinIOWriter) WriteObject(bucketName string, objectName string, toWrite 
 		b.Log.Error(err, "Minio Error")
 		return err
 	}
-	b.Log.Info("Minio object " + objectName + " written to " + bucketName)
+	b.Log.Info("Minio object written to bucket", "objectName", objectName, "bucketName", bucketName)
 
 	return nil
 }

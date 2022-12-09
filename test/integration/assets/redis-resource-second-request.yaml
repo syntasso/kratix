@@ -4,6 +4,7 @@ apiVersion: redis.redis.opstreelabs.in/v1beta1
 kind: Redis
 metadata:
   name: second-opstree-redis
+  namespace: default
 spec:
   mode: standalone
   global:

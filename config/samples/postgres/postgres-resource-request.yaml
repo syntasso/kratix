@@ -2,6 +2,7 @@ apiVersion: postgresql.dev4devs.com/v1alpha1
 kind: Database
 metadata:
   name: database
+  namespace: default
 spec:
   # ---------------------------------
   # IMPORTANT: In this CR you will find an example of all options and possible configurations.

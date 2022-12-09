@@ -90,6 +90,9 @@ prepare-platform-cluster-as-worker: ## Installs flux onto platform cluster and r
 install-minio: ## Install test Minio server
 	kubectl --context kind-platform apply -f hack/platform/minio-install.yaml
 
+install-gitea: ## Install test gitea server
+	kubectl --context kind-platform apply -f hack/platform/gitea-install.yaml
+
 delete-int-test-infra: ## Removes all test infrastructure
 	kind delete cluster --name platform
 
@@ -132,7 +135,7 @@ envtest: ## Download envtest-setup locally if necessary.
 
 # Generate manifests for distributed installation
 build: generate fmt vet ## Build manager binary.
-	go build -o bin/manager main.go
+	CGO_ENABLED=1 go build -o bin/manager main.go
 
 run: manifests generate fmt vet ## Run a controller from your host.
 	go run ./main.go

@@ -1,44 +1,87 @@
 #!/usr/bin/env bash
 
 ROOT=$( cd -- "$( dirname -- "${BASH_SOURCE[0]}" )/.." &> /dev/null && pwd )
-source "$ROOT/scripts/quick-start.sh"
 
 set -euo pipefail
 cd $ROOT
 
+NAME=""
+GIT_REPO=false
+
 usage() {
-    echo "${BASH_SOURCE[0]} <name>"
+    echo -e "Usage: ${BASH_SOURCE[0]} [--help] [--name=""] [--git]"
     echo ""
-    echo "name: Required. The name of the KinD cluster"
+    echo -e "\t--help, -h,\t Prints this message"
+    echo -e "\t--name='', -n,\t Required. The name of the cluster to install FluxCD onto."
+    echo -e "\t--git, -g,\t Reads from local Gitea installation (default: Read from local MinIO installation)"
+    exit "${1:-0}"
+}
+
+load_options() {
+    for arg in "$@"; do
+      shift
+      case "$arg" in
+        '--help')   set -- "$@" '-h'   ;;
+        '--name')   set -- "$@" '-n'   ;;
+        '--git')    set -- "$@" '-g'   ;;
+        *)          set -- "$@" "$arg" ;;
+      esac
+    done
+
+    OPTIND=1
+    while getopts "hn:g" opt
+    do
+      case "$opt" in
+        'h') usage ;;
+        'n') NAME=$OPTARG ;;
+        'g') GIT_REPO=true ;;
+        *) usage 1 ;;
+      esac
+    done
+    shift $(expr $OPTIND - 1)
+
+    # Exit if name is not set
+    if [ -z "${NAME}" ]; then
+        usage
+        exit 1
+    fi
+}
+
+patch_kind_networking() {
+    PLATFORM_CLUSTER_IP=`docker inspect platform-control-plane | grep '"IPAddress": "172' | awk '{print $2}' | awk -F '"' '{print $2}'`
+    sed -i'' -e "s/172.18.0.2/$PLATFORM_CLUSTER_IP/g" ${resource_file}
+    rm -f ${resource_file}-e
 }
 
 patch_flux_resources() {
     local name="${1}"
-    sed -i'' -e "s/worker-cluster-1/${name}/g" ${ROOT}/hack/worker/gitops-tk-resources.yaml
-    rm -f ${ROOT}/hack/worker/gitops-tk-resources.yaml-e
+    sed -i'' -e "s/worker-cluster-1/${NAME}/g" ${resource_file}
+    rm -f ${resource_file}-e
 }
 
-
 main() {
-    local name=${1-""}
+    load_options $@
+    local current_ctx=$(kubectl config current-context)
 
-    if [ -z "${name}" ]; then
-        usage
-        exit 1
-    fi
-
-    ctx="kind-${name}"
+    ctx="${NAME}"
+    resource_file=${ROOT}/hack/worker/gitops-tk-resources.yaml
+    if ${GIT_REPO}; then resource_file=${ROOT}/hack/worker/gitops-tk-resources-git.yaml; fi
 
     # install flux crds
     kubectl --context "${ctx}" apply --filename ${ROOT}/hack/worker/gitops-tk-install.yaml
-    patch_kind_networking
-    patch_flux_resources "${name}"
+    
+    if [[ "${NAME}" =~ ^kind-.* ]]; then
+        patch_kind_networking
+    fi
+
+    patch_flux_resources "${NAME}"
 
     # create flux resources
-    kubectl --context "${ctx}" apply --filename ${ROOT}/hack/worker/gitops-tk-resources.yaml
+    kubectl --context "${ctx}" apply --filename ${resource_file}
 
+    # reset environment
     git checkout hack/
-    kubectl config use-context kind-platform
+    kubectl config use-context ${current_ctx}
 }
 
 if [ "$0" = "${BASH_SOURCE[0]}" ]; then

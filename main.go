@@ -33,6 +33,7 @@ import (
 
 	platformv1alpha1 "github.com/syntasso/kratix/api/v1alpha1"
 	"github.com/syntasso/kratix/controllers"
+	"github.com/syntasso/kratix/lib/writers"
 	//+kubebuilder:scaffold:imports
 )
 
@@ -47,8 +48,10 @@ func main() {
 	var metricsAddr string
 	var enableLeaderElection bool
 	var probeAddr string
+	var repositoryType string
 	flag.StringVar(&metricsAddr, "metrics-bind-address", ":8080", "The address the metric endpoint binds to.")
 	flag.StringVar(&probeAddr, "health-probe-bind-address", ":8081", "The address the probe endpoint binds to.")
+	flag.StringVar(&repositoryType, "repository-type", writers.S3, "The type of the repository Kratix will communicate with")
 	flag.BoolVar(&enableLeaderElection, "leader-elect", false,
 		"Enable leader election for controller manager. "+
 			"Enabling this will ensure there is only one active controller manager.")
@@ -74,8 +77,9 @@ func main() {
 		os.Exit(1)
 	}
 
-	bucketWriter, err := controllers.NewBucketWriter(
-		ctrl.Log.WithName("controllers").WithName("BucketWriter"),
+	bucketWriter, err := writers.NewBucketWriter(
+		ctrl.Log.WithName("writers").WithName("BucketWriter"),
+		repositoryType,
 	)
 	if err != nil {
 		setupLog.Error(err, "unable to create BucketWriter")

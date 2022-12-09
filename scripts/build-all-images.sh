@@ -10,6 +10,9 @@ source "$ROOT/scripts/utils.sh"
 export VERSION="$(commit_sha)"
 export DOCKER_BUILDKIT=1
 
+
+docker run -it --rm --privileged tonistiigi/binfmt --install all
+
 # Kratix Platform image
 make docker-build-and-push
 
@@ -27,5 +30,10 @@ docker build --platform linux/amd64 --tag syntasso/postgres-request-pipeline \
     --file samples/postgres/request-pipeline-image/Dockerfile \
     samples/postgres/request-pipeline-image
 
+docker build --platform linux/amd64 --tag syntasso/paved-path-demo-request-pipeline \
+    --file samples/paved-path-demo/request-pipeline-image/Dockerfile \
+    samples/paved-path-demo/request-pipeline-image
+
 docker push syntasso/knative-serving-pipeline
 docker push syntasso/postgres-request-pipeline
+docker push syntasso/paved-path-demo-request-pipeline
