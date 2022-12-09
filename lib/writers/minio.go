@@ -3,7 +3,6 @@ package writers
 import (
 	"bytes"
 	"context"
-	"fmt"
 
 	"github.com/go-logr/logr"
 	"github.com/minio/minio-go/v7"
@@ -49,13 +48,13 @@ func (b *MinIOWriter) WriteObject(bucketName string, objectName string, toWrite 
 		// Check to see if we already own this bucket (which happens if you run this twice)
 		exists, errBucketExists := b.RepoClient.BucketExists(ctx, bucketName)
 		if errBucketExists == nil && exists {
-			b.Log.Info("Minio Bucket " + bucketName + " already exists, will not recreate\n")
+			b.Log.Info("Minio Bucket already exists, will not recreate\n", "bucketName", bucketName)
 		} else {
 			b.Log.Error(err, "Error connecting to Minio")
 			return errBucketExists
 		}
 	} else {
-		b.Log.Info("Successfully created Minio Bucket " + bucketName)
+		b.Log.Info("Successfully created Minio Bucket", "bucketName", bucketName)
 	}
 
 	contentType := "text/x-yaml"
@@ -77,7 +76,7 @@ func (b *MinIOWriter) RemoveObject(bucketName string, objectName string) error {
 
 	err := b.RepoClient.RemoveObject(ctx, bucketName, objectName, minio.RemoveObjectOptions{})
 	if err != nil {
-		b.Log.Error(err, fmt.Sprintf("could not delete %s/%s", bucketName, objectName))
+		b.Log.Error(err, "could not delete object", "bucketName", bucketName, "objectName", objectName)
 		return err
 	}
 
