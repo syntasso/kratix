@@ -70,7 +70,7 @@ func (r *WorkPlacementReconciler) Reconcile(ctx context.Context, req ctrl.Reques
 		if errors.IsNotFound(err) {
 			return ctrl.Result{}, nil
 		}
-		logger.Error(err, "Error getting WorkPlacement: "+req.Name)
+		logger.Error(err, "Error getting WorkPlacement", "workPlacement", req.Name)
 		return defaultRequeue, nil
 	}
 
@@ -103,7 +103,7 @@ func (r *WorkPlacementReconciler) deleteWorkPlacement(ctx context.Context, workP
 		return ctrl.Result{}, nil
 	}
 
-	logger.Info("cleaning up files on repository for " + workPlacement.Name)
+	logger.Info("cleaning up files on repository", "repository", workPlacement.Name)
 	err := r.removeWorkFromRepository(bucketPath, logger)
 	if err != nil {
 		logger.Error(err, "error removing work from repository, will try again in 5 seconds")
@@ -165,12 +165,12 @@ func (r *WorkPlacementReconciler) writeWorkToRepository(work *platformv1alpha1.W
 func (r *WorkPlacementReconciler) removeWorkFromRepository(paths repoFilePaths, logger logr.Logger) error {
 	logger.Info("Removing objects from repository")
 	if err := r.BucketWriter.RemoveObject(paths.ResourcesBucket, paths.ResourcesName); err != nil {
-		logger.Error(err, "Error removing resources from repository", paths.ResourcesBucket)
+		logger.Error(err, "Error removing resources from repository", "resourcePath", paths.ResourcesBucket)
 		return err
 	}
 
 	if err := r.BucketWriter.RemoveObject(paths.CRDsBucket, paths.CRDsName); err != nil {
-		logger.Error(err, "Error removing crds from repository", paths.CRDsBucket)
+		logger.Error(err, "Error removing crds from repository", "resourcePath", paths.CRDsBucket)
 		return err
 	}
 	return nil
