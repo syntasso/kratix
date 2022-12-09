@@ -10,6 +10,9 @@ source "$ROOT/scripts/utils.sh"
 export VERSION="$(commit_sha)"
 export DOCKER_BUILDKIT=1
 
+
+docker run -it --rm --privileged tonistiigi/binfmt --install all
+
 # Kratix Platform image
 make docker-build-and-push
 
