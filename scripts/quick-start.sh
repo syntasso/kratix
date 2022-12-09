@@ -143,17 +143,21 @@ build_and_load_local_images() {
 }
 
 patch_distribution() {
-    sed -i'' -e "s/--repository-type=s3/--repository-type=git/g" ${KRATIX_DISTRIBUTION}
+    if ${GIT_REPO}; then
+        sed -i'' -e "s/^\(.*--repository-type=\).*$/\1git/g"  ${KRATIX_DISTRIBUTION}
+    else
+        sed -i'' -e "s/^\(.*--repository-type=\).*$/\1s3/g"  ${KRATIX_DISTRIBUTION}
+    fi
     rm -f ${KRATIX_DISTRIBUTION}-e
 }
 
 setup_platform_cluster() {
     if ${GIT_REPO}; then
         kubectl --context kind-platform apply --filename "${ROOT}/hack/platform/gitea-install.yaml"
-        patch_distribution
     else
         kubectl --context kind-platform apply --filename "${MINIO_INSTALL}"
     fi
+    patch_distribution
     kubectl --context kind-platform apply --filename "${KRATIX_DISTRIBUTION}"
 }
 
