@@ -131,7 +131,6 @@ func (g *GitWriter) push(repo *git.Repository) error {
 	err := repo.Push(&git.PushOptions{
 		RemoteName:      "origin",
 		Auth:            g.gitServer.Auth,
-		Progress:        os.Stdout,
 		InsecureSkipTLS: true,
 	})
 	if err != nil {
@@ -145,7 +144,6 @@ func (g *GitWriter) cloneRepo(bucketName, repoPath string) (*git.Repository, err
 	return git.PlainClone(repoPath, false, &git.CloneOptions{
 		Auth:            g.gitServer.Auth,
 		URL:             g.gitServer.URL + bucketName,
-		Progress:        os.Stdout,
 		SingleBranch:    true,
 		Depth:           1,
 		NoCheckout:      true,
