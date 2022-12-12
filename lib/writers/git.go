@@ -53,14 +53,15 @@ func newGitBucketWriter(logger logr.Logger) (BucketWriter, error) {
 }
 
 func (g *GitWriter) WriteObject(bucketName string, objectName string, toWrite []byte) error {
+	log := g.Log.WithValues("bucketName", bucketName, "objectName", objectName)
 	if len(toWrite) == 0 {
-		g.Log.Info("Empty byte[]. Nothing to write to Git", "objectName", objectName)
+		log.Info("Empty byte[]. Nothing to write to Git")
 		return nil
 	}
 
 	repoPath, err := createLocalDirectory(bucketName)
 	if err != nil {
-		g.Log.Error(err, "could not create temporary repository directory")
+		log.Error(err, "could not create temporary repository directory")
 		return err
 	}
 	defer os.RemoveAll(filepath.Dir(repoPath))
@@ -69,27 +70,23 @@ func (g *GitWriter) WriteObject(bucketName string, objectName string, toWrite []
 	if err != nil {
 		switch err.Error() {
 		case "repository not found":
-			if repo, err = g.initRepo(bucketName, repoPath); err != nil {
-				g.Log.Error(err, "could not initialise repository")
+			if repo, err = g.initRepo(bucketName, repoPath, log); err != nil {
+				log.Error(err, "could not initialise repository")
 				return err
 			}
 		default:
-			g.Log.Error(err, "could not clone repository")
+			log.Error(err, "could not clone repository")
 			return err
 		}
 	}
 
 	objectFileName := filepath.Join(repoPath, objectName)
 	if err := ioutil.WriteFile(objectFileName, toWrite, 0644); err != nil {
-		g.Log.Error(err, "could not write to file")
+		log.Error(err, "could not write to file")
 		return err
 	}
 
-	if err := g.commit(repo, Add, objectName); err != nil {
-		return err
-	}
-
-	if err := g.push(repo); err != nil {
+	if err := g.commitAndPush(repo, Add, objectName, log); err != nil {
 		return err
 	}
 
@@ -97,44 +94,42 @@ func (g *GitWriter) WriteObject(bucketName string, objectName string, toWrite []
 }
 
 func (g *GitWriter) RemoveObject(bucketName string, objectName string) error {
+	log := g.Log.WithValues("bucketName", bucketName, "objectName", objectName)
+
 	repoPath, err := createLocalDirectory(bucketName)
 	if err != nil {
-		g.Log.Error(err, "could not create temporary repository directory")
+		log.Error(err, "could not create temporary repository directory")
 		return err
 	}
 	defer os.RemoveAll(filepath.Dir(repoPath))
 
 	repo, err := g.cloneRepo(bucketName, repoPath)
 	if err != nil {
-		g.Log.Error(err, "could not clone repository")
+		log.Error(err, "could not clone repository")
 		return err
 	}
 
 	filename := filepath.Join(repoPath, bucketName, objectName)
 	if err := os.Remove(filename); err != nil {
-		g.Log.Error(err, "could not delete file")
+		log.Error(err, "could not delete file")
 		return err
 	}
 
-	if err := g.commit(repo, Delete, objectName); err != nil {
-		return err
-	}
-
-	if err := g.push(repo); err != nil {
+	if err := g.commitAndPush(repo, Delete, objectName, log); err != nil {
 		return err
 	}
 
 	return nil
 }
 
-func (g *GitWriter) push(repo *git.Repository) error {
+func (g *GitWriter) push(repo *git.Repository, log logr.Logger) error {
 	err := repo.Push(&git.PushOptions{
 		RemoteName:      "origin",
 		Auth:            g.gitServer.Auth,
 		InsecureSkipTLS: true,
 	})
 	if err != nil {
-		g.Log.Error(err, "could not push to remote")
+		log.Error(err, "could not push to remote")
 		return err
 	}
 	return nil
@@ -151,10 +146,10 @@ func (g *GitWriter) cloneRepo(bucketName, repoPath string) (*git.Repository, err
 	})
 }
 
-func (g *GitWriter) initRepo(bucketName, repoPath string) (*git.Repository, error) {
+func (g *GitWriter) initRepo(bucketName, repoPath string, log logr.Logger) (*git.Repository, error) {
 	repo, err := git.PlainInit(repoPath, false)
 	if err != nil {
-		g.Log.Error(err, "could not initialise repository")
+		log.Error(err, "could not initialise repository")
 		return nil, err
 	}
 
@@ -163,23 +158,34 @@ func (g *GitWriter) initRepo(bucketName, repoPath string) (*git.Repository, erro
 		URLs: []string{g.gitServer.URL + bucketName + ".git"},
 	})
 	if err != nil {
-		g.Log.Error(err, "could not create remote")
+		log.Error(err, "could not create remote")
 		return nil, err
 	}
 
 	return repo, nil
 }
 
-func (g *GitWriter) commit(repo *git.Repository, action, fileToAdd string) error {
+func (g *GitWriter) commitAndPush(repo *git.Repository, action, fileToAdd string, log logr.Logger) error {
 	worktree, err := repo.Worktree()
 	if err != nil {
-		g.Log.Error(err, "could not access repo worktree")
+		log.Error(err, "could not access repo worktree")
 		return err
 	}
 
 	if _, err := worktree.Add(fileToAdd); err != nil {
-		g.Log.Error(err, "could not stage file to worktree", "file", fileToAdd)
+		log.Error(err, "could not stage file to worktree")
 		return err
+	}
+
+	status, err := worktree.Status()
+	if err != nil {
+		log.Error(err, "could not get worktree status")
+		return err
+	}
+
+	if status.IsClean() {
+		log.Info("no changes to be committed")
+		return nil
 	}
 
 	_, err = worktree.Commit(fmt.Sprintf("%s: %s", action, fileToAdd), &git.CommitOptions{
@@ -190,7 +196,11 @@ func (g *GitWriter) commit(repo *git.Repository, action, fileToAdd string) error
 		},
 	})
 	if err != nil {
-		g.Log.Error(err, "could not commit file to worktree")
+		log.Error(err, "could not commit file to worktree")
+		return err
+	}
+
+	if err := g.push(repo, log); err != nil {
 		return err
 	}
 	return nil
