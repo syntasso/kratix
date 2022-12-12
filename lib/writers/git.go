@@ -146,7 +146,7 @@ func (g *GitWriter) cloneRepo(bucketName, repoPath string) (*git.Repository, err
 		URL:             g.gitServer.URL + bucketName,
 		SingleBranch:    true,
 		Depth:           1,
-		NoCheckout:      true,
+		NoCheckout:      false,
 		InsecureSkipTLS: true,
 	})
 }
