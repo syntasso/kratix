@@ -66,14 +66,26 @@ func (r *ClusterReconciler) Reconcile(ctx context.Context, req ctrl.Request) (ct
 	}
 
 	bucketPath := cluster.Spec.BucketPath
-	r.createWorkerClusterResourceBucket(bucketPath)
-	r.createWorkerResources(bucketPath)
+	err := r.createWorkerClusterResourceBucket(bucketPath)
+	if err != nil {
+		r.Log.Error(err, "unable to write worker cluster resources to bucket", "cluster", cluster.ClusterName, "bucketPath", bucketPath)
+		return fastRequeue, nil
+	}
+	err = r.createWorkerResources(bucketPath)
+	if err != nil {
+		r.Log.Error(err, "unable to write worker resources to bucket", "cluster", cluster.ClusterName, "bucketPath", bucketPath)
+		return fastRequeue, nil
+	}
 
-	err := r.Scheduler.ReconcileCluster()
-	return ctrl.Result{}, err
+	err = r.Scheduler.ReconcileCluster()
+	if err != nil {
+		r.Log.Error(err, "unable to schedule cluster resources", "cluster", cluster.ClusterName)
+		return fastRequeue, nil
+	}
+	return ctrl.Result{}, nil
 }
 
-func (r *ClusterReconciler) createWorkerResources(bucketPath string) {
+func (r *ClusterReconciler) createWorkerResources(bucketPath string) error {
 	kratixConfigMap := &v1.ConfigMap{
 		TypeMeta: metav1.TypeMeta{
 			Kind:       "ConfigMap",
@@ -90,10 +102,10 @@ func (r *ClusterReconciler) createWorkerResources(bucketPath string) {
 	nsBytes, _ := yaml.Marshal(kratixConfigMap)
 
 	bucketName := bucketPath + "-kratix-resources"
-	r.BucketWriter.WriteObject(bucketName, "kratix-resources.yaml", nsBytes)
+	return r.BucketWriter.WriteObject(bucketName, "kratix-resources.yaml", nsBytes)
 }
 
-func (r *ClusterReconciler) createWorkerClusterResourceBucket(bucketPath string) {
+func (r *ClusterReconciler) createWorkerClusterResourceBucket(bucketPath string) error {
 	kratixNamespace := &v1.Namespace{
 		TypeMeta: metav1.TypeMeta{
 			Kind:       "Namespace",
@@ -104,7 +116,7 @@ func (r *ClusterReconciler) createWorkerClusterResourceBucket(bucketPath string)
 	nsBytes, _ := yaml.Marshal(kratixNamespace)
 
 	bucketName := bucketPath + "-kratix-crds"
-	r.BucketWriter.WriteObject(bucketName, "kratix-crds.yaml", nsBytes)
+	return r.BucketWriter.WriteObject(bucketName, "kratix-crds.yaml", nsBytes)
 }
 
 // SetupWithManager sets up the controller with the Manager.

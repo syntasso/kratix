@@ -419,7 +419,7 @@ var _ = Describe("kratix Platform Integration Test", func() {
 			It("places the resources and crds on the right clusters", func() {
 				applyPromiseCRD(PavedPathCRD)
 
-				By("creates the a paved-path-demo api resource", func() {
+				By("creates the paved-path-demo api resource", func() {
 					Eventually(func() bool {
 						return isAPIResourceCreated(ppd_gvk)
 					}, timeout, interval).Should(BeTrue())
@@ -615,7 +615,7 @@ func installFlux(clusterName string, gitopsResourcePath string) {
 		resource := types.NamespacedName{
 			Name: "kratix-worker-system",
 		}
-		k8sClient.Get(context.Background(), resource, namespace)
+		err = k8sClient.Get(context.Background(), resource, namespace)
 		g.Expect(err).ToNot(HaveOccurred())
 	}, "120s", interval).Should(Succeed(), "timed out waiting for `kratix-worker-system` namespace (on "+clusterName+")")
 }
