@@ -451,6 +451,20 @@ var _ = Describe("kratix Platform Integration Test", func() {
 							g.Expect(postgresResource).To(Equal(testCase.exists), testCase.cluster)
 						}
 					}, "60s", interval).Should(Succeed())
+
+					Eventually(func(g Gomega) {
+						g.Expect(isAPIResourceCreated(schema.GroupVersionKind{
+							Group:   "example.promise.syntasso.io",
+							Version: "v1",
+							Kind:    "knativeserving",
+						})).To(BeTrue())
+
+						g.Expect(isAPIResourceCreated(schema.GroupVersionKind{
+							Group:   "example.promise.syntasso.io",
+							Version: "v1",
+							Kind:    "postgres",
+						})).To(BeTrue())
+					}, timeout, interval).Should(Succeed())
 				})
 
 				By("creating the knative crds on the dev clusters", func() {
