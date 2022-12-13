@@ -84,7 +84,7 @@ var (
 //+kubebuilder:rbac:groups=apiextensions.k8s.io,resources=customresourcedefinitions,verbs=get;list;watch;create;update;patch;delete
 
 func (r *PromiseReconciler) Reconcile(ctx context.Context, req ctrl.Request) (ctrl.Result, error) {
-	logger := r.Log.WithValues("promise", req.NamespacedName)
+	logger := r.Log.WithValues("namespacedName", req.NamespacedName)
 
 	promise := &v1alpha1.Promise{}
 	err := r.Client.Get(ctx, req.NamespacedName, promise)
@@ -95,6 +95,7 @@ func (r *PromiseReconciler) Reconcile(ctx context.Context, req ctrl.Request) (ct
 		logger.Error(err, "Failed getting Promise")
 		return defaultRequeue, nil
 	}
+	logger = r.Log.WithValues("identifier", promise.GetIdentifier())
 
 	configMapName := "cluster-selectors-" + promise.GetIdentifier()
 	configMapNamespace := "default"
@@ -155,12 +156,16 @@ func (r *PromiseReconciler) Reconcile(ctx context.Context, req ctrl.Request) (ct
 	err = r.Client.Create(ctx, workToCreate)
 	if err != nil {
 		if errors.IsAlreadyExists(err) {
-			//todo test for existence and handle gracefully.
-			logger.Info("Works " + promise.GetIdentifier() + " already exists")
+			// TODO: Test for existence and handle updates of all Promise resources gracefully.
+			//
+			// WARNING: This return means we will stop reconcilation here if the work already exists!
+			//       		All code below this we only attempt once (on first Works successful creation).
+			logger.Info("Works already exist")
+			return ctrl.Result{}, nil
 		} else {
-			logger.Error(err, "Error creating Works "+promise.GetIdentifier())
+			logger.Error(err, "Error creating Works")
+			return ctrl.Result{}, err
 		}
-		return ctrl.Result{}, err
 	}
 
 	// CONTROLLER RBAC

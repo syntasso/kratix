@@ -697,10 +697,7 @@ func checkResource(gvk schema.GroupVersionKind, expectedName types.NamespacedNam
 }
 
 func hasResourceBeenApplied(gvk schema.GroupVersionKind, expectedName types.NamespacedName) bool {
-	resource := &unstructured.Unstructured{}
-	resource.SetGroupVersionKind(gvk)
-
-	err := k8sClient.Get(context.Background(), expectedName, resource)
+	err := checkResource(gvk, expectedName)
 	return err == nil
 }
 

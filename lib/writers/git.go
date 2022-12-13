@@ -86,7 +86,18 @@ func (g *GitWriter) WriteObject(bucketName string, objectName string, toWrite []
 		return err
 	}
 
-	if err := g.commitAndPush(repo, Add, objectName, log); err != nil {
+	worktree, err := repo.Worktree()
+	if err != nil {
+		log.Error(err, "could not access repo worktree")
+		return err
+	}
+
+	if _, err := worktree.Add(objectName); err != nil {
+		log.Error(err, "could not add file to worktree")
+		return err
+	}
+
+	if err := g.commitAndPush(repo, worktree, Add, objectName, log); err != nil {
 		return err
 	}
 
@@ -109,16 +120,26 @@ func (g *GitWriter) RemoveObject(bucketName string, objectName string) error {
 		return err
 	}
 
-	filename := filepath.Join(repoPath, bucketName, objectName)
-	if err := os.Remove(filename); err != nil {
-		log.Error(err, "could not delete file")
+	worktree, err := repo.Worktree()
+	if err != nil {
+		log.Error(err, "could not access repo worktree")
 		return err
 	}
 
-	if err := g.commitAndPush(repo, Delete, objectName, log); err != nil {
-		return err
+	if _, err := worktree.Filesystem.Lstat(objectName); err == nil {
+		if _, err := worktree.Remove(objectName); err != nil {
+			log.Error(err, "could not remove file from worktree")
+			return err
+		}
+		log.Info("successfully deleted file from worktree")
+	} else {
+		log.Info("file does not exist on worktree, nothing to delete")
+		return nil
 	}
 
+	if err := g.commitAndPush(repo, worktree, Delete, objectName, log); err != nil {
+		return err
+	}
 	return nil
 }
 
@@ -165,18 +186,7 @@ func (g *GitWriter) initRepo(bucketName, repoPath string, log logr.Logger) (*git
 	return repo, nil
 }
 
-func (g *GitWriter) commitAndPush(repo *git.Repository, action, fileToAdd string, log logr.Logger) error {
-	worktree, err := repo.Worktree()
-	if err != nil {
-		log.Error(err, "could not access repo worktree")
-		return err
-	}
-
-	if _, err := worktree.Add(fileToAdd); err != nil {
-		log.Error(err, "could not stage file to worktree")
-		return err
-	}
-
+func (g *GitWriter) commitAndPush(repo *git.Repository, worktree *git.Worktree, action, fileToAdd string, log logr.Logger) error {
 	status, err := worktree.Status()
 	if err != nil {
 		log.Error(err, "could not get worktree status")
