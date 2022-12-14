@@ -144,11 +144,10 @@ build_and_load_local_images() {
 
 patch_distribution() {
     if ${GIT_REPO}; then
-        sed -i'' -e "s/^\(.*--repository-type=\).*$/\1git/g"  ${KRATIX_DISTRIBUTION}
+        sed "s/^\(.*--repository-type=\).*$/\1git/g" ${KRATIX_DISTRIBUTION}
     else
-        sed -i'' -e "s/^\(.*--repository-type=\).*$/\1s3/g"  ${KRATIX_DISTRIBUTION}
+        sed "s/^\(.*--repository-type=\).*$/\1s3/g" ${KRATIX_DISTRIBUTION}
     fi
-    rm -f ${KRATIX_DISTRIBUTION}-e
 }
 
 setup_platform_cluster() {
@@ -157,18 +156,13 @@ setup_platform_cluster() {
     else
         kubectl --context kind-platform apply --filename "${MINIO_INSTALL}"
     fi
-    patch_distribution
-    kubectl --context kind-platform apply --filename "${KRATIX_DISTRIBUTION}"
+    patch_distribution | kubectl --context kind-platform apply --filename -
 }
 
 setup_worker_cluster() {
     kubectl --context kind-platform apply --filename "${PLATFORM_WORKER}"
-    kubectl --context kind-worker apply  --filename "${GITOPS_WORKER_INSTALL}"
-    if ${GIT_REPO}; then
-        kubectl --context kind-worker apply --filename "${ROOT}/hack/worker/gitops-tk-resources-git.yaml"
-    else
-        kubectl --context kind-worker apply --filename "${GITOPS_WORKER_RESOURCES}"
-    fi
+
+    install_gitops kind-worker worker-cluster-1
 }
 
 wait_for_gitea() {
