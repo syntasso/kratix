@@ -580,7 +580,7 @@ metadata:
 ---
 apiVersion: v1
 data:
-  WC_IMG: syntasso/kratix-platform-work-creator:b56ef28c1a7e47d5114df24d5152a7baae070303
+  WC_IMG: syntasso/kratix-platform-work-creator:038070f62761e00a439049f3ad21676e05905519
 kind: ConfigMap
 metadata:
   name: kratix-platform-wc-img-config
@@ -642,7 +642,7 @@ spec:
             configMapKeyRef:
               key: WC_IMG
               name: kratix-platform-wc-img-config
-        image: syntasso/kratix-platform:b56ef28c1a7e47d5114df24d5152a7baae070303
+        image: syntasso/kratix-platform:038070f62761e00a439049f3ad21676e05905519
         livenessProbe:
           httpGet:
             path: /healthz
