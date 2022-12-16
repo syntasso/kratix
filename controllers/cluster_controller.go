@@ -77,11 +77,6 @@ func (r *ClusterReconciler) Reconcile(ctx context.Context, req ctrl.Request) (ct
 		return fastRequeue, nil
 	}
 
-	err = r.Scheduler.ReconcileCluster()
-	if err != nil {
-		r.Log.Error(err, "unable to schedule cluster resources", "cluster", cluster.ClusterName)
-		return fastRequeue, nil
-	}
 	return ctrl.Result{}, nil
 }
 

@@ -3,9 +3,10 @@ package controllers
 import (
 	"context"
 	"fmt"
-	"k8s.io/client-go/kubernetes/scheme"
 	"math/rand"
 	"time"
+
+	"k8s.io/client-go/kubernetes/scheme"
 
 	"github.com/go-logr/logr"
 	platformv1alpha1 "github.com/syntasso/kratix/api/v1alpha1"
@@ -18,26 +19,6 @@ import (
 type Scheduler struct {
 	Client client.Client
 	Log    logr.Logger
-}
-
-func (r *Scheduler) ReconcileCluster() error {
-	works := platformv1alpha1.WorkList{}
-	lo := &client.ListOptions{
-		Namespace: "default",
-	}
-	if err := r.Client.List(context.Background(), &works, lo); err != nil {
-		return err
-	}
-
-	for _, work := range works.Items {
-		if work.IsWorkerResource() {
-			if err := r.ReconcileWork(&work); err != nil {
-				r.Log.Error(err, "Failed reconciling Work: ")
-			}
-		}
-	}
-
-	return nil
 }
 
 func (r *Scheduler) ReconcileWork(work *platformv1alpha1.Work) error {

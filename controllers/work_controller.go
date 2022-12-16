@@ -23,8 +23,14 @@ import (
 	"github.com/go-logr/logr"
 	platformv1alpha1 "github.com/syntasso/kratix/api/v1alpha1"
 	"k8s.io/apimachinery/pkg/api/errors"
+	"k8s.io/apimachinery/pkg/types"
 	ctrl "sigs.k8s.io/controller-runtime"
+	"sigs.k8s.io/controller-runtime/pkg/builder"
 	"sigs.k8s.io/controller-runtime/pkg/client"
+	"sigs.k8s.io/controller-runtime/pkg/handler"
+	"sigs.k8s.io/controller-runtime/pkg/predicate"
+	"sigs.k8s.io/controller-runtime/pkg/reconcile"
+	"sigs.k8s.io/controller-runtime/pkg/source"
 )
 
 // WorkReconciler reconciles a Work object
@@ -63,23 +69,27 @@ func (r *WorkReconciler) Reconcile(ctx context.Context, req ctrl.Request) (ctrl.
 		return ctrl.Result{Requeue: false}, err
 	}
 
-	// If Work already has a WorkPlacement then return
-	workPlacementList := &platformv1alpha1.WorkPlacementList{}
-	workPlacementListOptions := &client.ListOptions{
-		Namespace: "default",
-	}
-	logger.Info("Listing Workplacements with WorkName: " + work.Name)
-	err = r.Client.List(context.Background(), workPlacementList, workPlacementListOptions)
-	if err != nil {
-		logger.Error(err, "Error getting WorkPlacements")
-		return defaultRequeue, err
-	}
-	logger.Info("Found WorkPlacements for WorkName " + fmt.Sprint(len(workPlacementList.Items)))
+	//if its a resource request, and its already been scheduled then do nothing.
+	//otherwise always proceed to reconile work
+	if work.IsResourceRequest() {
+		// If Work already has a WorkPlacement then return
+		workPlacementList := &platformv1alpha1.WorkPlacementList{}
+		workPlacementListOptions := &client.ListOptions{
+			Namespace: "default",
+		}
+		logger.Info("Listing Workplacements with WorkName: " + work.Name)
+		err = r.Client.List(context.Background(), workPlacementList, workPlacementListOptions)
+		if err != nil {
+			logger.Error(err, "Error getting WorkPlacements")
+			return defaultRequeue, err
+		}
+		logger.Info("Found WorkPlacements for WorkName " + fmt.Sprint(len(workPlacementList.Items)))
 
-	for _, workPlacement := range workPlacementList.Items {
-		if workPlacement.Spec.WorkName == work.Name {
-			logger.Info("WorkPlacements for work exist." + req.Name)
-			return ctrl.Result{}, nil
+		for _, workPlacement := range workPlacementList.Items {
+			if workPlacement.Spec.WorkName == work.Name {
+				logger.Info("WorkPlacements for work exist." + req.Name)
+				return ctrl.Result{}, nil
+			}
 		}
 	}
 
@@ -99,5 +109,39 @@ func (r *WorkReconciler) SetupWithManager(mgr ctrl.Manager) error {
 	return ctrl.NewControllerManagedBy(mgr).
 		For(&platformv1alpha1.Work{}).
 		Owns(&platformv1alpha1.WorkPlacement{}).
+		Watches(
+			&source.Kind{Type: &platformv1alpha1.Cluster{}},
+			handler.EnqueueRequestsFromMapFunc(r.requeueAllWorks),
+			builder.WithPredicates(predicate.ResourceVersionChangedPredicate{}),
+		).
 		Complete(r)
+}
+
+func (r *WorkReconciler) requeueAllWorks(cluster client.Object) []reconcile.Request {
+	logger := r.Log.WithValues("cluster", cluster.GetName())
+	logger.Info("getting works for cluster")
+	works := &platformv1alpha1.WorkList{}
+
+	listOps := &client.ListOptions{}
+
+	err := r.Client.List(context.TODO(), works, listOps)
+	if err != nil {
+		logger.Error(err, "failed to list work")
+		return []reconcile.Request{}
+	}
+
+	requests := []reconcile.Request{}
+	for _, work := range works.Items {
+		if work.IsWorkerResource() {
+			requests = append(requests, reconcile.Request{
+				NamespacedName: types.NamespacedName{
+					Name:      work.GetName(),
+					Namespace: work.GetNamespace(),
+				},
+			})
+		}
+	}
+
+	logger.Info("triggering work reconciliations", "works", requests)
+	return requests
 }

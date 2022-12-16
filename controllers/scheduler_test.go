@@ -107,46 +107,6 @@ var _ = Describe("Controllers/Scheduler", func() {
 		Expect(k8sClient.Create(context.Background(), &prodCluster)).To(Succeed())
 	})
 
-	Describe("#ReconcileCluster", func() {
-		var devCluster3 Cluster
-		BeforeEach(func() {
-			// register new cluster dev
-			devCluster3 = Cluster{
-				ObjectMeta: v1.ObjectMeta{
-					Name:      "dev-cluster-3",
-					Namespace: "default",
-					Labels:    map[string]string{"environment": "dev"},
-				},
-			}
-			Expect(k8sClient.Create(context.Background(), &devCluster3)).To(Succeed())
-			Expect(k8sClient.Create(context.Background(), &prodWork)).To(Succeed())
-			Expect(k8sClient.Create(context.Background(), &devWork)).To(Succeed())
-			scheduler.ReconcileCluster()
-		})
-
-		When("A new cluster is added", func() {
-			It("schedules Works with matching labels to the new cluster", func() {
-				ns := types.NamespacedName{
-					Namespace: "default",
-					Name:      "dev-work-name.dev-cluster-3",
-				}
-				actualWorkPlacement := WorkPlacement{}
-				Expect(k8sClient.Get(context.Background(), ns, &actualWorkPlacement)).To(Succeed())
-				Expect(actualWorkPlacement.Spec.TargetClusterName).To(Equal(devCluster3.Name))
-				Expect(actualWorkPlacement.Spec.WorkName).To(Equal(devWork.Name))
-			})
-
-			It("does not schedule Works with un-matching labels to the new cluster", func() {
-				ns := types.NamespacedName{
-					Namespace: "default",
-					Name:      "prod-work-name.dev-cluster-3",
-				}
-				actualWorkPlacement := WorkPlacement{}
-				Expect(k8sClient.Get(context.Background(), ns, &actualWorkPlacement)).ToNot(Succeed())
-			})
-		})
-	})
-
 	Describe("#ReconcileWork", func() {
 		It("creates a WorkPlacement for a given Work", func() {
 			err := scheduler.ReconcileWork(&resRequestWork)
