@@ -120,11 +120,9 @@ func (r *WorkReconciler) SetupWithManager(mgr ctrl.Manager) error {
 func (r *WorkReconciler) requeueAllWorks(cluster client.Object) []reconcile.Request {
 	logger := r.Log.WithValues("cluster", cluster.GetName())
 	logger.Info("getting works for cluster")
+
 	works := &platformv1alpha1.WorkList{}
-
-	listOps := &client.ListOptions{}
-
-	err := r.Client.List(context.TODO(), works, listOps)
+	err := r.Client.List(context.TODO(), works)
 	if err != nil {
 		logger.Error(err, "failed to list work")
 		return []reconcile.Request{}
@@ -132,16 +130,14 @@ func (r *WorkReconciler) requeueAllWorks(cluster client.Object) []reconcile.Requ
 
 	requests := []reconcile.Request{}
 	for _, work := range works.Items {
-		if work.IsWorkerResource() {
-			requests = append(requests, reconcile.Request{
-				NamespacedName: types.NamespacedName{
-					Name:      work.GetName(),
-					Namespace: work.GetNamespace(),
-				},
-			})
-		}
+		requests = append(requests, reconcile.Request{
+			NamespacedName: types.NamespacedName{
+				Name:      work.GetName(),
+				Namespace: work.GetNamespace(),
+			},
+		})
 	}
 
-	logger.Info("triggering work reconciliations", "works", requests)
+	logger.Info("triggering work reconciliations for new cluster", "works", requests)
 	return requests
 }
