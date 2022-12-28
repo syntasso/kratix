@@ -85,40 +85,20 @@ var (
 //+kubebuilder:rbac:groups=apiextensions.k8s.io,resources=customresourcedefinitions,verbs=get;list;watch;create;update;patch;delete
 
 func (r *PromiseReconciler) Reconcile(ctx context.Context, req ctrl.Request) (ctrl.Result, error) {
-	logger := r.Log.WithValues("namespacedName", req.NamespacedName)
-
 	promise := &v1alpha1.Promise{}
 	err := r.Client.Get(ctx, req.NamespacedName, promise)
 	if err != nil {
 		if errors.IsNotFound(err) {
 			return ctrl.Result{}, nil
 		}
-		logger.Error(err, "Failed getting Promise")
+		r.Log.Error(err, "Failed getting Promise", "namespacedName", req.NamespacedName)
 		return defaultRequeue, nil
 	}
-	logger = r.Log.WithValues("identifier", promise.GetIdentifier())
 
-	//Instance-Level Reconciliation
-	crdToCreate := &apiextensionsv1.CustomResourceDefinition{}
-	crdToCreateGvk := schema.GroupVersionKind{}
-
-	if !promise.OnlyContainsWorkerClusterResources() {
-		err = json.Unmarshal(promise.Spec.XaasCrd.Raw, crdToCreate)
-		if err != nil {
-			logger.Error(err, "Failed unmarshalling CRD")
-			return ctrl.Result{}, nil
-		}
-		crdToCreate.Labels = labels.Merge(crdToCreate.Labels, promise.GenerateSharedLabels())
-
-		crdToCreateGvk = schema.GroupVersionKind{
-			Group:   crdToCreate.Spec.Group,
-			Version: crdToCreate.Spec.Versions[0].Name,
-			Kind:    crdToCreate.Spec.Names.Kind,
-		}
-	}
+	logger := r.Log.WithValues("identifier", promise.GetIdentifier())
 
 	if !promise.DeletionTimestamp.IsZero() {
-		return r.deletePromise(ctx, promise, crdToCreateGvk, logger)
+		return r.deletePromise(ctx, promise, logger)
 	}
 
 	finalizers := promiseFinalizers
@@ -157,10 +137,15 @@ func (r *PromiseReconciler) Reconcile(ctx context.Context, req ctrl.Request) (ct
 		return ctrl.Result{}, nil
 	}
 
+	rrCRD, rrGVK, err := generateCRDAndGVK(promise, logger)
+	if err != nil {
+		return ctrl.Result{}, err
+	}
+
 	//this needs to be after RR deletion
 	_, err = r.ApiextensionsClient.ApiextensionsV1().
 		CustomResourceDefinitions().
-		Create(ctx, crdToCreate, metav1.CreateOptions{})
+		Create(ctx, rrCRD, metav1.CreateOptions{})
 	if err != nil {
 		if errors.IsAlreadyExists(err) {
 			//todo test for existence and handle gracefully.
@@ -171,8 +156,8 @@ func (r *PromiseReconciler) Reconcile(ctx context.Context, req ctrl.Request) (ct
 	}
 
 	// We should only proceed once the new gvk has been created in the API server
-	if r.gvkDoesNotExist(crdToCreateGvk) {
-		logger.Info("Requeue:" + crdToCreate.Name + " is not ready on the API server yet.")
+	if r.gvkDoesNotExist(rrGVK) {
+		logger.Info("Requeue:" + rrCRD.Name + " is not ready on the API server yet.")
 		return defaultRequeue, nil
 	}
 
@@ -184,18 +169,18 @@ func (r *PromiseReconciler) Reconcile(ctx context.Context, req ctrl.Request) (ct
 		},
 		Rules: []rbacv1.PolicyRule{
 			{
-				APIGroups: []string{crdToCreateGvk.Group},
-				Resources: []string{crdToCreate.Spec.Names.Plural},
+				APIGroups: []string{rrGVK.Group},
+				Resources: []string{rrCRD.Spec.Names.Plural},
 				Verbs:     []string{"get", "list", "update", "create", "patch", "delete", "watch"},
 			},
 			{
-				APIGroups: []string{crdToCreateGvk.Group},
-				Resources: []string{crdToCreate.Spec.Names.Plural + "/finalizers"},
+				APIGroups: []string{rrGVK.Group},
+				Resources: []string{rrCRD.Spec.Names.Plural + "/finalizers"},
 				Verbs:     []string{"update"},
 			},
 			{
-				APIGroups: []string{crdToCreateGvk.Group},
-				Resources: []string{crdToCreate.Spec.Names.Plural + "/status"},
+				APIGroups: []string{rrGVK.Group},
+				Resources: []string{rrCRD.Spec.Names.Plural + "/status"},
 				Verbs:     []string{"get", "update", "patch"},
 			},
 		},
@@ -244,8 +229,8 @@ func (r *PromiseReconciler) Reconcile(ctx context.Context, req ctrl.Request) (ct
 		},
 		Rules: []rbacv1.PolicyRule{
 			{
-				APIGroups: []string{crdToCreateGvk.Group},
-				Resources: []string{crdToCreate.Spec.Names.Plural},
+				APIGroups: []string{rrGVK.Group},
+				Resources: []string{rrCRD.Spec.Names.Plural},
 				Verbs:     []string{"get", "list", "update", "create", "patch"},
 			},
 			{
@@ -322,7 +307,7 @@ func (r *PromiseReconciler) Reconcile(ctx context.Context, req ctrl.Request) (ct
 	}
 
 	unstructuredCRD := &unstructured.Unstructured{}
-	unstructuredCRD.SetGroupVersionKind(crdToCreateGvk)
+	unstructuredCRD.SetGroupVersionKind(rrGVK)
 
 	//temporary fix until https://github.com/kubernetes-sigs/controller-runtime/issues/1884 is resolved
 	//once resolved, delete dynamic controller rather than disable
@@ -331,7 +316,7 @@ func (r *PromiseReconciler) Reconcile(ctx context.Context, req ctrl.Request) (ct
 	dynamicResourceRequestController := &dynamicResourceRequestController{
 		Client:                 r.Manager.GetClient(),
 		scheme:                 r.Manager.GetScheme(),
-		gvk:                    &crdToCreateGvk,
+		gvk:                    &rrGVK,
 		promiseIdentifier:      promise.GetIdentifier(),
 		promiseClusterSelector: promise.Spec.ClusterSelector,
 		xaasRequestPipeline:    promise.Spec.XaasRequestPipeline,
@@ -352,14 +337,14 @@ func (r *PromiseReconciler) gvkDoesNotExist(gvk schema.GroupVersionKind) bool {
 	return err != nil
 }
 
-func (r *PromiseReconciler) deletePromise(ctx context.Context, promise *v1alpha1.Promise, rrGVK schema.GroupVersionKind, logger logr.Logger) (ctrl.Result, error) {
+func (r *PromiseReconciler) deletePromise(ctx context.Context, promise *v1alpha1.Promise, logger logr.Logger) (ctrl.Result, error) {
 	if finalizersAreDeleted(promise, promiseFinalizers) {
 		return ctrl.Result{}, nil
 	}
 
 	if controllerutil.ContainsFinalizer(promise, resourceRequestCleanupFinalizer) {
 		logger.Info("deleting resources associated with finalizer", "finalizer", resourceRequestCleanupFinalizer)
-		err := r.deleteResourceRequests(ctx, promise, rrGVK, logger)
+		err := r.deleteResourceRequests(ctx, promise, logger)
 		if err != nil {
 			return defaultRequeue, err
 		}
@@ -448,7 +433,12 @@ func (r *PromiseReconciler) deleteDynamicControllerResources(ctx context.Context
 	return r.Client.Update(ctx, promise)
 }
 
-func (r *PromiseReconciler) deleteResourceRequests(ctx context.Context, promise *v1alpha1.Promise, rrGVK schema.GroupVersionKind, logger logr.Logger) error {
+func (r *PromiseReconciler) deleteResourceRequests(ctx context.Context, promise *v1alpha1.Promise, logger logr.Logger) error {
+	_, rrGVK, err := generateCRDAndGVK(promise, logger)
+	if err != nil {
+		return err
+	}
+
 	// No need to pass labels since all resource requests are of Kind
 	resourcesRemaining, err := deleteAllResourcesWithKindMatchingLabel(ctx, r.Client, rrGVK, nil, logger)
 	if err != nil {
@@ -534,4 +524,24 @@ func (r *PromiseReconciler) SetupWithManager(mgr ctrl.Manager) error {
 	return ctrl.NewControllerManagedBy(mgr).
 		For(&v1alpha1.Promise{}).
 		Complete(r)
+}
+
+func generateCRDAndGVK(promise *v1alpha1.Promise, logger logr.Logger) (*apiextensionsv1.CustomResourceDefinition, schema.GroupVersionKind, error) {
+	rrCRD := &apiextensionsv1.CustomResourceDefinition{}
+	rrGVK := schema.GroupVersionKind{}
+
+	err := json.Unmarshal(promise.Spec.XaasCrd.Raw, rrCRD)
+	if err != nil {
+		logger.Error(err, "Failed unmarshalling CRD")
+		return rrCRD, rrGVK, err
+	}
+	rrCRD.Labels = labels.Merge(rrCRD.Labels, promise.GenerateSharedLabels())
+
+	rrGVK = schema.GroupVersionKind{
+		Group:   rrCRD.Spec.Group,
+		Version: rrCRD.Spec.Versions[0].Name,
+		Kind:    rrCRD.Spec.Names.Kind,
+	}
+
+	return rrCRD, rrGVK, nil
 }
