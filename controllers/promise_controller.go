@@ -19,7 +19,6 @@ package controllers
 import (
 	"context"
 	"encoding/json"
-	"strings"
 	"time"
 
 	controllerutil "sigs.k8s.io/controller-runtime/pkg/controller/controllerutil"
@@ -101,38 +100,17 @@ func (r *PromiseReconciler) Reconcile(ctx context.Context, req ctrl.Request) (ct
 		return r.deletePromise(ctx, promise, logger)
 	}
 
-	finalizers := promiseFinalizers
-	if promise.OnlyContainsWorkerClusterResources() {
-		finalizers = []string{workerClusterResourcesCleanupFinalizer}
-	}
-
+	finalizers := getDesiredFinalizers(promise)
 	if finalizersAreMissing(promise, finalizers) {
-		logger.Info("finalisers to have: " + strings.Join(finalizers, "/n"))
 		return addFinalizers(ctx, r.Client, promise, finalizers, logger)
 	}
 
-	workToCreate := &v1alpha1.Work{}
-	workToCreate.Spec.Replicas = v1alpha1.WorkerResourceReplicas
-	workToCreate.Name = promise.GetIdentifier()
-	workToCreate.Namespace = "default"
-	workToCreate.Labels = promise.GenerateSharedLabels()
-	workToCreate.Spec.ClusterSelector = promise.Spec.ClusterSelector
-	for _, u := range promise.Spec.WorkerClusterResources {
-		workToCreate.Spec.Workload.Manifests = append(workToCreate.Spec.Workload.Manifests, v1alpha1.Manifest{Unstructured: u.Unstructured})
+	if err := r.createWorkResourceForWorkerClusterResources(ctx, promise, logger); err != nil {
+		logger.Error(err, "Error creating Works")
+		return ctrl.Result{}, err
 	}
 
-	logger.Info("Creating Work resource for promise: " + promise.GetIdentifier())
-	err = r.Client.Create(ctx, workToCreate)
-	if err != nil {
-		if errors.IsAlreadyExists(err) {
-			logger.Info("Works already exist")
-		} else {
-			logger.Error(err, "Error creating Works")
-			return ctrl.Result{}, err
-		}
-	}
-
-	if promise.OnlyContainsWorkerClusterResources() {
+	if promise.DoesNotContainXAASCrd() {
 		logger.Info("Promise only contains WCRs, skipping creation of CRD and dynamic controller")
 		return ctrl.Result{}, nil
 	}
@@ -142,24 +120,55 @@ func (r *PromiseReconciler) Reconcile(ctx context.Context, req ctrl.Request) (ct
 		return ctrl.Result{}, err
 	}
 
-	//this needs to be after RR deletion
-	_, err = r.ApiextensionsClient.ApiextensionsV1().
-		CustomResourceDefinitions().
-		Create(ctx, rrCRD, metav1.CreateOptions{})
-	if err != nil {
-		if errors.IsAlreadyExists(err) {
-			//todo test for existence and handle gracefully.
-			logger.Info("CRD " + req.Name + " already exists")
-		} else {
-			logger.Error(err, "Error creating crd")
-		}
-	}
-
-	// We should only proceed once the new gvk has been created in the API server
-	if r.gvkDoesNotExist(rrGVK) {
-		logger.Info("Requeue:" + rrCRD.Name + " is not ready on the API server yet.")
+	exists := r.ensureCRDExists(ctx, rrCRD, rrGVK, logger)
+	if !exists {
 		return defaultRequeue, nil
 	}
+
+	if err := r.createResourcesForDynamicController(ctx, promise, rrCRD, rrGVK, logger); err != nil {
+		// Since we don't support Updates we cannot tell if createResourcesForDynamicController fails because the resources
+		// already exist or for other reasons, so we don't handle the error or requeue
+		// TODO add support for updates and gracefully error
+		return ctrl.Result{}, nil
+	}
+
+	return ctrl.Result{}, r.startDynamicController(promise, rrGVK)
+}
+
+func getDesiredFinalizers(promise *v1alpha1.Promise) []string {
+	if promise.DoesNotContainXAASCrd() {
+		return []string{workerClusterResourcesCleanupFinalizer}
+	}
+	return promiseFinalizers
+}
+
+func (r *PromiseReconciler) startDynamicController(promise *v1alpha1.Promise, rrGVK schema.GroupVersionKind) error {
+	//temporary fix until https://github.com/kubernetes-sigs/controller-runtime/issues/1884 is resolved
+	//once resolved, delete dynamic controller rather than disable
+	enabled := true
+	r.DynamicControllers[string(promise.GetUID())] = &enabled
+	dynamicResourceRequestController := &dynamicResourceRequestController{
+		Client:                 r.Manager.GetClient(),
+		scheme:                 r.Manager.GetScheme(),
+		gvk:                    &rrGVK,
+		promiseIdentifier:      promise.GetIdentifier(),
+		promiseClusterSelector: promise.Spec.ClusterSelector,
+		xaasRequestPipeline:    promise.Spec.XaasRequestPipeline,
+		log:                    r.Log,
+		uid:                    string(promise.GetUID())[0:5],
+		enabled:                &enabled,
+	}
+
+	unstructuredCRD := &unstructured.Unstructured{}
+	unstructuredCRD.SetGroupVersionKind(rrGVK)
+
+	return ctrl.NewControllerManagedBy(r.Manager).
+		For(unstructuredCRD).
+		Complete(dynamicResourceRequestController)
+}
+
+func (r *PromiseReconciler) createResourcesForDynamicController(ctx context.Context, promise *v1alpha1.Promise,
+	rrCRD *apiextensionsv1.CustomResourceDefinition, rrGVK schema.GroupVersionKind, logger logr.Logger) error {
 
 	// CONTROLLER RBAC
 	cr := rbacv1.ClusterRole{
@@ -185,14 +194,14 @@ func (r *PromiseReconciler) Reconcile(ctx context.Context, req ctrl.Request) (ct
 			},
 		},
 	}
-	err = r.Client.Create(ctx, &cr)
+	err := r.Client.Create(ctx, &cr)
 	if err != nil {
 		if errors.IsAlreadyExists(err) {
 			// TODO: Test for existence and handle updates of all Promise resources gracefully.
 			//
 			// WARNING: This return means we will stop reconcilation here if the resource already exists!
 			//       		All code below this we only attempt once (on first successful creation).
-			return ctrl.Result{}, nil
+			return err
 		}
 		logger.Error(err, "Error creating ClusterRole")
 	}
@@ -215,6 +224,7 @@ func (r *PromiseReconciler) Reconcile(ctx context.Context, req ctrl.Request) (ct
 			},
 		},
 	}
+
 	err = r.Client.Create(ctx, &crb)
 	if err != nil {
 		logger.Error(err, "Error creating ClusterRoleBinding")
@@ -245,7 +255,7 @@ func (r *PromiseReconciler) Reconcile(ctx context.Context, req ctrl.Request) (ct
 		logger.Error(err, "Error creating ClusterRole")
 	}
 
-	logger.Info("Creating Service Account for " + promise.GetIdentifier())
+	logger.Info("Creating Service Account")
 	sa := v1.ServiceAccount{
 		ObjectMeta: metav1.ObjectMeta{
 			Name:      promise.GetPipelineResourceName(),
@@ -279,9 +289,9 @@ func (r *PromiseReconciler) Reconcile(ctx context.Context, req ctrl.Request) (ct
 
 	err = r.Client.Create(ctx, &sa)
 	if err != nil {
-		logger.Error(err, "Error creating ServiceAccount for Promise "+promise.GetIdentifier())
+		logger.Error(err, "Error creating ServiceAccount for Promise")
 	} else {
-		logger.Info("Created ServiceAccount for Promise " + promise.GetIdentifier())
+		logger.Info("Created ServiceAccount for Promise")
 	}
 
 	configMapName := "cluster-selectors-" + promise.GetIdentifier()
@@ -300,41 +310,28 @@ func (r *PromiseReconciler) Reconcile(ctx context.Context, req ctrl.Request) (ct
 
 	err = r.Client.Create(ctx, &configMap)
 	if err != nil {
-		logger.Error(err, "Error creating config map",
-			"promiseIdentifier", promise.GetIdentifier(),
-			"configMap", configMap.Name,
-		)
+		logger.Error(err, "Error creating config map", "configMap", configMap.Name)
 	}
-
-	unstructuredCRD := &unstructured.Unstructured{}
-	unstructuredCRD.SetGroupVersionKind(rrGVK)
-
-	//temporary fix until https://github.com/kubernetes-sigs/controller-runtime/issues/1884 is resolved
-	//once resolved, delete dynamic controller rather than disable
-	enabled := true
-	r.DynamicControllers[string(promise.GetUID())] = &enabled
-	dynamicResourceRequestController := &dynamicResourceRequestController{
-		Client:                 r.Manager.GetClient(),
-		scheme:                 r.Manager.GetScheme(),
-		gvk:                    &rrGVK,
-		promiseIdentifier:      promise.GetIdentifier(),
-		promiseClusterSelector: promise.Spec.ClusterSelector,
-		xaasRequestPipeline:    promise.Spec.XaasRequestPipeline,
-		log:                    r.Log,
-		uid:                    string(promise.GetUID())[0:5],
-		enabled:                &enabled,
-	}
-
-	ctrl.NewControllerManagedBy(r.Manager).
-		For(unstructuredCRD).
-		Complete(dynamicResourceRequestController)
-
-	return ctrl.Result{}, nil
+	return nil
 }
 
-func (r *PromiseReconciler) gvkDoesNotExist(gvk schema.GroupVersionKind) bool {
-	_, err := r.Manager.GetRESTMapper().RESTMapping(gvk.GroupKind(), gvk.Version)
-	return err != nil
+func (r *PromiseReconciler) ensureCRDExists(ctx context.Context, rrCRD *apiextensionsv1.CustomResourceDefinition,
+	rrGVK schema.GroupVersionKind, logger logr.Logger) bool {
+
+	_, err := r.ApiextensionsClient.ApiextensionsV1().
+		CustomResourceDefinitions().
+		Create(ctx, rrCRD, metav1.CreateOptions{})
+	if err != nil {
+		if errors.IsAlreadyExists(err) {
+			//todo test for existence and handle gracefully.
+			logger.Info("CRD already exists", "crdName", rrCRD.Name)
+		} else {
+			logger.Error(err, "Error creating crd")
+		}
+	}
+
+	_, err = r.Manager.GetRESTMapper().RESTMapping(rrGVK.GroupKind(), rrGVK.Version)
+	return err == nil
 }
 
 func (r *PromiseReconciler) deletePromise(ctx context.Context, promise *v1alpha1.Promise, logger logr.Logger) (ctrl.Result, error) {
@@ -544,4 +541,28 @@ func generateCRDAndGVK(promise *v1alpha1.Promise, logger logr.Logger) (*apiexten
 	}
 
 	return rrCRD, rrGVK, nil
+}
+
+func (r *PromiseReconciler) createWorkResourceForWorkerClusterResources(ctx context.Context, promise *v1alpha1.Promise, logger logr.Logger) error {
+	workToCreate := &v1alpha1.Work{}
+	workToCreate.Spec.Replicas = v1alpha1.WorkerResourceReplicas
+	workToCreate.Name = promise.GetIdentifier()
+	workToCreate.Namespace = "default"
+	workToCreate.Labels = promise.GenerateSharedLabels()
+	workToCreate.Spec.ClusterSelector = promise.Spec.ClusterSelector
+	for _, u := range promise.Spec.WorkerClusterResources {
+		workToCreate.Spec.Workload.Manifests = append(workToCreate.Spec.Workload.Manifests, v1alpha1.Manifest{Unstructured: u.Unstructured})
+	}
+
+	logger.Info("Creating Work resource for promise")
+	err := r.Client.Create(ctx, workToCreate)
+	if err != nil {
+		if errors.IsAlreadyExists(err) {
+			logger.Info("Work already exist", "workName", workToCreate.Name)
+			return nil
+		}
+		return err
+	}
+
+	return nil
 }

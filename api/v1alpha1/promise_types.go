@@ -80,10 +80,9 @@ type Promise struct {
 	Status PromiseStatus `json:"status,omitempty"`
 }
 
-func (p *Promise) OnlyContainsWorkerClusterResources() bool {
+func (p *Promise) DoesNotContainXAASCrd() bool {
 	// if a request pipeline is set but there is not a CRD the pipeline is ignored
-	// TODO we should have a validating webhook to prevent people from having a
-	// request pipeline and no CRD
+	// TODO how can we prevent this scenario from happening
 	return p.Spec.XaasCrd.Raw == nil
 }
 
