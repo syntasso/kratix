@@ -80,6 +80,13 @@ type Promise struct {
 	Status PromiseStatus `json:"status,omitempty"`
 }
 
+func (p *Promise) OnlyContainsWorkerClusterResources() bool {
+	// if a request pipeline is set but there is not a CRD the pipeline is ignored
+	// TODO we should have a validating webhook to prevent people from having a
+	// request pipeline and no CRD
+	return p.Spec.XaasCrd.Raw == nil
+}
+
 func (p *Promise) GenerateSharedLabels() map[string]string {
 	return map[string]string{
 		"kratix-promise-id": p.GetIdentifier(),

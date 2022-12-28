@@ -19,6 +19,7 @@ package controllers
 import (
 	"context"
 	"encoding/json"
+	"strings"
 	"time"
 
 	controllerutil "sigs.k8s.io/controller-runtime/pkg/controller/controllerutil"
@@ -97,30 +98,63 @@ func (r *PromiseReconciler) Reconcile(ctx context.Context, req ctrl.Request) (ct
 	}
 	logger = r.Log.WithValues("identifier", promise.GetIdentifier())
 
-	configMapName := "cluster-selectors-" + promise.GetIdentifier()
-	configMapNamespace := "default"
-
 	//Instance-Level Reconciliation
 	crdToCreate := &apiextensionsv1.CustomResourceDefinition{}
-	err = json.Unmarshal(promise.Spec.XaasCrd.Raw, crdToCreate)
-	if err != nil {
-		logger.Error(err, "Failed unmarshalling CRD")
-		return ctrl.Result{}, nil
-	}
-	crdToCreate.Labels = labels.Merge(crdToCreate.Labels, promise.GenerateSharedLabels())
+	crdToCreateGvk := schema.GroupVersionKind{}
 
-	crdToCreateGvk := schema.GroupVersionKind{
-		Group:   crdToCreate.Spec.Group,
-		Version: crdToCreate.Spec.Versions[0].Name,
-		Kind:    crdToCreate.Spec.Names.Kind,
+	if !promise.OnlyContainsWorkerClusterResources() {
+		err = json.Unmarshal(promise.Spec.XaasCrd.Raw, crdToCreate)
+		if err != nil {
+			logger.Error(err, "Failed unmarshalling CRD")
+			return ctrl.Result{}, nil
+		}
+		crdToCreate.Labels = labels.Merge(crdToCreate.Labels, promise.GenerateSharedLabels())
+
+		crdToCreateGvk = schema.GroupVersionKind{
+			Group:   crdToCreate.Spec.Group,
+			Version: crdToCreate.Spec.Versions[0].Name,
+			Kind:    crdToCreate.Spec.Names.Kind,
+		}
 	}
 
 	if !promise.DeletionTimestamp.IsZero() {
 		return r.deletePromise(ctx, promise, crdToCreateGvk, logger)
 	}
 
-	if finalizersAreMissing(promise, promiseFinalizers) {
-		return addFinalizers(ctx, r.Client, promise, promiseFinalizers, logger)
+	finalizers := promiseFinalizers
+	if promise.OnlyContainsWorkerClusterResources() {
+		finalizers = []string{workerClusterResourcesCleanupFinalizer}
+	}
+
+	if finalizersAreMissing(promise, finalizers) {
+		logger.Info("finalisers to have: " + strings.Join(finalizers, "/n"))
+		return addFinalizers(ctx, r.Client, promise, finalizers, logger)
+	}
+
+	workToCreate := &v1alpha1.Work{}
+	workToCreate.Spec.Replicas = v1alpha1.WorkerResourceReplicas
+	workToCreate.Name = promise.GetIdentifier()
+	workToCreate.Namespace = "default"
+	workToCreate.Labels = promise.GenerateSharedLabels()
+	workToCreate.Spec.ClusterSelector = promise.Spec.ClusterSelector
+	for _, u := range promise.Spec.WorkerClusterResources {
+		workToCreate.Spec.Workload.Manifests = append(workToCreate.Spec.Workload.Manifests, v1alpha1.Manifest{Unstructured: u.Unstructured})
+	}
+
+	logger.Info("Creating Work resource for promise: " + promise.GetIdentifier())
+	err = r.Client.Create(ctx, workToCreate)
+	if err != nil {
+		if errors.IsAlreadyExists(err) {
+			logger.Info("Works already exist")
+		} else {
+			logger.Error(err, "Error creating Works")
+			return ctrl.Result{}, err
+		}
+	}
+
+	if promise.OnlyContainsWorkerClusterResources() {
+		logger.Info("Promise only contains WCRs, skipping creation of CRD and dynamic controller")
+		return ctrl.Result{}, nil
 	}
 
 	//this needs to be after RR deletion
@@ -140,32 +174,6 @@ func (r *PromiseReconciler) Reconcile(ctx context.Context, req ctrl.Request) (ct
 	if r.gvkDoesNotExist(crdToCreateGvk) {
 		logger.Info("Requeue:" + crdToCreate.Name + " is not ready on the API server yet.")
 		return defaultRequeue, nil
-	}
-
-	workToCreate := &v1alpha1.Work{}
-	workToCreate.Spec.Replicas = v1alpha1.WorkerResourceReplicas
-	workToCreate.Name = promise.GetIdentifier()
-	workToCreate.Namespace = "default"
-	workToCreate.Labels = promise.GenerateSharedLabels()
-	workToCreate.Spec.ClusterSelector = promise.Spec.ClusterSelector
-	for _, u := range promise.Spec.WorkerClusterResources {
-		workToCreate.Spec.Workload.Manifests = append(workToCreate.Spec.Workload.Manifests, v1alpha1.Manifest{Unstructured: u.Unstructured})
-	}
-
-	logger.Info("Creating Work resource for promise: " + promise.GetIdentifier())
-	err = r.Client.Create(ctx, workToCreate)
-	if err != nil {
-		if errors.IsAlreadyExists(err) {
-			// TODO: Test for existence and handle updates of all Promise resources gracefully.
-			//
-			// WARNING: This return means we will stop reconcilation here if the work already exists!
-			//       		All code below this we only attempt once (on first Works successful creation).
-			logger.Info("Works already exist")
-			return ctrl.Result{}, nil
-		} else {
-			logger.Error(err, "Error creating Works")
-			return ctrl.Result{}, err
-		}
 	}
 
 	// CONTROLLER RBAC
@@ -194,6 +202,13 @@ func (r *PromiseReconciler) Reconcile(ctx context.Context, req ctrl.Request) (ct
 	}
 	err = r.Client.Create(ctx, &cr)
 	if err != nil {
+		if errors.IsAlreadyExists(err) {
+			// TODO: Test for existence and handle updates of all Promise resources gracefully.
+			//
+			// WARNING: This return means we will stop reconcilation here if the resource already exists!
+			//       		All code below this we only attempt once (on first successful creation).
+			return ctrl.Result{}, nil
+		}
 		logger.Error(err, "Error creating ClusterRole")
 	}
 
@@ -283,6 +298,9 @@ func (r *PromiseReconciler) Reconcile(ctx context.Context, req ctrl.Request) (ct
 	} else {
 		logger.Info("Created ServiceAccount for Promise " + promise.GetIdentifier())
 	}
+
+	configMapName := "cluster-selectors-" + promise.GetIdentifier()
+	configMapNamespace := "default"
 
 	configMap := v1.ConfigMap{
 		ObjectMeta: metav1.ObjectMeta{

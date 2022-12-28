@@ -1,0 +1,11 @@
+---
+apiVersion: platform.kratix.io/v1alpha1
+kind: Promise
+metadata:
+  name: nil-xaas-promise
+spec:
+  workerClusterResources:
+    - apiVersion: v1
+      kind: Namespace
+      metadata:
+        name: a-non-crd-resource
