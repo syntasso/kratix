@@ -1,9 +1,0 @@
-apiVersion: v1
-kind: ServiceAccount
-metadata:
-  name: <tbr-applicationName>-service-account
-  namespace: default
-secrets:
-- name: <tbr-applicationName>-credentials
-imagePullSecrets:
-- name: <tbr-applicationName>-credentials

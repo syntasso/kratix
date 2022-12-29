@@ -464,7 +464,7 @@ var _ = Describe("kratix Platform Integration Test", func() {
 							Version: "v1",
 							Kind:    "postgres",
 						})).To(BeTrue())
-					}, timeout, interval).Should(Succeed())
+					}, extendedTimeout, interval).Should(Succeed())
 				})
 
 				By("creating the knative crds on the dev clusters", func() {
