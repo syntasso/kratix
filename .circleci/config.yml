@@ -163,6 +163,8 @@ workflows:
             branches:
               only: dev
       - build-and-push-images:
+          requires:
+            - git-merge
           matrix:
             parameters:
               image: [kratix, work-creator, samples]
