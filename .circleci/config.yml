@@ -15,6 +15,13 @@ executors:
     resource_class: large
 
 commands:
+  docker_login:
+    steps:
+      - run:
+          # https://circleci.com/docs/building-docker-images/#run-docker-commands-using-the-machine-executor
+          name: Docker Auth
+          command: |
+            echo "$DOCKER_PASSWORD" | docker login --username $DOCKER_USERNAME --password-stdin
   install_software:
     steps:
       - k8s/install
@@ -102,20 +109,19 @@ jobs:
           paths:
             - .
 
-  build-and-push-docker-images:
+  build-and-push-images:
     executor: machine-large
+    parameters:
+      image:
+        type: string
     steps:
       - attach_workspace:
           at: .
+      - docker_login
       - run:
-          # https://circleci.com/docs/building-docker-images/#run-docker-commands-using-the-machine-executor
-          name: Docker Auth
+          name: Build and push sample images
           command: |
-            echo "$DOCKER_PASSWORD" | docker login --username $DOCKER_USERNAME --password-stdin
-      - run:
-          name: Run Release script
-          command: |
-            ./scripts/build-all-images.sh
+            ./scripts/build-images << parameters.image >>
 
   git-push:
     executor: machine-large
@@ -156,9 +162,10 @@ workflows:
           filters:
             branches:
               only: dev
-      - build-and-push-docker-images:
-          requires:
-            - git-merge
+      - build-and-push-images:
+          matrix:
+            parameters:
+              image: [kratix, work-creator, samples]
       - git-push:
           requires:
-            - build-and-push-docker-images
+            - build-and-push-images
