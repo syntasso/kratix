@@ -1,5 +1,0 @@
-apiVersion: example.promise.syntasso.io/v1
-kind: Kubeflow-pipelines
-metadata:
-  name: test-kfp
-  namespace: default
