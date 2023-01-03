@@ -2,6 +2,7 @@ apiVersion: platform.kratix.io/v1alpha1
 kind: Promise
 metadata:
   name: jenkins-promise
+  namespace: default
 spec:
   clusterSelector:
     environment: dev

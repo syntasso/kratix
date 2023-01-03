@@ -3,3 +3,4 @@ apiVersion: example.promise.syntasso.io/v1
 kind: jenkins
 metadata:
   name: example
+  namespace: default

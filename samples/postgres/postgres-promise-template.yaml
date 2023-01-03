@@ -2,6 +2,7 @@ apiVersion: platform.kratix.io/v1alpha1
 kind: Promise
 metadata:
   name: ha-postgres-promise
+  namespace: default
 spec:
   #To build wrokerResources list run `worker-resource-builder -k8s-resources-directory ${PWD}/resources -promise ${PWD}/postgres-promise-template.yaml > postgres-promise.yaml`
   #workerClusterResources: 

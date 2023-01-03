@@ -2,6 +2,7 @@ apiVersion: platform.kratix.io/v1alpha1
 kind: Promise
 metadata:
   name: knative-serving-promise
+  namespace: default
 spec:
   #injected via: ./worker-resource-builder/worker-resource-builder -k8s-resources-directory ${PWD}/resources -promise ${PWD}/{promise-template}.yaml > jenkins-promise.yaml
   #workerClusterResources: 
