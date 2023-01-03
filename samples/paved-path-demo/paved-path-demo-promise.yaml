@@ -3,6 +3,7 @@ kind: Promise
 metadata:
   creationTimestamp: null
   name: paved-path-demo-promise
+  namespace: default
 spec:
   clusterSelector:
     environment: platform

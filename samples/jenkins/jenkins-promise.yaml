@@ -3,6 +3,7 @@ kind: Promise
 metadata:
   creationTimestamp: null
   name: jenkins-promise
+  namespace: default
 spec:
   clusterSelector:
     environment: dev
