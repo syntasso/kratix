@@ -66,21 +66,19 @@ func (r *ClusterReconciler) Reconcile(ctx context.Context, req ctrl.Request) (ct
 	}
 
 	bucketPath := cluster.Spec.BucketPath
-	err := r.createWorkerClusterResourceBucket(bucketPath)
-	if err != nil {
+	if err := r.createWorkerClusterResourceBucket(bucketPath); err != nil {
 		r.Log.Error(err, "unable to write worker cluster resources to bucket", "cluster", cluster.ClusterName, "bucketPath", bucketPath)
-		return fastRequeue, nil
-	}
-	err = r.createWorkerResources(bucketPath)
-	if err != nil {
-		r.Log.Error(err, "unable to write worker resources to bucket", "cluster", cluster.ClusterName, "bucketPath", bucketPath)
-		return fastRequeue, nil
+		return defaultRequeue, nil
 	}
 
-	err = r.Scheduler.ReconcileCluster()
-	if err != nil {
+	if err := r.createWorkerResources(bucketPath); err != nil {
+		r.Log.Error(err, "unable to write worker resources to bucket", "cluster", cluster.ClusterName, "bucketPath", bucketPath)
+		return defaultRequeue, nil
+	}
+
+	if err := r.Scheduler.ReconcileCluster(); err != nil {
 		r.Log.Error(err, "unable to schedule cluster resources", "cluster", cluster.ClusterName)
-		return fastRequeue, nil
+		return defaultRequeue, nil
 	}
 	return ctrl.Result{}, nil
 }
