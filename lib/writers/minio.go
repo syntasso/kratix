@@ -3,6 +3,7 @@ package writers
 import (
 	"bytes"
 	"context"
+	"fmt"
 
 	"github.com/go-logr/logr"
 	"github.com/minio/minio-go/v7"
@@ -51,7 +52,7 @@ func (b *MinIOWriter) WriteObject(bucketName string, objectName string, toWrite 
 			b.Log.Info("Minio Bucket already exists, will not recreate\n", "bucketName", bucketName)
 		} else {
 			b.Log.Error(err, "Error connecting to Minio")
-			return errBucketExists
+			return fmt.Errorf("error connecting to minio")
 		}
 	} else {
 		b.Log.Info("Successfully created Minio Bucket", "bucketName", bucketName)
