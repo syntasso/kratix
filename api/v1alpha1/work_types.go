@@ -75,7 +75,6 @@ type WorkloadTemplate struct {
 
 // Manifest represents a resource to be deployed on worker cluster
 type Manifest struct {
-	// +kubebuilder:validation:EmbeddedResource
 	// +kubebuilder:pruning:PreserveUnknownFields
 	unstructured.Unstructured `json:",inline"`
 }
