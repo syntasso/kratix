@@ -1,0 +1,23 @@
+#!/usr/bin/env sh
+
+set -x
+
+cat /intput/object.yaml
+
+name="$(yq '.spec.name' /input/object.yaml)"
+image="$(yq '.spec.image' /input/object.yaml)"
+port="$(yq '.spec.port' /input/object.yaml)"
+
+dbhost="$(yq '.spec.database.host' /input/object.yaml)"
+dbuser="$(yq '.spec.database.user' /input/object.yaml)"
+dbsecret="$(yq '.spec.database.secretKeyRef' /input/object.yaml)"
+dbname="$(yq '.spec.database.name' /input/object.yaml)"
+
+kn service create ${name} \
+  --image ${image} \
+  --port ${port} \
+  --env DB_HOST=${dbhost} \
+  --env DB_USER=${dbuser} \
+  --env DB_NAME=${dbname} \
+  --env-value-from DB_PASSWORD=secret:${dbsecret}:password \
+  --target /output/knative-service.yaml
