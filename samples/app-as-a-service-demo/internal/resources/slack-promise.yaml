@@ -1,0 +1,67 @@
+---
+apiVersion: platform.kratix.io/v1alpha1
+kind: Promise
+metadata:
+  name: slack
+  namespace: default
+spec:
+  xaasCrd:
+    apiVersion: apiextensions.k8s.io/v1
+    kind: CustomResourceDefinition
+    metadata:
+      name: slacks.marketplace.kratix.io
+    spec:
+      group: marketplace.kratix.io
+      names:
+        kind: slack
+        plural: slacks
+        singular: slack
+      scope: Namespaced
+      versions:
+        - name: v1alpha1
+          schema:
+            openAPIV3Schema:
+              properties:
+                spec:
+                  required:
+                    - message
+                  properties:
+                    message:
+                      type: string
+                      description: |
+                        The message to be sent
+                  type: object
+              type: object
+          served: true
+          storage: true
+  xaasRequestPipeline:
+    - ghcr.io/syntasso/kratix-marketplace/slack-request-pipeline:v0.1.0
+  clusterSelector:
+    environment: dev
+---
+apiVersion: rbac.authorization.k8s.io/v1
+kind: ClusterRole
+metadata:
+  name: slack-default-promise-pipeline-credentials
+rules:
+  - apiGroups:
+      - ""
+    resources:
+      - secrets
+    verbs:
+      - get
+    resourceNames:
+      - slack-channel-hook
+---
+apiVersion: rbac.authorization.k8s.io/v1
+kind: ClusterRoleBinding
+metadata:
+  name: slack-default-promise-pipeline-credentials
+roleRef:
+  apiGroup: rbac.authorization.k8s.io
+  kind: ClusterRole
+  name: slack-default-promise-pipeline-credentials
+subjects:
+  - kind: ServiceAccount
+    name: slack-default-promise-pipeline
+    namespace: default
