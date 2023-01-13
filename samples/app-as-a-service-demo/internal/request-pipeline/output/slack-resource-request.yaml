@@ -1,0 +1,7 @@
+apiVersion: marketplace.kratix.io/v1alpha1
+kind: slack
+metadata:
+  name: todo
+  namespace: default
+spec:
+  message: "Deploying app: todo"

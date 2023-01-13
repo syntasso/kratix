@@ -1,0 +1,24 @@
+#!/usr/bin/env bash
+
+PWD="$( cd $(dirname $0)/.. && pwd)"
+
+mkdir -p $PWD/request-pipeline/resources
+
+# knative rr
+# postgres rr
+# slack rr
+
+
+urls=(
+    "https://raw.githubusercontent.com/syntasso/kratix-marketplace/main/postgresql/resource-request.yaml"
+    "https://raw.githubusercontent.com/syntasso/kratix-marketplace/main/slack/resource-request.yaml"
+    "https://raw.githubusercontent.com/syntasso/kratix-marketplace/main/knative/resource-request.yaml"
+    "https://raw.githubusercontent.com/syntasso/kratix/dev/samples/knative-service/resource-request.yaml"
+)
+
+mkdir -p ${PWD}/resources
+
+for url in "${urls[@]}"; do
+    promise_name=$(basename $(dirname $url))
+    curl -sL -o $PWD/request-pipeline/resources/${promise_name}-$(basename $url) $url
+done

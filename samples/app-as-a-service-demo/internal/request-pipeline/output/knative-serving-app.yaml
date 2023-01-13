@@ -1,0 +1,19 @@
+apiVersion: serving.knative.dev/v1
+kind: Service
+metadata:
+  name: todo
+spec:
+  template:
+    spec:
+      containers:
+        - image: syntasso/sample-todo-app
+          ports:
+            - containerPort: 8080
+          env:
+            - name: PGPASSWORD
+              valueFrom:
+                secretKeyRef:
+                  name: postgres.acid-minimal-cluster.credentials
+                  key: password
+            - name: PGHOST
+              value: acid-minimal-cluster.default.svc.cluster.local
