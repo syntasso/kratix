@@ -20,6 +20,15 @@ To install:
 kubectl create -f https://raw.githubusercontent.com/syntasso/kratix/main/samples/app-as-a-service-demo/promise.yaml
 ```
 
+Make sure you install the Slack hook on the platform before making the resource request.
+
+> (via the [Slack Promise](https://github.com/syntasso/kratix-marketplace/tree/main/slack) in the Marketplace) This promise uses a Slack hook to send messages to a channel. To provide access to this hook, create a secret in default namespace called slack-channel-hook with a .data.url field containing the hook. You can create it using the following command on the platform cluster (ensure you have SLACK_HOOK_URL env var exported):
+
+```
+kubectl --namespace default create secret generic \
+  slack-channel-hook --from-literal=url=${SLACK_HOOK_URL}
+```
+
 To make a resource request:
 
 ```
