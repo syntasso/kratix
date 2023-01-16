@@ -57,7 +57,6 @@ type PromiseSpec struct {
 type WorkerClusterResource struct {
 	// Manifests represents a list of kubernetes resources to be deployed on the worker cluster.
 	// +optional
-	// +kubebuilder:validation:EmbeddedResource
 	// +kubebuilder:pruning:PreserveUnknownFields
 	unstructured.Unstructured `json:",inline"`
 }
