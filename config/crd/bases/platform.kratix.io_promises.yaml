@@ -44,7 +44,6 @@ spec:
                   description: Resources represents the manifest workload to be deployed
                     on worker cluster
                   type: object
-                  x-kubernetes-embedded-resource: true
                   x-kubernetes-preserve-unknown-fields: true
                 type: array
               xaasCrd:
