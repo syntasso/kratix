@@ -1,0 +1,18 @@
+#!/usr/bin/env bash
+set -e
+
+test_promise() {
+  kubectl get crd elasticsearches.elasticsearch.k8s.elastic.co
+  kubectl wait --for=condition=ready --namespace elastic-system pod/elastic-operator-0
+}
+
+test_resource_request() {
+  kubectl wait --for=condition=ElasticsearchIsReachable elasticsearches example
+  kubectl wait --for=condition=available deployment.apps example-kb
+}
+
+if [ "$1" = "promise" ]; then
+  test_promise
+else
+  test_resource_request
+fi

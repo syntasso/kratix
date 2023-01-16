@@ -2,9 +2,7 @@
 
 set -x
 
-cat /intput/object.yaml
-
-name="$(yq '.spec.name' /input/object.yaml)"
+export name="$(yq '.spec.name' /input/object.yaml)"
 image="$(yq '.spec.image' /input/object.yaml)"
 port="$(yq '.spec.port' /input/object.yaml)"
 
@@ -21,3 +19,11 @@ kn service create ${name} \
   --env DB_NAME=${dbname} \
   --env-value-from DB_PASSWORD=secret:${dbsecret}:password \
   --target /output/knative-service.yaml
+
+cat /tmp/transfer/knative-serving.yaml \
+  | yq '.metadata.name = env(name) | .metadata.namespace = "default"' \
+  > /output/knative-serving.yaml
+
+cat /tmp/transfer/namespace.yaml \
+  | yq '.metadata.name = "default"' \
+  > /output/namespace.yaml
