@@ -25,10 +25,6 @@ cat /tmp/transfer/knative-service-resource-request.yaml \
    | .spec.database.secretKeyRef = "postgres.acid-" + env(name) + "-postgresql.credentials.postgresql.acid.zalan.do"' \
   > /output/knative-service-resource-request.yaml
 
-cat /tmp/transfer/knative-resource-request.yaml \
-  | yq eval '.metadata.name = env(name)' \
-  > /output/knative-resource-request.yaml
-
 cat /tmp/transfer/slack-resource-request.yaml \
   | yq eval '.metadata.name = env(name) | .spec.message = "Deploying app: " + env(name)' \
   > /output/slack-resource-request.yaml
