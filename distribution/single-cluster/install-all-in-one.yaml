@@ -110,7 +110,6 @@ spec:
                   description: Resources represents the manifest workload to be deployed
                     on worker cluster
                   type: object
-                  x-kubernetes-embedded-resource: true
                   x-kubernetes-preserve-unknown-fields: true
                 type: array
               xaasCrd:
@@ -254,7 +253,6 @@ spec:
                       description: Manifest represents a resource to be deployed on
                         worker cluster
                       type: object
-                      x-kubernetes-embedded-resource: true
                       x-kubernetes-preserve-unknown-fields: true
                     type: array
                 type: object
@@ -580,7 +578,7 @@ metadata:
 ---
 apiVersion: v1
 data:
-  WC_IMG: syntasso/kratix-platform-work-creator:b88e0b2750c8ca195c3dd266209fd1cd55d68e5e
+  WC_IMG: syntasso/kratix-platform-work-creator:5820d3b499fd7a7e512bc92c244b84a71fb233ea
 kind: ConfigMap
 metadata:
   name: kratix-platform-wc-img-config
@@ -642,7 +640,7 @@ spec:
             configMapKeyRef:
               key: WC_IMG
               name: kratix-platform-wc-img-config
-        image: syntasso/kratix-platform:b88e0b2750c8ca195c3dd266209fd1cd55d68e5e
+        image: syntasso/kratix-platform:5820d3b499fd7a7e512bc92c244b84a71fb233ea
         livenessProbe:
           httpGet:
             path: /healthz
