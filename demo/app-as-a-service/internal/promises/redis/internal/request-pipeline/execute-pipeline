@@ -1,0 +1,21 @@
+#!/usr/bin/env sh
+
+set -x
+
+# Read current values from the provided resource request
+export name="$(yq eval '.metadata.name' /input/object.yaml)"
+export size="$(yq eval '.spec.size' /input/object.yaml)"
+
+# default small size
+export replicas=1
+
+if [ $size = large ]; then
+  replicas=3
+fi
+
+# Replace defaults with user provided values
+cat /tmp/transfer/redis-instance.yaml |  \
+  yq eval '.metadata.name = env(name)' | \
+  yq eval '.spec.redis.replicas = env(replicas)' | \
+  yq eval '.spec.sentinel.replicas = env(replicas)' - \
+  > /output/redis-instance.yaml

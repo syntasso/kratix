@@ -1,0 +1,33 @@
+apiVersion: databases.spotahome.com/v1
+kind: RedisFailover
+metadata:
+  name: NAME_PLACEHOLDER
+  namespace: default
+spec:
+  redis:
+    replicas: 3
+    customConfig:
+      - "maxclients 100"
+      - "hz 50"
+      - "timeout 60"
+      - "tcp-keepalive 60"
+      - "client-output-buffer-limit normal 0 0 0"
+      - "client-output-buffer-limit slave 1000000000 1000000000 0"
+      - "client-output-buffer-limit pubsub 33554432 8388608 60"
+    resources:
+      limits:
+        cpu: 400m
+        memory: 500Mi
+      requests:
+        cpu: 100m
+        memory: 100Mi
+  sentinel:
+    replicas: 3
+    customConfig:
+      - "down-after-milliseconds 2000"
+      - "failover-timeout 3000"
+    resources:
+      limits:
+        memory: 100Mi
+      requests:
+        cpu: 100m

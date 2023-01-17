@@ -1,0 +1,7 @@
+apiVersion: marketplace.kratix.io/v1alpha1
+kind: slack
+metadata:
+  name: example
+  namespace: default
+spec:
+  message: "hello world :wave:"

@@ -1,0 +1,19 @@
+#!/usr/bin/env sh
+
+set -xe
+
+slack_hook="$(kubectl get secret slack-channel-hook -o=jsonpath='{.data.url}' | base64 -d)"
+# Read current values from the provided resource request
+message="$(yq eval '.spec.message' /input/object.yaml)"
+
+ curl -X POST -H 'Content-type: application/json' \
+      --data "{
+        \"blocks\": [{
+          \"type\": \"section\",
+          \"text\": {
+            \"type\": \"mrkdwn\",
+            \"text\": \"${message}\"
+          }
+        }]
+      }" \
+      ${slack_hook}

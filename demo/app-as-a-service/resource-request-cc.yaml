@@ -1,0 +1,11 @@
+---
+apiVersion: example.promise.syntasso.io/v1
+kind: app
+metadata:
+  name: app-as-a-service-demo
+  namespace: default
+spec:
+  name: todo
+  image: syntasso/sample-todo-app
+  dbDriver: postgres
+  containsCreditCardData: true

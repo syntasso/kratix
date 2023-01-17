@@ -1,0 +1,16 @@
+#!/usr/bin/env bash
+
+PWD="$( cd $(dirname $0)/.. && pwd)"
+
+mkdir -p $PWD/request-pipeline/resources
+
+promises=(
+    "postgresql"
+    "knative-service"
+    "redis"
+    "slack"
+    )
+
+for promise in "${promises[@]}"; do
+    cp $PWD/promises/${promise}/resource-request.yaml $PWD/request-pipeline/resources/${promise}-resource-request.yaml
+done
