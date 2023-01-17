@@ -1,0 +1,13 @@
+#!/usr/bin/env bash
+
+PWD="$( cd $(dirname $0)/.. && pwd)"
+
+urls=(
+    "https://raw.githubusercontent.com/zalando/postgres-operator/master/manifests/postgresql.crd.yaml"
+    "https://raw.githubusercontent.com/zalando/postgres-operator/master/manifests/postgresteam.crd.yaml"
+    "https://raw.githubusercontent.com/zalando/postgres-operator/master/manifests/operatorconfiguration.crd.yaml"
+)
+
+for url in "${urls[@]}"; do
+    curl -sL -o $PWD/resources/$(basename $url) $url
+done

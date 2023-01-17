@@ -1,7 +1,0 @@
-apiVersion: marketplace.kratix.io/v1alpha1
-kind: knative
-metadata:
-  name: todo
-  namespace: default
-spec:
-  env: dev

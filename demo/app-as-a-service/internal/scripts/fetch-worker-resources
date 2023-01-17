@@ -1,0 +1,15 @@
+#!/usr/bin/env bash
+
+PWD="$( cd $(dirname $0)/.. && pwd)"
+
+
+promises=(
+    "postgresql"
+    "knative-service"
+    "redis"
+    "slack"
+    )
+
+for promise in "${promises[@]}"; do
+    cat ${PWD}/promises/${promise}/promise.yaml | yq eval '(select(.kind == "Promise") | .spec.clusterSelector) = { "environment": "dev" }' > $PWD/resources/${promise}-promise.yaml
+done

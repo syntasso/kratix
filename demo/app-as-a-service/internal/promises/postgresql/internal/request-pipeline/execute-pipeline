@@ -1,0 +1,30 @@
+#!/usr/bin/env sh
+
+set -x
+
+base_instance="/tmp/transfer/postgresql-instance.yaml"
+
+# Read current values from the provided resource request
+name="$(yq eval '.metadata.name' /input/object.yaml)"
+
+env_type="$(yq eval '.spec.env // "dev"' /input/object.yaml)"
+team="$(yq eval '.spec.teamId' /input/object.yaml)"
+dbname="$(yq eval '.spec.dbName // "postgres"' /input/object.yaml)"
+
+backup="false"
+size="1Gi"
+instances="1"
+if [ $env_type = "prod" ]; then
+  backup="true"
+  size="10Gi"
+  instances="3"
+fi
+
+# Replace defaults with user provided values
+cat ${base_instance} |
+  sed "s/TEAM/${team}/g" |
+  sed "s/BACKUP/${backup}/g" |
+  sed "s/SIZE/${size}/g" |
+  sed "s/DBNAME/${dbname}/g" |
+  sed "s/INSTANCES/${instances}/g" |
+  sed "s/NAME/${name}/g" > /output/postgres-instance.yaml
