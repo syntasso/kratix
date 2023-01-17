@@ -40,7 +40,7 @@ This resource request deploys the Kratix [sample Golang app](https://github.com/
 To test the sample app once it is successfully deployed, port forward with command below and access at `http://todo.default.local.gd:8081`:
 
 ```
-kubectl --context kind-worker --namespace kourier-system port-forward svc/kourier 8081:80
+kubectl --context kind-worker --namespace knative-serving port-forward svc/kourier 8081:80
 ```
 
 ## Development

@@ -21,9 +21,9 @@ kn service create ${name} \
   --target /output/knative-service.yaml
 
 cat /tmp/transfer/knative-serving.yaml \
-  | yq '.metadata.name = env(name) | .metadata.namespace = "default"' \
+  | yq '.metadata.name = env(name) | .metadata.namespace = "knative-serving"' \
   > /output/knative-serving.yaml
 
 cat /tmp/transfer/namespace.yaml \
-  | yq '.metadata.name = "default"' \
+  | yq '.metadata.name = "knative-serving"' \
   > /output/namespace.yaml
