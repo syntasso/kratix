@@ -16,6 +16,10 @@ if [ $db_driver = 'postgres' ]; then
     > /output/postgresql-resource-request.yaml
 fi
 
+cat /tmp/transfer/redis-resource-request.yaml \
+  | yq eval '.metadata.name = env(name)' \
+  > /output/redis-resource-request.yaml
+
 cat /tmp/transfer/knative-service-resource-request.yaml \
   | yq eval '.metadata.name = env(name)
    | .spec.name = env(name)

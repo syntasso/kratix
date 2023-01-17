@@ -6,7 +6,8 @@ PWD="$( cd $(dirname $0)/.. && pwd)"
 urls=(
     "https://raw.githubusercontent.com/syntasso/kratix-marketplace/main/postgresql/promise.yaml"
     "https://raw.githubusercontent.com/syntasso/kratix-marketplace/main/slack/promise.yaml"
-    # "https://raw.githubusercontent.com/syntasso/kratix/dev/samples/knative-service/promise.yaml"
+    "https://raw.githubusercontent.com/syntasso/kratix-marketplace/main/redis/promise.yaml"
+    "https://raw.githubusercontent.com/syntasso/kratix/dev/samples/knative-service/promise.yaml"
 )
 
 mkdir -p ${PWD}/resources
@@ -15,5 +16,3 @@ for url in "${urls[@]}"; do
     promise_name=$(basename $(dirname $url))
     curl -sL $url | yq eval '(select(.kind == "Promise") | .spec.clusterSelector) = { "environment": "dev" }' > $PWD/resources/${promise_name}-$(basename $url)
 done
-
-cp ~/workspace/kratix/samples/knative-service/promise.yaml $PWD/resources/knative-service-promise.yaml
