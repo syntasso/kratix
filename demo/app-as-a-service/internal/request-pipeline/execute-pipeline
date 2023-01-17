@@ -6,13 +6,18 @@ set -x
 export name="$(yq eval '.spec.name' /input/object.yaml)"
 export image="$(yq eval '.spec.image' /input/object.yaml)"
 export db_driver="$(yq eval '.spec.dbDriver' /input/object.yaml)"
-export region="$(yq eval '.spec.region' /input/object.yaml)"
+export contains_cc="$(yq eval '.spec.containsCreditCardData' /input/object.yaml)"
 export db_name="${name}db"
+
+
+[[ $contains_cc = 'true' ]] && export clusterLabels="{pci: true}" || export clusterLabels="{}"
 
 if [ $db_driver = 'postgres' ]; then
   # set values that work with sample app at https://github.com/syntasso/sample-golang-app
   cat /tmp/transfer/postgresql-resource-request.yaml \
-    | yq eval '.metadata.name = env(name) | .spec.dbName = env(db_name)' \
+    | yq eval '.metadata.name = env(name)
+      | .spec.dbName = env(db_name)
+      | .spec.clusterSelectors = env(clusterLabels)' \
     > /output/postgresql-resource-request.yaml
 fi
 

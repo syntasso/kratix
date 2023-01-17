@@ -8,3 +8,4 @@ spec:
   name: todo
   image: syntasso/sample-todo-app
   dbDriver: postgres
+  containsCreditCardData: true

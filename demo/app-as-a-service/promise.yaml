@@ -12956,13 +12956,10 @@ spec:
                     type: string
                   name:
                     type: string
-                  region:
-                    default: eu
-                    description: region where application will be running
-                    enum:
-                    - eu
-                    - us
-                    type: string
+                  containsCreditCardData:
+                    description: presence of customer credit card information
+                    default: false
+                    type: boolean
                 required:
                 - name
                 - image
