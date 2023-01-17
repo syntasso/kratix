@@ -8,6 +8,7 @@ urls=(
     "https://raw.githubusercontent.com/syntasso/kratix-marketplace/main/postgresql/resource-request.yaml"
     "https://raw.githubusercontent.com/syntasso/kratix-marketplace/main/slack/resource-request.yaml"
     "https://raw.githubusercontent.com/syntasso/kratix/dev/samples/knative-service/resource-request.yaml"
+    "https://raw.githubusercontent.com/syntasso/kratix-marketplace/main/redis/resource-request.yaml"
 )
 
 for url in "${urls[@]}"; do
