@@ -36,22 +36,20 @@ spec:
           storage: true
   xaasRequestPipeline:
     - ghcr.io/syntasso/kratix-marketplace/slack-request-pipeline:v0.1.0
-  clusterSelector:
-    environment: dev
 ---
 apiVersion: rbac.authorization.k8s.io/v1
 kind: ClusterRole
 metadata:
   name: slack-default-promise-pipeline-credentials
 rules:
-  - apiGroups:
-      - ""
-    resources:
-      - secrets
-    verbs:
-      - get
-    resourceNames:
-      - slack-channel-hook
+- apiGroups:
+  - ""
+  resources:
+  - secrets
+  verbs:
+  - get
+  resourceNames:
+  - slack-channel-hook
 ---
 apiVersion: rbac.authorization.k8s.io/v1
 kind: ClusterRoleBinding
@@ -62,6 +60,6 @@ roleRef:
   kind: ClusterRole
   name: slack-default-promise-pipeline-credentials
 subjects:
-  - kind: ServiceAccount
-    name: slack-default-promise-pipeline
-    namespace: default
+- kind: ServiceAccount
+  name: slack-default-promise-pipeline
+  namespace: default

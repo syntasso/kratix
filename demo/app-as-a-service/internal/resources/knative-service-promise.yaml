@@ -4851,5 +4851,5 @@ spec:
           served: true
           storage: true
   xaasRequestPipeline:
-    - syntasso/kn-service-request-pipeline:v0.1.0
+    - syntasso/demo-knative-service-request-pipeline:v0.1.0
 status: {}

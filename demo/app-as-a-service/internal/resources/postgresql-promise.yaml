@@ -1826,7 +1826,7 @@ spec:
           served: true
           storage: true
   xaasRequestPipeline:
-    - ghcr.io/syntasso/kratix-marketplace/postgresql-request-pipeline:v0.1.0
+    - syntasso/demo-postgresql-request-pipeline:v0.1.0
   clusterSelector:
     environment: dev
 status: {}
