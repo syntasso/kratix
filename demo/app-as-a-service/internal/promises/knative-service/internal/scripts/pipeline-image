@@ -1,34 +1,5 @@
 #!/usr/bin/env bash
 
-set -e
-
 PWD="$( cd $(dirname $0)/.. && pwd)"
-pipeline_image="syntasso/kn-service-request-pipeline:v0.1.0"
 
-while [ $# -gt 0 ]; do
-  case "$1" in
-    build)
-      docker build \
-        --tag "${pipeline_image}" \
-        --platform linux/amd64 \
-        "${PWD}/request-pipeline" ;;
-
-    load)
-      kind load docker-image "${pipeline_image}" --name platform ;;
-
-    push)
-      docker push "${pipeline_image}" ;;
-
-    rmi)
-      docker rmi --force "${pipeline_image}" ;;
-
-    pull)
-      docker pull "${pipeline_image}" ;;
-
-    *)
-      echo "unknown command $1"
-      exit 1
-      ;;
-  esac
-  shift
-done
+source ${PWD}/../../../../../scripts/pipeline-image

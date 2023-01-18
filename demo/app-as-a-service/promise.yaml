@@ -12968,5 +12968,5 @@ spec:
         served: true
         storage: true
   xaasRequestPipeline:
-  - syntasso/app-request-pipeline:v0
+  - syntasso/demo-app-as-a-service-request-pipeline:v0.1.0
 status: {}
