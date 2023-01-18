@@ -22,11 +22,13 @@ if [ $db_driver = 'postgres' ]; then
 fi
 
 cat /tmp/transfer/redis-resource-request.yaml \
-  | yq eval '.metadata.name = env(name)' \
+  | yq eval '.metadata.name = env(name)
+  | .spec.clusterSelectors = env(clusterLabels)' \
   > /output/redis-resource-request.yaml
 
 cat /tmp/transfer/knative-service-resource-request.yaml \
   | yq eval '.metadata.name = env(name)
+   | .spec.clusterSelectors = env(clusterLabels)
    | .spec.name = env(name)
    | .spec.image = env(image)
    | .spec.database.host = "acid-" + env(name) + "-postgresql.default.svc.cluster.local"

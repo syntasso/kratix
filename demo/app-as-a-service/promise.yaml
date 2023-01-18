@@ -7535,6 +7535,11 @@ spec:
                 properties:
                   spec:
                     properties:
+                      clusterSelectors:
+                        description: |
+                          List of key:value pairs to use as cluster selectors when scheduling
+                        type: object
+                        x-kubernetes-preserve-unknown-fields: true
                       database:
                         properties:
                           host:
@@ -7558,7 +7563,7 @@ spec:
             served: true
             storage: true
       xaasRequestPipeline:
-      - syntasso/kn-service-request-pipeline:v0.1.0
+      - syntasso/demo-knative-service-request-pipeline:v0.1.0
     status: {}
   - apiVersion: platform.kratix.io/v1alpha1
     kind: Promise
@@ -9374,6 +9379,11 @@ spec:
                 properties:
                   spec:
                     properties:
+                      clusterSelectors:
+                        description: |
+                          List of key:value pairs to use as cluster selectors when scheduling
+                        type: object
+                        x-kubernetes-preserve-unknown-fields: true
                       dbName:
                         default: postgres
                         description: |
@@ -9395,7 +9405,7 @@ spec:
             served: true
             storage: true
       xaasRequestPipeline:
-      - ghcr.io/syntasso/kratix-marketplace/postgresql-request-pipeline:v0.1.0
+      - syntasso/demo-postgresql-request-pipeline:v0.1.0
     status: {}
   - apiVersion: platform.kratix.io/v1alpha1
     kind: Promise
@@ -12847,6 +12857,11 @@ spec:
                 properties:
                   spec:
                     properties:
+                      clusterSelectors:
+                        description: |
+                          List of key:value pairs to use as cluster selectors when scheduling
+                        type: object
+                        x-kubernetes-preserve-unknown-fields: true
                       size:
                         default: small
                         description: |
@@ -12858,7 +12873,7 @@ spec:
             served: true
             storage: true
       xaasRequestPipeline:
-      - ghcr.io/syntasso/kratix-marketplace/redis-request-pipeline:v0.1.0
+      - syntasso/demo-redis-request-pipeline:v0.1.0
     status: {}
   - apiVersion: platform.kratix.io/v1alpha1
     kind: Promise
@@ -12866,8 +12881,6 @@ spec:
       name: slack
       namespace: default
     spec:
-      clusterSelector:
-        environment: dev
       xaasCrd:
         apiVersion: apiextensions.k8s.io/v1
         kind: CustomResourceDefinition
@@ -12943,6 +12956,10 @@ spec:
             properties:
               spec:
                 properties:
+                  containsCreditCardData:
+                    default: false
+                    description: presence of customer credit card information
+                    type: boolean
                   dbDriver:
                     default: none
                     description: database deployed with application
@@ -12956,10 +12973,6 @@ spec:
                     type: string
                   name:
                     type: string
-                  containsCreditCardData:
-                    description: presence of customer credit card information
-                    default: false
-                    type: boolean
                 required:
                 - name
                 - image

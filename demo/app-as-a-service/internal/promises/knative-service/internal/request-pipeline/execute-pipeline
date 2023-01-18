@@ -11,6 +11,9 @@ dbuser="$(yq '.spec.database.user' /input/object.yaml)"
 dbsecret="$(yq '.spec.database.secretKeyRef' /input/object.yaml)"
 dbname="$(yq '.spec.database.name' /input/object.yaml)"
 
+cluster_selectors="$(yq eval '.spec.clusterSelectors // {}' /input/object.yaml)"
+echo $cluster_selectors > /metadata/cluster-selectors.yaml
+
 kn service create ${name} \
   --image ${image} \
   --port ${port} \
