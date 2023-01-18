@@ -3,9 +3,10 @@ package controllers
 import (
 	"context"
 	"fmt"
-	"k8s.io/client-go/kubernetes/scheme"
 	"math/rand"
 	"time"
+
+	"k8s.io/client-go/kubernetes/scheme"
 
 	"github.com/go-logr/logr"
 	platformv1alpha1 "github.com/syntasso/kratix/api/v1alpha1"
@@ -43,8 +44,11 @@ func (r *Scheduler) ReconcileCluster() error {
 func (r *Scheduler) ReconcileWork(work *platformv1alpha1.Work) error {
 	targetClusterNames := r.getTargetClusterNames(work)
 	if len(targetClusterNames) == 0 {
-		return fmt.Errorf("no Clusters can be selected for clusterSelector " + labels.FormatLabels(work.Spec.ClusterSelector))
+		r.Log.Info("no Clusters can be selected for clusterSelector", "clusterSelectors", labels.FormatLabels(work.Spec.ClusterSelector))
+		return fmt.Errorf("no Clusters can be selected for clusterSelector")
 	}
+
+	r.Log.Info("found available target clusters", "clusters", targetClusterNames)
 	return r.createWorkplacementsForTargetClusters(work, targetClusterNames)
 }
 
