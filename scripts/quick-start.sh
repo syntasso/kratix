@@ -13,19 +13,21 @@ GITOPS_WORKER_INSTALL="${ROOT}/hack/worker/gitops-tk-install.yaml"
 GITOPS_WORKER_RESOURCES="${ROOT}/hack/worker/gitops-tk-resources.yaml"
 
 RECREATE=false
-LOCAL_IMAGES=false
 GIT_REPO=false
+LOCAL_IMAGES_DIR=""
 VERSION=${VERSION:-"$(cd $ROOT; git branch --show-current)"}
 DOCKER_BUILDKIT="${DOCKER_BUILDKIT:-1}"
 
 WAIT_TIMEOUT="180s"
+KIND_IMAGE="${KIND_IMAGE:-"kindest/node:v1.24.7"}"
 
 usage() {
-    echo -e "Usage: quick-start.sh [--help] [--recreate] [--local] [--git]"
-    echo -e "\t--help, -h\t Prints this message"
-    echo -e "\t--recreate, -r\t Deletes pre-existing KinD Clusters"
-    echo -e "\t--local, -l\t Build and load Kratix images to KinD cache"
-    echo -e "\t--git, -g\t Use Gitea as local repository in place of default local MinIO"
+    echo -e "Usage: quick-start.sh [--help] [--recreate] [--local] [--git] [--local-images <location>]"
+    echo -e "\t--help, -h            Prints this message"
+    echo -e "\t--recreate, -r        Deletes pre-existing KinD Clusters"
+    echo -e "\t--local, -l           Build and load Kratix images to KinD cache"
+    echo -e "\t--local-images, -i    Load container images from a local directory into the KinD clusters"
+    echo -e "\t--git, -g             Use Gitea as local repository in place of default local MinIO"
     exit "${1:-0}"
 }
 
@@ -33,21 +35,23 @@ load_options() {
     for arg in "$@"; do
       shift
       case "$arg" in
-        '--help')     set -- "$@" '-h'   ;;
-        '--recreate') set -- "$@" '-r'   ;;
-        '--local')    set -- "$@" '-l'   ;;
-        '--git')      set -- "$@" '-g'   ;;
-        *)            set -- "$@" "$arg" ;;
+        '--help')           set -- "$@" '-h'   ;;
+        '--recreate')       set -- "$@" '-r'   ;;
+        '--local')          set -- "$@" '-l'   ;;
+        '--git')            set -- "$@" '-g'   ;;
+        '--local-images')   set -- "$@" '-i'   ;;
+        *)                  set -- "$@" "$arg" ;;
       esac
     done
 
     OPTIND=1
-    while getopts "hrlg" opt
+    while getopts "hrlgi:" opt
     do
       case "$opt" in
         'r') RECREATE=true ;;
         'h') usage ;;
-        'l') LOCAL_IMAGES=true ;;
+        'l') BUILD_KRATIX_IMAGES=true ;;
+        'i') LOCAL_IMAGES_DIR=${OPTARG} ;;
         'g') GIT_REPO=true;;
         *) usage 1 ;;
       esac
@@ -56,7 +60,7 @@ load_options() {
 
     # Always build local images when running from `dev`
     if [ "${VERSION}" = "dev" ]; then
-        LOCAL_IMAGES=true
+        BUILD_KRATIX_IMAGES=true
     fi
 }
 
@@ -199,19 +203,63 @@ wait_for_namespace() {
     return 0
 }
 
+load_kind_image() {
+    pushd "${LOCAL_IMAGES_DIR}" > /dev/null
+    kind_image=$(ls kindest*.tar)
+    load_output=$(docker load --input ${kind_image} | tail -1)
+
+    if [[ "${load_output}" =~ "Loaded image ID" ]]; then
+        image_id=$(echo "${load_output}" | cut -d":" -f 3 | tr -d " ")
+        image_tag="$(echo "${kind_image%.tar}" | sed "s/__/\//g")"
+        docker tag "$image_id" "$image_tag"
+    fi
+    popd > /dev/null
+}
+
+load_images() {
+    ps_ids=()
+    local cluster="$1"
+    pushd ${LOCAL_IMAGES_DIR} > /dev/null
+    for image_tar in $(ls *.tar | grep -v kindest); do
+        kind load image-archive --name "$cluster" "$image_tar" &
+        ps_ids+=("$!")
+    done
+    popd > /dev/null
+
+    for ps_id in "${ps_ids[@]}"; do
+        wait $ps_id
+    done
+}
+
 install_kratix() {
     verify_prerequisites
 
+    if [ -d "${LOCAL_IMAGES_DIR}" ]; then
+        log -n "Loading KinD images... "
+        if ! run load_kind_image; then
+            error "Failed to load KinD image"
+            exit 1;
+        fi
+    fi
+
     log -n "Creating platform cluster..."
-    if ! run kind create cluster --name platform --image kindest/node:v1.24.0 \
+    if ! run kind create cluster --name platform --image $KIND_IMAGE \
         --config ${ROOT}/hack/platform/kind-platform-config.yaml
     then
         error "Could not create platform cluster"
         exit 1
     fi
 
-    if ${LOCAL_IMAGES}; then
+    if ${BUILD_KRATIX_IMAGES}; then
         build_and_load_local_images
+    fi
+
+    if [ -d "${LOCAL_IMAGES_DIR}" ]; then
+        log -n "Loading images in platform cluster..."
+        if ! run load_images platform; then
+            error "Failed to load images in platform cluster"
+            exit 1;
+        fi
     fi
 
     log -n "Setting up platform cluster..."
@@ -221,7 +269,7 @@ install_kratix() {
     fi
 
     log -n "Creating worker cluster..."
-    if ! run kind create cluster --name worker --image kindest/node:v1.24.0; then
+    if ! run kind create cluster --name worker --image $KIND_IMAGE; then
         error "Could not create worker cluster"
         exit 1
     fi
@@ -233,6 +281,14 @@ install_kratix() {
         log "This script will continue to wait for the local repository to come up. You can kill it with $(info "CTRL+C.")"
         log -n "\nWaiting for the local repository to be running... "
         run wait_for_local_repository --no-timeout
+    fi
+
+    if [ -d "${LOCAL_IMAGES_DIR}" ]; then
+        log -n "Loading images in worker cluster..."
+        if ! run load_images worker; then
+            error "Failed to load images in worker cluster"
+            exit 1;
+        fi
     fi
 
     log -n "Setting up worker cluster..."
