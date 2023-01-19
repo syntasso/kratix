@@ -1,0 +1,61 @@
+#!/usr/bin/env bash
+
+set -euo pipefail
+
+if (( $# < 1 )); then
+  echo "Usage: $0 <location> [images file]"
+  echo "    location: the directory where the images files will be downloaded"
+  echo "    images file: the file containing the list of additional images to download, one per line"
+  exit 1
+fi
+
+location="$1"
+if [ ! -d "$location" ]; then
+  echo "$location is not a directory"
+  exit 1
+fi
+
+
+images=(
+  # Kind image
+  "kindest/node:v1.24.7@sha256:577c630ce8e509131eab1aea12c022190978dd2f745aac5eb1fe65c0807eb315"
+
+  # Kratix Distribution Images
+  "gcr.io/kubebuilder/kube-rbac-proxy:v0.8.0"
+  "syntasso/kratix-platform:main"
+  "syntasso/kratix-platform-work-creator:main"
+
+  # Dynamic controller "reader" image
+  "bitnami/kubectl:1.20.10"
+
+  # Extra
+  "minio/minio:RELEASE.2022-06-30T20-58-09Z"
+  "ghcr.io/fluxcd/helm-controller:v0.27.0"
+  "ghcr.io/fluxcd/kustomize-controller:v0.31.0"
+  "ghcr.io/fluxcd/notification-controller:v0.29.0"
+  "ghcr.io/fluxcd/source-controller:v0.32.1"
+)
+
+images_file="${2:-}"
+if [ -f "${images_file}" ]; then
+  images+=($(cat "$images_file"))
+fi
+
+for image in "${images[@]}"; do
+  image_tag=$(echo "$image" | cut -d"@" -f1 | sed "s/\//__/g")
+
+  dst="$location/${image_tag}.tar"
+  if [ -f "${dst}" ]; then
+    echo "${image_tag} already present at location, skipping"
+    continue
+  fi
+
+  echo "Pulling $image"
+  docker pull --quiet "${image}" >/dev/null
+
+  echo "Saving to $dst"
+  docker save --output "${dst}" "${image}"
+
+  echo ""
+done
+
