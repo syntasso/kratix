@@ -1,0 +1,15 @@
+#!/usr/bin/env bash
+
+set -e
+
+PWD="$( cd $(dirname $0)/.. && pwd)"
+
+if [ "$(git rev-parse --abbrev-ref HEAD)" != "main" ]; then
+		echo "Demos should be run from main branch only"
+		#exit 1
+fi
+
+mkdir -p $PWD/cached-images
+source $PWD/../scripts/download-images cached-images demo-image-list
+
+

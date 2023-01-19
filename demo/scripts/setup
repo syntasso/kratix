@@ -1,0 +1,9 @@
+#!/usr/bin/env bash
+
+set -e
+
+PWD="$( cd $(dirname $0)/.. && pwd)"
+
+${PWD}/../scripts/quick-start.sh --local-images ${PWD}/cached-images/ --recreate
+${PWD}/../scripts/prepare-platform-cluster-as-worker.sh
+

@@ -12,6 +12,7 @@ PLATFORM_WORKER="${ROOT}/config/samples/platform_v1alpha1_worker_cluster.yaml"
 GITOPS_WORKER_INSTALL="${ROOT}/hack/worker/gitops-tk-install.yaml"
 GITOPS_WORKER_RESOURCES="${ROOT}/hack/worker/gitops-tk-resources.yaml"
 
+BUILD_KRATIX_IMAGES=false
 RECREATE=false
 GIT_REPO=false
 LOCAL_IMAGES_DIR=""
