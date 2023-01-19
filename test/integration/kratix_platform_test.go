@@ -562,7 +562,7 @@ var _ = Describe("kratix Platform Integration Test", func() {
 									"environment": "dev",
 								},
 							))
-						}, "60s", interval).Should(Succeed())
+						}, extendedTimeout, interval).Should(Succeed())
 					}
 				})
 

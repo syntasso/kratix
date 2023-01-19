@@ -18,7 +18,7 @@ package controllers
 
 import (
 	"context"
-	"fmt"
+	"strings"
 
 	"github.com/go-logr/logr"
 	platformv1alpha1 "github.com/syntasso/kratix/api/v1alpha1"
@@ -51,7 +51,7 @@ type WorkReconciler struct {
 // - https://pkg.go.dev/sigs.k8s.io/controller-runtime@v0.7.2/pkg/reconcile
 func (r *WorkReconciler) Reconcile(ctx context.Context, req ctrl.Request) (ctrl.Result, error) {
 	logger := r.Log.WithValues("work", req.NamespacedName)
-	logger.Info("Reconciling Work " + req.Name)
+	logger.Info("Reconciling Work")
 
 	work := &platformv1alpha1.Work{}
 	err := r.Client.Get(context.Background(), req.NamespacedName, work)
@@ -63,30 +63,44 @@ func (r *WorkReconciler) Reconcile(ctx context.Context, req ctrl.Request) (ctrl.
 		return ctrl.Result{Requeue: false}, err
 	}
 
+	logger = logger.WithValues("clusterSelectors", work.Spec.ClusterSelector)
+
 	// If Work already has a WorkPlacement then return
 	workPlacementList := &platformv1alpha1.WorkPlacementList{}
 	workPlacementListOptions := &client.ListOptions{
 		Namespace: "default",
 	}
-	logger.Info("Listing Workplacements with WorkName: " + work.Name)
+	logger.Info("Listing Workplacements for Work")
 	err = r.Client.List(context.Background(), workPlacementList, workPlacementListOptions)
 	if err != nil {
 		logger.Error(err, "Error getting WorkPlacements")
 		return defaultRequeue, err
 	}
-	logger.Info("Found WorkPlacements for WorkName " + fmt.Sprint(len(workPlacementList.Items)))
 
+	workPlacementNames := []string{}
+	for _, item := range workPlacementList.Items {
+		workPlacementNames = append(workPlacementNames, item.Name)
+	}
+
+	logger.Info("Found WorkPlacements for WorkName", "workPlacements", workPlacementNames)
 	for _, workPlacement := range workPlacementList.Items {
 		if workPlacement.Spec.WorkName == work.Name {
-			logger.Info("WorkPlacements for work exist." + req.Name)
+			logger.Info("WorkPlacements for work exist", "workPlacement", workPlacement.Name)
 			return ctrl.Result{}, nil
 		}
 	}
 
 	// If Work does not have a WorkPlacement then schedule the Work
-	logger.Info("Requesting scheduling for Work " + req.Name)
+	logger.Info("Requesting scheduling for Work")
 	err = r.Scheduler.ReconcileWork(work)
 	if err != nil {
+		//TODO remove this error checking
+		//temp fix until resolved: https://syntasso.slack.com/archives/C044T9ZFUMN/p1674058648965449
+		if work.IsResourceRequest() && strings.Contains(err.Error(), "no Clusters can be selected for clusterSelector") {
+			logger.Info("no available cluster for resource request, trying again shortly")
+			return slowRequeue, nil
+		}
+
 		logger.Error(err, "Error scheduling Work, will retry...")
 		return defaultRequeue, err
 	}

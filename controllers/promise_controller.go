@@ -70,6 +70,7 @@ var (
 	// to check it's been deleted. Here we can use a fastRequeue instead of a defaultRequeue
 	fastRequeue    = ctrl.Result{RequeueAfter: 1 * time.Second}
 	defaultRequeue = ctrl.Result{RequeueAfter: 5 * time.Second}
+	slowRequeue    = ctrl.Result{RequeueAfter: 15 * time.Second}
 )
 
 //+kubebuilder:rbac:groups=platform.kratix.io,resources=promises,verbs=get;list;watch;create;update;patch;delete

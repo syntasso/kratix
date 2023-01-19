@@ -3287,6 +3287,11 @@ spec:
                       Size of this Redis deployment. If small, it deploy redis with a single replica; if large, deploy redis with 3 replicas.
                     pattern: ^(small|large)$
                     type: string
+                  clusterSelectors:
+                    description: |
+                      List of key:value pairs to use as cluster selectors when scheduling
+                    type: object
+                    x-kubernetes-preserve-unknown-fields: true
                 type: object
             type: object
         served: true
