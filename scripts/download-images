@@ -15,6 +15,8 @@ if [ ! -d "$location" ]; then
   exit 1
 fi
 
+PWD="$( cd $(dirname $0)/.. && pwd)"
+kratix_version=$(cat $PWD/../distribution/kratix.yaml| grep "image: syntasso/kratix-platform:" | awk -F':' '{print $3}')
 
 images=(
   # Kind image
@@ -22,8 +24,8 @@ images=(
 
   # Kratix Distribution Images
   "gcr.io/kubebuilder/kube-rbac-proxy:v0.8.0"
-  "syntasso/kratix-platform:main"
-  "syntasso/kratix-platform-work-creator:main"
+  "syntasso/kratix-platform:${kratix_version}"
+  "syntasso/kratix-platform-work-creator:${kratix_version}"
 
   # Dynamic controller "reader" image
   "bitnami/kubectl:1.20.10"
