@@ -16,7 +16,7 @@ if [ ! -d "$location" ]; then
 fi
 
 PWD="$( cd $(dirname $0)/.. && pwd)"
-kratix_version=$(cat $PWD/../distribution/kratix.yaml| grep "image: syntasso/kratix-platform:" | awk -F':' '{print $3}')
+kratix_version=$(cat $PWD/distribution/kratix.yaml| grep "image: syntasso/kratix-platform:" | awk -F':' '{print $3}')
 
 images=(
   # Kind image
