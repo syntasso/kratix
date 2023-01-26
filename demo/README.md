@@ -1,5 +1,3 @@
----
-
 # Demo playbook
 ## Prep env
 Make sure your logged into lpass before running the setup script. If you want
