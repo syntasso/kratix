@@ -28,7 +28,7 @@ all the commands from within the `demo` directory.
   kubectl get pods --context kind-platform --all-namespaces -o jsonpath="{.items[*].spec.initContainers[*].image}" |\
     tr -s '[[:space:]]' '\n' >>  /tmp/demo-image-list
 
-  cat /tmp/demo-image-list | sort | uniq | grep -v "syntasso/kratix-platform"  > demo-image-list
+  cat /tmp/demo-image-list | sort | uniq | grep -v "syntasso/kratix-platform" |  grep -v "knative-release" | grep -v "sample-todo-app" > demo-image-list
   ```
 
 ### Saving the images
