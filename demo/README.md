@@ -74,21 +74,9 @@ Show the app working by going to http://todo.default.local.gd:8081
 
 
 ### Making a more complicated resource request (PCI compliant)
-
----
-**NOTE**
-#### Clean env behind the scenes
-*Switch back to platform cluster*
-```
-kubectx kind-platform
-```
-
-Delete the previous resource request (can be done off-screen)
-```
-kubectl delete -f resource-request.yaml
-```
----
-
+| :warning: WARNING          |
+|:---------------------------|
+| Switch back to platform cluster and delete the previous resource request first |
 
 Show what the resource request looks like and talk though how `containsCreditCardData` encapsulates orgs business logic:
 ```
@@ -125,12 +113,11 @@ Show that finally the pods comes up on the worker:
 kubectl --context kind-worker get pods
 ```
 
----
-**NOTE**
-due to a bug with the knative operator you cannot port-forward and show
-the app on the 2nd run through. something about deleting the first resource 
-request prevents following resource requests from working.
----
+| :warning: WARNING          |
+|:---------------------------|
+| due to a bug with the knative operator you cannot port-forward and show
+the app on the 2nd run through. something about deleting the first resource
+request prevents following resource requests from working |
 
 
 ---
