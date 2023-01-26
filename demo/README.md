@@ -72,11 +72,11 @@ kubectl --namespace knative-serving port-forward svc/kourier 8081:80
 
 Show the app working by going to http://todo.default.local.gd:8081
 
-
-### Making a more complicated resource request (PCI compliant)
 | :warning: WARNING          |
 |:---------------------------|
-| Switch back to platform cluster and delete the previous resource request first |
+| Switch back to platform cluster and delete the previous resource request first before proceeding |
+
+### Making a more complicated resource request (PCI compliant)
 
 Show what the resource request looks like and talk though how `containsCreditCardData` encapsulates orgs business logic:
 ```
@@ -115,9 +115,7 @@ kubectl --context kind-worker get pods
 
 | :warning: WARNING          |
 |:---------------------------|
-| due to a bug with the knative operator you cannot port-forward and show
-the app on the 2nd run through. something about deleting the first resource
-request prevents following resource requests from working |
+| due to a bug with the knative operator you cannot port-forward and show the app on the 2nd run through. something about deleting the first resource request prevents following resource requests from working |
 
 
 ---
