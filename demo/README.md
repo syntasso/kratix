@@ -1,7 +1,7 @@
 # Demo playbook
 ## Prep env
 Make sure your logged into lpass before running the setup script. If you want
-to run in (low-internet mode ensure you've saved the images locally)[saving-the-images-for-low-internet]):
+to run in [low-internet mode ensure you've saved the images locally](saving-the-images-for-low-internet):
 ```
 ./scripts/setup --preload-images
 ```
