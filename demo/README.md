@@ -1,6 +1,143 @@
-# Low internet demo run
+---
 
-## Reqs
+# Demo playbook
+## Prep env
+Make sure your logged into lpass before running the setup script. If you want
+to run in (low-internet mode ensure you've saved the images locally)[saving-the-images-for-low-internet]):
+```
+./scripts/setup --preload-images
+```
+
+otherwise run the following to setup normally:
+```
+./scripts/setup
+```
+
+## Running the demo
+Change into the `app-as-a-service` directory for the demo.
+```
+cd app-as-a-service/
+```
+
+### Installing
+To install:
+```
+kubectl create -f promise.yaml
+```
+
+Show promises are installed:
+```
+kubectl get promises
+```
+
+Show the App CRD is installed:
+```
+kubectl get crds | grep app
+```
+
+(Optional) Show the installed worker cluster resources:
+```
+kubectl --context kind-worker get pods
+```
+
+### Making a simple resource request
+
+Show what a resource request looks like (using [bat for pretty output](https://github.com/sharkdp/bat):
+```
+bat resource-request.yaml
+```
+
+Make a resource request:
+```
+kubectl apply -f resource-request.yaml
+```
+
+Show pipelines firing:
+```
+kubectl get pods
+```
+
+*Switch to worker cluster*
+```
+kubectx kind-worker
+```
+
+Watch pods coming up
+```
+kubectl get pods
+```
+
+Once the Redis, Postgres and TODO app are running start a portforward:
+```
+kubectl --namespace knative-serving port-forward svc/kourier 8081:80
+```
+
+Show the app working by going to http://todo.default.local.gd:8081
+
+
+### Making a more complicated resource request (PCI compliant)
+
+---
+**NOTE**
+#### Clean env behind the scenes
+*Switch back to platform cluster*
+```
+kubectx kind-platform
+```
+
+Delete the previous resource request (can be done off-screen)
+```
+kubectl delete -f resource-request.yaml
+```
+---
+
+
+Show what the resource request looks like and talk though how `containsCreditCardData` encapsulates orgs business logic:
+```
+bat resource-request-cc.yaml
+```
+
+Show what clusters we have with labels:
+```
+kubectl get clusters --show-labels
+```
+
+Make a resource request:
+```
+kubectl apply -f resource-request.yaml
+```
+
+Show the pipelines run
+```
+kubectl get pods
+```
+
+Show that nothing comes up on the worker:
+```
+kubectl --context kind-worker get pods
+```
+
+Label the worker cluster
+```
+kubectl label cluster worker-cluster-1 pci=true
+```
+
+Show that finally the pods comes up on the worker:
+```
+kubectl --context kind-worker get pods
+```
+
+---
+**NOTE**
+due to a bug with the knative operator you cannot port-forward and show
+the app on the 2nd run through. something about deleting the first resource 
+request prevents following resource requests from working.
+---
+
+
+---
+
+## Saving the images for low internet
 
 If you intend to to run this in a low-internet environment we recommend pulling
 and saving most of the required images before hand (see last section for why this isn't fully offline by default).
@@ -28,7 +165,7 @@ all the commands from within the `demo` directory.
   kubectl get pods --context kind-platform --all-namespaces -o jsonpath="{.items[*].spec.initContainers[*].image}" |\
     tr -s '[[:space:]]' '\n' >>  /tmp/demo-image-list
 
-  cat /tmp/demo-image-list | sort | uniq | grep -v "syntasso/kratix-platform"  > demo-image-list
+  cat /tmp/demo-image-list | sort | uniq | grep -v "syntasso/kratix-platform" |  grep -v "knative-release" | grep -v "sample-todo-app" > demo-image-list
   ```
 
 ### Saving the images
@@ -41,16 +178,8 @@ mkdir -p cached-images
 
 This will save a tar of all the images.
 
-### Setting up an env with the saved images
-To setup an environment ready for the demo using the saved images:
-```
-./scripts/setup
-```
-
-This will create the clusters, loaded with the images.
-
 ### Why doesn't this work completely offline?
-We can't get the knative GCR images to successfully load. Context: https://github.com/kubernetes-sigs/kind/issues/2394#issuecomment-1397720494
+We can't get the knative GCR and TODO-app images to successfully load. Context: https://github.com/kubernetes-sigs/kind/issues/2394#issuecomment-1397720494
 
 The current workaround if you need to go truly offline is to run the above setup script to get the environment
 setup, and then manually load all the images with a digest (all the knatives for example) in the `demo-image-list`:
