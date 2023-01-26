@@ -12,12 +12,12 @@ output_debugging_info() {
     exit 1
 }
 
-kubectl --context kind-platform apply --filename samples/jenkins/jenkins-promise.yaml
+kubectl --context kind-platform apply --filename https://raw.githubusercontent.com/syntasso/kratix-marketplace/main/jenkins/promise.yaml
 sleep 5 # Wait for promise resource to be created
-kubectl --context kind-platform apply --filename samples/jenkins/jenkins-resource-request.yaml
+kubectl --context kind-platform apply --filename https://raw.githubusercontent.com/syntasso/kratix-marketplace/main/jenkins/resource-request.yaml
 
 loops=0
-while ! kubectl --context kind-worker logs jenkins-example 2>/dev/null | grep -q "Jenkins is fully up and running"; do
+while ! kubectl --context kind-worker logs jenkins-dev-example 2>/dev/null | grep -q "Jenkins is fully up and running"; do
     if (( loops > 120 )); then
         echo "jenkins never reported to be up and running"
         output_debugging_info
@@ -28,7 +28,7 @@ while ! kubectl --context kind-worker logs jenkins-example 2>/dev/null | grep -q
 done
 
 # wait for kubernetes to report "Running"; 105 to ensure we wait more than the readiness probe takes to trigger
-if ! kubectl --context kind-worker wait pod jenkins-example --for=condition=ready --timeout 105s; then
+if ! kubectl --context kind-worker wait pod jenkins-dev-example --for=condition=ready --timeout 105s; then
     output_debugging_info
     exit 1
 fi
