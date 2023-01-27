@@ -1,0 +1,41 @@
+#!/usr/bin/env bash
+
+set -euo pipefail
+
+sleep_time=5
+
+# first argument is the message
+# rest of arguments are the command to run until successful
+# e.g. run "exmaple message" kubectl get pod foo
+function run() {
+until ${@:2}
+do
+  echo "$1"
+  sleep $sleep_time
+done
+}
+
+run "Waiting for knative to be ready" kubectl --context kind-worker --namespace knative-serving wait knativeservings.operator.knative.dev/todo --for=condition=ready
+run "Waiting for redis to be ready" kubectl --context kind-worker wait pod/rfr-todo-0 --for=condition=ready
+run "Waiting for postgres to be ready" kubectl --context kind-worker wait pod/acid-todo-postgresql-0 --for=condition=ready
+run "Waiting for knative serving to be ready" kubectl --context kind-worker wait services.serving.knative.dev/todo --for=condition=ready
+run "Waiting for knative kourier to be ready" kubectl --context kind-worker --namespace knative-serving get pods --selector=app=3scale-kourier-gateway -o=jsonpath='{.items[0].metadata.name}'
+pod="$(kubectl --context kind-worker --namespace knative-serving get pods --selector=app=3scale-kourier-gateway -o=jsonpath='{.items[0].metadata.name}')"
+run "Waiting for postgres to be ready" kubectl --context kind-worker  --namespace knative-serving wait pod/$pod --for=condition=ready
+
+
+echo "all ready, opening port-forwarding and browser"
+#we want to kill port-forwad when someone kills the script
+trap "trap - SIGTERM && kill -- -$$" SIGINT SIGTERM EXIT
+
+kubectl --context kind-worker --namespace knative-serving port-forward svc/kourier 8081:80 &
+
+sleep 2
+
+if [[ "$OSTYPE" == "darwin"*  ]]; then
+  open -n http://todo.default.local.gd:8081
+else
+  xdg-open http://todo.default.local.gd:8081
+fi
+
+wait
