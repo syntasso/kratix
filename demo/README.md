@@ -13,6 +13,14 @@ Change into the `app-as-a-service` directory for the demo.
 cd app-as-a-service/
 ```
 
+If you want to automatically have the app open when the TODO app is running, in
+a separate hidden terminal run `./scripts/wait-and-open-browser-when-app-ready`.
+This will wait until all the resources are created and open your browser to the todo app
+when its ready, this script will open the port-forward for you.
+```
+../scripts/wait-and-open-browser-when-app-ready
+```
+
 ### Installing
 To install:
 ```
@@ -61,7 +69,12 @@ Watch pods coming up
 kubectl get pods
 ```
 
-Once the Redis, Postgres and TODO app are running start a portforward:
+*NOTE*: If your using the `wait-and-open-browser-when-app-ready` script then the browser
+will automatically open when the apps ready, and it will also run the port-forwad for you.
+
+
+If your NOT using the `wait-and-open-browser-when-app-ready` then once the Redis,
+Postgres and TODO app are running start a portforward:
 ```
 kubectl --namespace knative-serving port-forward svc/kourier 8081:80
 ```
