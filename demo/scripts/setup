@@ -6,11 +6,7 @@ PWD="$( cd $(dirname $0)/.. && pwd)"
 
 lpass ls | grep -e "demo-alerts"
 
-if [ $1 = "--preload-images" ]; then
-  ${PWD}/../scripts/quick-start.sh --local-images ${PWD}/cached-images/ --recreate
-else
-  ${PWD}/../scripts/quick-start.sh--recreate
-fi
+${PWD}/../scripts/quick-start.sh --local-images ${PWD}/cached-images/ --recreate
 ${PWD}/../scripts/prepare-platform-cluster-as-worker.sh
 
 kubectl --context kind-platform --namespace default create secret generic \
