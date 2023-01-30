@@ -1,13 +1,22 @@
 # Demo playbook
-## Prep env
-Make sure your logged into lpass before running the setup script. If you want
+
+## Pre-demo setup
+
+### Setup clusters
+Make sure your logged into lpass before running the setup script. Optionally, if you want
 to run in [low-internet mode ensure you've saved the images locally](#saving-the-images-for-low-internet)
-to `demo/cached-images/`. If this directory is empty it will proceed without loading images:
+to `demo/cached-images/`. If any images are present they will be loaded during setup:
+
 ```
 ./scripts/setup
 ```
 
-## Running the demo
+### Prepare machine for screensharing
+* Ensure terminal font size is large
+* Mute notifications for slack & others
+* Have slack open on the demo channel, with no threads open.
+
+### Terminal setup
 Change into the `app-as-a-service` directory for the demo.
 ```
 cd app-as-a-service/
@@ -20,6 +29,9 @@ when its ready, this script will open the port-forward for you.
 ```
 ../scripts/wait-and-open-browser-when-app-ready
 ```
+
+
+## Demo
 
 ### Installing
 To install:
@@ -44,7 +56,7 @@ kubectl --context kind-worker get pods
 
 ### Making a simple resource request
 
-Show what a resource request looks like (using [bat for pretty output](https://github.com/sharkdp/bat):
+Show what a resource request looks like (using [bat for pretty output](https://github.com/sharkdp/bat)):
 ```
 bat resource-request.yaml
 ```
@@ -79,7 +91,7 @@ will automatically open when the apps ready, and it will also run the port-forwa
 
 
 If your NOT using the `wait-and-open-browser-when-app-ready` then once the Redis,
-Postgres and TODO app are running start a portforward:
+Postgres and TODO app (serverless so it might disappear after a while) are running start a portforward:
 ```
 kubectl --namespace knative-serving port-forward svc/kourier 8081:80
 ```
@@ -90,7 +102,8 @@ Show the app working by going to http://todo.default.local.gd:8081
 |:---------------------------|
 | Switch back to platform cluster and delete the previous resource request first before proceeding |
 
-### Making a more complicated resource request (PCI compliant)
+# NOT WORKING- IGNORE SECTION BELOW
+###Making a more complicated resource request (PCI compliant)
 
 Show what the resource request looks like and talk though how `containsCreditCardData` encapsulates orgs business logic:
 ```
