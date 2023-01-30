@@ -49,6 +49,11 @@ Show what a resource request looks like (using [bat for pretty output](https://g
 bat resource-request.yaml
 ```
 
+Change the `.spec.name` of the resource request to something unique.
+| :warning: WARNING          |
+|:---------------------------|
+| Postgres is [strict on whats acceptable for DB Names](https://www.postgresql.org/docs/current/sql-syntax-lexical.html#SQL-SYNTAX-IDENTIFIERS), which is pulled from `.spec.name`. Stick to simple names with no special characters, e.g. `jakesapp` |
+
 Make a resource request:
 ```
 kubectl apply -f resource-request.yaml
