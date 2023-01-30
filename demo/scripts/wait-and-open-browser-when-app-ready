@@ -15,27 +15,32 @@ do
 done
 }
 
-run "Waiting for knative to be ready" kubectl --context kind-worker --namespace knative-serving wait knativeservings.operator.knative.dev/todo --for=condition=ready
-run "Waiting for redis to be ready" kubectl --context kind-worker wait pod/rfr-todo-0 --for=condition=ready
-run "Waiting for postgres to be ready" kubectl --context kind-worker wait pod/acid-todo-postgresql-0 --for=condition=ready
-run "Waiting for knative serving to be ready" kubectl --context kind-worker wait services.serving.knative.dev/todo --for=condition=ready
+
+run "Waiting for AppAsAService to exist" kubectl --context kind-platform get apps.example.promise.syntasso.io -o jsonpath='{.items[0].spec.name}'
+export app="$(kubectl --context kind-platform get apps.example.promise.syntasso.io -o jsonpath='{.items[0].spec.name}')"
+run "Waiting for knative to be ready" kubectl --context kind-worker --namespace knative-serving wait knativeservings.operator.knative.dev/${app} --for=condition=ready
+run "Waiting for redis to be ready" kubectl --context kind-worker wait pod/rfr-${app}-0 --for=condition=ready
+run "Waiting for postgres to be ready" kubectl --context kind-worker wait pod/acid-${app}-postgresql-0 --for=condition=ready
+run "Waiting for knative serving to be ready" kubectl --context kind-worker wait services.serving.knative.dev/${app} --for=condition=ready
 run "Waiting for knative kourier to be ready" kubectl --context kind-worker --namespace knative-serving get pods --selector=app=3scale-kourier-gateway -o=jsonpath='{.items[0].metadata.name}'
 pod="$(kubectl --context kind-worker --namespace knative-serving get pods --selector=app=3scale-kourier-gateway -o=jsonpath='{.items[0].metadata.name}')"
-run "Waiting for postgres to be ready" kubectl --context kind-worker  --namespace knative-serving wait pod/$pod --for=condition=ready
+run "Waiting for kourier-gateway to be ready" kubectl --context kind-worker  --namespace knative-serving wait pod/$pod --for=condition=ready
 
 
-echo "all ready, opening port-forwarding and browser"
+printf "\n=====all ready, opening port-forwarding=====\n"
 #we want to kill port-forwad when someone kills the script
 trap "trap - SIGTERM && kill -- -$$" SIGINT SIGTERM EXIT
 
 kubectl --context kind-worker --namespace knative-serving port-forward svc/kourier 8081:80 &
-
 sleep 2
 
+printf "\n=====Opening Browser in 5 seconds=====\n"
+sleep 5
+
 if [[ "$OSTYPE" == "darwin"*  ]]; then
-  open -n http://todo.default.local.gd:8081
+  open -n http://${app}.default.local.gd:8081
 else
-  xdg-open http://todo.default.local.gd:8081
+  xdg-open http://${app}.default.local.gd:8081
 fi
 
 wait
