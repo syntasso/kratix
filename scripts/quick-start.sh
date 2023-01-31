@@ -122,13 +122,21 @@ verify_prerequisites() {
 }
 
 _build_kratix_image() {
-    docker build --tag syntasso/kratix-platform:${VERSION} --quiet --file ${ROOT}/Dockerfile ${ROOT} &&
-    kind load docker-image syntasso/kratix-platform:${VERSION} --name platform
+    docker_org=syntasso
+    if ${KRATIX_DEVELOPER:-false}; then
+        docker_org=syntassodev
+    fi
+    docker build --tag $docker_org/kratix-platform:${VERSION} --quiet --file ${ROOT}/Dockerfile ${ROOT} &&
+    kind load docker-image $docker_org/kratix-platform:${VERSION} --name platform
 }
 
 _build_work_creator_image() {
-    docker build --tag syntasso/kratix-platform-work-creator:${VERSION} --quiet --file ${ROOT}/DockerfileWorkCreator ${ROOT} &&
-    kind load docker-image syntasso/kratix-platform-work-creator:${VERSION} --name platform
+    docker_org=syntasso
+    if ${KRATIX_DEVELOPER:-false}; then
+        docker_org=syntassodev
+    fi
+    docker build --tag $docker_org/kratix-platform-work-creator:${VERSION} --quiet --file ${ROOT}/DockerfileWorkCreator ${ROOT} &&
+    kind load docker-image $docker_org/kratix-platform-work-creator:${VERSION} --name platform
 }
 
 build_and_load_local_images() {
@@ -147,11 +155,19 @@ build_and_load_local_images() {
     fi
 }
 
-patch_distribution() {
+patch_repository() {
     if ${GIT_REPO}; then
-        sed "s/^\(.*--repository-type=\).*$/\1git/g" ${KRATIX_DISTRIBUTION}
+        sed "s/^\(.*--repository-type=\).*$/\1git/g"
     else
-        sed "s/^\(.*--repository-type=\).*$/\1s3/g" ${KRATIX_DISTRIBUTION}
+        sed "s/^\(.*--repository-type=\).*$/\1s3/g"
+    fi
+}
+
+patch_image() {
+    if ${KRATIX_DEVELOPER:-false}; then
+        sed "s_syntasso/kratix_syntassodev/kratix_g"
+    else
+        cat
     fi
 }
 
@@ -161,7 +177,7 @@ setup_platform_cluster() {
     else
         kubectl --context kind-platform apply --filename "${MINIO_INSTALL}"
     fi
-    patch_distribution | kubectl --context kind-platform apply --filename -
+    cat ${KRATIX_DISTRIBUTION} | patch_repository | patch_image | kubectl --context kind-platform apply --filename -
 }
 
 setup_worker_cluster() {
