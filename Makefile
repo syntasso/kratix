@@ -67,11 +67,10 @@ build-and-load-postgres:
 	docker build --tag syntasso/kustomize-postgres:latest ./config/samples/postgres/transformation-image
 	kind load docker-image syntasso/kustomize-postgres:latest --name platform
 
-build-and-load-kratix:
-	IMG=syntasso/kratix-platform:${VERSION} make kind-load-image
+build-and-load-kratix: kind-load-image
 
 build-and-load-worker-creator:
-	WC_IMG=syntasso/kratix-platform-work-creator:${VERSION} make -C work-creator kind-load-image
+	WC_IMG=${WC_IMG} WC_IMG_MIRROR=${WC_IMG_MIRROR} make -C work-creator kind-load-image
 
 load-pipeline-images:
 	docker pull docker.io/bitnami/kubectl:1.20.10
@@ -111,6 +110,7 @@ int-test: generate fmt vet deploy-int-test-env ## Run integrations tests.
 
 kind-load-image: docker-build ## Load locally built image into KinD, use export IMG=syntasso/kratix-platform:${VERSION}
 	kind load docker-image ${IMG} --name platform
+	kind load docker-image ${IMG_MIRROR} --name platform
 
 quick-start:
 	VERSION=dev DOCKER_BUILDKIT=1 ./scripts/quick-start.sh --recreate --local
@@ -147,6 +147,7 @@ debug-run: manifests generate fmt vet ## Run a controller in debug mode from you
 
 docker-build: ## Build docker image with the manager.
 	docker build -t ${IMG} .
+	docker build -t ${IMG_MIRROR} .
 
 docker-build-and-push: ## Push multi-arch docker image with the manager.
 	if ! docker buildx ls | grep -q "kratix-image-builder"; then \
