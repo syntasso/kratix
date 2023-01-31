@@ -1,5 +1,6 @@
 # Image URL to use all building/pushing image targets
 WC_IMG ?= syntasso/kratix-platform-work-creator:dev
+WC_IMG_MIRROR ?= syntassodev/kratix-platform-work-creator:dev
 # Enable buildkit for docker
 DOCKER_BUILDKIT ?= 1
 
@@ -34,3 +35,4 @@ docker-build-and-push: ## Push multi-arch docker image with the manager.
 		docker buildx create --name work-creator-image-builder; \
 	fi;
 	docker buildx build --builder work-creator-image-builder --push --platform linux/arm64,linux/amd64 --file ../DockerfileWorkCreator --tag ${WC_IMG} ../
+	docker buildx build --builder work-creator-image-builder --push --platform linux/arm64,linux/amd64 --file ../DockerfileWorkCreator --tag ${WC_IMG_MIRROR} ../

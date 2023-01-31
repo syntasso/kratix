@@ -2,8 +2,10 @@
 VERSION ?= dev
 # Image URL to use all building/pushing image targets
 IMG ?= syntasso/kratix-platform:${VERSION}
+IMG_MIRROR ?= syntassodev/kratix-platform:${VERSION}
 # Image URL to use for work creator image in promise_controller.go
 WC_IMG ?= syntasso/kratix-platform-work-creator:${VERSION}
+WC_IMG_MIRROR ?= syntassodev/kratix-platform-work-creator:${VERSION}
 # Version of the worker-resource-builder binary to build and release
 WRB_VERSION ?= 0.0.0
 # Produce CRDs that work back to Kubernetes 1.11 (no version conversion)
@@ -151,6 +153,7 @@ docker-build-and-push: ## Push multi-arch docker image with the manager.
 		docker buildx create --name kratix-image-builder; \
 	fi;
 	docker buildx build --builder kratix-image-builder --push --platform linux/arm64,linux/amd64 -t ${IMG} .
+	docker buildx build --builder kratix-image-builder --push --platform linux/arm64,linux/amd64 -t ${IMG_MIRROR} .
 
 ##@ Deployment
 
@@ -171,7 +174,7 @@ distribution: manifests kustomize ## Create a deployment manifest in /distributi
 release: distribution docker-build-and-push work-creator-docker-build-and-push ## Create a release. Set VERSION env var to "vX.Y.Z-n".
 
 work-creator-docker-build-and-push:
-	WC_IMG=${WC_IMG} $(MAKE) -C work-creator docker-build-and-push
+	WC_IMG=${WC_IMG} WC_IMG_MIRROR=${WC_IMG_MIRROR} $(MAKE) -C work-creator docker-build-and-push
 
 undeploy: ## Undeploy controller from the K8s cluster specified in ~/.kube/config.
 	$(KUSTOMIZE) build config/default | kubectl delete -f -
