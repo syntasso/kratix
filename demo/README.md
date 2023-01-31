@@ -102,8 +102,7 @@ Show the app working by going to http://todo.default.local.gd:8081
 |:---------------------------|
 | Switch back to platform cluster and delete the previous resource request first before proceeding |
 
-# NOT WORKING- IGNORE SECTION BELOW
-###Making a more complicated resource request (PCI compliant)
+### Making a more complicated resource request (PCI compliant) (:warning: WARNING this flow does not work, skip for demo)
 
 Show what the resource request looks like and talk though how `containsCreditCardData` encapsulates orgs business logic:
 ```
