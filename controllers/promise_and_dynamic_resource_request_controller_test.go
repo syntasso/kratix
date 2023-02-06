@@ -481,9 +481,5 @@ var _ = Context("Promise Reconciler", func() {
 			printerFields := crd.Spec.Versions[0].AdditionalPrinterColumns
 			Expect(printerFields).ToNot(BeNil())
 		})
-
-		PIt("writes mantatory field even if Penny specifies status", func() {
-
-		})
 	})
 })
