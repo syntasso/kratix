@@ -135,7 +135,7 @@ _build_work_creator_image() {
     if ${KRATIX_DEVELOPER:-false}; then
         docker_org=syntassodev
     fi
-    docker build --tag $docker_org/kratix-platform-work-creator:${VERSION} --quiet --file ${ROOT}/DockerfileWorkCreator ${ROOT} &&
+    docker build --tag $docker_org/kratix-platform-work-creator:${VERSION} --quiet --file ${ROOT}/Dockerfile.work-creator ${ROOT} &&
     kind load docker-image $docker_org/kratix-platform-work-creator:${VERSION} --name platform
 }
 

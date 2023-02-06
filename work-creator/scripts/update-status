@@ -1,0 +1,16 @@
+#!/usr/bin/env sh
+
+set -euxo pipefail
+
+status_file=/work-creator-files/metadata/status.yaml
+
+export status_values="message: Provisioned"
+if [ -f "$status_file" ]; then
+	export status_values="$(cat $status_file)"
+fi
+
+yq -n '.status = env(status_values)' > status.yaml
+# TODO: Should we check if printer fields values exist?
+#       Default behaviour is to just be empty (not error)
+
+kubectl patch $RR_KIND/$RR_NAME --namespace $RR_NAMESPACE --type merge --patch-file status.yaml --subresource status

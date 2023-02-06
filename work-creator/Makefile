@@ -29,12 +29,12 @@ kind-load-image: docker-build ## Load locally built image into KinD, use export 
 ##@ Build
 
 docker-build: ## Build docker image with work-creator binary
-	docker build -f ../DockerfileWorkCreator --tag ${WC_IMG} ../
-	docker build -f ../DockerfileWorkCreator --tag ${WC_IMG_MIRROR} ../
+	docker build -f ../Dockerfile.work-creator --tag ${WC_IMG} ../
+	docker build -f ../Dockerfile.work-creator --tag ${WC_IMG_MIRROR} ../
 
 docker-build-and-push: ## Push multi-arch docker image with the manager.
 	if ! docker buildx ls | grep -q "work-creator-image-builder"; then \
 		docker buildx create --name work-creator-image-builder; \
 	fi;
-	docker buildx build --builder work-creator-image-builder --push --platform linux/arm64,linux/amd64 --file ../DockerfileWorkCreator --tag ${WC_IMG} ../
-	docker buildx build --builder work-creator-image-builder --push --platform linux/arm64,linux/amd64 --file ../DockerfileWorkCreator --tag ${WC_IMG_MIRROR} ../
+	docker buildx build --builder work-creator-image-builder --push --platform linux/arm64,linux/amd64 --file ../Dockerfile.work-creator --tag ${WC_IMG} ../
+	docker buildx build --builder work-creator-image-builder --push --platform linux/arm64,linux/amd64 --file ../Dockerfile.work-creator --tag ${WC_IMG_MIRROR} ../

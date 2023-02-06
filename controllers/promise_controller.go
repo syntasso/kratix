@@ -241,7 +241,7 @@ func (r *PromiseReconciler) createResourcesForDynamicController(ctx context.Cont
 		Rules: []rbacv1.PolicyRule{
 			{
 				APIGroups: []string{rrGVK.Group},
-				Resources: []string{rrCRD.Spec.Names.Plural},
+				Resources: []string{rrCRD.Spec.Names.Plural, rrCRD.Spec.Names.Plural + "/status"},
 				Verbs:     []string{"get", "list", "update", "create", "patch"},
 			},
 			{
@@ -534,6 +534,27 @@ func generateCRDAndGVK(promise *v1alpha1.Promise, logger logr.Logger) (*apiexten
 		return rrCRD, rrGVK, err
 	}
 	rrCRD.Labels = labels.Merge(rrCRD.Labels, promise.GenerateSharedLabels())
+	rrCRD.Spec.Versions[0].Schema.OpenAPIV3Schema.Properties["status"] = apiextensionsv1.JSONSchemaProps{
+		Type:                   "object",
+		XPreserveUnknownFields: &[]bool{true}[0], // pointer to bool
+		Properties: map[string]apiextensionsv1.JSONSchemaProps{
+			"message": {
+				Type: "string",
+			},
+		},
+	}
+
+	rrCRD.Spec.Versions[0].Subresources = &apiextensionsv1.CustomResourceSubresources{
+		Status: &apiextensionsv1.CustomResourceSubresourceStatus{},
+	}
+
+	rrCRD.Spec.Versions[0].AdditionalPrinterColumns = []apiextensionsv1.CustomResourceColumnDefinition{
+		apiextensionsv1.CustomResourceColumnDefinition{
+			Name:     "status",
+			Type:     "string",
+			JSONPath: ".status.message",
+		},
+	}
 
 	rrGVK = schema.GroupVersionKind{
 		Group:   rrCRD.Spec.Group,

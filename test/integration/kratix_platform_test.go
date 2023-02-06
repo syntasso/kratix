@@ -6,11 +6,13 @@ import (
 	"io"
 	"io/ioutil"
 	"os"
+	"os/exec"
 
 	"github.com/minio/minio-go/v7"
 	"github.com/minio/minio-go/v7/pkg/credentials"
 	. "github.com/onsi/ginkgo"
 	. "github.com/onsi/gomega"
+	"github.com/onsi/gomega/gexec"
 	platformv1alpha1 "github.com/syntasso/kratix/api/v1alpha1"
 	v1 "k8s.io/api/core/v1"
 	apiextensionsv1 "k8s.io/apiextensions-apiserver/pkg/apis/apiextensions/v1"
@@ -163,7 +165,7 @@ var _ = Describe("kratix Platform Integration Test", func() {
 			})
 		})
 
-		Describe("Applying Redis resource triggers the TransformationPipeline™", func() {
+		Describe("Applying Redis resource", func() {
 			It("Applying Redis resource triggers the TransformationPipeline™", func() {
 				applyResourceRequest(RedisResourceRequest)
 
@@ -174,6 +176,16 @@ var _ = Describe("kratix Platform Integration Test", func() {
 				Eventually(func() bool {
 					return hasResourceBeenApplied(work_gvk, expectedName)
 				}, timeout, interval).Should(BeTrue(), "expected resource request to exist")
+			})
+
+			It("Includes a default status message if none is given by the pipeline", func() {
+				Eventually(func() string {
+					command := exec.Command("kubectl", "get", redis_gvk.GroupKind().String())
+					session, err := gexec.Start(command, GinkgoWriter, GinkgoWriter)
+					Expect(err).ShouldNot(HaveOccurred())
+					Eventually(session).Should(gexec.Exit(0))
+					return string(session.Out.Contents())
+				}, timeout, interval).Should(ContainSubstring("Provisioned"))
 			})
 
 			It("Should place a Redis resource request to one Worker`", func() {

@@ -104,7 +104,8 @@ func (r *dynamicResourceRequestController) Reconcile(ctx context.Context, req ct
 
 	workCreatorCommand := fmt.Sprintf("./work-creator -identifier %s -input-directory /work-creator-files", resourceRequestIdentifier)
 
-	resourceRequestCommand := fmt.Sprintf("kubectl get %s.%s %s --namespace %s -oyaml > /output/object.yaml", strings.ToLower(r.gvk.Kind), r.gvk.Group, req.Name, req.Namespace)
+	resourceKindNameNamespace := fmt.Sprintf("%s.%s %s --namespace %s", strings.ToLower(r.gvk.Kind), r.gvk.Group, req.Name, req.Namespace)
+	resourceRequestCommand := fmt.Sprintf("kubectl get %s -oyaml > /output/object.yaml", resourceKindNameNamespace)
 
 	pod := v1.Pod{
 		ObjectMeta: metav1.ObjectMeta{
@@ -120,22 +121,27 @@ func (r *dynamicResourceRequestController) Reconcile(ctx context.Context, req ct
 			ServiceAccountName: r.promiseIdentifier + "-promise-pipeline",
 			Containers: []v1.Container{
 				{
-					Name: "writer",
-					//Image:   "syntasso/kratix-platform-work-creator:dev",
+					Name:    "status-writer",
 					Image:   os.Getenv("WC_IMG"),
-					Command: []string{"sh", "-c", workCreatorCommand},
-					VolumeMounts: []v1.VolumeMount{
+					Command: []string{"sh", "-c", "update-status"},
+					Env: []v1.EnvVar{
 						{
-							MountPath: "/work-creator-files/input",
-							Name:      "output",
+							Name:  "RR_KIND",
+							Value: fmt.Sprintf("%s.%s", strings.ToLower(r.gvk.Kind), r.gvk.Group),
 						},
+						{
+							Name:  "RR_NAME",
+							Value: req.Name,
+						},
+						{
+							Name:  "RR_NAMESPACE",
+							Value: req.Namespace,
+						},
+					},
+					VolumeMounts: []v1.VolumeMount{
 						{
 							MountPath: "/work-creator-files/metadata",
 							Name:      "metadata",
-						},
-						{
-							MountPath: "/work-creator-files/kratix-system",
-							Name:      "promise-cluster-selectors",
 						},
 					},
 				},
@@ -168,6 +174,25 @@ func (r *dynamicResourceRequestController) Reconcile(ctx context.Context, req ct
 						{
 							MountPath: "/metadata",
 							Name:      "metadata",
+						},
+					},
+				},
+				{
+					Name:    "work-writer",
+					Image:   os.Getenv("WC_IMG"),
+					Command: []string{"sh", "-c", workCreatorCommand},
+					VolumeMounts: []v1.VolumeMount{
+						{
+							MountPath: "/work-creator-files/input",
+							Name:      "output",
+						},
+						{
+							MountPath: "/work-creator-files/metadata",
+							Name:      "metadata",
+						},
+						{
+							MountPath: "/work-creator-files/kratix-system",
+							Name:      "promise-cluster-selectors",
 						},
 					},
 				},
