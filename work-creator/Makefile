@@ -1,6 +1,6 @@
 # Image URL to use all building/pushing image targets
-WC_IMG ?= syntasso/kratix-platform-work-creator:dev
-WC_IMG_MIRROR ?= syntassodev/kratix-platform-work-creator:dev
+WC_IMG ?= syntasso/kratix-platform-pipeline-adapter:dev
+WC_IMG_MIRROR ?= syntassodev/kratix-platform-pipeline-adapter:dev
 # Enable buildkit for docker
 DOCKER_BUILDKIT ?= 1
 
@@ -22,19 +22,19 @@ test: ## Run tests.
 	test -f ${ENVTEST_ASSETS_DIR}/setup-envtest.sh || curl -sSLo ${ENVTEST_ASSETS_DIR}/setup-envtest.sh https://raw.githubusercontent.com/kubernetes-sigs/controller-runtime/v0.7.2/hack/setup-envtest.sh
 	source ${ENVTEST_ASSETS_DIR}/setup-envtest.sh;  ENVTEST_K8S_VERSION=1.24.2 fetch_envtest_tools $(ENVTEST_ASSETS_DIR); setup_envtest_env $(ENVTEST_ASSETS_DIR); CK_GINKGO_DEPRECATIONS=1.16.4 go run github.com/onsi/ginkgo/ginkgo ./test/integration/ -r  --coverprofile cover.out
 
-kind-load-image: docker-build ## Load locally built image into KinD, use export WC_IMG=syntasso/kratix-platform-work-creator:dev
+kind-load-image: docker-build ## Load locally built image into KinD, use export WC_IMG=syntasso/kratix-platform-pipeline-adapter:dev
 	kind load docker-image ${WC_IMG} --name platform
 	kind load docker-image ${WC_IMG_MIRROR} --name platform
 
 ##@ Build
 
 docker-build: ## Build docker image with work-creator binary
-	docker build -f ../Dockerfile.work-creator --tag ${WC_IMG} ../
-	docker build -f ../Dockerfile.work-creator --tag ${WC_IMG_MIRROR} ../
+	docker build -f ../Dockerfile.pipeline-adapter --tag ${WC_IMG} ../
+	docker build -f ../Dockerfile.pipeline-adapter --tag ${WC_IMG_MIRROR} ../
 
 docker-build-and-push: ## Push multi-arch docker image with the manager.
 	if ! docker buildx ls | grep -q "work-creator-image-builder"; then \
 		docker buildx create --name work-creator-image-builder; \
 	fi;
-	docker buildx build --builder work-creator-image-builder --push --platform linux/arm64,linux/amd64 --file ../Dockerfile.work-creator --tag ${WC_IMG} ../
-	docker buildx build --builder work-creator-image-builder --push --platform linux/arm64,linux/amd64 --file ../Dockerfile.work-creator --tag ${WC_IMG_MIRROR} ../
+	docker buildx build --builder work-creator-image-builder --push --platform linux/arm64,linux/amd64 --file ../Dockerfile.pipeline-adapter --tag ${WC_IMG} ../
+	docker buildx build --builder work-creator-image-builder --push --platform linux/arm64,linux/amd64 --file ../Dockerfile.pipeline-adapter --tag ${WC_IMG_MIRROR} ../

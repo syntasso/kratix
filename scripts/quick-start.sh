@@ -135,8 +135,8 @@ _build_work_creator_image() {
     if ${KRATIX_DEVELOPER:-false}; then
         docker_org=syntassodev
     fi
-    docker build --tag $docker_org/kratix-platform-work-creator:${VERSION} --quiet --file ${ROOT}/Dockerfile.work-creator ${ROOT} &&
-    kind load docker-image $docker_org/kratix-platform-work-creator:${VERSION} --name platform
+    docker build --tag $docker_org/kratix-platform-pipeline-adapter:${VERSION} --quiet --file ${ROOT}/Dockerfile.pipeline-adapter ${ROOT} &&
+    kind load docker-image $docker_org/kratix-platform-pipeline-adapter:${VERSION} --name platform
 }
 
 build_and_load_local_images() {
