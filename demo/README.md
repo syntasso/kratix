@@ -1,207 +1,129 @@
 # Demo playbook
 
+- Accompanying Google Slides are likely located [here](https://drive.google.com/drive/folders/19XyhhSky0SbjneWtNnUbwT9-_yp_td7R?usp=share_link)
+
 ## Pre-demo setup
 
-### Setup clusters
-Make sure your logged into lpass before running the setup script. Optionally, if you want
-to run in [low-internet mode ensure you've saved the images locally](#saving-the-images-for-low-internet)
-to `demo/cached-images/`. If any images are present they will be loaded during setup:
+### Set up clusters and install Kratix
+
+#### Regular demo, regular Internet
+
+- `lpass login`: Log in to the lastpass CLI for installing the Slack secret
+- (Optional) [save images locally](./low-internet.md) for low internet
+- Run the setup script:
 
 ```
 ./scripts/setup
 ```
 
-### Prepare machine for screensharing
-* Ensure terminal font size is large
-* Mute notifications for slack & others
-* Have slack open on the demo channel, with no threads open.
+### Prepare machine for demo
 
-### Terminal setup
+- Terminal
+  - Make font size huge
+  - Adjust PS1 to as short as possible
+  - White background/theme
+- Open Chrome
+- Mute notifications for Slack & others (ie, enable focus mode on Mac for however long you need)
+- Have Slack open on the demo channel, with no threads open.
+
+### Set up Automagical Demo Launcher™️
+
+If you want to automatically have the app open at the end of the demo when the TODO app is running, use the script below. It:
+
+- Waits until all resources are created and ready
+- Opens the port-forward
+- Opens the browser to the todo app
+
+In a separate window/tab, run:
+
+```
+./scripts/wait-and-open-browser-when-app-ready
+```
+
+## Demo
+
 Change into the `app-as-a-service` directory for the demo.
+
 ```
 cd app-as-a-service/
 ```
 
-If you want to automatically have the app open when the TODO app is running, in
-a separate hidden terminal run `./scripts/wait-and-open-browser-when-app-ready`.
-This will wait until all the resources are created and open your browser to the todo app
-when its ready, this script will open the port-forward for you.
-```
-../scripts/wait-and-open-browser-when-app-ready
-```
+### Installing the Promise
 
+Show Kratix is installed but no promises are installed:
 
-## Demo
-
-### Installing
-To install:
-```
-kubectl create -f promise.yaml
-```
-
-Show promises are installed:
 ```
 kubectl get promises
 ```
 
+Install AaaS Promise definition:
+
+```
+kubectl create -f promise.yaml
+```
+
+Show Promises are installed (AaaS will show first, then all):
+
+```
+kubectl get promises
+```
+
+Before switching over to being an application developer, show how Kratix set up the API for the resource request you will be making.
+
 Show the App CRD is installed:
+
 ```
 kubectl get crds | grep app
 ```
 
 (Optional) Show the installed worker cluster resources:
+
 ```
 kubectl --context kind-worker get pods
 ```
 
-### Making a simple resource request
+### Making the resource request
 
 Show what a resource request looks like (using [bat for pretty output](https://github.com/sharkdp/bat)):
+
 ```
 bat resource-request.yaml
 ```
 
 Change the `.spec.name` of the resource request to something unique.
-| :warning: WARNING          |
+| :warning: WARNING |
 |:---------------------------|
 | Postgres is [strict on whats acceptable for DB Names](https://www.postgresql.org/docs/current/sql-syntax-lexical.html#SQL-SYNTAX-IDENTIFIERS), which is pulled from `.spec.name`. Stick to simple names with no special characters, e.g. `jakesapp` |
 
 Make a resource request:
+
 ```
 kubectl apply -f resource-request.yaml
 ```
 
 Show pipelines firing:
+
 ```
 kubectl get pods
 ```
 
-*Switch to worker cluster*
-```
-kubectx kind-worker
-```
+Show slide in demo to show what happens on the platform when the request comes in.
 
-Watch pods coming up
+Show pods for the instances that are coming up on `kind-worker`:
+
 ```
-kubectl get pods
+kubectl --context=kind-worker get pods
 ```
 
-*NOTE*: If your using the `wait-and-open-browser-when-app-ready` script then the browser
-will automatically open when the apps ready, and it will also run the port-forwad for you.
+_NOTE_: If you are using the `wait-and-open-browser-when-app-ready` script then the browser will automatically open when the apps ready, and it will also run the port-forward for you.
 
+### Show the app
 
-If your NOT using the `wait-and-open-browser-when-app-ready` then once the Redis,
-Postgres and TODO app (serverless so it might disappear after a while) are running start a portforward:
+If you are _NOT_ using the `wait-and-open-browser-when-app-ready` then once the Redis,
+Postgres and TODO app (serverless so it might disappear after a while) are running start a port-forward:
+
 ```
 kubectl --namespace knative-serving port-forward svc/kourier 8081:80
 ```
 
 Show the app working by going to http://todo.default.local.gd:8081
-
-| :warning: WARNING          |
-|:---------------------------|
-| Switch back to platform cluster and delete the previous resource request first before proceeding |
-
-### Making a more complicated resource request (PCI compliant) (:warning: WARNING this flow does not work, skip for demo)
-
-Show what the resource request looks like and talk though how `containsCreditCardData` encapsulates orgs business logic:
-```
-bat resource-request-cc.yaml
-```
-
-Show what clusters we have with labels:
-```
-kubectl get clusters --show-labels
-```
-
-Make a resource request:
-```
-kubectl apply -f resource-request.yaml
-```
-
-Show the pipelines run
-```
-kubectl get pods
-```
-
-Show that nothing comes up on the worker:
-```
-kubectl --context kind-worker get pods
-```
-
-Label the worker cluster
-```
-kubectl label cluster worker-cluster-1 pci=true
-```
-
-Show that finally the pods comes up on the worker:
-```
-kubectl --context kind-worker get pods
-```
-
-| :warning: WARNING          |
-|:---------------------------|
-| due to a bug with the knative operator you cannot port-forward and show the app on the 2nd run through. something about deleting the first resource request prevents following resource requests from working |
-
-
----
-
-## Saving the images for low internet
-
-If you intend to to run this in a low-internet environment we recommend pulling
-and saving most of the required images before hand (see last section for why this isn't fully offline by default).
-
-To generate a list of all the images required follow the below instructions, running
-all the commands from within the `demo` directory.
-
-### Generating the `demo-image-list`
-1. run demo from start to finish with full internet access. This will generate all necessary running pods.
-  * `./scripts/setup`
-  * `kubectl create -f app-as-a-service/promise.yaml`
-  * `kubectl apply -f app-as-a-service/resource-request.yaml`
-  * Follow the app-as-a-service readme to run the demo app (this is necessary since the app only creates pods on demand)
-2. run the following set of commands:
-  ```
-  kubectl get pods --context kind-worker --all-namespaces -o jsonpath="{.items[*].spec.containers[*].image}" |\
-    tr -s '[[:space:]]' '\n' > /tmp/demo-image-list
-  echo >>  /tmp/demo-image-list
-  kubectl get pods --context kind-worker --all-namespaces -o jsonpath="{.items[*].spec.initContainers[*].image}" |\
-    tr -s '[[:space:]]' '\n' >>  /tmp/demo-image-list
-  echo >>  /tmp/demo-image-list
-  kubectl get pods --context kind-platform --all-namespaces -o jsonpath="{.items[*].spec.containers[*].image}" |\
-    tr -s '[[:space:]]' '\n' >> /tmp/demo-image-list
-  echo >>  /tmp/demo-image-list
-  kubectl get pods --context kind-platform --all-namespaces -o jsonpath="{.items[*].spec.initContainers[*].image}" |\
-    tr -s '[[:space:]]' '\n' >>  /tmp/demo-image-list
-
-  cat /tmp/demo-image-list | sort | uniq | grep -v "syntasso/kratix-platform" |  grep -v "knative-release" | grep -v "sample-todo-app" > demo-image-list
-  ```
-
-### Saving the images
-Now you have a `demo-image-list` file you can run the following:
-
-```
-mkdir -p cached-images
-../scripts/download-images $PWD/cached-images/ $PWD/demo-image-list
-```
-
-This will save a tar of all the images.
-
-### Why doesn't this work completely offline?
-We can't get the knative GCR and TODO-app images to successfully load. Context: https://github.com/kubernetes-sigs/kind/issues/2394#issuecomment-1397720494
-
-The current workaround if you need to go truly offline is to run the above setup script to get the environment
-setup, and then manually load all the images with a digest (all the knatives for example) in the `demo-image-list`:
-```
-cat demo-image-list| grep @ | xargs -I{} docker exec platform-control-plane crictl pull {}
-cat demo-image-list| grep @ | xargs -I{} docker exec worker-control-plane crictl pull {}
-```
-
-In addition, the following two pods can not start without internet access:
-* knative-operator-579648cc6b-sczgr
-* operator-webhook-7df689586-k22mr
-
-Example error is, however this image can not be pulled:
-```
-  Warning  Failed     10s (x3 over 26s)  kubelet            Error: failed to get image from containerd "sha256:1e7e67348c2fce975e89c1670537a68ff1e1131467d94f42d8d8fb8f9a15cb4b": image "docker.io/library/import-2023-01-23@sha256:06af9cb3e0ddf9bf4d01feda64372a694e2a581419bf61518a2b98f6f80c26e6": not found
-```
