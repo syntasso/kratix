@@ -185,7 +185,7 @@ var _ = Describe("kratix Platform Integration Test", func() {
 					Expect(err).ShouldNot(HaveOccurred())
 					Eventually(session).Should(gexec.Exit(0))
 					return string(session.Out.Contents())
-				}, timeout, interval).Should(ContainSubstring("Provisioned"))
+				}, timeout, interval).Should(ContainSubstring("Resource requested"))
 			})
 
 			It("Should place a Redis resource request to one Worker`", func() {

@@ -4,7 +4,8 @@ set -euxo pipefail
 
 status_file=/work-creator-files/metadata/status.yaml
 
-export status_values="message: Provisioned"
+# If Resource doesn't have status.message field...
+export status_values="message: Resource requested"
 if [ -f "$status_file" ]; then
 	export status_values="$(cat $status_file)"
 fi

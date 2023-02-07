@@ -534,6 +534,7 @@ func generateCRDAndGVK(promise *v1alpha1.Promise, logger logr.Logger) (*apiexten
 		return rrCRD, rrGVK, err
 	}
 	rrCRD.Labels = labels.Merge(rrCRD.Labels, promise.GenerateSharedLabels())
+
 	rrCRD.Spec.Versions[0].Schema.OpenAPIV3Schema.Properties["status"] = apiextensionsv1.JSONSchemaProps{
 		Type:                   "object",
 		XPreserveUnknownFields: &[]bool{true}[0], // pointer to bool
