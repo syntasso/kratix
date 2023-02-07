@@ -474,9 +474,31 @@ var _ = Context("Promise Reconciler", func() {
 			Expect(ok).To(BeTrue(), ".status.message did not exist. Spec %v", status)
 			Expect(message.Type).To(Equal("string"))
 
-			// conditions, ok := status.Properties["conditions"]
-			// Expect(ok).To(BeTrue())
-			// Expect(message.Type).To(Equal("string"))
+			conditions, ok := status.Properties["conditions"]
+			Expect(ok).To(BeTrue())
+			Expect(conditions.Type).To(Equal("array"))
+
+			conditionsProperties := conditions.Items.Schema.Properties
+
+			lastTransitionTime, ok := conditionsProperties["lastTransitionTime"]
+			Expect(ok).To(BeTrue())
+			Expect(lastTransitionTime.Type).To(Equal("string"))
+
+			message, ok = conditionsProperties["message"]
+			Expect(ok).To(BeTrue())
+			Expect(message.Type).To(Equal("string"))
+
+			reason, ok := conditionsProperties["reason"]
+			Expect(ok).To(BeTrue())
+			Expect(reason.Type).To(Equal("string"))
+
+			status, ok = conditionsProperties["status"]
+			Expect(ok).To(BeTrue())
+			Expect(status.Type).To(Equal("string"))
+
+			typeField, ok := conditionsProperties["type"]
+			Expect(ok).To(BeTrue())
+			Expect(typeField.Type).To(Equal("string"))
 
 			printerFields := crd.Spec.Versions[0].AdditionalPrinterColumns
 			Expect(printerFields).ToNot(BeNil())

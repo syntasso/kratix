@@ -3,6 +3,13 @@
 set -euxo pipefail
 
 status_file=/work-creator-files/metadata/status.yaml
+# timestamp is RFC3339
+export conditions="message: Pipeline completed
+lastTransitionTime: \"$(date -u +"%Y-%m-%dT%H:%M:%SZ")\"
+status: \"True\"
+type: PipelineCompleted
+reason: PipelineExecutedSuccessfully
+"
 
 # If Resource doesn't have status.message field...
 export status_values="message: Resource requested"
@@ -10,7 +17,7 @@ if [ -f "$status_file" ]; then
 	export status_values="$(cat $status_file)"
 fi
 
-yq -n '.status = env(status_values)' > status.yaml
+yq -n '.status = env(status_values)' |  yq '.status.conditions[0] = env(conditions)' > status.yaml
 # TODO: Should we check if printer fields values exist?
 #       Default behaviour is to just be empty (not error)
 

@@ -535,16 +535,18 @@ func generateCRDAndGVK(promise *v1alpha1.Promise, logger logr.Logger) (*apiexten
 	}
 	rrCRD.Labels = labels.Merge(rrCRD.Labels, promise.GenerateSharedLabels())
 
-	rrCRD.Spec.Versions[0].Schema.OpenAPIV3Schema.Properties["status"] = apiextensionsv1.JSONSchemaProps{
-		Type:                   "object",
-		XPreserveUnknownFields: &[]bool{true}[0], // pointer to bool
-		Properties: map[string]apiextensionsv1.JSONSchemaProps{
-			"message": {
-				Type: "string",
-			},
-		},
+	setStatusFieldsOnCRD(rrCRD)
+
+	rrGVK = schema.GroupVersionKind{
+		Group:   rrCRD.Spec.Group,
+		Version: rrCRD.Spec.Versions[0].Name,
+		Kind:    rrCRD.Spec.Names.Kind,
 	}
 
+	return rrCRD, rrGVK, nil
+}
+
+func setStatusFieldsOnCRD(rrCRD *apiextensionsv1.CustomResourceDefinition) {
 	rrCRD.Spec.Versions[0].Subresources = &apiextensionsv1.CustomResourceSubresources{
 		Status: &apiextensionsv1.CustomResourceSubresourceStatus{},
 	}
@@ -557,13 +559,41 @@ func generateCRDAndGVK(promise *v1alpha1.Promise, logger logr.Logger) (*apiexten
 		},
 	}
 
-	rrGVK = schema.GroupVersionKind{
-		Group:   rrCRD.Spec.Group,
-		Version: rrCRD.Spec.Versions[0].Name,
-		Kind:    rrCRD.Spec.Names.Kind,
+	rrCRD.Spec.Versions[0].Schema.OpenAPIV3Schema.Properties["status"] = apiextensionsv1.JSONSchemaProps{
+		Type:                   "object",
+		XPreserveUnknownFields: &[]bool{true}[0], // pointer to bool
+		Properties: map[string]apiextensionsv1.JSONSchemaProps{
+			"message": {
+				Type: "string",
+			},
+			"conditions": {
+				Type: "array",
+				Items: &apiextensionsv1.JSONSchemaPropsOrArray{
+					Schema: &apiextensionsv1.JSONSchemaProps{
+						Type: "object",
+						Properties: map[string]apiextensionsv1.JSONSchemaProps{
+							"lastTransitionTime": {
+								Type:   "string",
+								Format: "datetime", //RFC3339
+							},
+							"message": {
+								Type: "string",
+							},
+							"reason": {
+								Type: "string",
+							},
+							"status": {
+								Type: "string",
+							},
+							"type": {
+								Type: "string",
+							},
+						},
+					},
+				},
+			},
+		},
 	}
-
-	return rrCRD, rrGVK, nil
 }
 
 func (r *PromiseReconciler) createWorkResourceForWorkerClusterResources(ctx context.Context, promise *v1alpha1.Promise, logger logr.Logger) error {
