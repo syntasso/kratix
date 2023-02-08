@@ -19,6 +19,7 @@ package controllers
 import (
 	"context"
 	"os"
+	"time"
 
 	"k8s.io/apimachinery/pkg/types"
 	"sigs.k8s.io/controller-runtime/pkg/controller/controllerutil"
@@ -37,6 +38,8 @@ import (
 	"k8s.io/apimachinery/pkg/runtime/schema"
 	"k8s.io/apimachinery/pkg/selection"
 	"k8s.io/apimachinery/pkg/util/uuid"
+	clusterv1 "sigs.k8s.io/cluster-api/api/v1beta1"
+	clusterutil "sigs.k8s.io/cluster-api/util/conditions"
 	ctrl "sigs.k8s.io/controller-runtime"
 	"sigs.k8s.io/controller-runtime/pkg/client"
 	"sigs.k8s.io/yaml"
@@ -106,6 +109,11 @@ func (r *dynamicResourceRequestController) Reconcile(ctx context.Context, req ct
 
 	resourceKindNameNamespace := fmt.Sprintf("%s.%s %s --namespace %s", strings.ToLower(r.gvk.Kind), r.gvk.Group, req.Name, req.Namespace)
 	resourceRequestCommand := fmt.Sprintf("kubectl get %s -oyaml > /output/object.yaml", resourceKindNameNamespace)
+
+	err = r.setPipelineCondition(ctx, unstructuredCRD, logger)
+	if err != nil {
+		return ctrl.Result{}, err
+	}
 
 	pod := v1.Pod{
 		ObjectMeta: metav1.ObjectMeta{
@@ -362,4 +370,24 @@ func getShortUuid() string {
 	} else {
 		return string(uuid.NewUUID()[0:5])
 	}
+}
+
+func (r *dynamicResourceRequestController) setPipelineCondition(ctx context.Context, unstructuredCRD *unstructured.Unstructured, logger logr.Logger) error {
+	setter := clusterutil.UnstructuredSetter(unstructuredCRD)
+	getter := clusterutil.UnstructuredGetter(unstructuredCRD)
+	condition := clusterutil.Get(getter, clusterv1.ConditionType("PipelineCompleted"))
+	if condition == nil {
+		clusterutil.Set(setter, &clusterv1.Condition{
+			Type:               clusterv1.ConditionType("PipelineCompleted"),
+			Status:             v1.ConditionFalse,
+			Message:            "Pipeline has not completed",
+			Reason:             "PipelineNotCompleted",
+			LastTransitionTime: metav1.NewTime(time.Now()),
+		})
+		logger.Info("setting condition PipelineCompleted false")
+		if err := r.Client.Status().Update(ctx, unstructuredCRD); err != nil {
+			return err
+		}
+	}
+	return nil
 }

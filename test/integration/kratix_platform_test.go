@@ -26,6 +26,8 @@ import (
 	"k8s.io/apimachinery/pkg/labels"
 	"k8s.io/apimachinery/pkg/selection"
 	"k8s.io/client-go/kubernetes/scheme"
+	clusterv1 "sigs.k8s.io/cluster-api/api/v1beta1"
+	clusterutil "sigs.k8s.io/cluster-api/util/conditions"
 	ctrl "sigs.k8s.io/controller-runtime"
 	"sigs.k8s.io/controller-runtime/pkg/client"
 )
@@ -56,6 +58,12 @@ var (
 		Kind:    "Database",
 	}
 
+	ppd_gvk = schema.GroupVersionKind{
+		Group:   "example.promise.syntasso.io",
+		Version: "v1",
+		Kind:    "paved-path-demo",
+	}
+
 	work_gvk = schema.GroupVersionKind{
 		Group:   "platform.kratix.io",
 		Version: "v1alpha1",
@@ -70,8 +78,9 @@ var (
 )
 
 const (
-	redisPromiseID     = "redis-promise-default" // promise.Name + "-" + promise.Namespace
-	redisDefaultRRName = redisPromiseID + "-default-opstree-redis"
+	redisPromiseID           = "redis-promise-default" // promise.Name + "-" + promise.Namespace
+	redisResourceRequestName = "opstree-redis"
+	redisWorkRRName          = redisPromiseID + "-default-" + redisResourceRequestName
 
 	//Targets only cluster-worker-1
 	RedisPromise               = "../../config/samples/redis/redis-promise.yaml"
@@ -84,8 +93,9 @@ const (
 	PostgresResourceRequest = "../../config/samples/postgres/postgres-resource-request.yaml"
 
 	// Targets the platform cluster
-	PavedPathCRD             = "../../samples/paved-path-demo/paved-path-demo-promise.yaml"
-	PavedPathResourceRequest = "../../samples/paved-path-demo/paved-path-demo-resource-request.yaml"
+	PavedPathCRD                 = "../../samples/paved-path-demo/paved-path-demo-promise.yaml"
+	PavedPathResourceRequest     = "../../samples/paved-path-demo/paved-path-demo-resource-request.yaml"
+	pavedPathResourceRequestName = "my-paved-path"
 
 	//Clusters
 	PlatformWorkerCluster1  = "./assets/platform_worker_cluster_1.yaml"
@@ -168,13 +178,16 @@ var _ = Describe("kratix Platform Integration Test", func() {
 		Describe("Applying Redis resource", func() {
 			It("Applying Redis resource triggers the TransformationPipeline™", func() {
 				applyResourceRequest(RedisResourceRequest)
-
-				expectedName := types.NamespacedName{
-					Name:      redisDefaultRRName,
+				expectedRRName := types.NamespacedName{
+					Name:      redisResourceRequestName,
+					Namespace: "default",
+				}
+				expectedWorkName := types.NamespacedName{
+					Name:      redisWorkRRName,
 					Namespace: "default",
 				}
 				Eventually(func() bool {
-					return hasResourceBeenApplied(work_gvk, expectedName)
+					return hasRequestedPipelineExecutedSuccessfully(work_gvk, redis_gvk, expectedWorkName, expectedRRName)
 				}, timeout, interval).Should(BeTrue(), "expected resource request to exist")
 			})
 
@@ -191,7 +204,7 @@ var _ = Describe("kratix Platform Integration Test", func() {
 			It("Should place a Redis resource request to one Worker`", func() {
 				Eventually(func(g Gomega) {
 					workloadNamespacedName := types.NamespacedName{
-						Name:      redisDefaultRRName,
+						Name:      redisWorkRRName,
 						Namespace: "default",
 					}
 
@@ -301,7 +314,7 @@ var _ = Describe("kratix Platform Integration Test", func() {
 				Namespace: "default",
 			}
 			rrWorkName := types.NamespacedName{
-				Name:      redisDefaultRRName,
+				Name:      redisWorkRRName,
 				Namespace: "default",
 			}
 
@@ -337,7 +350,7 @@ var _ = Describe("kratix Platform Integration Test", func() {
 
 					podLabels := map[string]string{
 						"kratix-promise-id":                  redisPromiseID,
-						"kratix-promise-resource-request-id": redisDefaultRRName,
+						"kratix-promise-resource-request-id": redisWorkRRName,
 					}
 					listOptions := client.ListOptions{LabelSelector: labels.SelectorFromSet(podLabels)}
 
@@ -387,7 +400,8 @@ var _ = Describe("kratix Platform Integration Test", func() {
 					Namespace: "default",
 				}
 				Eventually(func() error {
-					return checkResource(work_gvk, expectedName)
+					_, err := checkResource(work_gvk, expectedName)
+					return err
 				}, extendedTimeout, interval).ShouldNot(HaveOccurred(), fmt.Sprintf("expected resource request %s to have been applied", expectedName.Name))
 			})
 
@@ -422,12 +436,6 @@ var _ = Describe("kratix Platform Integration Test", func() {
 
 	Describe("paved path promise lifecycle", func() {
 		Describe("applying the promise", func() {
-			var ppd_gvk = schema.GroupVersionKind{
-				Group:   "example.promise.syntasso.io",
-				Version: "v1",
-				Kind:    "paved-path-demo",
-			}
-
 			It("places the resources and crds on the right clusters", func() {
 				applyPromiseCRD(PavedPathCRD)
 
@@ -532,12 +540,17 @@ var _ = Describe("kratix Platform Integration Test", func() {
 				Namespace: "default",
 			}
 
+			var ppdPromiseRR = types.NamespacedName{
+				Name:      pavedPathResourceRequestName,
+				Namespace: "default",
+			}
+
 			It("creates the instances on the dev clusters", func() {
 				applyResourceRequest(PavedPathResourceRequest)
 
 				By("triggering the request pipeline", func() {
 					Eventually(func() bool {
-						return hasResourceBeenApplied(work_gvk, ppdPromiseWork)
+						return hasRequestedPipelineExecutedSuccessfully(work_gvk, ppd_gvk, ppdPromiseWork, ppdPromiseRR)
 					}, timeout, interval).Should(BeTrue(), "paved path demo pipeline has not been triggered")
 				})
 
@@ -715,15 +728,35 @@ func minioHasWorkloadWithResourceWithNameAndKind(bucketName string, objectName s
 	return false, unstructured.Unstructured{}
 }
 
-func checkResource(gvk schema.GroupVersionKind, expectedName types.NamespacedName) error {
+func checkResource(gvk schema.GroupVersionKind, expectedName types.NamespacedName) (*unstructured.Unstructured, error) {
 	resource := &unstructured.Unstructured{}
 	resource.SetGroupVersionKind(gvk)
 
-	return k8sClient.Get(context.Background(), expectedName, resource)
+	return resource, k8sClient.Get(context.Background(), expectedName, resource)
+}
+
+func hasRequestedPipelineExecutedSuccessfully(workGVK, rrGVK schema.GroupVersionKind, expectedWorkName, expectedRRName types.NamespacedName) bool {
+	_, err := checkResource(workGVK, expectedWorkName)
+	if err != nil {
+		return false
+	}
+
+	unstructuredCRD, err := checkResource(rrGVK, expectedRRName)
+	if err != nil {
+		return false
+	}
+
+	getter := clusterutil.UnstructuredGetter(unstructuredCRD)
+	condition := clusterutil.Get(getter, clusterv1.ConditionType("PipelineCompleted"))
+	if condition == nil {
+		return false
+	}
+
+	return string(condition.Status) == "True"
 }
 
 func hasResourceBeenApplied(gvk schema.GroupVersionKind, expectedName types.NamespacedName) bool {
-	err := checkResource(gvk, expectedName)
+	_, err := checkResource(gvk, expectedName)
 	return err == nil
 }
 
