@@ -19,6 +19,7 @@ package controllers
 import (
 	"context"
 	"os"
+	"time"
 
 	"k8s.io/apimachinery/pkg/types"
 	"sigs.k8s.io/controller-runtime/pkg/controller/controllerutil"
@@ -37,6 +38,8 @@ import (
 	"k8s.io/apimachinery/pkg/runtime/schema"
 	"k8s.io/apimachinery/pkg/selection"
 	"k8s.io/apimachinery/pkg/util/uuid"
+	clusterv1 "sigs.k8s.io/cluster-api/api/v1beta1"
+	clusterutil "sigs.k8s.io/cluster-api/util/conditions"
 	ctrl "sigs.k8s.io/controller-runtime"
 	"sigs.k8s.io/controller-runtime/pkg/client"
 	"sigs.k8s.io/yaml"
@@ -104,7 +107,13 @@ func (r *dynamicResourceRequestController) Reconcile(ctx context.Context, req ct
 
 	workCreatorCommand := fmt.Sprintf("./work-creator -identifier %s -input-directory /work-creator-files", resourceRequestIdentifier)
 
-	resourceRequestCommand := fmt.Sprintf("kubectl get %s.%s %s --namespace %s -oyaml > /output/object.yaml", strings.ToLower(r.gvk.Kind), r.gvk.Group, req.Name, req.Namespace)
+	resourceKindNameNamespace := fmt.Sprintf("%s.%s %s --namespace %s", strings.ToLower(r.gvk.Kind), r.gvk.Group, req.Name, req.Namespace)
+	resourceRequestCommand := fmt.Sprintf("kubectl get %s -oyaml > /output/object.yaml", resourceKindNameNamespace)
+
+	err = r.setPipelineCondition(ctx, unstructuredCRD, logger)
+	if err != nil {
+		return ctrl.Result{}, err
+	}
 
 	pod := v1.Pod{
 		ObjectMeta: metav1.ObjectMeta{
@@ -120,22 +129,27 @@ func (r *dynamicResourceRequestController) Reconcile(ctx context.Context, req ct
 			ServiceAccountName: r.promiseIdentifier + "-promise-pipeline",
 			Containers: []v1.Container{
 				{
-					Name: "writer",
-					//Image:   "syntasso/kratix-platform-work-creator:dev",
+					Name:    "status-writer",
 					Image:   os.Getenv("WC_IMG"),
-					Command: []string{"sh", "-c", workCreatorCommand},
-					VolumeMounts: []v1.VolumeMount{
+					Command: []string{"sh", "-c", "update-status"},
+					Env: []v1.EnvVar{
 						{
-							MountPath: "/work-creator-files/input",
-							Name:      "output",
+							Name:  "RR_KIND",
+							Value: fmt.Sprintf("%s.%s", strings.ToLower(r.gvk.Kind), r.gvk.Group),
 						},
+						{
+							Name:  "RR_NAME",
+							Value: req.Name,
+						},
+						{
+							Name:  "RR_NAMESPACE",
+							Value: req.Namespace,
+						},
+					},
+					VolumeMounts: []v1.VolumeMount{
 						{
 							MountPath: "/work-creator-files/metadata",
 							Name:      "metadata",
-						},
-						{
-							MountPath: "/work-creator-files/kratix-system",
-							Name:      "promise-cluster-selectors",
 						},
 					},
 				},
@@ -168,6 +182,25 @@ func (r *dynamicResourceRequestController) Reconcile(ctx context.Context, req ct
 						{
 							MountPath: "/metadata",
 							Name:      "metadata",
+						},
+					},
+				},
+				{
+					Name:    "work-writer",
+					Image:   os.Getenv("WC_IMG"),
+					Command: []string{"sh", "-c", workCreatorCommand},
+					VolumeMounts: []v1.VolumeMount{
+						{
+							MountPath: "/work-creator-files/input",
+							Name:      "output",
+						},
+						{
+							MountPath: "/work-creator-files/metadata",
+							Name:      "metadata",
+						},
+						{
+							MountPath: "/work-creator-files/kratix-system",
+							Name:      "promise-cluster-selectors",
 						},
 					},
 				},
@@ -337,4 +370,24 @@ func getShortUuid() string {
 	} else {
 		return string(uuid.NewUUID()[0:5])
 	}
+}
+
+func (r *dynamicResourceRequestController) setPipelineCondition(ctx context.Context, unstructuredCRD *unstructured.Unstructured, logger logr.Logger) error {
+	setter := clusterutil.UnstructuredSetter(unstructuredCRD)
+	getter := clusterutil.UnstructuredGetter(unstructuredCRD)
+	condition := clusterutil.Get(getter, clusterv1.ConditionType("PipelineCompleted"))
+	if condition == nil {
+		clusterutil.Set(setter, &clusterv1.Condition{
+			Type:               clusterv1.ConditionType("PipelineCompleted"),
+			Status:             v1.ConditionFalse,
+			Message:            "Pipeline has not completed",
+			Reason:             "PipelineNotCompleted",
+			LastTransitionTime: metav1.NewTime(time.Now()),
+		})
+		logger.Info("setting condition PipelineCompleted false")
+		if err := r.Client.Status().Update(ctx, unstructuredCRD); err != nil {
+			return err
+		}
+	}
+	return nil
 }
