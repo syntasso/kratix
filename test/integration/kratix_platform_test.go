@@ -445,6 +445,26 @@ var _ = Describe("kratix Platform Integration Test", func() {
 					}, timeout, interval).Should(BeTrue())
 				})
 
+				By("Wait for sub-promises to install correctly", func() {
+					Eventually(func() bool {
+						knative_gvk := schema.GroupVersionKind{
+							Group:   "example.promise.syntasso.io",
+							Version: "v1",
+							Kind:    "knativeserving",
+						}
+						return isAPIResourceCreated(knative_gvk)
+					}, timeout, interval).Should(BeTrue())
+
+					Eventually(func() bool {
+						haPostgres_gvk := schema.GroupVersionKind{
+							Group:   "example.promise.syntasso.io",
+							Version: "v1",
+							Kind:    "postgres",
+						}
+						return isAPIResourceCreated(haPostgres_gvk)
+					}, timeout, interval).Should(BeTrue())
+				})
+
 				By("creating the paved-path-demo resources on the platform cluster", func() {
 					ppdWorkload := types.NamespacedName{
 						Name:      "paved-path-demo-promise-default",
