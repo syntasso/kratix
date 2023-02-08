@@ -288,7 +288,7 @@ var _ = Context("Promise Reconciler", func() {
 						return ""
 					}
 					return createdPod.Spec.Containers[0].Name
-				}, timeout, interval).Should(Equal("writer"))
+				}, timeout, interval).Should(Equal("status-writer"))
 
 				By("setting the finalizer on the resource")
 				Eventually(func() []string {
