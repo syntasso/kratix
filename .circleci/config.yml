@@ -2,7 +2,7 @@ version: 2.1
 
 orbs:
   k8s: circleci/kubernetes@1.3.1
-  golang: circleci/go@1.7.1
+  golang: circleci/go@1.7.2
 
 executors:
   machine-medium:
@@ -27,7 +27,7 @@ commands:
       - k8s/install
       - golang/install:
           cache: true
-          version: 1.17.13
+          version: 1.19.5
       - run:
           name: Install Kind
           command: |

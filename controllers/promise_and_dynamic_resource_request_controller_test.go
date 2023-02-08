@@ -25,6 +25,7 @@ import (
 	. "github.com/onsi/gomega"
 	v1 "k8s.io/api/core/v1"
 	rbacv1 "k8s.io/api/rbac/v1"
+	apiextensions "k8s.io/apiextensions-apiserver/pkg/apis/apiextensions/v1"
 	"k8s.io/apimachinery/pkg/api/errors"
 	metav1 "k8s.io/apimachinery/pkg/apis/meta/v1"
 	"k8s.io/apimachinery/pkg/apis/meta/v1/unstructured"
@@ -287,7 +288,7 @@ var _ = Context("Promise Reconciler", func() {
 						return ""
 					}
 					return createdPod.Spec.Containers[0].Name
-				}, timeout, interval).Should(Equal("writer"))
+				}, timeout, interval).Should(Equal("status-writer"))
 
 				By("setting the finalizer on the resource")
 				Eventually(func() []string {
@@ -430,6 +431,77 @@ var _ = Context("Promise Reconciler", func() {
 				err := k8sClient.Get(context.Background(), expectedPromise, &v1alpha1.Promise{})
 				return errors.IsNotFound(err)
 			}, timeout, interval).Should(BeTrue(), "Expected Promise not to be found")
+		})
+	})
+
+	Describe("handles Promise status field", func() {
+		BeforeEach(func() {
+			promiseCR = &platformv1alpha1.Promise{}
+			yamlFile, err := ioutil.ReadFile("./assets/redis-simple-promise.yaml")
+			Expect(err).ToNot(HaveOccurred())
+			err = yaml.Unmarshal(yamlFile, promiseCR)
+			promiseCR.Namespace = "default"
+			Expect(err).ToNot(HaveOccurred())
+
+			//Works once, then fails as the promiseCR already exists. Consider building check here.
+			err = k8sClient.Create(context.Background(), promiseCR)
+			Expect(err).ToNot(HaveOccurred())
+		})
+
+		It("automatically creates status and additionalPrinter fields for Penny", func() {
+			var crd *apiextensions.CustomResourceDefinition
+			expectedCRDName = "redis.marketplace.kratix.io"
+
+			Eventually(func() string {
+				crd, _ = apiextensionClient.
+					ApiextensionsV1().
+					CustomResourceDefinitions().
+					Get(context.Background(), expectedCRDName, metav1.GetOptions{})
+
+				// The returned CRD is missing the expected metadata,
+				// therefore we need to reach inside the spec to get the
+				// underlying Redis crd definition to allow us to assert correctly.
+				return crd.Spec.Names.Singular + "." + crd.Spec.Group
+			}, timeout, interval).Should(Equal(expectedCRDName))
+
+			status, ok := crd.Spec.Versions[0].Schema.OpenAPIV3Schema.Properties["status"]
+			Expect(ok).To(BeTrue(), "expected .status to exist")
+
+			Expect(status.XPreserveUnknownFields).ToNot(BeNil())
+			Expect(*status.XPreserveUnknownFields).To(BeTrue())
+
+			message, ok := status.Properties["message"]
+			Expect(ok).To(BeTrue(), ".status.message did not exist. Spec %v", status)
+			Expect(message.Type).To(Equal("string"))
+
+			conditions, ok := status.Properties["conditions"]
+			Expect(ok).To(BeTrue())
+			Expect(conditions.Type).To(Equal("array"))
+
+			conditionsProperties := conditions.Items.Schema.Properties
+
+			lastTransitionTime, ok := conditionsProperties["lastTransitionTime"]
+			Expect(ok).To(BeTrue())
+			Expect(lastTransitionTime.Type).To(Equal("string"))
+
+			message, ok = conditionsProperties["message"]
+			Expect(ok).To(BeTrue())
+			Expect(message.Type).To(Equal("string"))
+
+			reason, ok := conditionsProperties["reason"]
+			Expect(ok).To(BeTrue())
+			Expect(reason.Type).To(Equal("string"))
+
+			status, ok = conditionsProperties["status"]
+			Expect(ok).To(BeTrue())
+			Expect(status.Type).To(Equal("string"))
+
+			typeField, ok := conditionsProperties["type"]
+			Expect(ok).To(BeTrue())
+			Expect(typeField.Type).To(Equal("string"))
+
+			printerFields := crd.Spec.Versions[0].AdditionalPrinterColumns
+			Expect(printerFields).ToNot(BeNil())
 		})
 	})
 })
