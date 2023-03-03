@@ -60,6 +60,9 @@ load_options() {
     shift $(expr $OPTIND - 1)
 
     # Always build local images when running from `dev`
+    if [ "${VERSION}" != "main" ]; then
+        VERSION="dev"
+    fi
     if [ "${VERSION}" = "dev" ]; then
         BUILD_KRATIX_IMAGES=true
     fi
