@@ -59,13 +59,9 @@ fmt: ## Run go fmt against code.
 vet: ## Run go vet against code.
 	go vet ./...
 
-build-and-load-redis:
-	docker build --tag syntasso/kustomize-redis:latest ./config/samples/redis/transformation-image
-	kind load docker-image syntasso/kustomize-redis:latest --name platform
-
-build-and-load-postgres:
-	docker build --tag syntasso/kustomize-postgres:latest ./config/samples/postgres/transformation-image
-	kind load docker-image syntasso/kustomize-postgres:latest --name platform
+build-and-load-bash:
+	docker build --tag syntassodev/bash-promise-test:dev ./test/system/assets/bash-promise
+	kind load docker-image syntassodev/bash-promise-test:dev --name platform
 
 build-and-load-kratix: kind-load-image
 
@@ -83,8 +79,6 @@ load-pipeline-images:
 	kind load docker-image syntasso/paved-path-demo-request-pipeline:latest --name platform
 
 
-build-and-load-int-test-images: build-and-load-kratix build-and-load-worker-creator build-and-load-redis build-and-load-postgres load-pipeline-images ## Builds and loads all int-test required pipeline images
-
 prepare-platform-cluster-as-worker: ## Installs flux onto platform cluster and registers as a worker
 	./scripts/prepare-platform-cluster-as-worker.sh
 
@@ -94,19 +88,18 @@ install-minio: ## Install test Minio server
 install-gitea: ## Install test gitea server
 	kubectl --context kind-platform apply -f hack/platform/gitea-install.yaml
 
-delete-int-test-infra: ## Removes all test infrastructure
-	kind delete cluster --name platform
+install-flux-to-platform:
+	kubectl apply -f ./hack/worker/gitops-tk-install.yaml
+	kubectl apply -f ./test/system/assets/platform_gitops-tk-resources.yaml
+	kubectl wait --namespace flux-system --for=condition=Available deployment source-controller --timeout=120s
+	kubectl wait --namespace flux-system --for=condition=Available deployment kustomize-controller --timeout=120s
 
-create-int-test-infra: delete-int-test-infra ## Builds and runs pre-reqs to run int-test
-	kind create cluster --name platform --image kindest/node:v1.24.0 --config <(echo "{kind: Cluster, apiVersion: kind.x-k8s.io/v1alpha4, nodes: [{role: control-plane, extraPortMappings: [{containerPort: 31337, hostPort: 31337}]}]}")
-
-deploy-int-test-env: create-int-test-infra ## Builds and deploys dev version software on int-test infrastructure
-	make build-and-load-int-test-images
-	make deploy
-	make install-minio
-
-int-test: generate fmt vet deploy-int-test-env ## Run integrations tests.
-	CK_GINKGO_DEPRECATIONS=1.16.4 go run github.com/onsi/ginkgo/ginkgo ./test/integration/  -r  --coverprofile cover.out
+system-test: generate fmt vet ## Run integrations tests.
+	make distribution
+	make quick-start
+	make build-and-load-bash
+	make install-flux-to-platform
+	CK_GINKGO_DEPRECATIONS=1.16.4 go run github.com/onsi/ginkgo/ginkgo ./test/system/  -r  --coverprofile cover.out
 
 kind-load-image: docker-build ## Load locally built image into KinD, use export IMG=syntasso/kratix-platform:${VERSION}
 	kind load docker-image ${IMG} --name platform
