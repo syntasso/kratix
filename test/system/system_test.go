@@ -64,7 +64,7 @@ var _ = Describe("Kratix", func() {
 				By("setting custom status", func() {
 					rrStatusName := "rr-with-status"
 					command := `echo "message: My awesome status message" > /metadata/status.yaml
-				echo "key: value" >> /metadata/status.yaml`
+          echo "key: value" >> /metadata/status.yaml`
 
 					platform.kubectl("apply", "-f", requestWithNameAndCommand(rrStatusName, command))
 
