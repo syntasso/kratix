@@ -4,6 +4,7 @@ metadata:
   name: platform-cluster-worker-1
   labels:
     environment: platform
+    security: high
 spec:
   id: platform-cluster-worker-1-id
   bucketPath: platform-cluster-worker-1

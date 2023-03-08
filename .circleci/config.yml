@@ -72,14 +72,14 @@ jobs:
             make test
             make -C work-creator test
 
-  int-tests:
+  system-tests:
     executor: machine-large
     steps:
       - install_software
       - run:
-          name: Integration Tests
+          name: System tests
           command: |
-            DOCKER_BUILDKIT=1 ACK_GINKGO_RC=true make --jobs=4 int-test
+            DOCKER_BUILDKIT=1 ACK_GINKGO_RC=true make --jobs=4 system-test
 
   e2e-demo-test:
     executor: machine-large
@@ -150,14 +150,14 @@ workflows:
       - git-clone
       - unit-tests:
           requires: [git-clone]
-      - int-tests:
+      - system-tests:
           requires: [git-clone]
       - e2e-demo-test:
           requires: [git-clone]
       - git-merge:
           requires:
             - unit-tests
-            - int-tests
+            - system-tests
             - e2e-demo-test
           filters:
             branches:
