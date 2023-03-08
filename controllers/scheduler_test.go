@@ -22,7 +22,7 @@ var _ = Describe("Controllers/Scheduler", func() {
 	BeforeEach(func() {
 		devCluster = Cluster{
 			ObjectMeta: v1.ObjectMeta{
-				Name:      "dev-cluster-1",
+				Name:      "dev-1",
 				Namespace: "default",
 				Labels:    map[string]string{"environment": "dev"},
 			},
@@ -30,7 +30,7 @@ var _ = Describe("Controllers/Scheduler", func() {
 
 		devCluster2 = Cluster{
 			ObjectMeta: v1.ObjectMeta{
-				Name:      "dev-cluster-2",
+				Name:      "dev-2",
 				Namespace: "default",
 				Labels:    map[string]string{"environment": "dev"},
 			},
@@ -38,7 +38,7 @@ var _ = Describe("Controllers/Scheduler", func() {
 
 		prodCluster = Cluster{
 			ObjectMeta: v1.ObjectMeta{
-				Name:      "prod-cluster",
+				Name:      "prod",
 				Namespace: "default",
 				Labels:    map[string]string{"environment": "prod"},
 			},
@@ -91,9 +91,6 @@ var _ = Describe("Controllers/Scheduler", func() {
 			},
 			Spec: WorkSpec{
 				Replicas: ResourceRequestReplicas,
-				ClusterSelector: map[string]string{
-					"environment": "prod",
-				},
 			},
 		}
 
@@ -113,7 +110,7 @@ var _ = Describe("Controllers/Scheduler", func() {
 			// register new cluster dev
 			devCluster3 = Cluster{
 				ObjectMeta: v1.ObjectMeta{
-					Name:      "dev-cluster-3",
+					Name:      "dev3",
 					Namespace: "default",
 					Labels:    map[string]string{"environment": "dev"},
 				},
@@ -128,7 +125,7 @@ var _ = Describe("Controllers/Scheduler", func() {
 			It("schedules Works with matching labels to the new cluster", func() {
 				ns := types.NamespacedName{
 					Namespace: "default",
-					Name:      "dev-work-name.dev-cluster-3",
+					Name:      "dev-work-name.dev3",
 				}
 				actualWorkPlacement := WorkPlacement{}
 				Expect(k8sClient.Get(context.Background(), ns, &actualWorkPlacement)).To(Succeed())
@@ -139,7 +136,7 @@ var _ = Describe("Controllers/Scheduler", func() {
 			It("does not schedule Works with un-matching labels to the new cluster", func() {
 				ns := types.NamespacedName{
 					Namespace: "default",
-					Name:      "prod-work-name.dev-cluster-3",
+					Name:      "prod-work-name.dev3",
 				}
 				actualWorkPlacement := WorkPlacement{}
 				Expect(k8sClient.Get(context.Background(), ns, &actualWorkPlacement)).ToNot(Succeed())
@@ -157,9 +154,9 @@ var _ = Describe("Controllers/Scheduler", func() {
 			Expect(workPlacements.Items).To(HaveLen(1))
 			workPlacement := workPlacements.Items[0]
 			Expect(workPlacement.Namespace).To(Equal("default"))
-			Expect(workPlacement.Name).To(Equal("rr-work-name.prod-cluster"))
 			Expect(workPlacement.Spec.WorkName).To(Equal("rr-work-name"))
-			Expect(workPlacement.Spec.TargetClusterName).To(Equal("prod-cluster"))
+			Expect(workPlacement.Spec.TargetClusterName).To(MatchRegexp("prod|dev\\-\\d"))
+			Expect(workPlacement.Name).To(Equal(workPlacement.Spec.WorkName + "." + workPlacement.Spec.TargetClusterName))
 			Expect(workPlacement.Finalizers).To(HaveLen(1), "expected one finalizer")
 			Expect(workPlacement.Finalizers[0]).To(Equal("finalizers.workplacement.kratix.io/repo-cleanup"))
 		})
