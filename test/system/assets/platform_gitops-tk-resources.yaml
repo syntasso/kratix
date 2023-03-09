@@ -6,6 +6,7 @@ metadata:
   namespace: flux-system
 spec:
   interval: 10s
+  timeout: 300s
   provider: generic
   bucketName: platform-cluster-worker-1-kratix-crds
   endpoint: minio.kratix-platform-system.svc.cluster.local
@@ -20,6 +21,7 @@ metadata:
   namespace: flux-system
 spec:
   interval: 10s
+  timeout: 300s
   provider: generic
   bucketName: platform-cluster-worker-1-kratix-resources
   endpoint: minio.kratix-platform-system.svc.cluster.local
