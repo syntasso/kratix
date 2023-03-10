@@ -90,7 +90,6 @@ install-gitea: ## Install test gitea server
 
 install-flux-to-platform:
 	kubectl apply -f ./hack/worker/gitops-tk-install.yaml
-	kubectl apply -f ./test/system/assets/platform_gitops-tk-resources.yaml
 	kubectl wait --namespace flux-system --for=condition=Available deployment source-controller --timeout=120s
 	kubectl wait --namespace flux-system --for=condition=Available deployment kustomize-controller --timeout=120s
 
