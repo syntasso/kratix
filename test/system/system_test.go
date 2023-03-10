@@ -24,7 +24,7 @@ var (
 	workerCtx = "--context=kind-worker"
 	platCtx   = "--context=kind-platform"
 
-	timeout  = time.Second * 60
+	timeout  = time.Second * 90
 	interval = time.Second * 2
 
 	platform = cluster{context: "--context=kind-platform"}
@@ -108,6 +108,8 @@ var _ = Describe("Kratix", func() {
 		// - security: high
 		BeforeEach(func() {
 			platform.kubectl("label", "cluster", "worker-cluster-1", "security=high")
+			//install kustomization and buckets to plat cluster
+			platform.kubectl("apply", "-f", "./assets/platform_gitops-tk-resources.yaml")
 		})
 
 		It("schedules resources to the correct clusters", func() {
