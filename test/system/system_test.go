@@ -56,6 +56,7 @@ var _ = Describe("Kratix", func() {
 			By("making a resource request", func() {
 				command := `kubectl create namespace resource-request-namespace --dry-run=client -oyaml > /output/ns.yaml`
 				platform.kubectl("apply", "-f", requestWithNameAndCommand(rrName, command))
+				Expect(platform.eventuallyKubectl("get", "bash", rrName, "-o", "jsonpath={.status.message}")).To(ContainSubstring("Pending"))
 
 				platform.kubectl("wait", "--for=condition=PipelineCompleted", "bash", rrName, "--timeout=60s")
 				Expect(platform.kubectl("get", "bash", rrName)).To(ContainSubstring("Resource requested"))
