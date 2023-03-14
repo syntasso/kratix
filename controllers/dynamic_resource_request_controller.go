@@ -39,7 +39,7 @@ import (
 	"k8s.io/apimachinery/pkg/selection"
 	"k8s.io/apimachinery/pkg/util/uuid"
 	clusterv1 "sigs.k8s.io/cluster-api/api/v1beta1"
-	clusterutil "sigs.k8s.io/cluster-api/util/conditions"
+	conditionsutil "sigs.k8s.io/cluster-api/util/conditions"
 	ctrl "sigs.k8s.io/controller-runtime"
 	"sigs.k8s.io/controller-runtime/pkg/client"
 	"sigs.k8s.io/yaml"
@@ -79,10 +79,10 @@ func (r *dynamicResourceRequestController) Reconcile(ctx context.Context, req ct
 	logger := r.log.WithValues("uid", r.uid, r.promiseIdentifier, req.NamespacedName)
 	resourceRequestIdentifier := fmt.Sprintf("%s-%s-%s", r.promiseIdentifier, req.Namespace, req.Name)
 
-	unstructuredCRD := &unstructured.Unstructured{}
-	unstructuredCRD.SetGroupVersionKind(*r.gvk)
+	rr := &unstructured.Unstructured{}
+	rr.SetGroupVersionKind(*r.gvk)
 
-	err := r.Client.Get(ctx, req.NamespacedName, unstructuredCRD)
+	err := r.Client.Get(ctx, req.NamespacedName, rr)
 	if err != nil {
 		if errors.IsNotFound(err) {
 			return ctrl.Result{}, nil
@@ -91,13 +91,13 @@ func (r *dynamicResourceRequestController) Reconcile(ctx context.Context, req ct
 		return defaultRequeue, nil
 	}
 
-	if !unstructuredCRD.GetDeletionTimestamp().IsZero() {
-		return r.deleteResources(ctx, unstructuredCRD, resourceRequestIdentifier, logger)
+	if !rr.GetDeletionTimestamp().IsZero() {
+		return r.deleteResources(ctx, rr, resourceRequestIdentifier, logger)
 	}
 
 	// Reconcile necessary finalizers
-	if finalizersAreMissing(unstructuredCRD, []string{workFinalizer, pipelineFinalizer}) {
-		return addFinalizers(ctx, r.Client, unstructuredCRD, []string{workFinalizer, pipelineFinalizer}, logger)
+	if finalizersAreMissing(rr, []string{workFinalizer, pipelineFinalizer}) {
+		return addFinalizers(ctx, r.Client, rr, []string{workFinalizer, pipelineFinalizer}, logger)
 	}
 
 	if r.pipelineHasExecuted(resourceRequestIdentifier) {
@@ -110,7 +110,7 @@ func (r *dynamicResourceRequestController) Reconcile(ctx context.Context, req ct
 	resourceKindNameNamespace := fmt.Sprintf("%s.%s %s --namespace %s", strings.ToLower(r.gvk.Kind), r.gvk.Group, req.Name, req.Namespace)
 	resourceRequestCommand := fmt.Sprintf("kubectl get %s -oyaml > /output/object.yaml", resourceKindNameNamespace)
 
-	err = r.setPipelineCondition(ctx, unstructuredCRD, logger)
+	err = r.setPipelineCondition(ctx, rr, logger)
 	if err != nil {
 		return ctrl.Result{}, err
 	}
@@ -372,12 +372,16 @@ func getShortUuid() string {
 	}
 }
 
-func (r *dynamicResourceRequestController) setPipelineCondition(ctx context.Context, unstructuredCRD *unstructured.Unstructured, logger logr.Logger) error {
-	setter := clusterutil.UnstructuredSetter(unstructuredCRD)
-	getter := clusterutil.UnstructuredGetter(unstructuredCRD)
-	condition := clusterutil.Get(getter, clusterv1.ConditionType("PipelineCompleted"))
+func (r *dynamicResourceRequestController) setPipelineCondition(ctx context.Context, rr *unstructured.Unstructured, logger logr.Logger) error {
+	setter := conditionsutil.UnstructuredSetter(rr)
+	getter := conditionsutil.UnstructuredGetter(rr)
+	condition := conditionsutil.Get(getter, clusterv1.ConditionType("PipelineCompleted"))
 	if condition == nil {
-		clusterutil.Set(setter, &clusterv1.Condition{
+		err := unstructured.SetNestedMap(rr.Object, map[string]interface{}{"message": "Pending"}, "status")
+		if err != nil {
+			logger.Error(err, "failed to set status.message to pending, ignoring error")
+		}
+		conditionsutil.Set(setter, &clusterv1.Condition{
 			Type:               clusterv1.ConditionType("PipelineCompleted"),
 			Status:             v1.ConditionFalse,
 			Message:            "Pipeline has not completed",
@@ -385,7 +389,7 @@ func (r *dynamicResourceRequestController) setPipelineCondition(ctx context.Cont
 			LastTransitionTime: metav1.NewTime(time.Now()),
 		})
 		logger.Info("setting condition PipelineCompleted false")
-		if err := r.Client.Status().Update(ctx, unstructuredCRD); err != nil {
+		if err := r.Client.Status().Update(ctx, rr); err != nil {
 			return err
 		}
 	}
