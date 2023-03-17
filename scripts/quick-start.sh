@@ -327,7 +327,15 @@ install_kratix() {
     fi
 
     kubectl config use-context kind-platform >/dev/null
+
     success "Kratix installation is complete!"
+
+    if ${KRATIX_DEVELOPER:-false}; then
+        echo "If you are following the docs available at kratix.io, make sure to set the following environment variables:"
+        echo "export PLATFORM=kind-platform"
+        echo "export WORKER=kind-worker"
+    fi
+
 }
 
 main() {
