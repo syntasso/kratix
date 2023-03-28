@@ -23,3 +23,5 @@ syntasso/demo-app-as-a-service-request-pipeline:v0.1.0
 syntasso/demo-knative-service-request-pipeline:v0.1.0
 syntasso/demo-postgresql-request-pipeline:v0.1.0
 syntasso/demo-redis-request-pipeline:v0.1.0
+syntasso/kratix-platform-pipeline-adapter:b156ccf647b2b5bca79a7db71e8c83b8c43f8a1d
+syntasso/kratix-platform:b156ccf647b2b5bca79a7db71e8c83b8c43f8a1d
