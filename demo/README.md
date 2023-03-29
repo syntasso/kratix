@@ -6,12 +6,18 @@
 
 ### Set up clusters and install Kratix
 
-#### Regular demo, regular Internet
-
-- `lpass login`: Log in to the lastpass CLI for installing the Slack secret or export `LPASS_SLACK_URL`
-with the contents of `lpass show 6120120669854427362 --password`
-- (Optional, recommended) [save images locally](./low-internet.md) for low internet
-- Run the setup script:
+- `lpass login`: Log in to the lastpass CLI for installing the Slack secret.
+  - If you don't have internet, or are worried you might not you can save
+  the secret (`lpass show 6120120669854427362 --password`) to a file and
+  then export `LPASS_SLACK_URL` to contain the value. This will make the setup
+  script skip the lpass login.
+- (Optional, recommended) Download the images for offline usage. This also just speeds
+up the demo massively as the images don't have to get pulled while demoing.
+  1. *Generating the list of image*: Inside `demo/` there is a `demo-image-list` file containing the list of all
+  images that need to be downloaded. **This can become stale as the demo gets updated**, to ensure its up-to-date
+  run through the steps in [save images locally](./low-internet.md)
+  1. *Downloading the images*: run `./scripts/fetch-demo-images` to fetch all the
+  images.
 
 ```
 ./scripts/setup

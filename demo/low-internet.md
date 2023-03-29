@@ -36,7 +36,7 @@ echo >>  /tmp/demo-image-list
 kubectl get pods --context kind-platform --all-namespaces -o jsonpath="{.items[*].spec.initContainers[*].image}" |\
   tr -s '[[:space:]]' '\n' >>  /tmp/demo-image-list
 
-cat /tmp/demo-image-list | sort | uniq > demo-image-list
+cat /tmp/demo-image-list | sort | uniq | grep -v "syntasso/kratix-platform" | grep -v "syntassodev/kratix-platform" > demo-image-list
 ```
 
 #### 3. Save the images locally
