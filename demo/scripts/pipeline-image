@@ -3,7 +3,7 @@
 set -e
 
 promise_name="$(basename "$(dirname "${PWD}")")"
-pipeline_image="syntasso/demo-${promise_name}-request-pipeline:v0.1.0"
+pipeline_image="syntasso/demo-${promise_name}-request-pipeline:v0.1.1"
 
 while [ $# -gt 0 ]; do
   case "$1" in

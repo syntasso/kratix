@@ -8,8 +8,9 @@
 
 #### Regular demo, regular Internet
 
-- `lpass login`: Log in to the lastpass CLI for installing the Slack secret
-- (Optional) [save images locally](./low-internet.md) for low internet
+- `lpass login`: Log in to the lastpass CLI for installing the Slack secret or export `LPASS_SLACK_URL`
+with the contents of `lpass show 6120120669854427362 --password`
+- (Optional, recommended) [save images locally](./low-internet.md) for low internet
 - Run the setup script:
 
 ```
@@ -25,20 +26,6 @@
 - Open Chrome
 - Mute notifications for Slack & others (ie, enable focus mode on Mac for however long you need)
 - Have Slack open on the demo channel, with no threads open.
-
-### Set up Automagical Demo Launcher™️
-
-If you want to automatically have the app open at the end of the demo when the TODO app is running, use the script below. It:
-
-- Waits until all resources are created and ready
-- Opens the port-forward
-- Opens the browser to the todo app
-
-In a separate window/tab, run:
-
-```
-./scripts/wait-and-open-browser-when-app-ready
-```
 
 ## Demo
 
@@ -115,15 +102,12 @@ Show pods for the instances that are coming up on `kind-worker`:
 kubectl --context=kind-worker get pods
 ```
 
-_NOTE_: If you are using the `wait-and-open-browser-when-app-ready` script then the browser will automatically open when the apps ready, and it will also run the port-forward for you.
-
 ### Show the app
 
-If you are _NOT_ using the `wait-and-open-browser-when-app-ready` then once the Redis,
-Postgres and TODO app (serverless so it might disappear after a while) are running start a port-forward:
+When Postgres and TODO app are running start a port-forward:
 
 ```
-kubectl --namespace knative-serving port-forward svc/kourier 8081:80
+kubectl --context kind-worker port-forward svc/nginx-nginx-ingress 8080:80
 ```
 
-Show the app working by going to http://todo.default.local.gd:8081
+Show the app working by going to http://localhost:8080 with the host header `todo.example.com` set

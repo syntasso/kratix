@@ -64,12 +64,13 @@ pe "kubectl apply -f resource-request.yaml"
 # We can see what exists on the platform for each of those Promises
 # There's a time element
 pe "kubectl get apps.example.promise.syntasso.io"
+pe "watch pods platform"
 
 # These will take longer
-pe "kubectl get knservices.example.promise.syntasso.io"
 pe "kubectl get redis.marketplace.kratix.io"
 pe "kubectl get postgresqls.marketplace.kratix.io"
 pe "kubectl get slacks.marketplace.kratix.io"
+pe "kubectl get deployments.marketplace.kratix.io"
 
 # SLACK
 # Show channel before moving on
@@ -84,3 +85,6 @@ pe "kubectl get slacks.marketplace.kratix.io"
 # Check Knative
 # Knative downloading many images for all the stuff it needs
 pe "watch pods worker"
+
+pe 'kubectl --context kind-worker port-forward svc/nginx-nginx-ingress 8080:80'
+

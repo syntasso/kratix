@@ -1,0 +1,15 @@
+#!/usr/bin/env sh
+
+set -xe
+
+export name="$(yq eval '.metadata.name' /input/object.yaml)"
+export image="$(yq eval '.spec.image' /input/object.yaml)"
+
+sed "s/TBDNAME/${name}/g" /tmp/transfer/deployment.yaml > /tmp/deployment.yaml
+sed "s_TBDIMAGE_${image}_g" /tmp/deployment.yaml > /output/deployment.yaml
+
+
+sed "s/TBDNAME/${name}/g" /tmp/transfer/service.yaml > /output/service.yaml
+
+sed "s/TBDNAME/${name}/g" /tmp/transfer/ingress.yaml > /output/ingress.yaml
+

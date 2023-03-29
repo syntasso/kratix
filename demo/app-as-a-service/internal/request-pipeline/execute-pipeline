@@ -26,16 +26,10 @@ cat /tmp/transfer/redis-resource-request.yaml \
   | .spec.clusterSelectors = env(clusterLabels)' \
   > /output/redis-resource-request.yaml
 
-cat /tmp/transfer/knative-service-resource-request.yaml \
-  | yq eval '.metadata.name = env(name)
-   | .spec.clusterSelectors = env(clusterLabels)
-   | .spec.name = env(name)
-   | .spec.image = env(image)
-   | .spec.database.host = "acid-" + env(name) + "-postgresql.default.svc.cluster.local"
-   | .spec.database.name = env(db_name)
-   | .spec.database.secretKeyRef = "postgres.acid-" + env(name) + "-postgresql.credentials.postgresql.acid.zalan.do"' \
-  > /output/knative-service-resource-request.yaml
-
 cat /tmp/transfer/slack-resource-request.yaml \
   | yq eval '.metadata.name = env(name) | .spec.message = "Deploying app: " + env(name)' \
   > /output/slack-resource-request.yaml
+
+cat /tmp/transfer/deployment-resource-request.yaml \
+  | yq eval '.metadata.name = env(name) | .spec.image = env(image)' \
+  > /output/deployment-resource-request.yaml

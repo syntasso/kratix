@@ -4,10 +4,13 @@ set -e
 
 PWD="$( cd $(dirname $0)/.. && pwd)"
 
-lpass ls | grep -e "demo-alerts"
+if [[ -z "${LPASS_SLACK_URL}" ]]; then
+  lpass ls | grep -e "demo-alerts"
+  LPASS_SLACK_URL=$(lpass show 6120120669854427362 --password)
+fi
 
 ${PWD}/../scripts/quick-start.sh --local-images ${PWD}/cached-images/ --recreate
 ${PWD}/../scripts/prepare-platform-cluster-as-worker.sh
 
 kubectl --context kind-platform --namespace default create secret generic \
-  slack-channel-hook --from-literal=url=$(lpass show 6120120669854427362 --password)
+  slack-channel-hook --from-literal=url=$LPASS_SLACK_URL

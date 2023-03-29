@@ -1,0 +1,16 @@
+#!/usr/bin/env bash
+set -e
+
+test_promise() {
+  kubectl get crds slacks.marketplace.kratix.io
+}
+
+test_resource_request() {
+  exit 0
+}
+
+if [ "$1" = "promise" ]; then
+  test_promise
+else
+  test_resource_request
+fi
