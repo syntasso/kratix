@@ -3,7 +3,8 @@
 ## Pre-demo setup
 
 ### Setup clusters
-Make sure your logged into lpass before running the setup script. Optionally, if you want
+Make sure your logged into lpass before running the setup script, or export `LPASS_SLACK_URL`
+with the contents of `lpass show 6120120669854427362 --password`. Optionally (recommended), if you want
 to run in [low-internet mode ensure you've saved the images locally](#saving-the-images-for-low-internet)
 to `demo/cached-images/`. If any images are present they will be loaded during setup:
 
@@ -21,15 +22,6 @@ Change into the `app-as-a-service` directory for the demo.
 ```
 cd app-as-a-service/
 ```
-
-If you want to automatically have the app open when the TODO app is running, in
-a separate hidden terminal run `./scripts/wait-and-open-browser-when-app-ready`.
-This will wait until all the resources are created and open your browser to the todo app
-when its ready, this script will open the port-forward for you.
-```
-../scripts/wait-and-open-browser-when-app-ready
-```
-
 
 ## Demo
 
@@ -91,12 +83,12 @@ will automatically open when the apps ready, and it will also run the port-forwa
 
 
 If your NOT using the `wait-and-open-browser-when-app-ready` then once the Redis,
-Postgres and TODO app (serverless so it might disappear after a while) are running start a portforward:
+Postgres and TODO app are running start a portforward:
 ```
-kubectl --namespace knative-serving port-forward svc/kourier 8081:80
+kubectl --context kind-worker port-forward svc/nginx-nginx-ingress 8080:80
 ```
 
-Show the app working by going to http://todo.default.local.gd:8081
+Show the app working by going to http://localhost:8080 and having the host header 'todo.example.com' set.
 
 | :warning: WARNING          |
 |:---------------------------|
@@ -174,7 +166,7 @@ all the commands from within the `demo` directory.
   kubectl get pods --context kind-platform --all-namespaces -o jsonpath="{.items[*].spec.initContainers[*].image}" |\
     tr -s '[[:space:]]' '\n' >>  /tmp/demo-image-list
 
-  cat /tmp/demo-image-list | sort | uniq | grep -v "syntasso/kratix-platform" |  grep -v "knative-release" | grep -v "sample-todo-app" > demo-image-list
+  cat /tmp/demo-image-list | sort | uniq > demo-image-list
   ```
 
 ### Saving the images
@@ -186,22 +178,3 @@ mkdir -p cached-images
 ```
 
 This will save a tar of all the images.
-
-### Why doesn't this work completely offline?
-We can't get the knative GCR and TODO-app images to successfully load. Context: https://github.com/kubernetes-sigs/kind/issues/2394#issuecomment-1397720494
-
-The current workaround if you need to go truly offline is to run the above setup script to get the environment
-setup, and then manually load all the images with a digest (all the knatives for example) in the `demo-image-list`:
-```
-cat demo-image-list| grep @ | xargs -I{} docker exec platform-control-plane crictl pull {}
-cat demo-image-list| grep @ | xargs -I{} docker exec worker-control-plane crictl pull {}
-```
-
-In addition, the following two pods can not start without internet access:
-* knative-operator-579648cc6b-sczgr
-* operator-webhook-7df689586-k22mr
-
-Example error is, however this image can not be pulled:
-```
-  Warning  Failed     10s (x3 over 26s)  kubelet            Error: failed to get image from containerd "sha256:1e7e67348c2fce975e89c1670537a68ff1e1131467d94f42d8d8fb8f9a15cb4b": image "docker.io/library/import-2023-01-23@sha256:06af9cb3e0ddf9bf4d01feda64372a694e2a581419bf61518a2b98f6f80c26e6": not found
-```
