@@ -289,7 +289,9 @@ install_kratix() {
     fi
 
     log -n "Creating worker cluster..."
-    if ! run kind create cluster --name worker --image $KIND_IMAGE; then
+    if ! run kind create cluster --name worker --image $KIND_IMAGE \
+        --config ${ROOT}/hack/worker/kind-worker-config.yaml
+    then
         error "Could not create worker cluster"
         exit 1
     fi

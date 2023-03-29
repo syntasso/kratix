@@ -35,6 +35,14 @@ Change into the `app-as-a-service` directory for the demo.
 cd app-as-a-service/
 ```
 
+If you want to automatically have the app open when the TODO app is running, in
+a separate hidden terminal run `./scripts/wait-and-open-browser-when-app-ready`.
+This will wait until all the resources are created and open your browser to the todo app
+when its ready.
+```
+../scripts/wait-and-open-browser-when-app-ready
+```
+
 ### Installing the Promise
 
 Show Kratix is installed but no promises are installed:
@@ -103,11 +111,10 @@ kubectl --context=kind-worker get pods
 ```
 
 ### Show the app
+*NOTE*: If your using the `wait-and-open-browser-when-app-ready` script then the browser
+will automatically open when the apps ready.
 
-When Postgres and TODO app are running start a port-forward:
 
-```
-kubectl --context kind-worker port-forward svc/nginx-nginx-ingress 8080:80
-```
-
-Show the app working by going to http://todo.local.gd:8080
+When Postgres and TODO app are running you can connect to the app. If your NOT
+using the `wait-and-open-browser-when-app-ready` then navigate manually to
+http://todo.local.gd:31338/

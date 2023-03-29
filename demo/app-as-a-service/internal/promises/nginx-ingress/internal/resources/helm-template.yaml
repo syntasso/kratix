@@ -197,12 +197,13 @@ metadata:
     app.kubernetes.io/instance: nginx
 spec:
   externalTrafficPolicy: Local
-  type: LoadBalancer
+  type: NodePort
   ports:
   - port: 80
     targetPort: 80
     protocol: TCP
     name: http
+    nodePort: 31338
   - port: 443
     targetPort: 443
     protocol: TCP
