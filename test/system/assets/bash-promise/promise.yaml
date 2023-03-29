@@ -24,16 +24,21 @@ spec:
             properties:
               spec:
                 properties:
-                  cmd:
+                  container0Cmd:
                     description:
-                      Arbitrary code to be executed by the promise
+                      Arbitrary code to be executed by the container 0
+                    type: string
+                  container1Cmd:
+                    description:
+                      Arbitrary code to be executed by the container 1
                     type: string
                 type: object
             type: object
         served: true
         storage: true
   xaasRequestPipeline:
-  - syntassodev/bash-promise-test:dev
+    - syntassodev/bash-promise-test-c0:dev
+    - syntassodev/bash-promise-test-c1:dev
   workerClusterResources:
     - apiVersion: v1
       kind: Namespace
