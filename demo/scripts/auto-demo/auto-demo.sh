@@ -14,6 +14,21 @@ DEMO_PROMPT="${GREEN}➜ ${CYAN} kratix-demo ${COLOR_RESET}"
 # hide the evidence
 clear
 
+
+function sync_worker_flux() {
+  flux reconcile source bucket kratix-workload-crds --namespace flux-system --context kind-worker > /dev/null 2>&1
+  flux reconcile source bucket kratix-workload-resources --namespace flux-system --context kind-worker > /dev/null 2>&1
+  flux reconcile kustomization kratix-workload-crds --namespace flux-system --context kind-worker > /dev/null 2>&1
+  flux reconcile kustomization kratix-workload-resources --namespace flux-system --context kind-worker > /dev/null 2>&1
+}
+
+function sync_platform_flux() {
+  flux reconcile source bucket platform-cluster-worker-1-crds --namespace flux-system --context kind-platform > /dev/null 2>&1
+  flux reconcile source bucket platform-cluster-worker-1-resources --namespace flux-system --context kind-platform > /dev/null 2>&1
+  flux reconcile kustomization platform-cluster-worker-1-crds --namespace flux-system --context kind-platform > /dev/null 2>&1
+  flux reconcile kustomization platform-cluster-worker-1-resources --namespace flux-system --context kind-platform > /dev/null 2>&1
+}
+
 ########################
 # Kratix Demo
 ########################
@@ -32,6 +47,7 @@ pe "kubectl create -f promise.yaml"
 # The below runs immediately (automatically) to win Flux timing
 # to show that first just app-as-a-service exists
 pei "kubectl get promises"
+sync_platform_flux 
 
 # If we ask for Promises again, we'll see the AaaS Promise
 # We'll also, soon after, see that the lower-level Promises are also installed
@@ -65,12 +81,14 @@ pe "kubectl apply -f resource-request.yaml"
 # There's a time element
 pe "kubectl get apps.example.promise.syntasso.io"
 pe "watch pods platform"
+sync_platform_flux
 
 # These will take longer
 pe "kubectl get redis.marketplace.kratix.io"
 pe "kubectl get postgresqls.marketplace.kratix.io"
 pe "kubectl get slacks.marketplace.kratix.io"
 pe "kubectl get deployments.marketplace.kratix.io"
+sync_worker_flux
 
 # SLACK
 # Show channel before moving on
@@ -86,5 +104,5 @@ pe "kubectl get deployments.marketplace.kratix.io"
 # Knative downloading many images for all the stuff it needs
 pe "watch pods worker"
 
-pe 'kubectl --context kind-worker port-forward svc/nginx-nginx-ingress 8080:80'
+pe '# the app is now running, and can be accessed at http://todo.local.gd:31338'
 
