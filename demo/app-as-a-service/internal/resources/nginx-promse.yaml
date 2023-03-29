@@ -2620,6 +2620,7 @@ spec:
       externalTrafficPolicy: Local
       ports:
       - name: http
+        nodePort: 31338
         port: 80
         protocol: TCP
         targetPort: 80
@@ -2629,7 +2630,7 @@ spec:
         targetPort: 443
       selector:
         app: nginx-nginx-ingress
-      type: LoadBalancer
+      type: NodePort
   - apiVersion: apps/v1
     kind: Deployment
     metadata:
