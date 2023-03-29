@@ -16,15 +16,15 @@ clear
 
 
 function sync_worker_flux() {
-  flux reconcile bucket kratix-workload-crds --namespace flux-system --context kind-worker > /dev/null 2>&1
-  flux reconcile bucket kratix-workload-resources --namespace flux-system --context kind-worker > /dev/null 2>&1
+  flux reconcile source bucket kratix-workload-crds --namespace flux-system --context kind-worker > /dev/null 2>&1
+  flux reconcile source bucket kratix-workload-resources --namespace flux-system --context kind-worker > /dev/null 2>&1
   flux reconcile kustomization kratix-workload-crds --namespace flux-system --context kind-worker > /dev/null 2>&1
   flux reconcile kustomization kratix-workload-resources --namespace flux-system --context kind-worker > /dev/null 2>&1
 }
 
 function sync_platform_flux() {
-  flux reconcile bucket platform-cluster-worker-1-crds --namespace flux-system --context kind-platform > /dev/null 2>&1
-  flux reconcile bucket platform-cluster-worker-1-resources --namespace flux-system --context kind-platform > /dev/null 2>&1
+  flux reconcile source bucket platform-cluster-worker-1-crds --namespace flux-system --context kind-platform > /dev/null 2>&1
+  flux reconcile source bucket platform-cluster-worker-1-resources --namespace flux-system --context kind-platform > /dev/null 2>&1
   flux reconcile kustomization platform-cluster-worker-1-crds --namespace flux-system --context kind-platform > /dev/null 2>&1
   flux reconcile kustomization platform-cluster-worker-1-resources --namespace flux-system --context kind-platform > /dev/null 2>&1
 }
