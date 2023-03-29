@@ -26,6 +26,8 @@ images=(
   "gcr.io/kubebuilder/kube-rbac-proxy:v0.8.0"
   "syntasso/kratix-platform:${kratix_version}"
   "syntasso/kratix-platform-pipeline-adapter:${kratix_version}"
+  "syntassodev/kratix-platform:${kratix_version}"
+  "syntassodev/kratix-platform-pipeline-adapter:${kratix_version}"
 
   # Dynamic controller "reader" image
   "bitnami/kubectl:1.20.10"

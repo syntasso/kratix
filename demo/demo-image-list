@@ -24,7 +24,3 @@ syntasso/demo-deployment-request-pipeline:v0.1.1
 syntasso/demo-postgresql-request-pipeline:v0.1.1
 syntasso/demo-redis-request-pipeline:v0.1.1
 syntasso/sample-todo-app:v0.1.2
-syntasso/kratix-platform:ebbb102f41489adb14795cb3f06adde48fdb4089
-syntassodev/kratix-platform:ebbb102f41489adb14795cb3f06adde48fdb4089
-syntasso/kratix-platform-pipeline-adapter:ebbb102f41489adb14795cb3f06adde48fdb4089
-syntassodev/kratix-platform-pipeline-adapter:ebbb102f41489adb14795cb3f06adde48fdb4089
