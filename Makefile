@@ -60,8 +60,10 @@ vet: ## Run go vet against code.
 	go vet ./...
 
 build-and-load-bash:
-	docker build --tag syntassodev/bash-promise-test:dev ./test/system/assets/bash-promise
-	kind load docker-image syntassodev/bash-promise-test:dev --name platform
+	docker build --tag syntassodev/bash-promise-test-c0:dev ./test/system/assets/bash-promise --build-arg CONTAINER_INDEX=0
+	docker build --tag syntassodev/bash-promise-test-c1:dev ./test/system/assets/bash-promise --build-arg CONTAINER_INDEX=1
+	kind load docker-image syntassodev/bash-promise-test-c0:dev --name platform
+	kind load docker-image syntassodev/bash-promise-test-c1:dev --name platform
 
 build-and-load-kratix: kind-load-image
 
@@ -98,6 +100,9 @@ system-test: generate fmt vet ## Run integrations tests.
 	make quick-start
 	make build-and-load-bash
 	make install-flux-to-platform
+	make ginkgo-system-test
+
+ginkgo-system-test:
 	CK_GINKGO_DEPRECATIONS=1.16.4 go run github.com/onsi/ginkgo/ginkgo ./test/system/  -r  --coverprofile cover.out
 
 kind-load-image: docker-build ## Load locally built image into KinD, use export IMG=syntasso/kratix-platform:${VERSION}

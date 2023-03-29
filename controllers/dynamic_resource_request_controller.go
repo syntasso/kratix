@@ -105,16 +105,13 @@ func (r *dynamicResourceRequestController) Reconcile(ctx context.Context, req ct
 		return ctrl.Result{}, nil
 	}
 
-	workCreatorCommand := fmt.Sprintf("./work-creator -identifier %s -input-directory /work-creator-files", resourceRequestIdentifier)
-
-	resourceKindNameNamespace := fmt.Sprintf("%s.%s %s --namespace %s", strings.ToLower(r.gvk.Kind), r.gvk.Group, req.Name, req.Namespace)
-	resourceRequestCommand := fmt.Sprintf("kubectl get %s -oyaml > /output/object.yaml", resourceKindNameNamespace)
-
 	err = r.setPipelineCondition(ctx, rr, logger)
 	if err != nil {
 		return ctrl.Result{}, err
 	}
 
+	emptyVolumeSrc := v1.VolumeSource{EmptyDir: &v1.EmptyDirVolumeSource{}}
+	rrKind := fmt.Sprintf("%s.%s", strings.ToLower(r.gvk.Kind), r.gvk.Group)
 	pod := v1.Pod{
 		ObjectMeta: metav1.ObjectMeta{
 			Name:      "request-pipeline-" + r.promiseIdentifier + "-" + getShortUuid(),
@@ -133,97 +130,21 @@ func (r *dynamicResourceRequestController) Reconcile(ctx context.Context, req ct
 					Image:   os.Getenv("WC_IMG"),
 					Command: []string{"sh", "-c", "update-status"},
 					Env: []v1.EnvVar{
-						{
-							Name:  "RR_KIND",
-							Value: fmt.Sprintf("%s.%s", strings.ToLower(r.gvk.Kind), r.gvk.Group),
-						},
-						{
-							Name:  "RR_NAME",
-							Value: req.Name,
-						},
-						{
-							Name:  "RR_NAMESPACE",
-							Value: req.Namespace,
-						},
+						{Name: "RR_KIND", Value: rrKind},
+						{Name: "RR_NAME", Value: req.Name},
+						{Name: "RR_NAMESPACE", Value: req.Namespace},
 					},
-					VolumeMounts: []v1.VolumeMount{
-						{
-							MountPath: "/work-creator-files/metadata",
-							Name:      "metadata",
-						},
-					},
+					VolumeMounts: []v1.VolumeMount{{
+						MountPath: "/work-creator-files/metadata",
+						Name:      "metadata",
+					}},
 				},
 			},
-			InitContainers: []v1.Container{
-				{
-					Name:    "reader",
-					Image:   "bitnami/kubectl:1.20.10",
-					Command: []string{"sh", "-c", resourceRequestCommand},
-					VolumeMounts: []v1.VolumeMount{
-						{
-							MountPath: "/output",
-							Name:      "input",
-						},
-					},
-				},
-				{
-					Name:  "xaas-request-pipeline-stage-1",
-					Image: r.xaasRequestPipeline[0],
-					//Command: Supplied by the image author via ENTRYPOINT/CMD
-					VolumeMounts: []v1.VolumeMount{
-						{
-							MountPath: "/input",
-							Name:      "input",
-						},
-						{
-							MountPath: "/output",
-							Name:      "output",
-						},
-						{
-							MountPath: "/metadata",
-							Name:      "metadata",
-						},
-					},
-				},
-				{
-					Name:    "work-writer",
-					Image:   os.Getenv("WC_IMG"),
-					Command: []string{"sh", "-c", workCreatorCommand},
-					VolumeMounts: []v1.VolumeMount{
-						{
-							MountPath: "/work-creator-files/input",
-							Name:      "output",
-						},
-						{
-							MountPath: "/work-creator-files/metadata",
-							Name:      "metadata",
-						},
-						{
-							MountPath: "/work-creator-files/kratix-system",
-							Name:      "promise-cluster-selectors",
-						},
-					},
-				},
-			},
+			InitContainers: r.pipelineInitContainers(resourceRequestIdentifier, req),
 			Volumes: []v1.Volume{
-				{
-					Name: "input",
-					VolumeSource: v1.VolumeSource{
-						EmptyDir: &v1.EmptyDirVolumeSource{},
-					},
-				},
-				{
-					Name: "output",
-					VolumeSource: v1.VolumeSource{
-						EmptyDir: &v1.EmptyDirVolumeSource{},
-					},
-				},
-				{
-					Name: "metadata",
-					VolumeSource: v1.VolumeSource{
-						EmptyDir: &v1.EmptyDirVolumeSource{},
-					},
-				},
+				{Name: "input", VolumeSource: emptyVolumeSrc},
+				{Name: "output", VolumeSource: emptyVolumeSrc},
+				{Name: "metadata", VolumeSource: emptyVolumeSrc},
 				{
 					Name: "promise-cluster-selectors",
 					VolumeSource: v1.VolumeSource{
@@ -231,12 +152,10 @@ func (r *dynamicResourceRequestController) Reconcile(ctx context.Context, req ct
 							LocalObjectReference: v1.LocalObjectReference{
 								Name: "cluster-selectors-" + r.promiseIdentifier,
 							},
-							Items: []v1.KeyToPath{
-								{
-									Key:  "selectors",
-									Path: "promise-cluster-selectors",
-								},
-							},
+							Items: []v1.KeyToPath{{
+								Key:  "selectors",
+								Path: "promise-cluster-selectors",
+							}},
 						},
 					},
 				},
@@ -394,4 +313,60 @@ func (r *dynamicResourceRequestController) setPipelineCondition(ctx context.Cont
 		}
 	}
 	return nil
+}
+
+func (r *dynamicResourceRequestController) pipelineInitContainers(rrID string, req ctrl.Request) []v1.Container {
+	resourceKindNameNamespace := fmt.Sprintf("%s.%s %s --namespace %s", strings.ToLower(r.gvk.Kind), r.gvk.Group, req.Name, req.Namespace)
+	requestPipelineVolumeMounts := []v1.VolumeMount{
+		{MountPath: "/input", Name: "input"},
+		{MountPath: "/output", Name: "output"},
+		{MountPath: "/metadata", Name: "metadata"},
+	}
+
+	resourceRequestCommand := fmt.Sprintf("kubectl get %s -oyaml > /output/object.yaml", resourceKindNameNamespace)
+	reader := v1.Container{
+		Name:    "reader",
+		Image:   "bitnami/kubectl:1.20.10",
+		Command: []string{"sh", "-c", resourceRequestCommand},
+		VolumeMounts: []v1.VolumeMount{
+			{
+				MountPath: "/output",
+				Name:      "input",
+			},
+		},
+	}
+
+	containers := []v1.Container{reader}
+	for i, c := range r.xaasRequestPipeline {
+		containers = append(containers, v1.Container{
+			Name:         fmt.Sprintf("xaas-request-pipeline-stage-%d", i),
+			Image:        c,
+			VolumeMounts: requestPipelineVolumeMounts,
+		})
+	}
+
+	workCreatorCommand := fmt.Sprintf("./work-creator -identifier %s -input-directory /work-creator-files", rrID)
+	writer := v1.Container{
+		Name:    "work-writer",
+		Image:   os.Getenv("WC_IMG"),
+		Command: []string{"sh", "-c", workCreatorCommand},
+		VolumeMounts: []v1.VolumeMount{
+			{
+				MountPath: "/work-creator-files/input",
+				Name:      "output",
+			},
+			{
+				MountPath: "/work-creator-files/metadata",
+				Name:      "metadata",
+			},
+			{
+				MountPath: "/work-creator-files/kratix-system",
+				Name:      "promise-cluster-selectors",
+			},
+		},
+	}
+
+	containers = append(containers, writer)
+
+	return containers
 }

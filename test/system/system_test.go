@@ -19,7 +19,6 @@ type cluster struct {
 var (
 	promisePath              = "./assets/bash-promise/promise.yaml"
 	promiseWithSelectorsPath = "./assets/bash-promise/promise-with-selectors.yaml"
-	rrName                   = "rr-1"
 
 	workerCtx = "--context=kind-worker"
 	platCtx   = "--context=kind-platform"
@@ -36,7 +35,9 @@ kind: bash
 metadata:
   name: %s
 spec:
-  cmd: |
+  container0Cmd: |
+    %s
+  container1Cmd: |
     %s`
 
 var _ = Describe("Kratix", func() {
@@ -45,43 +46,12 @@ var _ = Describe("Kratix", func() {
 	})
 
 	Describe("Promise lifecycle", func() {
-		It("successfully installs, creates and deletes", func() {
+		It("successfully manages the promise lifecycle", func() {
 			By("installing the promise", func() {
 				platform.kubectl("apply", "-f", promisePath)
 
 				platform.eventuallyKubectl("get", "crd", "bash.test.kratix.io")
 				worker.eventuallyKubectl("get", "namespace", "bash-wcr-namespace")
-			})
-
-			By("making a resource request", func() {
-				command := `kubectl create namespace resource-request-namespace --dry-run=client -oyaml > /output/ns.yaml`
-				platform.kubectl("apply", "-f", requestWithNameAndCommand(rrName, command))
-				Expect(platform.eventuallyKubectl("get", "bash", rrName, "-o", "jsonpath={.status.message}")).To(ContainSubstring("Pending"))
-
-				platform.kubectl("wait", "--for=condition=PipelineCompleted", "bash", rrName, "--timeout=60s")
-				Expect(platform.kubectl("get", "bash", rrName)).To(ContainSubstring("Resource requested"))
-				worker.eventuallyKubectl("get", "namespace", "resource-request-namespace")
-
-				By("setting custom status", func() {
-					rrStatusName := "rr-with-status"
-					command := `echo "message: My awesome status message" > /metadata/status.yaml
-          echo "key: value" >> /metadata/status.yaml`
-
-					platform.kubectl("apply", "-f", requestWithNameAndCommand(rrStatusName, command))
-
-					platform.kubectl("wait", "--for=condition=PipelineCompleted", "bash", rrStatusName, "--timeout=60s")
-
-					Expect(platform.kubectl("get", "bash", rrStatusName)).To(ContainSubstring("My awesome status message"))
-					Expect(platform.kubectl("get", "bash", rrStatusName, "-o", "jsonpath='{.status.key}'")).To(ContainSubstring("value"))
-				})
-			})
-
-			By("deleting a resource request", func() {
-				platform.kubectl("delete", "bash", rrName)
-
-				Eventually(func(g Gomega) {
-					g.Expect(platform.kubectl("get", "bash")).NotTo(ContainSubstring("resource-request-namespace"))
-				}, timeout, interval).Should(Succeed())
 			})
 
 			By("deleting a promise", func() {
@@ -92,6 +62,71 @@ var _ = Describe("Kratix", func() {
 					g.Expect(platform.kubectl("get", "promise")).ShouldNot(ContainSubstring("bash"))
 					g.Expect(platform.kubectl("get", "crd")).ShouldNot(ContainSubstring("bash"))
 				}, timeout, interval).Should(Succeed())
+			})
+		})
+
+		Describe("Resource requests", func() {
+			BeforeEach(func() {
+				platform.kubectl("apply", "-f", promisePath)
+				platform.eventuallyKubectl("get", "crd", "bash.test.kratix.io")
+			})
+
+			It("deploys the contents of /output to the worker cluster", func() {
+				rrName := "rr-output"
+				command := `kubectl create namespace resource-request-namespace --dry-run=client -oyaml > /output/ns.yaml`
+				platform.kubectl("apply", "-f", requestWithNameAndCommand(rrName, command))
+
+				platform.kubectl("wait", "--for=condition=PipelineCompleted", "bash", rrName, "--timeout=60s")
+				Expect(platform.kubectl("get", "bash", rrName)).To(ContainSubstring("Resource requested"))
+				worker.eventuallyKubectl("get", "namespace", "resource-request-namespace")
+			})
+
+			It("writes to status the contents of /metadata/status.yaml", func() {
+				rrName := "rr-status"
+				command := `echo "message: My awesome status message" > /metadata/status.yaml
+							echo "key: value" >> /metadata/status.yaml`
+
+				platform.kubectl("apply", "-f", requestWithNameAndCommand(rrName, command))
+
+				platform.kubectl("wait", "--for=condition=PipelineCompleted", "bash", rrName, "--timeout=60s")
+
+				Expect(platform.kubectl("get", "bash", rrName)).To(ContainSubstring("My awesome status message"))
+				Expect(platform.kubectl("get", "bash", rrName, "-o", "jsonpath='{.status.key}'")).To(ContainSubstring("value"))
+			})
+
+			It("runs all the containers in the pipeline", func() {
+				rrName := "rr-multi-container"
+				commands := []string{
+					`echo "configmap: multi-container-config" >> /input/container-0.txt
+					 kubectl create namespace mcns --dry-run=client -oyaml > /output/ns.yaml`,
+					`kubectl create configmap $(yq '.configmap' /input/container-0.txt) --namespace mcns --dry-run=client -oyaml > /output/configmap.yaml`,
+				}
+
+				platform.kubectl("apply", "-f", requestWithNameAndCommand(rrName, commands...))
+
+				platform.kubectl("wait", "--for=condition=PipelineCompleted", "bash", rrName, "--timeout=60s")
+
+				worker.eventuallyKubectl("get", "namespace", "mcns")
+				worker.eventuallyKubectl("get", "configmap", "multi-container-config", "--namespace", "mcns")
+			})
+
+			It("can be deleted", func() {
+				rrName := "rr-to-delete"
+				command := `kubectl create namespace mcns --dry-run=client -oyaml > /output/ns.yaml`
+				platform.kubectl("apply", "-f", requestWithNameAndCommand(rrName, command))
+				platform.kubectl("wait", "--for=condition=PipelineCompleted", "bash", rrName, "--timeout=60s")
+
+				platform.kubectl("delete", "bash", rrName)
+
+				Eventually(func(g Gomega) {
+					g.Expect(platform.kubectl("get", "bash")).NotTo(ContainSubstring(rrName))
+					g.Expect(worker.kubectl("get", "namespace")).NotTo(ContainSubstring("mcns"))
+				}, timeout, interval).Should(Succeed())
+			})
+
+			AfterEach(func() {
+				platform.kubectl("delete", "promise", "bash")
+				Eventually(platform.kubectl("get", "promise")).ShouldNot(ContainSubstring("bash"))
 			})
 		})
 	})
@@ -151,12 +186,19 @@ var _ = Describe("Kratix", func() {
 	})
 })
 
-func requestWithNameAndCommand(name, command string) string {
-	command = strings.ReplaceAll(command, "\n", ";")
+func requestWithNameAndCommand(name string, containerCmds ...string) string {
+	args := []interface{}{name}
+	for i := 0; i < 2; i++ {
+		cmd := "echo 'noop'"
+		if len(containerCmds) > i {
+			cmd = containerCmds[i]
+		}
+		args = append(args, strings.ReplaceAll(cmd, "\n", ";"))
+	}
 	file, err := ioutil.TempFile("", "kratix-test")
 	ExpectWithOffset(1, err).NotTo(HaveOccurred())
 
-	contents := fmt.Sprintf(baseRequestYAML, name, command)
+	contents := fmt.Sprintf(baseRequestYAML, args...)
 
 	ExpectWithOffset(1, ioutil.WriteFile(file.Name(), []byte(contents), 644)).NotTo(HaveOccurred())
 
