@@ -1,0 +1,25 @@
+#!/usr/bin/env bash
+
+PWD="$( cd $(dirname $0)/.. && pwd)"
+mkdir -p ${PWD}/resources
+
+urls=(
+  'https://raw.githubusercontent.com/nginxinc/nginx-ingress-helm-operator/main/helm-charts/nginx-ingress/crds/appprotect.f5.com_aplogconfs.yaml'
+  'https://raw.githubusercontent.com/nginxinc/nginx-ingress-helm-operator/main/helm-charts/nginx-ingress/crds/appprotect.f5.com_appolicies.yaml'
+  'https://raw.githubusercontent.com/nginxinc/nginx-ingress-helm-operator/main/helm-charts/nginx-ingress/crds/appprotect.f5.com_apusersigs.yaml'
+  'https://raw.githubusercontent.com/nginxinc/nginx-ingress-helm-operator/main/helm-charts/nginx-ingress/crds/appprotectdos.f5.com_apdoslogconfs.yaml'
+  'https://raw.githubusercontent.com/nginxinc/nginx-ingress-helm-operator/main/helm-charts/nginx-ingress/crds/appprotectdos.f5.com_apdospolicy.yaml'
+  'https://raw.githubusercontent.com/nginxinc/nginx-ingress-helm-operator/main/helm-charts/nginx-ingress/crds/appprotectdos.f5.com_dosprotectedresources.yaml'
+  'https://raw.githubusercontent.com/nginxinc/nginx-ingress-helm-operator/main/helm-charts/nginx-ingress/crds/externaldns.nginx.org_dnsendpoints.yaml'
+  'https://raw.githubusercontent.com/nginxinc/nginx-ingress-helm-operator/main/helm-charts/nginx-ingress/crds/k8s.nginx.org_globalconfigurations.yaml'
+  'https://raw.githubusercontent.com/nginxinc/nginx-ingress-helm-operator/main/helm-charts/nginx-ingress/crds/k8s.nginx.org_policies.yaml'
+  'https://raw.githubusercontent.com/nginxinc/nginx-ingress-helm-operator/main/helm-charts/nginx-ingress/crds/k8s.nginx.org_transportservers.yaml'
+  'https://raw.githubusercontent.com/nginxinc/nginx-ingress-helm-operator/main/helm-charts/nginx-ingress/crds/k8s.nginx.org_virtualserverroutes.yaml'
+  'https://raw.githubusercontent.com/nginxinc/nginx-ingress-helm-operator/main/helm-charts/nginx-ingress/crds/k8s.nginx.org_virtualservers.yaml'
+)
+
+for url in "${urls[@]}"; do
+    curl -sL -o ${PWD}/resources/$(basename $url) $url
+done
+
+helm template nginx nginx-stable/nginx-ingress --namespace default --skip-crds > ${PWD}/resources/helm-template.yaml

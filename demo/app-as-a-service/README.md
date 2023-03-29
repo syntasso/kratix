@@ -2,10 +2,11 @@
 
 This Promise provides an App-as-a-Service. This is a compound Promise that installs the following Promises:
 
-- [Knative](https://github.com/syntasso/kratix-marketplace/tree/main/knative)
+- [Nginx-ingress](https://github.com/syntasso/kratix-marketplace/tree/main/nginx-ingress)
 - [Postgres](https://github.com/syntasso/kratix-marketplace/tree/main/postgresql)
+- [Redis](https://github.com/syntasso/kratix-marketplace/tree/main/redis)
 - [Slack](https://github.com/syntasso/kratix-marketplace/tree/main/slack)
-- [Knative Service](../knative-service/) (which deploys the sample application to the Worker Cluster)
+- [Deployment](../deployment/) (which deploys the sample application to the Worker Cluster with the configured ingress)
 
 The following fields are configurable:
 
@@ -27,9 +28,11 @@ kubectl apply -f https://raw.githubusercontent.com/syntasso/kratix/main/demo/app
 
 This resource request deploys the Kratix [sample Golang app](https://github.com/syntasso/sample-golang-app).
 
-To test the sample app once it is successfully deployed, port forward with command below and access at `http://todo.default.local.gd:8081`:
+To test the sample app once it is successfully deployed, port forward with command
+below and access at `http://localhost:8080`, ensure you have the
+`Host: todo.example.com` set in your browser:
 ```
-kubectl --context kind-worker --namespace knative-serving port-forward svc/kourier 8081:80
+kubectl --context kind-worker port-forward svc/nginx-nginx-ingress 8080:80
 ```
 
 ## Development

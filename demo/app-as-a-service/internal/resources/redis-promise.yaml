@@ -1957,7 +1957,7 @@ spec:
           served: true
           storage: true
   xaasRequestPipeline:
-    - syntasso/demo-redis-request-pipeline:v0.1.0
+    - syntasso/demo-redis-request-pipeline:v0.1.1
   clusterSelector:
     environment: dev
 status: {}
