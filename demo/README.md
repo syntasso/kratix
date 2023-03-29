@@ -110,4 +110,4 @@ When Postgres and TODO app are running start a port-forward:
 kubectl --context kind-worker port-forward svc/nginx-nginx-ingress 8080:80
 ```
 
-Show the app working by going to http://localhost:8080 with the host header `todo.example.com` set
+Show the app working by going to http://todo.local.gd:8080
