@@ -6,7 +6,7 @@
 
 - Accompanying Google Slides are likely located [here](https://drive.google.com/drive/folders/19XyhhSky0SbjneWtNnUbwT9-_yp_td7R?usp=share_link)
 
-### Prepare machine for demo
+### 💻&nbsp;&nbsp;Prepare machine for demo
 
 - Terminal
   - Make font size huge
@@ -16,7 +16,7 @@
 - Mute notifications for Slack & others (ie, enable focus mode on Mac for however long you need)
 - Have Slack open on the demo channel, with no threads open.
 
-### Prepare environment for demo
+### ⚙️&nbsp;&nbsp;Prepare environment for demo
 
 #### Requires internet
 
@@ -40,15 +40,15 @@
   - `./scripts/setup`
 - For automatically opening the browser when everything is ready
   - Open new (hidden) terminal tab
-  - `./scripts/wait-and-open-browser-when-app-ready`<br>
+  - 🪄🪄&nbsp;&nbsp;`./scripts/wait-and-open-browser-when-app-ready`<br>
     ⚠️&nbsp;&nbsp;Showing the app in the browser _does_ require internet for the DNS to work
 - For starting in the right directory
   - `cd app-as-a-service/`
 
-## Run the demo
+## 📽&nbsp;&nbsp;Run the demo
 
 - ⚠️&nbsp;&nbsp;Showing the Slack notification and the app in the browser as part of this demo _does_ require internet for the DNS to work
-- `./scripts/auto-demo/auto-demo.sh` automates the steps below.
+- 🪄🪄&nbsp;&nbsp;`./scripts/auto-demo/auto-demo.sh` automates the steps below.
 
 ### Install the Promise
 
@@ -93,9 +93,9 @@ bat resource-request.yaml
 ```
 
 Change the `.spec.name` of the resource request to something unique.
-| :warning: WARNING |
-|:---------------------------|
-| Postgres is [strict on whats acceptable for DB Names](https://www.postgresql.org/docs/current/sql-syntax-lexical.html#SQL-SYNTAX-IDENTIFIERS), which is pulled from `.spec.name`. Stick to simple names with no special characters, e.g. `jakesapp` |
+
+- ⚠️&nbsp;&nbsp; Postgres is [strict on whats acceptable for DB Names](https://www.postgresql.org/docs/current/sql-syntax-lexical.html#SQL-SYNTAX-IDENTIFIERS), which is pulled from `.spec.name`.<br>
+  👉🏾&nbsp;&nbsp;Stick to simple names with no special characters, e.g. `jakesapp`
 
 Make a resource request:
 
@@ -120,8 +120,7 @@ kubectl --context=kind-worker get pods
 ### Show the app
 
 - ⚠️&nbsp;&nbsp;Showing the app in the browser as part of this demo (without manual extra steps) _does_ require internet for the DNS to work
-  _NOTE_: Using `wait-and-open-browser-when-app-ready`? Browser
-  will automatically open when the app is ready.
+- 🪄🪄&nbsp;&nbsp;Using `wait-and-open-browser-when-app-ready`? Browser will automatically open when the app is ready.
 
 When Postgres and TODO app are running (i.e. worker pods are running) you can connect to the app. If you are NOT
 using the `wait-and-open-browser-when-app-ready` then navigate manually to http://todo.local.gd:31338/
