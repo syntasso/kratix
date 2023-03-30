@@ -1,6 +1,6 @@
-| :warning: WARNING: demo is _low internet_ not _no internet_ |
-|:---------------------------|
-| Below details steps you can do ahead of the demo to speed things up, and that will help if you are in a setting with poor internet. However, to run the demo without having to do a bunch of stuff, it's best if you have _some_ internet for the DNS to work at the end so that the app loads in the browser. |
+| :warning: WARNING: demo is _low internet_ not _no internet_                                                                                                                                                                                                                                                                                                   |
+| :------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------ |
+| Below details steps you can do ahead of the demo to speed things up, and that will help if you are in a setting with poor internet. **Note**, though, that to run the demo without having to do a bunch of stuff, it's best if you have _some_ internet for the Slack message to go through and the DNS to work at the end (so the app loads in the browser). |
 
 # Demo playbook
 
