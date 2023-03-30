@@ -11,13 +11,12 @@
   the secret (`lpass show 6120120669854427362 --password`) to a file and
   then export `LPASS_SLACK_URL` to contain the value. This will make the setup
   script skip the lpass login.
-- (Optional, recommended) Download the images for offline usage. This also just speeds
-up the demo massively as the images don't have to get pulled while demoing.
-  1. *Generating the list of image*: Inside `demo/` there is a `demo-image-list` file containing the list of all
-  images that need to be downloaded. **This can become stale as the demo gets updated**, to ensure its up-to-date
-  run through the steps in [save images locally](./low-internet.md)
-  1. *Downloading the images*: run `./scripts/fetch-demo-images` to fetch all the
-  images.
+- Download the images for offline usage. This speeds speeds up the demo massively.
+  Run `./scripts/fetch-demo-images`. *You should run this every time you pull down a new version of `main`*.
+
+> :warning: As the demo gets worked upon, the static list of images we need to fetch can become stale
+if new images or versions are now being used. If you think works been done recently
+on the demo then follow the steps in [docs](./low-internet.md) to update the list.
 
 ```
 ./scripts/setup
