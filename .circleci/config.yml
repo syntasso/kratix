@@ -194,11 +194,11 @@ workflows:
           matrix:
             parameters:
               image: [kratix, work-creator, samples]
-      - generate-demo-image-list:
-          requires:
-            - git-merge
-            - build-and-push-images
+      # - generate-demo-image-list:
+      #     requires:
+      #       - git-merge
+      #       - build-and-push-images
       - git-push:
           requires:
             - build-and-push-images
-            - generate-demo-image-list
+            # - generate-demo-image-list
