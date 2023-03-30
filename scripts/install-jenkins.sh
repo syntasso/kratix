@@ -9,6 +9,8 @@ output_debugging_info() {
     kubectl --context kind-platform logs --selector kratix-promise-id=jenkins-promise-default --container xaas-request-pipeline-stage-1
     echo "=============== WORKER EVENTS ==============="
     kubectl --context kind-worker get events
+    echo "=============== TAIL OF JENKINS LOGS ==============="
+    kubectl --context kind-worker logs jenkins-dev-example --tail=50
     exit 1
 }
 
