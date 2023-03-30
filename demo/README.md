@@ -6,6 +6,8 @@
 
 - Accompanying Google Slides are likely located [here](https://drive.google.com/drive/folders/19XyhhSky0SbjneWtNnUbwT9-_yp_td7R?usp=share_link)
 
+## 🛠&nbsp;&nbsp;Setup
+
 ### 💻&nbsp;&nbsp;Prepare machine for demo
 
 - Terminal
