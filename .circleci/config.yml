@@ -118,7 +118,8 @@ jobs:
       - run:
           name: Merge dev to main
           command: |
-            ./demo/scripts/generate-demo-image-list.sh
+            cd ./demo/
+            ./scripts/generate-demo-image-list.sh
       - persist_to_workspace:
           root: .
           paths:
