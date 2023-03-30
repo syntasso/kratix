@@ -47,7 +47,7 @@
 
 ## Run the demo
 
-- ⚠️&nbsp;&nbsp;Showing the app in the browser as part of this demo _does_ require internet for the DNS to work
+- ⚠️&nbsp;&nbsp;Showing the Slack notification and the app in the browser as part of this demo _does_ require internet for the DNS to work
 - `./scripts/auto-demo/auto-demo.sh` automates the steps below.
 
 ### Install the Promise
@@ -119,9 +119,13 @@ kubectl --context=kind-worker get pods
 
 ### Show the app
 
-_NOTE_: If your using the `wait-and-open-browser-when-app-ready` script then the browser
-will automatically open when the apps ready.
+- ⚠️&nbsp;&nbsp;Showing the app in the browser as part of this demo (without manual extra steps) _does_ require internet for the DNS to work
+  _NOTE_: Using `wait-and-open-browser-when-app-ready`? Browser
+  will automatically open when the app is ready.
 
-When Postgres and TODO app are running you can connect to the app. If you are NOT
-using the `wait-and-open-browser-when-app-ready` then navigate manually to
-http://todo.local.gd:31338/
+When Postgres and TODO app are running (i.e. worker pods are running) you can connect to the app. If you are NOT
+using the `wait-and-open-browser-when-app-ready` then navigate manually to http://todo.local.gd:31338/
+
+### Show the Slack notification
+
+- ⚠️&nbsp;&nbsp;Showing the Slack notification as part of this demo _does_ require internet for the DNS to work
