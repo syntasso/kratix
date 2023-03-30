@@ -28,7 +28,7 @@ while ! kubectl --context kind-worker logs jenkins-dev-example 2>/dev/null | gre
 done
 
 # wait for kubernetes to report "Running"; 105 to ensure we wait more than the readiness probe takes to trigger
-if ! kubectl --context kind-worker wait pod jenkins-dev-example --for=condition=ready --timeout 105s; then
+if ! kubectl --context kind-worker wait pod jenkins-dev-example --for=condition=ready --timeout 150s; then
     output_debugging_info
     exit 1
 fi

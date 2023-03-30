@@ -39,13 +39,4 @@ kubectl get pods --context kind-platform --all-namespaces -o jsonpath="{.items[*
 cat /tmp/demo-image-list | sort | uniq | grep -v "syntasso/kratix-platform" | grep -v "syntassodev/kratix-platform" > demo-image-list
 ```
 
-#### 3. Save the images locally
-
-Now you have a `demo-image-list` file, save a tar of all the images:
-
-```
-mkdir -p cached-images
-../scripts/download-images $PWD/cached-images/ $PWD/demo-image-list
-```
-
-You now have a local set of (almost) all images required for the demo.
+The `demo-image-list` is now up to date.
