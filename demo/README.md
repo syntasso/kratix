@@ -14,6 +14,7 @@
 
 ### Prepare environment for demo
 
+#### Requires internet
 - For installing the Slack secret
   - `lpass login`
   - `export LPASS_SLACK_URL=$(lpass show 6120120669854427362 --password)`
@@ -23,11 +24,14 @@
 - For speeding up the demo by downloading and loading all images locally
   - `./scripts/generate-demo-image-list.sh`
   - `./scripts/fetch-demo-images`
+
+#### Can run without internet
 - For installing Kratix
   - `./scripts/setup`
 - For automatically opening the browser when everything is ready
   - Open new (hidden) terminal tab
-  - `./scripts/wait-and-open-browser-when-app-ready`
+  - `./scripts/wait-and-open-browser-when-app-ready`<br>
+  ⚠️&nbsp;&nbsp;Showing the app in the browser *does* require internet for the DNS to work
 - For starting in the right directory
   - `cd app-as-a-service/`
 
