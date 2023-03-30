@@ -1,3 +1,7 @@
+| :warning: WARNING: demo is _low internet_ not _no internet_ |
+|:---------------------------|
+| Below details steps you can do ahead of the demo to speed things up, and that will help if you are in a setting with poor internet. However, to run the demo without having to do a bunch of stuff, it's best if you have _some_ internet for the DNS to work at the end so that the app loads in the browser. |
+
 # Demo playbook
 
 - Accompanying Google Slides are likely located [here](https://drive.google.com/drive/folders/19XyhhSky0SbjneWtNnUbwT9-_yp_td7R?usp=share_link)
@@ -43,6 +47,7 @@
 
 ## Run the demo
 
+- ⚠️&nbsp;&nbsp;Showing the app in the browser as part of this demo _does_ require internet for the DNS to work
 - `./scripts/auto-demo/auto-demo.sh` automates the steps below.
 
 ### Install the Promise
