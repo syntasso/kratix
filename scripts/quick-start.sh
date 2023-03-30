@@ -325,6 +325,20 @@ install_kratix() {
         log "You can check the pods on the platform and worker clusters for debugging information."
         log "This script will continue to wait. You can kill it with $(info "CTRL+C.")"
         log -n "\nWaiting for local repository to be running... "
+        log "=========================="
+        kubectl get pods -A --context kind-worker
+        log "=========================="
+        kubectl get pods -A --context kind-platform
+        log "=========================="
+        kubectl get buckets -A --context kind-platform
+        log "=========================="
+        kubectl get buckets -A --context kind-worker
+        log "=========================="
+        log "=========================="
+        kubectl get kustomizations -A --context kind-platform
+        log "=========================="
+        kubectl get kustomizations -A --context kind-worker
+        log "=========================="
         run wait_for_namespace --no-timeout
     fi
 
