@@ -29,6 +29,9 @@
   - `./scripts/fetch-demo-images`<br>
     💨&nbsp;&nbsp;If you've run it before, it should be quick.<br>
     Will only fetch and put _new_ versions in the `cached_images` dir.
+
+#### Does not require internet
+
 - For installing Kratix after images are saved locally
   - `./scripts/setup`
 - For automatically opening the browser when everything is ready
