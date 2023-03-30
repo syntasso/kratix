@@ -188,15 +188,16 @@ workflows:
           filters:
             branches:
               only: dev
-      - generate-demo-image-list:
-          requires:
-            - git-merge
       - build-and-push-images:
           requires:
             - git-merge
           matrix:
             parameters:
               image: [kratix, work-creator, samples]
+      - generate-demo-image-list:
+          requires:
+            - git-merge
+            - build-and-push-images
       - git-push:
           requires:
             - build-and-push-images
