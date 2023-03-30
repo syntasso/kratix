@@ -29,7 +29,7 @@ spec:
               type: object
           served: true
           storage: true
-  clusterSelector:
-    environment: dev
   xaasRequestPipeline:
     - syntasso/demo-deployment-request-pipeline:v0.1.1
+  clusterSelector:
+    environment: dev
