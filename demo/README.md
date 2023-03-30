@@ -24,11 +24,11 @@
   - `git pull -r`
 - For speeding things up by downloading and loading all images locally
   - `./scripts/generate-demo-image-list.sh`<br>
-    Takes a long time because it needs to set up and install Kratix. <br>
-    Only required when there is a change _to the demo_ (not other parts of Kratix).
+    ⏳&nbsp;&nbsp;Takes a long time because it needs to set up and install Kratix. <br>
+    👉🏾&nbsp;&nbsp;Only required when there is a change _to the demo_ (not other parts of Kratix).
   - `./scripts/fetch-demo-images`<br>
-    Will only fetch and put _new_ versions in the `cached_images` dir.<br>
-    If you've run it before, it shouldn't take too long.
+    💨&nbsp;&nbsp;If you've run it before, it should be quick.<br>
+    Will only fetch and put _new_ versions in the `cached_images` dir.
 - For installing Kratix after images are saved locally
   - `./scripts/setup`
 - For automatically opening the browser when everything is ready
