@@ -35,6 +35,13 @@ commands:
               curl -L https://github.com/kubernetes-sigs/kind/releases/download/v0.14.0/kind-linux-amd64 -o ~/bin/kind
               chmod +x ~/bin/kind
             fi
+      - run:
+          name: Install Flux
+          command: |
+            curl -L https://github.com/fluxcd/flux2/releases/download/v0.41.2/flux_0.41.2_linux_amd64.tar.gz -o flux.tar.gz
+            tar -xvf flux.tar.gz
+            mv flux ~/bin/flux
+            chmod +x ~/bin/flux
       - attach_workspace:
           at: .
       - run:
