@@ -15,27 +15,32 @@
 ### Prepare environment for demo
 
 #### Requires internet
+
 - For installing the Slack secret
   - `lpass login`
   - `export LPASS_SLACK_URL=$(lpass show 6120120669854427362 --password)`
 - For getting the right version of Kratix
   - `gco main`
   - `git pull -r`
-- For speeding up the demo by downloading and loading all images locally
-  - `./scripts/generate-demo-image-list.sh`
-  - `./scripts/fetch-demo-images`
-
-#### Can run without internet
-- For installing Kratix
+- For speeding things up by downloading and loading all images locally
+  - `./scripts/generate-demo-image-list.sh`<br>
+    Takes a long time because it needs to set up and install Kratix. <br>
+    Only required when there is a change _to the demo_ (not other parts of Kratix).
+  - `./scripts/fetch-demo-images`<br>
+    Will only fetch and put _new_ versions in the `cached_images` dir.<br>
+    If you've run it before, it shouldn't take too long.
+- For installing Kratix after images are saved locally
   - `./scripts/setup`
 - For automatically opening the browser when everything is ready
   - Open new (hidden) terminal tab
   - `./scripts/wait-and-open-browser-when-app-ready`<br>
-  ⚠️&nbsp;&nbsp;Showing the app in the browser *does* require internet for the DNS to work
+    ⚠️&nbsp;&nbsp;Showing the app in the browser _does_ require internet for the DNS to work
 - For starting in the right directory
   - `cd app-as-a-service/`
 
 ## Run the demo
+
+- `./scripts/auto-demo/auto-demo.sh` automates the steps below.
 
 ### Install the Promise
 
@@ -105,7 +110,8 @@ kubectl --context=kind-worker get pods
 ```
 
 ### Show the app
-*NOTE*: If your using the `wait-and-open-browser-when-app-ready` script then the browser
+
+_NOTE_: If your using the `wait-and-open-browser-when-app-ready` script then the browser
 will automatically open when the apps ready.
 
 When Postgres and TODO app are running you can connect to the app. If you are NOT
