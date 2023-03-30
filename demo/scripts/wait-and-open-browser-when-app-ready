@@ -16,12 +16,26 @@ done
 }
 
 
-run "Waiting for AppAsAService to exist" kubectl --context kind-platform get apps.example.promise.syntasso.io -o jsonpath='{.items[0].spec.name}'
+run "Waiting for AppAsAService to exist" \
+  kubectl --context kind-platform get apps.example.promise.syntasso.io -o jsonpath='{.items[0].spec.name}'
+
 export app="$(kubectl --context kind-platform get apps.example.promise.syntasso.io -o jsonpath='{.items[0].spec.name}')"
-run "Waiting for redis to be ready" kubectl --context kind-worker wait pod/rfr-${app}-0 --for=condition=ready
-run "Waiting for postgres to be ready" kubectl --context kind-worker wait pod/acid-${app}-postgresql-0 --for=condition=ready
-pod="$(kubectl --context kind-worker --namespace default get pods --selector=run=todo -o=jsonpath='{.items[0].metadata.name}')"
-run "Waiting for todo app to be ready" kubectl --context kind-worker  --namespace default wait pod/$pod --for=condition=ready
+
+run "Waiting for redis to be ready" \
+  kubectl --context kind-worker wait pod/rfr-${app}-0 --for=condition=ready
+
+run "Waiting for postgres to be ready" \
+  kubectl --context kind-worker wait pod/acid-${app}-postgresql-0 --for=condition=ready
+
+pod="$(kubectl --context kind-worker --namespace default get pods --selector=run=$app -o=jsonpath='{.items[0].metadata.name}')"
+
+run "Waiting for $app app to be ready" \
+  kubectl --context kind-worker  --namespace default wait pod/$pod --for=condition=ready
+
+if [[ "${SKIP_BROWSER:-}" == "yes"  ]]; then
+  exit 0
+fi
+
 printf "\n=====Opening Browser in 5 seconds=====\n"
 sleep 5
 

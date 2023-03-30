@@ -47,7 +47,8 @@ pe "kubectl create -f promise.yaml"
 # The below runs immediately (automatically) to win Flux timing
 # to show that first just app-as-a-service exists
 pei "kubectl get promises"
-sync_platform_flux 
+
+sync_platform_flux
 
 # If we ask for Promises again, we'll see the AaaS Promise
 # We'll also, soon after, see that the lower-level Promises are also installed

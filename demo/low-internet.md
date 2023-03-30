@@ -1,7 +1,6 @@
 # Saving demo images for low internet
 
-If you intend to to run this in a low-internet environment we recommend pulling
-and saving all of the required images before hand.
+For running the demo as quickly as possible, we recommend pulling and saving all of the required images before hand. This is especially important if you are running the demo in a low- or no-internet settings.
 
 To generate a list of all the images required follow the below instructions,
 

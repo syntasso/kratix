@@ -2,28 +2,6 @@
 
 - Accompanying Google Slides are likely located [here](https://drive.google.com/drive/folders/19XyhhSky0SbjneWtNnUbwT9-_yp_td7R?usp=share_link)
 
-## Pre-demo setup
-
-### Set up clusters and install Kratix
-
-- Ensure your on the `main` branch
-- `lpass login`: Log in to the lastpass CLI for installing the Slack secret.
-  - If you don't have internet, or are worried you might not you can save
-  the secret (`lpass show 6120120669854427362 --password`) to a file and
-  then export `LPASS_SLACK_URL` to contain the value. This will make the setup
-  script skip the lpass login.
-- Download the images for offline usage. This speeds speeds up the demo massively.
-  Run `./scripts/fetch-demo-images`. **You should run this every time you pull down a new version of `main`**.
-
-> :warning: The `fetch-demo-images` scripts downloads the latest kratix images and
-all the images in the `demo-image-list` files. As the demo gets worked upon, the `demo-image-list` file can become stale
-if new images or versions are now being used. If you think works been done recently
-on the demo then follow the steps in [docs](./low-internet.md) to update the `demo-image-list`.
-
-```
-./scripts/setup
-```
-
 ### Prepare machine for demo
 
 - Terminal
@@ -34,23 +12,28 @@ on the demo then follow the steps in [docs](./low-internet.md) to update the `de
 - Mute notifications for Slack & others (ie, enable focus mode on Mac for however long you need)
 - Have Slack open on the demo channel, with no threads open.
 
-## Demo
+### Prepare environment for demo
 
-Change into the `app-as-a-service` directory for the demo.
+- For installing the Slack secret
+  - `lpass login`
+  - `export LPASS_SLACK_URL=$(lpass show 6120120669854427362 --password)`
+- For getting the right version of Kratix
+  - `gco main`
+  - `git pull -r`
+- For speeding up the demo by downloading and loading all images locally
+  - `./scripts/generate-demo-image-list.sh`
+  - `./scripts/fetch-demo-images`
+- For installing Kratix
+  - `./scripts/setup`
+- For automatically opening the browser when everything is ready
+  - Open new (hidden) terminal tab
+  - `./scripts/wait-and-open-browser-when-app-ready`
+- For starting in the right directory
+  - `cd app-as-a-service/`
 
-```
-cd app-as-a-service/
-```
+## Run the demo
 
-If you want to automatically have the app open when the TODO app is running, in
-a separate hidden terminal run `./scripts/wait-and-open-browser-when-app-ready`.
-This will wait until all the resources are created and open your browser to the todo app
-when its ready.
-```
-../scripts/wait-and-open-browser-when-app-ready
-```
-
-### Installing the Promise
+### Install the Promise
 
 Show Kratix is installed but no promises are installed:
 
@@ -84,7 +67,7 @@ kubectl get crds | grep app
 kubectl --context kind-worker get pods
 ```
 
-### Making the resource request
+### Make the resource request
 
 Show what a resource request looks like (using [bat for pretty output](https://github.com/sharkdp/bat)):
 
@@ -121,7 +104,6 @@ kubectl --context=kind-worker get pods
 *NOTE*: If your using the `wait-and-open-browser-when-app-ready` script then the browser
 will automatically open when the apps ready.
 
-
-When Postgres and TODO app are running you can connect to the app. If your NOT
+When Postgres and TODO app are running you can connect to the app. If you are NOT
 using the `wait-and-open-browser-when-app-ready` then navigate manually to
 http://todo.local.gd:31338/
