@@ -132,7 +132,6 @@ jobs:
           paths:
             - .
 
-
   build-and-push-images:
     executor: machine-large
     parameters:
@@ -161,7 +160,6 @@ jobs:
     - run:
         name: Push main
         command: |
-          git diff
           git add -f config/
           git add -f demo/demo-image-list
           git add -f distribution/kratix.yaml
