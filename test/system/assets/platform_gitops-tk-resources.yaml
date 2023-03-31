@@ -45,7 +45,7 @@ metadata:
   name: platform-cluster-worker-1-resources 
   namespace: flux-system 
 spec:
-  interval: 5s
+  interval: 3s
   prune: true
   dependsOn: 
     - name: platform-cluster-worker-1-crds
@@ -60,7 +60,7 @@ metadata:
   name: platform-cluster-worker-1-crds 
   namespace: flux-system 
 spec:
-  interval: 5s
+  interval: 8s
   prune: true
   sourceRef:
     kind: Bucket 

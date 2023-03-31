@@ -3,10 +3,11 @@ package writers
 import (
 	"bytes"
 	"context"
+	"crypto/md5"
 	"fmt"
 
 	"github.com/go-logr/logr"
-	"github.com/minio/minio-go/v7"
+	minio "github.com/minio/minio-go/v7"
 	"github.com/minio/minio-go/v7/pkg/credentials"
 )
 
@@ -37,8 +38,13 @@ func newMinIOBucketWriter(logger logr.Logger) (BucketWriter, error) {
 }
 
 func (b *MinIOWriter) WriteObject(bucketName string, objectName string, toWrite []byte) error {
+	logger := b.Log.WithValues(
+		"bucketName", bucketName,
+		"objectName", objectName,
+	)
+
 	if len(toWrite) == 0 {
-		b.Log.Info("Empty byte[]. Nothing to write to Minio", "objectName", objectName)
+		logger.Info("Empty byte[]. Nothing to write to Minio")
 		return nil
 	}
 
@@ -49,25 +55,41 @@ func (b *MinIOWriter) WriteObject(bucketName string, objectName string, toWrite 
 		// Check to see if we already own this bucket (which happens if you run this twice)
 		exists, errBucketExists := b.RepoClient.BucketExists(ctx, bucketName)
 		if errBucketExists == nil && exists {
-			b.Log.Info("Minio Bucket already exists, will not recreate\n", "bucketName", bucketName)
+			logger.Info("Minio Bucket already exists, will not recreate")
 		} else {
-			b.Log.Error(err, "Error connecting to Minio")
-			return fmt.Errorf("error connecting to minio")
+			logger.Error(err, "Error connecting to Minio")
+			return err
 		}
 	} else {
-		b.Log.Info("Successfully created Minio Bucket", "bucketName", bucketName)
+		logger.Info("Successfully created Minio Bucket")
 	}
 
 	contentType := "text/x-yaml"
 	reader := bytes.NewReader(toWrite)
 
-	b.Log.Info("Creating Minio object " + objectName)
+	minioObjStat, err := b.RepoClient.StatObject(ctx, bucketName, objectName, minio.GetObjectOptions{})
+	if err != nil {
+		if minio.ToErrorResponse(err).Code == "NoSuchKey" {
+			logger.Info("Object does not exist yet")
+		} else {
+			logger.Error(err, "Error fetching object")
+			return err
+		}
+	} else {
+		contentMd5 := fmt.Sprintf("%x", md5.Sum(toWrite))
+		if minioObjStat.ETag == contentMd5 {
+			logger.Info("Content has not changed, will not re-write to bucket")
+			return nil
+		}
+	}
+
+	logger.Info("Creating Minio object")
 	_, err = b.RepoClient.PutObject(ctx, bucketName, objectName, reader, reader.Size(), minio.PutObjectOptions{ContentType: contentType})
 	if err != nil {
-		b.Log.Error(err, "Minio Error")
+		logger.Error(err, "Error writing object to bucket")
 		return err
 	}
-	b.Log.Info("Minio object written to bucket", "objectName", objectName, "bucketName", bucketName)
+	logger.Info("Minio object written to bucket", "bucketName", bucketName)
 
 	return nil
 }

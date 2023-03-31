@@ -35,6 +35,13 @@ commands:
               curl -L https://github.com/kubernetes-sigs/kind/releases/download/v0.14.0/kind-linux-amd64 -o ~/bin/kind
               chmod +x ~/bin/kind
             fi
+      - run:
+          name: Install Flux
+          command: |
+            curl -L https://github.com/fluxcd/flux2/releases/download/v0.41.2/flux_0.41.2_linux_amd64.tar.gz -o flux.tar.gz
+            tar -xvf flux.tar.gz
+            mv flux ~/bin/flux
+            chmod +x ~/bin/flux
       - attach_workspace:
           at: .
       - run:
@@ -109,6 +116,22 @@ jobs:
           paths:
             - .
 
+  generate-demo-image-list:
+    executor: machine-large
+    steps:
+      - attach_workspace:
+          at: .
+      - install_software
+      - run:
+          name: Generate demo image list
+          command: |
+            cd ./demo/
+            ./scripts/generate-demo-image-list.sh
+      - persist_to_workspace:
+          root: .
+          paths:
+            - .
+
   build-and-push-images:
     executor: machine-large
     parameters:
@@ -138,6 +161,7 @@ jobs:
         name: Push main
         command: |
           git add -f config/
+          git add -f demo/demo-image-list
           git add -f distribution/kratix.yaml
           git add -f distribution/single-cluster/
 
@@ -168,6 +192,11 @@ workflows:
           matrix:
             parameters:
               image: [kratix, work-creator, samples]
+      # - generate-demo-image-list:
+      #     requires:
+      #       - git-merge
+      #       - build-and-push-images
       - git-push:
           requires:
             - build-and-push-images
+            # - generate-demo-image-list

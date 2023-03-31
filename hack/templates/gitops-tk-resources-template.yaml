@@ -43,7 +43,7 @@ metadata:
   name: CLUSTER_NAME-workload-resources 
   namespace: flux-system 
 spec:
-  interval: 5s
+  interval: 3s
   prune: true
   dependsOn: 
     - name: CLUSTER_NAME-workload-crds
@@ -58,7 +58,7 @@ metadata:
   name: CLUSTER_NAME-workload-crds 
   namespace: flux-system 
 spec:
-  interval: 5s
+  interval: 8s
   prune: true
   sourceRef:
     kind: Bucket 

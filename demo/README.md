@@ -1,8 +1,14 @@
+| :warning: WARNING: demo is _low internet_ not _no internet_                                                                                                                                                                                                                                                                                                   |
+| :------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------ |
+| Below details steps you can do ahead of the demo to speed things up, and that will help if you are in a setting with poor internet. **Note**, though, that to run the demo without having to do a bunch of stuff, it's best if you have _some_ internet for the Slack message to go through and the DNS to work at the end (so the app loads in the browser). |
+
 # Demo playbook
 
 - Accompanying Google Slides are likely located [here](https://drive.google.com/drive/folders/19XyhhSky0SbjneWtNnUbwT9-_yp_td7R?usp=share_link)
 
-### Prepare machine for demo
+## 🛠&nbsp;&nbsp;Setup
+
+### 💻&nbsp;&nbsp;Prepare machine for demo
 
 - Terminal
   - Make font size huge
@@ -12,7 +18,9 @@
 - Mute notifications for Slack & others (ie, enable focus mode on Mac for however long you need)
 - Have Slack open on the demo channel, with no threads open.
 
-### Prepare environment for demo
+### ⚙️&nbsp;&nbsp;Prepare environment for demo
+
+#### Requires internet
 
 - For installing the Slack secret
   - `lpass login`
@@ -20,18 +28,29 @@
 - For getting the right version of Kratix
   - `gco main`
   - `git pull -r`
-- For speeding up the demo by downloading and loading all images locally
-  - `./scripts/generate-demo-image-list.sh`
-  - `./scripts/fetch-demo-images`
-- For installing Kratix
+- For speeding things up by downloading and loading all images locally
+  - `./scripts/generate-demo-image-list.sh`<br>
+    ⏳&nbsp;&nbsp;Takes a long time because it needs to set up and install Kratix. <br>
+    👉🏾&nbsp;&nbsp;Only required when there is a change _to the demo_ (not other parts of Kratix).
+  - `./scripts/fetch-demo-images`<br>
+    💨&nbsp;&nbsp;If you've run it before, it should be quick.<br>
+    Will only fetch and put _new_ versions in the `cached_images` dir.
+
+#### Does not require internet
+
+- For installing Kratix after images are saved locally
   - `./scripts/setup`
 - For automatically opening the browser when everything is ready
   - Open new (hidden) terminal tab
-  - `./scripts/wait-and-open-browser-when-app-ready`
+  - 🪄🪄&nbsp;&nbsp;`./scripts/wait-and-open-browser-when-app-ready`<br>
+    ⚠️&nbsp;&nbsp;Showing the app in the browser _does_ require internet for the DNS to work
 - For starting in the right directory
   - `cd app-as-a-service/`
 
-## Run the demo
+## 📽&nbsp;&nbsp;Run the demo
+
+- ⚠️&nbsp;&nbsp;Showing the Slack notification and the app in the browser as part of this demo _does_ require internet for the DNS to work
+- 🪄🪄&nbsp;&nbsp;`./scripts/auto-demo/auto-demo.sh` automates the steps below.
 
 ### Install the Promise
 
@@ -76,9 +95,9 @@ bat resource-request.yaml
 ```
 
 Change the `.spec.name` of the resource request to something unique.
-| :warning: WARNING |
-|:---------------------------|
-| Postgres is [strict on whats acceptable for DB Names](https://www.postgresql.org/docs/current/sql-syntax-lexical.html#SQL-SYNTAX-IDENTIFIERS), which is pulled from `.spec.name`. Stick to simple names with no special characters, e.g. `jakesapp` |
+
+- ⚠️&nbsp;&nbsp; Postgres is [strict on whats acceptable for DB Names](https://www.postgresql.org/docs/current/sql-syntax-lexical.html#SQL-SYNTAX-IDENTIFIERS), which is pulled from `.spec.name`.<br>
+  👉🏾&nbsp;&nbsp;Stick to simple names with no special characters, e.g. `jakesapp`
 
 Make a resource request:
 
@@ -101,9 +120,13 @@ kubectl --context=kind-worker get pods
 ```
 
 ### Show the app
-*NOTE*: If your using the `wait-and-open-browser-when-app-ready` script then the browser
-will automatically open when the apps ready.
 
-When Postgres and TODO app are running you can connect to the app. If you are NOT
-using the `wait-and-open-browser-when-app-ready` then navigate manually to
-http://todo.local.gd:31338/
+- ⚠️&nbsp;&nbsp;Showing the app in the browser as part of this demo (without manual extra steps) _does_ require internet for the DNS to work
+- 🪄🪄&nbsp;&nbsp;Using `wait-and-open-browser-when-app-ready`? Browser will automatically open when the app is ready.
+
+When Postgres and TODO app are running (i.e. worker pods are running) you can connect to the app. If you are NOT
+using the `wait-and-open-browser-when-app-ready` then navigate manually to http://todo.local.gd:31338/
+
+### Show the Slack notification
+
+- ⚠️&nbsp;&nbsp;Showing the Slack notification as part of this demo _does_ require internet for the DNS to work

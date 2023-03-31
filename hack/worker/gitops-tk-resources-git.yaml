@@ -29,7 +29,7 @@ metadata:
   name: kratix-workload-resources
   namespace: flux-system
 spec:
-  interval: 5s
+  interval: 3s
   dependsOn:
     - name: kratix-workload-crds
   sourceRef:
@@ -57,7 +57,7 @@ metadata:
   name: kratix-workload-crds
   namespace: flux-system
 spec:
-  interval: 5s
+  interval: 8s
   sourceRef:
     kind: GitRepository
     name: kratix-workload-crds
