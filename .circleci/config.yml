@@ -123,7 +123,7 @@ jobs:
           at: .
       - install_software
       - run:
-          name: Merge dev to main
+          name: Generate demo image list
           command: |
             cd ./demo/
             ./scripts/generate-demo-image-list.sh
