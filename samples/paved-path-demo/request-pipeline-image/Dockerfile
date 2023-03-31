@@ -1,4 +1,4 @@
-FROM alpine:3.15.5
+FROM alpine:3.15.8
 
 # This docker image is run in the xaas-request-pipeline-stage-X container inside the promise-controller.
 # This container mounts 3 dirs (/input, /output, /metadata) which will overwrite any existing data at those paths.
