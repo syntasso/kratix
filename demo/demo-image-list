@@ -23,3 +23,4 @@ syntasso/demo-app-as-a-service-request-pipeline:v0.1.1
 syntasso/demo-deployment-request-pipeline:v0.1.1
 syntasso/demo-postgresql-request-pipeline:v0.1.1
 syntasso/demo-redis-request-pipeline:v0.1.1
+syntasso/sample-todo-app:v0.1.2
