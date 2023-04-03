@@ -29,12 +29,11 @@
   - `gco main`
   - `git pull -r`
 - For speeding things up by downloading and loading all images locally
-  - `./scripts/generate-demo-image-list.sh`<br>
-    ⏳&nbsp;&nbsp;Takes a long time because it needs to set up and install Kratix. <br>
-    👉🏾&nbsp;&nbsp;Only required when there is a change _to the demo_ (not other parts of Kratix).
   - `./scripts/fetch-demo-images`<br>
-    💨&nbsp;&nbsp;If you've run it before, it should be quick.<br>
-    Will only fetch and put _new_ versions in the `cached_images` dir.
+    💨&nbsp;&nbsp;If you've run it before, it should be quick<br>
+    You need to re-run this script **every time** you pull `main` <br>
+    Will only fetch and put _new_ versions in the `cached_images` dir<br>
+    Uses the `demo-image-list` as the source of truth
 
 #### Does not require internet
 
