@@ -43,7 +43,7 @@ Check our documentation on [kratix.io](https://kratix.io)
 - [FAQs](https://syntasso.github.io/kratix-docs/docs/main/faq?utm_source=github&utm_medium=readme&utm_campaign=kratix)
 - [Known issues](./docs/deprecated/known-issues.md)
 
-**[Work with Kratix's originators, Syntasso, to deliver your organisation's Platform-as-a-Product.](https://www.syntasso.io/how-we-help)**
+**[Work with Kratix's originators, Syntasso, to deliver your organisation's Platform-as-a-Product.](https://www.syntasso.io/platform-journeys)**
 
 ### **Give feedback on Kratix**
   - [Via email](mailto:feedback@syntasso.io?subject=Kratix%20Feedback)
