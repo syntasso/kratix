@@ -2,18 +2,22 @@
 
 set -e
 
-function sync_worker() {
-  flux reconcile source bucket kratix-workload-crds --namespace flux-system --context kind-worker
-  flux reconcile source bucket kratix-workload-resources --namespace flux-system --context kind-worker
-  flux reconcile kustomization kratix-workload-crds --namespace flux-system --context kind-worker
-  flux reconcile kustomization kratix-workload-resources --namespace flux-system --context kind-worker
+output_debugging_info() {
+    echo "=============== PLATFORM STATUS ==============="
+    kubectl --context kind-platform get pods -A
+    kubectl --context kind-platform get kustomizations -A
+    kubectl --context kind-platform get promises
+    echo "=============== WORKER STATUS ==============="
+    kubectl --context kind-platform get pods -A
+    kubectl --context kind-worker get kustomizations -A
+    kubectl --context kind-worker get events
 }
+trap output_debugging_info EXIT
 
-function sync_platform() {
-  flux reconcile source bucket platform-cluster-worker-1-crds --namespace flux-system --context kind-platform
-  flux reconcile source bucket platform-cluster-worker-1-resources --namespace flux-system --context kind-platform
-  flux reconcile kustomization platform-cluster-worker-1-crds --namespace flux-system --context kind-platform
-  flux reconcile kustomization platform-cluster-worker-1-resources --namespace flux-system --context kind-platform
+function sync() {
+  flux reconcile kustomization $1-crds --namespace flux-system --context $2 --with-source
+  # the resources kustomization blocks on the crds kustomization being ready, so sometimes this command fails on the first try
+  run "Waiting for $1-resources to reconcile" flux reconcile kustomization $1-resources --namespace flux-system --context $2 --with-source
 }
 
 sleep_time=5
@@ -41,13 +45,13 @@ echo "Creating clusters and installing Kratix"
 echo "Installing Promise"
 kubectl create -f app-as-a-service/promise.yaml
 run "Waiting promises to exist" kubectl --context kind-platform get deployments.marketplace.kratix.io
-sync_worker
-sync_platform
+sync kratix-workload kind-worker
+sync platform-cluster-worker-1 kind-platform
 
 echo "Requesting resource"
 kubectl apply -f app-as-a-service/resource-request.yaml
-sync_platform
-sync_worker
+sync kratix-workload kind-worker
+sync platform-cluster-worker-1 kind-platform
 
 echo "Waiting for the demo app to be running"
 SKIP_BROWSER=yes ./scripts/wait-and-open-browser-when-app-ready

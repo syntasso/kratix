@@ -19,6 +19,7 @@ package controllers
 import (
 	"context"
 	"os"
+	"strconv"
 	"time"
 
 	"k8s.io/apimachinery/pkg/types"
@@ -110,7 +111,26 @@ func (r *dynamicResourceRequestController) Reconcile(ctx context.Context, req ct
 		return ctrl.Result{}, err
 	}
 
-	emptyVolumeSrc := v1.VolumeSource{EmptyDir: &v1.EmptyDirVolumeSource{}}
+	volumes := []v1.Volume{
+		{Name: "metadata", VolumeSource: v1.VolumeSource{EmptyDir: &v1.EmptyDirVolumeSource{}}},
+		{
+			Name: "promise-cluster-selectors",
+			VolumeSource: v1.VolumeSource{
+				ConfigMap: &v1.ConfigMapVolumeSource{
+					LocalObjectReference: v1.LocalObjectReference{
+						Name: "cluster-selectors-" + r.promiseIdentifier,
+					},
+					Items: []v1.KeyToPath{{
+						Key:  "selectors",
+						Path: "promise-cluster-selectors",
+					}},
+				},
+			},
+		},
+	}
+	initContainers, pipelineVolumes := r.pipelineInitContainers(resourceRequestIdentifier, req)
+	volumes = append(volumes, pipelineVolumes...)
+
 	rrKind := fmt.Sprintf("%s.%s", strings.ToLower(r.gvk.Kind), r.gvk.Group)
 	pod := v1.Pod{
 		ObjectMeta: metav1.ObjectMeta{
@@ -140,26 +160,8 @@ func (r *dynamicResourceRequestController) Reconcile(ctx context.Context, req ct
 					}},
 				},
 			},
-			InitContainers: r.pipelineInitContainers(resourceRequestIdentifier, req),
-			Volumes: []v1.Volume{
-				{Name: "input", VolumeSource: emptyVolumeSrc},
-				{Name: "output", VolumeSource: emptyVolumeSrc},
-				{Name: "metadata", VolumeSource: emptyVolumeSrc},
-				{
-					Name: "promise-cluster-selectors",
-					VolumeSource: v1.VolumeSource{
-						ConfigMap: &v1.ConfigMapVolumeSource{
-							LocalObjectReference: v1.LocalObjectReference{
-								Name: "cluster-selectors-" + r.promiseIdentifier,
-							},
-							Items: []v1.KeyToPath{{
-								Key:  "selectors",
-								Path: "promise-cluster-selectors",
-							}},
-						},
-					},
-				},
-			},
+			InitContainers: initContainers,
+			Volumes:        volumes,
 		},
 	}
 
@@ -315,13 +317,9 @@ func (r *dynamicResourceRequestController) setPipelineCondition(ctx context.Cont
 	return nil
 }
 
-func (r *dynamicResourceRequestController) pipelineInitContainers(rrID string, req ctrl.Request) []v1.Container {
+func (r *dynamicResourceRequestController) pipelineInitContainers(rrID string, req ctrl.Request) ([]v1.Container, []v1.Volume) {
 	resourceKindNameNamespace := fmt.Sprintf("%s.%s %s --namespace %s", strings.ToLower(r.gvk.Kind), r.gvk.Group, req.Name, req.Namespace)
-	requestPipelineVolumeMounts := []v1.VolumeMount{
-		{MountPath: "/input", Name: "input"},
-		{MountPath: "/output", Name: "output"},
-		{MountPath: "/metadata", Name: "metadata"},
-	}
+	metadataVolumeMount := v1.VolumeMount{MountPath: "/metadata", Name: "metadata"}
 
 	resourceRequestCommand := fmt.Sprintf("kubectl get %s -oyaml > /output/object.yaml", resourceKindNameNamespace)
 	reader := v1.Container{
@@ -331,17 +329,27 @@ func (r *dynamicResourceRequestController) pipelineInitContainers(rrID string, r
 		VolumeMounts: []v1.VolumeMount{
 			{
 				MountPath: "/output",
-				Name:      "input",
+				Name:      "vol0",
 			},
 		},
 	}
 
+	volumes := []v1.Volume{{Name: "vol0", VolumeSource: v1.VolumeSource{EmptyDir: &v1.EmptyDirVolumeSource{}}}}
+
 	containers := []v1.Container{reader}
 	for i, c := range r.xaasRequestPipeline {
+		volumes = append(volumes, v1.Volume{
+			Name:         "vol" + strconv.Itoa(i+1),
+			VolumeSource: v1.VolumeSource{EmptyDir: &v1.EmptyDirVolumeSource{}},
+		})
 		containers = append(containers, v1.Container{
-			Name:         fmt.Sprintf("xaas-request-pipeline-stage-%d", i),
-			Image:        c,
-			VolumeMounts: requestPipelineVolumeMounts,
+			Name:  fmt.Sprintf("xaas-request-pipeline-stage-%d", i),
+			Image: c,
+			VolumeMounts: []v1.VolumeMount{
+				metadataVolumeMount,
+				{Name: "vol" + strconv.Itoa(i), MountPath: "/input"},
+				{Name: "vol" + strconv.Itoa(i+1), MountPath: "/output"},
+			},
 		})
 	}
 
@@ -353,7 +361,7 @@ func (r *dynamicResourceRequestController) pipelineInitContainers(rrID string, r
 		VolumeMounts: []v1.VolumeMount{
 			{
 				MountPath: "/work-creator-files/input",
-				Name:      "output",
+				Name:      "vol" + strconv.Itoa(len(containers)-1),
 			},
 			{
 				MountPath: "/work-creator-files/metadata",
@@ -368,5 +376,5 @@ func (r *dynamicResourceRequestController) pipelineInitContainers(rrID string, r
 
 	containers = append(containers, writer)
 
-	return containers
+	return containers, volumes
 }

@@ -30,6 +30,8 @@ var (
 	worker   = cluster{context: "--context=kind-worker"}
 )
 
+const pipelineTimeout = "--timeout=89s"
+
 var baseRequestYAML = `apiVersion: test.kratix.io/v1alpha1
 kind: bash
 metadata:
@@ -76,7 +78,7 @@ var _ = Describe("Kratix", func() {
 				command := `kubectl create namespace resource-request-namespace --dry-run=client -oyaml > /output/ns.yaml`
 				platform.kubectl("apply", "-f", requestWithNameAndCommand(rrName, command))
 
-				platform.kubectl("wait", "--for=condition=PipelineCompleted", "bash", rrName, "--timeout=60s")
+				platform.kubectl("wait", "--for=condition=PipelineCompleted", "bash", rrName, pipelineTimeout)
 				Expect(platform.kubectl("get", "bash", rrName)).To(ContainSubstring("Resource requested"))
 				worker.eventuallyKubectl("get", "namespace", "resource-request-namespace")
 			})
@@ -88,7 +90,7 @@ var _ = Describe("Kratix", func() {
 
 				platform.kubectl("apply", "-f", requestWithNameAndCommand(rrName, command))
 
-				platform.kubectl("wait", "--for=condition=PipelineCompleted", "bash", rrName, "--timeout=60s")
+				platform.kubectl("wait", "--for=condition=PipelineCompleted", "bash", rrName, pipelineTimeout)
 
 				Expect(platform.kubectl("get", "bash", rrName)).To(ContainSubstring("My awesome status message"))
 				Expect(platform.kubectl("get", "bash", rrName, "-o", "jsonpath='{.status.key}'")).To(ContainSubstring("value"))
@@ -97,14 +99,13 @@ var _ = Describe("Kratix", func() {
 			It("runs all the containers in the pipeline", func() {
 				rrName := "rr-multi-container"
 				commands := []string{
-					`echo "configmap: multi-container-config" >> /input/container-0.txt
-					 kubectl create namespace mcns --dry-run=client -oyaml > /output/ns.yaml`,
-					`kubectl create configmap $(yq '.configmap' /input/container-0.txt) --namespace mcns --dry-run=client -oyaml > /output/configmap.yaml`,
+					`kubectl create namespace mcns --dry-run=client -oyaml > /output/ns.yaml`,
+					`kubectl create configmap multi-container-config --namespace mcns --dry-run=client -oyaml > /output/configmap.yaml`,
 				}
 
 				platform.kubectl("apply", "-f", requestWithNameAndCommand(rrName, commands...))
 
-				platform.kubectl("wait", "--for=condition=PipelineCompleted", "bash", rrName, "--timeout=60s")
+				platform.kubectl("wait", "--for=condition=PipelineCompleted", "bash", rrName, pipelineTimeout)
 
 				worker.eventuallyKubectl("get", "namespace", "mcns")
 				worker.eventuallyKubectl("get", "configmap", "multi-container-config", "--namespace", "mcns")
@@ -114,7 +115,7 @@ var _ = Describe("Kratix", func() {
 				rrName := "rr-to-delete"
 				command := `kubectl create namespace mcns --dry-run=client -oyaml > /output/ns.yaml`
 				platform.kubectl("apply", "-f", requestWithNameAndCommand(rrName, command))
-				platform.kubectl("wait", "--for=condition=PipelineCompleted", "bash", rrName, "--timeout=60s")
+				platform.kubectl("wait", "--for=condition=PipelineCompleted", "bash", rrName, pipelineTimeout)
 
 				platform.kubectl("delete", "bash", rrName)
 
@@ -138,39 +139,42 @@ var _ = Describe("Kratix", func() {
 
 		// Platform cluster:
 		// - environment: platform
-		// - security: high
 
 		// PromiseClusterSelectors:
 		// - security: high
 		BeforeEach(func() {
 			platform.kubectl("label", "cluster", "worker-cluster-1", "security=high")
-			//install kustomization and buckets to plat cluster
 			platform.kubectl("apply", "-f", "./assets/platform_gitops-tk-resources.yaml")
+			platform.kubectl("apply", "-f", "./assets/platform_kratix_cluster.yaml")
+			platform.kubectl("apply", "-f", promiseWithSelectorsPath)
+			platform.eventuallyKubectl("get", "crd", "bash.test.kratix.io")
+		})
+
+		AfterEach(func() {
+			platform.kubectl("label", "cluster", "worker-cluster-1", "security-", "pci-")
+			platform.kubectl("delete", "-f", promiseWithSelectorsPath)
+			platform.kubectl("delete", "-f", "./assets/platform_kratix_cluster.yaml")
 		})
 
 		It("schedules resources to the correct clusters", func() {
-			By("installing the promise", func() {
-				platform.kubectl("apply", "-f", promiseWithSelectorsPath)
-
-				platform.eventuallyKubectl("get", "crd", "bash.test.kratix.io")
-
+			By("reconciling on new clusters", func() {
 				By("only the worker cluster getting the WCR", func() {
 					worker.eventuallyKubectl("get", "namespace", "bash-wcr-namespace")
 					Expect(platform.kubectl("get", "namespace")).NotTo(ContainSubstring("bash-wcr-namespace"))
 				})
 
-				By("registering the plaform cluster and it getting the WCR assigned", func() {
-					platform.kubectl("apply", "-f", "./assets/platform_kratix_cluster.yaml")
+				By("labeling the plaform cluster, it gets the WCR assigned", func() {
+					platform.kubectl("label", "cluster", "platform-cluster-worker-1", "security=high")
 					platform.eventuallyKubectl("get", "namespace", "bash-wcr-namespace")
 				})
 			})
 
-			By("setting up cluster selectors", func() {
-				command := `echo "pci: true" > /metadata/cluster-selectors.yaml
+			By("respecting the pipeline's cluster-selectors", func() {
+				pipelineCmd := `echo "pci: true" > /metadata/cluster-selectors.yaml
 				kubectl create namespace rr-2-namespace --dry-run=client -oyaml > /output/ns.yaml`
-				platform.kubectl("apply", "-f", requestWithNameAndCommand("rr-2", command))
+				platform.kubectl("apply", "-f", requestWithNameAndCommand("rr-2", pipelineCmd))
 
-				platform.kubectl("wait", "--for=condition=PipelineCompleted", "bash", "rr-2", "--timeout=60s")
+				platform.kubectl("wait", "--for=condition=PipelineCompleted", "bash", "rr-2", pipelineTimeout)
 
 				By("only scheduling the work when a cluster label matches", func() {
 					Consistently(func() string {
@@ -187,18 +191,33 @@ var _ = Describe("Kratix", func() {
 })
 
 func requestWithNameAndCommand(name string, containerCmds ...string) string {
-	args := []interface{}{name}
-	for i := 0; i < 2; i++ {
-		cmd := "echo 'noop'"
+	normalisedCmds := make([]string, 2)
+	for i := range normalisedCmds {
+		cmd := "cp /input/* /output;"
 		if len(containerCmds) > i {
-			cmd = containerCmds[i]
+			cmd += " " + containerCmds[i]
 		}
-		args = append(args, strings.ReplaceAll(cmd, "\n", ";"))
+		normalisedCmds[i] = strings.ReplaceAll(cmd, "\n", ";")
 	}
+
+	lci := len(normalisedCmds) - 1
+	lastCommand := normalisedCmds[lci]
+	if strings.HasSuffix(normalisedCmds[lci], ";") {
+		lastCommand = lastCommand[:len(lastCommand)-1]
+	}
+	normalisedCmds[lci] = lastCommand + "; rm /output/object.yaml"
+
 	file, err := ioutil.TempFile("", "kratix-test")
 	ExpectWithOffset(1, err).NotTo(HaveOccurred())
 
+	args := []interface{}{name}
+	for _, cmd := range normalisedCmds {
+		args = append(args, cmd)
+	}
+
 	contents := fmt.Sprintf(baseRequestYAML, args...)
+	fmt.Fprintln(GinkgoWriter, "Resource Request:")
+	fmt.Fprintln(GinkgoWriter, contents)
 
 	ExpectWithOffset(1, ioutil.WriteFile(file.Name(), []byte(contents), 644)).NotTo(HaveOccurred())
 
