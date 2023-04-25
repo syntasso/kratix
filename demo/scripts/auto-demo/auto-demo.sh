@@ -48,7 +48,7 @@ pe "kubectl create -f promise.yaml"
 # to show that first just app-as-a-service exists
 pei "kubectl get promises"
 
-sync_platform_flux
+# sync_platform_flux
 
 # If we ask for Promises again, we'll see the AaaS Promise
 # We'll also, soon after, see that the lower-level Promises are also installed
@@ -82,14 +82,14 @@ pe "kubectl apply -f resource-request.yaml"
 # There's a time element
 pe "kubectl get apps.example.promise.syntasso.io"
 pe "watch pods platform"
-sync_platform_flux
+# sync_platform_flux
 
 # These will take longer
-pe "kubectl get redis.marketplace.kratix.io"
-pe "kubectl get postgresqls.marketplace.kratix.io"
-pe "kubectl get slacks.marketplace.kratix.io"
-pe "kubectl get deployments.marketplace.kratix.io"
-sync_worker_flux
+# pe "kubectl get redis.marketplace.kratix.io"
+# pe "kubectl get postgresqls.marketplace.kratix.io"
+# pe "kubectl get slacks.marketplace.kratix.io"
+# pe "kubectl get deployments.marketplace.kratix.io"
+# sync_worker_flux
 
 # SLACK
 # Show channel before moving on
@@ -105,5 +105,5 @@ sync_worker_flux
 # Knative downloading many images for all the stuff it needs
 pe "watch pods worker"
 
-pe '# the app is now running, and can be accessed at http://todo.local.gd:31338'
+pe '# http://todo.local.gd:31338'
 

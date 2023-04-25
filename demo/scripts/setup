@@ -6,7 +6,7 @@ PWD="$( cd $(dirname $0)/.. && pwd)"
 
 if [[ -z "${LPASS_SLACK_URL}" ]]; then
   lpass ls | grep -e "demo-alerts"
-  LPASS_SLACK_URL=$(lpass show 6120120669854427362 --password)
+  LPASS_SLACK_URL=$(lpass show 3118395568578530603 --password)
 fi
 
 ${PWD}/../scripts/quick-start.sh --local-images ${PWD}/cached-images/ --recreate
