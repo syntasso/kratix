@@ -1,8 +1,8 @@
 ---
 apiVersion: source.toolkit.fluxcd.io/v1beta1
-kind: Bucket 
+kind: Bucket
 metadata:
-  name: CLUSTER_NAME-workload-crds 
+  name: CLUSTER_NAME-workload-crds
   namespace: flux-system
 spec:
   interval: 10s
@@ -14,9 +14,9 @@ spec:
     name: minio-credentials
 ---
 apiVersion: source.toolkit.fluxcd.io/v1beta1
-kind: Bucket 
+kind: Bucket
 metadata:
-  name: CLUSTER_NAME-workload-resources 
+  name: CLUSTER_NAME-workload-resources
   namespace: flux-system
 spec:
   interval: 10s
@@ -35,32 +35,32 @@ metadata:
 type: Opaque
 data:
   accesskey: bWluaW9hZG1pbg==
-  secretkey: bWluaW9hZG1pbg== 
+  secretkey: bWluaW9hZG1pbg==
 ---
 apiVersion: kustomize.toolkit.fluxcd.io/v1beta1
 kind: Kustomization
 metadata:
-  name: CLUSTER_NAME-workload-resources 
-  namespace: flux-system 
+  name: CLUSTER_NAME-workload-resources
+  namespace: flux-system
 spec:
   interval: 3s
   prune: true
-  dependsOn: 
+  dependsOn:
     - name: CLUSTER_NAME-workload-crds
   sourceRef:
-    kind: Bucket 
-    name: CLUSTER_NAME-workload-resources 
+    kind: Bucket
+    name: CLUSTER_NAME-workload-resources
   validation: client
 ---
 apiVersion: kustomize.toolkit.fluxcd.io/v1beta1
 kind: Kustomization
 metadata:
-  name: CLUSTER_NAME-workload-crds 
-  namespace: flux-system 
+  name: CLUSTER_NAME-workload-crds
+  namespace: flux-system
 spec:
   interval: 8s
   prune: true
   sourceRef:
-    kind: Bucket 
-    name: CLUSTER_NAME-workload-crds 
-  validation: client  
+    kind: Bucket
+    name: CLUSTER_NAME-workload-crds
+  validation: client

@@ -18,8 +18,10 @@ package controllers
 
 import (
 	"context"
+	"path/filepath"
 
 	"k8s.io/apimachinery/pkg/api/errors"
+	"k8s.io/apimachinery/pkg/types"
 
 	v1 "k8s.io/api/core/v1"
 	metav1 "k8s.io/apimachinery/pkg/apis/meta/v1"
@@ -34,30 +36,27 @@ import (
 
 // ClusterReconciler reconciles a Cluster object
 type ClusterReconciler struct {
-	Client       client.Client
-	Log          logr.Logger
-	Scheduler    *Scheduler
-	BucketWriter writers.BucketWriter
+	Client    client.Client
+	Log       logr.Logger
+	Scheduler *Scheduler
 }
 
 //+kubebuilder:rbac:groups=platform.kratix.io,resources=clusters,verbs=get;list;watch;create;update;patch;delete
+//+kubebuilder:rbac:groups="",resources=secrets,verbs=get;list;watch
 //+kubebuilder:rbac:groups=platform.kratix.io,resources=clusters/status,verbs=get;update;patch
 //+kubebuilder:rbac:groups=platform.kratix.io,resources=clusters/finalizers,verbs=update
 
 // Reconcile is part of the main kubernetes reconciliation loop which aims to
 // move the current state of the cluster closer to the desired state.
-// TODO(user): Modify the Reconcile function to compare the state specified by
-// the Cluster object against the actual cluster state, and then
-// perform operations to make the cluster state reflect the state specified by
-// the user.
-//
 // For more details, check Reconcile and its Result here:
 // - https://pkg.go.dev/sigs.k8s.io/controller-runtime@v0.11.0/pkg/reconcile
 func (r *ClusterReconciler) Reconcile(ctx context.Context, req ctrl.Request) (ctrl.Result, error) {
-	logger := r.Log.WithValues("cluster", req.NamespacedName)
+	logger := r.Log.WithValues(
+		"cluster", req.NamespacedName,
+	)
 
 	cluster := &platformv1alpha1.Cluster{}
-	logger.Info("Registering Cluster: " + req.Name)
+	logger.Info("Registering Cluster", "requestName", req.Name)
 	if err := r.Client.Get(ctx, req.NamespacedName, cluster); err != nil {
 		if errors.IsNotFound(err) {
 			return ctrl.Result{}, nil
@@ -65,25 +64,65 @@ func (r *ClusterReconciler) Reconcile(ctx context.Context, req ctrl.Request) (ct
 		return ctrl.Result{}, err
 	}
 
-	bucketPath := cluster.Spec.BucketPath
-	if err := r.createWorkerClusterResourceBucket(bucketPath); err != nil {
-		r.Log.Error(err, "unable to write worker cluster resources to bucket", "cluster", cluster.Name, "bucketPath", bucketPath)
+	stateStore := &platformv1alpha1.StateStore{}
+	stateStoreRef := types.NamespacedName{
+		Name:      cluster.Spec.StateStoreRef.Name,
+		Namespace: or(cluster.Spec.StateStoreRef.Namespace, cluster.Namespace),
+	}
+	if err := r.Client.Get(ctx, stateStoreRef, stateStore); err != nil {
+		if errors.IsNotFound(err) {
+			logger.Error(err, "not found", "stateStoreRef", stateStoreRef)
+			return defaultRequeue, nil
+		}
+		return ctrl.Result{}, err
+	}
+
+	secret := &v1.Secret{}
+	secretRef := types.NamespacedName{
+		Name:      stateStore.Spec.SecretRef.Name,
+		Namespace: or(stateStore.Spec.SecretRef.Namespace, stateStore.Namespace),
+	}
+	if err := r.Client.Get(ctx, secretRef, secret); err != nil {
+		if errors.IsNotFound(err) {
+			logger.Error(err, "not found", "secretRef", secretRef)
+			return defaultRequeue, nil
+		}
+		return ctrl.Result{}, err
+	}
+
+	stateStore.SetCredentials(secret)
+
+	writer, err := writers.NewStateStoreWriter(
+		logger.WithName("writers").WithName("StateStoreWriter"),
+		stateStore,
+	)
+	if err != nil {
+		logger.Error(err, "unable to create StateStoreWriter")
+		return ctrl.Result{}, err
+	}
+
+	path := filepath.Join(cluster.Spec.Path, cluster.Namespace, cluster.Name)
+	logger = logger.WithValues("path", path)
+
+	if err := r.createCrdPathWithExample(writer, path); err != nil {
+		logger.Error(err, "unable to write worker cluster resources to bucket")
 		return defaultRequeue, nil
 	}
 
-	if err := r.createWorkerResources(bucketPath); err != nil {
-		r.Log.Error(err, "unable to write worker resources to bucket", "cluster", cluster.Name, "bucketPath", bucketPath)
+	if err := r.createResourcePathWithExample(writer, path); err != nil {
+		logger.Error(err, "unable to write worker resources to bucket")
 		return defaultRequeue, nil
 	}
 
 	if err := r.Scheduler.ReconcileCluster(); err != nil {
-		r.Log.Error(err, "unable to schedule cluster resources", "cluster", cluster.Name)
+		logger.Error(err, "unable to schedule cluster resources")
 		return defaultRequeue, nil
 	}
 	return ctrl.Result{}, nil
 }
 
-func (r *ClusterReconciler) createWorkerResources(bucketPath string) error {
+func (r *ClusterReconciler) createResourcePathWithExample(writer writers.StateStoreWriter, bucketPath string) error {
+	path := filepath.Join(bucketPath, "resources")
 	kratixConfigMap := &v1.ConfigMap{
 		TypeMeta: metav1.TypeMeta{
 			Kind:       "ConfigMap",
@@ -94,16 +133,15 @@ func (r *ClusterReconciler) createWorkerResources(bucketPath string) error {
 			Namespace: "kratix-worker-system",
 		},
 		Data: map[string]string{
-			"BucketPath": bucketPath,
+			"Path": path,
 		},
 	}
 	nsBytes, _ := yaml.Marshal(kratixConfigMap)
 
-	bucketName := bucketPath + "-kratix-resources"
-	return r.BucketWriter.WriteObject(bucketName, "kratix-resources.yaml", nsBytes)
+	return writer.WriteObject(path, "kratix-resources.yaml", nsBytes)
 }
 
-func (r *ClusterReconciler) createWorkerClusterResourceBucket(bucketPath string) error {
+func (r *ClusterReconciler) createCrdPathWithExample(writer writers.StateStoreWriter, bucketPath string) error {
 	kratixNamespace := &v1.Namespace{
 		TypeMeta: metav1.TypeMeta{
 			Kind:       "Namespace",
@@ -113,8 +151,8 @@ func (r *ClusterReconciler) createWorkerClusterResourceBucket(bucketPath string)
 	}
 	nsBytes, _ := yaml.Marshal(kratixNamespace)
 
-	bucketName := bucketPath + "-kratix-crds"
-	return r.BucketWriter.WriteObject(bucketName, "kratix-crds.yaml", nsBytes)
+	path := filepath.Join(bucketPath, "crds")
+	return writer.WriteObject(path, "kratix-crds.yaml", nsBytes)
 }
 
 // SetupWithManager sets up the controller with the Manager.

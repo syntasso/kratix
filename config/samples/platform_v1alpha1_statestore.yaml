@@ -1,0 +1,12 @@
+apiVersion: platform.kratix.io/v1alpha1
+kind: StateStore
+metadata:
+  name: minio
+spec:
+  s3:
+    endpoint: minio.kratix-platform-system.svc.cluster.local
+    useSSL: false
+    bucketName: kratix
+  secretRef:
+    name: minio-credentials
+    namespace: default

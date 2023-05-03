@@ -84,3 +84,10 @@ func finalizersAreDeleted(resource client.Object, finalizers []string) bool {
 	}
 	return true
 }
+
+func or(a, b string) string {
+	if a != "" {
+		return a
+	}
+	return b
+}

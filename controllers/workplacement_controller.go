@@ -19,8 +19,10 @@ package controllers
 import (
 	"bytes"
 	"context"
+	"path/filepath"
 
 	"github.com/go-logr/logr"
+	v1 "k8s.io/api/core/v1"
 	"k8s.io/apimachinery/pkg/api/errors"
 	"k8s.io/apimachinery/pkg/runtime/serializer/json"
 	"k8s.io/apimachinery/pkg/types"
@@ -34,9 +36,8 @@ import (
 
 // WorkPlacementReconciler reconciles a WorkPlacement object
 type WorkPlacementReconciler struct {
-	Client       client.Client
-	Log          logr.Logger
-	BucketWriter writers.BucketWriter
+	Client client.Client
+	Log    logr.Logger
 }
 
 const repoCleanupWorkPlacementFinalizer = "finalizers.workplacement.kratix.io/repo-cleanup"
@@ -44,8 +45,8 @@ const repoCleanupWorkPlacementFinalizer = "finalizers.workplacement.kratix.io/re
 var workPlacementFinalizers = []string{repoCleanupWorkPlacementFinalizer}
 
 type repoFilePaths struct {
-	ResourcesBucket, ResourcesName string
-	CRDsBucket, CRDsName           string
+	ResourcesPath, ResourcesObjectName string
+	CRDsPath, CRDsObjectName           string
 }
 
 //+kubebuilder:rbac:groups=platform.kratix.io,resources=workplacements,verbs=get;list;watch;create;update;patch;delete
@@ -54,11 +55,6 @@ type repoFilePaths struct {
 
 // Reconcile is part of the main kubernetes reconciliation loop which aims to
 // move the current state of the cluster closer to the desired state.
-// TODO(user): Modify the Reconcile function to compare the state specified by
-// the WorkPlacement object against the actual cluster state, and then
-// perform operations to make the cluster state reflect the state specified by
-// the user.
-//
 // For more details, check Reconcile and its Result here:
 // - https://pkg.go.dev/sigs.k8s.io/controller-runtime@v0.11.0/pkg/reconcile
 func (r *WorkPlacementReconciler) Reconcile(ctx context.Context, req ctrl.Request) (ctrl.Result, error) {
@@ -74,22 +70,79 @@ func (r *WorkPlacementReconciler) Reconcile(ctx context.Context, req ctrl.Reques
 		return defaultRequeue, nil
 	}
 
-	paths, err := r.getRepoFilePaths(workPlacement.Spec.TargetClusterName, workPlacement.GetNamespace(), workPlacement.Spec.WorkName, logger)
+	cluster := &platformv1alpha1.Cluster{}
+	clusterName := types.NamespacedName{
+		Name:      workPlacement.Spec.TargetClusterName,
+		Namespace: "default",
+	}
+	err = r.Client.Get(context.Background(), clusterName, cluster)
+	if err != nil {
+		logger.Error(err, "Error listing available clusters")
+		return ctrl.Result{}, err
+	}
+
+	work := r.getWork(workPlacement.Spec.WorkName, logger)
+	workNamespacedName := workPlacement.Namespace + "-" + workPlacement.Spec.WorkName
+
+	base := filepath.Join(cluster.Spec.Path, cluster.Namespace, cluster.Name)
+	paths := repoFilePaths{
+		ResourcesPath:       filepath.Join(base, "/resources/"),
+		ResourcesObjectName: "01-" + workNamespacedName + "-resources.yaml",
+		CRDsPath:            filepath.Join(base, "/crds/"),
+		CRDsObjectName:      "00-" + workNamespacedName + "-crds.yaml",
+	}
+
 	if err != nil {
 		logger.Error(err, "Error getting file paths for the repository")
 		return defaultRequeue, nil
 	}
 
+	stateStore := &platformv1alpha1.StateStore{}
+	stateStoreRef := types.NamespacedName{
+		Name:      cluster.Spec.StateStoreRef.Name,
+		Namespace: or(cluster.Spec.StateStoreRef.Namespace, cluster.Namespace),
+	}
+	if err := r.Client.Get(ctx, stateStoreRef, stateStore); err != nil {
+		if errors.IsNotFound(err) {
+			logger.Error(err, "not found", "stateStoreRef", stateStoreRef)
+			return defaultRequeue, nil
+		}
+		return ctrl.Result{}, err
+	}
+
+	secret := &v1.Secret{}
+	secretRef := types.NamespacedName{
+		Name:      stateStore.Spec.SecretRef.Name,
+		Namespace: or(stateStore.Spec.SecretRef.Namespace, stateStore.Namespace),
+	}
+	if err := r.Client.Get(ctx, secretRef, secret); err != nil {
+		if errors.IsNotFound(err) {
+			logger.Error(err, "not found", "secretRef", secretRef)
+			return defaultRequeue, nil
+		}
+		return ctrl.Result{}, err
+	}
+
+	stateStore.SetCredentials(secret)
+
+	writer, err := writers.NewStateStoreWriter(
+		logger.WithName("writers").WithName("StateStoreWriter"),
+		stateStore,
+	)
+	if err != nil {
+		logger.Error(err, "unable to create StateStoreWriter")
+		return ctrl.Result{}, err
+	}
+
 	if !workPlacement.DeletionTimestamp.IsZero() {
-		return r.deleteWorkPlacement(ctx, workPlacement, paths, logger)
+		return r.deleteWorkPlacement(ctx, writer, workPlacement, paths, logger)
 	}
 
 	if finalizersAreMissing(workPlacement, workPlacementFinalizers) {
 		return addFinalizers(ctx, r.Client, workPlacement, workPlacementFinalizers, logger)
 	}
 
-	work := r.getWork(workPlacement.Spec.WorkName, logger)
-	err = r.writeWorkToRepository(work, paths, logger)
+	err = r.writeWorkToRepository(writer, work, paths, logger)
 	if err != nil {
 		logger.Error(err, "Error writing to repository, will try again in 5 seconds")
 		return defaultRequeue, err
@@ -98,13 +151,13 @@ func (r *WorkPlacementReconciler) Reconcile(ctx context.Context, req ctrl.Reques
 	return ctrl.Result{}, nil
 }
 
-func (r *WorkPlacementReconciler) deleteWorkPlacement(ctx context.Context, workPlacement *platformv1alpha1.WorkPlacement, bucketPath repoFilePaths, logger logr.Logger) (ctrl.Result, error) {
+func (r *WorkPlacementReconciler) deleteWorkPlacement(ctx context.Context, writer writers.StateStoreWriter, workPlacement *platformv1alpha1.WorkPlacement, paths repoFilePaths, logger logr.Logger) (ctrl.Result, error) {
 	if !controllerutil.ContainsFinalizer(workPlacement, repoCleanupWorkPlacementFinalizer) {
 		return ctrl.Result{}, nil
 	}
 
 	logger.Info("cleaning up files on repository", "repository", workPlacement.Name)
-	err := r.removeWorkFromRepository(bucketPath, logger)
+	err := r.removeWorkFromRepository(writer, paths, logger)
 	if err != nil {
 		logger.Error(err, "error removing work from repository, will try again in 5 seconds")
 		return defaultRequeue, err
@@ -118,7 +171,7 @@ func (r *WorkPlacementReconciler) deleteWorkPlacement(ctx context.Context, workP
 	return fastRequeue, nil
 }
 
-func (r *WorkPlacementReconciler) writeWorkToRepository(work *platformv1alpha1.Work, paths repoFilePaths, logger logr.Logger) error {
+func (r *WorkPlacementReconciler) writeWorkToRepository(writer writers.StateStoreWriter, work *platformv1alpha1.Work, paths repoFilePaths, logger logr.Logger) error {
 	serializer := json.NewSerializerWithOptions(
 		json.DefaultMetaFactory, nil, nil,
 		json.SerializerOptions{
@@ -147,13 +200,13 @@ func (r *WorkPlacementReconciler) writeWorkToRepository(work *platformv1alpha1.W
 	// when it autogenerates its manifest.
 	// https://github.com/fluxcd/kustomize-controller/blob/main/docs/spec/v1beta1/kustomization.md#generate-kustomizationyaml
 
-	err := r.BucketWriter.WriteObject(paths.CRDsBucket, paths.CRDsName, crdBuffer.Bytes())
+	err := writer.WriteObject(paths.CRDsPath, paths.CRDsObjectName, crdBuffer.Bytes())
 	if err != nil {
 		logger.Error(err, "Error Writing CRDS to repository")
 		return err
 	}
 
-	err = r.BucketWriter.WriteObject(paths.ResourcesBucket, paths.ResourcesName, resourceBuffer.Bytes())
+	err = writer.WriteObject(paths.ResourcesPath, paths.ResourcesObjectName, resourceBuffer.Bytes())
 	if err != nil {
 		logger.Error(err, "Error uploading resources to repository")
 		return err
@@ -162,39 +215,17 @@ func (r *WorkPlacementReconciler) writeWorkToRepository(work *platformv1alpha1.W
 	return nil
 }
 
-func (r *WorkPlacementReconciler) removeWorkFromRepository(paths repoFilePaths, logger logr.Logger) error {
-	logger.Info("Removing objects from repository")
-	if err := r.BucketWriter.RemoveObject(paths.ResourcesBucket, paths.ResourcesName); err != nil {
-		logger.Error(err, "Error removing resources from repository", "resourcePath", paths.ResourcesBucket)
+func (r *WorkPlacementReconciler) removeWorkFromRepository(writer writers.StateStoreWriter, paths repoFilePaths, logger logr.Logger) error {
+	if err := writer.RemoveObject(paths.ResourcesPath, paths.ResourcesObjectName); err != nil {
+		logger.Error(err, "Error removing resources from repository", "resourcePath", paths.ResourcesPath)
 		return err
 	}
 
-	if err := r.BucketWriter.RemoveObject(paths.CRDsBucket, paths.CRDsName); err != nil {
-		logger.Error(err, "Error removing crds from repository", "resourcePath", paths.CRDsBucket)
+	if err := writer.RemoveObject(paths.CRDsPath, paths.CRDsObjectName); err != nil {
+		logger.Error(err, "Error removing crds from repository", "resourcePath", paths.CRDsPath)
 		return err
 	}
 	return nil
-}
-
-func (r *WorkPlacementReconciler) getRepoFilePaths(targetCluster, workNamespace, workName string, logger logr.Logger) (repoFilePaths, error) {
-	scheduledWorkerCluster := &platformv1alpha1.Cluster{}
-	clusterName := types.NamespacedName{
-		Name:      targetCluster,
-		Namespace: "default",
-	}
-	err := r.Client.Get(context.Background(), clusterName, scheduledWorkerCluster)
-	if err != nil {
-		logger.Error(err, "Error listing available clusters")
-		return repoFilePaths{}, err
-	}
-
-	base := scheduledWorkerCluster.Spec.BucketPath
-	return repoFilePaths{
-		ResourcesBucket: base + "-kratix-resources",
-		ResourcesName:   "01-" + workNamespace + "-" + workName + "-resources.yaml",
-		CRDsBucket:      base + "-kratix-crds",
-		CRDsName:        "00-" + workNamespace + "-" + workName + "-crds.yaml",
-	}, nil
 }
 
 func (r *WorkPlacementReconciler) getWork(workName string, logger logr.Logger) *platformv1alpha1.Work {

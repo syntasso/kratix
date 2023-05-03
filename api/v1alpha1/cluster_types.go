@@ -28,9 +28,10 @@ type ClusterSpec struct {
 	// INSERT ADDITIONAL SPEC FIELDS - desired state of cluster
 	// Important: Run "make" to regenerate code after modifying this file
 
-	// Unique identifier of a Cluster
-	Id         string `json:"id"`
-	BucketPath string `json:"bucketPath"`
+	// Path within StateStore to write documents
+	//+kubebuilder:validation:Optional
+	Path          string               `json:"path,omitempty"`
+	StateStoreRef *StateStoreReference `json:"stateStoreRef,omitempty"`
 }
 
 // ClusterStatus defines the observed state of Cluster

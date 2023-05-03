@@ -35,7 +35,7 @@ const (
 	Delete string = "Delete"
 )
 
-func newGitBucketWriter(logger logr.Logger) (BucketWriter, error) {
+func newGitWriter(logger logr.Logger) (StateStoreWriter, error) {
 	return &GitWriter{
 		gitServer: gitServer{
 			URL: "https://gitea-http.gitea.svc.cluster.local/gitea_admin/",

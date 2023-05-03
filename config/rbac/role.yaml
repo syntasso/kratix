@@ -2,7 +2,6 @@
 apiVersion: rbac.authorization.k8s.io/v1
 kind: ClusterRole
 metadata:
-  creationTimestamp: null
   name: manager-role
 rules:
 - apiGroups:
@@ -21,6 +20,14 @@ rules:
   verbs:
   - create
   - delete
+  - list
+  - watch
+- apiGroups:
+  - ""
+  resources:
+  - secrets
+  verbs:
+  - get
   - list
   - watch
 - apiGroups:
@@ -93,6 +100,32 @@ rules:
   - platform.kratix.io
   resources:
   - promises/status
+  verbs:
+  - get
+  - patch
+  - update
+- apiGroups:
+  - platform.kratix.io
+  resources:
+  - statestores
+  verbs:
+  - create
+  - delete
+  - get
+  - list
+  - patch
+  - update
+  - watch
+- apiGroups:
+  - platform.kratix.io
+  resources:
+  - statestores/finalizers
+  verbs:
+  - update
+- apiGroups:
+  - platform.kratix.io
+  resources:
+  - statestores/status
   verbs:
   - get
   - patch

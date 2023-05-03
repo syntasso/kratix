@@ -56,3 +56,40 @@ spec:
       volumes:
       - name: data-volume
         emptyDir: {}
+---
+apiVersion: v1
+kind: Secret
+metadata:
+  name: minio-credentials
+stringData:
+  accessKeyID: minioadmin
+  secretAccessKey: minioadmin
+---
+apiVersion: batch/v1
+kind: Job
+metadata:
+  name: minio-create-bucket
+spec:
+  template:
+    spec:
+      containers:
+      - name: minio-event-configuration
+        image: minio/mc
+        command: ["mc", "mb", "minio/kratix"]
+        env:
+        - name: MC_ACCESS_KEY
+          valueFrom:
+            secretKeyRef:
+              name: minio-credentials
+              key: accessKeyID
+        - name: MC_SECRET_KEY
+          valueFrom:
+            secretKeyRef:
+              name: minio-credentials
+              key: secretAccessKey
+        - name: MC_ENDPOINT
+          value: minio.kratix-platform-system.svc.cluster.local
+        - name: MC_HOST_minio
+          value: "http://$(MC_ACCESS_KEY):$(MC_SECRET_KEY)@$(MC_ENDPOINT)"
+      restartPolicy: Never
+  backoffLimit: 4

@@ -9,6 +9,7 @@ source "${ROOT}/scripts/install-gitops"
 KRATIX_DISTRIBUTION="${ROOT}/distribution/kratix.yaml"
 MINIO_INSTALL="${ROOT}/hack/platform/minio-install.yaml"
 PLATFORM_WORKER="${ROOT}/config/samples/platform_v1alpha1_worker_cluster.yaml"
+STATE_STORE="${ROOT}/config/samples/platform_v1alpha1_statestore.yaml"
 GITOPS_WORKER_INSTALL="${ROOT}/hack/worker/gitops-tk-install.yaml"
 GITOPS_WORKER_RESOURCES="${ROOT}/hack/worker/gitops-tk-resources.yaml"
 
@@ -188,11 +189,18 @@ setup_platform_cluster() {
 }
 
 setup_worker_cluster() {
+    if ${INSTALL_AND_CREATE_GITEA_REPO}; then
+       kubectl --context kind-platform apply --filename "${ROOT}/config/samples/platform_v1alpha1_gitstatestore.yaml"
+    fi
+
+    if ${INSTALL_AND_CREATE_MINIO_BUCKET}; then
+       kubectl --context kind-platform apply --filename "${ROOT}/config/samples/platform_v1alpha1_bucketstatestore.yaml"
+    fi
+
     if ${SINGLE_CLUSTER}; then
         ${ROOT}/scripts/prepare-platform-cluster-as-worker.sh
     else
-        kubectl --context kind-platform apply --filename "${PLATFORM_WORKER}"
-
+        cat "${ROOT}/config/samples/platform_v1alpha1_worker_cluster.yaml" | patch_statestore | kubectl --context kind-platform apply --filename -
         install_gitops kind-worker worker-cluster-1
     fi
 }
@@ -348,6 +356,8 @@ install_kratix() {
     fi
 
     kubectl config use-context kind-platform >/dev/null
+
+    kubectl delete job minio-create-bucket --context kind-platform >/dev/null
 
     success "Kratix installation is complete!"
 

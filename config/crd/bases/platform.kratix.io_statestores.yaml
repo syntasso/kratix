@@ -4,20 +4,20 @@ kind: CustomResourceDefinition
 metadata:
   annotations:
     controller-gen.kubebuilder.io/version: v0.12.0
-  name: promises.platform.kratix.io
+  name: statestores.platform.kratix.io
 spec:
   group: platform.kratix.io
   names:
-    kind: Promise
-    listKind: PromiseList
-    plural: promises
-    singular: promise
+    kind: StateStore
+    listKind: StateStoreList
+    plural: statestores
+    singular: statestore
   scope: Namespaced
   versions:
   - name: v1alpha1
     schema:
       openAPIV3Schema:
-        description: Promise is the Schema for the promises API
+        description: StateStore is the Schema for the statestores API
         properties:
           apiVersion:
             description: 'APIVersion defines the versioned schema of this representation
@@ -32,33 +32,38 @@ spec:
           metadata:
             type: object
           spec:
-            description: PromiseSpec defines the desired state of Promise
+            description: StateStoreSpec defines the desired state of StateStore
             properties:
-              clusterSelector:
-                additionalProperties:
-                  type: string
+              s3:
+                properties:
+                  bucketName:
+                    type: string
+                  endpoint:
+                    type: string
+                  useSSL:
+                    default: true
+                    type: boolean
+                required:
+                - bucketName
+                - endpoint
                 type: object
-              workerClusterResources:
-                items:
-                  description: Resources represents the manifest workload to be deployed
-                    on worker cluster
-                  type: object
-                  x-kubernetes-preserve-unknown-fields: true
-                type: array
-              xaasCrd:
-                description: X's CustomResourceDefinition to create the X-aaS offering
+              secretRef:
+                description: SecretReference represents a Secret Reference. It has
+                  enough information to retrieve secret in any namespace
+                properties:
+                  name:
+                    description: name is unique within a namespace to reference a
+                      secret resource.
+                    type: string
+                  namespace:
+                    description: namespace defines the space within which the secret
+                      name must be unique.
+                    type: string
                 type: object
-                x-kubernetes-embedded-resource: true
-                x-kubernetes-preserve-unknown-fields: true
-              xaasRequestPipeline:
-                description: Array of Image tags to transform from input request custom
-                  resource to output resource(s)
-                items:
-                  type: string
-                type: array
+                x-kubernetes-map-type: atomic
             type: object
           status:
-            description: PromiseStatus defines the observed state of Promise
+            description: StateStoreStatus defines the observed state of StateStore
             type: object
         type: object
     served: true

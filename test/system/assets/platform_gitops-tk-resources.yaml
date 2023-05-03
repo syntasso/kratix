@@ -1,29 +1,14 @@
 ---
 apiVersion: source.toolkit.fluxcd.io/v1beta1
-kind: Bucket 
+kind: Bucket
 metadata:
-  name: platform-cluster-worker-1-crds 
+  name: kratix
   namespace: flux-system
 spec:
   interval: 10s
   timeout: 300s
   provider: generic
-  bucketName: platform-cluster-worker-1-kratix-crds
-  endpoint: minio.kratix-platform-system.svc.cluster.local
-  insecure: true
-  secretRef:
-    name: minio-credentials
----
-apiVersion: source.toolkit.fluxcd.io/v1beta1
-kind: Bucket 
-metadata:
-  name: platform-cluster-worker-1-resources 
-  namespace: flux-system
-spec:
-  interval: 10s
-  timeout: 300s
-  provider: generic
-  bucketName: platform-cluster-worker-1-kratix-resources
+  bucketName: kratix
   endpoint: minio.kratix-platform-system.svc.cluster.local
   insecure: true
   secretRef:
@@ -37,32 +22,34 @@ metadata:
 type: Opaque
 data:
   accesskey: bWluaW9hZG1pbg==
-  secretkey: bWluaW9hZG1pbg== 
+  secretkey: bWluaW9hZG1pbg==
 ---
 apiVersion: kustomize.toolkit.fluxcd.io/v1beta1
 kind: Kustomization
 metadata:
-  name: platform-cluster-worker-1-resources 
-  namespace: flux-system 
+  name: platform-cluster-worker-1-resources
+  namespace: flux-system
 spec:
   interval: 3s
   prune: true
-  dependsOn: 
+  dependsOn:
     - name: platform-cluster-worker-1-crds
   sourceRef:
-    kind: Bucket 
-    name: platform-cluster-worker-1-resources 
+    kind: Bucket
+    name: kratix
+  path: ./default/platform-cluster-worker-1/resources
   validation: client
 ---
 apiVersion: kustomize.toolkit.fluxcd.io/v1beta1
 kind: Kustomization
 metadata:
-  name: platform-cluster-worker-1-crds 
-  namespace: flux-system 
+  name: platform-cluster-worker-1-crds
+  namespace: flux-system
 spec:
   interval: 8s
   prune: true
   sourceRef:
-    kind: Bucket 
-    name: platform-cluster-worker-1-crds 
-  validation: client  
+    kind: Bucket
+    name: kratix
+  validation: client
+  path: ./default/platform-cluster-worker-1/crds
