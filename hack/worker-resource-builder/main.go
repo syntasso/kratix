@@ -56,6 +56,9 @@ func main() {
 			} else if err == io.EOF {
 				break
 			} else {
+				if us.GetNamespace() == "" {
+					us.SetNamespace("default")
+				}
 				resources = append(resources, platformv1alpha1.WorkerClusterResource{Unstructured: *us})
 			}
 		}
