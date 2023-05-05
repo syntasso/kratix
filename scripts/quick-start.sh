@@ -202,6 +202,9 @@ wait_for_gitea() {
 }
 
 wait_for_minio() {
+    while ! kubectl get pods --context kind-platform -n kratix-platform-system | grep minio; do
+        sleep 1
+    done
     kubectl wait pod --context kind-platform -n kratix-platform-system --selector run=minio --for=condition=ready ${opts}
 }
 
@@ -225,7 +228,7 @@ wait_for_namespace() {
     if ${SINGLE_CLUSTER}; then
         context="kind-platform"
     fi
-    while ! kubectl --context "$context" get namespace kratix-worker-system >/dev/null 2>&1; do
+    while ! kubectl --context $context get namespace kratix-worker-system >/dev/null 2>&1; do
         if [ -z "${timeout_flag}" ] && (( loops > 20 )); then
             return 1
         fi
