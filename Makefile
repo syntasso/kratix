@@ -109,8 +109,11 @@ kind-load-image: docker-build ## Load locally built image into KinD, use export 
 	kind load docker-image ${IMG} --name platform
 	kind load docker-image ${IMG_MIRROR} --name platform
 
-quick-start:
+quick-start: distribution
 	VERSION=dev DOCKER_BUILDKIT=1 ./scripts/quick-start.sh --recreate --local
+
+single-cluster: distribution
+	VERSION=dev DOCKER_BUILDKIT=1 ./scripts/quick-start.sh --recreate --local --single-cluster
 
 dev-env: distribution quick-start prepare-platform-cluster-as-worker ## Tears down existing resources and sets up a local development environment
 

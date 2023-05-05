@@ -15,6 +15,7 @@ GITOPS_WORKER_RESOURCES="${ROOT}/hack/worker/gitops-tk-resources.yaml"
 BUILD_KRATIX_IMAGES=false
 RECREATE=false
 GIT_REPO=false
+SINGLE_CLUSTER=false
 LOCAL_IMAGES_DIR=""
 VERSION=${VERSION:-"$(cd $ROOT; git branch --show-current)"}
 DOCKER_BUILDKIT="${DOCKER_BUILDKIT:-1}"
@@ -29,6 +30,7 @@ usage() {
     echo -e "\t--local, -l           Build and load Kratix images to KinD cache"
     echo -e "\t--local-images, -i    Load container images from a local directory into the KinD clusters"
     echo -e "\t--git, -g             Use Gitea as local repository in place of default local MinIO"
+    echo -e "\t--single-cluster, -s  Deploy Kratix on a Single Cluster setup"
     exit "${1:-0}"
 }
 
@@ -41,15 +43,17 @@ load_options() {
         '--local')          set -- "$@" '-l'   ;;
         '--git')            set -- "$@" '-g'   ;;
         '--local-images')   set -- "$@" '-i'   ;;
+        '--single-cluster') set -- "$@" '-s'   ;;
         *)                  set -- "$@" "$arg" ;;
       esac
     done
 
     OPTIND=1
-    while getopts "hrlgi:" opt
+    while getopts "hrlgi:s" opt
     do
       case "$opt" in
         'r') RECREATE=true ;;
+        's') SINGLE_CLUSTER=true ;;
         'h') usage ;;
         'l') BUILD_KRATIX_IMAGES=true ;;
         'i') LOCAL_IMAGES_DIR=${OPTARG} ;;
@@ -184,9 +188,13 @@ setup_platform_cluster() {
 }
 
 setup_worker_cluster() {
-    kubectl --context kind-platform apply --filename "${PLATFORM_WORKER}"
+    if ${SINGLE_CLUSTER}; then
+        ${ROOT}/scripts/prepare-platform-cluster-as-worker.sh
+    else
+        kubectl --context kind-platform apply --filename "${PLATFORM_WORKER}"
 
-    install_gitops kind-worker worker-cluster-1
+        install_gitops kind-worker worker-cluster-1
+    fi
 }
 
 wait_for_gitea() {
@@ -213,7 +221,11 @@ wait_for_local_repository() {
 wait_for_namespace() {
     local timeout_flag="${1:-""}"
     loops=0
-    while ! kubectl --context kind-worker get namespace kratix-worker-system >/dev/null 2>&1; do
+    local context="kind-worker"
+    if ${SINGLE_CLUSTER}; then
+        context="kind-platform"
+    fi
+    while ! kubectl --context "$context" get namespace kratix-worker-system >/dev/null 2>&1; do
         if [ -z "${timeout_flag}" ] && (( loops > 20 )); then
             return 1
         fi
@@ -288,12 +300,14 @@ install_kratix() {
         exit 1
     fi
 
-    log -n "Creating worker cluster..."
-    if ! run kind create cluster --name worker --image $KIND_IMAGE \
-        --config ${ROOT}/hack/worker/kind-worker-config.yaml
-    then
-        error "Could not create worker cluster"
-        exit 1
+    if ! $SINGLE_CLUSTER; then
+        log -n "Creating worker cluster..."
+        if ! run kind create cluster --name worker --image $KIND_IMAGE \
+            --config ${ROOT}/hack/worker/kind-worker-config.yaml
+        then
+            error "Could not create worker cluster"
+            exit 1
+        fi
     fi
 
     log -n "Waiting for local repository to be running..."
@@ -305,11 +319,13 @@ install_kratix() {
         run wait_for_local_repository --no-timeout
     fi
 
-    if [ -d "${LOCAL_IMAGES_DIR}" ]; then
-        log -n "Loading images in worker cluster..."
-        if ! run load_images worker; then
-            error "Failed to load images in worker cluster"
-            exit 1;
+    if ! $SINGLE_CLUSTER; then
+        if [ -d "${LOCAL_IMAGES_DIR}" ]; then
+            log -n "Loading images in worker cluster..."
+            if ! run load_images worker; then
+                error "Failed to load images in worker cluster"
+                exit 1;
+            fi
         fi
     fi
 
@@ -332,10 +348,15 @@ install_kratix() {
 
     success "Kratix installation is complete!"
 
-    if ${KRATIX_DEVELOPER:-false}; then
+    if ! ${KRATIX_DEVELOPER:-false}; then
+        echo ""
         echo "If you are following the docs available at kratix.io, make sure to set the following environment variables:"
         echo "export PLATFORM=kind-platform"
-        echo "export WORKER=kind-worker"
+        if ${SINGLE_CLUSTER}; then
+            echo "export WORKER=kind-platform"
+        else
+            echo "export WORKER=kind-worker"
+        fi
     fi
 
 }
