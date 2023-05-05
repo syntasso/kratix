@@ -1,5 +1,14 @@
 # Demo: App as a Service
 
+> **Warning**
+>
+> **To use this Promise, the Kubernetes cluster running Kratix must be registered
+as a Worker Cluster**
+>
+> Check out the [Compound Promises
+guide](https://kratix.io/docs/main/guides/compound-promises) on the Kratix
+documentation for details on how to setup your platform.
+
 This Promise provides an App-as-a-Service. This is a compound Promise that installs the following Promises:
 
 - [Nginx-ingress](https://github.com/syntasso/kratix-marketplace/tree/main/nginx-ingress)
