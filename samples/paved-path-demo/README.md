@@ -5,10 +5,15 @@ Promises. It encapsulates Knative and PostgreSQL in a single Promise. Sending a
 resource request will create a new Knative Serving and a new PostgreSQL instance
 on the Worker Cluster.
 
-To use this Promise, the Kubernetes cluster running Kratix must be registered as
-a Worker Cluster. Check out the [Compound Promises
+
+> **Warning**
+>
+> **To use this Promise, the Kubernetes cluster running Kratix must be registered
+as a Worker Cluster**
+>
+> Check out the [Compound Promises
 guide](https://kratix.io/docs/main/guides/compound-promises) on the Kratix
-documentation for details about this Promise.
+documentation for details on how to setup your platform.
 
 ## Questions? Feedback?
 
