@@ -5,10 +5,13 @@ import (
 	"fmt"
 
 	"github.com/go-logr/logr"
+	platformv1alpha1 "github.com/syntasso/kratix/api/v1alpha1"
+	v1 "k8s.io/api/core/v1"
 	"k8s.io/apimachinery/pkg/api/errors"
 	"k8s.io/apimachinery/pkg/apis/meta/v1/unstructured"
 	"k8s.io/apimachinery/pkg/labels"
 	"k8s.io/apimachinery/pkg/runtime/schema"
+	"k8s.io/apimachinery/pkg/types"
 	ctrl "sigs.k8s.io/controller-runtime"
 	"sigs.k8s.io/controller-runtime/pkg/client"
 	"sigs.k8s.io/controller-runtime/pkg/controller/controllerutil"
@@ -83,6 +86,27 @@ func finalizersAreDeleted(resource client.Object, finalizers []string) bool {
 		}
 	}
 	return true
+}
+
+func newStateStore(ctx context.Context, kubeClient client.Client, stateStoreRef types.NamespacedName, logger logr.Logger) (*platformv1alpha1.StateStore, error) {
+	stateStore := &platformv1alpha1.StateStore{}
+	if err := kubeClient.Get(ctx, stateStoreRef, stateStore); err != nil {
+		logger.Error(err, "not found", "stateStoreRef", stateStoreRef)
+		return nil, err
+	}
+
+	secret := &v1.Secret{}
+	secretRef := types.NamespacedName{
+		Name:      stateStore.Spec.SecretRef.Name,
+		Namespace: or(stateStore.Spec.SecretRef.Namespace, stateStore.Namespace),
+	}
+	if err := kubeClient.Get(ctx, secretRef, secret); err != nil {
+		logger.Error(err, "not found", "secretRef", secretRef)
+		return nil, err
+	}
+
+	stateStore.SetCredentials(secret)
+	return stateStore, nil
 }
 
 func or(a, b string) string {

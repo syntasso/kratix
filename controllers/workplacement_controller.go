@@ -22,7 +22,6 @@ import (
 	"path/filepath"
 
 	"github.com/go-logr/logr"
-	v1 "k8s.io/api/core/v1"
 	"k8s.io/apimachinery/pkg/api/errors"
 	"k8s.io/apimachinery/pkg/runtime/serializer/json"
 	"k8s.io/apimachinery/pkg/types"
@@ -97,33 +96,17 @@ func (r *WorkPlacementReconciler) Reconcile(ctx context.Context, req ctrl.Reques
 		return defaultRequeue, nil
 	}
 
-	stateStore := &platformv1alpha1.StateStore{}
 	stateStoreRef := types.NamespacedName{
 		Name:      cluster.Spec.StateStoreRef.Name,
 		Namespace: or(cluster.Spec.StateStoreRef.Namespace, cluster.Namespace),
 	}
-	if err := r.Client.Get(ctx, stateStoreRef, stateStore); err != nil {
+	stateStore, err := newStateStore(ctx, r.Client, stateStoreRef, logger)
+	if err != nil {
 		if errors.IsNotFound(err) {
-			logger.Error(err, "not found", "stateStoreRef", stateStoreRef)
 			return defaultRequeue, nil
 		}
 		return ctrl.Result{}, err
 	}
-
-	secret := &v1.Secret{}
-	secretRef := types.NamespacedName{
-		Name:      stateStore.Spec.SecretRef.Name,
-		Namespace: or(stateStore.Spec.SecretRef.Namespace, stateStore.Namespace),
-	}
-	if err := r.Client.Get(ctx, secretRef, secret); err != nil {
-		if errors.IsNotFound(err) {
-			logger.Error(err, "not found", "secretRef", secretRef)
-			return defaultRequeue, nil
-		}
-		return ctrl.Result{}, err
-	}
-
-	stateStore.SetCredentials(secret)
 
 	writer, err := writers.NewStateStoreWriter(
 		logger.WithName("writers").WithName("StateStoreWriter"),
