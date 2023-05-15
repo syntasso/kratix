@@ -61,6 +61,17 @@ type ClusterList struct {
 	Items           []Cluster `json:"items"`
 }
 
+// StateStoreReference is a reference to a StateStore
+type StateStoreReference struct {
+	// +kubebuilder:validation:Enum=BucketStateStore
+	Kind string `json:"kind"`
+	Name string `json:"name"`
+	//+kubebuilder:validation:Optional
+	// Namespace of the referent, defaults to the namespace of the
+	// Kubernetes resource object that contains the reference.
+	Namespace string `json:"namespace"`
+}
+
 func init() {
 	SchemeBuilder.Register(&Cluster{}, &ClusterList{})
 }

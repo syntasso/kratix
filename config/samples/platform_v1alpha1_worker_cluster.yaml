@@ -8,3 +8,4 @@ spec:
   stateStoreRef:
     name: minio
     namespace: default
+    kind: BucketStateStore

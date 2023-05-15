@@ -6,6 +6,7 @@ import (
 
 	"github.com/go-logr/logr"
 	platformv1alpha1 "github.com/syntasso/kratix/api/v1alpha1"
+	"github.com/syntasso/kratix/lib/writers"
 	v1 "k8s.io/api/core/v1"
 	"k8s.io/apimachinery/pkg/api/errors"
 	"k8s.io/apimachinery/pkg/apis/meta/v1/unstructured"
@@ -88,10 +89,10 @@ func finalizersAreDeleted(resource client.Object, finalizers []string) bool {
 	return true
 }
 
-func newStateStore(ctx context.Context, kubeClient client.Client, stateStoreRef types.NamespacedName, logger logr.Logger) (*platformv1alpha1.StateStore, error) {
-	stateStore := &platformv1alpha1.StateStore{}
+func newWriter(ctx context.Context, kubeClient client.Client, kind string, stateStoreRef types.NamespacedName, logger logr.Logger) (writers.StateStoreWriter, error) {
+	stateStore := &platformv1alpha1.BucketStateStore{}
 	if err := kubeClient.Get(ctx, stateStoreRef, stateStore); err != nil {
-		logger.Error(err, "not found", "stateStoreRef", stateStoreRef)
+		logger.Error(err, "unable to fetch resource", "resourceKind", stateStore.Kind, "stateStoreRef", stateStoreRef)
 		return nil, err
 	}
 
@@ -101,12 +102,17 @@ func newStateStore(ctx context.Context, kubeClient client.Client, stateStoreRef 
 		Namespace: or(stateStore.Spec.SecretRef.Namespace, stateStore.Namespace),
 	}
 	if err := kubeClient.Get(ctx, secretRef, secret); err != nil {
-		logger.Error(err, "not found", "secretRef", secretRef)
+		logger.Error(err, "unable to fetch resource", "resourceKind", stateStore.Kind, "secretRef", secretRef)
 		return nil, err
 	}
 
-	stateStore.SetCredentials(secret)
-	return stateStore, nil
+	writer, err := writers.NewS3Writer(logger.WithName("writers").WithName("BucketStateStoreWriter"), stateStore.Spec, secret.Data)
+	if err != nil {
+		//TODO: should this be a retryable error?
+		logger.Error(err, "unable to create StateStoreWriter")
+		return nil, err
+	}
+	return writer, nil
 }
 
 func or(a, b string) string {

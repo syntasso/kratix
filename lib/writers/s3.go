@@ -19,11 +19,10 @@ type S3Writer struct {
 	BucketName string
 }
 
-func newS3Writer(logger logr.Logger, s3Spec *platformv1alpha1.S3Spec, creds map[string][]byte) (StateStoreWriter, error) {
+func NewS3Writer(logger logr.Logger, s3Spec platformv1alpha1.BucketStateStoreSpec, creds map[string][]byte) (StateStoreWriter, error) {
 	endpoint := s3Spec.Endpoint
 	accessKeyID := string(creds["accessKeyID"])
 	secretAccessKey := string(creds["secretAccessKey"])
-	useSSL := s3Spec.UseSSL
 
 	if accessKeyID == "" || secretAccessKey == "" {
 		logger.Info("S3 credentials incomplete: accessKeyID or secretAccessKey are empty; will try unauthenticated access")
@@ -31,7 +30,7 @@ func newS3Writer(logger logr.Logger, s3Spec *platformv1alpha1.S3Spec, creds map[
 
 	minioClient, err := minio.New(endpoint, &minio.Options{
 		Creds:  credentials.NewStaticV4(accessKeyID, secretAccessKey, ""),
-		Secure: useSSL,
+		Secure: !s3Spec.Insecure,
 	})
 
 	if err != nil {

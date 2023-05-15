@@ -40,11 +40,18 @@ spec:
               stateStoreRef:
                 description: StateStoreReference is a reference to a StateStore
                 properties:
+                  kind:
+                    enum:
+                    - BucketStateStore
+                    type: string
                   name:
                     type: string
                   namespace:
+                    description: Namespace of the referent, defaults to the namespace
+                      of the Kubernetes resource object that contains the reference.
                     type: string
                 required:
+                - kind
                 - name
                 type: object
             type: object

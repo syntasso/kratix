@@ -100,20 +100,12 @@ func (r *WorkPlacementReconciler) Reconcile(ctx context.Context, req ctrl.Reques
 		Name:      cluster.Spec.StateStoreRef.Name,
 		Namespace: or(cluster.Spec.StateStoreRef.Namespace, cluster.Namespace),
 	}
-	stateStore, err := newStateStore(ctx, r.Client, stateStoreRef, logger)
+
+	writer, err := newWriter(ctx, r.Client, cluster.Spec.StateStoreRef.Kind, stateStoreRef, logger)
 	if err != nil {
 		if errors.IsNotFound(err) {
 			return defaultRequeue, nil
 		}
-		return ctrl.Result{}, err
-	}
-
-	writer, err := writers.NewStateStoreWriter(
-		logger.WithName("writers").WithName("StateStoreWriter"),
-		stateStore,
-	)
-	if err != nil {
-		logger.Error(err, "unable to create StateStoreWriter")
 		return ctrl.Result{}, err
 	}
 

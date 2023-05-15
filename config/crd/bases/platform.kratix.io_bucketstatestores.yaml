@@ -4,20 +4,20 @@ kind: CustomResourceDefinition
 metadata:
   annotations:
     controller-gen.kubebuilder.io/version: v0.12.0
-  name: statestores.platform.kratix.io
+  name: bucketstatestores.platform.kratix.io
 spec:
   group: platform.kratix.io
   names:
-    kind: StateStore
-    listKind: StateStoreList
-    plural: statestores
-    singular: statestore
+    kind: BucketStateStore
+    listKind: BucketStateStoreList
+    plural: bucketstatestores
+    singular: bucketstatestore
   scope: Namespaced
   versions:
   - name: v1alpha1
     schema:
       openAPIV3Schema:
-        description: StateStore is the Schema for the statestores API
+        description: BucketStateStore is the Schema for the bucketstatestores API
         properties:
           apiVersion:
             description: 'APIVersion defines the versioned schema of this representation
@@ -32,21 +32,14 @@ spec:
           metadata:
             type: object
           spec:
-            description: StateStoreSpec defines the desired state of StateStore
+            description: BucketStateStoreSpec defines the desired state of BucketStateStore
             properties:
-              s3:
-                properties:
-                  bucketName:
-                    type: string
-                  endpoint:
-                    type: string
-                  useSSL:
-                    default: true
-                    type: boolean
-                required:
-                - bucketName
-                - endpoint
-                type: object
+              bucketName:
+                type: string
+              endpoint:
+                type: string
+              insecure:
+                type: boolean
               secretRef:
                 description: SecretReference represents a Secret Reference. It has
                   enough information to retrieve secret in any namespace
@@ -61,9 +54,12 @@ spec:
                     type: string
                 type: object
                 x-kubernetes-map-type: atomic
+            required:
+            - bucketName
+            - endpoint
             type: object
           status:
-            description: StateStoreStatus defines the observed state of StateStore
+            description: BucketStateStoreStatus defines the observed state of BucketStateStore
             type: object
         type: object
     served: true

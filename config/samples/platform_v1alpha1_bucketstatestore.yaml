@@ -1,0 +1,6 @@
+apiVersion: platform.kratix.io/v1alpha1
+kind: BucketStateStore
+metadata:
+  name: bucketstatestore-sample
+spec:
+  # TODO(user): Add fields here

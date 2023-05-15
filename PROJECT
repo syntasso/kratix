@@ -49,4 +49,13 @@ resources:
   kind: StateStore
   path: github.com/syntasso/kratix/api/v1alpha1
   version: v1alpha1
+- api:
+    crdVersion: v1
+    namespaced: true
+  controller: true
+  domain: kratix.io
+  group: platform
+  kind: BucketStateStore
+  path: github.com/syntasso/kratix/api/v1alpha1
+  version: v1alpha1
 version: "3"
