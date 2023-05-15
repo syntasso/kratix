@@ -1,0 +1,6 @@
+apiVersion: platform.kratix.io/v1alpha1
+kind: GitStateStore
+metadata:
+  name: gitstatestore-sample
+spec:
+  # TODO(user): Add fields here

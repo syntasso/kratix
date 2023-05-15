@@ -1,0 +1,24 @@
+# permissions for end users to edit gitstatestores.
+apiVersion: rbac.authorization.k8s.io/v1
+kind: ClusterRole
+metadata:
+  name: gitstatestore-editor-role
+rules:
+- apiGroups:
+  - platform.kratix.io
+  resources:
+  - gitstatestores
+  verbs:
+  - create
+  - delete
+  - get
+  - list
+  - patch
+  - update
+  - watch
+- apiGroups:
+  - platform.kratix.io
+  resources:
+  - gitstatestores/status
+  verbs:
+  - get
