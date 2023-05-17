@@ -17,19 +17,18 @@ limitations under the License.
 package v1alpha1
 
 import (
+	v1 "k8s.io/api/core/v1"
 	metav1 "k8s.io/apimachinery/pkg/apis/meta/v1"
 )
 
-// EDIT THIS FILE!  THIS IS SCAFFOLDING FOR YOU TO OWN!
-// NOTE: json tags are required.  Any new fields you add must have json tags for the fields to be serialized.
-
 // GitStateStoreSpec defines the desired state of GitStateStore
 type GitStateStoreSpec struct {
-	// INSERT ADDITIONAL SPEC FIELDS - desired state of cluster
-	// Important: Run "make" to regenerate code after modifying this file
+	SecretRef *v1.SecretReference `json:"secretRef,omitempty"`
+	URL       string              `json:"url,omitempty"`
 
-	// Foo is an example field of GitStateStore. Edit gitstatestore_types.go to remove/update
-	Foo string `json:"foo,omitempty"`
+	//+kubebuilder:validation:Optional
+	//+kubebuilder:default=main
+	Branch string `json:"branch,omitempty"`
 }
 
 // GitStateStoreStatus defines the observed state of GitStateStore

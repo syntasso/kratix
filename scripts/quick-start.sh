@@ -1,6 +1,6 @@
 #!/usr/bin/env bash
 
-set -eu
+set -euo pipefail
 
 ROOT=$( cd -- "$( dirname -- "${BASH_SOURCE[0]}" )/.." &> /dev/null && pwd )
 source "${ROOT}/scripts/utils.sh"
@@ -9,7 +9,6 @@ source "${ROOT}/scripts/install-gitops"
 KRATIX_DISTRIBUTION="${ROOT}/distribution/kratix.yaml"
 MINIO_INSTALL="${ROOT}/hack/platform/minio-install.yaml"
 PLATFORM_WORKER="${ROOT}/config/samples/platform_v1alpha1_worker_cluster.yaml"
-STATE_STORE="${ROOT}/config/samples/platform_v1alpha1_statestore.yaml"
 GITOPS_WORKER_INSTALL="${ROOT}/hack/worker/gitops-tk-install.yaml"
 GITOPS_WORKER_RESOURCES="${ROOT}/hack/worker/gitops-tk-resources.yaml"
 
@@ -64,12 +63,14 @@ load_options() {
     done
     shift $(expr $OPTIND - 1)
 
-    # Always build local images when running from `dev`
+    # Always build local images and regenerate distribution when running from `dev`
     if [ "${VERSION}" != "main" ]; then
         VERSION="dev"
     fi
     if [ "${VERSION}" = "dev" ]; then
         BUILD_KRATIX_IMAGES=true
+        log -n "Generating local Kratix distribution..."
+        run make distribution
     fi
 }
 
@@ -163,17 +164,17 @@ build_and_load_local_images() {
     fi
 }
 
-patch_repository() {
-    if ${GIT_REPO}; then
-        sed "s/^\(.*--repository-type=\).*$/\1git/g"
-    else
-        sed "s/^\(.*--repository-type=\).*$/\1s3/g"
-    fi
-}
-
 patch_image() {
     if ${KRATIX_DEVELOPER:-false}; then
         sed "s_syntasso/kratix_syntassodev/kratix_g"
+    else
+        cat
+    fi
+}
+
+patch_statestore() {
+    if ${GIT_REPO}; then
+        sed "s_BucketStateStore_GitStateStore_g"
     else
         cat
     fi
@@ -185,7 +186,7 @@ setup_platform_cluster() {
     else
         kubectl --context kind-platform apply --filename "${MINIO_INSTALL}"
     fi
-    cat ${KRATIX_DISTRIBUTION} | patch_repository | patch_image | kubectl --context kind-platform apply --filename -
+    cat ${KRATIX_DISTRIBUTION} | patch_image | kubectl --context kind-platform apply --filename -
 }
 
 setup_worker_cluster() {
@@ -224,6 +225,14 @@ wait_for_local_repository() {
     fi
     if ${GIT_REPO}; then
         wait_for_gitea
+        dir_name=/tmp/${RANDOM}/Kratix
+        mkdir -p ${dir_name}
+        pushd ${dir_name}
+        git init -b main
+        git add README.md
+        git commit --allow-empty -m "Kratix creating demo repo" --author 'kratix <kratix@kratix.io>'
+        git -c http.sslVerify=false push https://gitea_admin:r8sA8CPHD9!bt6d@localhost:31333/gitea_admin/kratix.git --all
+        popd
     else
         wait_for_minio
     fi
@@ -357,7 +366,9 @@ install_kratix() {
 
     kubectl config use-context kind-platform >/dev/null
 
-    kubectl delete job minio-create-bucket --context kind-platform >/dev/null
+    if [ ! ${GIT_REPO} ]; then
+        kubectl delete job minio-create-bucket --context kind-platform >/dev/null
+    fi
 
     success "Kratix installation is complete!"
 

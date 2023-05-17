@@ -63,7 +63,7 @@ type ClusterList struct {
 
 // StateStoreReference is a reference to a StateStore
 type StateStoreReference struct {
-	// +kubebuilder:validation:Enum=BucketStateStore
+	// +kubebuilder:validation:Enum=BucketStateStore;GitStateStore
 	Kind string `json:"kind"`
 	Name string `json:"name"`
 	//+kubebuilder:validation:Optional

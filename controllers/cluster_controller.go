@@ -42,7 +42,7 @@ type ClusterReconciler struct {
 }
 
 //+kubebuilder:rbac:groups=platform.kratix.io,resources=clusters,verbs=get;list;watch;create;update;patch;delete
-//+kubebuilder:rbac:groups=platform.kratix.io,resources=bucketstatestores,verbs=get;list;watch
+//+kubebuilder:rbac:groups=platform.kratix.io,resources=bucketstatestores;gitstatestores,verbs=get;list;watch
 //+kubebuilder:rbac:groups="",resources=secrets,verbs=get;list;watch
 //+kubebuilder:rbac:groups=platform.kratix.io,resources=clusters/status,verbs=get;update;patch
 //+kubebuilder:rbac:groups=platform.kratix.io,resources=clusters/finalizers,verbs=update
@@ -78,16 +78,17 @@ func (r *ClusterReconciler) Reconcile(ctx context.Context, req ctrl.Request) (ct
 		return ctrl.Result{}, err
 	}
 
+	//cluster.Spec.Path is optional, may be empty
 	path := filepath.Join(cluster.Spec.Path, cluster.Namespace, cluster.Name)
 	logger = logger.WithValues("path", path)
 
 	if err := r.createCrdPathWithExample(writer, path); err != nil {
-		logger.Error(err, "unable to write worker cluster resources to bucket")
+		logger.Error(err, "unable to write worker cluster resources to state store")
 		return defaultRequeue, nil
 	}
 
 	if err := r.createResourcePathWithExample(writer, path); err != nil {
-		logger.Error(err, "unable to write worker resources to bucket")
+		logger.Error(err, "unable to write worker resources to state store")
 		return defaultRequeue, nil
 	}
 
@@ -118,7 +119,7 @@ func (r *ClusterReconciler) createResourcePathWithExample(writer writers.StateSt
 	return writer.WriteObject(path, "kratix-resources.yaml", nsBytes)
 }
 
-func (r *ClusterReconciler) createCrdPathWithExample(writer writers.StateStoreWriter, bucketPath string) error {
+func (r *ClusterReconciler) createCrdPathWithExample(writer writers.StateStoreWriter, dir string) error {
 	kratixNamespace := &v1.Namespace{
 		TypeMeta: metav1.TypeMeta{
 			Kind:       "Namespace",
@@ -128,8 +129,8 @@ func (r *ClusterReconciler) createCrdPathWithExample(writer writers.StateStoreWr
 	}
 	nsBytes, _ := yaml.Marshal(kratixNamespace)
 
-	path := filepath.Join(bucketPath, "crds")
-	return writer.WriteObject(path, "kratix-crds.yaml", nsBytes)
+	crdDir := filepath.Join(dir, "crds")
+	return writer.WriteObject(crdDir, "kratix-crds.yaml", nsBytes)
 }
 
 // SetupWithManager sets up the controller with the Manager.

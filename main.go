@@ -41,7 +41,6 @@ var setupLog = ctrl.Log.WithName("setup")
 
 func init() {
 	utilruntime.Must(platformv1alpha1.AddToScheme(scheme.Scheme))
-	utilruntime.Must(platformv1alpha1.AddToScheme(scheme))
 	//+kubebuilder:scaffold:scheme
 }
 

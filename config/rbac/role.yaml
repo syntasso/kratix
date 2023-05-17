@@ -55,6 +55,15 @@ rules:
 - apiGroups:
   - platform.kratix.io
   resources:
+  - bucketstatestores
+  - gitstatestores
+  verbs:
+  - get
+  - list
+  - watch
+- apiGroups:
+  - platform.kratix.io
+  resources:
   - clusters
   verbs:
   - create

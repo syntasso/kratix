@@ -1,6 +1,11 @@
 apiVersion: platform.kratix.io/v1alpha1
 kind: GitStateStore
 metadata:
-  name: gitstatestore-sample
+  name: default
+  namespace: default
 spec:
-  # TODO(user): Add fields here
+  secretRef:
+    name: gitea-credentials
+    namespace: default
+  url: https://172.18.0.2:31333/gitea_admin/kratix
+  branch: main
