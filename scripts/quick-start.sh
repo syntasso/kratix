@@ -18,7 +18,7 @@ SINGLE_CLUSTER=false
 
 INSTALL_AND_CREATE_MINIO_BUCKET=true
 INSTALL_AND_CREATE_GITEA_REPO=false
-STATESTORE_TYPE=BucketStateStore
+WORKER_STATESTORE_TYPE=BucketStateStore
 
 LOCAL_IMAGES_DIR=""
 VERSION=${VERSION:-"$(cd $ROOT; git branch --show-current)"}
@@ -63,8 +63,8 @@ load_options() {
         'h') usage ;;
         'l') BUILD_KRATIX_IMAGES=true ;;
         'i') LOCAL_IMAGES_DIR=${OPTARG} ;;
-        'd') INSTALL_AND_CREATE_GITEA_REPO=true INSTALL_AND_CREATE_MINIO_BUCKET=true STATESTORE_TYPE=BucketStateStore ;;
-        'g') INSTALL_AND_CREATE_GITEA_REPO=true INSTALL_AND_CREATE_MINIO_BUCKET=false STATESTORE_TYPE=GitStateStore ;;
+        'd') INSTALL_AND_CREATE_GITEA_REPO=true INSTALL_AND_CREATE_MINIO_BUCKET=true WORKER_STATESTORE_TYPE=BucketStateStore ;;
+        'g') INSTALL_AND_CREATE_GITEA_REPO=true INSTALL_AND_CREATE_MINIO_BUCKET=false WORKER_STATESTORE_TYPE=GitStateStore ;;
         *) usage 1 ;;
       esac
     done
@@ -180,7 +180,7 @@ patch_image() {
 }
 
 patch_statestore() {
-    sed "s_BucketStateStore_${STATESTORE_TYPE}_g"
+    sed "s_BucketStateStore_${WORKER_STATESTORE_TYPE}_g"
 }
 
 setup_platform_cluster() {
@@ -389,7 +389,7 @@ install_kratix() {
 
     kubectl config use-context kind-platform >/dev/null
 
-    if [ ${INSTALL_AND_CREATE_MINIO_BUCKET} ]; then
+    if ${INSTALL_AND_CREATE_MINIO_BUCKET}; then
         kubectl delete job minio-create-bucket --context kind-platform >/dev/null
     fi
 

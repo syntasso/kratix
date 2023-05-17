@@ -6,7 +6,7 @@ set -euo pipefail
 cd $ROOT
 
 CONTEXT=""
-GIT_REPO=${GIT_REPO:-false}
+WORKER_STATESTORE_TYPE=${WORKER_STATESTORE_TYPE:-BucketStateStore}
 
 usage() {
     echo -e "Usage: ${BASH_SOURCE[0]} [--help] [--context=""] [--bucket-path=""] [--git]"
@@ -36,7 +36,7 @@ load_options() {
       case "$opt" in
         'h') usage ;;
         'c') CONTEXT=$OPTARG ;;
-        'g') GIT_REPO=true ;;
+        'g') WORKER_STATESTORE_TYPE=GitStateStore ;;
         'b') BUCKET_PATH=$OPTARG ;;
         *) usage 1 ;;
       esac
@@ -68,7 +68,7 @@ install_gitops() {
     CONTEXT="${CONTEXT:-$1}"
     BUCKET_PATH="${BUCKET_PATH:-$2}"
     resource_file=${ROOT}/hack/worker/gitops-tk-resources.yaml
-    if ${GIT_REPO}; then resource_file=${ROOT}/hack/worker/gitops-tk-resources-git.yaml; fi
+    if [ ${WORKER_STATESTORE_TYPE} = "GitStateStore" ]; then resource_file=${ROOT}/hack/worker/gitops-tk-resources-git.yaml; fi
 
     # install flux crds
     kubectl --context "${CONTEXT}" apply --filename ${ROOT}/hack/worker/gitops-tk-install.yaml
