@@ -6,6 +6,6 @@ metadata:
     environment: platform
 spec:
   stateStoreRef:
-    name: minio
+    name: default
     namespace: default
     kind: BucketStateStore
