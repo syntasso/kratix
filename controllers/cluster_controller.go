@@ -42,6 +42,7 @@ type ClusterReconciler struct {
 }
 
 //+kubebuilder:rbac:groups=platform.kratix.io,resources=clusters,verbs=get;list;watch;create;update;patch;delete
+//+kubebuilder:rbac:groups=platform.kratix.io,resources=bucketstatestores,verbs=get;list;watch
 //+kubebuilder:rbac:groups="",resources=secrets,verbs=get;list;watch
 //+kubebuilder:rbac:groups=platform.kratix.io,resources=clusters/status,verbs=get;update;patch
 //+kubebuilder:rbac:groups=platform.kratix.io,resources=clusters/finalizers,verbs=update

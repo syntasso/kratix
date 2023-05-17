@@ -26,8 +26,7 @@ type BucketStateStoreSpec struct {
 	BucketName string `json:"bucketName"`
 	Endpoint   string `json:"endpoint"`
 
-	SecretRef  *v1.SecretReference `json:"secretRef,omitempty"`
-	secretData map[string][]byte
+	SecretRef *v1.SecretReference `json:"secretRef,omitempty"`
 
 	//+kubebuilder:validation:Optional
 	Insecure bool `json:"insecure"`
@@ -58,14 +57,6 @@ type BucketStateStoreList struct {
 	metav1.TypeMeta `json:",inline"`
 	metav1.ListMeta `json:"metadata,omitempty"`
 	Items           []BucketStateStore `json:"items"`
-}
-
-func (s *BucketStateStore) Credentials() map[string][]byte {
-	return s.Spec.secretData
-}
-
-func (s *BucketStateStore) SetCredentials(secret *v1.Secret) {
-	s.Spec.secretData = secret.Data
 }
 
 func init() {
