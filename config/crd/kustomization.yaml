@@ -6,7 +6,6 @@ resources:
 - bases/platform.kratix.io_works.yaml
 - bases/platform.kratix.io_clusters.yaml
 - bases/platform.kratix.io_workplacements.yaml
-- bases/platform.kratix.io_statestores.yaml
 - bases/platform.kratix.io_bucketstatestores.yaml
 - bases/platform.kratix.io_gitstatestores.yaml
 #+kubebuilder:scaffold:crdkustomizeresource
@@ -18,7 +17,6 @@ patchesStrategicMerge:
 #- patches/webhook_in_works.yaml
 #- patches/webhook_in_clusters.yaml
 #- patches/webhook_in_workplacements.yaml
-#- patches/webhook_in_statestores.yaml
 #- patches/webhook_in_bucketstatestores.yaml
 #- patches/webhook_in_gitstatestores.yaml
 #+kubebuilder:scaffold:crdkustomizewebhookpatch
@@ -29,7 +27,6 @@ patchesStrategicMerge:
 #- patches/cainjection_in_works.yaml
 #- patches/cainjection_in_clusters.yaml
 #- patches/cainjection_in_workplacements.yaml
-#- patches/cainjection_in_statestores.yaml
 #- patches/cainjection_in_bucketstatestores.yaml
 #- patches/cainjection_in_gitstatestores.yaml
 #+kubebuilder:scaffold:crdkustomizecainjectionpatch
