@@ -225,17 +225,23 @@ wait_for_local_repository() {
     fi
     if ${GIT_REPO}; then
         wait_for_gitea
-        dir_name=/tmp/${RANDOM}/Kratix
-        mkdir -p ${dir_name}
-        pushd ${dir_name}
-        git init -b main
-        git add README.md
-        git commit --allow-empty -m "Kratix creating demo repo" --author 'kratix <kratix@kratix.io>'
-        git -c http.sslVerify=false push https://gitea_admin:r8sA8CPHD9!bt6d@localhost:31333/gitea_admin/kratix.git --all
-        popd
     else
         wait_for_minio
     fi
+}
+
+create_git_repo() {
+    dir_name=/tmp/${RANDOM}/kratix
+    mkdir -p ${dir_name}
+    pushd ${dir_name}
+        git init -b main
+        git add README.md
+        git commit --allow-empty -m "Kratix creating demo repo" --author 'kratix <kratix@kratix.io>'
+        gitea_username="$(kubectl --context kind-platform -n gitea get secret gitea-credentials -o jsonpath={.data.username} | base64 -d)"
+        gitea_password="$(kubectl --context kind-platform -n gitea get secret gitea-credentials -o jsonpath={.data.password} | base64 -d)"
+        git -c http.sslVerify=false push https://${gitea_username}:${gitea_password}@localhost:31333/gitea_admin/kratix.git --all
+    popd
+    rm -rf ${dir_name}
 }
 
 wait_for_namespace() {
@@ -346,6 +352,14 @@ install_kratix() {
                 error "Failed to load images in worker cluster"
                 exit 1;
             fi
+        fi
+    fi
+
+    if ${GIT_REPO}; then
+        log -n "Create git repository..."
+        if ! run create_git_repo; then
+            error "failed to create git repository in gitea"
+            exit 1
         fi
     fi
 
