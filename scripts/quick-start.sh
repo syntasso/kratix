@@ -14,8 +14,12 @@ GITOPS_WORKER_RESOURCES="${ROOT}/hack/worker/gitops-tk-resources.yaml"
 
 BUILD_KRATIX_IMAGES=false
 RECREATE=false
-GIT_REPO=false
 SINGLE_CLUSTER=false
+
+INSTALL_AND_CREATE_MINIO_BUCKET=true
+INSTALL_AND_CREATE_GITEA_REPO=false
+STATESTORE_TYPE=BucketStateStore
+
 LOCAL_IMAGES_DIR=""
 VERSION=${VERSION:-"$(cd $ROOT; git branch --show-current)"}
 DOCKER_BUILDKIT="${DOCKER_BUILDKIT:-1}"
@@ -24,13 +28,14 @@ WAIT_TIMEOUT="180s"
 KIND_IMAGE="${KIND_IMAGE:-"kindest/node:v1.24.7"}"
 
 usage() {
-    echo -e "Usage: quick-start.sh [--help] [--recreate] [--local] [--git] [--local-images <location>]"
+    echo -e "Usage: quick-start.sh [--help] [--recreate] [--local] [--git] [--git-and-minio] [--local-images <location>]"
     echo -e "\t--help, -h            Prints this message"
     echo -e "\t--recreate, -r        Deletes pre-existing KinD Clusters"
     echo -e "\t--local, -l           Build and load Kratix images to KinD cache"
     echo -e "\t--local-images, -i    Load container images from a local directory into the KinD clusters"
     echo -e "\t--git, -g             Use Gitea as local repository in place of default local MinIO"
     echo -e "\t--single-cluster, -s  Deploy Kratix on a Single Cluster setup"
+    echo -e "\t--git-and-minio, -d   Install Gitea alongside the minio installation. Cluster still uses minio as statestore"
     exit "${1:-0}"
 }
 
@@ -42,6 +47,7 @@ load_options() {
         '--recreate')       set -- "$@" '-r'   ;;
         '--local')          set -- "$@" '-l'   ;;
         '--git')            set -- "$@" '-g'   ;;
+        '--git-and-minio')  set -- "$@" '-d'   ;;
         '--local-images')   set -- "$@" '-i'   ;;
         '--single-cluster') set -- "$@" '-s'   ;;
         *)                  set -- "$@" "$arg" ;;
@@ -49,7 +55,7 @@ load_options() {
     done
 
     OPTIND=1
-    while getopts "hrlgi:s" opt
+    while getopts "hrlgdi:s" opt
     do
       case "$opt" in
         'r') RECREATE=true ;;
@@ -57,7 +63,8 @@ load_options() {
         'h') usage ;;
         'l') BUILD_KRATIX_IMAGES=true ;;
         'i') LOCAL_IMAGES_DIR=${OPTARG} ;;
-        'g') GIT_REPO=true;;
+        'd') INSTALL_AND_CREATE_GITEA_REPO=true INSTALL_AND_CREATE_MINIO_BUCKET=true STATESTORE_TYPE=BucketStateStore ;;
+        'g') INSTALL_AND_CREATE_GITEA_REPO=true INSTALL_AND_CREATE_MINIO_BUCKET=false STATESTORE_TYPE=GitStateStore ;;
         *) usage 1 ;;
       esac
     done
@@ -173,19 +180,18 @@ patch_image() {
 }
 
 patch_statestore() {
-    if ${GIT_REPO}; then
-        sed "s_BucketStateStore_GitStateStore_g"
-    else
-        cat
-    fi
+    sed "s_BucketStateStore_${STATESTORE_TYPE}_g"
 }
 
 setup_platform_cluster() {
-    if ${GIT_REPO}; then
+    if ${INSTALL_AND_CREATE_GITEA_REPO}; then
         kubectl --context kind-platform apply --filename "${ROOT}/hack/platform/gitea-install.yaml"
-    else
+    fi
+
+    if ${INSTALL_AND_CREATE_MINIO_BUCKET}; then
         kubectl --context kind-platform apply --filename "${MINIO_INSTALL}"
     fi
+
     cat ${KRATIX_DISTRIBUTION} | patch_image | kubectl --context kind-platform apply --filename -
 }
 
@@ -223,9 +229,12 @@ wait_for_local_repository() {
     if [ -z "${timeout_flag}" ]; then
         opts="--timeout=${WAIT_TIMEOUT}"
     fi
-    if ${GIT_REPO}; then
+
+    if ${INSTALL_AND_CREATE_GITEA_REPO}; then
         wait_for_gitea
-    else
+    fi
+
+    if ${INSTALL_AND_CREATE_MINIO_BUCKET}; then
         wait_for_minio
     fi
 }
@@ -355,7 +364,7 @@ install_kratix() {
         fi
     fi
 
-    if ${GIT_REPO}; then
+    if ${INSTALL_AND_CREATE_GITEA_REPO}; then
         log -n "Create git repository..."
         if ! run create_git_repo; then
             error "failed to create git repository in gitea"
@@ -380,7 +389,7 @@ install_kratix() {
 
     kubectl config use-context kind-platform >/dev/null
 
-    if [ ! ${GIT_REPO} ]; then
+    if [ ${INSTALL_AND_CREATE_MINIO_BUCKET} ]; then
         kubectl delete job minio-create-bucket --context kind-platform >/dev/null
     fi
 

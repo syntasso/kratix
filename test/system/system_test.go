@@ -133,11 +133,11 @@ var _ = Describe("Kratix", func() {
 	})
 
 	Describe("Scheduling", func() {
-		// Worker cluster:
+		// Worker cluster (BucketStateStore):
 		// - environment: dev
 		// - security: high
 
-		// Platform cluster:
+		// Platform cluster (GitStateStore):
 		// - environment: platform
 
 		// PromiseClusterSelectors:
