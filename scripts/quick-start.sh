@@ -6,12 +6,6 @@ ROOT=$( cd -- "$( dirname -- "${BASH_SOURCE[0]}" )/.." &> /dev/null && pwd )
 source "${ROOT}/scripts/utils.sh"
 source "${ROOT}/scripts/install-gitops"
 
-KRATIX_DISTRIBUTION="${ROOT}/distribution/kratix.yaml"
-MINIO_INSTALL="${ROOT}/hack/platform/minio-install.yaml"
-PLATFORM_WORKER="${ROOT}/config/samples/platform_v1alpha1_worker_cluster.yaml"
-GITOPS_WORKER_INSTALL="${ROOT}/hack/worker/gitops-tk-install.yaml"
-GITOPS_WORKER_RESOURCES="${ROOT}/hack/worker/gitops-tk-resources.yaml"
-
 BUILD_KRATIX_IMAGES=false
 RECREATE=false
 SINGLE_CLUSTER=false
@@ -35,7 +29,7 @@ usage() {
     echo -e "\t--local-images, -i    Load container images from a local directory into the KinD clusters"
     echo -e "\t--git, -g             Use Gitea as local repository in place of default local MinIO"
     echo -e "\t--single-cluster, -s  Deploy Kratix on a Single Cluster setup"
-    echo -e "\t--git-and-minio, -d   Install Gitea alongside the minio installation. Cluster still uses minio as statestore"
+    echo -e "\t--git-and-minio, -d   Install Gitea alongside the minio installation. Cluster still uses minio as statestore. Can't be used alongside --git"
     exit "${1:-0}"
 }
 
@@ -189,10 +183,10 @@ setup_platform_cluster() {
     fi
 
     if ${INSTALL_AND_CREATE_MINIO_BUCKET}; then
-        kubectl --context kind-platform apply --filename "${MINIO_INSTALL}"
+        kubectl --context kind-platform apply --filename "${ROOT}/hack/platform/minio-install.yaml"
     fi
 
-    cat ${KRATIX_DISTRIBUTION} | patch_image | kubectl --context kind-platform apply --filename -
+    cat "${ROOT}/distribution/kratix.yaml" | patch_image | kubectl --context kind-platform apply --filename -
 }
 
 setup_worker_cluster() {
