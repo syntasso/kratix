@@ -5,6 +5,7 @@ import (
 	"io/ioutil"
 	"os"
 	"path/filepath"
+	"strings"
 	"time"
 
 	"github.com/go-git/go-git/v5"
@@ -89,6 +90,16 @@ func (g *GitWriter) WriteObject(fileName string, toWrite []byte) error {
 
 	workTreeFilePath := filepath.Join(g.path, fileName)
 	absoluteFilePath := filepath.Join(localTmpDir, workTreeFilePath)
+
+	//We need to protect against paths containg `..`
+	//filepath.Join expands any '../' in the path to the actual, e.g. /tmp/foo/../ resolves to /tmp/
+	//To ensure they can't write to files on disk outside of the tmp git repostiroy we check the absolute path
+	//returned by `filepath.Join` is still contained with the git repository:
+	// Note: This means `../` can still be used, but only if the end result is still contained within the git repository
+	if !strings.HasPrefix(absoluteFilePath, localTmpDir) {
+		log.Error(nil, "path of file to write is not located within the git repostiory", "absolutePath", absoluteFilePath, "tmpDir", localTmpDir, "repoPath", workTreeFilePath, "path", g.path)
+		return nil //We don't want to retry as this isn't a recoverable error. Log error and return nil.
+	}
 
 	if os.MkdirAll(filepath.Dir(absoluteFilePath), 0700); err != nil {
 		log.Error(err, "could not generate local directories")
