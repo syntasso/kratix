@@ -17,10 +17,11 @@ type S3Writer struct {
 	Log        logr.Logger
 	RepoClient *minio.Client
 	BucketName string
+	path       string
 }
 
-func NewS3Writer(logger logr.Logger, s3Spec platformv1alpha1.BucketStateStoreSpec, creds map[string][]byte) (StateStoreWriter, error) {
-	endpoint := s3Spec.Endpoint
+func NewS3Writer(logger logr.Logger, stateStoreSpec platformv1alpha1.BucketStateStoreSpec, cluster platformv1alpha1.Cluster, creds map[string][]byte) (StateStoreWriter, error) {
+	endpoint := stateStoreSpec.Endpoint
 	accessKeyID := string(creds["accessKeyID"])
 	secretAccessKey := string(creds["secretAccessKey"])
 
@@ -30,7 +31,7 @@ func NewS3Writer(logger logr.Logger, s3Spec platformv1alpha1.BucketStateStoreSpe
 
 	minioClient, err := minio.New(endpoint, &minio.Options{
 		Creds:  credentials.NewStaticV4(accessKeyID, secretAccessKey, ""),
-		Secure: !s3Spec.Insecure,
+		Secure: !stateStoreSpec.Insecure,
 	})
 
 	if err != nil {
@@ -41,18 +42,19 @@ func NewS3Writer(logger logr.Logger, s3Spec platformv1alpha1.BucketStateStoreSpe
 	return &S3Writer{
 		Log:        logger,
 		RepoClient: minioClient,
-		BucketName: s3Spec.BucketName,
+		BucketName: stateStoreSpec.BucketName,
+		path:       filepath.Join(stateStoreSpec.Path, cluster.Spec.Path, cluster.Namespace, cluster.Name),
 	}, nil
 }
 
-func (b *S3Writer) WriteObject(path string, objectName string, toWrite []byte) error {
+func (b *S3Writer) WriteObject(objectName string, toWrite []byte) error {
 	logger := b.Log.WithValues(
 		"bucketName", b.BucketName,
-		"objectPath", path,
+		"path", b.path,
 		"objectName", objectName,
 	)
 
-	objectFullPath := filepath.Join(path, objectName)
+	objectFullPath := filepath.Join(b.path, objectName)
 	if len(toWrite) == 0 {
 		logger.Info("Empty byte[]. Nothing to write to bucket")
 		return nil
@@ -98,10 +100,10 @@ func (b *S3Writer) WriteObject(path string, objectName string, toWrite []byte) e
 	return nil
 }
 
-func (b *S3Writer) RemoveObject(path string, objectName string) error {
+func (b *S3Writer) RemoveObject(objectName string) error {
 	logger := b.Log.WithValues(
 		"bucketName", b.BucketName,
-		"objectPath", path,
+		"path", b.path,
 		"objectName", objectName,
 	)
 	logger.Info("Removing objects from bucket")
@@ -110,7 +112,7 @@ func (b *S3Writer) RemoveObject(path string, objectName string) error {
 	err := b.RepoClient.RemoveObject(
 		ctx,
 		b.BucketName,
-		filepath.Join(path, objectName),
+		filepath.Join(b.path, objectName),
 		minio.RemoveObjectOptions{},
 	)
 	if err != nil {

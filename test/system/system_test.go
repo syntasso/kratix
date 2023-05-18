@@ -145,6 +145,7 @@ var _ = Describe("Kratix", func() {
 		BeforeEach(func() {
 			platform.kubectl("label", "cluster", "worker-cluster-1", "security=high")
 			platform.kubectl("apply", "-f", "./assets/platform_gitops-tk-resources.yaml")
+			platform.kubectl("apply", "-f", "./assets/platform_gitstatestore.yaml")
 			platform.kubectl("apply", "-f", "./assets/platform_kratix_cluster.yaml")
 			platform.kubectl("apply", "-f", promiseWithSelectorsPath)
 			platform.eventuallyKubectl("get", "crd", "bash.test.kratix.io")
@@ -154,6 +155,7 @@ var _ = Describe("Kratix", func() {
 			platform.kubectl("label", "cluster", "worker-cluster-1", "security-", "pci-")
 			platform.kubectl("delete", "-f", promiseWithSelectorsPath)
 			platform.kubectl("delete", "-f", "./assets/platform_kratix_cluster.yaml")
+			platform.kubectl("delete", "-f", "./assets/platform_gitstatestore.yaml")
 		})
 
 		It("schedules resources to the correct clusters", func() {

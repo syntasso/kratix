@@ -21,7 +21,6 @@ import (
 	"path/filepath"
 
 	"k8s.io/apimachinery/pkg/api/errors"
-	"k8s.io/apimachinery/pkg/types"
 
 	v1 "k8s.io/api/core/v1"
 	metav1 "k8s.io/apimachinery/pkg/apis/meta/v1"
@@ -65,12 +64,7 @@ func (r *ClusterReconciler) Reconcile(ctx context.Context, req ctrl.Request) (ct
 		return ctrl.Result{}, err
 	}
 
-	stateStoreRef := types.NamespacedName{
-		Name:      cluster.Spec.StateStoreRef.Name,
-		Namespace: or(cluster.Spec.StateStoreRef.Namespace, cluster.Namespace),
-	}
-
-	writer, err := newWriter(ctx, r.Client, cluster.Spec.StateStoreRef.Kind, stateStoreRef, logger)
+	writer, err := newWriter(ctx, r.Client, *cluster, logger)
 	if err != nil {
 		if errors.IsNotFound(err) {
 			return defaultRequeue, nil
@@ -82,12 +76,12 @@ func (r *ClusterReconciler) Reconcile(ctx context.Context, req ctrl.Request) (ct
 	path := filepath.Join(cluster.Spec.Path, cluster.Namespace, cluster.Name)
 	logger = logger.WithValues("path", path)
 
-	if err := r.createCrdPathWithExample(writer, path); err != nil {
+	if err := r.createCrdPathWithExample(writer); err != nil {
 		logger.Error(err, "unable to write worker cluster resources to state store")
 		return defaultRequeue, nil
 	}
 
-	if err := r.createResourcePathWithExample(writer, path); err != nil {
+	if err := r.createResourcePathWithExample(writer); err != nil {
 		logger.Error(err, "unable to write worker resources to state store")
 		return defaultRequeue, nil
 	}
@@ -99,8 +93,7 @@ func (r *ClusterReconciler) Reconcile(ctx context.Context, req ctrl.Request) (ct
 	return ctrl.Result{}, nil
 }
 
-func (r *ClusterReconciler) createResourcePathWithExample(writer writers.StateStoreWriter, bucketPath string) error {
-	path := filepath.Join(bucketPath, "resources")
+func (r *ClusterReconciler) createResourcePathWithExample(writer writers.StateStoreWriter) error {
 	kratixConfigMap := &v1.ConfigMap{
 		TypeMeta: metav1.TypeMeta{
 			Kind:       "ConfigMap",
@@ -111,15 +104,15 @@ func (r *ClusterReconciler) createResourcePathWithExample(writer writers.StateSt
 			Namespace: "kratix-worker-system",
 		},
 		Data: map[string]string{
-			"Path": path,
+			"canary": "the confirms your infrastructure is reading from Kratix state stores",
 		},
 	}
 	nsBytes, _ := yaml.Marshal(kratixConfigMap)
 
-	return writer.WriteObject(path, "kratix-resources.yaml", nsBytes)
+	return writer.WriteObject("resources/kratix-resources.yaml", nsBytes)
 }
 
-func (r *ClusterReconciler) createCrdPathWithExample(writer writers.StateStoreWriter, dir string) error {
+func (r *ClusterReconciler) createCrdPathWithExample(writer writers.StateStoreWriter) error {
 	kratixNamespace := &v1.Namespace{
 		TypeMeta: metav1.TypeMeta{
 			Kind:       "Namespace",
@@ -129,8 +122,7 @@ func (r *ClusterReconciler) createCrdPathWithExample(writer writers.StateStoreWr
 	}
 	nsBytes, _ := yaml.Marshal(kratixNamespace)
 
-	crdDir := filepath.Join(dir, "crds")
-	return writer.WriteObject(crdDir, "kratix-crds.yaml", nsBytes)
+	return writer.WriteObject("crds/kratix-crds.yaml", nsBytes)
 }
 
 // SetupWithManager sets up the controller with the Manager.

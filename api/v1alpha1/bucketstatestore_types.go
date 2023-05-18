@@ -25,6 +25,7 @@ import (
 type BucketStateStoreSpec struct {
 	BucketName string `json:"bucketName"`
 	Endpoint   string `json:"endpoint"`
+	PathField  `json:",inline"`
 
 	SecretRef *v1.SecretReference `json:"secretRef,omitempty"`
 

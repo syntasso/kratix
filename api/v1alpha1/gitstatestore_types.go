@@ -25,6 +25,7 @@ import (
 type GitStateStoreSpec struct {
 	SecretRef *v1.SecretReference `json:"secretRef,omitempty"`
 	URL       string              `json:"url,omitempty"`
+	PathField `json:",inline"`
 
 	//+kubebuilder:validation:Optional
 	//+kubebuilder:default=main

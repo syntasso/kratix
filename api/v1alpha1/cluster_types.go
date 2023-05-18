@@ -20,17 +20,27 @@ import (
 	metav1 "k8s.io/apimachinery/pkg/apis/meta/v1"
 )
 
-// EDIT THIS FILE!  THIS IS SCAFFOLDING FOR YOU TO OWN!
-// NOTE: json tags are required.  Any new fields you add must have json tags for the fields to be serialized.
+type PathField struct {
+	// Path within the StateStore to write documents. This path should be allocated
+	// to Kratix as it will create, update, and delete files within this path.
+	// Path structure begins with provided path and ends with namespaced cluster name:
+	//   <StateStore.Spec.Path>/<Cluster.Spec.Path>/<Cluster.Metadata.Namespace>/<Cluster.Metadata.Name>/
+	//+kubebuilder:validation:Optional
+	Path string `json:"path,omitempty"`
+}
 
 // ClusterSpec defines the desired state of Cluster
 type ClusterSpec struct {
 	// INSERT ADDITIONAL SPEC FIELDS - desired state of cluster
 	// Important: Run "make" to regenerate code after modifying this file
 
-	// Path within StateStore to write documents
+	// Path within StateStore to write documents, this will be appended to any
+	// specficed Spec.Path provided in the referenced StateStore.
+	// Kratix will then namespace any resources within the provided path.
+	// Path structure will be:
+	//   <StateStore.Spec.Path>/<Cluster.Spec.Path>/<Cluster.Metadata.Namespace>/<Cluster.Metadata.Name>/
 	//+kubebuilder:validation:Optional
-	Path          string               `json:"path,omitempty"`
+	PathField     `json:",inline"`
 	StateStoreRef *StateStoreReference `json:"stateStoreRef,omitempty"`
 }
 

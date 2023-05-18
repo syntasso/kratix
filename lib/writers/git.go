@@ -19,6 +19,7 @@ type GitWriter struct {
 	Log       logr.Logger
 	gitServer gitServer
 	author    gitAuthor
+	path      string
 }
 
 type gitServer struct {
@@ -37,11 +38,11 @@ const (
 	Delete string = "Delete"
 )
 
-func NewGitWriter(logger logr.Logger, gitSpec platformv1alpha1.GitStateStoreSpec, creds map[string][]byte) (StateStoreWriter, error) {
+func NewGitWriter(logger logr.Logger, stateStoreSpec platformv1alpha1.GitStateStoreSpec, cluster platformv1alpha1.Cluster, creds map[string][]byte) (StateStoreWriter, error) {
 	return &GitWriter{
 		gitServer: gitServer{
-			URL:    gitSpec.URL,
-			Branch: gitSpec.Branch,
+			URL:    stateStoreSpec.URL,
+			Branch: stateStoreSpec.Branch,
 			Auth: &http.BasicAuth{
 				Username: string(creds["username"]),
 				Password: string(creds["password"]),
@@ -51,12 +52,17 @@ func NewGitWriter(logger logr.Logger, gitSpec platformv1alpha1.GitStateStoreSpec
 			Name:  "Kratix",
 			Email: "kratix@syntasso.io",
 		},
-		Log: logger,
+		Log:  logger,
+		path: filepath.Join(stateStoreSpec.Path, cluster.Spec.Path, cluster.Namespace, cluster.Name),
 	}, nil
 }
 
-func (g *GitWriter) WriteObject(dir string, fileName string, toWrite []byte) error {
-	log := g.Log.WithValues("dir", dir, "fileName", fileName, "branch", g.gitServer.Branch)
+func (g *GitWriter) WriteObject(fileName string, toWrite []byte) error {
+	log := g.Log.WithValues(
+		"dir", g.path,
+		"fileName", fileName,
+		"branch", g.gitServer.Branch,
+	)
 	if len(toWrite) == 0 {
 		log.Info("Empty byte[]. Nothing to write to Git")
 		return nil
@@ -81,14 +87,15 @@ func (g *GitWriter) WriteObject(dir string, fileName string, toWrite []byte) err
 		return err
 	}
 
-	if os.MkdirAll(filepath.Join(localTmpDir, dir), 0700); err != nil {
+	workTreeFilePath := filepath.Join(g.path, fileName)
+	absoluteFilePath := filepath.Join(localTmpDir, workTreeFilePath)
+
+	if os.MkdirAll(filepath.Dir(absoluteFilePath), 0700); err != nil {
 		log.Error(err, "could not generate local directories")
 		return err
 	}
 
-	workTreeFilePath := filepath.Join(dir, fileName)
-	localFilePath := filepath.Join(localTmpDir, workTreeFilePath)
-	if err := ioutil.WriteFile(localFilePath, toWrite, 0644); err != nil {
+	if err := ioutil.WriteFile(absoluteFilePath, toWrite, 0644); err != nil {
 		log.Error(err, "could not write to file")
 		return err
 	}
@@ -105,8 +112,8 @@ func (g *GitWriter) WriteObject(dir string, fileName string, toWrite []byte) err
 	return nil
 }
 
-func (g *GitWriter) RemoveObject(dir string, fileName string) error {
-	log := g.Log.WithValues("dir", dir, "fileName", fileName)
+func (g *GitWriter) RemoveObject(fileName string) error {
+	log := g.Log.WithValues("dir", g.path, "fileName", fileName)
 
 	repoPath, err := createLocalDirectory()
 	if err != nil {
@@ -127,7 +134,7 @@ func (g *GitWriter) RemoveObject(dir string, fileName string) error {
 		return err
 	}
 
-	objectFileName := filepath.Join(dir, fileName)
+	objectFileName := filepath.Join(g.path, fileName)
 	if _, err := worktree.Filesystem.Lstat(objectFileName); err == nil {
 		if _, err := worktree.Remove(objectFileName); err != nil {
 			log.Error(err, "could not remove file from worktree")

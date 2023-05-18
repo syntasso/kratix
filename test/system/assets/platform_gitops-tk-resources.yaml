@@ -36,7 +36,7 @@ spec:
   sourceRef:
     kind: GitRepository
     name: platform-cluster-worker-1-resources
-  path: "default/platform-cluster-worker-1/resources/"
+  path: "foo/bar/baz/default/platform-cluster-worker-1/resources/"
   prune: true
 ---
 apiVersion: source.toolkit.fluxcd.io/v1beta1
@@ -62,5 +62,5 @@ spec:
   sourceRef:
     kind: GitRepository
     name: platform-cluster-worker-1-crds
-  path: "default/platform-cluster-worker-1/crds/"
+  path: "foo/bar/baz/default/platform-cluster-worker-1/crds/"
   prune: true

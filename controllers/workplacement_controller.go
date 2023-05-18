@@ -19,7 +19,6 @@ package controllers
 import (
 	"bytes"
 	"context"
-	"path/filepath"
 
 	"github.com/go-logr/logr"
 	"k8s.io/apimachinery/pkg/api/errors"
@@ -44,8 +43,8 @@ const repoCleanupWorkPlacementFinalizer = "finalizers.workplacement.kratix.io/re
 var workPlacementFinalizers = []string{repoCleanupWorkPlacementFinalizer}
 
 type repoFilePaths struct {
-	ResourcesPath, ResourcesObjectName string
-	CRDsPath, CRDsObjectName           string
+	Resources string
+	CRDs      string
 }
 
 //+kubebuilder:rbac:groups=platform.kratix.io,resources=workplacements,verbs=get;list;watch;create;update;patch;delete
@@ -83,12 +82,9 @@ func (r *WorkPlacementReconciler) Reconcile(ctx context.Context, req ctrl.Reques
 	work := r.getWork(workPlacement.Spec.WorkName, logger)
 	workNamespacedName := workPlacement.Namespace + "-" + workPlacement.Spec.WorkName
 
-	base := filepath.Join(cluster.Spec.Path, cluster.Namespace, cluster.Name)
 	paths := repoFilePaths{
-		ResourcesPath:       filepath.Join(base, "/resources/"),
-		ResourcesObjectName: "01-" + workNamespacedName + "-resources.yaml",
-		CRDsPath:            filepath.Join(base, "/crds/"),
-		CRDsObjectName:      "00-" + workNamespacedName + "-crds.yaml",
+		Resources: "resources/01-" + workNamespacedName + "-resources.yaml",
+		CRDs:      "crds/00-" + workNamespacedName + "-crds.yaml",
 	}
 
 	if err != nil {
@@ -96,12 +92,7 @@ func (r *WorkPlacementReconciler) Reconcile(ctx context.Context, req ctrl.Reques
 		return defaultRequeue, nil
 	}
 
-	stateStoreRef := types.NamespacedName{
-		Name:      cluster.Spec.StateStoreRef.Name,
-		Namespace: or(cluster.Spec.StateStoreRef.Namespace, cluster.Namespace),
-	}
-
-	writer, err := newWriter(ctx, r.Client, cluster.Spec.StateStoreRef.Kind, stateStoreRef, logger)
+	writer, err := newWriter(ctx, r.Client, *cluster, logger)
 	if err != nil {
 		if errors.IsNotFound(err) {
 			return defaultRequeue, nil
@@ -175,13 +166,13 @@ func (r *WorkPlacementReconciler) writeWorkToRepository(writer writers.StateStor
 	// when it autogenerates its manifest.
 	// https://github.com/fluxcd/kustomize-controller/blob/main/docs/spec/v1beta1/kustomization.md#generate-kustomizationyaml
 
-	err := writer.WriteObject(paths.CRDsPath, paths.CRDsObjectName, crdBuffer.Bytes())
+	err := writer.WriteObject(paths.CRDs, crdBuffer.Bytes())
 	if err != nil {
 		logger.Error(err, "Error Writing CRDS to repository")
 		return err
 	}
 
-	err = writer.WriteObject(paths.ResourcesPath, paths.ResourcesObjectName, resourceBuffer.Bytes())
+	err = writer.WriteObject(paths.Resources, resourceBuffer.Bytes())
 	if err != nil {
 		logger.Error(err, "Error uploading resources to repository")
 		return err
@@ -191,13 +182,13 @@ func (r *WorkPlacementReconciler) writeWorkToRepository(writer writers.StateStor
 }
 
 func (r *WorkPlacementReconciler) removeWorkFromRepository(writer writers.StateStoreWriter, paths repoFilePaths, logger logr.Logger) error {
-	if err := writer.RemoveObject(paths.ResourcesPath, paths.ResourcesObjectName); err != nil {
-		logger.Error(err, "Error removing resources from repository", "resourcePath", paths.ResourcesPath)
+	if err := writer.RemoveObject(paths.Resources); err != nil {
+		logger.Error(err, "Error removing resources from repository", "resourcePath", paths.Resources)
 		return err
 	}
 
-	if err := writer.RemoveObject(paths.CRDsPath, paths.CRDsObjectName); err != nil {
-		logger.Error(err, "Error removing crds from repository", "resourcePath", paths.CRDsPath)
+	if err := writer.RemoveObject(paths.CRDs); err != nil {
+		logger.Error(err, "Error removing crds from repository", "resourcePath", paths.CRDs)
 		return err
 	}
 	return nil

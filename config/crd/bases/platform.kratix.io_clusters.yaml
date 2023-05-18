@@ -35,7 +35,10 @@ spec:
             description: ClusterSpec defines the desired state of Cluster
             properties:
               path:
-                description: Path within StateStore to write documents
+                description: 'Path within the StateStore to write documents. This
+                  path should be allocated to Kratix as it will create, update, and
+                  delete files within this path. Path structure begins with provided
+                  path and ends with namespaced cluster name: <StateStore.Spec.Path>/<Cluster.Spec.Path>/<Cluster.Metadata.Namespace>/<Cluster.Metadata.Name>/'
                 type: string
               stateStoreRef:
                 description: StateStoreReference is a reference to a StateStore

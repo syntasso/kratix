@@ -37,6 +37,12 @@ spec:
               branch:
                 default: main
                 type: string
+              path:
+                description: 'Path within the StateStore to write documents. This
+                  path should be allocated to Kratix as it will create, update, and
+                  delete files within this path. Path structure begins with provided
+                  path and ends with namespaced cluster name: <StateStore.Spec.Path>/<Cluster.Spec.Path>/<Cluster.Metadata.Namespace>/<Cluster.Metadata.Name>/'
+                type: string
               secretRef:
                 description: SecretReference represents a Secret Reference. It has
                   enough information to retrieve secret in any namespace

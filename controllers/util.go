@@ -89,8 +89,12 @@ func finalizersAreDeleted(resource client.Object, finalizers []string) bool {
 	return true
 }
 
-func newWriter(ctx context.Context, kubeClient client.Client, kind string, stateStoreRef types.NamespacedName, logger logr.Logger) (writers.StateStoreWriter, error) {
-	switch kind {
+func newWriter(ctx context.Context, kubeClient client.Client, cluster platformv1alpha1.Cluster, logger logr.Logger) (writers.StateStoreWriter, error) {
+	stateStoreRef := types.NamespacedName{
+		Name:      cluster.Spec.StateStoreRef.Name,
+		Namespace: or(cluster.Spec.StateStoreRef.Namespace, cluster.Namespace),
+	}
+	switch cluster.Spec.StateStoreRef.Kind {
 	case "BucketStateStore":
 		stateStore := &platformv1alpha1.BucketStateStore{}
 		if err := kubeClient.Get(ctx, stateStoreRef, stateStore); err != nil {
@@ -108,7 +112,7 @@ func newWriter(ctx context.Context, kubeClient client.Client, kind string, state
 			return nil, err
 		}
 
-		writer, err := writers.NewS3Writer(logger.WithName("writers").WithName("BucketStateStoreWriter"), stateStore.Spec, secret.Data)
+		writer, err := writers.NewS3Writer(logger.WithName("writers").WithName("BucketStateStoreWriter"), stateStore.Spec, cluster, secret.Data)
 		if err != nil {
 			//TODO: should this be a retryable error?
 			logger.Error(err, "unable to create StateStoreWriter")
@@ -133,7 +137,7 @@ func newWriter(ctx context.Context, kubeClient client.Client, kind string, state
 			return nil, err
 		}
 
-		writer, err := writers.NewGitWriter(logger.WithName("writers").WithName("GitStateStoreWriter"), stateStore.Spec, secret.Data)
+		writer, err := writers.NewGitWriter(logger.WithName("writers").WithName("GitStateStoreWriter"), stateStore.Spec, cluster, secret.Data)
 		if err != nil {
 			//TODO: should this be a retryable error?
 			logger.Error(err, "unable to create StateStoreWriter")
@@ -141,7 +145,7 @@ func newWriter(ctx context.Context, kubeClient client.Client, kind string, state
 		}
 		return writer, nil
 	default:
-		return nil, fmt.Errorf("unsupported kind %s", kind)
+		return nil, fmt.Errorf("unsupported kind %s", cluster.Spec.StateStoreRef.Kind)
 	}
 }
 
