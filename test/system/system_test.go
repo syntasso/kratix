@@ -32,6 +32,22 @@ var (
 
 const pipelineTimeout = "--timeout=89s"
 
+// This test uses a unique Bash Promise which allows us to easily test behaviours
+// in the pipeline.
+//
+// # The promise WCR has a single resource, the `bash-wcr-namespace` Namespace
+//
+// Below is the template for a RR to this Promise. It provides a hook to run an
+// arbitray Bash command in each of the two Pipeline containers. An example use
+// case may be wanting to test status works which requires a written to a
+// specific location. To do this you can write a RR that has the following:
+//
+// container0Cmd: echo "statusTest: pass" > /metadata/status.yaml
+//
+// The commands will be run in the pipeline container that is named in the spec.
+// The Promise pipeline will always have a set number of containers, though
+// a command is not required for every container.
+// e.g. `container0Cmd` is run in the first container of the pipeline.
 var baseRequestYAML = `apiVersion: test.kratix.io/v1alpha1
 kind: bash
 metadata:
