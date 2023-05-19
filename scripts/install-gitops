@@ -9,11 +9,11 @@ CONTEXT=""
 WORKER_STATESTORE_TYPE=${WORKER_STATESTORE_TYPE:-BucketStateStore}
 
 usage() {
-    echo -e "Usage: ${BASH_SOURCE[0]} [--help] [--context=""] [--bucket-path=""] [--git]"
+    echo -e "Usage: ${BASH_SOURCE[0]} [--help] [--context=""] [--path=""] [--git]"
     echo ""
     echo -e "\t--help, -h,\t Prints this message"
     echo -e "\t--context='', -c,\t Required. The Kubernetes context where to install FluxCD onto."
-    echo -e "\t--bucket-path='', -b,\t The Repository name, must match the name used when registering the cluster. Defaults to context."
+    echo -e "\t--path='', -b,\t The Repository name, must match the name used when registering the cluster. Defaults to context."
     echo -e "\t--git, -g,\t Reads from local Gitea installation (default: Read from local MinIO installation)"
     exit "${1:-0}"
 }
@@ -24,7 +24,7 @@ load_options() {
       case "$arg" in
         '--help')        set -- "$@" '-h'   ;;
         '--context')     set -- "$@" '-c'   ;;
-        '--bucket-path') set -- "$@" '-b'   ;;
+        '--path') set -- "$@" '-b'   ;;
         '--git')         set -- "$@" '-g'   ;;
         *)               set -- "$@" "$arg" ;;
       esac
