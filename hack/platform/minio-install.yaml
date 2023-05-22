@@ -69,9 +69,15 @@ apiVersion: batch/v1
 kind: Job
 metadata:
   name: minio-create-bucket
+  namespace: kratix-platform-system
 spec:
   template:
     spec:
+      serviceAccountName: minio-create-bucket
+      initContainers:
+      - name: wait-for-minio
+        image: bitnami/kubectl:1.20.10
+        command: ["sh", "-c", "kubectl wait --for=condition=Ready --timeout=120s -n kratix-platform-system pod -l run=minio"]
       containers:
       - name: minio-event-configuration
         image: minio/mc
@@ -93,3 +99,37 @@ spec:
           value: "http://$(MC_ACCESS_KEY):$(MC_SECRET_KEY)@$(MC_ENDPOINT)"
       restartPolicy: Never
   backoffLimit: 4
+---
+apiVersion: rbac.authorization.k8s.io/v1
+kind: Role
+metadata:
+  name: minio-create-bucket
+  namespace: kratix-platform-system
+rules:
+- apiGroups:
+  - ""
+  resources:
+  - pods
+  verbs:
+  - get
+  - list
+  - watch
+---
+apiVersion: rbac.authorization.k8s.io/v1
+kind: RoleBinding
+metadata:
+  name: minio-create-bucket
+  namespace: kratix-platform-system
+roleRef:
+  apiGroup: rbac.authorization.k8s.io
+  kind: Role
+  name: minio-create-bucket
+subjects:
+- kind: ServiceAccount
+  name: minio-create-bucket
+---
+apiVersion: v1
+kind: ServiceAccount
+metadata:
+  name: minio-create-bucket
+  namespace: kratix-platform-system
