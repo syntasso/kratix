@@ -370,7 +370,11 @@ install_kratix() {
     kubectl config use-context kind-platform >/dev/null
 
     if ${INSTALL_AND_CREATE_MINIO_BUCKET}; then
-        kubectl delete job minio-create-bucket --context kind-platform >/dev/null
+        kubectl delete job minio-create-bucket -n default --context kind-platform >/dev/null
+    fi
+
+    if ${INSTALL_AND_CREATE_GITEA_REPO}; then
+        kubectl delete job gitea-create-repository -n gitea --context kind-platform >/dev/null
     fi
 
     success "Kratix installation is complete!"
