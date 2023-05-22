@@ -36,13 +36,21 @@ load_options() {
 }
 
 prepare_cluster() {
-  kubectl --context kind-platform apply -f ${ROOT}/test/system/assets/platform_kratix_cluster.yaml
+  local yqOpts='.metadata.name = "platform" | .metadata.labels.environment = "platform"'
+  local resourcesFile="${ROOT}/hack/worker/gitops-tk-resources.yaml"
+
   kubectl --context kind-platform apply -f ${ROOT}/hack/worker/gitops-tk-install.yaml
+
   if ${GIT_REPO}; then
-    kubectl --context kind-platform apply -f ${ROOT}/hack/platform/platform_worker_cluster_1_gitops-tk-resources-git.yaml
-  else
-    kubectl --context kind-platform apply -f ${ROOT}/test/system/assets/platform_gitops-tk-resources.yaml
+    resourcesFile="${ROOT}/hack/worker/gitops-tk-resources-git.yaml"
+    yqOps="${yqOpts} | .spec.stateStoreRef.kind = \"GitStateStore\""
   fi
+
+  sed 's/worker-cluster-1/platform/g' $resourcesFile  |
+    kubectl --context kind-platform apply -f -
+
+  yq "${yqOpts}" $ROOT/config/samples/platform_v1alpha1_worker_cluster.yaml |
+    kubectl --context kind-platform apply -f -
 }
 
 main() {
