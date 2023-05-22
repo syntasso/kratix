@@ -233,20 +233,6 @@ wait_for_local_repository() {
     fi
 }
 
-create_git_repo() {
-    dir_name=/tmp/${RANDOM}/kratix
-    mkdir -p ${dir_name}
-    pushd ${dir_name}
-        git init -b main
-        git add README.md
-        git commit --allow-empty -m "Kratix creating demo repo" --author 'kratix <kratix@kratix.io>'
-        gitea_username="$(kubectl --context kind-platform -n gitea get secret gitea-credentials -o jsonpath={.data.username} | base64 -d)"
-        gitea_password="$(kubectl --context kind-platform -n gitea get secret gitea-credentials -o jsonpath={.data.password} | base64 -d)"
-        git -c http.sslVerify=false push https://${gitea_username}:${gitea_password}@localhost:31333/gitea_admin/kratix.git --all
-    popd
-    rm -rf ${dir_name}
-}
-
 wait_for_namespace() {
     local timeout_flag="${1:-""}"
     loops=0

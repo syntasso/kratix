@@ -915,7 +915,11 @@ metadata:
 spec:
   template:
     spec:
+      serviceAccountName: gitea-create-repository
       initContainers:
+      - name: wait-for-git
+        image: bitnami/kubectl:1.20.10
+        command: ["sh", "-c", "kubectl wait --for=condition=Ready --timeout=120s -n gitea pod -l app.kubernetes.io/instance=gitea"]
       - name: init
         env:
         - name: GIT_DISCOVERY_ACROSS_FILESYSTEM
@@ -978,4 +982,37 @@ spec:
       volumes:
       - name: repo
         emptyDir: {}
-  backoffLimit: 4
+---
+apiVersion: rbac.authorization.k8s.io/v1
+kind: Role
+metadata:
+  name: gitea-create-repository
+  namespace: gitea
+rules:
+- apiGroups:
+  - ""
+  resources:
+  - pods
+  verbs:
+  - get
+  - list
+  - watch
+---
+apiVersion: rbac.authorization.k8s.io/v1
+kind: RoleBinding
+metadata:
+  name: gitea-create-repository
+  namespace: gitea
+roleRef:
+  apiGroup: rbac.authorization.k8s.io
+  kind: Role
+  name: gitea-create-repository
+subjects:
+- kind: ServiceAccount
+  name: gitea-create-repository
+---
+apiVersion: v1
+kind: ServiceAccount
+metadata:
+  name: gitea-create-repository
+  namespace: gitea
