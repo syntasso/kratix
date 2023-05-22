@@ -22,15 +22,19 @@ type S3Writer struct {
 
 func NewS3Writer(logger logr.Logger, stateStoreSpec platformv1alpha1.BucketStateStoreSpec, cluster platformv1alpha1.Cluster, creds map[string][]byte) (StateStoreWriter, error) {
 	endpoint := stateStoreSpec.Endpoint
-	accessKeyID := string(creds["accessKeyID"])
-	secretAccessKey := string(creds["secretAccessKey"])
 
-	if accessKeyID == "" || secretAccessKey == "" {
-		logger.Info("S3 credentials incomplete: accessKeyID or secretAccessKey are empty; will try unauthenticated access")
+	accessKeyID, ok := creds["accessKeyID"]
+	if !ok {
+		return nil, fmt.Errorf("accessKeyID not found in secret %s/%s", stateStoreSpec.SecretRef.Namespace, stateStoreSpec.SecretRef.Name)
+	}
+
+	secretAccessKey, ok := creds["secretAccessKey"]
+	if !ok {
+		return nil, fmt.Errorf("secretAccessKey not found in secret %s/%s", stateStoreSpec.SecretRef.Namespace, stateStoreSpec.SecretRef.Name)
 	}
 
 	minioClient, err := minio.New(endpoint, &minio.Options{
-		Creds:  credentials.NewStaticV4(accessKeyID, secretAccessKey, ""),
+		Creds:  credentials.NewStaticV4(string(accessKeyID), string(secretAccessKey), ""),
 		Secure: !stateStoreSpec.Insecure,
 	})
 

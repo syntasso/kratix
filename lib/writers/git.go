@@ -40,13 +40,23 @@ const (
 )
 
 func NewGitWriter(logger logr.Logger, stateStoreSpec platformv1alpha1.GitStateStoreSpec, cluster platformv1alpha1.Cluster, creds map[string][]byte) (StateStoreWriter, error) {
+	username, ok := creds["username"]
+	if !ok {
+		return nil, fmt.Errorf("username not found in secret %s/%s", stateStoreSpec.SecretRef.Namespace, stateStoreSpec.SecretRef.Name)
+	}
+
+	password, ok := creds["password"]
+	if !ok {
+		return nil, fmt.Errorf("password not found in secret %s/%s", stateStoreSpec.SecretRef.Namespace, stateStoreSpec.SecretRef.Name)
+	}
+
 	return &GitWriter{
 		gitServer: gitServer{
 			URL:    stateStoreSpec.URL,
 			Branch: stateStoreSpec.Branch,
 			Auth: &http.BasicAuth{
-				Username: string(creds["username"]),
-				Password: string(creds["password"]),
+				Username: string(username),
+				Password: string(password),
 			},
 		},
 		author: gitAuthor{
