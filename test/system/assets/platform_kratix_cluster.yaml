@@ -1,3 +1,4 @@
+---
 apiVersion: platform.kratix.io/v1alpha1
 kind: Cluster
 metadata:
@@ -5,5 +6,7 @@ metadata:
   labels:
     environment: platform
 spec:
-  id: platform-cluster-worker-1-id
-  bucketPath: platform-cluster-worker-1
+  path: bar/baz
+  stateStoreRef:
+    name: system-test
+    kind: GitStateStore

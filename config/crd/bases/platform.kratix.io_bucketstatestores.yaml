@@ -4,20 +4,20 @@ kind: CustomResourceDefinition
 metadata:
   annotations:
     controller-gen.kubebuilder.io/version: v0.12.0
-  name: clusters.platform.kratix.io
+  name: bucketstatestores.platform.kratix.io
 spec:
   group: platform.kratix.io
   names:
-    kind: Cluster
-    listKind: ClusterList
-    plural: clusters
-    singular: cluster
+    kind: BucketStateStore
+    listKind: BucketStateStoreList
+    plural: bucketstatestores
+    singular: bucketstatestore
   scope: Namespaced
   versions:
   - name: v1alpha1
     schema:
       openAPIV3Schema:
-        description: Cluster is the Schema for the clusters API
+        description: BucketStateStore is the Schema for the bucketstatestores API
         properties:
           apiVersion:
             description: 'APIVersion defines the versioned schema of this representation
@@ -32,8 +32,14 @@ spec:
           metadata:
             type: object
           spec:
-            description: ClusterSpec defines the desired state of Cluster
+            description: BucketStateStoreSpec defines the desired state of BucketStateStore
             properties:
+              bucketName:
+                type: string
+              endpoint:
+                type: string
+              insecure:
+                type: boolean
               path:
                 description: 'Path within the StateStore to write documents. This
                   path should be allocated to Kratix as it will create, update, and
@@ -50,23 +56,12 @@ spec:
                     type: string
                 type: object
                 x-kubernetes-map-type: atomic
-              stateStoreRef:
-                description: StateStoreReference is a reference to a StateStore
-                properties:
-                  kind:
-                    enum:
-                    - BucketStateStore
-                    - GitStateStore
-                    type: string
-                  name:
-                    type: string
-                required:
-                - kind
-                - name
-                type: object
+            required:
+            - bucketName
+            - endpoint
             type: object
           status:
-            description: ClusterStatus defines the observed state of Cluster
+            description: BucketStateStoreStatus defines the observed state of BucketStateStore
             type: object
         type: object
     served: true

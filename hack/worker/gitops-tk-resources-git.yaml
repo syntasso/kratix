@@ -17,9 +17,9 @@ metadata:
   namespace: flux-system
 spec:
   interval: 5s
-  url: https://172.18.0.2:31333/gitea_admin/worker-cluster-1-kratix-resources
+  url: https://172.18.0.2:31333/gitea_admin/kratix
   ref:
-    branch: master
+    branch: main
   secretRef:
     name: gitea-credentials
 ---
@@ -35,7 +35,7 @@ spec:
   sourceRef:
     kind: GitRepository
     name: kratix-workload-resources
-  path: "."
+  path: "default/worker-cluster-1/resources/"
   prune: true
 ---
 apiVersion: source.toolkit.fluxcd.io/v1beta1
@@ -45,9 +45,9 @@ metadata:
   namespace: flux-system
 spec:
   interval: 5s
-  url: https://172.18.0.2:31333/gitea_admin/worker-cluster-1-kratix-crds
+  url: https://172.18.0.2:31333/gitea_admin/kratix
   ref:
-    branch: master
+    branch: main
   secretRef:
     name: gitea-credentials
 ---
@@ -61,5 +61,5 @@ spec:
   sourceRef:
     kind: GitRepository
     name: kratix-workload-crds
-  path: "."
+  path: "default/worker-cluster-1/crds/"
   prune: true

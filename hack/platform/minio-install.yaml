@@ -56,3 +56,81 @@ spec:
       volumes:
       - name: data-volume
         emptyDir: {}
+---
+apiVersion: v1
+kind: Secret
+metadata:
+  name: minio-credentials
+  namespace: default
+stringData:
+  accessKeyID: minioadmin
+  secretAccessKey: minioadmin
+---
+apiVersion: batch/v1
+kind: Job
+metadata:
+  name: minio-create-bucket
+  namespace: default
+spec:
+  template:
+    spec:
+      serviceAccountName: minio-create-bucket
+      initContainers:
+      - name: wait-for-minio
+        image: bitnami/kubectl:1.20.10
+        command: ["sh", "-c", "kubectl wait --for=condition=Ready --timeout=120s -n kratix-platform-system pod -l run=minio"]
+      containers:
+      - name: minio-event-configuration
+        image: minio/mc
+        command: ["mc", "mb", "minio/kratix"]
+        env:
+        - name: MC_ACCESS_KEY
+          valueFrom:
+            secretKeyRef:
+              name: minio-credentials
+              key: accessKeyID
+        - name: MC_SECRET_KEY
+          valueFrom:
+            secretKeyRef:
+              name: minio-credentials
+              key: secretAccessKey
+        - name: MC_ENDPOINT
+          value: minio.kratix-platform-system.svc.cluster.local
+        - name: MC_HOST_minio
+          value: "http://$(MC_ACCESS_KEY):$(MC_SECRET_KEY)@$(MC_ENDPOINT)"
+      restartPolicy: Never
+  backoffLimit: 4
+---
+apiVersion: rbac.authorization.k8s.io/v1
+kind: ClusterRole
+metadata:
+  name: minio-create-bucket
+rules:
+- apiGroups:
+  - ""
+  resources:
+  - pods
+  verbs:
+  - get
+  - list
+  - watch
+---
+apiVersion: rbac.authorization.k8s.io/v1
+kind: ClusterRoleBinding
+metadata:
+  name: minio-create-bucket
+  namespace: default
+roleRef:
+  apiGroup: rbac.authorization.k8s.io
+  kind: ClusterRole
+  name: minio-create-bucket
+subjects:
+- kind: ServiceAccount
+  name: minio-create-bucket
+  namespace: default
+---
+apiVersion: v1
+kind: ServiceAccount
+metadata:
+  name: minio-create-bucket
+  namespace: default

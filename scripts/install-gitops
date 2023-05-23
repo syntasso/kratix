@@ -6,14 +6,14 @@ set -euo pipefail
 cd $ROOT
 
 CONTEXT=""
-GIT_REPO=${GIT_REPO:-false}
+WORKER_STATESTORE_TYPE=${WORKER_STATESTORE_TYPE:-BucketStateStore}
 
 usage() {
-    echo -e "Usage: ${BASH_SOURCE[0]} [--help] [--context=""] [--bucket-path=""] [--git]"
+    echo -e "Usage: ${BASH_SOURCE[0]} [--help] [--context=""] [--path=""] [--git]"
     echo ""
     echo -e "\t--help, -h,\t Prints this message"
     echo -e "\t--context='', -c,\t Required. The Kubernetes context where to install FluxCD onto."
-    echo -e "\t--bucket-path='', -b,\t The Repository name, must match the name used when registering the cluster. Defaults to context."
+    echo -e "\t--path='', -b,\t The Repository name, must match the name used when registering the cluster. Defaults to context."
     echo -e "\t--git, -g,\t Reads from local Gitea installation (default: Read from local MinIO installation)"
     exit "${1:-0}"
 }
@@ -24,7 +24,7 @@ load_options() {
       case "$arg" in
         '--help')        set -- "$@" '-h'   ;;
         '--context')     set -- "$@" '-c'   ;;
-        '--bucket-path') set -- "$@" '-b'   ;;
+        '--path') set -- "$@" '-b'   ;;
         '--git')         set -- "$@" '-g'   ;;
         *)               set -- "$@" "$arg" ;;
       esac
@@ -36,7 +36,7 @@ load_options() {
       case "$opt" in
         'h') usage ;;
         'c') CONTEXT=$OPTARG ;;
-        'g') GIT_REPO=true ;;
+        'g') WORKER_STATESTORE_TYPE=GitStateStore ;;
         'b') BUCKET_PATH=$OPTARG ;;
         *) usage 1 ;;
       esac
@@ -68,7 +68,7 @@ install_gitops() {
     CONTEXT="${CONTEXT:-$1}"
     BUCKET_PATH="${BUCKET_PATH:-$2}"
     resource_file=${ROOT}/hack/worker/gitops-tk-resources.yaml
-    if ${GIT_REPO}; then resource_file=${ROOT}/hack/worker/gitops-tk-resources-git.yaml; fi
+    if [ ${WORKER_STATESTORE_TYPE} = "GitStateStore" ]; then resource_file=${ROOT}/hack/worker/gitops-tk-resources-git.yaml; fi
 
     # install flux crds
     kubectl --context "${CONTEXT}" apply --filename ${ROOT}/hack/worker/gitops-tk-install.yaml

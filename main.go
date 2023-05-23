@@ -34,7 +34,6 @@ import (
 
 	platformv1alpha1 "github.com/syntasso/kratix/api/v1alpha1"
 	"github.com/syntasso/kratix/controllers"
-	"github.com/syntasso/kratix/lib/writers"
 	//+kubebuilder:scaffold:imports
 )
 
@@ -49,10 +48,8 @@ func main() {
 	var metricsAddr string
 	var enableLeaderElection bool
 	var probeAddr string
-	var repositoryType string
 	flag.StringVar(&metricsAddr, "metrics-bind-address", ":8080", "The address the metric endpoint binds to.")
 	flag.StringVar(&probeAddr, "health-probe-bind-address", ":8081", "The address the probe endpoint binds to.")
-	flag.StringVar(&repositoryType, "repository-type", writers.S3, "The type of the repository Kratix will communicate with")
 	flag.BoolVar(&enableLeaderElection, "leader-elect", false,
 		"Enable leader election for controller manager. "+
 			"Enabling this will ensure there is only one active controller manager.")
@@ -80,15 +77,6 @@ func main() {
 		os.Exit(1)
 	}
 
-	bucketWriter, err := writers.NewBucketWriter(
-		ctrl.Log.WithName("writers").WithName("BucketWriter"),
-		repositoryType,
-	)
-	if err != nil {
-		setupLog.Error(err, "unable to create BucketWriter")
-		os.Exit(1)
-	}
-
 	scheduler := controllers.Scheduler{
 		Client: mgr.GetClient(),
 		Log:    ctrl.Log.WithName("controllers").WithName("Scheduler"),
@@ -113,18 +101,16 @@ func main() {
 		os.Exit(1)
 	}
 	if err = (&controllers.ClusterReconciler{
-		Client:       mgr.GetClient(),
-		BucketWriter: bucketWriter,
-		Scheduler:    &scheduler,
-		Log:          ctrl.Log.WithName("controllers").WithName("ClusterController"),
+		Client:    mgr.GetClient(),
+		Scheduler: &scheduler,
+		Log:       ctrl.Log.WithName("controllers").WithName("ClusterController"),
 	}).SetupWithManager(mgr); err != nil {
 		setupLog.Error(err, "unable to create controller", "controller", "Cluster")
 		os.Exit(1)
 	}
 	if err = (&controllers.WorkPlacementReconciler{
-		Client:       mgr.GetClient(),
-		Log:          ctrl.Log.WithName("controllers").WithName("WorkPlacementController"),
-		BucketWriter: bucketWriter,
+		Client: mgr.GetClient(),
+		Log:    ctrl.Log.WithName("controllers").WithName("WorkPlacementController"),
 	}).SetupWithManager(mgr); err != nil {
 		setupLog.Error(err, "unable to create controller", "controller", "WorkPlacement")
 		os.Exit(1)

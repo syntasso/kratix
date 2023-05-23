@@ -9,7 +9,7 @@ WC_IMG_MIRROR ?= syntassodev/kratix-platform-pipeline-adapter:${VERSION}
 # Version of the worker-resource-builder binary to build and release
 WRB_VERSION ?= 0.0.0
 # Produce CRDs that work back to Kubernetes 1.11 (no version conversion)
-CRD_OPTIONS ?= "crd"
+CRD_OPTIONS ?= "crd:ignoreUnexportedFields=true"
 # Enable buildkit for docker
 DOCKER_BUILDKIT ?= 1
 export DOCKER_BUILDKIT
@@ -110,7 +110,7 @@ kind-load-image: docker-build ## Load locally built image into KinD, use export 
 	kind load docker-image ${IMG_MIRROR} --name platform
 
 quick-start: distribution
-	VERSION=dev DOCKER_BUILDKIT=1 ./scripts/quick-start.sh --recreate --local
+	VERSION=dev DOCKER_BUILDKIT=1 ./scripts/quick-start.sh --recreate --local --git-and-minio
 
 single-cluster: distribution
 	VERSION=dev DOCKER_BUILDKIT=1 ./scripts/quick-start.sh --recreate --local --single-cluster
@@ -186,7 +186,7 @@ build-worker-resource-builder-binary: ## Uses the goreleaser config to generate 
 
 CONTROLLER_GEN = $(shell pwd)/bin/controller-gen
 controller-gen: ## Download controller-gen locally if necessary.
-	$(call go-get-tool,$(CONTROLLER_GEN),sigs.k8s.io/controller-tools/cmd/controller-gen@v0.8.0)
+	$(call go-get-tool,$(CONTROLLER_GEN),sigs.k8s.io/controller-tools/cmd/controller-gen@v0.12.0)
 
 KUSTOMIZE = $(shell pwd)/bin/kustomize
 kustomize: ## Download kustomize locally if necessary.

@@ -5,10 +5,14 @@ import (
 	"fmt"
 
 	"github.com/go-logr/logr"
+	platformv1alpha1 "github.com/syntasso/kratix/api/v1alpha1"
+	"github.com/syntasso/kratix/lib/writers"
+	v1 "k8s.io/api/core/v1"
 	"k8s.io/apimachinery/pkg/api/errors"
 	"k8s.io/apimachinery/pkg/apis/meta/v1/unstructured"
 	"k8s.io/apimachinery/pkg/labels"
 	"k8s.io/apimachinery/pkg/runtime/schema"
+	"k8s.io/apimachinery/pkg/types"
 	ctrl "sigs.k8s.io/controller-runtime"
 	"sigs.k8s.io/controller-runtime/pkg/client"
 	"sigs.k8s.io/controller-runtime/pkg/controller/controllerutil"
@@ -83,4 +87,71 @@ func finalizersAreDeleted(resource client.Object, finalizers []string) bool {
 		}
 	}
 	return true
+}
+
+func newWriter(ctx context.Context, kubeClient client.Client, cluster platformv1alpha1.Cluster, logger logr.Logger) (writers.StateStoreWriter, error) {
+	stateStoreRef := types.NamespacedName{
+		Name:      cluster.Spec.StateStoreRef.Name,
+		Namespace: cluster.Namespace,
+	}
+	switch cluster.Spec.StateStoreRef.Kind {
+	case "BucketStateStore":
+		stateStore := &platformv1alpha1.BucketStateStore{}
+		if err := kubeClient.Get(ctx, stateStoreRef, stateStore); err != nil {
+			logger.Error(err, "unable to fetch resource", "resourceKind", stateStore.Kind, "stateStoreRef", stateStoreRef)
+			return nil, err
+		}
+
+		secret := &v1.Secret{}
+		secretRef := types.NamespacedName{
+			Name:      stateStore.Spec.SecretRef.Name,
+			Namespace: stateStore.Namespace,
+		}
+		if err := kubeClient.Get(ctx, secretRef, secret); err != nil {
+			logger.Error(err, "unable to fetch resource", "resourceKind", stateStore.Kind, "secretRef", secretRef)
+			return nil, err
+		}
+
+		writer, err := writers.NewS3Writer(logger.WithName("writers").WithName("BucketStateStoreWriter"), stateStore.Spec, cluster, secret.Data)
+		if err != nil {
+			//TODO: should this be a retryable error?
+			logger.Error(err, "unable to create StateStoreWriter")
+			return nil, err
+		}
+		return writer, nil
+	case "GitStateStore":
+		stateStore := &platformv1alpha1.GitStateStore{}
+
+		if err := kubeClient.Get(ctx, stateStoreRef, stateStore); err != nil {
+			logger.Error(err, "unable to fetch resource", "resourceKind", stateStore.Kind, "stateStoreRef", stateStoreRef)
+			return nil, err
+		}
+
+		secret := &v1.Secret{}
+		secretRef := types.NamespacedName{
+			Name:      stateStore.Spec.SecretRef.Name,
+			Namespace: stateStore.Namespace,
+		}
+		if err := kubeClient.Get(ctx, secretRef, secret); err != nil {
+			logger.Error(err, "unable to fetch resource", "resourceKind", stateStore.Kind, "secretRef", secretRef)
+			return nil, err
+		}
+
+		writer, err := writers.NewGitWriter(logger.WithName("writers").WithName("GitStateStoreWriter"), stateStore.Spec, cluster, secret.Data)
+		if err != nil {
+			//TODO: should this be a retryable error?
+			logger.Error(err, "unable to create StateStoreWriter")
+			return nil, err
+		}
+		return writer, nil
+	default:
+		return nil, fmt.Errorf("unsupported kind %s", cluster.Spec.StateStoreRef.Kind)
+	}
+}
+
+func or(a, b string) string {
+	if a != "" {
+		return a
+	}
+	return b
 }

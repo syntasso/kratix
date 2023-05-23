@@ -1,21 +1,19 @@
 #!/usr/bin/env bash
 
-set -eu
+set -euo pipefail
 
 ROOT=$( cd -- "$( dirname -- "${BASH_SOURCE[0]}" )/.." &> /dev/null && pwd )
 source "${ROOT}/scripts/utils.sh"
 source "${ROOT}/scripts/install-gitops"
 
-KRATIX_DISTRIBUTION="${ROOT}/distribution/kratix.yaml"
-MINIO_INSTALL="${ROOT}/hack/platform/minio-install.yaml"
-PLATFORM_WORKER="${ROOT}/config/samples/platform_v1alpha1_worker_cluster.yaml"
-GITOPS_WORKER_INSTALL="${ROOT}/hack/worker/gitops-tk-install.yaml"
-GITOPS_WORKER_RESOURCES="${ROOT}/hack/worker/gitops-tk-resources.yaml"
-
 BUILD_KRATIX_IMAGES=false
 RECREATE=false
-GIT_REPO=false
 SINGLE_CLUSTER=false
+
+INSTALL_AND_CREATE_MINIO_BUCKET=true
+INSTALL_AND_CREATE_GITEA_REPO=false
+WORKER_STATESTORE_TYPE=BucketStateStore
+
 LOCAL_IMAGES_DIR=""
 VERSION=${VERSION:-"$(cd $ROOT; git branch --show-current)"}
 DOCKER_BUILDKIT="${DOCKER_BUILDKIT:-1}"
@@ -24,13 +22,14 @@ WAIT_TIMEOUT="180s"
 KIND_IMAGE="${KIND_IMAGE:-"kindest/node:v1.24.7"}"
 
 usage() {
-    echo -e "Usage: quick-start.sh [--help] [--recreate] [--local] [--git] [--local-images <location>]"
+    echo -e "Usage: quick-start.sh [--help] [--recreate] [--local] [--git] [--git-and-minio] [--local-images <location>]"
     echo -e "\t--help, -h            Prints this message"
     echo -e "\t--recreate, -r        Deletes pre-existing KinD Clusters"
     echo -e "\t--local, -l           Build and load Kratix images to KinD cache"
     echo -e "\t--local-images, -i    Load container images from a local directory into the KinD clusters"
     echo -e "\t--git, -g             Use Gitea as local repository in place of default local MinIO"
     echo -e "\t--single-cluster, -s  Deploy Kratix on a Single Cluster setup"
+    echo -e "\t--git-and-minio, -d   Install Gitea alongside the minio installation. Cluster still uses minio as statestore. Can't be used alongside --git"
     exit "${1:-0}"
 }
 
@@ -42,6 +41,7 @@ load_options() {
         '--recreate')       set -- "$@" '-r'   ;;
         '--local')          set -- "$@" '-l'   ;;
         '--git')            set -- "$@" '-g'   ;;
+        '--git-and-minio')  set -- "$@" '-d'   ;;
         '--local-images')   set -- "$@" '-i'   ;;
         '--single-cluster') set -- "$@" '-s'   ;;
         *)                  set -- "$@" "$arg" ;;
@@ -49,7 +49,7 @@ load_options() {
     done
 
     OPTIND=1
-    while getopts "hrlgi:s" opt
+    while getopts "hrlgdi:s" opt
     do
       case "$opt" in
         'r') RECREATE=true ;;
@@ -57,18 +57,21 @@ load_options() {
         'h') usage ;;
         'l') BUILD_KRATIX_IMAGES=true ;;
         'i') LOCAL_IMAGES_DIR=${OPTARG} ;;
-        'g') GIT_REPO=true;;
+        'd') INSTALL_AND_CREATE_GITEA_REPO=true INSTALL_AND_CREATE_MINIO_BUCKET=true WORKER_STATESTORE_TYPE=BucketStateStore ;;
+        'g') INSTALL_AND_CREATE_GITEA_REPO=true INSTALL_AND_CREATE_MINIO_BUCKET=false WORKER_STATESTORE_TYPE=GitStateStore ;;
         *) usage 1 ;;
       esac
     done
     shift $(expr $OPTIND - 1)
 
-    # Always build local images when running from `dev`
+    # Always build local images and regenerate distribution when running from `dev`
     if [ "${VERSION}" != "main" ]; then
         VERSION="dev"
     fi
     if [ "${VERSION}" = "dev" ]; then
         BUILD_KRATIX_IMAGES=true
+        log -n "Generating local Kratix distribution..."
+        run make distribution
     fi
 }
 
@@ -162,14 +165,6 @@ build_and_load_local_images() {
     fi
 }
 
-patch_repository() {
-    if ${GIT_REPO}; then
-        sed "s/^\(.*--repository-type=\).*$/\1git/g"
-    else
-        sed "s/^\(.*--repository-type=\).*$/\1s3/g"
-    fi
-}
-
 patch_image() {
     if ${KRATIX_DEVELOPER:-false}; then
         sed "s_syntasso/kratix_syntassodev/kratix_g"
@@ -178,21 +173,35 @@ patch_image() {
     fi
 }
 
+patch_statestore() {
+    sed "s_BucketStateStore_${WORKER_STATESTORE_TYPE}_g"
+}
+
 setup_platform_cluster() {
-    if ${GIT_REPO}; then
+    if ${INSTALL_AND_CREATE_GITEA_REPO}; then
         kubectl --context kind-platform apply --filename "${ROOT}/hack/platform/gitea-install.yaml"
-    else
-        kubectl --context kind-platform apply --filename "${MINIO_INSTALL}"
     fi
-    cat ${KRATIX_DISTRIBUTION} | patch_repository | patch_image | kubectl --context kind-platform apply --filename -
+
+    if ${INSTALL_AND_CREATE_MINIO_BUCKET}; then
+        kubectl --context kind-platform apply --filename "${ROOT}/hack/platform/minio-install.yaml"
+    fi
+
+    cat "${ROOT}/distribution/kratix.yaml" | patch_image | kubectl --context kind-platform apply --filename -
 }
 
 setup_worker_cluster() {
+    if ${INSTALL_AND_CREATE_GITEA_REPO}; then
+       kubectl --context kind-platform apply --filename "${ROOT}/config/samples/platform_v1alpha1_gitstatestore.yaml"
+    fi
+
+    if ${INSTALL_AND_CREATE_MINIO_BUCKET}; then
+       kubectl --context kind-platform apply --filename "${ROOT}/config/samples/platform_v1alpha1_bucketstatestore.yaml"
+    fi
+
     if ${SINGLE_CLUSTER}; then
         ${ROOT}/scripts/prepare-platform-cluster-as-worker.sh
     else
-        kubectl --context kind-platform apply --filename "${PLATFORM_WORKER}"
-
+        cat "${ROOT}/config/samples/platform_v1alpha1_worker_cluster.yaml" | patch_statestore | kubectl --context kind-platform apply --filename -
         install_gitops kind-worker worker-cluster-1
     fi
 }
@@ -214,9 +223,12 @@ wait_for_local_repository() {
     if [ -z "${timeout_flag}" ]; then
         opts="--timeout=${WAIT_TIMEOUT}"
     fi
-    if ${GIT_REPO}; then
+
+    if ${INSTALL_AND_CREATE_GITEA_REPO}; then
         wait_for_gitea
-    else
+    fi
+
+    if ${INSTALL_AND_CREATE_MINIO_BUCKET}; then
         wait_for_minio
     fi
 }
@@ -348,6 +360,14 @@ install_kratix() {
     fi
 
     kubectl config use-context kind-platform >/dev/null
+
+    if ${INSTALL_AND_CREATE_MINIO_BUCKET}; then
+        kubectl delete job minio-create-bucket -n default --context kind-platform >/dev/null
+    fi
+
+    if ${INSTALL_AND_CREATE_GITEA_REPO}; then
+        kubectl delete job gitea-create-repository -n gitea --context kind-platform >/dev/null
+    fi
 
     success "Kratix installation is complete!"
 

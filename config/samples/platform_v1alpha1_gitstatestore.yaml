@@ -1,0 +1,10 @@
+apiVersion: platform.kratix.io/v1alpha1
+kind: GitStateStore
+metadata:
+  name: default
+  namespace: default
+spec:
+  secretRef:
+    name: gitea-credentials
+  url: https://172.18.0.2:31333/gitea_admin/kratix
+  branch: main

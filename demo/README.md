@@ -48,6 +48,9 @@
 
 ## 📽&nbsp;&nbsp;Run the demo
 
+> :warning: **Some DNS providers block local.gd. We recommend testing this domain resolves correcly
+when using conference WiFi**
+
 - ⚠️&nbsp;&nbsp;Showing the Slack notification and the app in the browser as part of this demo _does_ require internet for the DNS to work
 - 🪄🪄&nbsp;&nbsp;`./scripts/auto-demo/auto-demo.sh` automates the steps below.
 

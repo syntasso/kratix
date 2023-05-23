@@ -9,8 +9,77 @@ apiVersion: apiextensions.k8s.io/v1
 kind: CustomResourceDefinition
 metadata:
   annotations:
-    controller-gen.kubebuilder.io/version: v0.8.0
-  creationTimestamp: null
+    controller-gen.kubebuilder.io/version: v0.12.0
+  name: bucketstatestores.platform.kratix.io
+spec:
+  group: platform.kratix.io
+  names:
+    kind: BucketStateStore
+    listKind: BucketStateStoreList
+    plural: bucketstatestores
+    singular: bucketstatestore
+  scope: Namespaced
+  versions:
+  - name: v1alpha1
+    schema:
+      openAPIV3Schema:
+        description: BucketStateStore is the Schema for the bucketstatestores API
+        properties:
+          apiVersion:
+            description: 'APIVersion defines the versioned schema of this representation
+              of an object. Servers should convert recognized schemas to the latest
+              internal value, and may reject unrecognized values. More info: https://git.k8s.io/community/contributors/devel/sig-architecture/api-conventions.md#resources'
+            type: string
+          kind:
+            description: 'Kind is a string value representing the REST resource this
+              object represents. Servers may infer this from the endpoint the client
+              submits requests to. Cannot be updated. In CamelCase. More info: https://git.k8s.io/community/contributors/devel/sig-architecture/api-conventions.md#types-kinds'
+            type: string
+          metadata:
+            type: object
+          spec:
+            description: BucketStateStoreSpec defines the desired state of BucketStateStore
+            properties:
+              bucketName:
+                type: string
+              endpoint:
+                type: string
+              insecure:
+                type: boolean
+              path:
+                description: 'Path within the StateStore to write documents. This
+                  path should be allocated to Kratix as it will create, update, and
+                  delete files within this path. Path structure begins with provided
+                  path and ends with namespaced cluster name: <StateStore.Spec.Path>/<Cluster.Spec.Path>/<Cluster.Metadata.Namespace>/<Cluster.Metadata.Name>/'
+                type: string
+              secretRef:
+                description: SecretRef specifies the Secret containing authentication
+                  credentials
+                properties:
+                  name:
+                    description: 'Name of the referent. More info: https://kubernetes.io/docs/concepts/overview/working-with-objects/names/#names
+                      TODO: Add other useful fields. apiVersion, kind, uid?'
+                    type: string
+                type: object
+                x-kubernetes-map-type: atomic
+            required:
+            - bucketName
+            - endpoint
+            type: object
+          status:
+            description: BucketStateStoreStatus defines the observed state of BucketStateStore
+            type: object
+        type: object
+    served: true
+    storage: true
+    subresources:
+      status: {}
+---
+apiVersion: apiextensions.k8s.io/v1
+kind: CustomResourceDefinition
+metadata:
+  annotations:
+    controller-gen.kubebuilder.io/version: v0.12.0
   name: clusters.platform.kratix.io
 spec:
   group: platform.kratix.io
@@ -41,14 +110,36 @@ spec:
           spec:
             description: ClusterSpec defines the desired state of Cluster
             properties:
-              bucketPath:
+              path:
+                description: 'Path within the StateStore to write documents. This
+                  path should be allocated to Kratix as it will create, update, and
+                  delete files within this path. Path structure begins with provided
+                  path and ends with namespaced cluster name: <StateStore.Spec.Path>/<Cluster.Spec.Path>/<Cluster.Metadata.Namespace>/<Cluster.Metadata.Name>/'
                 type: string
-              id:
-                description: Unique identifier of a Cluster
-                type: string
-            required:
-            - bucketPath
-            - id
+              secretRef:
+                description: SecretRef specifies the Secret containing authentication
+                  credentials
+                properties:
+                  name:
+                    description: 'Name of the referent. More info: https://kubernetes.io/docs/concepts/overview/working-with-objects/names/#names
+                      TODO: Add other useful fields. apiVersion, kind, uid?'
+                    type: string
+                type: object
+                x-kubernetes-map-type: atomic
+              stateStoreRef:
+                description: StateStoreReference is a reference to a StateStore
+                properties:
+                  kind:
+                    enum:
+                    - BucketStateStore
+                    - GitStateStore
+                    type: string
+                  name:
+                    type: string
+                required:
+                - kind
+                - name
+                type: object
             type: object
           status:
             description: ClusterStatus defines the observed state of Cluster
@@ -58,19 +149,78 @@ spec:
     storage: true
     subresources:
       status: {}
-status:
-  acceptedNames:
-    kind: ""
-    plural: ""
-  conditions: []
-  storedVersions: []
 ---
 apiVersion: apiextensions.k8s.io/v1
 kind: CustomResourceDefinition
 metadata:
   annotations:
-    controller-gen.kubebuilder.io/version: v0.8.0
-  creationTimestamp: null
+    controller-gen.kubebuilder.io/version: v0.12.0
+  name: gitstatestores.platform.kratix.io
+spec:
+  group: platform.kratix.io
+  names:
+    kind: GitStateStore
+    listKind: GitStateStoreList
+    plural: gitstatestores
+    singular: gitstatestore
+  scope: Namespaced
+  versions:
+  - name: v1alpha1
+    schema:
+      openAPIV3Schema:
+        description: GitStateStore is the Schema for the gitstatestores API
+        properties:
+          apiVersion:
+            description: 'APIVersion defines the versioned schema of this representation
+              of an object. Servers should convert recognized schemas to the latest
+              internal value, and may reject unrecognized values. More info: https://git.k8s.io/community/contributors/devel/sig-architecture/api-conventions.md#resources'
+            type: string
+          kind:
+            description: 'Kind is a string value representing the REST resource this
+              object represents. Servers may infer this from the endpoint the client
+              submits requests to. Cannot be updated. In CamelCase. More info: https://git.k8s.io/community/contributors/devel/sig-architecture/api-conventions.md#types-kinds'
+            type: string
+          metadata:
+            type: object
+          spec:
+            description: GitStateStoreSpec defines the desired state of GitStateStore
+            properties:
+              branch:
+                default: main
+                type: string
+              path:
+                description: 'Path within the StateStore to write documents. This
+                  path should be allocated to Kratix as it will create, update, and
+                  delete files within this path. Path structure begins with provided
+                  path and ends with namespaced cluster name: <StateStore.Spec.Path>/<Cluster.Spec.Path>/<Cluster.Metadata.Namespace>/<Cluster.Metadata.Name>/'
+                type: string
+              secretRef:
+                description: SecretRef specifies the Secret containing authentication
+                  credentials
+                properties:
+                  name:
+                    description: 'Name of the referent. More info: https://kubernetes.io/docs/concepts/overview/working-with-objects/names/#names
+                      TODO: Add other useful fields. apiVersion, kind, uid?'
+                    type: string
+                type: object
+                x-kubernetes-map-type: atomic
+              url:
+                type: string
+            type: object
+          status:
+            description: GitStateStoreStatus defines the observed state of GitStateStore
+            type: object
+        type: object
+    served: true
+    storage: true
+    subresources:
+      status: {}
+---
+apiVersion: apiextensions.k8s.io/v1
+kind: CustomResourceDefinition
+metadata:
+  annotations:
+    controller-gen.kubebuilder.io/version: v0.12.0
   name: promises.platform.kratix.io
 spec:
   group: platform.kratix.io
@@ -132,19 +282,12 @@ spec:
     storage: true
     subresources:
       status: {}
-status:
-  acceptedNames:
-    kind: ""
-    plural: ""
-  conditions: []
-  storedVersions: []
 ---
 apiVersion: apiextensions.k8s.io/v1
 kind: CustomResourceDefinition
 metadata:
   annotations:
-    controller-gen.kubebuilder.io/version: v0.8.0
-  creationTimestamp: null
+    controller-gen.kubebuilder.io/version: v0.12.0
   name: workplacements.platform.kratix.io
 spec:
   group: platform.kratix.io
@@ -189,19 +332,12 @@ spec:
     storage: true
     subresources:
       status: {}
-status:
-  acceptedNames:
-    kind: ""
-    plural: ""
-  conditions: []
-  storedVersions: []
 ---
 apiVersion: apiextensions.k8s.io/v1
 kind: CustomResourceDefinition
 metadata:
   annotations:
-    controller-gen.kubebuilder.io/version: v0.8.0
-  creationTimestamp: null
+    controller-gen.kubebuilder.io/version: v0.12.0
   name: works.platform.kratix.io
 spec:
   group: platform.kratix.io
@@ -265,12 +401,6 @@ spec:
     storage: true
     subresources:
       status: {}
-status:
-  acceptedNames:
-    kind: ""
-    plural: ""
-  conditions: []
-  storedVersions: []
 ---
 apiVersion: v1
 kind: ServiceAccount
@@ -319,7 +449,6 @@ rules:
 apiVersion: rbac.authorization.k8s.io/v1
 kind: ClusterRole
 metadata:
-  creationTimestamp: null
   name: kratix-platform-manager-role
 rules:
 - apiGroups:
@@ -343,6 +472,14 @@ rules:
 - apiGroups:
   - ""
   resources:
+  - secrets
+  verbs:
+  - get
+  - list
+  - watch
+- apiGroups:
+  - ""
+  resources:
   - serviceaccounts
   verbs:
   - create
@@ -361,6 +498,15 @@ rules:
   - list
   - patch
   - update
+  - watch
+- apiGroups:
+  - platform.kratix.io
+  resources:
+  - bucketstatestores
+  - gitstatestores
+  verbs:
+  - get
+  - list
   - watch
 - apiGroups:
   - platform.kratix.io
@@ -578,7 +724,7 @@ metadata:
 ---
 apiVersion: v1
 data:
-  WC_IMG: syntasso/kratix-platform-pipeline-adapter:3f4416f22889f2347a3c05e03f5d00eea5566c46
+  WC_IMG: syntasso/kratix-platform-pipeline-adapter:82c19ebb3de198e4124ac9c0e87a60d7aac4fe56
 kind: ConfigMap
 metadata:
   name: kratix-platform-wc-img-config
@@ -631,7 +777,6 @@ spec:
         - --health-probe-bind-address=:8081
         - --metrics-bind-address=127.0.0.1:8080
         - --leader-elect
-        - --repository-type=s3
         command:
         - /manager
         env:
@@ -640,7 +785,7 @@ spec:
             configMapKeyRef:
               key: WC_IMG
               name: kratix-platform-wc-img-config
-        image: syntasso/kratix-platform:3f4416f22889f2347a3c05e03f5d00eea5566c46
+        image: syntasso/kratix-platform:82c19ebb3de198e4124ac9c0e87a60d7aac4fe56
         livenessProbe:
           httpGet:
             path: /healthz

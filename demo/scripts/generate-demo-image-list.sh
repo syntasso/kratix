@@ -46,12 +46,12 @@ echo "Installing Promise"
 kubectl create -f app-as-a-service/promise.yaml
 run "Waiting promises to exist" kubectl --context kind-platform get deployments.marketplace.kratix.io
 sync kratix-workload kind-worker
-sync platform-cluster-worker-1 kind-platform
+sync kratix-workload kind-platform
 
 echo "Requesting resource"
 kubectl apply -f app-as-a-service/resource-request.yaml
 sync kratix-workload kind-worker
-sync platform-cluster-worker-1 kind-platform
+sync kratix-workload kind-platform
 
 echo "Waiting for the demo app to be running"
 SKIP_BROWSER=yes ./scripts/wait-and-open-browser-when-app-ready

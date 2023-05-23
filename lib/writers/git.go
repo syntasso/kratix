@@ -5,24 +5,28 @@ import (
 	"io/ioutil"
 	"os"
 	"path/filepath"
+	"strings"
 	"time"
 
 	"github.com/go-git/go-git/v5"
-	"github.com/go-git/go-git/v5/config"
+	"github.com/go-git/go-git/v5/plumbing"
 	"github.com/go-git/go-git/v5/plumbing/object"
 	"github.com/go-git/go-git/v5/plumbing/transport/http"
 	"github.com/go-logr/logr"
+	platformv1alpha1 "github.com/syntasso/kratix/api/v1alpha1"
 )
 
 type GitWriter struct {
 	Log       logr.Logger
 	gitServer gitServer
 	author    gitAuthor
+	path      string
 }
 
 type gitServer struct {
-	URL  string
-	Auth *http.BasicAuth
+	URL    string
+	Branch string
+	Auth   *http.BasicAuth
 }
 
 type gitAuthor struct {
@@ -35,86 +39,54 @@ const (
 	Delete string = "Delete"
 )
 
-func newGitBucketWriter(logger logr.Logger) (BucketWriter, error) {
+func NewGitWriter(logger logr.Logger, stateStoreSpec platformv1alpha1.GitStateStoreSpec, cluster platformv1alpha1.Cluster, creds map[string][]byte) (StateStoreWriter, error) {
+	username, ok := creds["username"]
+	if !ok {
+		return nil, fmt.Errorf("username not found in secret %s/%s", cluster.Namespace, stateStoreSpec.SecretRef.Name)
+	}
+
+	password, ok := creds["password"]
+	if !ok {
+		return nil, fmt.Errorf("password not found in secret %s/%s", cluster.Namespace, stateStoreSpec.SecretRef.Name)
+	}
+
 	return &GitWriter{
 		gitServer: gitServer{
-			URL: "https://gitea-http.gitea.svc.cluster.local/gitea_admin/",
+			URL:    stateStoreSpec.URL,
+			Branch: stateStoreSpec.Branch,
 			Auth: &http.BasicAuth{
-				Username: "gitea_admin",
-				Password: "r8sA8CPHD9!bt6d",
+				Username: string(username),
+				Password: string(password),
 			},
 		},
 		author: gitAuthor{
 			Name:  "Kratix",
 			Email: "kratix@syntasso.io",
 		},
-		Log: logger,
+		Log:  logger,
+		path: filepath.Join(stateStoreSpec.Path, cluster.Spec.Path, cluster.Namespace, cluster.Name),
 	}, nil
 }
 
-func (g *GitWriter) WriteObject(bucketName string, objectName string, toWrite []byte) error {
-	log := g.Log.WithValues("bucketName", bucketName, "objectName", objectName)
+func (g *GitWriter) WriteObject(fileName string, toWrite []byte) error {
+	log := g.Log.WithValues(
+		"dir", g.path,
+		"fileName", fileName,
+		"branch", g.gitServer.Branch,
+	)
 	if len(toWrite) == 0 {
 		log.Info("Empty byte[]. Nothing to write to Git")
 		return nil
 	}
 
-	repoPath, err := createLocalDirectory(bucketName)
+	localTmpDir, err := createLocalDirectory()
 	if err != nil {
 		log.Error(err, "could not create temporary repository directory")
 		return err
 	}
-	defer os.RemoveAll(filepath.Dir(repoPath))
+	defer os.RemoveAll(filepath.Dir(localTmpDir))
 
-	repo, err := g.cloneRepo(bucketName, repoPath)
-	if err != nil {
-		switch err.Error() {
-		case "repository not found":
-			if repo, err = g.initRepo(bucketName, repoPath, log); err != nil {
-				log.Error(err, "could not initialise repository")
-				return err
-			}
-		default:
-			log.Error(err, "could not clone repository")
-			return err
-		}
-	}
-
-	objectFileName := filepath.Join(repoPath, objectName)
-	if err := ioutil.WriteFile(objectFileName, toWrite, 0644); err != nil {
-		log.Error(err, "could not write to file")
-		return err
-	}
-
-	worktree, err := repo.Worktree()
-	if err != nil {
-		log.Error(err, "could not access repo worktree")
-		return err
-	}
-
-	if _, err := worktree.Add(objectName); err != nil {
-		log.Error(err, "could not add file to worktree")
-		return err
-	}
-
-	if err := g.commitAndPush(repo, worktree, Add, objectName, log); err != nil {
-		return err
-	}
-
-	return nil
-}
-
-func (g *GitWriter) RemoveObject(bucketName string, objectName string) error {
-	log := g.Log.WithValues("bucketName", bucketName, "objectName", objectName)
-
-	repoPath, err := createLocalDirectory(bucketName)
-	if err != nil {
-		log.Error(err, "could not create temporary repository directory")
-		return err
-	}
-	defer os.RemoveAll(filepath.Dir(repoPath))
-
-	repo, err := g.cloneRepo(bucketName, repoPath)
+	repo, err := g.cloneRepo(localTmpDir)
 	if err != nil {
 		log.Error(err, "could not clone repository")
 		return err
@@ -126,8 +98,66 @@ func (g *GitWriter) RemoveObject(bucketName string, objectName string) error {
 		return err
 	}
 
-	if _, err := worktree.Filesystem.Lstat(objectName); err == nil {
-		if _, err := worktree.Remove(objectName); err != nil {
+	workTreeFilePath := filepath.Join(g.path, fileName)
+	absoluteFilePath := filepath.Join(localTmpDir, workTreeFilePath)
+
+	//We need to protect against paths containg `..`
+	//filepath.Join expands any '../' in the path to the actual, e.g. /tmp/foo/../ resolves to /tmp/
+	//To ensure they can't write to files on disk outside of the tmp git repostiroy we check the absolute path
+	//returned by `filepath.Join` is still contained with the git repository:
+	// Note: This means `../` can still be used, but only if the end result is still contained within the git repository
+	if !strings.HasPrefix(absoluteFilePath, localTmpDir) {
+		log.Error(nil, "path of file to write is not located within the git repostiory", "absolutePath", absoluteFilePath, "tmpDir", localTmpDir, "repoPath", workTreeFilePath, "path", g.path)
+		return nil //We don't want to retry as this isn't a recoverable error. Log error and return nil.
+	}
+
+	if os.MkdirAll(filepath.Dir(absoluteFilePath), 0700); err != nil {
+		log.Error(err, "could not generate local directories")
+		return err
+	}
+
+	if err := ioutil.WriteFile(absoluteFilePath, toWrite, 0644); err != nil {
+		log.Error(err, "could not write to file")
+		return err
+	}
+
+	if _, err := worktree.Add(workTreeFilePath); err != nil {
+		log.Error(err, "could not add file to worktree")
+		return err
+	}
+
+	if err := g.commitAndPush(repo, worktree, Add, workTreeFilePath, log); err != nil {
+		return err
+	}
+
+	return nil
+}
+
+func (g *GitWriter) RemoveObject(fileName string) error {
+	log := g.Log.WithValues("dir", g.path, "fileName", fileName)
+
+	repoPath, err := createLocalDirectory()
+	if err != nil {
+		log.Error(err, "could not create temporary repository directory")
+		return err
+	}
+	defer os.RemoveAll(filepath.Dir(repoPath))
+
+	repo, err := g.cloneRepo(repoPath)
+	if err != nil {
+		log.Error(err, "could not clone repository")
+		return err
+	}
+
+	worktree, err := repo.Worktree()
+	if err != nil {
+		log.Error(err, "could not access repo worktree")
+		return err
+	}
+
+	objectFileName := filepath.Join(g.path, fileName)
+	if _, err := worktree.Filesystem.Lstat(objectFileName); err == nil {
+		if _, err := worktree.Remove(objectFileName); err != nil {
 			log.Error(err, "could not remove file from worktree")
 			return err
 		}
@@ -137,7 +167,7 @@ func (g *GitWriter) RemoveObject(bucketName string, objectName string) error {
 		return nil
 	}
 
-	if err := g.commitAndPush(repo, worktree, Delete, objectName, log); err != nil {
+	if err := g.commitAndPush(repo, worktree, Delete, objectFileName, log); err != nil {
 		return err
 	}
 	return nil
@@ -156,34 +186,16 @@ func (g *GitWriter) push(repo *git.Repository, log logr.Logger) error {
 	return nil
 }
 
-func (g *GitWriter) cloneRepo(bucketName, repoPath string) (*git.Repository, error) {
-	return git.PlainClone(repoPath, false, &git.CloneOptions{
+func (g *GitWriter) cloneRepo(localRepoFilePath string) (*git.Repository, error) {
+	return git.PlainClone(localRepoFilePath, false, &git.CloneOptions{
 		Auth:            g.gitServer.Auth,
-		URL:             g.gitServer.URL + bucketName,
+		URL:             g.gitServer.URL,
+		ReferenceName:   plumbing.NewBranchReferenceName(g.gitServer.Branch),
 		SingleBranch:    true,
 		Depth:           1,
 		NoCheckout:      false,
 		InsecureSkipTLS: true,
 	})
-}
-
-func (g *GitWriter) initRepo(bucketName, repoPath string, log logr.Logger) (*git.Repository, error) {
-	repo, err := git.PlainInit(repoPath, false)
-	if err != nil {
-		log.Error(err, "could not initialise repository")
-		return nil, err
-	}
-
-	_, err = repo.CreateRemote(&config.RemoteConfig{
-		Name: "origin",
-		URLs: []string{g.gitServer.URL + bucketName + ".git"},
-	})
-	if err != nil {
-		log.Error(err, "could not create remote")
-		return nil, err
-	}
-
-	return repo, nil
 }
 
 func (g *GitWriter) commitAndPush(repo *git.Repository, worktree *git.Worktree, action, fileToAdd string, log logr.Logger) error {
@@ -198,6 +210,7 @@ func (g *GitWriter) commitAndPush(repo *git.Repository, worktree *git.Worktree, 
 		return nil
 	}
 
+	//should fileToAdd be here at all? is it valuable? specifically the fileToAdd parameter
 	_, err = worktree.Commit(fmt.Sprintf("%s: %s", action, fileToAdd), &git.CommitOptions{
 		Author: &object.Signature{
 			Name:  g.author.Name,
@@ -216,14 +229,11 @@ func (g *GitWriter) commitAndPush(repo *git.Repository, worktree *git.Worktree, 
 	return nil
 }
 
-func createLocalDirectory(repositoryName string) (string, error) {
+func createLocalDirectory() (string, error) {
 	dir, err := ioutil.TempDir("", "kratix-repo")
 	if err != nil {
 		return "", err
 	}
 
-	repoPath := filepath.Join(dir, repositoryName)
-	os.MkdirAll(repoPath, 0700) // TODO: Should this be a single repo with different paths?
-
-	return repoPath, nil
+	return dir, nil
 }
