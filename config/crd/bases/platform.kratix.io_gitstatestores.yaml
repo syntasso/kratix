@@ -44,16 +44,12 @@ spec:
                   path and ends with namespaced cluster name: <StateStore.Spec.Path>/<Cluster.Spec.Path>/<Cluster.Metadata.Namespace>/<Cluster.Metadata.Name>/'
                 type: string
               secretRef:
-                description: SecretReference represents a Secret Reference. It has
-                  enough information to retrieve secret in any namespace
+                description: SecretRef specifies the Secret containing authentication
+                  credentials
                 properties:
                   name:
-                    description: name is unique within a namespace to reference a
-                      secret resource.
-                    type: string
-                  namespace:
-                    description: namespace defines the space within which the secret
-                      name must be unique.
+                    description: 'Name of the referent. More info: https://kubernetes.io/docs/concepts/overview/working-with-objects/names/#names
+                      TODO: Add other useful fields. apiVersion, kind, uid?'
                     type: string
                 type: object
                 x-kubernetes-map-type: atomic

@@ -17,16 +17,19 @@ limitations under the License.
 package v1alpha1
 
 import (
+	corev1 "k8s.io/api/core/v1"
 	metav1 "k8s.io/apimachinery/pkg/apis/meta/v1"
 )
 
-type PathField struct {
+type StateStoreCoreFields struct {
 	// Path within the StateStore to write documents. This path should be allocated
 	// to Kratix as it will create, update, and delete files within this path.
 	// Path structure begins with provided path and ends with namespaced cluster name:
 	//   <StateStore.Spec.Path>/<Cluster.Spec.Path>/<Cluster.Metadata.Namespace>/<Cluster.Metadata.Name>/
 	//+kubebuilder:validation:Optional
 	Path string `json:"path,omitempty"`
+	// SecretRef specifies the Secret containing authentication credentials
+	SecretRef *corev1.LocalObjectReference `json:"secretRef,omitempty"`
 }
 
 // ClusterSpec defines the desired state of Cluster
@@ -40,8 +43,8 @@ type ClusterSpec struct {
 	// Path structure will be:
 	//   <StateStore.Spec.Path>/<Cluster.Spec.Path>/<Cluster.Metadata.Namespace>/<Cluster.Metadata.Name>/
 	//+kubebuilder:validation:Optional
-	PathField     `json:",inline"`
-	StateStoreRef *StateStoreReference `json:"stateStoreRef,omitempty"`
+	StateStoreCoreFields `json:",inline"`
+	StateStoreRef        *StateStoreReference `json:"stateStoreRef,omitempty"`
 }
 
 // ClusterStatus defines the observed state of Cluster
@@ -76,10 +79,6 @@ type StateStoreReference struct {
 	// +kubebuilder:validation:Enum=BucketStateStore;GitStateStore
 	Kind string `json:"kind"`
 	Name string `json:"name"`
-	//+kubebuilder:validation:Optional
-	// Namespace of the referent, defaults to the namespace of the
-	// Kubernetes resource object that contains the reference.
-	Namespace string `json:"namespace"`
 }
 
 func init() {

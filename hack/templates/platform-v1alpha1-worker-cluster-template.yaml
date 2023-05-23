@@ -10,4 +10,3 @@ spec:
   stateStoreRef:
     kind: KIND GitStateStore/BucketStateStore
     name: NAME
-    namespace: NAMESPACE

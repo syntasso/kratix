@@ -6,6 +6,5 @@ metadata:
 spec:
   secretRef:
     name: gitea-credentials
-    namespace: gitea
   url: https://172.18.0.2:31333/gitea_admin/kratix
   branch: main

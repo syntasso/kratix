@@ -17,15 +17,14 @@ limitations under the License.
 package v1alpha1
 
 import (
-	v1 "k8s.io/api/core/v1"
 	metav1 "k8s.io/apimachinery/pkg/apis/meta/v1"
 )
 
 // GitStateStoreSpec defines the desired state of GitStateStore
 type GitStateStoreSpec struct {
-	SecretRef *v1.SecretReference `json:"secretRef,omitempty"`
-	URL       string              `json:"url,omitempty"`
-	PathField `json:",inline"`
+	URL string `json:"url,omitempty"`
+
+	StateStoreCoreFields `json:",inline"`
 
 	//+kubebuilder:validation:Optional
 	//+kubebuilder:default=main

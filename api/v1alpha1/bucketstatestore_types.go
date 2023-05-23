@@ -17,17 +17,14 @@ limitations under the License.
 package v1alpha1
 
 import (
-	v1 "k8s.io/api/core/v1"
 	metav1 "k8s.io/apimachinery/pkg/apis/meta/v1"
 )
 
 // BucketStateStoreSpec defines the desired state of BucketStateStore
 type BucketStateStoreSpec struct {
-	BucketName string `json:"bucketName"`
-	Endpoint   string `json:"endpoint"`
-	PathField  `json:",inline"`
-
-	SecretRef *v1.SecretReference `json:"secretRef,omitempty"`
+	BucketName           string `json:"bucketName"`
+	Endpoint             string `json:"endpoint"`
+	StateStoreCoreFields `json:",inline"`
 
 	//+kubebuilder:validation:Optional
 	Insecure bool `json:"insecure"`

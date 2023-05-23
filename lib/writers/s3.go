@@ -25,12 +25,12 @@ func NewS3Writer(logger logr.Logger, stateStoreSpec platformv1alpha1.BucketState
 
 	accessKeyID, ok := creds["accessKeyID"]
 	if !ok {
-		return nil, fmt.Errorf("accessKeyID not found in secret %s/%s", stateStoreSpec.SecretRef.Namespace, stateStoreSpec.SecretRef.Name)
+		return nil, fmt.Errorf("accessKeyID not found in secret %s/%s", cluster.Namespace, stateStoreSpec.SecretRef.Name)
 	}
 
 	secretAccessKey, ok := creds["secretAccessKey"]
 	if !ok {
-		return nil, fmt.Errorf("secretAccessKey not found in secret %s/%s", stateStoreSpec.SecretRef.Namespace, stateStoreSpec.SecretRef.Name)
+		return nil, fmt.Errorf("secretAccessKey not found in secret %s/%s", cluster.Namespace, stateStoreSpec.SecretRef.Name)
 	}
 
 	minioClient, err := minio.New(endpoint, &minio.Options{

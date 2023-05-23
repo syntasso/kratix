@@ -61,6 +61,7 @@ apiVersion: v1
 kind: Secret
 metadata:
   name: minio-credentials
+  namespace: default
 stringData:
   accessKeyID: minioadmin
   secretAccessKey: minioadmin

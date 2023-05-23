@@ -2,10 +2,10 @@ apiVersion: platform.kratix.io/v1alpha1
 kind: Cluster
 metadata:
   name: worker-cluster-2
+  namespace: default
   labels:
     environment: production
 spec:
   stateStoreRef:
     name: default
-    namespace: default
     kind: BucketStateStore

@@ -40,6 +40,16 @@ spec:
                   delete files within this path. Path structure begins with provided
                   path and ends with namespaced cluster name: <StateStore.Spec.Path>/<Cluster.Spec.Path>/<Cluster.Metadata.Namespace>/<Cluster.Metadata.Name>/'
                 type: string
+              secretRef:
+                description: SecretRef specifies the Secret containing authentication
+                  credentials
+                properties:
+                  name:
+                    description: 'Name of the referent. More info: https://kubernetes.io/docs/concepts/overview/working-with-objects/names/#names
+                      TODO: Add other useful fields. apiVersion, kind, uid?'
+                    type: string
+                type: object
+                x-kubernetes-map-type: atomic
               stateStoreRef:
                 description: StateStoreReference is a reference to a StateStore
                 properties:
@@ -49,10 +59,6 @@ spec:
                     - GitStateStore
                     type: string
                   name:
-                    type: string
-                  namespace:
-                    description: Namespace of the referent, defaults to the namespace
-                      of the Kubernetes resource object that contains the reference.
                     type: string
                 required:
                 - kind

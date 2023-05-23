@@ -92,7 +92,7 @@ func finalizersAreDeleted(resource client.Object, finalizers []string) bool {
 func newWriter(ctx context.Context, kubeClient client.Client, cluster platformv1alpha1.Cluster, logger logr.Logger) (writers.StateStoreWriter, error) {
 	stateStoreRef := types.NamespacedName{
 		Name:      cluster.Spec.StateStoreRef.Name,
-		Namespace: or(cluster.Spec.StateStoreRef.Namespace, cluster.Namespace),
+		Namespace: cluster.Namespace,
 	}
 	switch cluster.Spec.StateStoreRef.Kind {
 	case "BucketStateStore":
@@ -105,7 +105,7 @@ func newWriter(ctx context.Context, kubeClient client.Client, cluster platformv1
 		secret := &v1.Secret{}
 		secretRef := types.NamespacedName{
 			Name:      stateStore.Spec.SecretRef.Name,
-			Namespace: or(stateStore.Spec.SecretRef.Namespace, stateStore.Namespace),
+			Namespace: stateStore.Namespace,
 		}
 		if err := kubeClient.Get(ctx, secretRef, secret); err != nil {
 			logger.Error(err, "unable to fetch resource", "resourceKind", stateStore.Kind, "secretRef", secretRef)
@@ -130,7 +130,7 @@ func newWriter(ctx context.Context, kubeClient client.Client, cluster platformv1
 		secret := &v1.Secret{}
 		secretRef := types.NamespacedName{
 			Name:      stateStore.Spec.SecretRef.Name,
-			Namespace: or(stateStore.Spec.SecretRef.Namespace, stateStore.Namespace),
+			Namespace: stateStore.Namespace,
 		}
 		if err := kubeClient.Get(ctx, secretRef, secret); err != nil {
 			logger.Error(err, "unable to fetch resource", "resourceKind", stateStore.Kind, "secretRef", secretRef)

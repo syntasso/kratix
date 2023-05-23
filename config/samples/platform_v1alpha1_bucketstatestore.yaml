@@ -9,4 +9,3 @@ spec:
   bucketName: kratix
   secretRef:
     name: minio-credentials
-    namespace: default

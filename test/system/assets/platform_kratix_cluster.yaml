@@ -9,5 +9,4 @@ spec:
   path: bar/baz
   stateStoreRef:
     name: system-test
-    namespace: default
     kind: GitStateStore
