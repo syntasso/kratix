@@ -344,14 +344,6 @@ install_kratix() {
         fi
     fi
 
-    if ${INSTALL_AND_CREATE_GITEA_REPO}; then
-        log -n "Create git repository..."
-        if ! run create_git_repo; then
-            error "failed to create git repository in gitea"
-            exit 1
-        fi
-    fi
-
     log -n "Setting up worker cluster..."
     if ! run setup_worker_cluster; then
         error " failed"
