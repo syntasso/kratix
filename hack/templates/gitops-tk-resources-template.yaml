@@ -51,6 +51,7 @@ spec:
     kind: Bucket
     name: CLUSTER_NAME-workload-resources
   validation: client
+  path: PATH
 ---
 apiVersion: kustomize.toolkit.fluxcd.io/v1beta1
 kind: Kustomization
@@ -64,3 +65,4 @@ spec:
     kind: Bucket
     name: CLUSTER_NAME-workload-crds
   validation: client
+  path: PATH
