@@ -17,7 +17,7 @@ spec:
   endpoint: {{ .endpoint }}
   insecure: {{ .insecure }}
   {{- end }}
-{{ if ne .secretRef.values nil }}
+{{ if .secretRef.values }}
 ---
 apiVersion: v1
 kind: Secret
