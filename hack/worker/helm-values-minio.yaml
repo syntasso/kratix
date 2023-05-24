@@ -2,7 +2,7 @@ config:
   path: "default/worker-cluster-1"
   namespace: "default"
   secretRef:
-    name: "gitea-credentials"
+    name: "minio-credentials"
     values:
       accesskey: bWluaW9hZG1pbg==
       secretkey: bWluaW9hZG1pbg==

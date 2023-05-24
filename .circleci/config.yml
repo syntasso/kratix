@@ -107,9 +107,9 @@ jobs:
 
             # setup platform and install BucketStateStore
             kind create cluster --image kindest/node:v1.24.0 --name platform
-            kubectl --context kind-platform apply --filename "hack/platform/minio-install.yaml"
             make build-and-load-kratix
             helm install kratix charts/kratix/ -f hack/platform/helm-values-minio.yaml
+            kubectl --context kind-platform apply --filename "hack/platform/minio-install.yaml"
 
             # setup worker and register worker cluster
             kind create cluster --image kindest/node:v1.24.0 --name worker
