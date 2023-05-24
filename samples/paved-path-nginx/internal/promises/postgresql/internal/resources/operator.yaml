@@ -1,0 +1,487 @@
+---
+# Source: postgres-operator/templates/serviceaccount.yaml
+apiVersion: v1
+kind: ServiceAccount
+metadata:
+  name: postgres-operator
+  namespace: default
+  labels:
+    app.kubernetes.io/name: postgres-operator
+    helm.sh/chart: postgres-operator-1.8.2
+    app.kubernetes.io/managed-by: Helm
+    app.kubernetes.io/instance: postgres-operator
+---
+# Source: postgres-operator/templates/clusterrole-postgres-pod.yaml
+apiVersion: rbac.authorization.k8s.io/v1
+kind: ClusterRole
+metadata:
+  name: postgres-pod
+  labels:
+    app.kubernetes.io/name: postgres-operator
+    helm.sh/chart: postgres-operator-1.8.2
+    app.kubernetes.io/managed-by: Helm
+    app.kubernetes.io/instance: postgres-operator
+rules:
+# Patroni needs to watch and manage config maps or endpoints
+- apiGroups:
+  - ""
+  resources:
+  - endpoints
+  verbs:
+  - create
+  - delete
+  - deletecollection
+  - get
+  - list
+  - patch
+  - update
+  - watch
+# Patroni needs to watch pods
+- apiGroups:
+  - ""
+  resources:
+  - pods
+  verbs:
+  - get
+  - list
+  - patch
+  - update
+  - watch
+# to let Patroni create a headless service
+- apiGroups:
+  - ""
+  resources:
+  - services
+  verbs:
+  - create
+---
+# Source: postgres-operator/templates/clusterrole.yaml
+apiVersion: rbac.authorization.k8s.io/v1
+kind: ClusterRole
+metadata:
+  name: postgres-operator
+  labels:
+    app.kubernetes.io/name: postgres-operator
+    helm.sh/chart: postgres-operator-1.8.2
+    app.kubernetes.io/managed-by: Helm
+    app.kubernetes.io/instance: postgres-operator
+rules:
+# all verbs allowed for custom operator resources
+- apiGroups:
+  - acid.zalan.do
+  resources:
+  - postgresqls
+  - postgresqls/status
+  - operatorconfigurations
+  verbs:
+  - create
+  - delete
+  - deletecollection
+  - get
+  - list
+  - patch
+  - update
+  - watch
+# operator only reads PostgresTeams
+- apiGroups:
+  - acid.zalan.do
+  resources:
+  - postgresteams
+  verbs:
+  - get
+  - list
+  - watch
+# all verbs allowed for event streams
+# to create or get/update CRDs when starting up
+- apiGroups:
+  - apiextensions.k8s.io
+  resources:
+  - customresourcedefinitions
+  verbs:
+  - get
+  - create
+  - patch
+  - update
+# to send events to the CRs
+- apiGroups:
+  - ""
+  resources:
+  - events
+  verbs:
+  - create
+  - get
+  - list
+  - patch
+  - update
+  - watch
+# to manage endpoints/configmaps which are also used by Patroni
+# to read configuration from ConfigMaps
+- apiGroups:
+  - ""
+  resources:
+  - configmaps
+  verbs:
+  - get
+- apiGroups:
+  - ""
+  resources:
+  - endpoints
+  verbs:
+  - create
+  - delete
+  - deletecollection
+  - get
+  - list
+  - patch
+  - update
+  - watch
+# to CRUD secrets for database access
+- apiGroups:
+  - ""
+  resources:
+  - secrets
+  verbs:
+  - create
+  - delete
+  - get
+  - update
+# to check nodes for node readiness label
+- apiGroups:
+  - ""
+  resources:
+  - nodes
+  verbs:
+  - get
+  - list
+  - watch
+# to read or delete existing PVCs. Creation via StatefulSet
+- apiGroups:
+  - ""
+  resources:
+  - persistentvolumeclaims
+  verbs:
+  - delete
+  - get
+  - list
+  - patch
+  - update
+ # to read existing PVs. Creation should be done via dynamic provisioning
+- apiGroups:
+  - ""
+  resources:
+  - persistentvolumes
+  verbs:
+  - get
+  - list
+# to watch Spilo pods and do rolling updates. Creation via StatefulSet
+- apiGroups:
+  - ""
+  resources:
+  - pods
+  verbs:
+  - delete
+  - get
+  - list
+  - patch
+  - update
+  - watch
+# to resize the filesystem in Spilo pods when increasing volume size
+- apiGroups:
+  - ""
+  resources:
+  - pods/exec
+  verbs:
+  - create
+# to CRUD services to point to Postgres cluster instances
+- apiGroups:
+  - ""
+  resources:
+  - services
+  verbs:
+  - create
+  - delete
+  - get
+  - patch
+  - update
+# to CRUD the StatefulSet which controls the Postgres cluster instances
+- apiGroups:
+  - apps
+  resources:
+  - statefulsets
+  - deployments
+  verbs:
+  - create
+  - delete
+  - get
+  - list
+  - patch
+# to CRUD cron jobs for logical backups
+- apiGroups:
+  - batch
+  resources:
+  - cronjobs
+  verbs:
+  - create
+  - delete
+  - get
+  - list
+  - patch
+  - update
+# to get namespaces operator resources can run in
+- apiGroups:
+  - ""
+  resources:
+  - namespaces
+  verbs:
+  - get
+# to define PDBs. Update happens via delete/create
+- apiGroups:
+  - policy
+  resources:
+  - poddisruptionbudgets
+  verbs:
+  - create
+  - delete
+  - get
+# to create ServiceAccounts in each namespace the operator watches
+- apiGroups:
+  - ""
+  resources:
+  - serviceaccounts
+  verbs:
+  - get
+  - create
+# to create role bindings to the postgres-pod service account
+- apiGroups:
+  - rbac.authorization.k8s.io
+  resources:
+  - rolebindings
+  verbs:
+  - get
+  - create
+---
+# Source: postgres-operator/templates/clusterrolebinding.yaml
+apiVersion: rbac.authorization.k8s.io/v1
+kind: ClusterRoleBinding
+metadata:
+  name: postgres-operator
+  labels:
+    app.kubernetes.io/name: postgres-operator
+    helm.sh/chart: postgres-operator-1.8.2
+    app.kubernetes.io/managed-by: Helm
+    app.kubernetes.io/instance: postgres-operator
+roleRef:
+  apiGroup: rbac.authorization.k8s.io
+  kind: ClusterRole
+  name: postgres-operator
+subjects:
+- kind: ServiceAccount
+  name: postgres-operator
+  namespace: default
+---
+# Source: postgres-operator/templates/service.yaml
+apiVersion: v1
+kind: Service
+metadata:
+  labels:
+    app.kubernetes.io/name: postgres-operator
+    helm.sh/chart: postgres-operator-1.8.2
+    app.kubernetes.io/managed-by: Helm
+    app.kubernetes.io/instance: postgres-operator
+  name: postgres-operator
+  namespace: default
+spec:
+  type: ClusterIP
+  ports:
+  - port: 8080
+    protocol: TCP
+    targetPort: 8080
+  selector:
+    app.kubernetes.io/instance: postgres-operator
+    app.kubernetes.io/name: postgres-operator
+---
+# Source: postgres-operator/templates/deployment.yaml
+apiVersion: apps/v1
+kind: Deployment
+metadata:
+  labels:
+    app.kubernetes.io/name: postgres-operator
+    helm.sh/chart: postgres-operator-1.8.2
+    app.kubernetes.io/managed-by: Helm
+    app.kubernetes.io/instance: postgres-operator
+  name: postgres-operator
+  namespace: default
+spec:
+  replicas: 1
+  selector:
+    matchLabels:
+      app.kubernetes.io/name: postgres-operator
+      app.kubernetes.io/instance: postgres-operator
+  template:
+    metadata:
+      annotations:
+        checksum/config: 5e43e52b4f2db120d38d4727aadf7071bc5a3249e01f3ca89ed2c65b1fe4e227
+      labels:
+        app.kubernetes.io/name: postgres-operator
+        app.kubernetes.io/instance: postgres-operator
+    spec:
+      serviceAccountName: postgres-operator
+      containers:
+      - name: postgres-operator
+        image: "registry.opensource.zalan.do/acid/postgres-operator:v1.8.2-43-g3e148ea5"
+        imagePullPolicy: IfNotPresent
+        env:
+        - name: POSTGRES_OPERATOR_CONFIGURATION_OBJECT
+          value: postgres-operator
+        resources:
+          limits:
+            cpu: 500m
+            memory: 500Mi
+          requests:
+            cpu: 100m
+            memory: 250Mi
+        securityContext:
+          allowPrivilegeEscalation: false
+          readOnlyRootFilesystem: true
+          runAsNonRoot: true
+          runAsUser: 1000
+      affinity:
+        {}
+      nodeSelector:
+        {}
+      tolerations:
+        []
+---
+# Source: postgres-operator/templates/operatorconfiguration.yaml
+apiVersion: "acid.zalan.do/v1"
+kind: OperatorConfiguration
+metadata:
+  name: postgres-operator
+  namespace: default
+  labels:
+    app.kubernetes.io/name: postgres-operator
+    helm.sh/chart: postgres-operator-1.8.2
+    app.kubernetes.io/managed-by: Helm
+    app.kubernetes.io/instance: postgres-operator
+configuration:
+  crd_categories:
+  - all
+  docker_image: registry.opensource.zalan.do/acid/spilo-14:2.1-p6
+  enable_crd_registration: true
+  enable_lazy_spilo_upgrade: false
+  enable_pgversion_env_var: true
+  enable_shm_volume: true
+  enable_spilo_wal_path_compat: false
+  etcd_host: ""
+  max_instances: -1
+  min_instances: -1
+  repair_period: 5m
+  resync_period: 30m
+  workers: 8
+  users:
+    enable_password_rotation: false
+    password_rotation_interval: 90
+    password_rotation_user_retention: 180
+    replication_username: standby
+    super_username: postgres
+  major_version_upgrade:
+    major_version_upgrade_mode: "off"
+    minimal_major_version: "9.6"
+    target_major_version: "14"
+  kubernetes:
+    pod_service_account_name: postgres-pod
+    oauth_token_secret_name: postgres-operator
+    cluster_domain: cluster.local
+    cluster_labels:
+      application: spilo
+    cluster_name_label: cluster-name
+    enable_cross_namespace_secret: false
+    enable_init_containers: true
+    enable_pod_antiaffinity: false
+    enable_pod_disruption_budget: true
+    enable_sidecars: true
+    pdb_name_format: postgres-{cluster}-pdb
+    pod_antiaffinity_topology_key: kubernetes.io/hostname
+    pod_management_policy: ordered_ready
+    pod_role_label: spilo-role
+    pod_terminate_grace_period: 5m
+    secret_name_template: '{username}.{cluster}.credentials.{tprkind}.{tprgroup}'
+    spilo_allow_privilege_escalation: true
+    spilo_privileged: false
+    storage_resize_mode: pvc
+    watched_namespace: '*'
+  postgres_pod_resources:
+    default_cpu_limit: "1"
+    default_cpu_request: 100m
+    default_memory_limit: 500Mi
+    default_memory_request: 100Mi
+    min_cpu_limit: 250m
+    min_memory_limit: 250Mi
+  timeouts:
+    patroni_api_check_interval: 1s
+    patroni_api_check_timeout: 5s
+    pod_deletion_wait_timeout: 10m
+    pod_label_wait_timeout: 10m
+    ready_wait_interval: 3s
+    ready_wait_timeout: 30s
+    resource_check_interval: 3s
+    resource_check_timeout: 10m
+  load_balancer:
+    db_hosted_zone: db.example.com
+    enable_master_load_balancer: false
+    enable_master_pooler_load_balancer: false
+    enable_replica_load_balancer: false
+    enable_replica_pooler_load_balancer: false
+    external_traffic_policy: Cluster
+    master_dns_name_format: '{cluster}.{team}.{hostedzone}'
+    replica_dns_name_format: '{cluster}-repl.{team}.{hostedzone}'
+  aws_or_gcp:
+    aws_region: eu-central-1
+    enable_ebs_gp3_migration: false
+  logical_backup:
+    logical_backup_docker_image: registry.opensource.zalan.do/acid/logical-backup:v1.8.0
+    logical_backup_job_prefix: logical-backup-
+    logical_backup_provider: s3
+    logical_backup_s3_access_key_id: ""
+    logical_backup_s3_bucket: my-bucket-url
+    logical_backup_s3_endpoint: ""
+    logical_backup_s3_region: ""
+    logical_backup_s3_retention_time: ""
+    logical_backup_s3_secret_access_key: ""
+    logical_backup_s3_sse: AES256
+    logical_backup_schedule: 30 00 * * *
+  debug:
+    debug_logging: true
+    enable_database_access: true
+  teams_api:
+    enable_admin_role_for_users: true
+    enable_postgres_team_crd: false
+    enable_postgres_team_crd_superusers: false
+    enable_team_member_deprecation: false
+    enable_team_superuser: false
+    enable_teams_api: false
+    pam_role_name: zalandos
+    postgres_superuser_teams:
+    - postgres_superusers
+    protected_role_names:
+    - admin
+    - cron_admin
+    role_deletion_suffix: _deleted
+    team_admin_role: admin
+    team_api_role_configuration:
+      log_statement: all
+  logging_rest_api:
+    api_port: 8080
+    cluster_history_entries: 1000
+    ring_log_lines: 100
+  connection_pooler:
+    connection_pooler_default_cpu_limit: "1"
+    connection_pooler_default_cpu_request: 500m
+    connection_pooler_default_memory_limit: 100Mi
+    connection_pooler_default_memory_request: 100Mi
+    connection_pooler_image: registry.opensource.zalan.do/acid/pgbouncer:master-22
+    connection_pooler_max_db_connections: 60
+    connection_pooler_mode: transaction
+    connection_pooler_number_of_instances: 2
+    connection_pooler_schema: pooler
+    connection_pooler_user: pooler

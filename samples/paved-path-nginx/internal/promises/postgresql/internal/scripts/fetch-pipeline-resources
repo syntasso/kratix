@@ -1,0 +1,13 @@
+#!/usr/bin/env bash
+
+PWD="$( cd $(dirname $0)/.. && pwd)"
+
+mkdir -p $PWD/request-pipeline/resources/instance
+
+instance_urls=(
+    "https://raw.githubusercontent.com/zalando/postgres-operator/master/manifests/minimal-postgres-manifest.yaml"
+)
+
+for url in "${instance_urls[@]}"; do
+    curl -sL -o $PWD/request-pipeline/resources/instance/$(basename $url) $url
+done

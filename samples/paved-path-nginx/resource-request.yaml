@@ -1,0 +1,10 @@
+---
+apiVersion: example.promise.syntasso.io/v1
+kind: app
+metadata:
+  name: example
+  namespace: default
+spec:
+  name: todo
+  image: syntasso/sample-todo-app:v0.1.2
+  dbDriver: postgres

@@ -1,0 +1,29 @@
+#!/usr/bin/env bash
+
+PWD="$( cd $(dirname $0)/.. && pwd)"
+
+resource_dir=$PWD/resources
+mkdir -p ${resource_dir}
+
+promises=(
+    "postgresql"
+    "deployment"
+    "nginx-ingress"
+    "redis"
+    )
+
+
+for promise in "${promises[@]}"; do
+    cat ${PWD}/promises/${promise}/promise.yaml | \
+        yq eval '(select(.kind == "Promise") | .spec.clusterSelector) = { "environment": "dev" }' > ${resource_dir}/${promise}-promise.yaml
+done
+
+
+urls=(
+    "https://raw.githubusercontent.com/syntasso/kratix-marketplace/main/slack/promise.yaml"
+)
+
+for url in "${urls[@]}"; do
+    promise=$(basename $(dirname $url))
+    curl -sL -o ${resource_dir}/${promise}-promise.yaml $url
+done

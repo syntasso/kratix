@@ -1,0 +1,32 @@
+#!/usr/bin/env bash
+
+pipeline_image="syntasso/demo-paved-path-request-pipeline:v0.1.1"
+root="$( cd $(dirname $0)/.. && pwd)"
+
+while [ $# -gt 0 ]; do
+  case "$1" in
+    build)
+      docker build \
+        --tag "${pipeline_image}" \
+        --platform linux/amd64 \
+        "${root}/request-pipeline" ;;
+
+    load)
+      kind load docker-image "${pipeline_image}" --name platform ;;
+
+    push)
+      docker push "${pipeline_image}" ;;
+
+    rmi)
+      docker rmi --force "${pipeline_image}" ;;
+
+    pull)
+      docker pull "${pipeline_image}" ;;
+
+    *)
+      echo "unknown command $1"
+      exit 1
+      ;;
+  esac
+  shift
+done

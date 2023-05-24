@@ -1,0 +1,7 @@
+apiVersion: marketplace.kratix.io/v1alpha1
+kind: deployment
+metadata:
+  name: example
+  namespace: default
+spec:
+  image: TBDIMAGE
