@@ -164,7 +164,8 @@ jobs:
           git add -f demo/demo-image-list
           git add -f distribution/kratix.yaml
           git add -f distribution/single-cluster/
-
+          git add -f charts/kratix/crds/platform_kratix_io_crds.yaml
+          git add -f charts/kratix/templates/distribution.yaml
           git commit --amend --no-edit
           git push origin main
 
