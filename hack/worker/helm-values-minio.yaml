@@ -1,0 +1,12 @@
+config:
+  path: "default/worker-cluster-1"
+  namespace: "default"
+  secretRef:
+    name: "gitea-credentials"
+    values:
+      accesskey: bWluaW9hZG1pbg==
+      secretkey: bWluaW9hZG1pbg==
+  bucket:
+    insecure: true
+    endpoint: 172.18.0.2:31337
+    bucket: kratix

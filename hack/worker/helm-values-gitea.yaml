@@ -1,0 +1,11 @@
+config:
+  path: "default/worker-cluster-1" # Path in StateStore. See https://kratix.io/docs/main/reference/clusters/intro
+  namespace: "default" # Namespace to create config
+  secretRef:
+    name: "gitea-credentials" # Name of secret
+    values:
+      username: Z2l0ZWFfYWRtaW4=
+      password: cjhzQThDUEhEOSFidDZk
+  git:
+    url: https://172.18.0.2:31333/gitea_admin/kratix
+    branch: main
