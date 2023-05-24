@@ -36,6 +36,13 @@ commands:
               chmod +x ~/bin/kind
             fi
       - run:
+          name: Install Helm
+          command: |
+            curl -L https://get.helm.sh/helm-v3.12.0-linux-amd64.tar.gz -o helm.tar.gz
+            tar -xvf helm.tar.gz
+            mv linux-amd64/helm ~/bin/helm
+            chmod +x ~/bin/helm
+      - run:
           name: Install Flux
           command: |
             curl -L https://github.com/fluxcd/flux2/releases/download/v0.41.2/flux_0.41.2_linux_amd64.tar.gz -o flux.tar.gz
@@ -96,7 +103,19 @@ jobs:
           name: Run quick-start script
           command: |
             make distribution
-            DOCKER_BUILDKIT=1 make quick-start
+            export DOCKER_BUILDKIT=1
+
+            # setup platform and install BucketStateStore
+            kind create cluster --image kindest/node:v1.24.0 --name platform
+            kubectl --context kind-platform apply --filename "hack/platform/minio-install.yaml"
+            make build-and-load-kratix
+            helm install kratix charts/kratix/ -f hack/platform/helm-values-minio.yaml
+
+            # setup worker and register worker cluster
+            kind create cluster --image kindest/node:v1.24.0 --name worker
+            helm install kratix-worker charts/kratix-worker/ -f hack/worker/helm-values-minio.yaml
+            kubectl --context kind-platform apply --filename config/samples/platform_v1alpha1_worker_cluster.yaml
+
       - run:
           name: Verify Jenkins
           command: |
