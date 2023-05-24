@@ -165,19 +165,18 @@ build_and_load_local_images() {
     fi
 }
 
-patch_image() {
-    if ${KRATIX_DEVELOPER:-false}; then
-        sed "s_syntasso/kratix_syntassodev/kratix_g"
-    else
-        cat
-    fi
-}
-
 patch_statestore() {
     sed "s_BucketStateStore_${WORKER_STATESTORE_TYPE}_g"
 }
 
 setup_platform_cluster() {
+    args=""
+    if ${KRATIX_DEVELOPER:-false}; then
+        args="--set=imageOrg=syntassodev"
+    fi
+
+    helm --kube-context kind-platform install kratix charts/kratix/ ${args}
+
     if ${INSTALL_AND_CREATE_GITEA_REPO}; then
         kubectl --context kind-platform apply --filename "${ROOT}/hack/platform/gitea-install.yaml"
     fi
@@ -185,8 +184,6 @@ setup_platform_cluster() {
     if ${INSTALL_AND_CREATE_MINIO_BUCKET}; then
         kubectl --context kind-platform apply --filename "${ROOT}/hack/platform/minio-install.yaml"
     fi
-
-    cat "${ROOT}/distribution/kratix.yaml" | patch_image | kubectl --context kind-platform apply --filename -
 }
 
 setup_worker_cluster() {

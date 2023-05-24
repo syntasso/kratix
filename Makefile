@@ -182,6 +182,8 @@ chart:
 	cat distribution/kratix.yaml | \
 	  yq 'select(.kind != "CustomResourceDefinition")' > \
           ${CHART_DISTRIBUTION}
+	gsed -i 's/WC_IMG: syntasso/WC_IMG: {{ default "syntasso" .Values.imageOrg }}/g' charts/kratix/templates/distribution.yaml
+	gsed -i 's/image: syntasso/image: {{ default "syntasso" .Values.imageOrg }}/g' charts/kratix/templates/distribution.yaml
 
 release: distribution docker-build-and-push work-creator-docker-build-and-push ## Create a release. Set VERSION env var to "vX.Y.Z-n".
 
