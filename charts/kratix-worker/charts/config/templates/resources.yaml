@@ -17,7 +17,7 @@ spec:
     branch: {{ .Values.git.branch }}
   {{- else }}
   provider: generic
-  bucketName: {{ .values.bucket.branch }}
+  bucketName: {{ .values.bucket.bucket }}
   endpoint: {{ .values.bucket.endpoint }}
   insecure: {{ .values.bucket.insecure }}
   {{- end }}

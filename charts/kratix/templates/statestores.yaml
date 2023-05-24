@@ -9,8 +9,14 @@ spec:
   path: {{ .path }}
   secretRef:
     name: {{ .secretRef.name }}
+  {{- if eq .kind "GitStateStore" }}
   url: {{ .url }}
   branch: {{ .branch }}
+  {{- else }}
+  bucketName: {{ .bucket }}
+  endpoint: {{ .endpoint }}
+  insecure: {{ .insecure }}
+  {{- end }}
 {{ if ne .secretRef.values nil }}
 ---
 apiVersion: v1
