@@ -1,7 +1,7 @@
 # Fork of https://github.com/fluxcd-community/helm-charts/tree/flux2-2.5.1/charts/flux2
 # changes:
 # - crds moved from `templates/` to `/crds/`
-# - removal of `tests/`
+# - disabling of notification, image automation and image reflector by default
 
 # flux2
 
