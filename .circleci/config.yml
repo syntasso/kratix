@@ -106,7 +106,7 @@ jobs:
     steps:
       - install_software
       - run:
-          name: Run quick-start script
+          name: Create clusters and helm install
           command: |
             make distribution
             export DOCKER_BUILDKIT=1
@@ -121,7 +121,6 @@ jobs:
             kind create cluster --image kindest/node:v1.24.0 --name worker
             helm install kratix-worker charts/kratix-worker/ -f hack/worker/helm-values-minio.yaml
             kubectl --context kind-platform apply --filename config/samples/platform_v1alpha1_worker_cluster.yaml
-
       - run:
           name: Verify Jenkins
           command: |
