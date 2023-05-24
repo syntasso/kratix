@@ -1,0 +1,24 @@
+{{- range .Values.stateStores }}
+---
+apiVersion: platform.kratix.io/v1alpha1
+kind: {{ .kind }}
+metadata:
+  name: {{ .name }}
+  namespace: {{ .namespace }}
+spec:
+  path: {{ .path }}
+  secretRef:
+    name: {{ .secretRef.name }}
+  url: {{ .url }}
+  branch: {{ .branch }}
+{{ if ne .secretRef.values nil }}
+---
+apiVersion: v1
+kind: Secret
+metadata:
+  name: {{ .secretRef.name }}
+  namespace: {{ .namespace }}
+type: Opaque
+data: {{ toYaml .secretRef.values | nindent 2 }}
+{{ end }}
+{{ end }}
