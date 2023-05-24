@@ -1,0 +1,57 @@
+{{ $kind := ternary "GitRepository" "Bucket" (ne ((.Values.git).url) "" )}}
+---
+apiVersion: source.toolkit.fluxcd.io/v1beta1
+kind: {{ $kind }}
+metadata:
+  name: kratix
+  annotations:
+    "helm.sh/hook": post-install,post-upgrade,pre-delete
+    "helm.sh/hook-weight": "5"
+spec:
+  interval: 10s
+  secretRef:
+    name: minio-credentials
+  {{- if ne ((.Values.git).url) "" }}
+  url: {{ .Values.git.url }}
+  ref:
+    branch: {{ .Values.git.branch }}
+  {{- else }}
+  provider: generic
+  bucketName: {{ .values.bucket.branch }}
+  endpoint: {{ .values.bucket.endpoint }}
+  insecure: {{ .values.bucket.insecure }}
+  {{- end }}
+---
+apiVersion: kustomize.toolkit.fluxcd.io/v1beta1
+kind: Kustomization
+metadata:
+  name: kratix-workload-resources
+  annotations:
+    "helm.sh/hook": post-install,post-upgrade,pre-delete
+    "helm.sh/hook-weight": "5"
+spec:
+  interval: 10s
+  prune: true
+  dependsOn:
+  - name: kratix-workload-crds
+  sourceRef:
+    kind: {{ $kind }}
+    name: kratix
+  path: ./{{ .Values.path }}/resources
+  validation: client
+---
+apiVersion: kustomize.toolkit.fluxcd.io/v1beta1
+kind: Kustomization
+metadata:
+  name: kratix-workload-crds
+  annotations:
+    "helm.sh/hook": post-install,post-upgrade,pre-delete
+    "helm.sh/hook-weight": "5"
+spec:
+  interval: 10s
+  prune: true
+  sourceRef:
+    kind: {{ $kind }}
+    name: kratix
+  path: ./{{ .Values.path }}/crds
+  validation: client
