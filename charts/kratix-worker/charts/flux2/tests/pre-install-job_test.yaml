@@ -1,0 +1,106 @@
+suite: test pre-install-job hook
+templates:
+  - pre-install-job.yaml
+tests:
+  - it: should have no annotations added by default
+    asserts:
+      - isEmpty:
+          path: spec.template.metadata.annotations
+  - it: should have added annotation
+    set:
+      cli:
+        annotations:
+          name1: value1
+    asserts:
+      - isNotEmpty:
+          path: spec.template.metadata.annotations
+      - equal:
+          path: spec.template.metadata.annotations
+          value:
+            name1: value1
+  - it: should have added annotations
+    set:
+      cli:
+        annotations:
+          name1: value1
+          name2: value2
+          name3: value3
+    asserts:
+      - isNotEmpty:
+          path: spec.template.metadata.annotations
+      - equal:
+          path: spec.template.metadata.annotations
+          value:
+            name1: value1
+            name2: value2
+            name3: value3
+  - it: should set automount service account token
+    set:
+      cli.serviceAccount.automount: false
+    asserts:
+      - equal:
+          path: spec.template.spec.automountServiceAccountToken
+          value: false
+  - it: should set resource requests and limits
+    set:
+      cli.resources:
+        limits:
+          cpu: 300m
+          memory: 1024Mi
+        requests:
+          cpu: 300m
+          memory: 1024Mi
+    asserts:
+      - equal:
+          path: spec.template.spec.containers[0].resources.limits.cpu
+          value: 300m
+      - equal:
+          path: spec.template.spec.containers[0].resources.limits.memory
+          value: 1024Mi
+      - equal:
+          path: spec.template.spec.containers[0].resources.requests.cpu
+          value: 300m
+      - equal:
+          path: spec.template.spec.containers[0].resources.requests.memory
+          value: 1024Mi
+  - it: should override securityContext
+    set:
+      cli.securityContext:
+        runAsNonRoot: false
+    asserts:
+      - equal:
+          path: spec.template.spec.containers[0].securityContext
+          value:
+            runAsNonRoot: false
+  - it: should set volumes
+    set:
+      cli.volumeMounts:
+        - mountPath: /var/run/secrets/kubernetes.io/serviceaccount
+          name: serviceaccount-token
+      cli.volumes:
+        - name: serviceaccount-token
+          projected:
+            defaultMode: 420
+            sources:
+            - serviceAccountToken:
+                expirationSeconds: 3607
+                path: token
+            - configMap:
+                name: kube-root-ca.crt
+                items:
+                - key: ca.crt
+                  path: ca.crt
+            - downwardAPI:
+                items:
+                - path: namespace
+                  fieldRef:
+                    apiVersion: v1
+                    fieldPath: metadata.namespace
+    asserts:
+      - isNotEmpty:
+          path: spec.template.spec.volumes
+      - isNotEmpty:
+          path: spec.template.spec.containers[0].volumeMounts
+  - it: should match snapshot of default values
+    asserts:
+      - matchSnapshot: {}

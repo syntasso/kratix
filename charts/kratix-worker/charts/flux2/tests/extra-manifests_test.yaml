@@ -1,0 +1,53 @@
+suite: test extra-manifests deployment
+templates:
+  - extra-manifests.yaml
+tests:
+  - it: should be empty if extra-manifests are not set
+    asserts:
+      - hasDocuments:
+          count: 0
+  - it: should generate two manifests
+    set:
+      extraObjects:
+      - apiVersion: source.toolkit.fluxcd.io/v1beta1
+        kind: Bucket
+        metadata:
+          name: podinfo
+        spec:
+          interval: 1m
+      - apiVersion: source.toolkit.fluxcd.io/v1beta1
+        kind: Bucket
+        metadata:
+          name: podinfo2
+        spec:
+          interval: 2m
+    asserts:
+      - hasDocuments:
+          count: 2
+      - isKind:
+          of: Bucket
+      - isAPIVersion:
+          of: source.toolkit.fluxcd.io/v1beta1
+  - it: should have kind Bucket with testvalues
+    capabilities:
+      majorVersion: 1
+      minorVersion: 21
+    set:
+      extraObjects:
+      - apiVersion: source.toolkit.fluxcd.io/v1beta1
+        kind: Bucket
+        metadata:
+          name: podinfo
+          namespace: default
+        spec:
+          provider: generic
+    asserts:
+      - hasDocuments:
+          count: 1
+      - isKind:
+          of: Bucket
+      - isAPIVersion:
+          of: source.toolkit.fluxcd.io/v1beta1
+      - equal:
+          path: spec.provider
+          value: generic

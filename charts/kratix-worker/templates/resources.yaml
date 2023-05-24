@@ -1,0 +1,61 @@
+{{ $kind := "GitRepository" }}
+{{ if .Values.config.bucket }}
+{{ $kind = "Bucket" }}
+{{ end }}
+---
+apiVersion: source.toolkit.fluxcd.io/v1beta1
+kind: {{ $kind }}
+metadata:
+  name: kratix
+spec:
+  interval: 10s
+  secretRef:
+    name: minio-credentials
+  {{- if eq $kind "GitRepository" }}
+  url: {{ .Values.config.git.url }}
+  ref:
+    branch: {{ .Values.config.git.branch }}
+  {{- else }}
+  provider: generic
+  bucketName: {{ .Values.config.bucket.bucket }}
+  endpoint: {{ .Values.config.bucket.endpoint }}
+  insecure: {{ .Values.config.bucket.insecure }}
+  {{- end }}
+---
+apiVersion: kustomize.toolkit.fluxcd.io/v1beta1
+kind: Kustomization
+metadata:
+  name: kratix-workload-resources
+spec:
+  interval: 10s
+  prune: true
+  dependsOn:
+  - name: kratix-workload-crds
+  sourceRef:
+    kind: {{ $kind }}
+    name: kratix
+  path: ./{{ .Values.config.path }}/resources
+  validation: client
+---
+apiVersion: kustomize.toolkit.fluxcd.io/v1beta1
+kind: Kustomization
+metadata:
+  name: kratix-workload-crds
+spec:
+  interval: 10s
+  prune: true
+  sourceRef:
+    kind: {{ $kind }}
+    name: kratix
+  path: ./{{ .Values.config.path }}/crds
+  validation: client
+{{ if .Values.config.secretRef.values }}
+---
+apiVersion: v1
+kind: Secret
+metadata:
+  name: {{ .Values.config.secretRef.name }}
+  namespace: {{ .Values.config.namespace }}
+type: Opaque
+data: {{ toYaml .Values.config.secretRef.values | nindent 2 }}
+{{ end }}

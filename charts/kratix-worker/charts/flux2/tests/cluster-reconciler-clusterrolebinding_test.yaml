@@ -1,0 +1,31 @@
+suite: test cluster reconciler
+templates:
+  - cluster-reconciler-clusterrolebinding.yaml
+tests:
+  - it: should be empty if rbac is disabled
+    set:
+      rbac.create: false
+    asserts:
+      - hasDocuments:
+          count: 0
+  - it: should be empty if multitenancy-lockdown is enabled with privileged mode disabled
+    set:
+      multitenancy.enabled: true
+      multitenancy.privileged: false
+    asserts:
+      - hasDocuments:
+          count: 0
+  - it: should be created if multitenancy-lockdown is disabled with privileged mode enabled
+    set:
+      multitenancy.enabled: false
+      multitenancy.privileged: true
+    asserts:
+      - hasDocuments:
+          count: 1
+  - it: should be created if multitenancy-lockdown is enabled with privileged mode enabled
+    set:
+      multitenancy.enabled: false
+      multitenancy.privileged: false
+    asserts:
+      - hasDocuments:
+          count: 1

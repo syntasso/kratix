@@ -26,9 +26,6 @@ appVersion: "0.0.1"
 dependencies:
 - name: flux2
   # only install flux if specified in values file
-  condition: flux.install
-  repository: https://fluxcd-community.github.io/helm-charts
+  condition: installFlux
   version: 2.5.1
-- name: config
-  version: 0.0.1
 
