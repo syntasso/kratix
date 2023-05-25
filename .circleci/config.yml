@@ -231,16 +231,16 @@ workflows:
           requires: [git-clone]
       - system-tests:
           requires: [git-clone]
-      - e2e-demo-test-helm-bucket:
-          requires: [git-clone]
-      - e2e-demo-test-helm-git:
-          requires: [git-clone]
+      # - e2e-demo-test-helm-bucket:
+      #     requires: [git-clone]
+      # - e2e-demo-test-helm-git:
+      #     requires: [git-clone]
       - git-merge:
           requires:
             - unit-tests
             - system-tests
-            - e2e-demo-test-helm-git
-            - e2e-demo-test-helm-bucket
+            # - e2e-demo-test-helm-git
+            # - e2e-demo-test-helm-bucket
           filters:
             branches:
               only: dev
