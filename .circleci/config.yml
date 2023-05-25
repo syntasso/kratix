@@ -117,6 +117,7 @@ jobs:
             make build-and-load-worker-creator
             helm install kratix charts/kratix/ -f hack/platform/helm-values-gitea.yaml
             kubectl --context kind-platform apply --filename "hack/platform/gitea-install.yaml"
+            kubectl --context kind-platform wait --for=condition=Ready --timeout=300s -n gitea pod -l app.kubernetes.io/instance=gitea
 
             # setup worker and register worker cluster
             kind create cluster --image kindest/node:v1.24.0 --name worker
@@ -142,6 +143,7 @@ jobs:
             make build-and-load-worker-creator
             helm install kratix charts/kratix/ -f hack/platform/helm-values-minio.yaml
             kubectl --context kind-platform apply --filename "hack/platform/minio-install.yaml"
+            kubectl wait --for=condition=Ready --timeout=300s -n kratix-platform-system pod -l run=minio
 
             # setup worker and register worker cluster
             kind create cluster --image kindest/node:v1.24.0 --name worker

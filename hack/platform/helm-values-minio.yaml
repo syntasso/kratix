@@ -1,7 +1,7 @@
 stateStores:
 - kind: BucketStateStore
   name: default
-  namespace: kratix-platform-config
+  namespace: default
   secretRef:
     name: minio-credentials
     values:
@@ -10,9 +10,3 @@ stateStores:
   insecure: true
   endpoint: minio.kratix-platform-system.svc.cluster.local
   bucket: kratix
-
-additionalResources:
-- apiVersion: v1
-  kind: Namespace
-  metadata:
-    name: kratix-platform-config
