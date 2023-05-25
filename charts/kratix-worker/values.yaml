@@ -28,4 +28,15 @@ config:
     # endpoint: "s3.amazonaws.com"
     # bucket: "my-org-kratix-platform"
 
-
+# -- Array extra K8s resources to deploy
+additionalResources: []
+# Example
+# - apiVersion: v1
+#   kind: Secret
+#   metadata:
+#     name: minio-credentials
+#     namespace: default
+#   type: Opaque
+#   data:
+#     accesskey: Zm9vCg==
+#     secretkey: Zm9vCg==

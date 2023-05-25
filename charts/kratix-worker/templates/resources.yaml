@@ -10,7 +10,7 @@ metadata:
 spec:
   interval: 10s
   secretRef:
-    name: minio-credentials
+    name: {{ .Values.config.secretRef.name }}
   {{- if eq $kind "GitRepository" }}
   url: {{ .Values.config.git.url }}
   ref:
