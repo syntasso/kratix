@@ -36,3 +36,7 @@ dist/*
 
 .DS_Store
 .vscode
+
+values.yaml
+worker-values.yaml
+platform-values.yaml
