@@ -2,7 +2,6 @@ stateStores:
 - kind: BucketStateStore
   name: default
   namespace: default
-  path: "default/worker-cluster-1"
   secretRef:
     name: minio-credentials
     values:
