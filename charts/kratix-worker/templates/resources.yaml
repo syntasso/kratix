@@ -29,7 +29,7 @@ metadata:
   name: kratix-workload-resources
   namespace: {{ .Values.config.namespace }}
 spec:
-  interval: 10s
+  interval: 8s
   prune: true
   dependsOn:
   - name: kratix-workload-crds
@@ -45,7 +45,7 @@ metadata:
   name: kratix-workload-crds
   namespace: {{ .Values.config.namespace }}
 spec:
-  interval: 10s
+  interval: 12s
   prune: true
   sourceRef:
     kind: {{ $kind }}

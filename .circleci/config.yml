@@ -122,6 +122,7 @@ jobs:
             # setup worker and register worker cluster
             kind create cluster --image kindest/node:v1.24.0 --name worker
             helm install kratix-worker charts/kratix-worker/ -f hack/worker/helm-values-gitea.yaml
+            kubectl --context kind-worker wait --for=condition=Ready --timeout=300s -n default kustomization kratix-workload-resources
       - run:
           name: Verify Jenkins
           command: |
@@ -143,12 +144,13 @@ jobs:
             make build-and-load-worker-creator
             helm install kratix charts/kratix/ -f hack/platform/helm-values-minio.yaml
             kubectl --context kind-platform apply --filename "hack/platform/minio-install.yaml"
-            kubectl wait --for=condition=Ready --timeout=300s -n kratix-platform-system pod -l run=minio
+            kubectl --context kind-platform wait --for=condition=Ready --timeout=300s -n kratix-platform-system pod -l run=minio
 
             # setup worker and register worker cluster
             kind create cluster --image kindest/node:v1.24.0 --name worker
             helm install kratix-worker charts/kratix-worker/ -f hack/worker/helm-values-minio.yaml
             kubectl --context kind-platform apply --filename config/samples/platform_v1alpha1_worker_cluster.yaml
+            kubectl --context kind-worker wait --for=condition=Ready --timeout=300s -n kratix-worker-config kustomization kratix-workload-resources
       - run:
           name: Verify Jenkins
           command: |
