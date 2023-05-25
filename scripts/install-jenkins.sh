@@ -20,7 +20,7 @@ kubectl --context kind-platform apply --filename https://raw.githubusercontent.c
 
 loops=0
 while ! kubectl --context kind-worker logs jenkins-dev-example 2>/dev/null | grep -q "Jenkins is fully up and running"; do
-    if (( loops > 200 )); then
+    if (( loops > 300 )); then
         echo "jenkins never reported to be up and running"
         output_debugging_info
         exit 1
