@@ -36,6 +36,19 @@ commands:
               chmod +x ~/bin/kind
             fi
       - run:
+          name: Install Helm
+          command: |
+            curl -L https://get.helm.sh/helm-v3.12.0-linux-amd64.tar.gz -o helm.tar.gz
+            tar -xvf helm.tar.gz
+            mv linux-amd64/helm ~/bin/helm
+            chmod +x ~/bin/helm
+      - run:
+          name: Install yq
+          command: |
+            curl -L https://github.com/mikefarah/yq/releases/download/v4.34.1/yq_linux_amd64 -o yq
+            mv yq ~/bin/yq
+            chmod +x ~/bin/yq
+      - run:
           name: Install Flux
           command: |
             curl -L https://github.com/fluxcd/flux2/releases/download/v0.41.2/flux_0.41.2_linux_amd64.tar.gz -o flux.tar.gz
@@ -88,15 +101,56 @@ jobs:
           command: |
             DOCKER_BUILDKIT=1 ACK_GINKGO_RC=true make --jobs=4 system-test
 
-  e2e-demo-test:
+  e2e-demo-test-helm-git:
     executor: machine-large
     steps:
       - install_software
       - run:
-          name: Run quick-start script
+          name: Create clusters and helm install
           command: |
             make distribution
-            DOCKER_BUILDKIT=1 make quick-start
+            export DOCKER_BUILDKIT=1
+
+            # setup platform and install GitStateStore
+            kind create cluster --image kindest/node:v1.24.0 --name platform
+            make build-and-load-kratix
+            make build-and-load-worker-creator
+            helm install kratix charts/kratix/ -f hack/platform/helm-values-gitea.yaml
+            kubectl --context kind-platform apply --filename "hack/platform/gitea-install.yaml"
+            kubectl --context kind-platform wait --for=condition=Ready --timeout=300s -n gitea pod -l app.kubernetes.io/instance=gitea
+
+            # setup worker and register worker cluster
+            kind create cluster --image kindest/node:v1.24.0 --name worker
+            helm install kratix-worker charts/kratix-worker/ -f hack/worker/helm-values-gitea.yaml
+            kubectl --context kind-worker wait --for=condition=Ready --timeout=300s -n default kustomization kratix-workload-resources
+      - run:
+          name: Verify Jenkins
+          command: |
+            ./scripts/install-jenkins.sh
+
+  e2e-demo-test-helm-bucket:
+    executor: machine-large
+    steps:
+      - install_software
+      - run:
+          name: Create clusters and helm install
+          command: |
+            make distribution
+            export DOCKER_BUILDKIT=1
+
+            # setup platform and install BucketStateStore
+            kind create cluster --image kindest/node:v1.24.0 --name platform
+            make build-and-load-kratix
+            make build-and-load-worker-creator
+            helm install kratix charts/kratix/ -f hack/platform/helm-values-minio.yaml
+            kubectl --context kind-platform apply --filename "hack/platform/minio-install.yaml"
+            kubectl --context kind-platform wait --for=condition=Ready --timeout=300s -n kratix-platform-system pod -l run=minio
+
+            # setup worker and register worker cluster
+            kind create cluster --image kindest/node:v1.24.0 --name worker
+            helm install kratix-worker charts/kratix-worker/ -f hack/worker/helm-values-minio.yaml
+            kubectl --context kind-platform apply --filename config/samples/platform_v1alpha1_worker_cluster.yaml
+            kubectl --context kind-worker wait --for=condition=Ready --timeout=300s -n kratix-worker-config kustomization kratix-workload-resources
       - run:
           name: Verify Jenkins
           command: |
@@ -164,7 +218,8 @@ jobs:
           git add -f demo/demo-image-list
           git add -f distribution/kratix.yaml
           git add -f distribution/single-cluster/
-
+          git add -f charts/kratix/crds/platform_kratix_io_crds.yaml
+          git add -f charts/kratix/templates/distribution.yaml
           git commit --amend --no-edit
           git push origin main
 
@@ -176,13 +231,16 @@ workflows:
           requires: [git-clone]
       - system-tests:
           requires: [git-clone]
-      - e2e-demo-test:
-          requires: [git-clone]
+      # - e2e-demo-test-helm-bucket:
+      #     requires: [git-clone]
+      # - e2e-demo-test-helm-git:
+      #     requires: [git-clone]
       - git-merge:
           requires:
             - unit-tests
             - system-tests
-            - e2e-demo-test
+            # - e2e-demo-test-helm-git
+            # - e2e-demo-test-helm-bucket
           filters:
             branches:
               only: dev

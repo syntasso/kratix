@@ -1,0 +1,50 @@
+# Default values for kratix.
+# This is a YAML-formatted file.
+# Declare variables to be passed into your templates.
+
+stateStores: []
+# Examples
+# - kind: GitStateStore
+#   name: default
+#   namespace: default
+#   path: ""
+#   secretRef:
+#     name: git-creds
+#     values:
+#       username: Zm9vCg==
+#       password: Zm9vCg==
+#   url: https://github.com/kratix/kratix-repo
+#   branch: main
+# - kind: BucketStateStore
+#   name: default
+#   namespace: default
+#   path: ""
+#   secretRef:
+#     name: already-created-s3-creds
+#   insecure: false
+#   endpoint: s3.aws.com
+#   bucket: kraix-platform
+
+clusters: []
+# Example
+# - name: worker-cluster-1
+#   namespace: default
+#   labels:
+#     env: dev
+#   path: ""
+#   stateStoreRef:
+#     name: default
+#     kind: GitStateStore
+
+# -- Array extra K8s resources to deploy
+additionalResources: []
+# Example
+# - apiVersion: v1
+#   kind: Secret
+#   metadata:
+#     name: minio-credentials
+#     namespace: default
+#   type: Opaque
+#   data:
+#     accesskey: Zm9vCg==
+#     secretkey: Zm9vCg==

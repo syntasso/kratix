@@ -5832,6 +5832,7 @@ spec:
         - --watch-all-namespaces=true
         - --log-level=info
         - --log-encoding=json
+        - --requeue-dependency=10s
         - --enable-leader-election
         env:
         - name: RUNTIME_NAMESPACE

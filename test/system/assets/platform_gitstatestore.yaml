@@ -1,4 +1,3 @@
-
 apiVersion: platform.kratix.io/v1alpha1
 kind: GitStateStore
 metadata:

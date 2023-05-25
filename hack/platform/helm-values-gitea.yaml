@@ -1,0 +1,30 @@
+stateStores:
+- kind: GitStateStore
+  name: default
+  namespace: default
+  secretRef:
+    name: gitea-credentials
+  path: "clusters"
+  branch: main
+  url: https://172.18.0.2:31333/gitea_admin/kratix
+
+clusters:
+- name: worker-cluster-1
+  namespace: default
+  labels:
+    env: dev
+  path: "dev"
+  stateStoreRef:
+    name: default
+    kind: GitStateStore
+
+additionalResources:
+- apiVersion: v1
+  kind: Secret
+  metadata:
+    name: gitea-credentials
+    namespace: default
+  type: Opaque
+  data:
+    username: Z2l0ZWFfYWRtaW4=
+    password: cjhzQThDUEhEOSFidDZk
