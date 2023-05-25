@@ -1,8 +1,8 @@
 config:
-  path: "default/worker-cluster-1"
-  namespace: "default"
+  path: default/worker-cluster-1
+  namespace: kratix-worker-config
   secretRef:
-    name: "minio-credentials"
+    name: minio-credentials
     values:
       accesskey: bWluaW9hZG1pbg==
       secretkey: bWluaW9hZG1pbg==
@@ -10,3 +10,9 @@ config:
     insecure: true
     endpoint: 172.18.0.2:31337
     bucket: kratix
+
+additionalResources:
+- apiVersion: v1
+  kind: Namespace
+  metadata:
+    name: kratix-worker-config
