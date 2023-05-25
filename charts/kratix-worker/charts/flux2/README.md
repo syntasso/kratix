@@ -2,6 +2,7 @@
 # changes:
 # - crds moved from `templates/` to `/crds/`
 # - disabling of notification, image automation and image reflector by default
+# - --requeue-dependency=10s added by default in kustomizeController
 
 # flux2
 

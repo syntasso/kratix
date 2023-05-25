@@ -148,7 +148,7 @@ kustomizeController:
     prometheus.io/scrape: "true"
   labels: {}
   container:
-    additionalArgs: []
+    additionalArgs: ["--requeue-dependency=10s"]
   serviceAccount:
     create: true
     automount: true
