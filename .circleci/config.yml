@@ -112,7 +112,7 @@ jobs:
             export DOCKER_BUILDKIT=1
 
             # setup platform and install GitStateStore
-            kind create cluster --image kindest/node:v1.24.0 --name platform
+            kind create cluster --image kindest/node:v1.24.0 --name platform --config hack/platform/kind-platform-config.yaml
             make build-and-load-kratix
             make build-and-load-worker-creator
             helm install kratix charts/kratix/ -f hack/platform/helm-values-gitea.yaml
@@ -120,7 +120,7 @@ jobs:
             kubectl --context kind-platform wait --for=condition=Ready --timeout=300s -n gitea pod -l app.kubernetes.io/instance=gitea
 
             # setup worker and register worker cluster
-            kind create cluster --image kindest/node:v1.24.0 --name worker
+            kind create cluster --image kindest/node:v1.24.0 --name worker --config hack/worker/kind-worker-config.yaml
             helm install kratix-worker charts/kratix-worker/ -f hack/worker/helm-values-gitea.yaml
             kubectl --context kind-worker wait --for=condition=Ready --timeout=300s -n default kustomization kratix-workload-resources
       - run:
@@ -139,7 +139,7 @@ jobs:
             export DOCKER_BUILDKIT=1
 
             # setup platform and install BucketStateStore
-            kind create cluster --image kindest/node:v1.24.0 --name platform
+            kind create cluster --image kindest/node:v1.24.0 --name platform --config hack/platform/kind-platform-config.yaml
             make build-and-load-kratix
             make build-and-load-worker-creator
             helm install kratix charts/kratix/ -f hack/platform/helm-values-minio.yaml
@@ -147,7 +147,7 @@ jobs:
             kubectl --context kind-platform wait --for=condition=Ready --timeout=300s -n kratix-platform-system pod -l run=minio
 
             # setup worker and register worker cluster
-            kind create cluster --image kindest/node:v1.24.0 --name worker
+            kind create cluster --image kindest/node:v1.24.0 --name worker --config hack/worker/kind-worker-config.yaml
             helm install kratix-worker charts/kratix-worker/ -f hack/worker/helm-values-minio.yaml
             kubectl --context kind-platform apply --filename config/samples/platform_v1alpha1_worker_cluster.yaml
             kubectl --context kind-worker wait --for=condition=Ready --timeout=300s -n kratix-worker-config kustomization kratix-workload-resources

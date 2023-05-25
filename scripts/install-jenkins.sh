@@ -20,17 +20,21 @@ kubectl --context kind-platform apply --filename https://raw.githubusercontent.c
 
 loops=0
 while ! kubectl --context kind-worker logs jenkins-dev-example 2>/dev/null | grep -q "Jenkins is fully up and running"; do
-    if (( loops > 500 )); then
+    if (( loops > 30 )); then
         echo "jenkins never reported to be up and running"
         output_debugging_info
         exit 1
     fi
-    sleep 1
+    sleep 10
+    echo "=============== JENKINS STATUS AND LOGS ==============="
+    kubectl --context kind-worker get pod jenkins-dev-example || true
+    kubectl --context kind-worker logs jenkins-dev-example --tail=10 || true
+    echo "===============          END            ==============="
     loops=$(( loops + 1 ))
 done
 
 # wait for kubernetes to report "Running"; 105 to ensure we wait more than the readiness probe takes to trigger
-if ! kubectl --context kind-worker wait pod jenkins-dev-example --for=condition=ready --timeout 500s; then
+if ! kubectl --context kind-worker wait pod jenkins-dev-example --for=condition=ready --timeout 300s; then
     output_debugging_info
     exit 1
 fi
