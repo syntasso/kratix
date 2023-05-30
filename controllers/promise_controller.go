@@ -133,6 +133,9 @@ func (r *PromiseReconciler) Reconcile(ctx context.Context, req ctrl.Request) (ct
 		return ctrl.Result{}, nil
 	}
 
+	// if the controllers already been started, we would error out and return
+	// in the previous `createResourcesForDynamicController` section as it errors
+	// when resources for the controller already exist.
 	return ctrl.Result{}, r.startDynamicController(promise, rrGVK)
 }
 
