@@ -101,12 +101,17 @@ func (r *dynamicResourceRequestController) Reconcile(ctx context.Context, req ct
 		return addFinalizers(ctx, r.Client, rr, []string{workFinalizer, pipelineFinalizer}, logger)
 	}
 
-	if r.pipelineHasExecuted(resourceRequestIdentifier) {
+	//check if the pipeline has already been created. If it has exit out. All the lines
+	//below this call are for the one-time creation of the pipeline.
+	if r.pipelinePodHasBeenCreated(resourceRequestIdentifier) {
 		logger.Info("Cannot execute update on pre-existing pipeline for Promise resource request " + resourceRequestIdentifier)
 		return ctrl.Result{}, nil
 	}
 
-	err = r.setPipelineCondition(ctx, rr, logger)
+	//we only reach this code if the pipeline pod hasn't been created yet, so we set the
+	//status of the RR to say pipeline not completed. The pipeline itself will update
+	//the status to PipelineComplete when it finishes.
+	err = r.setPipelineConditionToNotCompleted(ctx, rr, logger)
 	if err != nil {
 		return ctrl.Result{}, err
 	}
@@ -176,7 +181,7 @@ func (r *dynamicResourceRequestController) Reconcile(ctx context.Context, req ct
 	return ctrl.Result{}, nil
 }
 
-func (r *dynamicResourceRequestController) pipelineHasExecuted(resourceRequestIdentifier string) bool {
+func (r *dynamicResourceRequestController) pipelinePodHasBeenCreated(resourceRequestIdentifier string) bool {
 	isPromise, _ := labels.NewRequirement("kratix-promise-resource-request-id", selection.Equals, []string{resourceRequestIdentifier})
 	selector := labels.NewSelector().
 		Add(*isPromise)
@@ -293,7 +298,7 @@ func getShortUuid() string {
 	}
 }
 
-func (r *dynamicResourceRequestController) setPipelineCondition(ctx context.Context, rr *unstructured.Unstructured, logger logr.Logger) error {
+func (r *dynamicResourceRequestController) setPipelineConditionToNotCompleted(ctx context.Context, rr *unstructured.Unstructured, logger logr.Logger) error {
 	setter := conditionsutil.UnstructuredSetter(rr)
 	getter := conditionsutil.UnstructuredGetter(rr)
 	condition := conditionsutil.Get(getter, clusterv1.ConditionType("PipelineCompleted"))

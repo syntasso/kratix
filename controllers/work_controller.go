@@ -84,7 +84,11 @@ func (r *WorkReconciler) Reconcile(ctx context.Context, req ctrl.Request) (ctrl.
 
 	logger.Info("Found WorkPlacements for WorkName", "workPlacements", workPlacementNames)
 	for _, workPlacement := range workPlacementList.Items {
+		//TODO rather than search all placements for a field in the spec, label all
+		//placements with the `.spec.workname`, and then we can just `client.Get` all
+		//works with a given label instead.
 		if workPlacement.Spec.WorkName == work.Name {
+			//We only check if 1 workplacement exists, if there should be more we don't reconcile.
 			logger.Info("WorkPlacements for work exist", "workPlacement", workPlacement.Name)
 			return ctrl.Result{}, nil
 		}
@@ -92,6 +96,7 @@ func (r *WorkReconciler) Reconcile(ctx context.Context, req ctrl.Request) (ctrl.
 
 	// If Work does not have a WorkPlacement then schedule the Work
 	logger.Info("Requesting scheduling for Work")
+	//Create N workplacements depending on work type (rr vs wcr) and number of clusters
 	err = r.Scheduler.ReconcileWork(work)
 	if err != nil {
 		//TODO remove this error checking

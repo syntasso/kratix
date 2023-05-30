@@ -87,11 +87,6 @@ func (r *WorkPlacementReconciler) Reconcile(ctx context.Context, req ctrl.Reques
 		CRDs:      "crds/00-" + workNamespacedName + "-crds.yaml",
 	}
 
-	if err != nil {
-		logger.Error(err, "Error getting file paths for the repository")
-		return defaultRequeue, nil
-	}
-
 	writer, err := newWriter(ctx, r.Client, *cluster, logger)
 	if err != nil {
 		if errors.IsNotFound(err) {
@@ -168,13 +163,13 @@ func (r *WorkPlacementReconciler) writeWorkToRepository(writer writers.StateStor
 
 	err := writer.WriteObject(paths.CRDs, crdBuffer.Bytes())
 	if err != nil {
-		logger.Error(err, "Error Writing CRDS to repository")
+		logger.Error(err, "Error writing CRDS to repository")
 		return err
 	}
 
 	err = writer.WriteObject(paths.Resources, resourceBuffer.Bytes())
 	if err != nil {
-		logger.Error(err, "Error uploading resources to repository")
+		logger.Error(err, "Error writing resources to repository")
 		return err
 	}
 
