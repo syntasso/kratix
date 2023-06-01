@@ -199,7 +199,7 @@ setup_worker_cluster() {
     fi
 
     if ${SINGLE_CLUSTER}; then
-        ${ROOT}/scripts/prepare-platform-cluster-as-worker.sh
+        ${ROOT}/scripts/register-worker --name platform-cluster --context kind-platform
     else
         cat "${ROOT}/config/samples/platform_v1alpha1_worker_cluster.yaml" | patch_statestore | kubectl --context kind-platform apply --filename -
         install_gitops kind-worker worker-cluster-1
