@@ -81,8 +81,8 @@ load-pipeline-images:
 	kind load docker-image syntasso/paved-path-demo-request-pipeline:latest --name platform
 
 
-prepare-platform-cluster-as-worker: ## Installs flux onto platform cluster and registers as a worker
-	./scripts/prepare-platform-cluster-as-worker.sh
+prepare-platform-as-worker: ## Installs flux onto platform cluster and registers as a worker
+	./scripts/register-worker --with-label environment=platform --context kind-platform --name platform-cluster
 
 install-minio: ## Install test Minio server
 	kubectl --context kind-platform apply -f hack/platform/minio-install.yaml
@@ -115,7 +115,7 @@ quick-start: distribution
 single-cluster: distribution
 	VERSION=dev DOCKER_BUILDKIT=1 ./scripts/quick-start.sh --recreate --local --single-cluster
 
-dev-env: distribution quick-start prepare-platform-cluster-as-worker ## Tears down existing resources and sets up a local development environment
+dev-env: distribution quick-start prepare-platform-as-worker ## Tears down existing resources and sets up a local development environment
 
 # ENVTEST_K8S_VERSION refers to the version of kubebuilder assets to be downloaded by envtest binary.
 ENVTEST_K8S_VERSION = 1.23

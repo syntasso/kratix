@@ -1,0 +1,83 @@
+#!/usr/bin/env bash
+
+set -euo pipefail
+
+ROOT=$( cd -- "$( dirname -- "${BASH_SOURCE[0]}" )/.." &> /dev/null && pwd )
+
+GIT_REPO=false
+LABELS=""
+NAME=""
+WORKER_CONTEXT=""
+PLATFORM_CONTEXT="kind-platform"
+
+usage() {
+    echo -e "Usage: register-worker [--help] [--git] [--with-label foo=bar] [--context k8s-context] [--name  some-name ] [--platform-context 'kind-platform']"
+    echo -e "\t--name, -n\t Name of the cluster to register"
+    echo -e "\t--context='', -c,\t The Kubernetes context where to install FluxCD onto"
+    echo -e "\t--platform-context='', -p,\t The Kubernetes context of the Platform cluster"
+    echo -e "\t--help, -h\t Prints this message"
+    echo -e "\t--with-label foo=bar, -l\t Adds a label to the cluster during registration"
+    echo -e "\t--git, -g\t Use Gitea as local repository in place of default local MinIO"
+    exit "${1:-0}"
+}
+
+load_options() {
+    for arg in "$@"; do
+      shift
+      case "$arg" in
+        '--help')             set -- "$@" '-h'   ;;
+        '--git')              set -- "$@" '-g'   ;;
+        '--with-label')       set -- "$@" '-l'   ;;
+        '--name')             set -- "$@" '-n'   ;;
+        '--context')          set -- "$@" '-c'   ;;
+        '--platform-context') set -- "$@" '-p'   ;;
+        *)                    set -- "$@" "$arg" ;;
+      esac
+    done
+
+    OPTIND=1
+    while getopts "p:hgn:c:l:" opt
+    do
+      case "$opt" in
+        'h') usage ;;
+        'g') GIT_REPO=true;;
+        'l') LABELS="$OPTARG";;
+        'n') NAME="$OPTARG";;
+        'c') WORKER_CONTEXT="$OPTARG";;
+        'p') PLATFORM_CONTEXT="$OPTARG";;
+        *) usage 1 ;;
+      esac
+    done
+    shift $(expr $OPTIND - 1)
+
+    if [ -z "$NAME" ]; then
+      echo "Name is required"
+      usage 1
+    fi
+    if [ -z "$WORKER_CONTEXT" ]; then
+      echo "Context is required"
+      usage 1
+    fi
+}
+
+prepare_cluster() {
+  local context=""
+  $ROOT/scripts/install-gitops --context $WORKER_CONTEXT --path "platform-cluster"
+
+  local yqOpts=".metadata.name = \"$NAME\" | .metadata.labels = {}"
+  yq "${yqOpts}" $ROOT/config/samples/platform_v1alpha1_worker_cluster.yaml |
+    kubectl --context $PLATFORM_CONTEXT apply -f -
+
+  if [ -n "$LABELS" ]; then
+    kubectl --context $PLATFORM_CONTEXT label cluster $NAME ${LABELS}
+  fi
+}
+
+main() {
+    load_options $@
+    prepare_cluster
+}
+
+if [ "$0" = "${BASH_SOURCE[0]}" ]; then
+    main $@
+fi
