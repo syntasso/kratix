@@ -1,6 +1,6 @@
 ---
 apiVersion: example.promise.syntasso.io/v1
-kind: app
+kind: EasyApp
 metadata:
   name: example
   namespace: default
