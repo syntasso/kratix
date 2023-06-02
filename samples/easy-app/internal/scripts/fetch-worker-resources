@@ -7,9 +7,7 @@ mkdir -p ${resource_dir}
 
 promises=(
     "postgresql"
-    "deployment"
     "nginx-ingress"
-    "redis"
     )
 
 

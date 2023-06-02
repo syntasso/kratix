@@ -1,0 +1,42 @@
+#!/usr/bin/env bash
+
+pipeline_image="syntasso/demo-easy-app-request-pipeline:v0.1.1"
+nginx_pipeline="syntasso/demo-nginx-request-pipeline:v0.1.1"
+root="$( cd $(dirname $0)/.. && pwd)"
+
+while [ $# -gt 0 ]; do
+  case "$1" in
+    build)
+      docker build \
+        --tag "${pipeline_image}" \
+        --platform linux/amd64 \
+        "${root}/request-pipeline"
+
+      docker build \
+        --tag "${nginx_pipeline}" \
+        --platform linux/amd64 \
+        "${root}/promises/nginx-ingress/internal/request-pipeline" ;;
+
+    load)
+      kind load docker-image "${pipeline_image}" --name platform
+      kind load docker-image "${nginx_pipeline}" --name platform ;;
+
+    push)
+      docker push "${pipeline_image}"
+      docker push "${nginx_pipeline}" ;;
+
+    rmi)
+      docker rmi --force "${pipeline_image}"
+      docker rmi --force "${nginx_pipeline}" ;;
+
+    pull)
+      docker pull "${pipeline_image}"
+      docker pull "${nginx_pipeline}" ;;
+
+    *)
+      echo "unknown command $1"
+      exit 1
+      ;;
+  esac
+  shift
+done
