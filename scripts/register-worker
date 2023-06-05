@@ -9,15 +9,17 @@ LABELS=""
 NAME=""
 WORKER_CONTEXT=""
 PLATFORM_CONTEXT="kind-platform"
+STATE_STORE="default"
 
 usage() {
     echo -e "Usage: register-worker [--help] [--git] [--with-label foo=bar] [--context k8s-context] [--name  some-name ] [--platform-context 'kind-platform']"
-    echo -e "\t--name, -n\t Name of the cluster to register"
     echo -e "\t--context='', -c,\t The Kubernetes context where to install FluxCD onto"
-    echo -e "\t--platform-context='', -p,\t The Kubernetes context of the Platform cluster"
-    echo -e "\t--help, -h\t Prints this message"
-    echo -e "\t--with-label foo=bar, -l\t Adds a label to the cluster during registration"
     echo -e "\t--git, -g\t Use Gitea as local repository in place of default local MinIO"
+    echo -e "\t--help, -h\t Prints this message"
+    echo -e "\t--name, -n\t Name of the cluster to register"
+    echo -e "\t--platform-context='', -p,\t The Kubernetes context of the Platform cluster"
+    echo -e "\t--state-store,-s\t Name of the state store to use"
+    echo -e "\t--with-label foo=bar, -l\t Adds a label to the cluster during registration"
     exit "${1:-0}"
 }
 
@@ -25,26 +27,28 @@ load_options() {
     for arg in "$@"; do
       shift
       case "$arg" in
-        '--help')             set -- "$@" '-h'   ;;
-        '--git')              set -- "$@" '-g'   ;;
-        '--with-label')       set -- "$@" '-l'   ;;
-        '--name')             set -- "$@" '-n'   ;;
         '--context')          set -- "$@" '-c'   ;;
+        '--git')              set -- "$@" '-g'   ;;
+        '--help')             set -- "$@" '-h'   ;;
+        '--name')             set -- "$@" '-n'   ;;
         '--platform-context') set -- "$@" '-p'   ;;
+        '--state-store')      set -- "$@" '-s'   ;;
+        '--with-label')       set -- "$@" '-l'   ;;
         *)                    set -- "$@" "$arg" ;;
       esac
     done
 
     OPTIND=1
-    while getopts "p:hgn:c:l:" opt
+    while getopts "p:hgn:c:l:s:" opt
     do
       case "$opt" in
-        'h') usage ;;
+        'c') WORKER_CONTEXT="$OPTARG";;
         'g') GIT_REPO=true;;
+        'h') usage ;;
         'l') LABELS="$OPTARG";;
         'n') NAME="$OPTARG";;
-        'c') WORKER_CONTEXT="$OPTARG";;
         'p') PLATFORM_CONTEXT="$OPTARG";;
+        's') STATE_STORE="$OPTARG";;
         *) usage 1 ;;
       esac
     done
@@ -64,7 +68,7 @@ prepare_cluster() {
   local context=""
   $ROOT/scripts/install-gitops --context $WORKER_CONTEXT --path "platform-cluster"
 
-  local yqOpts=".metadata.name = \"$NAME\" | .metadata.labels = {}"
+  local yqOpts=".metadata.name = \"$NAME\" | .metadata.labels = {} | .spec.stateStoreRef.name = \"$STATE_STORE\""
   yq "${yqOpts}" $ROOT/config/samples/platform_v1alpha1_worker_cluster.yaml |
     kubectl --context $PLATFORM_CONTEXT apply -f -
 
