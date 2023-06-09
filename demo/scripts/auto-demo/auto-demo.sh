@@ -30,7 +30,7 @@ function sync_platform_flux() {
 ########################
 
 # using Kind we've created two K8s clusters, platform and worker
-pe "kind get clusters"
+pe "kubectl get clusters"
 
 # Kratix is installed on the platform cluster
 # We can see Kratix is ready by asking for Promises
@@ -103,11 +103,8 @@ pe "watch pods worker"
 
 pe '# http://todo.local.gd:31338'
 
-# now lets delete the request
-pe 'kubectl delete -f resource-request.yaml'
-
 # imagine you wanted to make another request, but for an app with CC
-# platform team want different behaviour
+# platform team want have encoded different behaviour
 pe 'bat resource-request-cc.yaml'
 
 # lets make the request
@@ -116,17 +113,36 @@ pe 'kubectl apply -f resource-request-cc.yaml'
 # lets watch pipelines fire
 pe 'watch pods platform'
 
-# observe old RR is deleted
 # talk through why nothing is getting scheduled
 pe 'watch pods worker'
 
 # show clusters
+# talk about labels
 pe 'kubectl get clusters --show-labels'
 
+# create a new cluster
+pe 'kubectl create -f cluster.yaml'
+
+# show clusters
+pe 'kubectl get clusters --show-labels'
+(flux reconcile  kustomization kratix-workload-resources --namespace flux-system --with-source --context kind-worker-2 > /dev/null 2>&1) & > /dev/null 2>&1
+
+
+# talk through why nothing is getting scheduled
+pe 'pods worker-2'
+
 # label cluster
-pe 'kubectl label cluster worker-cluster-1 pci=true'
+pe 'kubectl label cluster worker-cluster-2 environment=dev'
+(flux reconcile  kustomization kratix-workload-resources --namespace flux-system --with-source --context kind-worker-2 > /dev/null 2>&1) & > /dev/null 2>&1
+
+# talk through why only the WCR is getting scheduled
+pe 'watch pods worker-2'
+
+# label cluster
+pe 'kubectl label cluster worker-cluster-2 pci=true'
 
 # watch workloads get scheduled
-pe 'watch pods worker'
+pe 'watch pods worker-2'
 
-pe '# http://todocc.local.gd:31338'
+# open pci-compliant app
+pe '# http://todocc.local.gd:31339'

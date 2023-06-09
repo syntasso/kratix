@@ -9,7 +9,7 @@ if [[ -z "${LPASS_SLACK_URL}" ]]; then
   LPASS_SLACK_URL=$(lpass show 3118395568578530603 --password)
 fi
 
-${PWD}/../scripts/quick-start.sh --local-images ${PWD}/cached-images/ --recreate
+${PWD}/../scripts/quick-start.sh --local-images ${PWD}/cached-images/ --recreate --third-cluster
 ${PWD}/../scripts/register-worker --with-label environment=platform --name platform-cluster --context kind-platform
 
 kubectl --context kind-platform --namespace default create secret generic \

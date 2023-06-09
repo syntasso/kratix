@@ -9,6 +9,7 @@ source "${ROOT}/scripts/install-gitops"
 BUILD_KRATIX_IMAGES=false
 RECREATE=false
 SINGLE_CLUSTER=false
+THIRD_CLUSTER=false
 
 INSTALL_AND_CREATE_MINIO_BUCKET=true
 INSTALL_AND_CREATE_GITEA_REPO=false
@@ -44,16 +45,18 @@ load_options() {
         '--git-and-minio')  set -- "$@" '-d'   ;;
         '--local-images')   set -- "$@" '-i'   ;;
         '--single-cluster') set -- "$@" '-s'   ;;
+        '--third-cluster')  set -- "$@" '-t'   ;;
         *)                  set -- "$@" "$arg" ;;
       esac
     done
 
     OPTIND=1
-    while getopts "hrlgdi:s" opt
+    while getopts "hrlgtdi:s" opt
     do
       case "$opt" in
         'r') RECREATE=true ;;
         's') SINGLE_CLUSTER=true ;;
+        't') THIRD_CLUSTER=true ;;
         'h') usage ;;
         'l') BUILD_KRATIX_IMAGES=true ;;
         'i') LOCAL_IMAGES_DIR=${OPTARG} ;;
@@ -206,6 +209,10 @@ setup_worker_cluster() {
     fi
 }
 
+setup_worker_2_cluster() {
+    install_gitops kind-worker-2 worker-cluster-2
+}
+
 wait_for_gitea() {
     kubectl wait pod --context kind-platform -n gitea --selector app=gitea --for=condition=ready ${opts}
 }
@@ -325,6 +332,16 @@ install_kratix() {
         fi
     fi
 
+    if $THIRD_CLUSTER; then
+        log -n "Creating worker cluster..."
+        if ! run kind create cluster --name worker-2 --image $KIND_IMAGE \
+            --config ${ROOT}/config/samples/kind-worker-2-config.yaml
+        then
+            error "Could not create worker cluster 2"
+            exit 1
+        fi
+    fi
+
     log -n "Waiting for local repository to be running..."
     if ! SUPRESS_OUTPUT=true run wait_for_local_repository; then
         log "\n\nIt's taking longer than usual for the local repository to start."
@@ -344,10 +361,27 @@ install_kratix() {
         fi
     fi
 
+    if $THIRD_CLUSTER; then
+        if [ -d "${LOCAL_IMAGES_DIR}" ]; then
+            log -n "Loading images in worker cluster..."
+            if ! run load_images worker-2; then
+                error "Failed to load images in worker cluster"
+                exit 1;
+            fi
+        fi
+    fi
+
     log -n "Setting up worker cluster..."
     if ! run setup_worker_cluster; then
         error " failed"
         exit 1
+    fi
+
+    if $THIRD_CLUSTER; then
+        if ! run setup_worker_2_cluster; then
+            error " failed"
+            exit 1
+        fi
     fi
 
     log -n "Waiting for system to reconcile... "
