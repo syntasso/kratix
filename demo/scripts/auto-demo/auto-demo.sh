@@ -103,3 +103,30 @@ pe "watch pods worker"
 
 pe '# http://todo.local.gd:31338'
 
+# now lets delete the request
+pe 'kubectl delete -f resource-request.yaml'
+
+# imagine you wanted to make another request, but for an app with CC
+# platform team want different behaviour
+pe 'bat resource-request-cc.yaml'
+
+# lets make the request
+pe 'kubectl apply -f resource-request-cc.yaml'
+
+# lets watch pipelines fire
+pe 'watch pods platform'
+
+# observe old RR is deleted
+# talk through why nothing is getting scheduled
+pe 'watch pods worker'
+
+# show clusters
+pe 'kubectl get clusters --show-labels'
+
+# label cluster
+pe 'kubectl label cluster worker-cluster-1 pci=true'
+
+# watch workloads get scheduled
+pe 'watch pods worker'
+
+pe '# http://todocc.local.gd:31338'

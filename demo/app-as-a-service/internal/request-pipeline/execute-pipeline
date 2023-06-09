@@ -27,7 +27,7 @@ cat /tmp/transfer/redis-resource-request.yaml \
   > /output/redis-resource-request.yaml
 
 export message="Deployping app: ${name}"
-if $contains_cc ; then
+if [ $contains_cc = 'true' ]; then
   cat /tmp/transfer/slack-resource-request.yaml \
     | yq eval '.metadata.name = env(name) | .spec.message = "Deploying app: " + env(name) + " to pci-secure environment"' \
     > /output/slack-resource-request.yaml
