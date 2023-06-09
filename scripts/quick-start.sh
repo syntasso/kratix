@@ -120,6 +120,10 @@ verify_prerequisites() {
     if ${RECREATE}; then
         log -n "Deleting pre-existing clusters..."
         run kind delete clusters platform worker
+        if ${THIRD_CLUSTER}; then
+            log -n "Deleting third cluster..."
+            run kind delete clusters worker-2
+        fi
     else
         log -n "Verifying no clusters exist..."
         if kind get clusters 2>&1 | grep --quiet --regexp "platform\|worker"; then
