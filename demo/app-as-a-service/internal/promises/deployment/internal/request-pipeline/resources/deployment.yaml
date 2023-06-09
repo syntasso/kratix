@@ -34,5 +34,7 @@ spec:
             value: acid-TBDNAME-postgresql.default.svc.cluster.local
           - name: DBNAME
             value: TBDNAMEdb
+          - name: CONTAINS_CC
+            value: "CC_VALUE"
         imagePullPolicy: IfNotPresent
         name: TBDNAME

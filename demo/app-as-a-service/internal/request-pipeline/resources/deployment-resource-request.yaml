@@ -5,3 +5,4 @@ metadata:
   namespace: default
 spec:
   image: TBDIMAGE
+  containsCreditCardData: CC_VALUE

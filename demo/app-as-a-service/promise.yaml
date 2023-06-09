@@ -35,6 +35,14 @@ spec:
                 properties:
                   spec:
                     properties:
+                      clusterSelectors:
+                        description: |
+                          List of key:value pairs to use as cluster selectors when scheduling
+                        type: object
+                        x-kubernetes-preserve-unknown-fields: true
+                      containsCreditCardData:
+                        default: false
+                        type: boolean
                       image:
                         type: string
                     type: object
@@ -10164,6 +10172,7 @@ spec:
     kind: ClusterRole
     metadata:
       name: slack-default-promise-pipeline-credentials
+      namespace: default
     rules:
     - apiGroups:
       - ""
@@ -10177,6 +10186,7 @@ spec:
     kind: ClusterRoleBinding
     metadata:
       name: slack-default-promise-pipeline-credentials
+      namespace: default
     roleRef:
       apiGroup: rbac.authorization.k8s.io
       kind: ClusterRole

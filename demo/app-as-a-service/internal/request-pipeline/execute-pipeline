@@ -26,10 +26,20 @@ cat /tmp/transfer/redis-resource-request.yaml \
   | .spec.clusterSelectors = env(clusterLabels)' \
   > /output/redis-resource-request.yaml
 
-cat /tmp/transfer/slack-resource-request.yaml \
-  | yq eval '.metadata.name = env(name) | .spec.message = "Deploying app: " + env(name)' \
-  > /output/slack-resource-request.yaml
+export message="Deployping app: ${name}"
+if $contains_cc ; then
+  cat /tmp/transfer/slack-resource-request.yaml \
+    | yq eval '.metadata.name = env(name) | .spec.message = "Deploying app: " + env(name) + " to pci-secure environment"' \
+    > /output/slack-resource-request.yaml
+else
+  cat /tmp/transfer/slack-resource-request.yaml \
+    | yq eval '.metadata.name = env(name) | .spec.message = "Deploying app: " + env(name)' \
+    > /output/slack-resource-request.yaml
+fi
 
 cat /tmp/transfer/deployment-resource-request.yaml \
-  | yq eval '.metadata.name = env(name) | .spec.image = env(image)' \
+  | yq eval '.metadata.name = env(name)
+  | .spec.image = env(image)
+  | .spec.clusterSelectors = env(clusterLabels)
+  | .spec.containsCreditCardData = env(contains_cc)' \
   > /output/deployment-resource-request.yaml

@@ -4,9 +4,15 @@ set -xe
 
 export name="$(yq eval '.metadata.name' /input/object.yaml)"
 export image="$(yq eval '.spec.image' /input/object.yaml)"
+export contains_cc="$(yq eval '.spec.containsCreditCardData' /input/object.yaml)"
+export cluster_selectors="$(yq eval '.spec.clusterSelectors // {}' /input/object.yaml)"
+
+echo $cluster_selectors > /metadata/cluster-selectors.yaml
 
 sed "s/TBDNAME/${name}/g" /tmp/transfer/deployment.yaml > /tmp/deployment.yaml
-sed "s_TBDIMAGE_${image}_g" /tmp/deployment.yaml > /output/deployment.yaml
+
+sed "s_TBDIMAGE_${image}_g" /tmp/deployment.yaml > /tmp/deployment.yaml.v2
+sed "s/CC_VALUE/${contains_cc}/g" /tmp/deployment.yaml.v2 > /output/deployment.yaml
 
 
 sed "s/TBDNAME/${name}/g" /tmp/transfer/service.yaml > /output/service.yaml
