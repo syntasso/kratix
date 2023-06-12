@@ -81,7 +81,7 @@ spec:
         command: ["sh", "-c", "kubectl wait --for=condition=Ready --timeout=120s -n kratix-platform-system pod -l run=minio"]
       containers:
       - name: minio-event-configuration
-        image: minio/mc
+        image: minio/mc:RELEASE.2023-06-06T13-48-56Z
         command: ["mc", "mb", "minio/kratix"]
         env:
         - name: MC_ACCESS_KEY
