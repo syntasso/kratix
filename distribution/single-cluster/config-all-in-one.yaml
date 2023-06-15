@@ -7,13 +7,13 @@ metadata:
     environment: dev
 spec:
   stateStoreRef:
-    name: default
+    name: minio-store
     kind: BucketStateStore
 ---
 apiVersion: platform.kratix.io/v1alpha1
 kind: BucketStateStore
 metadata:
-  name: default
+  name: minio-store
   namespace: default
 spec:
   endpoint: minio.kratix-platform-system.svc.cluster.local
