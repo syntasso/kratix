@@ -1,6 +1,6 @@
 stateStores:
 - kind: BucketStateStore
-  name: default
+  name: minio-store
   namespace: default
   secretRef:
     name: minio-credentials
