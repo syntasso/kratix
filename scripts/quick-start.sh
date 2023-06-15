@@ -22,6 +22,8 @@ DOCKER_BUILDKIT="${DOCKER_BUILDKIT:-1}"
 WAIT_TIMEOUT="180s"
 KIND_IMAGE="${KIND_IMAGE:-"kindest/node:v1.24.7"}"
 
+LABELS=true
+
 usage() {
     echo -e "Usage: quick-start.sh [--help] [--recreate] [--local] [--git] [--git-and-minio] [--local-images <location>]"
     echo -e "\t--help, -h            Prints this message"
@@ -31,6 +33,7 @@ usage() {
     echo -e "\t--git, -g             Use Gitea as local repository in place of default local MinIO"
     echo -e "\t--single-cluster, -s  Deploy Kratix on a Single Cluster setup"
     echo -e "\t--git-and-minio, -d   Install Gitea alongside the minio installation. Cluster still uses minio as statestore. Can't be used alongside --git"
+    echo -e "\t--no-labels, -n       Don't apply any labels to the clusters"
     exit "${1:-0}"
 }
 
@@ -44,6 +47,7 @@ load_options() {
         '--git')            set -- "$@" '-g'   ;;
         '--git-and-minio')  set -- "$@" '-d'   ;;
         '--local-images')   set -- "$@" '-i'   ;;
+        '--no-labels')      set -- "$@" '-n'   ;;
         '--single-cluster') set -- "$@" '-s'   ;;
         '--third-cluster')  set -- "$@" '-t'   ;;
         *)                  set -- "$@" "$arg" ;;
@@ -51,7 +55,7 @@ load_options() {
     done
 
     OPTIND=1
-    while getopts "hrlgtdi:s" opt
+    while getopts "hrlgtdi:sn" opt
     do
       case "$opt" in
         'r') RECREATE=true ;;
@@ -59,6 +63,7 @@ load_options() {
         't') THIRD_CLUSTER=true ;;
         'h') usage ;;
         'l') BUILD_KRATIX_IMAGES=true ;;
+        'n') LABELS=false ;;
         'i') LOCAL_IMAGES_DIR=${OPTARG} ;;
         'd') INSTALL_AND_CREATE_GITEA_REPO=true INSTALL_AND_CREATE_MINIO_BUCKET=true WORKER_STATESTORE_TYPE=BucketStateStore ;;
         'g') INSTALL_AND_CREATE_GITEA_REPO=true INSTALL_AND_CREATE_MINIO_BUCKET=false WORKER_STATESTORE_TYPE=GitStateStore ;;
@@ -210,6 +215,9 @@ setup_worker_cluster() {
     else
         cat "${ROOT}/config/samples/platform_v1alpha1_worker_cluster.yaml" | patch_statestore | kubectl --context kind-platform apply --filename -
         install_gitops kind-worker worker-cluster-1
+        if ! ${LABELS}; then
+            kubectl --context kind-platform label cluster worker-cluster-1 environment-
+        fi
     fi
 }
 
