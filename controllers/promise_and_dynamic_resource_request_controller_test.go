@@ -130,12 +130,12 @@ var _ = Context("Promise Reconciler", func() {
 			err = k8sClient.Create(context.Background(), redisRequest)
 			Expect(err).ToNot(HaveOccurred())
 
-			By("creating a configMap to store Promise selectors")
+			By("creating a configMap to store Promise scheduling")
 			Eventually(func() string {
 				cm := &v1.ConfigMap{}
 				expectedCM := types.NamespacedName{
 					Namespace: "default",
-					Name:      "cluster-selectors-" + promiseIdentifier,
+					Name:      "scheduling-" + promiseIdentifier,
 				}
 
 				err := k8sClient.Get(context.Background(), expectedCM, cm)
@@ -144,7 +144,7 @@ var _ = Context("Promise Reconciler", func() {
 				}
 
 				return cm.Data["selectors"]
-			}, timeout, interval).Should(Equal(labels.FormatLabels(promiseCR.Spec.ClusterSelector)), "Expected redis cluster selectors to be in configMap")
+			}, timeout, interval).Should(Equal(labels.FormatLabels(promiseCR.GetSchedulingSelectors())), "Expected redis scheduling selectors to be in configMap")
 
 			promise := &v1alpha1.Promise{}
 
@@ -152,15 +152,15 @@ var _ = Context("Promise Reconciler", func() {
 			Expect(err).NotTo(HaveOccurred())
 			Expect(promise.GetFinalizers()).Should(
 				ConsistOf(
-					"kratix.io/cluster-selectors-config-map-cleanup",
+					"kratix.io/scheduling-config-map-cleanup",
 					"kratix.io/resource-request-cleanup",
 					"kratix.io/dynamic-controller-dependant-resources-cleanup",
-					"kratix.io/crd-cleanup",
-					"kratix.io/worker-cluster-resources-cleanup",
+					"kratix.io/api-crd-cleanup",
+					"kratix.io/dependencies-cleanup",
 				),
 				"Promise should have finalizers set")
 
-			By("creating Redis Worker Cluster Resources")
+			By("creating Redis dependencies")
 			workNamespacedName := types.NamespacedName{
 				Name:      promiseIdentifier,
 				Namespace: "default",
@@ -190,7 +190,7 @@ var _ = Context("Promise Reconciler", func() {
 				cm := &v1.ConfigMap{}
 				expectedCM := types.NamespacedName{
 					Namespace: "default",
-					Name:      "cluster-selectors-redis-promise-default",
+					Name:      "scheduling-redis-promise-default",
 				}
 
 				err := k8sClient.Get(context.Background(), expectedCM, cm)
@@ -300,7 +300,7 @@ var _ = Context("Promise Reconciler", func() {
 						return nil
 					}
 					return createdRedisRequest.GetFinalizers()
-				}, timeout, interval).Should(ConsistOf("kratix.io/work-cleanup", "kratix.io/pipeline-cleanup"))
+				}, timeout, interval).Should(ConsistOf("kratix.io/work-cleanup", "kratix.io/workflows-cleanup"))
 			})
 
 			It("Takes no action on update", func() {
@@ -377,10 +377,10 @@ var _ = Context("Promise Reconciler", func() {
 		})
 	})
 
-	Describe("Can support Promises that only contain worker cluster resources", func() {
+	Describe("Can support Promises that only contain dependencies", func() {
 		BeforeEach(func() {
 			promiseCR = &platformv1alpha1.Promise{}
-			yamlFile, err := ioutil.ReadFile("../config/samples/nil-xaas-promise.yaml")
+			yamlFile, err := ioutil.ReadFile("../config/samples/nil-api-promise.yaml")
 			Expect(err).ToNot(HaveOccurred())
 			err = yaml.Unmarshal(yamlFile, promiseCR)
 			promiseCR.Namespace = "default"
@@ -389,14 +389,14 @@ var _ = Context("Promise Reconciler", func() {
 			k8sClient.Create(context.Background(), promiseCR)
 		})
 
-		promiseIdentifier := "nil-xaas-promise-default"
+		promiseIdentifier := "nil-api-promise-default"
 		expectedPromise := types.NamespacedName{
 			Namespace: "default",
-			Name:      "nil-xaas-promise",
+			Name:      "nil-api-promise",
 		}
 
 		It("only creates a work resource", func() {
-			By("creating Worker Cluster Resources")
+			By("creating dependencies")
 			workNamespacedName := types.NamespacedName{
 				Name:      promiseIdentifier,
 				Namespace: "default",
@@ -413,7 +413,7 @@ var _ = Context("Promise Reconciler", func() {
 
 			Expect(promise.GetFinalizers()).Should(
 				ConsistOf(
-					"kratix.io/worker-cluster-resources-cleanup",
+					"kratix.io/dependencies-cleanup",
 				), "Promise should have finalizers set")
 
 			By("deleting the Promise")

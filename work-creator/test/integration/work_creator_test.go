@@ -9,6 +9,7 @@ import (
 
 	. "github.com/onsi/ginkgo"
 	. "github.com/onsi/gomega"
+	"github.com/syntasso/kratix/api/v1alpha1"
 	platformv1alpha1 "github.com/syntasso/kratix/api/v1alpha1"
 	"github.com/syntasso/kratix/work-creator/pipeline"
 	"k8s.io/apimachinery/pkg/apis/meta/v1/unstructured"
@@ -55,12 +56,14 @@ var _ = Describe("WorkCreator", func() {
 
 			It("has a correctly configured Work resource", func() {
 				Expect(workResource.GetName()).To(Equal(getWorkResourceIdentifer()))
-				Expect(workResource.Spec.ClusterSelector).To(Equal(
-					map[string]string{
-						"environment": "dev",
-						"region":      "europe",
-					},
-				))
+				Expect(workResource.Spec.Scheduling).To(Equal(
+					[]v1alpha1.SchedulingConfig{
+						{
+							Target: v1alpha1.Target{
+								MatchLabels: map[string]string{"environment": "dev", "region": "europe"},
+							},
+						},
+					}))
 			})
 
 			Describe("the Work resource manifests list", func() {
@@ -87,11 +90,14 @@ var _ = Describe("WorkCreator", func() {
 			It("does not try to apply the metadata/cluster-selectors.yaml when its not present", func() {
 				workResource := getCreatedWorkResource()
 				Expect(workResource.GetName()).To(Equal(getWorkResourceIdentifer()))
-				Expect(workResource.Spec.ClusterSelector).To(Equal(
-					map[string]string{
-						"environment": "dev",
-					},
-				))
+				Expect(workResource.Spec.Scheduling).To(Equal(
+					[]v1alpha1.SchedulingConfig{
+						{
+							Target: v1alpha1.Target{
+								MatchLabels: map[string]string{"environment": "dev"},
+							},
+						},
+					}))
 			})
 		})
 	})

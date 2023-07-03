@@ -17,8 +17,8 @@ type cluster struct {
 }
 
 var (
-	promisePath              = "./assets/bash-promise/promise.yaml"
-	promiseWithSelectorsPath = "./assets/bash-promise/promise-with-selectors.yaml"
+	promisePath               = "./assets/bash-promise/promise.yaml"
+	promiseWithSchedulingPath = "./assets/bash-promise/promise-with-scheduling.yaml"
 
 	workerCtx = "--context=kind-worker"
 	platCtx   = "--context=kind-platform"
@@ -156,20 +156,20 @@ var _ = Describe("Kratix", func() {
 		// Platform cluster (GitStateStore):
 		// - environment: platform
 
-		// PromiseClusterSelectors:
+		// PromiseScheduling:
 		// - security: high
 		BeforeEach(func() {
 			platform.kubectl("label", "cluster", "worker-cluster-1", "security=high")
 			platform.kubectl("apply", "-f", "./assets/platform_gitops-tk-resources.yaml")
 			platform.kubectl("apply", "-f", "./assets/platform_gitstatestore.yaml")
 			platform.kubectl("apply", "-f", "./assets/platform_kratix_cluster.yaml")
-			platform.kubectl("apply", "-f", promiseWithSelectorsPath)
+			platform.kubectl("apply", "-f", promiseWithSchedulingPath)
 			platform.eventuallyKubectl("get", "crd", "bash.test.kratix.io")
 		})
 
 		AfterEach(func() {
 			platform.kubectl("label", "cluster", "worker-cluster-1", "security-", "pci-")
-			platform.kubectl("delete", "-f", promiseWithSelectorsPath)
+			platform.kubectl("delete", "-f", promiseWithSchedulingPath)
 			platform.kubectl("delete", "-f", "./assets/platform_kratix_cluster.yaml")
 			platform.kubectl("delete", "-f", "./assets/platform_gitstatestore.yaml")
 		})
@@ -187,7 +187,7 @@ var _ = Describe("Kratix", func() {
 				})
 			})
 
-			By("respecting the pipeline's cluster-selectors", func() {
+			By("respecting the pipeline's scheduling", func() {
 				pipelineCmd := `echo "pci: true" > /metadata/cluster-selectors.yaml
 				kubectl create namespace rr-2-namespace --dry-run=client -oyaml > /output/ns.yaml`
 				platform.kubectl("apply", "-f", requestWithNameAndCommand("rr-2", pipelineCmd))

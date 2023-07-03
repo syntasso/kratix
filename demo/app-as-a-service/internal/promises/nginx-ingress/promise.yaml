@@ -1,11 +1,10 @@
 apiVersion: platform.kratix.io/v1alpha1
 kind: Promise
 metadata:
-  creationTimestamp: null
   name: nginx-ingress
   namespace: default
 spec:
-  workerClusterResources:
+  dependencies:
   - apiVersion: apiextensions.k8s.io/v1
     kind: CustomResourceDefinition
     metadata:
@@ -4731,5 +4730,4 @@ spec:
         storage: true
         subresources:
           status: {}
-  xaasCrd: null
-status: {}
+

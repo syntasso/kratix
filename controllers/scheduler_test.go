@@ -2,7 +2,6 @@ package controllers_test
 
 import (
 	"context"
-
 	. "github.com/onsi/ginkgo"
 	. "github.com/onsi/gomega"
 	. "github.com/syntasso/kratix/api/v1alpha1"
@@ -63,8 +62,14 @@ var _ = Describe("Controllers/Scheduler", func() {
 			},
 			Spec: WorkSpec{
 				Replicas: WorkerResourceReplicas,
-				ClusterSelector: map[string]string{
-					"environment": "prod",
+				SchedulingField: SchedulingField{ // full reference required when creating an instance of the field
+					Scheduling: []SchedulingConfig{
+						{
+							Target: Target{
+								MatchLabels: map[string]string{"environment": "prod"},
+							},
+						},
+					},
 				},
 			},
 		}
@@ -77,8 +82,14 @@ var _ = Describe("Controllers/Scheduler", func() {
 			},
 			Spec: WorkSpec{
 				Replicas: WorkerResourceReplicas,
-				ClusterSelector: map[string]string{
-					"environment": "dev",
+				SchedulingField: SchedulingField{ // full reference required when creating an instance of the field
+					Scheduling: []SchedulingConfig{
+						{
+							Target: Target{
+								MatchLabels: map[string]string{"environment": "dev"},
+							},
+						},
+					},
 				},
 			},
 		}
@@ -201,14 +212,20 @@ var _ = Describe("Controllers/Scheduler", func() {
 			})
 		})
 
-		When("the Work selector matches no clusters", func() {
+		When("the Work selector matches no workers", func() {
 			BeforeEach(func() {
-				work.Spec.ClusterSelector = map[string]string{"environment": "staging"}
+				work.Spec.Scheduling = []SchedulingConfig{
+					{
+						Target: Target{
+							MatchLabels: map[string]string{"environment": "staging"},
+						},
+					},
+				}
 			})
 
 			It("creates no workplacements", func() {
 				err := scheduler.ReconcileWork(&work)
-				Expect(err).To(MatchError("no Clusters can be selected for clusterSelector"))
+				Expect(err).To(MatchError("no workers can be selected for scheduling"))
 
 				Expect(k8sClient.List(context.Background(), &workPlacements)).To(Succeed())
 				Expect(workPlacements.Items).To(BeEmpty())

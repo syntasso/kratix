@@ -77,12 +77,12 @@ func (r *ClusterReconciler) Reconcile(ctx context.Context, req ctrl.Request) (ct
 	logger = logger.WithValues("path", path)
 
 	if err := r.createCrdPathWithExample(writer); err != nil {
-		logger.Error(err, "unable to write worker cluster resources to state store")
+		logger.Error(err, "unable to write dependencies to state store")
 		return defaultRequeue, nil
 	}
 
 	if err := r.createResourcePathWithExample(writer); err != nil {
-		logger.Error(err, "unable to write worker resources to state store")
+		logger.Error(err, "unable to write dependencies to state store")
 		return defaultRequeue, nil
 	}
 

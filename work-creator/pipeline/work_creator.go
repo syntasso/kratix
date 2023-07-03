@@ -63,8 +63,7 @@ func (w *WorkCreator) Execute(rootDirectory string, identifier string) error {
 	work.Namespace = "default"
 	work.Spec.Replicas = platformv1alpha1.ResourceRequestReplicas
 
-	work.Spec.ClusterSelector, err = w.getMergedClusterSelector(rootDirectory)
-
+	work.Spec.Scheduling, err = w.mergeSchedulingConfig(rootDirectory)
 	if err != nil {
 		return err
 	}
@@ -105,25 +104,32 @@ func (w *WorkCreator) Execute(rootDirectory string, identifier string) error {
 	}
 }
 
-func (w *WorkCreator) getMergedClusterSelector(rootDirectory string) (labels.Set, error) {
-	resourceRequestClusterSelector, err := w.getResourceRequestClusterSelector(rootDirectory)
+func (w *WorkCreator) mergeSchedulingConfig(rootDirectory string) ([]platformv1alpha1.SchedulingConfig, error) {
+	pipelineMatchLabels, err := w.getPipelineSchedulingConfig(rootDirectory)
 	if err != nil {
 		return nil, err
 	}
-	promiseClusterSelector, err := w.getPromiseClusterSelector(rootDirectory)
+	promiseScheduling, err := w.getPromiseScheduling(rootDirectory)
 	if err != nil {
 		return nil, err
 	}
 
-	mergedSelector := labels.Merge(resourceRequestClusterSelector, promiseClusterSelector)
-	return mergedSelector, nil
+	mergedScheduling := []platformv1alpha1.SchedulingConfig{
+		{
+			Target: platformv1alpha1.Target{
+				MatchLabels: labels.Merge(pipelineMatchLabels, promiseScheduling),
+			},
+		},
+	}
+
+	return mergedScheduling, nil
 }
 
-func (w *WorkCreator) getResourceRequestClusterSelector(rootDirectory string) (labels.Set, error) {
+func (w *WorkCreator) getPipelineSchedulingConfig(rootDirectory string) (labels.Set, error) {
 	metadataDirectory := filepath.Join(rootDirectory, "metadata")
-	clusterSelectorFile := filepath.Join(metadataDirectory, "cluster-selectors.yaml")
+	schedulingFile := filepath.Join(metadataDirectory, "cluster-selectors.yaml")
 
-	fileContents, err := os.ReadFile(clusterSelectorFile)
+	fileContents, err := os.ReadFile(schedulingFile)
 	if err != nil {
 		if goerr.Is(err, os.ErrNotExist) {
 			return labels.Set{}, nil
@@ -139,19 +145,19 @@ func (w *WorkCreator) getResourceRequestClusterSelector(rootDirectory string) (l
 	return labelSet, nil
 }
 
-func (w *WorkCreator) getPromiseClusterSelector(rootDirectory string) (labels.Set, error) {
+func (w *WorkCreator) getPromiseScheduling(rootDirectory string) (labels.Set, error) {
 	kratixSystemDirectory := filepath.Join(rootDirectory, "kratix-system")
 
-	fileContents, err := os.ReadFile(filepath.Join(kratixSystemDirectory, "promise-cluster-selectors"))
+	fileContents, err := os.ReadFile(filepath.Join(kratixSystemDirectory, "promise-scheduling"))
 	if err != nil {
 		return nil, err
 	}
 
-	clusterSelectors := string(fileContents)
-	if clusterSelectors == "<none>" {
+	scheduling := string(fileContents)
+	if scheduling == "<none>" {
 		return labels.Set{}, nil
 	}
 
-	labelSet, err := labels.ConvertSelectorToLabelsMap(clusterSelectors)
+	labelSet, err := labels.ConvertSelectorToLabelsMap(scheduling)
 	return labelSet, err
 }

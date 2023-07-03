@@ -63,7 +63,7 @@ func (r *WorkReconciler) Reconcile(ctx context.Context, req ctrl.Request) (ctrl.
 		return ctrl.Result{Requeue: false}, err
 	}
 
-	logger = logger.WithValues("clusterSelectors", work.Spec.ClusterSelector)
+	logger = logger.WithValues("scheduling", work.Spec.Scheduling)
 
 	// If Work already has a WorkPlacement then return
 	workPlacementList := &platformv1alpha1.WorkPlacementList{}
@@ -101,7 +101,7 @@ func (r *WorkReconciler) Reconcile(ctx context.Context, req ctrl.Request) (ctrl.
 	if err != nil {
 		//TODO remove this error checking
 		//temp fix until resolved: https://syntasso.slack.com/archives/C044T9ZFUMN/p1674058648965449
-		if work.IsResourceRequest() && strings.Contains(err.Error(), "no Clusters can be selected for clusterSelector") {
+		if work.IsResourceRequest() && strings.Contains(err.Error(), "no workers can be selected for scheduling") {
 			logger.Info("no available cluster for resource request, trying again shortly")
 			return slowRequeue, nil
 		}

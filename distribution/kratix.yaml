@@ -251,28 +251,40 @@ spec:
           spec:
             description: PromiseSpec defines the desired state of Promise
             properties:
-              clusterSelector:
-                additionalProperties:
-                  type: string
-                type: object
-              workerClusterResources:
-                items:
-                  description: Resources represents the manifest workload to be deployed
-                    on worker cluster
-                  type: object
-                  x-kubernetes-preserve-unknown-fields: true
-                type: array
-              xaasCrd:
-                description: X's CustomResourceDefinition to create the X-aaS offering
+              api:
                 type: object
                 x-kubernetes-embedded-resource: true
                 x-kubernetes-preserve-unknown-fields: true
-              xaasRequestPipeline:
-                description: Array of Image tags to transform from input request custom
-                  resource to output resource(s)
+              dependencies:
                 items:
-                  type: string
+                  description: Resources represents the manifest workload to be deployed
+                    on workers
+                  type: object
+                  x-kubernetes-preserve-unknown-fields: true
                 type: array
+              scheduling:
+                items:
+                  properties:
+                    target:
+                      properties:
+                        matchLabels:
+                          additionalProperties:
+                            type: string
+                          type: object
+                      type: object
+                  type: object
+                type: array
+              workflows:
+                properties:
+                  grapefruit:
+                    properties:
+                      gummybear:
+                        items:
+                          type: object
+                        type: array
+                        x-kubernetes-preserve-unknown-fields: true
+                    type: object
+                type: object
             type: object
           status:
             description: PromiseStatus defines the observed state of Promise
@@ -368,26 +380,31 @@ spec:
           spec:
             description: WorkSpec defines the desired state of Work
             properties:
-              clusterSelector:
-                additionalProperties:
-                  type: string
-                description: ClusterSelector is the selector to use for selecting
-                  the worker cluster
-                type: object
               replicas:
-                description: -1 denotes Cluster Worker Resources, 1 denotes Resource
-                  Request
+                description: -1 denotes dependencies, 1 denotes Resource Request
                 type: integer
+              scheduling:
+                items:
+                  properties:
+                    target:
+                      properties:
+                        matchLabels:
+                          additionalProperties:
+                            type: string
+                          type: object
+                      type: object
+                  type: object
+                type: array
               workload:
                 description: Workload represents the manifest workload to be deployed
-                  on worker cluster
+                  on worker
                 properties:
                   manifests:
-                    description: Manifests represents a list of kuberenetes resources
-                      to be deployed on the worker cluster.
+                    description: Manifests represents a list of resources to be deployed
+                      on the worker
                     items:
                       description: Manifest represents a resource to be deployed on
-                        worker cluster
+                        worker
                       type: object
                       x-kubernetes-preserve-unknown-fields: true
                     type: array
@@ -724,7 +741,7 @@ metadata:
 ---
 apiVersion: v1
 data:
-  WC_IMG: syntasso/kratix-platform-pipeline-adapter:1bb4e99a9d5d4a368a6cd6e5733d98c5118c17d0
+  WC_IMG: syntasso/kratix-platform-pipeline-adapter:dev
 kind: ConfigMap
 metadata:
   name: kratix-platform-wc-img-config
@@ -785,7 +802,7 @@ spec:
             configMapKeyRef:
               key: WC_IMG
               name: kratix-platform-wc-img-config
-        image: syntasso/kratix-platform:1bb4e99a9d5d4a368a6cd6e5733d98c5118c17d0
+        image: syntasso/kratix-platform:dev
         livenessProbe:
           httpGet:
             path: /healthz

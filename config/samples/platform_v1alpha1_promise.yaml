@@ -3,7 +3,7 @@ kind: Promise
 metadata:
   name: promise-sample
 spec:
-  xaasCrd:
+  api:
     apiVersion: something
     kind: Redis
     metadata:
@@ -16,3 +16,4 @@ spec:
         plural: Redii
         singular: Redis
       scope: Namespaced
+

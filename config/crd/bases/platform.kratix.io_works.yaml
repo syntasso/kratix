@@ -34,26 +34,31 @@ spec:
           spec:
             description: WorkSpec defines the desired state of Work
             properties:
-              clusterSelector:
-                additionalProperties:
-                  type: string
-                description: ClusterSelector is the selector to use for selecting
-                  the worker cluster
-                type: object
               replicas:
-                description: -1 denotes Cluster Worker Resources, 1 denotes Resource
-                  Request
+                description: -1 denotes dependencies, 1 denotes Resource Request
                 type: integer
+              scheduling:
+                items:
+                  properties:
+                    target:
+                      properties:
+                        matchLabels:
+                          additionalProperties:
+                            type: string
+                          type: object
+                      type: object
+                  type: object
+                type: array
               workload:
                 description: Workload represents the manifest workload to be deployed
-                  on worker cluster
+                  on worker
                 properties:
                   manifests:
-                    description: Manifests represents a list of kuberenetes resources
-                      to be deployed on the worker cluster.
+                    description: Manifests represents a list of resources to be deployed
+                      on the worker
                     items:
                       description: Manifest represents a resource to be deployed on
-                        worker cluster
+                        worker
                       type: object
                       x-kubernetes-preserve-unknown-fields: true
                     type: array

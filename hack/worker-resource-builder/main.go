@@ -18,12 +18,12 @@ import (
 func main() {
 	var resourcesPath string
 	var promisePath string
-	flag.StringVar(&resourcesPath, "k8s-resources-directory", "", "Absolute Path of k8s resources to build workerClusterResources from")
-	flag.StringVar(&promisePath, "promise", "", "Absolute path of Promise to insert workerClusterResources into")
+	flag.StringVar(&resourcesPath, "resources-dir", "", "Absolute Path of the directory containing dependencies")
+	flag.StringVar(&promisePath, "promise", "", "Absolute path of Promise to insert dependencies into")
 	flag.Parse()
 
 	if resourcesPath == "" {
-		fmt.Println("Must provide -k8s-resources-directory")
+		fmt.Println("Must provide -resources-dir")
 		os.Exit(1)
 	}
 
@@ -32,14 +32,14 @@ func main() {
 		os.Exit(1)
 	}
 
-	//Read Resoures
+	//Read Resources
 	files, err := ioutil.ReadDir(resourcesPath)
 	if err != nil {
 		fmt.Println("Error reading resourcesPath: " + resourcesPath)
 		os.Exit(1)
 	}
 
-	resources := []platformv1alpha1.WorkerClusterResource{}
+	resources := []platformv1alpha1.Dependency{}
 
 	for _, fileInfo := range files {
 		fileName := filepath.Join(resourcesPath, fileInfo.Name())
@@ -59,7 +59,7 @@ func main() {
 				if us.GetNamespace() == "" && us.GetKind() != "Namespace" {
 					us.SetNamespace("default")
 				}
-				resources = append(resources, platformv1alpha1.WorkerClusterResource{Unstructured: *us})
+				resources = append(resources, platformv1alpha1.Dependency{Unstructured: *us})
 			}
 		}
 	}
@@ -74,9 +74,9 @@ func main() {
 		l.Println(err.Error())
 		os.Exit(1)
 	}
-	promise.Spec.WorkerClusterResources = resources
+	promise.Spec.Dependencies = resources
 
-	//Write Promise (with workerClusterResources) to stdout
+	//Write Promise (with dependencies) to stdout
 	bytes, _ := yamlsig.Marshal(promise)
 	fmt.Println(string(bytes))
 }

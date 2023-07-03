@@ -1,20 +1,20 @@
 apiVersion: platform.kratix.io/v1alpha1
 kind: Promise
 metadata:
-  name: deployment
+  name: bash
   namespace: default
 spec:
   api:
     apiVersion: apiextensions.k8s.io/v1
     kind: CustomResourceDefinition
     metadata:
-      name: deployments.marketplace.kratix.io
+      name: bash.test.kratix.io
     spec:
-      group: marketplace.kratix.io
+      group: test.kratix.io
       names:
-        kind: deployment
-        plural: deployments
-        singular: deployment
+        kind: bash
+        plural: bash
+        singular: bash
       scope: Namespaced
       versions:
       - name: v1alpha1
@@ -23,24 +23,25 @@ spec:
             properties:
               spec:
                 properties:
-                  clusterSelectors:
-                    description: |
-                      List of key:value pairs to use as cluster selectors when scheduling
-                    type: object
-                    x-kubernetes-preserve-unknown-fields: true
-                  containsCreditCardData:
-                    default: false
-                    type: boolean
-                  image:
+                  container0Cmd:
+                    description: Arbitrary code to be executed by the container 0
+                    type: string
+                  container1Cmd:
+                    description: Arbitrary code to be executed by the container 1
                     type: string
                 type: object
             type: object
         served: true
         storage: true
+  dependencies:
+  - apiVersion: v1
+    kind: Namespace
+    metadata:
+      name: bash-wcr-namespace
   scheduling:
   - target:
       matchLabels:
-        environment: dev
+        security: high
   workflows:
     grapefruit:
       gummybear:
@@ -51,6 +52,8 @@ spec:
           namespace: default
         spec:
           containers:
-          - image: syntasso/demo-deployment-request-pipeline:v0.1.1
-            name: demo-deployment-request-pipeline
+          - image: syntassodev/bash-promise-test-c0:dev
+            name: bash-promise-test-c0
+          - image: syntassodev/bash-promise-test-c1:dev
+            name: bash-promise-test-c1
 

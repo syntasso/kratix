@@ -44,13 +44,13 @@ type Work struct {
 
 // WorkSpec defines the desired state of Work
 type WorkSpec struct {
-	// Workload represents the manifest workload to be deployed on worker cluster
+	// Workload represents the manifest workload to be deployed on worker
 	Workload WorkloadTemplate `json:"workload,omitempty"`
 
-	// ClusterSelector is the selector to use for selecting the worker cluster
-	ClusterSelector map[string]string `json:"clusterSelector,omitempty"`
+	// Scheduling is used for selecting the worker
+	SchedulingField `json:",inline"`
 
-	// -1 denotes Cluster Worker Resources, 1 denotes Resource Request
+	// -1 denotes dependencies, 1 denotes Resource Request
 	Replicas int `json:"replicas,omitempty"`
 }
 
@@ -62,18 +62,24 @@ func (w *Work) IsWorkerResource() bool {
 	return w.Spec.Replicas == WorkerResourceReplicas
 }
 
-func (w *Work) HasClusterSelector() bool {
-	return len(w.Spec.ClusterSelector) > 0
+func (w *Work) HasScheduling() bool {
+	// scheduling:
+	// - target: {}
+	return len(w.Spec.Scheduling) > 0 && len(w.Spec.Scheduling[0].Target.MatchLabels) > 0
 }
 
-// WorkloadTemplate represents the manifest workload to be deployed on worker cluster
+func (w *Work) GetSchedulingSelectors() map[string]string {
+	return generateLabelSelectorsFromScheduling(w.Spec.Scheduling)
+}
+
+// WorkloadTemplate represents the manifest workload to be deployed on worker
 type WorkloadTemplate struct {
-	// Manifests represents a list of kuberenetes resources to be deployed on the worker cluster.
+	// Manifests represents a list of resources to be deployed on the worker
 	// +optional
 	Manifests []Manifest `json:"manifests,omitempty"`
 }
 
-// Manifest represents a resource to be deployed on worker cluster
+// Manifest represents a resource to be deployed on worker
 type Manifest struct {
 	// +kubebuilder:pruning:PreserveUnknownFields
 	unstructured.Unstructured `json:",inline"`
