@@ -19,6 +19,7 @@ package v1alpha1
 import (
 	metav1 "k8s.io/apimachinery/pkg/apis/meta/v1"
 	"k8s.io/apimachinery/pkg/apis/meta/v1/unstructured"
+	"k8s.io/apimachinery/pkg/labels"
 	"k8s.io/apimachinery/pkg/runtime"
 )
 
@@ -46,7 +47,7 @@ type PromiseSpec struct {
 
 	Dependencies []Dependency `json:"dependencies,omitempty"`
 
-	SchedulingField `json:",inline"`
+	Scheduling []SchedulingConfig `json:"scheduling,omitempty"`
 }
 
 type Workflows struct {
@@ -64,10 +65,6 @@ type Dependency struct {
 	// +optional
 	// +kubebuilder:pruning:PreserveUnknownFields
 	unstructured.Unstructured `json:",inline"`
-}
-
-type SchedulingField struct {
-	Scheduling []SchedulingConfig `json:"scheduling,omitempty"`
 }
 
 type SchedulingConfig struct {
@@ -104,8 +101,8 @@ func generateLabelSelectorsFromScheduling(scheduling []SchedulingConfig) map[str
 	// TODO: Support more complex scheduling as it is introduced including resource selection and
 	//		 different target options.
 	schedulingSelectors := map[string]string{}
-	if len(scheduling) > 0 {
-		schedulingSelectors = scheduling[0].Target.MatchLabels
+	for _, schedulingConfig := range scheduling {
+		schedulingSelectors = labels.Merge(schedulingConfig.Target.MatchLabels, schedulingSelectors)
 	}
 	return schedulingSelectors
 }

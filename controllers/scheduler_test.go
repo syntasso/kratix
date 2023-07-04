@@ -2,6 +2,7 @@ package controllers_test
 
 import (
 	"context"
+
 	. "github.com/onsi/ginkgo"
 	. "github.com/onsi/gomega"
 	. "github.com/syntasso/kratix/api/v1alpha1"
@@ -62,8 +63,8 @@ var _ = Describe("Controllers/Scheduler", func() {
 			},
 			Spec: WorkSpec{
 				Replicas: WorkerResourceReplicas,
-				SchedulingField: SchedulingField{ // full reference required when creating an instance of the field
-					Scheduling: []SchedulingConfig{
+				Scheduling: WorkScheduling{
+					Promise: []SchedulingConfig{
 						{
 							Target: Target{
 								MatchLabels: map[string]string{"environment": "prod"},
@@ -82,8 +83,8 @@ var _ = Describe("Controllers/Scheduler", func() {
 			},
 			Spec: WorkSpec{
 				Replicas: WorkerResourceReplicas,
-				SchedulingField: SchedulingField{ // full reference required when creating an instance of the field
-					Scheduling: []SchedulingConfig{
+				Scheduling: WorkScheduling{
+					Promise: []SchedulingConfig{
 						{
 							Target: Target{
 								MatchLabels: map[string]string{"environment": "dev"},
@@ -214,10 +215,12 @@ var _ = Describe("Controllers/Scheduler", func() {
 
 		When("the Work selector matches no workers", func() {
 			BeforeEach(func() {
-				work.Spec.Scheduling = []SchedulingConfig{
-					{
-						Target: Target{
-							MatchLabels: map[string]string{"environment": "staging"},
+				work.Spec.Scheduling = WorkScheduling{
+					Promise: []SchedulingConfig{
+						{
+							Target: Target{
+								MatchLabels: map[string]string{"environment": "staging"},
+							},
 						},
 					},
 				}

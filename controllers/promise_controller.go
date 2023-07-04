@@ -23,6 +23,7 @@ import (
 	"time"
 
 	controllerutil "sigs.k8s.io/controller-runtime/pkg/controller/controllerutil"
+	"sigs.k8s.io/yaml"
 
 	"github.com/go-logr/logr"
 	"github.com/syntasso/kratix/api/v1alpha1"
@@ -305,6 +306,11 @@ func (r *PromiseReconciler) createResourcesForDynamicController(ctx context.Cont
 	configMapName := "scheduling-" + promise.GetIdentifier()
 	configMapNamespace := "default"
 
+	schedulingYAML, err := yaml.Marshal(promise.Spec.Scheduling)
+	if err != nil {
+		return fmt.Errorf("failed to marshal scheduling %w", err)
+	}
+
 	configMap := v1.ConfigMap{
 		ObjectMeta: metav1.ObjectMeta{
 			Name:      configMapName,
@@ -312,7 +318,7 @@ func (r *PromiseReconciler) createResourcesForDynamicController(ctx context.Cont
 			Labels:    promise.GenerateSharedLabels(),
 		},
 		Data: map[string]string{
-			"selectors": labels.FormatLabels(promise.GetSchedulingSelectors()),
+			"scheduling": string(schedulingYAML),
 		},
 	}
 
@@ -609,7 +615,7 @@ func (r *PromiseReconciler) createWorkResourceForDependencies(ctx context.Contex
 	workToCreate.Name = promise.GetIdentifier()
 	workToCreate.Namespace = "default"
 	workToCreate.Labels = promise.GenerateSharedLabels()
-	workToCreate.Spec.Scheduling = promise.Spec.Scheduling
+	workToCreate.Spec.Scheduling.Promise = promise.Spec.Scheduling
 	for _, u := range promise.Spec.Dependencies {
 		workToCreate.Spec.Workload.Manifests = append(workToCreate.Spec.Workload.Manifests, v1alpha1.Manifest{Unstructured: u.Unstructured})
 	}

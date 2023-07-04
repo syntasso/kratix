@@ -143,8 +143,11 @@ var _ = Context("Promise Reconciler", func() {
 					fmt.Println(err.Error())
 				}
 
-				return cm.Data["selectors"]
-			}, timeout, interval).Should(Equal(labels.FormatLabels(promiseCR.GetSchedulingSelectors())), "Expected redis scheduling selectors to be in configMap")
+				return cm.Data["scheduling"]
+			}, timeout, interval).Should(Equal(`- target:
+    matchLabels:
+      environment: dev
+`), "Expected redis scheduling selectors to be in configMap")
 
 			promise := &v1alpha1.Promise{}
 

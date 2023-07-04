@@ -38,17 +38,33 @@ spec:
                 description: -1 denotes dependencies, 1 denotes Resource Request
                 type: integer
               scheduling:
-                items:
-                  properties:
-                    target:
+                description: Scheduling is used for selecting the worker
+                properties:
+                  grapefruit:
+                    items:
                       properties:
-                        matchLabels:
-                          additionalProperties:
-                            type: string
+                        target:
+                          properties:
+                            matchLabels:
+                              additionalProperties:
+                                type: string
+                              type: object
                           type: object
                       type: object
-                  type: object
-                type: array
+                    type: array
+                  promise:
+                    items:
+                      properties:
+                        target:
+                          properties:
+                            matchLabels:
+                              additionalProperties:
+                                type: string
+                              type: object
+                          type: object
+                      type: object
+                    type: array
+                type: object
               workload:
                 description: Workload represents the manifest workload to be deployed
                   on worker

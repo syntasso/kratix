@@ -57,10 +57,19 @@ var _ = Describe("WorkCreator", func() {
 			It("has a correctly configured Work resource", func() {
 				Expect(workResource.GetName()).To(Equal(getWorkResourceIdentifer()))
 				Expect(workResource.Spec.Scheduling).To(Equal(
-					[]v1alpha1.SchedulingConfig{
-						{
-							Target: v1alpha1.Target{
-								MatchLabels: map[string]string{"environment": "dev", "region": "europe"},
+					v1alpha1.WorkScheduling{
+						Promise: []v1alpha1.SchedulingConfig{
+							{
+								Target: v1alpha1.Target{
+									MatchLabels: map[string]string{"environment": "dev"},
+								},
+							},
+						},
+						Grapefruit: []v1alpha1.SchedulingConfig{
+							{
+								Target: v1alpha1.Target{
+									MatchLabels: map[string]string{"environment": "production", "region": "europe"},
+								},
 							},
 						},
 					}))
@@ -91,10 +100,12 @@ var _ = Describe("WorkCreator", func() {
 				workResource := getCreatedWorkResource()
 				Expect(workResource.GetName()).To(Equal(getWorkResourceIdentifer()))
 				Expect(workResource.Spec.Scheduling).To(Equal(
-					[]v1alpha1.SchedulingConfig{
-						{
-							Target: v1alpha1.Target{
-								MatchLabels: map[string]string{"environment": "dev"},
+					v1alpha1.WorkScheduling{
+						Promise: []v1alpha1.SchedulingConfig{
+							{
+								Target: v1alpha1.Target{
+									MatchLabels: map[string]string{"environment": "dev"},
+								},
 							},
 						},
 					}))

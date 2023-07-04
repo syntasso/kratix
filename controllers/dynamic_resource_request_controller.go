@@ -126,7 +126,7 @@ func (r *dynamicResourceRequestController) Reconcile(ctx context.Context, req ct
 						Name: "scheduling-" + r.promiseIdentifier,
 					},
 					Items: []v1.KeyToPath{{
-						Key:  "selectors",
+						Key:  "scheduling",
 						Path: "promise-scheduling",
 					}},
 				},

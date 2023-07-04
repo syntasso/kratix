@@ -13,7 +13,6 @@ import (
 	platformv1alpha1 "github.com/syntasso/kratix/api/v1alpha1"
 	"k8s.io/apimachinery/pkg/api/errors"
 	"k8s.io/apimachinery/pkg/apis/meta/v1/unstructured"
-	"k8s.io/apimachinery/pkg/labels"
 	"k8s.io/apimachinery/pkg/util/yaml"
 	"sigs.k8s.io/controller-runtime/pkg/client"
 )
@@ -63,10 +62,19 @@ func (w *WorkCreator) Execute(rootDirectory string, identifier string) error {
 	work.Namespace = "default"
 	work.Spec.Replicas = platformv1alpha1.ResourceRequestReplicas
 
-	work.Spec.Scheduling, err = w.mergeSchedulingConfig(rootDirectory)
+	pipelineScheduling, err := w.getPipelineScheduling(rootDirectory)
 	if err != nil {
 		return err
 	}
+
+	work.Spec.Scheduling.Grapefruit = pipelineScheduling
+
+	promiseScheduling, err := w.getPromiseScheduling(rootDirectory)
+	if err != nil {
+		return err
+	}
+
+	work.Spec.Scheduling.Promise = promiseScheduling
 
 	manifests := &work.Spec.Workload.Manifests
 	for _, resource := range resources {
@@ -104,60 +112,26 @@ func (w *WorkCreator) Execute(rootDirectory string, identifier string) error {
 	}
 }
 
-func (w *WorkCreator) mergeSchedulingConfig(rootDirectory string) ([]platformv1alpha1.SchedulingConfig, error) {
-	pipelineMatchLabels, err := w.getPipelineSchedulingConfig(rootDirectory)
-	if err != nil {
-		return nil, err
-	}
-	promiseScheduling, err := w.getPromiseScheduling(rootDirectory)
-	if err != nil {
-		return nil, err
-	}
-
-	mergedScheduling := []platformv1alpha1.SchedulingConfig{
-		{
-			Target: platformv1alpha1.Target{
-				MatchLabels: labels.Merge(pipelineMatchLabels, promiseScheduling),
-			},
-		},
-	}
-
-	return mergedScheduling, nil
+func (w *WorkCreator) getPipelineScheduling(rootDirectory string) ([]platformv1alpha1.SchedulingConfig, error) {
+	metadataDirectory := filepath.Join(rootDirectory, "metadata")
+	return getSchedulingConfigsFromFile(filepath.Join(metadataDirectory, "scheduling.yaml"))
 }
 
-func (w *WorkCreator) getPipelineSchedulingConfig(rootDirectory string) (labels.Set, error) {
-	metadataDirectory := filepath.Join(rootDirectory, "metadata")
-	schedulingFile := filepath.Join(metadataDirectory, "scheduling.yaml")
+func (w *WorkCreator) getPromiseScheduling(rootDirectory string) ([]platformv1alpha1.SchedulingConfig, error) {
+	kratixSystemDirectory := filepath.Join(rootDirectory, "kratix-system")
+	return getSchedulingConfigsFromFile(filepath.Join(kratixSystemDirectory, "promise-scheduling"))
+}
 
-	fileContents, err := os.ReadFile(schedulingFile)
+func getSchedulingConfigsFromFile(filepath string) ([]platformv1alpha1.SchedulingConfig, error) {
+	fileContents, err := os.ReadFile(filepath)
 	if err != nil {
 		if goerr.Is(err, os.ErrNotExist) {
-			return labels.Set{}, nil
+			return nil, nil
 		}
 		return nil, err
 	}
 
-	var labelSet labels.Set
-	if err := yaml.Unmarshal(fileContents, &labelSet); err != nil {
-		return nil, err
-	}
-
-	return labelSet, nil
-}
-
-func (w *WorkCreator) getPromiseScheduling(rootDirectory string) (labels.Set, error) {
-	kratixSystemDirectory := filepath.Join(rootDirectory, "kratix-system")
-
-	fileContents, err := os.ReadFile(filepath.Join(kratixSystemDirectory, "promise-scheduling"))
-	if err != nil {
-		return nil, err
-	}
-
-	scheduling := string(fileContents)
-	if scheduling == "<none>" {
-		return labels.Set{}, nil
-	}
-
-	labelSet, err := labels.ConvertSelectorToLabelsMap(scheduling)
-	return labelSet, err
+	var schedulingConfig []platformv1alpha1.SchedulingConfig
+	err = yaml.Unmarshal(fileContents, &schedulingConfig)
+	return schedulingConfig, err
 }
