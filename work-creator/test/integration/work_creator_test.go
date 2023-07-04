@@ -87,7 +87,7 @@ var _ = Describe("WorkCreator", func() {
 				Expect(err).ToNot(HaveOccurred())
 			})
 
-			It("does not try to apply the metadata/cluster-selectors.yaml when its not present", func() {
+			It("does not try to apply the metadata/scheduling.yaml when its not present", func() {
 				workResource := getCreatedWorkResource()
 				Expect(workResource.GetName()).To(Equal(getWorkResourceIdentifer()))
 				Expect(workResource.Spec.Scheduling).To(Equal(

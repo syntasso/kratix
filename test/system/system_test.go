@@ -188,7 +188,7 @@ var _ = Describe("Kratix", func() {
 			})
 
 			By("respecting the pipeline's scheduling", func() {
-				pipelineCmd := `echo "pci: true" > /metadata/cluster-selectors.yaml
+				pipelineCmd := `echo "pci: true" > /metadata/scheduling.yaml
 				kubectl create namespace rr-2-namespace --dry-run=client -oyaml > /output/ns.yaml`
 				platform.kubectl("apply", "-f", requestWithNameAndCommand("rr-2", pipelineCmd))
 

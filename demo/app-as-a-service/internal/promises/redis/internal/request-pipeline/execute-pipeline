@@ -7,7 +7,7 @@ export name="$(yq eval '.metadata.name' /input/object.yaml)"
 export size="$(yq eval '.spec.size' /input/object.yaml)"
 
 cluster_selectors="$(yq eval '.spec.clusterSelectors // {}' /input/object.yaml)"
-echo $cluster_selectors > /metadata/cluster-selectors.yaml
+echo $cluster_selectors > /metadata/scheduling.yaml
 
 # default small size
 export replicas=1

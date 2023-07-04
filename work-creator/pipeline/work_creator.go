@@ -127,7 +127,7 @@ func (w *WorkCreator) mergeSchedulingConfig(rootDirectory string) ([]platformv1a
 
 func (w *WorkCreator) getPipelineSchedulingConfig(rootDirectory string) (labels.Set, error) {
 	metadataDirectory := filepath.Join(rootDirectory, "metadata")
-	schedulingFile := filepath.Join(metadataDirectory, "cluster-selectors.yaml")
+	schedulingFile := filepath.Join(metadataDirectory, "scheduling.yaml")
 
 	fileContents, err := os.ReadFile(schedulingFile)
 	if err != nil {

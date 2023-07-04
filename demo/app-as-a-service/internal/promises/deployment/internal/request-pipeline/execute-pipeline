@@ -7,7 +7,7 @@ export image="$(yq eval '.spec.image' /input/object.yaml)"
 export contains_cc="$(yq eval '.spec.containsCreditCardData' /input/object.yaml)"
 export cluster_selectors="$(yq eval '.spec.clusterSelectors // {}' /input/object.yaml)"
 
-echo $cluster_selectors > /metadata/cluster-selectors.yaml
+echo $cluster_selectors > /metadata/scheduling.yaml
 
 sed "s/TBDNAME/${name}/g" /tmp/transfer/deployment.yaml > /tmp/deployment.yaml
 
