@@ -193,7 +193,7 @@ undeploy: ## Undeploy controller from the K8s cluster specified in ~/.kube/confi
 
 # If not installed, use: go install github.com/goreleaser/goreleaser@latest
 build-worker-resource-builder-binary: ## Uses the goreleaser config to generate binaries
-	goreleaser release --rm-dist --snapshot
+	WRB_VERSION=${WRB_VERSION} WRB_ON_BRANCH=${WRB_ON_BRANCH} ./scripts/release-worker-resource-builder
 
 CONTROLLER_GEN = $(shell pwd)/bin/controller-gen
 controller-gen: ## Download controller-gen locally if necessary.
