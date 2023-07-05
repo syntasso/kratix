@@ -2,7 +2,7 @@
 
 PWD="$( cd $(dirname $0)/.. && pwd)"
 
-resource_dir=$PWD/resources
+resource_dir=$PWD/dependencies
 mkdir -p ${resource_dir}
 
 promises=(
@@ -13,15 +13,6 @@ promises=(
 
 for promise in "${promises[@]}"; do
     cat ${PWD}/promises/${promise}/promise.yaml | \
-        yq eval '(select(.kind == "Promise") | .spec.clusterSelector) = { "environment": "dev" }' > ${resource_dir}/${promise}-promise.yaml
+        yq eval '(select(.kind == "Promise") | .spec.scheduling) = [{"target": {"matchLabels": {"environment": "dev"}}}]' > ${resource_dir}/${promise}-promise.yaml
 done
 
-
-urls=(
-    "https://raw.githubusercontent.com/syntasso/kratix-marketplace/main/slack/promise.yaml"
-)
-
-for url in "${urls[@]}"; do
-    promise=$(basename $(dirname $url))
-    curl -sL -o ${resource_dir}/${promise}-promise.yaml $url
-done

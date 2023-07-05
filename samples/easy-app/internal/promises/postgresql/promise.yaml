@@ -1,6 +1,7 @@
 apiVersion: platform.kratix.io/v1alpha1
 kind: Promise
 metadata:
+  creationTimestamp: null
   name: postgresql
   namespace: default
 spec:
@@ -68,6 +69,7 @@ spec:
         app.kubernetes.io/name: postgres-operator
         helm.sh/chart: postgres-operator-1.8.2
       name: postgres-pod
+      namespace: default
     rules:
     - apiGroups:
       - ""
@@ -107,6 +109,7 @@ spec:
         app.kubernetes.io/name: postgres-operator
         helm.sh/chart: postgres-operator-1.8.2
       name: postgres-operator
+      namespace: default
     rules:
     - apiGroups:
       - acid.zalan.do
@@ -290,6 +293,7 @@ spec:
         app.kubernetes.io/name: postgres-operator
         helm.sh/chart: postgres-operator-1.8.2
       name: postgres-operator
+      namespace: default
     roleRef:
       apiGroup: rbac.authorization.k8s.io
       kind: ClusterRole
@@ -500,6 +504,7 @@ spec:
     kind: CustomResourceDefinition
     metadata:
       name: operatorconfigurations.acid.zalan.do
+      namespace: default
     spec:
       group: acid.zalan.do
       names:
@@ -1144,6 +1149,7 @@ spec:
     kind: CustomResourceDefinition
     metadata:
       name: postgresqls.acid.zalan.do
+      namespace: default
     spec:
       group: acid.zalan.do
       names:
@@ -1767,6 +1773,7 @@ spec:
     kind: CustomResourceDefinition
     metadata:
       name: postgresteams.acid.zalan.do
+      namespace: default
     spec:
       group: acid.zalan.do
       names:
@@ -1846,4 +1853,4 @@ spec:
           containers:
           - image: syntasso/demo-postgresql-request-pipeline:v0.1.1
             name: demo-postgresql-request-pipeline
-
+status: {}
