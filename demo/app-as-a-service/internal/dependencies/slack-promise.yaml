@@ -43,5 +43,5 @@ spec:
             namespace: default
           spec:
             containers:
-              - image: ghcr.io/syntasso/kratix-marketplace/slack-request-pipeline:v0.1.0
-                name: slack-request-pipeline
+              - image: ghcr.io/syntasso/kratix-marketplace/slack-configure-pipeline:v0.1.0
+                name: slack-configure-pipeline

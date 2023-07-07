@@ -263,7 +263,7 @@ var _ = Context("Promise Reconciler", func() {
 
 			expectedName := types.NamespacedName{
 				//The name of the pod is generated dynamically by the Promise Controller. For testing purposes, we set a TEST_PROMISE_CONTROLLER_POD_IDENTIFIER_UUID via an environment variable in the Makefile to make the name deterministic
-				Name:      "request-pipeline-redis-promise-default-12345",
+				Name:      "configure-pipeline-redis-promise-default-12345",
 				Namespace: "default",
 			}
 

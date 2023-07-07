@@ -75,10 +75,10 @@ load-pipeline-images:
 	kind load docker-image docker.io/bitnami/kubectl:1.20.10 --name platform
 	docker pull syntasso/knative-serving-pipeline:latest
 	kind load docker-image syntasso/knative-serving-pipeline:latest --name platform
-	docker pull syntasso/postgres-request-pipeline:latest
-	kind load docker-image syntasso/postgres-request-pipeline:latest --name platform
-	docker pull syntasso/paved-path-demo-request-pipeline:latest
-	kind load docker-image syntasso/paved-path-demo-request-pipeline:latest --name platform
+	docker pull syntasso/postgres-configure-pipeline:latest
+	kind load docker-image syntasso/postgres-configure-pipeline:latest --name platform
+	docker pull syntasso/paved-path-demo-configure-pipeline:latest
+	kind load docker-image syntasso/paved-path-demo-configure-pipeline:latest --name platform
 
 
 prepare-platform-as-worker: ## Installs flux onto platform cluster and registers as a worker
@@ -221,7 +221,7 @@ endef
 list:
 	@$(MAKE) -pRrq -f $(lastword $(MAKEFILE_LIST)) : 2>/dev/null | awk -v RS= -F: '/^# File/,/^# Finished Make data base/ {if ($$1 !~ "^[#.]") {print $$1}}' | sort | egrep -v -e '^[^[:alnum:]]' -e '^$@$$'
 
-JENKINS_PIPELINE_IMAGE ?= syntasso/jenkins-request-pipeline
+JENKINS_PIPELINE_IMAGE ?= syntasso/jenkins-configure-pipeline
 build-and-push-jenkins-pipeline-image:
 	if ! docker buildx ls | grep -q "jenkins-pipeline-builder"; then \
 		docker buildx create --name jenkins-pipeline-builder; \
@@ -231,5 +231,5 @@ build-and-push-jenkins-pipeline-image:
 		--platform linux/arm64,linux/amd64 \
 		--tag ${JENKINS_PIPELINE_IMAGE} \
 		--push \
-		--file samples/jenkins/request-pipeline-image/Dockerfile \
-		samples/jenkins/request-pipeline-image
+		--file samples/jenkins/configure-pipeline-image/Dockerfile \
+		samples/jenkins/configure-pipeline-image

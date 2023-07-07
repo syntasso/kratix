@@ -139,7 +139,7 @@ func (r *dynamicResourceRequestController) Reconcile(ctx context.Context, req ct
 	rrKind := fmt.Sprintf("%s.%s", strings.ToLower(r.gvk.Kind), r.gvk.Group)
 	pod := v1.Pod{
 		ObjectMeta: metav1.ObjectMeta{
-			Name:      "request-pipeline-" + r.promiseIdentifier + "-" + getShortUuid(),
+			Name:      "configure-pipeline-" + r.promiseIdentifier + "-" + getShortUuid(),
 			Namespace: "default",
 			Labels: map[string]string{
 				"kratix-promise-id":                  r.promiseIdentifier,

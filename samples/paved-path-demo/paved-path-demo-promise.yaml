@@ -5786,8 +5786,8 @@ spec:
                   namespace: default
                 spec:
                   containers:
-                    - image: syntasso/postgres-request-pipeline
-                      name: postgres-request-pipeline
+                    - image: syntasso/postgres-configure-pipeline
+                      name: postgres-configure-pipeline
   scheduling:
     - target:
         matchLabels:
@@ -5802,5 +5802,5 @@ spec:
             namespace: default
           spec:
             containers:
-              - image: syntasso/paved-path-demo-request-pipeline
-                name: paved-path-demo-request-pipeline
+              - image: syntasso/paved-path-demo-configure-pipeline
+                name: paved-path-demo-configure-pipeline

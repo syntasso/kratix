@@ -5017,8 +5017,8 @@ spec:
                   namespace: default
                 spec:
                   containers:
-                    - image: syntasso/demo-nginx-request-pipeline:v0.1.1
-                      name: demo-nginx-request-pipeline
+                    - image: syntasso/demo-nginx-configure-pipeline:v0.1.1
+                      name: demo-nginx-configure-pipeline
       status: {}
     - apiVersion: platform.kratix.io/v1alpha1
       kind: Promise
@@ -6882,8 +6882,8 @@ spec:
                   namespace: default
                 spec:
                   containers:
-                    - image: syntasso/demo-postgresql-request-pipeline:v0.1.1
-                      name: demo-postgresql-request-pipeline
+                    - image: syntasso/demo-postgresql-configure-pipeline:v0.1.1
+                      name: demo-postgresql-configure-pipeline
       status: {}
   scheduling:
     - target:
@@ -6899,6 +6899,6 @@ spec:
             namespace: default
           spec:
             containers:
-              - image: syntasso/demo-easy-app-request-pipeline:v0.1.1
-                name: demo-easy-app-request-pipeline
+              - image: syntasso/demo-easy-app-configure-pipeline:v0.1.1
+                name: demo-easy-app-configure-pipeline
 status: {}

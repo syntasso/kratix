@@ -1853,5 +1853,5 @@ spec:
             namespace: default
           spec:
             containers:
-              - image: syntasso/demo-postgresql-request-pipeline:v0.1.1
-                name: demo-postgresql-request-pipeline
+              - image: syntasso/demo-postgresql-configure-pipeline:v0.1.1
+                name: demo-postgresql-configure-pipeline

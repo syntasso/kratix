@@ -3,7 +3,7 @@ set -eux
 
 PWD="$( cd $(dirname $0)/.. && pwd)"
 
-resources_dir=$PWD/request-pipeline/resources
+resources_dir=$PWD/configure-pipeline/resources
 mkdir -p $resources_dir
 
 promises=(
@@ -24,5 +24,3 @@ for url in "${urls[@]}"; do
     promise=$(basename $(dirname $url))
     curl -sL -o ${resources_dir}/${promise}-resource-request.yaml $url
 done
-
-

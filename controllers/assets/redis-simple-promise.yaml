@@ -3681,5 +3681,5 @@ spec:
             namespace: default
           spec:
             containers:
-              - image: syntasso/demo-redis-request-pipeline:v0.1.0
-                name: demo-redis-request-pipeline
+              - image: syntasso/demo-redis-configure-pipeline:v0.1.0
+                name: demo-redis-configure-pipeline

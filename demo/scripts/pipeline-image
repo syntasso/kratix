@@ -3,7 +3,7 @@
 set -e
 
 promise_name="$(basename "$(dirname "${PWD}")")"
-pipeline_image="syntasso/demo-${promise_name}-request-pipeline:v0.1.1"
+pipeline_image="syntasso/demo-${promise_name}-configure-pipeline:v0.1.1"
 
 while [ $# -gt 0 ]; do
   case "$1" in
@@ -11,7 +11,7 @@ while [ $# -gt 0 ]; do
       docker build \
         --tag "${pipeline_image}" \
         --platform linux/amd64 \
-        "${PWD}/request-pipeline" ;;
+        "${PWD}/configure-pipeline" ;;
 
     load)
       kind load docker-image "${pipeline_image}" --name platform ;;

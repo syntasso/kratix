@@ -101,8 +101,8 @@ spec:
                   namespace: default
                 spec:
                   containers:
-                    - image: syntasso/demo-deployment-request-pipeline:v0.1.1
-                      name: demo-deployment-request-pipeline
+                    - image: syntasso/demo-deployment-configure-pipeline:v0.1.1
+                      name: demo-deployment-configure-pipeline
     - apiVersion: platform.kratix.io/v1alpha1
       kind: Promise
       metadata:
@@ -6875,8 +6875,8 @@ spec:
                   namespace: default
                 spec:
                   containers:
-                    - image: syntasso/demo-postgresql-request-pipeline:v0.1.1
-                      name: demo-postgresql-request-pipeline
+                    - image: syntasso/demo-postgresql-configure-pipeline:v0.1.1
+                      name: demo-postgresql-configure-pipeline
     - apiVersion: platform.kratix.io/v1alpha1
       kind: Promise
       metadata:
@@ -10732,8 +10732,8 @@ spec:
                   namespace: default
                 spec:
                   containers:
-                    - image: syntasso/demo-redis-request-pipeline:v0.1.1
-                      name: demo-redis-request-pipeline
+                    - image: syntasso/demo-redis-configure-pipeline:v0.1.1
+                      name: demo-redis-configure-pipeline
     - apiVersion: platform.kratix.io/v1alpha1
       kind: Promise
       metadata:
@@ -10779,8 +10779,8 @@ spec:
                   namespace: default
                 spec:
                   containers:
-                    - image: ghcr.io/syntasso/kratix-marketplace/slack-request-pipeline:v0.1.0
-                      name: slack-request-pipeline
+                    - image: ghcr.io/syntasso/kratix-marketplace/slack-configure-pipeline:v0.1.0
+                      name: slack-configure-pipeline
     - apiVersion: rbac.authorization.k8s.io/v1
       kind: ClusterRole
       metadata:
@@ -10822,5 +10822,5 @@ spec:
             namespace: default
           spec:
             containers:
-              - image: syntasso/demo-app-as-a-service-request-pipeline:v0.1.1
-                name: demo-app-as-a-service-request-pipeline
+              - image: syntasso/demo-app-as-a-service-configure-pipeline:v0.1.1
+                name: demo-app-as-a-service-configure-pipeline

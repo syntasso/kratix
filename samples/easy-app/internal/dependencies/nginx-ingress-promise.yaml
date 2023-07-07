@@ -4584,6 +4584,6 @@ spec:
             namespace: default
           spec:
             containers:
-              - image: syntasso/demo-nginx-request-pipeline:v0.1.1
-                name: demo-nginx-request-pipeline
+              - image: syntasso/demo-nginx-configure-pipeline:v0.1.1
+                name: demo-nginx-configure-pipeline
 status: {}

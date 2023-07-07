@@ -47,5 +47,5 @@ spec:
             namespace: default
           spec:
             containers:
-              - image: syntasso/demo-deployment-request-pipeline:v0.1.1
-                name: demo-deployment-request-pipeline
+              - image: syntasso/demo-deployment-configure-pipeline:v0.1.1
+                name: demo-deployment-configure-pipeline

@@ -31,7 +31,7 @@ kubectl delete --all --context $WORKER_CONTEXT --namespace flux-system kustomiza
 
 # Remove all pipeline pods
 kubectl delete --context $PLATFORM_CONTEXT pod \
-    $(kubectl get --context $PLATFORM_CONTEXT pods --no-headers -o custom-columns=":metadata.name" | grep request-pipeline)
+    $(kubectl get --context $PLATFORM_CONTEXT pods --no-headers -o custom-columns=":metadata.name" | grep configure-pipeline)
 
 # Reinstall Kratix and re-register the worker cluster
 kubectl apply --context $PLATFORM_CONTEXT -f https://raw.githubusercontent.com/syntasso/kratix/main/distribution/kratix.yaml
@@ -47,4 +47,3 @@ kubectl delete --context $WORKER_CONTEXT services \
     $(kubectl get --context $WORKER_CONTEXT services --selector application=spilo --no-headers -o custom-columns=":metadata.name")
 kubectl delete --context $WORKER_CONTEXT poddisruptionbudgets.policy \
     $(kubectl get --context $WORKER_CONTEXT poddisruptionbudgets.policy --selector application=spilo --no-headers -o custom-columns=":metadata.name")
-
