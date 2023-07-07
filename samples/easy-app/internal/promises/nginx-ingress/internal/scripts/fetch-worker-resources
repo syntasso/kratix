@@ -1,7 +1,7 @@
 #!/usr/bin/env bash
 
 PWD="$( cd $(dirname $0)/.. && pwd)"
-mkdir -p ${PWD}/resources
+mkdir -p ${PWD}/dependencies
 
 urls=(
   'https://raw.githubusercontent.com/nginxinc/nginx-ingress-helm-operator/main/helm-charts/nginx-ingress/crds/appprotect.f5.com_aplogconfs.yaml'
@@ -19,7 +19,7 @@ urls=(
 )
 
 for url in "${urls[@]}"; do
-    curl -sL -o ${PWD}/resources/$(basename $url) $url
+    curl -sL -o ${PWD}/dependencies/$(basename $url) $url
 done
 
-helm template nginx nginx-stable/nginx-ingress --namespace default --skip-crds > ${PWD}/resources/helm-template.yaml
+helm template nginx nginx-stable/nginx-ingress --namespace default --skip-crds > ${PWD}/dependencies/helm-template.yaml

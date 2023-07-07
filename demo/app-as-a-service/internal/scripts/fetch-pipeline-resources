@@ -3,7 +3,7 @@ set -eux
 
 PWD="$( cd $(dirname $0)/.. && pwd)"
 
-resources_dir=$PWD/configure-pipeline/resources
+resources_dir=$PWD/configure-pipeline/dependencies
 mkdir -p $resources_dir
 
 promises=(

@@ -2,7 +2,7 @@
 
 PWD="$( cd $(dirname $0)/.. && pwd)"
 
-resource_dir=$PWD/resources
+resource_dir=$PWD/dependencies
 mkdir -p ${resource_dir}
 
 promises=(

@@ -60,7 +60,7 @@ kind: Promise
 metadata:
   name: jenkins-promise
 spec:
-  #injected via: go run path/to/kratix/hack/worker-resource-builder/main.go -k8s-resources-directory ${PWD}/resources -promise ${PWD}/jenkins-promise-template.yaml > jenkins-promise.yaml
+  #injected via: go run path/to/kratix/hack/worker-resource-builder/main.go -k8s-resources-directory ${PWD}/dependencies -promise ${PWD}/jenkins-promise-template.yaml > jenkins-promise.yaml
   #workerClusterResources:
   xaasRequestPipeline:
   xaasCrd:
@@ -328,7 +328,7 @@ Next we need to inject Jenkins files into our `jenkins-promise-template.yaml`. T
 
 ```
 go run path/to/kratix/hack/worker-resource-builder/main.go \
-  -k8s-resources-directory ${PWD}/resources \
+  -k8s-resources-directory ${PWD}/dependencies \
   -promise ${PWD}/jenkins-promise-template.yaml > jenkins-promise.yaml
 ```
 
