@@ -6,6 +6,6 @@ nodes:
   # spare port to be used as nodeport. Used in the demo for exposing nginx ingress
   - containerPort: 31338
     hostPort: 31338
-  # workshop port for Jenkins -- needed for Instruqt
+  # workshop port for Jenkins (part i) and Kibana (part ii) -- needed for Instruqt 
   - containerPort: 30269
     hostPort: 30269

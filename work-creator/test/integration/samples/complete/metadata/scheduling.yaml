@@ -1,0 +1,4 @@
+- target:
+    matchLabels:
+      environment: production
+      region: europe

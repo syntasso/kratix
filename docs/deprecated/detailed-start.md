@@ -240,12 +240,12 @@ The pipeline runs as a pod:
 ```bash
 kubectl --context kind-platform get pods
 # NAME                                                 READY   STATUS      RESTARTS   AGE
-# request-pipeline-ha-postgres-promise-default-53903   0/1     Completed   0          5m50s
+# configure-pipeline-ha-postgres-promise-default-53903   0/1     Completed   0          5m50s
 ```
 
 You can access the pipeline logs by running:
 ```bash
-kubectl --context kind-platform logs --container xaas-request-pipeline-stage-1 request-pipeline-ha-postgres-promise-<POD_SHA>
+kubectl --context kind-platform logs --container xaas-configure-pipeline-stage-1 configure-pipeline-ha-postgres-promise-<POD_SHA>
 ```
 
 The output of the pipeline is a _Work_. At this point, you will find two _works_ on your platform cluster: 

@@ -6,7 +6,7 @@ output_debugging_info() {
     echo "=============== PIPELINE STATUS ==============="
     kubectl --context kind-platform get pods
     echo "=============== PIPELINE LOGS ==============="
-    kubectl --context kind-platform logs --selector kratix-promise-id=jenkins-promise-default --container xaas-request-pipeline-stage-1
+    kubectl --context kind-platform logs --selector kratix-promise-id=jenkins-promise-default --container xaas-configure-pipeline-stage-1
     echo "=============== WORKER EVENTS ==============="
     kubectl --context kind-worker get events
     echo "=============== TAIL OF JENKINS LOGS ==============="
@@ -14,9 +14,9 @@ output_debugging_info() {
     exit 1
 }
 
-kubectl --context kind-platform apply --filename https://raw.githubusercontent.com/syntasso/kratix-marketplace/main/jenkins/promise.yaml
+kubectl --context kind-platform apply --filename https://raw.githubusercontent.com/syntasso/kratix-marketplace/migration/jenkins/promise.yaml
 sleep 5 # Wait for promise resource to be created
-kubectl --context kind-platform apply --filename https://raw.githubusercontent.com/syntasso/kratix-marketplace/main/jenkins/resource-request.yaml
+kubectl --context kind-platform apply --filename https://raw.githubusercontent.com/syntasso/kratix-marketplace/migration/jenkins/resource-request.yaml
 
 loops=0
 while ! kubectl --context kind-worker logs jenkins-dev-example 2>/dev/null | grep -q "Jenkins is fully up and running"; do

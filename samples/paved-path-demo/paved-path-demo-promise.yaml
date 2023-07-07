@@ -1,22 +1,68 @@
 apiVersion: platform.kratix.io/v1alpha1
 kind: Promise
 metadata:
-  creationTimestamp: null
   name: paved-path-demo-promise
   namespace: default
 spec:
-  clusterSelector:
-    environment: platform
-  workerClusterResources:
+  api:
+    apiVersion: apiextensions.k8s.io/v1
+    kind: CustomResourceDefinition
+    metadata:
+      name: paved-path-demos.example.promise.syntasso.io
+    spec:
+      group: example.promise.syntasso.io
+      names:
+        kind: paved-path-demo
+        plural: paved-path-demos
+        singular: paved-path-demo
+      scope: Namespaced
+      versions:
+        - name: v1
+          schema:
+            openAPIV3Schema:
+              properties:
+                spec:
+                  properties:
+                    name:
+                      type: string
+                  type: object
+              type: object
+          served: true
+          storage: true
+  dependencies:
     - apiVersion: platform.kratix.io/v1alpha1
       kind: Promise
       metadata:
         name: knative-serving-promise
         namespace: default
       spec:
-        clusterSelector:
-          environment: dev
-        workerClusterResources:
+        api:
+          apiVersion: apiextensions.k8s.io/v1
+          kind: CustomResourceDefinition
+          metadata:
+            name: knativeservings.example.promise.syntasso.io
+          spec:
+            group: example.promise.syntasso.io
+            names:
+              kind: knativeserving
+              plural: knativeservings
+              singular: knativeserving
+            scope: Namespaced
+            versions:
+              - name: v1
+                schema:
+                  openAPIV3Schema:
+                    properties:
+                      spec:
+                        properties:
+                          envType:
+                            pattern: (production|development)
+                            type: string
+                        type: object
+                    type: object
+                served: true
+                storage: true
+        dependencies:
           - apiVersion: apiextensions.k8s.io/v1
             kind: CustomResourceDefinition
             metadata:
@@ -5335,17 +5381,39 @@ spec:
                   storage: true
                   subresources:
                     status: {}
-        xaasCrd:
+        scheduling:
+          - target:
+              matchLabels:
+                environment: dev
+        workflows:
+          resource:
+            configure:
+              - apiVersion: platform.kratix.io/v1alpha1
+                kind: Pipeline
+                metadata:
+                  name: instance-configure
+                  namespace: default
+                spec:
+                  containers:
+                    - image: syntasso/knative-serving-pipeline
+                      name: knative-serving-pipeline
+    - apiVersion: platform.kratix.io/v1alpha1
+      kind: Promise
+      metadata:
+        name: ha-postgres-promise
+        namespace: default
+      spec:
+        api:
           apiVersion: apiextensions.k8s.io/v1
           kind: CustomResourceDefinition
           metadata:
-            name: knativeservings.example.promise.syntasso.io
+            name: postgreses.example.promise.syntasso.io
           spec:
             group: example.promise.syntasso.io
             names:
-              kind: knativeserving
-              plural: knativeservings
-              singular: knativeserving
+              kind: postgres
+              plural: postgreses
+              singular: postgres
             scope: Namespaced
             versions:
               - name: v1
@@ -5354,25 +5422,31 @@ spec:
                     properties:
                       spec:
                         properties:
-                          envType:
-                            pattern: (production|development)
-                            type: string
+                          preparedDatabases:
+                            additionalProperties:
+                              properties:
+                                defaultUsers:
+                                  type: boolean
+                                extensions:
+                                  additionalProperties:
+                                    type: string
+                                  type: object
+                                schemas:
+                                  additionalProperties:
+                                    properties:
+                                      defaultRoles:
+                                        type: boolean
+                                      defaultUsers:
+                                        type: boolean
+                                    type: object
+                                  type: object
+                              type: object
+                            type: object
                         type: object
                     type: object
                 served: true
                 storage: true
-        xaasRequestPipeline:
-          - syntasso/knative-serving-pipeline
-    - apiVersion: platform.kratix.io/v1alpha1
-      kind: Promise
-      metadata:
-        creationTimestamp: null
-        name: ha-postgres-promise
-        namespace: default
-      spec:
-        clusterSelector:
-          environment: dev
-        workerClusterResources:
+        dependencies:
           - apiVersion: v1
             data:
               api_port: "8080"
@@ -5698,77 +5772,35 @@ spec:
                         runAsNonRoot: true
                         runAsUser: 1000
                   serviceAccountName: postgres-operator
-        xaasCrd:
-          apiVersion: apiextensions.k8s.io/v1
-          kind: CustomResourceDefinition
-          metadata:
-            name: postgreses.example.promise.syntasso.io
-          spec:
-            group: example.promise.syntasso.io
-            names:
-              kind: postgres
-              plural: postgreses
-              singular: postgres
-            scope: Namespaced
-            versions:
-              - name: v1
-                schema:
-                  openAPIV3Schema:
-                    properties:
-                      spec:
-                        properties:
-                          preparedDatabases:
-                            additionalProperties:
-                              properties:
-                                defaultUsers:
-                                  type: boolean
-                                extensions:
-                                  additionalProperties:
-                                    type: string
-                                  type: object
-                                schemas:
-                                  additionalProperties:
-                                    properties:
-                                      defaultRoles:
-                                        type: boolean
-                                      defaultUsers:
-                                        type: boolean
-                                    type: object
-                                  type: object
-                              type: object
-                            type: object
-                        type: object
-                    type: object
-                served: true
-                storage: true
-        xaasRequestPipeline:
-          - syntasso/postgres-request-pipeline
-      status: {}
-  xaasCrd:
-    apiVersion: apiextensions.k8s.io/v1
-    kind: CustomResourceDefinition
-    metadata:
-      name: paved-path-demos.example.promise.syntasso.io
-    spec:
-      group: example.promise.syntasso.io
-      names:
-        kind: paved-path-demo
-        plural: paved-path-demos
-        singular: paved-path-demo
-      scope: Namespaced
-      versions:
-        - name: v1
-          schema:
-            openAPIV3Schema:
-              properties:
+        scheduling:
+          - target:
+              matchLabels:
+                environment: dev
+        workflows:
+          resource:
+            configure:
+              - apiVersion: platform.kratix.io/v1alpha1
+                kind: Pipeline
+                metadata:
+                  name: instance-configure
+                  namespace: default
                 spec:
-                  properties:
-                    name:
-                      type: string
-                  type: object
-              type: object
-          served: true
-          storage: true
-  xaasRequestPipeline:
-    - syntasso/paved-path-demo-request-pipeline
-status: {}
+                  containers:
+                    - image: syntasso/postgres-configure-pipeline
+                      name: postgres-configure-pipeline
+  scheduling:
+    - target:
+        matchLabels:
+          environment: platform
+  workflows:
+    resource:
+      configure:
+        - apiVersion: platform.kratix.io/v1alpha1
+          kind: Pipeline
+          metadata:
+            name: instance-configure
+            namespace: default
+          spec:
+            containers:
+              - image: syntasso/paved-path-demo-configure-pipeline
+                name: paved-path-demo-configure-pipeline

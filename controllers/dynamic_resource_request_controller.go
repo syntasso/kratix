@@ -47,24 +47,24 @@ import (
 )
 
 const (
-	workFinalizer     = finalizerPrefix + "work-cleanup"
-	pipelineFinalizer = finalizerPrefix + "pipeline-cleanup"
+	workFinalizer      = finalizerPrefix + "work-cleanup"
+	workflowsFinalizer = finalizerPrefix + "workflows-cleanup"
 )
 
-var rrFinalizers = []string{workFinalizer, pipelineFinalizer}
+var rrFinalizers = []string{workFinalizer, workflowsFinalizer}
 
 type dynamicResourceRequestController struct {
 	//use same naming conventions as other controllers
-	Client                 client.Client
-	gvk                    *schema.GroupVersionKind
-	scheme                 *runtime.Scheme
-	promiseIdentifier      string
-	promiseClusterSelector labels.Set
-	xaasRequestPipeline    []string
-	log                    logr.Logger
-	finalizers             []string
-	uid                    string
-	enabled                *bool
+	Client            client.Client
+	gvk               *schema.GroupVersionKind
+	scheme            *runtime.Scheme
+	promiseIdentifier string
+	promiseScheduling []v1alpha1.SchedulingConfig
+	workflows         []v1alpha1.Pipeline
+	log               logr.Logger
+	finalizers        []string
+	uid               string
+	enabled           *bool
 }
 
 //+kubebuilder:rbac:groups="",resources=pods,verbs=create;list;watch;delete
@@ -97,8 +97,8 @@ func (r *dynamicResourceRequestController) Reconcile(ctx context.Context, req ct
 	}
 
 	// Reconcile necessary finalizers
-	if finalizersAreMissing(rr, []string{workFinalizer, pipelineFinalizer}) {
-		return addFinalizers(ctx, r.Client, rr, []string{workFinalizer, pipelineFinalizer}, logger)
+	if finalizersAreMissing(rr, []string{workFinalizer, workflowsFinalizer}) {
+		return addFinalizers(ctx, r.Client, rr, []string{workFinalizer, workflowsFinalizer}, logger)
 	}
 
 	//check if the pipeline has already been created. If it has exit out. All the lines
@@ -119,15 +119,15 @@ func (r *dynamicResourceRequestController) Reconcile(ctx context.Context, req ct
 	volumes := []v1.Volume{
 		{Name: "metadata", VolumeSource: v1.VolumeSource{EmptyDir: &v1.EmptyDirVolumeSource{}}},
 		{
-			Name: "promise-cluster-selectors",
+			Name: "promise-scheduling",
 			VolumeSource: v1.VolumeSource{
 				ConfigMap: &v1.ConfigMapVolumeSource{
 					LocalObjectReference: v1.LocalObjectReference{
-						Name: "cluster-selectors-" + r.promiseIdentifier,
+						Name: "scheduling-" + r.promiseIdentifier,
 					},
 					Items: []v1.KeyToPath{{
-						Key:  "selectors",
-						Path: "promise-cluster-selectors",
+						Key:  "scheduling",
+						Path: "promise-scheduling",
 					}},
 				},
 			},
@@ -139,7 +139,7 @@ func (r *dynamicResourceRequestController) Reconcile(ctx context.Context, req ct
 	rrKind := fmt.Sprintf("%s.%s", strings.ToLower(r.gvk.Kind), r.gvk.Group)
 	pod := v1.Pod{
 		ObjectMeta: metav1.ObjectMeta{
-			Name:      "request-pipeline-" + r.promiseIdentifier + "-" + getShortUuid(),
+			Name:      "configure-pipeline-" + r.promiseIdentifier + "-" + getShortUuid(),
 			Namespace: "default",
 			Labels: map[string]string{
 				"kratix-promise-id":                  r.promiseIdentifier,
@@ -213,8 +213,8 @@ func (r *dynamicResourceRequestController) deleteResources(ctx context.Context, 
 		return fastRequeue, nil
 	}
 
-	if controllerutil.ContainsFinalizer(resourceRequest, pipelineFinalizer) {
-		err := r.deletePipeline(ctx, resourceRequest, resourceRequestIdentifier, pipelineFinalizer, logger)
+	if controllerutil.ContainsFinalizer(resourceRequest, workflowsFinalizer) {
+		err := r.deletePipeline(ctx, resourceRequest, resourceRequestIdentifier, workflowsFinalizer, logger)
 		if err != nil {
 			return defaultRequeue, err
 		}
@@ -342,20 +342,23 @@ func (r *dynamicResourceRequestController) pipelineInitContainers(rrID string, r
 	volumes := []v1.Volume{{Name: "vol0", VolumeSource: v1.VolumeSource{EmptyDir: &v1.EmptyDirVolumeSource{}}}}
 
 	containers := []v1.Container{reader}
-	for i, c := range r.xaasRequestPipeline {
-		volumes = append(volumes, v1.Volume{
-			Name:         "vol" + strconv.Itoa(i+1),
-			VolumeSource: v1.VolumeSource{EmptyDir: &v1.EmptyDirVolumeSource{}},
-		})
-		containers = append(containers, v1.Container{
-			Name:  fmt.Sprintf("xaas-request-pipeline-stage-%d", i),
-			Image: c,
-			VolumeMounts: []v1.VolumeMount{
-				metadataVolumeMount,
-				{Name: "vol" + strconv.Itoa(i), MountPath: "/input"},
-				{Name: "vol" + strconv.Itoa(i+1), MountPath: "/output"},
-			},
-		})
+	if len(r.workflows) > 0 {
+		//TODO: We only support 1 workflow for now
+		for i, c := range r.workflows[0].Spec.Containers {
+			volumes = append(volumes, v1.Volume{
+				Name:         "vol" + strconv.Itoa(i+1),
+				VolumeSource: v1.VolumeSource{EmptyDir: &v1.EmptyDirVolumeSource{}},
+			})
+			containers = append(containers, v1.Container{
+				Name:  c.Name,
+				Image: c.Image,
+				VolumeMounts: []v1.VolumeMount{
+					metadataVolumeMount,
+					{Name: "vol" + strconv.Itoa(i), MountPath: "/input"},
+					{Name: "vol" + strconv.Itoa(i+1), MountPath: "/output"},
+				},
+			})
+		}
 	}
 
 	workCreatorCommand := fmt.Sprintf("./work-creator -identifier %s -input-directory /work-creator-files", rrID)
@@ -374,7 +377,7 @@ func (r *dynamicResourceRequestController) pipelineInitContainers(rrID string, r
 			},
 			{
 				MountPath: "/work-creator-files/kratix-system",
-				Name:      "promise-cluster-selectors",
+				Name:      "promise-scheduling",
 			},
 		},
 	}

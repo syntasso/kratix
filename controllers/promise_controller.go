@@ -19,9 +19,11 @@ package controllers
 import (
 	"context"
 	"encoding/json"
+	"fmt"
 	"time"
 
 	controllerutil "sigs.k8s.io/controller-runtime/pkg/controller/controllerutil"
+	"sigs.k8s.io/yaml"
 
 	"github.com/go-logr/logr"
 	"github.com/syntasso/kratix/api/v1alpha1"
@@ -49,20 +51,20 @@ type PromiseReconciler struct {
 
 const (
 	finalizerPrefix                                    = "kratix.io/"
-	clusterSelectorsConfigMapCleanupFinalizer          = finalizerPrefix + "cluster-selectors-config-map-cleanup"
+	schedulingConfigMapCleanupFinalizer                = finalizerPrefix + "scheduling-config-map-cleanup"
 	resourceRequestCleanupFinalizer                    = finalizerPrefix + "resource-request-cleanup"
 	dynamicControllerDependantResourcesCleaupFinalizer = finalizerPrefix + "dynamic-controller-dependant-resources-cleanup"
-	crdCleanupFinalizer                                = finalizerPrefix + "crd-cleanup"
-	workerClusterResourcesCleanupFinalizer             = finalizerPrefix + "worker-cluster-resources-cleanup"
+	crdCleanupFinalizer                                = finalizerPrefix + "api-crd-cleanup"
+	dependenciesCleanupFinalizer                       = finalizerPrefix + "dependencies-cleanup"
 )
 
 var (
 	promiseFinalizers = []string{
-		clusterSelectorsConfigMapCleanupFinalizer,
+		schedulingConfigMapCleanupFinalizer,
 		resourceRequestCleanupFinalizer,
 		dynamicControllerDependantResourcesCleaupFinalizer,
 		crdCleanupFinalizer,
-		workerClusterResourcesCleanupFinalizer,
+		dependenciesCleanupFinalizer,
 	}
 
 	// fastRequeue can be used whenever we want to quickly requeue, and we don't expect
@@ -106,13 +108,13 @@ func (r *PromiseReconciler) Reconcile(ctx context.Context, req ctrl.Request) (ct
 		return addFinalizers(ctx, r.Client, promise, finalizers, logger)
 	}
 
-	if err := r.createWorkResourceForWorkerClusterResources(ctx, promise, logger); err != nil {
+	if err := r.createWorkResourceForDependencies(ctx, promise, logger); err != nil {
 		logger.Error(err, "Error creating Works")
 		return ctrl.Result{}, err
 	}
 
-	if promise.DoesNotContainXAASCrd() {
-		logger.Info("Promise only contains WCRs, skipping creation of CRD and dynamic controller")
+	if promise.DoesNotContainAPI() {
+		logger.Info("Promise only contains WCRs, skipping creation of API and dynamic controller")
 		return ctrl.Result{}, nil
 	}
 
@@ -126,6 +128,8 @@ func (r *PromiseReconciler) Reconcile(ctx context.Context, req ctrl.Request) (ct
 		return defaultRequeue, nil
 	}
 
+	// if the controllers already been started, we will error out and return
+	// as it errors when resources for the controller already exist.
 	if err := r.createResourcesForDynamicController(ctx, promise, rrCRD, rrGVK, logger); err != nil {
 		// Since we don't support Updates we cannot tell if createResourcesForDynamicController fails because the resources
 		// already exist or for other reasons, so we don't handle the error or requeue
@@ -133,34 +137,35 @@ func (r *PromiseReconciler) Reconcile(ctx context.Context, req ctrl.Request) (ct
 		return ctrl.Result{}, nil
 	}
 
-	// if the controllers already been started, we would error out and return
-	// in the previous `createResourcesForDynamicController` section as it errors
-	// when resources for the controller already exist.
-	return ctrl.Result{}, r.startDynamicController(promise, rrGVK)
+	workflows, err := r.generateWorkflows(promise, logger)
+	if err != nil {
+		return ctrl.Result{}, err
+	}
+	return ctrl.Result{}, r.startDynamicController(promise, rrGVK, workflows)
 }
 
 func getDesiredFinalizers(promise *v1alpha1.Promise) []string {
-	if promise.DoesNotContainXAASCrd() {
-		return []string{workerClusterResourcesCleanupFinalizer}
+	if promise.DoesNotContainAPI() {
+		return []string{dependenciesCleanupFinalizer}
 	}
 	return promiseFinalizers
 }
 
-func (r *PromiseReconciler) startDynamicController(promise *v1alpha1.Promise, rrGVK schema.GroupVersionKind) error {
+func (r *PromiseReconciler) startDynamicController(promise *v1alpha1.Promise, rrGVK schema.GroupVersionKind, workflows []v1alpha1.Pipeline) error {
 	//temporary fix until https://github.com/kubernetes-sigs/controller-runtime/issues/1884 is resolved
 	//once resolved, delete dynamic controller rather than disable
 	enabled := true
 	r.DynamicControllers[string(promise.GetUID())] = &enabled
 	dynamicResourceRequestController := &dynamicResourceRequestController{
-		Client:                 r.Manager.GetClient(),
-		scheme:                 r.Manager.GetScheme(),
-		gvk:                    &rrGVK,
-		promiseIdentifier:      promise.GetIdentifier(),
-		promiseClusterSelector: promise.Spec.ClusterSelector,
-		xaasRequestPipeline:    promise.Spec.XaasRequestPipeline,
-		log:                    r.Log,
-		uid:                    string(promise.GetUID())[0:5],
-		enabled:                &enabled,
+		Client:            r.Manager.GetClient(),
+		scheme:            r.Manager.GetScheme(),
+		gvk:               &rrGVK,
+		promiseIdentifier: promise.GetIdentifier(),
+		promiseScheduling: promise.Spec.Scheduling,
+		workflows:         workflows,
+		log:               r.Log,
+		uid:               string(promise.GetUID())[0:5],
+		enabled:           &enabled,
 	}
 
 	unstructuredCRD := &unstructured.Unstructured{}
@@ -298,8 +303,13 @@ func (r *PromiseReconciler) createResourcesForDynamicController(ctx context.Cont
 		logger.Info("Created ServiceAccount for Promise")
 	}
 
-	configMapName := "cluster-selectors-" + promise.GetIdentifier()
+	configMapName := "scheduling-" + promise.GetIdentifier()
 	configMapNamespace := "default"
+
+	schedulingYAML, err := yaml.Marshal(promise.Spec.Scheduling)
+	if err != nil {
+		return fmt.Errorf("failed to marshal scheduling %w", err)
+	}
 
 	configMap := v1.ConfigMap{
 		ObjectMeta: metav1.ObjectMeta{
@@ -308,7 +318,7 @@ func (r *PromiseReconciler) createResourcesForDynamicController(ctx context.Cont
 			Labels:    promise.GenerateSharedLabels(),
 		},
 		Data: map[string]string{
-			"selectors": labels.FormatLabels(promise.Spec.ClusterSelector),
+			"scheduling": string(schedulingYAML),
 		},
 	}
 
@@ -358,8 +368,8 @@ func (r *PromiseReconciler) deletePromise(ctx context.Context, promise *v1alpha1
 		*enabled = false
 	}
 
-	if controllerutil.ContainsFinalizer(promise, clusterSelectorsConfigMapCleanupFinalizer) {
-		logger.Info("deleting resources associated with finalizer", "finalizer", clusterSelectorsConfigMapCleanupFinalizer)
+	if controllerutil.ContainsFinalizer(promise, schedulingConfigMapCleanupFinalizer) {
+		logger.Info("deleting resources associated with finalizer", "finalizer", schedulingConfigMapCleanupFinalizer)
 		err := r.deleteConfigMap(ctx, promise, logger)
 		if err != nil {
 			return defaultRequeue, err
@@ -385,8 +395,8 @@ func (r *PromiseReconciler) deletePromise(ctx context.Context, promise *v1alpha1
 		return fastRequeue, nil
 	}
 
-	if controllerutil.ContainsFinalizer(promise, workerClusterResourcesCleanupFinalizer) {
-		logger.Info("deleting Work associated with finalizer", "finalizer", workerClusterResourcesCleanupFinalizer)
+	if controllerutil.ContainsFinalizer(promise, dependenciesCleanupFinalizer) {
+		logger.Info("deleting Work associated with finalizer", "finalizer", dependenciesCleanupFinalizer)
 		err := r.deleteWork(ctx, promise, logger)
 		if err != nil {
 			return defaultRequeue, err
@@ -469,7 +479,7 @@ func (r *PromiseReconciler) deleteConfigMap(ctx context.Context, promise *v1alph
 	}
 
 	if !resourcesRemaining {
-		controllerutil.RemoveFinalizer(promise, clusterSelectorsConfigMapCleanupFinalizer)
+		controllerutil.RemoveFinalizer(promise, schedulingConfigMapCleanupFinalizer)
 		return r.Client.Update(ctx, promise)
 	}
 
@@ -511,7 +521,7 @@ func (r *PromiseReconciler) deleteWork(ctx context.Context, promise *v1alpha1.Pr
 	}
 
 	if !resourcesRemaining {
-		controllerutil.RemoveFinalizer(promise, workerClusterResourcesCleanupFinalizer)
+		controllerutil.RemoveFinalizer(promise, dependenciesCleanupFinalizer)
 		if err := r.Client.Update(ctx, promise); err != nil {
 			return err
 		}
@@ -531,7 +541,7 @@ func generateCRDAndGVK(promise *v1alpha1.Promise, logger logr.Logger) (*apiexten
 	rrCRD := &apiextensionsv1.CustomResourceDefinition{}
 	rrGVK := schema.GroupVersionKind{}
 
-	err := json.Unmarshal(promise.Spec.XaasCrd.Raw, rrCRD)
+	err := json.Unmarshal(promise.Spec.API.Raw, rrCRD)
 	if err != nil {
 		logger.Error(err, "Failed unmarshalling CRD")
 		return rrCRD, rrGVK, err
@@ -599,14 +609,14 @@ func setStatusFieldsOnCRD(rrCRD *apiextensionsv1.CustomResourceDefinition) {
 	}
 }
 
-func (r *PromiseReconciler) createWorkResourceForWorkerClusterResources(ctx context.Context, promise *v1alpha1.Promise, logger logr.Logger) error {
+func (r *PromiseReconciler) createWorkResourceForDependencies(ctx context.Context, promise *v1alpha1.Promise, logger logr.Logger) error {
 	workToCreate := &v1alpha1.Work{}
 	workToCreate.Spec.Replicas = v1alpha1.WorkerResourceReplicas
 	workToCreate.Name = promise.GetIdentifier()
 	workToCreate.Namespace = "default"
 	workToCreate.Labels = promise.GenerateSharedLabels()
-	workToCreate.Spec.ClusterSelector = promise.Spec.ClusterSelector
-	for _, u := range promise.Spec.WorkerClusterResources {
+	workToCreate.Spec.Scheduling.Promise = promise.Spec.Scheduling
+	for _, u := range promise.Spec.Dependencies {
 		workToCreate.Spec.Workload.Manifests = append(workToCreate.Spec.Workload.Manifests, v1alpha1.Manifest{Unstructured: u.Unstructured})
 	}
 
@@ -621,4 +631,41 @@ func (r *PromiseReconciler) createWorkResourceForWorkerClusterResources(ctx cont
 	}
 
 	return nil
+}
+
+func (r *PromiseReconciler) generateWorkflows(promise *v1alpha1.Promise, logger logr.Logger) ([]v1alpha1.Pipeline, error) {
+	var pipelines []v1alpha1.Pipeline
+
+	for _, pipeline := range promise.Spec.Workflows.Resource.Configure {
+		pipelineLogger := logger.WithValues(
+			"pipelineKind", pipeline.GetKind(),
+			"pipelineVersion", pipeline.GetAPIVersion(),
+			"pipelineName", pipeline.GetName())
+		if pipeline.GetKind() == "Pipeline" && pipeline.GetAPIVersion() == "platform.kratix.io/v1alpha1" {
+			p := v1alpha1.Pipeline{}
+			jsonPipeline, err := pipeline.MarshalJSON()
+			logger.Info("json", "json", string(jsonPipeline))
+			if err != nil {
+				// TODO test
+				pipelineLogger.Error(err, "Failed marshalling pipeline to json")
+				return nil, err
+			}
+
+			err = json.Unmarshal(jsonPipeline, &p)
+			if err != nil {
+				// TODO test
+				pipelineLogger.Error(err, "Failed unmarshalling pipeline")
+				return nil, err
+			}
+
+			pipelines = append(pipelines, p)
+		} else {
+			err := fmt.Errorf("unsupported pipeline %q (%s.%s)",
+				pipeline.GetName(), pipeline.GetKind(), pipeline.GetAPIVersion(),
+			)
+			return nil, err
+		}
+	}
+
+	return pipelines, nil
 }

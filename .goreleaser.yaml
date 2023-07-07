@@ -15,3 +15,6 @@ builds:
 
 snapshot:
   name_template: "v{{ .Env.WRB_VERSION }}-SNAPSHOT-{{.ShortCommit}}"
+
+release:
+  name_template: "worker-resource-builder v{{ .Env.WRB_VERSION }}"

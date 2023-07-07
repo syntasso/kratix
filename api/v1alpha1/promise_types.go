@@ -19,10 +19,10 @@ package v1alpha1
 import (
 	metav1 "k8s.io/apimachinery/pkg/apis/meta/v1"
 	"k8s.io/apimachinery/pkg/apis/meta/v1/unstructured"
+	"k8s.io/apimachinery/pkg/labels"
 	"k8s.io/apimachinery/pkg/runtime"
 )
 
-// EDIT THIS FILE!  THIS IS SCAFFOLDING FOR YOU TO OWN!
 // NOTE: json tags are required.  Any new fields you add must have json tags for the fields to be serialized.
 
 // PromiseSpec defines the desired state of Promise
@@ -31,34 +31,48 @@ type PromiseSpec struct {
 	// INSERT ADDITIONAL SPEC FIELDS - desired state of cluster
 	// Important: Run "make" to regenerate code after modifying this file
 
-	// TODO: apiextemnsion.CustomResourceDefinitionSpec struct(s) don't have the required jsontags and
+	// TODO (has since been merged!): apiextemnsion.CustomResourceDefinitionSpec struct(s) don't have the required jsontags and
 	// cannot be used as a Type. See https://github.com/kubernetes-sigs/controller-tools/pull/528
 	// && https://github.com/kubernetes-sigs/controller-tools/issues/291
 	//
 	// OPA Validation pattern:
 	// https://github.com/open-policy-agent/frameworks/blob/1307ba72bce38ee3cf44f94def1bbc41eb4ffa90/constraint/pkg/apis/templates/v1beta1/constrainttemplate_types.go#L46
-	// XaasCrd runtime.RawExtension      `json:"xaasCrd,omitempty"`
+	// API runtime.RawExtension      `json:"api,omitempty"`
 
-	// X's CustomResourceDefinition to create the X-aaS offering
-	//
 	// +kubebuilder:pruning:PreserveUnknownFields
 	// +kubebuilder:validation:EmbeddedResource
-	XaasCrd runtime.RawExtension `json:"xaasCrd,omitempty"`
+	API runtime.RawExtension `json:"api,omitempty"`
 
-	// Array of Image tags to transform from input request custom resource to output resource(s)
-	XaasRequestPipeline []string `json:"xaasRequestPipeline,omitempty"`
+	Workflows Workflows `json:"workflows,omitempty"`
 
-	WorkerClusterResources []WorkerClusterResource `json:"workerClusterResources,omitempty"`
+	Dependencies []Dependency `json:"dependencies,omitempty"`
 
-	ClusterSelector map[string]string `json:"clusterSelector,omitempty"`
+	Scheduling []SchedulingConfig `json:"scheduling,omitempty"`
 }
 
-// Resources represents the manifest workload to be deployed on worker cluster
-type WorkerClusterResource struct {
-	// Manifests represents a list of kubernetes resources to be deployed on the worker cluster.
+type Workflows struct {
+	Resource WorkflowTriggers `json:"resource,omitempty"`
+}
+
+type WorkflowTriggers struct {
+	// +kubebuilder:pruning:PreserveUnknownFields
+	Configure []unstructured.Unstructured `json:"configure,omitempty"`
+}
+
+// Resources represents the manifest workload to be deployed on workers
+type Dependency struct {
+	// Manifests represents a list of resources to be deployed on the worker
 	// +optional
 	// +kubebuilder:pruning:PreserveUnknownFields
 	unstructured.Unstructured `json:",inline"`
+}
+
+type SchedulingConfig struct {
+	Target Target `json:"target,omitempty"`
+}
+
+type Target struct {
+	MatchLabels map[string]string `json:"matchLabels,omitempty"`
 }
 
 // PromiseStatus defines the observed state of Promise
@@ -79,10 +93,24 @@ type Promise struct {
 	Status PromiseStatus `json:"status,omitempty"`
 }
 
-func (p *Promise) DoesNotContainXAASCrd() bool {
-	// if a request pipeline is set but there is not a CRD the pipeline is ignored
+func (p *Promise) GetSchedulingSelectors() map[string]string {
+	return generateLabelSelectorsFromScheduling(p.Spec.Scheduling)
+}
+
+func generateLabelSelectorsFromScheduling(scheduling []SchedulingConfig) map[string]string {
+	// TODO: Support more complex scheduling as it is introduced including resource selection and
+	//		 different target options.
+	schedulingSelectors := map[string]string{}
+	for _, schedulingConfig := range scheduling {
+		schedulingSelectors = labels.Merge(schedulingConfig.Target.MatchLabels, schedulingSelectors)
+	}
+	return schedulingSelectors
+}
+
+func (p *Promise) DoesNotContainAPI() bool {
+	// if a workflow is set but there is not an API the workflow is ignored
 	// TODO how can we prevent this scenario from happening
-	return p.Spec.XaasCrd.Raw == nil
+	return p.Spec.API.Raw == nil
 }
 
 func (p *Promise) GenerateSharedLabels() map[string]string {
@@ -103,7 +131,7 @@ func (p *Promise) GetPipelineResourceName() string {
 }
 
 func (p *Promise) GetConfigMapName() string {
-	return "cluster-selectors-" + p.GetIdentifier()
+	return "scheduling-" + p.GetIdentifier()
 }
 
 func (p *Promise) GetPipelineResourceNamespace() string {

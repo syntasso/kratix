@@ -1,0 +1,17 @@
+#!/usr/bin/env bash
+
+set -eo pipefail
+ROOT=$( cd -- "$( dirname -- "${BASH_SOURCE[0]}" )/.." &> /dev/null && pwd )
+source "${ROOT}/scripts/utils.sh"
+
+current_branch=$(git branch --show-current)
+if [[ "${current_branch}" != "main" ]]; then
+    if [[ "${WRB_ON_BRANCH}" != true ]]; then
+        error "Release should only be done on main branch.\nTo override, set he WRB_ON_BRANCH=true";
+        exit 1;
+    fi
+fi
+
+git tag v${WRB_VERSION}
+git push origin v${WRB_VERSION}
+goreleaser release --rm-dist --release-notes <(echo "Update worker-resource-builder")

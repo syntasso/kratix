@@ -34,28 +34,40 @@ spec:
           spec:
             description: PromiseSpec defines the desired state of Promise
             properties:
-              clusterSelector:
-                additionalProperties:
-                  type: string
-                type: object
-              workerClusterResources:
-                items:
-                  description: Resources represents the manifest workload to be deployed
-                    on worker cluster
-                  type: object
-                  x-kubernetes-preserve-unknown-fields: true
-                type: array
-              xaasCrd:
-                description: X's CustomResourceDefinition to create the X-aaS offering
+              api:
                 type: object
                 x-kubernetes-embedded-resource: true
                 x-kubernetes-preserve-unknown-fields: true
-              xaasRequestPipeline:
-                description: Array of Image tags to transform from input request custom
-                  resource to output resource(s)
+              dependencies:
                 items:
-                  type: string
+                  description: Resources represents the manifest workload to be deployed
+                    on workers
+                  type: object
+                  x-kubernetes-preserve-unknown-fields: true
                 type: array
+              scheduling:
+                items:
+                  properties:
+                    target:
+                      properties:
+                        matchLabels:
+                          additionalProperties:
+                            type: string
+                          type: object
+                      type: object
+                  type: object
+                type: array
+              workflows:
+                properties:
+                  resource:
+                    properties:
+                      configure:
+                        items:
+                          type: object
+                        type: array
+                        x-kubernetes-preserve-unknown-fields: true
+                    type: object
+                type: object
             type: object
           status:
             description: PromiseStatus defines the observed state of Promise

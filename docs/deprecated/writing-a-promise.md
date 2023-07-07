@@ -7,7 +7,7 @@
     - [Promise basics](#promise-basics)
     - [Promise template](#promise-template)
     - [X-as-a-Service Custom Resource Definition](#x-as-a-service-custom-resource-definition)
-    - [X-as-a-Service Request Pipeline](#x-as-a-service-request-pipeline)
+    - [X-as-a-Service Request Pipeline](#x-as-a-service-configure-pipeline)
     - [Worker Cluster Resources](#worker-cluster-resources)
     - [Create and submit a resource request](#create-and-submit-a-resource-request)
   - [Summary](#summary)
@@ -36,7 +36,7 @@ You will learn how to:
 To begin writing a Promise we will need a basic directory structure to work in.
 
  ```
-mkdir -p jenkins-promise/{resources,request-pipeline-image}
+mkdir -p jenkins-promise/{resources,configure-pipeline-image}
 cd jenkins-promise
 ```
 
@@ -60,7 +60,7 @@ kind: Promise
 metadata:
   name: jenkins-promise
 spec:
-  #injected via: go run path/to/kratix/hack/worker-resource-builder/main.go -k8s-resources-directory ${PWD}/resources -promise ${PWD}/jenkins-promise-template.yaml > jenkins-promise.yaml
+  #injected via: go run path/to/kratix/hack/worker-resource-builder/main.go -k8s-resources-directory ${PWD}/dependencies -promise ${PWD}/jenkins-promise-template.yaml > jenkins-promise.yaml
   #workerClusterResources:
   xaasRequestPipeline:
   xaasCrd:
@@ -121,7 +121,7 @@ In more advanced Promises, each of these 'stages' will take on responsibilities 
 
 ![Writing a Promise Step Four](images/writing-a-promise-4.png)
 
-`cd request-pipeline-image`
+`cd configure-pipeline-image`
 
 Create the <code>jenkins-instance.yaml</code> by running the below command.
 <details>
@@ -328,7 +328,7 @@ Next we need to inject Jenkins files into our `jenkins-promise-template.yaml`. T
 
 ```
 go run path/to/kratix/hack/worker-resource-builder/main.go \
-  -k8s-resources-directory ${PWD}/resources \
+  -k8s-resources-directory ${PWD}/dependencies \
   -promise ${PWD}/jenkins-promise-template.yaml > jenkins-promise.yaml
 ```
 

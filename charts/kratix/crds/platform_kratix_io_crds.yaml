@@ -213,26 +213,39 @@ spec:
             spec:
               description: PromiseSpec defines the desired state of Promise
               properties:
-                clusterSelector:
-                  additionalProperties:
-                    type: string
-                  type: object
-                workerClusterResources:
-                  items:
-                    description: Resources represents the manifest workload to be deployed on worker cluster
-                    type: object
-                    x-kubernetes-preserve-unknown-fields: true
-                  type: array
-                xaasCrd:
-                  description: X's CustomResourceDefinition to create the X-aaS offering
+                api:
                   type: object
                   x-kubernetes-embedded-resource: true
                   x-kubernetes-preserve-unknown-fields: true
-                xaasRequestPipeline:
-                  description: Array of Image tags to transform from input request custom resource to output resource(s)
+                dependencies:
                   items:
-                    type: string
+                    description: Resources represents the manifest workload to be deployed on workers
+                    type: object
+                    x-kubernetes-preserve-unknown-fields: true
                   type: array
+                scheduling:
+                  items:
+                    properties:
+                      target:
+                        properties:
+                          matchLabels:
+                            additionalProperties:
+                              type: string
+                            type: object
+                        type: object
+                    type: object
+                  type: array
+                workflows:
+                  properties:
+                    resource:
+                      properties:
+                        configure:
+                          items:
+                            type: object
+                          type: array
+                          x-kubernetes-preserve-unknown-fields: true
+                      type: object
+                  type: object
               type: object
             status:
               description: PromiseStatus defines the observed state of Promise
@@ -320,21 +333,44 @@ spec:
             spec:
               description: WorkSpec defines the desired state of Work
               properties:
-                clusterSelector:
-                  additionalProperties:
-                    type: string
-                  description: ClusterSelector is the selector to use for selecting the worker cluster
-                  type: object
                 replicas:
-                  description: -1 denotes Cluster Worker Resources, 1 denotes Resource Request
+                  description: -1 denotes dependencies, 1 denotes Resource Request
                   type: integer
+                scheduling:
+                  description: Scheduling is used for selecting the worker
+                  properties:
+                    promise:
+                      items:
+                        properties:
+                          target:
+                            properties:
+                              matchLabels:
+                                additionalProperties:
+                                  type: string
+                                type: object
+                            type: object
+                        type: object
+                      type: array
+                    resource:
+                      items:
+                        properties:
+                          target:
+                            properties:
+                              matchLabels:
+                                additionalProperties:
+                                  type: string
+                                type: object
+                            type: object
+                        type: object
+                      type: array
+                  type: object
                 workload:
-                  description: Workload represents the manifest workload to be deployed on worker cluster
+                  description: Workload represents the manifest workload to be deployed on worker
                   properties:
                     manifests:
-                      description: Manifests represents a list of kuberenetes resources to be deployed on the worker cluster.
+                      description: Manifests represents a list of resources to be deployed on the worker
                       items:
-                        description: Manifest represents a resource to be deployed on worker cluster
+                        description: Manifest represents a resource to be deployed on worker
                         type: object
                         x-kubernetes-preserve-unknown-fields: true
                       type: array
