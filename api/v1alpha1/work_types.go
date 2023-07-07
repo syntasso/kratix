@@ -55,8 +55,8 @@ type WorkSpec struct {
 }
 
 type WorkScheduling struct {
-	Promise    []SchedulingConfig `json:"promise,omitempty"`
-	Grapefruit []SchedulingConfig `json:"grapefruit,omitempty"`
+	Promise  []SchedulingConfig `json:"promise,omitempty"`
+	Resource []SchedulingConfig `json:"resource,omitempty"`
 }
 
 func (w *Work) IsResourceRequest() bool {
@@ -68,13 +68,13 @@ func (w *Work) IsWorkerResource() bool {
 }
 
 func (w *Work) HasScheduling() bool {
-	// Work has scheduling if either (or both) Promise or Grapefruit has scheduling set
-	return len(w.Spec.Scheduling.Grapefruit) > 0 && len(w.Spec.Scheduling.Grapefruit[0].Target.MatchLabels) > 0 ||
+	// Work has scheduling if either (or both) Promise or Resource has scheduling set
+	return len(w.Spec.Scheduling.Resource) > 0 && len(w.Spec.Scheduling.Resource[0].Target.MatchLabels) > 0 ||
 		len(w.Spec.Scheduling.Promise) > 0 && len(w.Spec.Scheduling.Promise[0].Target.MatchLabels) > 0
 }
 
 func (w *Work) GetSchedulingSelectors() map[string]string {
-	return generateLabelSelectorsFromScheduling(append(w.Spec.Scheduling.Promise, w.Spec.Scheduling.Grapefruit...))
+	return generateLabelSelectorsFromScheduling(append(w.Spec.Scheduling.Promise, w.Spec.Scheduling.Resource...))
 }
 
 // WorkloadTemplate represents the manifest workload to be deployed on worker

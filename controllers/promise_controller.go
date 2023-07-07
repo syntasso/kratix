@@ -636,7 +636,7 @@ func (r *PromiseReconciler) createWorkResourceForDependencies(ctx context.Contex
 func (r *PromiseReconciler) generateWorkflows(promise *v1alpha1.Promise, logger logr.Logger) ([]v1alpha1.Pipeline, error) {
 	var pipelines []v1alpha1.Pipeline
 
-	for _, pipeline := range promise.Spec.Workflows.Grapefruit.Gummybear {
+	for _, pipeline := range promise.Spec.Workflows.Resource.Configure {
 		pipelineLogger := logger.WithValues(
 			"pipelineKind", pipeline.GetKind(),
 			"pipelineVersion", pipeline.GetAPIVersion(),

@@ -59,9 +59,9 @@ spec:
                 type: array
               workflows:
                 properties:
-                  grapefruit:
+                  resource:
                     properties:
-                      gummybear:
+                      configure:
                         items:
                           type: object
                         type: array

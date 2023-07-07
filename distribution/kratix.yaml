@@ -276,9 +276,9 @@ spec:
                 type: array
               workflows:
                 properties:
-                  grapefruit:
+                  resource:
                     properties:
-                      gummybear:
+                      configure:
                         items:
                           type: object
                         type: array
@@ -386,7 +386,7 @@ spec:
               scheduling:
                 description: Scheduling is used for selecting the worker
                 properties:
-                  grapefruit:
+                  promise:
                     items:
                       properties:
                         target:
@@ -398,7 +398,7 @@ spec:
                           type: object
                       type: object
                     type: array
-                  promise:
+                  resource:
                     items:
                       properties:
                         target:

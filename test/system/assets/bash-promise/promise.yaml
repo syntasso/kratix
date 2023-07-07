@@ -17,39 +17,38 @@ spec:
         singular: bash
       scope: Namespaced
       versions:
-      - name: v1alpha1
-        schema:
-          openAPIV3Schema:
-            properties:
-              spec:
-                properties:
-                  container0Cmd:
-                    description: Arbitrary code to be executed by the container 0
-                    type: string
-                  container1Cmd:
-                    description: Arbitrary code to be executed by the container 1
-                    type: string
-                type: object
-            type: object
-        served: true
-        storage: true
+        - name: v1alpha1
+          schema:
+            openAPIV3Schema:
+              properties:
+                spec:
+                  properties:
+                    container0Cmd:
+                      description: Arbitrary code to be executed by the container 0
+                      type: string
+                    container1Cmd:
+                      description: Arbitrary code to be executed by the container 1
+                      type: string
+                  type: object
+              type: object
+          served: true
+          storage: true
   dependencies:
-  - apiVersion: v1
-    kind: Namespace
-    metadata:
-      name: bash-wcr-namespace
+    - apiVersion: v1
+      kind: Namespace
+      metadata:
+        name: bash-wcr-namespace
   workflows:
-    grapefruit:
-      gummybear:
-      - apiVersion: platform.kratix.io/v1alpha1
-        kind: Pipeline
-        metadata:
-          name: instance-configure
-          namespace: default
-        spec:
-          containers:
-          - image: syntassodev/bash-promise-test-c0:dev
-            name: bash-promise-test-c0
-          - image: syntassodev/bash-promise-test-c1:dev
-            name: bash-promise-test-c1
-
+    resource:
+      configure:
+        - apiVersion: platform.kratix.io/v1alpha1
+          kind: Pipeline
+          metadata:
+            name: instance-configure
+            namespace: default
+          spec:
+            containers:
+              - image: syntassodev/bash-promise-test-c0:dev
+                name: bash-promise-test-c0
+              - image: syntassodev/bash-promise-test-c1:dev
+                name: bash-promise-test-c1

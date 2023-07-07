@@ -413,11 +413,11 @@ spec:
           pod_role_label: spilo-role
           pod_service_account_name: postgres-pod
           pod_terminate_grace_period: 5m
-          secret_name_template: '{username}.{cluster}.credentials.{tprkind}.{tprgroup}'
+          secret_name_template: "{username}.{cluster}.credentials.{tprkind}.{tprgroup}"
           spilo_allow_privilege_escalation: true
           spilo_privileged: false
           storage_resize_mode: pvc
-          watched_namespace: '*'
+          watched_namespace: "*"
         load_balancer:
           db_hosted_zone: db.example.com
           enable_master_load_balancer: false
@@ -425,8 +425,8 @@ spec:
           enable_replica_load_balancer: false
           enable_replica_pooler_load_balancer: false
           external_traffic_policy: Cluster
-          master_dns_name_format: '{cluster}.{team}.{hostedzone}'
-          replica_dns_name_format: '{cluster}-repl.{team}.{hostedzone}'
+          master_dns_name_format: "{cluster}.{team}.{hostedzone}"
+          replica_dns_name_format: "{cluster}-repl.{team}.{hostedzone}"
         logging_rest_api:
           api_port: 8080
           cluster_history_entries: 1000
@@ -799,7 +799,7 @@ spec:
                             default: 5m
                             type: string
                           secret_name_template:
-                            default: '{username}.{cluster}.credentials.{tprkind}.{tprgroup}'
+                            default: "{username}.{cluster}.credentials.{tprkind}.{tprgroup}"
                             type: string
                           spilo_allow_privilege_escalation:
                             default: true
@@ -859,10 +859,10 @@ spec:
                               - Local
                             type: string
                           master_dns_name_format:
-                            default: '{cluster}.{namespace}.{hostedzone}'
+                            default: "{cluster}.{namespace}.{hostedzone}"
                             type: string
                           replica_dns_name_format:
-                            default: '{cluster}-repl.{namespace}.{hostedzone}'
+                            default: "{cluster}-repl.{namespace}.{hostedzone}"
                             type: string
                         type: object
                       logging_rest_api:
@@ -1837,8 +1837,8 @@ spec:
             subresources:
               status: {}
   workflows:
-    grapefruit:
-      gummybear:
+    resource:
+      configure:
         - apiVersion: platform.kratix.io/v1alpha1
           kind: Pipeline
           metadata:

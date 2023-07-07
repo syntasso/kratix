@@ -51,12 +51,12 @@ type PromiseSpec struct {
 }
 
 type Workflows struct {
-	Grapefruit WorkflowTriggers `json:"grapefruit,omitempty"`
+	Resource WorkflowTriggers `json:"resource,omitempty"`
 }
 
 type WorkflowTriggers struct {
 	// +kubebuilder:pruning:PreserveUnknownFields
-	Gummybear []unstructured.Unstructured `json:"gummybear,omitempty"`
+	Configure []unstructured.Unstructured `json:"configure,omitempty"`
 }
 
 // Resources represents the manifest workload to be deployed on workers

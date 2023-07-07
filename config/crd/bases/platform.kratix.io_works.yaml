@@ -40,7 +40,7 @@ spec:
               scheduling:
                 description: Scheduling is used for selecting the worker
                 properties:
-                  grapefruit:
+                  promise:
                     items:
                       properties:
                         target:
@@ -52,7 +52,7 @@ spec:
                           type: object
                       type: object
                     type: array
-                  promise:
+                  resource:
                     items:
                       properties:
                         target:

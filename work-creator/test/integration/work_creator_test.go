@@ -65,7 +65,7 @@ var _ = Describe("WorkCreator", func() {
 								},
 							},
 						},
-						Grapefruit: []v1alpha1.SchedulingConfig{
+						Resource: []v1alpha1.SchedulingConfig{
 							{
 								Target: v1alpha1.Target{
 									MatchLabels: map[string]string{"environment": "production", "region": "europe"},

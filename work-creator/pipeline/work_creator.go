@@ -67,7 +67,7 @@ func (w *WorkCreator) Execute(rootDirectory string, identifier string) error {
 		return err
 	}
 
-	work.Spec.Scheduling.Grapefruit = pipelineScheduling
+	work.Spec.Scheduling.Resource = pipelineScheduling
 
 	promiseScheduling, err := w.getPromiseScheduling(rootDirectory)
 	if err != nil {

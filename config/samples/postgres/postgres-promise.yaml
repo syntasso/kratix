@@ -17,638 +17,729 @@ spec:
         singular: database
       scope: Namespaced
       versions:
-      - name: v1alpha1
-        schema:
-          openAPIV3Schema:
-            properties:
-              apiVersion:
-                description: 'APIVersion defines the versioned schema of this representation
-                  of an object. Servers should convert recognized schemas to the latest
-                  internal value, and may reject unrecognized values. More info: https://git.k8s.io/community/contributors/devel/sig-architecture/api-conventions.md#resources'
-                type: string
-              kind:
-                description: 'Kind is a string value representing the REST resource
-                  this object represents. Servers may infer this from the endpoint
-                  the client submits requests to. Cannot be updated. In CamelCase.
-                  More info: https://git.k8s.io/community/contributors/devel/sig-architecture/api-conventions.md#types-kinds'
-                type: string
-              metadata:
-                type: object
-              spec:
-                description: DatabaseSpec defines the desired state of Database
-                properties:
-                  configMapDatabaseNameKey:
-                    description: 'Name of the configMap key where the operator should
-                      looking for the value for the database name for its env var
-                      Default value: nil'
-                    type: string
-                  configMapDatabasePasswordKey:
-                    description: 'Name of the configMap key where the operator should
-                      looking for the value for the database user for its env var
-                      Default value: nil'
-                    type: string
-                  configMapDatabaseUserKey:
-                    description: 'Name of the configMap key where the operator should
-                      looking for the value for the database password for its env
-                      var Default value: nil'
-                    type: string
-                  configMapName:
-                    description: 'Name of the ConfigMap where the operator should
-                      looking for the EnvVars keys and/or values only Default value:
-                      nil'
-                    type: string
-                  containerImagePullPolicy:
-                    description: 'Policy definition to pull the Database Image More
-                      info: https://kubernetes.io/docs/concepts/containers/images/
-                      Default value:'
-                    type: string
-                  containerName:
-                    description: Name to create the Database container
-                    type: string
-                  databaseCpu:
-                    description: 'CPU resource request which will be available for
-                      the database container Default value: 10Mi'
-                    type: string
-                  databaseCpuLimit:
-                    description: 'Limit of CPU request which will be available for
-                      the database container Default value: 20Mi'
-                    type: string
-                  databaseMemoryLimit:
-                    description: 'Limit of Memory which will be available for the
-                      database container Default value: 512Mi'
-                    type: string
-                  databaseMemoryRequest:
-                    description: 'Limit of Memory Request which will be available
-                      for the database container Default value: 128Mi'
-                    type: string
-                  databaseName:
-                    description: 'Value for the Database Environment Variable (spec.databaseNameKeyEnvVar).
-                      Default value: example'
-                    type: string
-                  databaseNameKeyEnvVar:
-                    description: 'Key Value for the Database Environment Variable
-                      in order to inform the database mame Note that each database
-                      version/image can expected a different value for it. Default
-                      value: nil'
-                    type: string
-                  databasePassword:
-                    description: 'Value for the Database Environment Variable (spec.databasePasswordKeyEnvVar).
-                      Default value: postgres'
-                    type: string
-                  databasePasswordKeyEnvVar:
-                    description: 'Key Value for the Database Environment Variable
-                      in order to inform the database password Note that each database
-                      version/image can expected a different value for it. Default
-                      value: nil'
-                    type: string
-                  databasePort:
-                    description: Value for the Database Environment Variable in order
-                      to define the port which it should use. It will be used in its
-                      container as well
-                    format: int32
-                    type: integer
-                  databaseStorageClassName:
-                    description: 'Name the Storage Class name of the PVC which will
-                      be created for the Database More info: https://kubernetes.io/docs/concepts/storage/persistent-volumes/#persistentvolumeclaims
-                      Default value: standard'
-                    type: string
-                  databaseStorageRequest:
-                    description: 'Limit of Storage Request which will be available
-                      for the database container Default value: 1Gi'
-                    type: string
-                  databaseUser:
-                    description: 'Value for the Database Environment Variable (spec.databaseUserKeyEnvVar).
-                      Default value: postgres'
-                    type: string
-                  databaseUserKeyEnvVar:
-                    description: 'Key Value for the Database Environment Variable
-                      in order to inform the database user Note that each database
-                      version/image can expected a different value for it. Default
-                      value: nil'
-                    type: string
-                  image:
-                    description: 'Database image:tag Default value: centos/postgresql-96-centos7'
-                    type: string
-                  size:
-                    description: 'Quantity of instances Default value: 1'
-                    format: int32
-                    type: integer
-                type: object
-              status:
-                description: DatabaseStatus defines the observed state of Database
-                properties:
-                  databaseStatus:
-                    description: It will be as "OK when all objects are created successfully
-                    type: string
-                  deploymentStatus:
-                    description: Status of the Database Deployment created and managed
-                      by it
-                    properties:
-                      availableReplicas:
-                        description: Total number of available pods (ready for at
-                          least minReadySeconds) targeted by this deployment.
-                        format: int32
-                        type: integer
-                      collisionCount:
-                        description: Count of hash collisions for the Deployment.
-                          The Deployment controller uses this field as a collision
-                          avoidance mechanism when it needs to create the name for
-                          the newest ReplicaSet.
-                        format: int32
-                        type: integer
-                      conditions:
-                        description: Represents the latest available observations
-                          of a deployment's current state.
-                        items:
-                          description: DeploymentCondition describes the state of
-                            a deployment at a certain point.
-                          properties:
-                            lastTransitionTime:
-                              description: Last time the condition transitioned from
-                                one status to another.
-                              format: date-time
-                              type: string
-                            lastUpdateTime:
-                              description: The last time this condition was updated.
-                              format: date-time
-                              type: string
-                            message:
-                              description: A human readable message indicating details
-                                about the transition.
-                              type: string
-                            reason:
-                              description: The reason for the condition's last transition.
-                              type: string
-                            status:
-                              description: Status of the condition, one of True, False,
-                                Unknown.
-                              type: string
-                            type:
-                              description: Type of deployment condition.
-                              type: string
-                          required:
-                          - status
-                          - type
+        - name: v1alpha1
+          schema:
+            openAPIV3Schema:
+              properties:
+                apiVersion:
+                  description:
+                    "APIVersion defines the versioned schema of this representation
+                    of an object. Servers should convert recognized schemas to the latest
+                    internal value, and may reject unrecognized values. More info: https://git.k8s.io/community/contributors/devel/sig-architecture/api-conventions.md#resources"
+                  type: string
+                kind:
+                  description:
+                    "Kind is a string value representing the REST resource
+                    this object represents. Servers may infer this from the endpoint
+                    the client submits requests to. Cannot be updated. In CamelCase.
+                    More info: https://git.k8s.io/community/contributors/devel/sig-architecture/api-conventions.md#types-kinds"
+                  type: string
+                metadata:
+                  type: object
+                spec:
+                  description: DatabaseSpec defines the desired state of Database
+                  properties:
+                    configMapDatabaseNameKey:
+                      description:
+                        "Name of the configMap key where the operator should
+                        looking for the value for the database name for its env var
+                        Default value: nil"
+                      type: string
+                    configMapDatabasePasswordKey:
+                      description:
+                        "Name of the configMap key where the operator should
+                        looking for the value for the database user for its env var
+                        Default value: nil"
+                      type: string
+                    configMapDatabaseUserKey:
+                      description:
+                        "Name of the configMap key where the operator should
+                        looking for the value for the database password for its env
+                        var Default value: nil"
+                      type: string
+                    configMapName:
+                      description:
+                        "Name of the ConfigMap where the operator should
+                        looking for the EnvVars keys and/or values only Default value:
+                        nil"
+                      type: string
+                    containerImagePullPolicy:
+                      description:
+                        "Policy definition to pull the Database Image More
+                        info: https://kubernetes.io/docs/concepts/containers/images/
+                        Default value:"
+                      type: string
+                    containerName:
+                      description: Name to create the Database container
+                      type: string
+                    databaseCpu:
+                      description:
+                        "CPU resource request which will be available for
+                        the database container Default value: 10Mi"
+                      type: string
+                    databaseCpuLimit:
+                      description:
+                        "Limit of CPU request which will be available for
+                        the database container Default value: 20Mi"
+                      type: string
+                    databaseMemoryLimit:
+                      description:
+                        "Limit of Memory which will be available for the
+                        database container Default value: 512Mi"
+                      type: string
+                    databaseMemoryRequest:
+                      description:
+                        "Limit of Memory Request which will be available
+                        for the database container Default value: 128Mi"
+                      type: string
+                    databaseName:
+                      description:
+                        "Value for the Database Environment Variable (spec.databaseNameKeyEnvVar).
+                        Default value: example"
+                      type: string
+                    databaseNameKeyEnvVar:
+                      description:
+                        "Key Value for the Database Environment Variable
+                        in order to inform the database mame Note that each database
+                        version/image can expected a different value for it. Default
+                        value: nil"
+                      type: string
+                    databasePassword:
+                      description:
+                        "Value for the Database Environment Variable (spec.databasePasswordKeyEnvVar).
+                        Default value: postgres"
+                      type: string
+                    databasePasswordKeyEnvVar:
+                      description:
+                        "Key Value for the Database Environment Variable
+                        in order to inform the database password Note that each database
+                        version/image can expected a different value for it. Default
+                        value: nil"
+                      type: string
+                    databasePort:
+                      description:
+                        Value for the Database Environment Variable in order
+                        to define the port which it should use. It will be used in its
+                        container as well
+                      format: int32
+                      type: integer
+                    databaseStorageClassName:
+                      description:
+                        "Name the Storage Class name of the PVC which will
+                        be created for the Database More info: https://kubernetes.io/docs/concepts/storage/persistent-volumes/#persistentvolumeclaims
+                        Default value: standard"
+                      type: string
+                    databaseStorageRequest:
+                      description:
+                        "Limit of Storage Request which will be available
+                        for the database container Default value: 1Gi"
+                      type: string
+                    databaseUser:
+                      description:
+                        "Value for the Database Environment Variable (spec.databaseUserKeyEnvVar).
+                        Default value: postgres"
+                      type: string
+                    databaseUserKeyEnvVar:
+                      description:
+                        "Key Value for the Database Environment Variable
+                        in order to inform the database user Note that each database
+                        version/image can expected a different value for it. Default
+                        value: nil"
+                      type: string
+                    image:
+                      description: "Database image:tag Default value: centos/postgresql-96-centos7"
+                      type: string
+                    size:
+                      description: "Quantity of instances Default value: 1"
+                      format: int32
+                      type: integer
+                  type: object
+                status:
+                  description: DatabaseStatus defines the observed state of Database
+                  properties:
+                    databaseStatus:
+                      description: It will be as "OK when all objects are created successfully
+                      type: string
+                    deploymentStatus:
+                      description:
+                        Status of the Database Deployment created and managed
+                        by it
+                      properties:
+                        availableReplicas:
+                          description:
+                            Total number of available pods (ready for at
+                            least minReadySeconds) targeted by this deployment.
+                          format: int32
+                          type: integer
+                        collisionCount:
+                          description:
+                            Count of hash collisions for the Deployment.
+                            The Deployment controller uses this field as a collision
+                            avoidance mechanism when it needs to create the name for
+                            the newest ReplicaSet.
+                          format: int32
+                          type: integer
+                        conditions:
+                          description:
+                            Represents the latest available observations
+                            of a deployment's current state.
+                          items:
+                            description:
+                              DeploymentCondition describes the state of
+                              a deployment at a certain point.
+                            properties:
+                              lastTransitionTime:
+                                description:
+                                  Last time the condition transitioned from
+                                  one status to another.
+                                format: date-time
+                                type: string
+                              lastUpdateTime:
+                                description: The last time this condition was updated.
+                                format: date-time
+                                type: string
+                              message:
+                                description:
+                                  A human readable message indicating details
+                                  about the transition.
+                                type: string
+                              reason:
+                                description: The reason for the condition's last transition.
+                                type: string
+                              status:
+                                description:
+                                  Status of the condition, one of True, False,
+                                  Unknown.
+                                type: string
+                              type:
+                                description: Type of deployment condition.
+                                type: string
+                            required:
+                              - status
+                              - type
+                            type: object
+                          type: array
+                        observedGeneration:
+                          description: The generation observed by the deployment controller.
+                          format: int64
+                          type: integer
+                        readyReplicas:
+                          description: Total number of ready pods targeted by this deployment.
+                          format: int32
+                          type: integer
+                        replicas:
+                          description:
+                            Total number of non-terminated pods targeted
+                            by this deployment (their labels match the selector).
+                          format: int32
+                          type: integer
+                        unavailableReplicas:
+                          description:
+                            Total number of unavailable pods targeted by
+                            this deployment. This is the total number of pods that are
+                            still required for the deployment to have 100% available
+                            capacity. They may either be pods that are running but not
+                            yet available or pods that still have not been created.
+                          format: int32
+                          type: integer
+                        updatedReplicas:
+                          description:
+                            Total number of non-terminated pods targeted
+                            by this deployment that have the desired template spec.
+                          format: int32
+                          type: integer
+                      type: object
+                    pvcStatus:
+                      description:
+                        Name of the PersistentVolumeClaim created and managed
+                        by it
+                      properties:
+                        accessModes:
+                          description:
+                            "AccessModes contains the actual access modes
+                            the volume backing the PVC has. More info: https://kubernetes.io/docs/concepts/storage/persistent-volumes#access-modes-1"
+                          items:
+                            type: string
+                          type: array
+                        capacity:
+                          additionalProperties:
+                            anyOf:
+                              - type: integer
+                              - type: string
+                            pattern: ^(\+|-)?(([0-9]+(\.[0-9]*)?)|(\.[0-9]+))(([KMGTPE]i)|[numkMGTPE]|([eE](\+|-)?(([0-9]+(\.[0-9]*)?)|(\.[0-9]+))))?$
+                            x-kubernetes-int-or-string: true
+                          description:
+                            Represents the actual resources of the underlying
+                            volume.
                           type: object
-                        type: array
-                      observedGeneration:
-                        description: The generation observed by the deployment controller.
-                        format: int64
-                        type: integer
-                      readyReplicas:
-                        description: Total number of ready pods targeted by this deployment.
-                        format: int32
-                        type: integer
-                      replicas:
-                        description: Total number of non-terminated pods targeted
-                          by this deployment (their labels match the selector).
-                        format: int32
-                        type: integer
-                      unavailableReplicas:
-                        description: Total number of unavailable pods targeted by
-                          this deployment. This is the total number of pods that are
-                          still required for the deployment to have 100% available
-                          capacity. They may either be pods that are running but not
-                          yet available or pods that still have not been created.
-                        format: int32
-                        type: integer
-                      updatedReplicas:
-                        description: Total number of non-terminated pods targeted
-                          by this deployment that have the desired template spec.
-                        format: int32
-                        type: integer
-                    type: object
-                  pvcStatus:
-                    description: Name of the PersistentVolumeClaim created and managed
-                      by it
-                    properties:
-                      accessModes:
-                        description: 'AccessModes contains the actual access modes
-                          the volume backing the PVC has. More info: https://kubernetes.io/docs/concepts/storage/persistent-volumes#access-modes-1'
-                        items:
+                        conditions:
+                          description:
+                            Current Condition of persistent volume claim.
+                            If underlying persistent volume is being resized then the
+                            Condition will be set to 'ResizeStarted'.
+                          items:
+                            description:
+                              PersistentVolumeClaimCondition contails details
+                              about state of pvc
+                            properties:
+                              lastProbeTime:
+                                description: Last time we probed the condition.
+                                format: date-time
+                                type: string
+                              lastTransitionTime:
+                                description:
+                                  Last time the condition transitioned from
+                                  one status to another.
+                                format: date-time
+                                type: string
+                              message:
+                                description:
+                                  Human-readable message indicating details
+                                  about last transition.
+                                type: string
+                              reason:
+                                description:
+                                  Unique, this should be a short, machine
+                                  understandable string that gives the reason for condition's
+                                  last transition. If it reports "ResizeStarted" that
+                                  means the underlying persistent volume is being resized.
+                                type: string
+                              status:
+                                type: string
+                              type:
+                                description:
+                                  PersistentVolumeClaimConditionType is a
+                                  valid value of PersistentVolumeClaimCondition.Type
+                                type: string
+                            required:
+                              - status
+                              - type
+                            type: object
+                          type: array
+                        phase:
+                          description: Phase represents the current phase of PersistentVolumeClaim.
                           type: string
-                        type: array
-                      capacity:
-                        additionalProperties:
-                          anyOf:
-                          - type: integer
-                          - type: string
-                          pattern: ^(\+|-)?(([0-9]+(\.[0-9]*)?)|(\.[0-9]+))(([KMGTPE]i)|[numkMGTPE]|([eE](\+|-)?(([0-9]+(\.[0-9]*)?)|(\.[0-9]+))))?$
-                          x-kubernetes-int-or-string: true
-                        description: Represents the actual resources of the underlying
-                          volume.
-                        type: object
-                      conditions:
-                        description: Current Condition of persistent volume claim.
-                          If underlying persistent volume is being resized then the
-                          Condition will be set to 'ResizeStarted'.
-                        items:
-                          description: PersistentVolumeClaimCondition contails details
-                            about state of pvc
+                      type: object
+                    serviceStatus:
+                      description:
+                        Status of the Database Service created and managed
+                        by it
+                      properties:
+                        loadBalancer:
+                          description:
+                            LoadBalancer contains the current status of the
+                            load-balancer, if one is present.
                           properties:
-                            lastProbeTime:
-                              description: Last time we probed the condition.
-                              format: date-time
-                              type: string
-                            lastTransitionTime:
-                              description: Last time the condition transitioned from
-                                one status to another.
-                              format: date-time
-                              type: string
-                            message:
-                              description: Human-readable message indicating details
-                                about last transition.
-                              type: string
-                            reason:
-                              description: Unique, this should be a short, machine
-                                understandable string that gives the reason for condition's
-                                last transition. If it reports "ResizeStarted" that
-                                means the underlying persistent volume is being resized.
-                              type: string
-                            status:
-                              type: string
-                            type:
-                              description: PersistentVolumeClaimConditionType is a
-                                valid value of PersistentVolumeClaimCondition.Type
-                              type: string
-                          required:
-                          - status
-                          - type
+                            ingress:
+                              description:
+                                Ingress is a list containing ingress points
+                                for the load-balancer. Traffic intended for the service
+                                should be sent to these ingress points.
+                              items:
+                                description:
+                                  "LoadBalancerIngress represents the status
+                                  of a load-balancer ingress point: traffic intended
+                                  for the service should be sent to an ingress point."
+                                properties:
+                                  hostname:
+                                    description:
+                                      Hostname is set for load-balancer ingress
+                                      points that are DNS based (typically AWS load-balancers)
+                                    type: string
+                                  ip:
+                                    description:
+                                      IP is set for load-balancer ingress
+                                      points that are IP based (typically GCE or OpenStack
+                                      load-balancers)
+                                    type: string
+                                type: object
+                              type: array
                           type: object
-                        type: array
-                      phase:
-                        description: Phase represents the current phase of PersistentVolumeClaim.
-                        type: string
-                    type: object
-                  serviceStatus:
-                    description: Status of the Database Service created and managed
-                      by it
-                    properties:
-                      loadBalancer:
-                        description: LoadBalancer contains the current status of the
-                          load-balancer, if one is present.
-                        properties:
-                          ingress:
-                            description: Ingress is a list containing ingress points
-                              for the load-balancer. Traffic intended for the service
-                              should be sent to these ingress points.
-                            items:
-                              description: 'LoadBalancerIngress represents the status
-                                of a load-balancer ingress point: traffic intended
-                                for the service should be sent to an ingress point.'
-                              properties:
-                                hostname:
-                                  description: Hostname is set for load-balancer ingress
-                                    points that are DNS based (typically AWS load-balancers)
-                                  type: string
-                                ip:
-                                  description: IP is set for load-balancer ingress
-                                    points that are IP based (typically GCE or OpenStack
-                                    load-balancers)
-                                  type: string
-                              type: object
-                            type: array
-                        type: object
-                    type: object
-                required:
-                - databaseStatus
-                - deploymentStatus
-                - pvcStatus
-                - serviceStatus
-                type: object
-            type: object
-        served: true
-        storage: true
-        subresources:
-          status: {}
+                      type: object
+                  required:
+                    - databaseStatus
+                    - deploymentStatus
+                    - pvcStatus
+                    - serviceStatus
+                  type: object
+              type: object
+          served: true
+          storage: true
+          subresources:
+            status: {}
   dependencies:
-  - apiVersion: apiextensions.k8s.io/v1
-    kind: CustomResourceDefinition
-    metadata:
-      name: databases.new.postgresql.dev4devs.com
-    spec:
-      group: new.postgresql.dev4devs.com
-      names:
-        kind: Database
-        listKind: DatabaseList
-        plural: databases
-        singular: database
-      scope: Namespaced
-      versions:
-      - name: v1alpha1
-        schema:
-          openAPIV3Schema:
-            properties:
-              apiVersion:
-                description: 'APIVersion defines the versioned schema of this representation
-                  of an object. Servers should convert recognized schemas to the latest
-                  internal value, and may reject unrecognized values. More info: https://git.k8s.io/community/contributors/devel/sig-architecture/api-conventions.md#resources'
-                type: string
-              kind:
-                description: 'Kind is a string value representing the REST resource
-                  this object represents. Servers may infer this from the endpoint
-                  the client submits requests to. Cannot be updated. In CamelCase.
-                  More info: https://git.k8s.io/community/contributors/devel/sig-architecture/api-conventions.md#types-kinds'
-                type: string
-              metadata:
-                type: object
-              spec:
-                description: DatabaseSpec defines the desired state of Database
+    - apiVersion: apiextensions.k8s.io/v1
+      kind: CustomResourceDefinition
+      metadata:
+        name: databases.new.postgresql.dev4devs.com
+      spec:
+        group: new.postgresql.dev4devs.com
+        names:
+          kind: Database
+          listKind: DatabaseList
+          plural: databases
+          singular: database
+        scope: Namespaced
+        versions:
+          - name: v1alpha1
+            schema:
+              openAPIV3Schema:
                 properties:
-                  configMapDatabaseNameKey:
-                    description: 'Name of the configMap key where the operator should
-                      looking for the value for the database name for its env var
-                      Default value: nil'
+                  apiVersion:
+                    description:
+                      "APIVersion defines the versioned schema of this representation
+                      of an object. Servers should convert recognized schemas to the latest
+                      internal value, and may reject unrecognized values. More info: https://git.k8s.io/community/contributors/devel/sig-architecture/api-conventions.md#resources"
                     type: string
-                  configMapDatabasePasswordKey:
-                    description: 'Name of the configMap key where the operator should
-                      looking for the value for the database user for its env var
-                      Default value: nil'
+                  kind:
+                    description:
+                      "Kind is a string value representing the REST resource
+                      this object represents. Servers may infer this from the endpoint
+                      the client submits requests to. Cannot be updated. In CamelCase.
+                      More info: https://git.k8s.io/community/contributors/devel/sig-architecture/api-conventions.md#types-kinds"
                     type: string
-                  configMapDatabaseUserKey:
-                    description: 'Name of the configMap key where the operator should
-                      looking for the value for the database password for its env
-                      var Default value: nil'
-                    type: string
-                  configMapName:
-                    description: 'Name of the ConfigMap where the operator should
-                      looking for the EnvVars keys and/or values only Default value:
-                      nil'
-                    type: string
-                  containerImagePullPolicy:
-                    description: 'Policy definition to pull the Database Image More
-                      info: https://kubernetes.io/docs/concepts/containers/images/
-                      Default value:'
-                    type: string
-                  containerName:
-                    description: Name to create the Database container
-                    type: string
-                  databaseCpu:
-                    description: 'CPU resource request which will be available for
-                      the database container Default value: 10Mi'
-                    type: string
-                  databaseCpuLimit:
-                    description: 'Limit of CPU request which will be available for
-                      the database container Default value: 20Mi'
-                    type: string
-                  databaseMemoryLimit:
-                    description: 'Limit of Memory which will be available for the
-                      database container Default value: 512Mi'
-                    type: string
-                  databaseMemoryRequest:
-                    description: 'Limit of Memory Request which will be available
-                      for the database container Default value: 128Mi'
-                    type: string
-                  databaseName:
-                    description: 'Value for the Database Environment Variable (spec.databaseNameKeyEnvVar).
-                      Default value: example'
-                    type: string
-                  databaseNameKeyEnvVar:
-                    description: 'Key Value for the Database Environment Variable
-                      in order to inform the database mame Note that each database
-                      version/image can expected a different value for it. Default
-                      value: nil'
-                    type: string
-                  databasePassword:
-                    description: 'Value for the Database Environment Variable (spec.databasePasswordKeyEnvVar).
-                      Default value: postgres'
-                    type: string
-                  databasePasswordKeyEnvVar:
-                    description: 'Key Value for the Database Environment Variable
-                      in order to inform the database password Note that each database
-                      version/image can expected a different value for it. Default
-                      value: nil'
-                    type: string
-                  databasePort:
-                    description: Value for the Database Environment Variable in order
-                      to define the port which it should use. It will be used in its
-                      container as well
-                    format: int32
-                    type: integer
-                  databaseStorageClassName:
-                    description: 'Name the Storage Class name of the PVC which will
-                      be created for the Database More info: https://kubernetes.io/docs/concepts/storage/persistent-volumes/#persistentvolumeclaims
-                      Default value: standard'
-                    type: string
-                  databaseStorageRequest:
-                    description: 'Limit of Storage Request which will be available
-                      for the database container Default value: 1Gi'
-                    type: string
-                  databaseUser:
-                    description: 'Value for the Database Environment Variable (spec.databaseUserKeyEnvVar).
-                      Default value: postgres'
-                    type: string
-                  databaseUserKeyEnvVar:
-                    description: 'Key Value for the Database Environment Variable
-                      in order to inform the database user Note that each database
-                      version/image can expected a different value for it. Default
-                      value: nil'
-                    type: string
-                  image:
-                    description: 'Database image:tag Default value: centos/postgresql-96-centos7'
-                    type: string
-                  size:
-                    description: 'Quantity of instances Default value: 1'
-                    format: int32
-                    type: integer
-                type: object
-              status:
-                description: DatabaseStatus defines the observed state of Database
-                properties:
-                  databaseStatus:
-                    description: It will be as "OK when all objects are created successfully
-                    type: string
-                  deploymentStatus:
-                    description: Status of the Database Deployment created and managed
-                      by it
-                    properties:
-                      availableReplicas:
-                        description: Total number of available pods (ready for at
-                          least minReadySeconds) targeted by this deployment.
-                        format: int32
-                        type: integer
-                      collisionCount:
-                        description: Count of hash collisions for the Deployment.
-                          The Deployment controller uses this field as a collision
-                          avoidance mechanism when it needs to create the name for
-                          the newest ReplicaSet.
-                        format: int32
-                        type: integer
-                      conditions:
-                        description: Represents the latest available observations
-                          of a deployment's current state.
-                        items:
-                          description: DeploymentCondition describes the state of
-                            a deployment at a certain point.
-                          properties:
-                            lastTransitionTime:
-                              description: Last time the condition transitioned from
-                                one status to another.
-                              format: date-time
-                              type: string
-                            lastUpdateTime:
-                              description: The last time this condition was updated.
-                              format: date-time
-                              type: string
-                            message:
-                              description: A human readable message indicating details
-                                about the transition.
-                              type: string
-                            reason:
-                              description: The reason for the condition's last transition.
-                              type: string
-                            status:
-                              description: Status of the condition, one of True, False,
-                                Unknown.
-                              type: string
-                            type:
-                              description: Type of deployment condition.
-                              type: string
-                          required:
-                          - status
-                          - type
-                          type: object
-                        type: array
-                      observedGeneration:
-                        description: The generation observed by the deployment controller.
-                        format: int64
-                        type: integer
-                      readyReplicas:
-                        description: Total number of ready pods targeted by this deployment.
-                        format: int32
-                        type: integer
-                      replicas:
-                        description: Total number of non-terminated pods targeted
-                          by this deployment (their labels match the selector).
-                        format: int32
-                        type: integer
-                      unavailableReplicas:
-                        description: Total number of unavailable pods targeted by
-                          this deployment. This is the total number of pods that are
-                          still required for the deployment to have 100% available
-                          capacity. They may either be pods that are running but not
-                          yet available or pods that still have not been created.
-                        format: int32
-                        type: integer
-                      updatedReplicas:
-                        description: Total number of non-terminated pods targeted
-                          by this deployment that have the desired template spec.
-                        format: int32
-                        type: integer
+                  metadata:
                     type: object
-                  pvcStatus:
-                    description: Name of the PersistentVolumeClaim created and managed
-                      by it
+                  spec:
+                    description: DatabaseSpec defines the desired state of Database
                     properties:
-                      accessModes:
-                        description: 'AccessModes contains the actual access modes
-                          the volume backing the PVC has. More info: https://kubernetes.io/docs/concepts/storage/persistent-volumes#access-modes-1'
-                        items:
-                          type: string
-                        type: array
-                      capacity:
-                        additionalProperties:
-                          anyOf:
-                          - type: integer
-                          - type: string
-                          pattern: ^(\+|-)?(([0-9]+(\.[0-9]*)?)|(\.[0-9]+))(([KMGTPE]i)|[numkMGTPE]|([eE](\+|-)?(([0-9]+(\.[0-9]*)?)|(\.[0-9]+))))?$
-                          x-kubernetes-int-or-string: true
-                        description: Represents the actual resources of the underlying
-                          volume.
-                        type: object
-                      conditions:
-                        description: Current Condition of persistent volume claim.
-                          If underlying persistent volume is being resized then the
-                          Condition will be set to 'ResizeStarted'.
-                        items:
-                          description: PersistentVolumeClaimCondition contails details
-                            about state of pvc
-                          properties:
-                            lastProbeTime:
-                              description: Last time we probed the condition.
-                              format: date-time
-                              type: string
-                            lastTransitionTime:
-                              description: Last time the condition transitioned from
-                                one status to another.
-                              format: date-time
-                              type: string
-                            message:
-                              description: Human-readable message indicating details
-                                about last transition.
-                              type: string
-                            reason:
-                              description: Unique, this should be a short, machine
-                                understandable string that gives the reason for condition's
-                                last transition. If it reports "ResizeStarted" that
-                                means the underlying persistent volume is being resized.
-                              type: string
-                            status:
-                              type: string
-                            type:
-                              description: PersistentVolumeClaimConditionType is a
-                                valid value of PersistentVolumeClaimCondition.Type
-                              type: string
-                          required:
-                          - status
-                          - type
-                          type: object
-                        type: array
-                      phase:
-                        description: Phase represents the current phase of PersistentVolumeClaim.
+                      configMapDatabaseNameKey:
+                        description:
+                          "Name of the configMap key where the operator should
+                          looking for the value for the database name for its env var
+                          Default value: nil"
                         type: string
+                      configMapDatabasePasswordKey:
+                        description:
+                          "Name of the configMap key where the operator should
+                          looking for the value for the database user for its env var
+                          Default value: nil"
+                        type: string
+                      configMapDatabaseUserKey:
+                        description:
+                          "Name of the configMap key where the operator should
+                          looking for the value for the database password for its env
+                          var Default value: nil"
+                        type: string
+                      configMapName:
+                        description:
+                          "Name of the ConfigMap where the operator should
+                          looking for the EnvVars keys and/or values only Default value:
+                          nil"
+                        type: string
+                      containerImagePullPolicy:
+                        description:
+                          "Policy definition to pull the Database Image More
+                          info: https://kubernetes.io/docs/concepts/containers/images/
+                          Default value:"
+                        type: string
+                      containerName:
+                        description: Name to create the Database container
+                        type: string
+                      databaseCpu:
+                        description:
+                          "CPU resource request which will be available for
+                          the database container Default value: 10Mi"
+                        type: string
+                      databaseCpuLimit:
+                        description:
+                          "Limit of CPU request which will be available for
+                          the database container Default value: 20Mi"
+                        type: string
+                      databaseMemoryLimit:
+                        description:
+                          "Limit of Memory which will be available for the
+                          database container Default value: 512Mi"
+                        type: string
+                      databaseMemoryRequest:
+                        description:
+                          "Limit of Memory Request which will be available
+                          for the database container Default value: 128Mi"
+                        type: string
+                      databaseName:
+                        description:
+                          "Value for the Database Environment Variable (spec.databaseNameKeyEnvVar).
+                          Default value: example"
+                        type: string
+                      databaseNameKeyEnvVar:
+                        description:
+                          "Key Value for the Database Environment Variable
+                          in order to inform the database mame Note that each database
+                          version/image can expected a different value for it. Default
+                          value: nil"
+                        type: string
+                      databasePassword:
+                        description:
+                          "Value for the Database Environment Variable (spec.databasePasswordKeyEnvVar).
+                          Default value: postgres"
+                        type: string
+                      databasePasswordKeyEnvVar:
+                        description:
+                          "Key Value for the Database Environment Variable
+                          in order to inform the database password Note that each database
+                          version/image can expected a different value for it. Default
+                          value: nil"
+                        type: string
+                      databasePort:
+                        description:
+                          Value for the Database Environment Variable in order
+                          to define the port which it should use. It will be used in its
+                          container as well
+                        format: int32
+                        type: integer
+                      databaseStorageClassName:
+                        description:
+                          "Name the Storage Class name of the PVC which will
+                          be created for the Database More info: https://kubernetes.io/docs/concepts/storage/persistent-volumes/#persistentvolumeclaims
+                          Default value: standard"
+                        type: string
+                      databaseStorageRequest:
+                        description:
+                          "Limit of Storage Request which will be available
+                          for the database container Default value: 1Gi"
+                        type: string
+                      databaseUser:
+                        description:
+                          "Value for the Database Environment Variable (spec.databaseUserKeyEnvVar).
+                          Default value: postgres"
+                        type: string
+                      databaseUserKeyEnvVar:
+                        description:
+                          "Key Value for the Database Environment Variable
+                          in order to inform the database user Note that each database
+                          version/image can expected a different value for it. Default
+                          value: nil"
+                        type: string
+                      image:
+                        description: "Database image:tag Default value: centos/postgresql-96-centos7"
+                        type: string
+                      size:
+                        description: "Quantity of instances Default value: 1"
+                        format: int32
+                        type: integer
                     type: object
-                  serviceStatus:
-                    description: Status of the Database Service created and managed
-                      by it
+                  status:
+                    description: DatabaseStatus defines the observed state of Database
                     properties:
-                      loadBalancer:
-                        description: LoadBalancer contains the current status of the
-                          load-balancer, if one is present.
+                      databaseStatus:
+                        description: It will be as "OK when all objects are created successfully
+                        type: string
+                      deploymentStatus:
+                        description:
+                          Status of the Database Deployment created and managed
+                          by it
                         properties:
-                          ingress:
-                            description: Ingress is a list containing ingress points
-                              for the load-balancer. Traffic intended for the service
-                              should be sent to these ingress points.
+                          availableReplicas:
+                            description:
+                              Total number of available pods (ready for at
+                              least minReadySeconds) targeted by this deployment.
+                            format: int32
+                            type: integer
+                          collisionCount:
+                            description:
+                              Count of hash collisions for the Deployment.
+                              The Deployment controller uses this field as a collision
+                              avoidance mechanism when it needs to create the name for
+                              the newest ReplicaSet.
+                            format: int32
+                            type: integer
+                          conditions:
+                            description:
+                              Represents the latest available observations
+                              of a deployment's current state.
                             items:
-                              description: 'LoadBalancerIngress represents the status
-                                of a load-balancer ingress point: traffic intended
-                                for the service should be sent to an ingress point.'
+                              description:
+                                DeploymentCondition describes the state of
+                                a deployment at a certain point.
                               properties:
-                                hostname:
-                                  description: Hostname is set for load-balancer ingress
-                                    points that are DNS based (typically AWS load-balancers)
+                                lastTransitionTime:
+                                  description:
+                                    Last time the condition transitioned from
+                                    one status to another.
+                                  format: date-time
                                   type: string
-                                ip:
-                                  description: IP is set for load-balancer ingress
-                                    points that are IP based (typically GCE or OpenStack
-                                    load-balancers)
+                                lastUpdateTime:
+                                  description: The last time this condition was updated.
+                                  format: date-time
                                   type: string
+                                message:
+                                  description:
+                                    A human readable message indicating details
+                                    about the transition.
+                                  type: string
+                                reason:
+                                  description: The reason for the condition's last transition.
+                                  type: string
+                                status:
+                                  description:
+                                    Status of the condition, one of True, False,
+                                    Unknown.
+                                  type: string
+                                type:
+                                  description: Type of deployment condition.
+                                  type: string
+                              required:
+                                - status
+                                - type
                               type: object
                             type: array
+                          observedGeneration:
+                            description: The generation observed by the deployment controller.
+                            format: int64
+                            type: integer
+                          readyReplicas:
+                            description: Total number of ready pods targeted by this deployment.
+                            format: int32
+                            type: integer
+                          replicas:
+                            description:
+                              Total number of non-terminated pods targeted
+                              by this deployment (their labels match the selector).
+                            format: int32
+                            type: integer
+                          unavailableReplicas:
+                            description:
+                              Total number of unavailable pods targeted by
+                              this deployment. This is the total number of pods that are
+                              still required for the deployment to have 100% available
+                              capacity. They may either be pods that are running but not
+                              yet available or pods that still have not been created.
+                            format: int32
+                            type: integer
+                          updatedReplicas:
+                            description:
+                              Total number of non-terminated pods targeted
+                              by this deployment that have the desired template spec.
+                            format: int32
+                            type: integer
                         type: object
+                      pvcStatus:
+                        description:
+                          Name of the PersistentVolumeClaim created and managed
+                          by it
+                        properties:
+                          accessModes:
+                            description:
+                              "AccessModes contains the actual access modes
+                              the volume backing the PVC has. More info: https://kubernetes.io/docs/concepts/storage/persistent-volumes#access-modes-1"
+                            items:
+                              type: string
+                            type: array
+                          capacity:
+                            additionalProperties:
+                              anyOf:
+                                - type: integer
+                                - type: string
+                              pattern: ^(\+|-)?(([0-9]+(\.[0-9]*)?)|(\.[0-9]+))(([KMGTPE]i)|[numkMGTPE]|([eE](\+|-)?(([0-9]+(\.[0-9]*)?)|(\.[0-9]+))))?$
+                              x-kubernetes-int-or-string: true
+                            description:
+                              Represents the actual resources of the underlying
+                              volume.
+                            type: object
+                          conditions:
+                            description:
+                              Current Condition of persistent volume claim.
+                              If underlying persistent volume is being resized then the
+                              Condition will be set to 'ResizeStarted'.
+                            items:
+                              description:
+                                PersistentVolumeClaimCondition contails details
+                                about state of pvc
+                              properties:
+                                lastProbeTime:
+                                  description: Last time we probed the condition.
+                                  format: date-time
+                                  type: string
+                                lastTransitionTime:
+                                  description:
+                                    Last time the condition transitioned from
+                                    one status to another.
+                                  format: date-time
+                                  type: string
+                                message:
+                                  description:
+                                    Human-readable message indicating details
+                                    about last transition.
+                                  type: string
+                                reason:
+                                  description:
+                                    Unique, this should be a short, machine
+                                    understandable string that gives the reason for condition's
+                                    last transition. If it reports "ResizeStarted" that
+                                    means the underlying persistent volume is being resized.
+                                  type: string
+                                status:
+                                  type: string
+                                type:
+                                  description:
+                                    PersistentVolumeClaimConditionType is a
+                                    valid value of PersistentVolumeClaimCondition.Type
+                                  type: string
+                              required:
+                                - status
+                                - type
+                              type: object
+                            type: array
+                          phase:
+                            description: Phase represents the current phase of PersistentVolumeClaim.
+                            type: string
+                        type: object
+                      serviceStatus:
+                        description:
+                          Status of the Database Service created and managed
+                          by it
+                        properties:
+                          loadBalancer:
+                            description:
+                              LoadBalancer contains the current status of the
+                              load-balancer, if one is present.
+                            properties:
+                              ingress:
+                                description:
+                                  Ingress is a list containing ingress points
+                                  for the load-balancer. Traffic intended for the service
+                                  should be sent to these ingress points.
+                                items:
+                                  description:
+                                    "LoadBalancerIngress represents the status
+                                    of a load-balancer ingress point: traffic intended
+                                    for the service should be sent to an ingress point."
+                                  properties:
+                                    hostname:
+                                      description:
+                                        Hostname is set for load-balancer ingress
+                                        points that are DNS based (typically AWS load-balancers)
+                                      type: string
+                                    ip:
+                                      description:
+                                        IP is set for load-balancer ingress
+                                        points that are IP based (typically GCE or OpenStack
+                                        load-balancers)
+                                      type: string
+                                  type: object
+                                type: array
+                            type: object
+                        type: object
+                    required:
+                      - databaseStatus
+                      - deploymentStatus
+                      - pvcStatus
+                      - serviceStatus
                     type: object
-                required:
-                - databaseStatus
-                - deploymentStatus
-                - pvcStatus
-                - serviceStatus
                 type: object
-            type: object
-        served: true
-        storage: true
-        subresources:
-          status: {}
+            served: true
+            storage: true
+            subresources:
+              status: {}
   workflows:
-    grapefruit:
-      gummybear:
-      - apiVersion: platform.kratix.io/v1alpha1
-        kind: Pipeline
-        metadata:
-          name: instance-configure
-          namespace: default
-        spec:
-          containers:
-          - image: syntasso/kustomize-postgres
-            name: kustomize-postgres
-
+    resource:
+      configure:
+        - apiVersion: platform.kratix.io/v1alpha1
+          kind: Pipeline
+          metadata:
+            name: instance-configure
+            namespace: default
+          spec:
+            containers:
+              - image: syntasso/kustomize-postgres
+                name: kustomize-postgres
