@@ -7,7 +7,11 @@ export image="$(yq eval '.spec.image' /input/object.yaml)"
 export contains_cc="$(yq eval '.spec.containsCreditCardData' /input/object.yaml)"
 export cluster_selectors="$(yq eval '.spec.clusterSelectors // {}' /input/object.yaml)"
 
-echo $cluster_selectors > /metadata/scheduling.yaml
+cat > /metadata/scheduling.yaml <<EOF
+- target:
+    matchLabels:
+      $cluster_selectors
+EOF
 
 sed "s/TBDNAME/${name}/g" /tmp/transfer/deployment.yaml > /tmp/deployment.yaml
 
@@ -18,4 +22,3 @@ sed "s/CC_VALUE/${contains_cc}/g" /tmp/deployment.yaml.v2 > /output/deployment.y
 sed "s/TBDNAME/${name}/g" /tmp/transfer/service.yaml > /output/service.yaml
 
 sed "s/TBDNAME/${name}/g" /tmp/transfer/ingress.yaml > /output/ingress.yaml
-
