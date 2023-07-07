@@ -6,12 +6,14 @@ set -x
 export name="$(yq eval '.metadata.name' /input/object.yaml)"
 export size="$(yq eval '.spec.size' /input/object.yaml)"
 
-cluster_selectors="$(yq eval '.spec.clusterSelectors // {}' /input/object.yaml)"
-cat > /metadata/scheduling.yaml <<EOF
+cluster_selectors="$(yq eval '.spec.clusterSelectors // ""' /input/object.yaml)"
+if [ -n "$cluster_selectors" ]; then
+  cat > /metadata/scheduling.yaml <<EOF
 - target:
     matchLabels:
       $cluster_selectors
 EOF
+fi
 
 # default small size
 export replicas=1
