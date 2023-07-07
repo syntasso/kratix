@@ -5,13 +5,15 @@ set -xe
 export name="$(yq eval '.metadata.name' /input/object.yaml)"
 export image="$(yq eval '.spec.image' /input/object.yaml)"
 export contains_cc="$(yq eval '.spec.containsCreditCardData' /input/object.yaml)"
-export cluster_selectors="$(yq eval '.spec.clusterSelectors // {}' /input/object.yaml)"
+export cluster_selectors="$(yq eval '.spec.clusterSelectors // ""' /input/object.yaml)"
 
-cat > /metadata/scheduling.yaml <<EOF
+if [ -n "$cluster_selectors" ]; then
+    cat > /metadata/scheduling.yaml <<EOF
 - target:
     matchLabels:
       $cluster_selectors
 EOF
+fi
 
 sed "s/TBDNAME/${name}/g" /tmp/transfer/deployment.yaml > /tmp/deployment.yaml
 
