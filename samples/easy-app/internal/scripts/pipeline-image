@@ -2,6 +2,7 @@
 
 pipeline_image="syntasso/demo-easy-app-configure-pipeline:v0.1.1"
 nginx_pipeline="syntasso/demo-nginx-configure-pipeline:v0.1.1"
+postgres_pipeline="syntasso/demo-postgres-configure-pipeline:v0.1.1"
 root="$( cd $(dirname $0)/.. && pwd)"
 
 while [ $# -gt 0 ]; do
@@ -15,22 +16,31 @@ while [ $# -gt 0 ]; do
       docker build \
         --tag "${nginx_pipeline}" \
         --platform linux/amd64 \
-        "${root}/promises/nginx-ingress/internal/configure-pipeline" ;;
+        "${root}/promises/nginx-ingress/internal/configure-pipeline"
+
+      docker build \
+        --tag "${postgres_pipeline}" \
+        --platform linux/amd64 \
+        "${root}/promises/postgresql/internal/configure-pipeline" ;;
 
     load)
       kind load docker-image "${pipeline_image}" --name platform
-      kind load docker-image "${nginx_pipeline}" --name platform ;;
+      kind load docker-image "${nginx_pipeline}" --name platform
+      kind load docker-image "${postgres_pipeline}" --name platform ;;
 
     push)
       docker push "${pipeline_image}"
-      docker push "${nginx_pipeline}" ;;
+      docker push "${nginx_pipeline}"
+      docker push "${postgres_pipeline}" ;;
 
     rmi)
       docker rmi --force "${pipeline_image}"
+      docker rmi --force "${postgres_image}"
       docker rmi --force "${nginx_pipeline}" ;;
 
     pull)
       docker pull "${pipeline_image}"
+      docker pull "${postgres_image}"
       docker pull "${nginx_pipeline}" ;;
 
     *)
