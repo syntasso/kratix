@@ -24,8 +24,8 @@ case "$1" in
     samples)
         # Build workshop images
         docker build --platform linux/amd64 --tag syntasso/paved-path-demo-configure-pipeline \
-            --file samples/paved-path-demo/configure-pipeline-image/Dockerfile \
-            samples/paved-path-demo/configure-pipeline-image
+            --file samples/paved-path-demo/configure-pipeline/Dockerfile \
+            samples/paved-path-demo/configure-pipeline
 
         docker push syntasso/paved-path-demo-configure-pipeline
         ;;

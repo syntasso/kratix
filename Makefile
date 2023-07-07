@@ -220,16 +220,3 @@ endef
 .PHONY: list
 list:
 	@$(MAKE) -pRrq -f $(lastword $(MAKEFILE_LIST)) : 2>/dev/null | awk -v RS= -F: '/^# File/,/^# Finished Make data base/ {if ($$1 !~ "^[#.]") {print $$1}}' | sort | egrep -v -e '^[^[:alnum:]]' -e '^$@$$'
-
-JENKINS_PIPELINE_IMAGE ?= syntasso/jenkins-configure-pipeline
-build-and-push-jenkins-pipeline-image:
-	if ! docker buildx ls | grep -q "jenkins-pipeline-builder"; then \
-		docker buildx create --name jenkins-pipeline-builder; \
-	fi;
-	docker buildx build \
-		--builder jenkins-pipeline-builder \
-		--platform linux/arm64,linux/amd64 \
-		--tag ${JENKINS_PIPELINE_IMAGE} \
-		--push \
-		--file samples/jenkins/configure-pipeline-image/Dockerfile \
-		samples/jenkins/configure-pipeline-image
