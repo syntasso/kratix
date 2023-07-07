@@ -10,8 +10,10 @@ name="$(yq eval '.metadata.name' /input/object.yaml)"
 env_type="$(yq eval '.spec.env // "dev"' /input/object.yaml)"
 team="$(yq eval '.spec.teamId' /input/object.yaml)"
 dbname="$(yq eval '.spec.dbName // "postgres"' /input/object.yaml)"
-cluster_selectors="$(yq eval '.spec.clusterSelectors // {}' /input/object.yaml)"
-echo "[ target: { matchLabels: { $cluster_selectors } } ]" > /metadata/scheduling.yaml
+cluster_selectors="$(yq eval '.spec.clusterSelectors // ""' /input/object.yaml)"
+if [ -n "$cluster_selectors" ]; then
+  echo "[ target: { matchLabels: { $cluster_selectors } } ]" > /metadata/scheduling.yaml
+fi
 
 backup="false"
 size="1Gi"
