@@ -24,7 +24,7 @@ load_options() {
       case "$arg" in
         '--help')        set -- "$@" '-h'   ;;
         '--context')     set -- "$@" '-c'   ;;
-        '--path') set -- "$@" '-b'   ;;
+        '--path')        set -- "$@" '-b'   ;;
         '--git')         set -- "$@" '-g'   ;;
         *)               set -- "$@" "$arg" ;;
       esac
@@ -61,7 +61,10 @@ patch_kind_networking() {
 }
 
 patch_flux_resources() {
-    sed "s/worker-cluster-1/${BUCKET_PATH}/g"
+    local name="$(echo "${CONTEXT}" | cut -d "-" -f 2)"
+    sed "s/worker-cluster-1/${BUCKET_PATH}/g" |
+        sed "s/kratix-workload-crds/kratix-${name}-crds/g" |
+        sed "s/kratix-workload-resources/kratix-${name}-resources/g"
 }
 
 install_gitops() {
