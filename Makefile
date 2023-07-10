@@ -137,7 +137,7 @@ envtest: ## Download envtest-setup locally if necessary.
 
 # Generate manifests for distributed installation
 build: generate fmt vet ## Build manager binary.
-	CGO_ENABLED=1 go build -o bin/manager main.go
+	CGO_ENABLED=0 go build -o bin/manager main.go
 
 run: manifests generate fmt vet ## Run a controller from your host.
 	go run ./main.go
