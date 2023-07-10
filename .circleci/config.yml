@@ -244,8 +244,6 @@ workflows:
           filters:
             branches:
               only: dev
-      - generate-demo-image-list:
-          requires: [git-merge] # This job changes Git files that fail on merge, but are committed in `git-push`
       - build-and-push-images:
           requires: [git-merge]
           matrix:
@@ -253,5 +251,4 @@ workflows:
               image: [kratix, work-creator, samples]
       - git-push:
           requires:
-            - generate-demo-image-list # Generates a file that is included in the commit
             - build-and-push-images
