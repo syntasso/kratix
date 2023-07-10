@@ -235,12 +235,15 @@ workflows:
           requires: [git-clone]
       - e2e-demo-test-helm-git:
           requires: [git-clone]
+      - generate-demo-image-list:
+          requires: [git-clone]
       - git-merge:
           requires:
             - unit-tests
             - system-tests
             - e2e-demo-test-helm-git
             - e2e-demo-test-helm-bucket
+            - generate-demo-image-list
           filters:
             branches:
               only: dev
@@ -250,11 +253,6 @@ workflows:
           matrix:
             parameters:
               image: [kratix, work-creator, samples]
-      - generate-demo-image-list:
-          requires:
-            - git-merge
-            - build-and-push-images
       - git-push:
           requires:
             - build-and-push-images
-            - generate-demo-image-list
