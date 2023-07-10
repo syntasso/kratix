@@ -241,15 +241,13 @@ workflows:
             - system-tests
             - e2e-demo-test-helm-git
             - e2e-demo-test-helm-bucket
-            - generate-demo-image-list
           filters:
             branches:
               only: dev
       - generate-demo-image-list:
           requires: [git-merge] # This job changes Git files that fail on merge, but are committed in `git-push`
       - build-and-push-images:
-          requires:
-            - git-merge
+          requires: [git-merge]
           matrix:
             parameters:
               image: [kratix, work-creator, samples]
