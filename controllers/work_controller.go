@@ -96,7 +96,7 @@ func (r *WorkReconciler) Reconcile(ctx context.Context, req ctrl.Request) (ctrl.
 
 	// If Work does not have a WorkPlacement then schedule the Work
 	logger.Info("Requesting scheduling for Work")
-	//Create N workplacements depending on work type (rr vs wcr) and number of clusters
+	//Create N workplacements depending on work type (rr vs dependency) and number of clusters
 	err = r.Scheduler.ReconcileWork(work)
 	if err != nil {
 		//TODO remove this error checking

@@ -114,7 +114,7 @@ func (r *PromiseReconciler) Reconcile(ctx context.Context, req ctrl.Request) (ct
 	}
 
 	if promise.DoesNotContainAPI() {
-		logger.Info("Promise only contains WCRs, skipping creation of API and dynamic controller")
+		logger.Info("Promise only contains dependencies, skipping creation of API and dynamic controller")
 		return ctrl.Result{}, nil
 	}
 

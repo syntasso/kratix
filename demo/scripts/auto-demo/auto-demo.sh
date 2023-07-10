@@ -135,7 +135,7 @@ pe 'pods worker-2'
 pe 'kubectl label cluster worker-cluster-2 environment=dev'
 (flux reconcile  kustomization kratix-workload-resources --namespace flux-system --with-source --context kind-worker-2 > /dev/null 2>&1) & > /dev/null 2>&1
 
-# talk through why only the WCR is getting scheduled
+# talk through why only the dependencies is getting scheduled
 pe 'watch pods worker-2'
 
 # label cluster

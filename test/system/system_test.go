@@ -35,10 +35,10 @@ const pipelineTimeout = "--timeout=89s"
 // This test uses a unique Bash Promise which allows us to easily test behaviours
 // in the pipeline.
 //
-// # The promise WCR has a single resource, the `bash-wcr-namespace` Namespace
+// # The promise dependencies has a single resource, the `bash-wcr-namespace` Namespace
 //
 // Below is the template for a RR to this Promise. It provides a hook to run an
-// arbitray Bash command in each of the two Pipeline containers. An example use
+// arbitrary Bash command in each of the two Pipeline containers. An example use
 // case may be wanting to test status works which requires a written to a
 // specific location. To do this you can write a RR that has the following:
 //
@@ -176,12 +176,12 @@ var _ = Describe("Kratix", func() {
 
 		It("schedules resources to the correct clusters", func() {
 			By("reconciling on new clusters", func() {
-				By("only the worker cluster getting the WCR", func() {
+				By("only the worker cluster getting the dependency", func() {
 					worker.eventuallyKubectl("get", "namespace", "bash-wcr-namespace")
 					Expect(platform.kubectl("get", "namespace")).NotTo(ContainSubstring("bash-wcr-namespace"))
 				})
 
-				By("labeling the plaform cluster, it gets the WCR assigned", func() {
+				By("labeling the platform cluster, it gets the dependencies assigned", func() {
 					platform.kubectl("label", "cluster", "platform-cluster-worker-1", "security=high")
 					platform.eventuallyKubectl("get", "namespace", "bash-wcr-namespace")
 				})
