@@ -8,7 +8,7 @@ generatorOptions:
   disableNameSuffixHash: true
 
 # The wc-img-config config map drives the WC_IMG env var, which is used by the promise
-# controller as the last container in the XaaS request pipeline pod spec.
+# controller as the last container in the workflow Pipeline pod spec.
 configMapGenerator:
 - files:
   - controller_manager_config.yaml
@@ -20,4 +20,4 @@ configMapGenerator:
 images:
 - name: controller
   newName: syntasso/kratix-platform
-  newTag: 1feb23cefc84e5f25d10b5baabd3893284d61dd9
+  newTag: 1272759c195b53aea4ab90ba5bc3faccd47f55ad
