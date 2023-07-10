@@ -203,25 +203,25 @@ jobs:
   git-push:
     executor: machine-large
     steps:
-    - attach_workspace:
-        at: .
-    - add_ssh_keys:
-        # Add github deploy key
-        # https://circleci.com/docs/github-integration#create-a-github-deploy-key
-        fingerprints:
-          - "5e:1e:ea:52:8b:1b:ad:a2:66:1a:40:98:a3:f5:96:f5"
-    - setup_git
-    - run:
-        name: Push main
-        command: |
-          git add -f config/
-          git add -f demo/demo-image-list
-          git add -f distribution/kratix.yaml
-          git add -f distribution/single-cluster/
-          git add -f charts/kratix/crds/platform_kratix_io_crds.yaml
-          git add -f charts/kratix/templates/distribution.yaml
-          git commit --amend --no-edit
-          git push origin main
+      - attach_workspace:
+          at: .
+      - add_ssh_keys:
+          # Add github deploy key
+          # https://circleci.com/docs/github-integration#create-a-github-deploy-key
+          fingerprints:
+            - "5e:1e:ea:52:8b:1b:ad:a2:66:1a:40:98:a3:f5:96:f5"
+      - setup_git
+      - run:
+          name: Push main
+          command: |
+            git add -f config/
+            git add -f demo/demo-image-list
+            git add -f distribution/kratix.yaml
+            git add -f distribution/single-cluster/
+            git add -f charts/kratix/crds/platform_kratix_io_crds.yaml
+            git add -f charts/kratix/templates/distribution.yaml
+            git commit --amend --no-edit
+            git push origin main
 
 workflows:
   run-tests:
@@ -235,8 +235,6 @@ workflows:
           requires: [git-clone]
       - e2e-demo-test-helm-git:
           requires: [git-clone]
-      - generate-demo-image-list:
-          requires: [git-clone]
       - git-merge:
           requires:
             - unit-tests
@@ -247,6 +245,8 @@ workflows:
           filters:
             branches:
               only: dev
+      - generate-demo-image-list:
+          requires: [git-merge] # This job changes Git files that fail on merge, but are committed in `git-push`
       - build-and-push-images:
           requires:
             - git-merge
@@ -255,4 +255,5 @@ workflows:
               image: [kratix, work-creator, samples]
       - git-push:
           requires:
+            - generate-demo-image-list # Generates a file that is included in the commit
             - build-and-push-images
