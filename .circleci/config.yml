@@ -277,4 +277,5 @@ workflows:
       - git-clone
       - generate-demo-image-list:
           requires: [git-clone]
-      - git-push-to-dev
+      - git-push-to-dev:
+          requires: [generate-demo-image-list]
