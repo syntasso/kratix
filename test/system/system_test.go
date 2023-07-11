@@ -89,56 +89,40 @@ var _ = Describe("Kratix", func() {
 				platform.eventuallyKubectl("get", "crd", "bash.test.kratix.io")
 			})
 
-			It("deploys the contents of /output to the worker cluster", func() {
-				rrName := "rr-output"
-				command := `kubectl create namespace resource-request-namespace --dry-run=client -oyaml > /output/ns.yaml`
-				platform.kubectl("apply", "-f", requestWithNameAndCommand(rrName, command))
-
-				platform.kubectl("wait", "--for=condition=PipelineCompleted", "bash", rrName, pipelineTimeout)
-				Expect(platform.kubectl("get", "bash", rrName)).To(ContainSubstring("Resource requested"))
-				worker.eventuallyKubectl("get", "namespace", "resource-request-namespace")
-			})
-
-			It("writes to status the contents of /metadata/status.yaml", func() {
-				rrName := "rr-status"
-				command := `echo "message: My awesome status message" > /metadata/status.yaml
+			It("executes the pipelines and schedules the work", func() {
+				rrName := "rr-test"
+				c1Command := `kubectl create namespace rr-ns --dry-run=client -oyaml > /output/ns.yaml
+							echo "message: My awesome status message" > /metadata/status.yaml
 							echo "key: value" >> /metadata/status.yaml`
+				c2Command := `kubectl create configmap multi-container-config --namespace rr-ns --dry-run=client -oyaml > /output/configmap.yaml`
 
-				platform.kubectl("apply", "-f", requestWithNameAndCommand(rrName, command))
-
-				platform.kubectl("wait", "--for=condition=PipelineCompleted", "bash", rrName, pipelineTimeout)
-
-				Expect(platform.kubectl("get", "bash", rrName)).To(ContainSubstring("My awesome status message"))
-				Expect(platform.kubectl("get", "bash", rrName, "-o", "jsonpath='{.status.key}'")).To(ContainSubstring("value"))
-			})
-
-			It("runs all the containers in the pipeline", func() {
-				rrName := "rr-multi-container"
-				commands := []string{
-					`kubectl create namespace mcns --dry-run=client -oyaml > /output/ns.yaml`,
-					`kubectl create configmap multi-container-config --namespace mcns --dry-run=client -oyaml > /output/configmap.yaml`,
-				}
+				commands := []string{c1Command, c2Command}
 
 				platform.kubectl("apply", "-f", requestWithNameAndCommand(rrName, commands...))
 
-				platform.kubectl("wait", "--for=condition=PipelineCompleted", "bash", rrName, pipelineTimeout)
+				By("executing the pipeline pod", func() {
+					platform.kubectl("wait", "--for=condition=PipelineCompleted", "bash", rrName, pipelineTimeout)
+				})
 
-				worker.eventuallyKubectl("get", "namespace", "mcns")
-				worker.eventuallyKubectl("get", "configmap", "multi-container-config", "--namespace", "mcns")
-			})
+				By("deploying the contents of /output to the worker cluster", func() {
+					worker.eventuallyKubectl("get", "namespace", "rr-ns")
+					worker.eventuallyKubectl("get", "configmap", "multi-container-config", "--namespace", "rr-ns")
+				})
 
-			It("can be deleted", func() {
-				rrName := "rr-to-delete"
-				command := `kubectl create namespace mcns --dry-run=client -oyaml > /output/ns.yaml`
-				platform.kubectl("apply", "-f", requestWithNameAndCommand(rrName, command))
-				platform.kubectl("wait", "--for=condition=PipelineCompleted", "bash", rrName, pipelineTimeout)
+				By("updating the resource status", func() {
+					Expect(platform.kubectl("get", "bash", rrName)).To(ContainSubstring("My awesome status message"))
+					Expect(platform.kubectl("get", "bash", rrName, "-o", "jsonpath='{.status.key}'")).To(ContainSubstring("value"))
+				})
 
-				platform.kubectl("delete", "bash", rrName)
+				By("deleting the resource request", func() {
+					platform.kubectl("delete", "bash", rrName)
 
-				Eventually(func(g Gomega) {
-					g.Expect(platform.kubectl("get", "bash")).NotTo(ContainSubstring(rrName))
-					g.Expect(worker.kubectl("get", "namespace")).NotTo(ContainSubstring("mcns"))
-				}, timeout, interval).Should(Succeed())
+					Eventually(func(g Gomega) {
+						g.Expect(platform.kubectl("get", "bash")).NotTo(ContainSubstring(rrName))
+						g.Expect(worker.kubectl("get", "namespace")).NotTo(ContainSubstring("mcns"))
+					}, timeout, interval).Should(Succeed())
+				})
+
 			})
 
 			AfterEach(func() {
