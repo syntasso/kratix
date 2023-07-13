@@ -36,7 +36,7 @@ spec:
   sourceRef:
     kind: Bucket
     name: kratix-bucket
-  path: ./default/worker-cluster-1/resources
+  path: ./worker-cluster-1/resources
   validation: client
 ---
 apiVersion: kustomize.toolkit.fluxcd.io/v1beta1
@@ -50,5 +50,5 @@ spec:
   sourceRef:
     kind: Bucket
     name: kratix-bucket
-  path: ./default/worker-cluster-1/crds
+  path: ./worker-cluster-1/crds
   validation: client

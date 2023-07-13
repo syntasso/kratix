@@ -85,6 +85,7 @@ type PromiseStatus struct {
 
 //+kubebuilder:object:root=true
 //+kubebuilder:subresource:status
+//+kubebuilder:resource:scope=Cluster,path=promises
 
 // Promise is the Schema for the promises API
 type Promise struct {

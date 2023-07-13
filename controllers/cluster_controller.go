@@ -73,7 +73,7 @@ func (r *ClusterReconciler) Reconcile(ctx context.Context, req ctrl.Request) (ct
 	}
 
 	//cluster.Spec.Path is optional, may be empty
-	path := filepath.Join(cluster.Spec.Path, cluster.Namespace, cluster.Name)
+	path := filepath.Join(cluster.Spec.Path, cluster.Name)
 	logger = logger.WithValues("path", path)
 
 	if err := r.createCrdPathWithExample(writer); err != nil {

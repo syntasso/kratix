@@ -7,8 +7,8 @@ You may obtain a copy of the License at
 
     http://www.apache.org/licenses/LICENSE-2.0
 
-Unless required by applicable law or agreed to in writing, software
 distributed under the License is distributed on an "AS IS" BASIS,
+Unless required by applicable law or agreed to in writing, software
 WITHOUT WARRANTIES OR CONDITIONS OF ANY KIND, either express or implied.
 See the License for the specific language governing permissions and
 limitations under the License.
@@ -19,7 +19,13 @@ package v1alpha1
 import (
 	corev1 "k8s.io/api/core/v1"
 	metav1 "k8s.io/apimachinery/pkg/apis/meta/v1"
+	"sigs.k8s.io/controller-runtime/pkg/client"
 )
+
+type StateStore interface {
+	client.Object
+	GetSecretRef() *corev1.SecretReference
+}
 
 type StateStoreCoreFields struct {
 	// Path within the StateStore to write documents. This path should be allocated
@@ -29,8 +35,12 @@ type StateStoreCoreFields struct {
 	//+kubebuilder:validation:Optional
 	Path string `json:"path,omitempty"`
 	// SecretRef specifies the Secret containing authentication credentials
-	SecretRef *corev1.LocalObjectReference `json:"secretRef,omitempty"`
+	SecretRef *corev1.SecretReference `json:"secretRef,omitempty"`
 }
+
+// TODO: revisit if we want all cluster secrets on a single known namespaces
+// (i.e. kratix-platform-system) or if we want to allow users to specify a
+// namespace for each cluster secret.
 
 // ClusterSpec defines the desired state of Cluster
 type ClusterSpec struct {
@@ -55,6 +65,7 @@ type ClusterStatus struct {
 
 //+kubebuilder:object:root=true
 //+kubebuilder:subresource:status
+//+kubebuilder:resource:scope=Cluster,path=clusters
 
 // Cluster is the Schema for the clusters API
 type Cluster struct {

@@ -1,5 +1,5 @@
 config:
-  path: default/worker-cluster-1
+  path: worker-cluster-1
   namespace: kratix-worker-config
   secretRef:
     name: minio-credentials
