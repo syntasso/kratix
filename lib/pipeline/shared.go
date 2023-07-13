@@ -9,6 +9,8 @@ import (
 	"k8s.io/apimachinery/pkg/util/uuid"
 )
 
+const kratixOperationEnvVar = "KRATIX_OPERATION"
+
 func readerContainerAndVolume(rr *unstructured.Unstructured) (v1.Container, v1.Volume) {
 	resourceKindNameNamespace := fmt.Sprintf("%s.%s %s --namespace %s",
 		strings.ToLower(rr.GetKind()), rr.GroupVersionKind().Group, rr.GetName(), rr.GetNamespace())

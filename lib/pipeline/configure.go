@@ -12,6 +12,8 @@ import (
 	"k8s.io/apimachinery/pkg/apis/meta/v1/unstructured"
 )
 
+const kratixConfigureOperation = "configure"
+
 func NewConfigurePipeline(rr *unstructured.Unstructured, pipelines []platformv1alpha1.Pipeline, resourceRequestIdentifier, promiseIdentifier string) v1.Pod {
 	volumes := metadataAndSchedulingVolumes(promiseIdentifier)
 
@@ -78,6 +80,12 @@ func configurePipelineInitContainers(rr *unstructured.Unstructured, pipelines []
 					metadataVolumeMount,
 					{Name: "vol" + strconv.Itoa(i), MountPath: "/input"},
 					{Name: "vol" + strconv.Itoa(i+1), MountPath: "/output"},
+				},
+				Env: []v1.EnvVar{
+					{
+						Name:  kratixOperationEnvVar,
+						Value: kratixConfigureOperation,
+					},
 				},
 			})
 		}
