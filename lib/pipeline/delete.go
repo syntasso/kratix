@@ -22,7 +22,7 @@ func NewDeletePipelinePod(rr *unstructured.Unstructured, pipelines []platformv1a
 			RestartPolicy:      v1.RestartPolicyOnFailure,
 			ServiceAccountName: promiseIdentifier + "-promise-pipeline",
 			Containers:         []v1.Container{containers[len(containers)-1]},
-			InitContainers:     containers[0 : len(containers)-2],
+			InitContainers:     containers[0 : len(containers)-1],
 			Volumes:            pipelineVolumes,
 		},
 	}
@@ -53,6 +53,12 @@ func deletePipelineContainers(rr *unstructured.Unstructured, pipelines []platfor
 				VolumeMounts: []v1.VolumeMount{
 					{Name: "vol" + strconv.Itoa(i), MountPath: "/input"},
 					{Name: "vol" + strconv.Itoa(i+1), MountPath: "/output"},
+				},
+				Env: []v1.EnvVar{
+					{
+						Name:  "KRATIX_OPERATION",
+						Value: "delete",
+					},
 				},
 			})
 		}

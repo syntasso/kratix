@@ -1,3 +1,29 @@
+---
+apiVersion: rbac.authorization.k8s.io/v1
+kind: ClusterRole
+metadata:
+  name: bash-default-promise-pipeline-credentials
+rules:
+- apiGroups:
+  - ""
+  resources:
+  - namespaces
+  verbs:
+  - "*"
+---
+apiVersion: rbac.authorization.k8s.io/v1
+kind: ClusterRoleBinding
+metadata:
+  name: bash-default-promise-pipeline-credentials
+roleRef:
+  apiGroup: rbac.authorization.k8s.io
+  kind: ClusterRole
+  name: bash-default-promise-pipeline-credentials
+subjects:
+- kind: ServiceAccount
+  name: bash-default-promise-pipeline
+  namespace: default
+---
 apiVersion: platform.kratix.io/v1alpha1
 kind: Promise
 metadata:
@@ -52,3 +78,13 @@ spec:
                 name: bash-promise-test-c0
               - image: syntassodev/bash-promise-test-c1:dev
                 name: bash-promise-test-c1
+      delete:
+        - apiVersion: platform.kratix.io/v1alpha1
+          kind: Pipeline
+          metadata:
+            name: instance-configure
+            namespace: default
+          spec:
+            containers:
+              - image: syntassodev/bash-promise-test-c0:dev
+                name: bash-promise-test-c0

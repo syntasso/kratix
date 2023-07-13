@@ -20,6 +20,7 @@ import (
 	"context"
 	"time"
 
+	"k8s.io/apimachinery/pkg/labels"
 	"k8s.io/apimachinery/pkg/types"
 	"sigs.k8s.io/controller-runtime/pkg/controller/controllerutil"
 
@@ -32,10 +33,8 @@ import (
 	"k8s.io/apimachinery/pkg/api/errors"
 	metav1 "k8s.io/apimachinery/pkg/apis/meta/v1"
 	"k8s.io/apimachinery/pkg/apis/meta/v1/unstructured"
-	"k8s.io/apimachinery/pkg/labels"
 	"k8s.io/apimachinery/pkg/runtime"
 	"k8s.io/apimachinery/pkg/runtime/schema"
-	"k8s.io/apimachinery/pkg/selection"
 	clusterv1 "sigs.k8s.io/cluster-api/api/v1beta1"
 	conditionsutil "sigs.k8s.io/cluster-api/util/conditions"
 	ctrl "sigs.k8s.io/controller-runtime"
@@ -44,24 +43,26 @@ import (
 )
 
 const (
-	workFinalizer      = finalizerPrefix + "work-cleanup"
-	workflowsFinalizer = finalizerPrefix + "workflows-cleanup"
+	workFinalizer            = finalizerPrefix + "work-cleanup"
+	workflowsFinalizer       = finalizerPrefix + "workflows-cleanup"
+	deleteWorkflowsFinalizer = finalizerPrefix + "delete-workflows"
 )
 
-var rrFinalizers = []string{workFinalizer, workflowsFinalizer}
+var rrFinalizers = []string{workFinalizer, workflowsFinalizer, deleteWorkflowsFinalizer}
 
 type dynamicResourceRequestController struct {
 	//use same naming conventions as other controllers
-	Client            client.Client
-	gvk               *schema.GroupVersionKind
-	scheme            *runtime.Scheme
-	promiseIdentifier string
-	promiseScheduling []v1alpha1.SchedulingConfig
-	workflows         []v1alpha1.Pipeline
-	log               logr.Logger
-	finalizers        []string
-	uid               string
-	enabled           *bool
+	Client             client.Client
+	gvk                *schema.GroupVersionKind
+	scheme             *runtime.Scheme
+	promiseIdentifier  string
+	promiseScheduling  []v1alpha1.SchedulingConfig
+	configurePipelines []v1alpha1.Pipeline
+	deletePipelines    []v1alpha1.Pipeline
+	log                logr.Logger
+	finalizers         []string
+	uid                string
+	enabled            *bool
 }
 
 //+kubebuilder:rbac:groups="",resources=pods,verbs=create;list;watch;delete
@@ -94,13 +95,13 @@ func (r *dynamicResourceRequestController) Reconcile(ctx context.Context, req ct
 	}
 
 	// Reconcile necessary finalizers
-	if finalizersAreMissing(rr, []string{workFinalizer, workflowsFinalizer}) {
-		return addFinalizers(ctx, r.Client, rr, []string{workFinalizer, workflowsFinalizer}, logger)
+	if finalizersAreMissing(rr, []string{workFinalizer, workflowsFinalizer, deleteWorkflowsFinalizer}) {
+		return addFinalizers(ctx, r.Client, rr, []string{workFinalizer, workflowsFinalizer, deleteWorkflowsFinalizer}, logger)
 	}
 
 	//check if the pipeline has already been created. If it has exit out. All the lines
 	//below this call are for the one-time creation of the pipeline.
-	if r.pipelinePodHasBeenCreated(resourceRequestIdentifier) {
+	if r.configurePipelinePodHasBeenCreated(resourceRequestIdentifier) {
 		logger.Info("Cannot execute update on pre-existing pipeline for Promise resource request " + resourceRequestIdentifier)
 		return ctrl.Result{}, nil
 	}
@@ -126,28 +127,40 @@ func (r *dynamicResourceRequestController) Reconcile(ctx context.Context, req ct
 	return ctrl.Result{}, nil
 }
 
-func (r *dynamicResourceRequestController) pipelinePodHasBeenCreated(resourceRequestIdentifier string) bool {
-	isPromise, _ := labels.NewRequirement("kratix-promise-resource-request-id", selection.Equals, []string{resourceRequestIdentifier})
-	selector := labels.NewSelector().
-		Add(*isPromise)
-
-	listOps := &client.ListOptions{
-		Namespace:     "default",
-		LabelSelector: selector,
-	}
-
-	ol := &v1.PodList{}
-	err := r.Client.List(context.Background(), ol, listOps)
-	if err != nil {
-		fmt.Println(err.Error())
-		return false
-	}
-	return len(ol.Items) > 0
-}
-
 func (r *dynamicResourceRequestController) deleteResources(ctx context.Context, resourceRequest *unstructured.Unstructured, resourceRequestIdentifier string, logger logr.Logger) (ctrl.Result, error) {
 	if finalizersAreDeleted(resourceRequest, rrFinalizers) {
 		return ctrl.Result{}, nil
+	}
+
+	if controllerutil.ContainsFinalizer(resourceRequest, deleteWorkflowsFinalizer) {
+		existingDeletePipelinePod, err := r.getDeletePipelinePod(ctx, resourceRequestIdentifier, logger)
+		if err != nil {
+			return defaultRequeue, err
+		}
+
+		if existingDeletePipelinePod == nil {
+			deletePipelinePod := pipeline.NewDeletePipelinePod(resourceRequest, r.deletePipelines, resourceRequestIdentifier, r.promiseIdentifier)
+			logger.Info("Creating Delete Pipeline for Promise resource request: " + resourceRequestIdentifier + ". The pipeline will now execute...")
+			err = r.Client.Create(ctx, &deletePipelinePod)
+			if err != nil {
+				logger.Error(err, "Error creating Pod")
+				y, _ := yaml.Marshal(&deletePipelinePod)
+				logger.Error(err, string(y))
+				return ctrl.Result{}, err
+			}
+			return defaultRequeue, nil
+		}
+
+		logger.Info("Checking status of Delete Pipeline for Promise resource request: " + resourceRequestIdentifier)
+		if pipelineIsComplete(*existingDeletePipelinePod) {
+			logger.Info("Delete Pipeline Completed for Promise resource request: " + resourceRequestIdentifier)
+			controllerutil.RemoveFinalizer(resourceRequest, deleteWorkflowsFinalizer)
+			if err := r.Client.Update(ctx, resourceRequest); err != nil {
+				return ctrl.Result{}, err
+			}
+		}
+
+		return fastRequeue, nil
 	}
 
 	if controllerutil.ContainsFinalizer(resourceRequest, workFinalizer) {
@@ -167,6 +180,70 @@ func (r *dynamicResourceRequestController) deleteResources(ctx context.Context, 
 	}
 
 	return fastRequeue, nil
+}
+
+func (r *dynamicResourceRequestController) getDeletePipelinePod(ctx context.Context, resourceRequestIdentifier string, logger logr.Logger) (*v1.Pod, error) {
+	pods, err := r.getPodsWithLabels(pipeline.DeletePipelineLabels(resourceRequestIdentifier, r.promiseIdentifier))
+	if err != nil {
+		return nil, err
+	}
+	if len(pods) == 0 {
+		return nil, nil
+	}
+	return &pods[0], nil
+}
+
+func (r *dynamicResourceRequestController) configurePipelinePodHasBeenCreated(resourceRequestIdentifier string) bool {
+	pods, err := r.getPodsWithLabels(pipeline.ConfigurePipelineLabels(resourceRequestIdentifier, r.promiseIdentifier))
+	if err != nil {
+		return false
+	}
+	return len(pods) > 0
+}
+
+func (r *dynamicResourceRequestController) getPodsWithLabels(podLabels map[string]string) ([]v1.Pod, error) {
+	selectorLabels := labels.FormatLabels(podLabels)
+	selector, err := labels.Parse(selectorLabels)
+
+	if err != nil {
+		return nil, fmt.Errorf("error parsing labels %v: %w", podLabels, err)
+	}
+
+	listOps := &client.ListOptions{
+		Namespace:     "default",
+		LabelSelector: selector,
+	}
+
+	pods := &v1.PodList{}
+	err = r.Client.List(context.Background(), pods, listOps)
+	if err != nil {
+		return nil, err
+	}
+	return pods.Items, nil
+}
+
+func pipelineIsComplete(pod v1.Pod) bool {
+	// example
+	// status:
+	//   conditions:
+	//   - lastProbeTime: null
+	// 	  lastTransitionTime: "2023-07-11T15:20:37Z"
+	// 	  reason: PodCompleted
+	// 	  status: "True"
+	// 	  type: Initialized
+	for _, condition := range pod.Status.Conditions {
+		if condition.Type == "Initialized" {
+			return condition.Status == "True" && condition.Reason == "PodCompleted"
+		}
+	}
+	return false
+}
+
+func (r *dynamicResourceRequestController) triggerOrGetDeleteWorkflow(ctx context.Context, resourceRequest *unstructured.Unstructured, finalizer string, logger logr.Logger) (bool, error) {
+	//get pod
+	//if exists check status
+	//otherwise create the pod
+	return false, nil
 }
 
 func (r *dynamicResourceRequestController) deleteWork(ctx context.Context, resourceRequest *unstructured.Unstructured, workName string, finalizer string, logger logr.Logger) error {
@@ -214,10 +291,7 @@ func (r *dynamicResourceRequestController) deletePipeline(ctx context.Context, r
 		Kind:    "Pod",
 	}
 
-	podLabels := map[string]string{
-		"kratix-promise-id":                  r.promiseIdentifier,
-		"kratix-promise-resource-request-id": resourceRequestIdentifier,
-	}
+	podLabels := pipeline.CommonPipelineLabels(resourceRequestIdentifier, r.promiseIdentifier)
 
 	resourcesRemaining, err := deleteAllResourcesWithKindMatchingLabel(ctx, r.Client, podGVK, podLabels, logger)
 	if err != nil {

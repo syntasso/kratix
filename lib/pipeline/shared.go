@@ -31,16 +31,21 @@ func readerContainerAndVolume(rr *unstructured.Unstructured) (v1.Container, v1.V
 	return container, volume
 }
 
-func pipelineName(pipelineType, promiseIdentifier string) string {
-	return pipelineType + "-pipeline-" + promiseIdentifier + "-" + getShortUuid()
-}
-
-func pipelineLabels(pipelineType, resourceRequestIdentifier, promiseIdentifier string) map[string]string {
+func CommonPipelineLabels(resourceRequestIdentifier, promiseIdentifier string) map[string]string {
 	return map[string]string{
 		"kratix-promise-id":                  promiseIdentifier,
 		"kratix-promise-resource-request-id": resourceRequestIdentifier,
-		"kratix-pipeline-type":               pipelineType,
 	}
+}
+
+func pipelineLabels(pipelineType, resourceRequestIdentifier, promiseIdentifier string) map[string]string {
+	labels := CommonPipelineLabels(resourceRequestIdentifier, promiseIdentifier)
+	labels["kratix-pipeline-type"] = pipelineType
+	return labels
+}
+
+func pipelineName(pipelineType, promiseIdentifier string) string {
+	return pipelineType + "-pipeline-" + promiseIdentifier + "-" + getShortUuid()
 }
 
 func getShortUuid() string {
