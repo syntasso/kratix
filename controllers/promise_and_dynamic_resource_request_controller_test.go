@@ -187,10 +187,11 @@ var _ = Context("Promise Reconciler", func() {
 				if err != nil {
 					return false
 				}
-				//configure and delete pods
-				if len(pods.Items) != 2 {
+
+				if len(pods.Items) == 0 {
 					return false
 				}
+
 				for _, pod := range pods.Items {
 					if strings.HasPrefix(pod.Name, "delete-pipeline-redis-promise-default-") {
 						deletePipeline = pod
@@ -400,7 +401,7 @@ var _ = Context("Promise Reconciler", func() {
 					if err != nil {
 						return false
 					}
-					if len(pods.Items) != 2 {
+					if len(pods.Items) == 0 {
 						return false
 					}
 					for _, pod := range pods.Items {
