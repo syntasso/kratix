@@ -12,7 +12,7 @@ import (
 	"k8s.io/apimachinery/pkg/apis/meta/v1/unstructured"
 )
 
-func NewConfigurePipelinePod(rr *unstructured.Unstructured, pipelines []platformv1alpha1.Pipeline, resourceRequestIdentifier, promiseIdentifier string) v1.Pod {
+func NewConfigurePipeline(rr *unstructured.Unstructured, pipelines []platformv1alpha1.Pipeline, resourceRequestIdentifier, promiseIdentifier string) v1.Pod {
 	volumes := metadataAndSchedulingVolumes(promiseIdentifier)
 
 	initContainers, pipelineVolumes := configurePipelineInitContainers(rr, pipelines, resourceRequestIdentifier)

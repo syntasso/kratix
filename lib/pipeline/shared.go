@@ -2,7 +2,6 @@ package pipeline
 
 import (
 	"fmt"
-	"os"
 	"strings"
 
 	v1 "k8s.io/api/core/v1"
@@ -31,7 +30,7 @@ func readerContainerAndVolume(rr *unstructured.Unstructured) (v1.Container, v1.V
 	return container, volume
 }
 
-func CommonPipelineLabels(resourceRequestIdentifier, promiseIdentifier string) map[string]string {
+func SharedLabels(resourceRequestIdentifier, promiseIdentifier string) map[string]string {
 	return map[string]string{
 		"kratix-promise-id":                  promiseIdentifier,
 		"kratix-promise-resource-request-id": resourceRequestIdentifier,
@@ -39,7 +38,7 @@ func CommonPipelineLabels(resourceRequestIdentifier, promiseIdentifier string) m
 }
 
 func pipelineLabels(pipelineType, resourceRequestIdentifier, promiseIdentifier string) map[string]string {
-	labels := CommonPipelineLabels(resourceRequestIdentifier, promiseIdentifier)
+	labels := SharedLabels(resourceRequestIdentifier, promiseIdentifier)
 	labels["kratix-pipeline-type"] = pipelineType
 	return labels
 }
@@ -49,10 +48,5 @@ func pipelineName(pipelineType, promiseIdentifier string) string {
 }
 
 func getShortUuid() string {
-	envUuid, present := os.LookupEnv("TEST_PROMISE_CONTROLLER_POD_IDENTIFIER_UUID")
-	if present {
-		return envUuid
-	} else {
-		return string(uuid.NewUUID()[0:5])
-	}
+	return string(uuid.NewUUID()[0:5])
 }

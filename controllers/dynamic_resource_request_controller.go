@@ -101,7 +101,12 @@ func (r *dynamicResourceRequestController) Reconcile(ctx context.Context, req ct
 
 	//check if the pipeline has already been created. If it has exit out. All the lines
 	//below this call are for the one-time creation of the pipeline.
-	if r.configurePipelinePodHasBeenCreated(resourceRequestIdentifier) {
+	created, err := r.configurePipelinePodHasBeenCreated(resourceRequestIdentifier, logger)
+	if err != nil {
+		return ctrl.Result{}, err
+	}
+
+	if created {
 		logger.Info("Cannot execute update on pre-existing pipeline for Promise resource request " + resourceRequestIdentifier)
 		return ctrl.Result{}, nil
 	}
@@ -114,7 +119,7 @@ func (r *dynamicResourceRequestController) Reconcile(ctx context.Context, req ct
 		return ctrl.Result{}, err
 	}
 
-	pod := pipeline.NewConfigurePipelinePod(rr, r.configurePipelines, resourceRequestIdentifier, r.promiseIdentifier)
+	pod := pipeline.NewConfigurePipeline(rr, r.configurePipelines, resourceRequestIdentifier, r.promiseIdentifier)
 
 	logger.Info("Creating Pipeline for Promise resource request: " + resourceRequestIdentifier + ". The pipeline will now execute...")
 	err = r.Client.Create(ctx, &pod)
@@ -139,7 +144,7 @@ func (r *dynamicResourceRequestController) deleteResources(ctx context.Context, 
 		}
 
 		if existingDeletePipelinePod == nil {
-			deletePipelinePod := pipeline.NewDeletePipelinePod(resourceRequest, r.deletePipelines, resourceRequestIdentifier, r.promiseIdentifier)
+			deletePipelinePod := pipeline.NewDeletePipeline(resourceRequest, r.deletePipelines, resourceRequestIdentifier, r.promiseIdentifier)
 			logger.Info("Creating Delete Pipeline for Promise resource request: " + resourceRequestIdentifier + ". The pipeline will now execute...")
 			err = r.Client.Create(ctx, &deletePipelinePod)
 			if err != nil {
@@ -183,19 +188,22 @@ func (r *dynamicResourceRequestController) deleteResources(ctx context.Context, 
 }
 
 func (r *dynamicResourceRequestController) getDeletePipelinePod(ctx context.Context, resourceRequestIdentifier string, logger logr.Logger) (*v1.Pod, error) {
-	pods, err := r.getPodsWithLabels(pipeline.DeletePipelineLabels(resourceRequestIdentifier, r.promiseIdentifier))
+	pods, err := r.getPodsWithLabels(pipeline.DeletePipelineLabels(resourceRequestIdentifier, r.promiseIdentifier), logger)
 	if err != nil || len(pods) == 0 {
 		return nil, err
 	}
 	return &pods[0], nil
 }
 
-func (r *dynamicResourceRequestController) configurePipelinePodHasBeenCreated(resourceRequestIdentifier string) bool {
-	pods, err := r.getPodsWithLabels(pipeline.ConfigurePipelineLabels(resourceRequestIdentifier, r.promiseIdentifier))
-	return err == nil && len(pods) > 0
+func (r *dynamicResourceRequestController) configurePipelinePodHasBeenCreated(resourceRequestIdentifier string, logger logr.Logger) (bool, error) {
+	pods, err := r.getPodsWithLabels(pipeline.ConfigurePipelineLabels(resourceRequestIdentifier, r.promiseIdentifier), logger)
+	if err != nil {
+		return false, err
+	}
+	return len(pods) > 0, nil
 }
 
-func (r *dynamicResourceRequestController) getPodsWithLabels(podLabels map[string]string) ([]v1.Pod, error) {
+func (r *dynamicResourceRequestController) getPodsWithLabels(podLabels map[string]string, logger logr.Logger) ([]v1.Pod, error) {
 	selectorLabels := labels.FormatLabels(podLabels)
 	selector, err := labels.Parse(selectorLabels)
 
@@ -211,20 +219,13 @@ func (r *dynamicResourceRequestController) getPodsWithLabels(podLabels map[strin
 	pods := &v1.PodList{}
 	err = r.Client.List(context.Background(), pods, listOps)
 	if err != nil {
+		logger.Error(err, "error listing pods", "selectors", selector.String())
 		return nil, err
 	}
 	return pods.Items, nil
 }
 
 func pipelineIsComplete(pod v1.Pod) bool {
-	// example
-	// status:
-	//   conditions:
-	//   - lastProbeTime: null
-	// 	  lastTransitionTime: "2023-07-11T15:20:37Z"
-	// 	  reason: PodCompleted
-	// 	  status: "True"
-	// 	  type: Initialized
 	for _, condition := range pod.Status.Conditions {
 		if condition.Type == "Initialized" {
 			return condition.Status == "True" && condition.Reason == "PodCompleted"
@@ -233,19 +234,13 @@ func pipelineIsComplete(pod v1.Pod) bool {
 	return false
 }
 
-func (r *dynamicResourceRequestController) triggerOrGetDeleteWorkflow(ctx context.Context, resourceRequest *unstructured.Unstructured, finalizer string, logger logr.Logger) (bool, error) {
-	//get pod
-	//if exists check status
-	//otherwise create the pod
-	return false, nil
-}
-
 func (r *dynamicResourceRequestController) deleteWork(ctx context.Context, resourceRequest *unstructured.Unstructured, workName string, finalizer string, logger logr.Logger) error {
 	work := &v1alpha1.Work{}
 	err := r.Client.Get(ctx, types.NamespacedName{
 		Namespace: "default",
 		Name:      workName,
 	}, work)
+
 	if err != nil {
 		if errors.IsNotFound(err) {
 			// only remove finalizer at this point because deletion success is guaranteed
@@ -285,7 +280,7 @@ func (r *dynamicResourceRequestController) deletePipeline(ctx context.Context, r
 		Kind:    "Pod",
 	}
 
-	podLabels := pipeline.CommonPipelineLabels(resourceRequestIdentifier, r.promiseIdentifier)
+	podLabels := pipeline.SharedLabels(resourceRequestIdentifier, r.promiseIdentifier)
 
 	resourcesRemaining, err := deleteAllResourcesWithKindMatchingLabel(ctx, r.Client, podGVK, podLabels, logger)
 	if err != nil {
