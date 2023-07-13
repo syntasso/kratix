@@ -4499,7 +4499,7 @@ spec:
         - apiVersion: platform.kratix.io/v1alpha1
           kind: Pipeline
           metadata:
-            name: instance-configure
+            name: instance-delete
             namespace: default
           spec:
             containers:

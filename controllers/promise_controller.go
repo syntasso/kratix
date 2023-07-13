@@ -663,26 +663,26 @@ func generatePipeline(pipeline unstructured.Unstructured, logger logr.Logger) (v
 		"pipelineVersion", pipeline.GetAPIVersion(),
 		"pipelineName", pipeline.GetName())
 
-	p := v1alpha1.Pipeline{}
 	if pipeline.GetKind() == "Pipeline" && pipeline.GetAPIVersion() == "platform.kratix.io/v1alpha1" {
 		jsonPipeline, err := pipeline.MarshalJSON()
 		pipelineLogger.Info("json", "json", string(jsonPipeline))
 		if err != nil {
 			// TODO test
 			pipelineLogger.Error(err, "Failed marshalling pipeline to json")
-			return p, err
+			return v1alpha1.Pipeline{}, err
 		}
 
+		p := v1alpha1.Pipeline{}
 		err = json.Unmarshal(jsonPipeline, &p)
 		if err != nil {
 			// TODO test
 			pipelineLogger.Error(err, "Failed unmarshalling pipeline")
-			return p, err
+			return v1alpha1.Pipeline{}, err
 		}
 
 		return p, nil
 	}
 
-	return p, fmt.Errorf("unsupported pipeline %q (%s.%s)",
+	return v1alpha1.Pipeline{}, fmt.Errorf("unsupported pipeline %q (%s.%s)",
 		pipeline.GetName(), pipeline.GetKind(), pipeline.GetAPIVersion())
 }

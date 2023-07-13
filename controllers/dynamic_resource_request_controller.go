@@ -184,21 +184,15 @@ func (r *dynamicResourceRequestController) deleteResources(ctx context.Context, 
 
 func (r *dynamicResourceRequestController) getDeletePipelinePod(ctx context.Context, resourceRequestIdentifier string, logger logr.Logger) (*v1.Pod, error) {
 	pods, err := r.getPodsWithLabels(pipeline.DeletePipelineLabels(resourceRequestIdentifier, r.promiseIdentifier))
-	if err != nil {
+	if err != nil || len(pods) == 0 {
 		return nil, err
-	}
-	if len(pods) == 0 {
-		return nil, nil
 	}
 	return &pods[0], nil
 }
 
 func (r *dynamicResourceRequestController) configurePipelinePodHasBeenCreated(resourceRequestIdentifier string) bool {
 	pods, err := r.getPodsWithLabels(pipeline.ConfigurePipelineLabels(resourceRequestIdentifier, r.promiseIdentifier))
-	if err != nil {
-		return false
-	}
-	return len(pods) > 0
+	return err == nil && len(pods) > 0
 }
 
 func (r *dynamicResourceRequestController) getPodsWithLabels(podLabels map[string]string) ([]v1.Pod, error) {
