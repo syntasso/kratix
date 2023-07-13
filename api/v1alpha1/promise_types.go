@@ -57,6 +57,8 @@ type Workflows struct {
 type WorkflowTriggers struct {
 	// +kubebuilder:pruning:PreserveUnknownFields
 	Configure []unstructured.Unstructured `json:"configure,omitempty"`
+	// +kubebuilder:pruning:PreserveUnknownFields
+	Delete []unstructured.Unstructured `json:"delete,omitempty"`
 }
 
 // Resources represents the manifest workload to be deployed on workers

@@ -137,11 +137,11 @@ func (r *PromiseReconciler) Reconcile(ctx context.Context, req ctrl.Request) (ct
 		return ctrl.Result{}, nil
 	}
 
-	workflows, err := r.generateWorkflows(promise, logger)
+	configurePipelines, deletePipelines, err := r.generatePipelines(promise, logger)
 	if err != nil {
 		return ctrl.Result{}, err
 	}
-	return ctrl.Result{}, r.startDynamicController(promise, rrGVK, workflows)
+	return ctrl.Result{}, r.startDynamicController(promise, rrGVK, configurePipelines, deletePipelines)
 }
 
 func getDesiredFinalizers(promise *v1alpha1.Promise) []string {
@@ -151,21 +151,22 @@ func getDesiredFinalizers(promise *v1alpha1.Promise) []string {
 	return promiseFinalizers
 }
 
-func (r *PromiseReconciler) startDynamicController(promise *v1alpha1.Promise, rrGVK schema.GroupVersionKind, workflows []v1alpha1.Pipeline) error {
+func (r *PromiseReconciler) startDynamicController(promise *v1alpha1.Promise, rrGVK schema.GroupVersionKind, configurePipelines, deletePipelines []v1alpha1.Pipeline) error {
 	//temporary fix until https://github.com/kubernetes-sigs/controller-runtime/issues/1884 is resolved
 	//once resolved, delete dynamic controller rather than disable
 	enabled := true
 	r.DynamicControllers[string(promise.GetUID())] = &enabled
 	dynamicResourceRequestController := &dynamicResourceRequestController{
-		Client:            r.Manager.GetClient(),
-		scheme:            r.Manager.GetScheme(),
-		gvk:               &rrGVK,
-		promiseIdentifier: promise.GetIdentifier(),
-		promiseScheduling: promise.Spec.Scheduling,
-		workflows:         workflows,
-		log:               r.Log,
-		uid:               string(promise.GetUID())[0:5],
-		enabled:           &enabled,
+		Client:             r.Manager.GetClient(),
+		scheme:             r.Manager.GetScheme(),
+		gvk:                &rrGVK,
+		promiseIdentifier:  promise.GetIdentifier(),
+		promiseScheduling:  promise.Spec.Scheduling,
+		configurePipelines: configurePipelines,
+		deletePipelines:    deletePipelines,
+		log:                r.Log,
+		uid:                string(promise.GetUID())[0:5],
+		enabled:            &enabled,
 	}
 
 	unstructuredCRD := &unstructured.Unstructured{}
@@ -633,39 +634,55 @@ func (r *PromiseReconciler) createWorkResourceForDependencies(ctx context.Contex
 	return nil
 }
 
-func (r *PromiseReconciler) generateWorkflows(promise *v1alpha1.Promise, logger logr.Logger) ([]v1alpha1.Pipeline, error) {
-	var pipelines []v1alpha1.Pipeline
+func (r *PromiseReconciler) generatePipelines(promise *v1alpha1.Promise, logger logr.Logger) ([]v1alpha1.Pipeline, []v1alpha1.Pipeline, error) {
+	var configurePipelines []v1alpha1.Pipeline
 
 	for _, pipeline := range promise.Spec.Workflows.Resource.Configure {
-		pipelineLogger := logger.WithValues(
-			"pipelineKind", pipeline.GetKind(),
-			"pipelineVersion", pipeline.GetAPIVersion(),
-			"pipelineName", pipeline.GetName())
-		if pipeline.GetKind() == "Pipeline" && pipeline.GetAPIVersion() == "platform.kratix.io/v1alpha1" {
-			p := v1alpha1.Pipeline{}
-			jsonPipeline, err := pipeline.MarshalJSON()
-			logger.Info("json", "json", string(jsonPipeline))
-			if err != nil {
-				// TODO test
-				pipelineLogger.Error(err, "Failed marshalling pipeline to json")
-				return nil, err
-			}
-
-			err = json.Unmarshal(jsonPipeline, &p)
-			if err != nil {
-				// TODO test
-				pipelineLogger.Error(err, "Failed unmarshalling pipeline")
-				return nil, err
-			}
-
-			pipelines = append(pipelines, p)
-		} else {
-			err := fmt.Errorf("unsupported pipeline %q (%s.%s)",
-				pipeline.GetName(), pipeline.GetKind(), pipeline.GetAPIVersion(),
-			)
-			return nil, err
+		p, err := generatePipeline(pipeline, logger)
+		if err != nil {
+			return nil, nil, err
 		}
+		configurePipelines = append(configurePipelines, p)
 	}
 
-	return pipelines, nil
+	var deletePipelines []v1alpha1.Pipeline
+	for _, pipeline := range promise.Spec.Workflows.Resource.Delete {
+		p, err := generatePipeline(pipeline, logger)
+		if err != nil {
+			return nil, nil, err
+		}
+		deletePipelines = append(deletePipelines, p)
+	}
+
+	return configurePipelines, deletePipelines, nil
+}
+
+func generatePipeline(pipeline unstructured.Unstructured, logger logr.Logger) (v1alpha1.Pipeline, error) {
+	pipelineLogger := logger.WithValues(
+		"pipelineKind", pipeline.GetKind(),
+		"pipelineVersion", pipeline.GetAPIVersion(),
+		"pipelineName", pipeline.GetName())
+
+	if pipeline.GetKind() == "Pipeline" && pipeline.GetAPIVersion() == "platform.kratix.io/v1alpha1" {
+		jsonPipeline, err := pipeline.MarshalJSON()
+		pipelineLogger.Info("json", "json", string(jsonPipeline))
+		if err != nil {
+			// TODO test
+			pipelineLogger.Error(err, "Failed marshalling pipeline to json")
+			return v1alpha1.Pipeline{}, err
+		}
+
+		p := v1alpha1.Pipeline{}
+		err = json.Unmarshal(jsonPipeline, &p)
+		if err != nil {
+			// TODO test
+			pipelineLogger.Error(err, "Failed unmarshalling pipeline")
+			return v1alpha1.Pipeline{}, err
+		}
+
+		return p, nil
+	}
+
+	return v1alpha1.Pipeline{}, fmt.Errorf("unsupported pipeline %q (%s.%s)",
+		pipeline.GetName(), pipeline.GetKind(), pipeline.GetAPIVersion())
 }

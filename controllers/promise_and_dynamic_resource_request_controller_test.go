@@ -20,6 +20,7 @@ import (
 	"context"
 	"fmt"
 	"io/ioutil"
+	"strings"
 
 	. "github.com/onsi/ginkgo"
 	. "github.com/onsi/gomega"
@@ -45,6 +46,7 @@ var _ = Context("Promise Reconciler", func() {
 	var (
 		promiseCR       *platformv1alpha1.Promise
 		expectedCRDName = "redis.redis.redis.opstreelabs.in"
+		ctx             = context.Background()
 	)
 
 	Describe("Can support complete Promises", func() {
@@ -58,14 +60,14 @@ var _ = Context("Promise Reconciler", func() {
 			Expect(err).ToNot(HaveOccurred())
 
 			//Works once, then fails as the promiseCR already exists. Consider building check here.
-			k8sClient.Create(context.Background(), promiseCR)
+			k8sClient.Create(ctx, promiseCR)
 
 			By("creating a CRD for redis.redis.redis")
 			Eventually(func() string {
 				crd, _ := apiextensionClient.
 					ApiextensionsV1().
 					CustomResourceDefinitions().
-					Get(context.Background(), expectedCRDName, metav1.GetOptions{})
+					Get(ctx, expectedCRDName, metav1.GetOptions{})
 
 				// The returned CRD is missing the expected metadata,
 				// therefore we need to reach inside the spec to get the
@@ -87,26 +89,26 @@ var _ = Context("Promise Reconciler", func() {
 			By("creating clusterRoleBindings for the controller and pipeline")
 			Eventually(func() error {
 				binding := &rbacv1.ClusterRoleBinding{}
-				err := k8sClient.Get(context.Background(), controllerResourceNamespacedName, binding)
+				err := k8sClient.Get(ctx, controllerResourceNamespacedName, binding)
 				return err
 			}, timeout, interval).Should(BeNil(), "Expected controller ClusterRoleBinding to exist")
 
 			Eventually(func() error {
 				binding := &rbacv1.ClusterRoleBinding{}
-				err := k8sClient.Get(context.Background(), piplineResourceNamespacedName, binding)
+				err := k8sClient.Get(ctx, piplineResourceNamespacedName, binding)
 				return err
 			}, timeout, interval).Should(BeNil(), "Expected pipeline ClusterRoleBinding to exist")
 
 			By("creating clusterRoles for the controller and pipeline")
 			Eventually(func() error {
 				clusterRole := &rbacv1.ClusterRole{}
-				err := k8sClient.Get(context.Background(), controllerResourceNamespacedName, clusterRole)
+				err := k8sClient.Get(ctx, controllerResourceNamespacedName, clusterRole)
 				return err
 			}, timeout, interval).Should(BeNil(), "Expected controller ClusterRole to exist")
 
 			Eventually(func() error {
 				clusterRole := &rbacv1.ClusterRole{}
-				err := k8sClient.Get(context.Background(), piplineResourceNamespacedName, clusterRole)
+				err := k8sClient.Get(ctx, piplineResourceNamespacedName, clusterRole)
 				return err
 			}, timeout, interval).Should(BeNil(), "Expected pipeline ClusterRole to exist")
 
@@ -114,7 +116,7 @@ var _ = Context("Promise Reconciler", func() {
 			pipelineServiceAccountNamespacedName := types.NamespacedName{Name: piplineResourceNamespacedName.Name, Namespace: "default"}
 			Eventually(func() error {
 				serviceAccount := &v1.ServiceAccount{}
-				err := k8sClient.Get(context.Background(), pipelineServiceAccountNamespacedName, serviceAccount)
+				err := k8sClient.Get(ctx, pipelineServiceAccountNamespacedName, serviceAccount)
 				return err
 			}, timeout, interval).Should(BeNil(), "Expected pipeline ServiceAccount to exist")
 
@@ -127,7 +129,7 @@ var _ = Context("Promise Reconciler", func() {
 			Expect(err).ToNot(HaveOccurred())
 
 			redisRequest.SetNamespace("default")
-			err = k8sClient.Create(context.Background(), redisRequest)
+			err = k8sClient.Create(ctx, redisRequest)
 			Expect(err).ToNot(HaveOccurred())
 
 			By("creating a configMap to store Promise scheduling")
@@ -138,7 +140,7 @@ var _ = Context("Promise Reconciler", func() {
 					Name:      "scheduling-" + promiseIdentifier,
 				}
 
-				err := k8sClient.Get(context.Background(), expectedCM, cm)
+				err := k8sClient.Get(ctx, expectedCM, cm)
 				if err != nil {
 					fmt.Println(err.Error())
 				}
@@ -151,7 +153,7 @@ var _ = Context("Promise Reconciler", func() {
 
 			promise := &v1alpha1.Promise{}
 
-			err = k8sClient.Get(context.Background(), expectedPromise, promise)
+			err = k8sClient.Get(ctx, expectedPromise, promise)
 			Expect(err).NotTo(HaveOccurred())
 			Expect(promise.GetFinalizers()).Should(
 				ConsistOf(
@@ -169,19 +171,51 @@ var _ = Context("Promise Reconciler", func() {
 				Namespace: "default",
 			}
 			Eventually(func() error {
-				err := k8sClient.Get(context.Background(), workNamespacedName, &v1alpha1.Work{})
+				err := k8sClient.Get(ctx, workNamespacedName, &v1alpha1.Work{})
 				return err
 			}, timeout, interval).Should(BeNil())
 
 			By("deleting the Promise")
-			err = k8sClient.Delete(context.Background(), promiseCR)
+			err = k8sClient.Delete(ctx, promiseCR)
+			Expect(err).NotTo(HaveOccurred())
+
+			//delete pipeline should be created
+			deletePipeline := v1.Pod{}
+			Eventually(func() bool {
+				pods := &v1.PodList{}
+				err := k8sClient.List(ctx, pods)
+				if err != nil {
+					return false
+				}
+
+				if len(pods.Items) == 0 {
+					return false
+				}
+
+				for _, pod := range pods.Items {
+					if strings.HasPrefix(pod.Name, "delete-pipeline-redis-promise-default-") {
+						deletePipeline = pod
+						return true
+					}
+				}
+				return false
+			}, timeout, interval).Should(BeTrue(), "Expected the delete pipeline to be created")
+
+			deletePipeline.Status.Conditions = []v1.PodCondition{
+				{
+					Status: "True",
+					Type:   "Initialized",
+					Reason: "PodCompleted",
+				},
+			}
+			err = k8sClient.Status().Update(ctx, &deletePipeline)
 			Expect(err).NotTo(HaveOccurred())
 
 			By("also deleting the resource requests")
 			Eventually(func() int {
 				rrList := &unstructured.UnstructuredList{}
 				rrList.SetGroupVersionKind(redisRequest.GroupVersionKind())
-				err := k8sClient.List(context.Background(), rrList)
+				err := k8sClient.List(ctx, rrList)
 				if err != nil {
 					return -1
 				}
@@ -196,40 +230,40 @@ var _ = Context("Promise Reconciler", func() {
 					Name:      "scheduling-redis-promise-default",
 				}
 
-				err := k8sClient.Get(context.Background(), expectedCM, cm)
+				err := k8sClient.Get(ctx, expectedCM, cm)
 				return errors.IsNotFound(err)
 			}, timeout, interval).Should(BeTrue(), "ConfigMap should have been deleted")
 
 			By("also deleting the ClusterRoleBinding for the controller and pipeline")
 			Eventually(func() bool {
 				binding := &rbacv1.ClusterRoleBinding{}
-				err := k8sClient.Get(context.Background(), piplineResourceNamespacedName, binding)
+				err := k8sClient.Get(ctx, piplineResourceNamespacedName, binding)
 				return errors.IsNotFound(err)
 			}, timeout, interval).Should(BeTrue(), "Expected pipeline ClusterRoleBinding not to be found")
 
 			Eventually(func() bool {
 				binding := &rbacv1.ClusterRoleBinding{}
-				err := k8sClient.Get(context.Background(), controllerResourceNamespacedName, binding)
+				err := k8sClient.Get(ctx, controllerResourceNamespacedName, binding)
 				return errors.IsNotFound(err)
 			}, timeout, interval).Should(BeTrue(), "Expected controller ClusterRoleBinding not to be found")
 
 			By("also deleting the ClusterRole for the controller and pipeline")
 			Eventually(func() bool {
 				binding := &rbacv1.ClusterRole{}
-				err := k8sClient.Get(context.Background(), piplineResourceNamespacedName, binding)
+				err := k8sClient.Get(ctx, piplineResourceNamespacedName, binding)
 				return errors.IsNotFound(err)
 			}, timeout, interval).Should(BeTrue(), "Expected pipeline ClusterRole not to be found")
 
 			Eventually(func() bool {
 				binding := &rbacv1.ClusterRole{}
-				err := k8sClient.Get(context.Background(), controllerResourceNamespacedName, binding)
+				err := k8sClient.Get(ctx, controllerResourceNamespacedName, binding)
 				return errors.IsNotFound(err)
 			}, timeout, interval).Should(BeTrue(), "Expected controller ClusterRole not to be found")
 
 			By("also deleting the serviceAccount for the pipeline")
 			Eventually(func() bool {
 				serviceAccount := &v1.ServiceAccount{}
-				err := k8sClient.Get(context.Background(), pipelineServiceAccountNamespacedName, serviceAccount)
+				err := k8sClient.Get(ctx, pipelineServiceAccountNamespacedName, serviceAccount)
 				return errors.IsNotFound(err)
 			}, timeout, interval).Should(BeTrue(), "Expected pipleine ServiceAccount not to be found")
 
@@ -238,34 +272,32 @@ var _ = Context("Promise Reconciler", func() {
 				_, err := apiextensionClient.
 					ApiextensionsV1().
 					CustomResourceDefinitions().
-					Get(context.Background(), expectedCRDName, metav1.GetOptions{})
+					Get(ctx, expectedCRDName, metav1.GetOptions{})
 
 				return errors.IsNotFound(err)
 			}, timeout, interval).Should(BeTrue(), "Expected CRD to not be found")
 
 			By("also deleting the Work")
 			Eventually(func() bool {
-				err := k8sClient.Get(context.Background(), workNamespacedName, &v1alpha1.Work{})
+				err := k8sClient.Get(ctx, workNamespacedName, &v1alpha1.Work{})
 				return errors.IsNotFound(err)
 			}, timeout, interval).Should(BeTrue(), "Expected Work to not be found")
 
 			By("finally deleting the Promise itself")
 			Eventually(func() bool {
-				err := k8sClient.Get(context.Background(), expectedPromise, &v1alpha1.Promise{})
+				err := k8sClient.Get(ctx, expectedPromise, &v1alpha1.Promise{})
 				return errors.IsNotFound(err)
 			}, timeout, interval).Should(BeTrue(), "Expected Promise not to be found")
 		})
 
 		Describe("Lifecycle of a Redis Custom Resource", func() {
-			createdPod := v1.Pod{}
+			var (
+				redisRequest = &unstructured.Unstructured{}
 
-			redisRequest := &unstructured.Unstructured{}
-
-			expectedName := types.NamespacedName{
-				//The name of the pod is generated dynamically by the Promise Controller. For testing purposes, we set a TEST_PROMISE_CONTROLLER_POD_IDENTIFIER_UUID via an environment variable in the Makefile to make the name deterministic
-				Name:      "configure-pipeline-redis-promise-default-12345",
-				Namespace: "default",
-			}
+				configurePodNamespacedName = types.NamespacedName{
+					Namespace: "default",
+				}
+			)
 
 			BeforeEach(func() {
 				yamlFile, err := ioutil.ReadFile("../config/samples/redis/redis-resource-request.yaml")
@@ -278,32 +310,37 @@ var _ = Context("Promise Reconciler", func() {
 			})
 
 			It("Creates", func() {
-				err := k8sClient.Create(context.Background(), redisRequest)
+				err := k8sClient.Create(ctx, redisRequest)
 				Expect(err).ToNot(HaveOccurred())
 
 				By("defining a valid pod spec for the transformation pipeline")
 				var timeout = "30s"
 				var interval = "3s"
 				Eventually(func() string {
-					err := k8sClient.Get(context.Background(), expectedName, &createdPod)
+					pods := &v1.PodList{}
+					err := k8sClient.List(ctx, pods)
 					if err != nil {
-						fmt.Println(err.Error())
 						return ""
 					}
-					return createdPod.Spec.Containers[0].Name
+					if len(pods.Items) != 1 {
+						return ""
+					}
+					Expect(pods.Items[0].Name).To(HavePrefix("configure-pipeline-redis-promise-default-"))
+					configurePodNamespacedName.Name = pods.Items[0].Name
+					return pods.Items[0].Spec.Containers[0].Name
 				}, timeout, interval).Should(Equal("status-writer"))
 
 				By("setting the finalizer on the resource")
 				Eventually(func() []string {
 					createdRedisRequest := &unstructured.Unstructured{}
 					createdRedisRequest.SetGroupVersionKind(redisRequest.GroupVersionKind())
-					err := k8sClient.Get(context.Background(), client.ObjectKeyFromObject(redisRequest), createdRedisRequest)
+					err := k8sClient.Get(ctx, client.ObjectKeyFromObject(redisRequest), createdRedisRequest)
 					if err != nil {
 						fmt.Println(err.Error())
 						return nil
 					}
 					return createdRedisRequest.GetFinalizers()
-				}, timeout, interval).Should(ConsistOf("kratix.io/work-cleanup", "kratix.io/workflows-cleanup"))
+				}, timeout, interval).Should(ConsistOf("kratix.io/work-cleanup", "kratix.io/delete-workflows", "kratix.io/workflows-cleanup"))
 			})
 
 			It("Takes no action on update", func() {
@@ -315,13 +352,13 @@ var _ = Context("Promise Reconciler", func() {
 				}
 				existingResourceRequest.SetGroupVersionKind(gvk)
 				ns := client.ObjectKeyFromObject(redisRequest)
-				err := k8sClient.Get(context.Background(), ns, existingResourceRequest)
+				err := k8sClient.Get(ctx, ns, existingResourceRequest)
 				Expect(err).ToNot(HaveOccurred())
 
 				existingResourceRequest.SetAnnotations(map[string]string{
 					"new-annotation": "auto-added",
 				})
-				err = k8sClient.Update(context.Background(), existingResourceRequest)
+				err = k8sClient.Update(ctx, existingResourceRequest)
 				Expect(err).ToNot(HaveOccurred())
 
 				Consistently(func() int {
@@ -335,7 +372,7 @@ var _ = Context("Promise Reconciler", func() {
 					}
 
 					ol := &v1.PodList{}
-					err := k8sClient.List(context.Background(), ol, listOps)
+					err := k8sClient.List(ctx, ol, listOps)
 					if err != nil {
 						fmt.Println(err.Error())
 						return -1
@@ -349,31 +386,64 @@ var _ = Context("Promise Reconciler", func() {
 				work = &platformv1alpha1.Work{}
 				work.Name = "redis-promise-default-default-opstree-redis"
 				work.Namespace = "default"
-				err := k8sClient.Create(context.Background(), work)
+				err := k8sClient.Create(ctx, work)
 				Expect(err).ToNot(HaveOccurred())
 
 				//test delete
-				err = k8sClient.Delete(context.Background(), redisRequest)
+				err = k8sClient.Delete(ctx, redisRequest)
 				Expect(err).ToNot(HaveOccurred())
+
+				//delete pipeline should be created
+				deletePipeline := v1.Pod{}
+				Eventually(func() bool {
+					pods := &v1.PodList{}
+					err := k8sClient.List(ctx, pods)
+					if err != nil {
+						return false
+					}
+					if len(pods.Items) == 0 {
+						return false
+					}
+					for _, pod := range pods.Items {
+						if strings.HasPrefix(pod.Name, "delete-pipeline-redis-promise-default-") {
+							deletePipeline = pod
+							return true
+						}
+					}
+					return false
+				}, timeout, interval).Should(BeTrue(), "Expected the delete pipeline to be created")
+
+				deletePipeline.Status.Conditions = []v1.PodCondition{
+					{
+						Status: "True",
+						Type:   "Initialized",
+						Reason: "PodCompleted",
+					},
+				}
+				err = k8sClient.Status().Update(ctx, &deletePipeline)
+				Expect(err).NotTo(HaveOccurred())
+
+				Eventually(func() bool {
+					pods := &v1.PodList{}
+					err := k8sClient.List(ctx, pods)
+					if err != nil {
+						return false
+					}
+					return len(pods.Items) == 0
+				}, timeout, interval).Should(BeTrue(), "Expected the delete and configure pipeline to be deleted")
 
 				Eventually(func() bool {
 					work = &platformv1alpha1.Work{}
 					work.Name = "redis-promise-default-default-opstree-redis"
 					work.Namespace = "default"
-					err := k8sClient.Get(context.Background(), client.ObjectKeyFromObject(work), work)
+					err := k8sClient.Get(ctx, client.ObjectKeyFromObject(work), work)
 					return errors.IsNotFound(err)
 				}, timeout, interval).Should(BeTrue(), "Expected the Work to be deleted")
 
 				Eventually(func() bool {
-					pipeline := &v1.Pod{}
-					err := k8sClient.Get(context.Background(), expectedName, pipeline)
-					return errors.IsNotFound(err)
-				}, timeout, interval).Should(BeTrue(), "Expected the request pipeline to be deleted")
-
-				Eventually(func() bool {
 					createdRedisRequest := &unstructured.Unstructured{}
 					createdRedisRequest.SetGroupVersionKind(redisRequest.GroupVersionKind())
-					err := k8sClient.Get(context.Background(), client.ObjectKeyFromObject(redisRequest), createdRedisRequest)
+					err := k8sClient.Get(ctx, client.ObjectKeyFromObject(redisRequest), createdRedisRequest)
 					return errors.IsNotFound(err)
 				}, timeout, interval).Should(BeTrue(), "Expected the Redis resource to be deleted")
 			})
@@ -389,7 +459,7 @@ var _ = Context("Promise Reconciler", func() {
 			promiseCR.Namespace = "default"
 			Expect(err).ToNot(HaveOccurred())
 
-			k8sClient.Create(context.Background(), promiseCR)
+			k8sClient.Create(ctx, promiseCR)
 		})
 
 		promiseIdentifier := "nil-api-promise-default"
@@ -405,13 +475,13 @@ var _ = Context("Promise Reconciler", func() {
 				Namespace: "default",
 			}
 			Eventually(func() error {
-				err := k8sClient.Get(context.Background(), workNamespacedName, &v1alpha1.Work{})
+				err := k8sClient.Get(ctx, workNamespacedName, &v1alpha1.Work{})
 				return err
 			}, timeout, interval).Should(BeNil())
 
 			By("setting the correct finalizers")
 			promise := &v1alpha1.Promise{}
-			err := k8sClient.Get(context.Background(), expectedPromise, promise)
+			err := k8sClient.Get(ctx, expectedPromise, promise)
 			Expect(err).NotTo(HaveOccurred())
 
 			Expect(promise.GetFinalizers()).Should(
@@ -420,18 +490,18 @@ var _ = Context("Promise Reconciler", func() {
 				), "Promise should have finalizers set")
 
 			By("deleting the Promise")
-			err = k8sClient.Delete(context.Background(), promiseCR)
+			err = k8sClient.Delete(ctx, promiseCR)
 			Expect(err).NotTo(HaveOccurred())
 
 			By("also deleting the Work")
 			Eventually(func() bool {
-				err := k8sClient.Get(context.Background(), workNamespacedName, &v1alpha1.Work{})
+				err := k8sClient.Get(ctx, workNamespacedName, &v1alpha1.Work{})
 				return errors.IsNotFound(err)
 			}, timeout, interval).Should(BeTrue(), "Expected Work to not be found")
 
 			By("finally deleting the Promise itself")
 			Eventually(func() bool {
-				err := k8sClient.Get(context.Background(), expectedPromise, &v1alpha1.Promise{})
+				err := k8sClient.Get(ctx, expectedPromise, &v1alpha1.Promise{})
 				return errors.IsNotFound(err)
 			}, timeout, interval).Should(BeTrue(), "Expected Promise not to be found")
 		})
@@ -447,7 +517,7 @@ var _ = Context("Promise Reconciler", func() {
 			Expect(err).ToNot(HaveOccurred())
 
 			//Works once, then fails as the promiseCR already exists. Consider building check here.
-			err = k8sClient.Create(context.Background(), promiseCR)
+			err = k8sClient.Create(ctx, promiseCR)
 			Expect(err).ToNot(HaveOccurred())
 		})
 
@@ -459,7 +529,7 @@ var _ = Context("Promise Reconciler", func() {
 				crd, _ = apiextensionClient.
 					ApiextensionsV1().
 					CustomResourceDefinitions().
-					Get(context.Background(), expectedCRDName, metav1.GetOptions{})
+					Get(ctx, expectedCRDName, metav1.GetOptions{})
 
 				// The returned CRD is missing the expected metadata,
 				// therefore we need to reach inside the spec to get the

@@ -18,27 +18,23 @@ package controllers
 
 import (
 	"context"
-	"os"
-	"strconv"
 	"time"
 
+	"k8s.io/apimachinery/pkg/labels"
 	"k8s.io/apimachinery/pkg/types"
 	"sigs.k8s.io/controller-runtime/pkg/controller/controllerutil"
 
 	"fmt"
-	"strings"
 
 	"github.com/go-logr/logr"
 	"github.com/syntasso/kratix/api/v1alpha1"
+	"github.com/syntasso/kratix/lib/pipeline"
 	v1 "k8s.io/api/core/v1"
 	"k8s.io/apimachinery/pkg/api/errors"
 	metav1 "k8s.io/apimachinery/pkg/apis/meta/v1"
 	"k8s.io/apimachinery/pkg/apis/meta/v1/unstructured"
-	"k8s.io/apimachinery/pkg/labels"
 	"k8s.io/apimachinery/pkg/runtime"
 	"k8s.io/apimachinery/pkg/runtime/schema"
-	"k8s.io/apimachinery/pkg/selection"
-	"k8s.io/apimachinery/pkg/util/uuid"
 	clusterv1 "sigs.k8s.io/cluster-api/api/v1beta1"
 	conditionsutil "sigs.k8s.io/cluster-api/util/conditions"
 	ctrl "sigs.k8s.io/controller-runtime"
@@ -47,24 +43,26 @@ import (
 )
 
 const (
-	workFinalizer      = finalizerPrefix + "work-cleanup"
-	workflowsFinalizer = finalizerPrefix + "workflows-cleanup"
+	workFinalizer            = finalizerPrefix + "work-cleanup"
+	workflowsFinalizer       = finalizerPrefix + "workflows-cleanup"
+	deleteWorkflowsFinalizer = finalizerPrefix + "delete-workflows"
 )
 
-var rrFinalizers = []string{workFinalizer, workflowsFinalizer}
+var rrFinalizers = []string{workFinalizer, workflowsFinalizer, deleteWorkflowsFinalizer}
 
 type dynamicResourceRequestController struct {
 	//use same naming conventions as other controllers
-	Client            client.Client
-	gvk               *schema.GroupVersionKind
-	scheme            *runtime.Scheme
-	promiseIdentifier string
-	promiseScheduling []v1alpha1.SchedulingConfig
-	workflows         []v1alpha1.Pipeline
-	log               logr.Logger
-	finalizers        []string
-	uid               string
-	enabled           *bool
+	Client             client.Client
+	gvk                *schema.GroupVersionKind
+	scheme             *runtime.Scheme
+	promiseIdentifier  string
+	promiseScheduling  []v1alpha1.SchedulingConfig
+	configurePipelines []v1alpha1.Pipeline
+	deletePipelines    []v1alpha1.Pipeline
+	log                logr.Logger
+	finalizers         []string
+	uid                string
+	enabled            *bool
 }
 
 //+kubebuilder:rbac:groups="",resources=pods,verbs=create;list;watch;delete
@@ -97,13 +95,18 @@ func (r *dynamicResourceRequestController) Reconcile(ctx context.Context, req ct
 	}
 
 	// Reconcile necessary finalizers
-	if finalizersAreMissing(rr, []string{workFinalizer, workflowsFinalizer}) {
-		return addFinalizers(ctx, r.Client, rr, []string{workFinalizer, workflowsFinalizer}, logger)
+	if finalizersAreMissing(rr, []string{workFinalizer, workflowsFinalizer, deleteWorkflowsFinalizer}) {
+		return addFinalizers(ctx, r.Client, rr, []string{workFinalizer, workflowsFinalizer, deleteWorkflowsFinalizer}, logger)
 	}
 
 	//check if the pipeline has already been created. If it has exit out. All the lines
 	//below this call are for the one-time creation of the pipeline.
-	if r.pipelinePodHasBeenCreated(resourceRequestIdentifier) {
+	created, err := r.configurePipelinePodHasBeenCreated(resourceRequestIdentifier, logger)
+	if err != nil {
+		return ctrl.Result{}, err
+	}
+
+	if created {
 		logger.Info("Cannot execute update on pre-existing pipeline for Promise resource request " + resourceRequestIdentifier)
 		return ctrl.Result{}, nil
 	}
@@ -116,59 +119,7 @@ func (r *dynamicResourceRequestController) Reconcile(ctx context.Context, req ct
 		return ctrl.Result{}, err
 	}
 
-	volumes := []v1.Volume{
-		{Name: "metadata", VolumeSource: v1.VolumeSource{EmptyDir: &v1.EmptyDirVolumeSource{}}},
-		{
-			Name: "promise-scheduling",
-			VolumeSource: v1.VolumeSource{
-				ConfigMap: &v1.ConfigMapVolumeSource{
-					LocalObjectReference: v1.LocalObjectReference{
-						Name: "scheduling-" + r.promiseIdentifier,
-					},
-					Items: []v1.KeyToPath{{
-						Key:  "scheduling",
-						Path: "promise-scheduling",
-					}},
-				},
-			},
-		},
-	}
-	initContainers, pipelineVolumes := r.pipelineInitContainers(resourceRequestIdentifier, req)
-	volumes = append(volumes, pipelineVolumes...)
-
-	rrKind := fmt.Sprintf("%s.%s", strings.ToLower(r.gvk.Kind), r.gvk.Group)
-	pod := v1.Pod{
-		ObjectMeta: metav1.ObjectMeta{
-			Name:      "configure-pipeline-" + r.promiseIdentifier + "-" + getShortUuid(),
-			Namespace: "default",
-			Labels: map[string]string{
-				"kratix-promise-id":                  r.promiseIdentifier,
-				"kratix-promise-resource-request-id": resourceRequestIdentifier,
-			},
-		},
-		Spec: v1.PodSpec{
-			RestartPolicy:      v1.RestartPolicyOnFailure,
-			ServiceAccountName: r.promiseIdentifier + "-promise-pipeline",
-			Containers: []v1.Container{
-				{
-					Name:    "status-writer",
-					Image:   os.Getenv("WC_IMG"),
-					Command: []string{"sh", "-c", "update-status"},
-					Env: []v1.EnvVar{
-						{Name: "RR_KIND", Value: rrKind},
-						{Name: "RR_NAME", Value: req.Name},
-						{Name: "RR_NAMESPACE", Value: req.Namespace},
-					},
-					VolumeMounts: []v1.VolumeMount{{
-						MountPath: "/work-creator-files/metadata",
-						Name:      "metadata",
-					}},
-				},
-			},
-			InitContainers: initContainers,
-			Volumes:        volumes,
-		},
-	}
+	pod := pipeline.NewConfigurePipeline(rr, r.configurePipelines, resourceRequestIdentifier, r.promiseIdentifier)
 
 	logger.Info("Creating Pipeline for Promise resource request: " + resourceRequestIdentifier + ". The pipeline will now execute...")
 	err = r.Client.Create(ctx, &pod)
@@ -181,28 +132,40 @@ func (r *dynamicResourceRequestController) Reconcile(ctx context.Context, req ct
 	return ctrl.Result{}, nil
 }
 
-func (r *dynamicResourceRequestController) pipelinePodHasBeenCreated(resourceRequestIdentifier string) bool {
-	isPromise, _ := labels.NewRequirement("kratix-promise-resource-request-id", selection.Equals, []string{resourceRequestIdentifier})
-	selector := labels.NewSelector().
-		Add(*isPromise)
-
-	listOps := &client.ListOptions{
-		Namespace:     "default",
-		LabelSelector: selector,
-	}
-
-	ol := &v1.PodList{}
-	err := r.Client.List(context.Background(), ol, listOps)
-	if err != nil {
-		fmt.Println(err.Error())
-		return false
-	}
-	return len(ol.Items) > 0
-}
-
 func (r *dynamicResourceRequestController) deleteResources(ctx context.Context, resourceRequest *unstructured.Unstructured, resourceRequestIdentifier string, logger logr.Logger) (ctrl.Result, error) {
 	if finalizersAreDeleted(resourceRequest, rrFinalizers) {
 		return ctrl.Result{}, nil
+	}
+
+	if controllerutil.ContainsFinalizer(resourceRequest, deleteWorkflowsFinalizer) {
+		existingDeletePipelinePod, err := r.getDeletePipelinePod(ctx, resourceRequestIdentifier, logger)
+		if err != nil {
+			return defaultRequeue, err
+		}
+
+		if existingDeletePipelinePod == nil {
+			deletePipelinePod := pipeline.NewDeletePipeline(resourceRequest, r.deletePipelines, resourceRequestIdentifier, r.promiseIdentifier)
+			logger.Info("Creating Delete Pipeline for Promise resource request: " + resourceRequestIdentifier + ". The pipeline will now execute...")
+			err = r.Client.Create(ctx, &deletePipelinePod)
+			if err != nil {
+				logger.Error(err, "Error creating Pod")
+				y, _ := yaml.Marshal(&deletePipelinePod)
+				logger.Error(err, string(y))
+				return ctrl.Result{}, err
+			}
+			return defaultRequeue, nil
+		}
+
+		logger.Info("Checking status of Delete Pipeline for Promise resource request: " + resourceRequestIdentifier)
+		if pipelineIsComplete(*existingDeletePipelinePod) {
+			logger.Info("Delete Pipeline Completed for Promise resource request: " + resourceRequestIdentifier)
+			controllerutil.RemoveFinalizer(resourceRequest, deleteWorkflowsFinalizer)
+			if err := r.Client.Update(ctx, resourceRequest); err != nil {
+				return ctrl.Result{}, err
+			}
+		}
+
+		return fastRequeue, nil
 	}
 
 	if controllerutil.ContainsFinalizer(resourceRequest, workFinalizer) {
@@ -224,12 +187,60 @@ func (r *dynamicResourceRequestController) deleteResources(ctx context.Context, 
 	return fastRequeue, nil
 }
 
+func (r *dynamicResourceRequestController) getDeletePipelinePod(ctx context.Context, resourceRequestIdentifier string, logger logr.Logger) (*v1.Pod, error) {
+	pods, err := r.getPodsWithLabels(pipeline.DeletePipelineLabels(resourceRequestIdentifier, r.promiseIdentifier), logger)
+	if err != nil || len(pods) == 0 {
+		return nil, err
+	}
+	return &pods[0], nil
+}
+
+func (r *dynamicResourceRequestController) configurePipelinePodHasBeenCreated(resourceRequestIdentifier string, logger logr.Logger) (bool, error) {
+	pods, err := r.getPodsWithLabels(pipeline.ConfigurePipelineLabels(resourceRequestIdentifier, r.promiseIdentifier), logger)
+	if err != nil {
+		return false, err
+	}
+	return len(pods) > 0, nil
+}
+
+func (r *dynamicResourceRequestController) getPodsWithLabels(podLabels map[string]string, logger logr.Logger) ([]v1.Pod, error) {
+	selectorLabels := labels.FormatLabels(podLabels)
+	selector, err := labels.Parse(selectorLabels)
+
+	if err != nil {
+		return nil, fmt.Errorf("error parsing labels %v: %w", podLabels, err)
+	}
+
+	listOps := &client.ListOptions{
+		Namespace:     "default",
+		LabelSelector: selector,
+	}
+
+	pods := &v1.PodList{}
+	err = r.Client.List(context.Background(), pods, listOps)
+	if err != nil {
+		logger.Error(err, "error listing pods", "selectors", selector.String())
+		return nil, err
+	}
+	return pods.Items, nil
+}
+
+func pipelineIsComplete(pod v1.Pod) bool {
+	for _, condition := range pod.Status.Conditions {
+		if condition.Type == "Initialized" {
+			return condition.Status == "True" && condition.Reason == "PodCompleted"
+		}
+	}
+	return false
+}
+
 func (r *dynamicResourceRequestController) deleteWork(ctx context.Context, resourceRequest *unstructured.Unstructured, workName string, finalizer string, logger logr.Logger) error {
 	work := &v1alpha1.Work{}
 	err := r.Client.Get(ctx, types.NamespacedName{
 		Namespace: "default",
 		Name:      workName,
 	}, work)
+
 	if err != nil {
 		if errors.IsNotFound(err) {
 			// only remove finalizer at this point because deletion success is guaranteed
@@ -269,10 +280,7 @@ func (r *dynamicResourceRequestController) deletePipeline(ctx context.Context, r
 		Kind:    "Pod",
 	}
 
-	podLabels := map[string]string{
-		"kratix-promise-id":                  r.promiseIdentifier,
-		"kratix-promise-resource-request-id": resourceRequestIdentifier,
-	}
+	podLabels := pipeline.SharedLabels(resourceRequestIdentifier, r.promiseIdentifier)
 
 	resourcesRemaining, err := deleteAllResourcesWithKindMatchingLabel(ctx, r.Client, podGVK, podLabels, logger)
 	if err != nil {
@@ -287,15 +295,6 @@ func (r *dynamicResourceRequestController) deletePipeline(ctx context.Context, r
 	}
 
 	return nil
-}
-
-func getShortUuid() string {
-	envUuid, present := os.LookupEnv("TEST_PROMISE_CONTROLLER_POD_IDENTIFIER_UUID")
-	if present {
-		return envUuid
-	} else {
-		return string(uuid.NewUUID()[0:5])
-	}
 }
 
 func (r *dynamicResourceRequestController) setPipelineConditionToNotCompleted(ctx context.Context, rr *unstructured.Unstructured, logger logr.Logger) error {
@@ -320,69 +319,4 @@ func (r *dynamicResourceRequestController) setPipelineConditionToNotCompleted(ct
 		}
 	}
 	return nil
-}
-
-func (r *dynamicResourceRequestController) pipelineInitContainers(rrID string, req ctrl.Request) ([]v1.Container, []v1.Volume) {
-	resourceKindNameNamespace := fmt.Sprintf("%s.%s %s --namespace %s", strings.ToLower(r.gvk.Kind), r.gvk.Group, req.Name, req.Namespace)
-	metadataVolumeMount := v1.VolumeMount{MountPath: "/metadata", Name: "metadata"}
-
-	resourceRequestCommand := fmt.Sprintf("kubectl get %s -oyaml > /output/object.yaml", resourceKindNameNamespace)
-	reader := v1.Container{
-		Name:    "reader",
-		Image:   "bitnami/kubectl:1.20.10",
-		Command: []string{"sh", "-c", resourceRequestCommand},
-		VolumeMounts: []v1.VolumeMount{
-			{
-				MountPath: "/output",
-				Name:      "vol0",
-			},
-		},
-	}
-
-	volumes := []v1.Volume{{Name: "vol0", VolumeSource: v1.VolumeSource{EmptyDir: &v1.EmptyDirVolumeSource{}}}}
-
-	containers := []v1.Container{reader}
-	if len(r.workflows) > 0 {
-		//TODO: We only support 1 workflow for now
-		for i, c := range r.workflows[0].Spec.Containers {
-			volumes = append(volumes, v1.Volume{
-				Name:         "vol" + strconv.Itoa(i+1),
-				VolumeSource: v1.VolumeSource{EmptyDir: &v1.EmptyDirVolumeSource{}},
-			})
-			containers = append(containers, v1.Container{
-				Name:  c.Name,
-				Image: c.Image,
-				VolumeMounts: []v1.VolumeMount{
-					metadataVolumeMount,
-					{Name: "vol" + strconv.Itoa(i), MountPath: "/input"},
-					{Name: "vol" + strconv.Itoa(i+1), MountPath: "/output"},
-				},
-			})
-		}
-	}
-
-	workCreatorCommand := fmt.Sprintf("./work-creator -identifier %s -input-directory /work-creator-files", rrID)
-	writer := v1.Container{
-		Name:    "work-writer",
-		Image:   os.Getenv("WC_IMG"),
-		Command: []string{"sh", "-c", workCreatorCommand},
-		VolumeMounts: []v1.VolumeMount{
-			{
-				MountPath: "/work-creator-files/input",
-				Name:      "vol" + strconv.Itoa(len(containers)-1),
-			},
-			{
-				MountPath: "/work-creator-files/metadata",
-				Name:      "metadata",
-			},
-			{
-				MountPath: "/work-creator-files/kratix-system",
-				Name:      "promise-scheduling",
-			},
-		},
-	}
-
-	containers = append(containers, writer)
-
-	return containers, volumes
 }
