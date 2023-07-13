@@ -283,6 +283,11 @@ spec:
                           type: object
                         type: array
                         x-kubernetes-preserve-unknown-fields: true
+                      delete:
+                        items:
+                          type: object
+                        type: array
+                        x-kubernetes-preserve-unknown-fields: true
                     type: object
                 type: object
             type: object

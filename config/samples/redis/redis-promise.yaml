@@ -4495,3 +4495,13 @@ spec:
             containers:
               - image: syntasso/kustomize-redis
                 name: kustomize-redis
+      delete:
+        - apiVersion: platform.kratix.io/v1alpha1
+          kind: Pipeline
+          metadata:
+            name: instance-delete
+            namespace: default
+          spec:
+            containers:
+              - image: syntasso/kustomize-redis
+                name: kustomize-redis

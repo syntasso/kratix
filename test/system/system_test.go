@@ -91,10 +91,15 @@ var _ = Describe("Kratix", func() {
 
 			It("executes the pipelines and schedules the work", func() {
 				rrName := "rr-test"
-				c1Command := `kubectl create namespace rr-ns --dry-run=client -oyaml > /output/ns.yaml
-							echo "message: My awesome status message" > /metadata/status.yaml
-							echo "key: value" >> /metadata/status.yaml`
-				c2Command := `kubectl create configmap multi-container-config --namespace rr-ns --dry-run=client -oyaml > /output/configmap.yaml`
+
+				c1Command := `kop="delete"
+							if [ "${KRATIX_OPERATION}" != "delete" ]; then kop="create"
+								echo "message: My awesome status message" > /metadata/status.yaml
+								echo "key: value" >> /metadata/status.yaml
+							fi
+              kubectl ${kop} namespace imperative-$(yq '.metadata.name' /input/object.yaml)`
+
+				c2Command := `kubectl create namespace declarative-$(yq '.metadata.name' /input/object.yaml) --dry-run=client -oyaml > /output/namespace.yaml`
 
 				commands := []string{c1Command, c2Command}
 
@@ -105,8 +110,8 @@ var _ = Describe("Kratix", func() {
 				})
 
 				By("deploying the contents of /output to the worker cluster", func() {
-					worker.eventuallyKubectl("get", "namespace", "rr-ns")
-					worker.eventuallyKubectl("get", "configmap", "multi-container-config", "--namespace", "rr-ns")
+					platform.eventuallyKubectl("get", "namespace", "imperative-rr-test")
+					worker.eventuallyKubectl("get", "namespace", "declarative-rr-test")
 				})
 
 				By("updating the resource status", func() {
@@ -119,10 +124,17 @@ var _ = Describe("Kratix", func() {
 
 					Eventually(func(g Gomega) {
 						g.Expect(platform.kubectl("get", "bash")).NotTo(ContainSubstring(rrName))
-						g.Expect(worker.kubectl("get", "namespace")).NotTo(ContainSubstring("mcns"))
+						g.Expect(platform.kubectl("get", "namespace")).NotTo(ContainSubstring("imperative-rr-test"))
+						g.Expect(worker.kubectl("get", "namespace")).NotTo(ContainSubstring("declarative-rr-test"))
 					}, timeout, interval).Should(Succeed())
 				})
 
+				By("deleting the pipeline pods", func() {
+					Eventually(func(g Gomega) {
+						g.Expect(platform.kubectl("get", "pods")).NotTo(ContainSubstring("configure"))
+						g.Expect(platform.kubectl("get", "pods")).NotTo(ContainSubstring("delete"))
+					}, timeout, interval).Should(Succeed())
+				})
 			})
 
 			AfterEach(func() {

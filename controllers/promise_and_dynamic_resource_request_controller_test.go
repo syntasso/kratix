@@ -20,6 +20,7 @@ import (
 	"context"
 	"fmt"
 	"io/ioutil"
+	"strings"
 
 	. "github.com/onsi/ginkgo"
 	. "github.com/onsi/gomega"
@@ -177,6 +178,44 @@ var _ = Context("Promise Reconciler", func() {
 			err = k8sClient.Delete(context.Background(), promiseCR)
 			Expect(err).NotTo(HaveOccurred())
 
+			//delete pipeline should be created
+			deletePipeline := v1.Pod{}
+			Eventually(func() bool {
+				pods := &v1.PodList{}
+				err := k8sClient.List(context.Background(), pods)
+				if err != nil {
+					return false
+				}
+				if len(pods.Items) != 2 {
+					return false
+				}
+				for _, pod := range pods.Items {
+					if strings.HasPrefix(pod.Name, "delete-") {
+						deletePipeline = pod
+						return true
+					}
+				}
+				return false
+			}, timeout, interval).Should(BeTrue(), "Expected the delete pipeline to be created")
+
+			//update the pod to be marked as complete
+			// status:
+			//   conditions:
+			//   - lastProbeTime: null
+			// 	  lastTransitionTime: "2023-07-11T15:20:37Z"
+			// 	  reason: PodCompleted
+			// 	  status: "True"
+			// 	  type: Initialized
+			deletePipeline.Status.Conditions = []v1.PodCondition{
+				{
+					Status: "True",
+					Type:   "Initialized",
+					Reason: "PodCompleted",
+				},
+			}
+			err = k8sClient.Status().Update(context.Background(), &deletePipeline)
+			Expect(err).NotTo(HaveOccurred())
+
 			By("also deleting the resource requests")
 			Eventually(func() int {
 				rrList := &unstructured.UnstructuredList{}
@@ -257,15 +296,13 @@ var _ = Context("Promise Reconciler", func() {
 		})
 
 		Describe("Lifecycle of a Redis Custom Resource", func() {
-			createdPod := v1.Pod{}
+			var (
+				redisRequest = &unstructured.Unstructured{}
 
-			redisRequest := &unstructured.Unstructured{}
-
-			expectedName := types.NamespacedName{
-				//The name of the pod is generated dynamically by the Promise Controller. For testing purposes, we set a TEST_PROMISE_CONTROLLER_POD_IDENTIFIER_UUID via an environment variable in the Makefile to make the name deterministic
-				Name:      "configure-pipeline-redis-promise-default-12345",
-				Namespace: "default",
-			}
+				configurePodNamespacedName = types.NamespacedName{
+					Namespace: "default",
+				}
+			)
 
 			BeforeEach(func() {
 				yamlFile, err := ioutil.ReadFile("../config/samples/redis/redis-resource-request.yaml")
@@ -285,12 +322,16 @@ var _ = Context("Promise Reconciler", func() {
 				var timeout = "30s"
 				var interval = "3s"
 				Eventually(func() string {
-					err := k8sClient.Get(context.Background(), expectedName, &createdPod)
+					pods := &v1.PodList{}
+					err := k8sClient.List(context.Background(), pods)
 					if err != nil {
-						fmt.Println(err.Error())
 						return ""
 					}
-					return createdPod.Spec.Containers[0].Name
+					if len(pods.Items) != 1 {
+						return ""
+					}
+					configurePodNamespacedName.Name = pods.Items[0].Name
+					return pods.Items[0].Spec.Containers[0].Name
 				}, timeout, interval).Should(Equal("status-writer"))
 
 				By("setting the finalizer on the resource")
@@ -303,7 +344,7 @@ var _ = Context("Promise Reconciler", func() {
 						return nil
 					}
 					return createdRedisRequest.GetFinalizers()
-				}, timeout, interval).Should(ConsistOf("kratix.io/work-cleanup", "kratix.io/workflows-cleanup"))
+				}, timeout, interval).Should(ConsistOf("kratix.io/work-cleanup", "kratix.io/delete-workflows", "kratix.io/workflows-cleanup"))
 			})
 
 			It("Takes no action on update", func() {
@@ -356,6 +397,45 @@ var _ = Context("Promise Reconciler", func() {
 				err = k8sClient.Delete(context.Background(), redisRequest)
 				Expect(err).ToNot(HaveOccurred())
 
+				//delete pipeline should be created
+				deletePipeline := v1.Pod{}
+				Eventually(func() bool {
+					pods := &v1.PodList{}
+					err := k8sClient.List(context.Background(), pods)
+					if err != nil {
+						return false
+					}
+					if len(pods.Items) != 2 {
+						return false
+					}
+					for _, pod := range pods.Items {
+						if strings.HasPrefix(pod.Name, "delete-") {
+							deletePipeline = pod
+							return true
+						}
+					}
+					return false
+				}, timeout, interval).Should(BeTrue(), "Expected the delete pipeline to be created")
+
+				deletePipeline.Status.Conditions = []v1.PodCondition{
+					{
+						Status: "True",
+						Type:   "Initialized",
+						Reason: "PodCompleted",
+					},
+				}
+				err = k8sClient.Status().Update(context.Background(), &deletePipeline)
+				Expect(err).NotTo(HaveOccurred())
+
+				Eventually(func() bool {
+					pods := &v1.PodList{}
+					err := k8sClient.List(context.Background(), pods)
+					if err != nil {
+						return false
+					}
+					return len(pods.Items) == 0
+				}, timeout, interval).Should(BeTrue(), "Expected the delete and configure pipeline to be deleted")
+
 				Eventually(func() bool {
 					work = &platformv1alpha1.Work{}
 					work.Name = "redis-promise-default-default-opstree-redis"
@@ -363,12 +443,6 @@ var _ = Context("Promise Reconciler", func() {
 					err := k8sClient.Get(context.Background(), client.ObjectKeyFromObject(work), work)
 					return errors.IsNotFound(err)
 				}, timeout, interval).Should(BeTrue(), "Expected the Work to be deleted")
-
-				Eventually(func() bool {
-					pipeline := &v1.Pod{}
-					err := k8sClient.Get(context.Background(), expectedName, pipeline)
-					return errors.IsNotFound(err)
-				}, timeout, interval).Should(BeTrue(), "Expected the request pipeline to be deleted")
 
 				Eventually(func() bool {
 					createdRedisRequest := &unstructured.Unstructured{}
