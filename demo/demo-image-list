@@ -14,7 +14,6 @@ k8s.gcr.io/kube-controller-manager:v1.24.7
 k8s.gcr.io/kube-proxy:v1.24.7
 k8s.gcr.io/kube-scheduler:v1.24.7
 minio/minio:RELEASE.2022-06-30T20-58-09Z
-minio/mc:RELEASE.2023-06-06T13-48-56Z
 nginx/nginx-ingress:2.4.2
 quay.io/spotahome/redis-operator:v1.1.0
 redis:6.2.6-alpine
