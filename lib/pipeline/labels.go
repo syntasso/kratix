@@ -2,11 +2,26 @@ package pipeline
 
 type pipelineLabels map[string]string
 
+const (
+	configurePipelineType = "configure"
+	deletePipelineType    = "delete"
+)
+
 func newPipelineLabels() pipelineLabels {
 	return make(map[string]string)
 }
 
-func Labels(promiseID, rrID string) pipelineLabels {
+func DeletePipelineLabels(rrID, promiseID string) map[string]string {
+	return Labels(rrID, promiseID).
+		WithPipelineType(deletePipelineType)
+}
+
+func ConfigurePipelineLabels(rrID, promiseID string) map[string]string {
+	return Labels(rrID, promiseID).
+		WithPipelineType(configurePipelineType)
+}
+
+func Labels(rrID, promiseID string) pipelineLabels {
 	return newPipelineLabels().WithPromiseID(promiseID).WithResourceRequestID(rrID)
 }
 

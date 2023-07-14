@@ -204,7 +204,11 @@ func (r *dynamicResourceRequestController) deleteResources(ctx context.Context, 
 }
 
 func (r *dynamicResourceRequestController) getDeletePipelinePod(ctx context.Context, resourceRequestIdentifier, namespace string, logger logr.Logger) (*v1.Pod, error) {
-	pods, err := r.getPodsWithLabels(pipeline.DeletePipelineLabels(resourceRequestIdentifier, r.promiseIdentifier), namespace, logger)
+	pods, err := r.getPodsWithLabels(
+		pipeline.DeletePipelineLabels(resourceRequestIdentifier, r.promiseIdentifier),
+		namespace,
+		logger,
+	)
 	if err != nil || len(pods) == 0 {
 		return nil, err
 	}
@@ -213,7 +217,7 @@ func (r *dynamicResourceRequestController) getDeletePipelinePod(ctx context.Cont
 
 func (r *dynamicResourceRequestController) configurePipelinePodHasBeenCreated(resourceRequestIdentifier, namespace string, logger logr.Logger) (bool, error) {
 	pods, err := r.getPodsWithLabels(
-		pipeline.Labels(r.promiseIdentifier, resourceRequestIdentifier),
+		pipeline.ConfigurePipelineLabels(resourceRequestIdentifier, r.promiseIdentifier),
 		namespace,
 		logger,
 	)
@@ -301,7 +305,7 @@ func (r *dynamicResourceRequestController) deletePipeline(ctx context.Context, r
 		Kind:    "Pod",
 	}
 
-	podLabels := pipeline.Labels(r.promiseIdentifier, resourceRequestIdentifier)
+	podLabels := pipeline.Labels(resourceRequestIdentifier, r.promiseIdentifier)
 
 	resourcesRemaining, err := deleteAllResourcesWithKindMatchingLabel(ctx, r.Client, podGVK, podLabels, logger)
 	if err != nil {

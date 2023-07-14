@@ -7,6 +7,7 @@ type pipelineArgs struct {
 func newPipelineArgs(promiseIdentifier, resourceRequestIdentifier, namespace string) pipelineArgs {
 	names := map[string]string{
 		"configure-pipeline-name": pipelineName("configure", promiseIdentifier),
+		"delete-pipeline-name":    pipelineName("delete", promiseIdentifier),
 		"promise-id":              promiseIdentifier,
 		"resource-request-id":     resourceRequestIdentifier,
 		"service-account":         promiseIdentifier + "-promise-pipeline",
@@ -52,11 +53,18 @@ func (p pipelineArgs) ConfigurePipelineName() string {
 	return p.names["configure-pipeline-name"]
 }
 
+func (p pipelineArgs) DeletePipelineName() string {
+	return p.names["delete-pipeline-name"]
+}
+
 func (p pipelineArgs) Labels() pipelineLabels {
 	return newPipelineLabels().WithPromiseID(p.PromiseID())
 }
 
-func (p pipelineArgs) PipelinePodLabels() pipelineLabels {
-	return p.Labels().
-		WithResourceRequestID(p.ResourceRequestID())
+func (p pipelineArgs) ConfigurePipelinePodLabels() pipelineLabels {
+	return ConfigurePipelineLabels(p.ResourceRequestID(), p.PromiseID())
+}
+
+func (p pipelineArgs) DeletePipelinePodLabels() pipelineLabels {
+	return DeletePipelineLabels(p.ResourceRequestID(), p.PromiseID())
 }

@@ -15,7 +15,6 @@ import (
 
 const (
 	kratixConfigureOperation = "configure"
-	configurePipelineType    = "configure"
 )
 
 func NewConfigurePipeline(
@@ -54,7 +53,7 @@ func configurePipelinePod(rr *unstructured.Unstructured, pipelines []platformv1a
 		ObjectMeta: metav1.ObjectMeta{
 			Name:      pipelineResources.ConfigurePipelineName(),
 			Namespace: rr.GetNamespace(),
-			Labels:    pipelineResources.PipelinePodLabels(),
+			Labels:    pipelineResources.ConfigurePipelinePodLabels(),
 		},
 		Spec: v1.PodSpec{
 			RestartPolicy:      v1.RestartPolicyOnFailure,
