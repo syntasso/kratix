@@ -21,10 +21,11 @@ type Scheduler struct {
 	Log    logr.Logger
 }
 
+// Only reconciles Works that are from a Promise Dependency
 func (r *Scheduler) ReconcileCluster() error {
 	works := platformv1alpha1.WorkList{}
 	lo := &client.ListOptions{
-		Namespace: "default",
+		Namespace: KratixSystemNamespace,
 	}
 	if err := r.Client.List(context.Background(), &works, lo); err != nil {
 		return err
@@ -55,7 +56,7 @@ func (r *Scheduler) ReconcileWork(work *platformv1alpha1.Work) error {
 func (r *Scheduler) createWorkplacementsForTargetClusters(work *platformv1alpha1.Work, targetClusterNames []string) error {
 	for _, targetClusterName := range targetClusterNames {
 		workPlacement := platformv1alpha1.WorkPlacement{}
-		workPlacement.Namespace = "default"
+		workPlacement.Namespace = work.GetNamespace()
 		workPlacement.Name = work.Name + "." + targetClusterName
 		workPlacement.Spec.WorkName = work.Name
 		workPlacement.Spec.TargetClusterName = targetClusterName
@@ -113,9 +114,7 @@ func (r *Scheduler) getTargetClusterNames(work *platformv1alpha1.Work) []string 
 // By default, all workers are returned. However, if scheduling is provided, only matching workers will be returned.
 func (r *Scheduler) getWorkerClustersForWork(work *platformv1alpha1.Work) []platformv1alpha1.Cluster {
 	workerClusters := &platformv1alpha1.ClusterList{}
-	lo := &client.ListOptions{
-		Namespace: "default",
-	}
+	lo := &client.ListOptions{}
 
 	if work.HasScheduling() {
 		workSelectorLabel := labels.FormatLabels(work.GetSchedulingSelectors())

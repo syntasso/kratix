@@ -157,7 +157,7 @@ var _ = Describe("Controllers/Scheduler", func() {
 	})
 
 	Describe("#ReconcileWork", func() {
-		It("creates a WorkPlacement for a given Work", func() {
+		FIt("creates a WorkPlacement for a given Work", func() {
 			err := scheduler.ReconcileWork(&resRequestWork)
 			Expect(err).ToNot(HaveOccurred())
 

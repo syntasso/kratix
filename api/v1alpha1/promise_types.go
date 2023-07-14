@@ -121,8 +121,10 @@ func (p *Promise) GenerateSharedLabels() map[string]string {
 		"kratix-promise-id": p.GetIdentifier(),
 	}
 }
+
+// TODO rename or remove func
 func (p *Promise) GetIdentifier() string {
-	return p.GetName() + "-" + p.GetNamespace()
+	return p.GetName()
 }
 
 func (p *Promise) GetControllerResourceName() string {

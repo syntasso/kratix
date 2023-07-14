@@ -23,7 +23,6 @@ import (
 	"time"
 
 	controllerutil "sigs.k8s.io/controller-runtime/pkg/controller/controllerutil"
-	"sigs.k8s.io/yaml"
 
 	"github.com/go-logr/logr"
 	"github.com/syntasso/kratix/api/v1alpha1"
@@ -82,6 +81,8 @@ var (
 
 //+kubebuilder:rbac:groups=rbac.authorization.k8s.io,resources=clusterroles,verbs=create;escalate;bind;list;get;delete;watch
 //+kubebuilder:rbac:groups=rbac.authorization.k8s.io,resources=clusterrolebindings,verbs=create;list;get;delete;watch
+//+kubebuilder:rbac:groups=rbac.authorization.k8s.io,resources=roles,verbs=create;escalate;bind;list;get;delete;watch
+//+kubebuilder:rbac:groups=rbac.authorization.k8s.io,resources=rolebindings,verbs=create;list;get;delete;watch
 //+kubebuilder:rbac:groups="",resources=serviceaccounts,verbs=create;list;get;watch;delete
 
 //+kubebuilder:rbac:groups=apiextensions.k8s.io,resources=customresourcedefinitions,verbs=get;list;watch;create;update;patch;delete
@@ -156,6 +157,7 @@ func (r *PromiseReconciler) startDynamicController(promise *v1alpha1.Promise, rr
 	//once resolved, delete dynamic controller rather than disable
 	enabled := true
 	r.DynamicControllers[string(promise.GetUID())] = &enabled
+
 	dynamicResourceRequestController := &dynamicResourceRequestController{
 		Client:             r.Manager.GetClient(),
 		scheme:             r.Manager.GetScheme(),
@@ -229,7 +231,7 @@ func (r *PromiseReconciler) createResourcesForDynamicController(ctx context.Cont
 		Subjects: []rbacv1.Subject{
 			{
 				Kind:      "ServiceAccount",
-				Namespace: "kratix-platform-system",
+				Namespace: KratixSystemNamespace,
 				Name:      "kratix-platform-controller-manager",
 			},
 		},
@@ -241,92 +243,6 @@ func (r *PromiseReconciler) createResourcesForDynamicController(ctx context.Cont
 	}
 	// END CONTROLLER RBAC
 
-	// PIPELINE RBAC
-	cr = rbacv1.ClusterRole{
-		ObjectMeta: metav1.ObjectMeta{
-			Name:   promise.GetPipelineResourceName(),
-			Labels: promise.GenerateSharedLabels(),
-		},
-		Rules: []rbacv1.PolicyRule{
-			{
-				APIGroups: []string{rrGVK.Group},
-				Resources: []string{rrCRD.Spec.Names.Plural, rrCRD.Spec.Names.Plural + "/status"},
-				Verbs:     []string{"get", "list", "update", "create", "patch"},
-			},
-			{
-				APIGroups: []string{"platform.kratix.io"},
-				Resources: []string{"works"},
-				Verbs:     []string{"get", "update", "create", "patch"},
-			},
-		},
-	}
-	err = r.Client.Create(ctx, &cr)
-	if err != nil {
-		logger.Error(err, "Error creating ClusterRole")
-	}
-
-	logger.Info("Creating Service Account")
-	sa := v1.ServiceAccount{
-		ObjectMeta: metav1.ObjectMeta{
-			Name:      promise.GetPipelineResourceName(),
-			Namespace: "default",
-			Labels:    promise.GenerateSharedLabels(),
-		},
-	}
-
-	crb = rbacv1.ClusterRoleBinding{
-		ObjectMeta: metav1.ObjectMeta{
-			Name:   promise.GetPipelineResourceName(),
-			Labels: promise.GenerateSharedLabels(),
-		},
-		RoleRef: rbacv1.RoleRef{
-			Kind:     "ClusterRole",
-			APIGroup: "rbac.authorization.k8s.io",
-			Name:     cr.GetName(),
-		},
-		Subjects: []rbacv1.Subject{
-			{
-				Kind:      "ServiceAccount",
-				Namespace: "default",
-				Name:      sa.GetName(),
-			},
-		},
-	}
-	err = r.Client.Create(ctx, &crb)
-	if err != nil {
-		logger.Error(err, "Error creating ClusterRoleBinding")
-	}
-
-	err = r.Client.Create(ctx, &sa)
-	if err != nil {
-		logger.Error(err, "Error creating ServiceAccount for Promise")
-	} else {
-		logger.Info("Created ServiceAccount for Promise")
-	}
-
-	configMapName := "scheduling-" + promise.GetIdentifier()
-	configMapNamespace := "default"
-
-	schedulingYAML, err := yaml.Marshal(promise.Spec.Scheduling)
-	if err != nil {
-		return fmt.Errorf("failed to marshal scheduling %w", err)
-	}
-
-	configMap := v1.ConfigMap{
-		ObjectMeta: metav1.ObjectMeta{
-			Name:      configMapName,
-			Namespace: configMapNamespace,
-			Labels:    promise.GenerateSharedLabels(),
-		},
-		Data: map[string]string{
-			"scheduling": string(schedulingYAML),
-		},
-	}
-
-	err = r.Client.Create(ctx, &configMap)
-	if err != nil {
-		logger.Error(err, "Error creating config map", "configMap", configMap.Name)
-	}
 	return nil
 }
 
@@ -614,7 +530,7 @@ func (r *PromiseReconciler) createWorkResourceForDependencies(ctx context.Contex
 	workToCreate := &v1alpha1.Work{}
 	workToCreate.Spec.Replicas = v1alpha1.WorkerResourceReplicas
 	workToCreate.Name = promise.GetIdentifier()
-	workToCreate.Namespace = "default"
+	workToCreate.Namespace = KratixSystemNamespace
 	workToCreate.Labels = promise.GenerateSharedLabels()
 	workToCreate.Spec.Scheduling.Promise = promise.Spec.Scheduling
 	for _, u := range promise.Spec.Dependencies {

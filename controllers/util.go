@@ -18,6 +18,15 @@ import (
 	"sigs.k8s.io/controller-runtime/pkg/controller/controllerutil"
 )
 
+const (
+	KratixSystemNamespace = "kratix-platform-system"
+)
+
+type StateStore interface {
+	client.Object
+	GetSecretRef() *v1.SecretReference
+}
+
 // pass in nil resourceLabels to delete all resources of the GVK
 func deleteAllResourcesWithKindMatchingLabel(ctx context.Context, kClient client.Client, gvk schema.GroupVersionKind, resourceLabels map[string]string, logger logr.Logger) (bool, error) {
 	resourceList := &unstructured.UnstructuredList{}
@@ -89,7 +98,7 @@ func finalizersAreDeleted(resource client.Object, finalizers []string) bool {
 	return true
 }
 
-func fetchObjectAndSecret(ctx context.Context, kubeClient client.Client, stateStoreRef client.ObjectKey, stateStore platformv1alpha1.StateStore, logger logr.Logger) (*v1.Secret, error) {
+func fetchObjectAndSecret(ctx context.Context, kubeClient client.Client, stateStoreRef client.ObjectKey, stateStore StateStore, logger logr.Logger) (*v1.Secret, error) {
 	if err := kubeClient.Get(ctx, stateStoreRef, stateStore); err != nil {
 		logger.Error(err, "unable to fetch resource", "resourceKind", stateStore.GetObjectKind(), "stateStoreRef", stateStoreRef)
 		return nil, err

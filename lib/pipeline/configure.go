@@ -10,26 +10,55 @@ import (
 	v1 "k8s.io/api/core/v1"
 	metav1 "k8s.io/apimachinery/pkg/apis/meta/v1"
 	"k8s.io/apimachinery/pkg/apis/meta/v1/unstructured"
+	"sigs.k8s.io/controller-runtime/pkg/client"
 )
 
-const kratixConfigureOperation = "configure"
+const (
+	kratixConfigureOperation = "configure"
+	configurePipelineType    = "configure"
+)
 
-func NewConfigurePipeline(rr *unstructured.Unstructured, pipelines []platformv1alpha1.Pipeline, resourceRequestIdentifier, promiseIdentifier string) v1.Pod {
-	volumes := metadataAndSchedulingVolumes(promiseIdentifier)
+func NewConfigurePipeline(
+	rr *unstructured.Unstructured,
+	pipelines []platformv1alpha1.Pipeline,
+	resourceRequestIdentifier,
+	promiseIdentifier string,
+	scheduling []platformv1alpha1.SchedulingConfig,
+) ([]client.Object, error) {
 
-	initContainers, pipelineVolumes := configurePipelineInitContainers(rr, pipelines, resourceRequestIdentifier)
+	pipelineResources := newPipelineArgs(promiseIdentifier, resourceRequestIdentifier, rr.GetNamespace())
+	configMap, err := configMap(pipelineResources, scheduling)
+	if err != nil {
+		return nil, err
+	}
+
+	resources := []client.Object{
+		serviceAccount(pipelineResources),
+		role(rr, pipelineResources),
+		roleBinding((pipelineResources)),
+		configMap,
+		configurePipelinePod(rr, pipelines, pipelineResources),
+	}
+
+	return resources, nil
+}
+
+func configurePipelinePod(rr *unstructured.Unstructured, pipelines []platformv1alpha1.Pipeline, pipelineResources pipelineArgs) *v1.Pod {
+	volumes := metadataAndSchedulingVolumes(pipelineResources.ConfigMapName())
+
+	initContainers, pipelineVolumes := configurePipelineInitContainers(rr, pipelines, pipelineResources.ResourceRequestID())
 	volumes = append(volumes, pipelineVolumes...)
 
 	rrKind := fmt.Sprintf("%s.%s", strings.ToLower(rr.GetKind()), rr.GroupVersionKind().Group)
-	pod := v1.Pod{
+	return &v1.Pod{
 		ObjectMeta: metav1.ObjectMeta{
-			Name:      configurePipelineName(promiseIdentifier),
-			Namespace: "default",
-			Labels:    ConfigurePipelineLabels(resourceRequestIdentifier, promiseIdentifier),
+			Name:      pipelineResources.ConfigurePipelineName(),
+			Namespace: rr.GetNamespace(),
+			Labels:    pipelineResources.PipelinePodLabels(),
 		},
 		Spec: v1.PodSpec{
 			RestartPolicy:      v1.RestartPolicyOnFailure,
-			ServiceAccountName: promiseIdentifier + "-promise-pipeline",
+			ServiceAccountName: pipelineResources.ServiceAccountName(),
 			Containers: []v1.Container{
 				{
 					Name:    "status-writer",
@@ -50,8 +79,6 @@ func NewConfigurePipeline(rr *unstructured.Unstructured, pipelines []platformv1a
 			Volumes:        volumes,
 		},
 	}
-
-	return pod
 }
 
 func configurePipelineInitContainers(rr *unstructured.Unstructured, pipelines []platformv1alpha1.Pipeline, rrID string) ([]v1.Container, []v1.Volume) {
@@ -91,7 +118,7 @@ func configurePipelineInitContainers(rr *unstructured.Unstructured, pipelines []
 		}
 	}
 
-	workCreatorCommand := fmt.Sprintf("./work-creator -identifier %s -input-directory /work-creator-files", rrID)
+	workCreatorCommand := fmt.Sprintf("./work-creator -identifier %s -input-directory /work-creator-files -namespace %s", rrID, rr.GetNamespace())
 	writer := v1.Container{
 		Name:    "work-writer",
 		Image:   os.Getenv("WC_IMG"),
@@ -117,7 +144,7 @@ func configurePipelineInitContainers(rr *unstructured.Unstructured, pipelines []
 	return containers, volumes
 }
 
-func metadataAndSchedulingVolumes(promiseIdentifier string) []v1.Volume {
+func metadataAndSchedulingVolumes(configMapName string) []v1.Volume {
 	return []v1.Volume{
 		{
 			Name: "metadata", VolumeSource: v1.VolumeSource{EmptyDir: &v1.EmptyDirVolumeSource{}},
@@ -127,7 +154,7 @@ func metadataAndSchedulingVolumes(promiseIdentifier string) []v1.Volume {
 			VolumeSource: v1.VolumeSource{
 				ConfigMap: &v1.ConfigMapVolumeSource{
 					LocalObjectReference: v1.LocalObjectReference{
-						Name: "scheduling-" + promiseIdentifier,
+						Name: configMapName,
 					},
 					Items: []v1.KeyToPath{{
 						Key:  "scheduling",
@@ -137,12 +164,4 @@ func metadataAndSchedulingVolumes(promiseIdentifier string) []v1.Volume {
 			},
 		},
 	}
-}
-
-func configurePipelineName(promiseIdentifier string) string {
-	return pipelineName("configure", promiseIdentifier)
-}
-
-func ConfigurePipelineLabels(resourceRequestIdentifier, promiseIdentifier string) map[string]string {
-	return pipelineLabels("configure", resourceRequestIdentifier, promiseIdentifier)
 }

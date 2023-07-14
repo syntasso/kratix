@@ -70,7 +70,10 @@ func deletePipelineContainers(rr *unstructured.Unstructured, pipelines []platfor
 }
 
 func DeletePipelineLabels(resourceRequestIdentifier, promiseIdentifier string) map[string]string {
-	return pipelineLabels("delete", resourceRequestIdentifier, promiseIdentifier)
+	return newPipelineLabels().
+		WithPromiseID(promiseIdentifier).
+		WithResourceRequestID(resourceRequestIdentifier).
+		WithPipelineType("delete")
 }
 
 func deletePipelineName(promiseIdentifier string) string {

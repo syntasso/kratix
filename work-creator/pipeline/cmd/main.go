@@ -15,8 +15,10 @@ import (
 func main() {
 	var inputDirectoy string
 	var identifier string
+	var namespace string
 	flag.StringVar(&inputDirectoy, "input-directory", "", "Absolute path to directory containing yaml documents required to build Work")
 	flag.StringVar(&identifier, "identifier", "", "Unique name of the Work resource to be created")
+	flag.StringVar(&namespace, "namespace", "default", "Namespace to create the work in")
 	flag.Parse()
 
 	if identifier == "" {
@@ -41,7 +43,7 @@ func main() {
 	workCreator := pipeline.WorkCreator{
 		K8sClient: k8sClient,
 	}
-	err = workCreator.Execute(inputDirectoy, identifier)
+	err = workCreator.Execute(inputDirectoy, identifier, namespace)
 	if err != nil {
 		fmt.Println(err.Error())
 		os.Exit(1)
