@@ -228,7 +228,8 @@ func (r *dynamicResourceRequestController) getPodsWithLabels(podLabels map[strin
 func pipelineIsComplete(pod v1.Pod) bool {
 	for _, condition := range pod.Status.Conditions {
 		if condition.Type == "Initialized" {
-			return condition.Status == "True" && condition.Reason == "PodCompleted"
+			return condition.Status == "True" && condition.Reason == "PodCompleted" &&
+				pod.Status.Phase == v1.PodSucceeded
 		}
 	}
 	return false

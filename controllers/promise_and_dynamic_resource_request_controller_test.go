@@ -208,6 +208,8 @@ var _ = Context("Promise Reconciler", func() {
 					Reason: "PodCompleted",
 				},
 			}
+			deletePipeline.Status.Phase = v1.PodSucceeded
+
 			err = k8sClient.Status().Update(ctx, &deletePipeline)
 			Expect(err).NotTo(HaveOccurred())
 
@@ -420,6 +422,8 @@ var _ = Context("Promise Reconciler", func() {
 						Reason: "PodCompleted",
 					},
 				}
+				deletePipeline.Status.Phase = v1.PodSucceeded
+
 				err = k8sClient.Status().Update(ctx, &deletePipeline)
 				Expect(err).NotTo(HaveOccurred())
 
