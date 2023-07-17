@@ -46,6 +46,8 @@ commands:
             tar -xvf helm.tar.gz
             mv linux-amd64/helm ~/bin/helm
             chmod +x ~/bin/helm
+            rm -rf linux-amd64/
+            rm helm.tar.gz
       - run:
           name: Install yq
           command: |
@@ -59,6 +61,7 @@ commands:
             tar -xvf flux.tar.gz
             mv flux ~/bin/flux
             chmod +x ~/bin/flux
+            rm flux.tar.gz
       - attach_workspace:
           at: .
       - run:
@@ -224,6 +227,8 @@ jobs:
           name: Push dev
           command: |
             git add -f demo/
+            # below command exits 0 when nothing is added
+            git diff --cached --quiet && exit 0 || true
             git commit -m"update demo image list"
             git push origin dev
 
