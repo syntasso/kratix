@@ -43,9 +43,10 @@ import (
 )
 
 const (
-	workFinalizer            = finalizerPrefix + "work-cleanup"
-	workflowsFinalizer       = finalizerPrefix + "workflows-cleanup"
-	deleteWorkflowsFinalizer = finalizerPrefix + "delete-workflows"
+	workFinalizer              = finalizerPrefix + "work-cleanup"
+	workflowsFinalizer         = finalizerPrefix + "workflows-cleanup"
+	deleteWorkflowsFinalizer   = finalizerPrefix + "delete-workflows"
+	PipelineCompletedCondition = clusterv1.ConditionType("PipelineCompleted")
 )
 
 var rrFinalizers = []string{workFinalizer, workflowsFinalizer, deleteWorkflowsFinalizer}
@@ -99,6 +100,18 @@ func (r *dynamicResourceRequestController) Reconcile(ctx context.Context, req ct
 		return addFinalizers(ctx, r.Client, rr, []string{workFinalizer, workflowsFinalizer, deleteWorkflowsFinalizer}, logger)
 	}
 
+	if !r.hasCondition(PipelineCompletedCondition, rr) {
+		r.setStatus(rr, logger, "message", "Pending")
+		r.setCondition(clusterv1.Condition{
+			Type:               PipelineCompletedCondition,
+			Status:             v1.ConditionFalse,
+			Message:            "Pipeline has not completed",
+			Reason:             "PipelineNotCompleted",
+			LastTransitionTime: metav1.NewTime(time.Now()),
+		}, rr, logger)
+		return ctrl.Result{}, r.Client.Status().Update(ctx, rr)
+	}
+
 	//check if the pipeline has already been created. If it has exit out. All the lines
 	//below this call are for the one-time creation of the pipeline.
 	created, err := r.configurePipelinePodHasBeenCreated(resourceRequestIdentifier, rr.GetNamespace(), logger)
@@ -109,14 +122,6 @@ func (r *dynamicResourceRequestController) Reconcile(ctx context.Context, req ct
 	if created {
 		logger.Info("Cannot execute update on pre-existing pipeline for Promise resource request " + resourceRequestIdentifier)
 		return ctrl.Result{}, nil
-	}
-
-	//we only reach this code if the pipeline pod hasn't been created yet, so we set the
-	//status of the RR to say pipeline not completed. The pipeline itself will update
-	//the status to PipelineComplete when it finishes.
-	err = r.setPipelineConditionToNotCompleted(ctx, rr, logger)
-	if err != nil {
-		return ctrl.Result{}, err
 	}
 
 	resources, err := pipeline.NewConfigurePipeline(
@@ -322,26 +327,38 @@ func (r *dynamicResourceRequestController) deletePipeline(ctx context.Context, r
 	return nil
 }
 
-func (r *dynamicResourceRequestController) setPipelineConditionToNotCompleted(ctx context.Context, rr *unstructured.Unstructured, logger logr.Logger) error {
-	setter := conditionsutil.UnstructuredSetter(rr)
+func (r *dynamicResourceRequestController) hasCondition(conditionType clusterv1.ConditionType, rr *unstructured.Unstructured) bool {
 	getter := conditionsutil.UnstructuredGetter(rr)
-	condition := conditionsutil.Get(getter, clusterv1.ConditionType("PipelineCompleted"))
-	if condition == nil {
-		err := unstructured.SetNestedMap(rr.Object, map[string]interface{}{"message": "Pending"}, "status")
-		if err != nil {
-			logger.Error(err, "failed to set status.message to pending, ignoring error")
-		}
-		conditionsutil.Set(setter, &clusterv1.Condition{
-			Type:               clusterv1.ConditionType("PipelineCompleted"),
-			Status:             v1.ConditionFalse,
-			Message:            "Pipeline has not completed",
-			Reason:             "PipelineNotCompleted",
-			LastTransitionTime: metav1.NewTime(time.Now()),
-		})
-		logger.Info("setting condition PipelineCompleted false")
-		if err := r.Client.Status().Update(ctx, rr); err != nil {
-			return err
-		}
+	condition := conditionsutil.Get(getter, conditionType)
+	return condition != nil
+}
+
+func (r *dynamicResourceRequestController) setCondition(condition clusterv1.Condition, rr *unstructured.Unstructured, logger logr.Logger) {
+	setter := conditionsutil.UnstructuredSetter(rr)
+	conditionsutil.Set(setter, &condition)
+	logger.Info("set conditions", "condition", condition.Type, "value", condition.Status)
+}
+
+func (r *dynamicResourceRequestController) setStatus(rr *unstructured.Unstructured, logger logr.Logger, statuses ...string) {
+	if len(statuses) == 0 {
+		return
 	}
-	return nil
+
+	if len(statuses)%2 != 0 {
+		logger.Info("invalid status; expecting key:value pair", "status", statuses)
+		return
+	}
+
+	nestedMap := map[string]interface{}{}
+	for i := 0; i < len(statuses); i += 2 {
+		key := statuses[i]
+		value := statuses[i+1]
+		nestedMap[key] = value
+	}
+
+	err := unstructured.SetNestedMap(rr.Object, nestedMap, "status")
+
+	if err != nil {
+		logger.Info("failed to set status; ignoring", "map", nestedMap)
+	}
 }

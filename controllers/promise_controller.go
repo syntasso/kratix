@@ -50,7 +50,6 @@ type PromiseReconciler struct {
 
 const (
 	finalizerPrefix                                    = "kratix.io/"
-	schedulingConfigMapCleanupFinalizer                = finalizerPrefix + "scheduling-config-map-cleanup"
 	resourceRequestCleanupFinalizer                    = finalizerPrefix + "resource-request-cleanup"
 	dynamicControllerDependantResourcesCleaupFinalizer = finalizerPrefix + "dynamic-controller-dependant-resources-cleanup"
 	crdCleanupFinalizer                                = finalizerPrefix + "api-crd-cleanup"
@@ -59,7 +58,6 @@ const (
 
 var (
 	promiseFinalizers = []string{
-		schedulingConfigMapCleanupFinalizer,
 		resourceRequestCleanupFinalizer,
 		dynamicControllerDependantResourcesCleaupFinalizer,
 		crdCleanupFinalizer,
@@ -192,7 +190,7 @@ func (r *PromiseReconciler) createResourcesForDynamicController(ctx context.Cont
 			{
 				APIGroups: []string{rrGVK.Group},
 				Resources: []string{rrCRD.Spec.Names.Plural},
-				Verbs:     []string{"get", "list", "update", "create", "patch", "delete", "watch"},
+				Verbs:     []string{rbacv1.VerbAll},
 			},
 			{
 				APIGroups: []string{rrGVK.Group},
@@ -285,27 +283,9 @@ func (r *PromiseReconciler) deletePromise(ctx context.Context, promise *v1alpha1
 		*enabled = false
 	}
 
-	if controllerutil.ContainsFinalizer(promise, schedulingConfigMapCleanupFinalizer) {
-		logger.Info("deleting resources associated with finalizer", "finalizer", schedulingConfigMapCleanupFinalizer)
-		err := r.deleteConfigMap(ctx, promise, logger)
-		if err != nil {
-			return defaultRequeue, err
-		}
-		return fastRequeue, nil
-	}
-
 	if controllerutil.ContainsFinalizer(promise, dynamicControllerDependantResourcesCleaupFinalizer) {
 		logger.Info("deleting resources associated with finalizer", "finalizer", dynamicControllerDependantResourcesCleaupFinalizer)
 		err := r.deleteDynamicControllerResources(ctx, promise, logger)
-		if err != nil {
-			return defaultRequeue, err
-		}
-		return fastRequeue, nil
-	}
-
-	if controllerutil.ContainsFinalizer(promise, crdCleanupFinalizer) {
-		logger.Info("deleting CRDs associated with finalizer", "finalizer", crdCleanupFinalizer)
-		err := r.deleteCRDs(ctx, promise, logger)
 		if err != nil {
 			return defaultRequeue, err
 		}
@@ -321,39 +301,39 @@ func (r *PromiseReconciler) deletePromise(ctx context.Context, promise *v1alpha1
 		return fastRequeue, nil
 	}
 
+	if controllerutil.ContainsFinalizer(promise, crdCleanupFinalizer) {
+		logger.Info("deleting CRDs associated with finalizer", "finalizer", crdCleanupFinalizer)
+		err := r.deleteCRDs(ctx, promise, logger)
+		if err != nil {
+			return defaultRequeue, err
+		}
+		return fastRequeue, nil
+	}
+
 	return fastRequeue, nil
 }
 
-// crb + cr + sa things we create for the pipeline
-// crb + cr attach to our existing service account
 func (r *PromiseReconciler) deleteDynamicControllerResources(ctx context.Context, promise *v1alpha1.Promise, logger logr.Logger) error {
-	var resourcesToDelete []schema.GroupVersionKind
-	resourcesToDelete = append(resourcesToDelete, schema.GroupVersionKind{
-		Group:   rbacv1.SchemeGroupVersion.Group,
-		Version: rbacv1.SchemeGroupVersion.Version,
-		Kind:    "ClusterRoleBinding",
-	})
+	resourcesToDelete := map[schema.GroupVersion][]string{
+		rbacv1.SchemeGroupVersion: {"ClusterRoleBinding", "ClusterRole", "RoleBinding", "Role"},
+		v1.SchemeGroupVersion:     {"ServiceAccount", "ConfigMap"},
+	}
 
-	resourcesToDelete = append(resourcesToDelete, schema.GroupVersionKind{
-		Group:   rbacv1.SchemeGroupVersion.Group,
-		Version: rbacv1.SchemeGroupVersion.Version,
-		Kind:    "ClusterRole",
-	})
+	for gv, toDelete := range resourcesToDelete {
+		for _, resource := range toDelete {
+			gvk := schema.GroupVersionKind{
+				Group:   gv.Group,
+				Version: gv.Version,
+				Kind:    resource,
+			}
+			resourcesRemaining, err := deleteAllResourcesWithKindMatchingLabel(ctx, r.Client, gvk, promise.GenerateSharedLabels(), logger)
+			if err != nil {
+				return err
+			}
 
-	resourcesToDelete = append(resourcesToDelete, schema.GroupVersionKind{
-		Group:   v1.SchemeGroupVersion.Group,
-		Version: v1.SchemeGroupVersion.Version,
-		Kind:    "ServiceAccount",
-	})
-
-	for _, gvk := range resourcesToDelete {
-		resourcesRemaining, err := deleteAllResourcesWithKindMatchingLabel(ctx, r.Client, gvk, promise.GenerateSharedLabels(), logger)
-		if err != nil {
-			return err
-		}
-
-		if resourcesRemaining {
-			return nil
+			if resourcesRemaining {
+				return nil
+			}
 		}
 	}
 
@@ -378,26 +358,6 @@ func (r *PromiseReconciler) deleteResourceRequests(ctx context.Context, promise 
 		if err := r.Client.Update(ctx, promise); err != nil {
 			return err
 		}
-	}
-
-	return nil
-}
-
-func (r *PromiseReconciler) deleteConfigMap(ctx context.Context, promise *v1alpha1.Promise, logger logr.Logger) error {
-	gvk := schema.GroupVersionKind{
-		Group:   v1.SchemeGroupVersion.Group,
-		Version: v1.SchemeGroupVersion.Version,
-		Kind:    "ConfigMap",
-	}
-
-	resourcesRemaining, err := deleteAllResourcesWithKindMatchingLabel(ctx, r.Client, gvk, promise.GenerateSharedLabels(), logger)
-	if err != nil {
-		return err
-	}
-
-	if !resourcesRemaining {
-		controllerutil.RemoveFinalizer(promise, schedulingConfigMapCleanupFinalizer)
-		return r.Client.Update(ctx, promise)
 	}
 
 	return nil

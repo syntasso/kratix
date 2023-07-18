@@ -19,7 +19,8 @@ package controllers_test
 import (
 	"context"
 	"fmt"
-	"io/ioutil"
+	"os"
+	"regexp"
 	"strings"
 
 	. "github.com/onsi/ginkgo"
@@ -31,498 +32,476 @@ import (
 	metav1 "k8s.io/apimachinery/pkg/apis/meta/v1"
 	"k8s.io/apimachinery/pkg/apis/meta/v1/unstructured"
 	"k8s.io/apimachinery/pkg/labels"
-	"k8s.io/apimachinery/pkg/runtime/schema"
-	"k8s.io/apimachinery/pkg/selection"
 	"k8s.io/apimachinery/pkg/types"
 	"k8s.io/apimachinery/pkg/util/yaml"
 	"sigs.k8s.io/controller-runtime/pkg/client"
 
 	"github.com/syntasso/kratix/api/v1alpha1"
-	platformv1alpha1 "github.com/syntasso/kratix/api/v1alpha1"
+	"github.com/syntasso/kratix/controllers"
 	//+kubebuilder:scaffold:imports
 )
 
 var _ = Context("Promise Reconciler", func() {
 	var (
-		promiseCR       *platformv1alpha1.Promise
+		promiseCR           *v1alpha1.Promise
+		ctx                 = context.Background()
+		promiseCommonLabels map[string]string
+
 		expectedCRDName = "redis.redis.redis.opstreelabs.in"
-		ctx             = context.Background()
+
+		requestedResource  *unstructured.Unstructured
+		resourceCommonName types.NamespacedName
+		kind               string
+		yamlContent        = map[string]*v1alpha1.Promise{}
 	)
 
-	Describe("Can support complete Promises", func() {
-		//Should this be in the describe apply a redis promise?
+	applyPromise := func(promisePath string) {
+		var promiseFromYAML *v1alpha1.Promise
+		var found bool
+		if promiseFromYAML, found = yamlContent[promisePath]; !found {
+			promiseFromYAML = &v1alpha1.Promise{}
+			yamlFile, err := os.ReadFile(promisePath)
+			Expect(err).ToNot(HaveOccurred())
+			Expect(yaml.Unmarshal(yamlFile, promiseFromYAML)).To(Succeed())
+
+			yamlContent[promisePath] = promiseFromYAML
+		}
+
+		k8sClient.Create(ctx, promiseFromYAML)
+
+		promiseCR = &v1alpha1.Promise{}
+		name := promiseFromYAML.GetName()
+		Eventually(func() error {
+			return k8sClient.Get(ctx, types.NamespacedName{
+				Name: name,
+			}, promiseCR)
+		}, timeout, interval).Should(Succeed())
+	}
+
+	Describe("Promise reconciliation lifecycle", func() {
+		var (
+			promiseGroup        = "redis.redis.opstreelabs.in"
+			promiseResourceName = "redis"
+		)
+
 		BeforeEach(func() {
-			promiseCR = &platformv1alpha1.Promise{}
-			yamlFile, err := ioutil.ReadFile("../config/samples/redis/redis-promise.yaml")
-			Expect(err).ToNot(HaveOccurred())
-			err = yaml.Unmarshal(yamlFile, promiseCR)
-			promiseCR.Namespace = "default"
-			Expect(err).ToNot(HaveOccurred())
-
-			//Works once, then fails as the promiseCR already exists. Consider building check here.
-			k8sClient.Create(ctx, promiseCR)
-
-			By("creating a CRD for redis.redis.redis")
-			Eventually(func() string {
-				crd, _ := apiextensionClient.
-					ApiextensionsV1().
-					CustomResourceDefinitions().
-					Get(ctx, expectedCRDName, metav1.GetOptions{})
-
-				// The returned CRD is missing the expected metadata,
-				// therefore we need to reach inside the spec to get the
-				// underlying Redis crd definition to allow us to assert correctly.
-				return crd.Spec.Names.Singular + "." + crd.Spec.Group
-			}, timeout, interval).Should(Equal(expectedCRDName))
+			applyPromise("../config/samples/redis/redis-promise.yaml")
+			promiseCommonLabels = map[string]string{
+				"kratix-promise-id": promiseCR.GetIdentifier(),
+			}
 		})
 
-		It("Controls the lifecycle of a Redis Promise", func() {
-			promiseIdentifier := "redis-promise-default"
-			expectedPromise := types.NamespacedName{
-				Namespace: "default",
-				Name:      "redis-promise",
-			}
+		When("the promise is installed", func() {
+			It("creates a CRD for the promise", func() {
+				expectedCRDName := "redis.redis.redis.opstreelabs.in"
+				Eventually(func() string {
+					crd, _ := apiextensionClient.
+						ApiextensionsV1().
+						CustomResourceDefinitions().
+						Get(ctx, expectedCRDName, metav1.GetOptions{})
 
-			controllerResourceNamespacedName := types.NamespacedName{Name: promiseIdentifier + "-promise-controller"}
-			piplineResourceNamespacedName := types.NamespacedName{Name: promiseIdentifier + "-promise-pipeline"}
+					// The returned CRD is missing the expected metadata,
+					// therefore we need to reach inside the spec to get the
+					// underlying Redis crd definition to allow us to assert correctly.
+					return crd.Spec.Names.Singular + "." + crd.Spec.Group
+				}, timeout, interval).Should(Equal(expectedCRDName))
+			})
 
-			By("creating clusterRoleBindings for the controller and pipeline")
-			Eventually(func() error {
+			It("creates a ClusterRole to access the Promise CRD", func() {
+				clusterRoleName := types.NamespacedName{
+					Name: promiseCR.GetControllerResourceName(),
+				}
+
+				clusterrole := &rbacv1.ClusterRole{}
+				Eventually(func() error {
+					return k8sClient.Get(ctx, clusterRoleName, clusterrole)
+				}, timeout, interval).Should(BeNil(), "Expected controller ClusterRole to exist")
+
+				Expect(clusterrole.Rules).To(ConsistOf(
+					rbacv1.PolicyRule{
+						Verbs:     []string{rbacv1.VerbAll},
+						APIGroups: []string{promiseGroup},
+						Resources: []string{promiseResourceName},
+					},
+					rbacv1.PolicyRule{
+						Verbs:     []string{"update"},
+						APIGroups: []string{promiseGroup},
+						Resources: []string{promiseResourceName + "/finalizers"},
+					},
+					rbacv1.PolicyRule{
+						Verbs:     []string{"get", "update", "patch"},
+						APIGroups: []string{promiseGroup},
+						Resources: []string{promiseResourceName + "/status"},
+					},
+				))
+
+				Expect(clusterrole.GetLabels()).To(Equal(promiseCommonLabels))
+			})
+
+			It("binds the Kratix SA the newly created ClusterRole", func() {
+				bindingName := types.NamespacedName{
+					Name: promiseCR.GetControllerResourceName(),
+				}
+
 				binding := &rbacv1.ClusterRoleBinding{}
-				err := k8sClient.Get(ctx, controllerResourceNamespacedName, binding)
-				return err
-			}, timeout, interval).Should(BeNil(), "Expected controller ClusterRoleBinding to exist")
+				Eventually(func() error {
+					return k8sClient.Get(ctx, bindingName, binding)
+				}, timeout, interval).Should(BeNil(), "Expected controller binding to exist")
 
-			Eventually(func() error {
-				binding := &rbacv1.ClusterRoleBinding{}
-				err := k8sClient.Get(ctx, piplineResourceNamespacedName, binding)
-				return err
-			}, timeout, interval).Should(BeNil(), "Expected pipeline ClusterRoleBinding to exist")
+				Expect(binding.RoleRef.Name).To(Equal(promiseCR.GetControllerResourceName()))
+				Expect(binding.Subjects).To(HaveLen(1))
+				Expect(binding.Subjects[0]).To(Equal(rbacv1.Subject{
+					Kind:      "ServiceAccount",
+					Namespace: controllers.KratixSystemNamespace,
+					Name:      "kratix-platform-controller-manager",
+				}))
+				Expect(binding.GetLabels()).To(Equal(promiseCommonLabels))
+			})
 
-			By("creating clusterRoles for the controller and pipeline")
-			Eventually(func() error {
-				clusterRole := &rbacv1.ClusterRole{}
-				err := k8sClient.Get(ctx, controllerResourceNamespacedName, clusterRole)
-				return err
-			}, timeout, interval).Should(BeNil(), "Expected controller ClusterRole to exist")
-
-			Eventually(func() error {
-				clusterRole := &rbacv1.ClusterRole{}
-				err := k8sClient.Get(ctx, piplineResourceNamespacedName, clusterRole)
-				return err
-			}, timeout, interval).Should(BeNil(), "Expected pipeline ClusterRole to exist")
-
-			By("creating a serviceAccount for the pipeline")
-			pipelineServiceAccountNamespacedName := types.NamespacedName{Name: piplineResourceNamespacedName.Name, Namespace: "default"}
-			Eventually(func() error {
-				serviceAccount := &v1.ServiceAccount{}
-				err := k8sClient.Get(ctx, pipelineServiceAccountNamespacedName, serviceAccount)
-				return err
-			}, timeout, interval).Should(BeNil(), "Expected pipeline ServiceAccount to exist")
-
-			By("being able to create RRs")
-			yamlFile, err := ioutil.ReadFile("../config/samples/redis/redis-resource-request.yaml")
-			Expect(err).ToNot(HaveOccurred())
-
-			redisRequest := &unstructured.Unstructured{}
-			err = yaml.Unmarshal(yamlFile, redisRequest)
-			Expect(err).ToNot(HaveOccurred())
-
-			redisRequest.SetNamespace("default")
-			err = k8sClient.Create(ctx, redisRequest)
-			Expect(err).ToNot(HaveOccurred())
-
-			By("creating a configMap to store Promise scheduling")
-			Eventually(func() string {
-				cm := &v1.ConfigMap{}
-				expectedCM := types.NamespacedName{
-					Namespace: "default",
-					Name:      "scheduling-" + promiseIdentifier,
+			It("creates works for the dependencies, on the "+controllers.KratixSystemNamespace+" namespace", func() {
+				workNamespacedName := types.NamespacedName{
+					Name:      promiseCR.GetIdentifier(),
+					Namespace: controllers.KratixSystemNamespace,
 				}
-
-				err := k8sClient.Get(ctx, expectedCM, cm)
-				if err != nil {
-					fmt.Println(err.Error())
-				}
-
-				return cm.Data["scheduling"]
-			}, timeout, interval).Should(Equal(`- target:
-    matchLabels:
-      environment: dev
-`), "Expected redis scheduling selectors to be in configMap")
-
-			promise := &v1alpha1.Promise{}
-
-			err = k8sClient.Get(ctx, expectedPromise, promise)
-			Expect(err).NotTo(HaveOccurred())
-			Expect(promise.GetFinalizers()).Should(
-				ConsistOf(
-					"kratix.io/scheduling-config-map-cleanup",
-					"kratix.io/resource-request-cleanup",
-					"kratix.io/dynamic-controller-dependant-resources-cleanup",
-					"kratix.io/api-crd-cleanup",
-					"kratix.io/dependencies-cleanup",
-				),
-				"Promise should have finalizers set")
-
-			By("creating Redis dependencies")
-			workNamespacedName := types.NamespacedName{
-				Name:      promiseIdentifier,
-				Namespace: "default",
-			}
-			Eventually(func() error {
-				err := k8sClient.Get(ctx, workNamespacedName, &v1alpha1.Work{})
-				return err
-			}, timeout, interval).Should(BeNil())
-
-			By("deleting the Promise")
-			err = k8sClient.Delete(ctx, promiseCR)
-			Expect(err).NotTo(HaveOccurred())
-
-			//delete pipeline should be created
-			deletePipeline := v1.Pod{}
-			Eventually(func() bool {
-				pods := &v1.PodList{}
-				err := k8sClient.List(ctx, pods)
-				if err != nil {
-					return false
-				}
-
-				if len(pods.Items) == 0 {
-					return false
-				}
-
-				for _, pod := range pods.Items {
-					if strings.HasPrefix(pod.Name, "delete-pipeline-redis-promise-default-") {
-						deletePipeline = pod
-						return true
-					}
-				}
-				return false
-			}, timeout, interval).Should(BeTrue(), "Expected the delete pipeline to be created")
-
-			deletePipeline.Status.Conditions = []v1.PodCondition{
-				{
-					Status: "True",
-					Type:   "Initialized",
-					Reason: "PodCompleted",
-				},
-			}
-			deletePipeline.Status.Phase = v1.PodSucceeded
-
-			err = k8sClient.Status().Update(ctx, &deletePipeline)
-			Expect(err).NotTo(HaveOccurred())
-
-			By("also deleting the resource requests")
-			Eventually(func() int {
-				rrList := &unstructured.UnstructuredList{}
-				rrList.SetGroupVersionKind(redisRequest.GroupVersionKind())
-				err := k8sClient.List(ctx, rrList)
-				if err != nil {
-					return -1
-				}
-				return len(rrList.Items)
-			}, timeout, interval).Should(BeZero(), "Expected all RRs to be deleted")
-
-			By("also deleting the config map")
-			Eventually(func() bool {
-				cm := &v1.ConfigMap{}
-				expectedCM := types.NamespacedName{
-					Namespace: "default",
-					Name:      "scheduling-redis-promise-default",
-				}
-
-				err := k8sClient.Get(ctx, expectedCM, cm)
-				return errors.IsNotFound(err)
-			}, timeout, interval).Should(BeTrue(), "ConfigMap should have been deleted")
-
-			By("also deleting the ClusterRoleBinding for the controller and pipeline")
-			Eventually(func() bool {
-				binding := &rbacv1.ClusterRoleBinding{}
-				err := k8sClient.Get(ctx, piplineResourceNamespacedName, binding)
-				return errors.IsNotFound(err)
-			}, timeout, interval).Should(BeTrue(), "Expected pipeline ClusterRoleBinding not to be found")
-
-			Eventually(func() bool {
-				binding := &rbacv1.ClusterRoleBinding{}
-				err := k8sClient.Get(ctx, controllerResourceNamespacedName, binding)
-				return errors.IsNotFound(err)
-			}, timeout, interval).Should(BeTrue(), "Expected controller ClusterRoleBinding not to be found")
-
-			By("also deleting the ClusterRole for the controller and pipeline")
-			Eventually(func() bool {
-				binding := &rbacv1.ClusterRole{}
-				err := k8sClient.Get(ctx, piplineResourceNamespacedName, binding)
-				return errors.IsNotFound(err)
-			}, timeout, interval).Should(BeTrue(), "Expected pipeline ClusterRole not to be found")
-
-			Eventually(func() bool {
-				binding := &rbacv1.ClusterRole{}
-				err := k8sClient.Get(ctx, controllerResourceNamespacedName, binding)
-				return errors.IsNotFound(err)
-			}, timeout, interval).Should(BeTrue(), "Expected controller ClusterRole not to be found")
-
-			By("also deleting the serviceAccount for the pipeline")
-			Eventually(func() bool {
-				serviceAccount := &v1.ServiceAccount{}
-				err := k8sClient.Get(ctx, pipelineServiceAccountNamespacedName, serviceAccount)
-				return errors.IsNotFound(err)
-			}, timeout, interval).Should(BeTrue(), "Expected pipleine ServiceAccount not to be found")
-
-			By("also deleting the CRD")
-			Eventually(func() bool {
-				_, err := apiextensionClient.
-					ApiextensionsV1().
-					CustomResourceDefinitions().
-					Get(ctx, expectedCRDName, metav1.GetOptions{})
-
-				return errors.IsNotFound(err)
-			}, timeout, interval).Should(BeTrue(), "Expected CRD to not be found")
-
-			By("also deleting the Work")
-			Eventually(func() bool {
-				err := k8sClient.Get(ctx, workNamespacedName, &v1alpha1.Work{})
-				return errors.IsNotFound(err)
-			}, timeout, interval).Should(BeTrue(), "Expected Work to not be found")
-
-			By("finally deleting the Promise itself")
-			Eventually(func() bool {
-				err := k8sClient.Get(ctx, expectedPromise, &v1alpha1.Promise{})
-				return errors.IsNotFound(err)
-			}, timeout, interval).Should(BeTrue(), "Expected Promise not to be found")
+				Eventually(func() error {
+					return k8sClient.Get(ctx, workNamespacedName, &v1alpha1.Work{})
+				}, timeout, interval).Should(BeNil())
+			})
 		})
 
-		Describe("Lifecycle of a Redis Custom Resource", func() {
+		When("a resource is requested", func() {
 			var (
-				redisRequest = &unstructured.Unstructured{}
-
-				configurePodNamespacedName = types.NamespacedName{
-					Namespace: "default",
-				}
+				resourceLabels map[string]string
 			)
 
+			requestOnce := func(resourcePath string) {
+				if requestedResource != nil {
+					return
+				}
+				yamlFile, err := os.ReadFile(resourcePath)
+				Expect(err).ToNot(HaveOccurred())
+
+				requestedResource = &unstructured.Unstructured{}
+				Expect(yaml.Unmarshal(yamlFile, requestedResource)).To(Succeed())
+				requestedResource.SetNamespace("default")
+				Expect(k8sClient.Create(ctx, requestedResource)).To(Succeed())
+			}
+
 			BeforeEach(func() {
-				yamlFile, err := ioutil.ReadFile("../config/samples/redis/redis-resource-request.yaml")
-				Expect(err).ToNot(HaveOccurred())
-
-				err = yaml.Unmarshal(yamlFile, redisRequest)
-				Expect(err).ToNot(HaveOccurred())
-
-				redisRequest.SetNamespace("default")
-			})
-
-			It("Creates", func() {
-				err := k8sClient.Create(ctx, redisRequest)
-				Expect(err).ToNot(HaveOccurred())
-
-				By("defining a valid pod spec for the transformation pipeline")
-				var timeout = "30s"
-				var interval = "3s"
-				Eventually(func() string {
-					pods := &v1.PodList{}
-					err := k8sClient.List(ctx, pods)
-					if err != nil {
-						return ""
-					}
-					if len(pods.Items) != 1 {
-						return ""
-					}
-					Expect(pods.Items[0].Name).To(HavePrefix("configure-pipeline-redis-promise-default-"))
-					configurePodNamespacedName.Name = pods.Items[0].Name
-					return pods.Items[0].Spec.Containers[0].Name
-				}, timeout, interval).Should(Equal("status-writer"))
-
-				By("setting the finalizer on the resource")
-				Eventually(func() []string {
-					createdRedisRequest := &unstructured.Unstructured{}
-					createdRedisRequest.SetGroupVersionKind(redisRequest.GroupVersionKind())
-					err := k8sClient.Get(ctx, client.ObjectKeyFromObject(redisRequest), createdRedisRequest)
-					if err != nil {
-						fmt.Println(err.Error())
-						return nil
-					}
-					return createdRedisRequest.GetFinalizers()
-				}, timeout, interval).Should(ConsistOf("kratix.io/work-cleanup", "kratix.io/delete-workflows", "kratix.io/workflows-cleanup"))
-			})
-
-			It("Takes no action on update", func() {
-				existingResourceRequest := &unstructured.Unstructured{}
-				gvk := schema.GroupVersionKind{
-					Group:   "redis.redis.opstreelabs.in",
-					Version: "v1beta1",
-					Kind:    "Redis",
+				requestOnce("../config/samples/redis/redis-resource-request.yaml")
+				kind = requestedResource.GroupVersionKind().GroupKind().Kind
+				resourceCommonName = types.NamespacedName{
+					Name:      promiseCR.GetIdentifier() + "-promise-pipeline",
+					Namespace: "default",
 				}
-				existingResourceRequest.SetGroupVersionKind(gvk)
-				ns := client.ObjectKeyFromObject(redisRequest)
-				err := k8sClient.Get(ctx, ns, existingResourceRequest)
-				Expect(err).ToNot(HaveOccurred())
 
-				existingResourceRequest.SetAnnotations(map[string]string{
-					"new-annotation": "auto-added",
-				})
-				err = k8sClient.Update(ctx, existingResourceRequest)
-				Expect(err).ToNot(HaveOccurred())
-
-				Consistently(func() int {
-					isPromise, _ := labels.NewRequirement("kratix-promise-id", selection.Equals, []string{"redis-promise-default"})
-					selector := labels.NewSelector().
-						Add(*isPromise)
-
-					listOps := &client.ListOptions{
-						Namespace:     "default",
-						LabelSelector: selector,
-					}
-
-					ol := &v1.PodList{}
-					err := k8sClient.List(ctx, ol, listOps)
-					if err != nil {
-						fmt.Println(err.Error())
-						return -1
-					}
-					return len(ol.Items)
-				}, timeout, interval).Should(Equal(1))
+				resourceLabels = map[string]string{
+					"kratix-promise-id": promiseCR.GetIdentifier(),
+				}
 			})
 
-			It("Deletes the associated resources", func() {
-				//create what the pipeline would have created: Work
-				work = &platformv1alpha1.Work{}
-				work.Name = "redis-promise-default-default-opstree-redis"
-				work.Namespace = "default"
-				err := k8sClient.Create(ctx, work)
-				Expect(err).ToNot(HaveOccurred())
+			It("creates a service account for pipeline", func() {
+				sa := &v1.ServiceAccount{}
+				Eventually(func() error {
+					return k8sClient.Get(ctx, resourceCommonName, sa)
+				}, timeout, interval).Should(BeNil(), "Expected SA for pipeline to exist")
 
-				//test delete
-				err = k8sClient.Delete(ctx, redisRequest)
-				Expect(err).ToNot(HaveOccurred())
+				Expect(sa.GetLabels()).To(Equal(resourceLabels))
+			})
 
-				//delete pipeline should be created
-				deletePipeline := v1.Pod{}
-				Eventually(func() bool {
-					pods := &v1.PodList{}
-					err := k8sClient.List(ctx, pods)
-					if err != nil {
-						return false
-					}
-					if len(pods.Items) == 0 {
-						return false
-					}
-					for _, pod := range pods.Items {
-						if strings.HasPrefix(pod.Name, "delete-pipeline-redis-promise-default-") {
-							deletePipeline = pod
-							return true
-						}
-					}
-					return false
-				}, timeout, interval).Should(BeTrue(), "Expected the delete pipeline to be created")
+			It("creates a role for the pipeline service account", func() {
+				role := &rbacv1.Role{}
+				Eventually(func() error {
+					return k8sClient.Get(ctx, resourceCommonName, role)
+				}, timeout, interval).Should(BeNil(), "Expected Role for pipeline to exist")
 
-				deletePipeline.Status.Conditions = []v1.PodCondition{
-					{
-						Status: "True",
-						Type:   "Initialized",
-						Reason: "PodCompleted",
+				Expect(role.GetLabels()).To(Equal(resourceLabels))
+				lowercaseKind := strings.ToLower(kind)
+				Expect(role.Rules).To(ConsistOf(
+					rbacv1.PolicyRule{
+						Verbs:     []string{"get", "list", "update", "create", "patch"},
+						APIGroups: []string{promiseGroup},
+						Resources: []string{lowercaseKind, lowercaseKind + "/status"},
 					},
+					rbacv1.PolicyRule{
+						Verbs:     []string{"get", "update", "create", "patch"},
+						APIGroups: []string{"platform.kratix.io"},
+						Resources: []string{"works"},
+					},
+				))
+				Expect(role.GetLabels()).To(Equal(resourceLabels))
+			})
+
+			It("associates the new role with the new service account", func() {
+				binding := &rbacv1.RoleBinding{}
+				Eventually(func() error {
+					return k8sClient.Get(ctx, resourceCommonName, binding)
+				}, timeout, interval).Should(BeNil(), "Expected RoleBinding for pipeline to exist")
+				Expect(binding.RoleRef.Name).To(Equal(resourceCommonName.Name))
+				Expect(binding.Subjects).To(HaveLen(1))
+				Expect(binding.Subjects[0]).To(Equal(rbacv1.Subject{
+					Kind:      "ServiceAccount",
+					Namespace: requestedResource.GetNamespace(),
+					Name:      resourceCommonName.Name,
+				}))
+				Expect(binding.GetLabels()).To(Equal(resourceLabels))
+			})
+
+			It("creates a config map with the promise scheduling in it", func() {
+				configMap := &v1.ConfigMap{}
+				configMapName := types.NamespacedName{
+					Name:      "scheduling-" + promiseCR.GetIdentifier(),
+					Namespace: "default",
 				}
-				deletePipeline.Status.Phase = v1.PodSucceeded
+				Eventually(func() error {
+					return k8sClient.Get(ctx, configMapName, configMap)
+				}, timeout, interval).Should(BeNil(), "Expected ConfigMap for pipeline to exist")
+				Expect(configMap.GetLabels()).To(Equal(resourceLabels))
+				Expect(configMap.Data).To(HaveKey("scheduling"))
+				space := regexp.MustCompile(`\s+`)
+				targetScheduling := space.ReplaceAllString(configMap.Data["scheduling"], " ")
+				Expect(strings.TrimSpace(targetScheduling)).To(Equal(`- target: matchlabels: environment: dev`))
+			})
 
-				err = k8sClient.Status().Update(ctx, &deletePipeline)
-				Expect(err).NotTo(HaveOccurred())
+			It("adds finalizers to the Promise", func() {
+				promise := &v1alpha1.Promise{}
+				expectedPromise := types.NamespacedName{
+					Name: promiseCR.Name,
+				}
 
-				Eventually(func() bool {
+				Expect(k8sClient.Get(ctx, expectedPromise, promise)).To(Succeed())
+				Expect(promise.GetFinalizers()).Should(
+					ConsistOf(
+						"kratix.io/resource-request-cleanup",
+						"kratix.io/dynamic-controller-dependant-resources-cleanup",
+						"kratix.io/api-crd-cleanup",
+						"kratix.io/dependencies-cleanup",
+					),
+					"Promise should have finalizers set",
+				)
+			})
+
+			It("triggers the resource configure workflow", func() {
+				Eventually(func() int {
 					pods := &v1.PodList{}
-					err := k8sClient.List(ctx, pods)
-					if err != nil {
-						return false
+					lo := &client.ListOptions{
+						LabelSelector: labels.SelectorFromSet(map[string]string{
+							"kratix-promise-id":    promiseCR.GetIdentifier(),
+							"kratix-pipeline-type": "configure",
+						}),
 					}
-					return len(pods.Items) == 0
-				}, timeout, interval).Should(BeTrue(), "Expected the delete and configure pipeline to be deleted")
 
-				Eventually(func() bool {
-					work = &platformv1alpha1.Work{}
-					work.Name = "redis-promise-default-default-opstree-redis"
-					work.Namespace = "default"
-					err := k8sClient.Get(ctx, client.ObjectKeyFromObject(work), work)
-					return errors.IsNotFound(err)
-				}, timeout, interval).Should(BeTrue(), "Expected the Work to be deleted")
+					Expect(k8sClient.List(ctx, pods, lo)).To(Succeed())
+					return len(pods.Items)
+				}, timeout, interval).Should(Equal(1), "Configure Pipeline never trigerred")
+			})
+		})
 
-				Eventually(func() bool {
-					createdRedisRequest := &unstructured.Unstructured{}
-					createdRedisRequest.SetGroupVersionKind(redisRequest.GroupVersionKind())
-					err := k8sClient.Get(ctx, client.ObjectKeyFromObject(redisRequest), createdRedisRequest)
-					return errors.IsNotFound(err)
-				}, timeout, interval).Should(BeTrue(), "Expected the Redis resource to be deleted")
+		When("a resource is deleted", func() {
+			BeforeEach(func() {
+				Expect(k8sClient.Delete(ctx, requestedResource)).To(Succeed())
+			})
+
+			It("executes the deletion process", func() {
+				deletePipeline := v1.Pod{}
+
+				By("triggering the delete pipeline for the promise", func() {
+					Eventually(func() bool {
+						pods := &v1.PodList{}
+						err := k8sClient.List(ctx, pods)
+						if err != nil {
+							return false
+						}
+
+						if len(pods.Items) == 0 {
+							return false
+						}
+
+						for _, pod := range pods.Items {
+							if strings.HasPrefix(pod.Name, "delete-pipeline-redis-promise") {
+								deletePipeline = pod
+								return true
+							}
+						}
+						return false
+					}, timeout, interval).Should(BeTrue(), "Expected the delete pipeline to be created")
+				})
+
+				By("deleting the resources when the pipeline completes", func() {
+					completePipeline(ctx, &deletePipeline)
+					Eventually(func() int {
+						rrList := &unstructured.UnstructuredList{}
+						rrList.SetGroupVersionKind(requestedResource.GroupVersionKind())
+						err := k8sClient.List(ctx, rrList)
+						if err != nil {
+							return -1
+						}
+						return len(rrList.Items)
+					}, timeout, interval).Should(BeZero(), "Expected all RRs to be deleted")
+				})
+
+				By("removing the work for the resource", func() {
+					workNamespacedName := types.NamespacedName{
+						Name:      promiseCR.GetIdentifier() + "-" + requestedResource.GetNamespace() + "-" + requestedResource.GetName(),
+						Namespace: requestedResource.GetNamespace(),
+					}
+					Eventually(func() bool {
+						return errors.IsNotFound(k8sClient.Get(ctx, workNamespacedName, &v1alpha1.Work{}))
+					}, timeout, interval).Should(BeTrue())
+				})
+
+				By("leaving the pipeline resources (SA/Role/RoleBinding) intact", func() {
+					resources := []client.Object{
+						&rbacv1.Role{},
+						&rbacv1.RoleBinding{},
+						&v1.ServiceAccount{},
+					}
+					for _, resource := range resources {
+						Expect(k8sClient.Get(ctx, resourceCommonName, resource)).To(Succeed())
+					}
+
+					configMap := &v1.ConfigMap{}
+					configMapName := types.NamespacedName{
+						Name:      "scheduling-" + promiseCR.GetIdentifier(),
+						Namespace: "default",
+					}
+					Eventually(func() error {
+						return k8sClient.Get(ctx, configMapName, configMap)
+					}, timeout, interval).Should(BeNil(), "Expected ConfigMap for pipeline to exist")
+				})
+			})
+		})
+
+		When("a promise is deleted", func() {
+			BeforeEach(func() {
+				Expect(k8sClient.Delete(ctx, promiseCR)).To(Succeed())
+			})
+
+			It("deletes all the resources", func() {
+				expectedPromise := types.NamespacedName{
+					Name: promiseCR.Name,
+				}
+
+				By("deleting all the pipeline resources", func() {
+					configMap := &v1.ConfigMap{}
+					configMapName := types.NamespacedName{
+						Name:      "scheduling-" + promiseCR.GetIdentifier(),
+						Namespace: "default",
+					}
+					Eventually(func() bool {
+						return errors.IsNotFound(k8sClient.Get(ctx, configMapName, configMap))
+					}, timeout, interval).Should(BeTrue(), "ConfigMap was never deleted")
+
+					resources := []client.Object{
+						&rbacv1.Role{},
+						&rbacv1.RoleBinding{},
+						&v1.ServiceAccount{},
+					}
+					for i, resource := range resources {
+						Eventually(func() bool {
+							return errors.IsNotFound(k8sClient.Get(ctx, resourceCommonName, resource))
+						}, timeout, interval).Should(BeTrue(), fmt.Sprintf("Resource %d was never deleted", i))
+					}
+				})
+
+				By("deleting all the promise resources", func() {
+					resources := []client.Object{
+						&rbacv1.ClusterRole{},
+						&rbacv1.ClusterRoleBinding{},
+					}
+					name := types.NamespacedName{
+						Name: promiseCR.GetControllerResourceName(),
+					}
+
+					for i, resource := range resources {
+						Eventually(func() bool {
+							return errors.IsNotFound(k8sClient.Get(ctx, name, resource))
+						}, timeout, interval).Should(BeTrue(), fmt.Sprintf("Resource %d was never deleted", i))
+					}
+				})
+
+				By("deleting the Promise CRD", func() {
+					Eventually(func() bool {
+						_, err := apiextensionClient.
+							ApiextensionsV1().
+							CustomResourceDefinitions().
+							Get(ctx, expectedCRDName, metav1.GetOptions{})
+
+						return errors.IsNotFound(err)
+					}, timeout, interval).Should(BeTrue(), "Expected CRD to not be found")
+				})
+
+				By("deleting the work", func() {
+					Eventually(func() bool {
+						workNamespacedName := types.NamespacedName{
+							Name:      promiseCR.GetIdentifier(),
+							Namespace: controllers.KratixSystemNamespace,
+						}
+						err := k8sClient.Get(ctx, workNamespacedName, &v1alpha1.Work{})
+						return errors.IsNotFound(err)
+					}, timeout, interval).Should(BeTrue(), "Expected Work to not be found")
+				})
+
+				By("deleting the Promise itself", func() {
+					Eventually(func() bool {
+						err := k8sClient.Get(ctx, expectedPromise, &v1alpha1.Promise{})
+						return errors.IsNotFound(err)
+					}, timeout, interval).Should(BeTrue(), "Expected Promise not to be found")
+				})
 			})
 		})
 	})
 
 	Describe("Can support Promises that only contain dependencies", func() {
-		BeforeEach(func() {
-			promiseCR = &platformv1alpha1.Promise{}
-			yamlFile, err := ioutil.ReadFile("../config/samples/nil-api-promise.yaml")
-			Expect(err).ToNot(HaveOccurred())
-			err = yaml.Unmarshal(yamlFile, promiseCR)
-			promiseCR.Namespace = "default"
-			Expect(err).ToNot(HaveOccurred())
+		var (
+			promiseIdentifier string
+			expectedPromise   types.NamespacedName
+		)
 
-			k8sClient.Create(ctx, promiseCR)
+		BeforeEach(func() {
+			applyPromise("../config/samples/nil-api-promise.yaml")
+			promiseIdentifier = "nil-api-promise"
+			expectedPromise = types.NamespacedName{
+				Name: "nil-api-promise",
+			}
 		})
 
-		promiseIdentifier := "nil-api-promise-default"
-		expectedPromise := types.NamespacedName{
-			Namespace: "default",
-			Name:      "nil-api-promise",
-		}
+		AfterEach(func() {
+			Expect(k8sClient.Delete(ctx, promiseCR)).To(Succeed())
+		})
 
 		It("only creates a work resource", func() {
-			By("creating dependencies")
-			workNamespacedName := types.NamespacedName{
-				Name:      promiseIdentifier,
-				Namespace: "default",
-			}
-			Eventually(func() error {
-				err := k8sClient.Get(ctx, workNamespacedName, &v1alpha1.Work{})
-				return err
-			}, timeout, interval).Should(BeNil())
+			By("creating dependencies", func() {
+				workNamespacedName := types.NamespacedName{
+					Name:      promiseIdentifier,
+					Namespace: controllers.KratixSystemNamespace,
+				}
+				Eventually(func() error {
+					err := k8sClient.Get(ctx, workNamespacedName, &v1alpha1.Work{})
+					return err
+				}, timeout, interval).Should(BeNil())
+			})
 
-			By("setting the correct finalizers")
-			promise := &v1alpha1.Promise{}
-			err := k8sClient.Get(ctx, expectedPromise, promise)
-			Expect(err).NotTo(HaveOccurred())
+			By("setting the correct finalizers", func() {
+				promise := &v1alpha1.Promise{}
+				err := k8sClient.Get(ctx, expectedPromise, promise)
+				Expect(err).NotTo(HaveOccurred())
 
-			Expect(promise.GetFinalizers()).Should(
-				ConsistOf(
-					"kratix.io/dependencies-cleanup",
-				), "Promise should have finalizers set")
-
-			By("deleting the Promise")
-			err = k8sClient.Delete(ctx, promiseCR)
-			Expect(err).NotTo(HaveOccurred())
-
-			By("also deleting the Work")
-			Eventually(func() bool {
-				err := k8sClient.Get(ctx, workNamespacedName, &v1alpha1.Work{})
-				return errors.IsNotFound(err)
-			}, timeout, interval).Should(BeTrue(), "Expected Work to not be found")
-
-			By("finally deleting the Promise itself")
-			Eventually(func() bool {
-				err := k8sClient.Get(ctx, expectedPromise, &v1alpha1.Promise{})
-				return errors.IsNotFound(err)
-			}, timeout, interval).Should(BeTrue(), "Expected Promise not to be found")
+				Expect(promise.GetFinalizers()).Should(
+					ConsistOf(
+						"kratix.io/dependencies-cleanup",
+					), "Promise should have finalizers set")
+			})
 		})
 	})
 
 	Describe("handles Promise status field", func() {
 		BeforeEach(func() {
-			promiseCR = &platformv1alpha1.Promise{}
-			yamlFile, err := ioutil.ReadFile("./assets/redis-simple-promise.yaml")
-			Expect(err).ToNot(HaveOccurred())
-			err = yaml.Unmarshal(yamlFile, promiseCR)
-			promiseCR.Namespace = "default"
-			Expect(err).ToNot(HaveOccurred())
+			applyPromise("./assets/redis-simple-promise.yaml")
+		})
 
-			//Works once, then fails as the promiseCR already exists. Consider building check here.
-			err = k8sClient.Create(ctx, promiseCR)
-			Expect(err).ToNot(HaveOccurred())
+		AfterEach(func() {
+			Expect(k8sClient.Delete(ctx, promiseCR)).To(Succeed())
 		})
 
 		It("automatically creates status and additionalPrinter fields for Penny", func() {
@@ -582,3 +561,16 @@ var _ = Context("Promise Reconciler", func() {
 		})
 	})
 })
+
+func completePipeline(ctx context.Context, pipeline *v1.Pod) {
+	pipeline.Status.Conditions = []v1.PodCondition{
+		{
+			Status: "True",
+			Type:   "Initialized",
+			Reason: "PodCompleted",
+		},
+	}
+	pipeline.Status.Phase = v1.PodSucceeded
+
+	Expect(k8sClient.Status().Update(ctx, pipeline)).To(Succeed())
+}

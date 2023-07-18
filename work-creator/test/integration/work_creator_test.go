@@ -10,7 +10,6 @@ import (
 	. "github.com/onsi/ginkgo"
 	. "github.com/onsi/gomega"
 	"github.com/syntasso/kratix/api/v1alpha1"
-	platformv1alpha1 "github.com/syntasso/kratix/api/v1alpha1"
 	"github.com/syntasso/kratix/work-creator/pipeline"
 	"k8s.io/apimachinery/pkg/apis/meta/v1/unstructured"
 	"k8s.io/apimachinery/pkg/types"
@@ -43,12 +42,12 @@ var _ = Describe("WorkCreator", func() {
 		})
 
 		Context("complete set of inputs", func() {
-			var workResource platformv1alpha1.Work
+			var workResource v1alpha1.Work
 			var inputDirectory string
 
 			BeforeEach(func() {
 				inputDirectory = filepath.Join(getRootDirectory(), "complete")
-				err := workCreator.Execute(inputDirectory, getWorkResourceIdentifer())
+				err := workCreator.Execute(inputDirectory, getWorkResourceIdentifer(), "default")
 				Expect(err).ToNot(HaveOccurred())
 
 				workResource = getCreatedWorkResource()
@@ -92,7 +91,7 @@ var _ = Describe("WorkCreator", func() {
 
 		Context("with empty metadata directory", func() {
 			BeforeEach(func() {
-				err := workCreator.Execute(filepath.Join(getRootDirectory(), "empty-metadata"), getWorkResourceIdentifer())
+				err := workCreator.Execute(filepath.Join(getRootDirectory(), "empty-metadata"), getWorkResourceIdentifer(), "default")
 				Expect(err).ToNot(HaveOccurred())
 			})
 
@@ -149,13 +148,13 @@ func getExpectedManifests(rootDirectory string) []unstructured.Unstructured {
 	return ul
 }
 
-func getCreatedWorkResource() platformv1alpha1.Work {
+func getCreatedWorkResource() v1alpha1.Work {
 	expectedName := types.NamespacedName{
 		Name:      getWorkResourceIdentifer(),
 		Namespace: "default",
 	}
 	Expect(k8sClient).ToNot(BeNil())
-	work := platformv1alpha1.Work{}
+	work := v1alpha1.Work{}
 	err := k8sClient.Get(context.Background(), expectedName, &work)
 	Expect(err).ToNot(HaveOccurred())
 	return work

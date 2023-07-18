@@ -21,7 +21,7 @@ roleRef:
   name: bash-default-promise-pipeline-credentials
 subjects:
 - kind: ServiceAccount
-  name: bash-default-promise-pipeline
+  name: bash-promise-pipeline
   namespace: default
 ---
 apiVersion: platform.kratix.io/v1alpha1

@@ -69,7 +69,7 @@ func (r *WorkPlacementReconciler) Reconcile(ctx context.Context, req ctrl.Reques
 	}
 
 	cluster := &platformv1alpha1.Cluster{}
-	clusterName := types.NamespacedName{
+	clusterName := client.ObjectKey{
 		Name: workPlacement.Spec.TargetClusterName,
 	}
 	err = r.Client.Get(context.Background(), clusterName, cluster)

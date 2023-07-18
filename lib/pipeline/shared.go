@@ -17,8 +17,7 @@ import (
 const kratixOperationEnvVar = "KRATIX_OPERATION"
 
 func role(rr *unstructured.Unstructured, resources pipelineArgs) *rbacv1.Role {
-	// PIPELINE RBAC
-	kind := rr.GroupVersionKind().GroupKind().Kind
+	kind := strings.ToLower(rr.GetKind())
 	return &rbacv1.Role{
 		TypeMeta: metav1.TypeMeta{
 			Kind: "Role",

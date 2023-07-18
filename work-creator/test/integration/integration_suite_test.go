@@ -11,7 +11,6 @@ import (
 	"github.com/onsi/gomega/format"
 	"github.com/onsi/gomega/types"
 	"github.com/syntasso/kratix/api/v1alpha1"
-	platformv1alpha1 "github.com/syntasso/kratix/api/v1alpha1"
 	"k8s.io/apimachinery/pkg/apis/meta/v1/unstructured"
 	"k8s.io/client-go/kubernetes/scheme"
 	"sigs.k8s.io/controller-runtime/pkg/client"
@@ -41,8 +40,8 @@ var _ = BeforeSuite(func() {
 	Expect(err).NotTo(HaveOccurred())
 	Expect(cfg).NotTo(BeNil())
 
-	By("INitalise k8s client")
-	err = platformv1alpha1.AddToScheme(scheme.Scheme)
+	By("Initalise k8s client")
+	err = v1alpha1.AddToScheme(scheme.Scheme)
 	Expect(err).NotTo(HaveOccurred())
 	k8sClient, err = client.New(cfg, client.Options{Scheme: scheme.Scheme})
 	Expect(err).NotTo(HaveOccurred())
@@ -56,10 +55,10 @@ var _ = AfterSuite(func() {
 })
 
 var _ = AfterEach(func() {
-	Expect(k8sClient.DeleteAllOf(context.Background(), &platformv1alpha1.Cluster{}, client.InNamespace("default"))).To(Succeed())
-	Expect(k8sClient.DeleteAllOf(context.Background(), &platformv1alpha1.Promise{}, client.InNamespace("default"))).To(Succeed())
-	Expect(k8sClient.DeleteAllOf(context.Background(), &platformv1alpha1.Work{}, client.InNamespace("default"))).To(Succeed())
-	Expect(k8sClient.DeleteAllOf(context.Background(), &platformv1alpha1.WorkPlacement{}, client.InNamespace("default"))).To(Succeed())
+	Expect(k8sClient.DeleteAllOf(context.Background(), &v1alpha1.Cluster{}, client.InNamespace("default"))).To(Succeed())
+	Expect(k8sClient.DeleteAllOf(context.Background(), &v1alpha1.Promise{}, client.InNamespace("default"))).To(Succeed())
+	Expect(k8sClient.DeleteAllOf(context.Background(), &v1alpha1.Work{}, client.InNamespace("default"))).To(Succeed())
+	Expect(k8sClient.DeleteAllOf(context.Background(), &v1alpha1.WorkPlacement{}, client.InNamespace("default"))).To(Succeed())
 })
 
 func ContainManifest(expectedManifest unstructured.Unstructured) types.GomegaMatcher {

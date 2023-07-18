@@ -24,9 +24,7 @@ type Scheduler struct {
 // Only reconciles Works that are from a Promise Dependency
 func (r *Scheduler) ReconcileCluster() error {
 	works := platformv1alpha1.WorkList{}
-	lo := &client.ListOptions{
-		Namespace: KratixSystemNamespace,
-	}
+	lo := &client.ListOptions{}
 	if err := r.Client.List(context.Background(), &works, lo); err != nil {
 		return err
 	}
