@@ -5,7 +5,6 @@ apiVersion: platform.kratix.io/v1alpha1
 kind: Cluster
 metadata:
   name: {{ .name }}
-  namespace: {{ .namespace }}
   labels: {{ toYaml .labels | nindent 4 }}
 spec:
   path: {{ .path }}

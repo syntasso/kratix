@@ -6,7 +6,6 @@ stateStores: []
 # Examples
 # - kind: GitStateStore
 #   name: default
-#   namespace: default
 #   path: ""
 #   secretRef:
 #     name: git-creds
@@ -17,7 +16,6 @@ stateStores: []
 #   branch: main
 # - kind: BucketStateStore
 #   name: default
-#   namespace: default
 #   path: ""
 #   secretRef:
 #     name: already-created-s3-creds
@@ -28,7 +26,6 @@ stateStores: []
 clusters: []
 # Example
 # - name: worker-cluster-1
-#   namespace: default
 #   labels:
 #     env: dev
 #   path: ""
