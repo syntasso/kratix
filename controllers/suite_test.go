@@ -26,6 +26,7 @@ import (
 	. "github.com/onsi/gomega"
 	platformv1alpha1 "github.com/syntasso/kratix/api/v1alpha1"
 	. "github.com/syntasso/kratix/controllers"
+	v1 "k8s.io/api/core/v1"
 	"k8s.io/apiextensions-apiserver/pkg/client/clientset/clientset"
 	"k8s.io/client-go/kubernetes/scheme"
 	ctrl "sigs.k8s.io/controller-runtime"
@@ -91,6 +92,13 @@ var _ = BeforeSuite(func() {
 		Expect(err).ToNot(HaveOccurred())
 	}()
 
+	ns := &v1.Namespace{
+		ObjectMeta: ctrl.ObjectMeta{
+			Name: KratixSystemNamespace,
+		},
+	}
+	Expect(k8sClient.Create(context.Background(), ns)).To(Succeed())
+
 }, 60)
 
 var _ = AfterSuite(func() {
@@ -98,17 +106,18 @@ var _ = AfterSuite(func() {
 	testEnv.Stop()
 })
 
-var _ = AfterEach(func() {
+func cleanEnvironment() {
 	var promises platformv1alpha1.PromiseList
 	k8sClient.List(context.Background(), &promises)
 	for _, p := range promises.Items {
 		p.Finalizers = nil
 		k8sClient.Update(context.Background(), &p)
 	}
-	Expect(k8sClient.DeleteAllOf(context.Background(), &platformv1alpha1.Promise{}, client.InNamespace("default"))).To(Succeed())
+	Expect(k8sClient.DeleteAllOf(context.Background(), &platformv1alpha1.Promise{})).To(Succeed())
+	Expect(k8sClient.DeleteAllOf(context.Background(), &platformv1alpha1.Cluster{})).To(Succeed())
 
-	Expect(k8sClient.DeleteAllOf(context.Background(), &platformv1alpha1.Cluster{}, client.InNamespace("default"))).To(Succeed())
-	Expect(k8sClient.DeleteAllOf(context.Background(), &platformv1alpha1.Work{}, client.InNamespace("default"))).To(Succeed())
+	deleteInNamespace(&platformv1alpha1.Work{}, "default")
+	deleteInNamespace(&platformv1alpha1.Work{}, KratixSystemNamespace)
 
 	var workPlacements platformv1alpha1.WorkPlacementList
 	k8sClient.List(context.Background(), &workPlacements)
@@ -116,8 +125,13 @@ var _ = AfterEach(func() {
 		wp.Finalizers = nil
 		k8sClient.Update(context.Background(), &wp)
 	}
-	Expect(k8sClient.DeleteAllOf(context.Background(), &platformv1alpha1.WorkPlacement{}, client.InNamespace("default"))).To(Succeed())
-})
+	deleteInNamespace(&platformv1alpha1.WorkPlacement{}, "default")
+	deleteInNamespace(&platformv1alpha1.WorkPlacement{}, KratixSystemNamespace)
+}
+
+func deleteInNamespace(obj client.Object, namespace string) {
+	Expect(k8sClient.DeleteAllOf(context.Background(), obj, client.InNamespace(namespace))).To(Succeed())
+}
 
 func TestAPIs(t *testing.T) {
 	RegisterFailHandler(Fail)

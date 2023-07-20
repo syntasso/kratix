@@ -43,9 +43,10 @@ import (
 )
 
 const (
-	workFinalizer            = finalizerPrefix + "work-cleanup"
-	workflowsFinalizer       = finalizerPrefix + "workflows-cleanup"
-	deleteWorkflowsFinalizer = finalizerPrefix + "delete-workflows"
+	workFinalizer              = finalizerPrefix + "work-cleanup"
+	workflowsFinalizer         = finalizerPrefix + "workflows-cleanup"
+	deleteWorkflowsFinalizer   = finalizerPrefix + "delete-workflows"
+	PipelineCompletedCondition = clusterv1.ConditionType("PipelineCompleted")
 )
 
 var rrFinalizers = []string{workFinalizer, workflowsFinalizer, deleteWorkflowsFinalizer}
@@ -99,9 +100,21 @@ func (r *dynamicResourceRequestController) Reconcile(ctx context.Context, req ct
 		return addFinalizers(ctx, r.Client, rr, []string{workFinalizer, workflowsFinalizer, deleteWorkflowsFinalizer}, logger)
 	}
 
+	if !r.hasCondition(PipelineCompletedCondition, rr) {
+		r.setStatus(rr, logger, "message", "Pending")
+		r.setCondition(clusterv1.Condition{
+			Type:               PipelineCompletedCondition,
+			Status:             v1.ConditionFalse,
+			Message:            "Pipeline has not completed",
+			Reason:             "PipelineNotCompleted",
+			LastTransitionTime: metav1.NewTime(time.Now()),
+		}, rr, logger)
+		return ctrl.Result{}, r.Client.Status().Update(ctx, rr)
+	}
+
 	//check if the pipeline has already been created. If it has exit out. All the lines
 	//below this call are for the one-time creation of the pipeline.
-	created, err := r.configurePipelinePodHasBeenCreated(resourceRequestIdentifier, logger)
+	created, err := r.configurePipelinePodHasBeenCreated(resourceRequestIdentifier, rr.GetNamespace(), logger)
 	if err != nil {
 		return ctrl.Result{}, err
 	}
@@ -111,22 +124,30 @@ func (r *dynamicResourceRequestController) Reconcile(ctx context.Context, req ct
 		return ctrl.Result{}, nil
 	}
 
-	//we only reach this code if the pipeline pod hasn't been created yet, so we set the
-	//status of the RR to say pipeline not completed. The pipeline itself will update
-	//the status to PipelineComplete when it finishes.
-	err = r.setPipelineConditionToNotCompleted(ctx, rr, logger)
+	resources, err := pipeline.NewConfigurePipeline(
+		rr,
+		r.configurePipelines,
+		resourceRequestIdentifier,
+		r.promiseIdentifier,
+		r.promiseScheduling,
+	)
 	if err != nil {
 		return ctrl.Result{}, err
 	}
 
-	pod := pipeline.NewConfigurePipeline(rr, r.configurePipelines, resourceRequestIdentifier, r.promiseIdentifier)
+	logger.Info("Creating Pipeline resources", "resourceRequest", resourceRequestIdentifier)
+	for _, resource := range resources {
+		logger.Info("Creating resource", resource.GetObjectKind().GroupVersionKind().Kind, resource.GetName())
+		if err = r.Client.Create(ctx, resource); err != nil {
+			if errors.IsAlreadyExists(err) {
+				logger.Info("Resource already exists, skipping", resource.GetObjectKind().GroupVersionKind().Kind, resource.GetName())
+				continue
+			}
+			logger.Error(err, "Error creating resource", resource.GetObjectKind().GroupVersionKind().Kind, resource.GetName())
+			y, _ := yaml.Marshal(&resource)
+			logger.Error(err, string(y))
+		}
 
-	logger.Info("Creating Pipeline for Promise resource request: " + resourceRequestIdentifier + ". The pipeline will now execute...")
-	err = r.Client.Create(ctx, &pod)
-	if err != nil {
-		logger.Error(err, "Error creating Pod")
-		y, _ := yaml.Marshal(&pod)
-		logger.Error(err, string(y))
 	}
 
 	return ctrl.Result{}, nil
@@ -138,7 +159,7 @@ func (r *dynamicResourceRequestController) deleteResources(ctx context.Context, 
 	}
 
 	if controllerutil.ContainsFinalizer(resourceRequest, deleteWorkflowsFinalizer) {
-		existingDeletePipelinePod, err := r.getDeletePipelinePod(ctx, resourceRequestIdentifier, logger)
+		existingDeletePipelinePod, err := r.getDeletePipelinePod(ctx, resourceRequestIdentifier, resourceRequest.GetNamespace(), logger)
 		if err != nil {
 			return defaultRequeue, err
 		}
@@ -187,23 +208,31 @@ func (r *dynamicResourceRequestController) deleteResources(ctx context.Context, 
 	return fastRequeue, nil
 }
 
-func (r *dynamicResourceRequestController) getDeletePipelinePod(ctx context.Context, resourceRequestIdentifier string, logger logr.Logger) (*v1.Pod, error) {
-	pods, err := r.getPodsWithLabels(pipeline.DeletePipelineLabels(resourceRequestIdentifier, r.promiseIdentifier), logger)
+func (r *dynamicResourceRequestController) getDeletePipelinePod(ctx context.Context, resourceRequestIdentifier, namespace string, logger logr.Logger) (*v1.Pod, error) {
+	pods, err := r.getPodsWithLabels(
+		pipeline.DeletePipelineLabels(resourceRequestIdentifier, r.promiseIdentifier),
+		namespace,
+		logger,
+	)
 	if err != nil || len(pods) == 0 {
 		return nil, err
 	}
 	return &pods[0], nil
 }
 
-func (r *dynamicResourceRequestController) configurePipelinePodHasBeenCreated(resourceRequestIdentifier string, logger logr.Logger) (bool, error) {
-	pods, err := r.getPodsWithLabels(pipeline.ConfigurePipelineLabels(resourceRequestIdentifier, r.promiseIdentifier), logger)
+func (r *dynamicResourceRequestController) configurePipelinePodHasBeenCreated(resourceRequestIdentifier, namespace string, logger logr.Logger) (bool, error) {
+	pods, err := r.getPodsWithLabels(
+		pipeline.ConfigurePipelineLabels(resourceRequestIdentifier, r.promiseIdentifier),
+		namespace,
+		logger,
+	)
 	if err != nil {
 		return false, err
 	}
 	return len(pods) > 0, nil
 }
 
-func (r *dynamicResourceRequestController) getPodsWithLabels(podLabels map[string]string, logger logr.Logger) ([]v1.Pod, error) {
+func (r *dynamicResourceRequestController) getPodsWithLabels(podLabels map[string]string, namespace string, logger logr.Logger) ([]v1.Pod, error) {
 	selectorLabels := labels.FormatLabels(podLabels)
 	selector, err := labels.Parse(selectorLabels)
 
@@ -212,8 +241,8 @@ func (r *dynamicResourceRequestController) getPodsWithLabels(podLabels map[strin
 	}
 
 	listOps := &client.ListOptions{
-		Namespace:     "default",
 		LabelSelector: selector,
+		Namespace:     namespace,
 	}
 
 	pods := &v1.PodList{}
@@ -238,7 +267,7 @@ func pipelineIsComplete(pod v1.Pod) bool {
 func (r *dynamicResourceRequestController) deleteWork(ctx context.Context, resourceRequest *unstructured.Unstructured, workName string, finalizer string, logger logr.Logger) error {
 	work := &v1alpha1.Work{}
 	err := r.Client.Get(ctx, types.NamespacedName{
-		Namespace: "default",
+		Namespace: resourceRequest.GetNamespace(),
 		Name:      workName,
 	}, work)
 
@@ -281,7 +310,7 @@ func (r *dynamicResourceRequestController) deletePipeline(ctx context.Context, r
 		Kind:    "Pod",
 	}
 
-	podLabels := pipeline.SharedLabels(resourceRequestIdentifier, r.promiseIdentifier)
+	podLabels := pipeline.Labels(resourceRequestIdentifier, r.promiseIdentifier)
 
 	resourcesRemaining, err := deleteAllResourcesWithKindMatchingLabel(ctx, r.Client, podGVK, podLabels, logger)
 	if err != nil {
@@ -298,26 +327,38 @@ func (r *dynamicResourceRequestController) deletePipeline(ctx context.Context, r
 	return nil
 }
 
-func (r *dynamicResourceRequestController) setPipelineConditionToNotCompleted(ctx context.Context, rr *unstructured.Unstructured, logger logr.Logger) error {
-	setter := conditionsutil.UnstructuredSetter(rr)
+func (r *dynamicResourceRequestController) hasCondition(conditionType clusterv1.ConditionType, rr *unstructured.Unstructured) bool {
 	getter := conditionsutil.UnstructuredGetter(rr)
-	condition := conditionsutil.Get(getter, clusterv1.ConditionType("PipelineCompleted"))
-	if condition == nil {
-		err := unstructured.SetNestedMap(rr.Object, map[string]interface{}{"message": "Pending"}, "status")
-		if err != nil {
-			logger.Error(err, "failed to set status.message to pending, ignoring error")
-		}
-		conditionsutil.Set(setter, &clusterv1.Condition{
-			Type:               clusterv1.ConditionType("PipelineCompleted"),
-			Status:             v1.ConditionFalse,
-			Message:            "Pipeline has not completed",
-			Reason:             "PipelineNotCompleted",
-			LastTransitionTime: metav1.NewTime(time.Now()),
-		})
-		logger.Info("setting condition PipelineCompleted false")
-		if err := r.Client.Status().Update(ctx, rr); err != nil {
-			return err
-		}
+	condition := conditionsutil.Get(getter, conditionType)
+	return condition != nil
+}
+
+func (r *dynamicResourceRequestController) setCondition(condition clusterv1.Condition, rr *unstructured.Unstructured, logger logr.Logger) {
+	setter := conditionsutil.UnstructuredSetter(rr)
+	conditionsutil.Set(setter, &condition)
+	logger.Info("set conditions", "condition", condition.Type, "value", condition.Status)
+}
+
+func (r *dynamicResourceRequestController) setStatus(rr *unstructured.Unstructured, logger logr.Logger, statuses ...string) {
+	if len(statuses) == 0 {
+		return
 	}
-	return nil
+
+	if len(statuses)%2 != 0 {
+		logger.Info("invalid status; expecting key:value pair", "status", statuses)
+		return
+	}
+
+	nestedMap := map[string]interface{}{}
+	for i := 0; i < len(statuses); i += 2 {
+		key := statuses[i]
+		value := statuses[i+1]
+		nestedMap[key] = value
+	}
+
+	err := unstructured.SetNestedMap(rr.Object, nestedMap, "status")
+
+	if err != nil {
+		logger.Info("failed to set status; ignoring", "map", nestedMap)
+	}
 }

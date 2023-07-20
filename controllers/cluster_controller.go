@@ -57,7 +57,7 @@ func (r *ClusterReconciler) Reconcile(ctx context.Context, req ctrl.Request) (ct
 
 	cluster := &platformv1alpha1.Cluster{}
 	logger.Info("Registering Cluster", "requestName", req.Name)
-	if err := r.Client.Get(ctx, req.NamespacedName, cluster); err != nil {
+	if err := r.Client.Get(ctx, client.ObjectKey{Name: req.Name}, cluster); err != nil {
 		if errors.IsNotFound(err) {
 			return ctrl.Result{}, nil
 		}
@@ -73,7 +73,7 @@ func (r *ClusterReconciler) Reconcile(ctx context.Context, req ctrl.Request) (ct
 	}
 
 	//cluster.Spec.Path is optional, may be empty
-	path := filepath.Join(cluster.Spec.Path, cluster.Namespace, cluster.Name)
+	path := filepath.Join(cluster.Spec.Path, cluster.Name)
 	logger = logger.WithValues("path", path)
 
 	if err := r.createCrdPathWithExample(writer); err != nil {

@@ -12,17 +12,20 @@ import (
 const kratixDeleteOperation = "delete"
 
 func NewDeletePipeline(rr *unstructured.Unstructured, pipelines []platformv1alpha1.Pipeline, resourceRequestIdentifier, promiseIdentifier string) v1.Pod {
-	containers, pipelineVolumes := deletePipelineContainers(rr, pipelines, resourceRequestIdentifier)
+
+	args := newPipelineArgs(promiseIdentifier, resourceRequestIdentifier, rr.GetNamespace())
+
+	containers, pipelineVolumes := deletePipelineContainers(rr, pipelines)
 
 	pod := v1.Pod{
 		ObjectMeta: metav1.ObjectMeta{
-			Name:      deletePipelineName(promiseIdentifier),
-			Namespace: "default",
-			Labels:    DeletePipelineLabels(resourceRequestIdentifier, promiseIdentifier),
+			Name:      args.DeletePipelineName(),
+			Namespace: args.Namespace(),
+			Labels:    args.DeletePipelinePodLabels(),
 		},
 		Spec: v1.PodSpec{
 			RestartPolicy:      v1.RestartPolicyOnFailure,
-			ServiceAccountName: promiseIdentifier + "-promise-pipeline",
+			ServiceAccountName: args.ServiceAccountName(),
 			Containers:         []v1.Container{containers[len(containers)-1]},
 			InitContainers:     containers[0 : len(containers)-1],
 			Volumes:            pipelineVolumes,
@@ -32,14 +35,10 @@ func NewDeletePipeline(rr *unstructured.Unstructured, pipelines []platformv1alph
 	return pod
 }
 
-func deletePipelineContainers(rr *unstructured.Unstructured, pipelines []platformv1alpha1.Pipeline, rrID string) ([]v1.Container, []v1.Volume) {
+func deletePipelineContainers(rr *unstructured.Unstructured, pipelines []platformv1alpha1.Pipeline) ([]v1.Container, []v1.Volume) {
 	readerContainer, readerVolume := readerContainerAndVolume(rr)
-	containers := []v1.Container{
-		readerContainer,
-	}
-	volumes := []v1.Volume{
-		readerVolume, // vol0
-	}
+	containers := []v1.Container{readerContainer}
+	volumes := []v1.Volume{readerVolume}
 
 	if len(pipelines) > 0 {
 		//TODO: We only support 1 workflow for now
@@ -67,12 +66,4 @@ func deletePipelineContainers(rr *unstructured.Unstructured, pipelines []platfor
 	}
 
 	return containers, volumes
-}
-
-func DeletePipelineLabels(resourceRequestIdentifier, promiseIdentifier string) map[string]string {
-	return pipelineLabels("delete", resourceRequestIdentifier, promiseIdentifier)
-}
-
-func deletePipelineName(promiseIdentifier string) string {
-	return pipelineName("delete", promiseIdentifier)
 }

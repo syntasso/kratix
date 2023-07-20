@@ -17,6 +17,7 @@ limitations under the License.
 package v1alpha1
 
 import (
+	corev1 "k8s.io/api/core/v1"
 	metav1 "k8s.io/apimachinery/pkg/apis/meta/v1"
 )
 
@@ -39,6 +40,7 @@ type GitStateStoreStatus struct {
 
 //+kubebuilder:object:root=true
 //+kubebuilder:subresource:status
+//+kubebuilder:resource:scope=Cluster,path=gitstatestores
 
 // GitStateStore is the Schema for the gitstatestores API
 type GitStateStore struct {
@@ -47,6 +49,10 @@ type GitStateStore struct {
 
 	Spec   GitStateStoreSpec   `json:"spec,omitempty"`
 	Status GitStateStoreStatus `json:"status,omitempty"`
+}
+
+func (g *GitStateStore) GetSecretRef() *corev1.SecretReference {
+	return g.Spec.SecretRef
 }
 
 //+kubebuilder:object:root=true

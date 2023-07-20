@@ -23,7 +23,6 @@ import (
 	"time"
 
 	controllerutil "sigs.k8s.io/controller-runtime/pkg/controller/controllerutil"
-	"sigs.k8s.io/yaml"
 
 	"github.com/go-logr/logr"
 	"github.com/syntasso/kratix/api/v1alpha1"
@@ -51,7 +50,6 @@ type PromiseReconciler struct {
 
 const (
 	finalizerPrefix                                    = "kratix.io/"
-	schedulingConfigMapCleanupFinalizer                = finalizerPrefix + "scheduling-config-map-cleanup"
 	resourceRequestCleanupFinalizer                    = finalizerPrefix + "resource-request-cleanup"
 	dynamicControllerDependantResourcesCleaupFinalizer = finalizerPrefix + "dynamic-controller-dependant-resources-cleanup"
 	crdCleanupFinalizer                                = finalizerPrefix + "api-crd-cleanup"
@@ -60,7 +58,6 @@ const (
 
 var (
 	promiseFinalizers = []string{
-		schedulingConfigMapCleanupFinalizer,
 		resourceRequestCleanupFinalizer,
 		dynamicControllerDependantResourcesCleaupFinalizer,
 		crdCleanupFinalizer,
@@ -82,6 +79,8 @@ var (
 
 //+kubebuilder:rbac:groups=rbac.authorization.k8s.io,resources=clusterroles,verbs=create;escalate;bind;list;get;delete;watch
 //+kubebuilder:rbac:groups=rbac.authorization.k8s.io,resources=clusterrolebindings,verbs=create;list;get;delete;watch
+//+kubebuilder:rbac:groups=rbac.authorization.k8s.io,resources=roles,verbs=create;escalate;bind;list;get;delete;watch
+//+kubebuilder:rbac:groups=rbac.authorization.k8s.io,resources=rolebindings,verbs=create;list;get;delete;watch
 //+kubebuilder:rbac:groups="",resources=serviceaccounts,verbs=create;list;get;watch;delete
 
 //+kubebuilder:rbac:groups=apiextensions.k8s.io,resources=customresourcedefinitions,verbs=get;list;watch;create;update;patch;delete
@@ -156,6 +155,7 @@ func (r *PromiseReconciler) startDynamicController(promise *v1alpha1.Promise, rr
 	//once resolved, delete dynamic controller rather than disable
 	enabled := true
 	r.DynamicControllers[string(promise.GetUID())] = &enabled
+
 	dynamicResourceRequestController := &dynamicResourceRequestController{
 		Client:             r.Manager.GetClient(),
 		scheme:             r.Manager.GetScheme(),
@@ -190,7 +190,7 @@ func (r *PromiseReconciler) createResourcesForDynamicController(ctx context.Cont
 			{
 				APIGroups: []string{rrGVK.Group},
 				Resources: []string{rrCRD.Spec.Names.Plural},
-				Verbs:     []string{"get", "list", "update", "create", "patch", "delete", "watch"},
+				Verbs:     []string{rbacv1.VerbAll},
 			},
 			{
 				APIGroups: []string{rrGVK.Group},
@@ -229,7 +229,7 @@ func (r *PromiseReconciler) createResourcesForDynamicController(ctx context.Cont
 		Subjects: []rbacv1.Subject{
 			{
 				Kind:      "ServiceAccount",
-				Namespace: "kratix-platform-system",
+				Namespace: KratixSystemNamespace,
 				Name:      "kratix-platform-controller-manager",
 			},
 		},
@@ -241,92 +241,6 @@ func (r *PromiseReconciler) createResourcesForDynamicController(ctx context.Cont
 	}
 	// END CONTROLLER RBAC
 
-	// PIPELINE RBAC
-	cr = rbacv1.ClusterRole{
-		ObjectMeta: metav1.ObjectMeta{
-			Name:   promise.GetPipelineResourceName(),
-			Labels: promise.GenerateSharedLabels(),
-		},
-		Rules: []rbacv1.PolicyRule{
-			{
-				APIGroups: []string{rrGVK.Group},
-				Resources: []string{rrCRD.Spec.Names.Plural, rrCRD.Spec.Names.Plural + "/status"},
-				Verbs:     []string{"get", "list", "update", "create", "patch"},
-			},
-			{
-				APIGroups: []string{"platform.kratix.io"},
-				Resources: []string{"works"},
-				Verbs:     []string{"get", "update", "create", "patch"},
-			},
-		},
-	}
-	err = r.Client.Create(ctx, &cr)
-	if err != nil {
-		logger.Error(err, "Error creating ClusterRole")
-	}
-
-	logger.Info("Creating Service Account")
-	sa := v1.ServiceAccount{
-		ObjectMeta: metav1.ObjectMeta{
-			Name:      promise.GetPipelineResourceName(),
-			Namespace: "default",
-			Labels:    promise.GenerateSharedLabels(),
-		},
-	}
-
-	crb = rbacv1.ClusterRoleBinding{
-		ObjectMeta: metav1.ObjectMeta{
-			Name:   promise.GetPipelineResourceName(),
-			Labels: promise.GenerateSharedLabels(),
-		},
-		RoleRef: rbacv1.RoleRef{
-			Kind:     "ClusterRole",
-			APIGroup: "rbac.authorization.k8s.io",
-			Name:     cr.GetName(),
-		},
-		Subjects: []rbacv1.Subject{
-			{
-				Kind:      "ServiceAccount",
-				Namespace: "default",
-				Name:      sa.GetName(),
-			},
-		},
-	}
-	err = r.Client.Create(ctx, &crb)
-	if err != nil {
-		logger.Error(err, "Error creating ClusterRoleBinding")
-	}
-
-	err = r.Client.Create(ctx, &sa)
-	if err != nil {
-		logger.Error(err, "Error creating ServiceAccount for Promise")
-	} else {
-		logger.Info("Created ServiceAccount for Promise")
-	}
-
-	configMapName := "scheduling-" + promise.GetIdentifier()
-	configMapNamespace := "default"
-
-	schedulingYAML, err := yaml.Marshal(promise.Spec.Scheduling)
-	if err != nil {
-		return fmt.Errorf("failed to marshal scheduling %w", err)
-	}
-
-	configMap := v1.ConfigMap{
-		ObjectMeta: metav1.ObjectMeta{
-			Name:      configMapName,
-			Namespace: configMapNamespace,
-			Labels:    promise.GenerateSharedLabels(),
-		},
-		Data: map[string]string{
-			"scheduling": string(schedulingYAML),
-		},
-	}
-
-	err = r.Client.Create(ctx, &configMap)
-	if err != nil {
-		logger.Error(err, "Error creating config map", "configMap", configMap.Name)
-	}
 	return nil
 }
 
@@ -369,27 +283,9 @@ func (r *PromiseReconciler) deletePromise(ctx context.Context, promise *v1alpha1
 		*enabled = false
 	}
 
-	if controllerutil.ContainsFinalizer(promise, schedulingConfigMapCleanupFinalizer) {
-		logger.Info("deleting resources associated with finalizer", "finalizer", schedulingConfigMapCleanupFinalizer)
-		err := r.deleteConfigMap(ctx, promise, logger)
-		if err != nil {
-			return defaultRequeue, err
-		}
-		return fastRequeue, nil
-	}
-
 	if controllerutil.ContainsFinalizer(promise, dynamicControllerDependantResourcesCleaupFinalizer) {
 		logger.Info("deleting resources associated with finalizer", "finalizer", dynamicControllerDependantResourcesCleaupFinalizer)
 		err := r.deleteDynamicControllerResources(ctx, promise, logger)
-		if err != nil {
-			return defaultRequeue, err
-		}
-		return fastRequeue, nil
-	}
-
-	if controllerutil.ContainsFinalizer(promise, crdCleanupFinalizer) {
-		logger.Info("deleting CRDs associated with finalizer", "finalizer", crdCleanupFinalizer)
-		err := r.deleteCRDs(ctx, promise, logger)
 		if err != nil {
 			return defaultRequeue, err
 		}
@@ -405,39 +301,39 @@ func (r *PromiseReconciler) deletePromise(ctx context.Context, promise *v1alpha1
 		return fastRequeue, nil
 	}
 
+	if controllerutil.ContainsFinalizer(promise, crdCleanupFinalizer) {
+		logger.Info("deleting CRDs associated with finalizer", "finalizer", crdCleanupFinalizer)
+		err := r.deleteCRDs(ctx, promise, logger)
+		if err != nil {
+			return defaultRequeue, err
+		}
+		return fastRequeue, nil
+	}
+
 	return fastRequeue, nil
 }
 
-// crb + cr + sa things we create for the pipeline
-// crb + cr attach to our existing service account
 func (r *PromiseReconciler) deleteDynamicControllerResources(ctx context.Context, promise *v1alpha1.Promise, logger logr.Logger) error {
-	var resourcesToDelete []schema.GroupVersionKind
-	resourcesToDelete = append(resourcesToDelete, schema.GroupVersionKind{
-		Group:   rbacv1.SchemeGroupVersion.Group,
-		Version: rbacv1.SchemeGroupVersion.Version,
-		Kind:    "ClusterRoleBinding",
-	})
+	resourcesToDelete := map[schema.GroupVersion][]string{
+		rbacv1.SchemeGroupVersion: {"ClusterRoleBinding", "ClusterRole", "RoleBinding", "Role"},
+		v1.SchemeGroupVersion:     {"ServiceAccount", "ConfigMap"},
+	}
 
-	resourcesToDelete = append(resourcesToDelete, schema.GroupVersionKind{
-		Group:   rbacv1.SchemeGroupVersion.Group,
-		Version: rbacv1.SchemeGroupVersion.Version,
-		Kind:    "ClusterRole",
-	})
+	for gv, toDelete := range resourcesToDelete {
+		for _, resource := range toDelete {
+			gvk := schema.GroupVersionKind{
+				Group:   gv.Group,
+				Version: gv.Version,
+				Kind:    resource,
+			}
+			resourcesRemaining, err := deleteAllResourcesWithKindMatchingLabel(ctx, r.Client, gvk, promise.GenerateSharedLabels(), logger)
+			if err != nil {
+				return err
+			}
 
-	resourcesToDelete = append(resourcesToDelete, schema.GroupVersionKind{
-		Group:   v1.SchemeGroupVersion.Group,
-		Version: v1.SchemeGroupVersion.Version,
-		Kind:    "ServiceAccount",
-	})
-
-	for _, gvk := range resourcesToDelete {
-		resourcesRemaining, err := deleteAllResourcesWithKindMatchingLabel(ctx, r.Client, gvk, promise.GenerateSharedLabels(), logger)
-		if err != nil {
-			return err
-		}
-
-		if resourcesRemaining {
-			return nil
+			if resourcesRemaining {
+				return nil
+			}
 		}
 	}
 
@@ -462,26 +358,6 @@ func (r *PromiseReconciler) deleteResourceRequests(ctx context.Context, promise 
 		if err := r.Client.Update(ctx, promise); err != nil {
 			return err
 		}
-	}
-
-	return nil
-}
-
-func (r *PromiseReconciler) deleteConfigMap(ctx context.Context, promise *v1alpha1.Promise, logger logr.Logger) error {
-	gvk := schema.GroupVersionKind{
-		Group:   v1.SchemeGroupVersion.Group,
-		Version: v1.SchemeGroupVersion.Version,
-		Kind:    "ConfigMap",
-	}
-
-	resourcesRemaining, err := deleteAllResourcesWithKindMatchingLabel(ctx, r.Client, gvk, promise.GenerateSharedLabels(), logger)
-	if err != nil {
-		return err
-	}
-
-	if !resourcesRemaining {
-		controllerutil.RemoveFinalizer(promise, schedulingConfigMapCleanupFinalizer)
-		return r.Client.Update(ctx, promise)
 	}
 
 	return nil
@@ -614,7 +490,7 @@ func (r *PromiseReconciler) createWorkResourceForDependencies(ctx context.Contex
 	workToCreate := &v1alpha1.Work{}
 	workToCreate.Spec.Replicas = v1alpha1.WorkerResourceReplicas
 	workToCreate.Name = promise.GetIdentifier()
-	workToCreate.Namespace = "default"
+	workToCreate.Namespace = KratixSystemNamespace
 	workToCreate.Labels = promise.GenerateSharedLabels()
 	workToCreate.Spec.Scheduling.Promise = promise.Spec.Scheduling
 	for _, u := range promise.Spec.Dependencies {

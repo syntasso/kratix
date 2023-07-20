@@ -69,9 +69,8 @@ func (r *WorkPlacementReconciler) Reconcile(ctx context.Context, req ctrl.Reques
 	}
 
 	cluster := &platformv1alpha1.Cluster{}
-	clusterName := types.NamespacedName{
-		Name:      workPlacement.Spec.TargetClusterName,
-		Namespace: "default",
+	clusterName := client.ObjectKey{
+		Name: workPlacement.Spec.TargetClusterName,
 	}
 	err = r.Client.Get(context.Background(), clusterName, cluster)
 	if err != nil {
@@ -79,7 +78,7 @@ func (r *WorkPlacementReconciler) Reconcile(ctx context.Context, req ctrl.Reques
 		return ctrl.Result{}, err
 	}
 
-	work := r.getWork(workPlacement.Spec.WorkName, logger)
+	work := r.getWork(workPlacement.Spec.WorkName, workPlacement.GetNamespace(), logger)
 	workNamespacedName := workPlacement.Namespace + "-" + workPlacement.Spec.WorkName
 
 	paths := repoFilePaths{
@@ -189,10 +188,10 @@ func (r *WorkPlacementReconciler) removeWorkFromRepository(writer writers.StateS
 	return nil
 }
 
-func (r *WorkPlacementReconciler) getWork(workName string, logger logr.Logger) *platformv1alpha1.Work {
+func (r *WorkPlacementReconciler) getWork(workName, workNamespace string, logger logr.Logger) *platformv1alpha1.Work {
 	work := &platformv1alpha1.Work{}
 	namespaceName := types.NamespacedName{
-		Namespace: "default",
+		Namespace: workNamespace,
 		Name:      workName,
 	}
 	r.Client.Get(context.Background(), namespaceName, work)

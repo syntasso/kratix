@@ -21,7 +21,7 @@ type WorkCreator struct {
 	K8sClient client.Client
 }
 
-func (w *WorkCreator) Execute(rootDirectory string, identifier string) error {
+func (w *WorkCreator) Execute(rootDirectory string, identifier, namespace string) error {
 	inputDirectory := filepath.Join(rootDirectory, "input")
 
 	files, err := ioutil.ReadDir(inputDirectory)
@@ -59,7 +59,7 @@ func (w *WorkCreator) Execute(rootDirectory string, identifier string) error {
 
 	work := platformv1alpha1.Work{}
 	work.Name = identifier
-	work.Namespace = "default"
+	work.Namespace = namespace
 	work.Spec.Replicas = platformv1alpha1.ResourceRequestReplicas
 
 	pipelineScheduling, err := w.getPipelineScheduling(rootDirectory)

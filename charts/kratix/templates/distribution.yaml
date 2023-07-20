@@ -237,6 +237,28 @@ rules:
       - get
       - list
       - watch
+  - apiGroups:
+      - rbac.authorization.k8s.io
+    resources:
+      - rolebindings
+    verbs:
+      - create
+      - delete
+      - get
+      - list
+      - watch
+  - apiGroups:
+      - rbac.authorization.k8s.io
+    resources:
+      - roles
+    verbs:
+      - bind
+      - create
+      - delete
+      - escalate
+      - get
+      - list
+      - watch
 ---
 apiVersion: rbac.authorization.k8s.io/v1
 kind: ClusterRole
@@ -327,7 +349,7 @@ metadata:
 ---
 apiVersion: v1
 data:
-  WC_IMG: syntasso/kratix-platform-pipeline-adapter:698ba74ec79af799976d41da6b3069ff32c7ca14
+  WC_IMG: syntasso/kratix-platform-pipeline-adapter:36fe47045ac0c9c20faaf9031defabb50841405b
 kind: ConfigMap
 metadata:
   name: kratix-platform-wc-img-config
@@ -388,7 +410,7 @@ spec:
                 configMapKeyRef:
                   key: WC_IMG
                   name: kratix-platform-wc-img-config
-          image: syntasso/kratix-platform:698ba74ec79af799976d41da6b3069ff32c7ca14
+          image: syntasso/kratix-platform:36fe47045ac0c9c20faaf9031defabb50841405b
           livenessProbe:
             httpGet:
               path: /healthz

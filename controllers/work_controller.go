@@ -68,7 +68,7 @@ func (r *WorkReconciler) Reconcile(ctx context.Context, req ctrl.Request) (ctrl.
 	// If Work already has a WorkPlacement then return
 	workPlacementList := &platformv1alpha1.WorkPlacementList{}
 	workPlacementListOptions := &client.ListOptions{
-		Namespace: "default",
+		Namespace: work.GetNamespace(),
 	}
 	logger.Info("Listing Workplacements for Work")
 	err = r.Client.List(context.Background(), workPlacementList, workPlacementListOptions)

@@ -85,6 +85,7 @@ type PromiseStatus struct {
 
 //+kubebuilder:object:root=true
 //+kubebuilder:subresource:status
+//+kubebuilder:resource:scope=Cluster,path=promises
 
 // Promise is the Schema for the promises API
 type Promise struct {
@@ -120,8 +121,10 @@ func (p *Promise) GenerateSharedLabels() map[string]string {
 		"kratix-promise-id": p.GetIdentifier(),
 	}
 }
+
+// TODO rename or remove func
 func (p *Promise) GetIdentifier() string {
-	return p.GetName() + "-" + p.GetNamespace()
+	return p.GetName()
 }
 
 func (p *Promise) GetControllerResourceName() string {
