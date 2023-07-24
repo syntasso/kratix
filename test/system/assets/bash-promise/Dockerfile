@@ -8,5 +8,5 @@ RUN chmod u+x kubectl && mv kubectl /bin/kubectl
 ARG CONTAINER_INDEX
 ENV CONTAINER_INDEX=${CONTAINER_INDEX}
 
-CMD [ "sh", "-c", "eval \"$(yq .spec.container${CONTAINER_INDEX}Cmd /input/object.yaml)\"" ]
+CMD [ "sh", "-c", "eval \"$(yq .spec.container${CONTAINER_INDEX}Cmd /kratix/input/object.yaml)\"" ]
 ENTRYPOINT []

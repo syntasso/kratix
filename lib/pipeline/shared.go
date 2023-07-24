@@ -101,7 +101,7 @@ func configMap(resources pipelineArgs, scheduling []v1alpha1.SchedulingConfig) (
 	}, nil
 }
 
-func readerContainerAndVolume(rr *unstructured.Unstructured) (v1.Container, v1.Volume) {
+func readerContainer(rr *unstructured.Unstructured, volumeName string) v1.Container {
 	resourceKindNameNamespace := fmt.Sprintf("%s.%s %s --namespace %s",
 		strings.ToLower(rr.GetKind()), rr.GroupVersionKind().Group, rr.GetName(), rr.GetNamespace())
 
@@ -111,15 +111,11 @@ func readerContainerAndVolume(rr *unstructured.Unstructured) (v1.Container, v1.V
 		Image:   "bitnami/kubectl:1.20.10",
 		Command: []string{"sh", "-c", resourceRequestCommand},
 		VolumeMounts: []v1.VolumeMount{
-			{
-				MountPath: "/output",
-				Name:      "vol0",
-			},
+			{MountPath: "/output", Name: volumeName},
 		},
 	}
 
-	volume := v1.Volume{Name: "vol0", VolumeSource: v1.VolumeSource{EmptyDir: &v1.EmptyDirVolumeSource{}}}
-	return container, volume
+	return container
 }
 
 func pipelineName(pipelineType, promiseIdentifier string) string {
