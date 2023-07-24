@@ -6,6 +6,5 @@ FROM alpine:3.15.5
 ADD postgres-resource-request.yaml /transfer-input/postgres-resource-request.yaml
 ADD knative-resource-request.yaml /transfer-input/knative-resource-request.yaml
 
-# To debug: 
-#  docker run -v `pwd`/input/:/input -v `pwd`/output/:/output syntasso/kustomize-redis
-CMD [ "sh", "-c", "cp /transfer-input/* /output" ]
+# To debug:
+CMD [ "sh", "-c", "cp /transfer-input/* /kratix/output" ]
