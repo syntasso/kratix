@@ -42,7 +42,7 @@ const pipelineTimeout = "--timeout=89s"
 // case may be wanting to test status works which requires a written to a
 // specific location. To do this you can write a RR that has the following:
 //
-// container0Cmd: echo "statusTest: pass" > /metadata/status.yaml
+// container0Cmd: echo "statusTest: pass" > /kratix/metadata/status.yaml
 //
 // The commands will be run in the pipeline container that is named in the spec.
 // The Promise pipeline will always have a set number of containers, though
@@ -94,12 +94,12 @@ var _ = Describe("Kratix", func() {
 
 				c1Command := `kop="delete"
 							if [ "${KRATIX_OPERATION}" != "delete" ]; then kop="create"
-								echo "message: My awesome status message" > /metadata/status.yaml
-								echo "key: value" >> /metadata/status.yaml
+								echo "message: My awesome status message" > /kratix/metadata/status.yaml
+								echo "key: value" >> /kratix/metadata/status.yaml
 							fi
-              kubectl ${kop} namespace imperative-$(yq '.metadata.name' /input/object.yaml)`
+              kubectl ${kop} namespace imperative-$(yq '.metadata.name' /kratix/input/object.yaml)`
 
-				c2Command := `kubectl create namespace declarative-$(yq '.metadata.name' /input/object.yaml) --dry-run=client -oyaml > /output/namespace.yaml`
+				c2Command := `kubectl create namespace declarative-$(yq '.metadata.name' /kratix/input/object.yaml) --dry-run=client -oyaml > /kratix/output/namespace.yaml`
 
 				commands := []string{c1Command, c2Command}
 
@@ -109,7 +109,7 @@ var _ = Describe("Kratix", func() {
 					platform.kubectl("wait", "--for=condition=PipelineCompleted", "bash", rrName, pipelineTimeout)
 				})
 
-				By("deploying the contents of /output to the worker cluster", func() {
+				By("deploying the contents of /kratix/output to the worker cluster", func() {
 					platform.eventuallyKubectl("get", "namespace", "imperative-rr-test")
 					worker.eventuallyKubectl("get", "namespace", "declarative-rr-test")
 				})
@@ -184,8 +184,8 @@ var _ = Describe("Kratix", func() {
 			})
 
 			By("respecting the pipeline's scheduling", func() {
-				pipelineCmd := `echo "[{\"target\":{\"matchLabels\":{\"pci\":\"true\"}}}]" > /metadata/scheduling.yaml
-				kubectl create namespace rr-2-namespace --dry-run=client -oyaml > /output/ns.yaml`
+				pipelineCmd := `echo "[{\"target\":{\"matchLabels\":{\"pci\":\"true\"}}}]" > /kratix/metadata/scheduling.yaml
+				kubectl create namespace rr-2-namespace --dry-run=client -oyaml > /kratix/output/ns.yaml`
 				platform.kubectl("apply", "-f", requestWithNameAndCommand("rr-2", pipelineCmd))
 
 				platform.kubectl("wait", "--for=condition=PipelineCompleted", "bash", "rr-2", pipelineTimeout)
@@ -207,7 +207,7 @@ var _ = Describe("Kratix", func() {
 func requestWithNameAndCommand(name string, containerCmds ...string) string {
 	normalisedCmds := make([]string, 2)
 	for i := range normalisedCmds {
-		cmd := "cp /input/* /output;"
+		cmd := ""
 		if len(containerCmds) > i {
 			cmd += " " + containerCmds[i]
 		}
@@ -219,7 +219,7 @@ func requestWithNameAndCommand(name string, containerCmds ...string) string {
 	if strings.HasSuffix(normalisedCmds[lci], ";") {
 		lastCommand = lastCommand[:len(lastCommand)-1]
 	}
-	normalisedCmds[lci] = lastCommand + "; rm /output/object.yaml"
+	normalisedCmds[lci] = lastCommand
 
 	file, err := ioutil.TempFile("", "kratix-test")
 	ExpectWithOffset(1, err).NotTo(HaveOccurred())
@@ -233,7 +233,7 @@ func requestWithNameAndCommand(name string, containerCmds ...string) string {
 	fmt.Fprintln(GinkgoWriter, "Resource Request:")
 	fmt.Fprintln(GinkgoWriter, contents)
 
-	ExpectWithOffset(1, ioutil.WriteFile(file.Name(), []byte(contents), 644)).NotTo(HaveOccurred())
+	ExpectWithOffset(1, ioutil.WriteFile(file.Name(), []byte(contents), 0644)).NotTo(HaveOccurred())
 
 	return file.Name()
 }

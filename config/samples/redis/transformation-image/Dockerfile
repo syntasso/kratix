@@ -6,7 +6,7 @@ FROM line/kubectl-kustomize:1.24.2-4.5.5
 ADD scheduling.yaml /transfer-metadata/scheduling.yaml
 ADD kustomization.yaml /transfer-input/kustomization.yaml
 
-# To debug: 
+# To debug:
 #  kubectl get redis.redis.redis.opstreelabs.in opstree-redis --namespace default -oyaml > input/object.yaml
 #  docker run -v `pwd`/input/:/input -v `pwd`/output/:/output syntasso/kustomize-redis
-CMD [ "-c", "cp /transfer-metadata/* /metadata/; cp /transfer-input/* /input/; kustomize build /input/ > /output/output.yaml" ]
+CMD [ "-c", "cp /transfer-metadata/* /kratix/metadata/; cp /transfer-input/* /kratix/input/; kustomize build /kratix/input/ > /kratix/output/output.yaml" ]
