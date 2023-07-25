@@ -47,11 +47,10 @@ var _ = Context("Promise Reconciler", func() {
 		ctx                 = context.Background()
 		promiseCommonLabels map[string]string
 
-		expectedCRDName = "redis.redis.redis.opstreelabs.in"
+		expectedCRDName = "redises.redis.redis.opstreelabs.in"
 
 		requestedResource  *unstructured.Unstructured
 		resourceCommonName types.NamespacedName
-		kind               string
 		yamlContent        = map[string]*v1alpha1.Promise{}
 	)
 
@@ -81,7 +80,7 @@ var _ = Context("Promise Reconciler", func() {
 	Describe("Promise reconciliation lifecycle", func() {
 		var (
 			promiseGroup        = "redis.redis.opstreelabs.in"
-			promiseResourceName = "redis"
+			promiseResourceName = "redises"
 		)
 
 		BeforeEach(func() {
@@ -93,7 +92,6 @@ var _ = Context("Promise Reconciler", func() {
 
 		When("the promise is installed", func() {
 			It("creates a CRD for the promise", func() {
-				expectedCRDName := "redis.redis.redis.opstreelabs.in"
 				Eventually(func() string {
 					crd, _ := apiextensionClient.
 						ApiextensionsV1().
@@ -103,7 +101,7 @@ var _ = Context("Promise Reconciler", func() {
 					// The returned CRD is missing the expected metadata,
 					// therefore we need to reach inside the spec to get the
 					// underlying Redis crd definition to allow us to assert correctly.
-					return crd.Spec.Names.Singular + "." + crd.Spec.Group
+					return crd.Spec.Names.Plural + "." + crd.Spec.Group
 				}, timeout, interval).Should(Equal(expectedCRDName))
 			})
 
@@ -189,7 +187,6 @@ var _ = Context("Promise Reconciler", func() {
 
 			BeforeEach(func() {
 				requestOnce("../config/samples/redis/redis-resource-request.yaml")
-				kind = requestedResource.GroupVersionKind().GroupKind().Kind
 				resourceCommonName = types.NamespacedName{
 					Name:      promiseCR.GetIdentifier() + "-promise-pipeline",
 					Namespace: "default",
@@ -216,12 +213,11 @@ var _ = Context("Promise Reconciler", func() {
 				}, timeout, interval).Should(BeNil(), "Expected Role for pipeline to exist")
 
 				Expect(role.GetLabels()).To(Equal(resourceLabels))
-				lowercaseKind := strings.ToLower(kind)
 				Expect(role.Rules).To(ConsistOf(
 					rbacv1.PolicyRule{
 						Verbs:     []string{"get", "list", "update", "create", "patch"},
 						APIGroups: []string{promiseGroup},
-						Resources: []string{lowercaseKind, lowercaseKind + "/status"},
+						Resources: []string{"redises", "redises/status"},
 					},
 					rbacv1.PolicyRule{
 						Verbs:     []string{"get", "update", "create", "patch"},
@@ -517,7 +513,7 @@ var _ = Context("Promise Reconciler", func() {
 				// The returned CRD is missing the expected metadata,
 				// therefore we need to reach inside the spec to get the
 				// underlying Redis crd definition to allow us to assert correctly.
-				return crd.Spec.Names.Singular + "." + crd.Spec.Group
+				return crd.Spec.Names.Plural + "." + crd.Spec.Group
 			}, timeout, interval).Should(Equal(expectedCRDName))
 
 			status, ok := crd.Spec.Versions[0].Schema.OpenAPIV3Schema.Properties["status"]

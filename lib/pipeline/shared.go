@@ -9,6 +9,7 @@ import (
 	"gopkg.in/yaml.v2"
 	v1 "k8s.io/api/core/v1"
 	rbacv1 "k8s.io/api/rbac/v1"
+	apiextensionsv1 "k8s.io/apiextensions-apiserver/pkg/apis/apiextensions/v1"
 	metav1 "k8s.io/apimachinery/pkg/apis/meta/v1"
 	"k8s.io/apimachinery/pkg/apis/meta/v1/unstructured"
 	"k8s.io/apimachinery/pkg/util/uuid"
@@ -16,8 +17,7 @@ import (
 
 const kratixOperationEnvVar = "KRATIX_OPERATION"
 
-func role(rr *unstructured.Unstructured, resources pipelineArgs) *rbacv1.Role {
-	kind := strings.ToLower(rr.GetKind())
+func role(rr *unstructured.Unstructured, names apiextensionsv1.CustomResourceDefinitionNames, resources pipelineArgs) *rbacv1.Role {
 	return &rbacv1.Role{
 		TypeMeta: metav1.TypeMeta{
 			Kind: "Role",
@@ -30,7 +30,7 @@ func role(rr *unstructured.Unstructured, resources pipelineArgs) *rbacv1.Role {
 		Rules: []rbacv1.PolicyRule{
 			{
 				APIGroups: []string{rr.GroupVersionKind().Group},
-				Resources: []string{kind, kind + "/status"},
+				Resources: []string{names.Plural, names.Plural + "/status"},
 				Verbs:     []string{"get", "list", "update", "create", "patch"},
 			},
 			{

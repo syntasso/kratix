@@ -10,13 +10,13 @@ spec:
       annotations:
         controller-gen.kubebuilder.io/version: v0.4.1
       creationTimestamp: null
-      name: redis.redis.redis.opstreelabs.in
+      name: redises.redis.redis.opstreelabs.in
     spec:
       group: redis.redis.opstreelabs.in
       names:
         kind: Redis
         listKind: RedisList
-        plural: redis
+        plural: redises
         singular: redis
       scope: Namespaced
       versions:
