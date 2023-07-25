@@ -8,6 +8,7 @@ import (
 
 	platformv1alpha1 "github.com/syntasso/kratix/api/v1alpha1"
 	v1 "k8s.io/api/core/v1"
+	apiextensionsv1 "k8s.io/apiextensions-apiserver/pkg/apis/apiextensions/v1"
 	metav1 "k8s.io/apimachinery/pkg/apis/meta/v1"
 	"k8s.io/apimachinery/pkg/apis/meta/v1/unstructured"
 	"sigs.k8s.io/controller-runtime/pkg/client"
@@ -19,6 +20,7 @@ const (
 
 func NewConfigurePipeline(
 	rr *unstructured.Unstructured,
+	crdNames apiextensionsv1.CustomResourceDefinitionNames,
 	pipelines []platformv1alpha1.Pipeline,
 	resourceRequestIdentifier,
 	promiseIdentifier string,
@@ -33,7 +35,7 @@ func NewConfigurePipeline(
 
 	resources := []client.Object{
 		serviceAccount(pipelineResources),
-		role(rr, pipelineResources),
+		role(rr, crdNames, pipelineResources),
 		roleBinding((pipelineResources)),
 		configMap,
 		configurePipelinePod(rr, pipelines, pipelineResources),

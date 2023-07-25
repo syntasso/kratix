@@ -20,6 +20,7 @@ import (
 	"context"
 	"time"
 
+	apiextensionsv1 "k8s.io/apiextensions-apiserver/pkg/apis/apiextensions/v1"
 	"k8s.io/apimachinery/pkg/labels"
 	"k8s.io/apimachinery/pkg/types"
 	"sigs.k8s.io/controller-runtime/pkg/controller/controllerutil"
@@ -64,6 +65,7 @@ type dynamicResourceRequestController struct {
 	finalizers         []string
 	uid                string
 	enabled            *bool
+	crd                *apiextensionsv1.CustomResourceDefinition
 }
 
 //+kubebuilder:rbac:groups="",resources=pods,verbs=create;list;watch;delete
@@ -126,6 +128,7 @@ func (r *dynamicResourceRequestController) Reconcile(ctx context.Context, req ct
 
 	resources, err := pipeline.NewConfigurePipeline(
 		rr,
+		r.crd.Spec.Names,
 		r.configurePipelines,
 		resourceRequestIdentifier,
 		r.promiseIdentifier,

@@ -140,7 +140,7 @@ func (r *PromiseReconciler) Reconcile(ctx context.Context, req ctrl.Request) (ct
 	if err != nil {
 		return ctrl.Result{}, err
 	}
-	return ctrl.Result{}, r.startDynamicController(promise, rrGVK, configurePipelines, deletePipelines)
+	return ctrl.Result{}, r.startDynamicController(promise, rrCRD, rrGVK, configurePipelines, deletePipelines)
 }
 
 func getDesiredFinalizers(promise *v1alpha1.Promise) []string {
@@ -150,7 +150,7 @@ func getDesiredFinalizers(promise *v1alpha1.Promise) []string {
 	return promiseFinalizers
 }
 
-func (r *PromiseReconciler) startDynamicController(promise *v1alpha1.Promise, rrGVK schema.GroupVersionKind, configurePipelines, deletePipelines []v1alpha1.Pipeline) error {
+func (r *PromiseReconciler) startDynamicController(promise *v1alpha1.Promise, rrCRD *apiextensionsv1.CustomResourceDefinition, rrGVK schema.GroupVersionKind, configurePipelines, deletePipelines []v1alpha1.Pipeline) error {
 	//temporary fix until https://github.com/kubernetes-sigs/controller-runtime/issues/1884 is resolved
 	//once resolved, delete dynamic controller rather than disable
 	enabled := true
@@ -160,6 +160,7 @@ func (r *PromiseReconciler) startDynamicController(promise *v1alpha1.Promise, rr
 		Client:             r.Manager.GetClient(),
 		scheme:             r.Manager.GetScheme(),
 		gvk:                &rrGVK,
+		crd:                rrCRD,
 		promiseIdentifier:  promise.GetIdentifier(),
 		promiseScheduling:  promise.Spec.Scheduling,
 		configurePipelines: configurePipelines,
