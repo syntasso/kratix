@@ -8,5 +8,5 @@ ADD kustomization.yaml /transfer-input/kustomization.yaml
 
 # To debug:
 #  kubectl get redis.redis.redis.opstreelabs.in opstree-redis --namespace default -oyaml > input/object.yaml
-#  docker run -v `pwd`/input/:/input -v `pwd`/output/:/output syntasso/kustomize-redis
+#  docker run -v `pwd`/input/:/kratix/input -v `pwd`/output/:/kratix/output syntasso/kustomize-redis
 CMD [ "-c", "cp /transfer-metadata/* /kratix/metadata/; cp /transfer-input/* /kratix/input/; kustomize build /kratix/input/ > /kratix/output/output.yaml" ]

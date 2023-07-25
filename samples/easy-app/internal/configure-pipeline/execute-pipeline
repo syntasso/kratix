@@ -3,9 +3,9 @@
 set -x
 
 # Read current values from the provided resource request
-export name="$(yq eval '.spec.name' /input/object.yaml)"
-export image="$(yq eval '.spec.image' /input/object.yaml)"
-export db_driver="$(yq eval '.spec.dbDriver' /input/object.yaml)"
+export name="$(yq eval '.spec.name' /kratix/input/object.yaml)"
+export image="$(yq eval '.spec.image' /kratix/input/object.yaml)"
+export db_driver="$(yq eval '.spec.dbDriver' /kratix/input/object.yaml)"
 export db_name="${name}db"
 
 
@@ -14,9 +14,9 @@ if [ $db_driver = 'postgres' ]; then
   cat /tmp/transfer/postgresql-resource-request.yaml \
     | yq eval '.metadata.name = env(name)
       | .spec.dbName = env(db_name)' \
-    > /output/postgresql-resource-request.yaml
+    > /kratix/output/postgresql-resource-request.yaml
 fi
 
 cat /tmp/transfer/deployment-resource-request.yaml \
   | yq eval '.metadata.name = env(name) | .spec.image = env(image)' \
-  > /output/deployment-resource-request.yaml
+  > /kratix/output/deployment-resource-request.yaml

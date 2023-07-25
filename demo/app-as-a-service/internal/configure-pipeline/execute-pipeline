@@ -3,10 +3,10 @@
 set -x
 
 # Read current values from the provided resource request
-export name="$(yq eval '.spec.name' /input/object.yaml)"
-export image="$(yq eval '.spec.image' /input/object.yaml)"
-export db_driver="$(yq eval '.spec.dbDriver' /input/object.yaml)"
-export contains_cc="$(yq eval '.spec.containsCreditCardData' /input/object.yaml)"
+export name="$(yq eval '.spec.name' /kratix/input/object.yaml)"
+export image="$(yq eval '.spec.image' /kratix/input/object.yaml)"
+export db_driver="$(yq eval '.spec.dbDriver' /kratix/input/object.yaml)"
+export contains_cc="$(yq eval '.spec.containsCreditCardData' /kratix/input/object.yaml)"
 export db_name="${name}db"
 
 
@@ -18,23 +18,23 @@ if [ $db_driver = 'postgres' ]; then
     | yq eval '.metadata.name = env(name)
       | .spec.dbName = env(db_name)
       | .spec.clusterSelectors = env(clusterLabels)' \
-    > /output/postgresql-resource-request.yaml
+    > /kratix/output/postgresql-resource-request.yaml
 fi
 
 cat /tmp/transfer/redis-resource-request.yaml \
   | yq eval '.metadata.name = env(name)
   | .spec.clusterSelectors = env(clusterLabels)' \
-  > /output/redis-resource-request.yaml
+  > /kratix/output/redis-resource-request.yaml
 
 export message="Deployping app: ${name}"
 if [ $contains_cc = 'true' ]; then
   cat /tmp/transfer/slack-resource-request.yaml \
     | yq eval '.metadata.name = env(name) | .spec.message = "Deploying app: " + env(name) + " to pci-secure environment"' \
-    > /output/slack-resource-request.yaml
+    > /kratix/output/slack-resource-request.yaml
 else
   cat /tmp/transfer/slack-resource-request.yaml \
     | yq eval '.metadata.name = env(name) | .spec.message = "Deploying app: " + env(name)' \
-    > /output/slack-resource-request.yaml
+    > /kratix/output/slack-resource-request.yaml
 fi
 
 cat /tmp/transfer/deployment-resource-request.yaml \
@@ -42,4 +42,4 @@ cat /tmp/transfer/deployment-resource-request.yaml \
   | .spec.image = env(image)
   | .spec.clusterSelectors = env(clusterLabels)
   | .spec.containsCreditCardData = env(contains_cc)' \
-  > /output/deployment-resource-request.yaml
+  > /kratix/output/deployment-resource-request.yaml
