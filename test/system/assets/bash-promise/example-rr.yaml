@@ -4,9 +4,9 @@ metadata:
   name: example-rr
 spec:
   container0Cmd: |
-    echo "configmap: multi-container-config" >> /input/container-0.txt
+    echo "configmap: multi-container-config" >> /kratix/input/container-0.txt
     echo "done"
 
   container1Cmd: |
-    kubectl create configmap $(yq '.configmap' /input/container-0.txt) --dry-run=client -oyaml > /output/configmap.yaml
+    kubectl create configmap $(yq '.configmap' /kratix/input/container-0.txt) --dry-run=client -oyaml > /kratix/output/configmap.yaml
     echo "done"

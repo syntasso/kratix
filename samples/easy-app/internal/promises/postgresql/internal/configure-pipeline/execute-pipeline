@@ -5,14 +5,14 @@ set -x
 base_instance="/tmp/transfer/postgresql-instance.yaml"
 
 # Read current values from the provided resource request
-name="$(yq eval '.metadata.name' /input/object.yaml)"
+name="$(yq eval '.metadata.name' /kratix/input/object.yaml)"
 
-env_type="$(yq eval '.spec.env // "dev"' /input/object.yaml)"
-team="$(yq eval '.spec.teamId' /input/object.yaml)"
-dbname="$(yq eval '.spec.dbName // "postgres"' /input/object.yaml)"
-cluster_selectors="$(yq eval '.spec.clusterSelectors // ""' /input/object.yaml)"
+env_type="$(yq eval '.spec.env // "dev"' /kratix/input/object.yaml)"
+team="$(yq eval '.spec.teamId' /kratix/input/object.yaml)"
+dbname="$(yq eval '.spec.dbName // "postgres"' /kratix/input/object.yaml)"
+cluster_selectors="$(yq eval '.spec.clusterSelectors // ""' /kratix/input/object.yaml)"
 if [ -n "$cluster_selectors" ]; then
-  echo "[ target: { matchLabels: { $cluster_selectors } } ]" > /metadata/scheduling.yaml
+  echo "[ target: { matchLabels: { $cluster_selectors } } ]" > /kratix/metadata/scheduling.yaml
 fi
 
 backup="false"
@@ -31,5 +31,5 @@ cat ${base_instance} |
   sed "s/SIZE/${size}/g" |
   sed "s/DBNAME/${dbname}/g" |
   sed "s/INSTANCES/${instances}/g" |
-  sed "s/NAME/${name}/g" > /output/postgres-instance.yaml
+  sed "s/NAME/${name}/g" > /kratix/output/postgres-instance.yaml
 

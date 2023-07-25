@@ -2,14 +2,14 @@
 
 set -xe
 
-export name="$(yq eval '.metadata.name' /input/object.yaml)"
-export image="$(yq eval '.spec.image' /input/object.yaml)"
+export name="$(yq eval '.metadata.name' /kratix/input/object.yaml)"
+export image="$(yq eval '.spec.image' /kratix/input/object.yaml)"
 
 sed "s/TBDNAME/${name}/g" /tmp/transfer/deployment.yaml > /tmp/deployment.yaml
-sed "s_TBDIMAGE_${image}_g" /tmp/deployment.yaml > /output/deployment.yaml
+sed "s_TBDIMAGE_${image}_g" /tmp/deployment.yaml > /kratix/output/deployment.yaml
 
 
-sed "s/TBDNAME/${name}/g" /tmp/transfer/service.yaml > /output/service.yaml
+sed "s/TBDNAME/${name}/g" /tmp/transfer/service.yaml > /kratix/output/service.yaml
 
-sed "s/TBDNAME/${name}/g" /tmp/transfer/ingress.yaml > /output/ingress.yaml
+sed "s/TBDNAME/${name}/g" /tmp/transfer/ingress.yaml > /kratix/output/ingress.yaml
 
