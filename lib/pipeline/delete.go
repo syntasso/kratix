@@ -34,16 +34,7 @@ func NewDeletePipeline(rr *unstructured.Unstructured, pipelines []platformv1alph
 }
 
 func deletePipelineContainers(rr *unstructured.Unstructured, pipelines []platformv1alpha1.Pipeline) ([]v1.Container, []v1.Volume) {
-	volumes := []v1.Volume{
-		{Name: "shared-input", VolumeSource: v1.VolumeSource{EmptyDir: &v1.EmptyDirVolumeSource{}}},
-		{Name: "shared-output", VolumeSource: v1.VolumeSource{EmptyDir: &v1.EmptyDirVolumeSource{}}},
-		{Name: "shared-metadata", VolumeSource: v1.VolumeSource{EmptyDir: &v1.EmptyDirVolumeSource{}}},
-	}
-	volumeMounts := []v1.VolumeMount{
-		{MountPath: "/kratix/input", Name: "shared-input", ReadOnly: true},
-		{MountPath: "/kratix/output", Name: "shared-output"},
-		{MountPath: "/kratix/metadata", Name: "shared-metadata"},
-	}
+	volumes, volumeMounts := pipelineVolumes()
 
 	readerContainer := readerContainer(rr, "shared-input")
 	containers := []v1.Container{

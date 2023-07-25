@@ -17,6 +17,20 @@ import (
 
 const kratixOperationEnvVar = "KRATIX_OPERATION"
 
+func pipelineVolumes() ([]v1.Volume, []v1.VolumeMount) {
+	volumes := []v1.Volume{
+		{Name: "shared-input", VolumeSource: v1.VolumeSource{EmptyDir: &v1.EmptyDirVolumeSource{}}},
+		{Name: "shared-output", VolumeSource: v1.VolumeSource{EmptyDir: &v1.EmptyDirVolumeSource{}}},
+		{Name: "shared-metadata", VolumeSource: v1.VolumeSource{EmptyDir: &v1.EmptyDirVolumeSource{}}},
+	}
+	volumeMounts := []v1.VolumeMount{
+		{MountPath: "/kratix/input", Name: "shared-input", ReadOnly: true},
+		{MountPath: "/kratix/output", Name: "shared-output"},
+		{MountPath: "/kratix/metadata", Name: "shared-metadata"},
+	}
+	return volumes, volumeMounts
+}
+
 func role(rr *unstructured.Unstructured, names apiextensionsv1.CustomResourceDefinitionNames, resources pipelineArgs) *rbacv1.Role {
 	return &rbacv1.Role{
 		TypeMeta: metav1.TypeMeta{
