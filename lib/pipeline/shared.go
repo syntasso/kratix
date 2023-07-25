@@ -17,6 +17,20 @@ import (
 
 const kratixOperationEnvVar = "KRATIX_OPERATION"
 
+func pipelineVolumes() ([]v1.Volume, []v1.VolumeMount) {
+	volumes := []v1.Volume{
+		{Name: "shared-input", VolumeSource: v1.VolumeSource{EmptyDir: &v1.EmptyDirVolumeSource{}}},
+		{Name: "shared-output", VolumeSource: v1.VolumeSource{EmptyDir: &v1.EmptyDirVolumeSource{}}},
+		{Name: "shared-metadata", VolumeSource: v1.VolumeSource{EmptyDir: &v1.EmptyDirVolumeSource{}}},
+	}
+	volumeMounts := []v1.VolumeMount{
+		{MountPath: "/kratix/input", Name: "shared-input", ReadOnly: true},
+		{MountPath: "/kratix/output", Name: "shared-output"},
+		{MountPath: "/kratix/metadata", Name: "shared-metadata"},
+	}
+	return volumes, volumeMounts
+}
+
 func role(rr *unstructured.Unstructured, names apiextensionsv1.CustomResourceDefinitionNames, resources pipelineArgs) *rbacv1.Role {
 	return &rbacv1.Role{
 		TypeMeta: metav1.TypeMeta{
@@ -101,7 +115,7 @@ func configMap(resources pipelineArgs, scheduling []v1alpha1.SchedulingConfig) (
 	}, nil
 }
 
-func readerContainerAndVolume(rr *unstructured.Unstructured) (v1.Container, v1.Volume) {
+func readerContainer(rr *unstructured.Unstructured, volumeName string) v1.Container {
 	resourceKindNameNamespace := fmt.Sprintf("%s.%s %s --namespace %s",
 		strings.ToLower(rr.GetKind()), rr.GroupVersionKind().Group, rr.GetName(), rr.GetNamespace())
 
@@ -111,15 +125,11 @@ func readerContainerAndVolume(rr *unstructured.Unstructured) (v1.Container, v1.V
 		Image:   "bitnami/kubectl:1.20.10",
 		Command: []string{"sh", "-c", resourceRequestCommand},
 		VolumeMounts: []v1.VolumeMount{
-			{
-				MountPath: "/output",
-				Name:      "vol0",
-			},
+			{MountPath: "/output", Name: volumeName},
 		},
 	}
 
-	volume := v1.Volume{Name: "vol0", VolumeSource: v1.VolumeSource{EmptyDir: &v1.EmptyDirVolumeSource{}}}
-	return container, volume
+	return container
 }
 
 func pipelineName(pipelineType, promiseIdentifier string) string {
