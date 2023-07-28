@@ -25,6 +25,7 @@ import (
 
 	. "github.com/onsi/ginkgo"
 	. "github.com/onsi/gomega"
+	batchv1 "k8s.io/api/batch/v1"
 	v1 "k8s.io/api/core/v1"
 	rbacv1 "k8s.io/api/rbac/v1"
 	apiextensions "k8s.io/apiextensions-apiserver/pkg/apis/apiextensions/v1"
@@ -279,7 +280,7 @@ var _ = Context("Promise Reconciler", func() {
 
 			It("triggers the resource configure workflow", func() {
 				Eventually(func() int {
-					pods := &v1.PodList{}
+					jobs := &batchv1.JobList{}
 					lo := &client.ListOptions{
 						LabelSelector: labels.SelectorFromSet(map[string]string{
 							"kratix-promise-id":    promiseCR.GetIdentifier(),
@@ -287,8 +288,8 @@ var _ = Context("Promise Reconciler", func() {
 						}),
 					}
 
-					Expect(k8sClient.List(ctx, pods, lo)).To(Succeed())
-					return len(pods.Items)
+					Expect(k8sClient.List(ctx, jobs, lo)).To(Succeed())
+					return len(jobs.Items)
 				}, timeout, interval).Should(Equal(1), "Configure Pipeline never trigerred")
 			})
 		})
@@ -299,23 +300,23 @@ var _ = Context("Promise Reconciler", func() {
 			})
 
 			It("executes the deletion process", func() {
-				deletePipeline := v1.Pod{}
+				deletePipeline := batchv1.Job{}
 
 				By("triggering the delete pipeline for the promise", func() {
 					Eventually(func() bool {
-						pods := &v1.PodList{}
-						err := k8sClient.List(ctx, pods)
+						jobs := &batchv1.JobList{}
+						err := k8sClient.List(ctx, jobs)
 						if err != nil {
 							return false
 						}
 
-						if len(pods.Items) == 0 {
+						if len(jobs.Items) == 0 {
 							return false
 						}
 
-						for _, pod := range pods.Items {
-							if strings.HasPrefix(pod.Name, "delete-pipeline-redis-promise") {
-								deletePipeline = pod
+						for _, job := range jobs.Items {
+							if strings.HasPrefix(job.Name, "delete-pipeline-redis-promise") {
+								deletePipeline = job
 								return true
 							}
 						}
@@ -324,7 +325,9 @@ var _ = Context("Promise Reconciler", func() {
 				})
 
 				By("deleting the resources when the pipeline completes", func() {
-					completePipeline(ctx, &deletePipeline)
+					deletePipeline.Status.Succeeded = 1
+					Expect(k8sClient.Status().Update(ctx, &deletePipeline)).To(Succeed())
+
 					Eventually(func() int {
 						rrList := &unstructured.UnstructuredList{}
 						rrList.SetGroupVersionKind(requestedResource.GroupVersionKind())
@@ -557,16 +560,3 @@ var _ = Context("Promise Reconciler", func() {
 		})
 	})
 })
-
-func completePipeline(ctx context.Context, pipeline *v1.Pod) {
-	pipeline.Status.Conditions = []v1.PodCondition{
-		{
-			Status: "True",
-			Type:   "Initialized",
-			Reason: "PodCompleted",
-		},
-	}
-	pipeline.Status.Phase = v1.PodSucceeded
-
-	Expect(k8sClient.Status().Update(ctx, pipeline)).To(Succeed())
-}

@@ -6,6 +6,7 @@ import (
 	"strings"
 
 	platformv1alpha1 "github.com/syntasso/kratix/api/v1alpha1"
+	batchv1 "k8s.io/api/batch/v1"
 	v1 "k8s.io/api/core/v1"
 	apiextensionsv1 "k8s.io/apiextensions-apiserver/pkg/apis/apiextensions/v1"
 	metav1 "k8s.io/apimachinery/pkg/apis/meta/v1"
@@ -37,46 +38,53 @@ func NewConfigurePipeline(
 		role(rr, crdNames, pipelineResources),
 		roleBinding((pipelineResources)),
 		configMap,
-		configurePipelinePod(rr, pipelines, pipelineResources),
+		configurePipeline(rr, pipelines, pipelineResources),
 	}
 
 	return resources, nil
 }
 
-func configurePipelinePod(rr *unstructured.Unstructured, pipelines []platformv1alpha1.Pipeline, pipelineResources pipelineArgs) *v1.Pod {
+func configurePipeline(rr *unstructured.Unstructured, pipelines []platformv1alpha1.Pipeline, pipelineResources pipelineArgs) *batchv1.Job {
 	volumes := metadataAndSchedulingVolumes(pipelineResources.ConfigMapName())
 
 	initContainers, pipelineVolumes := configurePipelineInitContainers(rr, pipelines, pipelineResources.ResourceRequestID())
 	volumes = append(volumes, pipelineVolumes...)
 
 	rrKind := fmt.Sprintf("%s.%s", strings.ToLower(rr.GetKind()), rr.GroupVersionKind().Group)
-	return &v1.Pod{
+	return &batchv1.Job{
 		ObjectMeta: metav1.ObjectMeta{
 			Name:      pipelineResources.ConfigurePipelineName(),
 			Namespace: rr.GetNamespace(),
 			Labels:    pipelineResources.ConfigurePipelinePodLabels(),
 		},
-		Spec: v1.PodSpec{
-			RestartPolicy:      v1.RestartPolicyOnFailure,
-			ServiceAccountName: pipelineResources.ServiceAccountName(),
-			Containers: []v1.Container{
-				{
-					Name:    "status-writer",
-					Image:   os.Getenv("WC_IMG"),
-					Command: []string{"sh", "-c", "update-status"},
-					Env: []v1.EnvVar{
-						{Name: "RR_KIND", Value: rrKind},
-						{Name: "RR_NAME", Value: rr.GetName()},
-						{Name: "RR_NAMESPACE", Value: rr.GetNamespace()},
+		Spec: batchv1.JobSpec{
+			Template: v1.PodTemplateSpec{
+				ObjectMeta: metav1.ObjectMeta{
+					Labels: pipelineResources.ConfigurePipelinePodLabels(),
+				},
+				Spec: v1.PodSpec{
+					RestartPolicy:      v1.RestartPolicyOnFailure,
+					ServiceAccountName: pipelineResources.ServiceAccountName(),
+					Containers: []v1.Container{
+						{
+							Name:    "status-writer",
+							Image:   os.Getenv("WC_IMG"),
+							Command: []string{"sh", "-c", "update-status"},
+							Env: []v1.EnvVar{
+								{Name: "RR_KIND", Value: rrKind},
+								{Name: "RR_NAME", Value: rr.GetName()},
+								{Name: "RR_NAMESPACE", Value: rr.GetNamespace()},
+							},
+							VolumeMounts: []v1.VolumeMount{{
+								MountPath: "/work-creator-files/metadata",
+								Name:      "shared-metadata",
+							}},
+						},
 					},
-					VolumeMounts: []v1.VolumeMount{{
-						MountPath: "/work-creator-files/metadata",
-						Name:      "shared-metadata",
-					}},
+					InitContainers: initContainers,
+					Volumes:        volumes,
 				},
 			},
-			InitContainers: initContainers,
-			Volumes:        volumes,
 		},
 	}
 }

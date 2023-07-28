@@ -524,15 +524,6 @@ rules:
 - apiGroups:
   - ""
   resources:
-  - pods
-  verbs:
-  - create
-  - delete
-  - list
-  - watch
-- apiGroups:
-  - ""
-  resources:
   - secrets
   verbs:
   - get
@@ -559,6 +550,15 @@ rules:
   - list
   - patch
   - update
+  - watch
+- apiGroups:
+  - batch
+  resources:
+  - jobs
+  verbs:
+  - create
+  - delete
+  - list
   - watch
 - apiGroups:
   - platform.kratix.io
@@ -807,7 +807,7 @@ metadata:
 ---
 apiVersion: v1
 data:
-  WC_IMG: syntasso/kratix-platform-pipeline-adapter:b92b68104633a19be6371440989e0e5056a54843
+  WC_IMG: syntasso/kratix-platform-pipeline-adapter:8511c81d6a08cc302578eb1004ca2a38c85c6d2f
 kind: ConfigMap
 metadata:
   name: kratix-platform-wc-img-config
@@ -868,7 +868,7 @@ spec:
             configMapKeyRef:
               key: WC_IMG
               name: kratix-platform-wc-img-config
-        image: syntasso/kratix-platform:b92b68104633a19be6371440989e0e5056a54843
+        image: syntasso/kratix-platform:8511c81d6a08cc302578eb1004ca2a38c85c6d2f
         livenessProbe:
           httpGet:
             path: /healthz
