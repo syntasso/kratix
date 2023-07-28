@@ -65,7 +65,7 @@ var _ = Describe("Controllers/Scheduler", func() {
 				actualWorkPlacement := WorkPlacement{}
 				Expect(k8sClient.Get(context.Background(), ns, &actualWorkPlacement)).To(Succeed())
 				Expect(actualWorkPlacement.Spec.TargetClusterName).To(Equal(devCluster3.Name))
-				Expect(actualWorkPlacement.Spec.WorkName).To(Equal(devResourcesWork.Name))
+				Expect(actualWorkPlacement.Spec.Workload.Manifests).To(Equal(devResourcesWork.Spec.Workload.Manifests))
 			})
 
 			It("does not schedule Works with un-matching labels to the new cluster", func() {
@@ -89,9 +89,10 @@ var _ = Describe("Controllers/Scheduler", func() {
 			Expect(workPlacements.Items).To(HaveLen(1))
 			workPlacement := workPlacements.Items[0]
 			Expect(workPlacement.Namespace).To(Equal("default"))
-			Expect(workPlacement.Spec.WorkName).To(Equal("rr-work-name"))
+			Expect(workPlacement.ObjectMeta.Labels["kratix.io/work"]).To(Equal("rr-work-name"))
+			Expect(workPlacement.Name).To(Equal("rr-work-name." + workPlacement.Spec.TargetClusterName))
+			Expect(workPlacement.Spec.Workload.Manifests).To(Equal(resRequestWork.Spec.Workload.Manifests))
 			Expect(workPlacement.Spec.TargetClusterName).To(MatchRegexp("prod|dev\\-\\d"))
-			Expect(workPlacement.Name).To(Equal(workPlacement.Spec.WorkName + "." + workPlacement.Spec.TargetClusterName))
 			Expect(workPlacement.Finalizers).To(HaveLen(1), "expected one finalizer")
 			Expect(workPlacement.Finalizers[0]).To(Equal("finalizers.workplacement.kratix.io/repo-cleanup"))
 		})
@@ -114,7 +115,7 @@ var _ = Describe("Controllers/Scheduler", func() {
 				Expect(k8sClient.List(context.Background(), &workPlacements)).To(Succeed())
 				Expect(workPlacements.Items).To(HaveLen(1))
 				Expect(workPlacements.Items[0].Spec.TargetClusterName).To(Equal(prodCluster.Name))
-				Expect(workPlacements.Items[0].Spec.WorkName).To(Equal(prodResourcesWork.Name))
+				Expect(workPlacements.Items[0].ObjectMeta.Labels["kratix.io/work"]).To(Equal(prodResourcesWork.Name))
 			})
 		})
 
@@ -128,11 +129,11 @@ var _ = Describe("Controllers/Scheduler", func() {
 
 				devWorkPlacement := workPlacements.Items[0]
 				Expect(devWorkPlacement.Spec.TargetClusterName).To(Equal(devCluster.Name))
-				Expect(devWorkPlacement.Spec.WorkName).To(Equal(devResourcesWork.Name))
+				Expect(devWorkPlacement.ObjectMeta.Labels["kratix.io/work"]).To(Equal(devResourcesWork.Name))
 
 				devWorkPlacement2 := workPlacements.Items[1]
 				Expect(devWorkPlacement2.Spec.TargetClusterName).To(Equal(devCluster2.Name))
-				Expect(devWorkPlacement2.Spec.WorkName).To(Equal(devResourcesWork.Name))
+				Expect(devWorkPlacement2.ObjectMeta.Labels["kratix.io/work"]).To(Equal(devResourcesWork.Name))
 			})
 		})
 

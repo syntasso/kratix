@@ -23,6 +23,7 @@ import (
 	"github.com/go-logr/logr"
 	platformv1alpha1 "github.com/syntasso/kratix/api/v1alpha1"
 	"k8s.io/apimachinery/pkg/api/errors"
+	"k8s.io/apimachinery/pkg/labels"
 	ctrl "sigs.k8s.io/controller-runtime"
 	"sigs.k8s.io/controller-runtime/pkg/client"
 )
@@ -70,6 +71,17 @@ func (r *WorkReconciler) Reconcile(ctx context.Context, req ctrl.Request) (ctrl.
 	workPlacementListOptions := &client.ListOptions{
 		Namespace: work.GetNamespace(),
 	}
+	workSelectorLabel := labels.FormatLabels(map[string]string{
+		workLabelKey: work.Name,
+	})
+	//<none> is valid output from above
+	selector, err := labels.Parse(workSelectorLabel)
+
+	if err != nil {
+		r.Log.Error(err, "error parsing scheduling")
+	}
+	workPlacementListOptions.LabelSelector = selector
+
 	logger.Info("Listing Workplacements for Work")
 	err = r.Client.List(context.Background(), workPlacementList, workPlacementListOptions)
 	if err != nil {
@@ -77,21 +89,14 @@ func (r *WorkReconciler) Reconcile(ctx context.Context, req ctrl.Request) (ctrl.
 		return defaultRequeue, err
 	}
 
-	workPlacementNames := []string{}
-	for _, item := range workPlacementList.Items {
-		workPlacementNames = append(workPlacementNames, item.Name)
-	}
-
-	logger.Info("Found WorkPlacements for WorkName", "workPlacements", workPlacementNames)
-	for _, workPlacement := range workPlacementList.Items {
-		//TODO rather than search all placements for a field in the spec, label all
-		//placements with the `.spec.workname`, and then we can just `client.Get` all
-		//works with a given label instead.
-		if workPlacement.Spec.WorkName == work.Name {
-			//We only check if 1 workplacement exists, if there should be more we don't reconcile.
-			logger.Info("WorkPlacements for work exist", "workPlacement", workPlacement.Name)
-			return ctrl.Result{}, nil
+	if len(workPlacementList.Items) > 0 {
+		workPlacementNames := []string{}
+		for _, item := range workPlacementList.Items {
+			workPlacementNames = append(workPlacementNames, item.Name)
 		}
+
+		logger.Info("Found WorkPlacements for WorkName", "workPlacements", workPlacementNames)
+		return ctrl.Result{}, nil
 	}
 
 	// If Work does not have a WorkPlacement then schedule the Work

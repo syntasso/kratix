@@ -44,9 +44,9 @@ import (
 )
 
 const (
-	workFinalizer              = finalizerPrefix + "work-cleanup"
-	workflowsFinalizer         = finalizerPrefix + "workflows-cleanup"
-	deleteWorkflowsFinalizer   = finalizerPrefix + "delete-workflows"
+	workFinalizer              = kratixPrefix + "work-cleanup"
+	workflowsFinalizer         = kratixPrefix + "workflows-cleanup"
+	deleteWorkflowsFinalizer   = kratixPrefix + "delete-workflows"
 	PipelineCompletedCondition = clusterv1.ConditionType("PipelineCompleted")
 )
 
