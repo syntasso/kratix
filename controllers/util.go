@@ -9,6 +9,7 @@ import (
 	"github.com/syntasso/kratix/lib/writers"
 	v1 "k8s.io/api/core/v1"
 	"k8s.io/apimachinery/pkg/api/errors"
+	metav1 "k8s.io/apimachinery/pkg/apis/meta/v1"
 	"k8s.io/apimachinery/pkg/apis/meta/v1/unstructured"
 	"k8s.io/apimachinery/pkg/labels"
 	"k8s.io/apimachinery/pkg/runtime/schema"
@@ -40,7 +41,7 @@ func deleteAllResourcesWithKindMatchingLabel(ctx context.Context, kClient client
 	logger.Info("deleting resources", "kind", resourceList.GetKind(), "withLabels", resourceLabels, "resources", getResourceNames(resourceList.Items))
 
 	for _, resource := range resourceList.Items {
-		err = kClient.Delete(ctx, &resource)
+		err = kClient.Delete(ctx, &resource, client.PropagationPolicy(metav1.DeletePropagationBackground))
 		if err != nil && !errors.IsNotFound(err) {
 			logger.Error(err, "Error deleting resource, will try again in 5 seconds", "name", resource.GetName(), "kind", resource.GetKind())
 			return true, err

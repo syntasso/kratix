@@ -30,6 +30,7 @@ import (
 	"github.com/go-logr/logr"
 	"github.com/syntasso/kratix/api/v1alpha1"
 	"github.com/syntasso/kratix/lib/pipeline"
+	batchv1 "k8s.io/api/batch/v1"
 	v1 "k8s.io/api/core/v1"
 	"k8s.io/apimachinery/pkg/api/errors"
 	metav1 "k8s.io/apimachinery/pkg/apis/meta/v1"
@@ -68,7 +69,7 @@ type dynamicResourceRequestController struct {
 	crd                *apiextensionsv1.CustomResourceDefinition
 }
 
-//+kubebuilder:rbac:groups="",resources=pods,verbs=create;list;watch;delete
+//+kubebuilder:rbac:groups="batch",resources=jobs,verbs=create;list;watch;delete
 //+kubebuilder:rbac:groups="",resources=serviceaccounts,verbs=create
 
 func (r *dynamicResourceRequestController) Reconcile(ctx context.Context, req ctrl.Request) (ctrl.Result, error) {
@@ -116,7 +117,7 @@ func (r *dynamicResourceRequestController) Reconcile(ctx context.Context, req ct
 
 	//check if the pipeline has already been created. If it has exit out. All the lines
 	//below this call are for the one-time creation of the pipeline.
-	created, err := r.configurePipelinePodHasBeenCreated(resourceRequestIdentifier, rr.GetNamespace(), logger)
+	created, err := r.configurePipelineHasBeenCreated(resourceRequestIdentifier, rr.GetNamespace(), logger)
 	if err != nil {
 		return ctrl.Result{}, err
 	}
@@ -162,18 +163,18 @@ func (r *dynamicResourceRequestController) deleteResources(ctx context.Context, 
 	}
 
 	if controllerutil.ContainsFinalizer(resourceRequest, deleteWorkflowsFinalizer) {
-		existingDeletePipelinePod, err := r.getDeletePipelinePod(ctx, resourceRequestIdentifier, resourceRequest.GetNamespace(), logger)
+		existingDeletePipeline, err := r.getDeletePipeline(ctx, resourceRequestIdentifier, resourceRequest.GetNamespace(), logger)
 		if err != nil {
 			return defaultRequeue, err
 		}
 
-		if existingDeletePipelinePod == nil {
-			deletePipelinePod := pipeline.NewDeletePipeline(resourceRequest, r.deletePipelines, resourceRequestIdentifier, r.promiseIdentifier)
+		if existingDeletePipeline == nil {
+			deletePipeline := pipeline.NewDeletePipeline(resourceRequest, r.deletePipelines, resourceRequestIdentifier, r.promiseIdentifier)
 			logger.Info("Creating Delete Pipeline for Promise resource request: " + resourceRequestIdentifier + ". The pipeline will now execute...")
-			err = r.Client.Create(ctx, &deletePipelinePod)
+			err = r.Client.Create(ctx, &deletePipeline)
 			if err != nil {
-				logger.Error(err, "Error creating Pod")
-				y, _ := yaml.Marshal(&deletePipelinePod)
+				logger.Error(err, "Error creating delete pipeline")
+				y, _ := yaml.Marshal(&deletePipeline)
 				logger.Error(err, string(y))
 				return ctrl.Result{}, err
 			}
@@ -181,7 +182,7 @@ func (r *dynamicResourceRequestController) deleteResources(ctx context.Context, 
 		}
 
 		logger.Info("Checking status of Delete Pipeline for Promise resource request: " + resourceRequestIdentifier)
-		if pipelineIsComplete(*existingDeletePipelinePod) {
+		if existingDeletePipeline.Status.Succeeded > 0 {
 			logger.Info("Delete Pipeline Completed for Promise resource request: " + resourceRequestIdentifier)
 			controllerutil.RemoveFinalizer(resourceRequest, deleteWorkflowsFinalizer)
 			if err := r.Client.Update(ctx, resourceRequest); err != nil {
@@ -201,7 +202,7 @@ func (r *dynamicResourceRequestController) deleteResources(ctx context.Context, 
 	}
 
 	if controllerutil.ContainsFinalizer(resourceRequest, workflowsFinalizer) {
-		err := r.deletePipeline(ctx, resourceRequest, resourceRequestIdentifier, workflowsFinalizer, logger)
+		err := r.deleteWorkflows(ctx, resourceRequest, resourceRequestIdentifier, workflowsFinalizer, logger)
 		if err != nil {
 			return defaultRequeue, err
 		}
@@ -211,20 +212,20 @@ func (r *dynamicResourceRequestController) deleteResources(ctx context.Context, 
 	return fastRequeue, nil
 }
 
-func (r *dynamicResourceRequestController) getDeletePipelinePod(ctx context.Context, resourceRequestIdentifier, namespace string, logger logr.Logger) (*v1.Pod, error) {
-	pods, err := r.getPodsWithLabels(
+func (r *dynamicResourceRequestController) getDeletePipeline(ctx context.Context, resourceRequestIdentifier, namespace string, logger logr.Logger) (*batchv1.Job, error) {
+	jobs, err := r.getJobsWithLabels(
 		pipeline.DeletePipelineLabels(resourceRequestIdentifier, r.promiseIdentifier),
 		namespace,
 		logger,
 	)
-	if err != nil || len(pods) == 0 {
+	if err != nil || len(jobs) == 0 {
 		return nil, err
 	}
-	return &pods[0], nil
+	return &jobs[0], nil
 }
 
-func (r *dynamicResourceRequestController) configurePipelinePodHasBeenCreated(resourceRequestIdentifier, namespace string, logger logr.Logger) (bool, error) {
-	pods, err := r.getPodsWithLabels(
+func (r *dynamicResourceRequestController) configurePipelineHasBeenCreated(resourceRequestIdentifier, namespace string, logger logr.Logger) (bool, error) {
+	jobs, err := r.getJobsWithLabels(
 		pipeline.ConfigurePipelineLabels(resourceRequestIdentifier, r.promiseIdentifier),
 		namespace,
 		logger,
@@ -232,15 +233,15 @@ func (r *dynamicResourceRequestController) configurePipelinePodHasBeenCreated(re
 	if err != nil {
 		return false, err
 	}
-	return len(pods) > 0, nil
+	return len(jobs) > 0, nil
 }
 
-func (r *dynamicResourceRequestController) getPodsWithLabels(podLabels map[string]string, namespace string, logger logr.Logger) ([]v1.Pod, error) {
-	selectorLabels := labels.FormatLabels(podLabels)
+func (r *dynamicResourceRequestController) getJobsWithLabels(jobLabels map[string]string, namespace string, logger logr.Logger) ([]batchv1.Job, error) {
+	selectorLabels := labels.FormatLabels(jobLabels)
 	selector, err := labels.Parse(selectorLabels)
 
 	if err != nil {
-		return nil, fmt.Errorf("error parsing labels %v: %w", podLabels, err)
+		return nil, fmt.Errorf("error parsing labels %v: %w", jobLabels, err)
 	}
 
 	listOps := &client.ListOptions{
@@ -248,23 +249,13 @@ func (r *dynamicResourceRequestController) getPodsWithLabels(podLabels map[strin
 		Namespace:     namespace,
 	}
 
-	pods := &v1.PodList{}
-	err = r.Client.List(context.Background(), pods, listOps)
+	jobs := &batchv1.JobList{}
+	err = r.Client.List(context.Background(), jobs, listOps)
 	if err != nil {
-		logger.Error(err, "error listing pods", "selectors", selector.String())
+		logger.Error(err, "error listing jobs", "selectors", selector.String())
 		return nil, err
 	}
-	return pods.Items, nil
-}
-
-func pipelineIsComplete(pod v1.Pod) bool {
-	for _, condition := range pod.Status.Conditions {
-		if condition.Type == "Initialized" {
-			return condition.Status == "True" && condition.Reason == "PodCompleted" &&
-				pod.Status.Phase == v1.PodSucceeded
-		}
-	}
-	return false
+	return jobs.Items, nil
 }
 
 func (r *dynamicResourceRequestController) deleteWork(ctx context.Context, resourceRequest *unstructured.Unstructured, workName string, finalizer string, logger logr.Logger) error {
@@ -306,16 +297,16 @@ func (r *dynamicResourceRequestController) deleteWork(ctx context.Context, resou
 	return nil
 }
 
-func (r *dynamicResourceRequestController) deletePipeline(ctx context.Context, resourceRequest *unstructured.Unstructured, resourceRequestIdentifier, finalizer string, logger logr.Logger) error {
-	podGVK := schema.GroupVersionKind{
-		Group:   v1.SchemeGroupVersion.Group,
-		Version: v1.SchemeGroupVersion.Version,
-		Kind:    "Pod",
+func (r *dynamicResourceRequestController) deleteWorkflows(ctx context.Context, resourceRequest *unstructured.Unstructured, resourceRequestIdentifier, finalizer string, logger logr.Logger) error {
+	jobGVK := schema.GroupVersionKind{
+		Group:   batchv1.SchemeGroupVersion.Group,
+		Version: batchv1.SchemeGroupVersion.Version,
+		Kind:    "Job",
 	}
 
-	podLabels := pipeline.Labels(resourceRequestIdentifier, r.promiseIdentifier)
+	jobLabels := pipeline.Labels(resourceRequestIdentifier, r.promiseIdentifier)
 
-	resourcesRemaining, err := deleteAllResourcesWithKindMatchingLabel(ctx, r.Client, podGVK, podLabels, logger)
+	resourcesRemaining, err := deleteAllResourcesWithKindMatchingLabel(ctx, r.Client, jobGVK, jobLabels, logger)
 	if err != nil {
 		return err
 	}
