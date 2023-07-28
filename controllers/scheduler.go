@@ -16,6 +16,8 @@ import (
 	"sigs.k8s.io/controller-runtime/pkg/controller/controllerutil"
 )
 
+const workLabelKey = kratixPrefix + "work"
+
 type Scheduler struct {
 	Client client.Client
 	Log    logr.Logger
@@ -56,8 +58,11 @@ func (r *Scheduler) createWorkplacementsForTargetClusters(work *platformv1alpha1
 		workPlacement := platformv1alpha1.WorkPlacement{}
 		workPlacement.Namespace = work.GetNamespace()
 		workPlacement.Name = work.Name + "." + targetClusterName
-		workPlacement.Spec.WorkName = work.Name
+		workPlacement.Spec.Workload = work.Spec.Workload
 		workPlacement.Spec.TargetClusterName = targetClusterName
+		workPlacement.ObjectMeta.Labels = map[string]string{
+			workLabelKey: work.Name,
+		}
 		controllerutil.AddFinalizer(&workPlacement, repoCleanupWorkPlacementFinalizer)
 
 		if err := controllerutil.SetControllerReference(work, &workPlacement, scheme.Scheme); err != nil {

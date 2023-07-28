@@ -303,9 +303,17 @@ spec:
               properties:
                 targetClusterName:
                   type: string
-                workName:
-                  description: The unique identifier of the Work parent
-                  type: string
+                workload:
+                  description: Workload represents the manifest workload to be deployed on worker
+                  properties:
+                    manifests:
+                      description: Manifests represents a list of resources to be deployed on the worker
+                      items:
+                        description: Manifest represents a resource to be deployed on worker
+                        type: object
+                        x-kubernetes-preserve-unknown-fields: true
+                      type: array
+                  type: object
               type: object
             status:
               description: WorkPlacementStatus defines the observed state of WorkPlacement

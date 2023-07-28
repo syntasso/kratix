@@ -78,9 +78,7 @@ func (r *WorkPlacementReconciler) Reconcile(ctx context.Context, req ctrl.Reques
 		return ctrl.Result{}, err
 	}
 
-	work := r.getWork(workPlacement.Spec.WorkName, workPlacement.GetNamespace(), logger)
-	workNamespacedName := workPlacement.Namespace + "-" + workPlacement.Spec.WorkName
-
+	workNamespacedName := workPlacement.ObjectMeta.Labels[workLabelKey]
 	paths := repoFilePaths{
 		Resources: "resources/01-" + workNamespacedName + "-resources.yaml",
 		CRDs:      "crds/00-" + workNamespacedName + "-crds.yaml",
@@ -102,7 +100,7 @@ func (r *WorkPlacementReconciler) Reconcile(ctx context.Context, req ctrl.Reques
 		return addFinalizers(ctx, r.Client, workPlacement, workPlacementFinalizers, logger)
 	}
 
-	err = r.writeWorkToRepository(writer, work, paths, logger)
+	err = r.writeWorkloadsToStateStore(writer, workPlacement.Spec.Workload.Manifests, paths, logger)
 	if err != nil {
 		logger.Error(err, "Error writing to repository, will try again in 5 seconds")
 		return defaultRequeue, err
@@ -131,7 +129,7 @@ func (r *WorkPlacementReconciler) deleteWorkPlacement(ctx context.Context, write
 	return fastRequeue, nil
 }
 
-func (r *WorkPlacementReconciler) writeWorkToRepository(writer writers.StateStoreWriter, work *platformv1alpha1.Work, paths repoFilePaths, logger logr.Logger) error {
+func (r *WorkPlacementReconciler) writeWorkloadsToStateStore(writer writers.StateStoreWriter, manifests []platformv1alpha1.Manifest, paths repoFilePaths, logger logr.Logger) error {
 	serializer := json.NewSerializerWithOptions(
 		json.DefaultMetaFactory, nil, nil,
 		json.SerializerOptions{
@@ -146,7 +144,7 @@ func (r *WorkPlacementReconciler) writeWorkToRepository(writer writers.StateStor
 	resourceBuffer := bytes.NewBuffer([]byte{})
 	resourceWriter := json.YAMLFramer.NewFrameWriter(resourceBuffer)
 
-	for _, manifest := range work.Spec.Workload.Manifests {
+	for _, manifest := range manifests {
 		if manifest.GetKind() == "CustomResourceDefinition" {
 			serializer.Encode(&manifest, crdWriter)
 		} else {

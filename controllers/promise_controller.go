@@ -49,11 +49,11 @@ type PromiseReconciler struct {
 }
 
 const (
-	finalizerPrefix                                    = "kratix.io/"
-	resourceRequestCleanupFinalizer                    = finalizerPrefix + "resource-request-cleanup"
-	dynamicControllerDependantResourcesCleaupFinalizer = finalizerPrefix + "dynamic-controller-dependant-resources-cleanup"
-	crdCleanupFinalizer                                = finalizerPrefix + "api-crd-cleanup"
-	dependenciesCleanupFinalizer                       = finalizerPrefix + "dependencies-cleanup"
+	kratixPrefix                                       = "kratix.io/"
+	resourceRequestCleanupFinalizer                    = kratixPrefix + "resource-request-cleanup"
+	dynamicControllerDependantResourcesCleaupFinalizer = kratixPrefix + "dynamic-controller-dependant-resources-cleanup"
+	crdCleanupFinalizer                                = kratixPrefix + "api-crd-cleanup"
+	dependenciesCleanupFinalizer                       = kratixPrefix + "dependencies-cleanup"
 )
 
 var (
