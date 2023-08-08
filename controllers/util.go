@@ -56,7 +56,7 @@ func getResourceNames(items []unstructured.Unstructured) []string {
 	var names []string
 	for _, item := range items {
 		resource := item.GetName()
-		//if the resurce is cluster scoped it has no namespace
+		//if the resource is destination scoped it has no namespace
 		if item.GetNamespace() != "" {
 			resource = fmt.Sprintf("%s/%s", item.GetNamespace(), item.GetName())
 		}
@@ -119,14 +119,14 @@ func fetchObjectAndSecret(ctx context.Context, kubeClient client.Client, stateSt
 	return secret, nil
 }
 
-func newWriter(ctx context.Context, kubeClient client.Client, cluster platformv1alpha1.Cluster, logger logr.Logger) (writers.StateStoreWriter, error) {
+func newWriter(ctx context.Context, kubeClient client.Client, destination platformv1alpha1.Destination, logger logr.Logger) (writers.StateStoreWriter, error) {
 	stateStoreRef := client.ObjectKey{
-		Name: cluster.Spec.StateStoreRef.Name,
+		Name: destination.Spec.StateStoreRef.Name,
 	}
 
 	var writer writers.StateStoreWriter
 	var err error
-	switch cluster.Spec.StateStoreRef.Kind {
+	switch destination.Spec.StateStoreRef.Kind {
 	case "BucketStateStore":
 		stateStore := &platformv1alpha1.BucketStateStore{}
 		secret, fetchErr := fetchObjectAndSecret(ctx, kubeClient, stateStoreRef, stateStore, logger)
@@ -134,7 +134,7 @@ func newWriter(ctx context.Context, kubeClient client.Client, cluster platformv1
 			return nil, fetchErr
 		}
 
-		writer, err = writers.NewS3Writer(logger.WithName("writers").WithName("BucketStateStoreWriter"), stateStore.Spec, cluster, secret.Data)
+		writer, err = writers.NewS3Writer(logger.WithName("writers").WithName("BucketStateStoreWriter"), stateStore.Spec, destination, secret.Data)
 	case "GitStateStore":
 		stateStore := &platformv1alpha1.GitStateStore{}
 		secret, fetchErr := fetchObjectAndSecret(ctx, kubeClient, stateStoreRef, stateStore, logger)
@@ -142,9 +142,9 @@ func newWriter(ctx context.Context, kubeClient client.Client, cluster platformv1
 			return nil, fetchErr
 		}
 
-		writer, err = writers.NewGitWriter(logger.WithName("writers").WithName("GitStateStoreWriter"), stateStore.Spec, cluster, secret.Data)
+		writer, err = writers.NewGitWriter(logger.WithName("writers").WithName("GitStateStoreWriter"), stateStore.Spec, destination, secret.Data)
 	default:
-		return nil, fmt.Errorf("unsupported kind %s", cluster.Spec.StateStoreRef.Kind)
+		return nil, fmt.Errorf("unsupported kind %s", destination.Spec.StateStoreRef.Kind)
 	}
 
 	if err != nil {

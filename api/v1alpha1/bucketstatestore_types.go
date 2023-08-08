@@ -33,7 +33,7 @@ type BucketStateStoreSpec struct {
 
 // BucketStateStoreStatus defines the observed state of BucketStateStore
 type BucketStateStoreStatus struct {
-	// INSERT ADDITIONAL STATUS FIELD - define observed state of cluster
+	// INSERT ADDITIONAL STATUS FIELD - define observed state of BucketStateStore
 	// Important: Run "make" to regenerate code after modifying this file
 }
 

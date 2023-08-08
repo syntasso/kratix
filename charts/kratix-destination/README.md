@@ -11,7 +11,7 @@ must be provided.
 Example Git config:
 ```yaml
 config:
-  path: "default/worker-cluster-1" # Path in StateStore. See https://kratix.io/docs/main/reference/clusters/intro
+  path: "default/worker-1" # Path in StateStore. See https://kratix.io/docs/main/reference/destinations/intro
   namespace: "default" # Namespace to create config
   secretRef:
     name: "gitea-credentials" # Name of secret
@@ -27,7 +27,7 @@ config:
 Example Bucket config:
 ```yaml
 config:
-  path: "default/worker-cluster-1"
+  path: "default/worker-1"
   namespace: "default"
   secretRef:
     name: "minio-credentials"
@@ -49,5 +49,6 @@ installFlux: false
 Once you have your values file configured you can install the chart by running
 the following:
 ```bash
-helm --kube-context ${WORKER} install kratix-worker charts/kratix-worker/ -f values.yaml
+export WORKER=kind-worker # or the context you are installing this on
+helm --kube-context ${WORKER} install kratix-destination charts/kratix-destination/ -f values.yaml
 ```

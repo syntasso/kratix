@@ -81,8 +81,8 @@ load-pipeline-images:
 	kind load docker-image syntasso/paved-path-demo-configure-pipeline:latest --name platform
 
 
-prepare-platform-as-worker: ## Installs flux onto platform cluster and registers as a worker
-	./scripts/register-worker --with-label environment=platform --context kind-platform --name platform-cluster
+prepare-platform-as-destination: ## Installs flux onto platform cluster and registers as a destination
+	./scripts/register-destination --with-label environment=platform --context kind-platform --name platform-cluster
 
 install-minio: ## Install test Minio server
 	kubectl --context kind-platform apply -f hack/platform/minio-install.yaml
@@ -91,7 +91,7 @@ install-gitea: ## Install test gitea server
 	kubectl --context kind-platform apply -f hack/platform/gitea-install.yaml
 
 install-flux-to-platform:
-	kubectl apply -f ./hack/worker/gitops-tk-install.yaml
+	kubectl apply -f ./hack/destination/gitops-tk-install.yaml
 	kubectl wait --namespace flux-system --for=condition=Available deployment source-controller --timeout=120s
 	kubectl wait --namespace flux-system --for=condition=Available deployment kustomize-controller --timeout=120s
 
@@ -115,7 +115,7 @@ quick-start: distribution
 single-cluster: distribution
 	VERSION=dev DOCKER_BUILDKIT=1 ./scripts/quick-start.sh --recreate --local --single-cluster
 
-dev-env: distribution quick-start prepare-platform-as-worker ## Tears down existing resources and sets up a local development environment
+dev-env: distribution quick-start prepare-platform-as-destination ## Tears down existing resources and sets up a local development environment
 
 # ENVTEST_K8S_VERSION refers to the version of kubebuilder assets to be downloaded by envtest binary.
 ENVTEST_K8S_VERSION = 1.23

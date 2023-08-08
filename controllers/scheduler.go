@@ -24,7 +24,7 @@ type Scheduler struct {
 }
 
 // Only reconciles Works that are from a Promise Dependency
-func (r *Scheduler) ReconcileCluster() error {
+func (r *Scheduler) ReconcileDestination() error {
 	works := platformv1alpha1.WorkList{}
 	lo := &client.ListOptions{}
 	if err := r.Client.List(context.Background(), &works, lo); err != nil {
@@ -32,7 +32,7 @@ func (r *Scheduler) ReconcileCluster() error {
 	}
 
 	for _, work := range works.Items {
-		if work.IsWorkerResource() {
+		if work.IsDependency() {
 			if err := r.ReconcileWork(&work); err != nil {
 				r.Log.Error(err, "Failed reconciling Work: ")
 			}
@@ -43,23 +43,23 @@ func (r *Scheduler) ReconcileCluster() error {
 }
 
 func (r *Scheduler) ReconcileWork(work *platformv1alpha1.Work) error {
-	targetClusterNames := r.getTargetClusterNames(work)
-	if len(targetClusterNames) == 0 {
-		r.Log.Info("no Clusters can be selected for scheduling", "scheduling", work.Spec.Scheduling)
-		return fmt.Errorf("no workers can be selected for scheduling")
+	targetDestinationNames := r.getTargetDestinationNames(work)
+	if len(targetDestinationNames) == 0 {
+		r.Log.Info("no Destinations can be selected for scheduling", "scheduling", work.Spec.Scheduling)
+		return fmt.Errorf("no Destinations can be selected for scheduling")
 	}
 
-	r.Log.Info("found available target clusters", "clusters", targetClusterNames)
-	return r.createWorkplacementsForTargetClusters(work, targetClusterNames)
+	r.Log.Info("found available target Destinations", "destinations", targetDestinationNames)
+	return r.createWorkplacementsForTargetDestinations(work, targetDestinationNames)
 }
 
-func (r *Scheduler) createWorkplacementsForTargetClusters(work *platformv1alpha1.Work, targetClusterNames []string) error {
-	for _, targetClusterName := range targetClusterNames {
+func (r *Scheduler) createWorkplacementsForTargetDestinations(work *platformv1alpha1.Work, targetDestinationNames []string) error {
+	for _, targetDestinationName := range targetDestinationNames {
 		workPlacement := platformv1alpha1.WorkPlacement{}
 		workPlacement.Namespace = work.GetNamespace()
-		workPlacement.Name = work.Name + "." + targetClusterName
+		workPlacement.Name = work.Name + "." + targetDestinationName
 		workPlacement.Spec.Workload = work.Spec.Workload
-		workPlacement.Spec.TargetClusterName = targetClusterName
+		workPlacement.Spec.TargetDestinationName = targetDestinationName
 		workPlacement.ObjectMeta.Labels = map[string]string{
 			workLabelKey: work.Name,
 		}
@@ -82,31 +82,31 @@ func (r *Scheduler) createWorkplacementsForTargetClusters(work *platformv1alpha1
 	return nil
 }
 
-// Where Work is a Resource Request return one random Cluster name, where Work is a
-// ClusterWorkerResource return all Cluster names
-func (r *Scheduler) getTargetClusterNames(work *platformv1alpha1.Work) []string {
-	workerClusters := r.getWorkerClustersForWork(work)
+// Where Work is a Resource Request return one random Destination name, where Work is a
+// DestinationWorkerResource return all Destination names
+func (r *Scheduler) getTargetDestinationNames(work *platformv1alpha1.Work) []string {
+	destinations := r.getDestinationsForWork(work)
 
-	if len(workerClusters) == 0 {
+	if len(destinations) == 0 {
 		return make([]string, 0)
 	}
 
 	if work.IsResourceRequest() {
-		r.Log.Info("Getting Worker cluster names for Resource Request")
-		var targetClusterNames = make([]string, 1)
+		r.Log.Info("Getting Destination names for Resource Request")
+		var targetDestinationNames = make([]string, 1)
 		rand.Seed(time.Now().UnixNano())
-		randomClusterIndex := rand.Intn(len(workerClusters))
-		targetClusterNames[0] = workerClusters[randomClusterIndex].Name
-		r.Log.Info("Adding Worker Cluster: " + targetClusterNames[0])
-		return targetClusterNames
-	} else if work.IsWorkerResource() {
-		r.Log.Info("Getting Worker cluster names for dependencies")
-		var targetClusterNames = make([]string, len(workerClusters))
-		for i := 0; i < len(workerClusters); i++ {
-			targetClusterNames[i] = workerClusters[i].Name
-			r.Log.Info("Adding Worker Cluster: " + targetClusterNames[i])
+		randomDestinationIndex := rand.Intn(len(destinations))
+		targetDestinationNames[0] = destinations[randomDestinationIndex].Name
+		r.Log.Info("Adding Destination: " + targetDestinationNames[0])
+		return targetDestinationNames
+	} else if work.IsDependency() {
+		r.Log.Info("Getting Destination names for dependencies")
+		var targetDestinationNames = make([]string, len(destinations))
+		for i := 0; i < len(destinations); i++ {
+			targetDestinationNames[i] = destinations[i].Name
+			r.Log.Info("Adding Destination: " + targetDestinationNames[i])
 		}
-		return targetClusterNames
+		return targetDestinationNames
 	} else {
 		replicas := work.Spec.Replicas
 		r.Log.Info("Cannot interpret replica count: " + fmt.Sprint(replicas))
@@ -114,9 +114,9 @@ func (r *Scheduler) getTargetClusterNames(work *platformv1alpha1.Work) []string 
 	}
 }
 
-// By default, all workers are returned. However, if scheduling is provided, only matching workers will be returned.
-func (r *Scheduler) getWorkerClustersForWork(work *platformv1alpha1.Work) []platformv1alpha1.Cluster {
-	workerClusters := &platformv1alpha1.ClusterList{}
+// By default, all destinations are returned. However, if scheduling is provided, only matching destinations will be returned.
+func (r *Scheduler) getDestinationsForWork(work *platformv1alpha1.Work) []platformv1alpha1.Destination {
+	destinations := &platformv1alpha1.DestinationList{}
 	lo := &client.ListOptions{}
 
 	if work.HasScheduling() {
@@ -130,9 +130,9 @@ func (r *Scheduler) getWorkerClustersForWork(work *platformv1alpha1.Work) []plat
 		lo.LabelSelector = selector
 	}
 
-	err := r.Client.List(context.Background(), workerClusters, lo)
+	err := r.Client.List(context.Background(), destinations, lo)
 	if err != nil {
-		r.Log.Error(err, "Error listing available workers")
+		r.Log.Error(err, "Error listing available Destinations")
 	}
-	return workerClusters.Items
+	return destinations.Items
 }

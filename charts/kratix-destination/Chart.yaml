@@ -1,6 +1,6 @@
 apiVersion: v2
-name: kratix-worker
-description: A Helm chart for installing flux and configing it to pull down from Kratix
+name: kratix-destination
+description: A Helm chart for installing flux and configuring it to pull down from Kratix
 
 # A chart can be either an 'application' or a 'library' chart.
 #
@@ -24,8 +24,7 @@ version: 0.0.1
 appVersion: "0.0.1"
 
 dependencies:
-- name: flux2
-  # only install flux if specified in values file
-  condition: installFlux
-  version: 2.5.1
-
+  - name: flux2
+    # only install flux if specified in values file
+    condition: installFlux
+    version: 2.5.1

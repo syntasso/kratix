@@ -1,24 +1,24 @@
-# permissions for end users to edit clusters.
+# permissions for end users to edit destinations.
 apiVersion: rbac.authorization.k8s.io/v1
 kind: ClusterRole
 metadata:
-  name: cluster-editor-role
+  name: destination-editor-role
 rules:
-- apiGroups:
-  - platform.kratix.io
-  resources:
-  - clusters
-  verbs:
-  - create
-  - delete
-  - get
-  - list
-  - patch
-  - update
-  - watch
-- apiGroups:
-  - platform.kratix.io
-  resources:
-  - clusters/status
-  verbs:
-  - get
+  - apiGroups:
+      - platform.kratix.io
+    resources:
+      - destinations
+    verbs:
+      - create
+      - delete
+      - get
+      - list
+      - patch
+      - update
+      - watch
+  - apiGroups:
+      - platform.kratix.io
+    resources:
+      - destinations/status
+    verbs:
+      - get

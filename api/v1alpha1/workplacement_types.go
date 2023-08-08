@@ -25,18 +25,18 @@ import (
 
 // WorkPlacementSpec defines the desired state of WorkPlacement
 type WorkPlacementSpec struct {
-	// INSERT ADDITIONAL SPEC FIELDS - desired state of cluster
+	// INSERT ADDITIONAL SPEC FIELDS - desired state of destination
 	// Important: Run "make" to regenerate code after modifying this file
 
-	TargetClusterName string `json:"targetClusterName,omitempty"`
+	TargetDestinationName string `json:"targetDestinationName,omitempty"`
 
-	// Workload represents the manifest workload to be deployed on worker
+	// Workload represents the manifest workload to be deployed on destination
 	Workload WorkloadTemplate `json:"workload,omitempty"`
 }
 
 // WorkPlacementStatus defines the observed state of WorkPlacement
 type WorkPlacementStatus struct {
-	// INSERT ADDITIONAL STATUS FIELD - define observed state of cluster
+	// INSERT ADDITIONAL STATUS FIELD - define observed state of destination
 	// Important: Run "make" to regenerate code after modifying this file
 }
 

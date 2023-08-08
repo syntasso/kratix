@@ -55,7 +55,7 @@ var _ = AfterSuite(func() {
 })
 
 var _ = AfterEach(func() {
-	Expect(k8sClient.DeleteAllOf(context.Background(), &v1alpha1.Cluster{}, client.InNamespace("default"))).To(Succeed())
+	Expect(k8sClient.DeleteAllOf(context.Background(), &v1alpha1.Destination{}, client.InNamespace("default"))).To(Succeed())
 	Expect(k8sClient.DeleteAllOf(context.Background(), &v1alpha1.Promise{}, client.InNamespace("default"))).To(Succeed())
 	Expect(k8sClient.DeleteAllOf(context.Background(), &v1alpha1.Work{}, client.InNamespace("default"))).To(Succeed())
 	Expect(k8sClient.DeleteAllOf(context.Background(), &v1alpha1.WorkPlacement{}, client.InNamespace("default"))).To(Succeed())

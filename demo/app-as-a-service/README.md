@@ -3,7 +3,7 @@
 > **Warning**
 >
 > **To use this Promise, the Kubernetes cluster running Kratix must be registered
-as a Worker Cluster**
+as a Destination**
 >
 > Check out the [Compound Promises
 guide](https://kratix.io/docs/main/guides/compound-promises) on the Kratix
@@ -15,7 +15,7 @@ This Promise provides an App-as-a-Service. This is a compound Promise that insta
 - [Postgres](https://github.com/syntasso/kratix-marketplace/tree/main/postgresql)
 - [Redis](https://github.com/syntasso/kratix-marketplace/tree/main/redis)
 - [Slack](https://github.com/syntasso/kratix-marketplace/tree/main/slack)
-- [Deployment](../deployment/) (which deploys the sample application to the Worker Cluster with the configured ingress)
+- [Deployment](../deployment/) (which deploys the sample application to the Destination with the configured ingress)
 
 The following fields are configurable:
 

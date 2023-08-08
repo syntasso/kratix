@@ -15,12 +15,12 @@ Promises:
 - codify the contract between platform teams and application teams for the delivery of a specific service, e.g. a database, an identity service, a supply chain, or a complete development pipeline of patterns and tools.
 - can be shared and reused between platforms, teams, business units, even other organisations.
 - are easy to build, deploy, and update. Bespoke business logic can be added to each Promise’s pipeline.
-- can create “Workloads”, which are deployed, via the GitOps Toolkit, across fleets of Kubernetes clusters.
+- can create “Workloads”, which are deployed, via the GitOps Toolkit, across fleets of Kubernetes clusters or other destinations.
 
-A Promise is comprised of three elements:
-- Custom Resource Definition: input from an app team to create instances of a capability.
-- Worker Cluster Resources: dependencies necessary for any created Workloads.
-- Request Pipeline: business logic required when an instance of a capability is requested.
+A Promise is comprised of four elements:
+- API: a Custom Resource Definition which defines the input from an app team to create instances of a capability.
+- Dependencies: any resources necessary for any created Workloads.
+- Workflows: business logic required when an instance of a capability is requested.
 
 ### Want to see Kratix in action?
 

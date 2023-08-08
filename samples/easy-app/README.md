@@ -3,7 +3,7 @@
 > **Warning**
 >
 > **To use this Promise, the Kubernetes cluster running Kratix must be registered
-as a Worker Cluster**
+as a Destination**
 >
 > Check out the [Compound Promises
 guide](https://kratix.io/docs/main/guides/compound-promises) on the Kratix
@@ -13,7 +13,7 @@ This Promise provides a Paved-Path with Nginx and PostgreSQL. This is a compound
 
 - [Nginx-ingress](https://github.com/syntasso/kratix-marketplace/tree/main/nginx-ingress)
 - [Postgres](https://github.com/syntasso/kratix-marketplace/tree/main/postgresql)
-- [Deployment](../deployment/) (which deploys the sample application to the Worker Cluster with the configured ingress)
+- [Deployment](../deployment/) (which deploys the sample application to the Destination with the configured ingress)
 
 The following fields are configurable:
 

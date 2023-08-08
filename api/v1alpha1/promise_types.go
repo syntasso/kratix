@@ -28,7 +28,6 @@ import (
 // PromiseSpec defines the desired state of Promise
 type PromiseSpec struct {
 
-	// INSERT ADDITIONAL SPEC FIELDS - desired state of cluster
 	// Important: Run "make" to regenerate code after modifying this file
 
 	// TODO (has since been merged!): apiextemnsion.CustomResourceDefinitionSpec struct(s) don't have the required jsontags and
@@ -61,9 +60,9 @@ type WorkflowTriggers struct {
 	Delete []unstructured.Unstructured `json:"delete,omitempty"`
 }
 
-// Resources represents the manifest workload to be deployed on workers
+// Resources represents the manifest workload to be deployed on Destinations
 type Dependency struct {
-	// Manifests represents a list of resources to be deployed on the worker
+	// Manifests represents a list of resources to be deployed on the Destination
 	// +optional
 	// +kubebuilder:pruning:PreserveUnknownFields
 	unstructured.Unstructured `json:",inline"`
@@ -79,7 +78,6 @@ type Target struct {
 
 // PromiseStatus defines the observed state of Promise
 type PromiseStatus struct {
-	// INSERT ADDITIONAL STATUS FIELD - define observed state of cluster
 	// Important: Run "make" to regenerate code after modifying this file
 }
 

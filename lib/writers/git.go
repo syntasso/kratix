@@ -39,15 +39,15 @@ const (
 	Delete string = "Delete"
 )
 
-func NewGitWriter(logger logr.Logger, stateStoreSpec platformv1alpha1.GitStateStoreSpec, cluster platformv1alpha1.Cluster, creds map[string][]byte) (StateStoreWriter, error) {
+func NewGitWriter(logger logr.Logger, stateStoreSpec platformv1alpha1.GitStateStoreSpec, destination platformv1alpha1.Destination, creds map[string][]byte) (StateStoreWriter, error) {
 	username, ok := creds["username"]
 	if !ok {
-		return nil, fmt.Errorf("username not found in secret %s/%s", cluster.Namespace, stateStoreSpec.SecretRef.Name)
+		return nil, fmt.Errorf("username not found in secret %s/%s", destination.Namespace, stateStoreSpec.SecretRef.Name)
 	}
 
 	password, ok := creds["password"]
 	if !ok {
-		return nil, fmt.Errorf("password not found in secret %s/%s", cluster.Namespace, stateStoreSpec.SecretRef.Name)
+		return nil, fmt.Errorf("password not found in secret %s/%s", destination.Namespace, stateStoreSpec.SecretRef.Name)
 	}
 
 	return &GitWriter{
@@ -64,7 +64,7 @@ func NewGitWriter(logger logr.Logger, stateStoreSpec platformv1alpha1.GitStateSt
 			Email: "kratix@syntasso.io",
 		},
 		Log:  logger,
-		path: filepath.Join(stateStoreSpec.Path, cluster.Spec.Path, cluster.Namespace, cluster.Name),
+		path: filepath.Join(stateStoreSpec.Path, destination.Spec.Path, destination.Namespace, destination.Name),
 	}, nil
 }
 

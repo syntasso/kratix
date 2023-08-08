@@ -30,7 +30,7 @@ import (
 	//+kubebuilder:scaffold:imports
 )
 
-var worker *platformv1alpha1.Cluster
+var destination *platformv1alpha1.Destination
 var work *platformv1alpha1.Work
 
 var _ = Context("WorkReconciler.Reconcile()", func() {
@@ -47,10 +47,10 @@ var _ = Context("WorkReconciler.Reconcile()", func() {
 		}).SetupWithManager(k8sManager)
 		Expect(err).ToNot(HaveOccurred())
 
-		worker = &platformv1alpha1.Cluster{}
-		worker.Name = "worker-1"
-		worker.Namespace = "default"
-		err = k8sClient.Create(context.Background(), worker)
+		destination = &platformv1alpha1.Destination{}
+		destination.Name = "worker-1"
+		destination.Namespace = "default"
+		err = k8sClient.Create(context.Background(), destination)
 		Expect(err).ToNot(HaveOccurred())
 
 	})

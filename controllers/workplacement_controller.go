@@ -52,7 +52,7 @@ type repoFilePaths struct {
 //+kubebuilder:rbac:groups=platform.kratix.io,resources=workplacements/finalizers,verbs=update
 
 // Reconcile is part of the main kubernetes reconciliation loop which aims to
-// move the current state of the cluster closer to the desired state.
+// move the current state of the destination closer to the desired state.
 // For more details, check Reconcile and its Result here:
 // - https://pkg.go.dev/sigs.k8s.io/controller-runtime@v0.11.0/pkg/reconcile
 func (r *WorkPlacementReconciler) Reconcile(ctx context.Context, req ctrl.Request) (ctrl.Result, error) {
@@ -68,13 +68,13 @@ func (r *WorkPlacementReconciler) Reconcile(ctx context.Context, req ctrl.Reques
 		return defaultRequeue, nil
 	}
 
-	cluster := &platformv1alpha1.Cluster{}
-	clusterName := client.ObjectKey{
-		Name: workPlacement.Spec.TargetClusterName,
+	destination := &platformv1alpha1.Destination{}
+	destinationName := client.ObjectKey{
+		Name: workPlacement.Spec.TargetDestinationName,
 	}
-	err = r.Client.Get(context.Background(), clusterName, cluster)
+	err = r.Client.Get(context.Background(), destinationName, destination)
 	if err != nil {
-		logger.Error(err, "Error listing available clusters")
+		logger.Error(err, "Error listing available destinations")
 		return ctrl.Result{}, err
 	}
 
@@ -84,7 +84,7 @@ func (r *WorkPlacementReconciler) Reconcile(ctx context.Context, req ctrl.Reques
 		CRDs:      "crds/00-" + workNamespacedName + "-crds.yaml",
 	}
 
-	writer, err := newWriter(ctx, r.Client, *cluster, logger)
+	writer, err := newWriter(ctx, r.Client, *destination, logger)
 	if err != nil {
 		if errors.IsNotFound(err) {
 			return defaultRequeue, nil

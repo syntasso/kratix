@@ -34,7 +34,7 @@ type GitStateStoreSpec struct {
 
 // GitStateStoreStatus defines the observed state of GitStateStore
 type GitStateStoreStatus struct {
-	// INSERT ADDITIONAL STATUS FIELD - define observed state of cluster
+	// INSERT ADDITIONAL STATUS FIELD - define observed state of GitStateStore
 	// Important: Run "make" to regenerate code after modifying this file
 }
 

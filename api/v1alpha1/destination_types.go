@@ -24,59 +24,59 @@ import (
 type StateStoreCoreFields struct {
 	// Path within the StateStore to write documents. This path should be allocated
 	// to Kratix as it will create, update, and delete files within this path.
-	// Path structure begins with provided path and ends with namespaced cluster name:
-	//   <StateStore.Spec.Path>/<Cluster.Spec.Path>/<Cluster.Metadata.Namespace>/<Cluster.Metadata.Name>/
+	// Path structure begins with provided path and ends with namespaced destination name:
+	//   <StateStore.Spec.Path>/<Destination.Spec.Path>/<Destination.Metadata.Namespace>/<Destination.Metadata.Name>/
 	//+kubebuilder:validation:Optional
 	Path string `json:"path,omitempty"`
 	// SecretRef specifies the Secret containing authentication credentials
 	SecretRef *corev1.SecretReference `json:"secretRef,omitempty"`
 }
 
-// TODO: revisit if we want all cluster secrets on a single known namespaces
+// TODO: revisit if we want all destination secrets on a single known namespaces
 // (i.e. kratix-platform-system) or if we want to allow users to specify a
-// namespace for each cluster secret.
+// namespace for each destination secret.
 
-// ClusterSpec defines the desired state of Cluster
-type ClusterSpec struct {
-	// INSERT ADDITIONAL SPEC FIELDS - desired state of cluster
+// DestinationSpec defines the desired state of Destination
+type DestinationSpec struct {
+	// INSERT ADDITIONAL SPEC FIELDS - desired state of destination
 	// Important: Run "make" to regenerate code after modifying this file
 
 	// Path within StateStore to write documents, this will be appended to any
 	// specficed Spec.Path provided in the referenced StateStore.
 	// Kratix will then namespace any resources within the provided path.
 	// Path structure will be:
-	//   <StateStore.Spec.Path>/<Cluster.Spec.Path>/<Cluster.Metadata.Namespace>/<Cluster.Metadata.Name>/
+	//   <StateStore.Spec.Path>/<Destination.Spec.Path>/<Destination.Metadata.Namespace>/<Destination.Metadata.Name>/
 	//+kubebuilder:validation:Optional
 	StateStoreCoreFields `json:",inline"`
 	StateStoreRef        *StateStoreReference `json:"stateStoreRef,omitempty"`
 }
 
-// ClusterStatus defines the observed state of Cluster
-type ClusterStatus struct {
-	// INSERT ADDITIONAL STATUS FIELD - define observed state of cluster
+// DestinationStatus defines the observed state of Destination
+type DestinationStatus struct {
+	// INSERT ADDITIONAL STATUS FIELD - define observed state of destination
 	// Important: Run "make" to regenerate code after modifying this file
 }
 
 //+kubebuilder:object:root=true
 //+kubebuilder:subresource:status
-//+kubebuilder:resource:scope=Cluster,path=clusters
+//+kubebuilder:resource:scope=Cluster,path=destinations
 
-// Cluster is the Schema for the clusters API
-type Cluster struct {
+// Destination is the Schema for the destinations API
+type Destination struct {
 	metav1.TypeMeta   `json:",inline"`
 	metav1.ObjectMeta `json:"metadata,omitempty"`
 
-	Spec   ClusterSpec   `json:"spec,omitempty"`
-	Status ClusterStatus `json:"status,omitempty"`
+	Spec   DestinationSpec   `json:"spec,omitempty"`
+	Status DestinationStatus `json:"status,omitempty"`
 }
 
 //+kubebuilder:object:root=true
 
-// ClusterList contains a list of Cluster
-type ClusterList struct {
+// DestinationList contains a list of Destination
+type DestinationList struct {
 	metav1.TypeMeta `json:",inline"`
 	metav1.ListMeta `json:"metadata,omitempty"`
-	Items           []Cluster `json:"items"`
+	Items           []Destination `json:"items"`
 }
 
 // StateStoreReference is a reference to a StateStore
@@ -87,5 +87,5 @@ type StateStoreReference struct {
 }
 
 func init() {
-	SchemeBuilder.Register(&Cluster{}, &ClusterList{})
+	SchemeBuilder.Register(&Destination{}, &DestinationList{})
 }

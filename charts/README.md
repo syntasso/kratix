@@ -5,7 +5,7 @@ Kratix in either a single Kubernetes cluster, or across a multi-cluster setup.
 
 To understand where to use each chart, you must understand a bit about the
 way Kratix [schedules resources](https://kratix.io/docs/main/reference/multicluster-management)
-across workers.
+across destinations.
 
 ## `kratix` core installation
 
@@ -23,10 +23,10 @@ It is suggested to register a Git repository or public cloud bucket, however
 for a quick start, you can install and configure a local MinIO or other
 cluster storage.
 
-## `kratix-worker`
+## `kratix-destination`
 
 Kratix maintains a decoupled architecture which means that it does not
-ever communicate with worker infrastructure directly. It is up to the
+ever communicate with destination infrastructure directly. It is up to the
 platform team to decide how to apply the Kratix documents once scheduled
 to the correct state store.
 
@@ -46,6 +46,6 @@ you will also need to install both charts on the same cluster referring to
 the same state store configuration.
 
 * If you are running a multi-cluster setup, you will need to install the
-`kratix` cluster on your "platform" cluster and the `kratix-worker`
+`kratix` chart on your "platform" cluster and the `kratix-destination`
 chart on all additional clusters, each with a unique state store
 configuration.

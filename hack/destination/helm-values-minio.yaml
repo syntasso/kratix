@@ -1,5 +1,5 @@
 config:
-  path: worker-cluster-1
+  path: worker-1
   namespace: kratix-worker-config
   secretRef:
     name: minio-credentials
@@ -12,7 +12,7 @@ config:
     bucket: kratix
 
 additionalResources:
-- apiVersion: v1
-  kind: Namespace
-  metadata:
-    name: kratix-worker-config
+  - apiVersion: v1
+    kind: Namespace
+    metadata:
+      name: kratix-worker-config

@@ -4,20 +4,20 @@ kind: CustomResourceDefinition
 metadata:
   annotations:
     controller-gen.kubebuilder.io/version: v0.12.0
-  name: clusters.platform.kratix.io
+  name: destinations.platform.kratix.io
 spec:
   group: platform.kratix.io
   names:
-    kind: Cluster
-    listKind: ClusterList
-    plural: clusters
-    singular: cluster
+    kind: Destination
+    listKind: DestinationList
+    plural: destinations
+    singular: destination
   scope: Cluster
   versions:
   - name: v1alpha1
     schema:
       openAPIV3Schema:
-        description: Cluster is the Schema for the clusters API
+        description: Destination is the Schema for the destinations API
         properties:
           apiVersion:
             description: 'APIVersion defines the versioned schema of this representation
@@ -32,13 +32,13 @@ spec:
           metadata:
             type: object
           spec:
-            description: ClusterSpec defines the desired state of Cluster
+            description: DestinationSpec defines the desired state of Destination
             properties:
               path:
                 description: 'Path within the StateStore to write documents. This
                   path should be allocated to Kratix as it will create, update, and
                   delete files within this path. Path structure begins with provided
-                  path and ends with namespaced cluster name: <StateStore.Spec.Path>/<Cluster.Spec.Path>/<Cluster.Metadata.Namespace>/<Cluster.Metadata.Name>/'
+                  path and ends with namespaced destination name: <StateStore.Spec.Path>/<Destination.Spec.Path>/<Destination.Metadata.Namespace>/<Destination.Metadata.Name>/'
                 type: string
               secretRef:
                 description: SecretRef specifies the Secret containing authentication
@@ -70,7 +70,7 @@ spec:
                 type: object
             type: object
           status:
-            description: ClusterStatus defines the observed state of Cluster
+            description: DestinationStatus defines the observed state of Destination
             type: object
         type: object
     served: true

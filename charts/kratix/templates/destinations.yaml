@@ -1,8 +1,8 @@
 
-{{- range .Values.clusters }}
+{{- range .Values.destinations }}
 ---
 apiVersion: platform.kratix.io/v1alpha1
-kind: Cluster
+kind: Destination
 metadata:
   name: {{ .name }}
   labels: {{ toYaml .labels | nindent 4 }}

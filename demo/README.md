@@ -82,7 +82,7 @@ Show the App CRD is installed:
 kubectl get crds | grep app
 ```
 
-(Optional) Show the installed worker cluster resources:
+(Optional) Show the installed dependencies on the worker:
 
 ```
 kubectl --context kind-worker get pods

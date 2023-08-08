@@ -20,17 +20,17 @@ type S3Writer struct {
 	path       string
 }
 
-func NewS3Writer(logger logr.Logger, stateStoreSpec platformv1alpha1.BucketStateStoreSpec, cluster platformv1alpha1.Cluster, creds map[string][]byte) (StateStoreWriter, error) {
+func NewS3Writer(logger logr.Logger, stateStoreSpec platformv1alpha1.BucketStateStoreSpec, destination platformv1alpha1.Destination, creds map[string][]byte) (StateStoreWriter, error) {
 	endpoint := stateStoreSpec.Endpoint
 
 	accessKeyID, ok := creds["accessKeyID"]
 	if !ok {
-		return nil, fmt.Errorf("accessKeyID not found in secret %s/%s", cluster.Namespace, stateStoreSpec.SecretRef.Name)
+		return nil, fmt.Errorf("accessKeyID not found in secret %s/%s", destination.Namespace, stateStoreSpec.SecretRef.Name)
 	}
 
 	secretAccessKey, ok := creds["secretAccessKey"]
 	if !ok {
-		return nil, fmt.Errorf("secretAccessKey not found in secret %s/%s", cluster.Namespace, stateStoreSpec.SecretRef.Name)
+		return nil, fmt.Errorf("secretAccessKey not found in secret %s/%s", destination.Namespace, stateStoreSpec.SecretRef.Name)
 	}
 
 	minioClient, err := minio.New(endpoint, &minio.Options{
@@ -47,7 +47,7 @@ func NewS3Writer(logger logr.Logger, stateStoreSpec platformv1alpha1.BucketState
 		Log:        logger,
 		RepoClient: minioClient,
 		BucketName: stateStoreSpec.BucketName,
-		path:       filepath.Join(stateStoreSpec.Path, cluster.Spec.Path, cluster.Namespace, cluster.Name),
+		path:       filepath.Join(stateStoreSpec.Path, destination.Spec.Path, destination.Namespace, destination.Name),
 	}, nil
 }
 

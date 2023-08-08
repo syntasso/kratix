@@ -2,12 +2,12 @@
 apiVersion: source.toolkit.fluxcd.io/v1beta1
 kind: Bucket
 metadata:
-  name: CLUSTER_NAME-workload-crds
+  name: DESTINATION_NAME-workload-crds
   namespace: flux-system
 spec:
   interval: 10s
   provider: generic
-  bucketName: CLUSTER_NAME-kratix-crds
+  bucketName: DESTINATION_NAME-kratix-crds
   endpoint: ENDPOINT
   insecure: true
   secretRef:
@@ -16,12 +16,12 @@ spec:
 apiVersion: source.toolkit.fluxcd.io/v1beta1
 kind: Bucket
 metadata:
-  name: CLUSTER_NAME-workload-resources
+  name: DESTINATION_NAME-workload-resources
   namespace: flux-system
 spec:
   interval: 10s
   provider: generic
-  bucketName: CLUSTER_NAME-kratix-resources
+  bucketName: DESTINATION_NAME-kratix-resources
   endpoint: ENDPOINT
   insecure: true
   secretRef:
@@ -40,29 +40,29 @@ data:
 apiVersion: kustomize.toolkit.fluxcd.io/v1beta1
 kind: Kustomization
 metadata:
-  name: CLUSTER_NAME-workload-resources
+  name: DESTINATION_NAME-workload-resources
   namespace: flux-system
 spec:
   interval: 3s
   prune: true
   dependsOn:
-    - name: CLUSTER_NAME-workload-crds
+    - name: DESTINATION_NAME-workload-crds
   sourceRef:
     kind: Bucket
-    name: CLUSTER_NAME-workload-resources
+    name: DESTINATION_NAME-workload-resources
   validation: client
   path: PATH
 ---
 apiVersion: kustomize.toolkit.fluxcd.io/v1beta1
 kind: Kustomization
 metadata:
-  name: CLUSTER_NAME-workload-crds
+  name: DESTINATION_NAME-workload-crds
   namespace: flux-system
 spec:
   interval: 8s
   prune: true
   sourceRef:
     kind: Bucket
-    name: CLUSTER_NAME-workload-crds
+    name: DESTINATION_NAME-workload-crds
   validation: client
   path: PATH

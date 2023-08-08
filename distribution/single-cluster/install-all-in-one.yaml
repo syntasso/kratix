@@ -18,7 +18,7 @@ spec:
     listKind: BucketStateStoreList
     plural: bucketstatestores
     singular: bucketstatestore
-  scope: Namespaced
+  scope: Cluster
   versions:
   - name: v1alpha1
     schema:
@@ -50,15 +50,19 @@ spec:
                 description: 'Path within the StateStore to write documents. This
                   path should be allocated to Kratix as it will create, update, and
                   delete files within this path. Path structure begins with provided
-                  path and ends with namespaced cluster name: <StateStore.Spec.Path>/<Cluster.Spec.Path>/<Cluster.Metadata.Namespace>/<Cluster.Metadata.Name>/'
+                  path and ends with namespaced destination name: <StateStore.Spec.Path>/<Destination.Spec.Path>/<Destination.Metadata.Namespace>/<Destination.Metadata.Name>/'
                 type: string
               secretRef:
                 description: SecretRef specifies the Secret containing authentication
                   credentials
                 properties:
                   name:
-                    description: 'Name of the referent. More info: https://kubernetes.io/docs/concepts/overview/working-with-objects/names/#names
-                      TODO: Add other useful fields. apiVersion, kind, uid?'
+                    description: name is unique within a namespace to reference a
+                      secret resource.
+                    type: string
+                  namespace:
+                    description: namespace defines the space within which the secret
+                      name must be unique.
                     type: string
                 type: object
                 x-kubernetes-map-type: atomic
@@ -80,20 +84,20 @@ kind: CustomResourceDefinition
 metadata:
   annotations:
     controller-gen.kubebuilder.io/version: v0.12.0
-  name: clusters.platform.kratix.io
+  name: destinations.platform.kratix.io
 spec:
   group: platform.kratix.io
   names:
-    kind: Cluster
-    listKind: ClusterList
-    plural: clusters
-    singular: cluster
-  scope: Namespaced
+    kind: Destination
+    listKind: DestinationList
+    plural: destinations
+    singular: destination
+  scope: Cluster
   versions:
   - name: v1alpha1
     schema:
       openAPIV3Schema:
-        description: Cluster is the Schema for the clusters API
+        description: Destination is the Schema for the destinations API
         properties:
           apiVersion:
             description: 'APIVersion defines the versioned schema of this representation
@@ -108,21 +112,25 @@ spec:
           metadata:
             type: object
           spec:
-            description: ClusterSpec defines the desired state of Cluster
+            description: DestinationSpec defines the desired state of Destination
             properties:
               path:
                 description: 'Path within the StateStore to write documents. This
                   path should be allocated to Kratix as it will create, update, and
                   delete files within this path. Path structure begins with provided
-                  path and ends with namespaced cluster name: <StateStore.Spec.Path>/<Cluster.Spec.Path>/<Cluster.Metadata.Namespace>/<Cluster.Metadata.Name>/'
+                  path and ends with namespaced destination name: <StateStore.Spec.Path>/<Destination.Spec.Path>/<Destination.Metadata.Namespace>/<Destination.Metadata.Name>/'
                 type: string
               secretRef:
                 description: SecretRef specifies the Secret containing authentication
                   credentials
                 properties:
                   name:
-                    description: 'Name of the referent. More info: https://kubernetes.io/docs/concepts/overview/working-with-objects/names/#names
-                      TODO: Add other useful fields. apiVersion, kind, uid?'
+                    description: name is unique within a namespace to reference a
+                      secret resource.
+                    type: string
+                  namespace:
+                    description: namespace defines the space within which the secret
+                      name must be unique.
                     type: string
                 type: object
                 x-kubernetes-map-type: atomic
@@ -142,7 +150,7 @@ spec:
                 type: object
             type: object
           status:
-            description: ClusterStatus defines the observed state of Cluster
+            description: DestinationStatus defines the observed state of Destination
             type: object
         type: object
     served: true
@@ -163,7 +171,7 @@ spec:
     listKind: GitStateStoreList
     plural: gitstatestores
     singular: gitstatestore
-  scope: Namespaced
+  scope: Cluster
   versions:
   - name: v1alpha1
     schema:
@@ -192,15 +200,19 @@ spec:
                 description: 'Path within the StateStore to write documents. This
                   path should be allocated to Kratix as it will create, update, and
                   delete files within this path. Path structure begins with provided
-                  path and ends with namespaced cluster name: <StateStore.Spec.Path>/<Cluster.Spec.Path>/<Cluster.Metadata.Namespace>/<Cluster.Metadata.Name>/'
+                  path and ends with namespaced destination name: <StateStore.Spec.Path>/<Destination.Spec.Path>/<Destination.Metadata.Namespace>/<Destination.Metadata.Name>/'
                 type: string
               secretRef:
                 description: SecretRef specifies the Secret containing authentication
                   credentials
                 properties:
                   name:
-                    description: 'Name of the referent. More info: https://kubernetes.io/docs/concepts/overview/working-with-objects/names/#names
-                      TODO: Add other useful fields. apiVersion, kind, uid?'
+                    description: name is unique within a namespace to reference a
+                      secret resource.
+                    type: string
+                  namespace:
+                    description: namespace defines the space within which the secret
+                      name must be unique.
                     type: string
                 type: object
                 x-kubernetes-map-type: atomic
@@ -229,7 +241,7 @@ spec:
     listKind: PromiseList
     plural: promises
     singular: promise
-  scope: Namespaced
+  scope: Cluster
   versions:
   - name: v1alpha1
     schema:
@@ -335,11 +347,22 @@ spec:
           spec:
             description: WorkPlacementSpec defines the desired state of WorkPlacement
             properties:
-              targetClusterName:
+              targetDestinationName:
                 type: string
-              workName:
-                description: The unique identifier of the Work parent
-                type: string
+              workload:
+                description: Workload represents the manifest workload to be deployed
+                  on worker
+                properties:
+                  manifests:
+                    description: Manifests represents a list of resources to be deployed
+                      on the worker
+                    items:
+                      description: Manifest represents a resource to be deployed on
+                        worker
+                      type: object
+                      x-kubernetes-preserve-unknown-fields: true
+                    type: array
+                type: object
             type: object
           status:
             description: WorkPlacementStatus defines the observed state of WorkPlacement
@@ -501,15 +524,6 @@ rules:
 - apiGroups:
   - ""
   resources:
-  - pods
-  verbs:
-  - create
-  - delete
-  - list
-  - watch
-- apiGroups:
-  - ""
-  resources:
   - secrets
   verbs:
   - get
@@ -538,6 +552,15 @@ rules:
   - update
   - watch
 - apiGroups:
+  - batch
+  resources:
+  - jobs
+  verbs:
+  - create
+  - delete
+  - list
+  - watch
+- apiGroups:
   - platform.kratix.io
   resources:
   - bucketstatestores
@@ -549,7 +572,7 @@ rules:
 - apiGroups:
   - platform.kratix.io
   resources:
-  - clusters
+  - destinations
   verbs:
   - create
   - delete
@@ -561,13 +584,13 @@ rules:
 - apiGroups:
   - platform.kratix.io
   resources:
-  - clusters/finalizers
+  - destinations/finalizers
   verbs:
   - update
 - apiGroups:
   - platform.kratix.io
   resources:
-  - clusters/status
+  - destinations/status
   verbs:
   - get
   - patch
@@ -672,6 +695,28 @@ rules:
   - get
   - list
   - watch
+- apiGroups:
+  - rbac.authorization.k8s.io
+  resources:
+  - rolebindings
+  verbs:
+  - create
+  - delete
+  - get
+  - list
+  - watch
+- apiGroups:
+  - rbac.authorization.k8s.io
+  resources:
+  - roles
+  verbs:
+  - bind
+  - create
+  - delete
+  - escalate
+  - get
+  - list
+  - watch
 ---
 apiVersion: rbac.authorization.k8s.io/v1
 kind: ClusterRole
@@ -762,7 +807,7 @@ metadata:
 ---
 apiVersion: v1
 data:
-  WC_IMG: syntasso/kratix-platform-pipeline-adapter:9929c0652d4e6778f3c4220f51ca02fa0df3c9b8
+  WC_IMG: syntasso/kratix-platform-pipeline-adapter:dev
 kind: ConfigMap
 metadata:
   name: kratix-platform-wc-img-config
@@ -823,7 +868,7 @@ spec:
             configMapKeyRef:
               key: WC_IMG
               name: kratix-platform-wc-img-config
-        image: syntasso/kratix-platform:9929c0652d4e6778f3c4220f51ca02fa0df3c9b8
+        image: syntasso/kratix-platform:dev
         livenessProbe:
           httpGet:
             path: /healthz

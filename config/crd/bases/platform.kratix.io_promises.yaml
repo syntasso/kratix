@@ -41,7 +41,7 @@ spec:
               dependencies:
                 items:
                   description: Resources represents the manifest workload to be deployed
-                    on workers
+                    on Destinations
                   type: object
                   x-kubernetes-preserve-unknown-fields: true
                 type: array

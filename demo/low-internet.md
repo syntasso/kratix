@@ -12,7 +12,7 @@ To generate a list of all the images required follow the below instructions,
 
 Run demo from start to finish with full internet access. This will generate all necessary running pods.
 
-- `./scripts/setup`: Create clusters, install Kratix
+- `./scripts/setup`: Create KinD clusters, install Kratix
 - `kubectl create -f app-as-a-service/promise.yaml`: Install AaaS Promise
 - `kubectl apply -f app-as-a-service/resource-request.yaml`: Install Resource Request
 - Run the demo app so that all the required pods get created.

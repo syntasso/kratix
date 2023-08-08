@@ -1,8 +1,7 @@
 apiVersion: platform.kratix.io/v1alpha1
-kind: Cluster
+kind: Destination
 metadata:
-  name: worker-cluster-1
-  namespace: default
+  name: worker-1
   labels:
     environment: dev
 spec:
@@ -14,13 +13,13 @@ apiVersion: platform.kratix.io/v1alpha1
 kind: BucketStateStore
 metadata:
   name: minio-store
-  namespace: default
 spec:
   endpoint: minio.kratix-platform-system.svc.cluster.local
   insecure: true
   bucketName: kratix
   secretRef:
     name: minio-credentials
+    namespace: default
 ---
 ---
 apiVersion: source.toolkit.fluxcd.io/v1beta1
@@ -60,7 +59,7 @@ spec:
   sourceRef:
     kind: Bucket
     name: kratix
-  path: ./default/worker-cluster-1/resources
+  path: ./worker-1/resources
   validation: client
 ---
 apiVersion: kustomize.toolkit.fluxcd.io/v1beta1
@@ -75,4 +74,4 @@ spec:
     kind: Bucket
     name: kratix
   validation: client
-  path: ./default/worker-cluster-1/crds
+  path: ./worker-1/crds

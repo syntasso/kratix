@@ -8,8 +8,8 @@ source "${ROOT}/scripts/install-gitops"
 
 BUILD_KRATIX_IMAGES=false
 RECREATE=false
-SINGLE_CLUSTER=false
-THIRD_CLUSTER=false
+SINGLE_DESTINATION=false
+THIRD_DESTINATION=false
 
 INSTALL_AND_CREATE_MINIO_BUCKET=true
 INSTALL_AND_CREATE_GITEA_REPO=false
@@ -27,13 +27,13 @@ LABELS=true
 usage() {
     echo -e "Usage: quick-start.sh [--help] [--recreate] [--local] [--git] [--git-and-minio] [--local-images <location>]"
     echo -e "\t--help, -h            Prints this message"
-    echo -e "\t--recreate, -r        Deletes pre-existing KinD Clusters"
+    echo -e "\t--recreate, -r        Deletes pre-existing KinD clusters"
     echo -e "\t--local, -l           Build and load Kratix images to KinD cache"
-    echo -e "\t--local-images, -i    Load container images from a local directory into the KinD clusters"
+    echo -e "\t--local-images, -i    Load container images from a local directory into the KinD Destinations"
     echo -e "\t--git, -g             Use Gitea as local repository in place of default local MinIO"
-    echo -e "\t--single-cluster, -s  Deploy Kratix on a Single Cluster setup"
-    echo -e "\t--git-and-minio, -d   Install Gitea alongside the minio installation. Cluster still uses minio as statestore. Can't be used alongside --git"
-    echo -e "\t--no-labels, -n       Don't apply any labels to the clusters"
+    echo -e "\t--single-destination, -s  Deploy Kratix on a Single Destination setup"
+    echo -e "\t--git-and-minio, -d   Install Gitea alongside the minio installation. Destination still uses minio as statestore. Can't be used alongside --git"
+    echo -e "\t--no-labels, -n       Don't apply any labels to the KinD clusters"
     exit "${1:-0}"
 }
 
@@ -48,8 +48,8 @@ load_options() {
         '--git-and-minio')  set -- "$@" '-d'   ;;
         '--local-images')   set -- "$@" '-i'   ;;
         '--no-labels')      set -- "$@" '-n'   ;;
-        '--single-cluster') set -- "$@" '-s'   ;;
-        '--third-cluster')  set -- "$@" '-t'   ;;
+        '--single-destination') set -- "$@" '-s'   ;;
+        '--third-destination')  set -- "$@" '-t'   ;;
         *)                  set -- "$@" "$arg" ;;
       esac
     done
@@ -59,8 +59,8 @@ load_options() {
     do
       case "$opt" in
         'r') RECREATE=true ;;
-        's') SINGLE_CLUSTER=true ;;
-        't') THIRD_CLUSTER=true ;;
+        's') SINGLE_DESTINATION=true ;;
+        't') THIRD_DESTINATION=true ;;
         'h') usage ;;
         'l') BUILD_KRATIX_IMAGES=true ;;
         'n') LABELS=false ;;
@@ -125,8 +125,8 @@ verify_prerequisites() {
     if ${RECREATE}; then
         log -n "Deleting pre-existing clusters..."
         run kind delete clusters platform worker
-        if ${THIRD_CLUSTER}; then
-            log -n "Deleting third cluster..."
+        if ${THIRD_DESTINATION}; then
+            log -n "Deleting third destination..."
             run kind delete clusters worker-2
         fi
     else
@@ -189,7 +189,7 @@ patch_statestore() {
     sed "s_BucketStateStore_${WORKER_STATESTORE_TYPE}_g"
 }
 
-setup_platform_cluster() {
+setup_platform_destination() {
     if ${INSTALL_AND_CREATE_GITEA_REPO}; then
         kubectl --context kind-platform apply --filename "${ROOT}/hack/platform/gitea-install.yaml"
     fi
@@ -201,7 +201,7 @@ setup_platform_cluster() {
     cat "${ROOT}/distribution/kratix.yaml" | patch_image | kubectl --context kind-platform apply --filename -
 }
 
-setup_worker_cluster() {
+setup_worker_destination() {
     if ${INSTALL_AND_CREATE_GITEA_REPO}; then
        kubectl --context kind-platform apply --filename "${ROOT}/config/samples/platform_v1alpha1_gitstatestore.yaml"
     fi
@@ -210,19 +210,19 @@ setup_worker_cluster() {
        kubectl --context kind-platform apply --filename "${ROOT}/config/samples/platform_v1alpha1_bucketstatestore.yaml"
     fi
 
-    if ${SINGLE_CLUSTER}; then
-        ${ROOT}/scripts/register-worker --name platform-cluster --context kind-platform
+    if ${SINGLE_DESTINATION}; then
+        ${ROOT}/scripts/register-destination --name platform-cluster --context kind-platform
     else
-        cat "${ROOT}/config/samples/platform_v1alpha1_worker_cluster.yaml" | patch_statestore | kubectl --context kind-platform apply --filename -
-        install_gitops kind-worker worker-cluster-1
+        cat "${ROOT}/config/samples/platform_v1alpha1_worker.yaml" | patch_statestore | kubectl --context kind-platform apply --filename -
+        install_gitops kind-worker worker-1
         if ! ${LABELS}; then
-            kubectl --context kind-platform label cluster worker-cluster-1 environment-
+            kubectl --context kind-platform label destination worker-1 environment-
         fi
     fi
 }
 
-setup_worker_2_cluster() {
-    install_gitops kind-worker-2 worker-cluster-2
+setup_worker_2_destination() {
+    install_gitops kind-worker-2 worker-2
 }
 
 wait_for_gitea() {
@@ -256,7 +256,7 @@ wait_for_namespace() {
     local timeout_flag="${1:-""}"
     loops=0
     local context="kind-worker"
-    if ${SINGLE_CLUSTER}; then
+    if ${SINGLE_DESTINATION}; then
         context="kind-platform"
     fi
     while ! kubectl --context $context get namespace kratix-worker-system >/dev/null 2>&1; do
@@ -284,10 +284,10 @@ load_kind_image() {
 
 load_images() {
     ps_ids=()
-    local cluster="$1"
+    local destination="$1"
     pushd ${LOCAL_IMAGES_DIR} > /dev/null
     for image_tar in $(ls *.tar | grep -v kindest); do
-        kind load image-archive --name "$cluster" "$image_tar" &
+        kind load image-archive --name "$destination" "$image_tar" &
         ps_ids+=("$!")
     done
     popd > /dev/null
@@ -308,11 +308,11 @@ install_kratix() {
         fi
     fi
 
-    log -n "Creating platform cluster..."
+    log -n "Creating platform destination..."
     if ! run kind create cluster --name platform --image $KIND_IMAGE \
         --config ${ROOT}/hack/platform/kind-platform-config.yaml
     then
-        error "Could not create platform cluster"
+        error "Could not create platform destination"
         exit 1
     fi
 
@@ -321,35 +321,35 @@ install_kratix() {
     fi
 
     if [ -d "${LOCAL_IMAGES_DIR}" ]; then
-        log -n "Loading images in platform cluster..."
+        log -n "Loading images in platform destination..."
         if ! run load_images platform; then
-            error "Failed to load images in platform cluster"
+            error "Failed to load images in platform destination"
             exit 1;
         fi
     fi
 
-    log -n "Setting up platform cluster..."
-    if ! run setup_platform_cluster; then
+    log -n "Setting up platform destination..."
+    if ! run setup_platform_destination; then
         error " failed"
         exit 1
     fi
 
-    if ! $SINGLE_CLUSTER; then
-        log -n "Creating worker cluster..."
+    if ! $SINGLE_DESTINATION; then
+        log -n "Creating worker destination..."
         if ! run kind create cluster --name worker --image $KIND_IMAGE \
-            --config ${ROOT}/hack/worker/kind-worker-config.yaml
+            --config ${ROOT}/hack/destination/kind-worker-config.yaml
         then
-            error "Could not create worker cluster"
+            error "Could not create worker destination"
             exit 1
         fi
     fi
 
-    if $THIRD_CLUSTER; then
-        log -n "Creating worker cluster..."
+    if $THIRD_DESTINATION; then
+        log -n "Creating worker destination..."
         if ! run kind create cluster --name worker-2 --image $KIND_IMAGE \
             --config ${ROOT}/config/samples/kind-worker-2-config.yaml
         then
-            error "Could not create worker cluster 2"
+            error "Could not create worker destination 2"
             exit 1
         fi
     fi
@@ -363,34 +363,34 @@ install_kratix() {
         run wait_for_local_repository --no-timeout
     fi
 
-    if ! $SINGLE_CLUSTER; then
+    if ! $SINGLE_DESTINATION; then
         if [ -d "${LOCAL_IMAGES_DIR}" ]; then
-            log -n "Loading images in worker cluster..."
+            log -n "Loading images in worker destination..."
             if ! run load_images worker; then
-                error "Failed to load images in worker cluster"
+                error "Failed to load images in worker destination"
                 exit 1;
             fi
         fi
     fi
 
-    if $THIRD_CLUSTER; then
+    if $THIRD_DESTINATION; then
         if [ -d "${LOCAL_IMAGES_DIR}" ]; then
-            log -n "Loading images in worker cluster..."
+            log -n "Loading images in worker destination..."
             if ! run load_images worker-2; then
-                error "Failed to load images in worker cluster"
+                error "Failed to load images in worker destination"
                 exit 1;
             fi
         fi
     fi
 
-    log -n "Setting up worker cluster..."
-    if ! run setup_worker_cluster; then
+    log -n "Setting up worker destination..."
+    if ! run setup_worker_destination; then
         error " failed"
         exit 1
     fi
 
-    if $THIRD_CLUSTER; then
-        if ! run setup_worker_2_cluster; then
+    if $THIRD_DESTINATION; then
+        if ! run setup_worker_2_destination; then
             error " failed"
             exit 1
         fi
@@ -399,7 +399,7 @@ install_kratix() {
     log -n "Waiting for system to reconcile... "
     if ! SUPRESS_OUTPUT=true run wait_for_namespace; then
         log "\n\nIt's taking longer than usual for the system to reconcile."
-        log "You can check the pods on the platform and worker clusters for debugging information."
+        log "You can check the pods on the platform and worker Destinations for debugging information."
         log "This script will continue to wait. You can kill it with $(info "CTRL+C.")"
         log -n "\nWaiting for local repository to be running... "
         run wait_for_namespace --no-timeout
@@ -421,7 +421,7 @@ install_kratix() {
         echo ""
         echo "If you are following the docs available at kratix.io, make sure to set the following environment variables:"
         echo "export PLATFORM=kind-platform"
-        if ${SINGLE_CLUSTER}; then
+        if ${SINGLE_DESTINATION}; then
             echo "export WORKER=kind-platform"
         else
             echo "export WORKER=kind-worker"

@@ -101,13 +101,13 @@ func (r *WorkReconciler) Reconcile(ctx context.Context, req ctrl.Request) (ctrl.
 
 	// If Work does not have a WorkPlacement then schedule the Work
 	logger.Info("Requesting scheduling for Work")
-	//Create N workplacements depending on work type (rr vs dependency) and number of clusters
+	//Create N workplacements depending on work type (rr vs dependency) and number of destinations
 	err = r.Scheduler.ReconcileWork(work)
 	if err != nil {
 		//TODO remove this error checking
 		//temp fix until resolved: https://syntasso.slack.com/archives/C044T9ZFUMN/p1674058648965449
-		if work.IsResourceRequest() && strings.Contains(err.Error(), "no workers can be selected for scheduling") {
-			logger.Info("no available cluster for resource request, trying again shortly")
+		if work.IsResourceRequest() && strings.Contains(err.Error(), "no Destinations can be selected for scheduling") {
+			logger.Info("no available Destinations for requested resource, trying again shortly")
 			return slowRequeue, nil
 		}
 

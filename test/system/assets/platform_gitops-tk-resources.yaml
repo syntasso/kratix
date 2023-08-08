@@ -14,7 +14,7 @@ data:
 apiVersion: source.toolkit.fluxcd.io/v1beta1
 kind: GitRepository
 metadata:
-  name: platform-cluster-worker-1-resources
+  name: platform-1-resources
   namespace: flux-system
 spec:
   interval: 5s
@@ -27,22 +27,22 @@ spec:
 apiVersion: kustomize.toolkit.fluxcd.io/v1beta1
 kind: Kustomization
 metadata:
-  name: platform-cluster-worker-1-resources
+  name: platform-1-resources
   namespace: flux-system
 spec:
   interval: 3s
   dependsOn:
-    - name: platform-cluster-worker-1-crds
+    - name: platform-1-crds
   sourceRef:
     kind: GitRepository
-    name: platform-cluster-worker-1-resources
-  path: "foo/bar/baz/platform-cluster-worker-1/resources/"
+    name: platform-1-resources
+  path: "foo/bar/baz/platform-1/resources/"
   prune: true
 ---
 apiVersion: source.toolkit.fluxcd.io/v1beta1
 kind: GitRepository
 metadata:
-  name: platform-cluster-worker-1-crds
+  name: platform-1-crds
   namespace: flux-system
 spec:
   interval: 5s
@@ -55,12 +55,12 @@ spec:
 apiVersion: kustomize.toolkit.fluxcd.io/v1beta1
 kind: Kustomization
 metadata:
-  name: platform-cluster-worker-1-crds
+  name: platform-1-crds
   namespace: flux-system
 spec:
   interval: 8s
   sourceRef:
     kind: GitRepository
-    name: platform-cluster-worker-1-crds
-  path: "foo/bar/baz/platform-cluster-worker-1/crds/"
+    name: platform-1-crds
+  path: "foo/bar/baz/platform-1/crds/"
   prune: true
