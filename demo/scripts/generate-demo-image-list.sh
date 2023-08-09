@@ -39,7 +39,7 @@ function run() {
 DEMO_DIR="$( cd $(dirname $0)/.. && pwd)"
 export LPASS_SLACK_URL="dontneedtherealurl"
 
-echo "Creating clusters and installing Kratix"
+echo "Creating KinD clusters and installing Kratix"
 ./scripts/setup
 
 echo "Installing Promise"

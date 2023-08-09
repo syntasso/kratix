@@ -114,7 +114,7 @@ func cleanEnvironment() {
 		k8sClient.Update(context.Background(), &p)
 	}
 	Expect(k8sClient.DeleteAllOf(context.Background(), &platformv1alpha1.Promise{})).To(Succeed())
-	Expect(k8sClient.DeleteAllOf(context.Background(), &platformv1alpha1.Cluster{})).To(Succeed())
+	Expect(k8sClient.DeleteAllOf(context.Background(), &platformv1alpha1.Destination{})).To(Succeed())
 
 	deleteInNamespace(&platformv1alpha1.Work{}, "default")
 	deleteInNamespace(&platformv1alpha1.Work{}, KratixSystemNamespace)

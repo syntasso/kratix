@@ -114,7 +114,7 @@ rules:
   - apiGroups:
       - platform.kratix.io
     resources:
-      - clusters
+      - destinations
     verbs:
       - create
       - delete
@@ -126,13 +126,13 @@ rules:
   - apiGroups:
       - platform.kratix.io
     resources:
-      - clusters/finalizers
+      - destinations/finalizers
     verbs:
       - update
   - apiGroups:
       - platform.kratix.io
     resources:
-      - clusters/status
+      - destinations/status
     verbs:
       - get
       - patch
@@ -349,7 +349,7 @@ metadata:
 ---
 apiVersion: v1
 data:
-  WC_IMG: syntasso/kratix-platform-pipeline-adapter:8511c81d6a08cc302578eb1004ca2a38c85c6d2f
+  WC_IMG: syntasso/kratix-platform-pipeline-adapter:ddf5850a62e28201ff7b7db228108942f4668115
 kind: ConfigMap
 metadata:
   name: kratix-platform-wc-img-config
@@ -410,7 +410,7 @@ spec:
                 configMapKeyRef:
                   key: WC_IMG
                   name: kratix-platform-wc-img-config
-          image: syntasso/kratix-platform:8511c81d6a08cc302578eb1004ca2a38c85c6d2f
+          image: syntasso/kratix-platform:ddf5850a62e28201ff7b7db228108942f4668115
           livenessProbe:
             httpGet:
               path: /healthz

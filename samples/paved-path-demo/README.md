@@ -3,13 +3,13 @@
 This is an example Promise to demonstrate the implementation of Compound
 Promises. It encapsulates Knative and PostgreSQL in a single Promise. Sending a
 resource request will create a new Knative Serving and a new PostgreSQL instance
-on the Worker Cluster.
+on the Destination.
 
 
 > **Warning**
 >
 > **To use this Promise, the Kubernetes cluster running Kratix must be registered
-as a Worker Cluster**
+as a Destination**
 >
 > Check out the [Compound Promises
 guide](https://kratix.io/docs/main/guides/compound-promises) on the Kratix

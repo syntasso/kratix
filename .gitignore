@@ -37,5 +37,5 @@ dist/*
 .vscode
 
 values.yaml
-worker-values.yaml
+destination-values.yaml
 platform-values.yaml

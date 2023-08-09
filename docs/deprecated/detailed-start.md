@@ -130,12 +130,12 @@ Have a look in MinIO now. There should be two buckets for the worker cluster, on
 
 ```bash
 mc ls kind
-# [2022-05-25 15:44:24 BST]     0B worker-cluster-1-kratix-crds/
-# [2022-05-25 15:44:25 BST]     0B worker-cluster-1-kratix-resources/
+# [2022-05-25 15:44:24 BST]     0B worker-1-kratix-crds/
+# [2022-05-25 15:44:25 BST]     0B worker-1-kratix-resources/
 
 mc ls --recursive kind
-# [2022-05-25 16:07:38 BST]   116B STANDARD worker-cluster-1-kratix-crds/kratix-crds.yaml
-# [2022-05-25 16:07:50 BST]   158B STANDARD worker-cluster-1-kratix-resources/kratix-resources.yaml
+# [2022-05-25 16:07:38 BST]   116B STANDARD worker-1-kratix-crds/kratix-crds.yaml
+# [2022-05-25 16:07:50 BST]   158B STANDARD worker-1-kratix-resources/kratix-resources.yaml
 ```
 
 Next, install the GitOps toolkit:
@@ -167,7 +167,7 @@ kubectl --context kind-worker get namespace kratix-worker-system
 
 kubectl --context kind-platform get clusters.platform.kratix.io
 # NAME               AGE
-# worker-cluster-1   4m
+# worker-1   4m
 ```
 
 By the now, your setup looks like the following diagram:
@@ -203,7 +203,7 @@ kubectl --context kind-worker get pods
 # postgres-operator-55b8549cff-s77q7   1/1     Running   0          51s
 
 # Check MinIO for the postgres resource files:
-mc ls kind/worker-cluster-1-kratix-resources
+mc ls kind/worker-1-kratix-resources
 
 # And finally, verify flux successfully applied the new resources:
 kubectl --context kind-worker get --namespace flux-system kustomizations.kustomize.toolkit.fluxcd.io kratix-workload-resources
@@ -262,14 +262,14 @@ kubectl --context kind-platform get works
 A new _work_ triggers the Scheduler to allocate that work. You can see the scheduling decision in the manager logs. Look for a line that has something like:
 
 ```
-INFO    controllers.Scheduler   Adding Worker Cluster: worker-cluster-1
+INFO    controllers.Scheduler   Adding Worker Cluster: worker-1
 ```
 
 The Scheduler generates a _work placement_,  where you can verify to which cluster the _work_ was scheduled to:
 
 ```bash
 kubectl --context kind-platform get workplacements.platform.kratix.io
-kubectl --context kind-platform get workplacements.platform.kratix.io ha-postgres-promise-default.worker-cluster-1 --output yaml
+kubectl --context kind-platform get workplacements.platform.kratix.io ha-postgres-promise-default.worker-1 --output yaml
 ```
 
 Finally, you can verify that the BucketWriter has written to the MinIO buckets. You should see a line similar to the following in the manager logs:
@@ -281,9 +281,9 @@ INFO    controllers.BucketWriter        Creating Minio object 01-default-postgre
 You should find a new object on your MinIO bucket at this point:
 
 ```bash
-mc ls kind/worker-cluster-1-kratix-resources
+mc ls kind/worker-1-kratix-resources
 # ...
-# [2022-05-31 18:15:31 BST] 1.7KiB worker-cluster-1-kratix-resources/01-default-ha-postgres-promise-default-resources.yaml
+# [2022-05-31 18:15:31 BST] 1.7KiB worker-1-kratix-resources/01-default-ha-postgres-promise-default-resources.yaml
 # ...
 ```
 

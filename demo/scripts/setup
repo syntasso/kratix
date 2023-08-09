@@ -10,7 +10,7 @@ if [[ -z "${LPASS_SLACK_URL}" ]]; then
 fi
 
 ${PWD}/../scripts/quick-start.sh --local-images ${PWD}/cached-images/ --recreate --third-cluster
-${PWD}/../scripts/register-worker --with-label environment=platform --name platform-cluster --context kind-platform
+${PWD}/../scripts/register-destination --with-label environment=platform --name platform-cluster --context kind-platform
 
 kubectl --context kind-platform --namespace default create secret generic \
   slack-channel-hook --from-literal=url=$LPASS_SLACK_URL

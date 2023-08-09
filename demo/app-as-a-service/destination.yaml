@@ -1,7 +1,7 @@
 apiVersion: platform.kratix.io/v1alpha1
-kind: Cluster
+kind: Destination
 metadata:
-  name: worker-cluster-2
+  name: worker-2
   namespace: default
 spec:
   stateStoreRef:

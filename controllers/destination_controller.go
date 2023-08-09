@@ -33,38 +33,38 @@ import (
 	"github.com/syntasso/kratix/lib/writers"
 )
 
-// ClusterReconciler reconciles a Cluster object
-type ClusterReconciler struct {
+// DestinationReconciler reconciles a Destination object
+type DestinationReconciler struct {
 	Client    client.Client
 	Log       logr.Logger
 	Scheduler *Scheduler
 }
 
-//+kubebuilder:rbac:groups=platform.kratix.io,resources=clusters,verbs=get;list;watch;create;update;patch;delete
+//+kubebuilder:rbac:groups=platform.kratix.io,resources=destinations,verbs=get;list;watch;create;update;patch;delete
 //+kubebuilder:rbac:groups=platform.kratix.io,resources=bucketstatestores;gitstatestores,verbs=get;list;watch
 //+kubebuilder:rbac:groups="",resources=secrets,verbs=get;list;watch
-//+kubebuilder:rbac:groups=platform.kratix.io,resources=clusters/status,verbs=get;update;patch
-//+kubebuilder:rbac:groups=platform.kratix.io,resources=clusters/finalizers,verbs=update
+//+kubebuilder:rbac:groups=platform.kratix.io,resources=destinations/status,verbs=get;update;patch
+//+kubebuilder:rbac:groups=platform.kratix.io,resources=destinations/finalizers,verbs=update
 
 // Reconcile is part of the main kubernetes reconciliation loop which aims to
-// move the current state of the cluster closer to the desired state.
+// move the current state of the destination closer to the desired state.
 // For more details, check Reconcile and its Result here:
 // - https://pkg.go.dev/sigs.k8s.io/controller-runtime@v0.11.0/pkg/reconcile
-func (r *ClusterReconciler) Reconcile(ctx context.Context, req ctrl.Request) (ctrl.Result, error) {
+func (r *DestinationReconciler) Reconcile(ctx context.Context, req ctrl.Request) (ctrl.Result, error) {
 	logger := r.Log.WithValues(
-		"cluster", req.NamespacedName,
+		"destination", req.NamespacedName,
 	)
 
-	cluster := &platformv1alpha1.Cluster{}
-	logger.Info("Registering Cluster", "requestName", req.Name)
-	if err := r.Client.Get(ctx, client.ObjectKey{Name: req.Name}, cluster); err != nil {
+	destination := &platformv1alpha1.Destination{}
+	logger.Info("Registering Destination", "requestName", req.Name)
+	if err := r.Client.Get(ctx, client.ObjectKey{Name: req.Name}, destination); err != nil {
 		if errors.IsNotFound(err) {
 			return ctrl.Result{}, nil
 		}
 		return ctrl.Result{}, err
 	}
 
-	writer, err := newWriter(ctx, r.Client, *cluster, logger)
+	writer, err := newWriter(ctx, r.Client, *destination, logger)
 	if err != nil {
 		if errors.IsNotFound(err) {
 			return defaultRequeue, nil
@@ -72,8 +72,8 @@ func (r *ClusterReconciler) Reconcile(ctx context.Context, req ctrl.Request) (ct
 		return ctrl.Result{}, err
 	}
 
-	//cluster.Spec.Path is optional, may be empty
-	path := filepath.Join(cluster.Spec.Path, cluster.Name)
+	//destination.Spec.Path is optional, may be empty
+	path := filepath.Join(destination.Spec.Path, destination.Name)
 	logger = logger.WithValues("path", path)
 
 	if err := r.createCrdPathWithExample(writer); err != nil {
@@ -86,14 +86,14 @@ func (r *ClusterReconciler) Reconcile(ctx context.Context, req ctrl.Request) (ct
 		return defaultRequeue, nil
 	}
 
-	if err := r.Scheduler.ReconcileCluster(); err != nil {
-		logger.Error(err, "unable to schedule cluster resources")
+	if err := r.Scheduler.ReconcileDestination(); err != nil {
+		logger.Error(err, "unable to schedule destination resources")
 		return defaultRequeue, nil
 	}
 	return ctrl.Result{}, nil
 }
 
-func (r *ClusterReconciler) createResourcePathWithExample(writer writers.StateStoreWriter) error {
+func (r *DestinationReconciler) createResourcePathWithExample(writer writers.StateStoreWriter) error {
 	kratixConfigMap := &v1.ConfigMap{
 		TypeMeta: metav1.TypeMeta{
 			Kind:       "ConfigMap",
@@ -112,7 +112,7 @@ func (r *ClusterReconciler) createResourcePathWithExample(writer writers.StateSt
 	return writer.WriteObject("resources/kratix-resources.yaml", nsBytes)
 }
 
-func (r *ClusterReconciler) createCrdPathWithExample(writer writers.StateStoreWriter) error {
+func (r *DestinationReconciler) createCrdPathWithExample(writer writers.StateStoreWriter) error {
 	kratixNamespace := &v1.Namespace{
 		TypeMeta: metav1.TypeMeta{
 			Kind:       "Namespace",
@@ -126,8 +126,8 @@ func (r *ClusterReconciler) createCrdPathWithExample(writer writers.StateStoreWr
 }
 
 // SetupWithManager sets up the controller with the Manager.
-func (r *ClusterReconciler) SetupWithManager(mgr ctrl.Manager) error {
+func (r *DestinationReconciler) SetupWithManager(mgr ctrl.Manager) error {
 	return ctrl.NewControllerManagedBy(mgr).
-		For(&platformv1alpha1.Cluster{}).
+		For(&platformv1alpha1.Destination{}).
 		Complete(r)
 }

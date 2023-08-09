@@ -29,8 +29,8 @@ function sync_platform_flux() {
 # Kratix Demo
 ########################
 
-# using Kind we've created two K8s clusters, platform and worker
-pe "kubectl get clusters"
+# using Kind we've created two K8s Destinations, platform and worker
+pe "kubectl get destinations"
 
 # Kratix is installed on the platform cluster
 # We can see Kratix is ready by asking for Promises
@@ -95,7 +95,7 @@ pe "watch pods platform"
 
 # Check worker pods
 # Those requests came in to the platform
-# And at least some of the requests have been fulfilled on the worker cluster
+# And at least some of the requests have been fulfilled on the worker destination
 # Let's see the Pods
 # Check Knative
 # Knative downloading many images for all the stuff it needs
@@ -116,30 +116,30 @@ pe 'watch pods platform'
 # talk through why nothing is getting scheduled
 pe 'watch pods worker'
 
-# show clusters
+# show destinations
 # talk about labels
-pe 'kubectl get clusters --show-labels'
+pe 'kubectl get destinations --show-labels'
 
-# create a new cluster
-pe 'kubectl create -f cluster.yaml'
+# create a new destination
+pe 'kubectl create -f destination.yaml'
 
-# show clusters
-pe 'kubectl get clusters --show-labels'
+# show destinations
+pe 'kubectl get destinations --show-labels'
 (flux reconcile  kustomization kratix-workload-resources --namespace flux-system --with-source --context kind-worker-2 > /dev/null 2>&1) & > /dev/null 2>&1
 
 
 # talk through why nothing is getting scheduled
 pe 'pods worker-2'
 
-# label cluster
-pe 'kubectl label cluster worker-cluster-2 environment=dev'
+# label destination
+pe 'kubectl label destination worker-2 environment=dev'
 (flux reconcile  kustomization kratix-workload-resources --namespace flux-system --with-source --context kind-worker-2 > /dev/null 2>&1) & > /dev/null 2>&1
 
 # talk through why only the dependencies is getting scheduled
 pe 'watch pods worker-2'
 
-# label cluster
-pe 'kubectl label cluster worker-cluster-2 pci=true'
+# label destination
+pe 'kubectl label destination worker-2 pci=true'
 
 # watch workloads get scheduled
 pe 'watch pods worker-2'

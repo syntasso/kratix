@@ -489,7 +489,7 @@ func setStatusFieldsOnCRD(rrCRD *apiextensionsv1.CustomResourceDefinition) {
 
 func (r *PromiseReconciler) createWorkResourceForDependencies(ctx context.Context, promise *v1alpha1.Promise, logger logr.Logger) error {
 	workToCreate := &v1alpha1.Work{}
-	workToCreate.Spec.Replicas = v1alpha1.WorkerResourceReplicas
+	workToCreate.Spec.Replicas = v1alpha1.DependencyReplicas
 	workToCreate.Name = promise.GetIdentifier()
 	workToCreate.Namespace = KratixSystemNamespace
 	workToCreate.Labels = promise.GenerateSharedLabels()

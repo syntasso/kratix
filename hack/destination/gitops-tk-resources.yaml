@@ -32,11 +32,11 @@ spec:
   interval: 3s
   prune: true
   dependsOn:
-  - name: kratix-workload-crds
+    - name: kratix-workload-crds
   sourceRef:
     kind: Bucket
     name: kratix-bucket
-  path: ./worker-cluster-1/resources
+  path: ./worker-1/resources
   validation: client
 ---
 apiVersion: kustomize.toolkit.fluxcd.io/v1beta1
@@ -50,5 +50,5 @@ spec:
   sourceRef:
     kind: Bucket
     name: kratix-bucket
-  path: ./worker-cluster-1/crds
+  path: ./worker-1/crds
   validation: client

@@ -1,8 +1,8 @@
 ---
 apiVersion: platform.kratix.io/v1alpha1
-kind: Cluster
+kind: Destination
 metadata:
-  name: platform-cluster-worker-1
+  name: platform-1
   labels:
     environment: platform
 spec:

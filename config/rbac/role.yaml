@@ -64,7 +64,7 @@ rules:
 - apiGroups:
   - platform.kratix.io
   resources:
-  - clusters
+  - destinations
   verbs:
   - create
   - delete
@@ -76,13 +76,13 @@ rules:
 - apiGroups:
   - platform.kratix.io
   resources:
-  - clusters/finalizers
+  - destinations/finalizers
   verbs:
   - update
 - apiGroups:
   - platform.kratix.io
   resources:
-  - clusters/status
+  - destinations/status
   verbs:
   - get
   - patch

@@ -2,7 +2,7 @@
 
 This Promise provides access to the [NGINX Ingress Controller (NIC)](https://docs.nginx.com/nginx-ingress-controller/)
 in the global deployment configuration. Since this configuration only deploys a
-single instance per cluster, there is no need to request individual resources once
+single instance per destination, there is no need to request individual resources once
 the Promise is installed. For more details about the difference, see the NGINX
 documents [here](https://docs.nginx.com/nginx-ingress-controller/installation/running-multiple-ingress-controllers/).
 

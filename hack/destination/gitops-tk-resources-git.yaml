@@ -35,7 +35,7 @@ spec:
   sourceRef:
     kind: GitRepository
     name: kratix-workload-resources
-  path: "worker-cluster-1/resources/"
+  path: "worker-1/resources/"
   prune: true
 ---
 apiVersion: source.toolkit.fluxcd.io/v1beta1
@@ -61,5 +61,5 @@ spec:
   sourceRef:
     kind: GitRepository
     name: kratix-workload-crds
-  path: "worker-cluster-1/crds/"
+  path: "worker-1/crds/"
   prune: true

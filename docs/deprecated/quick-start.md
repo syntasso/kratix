@@ -63,8 +63,8 @@ workplacements.platform.kratix.io   2022-05-10T11:10:57Z
 Some KinD installations use non-standard networking. To ensure cross-cluster communication we need to run this script:
 
 ```
-PLATFORM_CLUSTER_IP=`docker inspect platform-control-plane | grep '"IPAddress": "172' | awk '{print $2}' | awk -F '"' '{print $2}'`
-sed -i'' -e "s/172.18.0.2/$PLATFORM_CLUSTER_IP/g" hack/worker/gitops-tk-resources.yaml
+PLATFORM_DESTINATION_IP=`docker inspect platform-control-plane | grep '"IPAddress": "172' | awk '{print $2}' | awk -F '"' '{print $2}'`
+sed -i'' -e "s/172.18.0.2/$PLATFORM_DESTINATION_IP/g" hack/worker/gitops-tk-resources.yaml
 ```
 
 ### Set up Worker Cluster
@@ -182,4 +182,3 @@ Please help to improve Kratix. Give feedback [via email](mailto:feedback@syntass
 
 ## Challenge
 [Write your own Promise](./writing-a-promise.md), with a custom pipeline image, and share it with the world!
-

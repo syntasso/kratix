@@ -1,11 +1,11 @@
 #!/usr/bin/env bash
 
 if [ -z "$PLATFORM_CONTEXT" ] || [ -z "$WORKER_CONTEXT" ]; then
-    echo "Please set the context for the platform and worker clusters:"
+    echo "Please set the context for the platform and worker Destinations:"
     echo -e "  export PLATFORM_CONTEXT=\"<your platform context>\""
     echo -e "  export WORKER_CONTEXT=\"<your worker context>\""
     echo
-    echo "If you are running your clusters with KinD:"
+    echo "If you are running your Destinations with KinD:"
     echo "  export PLATFORM_CONTEXT=\"kind-platform\""
     echo "  export WORKER_CONTEXT=\"kind-worker\""
     exit 1
@@ -33,12 +33,12 @@ kubectl delete --all --context $WORKER_CONTEXT --namespace flux-system kustomiza
 kubectl delete --context $PLATFORM_CONTEXT pod \
     $(kubectl get --context $PLATFORM_CONTEXT pods --no-headers -o custom-columns=":metadata.name" | grep configure-pipeline)
 
-# Reinstall Kratix and re-register the worker cluster
+# Reinstall Kratix and re-register the worker destination
 kubectl apply --context $PLATFORM_CONTEXT -f https://raw.githubusercontent.com/syntasso/kratix/main/distribution/kratix.yaml
 kubectl apply --context $PLATFORM_CONTEXT -f https://raw.githubusercontent.com/syntasso/kratix/main/hack/platform/minio-install.yaml
-kubectl apply --context $PLATFORM_CONTEXT -f https://raw.githubusercontent.com/syntasso/kratix/main/config/samples/platform_v1alpha1_worker_cluster.yaml
-kubectl apply --context $WORKER_CONTEXT -f https://raw.githubusercontent.com/syntasso/kratix/main/hack/worker/gitops-tk-install.yaml
-kubectl apply --context $WORKER_CONTEXT -f https://raw.githubusercontent.com/syntasso/kratix/main/hack/worker/gitops-tk-resources.yaml
+kubectl apply --context $PLATFORM_CONTEXT -f https://raw.githubusercontent.com/syntasso/kratix/main/config/samples/platform_v1alpha1_worker_destination.yaml
+kubectl apply --context $WORKER_CONTEXT -f https://raw.githubusercontent.com/syntasso/kratix/main/hack/destination/gitops-tk-install.yaml
+kubectl apply --context $WORKER_CONTEXT -f https://raw.githubusercontent.com/syntasso/kratix/main/hack/destination/gitops-tk-resources.yaml
 
 # Remove leftover postgres resources
 kubectl delete --context $WORKER_CONTEXT statefulset \

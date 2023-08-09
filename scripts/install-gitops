@@ -13,7 +13,7 @@ usage() {
     echo ""
     echo -e "\t--help, -h,\t Prints this message"
     echo -e "\t--context='', -c,\t Required. The Kubernetes context where to install FluxCD onto."
-    echo -e "\t--path='', -b,\t The Repository name, must match the name used when registering the cluster. Defaults to context."
+    echo -e "\t--path='', -b,\t The Repository name, must match the name used when registering the destination. Defaults to context."
     echo -e "\t--git, -g,\t Reads from local Gitea installation (default: Read from local MinIO installation)"
     exit "${1:-0}"
 }
@@ -53,8 +53,8 @@ load_options() {
 
 patch_kind_networking() {
     if [[ "${CONTEXT}" =~ ^kind-.* ]]; then
-        PLATFORM_CLUSTER_IP=`docker inspect platform-control-plane | grep '"IPAddress": "172' | awk -F '"' '{print $4}'`
-        sed "s/172.18.0.2/${PLATFORM_CLUSTER_IP}/g" ${resource_file}
+        PLATFORM_DESTINATION_IP=`docker inspect platform-control-plane | grep '"IPAddress": "172' | awk -F '"' '{print $4}'`
+        sed "s/172.18.0.2/${PLATFORM_DESTINATION_IP}/g" ${resource_file}
     else
         cat "${resource_file}"
     fi
@@ -62,7 +62,7 @@ patch_kind_networking() {
 
 patch_flux_resources() {
     local name="$(echo "${CONTEXT}" | cut -d "-" -f 2)"
-    sed "s/worker-cluster-1/${BUCKET_PATH}/g" |
+    sed "s/worker-1/${BUCKET_PATH}/g" |
         sed "s/kratix-workload-crds/kratix-${name}-crds/g" |
         sed "s/kratix-workload-resources/kratix-${name}-resources/g"
 }
@@ -70,11 +70,11 @@ patch_flux_resources() {
 install_gitops() {
     CONTEXT="${CONTEXT:-$1}"
     BUCKET_PATH="${BUCKET_PATH:-$2}"
-    resource_file=${ROOT}/hack/worker/gitops-tk-resources.yaml
-    if [ ${WORKER_STATESTORE_TYPE} = "GitStateStore" ]; then resource_file=${ROOT}/hack/worker/gitops-tk-resources-git.yaml; fi
+    resource_file=${ROOT}/hack/destination/gitops-tk-resources.yaml
+    if [ ${WORKER_STATESTORE_TYPE} = "GitStateStore" ]; then resource_file=${ROOT}/hack/destination/gitops-tk-resources-git.yaml; fi
 
     # install flux crds
-    kubectl --context "${CONTEXT}" apply --filename ${ROOT}/hack/worker/gitops-tk-install.yaml
+    kubectl --context "${CONTEXT}" apply --filename ${ROOT}/hack/destination/gitops-tk-install.yaml
 
     patch_kind_networking | patch_flux_resources | kubectl --context "${CONTEXT}" apply --filename -
 }

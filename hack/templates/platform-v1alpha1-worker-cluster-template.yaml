@@ -1,7 +1,7 @@
 apiVersion: platform.kratix.io/v1alpha1
-kind: Cluster
+kind: Destination
 metadata:
-  name: CLUSTER_NAME
+  name: DESTINATION_NAME
   labels:
     environment: ENVIRONMENT_VALUE
     data: cache

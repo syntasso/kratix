@@ -12,7 +12,7 @@ import (
 	"github.com/onsi/gomega/gexec"
 )
 
-type cluster struct {
+type destination struct {
 	context string
 }
 
@@ -26,8 +26,8 @@ var (
 	timeout  = time.Second * 90
 	interval = time.Second * 2
 
-	platform = cluster{context: "--context=kind-platform"}
-	worker   = cluster{context: "--context=kind-worker"}
+	platform = destination{context: "--context=kind-platform"}
+	worker   = destination{context: "--context=kind-worker"}
 )
 
 const pipelineTimeout = "--timeout=89s"
@@ -109,7 +109,7 @@ var _ = Describe("Kratix", func() {
 					platform.kubectl("wait", "--for=condition=PipelineCompleted", "bash", rrName, pipelineTimeout)
 				})
 
-				By("deploying the contents of /kratix/output to the worker cluster", func() {
+				By("deploying the contents of /kratix/output to the worker destination", func() {
 					platform.eventuallyKubectl("get", "namespace", "imperative-rr-test")
 					worker.eventuallyKubectl("get", "namespace", "declarative-rr-test")
 				})
@@ -145,40 +145,40 @@ var _ = Describe("Kratix", func() {
 	})
 
 	Describe("Scheduling", func() {
-		// Worker cluster (BucketStateStore):
+		// Worker destination (BucketStateStore):
 		// - environment: dev
 		// - security: high
 
-		// Platform cluster (GitStateStore):
+		// Platform destination (GitStateStore):
 		// - environment: platform
 
 		// PromiseScheduling:
 		// - security: high
 		BeforeEach(func() {
-			platform.kubectl("label", "cluster", "worker-cluster-1", "security=high")
+			platform.kubectl("label", "destination", "worker-1", "security=high")
 			platform.kubectl("apply", "-f", "./assets/platform_gitops-tk-resources.yaml")
 			platform.kubectl("apply", "-f", "./assets/platform_gitstatestore.yaml")
-			platform.kubectl("apply", "-f", "./assets/platform_kratix_cluster.yaml")
+			platform.kubectl("apply", "-f", "./assets/platform_kratix_destination.yaml")
 			platform.kubectl("apply", "-f", promiseWithSchedulingPath)
 			platform.eventuallyKubectl("get", "crd", "bash.test.kratix.io")
 		})
 
 		AfterEach(func() {
-			platform.kubectl("label", "cluster", "worker-cluster-1", "security-", "pci-")
+			platform.kubectl("label", "destination", "worker-1", "security-", "pci-")
 			platform.kubectl("delete", "-f", promiseWithSchedulingPath)
-			platform.kubectl("delete", "-f", "./assets/platform_kratix_cluster.yaml")
+			platform.kubectl("delete", "-f", "./assets/platform_kratix_destination.yaml")
 			platform.kubectl("delete", "-f", "./assets/platform_gitstatestore.yaml")
 		})
 
-		It("schedules resources to the correct clusters", func() {
-			By("reconciling on new clusters", func() {
-				By("only the worker cluster getting the dependency", func() {
+		It("schedules resources to the correct Destinations", func() {
+			By("reconciling on new Destinations", func() {
+				By("only the worker Destination getting the dependency", func() {
 					worker.eventuallyKubectl("get", "namespace", "bash-wcr-namespace")
 					Expect(platform.kubectl("get", "namespace")).NotTo(ContainSubstring("bash-wcr-namespace"))
 				})
 
-				By("labeling the platform cluster, it gets the dependencies assigned", func() {
-					platform.kubectl("label", "cluster", "platform-cluster-worker-1", "security=high")
+				By("labeling the platform Destination, it gets the dependencies assigned", func() {
+					platform.kubectl("label", "destination", "platform-1", "security=high")
 					platform.eventuallyKubectl("get", "namespace", "bash-wcr-namespace")
 				})
 			})
@@ -190,12 +190,12 @@ var _ = Describe("Kratix", func() {
 
 				platform.kubectl("wait", "--for=condition=PipelineCompleted", "bash", "rr-2", pipelineTimeout)
 
-				By("only scheduling the work when a cluster label matches", func() {
+				By("only scheduling the work when a Destination label matches", func() {
 					Consistently(func() string {
 						return platform.kubectl("get", "namespace") + "\n" + worker.kubectl("get", "namespace")
 					}, "10s").ShouldNot(ContainSubstring("rr-2-namespace"))
 
-					platform.kubectl("label", "cluster", "worker-cluster-1", "pci=true")
+					platform.kubectl("label", "destination", "worker-1", "pci=true")
 
 					worker.eventuallyKubectl("get", "namespace", "rr-2-namespace")
 				})
@@ -239,7 +239,7 @@ func requestWithNameAndCommand(name string, containerCmds ...string) string {
 }
 
 // run a command until it exits 0
-func (c cluster) eventuallyKubectl(args ...string) string {
+func (c destination) eventuallyKubectl(args ...string) string {
 	args = append(args, c.context)
 	var content string
 	EventuallyWithOffset(1, func(g Gomega) {
@@ -253,7 +253,7 @@ func (c cluster) eventuallyKubectl(args ...string) string {
 }
 
 // run command and return stdout. Errors if exit code non-zero
-func (c cluster) kubectl(args ...string) string {
+func (c destination) kubectl(args ...string) string {
 	args = append(args, c.context)
 	command := exec.Command("kubectl", args...)
 	session, err := gexec.Start(command, GinkgoWriter, GinkgoWriter)

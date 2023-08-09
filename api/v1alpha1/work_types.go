@@ -21,12 +21,11 @@ import (
 	"k8s.io/apimachinery/pkg/apis/meta/v1/unstructured"
 )
 
-const WorkerResourceReplicas = -1
+const DependencyReplicas = -1
 const ResourceRequestReplicas = 1
 
 // WorkStatus defines the observed state of Work
 type WorkStatus struct {
-	// INSERT ADDITIONAL STATUS FIELD - define observed state of cluster
 	// Important: Run "make" to regenerate code after modifying this file
 }
 
@@ -44,10 +43,10 @@ type Work struct {
 
 // WorkSpec defines the desired state of Work
 type WorkSpec struct {
-	// Workload represents the manifest workload to be deployed on worker
+	// Workload represents the manifest workload to be deployed on destination
 	Workload WorkloadTemplate `json:"workload,omitempty"`
 
-	// Scheduling is used for selecting the worker
+	// Scheduling is used for selecting the destination
 	Scheduling WorkScheduling `json:"scheduling,omitempty"`
 
 	// -1 denotes dependencies, 1 denotes Resource Request
@@ -63,8 +62,8 @@ func (w *Work) IsResourceRequest() bool {
 	return w.Spec.Replicas == ResourceRequestReplicas
 }
 
-func (w *Work) IsWorkerResource() bool {
-	return w.Spec.Replicas == WorkerResourceReplicas
+func (w *Work) IsDependency() bool {
+	return w.Spec.Replicas == DependencyReplicas
 }
 
 func (w *Work) HasScheduling() bool {
@@ -77,14 +76,14 @@ func (w *Work) GetSchedulingSelectors() map[string]string {
 	return generateLabelSelectorsFromScheduling(append(w.Spec.Scheduling.Promise, w.Spec.Scheduling.Resource...))
 }
 
-// WorkloadTemplate represents the manifest workload to be deployed on worker
+// WorkloadTemplate represents the manifest workload to be deployed on destination
 type WorkloadTemplate struct {
-	// Manifests represents a list of resources to be deployed on the worker
+	// Manifests represents a list of resources to be deployed on the destination
 	// +optional
 	Manifests []Manifest `json:"manifests,omitempty"`
 }
 
-// Manifest represents a resource to be deployed on worker
+// Manifest represents a resource to be deployed on destination
 type Manifest struct {
 	// +kubebuilder:pruning:PreserveUnknownFields
 	unstructured.Unstructured `json:",inline"`

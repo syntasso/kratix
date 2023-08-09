@@ -100,12 +100,12 @@ func main() {
 		setupLog.Error(err, "unable to create controller", "controller", "Work")
 		os.Exit(1)
 	}
-	if err = (&controllers.ClusterReconciler{
+	if err = (&controllers.DestinationReconciler{
 		Client:    mgr.GetClient(),
 		Scheduler: &scheduler,
-		Log:       ctrl.Log.WithName("controllers").WithName("ClusterController"),
+		Log:       ctrl.Log.WithName("controllers").WithName("DestinationController"),
 	}).SetupWithManager(mgr); err != nil {
-		setupLog.Error(err, "unable to create controller", "controller", "Cluster")
+		setupLog.Error(err, "unable to create controller", "controller", "Destination")
 		os.Exit(1)
 	}
 	if err = (&controllers.WorkPlacementReconciler{

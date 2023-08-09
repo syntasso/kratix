@@ -38,7 +38,7 @@ spec:
                 description: -1 denotes dependencies, 1 denotes Resource Request
                 type: integer
               scheduling:
-                description: Scheduling is used for selecting the worker
+                description: Scheduling is used for selecting the destination
                 properties:
                   promise:
                     items:
@@ -67,14 +67,14 @@ spec:
                 type: object
               workload:
                 description: Workload represents the manifest workload to be deployed
-                  on worker
+                  on destination
                 properties:
                   manifests:
                     description: Manifests represents a list of resources to be deployed
-                      on the worker
+                      on the destination
                     items:
                       description: Manifest represents a resource to be deployed on
-                        worker
+                        destination
                       type: object
                       x-kubernetes-preserve-unknown-fields: true
                     type: array

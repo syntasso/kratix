@@ -23,9 +23,9 @@ stateStores: []
 #   endpoint: s3.aws.com
 #   bucket: kraix-platform
 
-clusters: []
+destinations: []
 # Example
-# - name: worker-cluster-1
+# - name: worker-1
 #   labels:
 #     env: dev
 #   path: ""

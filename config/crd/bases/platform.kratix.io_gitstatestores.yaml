@@ -41,7 +41,7 @@ spec:
                 description: 'Path within the StateStore to write documents. This
                   path should be allocated to Kratix as it will create, update, and
                   delete files within this path. Path structure begins with provided
-                  path and ends with namespaced cluster name: <StateStore.Spec.Path>/<Cluster.Spec.Path>/<Cluster.Metadata.Namespace>/<Cluster.Metadata.Name>/'
+                  path and ends with namespaced destination name: <StateStore.Spec.Path>/<Destination.Spec.Path>/<Destination.Metadata.Namespace>/<Destination.Metadata.Name>/'
                 type: string
               secretRef:
                 description: SecretRef specifies the Secret containing authentication
