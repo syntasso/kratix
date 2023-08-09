@@ -61,7 +61,7 @@ type DestinationStatus struct {
 //+kubebuilder:subresource:status
 //+kubebuilder:resource:scope=Cluster,path=destinations
 
-// Destination is the Schema for the destinations API
+// Destination is the Schema for the Destinations API
 type Destination struct {
 	metav1.TypeMeta   `json:",inline"`
 	metav1.ObjectMeta `json:"metadata,omitempty"`

@@ -17,7 +17,7 @@ spec:
   - name: v1alpha1
     schema:
       openAPIV3Schema:
-        description: Destination is the Schema for the destinations API
+        description: Destination is the Schema for the Destinations API
         properties:
           apiVersion:
             description: 'APIVersion defines the versioned schema of this representation

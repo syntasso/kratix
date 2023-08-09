@@ -50,7 +50,7 @@ spec:
                 description: 'Path within the StateStore to write documents. This
                   path should be allocated to Kratix as it will create, update, and
                   delete files within this path. Path structure begins with provided
-                  path and ends with namespaced destination name: <StateStore.Spec.Path>/<Destination.Spec.Path>/<Destination.Metadata.Namespace>/<Destination.Metadata.Name>/'
+                  path and ends with namespaced cluster name: <StateStore.Spec.Path>/<Cluster.Spec.Path>/<Cluster.Metadata.Namespace>/<Cluster.Metadata.Name>/'
                 type: string
               secretRef:
                 description: SecretRef specifies the Secret containing authentication
@@ -84,20 +84,20 @@ kind: CustomResourceDefinition
 metadata:
   annotations:
     controller-gen.kubebuilder.io/version: v0.12.0
-  name: destinations.platform.kratix.io
+  name: clusters.platform.kratix.io
 spec:
   group: platform.kratix.io
   names:
-    kind: Destination
-    listKind: DestinationList
-    plural: destinations
-    singular: destination
+    kind: Cluster
+    listKind: ClusterList
+    plural: clusters
+    singular: cluster
   scope: Cluster
   versions:
   - name: v1alpha1
     schema:
       openAPIV3Schema:
-        description: Destination is the Schema for the destinations API
+        description: Cluster is the Schema for the clusters API
         properties:
           apiVersion:
             description: 'APIVersion defines the versioned schema of this representation
@@ -112,13 +112,13 @@ spec:
           metadata:
             type: object
           spec:
-            description: DestinationSpec defines the desired state of Destination
+            description: ClusterSpec defines the desired state of Cluster
             properties:
               path:
                 description: 'Path within the StateStore to write documents. This
                   path should be allocated to Kratix as it will create, update, and
                   delete files within this path. Path structure begins with provided
-                  path and ends with namespaced destination name: <StateStore.Spec.Path>/<Destination.Spec.Path>/<Destination.Metadata.Namespace>/<Destination.Metadata.Name>/'
+                  path and ends with namespaced cluster name: <StateStore.Spec.Path>/<Cluster.Spec.Path>/<Cluster.Metadata.Namespace>/<Cluster.Metadata.Name>/'
                 type: string
               secretRef:
                 description: SecretRef specifies the Secret containing authentication
@@ -150,7 +150,7 @@ spec:
                 type: object
             type: object
           status:
-            description: DestinationStatus defines the observed state of Destination
+            description: ClusterStatus defines the observed state of Cluster
             type: object
         type: object
     served: true
@@ -200,7 +200,7 @@ spec:
                 description: 'Path within the StateStore to write documents. This
                   path should be allocated to Kratix as it will create, update, and
                   delete files within this path. Path structure begins with provided
-                  path and ends with namespaced destination name: <StateStore.Spec.Path>/<Destination.Spec.Path>/<Destination.Metadata.Namespace>/<Destination.Metadata.Name>/'
+                  path and ends with namespaced cluster name: <StateStore.Spec.Path>/<Cluster.Spec.Path>/<Cluster.Metadata.Namespace>/<Cluster.Metadata.Name>/'
                 type: string
               secretRef:
                 description: SecretRef specifies the Secret containing authentication
@@ -347,7 +347,7 @@ spec:
           spec:
             description: WorkPlacementSpec defines the desired state of WorkPlacement
             properties:
-              targetDestinationName:
+              targetClusterName:
                 type: string
               workload:
                 description: Workload represents the manifest workload to be deployed
@@ -572,7 +572,7 @@ rules:
 - apiGroups:
   - platform.kratix.io
   resources:
-  - destinations
+  - clusters
   verbs:
   - create
   - delete
@@ -584,13 +584,13 @@ rules:
 - apiGroups:
   - platform.kratix.io
   resources:
-  - destinations/finalizers
+  - clusters/finalizers
   verbs:
   - update
 - apiGroups:
   - platform.kratix.io
   resources:
-  - destinations/status
+  - clusters/status
   verbs:
   - get
   - patch
@@ -807,7 +807,7 @@ metadata:
 ---
 apiVersion: v1
 data:
-  WC_IMG: syntasso/kratix-platform-pipeline-adapter:dev
+  WC_IMG: syntasso/kratix-platform-pipeline-adapter:8511c81d6a08cc302578eb1004ca2a38c85c6d2f
 kind: ConfigMap
 metadata:
   name: kratix-platform-wc-img-config
@@ -868,7 +868,7 @@ spec:
             configMapKeyRef:
               key: WC_IMG
               name: kratix-platform-wc-img-config
-        image: syntasso/kratix-platform:dev
+        image: syntasso/kratix-platform:8511c81d6a08cc302578eb1004ca2a38c85c6d2f
         livenessProbe:
           httpGet:
             path: /healthz
