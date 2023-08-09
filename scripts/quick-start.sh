@@ -29,10 +29,11 @@ usage() {
     echo -e "\t--help, -h            Prints this message"
     echo -e "\t--recreate, -r        Deletes pre-existing KinD clusters"
     echo -e "\t--local, -l           Build and load Kratix images to KinD cache"
-    echo -e "\t--local-images, -i    Load container images from a local directory into the KinD Destinations"
+    echo -e "\t--local-images, -i    Load container images from a local directory into the KinD clusters"
     echo -e "\t--git, -g             Use Gitea as local repository in place of default local MinIO"
-    echo -e "\t--single-destination, -s  Deploy Kratix on a Single Destination setup"
-    echo -e "\t--git-and-minio, -d   Install Gitea alongside the minio installation. Destination still uses minio as statestore. Can't be used alongside --git"
+    echo -e "\t--single-cluster, -s  Deploy Kratix on a Single cluster setup"
+    echo -e "\t--third-cluster, -t   Deploy Kratix with a three cluster setup"
+    echo -e "\t--git-and-minio, -d   Install Gitea alongside the minio installation. Destinations still uses minio as statestore. Can't be used alongside --git"
     echo -e "\t--no-labels, -n       Don't apply any labels to the KinD clusters"
     exit "${1:-0}"
 }
@@ -48,8 +49,8 @@ load_options() {
         '--git-and-minio')  set -- "$@" '-d'   ;;
         '--local-images')   set -- "$@" '-i'   ;;
         '--no-labels')      set -- "$@" '-n'   ;;
-        '--single-destination') set -- "$@" '-s'   ;;
-        '--third-destination')  set -- "$@" '-t'   ;;
+        '--single-cluster') set -- "$@" '-s'   ;;
+        '--third-cluster')  set -- "$@" '-t'   ;;
         *)                  set -- "$@" "$arg" ;;
       esac
     done
