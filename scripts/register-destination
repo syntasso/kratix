@@ -69,7 +69,7 @@ prepare_destination() {
   $ROOT/scripts/install-gitops --context $DESTINATION_CONTEXT --path "platform-destination"
 
   local yqOpts=".metadata.name = \"$NAME\" | .metadata.labels = {} | .spec.stateStoreRef.name = \"$STATE_STORE\""
-  yq "${yqOpts}" $ROOT/config/samples/platform_v1alpha1_worker_destination.yaml |
+  yq "${yqOpts}" $ROOT/config/samples/platform_v1alpha1_worker.yaml |
     kubectl --context $PLATFORM_CONTEXT apply -f -
 
   if [ -n "$LABELS" ]; then
