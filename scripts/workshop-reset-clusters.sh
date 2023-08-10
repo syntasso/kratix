@@ -36,7 +36,7 @@ kubectl delete --context $PLATFORM_CONTEXT pod \
 # Reinstall Kratix and re-register the worker destination
 kubectl apply --context $PLATFORM_CONTEXT -f https://raw.githubusercontent.com/syntasso/kratix/main/distribution/kratix.yaml
 kubectl apply --context $PLATFORM_CONTEXT -f https://raw.githubusercontent.com/syntasso/kratix/main/hack/platform/minio-install.yaml
-kubectl apply --context $PLATFORM_CONTEXT -f https://raw.githubusercontent.com/syntasso/kratix/main/config/samples/platform_v1alpha1_worker_destination.yaml
+kubectl apply --context $PLATFORM_CONTEXT -f https://raw.githubusercontent.com/syntasso/kratix/main/config/samples/platform_v1alpha1_worker.yaml
 kubectl apply --context $WORKER_CONTEXT -f https://raw.githubusercontent.com/syntasso/kratix/main/hack/destination/gitops-tk-install.yaml
 kubectl apply --context $WORKER_CONTEXT -f https://raw.githubusercontent.com/syntasso/kratix/main/hack/destination/gitops-tk-resources.yaml
 
