@@ -2,8 +2,7 @@ apiVersion: platform.kratix.io/v1alpha1
 kind: Destination
 metadata:
   name: worker-2
-  namespace: default
 spec:
   stateStoreRef:
     kind: BucketStateStore
-    name: default
+    name: minio-store
