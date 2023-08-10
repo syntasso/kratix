@@ -66,7 +66,7 @@ load_options() {
 
 prepare_destination() {
   local context=""
-  $ROOT/scripts/install-gitops --context $DESTINATION_CONTEXT --path "platform-destination"
+  $ROOT/scripts/install-gitops --context $DESTINATION_CONTEXT --path "platform-cluster"
 
   local yqOpts=".metadata.name = \"$NAME\" | .metadata.labels = {} | .spec.stateStoreRef.name = \"$STATE_STORE\""
   yq "${yqOpts}" $ROOT/config/samples/platform_v1alpha1_worker.yaml |
