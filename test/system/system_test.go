@@ -18,7 +18,7 @@ type destination struct {
 
 var (
 	promisePath               = "./assets/bash-promise/promise.yaml"
-	promiseWithSchedulingPath = "./assets/bash-promise/promise-with-scheduling.yaml"
+	promiseWithSchedulingPath = "./assets/bash-promise/promise-with-destination-selectors.yaml"
 
 	workerCtx = "--context=kind-worker"
 	platCtx   = "--context=kind-platform"
@@ -184,7 +184,7 @@ var _ = Describe("Kratix", func() {
 			})
 
 			By("respecting the pipeline's scheduling", func() {
-				pipelineCmd := `echo "[{\"target\":{\"matchLabels\":{\"pci\":\"true\"}}}]" > /kratix/metadata/scheduling.yaml
+				pipelineCmd := `echo "[{\"matchLabels\":{\"pci\":\"true\"}}]" > /kratix/metadata/destination-selectors.yaml
 				kubectl create namespace rr-2-namespace --dry-run=client -oyaml > /kratix/output/ns.yaml`
 				platform.kubectl("apply", "-f", requestWithNameAndCommand("rr-2", pipelineCmd))
 

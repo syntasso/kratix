@@ -24,11 +24,11 @@ func NewConfigurePipeline(
 	pipelines []platformv1alpha1.Pipeline,
 	resourceRequestIdentifier,
 	promiseIdentifier string,
-	scheduling []platformv1alpha1.SchedulingConfig,
+	promiseDestinationSelectors []platformv1alpha1.Selector,
 ) ([]client.Object, error) {
 
 	pipelineResources := newPipelineArgs(promiseIdentifier, resourceRequestIdentifier, rr.GetNamespace())
-	configMap, err := configMap(pipelineResources, scheduling)
+	destinationSelectorsConfigMap, err := destinationSelectorsConfigMap(pipelineResources, promiseDestinationSelectors)
 	if err != nil {
 		return nil, err
 	}
@@ -37,7 +37,7 @@ func NewConfigurePipeline(
 		serviceAccount(pipelineResources),
 		role(rr, crdNames, pipelineResources),
 		roleBinding((pipelineResources)),
-		configMap,
+		destinationSelectorsConfigMap,
 		configurePipeline(rr, pipelines, pipelineResources),
 	}
 
@@ -152,7 +152,7 @@ func metadataAndSchedulingVolumes(configMapName string) []v1.Volume {
 						Name: configMapName,
 					},
 					Items: []v1.KeyToPath{{
-						Key:  "scheduling",
+						Key:  "destinationSelectors",
 						Path: "promise-scheduling",
 					}},
 				},

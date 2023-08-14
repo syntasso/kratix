@@ -247,17 +247,17 @@ var _ = Context("Promise Reconciler", func() {
 			It("creates a config map with the promise scheduling in it", func() {
 				configMap := &v1.ConfigMap{}
 				configMapName := types.NamespacedName{
-					Name:      "scheduling-" + promiseCR.GetIdentifier(),
+					Name:      "destination-selectors-" + promiseCR.GetIdentifier(),
 					Namespace: "default",
 				}
 				Eventually(func() error {
 					return k8sClient.Get(ctx, configMapName, configMap)
 				}, timeout, interval).Should(BeNil(), "Expected ConfigMap for pipeline to exist")
 				Expect(configMap.GetLabels()).To(Equal(resourceLabels))
-				Expect(configMap.Data).To(HaveKey("scheduling"))
+				Expect(configMap.Data).To(HaveKey("destinationSelectors"))
 				space := regexp.MustCompile(`\s+`)
-				targetScheduling := space.ReplaceAllString(configMap.Data["scheduling"], " ")
-				Expect(strings.TrimSpace(targetScheduling)).To(Equal(`- target: matchlabels: environment: dev`))
+				destinationSelectors := space.ReplaceAllString(configMap.Data["destinationSelectors"], " ")
+				Expect(strings.TrimSpace(destinationSelectors)).To(Equal(`- matchlabels: environment: dev`))
 			})
 
 			It("adds finalizers to the Promise", func() {
@@ -361,7 +361,7 @@ var _ = Context("Promise Reconciler", func() {
 
 					configMap := &v1.ConfigMap{}
 					configMapName := types.NamespacedName{
-						Name:      "scheduling-" + promiseCR.GetIdentifier(),
+						Name:      "destination-selectors-" + promiseCR.GetIdentifier(),
 						Namespace: "default",
 					}
 					Eventually(func() error {
@@ -384,7 +384,7 @@ var _ = Context("Promise Reconciler", func() {
 				By("deleting all the pipeline resources", func() {
 					configMap := &v1.ConfigMap{}
 					configMapName := types.NamespacedName{
-						Name:      "scheduling-" + promiseCR.GetIdentifier(),
+						Name:      "destination-selectors-" + promiseCR.GetIdentifier(),
 						Namespace: "default",
 					}
 					Eventually(func() bool {

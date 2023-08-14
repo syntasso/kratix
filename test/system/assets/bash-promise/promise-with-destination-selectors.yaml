@@ -37,10 +37,9 @@ spec:
       kind: Namespace
       metadata:
         name: bash-wcr-namespace
-  scheduling:
-    - target:
-        matchLabels:
-          security: high
+  destinationSelectors:
+  - matchLabels:
+      security: high
   workflows:
     resource:
       configure:

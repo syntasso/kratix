@@ -13,6 +13,6 @@ promises=(
 
 for promise in "${promises[@]}"; do
     cat ${PWD}/promises/${promise}/promise.yaml | \
-        yq eval '(select(.kind == "Promise") | .spec.scheduling) = [{"target": {"matchLabels": {"environment": "dev"}}}]' > ${resource_dir}/${promise}-promise.yaml
+        yq eval '(select(.kind == "Promise") | .spec.destinationSelectors[0]) = {"matchLabels": {"environment": "dev"}}' > ${resource_dir}/${promise}-promise.yaml
 done
 

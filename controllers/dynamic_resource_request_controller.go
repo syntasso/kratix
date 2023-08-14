@@ -55,18 +55,18 @@ var rrFinalizers = []string{workFinalizer, workflowsFinalizer, deleteWorkflowsFi
 
 type dynamicResourceRequestController struct {
 	//use same naming conventions as other controllers
-	Client             client.Client
-	gvk                *schema.GroupVersionKind
-	scheme             *runtime.Scheme
-	promiseIdentifier  string
-	promiseScheduling  []v1alpha1.SchedulingConfig
-	configurePipelines []v1alpha1.Pipeline
-	deletePipelines    []v1alpha1.Pipeline
-	log                logr.Logger
-	finalizers         []string
-	uid                string
-	enabled            *bool
-	crd                *apiextensionsv1.CustomResourceDefinition
+	Client                      client.Client
+	gvk                         *schema.GroupVersionKind
+	scheme                      *runtime.Scheme
+	promiseIdentifier           string
+	promiseDestinationSelectors []v1alpha1.Selector
+	configurePipelines          []v1alpha1.Pipeline
+	deletePipelines             []v1alpha1.Pipeline
+	log                         logr.Logger
+	finalizers                  []string
+	uid                         string
+	enabled                     *bool
+	crd                         *apiextensionsv1.CustomResourceDefinition
 }
 
 //+kubebuilder:rbac:groups="batch",resources=jobs,verbs=create;list;watch;delete
@@ -133,7 +133,7 @@ func (r *dynamicResourceRequestController) Reconcile(ctx context.Context, req ct
 		r.configurePipelines,
 		resourceRequestIdentifier,
 		r.promiseIdentifier,
-		r.promiseScheduling,
+		r.promiseDestinationSelectors,
 	)
 	if err != nil {
 		return ctrl.Result{}, err

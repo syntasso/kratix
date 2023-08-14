@@ -5381,10 +5381,9 @@ spec:
                   storage: true
                   subresources:
                     status: {}
-        scheduling:
-          - target:
-              matchLabels:
-                environment: dev
+        destinationSelectors:
+        - matchLabels:
+            environment: dev
         workflows:
           resource:
             configure:
@@ -5772,10 +5771,9 @@ spec:
                         runAsNonRoot: true
                         runAsUser: 1000
                   serviceAccountName: postgres-operator
-        scheduling:
-          - target:
-              matchLabels:
-                environment: dev
+        destinationSelectors:
+        - matchLabels:
+            environment: dev
         workflows:
           resource:
             configure:
@@ -5788,10 +5786,9 @@ spec:
                   containers:
                     - image: syntasso/postgres-configure-pipeline
                       name: postgres-configure-pipeline
-  scheduling:
-    - target:
-        matchLabels:
-          environment: platform
+  destinationSelectors:
+  - matchLabels:
+      environment: platform
   workflows:
     resource:
       configure:

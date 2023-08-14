@@ -45,15 +45,12 @@ spec:
                   type: object
                   x-kubernetes-preserve-unknown-fields: true
                 type: array
-              scheduling:
+              destinationSelectors:
                 items:
                   properties:
-                    target:
-                      properties:
-                        matchLabels:
-                          additionalProperties:
-                            type: string
-                          type: object
+                    matchLabels:
+                      additionalProperties:
+                        type: string
                       type: object
                   type: object
                 type: array

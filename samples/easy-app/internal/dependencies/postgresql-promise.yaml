@@ -1848,8 +1848,7 @@ spec:
             containers:
               - image: syntasso/demo-postgresql-configure-pipeline:v0.1.1
                 name: demo-postgresql-configure-pipeline
-  scheduling:
-    - target:
-        matchLabels:
-          environment: dev
+  destinationSelectors:
+  - matchLabels:
+      environment: dev
 status: {}

@@ -37,10 +37,6 @@ spec:
               type: object
           served: true
           storage: true
-  scheduling:
-    - target:
-        matchLabels:
-          environment: dev
   workflows:
     resource:
       configure:
@@ -53,3 +49,6 @@ spec:
             containers:
               - image: syntasso/demo-deployment-configure-pipeline:v0.1.1
                 name: demo-deployment-configure-pipeline
+  destinationSelectors:
+    - matchLabels:
+        environment: dev

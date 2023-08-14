@@ -46,7 +46,7 @@ type PromiseSpec struct {
 
 	Dependencies []Dependency `json:"dependencies,omitempty"`
 
-	Scheduling []SchedulingConfig `json:"scheduling,omitempty"`
+	DestinationSelectors []Selector `json:"destinationSelectors,omitempty"`
 }
 
 type Workflows struct {
@@ -68,11 +68,7 @@ type Dependency struct {
 	unstructured.Unstructured `json:",inline"`
 }
 
-type SchedulingConfig struct {
-	Target Target `json:"target,omitempty"`
-}
-
-type Target struct {
+type Selector struct {
 	MatchLabels map[string]string `json:"matchLabels,omitempty"`
 }
 
@@ -95,15 +91,15 @@ type Promise struct {
 }
 
 func (p *Promise) GetSchedulingSelectors() map[string]string {
-	return generateLabelSelectorsFromScheduling(p.Spec.Scheduling)
+	return generateLabelSelectorsFromScheduling(p.Spec.DestinationSelectors)
 }
 
-func generateLabelSelectorsFromScheduling(scheduling []SchedulingConfig) map[string]string {
+func generateLabelSelectorsFromScheduling(scheduling []Selector) map[string]string {
 	// TODO: Support more complex scheduling as it is introduced including resource selection and
 	//		 different target options.
 	schedulingSelectors := map[string]string{}
 	for _, schedulingConfig := range scheduling {
-		schedulingSelectors = labels.Merge(schedulingConfig.Target.MatchLabels, schedulingSelectors)
+		schedulingSelectors = labels.Merge(schedulingConfig.MatchLabels, schedulingSelectors)
 	}
 	return schedulingSelectors
 }
@@ -131,10 +127,6 @@ func (p *Promise) GetControllerResourceName() string {
 
 func (p *Promise) GetPipelineResourceName() string {
 	return p.GetIdentifier() + "-promise-pipeline"
-}
-
-func (p *Promise) GetConfigMapName() string {
-	return "scheduling-" + p.GetIdentifier()
 }
 
 func (p *Promise) GetPipelineResourceNamespace() string {

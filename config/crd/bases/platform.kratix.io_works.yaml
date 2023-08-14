@@ -34,37 +34,31 @@ spec:
           spec:
             description: WorkSpec defines the desired state of Work
             properties:
-              replicas:
-                description: -1 denotes dependencies, 1 denotes Resource Request
-                type: integer
-              scheduling:
-                description: Scheduling is used for selecting the destination
+              destinationSelectors:
+                description: DestinationSelectors is used for selecting the destination
                 properties:
                   promise:
                     items:
                       properties:
-                        target:
-                          properties:
-                            matchLabels:
-                              additionalProperties:
-                                type: string
-                              type: object
+                        matchLabels:
+                          additionalProperties:
+                            type: string
                           type: object
                       type: object
                     type: array
                   resource:
                     items:
                       properties:
-                        target:
-                          properties:
-                            matchLabels:
-                              additionalProperties:
-                                type: string
-                              type: object
+                        matchLabels:
+                          additionalProperties:
+                            type: string
                           type: object
                       type: object
                     type: array
                 type: object
+              replicas:
+                description: -1 denotes dependencies, 1 denotes Resource Request
+                type: integer
               workload:
                 description: Workload represents the manifest workload to be deployed
                   on destination

@@ -139,12 +139,10 @@ var _ = Describe("Controllers/Scheduler", func() {
 
 		When("the Work selector matches no Destinations", func() {
 			BeforeEach(func() {
-				resourcesWork.Spec.Scheduling = WorkScheduling{
-					Promise: []SchedulingConfig{
+				resourcesWork.Spec.DestinationSelectors = WorkScheduling{
+					Promise: []Selector{
 						{
-							Target: Target{
-								MatchLabels: map[string]string{"environment": "staging"},
-							},
+							MatchLabels: map[string]string{"environment": "staging"},
 						},
 					},
 				}
@@ -187,8 +185,8 @@ func newWork(name string, workType int, scheduling ...WorkScheduling) Work {
 			UID:       types.UID(name),
 		},
 		Spec: WorkSpec{
-			Replicas:   workType,
-			Scheduling: workScheduling,
+			Replicas:             workType,
+			DestinationSelectors: workScheduling,
 		},
 	}
 }
@@ -198,11 +196,9 @@ func schedulingFor(destination Destination) WorkScheduling {
 		return WorkScheduling{}
 	}
 	return WorkScheduling{
-		Promise: []SchedulingConfig{
+		Promise: []Selector{
 			{
-				Target: Target{
-					MatchLabels: destination.GetLabels(),
-				},
+				MatchLabels: destination.GetLabels(),
 			},
 		},
 	}

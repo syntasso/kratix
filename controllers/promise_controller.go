@@ -159,17 +159,17 @@ func (r *PromiseReconciler) ensureDynamicControllerIsStarted(promise *v1alpha1.P
 	r.StartedDynamicControllers[string(promise.GetUID())] = &enabled
 
 	dynamicResourceRequestController := &dynamicResourceRequestController{
-		Client:             r.Manager.GetClient(),
-		scheme:             r.Manager.GetScheme(),
-		gvk:                &rrGVK,
-		crd:                rrCRD,
-		promiseIdentifier:  promise.GetIdentifier(),
-		promiseScheduling:  promise.Spec.Scheduling,
-		configurePipelines: configurePipelines,
-		deletePipelines:    deletePipelines,
-		log:                r.Log,
-		uid:                string(promise.GetUID())[0:5],
-		enabled:            &enabled,
+		Client:                      r.Manager.GetClient(),
+		scheme:                      r.Manager.GetScheme(),
+		gvk:                         &rrGVK,
+		crd:                         rrCRD,
+		promiseIdentifier:           promise.GetIdentifier(),
+		promiseDestinationSelectors: promise.Spec.DestinationSelectors,
+		configurePipelines:          configurePipelines,
+		deletePipelines:             deletePipelines,
+		log:                         r.Log,
+		uid:                         string(promise.GetUID())[0:5],
+		enabled:                     &enabled,
 	}
 
 	unstructuredCRD := &unstructured.Unstructured{}
@@ -502,7 +502,7 @@ func (r *PromiseReconciler) createWorkResourceForDependencies(ctx context.Contex
 	workToCreate.Name = promise.GetIdentifier()
 	workToCreate.Namespace = KratixSystemNamespace
 	workToCreate.Labels = promise.GenerateSharedLabels()
-	workToCreate.Spec.Scheduling.Promise = promise.Spec.Scheduling
+	workToCreate.Spec.DestinationSelectors.Promise = promise.Spec.DestinationSelectors
 	for _, u := range promise.Spec.Dependencies {
 		workToCreate.Spec.Workload.Manifests = append(workToCreate.Spec.Workload.Manifests, v1alpha1.Manifest{Unstructured: u.Unstructured})
 	}

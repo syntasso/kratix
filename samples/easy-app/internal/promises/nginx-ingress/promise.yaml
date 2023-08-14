@@ -4908,10 +4908,9 @@ spec:
             storage: true
             subresources:
               status: {}
-  scheduling:
-    - target:
-        matchLabels:
-          environment: dev
+  destinationSelectors:
+  - matchLabels:
+      environment: dev
   workflows:
     resource:
       configure:
