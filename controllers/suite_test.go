@@ -78,11 +78,11 @@ var _ = BeforeSuite(func() {
 	Expect(err).ToNot(HaveOccurred())
 
 	err = (&PromiseReconciler{
-		Manager:             k8sManager,
-		ApiextensionsClient: apiextensionClient,
-		Client:              k8sManager.GetClient(),
-		Log:                 ctrl.Log.WithName("controllers").WithName("PromiseReconciler"),
-		DynamicControllers:  map[string]*bool{},
+		Manager:                   k8sManager,
+		ApiextensionsClient:       apiextensionClient,
+		Client:                    k8sManager.GetClient(),
+		Log:                       ctrl.Log.WithName("controllers").WithName("PromiseReconciler"),
+		StartedDynamicControllers: map[string]*bool{},
 	}).SetupWithManager(k8sManager)
 	Expect(err).ToNot(HaveOccurred())
 
