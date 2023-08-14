@@ -41,11 +41,11 @@ import (
 
 // PromiseReconciler reconciles a Promise object
 type PromiseReconciler struct {
-	Client              client.Client
-	ApiextensionsClient *clientset.Clientset
-	Log                 logr.Logger
-	Manager             ctrl.Manager
-	DynamicControllers  map[string]*bool
+	Client                    client.Client
+	ApiextensionsClient       *clientset.Clientset
+	Log                       logr.Logger
+	Manager                   ctrl.Manager
+	StartedDynamicControllers map[string]*bool
 }
 
 const (
@@ -127,20 +127,17 @@ func (r *PromiseReconciler) Reconcile(ctx context.Context, req ctrl.Request) (ct
 		return defaultRequeue, nil
 	}
 
-	// if the controllers already been started, we will error out and return
-	// as it errors when resources for the controller already exist.
-	if err := r.createResourcesForDynamicController(ctx, promise, rrCRD, rrGVK, logger); err != nil {
-		// Since we don't support Updates we cannot tell if createResourcesForDynamicController fails because the resources
-		// already exist or for other reasons, so we don't handle the error or requeue
-		// TODO add support for updates and gracefully error
-		return ctrl.Result{}, nil
-	}
-
 	configurePipelines, deletePipelines, err := r.generatePipelines(promise, logger)
 	if err != nil {
 		return ctrl.Result{}, err
 	}
-	return ctrl.Result{}, r.startDynamicController(promise, rrCRD, rrGVK, configurePipelines, deletePipelines)
+
+	if err := r.createResourcesForDynamicControllerIfTheyDontExist(ctx, promise, rrCRD, rrGVK, logger); err != nil {
+		// TODO add support for updates
+		return ctrl.Result{}, err
+	}
+
+	return ctrl.Result{}, r.ensureDynamicControllerIsStarted(promise, rrCRD, rrGVK, configurePipelines, deletePipelines)
 }
 
 func getDesiredFinalizers(promise *v1alpha1.Promise) []string {
@@ -150,11 +147,16 @@ func getDesiredFinalizers(promise *v1alpha1.Promise) []string {
 	return promiseFinalizers
 }
 
-func (r *PromiseReconciler) startDynamicController(promise *v1alpha1.Promise, rrCRD *apiextensionsv1.CustomResourceDefinition, rrGVK schema.GroupVersionKind, configurePipelines, deletePipelines []v1alpha1.Pipeline) error {
+func (r *PromiseReconciler) ensureDynamicControllerIsStarted(promise *v1alpha1.Promise, rrCRD *apiextensionsv1.CustomResourceDefinition, rrGVK schema.GroupVersionKind, configurePipelines, deletePipelines []v1alpha1.Pipeline) error {
+	// The Dynamic Controller needs to be started once and only once.
+	if r.dynamicControllerHasAlreadyStarted(promise) {
+		return nil
+	}
+
 	//temporary fix until https://github.com/kubernetes-sigs/controller-runtime/issues/1884 is resolved
 	//once resolved, delete dynamic controller rather than disable
 	enabled := true
-	r.DynamicControllers[string(promise.GetUID())] = &enabled
+	r.StartedDynamicControllers[string(promise.GetUID())] = &enabled
 
 	dynamicResourceRequestController := &dynamicResourceRequestController{
 		Client:             r.Manager.GetClient(),
@@ -178,10 +180,13 @@ func (r *PromiseReconciler) startDynamicController(promise *v1alpha1.Promise, rr
 		Complete(dynamicResourceRequestController)
 }
 
-func (r *PromiseReconciler) createResourcesForDynamicController(ctx context.Context, promise *v1alpha1.Promise,
-	rrCRD *apiextensionsv1.CustomResourceDefinition, rrGVK schema.GroupVersionKind, logger logr.Logger) error {
+func (r *PromiseReconciler) dynamicControllerHasAlreadyStarted(promise *v1alpha1.Promise) bool {
+	_, ok := r.StartedDynamicControllers[string(promise.GetUID())]
+	return ok
+}
 
-	// CONTROLLER RBAC
+func (r *PromiseReconciler) createResourcesForDynamicControllerIfTheyDontExist(ctx context.Context, promise *v1alpha1.Promise,
+	rrCRD *apiextensionsv1.CustomResourceDefinition, rrGVK schema.GroupVersionKind, logger logr.Logger) error {
 	cr := rbacv1.ClusterRole{
 		ObjectMeta: metav1.ObjectMeta{
 			Name:   promise.GetControllerResourceName(),
@@ -208,13 +213,12 @@ func (r *PromiseReconciler) createResourcesForDynamicController(ctx context.Cont
 	err := r.Client.Create(ctx, &cr)
 	if err != nil {
 		if errors.IsAlreadyExists(err) {
-			// TODO: Test for existence and handle updates of all Promise resources gracefully.
-			//
-			// WARNING: This return means we will stop reconcilation here if the resource already exists!
-			//       		All code below this we only attempt once (on first successful creation).
+			// TODO: Handle updates of all Promise resources gracefully.
+			logger.Info("Cannot execute update on pre-existing ClusterRole")
+		} else {
+			logger.Error(err, "Error creating ClusterRole")
 			return err
 		}
-		logger.Error(err, "Error creating ClusterRole")
 	}
 
 	crb := rbacv1.ClusterRoleBinding{
@@ -238,9 +242,14 @@ func (r *PromiseReconciler) createResourcesForDynamicController(ctx context.Cont
 
 	err = r.Client.Create(ctx, &crb)
 	if err != nil {
-		logger.Error(err, "Error creating ClusterRoleBinding")
+		if errors.IsAlreadyExists(err) {
+			// TODO: Handle updates of all Promise resources gracefully.
+			logger.Info("Cannot execute update on pre-existing ClusterRoleBinding")
+		} else {
+			logger.Error(err, "Error creating ClusterRoleBinding")
+			return err
+		}
 	}
-	// END CONTROLLER RBAC
 
 	return nil
 }
@@ -280,7 +289,7 @@ func (r *PromiseReconciler) deletePromise(ctx context.Context, promise *v1alpha1
 
 	//temporary fix until https://github.com/kubernetes-sigs/controller-runtime/issues/1884 is resolved
 	//once resolved, delete dynamic controller rather than disable
-	if enabled, exists := r.DynamicControllers[string(promise.GetUID())]; exists {
+	if enabled, exists := r.StartedDynamicControllers[string(promise.GetUID())]; exists {
 		*enabled = false
 	}
 
