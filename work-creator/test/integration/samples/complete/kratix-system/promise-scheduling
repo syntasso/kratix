@@ -1,3 +1,2 @@
-- target:
-    matchLabels:
-      environment: dev
+- matchLabels:
+    environment: dev

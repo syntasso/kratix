@@ -1035,9 +1035,7 @@ spec:
                             default: true
                             type: boolean
                           pam_configuration:
-                            default:
-                              https://info.example.com/oauth2/tokeninfo?access_token=
-                              uid realm=/employees
+                            default: https://info.example.com/oauth2/tokeninfo?access_token= uid realm=/employees
                             type: string
                           pam_role_name:
                             default: zalandos
@@ -1342,9 +1340,7 @@ spec:
                         type: string
                       maintenanceWindows:
                         items:
-                          pattern:
-                            ^\ *((Mon|Tue|Wed|Thu|Fri|Sat|Sun):(2[0-3]|[01]?\d):([0-5]?\d)|(2[0-3]|[01]?\d):([0-5]?\d))-((Mon|Tue|Wed|Thu|Fri|Sat|Sun):(2[0-3]|[01]?\d):([0-5]?\d)|(2[0-3]|[01]?\d):([0-5]?\d))\
-                            *$
+                          pattern: ^\ *((Mon|Tue|Wed|Thu|Fri|Sat|Sun):(2[0-3]|[01]?\d):([0-5]?\d)|(2[0-3]|[01]?\d):([0-5]?\d))-((Mon|Tue|Wed|Thu|Fri|Sat|Sun):(2[0-3]|[01]?\d):([0-5]?\d)|(2[0-3]|[01]?\d):([0-5]?\d))\ *$
                           type: string
                         type: array
                       nodeAffinity:
@@ -1798,9 +1794,7 @@ spec:
                     properties:
                       additionalMembers:
                         additionalProperties:
-                          description:
-                            List of users who will also be added to the Postgres
-                            cluster
+                          description: List of users who will also be added to the Postgres cluster
                           items:
                             type: string
                           nullable: true
@@ -1814,15 +1808,11 @@ spec:
                             type: string
                           nullable: true
                           type: array
-                        description:
-                          Map for teamId and associated additional superuser
-                          teams
+                        description: Map for teamId and associated additional superuser teams
                         type: object
                       additionalTeams:
                         additionalProperties:
-                          description:
-                            List of teams whose members will also be added
-                            to the Postgres cluster
+                          description: List of teams whose members will also be added to the Postgres cluster
                           items:
                             type: string
                           nullable: true
@@ -1839,10 +1829,6 @@ spec:
             storage: true
             subresources:
               status: {}
-  scheduling:
-    - target:
-        matchLabels:
-          environment: dev
   workflows:
     resource:
       configure:
@@ -1855,3 +1841,6 @@ spec:
             containers:
               - image: syntasso/demo-postgresql-configure-pipeline:v0.1.1
                 name: demo-postgresql-configure-pipeline
+  destinationSelectors:
+    - matchLabels:
+        environment: dev

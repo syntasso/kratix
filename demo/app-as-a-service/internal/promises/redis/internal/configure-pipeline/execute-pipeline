@@ -8,10 +8,9 @@ export size="$(yq eval '.spec.size' /kratix/input/object.yaml)"
 
 cluster_selectors="$(yq eval '.spec.clusterSelectors // ""' /kratix/input/object.yaml)"
 if [ -n "$cluster_selectors" ]; then
-  cat > /kratix/metadata/scheduling.yaml <<EOF
-- target:
-    matchLabels:
-      $cluster_selectors
+  cat > /kratix/metadata/destination-selectors.yaml <<EOF
+- matchLabels:
+    $cluster_selectors
 EOF
 fi
 

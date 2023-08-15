@@ -67,14 +67,14 @@ func (w *WorkCreator) Execute(rootDirectory string, identifier, namespace string
 		return err
 	}
 
-	work.Spec.Scheduling.Resource = pipelineScheduling
+	work.Spec.DestinationSelectors.Resource = pipelineScheduling
 
 	promiseScheduling, err := w.getPromiseScheduling(rootDirectory)
 	if err != nil {
 		return err
 	}
 
-	work.Spec.Scheduling.Promise = promiseScheduling
+	work.Spec.DestinationSelectors.Promise = promiseScheduling
 
 	manifests := &work.Spec.Workload.Manifests
 	for _, resource := range resources {
@@ -112,17 +112,17 @@ func (w *WorkCreator) Execute(rootDirectory string, identifier, namespace string
 	}
 }
 
-func (w *WorkCreator) getPipelineScheduling(rootDirectory string) ([]platformv1alpha1.SchedulingConfig, error) {
+func (w *WorkCreator) getPipelineScheduling(rootDirectory string) ([]platformv1alpha1.Selector, error) {
 	metadataDirectory := filepath.Join(rootDirectory, "metadata")
-	return getSchedulingConfigsFromFile(filepath.Join(metadataDirectory, "scheduling.yaml"))
+	return getSelectorsFromFile(filepath.Join(metadataDirectory, "destination-selectors.yaml"))
 }
 
-func (w *WorkCreator) getPromiseScheduling(rootDirectory string) ([]platformv1alpha1.SchedulingConfig, error) {
+func (w *WorkCreator) getPromiseScheduling(rootDirectory string) ([]platformv1alpha1.Selector, error) {
 	kratixSystemDirectory := filepath.Join(rootDirectory, "kratix-system")
-	return getSchedulingConfigsFromFile(filepath.Join(kratixSystemDirectory, "promise-scheduling"))
+	return getSelectorsFromFile(filepath.Join(kratixSystemDirectory, "promise-scheduling"))
 }
 
-func getSchedulingConfigsFromFile(filepath string) ([]platformv1alpha1.SchedulingConfig, error) {
+func getSelectorsFromFile(filepath string) ([]platformv1alpha1.Selector, error) {
 	fileContents, err := os.ReadFile(filepath)
 	if err != nil {
 		if goerr.Is(err, os.ErrNotExist) {
@@ -131,7 +131,7 @@ func getSchedulingConfigsFromFile(filepath string) ([]platformv1alpha1.Schedulin
 		return nil, err
 	}
 
-	var schedulingConfig []platformv1alpha1.SchedulingConfig
+	var schedulingConfig []platformv1alpha1.Selector
 	err = yaml.Unmarshal(fileContents, &schedulingConfig)
 	return schedulingConfig, err
 }

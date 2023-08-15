@@ -274,15 +274,12 @@ spec:
                   type: object
                   x-kubernetes-preserve-unknown-fields: true
                 type: array
-              scheduling:
+              destinationSelectors:
                 items:
                   properties:
-                    target:
-                      properties:
-                        matchLabels:
-                          additionalProperties:
-                            type: string
-                          type: object
+                    matchLabels:
+                      additionalProperties:
+                        type: string
                       type: object
                   type: object
                 type: array
@@ -408,37 +405,31 @@ spec:
           spec:
             description: WorkSpec defines the desired state of Work
             properties:
-              replicas:
-                description: -1 denotes dependencies, 1 denotes Resource Request
-                type: integer
-              scheduling:
-                description: Scheduling is used for selecting the destination
+              destinationSelectors:
+                description: DestinationSelectors is used for selecting the destination
                 properties:
                   promise:
                     items:
                       properties:
-                        target:
-                          properties:
-                            matchLabels:
-                              additionalProperties:
-                                type: string
-                              type: object
+                        matchLabels:
+                          additionalProperties:
+                            type: string
                           type: object
                       type: object
                     type: array
                   resource:
                     items:
                       properties:
-                        target:
-                          properties:
-                            matchLabels:
-                              additionalProperties:
-                                type: string
-                              type: object
+                        matchLabels:
+                          additionalProperties:
+                            type: string
                           type: object
                       type: object
                     type: array
                 type: object
+              replicas:
+                description: -1 denotes dependencies, 1 denotes Resource Request
+                type: integer
               workload:
                 description: Workload represents the manifest workload to be deployed
                   on destination
@@ -807,7 +798,7 @@ metadata:
 ---
 apiVersion: v1
 data:
-  WC_IMG: syntasso/kratix-platform-pipeline-adapter:29198f8518da2162d00b5cd794e2e22c3c219416
+  WC_IMG: syntasso/kratix-platform-pipeline-adapter:f47b76536a558a923e1f6aa92f3f909d11bf5353
 kind: ConfigMap
 metadata:
   name: kratix-platform-wc-img-config
@@ -868,7 +859,7 @@ spec:
             configMapKeyRef:
               key: WC_IMG
               name: kratix-platform-wc-img-config
-        image: syntasso/kratix-platform:29198f8518da2162d00b5cd794e2e22c3c219416
+        image: syntasso/kratix-platform:f47b76536a558a923e1f6aa92f3f909d11bf5353
         livenessProbe:
           httpGet:
             path: /healthz

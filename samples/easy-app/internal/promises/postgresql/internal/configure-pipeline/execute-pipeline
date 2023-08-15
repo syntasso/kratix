@@ -12,7 +12,7 @@ team="$(yq eval '.spec.teamId' /kratix/input/object.yaml)"
 dbname="$(yq eval '.spec.dbName // "postgres"' /kratix/input/object.yaml)"
 cluster_selectors="$(yq eval '.spec.clusterSelectors // ""' /kratix/input/object.yaml)"
 if [ -n "$cluster_selectors" ]; then
-  echo "[ target: { matchLabels: { $cluster_selectors } } ]" > /kratix/metadata/scheduling.yaml
+  echo "[ matchLabels: { $cluster_selectors } ]" > /kratix/metadata/destination-selectors.yaml
 fi
 
 backup="false"

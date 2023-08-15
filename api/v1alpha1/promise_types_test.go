@@ -10,35 +10,29 @@ import (
 var _ = Describe("Promise", func() {
 	Describe("Scheduling", func() {
 		It("generates the correct set of matchLabels", func() {
-			input := []platformv1alpha1.SchedulingConfig{
+			input := []platformv1alpha1.Selector{
 				{
-					Target: platformv1alpha1.Target{
-						MatchLabels: map[string]string{
-							"environment": "dev",
-						},
+					MatchLabels: map[string]string{
+						"environment": "dev",
 					},
 				},
 				{
-					Target: platformv1alpha1.Target{
-						MatchLabels: map[string]string{
-							"environment": "prod",
-							"pci":         "false",
-						},
+					MatchLabels: map[string]string{
+						"environment": "prod",
+						"pci":         "false",
 					},
 				},
 				{
-					Target: platformv1alpha1.Target{
-						MatchLabels: map[string]string{
-							"pci":    "true",
-							"secure": "false",
-						},
+					MatchLabels: map[string]string{
+						"pci":    "true",
+						"secure": "false",
 					},
 				},
 			}
 
 			promise := platformv1alpha1.Promise{
 				Spec: platformv1alpha1.PromiseSpec{
-					Scheduling: input,
+					DestinationSelectors: input,
 				},
 			}
 

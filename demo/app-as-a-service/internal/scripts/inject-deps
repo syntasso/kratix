@@ -1,6 +1,6 @@
 #!/usr/bin/env bash
 
-set -e
+set -e pipefail
 
 promise_name="$(basename "$(dirname "${PWD}")")"
 
@@ -9,12 +9,12 @@ if ! which worker-resource-builder >/dev/null; then
 	exit 1
 fi
 
-if [ ! -d "${PWD}/dependencies" ]; then
+if [ ! -d "${PWD}/internal/dependencies" ]; then
   exit 0
 fi
 
 promise_contents=$(worker-resource-builder \
-  -resources-dir "${PWD}/dependencies" \
+  -resources-dir "${PWD}/internal/dependencies" \
 	-promise "${PWD}/../promise.yaml")
 
-echo "$promise_contents" > "${PWD}/../promise.yaml"
+echo "$promise_contents" > "${PWD}/promise.yaml"

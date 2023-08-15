@@ -55,20 +55,16 @@ var _ = Describe("WorkCreator", func() {
 
 			It("has a correctly configured Work resource", func() {
 				Expect(workResource.GetName()).To(Equal(getWorkResourceIdentifer()))
-				Expect(workResource.Spec.Scheduling).To(Equal(
+				Expect(workResource.Spec.DestinationSelectors).To(Equal(
 					v1alpha1.WorkScheduling{
-						Promise: []v1alpha1.SchedulingConfig{
+						Promise: []v1alpha1.Selector{
 							{
-								Target: v1alpha1.Target{
-									MatchLabels: map[string]string{"environment": "dev"},
-								},
+								MatchLabels: map[string]string{"environment": "dev"},
 							},
 						},
-						Resource: []v1alpha1.SchedulingConfig{
+						Resource: []v1alpha1.Selector{
 							{
-								Target: v1alpha1.Target{
-									MatchLabels: map[string]string{"environment": "production", "region": "europe"},
-								},
+								MatchLabels: map[string]string{"environment": "production", "region": "europe"},
 							},
 						},
 					}))
@@ -95,16 +91,14 @@ var _ = Describe("WorkCreator", func() {
 				Expect(err).ToNot(HaveOccurred())
 			})
 
-			It("does not try to apply the metadata/scheduling.yaml when its not present", func() {
+			It("does not try to apply the metadata/destination-selectors.yaml when its not present", func() {
 				workResource := getCreatedWorkResource()
 				Expect(workResource.GetName()).To(Equal(getWorkResourceIdentifer()))
-				Expect(workResource.Spec.Scheduling).To(Equal(
+				Expect(workResource.Spec.DestinationSelectors).To(Equal(
 					v1alpha1.WorkScheduling{
-						Promise: []v1alpha1.SchedulingConfig{
+						Promise: []v1alpha1.Selector{
 							{
-								Target: v1alpha1.Target{
-									MatchLabels: map[string]string{"environment": "dev"},
-								},
+								MatchLabels: map[string]string{"environment": "dev"},
 							},
 						},
 					}))

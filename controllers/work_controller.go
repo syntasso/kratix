@@ -64,7 +64,7 @@ func (r *WorkReconciler) Reconcile(ctx context.Context, req ctrl.Request) (ctrl.
 		return ctrl.Result{Requeue: false}, err
 	}
 
-	logger = logger.WithValues("scheduling", work.Spec.Scheduling)
+	logger = logger.WithValues("scheduling", work.Spec.DestinationSelectors)
 
 	// If Work already has a WorkPlacement then return
 	workPlacementList := &platformv1alpha1.WorkPlacementList{}

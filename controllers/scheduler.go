@@ -45,7 +45,7 @@ func (r *Scheduler) ReconcileDestination() error {
 func (r *Scheduler) ReconcileWork(work *platformv1alpha1.Work) error {
 	targetDestinationNames := r.getTargetDestinationNames(work)
 	if len(targetDestinationNames) == 0 {
-		r.Log.Info("no Destinations can be selected for scheduling", "scheduling", work.Spec.Scheduling)
+		r.Log.Info("no Destinations can be selected for scheduling", "scheduling", work.Spec.DestinationSelectors)
 		return fmt.Errorf("no Destinations can be selected for scheduling")
 	}
 

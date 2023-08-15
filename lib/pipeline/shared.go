@@ -94,10 +94,10 @@ func roleBinding(resources pipelineArgs) *rbacv1.RoleBinding {
 	}
 }
 
-func configMap(resources pipelineArgs, scheduling []v1alpha1.SchedulingConfig) (*v1.ConfigMap, error) {
-	schedulingYAML, err := yaml.Marshal(scheduling)
+func destinationSelectorsConfigMap(resources pipelineArgs, destinationSelectors []v1alpha1.Selector) (*v1.ConfigMap, error) {
+	schedulingYAML, err := yaml.Marshal(destinationSelectors)
 	if err != nil {
-		return nil, errors.Wrap(err, "error marshalling scheduling config to yaml")
+		return nil, errors.Wrap(err, "error marshalling destinationSelectors to yaml")
 	}
 
 	return &v1.ConfigMap{
@@ -110,7 +110,7 @@ func configMap(resources pipelineArgs, scheduling []v1alpha1.SchedulingConfig) (
 			Labels:    resources.Labels(),
 		},
 		Data: map[string]string{
-			"scheduling": string(schedulingYAML),
+			"destinationSelectors": string(schedulingYAML),
 		},
 	}, nil
 }

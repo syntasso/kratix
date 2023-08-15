@@ -13,7 +13,7 @@ func newPipelineArgs(promiseIdentifier, resourceRequestIdentifier, namespace str
 		"service-account":         promiseIdentifier + "-promise-pipeline",
 		"role":                    promiseIdentifier + "-promise-pipeline",
 		"role-binding":            promiseIdentifier + "-promise-pipeline",
-		"config-map":              "scheduling-" + promiseIdentifier,
+		"config-map":              "destination-selectors-" + promiseIdentifier,
 		"namespace":               namespace,
 	}
 	return pipelineArgs{

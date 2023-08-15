@@ -46,16 +46,16 @@ type WorkSpec struct {
 	// Workload represents the manifest workload to be deployed on destination
 	Workload WorkloadTemplate `json:"workload,omitempty"`
 
-	// Scheduling is used for selecting the destination
-	Scheduling WorkScheduling `json:"scheduling,omitempty"`
+	// DestinationSelectors is used for selecting the destination
+	DestinationSelectors WorkScheduling `json:"destinationSelectors,omitempty"`
 
 	// -1 denotes dependencies, 1 denotes Resource Request
 	Replicas int `json:"replicas,omitempty"`
 }
 
 type WorkScheduling struct {
-	Promise  []SchedulingConfig `json:"promise,omitempty"`
-	Resource []SchedulingConfig `json:"resource,omitempty"`
+	Promise  []Selector `json:"promise,omitempty"`
+	Resource []Selector `json:"resource,omitempty"`
 }
 
 func (w *Work) IsResourceRequest() bool {
@@ -68,12 +68,12 @@ func (w *Work) IsDependency() bool {
 
 func (w *Work) HasScheduling() bool {
 	// Work has scheduling if either (or both) Promise or Resource has scheduling set
-	return len(w.Spec.Scheduling.Resource) > 0 && len(w.Spec.Scheduling.Resource[0].Target.MatchLabels) > 0 ||
-		len(w.Spec.Scheduling.Promise) > 0 && len(w.Spec.Scheduling.Promise[0].Target.MatchLabels) > 0
+	return len(w.Spec.DestinationSelectors.Resource) > 0 && len(w.Spec.DestinationSelectors.Resource[0].MatchLabels) > 0 ||
+		len(w.Spec.DestinationSelectors.Promise) > 0 && len(w.Spec.DestinationSelectors.Promise[0].MatchLabels) > 0
 }
 
 func (w *Work) GetSchedulingSelectors() map[string]string {
-	return generateLabelSelectorsFromScheduling(append(w.Spec.Scheduling.Promise, w.Spec.Scheduling.Resource...))
+	return generateLabelSelectorsFromScheduling(append(w.Spec.DestinationSelectors.Promise, w.Spec.DestinationSelectors.Resource...))
 }
 
 // WorkloadTemplate represents the manifest workload to be deployed on destination
