@@ -6,5 +6,5 @@ metadata:
     environment: production
 spec:
   stateStoreRef:
-    name: minio-store
+    name: default
     kind: BucketStateStore

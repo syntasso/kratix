@@ -58,11 +58,12 @@ func (r *Scheduler) createWorkplacementsForTargetDestinations(work *platformv1al
 		workPlacement := platformv1alpha1.WorkPlacement{}
 		workPlacement.Namespace = work.GetNamespace()
 		workPlacement.Name = work.Name + "." + targetDestinationName
-		workPlacement.Spec.Workload = work.Spec.Workload
-		workPlacement.Spec.TargetDestinationName = targetDestinationName
-		workPlacement.ObjectMeta.Labels = map[string]string{
+		workPlacement.Labels = map[string]string{
 			workLabelKey: work.Name,
 		}
+
+		workPlacement.Spec.WorkloadCoreFields = work.Spec.WorkloadCoreFields
+		workPlacement.Spec.TargetDestinationName = targetDestinationName
 		controllerutil.AddFinalizer(&workPlacement, repoCleanupWorkPlacementFinalizer)
 
 		if err := controllerutil.SetControllerReference(work, &workPlacement, scheme.Scheme); err != nil {

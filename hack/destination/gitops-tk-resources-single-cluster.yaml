@@ -32,7 +32,7 @@ spec:
   interval: 3s
   prune: true
   dependsOn:
-    - name: kratix-workload-crds
+    - name: kratix-workload-dependencies
   sourceRef:
     kind: Bucket
     name: kratix
@@ -42,7 +42,7 @@ spec:
 apiVersion: kustomize.toolkit.fluxcd.io/v1beta1
 kind: Kustomization
 metadata:
-  name: kratix-workload-crds
+  name: kratix-workload-dependencies
   namespace: flux-system
 spec:
   interval: 8s
@@ -51,4 +51,4 @@ spec:
     kind: Bucket
     name: kratix
   validation: client
-  path: ./worker-1/crds
+  path: ./worker-1/dependencies

@@ -17,19 +17,25 @@ limitations under the License.
 package controllers
 
 import (
-	"bytes"
 	"context"
+	"encoding/base64"
+	"path/filepath"
 
 	"github.com/go-logr/logr"
 	"k8s.io/apimachinery/pkg/api/errors"
-	"k8s.io/apimachinery/pkg/runtime/serializer/json"
 	"k8s.io/apimachinery/pkg/types"
 	ctrl "sigs.k8s.io/controller-runtime"
 	"sigs.k8s.io/controller-runtime/pkg/client"
 	"sigs.k8s.io/controller-runtime/pkg/controller/controllerutil"
 
+	"github.com/syntasso/kratix/api/v1alpha1"
 	platformv1alpha1 "github.com/syntasso/kratix/api/v1alpha1"
 	"github.com/syntasso/kratix/lib/writers"
+)
+
+const (
+	resourcesDir    = "resources"
+	dependenciesDir = "dependencies"
 )
 
 // WorkPlacementReconciler reconciles a WorkPlacement object
@@ -41,11 +47,6 @@ type WorkPlacementReconciler struct {
 const repoCleanupWorkPlacementFinalizer = "finalizers.workplacement.kratix.io/repo-cleanup"
 
 var workPlacementFinalizers = []string{repoCleanupWorkPlacementFinalizer}
-
-type repoFilePaths struct {
-	Resources string
-	CRDs      string
-}
 
 //+kubebuilder:rbac:groups=platform.kratix.io,resources=workplacements,verbs=get;list;watch;create;update;patch;delete
 //+kubebuilder:rbac:groups=platform.kratix.io,resources=workplacements/status,verbs=get;update;patch
@@ -78,12 +79,6 @@ func (r *WorkPlacementReconciler) Reconcile(ctx context.Context, req ctrl.Reques
 		return ctrl.Result{}, err
 	}
 
-	workNamespacedName := workPlacement.ObjectMeta.Labels[workLabelKey]
-	paths := repoFilePaths{
-		Resources: "resources/01-" + workNamespacedName + "-resources.yaml",
-		CRDs:      "crds/00-" + workNamespacedName + "-crds.yaml",
-	}
-
 	writer, err := newWriter(ctx, r.Client, *destination, logger)
 	if err != nil {
 		if errors.IsNotFound(err) {
@@ -93,14 +88,14 @@ func (r *WorkPlacementReconciler) Reconcile(ctx context.Context, req ctrl.Reques
 	}
 
 	if !workPlacement.DeletionTimestamp.IsZero() {
-		return r.deleteWorkPlacement(ctx, writer, workPlacement, paths, logger)
+		return r.deleteWorkPlacement(ctx, writer, workPlacement, logger)
 	}
 
 	if finalizersAreMissing(workPlacement, workPlacementFinalizers) {
 		return addFinalizers(ctx, r.Client, workPlacement, workPlacementFinalizers, logger)
 	}
 
-	err = r.writeWorkloadsToStateStore(writer, workPlacement.Spec.Workload.Manifests, paths, logger)
+	err = r.writeWorkloadsToStateStore(writer, *workPlacement, logger)
 	if err != nil {
 		logger.Error(err, "Error writing to repository, will try again in 5 seconds")
 		return defaultRequeue, err
@@ -109,13 +104,13 @@ func (r *WorkPlacementReconciler) Reconcile(ctx context.Context, req ctrl.Reques
 	return ctrl.Result{}, nil
 }
 
-func (r *WorkPlacementReconciler) deleteWorkPlacement(ctx context.Context, writer writers.StateStoreWriter, workPlacement *platformv1alpha1.WorkPlacement, paths repoFilePaths, logger logr.Logger) (ctrl.Result, error) {
+func (r *WorkPlacementReconciler) deleteWorkPlacement(ctx context.Context, writer writers.StateStoreWriter, workPlacement *platformv1alpha1.WorkPlacement, logger logr.Logger) (ctrl.Result, error) {
 	if !controllerutil.ContainsFinalizer(workPlacement, repoCleanupWorkPlacementFinalizer) {
 		return ctrl.Result{}, nil
 	}
 
 	logger.Info("cleaning up files on repository", "repository", workPlacement.Name)
-	err := r.removeWorkFromRepository(writer, paths, logger)
+	err := r.removeWorkFromRepository(writer, *workPlacement, logger)
 	if err != nil {
 		logger.Error(err, "error removing work from repository, will try again in 5 seconds")
 		return defaultRequeue, err
@@ -129,61 +124,44 @@ func (r *WorkPlacementReconciler) deleteWorkPlacement(ctx context.Context, write
 	return fastRequeue, nil
 }
 
-func (r *WorkPlacementReconciler) writeWorkloadsToStateStore(writer writers.StateStoreWriter, manifests []platformv1alpha1.Manifest, paths repoFilePaths, logger logr.Logger) error {
-	serializer := json.NewSerializerWithOptions(
-		json.DefaultMetaFactory, nil, nil,
-		json.SerializerOptions{
-			Yaml:   true,
-			Pretty: true,
-			Strict: true,
-		},
-	)
-
-	crdBuffer := bytes.NewBuffer([]byte{})
-	crdWriter := json.YAMLFramer.NewFrameWriter(crdBuffer)
-	resourceBuffer := bytes.NewBuffer([]byte{})
-	resourceWriter := json.YAMLFramer.NewFrameWriter(resourceBuffer)
-
-	for _, manifest := range manifests {
-		if manifest.GetKind() == "CustomResourceDefinition" {
-			serializer.Encode(&manifest, crdWriter)
-		} else {
-			serializer.Encode(&manifest, resourceWriter)
+func (r *WorkPlacementReconciler) writeWorkloadsToStateStore(writer writers.StateStoreWriter, workPlacement v1alpha1.WorkPlacement, logger logr.Logger) error {
+	for _, workload := range workPlacement.Spec.Workloads {
+		//base64 decode the workload content
+		workloadContent, err := base64.StdEncoding.DecodeString(string(workload.Content))
+		if err != nil {
+			logger.Error(err, "Error decoding")
+			return err
 		}
-	}
 
-	// Upload CRDs to repository in separate files to other resources to ensure
-	// the APIs for resources exist before the resources are applied. The
-	// 00-crds files are applied before 01-resources by the Kustomise controller
-	// when it autogenerates its manifest.
-	// https://github.com/fluxcd/kustomize-controller/blob/main/docs/spec/v1beta1/kustomization.md#generate-kustomizationyaml
-
-	err := writer.WriteObject(paths.CRDs, crdBuffer.Bytes())
-	if err != nil {
-		logger.Error(err, "Error writing CRDS to repository")
-		return err
-	}
-
-	err = writer.WriteObject(paths.Resources, resourceBuffer.Bytes())
-	if err != nil {
-		logger.Error(err, "Error writing resources to repository")
-		return err
+		filepath := filepath.Join(getDir(workPlacement), workload.Filepath)
+		err = writer.WriteObject(filepath, workloadContent)
+		if err != nil {
+			logger.Error(err, "Error writing resources to repository", "filepath", filepath)
+			return err
+		}
 	}
 
 	return nil
 }
 
-func (r *WorkPlacementReconciler) removeWorkFromRepository(writer writers.StateStoreWriter, paths repoFilePaths, logger logr.Logger) error {
-	if err := writer.RemoveObject(paths.Resources); err != nil {
-		logger.Error(err, "Error removing resources from repository", "resourcePath", paths.Resources)
-		return err
-	}
-
-	if err := writer.RemoveObject(paths.CRDs); err != nil {
-		logger.Error(err, "Error removing crds from repository", "resourcePath", paths.CRDs)
+func (r *WorkPlacementReconciler) removeWorkFromRepository(writer writers.StateStoreWriter, workPlacement v1alpha1.WorkPlacement, logger logr.Logger) error {
+	//MinIO needs a trailing slash to delete a directory
+	dir := getDir(workPlacement) + "/"
+	if err := writer.RemoveObject(dir); err != nil {
+		logger.Error(err, "Error removing workloads from repository", "dir", dir)
 		return err
 	}
 	return nil
+}
+
+func getDir(workPlacement v1alpha1.WorkPlacement) string {
+	if workPlacement.Spec.ResourceName == "" {
+		//dependencies/<promise-name>
+		return filepath.Join(dependenciesDir, workPlacement.Spec.PromiseName)
+	} else {
+		//resources/<rr-namespace>/<promise-name>/<rr-name>
+		return filepath.Join(resourcesDir, workPlacement.GetNamespace(), workPlacement.Spec.PromiseName, workPlacement.Spec.ResourceName)
+	}
 }
 
 func (r *WorkPlacementReconciler) getWork(workName, workNamespace string, logger logr.Logger) *platformv1alpha1.Work {

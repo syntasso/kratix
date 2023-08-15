@@ -20,18 +20,10 @@ import (
 	metav1 "k8s.io/apimachinery/pkg/apis/meta/v1"
 )
 
-// EDIT THIS FILE!  THIS IS SCAFFOLDING FOR YOU TO OWN!
-// NOTE: json tags are required.  Any new fields you add must have json tags for the fields to be serialized.
-
 // WorkPlacementSpec defines the desired state of WorkPlacement
 type WorkPlacementSpec struct {
-	// INSERT ADDITIONAL SPEC FIELDS - desired state of destination
-	// Important: Run "make" to regenerate code after modifying this file
-
 	TargetDestinationName string `json:"targetDestinationName,omitempty"`
-
-	// Workload represents the manifest workload to be deployed on destination
-	Workload WorkloadTemplate `json:"workload,omitempty"`
+	WorkloadCoreFields    `json:",inline"`
 }
 
 // WorkPlacementStatus defines the observed state of WorkPlacement

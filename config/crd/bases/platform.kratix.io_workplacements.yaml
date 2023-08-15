@@ -34,22 +34,26 @@ spec:
           spec:
             description: WorkPlacementSpec defines the desired state of WorkPlacement
             properties:
+              promiseName:
+                type: string
+              resourceName:
+                type: string
               targetDestinationName:
                 type: string
-              workload:
+              workloads:
                 description: Workload represents the manifest workload to be deployed
                   on destination
-                properties:
-                  manifests:
-                    description: Manifests represents a list of resources to be deployed
-                      on the destination
-                    items:
-                      description: Manifest represents a resource to be deployed on
-                        destination
-                      type: object
-                      x-kubernetes-preserve-unknown-fields: true
-                    type: array
-                type: object
+                items:
+                  description: WorkloadTemplate represents the manifest workload to
+                    be deployed on destination
+                  properties:
+                    content:
+                      format: byte
+                      type: string
+                    filepath:
+                      type: string
+                  type: object
+                type: array
             type: object
           status:
             description: WorkPlacementStatus defines the observed state of WorkPlacement

@@ -5,4 +5,4 @@ metadata:
 spec:
   stateStoreRef:
     kind: BucketStateStore
-    name: minio-store
+    name: default

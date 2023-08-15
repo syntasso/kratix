@@ -32,7 +32,7 @@ metadata:
 spec:
   interval: 3s
   dependsOn:
-    - name: platform-1-crds
+    - name: platform-1-dependencies
   sourceRef:
     kind: GitRepository
     name: platform-1-resources
@@ -42,7 +42,7 @@ spec:
 apiVersion: source.toolkit.fluxcd.io/v1beta1
 kind: GitRepository
 metadata:
-  name: platform-1-crds
+  name: platform-1-dependencies
   namespace: flux-system
 spec:
   interval: 5s
@@ -55,12 +55,12 @@ spec:
 apiVersion: kustomize.toolkit.fluxcd.io/v1beta1
 kind: Kustomization
 metadata:
-  name: platform-1-crds
+  name: platform-1-dependencies
   namespace: flux-system
 spec:
   interval: 8s
   sourceRef:
     kind: GitRepository
-    name: platform-1-crds
-  path: "foo/bar/baz/platform-1/crds/"
+    name: platform-1-dependencies
+  path: "foo/bar/baz/platform-1/dependencies/"
   prune: true

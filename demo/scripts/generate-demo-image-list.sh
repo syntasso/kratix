@@ -15,7 +15,7 @@ output_debugging_info() {
 trap output_debugging_info EXIT
 
 function sync() {
-  flux reconcile kustomization $1-crds --namespace flux-system --context $2 --with-source
+  flux reconcile kustomization $1-dependencies --namespace flux-system --context $2 --with-source
   # the resources kustomization blocks on the crds kustomization being ready, so sometimes this command fails on the first try
   run "Waiting for $1-resources to reconcile" flux reconcile kustomization $1-resources --namespace flux-system --context $2 --with-source
 }
