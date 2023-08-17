@@ -44,8 +44,8 @@ spec:
                 description: Workload represents the manifest workload to be deployed
                   on destination
                 items:
-                  description: WorkloadTemplate represents the manifest workload to
-                    be deployed on destination
+                  description: Workload represents the manifest workload to be deployed
+                    on destination
                   properties:
                     content:
                       format: byte

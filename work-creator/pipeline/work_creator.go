@@ -86,13 +86,13 @@ func (w *WorkCreator) Execute(rootDirectory, promiseName, namespace, resourceNam
 	}
 }
 
-func (w *WorkCreator) getWorkloadsFromDir(prefixToTrimFromWorkloadFilepath, rootDir string) ([]platformv1alpha1.WorkloadTemplate, error) {
+func (w *WorkCreator) getWorkloadsFromDir(prefixToTrimFromWorkloadFilepath, rootDir string) ([]platformv1alpha1.Workload, error) {
 	filesAndDirs, err := os.ReadDir(rootDir)
 	if err != nil {
 		return nil, err
 	}
 
-	workloads := []platformv1alpha1.WorkloadTemplate{}
+	workloads := []platformv1alpha1.Workload{}
 
 	for _, info := range filesAndDirs {
 		// TODO: currently we assume everything is a file or a dir, we don't handle
@@ -121,7 +121,7 @@ func (w *WorkCreator) getWorkloadsFromDir(prefixToTrimFromWorkloadFilepath, root
 				return nil, err
 			}
 
-			workload := platformv1alpha1.WorkloadTemplate{
+			workload := platformv1alpha1.Workload{
 				Content:  []byte(base64.StdEncoding.EncodeToString(byteValue)),
 				Filepath: path,
 			}

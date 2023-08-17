@@ -54,7 +54,7 @@ type WorkSpec struct {
 
 type WorkloadCoreFields struct {
 	// Workload represents the manifest workload to be deployed on destination
-	Workloads []WorkloadTemplate `json:"workloads,omitempty"`
+	Workloads []Workload `json:"workloads,omitempty"`
 
 	PromiseName string `json:"promiseName,omitempty"`
 	// +optional
@@ -84,8 +84,8 @@ func (w *Work) GetSchedulingSelectors() map[string]string {
 	return generateLabelSelectorsFromScheduling(append(w.Spec.DestinationSelectors.Promise, w.Spec.DestinationSelectors.Resource...))
 }
 
-// WorkloadTemplate represents the manifest workload to be deployed on destination
-type WorkloadTemplate struct {
+// Workload represents the manifest workload to be deployed on destination
+type Workload struct {
 	// +optional
 	Filepath string `json:"filepath,omitempty"`
 	Content  []byte `json:"content,omitempty"`

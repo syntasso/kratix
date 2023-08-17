@@ -510,7 +510,7 @@ func (r *PromiseReconciler) createWorkResourceForDependencies(ctx context.Contex
 	work.Spec.PromiseName = promise.GetName()
 
 	yamlBytes, err := convertDependenciesToYAML(promise)
-	work.Spec.Workloads = []v1alpha1.WorkloadTemplate{
+	work.Spec.Workloads = []v1alpha1.Workload{
 		{
 			Content:  []byte(base64.StdEncoding.EncodeToString(yamlBytes)),
 			Filepath: "static/dependencies.yaml",
