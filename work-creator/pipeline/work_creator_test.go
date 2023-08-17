@@ -166,5 +166,5 @@ func getCreatedWorkResource() v1alpha1.Work {
 
 // our test identifer
 func getWorkResourceIdentifer() string {
-	return "promise-name-default-resource-name"
+	return "promise-name-resource-name"
 }

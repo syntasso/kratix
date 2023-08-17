@@ -80,7 +80,7 @@ func (r *dynamicResourceRequestController) Reconcile(ctx context.Context, req ct
 	}
 
 	logger := r.log.WithValues("uid", r.uid, r.promiseIdentifier, req.NamespacedName)
-	resourceRequestIdentifier := fmt.Sprintf("%s-%s-%s", r.promiseIdentifier, req.Namespace, req.Name)
+	resourceRequestIdentifier := fmt.Sprintf("%s-%s", r.promiseIdentifier, req.Name)
 
 	rr := &unstructured.Unstructured{}
 	rr.SetGroupVersionKind(*r.gvk)

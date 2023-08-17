@@ -341,7 +341,7 @@ var _ = Context("Promise Reconciler", func() {
 
 				By("removing the work for the resource", func() {
 					workNamespacedName := types.NamespacedName{
-						Name:      promiseCR.GetName() + "-" + requestedResource.GetNamespace() + "-" + requestedResource.GetName(),
+						Name:      promiseCR.GetName() + "-" + requestedResource.GetName(),
 						Namespace: requestedResource.GetNamespace(),
 					}
 					Eventually(func() bool {

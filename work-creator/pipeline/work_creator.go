@@ -23,7 +23,7 @@ type WorkCreator struct {
 }
 
 func (w *WorkCreator) Execute(rootDirectory, promiseName, namespace, resourceName string) error {
-	identifier := fmt.Sprintf("%s-%s-%s", promiseName, namespace, resourceName)
+	identifier := fmt.Sprintf("%s-%s", promiseName, resourceName)
 
 	var logger = ctrl.Log.WithName("work-creator").
 		WithValues("identifier", identifier).
