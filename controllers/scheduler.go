@@ -43,6 +43,17 @@ func (r *Scheduler) ReconcileDestination() error {
 }
 
 func (r *Scheduler) ReconcileWork(work *platformv1alpha1.Work) error {
+	if work.IsResourceRequest() {
+		existingWorkplacements, err := r.getExistingWorkplacementsForWork(*work)
+		if err != nil {
+			return err
+		}
+
+		if len(existingWorkplacements) > 0 {
+			return nil
+		}
+	}
+
 	targetDestinationNames := r.getTargetDestinationNames(work)
 	if len(targetDestinationNames) == 0 {
 		r.Log.Info("no Destinations can be selected for scheduling", "scheduling", work.Spec.DestinationSelectors)
@@ -51,6 +62,32 @@ func (r *Scheduler) ReconcileWork(work *platformv1alpha1.Work) error {
 
 	r.Log.Info("found available target Destinations", "destinations", targetDestinationNames)
 	return r.createWorkplacementsForTargetDestinations(work, targetDestinationNames)
+}
+
+func (r *Scheduler) getExistingWorkplacementsForWork(work platformv1alpha1.Work) ([]platformv1alpha1.WorkPlacement, error) {
+	workPlacementList := &platformv1alpha1.WorkPlacementList{}
+	workPlacementListOptions := &client.ListOptions{
+		Namespace: work.GetNamespace(),
+	}
+	workSelectorLabel := labels.FormatLabels(map[string]string{
+		workLabelKey: work.Name,
+	})
+	//<none> is valid output from above
+	selector, err := labels.Parse(workSelectorLabel)
+
+	if err != nil {
+		r.Log.Error(err, "error parsing scheduling")
+	}
+	workPlacementListOptions.LabelSelector = selector
+
+	r.Log.Info("Listing Workplacements for Work")
+	err = r.Client.List(context.Background(), workPlacementList, workPlacementListOptions)
+	if err != nil {
+		r.Log.Error(err, "Error getting WorkPlacements")
+		return nil, err
+	}
+
+	return workPlacementList.Items, nil
 }
 
 func (r *Scheduler) createWorkplacementsForTargetDestinations(work *platformv1alpha1.Work, targetDestinationNames []string) error {
