@@ -100,7 +100,7 @@ func (r *PromiseReconciler) Reconcile(ctx context.Context, req ctrl.Request) (ct
 		return defaultRequeue, nil
 	}
 
-	logger := r.Log.WithValues("identifier", promise.GetIdentifier())
+	logger := r.Log.WithValues("identifier", promise.GetName())
 
 	if !promise.DeletionTimestamp.IsZero() {
 		return r.deletePromise(ctx, promise, logger)
@@ -167,7 +167,7 @@ func (r *PromiseReconciler) ensureDynamicControllerIsStarted(promise *v1alpha1.P
 		scheme:                      r.Manager.GetScheme(),
 		gvk:                         &rrGVK,
 		crd:                         rrCRD,
-		promiseIdentifier:           promise.GetIdentifier(),
+		promiseIdentifier:           promise.GetName(),
 		promiseDestinationSelectors: promise.Spec.DestinationSelectors,
 		configurePipelines:          configurePipelines,
 		deletePipelines:             deletePipelines,
@@ -502,7 +502,7 @@ func setStatusFieldsOnCRD(rrCRD *apiextensionsv1.CustomResourceDefinition) {
 
 func (r *PromiseReconciler) createWorkResourceForDependencies(ctx context.Context, promise *v1alpha1.Promise, logger logr.Logger) error {
 	work := &v1alpha1.Work{}
-	work.Name = promise.GetIdentifier()
+	work.Name = promise.GetName()
 	work.Namespace = KratixSystemNamespace
 	work.Labels = promise.GenerateSharedLabels()
 	work.Spec.Replicas = v1alpha1.DependencyReplicas

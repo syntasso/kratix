@@ -112,21 +112,16 @@ func (p *Promise) DoesNotContainAPI() bool {
 
 func (p *Promise) GenerateSharedLabels() map[string]string {
 	return map[string]string{
-		"kratix-promise-id": p.GetIdentifier(),
+		"kratix-promise-id": p.GetName(),
 	}
 }
 
-// TODO rename or remove func
-func (p *Promise) GetIdentifier() string {
-	return p.GetName()
-}
-
 func (p *Promise) GetControllerResourceName() string {
-	return p.GetIdentifier() + "-promise-controller"
+	return p.GetName() + "-promise-controller"
 }
 
 func (p *Promise) GetPipelineResourceName() string {
-	return p.GetIdentifier() + "-promise-pipeline"
+	return p.GetName() + "-promise-pipeline"
 }
 
 func (p *Promise) GetPipelineResourceNamespace() string {
