@@ -6,3 +6,6 @@ nodes:
   # spare port to be used as nodeport. Used in the demo for exposing nginx ingress
   - containerPort: 31338
     hostPort: 31339
+  extraMounts:
+  - hostPath: IMAGE_CACHE_DIR
+    containerPath: /images

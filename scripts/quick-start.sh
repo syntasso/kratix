@@ -315,8 +315,18 @@ load_images() {
     done
 }
 
+exec_load_images() {
+    docker exec -t $1-control-plane bash -c "for file in /images/*; do ctr --namespace=k8s.io image import \$file --all-platforms & done; wait" >/dev/null 2>&1
+}
+
 install_kratix() {
     verify_prerequisites
+
+    if ${KRATIX_DEVELOPER:-false}; then
+        log -n "Checking image cache is up-to-date\n"
+        mkdir -p $ROOT/image-cache/
+        $ROOT/scripts/download-image-cache.bash
+    fi
 
     if [ -d "${LOCAL_IMAGES_DIR}" ]; then
         log -n "Loading KinD images... "
@@ -325,18 +335,21 @@ install_kratix() {
             exit 1;
         fi
     fi
-
     log -n "Creating platform destination..."
     if ! run kind create cluster --name platform --image $KIND_IMAGE \
-        --config ${ROOT}/hack/platform/kind-platform-config.yaml
+        --config <(sed "s.IMAGE_CACHE_DIR.$ROOT/image-cache/.g" ${ROOT}/config/samples/kind-platform-config.yaml)
     then
         error "Could not create platform destination"
         exit 1
     fi
 
+    exec_load_images platform & # we can let this run in background while we build kratix images
+
     if ${BUILD_KRATIX_IMAGES}; then
         build_and_load_local_images
     fi
+
+    wait
 
     if [ -d "${LOCAL_IMAGES_DIR}" ]; then
         log -n "Loading images in platform destination..."
@@ -355,21 +368,24 @@ install_kratix() {
     if ! $SINGLE_DESTINATION; then
         log -n "Creating worker destination..."
         if ! run kind create cluster --name worker --image $KIND_IMAGE \
-            --config ${ROOT}/hack/destination/kind-worker-config.yaml
+            --config <(sed "s.IMAGE_CACHE_DIR.$ROOT/image-cache/.g" ${ROOT}/hack/destination/kind-worker-config.yaml)
         then
             error "Could not create worker destination"
             exit 1
         fi
+        exec_load_images worker &
     fi
+
 
     if $THIRD_DESTINATION; then
         log -n "Creating worker destination..."
         if ! run kind create cluster --name worker-2 --image $KIND_IMAGE \
-            --config ${ROOT}/config/samples/kind-worker-2-config.yaml
+            --config <(sed "s.IMAGE_CACHE_DIR.$ROOT/image-cache/.g" ${ROOT}/config/samples/kind-worker-2-config.yaml)
         then
             error "Could not create worker destination 2"
             exit 1
         fi
+        exec_load_images worker-2 &
     fi
 
     log -n "Waiting for local repository to be running..."
@@ -400,6 +416,8 @@ install_kratix() {
             fi
         fi
     fi
+
+    wait
 
     log -n "Setting up worker destination..."
     if ! run setup_worker_destination; then

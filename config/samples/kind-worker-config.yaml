@@ -9,3 +9,6 @@ nodes:
   # workshop port for Jenkins (part i) and Kibana (part ii) -- needed for Instruqt 
   - containerPort: 30269
     hostPort: 30269
+  extraMounts:
+  - hostPath: IMAGE_CACHE_DIR
+    containerPath: /images

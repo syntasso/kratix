@@ -1,0 +1,14 @@
+gitea/gitea:1.17.3
+bitnami/memcached:1.6.9-debian-10-r114
+bitnami/postgresql:11.11.0-debian-10-r62
+gcr.io/kubebuilder/kube-rbac-proxy:v0.8.0
+minio/minio:RELEASE.2022-06-30T20-58-09Z
+ghcr.io/fluxcd/helm-controller:v0.27.0
+ghcr.io/fluxcd/kustomize-controller:v0.31.0
+ghcr.io/fluxcd/notification-controller:v0.29.0
+ghcr.io/fluxcd/source-controller:v0.32.1
+bitnami/kubectl:1.20.10
+gcr.io/kubebuilder/kube-rbac-proxy:v0.8.0
+minio/mc:RELEASE.2023-06-06T13-48-56Z
+kindest/kindnetd:v20221004-44d545d1
+kindest/local-path-provisioner:v0.0.22-kind.0

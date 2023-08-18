@@ -7,3 +7,6 @@ nodes:
     hostPort: 31337
   - containerPort: 31333
     hostPort: 31333
+  extraMounts:
+  - hostPath: IMAGE_CACHE_DIR
+    containerPath: /images

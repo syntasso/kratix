@@ -39,3 +39,5 @@ dist/*
 values.yaml
 destination-values.yaml
 platform-values.yaml
+
+image-cache/
