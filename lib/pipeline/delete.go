@@ -12,7 +12,7 @@ const kratixDeleteOperation = "delete"
 
 func NewDeletePipeline(rr *unstructured.Unstructured, pipelines []platformv1alpha1.Pipeline, resourceRequestIdentifier, promiseIdentifier string) batchv1.Job {
 
-	args := newPipelineArgs(promiseIdentifier, resourceRequestIdentifier, rr.GetNamespace())
+	args := NewPipelineArgs(promiseIdentifier, resourceRequestIdentifier, rr.GetNamespace())
 
 	containers, pipelineVolumes := deletePipelineContainers(rr, pipelines)
 

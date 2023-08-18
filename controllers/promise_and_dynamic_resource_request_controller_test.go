@@ -33,6 +33,7 @@ import (
 	metav1 "k8s.io/apimachinery/pkg/apis/meta/v1"
 	"k8s.io/apimachinery/pkg/apis/meta/v1/unstructured"
 	"k8s.io/apimachinery/pkg/labels"
+	"k8s.io/apimachinery/pkg/runtime/schema"
 	"k8s.io/apimachinery/pkg/types"
 	"k8s.io/apimachinery/pkg/util/yaml"
 	"sigs.k8s.io/controller-runtime/pkg/client"
@@ -280,17 +281,24 @@ var _ = Context("Promise Reconciler", func() {
 
 			It("triggers the resource configure workflow", func() {
 				Eventually(func() int {
-					jobs := &batchv1.JobList{}
-					lo := &client.ListOptions{
-						LabelSelector: labels.SelectorFromSet(map[string]string{
-							"kratix-promise-id":    promiseCR.GetIdentifier(),
-							"kratix-pipeline-type": "configure",
-						}),
-					}
-
-					Expect(k8sClient.List(ctx, jobs, lo)).To(Succeed())
-					return len(jobs.Items)
+					jobs := getConfigurePipelineJobs(promiseCR, k8sClient)
+					return len(jobs)
 				}, timeout, interval).Should(Equal(1), "Configure Pipeline never trigerred")
+			})
+		})
+
+		When("a resource is updated", func() {
+			It("retriggers the resource configure workflow", func() {
+				toUpdate := getRedisResource(requestedResource, k8sClient)
+				toUpdate.Object["spec"].(map[string]interface{})["mode"] = "cluster"
+				Expect(k8sClient.Update(ctx, toUpdate)).To(Succeed())
+
+				completeAllJobs(k8sClient)
+
+				Eventually(func() int {
+					jobs := getConfigurePipelineJobs(promiseCR, k8sClient)
+					return len(jobs)
+				}, "60s", interval).Should(Equal(2), "Expected 2 pipeline jobs")
 			})
 		})
 
@@ -560,3 +568,48 @@ var _ = Context("Promise Reconciler", func() {
 		})
 	})
 })
+
+func completeAllJobs(k8sClient client.Client) {
+	jobs := &batchv1.JobList{}
+	Expect(k8sClient.List(context.Background(), jobs)).To(Succeed())
+
+	for _, job := range jobs.Items {
+		job.Status = batchv1.JobStatus{
+			Conditions: []batchv1.JobCondition{
+				{
+					Type:   batchv1.JobComplete,
+					Status: v1.ConditionTrue,
+				},
+			},
+		}
+		Expect(k8sClient.Status().Update(context.Background(), &job)).To(Succeed())
+	}
+}
+
+func getRedisResource(resource *unstructured.Unstructured, k8sClient client.Client) *unstructured.Unstructured {
+	res := &unstructured.Unstructured{}
+	res.SetGroupVersionKind(schema.GroupVersionKind{
+		Group:   "redis.redis.opstreelabs.in",
+		Version: "v1beta1",
+		Kind:    "Redis",
+	})
+
+	Expect(k8sClient.Get(context.Background(), types.NamespacedName{
+		Namespace: resource.GetNamespace(),
+		Name:      resource.GetName(),
+	}, res)).To(Succeed())
+
+	return res
+}
+
+func getConfigurePipelineJobs(promiseCR *v1alpha1.Promise, k8sClient client.Client) []batchv1.Job {
+	jobs := &batchv1.JobList{}
+	lo := &client.ListOptions{
+		LabelSelector: labels.SelectorFromSet(map[string]string{
+			"kratix-promise-id":    promiseCR.GetIdentifier(),
+			"kratix-pipeline-type": "configure",
+		}),
+	}
+	Expect(k8sClient.List(context.Background(), jobs, lo)).To(Succeed())
+	return jobs.Items
+}

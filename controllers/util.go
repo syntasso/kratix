@@ -78,7 +78,7 @@ func addFinalizers(ctx context.Context, client client.Client, resource client.Ob
 	if err := client.Update(ctx, resource); err != nil {
 		return defaultRequeue, err
 	}
-	return fastRequeue, nil
+	return ctrl.Result{}, nil
 }
 
 func finalizersAreMissing(resource client.Object, finalizers []string) bool {
