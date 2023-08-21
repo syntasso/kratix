@@ -25,6 +25,14 @@ func LastPipelineCompleted(obj *unstructured.Unstructured) bool {
 	return condition != nil && condition.Status == v1.ConditionTrue
 }
 
+func GetPipelineCompletedConditionStatus(obj *unstructured.Unstructured) v1.ConditionStatus {
+	condition := GetCondition(obj, PipelineCompletedCondition)
+	if condition == nil {
+		return v1.ConditionUnknown
+	}
+	return condition.Status
+}
+
 func MarkPipelineAsRunning(logger logr.Logger, obj *unstructured.Unstructured) {
 	SetCondition(obj, &clusterv1.Condition{
 		Type:               PipelineCompletedCondition,
@@ -47,9 +55,9 @@ func MarkPipelineAsCompleted(logger logr.Logger, obj *unstructured.Unstructured)
 	logger.Info("set conditions", "condition", PipelineCompletedCondition, "value", v1.ConditionTrue)
 }
 
-func IsAnUpdate(logger logr.Logger, rr *unstructured.Unstructured, jobs []batchv1.Job) bool {
+func PipelineForRequestExists(logger logr.Logger, rr *unstructured.Unstructured, jobs []batchv1.Job) (bool, error) {
 	if len(jobs) == 0 {
-		return false
+		return false, nil
 	}
 
 	// sort the pipepeineJobs by creation date
@@ -59,16 +67,16 @@ func IsAnUpdate(logger logr.Logger, rr *unstructured.Unstructured, jobs []batchv
 		return t1.Before(t2)
 	})
 
-	lastPipelineJob := jobs[len(jobs)-1]
+	mostRecentJob := jobs[len(jobs)-1]
 
-	lastRequestHash := lastPipelineJob.GetLabels()[pipeline.KratixResourceHashLabel]
+	mostRecentHash := mostRecentJob.GetLabels()[pipeline.KratixResourceHashLabel]
 	currentRequestHash, err := hash.ComputeHash(rr)
 	if err != nil {
 		logger.Info("Cannot determine if the request is an update. Requeueing", "reason", err.Error())
-		return false
+		return false, nil
 	}
 
-	return lastRequestHash != currentRequestHash
+	return mostRecentHash == currentRequestHash, nil
 }
 
 func IsThereAPipelineRunning(logger logr.Logger, jobs []batchv1.Job) bool {

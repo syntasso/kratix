@@ -31,6 +31,7 @@ import (
 	"github.com/syntasso/kratix/lib/pipeline"
 	"github.com/syntasso/kratix/lib/resourceutil"
 	batchv1 "k8s.io/api/batch/v1"
+	corev1 "k8s.io/api/core/v1"
 	"k8s.io/apimachinery/pkg/api/errors"
 	"k8s.io/apimachinery/pkg/apis/meta/v1/unstructured"
 	"k8s.io/apimachinery/pkg/runtime"
@@ -74,8 +75,13 @@ func (r *dynamicResourceRequestController) Reconcile(ctx context.Context, req ct
 		return ctrl.Result{}, nil
 	}
 
-	logger := r.log.WithValues("uid", r.uid, "promiseID", r.promiseIdentifier, "namespace", req.NamespacedName)
 	resourceRequestIdentifier := fmt.Sprintf("%s-%s-%s", r.promiseIdentifier, req.Namespace, req.Name)
+	logger := r.log.WithValues(
+		"uid", r.uid,
+		"promiseID", r.promiseIdentifier,
+		"namespace", req.NamespacedName,
+		"resourceRequest", resourceRequestIdentifier,
+	)
 
 	rr := &unstructured.Unstructured{}
 	rr.SetGroupVersionKind(*r.gvk)
@@ -104,35 +110,45 @@ func (r *dynamicResourceRequestController) Reconcile(ctx context.Context, req ct
 		return slowRequeue, nil
 	}
 
-	if len(pipelineJobs) != 0 {
-		if resourceutil.IsThereAPipelineRunning(logger, pipelineJobs) {
-			return slowRequeue, nil
-		}
-
-		if !resourceutil.IsAnUpdate(logger, rr, pipelineJobs) {
-			return ctrl.Result{}, nil
-		}
+	// No jobs indicates this is the first reconciliation loop of this resource request
+	if len(pipelineJobs) == 0 {
+		return r.createConfigurePipeline(ctx, rr, resourceRequestIdentifier, logger)
 	}
 
-	if resourceutil.LastPipelineCompleted(rr) {
-		r.setStatus(rr, logger, "message", "Update Pending")
-		resourceutil.MarkPipelineAsRunning(logger, rr)
-		return ctrl.Result{}, r.Client.Status().Update(ctx, rr)
+	if resourceutil.IsThereAPipelineRunning(logger, pipelineJobs) {
+		return slowRequeue, nil
 	}
 
-	if !resourceutil.HasPipelineCompletedCondition(rr) {
+	found, err := resourceutil.PipelineForRequestExists(logger, rr, pipelineJobs)
+	if err != nil {
+		return slowRequeue, nil
+	}
+
+	if found {
+		return ctrl.Result{}, nil
+	}
+
+	return r.createConfigurePipeline(ctx, rr, resourceRequestIdentifier, logger)
+
+}
+
+func (r *dynamicResourceRequestController) createConfigurePipeline(ctx context.Context, rr *unstructured.Unstructured, rrID string, logger logr.Logger) (ctrl.Result, error) {
+	switch resourceutil.GetPipelineCompletedConditionStatus(rr) {
+	case corev1.ConditionTrue:
+		fallthrough
+	case corev1.ConditionUnknown:
 		r.setStatus(rr, logger, "message", "Pending")
 		resourceutil.MarkPipelineAsRunning(logger, rr)
 		return ctrl.Result{}, r.Client.Status().Update(ctx, rr)
 	}
 
-	logger.Info("Triggering pipeline", "resourceRequest", resourceRequestIdentifier)
+	logger.Info("Triggering pipeline")
 
 	resources, err := pipeline.NewConfigurePipeline(
 		rr,
 		r.crd.Spec.Names,
 		r.configurePipelines,
-		resourceRequestIdentifier,
+		rrID,
 		r.promiseIdentifier,
 		r.promiseDestinationSelectors,
 	)
@@ -140,7 +156,7 @@ func (r *dynamicResourceRequestController) Reconcile(ctx context.Context, req ct
 		return ctrl.Result{}, err
 	}
 
-	logger.Info("Creating Pipeline resources", "resourceRequest", resourceRequestIdentifier)
+	logger.Info("Creating Pipeline resources")
 	for _, resource := range resources {
 		logger.Info("Creating resource", resource.GetObjectKind().GroupVersionKind().Kind, resource.GetName())
 		if err = r.Client.Create(ctx, resource); err != nil {
@@ -171,7 +187,7 @@ func (r *dynamicResourceRequestController) deleteResources(ctx context.Context, 
 
 		if existingDeletePipeline == nil {
 			deletePipeline := pipeline.NewDeletePipeline(resourceRequest, r.deletePipelines, resourceRequestIdentifier, r.promiseIdentifier)
-			logger.Info("Creating Delete Pipeline for Promise resource request: " + resourceRequestIdentifier + ". The pipeline will now execute...")
+			logger.Info("Creating Delete Pipeline. The pipeline will now execute...")
 			err = r.Client.Create(ctx, &deletePipeline)
 			if err != nil {
 				logger.Error(err, "Error creating delete pipeline")
@@ -182,9 +198,9 @@ func (r *dynamicResourceRequestController) deleteResources(ctx context.Context, 
 			return defaultRequeue, nil
 		}
 
-		logger.Info("Checking status of Delete Pipeline for Promise resource request: " + resourceRequestIdentifier)
+		logger.Info("Checking status of Delete Pipeline")
 		if existingDeletePipeline.Status.Succeeded > 0 {
-			logger.Info("Delete Pipeline Completed for Promise resource request: " + resourceRequestIdentifier)
+			logger.Info("Delete Pipeline Completed")
 			controllerutil.RemoveFinalizer(resourceRequest, deleteWorkflowsFinalizer)
 			if err := r.Client.Update(ctx, resourceRequest); err != nil {
 				return ctrl.Result{}, err
