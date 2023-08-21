@@ -16,15 +16,6 @@ import (
 
 const PipelineCompletedCondition = clusterv1.ConditionType("PipelineCompleted")
 
-func HasPipelineCompletedCondition(obj *unstructured.Unstructured) bool {
-	return HasCondition(obj, PipelineCompletedCondition)
-}
-
-func LastPipelineCompleted(obj *unstructured.Unstructured) bool {
-	condition := GetCondition(obj, PipelineCompletedCondition)
-	return condition != nil && condition.Status == v1.ConditionTrue
-}
-
 func GetPipelineCompletedConditionStatus(obj *unstructured.Unstructured) v1.ConditionStatus {
 	condition := GetCondition(obj, PipelineCompletedCondition)
 	if condition == nil {
