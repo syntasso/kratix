@@ -20,7 +20,7 @@ VERSION=${VERSION:-"$(cd $ROOT; git branch --show-current)"}
 DOCKER_BUILDKIT="${DOCKER_BUILDKIT:-1}"
 
 WAIT_TIMEOUT="180s"
-KIND_IMAGE="${KIND_IMAGE:-"kindest/node:v1.24.7"}"
+KIND_IMAGE="${KIND_IMAGE:-"kindest/node:v1.27.3"}"
 
 LABELS=true
 
