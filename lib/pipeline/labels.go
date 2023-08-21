@@ -18,9 +18,11 @@ func DeletePipelineLabels(rrID, promiseID string) map[string]string {
 }
 
 func ConfigurePipelineLabels(rrID, promiseID string, requestSHA ...string) map[string]string {
-	return Labels(rrID, promiseID).
-		WithPipelineType(configurePipelineType).
-		WithRequestSHA(requestSHA)
+	labels := Labels(rrID, promiseID).WithPipelineType(configurePipelineType)
+	if len(requestSHA) > 0 {
+		return labels.WithRequestSHA(requestSHA[0])
+	}
+	return labels
 }
 
 func Labels(rrID, promiseID string) pipelineLabels {
@@ -42,10 +44,7 @@ func (p pipelineLabels) WithPipelineType(pipelineType string) pipelineLabels {
 	return p
 }
 
-func (p pipelineLabels) WithRequestSHA(requestSHA []string) pipelineLabels {
-	if len(requestSHA) == 0 {
-		return p
-	}
-	p[KratixResourceHashLabel] = requestSHA[0]
+func (p pipelineLabels) WithRequestSHA(requestSHA string) pipelineLabels {
+	p[KratixResourceHashLabel] = requestSHA
 	return p
 }
