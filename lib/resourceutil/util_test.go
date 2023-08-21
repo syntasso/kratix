@@ -186,7 +186,7 @@ var _ = Describe("Conditions", func() {
 			Expect(resourceutil.IsThereAPipelineRunning(logger, jobs)).To(BeFalse())
 		})
 
-		It("returns false if there's a job with the JobCompleted: False condition", func() {
+		It("returns true if there's a job with the JobCompleted: False condition", func() {
 			jobs := []batchv1.Job{
 				{
 					ObjectMeta: metav1.ObjectMeta{
