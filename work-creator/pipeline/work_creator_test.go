@@ -1,4 +1,4 @@
-package integration_test
+package pipeline_test
 
 import (
 	"context"
@@ -43,11 +43,11 @@ var _ = Describe("WorkCreator", func() {
 
 		Context("complete set of inputs", func() {
 			var workResource v1alpha1.Work
-			var inputDirectory string
+			var mockPipelineDirectory string
 
 			BeforeEach(func() {
-				inputDirectory = filepath.Join(getRootDirectory(), "complete")
-				err := workCreator.Execute(inputDirectory, getWorkResourceIdentifer(), "default")
+				mockPipelineDirectory = filepath.Join(getRootDirectory(), "complete")
+				err := workCreator.Execute(mockPipelineDirectory, "promise-name", "default", "resource-name")
 				Expect(err).ToNot(HaveOccurred())
 
 				workResource = getCreatedWorkResource()
@@ -70,24 +70,31 @@ var _ = Describe("WorkCreator", func() {
 					}))
 			})
 
-			Describe("the Work resource manifests list", func() {
-				It("has three items", func() {
-					expectedManifestsCount := 3 // This is the number of valid yaml resources defined in the input directory
-					Expect(workResource.Spec.Workload.Manifests).To(HaveLen(expectedManifestsCount))
-				})
+			Describe("the Work resource workloads list", func() {
+				It("has two files", func() {
+					Expect(workResource.Spec.Workloads).To(HaveLen(3))
 
-				for _, expectedManifest := range getExpectedManifests(inputDirectory) {
-					It("contains the expected resource with name: "+expectedManifest.GetName(), func() {
-						actualManifests := workResource.Spec.Workload.Manifests
-						Expect(actualManifests).To(ContainManifest(expectedManifest))
-					})
-				}
+					paths := []string{}
+					for _, workload := range workResource.Spec.Workloads {
+						paths = append(paths, workload.Filepath)
+					}
+
+					//order of files isn't guranteed
+					Expect(paths).To(ConsistOf("configmap.yaml",
+						"foo/bar/namespace-resource-request.yaml", "foo/multi-resource-requests.yaml"))
+
+					for _, workload := range workResource.Spec.Workloads {
+						fileContent, err := ioutil.ReadFile(filepath.Join(mockPipelineDirectory, "input", workload.Filepath))
+						Expect(err).NotTo(HaveOccurred())
+						Expect(workload.Content).To(Equal(fileContent))
+					}
+				})
 			})
 		})
 
 		Context("with empty metadata directory", func() {
 			BeforeEach(func() {
-				err := workCreator.Execute(filepath.Join(getRootDirectory(), "empty-metadata"), getWorkResourceIdentifer(), "default")
+				err := workCreator.Execute(filepath.Join(getRootDirectory(), "empty-metadata"), "promise-name", "default", "resource-name")
 				Expect(err).ToNot(HaveOccurred())
 			})
 
@@ -156,5 +163,5 @@ func getCreatedWorkResource() v1alpha1.Work {
 
 // our test identifer
 func getWorkResourceIdentifer() string {
-	return "promise-targetnamespace-mydatabase"
+	return "promise-name-resource-name"
 }

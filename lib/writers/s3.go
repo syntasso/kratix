@@ -6,6 +6,7 @@ import (
 	"crypto/md5"
 	"fmt"
 	"path/filepath"
+	"strings"
 
 	"github.com/go-logr/logr"
 	minio "github.com/minio/minio-go/v7"
@@ -47,7 +48,7 @@ func NewS3Writer(logger logr.Logger, stateStoreSpec platformv1alpha1.BucketState
 		Log:        logger,
 		RepoClient: minioClient,
 		BucketName: stateStoreSpec.BucketName,
-		path:       filepath.Join(stateStoreSpec.Path, destination.Spec.Path, destination.Namespace, destination.Name),
+		path:       filepath.Join(stateStoreSpec.Path, destination.Spec.Path, destination.Name),
 	}, nil
 }
 
@@ -113,17 +114,43 @@ func (b *S3Writer) RemoveObject(objectName string) error {
 	logger.Info("Removing objects from bucket")
 	ctx := context.Background()
 
-	err := b.RepoClient.RemoveObject(
-		ctx,
-		b.BucketName,
-		filepath.Join(b.path, objectName),
-		minio.RemoveObjectOptions{},
-	)
-	if err != nil {
-		b.Log.Error(err, "could not delete object", "bucketName", b.BucketName, "objectName", objectName)
-		return err
+	if strings.HasSuffix(objectName, "/") {
+		var paths []string
+		//list files and delete all
+		objectCh := b.RepoClient.ListObjects(ctx, b.BucketName, minio.ListObjectsOptions{Prefix: filepath.Join(b.path, objectName), Recursive: true})
+		for object := range objectCh {
+			if object.Err != nil {
+				logger.Error(object.Err, "Listing objects", "dir", objectName)
+				return object.Err
+			}
+
+			err := b.RepoClient.RemoveObject(
+				ctx,
+				b.BucketName,
+				object.Key,
+				minio.RemoveObjectOptions{},
+			)
+			if err != nil {
+				b.Log.Error(err, "could not delete object", "bucketName", b.BucketName, "dir", objectName, "path", object.Key)
+				return err
+			}
+			paths = append(paths, object.Key)
+		}
+
+		logger.Info("Object removed", "paths", paths)
+	} else {
+		err := b.RepoClient.RemoveObject(
+			ctx,
+			b.BucketName,
+			filepath.Join(b.path, objectName),
+			minio.RemoveObjectOptions{},
+		)
+		if err != nil {
+			b.Log.Error(err, "could not delete object", "bucketName", b.BucketName, "objectName", objectName)
+			return err
+		}
+		logger.Info("Objects removed")
 	}
-	logger.Info("Objects removed")
 
 	return nil
 }

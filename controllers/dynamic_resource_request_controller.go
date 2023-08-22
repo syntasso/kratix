@@ -75,7 +75,7 @@ func (r *dynamicResourceRequestController) Reconcile(ctx context.Context, req ct
 		return ctrl.Result{}, nil
 	}
 
-	resourceRequestIdentifier := fmt.Sprintf("%s-%s-%s", r.promiseIdentifier, req.Namespace, req.Name)
+	resourceRequestIdentifier := fmt.Sprintf("%s-%s", r.promiseIdentifier, req.Name)
 	logger := r.log.WithValues(
 		"uid", r.uid,
 		"promiseID", r.promiseIdentifier,

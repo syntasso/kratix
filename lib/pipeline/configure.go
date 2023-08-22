@@ -34,7 +34,7 @@ func NewConfigurePipeline(
 		return nil, err
 	}
 
-	pipeline, err := ConfigurePipeline(rr, pipelines, pipelineResources)
+	pipeline, err := ConfigurePipeline(rr, pipelines, pipelineResources, promiseIdentifier)
 	if err != nil {
 		return nil, err
 	}
@@ -50,10 +50,10 @@ func NewConfigurePipeline(
 	return resources, nil
 }
 
-func ConfigurePipeline(rr *unstructured.Unstructured, pipelines []platformv1alpha1.Pipeline, pipelineResources PipelineArgs) (*batchv1.Job, error) {
+func ConfigurePipeline(rr *unstructured.Unstructured, pipelines []platformv1alpha1.Pipeline, pipelineResources PipelineArgs, promiseName string) (*batchv1.Job, error) {
 	volumes := metadataAndSchedulingVolumes(pipelineResources.ConfigMapName())
 
-	initContainers, pipelineVolumes := configurePipelineInitContainers(rr, pipelines, pipelineResources.ResourceRequestID())
+	initContainers, pipelineVolumes := configurePipelineInitContainers(rr, pipelines, promiseName)
 	volumes = append(volumes, pipelineVolumes...)
 
 	rrKind := fmt.Sprintf("%s.%s", strings.ToLower(rr.GetKind()), rr.GroupVersionKind().Group)
@@ -100,7 +100,7 @@ func ConfigurePipeline(rr *unstructured.Unstructured, pipelines []platformv1alph
 	}, nil
 }
 
-func configurePipelineInitContainers(rr *unstructured.Unstructured, pipelines []platformv1alpha1.Pipeline, rrID string) ([]v1.Container, []v1.Volume) {
+func configurePipelineInitContainers(rr *unstructured.Unstructured, pipelines []platformv1alpha1.Pipeline, promiseName string) ([]v1.Container, []v1.Volume) {
 	volumes, volumeMounts := pipelineVolumes()
 	readerContainer := readerContainer(rr, "shared-input")
 	containers := []v1.Container{
@@ -124,7 +124,7 @@ func configurePipelineInitContainers(rr *unstructured.Unstructured, pipelines []
 		}
 	}
 
-	workCreatorCommand := fmt.Sprintf("./work-creator -identifier %s -input-directory /work-creator-files -namespace %s", rrID, rr.GetNamespace())
+	workCreatorCommand := fmt.Sprintf("./work-creator -input-directory /work-creator-files -promise-name %s -namespace %s -resource-name %s", promiseName, rr.GetNamespace(), rr.GetName())
 	writer := v1.Container{
 		Name:    "work-writer",
 		Image:   os.Getenv("WC_IMG"),

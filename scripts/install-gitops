@@ -63,7 +63,7 @@ patch_kind_networking() {
 patch_flux_resources() {
     local name="$(echo "${CONTEXT}" | cut -d "-" -f 2)"
     sed "s/worker-1/${BUCKET_PATH}/g" |
-        sed "s/kratix-workload-crds/kratix-${name}-crds/g" |
+        sed "s/kratix-workload-dependencies/kratix-${name}-dependencies/g" |
         sed "s/kratix-workload-resources/kratix-${name}-resources/g"
 }
 

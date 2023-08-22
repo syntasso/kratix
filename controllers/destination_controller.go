@@ -76,7 +76,7 @@ func (r *DestinationReconciler) Reconcile(ctx context.Context, req ctrl.Request)
 	path := filepath.Join(destination.Spec.Path, destination.Name)
 	logger = logger.WithValues("path", path)
 
-	if err := r.createCrdPathWithExample(writer); err != nil {
+	if err := r.createDependenciesPathWithExample(writer); err != nil {
 		logger.Error(err, "unable to write dependencies to state store")
 		return defaultRequeue, nil
 	}
@@ -109,10 +109,10 @@ func (r *DestinationReconciler) createResourcePathWithExample(writer writers.Sta
 	}
 	nsBytes, _ := yaml.Marshal(kratixConfigMap)
 
-	return writer.WriteObject("resources/kratix-resources.yaml", nsBytes)
+	return writer.WriteObject(filepath.Join(resourcesDir, "kratix-canary-configmap.yaml"), nsBytes)
 }
 
-func (r *DestinationReconciler) createCrdPathWithExample(writer writers.StateStoreWriter) error {
+func (r *DestinationReconciler) createDependenciesPathWithExample(writer writers.StateStoreWriter) error {
 	kratixNamespace := &v1.Namespace{
 		TypeMeta: metav1.TypeMeta{
 			Kind:       "Namespace",
@@ -122,7 +122,7 @@ func (r *DestinationReconciler) createCrdPathWithExample(writer writers.StateSto
 	}
 	nsBytes, _ := yaml.Marshal(kratixNamespace)
 
-	return writer.WriteObject("crds/kratix-crds.yaml", nsBytes)
+	return writer.WriteObject(filepath.Join(dependenciesDir, "kratix-canary-namespace.yaml"), nsBytes)
 }
 
 // SetupWithManager sets up the controller with the Manager.

@@ -14,20 +14,33 @@ import (
 
 func main() {
 	var inputDirectoy string
-	var identifier string
+	var promiseName string
 	var namespace string
-	flag.StringVar(&inputDirectoy, "input-directory", "", "Absolute path to directory containing yaml documents required to build Work")
-	flag.StringVar(&identifier, "identifier", "", "Unique name of the Work resource to be created")
-	flag.StringVar(&namespace, "namespace", "default", "Namespace to create the work in")
-	flag.Parse()
+	var resourceName string
 
-	if identifier == "" {
-		fmt.Println("Must provide -identifier")
-		os.Exit(1)
-	}
+	flag.StringVar(&inputDirectoy, "input-directory", "", "Absolute path to directory containing yaml documents required to build Work")
+	flag.StringVar(&promiseName, "promise-name", "", "Name of the promise")
+	flag.StringVar(&namespace, "namespace", "default", "Namespace")
+	flag.StringVar(&resourceName, "resource-name", "", "Name of the resource")
+	flag.Parse()
 
 	if inputDirectoy == "" {
 		fmt.Println("Must provide -input-directory")
+		os.Exit(1)
+	}
+
+	if promiseName == "" {
+		fmt.Println("Must provide -promise-name")
+		os.Exit(1)
+	}
+
+	if namespace == "" {
+		fmt.Println("Must provide -namespace")
+		os.Exit(1)
+	}
+
+	if resourceName == "" {
+		fmt.Println("Must provide -resource-name")
 		os.Exit(1)
 	}
 
@@ -43,7 +56,7 @@ func main() {
 	workCreator := pipeline.WorkCreator{
 		K8sClient: k8sClient,
 	}
-	err = workCreator.Execute(inputDirectoy, identifier, namespace)
+	err = workCreator.Execute(inputDirectoy, promiseName, namespace, resourceName)
 	if err != nil {
 		fmt.Println(err.Error())
 		os.Exit(1)

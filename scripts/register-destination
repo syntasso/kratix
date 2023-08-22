@@ -9,7 +9,7 @@ LABELS=""
 NAME=""
 DESTINATION_CONTEXT=""
 PLATFORM_CONTEXT="kind-platform"
-STATE_STORE="minio-store"
+STATE_STORE="default"
 
 usage() {
     echo -e "Usage: register-destination [--help] [--git] [--with-label foo=bar] [--context k8s-context] [--name  some-name ] [--platform-context 'kind-platform']"

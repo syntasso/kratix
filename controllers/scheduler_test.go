@@ -15,7 +15,7 @@ import (
 var _ = Describe("Controllers/Scheduler", func() {
 
 	var devDestination, devDestination2, prodDestination Destination
-	var resourcesWork, prodResourcesWork, devResourcesWork, resRequestWork Work
+	var dependencyWork, dependencyWorkForProd, dependencyWorkForDev, resourceWork Work
 	var workPlacements WorkPlacementList
 	var scheduler *Scheduler
 
@@ -24,11 +24,11 @@ var _ = Describe("Controllers/Scheduler", func() {
 		devDestination2 = newDestination("dev-2", map[string]string{"environment": "dev"})
 		prodDestination = newDestination("prod", map[string]string{"environment": "prod"})
 
-		resourcesWork = newWork("work-name", DependencyReplicas)
-		prodResourcesWork = newWork("prod-work-name", DependencyReplicas, schedulingFor(prodDestination))
-		devResourcesWork = newWork("dev-work-name", DependencyReplicas, schedulingFor(devDestination))
+		dependencyWork = newWork("work-name", DependencyReplicas)
+		dependencyWorkForProd = newWork("prod-work-name", DependencyReplicas, schedulingFor(prodDestination))
+		dependencyWorkForDev = newWork("dev-work-name", DependencyReplicas, schedulingFor(devDestination))
 
-		resRequestWork = newWork("rr-work-name", ResourceRequestReplicas)
+		resourceWork = newWork("rr-work-name", ResourceRequestReplicas)
 
 		scheduler = &Scheduler{
 			Client: k8sClient,
@@ -51,8 +51,8 @@ var _ = Describe("Controllers/Scheduler", func() {
 			devDestination3 = newDestination("dev3", map[string]string{"environment": "dev"})
 
 			Expect(k8sClient.Create(context.Background(), &devDestination3)).To(Succeed())
-			Expect(k8sClient.Create(context.Background(), &prodResourcesWork)).To(Succeed())
-			Expect(k8sClient.Create(context.Background(), &devResourcesWork)).To(Succeed())
+			Expect(k8sClient.Create(context.Background(), &dependencyWorkForProd)).To(Succeed())
+			Expect(k8sClient.Create(context.Background(), &dependencyWorkForDev)).To(Succeed())
 			scheduler.ReconcileDestination()
 		})
 
@@ -65,7 +65,7 @@ var _ = Describe("Controllers/Scheduler", func() {
 				actualWorkPlacement := WorkPlacement{}
 				Expect(k8sClient.Get(context.Background(), ns, &actualWorkPlacement)).To(Succeed())
 				Expect(actualWorkPlacement.Spec.TargetDestinationName).To(Equal(devDestination3.Name))
-				Expect(actualWorkPlacement.Spec.Workload.Manifests).To(Equal(devResourcesWork.Spec.Workload.Manifests))
+				Expect(actualWorkPlacement.Spec.Workloads).To(Equal(dependencyWorkForDev.Spec.Workloads))
 			})
 
 			It("does not schedule Works with un-matching labels to the new Destination", func() {
@@ -80,80 +80,124 @@ var _ = Describe("Controllers/Scheduler", func() {
 	})
 
 	Describe("#ReconcileWork", func() {
-		It("creates a WorkPlacement for a given Work", func() {
-			err := scheduler.ReconcileWork(&resRequestWork)
-			Expect(err).ToNot(HaveOccurred())
-
-			Expect(k8sClient.List(context.Background(), &workPlacements)).To(Succeed())
-
-			Expect(workPlacements.Items).To(HaveLen(1))
-			workPlacement := workPlacements.Items[0]
-			Expect(workPlacement.Namespace).To(Equal("default"))
-			Expect(workPlacement.ObjectMeta.Labels["kratix.io/work"]).To(Equal("rr-work-name"))
-			Expect(workPlacement.Name).To(Equal("rr-work-name." + workPlacement.Spec.TargetDestinationName))
-			Expect(workPlacement.Spec.Workload.Manifests).To(Equal(resRequestWork.Spec.Workload.Manifests))
-			Expect(workPlacement.Spec.TargetDestinationName).To(MatchRegexp("prod|dev\\-\\d"))
-			Expect(workPlacement.Finalizers).To(HaveLen(1), "expected one finalizer")
-			Expect(workPlacement.Finalizers[0]).To(Equal("finalizers.workplacement.kratix.io/repo-cleanup"))
-		})
-
-		When("the Work has no selector", func() {
-			It("creates Workplacement for all registered Destinations", func() {
-				err := scheduler.ReconcileWork(&resourcesWork)
+		Describe("Scheduling Resources (replicas=1)", func() {
+			It("creates a WorkPlacement for a given Work", func() {
+				err := scheduler.ReconcileWork(&resourceWork)
 				Expect(err).ToNot(HaveOccurred())
 
 				Expect(k8sClient.List(context.Background(), &workPlacements)).To(Succeed())
-				Expect(len(workPlacements.Items)).To(Equal(3))
-			})
-		})
 
-		When("the Work matches a single Destination", func() {
-			It("creates a single WorkPlacement", func() {
-				err := scheduler.ReconcileWork(&prodResourcesWork)
-				Expect(err).ToNot(HaveOccurred())
-
-				Expect(k8sClient.List(context.Background(), &workPlacements)).To(Succeed())
 				Expect(workPlacements.Items).To(HaveLen(1))
-				Expect(workPlacements.Items[0].Spec.TargetDestinationName).To(Equal(prodDestination.Name))
-				Expect(workPlacements.Items[0].ObjectMeta.Labels["kratix.io/work"]).To(Equal(prodResourcesWork.Name))
+				workPlacement := workPlacements.Items[0]
+				Expect(workPlacement.Namespace).To(Equal("default"))
+				Expect(workPlacement.ObjectMeta.Labels["kratix.io/work"]).To(Equal("rr-work-name"))
+				Expect(workPlacement.Name).To(Equal("rr-work-name." + workPlacement.Spec.TargetDestinationName))
+				Expect(workPlacement.Spec.Workloads).To(Equal(resourceWork.Spec.Workloads))
+				Expect(workPlacement.Spec.TargetDestinationName).To(MatchRegexp("prod|dev\\-\\d"))
+				Expect(workPlacement.Finalizers).To(HaveLen(1), "expected one finalizer")
+				Expect(workPlacement.Finalizers[0]).To(Equal("finalizers.workplacement.kratix.io/repo-cleanup"))
 			})
 		})
 
-		When("the Work matches multiple Destinations", func() {
-			It("creates WorkPlacements for the Destinations with the label", func() {
-				err := scheduler.ReconcileWork(&devResourcesWork)
-				Expect(err).ToNot(HaveOccurred())
+		Describe("Scheduling Dependencies (replicas=-1)", func() {
+			When("the Work has no selector", func() {
+				It("creates Workplacement for all registered Destinations", func() {
+					err := scheduler.ReconcileWork(&dependencyWork)
+					Expect(err).ToNot(HaveOccurred())
 
-				Expect(k8sClient.List(context.Background(), &workPlacements)).To(Succeed())
-				Expect(workPlacements.Items).To(HaveLen(2))
-
-				devWorkPlacement := workPlacements.Items[0]
-				Expect(devWorkPlacement.Spec.TargetDestinationName).To(Equal(devDestination.Name))
-				Expect(devWorkPlacement.ObjectMeta.Labels["kratix.io/work"]).To(Equal(devResourcesWork.Name))
-
-				devWorkPlacement2 := workPlacements.Items[1]
-				Expect(devWorkPlacement2.Spec.TargetDestinationName).To(Equal(devDestination2.Name))
-				Expect(devWorkPlacement2.ObjectMeta.Labels["kratix.io/work"]).To(Equal(devResourcesWork.Name))
+					Expect(k8sClient.List(context.Background(), &workPlacements)).To(Succeed())
+					Expect(len(workPlacements.Items)).To(Equal(3))
+				})
 			})
-		})
 
-		When("the Work selector matches no Destinations", func() {
-			BeforeEach(func() {
-				resourcesWork.Spec.DestinationSelectors = WorkScheduling{
-					Promise: []Selector{
-						{
-							MatchLabels: map[string]string{"environment": "staging"},
+			When("the Work matches a single Destination", func() {
+				It("creates a single WorkPlacement", func() {
+					err := scheduler.ReconcileWork(&dependencyWorkForProd)
+					Expect(err).ToNot(HaveOccurred())
+
+					Expect(k8sClient.List(context.Background(), &workPlacements)).To(Succeed())
+					Expect(workPlacements.Items).To(HaveLen(1))
+					Expect(workPlacements.Items[0].Spec.TargetDestinationName).To(Equal(prodDestination.Name))
+					Expect(workPlacements.Items[0].ObjectMeta.Labels["kratix.io/work"]).To(Equal(dependencyWorkForProd.Name))
+				})
+			})
+
+			When("the Work matches multiple Destinations", func() {
+				It("creates WorkPlacements for the Destinations with the label", func() {
+					err := scheduler.ReconcileWork(&dependencyWorkForDev)
+					Expect(err).ToNot(HaveOccurred())
+
+					Expect(k8sClient.List(context.Background(), &workPlacements)).To(Succeed())
+					Expect(workPlacements.Items).To(HaveLen(2))
+
+					devWorkPlacement := workPlacements.Items[0]
+					Expect(devWorkPlacement.Spec.TargetDestinationName).To(Equal(devDestination.Name))
+					Expect(devWorkPlacement.ObjectMeta.Labels["kratix.io/work"]).To(Equal(dependencyWorkForDev.Name))
+
+					devWorkPlacement2 := workPlacements.Items[1]
+					Expect(devWorkPlacement2.Spec.TargetDestinationName).To(Equal(devDestination2.Name))
+					Expect(devWorkPlacement2.ObjectMeta.Labels["kratix.io/work"]).To(Equal(dependencyWorkForDev.Name))
+				})
+
+				When("A workplacement is deleted", func() {
+					It("gets recreated on next reconciliation", func() {
+						//1st reconciliation
+						err := scheduler.ReconcileWork(&dependencyWorkForDev)
+						Expect(err).ToNot(HaveOccurred())
+
+						Expect(k8sClient.List(context.Background(), &workPlacements)).To(Succeed())
+						Expect(workPlacements.Items).To(HaveLen(2))
+
+						devWorkPlacement := workPlacements.Items[0]
+						Expect(devWorkPlacement.Spec.TargetDestinationName).To(Equal(devDestination.Name))
+						Expect(devWorkPlacement.ObjectMeta.Labels["kratix.io/work"]).To(Equal(dependencyWorkForDev.Name))
+
+						devWorkPlacement2 := workPlacements.Items[1]
+						Expect(devWorkPlacement2.Spec.TargetDestinationName).To(Equal(devDestination2.Name))
+						Expect(devWorkPlacement2.ObjectMeta.Labels["kratix.io/work"]).To(Equal(dependencyWorkForDev.Name))
+
+						//Remove finalizer
+						devWorkPlacement.Finalizers = nil
+						Expect(k8sClient.Update(context.Background(), &devWorkPlacement)).To(Succeed())
+						//manually delete workPlacement
+						Expect(k8sClient.Delete(context.Background(), &devWorkPlacement)).To(Succeed())
+
+						//re-reconcile
+						err = scheduler.ReconcileWork(&dependencyWorkForDev)
+						Expect(err).ToNot(HaveOccurred())
+
+						Expect(k8sClient.List(context.Background(), &workPlacements)).To(Succeed())
+						Expect(workPlacements.Items).To(HaveLen(2))
+
+						devWorkPlacement = workPlacements.Items[0]
+						Expect(devWorkPlacement.Spec.TargetDestinationName).To(Equal(devDestination.Name))
+						Expect(devWorkPlacement.ObjectMeta.Labels["kratix.io/work"]).To(Equal(dependencyWorkForDev.Name))
+
+						devWorkPlacement2 = workPlacements.Items[1]
+						Expect(devWorkPlacement2.Spec.TargetDestinationName).To(Equal(devDestination2.Name))
+						Expect(devWorkPlacement2.ObjectMeta.Labels["kratix.io/work"]).To(Equal(dependencyWorkForDev.Name))
+					})
+				})
+			})
+
+			When("the Work selector matches no Destinations", func() {
+				BeforeEach(func() {
+					dependencyWork.Spec.DestinationSelectors = WorkScheduling{
+						Promise: []Selector{
+							{
+								MatchLabels: map[string]string{"environment": "staging"},
+							},
 						},
-					},
-				}
-			})
+					}
+				})
 
-			It("creates no workplacements", func() {
-				err := scheduler.ReconcileWork(&resourcesWork)
-				Expect(err).To(MatchError("no Destinations can be selected for scheduling"))
+				It("creates no workplacements", func() {
+					err := scheduler.ReconcileWork(&dependencyWork)
+					Expect(err).To(MatchError("no Destinations can be selected for scheduling"))
 
-				Expect(k8sClient.List(context.Background(), &workPlacements)).To(Succeed())
-				Expect(workPlacements.Items).To(BeEmpty())
+					Expect(k8sClient.List(context.Background(), &workPlacements)).To(Succeed())
+					Expect(workPlacements.Items).To(BeEmpty())
+				})
 			})
 		})
 	})

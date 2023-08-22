@@ -32,7 +32,7 @@ spec:
   interval: 8s
   prune: true
   dependsOn:
-  - name: kratix-workload-crds
+  - name: kratix-workload-dependencies
   sourceRef:
     kind: {{ $kind }}
     name: kratix
@@ -42,7 +42,7 @@ spec:
 apiVersion: kustomize.toolkit.fluxcd.io/v1beta1
 kind: Kustomization
 metadata:
-  name: kratix-workload-crds
+  name: kratix-workload-dependencies
   namespace: {{ .Values.config.namespace }}
 spec:
   interval: 12s
@@ -50,7 +50,7 @@ spec:
   sourceRef:
     kind: {{ $kind }}
     name: kratix
-  path: ./{{ .Values.config.path }}/crds
+  path: ./{{ .Values.config.path }}/dependencies
   validation: client
 {{ if .Values.config.secretRef.values }}
 ---

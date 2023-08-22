@@ -88,7 +88,7 @@ var _ = Context("Promise Reconciler", func() {
 		BeforeEach(func() {
 			applyPromise("../config/samples/redis/redis-promise.yaml")
 			promiseCommonLabels = map[string]string{
-				"kratix-promise-id": promiseCR.GetIdentifier(),
+				"kratix-promise-id": promiseCR.GetName(),
 			}
 		})
 
@@ -160,7 +160,7 @@ var _ = Context("Promise Reconciler", func() {
 
 			It("creates works for the dependencies, on the "+controllers.KratixSystemNamespace+" namespace", func() {
 				workNamespacedName := types.NamespacedName{
-					Name:      promiseCR.GetIdentifier(),
+					Name:      promiseCR.GetName(),
 					Namespace: controllers.KratixSystemNamespace,
 				}
 				Eventually(func() error {
@@ -190,12 +190,12 @@ var _ = Context("Promise Reconciler", func() {
 			BeforeEach(func() {
 				requestOnce("../config/samples/redis/redis-resource-request.yaml")
 				resourceCommonName = types.NamespacedName{
-					Name:      promiseCR.GetIdentifier() + "-promise-pipeline",
+					Name:      promiseCR.GetName() + "-promise-pipeline",
 					Namespace: "default",
 				}
 
 				resourceLabels = map[string]string{
-					"kratix-promise-id": promiseCR.GetIdentifier(),
+					"kratix-promise-id": promiseCR.GetName(),
 				}
 			})
 
@@ -248,7 +248,7 @@ var _ = Context("Promise Reconciler", func() {
 			It("creates a config map with the promise scheduling in it", func() {
 				configMap := &v1.ConfigMap{}
 				configMapName := types.NamespacedName{
-					Name:      "destination-selectors-" + promiseCR.GetIdentifier(),
+					Name:      "destination-selectors-" + promiseCR.GetName(),
 					Namespace: "default",
 				}
 				Eventually(func() error {
@@ -349,7 +349,7 @@ var _ = Context("Promise Reconciler", func() {
 
 				By("removing the work for the resource", func() {
 					workNamespacedName := types.NamespacedName{
-						Name:      promiseCR.GetIdentifier() + "-" + requestedResource.GetNamespace() + "-" + requestedResource.GetName(),
+						Name:      promiseCR.GetName() + "-" + requestedResource.GetName(),
 						Namespace: requestedResource.GetNamespace(),
 					}
 					Eventually(func() bool {
@@ -369,7 +369,7 @@ var _ = Context("Promise Reconciler", func() {
 
 					configMap := &v1.ConfigMap{}
 					configMapName := types.NamespacedName{
-						Name:      "destination-selectors-" + promiseCR.GetIdentifier(),
+						Name:      "destination-selectors-" + promiseCR.GetName(),
 						Namespace: "default",
 					}
 					Eventually(func() error {
@@ -392,7 +392,7 @@ var _ = Context("Promise Reconciler", func() {
 				By("deleting all the pipeline resources", func() {
 					configMap := &v1.ConfigMap{}
 					configMapName := types.NamespacedName{
-						Name:      "destination-selectors-" + promiseCR.GetIdentifier(),
+						Name:      "destination-selectors-" + promiseCR.GetName(),
 						Namespace: "default",
 					}
 					Eventually(func() bool {
@@ -441,7 +441,7 @@ var _ = Context("Promise Reconciler", func() {
 				By("deleting the work", func() {
 					Eventually(func() bool {
 						workNamespacedName := types.NamespacedName{
-							Name:      promiseCR.GetIdentifier(),
+							Name:      promiseCR.GetName(),
 							Namespace: controllers.KratixSystemNamespace,
 						}
 						err := k8sClient.Get(ctx, workNamespacedName, &v1alpha1.Work{})
@@ -606,7 +606,7 @@ func getConfigurePipelineJobs(promiseCR *v1alpha1.Promise, k8sClient client.Clie
 	jobs := &batchv1.JobList{}
 	lo := &client.ListOptions{
 		LabelSelector: labels.SelectorFromSet(map[string]string{
-			"kratix-promise-id":    promiseCR.GetIdentifier(),
+			"kratix-promise-id":    promiseCR.GetName(),
 			"kratix-pipeline-type": "configure",
 		}),
 	}

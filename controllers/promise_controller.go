@@ -17,11 +17,14 @@ limitations under the License.
 package controllers
 
 import (
+	"bytes"
 	"context"
 	"encoding/json"
 	"fmt"
+	"io"
 	"time"
 
+	"gopkg.in/yaml.v2"
 	controllerutil "sigs.k8s.io/controller-runtime/pkg/controller/controllerutil"
 
 	"github.com/go-logr/logr"
@@ -96,7 +99,7 @@ func (r *PromiseReconciler) Reconcile(ctx context.Context, req ctrl.Request) (ct
 		return defaultRequeue, nil
 	}
 
-	logger := r.Log.WithValues("identifier", promise.GetIdentifier())
+	logger := r.Log.WithValues("identifier", promise.GetName())
 
 	if !promise.DeletionTimestamp.IsZero() {
 		return r.deletePromise(ctx, promise, logger)
@@ -163,7 +166,7 @@ func (r *PromiseReconciler) ensureDynamicControllerIsStarted(promise *v1alpha1.P
 		scheme:                      r.Manager.GetScheme(),
 		gvk:                         &rrGVK,
 		crd:                         rrCRD,
-		promiseIdentifier:           promise.GetIdentifier(),
+		promiseIdentifier:           promise.GetName(),
 		promiseDestinationSelectors: promise.Spec.DestinationSelectors,
 		configurePipelines:          configurePipelines,
 		deletePipelines:             deletePipelines,
@@ -497,27 +500,50 @@ func setStatusFieldsOnCRD(rrCRD *apiextensionsv1.CustomResourceDefinition) {
 }
 
 func (r *PromiseReconciler) createWorkResourceForDependencies(ctx context.Context, promise *v1alpha1.Promise, logger logr.Logger) error {
-	workToCreate := &v1alpha1.Work{}
-	workToCreate.Spec.Replicas = v1alpha1.DependencyReplicas
-	workToCreate.Name = promise.GetIdentifier()
-	workToCreate.Namespace = KratixSystemNamespace
-	workToCreate.Labels = promise.GenerateSharedLabels()
-	workToCreate.Spec.DestinationSelectors.Promise = promise.Spec.DestinationSelectors
-	for _, u := range promise.Spec.Dependencies {
-		workToCreate.Spec.Workload.Manifests = append(workToCreate.Spec.Workload.Manifests, v1alpha1.Manifest{Unstructured: u.Unstructured})
+	work := &v1alpha1.Work{}
+	work.Name = promise.GetName()
+	work.Namespace = KratixSystemNamespace
+	work.Labels = promise.GenerateSharedLabels()
+	work.Spec.Replicas = v1alpha1.DependencyReplicas
+	work.Spec.DestinationSelectors.Promise = promise.Spec.DestinationSelectors
+	work.Spec.PromiseName = promise.GetName()
+
+	yamlBytes, err := convertDependenciesToYAML(promise)
+	if err != nil {
+		return err
 	}
 
-	logger.Info("Creating Work resource for promise")
-	err := r.Client.Create(ctx, workToCreate)
+	work.Spec.Workloads = []v1alpha1.Workload{
+		{
+			Content:  yamlBytes,
+			Filepath: "static/dependencies.yaml",
+		},
+	}
+
+	logger.Info("Creating Work resource for Promise")
+	err = r.Client.Create(ctx, work)
 	if err != nil {
 		if errors.IsAlreadyExists(err) {
-			logger.Info("Work already exist", "workName", workToCreate.Name)
+			logger.Info("Work already exist", "workName", work.Name)
 			return nil
 		}
 		return err
 	}
 
 	return nil
+}
+
+func convertDependenciesToYAML(promise *v1alpha1.Promise) ([]byte, error) {
+	buf := new(bytes.Buffer)
+	encoder := yaml.NewEncoder(buf)
+	for _, workload := range promise.Spec.Dependencies {
+		err := encoder.Encode(workload.Unstructured.Object)
+		if err != nil {
+			return nil, err
+		}
+	}
+
+	return io.ReadAll(buf)
 }
 
 func (r *PromiseReconciler) generatePipelines(promise *v1alpha1.Promise, logger logr.Logger) ([]v1alpha1.Pipeline, []v1alpha1.Pipeline, error) {
