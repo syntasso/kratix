@@ -97,6 +97,23 @@ var _ = Describe("Controllers/Scheduler", func() {
 				Expect(workPlacement.Finalizers).To(HaveLen(1), "expected one finalizer")
 				Expect(workPlacement.Finalizers[0]).To(Equal("finalizers.workplacement.kratix.io/repo-cleanup"))
 			})
+
+			It("updates workplacements for existing works", func() {
+				resourceWork.Spec.Workloads = append(resourceWork.Spec.Workloads, Workload{
+					Content: []byte("fake: content"),
+				})
+				err := scheduler.ReconcileWork(&resourceWork)
+				Expect(err).ToNot(HaveOccurred())
+
+				Expect(k8sClient.List(context.Background(), &workPlacements)).To(Succeed())
+
+				Expect(workPlacements.Items).To(HaveLen(1))
+				workPlacement := workPlacements.Items[0]
+				Expect(workPlacement.Spec.Workloads).To(HaveLen(2))
+				Expect(workPlacement.Spec.Workloads).To(ContainElement(Workload{
+					Content: []byte("fake: content"),
+				}))
+			})
 		})
 
 		Describe("Scheduling Dependencies (replicas=-1)", func() {
@@ -231,6 +248,11 @@ func newWork(name string, workType int, scheduling ...WorkScheduling) Work {
 		Spec: WorkSpec{
 			Replicas:             workType,
 			DestinationSelectors: workScheduling,
+			WorkloadCoreFields: WorkloadCoreFields{
+				Workloads: []Workload{
+					{Content: []byte("key: value")},
+				},
+			},
 		},
 	}
 }
