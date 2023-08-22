@@ -344,22 +344,26 @@ spec:
           spec:
             description: WorkPlacementSpec defines the desired state of WorkPlacement
             properties:
+              promiseName:
+                type: string
+              resourceName:
+                type: string
               targetDestinationName:
                 type: string
-              workload:
+              workloads:
                 description: Workload represents the manifest workload to be deployed
                   on destination
-                properties:
-                  manifests:
-                    description: Manifests represents a list of resources to be deployed
-                      on the destination
-                    items:
-                      description: Manifest represents a resource to be deployed on
-                        destination
-                      type: object
-                      x-kubernetes-preserve-unknown-fields: true
-                    type: array
-                type: object
+                items:
+                  description: Workload represents the manifest workload to be deployed
+                    on destination
+                  properties:
+                    content:
+                      format: byte
+                      type: string
+                    filepath:
+                      type: string
+                  type: object
+                type: array
             type: object
           status:
             description: WorkPlacementStatus defines the observed state of WorkPlacement
@@ -427,23 +431,27 @@ spec:
                       type: object
                     type: array
                 type: object
+              promiseName:
+                type: string
               replicas:
                 description: -1 denotes dependencies, 1 denotes Resource Request
                 type: integer
-              workload:
+              resourceName:
+                type: string
+              workloads:
                 description: Workload represents the manifest workload to be deployed
                   on destination
-                properties:
-                  manifests:
-                    description: Manifests represents a list of resources to be deployed
-                      on the destination
-                    items:
-                      description: Manifest represents a resource to be deployed on
-                        destination
-                      type: object
-                      x-kubernetes-preserve-unknown-fields: true
-                    type: array
-                type: object
+                items:
+                  description: Workload represents the manifest workload to be deployed
+                    on destination
+                  properties:
+                    content:
+                      format: byte
+                      type: string
+                    filepath:
+                      type: string
+                  type: object
+                type: array
             type: object
           status:
             description: WorkStatus defines the observed state of Work
@@ -798,7 +806,7 @@ metadata:
 ---
 apiVersion: v1
 data:
-  WC_IMG: syntasso/kratix-platform-pipeline-adapter:3bd313f9b41b1dcde01a83a94fadfac55685e553
+  WC_IMG: syntasso/kratix-platform-pipeline-adapter:5ed8ac8b8a79ddd315bb3e72afa25cb99c2b7d75
 kind: ConfigMap
 metadata:
   name: kratix-platform-wc-img-config
@@ -859,7 +867,7 @@ spec:
             configMapKeyRef:
               key: WC_IMG
               name: kratix-platform-wc-img-config
-        image: syntasso/kratix-platform:3bd313f9b41b1dcde01a83a94fadfac55685e553
+        image: syntasso/kratix-platform:5ed8ac8b8a79ddd315bb3e72afa25cb99c2b7d75
         livenessProbe:
           httpGet:
             path: /healthz

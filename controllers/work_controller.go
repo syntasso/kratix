@@ -23,7 +23,6 @@ import (
 	"github.com/go-logr/logr"
 	platformv1alpha1 "github.com/syntasso/kratix/api/v1alpha1"
 	"k8s.io/apimachinery/pkg/api/errors"
-	"k8s.io/apimachinery/pkg/labels"
 	ctrl "sigs.k8s.io/controller-runtime"
 	"sigs.k8s.io/controller-runtime/pkg/client"
 )
@@ -66,42 +65,7 @@ func (r *WorkReconciler) Reconcile(ctx context.Context, req ctrl.Request) (ctrl.
 
 	logger = logger.WithValues("scheduling", work.Spec.DestinationSelectors)
 
-	// If Work already has a WorkPlacement then return
-	workPlacementList := &platformv1alpha1.WorkPlacementList{}
-	workPlacementListOptions := &client.ListOptions{
-		Namespace: work.GetNamespace(),
-	}
-	workSelectorLabel := labels.FormatLabels(map[string]string{
-		workLabelKey: work.Name,
-	})
-	//<none> is valid output from above
-	selector, err := labels.Parse(workSelectorLabel)
-
-	if err != nil {
-		r.Log.Error(err, "error parsing scheduling")
-	}
-	workPlacementListOptions.LabelSelector = selector
-
-	logger.Info("Listing Workplacements for Work")
-	err = r.Client.List(context.Background(), workPlacementList, workPlacementListOptions)
-	if err != nil {
-		logger.Error(err, "Error getting WorkPlacements")
-		return defaultRequeue, err
-	}
-
-	if len(workPlacementList.Items) > 0 {
-		workPlacementNames := []string{}
-		for _, item := range workPlacementList.Items {
-			workPlacementNames = append(workPlacementNames, item.Name)
-		}
-
-		logger.Info("Found WorkPlacements for WorkName", "workPlacements", workPlacementNames)
-		return ctrl.Result{}, nil
-	}
-
-	// If Work does not have a WorkPlacement then schedule the Work
 	logger.Info("Requesting scheduling for Work")
-	//Create N workplacements depending on work type (rr vs dependency) and number of destinations
 	err = r.Scheduler.ReconcileWork(work)
 	if err != nil {
 		//TODO remove this error checking

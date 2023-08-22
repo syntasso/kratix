@@ -6,13 +6,13 @@ metadata:
     environment: dev
 spec:
   stateStoreRef:
-    name: minio-store
+    name: default
     kind: BucketStateStore
 ---
 apiVersion: platform.kratix.io/v1alpha1
 kind: BucketStateStore
 metadata:
-  name: minio-store
+  name: default
 spec:
   endpoint: minio.kratix-platform-system.svc.cluster.local
   insecure: true
@@ -55,7 +55,7 @@ spec:
   interval: 3s
   prune: true
   dependsOn:
-    - name: kratix-workload-crds
+    - name: kratix-workload-dependencies
   sourceRef:
     kind: Bucket
     name: kratix
@@ -65,7 +65,7 @@ spec:
 apiVersion: kustomize.toolkit.fluxcd.io/v1beta1
 kind: Kustomization
 metadata:
-  name: kratix-workload-crds
+  name: kratix-workload-dependencies
   namespace: flux-system
 spec:
   interval: 8s
@@ -74,4 +74,4 @@ spec:
     kind: Bucket
     name: kratix
   validation: client
-  path: ./worker-1/crds
+  path: ./worker-1/dependencies

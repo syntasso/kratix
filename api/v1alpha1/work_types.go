@@ -18,7 +18,6 @@ package v1alpha1
 
 import (
 	metav1 "k8s.io/apimachinery/pkg/apis/meta/v1"
-	"k8s.io/apimachinery/pkg/apis/meta/v1/unstructured"
 )
 
 const DependencyReplicas = -1
@@ -43,14 +42,23 @@ type Work struct {
 
 // WorkSpec defines the desired state of Work
 type WorkSpec struct {
-	// Workload represents the manifest workload to be deployed on destination
-	Workload WorkloadTemplate `json:"workload,omitempty"`
 
 	// DestinationSelectors is used for selecting the destination
 	DestinationSelectors WorkScheduling `json:"destinationSelectors,omitempty"`
 
 	// -1 denotes dependencies, 1 denotes Resource Request
 	Replicas int `json:"replicas,omitempty"`
+
+	WorkloadCoreFields `json:",inline"`
+}
+
+type WorkloadCoreFields struct {
+	// Workload represents the manifest workload to be deployed on destination
+	Workloads []Workload `json:"workloads,omitempty"`
+
+	PromiseName string `json:"promiseName,omitempty"`
+	// +optional
+	ResourceName string `json:"resourceName,omitempty"`
 }
 
 type WorkScheduling struct {
@@ -76,17 +84,11 @@ func (w *Work) GetSchedulingSelectors() map[string]string {
 	return generateLabelSelectorsFromScheduling(append(w.Spec.DestinationSelectors.Promise, w.Spec.DestinationSelectors.Resource...))
 }
 
-// WorkloadTemplate represents the manifest workload to be deployed on destination
-type WorkloadTemplate struct {
-	// Manifests represents a list of resources to be deployed on the destination
+// Workload represents the manifest workload to be deployed on destination
+type Workload struct {
 	// +optional
-	Manifests []Manifest `json:"manifests,omitempty"`
-}
-
-// Manifest represents a resource to be deployed on destination
-type Manifest struct {
-	// +kubebuilder:pruning:PreserveUnknownFields
-	unstructured.Unstructured `json:",inline"`
+	Filepath string `json:"filepath,omitempty"`
+	Content  []byte `json:"content,omitempty"`
 }
 
 //+kubebuilder:object:root=true

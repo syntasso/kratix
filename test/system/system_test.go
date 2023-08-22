@@ -1,12 +1,16 @@
 package system_test
 
 import (
+	"context"
 	"fmt"
 	"io/ioutil"
 	"os/exec"
+	"path/filepath"
 	"strings"
 	"time"
 
+	"github.com/minio/minio-go/v7"
+	"github.com/minio/minio-go/v7/pkg/credentials"
 	. "github.com/onsi/ginkgo"
 	. "github.com/onsi/gomega"
 	"github.com/onsi/gomega/gexec"
@@ -96,8 +100,10 @@ var _ = Describe("Kratix", func() {
 							if [ "${KRATIX_OPERATION}" != "delete" ]; then kop="create"
 								echo "message: My awesome status message" > /kratix/metadata/status.yaml
 								echo "key: value" >> /kratix/metadata/status.yaml
+								mkdir -p /kratix/output/foo/
+								echo "{}" > /kratix/output/foo/example.json
 							fi
-              kubectl ${kop} namespace imperative-$(yq '.metadata.name' /kratix/input/object.yaml)`
+			                kubectl ${kop} namespace imperative-$(yq '.metadata.name' /kratix/input/object.yaml)`
 
 				c2Command := `kubectl create namespace declarative-$(yq '.metadata.name' /kratix/input/object.yaml) --dry-run=client -oyaml > /kratix/output/namespace.yaml`
 
@@ -112,6 +118,10 @@ var _ = Describe("Kratix", func() {
 				By("deploying the contents of /kratix/output to the worker destination", func() {
 					platform.eventuallyKubectl("get", "namespace", "imperative-rr-test")
 					worker.eventuallyKubectl("get", "namespace", "declarative-rr-test")
+				})
+
+				By("mirroring the directory and files from /kratix/output to the statestore", func() {
+					Expect(minioListFiles("worker-1", "default", "bash", rrName)).To(ConsistOf("foo/example.json", "namespace.yaml"))
 				})
 
 				By("updating the resource status", func() {
@@ -137,6 +147,40 @@ var _ = Describe("Kratix", func() {
 				})
 			})
 
+			PWhen("an existing resource request is updated", func() {
+				const requestName = "update-test"
+				var oldNamespaceName string
+				BeforeEach(func() {
+					oldNamespaceName = fmt.Sprintf("old-%s", requestName)
+					createNamespace := fmt.Sprintf(
+						`kubectl create namespace %s --dry-run=client -oyaml > /kratix/output/namespace.yaml`,
+						oldNamespaceName,
+					)
+					platform.kubectl("apply", "-f", requestWithNameAndCommand(requestName, createNamespace))
+					platform.kubectl("wait", "--for=condition=PipelineCompleted", "bash", requestName, pipelineTimeout)
+					worker.eventuallyKubectl("get", "namespace", oldNamespaceName)
+				})
+
+				It("executes the update lifecycle", func() {
+					newNamespaceName := fmt.Sprintf("new-%s", requestName)
+					updateNamespace := fmt.Sprintf(
+						`kubectl create namespace %s --dry-run=client -oyaml > /kratix/output/namespace.yaml`,
+						newNamespaceName,
+					)
+					platform.kubectl("apply", "-f", requestWithNameAndCommand(requestName, updateNamespace))
+
+					By("redeploying the contents of /kratix/output to the worker destination", func() {
+						Eventually(func() string {
+							return worker.kubectl("get", "namespace")
+						}, "10s").Should(
+							SatisfyAll(
+								Not(ContainSubstring(oldNamespaceName)),
+								ContainSubstring(newNamespaceName),
+							),
+						)
+					})
+				})
+			})
 			AfterEach(func() {
 				platform.kubectl("delete", "promise", "bash")
 				Eventually(platform.kubectl("get", "promise")).ShouldNot(ContainSubstring("bash"))
@@ -260,4 +304,37 @@ func (c destination) kubectl(args ...string) string {
 	ExpectWithOffset(1, err).ShouldNot(HaveOccurred())
 	EventuallyWithOffset(1, session, timeout, interval).Should(gexec.Exit(0))
 	return string(session.Out.Contents())
+}
+
+func minioListFiles(destinationName, namespace, promiseName, resourceName string) []string {
+	endpoint := "localhost:31337"
+	secretAccessKey := "minioadmin"
+	accessKeyID := "minioadmin"
+	useSSL := false
+	bucketName := "kratix"
+
+	// Initialize minio client object.
+	minioClient, err := minio.New(endpoint, &minio.Options{
+		Creds:  credentials.NewStaticV4(accessKeyID, secretAccessKey, ""),
+		Secure: useSSL,
+	})
+	Expect(err).ToNot(HaveOccurred())
+
+	//worker-1/resources/default/redis/rr-test
+	dir := filepath.Join(destinationName, "resources", namespace, promiseName, resourceName)
+	objectCh := minioClient.ListObjects(context.TODO(), bucketName, minio.ListObjectsOptions{
+		Prefix:    dir,
+		Recursive: true,
+	})
+
+	paths := []string{}
+	for object := range objectCh {
+		Expect(object.Err).NotTo(HaveOccurred())
+
+		path, err := filepath.Rel(dir, object.Key)
+		Expect(err).ToNot(HaveOccurred())
+		paths = append(paths, path)
+	}
+
+	return paths
 }

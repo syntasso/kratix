@@ -6,6 +6,7 @@ import (
 	"strings"
 
 	platformv1alpha1 "github.com/syntasso/kratix/api/v1alpha1"
+	"github.com/syntasso/kratix/lib/hash"
 	batchv1 "k8s.io/api/batch/v1"
 	v1 "k8s.io/api/core/v1"
 	apiextensionsv1 "k8s.io/apiextensions-apiserver/pkg/apis/apiextensions/v1"
@@ -27,8 +28,13 @@ func NewConfigurePipeline(
 	promiseDestinationSelectors []platformv1alpha1.Selector,
 ) ([]client.Object, error) {
 
-	pipelineResources := newPipelineArgs(promiseIdentifier, resourceRequestIdentifier, rr.GetNamespace())
+	pipelineResources := NewPipelineArgs(promiseIdentifier, resourceRequestIdentifier, rr.GetNamespace())
 	destinationSelectorsConfigMap, err := destinationSelectorsConfigMap(pipelineResources, promiseDestinationSelectors)
+	if err != nil {
+		return nil, err
+	}
+
+	pipeline, err := ConfigurePipeline(rr, pipelines, pipelineResources, promiseIdentifier)
 	if err != nil {
 		return nil, err
 	}
@@ -38,29 +44,34 @@ func NewConfigurePipeline(
 		role(rr, crdNames, pipelineResources),
 		roleBinding((pipelineResources)),
 		destinationSelectorsConfigMap,
-		configurePipeline(rr, pipelines, pipelineResources),
+		pipeline,
 	}
 
 	return resources, nil
 }
 
-func configurePipeline(rr *unstructured.Unstructured, pipelines []platformv1alpha1.Pipeline, pipelineResources pipelineArgs) *batchv1.Job {
+func ConfigurePipeline(rr *unstructured.Unstructured, pipelines []platformv1alpha1.Pipeline, pipelineResources PipelineArgs, promiseName string) (*batchv1.Job, error) {
 	volumes := metadataAndSchedulingVolumes(pipelineResources.ConfigMapName())
 
-	initContainers, pipelineVolumes := configurePipelineInitContainers(rr, pipelines, pipelineResources.ResourceRequestID())
+	initContainers, pipelineVolumes := configurePipelineInitContainers(rr, pipelines, promiseName)
 	volumes = append(volumes, pipelineVolumes...)
 
 	rrKind := fmt.Sprintf("%s.%s", strings.ToLower(rr.GetKind()), rr.GroupVersionKind().Group)
+	rrSpecHash, err := hash.ComputeHash(rr)
+	if err != nil {
+		return nil, err
+	}
+
 	return &batchv1.Job{
 		ObjectMeta: metav1.ObjectMeta{
 			Name:      pipelineResources.ConfigurePipelineName(),
 			Namespace: rr.GetNamespace(),
-			Labels:    pipelineResources.ConfigurePipelinePodLabels(),
+			Labels:    pipelineResources.ConfigurePipelinePodLabels(rrSpecHash),
 		},
 		Spec: batchv1.JobSpec{
 			Template: v1.PodTemplateSpec{
 				ObjectMeta: metav1.ObjectMeta{
-					Labels: pipelineResources.ConfigurePipelinePodLabels(),
+					Labels: pipelineResources.ConfigurePipelinePodLabels(rrSpecHash),
 				},
 				Spec: v1.PodSpec{
 					RestartPolicy:      v1.RestartPolicyOnFailure,
@@ -86,10 +97,10 @@ func configurePipeline(rr *unstructured.Unstructured, pipelines []platformv1alph
 				},
 			},
 		},
-	}
+	}, nil
 }
 
-func configurePipelineInitContainers(rr *unstructured.Unstructured, pipelines []platformv1alpha1.Pipeline, rrID string) ([]v1.Container, []v1.Volume) {
+func configurePipelineInitContainers(rr *unstructured.Unstructured, pipelines []platformv1alpha1.Pipeline, promiseName string) ([]v1.Container, []v1.Volume) {
 	volumes, volumeMounts := pipelineVolumes()
 	readerContainer := readerContainer(rr, "shared-input")
 	containers := []v1.Container{
@@ -113,7 +124,7 @@ func configurePipelineInitContainers(rr *unstructured.Unstructured, pipelines []
 		}
 	}
 
-	workCreatorCommand := fmt.Sprintf("./work-creator -identifier %s -input-directory /work-creator-files -namespace %s", rrID, rr.GetNamespace())
+	workCreatorCommand := fmt.Sprintf("./work-creator -input-directory /work-creator-files -promise-name %s -namespace %s -resource-name %s", promiseName, rr.GetNamespace(), rr.GetName())
 	writer := v1.Container{
 		Name:    "work-writer",
 		Image:   os.Getenv("WC_IMG"),

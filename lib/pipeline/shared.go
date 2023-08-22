@@ -31,7 +31,7 @@ func pipelineVolumes() ([]v1.Volume, []v1.VolumeMount) {
 	return volumes, volumeMounts
 }
 
-func role(rr *unstructured.Unstructured, names apiextensionsv1.CustomResourceDefinitionNames, resources pipelineArgs) *rbacv1.Role {
+func role(rr *unstructured.Unstructured, names apiextensionsv1.CustomResourceDefinitionNames, resources PipelineArgs) *rbacv1.Role {
 	return &rbacv1.Role{
 		TypeMeta: metav1.TypeMeta{
 			Kind: "Role",
@@ -56,7 +56,7 @@ func role(rr *unstructured.Unstructured, names apiextensionsv1.CustomResourceDef
 	}
 }
 
-func serviceAccount(resources pipelineArgs) *v1.ServiceAccount {
+func serviceAccount(resources PipelineArgs) *v1.ServiceAccount {
 	return &v1.ServiceAccount{
 		TypeMeta: metav1.TypeMeta{
 			Kind: "ServiceAccount",
@@ -69,7 +69,7 @@ func serviceAccount(resources pipelineArgs) *v1.ServiceAccount {
 	}
 }
 
-func roleBinding(resources pipelineArgs) *rbacv1.RoleBinding {
+func roleBinding(resources PipelineArgs) *rbacv1.RoleBinding {
 	return &rbacv1.RoleBinding{
 		TypeMeta: metav1.TypeMeta{
 			Kind: "RoleBinding",
@@ -94,7 +94,7 @@ func roleBinding(resources pipelineArgs) *rbacv1.RoleBinding {
 	}
 }
 
-func destinationSelectorsConfigMap(resources pipelineArgs, destinationSelectors []v1alpha1.Selector) (*v1.ConfigMap, error) {
+func destinationSelectorsConfigMap(resources PipelineArgs, destinationSelectors []v1alpha1.Selector) (*v1.ConfigMap, error) {
 	schedulingYAML, err := yaml.Marshal(destinationSelectors)
 	if err != nil {
 		return nil, errors.Wrap(err, "error marshalling destinationSelectors to yaml")

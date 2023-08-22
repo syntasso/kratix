@@ -56,23 +56,27 @@ spec:
                       type: object
                     type: array
                 type: object
+              promiseName:
+                type: string
               replicas:
                 description: -1 denotes dependencies, 1 denotes Resource Request
                 type: integer
-              workload:
+              resourceName:
+                type: string
+              workloads:
                 description: Workload represents the manifest workload to be deployed
                   on destination
-                properties:
-                  manifests:
-                    description: Manifests represents a list of resources to be deployed
-                      on the destination
-                    items:
-                      description: Manifest represents a resource to be deployed on
-                        destination
-                      type: object
-                      x-kubernetes-preserve-unknown-fields: true
-                    type: array
-                type: object
+                items:
+                  description: Workload represents the manifest workload to be deployed
+                    on destination
+                  properties:
+                    content:
+                      format: byte
+                      type: string
+                    filepath:
+                      type: string
+                  type: object
+                type: array
             type: object
           status:
             description: WorkStatus defines the observed state of Work
