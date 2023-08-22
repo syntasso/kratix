@@ -19,7 +19,6 @@ package controllers
 import (
 	"bytes"
 	"context"
-	"encoding/base64"
 	"encoding/json"
 	"fmt"
 	"io"
@@ -510,9 +509,13 @@ func (r *PromiseReconciler) createWorkResourceForDependencies(ctx context.Contex
 	work.Spec.PromiseName = promise.GetName()
 
 	yamlBytes, err := convertDependenciesToYAML(promise)
+	if err != nil {
+		return err
+	}
+
 	work.Spec.Workloads = []v1alpha1.Workload{
 		{
-			Content:  []byte(base64.StdEncoding.EncodeToString(yamlBytes)),
+			Content:  yamlBytes,
 			Filepath: "static/dependencies.yaml",
 		},
 	}

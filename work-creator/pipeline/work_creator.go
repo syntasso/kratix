@@ -2,7 +2,6 @@ package pipeline
 
 import (
 	"context"
-	"encoding/base64"
 	"fmt"
 	"io"
 	"os"
@@ -122,7 +121,7 @@ func (w *WorkCreator) getWorkloadsFromDir(prefixToTrimFromWorkloadFilepath, root
 			}
 
 			workload := platformv1alpha1.Workload{
-				Content:  []byte(base64.StdEncoding.EncodeToString(byteValue)),
+				Content:  byteValue,
 				Filepath: path,
 			}
 

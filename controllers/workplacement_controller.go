@@ -18,7 +18,6 @@ package controllers
 
 import (
 	"context"
-	"encoding/base64"
 	"path/filepath"
 
 	"github.com/go-logr/logr"
@@ -126,15 +125,8 @@ func (r *WorkPlacementReconciler) deleteWorkPlacement(ctx context.Context, write
 
 func (r *WorkPlacementReconciler) writeWorkloadsToStateStore(writer writers.StateStoreWriter, workPlacement v1alpha1.WorkPlacement, logger logr.Logger) error {
 	for _, workload := range workPlacement.Spec.Workloads {
-		//base64 decode the workload content
-		workloadContent, err := base64.StdEncoding.DecodeString(string(workload.Content))
-		if err != nil {
-			logger.Error(err, "Error decoding")
-			return err
-		}
-
 		filepath := filepath.Join(getDir(workPlacement), workload.Filepath)
-		err = writer.WriteObject(filepath, workloadContent)
+		err := writer.WriteObject(filepath, workload.Content)
 		if err != nil {
 			logger.Error(err, "Error writing resources to repository", "filepath", filepath)
 			return err

@@ -2,7 +2,6 @@ package pipeline_test
 
 import (
 	"context"
-	"encoding/base64"
 	"io"
 	"io/ioutil"
 	"os"
@@ -87,9 +86,7 @@ var _ = Describe("WorkCreator", func() {
 					for _, workload := range workResource.Spec.Workloads {
 						fileContent, err := ioutil.ReadFile(filepath.Join(mockPipelineDirectory, "input", workload.Filepath))
 						Expect(err).NotTo(HaveOccurred())
-						contentDecoded, err := base64.StdEncoding.DecodeString(string(workload.Content))
-						Expect(err).NotTo(HaveOccurred())
-						Expect(contentDecoded).To(Equal(fileContent))
+						Expect(workload.Content).To(Equal(fileContent))
 					}
 				})
 			})
