@@ -97,7 +97,7 @@ var _ = Describe("Kratix", func() {
 								echo "message: My awesome status message" > /kratix/metadata/status.yaml
 								echo "key: value" >> /kratix/metadata/status.yaml
 							fi
-              kubectl ${kop} namespace imperative-$(yq '.metadata.name' /kratix/input/object.yaml)`
+			                kubectl ${kop} namespace imperative-$(yq '.metadata.name' /kratix/input/object.yaml)`
 
 				c2Command := `kubectl create namespace declarative-$(yq '.metadata.name' /kratix/input/object.yaml) --dry-run=client -oyaml > /kratix/output/namespace.yaml`
 
@@ -137,6 +137,40 @@ var _ = Describe("Kratix", func() {
 				})
 			})
 
+			PWhen("an existing resource request is updated", func() {
+				const requestName = "update-test"
+				var oldNamespaceName string
+				BeforeEach(func() {
+					oldNamespaceName = fmt.Sprintf("old-%s", requestName)
+					createNamespace := fmt.Sprintf(
+						`kubectl create namespace %s --dry-run=client -oyaml > /kratix/output/namespace.yaml`,
+						oldNamespaceName,
+					)
+					platform.kubectl("apply", "-f", requestWithNameAndCommand(requestName, createNamespace))
+					platform.kubectl("wait", "--for=condition=PipelineCompleted", "bash", requestName, pipelineTimeout)
+					worker.eventuallyKubectl("get", "namespace", oldNamespaceName)
+				})
+
+				It("executes the update lifecycle", func() {
+					newNamespaceName := fmt.Sprintf("new-%s", requestName)
+					updateNamespace := fmt.Sprintf(
+						`kubectl create namespace %s --dry-run=client -oyaml > /kratix/output/namespace.yaml`,
+						newNamespaceName,
+					)
+					platform.kubectl("apply", "-f", requestWithNameAndCommand(requestName, updateNamespace))
+
+					By("redeploying the contents of /kratix/output to the worker destination", func() {
+						Eventually(func() string {
+							return worker.kubectl("get", "namespace")
+						}, "10s").Should(
+							SatisfyAll(
+								Not(ContainSubstring(oldNamespaceName)),
+								ContainSubstring(newNamespaceName),
+							),
+						)
+					})
+				})
+			})
 			AfterEach(func() {
 				platform.kubectl("delete", "promise", "bash")
 				Eventually(platform.kubectl("get", "promise")).ShouldNot(ContainSubstring("bash"))
