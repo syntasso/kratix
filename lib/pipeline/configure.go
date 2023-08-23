@@ -6,6 +6,7 @@ import (
 	"strings"
 
 	platformv1alpha1 "github.com/syntasso/kratix/api/v1alpha1"
+	"github.com/syntasso/kratix/lib/hash"
 	batchv1 "k8s.io/api/batch/v1"
 	v1 "k8s.io/api/core/v1"
 	apiextensionsv1 "k8s.io/apiextensions-apiserver/pkg/apis/apiextensions/v1"
@@ -56,17 +57,21 @@ func ConfigurePipeline(rr *unstructured.Unstructured, pipelines []platformv1alph
 	volumes = append(volumes, pipelineVolumes...)
 
 	rrKind := fmt.Sprintf("%s.%s", strings.ToLower(rr.GetKind()), rr.GroupVersionKind().Group)
+	rrSpecHash, err := hash.ComputeHash(rr)
+	if err != nil {
+		return nil, err
+	}
 
 	return &batchv1.Job{
 		ObjectMeta: metav1.ObjectMeta{
 			Name:      pipelineResources.ConfigurePipelineName(),
 			Namespace: rr.GetNamespace(),
-			Labels:    pipelineResources.ConfigurePipelinePodLabels(),
+			Labels:    pipelineResources.ConfigurePipelinePodLabels(rrSpecHash),
 		},
 		Spec: batchv1.JobSpec{
 			Template: v1.PodTemplateSpec{
 				ObjectMeta: metav1.ObjectMeta{
-					Labels: pipelineResources.ConfigurePipelinePodLabels(),
+					Labels: pipelineResources.ConfigurePipelinePodLabels(rrSpecHash),
 				},
 				Spec: v1.PodSpec{
 					RestartPolicy:      v1.RestartPolicyOnFailure,

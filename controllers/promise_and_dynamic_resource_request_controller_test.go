@@ -287,6 +287,21 @@ var _ = Context("Promise Reconciler", func() {
 			})
 		})
 
+		When("a resource is updated", func() {
+			It("retriggers the resource configure workflow", func() {
+				toUpdate := getRedisResource(requestedResource, k8sClient)
+				toUpdate.Object["spec"].(map[string]interface{})["mode"] = "cluster"
+				Expect(k8sClient.Update(ctx, toUpdate)).To(Succeed())
+
+				completeAllJobs(k8sClient)
+
+				Eventually(func() int {
+					jobs := getConfigurePipelineJobs(promiseCR, k8sClient)
+					return len(jobs)
+				}, "60s", interval).Should(Equal(2), "Expected 2 pipeline jobs")
+			})
+		})
+
 		When("a resource is deleted", func() {
 			BeforeEach(func() {
 				Expect(k8sClient.Delete(ctx, requestedResource)).To(Succeed())
