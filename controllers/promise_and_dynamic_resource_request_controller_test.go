@@ -490,11 +490,12 @@ var _ = Context("Promise Reconciler", func() {
 			})
 
 			By("setting the correct finalizers", func() {
-				promise := &v1alpha1.Promise{}
-				err := k8sClient.Get(ctx, expectedPromise, promise)
-				Expect(err).NotTo(HaveOccurred())
-
-				Expect(promise.GetFinalizers()).Should(
+				Eventually(func() []string {
+					promise := &v1alpha1.Promise{}
+					err := k8sClient.Get(ctx, expectedPromise, promise)
+					Expect(err).NotTo(HaveOccurred())
+					return promise.GetFinalizers()
+				}, timeout, interval).Should(
 					ConsistOf(
 						"kratix.io/dependencies-cleanup",
 					), "Promise should have finalizers set")

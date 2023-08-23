@@ -105,6 +105,34 @@ func (r *PromiseReconciler) Reconcile(ctx context.Context, req ctrl.Request) (ct
 		return r.deletePromise(ctx, promise, logger)
 	}
 
+	var rrCRD *apiextensionsv1.CustomResourceDefinition
+	var rrGVK schema.GroupVersionKind
+
+	if promise.ContainsAPI() {
+		rrCRD, rrGVK, err = generateCRDAndGVK(promise, logger)
+		if err != nil {
+			return ctrl.Result{}, err
+		}
+
+		exists := r.ensureCRDExists(ctx, rrCRD, rrGVK, logger)
+		if !exists {
+			return defaultRequeue, nil
+		}
+
+		if doesNotContainFinalizer(promise, crdCleanupFinalizer) {
+			return addFinalizers(ctx, r.Client, promise, []string{crdCleanupFinalizer}, logger)
+		}
+
+		if err := r.createResourcesForDynamicControllerIfTheyDontExist(ctx, promise, rrCRD, rrGVK, logger); err != nil {
+			// TODO add support for updates
+			return ctrl.Result{}, err
+		}
+
+		if doesNotContainFinalizer(promise, dynamicControllerDependantResourcesCleaupFinalizer) {
+			return addFinalizers(ctx, r.Client, promise, []string{dynamicControllerDependantResourcesCleaupFinalizer}, logger)
+		}
+	}
+
 	if err := r.createWorkResourceForDependencies(ctx, promise, logger); err != nil {
 		logger.Error(err, "Error creating Works")
 		return ctrl.Result{}, err
@@ -119,32 +147,9 @@ func (r *PromiseReconciler) Reconcile(ctx context.Context, req ctrl.Request) (ct
 		return ctrl.Result{}, nil
 	}
 
-	rrCRD, rrGVK, err := generateCRDAndGVK(promise, logger)
-	if err != nil {
-		return ctrl.Result{}, err
-	}
-
-	exists := r.ensureCRDExists(ctx, rrCRD, rrGVK, logger)
-	if !exists {
-		return defaultRequeue, nil
-	}
-
-	if doesNotContainFinalizer(promise, crdCleanupFinalizer) {
-		return addFinalizers(ctx, r.Client, promise, []string{crdCleanupFinalizer}, logger)
-	}
-
 	configurePipelines, deletePipelines, err := r.generatePipelines(promise, logger)
 	if err != nil {
 		return ctrl.Result{}, err
-	}
-
-	if err := r.createResourcesForDynamicControllerIfTheyDontExist(ctx, promise, rrCRD, rrGVK, logger); err != nil {
-		// TODO add support for updates
-		return ctrl.Result{}, err
-	}
-
-	if doesNotContainFinalizer(promise, dynamicControllerDependantResourcesCleaupFinalizer) {
-		return addFinalizers(ctx, r.Client, promise, []string{dynamicControllerDependantResourcesCleaupFinalizer}, logger)
 	}
 
 	err = r.ensureDynamicControllerIsStarted(promise, rrCRD, rrGVK, configurePipelines, deletePipelines, logger)
