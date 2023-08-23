@@ -43,14 +43,14 @@ var _ = Describe("Configure Pipeline", func() {
 		pipelineResources = pipeline.NewPipelineArgs("test-promise", "test-resource-request", "test-namespace")
 	})
 
-	Describe("Pipeline Request Hash", func() {
-		const expectedHash = "9bb58f26192e4ba00f01e2e7b136bbd8"
-
-		It("is included as a label to the pipeline job", func() {
+	Describe("Pipeline Labels", func() {
+		It("includes all labels", func() {
 			job, err := pipeline.ConfigurePipeline(rr, pipelines, pipelineResources, "test-promise")
 			Expect(err).NotTo(HaveOccurred())
 
-			Expect(job.Labels).To(HaveKeyWithValue("kratix-resource-hash", expectedHash))
+			Expect(job.Labels).To(HaveKeyWithValue("kratix-promise-id", "test-promise"))
+			Expect(job.Labels).To(HaveKeyWithValue("kratix-promise-resource-request-id", "test-resource-request"))
+			Expect(job.Labels).To(HaveKeyWithValue("kratix-pipeline-type", "configure"))
 		})
 	})
 })

@@ -3,9 +3,8 @@ package pipeline
 type pipelineLabels map[string]string
 
 const (
-	configurePipelineType   = "configure"
-	deletePipelineType      = "delete"
-	KratixResourceHashLabel = "kratix-resource-hash"
+	configurePipelineType = "configure"
+	deletePipelineType    = "delete"
 )
 
 func newPipelineLabels() pipelineLabels {
@@ -17,11 +16,8 @@ func DeletePipelineLabels(rrID, promiseID string) map[string]string {
 		WithPipelineType(deletePipelineType)
 }
 
-func ConfigurePipelineLabels(rrID, promiseID string, requestSHA ...string) map[string]string {
+func ConfigurePipelineLabels(rrID, promiseID string) map[string]string {
 	labels := Labels(rrID, promiseID).WithPipelineType(configurePipelineType)
-	if len(requestSHA) > 0 {
-		return labels.WithRequestSHA(requestSHA[0])
-	}
 	return labels
 }
 
@@ -41,10 +37,5 @@ func (p pipelineLabels) WithResourceRequestID(resourceRequestID string) pipeline
 
 func (p pipelineLabels) WithPipelineType(pipelineType string) pipelineLabels {
 	p["kratix-pipeline-type"] = pipelineType
-	return p
-}
-
-func (p pipelineLabels) WithRequestSHA(requestSHA string) pipelineLabels {
-	p[KratixResourceHashLabel] = requestSHA
 	return p
 }

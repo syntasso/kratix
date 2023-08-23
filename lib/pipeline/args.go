@@ -61,8 +61,8 @@ func (p PipelineArgs) Labels() pipelineLabels {
 	return newPipelineLabels().WithPromiseID(p.PromiseID())
 }
 
-func (p PipelineArgs) ConfigurePipelinePodLabels(rrSHA string) pipelineLabels {
-	return ConfigurePipelineLabels(p.ResourceRequestID(), p.PromiseID(), rrSHA)
+func (p PipelineArgs) ConfigurePipelinePodLabels() pipelineLabels {
+	return ConfigurePipelineLabels(p.ResourceRequestID(), p.PromiseID())
 }
 
 func (p PipelineArgs) DeletePipelinePodLabels() pipelineLabels {

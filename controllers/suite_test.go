@@ -24,6 +24,7 @@ import (
 
 	. "github.com/onsi/ginkgo"
 	. "github.com/onsi/gomega"
+	"github.com/onsi/gomega/gbytes"
 	platformv1alpha1 "github.com/syntasso/kratix/api/v1alpha1"
 	. "github.com/syntasso/kratix/controllers"
 	v1 "k8s.io/api/core/v1"
@@ -48,6 +49,8 @@ var (
 
 	timeout  = "30s"
 	interval = "3s"
+
+	logBuffer *gbytes.Buffer
 )
 var _ = BeforeSuite(func() {
 	logf.SetLogger(zap.New(zap.WriteTo(GinkgoWriter), zap.UseDevMode(true)))

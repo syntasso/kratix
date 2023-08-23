@@ -111,25 +111,12 @@ func (r *dynamicResourceRequestController) Reconcile(ctx context.Context, req ct
 	}
 
 	// No jobs indicates this is the first reconciliation loop of this resource request
-	if len(pipelineJobs) == 0 {
-		return r.createConfigurePipeline(ctx, rr, resourceRequestIdentifier, logger)
-	}
-
-	if resourceutil.IsThereAPipelineRunning(logger, pipelineJobs) {
-		return slowRequeue, nil
-	}
-
-	found, err := resourceutil.PipelineForRequestExists(logger, rr, pipelineJobs)
-	if err != nil {
-		return slowRequeue, nil
-	}
-
-	if found {
+	if len(pipelineJobs) > 0 {
+		logger.Info("pipeline for resource request already exists, skipping...")
 		return ctrl.Result{}, nil
 	}
 
 	return r.createConfigurePipeline(ctx, rr, resourceRequestIdentifier, logger)
-
 }
 
 func (r *dynamicResourceRequestController) createConfigurePipeline(ctx context.Context, rr *unstructured.Unstructured, rrID string, logger logr.Logger) (ctrl.Result, error) {
