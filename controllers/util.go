@@ -90,6 +90,10 @@ func finalizersAreMissing(resource client.Object, finalizers []string) bool {
 	return false
 }
 
+func doesNotContainFinalizer(resource client.Object, finalizer string) bool {
+	return !controllerutil.ContainsFinalizer(resource, finalizer)
+}
+
 func finalizersAreDeleted(resource client.Object, finalizers []string) bool {
 	for _, finalizer := range finalizers {
 		if controllerutil.ContainsFinalizer(resource, finalizer) {
