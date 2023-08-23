@@ -105,14 +105,13 @@ func (r *PromiseReconciler) Reconcile(ctx context.Context, req ctrl.Request) (ct
 		return r.deletePromise(ctx, promise, logger)
 	}
 
-	finalizers := getDesiredFinalizers(promise)
-	if finalizersAreMissing(promise, finalizers) {
-		return addFinalizers(ctx, r.Client, promise, finalizers, logger)
-	}
-
 	if err := r.createWorkResourceForDependencies(ctx, promise, logger); err != nil {
 		logger.Error(err, "Error creating Works")
 		return ctrl.Result{}, err
+	}
+
+	if doesNotContainFinalizer(promise, dependenciesCleanupFinalizer) {
+		return addFinalizers(ctx, r.Client, promise, []string{dependenciesCleanupFinalizer}, logger)
 	}
 
 	if promise.DoesNotContainAPI() {
@@ -130,6 +129,10 @@ func (r *PromiseReconciler) Reconcile(ctx context.Context, req ctrl.Request) (ct
 		return defaultRequeue, nil
 	}
 
+	if doesNotContainFinalizer(promise, crdCleanupFinalizer) {
+		return addFinalizers(ctx, r.Client, promise, []string{crdCleanupFinalizer}, logger)
+	}
+
 	configurePipelines, deletePipelines, err := r.generatePipelines(promise, logger)
 	if err != nil {
 		return ctrl.Result{}, err
@@ -140,14 +143,20 @@ func (r *PromiseReconciler) Reconcile(ctx context.Context, req ctrl.Request) (ct
 		return ctrl.Result{}, err
 	}
 
-	return ctrl.Result{}, r.ensureDynamicControllerIsStarted(promise, rrCRD, rrGVK, configurePipelines, deletePipelines, logger)
-}
-
-func getDesiredFinalizers(promise *v1alpha1.Promise) []string {
-	if promise.DoesNotContainAPI() {
-		return []string{dependenciesCleanupFinalizer}
+	if doesNotContainFinalizer(promise, dynamicControllerDependantResourcesCleaupFinalizer) {
+		return addFinalizers(ctx, r.Client, promise, []string{dynamicControllerDependantResourcesCleaupFinalizer}, logger)
 	}
-	return promiseFinalizers
+
+	err = r.ensureDynamicControllerIsStarted(promise, rrCRD, rrGVK, configurePipelines, deletePipelines, logger)
+	if err != nil {
+		return ctrl.Result{}, err
+	}
+
+	if doesNotContainFinalizer(promise, resourceRequestCleanupFinalizer) {
+		return addFinalizers(ctx, r.Client, promise, []string{resourceRequestCleanupFinalizer}, logger)
+	}
+
+	return ctrl.Result{}, nil
 }
 
 func (r *PromiseReconciler) ensureDynamicControllerIsStarted(promise *v1alpha1.Promise, rrCRD *apiextensionsv1.CustomResourceDefinition, rrGVK schema.GroupVersionKind, configurePipelines, deletePipelines []v1alpha1.Pipeline, logger logr.Logger) error {
