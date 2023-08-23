@@ -140,7 +140,7 @@ func (r *PromiseReconciler) Reconcile(ctx context.Context, req ctrl.Request) (ct
 		return ctrl.Result{}, err
 	}
 
-	return ctrl.Result{}, r.ensureDynamicControllerIsStarted(promise, rrCRD, rrGVK, configurePipelines, deletePipelines)
+	return ctrl.Result{}, r.ensureDynamicControllerIsStarted(promise, rrCRD, rrGVK, configurePipelines, deletePipelines, logger)
 }
 
 func getDesiredFinalizers(promise *v1alpha1.Promise) []string {
@@ -150,11 +150,13 @@ func getDesiredFinalizers(promise *v1alpha1.Promise) []string {
 	return promiseFinalizers
 }
 
-func (r *PromiseReconciler) ensureDynamicControllerIsStarted(promise *v1alpha1.Promise, rrCRD *apiextensionsv1.CustomResourceDefinition, rrGVK schema.GroupVersionKind, configurePipelines, deletePipelines []v1alpha1.Pipeline) error {
+func (r *PromiseReconciler) ensureDynamicControllerIsStarted(promise *v1alpha1.Promise, rrCRD *apiextensionsv1.CustomResourceDefinition, rrGVK schema.GroupVersionKind, configurePipelines, deletePipelines []v1alpha1.Pipeline, logger logr.Logger) error {
 	// The Dynamic Controller needs to be started once and only once.
 	if r.dynamicControllerHasAlreadyStarted(promise) {
+		logger.Info("dynamic controller already started")
 		return nil
 	}
+	logger.Info("starting dynamic controller")
 
 	//temporary fix until https://github.com/kubernetes-sigs/controller-runtime/issues/1884 is resolved
 	//once resolved, delete dynamic controller rather than disable
@@ -170,7 +172,7 @@ func (r *PromiseReconciler) ensureDynamicControllerIsStarted(promise *v1alpha1.P
 		promiseDestinationSelectors: promise.Spec.DestinationSelectors,
 		configurePipelines:          configurePipelines,
 		deletePipelines:             deletePipelines,
-		log:                         r.Log,
+		log:                         r.Log.WithName(promise.GetName()),
 		uid:                         string(promise.GetUID())[0:5],
 		enabled:                     &enabled,
 	}
@@ -213,6 +215,7 @@ func (r *PromiseReconciler) createResourcesForDynamicControllerIfTheyDontExist(c
 			},
 		},
 	}
+	logger.Info("creating cluster role if it doesn't exist", "clusterRoleName", cr.GetName())
 	err := r.Client.Create(ctx, &cr)
 	if err != nil {
 		if errors.IsAlreadyExists(err) {
@@ -243,6 +246,7 @@ func (r *PromiseReconciler) createResourcesForDynamicControllerIfTheyDontExist(c
 		},
 	}
 
+	logger.Info("creating cluster role binding if it doesn't exist", "clusterRoleBinding", crb.GetName())
 	err = r.Client.Create(ctx, &crb)
 	if err != nil {
 		if errors.IsAlreadyExists(err) {
@@ -254,6 +258,7 @@ func (r *PromiseReconciler) createResourcesForDynamicControllerIfTheyDontExist(c
 		}
 	}
 
+	logger.Info("finished creating resources for dynamic controller")
 	return nil
 }
 
