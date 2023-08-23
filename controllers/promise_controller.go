@@ -105,9 +105,32 @@ func (r *PromiseReconciler) Reconcile(ctx context.Context, req ctrl.Request) (ct
 		return r.deletePromise(ctx, promise, logger)
 	}
 
-	finalizers := getDesiredFinalizers(promise)
-	if finalizersAreMissing(promise, finalizers) {
-		return addFinalizers(ctx, r.Client, promise, finalizers, logger)
+	var rrCRD *apiextensionsv1.CustomResourceDefinition
+	var rrGVK schema.GroupVersionKind
+
+	if promise.ContainsAPI() {
+		rrCRD, rrGVK, err = generateCRDAndGVK(promise, logger)
+		if err != nil {
+			return ctrl.Result{}, err
+		}
+
+		exists := r.ensureCRDExists(ctx, rrCRD, rrGVK, logger)
+		if !exists {
+			return defaultRequeue, nil
+		}
+
+		if doesNotContainFinalizer(promise, crdCleanupFinalizer) {
+			return addFinalizers(ctx, r.Client, promise, []string{crdCleanupFinalizer}, logger)
+		}
+
+		if err := r.createResourcesForDynamicControllerIfTheyDontExist(ctx, promise, rrCRD, rrGVK, logger); err != nil {
+			// TODO add support for updates
+			return ctrl.Result{}, err
+		}
+
+		if doesNotContainFinalizer(promise, dynamicControllerDependantResourcesCleaupFinalizer) {
+			return addFinalizers(ctx, r.Client, promise, []string{dynamicControllerDependantResourcesCleaupFinalizer}, logger)
+		}
 	}
 
 	if err := r.createWorkResourceForDependencies(ctx, promise, logger); err != nil {
@@ -115,19 +138,13 @@ func (r *PromiseReconciler) Reconcile(ctx context.Context, req ctrl.Request) (ct
 		return ctrl.Result{}, err
 	}
 
+	if doesNotContainFinalizer(promise, dependenciesCleanupFinalizer) {
+		return addFinalizers(ctx, r.Client, promise, []string{dependenciesCleanupFinalizer}, logger)
+	}
+
 	if promise.DoesNotContainAPI() {
 		logger.Info("Promise only contains dependencies, skipping creation of API and dynamic controller")
 		return ctrl.Result{}, nil
-	}
-
-	rrCRD, rrGVK, err := generateCRDAndGVK(promise, logger)
-	if err != nil {
-		return ctrl.Result{}, err
-	}
-
-	exists := r.ensureCRDExists(ctx, rrCRD, rrGVK, logger)
-	if !exists {
-		return defaultRequeue, nil
 	}
 
 	configurePipelines, deletePipelines, err := r.generatePipelines(promise, logger)
@@ -135,26 +152,25 @@ func (r *PromiseReconciler) Reconcile(ctx context.Context, req ctrl.Request) (ct
 		return ctrl.Result{}, err
 	}
 
-	if err := r.createResourcesForDynamicControllerIfTheyDontExist(ctx, promise, rrCRD, rrGVK, logger); err != nil {
-		// TODO add support for updates
+	err = r.ensureDynamicControllerIsStarted(promise, rrCRD, rrGVK, configurePipelines, deletePipelines, logger)
+	if err != nil {
 		return ctrl.Result{}, err
 	}
 
-	return ctrl.Result{}, r.ensureDynamicControllerIsStarted(promise, rrCRD, rrGVK, configurePipelines, deletePipelines)
-}
-
-func getDesiredFinalizers(promise *v1alpha1.Promise) []string {
-	if promise.DoesNotContainAPI() {
-		return []string{dependenciesCleanupFinalizer}
+	if doesNotContainFinalizer(promise, resourceRequestCleanupFinalizer) {
+		return addFinalizers(ctx, r.Client, promise, []string{resourceRequestCleanupFinalizer}, logger)
 	}
-	return promiseFinalizers
+
+	return ctrl.Result{}, nil
 }
 
-func (r *PromiseReconciler) ensureDynamicControllerIsStarted(promise *v1alpha1.Promise, rrCRD *apiextensionsv1.CustomResourceDefinition, rrGVK schema.GroupVersionKind, configurePipelines, deletePipelines []v1alpha1.Pipeline) error {
+func (r *PromiseReconciler) ensureDynamicControllerIsStarted(promise *v1alpha1.Promise, rrCRD *apiextensionsv1.CustomResourceDefinition, rrGVK schema.GroupVersionKind, configurePipelines, deletePipelines []v1alpha1.Pipeline, logger logr.Logger) error {
 	// The Dynamic Controller needs to be started once and only once.
 	if r.dynamicControllerHasAlreadyStarted(promise) {
+		logger.Info("dynamic controller already started")
 		return nil
 	}
+	logger.Info("starting dynamic controller")
 
 	//temporary fix until https://github.com/kubernetes-sigs/controller-runtime/issues/1884 is resolved
 	//once resolved, delete dynamic controller rather than disable
@@ -170,7 +186,7 @@ func (r *PromiseReconciler) ensureDynamicControllerIsStarted(promise *v1alpha1.P
 		promiseDestinationSelectors: promise.Spec.DestinationSelectors,
 		configurePipelines:          configurePipelines,
 		deletePipelines:             deletePipelines,
-		log:                         r.Log,
+		log:                         r.Log.WithName(promise.GetName()),
 		uid:                         string(promise.GetUID())[0:5],
 		enabled:                     &enabled,
 	}
@@ -213,6 +229,7 @@ func (r *PromiseReconciler) createResourcesForDynamicControllerIfTheyDontExist(c
 			},
 		},
 	}
+	logger.Info("creating cluster role if it doesn't exist", "clusterRoleName", cr.GetName())
 	err := r.Client.Create(ctx, &cr)
 	if err != nil {
 		if errors.IsAlreadyExists(err) {
@@ -243,6 +260,7 @@ func (r *PromiseReconciler) createResourcesForDynamicControllerIfTheyDontExist(c
 		},
 	}
 
+	logger.Info("creating cluster role binding if it doesn't exist", "clusterRoleBinding", crb.GetName())
 	err = r.Client.Create(ctx, &crb)
 	if err != nil {
 		if errors.IsAlreadyExists(err) {
@@ -254,6 +272,7 @@ func (r *PromiseReconciler) createResourcesForDynamicControllerIfTheyDontExist(c
 		}
 	}
 
+	logger.Info("finished creating resources for dynamic controller")
 	return nil
 }
 

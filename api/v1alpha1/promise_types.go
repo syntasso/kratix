@@ -110,6 +110,10 @@ func (p *Promise) DoesNotContainAPI() bool {
 	return p.Spec.API.Raw == nil
 }
 
+func (p *Promise) ContainsAPI() bool {
+	return !p.DoesNotContainAPI()
+}
+
 func (p *Promise) GenerateSharedLabels() map[string]string {
 	return map[string]string{
 		"kratix-promise-id": p.GetName(),
