@@ -100,7 +100,7 @@ var _ = Describe("Controllers/Scheduler", func() {
 
 			It("updates workplacements for existing works", func() {
 				resourceWork.Spec.Workloads = append(resourceWork.Spec.Workloads, Workload{
-					Content: []byte("fake: content"),
+					Content: "fake: content",
 				})
 				err := scheduler.ReconcileWork(&resourceWork)
 				Expect(err).ToNot(HaveOccurred())
@@ -111,7 +111,7 @@ var _ = Describe("Controllers/Scheduler", func() {
 				workPlacement := workPlacements.Items[0]
 				Expect(workPlacement.Spec.Workloads).To(HaveLen(2))
 				Expect(workPlacement.Spec.Workloads).To(ContainElement(Workload{
-					Content: []byte("fake: content"),
+					Content: "fake: content",
 				}))
 			})
 		})
@@ -250,7 +250,7 @@ func newWork(name string, workType int, scheduling ...WorkScheduling) Work {
 			DestinationSelectors: workScheduling,
 			WorkloadCoreFields: WorkloadCoreFields{
 				Workloads: []Workload{
-					{Content: []byte("key: value")},
+					{Content: "key: value"},
 				},
 			},
 		},

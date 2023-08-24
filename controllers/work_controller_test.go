@@ -107,7 +107,7 @@ var _ = Context("WorkReconciler.Reconcile()", func() {
 		When("the work.spec.workload changes", func() {
 			It("updates the workplacement workloads", func() {
 				work.Spec.Workloads = append(work.Spec.Workloads, platformv1alpha1.Workload{
-					Content: []byte(`{someApi: newApi, someValue: newValue}`),
+					Content: "{someApi: newApi, someValue: newValue}",
 				})
 				Expect(k8sClient.Update(context.Background(), work)).To(Succeed())
 
@@ -161,10 +161,10 @@ func createWork() *platformv1alpha1.Work {
 	work.Spec.Replicas = platformv1alpha1.ResourceRequestReplicas
 	work.Spec.Workloads = []platformv1alpha1.Workload{
 		{
-			Content: []byte(`{someApi: foo, someValue: bar}`),
+			Content: "{someApi: foo, someValue: bar}",
 		},
 		{
-			Content: []byte(`{someApi: baz, someValue: bat}`),
+			Content: "{someApi: baz, someValue: bat}",
 		},
 	}
 	err := k8sClient.Create(context.Background(), work)
