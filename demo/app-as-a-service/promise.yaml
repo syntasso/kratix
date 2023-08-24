@@ -1,7 +1,52 @@
+apiVersion: platform.kratix.io/v1alpha1
+kind: Promise
 metadata:
-  creationTimestamp: null
+  name: app-as-a-service
+  namespace: default
 spec:
-  api: null
+  api:
+    apiVersion: apiextensions.k8s.io/v1
+    kind: CustomResourceDefinition
+    metadata:
+      name: apps.example.promise.syntasso.io
+    spec:
+      group: example.promise.syntasso.io
+      names:
+        kind: app
+        plural: apps
+        singular: app
+      scope: Namespaced
+      versions:
+        - name: v1
+          schema:
+            openAPIV3Schema:
+              properties:
+                spec:
+                  properties:
+                    containsCreditCardData:
+                      default: false
+                      description: presence of customer credit card information
+                      type: boolean
+                    dbDriver:
+                      default: none
+                      description: database deployed with application
+                      enum:
+                        - postgres
+                        - none
+                      type: string
+                    image:
+                      description: container image for application that will be deployed
+                      example: gcr.io/syntasso/great-app
+                      type: string
+                    name:
+                      type: string
+                  required:
+                    - name
+                    - image
+                  type: object
+              type: object
+          served: true
+          storage: true
   dependencies:
   - apiVersion: platform.kratix.io/v1alpha1
     kind: Promise
@@ -10204,7 +10249,7 @@ spec:
   - apiVersion: rbac.authorization.k8s.io/v1
     kind: ClusterRole
     metadata:
-      name: slack-default-promise-pipeline-credentials
+      name: slack-promise-pipeline-credentials
       namespace: default
     rules:
     - apiGroups:
@@ -10218,16 +10263,29 @@ spec:
   - apiVersion: rbac.authorization.k8s.io/v1
     kind: ClusterRoleBinding
     metadata:
-      name: slack-default-promise-pipeline-credentials
+      name: slack-promise-pipeline-credentials
       namespace: default
     roleRef:
       apiGroup: rbac.authorization.k8s.io
       kind: ClusterRole
-      name: slack-default-promise-pipeline-credentials
+      name: slack-promise-pipeline-credentials
     subjects:
     - kind: ServiceAccount
-      name: slack-default-promise-pipeline
+      name: slack-promise-pipeline
       namespace: default
   workflows:
-    resource: {}
+    resource:
+      configure:
+        - apiVersion: platform.kratix.io/v1alpha1
+          kind: Pipeline
+          metadata:
+            name: instance-configure
+            namespace: default
+          spec:
+            containers:
+              - image: syntasso/demo-app-as-a-service-configure-pipeline:v0.1.1
+                name: demo-app-as-a-service-configure-pipeline
+  destinationSelectors:
+  - matchLabels:
+      environment: platform
 status: {}
