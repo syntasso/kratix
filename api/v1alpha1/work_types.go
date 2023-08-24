@@ -88,7 +88,7 @@ func (w *Work) GetSchedulingSelectors() map[string]string {
 type Workload struct {
 	// +optional
 	Filepath string `json:"filepath,omitempty"`
-	Content  []byte `json:"content,omitempty"`
+	Content  string `json:"content,omitempty"`
 }
 
 //+kubebuilder:object:root=true

@@ -310,7 +310,6 @@ spec:
                     description: Workload represents the manifest workload to be deployed on destination
                     properties:
                       content:
-                        format: byte
                         type: string
                       filepath:
                         type: string
@@ -392,7 +391,6 @@ spec:
                     description: Workload represents the manifest workload to be deployed on destination
                     properties:
                       content:
-                        format: byte
                         type: string
                       filepath:
                         type: string

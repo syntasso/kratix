@@ -358,7 +358,6 @@ spec:
                     on destination
                   properties:
                     content:
-                      format: byte
                       type: string
                     filepath:
                       type: string
@@ -446,7 +445,6 @@ spec:
                     on destination
                   properties:
                     content:
-                      format: byte
                       type: string
                     filepath:
                       type: string
@@ -806,7 +804,7 @@ metadata:
 ---
 apiVersion: v1
 data:
-  WC_IMG: syntasso/kratix-platform-pipeline-adapter:b3e46e2874b588be34c42e218defe2eff97634b9
+  WC_IMG: syntasso/kratix-platform-pipeline-adapter:d94ba3c7b4ea68e010631ccfea4e611beb881e87
 kind: ConfigMap
 metadata:
   name: kratix-platform-wc-img-config
@@ -867,7 +865,7 @@ spec:
             configMapKeyRef:
               key: WC_IMG
               name: kratix-platform-wc-img-config
-        image: syntasso/kratix-platform:b3e46e2874b588be34c42e218defe2eff97634b9
+        image: syntasso/kratix-platform:d94ba3c7b4ea68e010631ccfea4e611beb881e87
         livenessProbe:
           httpGet:
             path: /healthz

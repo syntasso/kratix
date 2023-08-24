@@ -534,7 +534,7 @@ func (r *PromiseReconciler) createWorkResourceForDependencies(ctx context.Contex
 
 	work.Spec.Workloads = []v1alpha1.Workload{
 		{
-			Content:  yamlBytes,
+			Content:  string(yamlBytes),
 			Filepath: "static/dependencies.yaml",
 		},
 	}

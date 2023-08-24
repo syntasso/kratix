@@ -71,7 +71,6 @@ spec:
                     on destination
                   properties:
                     content:
-                      format: byte
                       type: string
                     filepath:
                       type: string

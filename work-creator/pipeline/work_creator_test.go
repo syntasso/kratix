@@ -86,7 +86,7 @@ var _ = Describe("WorkCreator", func() {
 					for _, workload := range workResource.Spec.Workloads {
 						fileContent, err := ioutil.ReadFile(filepath.Join(mockPipelineDirectory, "input", workload.Filepath))
 						Expect(err).NotTo(HaveOccurred())
-						Expect(workload.Content).To(Equal(fileContent))
+						Expect(workload.Content).To(Equal(string(fileContent)))
 					}
 				})
 			})

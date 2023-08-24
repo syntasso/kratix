@@ -121,7 +121,7 @@ func (w *WorkCreator) getWorkloadsFromDir(prefixToTrimFromWorkloadFilepath, root
 			}
 
 			workload := platformv1alpha1.Workload{
-				Content:  byteValue,
+				Content:  string(byteValue),
 				Filepath: path,
 			}
 
