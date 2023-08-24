@@ -52,55 +52,57 @@ func NewS3Writer(logger logr.Logger, stateStoreSpec platformv1alpha1.BucketState
 	}, nil
 }
 
-func (b *S3Writer) WriteObject(objectName string, toWrite []byte) error {
-	logger := b.Log.WithValues(
-		"bucketName", b.BucketName,
-		"path", b.path,
-		"objectName", objectName,
-	)
+func (b *S3Writer) WriteObjects(toWrite ...ToWrite) error {
+	for _, item := range toWrite {
+		logger := b.Log.WithValues(
+			"bucketName", b.BucketName,
+			"path", b.path,
+			"objectName", item.Name,
+		)
 
-	objectFullPath := filepath.Join(b.path, objectName)
-	if len(toWrite) == 0 {
-		logger.Info("Empty byte[]. Nothing to write to bucket")
-		return nil
-	}
-
-	ctx := context.Background()
-
-	// Check to see if we already own this bucket (which happens if you run this twice)
-	exists, errBucketExists := b.RepoClient.BucketExists(ctx, b.BucketName)
-	if errBucketExists != nil {
-		logger.Error(errBucketExists, "Could not verify bucket existence with provider")
-	} else if !exists {
-		logger.Info("Bucket provided does not exist (or the provided keys don't have permissions)")
-	}
-
-	contentType := "text/x-yaml"
-	reader := bytes.NewReader(toWrite)
-
-	objStat, err := b.RepoClient.StatObject(ctx, b.BucketName, objectFullPath, minio.GetObjectOptions{})
-	if err != nil {
-		if minio.ToErrorResponse(err).Code == "NoSuchKey" {
-			logger.Info("Object does not exist yet")
-		} else {
-			logger.Error(err, "Error fetching object")
-			return err
-		}
-	} else {
-		contentMd5 := fmt.Sprintf("%x", md5.Sum(toWrite))
-		if objStat.ETag == contentMd5 {
-			logger.Info("Content has not changed, will not re-write to bucket")
+		objectFullPath := filepath.Join(b.path, item.Name)
+		if len(toWrite) == 0 {
+			logger.Info("Empty byte[]. Nothing to write to bucket")
 			return nil
 		}
-	}
 
-	logger.Info("Writing object to bucket")
-	_, err = b.RepoClient.PutObject(ctx, b.BucketName, objectFullPath, reader, reader.Size(), minio.PutObjectOptions{ContentType: contentType})
-	if err != nil {
-		logger.Error(err, "Error writing object to bucket")
-		return err
+		ctx := context.Background()
+
+		// Check to see if we already own this bucket (which happens if you run this twice)
+		exists, errBucketExists := b.RepoClient.BucketExists(ctx, b.BucketName)
+		if errBucketExists != nil {
+			logger.Error(errBucketExists, "Could not verify bucket existence with provider")
+		} else if !exists {
+			logger.Info("Bucket provided does not exist (or the provided keys don't have permissions)")
+		}
+
+		contentType := "text/x-yaml"
+		reader := bytes.NewReader(item.Content)
+
+		objStat, err := b.RepoClient.StatObject(ctx, b.BucketName, objectFullPath, minio.GetObjectOptions{})
+		if err != nil {
+			if minio.ToErrorResponse(err).Code == "NoSuchKey" {
+				logger.Info("Object does not exist yet")
+			} else {
+				logger.Error(err, "Error fetching object")
+				return err
+			}
+		} else {
+			contentMd5 := fmt.Sprintf("%x", md5.Sum(item.Content))
+			if objStat.ETag == contentMd5 {
+				logger.Info("Content has not changed, will not re-write to bucket")
+				return nil
+			}
+		}
+
+		logger.Info("Writing object to bucket")
+		_, err = b.RepoClient.PutObject(ctx, b.BucketName, objectFullPath, reader, reader.Size(), minio.PutObjectOptions{ContentType: contentType})
+		if err != nil {
+			logger.Error(err, "Error writing object to bucket")
+			return err
+		}
+		logger.Info("Object written to bucket")
 	}
-	logger.Info("Object written to bucket")
 
 	return nil
 }

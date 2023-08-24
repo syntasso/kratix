@@ -1,6 +1,11 @@
 package writers
 
+type ToWrite struct {
+	Name    string
+	Content []byte
+}
+
 type StateStoreWriter interface {
-	WriteObject(objectName string, toWrite []byte) error
+	WriteObjects(...ToWrite) error
 	RemoveObject(objectName string) error
 }

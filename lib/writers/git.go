@@ -68,66 +68,68 @@ func NewGitWriter(logger logr.Logger, stateStoreSpec platformv1alpha1.GitStateSt
 	}, nil
 }
 
-func (g *GitWriter) WriteObject(fileName string, toWrite []byte) error {
-	log := g.Log.WithValues(
-		"dir", g.path,
-		"fileName", fileName,
-		"branch", g.gitServer.Branch,
-	)
-	if len(toWrite) == 0 {
-		log.Info("Empty byte[]. Nothing to write to Git")
-		return nil
-	}
+func (g *GitWriter) WriteObjects(toWrite ...ToWrite) error {
+	for _, item := range toWrite {
+		log := g.Log.WithValues(
+			"dir", g.path,
+			"fileName", item.Name,
+			"branch", g.gitServer.Branch,
+		)
+		if len(toWrite) == 0 {
+			log.Info("Empty byte[]. Nothing to write to Git")
+			return nil
+		}
 
-	localTmpDir, err := createLocalDirectory()
-	if err != nil {
-		log.Error(err, "could not create temporary repository directory")
-		return err
-	}
-	defer os.RemoveAll(filepath.Dir(localTmpDir))
+		localTmpDir, err := createLocalDirectory()
+		if err != nil {
+			log.Error(err, "could not create temporary repository directory")
+			return err
+		}
+		defer os.RemoveAll(filepath.Dir(localTmpDir))
 
-	repo, err := g.cloneRepo(localTmpDir)
-	if err != nil {
-		log.Error(err, "could not clone repository")
-		return err
-	}
+		repo, err := g.cloneRepo(localTmpDir)
+		if err != nil {
+			log.Error(err, "could not clone repository")
+			return err
+		}
 
-	worktree, err := repo.Worktree()
-	if err != nil {
-		log.Error(err, "could not access repo worktree")
-		return err
-	}
+		worktree, err := repo.Worktree()
+		if err != nil {
+			log.Error(err, "could not access repo worktree")
+			return err
+		}
 
-	workTreeFilePath := filepath.Join(g.path, fileName)
-	absoluteFilePath := filepath.Join(localTmpDir, workTreeFilePath)
+		workTreeFilePath := filepath.Join(g.path, item.Name)
+		absoluteFilePath := filepath.Join(localTmpDir, workTreeFilePath)
 
-	//We need to protect against paths containg `..`
-	//filepath.Join expands any '../' in the path to the actual, e.g. /tmp/foo/../ resolves to /tmp/
-	//To ensure they can't write to files on disk outside of the tmp git repostiroy we check the absolute path
-	//returned by `filepath.Join` is still contained with the git repository:
-	// Note: This means `../` can still be used, but only if the end result is still contained within the git repository
-	if !strings.HasPrefix(absoluteFilePath, localTmpDir) {
-		log.Error(nil, "path of file to write is not located within the git repostiory", "absolutePath", absoluteFilePath, "tmpDir", localTmpDir, "repoPath", workTreeFilePath, "path", g.path)
-		return nil //We don't want to retry as this isn't a recoverable error. Log error and return nil.
-	}
+		//We need to protect against paths containg `..`
+		//filepath.Join expands any '../' in the path to the actual, e.g. /tmp/foo/../ resolves to /tmp/
+		//To ensure they can't write to files on disk outside of the tmp git repostiroy we check the absolute path
+		//returned by `filepath.Join` is still contained with the git repository:
+		// Note: This means `../` can still be used, but only if the end result is still contained within the git repository
+		if !strings.HasPrefix(absoluteFilePath, localTmpDir) {
+			log.Error(nil, "path of file to write is not located within the git repostiory", "absolutePath", absoluteFilePath, "tmpDir", localTmpDir, "repoPath", workTreeFilePath, "path", g.path)
+			return nil //We don't want to retry as this isn't a recoverable error. Log error and return nil.
+		}
 
-	if os.MkdirAll(filepath.Dir(absoluteFilePath), 0700); err != nil {
-		log.Error(err, "could not generate local directories")
-		return err
-	}
+		if os.MkdirAll(filepath.Dir(absoluteFilePath), 0700); err != nil {
+			log.Error(err, "could not generate local directories")
+			return err
+		}
 
-	if err := ioutil.WriteFile(absoluteFilePath, toWrite, 0644); err != nil {
-		log.Error(err, "could not write to file")
-		return err
-	}
+		if err := ioutil.WriteFile(absoluteFilePath, item.Content, 0644); err != nil {
+			log.Error(err, "could not write to file")
+			return err
+		}
 
-	if _, err := worktree.Add(workTreeFilePath); err != nil {
-		log.Error(err, "could not add file to worktree")
-		return err
-	}
+		if _, err := worktree.Add(workTreeFilePath); err != nil {
+			log.Error(err, "could not add file to worktree")
+			return err
+		}
 
-	if err := g.commitAndPush(repo, worktree, Add, workTreeFilePath, log); err != nil {
-		return err
+		if err := g.commitAndPush(repo, worktree, Add, workTreeFilePath, log); err != nil {
+			return err
+		}
 	}
 
 	return nil
