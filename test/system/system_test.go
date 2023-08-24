@@ -147,7 +147,7 @@ var _ = Describe("Kratix", func() {
 				})
 			})
 
-			PWhen("an existing resource request is updated", func() {
+			When("an existing resource request is updated", func() {
 				const requestName = "update-test"
 				var oldNamespaceName string
 				BeforeEach(func() {
@@ -172,7 +172,7 @@ var _ = Describe("Kratix", func() {
 					By("redeploying the contents of /kratix/output to the worker destination", func() {
 						Eventually(func() string {
 							return worker.kubectl("get", "namespace")
-						}, "10s").Should(
+						}, "30s").Should(
 							SatisfyAll(
 								Not(ContainSubstring(oldNamespaceName)),
 								ContainSubstring(newNamespaceName),

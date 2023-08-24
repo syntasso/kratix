@@ -3,6 +3,7 @@ version: 2.1
 orbs:
   k8s: circleci/kubernetes@1.3.1
   golang: circleci/go@1.7.2
+  retry: kimh/run-with-retry@1.0.0
 
 executors:
   machine-medium:
@@ -250,6 +251,32 @@ jobs:
             git commit --amend --no-edit
             git push origin main
 
+  test-app-as-a-service-demo:
+    executor: machine-large
+    steps:
+      - install_software
+      - run:
+          name: Deploy Kratix
+          command: |
+            make dev-env
+      - run:
+          name: Install Promise
+          command: |
+            kubectl --context kind-platform apply --filename demo/app-as-a-service/promise.yaml
+      - retry/run-with-retry:
+          command: kubectl --context kind-worker wait --for=condition=available deployment/postgres-operator --timeout 10s
+          sleep: 3
+          retry-count: 100
+      - run:
+          name: Apply resource request
+          command: |
+            kubectl --context kind-platform apply --filename demo/app-as-a-service/resource-request.yaml
+      - retry/run-with-retry:
+          command: kubectl --context kind-worker wait --for=condition=available deployment/todo --timeout 30s
+          sleep: 3
+          retry-count: 100
+
+
 workflows:
   run-tests:
     jobs:
@@ -262,10 +289,13 @@ workflows:
           requires: [git-clone]
       - e2e-demo-test-helm-git:
           requires: [git-clone]
+      - test-app-as-a-service-demo:
+          requires: [git-clone]
       - git-merge:
           requires:
             - unit-tests
             - system-tests
+            # - test-app-as-a-service-demo
             - e2e-demo-test-helm-git
             - e2e-demo-test-helm-bucket
           filters:

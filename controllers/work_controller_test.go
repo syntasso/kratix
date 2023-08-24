@@ -23,6 +23,7 @@ import (
 	. "github.com/onsi/gomega"
 	. "github.com/syntasso/kratix/controllers"
 	"k8s.io/apimachinery/pkg/fields"
+	"k8s.io/apimachinery/pkg/util/rand"
 	ctrl "sigs.k8s.io/controller-runtime"
 	"sigs.k8s.io/controller-runtime/pkg/client"
 
@@ -34,25 +35,36 @@ var destination *platformv1alpha1.Destination
 var work *platformv1alpha1.Work
 
 var _ = Context("WorkReconciler.Reconcile()", func() {
-	BeforeEach(func() {
-		scheduler := &Scheduler{
-			Client: k8sClient,
-			Log:    ctrl.Log.WithName("controllers").WithName("Scheduler"),
+
+	var workReconciler *WorkReconciler
+
+	setupControllersOnce := func() {
+		if workReconciler == nil {
+			scheduler := &Scheduler{
+				Client: k8sClient,
+				Log:    ctrl.Log.WithName("controllers").WithName("Scheduler"),
+			}
+			workReconciler = &WorkReconciler{
+				Client:    k8sClient,
+				Scheduler: scheduler,
+				Log:       ctrl.Log.WithName("controllers").WithName("WorkReconciler"),
+			}
+			err := workReconciler.SetupWithManager(k8sManager)
+			Expect(err).ToNot(HaveOccurred())
 		}
+	}
 
-		err := (&WorkReconciler{
-			Client:    k8sClient,
-			Scheduler: scheduler,
-			Log:       ctrl.Log.WithName("controllers").WithName("WorkReconciler"),
-		}).SetupWithManager(k8sManager)
-		Expect(err).ToNot(HaveOccurred())
-
+	BeforeEach(func() {
+		setupControllersOnce()
 		destination = &platformv1alpha1.Destination{}
 		destination.Name = "worker-1"
 		destination.Namespace = "default"
-		err = k8sClient.Create(context.Background(), destination)
-		Expect(err).ToNot(HaveOccurred())
+		Expect(k8sClient.Create(context.Background(), destination)).To(Succeed())
+	})
 
+	AfterEach(func() {
+		err := k8sClient.Delete(context.Background(), destination)
+		Expect(err).ToNot(HaveOccurred())
 	})
 
 	Describe("On Work Creation", func() {
@@ -68,13 +80,7 @@ var _ = Context("WorkReconciler.Reconcile()", func() {
 			Expect(err).ToNot(HaveOccurred())
 
 			Eventually(func(g Gomega) {
-				workPlacementList := &platformv1alpha1.WorkPlacementList{}
-				workPlacementListOptions := &client.ListOptions{
-					Namespace:     "default",
-					FieldSelector: fields.OneTermEqualSelector("metadata.name", "work-controller-test-resource-request.worker-1"),
-				}
-				err := k8sClient.List(context.Background(), workPlacementList, workPlacementListOptions)
-				g.Expect(err).ToNot(HaveOccurred())
+				workPlacementList := workPlacementsFor(work)
 				g.Expect(workPlacementList.Items).To(HaveLen(1), "expected one WorkPlacement")
 
 				var createdWork platformv1alpha1.Work
@@ -88,4 +94,85 @@ var _ = Context("WorkReconciler.Reconcile()", func() {
 		})
 	})
 
+	Describe("On Work updates", func() {
+		var work *platformv1alpha1.Work
+		var workPlacementGenID int64
+		BeforeEach(func() {
+			work = createWork()
+			workPlacementList := workPlacementsFor(work)
+			Expect(workPlacementList.Items).To(HaveLen(1), "expected one WorkPlacement")
+			workPlacementGenID = workPlacementList.Items[0].GetGeneration()
+		})
+
+		When("the work.spec.workload changes", func() {
+			It("updates the workplacement workloads", func() {
+				work.Spec.Workloads = append(work.Spec.Workloads, platformv1alpha1.Workload{
+					Content: "{someApi: newApi, someValue: newValue}",
+				})
+				Expect(k8sClient.Update(context.Background(), work)).To(Succeed())
+
+				Eventually(func(g Gomega) {
+					workPlacementList := workPlacementsFor(work)
+					g.Expect(workPlacementList.Items).To(HaveLen(1), "expected one WorkPlacement")
+
+					workPlacement := workPlacementList.Items[0]
+					g.Expect(workPlacement.Spec.Workloads).To(HaveLen(3), "expected three Workloads")
+
+					g.Expect(workPlacement.GetGeneration()).ToNot(Equal(workPlacementGenID))
+				})
+			})
+		})
+
+		When("the work.spec.workload does not change", func() {
+			It("updates the workplacement workloads", func() {
+				work.Spec.ResourceName = "newResourceName"
+				Expect(k8sClient.Update(context.Background(), work)).To(Succeed())
+
+				Consistently(func() bool {
+					workPlacementList := workPlacementsFor(work)
+					return workPlacementList.Items[0].GetGeneration() == workPlacementGenID
+				}).Should(BeTrue())
+			})
+		})
+
+		AfterEach(func() {
+			deleteWork(work)
+		})
+	})
 })
+
+func workPlacementsFor(work *platformv1alpha1.Work) *platformv1alpha1.WorkPlacementList {
+	workPlacementList := &platformv1alpha1.WorkPlacementList{}
+	workPlacementListOptions := &client.ListOptions{
+		Namespace:     "default",
+		FieldSelector: fields.OneTermEqualSelector("metadata.name", "work-controller-test-resource-request.worker-1"),
+	}
+	err := k8sClient.List(context.Background(), workPlacementList, workPlacementListOptions)
+	Expect(err).ToNot(HaveOccurred())
+
+	return workPlacementList
+}
+
+func createWork() *platformv1alpha1.Work {
+	work = &platformv1alpha1.Work{}
+	work.Name = "work-" + rand.String(10)
+	work.Spec.ResourceName = "someName"
+	work.Namespace = "default"
+	work.Spec.Replicas = platformv1alpha1.ResourceRequestReplicas
+	work.Spec.Workloads = []platformv1alpha1.Workload{
+		{
+			Content: "{someApi: foo, someValue: bar}",
+		},
+		{
+			Content: "{someApi: baz, someValue: bat}",
+		},
+	}
+	err := k8sClient.Create(context.Background(), work)
+	Expect(err).ToNot(HaveOccurred())
+	return work
+}
+
+func deleteWork(work *platformv1alpha1.Work) {
+	err := k8sClient.Delete(context.Background(), work)
+	Expect(err).ToNot(HaveOccurred())
+}

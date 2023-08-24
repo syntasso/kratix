@@ -42,6 +42,15 @@ func (r *Scheduler) ReconcileDestination() error {
 	return nil
 }
 
+func (r *Scheduler) UpdateWorkPlacement(work *platformv1alpha1.Work, workPlacement *platformv1alpha1.WorkPlacement) error {
+	workPlacement.Spec.Workloads = work.Spec.Workloads
+	if err := r.Client.Update(context.Background(), workPlacement); err != nil {
+		r.Log.Error(err, "Error updating WorkPlacement: "+workPlacement.Name)
+		return err
+	}
+	return nil
+}
+
 func (r *Scheduler) ReconcileWork(work *platformv1alpha1.Work) error {
 	if work.IsResourceRequest() {
 		existingWorkplacements, err := r.getExistingWorkplacementsForWork(*work)
@@ -50,7 +59,18 @@ func (r *Scheduler) ReconcileWork(work *platformv1alpha1.Work) error {
 		}
 
 		if len(existingWorkplacements) > 0 {
-			return nil
+			var errored int
+			for _, existingWorkplacement := range existingWorkplacements {
+				r.Log.Info("found workplacement for work; will try an update")
+				if err := r.UpdateWorkPlacement(work, &existingWorkplacement); err != nil {
+					r.Log.Error(err, "error updating workplacement for work", "workplacement", existingWorkplacement.Name, "work", work.Name)
+					errored++
+				}
+			}
+
+			if errored > 0 {
+				return fmt.Errorf("failed to update %d of %d workplacements for work", errored, len(existingWorkplacements))
+			}
 		}
 	}
 
@@ -95,6 +115,7 @@ func (r *Scheduler) createWorkplacementsForTargetDestinations(work *platformv1al
 		workPlacement := platformv1alpha1.WorkPlacement{}
 		workPlacement.Namespace = work.GetNamespace()
 		workPlacement.Name = work.Name + "." + targetDestinationName
+		workPlacement.Spec.Workloads = work.Spec.Workloads
 		workPlacement.Labels = map[string]string{
 			workLabelKey: work.Name,
 		}
