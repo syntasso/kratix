@@ -262,7 +262,7 @@ jobs:
       - run:
           name: Install Promise
           command: |
-            kubectl --context kin-platform apply --filename demo/app-as-a-service/promise.yaml
+            kubectl --context kind-platform apply --filename demo/app-as-a-service/promise.yaml
       - retry/run-with-retry:
           command: kubectl --context kind-worker wait --for=condition=available deployment/postgres-operator --timeout 10s
           sleep: 3
@@ -270,7 +270,7 @@ jobs:
       - run:
           name: Apply resource request
           command: |
-            kubectl --context kin-platform apply --filename demo/app-as-a-service/resource-request.yaml
+            kubectl --context kind-platform apply --filename demo/app-as-a-service/resource-request.yaml
       - retry/run-with-retry:
           command: kubectl --context kind-worker wait --for=condition=available deployment/todo --timeout 30s
           sleep: 3
@@ -295,6 +295,7 @@ workflows:
           requires:
             - unit-tests
             - system-tests
+            # - test-app-as-a-service-demo
             - e2e-demo-test-helm-git
             - e2e-demo-test-helm-bucket
           filters:
