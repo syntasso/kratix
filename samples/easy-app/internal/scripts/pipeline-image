@@ -1,5 +1,7 @@
 #!/usr/bin/env bash
 
+set -e
+
 pipeline_image="syntasso/demo-easy-app-configure-pipeline:v0.1.1"
 nginx_pipeline="syntasso/demo-nginx-configure-pipeline:v0.1.1"
 postgres_pipeline="syntasso/demo-postgresql-configure-pipeline:v0.1.1"
