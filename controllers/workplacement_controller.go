@@ -124,17 +124,7 @@ func (r *WorkPlacementReconciler) deleteWorkPlacement(ctx context.Context, write
 }
 
 func (r *WorkPlacementReconciler) writeWorkloadsToStateStore(writer writers.StateStoreWriter, workPlacement v1alpha1.WorkPlacement, logger logr.Logger) error {
-	toWriteList := []writers.ToWrite{}
-	for _, workload := range workPlacement.Spec.Workloads {
-		filepath := filepath.Join(getDir(workPlacement), workload.Filepath)
-
-		toWriteList = append(toWriteList,
-			writers.ToWrite{
-				Name:    filepath,
-				Content: []byte(workload.Content),
-			})
-	}
-	err := writer.WriteObjects(toWriteList...)
+	err := writer.WriteDirWithObjects(writers.DeleteExistingContentsInDir, getDir(workPlacement), workPlacement.Spec.Workloads...)
 	if err != nil {
 		logger.Error(err, "Error writing resources to repository")
 		return err

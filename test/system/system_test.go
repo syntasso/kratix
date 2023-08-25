@@ -165,22 +165,28 @@ var _ = Describe("Kratix", func() {
 				BeforeEach(func() {
 					oldNamespaceName = fmt.Sprintf("old-%s", requestName)
 					createNamespace := fmt.Sprintf(
-						`kubectl create namespace %s --dry-run=client -oyaml > /kratix/output/namespace.yaml`,
+						`kubectl create namespace %s --dry-run=client -oyaml > /kratix/output/old-namespace.yaml`,
 						oldNamespaceName,
 					)
 					platform.kubectl("apply", "-f", requestWithNameAndCommand(requestName, createNamespace))
 					platform.kubectl("wait", "--for=condition=PipelineCompleted", "bash", requestName, pipelineTimeout)
 					worker.eventuallyKubectl("get", "namespace", oldNamespaceName)
+					Eventually(func() []string {
+						return minioListFiles("worker-1", "default", "bash", requestName)
+					}, timeout, interval).Should(ConsistOf("old-namespace.yaml"))
 				})
 
 				It("executes the update lifecycle", func() {
 					newNamespaceName := fmt.Sprintf("new-%s", requestName)
 					updateNamespace := fmt.Sprintf(
-						`kubectl create namespace %s --dry-run=client -oyaml > /kratix/output/namespace.yaml`,
+						`kubectl create namespace %s --dry-run=client -oyaml > /kratix/output/new-namespace.yaml`,
 						newNamespaceName,
 					)
 					platform.kubectl("apply", "-f", requestWithNameAndCommand(requestName, updateNamespace))
 
+					Eventually(func() []string {
+						return minioListFiles("worker-1", "default", "bash", requestName)
+					}, timeout, interval).Should(ConsistOf("new-namespace.yaml"))
 					By("redeploying the contents of /kratix/output to the worker destination", func() {
 						Eventually(func() string {
 							return worker.kubectl("get", "namespace")

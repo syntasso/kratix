@@ -52,15 +52,34 @@ func NewS3Writer(logger logr.Logger, stateStoreSpec platformv1alpha1.BucketState
 	}, nil
 }
 
-func (b *S3Writer) WriteObjects(toWrite ...ToWrite) error {
-	for _, item := range toWrite {
-		logger := b.Log.WithValues(
-			"bucketName", b.BucketName,
-			"path", b.path,
-			"objectName", item.Name,
-		)
+func (b *S3Writer) WriteDirWithObjects(deleteExistingContentsInDir bool, dir string, toWrite ...platformv1alpha1.Workload) error {
+	logger := b.Log.WithValues(
+		"bucketName", b.BucketName,
+		"path", b.path,
+	)
 
-		objectFullPath := filepath.Join(b.path, item.Name)
+	// WARNING
+	// We now delete all the old workload files and then rewrite the new ones. This means
+	// if Flux reads while this function is mid-run it will delete the existing workloads, and then
+	// bring them back seconds later.
+	if deleteExistingContentsInDir {
+		// b.RemoveObject has different behaviours on deleting directories (files
+		// ending in /) vs files.
+		if !strings.HasSuffix(dir, "/") {
+			dir = dir + "/"
+		}
+		logger.Info("deleting existing dir", "dir", dir)
+		err := b.RemoveObject(dir)
+		if err != nil {
+			return err
+		}
+	}
+
+	for _, item := range toWrite {
+		objectFullPath := filepath.Join(b.path, dir, item.Filepath)
+		logger := b.Log.WithValues(
+			"objectName", objectFullPath,
+		)
 		if len(toWrite) == 0 {
 			logger.Info("Empty byte[]. Nothing to write to bucket")
 			return nil
@@ -76,8 +95,7 @@ func (b *S3Writer) WriteObjects(toWrite ...ToWrite) error {
 			logger.Info("Bucket provided does not exist (or the provided keys don't have permissions)")
 		}
 
-		contentType := "text/x-yaml"
-		reader := bytes.NewReader(item.Content)
+		reader := bytes.NewReader([]byte(item.Content))
 
 		objStat, err := b.RepoClient.StatObject(ctx, b.BucketName, objectFullPath, minio.GetObjectOptions{})
 		if err != nil {
@@ -88,7 +106,7 @@ func (b *S3Writer) WriteObjects(toWrite ...ToWrite) error {
 				return err
 			}
 		} else {
-			contentMd5 := fmt.Sprintf("%x", md5.Sum(item.Content))
+			contentMd5 := fmt.Sprintf("%x", md5.Sum([]byte(item.Content)))
 			if objStat.ETag == contentMd5 {
 				logger.Info("Content has not changed, will not re-write to bucket")
 				return nil
@@ -96,7 +114,7 @@ func (b *S3Writer) WriteObjects(toWrite ...ToWrite) error {
 		}
 
 		logger.Info("Writing object to bucket")
-		_, err = b.RepoClient.PutObject(ctx, b.BucketName, objectFullPath, reader, reader.Size(), minio.PutObjectOptions{ContentType: contentType})
+		_, err = b.RepoClient.PutObject(ctx, b.BucketName, objectFullPath, reader, reader.Size(), minio.PutObjectOptions{})
 		if err != nil {
 			logger.Error(err, "Error writing object to bucket")
 			return err

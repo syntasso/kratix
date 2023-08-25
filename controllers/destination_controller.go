@@ -109,9 +109,9 @@ func (r *DestinationReconciler) createResourcePathWithExample(writer writers.Sta
 	}
 	nsBytes, _ := yaml.Marshal(kratixConfigMap)
 
-	return writer.WriteObjects(writers.ToWrite{
-		Name:    filepath.Join(resourcesDir, "kratix-canary-configmap.yaml"),
-		Content: nsBytes,
+	return writer.WriteDirWithObjects(writers.PreserveExistingContentsInDir, resourcesDir, platformv1alpha1.Workload{
+		Filepath: "kratix-canary-configmap.yaml",
+		Content:  string(nsBytes),
 	})
 }
 
@@ -125,9 +125,9 @@ func (r *DestinationReconciler) createDependenciesPathWithExample(writer writers
 	}
 	nsBytes, _ := yaml.Marshal(kratixNamespace)
 
-	return writer.WriteObjects(writers.ToWrite{
-		Name:    filepath.Join(dependenciesDir, "kratix-canary-namespace.yaml"),
-		Content: nsBytes,
+	return writer.WriteDirWithObjects(writers.PreserveExistingContentsInDir, dependenciesDir, platformv1alpha1.Workload{
+		Filepath: "kratix-canary-namespace.yaml",
+		Content:  string(nsBytes),
 	})
 }
 
