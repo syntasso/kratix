@@ -49,3 +49,5 @@ spec:
             containers:
               - image: syntasso/demo-deployment-configure-pipeline:v0.1.1
                 name: demo-deployment-configure-pipeline
+              - image: ghcr.io/syntasso/kratix-marketplace/pipeline-destination-image:v0.1.0
+                name: add-destination

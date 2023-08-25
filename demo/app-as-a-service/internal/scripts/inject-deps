@@ -15,6 +15,6 @@ fi
 
 promise_contents=$(worker-resource-builder \
   -resources-dir "${PWD}/internal/dependencies" \
-	-promise "${PWD}/../promise.yaml")
+	-promise "${PWD}/promise.yaml")
 
 echo "$promise_contents" > "${PWD}/promise.yaml"

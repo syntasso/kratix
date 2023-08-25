@@ -9,21 +9,21 @@ export db_driver="$(yq eval '.spec.dbDriver' /kratix/input/object.yaml)"
 export contains_cc="$(yq eval '.spec.containsCreditCardData' /kratix/input/object.yaml)"
 export db_name="${name}db"
 
-
-[[ $contains_cc = 'true' ]] && export clusterLabels="{pci: true}" || export clusterLabels="{}"
+export clusterLabels=""
+[[ $contains_cc = 'true' ]] && export clusterLabels="pci=true"
 
 if [ $db_driver = 'postgres' ]; then
   # set values that work with sample app at https://github.com/syntasso/sample-golang-app
   cat /tmp/transfer/postgresql-resource-request.yaml \
     | yq eval '.metadata.name = env(name)
       | .spec.dbName = env(db_name)
-      | .spec.clusterSelectors = env(clusterLabels)' \
+      | .metadata.annotations.destinationSelector = strenv(clusterLabels)' \
     > /kratix/output/postgresql-resource-request.yaml
 fi
 
 cat /tmp/transfer/redis-resource-request.yaml \
   | yq eval '.metadata.name = env(name)
-  | .spec.clusterSelectors = env(clusterLabels)' \
+  | .metadata.annotations.destinationSelector = strenv(clusterLabels)' \
   > /kratix/output/redis-resource-request.yaml
 
 export message="Deployping app: ${name}"
@@ -40,6 +40,6 @@ fi
 cat /tmp/transfer/deployment-resource-request.yaml \
   | yq eval '.metadata.name = env(name)
   | .spec.image = env(image)
-  | .spec.clusterSelectors = env(clusterLabels)
+  | .metadata.annotations.destinationSelector = strenv(clusterLabels)
   | .spec.containsCreditCardData = env(contains_cc)' \
   > /kratix/output/deployment-resource-request.yaml

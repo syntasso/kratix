@@ -1,9 +1,0 @@
-apiVersion: marketplace.kratix.io/v1alpha1
-kind: postgresql
-metadata:
-  name: example
-  namespace: default
-spec:
-  env: dev
-  teamId: acid
-  dbName: bestdb
