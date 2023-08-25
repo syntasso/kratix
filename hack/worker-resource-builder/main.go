@@ -9,7 +9,7 @@ import (
 	"os"
 	"path/filepath"
 
-	platformv1alpha1 "github.com/syntasso/kratix/api/v1alpha1"
+	"github.com/syntasso/kratix/api/v1alpha1"
 	"k8s.io/apimachinery/pkg/apis/meta/v1/unstructured"
 	"k8s.io/apimachinery/pkg/util/yaml"
 	yamlsig "sigs.k8s.io/yaml"
@@ -39,7 +39,7 @@ func main() {
 		os.Exit(1)
 	}
 
-	resources := []platformv1alpha1.Dependency{}
+	resources := []v1alpha1.Dependency{}
 
 	for _, fileInfo := range files {
 		fileName := filepath.Join(resourcesPath, fileInfo.Name())
@@ -59,14 +59,17 @@ func main() {
 				if us.GetNamespace() == "" && us.GetKind() != "Namespace" {
 					us.SetNamespace("default")
 				}
-				resources = append(resources, platformv1alpha1.Dependency{Unstructured: *us})
+				resources = append(resources, v1alpha1.Dependency{Unstructured: *us})
 			}
 		}
 	}
 
 	//Read Promise
-	promiseFile, _ := os.ReadFile(promisePath)
-	promise := platformv1alpha1.Promise{}
+	promiseFile, err := os.ReadFile(promisePath)
+	if err != nil {
+		log.Fatal(err)
+	}
+	promise := v1alpha1.Promise{}
 	err = yaml.Unmarshal(promiseFile, &promise)
 	//If there's an error unmarshalling from the template, log to stderr so it doesn't silently go to the promise
 	if err != nil {
