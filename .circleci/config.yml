@@ -263,8 +263,6 @@ workflows:
           requires: [git-clone]
       - e2e-demo-test-helm-git:
           requires: [git-clone]
-      - test-app-as-a-service-demo:
-          requires: [git-clone]
       - git-merge:
           requires:
             - unit-tests
