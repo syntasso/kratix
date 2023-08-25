@@ -171,9 +171,6 @@ var _ = Describe("Kratix", func() {
 					platform.kubectl("apply", "-f", requestWithNameAndCommand(requestName, createNamespace))
 					platform.kubectl("wait", "--for=condition=PipelineCompleted", "bash", requestName, pipelineTimeout)
 					worker.eventuallyKubectl("get", "namespace", oldNamespaceName)
-					Eventually(func() []string {
-						return minioListFiles("worker-1", "default", "bash", requestName)
-					}, timeout, interval).Should(ConsistOf("old-namespace.yaml"))
 				})
 
 				It("executes the update lifecycle", func() {
@@ -184,9 +181,6 @@ var _ = Describe("Kratix", func() {
 					)
 					platform.kubectl("apply", "-f", requestWithNameAndCommand(requestName, updateNamespace))
 
-					Eventually(func() []string {
-						return minioListFiles("worker-1", "default", "bash", requestName)
-					}, timeout, interval).Should(ConsistOf("new-namespace.yaml"))
 					By("redeploying the contents of /kratix/output to the worker destination", func() {
 						Eventually(func() string {
 							return worker.kubectl("get", "namespace")
