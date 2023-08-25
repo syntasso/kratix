@@ -68,9 +68,31 @@ func NewGitWriter(logger logr.Logger, stateStoreSpec platformv1alpha1.GitStateSt
 	}, nil
 }
 
-func (g *GitWriter) WriteDirWithObjects(deleteExistingContentsInDir bool, rootDirectory string, toWrite ...platformv1alpha1.Workload) error {
+func (g *GitWriter) setupLocalDirectoryWithRepo(logger logr.Logger) (string, *git.Repository, *git.Worktree, error) {
+	localTmpDir, err := createLocalDirectory(logger)
+	if err != nil {
+		logger.Error(err, "could not create temporary repository directory")
+		return "", nil, nil, err
+	}
+
+	repo, err := g.cloneRepo(localTmpDir, logger)
+	if err != nil {
+		logger.Error(err, "could not clone repository")
+		return "", nil, nil, err
+	}
+
+	worktree, err := repo.Worktree()
+	if err != nil {
+		logger.Error(err, "could not access repo worktree")
+		return "", nil, nil, err
+	}
+	return localTmpDir, repo, worktree, nil
+}
+
+func (g *GitWriter) WriteDirWithObjects(deleteExistingContentsInDir bool, subDir string, toWrite ...platformv1alpha1.Workload) error {
+	dirInGitRepo := filepath.Join(g.path, subDir)
 	logger := g.Log.WithValues(
-		"dir", g.path,
+		"dir", dirInGitRepo,
 		"branch", g.gitServer.Branch,
 	)
 
@@ -79,28 +101,14 @@ func (g *GitWriter) WriteDirWithObjects(deleteExistingContentsInDir bool, rootDi
 		return nil
 	}
 
-	localTmpDir, err := createLocalDirectory(logger)
+	localTmpDir, repo, worktree, err := g.setupLocalDirectoryWithRepo(logger)
 	if err != nil {
-		logger.Error(err, "could not create temporary repository directory")
 		return err
 	}
 	defer os.RemoveAll(filepath.Dir(localTmpDir))
 
-	repo, err := g.cloneRepo(localTmpDir, logger)
-	if err != nil {
-		logger.Error(err, "could not clone repository")
-		return err
-	}
-
-	worktree, err := repo.Worktree()
-	if err != nil {
-		logger.Error(err, "could not access repo worktree")
-		return err
-	}
-
 	if deleteExistingContentsInDir {
 		logger.Info("checking if any existing directories needs to be deleted")
-		dirInGitRepo := filepath.Join(g.path, rootDirectory)
 		if _, err := worktree.Filesystem.Lstat(dirInGitRepo); err == nil {
 			logger.Info("deleting existing content")
 			if _, err := worktree.Remove(dirInGitRepo); err != nil {
@@ -113,9 +121,9 @@ func (g *GitWriter) WriteDirWithObjects(deleteExistingContentsInDir bool, rootDi
 	var filesCommitted []string
 	for _, item := range toWrite {
 		//worker-cluster/resources/<rr-namespace>/<promise-name>/<rr-name>/foo/bar/baz.yaml
-		worktreeFilePath := filepath.Join(g.path, rootDirectory, item.Filepath)
+		worktreeFilePath := filepath.Join(dirInGitRepo, item.Filepath)
 		logger := logger.WithValues(
-			"fileName", worktreeFilePath,
+			"filepath", worktreeFilePath,
 		)
 
 		///tmp/git-dir/worker-cluster/resources/<rr-namespace>/<promise-name>/<rr-name>/foo/bar/baz.yaml
@@ -151,29 +159,16 @@ func (g *GitWriter) WriteDirWithObjects(deleteExistingContentsInDir bool, rootDi
 	return g.commitAndPush(repo, worktree, Add, filesCommitted, logger)
 }
 
-func (g *GitWriter) RemoveObject(fileName string) error {
-	logger := g.Log.WithValues("dir", g.path, "fileName", fileName)
+func (g *GitWriter) RemoveObject(filePath string) error {
+	logger := g.Log.WithValues("dir", g.path, "filepath", filePath)
 
-	repoPath, err := createLocalDirectory(logger)
+	localTmpDir, repo, worktree, err := g.setupLocalDirectoryWithRepo(logger)
 	if err != nil {
-		logger.Error(err, "could not create temporary repository directory")
 		return err
 	}
-	defer os.RemoveAll(filepath.Dir(repoPath))
+	defer os.RemoveAll(filepath.Dir(localTmpDir))
 
-	repo, err := g.cloneRepo(repoPath, logger)
-	if err != nil {
-		logger.Error(err, "could not clone repository")
-		return err
-	}
-
-	worktree, err := repo.Worktree()
-	if err != nil {
-		logger.Error(err, "could not access repo worktree")
-		return err
-	}
-
-	worktreeFilepath := filepath.Join(g.path, fileName)
+	worktreeFilepath := filepath.Join(g.path, filePath)
 	if _, err := worktree.Filesystem.Lstat(worktreeFilepath); err == nil {
 		if _, err := worktree.Remove(worktreeFilepath); err != nil {
 			logger.Error(err, "could not remove file from worktree")

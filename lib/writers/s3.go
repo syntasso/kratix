@@ -58,26 +58,15 @@ func (b *S3Writer) WriteDirWithObjects(deleteExistingContentsInDir bool, dir str
 		"path", b.path,
 	)
 
-	pathsToDelete := map[string]minio.ObjectInfo{}
+	objectsToDeleteMap := map[string]minio.ObjectInfo{}
 	ctx := context.Background()
 
-	// WARNING
-	// We now delete all the old workload files and then rewrite the new ones. This means
-	// if Flux reads while this function is mid-run it will delete the existing workloads, and then
-	// bring them back seconds later.
+	//Get a list of all the old workload files, we delete any that aren't part of the new workload at the end of this function.
 	if deleteExistingContentsInDir {
-		// b.RemoveObject has different behaviours on deleting directories (files
-		// ending in /) vs files.
-		if !strings.HasSuffix(dir, "/") {
-			dir = dir + "/"
-		}
-		objectCh := b.RepoClient.ListObjects(ctx, b.BucketName, minio.ListObjectsOptions{Prefix: filepath.Join(b.path, dir), Recursive: true})
-		for object := range objectCh {
-			if object.Err != nil {
-				logger.Error(object.Err, "Listing objects", "dir", dir)
-				return object.Err
-			}
-			pathsToDelete[object.Key] = object
+		var err error
+		objectsToDeleteMap, err = b.getObjectsInDir(ctx, dir, logger)
+		if err != nil {
+			return err
 		}
 	}
 
@@ -125,14 +114,20 @@ func (b *S3Writer) WriteDirWithObjects(deleteExistingContentsInDir bool, dir str
 			logger.Error(err, "Error writing object to bucket")
 			return err
 		}
-		delete(pathsToDelete, objectFullPath)
+
+		// Make sure we don't delete this object, remove this object from the map
+		delete(objectsToDeleteMap, objectFullPath)
 		logger.Info("Object written to bucket")
 	}
 
+	return b.deleteObjects(ctx, objectsToDeleteMap, logger)
+}
+
+func (b *S3Writer) deleteObjects(ctx context.Context, oldObjectsToDelete map[string]minio.ObjectInfo, logger logr.Logger) error {
 	objectsCh := make(chan minio.ObjectInfo)
 	go func() {
 		defer close(objectsCh)
-		for _, objectInfo := range pathsToDelete {
+		for _, objectInfo := range oldObjectsToDelete {
 			objectsCh <- objectInfo
 		}
 	}()
@@ -151,6 +146,23 @@ func (b *S3Writer) WriteDirWithObjects(deleteExistingContentsInDir bool, dir str
 	}
 
 	return nil
+}
+
+func (b *S3Writer) getObjectsInDir(ctx context.Context, dir string, logger logr.Logger) (map[string]minio.ObjectInfo, error) {
+	pathsToDelete := map[string]minio.ObjectInfo{}
+	if !strings.HasSuffix(dir, "/") {
+		dir = dir + "/"
+	}
+	objectCh := b.RepoClient.ListObjects(ctx, b.BucketName, minio.ListObjectsOptions{Prefix: filepath.Join(b.path, dir), Recursive: true})
+	for object := range objectCh {
+		if object.Err != nil {
+			logger.Error(object.Err, "Listing objects", "dir", dir)
+			return nil, object.Err
+		}
+		pathsToDelete[object.Key] = object
+	}
+
+	return pathsToDelete, nil
 }
 
 func (b *S3Writer) RemoveObject(objectName string) error {
