@@ -104,10 +104,6 @@ var _ = Context("WorkReconciler.Reconcile()", func() {
 			workPlacementGenID = workPlacementList.Items[0].GetGeneration()
 		})
 
-		AfterEach(func() {
-			deleteWork(work)
-		})
-
 		When("the work.spec.workload changes", func() {
 			It("updates the workplacement workloads", func() {
 				work.Spec.Workloads = append(work.Spec.Workloads, platformv1alpha1.Workload{
@@ -137,6 +133,10 @@ var _ = Context("WorkReconciler.Reconcile()", func() {
 					return workPlacementList.Items[0].GetGeneration() == workPlacementGenID
 				}).Should(BeTrue())
 			})
+		})
+
+		AfterEach(func() {
+			deleteWork(work)
 		})
 	})
 })
