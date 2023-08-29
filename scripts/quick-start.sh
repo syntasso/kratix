@@ -212,7 +212,11 @@ setup_worker_destination() {
     fi
 
     if ${SINGLE_DESTINATION}; then
-        ${ROOT}/scripts/register-destination --name platform-cluster --context kind-platform
+        local flags=""
+        if ${INSTALL_AND_CREATE_GITEA_REPO}; then
+          flags="--git"
+        fi
+        ${ROOT}/scripts/register-destination --name platform-cluster --context kind-platform $flags
     else
         cat "${ROOT}/config/samples/platform_v1alpha1_worker.yaml" | patch_statestore | kubectl --context kind-platform apply --filename -
         install_gitops kind-worker worker-1
