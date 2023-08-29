@@ -135,7 +135,7 @@ func (g *GitWriter) WriteDirWithObjects(deleteExistingContentsInDir bool, subDir
 		//returned by `filepath.Join` is still contained with the git repository:
 		// Note: This means `../` can still be used, but only if the end result is still contained within the git repository
 		if !strings.HasPrefix(absoluteFilePath, localTmpDir) {
-			logger.Error(nil, "path of file to write is not located within the git repostiory", "absolutePath", absoluteFilePath, "tmpDir", localTmpDir, "repoPath", worktreeFilePath, "path", g.path)
+			logger.Error(nil, "path of file to write is not located within the git repostiory", "absolutePath", absoluteFilePath, "tmpDir", localTmpDir)
 			return nil //We don't want to retry as this isn't a recoverable error. Log error and return nil.
 		}
 

@@ -70,6 +70,14 @@ func (b *S3Writer) WriteDirWithObjects(deleteExistingContentsInDir bool, dir str
 		}
 	}
 
+	// Check to see if we already own this bucket (which happens if you run this twice)
+	exists, errBucketExists := b.RepoClient.BucketExists(ctx, b.BucketName)
+	if errBucketExists != nil {
+		logger.Error(errBucketExists, "Could not verify bucket existence with provider")
+	} else if !exists {
+		logger.Info("Bucket provided does not exist (or the provided keys don't have permissions)")
+	}
+
 	for _, item := range toWrite {
 		objectFullPath := filepath.Join(b.path, dir, item.Filepath)
 		logger := b.Log.WithValues(
@@ -82,24 +90,15 @@ func (b *S3Writer) WriteDirWithObjects(deleteExistingContentsInDir bool, dir str
 
 		ctx := context.Background()
 
-		// Check to see if we already own this bucket (which happens if you run this twice)
-		exists, errBucketExists := b.RepoClient.BucketExists(ctx, b.BucketName)
-		if errBucketExists != nil {
-			logger.Error(errBucketExists, "Could not verify bucket existence with provider")
-		} else if !exists {
-			logger.Info("Bucket provided does not exist (or the provided keys don't have permissions)")
-		}
-
 		reader := bytes.NewReader([]byte(item.Content))
 
 		objStat, err := b.RepoClient.StatObject(ctx, b.BucketName, objectFullPath, minio.GetObjectOptions{})
 		if err != nil {
-			if minio.ToErrorResponse(err).Code == "NoSuchKey" {
-				logger.Info("Object does not exist yet")
-			} else {
+			if minio.ToErrorResponse(err).Code != "NoSuchKey" {
 				logger.Error(err, "Error fetching object")
 				return err
 			}
+			logger.Info("Object does not exist yet")
 		} else {
 			contentMd5 := fmt.Sprintf("%x", md5.Sum([]byte(item.Content)))
 			if objStat.ETag == contentMd5 {
@@ -134,15 +133,15 @@ func (b *S3Writer) deleteObjects(ctx context.Context, oldObjectsToDelete map[str
 
 	errorCh := b.RepoClient.RemoveObjects(ctx, b.BucketName, objectsCh, minio.RemoveObjectsOptions{})
 
-	// Print errors received from RemoveObjects API
-	var errors []error
+	// Print errCount received from RemoveObjects API
+	var errCount int
 	for e := range errorCh {
 		logger.Error(e.Err, "Failed to remove object", "objectName", e.ObjectName)
-		errors = append(errors, e.Err)
+		errCount++
 	}
 
-	if len(errors) != 0 {
-		return fmt.Errorf("failed to delete %d objects", len(errors))
+	if errCount != 0 {
+		return fmt.Errorf("failed to delete %d objects", errCount)
 	}
 
 	return nil
