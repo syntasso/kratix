@@ -4,11 +4,15 @@ import (
 	"context"
 	"fmt"
 	"io/ioutil"
+	"os"
 	"os/exec"
 	"path/filepath"
 	"strings"
 	"time"
 
+	"github.com/go-git/go-git/v5"
+	"github.com/go-git/go-git/v5/plumbing"
+	"github.com/go-git/go-git/v5/plumbing/transport/http"
 	"github.com/minio/minio-go/v7"
 	"github.com/minio/minio-go/v7/pkg/credentials"
 	. "github.com/onsi/ginkgo"
@@ -52,7 +56,8 @@ const pipelineTimeout = "--timeout=89s"
 // The Promise pipeline will always have a set number of containers, though
 // a command is not required for every container.
 // e.g. `container0Cmd` is run in the first container of the pipeline.
-var baseRequestYAML = `apiVersion: test.kratix.io/v1alpha1
+var (
+	baseRequestYAML = `apiVersion: test.kratix.io/v1alpha1
 kind: bash
 metadata:
   name: %s
@@ -61,10 +66,17 @@ spec:
     %s
   container1Cmd: |
     %s`
+	storeType string
+)
 
 var _ = Describe("Kratix", func() {
 	BeforeSuite(func() {
 		initK8sClient()
+		storeType = "bucket"
+		if os.Getenv("SYSTEM_TEST_STORE_TYPE") == "git" {
+			storeType = "git"
+		}
+		fmt.Println("Running system tests with statestore " + storeType)
 	})
 
 	Describe("Promise lifecycle", func() {
@@ -121,7 +133,7 @@ var _ = Describe("Kratix", func() {
 				})
 
 				By("mirroring the directory and files from /kratix/output to the statestore", func() {
-					Expect(minioListFiles("worker-1", "default", "bash", rrName)).To(ConsistOf("foo/example.json", "namespace.yaml"))
+					Expect(listFilesInStateStore("worker-1", "default", "bash", rrName)).To(ConsistOf("foo/example.json", "namespace.yaml"))
 				})
 
 				By("updating the resource status", func() {
@@ -200,9 +212,9 @@ var _ = Describe("Kratix", func() {
 		// - security: high
 		BeforeEach(func() {
 			platform.kubectl("label", "destination", "worker-1", "security=high")
-			platform.kubectl("apply", "-f", "./assets/platform_gitops-tk-resources.yaml")
-			platform.kubectl("apply", "-f", "./assets/platform_gitstatestore.yaml")
-			platform.kubectl("apply", "-f", "./assets/platform_kratix_destination.yaml")
+			platform.kubectl("apply", "-f", fmt.Sprintf("./assets/%s/platform_gitops-tk-resources.yaml", storeType))
+			platform.kubectl("apply", "-f", fmt.Sprintf("./assets/%s/platform_statestore.yaml", storeType))
+			platform.kubectl("apply", "-f", fmt.Sprintf("./assets/%s/platform_kratix_destination.yaml", storeType))
 			platform.kubectl("apply", "-f", promiseWithSchedulingPath)
 			platform.eventuallyKubectl("get", "crd", "bash.test.kratix.io")
 		})
@@ -210,8 +222,8 @@ var _ = Describe("Kratix", func() {
 		AfterEach(func() {
 			platform.kubectl("label", "destination", "worker-1", "security-", "pci-")
 			platform.kubectl("delete", "-f", promiseWithSchedulingPath)
-			platform.kubectl("delete", "-f", "./assets/platform_kratix_destination.yaml")
-			platform.kubectl("delete", "-f", "./assets/platform_gitstatestore.yaml")
+			platform.kubectl("delete", "-f", fmt.Sprintf("./assets/%s/platform_kratix_destination.yaml", storeType))
+			platform.kubectl("delete", "-f", fmt.Sprintf("./assets/%s/platform_statestore.yaml", storeType))
 		})
 
 		It("schedules resources to the correct Destinations", func() {
@@ -306,35 +318,66 @@ func (c destination) kubectl(args ...string) string {
 	return string(session.Out.Contents())
 }
 
-func minioListFiles(destinationName, namespace, promiseName, resourceName string) []string {
-	endpoint := "localhost:31337"
-	secretAccessKey := "minioadmin"
-	accessKeyID := "minioadmin"
-	useSSL := false
-	bucketName := "kratix"
-
-	// Initialize minio client object.
-	minioClient, err := minio.New(endpoint, &minio.Options{
-		Creds:  credentials.NewStaticV4(accessKeyID, secretAccessKey, ""),
-		Secure: useSSL,
-	})
-	Expect(err).ToNot(HaveOccurred())
-
-	//worker-1/resources/default/redis/rr-test
-	dir := filepath.Join(destinationName, "resources", namespace, promiseName, resourceName)
-	objectCh := minioClient.ListObjects(context.TODO(), bucketName, minio.ListObjectsOptions{
-		Prefix:    dir,
-		Recursive: true,
-	})
-
+func listFilesInStateStore(destinationName, namespace, promiseName, resourceName string) []string {
 	paths := []string{}
-	for object := range objectCh {
-		Expect(object.Err).NotTo(HaveOccurred())
+	resourceSubDir := filepath.Join(destinationName, "resources", namespace, promiseName, resourceName)
+	if storeType == "bucket" {
+		endpoint := "localhost:31337"
+		secretAccessKey := "minioadmin"
+		accessKeyID := "minioadmin"
+		useSSL := false
+		bucketName := "kratix"
 
-		path, err := filepath.Rel(dir, object.Key)
+		// Initialize minio client object.
+		minioClient, err := minio.New(endpoint, &minio.Options{
+			Creds:  credentials.NewStaticV4(accessKeyID, secretAccessKey, ""),
+			Secure: useSSL,
+		})
 		Expect(err).ToNot(HaveOccurred())
-		paths = append(paths, path)
-	}
 
+		//worker-1/resources/default/redis/rr-test
+		objectCh := minioClient.ListObjects(context.TODO(), bucketName, minio.ListObjectsOptions{
+			Prefix:    resourceSubDir,
+			Recursive: true,
+		})
+
+		for object := range objectCh {
+			Expect(object.Err).NotTo(HaveOccurred())
+
+			path, err := filepath.Rel(resourceSubDir, object.Key)
+			Expect(err).ToNot(HaveOccurred())
+			paths = append(paths, path)
+		}
+	} else {
+		dir, err := ioutil.TempDir("", "kratix-test-repo")
+		Expect(err).NotTo(HaveOccurred())
+		defer os.RemoveAll(filepath.Dir(dir))
+
+		_, err = git.PlainClone(dir, false, &git.CloneOptions{
+			Auth: &http.BasicAuth{
+				Username: "gitea_admin",
+				Password: "r8sA8CPHD9!bt6d",
+			},
+			URL:             "https://localhost:31333/gitea_admin/kratix",
+			ReferenceName:   plumbing.NewBranchReferenceName("main"),
+			SingleBranch:    true,
+			Depth:           1,
+			NoCheckout:      false,
+			InsecureSkipTLS: true,
+		})
+		Expect(err).NotTo(HaveOccurred())
+
+		absoluteDir := filepath.Join(dir, resourceSubDir)
+		err = filepath.Walk(absoluteDir, func(path string, info os.FileInfo, err error) error {
+			if !info.IsDir() {
+				path, err := filepath.Rel(absoluteDir, path)
+				Expect(err).NotTo(HaveOccurred())
+				paths = append(paths, path)
+			}
+			return nil
+		})
+		Expect(err).NotTo(HaveOccurred())
+
+	}
 	return paths
 }

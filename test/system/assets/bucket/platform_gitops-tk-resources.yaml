@@ -1,0 +1,52 @@
+---
+apiVersion: v1
+kind: Secret
+metadata:
+  name: minio-credentials
+  namespace: flux-system
+type: Opaque
+data:
+  accesskey: bWluaW9hZG1pbg==
+  secretkey: bWluaW9hZG1pbg==
+---
+apiVersion: source.toolkit.fluxcd.io/v1beta1
+kind: Bucket
+metadata:
+  name: kratix-source
+  namespace: flux-system
+spec:
+  interval: 10s
+  provider: generic
+  bucketName: kratix
+  endpoint: minio.kratix-platform-system.svc.cluster.local
+  insecure: true
+  secretRef:
+    name: minio-credentials
+---
+apiVersion: kustomize.toolkit.fluxcd.io/v1beta1
+kind: Kustomization
+metadata:
+  name: platform-1-resources
+  namespace: flux-system
+spec:
+  interval: 3s
+  dependsOn:
+    - name: platform-1-dependencies
+  sourceRef:
+    kind: Bucket
+    name: kratix-source
+  path: "foo/bar/baz/platform-1/resources/"
+  prune: true
+---
+apiVersion: kustomize.toolkit.fluxcd.io/v1beta1
+kind: Kustomization
+metadata:
+  name: platform-1-dependencies
+  namespace: flux-system
+spec:
+  interval: 8s
+  sourceRef:
+    kind: Bucket
+    name: kratix-source
+  path: "foo/bar/baz/platform-1/dependencies/"
+  prune: true
