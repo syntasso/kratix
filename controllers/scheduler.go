@@ -45,9 +45,10 @@ func (r *Scheduler) ReconcileDestination() error {
 func (r *Scheduler) UpdateWorkPlacement(work *platformv1alpha1.Work, workPlacement *platformv1alpha1.WorkPlacement) error {
 	workPlacement.Spec.Workloads = work.Spec.Workloads
 	if err := r.Client.Update(context.Background(), workPlacement); err != nil {
-		r.Log.Error(err, "Error updating WorkPlacement: "+workPlacement.Name)
+		r.Log.Error(err, "Error updating WorkPlacement", "workplacement", workPlacement.Name)
 		return err
 	}
+	r.Log.Info("Successfully updated WorkPlacement workloads", "workplacement", workPlacement.Name)
 	return nil
 }
 
@@ -131,12 +132,14 @@ func (r *Scheduler) createWorkplacementsForTargetDestinations(work *platformv1al
 
 		if err := r.Client.Create(context.Background(), &workPlacement); err != nil {
 			if errors.IsAlreadyExists(err) {
+				r.Log.Info("WorkPlacement already exists, skipping", "workplacement", workPlacement.Name, "destination", targetDestinationName)
 				continue
 			}
 
-			r.Log.Error(err, "Error creating new WorkPlacement: "+workPlacement.Name)
+			r.Log.Error(err, "Error creating new WorkPlacement", "workplacement", workPlacement.Name)
 			return err
 		}
+		r.Log.Info("WorkPlacement created", "workplacement", workPlacement.Name, "destination", targetDestinationName)
 	}
 	return nil
 }

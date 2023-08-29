@@ -165,7 +165,7 @@ var _ = Describe("Kratix", func() {
 				BeforeEach(func() {
 					oldNamespaceName = fmt.Sprintf("old-%s", requestName)
 					createNamespace := fmt.Sprintf(
-						`kubectl create namespace %s --dry-run=client -oyaml > /kratix/output/namespace.yaml`,
+						`kubectl create namespace %s --dry-run=client -oyaml > /kratix/output/old-namespace.yaml`,
 						oldNamespaceName,
 					)
 					platform.kubectl("apply", "-f", requestWithNameAndCommand(requestName, createNamespace))
@@ -176,7 +176,7 @@ var _ = Describe("Kratix", func() {
 				It("executes the update lifecycle", func() {
 					newNamespaceName := fmt.Sprintf("new-%s", requestName)
 					updateNamespace := fmt.Sprintf(
-						`kubectl create namespace %s --dry-run=client -oyaml > /kratix/output/namespace.yaml`,
+						`kubectl create namespace %s --dry-run=client -oyaml > /kratix/output/new-namespace.yaml`,
 						newNamespaceName,
 					)
 					platform.kubectl("apply", "-f", requestWithNameAndCommand(requestName, updateNamespace))
