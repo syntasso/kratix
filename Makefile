@@ -97,7 +97,11 @@ install-flux-to-platform:
 
 system-test: generate fmt vet ## Run integrations tests.
 	make distribution
-	make quick-start
+	if [ "$(SYSTEM_TEST_STORE_TYPE)" == "git" ]; then \
+	  VERSION=dev DOCKER_BUILDKIT=1 ./scripts/quick-start.sh --recreate --local --git; \
+	else \
+	  VERSION=dev DOCKER_BUILDKIT=1 ./scripts/quick-start.sh --recreate --local; \
+	fi
 	make build-and-load-bash
 	make install-flux-to-platform
 	make ginkgo-system-test
