@@ -14,7 +14,7 @@ data:
 apiVersion: source.toolkit.fluxcd.io/v1beta1
 kind: GitRepository
 metadata:
-  name: platform-1-resources
+  name: kratix-source
   namespace: flux-system
 spec:
   interval: 5s
@@ -35,22 +35,9 @@ spec:
     - name: platform-1-dependencies
   sourceRef:
     kind: GitRepository
-    name: platform-1-resources
+    name: kratix-source
   path: "foo/bar/baz/platform-1/resources/"
   prune: true
----
-apiVersion: source.toolkit.fluxcd.io/v1beta1
-kind: GitRepository
-metadata:
-  name: platform-1-dependencies
-  namespace: flux-system
-spec:
-  interval: 5s
-  url: https://172.18.0.2:31333/gitea_admin/kratix
-  ref:
-    branch: main
-  secretRef:
-    name: gitea-credentials
 ---
 apiVersion: kustomize.toolkit.fluxcd.io/v1beta1
 kind: Kustomization
@@ -61,6 +48,6 @@ spec:
   interval: 8s
   sourceRef:
     kind: GitRepository
-    name: platform-1-dependencies
+    name: kratix-source
   path: "foo/bar/baz/platform-1/dependencies/"
   prune: true

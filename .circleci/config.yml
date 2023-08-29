@@ -105,14 +105,23 @@ jobs:
             make test
             make -C work-creator test
 
-  system-tests:
+  system-tests-git:
     executor: machine-large
     steps:
       - install_software
       - run:
           name: System tests
           command: |
-            DOCKER_BUILDKIT=1 ACK_GINKGO_RC=true make --jobs=4 system-test
+            SYSTEM_TEST_STORE_TYPE=git DOCKER_BUILDKIT=1 ACK_GINKGO_RC=true make --jobs=4 system-test
+
+  system-tests-bucket:
+    executor: machine-large
+    steps:
+      - install_software
+      - run:
+          name: System tests
+          command: |
+            SYSTEM_TEST_STORE_TYPE=bucket DOCKER_BUILDKIT=1 ACK_GINKGO_RC=true make --jobs=4 system-test
 
   e2e-demo-test-helm-git:
     executor: machine-large
@@ -257,7 +266,9 @@ workflows:
       - git-clone
       - unit-tests:
           requires: [git-clone]
-      - system-tests:
+      - system-tests-git:
+          requires: [git-clone]
+      - system-tests-bucket:
           requires: [git-clone]
       - e2e-demo-test-helm-bucket:
           requires: [git-clone]
@@ -266,7 +277,8 @@ workflows:
       - git-merge:
           requires:
             - unit-tests
-            - system-tests
+            - system-tests-git
+            - system-tests-bucket
             - e2e-demo-test-helm-git
             - e2e-demo-test-helm-bucket
           filters:

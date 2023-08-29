@@ -1,0 +1,12 @@
+---
+apiVersion: platform.kratix.io/v1alpha1
+kind: Destination
+metadata:
+  name: platform-1
+  labels:
+    environment: platform
+spec:
+  path: bar/baz
+  stateStoreRef:
+    name: system-test
+    kind: BucketStateStore
