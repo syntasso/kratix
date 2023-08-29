@@ -70,7 +70,6 @@ func (b *S3Writer) WriteDirWithObjects(deleteExistingContentsInDir bool, dir str
 		}
 	}
 
-	// Check to see if we already own this bucket (which happens if you run this twice)
 	exists, errBucketExists := b.RepoClient.BucketExists(ctx, b.BucketName)
 	if errBucketExists != nil {
 		logger.Error(errBucketExists, "Could not verify bucket existence with provider")
