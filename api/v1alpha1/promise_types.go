@@ -17,6 +17,10 @@ limitations under the License.
 package v1alpha1
 
 import (
+	"encoding/json"
+	"fmt"
+
+	v1 "k8s.io/apiextensions-apiserver/pkg/apis/apiextensions/v1"
 	metav1 "k8s.io/apimachinery/pkg/apis/meta/v1"
 	"k8s.io/apimachinery/pkg/apis/meta/v1/unstructured"
 	"k8s.io/apimachinery/pkg/labels"
@@ -108,6 +112,19 @@ func (p *Promise) DoesNotContainAPI() bool {
 	// if a workflow is set but there is not an API the workflow is ignored
 	// TODO how can we prevent this scenario from happening
 	return p.Spec.API.Raw == nil
+}
+
+func (p *Promise) GetAPIAsCRD() (*v1.CustomResourceDefinition, error) {
+	if p.DoesNotContainAPI() {
+		return nil, fmt.Errorf("promise does not contain an API")
+	}
+
+	crd := v1.CustomResourceDefinition{}
+	if err := json.Unmarshal(p.Spec.API.Raw, &crd); err != nil {
+		return nil, fmt.Errorf("api.metadata.name is immutable")
+	}
+
+	return &crd, nil
 }
 
 func (p *Promise) ContainsAPI() bool {
