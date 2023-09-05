@@ -66,6 +66,39 @@ type WorkScheduling struct {
 	Resource []Selector `json:"resource,omitempty"`
 }
 
+func NewPromiseDependenciesWork(promise *Promise) (*Work, error) {
+	work := &Work{
+		ObjectMeta: metav1.ObjectMeta{
+			Name:      promise.GetName(),
+			Namespace: KratixSystemNamespace,
+			Labels:    promise.GenerateSharedLabels(),
+		},
+		Spec: WorkSpec{
+			WorkloadCoreFields: WorkloadCoreFields{
+				PromiseName: promise.GetName(),
+			},
+			Replicas: DependencyReplicas,
+			DestinationSelectors: WorkScheduling{
+				Promise: promise.Spec.DestinationSelectors,
+			},
+		},
+	}
+
+	yamlBytes, err := promise.Spec.Dependencies.Marshal()
+	if err != nil {
+		return nil, err
+	}
+
+	work.Spec.Workloads = []Workload{
+		{
+			Content:  string(yamlBytes),
+			Filepath: "static/dependencies.yaml",
+		},
+	}
+
+	return work, nil
+}
+
 func (w *Work) IsResourceRequest() bool {
 	return w.Spec.Replicas == ResourceRequestReplicas
 }

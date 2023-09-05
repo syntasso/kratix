@@ -17,14 +17,11 @@ limitations under the License.
 package controllers
 
 import (
-	"bytes"
 	"context"
 	"encoding/json"
 	"fmt"
-	"io"
 	"time"
 
-	"gopkg.in/yaml.v2"
 	controllerutil "sigs.k8s.io/controller-runtime/pkg/controller/controllerutil"
 
 	"github.com/go-logr/logr"
@@ -38,6 +35,7 @@ import (
 	"k8s.io/apimachinery/pkg/apis/meta/v1/unstructured"
 	"k8s.io/apimachinery/pkg/labels"
 	"k8s.io/apimachinery/pkg/runtime/schema"
+	"k8s.io/apimachinery/pkg/types"
 	ctrl "sigs.k8s.io/controller-runtime"
 	"sigs.k8s.io/controller-runtime/pkg/client"
 )
@@ -254,7 +252,7 @@ func (r *PromiseReconciler) createResourcesForDynamicControllerIfTheyDontExist(c
 		Subjects: []rbacv1.Subject{
 			{
 				Kind:      "ServiceAccount",
-				Namespace: KratixSystemNamespace,
+				Namespace: v1alpha1.KratixSystemNamespace,
 				Name:      "kratix-platform-controller-manager",
 			},
 		},
@@ -520,49 +518,29 @@ func setStatusFieldsOnCRD(rrCRD *apiextensionsv1.CustomResourceDefinition) {
 
 func (r *PromiseReconciler) createWorkResourceForDependencies(ctx context.Context, promise *v1alpha1.Promise, logger logr.Logger) error {
 	work := &v1alpha1.Work{}
-	work.Name = promise.GetName()
-	work.Namespace = KratixSystemNamespace
-	work.Labels = promise.GenerateSharedLabels()
-	work.Spec.Replicas = v1alpha1.DependencyReplicas
+	logger.Info("attempting to get work for promise")
+	err := r.Client.Get(ctx, types.NamespacedName{
+		Name:      promise.GetName(),
+		Namespace: v1alpha1.KratixSystemNamespace,
+	}, work)
+
+	if err != nil {
+		if errors.IsNotFound(err) {
+			work, err = v1alpha1.NewPromiseDependenciesWork(promise)
+			if err != nil {
+				return err
+			}
+			logger.Info("Creating Work resource for Promise")
+			return r.Client.Create(ctx, work)
+		}
+
+		r.Log.Error(err, "Failed getting work for Promise", "promise", promise.GetName())
+		return err
+	}
+
+	logger.Info("UPDATES")
 	work.Spec.DestinationSelectors.Promise = promise.Spec.DestinationSelectors
-	work.Spec.PromiseName = promise.GetName()
-
-	yamlBytes, err := convertDependenciesToYAML(promise)
-	if err != nil {
-		return err
-	}
-
-	work.Spec.Workloads = []v1alpha1.Workload{
-		{
-			Content:  string(yamlBytes),
-			Filepath: "static/dependencies.yaml",
-		},
-	}
-
-	logger.Info("Creating Work resource for Promise")
-	err = r.Client.Create(ctx, work)
-	if err != nil {
-		if errors.IsAlreadyExists(err) {
-			logger.Info("Work already exist", "workName", work.Name)
-			return nil
-		}
-		return err
-	}
-
-	return nil
-}
-
-func convertDependenciesToYAML(promise *v1alpha1.Promise) ([]byte, error) {
-	buf := new(bytes.Buffer)
-	encoder := yaml.NewEncoder(buf)
-	for _, workload := range promise.Spec.Dependencies {
-		err := encoder.Encode(workload.Unstructured.Object)
-		if err != nil {
-			return nil, err
-		}
-	}
-
-	return io.ReadAll(buf)
+	return r.Client.Update(ctx, work)
 }
 
 func (r *PromiseReconciler) generatePipelines(promise *v1alpha1.Promise, logger logr.Logger) ([]v1alpha1.Pipeline, []v1alpha1.Pipeline, error) {
@@ -596,7 +574,6 @@ func generatePipeline(pipeline unstructured.Unstructured, logger logr.Logger) (v
 
 	if pipeline.GetKind() == "Pipeline" && pipeline.GetAPIVersion() == "platform.kratix.io/v1alpha1" {
 		jsonPipeline, err := pipeline.MarshalJSON()
-		pipelineLogger.Info("json", "json", string(jsonPipeline))
 		if err != nil {
 			// TODO test
 			pipelineLogger.Error(err, "Failed marshalling pipeline to json")

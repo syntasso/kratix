@@ -39,7 +39,6 @@ import (
 	"sigs.k8s.io/controller-runtime/pkg/client"
 
 	"github.com/syntasso/kratix/api/v1alpha1"
-	"github.com/syntasso/kratix/controllers"
 	//+kubebuilder:scaffold:imports
 )
 
@@ -56,27 +55,20 @@ var _ = Context("Promise Reconciler", func() {
 		yamlContent        = map[string]*v1alpha1.Promise{}
 	)
 
+	const (
+		RedisPromisePath = "../config/samples/redis/redis-promise.yaml"
+	)
+
 	applyPromise := func(promisePath string) {
 		var promiseFromYAML *v1alpha1.Promise
 		var found bool
 		if promiseFromYAML, found = yamlContent[promisePath]; !found {
-			promiseFromYAML = &v1alpha1.Promise{}
-			yamlFile, err := os.ReadFile(promisePath)
-			Expect(err).ToNot(HaveOccurred())
-			Expect(yaml.Unmarshal(yamlFile, promiseFromYAML)).To(Succeed())
-
+			promiseFromYAML = parseYAML(promisePath)
 			yamlContent[promisePath] = promiseFromYAML
 		}
 
 		k8sClient.Create(ctx, promiseFromYAML)
-
-		promiseCR = &v1alpha1.Promise{}
-		name := promiseFromYAML.GetName()
-		Eventually(func() error {
-			return k8sClient.Get(ctx, types.NamespacedName{
-				Name: name,
-			}, promiseCR)
-		}, timeout, interval).Should(Succeed())
+		promiseCR = getPromise(promiseFromYAML.GetName())
 	}
 
 	Describe("Promise reconciliation lifecycle", func() {
@@ -86,7 +78,7 @@ var _ = Context("Promise Reconciler", func() {
 		)
 
 		BeforeEach(func() {
-			applyPromise("../config/samples/redis/redis-promise.yaml")
+			applyPromise(RedisPromisePath)
 			promiseCommonLabels = map[string]string{
 				"kratix-promise-id": promiseCR.GetName(),
 			}
@@ -115,7 +107,7 @@ var _ = Context("Promise Reconciler", func() {
 				clusterrole := &rbacv1.ClusterRole{}
 				Eventually(func() error {
 					return k8sClient.Get(ctx, clusterRoleName, clusterrole)
-				}, timeout, interval).Should(BeNil(), "Expected controller ClusterRole to exist")
+				}, timeout, interval).Should(Succeed(), "Expected controller ClusterRole to exist")
 
 				Expect(clusterrole.Rules).To(ConsistOf(
 					rbacv1.PolicyRule{
@@ -146,26 +138,26 @@ var _ = Context("Promise Reconciler", func() {
 				binding := &rbacv1.ClusterRoleBinding{}
 				Eventually(func() error {
 					return k8sClient.Get(ctx, bindingName, binding)
-				}, timeout, interval).Should(BeNil(), "Expected controller binding to exist")
+				}, timeout, interval).Should(Succeed(), "Expected controller binding to exist")
 
 				Expect(binding.RoleRef.Name).To(Equal(promiseCR.GetControllerResourceName()))
 				Expect(binding.Subjects).To(HaveLen(1))
 				Expect(binding.Subjects[0]).To(Equal(rbacv1.Subject{
 					Kind:      "ServiceAccount",
-					Namespace: controllers.KratixSystemNamespace,
+					Namespace: v1alpha1.KratixSystemNamespace,
 					Name:      "kratix-platform-controller-manager",
 				}))
 				Expect(binding.GetLabels()).To(Equal(promiseCommonLabels))
 			})
 
-			It("creates works for the dependencies, on the "+controllers.KratixSystemNamespace+" namespace", func() {
+			It("creates works for the dependencies, on the "+v1alpha1.KratixSystemNamespace+" namespace", func() {
 				workNamespacedName := types.NamespacedName{
 					Name:      promiseCR.GetName(),
-					Namespace: controllers.KratixSystemNamespace,
+					Namespace: v1alpha1.KratixSystemNamespace,
 				}
 				Eventually(func() error {
 					return k8sClient.Get(ctx, workNamespacedName, &v1alpha1.Work{})
-				}, timeout, interval).Should(BeNil())
+				}, timeout, interval).Should(Succeed())
 			})
 		})
 
@@ -203,7 +195,7 @@ var _ = Context("Promise Reconciler", func() {
 				sa := &v1.ServiceAccount{}
 				Eventually(func() error {
 					return k8sClient.Get(ctx, resourceCommonName, sa)
-				}, timeout, interval).Should(BeNil(), "Expected SA for pipeline to exist")
+				}, timeout, interval).Should(Succeed(), "Expected SA for pipeline to exist")
 
 				Expect(sa.GetLabels()).To(Equal(resourceLabels))
 			})
@@ -212,7 +204,7 @@ var _ = Context("Promise Reconciler", func() {
 				role := &rbacv1.Role{}
 				Eventually(func() error {
 					return k8sClient.Get(ctx, resourceCommonName, role)
-				}, timeout, interval).Should(BeNil(), "Expected Role for pipeline to exist")
+				}, timeout, interval).Should(Succeed(), "Expected Role for pipeline to exist")
 
 				Expect(role.GetLabels()).To(Equal(resourceLabels))
 				Expect(role.Rules).To(ConsistOf(
@@ -234,7 +226,7 @@ var _ = Context("Promise Reconciler", func() {
 				binding := &rbacv1.RoleBinding{}
 				Eventually(func() error {
 					return k8sClient.Get(ctx, resourceCommonName, binding)
-				}, timeout, interval).Should(BeNil(), "Expected RoleBinding for pipeline to exist")
+				}, timeout, interval).Should(Succeed(), "Expected RoleBinding for pipeline to exist")
 				Expect(binding.RoleRef.Name).To(Equal(resourceCommonName.Name))
 				Expect(binding.Subjects).To(HaveLen(1))
 				Expect(binding.Subjects[0]).To(Equal(rbacv1.Subject{
@@ -253,7 +245,7 @@ var _ = Context("Promise Reconciler", func() {
 				}
 				Eventually(func() error {
 					return k8sClient.Get(ctx, configMapName, configMap)
-				}, timeout, interval).Should(BeNil(), "Expected ConfigMap for pipeline to exist")
+				}, timeout, interval).Should(Succeed(), "Expected ConfigMap for pipeline to exist")
 				Expect(configMap.GetLabels()).To(Equal(resourceLabels))
 				Expect(configMap.Data).To(HaveKey("destinationSelectors"))
 				space := regexp.MustCompile(`\s+`)
@@ -374,7 +366,7 @@ var _ = Context("Promise Reconciler", func() {
 					}
 					Eventually(func() error {
 						return k8sClient.Get(ctx, configMapName, configMap)
-					}, timeout, interval).Should(BeNil(), "Expected ConfigMap for pipeline to exist")
+					}, timeout, interval).Should(Succeed(), "Expected ConfigMap for pipeline to exist")
 				})
 			})
 		})
@@ -442,7 +434,7 @@ var _ = Context("Promise Reconciler", func() {
 					Eventually(func() bool {
 						workNamespacedName := types.NamespacedName{
 							Name:      promiseCR.GetName(),
-							Namespace: controllers.KratixSystemNamespace,
+							Namespace: v1alpha1.KratixSystemNamespace,
 						}
 						err := k8sClient.Get(ctx, workNamespacedName, &v1alpha1.Work{})
 						return errors.IsNotFound(err)
@@ -481,12 +473,12 @@ var _ = Context("Promise Reconciler", func() {
 			By("creating dependencies", func() {
 				workNamespacedName := types.NamespacedName{
 					Name:      promiseIdentifier,
-					Namespace: controllers.KratixSystemNamespace,
+					Namespace: v1alpha1.KratixSystemNamespace,
 				}
 				Eventually(func() error {
 					err := k8sClient.Get(ctx, workNamespacedName, &v1alpha1.Work{})
 					return err
-				}, timeout, interval).Should(BeNil())
+				}, timeout, interval).Should(Succeed())
 			})
 
 			By("setting the correct finalizers", func() {
@@ -568,6 +560,64 @@ var _ = Context("Promise Reconciler", func() {
 			Expect(printerFields).ToNot(BeNil())
 		})
 	})
+
+	Describe("updating a promise", func() {
+		When("the destinationSelectors get updated", func() {
+			var (
+				promise      *v1alpha1.Promise
+				destinationA *v1alpha1.Destination
+				destinationB *v1alpha1.Destination
+			)
+
+			BeforeEach(func() {
+				destinationA = createDestination("destination-a")
+				destinationB = createDestination("destination-b")
+
+				promise = parseYAML(RedisPromisePath)
+				promise.Spec.DestinationSelectors = []v1alpha1.Selector{
+					{
+						MatchLabels: map[string]string{
+							"destination": "a",
+						},
+					},
+				}
+				Expect(k8sClient.Create(ctx, promise)).To(Succeed())
+
+				waitForWork(promise.GetName())
+
+				promise = getPromise(promise.GetName())
+				promise.Spec.DestinationSelectors = []v1alpha1.Selector{
+					{
+						MatchLabels: map[string]string{
+							"destination": "b",
+						},
+					},
+				}
+				Expect(k8sClient.Update(ctx, promise)).To(Succeed())
+			})
+
+			It("schedules any dependencies to the new destinations", func() {
+				Eventually(func() v1alpha1.WorkScheduling {
+					work := waitForWork(promise.GetName())
+					return work.Spec.DestinationSelectors
+				}, timeout, interval).Should(Equal(v1alpha1.WorkScheduling{
+					Promise: []v1alpha1.Selector{
+						{
+							MatchLabels: map[string]string{
+								"destination": "b",
+							},
+						},
+					},
+				}))
+			})
+
+			AfterEach(func() {
+				deleteAndWait(promise)
+				Expect(k8sClient.Delete(ctx, destinationA)).To(Succeed())
+				Expect(k8sClient.Delete(ctx, destinationB)).To(Succeed())
+			})
+		})
+	})
 })
 
 func completeAllJobs(k8sClient client.Client) {
@@ -613,4 +663,57 @@ func getConfigurePipelineJobs(promiseCR *v1alpha1.Promise, k8sClient client.Clie
 	}
 	Expect(k8sClient.List(context.Background(), jobs, lo)).To(Succeed())
 	return jobs.Items
+}
+
+func parseYAML(promisePath string) *v1alpha1.Promise {
+	promiseFromYAML := &v1alpha1.Promise{}
+	yamlFile, err := os.ReadFile(promisePath)
+	Expect(err).ToNot(HaveOccurred())
+	Expect(yaml.Unmarshal(yamlFile, promiseFromYAML)).To(Succeed())
+	return promiseFromYAML
+}
+
+func deleteAndWait(promise *v1alpha1.Promise) {
+	ctx := context.Background()
+	Expect(k8sClient.Delete(ctx, promise)).To(Succeed())
+	Eventually(func() error {
+		return k8sClient.Get(ctx, types.NamespacedName{
+			Name: promise.GetName(),
+		}, promise)
+	}, timeout, interval).Should(HaveOccurred())
+}
+
+func createDestination(name string, labels ...map[string]string) *v1alpha1.Destination {
+	destination := &v1alpha1.Destination{
+		ObjectMeta: metav1.ObjectMeta{
+			Name:      name,
+			Namespace: v1alpha1.KratixSystemNamespace,
+		},
+	}
+
+	if len(labels) > 0 {
+		destination.SetLabels(labels[0])
+	}
+
+	Expect(k8sClient.Create(context.Background(), destination)).To(Succeed())
+	return destination
+}
+
+func getPromise(promiseName string) *v1alpha1.Promise {
+	promise := &v1alpha1.Promise{}
+	Eventually(func() error {
+		return k8sClient.Get(context.Background(), types.NamespacedName{Name: promiseName}, promise)
+	}).Should(Succeed())
+	return promise
+}
+
+func waitForWork(workName string) *v1alpha1.Work {
+	work := &v1alpha1.Work{}
+	Eventually(func() error {
+		return k8sClient.Get(context.Background(), types.NamespacedName{
+			Name:      "redis-promise",
+			Namespace: v1alpha1.KratixSystemNamespace,
+		}, work)
+	}, timeout, interval).Should(Succeed())
+	return work
 }

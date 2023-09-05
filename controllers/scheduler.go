@@ -81,7 +81,7 @@ func (r *Scheduler) ReconcileWork(work *platformv1alpha1.Work) error {
 		return fmt.Errorf("no Destinations can be selected for scheduling")
 	}
 
-	r.Log.Info("found available target Destinations", "destinations", targetDestinationNames)
+	r.Log.Info("found available target Destinations", "work", work.GetName(), "destinations", targetDestinationNames)
 	return r.createWorkplacementsForTargetDestinations(work, targetDestinationNames)
 }
 
@@ -139,7 +139,7 @@ func (r *Scheduler) createWorkplacementsForTargetDestinations(work *platformv1al
 			r.Log.Error(err, "Error creating new WorkPlacement", "workplacement", workPlacement.Name)
 			return err
 		}
-		r.Log.Info("WorkPlacement created", "workplacement", workPlacement.Name, "destination", targetDestinationName)
+		r.Log.Info("WorkPlacement created", "workplacement", workPlacement.Name, "work", work.GetName(), "destination", targetDestinationName)
 	}
 	return nil
 }

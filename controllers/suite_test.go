@@ -93,7 +93,7 @@ var _ = BeforeSuite(func() {
 
 	ns := &v1.Namespace{
 		ObjectMeta: ctrl.ObjectMeta{
-			Name: KratixSystemNamespace,
+			Name: platformv1alpha1.KratixSystemNamespace,
 		},
 	}
 	Expect(k8sClient.Create(context.Background(), ns)).To(Succeed())
@@ -116,7 +116,7 @@ func cleanEnvironment() {
 	Expect(k8sClient.DeleteAllOf(context.Background(), &platformv1alpha1.Destination{})).To(Succeed())
 
 	deleteInNamespace(&platformv1alpha1.Work{}, "default")
-	deleteInNamespace(&platformv1alpha1.Work{}, KratixSystemNamespace)
+	deleteInNamespace(&platformv1alpha1.Work{}, platformv1alpha1.KratixSystemNamespace)
 
 	var workPlacements platformv1alpha1.WorkPlacementList
 	k8sClient.List(context.Background(), &workPlacements)
@@ -125,7 +125,7 @@ func cleanEnvironment() {
 		k8sClient.Update(context.Background(), &wp)
 	}
 	deleteInNamespace(&platformv1alpha1.WorkPlacement{}, "default")
-	deleteInNamespace(&platformv1alpha1.WorkPlacement{}, KratixSystemNamespace)
+	deleteInNamespace(&platformv1alpha1.WorkPlacement{}, platformv1alpha1.KratixSystemNamespace)
 }
 
 func deleteInNamespace(obj client.Object, namespace string) {

@@ -19,10 +19,6 @@ import (
 	"sigs.k8s.io/controller-runtime/pkg/controller/controllerutil"
 )
 
-const (
-	KratixSystemNamespace = "kratix-platform-system"
-)
-
 type StateStore interface {
 	client.Object
 	GetSecretRef() *v1.SecretReference
