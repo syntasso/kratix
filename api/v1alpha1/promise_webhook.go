@@ -91,7 +91,7 @@ func (p *Promise) ValidateUpdate(old runtime.Object) (admission.Warnings, error)
 		errors = append(errors, fmt.Sprintf("* spec.api.spec.names: Invalid value: %s: field is immutable", newNames))
 	}
 
-	if errors != nil {
+	if len(errors) > 0 {
 		//TODO: p.Name is coming through empty or so it seems!
 		return nil, fmt.Errorf("promises.platform.kratix.io %q was not valid:\n%s", p.Name, strings.Join(errors, "\n"))
 	}

@@ -46,8 +46,9 @@ var (
 	testEnv            *envtest.Environment
 	k8sManager         ctrl.Manager
 
-	timeout  = "30s"
-	interval = "3s"
+	timeout             = "30s"
+	consistentlyTimeout = "6s"
+	interval            = "3s"
 )
 var _ = BeforeSuite(func() {
 	logf.SetLogger(zap.New(zap.WriteTo(GinkgoWriter), zap.UseDevMode(true)))
@@ -77,11 +78,10 @@ var _ = BeforeSuite(func() {
 	Expect(err).ToNot(HaveOccurred())
 
 	err = (&PromiseReconciler{
-		Manager:                   k8sManager,
-		ApiextensionsClient:       apiextensionClient,
-		Client:                    k8sManager.GetClient(),
-		Log:                       ctrl.Log.WithName("controllers").WithName("PromiseReconciler"),
-		StartedDynamicControllers: map[string]*bool{},
+		Manager:             k8sManager,
+		ApiextensionsClient: apiextensionClient,
+		Client:              k8sManager.GetClient(),
+		Log:                 ctrl.Log.WithName("controllers").WithName("PromiseReconciler"),
 	}).SetupWithManager(k8sManager)
 	Expect(err).ToNot(HaveOccurred())
 

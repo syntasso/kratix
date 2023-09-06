@@ -349,7 +349,7 @@ var _ = Context("Promise Reconciler", func() {
 					}, timeout, interval).Should(BeTrue())
 				})
 
-				By("leaving the pipeline resources (SA/Role/RoleBinding) intact", func() {
+				By("leaving the pipeline resources (SA/Role/RoleBinding/ConfigMap) intact", func() {
 					resources := []client.Object{
 						&rbacv1.Role{},
 						&rbacv1.RoleBinding{},

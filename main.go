@@ -83,11 +83,10 @@ func main() {
 	}
 
 	if err = (&controllers.PromiseReconciler{
-		ApiextensionsClient:       clientset.NewForConfigOrDie(config),
-		Client:                    mgr.GetClient(),
-		Log:                       ctrl.Log.WithName("controllers").WithName("Promise"),
-		Manager:                   mgr,
-		StartedDynamicControllers: map[string]*bool{},
+		ApiextensionsClient: clientset.NewForConfigOrDie(config),
+		Client:              mgr.GetClient(),
+		Log:                 ctrl.Log.WithName("controllers").WithName("Promise"),
+		Manager:             mgr,
 	}).SetupWithManager(mgr); err != nil {
 		setupLog.Error(err, "unable to create controller", "controller", "Promise")
 		os.Exit(1)

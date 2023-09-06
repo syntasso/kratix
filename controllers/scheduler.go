@@ -72,6 +72,7 @@ func (r *Scheduler) ReconcileWork(work *platformv1alpha1.Work) error {
 			if errored > 0 {
 				return fmt.Errorf("failed to update %d of %d workplacements for work", errored, len(existingWorkplacements))
 			}
+			return nil
 		}
 	}
 

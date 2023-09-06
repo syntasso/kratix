@@ -32,6 +32,7 @@ import (
 	"github.com/syntasso/kratix/lib/resourceutil"
 	batchv1 "k8s.io/api/batch/v1"
 	corev1 "k8s.io/api/core/v1"
+
 	"k8s.io/apimachinery/pkg/api/errors"
 	"k8s.io/apimachinery/pkg/apis/meta/v1/unstructured"
 	"k8s.io/apimachinery/pkg/runtime"
@@ -55,7 +56,6 @@ type dynamicResourceRequestController struct {
 	gvk                         *schema.GroupVersionKind
 	scheme                      *runtime.Scheme
 	promiseIdentifier           string
-	promiseDestinationSelectors []v1alpha1.Selector
 	configurePipelines          []v1alpha1.Pipeline
 	deletePipelines             []v1alpha1.Pipeline
 	log                         logr.Logger
@@ -63,6 +63,7 @@ type dynamicResourceRequestController struct {
 	uid                         string
 	enabled                     *bool
 	crd                         *apiextensionsv1.CustomResourceDefinition
+	promiseDestinationSelectors []v1alpha1.Selector
 }
 
 //+kubebuilder:rbac:groups="batch",resources=jobs,verbs=create;list;watch;delete
@@ -156,19 +157,25 @@ func (r *dynamicResourceRequestController) createConfigurePipeline(ctx context.C
 		return ctrl.Result{}, err
 	}
 
-	logger.Info("Creating Pipeline resources")
+	logger.Info("Reconciling pipeline resources")
+
 	for _, resource := range resources {
-		logger.Info("Creating resource", resource.GetObjectKind().GroupVersionKind().Kind, resource.GetName())
+		logger.Info("Reconciling", resource.GetObjectKind().GroupVersionKind().Kind, resource.GetName())
+
 		if err = r.Client.Create(ctx, resource); err != nil {
 			if errors.IsAlreadyExists(err) {
-				logger.Info("Resource already exists, skipping", resource.GetObjectKind().GroupVersionKind().Kind, resource.GetName())
-				continue
+				logger.Info("Resource already exists, will update", resource.GetObjectKind().GroupVersionKind().Kind, resource.GetName())
+				if err = r.Client.Update(ctx, resource); err == nil {
+					continue
+				}
 			}
-			logger.Error(err, "Error creating resource", resource.GetObjectKind().GroupVersionKind().Kind, resource.GetName())
+
+			logger.Error(err, "Error reconciling on resource", resource.GetObjectKind().GroupVersionKind().Kind, resource.GetName())
 			y, _ := yaml.Marshal(&resource)
 			logger.Error(err, string(y))
+		} else {
+			logger.Info("Resource created", resource.GetObjectKind().GroupVersionKind().Kind, resource.GetName())
 		}
-
 	}
 
 	return ctrl.Result{}, nil

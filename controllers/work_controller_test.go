@@ -99,7 +99,11 @@ var _ = Context("WorkReconciler.Reconcile()", func() {
 		var work *platformv1alpha1.Work
 		var workPlacementGenID int64
 
-		Describe("changes to workloads", func() {
+		AfterEach(func() {
+			deleteWork(work)
+		})
+
+		Describe("changes to spec.workloads", func() {
 			BeforeEach(func() {
 				work = createWork(platformv1alpha1.ResourceRequestReplicas, nil)
 				workPlacementList := waitForWorkPlacements(work)
@@ -137,6 +141,45 @@ var _ = Context("WorkReconciler.Reconcile()", func() {
 						workPlacementList := workPlacementsFor(work)
 						return workPlacementList.Items[0].GetGeneration() == workPlacementGenID
 					}).Should(BeTrue())
+				})
+			})
+		})
+
+		When("the work is for Resources", func() {
+			var (
+				anotherDestination *platformv1alpha1.Destination
+			)
+
+			BeforeEach(func() {
+				anotherDestination = createDestination("worker-2", map[string]string{"destination": "worker-2"})
+
+				work = createWork(platformv1alpha1.ResourceRequestReplicas, &platformv1alpha1.WorkScheduling{
+					Promise: []platformv1alpha1.Selector{
+						{MatchLabels: map[string]string{"destination": "worker-1"}},
+					},
+				})
+				workPlacementList := waitForWorkPlacements(work)
+				Expect(workPlacementList.Items).To(HaveLen(1), "expected one WorkPlacement")
+			})
+
+			AfterEach(func() {
+				k8sClient.Delete(context.Background(), anotherDestination)
+			})
+
+			When("the scheduling changes", func() {
+				It("does not create a new workplacement", func() {
+					work = getWork(work.GetName(), work.GetNamespace())
+					work.Spec.DestinationSelectors.Promise = []platformv1alpha1.Selector{
+						{
+							MatchLabels: map[string]string{"destination": "worker-2"},
+						},
+					}
+
+					Expect(k8sClient.Update(context.Background(), work)).To(Succeed())
+					Consistently(func() int {
+						workPlacementList := workPlacementsFor(work)
+						return len(workPlacementList.Items)
+					}, consistentlyTimeout, interval).Should(Equal(1))
 				})
 			})
 		})
@@ -182,13 +225,11 @@ var _ = Context("WorkReconciler.Reconcile()", func() {
 				It("does not remove old workplacements", func() {
 					Eventually(func() bool {
 						workPlacements := workPlacementsFor(work)
-
 						for _, workPlacement := range workPlacements.Items {
 							if workPlacement.Name == work.Name+".worker-1" {
 								return true
 							}
 						}
-
 						return false
 					}).Should(BeTrue(), "WorkPlacement for worker-1 was deleted")
 				})
@@ -197,10 +238,6 @@ var _ = Context("WorkReconciler.Reconcile()", func() {
 					k8sClient.Delete(context.Background(), anotherDestination)
 				})
 			})
-		})
-
-		AfterEach(func() {
-			deleteWork(work)
 		})
 	})
 })

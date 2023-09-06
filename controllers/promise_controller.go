@@ -46,7 +46,7 @@ type PromiseReconciler struct {
 	ApiextensionsClient       *clientset.Clientset
 	Log                       logr.Logger
 	Manager                   ctrl.Manager
-	StartedDynamicControllers map[string]*bool
+	StartedDynamicControllers map[string]*dynamicResourceRequestController
 }
 
 const (
@@ -76,17 +76,20 @@ var (
 //+kubebuilder:rbac:groups=platform.kratix.io,resources=promises,verbs=get;list;watch;create;update;patch;delete
 //+kubebuilder:rbac:groups=platform.kratix.io,resources=promises/status,verbs=get;update;patch
 //+kubebuilder:rbac:groups=platform.kratix.io,resources=promises/finalizers,verbs=update
-//+kubebuilder:rbac:groups="",resources=configmaps,verbs=create;list;watch;delete
+//+kubebuilder:rbac:groups="",resources=configmaps,verbs=create;update;list;watch;delete
 
-//+kubebuilder:rbac:groups=rbac.authorization.k8s.io,resources=clusterroles,verbs=create;escalate;bind;list;get;delete;watch
-//+kubebuilder:rbac:groups=rbac.authorization.k8s.io,resources=clusterrolebindings,verbs=create;list;get;delete;watch
-//+kubebuilder:rbac:groups=rbac.authorization.k8s.io,resources=roles,verbs=create;escalate;bind;list;get;delete;watch
-//+kubebuilder:rbac:groups=rbac.authorization.k8s.io,resources=rolebindings,verbs=create;list;get;delete;watch
-//+kubebuilder:rbac:groups="",resources=serviceaccounts,verbs=create;list;get;watch;delete
+//+kubebuilder:rbac:groups=rbac.authorization.k8s.io,resources=clusterroles,verbs=create;update;escalate;bind;list;get;delete;watch
+//+kubebuilder:rbac:groups=rbac.authorization.k8s.io,resources=clusterrolebindings,verbs=create;update;list;get;delete;watch
+//+kubebuilder:rbac:groups=rbac.authorization.k8s.io,resources=roles,verbs=create;update;escalate;bind;list;get;delete;watch
+//+kubebuilder:rbac:groups=rbac.authorization.k8s.io,resources=rolebindings,verbs=create;update;list;get;delete;watch
+//+kubebuilder:rbac:groups="",resources=serviceaccounts,verbs=create;update;list;get;watch;delete
 
 //+kubebuilder:rbac:groups=apiextensions.k8s.io,resources=customresourcedefinitions,verbs=get;list;watch;create;update;patch;delete
 
 func (r *PromiseReconciler) Reconcile(ctx context.Context, req ctrl.Request) (ctrl.Result, error) {
+	if r.StartedDynamicControllers == nil {
+		r.StartedDynamicControllers = make(map[string]*dynamicResourceRequestController)
+	}
 	promise := &v1alpha1.Promise{}
 	err := r.Client.Get(ctx, req.NamespacedName, promise)
 	if err != nil {
@@ -166,6 +169,10 @@ func (r *PromiseReconciler) ensureDynamicControllerIsStarted(promise *v1alpha1.P
 	// The Dynamic Controller needs to be started once and only once.
 	if r.dynamicControllerHasAlreadyStarted(promise) {
 		logger.Info("dynamic controller already started")
+
+		d := r.StartedDynamicControllers[string(promise.GetUID())]
+		d.promiseDestinationSelectors = promise.Spec.DestinationSelectors
+
 		return nil
 	}
 	logger.Info("starting dynamic controller")
@@ -173,21 +180,20 @@ func (r *PromiseReconciler) ensureDynamicControllerIsStarted(promise *v1alpha1.P
 	//temporary fix until https://github.com/kubernetes-sigs/controller-runtime/issues/1884 is resolved
 	//once resolved, delete dynamic controller rather than disable
 	enabled := true
-	r.StartedDynamicControllers[string(promise.GetUID())] = &enabled
-
 	dynamicResourceRequestController := &dynamicResourceRequestController{
 		Client:                      r.Manager.GetClient(),
 		scheme:                      r.Manager.GetScheme(),
 		gvk:                         &rrGVK,
 		crd:                         rrCRD,
 		promiseIdentifier:           promise.GetName(),
-		promiseDestinationSelectors: promise.Spec.DestinationSelectors,
 		configurePipelines:          configurePipelines,
 		deletePipelines:             deletePipelines,
+		promiseDestinationSelectors: promise.Spec.DestinationSelectors,
 		log:                         r.Log.WithName(promise.GetName()),
 		uid:                         string(promise.GetUID())[0:5],
 		enabled:                     &enabled,
 	}
+	r.StartedDynamicControllers[string(promise.GetUID())] = dynamicResourceRequestController
 
 	unstructuredCRD := &unstructured.Unstructured{}
 	unstructuredCRD.SetGroupVersionKind(rrGVK)
@@ -309,8 +315,9 @@ func (r *PromiseReconciler) deletePromise(ctx context.Context, promise *v1alpha1
 
 	//temporary fix until https://github.com/kubernetes-sigs/controller-runtime/issues/1884 is resolved
 	//once resolved, delete dynamic controller rather than disable
-	if enabled, exists := r.StartedDynamicControllers[string(promise.GetUID())]; exists {
-		*enabled = false
+	if d, exists := r.StartedDynamicControllers[string(promise.GetUID())]; exists {
+		enabled := false
+		d.enabled = &enabled
 	}
 
 	if controllerutil.ContainsFinalizer(promise, dynamicControllerDependantResourcesCleaupFinalizer) {
@@ -538,7 +545,6 @@ func (r *PromiseReconciler) createWorkResourceForDependencies(ctx context.Contex
 		return err
 	}
 
-	logger.Info("UPDATES")
 	work.Spec.DestinationSelectors.Promise = promise.Spec.DestinationSelectors
 	return r.Client.Update(ctx, work)
 }
