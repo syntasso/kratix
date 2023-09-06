@@ -617,6 +617,64 @@ var _ = Context("Promise Reconciler", func() {
 				Expect(k8sClient.Delete(ctx, destinationB)).To(Succeed())
 			})
 		})
+
+		When("the workflows get updated", func() {
+			var (
+				promise *v1alpha1.Promise
+			)
+
+			BeforeEach(func() {
+				promise = parseYAML(RedisPromisePath)
+				Expect(k8sClient.Create(ctx, promise)).To(Succeed())
+
+				// send a resource request
+				RedisResourceRequest := "../config/samples/redis/redis-resource-request.yaml"
+				yamlFile, err := os.ReadFile(RedisResourceRequest)
+				Expect(err).ToNot(HaveOccurred())
+
+				requestedResource = &unstructured.Unstructured{}
+				Expect(yaml.Unmarshal(yamlFile, requestedResource)).To(Succeed())
+				requestedResource.SetNamespace("default")
+				Eventually(func() error {
+					return k8sClient.Create(ctx, requestedResource)
+				}, timeout, interval).Should(Succeed())
+
+				// wait for the pipeline
+				Eventually(func() []batchv1.Job {
+					return getConfigurePipelineJobs(promise, k8sClient)
+				}, timeout, interval).Should(HaveLen(1), "pipeline never started")
+
+				completeAllJobs(k8sClient)
+
+				// update the promise workflow
+				promise = getPromise(promise.GetName())
+
+				newContainers := map[string]interface{}{
+					"name":  "redis",
+					"image": "new-image",
+				}
+
+				err = unstructured.SetNestedSlice(promise.Spec.Workflows.Resource.Configure[0].Object, []interface{}{newContainers}, "spec", "containers")
+				Expect(err).ToNot(HaveOccurred())
+				Expect(k8sClient.Update(ctx, promise)).To(Succeed())
+			})
+
+			AfterEach(func() {
+				deleteAndWait(promise)
+			})
+
+			It("retriggers all pipelines with latest changes", func() {
+				// assert the pipeline job has the latest changes
+				Eventually(func() int {
+					return len(getConfigurePipelineJobs(promise, k8sClient))
+				}, timeout, interval).Should(Equal(2), "pipeline never started")
+
+				jobs := getConfigurePipelineJobs(promise, k8sClient)
+				jobContainers := []string{jobs[0].Spec.Template.Spec.InitContainers[1].Image, jobs[1].Spec.Template.Spec.InitContainers[1].Image}
+				Expect(jobContainers).To(ConsistOf("syntasso/kustomize-redis", "new-image"))
+			})
+
+		})
 	})
 })
 
@@ -632,6 +690,7 @@ func completeAllJobs(k8sClient client.Client) {
 					Status: v1.ConditionTrue,
 				},
 			},
+			Succeeded: 1,
 		}
 		Expect(k8sClient.Status().Update(context.Background(), &job)).To(Succeed())
 	}
@@ -675,8 +734,9 @@ func parseYAML(promisePath string) *v1alpha1.Promise {
 
 func deleteAndWait(promise *v1alpha1.Promise) {
 	ctx := context.Background()
-	Expect(k8sClient.Delete(ctx, promise)).To(Succeed())
-	Eventually(func() error {
+	ExpectWithOffset(1, k8sClient.Delete(ctx, promise)).To(Succeed())
+	EventuallyWithOffset(1, func() error {
+		completeAllJobs(k8sClient)
 		return k8sClient.Get(ctx, types.NamespacedName{
 			Name: promise.GetName(),
 		}, promise)

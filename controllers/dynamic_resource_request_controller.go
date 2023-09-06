@@ -120,17 +120,24 @@ func (r *dynamicResourceRequestController) Reconcile(ctx context.Context, req ct
 		return slowRequeue, nil
 	}
 
-	found, err := resourceutil.PipelineForRequestExists(logger, rr, pipelineJobs)
+	pipelineAlreadyExists, err := resourceutil.PipelineForRequestExists(logger, rr, pipelineJobs)
 	if err != nil {
 		return slowRequeue, nil
 	}
 
-	if found {
-		return ctrl.Result{}, nil
+	if isManualReconciliation(rr) || !pipelineAlreadyExists {
+		return r.createConfigurePipeline(ctx, rr, resourceRequestIdentifier, logger)
 	}
 
-	return r.createConfigurePipeline(ctx, rr, resourceRequestIdentifier, logger)
+	return ctrl.Result{}, nil
+}
 
+func isManualReconciliation(rr *unstructured.Unstructured) bool {
+	labels := rr.GetLabels()
+	if labels == nil {
+		return false
+	}
+	return labels[resourceutil.ManualReconciliationLabel] == "true"
 }
 
 func (r *dynamicResourceRequestController) createConfigurePipeline(ctx context.Context, rr *unstructured.Unstructured, rrID string, logger logr.Logger) (ctrl.Result, error) {
@@ -178,6 +185,15 @@ func (r *dynamicResourceRequestController) createConfigurePipeline(ctx context.C
 		}
 	}
 
+	if isManualReconciliation(rr) {
+		newLabels := rr.GetLabels()
+		delete(newLabels, resourceutil.ManualReconciliationLabel)
+		rr.SetLabels(newLabels)
+		if err := r.Client.Update(ctx, rr); err != nil {
+			return ctrl.Result{}, err
+		}
+	}
+
 	return ctrl.Result{}, nil
 }
 
@@ -213,6 +229,8 @@ func (r *dynamicResourceRequestController) deleteResources(ctx context.Context, 
 				return ctrl.Result{}, err
 			}
 		}
+
+		logger.Info("Delete Pipeline not finished", "status", existingDeletePipeline.Status)
 
 		return fastRequeue, nil
 	}

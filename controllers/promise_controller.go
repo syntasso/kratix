@@ -20,12 +20,14 @@ import (
 	"context"
 	"encoding/json"
 	"fmt"
+	"reflect"
 	"time"
 
 	controllerutil "sigs.k8s.io/controller-runtime/pkg/controller/controllerutil"
 
 	"github.com/go-logr/logr"
 	"github.com/syntasso/kratix/api/v1alpha1"
+	"github.com/syntasso/kratix/lib/resourceutil"
 	v1 "k8s.io/api/core/v1"
 	rbacv1 "k8s.io/api/rbac/v1"
 	apiextensionsv1 "k8s.io/apiextensions-apiserver/pkg/apis/apiextensions/v1"
@@ -165,13 +167,46 @@ func (r *PromiseReconciler) Reconcile(ctx context.Context, req ctrl.Request) (ct
 	return ctrl.Result{}, nil
 }
 
+func (r *PromiseReconciler) reconcileAllRRs(rrGVK schema.GroupVersionKind) error {
+	//label all rr with manual reocnciliation
+	rrs := &unstructured.UnstructuredList{}
+	rrListGVK := rrGVK
+	rrListGVK.Kind = rrListGVK.Kind + "List"
+	rrs.SetGroupVersionKind(rrListGVK)
+	err := r.Client.List(context.Background(), rrs)
+	if err != nil {
+		return err
+	}
+	for _, rr := range rrs.Items {
+		newLabels := rr.GetLabels()
+		if newLabels == nil {
+			newLabels = make(map[string]string)
+		}
+		newLabels[resourceutil.ManualReconciliationLabel] = "true"
+		rr.SetLabels(newLabels)
+		if err := r.Client.Update(context.TODO(), &rr); err != nil {
+			return err
+		}
+	}
+	return nil
+}
+
 func (r *PromiseReconciler) ensureDynamicControllerIsStarted(promise *v1alpha1.Promise, rrCRD *apiextensionsv1.CustomResourceDefinition, rrGVK schema.GroupVersionKind, configurePipelines, deletePipelines []v1alpha1.Pipeline, logger logr.Logger) error {
 	// The Dynamic Controller needs to be started once and only once.
 	if r.dynamicControllerHasAlreadyStarted(promise) {
 		logger.Info("dynamic controller already started")
 
-		d := r.StartedDynamicControllers[string(promise.GetUID())]
-		d.promiseDestinationSelectors = promise.Spec.DestinationSelectors
+		dynamicController := r.StartedDynamicControllers[string(promise.GetUID())]
+		oldConfigurePipelines := dynamicController.configurePipelines
+
+		dynamicController.deletePipelines = deletePipelines
+		dynamicController.configurePipelines = configurePipelines
+
+		if !reflect.DeepEqual(oldConfigurePipelines, configurePipelines) {
+			if err := r.reconcileAllRRs(rrGVK); err != nil {
+				return err
+			}
+		}
 
 		return nil
 	}
