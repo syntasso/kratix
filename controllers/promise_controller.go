@@ -117,9 +117,9 @@ func (r *PromiseReconciler) Reconcile(ctx context.Context, req ctrl.Request) (ct
 			return ctrl.Result{}, err
 		}
 
-		exists := r.ensureCRDExists(ctx, rrCRD, rrGVK, logger)
-		if !exists {
-			return defaultRequeue, nil
+		err := r.ensureCRDExists(ctx, rrCRD, rrGVK, logger)
+		if err != nil {
+			return ctrl.Result{}, err
 		}
 
 		if doesNotContainFinalizer(promise, crdCleanupFinalizer) {
@@ -198,9 +198,10 @@ func (r *PromiseReconciler) ensureDynamicControllerIsStarted(promise *v1alpha1.P
 
 		dynamicController := r.StartedDynamicControllers[string(promise.GetUID())]
 		oldConfigurePipelines := dynamicController.configurePipelines
-
 		dynamicController.deletePipelines = deletePipelines
 		dynamicController.configurePipelines = configurePipelines
+		dynamicController.gvk = &rrGVK
+		dynamicController.crd = rrCRD
 
 		if !reflect.DeepEqual(oldConfigurePipelines, configurePipelines) {
 			if err := r.reconcileAllRRs(rrGVK); err != nil {
@@ -316,7 +317,7 @@ func (r *PromiseReconciler) createResourcesForDynamicControllerIfTheyDontExist(c
 }
 
 func (r *PromiseReconciler) ensureCRDExists(ctx context.Context, rrCRD *apiextensionsv1.CustomResourceDefinition,
-	rrGVK schema.GroupVersionKind, logger logr.Logger) bool {
+	rrGVK schema.GroupVersionKind, logger logr.Logger) error {
 
 	_, err := r.ApiextensionsClient.ApiextensionsV1().
 		CustomResourceDefinitions().
@@ -325,13 +326,25 @@ func (r *PromiseReconciler) ensureCRDExists(ctx context.Context, rrCRD *apiexten
 		if errors.IsAlreadyExists(err) {
 			//todo test for existence and handle gracefully.
 			logger.Info("CRD already exists", "crdName", rrCRD.Name)
+			existingCRD, err := r.ApiextensionsClient.ApiextensionsV1().CustomResourceDefinitions().Get(ctx, rrCRD.GetName(), metav1.GetOptions{})
+			if err != nil {
+				return err
+			}
+
+			existingCRD.Spec.Versions = rrCRD.Spec.Versions
+			existingCRD.Spec.Conversion = rrCRD.Spec.Conversion
+			existingCRD.Spec.PreserveUnknownFields = rrCRD.Spec.PreserveUnknownFields
+			_, err = r.ApiextensionsClient.ApiextensionsV1().CustomResourceDefinitions().Update(ctx, existingCRD, metav1.UpdateOptions{})
+			if err != nil {
+				return err
+			}
 		} else {
 			logger.Error(err, "Error creating crd")
 		}
 	}
 
 	_, err = r.Manager.GetRESTMapper().RESTMapping(rrGVK.GroupKind(), rrGVK.Version)
-	return err == nil
+	return err
 }
 
 func (r *PromiseReconciler) deletePromise(ctx context.Context, promise *v1alpha1.Promise, logger logr.Logger) (ctrl.Result, error) {
@@ -499,9 +512,17 @@ func generateCRDAndGVK(promise *v1alpha1.Promise, logger logr.Logger) (*apiexten
 
 	setStatusFieldsOnCRD(rrCRD)
 
+	storedVersion := rrCRD.Spec.Versions[0]
+	for _, version := range rrCRD.Spec.Versions {
+		if version.Storage {
+			storedVersion = version
+			break
+		}
+	}
+
 	rrGVK = schema.GroupVersionKind{
 		Group:   rrCRD.Spec.Group,
-		Version: rrCRD.Spec.Versions[0].Name,
+		Version: storedVersion.Name,
 		Kind:    rrCRD.Spec.Names.Kind,
 	}
 
@@ -509,52 +530,54 @@ func generateCRDAndGVK(promise *v1alpha1.Promise, logger logr.Logger) (*apiexten
 }
 
 func setStatusFieldsOnCRD(rrCRD *apiextensionsv1.CustomResourceDefinition) {
-	rrCRD.Spec.Versions[0].Subresources = &apiextensionsv1.CustomResourceSubresources{
-		Status: &apiextensionsv1.CustomResourceSubresourceStatus{},
-	}
+	for i := range rrCRD.Spec.Versions {
+		rrCRD.Spec.Versions[i].Subresources = &apiextensionsv1.CustomResourceSubresources{
+			Status: &apiextensionsv1.CustomResourceSubresourceStatus{},
+		}
 
-	rrCRD.Spec.Versions[0].AdditionalPrinterColumns = []apiextensionsv1.CustomResourceColumnDefinition{
-		apiextensionsv1.CustomResourceColumnDefinition{
-			Name:     "status",
-			Type:     "string",
-			JSONPath: ".status.message",
-		},
-	}
-
-	rrCRD.Spec.Versions[0].Schema.OpenAPIV3Schema.Properties["status"] = apiextensionsv1.JSONSchemaProps{
-		Type:                   "object",
-		XPreserveUnknownFields: &[]bool{true}[0], // pointer to bool
-		Properties: map[string]apiextensionsv1.JSONSchemaProps{
-			"message": {
-				Type: "string",
+		rrCRD.Spec.Versions[i].AdditionalPrinterColumns = []apiextensionsv1.CustomResourceColumnDefinition{
+			{
+				Name:     "status",
+				Type:     "string",
+				JSONPath: ".status.message",
 			},
-			"conditions": {
-				Type: "array",
-				Items: &apiextensionsv1.JSONSchemaPropsOrArray{
-					Schema: &apiextensionsv1.JSONSchemaProps{
-						Type: "object",
-						Properties: map[string]apiextensionsv1.JSONSchemaProps{
-							"lastTransitionTime": {
-								Type:   "string",
-								Format: "datetime", //RFC3339
-							},
-							"message": {
-								Type: "string",
-							},
-							"reason": {
-								Type: "string",
-							},
-							"status": {
-								Type: "string",
-							},
-							"type": {
-								Type: "string",
+		}
+
+		rrCRD.Spec.Versions[i].Schema.OpenAPIV3Schema.Properties["status"] = apiextensionsv1.JSONSchemaProps{
+			Type:                   "object",
+			XPreserveUnknownFields: &[]bool{true}[0], // pointer to bool
+			Properties: map[string]apiextensionsv1.JSONSchemaProps{
+				"message": {
+					Type: "string",
+				},
+				"conditions": {
+					Type: "array",
+					Items: &apiextensionsv1.JSONSchemaPropsOrArray{
+						Schema: &apiextensionsv1.JSONSchemaProps{
+							Type: "object",
+							Properties: map[string]apiextensionsv1.JSONSchemaProps{
+								"lastTransitionTime": {
+									Type:   "string",
+									Format: "datetime", //RFC3339
+								},
+								"message": {
+									Type: "string",
+								},
+								"reason": {
+									Type: "string",
+								},
+								"status": {
+									Type: "string",
+								},
+								"type": {
+									Type: "string",
+								},
 							},
 						},
 					},
 				},
 			},
-		},
+		}
 	}
 }
 

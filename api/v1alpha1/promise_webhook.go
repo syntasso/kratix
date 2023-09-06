@@ -17,10 +17,14 @@ limitations under the License.
 package v1alpha1
 
 import (
+	"context"
 	"fmt"
 	"reflect"
 	"strings"
 
+	"k8s.io/apiextensions-apiserver/pkg/client/clientset/clientset"
+	"k8s.io/apimachinery/pkg/api/errors"
+	metav1 "k8s.io/apimachinery/pkg/apis/meta/v1"
 	"k8s.io/apimachinery/pkg/runtime"
 	ctrl "sigs.k8s.io/controller-runtime"
 	logf "sigs.k8s.io/controller-runtime/pkg/log"
@@ -29,9 +33,13 @@ import (
 )
 
 // log is for logging in this package.
-var promiselog = logf.Log.WithName("promise-resource")
+var (
+	promiselog = logf.Log.WithName("promise-resource")
+	clientSet  *clientset.Clientset
+)
 
-func (p *Promise) SetupWebhookWithManager(mgr ctrl.Manager) error {
+func (p *Promise) SetupWebhookWithManager(mgr ctrl.Manager, client *clientset.Clientset) error {
+	clientSet = client
 	return ctrl.NewWebhookManagedBy(mgr).
 		For(p).
 		Complete()
@@ -52,9 +60,34 @@ func (p *Promise) Default() {
 
 var _ webhook.Validator = &Promise{}
 
+func (p *Promise) validateCRD() error {
+	newCrd, _ := p.GetAPIAsCRD()
+	_, err := clientSet.ApiextensionsV1().CustomResourceDefinitions().Create(context.TODO(), newCrd, metav1.CreateOptions{DryRun: []string{metav1.DryRunAll}})
+	if err != nil {
+		if errors.IsAlreadyExists(err) {
+			existingCrd, err := clientSet.ApiextensionsV1().CustomResourceDefinitions().Get(context.TODO(), newCrd.Name, metav1.GetOptions{})
+			if err != nil {
+				return err
+			}
+
+			existingCrd.Spec = newCrd.Spec
+			_, err = clientSet.ApiextensionsV1().CustomResourceDefinitions().Update(context.TODO(), existingCrd, metav1.UpdateOptions{DryRun: []string{metav1.DryRunAll}})
+			if err != nil {
+				return fmt.Errorf("invalid CRD changes: %w", err)
+			}
+			return nil
+		}
+		return fmt.Errorf("invalid CRD: %w", err)
+	}
+	return nil
+}
+
 // ValidateCreate implements webhook.Validator so a webhook will be registered for the type
 func (p *Promise) ValidateCreate() (admission.Warnings, error) {
 	promiselog.Info("validate create", "name", p.Name)
+	if err := p.validateCRD(); err != nil {
+		return nil, err
+	}
 
 	// TODO(user): fill in your validation logic upon object creation.
 	return nil, nil
@@ -67,6 +100,10 @@ func (p *Promise) ValidateUpdate(old runtime.Object) (admission.Warnings, error)
 
 	oldCrd, _ := oldPromise.GetAPIAsCRD()
 	newCrd, _ := p.GetAPIAsCRD()
+
+	if err := p.validateCRD(); err != nil {
+		return nil, err
+	}
 
 	errors := []string{}
 	if oldCrd.Name != newCrd.Name {
