@@ -118,12 +118,34 @@ var _ = Describe("Controllers/Scheduler", func() {
 
 		Describe("Scheduling Dependencies (replicas=-1)", func() {
 			When("the Work has no selector", func() {
-				It("creates Workplacement for all registered Destinations", func() {
+				It("creates and updates Workplacement for all registered Destinations", func() {
 					err := scheduler.ReconcileWork(&dependencyWork)
 					Expect(err).ToNot(HaveOccurred())
 
 					Expect(k8sClient.List(context.Background(), &workPlacements)).To(Succeed())
 					Expect(len(workPlacements.Items)).To(Equal(3))
+					for _, workPlacement := range workPlacements.Items {
+						Expect(workPlacement.Spec.Workloads).To(ConsistOf(Workload{
+							Content: "key: value",
+						}))
+					}
+
+					dependencyWork.Spec.Workloads = append(resourceWork.Spec.Workloads, Workload{
+						Content: "fake: new-content",
+					})
+
+					err = scheduler.ReconcileWork(&dependencyWork)
+					Expect(err).ToNot(HaveOccurred())
+
+					Expect(k8sClient.List(context.Background(), &workPlacements)).To(Succeed())
+
+					Expect(workPlacements.Items).To(HaveLen(3))
+					for _, workPlacement := range workPlacements.Items {
+						Expect(workPlacement.Spec.Workloads).To(ConsistOf(
+							Workload{Content: "key: value"},
+							Workload{Content: "fake: new-content"},
+						))
+					}
 				})
 			})
 

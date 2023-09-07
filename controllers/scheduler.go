@@ -10,7 +10,6 @@ import (
 
 	"github.com/go-logr/logr"
 	platformv1alpha1 "github.com/syntasso/kratix/api/v1alpha1"
-	"k8s.io/apimachinery/pkg/api/errors"
 	"k8s.io/apimachinery/pkg/labels"
 	"sigs.k8s.io/controller-runtime/pkg/client"
 	"sigs.k8s.io/controller-runtime/pkg/controller/controllerutil"
@@ -114,33 +113,32 @@ func (r *Scheduler) getExistingWorkplacementsForWork(work platformv1alpha1.Work)
 
 func (r *Scheduler) createWorkplacementsForTargetDestinations(work *platformv1alpha1.Work, targetDestinationNames []string) error {
 	for _, targetDestinationName := range targetDestinationNames {
-		workPlacement := platformv1alpha1.WorkPlacement{}
+		workPlacement := &platformv1alpha1.WorkPlacement{}
 		workPlacement.Namespace = work.GetNamespace()
 		workPlacement.Name = work.Name + "." + targetDestinationName
-		workPlacement.Spec.Workloads = work.Spec.Workloads
-		workPlacement.Labels = map[string]string{
-			workLabelKey: work.Name,
-		}
 
-		workPlacement.Spec.WorkloadCoreFields = work.Spec.WorkloadCoreFields
-		workPlacement.Spec.TargetDestinationName = targetDestinationName
-		controllerutil.AddFinalizer(&workPlacement, repoCleanupWorkPlacementFinalizer)
-
-		if err := controllerutil.SetControllerReference(work, &workPlacement, scheme.Scheme); err != nil {
-			r.Log.Error(err, "Error setting ownership")
-			return err
-		}
-
-		if err := r.Client.Create(context.Background(), &workPlacement); err != nil {
-			if errors.IsAlreadyExists(err) {
-				r.Log.Info("WorkPlacement already exists, skipping", "workplacement", workPlacement.Name, "destination", targetDestinationName)
-				continue
+		op, err := controllerutil.CreateOrUpdate(context.Background(), r.Client, workPlacement, func() error {
+			workPlacement.Spec.Workloads = work.Spec.Workloads
+			workPlacement.Labels = map[string]string{
+				workLabelKey: work.Name,
 			}
 
-			r.Log.Error(err, "Error creating new WorkPlacement", "workplacement", workPlacement.Name)
+			workPlacement.Spec.WorkloadCoreFields = work.Spec.WorkloadCoreFields
+			workPlacement.Spec.TargetDestinationName = targetDestinationName
+			controllerutil.AddFinalizer(workPlacement, repoCleanupWorkPlacementFinalizer)
+
+			if err := controllerutil.SetControllerReference(work, workPlacement, scheme.Scheme); err != nil {
+				r.Log.Error(err, "Error setting ownership")
+				return err
+			}
+			return nil
+		})
+
+		if err != nil {
 			return err
 		}
-		r.Log.Info("WorkPlacement created", "workplacement", workPlacement.Name, "work", work.GetName(), "destination", targetDestinationName)
+
+		r.Log.Info("workplacement reconciled", "operation", op, "namespace", workPlacement.GetNamespace(), "workplacement", workPlacement.GetName(), "work", work.GetName(), "destination", targetDestinationName)
 	}
 	return nil
 }

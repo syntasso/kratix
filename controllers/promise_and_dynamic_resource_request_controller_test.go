@@ -618,6 +618,44 @@ var _ = Context("Promise Reconciler", func() {
 			})
 		})
 
+		When("the dependencies get updated", func() {
+			var (
+				promise *v1alpha1.Promise
+			)
+
+			BeforeEach(func() {
+
+				promise = parseYAML(RedisPromisePath)
+				Expect(k8sClient.Create(ctx, promise)).To(Succeed())
+
+				waitForWork(promise.GetName())
+				Eventually(func() string {
+					work := waitForWork(promise.GetName())
+					return work.Spec.Workloads[0].Content
+				}, timeout, interval).Should(ContainSubstring("a-non-crd-resource"))
+
+				promise = getPromise(promise.GetName())
+				//first dependencies is Name: "a-non-crd-resource" Kind: Namespace
+				promise.Spec.Dependencies[0].SetName("super-secret-new-namespace")
+				Expect(k8sClient.Update(ctx, promise)).To(Succeed())
+			})
+
+			It("updates the Work resource to have only the new workloads", func() {
+				Eventually(func() string {
+					work := waitForWork(promise.GetName())
+					return work.Spec.Workloads[0].Content
+				}, timeout, interval).Should(ContainSubstring("super-secret-new-namespace"))
+				Eventually(func() string {
+					work := waitForWork(promise.GetName())
+					return work.Spec.Workloads[0].Content
+				}, timeout, interval).ShouldNot(ContainSubstring("a-non-crd-resource"))
+			})
+
+			AfterEach(func() {
+				deleteAndWait(promise)
+			})
+		})
+
 		When("the workflows get updated", func() {
 			var (
 				promise *v1alpha1.Promise

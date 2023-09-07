@@ -37,7 +37,6 @@ import (
 	"k8s.io/apimachinery/pkg/apis/meta/v1/unstructured"
 	"k8s.io/apimachinery/pkg/labels"
 	"k8s.io/apimachinery/pkg/runtime/schema"
-	"k8s.io/apimachinery/pkg/types"
 	ctrl "sigs.k8s.io/controller-runtime"
 	"sigs.k8s.io/controller-runtime/pkg/client"
 )
@@ -136,7 +135,7 @@ func (r *PromiseReconciler) Reconcile(ctx context.Context, req ctrl.Request) (ct
 		}
 	}
 
-	if err := r.createWorkResourceForDependencies(ctx, promise, logger); err != nil {
+	if err := r.applyWorkResourceForDependencies(ctx, promise, logger); err != nil {
 		logger.Error(err, "Error creating Works")
 		return ctrl.Result{}, err
 	}
@@ -581,30 +580,26 @@ func setStatusFieldsOnCRD(rrCRD *apiextensionsv1.CustomResourceDefinition) {
 	}
 }
 
-func (r *PromiseReconciler) createWorkResourceForDependencies(ctx context.Context, promise *v1alpha1.Promise, logger logr.Logger) error {
-	work := &v1alpha1.Work{}
-	logger.Info("attempting to get work for promise")
-	err := r.Client.Get(ctx, types.NamespacedName{
-		Name:      promise.GetName(),
-		Namespace: v1alpha1.KratixSystemNamespace,
-	}, work)
-
+func (r *PromiseReconciler) applyWorkResourceForDependencies(ctx context.Context, promise *v1alpha1.Promise, logger logr.Logger) error {
+	work, err := v1alpha1.NewPromiseDependenciesWork(promise)
 	if err != nil {
-		if errors.IsNotFound(err) {
-			work, err = v1alpha1.NewPromiseDependenciesWork(promise)
-			if err != nil {
-				return err
-			}
-			logger.Info("Creating Work resource for Promise")
-			return r.Client.Create(ctx, work)
-		}
-
-		r.Log.Error(err, "Failed getting work for Promise", "promise", promise.GetName())
 		return err
 	}
 
-	work.Spec.DestinationSelectors.Promise = promise.Spec.DestinationSelectors
-	return r.Client.Update(ctx, work)
+	workCopy := work.DeepCopy()
+
+	op, err := controllerutil.CreateOrUpdate(ctx, r.Client, work, func() error {
+		work.ObjectMeta.Labels = workCopy.ObjectMeta.Labels
+		work.Spec = workCopy.Spec
+		return nil
+	})
+
+	if err != nil {
+		return err
+	}
+
+	logger.Info("resource reconciled", "operation", op, "namespace", work.GetNamespace(), "name", work.GetName(), "gvk", work.GroupVersionKind())
+	return nil
 }
 
 func (r *PromiseReconciler) generatePipelines(promise *v1alpha1.Promise, logger logr.Logger) ([]v1alpha1.Pipeline, []v1alpha1.Pipeline, error) {
