@@ -6,6 +6,7 @@ import (
 	. "github.com/onsi/ginkgo"
 	. "github.com/onsi/gomega"
 	v1 "k8s.io/apiextensions-apiserver/pkg/apis/apiextensions/v1"
+	"k8s.io/apiextensions-apiserver/pkg/client/clientset/clientset/fake"
 	metav1 "k8s.io/apimachinery/pkg/apis/meta/v1"
 	"k8s.io/apimachinery/pkg/runtime"
 
@@ -31,6 +32,8 @@ var _ = Describe("PromiseWebhook", func() {
 	}
 
 	BeforeEach(func() {
+		fakeClientSet := fake.NewSimpleClientset()
+		v1alpha1.SetClientSet(fakeClientSet)
 		baseCRD = &v1.CustomResourceDefinition{
 			TypeMeta: metav1.TypeMeta{
 				Kind:       "CustomResourceDefinition",

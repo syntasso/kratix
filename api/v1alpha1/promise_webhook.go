@@ -35,7 +35,7 @@ import (
 // log is for logging in this package.
 var (
 	promiselog = logf.Log.WithName("promise-resource")
-	clientSet  *clientset.Clientset
+	clientSet  clientset.Interface
 )
 
 func (p *Promise) SetupWebhookWithManager(mgr ctrl.Manager, client *clientset.Clientset) error {
