@@ -108,7 +108,7 @@ func (b *S3Writer) WriteDirWithObjects(deleteExistingContentsInDir bool, dir str
 			contentMd5 := fmt.Sprintf("%x", md5.Sum([]byte(item.Content)))
 			if objStat.ETag == contentMd5 {
 				logger.Info("Content has not changed, will not re-write to bucket")
-				return nil
+				continue
 			}
 		}
 

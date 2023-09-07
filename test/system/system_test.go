@@ -25,14 +25,17 @@ type destination struct {
 }
 
 var (
-	promisePath               = "./assets/bash-promise/promise.yaml"
-	promiseWithSchedulingPath = "./assets/bash-promise/promise-with-destination-selectors.yaml"
+	promisePath                      = "./assets/bash-promise/promise.yaml"
+	promiseV1Alpha2Path              = "./assets/bash-promise/promise-v1alpha2.yaml"
+	promiseWithSchedulingPath        = "./assets/bash-promise/promise-with-destination-selectors.yaml"
+	promiseWithSchedulingPathUpdated = "./assets/bash-promise/promise-with-destination-selectors-updated.yaml"
 
 	workerCtx = "--context=kind-worker"
 	platCtx   = "--context=kind-platform"
 
-	timeout  = time.Second * 90
-	interval = time.Second * 2
+	timeout             = time.Second * 90
+	consistentlyTimeout = time.Second * 20
+	interval            = time.Second * 2
 
 	platform = destination{context: "--context=kind-platform"}
 	worker   = destination{context: "--context=kind-worker"}
@@ -193,9 +196,69 @@ var _ = Describe("Kratix", func() {
 					})
 				})
 			})
+
 			AfterEach(func() {
 				platform.kubectl("delete", "promise", "bash")
 				Eventually(platform.kubectl("get", "promise")).ShouldNot(ContainSubstring("bash"))
+			})
+		})
+
+		When("A Promise is updated", func() {
+			AfterEach(func() {
+				platform.kubectl("delete", "promise", "bash")
+				Eventually(platform.kubectl("get", "promise")).ShouldNot(ContainSubstring("bash"))
+			})
+
+			It("propogates the changes and re-runs all the pipelines", func() {
+				By("installing and requesting v1alpha1 promise", func() {
+					platform.kubectl("apply", "-f", promisePath)
+
+					platform.eventuallyKubectl("get", "crd", "bash.test.kratix.io")
+					worker.eventuallyKubectl("get", "namespace", "bash-wcr-namespace")
+				})
+
+				rrName := "rr-test"
+
+				c1Command := `kop="delete"
+							if [ "${KRATIX_OPERATION}" != "delete" ]; then kop="create"
+								echo "message: My awesome status message" > /kratix/metadata/status.yaml
+								echo "key: value" >> /kratix/metadata/status.yaml
+								mkdir -p /kratix/output/foo/
+								echo "{}" > /kratix/output/foo/example.json
+							fi
+			                kubectl ${kop} namespace imperative-$(yq '.metadata.name' /kratix/input/object.yaml)`
+
+				c2Command := `kubectl create namespace declarative-$(yq '.metadata.name' /kratix/input/object.yaml) --dry-run=client -oyaml > /kratix/output/namespace.yaml`
+
+				commands := []string{c1Command, c2Command}
+
+				platform.kubectl("apply", "-f", requestWithNameAndCommand(rrName, commands...))
+
+				By("deploying the contents of /kratix/output to the worker destination", func() {
+					platform.eventuallyKubectl("get", "namespace", "imperative-rr-test")
+					worker.eventuallyKubectl("get", "namespace", "declarative-rr-test")
+				})
+
+				By("updating the promise", func() {
+					//since we are going to retrigger the pipelines we need to delete the
+					//previously imperatively created namespace
+					platform.kubectl("delete", "namespace", "imperative-rr-test")
+
+					//Promise has:
+					// API:
+					//    v1alpha2 as the new stored version, with a 3rd command field
+					//    which has the default command of creating a namespace declarative-rr-test-v1alpha2
+					// Pipeline:
+					//    Extra container to run the 3rd command field
+					// Dependencies:
+					//    Renamed the namespace to bash-wcr-namespace-v1alpha2
+					platform.kubectl("apply", "-f", promiseV1Alpha2Path)
+
+					worker.eventuallyKubectl("get", "namespace", "bash-wcr-namespace-v1alpha2")
+					worker.eventuallyKubectl("get", "namespace", "declarative-rr-test")
+					worker.eventuallyKubectl("get", "namespace", "declarative-rr-test-v1alpha2")
+					platform.eventuallyKubectl("get", "namespace", "imperative-rr-test")
+				})
 			})
 		})
 	})
@@ -255,6 +318,30 @@ var _ = Describe("Kratix", func() {
 
 					worker.eventuallyKubectl("get", "namespace", "rr-2-namespace")
 				})
+			})
+		})
+
+		It("allows updates to scheduling", func() {
+			By("only the worker Destination getting the dependency initially", func() {
+				Consistently(func() {
+					worker.eventuallyKubectl("get", "namespace", "bash-wcr-namespace")
+				}, consistentlyTimeout, interval)
+
+				Consistently(func() string {
+					return platform.kubectl("get", "namespace")
+				}, consistentlyTimeout, interval).ShouldNot(ContainSubstring("bash-wcr-namespace"))
+			})
+
+			//changes from security: high to environment: platform
+			platform.kubectl("apply", "-f", promiseWithSchedulingPath)
+
+			By("scheduling to the new destination and preserving the old orphaned destinations", func() {
+				Consistently(func() {
+					worker.eventuallyKubectl("get", "namespace", "bash-wcr-namespace")
+				}, consistentlyTimeout, interval)
+				Consistently(func() {
+					platform.eventuallyKubectl("get", "namespace", "bash-wcr-namespace")
+				}, consistentlyTimeout, interval)
 			})
 		})
 	})

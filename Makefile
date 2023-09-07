@@ -62,8 +62,10 @@ vet: ## Run go vet against code.
 build-and-load-bash:
 	docker build --tag syntassodev/bash-promise-test-c0:dev ./test/system/assets/bash-promise --build-arg CONTAINER_INDEX=0
 	docker build --tag syntassodev/bash-promise-test-c1:dev ./test/system/assets/bash-promise --build-arg CONTAINER_INDEX=1
+	docker build --tag syntassodev/bash-promise-test-c2:dev ./test/system/assets/bash-promise --build-arg CONTAINER_INDEX=2
 	kind load docker-image syntassodev/bash-promise-test-c0:dev --name platform
 	kind load docker-image syntassodev/bash-promise-test-c1:dev --name platform
+	kind load docker-image syntassodev/bash-promise-test-c2:dev --name platform
 
 build-and-load-kratix: kind-load-image
 

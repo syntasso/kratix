@@ -1,0 +1,112 @@
+---
+apiVersion: rbac.authorization.k8s.io/v1
+kind: ClusterRole
+metadata:
+  name: bash-default-promise-pipeline-credentials
+rules:
+- apiGroups:
+  - ""
+  resources:
+  - namespaces
+  verbs:
+  - "*"
+---
+apiVersion: rbac.authorization.k8s.io/v1
+kind: ClusterRoleBinding
+metadata:
+  name: bash-default-promise-pipeline-credentials
+roleRef:
+  apiGroup: rbac.authorization.k8s.io
+  kind: ClusterRole
+  name: bash-default-promise-pipeline-credentials
+subjects:
+- kind: ServiceAccount
+  name: bash-promise-pipeline
+  namespace: default
+---
+apiVersion: platform.kratix.io/v1alpha1
+kind: Promise
+metadata:
+  name: bash
+  namespace: default
+spec:
+  api:
+    apiVersion: apiextensions.k8s.io/v1
+    kind: CustomResourceDefinition
+    metadata:
+      name: bash.test.kratix.io
+    spec:
+      group: test.kratix.io
+      names:
+        kind: bash
+        plural: bash
+        singular: bash
+      scope: Namespaced
+      versions:
+        - name: v1alpha1
+          schema:
+            openAPIV3Schema:
+              properties:
+                spec:
+                  properties:
+                    container0Cmd:
+                      description: Arbitrary code to be executed by the container 0
+                      type: string
+                    container1Cmd:
+                      description: Arbitrary code to be executed by the container 1
+                      type: string
+                  type: object
+              type: object
+          served: true
+          storage: false
+        - name: v1alpha2
+          schema:
+            openAPIV3Schema:
+              properties:
+                spec:
+                  properties:
+                    container0Cmd:
+                      description: Arbitrary code to be executed by the container 0
+                      type: string
+                    container1Cmd:
+                      description: Arbitrary code to be executed by the container 1
+                      type: string
+                    container2Cmd:
+                      description: Arbitrary code to be executed by the container 2
+                      type: string
+                      default: "kubectl create namespace declarative-$(yq '.metadata.name' /kratix/input/object.yaml)-v1alpha2 --dry-run=client -oyaml > /kratix/output/namespace-v1alpha2.yaml"
+                  type: object
+              type: object
+          served: true
+          storage: true
+  dependencies:
+    - apiVersion: v1
+      kind: Namespace
+      metadata:
+        name: bash-wcr-namespace-v1alpha2
+  workflows:
+    resource:
+      configure:
+        - apiVersion: platform.kratix.io/v1alpha1
+          kind: Pipeline
+          metadata:
+            name: instance-configure
+            namespace: default
+          spec:
+            containers:
+              - image: syntassodev/bash-promise-test-c0:dev
+                name: bash-promise-test-c0
+              - image: syntassodev/bash-promise-test-c1:dev
+                name: bash-promise-test-c1
+              - image: syntassodev/bash-promise-test-c2:dev
+                name: bash-promise-test-c2
+      delete:
+        - apiVersion: platform.kratix.io/v1alpha1
+          kind: Pipeline
+          metadata:
+            name: instance-configure
+            namespace: default
+          spec:
+            containers:
+              - image: syntassodev/bash-promise-test-c0:dev
+                name: bash-promise-test-c0
