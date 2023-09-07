@@ -1,8 +1,0 @@
-apiVersion: platform.kratix.io/v1alpha1
-kind: Destination
-metadata:
-  name: worker-2
-spec:
-  stateStoreRef:
-    kind: BucketStateStore
-    name: default
