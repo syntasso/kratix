@@ -20,7 +20,6 @@ import (
 	"context"
 	"encoding/json"
 	"fmt"
-	"reflect"
 	"time"
 
 	controllerutil "sigs.k8s.io/controller-runtime/pkg/controller/controllerutil"
@@ -163,6 +162,14 @@ func (r *PromiseReconciler) Reconcile(ctx context.Context, req ctrl.Request) (ct
 		return addFinalizers(ctx, r.Client, promise, []string{resourceRequestCleanupFinalizer}, logger)
 	}
 
+	if promise.GetGeneration() != promise.Status.ObservedGeneration {
+		if err := r.reconcileAllRRs(rrGVK); err != nil {
+			return ctrl.Result{}, err
+		}
+		promise.Status.ObservedGeneration = promise.GetGeneration()
+		return ctrl.Result{}, r.Client.Status().Update(ctx, promise)
+	}
+
 	return ctrl.Result{}, nil
 }
 
@@ -196,17 +203,10 @@ func (r *PromiseReconciler) ensureDynamicControllerIsStarted(promise *v1alpha1.P
 		logger.Info("dynamic controller already started")
 
 		dynamicController := r.StartedDynamicControllers[string(promise.GetUID())]
-		oldConfigurePipelines := dynamicController.configurePipelines
 		dynamicController.deletePipelines = deletePipelines
 		dynamicController.configurePipelines = configurePipelines
 		dynamicController.gvk = &rrGVK
 		dynamicController.crd = rrCRD
-
-		if !reflect.DeepEqual(oldConfigurePipelines, configurePipelines) {
-			if err := r.reconcileAllRRs(rrGVK); err != nil {
-				return err
-			}
-		}
 
 		return nil
 	}

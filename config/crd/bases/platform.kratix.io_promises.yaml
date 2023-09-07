@@ -73,6 +73,12 @@ spec:
             type: object
           status:
             description: PromiseStatus defines the observed state of Promise
+            properties:
+              observedGeneration:
+                description: 'Important: Run "make" to regenerate code after modifying
+                  this file'
+                format: int64
+                type: integer
             type: object
         type: object
     served: true
