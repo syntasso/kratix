@@ -9,13 +9,17 @@ import (
 	"k8s.io/client-go/kubernetes/scheme"
 
 	"github.com/go-logr/logr"
+	"github.com/syntasso/kratix/api/v1alpha1"
 	platformv1alpha1 "github.com/syntasso/kratix/api/v1alpha1"
 	"k8s.io/apimachinery/pkg/labels"
 	"sigs.k8s.io/controller-runtime/pkg/client"
 	"sigs.k8s.io/controller-runtime/pkg/controller/controllerutil"
 )
 
-const workLabelKey = kratixPrefix + "work"
+const (
+	workLabelKey = kratixPrefix + "work"
+	orphanLabel  = "kratix.io/orphaned"
+)
 
 type Scheduler struct {
 	Client client.Client
@@ -52,12 +56,12 @@ func (r *Scheduler) UpdateWorkPlacement(work *platformv1alpha1.Work, workPlaceme
 }
 
 func (r *Scheduler) ReconcileWork(work *platformv1alpha1.Work) error {
-	if work.IsResourceRequest() {
-		existingWorkplacements, err := r.getExistingWorkplacementsForWork(*work)
-		if err != nil {
-			return err
-		}
+	existingWorkplacements, err := r.getExistingWorkplacementsForWork(*work)
+	if err != nil {
+		return err
+	}
 
+	if work.IsResourceRequest() {
 		if len(existingWorkplacements) > 0 {
 			var errored int
 			for _, existingWorkplacement := range existingWorkplacements {
@@ -82,7 +86,45 @@ func (r *Scheduler) ReconcileWork(work *platformv1alpha1.Work) error {
 	}
 
 	r.Log.Info("found available target Destinations", "work", work.GetName(), "destinations", targetDestinationNames)
-	return r.createWorkplacementsForTargetDestinations(work, targetDestinationNames)
+	err = r.createWorkplacementsForTargetDestinations(work, targetDestinationNames)
+	if err != nil {
+		return err
+	}
+
+	currentWorkplacements, err := r.getExistingWorkplacementsForWork(*work)
+	if err != nil {
+		return err
+	}
+
+	for _, workPlacement := range orphanedWorkPlacements(currentWorkplacements, existingWorkplacements) {
+		newLabels := workPlacement.GetLabels()
+		if newLabels == nil {
+			newLabels = make(map[string]string)
+		}
+		newLabels[orphanLabel] = "true"
+		workPlacement.SetLabels(newLabels)
+		if err := r.Client.Update(context.TODO(), &workPlacement); err != nil {
+			return err
+		}
+	}
+
+	return nil
+}
+
+func orphanedWorkPlacements(listA, listB []v1alpha1.WorkPlacement) []v1alpha1.WorkPlacement {
+	mb := make(map[string]struct{}, len(listB))
+	for _, x := range listB {
+		mb[x.GetNamespace()+"/"+x.GetName()] = struct{}{}
+	}
+
+	var diff []v1alpha1.WorkPlacement
+	for _, x := range listA {
+		if _, found := mb[x.GetNamespace()+"/"+x.GetName()]; !found {
+			diff = append(diff, x)
+		}
+	}
+
+	return diff
 }
 
 func (r *Scheduler) getExistingWorkplacementsForWork(work platformv1alpha1.Work) ([]platformv1alpha1.WorkPlacement, error) {

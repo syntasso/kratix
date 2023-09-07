@@ -83,7 +83,6 @@ type Selector struct {
 
 // PromiseStatus defines the observed state of Promise
 type PromiseStatus struct {
-	// Important: Run "make" to regenerate code after modifying this file
 	ObservedGeneration int64 `json:"observedGeneration,omitempty"`
 }
 
