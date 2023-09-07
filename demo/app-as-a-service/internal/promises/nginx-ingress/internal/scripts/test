@@ -1,0 +1,16 @@
+#!/usr/bin/env bash
+set -e
+
+test_promise() {
+  kubectl wait --for=condition=Available --timeout=5s --namespace default deployment/nginx-nginx-ingress
+}
+
+test_resource_request() {
+  echo "no resource request to test"
+}
+
+if [ "$1" = "promise" ]; then
+  test_promise
+else
+  test_resource_request
+fi

@@ -1,0 +1,25 @@
+#!/usr/bin/env sh
+
+set -xe
+
+export name="$(yq eval '.metadata.name' /kratix/input/object.yaml)"
+export image="$(yq eval '.spec.image' /kratix/input/object.yaml)"
+export contains_cc="$(yq eval '.spec.containsCreditCardData' /kratix/input/object.yaml)"
+export cluster_selectors="$(yq eval '.spec.clusterSelectors // ""' /kratix/input/object.yaml)"
+
+if [ -n "$cluster_selectors" ]; then
+    cat > /kratix/metadata/destination-selectors.yaml <<EOF
+- matchLabels:
+    $cluster_selectors
+EOF
+fi
+
+sed "s/TBDNAME/${name}/g" /tmp/transfer/deployment.yaml > /tmp/deployment.yaml
+
+sed "s_TBDIMAGE_${image}_g" /tmp/deployment.yaml > /tmp/deployment.yaml.v2
+sed "s/CC_VALUE/${contains_cc}/g" /tmp/deployment.yaml.v2 > /kratix/output/deployment.yaml
+
+
+sed "s/TBDNAME/${name}/g" /tmp/transfer/service.yaml > /kratix/output/service.yaml
+
+sed "s/TBDNAME/${name}/g" /tmp/transfer/ingress.yaml > /kratix/output/ingress.yaml
