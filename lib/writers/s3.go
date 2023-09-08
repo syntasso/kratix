@@ -79,13 +79,12 @@ func (b *S3Writer) WriteDirWithObjects(deleteExistingContentsInDir bool, dir str
 
 	for _, item := range toWrite {
 		objectFullPath := filepath.Join(b.path, dir, item.Filepath)
+		// Make sure we don't delete this object, remove this object from the map
+		delete(objectsToDeleteMap, objectFullPath)
+
 		logger := b.Log.WithValues(
 			"objectName", objectFullPath,
 		)
-		if len(toWrite) == 0 {
-			logger.Info("Empty byte[]. Nothing to write to bucket")
-			return nil
-		}
 
 		ctx := context.Background()
 
@@ -102,7 +101,7 @@ func (b *S3Writer) WriteDirWithObjects(deleteExistingContentsInDir bool, dir str
 			contentMd5 := fmt.Sprintf("%x", md5.Sum([]byte(item.Content)))
 			if objStat.ETag == contentMd5 {
 				logger.Info("Content has not changed, will not re-write to bucket")
-				return nil
+				continue
 			}
 		}
 
@@ -112,9 +111,6 @@ func (b *S3Writer) WriteDirWithObjects(deleteExistingContentsInDir bool, dir str
 			logger.Error(err, "Error writing object to bucket")
 			return err
 		}
-
-		// Make sure we don't delete this object, remove this object from the map
-		delete(objectsToDeleteMap, objectFullPath)
 		logger.Info("Object written to bucket")
 	}
 

@@ -12,6 +12,7 @@ rules:
   - create
   - delete
   - list
+  - update
   - watch
 - apiGroups:
   - ""
@@ -30,6 +31,7 @@ rules:
   - delete
   - get
   - list
+  - update
   - watch
 - apiGroups:
   - apiextensions.k8s.io
@@ -174,6 +176,7 @@ rules:
   - delete
   - get
   - list
+  - update
   - watch
 - apiGroups:
   - rbac.authorization.k8s.io
@@ -186,6 +189,7 @@ rules:
   - escalate
   - get
   - list
+  - update
   - watch
 - apiGroups:
   - rbac.authorization.k8s.io
@@ -196,6 +200,7 @@ rules:
   - delete
   - get
   - list
+  - update
   - watch
 - apiGroups:
   - rbac.authorization.k8s.io
@@ -208,4 +213,5 @@ rules:
   - escalate
   - get
   - list
+  - update
   - watch

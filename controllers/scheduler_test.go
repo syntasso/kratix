@@ -5,6 +5,7 @@ import (
 
 	. "github.com/onsi/ginkgo"
 	. "github.com/onsi/gomega"
+	"github.com/syntasso/kratix/api/v1alpha1"
 	. "github.com/syntasso/kratix/api/v1alpha1"
 	. "github.com/syntasso/kratix/controllers"
 	v1 "k8s.io/apimachinery/pkg/apis/meta/v1"
@@ -118,13 +119,70 @@ var _ = Describe("Controllers/Scheduler", func() {
 
 		Describe("Scheduling Dependencies (replicas=-1)", func() {
 			When("the Work has no selector", func() {
-				It("creates Workplacement for all registered Destinations", func() {
+				It("creates and updates Workplacement for all registered Destinations", func() {
 					err := scheduler.ReconcileWork(&dependencyWork)
 					Expect(err).ToNot(HaveOccurred())
 
 					Expect(k8sClient.List(context.Background(), &workPlacements)).To(Succeed())
 					Expect(len(workPlacements.Items)).To(Equal(3))
+					for _, workPlacement := range workPlacements.Items {
+						Expect(workPlacement.Spec.Workloads).To(ConsistOf(Workload{
+							Content: "key: value",
+						}))
+					}
+
+					dependencyWork.Spec.Workloads = append(resourceWork.Spec.Workloads, Workload{
+						Content: "fake: new-content",
+					})
+
+					err = scheduler.ReconcileWork(&dependencyWork)
+					Expect(err).ToNot(HaveOccurred())
+
+					Expect(k8sClient.List(context.Background(), &workPlacements)).To(Succeed())
+
+					Expect(workPlacements.Items).To(HaveLen(3))
+					for _, workPlacement := range workPlacements.Items {
+						Expect(workPlacement.Spec.Workloads).To(ConsistOf(
+							Workload{Content: "key: value"},
+							Workload{Content: "fake: new-content"},
+						))
+					}
 				})
+
+				When("Work is updated to no longer match a previous destination", func() {
+					It("marks the old workplacement as orphaned", func() {
+						err := scheduler.ReconcileWork(&dependencyWork)
+						Expect(err).ToNot(HaveOccurred())
+
+						Expect(k8sClient.List(context.Background(), &workPlacements)).To(Succeed())
+						Expect(len(workPlacements.Items)).To(Equal(3))
+						for _, workPlacement := range workPlacements.Items {
+							Expect(workPlacement.Spec.Workloads).To(ConsistOf(Workload{
+								Content: "key: value",
+							}))
+						}
+
+						dependencyWork.Spec.DestinationSelectors = v1alpha1.WorkScheduling{
+							Promise: []Selector{
+								{
+									MatchLabels: map[string]string{"environment": "dev"},
+								},
+							},
+						}
+
+						err = scheduler.ReconcileWork(&dependencyWork)
+						Expect(err).ToNot(HaveOccurred())
+
+						Expect(k8sClient.List(context.Background(), &workPlacements)).To(Succeed())
+
+						Expect(workPlacements.Items).To(HaveLen(3))
+						Expect(workPlacements.Items[0].GetLabels()).NotTo(HaveKey("kratix.io/orphaned"))
+						Expect(workPlacements.Items[1].GetLabels()).NotTo(HaveKey("kratix.io/orphaned"))
+						Expect(workPlacements.Items[2].GetLabels()).To(HaveKey("kratix.io/orphaned"))
+						Expect(workPlacements.Items[2].GetLabels()["kratix.io/orphaned"]).To(Equal("true"))
+					})
+				})
+
 			})
 
 			When("the Work matches a single Destination", func() {

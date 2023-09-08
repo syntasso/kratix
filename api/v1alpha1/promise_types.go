@@ -17,6 +17,13 @@ limitations under the License.
 package v1alpha1
 
 import (
+	"bytes"
+	"encoding/json"
+	"fmt"
+	"io"
+
+	"gopkg.in/yaml.v2"
+	v1 "k8s.io/apiextensions-apiserver/pkg/apis/apiextensions/v1"
 	metav1 "k8s.io/apimachinery/pkg/apis/meta/v1"
 	"k8s.io/apimachinery/pkg/apis/meta/v1/unstructured"
 	"k8s.io/apimachinery/pkg/labels"
@@ -44,7 +51,7 @@ type PromiseSpec struct {
 
 	Workflows Workflows `json:"workflows,omitempty"`
 
-	Dependencies []Dependency `json:"dependencies,omitempty"`
+	Dependencies Dependencies `json:"dependencies,omitempty"`
 
 	DestinationSelectors []Selector `json:"destinationSelectors,omitempty"`
 }
@@ -60,6 +67,8 @@ type WorkflowTriggers struct {
 	Delete []unstructured.Unstructured `json:"delete,omitempty"`
 }
 
+type Dependencies []Dependency
+
 // Resources represents the manifest workload to be deployed on Destinations
 type Dependency struct {
 	// Manifests represents a list of resources to be deployed on the Destination
@@ -74,7 +83,7 @@ type Selector struct {
 
 // PromiseStatus defines the observed state of Promise
 type PromiseStatus struct {
-	// Important: Run "make" to regenerate code after modifying this file
+	ObservedGeneration int64 `json:"observedGeneration,omitempty"`
 }
 
 //+kubebuilder:object:root=true
@@ -110,6 +119,19 @@ func (p *Promise) DoesNotContainAPI() bool {
 	return p.Spec.API.Raw == nil
 }
 
+func (p *Promise) GetAPIAsCRD() (*v1.CustomResourceDefinition, error) {
+	if p.DoesNotContainAPI() {
+		return nil, fmt.Errorf("promise does not contain an API")
+	}
+
+	crd := v1.CustomResourceDefinition{}
+	if err := json.Unmarshal(p.Spec.API.Raw, &crd); err != nil {
+		return nil, fmt.Errorf("api.metadata.name is immutable")
+	}
+
+	return &crd, nil
+}
+
 func (p *Promise) ContainsAPI() bool {
 	return !p.DoesNotContainAPI()
 }
@@ -130,6 +152,19 @@ func (p *Promise) GetPipelineResourceName() string {
 
 func (p *Promise) GetPipelineResourceNamespace() string {
 	return "default"
+}
+
+func (d Dependencies) Marshal() ([]byte, error) {
+	buf := new(bytes.Buffer)
+	encoder := yaml.NewEncoder(buf)
+	for _, workload := range d {
+		err := encoder.Encode(workload.Unstructured.Object)
+		if err != nil {
+			return nil, err
+		}
+	}
+
+	return io.ReadAll(buf)
 }
 
 //+kubebuilder:object:root=true

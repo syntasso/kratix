@@ -73,6 +73,10 @@ spec:
             type: object
           status:
             description: PromiseStatus defines the observed state of Promise
+            properties:
+              observedGeneration:
+                format: int64
+                type: integer
             type: object
         type: object
     served: true

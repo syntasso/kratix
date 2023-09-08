@@ -17,18 +17,16 @@ limitations under the License.
 package controllers
 
 import (
-	"bytes"
 	"context"
 	"encoding/json"
 	"fmt"
-	"io"
 	"time"
 
-	"gopkg.in/yaml.v2"
 	controllerutil "sigs.k8s.io/controller-runtime/pkg/controller/controllerutil"
 
 	"github.com/go-logr/logr"
 	"github.com/syntasso/kratix/api/v1alpha1"
+	"github.com/syntasso/kratix/lib/resourceutil"
 	v1 "k8s.io/api/core/v1"
 	rbacv1 "k8s.io/api/rbac/v1"
 	apiextensionsv1 "k8s.io/apiextensions-apiserver/pkg/apis/apiextensions/v1"
@@ -48,7 +46,7 @@ type PromiseReconciler struct {
 	ApiextensionsClient       *clientset.Clientset
 	Log                       logr.Logger
 	Manager                   ctrl.Manager
-	StartedDynamicControllers map[string]*bool
+	StartedDynamicControllers map[string]*dynamicResourceRequestController
 }
 
 const (
@@ -78,17 +76,20 @@ var (
 //+kubebuilder:rbac:groups=platform.kratix.io,resources=promises,verbs=get;list;watch;create;update;patch;delete
 //+kubebuilder:rbac:groups=platform.kratix.io,resources=promises/status,verbs=get;update;patch
 //+kubebuilder:rbac:groups=platform.kratix.io,resources=promises/finalizers,verbs=update
-//+kubebuilder:rbac:groups="",resources=configmaps,verbs=create;list;watch;delete
+//+kubebuilder:rbac:groups="",resources=configmaps,verbs=create;update;list;watch;delete
 
-//+kubebuilder:rbac:groups=rbac.authorization.k8s.io,resources=clusterroles,verbs=create;escalate;bind;list;get;delete;watch
-//+kubebuilder:rbac:groups=rbac.authorization.k8s.io,resources=clusterrolebindings,verbs=create;list;get;delete;watch
-//+kubebuilder:rbac:groups=rbac.authorization.k8s.io,resources=roles,verbs=create;escalate;bind;list;get;delete;watch
-//+kubebuilder:rbac:groups=rbac.authorization.k8s.io,resources=rolebindings,verbs=create;list;get;delete;watch
-//+kubebuilder:rbac:groups="",resources=serviceaccounts,verbs=create;list;get;watch;delete
+//+kubebuilder:rbac:groups=rbac.authorization.k8s.io,resources=clusterroles,verbs=create;update;escalate;bind;list;get;delete;watch
+//+kubebuilder:rbac:groups=rbac.authorization.k8s.io,resources=clusterrolebindings,verbs=create;update;list;get;delete;watch
+//+kubebuilder:rbac:groups=rbac.authorization.k8s.io,resources=roles,verbs=create;update;escalate;bind;list;get;delete;watch
+//+kubebuilder:rbac:groups=rbac.authorization.k8s.io,resources=rolebindings,verbs=create;update;list;get;delete;watch
+//+kubebuilder:rbac:groups="",resources=serviceaccounts,verbs=create;update;list;get;watch;delete
 
 //+kubebuilder:rbac:groups=apiextensions.k8s.io,resources=customresourcedefinitions,verbs=get;list;watch;create;update;patch;delete
 
 func (r *PromiseReconciler) Reconcile(ctx context.Context, req ctrl.Request) (ctrl.Result, error) {
+	if r.StartedDynamicControllers == nil {
+		r.StartedDynamicControllers = make(map[string]*dynamicResourceRequestController)
+	}
 	promise := &v1alpha1.Promise{}
 	err := r.Client.Get(ctx, req.NamespacedName, promise)
 	if err != nil {
@@ -114,9 +115,9 @@ func (r *PromiseReconciler) Reconcile(ctx context.Context, req ctrl.Request) (ct
 			return ctrl.Result{}, err
 		}
 
-		exists := r.ensureCRDExists(ctx, rrCRD, rrGVK, logger)
-		if !exists {
-			return defaultRequeue, nil
+		err := r.ensureCRDExists(ctx, rrCRD, rrGVK, logger)
+		if err != nil {
+			return ctrl.Result{}, err
 		}
 
 		if doesNotContainFinalizer(promise, crdCleanupFinalizer) {
@@ -133,7 +134,7 @@ func (r *PromiseReconciler) Reconcile(ctx context.Context, req ctrl.Request) (ct
 		}
 	}
 
-	if err := r.createWorkResourceForDependencies(ctx, promise, logger); err != nil {
+	if err := r.applyWorkResourceForDependencies(ctx, promise, logger); err != nil {
 		logger.Error(err, "Error creating Works")
 		return ctrl.Result{}, err
 	}
@@ -161,13 +162,52 @@ func (r *PromiseReconciler) Reconcile(ctx context.Context, req ctrl.Request) (ct
 		return addFinalizers(ctx, r.Client, promise, []string{resourceRequestCleanupFinalizer}, logger)
 	}
 
+	if promise.GetGeneration() != promise.Status.ObservedGeneration {
+		if err := r.reconcileAllRRs(rrGVK); err != nil {
+			return ctrl.Result{}, err
+		}
+		promise.Status.ObservedGeneration = promise.GetGeneration()
+		return ctrl.Result{}, r.Client.Status().Update(ctx, promise)
+	}
+
 	return ctrl.Result{}, nil
+}
+
+func (r *PromiseReconciler) reconcileAllRRs(rrGVK schema.GroupVersionKind) error {
+	//label all rr with manual reocnciliation
+	rrs := &unstructured.UnstructuredList{}
+	rrListGVK := rrGVK
+	rrListGVK.Kind = rrListGVK.Kind + "List"
+	rrs.SetGroupVersionKind(rrListGVK)
+	err := r.Client.List(context.Background(), rrs)
+	if err != nil {
+		return err
+	}
+	for _, rr := range rrs.Items {
+		newLabels := rr.GetLabels()
+		if newLabels == nil {
+			newLabels = make(map[string]string)
+		}
+		newLabels[resourceutil.ManualReconciliationLabel] = "true"
+		rr.SetLabels(newLabels)
+		if err := r.Client.Update(context.TODO(), &rr); err != nil {
+			return err
+		}
+	}
+	return nil
 }
 
 func (r *PromiseReconciler) ensureDynamicControllerIsStarted(promise *v1alpha1.Promise, rrCRD *apiextensionsv1.CustomResourceDefinition, rrGVK schema.GroupVersionKind, configurePipelines, deletePipelines []v1alpha1.Pipeline, logger logr.Logger) error {
 	// The Dynamic Controller needs to be started once and only once.
 	if r.dynamicControllerHasAlreadyStarted(promise) {
 		logger.Info("dynamic controller already started")
+
+		dynamicController := r.StartedDynamicControllers[string(promise.GetUID())]
+		dynamicController.deletePipelines = deletePipelines
+		dynamicController.configurePipelines = configurePipelines
+		dynamicController.gvk = &rrGVK
+		dynamicController.crd = rrCRD
+
 		return nil
 	}
 	logger.Info("starting dynamic controller")
@@ -175,21 +215,20 @@ func (r *PromiseReconciler) ensureDynamicControllerIsStarted(promise *v1alpha1.P
 	//temporary fix until https://github.com/kubernetes-sigs/controller-runtime/issues/1884 is resolved
 	//once resolved, delete dynamic controller rather than disable
 	enabled := true
-	r.StartedDynamicControllers[string(promise.GetUID())] = &enabled
-
 	dynamicResourceRequestController := &dynamicResourceRequestController{
 		Client:                      r.Manager.GetClient(),
 		scheme:                      r.Manager.GetScheme(),
 		gvk:                         &rrGVK,
 		crd:                         rrCRD,
 		promiseIdentifier:           promise.GetName(),
-		promiseDestinationSelectors: promise.Spec.DestinationSelectors,
 		configurePipelines:          configurePipelines,
 		deletePipelines:             deletePipelines,
+		promiseDestinationSelectors: promise.Spec.DestinationSelectors,
 		log:                         r.Log.WithName(promise.GetName()),
 		uid:                         string(promise.GetUID())[0:5],
 		enabled:                     &enabled,
 	}
+	r.StartedDynamicControllers[string(promise.GetUID())] = dynamicResourceRequestController
 
 	unstructuredCRD := &unstructured.Unstructured{}
 	unstructuredCRD.SetGroupVersionKind(rrGVK)
@@ -254,7 +293,7 @@ func (r *PromiseReconciler) createResourcesForDynamicControllerIfTheyDontExist(c
 		Subjects: []rbacv1.Subject{
 			{
 				Kind:      "ServiceAccount",
-				Namespace: KratixSystemNamespace,
+				Namespace: v1alpha1.KratixSystemNamespace,
 				Name:      "kratix-platform-controller-manager",
 			},
 		},
@@ -277,7 +316,7 @@ func (r *PromiseReconciler) createResourcesForDynamicControllerIfTheyDontExist(c
 }
 
 func (r *PromiseReconciler) ensureCRDExists(ctx context.Context, rrCRD *apiextensionsv1.CustomResourceDefinition,
-	rrGVK schema.GroupVersionKind, logger logr.Logger) bool {
+	rrGVK schema.GroupVersionKind, logger logr.Logger) error {
 
 	_, err := r.ApiextensionsClient.ApiextensionsV1().
 		CustomResourceDefinitions().
@@ -286,13 +325,25 @@ func (r *PromiseReconciler) ensureCRDExists(ctx context.Context, rrCRD *apiexten
 		if errors.IsAlreadyExists(err) {
 			//todo test for existence and handle gracefully.
 			logger.Info("CRD already exists", "crdName", rrCRD.Name)
+			existingCRD, err := r.ApiextensionsClient.ApiextensionsV1().CustomResourceDefinitions().Get(ctx, rrCRD.GetName(), metav1.GetOptions{})
+			if err != nil {
+				return err
+			}
+
+			existingCRD.Spec.Versions = rrCRD.Spec.Versions
+			existingCRD.Spec.Conversion = rrCRD.Spec.Conversion
+			existingCRD.Spec.PreserveUnknownFields = rrCRD.Spec.PreserveUnknownFields
+			_, err = r.ApiextensionsClient.ApiextensionsV1().CustomResourceDefinitions().Update(ctx, existingCRD, metav1.UpdateOptions{})
+			if err != nil {
+				return err
+			}
 		} else {
 			logger.Error(err, "Error creating crd")
 		}
 	}
 
 	_, err = r.Manager.GetRESTMapper().RESTMapping(rrGVK.GroupKind(), rrGVK.Version)
-	return err == nil
+	return err
 }
 
 func (r *PromiseReconciler) deletePromise(ctx context.Context, promise *v1alpha1.Promise, logger logr.Logger) (ctrl.Result, error) {
@@ -311,8 +362,9 @@ func (r *PromiseReconciler) deletePromise(ctx context.Context, promise *v1alpha1
 
 	//temporary fix until https://github.com/kubernetes-sigs/controller-runtime/issues/1884 is resolved
 	//once resolved, delete dynamic controller rather than disable
-	if enabled, exists := r.StartedDynamicControllers[string(promise.GetUID())]; exists {
-		*enabled = false
+	if d, exists := r.StartedDynamicControllers[string(promise.GetUID())]; exists {
+		enabled := false
+		d.enabled = &enabled
 	}
 
 	if controllerutil.ContainsFinalizer(promise, dynamicControllerDependantResourcesCleaupFinalizer) {
@@ -459,9 +511,17 @@ func generateCRDAndGVK(promise *v1alpha1.Promise, logger logr.Logger) (*apiexten
 
 	setStatusFieldsOnCRD(rrCRD)
 
+	storedVersion := rrCRD.Spec.Versions[0]
+	for _, version := range rrCRD.Spec.Versions {
+		if version.Storage {
+			storedVersion = version
+			break
+		}
+	}
+
 	rrGVK = schema.GroupVersionKind{
 		Group:   rrCRD.Spec.Group,
-		Version: rrCRD.Spec.Versions[0].Name,
+		Version: storedVersion.Name,
 		Kind:    rrCRD.Spec.Names.Kind,
 	}
 
@@ -469,100 +529,77 @@ func generateCRDAndGVK(promise *v1alpha1.Promise, logger logr.Logger) (*apiexten
 }
 
 func setStatusFieldsOnCRD(rrCRD *apiextensionsv1.CustomResourceDefinition) {
-	rrCRD.Spec.Versions[0].Subresources = &apiextensionsv1.CustomResourceSubresources{
-		Status: &apiextensionsv1.CustomResourceSubresourceStatus{},
-	}
+	for i := range rrCRD.Spec.Versions {
+		rrCRD.Spec.Versions[i].Subresources = &apiextensionsv1.CustomResourceSubresources{
+			Status: &apiextensionsv1.CustomResourceSubresourceStatus{},
+		}
 
-	rrCRD.Spec.Versions[0].AdditionalPrinterColumns = []apiextensionsv1.CustomResourceColumnDefinition{
-		apiextensionsv1.CustomResourceColumnDefinition{
-			Name:     "status",
-			Type:     "string",
-			JSONPath: ".status.message",
-		},
-	}
-
-	rrCRD.Spec.Versions[0].Schema.OpenAPIV3Schema.Properties["status"] = apiextensionsv1.JSONSchemaProps{
-		Type:                   "object",
-		XPreserveUnknownFields: &[]bool{true}[0], // pointer to bool
-		Properties: map[string]apiextensionsv1.JSONSchemaProps{
-			"message": {
-				Type: "string",
+		rrCRD.Spec.Versions[i].AdditionalPrinterColumns = []apiextensionsv1.CustomResourceColumnDefinition{
+			{
+				Name:     "status",
+				Type:     "string",
+				JSONPath: ".status.message",
 			},
-			"conditions": {
-				Type: "array",
-				Items: &apiextensionsv1.JSONSchemaPropsOrArray{
-					Schema: &apiextensionsv1.JSONSchemaProps{
-						Type: "object",
-						Properties: map[string]apiextensionsv1.JSONSchemaProps{
-							"lastTransitionTime": {
-								Type:   "string",
-								Format: "datetime", //RFC3339
-							},
-							"message": {
-								Type: "string",
-							},
-							"reason": {
-								Type: "string",
-							},
-							"status": {
-								Type: "string",
-							},
-							"type": {
-								Type: "string",
+		}
+
+		rrCRD.Spec.Versions[i].Schema.OpenAPIV3Schema.Properties["status"] = apiextensionsv1.JSONSchemaProps{
+			Type:                   "object",
+			XPreserveUnknownFields: &[]bool{true}[0], // pointer to bool
+			Properties: map[string]apiextensionsv1.JSONSchemaProps{
+				"message": {
+					Type: "string",
+				},
+				"conditions": {
+					Type: "array",
+					Items: &apiextensionsv1.JSONSchemaPropsOrArray{
+						Schema: &apiextensionsv1.JSONSchemaProps{
+							Type: "object",
+							Properties: map[string]apiextensionsv1.JSONSchemaProps{
+								"lastTransitionTime": {
+									Type:   "string",
+									Format: "datetime", //RFC3339
+								},
+								"message": {
+									Type: "string",
+								},
+								"reason": {
+									Type: "string",
+								},
+								"status": {
+									Type: "string",
+								},
+								"type": {
+									Type: "string",
+								},
 							},
 						},
 					},
 				},
 			},
-		},
+		}
 	}
 }
 
-func (r *PromiseReconciler) createWorkResourceForDependencies(ctx context.Context, promise *v1alpha1.Promise, logger logr.Logger) error {
-	work := &v1alpha1.Work{}
-	work.Name = promise.GetName()
-	work.Namespace = KratixSystemNamespace
-	work.Labels = promise.GenerateSharedLabels()
-	work.Spec.Replicas = v1alpha1.DependencyReplicas
-	work.Spec.DestinationSelectors.Promise = promise.Spec.DestinationSelectors
-	work.Spec.PromiseName = promise.GetName()
-
-	yamlBytes, err := convertDependenciesToYAML(promise)
+func (r *PromiseReconciler) applyWorkResourceForDependencies(ctx context.Context, promise *v1alpha1.Promise, logger logr.Logger) error {
+	work, err := v1alpha1.NewPromiseDependenciesWork(promise)
 	if err != nil {
 		return err
 	}
 
-	work.Spec.Workloads = []v1alpha1.Workload{
-		{
-			Content:  string(yamlBytes),
-			Filepath: "static/dependencies.yaml",
-		},
-	}
+	workCopy := work.DeepCopy()
 
-	logger.Info("Creating Work resource for Promise")
-	err = r.Client.Create(ctx, work)
+	op, err := controllerutil.CreateOrUpdate(ctx, r.Client, work, func() error {
+		work.ObjectMeta.Labels = workCopy.ObjectMeta.Labels
+		work.Spec = workCopy.Spec
+		return nil
+	})
+
 	if err != nil {
-		if errors.IsAlreadyExists(err) {
-			logger.Info("Work already exist", "workName", work.Name)
-			return nil
-		}
 		return err
 	}
 
+	logger.Info("resource reconciled", "operation", op, "namespace", work.GetNamespace(), "name", work.GetName(), "gvk", work.GroupVersionKind())
 	return nil
-}
-
-func convertDependenciesToYAML(promise *v1alpha1.Promise) ([]byte, error) {
-	buf := new(bytes.Buffer)
-	encoder := yaml.NewEncoder(buf)
-	for _, workload := range promise.Spec.Dependencies {
-		err := encoder.Encode(workload.Unstructured.Object)
-		if err != nil {
-			return nil, err
-		}
-	}
-
-	return io.ReadAll(buf)
 }
 
 func (r *PromiseReconciler) generatePipelines(promise *v1alpha1.Promise, logger logr.Logger) ([]v1alpha1.Pipeline, []v1alpha1.Pipeline, error) {
@@ -596,7 +633,6 @@ func generatePipeline(pipeline unstructured.Unstructured, logger logr.Logger) (v
 
 	if pipeline.GetKind() == "Pipeline" && pipeline.GetAPIVersion() == "platform.kratix.io/v1alpha1" {
 		jsonPipeline, err := pipeline.MarshalJSON()
-		pipelineLogger.Info("json", "json", string(jsonPipeline))
 		if err != nil {
 			// TODO test
 			pipelineLogger.Error(err, "Failed marshalling pipeline to json")

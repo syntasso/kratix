@@ -64,6 +64,7 @@ func main() {
 	}))
 
 	config := ctrl.GetConfigOrDie()
+	apiextensionsClient := clientset.NewForConfigOrDie(config)
 	mgr, err := ctrl.NewManager(config, ctrl.Options{
 		Scheme:                 scheme.Scheme,
 		MetricsBindAddress:     metricsAddr,
@@ -83,11 +84,10 @@ func main() {
 	}
 
 	if err = (&controllers.PromiseReconciler{
-		ApiextensionsClient:       clientset.NewForConfigOrDie(config),
-		Client:                    mgr.GetClient(),
-		Log:                       ctrl.Log.WithName("controllers").WithName("Promise"),
-		Manager:                   mgr,
-		StartedDynamicControllers: map[string]*bool{},
+		ApiextensionsClient: apiextensionsClient,
+		Client:              mgr.GetClient(),
+		Log:                 ctrl.Log.WithName("controllers").WithName("Promise"),
+		Manager:             mgr,
 	}).SetupWithManager(mgr); err != nil {
 		setupLog.Error(err, "unable to create controller", "controller", "Promise")
 		os.Exit(1)
@@ -113,6 +113,10 @@ func main() {
 		Log:    ctrl.Log.WithName("controllers").WithName("WorkPlacementController"),
 	}).SetupWithManager(mgr); err != nil {
 		setupLog.Error(err, "unable to create controller", "controller", "WorkPlacement")
+		os.Exit(1)
+	}
+	if err = (&platformv1alpha1.Promise{}).SetupWebhookWithManager(mgr, apiextensionsClient); err != nil {
+		setupLog.Error(err, "unable to create webhook", "webhook", "Promise")
 		os.Exit(1)
 	}
 	//+kubebuilder:scaffold:builder

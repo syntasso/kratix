@@ -22,19 +22,24 @@ DOCKER_BUILDKIT="${DOCKER_BUILDKIT:-1}"
 WAIT_TIMEOUT="180s"
 KIND_IMAGE="${KIND_IMAGE:-"kindest/node:v1.27.3"}"
 
+WITH_CERT_MANAGER=true
+CERT_MANAGER_DIST=https://github.com/cert-manager/cert-manager/releases/download/v1.12.0/cert-manager.yaml
+ENABLE_WEBHOOKS=true
+
 LABELS=true
 
 usage() {
     echo -e "Usage: quick-start.sh [--help] [--recreate] [--local] [--git] [--git-and-minio] [--local-images <location>]"
-    echo -e "\t--help, -h            Prints this message"
-    echo -e "\t--recreate, -r        Deletes pre-existing KinD clusters"
-    echo -e "\t--local, -l           Build and load Kratix images to KinD cache"
-    echo -e "\t--local-images, -i    Load container images from a local directory into the KinD clusters"
-    echo -e "\t--git, -g             Use Gitea as local repository in place of default local MinIO"
-    echo -e "\t--single-cluster, -s  Deploy Kratix on a Single cluster setup"
-    echo -e "\t--third-cluster, -t   Deploy Kratix with a three cluster setup"
-    echo -e "\t--git-and-minio, -d   Install Gitea alongside the minio installation. Destinations still uses minio as statestore. Can't be used alongside --git"
-    echo -e "\t--no-labels, -n       Don't apply any labels to the KinD clusters"
+    echo -e "\t--help, -h               Prints this message"
+    echo -e "\t--recreate, -r           Deletes pre-existing KinD clusters"
+    echo -e "\t--local, -l              Build and load Kratix images to KinD cache"
+    echo -e "\t--local-images, -i       Load container images from a local directory into the KinD clusters"
+    echo -e "\t--git, -g                Use Gitea as local repository in place of default local MinIO"
+    echo -e "\t--single-cluster, -s     Deploy Kratix on a Single cluster setup"
+    echo -e "\t--third-cluster, -t      Deploy Kratix with a three cluster setup"
+    echo -e "\t--git-and-minio, -d      Install Gitea alongside the minio installation. Destinations still uses minio as statestore. Can't be used alongside --git"
+    echo -e "\t--no-cert-manager        Don't install cert-manager"
+    echo -e "\t--no-labels, -n          Don't apply any labels to the KinD clusters"
     exit "${1:-0}"
 }
 
@@ -42,16 +47,17 @@ load_options() {
     for arg in "$@"; do
       shift
       case "$arg" in
-        '--help')           set -- "$@" '-h'   ;;
-        '--recreate')       set -- "$@" '-r'   ;;
-        '--local')          set -- "$@" '-l'   ;;
-        '--git')            set -- "$@" '-g'   ;;
-        '--git-and-minio')  set -- "$@" '-d'   ;;
-        '--local-images')   set -- "$@" '-i'   ;;
-        '--no-labels')      set -- "$@" '-n'   ;;
-        '--single-cluster') set -- "$@" '-s'   ;;
-        '--third-cluster')  set -- "$@" '-t'   ;;
-        *)                  set -- "$@" "$arg" ;;
+        '--help')              set -- "$@" '-h'   ;;
+        '--recreate')          set -- "$@" '-r'   ;;
+        '--local')             set -- "$@" '-l'   ;;
+        '--git')               set -- "$@" '-g'   ;;
+        '--git-and-minio')     set -- "$@" '-d'   ;;
+        '--local-images')      set -- "$@" '-i'   ;;
+        '--no-labels')         set -- "$@" '-n'   ;;
+        '--single-cluster')    set -- "$@" '-s'   ;;
+        '--third-cluster')     set -- "$@" '-t'   ;;
+        '--no-cert-manager')   WITH_CERT_MANAGER=false ;;
+        *)                     set -- "$@" "$arg" ;;
       esac
     done
 
@@ -191,6 +197,13 @@ patch_statestore() {
 }
 
 setup_platform_destination() {
+    if ${WITH_CERT_MANAGER}; then
+        kubectl --context kind-platform apply --filename ${CERT_MANAGER_DIST}
+        kubectl --context kind-platform wait --for condition=available -n cert-manager deployment/cert-manager --timeout 60s
+        kubectl --context kind-platform wait --for condition=available -n cert-manager deployment/cert-manager-cainjector --timeout 60s
+        kubectl --context kind-platform wait --for condition=available -n cert-manager deployment/cert-manager-webhook --timeout 60s
+    fi
+
     if ${INSTALL_AND_CREATE_GITEA_REPO}; then
         kubectl --context kind-platform apply --filename "${ROOT}/hack/platform/gitea-install.yaml"
     fi

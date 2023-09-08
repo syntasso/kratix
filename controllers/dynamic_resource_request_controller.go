@@ -32,6 +32,7 @@ import (
 	"github.com/syntasso/kratix/lib/resourceutil"
 	batchv1 "k8s.io/api/batch/v1"
 	corev1 "k8s.io/api/core/v1"
+
 	"k8s.io/apimachinery/pkg/api/errors"
 	"k8s.io/apimachinery/pkg/apis/meta/v1/unstructured"
 	"k8s.io/apimachinery/pkg/runtime"
@@ -55,7 +56,6 @@ type dynamicResourceRequestController struct {
 	gvk                         *schema.GroupVersionKind
 	scheme                      *runtime.Scheme
 	promiseIdentifier           string
-	promiseDestinationSelectors []v1alpha1.Selector
 	configurePipelines          []v1alpha1.Pipeline
 	deletePipelines             []v1alpha1.Pipeline
 	log                         logr.Logger
@@ -63,6 +63,7 @@ type dynamicResourceRequestController struct {
 	uid                         string
 	enabled                     *bool
 	crd                         *apiextensionsv1.CustomResourceDefinition
+	promiseDestinationSelectors []v1alpha1.Selector
 }
 
 //+kubebuilder:rbac:groups="batch",resources=jobs,verbs=create;list;watch;delete
@@ -119,17 +120,24 @@ func (r *dynamicResourceRequestController) Reconcile(ctx context.Context, req ct
 		return slowRequeue, nil
 	}
 
-	found, err := resourceutil.PipelineForRequestExists(logger, rr, pipelineJobs)
+	pipelineAlreadyExists, err := resourceutil.PipelineForRequestExists(logger, rr, pipelineJobs)
 	if err != nil {
 		return slowRequeue, nil
 	}
 
-	if found {
-		return ctrl.Result{}, nil
+	if isManualReconciliation(rr) || !pipelineAlreadyExists {
+		return r.createConfigurePipeline(ctx, rr, resourceRequestIdentifier, logger)
 	}
 
-	return r.createConfigurePipeline(ctx, rr, resourceRequestIdentifier, logger)
+	return ctrl.Result{}, nil
+}
 
+func isManualReconciliation(rr *unstructured.Unstructured) bool {
+	labels := rr.GetLabels()
+	if labels == nil {
+		return false
+	}
+	return labels[resourceutil.ManualReconciliationLabel] == "true"
 }
 
 func (r *dynamicResourceRequestController) createConfigurePipeline(ctx context.Context, rr *unstructured.Unstructured, rrID string, logger logr.Logger) (ctrl.Result, error) {
@@ -156,19 +164,34 @@ func (r *dynamicResourceRequestController) createConfigurePipeline(ctx context.C
 		return ctrl.Result{}, err
 	}
 
-	logger.Info("Creating Pipeline resources")
+	logger.Info("Reconciling pipeline resources")
+
 	for _, resource := range resources {
-		logger.Info("Creating resource", resource.GetObjectKind().GroupVersionKind().Kind, resource.GetName())
+		logger.Info("Reconciling", resource.GetObjectKind().GroupVersionKind().Kind, resource.GetName())
+
 		if err = r.Client.Create(ctx, resource); err != nil {
 			if errors.IsAlreadyExists(err) {
-				logger.Info("Resource already exists, skipping", resource.GetObjectKind().GroupVersionKind().Kind, resource.GetName())
-				continue
+				logger.Info("Resource already exists, will update", resource.GetObjectKind().GroupVersionKind().Kind, resource.GetName())
+				if err = r.Client.Update(ctx, resource); err == nil {
+					continue
+				}
 			}
-			logger.Error(err, "Error creating resource", resource.GetObjectKind().GroupVersionKind().Kind, resource.GetName())
+
+			logger.Error(err, "Error reconciling on resource", resource.GetObjectKind().GroupVersionKind().Kind, resource.GetName())
 			y, _ := yaml.Marshal(&resource)
 			logger.Error(err, string(y))
+		} else {
+			logger.Info("Resource created", resource.GetObjectKind().GroupVersionKind().Kind, resource.GetName())
 		}
+	}
 
+	if isManualReconciliation(rr) {
+		newLabels := rr.GetLabels()
+		delete(newLabels, resourceutil.ManualReconciliationLabel)
+		rr.SetLabels(newLabels)
+		if err := r.Client.Update(ctx, rr); err != nil {
+			return ctrl.Result{}, err
+		}
 	}
 
 	return ctrl.Result{}, nil
@@ -206,6 +229,8 @@ func (r *dynamicResourceRequestController) deleteResources(ctx context.Context, 
 				return ctrl.Result{}, err
 			}
 		}
+
+		logger.Info("Delete Pipeline not finished", "status", existingDeletePipeline.Status)
 
 		return fastRequeue, nil
 	}

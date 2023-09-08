@@ -69,7 +69,7 @@ func (w *WorkCreator) Execute(rootDirectory, promiseName, namespace, resourceNam
 			logger.Error(err, "Error retrieving Work")
 		}
 
-		currentWork.Spec.Workloads = workloads
+		currentWork.Spec = work.Spec
 		err = w.K8sClient.Update(context.Background(), &currentWork)
 
 		if err != nil {

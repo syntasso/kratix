@@ -14,7 +14,10 @@ import (
 	clusterv1 "sigs.k8s.io/cluster-api/api/v1beta1"
 )
 
-const PipelineCompletedCondition = clusterv1.ConditionType("PipelineCompleted")
+const (
+	PipelineCompletedCondition = clusterv1.ConditionType("PipelineCompleted")
+	ManualReconciliationLabel  = "kratix.io/manual-reconciliation"
+)
 
 func GetPipelineCompletedConditionStatus(obj *unstructured.Unstructured) v1.ConditionStatus {
 	condition := GetCondition(obj, PipelineCompletedCondition)
