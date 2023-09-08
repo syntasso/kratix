@@ -86,23 +86,19 @@ func (r *Scheduler) ReconcileWork(work *platformv1alpha1.Work) error {
 	}
 
 	r.Log.Info("found available target Destinations", "work", work.GetName(), "destinations", targetDestinationNames)
-	err = r.createWorkplacementsForTargetDestinations(work, targetDestinationNames)
+	currentWorkplacements, err := r.applyWorkplacementsForTargetDestinations(work, targetDestinationNames)
 	if err != nil {
 		return err
 	}
 
-	currentWorkplacements, err := r.getExistingWorkplacementsForWork(*work)
-	if err != nil {
-		return err
-	}
-
-	for _, workPlacement := range orphanedWorkPlacements(currentWorkplacements, existingWorkplacements) {
+	for _, workPlacement := range orphanedWorkPlacements(existingWorkplacements, currentWorkplacements) {
 		newLabels := workPlacement.GetLabels()
 		if newLabels == nil {
 			newLabels = make(map[string]string)
 		}
 		newLabels[orphanLabel] = "true"
 		workPlacement.SetLabels(newLabels)
+		r.Log.Info("marking workplacement as orphaned", "namespace", workPlacement.GetNamespace(), "name", workPlacement.GetName())
 		if err := r.Client.Update(context.TODO(), &workPlacement); err != nil {
 			return err
 		}
@@ -153,7 +149,8 @@ func (r *Scheduler) getExistingWorkplacementsForWork(work platformv1alpha1.Work)
 	return workPlacementList.Items, nil
 }
 
-func (r *Scheduler) createWorkplacementsForTargetDestinations(work *platformv1alpha1.Work, targetDestinationNames []string) error {
+func (r *Scheduler) applyWorkplacementsForTargetDestinations(work *platformv1alpha1.Work, targetDestinationNames []string) ([]platformv1alpha1.WorkPlacement, error) {
+	var workPlacements []platformv1alpha1.WorkPlacement
 	for _, targetDestinationName := range targetDestinationNames {
 		workPlacement := &platformv1alpha1.WorkPlacement{}
 		workPlacement.Namespace = work.GetNamespace()
@@ -177,12 +174,13 @@ func (r *Scheduler) createWorkplacementsForTargetDestinations(work *platformv1al
 		})
 
 		if err != nil {
-			return err
+			return nil, err
 		}
+		workPlacements = append(workPlacements, *workPlacement)
 
 		r.Log.Info("workplacement reconciled", "operation", op, "namespace", workPlacement.GetNamespace(), "workplacement", workPlacement.GetName(), "work", work.GetName(), "destination", targetDestinationName)
 	}
-	return nil
+	return workPlacements, nil
 }
 
 // Where Work is a Resource Request return one random Destination name, where Work is a
