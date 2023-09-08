@@ -40,7 +40,7 @@ DEMO_DIR="$( cd $(dirname $0)/.. && pwd)"
 export LPASS_SLACK_URL="dontneedtherealurl"
 
 echo "Creating KinD clusters and installing Kratix"
-./scripts/setup
+./scripts/setup --two-clusters
 
 echo "Installing Promise"
 kubectl create -f app-as-a-service/promise.yaml
