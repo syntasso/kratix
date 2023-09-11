@@ -1,0 +1,21 @@
+apiVersion: platform.kratix.io/v1alpha1
+kind: Promise
+metadata:
+  name: promise-with-workflow
+  namespace: default
+spec:
+  destinationSelectors:
+    - matchLabels:
+        environment: dev
+  workflows:
+    promise:
+      configure:
+        - apiVersion: platform.kratix.io/v1alpha1
+          kind: Pipeline
+          metadata:
+            name: promise-configure
+            namespace: default
+          spec:
+            containers:
+              - image: syntasso/promise-with-workflow:dev
+                name: promise-with-workflow

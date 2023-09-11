@@ -50,13 +50,14 @@ var _ = Context("Promise Reconciler", func() {
 
 		expectedCRDName = "redises.redis.redis.opstreelabs.in"
 
-		requestedResource  *unstructured.Unstructured
-		resourceCommonName types.NamespacedName
-		yamlContent        = map[string]*v1alpha1.Promise{}
+		requestedResource                     *unstructured.Unstructured
+		promiseCommonName, resourceCommonName types.NamespacedName
+		yamlContent                           = map[string]*v1alpha1.Promise{}
 	)
 
 	const (
-		RedisPromisePath = "../config/samples/redis/redis-promise.yaml"
+		RedisPromisePath    = "../config/samples/redis/redis-promise.yaml"
+		promiseWithWorkflow = "assets/promise-with-workflow.yaml"
 	)
 
 	applyPromise := func(promisePath string) {
@@ -158,6 +159,99 @@ var _ = Context("Promise Reconciler", func() {
 				Eventually(func() error {
 					return k8sClient.Get(ctx, workNamespacedName, &v1alpha1.Work{})
 				}, timeout, interval).Should(Succeed())
+			})
+
+			When("the promise has a configure workflow", func() {
+				BeforeEach(func() {
+					applyPromise(promiseWithWorkflow)
+					promiseCommonLabels = map[string]string{
+						"kratix-promise-id": promiseCR.GetName(),
+					}
+
+					promiseCommonName = types.NamespacedName{
+						Name:      promiseCR.GetName() + "-promise-pipeline",
+						Namespace: "kratix-platform-system",
+					}
+				})
+
+				It("creates a service account for pipeline", func() {
+					sa := &v1.ServiceAccount{}
+					Eventually(func() error {
+						return k8sClient.Get(ctx, promiseCommonName, sa)
+					}, timeout, interval).Should(Succeed(), "Expected SA for pipeline to exist")
+
+					Expect(sa.GetLabels()).To(Equal(promiseCommonLabels))
+				})
+
+				It("creates a role for the pipeline service account", func() {
+					role := &rbacv1.Role{}
+					Eventually(func() error {
+						return k8sClient.Get(ctx, promiseCommonName, role)
+					}, timeout, interval).Should(Succeed(), "Expected Role for pipeline to exist")
+
+					Expect(role.GetLabels()).To(Equal(promiseCommonLabels))
+					Expect(role.Rules).To(ConsistOf(
+						rbacv1.PolicyRule{
+							Verbs:     []string{"get", "update", "create", "patch"},
+							APIGroups: []string{"platform.kratix.io"},
+							Resources: []string{"works"},
+						},
+					))
+					Expect(role.GetLabels()).To(Equal(promiseCommonLabels))
+				})
+
+				It("associates the new role with the new service account", func() {
+					binding := &rbacv1.RoleBinding{}
+					Eventually(func() error {
+						return k8sClient.Get(ctx, promiseCommonName, binding)
+					}, timeout, interval).Should(Succeed(), "Expected RoleBinding for pipeline to exist")
+					Expect(binding.RoleRef.Name).To(Equal(promiseCommonName.Name))
+					Expect(binding.Subjects).To(HaveLen(1))
+					Expect(binding.Subjects[0]).To(Equal(rbacv1.Subject{
+						Kind:      "ServiceAccount",
+						Namespace: requestedResource.GetNamespace(),
+						Name:      promiseCommonName.Name,
+					}))
+					Expect(binding.GetLabels()).To(Equal(promiseCommonLabels))
+				})
+
+				It("creates a config map with the promise scheduling in it", func() {
+					configMap := &v1.ConfigMap{}
+					configMapName := types.NamespacedName{
+						Name:      "destination-selectors-" + promiseCR.GetName(),
+						Namespace: "default",
+					}
+					Eventually(func() error {
+						return k8sClient.Get(ctx, configMapName, configMap)
+					}, timeout, interval).Should(Succeed(), "Expected ConfigMap for pipeline to exist")
+					Expect(configMap.GetLabels()).To(Equal(promiseCommonLabels))
+					Expect(configMap.Data).To(HaveKey("destinationSelectors"))
+					space := regexp.MustCompile(`\s+`)
+					destinationSelectors := space.ReplaceAllString(configMap.Data["destinationSelectors"], " ")
+					Expect(strings.TrimSpace(destinationSelectors)).To(Equal(`- matchlabels: environment: dev`))
+				})
+
+				It("adds finalizers to the Promise", func() {
+					promise := &v1alpha1.Promise{}
+					expectedPromise := types.NamespacedName{
+						Name: promiseCR.Name,
+					}
+
+					Expect(k8sClient.Get(ctx, expectedPromise, promise)).To(Succeed())
+					Expect(promise.GetFinalizers()).Should(
+						ConsistOf(
+							"kratix.io/dependencies-cleanup",
+						),
+						"Promise should have finalizers set",
+					)
+				})
+
+				It("triggers the promise configure workflow", func() {
+					Eventually(func() int {
+						jobs := getPromiseConfigurePipelineJobs(promiseCR, k8sClient)
+						return len(jobs)
+					}, timeout, interval).Should(Equal(1), "Configure Pipeline never trigerred")
+				})
 			})
 		})
 
@@ -273,7 +367,7 @@ var _ = Context("Promise Reconciler", func() {
 
 			It("triggers the resource configure workflow", func() {
 				Eventually(func() int {
-					jobs := getConfigurePipelineJobs(promiseCR, k8sClient)
+					jobs := getResourceConfigurePipelineJobs(promiseCR, k8sClient)
 					return len(jobs)
 				}, timeout, interval).Should(Equal(1), "Configure Pipeline never trigerred")
 			})
@@ -288,7 +382,7 @@ var _ = Context("Promise Reconciler", func() {
 				completeAllJobs(k8sClient)
 
 				Eventually(func() int {
-					jobs := getConfigurePipelineJobs(promiseCR, k8sClient)
+					jobs := getResourceConfigurePipelineJobs(promiseCR, k8sClient)
 					return len(jobs)
 				}, "60s", interval).Should(Equal(2), "Expected 2 pipeline jobs")
 			})
@@ -679,7 +773,7 @@ var _ = Context("Promise Reconciler", func() {
 
 				// wait for the pipeline
 				Eventually(func() []batchv1.Job {
-					return getConfigurePipelineJobs(promise, k8sClient)
+					return getResourceConfigurePipelineJobs(promise, k8sClient)
 				}, timeout, interval).Should(HaveLen(1), "pipeline never started")
 
 				completeAllJobs(k8sClient)
@@ -704,10 +798,10 @@ var _ = Context("Promise Reconciler", func() {
 			It("retriggers all pipelines with latest changes", func() {
 				// assert the pipeline job has the latest changes
 				Eventually(func() int {
-					return len(getConfigurePipelineJobs(promise, k8sClient))
+					return len(getResourceConfigurePipelineJobs(promise, k8sClient))
 				}, timeout, interval).Should(Equal(2), "pipeline never started")
 
-				jobs := getConfigurePipelineJobs(promise, k8sClient)
+				jobs := getResourceConfigurePipelineJobs(promise, k8sClient)
 				jobContainers := []string{jobs[0].Spec.Template.Spec.InitContainers[1].Image, jobs[1].Spec.Template.Spec.InitContainers[1].Image}
 				Expect(jobContainers).To(ConsistOf("syntasso/kustomize-redis", "new-image"))
 			})
@@ -750,12 +844,26 @@ func getRedisResource(resource *unstructured.Unstructured, k8sClient client.Clie
 	return res
 }
 
-func getConfigurePipelineJobs(promiseCR *v1alpha1.Promise, k8sClient client.Client) []batchv1.Job {
+func getPromiseConfigurePipelineJobs(promiseCR *v1alpha1.Promise, k8sClient client.Client) []batchv1.Job {
 	jobs := &batchv1.JobList{}
 	lo := &client.ListOptions{
 		LabelSelector: labels.SelectorFromSet(map[string]string{
-			"kratix-promise-id":    promiseCR.GetName(),
-			"kratix-pipeline-type": "configure",
+			"kratix-promise-id":        promiseCR.GetName(),
+			"kratix-pipeline-type":     "configure",
+			"kratix-pipeline-workflow": "promise",
+		}),
+	}
+	Expect(k8sClient.List(context.Background(), jobs, lo)).To(Succeed())
+	return jobs.Items
+}
+
+func getResourceConfigurePipelineJobs(promiseCR *v1alpha1.Promise, k8sClient client.Client) []batchv1.Job {
+	jobs := &batchv1.JobList{}
+	lo := &client.ListOptions{
+		LabelSelector: labels.SelectorFromSet(map[string]string{
+			"kratix-promise-id":        promiseCR.GetName(),
+			"kratix-pipeline-type":     "configure",
+			"kratix-pipeline-workflow": "resource",
 		}),
 	}
 	Expect(k8sClient.List(context.Background(), jobs, lo)).To(Succeed())

@@ -40,6 +40,8 @@ func (p pipelineLabels) WithResourceRequestID(resourceRequestID string) pipeline
 }
 
 func (p pipelineLabels) WithPipelineType(pipelineType string) pipelineLabels {
+	//TODO make configurable
+	p["kratix-pipeline-workflow"] = "resource"
 	p["kratix-pipeline-type"] = pipelineType
 	return p
 }

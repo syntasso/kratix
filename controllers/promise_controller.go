@@ -135,10 +135,15 @@ func (r *PromiseReconciler) Reconcile(ctx context.Context, req ctrl.Request) (ct
 		}
 	}
 
+	// if no workflows
 	if err := r.applyWorkResourceForDependencies(ctx, promise, logger); err != nil {
 		logger.Error(err, "Error creating Works")
 		return ctrl.Result{}, err
 	}
+	// else
+	// create pipeline, have a container in the piepline that adds the .spec.dependencies to /kratix/output
+	// have pipeline ignore /kratix/metadata/scheduling.yaml and /kratix/metadata/status.yaml
+	// pipeline just supports writing /kratix/output
 
 	if doesNotContainFinalizer(promise, dependenciesCleanupFinalizer) {
 		return addFinalizers(ctx, r.Client, promise, []string{dependenciesCleanupFinalizer}, logger)
