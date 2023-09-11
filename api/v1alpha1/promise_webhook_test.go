@@ -81,4 +81,18 @@ var _ = Describe("PromiseWebhook", func() {
 			))
 		})
 	})
+
+	When("the promise has no API", func() {
+		It("returns no error", func() {
+			promise := &v1alpha1.Promise{
+				ObjectMeta: metav1.ObjectMeta{
+					Name: "mypromise",
+				},
+				Spec: v1alpha1.PromiseSpec{},
+			}
+			warnings, err := promise.ValidateCreate()
+			Expect(warnings).To(BeEmpty())
+			Expect(err).NotTo(HaveOccurred())
+		})
+	})
 })

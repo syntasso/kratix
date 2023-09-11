@@ -61,8 +61,14 @@ func (p *Promise) Default() {
 var _ webhook.Validator = &Promise{}
 
 func (p *Promise) validateCRD() error {
-	newCrd, _ := p.GetAPIAsCRD()
-	_, err := clientSet.ApiextensionsV1().CustomResourceDefinitions().Create(context.TODO(), newCrd, metav1.CreateOptions{DryRun: []string{metav1.DryRunAll}})
+	newCrd, err := p.GetAPIAsCRD()
+	if err != nil {
+		if err == ErrNoAPI {
+			return nil
+		}
+		return err
+	}
+	_, err = clientSet.ApiextensionsV1().CustomResourceDefinitions().Create(context.TODO(), newCrd, metav1.CreateOptions{DryRun: []string{metav1.DryRunAll}})
 	if err != nil {
 		if errors.IsAlreadyExists(err) {
 			existingCrd, err := clientSet.ApiextensionsV1().CustomResourceDefinitions().Get(context.TODO(), newCrd.Name, metav1.GetOptions{})
