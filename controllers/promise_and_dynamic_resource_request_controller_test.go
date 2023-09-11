@@ -182,7 +182,7 @@ var _ = Context("Promise Reconciler", func() {
 			BeforeEach(func() {
 				requestOnce("../config/samples/redis/redis-resource-request.yaml")
 				resourceCommonName = types.NamespacedName{
-					Name:      promiseCR.GetName() + "-promise-pipeline",
+					Name:      promiseCR.GetName() + "-resource-pipeline",
 					Namespace: "default",
 				}
 

@@ -149,7 +149,7 @@ func (p *Promise) GetControllerResourceName() string {
 }
 
 func (p *Promise) GetPipelineResourceName() string {
-	return p.GetName() + "-promise-pipeline"
+	return p.GetName() + "-resource-pipeline"
 }
 
 func (p *Promise) GetPipelineResourceNamespace() string {

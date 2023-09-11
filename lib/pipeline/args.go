@@ -10,9 +10,9 @@ func NewPipelineArgs(promiseIdentifier, resourceRequestIdentifier, namespace str
 		"delete-pipeline-name":    pipelineName("delete", promiseIdentifier),
 		"promise-id":              promiseIdentifier,
 		"resource-request-id":     resourceRequestIdentifier,
-		"service-account":         promiseIdentifier + "-promise-pipeline",
-		"role":                    promiseIdentifier + "-promise-pipeline",
-		"role-binding":            promiseIdentifier + "-promise-pipeline",
+		"service-account":         promiseIdentifier + "-resource-pipeline",
+		"role":                    promiseIdentifier + "-resource-pipeline",
+		"role-binding":            promiseIdentifier + "-resource-pipeline",
 		"config-map":              "destination-selectors-" + promiseIdentifier,
 		"namespace":               namespace,
 	}
