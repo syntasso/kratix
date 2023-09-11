@@ -20531,7 +20531,7 @@ spec:
   - apiVersion: rbac.authorization.k8s.io/v1
     kind: ClusterRole
     metadata:
-      name: slack-default-promise-pipeline-credentials
+      name: slack-default-resource-pipeline-credentials
       namespace: default
     rules:
     - apiGroups:
@@ -20545,15 +20545,15 @@ spec:
   - apiVersion: rbac.authorization.k8s.io/v1
     kind: ClusterRoleBinding
     metadata:
-      name: slack-default-promise-pipeline-credentials
+      name: slack-default-resource-pipeline-credentials
       namespace: default
     roleRef:
       apiGroup: rbac.authorization.k8s.io
       kind: ClusterRole
-      name: slack-default-promise-pipeline-credentials
+      name: slack-default-resource-pipeline-credentials
     subjects:
     - kind: ServiceAccount
-      name: slack-default-promise-pipeline
+      name: slack-default-resource-pipeline
       namespace: default
   destinationSelectors:
   - matchLabels:
