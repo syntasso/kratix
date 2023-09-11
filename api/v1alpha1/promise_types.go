@@ -99,6 +99,8 @@ type Promise struct {
 	Status PromiseStatus `json:"status,omitempty"`
 }
 
+var ErrNoAPI = fmt.Errorf("promise does not contain an API")
+
 func (p *Promise) GetSchedulingSelectors() map[string]string {
 	return generateLabelSelectorsFromScheduling(p.Spec.DestinationSelectors)
 }
@@ -121,7 +123,7 @@ func (p *Promise) DoesNotContainAPI() bool {
 
 func (p *Promise) GetAPIAsCRD() (*v1.CustomResourceDefinition, error) {
 	if p.DoesNotContainAPI() {
-		return nil, fmt.Errorf("promise does not contain an API")
+		return nil, ErrNoAPI
 	}
 
 	crd := v1.CustomResourceDefinition{}
