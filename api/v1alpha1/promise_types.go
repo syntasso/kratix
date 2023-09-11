@@ -59,6 +59,7 @@ type PromiseSpec struct {
 
 type Workflows struct {
 	Resource WorkflowTriggers `json:"resource,omitempty"`
+	Promise  WorkflowTriggers `json:"promise,omitempty"`
 }
 
 type WorkflowTriggers struct {

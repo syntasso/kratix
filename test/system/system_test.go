@@ -46,7 +46,7 @@ const pipelineTimeout = "--timeout=89s"
 // This test uses a unique Bash Promise which allows us to easily test behaviours
 // in the pipeline.
 //
-// # The promise dependencies has a single resource, the `bash-wcr-namespace` Namespace
+// # The promise dependencies has a single resource, the `bash-dep-namespace` Namespace
 //
 // Below is the template for a RR to this Promise. It provides a hook to run an
 // arbitrary Bash command in each of the two Pipeline containers. An example use
@@ -88,14 +88,15 @@ var _ = Describe("Kratix", func() {
 				platform.kubectl("apply", "-f", promisePath)
 
 				platform.eventuallyKubectl("get", "crd", "bash.test.kratix.io")
-				worker.eventuallyKubectl("get", "namespace", "bash-wcr-namespace")
+				worker.eventuallyKubectl("get", "namespace", "bash-dep-namespace")
+				worker.eventuallyKubectl("get", "namespace", "bash-workflow-namespace-v1alpha1")
 			})
 
 			By("deleting a promise", func() {
 				platform.kubectl("delete", "promise", "bash")
 
 				Eventually(func(g Gomega) {
-					g.Expect(worker.kubectl("get", "namespace")).NotTo(ContainSubstring("bash-wcr-namespace"))
+					g.Expect(worker.kubectl("get", "namespace")).NotTo(ContainSubstring("bash-dep-namespace"))
 					g.Expect(platform.kubectl("get", "promise")).ShouldNot(ContainSubstring("bash"))
 					g.Expect(platform.kubectl("get", "crd")).ShouldNot(ContainSubstring("bash"))
 				}, timeout, interval).Should(Succeed())
@@ -214,7 +215,7 @@ var _ = Describe("Kratix", func() {
 					platform.kubectl("apply", "-f", promisePath)
 
 					platform.eventuallyKubectl("get", "crd", "bash.test.kratix.io")
-					worker.eventuallyKubectl("get", "namespace", "bash-wcr-namespace")
+					worker.eventuallyKubectl("get", "namespace", "bash-dep-namespace")
 				})
 
 				rrName := "rr-test"
@@ -251,10 +252,11 @@ var _ = Describe("Kratix", func() {
 					// Pipeline:
 					//    Extra container to run the 3rd command field
 					// Dependencies:
-					//    Renamed the namespace to bash-wcr-namespace-v1alpha2
+					//    Renamed the namespace to bash-dep-namespace-v1alpha2
 					platform.kubectl("apply", "-f", promiseV1Alpha2Path)
 
-					worker.eventuallyKubectl("get", "namespace", "bash-wcr-namespace-v1alpha2")
+					worker.eventuallyKubectl("get", "namespace", "bash-dep-namespace-v1alpha2")
+					worker.eventuallyKubectl("get", "namespace", "bash-workflow-namespace-v1alpha2")
 					worker.eventuallyKubectl("get", "namespace", "declarative-rr-test")
 					worker.eventuallyKubectl("get", "namespace", "declarative-rr-test-v1alpha2")
 					platform.eventuallyKubectl("get", "namespace", "imperative-rr-test")
@@ -292,13 +294,13 @@ var _ = Describe("Kratix", func() {
 		It("schedules resources to the correct Destinations", func() {
 			By("reconciling on new Destinations", func() {
 				By("only the worker Destination getting the dependency", func() {
-					worker.eventuallyKubectl("get", "namespace", "bash-wcr-namespace")
-					Expect(platform.kubectl("get", "namespace")).NotTo(ContainSubstring("bash-wcr-namespace"))
+					worker.eventuallyKubectl("get", "namespace", "bash-dep-namespace")
+					Expect(platform.kubectl("get", "namespace")).NotTo(ContainSubstring("bash-dep-namespace"))
 				})
 
 				By("labeling the platform Destination, it gets the dependencies assigned", func() {
 					platform.kubectl("label", "destination", "platform-1", "security=high")
-					platform.eventuallyKubectl("get", "namespace", "bash-wcr-namespace")
+					platform.eventuallyKubectl("get", "namespace", "bash-dep-namespace")
 				})
 			})
 
@@ -324,12 +326,12 @@ var _ = Describe("Kratix", func() {
 		It("allows updates to scheduling", func() {
 			By("only the worker Destination getting the dependency initially", func() {
 				Consistently(func() {
-					worker.eventuallyKubectl("get", "namespace", "bash-wcr-namespace")
+					worker.eventuallyKubectl("get", "namespace", "bash-dep-namespace")
 				}, consistentlyTimeout, interval)
 
 				Consistently(func() string {
 					return platform.kubectl("get", "namespace")
-				}, consistentlyTimeout, interval).ShouldNot(ContainSubstring("bash-wcr-namespace"))
+				}, consistentlyTimeout, interval).ShouldNot(ContainSubstring("bash-dep-namespace"))
 			})
 
 			//changes from security: high to environment: platform
@@ -337,10 +339,10 @@ var _ = Describe("Kratix", func() {
 
 			By("scheduling to the new destination and preserving the old orphaned destinations", func() {
 				Consistently(func() {
-					worker.eventuallyKubectl("get", "namespace", "bash-wcr-namespace")
+					worker.eventuallyKubectl("get", "namespace", "bash-dep-namespace")
 				}, consistentlyTimeout, interval)
 				Consistently(func() {
-					platform.eventuallyKubectl("get", "namespace", "bash-wcr-namespace")
+					platform.eventuallyKubectl("get", "namespace", "bash-dep-namespace")
 				}, consistentlyTimeout, interval)
 			})
 		})

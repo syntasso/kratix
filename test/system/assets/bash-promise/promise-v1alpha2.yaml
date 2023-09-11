@@ -83,7 +83,7 @@ spec:
     - apiVersion: v1
       kind: Namespace
       metadata:
-        name: bash-wcr-namespace-v1alpha2
+        name: bash-dep-namespace-v1alpha2
   workflows:
     resource:
       configure:
@@ -110,3 +110,14 @@ spec:
             containers:
               - image: syntassodev/bash-promise-test-c0:dev
                 name: bash-promise-test-c0
+    promise:
+      configure:
+        - apiVersion: platform.kratix.io/v1alpha1
+          kind: Pipeline
+          metadata:
+            name: promise-configure
+            namespace: default
+          spec:
+            containers:
+              - image: syntassodev/bash-promise-configure:v1alpha2
+                name: bash-promise-configure
