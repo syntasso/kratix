@@ -34,7 +34,7 @@ import (
 
 // log is for logging in this package.
 var (
-	promiselog = logf.Log.WithName("promise-resource")
+	promiselog = logf.Log.WithName("promise-webhook")
 	clientSet  clientset.Interface
 )
 
@@ -52,8 +52,6 @@ var _ webhook.Defaulter = &Promise{}
 // Default implements webhook.Defaulter so a webhook will be registered for the type
 func (p *Promise) Default() {
 	promiselog.Info("default", "name", p.Name)
-
-	// TODO(user): fill in your defaulting logic.
 }
 
 //+kubebuilder:webhook:path=/validate-platform-kratix-io-v1alpha1-promise,mutating=false,failurePolicy=fail,sideEffects=None,groups=platform.kratix.io,resources=promises,verbs=create;update,versions=v1alpha1,name=vpromise.kb.io,admissionReviewVersions=v1
@@ -95,7 +93,6 @@ func (p *Promise) ValidateCreate() (admission.Warnings, error) {
 		return nil, err
 	}
 
-	// TODO(user): fill in your validation logic upon object creation.
 	return nil, nil
 }
 
@@ -104,11 +101,17 @@ func (p *Promise) ValidateUpdate(old runtime.Object) (admission.Warnings, error)
 	promiselog.Info("validating promise update", "name", p.Name)
 	oldPromise, _ := old.(*Promise)
 
-	oldCrd, _ := oldPromise.GetAPIAsCRD()
-	newCrd, _ := p.GetAPIAsCRD()
-
 	if err := p.validateCRD(); err != nil {
 		return nil, err
+	}
+
+	oldCrd, errOldCrd := oldPromise.GetAPIAsCRD()
+	newCrd, errNewCrd := p.GetAPIAsCRD()
+	if errOldCrd == ErrNoAPI {
+		return nil, nil
+	}
+	if errNewCrd == ErrNoAPI {
+		return nil, fmt.Errorf("cannot remove API from existing promise")
 	}
 
 	errors := []string{}

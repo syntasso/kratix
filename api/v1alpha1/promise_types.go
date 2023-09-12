@@ -47,7 +47,8 @@ type PromiseSpec struct {
 
 	// +kubebuilder:pruning:PreserveUnknownFields
 	// +kubebuilder:validation:EmbeddedResource
-	API runtime.RawExtension `json:"api,omitempty"`
+	// +kubebuilder:validation:Optional
+	API *runtime.RawExtension `json:"api,omitempty"`
 
 	Workflows Workflows `json:"workflows,omitempty"`
 
@@ -118,7 +119,7 @@ func generateLabelSelectorsFromScheduling(scheduling []Selector) map[string]stri
 func (p *Promise) DoesNotContainAPI() bool {
 	// if a workflow is set but there is not an API the workflow is ignored
 	// TODO how can we prevent this scenario from happening
-	return p.Spec.API.Raw == nil
+	return p.Spec.API == nil || p.Spec.API.Raw == nil
 }
 
 func (p *Promise) GetAPIAsCRD() (*v1.CustomResourceDefinition, error) {
@@ -160,7 +161,7 @@ func (d Dependencies) Marshal() ([]byte, error) {
 	buf := new(bytes.Buffer)
 	encoder := yaml.NewEncoder(buf)
 	for _, workload := range d {
-		err := encoder.Encode(workload.Unstructured.Object)
+		err := encoder.Encode(workload.Object)
 		if err != nil {
 			return nil, err
 		}
