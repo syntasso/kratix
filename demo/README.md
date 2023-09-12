@@ -128,6 +128,7 @@ kubectl --context=kind-worker get pods
 
 When Postgres and TODO app are running (i.e. worker pods are running) you can connect to the app. If you are NOT
 using the `wait-and-open-browser-when-app-ready` then navigate manually to http://todo.local.gd:31338
+
   👉🏾&nbsp;&nbsp;Update the todo in this URL to whatever you named your app
 
 ### Show the Slack notification
