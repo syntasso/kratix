@@ -1,0 +1,15 @@
+---
+apiVersion: rbac.authorization.k8s.io/v1
+kind: ClusterRole
+metadata:
+  name: slack-default-resource-pipeline-credentials
+  namespace: default
+rules:
+- apiGroups:
+  - ''
+  resourceNames:
+  - slack-channel-hook
+  resources:
+  - secrets
+  verbs:
+  - get
