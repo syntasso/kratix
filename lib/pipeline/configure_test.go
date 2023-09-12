@@ -47,7 +47,7 @@ var _ = Describe("Configure Pipeline", func() {
 		const expectedHash = "9bb58f26192e4ba00f01e2e7b136bbd8"
 
 		It("is included as a label to the pipeline job", func() {
-			job, err := pipeline.ConfigurePipeline(rr, pipelines, pipelineResources, "test-promise")
+			job, err := pipeline.ConfigureResourcePipeline(rr, pipelines, pipelineResources, "test-promise")
 			Expect(err).NotTo(HaveOccurred())
 
 			Expect(job.Labels).To(HaveKeyWithValue("kratix-resource-hash", expectedHash))

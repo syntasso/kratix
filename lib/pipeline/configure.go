@@ -19,8 +19,9 @@ const (
 	kratixConfigureOperation = "configure"
 )
 
-func NewConfigurePipeline(
+func NewConfigureResource(
 	rr *unstructured.Unstructured,
+	//TODO change to plural string
 	crdNames apiextensionsv1.CustomResourceDefinitionNames,
 	pipelines []platformv1alpha1.Pipeline,
 	resourceRequestIdentifier,
@@ -34,14 +35,14 @@ func NewConfigurePipeline(
 		return nil, err
 	}
 
-	pipeline, err := ConfigurePipeline(rr, pipelines, pipelineResources, promiseIdentifier)
+	pipeline, err := ConfigureResourcePipeline(rr, pipelines, pipelineResources, promiseIdentifier)
 	if err != nil {
 		return nil, err
 	}
 
 	resources := []client.Object{
 		serviceAccount(pipelineResources),
-		role(rr, crdNames, pipelineResources),
+		role(rr, crdNames.Plural, pipelineResources),
 		roleBinding((pipelineResources)),
 		destinationSelectorsConfigMap,
 		pipeline,
@@ -50,7 +51,36 @@ func NewConfigurePipeline(
 	return resources, nil
 }
 
-func ConfigurePipeline(rr *unstructured.Unstructured, pipelines []platformv1alpha1.Pipeline, pipelineResources PipelineArgs, promiseName string) (*batchv1.Job, error) {
+func NewConfigurePromise(
+	unstructedPromise *unstructured.Unstructured,
+	pipelines []platformv1alpha1.Pipeline,
+	promiseIdentifier string,
+	promiseDestinationSelectors []platformv1alpha1.Selector,
+) ([]client.Object, error) {
+
+	pipelineResources := NewPipelineArgs(promiseIdentifier, "", "kratix-platform-system")
+	destinationSelectorsConfigMap, err := destinationSelectorsConfigMap(pipelineResources, promiseDestinationSelectors)
+	if err != nil {
+		return nil, err
+	}
+
+	pipeline, err := ConfigureResourcePipeline(unstructedPromise, pipelines, pipelineResources, promiseIdentifier)
+	if err != nil {
+		return nil, err
+	}
+
+	resources := []client.Object{
+		serviceAccount(pipelineResources),
+		role(unstructedPromise, "promises", pipelineResources),
+		roleBinding(pipelineResources),
+		destinationSelectorsConfigMap,
+		pipeline,
+	}
+
+	return resources, nil
+}
+
+func ConfigureResourcePipeline(rr *unstructured.Unstructured, pipelines []platformv1alpha1.Pipeline, pipelineResources PipelineArgs, promiseName string) (*batchv1.Job, error) {
 	volumes := metadataAndSchedulingVolumes(pipelineResources.ConfigMapName())
 
 	initContainers, pipelineVolumes := configurePipelineInitContainers(rr, pipelines, promiseName)

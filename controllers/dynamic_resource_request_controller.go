@@ -20,7 +20,6 @@ import (
 	"context"
 
 	apiextensionsv1 "k8s.io/apiextensions-apiserver/pkg/apis/apiextensions/v1"
-	"k8s.io/apimachinery/pkg/labels"
 	"k8s.io/apimachinery/pkg/types"
 	"sigs.k8s.io/controller-runtime/pkg/controller/controllerutil"
 
@@ -96,24 +95,30 @@ func (r *dynamicResourceRequestController) Reconcile(ctx context.Context, req ct
 		return defaultRequeue, nil
 	}
 
+	args := commonArgs{
+		client: r.Client,
+		ctx:    ctx,
+		logger: logger,
+	}
+
 	if !rr.GetDeletionTimestamp().IsZero() {
-		return r.deleteResources(ctx, rr, resourceRequestIdentifier, logger)
+		return r.deleteResources(args, rr, resourceRequestIdentifier)
 	}
 
 	// Reconcile necessary finalizers
 	if finalizersAreMissing(rr, []string{workFinalizer, workflowsFinalizer, deleteWorkflowsFinalizer}) {
-		return addFinalizers(ctx, r.Client, rr, []string{workFinalizer, workflowsFinalizer, deleteWorkflowsFinalizer}, logger)
+		return addFinalizers(args, rr, []string{workFinalizer, workflowsFinalizer, deleteWorkflowsFinalizer})
 	}
 
-	pipelineJobs, err := r.getPipelineJobs(resourceRequestIdentifier, rr.GetNamespace(), logger)
+	pipelineJobs, err := getConfigureResourceJobs(args, r.promiseIdentifier, resourceRequestIdentifier, rr.GetNamespace())
 	if err != nil {
-		logger.Info("Failed getting pipeline jobs", "error", err)
+		logger.Info("Failed getting resource pipeline jobs", "error", err)
 		return slowRequeue, nil
 	}
 
 	// No jobs indicates this is the first reconciliation loop of this resource request
 	if len(pipelineJobs) == 0 {
-		return r.createConfigurePipeline(ctx, rr, resourceRequestIdentifier, logger)
+		return r.createConfigurePipeline(args, rr, resourceRequestIdentifier)
 	}
 
 	if resourceutil.IsThereAPipelineRunning(logger, pipelineJobs) {
@@ -126,7 +131,7 @@ func (r *dynamicResourceRequestController) Reconcile(ctx context.Context, req ct
 	}
 
 	if isManualReconciliation(rr) || !pipelineAlreadyExists {
-		return r.createConfigurePipeline(ctx, rr, resourceRequestIdentifier, logger)
+		return r.createConfigurePipeline(args, rr, resourceRequestIdentifier)
 	}
 
 	return ctrl.Result{}, nil
@@ -140,19 +145,19 @@ func isManualReconciliation(rr *unstructured.Unstructured) bool {
 	return labels[resourceutil.ManualReconciliationLabel] == "true"
 }
 
-func (r *dynamicResourceRequestController) createConfigurePipeline(ctx context.Context, rr *unstructured.Unstructured, rrID string, logger logr.Logger) (ctrl.Result, error) {
-	switch resourceutil.GetPipelineCompletedConditionStatus(rr) {
-	case corev1.ConditionTrue:
-		fallthrough
-	case corev1.ConditionUnknown:
-		r.setStatus(rr, logger, "message", "Pending")
-		resourceutil.MarkPipelineAsRunning(logger, rr)
-		return ctrl.Result{}, r.Client.Status().Update(ctx, rr)
+func (r *dynamicResourceRequestController) createConfigurePipeline(args commonArgs, rr *unstructured.Unstructured, rrID string) (ctrl.Result, error) {
+	updated, err := setPipelineCompletedConditionStatus(args, rr)
+	if err != nil {
+		return ctrl.Result{}, err
 	}
 
-	logger.Info("Triggering pipeline")
+	if updated {
+		return ctrl.Result{}, nil
+	}
 
-	resources, err := pipeline.NewConfigurePipeline(
+	args.logger.Info("Triggering resource pipeline")
+
+	resources, err := pipeline.NewConfigureResource(
 		rr,
 		r.crd.Spec.Names,
 		r.configurePipelines,
@@ -164,32 +169,13 @@ func (r *dynamicResourceRequestController) createConfigurePipeline(ctx context.C
 		return ctrl.Result{}, err
 	}
 
-	logger.Info("Reconciling pipeline resources")
-
-	for _, resource := range resources {
-		logger.Info("Reconciling", resource.GetObjectKind().GroupVersionKind().Kind, resource.GetName())
-
-		if err = r.Client.Create(ctx, resource); err != nil {
-			if errors.IsAlreadyExists(err) {
-				logger.Info("Resource already exists, will update", resource.GetObjectKind().GroupVersionKind().Kind, resource.GetName())
-				if err = r.Client.Update(ctx, resource); err == nil {
-					continue
-				}
-			}
-
-			logger.Error(err, "Error reconciling on resource", resource.GetObjectKind().GroupVersionKind().Kind, resource.GetName())
-			y, _ := yaml.Marshal(&resource)
-			logger.Error(err, string(y))
-		} else {
-			logger.Info("Resource created", resource.GetObjectKind().GroupVersionKind().Kind, resource.GetName())
-		}
-	}
+	applyResources(args, resources)
 
 	if isManualReconciliation(rr) {
 		newLabels := rr.GetLabels()
 		delete(newLabels, resourceutil.ManualReconciliationLabel)
 		rr.SetLabels(newLabels)
-		if err := r.Client.Update(ctx, rr); err != nil {
+		if err := r.Client.Update(args.ctx, rr); err != nil {
 			return ctrl.Result{}, err
 		}
 	}
@@ -197,46 +183,62 @@ func (r *dynamicResourceRequestController) createConfigurePipeline(ctx context.C
 	return ctrl.Result{}, nil
 }
 
-func (r *dynamicResourceRequestController) deleteResources(ctx context.Context, resourceRequest *unstructured.Unstructured, resourceRequestIdentifier string, logger logr.Logger) (ctrl.Result, error) {
+func setPipelineCompletedConditionStatus(args commonArgs, obj *unstructured.Unstructured) (bool, error) {
+	switch resourceutil.GetPipelineCompletedConditionStatus(obj) {
+	case corev1.ConditionTrue:
+		fallthrough
+	case corev1.ConditionUnknown:
+		setStatus(obj, args.logger, "message", "Pending")
+		resourceutil.MarkPipelineAsRunning(args.logger, obj)
+		err := args.client.Status().Update(args.ctx, obj)
+		if err != nil {
+			return false, err
+		}
+		return true, nil
+	}
+	return false, nil
+}
+
+func (r *dynamicResourceRequestController) deleteResources(args commonArgs, resourceRequest *unstructured.Unstructured, resourceRequestIdentifier string) (ctrl.Result, error) {
 	if finalizersAreDeleted(resourceRequest, rrFinalizers) {
 		return ctrl.Result{}, nil
 	}
 
 	if controllerutil.ContainsFinalizer(resourceRequest, deleteWorkflowsFinalizer) {
-		existingDeletePipeline, err := r.getDeletePipeline(ctx, resourceRequestIdentifier, resourceRequest.GetNamespace(), logger)
+		existingDeletePipeline, err := r.getDeletePipeline(args, resourceRequestIdentifier, resourceRequest.GetNamespace())
 		if err != nil {
 			return defaultRequeue, err
 		}
 
 		if existingDeletePipeline == nil {
 			deletePipeline := pipeline.NewDeletePipeline(resourceRequest, r.deletePipelines, resourceRequestIdentifier, r.promiseIdentifier)
-			logger.Info("Creating Delete Pipeline. The pipeline will now execute...")
-			err = r.Client.Create(ctx, &deletePipeline)
+			args.logger.Info("Creating Delete Pipeline. The pipeline will now execute...")
+			err = r.Client.Create(args.ctx, &deletePipeline)
 			if err != nil {
-				logger.Error(err, "Error creating delete pipeline")
+				args.logger.Error(err, "Error creating delete pipeline")
 				y, _ := yaml.Marshal(&deletePipeline)
-				logger.Error(err, string(y))
+				args.logger.Error(err, string(y))
 				return ctrl.Result{}, err
 			}
 			return defaultRequeue, nil
 		}
 
-		logger.Info("Checking status of Delete Pipeline")
+		args.logger.Info("Checking status of Delete Pipeline")
 		if existingDeletePipeline.Status.Succeeded > 0 {
-			logger.Info("Delete Pipeline Completed")
+			args.logger.Info("Delete Pipeline Completed")
 			controllerutil.RemoveFinalizer(resourceRequest, deleteWorkflowsFinalizer)
-			if err := r.Client.Update(ctx, resourceRequest); err != nil {
+			if err := r.Client.Update(args.ctx, resourceRequest); err != nil {
 				return ctrl.Result{}, err
 			}
 		}
 
-		logger.Info("Delete Pipeline not finished", "status", existingDeletePipeline.Status)
+		args.logger.Info("Delete Pipeline not finished", "status", existingDeletePipeline.Status)
 
 		return fastRequeue, nil
 	}
 
 	if controllerutil.ContainsFinalizer(resourceRequest, workFinalizer) {
-		err := r.deleteWork(ctx, resourceRequest, resourceRequestIdentifier, workFinalizer, logger)
+		err := r.deleteWork(args, resourceRequest, resourceRequestIdentifier, workFinalizer)
 		if err != nil {
 			return defaultRequeue, err
 		}
@@ -244,7 +246,7 @@ func (r *dynamicResourceRequestController) deleteResources(ctx context.Context, 
 	}
 
 	if controllerutil.ContainsFinalizer(resourceRequest, workflowsFinalizer) {
-		err := r.deleteWorkflows(ctx, resourceRequest, resourceRequestIdentifier, workflowsFinalizer, logger)
+		err := r.deleteWorkflows(args, resourceRequest, resourceRequestIdentifier, workflowsFinalizer)
 		if err != nil {
 			return defaultRequeue, err
 		}
@@ -254,55 +256,17 @@ func (r *dynamicResourceRequestController) deleteResources(ctx context.Context, 
 	return fastRequeue, nil
 }
 
-func (r *dynamicResourceRequestController) getDeletePipeline(ctx context.Context, resourceRequestIdentifier, namespace string, logger logr.Logger) (*batchv1.Job, error) {
-	jobs, err := r.getJobsWithLabels(
-		pipeline.DeletePipelineLabels(resourceRequestIdentifier, r.promiseIdentifier),
-		namespace,
-		logger,
-	)
+func (r *dynamicResourceRequestController) getDeletePipeline(args commonArgs, resourceRequestIdentifier, namespace string) (*batchv1.Job, error) {
+	jobs, err := getJobsWithLabels(args, pipeline.LabelsForDeleteResource(resourceRequestIdentifier, r.promiseIdentifier), namespace)
 	if err != nil || len(jobs) == 0 {
 		return nil, err
 	}
 	return &jobs[0], nil
 }
 
-func (r *dynamicResourceRequestController) getPipelineJobs(rrID, namespace string, logger logr.Logger) ([]batchv1.Job, error) {
-	jobs, err := r.getJobsWithLabels(
-		pipeline.ConfigurePipelineLabels(rrID, r.promiseIdentifier),
-		namespace,
-		logger,
-	)
-	if err != nil {
-		return nil, err
-	}
-	return jobs, nil
-}
-
-func (r *dynamicResourceRequestController) getJobsWithLabels(jobLabels map[string]string, namespace string, logger logr.Logger) ([]batchv1.Job, error) {
-	selectorLabels := labels.FormatLabels(jobLabels)
-	selector, err := labels.Parse(selectorLabels)
-
-	if err != nil {
-		return nil, fmt.Errorf("error parsing labels %v: %w", jobLabels, err)
-	}
-
-	listOps := &client.ListOptions{
-		LabelSelector: selector,
-		Namespace:     namespace,
-	}
-
-	jobs := &batchv1.JobList{}
-	err = r.Client.List(context.Background(), jobs, listOps)
-	if err != nil {
-		logger.Error(err, "error listing jobs", "selectors", selector.String())
-		return nil, err
-	}
-	return jobs.Items, nil
-}
-
-func (r *dynamicResourceRequestController) deleteWork(ctx context.Context, resourceRequest *unstructured.Unstructured, workName string, finalizer string, logger logr.Logger) error {
+func (r *dynamicResourceRequestController) deleteWork(args commonArgs, resourceRequest *unstructured.Unstructured, workName string, finalizer string) error {
 	work := &v1alpha1.Work{}
-	err := r.Client.Get(ctx, types.NamespacedName{
+	err := r.Client.Get(args.ctx, types.NamespacedName{
 		Namespace: resourceRequest.GetNamespace(),
 		Name:      workName,
 	}, work)
@@ -311,51 +275,51 @@ func (r *dynamicResourceRequestController) deleteWork(ctx context.Context, resou
 		if errors.IsNotFound(err) {
 			// only remove finalizer at this point because deletion success is guaranteed
 			controllerutil.RemoveFinalizer(resourceRequest, finalizer)
-			if err := r.Client.Update(ctx, resourceRequest); err != nil {
+			if err := r.Client.Update(args.ctx, resourceRequest); err != nil {
 				return err
 			}
 			return nil
 		}
 
-		logger.Error(err, "Error locating Work, will try again in 5 seconds", "workName", workName)
+		args.logger.Error(err, "Error locating Work, will try again in 5 seconds", "workName", workName)
 		return err
 	}
 
-	err = r.Client.Delete(ctx, work)
+	err = r.Client.Delete(args.ctx, work)
 	if err != nil {
 		if errors.IsNotFound(err) {
 			// only remove finalizer at this point because deletion success is guaranteed
 			controllerutil.RemoveFinalizer(resourceRequest, finalizer)
-			if err := r.Client.Update(ctx, resourceRequest); err != nil {
+			if err := r.Client.Update(args.ctx, resourceRequest); err != nil {
 				return err
 			}
 			return nil
 		}
 
-		logger.Error(err, "Error deleting Work %s, will try again in 5 seconds", "workName", workName)
+		args.logger.Error(err, "Error deleting Work %s, will try again in 5 seconds", "workName", workName)
 		return err
 	}
 
 	return nil
 }
 
-func (r *dynamicResourceRequestController) deleteWorkflows(ctx context.Context, resourceRequest *unstructured.Unstructured, resourceRequestIdentifier, finalizer string, logger logr.Logger) error {
+func (r *dynamicResourceRequestController) deleteWorkflows(args commonArgs, resourceRequest *unstructured.Unstructured, resourceRequestIdentifier, finalizer string) error {
 	jobGVK := schema.GroupVersionKind{
 		Group:   batchv1.SchemeGroupVersion.Group,
 		Version: batchv1.SchemeGroupVersion.Version,
 		Kind:    "Job",
 	}
 
-	jobLabels := pipeline.Labels(resourceRequestIdentifier, r.promiseIdentifier)
+	jobLabels := pipeline.LabelsForConfigureResource(resourceRequestIdentifier, r.promiseIdentifier)
 
-	resourcesRemaining, err := deleteAllResourcesWithKindMatchingLabel(ctx, r.Client, jobGVK, jobLabels, logger)
+	resourcesRemaining, err := deleteAllResourcesWithKindMatchingLabel(args, jobGVK, jobLabels)
 	if err != nil {
 		return err
 	}
 
 	if !resourcesRemaining {
 		controllerutil.RemoveFinalizer(resourceRequest, finalizer)
-		if err := r.Client.Update(ctx, resourceRequest); err != nil {
+		if err := r.Client.Update(args.ctx, resourceRequest); err != nil {
 			return err
 		}
 	}
@@ -363,7 +327,7 @@ func (r *dynamicResourceRequestController) deleteWorkflows(ctx context.Context, 
 	return nil
 }
 
-func (r *dynamicResourceRequestController) setStatus(rr *unstructured.Unstructured, logger logr.Logger, statuses ...string) {
+func setStatus(rr *unstructured.Unstructured, logger logr.Logger, statuses ...string) {
 	if len(statuses) == 0 {
 		return
 	}

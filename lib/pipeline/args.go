@@ -5,20 +5,39 @@ type PipelineArgs struct {
 }
 
 func NewPipelineArgs(promiseIdentifier, resourceRequestIdentifier, namespace string) PipelineArgs {
+	pipelineID := promiseIdentifier + "-promise-pipeline"
+	if resourceRequestIdentifier != "" {
+		pipelineID = promiseIdentifier + "-resource-pipeline"
+	}
+
 	names := map[string]string{
 		"configure-pipeline-name": pipelineName("configure", promiseIdentifier),
 		"delete-pipeline-name":    pipelineName("delete", promiseIdentifier),
 		"promise-id":              promiseIdentifier,
-		"resource-request-id":     resourceRequestIdentifier,
-		"service-account":         promiseIdentifier + "-resource-pipeline",
-		"role":                    promiseIdentifier + "-resource-pipeline",
-		"role-binding":            promiseIdentifier + "-resource-pipeline",
+		"service-account":         pipelineID,
+		"role":                    pipelineID,
+		"role-binding":            pipelineID,
 		"config-map":              "destination-selectors-" + promiseIdentifier,
+		"resource-request-id":     resourceRequestIdentifier,
 		"namespace":               namespace,
 	}
+
 	return PipelineArgs{
 		names: names,
 	}
+}
+
+func (p PipelineArgs) ConfigurePipelinePodLabels(rrSHA string) pipelineLabels {
+	resourceRequestID := p.names["resource-request-id"]
+	if resourceRequestID == "" {
+		return LabelsForConfigurePromise(p.PromiseID(), rrSHA)
+	}
+	return LabelsForConfigureResource(resourceRequestID, p.PromiseID(), rrSHA)
+}
+
+func (p PipelineArgs) DeletePipelinePodLabels() pipelineLabels {
+	resourceRequestID := p.names["resource-request-id"]
+	return LabelsForDeleteResource(resourceRequestID, p.PromiseID())
 }
 
 func (p PipelineArgs) ConfigMapName() string {
@@ -45,10 +64,6 @@ func (p PipelineArgs) PromiseID() string {
 	return p.names["promise-id"]
 }
 
-func (p PipelineArgs) ResourceRequestID() string {
-	return p.names["resource-request-id"]
-}
-
 func (p PipelineArgs) ConfigurePipelineName() string {
 	return p.names["configure-pipeline-name"]
 }
@@ -59,12 +74,4 @@ func (p PipelineArgs) DeletePipelineName() string {
 
 func (p PipelineArgs) Labels() pipelineLabels {
 	return newPipelineLabels().WithPromiseID(p.PromiseID())
-}
-
-func (p PipelineArgs) ConfigurePipelinePodLabels(rrSHA string) pipelineLabels {
-	return ConfigurePipelineLabels(p.ResourceRequestID(), p.PromiseID(), rrSHA)
-}
-
-func (p PipelineArgs) DeletePipelinePodLabels() pipelineLabels {
-	return DeletePipelineLabels(p.ResourceRequestID(), p.PromiseID())
 }

@@ -42,7 +42,7 @@ import (
 	//+kubebuilder:scaffold:imports
 )
 
-var _ = Context("Promise Reconciler", func() {
+var _ = FContext("Promise Reconciler", func() {
 	var (
 		promiseCR           *v1alpha1.Promise
 		ctx                 = context.Background()
