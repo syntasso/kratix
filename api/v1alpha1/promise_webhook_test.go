@@ -13,10 +13,10 @@ import (
 	"github.com/syntasso/kratix/api/v1alpha1"
 )
 
-func RawExtension(a interface{}) runtime.RawExtension {
+func RawExtension(a interface{}) *runtime.RawExtension {
 	b, err := json.Marshal(a)
 	Expect(err).NotTo(HaveOccurred())
-	return runtime.RawExtension{Raw: b}
+	return &runtime.RawExtension{Raw: b}
 }
 
 var _ = Describe("PromiseWebhook", func() {
@@ -88,7 +88,9 @@ var _ = Describe("PromiseWebhook", func() {
 				ObjectMeta: metav1.ObjectMeta{
 					Name: "mypromise",
 				},
-				Spec: v1alpha1.PromiseSpec{},
+				Spec: v1alpha1.PromiseSpec{
+					API: RawExtension(nil),
+				},
 			}
 			warnings, err := promise.ValidateCreate()
 			Expect(warnings).To(BeEmpty())

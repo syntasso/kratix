@@ -502,7 +502,7 @@ func generateCRDAndGVK(promise *v1alpha1.Promise, logger logr.Logger) (*apiexten
 	rrCRD := &apiextensionsv1.CustomResourceDefinition{}
 	rrGVK := schema.GroupVersionKind{}
 
-	err := json.Unmarshal(promise.Spec.API.Raw, rrCRD)
+	rrCRD, err := promise.GetAPIAsCRD()
 	if err != nil {
 		logger.Error(err, "Failed unmarshalling CRD")
 		return rrCRD, rrGVK, err
