@@ -2,6 +2,7 @@ apiVersion: platform.kratix.io/v1alpha1
 kind: Destination
 metadata:
   name: worker-1
+  namespace: kratix-platform-system
   labels:
     environment: dev
 spec:
