@@ -164,6 +164,7 @@ func (r *dynamicResourceRequestController) createConfigurePipeline(args commonAr
 		rrID,
 		r.promiseIdentifier,
 		r.promiseDestinationSelectors,
+		args.logger,
 	)
 	if err != nil {
 		return ctrl.Result{}, err

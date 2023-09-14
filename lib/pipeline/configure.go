@@ -5,6 +5,7 @@ import (
 	"os"
 	"strings"
 
+	"github.com/go-logr/logr"
 	platformv1alpha1 "github.com/syntasso/kratix/api/v1alpha1"
 	"github.com/syntasso/kratix/lib/hash"
 	batchv1 "k8s.io/api/batch/v1"
@@ -27,6 +28,7 @@ func NewConfigureResource(
 	resourceRequestIdentifier,
 	promiseIdentifier string,
 	promiseDestinationSelectors []platformv1alpha1.Selector,
+	logger logr.Logger,
 ) ([]client.Object, error) {
 
 	pipelineResources := NewPipelineArgs(promiseIdentifier, resourceRequestIdentifier, rr.GetNamespace())
@@ -56,6 +58,7 @@ func NewConfigurePromise(
 	pipelines []platformv1alpha1.Pipeline,
 	promiseIdentifier string,
 	promiseDestinationSelectors []platformv1alpha1.Selector,
+	logger logr.Logger,
 ) ([]client.Object, error) {
 
 	pipelineResources := NewPipelineArgs(promiseIdentifier, "", "kratix-platform-system")

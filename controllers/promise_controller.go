@@ -150,12 +150,13 @@ func (r *PromiseReconciler) Reconcile(ctx context.Context, req ctrl.Request) (ct
 	}
 
 	if len(promise.Spec.Workflows.Promise.Configure) == 0 {
+		logger.Info("Promise does not contain workflows.promise.configure, applying dependencies directly")
 		if err := r.applyWorkResourceForDependencies(ctx, promise, logger); err != nil {
 			logger.Error(err, "Error creating Works")
 			return ctrl.Result{}, err
 		}
 	} else {
-
+		logger.Info("Promise contains workflows.promise.configure, reconciling workflows")
 		pipelineJobs, err := getConfigurePromiseJobs(args, promise.GetName(), kratixPlatformSystemNamespace)
 		if err != nil {
 			logger.Info("Failed getting Promise pipeline jobs", "error", err)
@@ -164,6 +165,7 @@ func (r *PromiseReconciler) Reconcile(ctx context.Context, req ctrl.Request) (ct
 
 		// No jobs indicates this is the first reconciliation loop of this resource request
 		if len(pipelineJobs) == 0 {
+			logger.Info("No jobs found, creating workflow.promise.configure pipeline")
 			return r.createConfigurePipeline(args, *promise, pipelines.ConfigurePromise)
 		}
 
@@ -245,6 +247,7 @@ func (r *PromiseReconciler) createConfigurePipeline(args commonArgs, promise v1a
 		configurePromisePipelines,
 		promise.GetName(),
 		promise.Spec.DestinationSelectors,
+		args.logger,
 	)
 	if err != nil {
 		return ctrl.Result{}, err
@@ -703,11 +706,15 @@ func (r *PromiseReconciler) generatePipelines(promise *v1alpha1.Promise, logger 
 		deleteResourcePipelines = append(deleteResourcePipelines, p)
 	}
 
-	return promisePipelines{
+	allPipelines := promisePipelines{
 		DeleteResource:    deleteResourcePipelines,
 		ConfigureResource: configureResourcePipelines,
 		ConfigurePromise:  configurePromisePipelines,
-	}, nil
+	}
+
+	logger.Info("collected all workflow pipelines", "pipelines", allPipelines)
+
+	return allPipelines, nil
 }
 
 func generatePipeline(pipeline unstructured.Unstructured, logger logr.Logger) (v1alpha1.Pipeline, error) {
