@@ -1,6 +1,7 @@
 package pipeline_test
 
 import (
+	"github.com/go-logr/logr"
 	. "github.com/onsi/ginkgo"
 	. "github.com/onsi/gomega"
 	platformv1alpha1 "github.com/syntasso/kratix/api/v1alpha1"
@@ -47,7 +48,8 @@ var _ = Describe("Configure Pipeline", func() {
 		const expectedHash = "9bb58f26192e4ba00f01e2e7b136bbd8"
 
 		It("is included as a label to the pipeline job", func() {
-			job, err := pipeline.ConfigureResourcePipeline(rr, pipelines, pipelineResources, "test-promise")
+			logger := logr.Logger{}
+			job, err := pipeline.ConfigurePipeline(rr, expectedHash, pipelines, pipelineResources, "test-promise", false, logger)
 			Expect(err).NotTo(HaveOccurred())
 
 			Expect(job.Labels).To(HaveKeyWithValue("kratix-resource-hash", expectedHash))

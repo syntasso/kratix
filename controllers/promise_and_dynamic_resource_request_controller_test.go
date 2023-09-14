@@ -42,7 +42,7 @@ import (
 	//+kubebuilder:scaffold:imports
 )
 
-var _ = FContext("Promise Reconciler", func() {
+var _ = Context("Promise Reconciler", func() {
 	var (
 		promiseCR           *v1alpha1.Promise
 		ctx                 = context.Background()
@@ -184,7 +184,7 @@ var _ = FContext("Promise Reconciler", func() {
 				})
 
 				It("creates a role for the pipeline service account", func() {
-					role := &rbacv1.Role{}
+					role := &rbacv1.ClusterRole{}
 					Eventually(func() error {
 						return k8sClient.Get(ctx, promiseCommonName, role)
 					}, timeout, interval).Should(Succeed(), "Expected Role for pipeline to exist")
@@ -192,24 +192,24 @@ var _ = FContext("Promise Reconciler", func() {
 					Expect(role.GetLabels()).To(Equal(promiseCommonLabels))
 					Expect(role.Rules).To(ConsistOf(
 						rbacv1.PolicyRule{
-							Verbs:     []string{"get", "update", "create", "patch"},
+							Verbs:     []string{"get", "list", "update", "create", "patch"},
 							APIGroups: []string{"platform.kratix.io"},
-							Resources: []string{"works"},
+							Resources: []string{"promises", "promises/status", "works"},
 						},
 					))
 					Expect(role.GetLabels()).To(Equal(promiseCommonLabels))
 				})
 
 				It("associates the new role with the new service account", func() {
-					binding := &rbacv1.RoleBinding{}
+					binding := &rbacv1.ClusterRoleBinding{}
 					Eventually(func() error {
 						return k8sClient.Get(ctx, promiseCommonName, binding)
-					}, timeout, interval).Should(Succeed(), "Expected RoleBinding for pipeline to exist")
+					}, timeout, interval).Should(Succeed(), "Expected ClusterRoleBinding for pipeline to exist")
 					Expect(binding.RoleRef.Name).To(Equal(promiseCommonName.Name))
 					Expect(binding.Subjects).To(HaveLen(1))
 					Expect(binding.Subjects[0]).To(Equal(rbacv1.Subject{
 						Kind:      "ServiceAccount",
-						Namespace: requestedResource.GetNamespace(),
+						Namespace: "kratix-platform-system",
 						Name:      promiseCommonName.Name,
 					}))
 					Expect(binding.GetLabels()).To(Equal(promiseCommonLabels))
@@ -219,7 +219,7 @@ var _ = FContext("Promise Reconciler", func() {
 					configMap := &v1.ConfigMap{}
 					configMapName := types.NamespacedName{
 						Name:      "destination-selectors-" + promiseCR.GetName(),
-						Namespace: "default",
+						Namespace: "kratix-platform-system",
 					}
 					Eventually(func() error {
 						return k8sClient.Get(ctx, configMapName, configMap)
@@ -237,8 +237,10 @@ var _ = FContext("Promise Reconciler", func() {
 						Name: promiseCR.Name,
 					}
 
-					Expect(k8sClient.Get(ctx, expectedPromise, promise)).To(Succeed())
-					Expect(promise.GetFinalizers()).Should(
+					Eventually(func() []string {
+						Expect(k8sClient.Get(ctx, expectedPromise, promise)).To(Succeed())
+						return promise.GetFinalizers()
+					}, timeout, interval).Should(
 						ConsistOf(
 							"kratix.io/dependencies-cleanup",
 						),
@@ -848,9 +850,9 @@ func getPromiseConfigurePipelineJobs(promiseCR *v1alpha1.Promise, k8sClient clie
 	jobs := &batchv1.JobList{}
 	lo := &client.ListOptions{
 		LabelSelector: labels.SelectorFromSet(map[string]string{
-			"kratix-promise-id":        promiseCR.GetName(),
-			"kratix-pipeline-type":     "configure",
-			"kratix-pipeline-workflow": "promise",
+			"kratix-promise-id":      promiseCR.GetName(),
+			"kratix-workflow-type":   "promise",
+			"kratix-workflow-action": "configure",
 		}),
 	}
 	Expect(k8sClient.List(context.Background(), jobs, lo)).To(Succeed())
@@ -861,9 +863,9 @@ func getResourceConfigurePipelineJobs(promiseCR *v1alpha1.Promise, k8sClient cli
 	jobs := &batchv1.JobList{}
 	lo := &client.ListOptions{
 		LabelSelector: labels.SelectorFromSet(map[string]string{
-			"kratix-promise-id":        promiseCR.GetName(),
-			"kratix-pipeline-type":     "configure",
-			"kratix-pipeline-workflow": "resource",
+			"kratix-promise-id":      promiseCR.GetName(),
+			"kratix-workflow-type":   "resource",
+			"kratix-workflow-action": "configure",
 		}),
 	}
 	Expect(k8sClient.List(context.Background(), jobs, lo)).To(Succeed())

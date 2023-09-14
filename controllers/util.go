@@ -130,7 +130,8 @@ func fetchObjectAndSecret(args commonArgs, stateStoreRef client.ObjectKey, state
 
 func newWriter(args commonArgs, destination platformv1alpha1.Destination) (writers.StateStoreWriter, error) {
 	stateStoreRef := client.ObjectKey{
-		Name: destination.Spec.StateStoreRef.Name,
+		Name:      destination.Spec.StateStoreRef.Name,
+		Namespace: destination.Namespace,
 	}
 
 	var writer writers.StateStoreWriter
@@ -206,21 +207,22 @@ func applyResources(args commonArgs, resources []client.Object) {
 	args.logger.Info("Reconciling pipeline resources")
 
 	for _, resource := range resources {
-		args.logger.Info("Reconciling", resource.GetObjectKind().GroupVersionKind().Kind, resource.GetName())
+		logger := args.logger.WithValues("kind", resource.GetObjectKind().GroupVersionKind().Kind, "name", resource.GetName(), "namespace", resource.GetNamespace(), "labels", resource.GetLabels())
 
+		logger.Info("Reconciling")
 		if err := args.client.Create(args.ctx, resource); err != nil {
 			if errors.IsAlreadyExists(err) {
-				args.logger.Info("Resource already exists, will update", resource.GetObjectKind().GroupVersionKind().Kind, resource.GetName())
+				logger.Info("Resource already exists, will update")
 				if err = args.client.Update(args.ctx, resource); err == nil {
 					continue
 				}
 			}
 
-			args.logger.Error(err, "Error reconciling on resource", resource.GetObjectKind().GroupVersionKind().Kind, resource.GetName())
+			logger.Error(err, "Error reconciling on resource")
 			y, _ := yaml.Marshal(&resource)
-			args.logger.Error(err, string(y))
+			logger.Error(err, string(y))
 		} else {
-			args.logger.Info("Resource created", resource.GetObjectKind().GroupVersionKind().Kind, resource.GetName())
+			logger.Info("Resource created")
 		}
 	}
 }

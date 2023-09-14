@@ -14,9 +14,17 @@ func newPipelineLabels() pipelineLabels {
 	return make(map[string]string)
 }
 
-func LabelsForDeleteResource(rrID, promiseID string) map[string]string {
+func LabelsForAllResourceWorkflows(rrID, promiseID string) map[string]string {
 	return ResourceLabels(rrID, promiseID).
-		WithWorkflow(resourceType, deleteAction)
+		WithWorkflow(resourceType, "")
+}
+
+func LabelsForDeleteResource(rrID, promiseID string, requestSHA ...string) map[string]string {
+	labels := ResourceLabels(rrID, promiseID).WithWorkflow(resourceType, deleteAction)
+	if len(requestSHA) > 0 {
+		return labels.WithRequestSHA(requestSHA[0])
+	}
+	return labels
 }
 
 func LabelsForConfigureResource(rrID, promiseID string, requestSHA ...string) map[string]string {
@@ -57,7 +65,9 @@ func (p pipelineLabels) WithWorkflow(workflowType, workflowAction string) pipeli
 	p["kratix-workflow-kind"] = "pipeline.platform.kratix.io"
 	p["kratix-workflow-promise-version"] = "v1alpha1"
 	p["kratix-workflow-type"] = workflowType
-	p["kratix-workflow-action"] = workflowAction
+	if workflowAction != "" {
+		p["kratix-workflow-action"] = workflowAction
+	}
 	return p
 }
 

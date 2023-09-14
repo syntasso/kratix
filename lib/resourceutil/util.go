@@ -1,10 +1,12 @@
 package resourceutil
 
 import (
+	"fmt"
 	"sort"
 	"time"
 
 	"github.com/go-logr/logr"
+	"github.com/syntasso/kratix/api/v1alpha1"
 	"github.com/syntasso/kratix/lib/hash"
 	"github.com/syntasso/kratix/lib/pipeline"
 	batchv1 "k8s.io/api/batch/v1"
@@ -47,6 +49,23 @@ func MarkPipelineAsCompleted(logger logr.Logger, obj *unstructured.Unstructured)
 		LastTransitionTime: metav1.NewTime(time.Now()),
 	})
 	logger.Info("set conditions", "condition", PipelineCompletedCondition, "value", v1.ConditionTrue)
+}
+
+func PipelineForPromiseExists(logger logr.Logger, promise v1alpha1.Promise, jobs []batchv1.Job) (bool, error) {
+	if len(jobs) == 0 {
+		return false, nil
+	}
+
+	// sort the pipepeineJobs by creation date
+	sort.Slice(jobs, func(i, j int) bool {
+		t1 := jobs[i].GetCreationTimestamp().Time
+		t2 := jobs[j].GetCreationTimestamp().Time
+		return t1.Before(t2)
+	})
+
+	mostRecentJob := jobs[len(jobs)-1]
+	mostRecentHash := mostRecentJob.GetLabels()[pipeline.KratixResourceHashLabel]
+	return mostRecentHash == fmt.Sprintf("%d", promise.GetGeneration()), nil
 }
 
 func PipelineForRequestExists(logger logr.Logger, rr *unstructured.Unstructured, jobs []batchv1.Job) (bool, error) {

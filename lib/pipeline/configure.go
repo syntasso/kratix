@@ -37,7 +37,12 @@ func NewConfigureResource(
 		return nil, err
 	}
 
-	pipeline, err := ConfigureResourcePipeline(rr, pipelines, pipelineResources, promiseIdentifier)
+	objSpecHash, err := hash.ComputeHash(rr)
+	if err != nil {
+		return nil, err
+	}
+
+	pipeline, err := ConfigurePipeline(rr, objSpecHash, pipelines, pipelineResources, promiseIdentifier, false, logger)
 	if err != nil {
 		return nil, err
 	}
@@ -67,15 +72,15 @@ func NewConfigurePromise(
 		return nil, err
 	}
 
-	pipeline, err := ConfigureResourcePipeline(unstructedPromise, pipelines, pipelineResources, promiseIdentifier)
+	pipeline, err := ConfigurePipeline(unstructedPromise, fmt.Sprintf("%d", unstructedPromise.GetGeneration()), pipelines, pipelineResources, promiseIdentifier, true, logger)
 	if err != nil {
 		return nil, err
 	}
 
 	resources := []client.Object{
 		serviceAccount(pipelineResources),
-		role(unstructedPromise, "promises", pipelineResources),
-		roleBinding(pipelineResources),
+		clusterRole(pipelineResources),
+		clusterRoleBinding(pipelineResources),
 		destinationSelectorsConfigMap,
 		pipeline,
 	}
@@ -83,41 +88,39 @@ func NewConfigurePromise(
 	return resources, nil
 }
 
-func ConfigureResourcePipeline(rr *unstructured.Unstructured, pipelines []platformv1alpha1.Pipeline, pipelineResources PipelineArgs, promiseName string) (*batchv1.Job, error) {
-	volumes := metadataAndSchedulingVolumes(pipelineResources.ConfigMapName())
+func ConfigurePipeline(obj *unstructured.Unstructured, objHash string, pipelines []platformv1alpha1.Pipeline, pipelineArgs PipelineArgs, promiseName string, passPromiseToWorkCreator bool, logger logr.Logger) (*batchv1.Job, error) {
+	volumes := metadataAndSchedulingVolumes(pipelineArgs.ConfigMapName())
 
-	initContainers, pipelineVolumes := configurePipelineInitContainers(rr, pipelines, promiseName)
+	initContainers, pipelineVolumes := configurePipelineInitContainers(obj, pipelines, promiseName, passPromiseToWorkCreator, logger)
 	volumes = append(volumes, pipelineVolumes...)
 
-	rrKind := fmt.Sprintf("%s.%s", strings.ToLower(rr.GetKind()), rr.GroupVersionKind().Group)
-	rrSpecHash, err := hash.ComputeHash(rr)
-	if err != nil {
-		return nil, err
-	}
-
+	objKind := fmt.Sprintf("%s.%s", strings.ToLower(obj.GetKind()), obj.GroupVersionKind().Group)
 	return &batchv1.Job{
+		TypeMeta: metav1.TypeMeta{
+			Kind: "Job",
+		},
 		ObjectMeta: metav1.ObjectMeta{
-			Name:      pipelineResources.ConfigurePipelineName(),
-			Namespace: rr.GetNamespace(),
-			Labels:    pipelineResources.ConfigurePipelinePodLabels(rrSpecHash),
+			Name:      pipelineArgs.ConfigurePipelineName(),
+			Namespace: pipelineArgs.Namespace(),
+			Labels:    pipelineArgs.ConfigurePipelinePodLabels(objHash),
 		},
 		Spec: batchv1.JobSpec{
 			Template: v1.PodTemplateSpec{
 				ObjectMeta: metav1.ObjectMeta{
-					Labels: pipelineResources.ConfigurePipelinePodLabels(rrSpecHash),
+					Labels: pipelineArgs.ConfigurePipelinePodLabels(objHash),
 				},
 				Spec: v1.PodSpec{
 					RestartPolicy:      v1.RestartPolicyOnFailure,
-					ServiceAccountName: pipelineResources.ServiceAccountName(),
+					ServiceAccountName: pipelineArgs.ServiceAccountName(),
 					Containers: []v1.Container{
 						{
 							Name:    "status-writer",
 							Image:   os.Getenv("WC_IMG"),
 							Command: []string{"sh", "-c", "update-status"},
 							Env: []v1.EnvVar{
-								{Name: "RR_KIND", Value: rrKind},
-								{Name: "RR_NAME", Value: rr.GetName()},
-								{Name: "RR_NAMESPACE", Value: rr.GetNamespace()},
+								{Name: "OBJECT_KIND", Value: objKind},
+								{Name: "OBJECT_NAME", Value: obj.GetName()},
+								{Name: "OBJECT_NAMESPACE", Value: pipelineArgs.Namespace()},
 							},
 							VolumeMounts: []v1.VolumeMount{{
 								MountPath: "/work-creator-files/metadata",
@@ -133,9 +136,9 @@ func ConfigureResourcePipeline(rr *unstructured.Unstructured, pipelines []platfo
 	}, nil
 }
 
-func configurePipelineInitContainers(rr *unstructured.Unstructured, pipelines []platformv1alpha1.Pipeline, promiseName string) ([]v1.Container, []v1.Volume) {
+func configurePipelineInitContainers(obj *unstructured.Unstructured, pipelines []platformv1alpha1.Pipeline, promiseName string, passPromiseToWorkCreator bool, logger logr.Logger) ([]v1.Container, []v1.Volume) {
 	volumes, volumeMounts := pipelineVolumes()
-	readerContainer := readerContainer(rr, "shared-input")
+	readerContainer := readerContainer(obj, "shared-input")
 	containers := []v1.Container{
 		readerContainer,
 	}
@@ -144,7 +147,7 @@ func configurePipelineInitContainers(rr *unstructured.Unstructured, pipelines []
 		//TODO: We only support 1 workflow for now
 		for _, c := range pipelines[0].Spec.Containers {
 			containers = append(containers, v1.Container{
-				Name:         c.Name,
+				Name:         providedOrDefaultName(c.Name),
 				Image:        c.Image,
 				VolumeMounts: volumeMounts,
 				Env: []v1.EnvVar{
@@ -157,7 +160,10 @@ func configurePipelineInitContainers(rr *unstructured.Unstructured, pipelines []
 		}
 	}
 
-	workCreatorCommand := fmt.Sprintf("./work-creator -input-directory /work-creator-files -promise-name %s -namespace %s -resource-name %s", promiseName, rr.GetNamespace(), rr.GetName())
+	workCreatorCommand := fmt.Sprintf("./work-creator -input-directory /work-creator-files -promise-name %s -namespace %q -resource-name %s", promiseName, obj.GetNamespace(), obj.GetName())
+	if passPromiseToWorkCreator {
+		workCreatorCommand = fmt.Sprintf("%s -add-promise-dependencies", workCreatorCommand)
+	}
 	writer := v1.Container{
 		Name:    "work-writer",
 		Image:   os.Getenv("WC_IMG"),
@@ -176,6 +182,13 @@ func configurePipelineInitContainers(rr *unstructured.Unstructured, pipelines []
 				Name:      "promise-scheduling", // this volumemount is a configmap
 			},
 		},
+	}
+
+	if passPromiseToWorkCreator {
+		writer.VolumeMounts = append(writer.VolumeMounts, v1.VolumeMount{
+			MountPath: "/work-creator-files/promise",
+			Name:      "shared-input",
+		})
 	}
 
 	containers = append(containers, writer)
@@ -203,4 +216,11 @@ func metadataAndSchedulingVolumes(configMapName string) []v1.Volume {
 			},
 		},
 	}
+}
+
+func providedOrDefaultName(providedName string) string {
+	if providedName == "" {
+		return "default-container-name"
+	}
+	return providedName
 }

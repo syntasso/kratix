@@ -27,12 +27,12 @@ func NewPipelineArgs(promiseIdentifier, resourceRequestIdentifier, namespace str
 	}
 }
 
-func (p PipelineArgs) ConfigurePipelinePodLabels(rrSHA string) pipelineLabels {
+func (p PipelineArgs) ConfigurePipelinePodLabels(objHash string) pipelineLabels {
 	resourceRequestID := p.names["resource-request-id"]
 	if resourceRequestID == "" {
-		return LabelsForConfigurePromise(p.PromiseID(), rrSHA)
+		return LabelsForConfigurePromise(p.PromiseID(), objHash)
 	}
-	return LabelsForConfigureResource(resourceRequestID, p.PromiseID(), rrSHA)
+	return LabelsForConfigureResource(resourceRequestID, p.PromiseID(), objHash)
 }
 
 func (p PipelineArgs) DeletePipelinePodLabels() pipelineLabels {

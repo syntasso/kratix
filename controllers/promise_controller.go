@@ -169,6 +169,18 @@ func (r *PromiseReconciler) Reconcile(ctx context.Context, req ctrl.Request) (ct
 			return r.createConfigurePipeline(args, *promise, pipelines.ConfigurePromise)
 		}
 
+		if resourceutil.IsThereAPipelineRunning(logger, pipelineJobs) {
+			return slowRequeue, nil
+		}
+
+		pipelineAlreadyExists, err := resourceutil.PipelineForPromiseExists(logger, *promise, pipelineJobs)
+		if err != nil {
+			return slowRequeue, nil
+		}
+
+		if isManualReconciliation(promise.GetLabels()) || !pipelineAlreadyExists {
+			return r.createConfigurePipeline(args, *promise, pipelines.ConfigurePromise)
+		}
 	}
 
 	if doesNotContainFinalizer(promise, dependenciesCleanupFinalizer) {
@@ -229,9 +241,9 @@ func (r *PromiseReconciler) createConfigurePipeline(args commonArgs, promise v1a
 	if err != nil {
 		return ctrl.Result{}, err
 	}
+	unstructuredPromise := &unstructured.Unstructured{Object: objMap}
 
-	unstructuredObj := &unstructured.Unstructured{Object: objMap}
-	updated, err := setPipelineCompletedConditionStatus(args, unstructuredObj)
+	updated, err := setPipelineCompletedConditionStatus(args, unstructuredPromise)
 	if err != nil {
 		return ctrl.Result{}, err
 	}
@@ -243,7 +255,7 @@ func (r *PromiseReconciler) createConfigurePipeline(args commonArgs, promise v1a
 	args.logger.Info("Triggering Promise pipeline")
 
 	resources, err := pipeline.NewConfigurePromise(
-		unstructuredObj,
+		unstructuredPromise,
 		configurePromisePipelines,
 		promise.GetName(),
 		promise.Spec.DestinationSelectors,
@@ -255,16 +267,16 @@ func (r *PromiseReconciler) createConfigurePipeline(args commonArgs, promise v1a
 
 	applyResources(args, resources)
 
-	// if isManualReconciliation(promise) {
-	// 	newLabels := promise.GetLabels()
-	// 	delete(newLabels, resourceutil.ManualReconciliationLabel)
-	// 	promise.SetLabels(newLabels)
-	// 	if err := r.Client.Update(args.ctx, promise); err != nil {
-	// 		return ctrl.Result{}, err
-	// 	}
-	// }
+	if isManualReconciliation(promise.GetLabels()) {
+		newLabels := promise.GetLabels()
+		delete(newLabels, resourceutil.ManualReconciliationLabel)
+		promise.SetLabels(newLabels)
+		if err := r.Client.Update(args.ctx, &promise); err != nil {
+			return ctrl.Result{}, err
+		}
+	}
 
-	return ctrl.Result{}, nil
+	return fastRequeue, nil
 }
 func (r *PromiseReconciler) ensureDynamicControllerIsStarted(promise *v1alpha1.Promise, rrCRD *apiextensionsv1.CustomResourceDefinition, rrGVK schema.GroupVersionKind, configurePipelines, deletePipelines []v1alpha1.Pipeline, logger logr.Logger) error {
 	// The Dynamic Controller needs to be started once and only once.

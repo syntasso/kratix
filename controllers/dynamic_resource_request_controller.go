@@ -130,19 +130,19 @@ func (r *dynamicResourceRequestController) Reconcile(ctx context.Context, req ct
 		return slowRequeue, nil
 	}
 
-	if isManualReconciliation(rr) || !pipelineAlreadyExists {
+	if isManualReconciliation(rr.GetLabels()) || !pipelineAlreadyExists {
 		return r.createConfigurePipeline(args, rr, resourceRequestIdentifier)
 	}
 
 	return ctrl.Result{}, nil
 }
 
-func isManualReconciliation(rr *unstructured.Unstructured) bool {
-	labels := rr.GetLabels()
+func isManualReconciliation(labels map[string]string) bool {
 	if labels == nil {
 		return false
 	}
-	return labels[resourceutil.ManualReconciliationLabel] == "true"
+	val, exists := labels[resourceutil.ManualReconciliationLabel]
+	return exists && val == "true"
 }
 
 func (r *dynamicResourceRequestController) createConfigurePipeline(args commonArgs, rr *unstructured.Unstructured, rrID string) (ctrl.Result, error) {
@@ -172,7 +172,7 @@ func (r *dynamicResourceRequestController) createConfigurePipeline(args commonAr
 
 	applyResources(args, resources)
 
-	if isManualReconciliation(rr) {
+	if isManualReconciliation(rr.GetLabels()) {
 		newLabels := rr.GetLabels()
 		delete(newLabels, resourceutil.ManualReconciliationLabel)
 		rr.SetLabels(newLabels)
@@ -311,7 +311,7 @@ func (r *dynamicResourceRequestController) deleteWorkflows(args commonArgs, reso
 		Kind:    "Job",
 	}
 
-	jobLabels := pipeline.LabelsForConfigureResource(resourceRequestIdentifier, r.promiseIdentifier)
+	jobLabels := pipeline.LabelsForAllResourceWorkflows(resourceRequestIdentifier, r.promiseIdentifier)
 
 	resourcesRemaining, err := deleteAllResourcesWithKindMatchingLabel(args, jobGVK, jobLabels)
 	if err != nil {

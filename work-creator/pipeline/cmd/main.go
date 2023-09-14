@@ -17,11 +17,13 @@ func main() {
 	var promiseName string
 	var namespace string
 	var resourceName string
+	var addPromiseDependencies bool
 
 	flag.StringVar(&inputDirectoy, "input-directory", "", "Absolute path to directory containing yaml documents required to build Work")
 	flag.StringVar(&promiseName, "promise-name", "", "Name of the promise")
-	flag.StringVar(&namespace, "namespace", "default", "Namespace")
+	flag.StringVar(&namespace, "namespace", "kratix-platform-system", "Namespace")
 	flag.StringVar(&resourceName, "resource-name", "", "Name of the resource")
+	flag.BoolVar(&addPromiseDependencies, "add-promise-dependencies", false, "Add the dependencies in /work-creator-files/promise/object.yaml to the work")
 	flag.Parse()
 
 	if inputDirectoy == "" {
@@ -31,11 +33,6 @@ func main() {
 
 	if promiseName == "" {
 		fmt.Println("Must provide -promise-name")
-		os.Exit(1)
-	}
-
-	if namespace == "" {
-		fmt.Println("Must provide -namespace")
 		os.Exit(1)
 	}
 
@@ -56,7 +53,7 @@ func main() {
 	workCreator := pipeline.WorkCreator{
 		K8sClient: k8sClient,
 	}
-	err = workCreator.Execute(inputDirectoy, promiseName, namespace, resourceName)
+	err = workCreator.Execute(inputDirectoy, promiseName, namespace, resourceName, addPromiseDependencies)
 	if err != nil {
 		fmt.Println(err.Error())
 		os.Exit(1)
