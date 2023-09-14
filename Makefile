@@ -71,7 +71,8 @@ build-and-load-bash:
 	kind load docker-image syntassodev/bash-promise-configure:v1alpha1 --name platform
 	kind load docker-image syntassodev/bash-promise-configure:v1alpha2 --name platform
 
-build-and-load-kratix: kind-load-image
+build-and-reload-kratix: kind-load-image  ## Build and reload Kratix on local KinD cluster
+	kubectl rollout restart deployment -n kratix-platform-system kratix-platform-controller-manager
 
 build-and-load-worker-creator:
 	WC_IMG=${WC_IMG} WC_IMG_MIRROR=${WC_IMG_MIRROR} make -C work-creator kind-load-image
