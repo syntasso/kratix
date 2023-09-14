@@ -225,7 +225,7 @@ func (r *PromiseReconciler) reconcileAllRRs(rrGVK schema.GroupVersionKind) error
 }
 
 func (r *PromiseReconciler) createConfigurePipeline(args commonArgs, promise v1alpha1.Promise, configurePromisePipelines []v1alpha1.Pipeline) (ctrl.Result, error) {
-	objMap, err := runtime.DefaultUnstructuredConverter.ToUnstructured(promise)
+	objMap, err := runtime.DefaultUnstructuredConverter.ToUnstructured(&promise)
 	if err != nil {
 		return ctrl.Result{}, err
 	}

@@ -54,7 +54,8 @@ func (p pipelineLabels) WithResourceRequestID(resourceRequestID string) pipeline
 }
 
 func (p pipelineLabels) WithWorkflow(workflowType, workflowAction string) pipelineLabels {
-	p["kratix-workflow-kind"] = "pipeline.platform.kratix.io/v1alpha1"
+	p["kratix-workflow-kind"] = "pipeline.platform.kratix.io"
+	p["kratix-workflow-promise-version"] = "v1alpha1"
 	p["kratix-workflow-type"] = workflowType
 	p["kratix-workflow-action"] = workflowAction
 	return p
