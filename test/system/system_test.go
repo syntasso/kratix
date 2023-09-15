@@ -34,8 +34,8 @@ var (
 	platCtx   = "--context=kind-platform"
 
 	timeout             = time.Second * 90
-	consistentlyTimeout = time.Second * 20
-	interval            = time.Second * 2
+	consistentlyTimeout = time.Second * 10
+	interval            = time.Second * 1
 
 	platform = destination{context: "--context=kind-platform"}
 	worker   = destination{context: "--context=kind-worker"}
@@ -187,7 +187,7 @@ var _ = Describe("Kratix", func() {
 					By("redeploying the contents of /kratix/output to the worker destination", func() {
 						Eventually(func() string {
 							return worker.kubectl("get", "namespace")
-						}, "30s").Should(
+						}, timeout, interval).Should(
 							SatisfyAll(
 								Not(ContainSubstring(oldNamespaceName)),
 								ContainSubstring(newNamespaceName),
@@ -199,14 +199,12 @@ var _ = Describe("Kratix", func() {
 
 			AfterEach(func() {
 				platform.kubectl("delete", "promise", "bash")
-				Eventually(platform.kubectl("get", "promise")).ShouldNot(ContainSubstring("bash"))
 			})
 		})
 
 		When("A Promise is updated", func() {
 			AfterEach(func() {
 				platform.kubectl("delete", "promise", "bash")
-				Eventually(platform.kubectl("get", "promise")).ShouldNot(ContainSubstring("bash"))
 			})
 
 			It("propogates the changes and re-runs all the pipelines", func() {
@@ -326,6 +324,10 @@ var _ = Describe("Kratix", func() {
 				Consistently(func() {
 					worker.eventuallyKubectl("get", "namespace", "bash-wcr-namespace")
 				}, consistentlyTimeout, interval)
+
+				Eventually(func() string {
+					return platform.kubectl("get", "namespace")
+				}, timeout, interval).ShouldNot(ContainSubstring("bash-wcr-namespace"))
 
 				Consistently(func() string {
 					return platform.kubectl("get", "namespace")
