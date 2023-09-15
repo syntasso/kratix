@@ -12,3 +12,6 @@ gcr.io/kubebuilder/kube-rbac-proxy:v0.8.0
 minio/mc:RELEASE.2023-06-06T13-48-56Z
 kindest/kindnetd:v20221004-44d545d1
 kindest/local-path-provisioner:v0.0.22-kind.0
+quay.io/jetstack/cert-manager-webhook:v1.12.0
+quay.io/jetstack/cert-manager-cainjector:v1.12.0
+quay.io/jetstack/cert-manager-controller:v1.12.0
