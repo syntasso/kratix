@@ -17,6 +17,7 @@ limitations under the License.
 package main
 
 import (
+	"context"
 	"flag"
 	"os"
 
@@ -59,80 +60,99 @@ func main() {
 	opts.BindFlags(flag.CommandLine)
 	flag.Parse()
 
-	ctrl.SetLogger(zap.New(zap.UseFlagOptions(&opts), func(o *zap.Options) {
-		o.TimeEncoder = zapcore.TimeEncoderOfLayout("2006-01-02T15:04:05Z07:00")
-	}))
+	ctx, cancelManagerCtxFunc := context.WithCancel(context.Background())
+	restartManager := false
+	for {
+		ctrl.SetLogger(zap.New(zap.UseFlagOptions(&opts), func(o *zap.Options) {
+			o.TimeEncoder = zapcore.TimeEncoderOfLayout("2006-01-02T15:04:05Z07:00")
+		}))
 
-	config := ctrl.GetConfigOrDie()
-	apiextensionsClient := clientset.NewForConfigOrDie(config)
-	mgr, err := ctrl.NewManager(config, ctrl.Options{
-		Scheme:                 scheme.Scheme,
-		MetricsBindAddress:     metricsAddr,
-		Port:                   9443,
-		HealthProbeBindAddress: probeAddr,
-		LeaderElection:         enableLeaderElection,
-		LeaderElectionID:       "2743c979.kratix.io",
-	})
-	if err != nil {
-		setupLog.Error(err, "unable to start manager")
-		os.Exit(1)
-	}
+		config := ctrl.GetConfigOrDie()
+		apiextensionsClient := clientset.NewForConfigOrDie(config)
+		mgr, err := ctrl.NewManager(config, ctrl.Options{
+			Scheme:                 scheme.Scheme,
+			MetricsBindAddress:     metricsAddr,
+			Port:                   9443,
+			HealthProbeBindAddress: probeAddr,
+			LeaderElection:         enableLeaderElection,
+			LeaderElectionID:       "2743c979.kratix.io",
+		})
+		if err != nil {
+			setupLog.Error(err, "unable to start manager")
+			os.Exit(1)
+		}
 
-	scheduler := controllers.Scheduler{
-		Client: mgr.GetClient(),
-		Log:    ctrl.Log.WithName("controllers").WithName("Scheduler"),
-	}
+		scheduler := controllers.Scheduler{
+			Client: mgr.GetClient(),
+			Log:    ctrl.Log.WithName("controllers").WithName("Scheduler"),
+		}
 
-	if err = (&controllers.PromiseReconciler{
-		ApiextensionsClient: apiextensionsClient,
-		Client:              mgr.GetClient(),
-		Log:                 ctrl.Log.WithName("controllers").WithName("Promise"),
-		Manager:             mgr,
-	}).SetupWithManager(mgr); err != nil {
-		setupLog.Error(err, "unable to create controller", "controller", "Promise")
-		os.Exit(1)
-	}
-	if err = (&controllers.WorkReconciler{
-		Client:    mgr.GetClient(),
-		Log:       ctrl.Log.WithName("controllers").WithName("Work"),
-		Scheduler: &scheduler,
-	}).SetupWithManager(mgr); err != nil {
-		setupLog.Error(err, "unable to create controller", "controller", "Work")
-		os.Exit(1)
-	}
-	if err = (&controllers.DestinationReconciler{
-		Client:    mgr.GetClient(),
-		Scheduler: &scheduler,
-		Log:       ctrl.Log.WithName("controllers").WithName("DestinationController"),
-	}).SetupWithManager(mgr); err != nil {
-		setupLog.Error(err, "unable to create controller", "controller", "Destination")
-		os.Exit(1)
-	}
-	if err = (&controllers.WorkPlacementReconciler{
-		Client: mgr.GetClient(),
-		Log:    ctrl.Log.WithName("controllers").WithName("WorkPlacementController"),
-	}).SetupWithManager(mgr); err != nil {
-		setupLog.Error(err, "unable to create controller", "controller", "WorkPlacement")
-		os.Exit(1)
-	}
-	if err = (&platformv1alpha1.Promise{}).SetupWebhookWithManager(mgr, apiextensionsClient); err != nil {
-		setupLog.Error(err, "unable to create webhook", "webhook", "Promise")
-		os.Exit(1)
-	}
-	//+kubebuilder:scaffold:builder
+		if err = (&controllers.PromiseReconciler{
+			ApiextensionsClient: apiextensionsClient,
+			Client:              mgr.GetClient(),
+			Log:                 ctrl.Log.WithName("controllers").WithName("Promise"),
+			Manager:             mgr,
+			RestartManager: func() {
+				restartManager = true
+				cancelManagerCtxFunc()
+			},
+		}).SetupWithManager(mgr); err != nil {
+			setupLog.Error(err, "unable to create controller", "controller", "Promise")
+			os.Exit(1)
+		}
+		if err = (&controllers.WorkReconciler{
+			Client:    mgr.GetClient(),
+			Log:       ctrl.Log.WithName("controllers").WithName("Work"),
+			Scheduler: &scheduler,
+		}).SetupWithManager(mgr); err != nil {
+			setupLog.Error(err, "unable to create controller", "controller", "Work")
+			os.Exit(1)
+		}
+		if err = (&controllers.DestinationReconciler{
+			Client:    mgr.GetClient(),
+			Scheduler: &scheduler,
+			Log:       ctrl.Log.WithName("controllers").WithName("DestinationController"),
+		}).SetupWithManager(mgr); err != nil {
+			setupLog.Error(err, "unable to create controller", "controller", "Destination")
+			os.Exit(1)
+		}
+		if err = (&controllers.WorkPlacementReconciler{
+			Client: mgr.GetClient(),
+			Log:    ctrl.Log.WithName("controllers").WithName("WorkPlacementController"),
+		}).SetupWithManager(mgr); err != nil {
+			setupLog.Error(err, "unable to create controller", "controller", "WorkPlacement")
+			os.Exit(1)
+		}
+		if err = (&platformv1alpha1.Promise{}).SetupWebhookWithManager(mgr, apiextensionsClient); err != nil {
+			setupLog.Error(err, "unable to create webhook", "webhook", "Promise")
+			os.Exit(1)
+		}
+		//+kubebuilder:scaffold:builder
 
-	if err := mgr.AddHealthzCheck("healthz", healthz.Ping); err != nil {
-		setupLog.Error(err, "unable to set up health check")
-		os.Exit(1)
-	}
-	if err := mgr.AddReadyzCheck("readyz", healthz.Ping); err != nil {
-		setupLog.Error(err, "unable to set up ready check")
-		os.Exit(1)
-	}
+		if err := mgr.AddHealthzCheck("healthz", healthz.Ping); err != nil {
+			setupLog.Error(err, "unable to set up health check")
+			os.Exit(1)
+		}
+		if err := mgr.AddReadyzCheck("readyz", healthz.Ping); err != nil {
+			setupLog.Error(err, "unable to set up ready check")
+			os.Exit(1)
+		}
 
-	setupLog.Info("starting manager")
-	if err := mgr.Start(ctrl.SetupSignalHandler()); err != nil {
-		setupLog.Error(err, "problem running manager")
-		os.Exit(1)
+		setupLog.Info("starting manager")
+		err = mgr.Start(ctx)
+		setupLog.Info("manager stopped")
+
+		if !restartManager {
+			if err != nil {
+				setupLog.Error(err, "problem running manager")
+				os.Exit(1)
+			}
+			setupLog.Info("shutting down")
+			os.Exit(0)
+		}
+
+		setupLog.Info("restarting manager")
+		ctx, cancelManagerCtxFunc = context.WithCancel(context.Background())
+		restartManager = false
 	}
 }
