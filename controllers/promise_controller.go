@@ -20,7 +20,6 @@ import (
 	"context"
 	"encoding/json"
 	"fmt"
-	"os"
 	"time"
 
 	controllerutil "sigs.k8s.io/controller-runtime/pkg/controller/controllerutil"
@@ -48,6 +47,7 @@ type PromiseReconciler struct {
 	Log                       logr.Logger
 	Manager                   ctrl.Manager
 	StartedDynamicControllers map[string]*dynamicResourceRequestController
+	RestartManager            func()
 }
 
 const (
@@ -364,9 +364,9 @@ func (r *PromiseReconciler) deletePromise(ctx context.Context, promise *v1alpha1
 	//temporary fix until https://github.com/kubernetes-sigs/controller-runtime/issues/1884 is resolved
 	//once resolved, delete dynamic controller rather than disable
 	if d, exists := r.StartedDynamicControllers[string(promise.GetUID())]; exists {
+		r.RestartManager()
 		enabled := false
 		d.enabled = &enabled
-		os.Exit(124)
 	}
 
 	if controllerutil.ContainsFinalizer(promise, dynamicControllerDependantResourcesCleaupFinalizer) {
