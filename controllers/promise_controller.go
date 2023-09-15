@@ -20,6 +20,7 @@ import (
 	"context"
 	"encoding/json"
 	"fmt"
+	"os"
 	"time"
 
 	controllerutil "sigs.k8s.io/controller-runtime/pkg/controller/controllerutil"
@@ -365,6 +366,7 @@ func (r *PromiseReconciler) deletePromise(ctx context.Context, promise *v1alpha1
 	if d, exists := r.StartedDynamicControllers[string(promise.GetUID())]; exists {
 		enabled := false
 		d.enabled = &enabled
+		os.Exit(124)
 	}
 
 	if controllerutil.ContainsFinalizer(promise, dynamicControllerDependantResourcesCleaupFinalizer) {

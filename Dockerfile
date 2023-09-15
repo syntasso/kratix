@@ -22,10 +22,14 @@ RUN CGO_ENABLED=0 GOOS=$TARGETOS GOARCH=$TARGETARCH GO111MODULE=on go build -a -
 
 # Use distroless as minimal base image to package the manager binary
 # Refer to https://github.com/GoogleContainerTools/distroless for more details
-FROM gcr.io/distroless/cc:nonroot
+FROM alpine
 WORKDIR /
-COPY --from=builder /workspace/manager .
+RUN apk update
+RUN apk upgrade
+RUN apk add bash
+COPY --from=builder /workspace/manager controllers
 COPY --from=alpine/git /usr/bin/git /usr/bin/git
+COPY run.bash /manager
 USER 65532:65532
 
 ENTRYPOINT ["/manager"]
