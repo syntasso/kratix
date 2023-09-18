@@ -45,10 +45,10 @@ var _ = Describe("Conditions", func() {
 		Expect(err).NotTo(HaveOccurred())
 	})
 
-	Describe("PipelineForRequestExists", func() {
+	Describe("PipelineExists", func() {
 		It("returns false if there are no pipeline jobs", func() {
-			Expect(resourceutil.PipelineForRequestExists(logger, nil, nil)).To(BeFalse())
-			Expect(resourceutil.PipelineForRequestExists(logger, nil, []batchv1.Job{})).To(BeFalse())
+			Expect(resourceutil.PipelineExists(logger, nil, nil)).To(BeFalse())
+			Expect(resourceutil.PipelineExists(logger, nil, []batchv1.Job{})).To(BeFalse())
 		})
 
 		It("returns true if there's a job matching the request spec hash", func() {
@@ -64,7 +64,7 @@ var _ = Describe("Conditions", func() {
 				},
 			}
 
-			Expect(resourceutil.PipelineForRequestExists(logger, rr, jobs)).To(BeTrue())
+			Expect(resourceutil.PipelineExists(logger, rr, jobs)).To(BeTrue())
 		})
 
 		It("returns false if there's no job matching the request spec hash", func() {
@@ -84,7 +84,7 @@ var _ = Describe("Conditions", func() {
 				},
 			}
 
-			Expect(resourceutil.PipelineForRequestExists(logger, rr, jobs)).To(BeFalse())
+			Expect(resourceutil.PipelineExists(logger, rr, jobs)).To(BeFalse())
 		})
 
 		It("only compares hashes of the most recent job", func() {
@@ -119,7 +119,7 @@ var _ = Describe("Conditions", func() {
 				},
 			}
 
-			Expect(resourceutil.PipelineForRequestExists(logger, rr, jobs)).To(BeTrue())
+			Expect(resourceutil.PipelineExists(logger, rr, jobs)).To(BeTrue())
 
 			jobs = append(jobs, batchv1.Job{
 				ObjectMeta: metav1.ObjectMeta{
@@ -130,7 +130,7 @@ var _ = Describe("Conditions", func() {
 				},
 			})
 
-			Expect(resourceutil.PipelineForRequestExists(logger, rr, jobs)).To(BeFalse())
+			Expect(resourceutil.PipelineExists(logger, rr, jobs)).To(BeFalse())
 		})
 	})
 

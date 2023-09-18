@@ -150,6 +150,10 @@ func (r *PromiseReconciler) Reconcile(ctx context.Context, req ctrl.Request) (ct
 		return ctrl.Result{}, err
 	}
 
+	if doesNotContainFinalizer(promise, dependenciesCleanupFinalizer) {
+		return addFinalizers(args, promise, []string{dependenciesCleanupFinalizer})
+	}
+
 	if len(promise.Spec.Workflows.Promise.Configure) == 0 {
 		logger.Info("Promise does not contain workflows.promise.configure, applying dependencies directly")
 		if err := r.applyWorkResourceForDependencies(ctx, promise, logger); err != nil {
@@ -160,36 +164,37 @@ func (r *PromiseReconciler) Reconcile(ctx context.Context, req ctrl.Request) (ct
 		if doesNotContainFinalizer(promise, workflowsFinalizer) {
 			return addFinalizers(args, promise, []string{workflowsFinalizer})
 		}
-
 		logger.Info("Promise contains workflows.promise.configure, reconciling workflows")
-		pipelineJobs, err := getConfigurePromiseJobs(args, promise.GetName(), kratixPlatformSystemNamespace)
+		objMap, err := runtime.DefaultUnstructuredConverter.ToUnstructured(&promise)
 		if err != nil {
-			logger.Info("Failed getting Promise pipeline jobs", "error", err)
-			return slowRequeue, nil
+			return ctrl.Result{}, err
 		}
-
-		// No jobs indicates this is the first reconciliation loop of this resource request
-		if len(pipelineJobs) == 0 {
-			logger.Info("No jobs found, creating workflow.promise.configure pipeline")
-			return r.createConfigurePipeline(args, *promise, pipelines.ConfigurePromise)
-		}
-
-		if resourceutil.IsThereAPipelineRunning(logger, pipelineJobs) {
-			return slowRequeue, nil
-		}
-
-		pipelineAlreadyExists, err := resourceutil.PipelineForPromiseExists(logger, *promise, pipelineJobs)
+		unstructuredPromise := &unstructured.Unstructured{Object: objMap}
+		pipelineResources, err := pipeline.NewConfigurePromise(
+			unstructuredPromise,
+			pipelines.ConfigurePromise,
+			promise.GetName(),
+			promise.Spec.DestinationSelectors,
+			args.logger,
+		)
 		if err != nil {
-			return slowRequeue, nil
+			return ctrl.Result{}, err
 		}
 
-		if isManualReconciliation(promise.GetLabels()) || !pipelineAlreadyExists {
-			return r.createConfigurePipeline(args, *promise, pipelines.ConfigurePromise)
+		jobArg := jobArg{
+			commonArgs:        args,
+			obj:               unstructuredPromise,
+			pipelineLabels:    pipeline.LabelsForConfigurePromise(promise.GetName()),
+			pipelineResources: pipelineResources,
 		}
-	}
+		requeue, err := ensurePipelineIsReconciled(jobArg)
+		if err != nil {
+			return ctrl.Result{}, err
+		}
 
-	if doesNotContainFinalizer(promise, dependenciesCleanupFinalizer) {
-		return addFinalizers(args, promise, []string{dependenciesCleanupFinalizer})
+		if requeue != nil {
+			return *requeue, nil
+		}
 	}
 
 	if promise.DoesNotContainAPI() {

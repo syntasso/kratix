@@ -6,7 +6,7 @@ import (
 
 	"github.com/go-logr/logr"
 	platformv1alpha1 "github.com/syntasso/kratix/api/v1alpha1"
-	"github.com/syntasso/kratix/lib/pipeline"
+	"github.com/syntasso/kratix/lib/resourceutil"
 	"github.com/syntasso/kratix/lib/writers"
 	batchv1 "k8s.io/api/batch/v1"
 	v1 "k8s.io/api/core/v1"
@@ -31,6 +31,72 @@ type commonArgs struct {
 	ctx    context.Context
 	client client.Client
 	logger logr.Logger
+}
+
+type jobArg struct {
+	commonArgs
+	obj               *unstructured.Unstructured
+	pipelineLabels    map[string]string
+	pipelineResources []client.Object
+}
+
+func ensurePipelineIsReconciled(j jobArg) (*ctrl.Result, error) {
+	namespace := j.obj.GetNamespace()
+	if namespace == "" {
+		namespace = kratixPlatformSystemNamespace
+	}
+
+	pipelineJobs, err := getJobsWithLabels(j.commonArgs, j.pipelineLabels, namespace)
+	if err != nil {
+		j.logger.Info("Failed getting Promise pipeline jobs", "error", err)
+		return &slowRequeue, nil
+	}
+
+	// No jobs indicates this is the first reconciliation loop of this resource request
+	if len(pipelineJobs) == 0 {
+		j.logger.Info("No jobs found, creating workflow.promise.configure pipeline")
+		return &fastRequeue, createConfigurePipeline(j)
+	}
+
+	if resourceutil.IsThereAPipelineRunning(j.logger, pipelineJobs) {
+		return &slowRequeue, nil
+	}
+
+	pipelineAlreadyExists, err := resourceutil.PipelineExists(j.logger, j.obj, pipelineJobs)
+	if err != nil {
+		return &slowRequeue, nil
+	}
+
+	if isManualReconciliation(j.obj.GetLabels()) || !pipelineAlreadyExists {
+		return &fastRequeue, createConfigurePipeline(j)
+	}
+	return nil, nil
+}
+
+func createConfigurePipeline(j jobArg) error {
+	updated, err := setPipelineCompletedConditionStatus(j.commonArgs, j.obj)
+	if err != nil {
+		return err
+	}
+
+	if updated {
+		return nil
+	}
+
+	j.logger.Info("Triggering Promise pipeline")
+
+	applyResources(j.commonArgs, j.pipelineResources)
+
+	if isManualReconciliation(j.obj.GetLabels()) {
+		newLabels := j.obj.GetLabels()
+		delete(newLabels, resourceutil.ManualReconciliationLabel)
+		j.obj.SetLabels(newLabels)
+		if err := j.client.Update(j.ctx, j.obj); err != nil {
+			return err
+		}
+	}
+
+	return nil
 }
 
 // pass in nil resourceLabels to delete all resources of the GVK
@@ -163,22 +229,6 @@ func newWriter(args commonArgs, destination platformv1alpha1.Destination) (write
 		return nil, err
 	}
 	return writer, nil
-}
-
-func getConfigurePromiseJobs(args commonArgs, promiseID, namespace string) ([]batchv1.Job, error) {
-	jobs, err := getJobsWithLabels(args, pipeline.LabelsForConfigurePromise(promiseID), namespace)
-	if err != nil {
-		return nil, err
-	}
-	return jobs, nil
-}
-
-func getConfigureResourceJobs(args commonArgs, promiseID, rrID, namespace string) ([]batchv1.Job, error) {
-	jobs, err := getJobsWithLabels(args, pipeline.LabelsForConfigureResource(rrID, promiseID), namespace)
-	if err != nil {
-		return nil, err
-	}
-	return jobs, nil
 }
 
 func getJobsWithLabels(args commonArgs, jobLabels map[string]string, namespace string) ([]batchv1.Job, error) {

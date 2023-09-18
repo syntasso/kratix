@@ -37,12 +37,7 @@ func NewConfigureResource(
 		return nil, err
 	}
 
-	objSpecHash, err := hash.ComputeHash(rr)
-	if err != nil {
-		return nil, err
-	}
-
-	pipeline, err := ConfigurePipeline(rr, objSpecHash, pipelines, pipelineResources, promiseIdentifier, false, logger)
+	pipeline, err := ConfigurePipeline(rr, pipelines, pipelineResources, promiseIdentifier, false, logger)
 	if err != nil {
 		return nil, err
 	}
@@ -72,7 +67,7 @@ func NewConfigurePromise(
 		return nil, err
 	}
 
-	pipeline, err := ConfigurePipeline(unstructedPromise, fmt.Sprintf("%d", unstructedPromise.GetGeneration()), pipelines, pipelineResources, promiseIdentifier, true, logger)
+	pipeline, err := ConfigurePipeline(unstructedPromise, pipelines, pipelineResources, promiseIdentifier, true, logger)
 	if err != nil {
 		return nil, err
 	}
@@ -88,11 +83,16 @@ func NewConfigurePromise(
 	return resources, nil
 }
 
-func ConfigurePipeline(obj *unstructured.Unstructured, objHash string, pipelines []platformv1alpha1.Pipeline, pipelineArgs PipelineArgs, promiseName string, passPromiseToWorkCreator bool, logger logr.Logger) (*batchv1.Job, error) {
+func ConfigurePipeline(obj *unstructured.Unstructured, pipelines []platformv1alpha1.Pipeline, pipelineArgs PipelineArgs, promiseName string, passPromiseToWorkCreator bool, logger logr.Logger) (*batchv1.Job, error) {
 	volumes := metadataAndSchedulingVolumes(pipelineArgs.ConfigMapName())
 
 	initContainers, pipelineVolumes := configurePipelineInitContainers(obj, pipelines, promiseName, passPromiseToWorkCreator, logger)
 	volumes = append(volumes, pipelineVolumes...)
+
+	objHash, err := hash.ComputeHash(obj)
+	if err != nil {
+		return nil, err
+	}
 
 	objKind := fmt.Sprintf("%s.%s", strings.ToLower(obj.GetKind()), obj.GroupVersionKind().Group)
 	return &batchv1.Job{

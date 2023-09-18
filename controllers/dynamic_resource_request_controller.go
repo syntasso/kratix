@@ -110,28 +110,33 @@ func (r *dynamicResourceRequestController) Reconcile(ctx context.Context, req ct
 		return addFinalizers(args, rr, []string{workFinalizer, workflowsFinalizer, deleteWorkflowsFinalizer})
 	}
 
-	pipelineJobs, err := getConfigureResourceJobs(args, r.promiseIdentifier, resourceRequestIdentifier, rr.GetNamespace())
+	pipelineResources, err := pipeline.NewConfigureResource(
+		rr,
+		r.crd.Spec.Names,
+		r.configurePipelines,
+		resourceRequestIdentifier,
+		r.promiseIdentifier,
+		r.promiseDestinationSelectors,
+		args.logger,
+	)
+
 	if err != nil {
-		logger.Info("Failed getting resource pipeline jobs", "error", err)
-		return slowRequeue, nil
+		return ctrl.Result{}, err
 	}
 
-	// No jobs indicates this is the first reconciliation loop of this resource request
-	if len(pipelineJobs) == 0 {
-		return r.createConfigurePipeline(args, rr, resourceRequestIdentifier)
+	jobArg := jobArg{
+		commonArgs:        args,
+		obj:               rr,
+		pipelineLabels:    pipeline.LabelsForConfigureResource(resourceRequestIdentifier, r.promiseIdentifier),
+		pipelineResources: pipelineResources,
 	}
-
-	if resourceutil.IsThereAPipelineRunning(logger, pipelineJobs) {
-		return slowRequeue, nil
-	}
-
-	pipelineAlreadyExists, err := resourceutil.PipelineForRequestExists(logger, rr, pipelineJobs)
+	requeue, err := ensurePipelineIsReconciled(jobArg)
 	if err != nil {
-		return slowRequeue, nil
+		return ctrl.Result{}, err
 	}
 
-	if isManualReconciliation(rr.GetLabels()) || !pipelineAlreadyExists {
-		return r.createConfigurePipeline(args, rr, resourceRequestIdentifier)
+	if requeue != nil {
+		return *requeue, nil
 	}
 
 	return ctrl.Result{}, nil
