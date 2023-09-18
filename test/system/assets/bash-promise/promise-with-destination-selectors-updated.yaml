@@ -36,7 +36,7 @@ spec:
     - apiVersion: v1
       kind: Namespace
       metadata:
-        name: bash-dep-namespace
+        name: bash-dep-namespace-v1alpha1
   destinationSelectors:
   - matchLabels:
       environment: platform
