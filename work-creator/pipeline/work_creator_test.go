@@ -18,6 +18,10 @@ import (
 )
 
 var _ = Describe("WorkCreator", func() {
+	var (
+		resourceWorkName = "promise-name-resource-name"
+		promiseWorkName  = "promise-name"
+	)
 
 	When("WorkCreator Executes", func() {
 		var (
@@ -43,11 +47,11 @@ var _ = Describe("WorkCreator", func() {
 				err := workCreator.Execute(mockPipelineDirectory, "promise-name", "default", "resource-name", false)
 				Expect(err).ToNot(HaveOccurred())
 
-				workResource = getCreatedWorkResource(expectedNamespace)
+				workResource = getWork(expectedNamespace, resourceWorkName)
 			})
 
 			It("has a correctly configured Work resource", func() {
-				Expect(workResource.GetName()).To(Equal(getWorkResourceIdentifer()))
+				Expect(workResource.GetName()).To(Equal(resourceWorkName))
 				Expect(workResource.Spec.DestinationSelectors).To(Equal(
 					v1alpha1.WorkScheduling{
 						Promise: []v1alpha1.Selector{
@@ -92,8 +96,8 @@ var _ = Describe("WorkCreator", func() {
 			})
 
 			It("does not try to apply the metadata/destination-selectors.yaml when its not present", func() {
-				workResource := getCreatedWorkResource(expectedNamespace)
-				Expect(workResource.GetName()).To(Equal(getWorkResourceIdentifer()))
+				workResource := getWork(expectedNamespace, resourceWorkName)
+				Expect(workResource.GetName()).To(Equal(resourceWorkName))
 				Expect(workResource.Spec.DestinationSelectors).To(Equal(
 					v1alpha1.WorkScheduling{
 						Promise: []v1alpha1.Selector{
@@ -113,8 +117,7 @@ var _ = Describe("WorkCreator", func() {
 			})
 
 			It("creates works with the namespace 'kratix-platform-system'", func() {
-				workResource := getCreatedWorkResource(expectedNamespace)
-				Expect(workResource.GetName()).To(Equal(getWorkResourceIdentifer()))
+				getWork(expectedNamespace, resourceWorkName)
 			})
 		})
 
@@ -126,8 +129,7 @@ var _ = Describe("WorkCreator", func() {
 			})
 
 			It("adds the dependencies in the promise to the work", func() {
-				workResource := getCreatedWorkResource(expectedNamespace)
-				Expect(workResource.GetName()).To(Equal(getPromiseIdentifier()))
+				workResource := getWork(expectedNamespace, promiseWorkName)
 				Expect(workResource.Spec.Workloads).To(HaveLen(4))
 				Expect(workResource.Spec.Workloads).To(ContainElement(v1alpha1.Workload{
 					Content:  "apiVersion: v1\nkind: Namespace\nmetadata:\n  name: dep-namespace\n",
@@ -173,22 +175,14 @@ func getExpectedManifests(rootDirectory string) []unstructured.Unstructured {
 	return ul
 }
 
-func getCreatedWorkResource(namespace string) v1alpha1.Work {
+func getWork(namespace, name string) v1alpha1.Work {
 	expectedName := types.NamespacedName{
-		Name:      getWorkResourceIdentifer(),
+		Name:      name,
 		Namespace: namespace,
 	}
-	Expect(k8sClient).ToNot(BeNil())
+	ExpectWithOffset(1, k8sClient).NotTo(BeNil())
 	work := v1alpha1.Work{}
 	err := k8sClient.Get(context.Background(), expectedName, &work)
-	Expect(err).ToNot(HaveOccurred())
+	ExpectWithOffset(1, err).NotTo(HaveOccurred())
 	return work
-}
-
-// our test identifer
-func getWorkResourceIdentifer() string {
-	return "promise-name-resource-name"
-}
-func getPromiseIdentifier() string {
-	return "promise-name"
 }

@@ -19,6 +19,11 @@ func LabelsForAllResourceWorkflows(rrID, promiseID string) map[string]string {
 		WithWorkflow(resourceType, "")
 }
 
+func LabelsForAllPromiseWorkflows(promiseID string) map[string]string {
+	return PromiseLabels(promiseID).
+		WithWorkflow(promiseType, "")
+}
+
 func LabelsForDeleteResource(rrID, promiseID string, requestSHA ...string) map[string]string {
 	labels := ResourceLabels(rrID, promiseID).WithWorkflow(resourceType, deleteAction)
 	if len(requestSHA) > 0 {

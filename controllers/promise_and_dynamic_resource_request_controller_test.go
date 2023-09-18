@@ -243,6 +243,7 @@ var _ = Context("Promise Reconciler", func() {
 					}, timeout, interval).Should(
 						ConsistOf(
 							"kratix.io/dependencies-cleanup",
+							"kratix.io/workflows-cleanup",
 						),
 						"Promise should have finalizers set",
 					)
@@ -253,6 +254,16 @@ var _ = Context("Promise Reconciler", func() {
 						jobs := getPromiseConfigurePipelineJobs(promiseCR, k8sClient)
 						return len(jobs)
 					}, timeout, interval).Should(Equal(1), "Configure Pipeline never trigerred")
+				})
+
+				When("deleting", func() {
+					It("removes the workflows jobs", func() {
+						Expect(k8sClient.Delete(ctx, promiseCR)).To(Succeed())
+						Eventually(func() int {
+							jobs := getPromiseConfigurePipelineJobs(promiseCR, k8sClient)
+							return len(jobs)
+						}, timeout, interval).Should(Equal(0), "Configure Pipeline never deleted")
+					})
 				})
 			})
 		})

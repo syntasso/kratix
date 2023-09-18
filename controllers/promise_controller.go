@@ -28,6 +28,7 @@ import (
 	"github.com/syntasso/kratix/api/v1alpha1"
 	"github.com/syntasso/kratix/lib/pipeline"
 	"github.com/syntasso/kratix/lib/resourceutil"
+	batchv1 "k8s.io/api/batch/v1"
 	v1 "k8s.io/api/core/v1"
 	rbacv1 "k8s.io/api/rbac/v1"
 	apiextensionsv1 "k8s.io/apiextensions-apiserver/pkg/apis/apiextensions/v1"
@@ -156,6 +157,10 @@ func (r *PromiseReconciler) Reconcile(ctx context.Context, req ctrl.Request) (ct
 			return ctrl.Result{}, err
 		}
 	} else {
+		if doesNotContainFinalizer(promise, workflowsFinalizer) {
+			return addFinalizers(args, promise, []string{workflowsFinalizer})
+		}
+
 		logger.Info("Promise contains workflows.promise.configure, reconciling workflows")
 		pipelineJobs, err := getConfigurePromiseJobs(args, promise.GetName(), kratixPlatformSystemNamespace)
 		if err != nil {
@@ -432,6 +437,14 @@ func (r *PromiseReconciler) deletePromise(args commonArgs, promise *v1alpha1.Pro
 		return ctrl.Result{}, nil
 	}
 
+	if controllerutil.ContainsFinalizer(promise, workflowsFinalizer) {
+		err := r.deleteWorkflows(args, promise, workflowsFinalizer)
+		if err != nil {
+			return defaultRequeue, err
+		}
+		return fastRequeue, nil
+	}
+
 	if controllerutil.ContainsFinalizer(promise, resourceRequestCleanupFinalizer) {
 		args.logger.Info("deleting resources associated with finalizer", "finalizer", resourceRequestCleanupFinalizer)
 		err := r.deleteResourceRequests(args, promise)
@@ -477,6 +490,30 @@ func (r *PromiseReconciler) deletePromise(args commonArgs, promise *v1alpha1.Pro
 	}
 
 	return fastRequeue, nil
+}
+
+func (r *PromiseReconciler) deleteWorkflows(args commonArgs, promise *v1alpha1.Promise, finalizer string) error {
+	jobGVK := schema.GroupVersionKind{
+		Group:   batchv1.SchemeGroupVersion.Group,
+		Version: batchv1.SchemeGroupVersion.Version,
+		Kind:    "Job",
+	}
+
+	jobLabels := pipeline.LabelsForAllPromiseWorkflows(promise.GetName())
+
+	resourcesRemaining, err := deleteAllResourcesWithKindMatchingLabel(args, jobGVK, jobLabels)
+	if err != nil {
+		return err
+	}
+
+	if !resourcesRemaining {
+		controllerutil.RemoveFinalizer(promise, finalizer)
+		if err := r.Client.Update(args.ctx, promise); err != nil {
+			return err
+		}
+	}
+
+	return nil
 }
 
 func (r *PromiseReconciler) deleteDynamicControllerResources(args commonArgs, promise *v1alpha1.Promise) error {
