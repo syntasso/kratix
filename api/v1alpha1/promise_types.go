@@ -129,7 +129,7 @@ func (p *Promise) GetAPIAsCRD() (*v1.CustomResourceDefinition, error) {
 
 	crd := v1.CustomResourceDefinition{}
 	if err := json.Unmarshal(p.Spec.API.Raw, &crd); err != nil {
-		return nil, fmt.Errorf("api.metadata.name is immutable")
+		return nil, fmt.Errorf("api is not a valid CRD: %w", err)
 	}
 
 	return &crd, nil
