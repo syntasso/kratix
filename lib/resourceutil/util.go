@@ -78,22 +78,32 @@ func IsThereAPipelineRunning(logger logr.Logger, jobs []batchv1.Job) bool {
 		return false
 	}
 
-	var incompleteJobs bool
 	for _, job := range jobs {
-		for _, condition := range job.Status.Conditions {
-			switch condition.Type {
-			// TODO: deal with other conditions; what should kratix do if
-			// the job is in a failed or suspended state?
-			case batchv1.JobComplete:
-				if condition.Status == v1.ConditionFalse {
-					logger.Info("There's a pipeline still running, won't trigger a new pipeline")
-					return true
-				}
-			default:
-				incompleteJobs = true
-			}
+		//A Job only has a condition after its finished or failed to run. No
+		//conditions means its still active
+		if len(job.Status.Conditions) == 0 {
+			return true
+		}
+
+		// A job only ever has conditions: (none), Complete, Suspended, Failed, and FailureTarget
+		//FailureTarget is not documented :shrug:
+		// Complete, failed or suspended being true means nothing is running
+		complete := hasCondition(job, batchv1.JobComplete, v1.ConditionTrue)
+		suspended := hasCondition(job, batchv1.JobSuspended, v1.ConditionTrue)
+		failed := hasCondition(job, batchv1.JobFailed, v1.ConditionTrue)
+		if complete || suspended || failed {
+			continue
+		}
+		return true
+	}
+	return false
+}
+
+func hasCondition(job batchv1.Job, conditionType batchv1.JobConditionType, conditionStatus v1.ConditionStatus) bool {
+	for _, condition := range job.Status.Conditions {
+		if condition.Type == conditionType && condition.Status == conditionStatus {
+			return true
 		}
 	}
-
-	return incompleteJobs
+	return false
 }

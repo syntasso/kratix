@@ -7,6 +7,7 @@ import (
 	. "github.com/onsi/ginkgo"
 	. "github.com/onsi/gomega"
 	batchv1 "k8s.io/api/batch/v1"
+	v1 "k8s.io/api/core/v1"
 	metav1 "k8s.io/apimachinery/pkg/apis/meta/v1"
 	"k8s.io/apimachinery/pkg/apis/meta/v1/unstructured"
 
@@ -35,7 +36,7 @@ var _ = Describe("Conditions", func() {
 			Conditions: []batchv1.JobCondition{
 				{
 					Type:   batchv1.JobComplete,
-					Status: "True",
+					Status: v1.ConditionTrue,
 				},
 			},
 		}
@@ -139,13 +140,30 @@ var _ = Describe("Conditions", func() {
 			Expect(resourceutil.IsThereAPipelineRunning(logger, nil)).To(BeFalse())
 		})
 
-		It("returns false if there are jobs without the JobCompleted: True condition", func() {
+		It("returns false if all jobs are Complete, Suspedend or Failed True", func() {
 			jobs := []batchv1.Job{
 				{
 					ObjectMeta: metav1.ObjectMeta{
 						CreationTimestamp: metav1.Now(),
 						Labels: map[string]string{
 							"kratix-resource-hash": originalHash,
+						},
+					},
+					Status: completedStatus,
+				},
+				{
+					ObjectMeta: metav1.ObjectMeta{
+						CreationTimestamp: metav1.Now(),
+						Labels: map[string]string{
+							"kratix-resource-hash": originalHash,
+						},
+					},
+					Status: batchv1.JobStatus{
+						Conditions: []batchv1.JobCondition{
+							{
+								Type:   batchv1.JobFailed,
+								Status: v1.ConditionTrue,
+							},
 						},
 					},
 				},
@@ -156,7 +174,14 @@ var _ = Describe("Conditions", func() {
 							"kratix-resource-hash": originalHash,
 						},
 					},
-					Status: completedStatus,
+					Status: batchv1.JobStatus{
+						Conditions: []batchv1.JobCondition{
+							{
+								Type:   batchv1.JobSuspended,
+								Status: v1.ConditionTrue,
+							},
+						},
+					},
 				},
 			}
 			Expect(resourceutil.IsThereAPipelineRunning(logger, jobs)).To(BeFalse())
@@ -208,10 +233,34 @@ var _ = Describe("Conditions", func() {
 						Conditions: []batchv1.JobCondition{
 							{
 								Type:   batchv1.JobComplete,
-								Status: "False",
+								Status: v1.ConditionFalse,
 							},
 						},
 					},
+				},
+			}
+			Expect(resourceutil.IsThereAPipelineRunning(logger, jobs)).To(BeTrue())
+		})
+
+		It("returns true if any jobs have no conditions", func() {
+			jobs := []batchv1.Job{
+				{
+					ObjectMeta: metav1.ObjectMeta{
+						CreationTimestamp: metav1.Now(),
+						Labels: map[string]string{
+							"kratix-resource-hash": originalHash,
+						},
+					},
+					Status: completedStatus,
+				},
+				{
+					ObjectMeta: metav1.ObjectMeta{
+						CreationTimestamp: metav1.Now(),
+						Labels: map[string]string{
+							"kratix-resource-hash": originalHash,
+						},
+					},
+					Status: batchv1.JobStatus{},
 				},
 			}
 			Expect(resourceutil.IsThereAPipelineRunning(logger, jobs)).To(BeTrue())

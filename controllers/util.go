@@ -54,11 +54,12 @@ func ensurePipelineIsReconciled(j jobArg) (*ctrl.Result, error) {
 
 	// No jobs indicates this is the first reconciliation loop of this resource request
 	if len(pipelineJobs) == 0 {
-		j.logger.Info("No jobs found, creating workflow.promise.configure pipeline")
+		j.logger.Info("No jobs found, creating workflow Job")
 		return &fastRequeue, createConfigurePipeline(j)
 	}
 
 	if resourceutil.IsThereAPipelineRunning(j.logger, pipelineJobs) {
+		j.logger.Info("Job already inflight for workflow, waiting for it to complete")
 		return &slowRequeue, nil
 	}
 
@@ -68,8 +69,11 @@ func ensurePipelineIsReconciled(j jobArg) (*ctrl.Result, error) {
 	}
 
 	if isManualReconciliation(j.obj.GetLabels()) || !pipelineAlreadyExists {
+		j.logger.Info("Creating job for workflow", "manualTrigger", isManualReconciliation(j.obj.GetLabels()))
 		return &fastRequeue, createConfigurePipeline(j)
 	}
+
+	j.logger.Info("Job already exists and is complete for workflow")
 	return nil, nil
 }
 
