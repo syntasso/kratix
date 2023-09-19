@@ -143,7 +143,9 @@ var _ = Describe("Kratix", func() {
 				})
 
 				By("updating the resource status", func() {
-					Expect(platform.kubectl("get", "bash", rrName)).To(ContainSubstring("My awesome status message"))
+					Eventually(func() string {
+						return platform.kubectl("get", "bash", rrName)
+					}, timeout, interval).Should(ContainSubstring("My awesome status message"))
 					Expect(platform.kubectl("get", "bash", rrName, "-o", "jsonpath='{.status.key}'")).To(ContainSubstring("value"))
 				})
 
