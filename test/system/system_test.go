@@ -118,8 +118,10 @@ var _ = Describe("Kratix", func() {
 								echo "key: value" >> /kratix/metadata/status.yaml
 								mkdir -p /kratix/output/foo/
 								echo "{}" > /kratix/output/foo/example.json
+			          kubectl get namespace imperative-$(yq '.metadata.name' /kratix/input/object.yaml) || kubectl create namespace imperative-$(yq '.metadata.name' /kratix/input/object.yaml)
+								exit 0
 							fi
-			                kubectl ${kop} namespace imperative-$(yq '.metadata.name' /kratix/input/object.yaml)`
+			                kubectl delete namespace imperative-$(yq '.metadata.name' /kratix/input/object.yaml)`
 
 				c2Command := `kubectl create namespace declarative-$(yq '.metadata.name' /kratix/input/object.yaml) --dry-run=client -oyaml > /kratix/output/namespace.yaml`
 
@@ -226,8 +228,10 @@ var _ = Describe("Kratix", func() {
 								echo "key: value" >> /kratix/metadata/status.yaml
 								mkdir -p /kratix/output/foo/
 								echo "{}" > /kratix/output/foo/example.json
+			          kubectl get namespace imperative-$(yq '.metadata.name' /kratix/input/object.yaml) || kubectl create namespace imperative-$(yq '.metadata.name' /kratix/input/object.yaml)
+								exit 0
 							fi
-			                kubectl ${kop} namespace imperative-$(yq '.metadata.name' /kratix/input/object.yaml)`
+			                kubectl delete namespace imperative-$(yq '.metadata.name' /kratix/input/object.yaml)`
 
 				c2Command := `kubectl create namespace declarative-$(yq '.metadata.name' /kratix/input/object.yaml) --dry-run=client -oyaml > /kratix/output/namespace.yaml`
 
