@@ -196,11 +196,15 @@ func fetchObjectAndSecret(o opts, stateStoreRef client.ObjectKey, stateStore Sta
 		o.logger.Error(err, "unable to fetch resource", "resourceKind", stateStore.GetObjectKind(), "stateStoreRef", stateStoreRef)
 		return nil, err
 	}
+	namespace := stateStore.GetSecretRef().Namespace
+	if namespace == "" {
+		namespace = kratixPlatformSystemNamespace
+	}
 
 	secret := &v1.Secret{}
 	secretRef := types.NamespacedName{
 		Name:      stateStore.GetSecretRef().Name,
-		Namespace: kratixPlatformSystemNamespace,
+		Namespace: namespace,
 	}
 
 	if err := o.client.Get(o.ctx, secretRef, secret); err != nil {
