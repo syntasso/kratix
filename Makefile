@@ -71,6 +71,12 @@ build-and-load-bash:
 	kind load docker-image syntassodev/bash-promise-configure:v1alpha1 --name platform
 	kind load docker-image syntassodev/bash-promise-configure:v1alpha2 --name platform
 
+install-cert-manager:
+	kubectl apply -f https://github.com/cert-manager/cert-manager/releases/download/v1.12.0/cert-manager.yaml
+	kubectl wait --for condition=available -n cert-manager deployment/cert-manager --timeout 120s
+	kubectl wait --for condition=available -n cert-manager deployment/cert-manager-cainjector --timeout 120s
+	kubectl wait --for condition=available -n cert-manager deployment/cert-manager-webhook --timeout 120s
+
 build-and-load-kratix: kind-load-image
 
 build-and-reload-kratix: kind-load-image  ## Build and reload Kratix on local KinD cluster
