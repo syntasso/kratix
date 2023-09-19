@@ -284,6 +284,7 @@ func (r *PromiseReconciler) ensureDynamicControllerIsStarted(promise *v1alpha1.P
 
 	return ctrl.NewControllerManagedBy(r.Manager).
 		For(unstructuredCRD).
+		Owns(&batchv1.Job{}).
 		Complete(dynamicResourceRequestController)
 }
 
@@ -577,6 +578,7 @@ func (r *PromiseReconciler) deleteWork(args commonArgs, promise *v1alpha1.Promis
 func (r *PromiseReconciler) SetupWithManager(mgr ctrl.Manager) error {
 	return ctrl.NewControllerManagedBy(mgr).
 		For(&v1alpha1.Promise{}).
+		Owns(&batchv1.Job{}).
 		Complete(r)
 }
 

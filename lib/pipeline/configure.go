@@ -13,7 +13,9 @@ import (
 	apiextensionsv1 "k8s.io/apiextensions-apiserver/pkg/apis/apiextensions/v1"
 	metav1 "k8s.io/apimachinery/pkg/apis/meta/v1"
 	"k8s.io/apimachinery/pkg/apis/meta/v1/unstructured"
+	"k8s.io/client-go/kubernetes/scheme"
 	"sigs.k8s.io/controller-runtime/pkg/client"
+	"sigs.k8s.io/controller-runtime/pkg/controller/controllerutil"
 )
 
 const (
@@ -95,7 +97,7 @@ func ConfigurePipeline(obj *unstructured.Unstructured, pipelines []platformv1alp
 	}
 
 	objKind := fmt.Sprintf("%s.%s", strings.ToLower(obj.GetKind()), obj.GroupVersionKind().Group)
-	return &batchv1.Job{
+	job := &batchv1.Job{
 		TypeMeta: metav1.TypeMeta{
 			Kind: "Job",
 		},
@@ -133,7 +135,13 @@ func ConfigurePipeline(obj *unstructured.Unstructured, pipelines []platformv1alp
 				},
 			},
 		},
-	}, nil
+	}
+
+	if err := controllerutil.SetControllerReference(obj, job, scheme.Scheme); err != nil {
+		logger.Error(err, "Error setting ownership")
+		return nil, err
+	}
+	return job, nil
 }
 
 func configurePipelineInitContainers(obj *unstructured.Unstructured, pipelines []platformv1alpha1.Pipeline, promiseName string, passPromiseToWorkCreator bool, logger logr.Logger) ([]v1.Container, []v1.Volume) {
