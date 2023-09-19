@@ -107,14 +107,14 @@ func (r *PromiseReconciler) Reconcile(ctx context.Context, req ctrl.Request) (ct
 
 	logger := r.Log.WithValues("identifier", promise.GetName())
 
-	args := commonArgs{
+	opts := opts{
 		client: r.Client,
 		ctx:    ctx,
 		logger: logger,
 	}
 
 	if !promise.DeletionTimestamp.IsZero() {
-		return r.deletePromise(args, promise)
+		return r.deletePromise(opts, promise)
 	}
 
 	var rrCRD *apiextensionsv1.CustomResourceDefinition
@@ -132,7 +132,7 @@ func (r *PromiseReconciler) Reconcile(ctx context.Context, req ctrl.Request) (ct
 		}
 
 		if doesNotContainFinalizer(promise, crdCleanupFinalizer) {
-			return addFinalizers(args, promise, []string{crdCleanupFinalizer})
+			return addFinalizers(opts, promise, []string{crdCleanupFinalizer})
 		}
 
 		if err := r.createResourcesForDynamicControllerIfTheyDontExist(ctx, promise, rrCRD, rrGVK, logger); err != nil {
@@ -141,7 +141,7 @@ func (r *PromiseReconciler) Reconcile(ctx context.Context, req ctrl.Request) (ct
 		}
 
 		if doesNotContainFinalizer(promise, dynamicControllerDependantResourcesCleaupFinalizer) {
-			return addFinalizers(args, promise, []string{dynamicControllerDependantResourcesCleaupFinalizer})
+			return addFinalizers(opts, promise, []string{dynamicControllerDependantResourcesCleaupFinalizer})
 		}
 	}
 
@@ -151,7 +151,7 @@ func (r *PromiseReconciler) Reconcile(ctx context.Context, req ctrl.Request) (ct
 	}
 
 	if doesNotContainFinalizer(promise, dependenciesCleanupFinalizer) {
-		return addFinalizers(args, promise, []string{dependenciesCleanupFinalizer})
+		return addFinalizers(opts, promise, []string{dependenciesCleanupFinalizer})
 	}
 
 	if len(promise.Spec.Workflows.Promise.Configure) == 0 {
@@ -162,7 +162,7 @@ func (r *PromiseReconciler) Reconcile(ctx context.Context, req ctrl.Request) (ct
 		}
 	} else {
 		if doesNotContainFinalizer(promise, workflowsFinalizer) {
-			return addFinalizers(args, promise, []string{workflowsFinalizer})
+			return addFinalizers(opts, promise, []string{workflowsFinalizer})
 		}
 		logger.Info("Promise contains workflows.promise.configure, reconciling workflows")
 		objMap, err := runtime.DefaultUnstructuredConverter.ToUnstructured(&promise)
@@ -175,14 +175,14 @@ func (r *PromiseReconciler) Reconcile(ctx context.Context, req ctrl.Request) (ct
 			pipelines.ConfigurePromise,
 			promise.GetName(),
 			promise.Spec.DestinationSelectors,
-			args.logger,
+			opts.logger,
 		)
 		if err != nil {
 			return ctrl.Result{}, err
 		}
 
-		jobArg := jobArg{
-			commonArgs:        args,
+		jobArg := jobOpts{
+			opts:              opts,
 			obj:               unstructuredPromise,
 			pipelineLabels:    pipeline.LabelsForConfigurePromise(promise.GetName()),
 			pipelineResources: pipelineResources,
@@ -208,7 +208,7 @@ func (r *PromiseReconciler) Reconcile(ctx context.Context, req ctrl.Request) (ct
 	}
 
 	if doesNotContainFinalizer(promise, resourceRequestCleanupFinalizer) {
-		return addFinalizers(args, promise, []string{resourceRequestCleanupFinalizer})
+		return addFinalizers(opts, promise, []string{resourceRequestCleanupFinalizer})
 	}
 
 	if promise.GetGeneration() != promise.Status.ObservedGeneration {
@@ -396,13 +396,13 @@ func (r *PromiseReconciler) ensureCRDExists(ctx context.Context, rrCRD *apiexten
 	return err
 }
 
-func (r *PromiseReconciler) deletePromise(args commonArgs, promise *v1alpha1.Promise) (ctrl.Result, error) {
+func (r *PromiseReconciler) deletePromise(o opts, promise *v1alpha1.Promise) (ctrl.Result, error) {
 	if finalizersAreDeleted(promise, promiseFinalizers) {
 		return ctrl.Result{}, nil
 	}
 
 	if controllerutil.ContainsFinalizer(promise, workflowsFinalizer) {
-		err := r.deleteWorkflows(args, promise, workflowsFinalizer)
+		err := r.deleteWorkflows(o, promise, workflowsFinalizer)
 		if err != nil {
 			return defaultRequeue, err
 		}
@@ -410,8 +410,8 @@ func (r *PromiseReconciler) deletePromise(args commonArgs, promise *v1alpha1.Pro
 	}
 
 	if controllerutil.ContainsFinalizer(promise, resourceRequestCleanupFinalizer) {
-		args.logger.Info("deleting resources associated with finalizer", "finalizer", resourceRequestCleanupFinalizer)
-		err := r.deleteResourceRequests(args, promise)
+		o.logger.Info("deleting resources associated with finalizer", "finalizer", resourceRequestCleanupFinalizer)
+		err := r.deleteResourceRequests(o, promise)
 		if err != nil {
 			return defaultRequeue, err
 		}
@@ -427,8 +427,8 @@ func (r *PromiseReconciler) deletePromise(args commonArgs, promise *v1alpha1.Pro
 	}
 
 	if controllerutil.ContainsFinalizer(promise, dynamicControllerDependantResourcesCleaupFinalizer) {
-		args.logger.Info("deleting resources associated with finalizer", "finalizer", dynamicControllerDependantResourcesCleaupFinalizer)
-		err := r.deleteDynamicControllerResources(args, promise)
+		o.logger.Info("deleting resources associated with finalizer", "finalizer", dynamicControllerDependantResourcesCleaupFinalizer)
+		err := r.deleteDynamicControllerResources(o, promise)
 		if err != nil {
 			return defaultRequeue, err
 		}
@@ -436,8 +436,8 @@ func (r *PromiseReconciler) deletePromise(args commonArgs, promise *v1alpha1.Pro
 	}
 
 	if controllerutil.ContainsFinalizer(promise, dependenciesCleanupFinalizer) {
-		args.logger.Info("deleting Work associated with finalizer", "finalizer", dependenciesCleanupFinalizer)
-		err := r.deleteWork(args, promise)
+		o.logger.Info("deleting Work associated with finalizer", "finalizer", dependenciesCleanupFinalizer)
+		err := r.deleteWork(o, promise)
 		if err != nil {
 			return defaultRequeue, err
 		}
@@ -445,8 +445,8 @@ func (r *PromiseReconciler) deletePromise(args commonArgs, promise *v1alpha1.Pro
 	}
 
 	if controllerutil.ContainsFinalizer(promise, crdCleanupFinalizer) {
-		args.logger.Info("deleting CRDs associated with finalizer", "finalizer", crdCleanupFinalizer)
-		err := r.deleteCRDs(args, promise)
+		o.logger.Info("deleting CRDs associated with finalizer", "finalizer", crdCleanupFinalizer)
+		err := r.deleteCRDs(o, promise)
 		if err != nil {
 			return defaultRequeue, err
 		}
@@ -456,7 +456,7 @@ func (r *PromiseReconciler) deletePromise(args commonArgs, promise *v1alpha1.Pro
 	return fastRequeue, nil
 }
 
-func (r *PromiseReconciler) deleteWorkflows(args commonArgs, promise *v1alpha1.Promise, finalizer string) error {
+func (r *PromiseReconciler) deleteWorkflows(o opts, promise *v1alpha1.Promise, finalizer string) error {
 	jobGVK := schema.GroupVersionKind{
 		Group:   batchv1.SchemeGroupVersion.Group,
 		Version: batchv1.SchemeGroupVersion.Version,
@@ -465,14 +465,14 @@ func (r *PromiseReconciler) deleteWorkflows(args commonArgs, promise *v1alpha1.P
 
 	jobLabels := pipeline.LabelsForAllPromiseWorkflows(promise.GetName())
 
-	resourcesRemaining, err := deleteAllResourcesWithKindMatchingLabel(args, jobGVK, jobLabels)
+	resourcesRemaining, err := deleteAllResourcesWithKindMatchingLabel(o, jobGVK, jobLabels)
 	if err != nil {
 		return err
 	}
 
 	if !resourcesRemaining {
 		controllerutil.RemoveFinalizer(promise, finalizer)
-		if err := r.Client.Update(args.ctx, promise); err != nil {
+		if err := r.Client.Update(o.ctx, promise); err != nil {
 			return err
 		}
 	}
@@ -480,7 +480,7 @@ func (r *PromiseReconciler) deleteWorkflows(args commonArgs, promise *v1alpha1.P
 	return nil
 }
 
-func (r *PromiseReconciler) deleteDynamicControllerResources(args commonArgs, promise *v1alpha1.Promise) error {
+func (r *PromiseReconciler) deleteDynamicControllerResources(o opts, promise *v1alpha1.Promise) error {
 	resourcesToDelete := map[schema.GroupVersion][]string{
 		rbacv1.SchemeGroupVersion: {"ClusterRoleBinding", "ClusterRole", "RoleBinding", "Role"},
 		v1.SchemeGroupVersion:     {"ServiceAccount", "ConfigMap"},
@@ -493,7 +493,7 @@ func (r *PromiseReconciler) deleteDynamicControllerResources(args commonArgs, pr
 				Version: gv.Version,
 				Kind:    resource,
 			}
-			resourcesRemaining, err := deleteAllResourcesWithKindMatchingLabel(args, gvk, promise.GenerateSharedLabels())
+			resourcesRemaining, err := deleteAllResourcesWithKindMatchingLabel(o, gvk, promise.GenerateSharedLabels())
 			if err != nil {
 				return err
 			}
@@ -505,24 +505,24 @@ func (r *PromiseReconciler) deleteDynamicControllerResources(args commonArgs, pr
 	}
 
 	controllerutil.RemoveFinalizer(promise, dynamicControllerDependantResourcesCleaupFinalizer)
-	return r.Client.Update(args.ctx, promise)
+	return r.Client.Update(o.ctx, promise)
 }
 
-func (r *PromiseReconciler) deleteResourceRequests(args commonArgs, promise *v1alpha1.Promise) error {
-	_, rrGVK, err := generateCRDAndGVK(promise, args.logger)
+func (r *PromiseReconciler) deleteResourceRequests(o opts, promise *v1alpha1.Promise) error {
+	_, rrGVK, err := generateCRDAndGVK(promise, o.logger)
 	if err != nil {
 		return err
 	}
 
 	// No need to pass labels since all resource requests are of Kind
-	resourcesRemaining, err := deleteAllResourcesWithKindMatchingLabel(args, rrGVK, nil)
+	resourcesRemaining, err := deleteAllResourcesWithKindMatchingLabel(o, rrGVK, nil)
 	if err != nil {
 		return err
 	}
 
 	if !resourcesRemaining {
 		controllerutil.RemoveFinalizer(promise, resourceRequestCleanupFinalizer)
-		if err := r.Client.Update(args.ctx, promise); err != nil {
+		if err := r.Client.Update(o.ctx, promise); err != nil {
 			return err
 		}
 	}
@@ -530,21 +530,21 @@ func (r *PromiseReconciler) deleteResourceRequests(args commonArgs, promise *v1a
 	return nil
 }
 
-func (r *PromiseReconciler) deleteCRDs(args commonArgs, promise *v1alpha1.Promise) error {
+func (r *PromiseReconciler) deleteCRDs(o opts, promise *v1alpha1.Promise) error {
 	crdGVK := schema.GroupVersionKind{
 		Group:   apiextensionsv1.SchemeGroupVersion.Group,
 		Version: apiextensionsv1.SchemeGroupVersion.Version,
 		Kind:    "CustomResourceDefinition",
 	}
 
-	resourcesRemaining, err := deleteAllResourcesWithKindMatchingLabel(args, crdGVK, promise.GenerateSharedLabels())
+	resourcesRemaining, err := deleteAllResourcesWithKindMatchingLabel(o, crdGVK, promise.GenerateSharedLabels())
 	if err != nil {
 		return err
 	}
 
 	if !resourcesRemaining {
 		controllerutil.RemoveFinalizer(promise, crdCleanupFinalizer)
-		if err := r.Client.Update(args.ctx, promise); err != nil {
+		if err := r.Client.Update(o.ctx, promise); err != nil {
 			return err
 		}
 	}
@@ -552,21 +552,21 @@ func (r *PromiseReconciler) deleteCRDs(args commonArgs, promise *v1alpha1.Promis
 	return nil
 }
 
-func (r *PromiseReconciler) deleteWork(args commonArgs, promise *v1alpha1.Promise) error {
+func (r *PromiseReconciler) deleteWork(o opts, promise *v1alpha1.Promise) error {
 	workGVK := schema.GroupVersionKind{
 		Group:   v1alpha1.GroupVersion.Group,
 		Version: v1alpha1.GroupVersion.Version,
 		Kind:    "Work",
 	}
 
-	resourcesRemaining, err := deleteAllResourcesWithKindMatchingLabel(args, workGVK, promise.GenerateSharedLabels())
+	resourcesRemaining, err := deleteAllResourcesWithKindMatchingLabel(o, workGVK, promise.GenerateSharedLabels())
 	if err != nil {
 		return err
 	}
 
 	if !resourcesRemaining {
 		controllerutil.RemoveFinalizer(promise, dependenciesCleanupFinalizer)
-		if err := r.Client.Update(args.ctx, promise); err != nil {
+		if err := r.Client.Update(o.ctx, promise); err != nil {
 			return err
 		}
 	}

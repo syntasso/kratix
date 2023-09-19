@@ -78,13 +78,13 @@ func (r *WorkPlacementReconciler) Reconcile(ctx context.Context, req ctrl.Reques
 		return ctrl.Result{}, err
 	}
 
-	args := commonArgs{
+	opts := opts{
 		client: r.Client,
 		ctx:    ctx,
 		logger: logger,
 	}
 
-	writer, err := newWriter(args, *destination)
+	writer, err := newWriter(opts, *destination)
 	if err != nil {
 		if errors.IsNotFound(err) {
 			return defaultRequeue, nil
@@ -97,7 +97,7 @@ func (r *WorkPlacementReconciler) Reconcile(ctx context.Context, req ctrl.Reques
 	}
 
 	if finalizersAreMissing(workPlacement, workPlacementFinalizers) {
-		return addFinalizers(args, workPlacement, workPlacementFinalizers)
+		return addFinalizers(opts, workPlacement, workPlacementFinalizers)
 	}
 
 	err = r.writeWorkloadsToStateStore(writer, *workPlacement, logger)

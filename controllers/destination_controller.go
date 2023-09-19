@@ -64,13 +64,13 @@ func (r *DestinationReconciler) Reconcile(ctx context.Context, req ctrl.Request)
 		return ctrl.Result{}, err
 	}
 
-	args := commonArgs{
+	opts := opts{
 		client: r.Client,
 		ctx:    ctx,
 		logger: logger,
 	}
 
-	writer, err := newWriter(args, *destination)
+	writer, err := newWriter(opts, *destination)
 	if err != nil {
 		if errors.IsNotFound(err) {
 			return defaultRequeue, nil

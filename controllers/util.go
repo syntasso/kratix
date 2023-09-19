@@ -27,26 +27,26 @@ type StateStore interface {
 	GetSecretRef() *v1.SecretReference
 }
 
-type commonArgs struct {
+type opts struct {
 	ctx    context.Context
 	client client.Client
 	logger logr.Logger
 }
 
-type jobArg struct {
-	commonArgs
+type jobOpts struct {
+	opts
 	obj               *unstructured.Unstructured
 	pipelineLabels    map[string]string
 	pipelineResources []client.Object
 }
 
-func ensurePipelineIsReconciled(j jobArg) (*ctrl.Result, error) {
+func ensurePipelineIsReconciled(j jobOpts) (*ctrl.Result, error) {
 	namespace := j.obj.GetNamespace()
 	if namespace == "" {
 		namespace = kratixPlatformSystemNamespace
 	}
 
-	pipelineJobs, err := getJobsWithLabels(j.commonArgs, j.pipelineLabels, namespace)
+	pipelineJobs, err := getJobsWithLabels(j.opts, j.pipelineLabels, namespace)
 	if err != nil {
 		j.logger.Info("Failed getting Promise pipeline jobs", "error", err)
 		return &slowRequeue, nil
@@ -90,8 +90,8 @@ func ensurePipelineIsReconciled(j jobArg) (*ctrl.Result, error) {
 	return nil, nil
 }
 
-func createConfigurePipeline(j jobArg) error {
-	updated, err := setPipelineCompletedConditionStatus(j.commonArgs, j.obj)
+func createConfigurePipeline(j jobOpts) error {
+	updated, err := setPipelineCompletedConditionStatus(j.opts, j.obj)
 	if err != nil {
 		return err
 	}
@@ -102,7 +102,7 @@ func createConfigurePipeline(j jobArg) error {
 
 	j.logger.Info("Triggering Promise pipeline")
 
-	applyResources(j.commonArgs, j.pipelineResources...)
+	applyResources(j.opts, j.pipelineResources...)
 
 	if isManualReconciliation(j.obj.GetLabels()) {
 		newLabels := j.obj.GetLabels()
@@ -117,24 +117,24 @@ func createConfigurePipeline(j jobArg) error {
 }
 
 // pass in nil resourceLabels to delete all resources of the GVK
-func deleteAllResourcesWithKindMatchingLabel(args commonArgs, gvk schema.GroupVersionKind, resourceLabels map[string]string) (bool, error) {
+func deleteAllResourcesWithKindMatchingLabel(o opts, gvk schema.GroupVersionKind, resourceLabels map[string]string) (bool, error) {
 	resourceList := &unstructured.UnstructuredList{}
 	resourceList.SetGroupVersionKind(gvk)
 	listOptions := client.ListOptions{LabelSelector: labels.SelectorFromSet(resourceLabels)}
-	err := args.client.List(args.ctx, resourceList, &listOptions)
+	err := o.client.List(o.ctx, resourceList, &listOptions)
 	if err != nil {
 		return true, err
 	}
 
-	args.logger.Info("deleting resources", "kind", resourceList.GetKind(), "withLabels", resourceLabels, "resources", getResourceNames(resourceList.Items))
+	o.logger.Info("deleting resources", "kind", resourceList.GetKind(), "withLabels", resourceLabels, "resources", getResourceNames(resourceList.Items))
 
 	for _, resource := range resourceList.Items {
-		err = args.client.Delete(args.ctx, &resource, client.PropagationPolicy(metav1.DeletePropagationBackground))
+		err = o.client.Delete(o.ctx, &resource, client.PropagationPolicy(metav1.DeletePropagationBackground))
 		if err != nil && !errors.IsNotFound(err) {
-			args.logger.Error(err, "Error deleting resource, will try again in 5 seconds", "name", resource.GetName(), "kind", resource.GetKind())
+			o.logger.Error(err, "Error deleting resource, will try again in 5 seconds", "name", resource.GetName(), "kind", resource.GetKind())
 			return true, err
 		}
-		args.logger.Info("successfully triggered deletion of resource", "name", resource.GetName(), "kind", resource.GetKind())
+		o.logger.Info("successfully triggered deletion of resource", "name", resource.GetName(), "kind", resource.GetKind())
 	}
 
 	return len(resourceList.Items) != 0, nil
@@ -155,15 +155,15 @@ func getResourceNames(items []unstructured.Unstructured) []string {
 }
 
 // finalizers must be less than 64 characters
-func addFinalizers(args commonArgs, resource client.Object, finalizers []string) (ctrl.Result, error) {
-	args.logger.Info("Adding missing finalizers",
+func addFinalizers(o opts, resource client.Object, finalizers []string) (ctrl.Result, error) {
+	o.logger.Info("Adding missing finalizers",
 		"expectedFinalizers", finalizers,
 		"existingFinalizers", resource.GetFinalizers(),
 	)
 	for _, finalizer := range finalizers {
 		controllerutil.AddFinalizer(resource, finalizer)
 	}
-	if err := args.client.Update(args.ctx, resource); err != nil {
+	if err := o.client.Update(o.ctx, resource); err != nil {
 		return defaultRequeue, err
 	}
 	return ctrl.Result{}, nil
@@ -191,9 +191,9 @@ func finalizersAreDeleted(resource client.Object, finalizers []string) bool {
 	return true
 }
 
-func fetchObjectAndSecret(args commonArgs, stateStoreRef client.ObjectKey, stateStore StateStore) (*v1.Secret, error) {
-	if err := args.client.Get(args.ctx, stateStoreRef, stateStore); err != nil {
-		args.logger.Error(err, "unable to fetch resource", "resourceKind", stateStore.GetObjectKind(), "stateStoreRef", stateStoreRef)
+func fetchObjectAndSecret(o opts, stateStoreRef client.ObjectKey, stateStore StateStore) (*v1.Secret, error) {
+	if err := o.client.Get(o.ctx, stateStoreRef, stateStore); err != nil {
+		o.logger.Error(err, "unable to fetch resource", "resourceKind", stateStore.GetObjectKind(), "stateStoreRef", stateStoreRef)
 		return nil, err
 	}
 
@@ -203,15 +203,15 @@ func fetchObjectAndSecret(args commonArgs, stateStoreRef client.ObjectKey, state
 		Namespace: kratixPlatformSystemNamespace,
 	}
 
-	if err := args.client.Get(args.ctx, secretRef, secret); err != nil {
-		args.logger.Error(err, "unable to fetch resource", "resourceKind", stateStore.GetObjectKind(), "secretRef", secretRef)
+	if err := o.client.Get(o.ctx, secretRef, secret); err != nil {
+		o.logger.Error(err, "unable to fetch resource", "resourceKind", stateStore.GetObjectKind(), "secretRef", secretRef)
 		return nil, err
 	}
 
 	return secret, nil
 }
 
-func newWriter(args commonArgs, destination platformv1alpha1.Destination) (writers.StateStoreWriter, error) {
+func newWriter(o opts, destination platformv1alpha1.Destination) (writers.StateStoreWriter, error) {
 	stateStoreRef := client.ObjectKey{
 		Name:      destination.Spec.StateStoreRef.Name,
 		Namespace: destination.Namespace,
@@ -222,33 +222,33 @@ func newWriter(args commonArgs, destination platformv1alpha1.Destination) (write
 	switch destination.Spec.StateStoreRef.Kind {
 	case "BucketStateStore":
 		stateStore := &platformv1alpha1.BucketStateStore{}
-		secret, fetchErr := fetchObjectAndSecret(args, stateStoreRef, stateStore)
+		secret, fetchErr := fetchObjectAndSecret(o, stateStoreRef, stateStore)
 		if fetchErr != nil {
 			return nil, fetchErr
 		}
 
-		writer, err = writers.NewS3Writer(args.logger.WithName("writers").WithName("BucketStateStoreWriter"), stateStore.Spec, destination, secret.Data)
+		writer, err = writers.NewS3Writer(o.logger.WithName("writers").WithName("BucketStateStoreWriter"), stateStore.Spec, destination, secret.Data)
 	case "GitStateStore":
 		stateStore := &platformv1alpha1.GitStateStore{}
-		secret, fetchErr := fetchObjectAndSecret(args, stateStoreRef, stateStore)
+		secret, fetchErr := fetchObjectAndSecret(o, stateStoreRef, stateStore)
 		if fetchErr != nil {
 			return nil, fetchErr
 		}
 
-		writer, err = writers.NewGitWriter(args.logger.WithName("writers").WithName("GitStateStoreWriter"), stateStore.Spec, destination, secret.Data)
+		writer, err = writers.NewGitWriter(o.logger.WithName("writers").WithName("GitStateStoreWriter"), stateStore.Spec, destination, secret.Data)
 	default:
 		return nil, fmt.Errorf("unsupported kind %s", destination.Spec.StateStoreRef.Kind)
 	}
 
 	if err != nil {
 		//TODO: should this be a retryable error?
-		args.logger.Error(err, "unable to create StateStoreWriter")
+		o.logger.Error(err, "unable to create StateStoreWriter")
 		return nil, err
 	}
 	return writer, nil
 }
 
-func getJobsWithLabels(args commonArgs, jobLabels map[string]string, namespace string) ([]batchv1.Job, error) {
+func getJobsWithLabels(o opts, jobLabels map[string]string, namespace string) ([]batchv1.Job, error) {
 	selectorLabels := labels.FormatLabels(jobLabels)
 	selector, err := labels.Parse(selectorLabels)
 
@@ -262,25 +262,25 @@ func getJobsWithLabels(args commonArgs, jobLabels map[string]string, namespace s
 	}
 
 	jobs := &batchv1.JobList{}
-	err = args.client.List(args.ctx, jobs, listOps)
+	err = o.client.List(o.ctx, jobs, listOps)
 	if err != nil {
-		args.logger.Error(err, "error listing jobs", "selectors", selector.String())
+		o.logger.Error(err, "error listing jobs", "selectors", selector.String())
 		return nil, err
 	}
 	return jobs.Items, nil
 }
 
-func applyResources(args commonArgs, resources ...client.Object) {
-	args.logger.Info("Reconciling pipeline resources")
+func applyResources(o opts, resources ...client.Object) {
+	o.logger.Info("Reconciling pipeline resources")
 
 	for _, resource := range resources {
-		logger := args.logger.WithValues("kind", resource.GetObjectKind().GroupVersionKind().Kind, "name", resource.GetName(), "namespace", resource.GetNamespace(), "labels", resource.GetLabels())
+		logger := o.logger.WithValues("kind", resource.GetObjectKind().GroupVersionKind().Kind, "name", resource.GetName(), "namespace", resource.GetNamespace(), "labels", resource.GetLabels())
 
 		logger.Info("Reconciling")
-		if err := args.client.Create(args.ctx, resource); err != nil {
+		if err := o.client.Create(o.ctx, resource); err != nil {
 			if errors.IsAlreadyExists(err) {
 				logger.Info("Resource already exists, will update")
-				if err = args.client.Update(args.ctx, resource); err == nil {
+				if err = o.client.Update(o.ctx, resource); err == nil {
 					continue
 				}
 			}
