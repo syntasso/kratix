@@ -10,13 +10,15 @@ NAME=""
 DESTINATION_CONTEXT=""
 PLATFORM_CONTEXT="kind-platform"
 STATE_STORE="default"
+GITOPS_PATH="platform-cluster"
 
 usage() {
-    echo -e "Usage: register-destination [--help] [--git] [--with-label foo=bar] [--context k8s-context] [--name  some-name ] [--platform-context 'kind-platform']"
+    echo -e "Usage: register-destination [--help] [--git] [--with-label foo=bar] [--context k8s-context] [--name  some-name ] [--platform-context 'kind-platform'] [--path platform-cluster]"
     echo -e "\t--context='', -c,\t The Kubernetes context where to install FluxCD onto"
     echo -e "\t--git, -g\t Use Gitea as local repository in place of default local MinIO"
     echo -e "\t--help, -h\t Prints this message"
     echo -e "\t--name, -n\t Name of the destination to register"
+    echo -e "\t--path, -t\t Path within the state store; defaults to platform-cluster"
     echo -e "\t--platform-context='', -p,\t The Kubernetes context of the Platform destination"
     echo -e "\t--state-store,-s\t Name of the state store to use"
     echo -e "\t--with-label foo=bar, -l\t Adds a label to the destination during registration"
@@ -34,12 +36,13 @@ load_options() {
         '--platform-context') set -- "$@" '-p'   ;;
         '--state-store')      set -- "$@" '-s'   ;;
         '--with-label')       set -- "$@" '-l'   ;;
+        '--path')             set -- "$@" '-t'   ;;
         *)                    set -- "$@" "$arg" ;;
       esac
     done
 
     OPTIND=1
-    while getopts "p:hgn:c:l:s:" opt
+    while getopts "p:hgn:c:l:s:t:" opt
     do
       case "$opt" in
         'c') DESTINATION_CONTEXT="$OPTARG";;
@@ -49,6 +52,7 @@ load_options() {
         'n') NAME="$OPTARG";;
         'p') PLATFORM_CONTEXT="$OPTARG";;
         's') STATE_STORE="$OPTARG";;
+        't') GITOPS_PATH="$OPTARG";;
         *) usage 1 ;;
       esac
     done
@@ -72,7 +76,7 @@ prepare_destination() {
     flags="--git"
     state_store_type="GitStateStore"
   fi
-  $ROOT/scripts/install-gitops --context $DESTINATION_CONTEXT --path "platform-cluster $flags"
+  $ROOT/scripts/install-gitops --context $DESTINATION_CONTEXT --path "$GITOPS_PATH" "$flags"
 
   local yqOpts=".metadata.name = \"$NAME\" | .metadata.labels = {} | .spec.stateStoreRef.name = \"$STATE_STORE\" | .spec.stateStoreRef.kind = \"$state_store_type\""
   yq "${yqOpts}" $ROOT/config/samples/platform_v1alpha1_worker.yaml |
