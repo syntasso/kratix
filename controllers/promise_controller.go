@@ -154,47 +154,13 @@ func (r *PromiseReconciler) Reconcile(ctx context.Context, req ctrl.Request) (ct
 		return addFinalizers(opts, promise, []string{dependenciesCleanupFinalizer})
 	}
 
-	if len(promise.Spec.Workflows.Promise.Configure) == 0 {
-		logger.Info("Promise does not contain workflows.promise.configure, applying dependencies directly")
-		if err := r.applyWorkResourceForDependencies(ctx, promise, logger); err != nil {
-			logger.Error(err, "Error creating Works")
-			return ctrl.Result{}, err
-		}
-	} else {
-		if doesNotContainFinalizer(promise, workflowsFinalizer) {
-			return addFinalizers(opts, promise, []string{workflowsFinalizer})
-		}
-		logger.Info("Promise contains workflows.promise.configure, reconciling workflows")
-		objMap, err := runtime.DefaultUnstructuredConverter.ToUnstructured(&promise)
-		if err != nil {
-			return ctrl.Result{}, err
-		}
-		unstructuredPromise := &unstructured.Unstructured{Object: objMap}
-		pipelineResources, err := pipeline.NewConfigurePromise(
-			unstructuredPromise,
-			pipelines.ConfigurePromise,
-			promise.GetName(),
-			promise.Spec.DestinationSelectors,
-			opts.logger,
-		)
-		if err != nil {
-			return ctrl.Result{}, err
-		}
+	requeue, err := r.reconcileDependencies(opts, promise, pipelines.ConfigurePromise)
+	if err != nil {
+		return ctrl.Result{}, nil
+	}
 
-		jobArg := jobOpts{
-			opts:              opts,
-			obj:               unstructuredPromise,
-			pipelineLabels:    pipeline.LabelsForConfigurePromise(promise.GetName()),
-			pipelineResources: pipelineResources,
-		}
-		requeue, err := ensurePipelineIsReconciled(jobArg)
-		if err != nil {
-			return ctrl.Result{}, err
-		}
-
-		if requeue != nil {
-			return *requeue, nil
-		}
+	if requeue != nil {
+		return *requeue, nil
 	}
 
 	if promise.DoesNotContainAPI() {
@@ -220,6 +186,54 @@ func (r *PromiseReconciler) Reconcile(ctx context.Context, req ctrl.Request) (ct
 	}
 
 	return ctrl.Result{}, nil
+}
+
+func (r *PromiseReconciler) reconcileDependencies(o opts, promise *v1alpha1.Promise, configurePipeline []v1alpha1.Pipeline) (*ctrl.Result, error) {
+	if len(promise.Spec.Workflows.Promise.Configure) == 0 {
+		o.logger.Info("Promise does not contain workflows.promise.configure, applying dependencies directly")
+		if err := r.applyWorkResourceForDependencies(o, promise); err != nil {
+			o.logger.Error(err, "Error creating Works")
+			return nil, err
+		}
+	} else {
+		if doesNotContainFinalizer(promise, workflowsFinalizer) {
+			result, err := addFinalizers(o, promise, []string{workflowsFinalizer})
+			return &result, err
+		}
+
+		o.logger.Info("Promise contains workflows.promise.configure, reconciling workflows")
+		objMap, err := runtime.DefaultUnstructuredConverter.ToUnstructured(&promise)
+		if err != nil {
+			return nil, err
+		}
+		unstructuredPromise := &unstructured.Unstructured{Object: objMap}
+		pipelineResources, err := pipeline.NewConfigurePromise(
+			unstructuredPromise,
+			configurePipeline,
+			promise.GetName(),
+			promise.Spec.DestinationSelectors,
+			o.logger,
+		)
+		if err != nil {
+			return nil, err
+		}
+
+		jobOpts := jobOpts{
+			opts:              o,
+			obj:               unstructuredPromise,
+			pipelineLabels:    pipeline.LabelsForConfigurePromise(promise.GetName()),
+			pipelineResources: pipelineResources,
+		}
+		requeue, err := ensurePipelineIsReconciled(jobOpts)
+		if err != nil {
+			return nil, err
+		}
+
+		if requeue != nil {
+			return requeue, nil
+		}
+	}
+	return nil, nil
 }
 
 func (r *PromiseReconciler) reconcileAllRRs(rrGVK schema.GroupVersionKind) error {
@@ -664,7 +678,7 @@ func setStatusFieldsOnCRD(rrCRD *apiextensionsv1.CustomResourceDefinition) {
 	}
 }
 
-func (r *PromiseReconciler) applyWorkResourceForDependencies(ctx context.Context, promise *v1alpha1.Promise, logger logr.Logger) error {
+func (r *PromiseReconciler) applyWorkResourceForDependencies(o opts, promise *v1alpha1.Promise) error {
 	work, err := v1alpha1.NewPromiseDependenciesWork(promise)
 	if err != nil {
 		return err
@@ -672,7 +686,7 @@ func (r *PromiseReconciler) applyWorkResourceForDependencies(ctx context.Context
 
 	workCopy := work.DeepCopy()
 
-	op, err := controllerutil.CreateOrUpdate(ctx, r.Client, work, func() error {
+	op, err := controllerutil.CreateOrUpdate(o.ctx, r.Client, work, func() error {
 		work.ObjectMeta.Labels = workCopy.ObjectMeta.Labels
 		work.Spec = workCopy.Spec
 		return nil
@@ -682,7 +696,7 @@ func (r *PromiseReconciler) applyWorkResourceForDependencies(ctx context.Context
 		return err
 	}
 
-	logger.Info("resource reconciled", "operation", op, "namespace", work.GetNamespace(), "name", work.GetName(), "gvk", work.GroupVersionKind())
+	o.logger.Info("resource reconciled", "operation", op, "namespace", work.GetNamespace(), "name", work.GetName(), "gvk", work.GroupVersionKind())
 	return nil
 }
 

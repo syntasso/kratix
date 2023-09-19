@@ -124,13 +124,13 @@ func (r *dynamicResourceRequestController) Reconcile(ctx context.Context, req ct
 		return ctrl.Result{}, err
 	}
 
-	jobArg := jobOpts{
+	jobOpts := jobOpts{
 		opts:              opts,
 		obj:               rr,
 		pipelineLabels:    pipeline.LabelsForConfigureResource(resourceRequestIdentifier, r.promiseIdentifier),
 		pipelineResources: pipelineResources,
 	}
-	requeue, err := ensurePipelineIsReconciled(jobArg)
+	requeue, err := ensurePipelineIsReconciled(jobOpts)
 	if err != nil {
 		return ctrl.Result{}, err
 	}
