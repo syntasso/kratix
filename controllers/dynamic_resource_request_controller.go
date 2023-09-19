@@ -65,7 +65,7 @@ type dynamicResourceRequestController struct {
 	promiseDestinationSelectors []v1alpha1.Selector
 }
 
-//+kubebuilder:rbac:groups="batch",resources=jobs,verbs=create;list;watch;delete
+//+kubebuilder:rbac:groups="batch",resources=jobs,verbs=get;list;watch;create;update;patch;delete
 //+kubebuilder:rbac:groups="",resources=serviceaccounts,verbs=create
 
 func (r *dynamicResourceRequestController) Reconcile(ctx context.Context, req ctrl.Request) (ctrl.Result, error) {

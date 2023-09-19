@@ -49,9 +49,9 @@ func MarkPipelineAsCompleted(logger logr.Logger, obj *unstructured.Unstructured)
 	logger.Info("set conditions", "condition", PipelineCompletedCondition, "value", v1.ConditionTrue)
 }
 
-func PipelineExists(logger logr.Logger, obj *unstructured.Unstructured, jobs []batchv1.Job) (bool, error) {
+func PipelineExists(logger logr.Logger, obj *unstructured.Unstructured, jobs []batchv1.Job) (*batchv1.Job, error) {
 	if len(jobs) == 0 {
-		return false, nil
+		return nil, nil
 	}
 
 	// sort the pipepeineJobs by creation date
@@ -67,10 +67,13 @@ func PipelineExists(logger logr.Logger, obj *unstructured.Unstructured, jobs []b
 	currentRequestHash, err := hash.ComputeHash(obj)
 	if err != nil {
 		logger.Info("Cannot determine if the request is an update. Requeueing", "reason", err.Error())
-		return false, nil
+		return nil, nil
 	}
 
-	return mostRecentHash == currentRequestHash, nil
+	if mostRecentHash == currentRequestHash {
+		return &mostRecentJob, nil
+	}
+	return nil, nil
 }
 
 func IsThereAPipelineRunning(logger logr.Logger, jobs []batchv1.Job) bool {
@@ -106,4 +109,24 @@ func hasCondition(job batchv1.Job, conditionType batchv1.JobConditionType, condi
 		}
 	}
 	return false
+}
+
+// If a job has no active pods we can suspend it
+func SuspendablePipelines(logger logr.Logger, jobs []batchv1.Job) []batchv1.Job {
+	if len(jobs) == 0 {
+		return nil
+	}
+
+	jobsToSuspend := []batchv1.Job{}
+	for _, job := range jobs {
+		if job.Spec.Suspend != nil && *job.Spec.Suspend {
+			continue
+		}
+
+		if job.Status.Active == 0 {
+			jobsToSuspend = append(jobsToSuspend, job)
+		}
+	}
+
+	return jobsToSuspend
 }

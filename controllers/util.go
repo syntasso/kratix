@@ -58,17 +58,30 @@ func ensurePipelineIsReconciled(j jobArg) (*ctrl.Result, error) {
 		return &fastRequeue, createConfigurePipeline(j)
 	}
 
-	if resourceutil.IsThereAPipelineRunning(j.logger, pipelineJobs) {
-		j.logger.Info("Job already inflight for workflow, waiting for it to complete")
-		return &slowRequeue, nil
-	}
-
-	pipelineAlreadyExists, err := resourceutil.PipelineExists(j.logger, j.obj, pipelineJobs)
+	existingPipelineJob, err := resourceutil.PipelineExists(j.logger, j.obj, pipelineJobs)
 	if err != nil {
 		return &slowRequeue, nil
 	}
 
-	if isManualReconciliation(j.obj.GetLabels()) || !pipelineAlreadyExists {
+	if resourceutil.IsThereAPipelineRunning(j.logger, pipelineJobs) {
+		for _, job := range resourceutil.SuspendablePipelines(j.logger, pipelineJobs) {
+			//Don't suspend a the job that is the desired spec
+			if existingPipelineJob != nil && job.GetName() != existingPipelineJob.GetName() {
+				trueBool := true
+				patch := client.MergeFrom(job.DeepCopy())
+				job.Spec.Suspend = &trueBool
+				j.logger.Info("Suspending inactive job", "job", job.GetName())
+				err := j.client.Patch(j.ctx, &job, patch)
+				if err != nil {
+					j.logger.Error(err, "failed to patch Job", "job", job.GetName())
+				}
+			}
+		}
+		j.logger.Info("Job already inflight for workflow, waiting for it to be inactive")
+		return &slowRequeue, nil
+	}
+
+	if isManualReconciliation(j.obj.GetLabels()) || existingPipelineJob == nil {
 		j.logger.Info("Creating job for workflow", "manualTrigger", isManualReconciliation(j.obj.GetLabels()))
 		return &fastRequeue, createConfigurePipeline(j)
 	}
@@ -89,7 +102,7 @@ func createConfigurePipeline(j jobArg) error {
 
 	j.logger.Info("Triggering Promise pipeline")
 
-	applyResources(j.commonArgs, j.pipelineResources)
+	applyResources(j.commonArgs, j.pipelineResources...)
 
 	if isManualReconciliation(j.obj.GetLabels()) {
 		newLabels := j.obj.GetLabels()
@@ -257,7 +270,7 @@ func getJobsWithLabels(args commonArgs, jobLabels map[string]string, namespace s
 	return jobs.Items, nil
 }
 
-func applyResources(args commonArgs, resources []client.Object) {
+func applyResources(args commonArgs, resources ...client.Object) {
 	args.logger.Info("Reconciling pipeline resources")
 
 	for _, resource := range resources {

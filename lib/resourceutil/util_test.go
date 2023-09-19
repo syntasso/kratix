@@ -48,8 +48,8 @@ var _ = Describe("Conditions", func() {
 
 	Describe("PipelineExists", func() {
 		It("returns false if there are no pipeline jobs", func() {
-			Expect(resourceutil.PipelineExists(logger, nil, nil)).To(BeFalse())
-			Expect(resourceutil.PipelineExists(logger, nil, []batchv1.Job{})).To(BeFalse())
+			Expect(resourceutil.PipelineExists(logger, nil, nil)).To(BeNil())
+			Expect(resourceutil.PipelineExists(logger, nil, []batchv1.Job{})).To(BeNil())
 		})
 
 		It("returns true if there's a job matching the request spec hash", func() {
@@ -60,12 +60,16 @@ var _ = Describe("Conditions", func() {
 						Labels: map[string]string{
 							"kratix-resource-hash": originalHash,
 						},
+						Name: "expected",
 					},
 					Status: completedStatus,
 				},
 			}
 
-			Expect(resourceutil.PipelineExists(logger, rr, jobs)).To(BeTrue())
+			returnedJob, err := resourceutil.PipelineExists(logger, rr, jobs)
+			Expect(err).NotTo(HaveOccurred())
+			Expect(returnedJob).NotTo(BeNil())
+			Expect(returnedJob.GetName()).To(Equal("expected"))
 		})
 
 		It("returns false if there's no job matching the request spec hash", func() {
@@ -85,7 +89,7 @@ var _ = Describe("Conditions", func() {
 				},
 			}
 
-			Expect(resourceutil.PipelineExists(logger, rr, jobs)).To(BeFalse())
+			Expect(resourceutil.PipelineExists(logger, rr, jobs)).To(BeNil())
 		})
 
 		It("only compares hashes of the most recent job", func() {
@@ -106,6 +110,7 @@ var _ = Describe("Conditions", func() {
 						Labels: map[string]string{
 							"kratix-resource-hash": originalHash,
 						},
+						Name: "expected",
 					},
 					Status: completedStatus,
 				},
@@ -120,7 +125,10 @@ var _ = Describe("Conditions", func() {
 				},
 			}
 
-			Expect(resourceutil.PipelineExists(logger, rr, jobs)).To(BeTrue())
+			returnedJob, err := resourceutil.PipelineExists(logger, rr, jobs)
+			Expect(err).NotTo(HaveOccurred())
+			Expect(returnedJob).NotTo(BeNil())
+			Expect(returnedJob.GetName()).To(Equal("expected"))
 
 			jobs = append(jobs, batchv1.Job{
 				ObjectMeta: metav1.ObjectMeta{
@@ -131,7 +139,7 @@ var _ = Describe("Conditions", func() {
 				},
 			})
 
-			Expect(resourceutil.PipelineExists(logger, rr, jobs)).To(BeFalse())
+			Expect(resourceutil.PipelineExists(logger, rr, jobs)).To(BeNil())
 		})
 	})
 
@@ -264,6 +272,53 @@ var _ = Describe("Conditions", func() {
 				},
 			}
 			Expect(resourceutil.IsThereAPipelineRunning(logger, jobs)).To(BeTrue())
+		})
+	})
+
+	Describe("PipelinesToSuspend", func() {
+		It("returns empty if there are no jobs", func() {
+			Expect(resourceutil.SuspendablePipelines(logger, nil)).To(HaveLen(0))
+		})
+
+		It("returns any jobs that aren't suspended and have no active pods", func() {
+			trueBool := true
+			jobs := []batchv1.Job{
+				{
+					ObjectMeta: metav1.ObjectMeta{
+						CreationTimestamp: metav1.Now(),
+						Labels: map[string]string{
+							"kratix-resource-hash": originalHash,
+						},
+						Name: "unactive-but-suspended",
+					},
+					Status: batchv1.JobStatus{
+						Active: 0,
+					},
+					Spec: batchv1.JobSpec{
+						Suspend: &trueBool,
+					},
+				},
+				{
+					ObjectMeta: metav1.ObjectMeta{
+						CreationTimestamp: metav1.Now(),
+						Labels: map[string]string{
+							"kratix-resource-hash": originalHash,
+						},
+						Name: "unactive",
+					},
+					Status: batchv1.JobStatus{
+						Conditions: []batchv1.JobCondition{
+							{
+								Type:   batchv1.JobFailed,
+								Status: v1.ConditionTrue,
+							},
+						},
+						Active: 0,
+					},
+				},
+			}
+			Expect(resourceutil.SuspendablePipelines(logger, jobs)).To(HaveLen(1))
+			Expect(resourceutil.SuspendablePipelines(logger, jobs)[0].GetName()).To(Equal("unactive"))
 		})
 	})
 })
