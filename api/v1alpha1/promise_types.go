@@ -86,7 +86,6 @@ type Selector struct {
 // PromiseStatus defines the observed state of Promise
 type PromiseStatus struct {
 	Conditions         []metav1.Condition `json:"conditions,omitempty"`
-	Message            string             `json:"message,omitempty"`
 	ObservedGeneration int64              `json:"observedGeneration,omitempty"`
 }
 

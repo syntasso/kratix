@@ -155,8 +155,6 @@ spec:
                   - type
                   type: object
                 type: array
-              message:
-                type: string
               observedGeneration:
                 format: int64
                 type: integer
