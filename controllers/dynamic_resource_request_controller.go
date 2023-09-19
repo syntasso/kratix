@@ -150,45 +150,6 @@ func isManualReconciliation(labels map[string]string) bool {
 	return exists && val == "true"
 }
 
-func (r *dynamicResourceRequestController) createConfigurePipeline(args commonArgs, rr *unstructured.Unstructured, rrID string) (ctrl.Result, error) {
-	updated, err := setPipelineCompletedConditionStatus(args, rr)
-	if err != nil {
-		return ctrl.Result{}, err
-	}
-
-	if updated {
-		return ctrl.Result{}, nil
-	}
-
-	args.logger.Info("Triggering resource pipeline")
-
-	resources, err := pipeline.NewConfigureResource(
-		rr,
-		r.crd.Spec.Names,
-		r.configurePipelines,
-		rrID,
-		r.promiseIdentifier,
-		r.promiseDestinationSelectors,
-		args.logger,
-	)
-	if err != nil {
-		return ctrl.Result{}, err
-	}
-
-	applyResources(args, resources)
-
-	if isManualReconciliation(rr.GetLabels()) {
-		newLabels := rr.GetLabels()
-		delete(newLabels, resourceutil.ManualReconciliationLabel)
-		rr.SetLabels(newLabels)
-		if err := r.Client.Update(args.ctx, rr); err != nil {
-			return ctrl.Result{}, err
-		}
-	}
-
-	return ctrl.Result{}, nil
-}
-
 func setPipelineCompletedConditionStatus(args commonArgs, obj *unstructured.Unstructured) (bool, error) {
 	switch resourceutil.GetPipelineCompletedConditionStatus(obj) {
 	case corev1.ConditionTrue:

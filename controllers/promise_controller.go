@@ -246,48 +246,6 @@ func (r *PromiseReconciler) reconcileAllRRs(rrGVK schema.GroupVersionKind) error
 	return nil
 }
 
-func (r *PromiseReconciler) createConfigurePipeline(args commonArgs, promise v1alpha1.Promise, configurePromisePipelines []v1alpha1.Pipeline) (ctrl.Result, error) {
-	objMap, err := runtime.DefaultUnstructuredConverter.ToUnstructured(&promise)
-	if err != nil {
-		return ctrl.Result{}, err
-	}
-	unstructuredPromise := &unstructured.Unstructured{Object: objMap}
-
-	updated, err := setPipelineCompletedConditionStatus(args, unstructuredPromise)
-	if err != nil {
-		return ctrl.Result{}, err
-	}
-
-	if updated {
-		return ctrl.Result{}, nil
-	}
-
-	args.logger.Info("Triggering Promise pipeline")
-
-	resources, err := pipeline.NewConfigurePromise(
-		unstructuredPromise,
-		configurePromisePipelines,
-		promise.GetName(),
-		promise.Spec.DestinationSelectors,
-		args.logger,
-	)
-	if err != nil {
-		return ctrl.Result{}, err
-	}
-
-	applyResources(args, resources)
-
-	if isManualReconciliation(promise.GetLabels()) {
-		newLabels := promise.GetLabels()
-		delete(newLabels, resourceutil.ManualReconciliationLabel)
-		promise.SetLabels(newLabels)
-		if err := r.Client.Update(args.ctx, &promise); err != nil {
-			return ctrl.Result{}, err
-		}
-	}
-
-	return fastRequeue, nil
-}
 func (r *PromiseReconciler) ensureDynamicControllerIsStarted(promise *v1alpha1.Promise, rrCRD *apiextensionsv1.CustomResourceDefinition, rrGVK schema.GroupVersionKind, configurePipelines, deletePipelines []v1alpha1.Pipeline, logger logr.Logger) error {
 	// The Dynamic Controller needs to be started once and only once.
 	if r.dynamicControllerHasAlreadyStarted(promise) {
