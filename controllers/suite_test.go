@@ -111,6 +111,7 @@ func cleanEnvironment() {
 	retryCount := 0
 	for {
 		clean()
+		time.Sleep(time.Millisecond * 20)
 		if noResourcesRemaining(&platformv1alpha1.PromiseList{},
 			&platformv1alpha1.DestinationList{},
 			&platformv1alpha1.WorkList{},
@@ -118,11 +119,10 @@ func cleanEnvironment() {
 			return
 		}
 		//wait a maximum of 1 second in total before giving up
-		if retryCount > 100 {
+		if retryCount > 50 {
 			Fail("failed to cleanup env")
 		}
 		retryCount++
-		time.Sleep(time.Millisecond * 10)
 	}
 }
 
