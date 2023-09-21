@@ -6,7 +6,6 @@ import (
 	"math/rand"
 	"time"
 
-	v1 "k8s.io/apimachinery/pkg/apis/meta/v1"
 	"k8s.io/client-go/kubernetes/scheme"
 
 	"github.com/go-logr/logr"
@@ -18,8 +17,8 @@ import (
 )
 
 const (
-	workLabelKey      = kratixPrefix + "work"
-	misscheduledLabel = kratixPrefix + "misscheduled"
+	workLabelKey = kratixPrefix + "work"
+	orphanLabel  = "kratix.io/orphaned"
 )
 
 type Scheduler struct {
@@ -47,28 +46,11 @@ func (r *Scheduler) ReconcileDestination() error {
 }
 
 func (r *Scheduler) UpdateWorkPlacement(work *platformv1alpha1.Work, workPlacement *platformv1alpha1.WorkPlacement) error {
-	misscheduled := true
-	for _, dest := range r.getTargetDestinationNames(work) {
-		if dest == workPlacement.Spec.TargetDestinationName {
-			misscheduled = false
-			break
-		}
-	}
-
-	if misscheduled {
-		r.labelWorkplacementAsMisscheduled(workPlacement)
-	}
-
 	workPlacement.Spec.Workloads = work.Spec.Workloads
 	if err := r.Client.Update(context.Background(), workPlacement); err != nil {
 		r.Log.Error(err, "Error updating WorkPlacement", "workplacement", workPlacement.Name)
 		return err
 	}
-
-	if err := r.updateStatus(workPlacement, misscheduled); err != nil {
-		return err
-	}
-
 	r.Log.Info("Successfully updated WorkPlacement workloads", "workplacement", workPlacement.Name)
 	return nil
 }
@@ -98,41 +80,34 @@ func (r *Scheduler) ReconcileWork(work *platformv1alpha1.Work) error {
 	}
 
 	targetDestinationNames := r.getTargetDestinationNames(work)
-	targetDestinationMap := map[string]bool{}
-	for _, dest := range targetDestinationNames {
-		//false == not misscheduled
-		targetDestinationMap[dest] = false
-	}
-
-	for _, existingWorkplacement := range existingWorkplacements {
-		dest := existingWorkplacement.Spec.TargetDestinationName
-		_, exists := targetDestinationMap[dest]
-		if !exists {
-			//true == misscheduled
-			targetDestinationMap[dest] = true
-		}
-	}
-
-	if len(targetDestinationMap) == 0 {
+	if len(targetDestinationNames) == 0 {
 		r.Log.Info("no Destinations can be selected for scheduling", "scheduling", work.Spec.DestinationSelectors)
 		return fmt.Errorf("no Destinations can be selected for scheduling")
 	}
 
 	r.Log.Info("found available target Destinations", "work", work.GetName(), "destinations", targetDestinationNames)
-	return r.applyWorkplacementsForTargetDestinations(work, targetDestinationMap)
-}
-
-func (r *Scheduler) labelWorkplacementAsMisscheduled(workPlacement *v1alpha1.WorkPlacement) {
-	r.Log.Info("Warning: WorkPlacement scheduled to destination that doesn't fufil scheduling requirements", "workplacement", workPlacement.Name, "namespace", workPlacement.Namespace)
-	newLabels := workPlacement.GetLabels()
-	if newLabels == nil {
-		newLabels = make(map[string]string)
+	currentWorkplacements, err := r.applyWorkplacementsForTargetDestinations(work, targetDestinationNames)
+	if err != nil {
+		return err
 	}
-	newLabels[misscheduledLabel] = "true"
-	workPlacement.SetLabels(newLabels)
+
+	for _, workPlacement := range orphanedWorkPlacements(existingWorkplacements, currentWorkplacements) {
+		newLabels := workPlacement.GetLabels()
+		if newLabels == nil {
+			newLabels = make(map[string]string)
+		}
+		newLabels[orphanLabel] = "true"
+		workPlacement.SetLabels(newLabels)
+		r.Log.Info("marking workplacement as orphaned", "namespace", workPlacement.GetNamespace(), "name", workPlacement.GetName())
+		if err := r.Client.Update(context.TODO(), &workPlacement); err != nil {
+			return err
+		}
+	}
+
+	return nil
 }
 
-func misscheduledWorkPlacements(listA, listB []v1alpha1.WorkPlacement) []v1alpha1.WorkPlacement {
+func orphanedWorkPlacements(listA, listB []v1alpha1.WorkPlacement) []v1alpha1.WorkPlacement {
 	mb := make(map[string]struct{}, len(listB))
 	for _, x := range listB {
 		mb[x.GetNamespace()+"/"+x.GetName()] = struct{}{}
@@ -174,8 +149,9 @@ func (r *Scheduler) getExistingWorkplacementsForWork(work platformv1alpha1.Work)
 	return workPlacementList.Items, nil
 }
 
-func (r *Scheduler) applyWorkplacementsForTargetDestinations(work *platformv1alpha1.Work, targetDestinationNames map[string]bool) error {
-	for targetDestinationName, misscheduled := range targetDestinationNames {
+func (r *Scheduler) applyWorkplacementsForTargetDestinations(work *platformv1alpha1.Work, targetDestinationNames []string) ([]platformv1alpha1.WorkPlacement, error) {
+	var workPlacements []platformv1alpha1.WorkPlacement
+	for _, targetDestinationName := range targetDestinationNames {
 		workPlacement := &platformv1alpha1.WorkPlacement{}
 		workPlacement.Namespace = work.GetNamespace()
 		workPlacement.Name = work.Name + "." + targetDestinationName
@@ -184,9 +160,6 @@ func (r *Scheduler) applyWorkplacementsForTargetDestinations(work *platformv1alp
 			workPlacement.Spec.Workloads = work.Spec.Workloads
 			workPlacement.Labels = map[string]string{
 				workLabelKey: work.Name,
-			}
-			if misscheduled {
-				r.labelWorkplacementAsMisscheduled(workPlacement)
 			}
 
 			workPlacement.Spec.WorkloadCoreFields = work.Spec.WorkloadCoreFields
@@ -201,36 +174,13 @@ func (r *Scheduler) applyWorkplacementsForTargetDestinations(work *platformv1alp
 		})
 
 		if err != nil {
-			return err
+			return nil, err
 		}
-		if err := r.updateStatus(workPlacement, misscheduled); err != nil {
-			return err
-		}
+		workPlacements = append(workPlacements, *workPlacement)
+
 		r.Log.Info("workplacement reconciled", "operation", op, "namespace", workPlacement.GetNamespace(), "workplacement", workPlacement.GetName(), "work", work.GetName(), "destination", targetDestinationName)
 	}
-	return nil
-}
-
-func (r *Scheduler) updateStatus(workPlacement *platformv1alpha1.WorkPlacement, misscheduled bool) error {
-	updatedWorkPlacement := &platformv1alpha1.WorkPlacement{}
-	if err := r.Client.Get(context.Background(), client.ObjectKeyFromObject(workPlacement), updatedWorkPlacement); err != nil {
-		return err
-	}
-
-	updatedWorkPlacement.Status.Conditions = nil
-	if misscheduled {
-		updatedWorkPlacement.Status.Conditions = []v1.Condition{
-			{
-				Message:            "Target destination no longer matches destinationSelectors",
-				Reason:             "DestinationSelectorMismatch",
-				Type:               "Misscheduled",
-				Status:             "True",
-				LastTransitionTime: v1.NewTime(time.Now()),
-			},
-		}
-	}
-
-	return r.Client.Status().Update(context.Background(), updatedWorkPlacement)
+	return workPlacements, nil
 }
 
 // Where Work is a Resource Request return one random Destination name, where Work is a
