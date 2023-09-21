@@ -133,7 +133,7 @@ func deleteAllResourcesWithKindMatchingLabel(o opts, gvk schema.GroupVersionKind
 		return true, err
 	}
 
-	o.logger.Info("deleting resources", "kind", resourceList.GetKind(), "withLabels", resourceLabels, "resources", getResourceNames(resourceList.Items))
+	o.logger.Info("deleting resources", "kind", resourceList.GetKind(), "withLabels", resourceLabels, "resources", resourceutil.GetResourceNames(resourceList.Items))
 
 	for _, resource := range resourceList.Items {
 		err = o.client.Delete(o.ctx, &resource, client.PropagationPolicy(metav1.DeletePropagationBackground))
@@ -145,20 +145,6 @@ func deleteAllResourcesWithKindMatchingLabel(o opts, gvk schema.GroupVersionKind
 	}
 
 	return len(resourceList.Items) != 0, nil
-}
-
-func getResourceNames(items []unstructured.Unstructured) []string {
-	var names []string
-	for _, item := range items {
-		resource := item.GetName()
-		//if the resource is destination scoped it has no namespace
-		if item.GetNamespace() != "" {
-			resource = fmt.Sprintf("%s/%s", item.GetNamespace(), item.GetName())
-		}
-		names = append(names, resource)
-	}
-
-	return names
 }
 
 // finalizers must be less than 64 characters
@@ -174,28 +160,6 @@ func addFinalizers(o opts, resource client.Object, finalizers []string) (ctrl.Re
 		return defaultRequeue, err
 	}
 	return ctrl.Result{}, nil
-}
-
-func finalizersAreMissing(resource client.Object, finalizers []string) bool {
-	for _, finalizer := range finalizers {
-		if !controllerutil.ContainsFinalizer(resource, finalizer) {
-			return true
-		}
-	}
-	return false
-}
-
-func doesNotContainFinalizer(resource client.Object, finalizer string) bool {
-	return !controllerutil.ContainsFinalizer(resource, finalizer)
-}
-
-func finalizersAreDeleted(resource client.Object, finalizers []string) bool {
-	for _, finalizer := range finalizers {
-		if controllerutil.ContainsFinalizer(resource, finalizer) {
-			return false
-		}
-	}
-	return true
 }
 
 func fetchObjectAndSecret(o opts, stateStoreRef client.ObjectKey, stateStore StateStore) (*v1.Secret, error) {

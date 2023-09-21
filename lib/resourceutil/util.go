@@ -1,6 +1,7 @@
 package resourceutil
 
 import (
+	"fmt"
 	"sort"
 	"time"
 
@@ -129,4 +130,42 @@ func SuspendablePipelines(logger logr.Logger, jobs []batchv1.Job) []batchv1.Job 
 	}
 
 	return jobsToSuspend
+}
+
+func SetStatus(rr *unstructured.Unstructured, logger logr.Logger, statuses ...string) {
+	if len(statuses) == 0 {
+		return
+	}
+
+	if len(statuses)%2 != 0 {
+		logger.Info("invalid status; expecting key:value pair", "status", statuses)
+		return
+	}
+
+	nestedMap := map[string]interface{}{}
+	for i := 0; i < len(statuses); i += 2 {
+		key := statuses[i]
+		value := statuses[i+1]
+		nestedMap[key] = value
+	}
+
+	err := unstructured.SetNestedMap(rr.Object, nestedMap, "status")
+
+	if err != nil {
+		logger.Info("failed to set status; ignoring", "map", nestedMap)
+	}
+}
+
+func GetResourceNames(items []unstructured.Unstructured) []string {
+	var names []string
+	for _, item := range items {
+		resource := item.GetName()
+		//if the resource is destination scoped it has no namespace
+		if item.GetNamespace() != "" {
+			resource = fmt.Sprintf("%s/%s", item.GetNamespace(), item.GetName())
+		}
+		names = append(names, resource)
+	}
+
+	return names
 }

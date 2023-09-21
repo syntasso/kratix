@@ -106,7 +106,7 @@ func (r *dynamicResourceRequestController) Reconcile(ctx context.Context, req ct
 	}
 
 	// Reconcile necessary finalizers
-	if finalizersAreMissing(rr, []string{workFinalizer, workflowsFinalizer, deleteWorkflowsFinalizer}) {
+	if resourceutil.FinalizersAreMissing(rr, []string{workFinalizer, workflowsFinalizer, deleteWorkflowsFinalizer}) {
 		return addFinalizers(opts, rr, []string{workFinalizer, workflowsFinalizer, deleteWorkflowsFinalizer})
 	}
 
@@ -155,7 +155,7 @@ func setPipelineCompletedConditionStatus(o opts, obj *unstructured.Unstructured)
 	case corev1.ConditionTrue:
 		fallthrough
 	case corev1.ConditionUnknown:
-		setStatus(obj, o.logger, "message", "Pending")
+		resourceutil.SetStatus(obj, o.logger, "message", "Pending")
 		resourceutil.MarkPipelineAsRunning(o.logger, obj)
 		err := o.client.Status().Update(o.ctx, obj)
 		if err != nil {
@@ -167,7 +167,7 @@ func setPipelineCompletedConditionStatus(o opts, obj *unstructured.Unstructured)
 }
 
 func (r *dynamicResourceRequestController) deleteResources(o opts, resourceRequest *unstructured.Unstructured, resourceRequestIdentifier string) (ctrl.Result, error) {
-	if finalizersAreDeleted(resourceRequest, rrFinalizers) {
+	if resourceutil.FinalizersAreDeleted(resourceRequest, rrFinalizers) {
 		return ctrl.Result{}, nil
 	}
 
@@ -292,28 +292,4 @@ func (r *dynamicResourceRequestController) deleteWorkflows(o opts, resourceReque
 	}
 
 	return nil
-}
-
-func setStatus(rr *unstructured.Unstructured, logger logr.Logger, statuses ...string) {
-	if len(statuses) == 0 {
-		return
-	}
-
-	if len(statuses)%2 != 0 {
-		logger.Info("invalid status; expecting key:value pair", "status", statuses)
-		return
-	}
-
-	nestedMap := map[string]interface{}{}
-	for i := 0; i < len(statuses); i += 2 {
-		key := statuses[i]
-		value := statuses[i+1]
-		nestedMap[key] = value
-	}
-
-	err := unstructured.SetNestedMap(rr.Object, nestedMap, "status")
-
-	if err != nil {
-		logger.Info("failed to set status; ignoring", "map", nestedMap)
-	}
 }

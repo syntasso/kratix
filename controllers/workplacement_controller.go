@@ -29,6 +29,7 @@ import (
 
 	"github.com/syntasso/kratix/api/v1alpha1"
 	platformv1alpha1 "github.com/syntasso/kratix/api/v1alpha1"
+	"github.com/syntasso/kratix/lib/resourceutil"
 	"github.com/syntasso/kratix/lib/writers"
 )
 
@@ -96,7 +97,7 @@ func (r *WorkPlacementReconciler) Reconcile(ctx context.Context, req ctrl.Reques
 		return r.deleteWorkPlacement(ctx, writer, workPlacement, logger)
 	}
 
-	if finalizersAreMissing(workPlacement, workPlacementFinalizers) {
+	if resourceutil.FinalizersAreMissing(workPlacement, workPlacementFinalizers) {
 		return addFinalizers(opts, workPlacement, workPlacementFinalizers)
 	}
 

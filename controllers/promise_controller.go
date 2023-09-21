@@ -130,7 +130,7 @@ func (r *PromiseReconciler) Reconcile(ctx context.Context, req ctrl.Request) (ct
 			return ctrl.Result{}, err
 		}
 
-		if doesNotContainFinalizer(promise, crdCleanupFinalizer) {
+		if resourceutil.DoesNotContainFinalizer(promise, crdCleanupFinalizer) {
 			return addFinalizers(opts, promise, []string{crdCleanupFinalizer})
 		}
 
@@ -139,7 +139,7 @@ func (r *PromiseReconciler) Reconcile(ctx context.Context, req ctrl.Request) (ct
 			return ctrl.Result{}, err
 		}
 
-		if doesNotContainFinalizer(promise, dynamicControllerDependantResourcesCleaupFinalizer) {
+		if resourceutil.DoesNotContainFinalizer(promise, dynamicControllerDependantResourcesCleaupFinalizer) {
 			return addFinalizers(opts, promise, []string{dynamicControllerDependantResourcesCleaupFinalizer})
 		}
 	}
@@ -149,7 +149,7 @@ func (r *PromiseReconciler) Reconcile(ctx context.Context, req ctrl.Request) (ct
 		return ctrl.Result{}, err
 	}
 
-	if doesNotContainFinalizer(promise, dependenciesCleanupFinalizer) {
+	if resourceutil.DoesNotContainFinalizer(promise, dependenciesCleanupFinalizer) {
 		return addFinalizers(opts, promise, []string{dependenciesCleanupFinalizer})
 	}
 
@@ -172,7 +172,7 @@ func (r *PromiseReconciler) Reconcile(ctx context.Context, req ctrl.Request) (ct
 		return ctrl.Result{}, err
 	}
 
-	if doesNotContainFinalizer(promise, resourceRequestCleanupFinalizer) {
+	if resourceutil.DoesNotContainFinalizer(promise, resourceRequestCleanupFinalizer) {
 		return addFinalizers(opts, promise, []string{resourceRequestCleanupFinalizer})
 	}
 
@@ -197,7 +197,7 @@ func (r *PromiseReconciler) reconcileDependencies(o opts, promise *v1alpha1.Prom
 		return nil, nil
 	}
 
-	if doesNotContainFinalizer(promise, workflowsFinalizer) {
+	if resourceutil.DoesNotContainFinalizer(promise, workflowsFinalizer) {
 		result, err := addFinalizers(o, promise, []string{workflowsFinalizer})
 		return &result, err
 	}
@@ -404,7 +404,7 @@ func (r *PromiseReconciler) ensureCRDExists(ctx context.Context, rrCRD *apiexten
 }
 
 func (r *PromiseReconciler) deletePromise(o opts, promise *v1alpha1.Promise) (ctrl.Result, error) {
-	if finalizersAreDeleted(promise, promiseFinalizers) {
+	if resourceutil.FinalizersAreDeleted(promise, promiseFinalizers) {
 		return ctrl.Result{}, nil
 	}
 
