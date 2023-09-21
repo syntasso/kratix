@@ -11,7 +11,6 @@ import (
 	"github.com/syntasso/kratix/lib/hash"
 	batchv1 "k8s.io/api/batch/v1"
 	v1 "k8s.io/api/core/v1"
-	apiextensionsv1 "k8s.io/apiextensions-apiserver/pkg/apis/apiextensions/v1"
 	metav1 "k8s.io/apimachinery/pkg/apis/meta/v1"
 	"k8s.io/apimachinery/pkg/apis/meta/v1/unstructured"
 	"k8s.io/client-go/kubernetes/scheme"
@@ -25,8 +24,7 @@ const (
 
 func NewConfigureResource(
 	rr *unstructured.Unstructured,
-	//TODO change to plural string
-	crdNames apiextensionsv1.CustomResourceDefinitionNames,
+	crdPlural string,
 	pipelines []platformv1alpha1.Pipeline,
 	resourceRequestIdentifier,
 	promiseIdentifier string,
@@ -47,7 +45,7 @@ func NewConfigureResource(
 
 	resources := []client.Object{
 		serviceAccount(pipelineResources),
-		role(rr, crdNames.Plural, pipelineResources),
+		role(rr, crdPlural, pipelineResources),
 		roleBinding((pipelineResources)),
 		destinationSelectorsConfigMap,
 		pipeline,
@@ -154,9 +152,9 @@ func configurePipelineInitContainers(obj *unstructured.Unstructured, pipelines [
 
 	if len(pipelines) > 0 {
 		//TODO: We only support 1 workflow for now
-		for _, c := range pipelines[0].Spec.Containers {
+		for i, c := range pipelines[0].Spec.Containers {
 			containers = append(containers, v1.Container{
-				Name:         providedOrDefaultName(c.Name),
+				Name:         providedOrDefaultName(c.Name, i),
 				Image:        c.Image,
 				VolumeMounts: volumeMounts,
 				Env: []v1.EnvVar{
@@ -227,9 +225,9 @@ func metadataAndSchedulingVolumes(configMapName string) []v1.Volume {
 	}
 }
 
-func providedOrDefaultName(providedName string) string {
+func providedOrDefaultName(providedName string, index int) string {
 	if providedName == "" {
-		return "default-container-name"
+		return fmt.Sprintf("default-container-name-%d", index)
 	}
 	return providedName
 }

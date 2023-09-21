@@ -194,45 +194,39 @@ func (r *PromiseReconciler) reconcileDependencies(o opts, promise *v1alpha1.Prom
 			o.logger.Error(err, "Error creating Works")
 			return nil, err
 		}
-	} else {
-		if doesNotContainFinalizer(promise, workflowsFinalizer) {
-			result, err := addFinalizers(o, promise, []string{workflowsFinalizer})
-			return &result, err
-		}
-
-		o.logger.Info("Promise contains workflows.promise.configure, reconciling workflows")
-		objMap, err := runtime.DefaultUnstructuredConverter.ToUnstructured(&promise)
-		if err != nil {
-			return nil, err
-		}
-		unstructuredPromise := &unstructured.Unstructured{Object: objMap}
-		pipelineResources, err := pipeline.NewConfigurePromise(
-			unstructuredPromise,
-			configurePipeline,
-			promise.GetName(),
-			promise.Spec.DestinationSelectors,
-			o.logger,
-		)
-		if err != nil {
-			return nil, err
-		}
-
-		jobOpts := jobOpts{
-			opts:              o,
-			obj:               unstructuredPromise,
-			pipelineLabels:    pipeline.LabelsForConfigurePromise(promise.GetName()),
-			pipelineResources: pipelineResources,
-		}
-		requeue, err := ensurePipelineIsReconciled(jobOpts)
-		if err != nil {
-			return nil, err
-		}
-
-		if requeue != nil {
-			return requeue, nil
-		}
+		return nil, nil
 	}
-	return nil, nil
+
+	if doesNotContainFinalizer(promise, workflowsFinalizer) {
+		result, err := addFinalizers(o, promise, []string{workflowsFinalizer})
+		return &result, err
+	}
+
+	o.logger.Info("Promise contains workflows.promise.configure, reconciling workflows")
+	objMap, err := runtime.DefaultUnstructuredConverter.ToUnstructured(&promise)
+	if err != nil {
+		return nil, err
+	}
+	unstructuredPromise := &unstructured.Unstructured{Object: objMap}
+	pipelineResources, err := pipeline.NewConfigurePromise(
+		unstructuredPromise,
+		configurePipeline,
+		promise.GetName(),
+		promise.Spec.DestinationSelectors,
+		o.logger,
+	)
+	if err != nil {
+		return nil, err
+	}
+
+	jobOpts := jobOpts{
+		opts:              o,
+		obj:               unstructuredPromise,
+		pipelineLabels:    pipeline.LabelsForConfigurePromise(promise.GetName()),
+		pipelineResources: pipelineResources,
+	}
+
+	return ensurePipelineIsReconciled(jobOpts)
 }
 
 func (r *PromiseReconciler) reconcileAllRRs(rrGVK schema.GroupVersionKind) error {

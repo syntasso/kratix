@@ -112,7 +112,7 @@ func (r *dynamicResourceRequestController) Reconcile(ctx context.Context, req ct
 
 	pipelineResources, err := pipeline.NewConfigureResource(
 		rr,
-		r.crd.Spec.Names,
+		r.crd.Spec.Names.Plural,
 		r.configurePipelines,
 		resourceRequestIdentifier,
 		r.promiseIdentifier,
