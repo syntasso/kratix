@@ -129,7 +129,7 @@ var _ = Describe("Controllers/Scheduler", func() {
 					preUpdateDestination = workPlacements.Items[0].Spec.TargetDestinationName
 				})
 
-				It("does not reschedule the worklacement but does label the resource to indicate its stale", func() {
+				It("does not reschedule the worklacement but does label the resource to indicate its misscheduled", func() {
 					resourceWork.Spec.DestinationSelectors = schedulingFor(prodDestination)
 					err := scheduler.ReconcileWork(&resourceWork)
 					Expect(err).ToNot(HaveOccurred())
@@ -137,8 +137,17 @@ var _ = Describe("Controllers/Scheduler", func() {
 					Expect(k8sClient.List(context.Background(), &workPlacements)).To(Succeed())
 					Expect(workPlacements.Items).To(HaveLen(1))
 					workPlacement := workPlacements.Items[0]
-					Expect(workPlacement.GetLabels()).To(HaveKey("kratix.io/orphaned"))
 					Expect(workPlacement.Spec.TargetDestinationName).To(Equal(preUpdateDestination))
+					Expect(workPlacement.GetLabels()).To(HaveKeyWithValue("kratix.io/misscheduled", "true"))
+					Expect(workPlacement.Status.Conditions).To(HaveLen(1))
+					//ignore time for assertion
+					workPlacement.Status.Conditions[0].LastTransitionTime = v1.Time{}
+					Expect(workPlacement.Status.Conditions).To(ConsistOf(v1.Condition{
+						Message: "Target destination no longer matches destinationSelectors",
+						Reason:  "DestinationSelectorMismatch",
+						Type:    "Misscheduled",
+						Status:  "True",
+					}))
 				})
 			})
 		})
@@ -176,7 +185,7 @@ var _ = Describe("Controllers/Scheduler", func() {
 				})
 
 				When("Work is updated to no longer match a previous destination", func() {
-					It("marks the old workplacement as orphaned but keeps it updated", func() {
+					It("marks the old workplacement as misscheduled but keeps it updated", func() {
 						err := scheduler.ReconcileWork(&dependencyWork)
 						Expect(err).ToNot(HaveOccurred())
 
@@ -206,10 +215,18 @@ var _ = Describe("Controllers/Scheduler", func() {
 						Expect(k8sClient.List(context.Background(), &workPlacements)).To(Succeed())
 
 						Expect(workPlacements.Items).To(HaveLen(3))
-						Expect(workPlacements.Items[0].GetLabels()).NotTo(HaveKey("kratix.io/orphaned"))
-						Expect(workPlacements.Items[1].GetLabels()).NotTo(HaveKey("kratix.io/orphaned"))
-						Expect(workPlacements.Items[2].GetLabels()).To(HaveKey("kratix.io/orphaned"))
-						Expect(workPlacements.Items[2].GetLabels()["kratix.io/orphaned"]).To(Equal("true"))
+						Expect(workPlacements.Items[0].GetLabels()).NotTo(HaveKey("kratix.io/misscheduled"))
+						Expect(workPlacements.Items[1].GetLabels()).NotTo(HaveKey("kratix.io/misscheduled"))
+						Expect(workPlacements.Items[2].GetLabels()).To(HaveKeyWithValue("kratix.io/misscheduled", "true"))
+						Expect(workPlacements.Items[2].Status.Conditions).To(HaveLen(1))
+						//ignore time for assertion
+						workPlacements.Items[2].Status.Conditions[0].LastTransitionTime = v1.Time{}
+						Expect(workPlacements.Items[2].Status.Conditions).To(ConsistOf(v1.Condition{
+							Message: "Target destination no longer matches destinationSelectors",
+							Reason:  "DestinationSelectorMismatch",
+							Type:    "Misscheduled",
+							Status:  "True",
+						}))
 
 						for _, workPlacement := range workPlacements.Items {
 							Expect(workPlacement.Spec.Workloads).To(ConsistOf(
