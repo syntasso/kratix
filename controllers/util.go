@@ -5,6 +5,7 @@ import (
 	"fmt"
 
 	"github.com/go-logr/logr"
+	"github.com/syntasso/kratix/api/v1alpha1"
 	platformv1alpha1 "github.com/syntasso/kratix/api/v1alpha1"
 	"github.com/syntasso/kratix/lib/resourceutil"
 	"github.com/syntasso/kratix/lib/writers"
@@ -43,7 +44,7 @@ type jobOpts struct {
 func ensurePipelineIsReconciled(j jobOpts) (*ctrl.Result, error) {
 	namespace := j.obj.GetNamespace()
 	if namespace == "" {
-		namespace = kratixPlatformSystemNamespace
+		namespace = v1alpha1.KratixSystemNamespace
 	}
 
 	pipelineJobs, err := getJobsWithLabels(j.opts, j.pipelineLabels, namespace)
@@ -198,7 +199,7 @@ func fetchObjectAndSecret(o opts, stateStoreRef client.ObjectKey, stateStore Sta
 	}
 	namespace := stateStore.GetSecretRef().Namespace
 	if namespace == "" {
-		namespace = kratixPlatformSystemNamespace
+		namespace = v1alpha1.KratixSystemNamespace
 	}
 
 	secret := &v1.Secret{}

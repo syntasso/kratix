@@ -6,6 +6,7 @@ import (
 	"strings"
 
 	"github.com/go-logr/logr"
+	"github.com/syntasso/kratix/api/v1alpha1"
 	platformv1alpha1 "github.com/syntasso/kratix/api/v1alpha1"
 	"github.com/syntasso/kratix/lib/hash"
 	batchv1 "k8s.io/api/batch/v1"
@@ -63,7 +64,7 @@ func NewConfigurePromise(
 	logger logr.Logger,
 ) ([]client.Object, error) {
 
-	pipelineResources := NewPipelineArgs(promiseIdentifier, "", "kratix-platform-system")
+	pipelineResources := NewPipelineArgs(promiseIdentifier, "", v1alpha1.KratixSystemNamespace)
 	destinationSelectorsConfigMap, err := destinationSelectorsConfigMap(pipelineResources, promiseDestinationSelectors)
 	if err != nil {
 		return nil, err

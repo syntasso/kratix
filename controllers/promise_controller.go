@@ -54,7 +54,6 @@ type PromiseReconciler struct {
 }
 
 const (
-	kratixPlatformSystemNamespace                      = "kratix-platform-system"
 	kratixPrefix                                       = "kratix.io/"
 	resourceRequestCleanupFinalizer                    = kratixPrefix + "resource-request-cleanup"
 	dynamicControllerDependantResourcesCleaupFinalizer = kratixPrefix + "dynamic-controller-dependant-resources-cleanup"

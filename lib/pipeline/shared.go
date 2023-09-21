@@ -162,7 +162,7 @@ func readerContainer(obj *unstructured.Unstructured, volumeName string) v1.Conta
 	if namespace == "" {
 		// if namespace is empty it means its a unnamespaced resource, so providing
 		// any value is valid for kubectl
-		namespace = "kratix-platform-system"
+		namespace = v1alpha1.KratixSystemNamespace
 	}
 	objRef := fmt.Sprintf("%s.%s %s --namespace %s", strings.ToLower(obj.GetKind()), obj.GroupVersionKind().Group, obj.GetName(), namespace)
 	resourceRequestCommand := fmt.Sprintf("kubectl get %s -oyaml > /output/object.yaml; cat /output/object.yaml", objRef)

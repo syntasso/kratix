@@ -5,6 +5,7 @@ import (
 	"fmt"
 	"os"
 
+	"github.com/syntasso/kratix/api/v1alpha1"
 	platformv1alpha1 "github.com/syntasso/kratix/api/v1alpha1"
 	"github.com/syntasso/kratix/work-creator/pipeline"
 	"k8s.io/client-go/kubernetes/scheme"
@@ -21,7 +22,7 @@ func main() {
 
 	flag.StringVar(&inputDirectoy, "input-directory", "", "Absolute path to directory containing yaml documents required to build Work")
 	flag.StringVar(&promiseName, "promise-name", "", "Name of the promise")
-	flag.StringVar(&namespace, "namespace", "kratix-platform-system", "Namespace")
+	flag.StringVar(&namespace, "namespace", v1alpha1.KratixSystemNamespace, "Namespace")
 	flag.StringVar(&resourceName, "resource-name", "", "Name of the resource")
 	flag.BoolVar(&addPromiseDependencies, "add-promise-dependencies", false, "Add the dependencies in /work-creator-files/promise/object.yaml to the work")
 	flag.Parse()
