@@ -19,6 +19,7 @@ package controllers_test
 import (
 	"path/filepath"
 	"testing"
+	"time"
 
 	"golang.org/x/net/context"
 
@@ -107,6 +108,35 @@ var _ = AfterSuite(func() {
 })
 
 func cleanEnvironment() {
+	retryCount := 0
+	for {
+		clean()
+		time.Sleep(time.Millisecond * 20)
+		if noResourcesRemaining(&platformv1alpha1.PromiseList{},
+			&platformv1alpha1.DestinationList{},
+			&platformv1alpha1.WorkList{},
+			&platformv1alpha1.WorkPlacementList{}) {
+			return
+		}
+		//wait a maximum of 1 second in total before giving up
+		if retryCount > 50 {
+			Fail("failed to cleanup env")
+		}
+		retryCount++
+	}
+}
+
+func noResourcesRemaining(objs ...client.ObjectList) bool {
+	for _, obj := range objs {
+		k8sClient.List(context.Background(), obj)
+		if obj.GetRemainingItemCount() != nil && int(*obj.GetRemainingItemCount()) != 0 {
+			return false
+		}
+	}
+	return true
+}
+
+func clean() {
 	var promises platformv1alpha1.PromiseList
 	k8sClient.List(context.Background(), &promises)
 	for _, p := range promises.Items {
