@@ -5,8 +5,11 @@ import (
 	"fmt"
 
 	"github.com/go-logr/logr"
+	"github.com/syntasso/kratix/api/v1alpha1"
 	platformv1alpha1 "github.com/syntasso/kratix/api/v1alpha1"
+	"github.com/syntasso/kratix/lib/resourceutil"
 	"github.com/syntasso/kratix/lib/writers"
+	batchv1 "k8s.io/api/batch/v1"
 	v1 "k8s.io/api/core/v1"
 	"k8s.io/apimachinery/pkg/api/errors"
 	metav1 "k8s.io/apimachinery/pkg/apis/meta/v1"
@@ -17,6 +20,7 @@ import (
 	ctrl "sigs.k8s.io/controller-runtime"
 	"sigs.k8s.io/controller-runtime/pkg/client"
 	"sigs.k8s.io/controller-runtime/pkg/controller/controllerutil"
+	"sigs.k8s.io/yaml"
 )
 
 type StateStore interface {
@@ -24,104 +28,168 @@ type StateStore interface {
 	GetSecretRef() *v1.SecretReference
 }
 
+type opts struct {
+	ctx    context.Context
+	client client.Client
+	logger logr.Logger
+}
+
+type promisePipelines struct {
+	DeleteResource    []v1alpha1.Pipeline
+	ConfigureResource []v1alpha1.Pipeline
+	ConfigurePromise  []v1alpha1.Pipeline
+}
+
+type jobOpts struct {
+	opts
+	obj               *unstructured.Unstructured
+	pipelineLabels    map[string]string
+	pipelineResources []client.Object
+}
+
+func ensurePipelineIsReconciled(j jobOpts) (*ctrl.Result, error) {
+	namespace := j.obj.GetNamespace()
+	if namespace == "" {
+		namespace = v1alpha1.KratixSystemNamespace
+	}
+
+	pipelineJobs, err := getJobsWithLabels(j.opts, j.pipelineLabels, namespace)
+	if err != nil {
+		j.logger.Info("Failed getting Promise pipeline jobs", "error", err)
+		return &slowRequeue, nil
+	}
+
+	// No jobs indicates this is the first reconciliation loop of this resource request
+	if len(pipelineJobs) == 0 {
+		j.logger.Info("No jobs found, creating workflow Job")
+		return &fastRequeue, createConfigurePipeline(j)
+	}
+
+	existingPipelineJob, err := resourceutil.PipelineWithDesiredSpecExists(j.logger, j.obj, pipelineJobs)
+	if err != nil {
+		return &slowRequeue, nil
+	}
+
+	if resourceutil.IsThereAPipelineRunning(j.logger, pipelineJobs) {
+		for _, job := range resourceutil.SuspendablePipelines(j.logger, pipelineJobs) {
+			//Don't suspend a the job that is the desired spec
+			if existingPipelineJob != nil && job.GetName() != existingPipelineJob.GetName() {
+				trueBool := true
+				patch := client.MergeFrom(job.DeepCopy())
+				job.Spec.Suspend = &trueBool
+				j.logger.Info("Suspending inactive job", "job", job.GetName())
+				err := j.client.Patch(j.ctx, &job, patch)
+				if err != nil {
+					j.logger.Error(err, "failed to patch Job", "job", job.GetName())
+				}
+			}
+		}
+		j.logger.Info("Job already inflight for workflow, waiting for it to be inactive")
+		return &slowRequeue, nil
+	}
+
+	if isManualReconciliation(j.obj.GetLabels()) || existingPipelineJob == nil {
+		j.logger.Info("Creating job for workflow", "manualTrigger", isManualReconciliation(j.obj.GetLabels()))
+		return &fastRequeue, createConfigurePipeline(j)
+	}
+
+	j.logger.Info("Job already exists and is complete for workflow")
+	return nil, nil
+}
+
+func createConfigurePipeline(j jobOpts) error {
+	updated, err := setPipelineCompletedConditionStatus(j.opts, j.obj)
+	if err != nil {
+		return err
+	}
+
+	if updated {
+		return nil
+	}
+
+	j.logger.Info("Triggering Promise pipeline")
+
+	applyResources(j.opts, j.pipelineResources...)
+
+	if isManualReconciliation(j.obj.GetLabels()) {
+		newLabels := j.obj.GetLabels()
+		delete(newLabels, resourceutil.ManualReconciliationLabel)
+		j.obj.SetLabels(newLabels)
+		if err := j.client.Update(j.ctx, j.obj); err != nil {
+			return err
+		}
+	}
+
+	return nil
+}
+
 // pass in nil resourceLabels to delete all resources of the GVK
-func deleteAllResourcesWithKindMatchingLabel(ctx context.Context, kClient client.Client, gvk schema.GroupVersionKind, resourceLabels map[string]string, logger logr.Logger) (bool, error) {
+func deleteAllResourcesWithKindMatchingLabel(o opts, gvk schema.GroupVersionKind, resourceLabels map[string]string) (bool, error) {
 	resourceList := &unstructured.UnstructuredList{}
 	resourceList.SetGroupVersionKind(gvk)
 	listOptions := client.ListOptions{LabelSelector: labels.SelectorFromSet(resourceLabels)}
-	err := kClient.List(ctx, resourceList, &listOptions)
+	err := o.client.List(o.ctx, resourceList, &listOptions)
 	if err != nil {
 		return true, err
 	}
 
-	logger.Info("deleting resources", "kind", resourceList.GetKind(), "withLabels", resourceLabels, "resources", getResourceNames(resourceList.Items))
+	o.logger.Info("deleting resources", "kind", resourceList.GetKind(), "withLabels", resourceLabels, "resources", resourceutil.GetResourceNames(resourceList.Items))
 
 	for _, resource := range resourceList.Items {
-		err = kClient.Delete(ctx, &resource, client.PropagationPolicy(metav1.DeletePropagationBackground))
+		err = o.client.Delete(o.ctx, &resource, client.PropagationPolicy(metav1.DeletePropagationBackground))
 		if err != nil && !errors.IsNotFound(err) {
-			logger.Error(err, "Error deleting resource, will try again in 5 seconds", "name", resource.GetName(), "kind", resource.GetKind())
+			o.logger.Error(err, "Error deleting resource, will try again in 5 seconds", "name", resource.GetName(), "kind", resource.GetKind())
 			return true, err
 		}
-		logger.Info("successfully triggered deletion of resource", "name", resource.GetName(), "kind", resource.GetKind())
+		o.logger.Info("successfully triggered deletion of resource", "name", resource.GetName(), "kind", resource.GetKind())
 	}
 
 	return len(resourceList.Items) != 0, nil
 }
 
-func getResourceNames(items []unstructured.Unstructured) []string {
-	var names []string
-	for _, item := range items {
-		resource := item.GetName()
-		//if the resource is destination scoped it has no namespace
-		if item.GetNamespace() != "" {
-			resource = fmt.Sprintf("%s/%s", item.GetNamespace(), item.GetName())
-		}
-		names = append(names, resource)
-	}
-
-	return names
-}
-
 // finalizers must be less than 64 characters
-func addFinalizers(ctx context.Context, client client.Client, resource client.Object, finalizers []string, logger logr.Logger) (ctrl.Result, error) {
-	logger.Info("Adding missing finalizers",
+func addFinalizers(o opts, resource client.Object, finalizers []string) (ctrl.Result, error) {
+	o.logger.Info("Adding missing finalizers",
 		"expectedFinalizers", finalizers,
 		"existingFinalizers", resource.GetFinalizers(),
 	)
 	for _, finalizer := range finalizers {
 		controllerutil.AddFinalizer(resource, finalizer)
 	}
-	if err := client.Update(ctx, resource); err != nil {
+	if err := o.client.Update(o.ctx, resource); err != nil {
 		return defaultRequeue, err
 	}
 	return ctrl.Result{}, nil
 }
 
-func finalizersAreMissing(resource client.Object, finalizers []string) bool {
-	for _, finalizer := range finalizers {
-		if !controllerutil.ContainsFinalizer(resource, finalizer) {
-			return true
-		}
-	}
-	return false
-}
-
-func doesNotContainFinalizer(resource client.Object, finalizer string) bool {
-	return !controllerutil.ContainsFinalizer(resource, finalizer)
-}
-
-func finalizersAreDeleted(resource client.Object, finalizers []string) bool {
-	for _, finalizer := range finalizers {
-		if controllerutil.ContainsFinalizer(resource, finalizer) {
-			return false
-		}
-	}
-	return true
-}
-
-func fetchObjectAndSecret(ctx context.Context, kubeClient client.Client, stateStoreRef client.ObjectKey, stateStore StateStore, logger logr.Logger) (*v1.Secret, error) {
-	if err := kubeClient.Get(ctx, stateStoreRef, stateStore); err != nil {
-		logger.Error(err, "unable to fetch resource", "resourceKind", stateStore.GetObjectKind(), "stateStoreRef", stateStoreRef)
+func fetchObjectAndSecret(o opts, stateStoreRef client.ObjectKey, stateStore StateStore) (*v1.Secret, error) {
+	if err := o.client.Get(o.ctx, stateStoreRef, stateStore); err != nil {
+		o.logger.Error(err, "unable to fetch resource", "resourceKind", stateStore.GetObjectKind(), "stateStoreRef", stateStoreRef)
 		return nil, err
+	}
+	namespace := stateStore.GetSecretRef().Namespace
+	if namespace == "" {
+		namespace = v1alpha1.KratixSystemNamespace
 	}
 
 	secret := &v1.Secret{}
 	secretRef := types.NamespacedName{
 		Name:      stateStore.GetSecretRef().Name,
-		Namespace: stateStore.GetSecretRef().Namespace, // TODO: this could me hard-coded to `kratix-platform-system`
+		Namespace: namespace,
 	}
 
-	if err := kubeClient.Get(ctx, secretRef, secret); err != nil {
-		logger.Error(err, "unable to fetch resource", "resourceKind", stateStore.GetObjectKind(), "secretRef", secretRef)
+	if err := o.client.Get(o.ctx, secretRef, secret); err != nil {
+		o.logger.Error(err, "unable to fetch resource", "resourceKind", stateStore.GetObjectKind(), "secretRef", secretRef)
 		return nil, err
 	}
 
 	return secret, nil
 }
 
-func newWriter(ctx context.Context, kubeClient client.Client, destination platformv1alpha1.Destination, logger logr.Logger) (writers.StateStoreWriter, error) {
+func newWriter(o opts, destination platformv1alpha1.Destination) (writers.StateStoreWriter, error) {
 	stateStoreRef := client.ObjectKey{
-		Name: destination.Spec.StateStoreRef.Name,
+		Name:      destination.Spec.StateStoreRef.Name,
+		Namespace: destination.Namespace,
 	}
 
 	var writer writers.StateStoreWriter
@@ -129,30 +197,76 @@ func newWriter(ctx context.Context, kubeClient client.Client, destination platfo
 	switch destination.Spec.StateStoreRef.Kind {
 	case "BucketStateStore":
 		stateStore := &platformv1alpha1.BucketStateStore{}
-		secret, fetchErr := fetchObjectAndSecret(ctx, kubeClient, stateStoreRef, stateStore, logger)
+		secret, fetchErr := fetchObjectAndSecret(o, stateStoreRef, stateStore)
 		if fetchErr != nil {
 			return nil, fetchErr
 		}
 
-		writer, err = writers.NewS3Writer(logger.WithName("writers").WithName("BucketStateStoreWriter"), stateStore.Spec, destination, secret.Data)
+		writer, err = writers.NewS3Writer(o.logger.WithName("writers").WithName("BucketStateStoreWriter"), stateStore.Spec, destination, secret.Data)
 	case "GitStateStore":
 		stateStore := &platformv1alpha1.GitStateStore{}
-		secret, fetchErr := fetchObjectAndSecret(ctx, kubeClient, stateStoreRef, stateStore, logger)
+		secret, fetchErr := fetchObjectAndSecret(o, stateStoreRef, stateStore)
 		if fetchErr != nil {
 			return nil, fetchErr
 		}
 
-		writer, err = writers.NewGitWriter(logger.WithName("writers").WithName("GitStateStoreWriter"), stateStore.Spec, destination, secret.Data)
+		writer, err = writers.NewGitWriter(o.logger.WithName("writers").WithName("GitStateStoreWriter"), stateStore.Spec, destination, secret.Data)
 	default:
 		return nil, fmt.Errorf("unsupported kind %s", destination.Spec.StateStoreRef.Kind)
 	}
 
 	if err != nil {
 		//TODO: should this be a retryable error?
-		logger.Error(err, "unable to create StateStoreWriter")
+		o.logger.Error(err, "unable to create StateStoreWriter")
 		return nil, err
 	}
 	return writer, nil
+}
+
+func getJobsWithLabels(o opts, jobLabels map[string]string, namespace string) ([]batchv1.Job, error) {
+	selectorLabels := labels.FormatLabels(jobLabels)
+	selector, err := labels.Parse(selectorLabels)
+
+	if err != nil {
+		return nil, fmt.Errorf("error parsing labels %v: %w", jobLabels, err)
+	}
+
+	listOps := &client.ListOptions{
+		LabelSelector: selector,
+		Namespace:     namespace,
+	}
+
+	jobs := &batchv1.JobList{}
+	err = o.client.List(o.ctx, jobs, listOps)
+	if err != nil {
+		o.logger.Error(err, "error listing jobs", "selectors", selector.String())
+		return nil, err
+	}
+	return jobs.Items, nil
+}
+
+func applyResources(o opts, resources ...client.Object) {
+	o.logger.Info("Reconciling pipeline resources")
+
+	for _, resource := range resources {
+		logger := o.logger.WithValues("kind", resource.GetObjectKind().GroupVersionKind().Kind, "name", resource.GetName(), "namespace", resource.GetNamespace(), "labels", resource.GetLabels())
+
+		logger.Info("Reconciling")
+		if err := o.client.Create(o.ctx, resource); err != nil {
+			if errors.IsAlreadyExists(err) {
+				logger.Info("Resource already exists, will update")
+				if err = o.client.Update(o.ctx, resource); err == nil {
+					continue
+				}
+			}
+
+			logger.Error(err, "Error reconciling on resource")
+			y, _ := yaml.Marshal(&resource)
+			logger.Error(err, string(y))
+		} else {
+			logger.Info("Resource created")
+		}
+	}
 }
 
 func or(a, b string) string {

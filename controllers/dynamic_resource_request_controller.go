@@ -20,7 +20,6 @@ import (
 	"context"
 
 	apiextensionsv1 "k8s.io/apiextensions-apiserver/pkg/apis/apiextensions/v1"
-	"k8s.io/apimachinery/pkg/labels"
 	"k8s.io/apimachinery/pkg/types"
 	"sigs.k8s.io/controller-runtime/pkg/controller/controllerutil"
 
@@ -66,7 +65,7 @@ type dynamicResourceRequestController struct {
 	promiseDestinationSelectors []v1alpha1.Selector
 }
 
-//+kubebuilder:rbac:groups="batch",resources=jobs,verbs=create;list;watch;delete
+//+kubebuilder:rbac:groups="batch",resources=jobs,verbs=get;list;watch;create;update;patch;delete
 //+kubebuilder:rbac:groups="",resources=serviceaccounts,verbs=create
 
 func (r *dynamicResourceRequestController) Reconcile(ctx context.Context, req ctrl.Request) (ctrl.Result, error) {
@@ -96,147 +95,117 @@ func (r *dynamicResourceRequestController) Reconcile(ctx context.Context, req ct
 		return defaultRequeue, nil
 	}
 
+	opts := opts{
+		client: r.Client,
+		ctx:    ctx,
+		logger: logger,
+	}
+
 	if !rr.GetDeletionTimestamp().IsZero() {
-		return r.deleteResources(ctx, rr, resourceRequestIdentifier, logger)
+		return r.deleteResources(opts, rr, resourceRequestIdentifier)
 	}
 
 	// Reconcile necessary finalizers
-	if finalizersAreMissing(rr, []string{workFinalizer, workflowsFinalizer, deleteWorkflowsFinalizer}) {
-		return addFinalizers(ctx, r.Client, rr, []string{workFinalizer, workflowsFinalizer, deleteWorkflowsFinalizer}, logger)
+	if resourceutil.FinalizersAreMissing(rr, []string{workFinalizer, workflowsFinalizer, deleteWorkflowsFinalizer}) {
+		return addFinalizers(opts, rr, []string{workFinalizer, workflowsFinalizer, deleteWorkflowsFinalizer})
 	}
 
-	pipelineJobs, err := r.getPipelineJobs(resourceRequestIdentifier, rr.GetNamespace(), logger)
-	if err != nil {
-		logger.Info("Failed getting pipeline jobs", "error", err)
-		return slowRequeue, nil
-	}
-
-	// No jobs indicates this is the first reconciliation loop of this resource request
-	if len(pipelineJobs) == 0 {
-		return r.createConfigurePipeline(ctx, rr, resourceRequestIdentifier, logger)
-	}
-
-	if resourceutil.IsThereAPipelineRunning(logger, pipelineJobs) {
-		return slowRequeue, nil
-	}
-
-	pipelineAlreadyExists, err := resourceutil.PipelineForRequestExists(logger, rr, pipelineJobs)
-	if err != nil {
-		return slowRequeue, nil
-	}
-
-	if isManualReconciliation(rr) || !pipelineAlreadyExists {
-		return r.createConfigurePipeline(ctx, rr, resourceRequestIdentifier, logger)
-	}
-
-	return ctrl.Result{}, nil
-}
-
-func isManualReconciliation(rr *unstructured.Unstructured) bool {
-	labels := rr.GetLabels()
-	if labels == nil {
-		return false
-	}
-	return labels[resourceutil.ManualReconciliationLabel] == "true"
-}
-
-func (r *dynamicResourceRequestController) createConfigurePipeline(ctx context.Context, rr *unstructured.Unstructured, rrID string, logger logr.Logger) (ctrl.Result, error) {
-	switch resourceutil.GetPipelineCompletedConditionStatus(rr) {
-	case corev1.ConditionTrue:
-		fallthrough
-	case corev1.ConditionUnknown:
-		r.setStatus(rr, logger, "message", "Pending")
-		resourceutil.MarkPipelineAsRunning(logger, rr)
-		return ctrl.Result{}, r.Client.Status().Update(ctx, rr)
-	}
-
-	logger.Info("Triggering pipeline")
-
-	resources, err := pipeline.NewConfigurePipeline(
+	pipelineResources, err := pipeline.NewConfigureResource(
 		rr,
-		r.crd.Spec.Names,
+		r.crd.Spec.Names.Plural,
 		r.configurePipelines,
-		rrID,
+		resourceRequestIdentifier,
 		r.promiseIdentifier,
 		r.promiseDestinationSelectors,
+		opts.logger,
 	)
+
 	if err != nil {
 		return ctrl.Result{}, err
 	}
 
-	logger.Info("Reconciling pipeline resources")
-
-	for _, resource := range resources {
-		logger.Info("Reconciling", resource.GetObjectKind().GroupVersionKind().Kind, resource.GetName())
-
-		if err = r.Client.Create(ctx, resource); err != nil {
-			if errors.IsAlreadyExists(err) {
-				logger.Info("Resource already exists, will update", resource.GetObjectKind().GroupVersionKind().Kind, resource.GetName())
-				if err = r.Client.Update(ctx, resource); err == nil {
-					continue
-				}
-			}
-
-			logger.Error(err, "Error reconciling on resource", resource.GetObjectKind().GroupVersionKind().Kind, resource.GetName())
-			y, _ := yaml.Marshal(&resource)
-			logger.Error(err, string(y))
-		} else {
-			logger.Info("Resource created", resource.GetObjectKind().GroupVersionKind().Kind, resource.GetName())
-		}
+	jobOpts := jobOpts{
+		opts:              opts,
+		obj:               rr,
+		pipelineLabels:    pipeline.LabelsForConfigureResource(resourceRequestIdentifier, r.promiseIdentifier),
+		pipelineResources: pipelineResources,
+	}
+	requeue, err := ensurePipelineIsReconciled(jobOpts)
+	if err != nil {
+		return ctrl.Result{}, err
 	}
 
-	if isManualReconciliation(rr) {
-		newLabels := rr.GetLabels()
-		delete(newLabels, resourceutil.ManualReconciliationLabel)
-		rr.SetLabels(newLabels)
-		if err := r.Client.Update(ctx, rr); err != nil {
-			return ctrl.Result{}, err
-		}
+	if requeue != nil {
+		return *requeue, nil
 	}
 
 	return ctrl.Result{}, nil
 }
 
-func (r *dynamicResourceRequestController) deleteResources(ctx context.Context, resourceRequest *unstructured.Unstructured, resourceRequestIdentifier string, logger logr.Logger) (ctrl.Result, error) {
-	if finalizersAreDeleted(resourceRequest, rrFinalizers) {
+func isManualReconciliation(labels map[string]string) bool {
+	if labels == nil {
+		return false
+	}
+	val, exists := labels[resourceutil.ManualReconciliationLabel]
+	return exists && val == "true"
+}
+
+func setPipelineCompletedConditionStatus(o opts, obj *unstructured.Unstructured) (bool, error) {
+	switch resourceutil.GetPipelineCompletedConditionStatus(obj) {
+	case corev1.ConditionTrue:
+		fallthrough
+	case corev1.ConditionUnknown:
+		resourceutil.SetStatus(obj, o.logger, "message", "Pending")
+		resourceutil.MarkPipelineAsRunning(o.logger, obj)
+		err := o.client.Status().Update(o.ctx, obj)
+		if err != nil {
+			return false, err
+		}
+		return true, nil
+	}
+	return false, nil
+}
+
+func (r *dynamicResourceRequestController) deleteResources(o opts, resourceRequest *unstructured.Unstructured, resourceRequestIdentifier string) (ctrl.Result, error) {
+	if resourceutil.FinalizersAreDeleted(resourceRequest, rrFinalizers) {
 		return ctrl.Result{}, nil
 	}
 
 	if controllerutil.ContainsFinalizer(resourceRequest, deleteWorkflowsFinalizer) {
-		existingDeletePipeline, err := r.getDeletePipeline(ctx, resourceRequestIdentifier, resourceRequest.GetNamespace(), logger)
+		existingDeletePipeline, err := r.getDeletePipeline(o, resourceRequestIdentifier, resourceRequest.GetNamespace())
 		if err != nil {
 			return defaultRequeue, err
 		}
 
 		if existingDeletePipeline == nil {
 			deletePipeline := pipeline.NewDeletePipeline(resourceRequest, r.deletePipelines, resourceRequestIdentifier, r.promiseIdentifier)
-			logger.Info("Creating Delete Pipeline. The pipeline will now execute...")
-			err = r.Client.Create(ctx, &deletePipeline)
+			o.logger.Info("Creating Delete Pipeline. The pipeline will now execute...")
+			err = r.Client.Create(o.ctx, &deletePipeline)
 			if err != nil {
-				logger.Error(err, "Error creating delete pipeline")
+				o.logger.Error(err, "Error creating delete pipeline")
 				y, _ := yaml.Marshal(&deletePipeline)
-				logger.Error(err, string(y))
+				o.logger.Error(err, string(y))
 				return ctrl.Result{}, err
 			}
 			return defaultRequeue, nil
 		}
 
-		logger.Info("Checking status of Delete Pipeline")
+		o.logger.Info("Checking status of Delete Pipeline")
 		if existingDeletePipeline.Status.Succeeded > 0 {
-			logger.Info("Delete Pipeline Completed")
+			o.logger.Info("Delete Pipeline Completed")
 			controllerutil.RemoveFinalizer(resourceRequest, deleteWorkflowsFinalizer)
-			if err := r.Client.Update(ctx, resourceRequest); err != nil {
+			if err := r.Client.Update(o.ctx, resourceRequest); err != nil {
 				return ctrl.Result{}, err
 			}
 		}
 
-		logger.Info("Delete Pipeline not finished", "status", existingDeletePipeline.Status)
+		o.logger.Info("Delete Pipeline not finished", "status", existingDeletePipeline.Status)
 
 		return fastRequeue, nil
 	}
 
 	if controllerutil.ContainsFinalizer(resourceRequest, workFinalizer) {
-		err := r.deleteWork(ctx, resourceRequest, resourceRequestIdentifier, workFinalizer, logger)
+		err := r.deleteWork(o, resourceRequest, resourceRequestIdentifier, workFinalizer)
 		if err != nil {
 			return defaultRequeue, err
 		}
@@ -244,7 +213,7 @@ func (r *dynamicResourceRequestController) deleteResources(ctx context.Context, 
 	}
 
 	if controllerutil.ContainsFinalizer(resourceRequest, workflowsFinalizer) {
-		err := r.deleteWorkflows(ctx, resourceRequest, resourceRequestIdentifier, workflowsFinalizer, logger)
+		err := r.deleteWorkflows(o, resourceRequest, resourceRequestIdentifier, workflowsFinalizer)
 		if err != nil {
 			return defaultRequeue, err
 		}
@@ -254,55 +223,17 @@ func (r *dynamicResourceRequestController) deleteResources(ctx context.Context, 
 	return fastRequeue, nil
 }
 
-func (r *dynamicResourceRequestController) getDeletePipeline(ctx context.Context, resourceRequestIdentifier, namespace string, logger logr.Logger) (*batchv1.Job, error) {
-	jobs, err := r.getJobsWithLabels(
-		pipeline.DeletePipelineLabels(resourceRequestIdentifier, r.promiseIdentifier),
-		namespace,
-		logger,
-	)
+func (r *dynamicResourceRequestController) getDeletePipeline(o opts, resourceRequestIdentifier, namespace string) (*batchv1.Job, error) {
+	jobs, err := getJobsWithLabels(o, pipeline.LabelsForDeleteResource(resourceRequestIdentifier, r.promiseIdentifier), namespace)
 	if err != nil || len(jobs) == 0 {
 		return nil, err
 	}
 	return &jobs[0], nil
 }
 
-func (r *dynamicResourceRequestController) getPipelineJobs(rrID, namespace string, logger logr.Logger) ([]batchv1.Job, error) {
-	jobs, err := r.getJobsWithLabels(
-		pipeline.ConfigurePipelineLabels(rrID, r.promiseIdentifier),
-		namespace,
-		logger,
-	)
-	if err != nil {
-		return nil, err
-	}
-	return jobs, nil
-}
-
-func (r *dynamicResourceRequestController) getJobsWithLabels(jobLabels map[string]string, namespace string, logger logr.Logger) ([]batchv1.Job, error) {
-	selectorLabels := labels.FormatLabels(jobLabels)
-	selector, err := labels.Parse(selectorLabels)
-
-	if err != nil {
-		return nil, fmt.Errorf("error parsing labels %v: %w", jobLabels, err)
-	}
-
-	listOps := &client.ListOptions{
-		LabelSelector: selector,
-		Namespace:     namespace,
-	}
-
-	jobs := &batchv1.JobList{}
-	err = r.Client.List(context.Background(), jobs, listOps)
-	if err != nil {
-		logger.Error(err, "error listing jobs", "selectors", selector.String())
-		return nil, err
-	}
-	return jobs.Items, nil
-}
-
-func (r *dynamicResourceRequestController) deleteWork(ctx context.Context, resourceRequest *unstructured.Unstructured, workName string, finalizer string, logger logr.Logger) error {
+func (r *dynamicResourceRequestController) deleteWork(o opts, resourceRequest *unstructured.Unstructured, workName string, finalizer string) error {
 	work := &v1alpha1.Work{}
-	err := r.Client.Get(ctx, types.NamespacedName{
+	err := r.Client.Get(o.ctx, types.NamespacedName{
 		Namespace: resourceRequest.GetNamespace(),
 		Name:      workName,
 	}, work)
@@ -311,78 +242,54 @@ func (r *dynamicResourceRequestController) deleteWork(ctx context.Context, resou
 		if errors.IsNotFound(err) {
 			// only remove finalizer at this point because deletion success is guaranteed
 			controllerutil.RemoveFinalizer(resourceRequest, finalizer)
-			if err := r.Client.Update(ctx, resourceRequest); err != nil {
+			if err := r.Client.Update(o.ctx, resourceRequest); err != nil {
 				return err
 			}
 			return nil
 		}
 
-		logger.Error(err, "Error locating Work, will try again in 5 seconds", "workName", workName)
+		o.logger.Error(err, "Error locating Work, will try again in 5 seconds", "workName", workName)
 		return err
 	}
 
-	err = r.Client.Delete(ctx, work)
+	err = r.Client.Delete(o.ctx, work)
 	if err != nil {
 		if errors.IsNotFound(err) {
 			// only remove finalizer at this point because deletion success is guaranteed
 			controllerutil.RemoveFinalizer(resourceRequest, finalizer)
-			if err := r.Client.Update(ctx, resourceRequest); err != nil {
+			if err := r.Client.Update(o.ctx, resourceRequest); err != nil {
 				return err
 			}
 			return nil
 		}
 
-		logger.Error(err, "Error deleting Work %s, will try again in 5 seconds", "workName", workName)
+		o.logger.Error(err, "Error deleting Work %s, will try again in 5 seconds", "workName", workName)
 		return err
 	}
 
 	return nil
 }
 
-func (r *dynamicResourceRequestController) deleteWorkflows(ctx context.Context, resourceRequest *unstructured.Unstructured, resourceRequestIdentifier, finalizer string, logger logr.Logger) error {
+func (r *dynamicResourceRequestController) deleteWorkflows(o opts, resourceRequest *unstructured.Unstructured, resourceRequestIdentifier, finalizer string) error {
 	jobGVK := schema.GroupVersionKind{
 		Group:   batchv1.SchemeGroupVersion.Group,
 		Version: batchv1.SchemeGroupVersion.Version,
 		Kind:    "Job",
 	}
 
-	jobLabels := pipeline.Labels(resourceRequestIdentifier, r.promiseIdentifier)
+	jobLabels := pipeline.LabelsForAllResourceWorkflows(resourceRequestIdentifier, r.promiseIdentifier)
 
-	resourcesRemaining, err := deleteAllResourcesWithKindMatchingLabel(ctx, r.Client, jobGVK, jobLabels, logger)
+	resourcesRemaining, err := deleteAllResourcesWithKindMatchingLabel(o, jobGVK, jobLabels)
 	if err != nil {
 		return err
 	}
 
 	if !resourcesRemaining {
 		controllerutil.RemoveFinalizer(resourceRequest, finalizer)
-		if err := r.Client.Update(ctx, resourceRequest); err != nil {
+		if err := r.Client.Update(o.ctx, resourceRequest); err != nil {
 			return err
 		}
 	}
 
 	return nil
-}
-
-func (r *dynamicResourceRequestController) setStatus(rr *unstructured.Unstructured, logger logr.Logger, statuses ...string) {
-	if len(statuses) == 0 {
-		return
-	}
-
-	if len(statuses)%2 != 0 {
-		logger.Info("invalid status; expecting key:value pair", "status", statuses)
-		return
-	}
-
-	nestedMap := map[string]interface{}{}
-	for i := 0; i < len(statuses); i += 2 {
-		key := statuses[i]
-		value := statuses[i+1]
-		nestedMap[key] = value
-	}
-
-	err := unstructured.SetNestedMap(rr.Object, nestedMap, "status")
-
-	if err != nil {
-		logger.Info("failed to set status; ignoring", "map", nestedMap)
-	}
 }

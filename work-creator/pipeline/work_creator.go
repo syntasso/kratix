@@ -11,6 +11,7 @@ import (
 
 	ctrl "sigs.k8s.io/controller-runtime"
 
+	"github.com/syntasso/kratix/api/v1alpha1"
 	platformv1alpha1 "github.com/syntasso/kratix/api/v1alpha1"
 	"k8s.io/apimachinery/pkg/api/errors"
 	"k8s.io/apimachinery/pkg/util/yaml"
@@ -21,8 +22,12 @@ type WorkCreator struct {
 	K8sClient client.Client
 }
 
-func (w *WorkCreator) Execute(rootDirectory, promiseName, namespace, resourceName string) error {
+func (w *WorkCreator) Execute(rootDirectory, promiseName, namespace, resourceName string, addPromiseDependencies bool) error {
 	identifier := fmt.Sprintf("%s-%s", promiseName, resourceName)
+
+	if namespace == "" {
+		namespace = "kratix-platform-system"
+	}
 
 	var logger = ctrl.Log.WithName("work-creator").
 		WithValues("identifier", identifier).
@@ -37,32 +42,50 @@ func (w *WorkCreator) Execute(rootDirectory, promiseName, namespace, resourceNam
 		return err
 	}
 
-	work := platformv1alpha1.Work{}
-	work.Name = identifier
-	work.Namespace = namespace
-	work.Spec.Replicas = platformv1alpha1.ResourceRequestReplicas
-	work.Spec.Workloads = workloads
-	work.Spec.PromiseName = promiseName
-	work.Spec.ResourceName = resourceName
+	work := &platformv1alpha1.Work{}
+	if addPromiseDependencies {
+		promiseBytes, err := os.ReadFile(filepath.Join(rootDirectory, "promise", "object.yaml"))
+		if err != nil {
+			return err
+		}
+		promise := v1alpha1.Promise{}
+		err = yaml.Unmarshal(promiseBytes, &promise)
+		if err != nil {
+			return err
+		}
 
-	pipelineScheduling, err := w.getPipelineScheduling(rootDirectory)
-	if err != nil {
-		return err
+		work, err = v1alpha1.NewPromiseDependenciesWork(&promise)
+		if err != nil {
+			return err
+		}
+		work.Spec.Workloads = append(work.Spec.Workloads, workloads...)
+	} else {
+		work.Name = identifier
+		work.Namespace = namespace
+		work.Spec.Replicas = platformv1alpha1.ResourceRequestReplicas
+		work.Spec.Workloads = workloads
+		work.Spec.PromiseName = promiseName
+		work.Spec.ResourceName = resourceName
+
+		pipelineScheduling, err := w.getPipelineScheduling(rootDirectory)
+		if err != nil {
+			return err
+		}
+		work.Spec.DestinationSelectors.Resource = pipelineScheduling
+
+		promiseScheduling, err := w.getPromiseScheduling(rootDirectory)
+		if err != nil {
+			return err
+		}
+		work.Spec.DestinationSelectors.Promise = promiseScheduling
 	}
-	work.Spec.DestinationSelectors.Resource = pipelineScheduling
 
-	promiseScheduling, err := w.getPromiseScheduling(rootDirectory)
-	if err != nil {
-		return err
-	}
-	work.Spec.DestinationSelectors.Promise = promiseScheduling
-
-	err = w.K8sClient.Create(context.Background(), &work)
+	err = w.K8sClient.Create(context.Background(), work)
 
 	if errors.IsAlreadyExists(err) {
 		logger.Info("Work already exists, will update")
 		currentWork := platformv1alpha1.Work{}
-		key := client.ObjectKeyFromObject(&work)
+		key := client.ObjectKeyFromObject(work)
 
 		err := w.K8sClient.Get(context.Background(), key, &currentWork)
 		if err != nil {

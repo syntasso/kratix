@@ -26,7 +26,9 @@ import (
 
 	"github.com/go-logr/logr"
 	"github.com/syntasso/kratix/api/v1alpha1"
+	"github.com/syntasso/kratix/lib/pipeline"
 	"github.com/syntasso/kratix/lib/resourceutil"
+	batchv1 "k8s.io/api/batch/v1"
 	v1 "k8s.io/api/core/v1"
 	rbacv1 "k8s.io/api/rbac/v1"
 	apiextensionsv1 "k8s.io/apiextensions-apiserver/pkg/apis/apiextensions/v1"
@@ -35,6 +37,7 @@ import (
 	metav1 "k8s.io/apimachinery/pkg/apis/meta/v1"
 	"k8s.io/apimachinery/pkg/apis/meta/v1/unstructured"
 	"k8s.io/apimachinery/pkg/labels"
+	"k8s.io/apimachinery/pkg/runtime"
 	"k8s.io/apimachinery/pkg/runtime/schema"
 	ctrl "sigs.k8s.io/controller-runtime"
 	"sigs.k8s.io/controller-runtime/pkg/client"
@@ -103,8 +106,14 @@ func (r *PromiseReconciler) Reconcile(ctx context.Context, req ctrl.Request) (ct
 
 	logger := r.Log.WithValues("identifier", promise.GetName())
 
+	opts := opts{
+		client: r.Client,
+		ctx:    ctx,
+		logger: logger,
+	}
+
 	if !promise.DeletionTimestamp.IsZero() {
-		return r.deletePromise(ctx, promise, logger)
+		return r.deletePromise(opts, promise)
 	}
 
 	var rrCRD *apiextensionsv1.CustomResourceDefinition
@@ -121,8 +130,8 @@ func (r *PromiseReconciler) Reconcile(ctx context.Context, req ctrl.Request) (ct
 			return ctrl.Result{}, err
 		}
 
-		if doesNotContainFinalizer(promise, crdCleanupFinalizer) {
-			return addFinalizers(ctx, r.Client, promise, []string{crdCleanupFinalizer}, logger)
+		if resourceutil.DoesNotContainFinalizer(promise, crdCleanupFinalizer) {
+			return addFinalizers(opts, promise, []string{crdCleanupFinalizer})
 		}
 
 		if err := r.createResourcesForDynamicControllerIfTheyDontExist(ctx, promise, rrCRD, rrGVK, logger); err != nil {
@@ -130,18 +139,27 @@ func (r *PromiseReconciler) Reconcile(ctx context.Context, req ctrl.Request) (ct
 			return ctrl.Result{}, err
 		}
 
-		if doesNotContainFinalizer(promise, dynamicControllerDependantResourcesCleaupFinalizer) {
-			return addFinalizers(ctx, r.Client, promise, []string{dynamicControllerDependantResourcesCleaupFinalizer}, logger)
+		if resourceutil.DoesNotContainFinalizer(promise, dynamicControllerDependantResourcesCleaupFinalizer) {
+			return addFinalizers(opts, promise, []string{dynamicControllerDependantResourcesCleaupFinalizer})
 		}
 	}
 
-	if err := r.applyWorkResourceForDependencies(ctx, promise, logger); err != nil {
-		logger.Error(err, "Error creating Works")
+	pipelines, err := r.generatePipelines(promise, logger)
+	if err != nil {
 		return ctrl.Result{}, err
 	}
 
-	if doesNotContainFinalizer(promise, dependenciesCleanupFinalizer) {
-		return addFinalizers(ctx, r.Client, promise, []string{dependenciesCleanupFinalizer}, logger)
+	if resourceutil.DoesNotContainFinalizer(promise, dependenciesCleanupFinalizer) {
+		return addFinalizers(opts, promise, []string{dependenciesCleanupFinalizer})
+	}
+
+	requeue, err := r.reconcileDependencies(opts, promise, pipelines.ConfigurePromise)
+	if err != nil {
+		return ctrl.Result{}, nil
+	}
+
+	if requeue != nil {
+		return *requeue, nil
 	}
 
 	if promise.DoesNotContainAPI() {
@@ -149,18 +167,13 @@ func (r *PromiseReconciler) Reconcile(ctx context.Context, req ctrl.Request) (ct
 		return ctrl.Result{}, nil
 	}
 
-	configurePipelines, deletePipelines, err := r.generatePipelines(promise, logger)
+	err = r.ensureDynamicControllerIsStarted(promise, rrCRD, rrGVK, pipelines.ConfigureResource, pipelines.DeleteResource, logger)
 	if err != nil {
 		return ctrl.Result{}, err
 	}
 
-	err = r.ensureDynamicControllerIsStarted(promise, rrCRD, rrGVK, configurePipelines, deletePipelines, logger)
-	if err != nil {
-		return ctrl.Result{}, err
-	}
-
-	if doesNotContainFinalizer(promise, resourceRequestCleanupFinalizer) {
-		return addFinalizers(ctx, r.Client, promise, []string{resourceRequestCleanupFinalizer}, logger)
+	if resourceutil.DoesNotContainFinalizer(promise, resourceRequestCleanupFinalizer) {
+		return addFinalizers(opts, promise, []string{resourceRequestCleanupFinalizer})
 	}
 
 	if promise.GetGeneration() != promise.Status.ObservedGeneration {
@@ -172,6 +185,48 @@ func (r *PromiseReconciler) Reconcile(ctx context.Context, req ctrl.Request) (ct
 	}
 
 	return ctrl.Result{}, nil
+}
+
+func (r *PromiseReconciler) reconcileDependencies(o opts, promise *v1alpha1.Promise, configurePipeline []v1alpha1.Pipeline) (*ctrl.Result, error) {
+	if len(promise.Spec.Workflows.Promise.Configure) == 0 {
+		o.logger.Info("Promise does not contain workflows.promise.configure, applying dependencies directly")
+		if err := r.applyWorkResourceForDependencies(o, promise); err != nil {
+			o.logger.Error(err, "Error creating Works")
+			return nil, err
+		}
+		return nil, nil
+	}
+
+	if resourceutil.DoesNotContainFinalizer(promise, workflowsFinalizer) {
+		result, err := addFinalizers(o, promise, []string{workflowsFinalizer})
+		return &result, err
+	}
+
+	o.logger.Info("Promise contains workflows.promise.configure, reconciling workflows")
+	objMap, err := runtime.DefaultUnstructuredConverter.ToUnstructured(&promise)
+	if err != nil {
+		return nil, err
+	}
+	unstructuredPromise := &unstructured.Unstructured{Object: objMap}
+	pipelineResources, err := pipeline.NewConfigurePromise(
+		unstructuredPromise,
+		configurePipeline,
+		promise.GetName(),
+		promise.Spec.DestinationSelectors,
+		o.logger,
+	)
+	if err != nil {
+		return nil, err
+	}
+
+	jobOpts := jobOpts{
+		opts:              o,
+		obj:               unstructuredPromise,
+		pipelineLabels:    pipeline.LabelsForConfigurePromise(promise.GetName()),
+		pipelineResources: pipelineResources,
+	}
+
+	return ensurePipelineIsReconciled(jobOpts)
 }
 
 func (r *PromiseReconciler) reconcileAllRRs(rrGVK schema.GroupVersionKind) error {
@@ -236,6 +291,7 @@ func (r *PromiseReconciler) ensureDynamicControllerIsStarted(promise *v1alpha1.P
 
 	return ctrl.NewControllerManagedBy(r.Manager).
 		For(unstructuredCRD).
+		Owns(&batchv1.Job{}).
 		Complete(dynamicResourceRequestController)
 }
 
@@ -347,14 +403,22 @@ func (r *PromiseReconciler) ensureCRDExists(ctx context.Context, rrCRD *apiexten
 	return err
 }
 
-func (r *PromiseReconciler) deletePromise(ctx context.Context, promise *v1alpha1.Promise, logger logr.Logger) (ctrl.Result, error) {
-	if finalizersAreDeleted(promise, promiseFinalizers) {
+func (r *PromiseReconciler) deletePromise(o opts, promise *v1alpha1.Promise) (ctrl.Result, error) {
+	if resourceutil.FinalizersAreDeleted(promise, promiseFinalizers) {
 		return ctrl.Result{}, nil
 	}
 
+	if controllerutil.ContainsFinalizer(promise, workflowsFinalizer) {
+		err := r.deleteWorkflows(o, promise, workflowsFinalizer)
+		if err != nil {
+			return defaultRequeue, err
+		}
+		return fastRequeue, nil
+	}
+
 	if controllerutil.ContainsFinalizer(promise, resourceRequestCleanupFinalizer) {
-		logger.Info("deleting resources associated with finalizer", "finalizer", resourceRequestCleanupFinalizer)
-		err := r.deleteResourceRequests(ctx, promise, logger)
+		o.logger.Info("deleting resources associated with finalizer", "finalizer", resourceRequestCleanupFinalizer)
+		err := r.deleteResourceRequests(o, promise)
 		if err != nil {
 			return defaultRequeue, err
 		}
@@ -370,8 +434,8 @@ func (r *PromiseReconciler) deletePromise(ctx context.Context, promise *v1alpha1
 	}
 
 	if controllerutil.ContainsFinalizer(promise, dynamicControllerDependantResourcesCleaupFinalizer) {
-		logger.Info("deleting resources associated with finalizer", "finalizer", dynamicControllerDependantResourcesCleaupFinalizer)
-		err := r.deleteDynamicControllerResources(ctx, promise, logger)
+		o.logger.Info("deleting resources associated with finalizer", "finalizer", dynamicControllerDependantResourcesCleaupFinalizer)
+		err := r.deleteDynamicControllerResources(o, promise)
 		if err != nil {
 			return defaultRequeue, err
 		}
@@ -379,8 +443,8 @@ func (r *PromiseReconciler) deletePromise(ctx context.Context, promise *v1alpha1
 	}
 
 	if controllerutil.ContainsFinalizer(promise, dependenciesCleanupFinalizer) {
-		logger.Info("deleting Work associated with finalizer", "finalizer", dependenciesCleanupFinalizer)
-		err := r.deleteWork(ctx, promise, logger)
+		o.logger.Info("deleting Work associated with finalizer", "finalizer", dependenciesCleanupFinalizer)
+		err := r.deleteWork(o, promise)
 		if err != nil {
 			return defaultRequeue, err
 		}
@@ -388,8 +452,8 @@ func (r *PromiseReconciler) deletePromise(ctx context.Context, promise *v1alpha1
 	}
 
 	if controllerutil.ContainsFinalizer(promise, crdCleanupFinalizer) {
-		logger.Info("deleting CRDs associated with finalizer", "finalizer", crdCleanupFinalizer)
-		err := r.deleteCRDs(ctx, promise, logger)
+		o.logger.Info("deleting CRDs associated with finalizer", "finalizer", crdCleanupFinalizer)
+		err := r.deleteCRDs(o, promise)
 		if err != nil {
 			return defaultRequeue, err
 		}
@@ -399,7 +463,31 @@ func (r *PromiseReconciler) deletePromise(ctx context.Context, promise *v1alpha1
 	return fastRequeue, nil
 }
 
-func (r *PromiseReconciler) deleteDynamicControllerResources(ctx context.Context, promise *v1alpha1.Promise, logger logr.Logger) error {
+func (r *PromiseReconciler) deleteWorkflows(o opts, promise *v1alpha1.Promise, finalizer string) error {
+	jobGVK := schema.GroupVersionKind{
+		Group:   batchv1.SchemeGroupVersion.Group,
+		Version: batchv1.SchemeGroupVersion.Version,
+		Kind:    "Job",
+	}
+
+	jobLabels := pipeline.LabelsForAllPromiseWorkflows(promise.GetName())
+
+	resourcesRemaining, err := deleteAllResourcesWithKindMatchingLabel(o, jobGVK, jobLabels)
+	if err != nil {
+		return err
+	}
+
+	if !resourcesRemaining {
+		controllerutil.RemoveFinalizer(promise, finalizer)
+		if err := r.Client.Update(o.ctx, promise); err != nil {
+			return err
+		}
+	}
+
+	return nil
+}
+
+func (r *PromiseReconciler) deleteDynamicControllerResources(o opts, promise *v1alpha1.Promise) error {
 	resourcesToDelete := map[schema.GroupVersion][]string{
 		rbacv1.SchemeGroupVersion: {"ClusterRoleBinding", "ClusterRole", "RoleBinding", "Role"},
 		v1.SchemeGroupVersion:     {"ServiceAccount", "ConfigMap"},
@@ -412,7 +500,7 @@ func (r *PromiseReconciler) deleteDynamicControllerResources(ctx context.Context
 				Version: gv.Version,
 				Kind:    resource,
 			}
-			resourcesRemaining, err := deleteAllResourcesWithKindMatchingLabel(ctx, r.Client, gvk, promise.GenerateSharedLabels(), logger)
+			resourcesRemaining, err := deleteAllResourcesWithKindMatchingLabel(o, gvk, promise.GenerateSharedLabels())
 			if err != nil {
 				return err
 			}
@@ -424,24 +512,24 @@ func (r *PromiseReconciler) deleteDynamicControllerResources(ctx context.Context
 	}
 
 	controllerutil.RemoveFinalizer(promise, dynamicControllerDependantResourcesCleaupFinalizer)
-	return r.Client.Update(ctx, promise)
+	return r.Client.Update(o.ctx, promise)
 }
 
-func (r *PromiseReconciler) deleteResourceRequests(ctx context.Context, promise *v1alpha1.Promise, logger logr.Logger) error {
-	_, rrGVK, err := generateCRDAndGVK(promise, logger)
+func (r *PromiseReconciler) deleteResourceRequests(o opts, promise *v1alpha1.Promise) error {
+	_, rrGVK, err := generateCRDAndGVK(promise, o.logger)
 	if err != nil {
 		return err
 	}
 
 	// No need to pass labels since all resource requests are of Kind
-	resourcesRemaining, err := deleteAllResourcesWithKindMatchingLabel(ctx, r.Client, rrGVK, nil, logger)
+	resourcesRemaining, err := deleteAllResourcesWithKindMatchingLabel(o, rrGVK, nil)
 	if err != nil {
 		return err
 	}
 
 	if !resourcesRemaining {
 		controllerutil.RemoveFinalizer(promise, resourceRequestCleanupFinalizer)
-		if err := r.Client.Update(ctx, promise); err != nil {
+		if err := r.Client.Update(o.ctx, promise); err != nil {
 			return err
 		}
 	}
@@ -449,21 +537,21 @@ func (r *PromiseReconciler) deleteResourceRequests(ctx context.Context, promise 
 	return nil
 }
 
-func (r *PromiseReconciler) deleteCRDs(ctx context.Context, promise *v1alpha1.Promise, logger logr.Logger) error {
+func (r *PromiseReconciler) deleteCRDs(o opts, promise *v1alpha1.Promise) error {
 	crdGVK := schema.GroupVersionKind{
 		Group:   apiextensionsv1.SchemeGroupVersion.Group,
 		Version: apiextensionsv1.SchemeGroupVersion.Version,
 		Kind:    "CustomResourceDefinition",
 	}
 
-	resourcesRemaining, err := deleteAllResourcesWithKindMatchingLabel(ctx, r.Client, crdGVK, promise.GenerateSharedLabels(), logger)
+	resourcesRemaining, err := deleteAllResourcesWithKindMatchingLabel(o, crdGVK, promise.GenerateSharedLabels())
 	if err != nil {
 		return err
 	}
 
 	if !resourcesRemaining {
 		controllerutil.RemoveFinalizer(promise, crdCleanupFinalizer)
-		if err := r.Client.Update(ctx, promise); err != nil {
+		if err := r.Client.Update(o.ctx, promise); err != nil {
 			return err
 		}
 	}
@@ -471,21 +559,21 @@ func (r *PromiseReconciler) deleteCRDs(ctx context.Context, promise *v1alpha1.Pr
 	return nil
 }
 
-func (r *PromiseReconciler) deleteWork(ctx context.Context, promise *v1alpha1.Promise, logger logr.Logger) error {
+func (r *PromiseReconciler) deleteWork(o opts, promise *v1alpha1.Promise) error {
 	workGVK := schema.GroupVersionKind{
 		Group:   v1alpha1.GroupVersion.Group,
 		Version: v1alpha1.GroupVersion.Version,
 		Kind:    "Work",
 	}
 
-	resourcesRemaining, err := deleteAllResourcesWithKindMatchingLabel(ctx, r.Client, workGVK, promise.GenerateSharedLabels(), logger)
+	resourcesRemaining, err := deleteAllResourcesWithKindMatchingLabel(o, workGVK, promise.GenerateSharedLabels())
 	if err != nil {
 		return err
 	}
 
 	if !resourcesRemaining {
 		controllerutil.RemoveFinalizer(promise, dependenciesCleanupFinalizer)
-		if err := r.Client.Update(ctx, promise); err != nil {
+		if err := r.Client.Update(o.ctx, promise); err != nil {
 			return err
 		}
 	}
@@ -497,6 +585,7 @@ func (r *PromiseReconciler) deleteWork(ctx context.Context, promise *v1alpha1.Pr
 func (r *PromiseReconciler) SetupWithManager(mgr ctrl.Manager) error {
 	return ctrl.NewControllerManagedBy(mgr).
 		For(&v1alpha1.Promise{}).
+		Owns(&batchv1.Job{}).
 		Complete(r)
 }
 
@@ -582,7 +671,7 @@ func setStatusFieldsOnCRD(rrCRD *apiextensionsv1.CustomResourceDefinition) {
 	}
 }
 
-func (r *PromiseReconciler) applyWorkResourceForDependencies(ctx context.Context, promise *v1alpha1.Promise, logger logr.Logger) error {
+func (r *PromiseReconciler) applyWorkResourceForDependencies(o opts, promise *v1alpha1.Promise) error {
 	work, err := v1alpha1.NewPromiseDependenciesWork(promise)
 	if err != nil {
 		return err
@@ -590,7 +679,7 @@ func (r *PromiseReconciler) applyWorkResourceForDependencies(ctx context.Context
 
 	workCopy := work.DeepCopy()
 
-	op, err := controllerutil.CreateOrUpdate(ctx, r.Client, work, func() error {
+	op, err := controllerutil.CreateOrUpdate(o.ctx, r.Client, work, func() error {
 		work.ObjectMeta.Labels = workCopy.ObjectMeta.Labels
 		work.Spec = workCopy.Spec
 		return nil
@@ -600,34 +689,41 @@ func (r *PromiseReconciler) applyWorkResourceForDependencies(ctx context.Context
 		return err
 	}
 
-	logger.Info("resource reconciled", "operation", op, "namespace", work.GetNamespace(), "name", work.GetName(), "gvk", work.GroupVersionKind())
+	o.logger.Info("resource reconciled", "operation", op, "namespace", work.GetNamespace(), "name", work.GetName(), "gvk", work.GroupVersionKind())
 	return nil
 }
 
-func (r *PromiseReconciler) generatePipelines(promise *v1alpha1.Promise, logger logr.Logger) ([]v1alpha1.Pipeline, []v1alpha1.Pipeline, error) {
-	var configurePipelines []v1alpha1.Pipeline
-
-	for _, pipeline := range promise.Spec.Workflows.Resource.Configure {
-		p, err := generatePipeline(pipeline, logger)
-		if err != nil {
-			return nil, nil, err
-		}
-		configurePipelines = append(configurePipelines, p)
+func (r *PromiseReconciler) generatePipelines(promise *v1alpha1.Promise, logger logr.Logger) (promisePipelines, error) {
+	pipelineWorkflows := [][]unstructured.Unstructured{
+		promise.Spec.Workflows.Resource.Configure,
+		promise.Spec.Workflows.Resource.Delete,
+		promise.Spec.Workflows.Promise.Configure,
 	}
 
-	var deletePipelines []v1alpha1.Pipeline
-	for _, pipeline := range promise.Spec.Workflows.Resource.Delete {
+	var pipelines [][]v1alpha1.Pipeline
+	for _, pipeline := range pipelineWorkflows {
 		p, err := generatePipeline(pipeline, logger)
 		if err != nil {
-			return nil, nil, err
+			return promisePipelines{}, err
 		}
-		deletePipelines = append(deletePipelines, p)
+		pipelines = append(pipelines, p)
 	}
 
-	return configurePipelines, deletePipelines, nil
+	return promisePipelines{
+		ConfigureResource: pipelines[0],
+		DeleteResource:    pipelines[1],
+		ConfigurePromise:  pipelines[2],
+	}, nil
 }
 
-func generatePipeline(pipeline unstructured.Unstructured, logger logr.Logger) (v1alpha1.Pipeline, error) {
+func generatePipeline(pipelines []unstructured.Unstructured, logger logr.Logger) ([]v1alpha1.Pipeline, error) {
+	if len(pipelines) == 0 {
+		return nil, nil
+	}
+
+	//We only support 1 pipeline for now
+	pipeline := pipelines[0]
+
 	pipelineLogger := logger.WithValues(
 		"pipelineKind", pipeline.GetKind(),
 		"pipelineVersion", pipeline.GetAPIVersion(),
@@ -638,7 +734,7 @@ func generatePipeline(pipeline unstructured.Unstructured, logger logr.Logger) (v
 		if err != nil {
 			// TODO test
 			pipelineLogger.Error(err, "Failed marshalling pipeline to json")
-			return v1alpha1.Pipeline{}, err
+			return nil, err
 		}
 
 		p := v1alpha1.Pipeline{}
@@ -646,12 +742,12 @@ func generatePipeline(pipeline unstructured.Unstructured, logger logr.Logger) (v
 		if err != nil {
 			// TODO test
 			pipelineLogger.Error(err, "Failed unmarshalling pipeline")
-			return v1alpha1.Pipeline{}, err
+			return nil, err
 		}
 
-		return p, nil
+		return []v1alpha1.Pipeline{p}, nil
 	}
 
-	return v1alpha1.Pipeline{}, fmt.Errorf("unsupported pipeline %q (%s.%s)",
+	return nil, fmt.Errorf("unsupported pipeline %q (%s.%s)",
 		pipeline.GetName(), pipeline.GetKind(), pipeline.GetAPIVersion())
 }
