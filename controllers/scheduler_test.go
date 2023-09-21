@@ -83,6 +83,9 @@ var _ = Describe("Controllers/Scheduler", func() {
 	Describe("#ReconcileWork", func() {
 		Describe("Scheduling Resources (replicas=1)", func() {
 			It("creates a WorkPlacement for a given Work", func() {
+				Expect(k8sClient.List(context.Background(), &workPlacements)).To(Succeed())
+				Expect(workPlacements.Items).To(HaveLen(0))
+
 				err := scheduler.ReconcileWork(&resourceWork)
 				Expect(err).ToNot(HaveOccurred())
 
@@ -173,7 +176,7 @@ var _ = Describe("Controllers/Scheduler", func() {
 				})
 
 				When("Work is updated to no longer match a previous destination", func() {
-					It("marks the old workplacement as orphaned", func() {
+					It("marks the old workplacement as orphaned but keeps it updated", func() {
 						err := scheduler.ReconcileWork(&dependencyWork)
 						Expect(err).ToNot(HaveOccurred())
 
@@ -193,6 +196,10 @@ var _ = Describe("Controllers/Scheduler", func() {
 							},
 						}
 
+						dependencyWork.Spec.Workloads = append(dependencyWork.Spec.Workloads, Workload{
+							Content: "fake: new-content",
+						})
+
 						err = scheduler.ReconcileWork(&dependencyWork)
 						Expect(err).ToNot(HaveOccurred())
 
@@ -203,6 +210,13 @@ var _ = Describe("Controllers/Scheduler", func() {
 						Expect(workPlacements.Items[1].GetLabels()).NotTo(HaveKey("kratix.io/orphaned"))
 						Expect(workPlacements.Items[2].GetLabels()).To(HaveKey("kratix.io/orphaned"))
 						Expect(workPlacements.Items[2].GetLabels()["kratix.io/orphaned"]).To(Equal("true"))
+
+						for _, workPlacement := range workPlacements.Items {
+							Expect(workPlacement.Spec.Workloads).To(ConsistOf(
+								Workload{Content: "key: value"},
+								Workload{Content: "fake: new-content"},
+							))
+						}
 					})
 				})
 

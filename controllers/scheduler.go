@@ -92,25 +92,28 @@ func (r *Scheduler) ReconcileWork(work *platformv1alpha1.Work) error {
 	}
 
 	targetDestinationNames := r.getTargetDestinationNames(work)
-	if len(targetDestinationNames) == 0 {
+	targetDestinationMap := map[string]bool{}
+	for _, dest := range targetDestinationNames {
+		//false == not orphaned
+		targetDestinationMap[dest] = false
+	}
+
+	for _, existingWorkplacement := range existingWorkplacements {
+		dest := existingWorkplacement.Spec.TargetDestinationName
+		_, exists := targetDestinationMap[dest]
+		if !exists {
+			//true == orphaned
+			targetDestinationMap[dest] = true
+		}
+	}
+
+	if len(targetDestinationMap) == 0 {
 		r.Log.Info("no Destinations can be selected for scheduling", "scheduling", work.Spec.DestinationSelectors)
 		return fmt.Errorf("no Destinations can be selected for scheduling")
 	}
 
 	r.Log.Info("found available target Destinations", "work", work.GetName(), "destinations", targetDestinationNames)
-	currentWorkplacements, err := r.applyWorkplacementsForTargetDestinations(work, targetDestinationNames)
-	if err != nil {
-		return err
-	}
-
-	for _, workPlacement := range orphanedWorkPlacements(existingWorkplacements, currentWorkplacements) {
-		r.addOrphanedLabel(&workPlacement)
-		if err := r.Client.Update(context.TODO(), &workPlacement); err != nil {
-			return err
-		}
-	}
-
-	return nil
+	return r.applyWorkplacementsForTargetDestinations(work, targetDestinationMap)
 }
 
 func (r *Scheduler) addOrphanedLabel(workPlacement *v1alpha1.WorkPlacement) {
@@ -165,9 +168,8 @@ func (r *Scheduler) getExistingWorkplacementsForWork(work platformv1alpha1.Work)
 	return workPlacementList.Items, nil
 }
 
-func (r *Scheduler) applyWorkplacementsForTargetDestinations(work *platformv1alpha1.Work, targetDestinationNames []string) ([]platformv1alpha1.WorkPlacement, error) {
-	var workPlacements []platformv1alpha1.WorkPlacement
-	for _, targetDestinationName := range targetDestinationNames {
+func (r *Scheduler) applyWorkplacementsForTargetDestinations(work *platformv1alpha1.Work, targetDestinationNames map[string]bool) error {
+	for targetDestinationName, orphaned := range targetDestinationNames {
 		workPlacement := &platformv1alpha1.WorkPlacement{}
 		workPlacement.Namespace = work.GetNamespace()
 		workPlacement.Name = work.Name + "." + targetDestinationName
@@ -176,6 +178,10 @@ func (r *Scheduler) applyWorkplacementsForTargetDestinations(work *platformv1alp
 			workPlacement.Spec.Workloads = work.Spec.Workloads
 			workPlacement.Labels = map[string]string{
 				workLabelKey: work.Name,
+			}
+
+			if orphaned {
+				r.addOrphanedLabel(workPlacement)
 			}
 
 			workPlacement.Spec.WorkloadCoreFields = work.Spec.WorkloadCoreFields
@@ -190,13 +196,12 @@ func (r *Scheduler) applyWorkplacementsForTargetDestinations(work *platformv1alp
 		})
 
 		if err != nil {
-			return nil, err
+			return err
 		}
-		workPlacements = append(workPlacements, *workPlacement)
 
 		r.Log.Info("workplacement reconciled", "operation", op, "namespace", workPlacement.GetNamespace(), "workplacement", workPlacement.GetName(), "work", work.GetName(), "destination", targetDestinationName)
 	}
-	return workPlacements, nil
+	return nil
 }
 
 // Where Work is a Resource Request return one random Destination name, where Work is a
