@@ -28,8 +28,7 @@ type WorkPlacementSpec struct {
 
 // WorkPlacementStatus defines the observed state of WorkPlacement
 type WorkPlacementStatus struct {
-	// INSERT ADDITIONAL STATUS FIELD - define observed state of destination
-	// Important: Run "make" to regenerate code after modifying this file
+	Conditions []metav1.Condition `json:"conditions,omitempty"`
 }
 
 //+kubebuilder:object:root=true
