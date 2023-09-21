@@ -29,7 +29,7 @@ var _ = Describe("Controllers/Scheduler", func() {
 		dependencyWorkForProd = newWork("prod-work-name", DependencyReplicas, schedulingFor(prodDestination))
 		dependencyWorkForDev = newWork("dev-work-name", DependencyReplicas, schedulingFor(devDestination))
 
-		resourceWork = newWork("rr-work-name", ResourceRequestReplicas)
+		resourceWork = newWork("rr-work-name", ResourceRequestReplicas, schedulingFor(devDestination))
 
 		scheduler = &Scheduler{
 			Client: k8sClient,
@@ -115,6 +115,29 @@ var _ = Describe("Controllers/Scheduler", func() {
 					Content: "fake: content",
 				}))
 			})
+
+			When("the scheduling changes such that the workplacement is not on a correct destination", func() {
+				var preUpdateDestination string
+				BeforeEach(func() {
+					err := scheduler.ReconcileWork(&resourceWork)
+					Expect(err).ToNot(HaveOccurred())
+					Expect(k8sClient.List(context.Background(), &workPlacements)).To(Succeed())
+					Expect(workPlacements.Items).To(HaveLen(1))
+					preUpdateDestination = workPlacements.Items[0].Spec.TargetDestinationName
+				})
+
+				It("does not reschedule the worklacement but does label the resource to indicate its stale", func() {
+					resourceWork.Spec.DestinationSelectors = schedulingFor(prodDestination)
+					err := scheduler.ReconcileWork(&resourceWork)
+					Expect(err).ToNot(HaveOccurred())
+
+					Expect(k8sClient.List(context.Background(), &workPlacements)).To(Succeed())
+					Expect(workPlacements.Items).To(HaveLen(1))
+					workPlacement := workPlacements.Items[0]
+					Expect(workPlacement.GetLabels()).To(HaveKey("kratix.io/orphaned"))
+					Expect(workPlacement.Spec.TargetDestinationName).To(Equal(preUpdateDestination))
+				})
+			})
 		})
 
 		Describe("Scheduling Dependencies (replicas=-1)", func() {
@@ -131,7 +154,7 @@ var _ = Describe("Controllers/Scheduler", func() {
 						}))
 					}
 
-					dependencyWork.Spec.Workloads = append(resourceWork.Spec.Workloads, Workload{
+					dependencyWork.Spec.Workloads = append(dependencyWork.Spec.Workloads, Workload{
 						Content: "fake: new-content",
 					})
 

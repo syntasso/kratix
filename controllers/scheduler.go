@@ -46,6 +46,18 @@ func (r *Scheduler) ReconcileDestination() error {
 }
 
 func (r *Scheduler) UpdateWorkPlacement(work *platformv1alpha1.Work, workPlacement *platformv1alpha1.WorkPlacement) error {
+	orphaned := true
+	for _, dest := range r.getTargetDestinationNames(work) {
+		if dest == workPlacement.Spec.TargetDestinationName {
+			orphaned = false
+			break
+		}
+	}
+
+	if orphaned {
+		r.addOrphanedLabel(workPlacement)
+	}
+
 	workPlacement.Spec.Workloads = work.Spec.Workloads
 	if err := r.Client.Update(context.Background(), workPlacement); err != nil {
 		r.Log.Error(err, "Error updating WorkPlacement", "workplacement", workPlacement.Name)
@@ -92,19 +104,23 @@ func (r *Scheduler) ReconcileWork(work *platformv1alpha1.Work) error {
 	}
 
 	for _, workPlacement := range orphanedWorkPlacements(existingWorkplacements, currentWorkplacements) {
-		newLabels := workPlacement.GetLabels()
-		if newLabels == nil {
-			newLabels = make(map[string]string)
-		}
-		newLabels[orphanLabel] = "true"
-		workPlacement.SetLabels(newLabels)
-		r.Log.Info("marking workplacement as orphaned", "namespace", workPlacement.GetNamespace(), "name", workPlacement.GetName())
+		r.addOrphanedLabel(&workPlacement)
 		if err := r.Client.Update(context.TODO(), &workPlacement); err != nil {
 			return err
 		}
 	}
 
 	return nil
+}
+
+func (r *Scheduler) addOrphanedLabel(workPlacement *v1alpha1.WorkPlacement) {
+	r.Log.Info("Warning: WorkPlacement scheduled to destination that doesn't fufil scheduling requirements", "workplacement", workPlacement.Name, "namespace", workPlacement.Namespace)
+	newLabels := workPlacement.GetLabels()
+	if newLabels == nil {
+		newLabels = make(map[string]string)
+	}
+	newLabels[orphanLabel] = "true"
+	workPlacement.SetLabels(newLabels)
 }
 
 func orphanedWorkPlacements(listA, listB []v1alpha1.WorkPlacement) []v1alpha1.WorkPlacement {
