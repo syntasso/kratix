@@ -65,7 +65,7 @@ func ensurePipelineIsReconciled(j jobOpts) (*ctrl.Result, error) {
 		return &fastRequeue, createConfigurePipeline(j)
 	}
 
-	existingPipelineJob, err := resourceutil.PipelineExists(j.logger, j.obj, pipelineJobs)
+	existingPipelineJob, err := resourceutil.PipelineWithDesiredSpecExists(j.logger, j.obj, pipelineJobs)
 	if err != nil {
 		return &slowRequeue, nil
 	}

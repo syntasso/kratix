@@ -49,7 +49,7 @@ func MarkPipelineAsCompleted(logger logr.Logger, obj *unstructured.Unstructured)
 	logger.Info("set conditions", "condition", PipelineCompletedCondition, "value", v1.ConditionTrue)
 }
 
-func PipelineExists(logger logr.Logger, obj *unstructured.Unstructured, jobs []batchv1.Job) (*batchv1.Job, error) {
+func PipelineWithDesiredSpecExists(logger logr.Logger, obj *unstructured.Unstructured, jobs []batchv1.Job) (*batchv1.Job, error) {
 	if len(jobs) == 0 {
 		return nil, nil
 	}
