@@ -34,6 +34,12 @@ type opts struct {
 	logger logr.Logger
 }
 
+type promisePipelines struct {
+	DeleteResource    []v1alpha1.Pipeline
+	ConfigureResource []v1alpha1.Pipeline
+	ConfigurePromise  []v1alpha1.Pipeline
+}
+
 type jobOpts struct {
 	opts
 	obj               *unstructured.Unstructured

@@ -693,52 +693,37 @@ func (r *PromiseReconciler) applyWorkResourceForDependencies(o opts, promise *v1
 	return nil
 }
 
-type promisePipelines struct {
-	DeleteResource    []v1alpha1.Pipeline
-	ConfigureResource []v1alpha1.Pipeline
-	ConfigurePromise  []v1alpha1.Pipeline
-}
-
 func (r *PromiseReconciler) generatePipelines(promise *v1alpha1.Promise, logger logr.Logger) (promisePipelines, error) {
-	var configureResourcePipelines []v1alpha1.Pipeline
-	for _, pipeline := range promise.Spec.Workflows.Resource.Configure {
+	pipelineWorkflows := [][]unstructured.Unstructured{
+		promise.Spec.Workflows.Resource.Configure,
+		promise.Spec.Workflows.Resource.Delete,
+		promise.Spec.Workflows.Promise.Configure,
+	}
+
+	var pipelines [][]v1alpha1.Pipeline
+	for _, pipeline := range pipelineWorkflows {
 		p, err := generatePipeline(pipeline, logger)
 		if err != nil {
 			return promisePipelines{}, err
 		}
-		configureResourcePipelines = append(configureResourcePipelines, p)
+		pipelines = append(pipelines, p)
 	}
 
-	var configurePromisePipelines []v1alpha1.Pipeline
-	for _, pipeline := range promise.Spec.Workflows.Promise.Configure {
-		p, err := generatePipeline(pipeline, logger)
-		if err != nil {
-			return promisePipelines{}, err
-		}
-		configurePromisePipelines = append(configurePromisePipelines, p)
-	}
-
-	var deleteResourcePipelines []v1alpha1.Pipeline
-	for _, pipeline := range promise.Spec.Workflows.Resource.Delete {
-		p, err := generatePipeline(pipeline, logger)
-		if err != nil {
-			return promisePipelines{}, err
-		}
-		deleteResourcePipelines = append(deleteResourcePipelines, p)
-	}
-
-	allPipelines := promisePipelines{
-		DeleteResource:    deleteResourcePipelines,
-		ConfigureResource: configureResourcePipelines,
-		ConfigurePromise:  configurePromisePipelines,
-	}
-
-	logger.Info("collected all workflow pipelines", "pipelines", allPipelines)
-
-	return allPipelines, nil
+	return promisePipelines{
+		ConfigureResource: pipelines[0],
+		DeleteResource:    pipelines[1],
+		ConfigurePromise:  pipelines[2],
+	}, nil
 }
 
-func generatePipeline(pipeline unstructured.Unstructured, logger logr.Logger) (v1alpha1.Pipeline, error) {
+func generatePipeline(pipelines []unstructured.Unstructured, logger logr.Logger) ([]v1alpha1.Pipeline, error) {
+	if len(pipelines) == 0 {
+		return nil, nil
+	}
+
+	//We only support 1 pipeline for now
+	pipeline := pipelines[0]
+
 	pipelineLogger := logger.WithValues(
 		"pipelineKind", pipeline.GetKind(),
 		"pipelineVersion", pipeline.GetAPIVersion(),
@@ -749,7 +734,7 @@ func generatePipeline(pipeline unstructured.Unstructured, logger logr.Logger) (v
 		if err != nil {
 			// TODO test
 			pipelineLogger.Error(err, "Failed marshalling pipeline to json")
-			return v1alpha1.Pipeline{}, err
+			return nil, err
 		}
 
 		p := v1alpha1.Pipeline{}
@@ -757,12 +742,12 @@ func generatePipeline(pipeline unstructured.Unstructured, logger logr.Logger) (v
 		if err != nil {
 			// TODO test
 			pipelineLogger.Error(err, "Failed unmarshalling pipeline")
-			return v1alpha1.Pipeline{}, err
+			return nil, err
 		}
 
-		return p, nil
+		return []v1alpha1.Pipeline{p}, nil
 	}
 
-	return v1alpha1.Pipeline{}, fmt.Errorf("unsupported pipeline %q (%s.%s)",
+	return nil, fmt.Errorf("unsupported pipeline %q (%s.%s)",
 		pipeline.GetName(), pipeline.GetKind(), pipeline.GetAPIVersion())
 }
