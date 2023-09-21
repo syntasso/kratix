@@ -3,7 +3,6 @@ package pipeline_test
 import (
 	"context"
 	"io"
-	"io/ioutil"
 	"os"
 	"path/filepath"
 
@@ -11,34 +10,32 @@ import (
 	. "github.com/onsi/gomega"
 	"github.com/syntasso/kratix/api/v1alpha1"
 	"github.com/syntasso/kratix/work-creator/pipeline"
+	v1 "k8s.io/api/core/v1"
+	metav1 "k8s.io/apimachinery/pkg/apis/meta/v1"
 	"k8s.io/apimachinery/pkg/apis/meta/v1/unstructured"
 	"k8s.io/apimachinery/pkg/types"
 	"k8s.io/apimachinery/pkg/util/yaml"
 )
 
 var _ = Describe("WorkCreator", func() {
+	var (
+		resourceWorkName = "promise-name-resource-name"
+		promiseWorkName  = "promise-name"
+	)
 
 	When("WorkCreator Executes", func() {
-		var workCreator pipeline.WorkCreator
+		var (
+			workCreator       pipeline.WorkCreator
+			expectedNamespace string
+		)
 
 		BeforeEach(func() {
-			//don't run main
+			expectedNamespace = "default"
+
 			workCreator = pipeline.WorkCreator{
 				K8sClient: k8sClient,
 			}
-
-			// //to test main
-			// mainPath, err := gexec.Build("github.com/syntasso/kratix/work-creator/pipeline/cmd")
-			// Expect(err).NotTo(HaveOccurred())
-
-			// cmd := exec.Command(mainPath)
-			// cmd.Args =
-			// _, err = gexec.Start(cmd, GinkgoWriter, GinkgoWriter)
-			// Expect(err).NotTo(HaveOccurred())
-
-			//after
-			//gexec.CleanupBuildArtifacts()
-
+			k8sClient.Create(context.Background(), &v1.Namespace{ObjectMeta: metav1.ObjectMeta{Name: "kratix-platform-system"}})
 		})
 
 		Context("complete set of inputs", func() {
@@ -47,14 +44,14 @@ var _ = Describe("WorkCreator", func() {
 
 			BeforeEach(func() {
 				mockPipelineDirectory = filepath.Join(getRootDirectory(), "complete")
-				err := workCreator.Execute(mockPipelineDirectory, "promise-name", "default", "resource-name")
+				err := workCreator.Execute(mockPipelineDirectory, "promise-name", "default", "resource-name", false)
 				Expect(err).ToNot(HaveOccurred())
 
-				workResource = getCreatedWorkResource()
+				workResource = getWork(expectedNamespace, resourceWorkName)
 			})
 
 			It("has a correctly configured Work resource", func() {
-				Expect(workResource.GetName()).To(Equal(getWorkResourceIdentifer()))
+				Expect(workResource.GetName()).To(Equal(resourceWorkName))
 				Expect(workResource.Spec.DestinationSelectors).To(Equal(
 					v1alpha1.WorkScheduling{
 						Promise: []v1alpha1.Selector{
@@ -71,7 +68,7 @@ var _ = Describe("WorkCreator", func() {
 			})
 
 			Describe("the Work resource workloads list", func() {
-				It("has two files", func() {
+				It("has three files", func() {
 					Expect(workResource.Spec.Workloads).To(HaveLen(3))
 
 					paths := []string{}
@@ -84,7 +81,7 @@ var _ = Describe("WorkCreator", func() {
 						"foo/bar/namespace-resource-request.yaml", "foo/multi-resource-requests.yaml"))
 
 					for _, workload := range workResource.Spec.Workloads {
-						fileContent, err := ioutil.ReadFile(filepath.Join(mockPipelineDirectory, "input", workload.Filepath))
+						fileContent, err := os.ReadFile(filepath.Join(mockPipelineDirectory, "input", workload.Filepath))
 						Expect(err).NotTo(HaveOccurred())
 						Expect(workload.Content).To(Equal(string(fileContent)))
 					}
@@ -94,13 +91,13 @@ var _ = Describe("WorkCreator", func() {
 
 		Context("with empty metadata directory", func() {
 			BeforeEach(func() {
-				err := workCreator.Execute(filepath.Join(getRootDirectory(), "empty-metadata"), "promise-name", "default", "resource-name")
+				err := workCreator.Execute(filepath.Join(getRootDirectory(), "empty-metadata"), "promise-name", "default", "resource-name", false)
 				Expect(err).ToNot(HaveOccurred())
 			})
 
 			It("does not try to apply the metadata/destination-selectors.yaml when its not present", func() {
-				workResource := getCreatedWorkResource()
-				Expect(workResource.GetName()).To(Equal(getWorkResourceIdentifer()))
+				workResource := getWork(expectedNamespace, resourceWorkName)
+				Expect(workResource.GetName()).To(Equal(resourceWorkName))
 				Expect(workResource.Spec.DestinationSelectors).To(Equal(
 					v1alpha1.WorkScheduling{
 						Promise: []v1alpha1.Selector{
@@ -109,6 +106,35 @@ var _ = Describe("WorkCreator", func() {
 							},
 						},
 					}))
+			})
+		})
+
+		Context("with empty namespace string", func() {
+			BeforeEach(func() {
+				expectedNamespace = "kratix-platform-system"
+				err = workCreator.Execute(filepath.Join(getRootDirectory(), "empty-metadata"), "promise-name", "", "resource-name", false)
+				Expect(err).NotTo(HaveOccurred())
+			})
+
+			It("creates works with the namespace 'kratix-platform-system'", func() {
+				getWork(expectedNamespace, resourceWorkName)
+			})
+		})
+
+		Context("with add-promise-dependencies true", func() {
+			BeforeEach(func() {
+				expectedNamespace = "kratix-platform-system"
+				err = workCreator.Execute(filepath.Join(getRootDirectory(), "promise"), "promise-name", "", "resource-name", true)
+				Expect(err).NotTo(HaveOccurred())
+			})
+
+			It("adds the dependencies in the promise to the work", func() {
+				workResource := getWork(expectedNamespace, promiseWorkName)
+				Expect(workResource.Spec.Workloads).To(HaveLen(4))
+				Expect(workResource.Spec.Workloads).To(ContainElement(v1alpha1.Workload{
+					Content:  "apiVersion: v1\nkind: Namespace\nmetadata:\n  name: dep-namespace\n",
+					Filepath: "static/dependencies.yaml",
+				}))
 			})
 		})
 	})
@@ -123,7 +149,7 @@ func getRootDirectory() string {
 // in all files located in rootDirectory
 func getExpectedManifests(rootDirectory string) []unstructured.Unstructured {
 	inputDirectory := filepath.Join(rootDirectory, "/input")
-	files, _ := ioutil.ReadDir(inputDirectory)
+	files, _ := os.ReadDir(inputDirectory)
 	ul := []unstructured.Unstructured{}
 
 	for _, fileInfo := range files {
@@ -149,19 +175,14 @@ func getExpectedManifests(rootDirectory string) []unstructured.Unstructured {
 	return ul
 }
 
-func getCreatedWorkResource() v1alpha1.Work {
+func getWork(namespace, name string) v1alpha1.Work {
 	expectedName := types.NamespacedName{
-		Name:      getWorkResourceIdentifer(),
-		Namespace: "default",
+		Name:      name,
+		Namespace: namespace,
 	}
-	Expect(k8sClient).ToNot(BeNil())
+	ExpectWithOffset(1, k8sClient).NotTo(BeNil())
 	work := v1alpha1.Work{}
 	err := k8sClient.Get(context.Background(), expectedName, &work)
-	Expect(err).ToNot(HaveOccurred())
+	ExpectWithOffset(1, err).NotTo(HaveOccurred())
 	return work
-}
-
-// our test identifer
-func getWorkResourceIdentifer() string {
-	return "promise-name-resource-name"
 }

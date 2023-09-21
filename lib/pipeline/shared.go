@@ -9,7 +9,6 @@ import (
 	"gopkg.in/yaml.v2"
 	v1 "k8s.io/api/core/v1"
 	rbacv1 "k8s.io/api/rbac/v1"
-	apiextensionsv1 "k8s.io/apiextensions-apiserver/pkg/apis/apiextensions/v1"
 	metav1 "k8s.io/apimachinery/pkg/apis/meta/v1"
 	"k8s.io/apimachinery/pkg/apis/meta/v1/unstructured"
 	"k8s.io/apimachinery/pkg/util/uuid"
@@ -31,20 +30,33 @@ func pipelineVolumes() ([]v1.Volume, []v1.VolumeMount) {
 	return volumes, volumeMounts
 }
 
-func role(rr *unstructured.Unstructured, names apiextensionsv1.CustomResourceDefinitionNames, resources PipelineArgs) *rbacv1.Role {
+func serviceAccount(args PipelineArgs) *v1.ServiceAccount {
+	return &v1.ServiceAccount{
+		TypeMeta: metav1.TypeMeta{
+			Kind: "ServiceAccount",
+		},
+		ObjectMeta: metav1.ObjectMeta{
+			Name:      args.ServiceAccountName(),
+			Namespace: args.Namespace(),
+			Labels:    args.Labels(),
+		},
+	}
+}
+
+func role(obj *unstructured.Unstructured, objPluralName string, args PipelineArgs) *rbacv1.Role {
 	return &rbacv1.Role{
 		TypeMeta: metav1.TypeMeta{
 			Kind: "Role",
 		},
 		ObjectMeta: metav1.ObjectMeta{
-			Name:      resources.RoleName(),
-			Labels:    resources.Labels(),
-			Namespace: resources.Namespace(),
+			Name:      args.RoleName(),
+			Labels:    args.Labels(),
+			Namespace: args.Namespace(),
 		},
 		Rules: []rbacv1.PolicyRule{
 			{
-				APIGroups: []string{rr.GroupVersionKind().Group},
-				Resources: []string{names.Plural, names.Plural + "/status"},
+				APIGroups: []string{obj.GroupVersionKind().Group},
+				Resources: []string{objPluralName, objPluralName + "/status"},
 				Verbs:     []string{"get", "list", "update", "create", "patch"},
 			},
 			{
@@ -56,39 +68,69 @@ func role(rr *unstructured.Unstructured, names apiextensionsv1.CustomResourceDef
 	}
 }
 
-func serviceAccount(resources PipelineArgs) *v1.ServiceAccount {
-	return &v1.ServiceAccount{
-		TypeMeta: metav1.TypeMeta{
-			Kind: "ServiceAccount",
-		},
-		ObjectMeta: metav1.ObjectMeta{
-			Name:      resources.ServiceAccountName(),
-			Namespace: resources.Namespace(),
-			Labels:    resources.Labels(),
-		},
-	}
-}
-
-func roleBinding(resources PipelineArgs) *rbacv1.RoleBinding {
+func roleBinding(args PipelineArgs) *rbacv1.RoleBinding {
 	return &rbacv1.RoleBinding{
 		TypeMeta: metav1.TypeMeta{
 			Kind: "RoleBinding",
 		},
 		ObjectMeta: metav1.ObjectMeta{
-			Name:      resources.RoleBindingName(),
-			Labels:    resources.Labels(),
-			Namespace: resources.Namespace(),
+			Name:      args.RoleBindingName(),
+			Labels:    args.Labels(),
+			Namespace: args.Namespace(),
 		},
 		RoleRef: rbacv1.RoleRef{
 			Kind:     "Role",
 			APIGroup: "rbac.authorization.k8s.io",
-			Name:     resources.RoleName(),
+			Name:     args.RoleName(),
 		},
 		Subjects: []rbacv1.Subject{
 			{
 				Kind:      "ServiceAccount",
-				Namespace: resources.Namespace(),
-				Name:      resources.ServiceAccountName(),
+				Namespace: args.Namespace(),
+				Name:      args.ServiceAccountName(),
+			},
+		},
+	}
+}
+
+func clusterRole(args PipelineArgs) *rbacv1.ClusterRole {
+	return &rbacv1.ClusterRole{
+		TypeMeta: metav1.TypeMeta{
+			Kind: "ClusterRole",
+		},
+		ObjectMeta: metav1.ObjectMeta{
+			Name:   args.RoleName(),
+			Labels: args.Labels(),
+		},
+		Rules: []rbacv1.PolicyRule{
+			{
+				APIGroups: []string{"platform.kratix.io"},
+				Resources: []string{"promises", "promises/status", "works"},
+				Verbs:     []string{"get", "list", "update", "create", "patch"},
+			},
+		},
+	}
+}
+
+func clusterRoleBinding(args PipelineArgs) *rbacv1.ClusterRoleBinding {
+	return &rbacv1.ClusterRoleBinding{
+		TypeMeta: metav1.TypeMeta{
+			Kind: "ClusterRoleBinding",
+		},
+		ObjectMeta: metav1.ObjectMeta{
+			Name:   args.RoleBindingName(),
+			Labels: args.Labels(),
+		},
+		RoleRef: rbacv1.RoleRef{
+			Kind:     "ClusterRole",
+			APIGroup: "rbac.authorization.k8s.io",
+			Name:     args.RoleName(),
+		},
+		Subjects: []rbacv1.Subject{
+			{
+				Kind:      "ServiceAccount",
+				Namespace: args.Namespace(),
+				Name:      args.ServiceAccountName(),
 			},
 		},
 	}
@@ -115,12 +157,17 @@ func destinationSelectorsConfigMap(resources PipelineArgs, destinationSelectors 
 	}, nil
 }
 
-func readerContainer(rr *unstructured.Unstructured, volumeName string) v1.Container {
-	resourceKindNameNamespace := fmt.Sprintf("%s.%s %s --namespace %s",
-		strings.ToLower(rr.GetKind()), rr.GroupVersionKind().Group, rr.GetName(), rr.GetNamespace())
+func readerContainer(obj *unstructured.Unstructured, volumeName string) v1.Container {
+	namespace := obj.GetNamespace()
+	if namespace == "" {
+		// if namespace is empty it means its a unnamespaced resource, so providing
+		// any value is valid for kubectl
+		namespace = v1alpha1.KratixSystemNamespace
+	}
+	objRef := fmt.Sprintf("%s.%s %s --namespace %s", strings.ToLower(obj.GetKind()), obj.GroupVersionKind().Group, obj.GetName(), namespace)
+	resourceRequestCommand := fmt.Sprintf("kubectl get %s -oyaml > /output/object.yaml; cat /output/object.yaml", objRef)
 
-	resourceRequestCommand := fmt.Sprintf("kubectl get %s -oyaml > /output/object.yaml", resourceKindNameNamespace)
-	container := v1.Container{
+	return v1.Container{
 		Name:    "reader",
 		Image:   "bitnami/kubectl:1.20.10",
 		Command: []string{"sh", "-c", resourceRequestCommand},
@@ -128,8 +175,6 @@ func readerContainer(rr *unstructured.Unstructured, volumeName string) v1.Contai
 			{MountPath: "/output", Name: volumeName},
 		},
 	}
-
-	return container
 }
 
 func pipelineName(pipelineType, promiseIdentifier string) string {

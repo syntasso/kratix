@@ -63,11 +63,24 @@ build-and-load-bash:
 	docker build --tag syntassodev/bash-promise-test-c0:dev ./test/system/assets/bash-promise --build-arg CONTAINER_INDEX=0
 	docker build --tag syntassodev/bash-promise-test-c1:dev ./test/system/assets/bash-promise --build-arg CONTAINER_INDEX=1
 	docker build --tag syntassodev/bash-promise-test-c2:dev ./test/system/assets/bash-promise --build-arg CONTAINER_INDEX=2
+	docker build --tag syntassodev/bash-promise-configure:v1alpha1 -f ./test/system/assets/bash-promise/Dockerfile.promise ./test/system/assets/bash-promise --build-arg VERSION="v1alpha1"
+	docker build --tag syntassodev/bash-promise-configure:v1alpha2 -f ./test/system/assets/bash-promise/Dockerfile.promise ./test/system/assets/bash-promise --build-arg VERSION="v1alpha2"
 	kind load docker-image syntassodev/bash-promise-test-c0:dev --name platform
 	kind load docker-image syntassodev/bash-promise-test-c1:dev --name platform
 	kind load docker-image syntassodev/bash-promise-test-c2:dev --name platform
+	kind load docker-image syntassodev/bash-promise-configure:v1alpha1 --name platform
+	kind load docker-image syntassodev/bash-promise-configure:v1alpha2 --name platform
+
+install-cert-manager:
+	kubectl apply -f https://github.com/cert-manager/cert-manager/releases/download/v1.12.0/cert-manager.yaml
+	kubectl wait --for condition=available -n cert-manager deployment/cert-manager --timeout 120s
+	kubectl wait --for condition=available -n cert-manager deployment/cert-manager-cainjector --timeout 120s
+	kubectl wait --for condition=available -n cert-manager deployment/cert-manager-webhook --timeout 120s
 
 build-and-load-kratix: kind-load-image
+
+build-and-reload-kratix: kind-load-image  ## Build and reload Kratix on local KinD cluster
+	kubectl rollout restart deployment -n kratix-platform-system kratix-platform-controller-manager
 
 build-and-load-worker-creator:
 	WC_IMG=${WC_IMG} WC_IMG_MIRROR=${WC_IMG_MIRROR} make -C work-creator kind-load-image
