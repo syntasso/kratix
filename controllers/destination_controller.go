@@ -83,17 +83,17 @@ func (r *DestinationReconciler) Reconcile(ctx context.Context, req ctrl.Request)
 	logger = logger.WithValues("path", path)
 
 	if err := r.createDependenciesPathWithExample(writer); err != nil {
-		logger.Info("unable to write dependencies to state store", "error", err)
+		logger.Error(err, "unable to write dependencies to state store")
 		return defaultRequeue, nil
 	}
 
 	if err := r.createResourcePathWithExample(writer); err != nil {
-		logger.Info("unable to write resources to state store", "error", err)
+		logger.Error(err, "unable to write dependencies to state store")
 		return defaultRequeue, nil
 	}
 
 	if err := r.Scheduler.ReconcileDestination(); err != nil {
-		logger.Info("unable to schedule destination resources", "error", err)
+		logger.Error(err, "unable to schedule destination resources")
 		return defaultRequeue, nil
 	}
 	return ctrl.Result{}, nil

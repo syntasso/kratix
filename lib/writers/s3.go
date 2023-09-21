@@ -66,7 +66,6 @@ func (b *S3Writer) WriteDirWithObjects(deleteExistingContentsInDir bool, dir str
 		var err error
 		objectsToDeleteMap, err = b.getObjectsInDir(ctx, dir, logger)
 		if err != nil {
-			logger.Error(err, "Error getting objects to delete")
 			return err
 		}
 	}
@@ -74,13 +73,8 @@ func (b *S3Writer) WriteDirWithObjects(deleteExistingContentsInDir bool, dir str
 	exists, errBucketExists := b.RepoClient.BucketExists(ctx, b.BucketName)
 	if errBucketExists != nil {
 		logger.Error(errBucketExists, "Could not verify bucket existence with provider")
-		return errBucketExists
 	} else if !exists {
-		// Note: Returning an error here allows for the request to be requeued since
-		//       we assume we will not be able to write to a bucket we can not access.
-		//       There is a chance that there will be permissions where we can write
-		//       but cannot access the bucket to read/list.
-		return fmt.Errorf("Bucket provided does not exist (or the provided keys don't have permissions)")
+		logger.Info("Bucket provided does not exist (or the provided keys don't have permissions)")
 	}
 
 	for _, item := range toWrite {
