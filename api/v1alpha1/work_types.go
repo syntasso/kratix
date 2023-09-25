@@ -17,6 +17,7 @@ limitations under the License.
 package v1alpha1
 
 import (
+	"gopkg.in/yaml.v2"
 	metav1 "k8s.io/apimachinery/pkg/apis/meta/v1"
 )
 
@@ -49,7 +50,12 @@ type WorkSpec struct {
 	// -1 denotes dependencies, 1 denotes Resource Request
 	Replicas int `json:"replicas,omitempty"`
 
-	WorkloadCoreFields `json:",inline"`
+	WorkloadGroups []WorkloadGroup `json:"workloadGroups,omitempty"`
+}
+
+type WorkloadGroup struct {
+	DestinationSelectorsOverride *WorkScheduling `json:"destinationSelectorsOverride,omitempty"`
+	WorkloadCoreFields           `json:",inline"`
 }
 
 type WorkloadCoreFields struct {
@@ -67,6 +73,44 @@ type WorkScheduling struct {
 }
 
 func NewPromiseDependenciesWork(promise *Promise) (*Work, error) {
+	dependenciesGroup := map[string]Dependencies{}
+
+	dependencies := promise.Spec.Dependencies
+	for _, dep := range dependencies {
+		annotations := dep.GetAnnotations()
+		if override, found := annotations["kratix.io/destination-selectors-override"]; found {
+			dependenciesGroup[override] = append(dependenciesGroup[override], dep)
+		} else {
+			dependenciesGroup["not-set"] = append(dependenciesGroup["not-set"], dep)
+		}
+	}
+
+	var workloadGroupList []WorkloadGroup
+	for selector, dep := range dependenciesGroup {
+		yamlBytes, err := dep.Marshal()
+		if err != nil {
+			return nil, err
+		}
+
+		override, err := destinationSelectorOverride(selector)
+		if err != nil {
+			return nil, err
+		}
+
+		workloadGroupList = append(workloadGroupList, WorkloadGroup{
+			DestinationSelectorsOverride: override,
+			WorkloadCoreFields: WorkloadCoreFields{
+				PromiseName: promise.GetName(),
+				Workloads: []Workload{
+					{
+						Content:  string(yamlBytes),
+						Filepath: "static/dependencies.yaml", //TODO: make names unique
+					},
+				},
+			},
+		})
+	}
+
 	work := &Work{
 		ObjectMeta: metav1.ObjectMeta{
 			Name:      promise.GetName(),
@@ -74,29 +118,33 @@ func NewPromiseDependenciesWork(promise *Promise) (*Work, error) {
 			Labels:    promise.GenerateSharedLabels(),
 		},
 		Spec: WorkSpec{
-			WorkloadCoreFields: WorkloadCoreFields{
-				PromiseName: promise.GetName(),
-			},
-			Replicas: DependencyReplicas,
+			WorkloadGroups: workloadGroupList,
+			Replicas:       DependencyReplicas,
 			DestinationSelectors: WorkScheduling{
 				Promise: promise.Spec.DestinationSelectors,
 			},
 		},
 	}
 
-	yamlBytes, err := promise.Spec.Dependencies.Marshal()
-	if err != nil {
+	return work, nil
+}
+
+func destinationSelectorOverride(selectorStr string) (*WorkScheduling, error) {
+	if selectorStr == "" {
+		return &WorkScheduling{}, nil
+	}
+
+	if selectorStr == "not-set" {
+		return nil, nil
+	}
+	var selector Selector
+	if err := yaml.Unmarshal([]byte(selectorStr), &selector); err != nil {
 		return nil, err
 	}
 
-	work.Spec.Workloads = []Workload{
-		{
-			Content:  string(yamlBytes),
-			Filepath: "static/dependencies.yaml",
-		},
-	}
-
-	return work, nil
+	return &WorkScheduling{
+		Promise: []Selector{selector},
+	}, nil
 }
 
 func (w *Work) IsResourceRequest() bool {

@@ -738,7 +738,7 @@ var _ = Context("Promise Reconciler", func() {
 				waitForWork(promise.GetName())
 				Eventually(func() string {
 					work := waitForWork(promise.GetName())
-					return work.Spec.Workloads[0].Content
+					return work.Spec.WorkloadGroups[0].Workloads[0].Content
 				}, timeout, interval).Should(ContainSubstring("a-non-crd-resource"))
 
 				promise = getPromise(promise.GetName())
@@ -750,11 +750,11 @@ var _ = Context("Promise Reconciler", func() {
 			It("updates the Work resource to have only the new workloads", func() {
 				Eventually(func() string {
 					work := waitForWork(promise.GetName())
-					return work.Spec.Workloads[0].Content
+					return work.Spec.WorkloadGroups[0].Workloads[0].Content
 				}, timeout, interval).Should(ContainSubstring("super-secret-new-namespace"))
 				Eventually(func() string {
 					work := waitForWork(promise.GetName())
-					return work.Spec.Workloads[0].Content
+					return work.Spec.WorkloadGroups[0].Workloads[0].Content
 				}, timeout, interval).ShouldNot(ContainSubstring("a-non-crd-resource"))
 			})
 

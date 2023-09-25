@@ -59,7 +59,9 @@ func (r *Scheduler) UpdateWorkPlacement(work *platformv1alpha1.Work, workPlaceme
 		r.labelWorkplacementAsMisscheduled(workPlacement)
 	}
 
-	workPlacement.Spec.Workloads = work.Spec.Workloads
+	if len(work.Spec.WorkloadGroups) != 0 {
+		workPlacement.Spec.Workloads = work.Spec.WorkloadGroups[0].Workloads
+	}
 	if err := r.Client.Update(context.Background(), workPlacement); err != nil {
 		r.Log.Error(err, "Error updating WorkPlacement", "workplacement", workPlacement.Name)
 		return err
@@ -181,7 +183,11 @@ func (r *Scheduler) applyWorkplacementsForTargetDestinations(work *platformv1alp
 		workPlacement.Name = work.Name + "." + targetDestinationName
 
 		op, err := controllerutil.CreateOrUpdate(context.Background(), r.Client, workPlacement, func() error {
-			workPlacement.Spec.Workloads = work.Spec.Workloads
+			var corefields v1alpha1.WorkloadCoreFields
+			if len(work.Spec.WorkloadGroups) != 0 {
+				corefields = work.Spec.WorkloadGroups[0].WorkloadCoreFields
+			}
+			workPlacement.Spec.Workloads = corefields.Workloads
 			workPlacement.Labels = map[string]string{
 				workLabelKey: work.Name,
 			}
@@ -189,7 +195,7 @@ func (r *Scheduler) applyWorkplacementsForTargetDestinations(work *platformv1alp
 				r.labelWorkplacementAsMisscheduled(workPlacement)
 			}
 
-			workPlacement.Spec.WorkloadCoreFields = work.Spec.WorkloadCoreFields
+			workPlacement.Spec.WorkloadCoreFields = corefields
 			workPlacement.Spec.TargetDestinationName = targetDestinationName
 			controllerutil.AddFinalizer(workPlacement, repoCleanupWorkPlacementFinalizer)
 

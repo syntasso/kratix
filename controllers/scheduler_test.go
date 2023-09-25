@@ -66,7 +66,7 @@ var _ = Describe("Controllers/Scheduler", func() {
 				actualWorkPlacement := WorkPlacement{}
 				Expect(k8sClient.Get(context.Background(), ns, &actualWorkPlacement)).To(Succeed())
 				Expect(actualWorkPlacement.Spec.TargetDestinationName).To(Equal(devDestination3.Name))
-				Expect(actualWorkPlacement.Spec.Workloads).To(Equal(dependencyWorkForDev.Spec.Workloads))
+				Expect(actualWorkPlacement.Spec.Workloads).To(Equal(dependencyWorkForDev.Spec.WorkloadGroups[0].Workloads))
 			})
 
 			It("does not schedule Works with un-matching labels to the new Destination", func() {
@@ -93,14 +93,14 @@ var _ = Describe("Controllers/Scheduler", func() {
 				Expect(workPlacement.Namespace).To(Equal("default"))
 				Expect(workPlacement.ObjectMeta.Labels["kratix.io/work"]).To(Equal("rr-work-name"))
 				Expect(workPlacement.Name).To(Equal("rr-work-name." + workPlacement.Spec.TargetDestinationName))
-				Expect(workPlacement.Spec.Workloads).To(Equal(resourceWork.Spec.Workloads))
+				Expect(workPlacement.Spec.Workloads).To(Equal(resourceWork.Spec.WorkloadGroups[0].Workloads))
 				Expect(workPlacement.Spec.TargetDestinationName).To(MatchRegexp("prod|dev\\-\\d"))
 				Expect(workPlacement.Finalizers).To(HaveLen(1), "expected one finalizer")
 				Expect(workPlacement.Finalizers[0]).To(Equal("finalizers.workplacement.kratix.io/repo-cleanup"))
 			})
 
 			It("updates workplacements for existing works", func() {
-				resourceWork.Spec.Workloads = append(resourceWork.Spec.Workloads, Workload{
+				resourceWork.Spec.WorkloadGroups[0].Workloads = append(resourceWork.Spec.WorkloadGroups[0].Workloads, Workload{
 					Content: "fake: content",
 				})
 				err := scheduler.ReconcileWork(&resourceWork)
@@ -163,7 +163,7 @@ var _ = Describe("Controllers/Scheduler", func() {
 						}))
 					}
 
-					dependencyWork.Spec.Workloads = append(dependencyWork.Spec.Workloads, Workload{
+					dependencyWork.Spec.WorkloadGroups[0].Workloads = append(dependencyWork.Spec.WorkloadGroups[0].Workloads, Workload{
 						Content: "fake: new-content",
 					})
 
@@ -202,7 +202,7 @@ var _ = Describe("Controllers/Scheduler", func() {
 							},
 						}
 
-						dependencyWork.Spec.Workloads = append(dependencyWork.Spec.Workloads, Workload{
+						dependencyWork.Spec.WorkloadGroups[0].Workloads = append(dependencyWork.Spec.WorkloadGroups[0].Workloads, Workload{
 							Content: "fake: new-content",
 						})
 
@@ -357,9 +357,13 @@ func newWork(name string, workType int, scheduling ...WorkScheduling) Work {
 		Spec: WorkSpec{
 			Replicas:             workType,
 			DestinationSelectors: workScheduling,
-			WorkloadCoreFields: WorkloadCoreFields{
-				Workloads: []Workload{
-					{Content: "key: value"},
+			WorkloadGroups: []WorkloadGroup{
+				{
+					WorkloadCoreFields: WorkloadCoreFields{
+						Workloads: []Workload{
+							{Content: "key: value"},
+						},
+					},
 				},
 			},
 		},

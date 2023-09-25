@@ -43,6 +43,7 @@ func (w *WorkCreator) Execute(rootDirectory, promiseName, namespace, resourceNam
 	}
 
 	work := &platformv1alpha1.Work{}
+	work.Spec.WorkloadGroups = []platformv1alpha1.WorkloadGroup{{}}
 	if addPromiseDependencies {
 		promiseBytes, err := os.ReadFile(filepath.Join(rootDirectory, "promise", "object.yaml"))
 		if err != nil {
@@ -58,14 +59,14 @@ func (w *WorkCreator) Execute(rootDirectory, promiseName, namespace, resourceNam
 		if err != nil {
 			return err
 		}
-		work.Spec.Workloads = append(work.Spec.Workloads, workloads...)
+		work.Spec.WorkloadGroups[0].Workloads = append(work.Spec.WorkloadGroups[0].Workloads, workloads...)
 	} else {
 		work.Name = identifier
 		work.Namespace = namespace
 		work.Spec.Replicas = platformv1alpha1.ResourceRequestReplicas
-		work.Spec.Workloads = workloads
-		work.Spec.PromiseName = promiseName
-		work.Spec.ResourceName = resourceName
+		work.Spec.WorkloadGroups[0].Workloads = workloads
+		work.Spec.WorkloadGroups[0].PromiseName = promiseName
+		work.Spec.WorkloadGroups[0].ResourceName = resourceName
 
 		pipelineScheduling, err := w.getPipelineScheduling(rootDirectory)
 		if err != nil {

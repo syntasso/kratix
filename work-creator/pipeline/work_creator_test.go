@@ -69,10 +69,10 @@ var _ = Describe("WorkCreator", func() {
 
 			Describe("the Work resource workloads list", func() {
 				It("has three files", func() {
-					Expect(workResource.Spec.Workloads).To(HaveLen(3))
+					Expect(workResource.Spec.WorkloadGroups[0].Workloads).To(HaveLen(3))
 
 					paths := []string{}
-					for _, workload := range workResource.Spec.Workloads {
+					for _, workload := range workResource.Spec.WorkloadGroups[0].Workloads {
 						paths = append(paths, workload.Filepath)
 					}
 
@@ -80,7 +80,7 @@ var _ = Describe("WorkCreator", func() {
 					Expect(paths).To(ConsistOf("configmap.yaml",
 						"foo/bar/namespace-resource-request.yaml", "foo/multi-resource-requests.yaml"))
 
-					for _, workload := range workResource.Spec.Workloads {
+					for _, workload := range workResource.Spec.WorkloadGroups[0].Workloads {
 						fileContent, err := os.ReadFile(filepath.Join(mockPipelineDirectory, "input", workload.Filepath))
 						Expect(err).NotTo(HaveOccurred())
 						Expect(workload.Content).To(Equal(string(fileContent)))
@@ -130,8 +130,8 @@ var _ = Describe("WorkCreator", func() {
 
 			It("adds the dependencies in the promise to the work", func() {
 				workResource := getWork(expectedNamespace, promiseWorkName)
-				Expect(workResource.Spec.Workloads).To(HaveLen(4))
-				Expect(workResource.Spec.Workloads).To(ContainElement(v1alpha1.Workload{
+				Expect(workResource.Spec.WorkloadGroups[0].Workloads).To(HaveLen(4))
+				Expect(workResource.Spec.WorkloadGroups[0].Workloads).To(ContainElement(v1alpha1.Workload{
 					Content:  "apiVersion: v1\nkind: Namespace\nmetadata:\n  name: dep-namespace\n",
 					Filepath: "static/dependencies.yaml",
 				}))
