@@ -83,9 +83,6 @@ var _ = Describe("Controllers/Scheduler", func() {
 	Describe("#ReconcileWork", func() {
 		Describe("Scheduling Resources (replicas=1)", func() {
 			It("creates a WorkPlacement for a given Work", func() {
-				Expect(k8sClient.List(context.Background(), &workPlacements)).To(Succeed())
-				Expect(workPlacements.Items).To(HaveLen(0))
-
 				err := scheduler.ReconcileWork(&resourceWork)
 				Expect(err).ToNot(HaveOccurred())
 

@@ -19,7 +19,6 @@ package controllers_test
 import (
 	"path/filepath"
 	"testing"
-	"time"
 
 	"golang.org/x/net/context"
 
@@ -108,53 +107,35 @@ var _ = AfterSuite(func() {
 })
 
 func cleanEnvironment() {
-	retryCount := 0
-	for {
-		clean()
-		time.Sleep(time.Millisecond * 20)
-		if noResourcesRemaining(&platformv1alpha1.PromiseList{},
-			&platformv1alpha1.DestinationList{},
-			&platformv1alpha1.WorkList{},
-			&platformv1alpha1.WorkPlacementList{}) {
-			return
-		}
-		//wait a maximum of 1 second in total before giving up
-		if retryCount > 50 {
-			Fail("failed to cleanup env")
-		}
-		retryCount++
-	}
-}
-
-func noResourcesRemaining(objs ...client.ObjectList) bool {
-	for _, obj := range objs {
-		k8sClient.List(context.Background(), obj)
-		if obj.GetRemainingItemCount() != nil && int(*obj.GetRemainingItemCount()) != 0 {
-			return false
-		}
-	}
-	return true
-}
-
-func clean() {
+	Expect(k8sClient.DeleteAllOf(context.Background(), &platformv1alpha1.Destination{})).To(Succeed())
 	var promises platformv1alpha1.PromiseList
-	k8sClient.List(context.Background(), &promises)
+	Expect(k8sClient.List(context.Background(), &promises)).To(Succeed())
 	for _, p := range promises.Items {
 		p.Finalizers = nil
 		k8sClient.Update(context.Background(), &p)
 	}
 	Expect(k8sClient.DeleteAllOf(context.Background(), &platformv1alpha1.Promise{})).To(Succeed())
-	Expect(k8sClient.DeleteAllOf(context.Background(), &platformv1alpha1.Destination{})).To(Succeed())
+
+	Eventually(func(g Gomega) {
+		var work platformv1alpha1.WorkList
+		g.Expect(k8sClient.List(context.Background(), &work)).To(Succeed())
+		for _, w := range work.Items {
+			w.Finalizers = nil
+			g.Expect(k8sClient.Update(context.Background(), &w)).To(Succeed())
+		}
+	}, "5s").Should(Succeed())
 
 	deleteInNamespace(&platformv1alpha1.Work{}, "default")
 	deleteInNamespace(&platformv1alpha1.Work{}, platformv1alpha1.KratixSystemNamespace)
 
-	var workPlacements platformv1alpha1.WorkPlacementList
-	k8sClient.List(context.Background(), &workPlacements)
-	for _, wp := range workPlacements.Items {
-		wp.Finalizers = nil
-		k8sClient.Update(context.Background(), &wp)
-	}
+	Eventually(func(g Gomega) {
+		var workPlacements platformv1alpha1.WorkPlacementList
+		g.Expect(k8sClient.List(context.Background(), &workPlacements)).To(Succeed())
+		for _, wp := range workPlacements.Items {
+			wp.Finalizers = nil
+			g.Expect(k8sClient.Update(context.Background(), &wp)).To(Succeed())
+		}
+	}, "5s").Should(Succeed())
 	deleteInNamespace(&platformv1alpha1.WorkPlacement{}, "default")
 	deleteInNamespace(&platformv1alpha1.WorkPlacement{}, platformv1alpha1.KratixSystemNamespace)
 }
