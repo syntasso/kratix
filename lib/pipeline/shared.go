@@ -15,6 +15,7 @@ import (
 )
 
 const kratixOperationEnvVar = "KRATIX_OPERATION"
+const kratixTypeEnvVar = "KRATIX_TYPE"
 
 func pipelineVolumes() ([]v1.Volume, []v1.VolumeMount) {
 	volumes := []v1.Volume{
