@@ -17,8 +17,10 @@ limitations under the License.
 package v1alpha1
 
 import (
-	"gopkg.in/yaml.v2"
+	"fmt"
+
 	metav1 "k8s.io/apimachinery/pkg/apis/meta/v1"
+	"sigs.k8s.io/yaml"
 )
 
 const DependencyReplicas = -1
@@ -72,29 +74,59 @@ type WorkScheduling struct {
 	Resource []Selector `json:"resource,omitempty"`
 }
 
+func indexOfSelector(selectors []Selector, selector Selector) int {
+	for i, s := range selectors {
+		if s.Equals(selector) {
+			return i
+		}
+	}
+
+	return -1
+}
+
+// Note: The efficiency of this function is based on an assumption that both the
+// number of selectors and dependencies will be small. The efficiency is O(n*m)
+// where n is the number of selectors and m is the number of dependencies.
+// The benefit of this solution is that we keep the number of workplacements as
+// low as possible. By allowing a more relaxed grouping (i.e. doing a string
+// compare on the selector instead of a deep equals) we could increase
+// efficieny greatly.
 func NewPromiseDependenciesWork(promise *Promise) (*Work, error) {
-	dependenciesGroup := map[string]Dependencies{}
+	parsedSelectors := []Selector{}
+	dependenciesGroup := map[int]Dependencies{}
+	const noOverrideGroup int = -1
 
 	dependencies := promise.Spec.Dependencies
 	for _, dep := range dependencies {
 		annotations := dep.GetAnnotations()
-		if override, found := annotations["kratix.io/destination-selectors-override"]; found {
-			dependenciesGroup[override] = append(dependenciesGroup[override], dep)
+		if override, found := annotations[DestinationSelectorsOverride]; found {
+			var selector Selector
+			if err := yaml.Unmarshal([]byte(override), &selector); err != nil {
+				return nil, err
+			}
+
+			i := indexOfSelector(parsedSelectors, selector)
+			if i == -1 {
+				parsedSelectors = append(parsedSelectors, selector)
+				i = len(parsedSelectors) - 1
+			}
+
+			dependenciesGroup[i] = append(dependenciesGroup[i], dep)
 		} else {
-			dependenciesGroup["not-set"] = append(dependenciesGroup["not-set"], dep)
+			dependenciesGroup[noOverrideGroup] = append(dependenciesGroup[noOverrideGroup], dep)
 		}
 	}
 
 	var workloadGroupList []WorkloadGroup
-	for selector, dep := range dependenciesGroup {
-		yamlBytes, err := dep.Marshal()
-		if err != nil {
-			return nil, err
+	for i, dep := range dependenciesGroup {
+			return nil, er
 		}
 
-		override, err := destinationSelectorOverride(selector)
-		if err != nil {
-			return nil, err
+		var override *WorkScheduling
+		if i != noOverrideGroup {
+			override = &WorkScheduling{
+				Promise: []Selector{parsedSelectors[i]},
+			}
 		}
 
 		workloadGroupList = append(workloadGroupList, WorkloadGroup{
@@ -104,7 +136,7 @@ func NewPromiseDependenciesWork(promise *Promise) (*Work, error) {
 				Workloads: []Workload{
 					{
 						Content:  string(yamlBytes),
-						Filepath: "static/dependencies.yaml", //TODO: make names unique
+						Filepath: fmt.Sprintf("static/dependencies.%d.yaml", i+1),
 					},
 				},
 			},
@@ -127,24 +159,6 @@ func NewPromiseDependenciesWork(promise *Promise) (*Work, error) {
 	}
 
 	return work, nil
-}
-
-func destinationSelectorOverride(selectorStr string) (*WorkScheduling, error) {
-	if selectorStr == "" {
-		return &WorkScheduling{}, nil
-	}
-
-	if selectorStr == "not-set" {
-		return nil, nil
-	}
-	var selector Selector
-	if err := yaml.Unmarshal([]byte(selectorStr), &selector); err != nil {
-		return nil, err
-	}
-
-	return &WorkScheduling{
-		Promise: []Selector{selector},
-	}, nil
 }
 
 func (w *Work) IsResourceRequest() bool {

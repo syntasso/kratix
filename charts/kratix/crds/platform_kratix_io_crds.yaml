@@ -494,22 +494,48 @@ spec:
                         type: object
                       type: array
                   type: object
-                promiseName:
-                  type: string
                 replicas:
                   description: -1 denotes dependencies, 1 denotes Resource Request
                   type: integer
-                resourceName:
-                  type: string
-                workloads:
-                  description: Workload represents the manifest workload to be deployed on destination
+                workloadGroups:
                   items:
-                    description: Workload represents the manifest workload to be deployed on destination
                     properties:
-                      content:
+                      destinationSelectorsOverride:
+                        properties:
+                          promise:
+                            items:
+                              properties:
+                                matchLabels:
+                                  additionalProperties:
+                                    type: string
+                                  type: object
+                              type: object
+                            type: array
+                          resource:
+                            items:
+                              properties:
+                                matchLabels:
+                                  additionalProperties:
+                                    type: string
+                                  type: object
+                              type: object
+                            type: array
+                        type: object
+                      promiseName:
                         type: string
-                      filepath:
+                      resourceName:
                         type: string
+                      workloads:
+                        description: Workload represents the manifest workload to be deployed on destination
+                        items:
+                          description: Workload represents the manifest workload to be deployed on destination
+                          properties:
+                            content:
+                              type: string
+                            filepath:
+                              type: string
+                          type: object
+                        type: array
                     type: object
                   type: array
               type: object

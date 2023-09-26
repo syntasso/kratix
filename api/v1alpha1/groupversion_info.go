@@ -36,5 +36,7 @@ var (
 )
 
 const (
-	KratixSystemNamespace = "kratix-platform-system"
+	KratixSystemNamespace        = "kratix-platform-system"
+	KratixPrefix                 = "kratix.io/"
+	DestinationSelectorsOverride = KratixPrefix + "destination-selectors-override"
 )

@@ -16,28 +16,35 @@ var _ = Describe("WorkTypes", func() {
 				newDependency("foo", ""),
 			}
 			dep2 := v1alpha1.Dependency{
-				newDependency("bar", "{matchLabels: {environment: dev}}"),
+				// but ok yaml?
+				// yeah, no quotes needed for yaml keys
+				newDependency("bar", "{matchLabels: {some: label, environment: dev}}"),
 			}
 			dep3 := v1alpha1.Dependency{
-				newDependency("new", "{matchLabels: {environment: dev}}"),
+				newDependency("new", "{matchLabels: {environment: dev, some: label}}"),
 			}
 			dep4 := v1alpha1.Dependency{
 				newDependency("yay", ""),
 			}
+			dep5 := v1alpha1.Dependency{
+				newDependency("test", "{matchLabels: {environment: prod}}"),
+			}
 			promise := &v1alpha1.Promise{
 				ObjectMeta: metav1.ObjectMeta{Name: "promise-name"},
 				Spec: v1alpha1.PromiseSpec{
-					Dependencies: []v1alpha1.Dependency{dep1, dep2, dep3, dep4},
+					Dependencies: []v1alpha1.Dependency{dep1, dep2, dep3, dep4, dep5},
 				},
 			}
 
 			work, err := v1alpha1.NewPromiseDependenciesWork(promise)
 
 			Expect(err).ToNot(HaveOccurred())
-			Expect(work.Spec.WorkloadGroups).To(HaveLen(2))
+			Expect(work.Spec.WorkloadGroups).To(HaveLen(3))
 			Expect(work.Spec.WorkloadGroups[0].Workloads).To(HaveLen(1))
+			Expect(work.Spec.WorkloadGroups[0].DestinationSelectorsOverride).To(BeNil())
 			//todo: assert on both contents being inside the depednency file
 			Expect(work.Spec.WorkloadGroups[1].Workloads).To(HaveLen(1))
+			Expect(work.Spec.WorkloadGroups[1].DestinationSelectorsOverride.Promise[0].MatchLabels).To(HaveKey("environment"))
 		})
 	})
 })
@@ -50,7 +57,7 @@ func newDependency(name, override string) unstructured.Unstructured {
 	u.SetNamespace("default")
 	if override != "" {
 		u.SetAnnotations(map[string]string{
-			"kratix.io/destination-selectors-override": override,
+			v1alpha1.DestinationSelectorsOverride: override,
 		})
 	}
 

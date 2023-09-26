@@ -83,6 +83,10 @@ type Selector struct {
 	MatchLabels map[string]string `json:"matchLabels,omitempty"`
 }
 
+func (s Selector) Equals(other Selector) bool {
+	return labels.Equals(s.MatchLabels, other.MatchLabels)
+}
+
 // PromiseStatus defines the observed state of Promise
 type PromiseStatus struct {
 	Conditions         []metav1.Condition `json:"conditions,omitempty"`
