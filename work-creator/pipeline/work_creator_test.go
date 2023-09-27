@@ -133,7 +133,7 @@ var _ = Describe("WorkCreator", func() {
 				Expect(workResource.Spec.WorkloadGroups[0].Workloads).To(HaveLen(4))
 				Expect(workResource.Spec.WorkloadGroups[0].Workloads).To(ContainElement(v1alpha1.Workload{
 					Content:  "apiVersion: v1\nkind: Namespace\nmetadata:\n  name: dep-namespace\n",
-					Filepath: "static/dependencies.yaml",
+					Filepath: "static/dependencies.0.yaml",
 				}))
 			})
 		})

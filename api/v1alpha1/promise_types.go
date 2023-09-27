@@ -83,7 +83,10 @@ type Selector struct {
 	MatchLabels map[string]string `json:"matchLabels,omitempty"`
 }
 
-func (s Selector) Equals(other Selector) bool {
+func (s *Selector) Equals(other *Selector) bool {
+	if s == nil {
+		return other == nil
+	}
 	return labels.Equals(s.MatchLabels, other.MatchLabels)
 }
 

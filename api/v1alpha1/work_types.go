@@ -74,16 +74,6 @@ type WorkScheduling struct {
 	Resource []Selector `json:"resource,omitempty"`
 }
 
-func indexOfSelector(selectors []Selector, selector Selector) int {
-	for i, s := range selectors {
-		if s.Equals(selector) {
-			return i
-		}
-	}
-
-	return -1
-}
-
 // Note: The efficiency of this function is based on an assumption that both the
 // number of selectors and dependencies will be small. The efficiency is O(n*m)
 // where n is the number of selectors and m is the number of dependencies.
@@ -92,41 +82,50 @@ func indexOfSelector(selectors []Selector, selector Selector) int {
 // compare on the selector instead of a deep equals) we could increase
 // efficieny greatly.
 func NewPromiseDependenciesWork(promise *Promise) (*Work, error) {
-	parsedSelectors := []Selector{}
-	dependenciesGroup := map[int]Dependencies{}
-	const noOverrideGroup int = -1
+	type group struct {
+		selector     *Selector
+		dependencies Dependencies
+	}
+	dependenciesGroup := []group{}
 
-	dependencies := promise.Spec.Dependencies
-	for _, dep := range dependencies {
+	for _, dep := range promise.Spec.Dependencies {
+		var selector *Selector
+
 		annotations := dep.GetAnnotations()
 		if override, found := annotations[DestinationSelectorsOverride]; found {
-			var selector Selector
-			if err := yaml.Unmarshal([]byte(override), &selector); err != nil {
+			selector = &Selector{}
+			if err := yaml.Unmarshal([]byte(override), selector); err != nil {
 				return nil, err
 			}
+		}
 
-			i := indexOfSelector(parsedSelectors, selector)
-			if i == -1 {
-				parsedSelectors = append(parsedSelectors, selector)
-				i = len(parsedSelectors) - 1
+		var found bool
+		for i, depGroup := range dependenciesGroup {
+			if depGroup.selector.Equals(selector) {
+				dependenciesGroup[i].dependencies = append(dependenciesGroup[i].dependencies, dep)
+				found = true
+				break
 			}
+		}
 
-			dependenciesGroup[i] = append(dependenciesGroup[i], dep)
-		} else {
-			dependenciesGroup[noOverrideGroup] = append(dependenciesGroup[noOverrideGroup], dep)
+		if !found {
+			dependenciesGroup = append(dependenciesGroup, group{selector: selector, dependencies: []Dependency{dep}})
 		}
 	}
 
 	var workloadGroupList []WorkloadGroup
 	for i, dep := range dependenciesGroup {
-			return nil, er
+		var override *WorkScheduling
+
+		if dep.selector != nil {
+			override = &WorkScheduling{
+				Promise: []Selector{*dep.selector},
+			}
 		}
 
-		var override *WorkScheduling
-		if i != noOverrideGroup {
-			override = &WorkScheduling{
-				Promise: []Selector{parsedSelectors[i]},
-			}
+		yamlBytes, err := dep.dependencies.Marshal()
+		if err != nil {
+			return nil, err
 		}
 
 		workloadGroupList = append(workloadGroupList, WorkloadGroup{
@@ -136,7 +135,7 @@ func NewPromiseDependenciesWork(promise *Promise) (*Work, error) {
 				Workloads: []Workload{
 					{
 						Content:  string(yamlBytes),
-						Filepath: fmt.Sprintf("static/dependencies.%d.yaml", i+1),
+						Filepath: fmt.Sprintf("static/dependencies.%d.yaml", i),
 					},
 				},
 			},

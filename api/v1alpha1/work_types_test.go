@@ -9,25 +9,30 @@ import (
 	"github.com/syntasso/kratix/api/v1alpha1"
 )
 
+type testGroup struct {
+	dependencies v1alpha1.Dependencies
+	selector     map[string]string
+}
+
 var _ = Describe("WorkTypes", func() {
 	When("the dependencies contain destination overrides", func() {
 		It("create multiple workload groups in the work", func() {
 			dep1 := v1alpha1.Dependency{
-				newDependency("foo", ""),
+				newDependency("dep1", ""),
 			}
 			dep2 := v1alpha1.Dependency{
 				// but ok yaml?
 				// yeah, no quotes needed for yaml keys
-				newDependency("bar", "{matchLabels: {some: label, environment: dev}}"),
+				newDependency("cep2", "{matchLabels: {some: label, environment: dev}}"),
 			}
 			dep3 := v1alpha1.Dependency{
-				newDependency("new", "{matchLabels: {environment: dev, some: label}}"),
+				newDependency("dep3", "{matchLabels: {environment: dev, some: label}}"),
 			}
 			dep4 := v1alpha1.Dependency{
-				newDependency("yay", ""),
+				newDependency("dep4", ""),
 			}
 			dep5 := v1alpha1.Dependency{
-				newDependency("test", "{matchLabels: {environment: prod}}"),
+				newDependency("dep5", "{matchLabels: {environment: prod}}"),
 			}
 			promise := &v1alpha1.Promise{
 				ObjectMeta: metav1.ObjectMeta{Name: "promise-name"},
@@ -38,13 +43,34 @@ var _ = Describe("WorkTypes", func() {
 
 			work, err := v1alpha1.NewPromiseDependenciesWork(promise)
 
+			groups := []testGroup{
+				{dependencies: []v1alpha1.Dependency{dep1, dep4}, selector: nil},
+				{dependencies: []v1alpha1.Dependency{dep2, dep3}, selector: map[string]string{"environment": "dev", "some": "label"}},
+				{dependencies: []v1alpha1.Dependency{dep5}, selector: map[string]string{"environment": "prod"}},
+			}
+
 			Expect(err).ToNot(HaveOccurred())
-			Expect(work.Spec.WorkloadGroups).To(HaveLen(3))
-			Expect(work.Spec.WorkloadGroups[0].Workloads).To(HaveLen(1))
-			Expect(work.Spec.WorkloadGroups[0].DestinationSelectorsOverride).To(BeNil())
-			//todo: assert on both contents being inside the depednency file
-			Expect(work.Spec.WorkloadGroups[1].Workloads).To(HaveLen(1))
-			Expect(work.Spec.WorkloadGroups[1].DestinationSelectorsOverride.Promise[0].MatchLabels).To(HaveKey("environment"))
+			Expect(work.Spec.WorkloadGroups).To(HaveLen(len(groups)))
+
+			for i, group := range groups {
+				workload := work.Spec.WorkloadGroups[i]
+				Expect(workload.Workloads).To(HaveLen(1)) // all dependencies are bundled into a single file
+
+				if group.selector == nil {
+					Expect(workload.DestinationSelectorsOverride).To(BeNil())
+				} else {
+					for key, value := range group.selector {
+						Expect(workload.DestinationSelectorsOverride.Promise[0].MatchLabels).To(
+							HaveKeyWithValue(key, value),
+						)
+					}
+				}
+
+				for _, dep := range group.dependencies {
+					Expect(workload.WorkloadCoreFields.Workloads[0].Content).To(ContainSubstring(dep.GetName()))
+				}
+
+			}
 		})
 	})
 })
