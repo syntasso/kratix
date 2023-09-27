@@ -874,8 +874,10 @@ func (in *WorkloadGroup) DeepCopyInto(out *WorkloadGroup) {
 	*out = *in
 	if in.DestinationSelectorsOverride != nil {
 		in, out := &in.DestinationSelectorsOverride, &out.DestinationSelectorsOverride
-		*out = new(WorkScheduling)
-		(*in).DeepCopyInto(*out)
+		*out = make([]Selector, len(*in))
+		for i := range *in {
+			(*in)[i].DeepCopyInto(&(*out)[i])
+		}
 	}
 	in.WorkloadCoreFields.DeepCopyInto(&out.WorkloadCoreFields)
 }

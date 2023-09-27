@@ -1,7 +1,7 @@
 package v1alpha1_test
 
 import (
-	. "github.com/onsi/ginkgo"
+	. "github.com/onsi/ginkgo/v2"
 	. "github.com/onsi/gomega"
 	metav1 "k8s.io/apimachinery/pkg/apis/meta/v1"
 	"k8s.io/apimachinery/pkg/apis/meta/v1/unstructured"
@@ -23,7 +23,7 @@ var _ = Describe("WorkTypes", func() {
 			dep2 := v1alpha1.Dependency{
 				// but ok yaml?
 				// yeah, no quotes needed for yaml keys
-				newDependency("cep2", "{matchLabels: {some: label, environment: dev}}"),
+				newDependency("dep2", "{matchLabels: {some: label, environment: dev}}"),
 			}
 			dep3 := v1alpha1.Dependency{
 				newDependency("dep3", "{matchLabels: {environment: dev, some: label}}"),
@@ -60,7 +60,7 @@ var _ = Describe("WorkTypes", func() {
 					Expect(workload.DestinationSelectorsOverride).To(BeNil())
 				} else {
 					for key, value := range group.selector {
-						Expect(workload.DestinationSelectorsOverride.Promise[0].MatchLabels).To(
+						Expect(workload.DestinationSelectorsOverride[0].MatchLabels).To(
 							HaveKeyWithValue(key, value),
 						)
 					}

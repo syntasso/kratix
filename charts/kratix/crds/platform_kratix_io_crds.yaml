@@ -501,26 +501,14 @@ spec:
                   items:
                     properties:
                       destinationSelectorsOverride:
-                        properties:
-                          promise:
-                            items:
-                              properties:
-                                matchLabels:
-                                  additionalProperties:
-                                    type: string
-                                  type: object
+                        items:
+                          properties:
+                            matchLabels:
+                              additionalProperties:
+                                type: string
                               type: object
-                            type: array
-                          resource:
-                            items:
-                              properties:
-                                matchLabels:
-                                  additionalProperties:
-                                    type: string
-                                  type: object
-                              type: object
-                            type: array
-                        type: object
+                          type: object
+                        type: array
                       promiseName:
                         type: string
                       resourceName:

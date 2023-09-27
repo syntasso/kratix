@@ -56,7 +56,7 @@ type WorkSpec struct {
 }
 
 type WorkloadGroup struct {
-	DestinationSelectorsOverride *WorkScheduling `json:"destinationSelectorsOverride,omitempty"`
+	DestinationSelectorsOverride []Selector `json:"destinationSelectorsOverride,omitempty"`
 	WorkloadCoreFields           `json:",inline"`
 }
 
@@ -115,12 +115,10 @@ func NewPromiseDependenciesWork(promise *Promise) (*Work, error) {
 
 	var workloadGroupList []WorkloadGroup
 	for i, dep := range dependenciesGroup {
-		var override *WorkScheduling
+		var override []Selector
 
 		if dep.selector != nil {
-			override = &WorkScheduling{
-				Promise: []Selector{*dep.selector},
-			}
+			override = []Selector{*dep.selector}
 		}
 
 		yamlBytes, err := dep.dependencies.Marshal()
