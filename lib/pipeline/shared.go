@@ -14,8 +14,8 @@ import (
 	"k8s.io/apimachinery/pkg/util/uuid"
 )
 
-const kratixOperationEnvVar = "KRATIX_OPERATION"
-const kratixTypeEnvVar = "KRATIX_TYPE"
+const kratixActionEnvVar = "KRATIX_WORKFLOW_ACTION"
+const kratixTypeEnvVar = "KRATIX_WORKFLOW_TYPE"
 
 func pipelineVolumes() ([]v1.Volume, []v1.VolumeMount) {
 	volumes := []v1.Volume{

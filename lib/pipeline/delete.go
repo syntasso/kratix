@@ -8,7 +8,7 @@ import (
 	"k8s.io/apimachinery/pkg/apis/meta/v1/unstructured"
 )
 
-const kratixDeleteOperation = "delete"
+const kratixActionDelete = "delete"
 
 func NewDeletePipeline(rr *unstructured.Unstructured, pipelines []platformv1alpha1.Pipeline, resourceRequestIdentifier, promiseIdentifier string) batchv1.Job {
 
@@ -56,8 +56,8 @@ func deletePipelineContainers(rr *unstructured.Unstructured, pipelines []platfor
 				VolumeMounts: volumeMounts,
 				Env: []v1.EnvVar{
 					{
-						Name:  kratixOperationEnvVar,
-						Value: kratixDeleteOperation,
+						Name:  kratixActionEnvVar,
+						Value: kratixActionDelete,
 					},
 				},
 			})

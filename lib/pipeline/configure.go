@@ -19,9 +19,9 @@ import (
 )
 
 const (
-	kratixConfigureOperation = "configure"
-	kratixTypeResource       = "resource"
-	kratixTypePromise        = "promise"
+	kratixActionConfigure = "configure"
+	kratixTypeResource    = "resource"
+	kratixTypePromise     = "promise"
 )
 
 func NewConfigureResource(
@@ -166,8 +166,8 @@ func configurePipelineInitContainers(obj *unstructured.Unstructured, pipelines [
 				VolumeMounts: volumeMounts,
 				Env: []v1.EnvVar{
 					{
-						Name:  kratixOperationEnvVar,
-						Value: kratixConfigureOperation,
+						Name:  kratixActionEnvVar,
+						Value: kratixActionConfigure,
 					},
 					{
 						Name:  kratixTypeEnvVar,
