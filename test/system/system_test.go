@@ -113,7 +113,7 @@ var _ = Describe("Kratix", func() {
 				rrName := "rr-test"
 
 				c1Command := `kop="delete"
-							if [ "${KRATIX_OPERATION}" != "delete" ]; then kop="create"
+							if [ "${KRATIX_WORKFLOW_ACTION}" != "delete" ]; then kop="create"
 								echo "message: My awesome status message" > /kratix/metadata/status.yaml
 								echo "key: value" >> /kratix/metadata/status.yaml
 								mkdir -p /kratix/output/foo/
