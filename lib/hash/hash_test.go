@@ -1,7 +1,7 @@
 package hash_test
 
 import (
-	. "github.com/onsi/ginkgo"
+	. "github.com/onsi/ginkgo/v2"
 	. "github.com/onsi/gomega"
 	"github.com/syntasso/kratix/lib/hash"
 	"k8s.io/apimachinery/pkg/apis/meta/v1/unstructured"

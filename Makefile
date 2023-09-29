@@ -145,7 +145,7 @@ ifeq ($(shell uname -sm),Darwin arm64)
 endif
 .PHONY: test
 test: manifests generate fmt vet envtest ## Run tests.
-	KUBEBUILDER_ASSETS="$(shell $(ENVTEST) $(ARCH_FLAG) use $(ENVTEST_K8S_VERSION) -p path)" WC_IMG=${WC_IMG} ACK_GINKGO_DEPRECATIONS=1.16.4 go run github.com/onsi/ginkgo/ginkgo -r  --coverprofile cover.out --skipPackage=system
+	KUBEBUILDER_ASSETS="$(shell $(ENVTEST) $(ARCH_FLAG) use $(ENVTEST_K8S_VERSION) -p path)" WC_IMG=${WC_IMG} go run github.com/onsi/ginkgo/v2/ginkgo -r -v --coverprofile cover.out --skip-package=system
 
 ENVTEST = $(shell pwd)/bin/setup-envtest
 .PHONY: envtest

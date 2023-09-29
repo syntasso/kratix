@@ -4,8 +4,9 @@ import (
 	"context"
 	"path/filepath"
 	"testing"
+	"time"
 
-	. "github.com/onsi/ginkgo"
+	. "github.com/onsi/ginkgo/v2"
 	. "github.com/onsi/gomega"
 	"github.com/syntasso/kratix/api/v1alpha1"
 	"k8s.io/client-go/kubernetes/scheme"
@@ -24,7 +25,7 @@ var (
 	err       error
 )
 
-var _ = BeforeSuite(func() {
+var _ = BeforeSuite(func(_ SpecContext) {
 	//Env Test
 	By("bootstrapping test environment")
 	testEnv = &envtest.Environment{
@@ -43,7 +44,7 @@ var _ = BeforeSuite(func() {
 	Expect(err).NotTo(HaveOccurred())
 	Expect(k8sClient).NotTo(BeNil())
 
-}, 60)
+}, NodeTimeout(time.Minute))
 
 var _ = AfterSuite(func() {
 	By("tearing down the test environment")
