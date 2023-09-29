@@ -1,6 +1,8 @@
 package system_test
 
 import (
+	"fmt"
+	"os"
 	"testing"
 
 	. "github.com/onsi/ginkgo/v2"
@@ -20,6 +22,15 @@ func TestSystem(t *testing.T) {
 	RegisterFailHandler(Fail)
 	RunSpecs(t, "System Suite")
 }
+
+var _ = BeforeSuite(func() {
+	initK8sClient()
+	storeType = "bucket"
+	if os.Getenv("SYSTEM_TEST_STORE_TYPE") == "git" {
+		storeType = "git"
+	}
+	fmt.Println("Running system tests with statestore " + storeType)
+})
 
 func initK8sClient() {
 	cfg := ctrl.GetConfigOrDie()

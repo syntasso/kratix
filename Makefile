@@ -21,6 +21,8 @@ else
 GOBIN=$(shell go env GOBIN)
 endif
 
+GINKGO = github.com/onsi/ginkgo/v2/ginkgo
+
 # Setting SHELL to bash allows bash commands to be executed by recipes.
 # This is a requirement for 'setup-envtest.sh' in the test target.
 # Options are set to exit when a recipe line exits non-zero or a piped command fails.
@@ -122,7 +124,7 @@ system-test: generate fmt vet ## Run integrations tests.
 	make ginkgo-system-test
 
 ginkgo-system-test:
-	CK_GINKGO_DEPRECATIONS=1.16.4 go run github.com/onsi/ginkgo/ginkgo ./test/system/  -r  --coverprofile cover.out
+	go run ${GINKGO} ./test/system/ -r  --coverprofile cover.out
 
 kind-load-image: docker-build ## Load locally built image into KinD, use export IMG=syntasso/kratix-platform:${VERSION}
 	kind load docker-image ${IMG} --name platform
@@ -145,7 +147,7 @@ ifeq ($(shell uname -sm),Darwin arm64)
 endif
 .PHONY: test
 test: manifests generate fmt vet envtest ## Run tests.
-	KUBEBUILDER_ASSETS="$(shell $(ENVTEST) $(ARCH_FLAG) use $(ENVTEST_K8S_VERSION) -p path)" WC_IMG=${WC_IMG} go run github.com/onsi/ginkgo/v2/ginkgo -r -v --coverprofile cover.out --skip-package=system
+	KUBEBUILDER_ASSETS="$(shell $(ENVTEST) $(ARCH_FLAG) use $(ENVTEST_K8S_VERSION) -p path)" WC_IMG=${WC_IMG} go run ${GINKGO} -r -v --coverprofile cover.out --skip-package=system
 
 ENVTEST = $(shell pwd)/bin/setup-envtest
 .PHONY: envtest
