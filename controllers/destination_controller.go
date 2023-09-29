@@ -21,6 +21,7 @@ import (
 	"path/filepath"
 
 	"k8s.io/apimachinery/pkg/api/errors"
+	"k8s.io/client-go/tools/record"
 
 	v1 "k8s.io/api/core/v1"
 	metav1 "k8s.io/apimachinery/pkg/apis/meta/v1"
@@ -38,6 +39,7 @@ type DestinationReconciler struct {
 	Client    client.Client
 	Log       logr.Logger
 	Scheduler *Scheduler
+	record.EventRecorder
 }
 
 //+kubebuilder:rbac:groups=platform.kratix.io,resources=destinations,verbs=get;list;watch;create;update;patch;delete
@@ -65,9 +67,10 @@ func (r *DestinationReconciler) Reconcile(ctx context.Context, req ctrl.Request)
 	}
 
 	opts := opts{
-		client: r.Client,
-		ctx:    ctx,
-		logger: logger,
+		client:        r.Client,
+		ctx:           ctx,
+		logger:        logger,
+		EventRecorder: r.EventRecorder,
 	}
 
 	writer, err := newWriter(opts, *destination)

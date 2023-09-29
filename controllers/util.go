@@ -17,6 +17,7 @@ import (
 	"k8s.io/apimachinery/pkg/labels"
 	"k8s.io/apimachinery/pkg/runtime/schema"
 	"k8s.io/apimachinery/pkg/types"
+	"k8s.io/client-go/tools/record"
 	ctrl "sigs.k8s.io/controller-runtime"
 	"sigs.k8s.io/controller-runtime/pkg/client"
 	"sigs.k8s.io/controller-runtime/pkg/controller/controllerutil"
@@ -32,6 +33,7 @@ type opts struct {
 	ctx    context.Context
 	client client.Client
 	logger logr.Logger
+	record.EventRecorder
 }
 
 type promisePipelines struct {
@@ -94,6 +96,7 @@ func ensurePipelineIsReconciled(j jobOpts) (*ctrl.Result, error) {
 	}
 
 	j.logger.Info("Job already exists and is complete for workflow")
+	j.opts.Eventf(j.obj, "Normal", "WorkflowComplete", "Workflow complete")
 	return nil, nil
 }
 

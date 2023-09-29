@@ -21,6 +21,7 @@ import (
 
 	apiextensionsv1 "k8s.io/apiextensions-apiserver/pkg/apis/apiextensions/v1"
 	"k8s.io/apimachinery/pkg/types"
+	"k8s.io/client-go/tools/record"
 	"sigs.k8s.io/controller-runtime/pkg/controller/controllerutil"
 
 	"fmt"
@@ -63,6 +64,7 @@ type dynamicResourceRequestController struct {
 	enabled                     *bool
 	crd                         *apiextensionsv1.CustomResourceDefinition
 	promiseDestinationSelectors []v1alpha1.Selector
+	record.EventRecorder
 }
 
 //+kubebuilder:rbac:groups="batch",resources=jobs,verbs=get;list;watch;create;update;patch;delete
@@ -96,9 +98,10 @@ func (r *dynamicResourceRequestController) Reconcile(ctx context.Context, req ct
 	}
 
 	opts := opts{
-		client: r.Client,
-		ctx:    ctx,
-		logger: logger,
+		client:        r.Client,
+		ctx:           ctx,
+		logger:        logger,
+		EventRecorder: r.EventRecorder,
 	}
 
 	if !rr.GetDeletionTimestamp().IsZero() {

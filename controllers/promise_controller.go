@@ -39,12 +39,14 @@ import (
 	"k8s.io/apimachinery/pkg/labels"
 	"k8s.io/apimachinery/pkg/runtime"
 	"k8s.io/apimachinery/pkg/runtime/schema"
+	"k8s.io/client-go/tools/record"
 	ctrl "sigs.k8s.io/controller-runtime"
 	"sigs.k8s.io/controller-runtime/pkg/client"
 )
 
 // PromiseReconciler reconciles a Promise object
 type PromiseReconciler struct {
+	record.EventRecorder
 	Client                    client.Client
 	ApiextensionsClient       *clientset.Clientset
 	Log                       logr.Logger
@@ -90,6 +92,8 @@ var (
 
 //+kubebuilder:rbac:groups=apiextensions.k8s.io,resources=customresourcedefinitions,verbs=get;list;watch;create;update;patch;delete
 
+//+kubebuilder:rbac:groups=core,resources=events,verbs=create;patch
+
 func (r *PromiseReconciler) Reconcile(ctx context.Context, req ctrl.Request) (ctrl.Result, error) {
 	if r.StartedDynamicControllers == nil {
 		r.StartedDynamicControllers = make(map[string]*dynamicResourceRequestController)
@@ -107,9 +111,10 @@ func (r *PromiseReconciler) Reconcile(ctx context.Context, req ctrl.Request) (ct
 	logger := r.Log.WithValues("identifier", promise.GetName())
 
 	opts := opts{
-		client: r.Client,
-		ctx:    ctx,
-		logger: logger,
+		client:        r.Client,
+		ctx:           ctx,
+		logger:        logger,
+		EventRecorder: r.EventRecorder,
 	}
 
 	if !promise.DeletionTimestamp.IsZero() {
@@ -125,7 +130,7 @@ func (r *PromiseReconciler) Reconcile(ctx context.Context, req ctrl.Request) (ct
 			return ctrl.Result{}, err
 		}
 
-		err := r.ensureCRDExists(ctx, rrCRD, rrGVK, logger)
+		err := r.ensureCRDExists(ctx, promise, rrCRD, rrGVK, logger)
 		if err != nil {
 			return ctrl.Result{}, err
 		}
@@ -184,6 +189,7 @@ func (r *PromiseReconciler) Reconcile(ctx context.Context, req ctrl.Request) (ct
 		return ctrl.Result{}, r.Client.Status().Update(ctx, promise)
 	}
 
+	r.Eventf(promise, "Normal", "FullyReconciled", "Promise installation is up to date")
 	return ctrl.Result{}, nil
 }
 
@@ -283,12 +289,13 @@ func (r *PromiseReconciler) ensureDynamicControllerIsStarted(promise *v1alpha1.P
 		log:                         r.Log.WithName(promise.GetName()),
 		uid:                         string(promise.GetUID())[0:5],
 		enabled:                     &enabled,
+		EventRecorder:               r.EventRecorder,
 	}
 	r.StartedDynamicControllers[string(promise.GetUID())] = dynamicResourceRequestController
 
 	unstructuredCRD := &unstructured.Unstructured{}
 	unstructuredCRD.SetGroupVersionKind(rrGVK)
-
+	r.Eventf(promise, "Normal", "DynamicControllerStarted", "dynamic controller started for Promise")
 	return ctrl.NewControllerManagedBy(r.Manager).
 		For(unstructuredCRD).
 		Owns(&batchv1.Job{}).
@@ -372,7 +379,7 @@ func (r *PromiseReconciler) createResourcesForDynamicControllerIfTheyDontExist(c
 	return nil
 }
 
-func (r *PromiseReconciler) ensureCRDExists(ctx context.Context, rrCRD *apiextensionsv1.CustomResourceDefinition,
+func (r *PromiseReconciler) ensureCRDExists(ctx context.Context, promise *v1alpha1.Promise, rrCRD *apiextensionsv1.CustomResourceDefinition,
 	rrGVK schema.GroupVersionKind, logger logr.Logger) error {
 
 	_, err := r.ApiextensionsClient.ApiextensionsV1().
@@ -397,6 +404,8 @@ func (r *PromiseReconciler) ensureCRDExists(ctx context.Context, rrCRD *apiexten
 		} else {
 			logger.Error(err, "Error creating crd")
 		}
+	} else {
+		r.Eventf(promise, "Normal", "APICreated", "API %s created", rrCRD.Spec.Names.Kind)
 	}
 
 	_, err = r.Manager.GetRESTMapper().RESTMapping(rrGVK.GroupKind(), rrGVK.Version)
@@ -404,6 +413,7 @@ func (r *PromiseReconciler) ensureCRDExists(ctx context.Context, rrCRD *apiexten
 }
 
 func (r *PromiseReconciler) deletePromise(o opts, promise *v1alpha1.Promise) (ctrl.Result, error) {
+	r.Eventf(promise, "Warning", "Deleting", "Promise is being deleted")
 	if resourceutil.FinalizersAreDeleted(promise, promiseFinalizers) {
 		return ctrl.Result{}, nil
 	}
@@ -413,6 +423,8 @@ func (r *PromiseReconciler) deletePromise(o opts, promise *v1alpha1.Promise) (ct
 		if err != nil {
 			return defaultRequeue, err
 		}
+
+		r.Eventf(promise, "Normal", "WorkflowsDeleted", "workflows deleted")
 		return fastRequeue, nil
 	}
 
@@ -422,6 +434,8 @@ func (r *PromiseReconciler) deletePromise(o opts, promise *v1alpha1.Promise) (ct
 		if err != nil {
 			return defaultRequeue, err
 		}
+
+		r.Eventf(promise, "Normal", "ResourceDeleted", "resources deleted")
 		return fastRequeue, nil
 	}
 
@@ -439,6 +453,8 @@ func (r *PromiseReconciler) deletePromise(o opts, promise *v1alpha1.Promise) (ct
 		if err != nil {
 			return defaultRequeue, err
 		}
+
+		r.Eventf(promise, "Normal", "ControllerResourceDeleted", "dynamic controller resources deleted")
 		return fastRequeue, nil
 	}
 
@@ -448,6 +464,8 @@ func (r *PromiseReconciler) deletePromise(o opts, promise *v1alpha1.Promise) (ct
 		if err != nil {
 			return defaultRequeue, err
 		}
+
+		r.Eventf(promise, "Normal", "ControllerResourceDeleted", "dependency work deleted")
 		return fastRequeue, nil
 	}
 
@@ -457,9 +475,12 @@ func (r *PromiseReconciler) deletePromise(o opts, promise *v1alpha1.Promise) (ct
 		if err != nil {
 			return defaultRequeue, err
 		}
+
+		r.Eventf(promise, "Normal", "APIDeleted", "API deleted")
 		return fastRequeue, nil
 	}
 
+	r.Eventf(promise, "Normal", "Deleted", "All deletion finalizers completed")
 	return fastRequeue, nil
 }
 

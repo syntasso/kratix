@@ -23,6 +23,7 @@ import (
 	"github.com/go-logr/logr"
 	"k8s.io/apimachinery/pkg/api/errors"
 	"k8s.io/apimachinery/pkg/types"
+	"k8s.io/client-go/tools/record"
 	ctrl "sigs.k8s.io/controller-runtime"
 	"sigs.k8s.io/controller-runtime/pkg/client"
 	"sigs.k8s.io/controller-runtime/pkg/controller/controllerutil"
@@ -42,6 +43,7 @@ const (
 type WorkPlacementReconciler struct {
 	Client client.Client
 	Log    logr.Logger
+	record.EventRecorder
 }
 
 const repoCleanupWorkPlacementFinalizer = "finalizers.workplacement.kratix.io/repo-cleanup"
@@ -80,9 +82,10 @@ func (r *WorkPlacementReconciler) Reconcile(ctx context.Context, req ctrl.Reques
 	}
 
 	opts := opts{
-		client: r.Client,
-		ctx:    ctx,
-		logger: logger,
+		client:        r.Client,
+		ctx:           ctx,
+		logger:        logger,
+		EventRecorder: r.EventRecorder,
 	}
 
 	writer, err := newWriter(opts, *destination)

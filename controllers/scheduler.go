@@ -8,6 +8,7 @@ import (
 
 	v1 "k8s.io/apimachinery/pkg/apis/meta/v1"
 	"k8s.io/client-go/kubernetes/scheme"
+	"k8s.io/client-go/tools/record"
 
 	"github.com/go-logr/logr"
 	"github.com/syntasso/kratix/api/v1alpha1"
@@ -25,6 +26,7 @@ const (
 type Scheduler struct {
 	Client client.Client
 	Log    logr.Logger
+	record.EventRecorder
 }
 
 // Only reconciles Works that are from a Promise Dependency

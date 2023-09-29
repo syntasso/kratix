@@ -83,14 +83,16 @@ func main() {
 		}
 
 		scheduler := controllers.Scheduler{
-			Client: mgr.GetClient(),
-			Log:    ctrl.Log.WithName("controllers").WithName("Scheduler"),
+			Client:        mgr.GetClient(),
+			Log:           ctrl.Log.WithName("controllers").WithName("Scheduler"),
+			EventRecorder: mgr.GetEventRecorderFor("Scheduler"),
 		}
 
 		if err = (&controllers.PromiseReconciler{
 			ApiextensionsClient: apiextensionsClient,
 			Client:              mgr.GetClient(),
 			Log:                 ctrl.Log.WithName("controllers").WithName("Promise"),
+			EventRecorder:       mgr.GetEventRecorderFor("Promise-controller"),
 			Manager:             mgr,
 			RestartManager: func() {
 				restartManager = true
@@ -101,24 +103,27 @@ func main() {
 			os.Exit(1)
 		}
 		if err = (&controllers.WorkReconciler{
-			Client:    mgr.GetClient(),
-			Log:       ctrl.Log.WithName("controllers").WithName("Work"),
-			Scheduler: &scheduler,
+			Client:        mgr.GetClient(),
+			Log:           ctrl.Log.WithName("controllers").WithName("Work"),
+			Scheduler:     &scheduler,
+			EventRecorder: mgr.GetEventRecorderFor("Work-controller"),
 		}).SetupWithManager(mgr); err != nil {
 			setupLog.Error(err, "unable to create controller", "controller", "Work")
 			os.Exit(1)
 		}
 		if err = (&controllers.DestinationReconciler{
-			Client:    mgr.GetClient(),
-			Scheduler: &scheduler,
-			Log:       ctrl.Log.WithName("controllers").WithName("DestinationController"),
+			Client:        mgr.GetClient(),
+			Scheduler:     &scheduler,
+			Log:           ctrl.Log.WithName("controllers").WithName("DestinationController"),
+			EventRecorder: mgr.GetEventRecorderFor("Destination-controller"),
 		}).SetupWithManager(mgr); err != nil {
 			setupLog.Error(err, "unable to create controller", "controller", "Destination")
 			os.Exit(1)
 		}
 		if err = (&controllers.WorkPlacementReconciler{
-			Client: mgr.GetClient(),
-			Log:    ctrl.Log.WithName("controllers").WithName("WorkPlacementController"),
+			Client:        mgr.GetClient(),
+			Log:           ctrl.Log.WithName("controllers").WithName("WorkPlacementController"),
+			EventRecorder: mgr.GetEventRecorderFor("WorkPlacement-controller"),
 		}).SetupWithManager(mgr); err != nil {
 			setupLog.Error(err, "unable to create controller", "controller", "WorkPlacement")
 			os.Exit(1)
