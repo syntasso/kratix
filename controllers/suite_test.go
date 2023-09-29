@@ -19,10 +19,11 @@ package controllers_test
 import (
 	"path/filepath"
 	"testing"
+	"time"
 
 	"golang.org/x/net/context"
 
-	. "github.com/onsi/ginkgo"
+	. "github.com/onsi/ginkgo/v2"
 	. "github.com/onsi/gomega"
 	platformv1alpha1 "github.com/syntasso/kratix/api/v1alpha1"
 	. "github.com/syntasso/kratix/controllers"
@@ -50,7 +51,7 @@ var (
 	consistentlyTimeout = "6s"
 	interval            = "3s"
 )
-var _ = BeforeSuite(func() {
+var _ = BeforeSuite(func(_ SpecContext) {
 	logf.SetLogger(zap.New(zap.WriteTo(GinkgoWriter), zap.UseDevMode(true)))
 
 	By("bootstrapping test environment")
@@ -99,7 +100,7 @@ var _ = BeforeSuite(func() {
 	}
 	Expect(k8sClient.Create(context.Background(), ns)).To(Succeed())
 
-}, 60)
+}, NodeTimeout(time.Minute))
 
 var _ = AfterSuite(func() {
 	By("tearing down the test environment")
@@ -147,7 +148,5 @@ func deleteInNamespace(obj client.Object, namespace string) {
 func TestAPIs(t *testing.T) {
 	RegisterFailHandler(Fail)
 
-	RunSpecsWithDefaultAndCustomReporters(t,
-		"Controller Suite",
-		[]Reporter{})
+	RunSpecs(t, "Controller Suite")
 }

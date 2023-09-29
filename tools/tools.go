@@ -20,5 +20,5 @@ package tools
  */
 import (
 	// Ginkgo is what we use to run our tests
-	_ "github.com/onsi/ginkgo/ginkgo"
+	_ "github.com/onsi/ginkgo/v2/ginkgo"
 )

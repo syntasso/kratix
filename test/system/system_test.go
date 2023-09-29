@@ -15,7 +15,7 @@ import (
 	"github.com/go-git/go-git/v5/plumbing/transport/http"
 	"github.com/minio/minio-go/v7"
 	"github.com/minio/minio-go/v7/pkg/credentials"
-	. "github.com/onsi/ginkgo"
+	. "github.com/onsi/ginkgo/v2"
 	. "github.com/onsi/gomega"
 	"github.com/onsi/gomega/gexec"
 )
@@ -73,15 +73,6 @@ spec:
 )
 
 var _ = Describe("Kratix", func() {
-	BeforeSuite(func() {
-		initK8sClient()
-		storeType = "bucket"
-		if os.Getenv("SYSTEM_TEST_STORE_TYPE") == "git" {
-			storeType = "git"
-		}
-		fmt.Println("Running system tests with statestore " + storeType)
-	})
-
 	Describe("Promise lifecycle", func() {
 		It("successfully manages the promise lifecycle", func() {
 			By("installing the promise", func() {
