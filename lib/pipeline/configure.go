@@ -18,12 +18,6 @@ import (
 	"sigs.k8s.io/controller-runtime/pkg/controller/controllerutil"
 )
 
-const (
-	kratixActionConfigure = "configure"
-	kratixTypeResource    = "resource"
-	kratixTypePromise     = "promise"
-)
-
 func NewConfigureResource(
 	rr *unstructured.Unstructured,
 	crdPlural string,
@@ -97,7 +91,6 @@ func ConfigurePipeline(obj *unstructured.Unstructured, pipelines []platformv1alp
 		return nil, err
 	}
 
-	objKind := fmt.Sprintf("%s.%s", strings.ToLower(obj.GetKind()), obj.GroupVersionKind().Group)
 	job := &batchv1.Job{
 		TypeMeta: metav1.TypeMeta{
 			Kind: "Job",
@@ -121,7 +114,8 @@ func ConfigurePipeline(obj *unstructured.Unstructured, pipelines []platformv1alp
 							Image:   os.Getenv("WC_IMG"),
 							Command: []string{"sh", "-c", "update-status"},
 							Env: []v1.EnvVar{
-								{Name: "OBJECT_KIND", Value: objKind},
+								{Name: "OBJECT_KIND", Value: strings.ToLower(obj.GetKind())},
+								{Name: "OBJECT_GROUP", Value: obj.GroupVersionKind().Group},
 								{Name: "OBJECT_NAME", Value: obj.GetName()},
 								{Name: "OBJECT_NAMESPACE", Value: pipelineArgs.Namespace()},
 							},
@@ -147,14 +141,15 @@ func ConfigurePipeline(obj *unstructured.Unstructured, pipelines []platformv1alp
 
 func configurePipelineInitContainers(obj *unstructured.Unstructured, pipelines []platformv1alpha1.Pipeline, promiseName string, promiseWorkflow bool, logger logr.Logger) ([]v1.Container, []v1.Volume) {
 	volumes, volumeMounts := pipelineVolumes()
-	readerContainer := readerContainer(obj, "shared-input")
-	containers := []v1.Container{
-		readerContainer,
+
+	kratixWorkflowType := platformv1alpha1.KratixWorkflowTypeResource
+	if promiseWorkflow {
+		kratixWorkflowType = platformv1alpha1.KratixWorkflowTypePromise
 	}
 
-	kratixType := kratixTypeResource
-	if promiseWorkflow {
-		kratixType = kratixTypePromise
+	readerContainer := readerContainer(obj, kratixWorkflowType, "shared-input")
+	containers := []v1.Container{
+		readerContainer,
 	}
 
 	if len(pipelines) > 0 {
@@ -167,20 +162,22 @@ func configurePipelineInitContainers(obj *unstructured.Unstructured, pipelines [
 				Env: []v1.EnvVar{
 					{
 						Name:  kratixActionEnvVar,
-						Value: kratixActionConfigure,
+						Value: platformv1alpha1.KratixActionConfigure,
 					},
 					{
 						Name:  kratixTypeEnvVar,
-						Value: kratixType,
+						Value: kratixWorkflowType,
 					},
 				},
 			})
 		}
 	}
 
-	workCreatorCommand := fmt.Sprintf("./work-creator -input-directory /work-creator-files -promise-name %s -namespace %q -resource-name %s", promiseName, obj.GetNamespace(), obj.GetName())
+	workCreatorCommand := fmt.Sprintf("./work-creator -input-directory /work-creator-files -promise-name %s -namespace %q", promiseName, obj.GetNamespace())
 	if promiseWorkflow {
-		workCreatorCommand = fmt.Sprintf("%s -add-promise-dependencies", workCreatorCommand)
+		workCreatorCommand += fmt.Sprintf(" -workflow-type %s", platformv1alpha1.KratixWorkflowTypePromise)
+	} else {
+		workCreatorCommand += fmt.Sprintf(" -resource-name %s -workflow-type %s", obj.GetName(), platformv1alpha1.KratixWorkflowTypeResource)
 	}
 	writer := v1.Container{
 		Name:    "work-writer",
@@ -200,13 +197,6 @@ func configurePipelineInitContainers(obj *unstructured.Unstructured, pipelines [
 				Name:      "promise-scheduling", // this volumemount is a configmap
 			},
 		},
-	}
-
-	if promiseWorkflow {
-		writer.VolumeMounts = append(writer.VolumeMounts, v1.VolumeMount{
-			MountPath: "/work-creator-files/promise",
-			Name:      "shared-input",
-		})
 	}
 
 	containers = append(containers, writer)

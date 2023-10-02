@@ -38,20 +38,19 @@ var _ = Describe("WorkCreator", func() {
 			k8sClient.Create(context.Background(), &v1.Namespace{ObjectMeta: metav1.ObjectMeta{Name: "kratix-platform-system"}})
 		})
 
-		Context("complete set of inputs", func() {
+		Context("complete set of inputs for a resource request", func() {
 			var workResource v1alpha1.Work
 			var mockPipelineDirectory string
 
 			BeforeEach(func() {
 				mockPipelineDirectory = filepath.Join(getRootDirectory(), "complete")
-				err := workCreator.Execute(mockPipelineDirectory, "promise-name", "default", "resource-name", false)
+				err := workCreator.Execute(mockPipelineDirectory, "promise-name", "default", "resource-name", "resource")
 				Expect(err).ToNot(HaveOccurred())
 
 				workResource = getWork(expectedNamespace, resourceWorkName)
 			})
 
 			It("has a correctly configured Work resource", func() {
-				Expect(workResource.GetName()).To(Equal(resourceWorkName))
 				Expect(workResource.Spec.DestinationSelectors).To(Equal(
 					v1alpha1.WorkScheduling{
 						Promise: []v1alpha1.Selector{
@@ -65,6 +64,7 @@ var _ = Describe("WorkCreator", func() {
 							},
 						},
 					}))
+				Expect(workResource.Spec.Replicas).To(Equal(1))
 			})
 
 			Describe("the Work resource workloads list", func() {
@@ -91,7 +91,7 @@ var _ = Describe("WorkCreator", func() {
 
 		Context("with empty metadata directory", func() {
 			BeforeEach(func() {
-				err := workCreator.Execute(filepath.Join(getRootDirectory(), "empty-metadata"), "promise-name", "default", "resource-name", false)
+				err := workCreator.Execute(filepath.Join(getRootDirectory(), "empty-metadata"), "promise-name", "default", "resource-name", "resource")
 				Expect(err).ToNot(HaveOccurred())
 			})
 
@@ -112,7 +112,7 @@ var _ = Describe("WorkCreator", func() {
 		Context("with empty namespace string", func() {
 			BeforeEach(func() {
 				expectedNamespace = "kratix-platform-system"
-				err = workCreator.Execute(filepath.Join(getRootDirectory(), "empty-metadata"), "promise-name", "", "resource-name", false)
+				err = workCreator.Execute(filepath.Join(getRootDirectory(), "empty-metadata"), "promise-name", "", "resource-name", "resource")
 				Expect(err).NotTo(HaveOccurred())
 			})
 
@@ -121,20 +121,25 @@ var _ = Describe("WorkCreator", func() {
 			})
 		})
 
-		Context("with add-promise-dependencies true", func() {
+		Context("complete set of inputs for a Promise", func() {
 			BeforeEach(func() {
-				expectedNamespace = "kratix-platform-system"
-				err = workCreator.Execute(filepath.Join(getRootDirectory(), "promise"), "promise-name", "", "resource-name", true)
+				err = workCreator.Execute(filepath.Join(getRootDirectory(), "complete"), "promise-name", "", "resource-name", "promise")
 				Expect(err).NotTo(HaveOccurred())
 			})
 
-			It("adds the dependencies in the promise to the work", func() {
+			It("has a correctly configured Work resource", func() {
+				expectedNamespace = "kratix-platform-system"
 				workResource := getWork(expectedNamespace, promiseWorkName)
-				Expect(workResource.Spec.Workloads).To(HaveLen(4))
-				Expect(workResource.Spec.Workloads).To(ContainElement(v1alpha1.Workload{
-					Content:  "apiVersion: v1\nkind: Namespace\nmetadata:\n  name: dep-namespace\n",
-					Filepath: "static/dependencies.yaml",
-				}))
+
+				Expect(workResource.Spec.DestinationSelectors).To(Equal(
+					v1alpha1.WorkScheduling{
+						Promise: []v1alpha1.Selector{
+							{
+								MatchLabels: map[string]string{"environment": "dev"},
+							},
+						},
+					}))
+				Expect(workResource.Spec.Replicas).To(Equal(-1))
 			})
 		})
 	})
