@@ -21,4 +21,4 @@ yq -n '.status = env(status_values)' |  yq '.status.conditions[0] = env(conditio
 # TODO: Should we check if printer fields values exist?
 #       Default behaviour is to just be empty (not error)
 
-kubectl patch $OBJECT_KIND/$OBJECT_NAME --namespace $OBJECT_NAMESPACE --type merge --patch-file status.yaml --subresource status
+kubectl patch $OBJECT_KIND.$OBJECT_GROUP/$OBJECT_NAME --namespace $OBJECT_NAMESPACE --type merge --patch-file status.yaml --subresource status
