@@ -1,7 +1,7 @@
 package pipeline
 
 import (
-	"fmt"
+	"os"
 	"strings"
 
 	"github.com/pkg/errors"
@@ -158,24 +158,31 @@ func destinationSelectorsConfigMap(resources PipelineArgs, destinationSelectors 
 	}, nil
 }
 
-func readerContainer(obj *unstructured.Unstructured, volumeName string) v1.Container {
+func readerContainer(obj *unstructured.Unstructured, kratixWorkflowType, volumeName string) v1.Container {
 	namespace := obj.GetNamespace()
 	if namespace == "" {
 		// if namespace is empty it means its a unnamespaced resource, so providing
 		// any value is valid for kubectl
 		namespace = v1alpha1.KratixSystemNamespace
 	}
-	objRef := fmt.Sprintf("%s.%s %s --namespace %s", strings.ToLower(obj.GetKind()), obj.GroupVersionKind().Group, obj.GetName(), namespace)
-	resourceRequestCommand := fmt.Sprintf("kubectl get %s -oyaml > /output/object.yaml; cat /output/object.yaml", objRef)
 
-	return v1.Container{
-		Name:    "reader",
-		Image:   "bitnami/kubectl:1.20.10",
-		Command: []string{"sh", "-c", resourceRequestCommand},
-		VolumeMounts: []v1.VolumeMount{
-			{MountPath: "/output", Name: volumeName},
+	readerContainer := v1.Container{
+		Name:  "reader",
+		Image: os.Getenv("WC_IMG"),
+		Env: []v1.EnvVar{
+			{Name: "OBJECT_KIND", Value: strings.ToLower(obj.GetKind())},
+			{Name: "OBJECT_GROUP", Value: obj.GroupVersionKind().Group},
+			{Name: "OBJECT_NAME", Value: obj.GetName()},
+			{Name: "OBJECT_NAMESPACE", Value: namespace},
+			{Name: "KRATIX_WORKFLOW_TYPE", Value: kratixWorkflowType},
 		},
+		VolumeMounts: []v1.VolumeMount{
+			{MountPath: "/kratix/input", Name: "shared-input"},
+			{MountPath: "/kratix/output", Name: "shared-output"},
+		},
+		Command: []string{"sh", "-c", "reader"},
 	}
+	return readerContainer
 }
 
 func pipelineName(pipelineType, promiseIdentifier string) string {

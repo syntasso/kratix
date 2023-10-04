@@ -11,7 +11,6 @@ import (
 
 	ctrl "sigs.k8s.io/controller-runtime"
 
-	"github.com/syntasso/kratix/api/v1alpha1"
 	platformv1alpha1 "github.com/syntasso/kratix/api/v1alpha1"
 	"k8s.io/apimachinery/pkg/api/errors"
 	"k8s.io/apimachinery/pkg/util/yaml"
@@ -22,7 +21,7 @@ type WorkCreator struct {
 	K8sClient client.Client
 }
 
-func (w *WorkCreator) Execute(rootDirectory, promiseName, namespace, resourceName string, addPromiseDependencies bool) error {
+func (w *WorkCreator) Execute(rootDirectory, promiseName, namespace, resourceName, workflowType string) error {
 	identifier := fmt.Sprintf("%s-%s", promiseName, resourceName)
 
 	if namespace == "" {
@@ -43,41 +42,33 @@ func (w *WorkCreator) Execute(rootDirectory, promiseName, namespace, resourceNam
 	}
 
 	work := &platformv1alpha1.Work{}
-	if addPromiseDependencies {
-		promiseBytes, err := os.ReadFile(filepath.Join(rootDirectory, "promise", "object.yaml"))
-		if err != nil {
-			return err
-		}
-		promise := v1alpha1.Promise{}
-		err = yaml.Unmarshal(promiseBytes, &promise)
-		if err != nil {
-			return err
-		}
 
-		work, err = v1alpha1.NewPromiseDependenciesWork(&promise)
-		if err != nil {
-			return err
-		}
-		work.Spec.Workloads = append(work.Spec.Workloads, workloads...)
-	} else {
-		work.Name = identifier
-		work.Namespace = namespace
-		work.Spec.Replicas = platformv1alpha1.ResourceRequestReplicas
-		work.Spec.Workloads = workloads
-		work.Spec.PromiseName = promiseName
-		work.Spec.ResourceName = resourceName
+	work.Name = identifier
+	work.Namespace = namespace
+	work.Spec.Replicas = platformv1alpha1.ResourceRequestReplicas
+	work.Spec.Workloads = workloads
+	work.Spec.PromiseName = promiseName
+	work.Spec.ResourceName = resourceName
 
-		pipelineScheduling, err := w.getPipelineScheduling(rootDirectory)
-		if err != nil {
-			return err
-		}
-		work.Spec.DestinationSelectors.Resource = pipelineScheduling
+	pipelineScheduling, err := w.getPipelineScheduling(rootDirectory)
+	if err != nil {
+		return err
+	}
+	work.Spec.DestinationSelectors.Resource = pipelineScheduling
 
-		promiseScheduling, err := w.getPromiseScheduling(rootDirectory)
-		if err != nil {
-			return err
-		}
-		work.Spec.DestinationSelectors.Promise = promiseScheduling
+	promiseScheduling, err := w.getPromiseScheduling(rootDirectory)
+	if err != nil {
+		return err
+	}
+	work.Spec.DestinationSelectors.Promise = promiseScheduling
+
+	if workflowType == platformv1alpha1.KratixWorkflowTypePromise {
+		work.Name = promiseName
+		work.Namespace = platformv1alpha1.KratixSystemNamespace
+		work.Spec.Replicas = platformv1alpha1.DependencyReplicas
+		work.Spec.ResourceName = ""
+		work.Spec.DestinationSelectors.Resource = nil
+		work.Labels = platformv1alpha1.GenerateSharedLabelsForPromise(promiseName)
 	}
 
 	err = w.K8sClient.Create(context.Background(), work)

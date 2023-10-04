@@ -42,7 +42,8 @@ func NewDeletePipeline(rr *unstructured.Unstructured, pipelines []platformv1alph
 func deletePipelineContainers(rr *unstructured.Unstructured, pipelines []platformv1alpha1.Pipeline) ([]v1.Container, []v1.Volume) {
 	volumes, volumeMounts := pipelineVolumes()
 
-	readerContainer := readerContainer(rr, "shared-input")
+	//TODO: Does this get called for promises too? If so, change the parameter name and dynamically set input below
+	readerContainer := readerContainer(rr, platformv1alpha1.KratixWorkflowTypeResource, "shared-input")
 	containers := []v1.Container{
 		readerContainer,
 	}
