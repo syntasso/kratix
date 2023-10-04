@@ -9,3 +9,12 @@ apiVersion: v1
 kind: Namespace
 metadata:
   name: messaging
+---
+apiVersion: v1
+kind: Namespace
+metadata:
+  name: override
+  annotations:
+    kratix.io/destination-selectors-override: |
+      matchLabels:
+        override: true

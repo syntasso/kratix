@@ -158,6 +158,32 @@ func NewPromiseDependenciesWork(promise *Promise) (*Work, error) {
 	return work, nil
 }
 
+func (w *Work) MergeWorkloadGroups(workloadGroups []WorkloadGroup) {
+	groupIndexMap := map[*Selector]int{}
+	for i, group := range w.Spec.WorkloadGroups {
+		if len(group.DestinationSelectorsOverride) == 0 {
+			groupIndexMap[nil] = i
+			continue
+		}
+
+		groupIndexMap[&group.DestinationSelectorsOverride[0]] = i
+	}
+
+	for _, group := range workloadGroups {
+		var selector *Selector
+		if len(group.DestinationSelectorsOverride) != 0 {
+			selector = &group.DestinationSelectorsOverride[0]
+		}
+		index, found := groupIndexMap[selector]
+		if !found {
+			w.Spec.WorkloadGroups = append(w.Spec.WorkloadGroups, group)
+			continue
+		}
+		w.Spec.WorkloadGroups[index].Workloads = append(w.Spec.WorkloadGroups[index].Workloads, group.Workloads...)
+	}
+
+}
+
 func (w *Work) IsResourceRequest() bool {
 	return w.Spec.Replicas == ResourceRequestReplicas
 }

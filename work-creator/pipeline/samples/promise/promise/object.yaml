@@ -10,3 +10,11 @@ spec:
       kind: Namespace
       metadata:
         name: dep-namespace
+    - apiVersion: v1
+      kind: Namespace
+      metadata:
+        name: dep-with-override
+        annotations:
+          kratix.io/destination-selectors-override: |
+            matchLabels:
+              override: true
