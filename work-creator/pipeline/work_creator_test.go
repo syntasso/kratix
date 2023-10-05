@@ -75,7 +75,7 @@ var _ = Describe("WorkCreator", func() {
 			Describe("the Work resource workloads list", func() {
 				FIt("has three files", func() {
 					Expect(workResource.Spec.WorkloadGroups).To(HaveLen(2))
-					Expect(workResource.Spec.WorkloadGroups[0].Workloads).To(HaveLen(3))
+					Expect(workResource.Spec.WorkloadGroups[0].Workloads).To(HaveLen(5))
 
 					paths := []string{}
 					for _, workload := range workResource.Spec.WorkloadGroups[0].Workloads {
@@ -91,7 +91,6 @@ var _ = Describe("WorkCreator", func() {
 						Expect(err).NotTo(HaveOccurred())
 						Expect(workload.Content).To(Equal(string(fileContent)))
 					}
-					Fail("test")
 				})
 			})
 		})
