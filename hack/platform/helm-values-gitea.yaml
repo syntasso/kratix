@@ -12,7 +12,7 @@ destinations:
   - name: worker-1
     namespace: default
     labels:
-      env: dev
+      environment: dev
     path: "dev"
     stateStoreRef:
       name: default
