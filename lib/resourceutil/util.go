@@ -142,7 +142,10 @@ func SetStatus(rr *unstructured.Unstructured, logger logr.Logger, statuses ...st
 		return
 	}
 
-	nestedMap := map[string]interface{}{}
+	if rr.Object["status"] == nil {
+		rr.Object["status"] = map[string]interface{}{}
+	}
+	nestedMap := rr.Object["status"].(map[string]interface{})
 	for i := 0; i < len(statuses); i += 2 {
 		key := statuses[i]
 		value := statuses[i+1]
