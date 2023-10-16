@@ -321,4 +321,21 @@ var _ = Describe("Conditions", func() {
 			Expect(resourceutil.SuspendablePipelines(logger, jobs)[0].GetName()).To(Equal("unactive"))
 		})
 	})
+
+	Describe("SetStatus", func() {
+		It("sets the status of a resource", func() {
+			rr = &unstructured.Unstructured{
+				Object: map[string]interface{}{
+					"status": map[string]interface{}{
+						"foo": "bar",
+					},
+				},
+			}
+			resourceutil.SetStatus(rr, logger, "test", "val")
+
+			Expect(rr.Object).To(HaveKey("status"))
+			Expect(rr.Object["status"]).To(HaveKeyWithValue("foo", "bar"))
+			Expect(rr.Object["status"]).To(HaveKeyWithValue("test", "val"))
+		})
+	})
 })
