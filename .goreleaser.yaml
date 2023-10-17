@@ -10,7 +10,7 @@ builds:
       - linux
       - windows
       - darwin
-    main: ./hack/destination-resource-builder/main.go
+    main: ./hack/worker-resource-builder/main.go
     no_unique_dist_dir: true
 
 snapshot:

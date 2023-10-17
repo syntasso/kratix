@@ -39,4 +39,8 @@ const (
 	KratixSystemNamespace        = "kratix-platform-system"
 	KratixPrefix                 = "kratix.io/"
 	DestinationSelectorsOverride = KratixPrefix + "destination-selectors-override"
+
+	KratixActionConfigure      = "configure"
+	KratixWorkflowTypeResource = "resource"
+	KratixWorkflowTypePromise  = "promise"
 )

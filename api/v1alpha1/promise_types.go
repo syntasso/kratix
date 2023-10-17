@@ -149,8 +149,12 @@ func (p *Promise) ContainsAPI() bool {
 }
 
 func (p *Promise) GenerateSharedLabels() map[string]string {
+	return GenerateSharedLabelsForPromise(p.Name)
+}
+
+func GenerateSharedLabelsForPromise(promiseName string) map[string]string {
 	return map[string]string{
-		"kratix-promise-id": p.GetName(),
+		"kratix-promise-id": promiseName,
 	}
 }
 

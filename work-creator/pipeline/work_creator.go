@@ -15,17 +15,16 @@ import (
 
 	"github.com/syntasso/kratix/api/v1alpha1"
 	"k8s.io/apimachinery/pkg/api/errors"
+	metav1 "k8s.io/apimachinery/pkg/apis/meta/v1"
 	"k8s.io/apimachinery/pkg/util/yaml"
 	"sigs.k8s.io/controller-runtime/pkg/client"
-
-	metav1 "k8s.io/apimachinery/pkg/apis/meta/v1"
 )
 
 type WorkCreator struct {
 	K8sClient client.Client
 }
 
-func (w *WorkCreator) Execute(rootDirectory, promiseName, namespace, resourceName string, addPromiseDependencies bool) error {
+func (w *WorkCreator) Execute(rootDirectory, promiseName, namespace, resourceName, workflowType string) error {
 	identifier := fmt.Sprintf("%s-%s", promiseName, resourceName)
 
 	if namespace == "" {
@@ -46,73 +45,62 @@ func (w *WorkCreator) Execute(rootDirectory, promiseName, namespace, resourceNam
 	}
 
 	work := &v1alpha1.Work{}
-	work.Spec.WorkloadGroups = []v1alpha1.WorkloadGroup{}
-	if addPromiseDependencies {
-		promiseBytes, err := os.ReadFile(filepath.Join(rootDirectory, "promise", "object.yaml"))
-		if err != nil {
-			return err
-		}
-		promise := v1alpha1.Promise{}
-		err = yaml.Unmarshal(promiseBytes, &promise)
-		if err != nil {
-			return err
-		}
 
-		work, err = v1alpha1.NewPromiseDependenciesWork(&promise)
-		if err != nil {
-			return err
-		}
+	work.Name = identifier
+	work.Namespace = namespace
+	work.Spec.Replicas = v1alpha1.ResourceRequestReplicas
+	work.Spec.WorkloadGroups = workloadGroups
+	for i := range work.Spec.WorkloadGroups {
+		work.Spec.WorkloadGroups[i].PromiseName = promiseName
+		work.Spec.WorkloadGroups[i].ResourceName = resourceName
+	}
 
-		work.MergeWorkloadGroups(workloadGroups)
-	} else {
-		work.Name = identifier
-		work.Namespace = namespace
-		work.Spec.Replicas = v1alpha1.ResourceRequestReplicas
-		work.Spec.WorkloadGroups = workloadGroups
-		for i := range work.Spec.WorkloadGroups {
-			work.Spec.WorkloadGroups[i].PromiseName = promiseName
-			work.Spec.WorkloadGroups[i].ResourceName = resourceName
-		}
+	pipelineScheduling, err := w.getPipelineScheduling(rootDirectory)
+	if err != nil {
+		return err
+	}
+	work.Spec.DestinationSelectors.Resource = pipelineScheduling
 
-		pipelineScheduling, err := w.getPipelineScheduling(rootDirectory)
-		if err != nil {
-			return err
-		}
-		work.Spec.DestinationSelectors.Resource = pipelineScheduling
+	promiseScheduling, err := w.getPromiseScheduling(rootDirectory)
+	if err != nil {
+		return err
+	}
+	work.Spec.DestinationSelectors.Promise = promiseScheduling
 
-		promiseScheduling, err := w.getPromiseScheduling(rootDirectory)
-		if err != nil {
-			return err
-		}
-		work.Spec.DestinationSelectors.Promise = promiseScheduling
+	if workflowType == v1alpha1.KratixWorkflowTypePromise {
+		work.Name = promiseName
+		work.Namespace = v1alpha1.KratixSystemNamespace
+		work.Spec.Replicas = v1alpha1.DependencyReplicas
+		work.Spec.DestinationSelectors.Resource = nil
+		work.Labels = v1alpha1.GenerateSharedLabelsForPromise(promiseName)
 	}
 
 	err = w.K8sClient.Create(context.Background(), work)
-	if err != nil {
-		if errors.IsAlreadyExists(err) {
-			logger.Info("Work already exists, will update")
-			currentWork := v1alpha1.Work{}
-			key := client.ObjectKeyFromObject(work)
 
-			err := w.K8sClient.Get(context.Background(), key, &currentWork)
-			if err != nil {
-				logger.Error(err, "Error retrieving Work")
-			}
+	if errors.IsAlreadyExists(err) {
+		logger.Info("Work already exists, will update")
+		currentWork := v1alpha1.Work{}
+		key := client.ObjectKeyFromObject(work)
 
-			currentWork.Spec = work.Spec
-			err = w.K8sClient.Update(context.Background(), &currentWork)
-
-			if err != nil {
-				logger.Error(err, "Error updating Work")
-			}
-			logger.Info("Work updated")
-			return nil
+		err := w.K8sClient.Get(context.Background(), key, &currentWork)
+		if err != nil {
+			logger.Error(err, "Error retrieving Work")
 		}
-		return err
-	}
 
-	logger.Info("Work created")
-	return nil
+		currentWork.Spec = work.Spec
+		err = w.K8sClient.Update(context.Background(), &currentWork)
+
+		if err != nil {
+			logger.Error(err, "Error updating Work")
+		}
+		logger.Info("Work updated")
+		return nil
+	} else if err != nil {
+		return err
+	} else {
+		logger.Info("Work created")
+		return nil
+	}
 }
 
 func (w *WorkCreator) getWorkloadGroupsFromDir(prefixToTrimFromWorkloadFilepath, rootDir string) ([]v1alpha1.WorkloadGroup, error) {
@@ -152,15 +140,15 @@ func (w *WorkCreator) getWorkloadGroupsFromDir(prefixToTrimFromWorkloadFilepath,
 
 			documents := strings.Split(string(byteValue), "\n---\n")
 			fmt.Println("found documents: ", len(documents))
-			for i, document := range documents {
-				workloadFilename := filepath.Join(path, fmt.Sprintf("%d-%s", i, info.Name()))
+			for _, document := range documents {
+				workloadFilename := filepath.Join(path, info.Name())
 				workload := v1alpha1.Workload{
 					Content:  document,
 					Filepath: workloadFilename,
 				}
 
 				var selector *v1alpha1.Selector
-				selector, _ = getDestinationSelectorOverrides([]byte(document))
+				selector = getDestinationSelectorOverrides([]byte(document))
 				var destinationOverrides []v1alpha1.Selector
 				if selector != nil {
 					destinationOverrides = []v1alpha1.Selector{*selector}
@@ -195,28 +183,28 @@ func (w *WorkCreator) getWorkloadGroupsFromDir(prefixToTrimFromWorkloadFilepath,
 	return workloadGroups, nil
 }
 
-func getDestinationSelectorOverrides(yamlBytes []byte) (*v1alpha1.Selector, bool) {
+func getDestinationSelectorOverrides(yamlBytes []byte) *v1alpha1.Selector {
 	type k8sMetadata struct {
 		metav1.ObjectMeta `json:"metadata,omitempty"`
 	}
 	objMeta := k8sMetadata{}
 	err := yaml.Unmarshal(yamlBytes, &objMeta)
 	if err != nil {
-		return nil, false
+		return nil
 	}
 
 	override, found := objMeta.GetAnnotations()[v1alpha1.DestinationSelectorsOverride]
 	if !found {
-		return nil, false
+		return nil
 	}
 
 	fmt.Println("found overrides")
 	selector := &v1alpha1.Selector{}
 	if err := yaml.Unmarshal([]byte(override), selector); err != nil {
-		return nil, false
+		return nil
 	}
 
-	return selector, true
+	return selector
 }
 
 func (w *WorkCreator) getPipelineScheduling(rootDirectory string) ([]v1alpha1.Selector, error) {

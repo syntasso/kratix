@@ -212,7 +212,7 @@ var _ = Describe("Kratix", func() {
 					platform.kubectl("apply", "-f", promisePath)
 
 					platform.eventuallyKubectl("get", "crd", "bash.test.kratix.io")
-					worker.eventuallyKubectl("get", "namespace", "bash-dep-namespace-v1alpha1")
+					Expect(worker.eventuallyKubectl("get", "namespace", "bash-dep-namespace-v1alpha1", "-o=yaml")).To(ContainSubstring("modifydepsinpipeline"))
 				})
 
 				rrName := "rr-test"
