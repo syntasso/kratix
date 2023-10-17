@@ -116,6 +116,7 @@ func NewPromiseDependenciesWork(promise *Promise) (*Work, error) {
 	return work, nil
 }
 
+// Merge a DependenySelectorGroup into the existing WorkloadGroups
 func MergeDependencyGroupIntoExistingWorkloadGroup(dependenciesGroup []DependencySelectorGroup, workloadGroupList []WorkloadGroup, promiseName, fileName string) ([]WorkloadGroup, error) {
 	for i, dep := range dependenciesGroup {
 		var override []Selector
@@ -123,6 +124,7 @@ func MergeDependencyGroupIntoExistingWorkloadGroup(dependenciesGroup []Dependenc
 		filePath := fileName
 		if dep.selector != nil {
 			override = []Selector{*dep.selector}
+			//only add an index to the file its for an override
 			filePath = fmt.Sprintf("%s.%d.yaml", strings.TrimSuffix(fileName, ".yaml"), i)
 		}
 
@@ -173,6 +175,8 @@ func selectorsMatch(a, b []Selector) bool {
 	return a[0].Equals(&b[0])
 }
 
+// Take a list of dependencies and split them into groups based upon the
+// scheduling
 func SplitDependenciesBySelector(deps Dependencies) ([]DependencySelectorGroup, error) {
 	dependenciesGroup := []DependencySelectorGroup{}
 

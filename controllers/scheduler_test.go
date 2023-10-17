@@ -12,7 +12,7 @@ import (
 	ctrl "sigs.k8s.io/controller-runtime"
 )
 
-var _ = FDescribe("Controllers/Scheduler", func() {
+var _ = Describe("Controllers/Scheduler", func() {
 
 	var devDestination, devDestination2, prodDestination Destination
 	var dependencyWork, dependencyWorkForProd, dependencyWorkForDev, resourceWork Work
@@ -26,7 +26,7 @@ var _ = FDescribe("Controllers/Scheduler", func() {
 
 		dependencyWork = newWork("work-name", DependencyReplicas)
 		dependencyWorkForProd = newWork("prod-work-name", DependencyReplicas, schedulingFor(prodDestination))
-		dependencyWorkForDev = newWork("dev-work-name", DependencyReplicas, schedulingFor(devDestination))
+		dependencyWorkForDev = newWork("dev-work-name", DependencyReplicas, schedulingFor(devDestination2))
 
 		resourceWork = newWork("rr-work-name", ResourceRequestReplicas, schedulingFor(devDestination))
 
@@ -53,14 +53,15 @@ var _ = FDescribe("Controllers/Scheduler", func() {
 			Expect(k8sClient.Create(context.Background(), &devDestination3)).To(Succeed())
 			Expect(k8sClient.Create(context.Background(), &dependencyWorkForProd)).To(Succeed())
 			Expect(k8sClient.Create(context.Background(), &dependencyWorkForDev)).To(Succeed())
-			scheduler.ReconcileDestination()
+			err := scheduler.ReconcileDestination()
+			Expect(err).NotTo(HaveOccurred())
 		})
 
 		When("A new destination is added", func() {
 			It("schedules Works with matching labels to the new destination", func() {
 				ns := types.NamespacedName{
 					Namespace: KratixSystemNamespace,
-					Name:      "dev-work-name.dev3.0",
+					Name:      "dev-work-name.dev3",
 				}
 				actualWorkPlacement := WorkPlacement{}
 				Expect(k8sClient.Get(context.Background(), ns, &actualWorkPlacement)).To(Succeed())
@@ -71,7 +72,7 @@ var _ = FDescribe("Controllers/Scheduler", func() {
 			It("does not schedule Works with un-matching labels to the new Destination", func() {
 				ns := types.NamespacedName{
 					Namespace: "default",
-					Name:      "prod-work-name.dev3.0",
+					Name:      "prod-work-name.dev3",
 				}
 				actualWorkPlacement := WorkPlacement{}
 				Expect(k8sClient.Get(context.Background(), ns, &actualWorkPlacement)).ToNot(Succeed())
@@ -79,7 +80,7 @@ var _ = FDescribe("Controllers/Scheduler", func() {
 		})
 	})
 
-	FDescribe("#ReconcileWork", func() {
+	Describe("#ReconcileWork", func() {
 		Describe("Scheduling Resources (replicas=1)", func() {
 			It("creates a WorkPlacement for a given Work", func() {
 				err := scheduler.ReconcileWork(&resourceWork)
@@ -91,7 +92,7 @@ var _ = FDescribe("Controllers/Scheduler", func() {
 				workPlacement := workPlacements.Items[0]
 				Expect(workPlacement.Namespace).To(Equal("default"))
 				Expect(workPlacement.ObjectMeta.Labels["kratix.io/work"]).To(Equal("rr-work-name"))
-				Expect(workPlacement.Name).To(Equal("rr-work-name." + workPlacement.Spec.TargetDestinationName + ".0"))
+				Expect(workPlacement.Name).To(Equal("rr-work-name." + workPlacement.Spec.TargetDestinationName))
 				Expect(workPlacement.Spec.Workloads).To(Equal(resourceWork.Spec.WorkloadGroups[0].Workloads))
 				Expect(workPlacement.Spec.TargetDestinationName).To(MatchRegexp("prod|dev\\-\\d"))
 				Expect(workPlacement.Finalizers).To(HaveLen(1), "expected one finalizer")
@@ -148,7 +149,7 @@ var _ = FDescribe("Controllers/Scheduler", func() {
 			})
 		})
 
-		FDescribe("Scheduling Dependencies (replicas=-1)", func() {
+		Describe("Scheduling Dependencies (replicas=-1)", func() {
 			When("the dependency work has no top-level destination selectors", func() {
 				BeforeEach(func() {
 					Expect(scheduler.ReconcileWork(&dependencyWork)).To(Succeed())

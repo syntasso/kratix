@@ -77,6 +77,13 @@ var _ = Context("WorkReconciler.Reconcile()", func() {
 			work.Name = "work-controller-test-resource-request"
 			work.Namespace = "default"
 			work.Spec.Replicas = platformv1alpha1.ResourceRequestReplicas
+			work.Spec.WorkloadGroups = []platformv1alpha1.WorkloadGroup{
+				{
+					WorkloadCoreFields: platformv1alpha1.WorkloadCoreFields{
+						Workloads: []platformv1alpha1.Workload{{Filepath: "foo.yaml", Content: "---"}},
+					},
+				},
+			}
 			err := k8sClient.Create(context.Background(), work)
 			Expect(err).ToNot(HaveOccurred())
 
