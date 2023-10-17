@@ -18,6 +18,7 @@ package v1alpha1
 
 import (
 	"fmt"
+	"strings"
 
 	metav1 "k8s.io/apimachinery/pkg/apis/meta/v1"
 	"sigs.k8s.io/yaml"
@@ -74,6 +75,11 @@ type WorkScheduling struct {
 	Resource []Selector `json:"resource,omitempty"`
 }
 
+type DependencySelectorGroup struct {
+	selector     *Selector
+	dependencies Dependencies
+}
+
 // Note: The efficiency of this function is based on an assumption that both the
 // number of selectors and dependencies will be small. The efficiency is O(n*m)
 // where n is the number of selectors and m is the number of dependencies.
@@ -82,13 +88,95 @@ type WorkScheduling struct {
 // compare on the selector instead of a deep equals) we could increase
 // efficieny greatly.
 func NewPromiseDependenciesWork(promise *Promise) (*Work, error) {
-	type group struct {
-		selector     *Selector
-		dependencies Dependencies
+	dependenciesGroup, err := SplitDependenciesBySelector(promise.Spec.Dependencies)
+	if err != nil {
+		return nil, err
 	}
-	dependenciesGroup := []group{}
 
-	for _, dep := range promise.Spec.Dependencies {
+	workloadGroupList, err := MergeDependencyGroupIntoExistingWorkloadGroup(dependenciesGroup, nil, promise.GetName(), "static/dependencies.yaml")
+	if err != nil {
+		return nil, err
+	}
+
+	work := &Work{
+		ObjectMeta: metav1.ObjectMeta{
+			Name:      promise.GetName(),
+			Namespace: KratixSystemNamespace,
+			Labels:    promise.GenerateSharedLabels(),
+		},
+		Spec: WorkSpec{
+			WorkloadGroups: workloadGroupList,
+			Replicas:       DependencyReplicas,
+			DestinationSelectors: WorkScheduling{
+				Promise: promise.Spec.DestinationSelectors,
+			},
+		},
+	}
+
+	return work, nil
+}
+
+func MergeDependencyGroupIntoExistingWorkloadGroup(dependenciesGroup []DependencySelectorGroup, workloadGroupList []WorkloadGroup, promiseName, fileName string) ([]WorkloadGroup, error) {
+	for i, dep := range dependenciesGroup {
+		var override []Selector
+
+		filePath := fileName
+		if dep.selector != nil {
+			override = []Selector{*dep.selector}
+			filePath = fmt.Sprintf("%s.%d.yaml", strings.TrimSuffix(fileName, ".yaml"), i)
+		}
+
+		yamlBytes, err := dep.dependencies.Marshal()
+		if err != nil {
+			return nil, err
+		}
+
+		workload := Workload{
+			Content:  string(yamlBytes),
+			Filepath: filePath,
+		}
+
+		var found bool
+		for i, existingWorkloadGroup := range workloadGroupList {
+			if selectorsMatch(existingWorkloadGroup.DestinationSelectorsOverride, override) {
+				workloadGroupList[i].Workloads = append(existingWorkloadGroup.Workloads, workload)
+				found = true
+				break
+			}
+		}
+
+		if found {
+			continue
+		}
+
+		workloadGroupList = append(workloadGroupList, WorkloadGroup{
+			DestinationSelectorsOverride: override,
+			WorkloadCoreFields: WorkloadCoreFields{
+				PromiseName: promiseName,
+				Workloads:   []Workload{workload},
+			},
+		})
+	}
+
+	return workloadGroupList, nil
+}
+
+func selectorsMatch(a, b []Selector) bool {
+	if len(a) == 0 && len(b) == 0 {
+		return true
+	}
+
+	if len(a) != len(b) {
+		return false
+	}
+
+	return a[0].Equals(&b[0])
+}
+
+func SplitDependenciesBySelector(deps Dependencies) ([]DependencySelectorGroup, error) {
+	dependenciesGroup := []DependencySelectorGroup{}
+
+	for _, dep := range deps {
 		var selector *Selector
 
 		annotations := dep.GetAnnotations()
@@ -109,53 +197,11 @@ func NewPromiseDependenciesWork(promise *Promise) (*Work, error) {
 		}
 
 		if !found {
-			dependenciesGroup = append(dependenciesGroup, group{selector: selector, dependencies: []Dependency{dep}})
+			dependenciesGroup = append(dependenciesGroup, DependencySelectorGroup{selector: selector, dependencies: []Dependency{dep}})
 		}
 	}
 
-	var workloadGroupList []WorkloadGroup
-	for i, dep := range dependenciesGroup {
-		var override []Selector
-
-		if dep.selector != nil {
-			override = []Selector{*dep.selector}
-		}
-
-		yamlBytes, err := dep.dependencies.Marshal()
-		if err != nil {
-			return nil, err
-		}
-
-		workloadGroupList = append(workloadGroupList, WorkloadGroup{
-			DestinationSelectorsOverride: override,
-			WorkloadCoreFields: WorkloadCoreFields{
-				PromiseName: promise.GetName(),
-				Workloads: []Workload{
-					{
-						Content:  string(yamlBytes),
-						Filepath: fmt.Sprintf("static/dependencies.%d.yaml", i),
-					},
-				},
-			},
-		})
-	}
-
-	work := &Work{
-		ObjectMeta: metav1.ObjectMeta{
-			Name:      promise.GetName(),
-			Namespace: KratixSystemNamespace,
-			Labels:    promise.GenerateSharedLabels(),
-		},
-		Spec: WorkSpec{
-			WorkloadGroups: workloadGroupList,
-			Replicas:       DependencyReplicas,
-			DestinationSelectors: WorkScheduling{
-				Promise: promise.Spec.DestinationSelectors,
-			},
-		},
-	}
-
-	return work, nil
+	return dependenciesGroup, nil
 }
 
 func (w *Work) MergeWorkloadGroups(workloadGroups []WorkloadGroup) {

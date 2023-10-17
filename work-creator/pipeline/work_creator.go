@@ -6,7 +6,6 @@ import (
 	"io"
 	"os"
 	"path/filepath"
-	"reflect"
 	"strings"
 
 	goerr "errors"
@@ -16,6 +15,7 @@ import (
 	"github.com/syntasso/kratix/api/v1alpha1"
 	"k8s.io/apimachinery/pkg/api/errors"
 	metav1 "k8s.io/apimachinery/pkg/apis/meta/v1"
+	"k8s.io/apimachinery/pkg/apis/meta/v1/unstructured"
 	"k8s.io/apimachinery/pkg/util/yaml"
 	"sigs.k8s.io/controller-runtime/pkg/client"
 )
@@ -39,7 +39,7 @@ func (w *WorkCreator) Execute(rootDirectory, promiseName, namespace, resourceNam
 		WithValues("promiseName", promiseName)
 
 	pipelineOutputDir := filepath.Join(rootDirectory, "input")
-	workloadGroups, err := w.getWorkloadGroupsFromDir(pipelineOutputDir, pipelineOutputDir)
+	workloadGroups, err := w.getWorkloadGroupsFromDir(nil, pipelineOutputDir, pipelineOutputDir)
 	if err != nil {
 		return err
 	}
@@ -103,24 +103,21 @@ func (w *WorkCreator) Execute(rootDirectory, promiseName, namespace, resourceNam
 	}
 }
 
-func (w *WorkCreator) getWorkloadGroupsFromDir(prefixToTrimFromWorkloadFilepath, rootDir string) ([]v1alpha1.WorkloadGroup, error) {
+func (w *WorkCreator) getWorkloadGroupsFromDir(groups []v1alpha1.WorkloadGroup, prefixToTrimFromWorkloadFilepath, rootDir string) ([]v1alpha1.WorkloadGroup, error) {
 	filesAndDirs, err := os.ReadDir(rootDir)
 	if err != nil {
 		return nil, err
 	}
-
-	groups := []v1alpha1.WorkloadGroup{}
 
 	for _, info := range filesAndDirs {
 		// TODO: currently we assume everything is a file or a dir, we don't handle
 		// more advanced scenarios, e.g. symlinks, file sizes, file permissions etc
 		if info.IsDir() {
 			dir := filepath.Join(rootDir, info.Name())
-			newWorkloads, err := w.getWorkloadGroupsFromDir(prefixToTrimFromWorkloadFilepath, dir)
+			groups, err = w.getWorkloadGroupsFromDir(groups, prefixToTrimFromWorkloadFilepath, dir)
 			if err != nil {
 				return nil, err
 			}
-			groups = append(groups, newWorkloads...)
 		} else {
 			filePath := filepath.Join(rootDir, info.Name())
 			file, err := os.Open(filePath)
@@ -138,49 +135,39 @@ func (w *WorkCreator) getWorkloadGroupsFromDir(prefixToTrimFromWorkloadFilepath,
 				return nil, err
 			}
 
-			documents := strings.Split(string(byteValue), "\n---\n")
-			fmt.Println("found documents: ", len(documents))
-			for _, document := range documents {
-				workloadFilename := filepath.Join(path, info.Name())
-				workload := v1alpha1.Workload{
-					Content:  document,
-					Filepath: workloadFilename,
-				}
-
-				var selector *v1alpha1.Selector
-				selector = getDestinationSelectorOverrides([]byte(document))
-				var destinationOverrides []v1alpha1.Selector
-				if selector != nil {
-					destinationOverrides = []v1alpha1.Selector{*selector}
-				}
-				groups = append(groups, v1alpha1.WorkloadGroup{
-					WorkloadCoreFields: v1alpha1.WorkloadCoreFields{
-						Workloads: []v1alpha1.Workload{workload},
-					},
-					DestinationSelectorsOverride: destinationOverrides,
-				})
+			deps, err := splitDocumentInDependencies(byteValue)
+			if err != nil {
+				return nil, err
 			}
+
+			depGrouping, err := v1alpha1.SplitDependenciesBySelector(deps)
+			if err != nil {
+				return nil, err
+			}
+
+			groups, err = v1alpha1.MergeDependencyGroupIntoExistingWorkloadGroup(depGrouping, groups, "", path)
+			if err != nil {
+				return nil, err
+			}
+
 		}
 	}
 
-	workloadGroups := []v1alpha1.WorkloadGroup{}
+	return groups, nil
+}
 
-	for _, wGroup := range groups {
-		var found bool
-		for i := range workloadGroups {
-			if reflect.DeepEqual(wGroup.DestinationSelectorsOverride, workloadGroups[i].DestinationSelectorsOverride) {
-				workloadGroups[i].Workloads = append(workloadGroups[i].Workloads, wGroup.Workloads...)
-				found = true
-				break
-			}
+func splitDocumentInDependencies(byteValue []byte) (v1alpha1.Dependencies, error) {
+	var deps v1alpha1.Dependencies
+	documents := strings.Split(string(byteValue), "\n---\n")
+	for _, document := range documents {
+		dep := &unstructured.Unstructured{}
+		err := yaml.Unmarshal([]byte(document), dep)
+		if err != nil {
+			return nil, err
 		}
-
-		if !found {
-			workloadGroups = append(workloadGroups, wGroup)
-		}
+		deps = append(deps, v1alpha1.Dependency{Unstructured: *dep})
 	}
-
-	return workloadGroups, nil
+	return deps, nil
 }
 
 func getDestinationSelectorOverrides(yamlBytes []byte) *v1alpha1.Selector {

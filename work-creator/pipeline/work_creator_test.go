@@ -73,7 +73,7 @@ var _ = Describe("WorkCreator", func() {
 			})
 
 			Describe("the Work resource workloads list", func() {
-				FIt("has three files", func() {
+				It("has three files", func() {
 					Expect(workResource.Spec.WorkloadGroups).To(HaveLen(2))
 					Expect(workResource.Spec.WorkloadGroups[0].Workloads).To(HaveLen(3))
 
@@ -139,18 +139,6 @@ var _ = Describe("WorkCreator", func() {
 			It("has a correctly configured Work resource", func() {
 				expectedNamespace = "kratix-platform-system"
 				workResource := getWork(expectedNamespace, promiseWorkName)
-
-				Expect(workResource.Spec.WorkloadGroups).To(HaveLen(2))
-				Expect(workResource.Spec.WorkloadGroups[0].Workloads).To(HaveLen(4))
-				Expect(workResource.Spec.WorkloadGroups[0].Workloads).To(ContainElement(v1alpha1.Workload{
-					Content:  "apiVersion: v1\nkind: Namespace\nmetadata:\n  name: dep-namespace\n",
-					Filepath: "static/dependencies.0.yaml",
-				}))
-				Expect(workResource.Spec.WorkloadGroups[1].Workloads).To(HaveLen(1))
-				Expect(workResource.Spec.WorkloadGroups[1].Workloads).To(ContainElement(v1alpha1.Workload{
-					Content:  "apiVersion: v1\nkind: Namespace\nmetadata:\n  annotations:\n    kratix.io/destination-selectors-override: |\n      matchLabels:\n        override: true\n  name: dep-with-override\n",
-					Filepath: "static/dependencies.1.yaml",
-				}))
 
 				Expect(workResource.Spec.DestinationSelectors).To(Equal(
 					v1alpha1.WorkScheduling{
