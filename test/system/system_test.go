@@ -129,6 +129,12 @@ var _ = Describe("Kratix", func() {
 					worker.eventuallyKubectl("get", "namespace", "declarative-rr-test")
 				})
 
+				// By("deploying the contents of /kratix/output/ to the backstage destination", func() {
+				// 	platform.eventuallyKubectl("get", "namespace",
+				// 	"scheduling-based-namespace")
+				// 	worker.eventuallyKubectl("get", "namespace", "declarative-rr-test")
+				// })
+
 				By("mirroring the directory and files from /kratix/output to the statestore", func() {
 					Expect(listFilesInStateStore("worker-1", "default", "bash", rrName)).To(ConsistOf("foo/example.json", "namespace.yaml"))
 				})
@@ -284,22 +290,18 @@ var _ = Describe("Kratix", func() {
 		// Platform destination (GitStateStore):
 		// - environment: platform
 
-		// PromiseScheduling:
+		// Destination selectors in the promise:
 		// - security: high
 		BeforeEach(func() {
 			platform.kubectl("label", "destination", "worker-1", "security=high")
-			platform.kubectl("apply", "-f", fmt.Sprintf("./assets/%s/platform_gitops-tk-resources.yaml", storeType))
-			platform.kubectl("apply", "-f", fmt.Sprintf("./assets/%s/platform_statestore.yaml", storeType))
-			platform.kubectl("apply", "-f", fmt.Sprintf("./assets/%s/platform_kratix_destination.yaml", storeType))
 			platform.kubectl("apply", "-f", promiseWithSchedulingPath)
 			platform.eventuallyKubectl("get", "crd", "bash.test.kratix.io")
 		})
 
 		AfterEach(func() {
 			platform.kubectl("label", "destination", "worker-1", "security-", "pci-")
+			platform.kubectl("label", "destination", "platform-1", "security-")
 			platform.kubectl("delete", "-f", promiseWithSchedulingPath)
-			platform.kubectl("delete", "-f", fmt.Sprintf("./assets/%s/platform_kratix_destination.yaml", storeType))
-			platform.kubectl("delete", "-f", fmt.Sprintf("./assets/%s/platform_statestore.yaml", storeType))
 		})
 
 		It("schedules resources to the correct Destinations", func() {
@@ -334,7 +336,18 @@ var _ = Describe("Kratix", func() {
 			})
 		})
 
+		// Worker destination (BucketStateStore):
+		// - environment: dev
+
+		// Platform destination (GitStateStore):
+		// - environment: platform
+
+		// Destination selectors in the promise:
+		// - security: high
 		It("allows updates to scheduling", func() {
+			platform.kubectl("delete", "-f", fmt.Sprintf("./assets/%s/platform_kratix_destination.yaml", storeType))
+			platform.kubectl("delete", "-f", fmt.Sprintf("./assets/%s/platform_statestore.yaml", storeType))
+
 			By("only the worker Destination getting the dependency initially", func() {
 				Consistently(func() {
 					worker.eventuallyKubectl("get", "namespace", "bash-dep-namespace-v1alpha1")
