@@ -89,7 +89,7 @@ func (g *GitWriter) setupLocalDirectoryWithRepo(logger logr.Logger) (string, *gi
 	return localTmpDir, repo, worktree, nil
 }
 
-func (g *GitWriter) WriteDirWithObjects(deleteExistingContentsInDir bool, subDir string, toWrite ...platformv1alpha1.Workload) error {
+func (g *GitWriter) WriteDirWithObjects(deleteExistingContentsInDir bool, subDir string, toWrite ...platformv1alpha1.WorkloadGroup) error {
 	dirInGitRepo := filepath.Join(g.path, subDir)
 	logger := g.Log.WithValues(
 		"dir", dirInGitRepo,

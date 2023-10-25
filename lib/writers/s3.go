@@ -52,7 +52,7 @@ func NewS3Writer(logger logr.Logger, stateStoreSpec platformv1alpha1.BucketState
 	}, nil
 }
 
-func (b *S3Writer) WriteDirWithObjects(deleteExistingContentsInDir bool, dir string, toWrite ...platformv1alpha1.Workload) error {
+func (b *S3Writer) WriteDirWithObjects(deleteExistingContentsInDir bool, dir string, toWrite ...platformv1alpha1.WorkloadGroup) error {
 	logger := b.Log.WithValues(
 		"bucketName", b.BucketName,
 		"path", b.path,

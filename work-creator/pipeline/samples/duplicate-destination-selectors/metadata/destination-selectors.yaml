@@ -4,3 +4,6 @@
 - matchLabels:
     environment: staging
   directory: baz/
+- matchLabels:
+    pci: true
+  directory: baz/

@@ -100,7 +100,7 @@ var _ = Describe("Kratix", func() {
 				platform.eventuallyKubectl("get", "crd", "bash.test.kratix.io")
 			})
 
-			It("executes the pipelines and schedules the work", func() {
+			It("executes the pipelines and schedules the work to the appropiate destinations", func() {
 				rrName := "rr-test"
 
 				c1Command := `kop="delete"
@@ -114,7 +114,10 @@ var _ = Describe("Kratix", func() {
 							fi
 			                kubectl delete namespace imperative-$(yq '.metadata.name' /kratix/input/object.yaml)`
 
-				c2Command := `kubectl create namespace declarative-$(yq '.metadata.name' /kratix/input/object.yaml) --dry-run=client -oyaml > /kratix/output/namespace.yaml`
+				c2Command := `kubectl create namespace declarative-$(yq '.metadata.name' /kratix/input/object.yaml) --dry-run=client -oyaml > /kratix/output/namespace.yaml &&
+        mkdir /kratix/output/platform/ &&
+        kubectl create namespace declarative-platform-only-$(yq '.metadata.name' /kratix/input/object.yaml) --dry-run=client -oyaml > /kratix/output/platform/namespace.yaml &&
+        echo "[{\"matchLabels\":{\"environment\":\"platform\"}, \"directory\":\"platform\"}]" > /kratix/metadata/destination-selectors.yaml`
 
 				commands := []string{c1Command, c2Command}
 
@@ -124,16 +127,23 @@ var _ = Describe("Kratix", func() {
 					platform.kubectl("wait", "--for=condition=PipelineCompleted", "bash", rrName, pipelineTimeout)
 				})
 
-				By("deploying the contents of /kratix/output to the worker destination", func() {
-					platform.eventuallyKubectl("get", "namespace", "imperative-rr-test")
-					worker.eventuallyKubectl("get", "namespace", "declarative-rr-test")
+				By("deploying the contents of /kratix/output/platform to the platform destination only", func() {
+					platform.eventuallyKubectl("get", "namespace", "declarative-platform-only-rr-test")
+					Consistently(func() string {
+						return worker.kubectl("get", "namespace")
+					}, "10s").ShouldNot(ContainSubstring("declarative-platform-only-rr-test"))
 				})
 
-				// By("deploying the contents of /kratix/output/ to the backstage destination", func() {
-				// 	platform.eventuallyKubectl("get", "namespace",
-				// 	"scheduling-based-namespace")
-				// 	worker.eventuallyKubectl("get", "namespace", "declarative-rr-test")
-				// })
+				By("deploying the remaining contents of /kratix/output to the worker destination only", func() {
+					worker.eventuallyKubectl("get", "namespace", "declarative-rr-test")
+					Consistently(func() string {
+						return platform.kubectl("get", "namespace")
+					}, "10s").ShouldNot(ContainSubstring("declarative-rr-test"))
+				})
+
+				By("the imperative API call in the pipeline to the platform cluster succeeding", func() {
+					platform.eventuallyKubectl("get", "namespace", "imperative-rr-test")
+				})
 
 				By("mirroring the directory and files from /kratix/output to the statestore", func() {
 					Expect(listFilesInStateStore("worker-1", "default", "bash", rrName)).To(ConsistOf("foo/example.json", "namespace.yaml"))

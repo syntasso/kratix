@@ -54,7 +54,7 @@ type WorkSpec struct {
 
 type WorkloadCoreFields struct {
 	// Workload represents the manifest workload to be deployed on destination
-	Workloads []Workload `json:"workloads,omitempty"`
+	WorkloadGroups []WorkloadGroup `json:"workloadGroups,omitempty"`
 
 	PromiseName string `json:"promiseName,omitempty"`
 	// +optional
@@ -62,8 +62,7 @@ type WorkloadCoreFields struct {
 }
 
 type WorkScheduling struct {
-	Promise  []Selector `json:"promise,omitempty"`
-	Resource []Selector `json:"resource,omitempty"`
+	Promise []Selector `json:"promise,omitempty"`
 }
 
 func NewPromiseDependenciesWork(promise *Promise) (*Work, error) {
@@ -89,7 +88,8 @@ func NewPromiseDependenciesWork(promise *Promise) (*Work, error) {
 		return nil, err
 	}
 
-	work.Spec.Workloads = []Workload{
+	//TODO comeback and fix
+	work.Spec.WorkloadGroups[0].Workloads = []Workload{
 		{
 			Content:  string(yamlBytes),
 			Filepath: "static/dependencies.yaml",
@@ -107,14 +107,14 @@ func (w *Work) IsDependency() bool {
 	return w.Spec.Replicas == DependencyReplicas
 }
 
-func (w *Work) HasScheduling() bool {
-	// Work has scheduling if either (or both) Promise or Resource has scheduling set
-	return len(w.Spec.DestinationSelectors.Resource) > 0 && len(w.Spec.DestinationSelectors.Resource[0].MatchLabels) > 0 ||
-		len(w.Spec.DestinationSelectors.Promise) > 0 && len(w.Spec.DestinationSelectors.Promise[0].MatchLabels) > 0
-}
-
-func (w *Work) GetSchedulingSelectors() map[string]string {
-	return generateLabelSelectorsFromScheduling(append(w.Spec.DestinationSelectors.Promise, w.Spec.DestinationSelectors.Resource...))
+// WorkloadGroup represents the workloads in a particular directory that should
+// be scheduled to a to Destination
+type WorkloadGroup struct {
+	// +optional
+	Workloads            []Workload        `json:"workloads,omitempty"`
+	Directory            string            `json:"directory,omitempty"`
+	DirectoryHash        string            `json:"directoryHash,omitempty"`
+	DestinationSelectors map[string]string `json:"destinationSelectors,omitempty"`
 }
 
 // Workload represents the manifest workload to be deployed on destination

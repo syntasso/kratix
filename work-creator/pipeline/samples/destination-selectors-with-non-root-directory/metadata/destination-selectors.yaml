@@ -3,4 +3,4 @@
     region: europe
 - matchLabels:
     environment: staging
-  directory: baz/
+  directory: foo/bar

@@ -48,6 +48,8 @@ spec:
               destinationSelectors:
                 items:
                   properties:
+                    directory:
+                      type: string
                     matchLabels:
                       additionalProperties:
                         type: string

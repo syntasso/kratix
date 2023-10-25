@@ -38,7 +38,7 @@ var _ = Describe("WorkCreator", func() {
 			k8sClient.Create(context.Background(), &v1.Namespace{ObjectMeta: metav1.ObjectMeta{Name: "kratix-platform-system"}})
 		})
 
-		Context("complete set of inputs for a resource request", func() {
+		When("provided a complete set of inputs for a resource request", func() {
 			var workResource v1alpha1.Work
 			var mockPipelineDirectory string
 
@@ -56,11 +56,7 @@ var _ = Describe("WorkCreator", func() {
 						Promise: []v1alpha1.Selector{
 							{
 								MatchLabels: map[string]string{"environment": "dev"},
-							},
-						},
-						Resource: []v1alpha1.Selector{
-							{
-								MatchLabels: map[string]string{"environment": "production", "region": "europe"},
+								Directory:   ".",
 							},
 						},
 					}))
@@ -69,23 +65,69 @@ var _ = Describe("WorkCreator", func() {
 
 			Describe("the Work resource workloads list", func() {
 				It("has three files", func() {
-					Expect(workResource.Spec.Workloads).To(HaveLen(3))
+					Expect(workResource.Spec.WorkloadGroups).To(HaveLen(2))
 
 					paths := []string{}
-					for _, workload := range workResource.Spec.Workloads {
+					for _, workload := range workResource.Spec.WorkloadGroups[0].Workloads {
 						paths = append(paths, workload.Filepath)
 					}
-
-					//order of files isn't guranteed
-					Expect(paths).To(ConsistOf("configmap.yaml",
-						"foo/bar/namespace-resource-request.yaml", "foo/multi-resource-requests.yaml"))
-
-					for _, workload := range workResource.Spec.Workloads {
+					Expect(paths).To(ConsistOf("baz/baz-namespace-resource-request.yaml"))
+					for _, workload := range workResource.Spec.WorkloadGroups[0].Workloads {
 						fileContent, err := os.ReadFile(filepath.Join(mockPipelineDirectory, "input", workload.Filepath))
 						Expect(err).NotTo(HaveOccurred())
 						Expect(workload.Content).To(Equal(string(fileContent)))
 					}
+					Expect(workResource.Spec.WorkloadGroups[0].DestinationSelectors).To(Equal(map[string]string{
+						"environment": "staging",
+					}))
+
+					paths = []string{}
+					for _, workload := range workResource.Spec.WorkloadGroups[1].Workloads {
+						paths = append(paths, workload.Filepath)
+					}
+					Expect(paths).To(ConsistOf("configmap.yaml", "foo/bar/namespace-resource-request.yaml", "foo/multi-resource-requests.yaml"))
+					for _, workload := range workResource.Spec.WorkloadGroups[1].Workloads {
+						fileContent, err := os.ReadFile(filepath.Join(mockPipelineDirectory, "input", workload.Filepath))
+						Expect(err).NotTo(HaveOccurred())
+						Expect(workload.Content).To(Equal(string(fileContent)))
+					}
+					Expect(workResource.Spec.WorkloadGroups[1].DestinationSelectors).To(Equal(
+						map[string]string{"environment": "production", "region": "europe"},
+					))
+
 				})
+			})
+		})
+
+		When("the destination-selectors contain multiple entries for the same directory", func() {
+			It("errors", func() {
+				mockPipelineDirectory := filepath.Join(getRootDirectory(), "duplicate-destination-selectors")
+				err := workCreator.Execute(mockPipelineDirectory, "promise-name", "default", "resource-name", "resource")
+				Expect(err).To(MatchError(ContainSubstring("duplicate entries in destination-selectors.yaml")))
+			})
+
+			When("and the directory is empty string", func() {
+				It("errors", func() {
+					mockPipelineDirectory := filepath.Join(getRootDirectory(), "duplicate-destination-selectors-with-empty-directory")
+					err := workCreator.Execute(mockPipelineDirectory, "promise-name", "default", "resource-name", "resource")
+					Expect(err).To(MatchError(ContainSubstring("duplicate entries in destination-selectors.yaml")))
+				})
+			})
+		})
+
+		When("the destination-selectors contain a non-root directory", func() {
+			It("errors", func() {
+				mockPipelineDirectory := filepath.Join(getRootDirectory(), "destination-selectors-with-non-root-directory")
+				err := workCreator.Execute(mockPipelineDirectory, "promise-name", "default", "resource-name", "resource")
+				Expect(err).To(MatchError(ContainSubstring("invalid directory in destination-selectors.yaml: foo/bar, directory must be top-level")))
+			})
+		})
+
+		When("the destination-selectors contain duplicate directories, one with a trailing slash and one without", func() {
+			It("errors as they are treated as the same value", func() {
+				mockPipelineDirectory := filepath.Join(getRootDirectory(), "destination-selectors-trailing-slash")
+				err := workCreator.Execute(mockPipelineDirectory, "promise-name", "default", "resource-name", "resource")
+				Expect(err).To(MatchError(ContainSubstring("duplicate entries in destination-selectors.yaml")))
 			})
 		})
 
@@ -103,6 +145,7 @@ var _ = Describe("WorkCreator", func() {
 						Promise: []v1alpha1.Selector{
 							{
 								MatchLabels: map[string]string{"environment": "dev"},
+								Directory:   ".",
 							},
 						},
 					}))
@@ -136,6 +179,7 @@ var _ = Describe("WorkCreator", func() {
 						Promise: []v1alpha1.Selector{
 							{
 								MatchLabels: map[string]string{"environment": "dev"},
+								Directory:   ".",
 							},
 						},
 					}))

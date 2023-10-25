@@ -270,16 +270,17 @@ func (r *Scheduler) getDestinationsForWork(work *platformv1alpha1.Work) []platfo
 	destinations := &platformv1alpha1.DestinationList{}
 	lo := &client.ListOptions{}
 
-	if work.HasScheduling() {
-		workSelectorLabel := labels.FormatLabels(work.GetSchedulingSelectors())
-		//<none> is valid output from above
-		selector, err := labels.Parse(workSelectorLabel)
+	//TODO fix
+	//if work.HasScheduling() {
+	//	workSelectorLabel := labels.FormatLabels(work.GetSchedulingSelectors())
+	//	//<none> is valid output from above
+	//	selector, err := labels.Parse(workSelectorLabel)
 
-		if err != nil {
-			r.Log.Error(err, "error parsing scheduling")
-		}
-		lo.LabelSelector = selector
-	}
+	//	if err != nil {
+	//		r.Log.Error(err, "error parsing scheduling")
+	//	}
+	//	lo.LabelSelector = selector
+	//}
 
 	err := r.Client.List(context.Background(), destinations, lo)
 	if err != nil {

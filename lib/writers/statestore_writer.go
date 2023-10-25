@@ -8,6 +8,6 @@ const (
 )
 
 type StateStoreWriter interface {
-	WriteDirWithObjects(deleteExistingContentsInDir bool, dir string, workloads ...platformv1alpha1.Workload) error
+	WriteDirWithObjects(deleteExistingContentsInDir bool, dir string, workloads ...platformv1alpha1.WorkloadGroup) error
 	RemoveObject(objectName string) error
 }

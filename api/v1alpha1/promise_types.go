@@ -81,6 +81,7 @@ type Dependency struct {
 
 type Selector struct {
 	MatchLabels map[string]string `json:"matchLabels,omitempty"`
+	Directory   string            `json:"directory,omitempty"`
 }
 
 // PromiseStatus defines the observed state of Promise

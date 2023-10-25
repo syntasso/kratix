@@ -100,7 +100,7 @@ var _ = Describe("Controllers/Scheduler", func() {
 			})
 
 			It("updates workplacements for existing works", func() {
-				resourceWork.Spec.Workloads = append(resourceWork.Spec.Workloads, Workload{
+				resourceWork.Spec.Workloads = append(resourceWork.Spec.Workloads, WorkloadGroup{
 					Content: "fake: content",
 				})
 				err := scheduler.ReconcileWork(&resourceWork)
@@ -111,7 +111,7 @@ var _ = Describe("Controllers/Scheduler", func() {
 				Expect(workPlacements.Items).To(HaveLen(1))
 				workPlacement := workPlacements.Items[0]
 				Expect(workPlacement.Spec.Workloads).To(HaveLen(2))
-				Expect(workPlacement.Spec.Workloads).To(ContainElement(Workload{
+				Expect(workPlacement.Spec.Workloads).To(ContainElement(WorkloadGroup{
 					Content: "fake: content",
 				}))
 			})
@@ -158,12 +158,12 @@ var _ = Describe("Controllers/Scheduler", func() {
 					Expect(k8sClient.List(context.Background(), &workPlacements)).To(Succeed())
 					Expect(len(workPlacements.Items)).To(Equal(3))
 					for _, workPlacement := range workPlacements.Items {
-						Expect(workPlacement.Spec.Workloads).To(ConsistOf(Workload{
+						Expect(workPlacement.Spec.Workloads).To(ConsistOf(WorkloadGroup{
 							Content: "key: value",
 						}))
 					}
 
-					dependencyWork.Spec.Workloads = append(dependencyWork.Spec.Workloads, Workload{
+					dependencyWork.Spec.Workloads = append(dependencyWork.Spec.Workloads, WorkloadGroup{
 						Content: "fake: new-content",
 					})
 
@@ -175,8 +175,8 @@ var _ = Describe("Controllers/Scheduler", func() {
 					Expect(workPlacements.Items).To(HaveLen(3))
 					for _, workPlacement := range workPlacements.Items {
 						Expect(workPlacement.Spec.Workloads).To(ConsistOf(
-							Workload{Content: "key: value"},
-							Workload{Content: "fake: new-content"},
+							WorkloadGroup{Content: "key: value"},
+							WorkloadGroup{Content: "fake: new-content"},
 						))
 					}
 				})
@@ -189,7 +189,7 @@ var _ = Describe("Controllers/Scheduler", func() {
 						Expect(k8sClient.List(context.Background(), &workPlacements)).To(Succeed())
 						Expect(len(workPlacements.Items)).To(Equal(3))
 						for _, workPlacement := range workPlacements.Items {
-							Expect(workPlacement.Spec.Workloads).To(ConsistOf(Workload{
+							Expect(workPlacement.Spec.Workloads).To(ConsistOf(WorkloadGroup{
 								Content: "key: value",
 							}))
 						}
@@ -202,7 +202,7 @@ var _ = Describe("Controllers/Scheduler", func() {
 							},
 						}
 
-						dependencyWork.Spec.Workloads = append(dependencyWork.Spec.Workloads, Workload{
+						dependencyWork.Spec.Workloads = append(dependencyWork.Spec.Workloads, WorkloadGroup{
 							Content: "fake: new-content",
 						})
 
@@ -227,8 +227,8 @@ var _ = Describe("Controllers/Scheduler", func() {
 
 						for _, workPlacement := range workPlacements.Items {
 							Expect(workPlacement.Spec.Workloads).To(ConsistOf(
-								Workload{Content: "key: value"},
-								Workload{Content: "fake: new-content"},
+								WorkloadGroup{Content: "key: value"},
+								WorkloadGroup{Content: "fake: new-content"},
 							))
 						}
 					})
@@ -358,7 +358,7 @@ func newWork(name string, workType int, scheduling ...WorkScheduling) Work {
 			Replicas:             workType,
 			DestinationSelectors: workScheduling,
 			WorkloadCoreFields: WorkloadCoreFields{
-				Workloads: []Workload{
+				Workloads: []WorkloadGroup{
 					{Content: "key: value"},
 				},
 			},
