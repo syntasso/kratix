@@ -71,7 +71,7 @@ func (w *WorkCreator) Execute(rootDirectory, promiseName, namespace, resourceNam
 			workloadGroups = append(workloadGroups, platformv1alpha1.WorkloadGroup{
 				Workloads:            workloads,
 				Directory:            directory,
-				DirectoryHash:        fmt.Sprintf("%x", md5.Sum([]byte(directory))),
+				ID:                   fmt.Sprintf("%x", md5.Sum([]byte(directory))),
 				DestinationSelectors: destinationSelector.MatchLabels,
 			})
 		} else {
@@ -87,7 +87,7 @@ func (w *WorkCreator) Execute(rootDirectory, promiseName, namespace, resourceNam
 	workloadGroups = append(workloadGroups, platformv1alpha1.WorkloadGroup{
 		Workloads:            workloads,
 		Directory:            "",
-		DirectoryHash:        "default",
+		ID:                   "default",
 		DestinationSelectors: baseDestinationSelector,
 	})
 

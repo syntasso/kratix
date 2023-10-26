@@ -86,7 +86,7 @@ func ConfigurePipeline(obj *unstructured.Unstructured, pipelines []platformv1alp
 	initContainers, pipelineVolumes := configurePipelineInitContainers(obj, pipelines, promiseName, promiseWorkflow, logger)
 	volumes = append(volumes, pipelineVolumes...)
 
-	objHash, err := hash.ComputeHash(obj)
+	objHash, err := hash.ComputeHashForResource(obj)
 	if err != nil {
 		return nil, err
 	}

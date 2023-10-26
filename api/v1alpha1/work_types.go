@@ -113,7 +113,7 @@ type WorkloadGroup struct {
 	// +optional
 	Workloads            []Workload        `json:"workloads,omitempty"`
 	Directory            string            `json:"directory,omitempty"`
-	DirectoryHash        string            `json:"directoryHash,omitempty"`
+	ID                   string            `json:"id,omitempty"`
 	DestinationSelectors map[string]string `json:"destinationSelectors,omitempty"`
 }
 

@@ -8,21 +8,25 @@ import (
 	"github.com/syntasso/kratix/api/v1alpha1"
 	. "github.com/syntasso/kratix/api/v1alpha1"
 	. "github.com/syntasso/kratix/controllers"
+	"github.com/syntasso/kratix/lib/hash"
 	v1 "k8s.io/apimachinery/pkg/apis/meta/v1"
 	"k8s.io/apimachinery/pkg/types"
 	ctrl "sigs.k8s.io/controller-runtime"
 )
 
+var rootDirectoryWorkloadGroupID = hash.ComputeHash(".")
+
 var _ = Describe("Controllers/Scheduler", func() {
 
-	var devDestination, devDestination2, prodDestination Destination
-	var dependencyWork, dependencyWorkForProd, dependencyWorkForDev, resourceWork Work
+	var devDestination, devDestination2, pciDestination, prodDestination Destination
+	var dependencyWork, dependencyWorkForProd, dependencyWorkForDev, resourceWork, resourceWorkWithMultipleGroup Work
 	var workPlacements WorkPlacementList
 	var scheduler *Scheduler
 
 	BeforeEach(func() {
 		devDestination = newDestination("dev-1", map[string]string{"environment": "dev"})
 		devDestination2 = newDestination("dev-2", map[string]string{"environment": "dev"})
+		pciDestination = newDestination("pci", map[string]string{"pci": "true"})
 		prodDestination = newDestination("prod", map[string]string{"environment": "prod"})
 
 		dependencyWork = newWork("work-name", DependencyReplicas)
@@ -30,6 +34,7 @@ var _ = Describe("Controllers/Scheduler", func() {
 		dependencyWorkForDev = newWork("dev-work-name", DependencyReplicas, schedulingFor(devDestination))
 
 		resourceWork = newWork("rr-work-name", ResourceRequestReplicas, schedulingFor(devDestination))
+		resourceWorkWithMultipleGroup = newWorkWithTwoWorkloadGroups("rr-work-name", ResourceRequestReplicas, schedulingFor(devDestination), map[string]string{"pci": "true"})
 
 		scheduler = &Scheduler{
 			Client: k8sClient,
@@ -38,6 +43,7 @@ var _ = Describe("Controllers/Scheduler", func() {
 
 		Expect(k8sClient.Create(context.Background(), &devDestination)).To(Succeed())
 		Expect(k8sClient.Create(context.Background(), &devDestination2)).To(Succeed())
+		Expect(k8sClient.Create(context.Background(), &pciDestination)).To(Succeed())
 		Expect(k8sClient.Create(context.Background(), &prodDestination)).To(Succeed())
 	})
 
@@ -66,7 +72,7 @@ var _ = Describe("Controllers/Scheduler", func() {
 				actualWorkPlacement := WorkPlacement{}
 				Expect(k8sClient.Get(context.Background(), ns, &actualWorkPlacement)).To(Succeed())
 				Expect(actualWorkPlacement.Spec.TargetDestinationName).To(Equal(devDestination3.Name))
-				Expect(actualWorkPlacement.Spec.Workloads).To(Equal(dependencyWorkForDev.Spec.Workloads))
+				Expect(actualWorkPlacement.Spec.Workloads).To(Equal(dependencyWorkForDev.Spec.WorkloadGroups[0].Workloads))
 			})
 
 			It("does not schedule Works with un-matching labels to the new Destination", func() {
@@ -92,17 +98,17 @@ var _ = Describe("Controllers/Scheduler", func() {
 				workPlacement := workPlacements.Items[0]
 				Expect(workPlacement.Namespace).To(Equal("default"))
 				Expect(workPlacement.ObjectMeta.Labels["kratix.io/work"]).To(Equal("rr-work-name"))
-				Expect(workPlacement.Name).To(Equal("rr-work-name." + workPlacement.Spec.TargetDestinationName))
-				Expect(workPlacement.Spec.Workloads).To(Equal(resourceWork.Spec.Workloads))
+				Expect(workPlacement.ObjectMeta.Labels["kratix.io/workload-group-id"]).To(Equal(rootDirectoryWorkloadGroupID))
+				Expect(workPlacement.Name).To(Equal("rr-work-name." + workPlacement.Spec.TargetDestinationName + "-" + rootDirectoryWorkloadGroupID[0:5]))
+				Expect(workPlacement.Spec.Workloads).To(Equal(resourceWork.Spec.WorkloadGroups[0].Workloads))
 				Expect(workPlacement.Spec.TargetDestinationName).To(MatchRegexp("prod|dev\\-\\d"))
 				Expect(workPlacement.Finalizers).To(HaveLen(1), "expected one finalizer")
 				Expect(workPlacement.Finalizers[0]).To(Equal("finalizers.workplacement.kratix.io/repo-cleanup"))
+				Expect(workPlacement.Spec.PromiseName).To(Equal("promise"))
+				Expect(workPlacement.Spec.ResourceName).To(Equal("resource"))
 			})
 
 			It("updates workplacements for existing works", func() {
-				resourceWork.Spec.Workloads = append(resourceWork.Spec.Workloads, WorkloadGroup{
-					Content: "fake: content",
-				})
 				err := scheduler.ReconcileWork(&resourceWork)
 				Expect(err).ToNot(HaveOccurred())
 
@@ -110,10 +116,66 @@ var _ = Describe("Controllers/Scheduler", func() {
 
 				Expect(workPlacements.Items).To(HaveLen(1))
 				workPlacement := workPlacements.Items[0]
+				Expect(workPlacement.Spec.Workloads).To(HaveLen(1))
+
+				resourceWork.Spec.WorkloadGroups[0].Workloads = append(resourceWork.Spec.WorkloadGroups[0].Workloads, Workload{
+					Content: "fake: content",
+				})
+				err = scheduler.ReconcileWork(&resourceWork)
+				Expect(err).ToNot(HaveOccurred())
+
+				Expect(k8sClient.List(context.Background(), &workPlacements)).To(Succeed())
+
+				Expect(workPlacements.Items).To(HaveLen(1))
+				workPlacement = workPlacements.Items[0]
 				Expect(workPlacement.Spec.Workloads).To(HaveLen(2))
-				Expect(workPlacement.Spec.Workloads).To(ContainElement(WorkloadGroup{
+				Expect(workPlacement.Spec.Workloads).To(ContainElement(Workload{
 					Content: "fake: content",
 				}))
+			})
+
+			When("the Work needs to schedule to multiple destinations", func() {
+				It("creates a WorkPlacement per workloadGroup", func() {
+					err := scheduler.ReconcileWork(&resourceWorkWithMultipleGroup)
+					Expect(err).ToNot(HaveOccurred())
+
+					Expect(k8sClient.List(context.Background(), &workPlacements)).To(Succeed())
+					Expect(workPlacements.Items).To(HaveLen(2))
+
+					var pciWorkPlacement, devOrProdWorkPlacement WorkPlacement
+					for _, wp := range workPlacements.Items {
+						if wp.Spec.TargetDestinationName == "pci" {
+							pciWorkPlacement = wp
+						} else {
+							devOrProdWorkPlacement = wp
+						}
+					}
+
+					workloadGroupID := rootDirectoryWorkloadGroupID
+					Expect(devOrProdWorkPlacement.Namespace).To(Equal("default"))
+					Expect(devOrProdWorkPlacement.ObjectMeta.Labels["kratix.io/work"]).To(Equal("rr-work-name"))
+					Expect(devOrProdWorkPlacement.ObjectMeta.Labels["kratix.io/workload-group-id"]).To(Equal(workloadGroupID))
+					Expect(devOrProdWorkPlacement.Name).To(Equal("rr-work-name." + devOrProdWorkPlacement.Spec.TargetDestinationName + "-" + workloadGroupID[0:5]))
+					Expect(devOrProdWorkPlacement.Spec.Workloads).To(Equal(resourceWorkWithMultipleGroup.Spec.WorkloadGroups[0].Workloads))
+					Expect(devOrProdWorkPlacement.Spec.TargetDestinationName).To(MatchRegexp("prod|dev\\-\\d"))
+					Expect(devOrProdWorkPlacement.Finalizers).To(HaveLen(1), "expected one finalizer")
+					Expect(devOrProdWorkPlacement.Finalizers[0]).To(Equal("finalizers.workplacement.kratix.io/repo-cleanup"))
+					Expect(devOrProdWorkPlacement.Spec.PromiseName).To(Equal("promise"))
+					Expect(devOrProdWorkPlacement.Spec.ResourceName).To(Equal("resource"))
+
+					//TODO deterministic ordering? pci sucks
+					workloadGroupID = hash.ComputeHash("foo")
+					Expect(pciWorkPlacement.Namespace).To(Equal("default"))
+					Expect(pciWorkPlacement.ObjectMeta.Labels["kratix.io/work"]).To(Equal("rr-work-name"))
+					Expect(pciWorkPlacement.ObjectMeta.Labels["kratix.io/workload-group-id"]).To(Equal(workloadGroupID))
+					Expect(pciWorkPlacement.Name).To(Equal("rr-work-name." + pciWorkPlacement.Spec.TargetDestinationName + "-" + workloadGroupID[0:5]))
+					Expect(pciWorkPlacement.Spec.TargetDestinationName).To(Equal("pci"))
+					Expect(pciWorkPlacement.Finalizers).To(HaveLen(1), "expected one finalizer")
+					Expect(pciWorkPlacement.Finalizers[0]).To(Equal("finalizers.workplacement.kratix.io/repo-cleanup"))
+					Expect(pciWorkPlacement.Spec.Workloads).To(Equal(resourceWorkWithMultipleGroup.Spec.WorkloadGroups[1].Workloads))
+					Expect(pciWorkPlacement.Spec.PromiseName).To(Equal("promise"))
+					Expect(pciWorkPlacement.Spec.ResourceName).To(Equal("resource"))
+				})
 			})
 
 			When("the scheduling changes such that the workplacement is not on a correct destination", func() {
@@ -136,6 +198,7 @@ var _ = Describe("Controllers/Scheduler", func() {
 					workPlacement := workPlacements.Items[0]
 					Expect(workPlacement.Spec.TargetDestinationName).To(Equal(preUpdateDestination))
 					Expect(workPlacement.GetLabels()).To(HaveKeyWithValue("kratix.io/misscheduled", "true"))
+					Expect(workPlacement.GetLabels()).To(HaveKeyWithValue("kratix.io/workload-group-id", rootDirectoryWorkloadGroupID))
 					Expect(workPlacement.Status.Conditions).To(HaveLen(1))
 					//ignore time for assertion
 					workPlacement.Status.Conditions[0].LastTransitionTime = v1.Time{}
@@ -158,12 +221,12 @@ var _ = Describe("Controllers/Scheduler", func() {
 					Expect(k8sClient.List(context.Background(), &workPlacements)).To(Succeed())
 					Expect(len(workPlacements.Items)).To(Equal(3))
 					for _, workPlacement := range workPlacements.Items {
-						Expect(workPlacement.Spec.Workloads).To(ConsistOf(WorkloadGroup{
+						Expect(workPlacement.Spec.Workloads).To(ConsistOf(Workload{
 							Content: "key: value",
 						}))
 					}
 
-					dependencyWork.Spec.Workloads = append(dependencyWork.Spec.Workloads, WorkloadGroup{
+					dependencyWork.Spec.WorkloadGroups[0].Workloads = append(dependencyWork.Spec.WorkloadGroups[0].Workloads, Workload{
 						Content: "fake: new-content",
 					})
 
@@ -175,8 +238,8 @@ var _ = Describe("Controllers/Scheduler", func() {
 					Expect(workPlacements.Items).To(HaveLen(3))
 					for _, workPlacement := range workPlacements.Items {
 						Expect(workPlacement.Spec.Workloads).To(ConsistOf(
-							WorkloadGroup{Content: "key: value"},
-							WorkloadGroup{Content: "fake: new-content"},
+							Workload{Content: "key: value"},
+							Workload{Content: "fake: new-content"},
 						))
 					}
 				})
@@ -189,7 +252,7 @@ var _ = Describe("Controllers/Scheduler", func() {
 						Expect(k8sClient.List(context.Background(), &workPlacements)).To(Succeed())
 						Expect(len(workPlacements.Items)).To(Equal(3))
 						for _, workPlacement := range workPlacements.Items {
-							Expect(workPlacement.Spec.Workloads).To(ConsistOf(WorkloadGroup{
+							Expect(workPlacement.Spec.Workloads).To(ConsistOf(Workload{
 								Content: "key: value",
 							}))
 						}
@@ -202,7 +265,7 @@ var _ = Describe("Controllers/Scheduler", func() {
 							},
 						}
 
-						dependencyWork.Spec.Workloads = append(dependencyWork.Spec.Workloads, WorkloadGroup{
+						dependencyWork.Spec.WorkloadGroups[0].Workloads = append(dependencyWork.Spec.WorkloadGroups[0].Workloads, Workload{
 							Content: "fake: new-content",
 						})
 
@@ -227,8 +290,8 @@ var _ = Describe("Controllers/Scheduler", func() {
 
 						for _, workPlacement := range workPlacements.Items {
 							Expect(workPlacement.Spec.Workloads).To(ConsistOf(
-								WorkloadGroup{Content: "key: value"},
-								WorkloadGroup{Content: "fake: new-content"},
+								Workload{Content: "key: value"},
+								Workload{Content: "fake: new-content"},
 							))
 						}
 					})
@@ -358,8 +421,55 @@ func newWork(name string, workType int, scheduling ...WorkScheduling) Work {
 			Replicas:             workType,
 			DestinationSelectors: workScheduling,
 			WorkloadCoreFields: WorkloadCoreFields{
-				Workloads: []WorkloadGroup{
-					{Content: "key: value"},
+				PromiseName:  "promise",
+				ResourceName: "resource",
+				WorkloadGroups: []WorkloadGroup{
+					{
+						Workloads: []Workload{
+							{Content: "key: value"},
+						},
+						Directory: ".",
+						ID:        hash.ComputeHash("."),
+					},
+				},
+			},
+		},
+	}
+}
+
+func newWorkWithTwoWorkloadGroups(name string, workType int, promiseScheduling WorkScheduling, directoryOverrideScheduling map[string]string) Work {
+	namespace := "default"
+	if workType == DependencyReplicas {
+		namespace = KratixSystemNamespace
+	}
+	return Work{
+		ObjectMeta: v1.ObjectMeta{
+			Name:      name,
+			Namespace: namespace,
+			UID:       types.UID(name),
+		},
+		Spec: WorkSpec{
+			Replicas:             workType,
+			DestinationSelectors: promiseScheduling,
+			WorkloadCoreFields: WorkloadCoreFields{
+				PromiseName:  "promise",
+				ResourceName: "resource",
+				WorkloadGroups: []WorkloadGroup{
+					{
+						Workloads: []Workload{
+							{Content: "key: value"},
+						},
+						Directory: ".",
+						ID:        hash.ComputeHash("."),
+					},
+					{
+						Workloads: []Workload{
+							{Content: "foo: bar"},
+						},
+						DestinationSelectors: directoryOverrideScheduling,
+						Directory:            "foo",
+						ID:                   hash.ComputeHash("foo"),
+					},
 				},
 			},
 		},

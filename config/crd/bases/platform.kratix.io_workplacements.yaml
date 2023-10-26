@@ -40,32 +40,15 @@ spec:
                 type: string
               targetDestinationName:
                 type: string
-              workloadGroups:
-                description: Workload represents the manifest workload to be deployed
-                  on destination
+              workloads:
                 items:
-                  description: WorkloadGroup represents the workloads in a particular
-                    directory that should be scheduled to a to Destination
+                  description: Workload represents the manifest workload to be deployed
+                    on destination
                   properties:
-                    destinationSelectors:
-                      additionalProperties:
-                        type: string
-                      type: object
-                    directory:
+                    content:
                       type: string
-                    directoryHash:
+                    filepath:
                       type: string
-                    workloads:
-                      items:
-                        description: Workload represents the manifest workload to
-                          be deployed on destination
-                        properties:
-                          content:
-                            type: string
-                          filepath:
-                            type: string
-                        type: object
-                      type: array
                   type: object
                 type: array
             type: object

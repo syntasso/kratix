@@ -42,7 +42,7 @@ var _ = Describe("Conditions", func() {
 		}
 
 		var err error
-		originalHash, err = hash.ComputeHash(rr)
+		originalHash, err = hash.ComputeHashForResource(rr)
 		Expect(err).NotTo(HaveOccurred())
 	})
 
