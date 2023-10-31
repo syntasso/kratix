@@ -17,6 +17,7 @@ limitations under the License.
 package v1alpha1
 
 import (
+	"github.com/syntasso/kratix/lib/hash"
 	metav1 "k8s.io/apimachinery/pkg/apis/meta/v1"
 )
 
@@ -88,11 +89,15 @@ func NewPromiseDependenciesWork(promise *Promise) (*Work, error) {
 		return nil, err
 	}
 
-	//TODO comeback and fix
-	work.Spec.WorkloadGroups[0].Workloads = []Workload{
+	work.Spec.WorkloadGroups = []WorkloadGroup{
 		{
-			Content:  string(yamlBytes),
-			Filepath: "static/dependencies.yaml",
+			ID: hash.ComputeHash("."),
+			Workloads: []Workload{
+				{
+					Content:  string(yamlBytes),
+					Filepath: "static/dependencies.yaml",
+				},
+			},
 		},
 	}
 

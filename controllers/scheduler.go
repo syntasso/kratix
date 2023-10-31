@@ -76,6 +76,8 @@ func (s *Scheduler) UpdateWorkPlacement(workloadGroup platformv1alpha1.WorkloadG
 
 func (s *Scheduler) ReconcileWork(work *platformv1alpha1.Work) error {
 	for _, wg := range work.Spec.WorkloadGroups {
+		//TODO continue on trying and error at the end? maybe only if its because no
+		//dest can be found?
 		if err := s.reconcileWorkloadGroup(wg, work); err != nil {
 			return err
 		}
@@ -251,8 +253,13 @@ func (s *Scheduler) updateStatus(workPlacement *platformv1alpha1.WorkPlacement, 
 // Where Work is a Resource Request return one random Destination name, where Work is a
 // DestinationWorkerResource return all Destination names
 func (s *Scheduler) getTargetDestinationNames(workloadGroup platformv1alpha1.WorkloadGroup, work *platformv1alpha1.Work) []string {
-	//TODO remove index 0
-	destinations := s.getDestinationsForWorkloadGroup(workloadGroup, work.Spec.DestinationSelectors.Promise[0].MatchLabels)
+	promiseDestinationSelectors := map[string]string{}
+	//TODO test
+	if len(work.Spec.DestinationSelectors.Promise) > 0 && workloadGroup.Directory == "." {
+		promiseDestinationSelectors = work.Spec.DestinationSelectors.Promise[0].MatchLabels
+	}
+
+	destinations := s.getDestinationsForWorkloadGroup(workloadGroup, promiseDestinationSelectors)
 
 	if len(destinations) == 0 {
 		return make([]string, 0)

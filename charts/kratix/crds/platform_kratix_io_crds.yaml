@@ -247,6 +247,9 @@ spec:
                 destinationSelectors:
                   items:
                     properties:
+                      directory:
+                        description: TODO don't expose this in the promise
+                        type: string
                       matchLabels:
                         additionalProperties:
                           type: string
@@ -377,7 +380,6 @@ spec:
                 targetDestinationName:
                   type: string
                 workloads:
-                  description: Workload represents the manifest workload to be deployed on destination
                   items:
                     description: Workload represents the manifest workload to be deployed on destination
                     properties:
@@ -478,15 +480,9 @@ spec:
                     promise:
                       items:
                         properties:
-                          matchLabels:
-                            additionalProperties:
-                              type: string
-                            type: object
-                        type: object
-                      type: array
-                    resource:
-                      items:
-                        properties:
+                          directory:
+                            description: TODO don't expose this in the promise
+                            type: string
                           matchLabels:
                             additionalProperties:
                               type: string
@@ -501,15 +497,29 @@ spec:
                   type: integer
                 resourceName:
                   type: string
-                workloads:
+                workloadGroups:
                   description: Workload represents the manifest workload to be deployed on destination
                   items:
-                    description: Workload represents the manifest workload to be deployed on destination
+                    description: WorkloadGroup represents the workloads in a particular directory that should be scheduled to a to Destination
                     properties:
-                      content:
+                      destinationSelectors:
+                        additionalProperties:
+                          type: string
+                        type: object
+                      directory:
                         type: string
-                      filepath:
+                      id:
                         type: string
+                      workloads:
+                        items:
+                          description: Workload represents the manifest workload to be deployed on destination
+                          properties:
+                            content:
+                              type: string
+                            filepath:
+                              type: string
+                          type: object
+                        type: array
                     type: object
                   type: array
               type: object

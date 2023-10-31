@@ -2,6 +2,7 @@ package controllers_test
 
 import (
 	"context"
+	"fmt"
 
 	. "github.com/onsi/ginkgo/v2"
 	. "github.com/onsi/gomega"
@@ -10,8 +11,10 @@ import (
 	. "github.com/syntasso/kratix/controllers"
 	"github.com/syntasso/kratix/lib/hash"
 	v1 "k8s.io/apimachinery/pkg/apis/meta/v1"
+	"k8s.io/apimachinery/pkg/labels"
 	"k8s.io/apimachinery/pkg/types"
 	ctrl "sigs.k8s.io/controller-runtime"
+	"sigs.k8s.io/controller-runtime/pkg/client"
 )
 
 var rootDirectoryWorkloadGroupID = hash.ComputeHash(".")
@@ -58,30 +61,40 @@ var _ = Describe("Controllers/Scheduler", func() {
 			devDestination3 = newDestination("dev3", map[string]string{"environment": "dev"})
 
 			Expect(k8sClient.Create(context.Background(), &devDestination3)).To(Succeed())
+			//creating 1 workplacementList
 			Expect(k8sClient.Create(context.Background(), &dependencyWorkForProd)).To(Succeed())
+			//creating 3 workpalcements
 			Expect(k8sClient.Create(context.Background(), &dependencyWorkForDev)).To(Succeed())
 			scheduler.ReconcileDestination()
 		})
 
 		When("A new destination is added", func() {
-			It("schedules Works with matching labels to the new destination", func() {
-				ns := types.NamespacedName{
-					Namespace: KratixSystemNamespace,
-					Name:      "dev-work-name.dev3",
-				}
-				actualWorkPlacement := WorkPlacement{}
-				Expect(k8sClient.Get(context.Background(), ns, &actualWorkPlacement)).To(Succeed())
-				Expect(actualWorkPlacement.Spec.TargetDestinationName).To(Equal(devDestination3.Name))
-				Expect(actualWorkPlacement.Spec.Workloads).To(Equal(dependencyWorkForDev.Spec.WorkloadGroups[0].Workloads))
-			})
+			It("schedules Works with matching labels to the new destination that match the labels", func() {
+				workplacementList := WorkPlacementList{}
+				lo := &client.ListOptions{}
+				selector, err := labels.Parse(labels.FormatLabels(map[string]string{"kratix.io/work": "dev-work-name"}))
+				Expect(err).NotTo(HaveOccurred())
 
-			It("does not schedule Works with un-matching labels to the new Destination", func() {
-				ns := types.NamespacedName{
-					Namespace: "default",
-					Name:      "prod-work-name.dev3",
+				lo.LabelSelector = selector
+				Expect(k8sClient.List(context.Background(), &workplacementList, lo)).To(Succeed())
+				for _, wp := range workplacementList.Items {
+					fmt.Println(wp.Name)
 				}
-				actualWorkPlacement := WorkPlacement{}
-				Expect(k8sClient.Get(context.Background(), ns, &actualWorkPlacement)).ToNot(Succeed())
+				Expect(workplacementList.Items).To(HaveLen(3))
+				Expect(workplacementList.Items[0].Name).To(HavePrefix("dev-work-name.dev-1"))
+				Expect(workplacementList.Items[0].Namespace).To(Equal(KratixSystemNamespace))
+				Expect(workplacementList.Items[0].Spec.TargetDestinationName).To(Equal(devDestination.Name))
+				Expect(workplacementList.Items[0].Spec.Workloads).To(Equal(dependencyWorkForDev.Spec.WorkloadGroups[0].Workloads))
+
+				Expect(workplacementList.Items[1].Name).To(HavePrefix("dev-work-name.dev-2"))
+				Expect(workplacementList.Items[1].Namespace).To(Equal(KratixSystemNamespace))
+				Expect(workplacementList.Items[1].Spec.TargetDestinationName).To(Equal(devDestination2.Name))
+				Expect(workplacementList.Items[1].Spec.Workloads).To(Equal(dependencyWorkForDev.Spec.WorkloadGroups[0].Workloads))
+
+				Expect(workplacementList.Items[2].Name).To(HavePrefix("dev-work-name.dev3"))
+				Expect(workplacementList.Items[2].Namespace).To(Equal(KratixSystemNamespace))
+				Expect(workplacementList.Items[2].Spec.TargetDestinationName).To(Equal(devDestination3.Name))
+				Expect(workplacementList.Items[2].Spec.Workloads).To(Equal(dependencyWorkForDev.Spec.WorkloadGroups[0].Workloads))
 			})
 		})
 	})
@@ -219,7 +232,7 @@ var _ = Describe("Controllers/Scheduler", func() {
 					Expect(err).ToNot(HaveOccurred())
 
 					Expect(k8sClient.List(context.Background(), &workPlacements)).To(Succeed())
-					Expect(len(workPlacements.Items)).To(Equal(3))
+					Expect(len(workPlacements.Items)).To(Equal(4))
 					for _, workPlacement := range workPlacements.Items {
 						Expect(workPlacement.Spec.Workloads).To(ConsistOf(Workload{
 							Content: "key: value",
@@ -235,7 +248,7 @@ var _ = Describe("Controllers/Scheduler", func() {
 
 					Expect(k8sClient.List(context.Background(), &workPlacements)).To(Succeed())
 
-					Expect(workPlacements.Items).To(HaveLen(3))
+					Expect(workPlacements.Items).To(HaveLen(4))
 					for _, workPlacement := range workPlacements.Items {
 						Expect(workPlacement.Spec.Workloads).To(ConsistOf(
 							Workload{Content: "key: value"},
@@ -250,7 +263,7 @@ var _ = Describe("Controllers/Scheduler", func() {
 						Expect(err).ToNot(HaveOccurred())
 
 						Expect(k8sClient.List(context.Background(), &workPlacements)).To(Succeed())
-						Expect(len(workPlacements.Items)).To(Equal(3))
+						Expect(len(workPlacements.Items)).To(Equal(4))
 						for _, workPlacement := range workPlacements.Items {
 							Expect(workPlacement.Spec.Workloads).To(ConsistOf(Workload{
 								Content: "key: value",
@@ -274,7 +287,7 @@ var _ = Describe("Controllers/Scheduler", func() {
 
 						Expect(k8sClient.List(context.Background(), &workPlacements)).To(Succeed())
 
-						Expect(workPlacements.Items).To(HaveLen(3))
+						Expect(workPlacements.Items).To(HaveLen(4))
 						Expect(workPlacements.Items[0].GetLabels()).NotTo(HaveKey("kratix.io/misscheduled"))
 						Expect(workPlacements.Items[1].GetLabels()).NotTo(HaveKey("kratix.io/misscheduled"))
 						Expect(workPlacements.Items[2].GetLabels()).To(HaveKeyWithValue("kratix.io/misscheduled", "true"))
@@ -282,6 +295,17 @@ var _ = Describe("Controllers/Scheduler", func() {
 						//ignore time for assertion
 						workPlacements.Items[2].Status.Conditions[0].LastTransitionTime = v1.Time{}
 						Expect(workPlacements.Items[2].Status.Conditions).To(ConsistOf(v1.Condition{
+							Message: "Target destination no longer matches destinationSelectors",
+							Reason:  "DestinationSelectorMismatch",
+							Type:    "Misscheduled",
+							Status:  "True",
+						}))
+
+						Expect(workPlacements.Items[3].GetLabels()).To(HaveKeyWithValue("kratix.io/misscheduled", "true"))
+						Expect(workPlacements.Items[3].Status.Conditions).To(HaveLen(1))
+						//ignore time for assertion
+						workPlacements.Items[3].Status.Conditions[0].LastTransitionTime = v1.Time{}
+						Expect(workPlacements.Items[3].Status.Conditions).To(ConsistOf(v1.Condition{
 							Message: "Target destination no longer matches destinationSelectors",
 							Reason:  "DestinationSelectorMismatch",
 							Type:    "Misscheduled",

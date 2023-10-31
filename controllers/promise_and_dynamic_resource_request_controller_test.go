@@ -228,7 +228,7 @@ var _ = Context("Promise Reconciler", func() {
 					Expect(configMap.Data).To(HaveKey("destinationSelectors"))
 					space := regexp.MustCompile(`\s+`)
 					destinationSelectors := space.ReplaceAllString(configMap.Data["destinationSelectors"], " ")
-					Expect(strings.TrimSpace(destinationSelectors)).To(Equal(`- matchlabels: environment: dev`))
+					Expect(strings.TrimSpace(destinationSelectors)).To(Equal(`- matchlabels: environment: dev directory: ""`))
 				})
 
 				It("adds finalizers to the Promise", func() {
@@ -357,7 +357,7 @@ var _ = Context("Promise Reconciler", func() {
 				Expect(configMap.Data).To(HaveKey("destinationSelectors"))
 				space := regexp.MustCompile(`\s+`)
 				destinationSelectors := space.ReplaceAllString(configMap.Data["destinationSelectors"], " ")
-				Expect(strings.TrimSpace(destinationSelectors)).To(Equal(`- matchlabels: environment: dev`))
+				Expect(strings.TrimSpace(destinationSelectors)).To(Equal(`- matchlabels: environment: dev directory: ""`))
 			})
 
 			It("adds finalizers to the Promise", func() {

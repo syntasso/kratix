@@ -41,6 +41,7 @@ spec:
                     items:
                       properties:
                         directory:
+                          description: TODO don't expose this in the promise
                           type: string
                         matchLabels:
                           additionalProperties:

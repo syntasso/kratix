@@ -23,6 +23,7 @@ import (
 	. "github.com/onsi/ginkgo/v2"
 	. "github.com/onsi/gomega"
 	. "github.com/syntasso/kratix/controllers"
+	"github.com/syntasso/kratix/lib/hash"
 	"k8s.io/apimachinery/pkg/util/rand"
 	ctrl "sigs.k8s.io/controller-runtime"
 	"sigs.k8s.io/controller-runtime/pkg/client"
@@ -77,6 +78,19 @@ var _ = Context("WorkReconciler.Reconcile()", func() {
 			work.Name = "work-controller-test-resource-request"
 			work.Namespace = "default"
 			work.Spec.Replicas = platformv1alpha1.ResourceRequestReplicas
+			work.Spec.WorkloadGroups = []platformv1alpha1.WorkloadGroup{
+				{
+					ID: hash.ComputeHash("."),
+					Workloads: []platformv1alpha1.Workload{
+						{
+							Content: "{someApi: foo, someValue: bar}",
+						},
+						{
+							Content: "{someApi: baz, someValue: bat}",
+						},
+					},
+				},
+			}
 			err := k8sClient.Create(context.Background(), work)
 			Expect(err).ToNot(HaveOccurred())
 
@@ -192,6 +206,7 @@ var _ = Context("WorkReconciler.Reconcile()", func() {
 
 				BeforeEach(func() {
 					anotherDestination = createDestination("worker-2", map[string]string{"destination": "worker-2"})
+					//worker-1 and worker-2
 					work = createWork(platformv1alpha1.DependencyReplicas, &platformv1alpha1.WorkScheduling{
 						Promise: []platformv1alpha1.Selector{
 							{MatchLabels: map[string]string{"destination": "worker-1"}},
@@ -213,25 +228,25 @@ var _ = Context("WorkReconciler.Reconcile()", func() {
 						workPlacements := workPlacementsFor(work)
 
 						for _, workPlacement := range workPlacements.Items {
-							if workPlacement.Name == work.Name+".worker-2" {
+							if strings.HasPrefix(workPlacement.Name, work.Name+".worker-2") {
 								return true
 							}
 						}
 
 						return false
-					}).Should(BeTrue(), "WorkPlacement for worker-2 was never created")
+					}, "5s").Should(BeTrue(), "WorkPlacement for worker-2 was never created")
 				})
 
 				It("does not remove old workplacements", func() {
 					Eventually(func() bool {
 						workPlacements := workPlacementsFor(work)
 						for _, workPlacement := range workPlacements.Items {
-							if workPlacement.Name == work.Name+".worker-1" {
+							if strings.HasPrefix(workPlacement.Name, work.Name+".worker-1") {
 								return true
 							}
 						}
 						return false
-					}).Should(BeTrue(), "WorkPlacement for worker-1 was deleted")
+					}, "5s").Should(BeTrue(), "WorkPlacement for worker-1 was deleted")
 				})
 
 				AfterEach(func() {
@@ -275,12 +290,18 @@ func createWork(replicas int, destinationSelectors *platformv1alpha1.WorkSchedul
 	work.Spec.ResourceName = "someName"
 	work.Namespace = "default"
 	work.Spec.Replicas = replicas
-	work.Spec.WorkloadGroups[0].Workloads = []platformv1alpha1.Workload{
+	work.Spec.WorkloadGroups = []platformv1alpha1.WorkloadGroup{
 		{
-			Content: "{someApi: foo, someValue: bar}",
-		},
-		{
-			Content: "{someApi: baz, someValue: bat}",
+			Directory: ".",
+			ID:        hash.ComputeHash("."),
+			Workloads: []platformv1alpha1.Workload{
+				{
+					Content: "{someApi: foo, someValue: bar}",
+				},
+				{
+					Content: "{someApi: baz, someValue: bat}",
+				},
+			},
 		},
 	}
 	if destinationSelectors != nil {
