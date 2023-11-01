@@ -15,6 +15,7 @@ import (
 	ctrl "sigs.k8s.io/controller-runtime"
 
 	platformv1alpha1 "github.com/syntasso/kratix/api/v1alpha1"
+	"github.com/syntasso/kratix/lib/hash"
 	"k8s.io/apimachinery/pkg/api/errors"
 	"k8s.io/apimachinery/pkg/util/yaml"
 	"sigs.k8s.io/controller-runtime/pkg/client"
@@ -86,8 +87,8 @@ func (w *WorkCreator) Execute(rootDirectory, promiseName, namespace, resourceNam
 
 	workloadGroups = append(workloadGroups, platformv1alpha1.WorkloadGroup{
 		Workloads:            workloads,
-		Directory:            "",
-		ID:                   "default",
+		Directory:            platformv1alpha1.DefaultWorkloadGroupDirectory,
+		ID:                   hash.ComputeHash(platformv1alpha1.DefaultWorkloadGroupDirectory),
 		DestinationSelectors: baseDestinationSelector,
 	})
 
@@ -259,5 +260,5 @@ func containsDuplicateScheduling(schedulingConfig []platformv1alpha1.Selector) b
 
 // Assumes Dir has already been filepath.Clean'd
 func isRootDirectory(dir string) bool {
-	return dir == "."
+	return dir == platformv1alpha1.DefaultWorkloadGroupDirectory
 }

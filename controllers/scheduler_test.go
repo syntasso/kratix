@@ -102,7 +102,7 @@ var _ = Describe("Controllers/Scheduler", func() {
 	Describe("#ReconcileWork", func() {
 		Describe("Scheduling Resources (replicas=1)", func() {
 			It("creates a WorkPlacement for a given Work", func() {
-				err := scheduler.ReconcileWork(&resourceWork)
+				_, err := scheduler.ReconcileWork(&resourceWork)
 				Expect(err).ToNot(HaveOccurred())
 
 				Expect(k8sClient.List(context.Background(), &workPlacements)).To(Succeed())
@@ -122,7 +122,7 @@ var _ = Describe("Controllers/Scheduler", func() {
 			})
 
 			It("updates workplacements for existing works", func() {
-				err := scheduler.ReconcileWork(&resourceWork)
+				_, err := scheduler.ReconcileWork(&resourceWork)
 				Expect(err).ToNot(HaveOccurred())
 
 				Expect(k8sClient.List(context.Background(), &workPlacements)).To(Succeed())
@@ -134,7 +134,7 @@ var _ = Describe("Controllers/Scheduler", func() {
 				resourceWork.Spec.WorkloadGroups[0].Workloads = append(resourceWork.Spec.WorkloadGroups[0].Workloads, Workload{
 					Content: "fake: content",
 				})
-				err = scheduler.ReconcileWork(&resourceWork)
+				_, err = scheduler.ReconcileWork(&resourceWork)
 				Expect(err).ToNot(HaveOccurred())
 
 				Expect(k8sClient.List(context.Background(), &workPlacements)).To(Succeed())
@@ -149,7 +149,7 @@ var _ = Describe("Controllers/Scheduler", func() {
 
 			When("the Work needs to schedule to multiple destinations", func() {
 				It("creates a WorkPlacement per workloadGroup", func() {
-					err := scheduler.ReconcileWork(&resourceWorkWithMultipleGroup)
+					_, err := scheduler.ReconcileWork(&resourceWorkWithMultipleGroup)
 					Expect(err).ToNot(HaveOccurred())
 
 					Expect(k8sClient.List(context.Background(), &workPlacements)).To(Succeed())
@@ -176,7 +176,6 @@ var _ = Describe("Controllers/Scheduler", func() {
 					Expect(devOrProdWorkPlacement.Spec.PromiseName).To(Equal("promise"))
 					Expect(devOrProdWorkPlacement.Spec.ResourceName).To(Equal("resource"))
 
-					//TODO deterministic ordering? pci sucks
 					workloadGroupID = hash.ComputeHash("foo")
 					Expect(pciWorkPlacement.Namespace).To(Equal("default"))
 					Expect(pciWorkPlacement.ObjectMeta.Labels["kratix.io/work"]).To(Equal("rr-work-name"))
@@ -189,12 +188,37 @@ var _ = Describe("Controllers/Scheduler", func() {
 					Expect(pciWorkPlacement.Spec.PromiseName).To(Equal("promise"))
 					Expect(pciWorkPlacement.Spec.ResourceName).To(Equal("resource"))
 				})
+
+				When("one of the workloadgroups is unschedulable", func() {
+					It("still schedules the remaining workload groups, and returns an error indicating what was unschedulable", func() {
+						resourceWorkWithMultipleGroup.Spec.DestinationSelectors.Promise[0].MatchLabels = map[string]string{"not": "scheduable"}
+						unschedulable, err := scheduler.ReconcileWork(&resourceWorkWithMultipleGroup)
+						Expect(err).NotTo(HaveOccurred())
+						Expect(unschedulable).To(ConsistOf(hash.ComputeHash(".")))
+
+						Expect(k8sClient.List(context.Background(), &workPlacements)).To(Succeed())
+						Expect(workPlacements.Items).To(HaveLen(1))
+
+						pciWorkPlacement := workPlacements.Items[0]
+						workloadGroupID := hash.ComputeHash("foo")
+						Expect(pciWorkPlacement.Namespace).To(Equal("default"))
+						Expect(pciWorkPlacement.ObjectMeta.Labels["kratix.io/work"]).To(Equal("rr-work-name"))
+						Expect(pciWorkPlacement.ObjectMeta.Labels["kratix.io/workload-group-id"]).To(Equal(workloadGroupID))
+						Expect(pciWorkPlacement.Name).To(Equal("rr-work-name." + pciWorkPlacement.Spec.TargetDestinationName + "-" + workloadGroupID[0:5]))
+						Expect(pciWorkPlacement.Spec.TargetDestinationName).To(Equal("pci"))
+						Expect(pciWorkPlacement.Finalizers).To(HaveLen(1), "expected one finalizer")
+						Expect(pciWorkPlacement.Finalizers[0]).To(Equal("finalizers.workplacement.kratix.io/repo-cleanup"))
+						Expect(pciWorkPlacement.Spec.Workloads).To(Equal(resourceWorkWithMultipleGroup.Spec.WorkloadGroups[1].Workloads))
+						Expect(pciWorkPlacement.Spec.PromiseName).To(Equal("promise"))
+						Expect(pciWorkPlacement.Spec.ResourceName).To(Equal("resource"))
+					})
+				})
 			})
 
 			When("the scheduling changes such that the workplacement is not on a correct destination", func() {
 				var preUpdateDestination string
 				BeforeEach(func() {
-					err := scheduler.ReconcileWork(&resourceWork)
+					_, err := scheduler.ReconcileWork(&resourceWork)
 					Expect(err).ToNot(HaveOccurred())
 					Expect(k8sClient.List(context.Background(), &workPlacements)).To(Succeed())
 					Expect(workPlacements.Items).To(HaveLen(1))
@@ -203,7 +227,7 @@ var _ = Describe("Controllers/Scheduler", func() {
 
 				It("does not reschedule the worklacement but does label the resource to indicate its misscheduled", func() {
 					resourceWork.Spec.DestinationSelectors = schedulingFor(prodDestination)
-					err := scheduler.ReconcileWork(&resourceWork)
+					_, err := scheduler.ReconcileWork(&resourceWork)
 					Expect(err).ToNot(HaveOccurred())
 
 					Expect(k8sClient.List(context.Background(), &workPlacements)).To(Succeed())
@@ -228,7 +252,7 @@ var _ = Describe("Controllers/Scheduler", func() {
 		Describe("Scheduling Dependencies (replicas=-1)", func() {
 			When("the Work has no selector", func() {
 				It("creates and updates Workplacement for all registered Destinations", func() {
-					err := scheduler.ReconcileWork(&dependencyWork)
+					_, err := scheduler.ReconcileWork(&dependencyWork)
 					Expect(err).ToNot(HaveOccurred())
 
 					Expect(k8sClient.List(context.Background(), &workPlacements)).To(Succeed())
@@ -243,7 +267,7 @@ var _ = Describe("Controllers/Scheduler", func() {
 						Content: "fake: new-content",
 					})
 
-					err = scheduler.ReconcileWork(&dependencyWork)
+					_, err = scheduler.ReconcileWork(&dependencyWork)
 					Expect(err).ToNot(HaveOccurred())
 
 					Expect(k8sClient.List(context.Background(), &workPlacements)).To(Succeed())
@@ -259,7 +283,7 @@ var _ = Describe("Controllers/Scheduler", func() {
 
 				When("Work is updated to no longer match a previous destination", func() {
 					It("marks the old workplacement as misscheduled but keeps it updated", func() {
-						err := scheduler.ReconcileWork(&dependencyWork)
+						_, err := scheduler.ReconcileWork(&dependencyWork)
 						Expect(err).ToNot(HaveOccurred())
 
 						Expect(k8sClient.List(context.Background(), &workPlacements)).To(Succeed())
@@ -282,7 +306,7 @@ var _ = Describe("Controllers/Scheduler", func() {
 							Content: "fake: new-content",
 						})
 
-						err = scheduler.ReconcileWork(&dependencyWork)
+						_, err = scheduler.ReconcileWork(&dependencyWork)
 						Expect(err).ToNot(HaveOccurred())
 
 						Expect(k8sClient.List(context.Background(), &workPlacements)).To(Succeed())
@@ -325,7 +349,7 @@ var _ = Describe("Controllers/Scheduler", func() {
 
 			When("the Work matches a single Destination", func() {
 				It("creates a single WorkPlacement", func() {
-					err := scheduler.ReconcileWork(&dependencyWorkForProd)
+					_, err := scheduler.ReconcileWork(&dependencyWorkForProd)
 					Expect(err).ToNot(HaveOccurred())
 
 					Expect(k8sClient.List(context.Background(), &workPlacements)).To(Succeed())
@@ -337,7 +361,7 @@ var _ = Describe("Controllers/Scheduler", func() {
 
 			When("the Work matches multiple Destinations", func() {
 				It("creates WorkPlacements for the Destinations with the label", func() {
-					err := scheduler.ReconcileWork(&dependencyWorkForDev)
+					_, err := scheduler.ReconcileWork(&dependencyWorkForDev)
 					Expect(err).ToNot(HaveOccurred())
 
 					Expect(k8sClient.List(context.Background(), &workPlacements)).To(Succeed())
@@ -355,7 +379,7 @@ var _ = Describe("Controllers/Scheduler", func() {
 				When("A workplacement is deleted", func() {
 					It("gets recreated on next reconciliation", func() {
 						//1st reconciliation
-						err := scheduler.ReconcileWork(&dependencyWorkForDev)
+						_, err := scheduler.ReconcileWork(&dependencyWorkForDev)
 						Expect(err).ToNot(HaveOccurred())
 
 						Expect(k8sClient.List(context.Background(), &workPlacements)).To(Succeed())
@@ -376,7 +400,7 @@ var _ = Describe("Controllers/Scheduler", func() {
 						Expect(k8sClient.Delete(context.Background(), &devWorkPlacement)).To(Succeed())
 
 						//re-reconcile
-						err = scheduler.ReconcileWork(&dependencyWorkForDev)
+						_, err = scheduler.ReconcileWork(&dependencyWorkForDev)
 						Expect(err).ToNot(HaveOccurred())
 
 						Expect(k8sClient.List(context.Background(), &workPlacements)).To(Succeed())
@@ -405,8 +429,9 @@ var _ = Describe("Controllers/Scheduler", func() {
 				})
 
 				It("creates no workplacements", func() {
-					err := scheduler.ReconcileWork(&dependencyWork)
-					Expect(err).To(MatchError("no Destinations can be selected for scheduling"))
+					unschedulable, err := scheduler.ReconcileWork(&dependencyWork)
+					Expect(err).NotTo(HaveOccurred())
+					Expect(unschedulable).To(ConsistOf(hash.ComputeHash(".")))
 
 					Expect(k8sClient.List(context.Background(), &workPlacements)).To(Succeed())
 					Expect(workPlacements.Items).To(BeEmpty())

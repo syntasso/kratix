@@ -114,9 +114,9 @@ var _ = Describe("Kratix", func() {
 							fi
 			                kubectl delete namespace imperative-$(yq '.metadata.name' /kratix/input/object.yaml)`
 
-				c2Command := `kubectl create namespace declarative-$(yq '.metadata.name' /kratix/input/object.yaml) --dry-run=client -oyaml > /kratix/output/namespace.yaml &&
-        mkdir /kratix/output/platform/ &&
-        kubectl create namespace declarative-platform-only-$(yq '.metadata.name' /kratix/input/object.yaml) --dry-run=client -oyaml > /kratix/output/platform/namespace.yaml &&
+				c2Command := `kubectl create namespace declarative-$(yq '.metadata.name' /kratix/input/object.yaml) --dry-run=client -oyaml > /kratix/output/namespace.yaml
+        mkdir /kratix/output/platform/
+        kubectl create namespace declarative-platform-only-$(yq '.metadata.name' /kratix/input/object.yaml) --dry-run=client -oyaml > /kratix/output/platform/namespace.yaml
         echo "[{\"matchLabels\":{\"environment\":\"platform\"}, \"directory\":\"platform\"}]" > /kratix/metadata/destination-selectors.yaml`
 
 				commands := []string{c1Command, c2Command}
@@ -310,7 +310,6 @@ var _ = Describe("Kratix", func() {
 
 		AfterEach(func() {
 			platform.kubectl("label", "destination", "worker-1", "security-", "pci-")
-			platform.kubectl("label", "destination", "platform-1", "security-")
 			platform.kubectl("delete", "-f", promiseWithSchedulingPath)
 		})
 
@@ -343,6 +342,7 @@ var _ = Describe("Kratix", func() {
 
 					worker.eventuallyKubectl("get", "namespace", "rr-2-namespace")
 				})
+				platform.kubectl("label", "destination", "platform-1", "security-")
 			})
 		})
 

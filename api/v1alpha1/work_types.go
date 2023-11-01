@@ -23,6 +23,7 @@ import (
 
 const DependencyReplicas = -1
 const ResourceRequestReplicas = 1
+const DefaultWorkloadGroupDirectory = "."
 
 // WorkStatus defines the observed state of Work
 type WorkStatus struct {
@@ -91,7 +92,8 @@ func NewPromiseDependenciesWork(promise *Promise) (*Work, error) {
 
 	work.Spec.WorkloadGroups = []WorkloadGroup{
 		{
-			ID: hash.ComputeHash("."),
+			ID:        hash.ComputeHash(DefaultWorkloadGroupDirectory),
+			Directory: DefaultWorkloadGroupDirectory,
 			Workloads: []Workload{
 				{
 					Content:  string(yamlBytes),

@@ -38,7 +38,7 @@ func (s *Scheduler) ReconcileDestination() error {
 
 	for _, work := range works.Items {
 		if work.IsDependency() {
-			if err := s.ReconcileWork(&work); err != nil {
+			if _, err := s.ReconcileWork(&work); err != nil {
 				s.Log.Error(err, "Failed reconciling Work: ")
 			}
 		}
@@ -49,7 +49,8 @@ func (s *Scheduler) ReconcileDestination() error {
 
 func (s *Scheduler) UpdateWorkPlacement(workloadGroup platformv1alpha1.WorkloadGroup, work *platformv1alpha1.Work, workPlacement *platformv1alpha1.WorkPlacement) error {
 	misscheduled := true
-	for _, dest := range s.getTargetDestinationNames(workloadGroup, work) {
+	destinationSelectors := resolveDestinationSelectorsForWorkloadGroup(workloadGroup, work)
+	for _, dest := range s.getTargetDestinationNames(destinationSelectors, work) {
 		if dest == workPlacement.Spec.TargetDestinationName {
 			misscheduled = false
 			break
@@ -74,22 +75,26 @@ func (s *Scheduler) UpdateWorkPlacement(workloadGroup platformv1alpha1.WorkloadG
 	return nil
 }
 
-func (s *Scheduler) ReconcileWork(work *platformv1alpha1.Work) error {
+func (s *Scheduler) ReconcileWork(work *platformv1alpha1.Work) ([]string, error) {
+	unscheduable := []string{}
 	for _, wg := range work.Spec.WorkloadGroups {
-		//TODO continue on trying and error at the end? maybe only if its because no
-		//dest can be found?
-		if err := s.reconcileWorkloadGroup(wg, work); err != nil {
-			return err
+		scheduled, err := s.reconcileWorkloadGroup(wg, work)
+		if err != nil {
+			return nil, err
+		}
+
+		if !scheduled {
+			unscheduable = append(unscheduable, wg.ID)
 		}
 	}
-	return nil
+	return unscheduable, nil
 }
 
 // TODO why pointer for work?
-func (s *Scheduler) reconcileWorkloadGroup(workloadGroup platformv1alpha1.WorkloadGroup, work *platformv1alpha1.Work) error {
+func (s *Scheduler) reconcileWorkloadGroup(workloadGroup platformv1alpha1.WorkloadGroup, work *platformv1alpha1.Work) (bool, error) {
 	existingWorkplacements, err := s.getExistingWorkPlacementsForWorkloadGroup(work.Namespace, work.Name, workloadGroup)
 	if err != nil {
-		return err
+		return false, err
 	}
 
 	if work.IsResourceRequest() {
@@ -104,13 +109,14 @@ func (s *Scheduler) reconcileWorkloadGroup(workloadGroup platformv1alpha1.Worklo
 			}
 
 			if errored > 0 {
-				return fmt.Errorf("failed to update %d of %d workplacements for work", errored, len(existingWorkplacements))
+				return false, fmt.Errorf("failed to update %d of %d workplacements for work", errored, len(existingWorkplacements))
 			}
-			return nil
+			return true, nil
 		}
 	}
 
-	targetDestinationNames := s.getTargetDestinationNames(workloadGroup, work)
+	destinationSelectors := resolveDestinationSelectorsForWorkloadGroup(workloadGroup, work)
+	targetDestinationNames := s.getTargetDestinationNames(destinationSelectors, work)
 	targetDestinationMap := map[string]bool{}
 	for _, dest := range targetDestinationNames {
 		//false == not misscheduled
@@ -127,12 +133,12 @@ func (s *Scheduler) reconcileWorkloadGroup(workloadGroup platformv1alpha1.Worklo
 	}
 
 	if len(targetDestinationMap) == 0 {
-		s.Log.Info("no Destinations can be selected for scheduling", "scheduling", workloadGroup.DestinationSelectors)
-		return fmt.Errorf("no Destinations can be selected for scheduling")
+		s.Log.Info("no Destinations can be selected for scheduling", "scheduling", destinationSelectors, "workloadGroupDirectory", workloadGroup.Directory, "workloadGroupID", workloadGroup.ID)
+		return false, nil
 	}
 
 	s.Log.Info("found available target Destinations", "work", work.GetName(), "destinations", targetDestinationNames)
-	return s.applyWorkplacementsForTargetDestinations(workloadGroup, work, targetDestinationMap)
+	return true, s.applyWorkplacementsForTargetDestinations(workloadGroup, work, targetDestinationMap)
 }
 
 func (s *Scheduler) labelWorkplacementAsMisscheduled(workPlacement *v1alpha1.WorkPlacement) {
@@ -252,14 +258,8 @@ func (s *Scheduler) updateStatus(workPlacement *platformv1alpha1.WorkPlacement, 
 
 // Where Work is a Resource Request return one random Destination name, where Work is a
 // DestinationWorkerResource return all Destination names
-func (s *Scheduler) getTargetDestinationNames(workloadGroup platformv1alpha1.WorkloadGroup, work *platformv1alpha1.Work) []string {
-	promiseDestinationSelectors := map[string]string{}
-	//TODO test
-	if len(work.Spec.DestinationSelectors.Promise) > 0 && workloadGroup.Directory == "." {
-		promiseDestinationSelectors = work.Spec.DestinationSelectors.Promise[0].MatchLabels
-	}
-
-	destinations := s.getDestinationsForWorkloadGroup(workloadGroup, promiseDestinationSelectors)
+func (s *Scheduler) getTargetDestinationNames(destinationSelectors map[string]string, work *platformv1alpha1.Work) []string {
+	destinations := s.getDestinationsForWorkloadGroup(destinationSelectors)
 
 	if len(destinations) == 0 {
 		return make([]string, 0)
@@ -289,20 +289,9 @@ func (s *Scheduler) getTargetDestinationNames(workloadGroup platformv1alpha1.Wor
 }
 
 // By default, all destinations are returned. However, if scheduling is provided, only matching destinations will be returned.
-func (s *Scheduler) getDestinationsForWorkloadGroup(workloadGroup platformv1alpha1.WorkloadGroup, promiseDestinationSelectors map[string]string) []platformv1alpha1.Destination {
+func (s *Scheduler) getDestinationsForWorkloadGroup(destinationSelectors map[string]string) []platformv1alpha1.Destination {
 	destinations := &platformv1alpha1.DestinationList{}
 	lo := &client.ListOptions{}
-	destinationSelectors := workloadGroup.DestinationSelectors
-	if destinationSelectors == nil {
-		destinationSelectors = map[string]string{}
-	}
-
-	if workloadGroup.Directory == "." {
-		//merge labelToMatch with Promise destination selectors
-		for key, value := range promiseDestinationSelectors {
-			destinationSelectors[key] = value
-		}
-	}
 
 	if len(destinationSelectors) > 0 {
 		workloadGroupSelectorLabel := labels.FormatLabels(destinationSelectors)
@@ -320,4 +309,25 @@ func (s *Scheduler) getDestinationsForWorkloadGroup(workloadGroup platformv1alph
 		s.Log.Error(err, "Error listing available Destinations")
 	}
 	return destinations.Items
+}
+
+func resolveDestinationSelectorsForWorkloadGroup(workloadGroup platformv1alpha1.WorkloadGroup, work *platformv1alpha1.Work) map[string]string {
+	destinationSelectors := workloadGroup.DestinationSelectors
+	if destinationSelectors == nil {
+		destinationSelectors = map[string]string{}
+	}
+
+	if workloadGroup.Directory == platformv1alpha1.DefaultWorkloadGroupDirectory {
+		promiseDestinationSelectors := map[string]string{}
+		if len(work.Spec.DestinationSelectors.Promise) > 0 && workloadGroup.Directory == platformv1alpha1.DefaultWorkloadGroupDirectory {
+			promiseDestinationSelectors = work.Spec.DestinationSelectors.Promise[0].MatchLabels
+		}
+
+		//merge labelToMatch with Promise destination selectors
+		for key, value := range promiseDestinationSelectors {
+			destinationSelectors[key] = value
+		}
+	}
+
+	return destinationSelectors
 }
