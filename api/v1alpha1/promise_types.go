@@ -79,13 +79,14 @@ type Dependency struct {
 	unstructured.Unstructured `json:",inline"`
 }
 
+// For Promise spec
 type PromiseScheduling struct {
 	MatchLabels map[string]string `json:"matchLabels,omitempty"`
 }
 
+// For /kratix/metadata/destination-selectors.yaml
 type WorkflowDestinationSelectors struct {
 	MatchLabels map[string]string `json:"matchLabels,omitempty"`
-	//TODO don't expose this in the promise
 	// +optional
 	Directory string `json:"directory,omitempty"`
 }

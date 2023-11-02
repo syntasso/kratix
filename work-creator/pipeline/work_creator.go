@@ -44,16 +44,6 @@ func (w *WorkCreator) Execute(rootDirectory, promiseName, namespace, resourceNam
 		return err
 	}
 
-	// namespace.yaml
-	// foo/
-	// baz/
-
-	// - matchLabels:
-	//     environment: production
-	//     region: europe
-	// - matchLabels:
-	//     environment: staging
-	//   directory: baz/
 	var workloadGroups []platformv1alpha1.WorkloadGroup
 	var directoriesToIgnoreForTheBaseScheduling []string
 	var defaultDestinationSelectors map[string]string
