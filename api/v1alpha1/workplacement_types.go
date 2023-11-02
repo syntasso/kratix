@@ -22,8 +22,11 @@ import (
 
 // WorkPlacementSpec defines the desired state of WorkPlacement
 type WorkPlacementSpec struct {
-	TargetDestinationName string `json:"targetDestinationName,omitempty"`
-	WorkloadCoreFields    `json:",inline"`
+	TargetDestinationName string     `json:"targetDestinationName,omitempty"`
+	Workloads             []Workload `json:"workloads,omitempty"`
+	PromiseName           string     `json:"promiseName,omitempty"`
+	// +optional
+	ResourceName string `json:"resourceName,omitempty"`
 }
 
 // WorkPlacementStatus defines the observed state of WorkPlacement

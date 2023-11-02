@@ -1,0 +1,9 @@
+- matchLabels:
+    environment: production
+    region: europe
+- matchLabels:
+    environment: staging
+  directory: baz/
+- matchLabels:
+    pci: true
+  directory: baz/

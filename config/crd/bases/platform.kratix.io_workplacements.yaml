@@ -41,8 +41,6 @@ spec:
               targetDestinationName:
                 type: string
               workloads:
-                description: Workload represents the manifest workload to be deployed
-                  on destination
                 items:
                   description: Workload represents the manifest workload to be deployed
                     on destination

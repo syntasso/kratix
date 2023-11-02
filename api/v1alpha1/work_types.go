@@ -17,11 +17,13 @@ limitations under the License.
 package v1alpha1
 
 import (
+	"github.com/syntasso/kratix/lib/hash"
 	metav1 "k8s.io/apimachinery/pkg/apis/meta/v1"
 )
 
 const DependencyReplicas = -1
 const ResourceRequestReplicas = 1
+const DefaultWorkloadGroupDirectory = "."
 
 // WorkStatus defines the observed state of Work
 type WorkStatus struct {
@@ -42,10 +44,6 @@ type Work struct {
 
 // WorkSpec defines the desired state of Work
 type WorkSpec struct {
-
-	// DestinationSelectors is used for selecting the destination
-	DestinationSelectors WorkScheduling `json:"destinationSelectors,omitempty"`
-
 	// -1 denotes dependencies, 1 denotes Resource Request
 	Replicas int `json:"replicas,omitempty"`
 
@@ -54,16 +52,11 @@ type WorkSpec struct {
 
 type WorkloadCoreFields struct {
 	// Workload represents the manifest workload to be deployed on destination
-	Workloads []Workload `json:"workloads,omitempty"`
+	WorkloadGroups []WorkloadGroup `json:"workloadGroups,omitempty"`
 
 	PromiseName string `json:"promiseName,omitempty"`
 	// +optional
 	ResourceName string `json:"resourceName,omitempty"`
-}
-
-type WorkScheduling struct {
-	Promise  []Selector `json:"promise,omitempty"`
-	Resource []Selector `json:"resource,omitempty"`
 }
 
 func NewPromiseDependenciesWork(promise *Promise) (*Work, error) {
@@ -78,9 +71,6 @@ func NewPromiseDependenciesWork(promise *Promise) (*Work, error) {
 				PromiseName: promise.GetName(),
 			},
 			Replicas: DependencyReplicas,
-			DestinationSelectors: WorkScheduling{
-				Promise: promise.Spec.DestinationSelectors,
-			},
 		},
 	}
 
@@ -89,11 +79,26 @@ func NewPromiseDependenciesWork(promise *Promise) (*Work, error) {
 		return nil, err
 	}
 
-	work.Spec.Workloads = []Workload{
+	work.Spec.WorkloadGroups = []WorkloadGroup{
 		{
-			Content:  string(yamlBytes),
-			Filepath: "static/dependencies.yaml",
+			ID:        hash.ComputeHash(DefaultWorkloadGroupDirectory),
+			Directory: DefaultWorkloadGroupDirectory,
+			Workloads: []Workload{
+				{
+					Content:  string(yamlBytes),
+					Filepath: "static/dependencies.yaml",
+				},
+			},
 		},
+	}
+
+	if len(promise.Spec.DestinationSelectors) > 0 {
+		work.Spec.WorkloadGroups[0].DestinationSelectors = []WorkloadGroupScheduling{
+			{
+				MatchLabels: SquashPromiseScheduling(promise.Spec.DestinationSelectors),
+				Source:      "promise",
+			},
+		}
 	}
 
 	return work, nil
@@ -107,14 +112,19 @@ func (w *Work) IsDependency() bool {
 	return w.Spec.Replicas == DependencyReplicas
 }
 
-func (w *Work) HasScheduling() bool {
-	// Work has scheduling if either (or both) Promise or Resource has scheduling set
-	return len(w.Spec.DestinationSelectors.Resource) > 0 && len(w.Spec.DestinationSelectors.Resource[0].MatchLabels) > 0 ||
-		len(w.Spec.DestinationSelectors.Promise) > 0 && len(w.Spec.DestinationSelectors.Promise[0].MatchLabels) > 0
+// WorkloadGroup represents the workloads in a particular directory that should
+// be scheduled to a to Destination
+type WorkloadGroup struct {
+	// +optional
+	Workloads            []Workload                `json:"workloads,omitempty"`
+	Directory            string                    `json:"directory,omitempty"`
+	ID                   string                    `json:"id,omitempty"`
+	DestinationSelectors []WorkloadGroupScheduling `json:"destinationSelectors,omitempty"`
 }
 
-func (w *Work) GetSchedulingSelectors() map[string]string {
-	return generateLabelSelectorsFromScheduling(append(w.Spec.DestinationSelectors.Promise, w.Spec.DestinationSelectors.Resource...))
+type WorkloadGroupScheduling struct {
+	MatchLabels map[string]string `json:"matchLabels,omitempty"`
+	Source      string            `json:"source,omitempty"`
 }
 
 // Workload represents the manifest workload to be deployed on destination

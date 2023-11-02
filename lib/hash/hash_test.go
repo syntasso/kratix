@@ -35,7 +35,7 @@ var _ = Describe("Hasher", func() {
 		const expectedHash = "9bb58f26192e4ba00f01e2e7b136bbd8"
 
 		It("hashes the inpuy Object Spec", func() {
-			actualHash, err := hash.ComputeHash(input)
+			actualHash, err := hash.ComputeHashForResource(input)
 			Expect(err).NotTo(HaveOccurred())
 			Expect(actualHash).To(Equal(expectedHash))
 		})
@@ -49,7 +49,7 @@ var _ = Describe("Hasher", func() {
 				"yet":     "another",
 			}
 
-			actualHash, err := hash.ComputeHash(input)
+			actualHash, err := hash.ComputeHashForResource(input)
 			Expect(err).NotTo(HaveOccurred())
 			Expect(actualHash).To(Equal(expectedHash))
 		})
@@ -58,7 +58,7 @@ var _ = Describe("Hasher", func() {
 			input.Object["spec"].(map[string]interface{})["annotations"] = map[string]interface{}{
 				"foo": "not-bar",
 			}
-			actualHash, err := hash.ComputeHash(input)
+			actualHash, err := hash.ComputeHashForResource(input)
 			Expect(err).NotTo(HaveOccurred())
 			Expect(actualHash).NotTo(Equal(expectedHash))
 		})

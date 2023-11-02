@@ -1,0 +1,7 @@
+- matchLabels:
+    environment: production
+    region: europe
+  directory: foo/
+- matchLabels:
+    environment: staging
+  directory: foo

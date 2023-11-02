@@ -65,7 +65,7 @@ func PipelineWithDesiredSpecExists(logger logr.Logger, obj *unstructured.Unstruc
 	mostRecentJob := jobs[len(jobs)-1]
 
 	mostRecentHash := mostRecentJob.GetLabels()[pipeline.KratixResourceHashLabel]
-	currentRequestHash, err := hash.ComputeHash(obj)
+	currentRequestHash, err := hash.ComputeHashForResource(obj)
 	if err != nil {
 		logger.Info("Cannot determine if the request is an update. Requeueing", "reason", err.Error())
 		return nil, nil
