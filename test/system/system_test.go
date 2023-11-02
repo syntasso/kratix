@@ -363,6 +363,10 @@ var _ = Describe("Kratix", func() {
 					worker.eventuallyKubectl("get", "namespace", "bash-dep-namespace-v1alpha1")
 				}, consistentlyTimeout, interval)
 
+				Eventually(func() string {
+					return platform.kubectl("get", "namespace")
+				}, timeout, interval).ShouldNot(ContainSubstring("bash-dep-namespace-v1alpha1"))
+
 				Consistently(func() string {
 					return platform.kubectl("get", "namespace")
 				}, consistentlyTimeout, interval).ShouldNot(ContainSubstring("bash-dep-namespace-v1alpha1"))

@@ -95,7 +95,7 @@ func NewPromiseDependenciesWork(promise *Promise) (*Work, error) {
 	if len(promise.Spec.DestinationSelectors) > 0 {
 		work.Spec.WorkloadGroups[0].DestinationSelectors = []WorkloadGroupScheduling{
 			{
-				MatchLabels: promise.Spec.DestinationSelectors[0].MatchLabels,
+				MatchLabels: SquashPromiseScheduling(promise.Spec.DestinationSelectors),
 				Source:      "promise",
 			},
 		}

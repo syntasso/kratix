@@ -111,8 +111,7 @@ func (w *WorkCreator) Execute(rootDirectory, promiseName, namespace, resourceNam
 	}
 	if len(promiseScheduling) > 0 {
 		defaultWorkloadGroup.DestinationSelectors = append(defaultWorkloadGroup.DestinationSelectors, platformv1alpha1.WorkloadGroupScheduling{
-			//TODO index?
-			MatchLabels: promiseScheduling[0].MatchLabels,
+			MatchLabels: platformv1alpha1.SquashPromiseScheduling(promiseScheduling),
 			Source:      "promise",
 		})
 	}

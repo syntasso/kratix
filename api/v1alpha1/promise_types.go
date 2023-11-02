@@ -111,6 +111,21 @@ type Promise struct {
 
 var ErrNoAPI = fmt.Errorf("promise does not contain an API")
 
+func SquashPromiseScheduling(scheduling []PromiseScheduling) map[string]string {
+	if len(scheduling) == 0 {
+		return nil
+	}
+
+	labels := map[string]string{}
+	//Reverse order, first item in the array gets priority this way
+	for i := len(scheduling) - 1; i >= 0; i-- {
+		for key, value := range scheduling[i].MatchLabels {
+			labels[key] = value
+		}
+	}
+	return labels
+}
+
 func (p *Promise) GetSchedulingSelectors() map[string]string {
 	return generateLabelSelectorsFromScheduling(p.Spec.DestinationSelectors)
 }
