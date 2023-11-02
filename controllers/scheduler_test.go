@@ -191,7 +191,7 @@ var _ = Describe("Controllers/Scheduler", func() {
 
 				When("one of the workloadgroups is unschedulable", func() {
 					It("still schedules the remaining workload groups, and returns an error indicating what was unschedulable", func() {
-						resourceWorkWithMultipleGroup.Spec.DestinationSelectors.Promise[0].MatchLabels = map[string]string{"not": "scheduable"}
+						resourceWorkWithMultipleGroup.Spec.WorkloadGroups[0].DestinationSelectors[0].MatchLabels = map[string]string{"not": "scheduable"}
 						unschedulable, err := scheduler.ReconcileWork(&resourceWorkWithMultipleGroup)
 						Expect(err).NotTo(HaveOccurred())
 						Expect(unschedulable).To(ConsistOf(hash.ComputeHash(".")))
@@ -226,7 +226,7 @@ var _ = Describe("Controllers/Scheduler", func() {
 				})
 
 				It("does not reschedule the worklacement but does label the resource to indicate its misscheduled", func() {
-					resourceWork.Spec.DestinationSelectors = schedulingFor(prodDestination)
+					resourceWork.Spec.WorkloadGroups[0].DestinationSelectors[0] = schedulingFor(prodDestination)
 					_, err := scheduler.ReconcileWork(&resourceWork)
 					Expect(err).ToNot(HaveOccurred())
 
@@ -245,6 +245,39 @@ var _ = Describe("Controllers/Scheduler", func() {
 						Type:    "Misscheduled",
 						Status:  "True",
 					}))
+				})
+			})
+
+			When("scheduling is defined in the promise and workflows", func() {
+				It("prioritises promise scheduling", func() {
+					resourceWork.Spec.WorkloadGroups[0].DestinationSelectors = []v1alpha1.WorkloadGroupScheduling{
+						{
+							MatchLabels: map[string]string{
+								"environment": "dev",
+							},
+							Source: "promise-workflow",
+						},
+						{
+							MatchLabels: map[string]string{
+								"environment": "prod",
+							},
+							Source: "promise",
+						},
+						{
+							MatchLabels: map[string]string{
+								"environment": "staging",
+							},
+							Source: "resource-workflow",
+						},
+					}
+					_, err := scheduler.ReconcileWork(&resourceWork)
+					Expect(err).ToNot(HaveOccurred())
+
+					Expect(k8sClient.List(context.Background(), &workPlacements)).To(Succeed())
+
+					Expect(workPlacements.Items).To(HaveLen(1))
+					workPlacement := workPlacements.Items[0]
+					Expect(workPlacement.Spec.TargetDestinationName).To(Equal("prod"))
 				})
 			})
 		})
@@ -294,11 +327,9 @@ var _ = Describe("Controllers/Scheduler", func() {
 							}))
 						}
 
-						dependencyWork.Spec.DestinationSelectors = v1alpha1.WorkScheduling{
-							Promise: []Selector{
-								{
-									MatchLabels: map[string]string{"environment": "dev"},
-								},
+						dependencyWork.Spec.WorkloadGroups[0].DestinationSelectors = []v1alpha1.WorkloadGroupScheduling{
+							{
+								MatchLabels: map[string]string{"environment": "dev"},
 							},
 						}
 
@@ -419,11 +450,9 @@ var _ = Describe("Controllers/Scheduler", func() {
 
 			When("the Work selector matches no Destinations", func() {
 				BeforeEach(func() {
-					dependencyWork.Spec.DestinationSelectors = WorkScheduling{
-						Promise: []Selector{
-							{
-								MatchLabels: map[string]string{"environment": "staging"},
-							},
+					dependencyWork.Spec.WorkloadGroups[0].DestinationSelectors = []v1alpha1.WorkloadGroupScheduling{
+						{
+							MatchLabels: map[string]string{"environment": "staging"},
 						},
 					}
 				})
@@ -450,12 +479,7 @@ func newDestination(name string, labels map[string]string) Destination {
 	}
 }
 
-func newWork(name string, workType int, scheduling ...WorkScheduling) Work {
-	workScheduling := WorkScheduling{}
-	if len(scheduling) > 0 {
-		workScheduling = scheduling[0]
-	}
-
+func newWork(name string, workType int, scheduling ...WorkloadGroupScheduling) Work {
 	namespace := "default"
 	if workType == DependencyReplicas {
 		namespace = KratixSystemNamespace
@@ -467,8 +491,7 @@ func newWork(name string, workType int, scheduling ...WorkScheduling) Work {
 			UID:       types.UID(name),
 		},
 		Spec: WorkSpec{
-			Replicas:             workType,
-			DestinationSelectors: workScheduling,
+			Replicas: workType,
 			WorkloadCoreFields: WorkloadCoreFields{
 				PromiseName:  "promise",
 				ResourceName: "resource",
@@ -477,8 +500,9 @@ func newWork(name string, workType int, scheduling ...WorkScheduling) Work {
 						Workloads: []Workload{
 							{Content: "key: value"},
 						},
-						Directory: ".",
-						ID:        hash.ComputeHash("."),
+						Directory:            ".",
+						ID:                   hash.ComputeHash("."),
+						DestinationSelectors: scheduling,
 					},
 				},
 			},
@@ -486,7 +510,7 @@ func newWork(name string, workType int, scheduling ...WorkScheduling) Work {
 	}
 }
 
-func newWorkWithTwoWorkloadGroups(name string, workType int, promiseScheduling WorkScheduling, directoryOverrideScheduling map[string]string) Work {
+func newWorkWithTwoWorkloadGroups(name string, workType int, promiseScheduling WorkloadGroupScheduling, directoryOverrideScheduling map[string]string) Work {
 	namespace := "default"
 	if workType == DependencyReplicas {
 		namespace = KratixSystemNamespace
@@ -498,8 +522,7 @@ func newWorkWithTwoWorkloadGroups(name string, workType int, promiseScheduling W
 			UID:       types.UID(name),
 		},
 		Spec: WorkSpec{
-			Replicas:             workType,
-			DestinationSelectors: promiseScheduling,
+			Replicas: workType,
 			WorkloadCoreFields: WorkloadCoreFields{
 				PromiseName:  "promise",
 				ResourceName: "resource",
@@ -508,14 +531,15 @@ func newWorkWithTwoWorkloadGroups(name string, workType int, promiseScheduling W
 						Workloads: []Workload{
 							{Content: "key: value"},
 						},
-						Directory: ".",
-						ID:        hash.ComputeHash("."),
+						Directory:            ".",
+						ID:                   hash.ComputeHash("."),
+						DestinationSelectors: []WorkloadGroupScheduling{promiseScheduling},
 					},
 					{
 						Workloads: []Workload{
 							{Content: "foo: bar"},
 						},
-						DestinationSelectors: directoryOverrideScheduling,
+						DestinationSelectors: []WorkloadGroupScheduling{{MatchLabels: directoryOverrideScheduling}},
 						Directory:            "foo",
 						ID:                   hash.ComputeHash("foo"),
 					},
@@ -525,15 +549,12 @@ func newWorkWithTwoWorkloadGroups(name string, workType int, promiseScheduling W
 	}
 }
 
-func schedulingFor(destination Destination) WorkScheduling {
+func schedulingFor(destination Destination) WorkloadGroupScheduling {
 	if len(destination.GetLabels()) == 0 {
-		return WorkScheduling{}
+		return WorkloadGroupScheduling{}
 	}
-	return WorkScheduling{
-		Promise: []Selector{
-			{
-				MatchLabels: destination.GetLabels(),
-			},
-		},
+	return WorkloadGroupScheduling{
+		MatchLabels: destination.GetLabels(),
+		Source:      "promise",
 	}
 }

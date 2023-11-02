@@ -24,7 +24,7 @@ func NewConfigureResource(
 	pipelines []platformv1alpha1.Pipeline,
 	resourceRequestIdentifier,
 	promiseIdentifier string,
-	promiseDestinationSelectors []platformv1alpha1.Selector,
+	promiseDestinationSelectors []platformv1alpha1.PromiseScheduling,
 	logger logr.Logger,
 ) ([]client.Object, error) {
 
@@ -54,7 +54,7 @@ func NewConfigurePromise(
 	unstructedPromise *unstructured.Unstructured,
 	pipelines []platformv1alpha1.Pipeline,
 	promiseIdentifier string,
-	promiseDestinationSelectors []platformv1alpha1.Selector,
+	promiseDestinationSelectors []platformv1alpha1.PromiseScheduling,
 	logger logr.Logger,
 ) ([]client.Object, error) {
 

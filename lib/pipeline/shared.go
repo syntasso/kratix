@@ -137,8 +137,15 @@ func clusterRoleBinding(args PipelineArgs) *rbacv1.ClusterRoleBinding {
 	}
 }
 
-func destinationSelectorsConfigMap(resources PipelineArgs, destinationSelectors []v1alpha1.Selector) (*v1.ConfigMap, error) {
-	schedulingYAML, err := yaml.Marshal(destinationSelectors)
+func destinationSelectorsConfigMap(resources PipelineArgs, destinationSelectors []v1alpha1.PromiseScheduling) (*v1.ConfigMap, error) {
+	workloadGroupScheduling := []v1alpha1.WorkloadGroupScheduling{}
+	for _, scheduling := range destinationSelectors {
+		workloadGroupScheduling = append(workloadGroupScheduling, v1alpha1.WorkloadGroupScheduling{
+			MatchLabels: scheduling.MatchLabels,
+			Source:      "promise",
+		})
+	}
+	schedulingYAML, err := yaml.Marshal(workloadGroupScheduling)
 	if err != nil {
 		return nil, errors.Wrap(err, "error marshalling destinationSelectors to yaml")
 	}

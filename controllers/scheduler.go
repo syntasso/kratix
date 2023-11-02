@@ -4,6 +4,7 @@ import (
 	"context"
 	"fmt"
 	"math/rand"
+	"sort"
 	"time"
 
 	v1 "k8s.io/apimachinery/pkg/apis/meta/v1"
@@ -312,22 +313,44 @@ func (s *Scheduler) getDestinationsForWorkloadGroup(destinationSelectors map[str
 }
 
 func resolveDestinationSelectorsForWorkloadGroup(workloadGroup platformv1alpha1.WorkloadGroup, work *platformv1alpha1.Work) map[string]string {
-	destinationSelectors := workloadGroup.DestinationSelectors
-	if destinationSelectors == nil {
-		destinationSelectors = map[string]string{}
-	}
+	sortedWorkloadGroupDestinations := sortWorkloadGroupDestinationsByLowestPriority(workloadGroup.DestinationSelectors)
+	destinationSelectors := map[string]string{}
 
-	if workloadGroup.Directory == platformv1alpha1.DefaultWorkloadGroupDirectory {
-		promiseDestinationSelectors := map[string]string{}
-		if len(work.Spec.DestinationSelectors.Promise) > 0 && workloadGroup.Directory == platformv1alpha1.DefaultWorkloadGroupDirectory {
-			promiseDestinationSelectors = work.Spec.DestinationSelectors.Promise[0].MatchLabels
-		}
-
-		//merge labelToMatch with Promise destination selectors
-		for key, value := range promiseDestinationSelectors {
+	for _, scheduling := range sortedWorkloadGroupDestinations {
+		for key, value := range scheduling.MatchLabels {
 			destinationSelectors[key] = value
 		}
 	}
 
 	return destinationSelectors
+}
+
+// Returned in order:
+// Resource-workflow, then
+// Promise-workflow, then
+// Promise
+func sortWorkloadGroupDestinationsByLowestPriority(selector []platformv1alpha1.WorkloadGroupScheduling) []platformv1alpha1.WorkloadGroupScheduling {
+	sort.SliceStable(selector, func(i, j int) bool {
+		iSource := selector[i].Source
+		jSource := selector[j].Source
+		if iSource == "promise" {
+			return false
+		}
+
+		if jSource == "promise" {
+			return true
+		}
+
+		if iSource == "promise-workflow" {
+			return false
+		}
+
+		if jSource == "promise-workflow" {
+			return true
+		}
+
+		//if we get here both are resource-workflow, so just let i take prescedent
+		return false
+	})
+	return selector
 }

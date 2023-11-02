@@ -10,7 +10,7 @@ import (
 var _ = Describe("Promise", func() {
 	Describe("Scheduling", func() {
 		It("generates the correct set of matchLabels", func() {
-			input := []platformv1alpha1.Selector{
+			input := []platformv1alpha1.PromiseScheduling{
 				{
 					MatchLabels: map[string]string{
 						"environment": "dev",

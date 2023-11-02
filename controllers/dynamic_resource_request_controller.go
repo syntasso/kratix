@@ -62,7 +62,7 @@ type dynamicResourceRequestController struct {
 	uid                         string
 	enabled                     *bool
 	crd                         *apiextensionsv1.CustomResourceDefinition
-	promiseDestinationSelectors []v1alpha1.Selector
+	promiseDestinationSelectors []v1alpha1.PromiseScheduling
 }
 
 //+kubebuilder:rbac:groups="batch",resources=jobs,verbs=get;list;watch;create;update;patch;delete

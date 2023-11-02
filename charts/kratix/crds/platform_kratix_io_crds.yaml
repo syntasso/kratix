@@ -247,9 +247,6 @@ spec:
                 destinationSelectors:
                   items:
                     properties:
-                      directory:
-                        description: TODO don't expose this in the promise
-                        type: string
                       matchLabels:
                         additionalProperties:
                           type: string
@@ -474,22 +471,6 @@ spec:
             spec:
               description: WorkSpec defines the desired state of Work
               properties:
-                destinationSelectors:
-                  description: DestinationSelectors is used for selecting the destination
-                  properties:
-                    promise:
-                      items:
-                        properties:
-                          directory:
-                            description: TODO don't expose this in the promise
-                            type: string
-                          matchLabels:
-                            additionalProperties:
-                              type: string
-                            type: object
-                        type: object
-                      type: array
-                  type: object
                 promiseName:
                   type: string
                 replicas:
@@ -503,9 +484,16 @@ spec:
                     description: WorkloadGroup represents the workloads in a particular directory that should be scheduled to a to Destination
                     properties:
                       destinationSelectors:
-                        additionalProperties:
-                          type: string
-                        type: object
+                        items:
+                          properties:
+                            matchLabels:
+                              additionalProperties:
+                                type: string
+                              type: object
+                            source:
+                              type: string
+                          type: object
+                        type: array
                       directory:
                         type: string
                       id:

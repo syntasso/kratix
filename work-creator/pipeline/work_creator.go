@@ -39,7 +39,7 @@ func (w *WorkCreator) Execute(rootDirectory, promiseName, namespace, resourceNam
 		WithValues("resourceName", resourceName).
 		WithValues("promiseName", promiseName)
 
-	pipelineScheduling, err := w.getPipelineScheduling(rootDirectory)
+	workflowScheduling, err := w.getWorkflowScheduling(rootDirectory)
 	if err != nil {
 		return err
 	}
@@ -56,10 +56,10 @@ func (w *WorkCreator) Execute(rootDirectory, promiseName, namespace, resourceNam
 	//   directory: baz/
 	var workloadGroups []platformv1alpha1.WorkloadGroup
 	var directoriesToIgnoreForTheBaseScheduling []string
-	var baseDestinationSelector map[string]string
+	var defaultDestinationSelectors map[string]string
 	pipelineOutputDir := filepath.Join(rootDirectory, "input")
-	for _, destinationSelector := range pipelineScheduling {
-		directory := destinationSelector.Directory
+	for _, workflowDestinationSelector := range workflowScheduling {
+		directory := workflowDestinationSelector.Directory
 		if !isRootDirectory(directory) {
 			directoriesToIgnoreForTheBaseScheduling = append(directoriesToIgnoreForTheBaseScheduling, directory)
 
@@ -70,13 +70,18 @@ func (w *WorkCreator) Execute(rootDirectory, promiseName, namespace, resourceNam
 			}
 
 			workloadGroups = append(workloadGroups, platformv1alpha1.WorkloadGroup{
-				Workloads:            workloads,
-				Directory:            directory,
-				ID:                   fmt.Sprintf("%x", md5.Sum([]byte(directory))),
-				DestinationSelectors: destinationSelector.MatchLabels,
+				Workloads: workloads,
+				Directory: directory,
+				ID:        fmt.Sprintf("%x", md5.Sum([]byte(directory))),
+				DestinationSelectors: []platformv1alpha1.WorkloadGroupScheduling{
+					{
+						MatchLabels: workflowDestinationSelector.MatchLabels,
+						Source:      workflowType + "-" + "workflow",
+					},
+				},
 			})
 		} else {
-			baseDestinationSelector = destinationSelector.MatchLabels
+			defaultDestinationSelectors = workflowDestinationSelector.MatchLabels
 		}
 	}
 
@@ -85,12 +90,34 @@ func (w *WorkCreator) Execute(rootDirectory, promiseName, namespace, resourceNam
 		return err
 	}
 
-	workloadGroups = append(workloadGroups, platformv1alpha1.WorkloadGroup{
-		Workloads:            workloads,
-		Directory:            platformv1alpha1.DefaultWorkloadGroupDirectory,
-		ID:                   hash.ComputeHash(platformv1alpha1.DefaultWorkloadGroupDirectory),
-		DestinationSelectors: baseDestinationSelector,
-	})
+	defaultWorkloadGroup := platformv1alpha1.WorkloadGroup{
+		Workloads: workloads,
+		Directory: platformv1alpha1.DefaultWorkloadGroupDirectory,
+		ID:        hash.ComputeHash(platformv1alpha1.DefaultWorkloadGroupDirectory),
+	}
+
+	if defaultDestinationSelectors != nil {
+		defaultWorkloadGroup.DestinationSelectors = []platformv1alpha1.WorkloadGroupScheduling{
+			{
+				MatchLabels: defaultDestinationSelectors,
+				Source:      workflowType + "-" + "workflow",
+			},
+		}
+	}
+
+	promiseScheduling, err := w.getPromiseScheduling(rootDirectory)
+	if err != nil {
+		return err
+	}
+	if len(promiseScheduling) > 0 {
+		defaultWorkloadGroup.DestinationSelectors = append(defaultWorkloadGroup.DestinationSelectors, platformv1alpha1.WorkloadGroupScheduling{
+			//TODO index?
+			MatchLabels: promiseScheduling[0].MatchLabels,
+			Source:      "promise",
+		})
+	}
+
+	workloadGroups = append(workloadGroups, defaultWorkloadGroup)
 
 	work := &platformv1alpha1.Work{}
 
@@ -100,12 +127,6 @@ func (w *WorkCreator) Execute(rootDirectory, promiseName, namespace, resourceNam
 	work.Spec.WorkloadGroups = workloadGroups
 	work.Spec.PromiseName = promiseName
 	work.Spec.ResourceName = resourceName
-
-	promiseScheduling, err := w.getPromiseScheduling(rootDirectory)
-	if err != nil {
-		return err
-	}
-	work.Spec.DestinationSelectors.Promise = promiseScheduling
 
 	if workflowType == platformv1alpha1.KratixWorkflowTypePromise {
 		work.Name = promiseName
@@ -192,17 +213,14 @@ func (w *WorkCreator) getWorkloadsFromDir(prefixToTrimFromWorkloadFilepath, root
 	return workloads, nil
 }
 
-func (w *WorkCreator) getPipelineScheduling(rootDirectory string) ([]platformv1alpha1.Selector, error) {
+func (w *WorkCreator) getWorkflowScheduling(rootDirectory string) ([]platformv1alpha1.WorkflowDestinationSelectors, error) {
 	metadataDirectory := filepath.Join(rootDirectory, "metadata")
 	return getSelectorsFromFile(filepath.Join(metadataDirectory, "destination-selectors.yaml"))
 }
 
-func (w *WorkCreator) getPromiseScheduling(rootDirectory string) ([]platformv1alpha1.Selector, error) {
+func (w *WorkCreator) getPromiseScheduling(rootDirectory string) ([]platformv1alpha1.PromiseScheduling, error) {
 	kratixSystemDirectory := filepath.Join(rootDirectory, "kratix-system")
-	return getSelectorsFromFile(filepath.Join(kratixSystemDirectory, "promise-scheduling"))
-}
-
-func getSelectorsFromFile(file string) ([]platformv1alpha1.Selector, error) {
+	file := filepath.Join(kratixSystemDirectory, "promise-scheduling")
 	fileContents, err := os.ReadFile(file)
 	if err != nil {
 		if goerr.Is(err, os.ErrNotExist) {
@@ -211,7 +229,26 @@ func getSelectorsFromFile(file string) ([]platformv1alpha1.Selector, error) {
 		return nil, err
 	}
 
-	var schedulingConfig []platformv1alpha1.Selector
+	var schedulingConfig []platformv1alpha1.PromiseScheduling
+	err = yaml.Unmarshal(fileContents, &schedulingConfig)
+
+	if err != nil {
+		return nil, err
+	}
+
+	return schedulingConfig, nil
+}
+
+func getSelectorsFromFile(file string) ([]platformv1alpha1.WorkflowDestinationSelectors, error) {
+	fileContents, err := os.ReadFile(file)
+	if err != nil {
+		if goerr.Is(err, os.ErrNotExist) {
+			return nil, nil
+		}
+		return nil, err
+	}
+
+	var schedulingConfig []platformv1alpha1.WorkflowDestinationSelectors
 	err = yaml.Unmarshal(fileContents, &schedulingConfig)
 
 	if err != nil {
@@ -233,7 +270,7 @@ func getSelectorsFromFile(file string) ([]platformv1alpha1.Selector, error) {
 	return schedulingConfig, nil
 }
 
-func containsNonRootDirectory(schedulingConfig []platformv1alpha1.Selector) (string, bool) {
+func containsNonRootDirectory(schedulingConfig []platformv1alpha1.WorkflowDestinationSelectors) (string, bool) {
 	for _, selector := range schedulingConfig {
 		directory := selector.Directory
 		if filepath.Base(directory) != directory {
@@ -244,7 +281,7 @@ func containsNonRootDirectory(schedulingConfig []platformv1alpha1.Selector) (str
 	return "", false
 }
 
-func containsDuplicateScheduling(schedulingConfig []platformv1alpha1.Selector) bool {
+func containsDuplicateScheduling(schedulingConfig []platformv1alpha1.WorkflowDestinationSelectors) bool {
 	directoriesSeen := []string{}
 
 	for _, selector := range schedulingConfig {

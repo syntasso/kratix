@@ -54,7 +54,7 @@ type PromiseSpec struct {
 
 	Dependencies Dependencies `json:"dependencies,omitempty"`
 
-	DestinationSelectors []Selector `json:"destinationSelectors,omitempty"`
+	DestinationSelectors []PromiseScheduling `json:"destinationSelectors,omitempty"`
 }
 
 type Workflows struct {
@@ -79,7 +79,11 @@ type Dependency struct {
 	unstructured.Unstructured `json:",inline"`
 }
 
-type Selector struct {
+type PromiseScheduling struct {
+	MatchLabels map[string]string `json:"matchLabels,omitempty"`
+}
+
+type WorkflowDestinationSelectors struct {
 	MatchLabels map[string]string `json:"matchLabels,omitempty"`
 	//TODO don't expose this in the promise
 	// +optional
@@ -111,7 +115,7 @@ func (p *Promise) GetSchedulingSelectors() map[string]string {
 	return generateLabelSelectorsFromScheduling(p.Spec.DestinationSelectors)
 }
 
-func generateLabelSelectorsFromScheduling(scheduling []Selector) map[string]string {
+func generateLabelSelectorsFromScheduling(scheduling []PromiseScheduling) map[string]string {
 	// TODO: Support more complex scheduling as it is introduced including resource selection and
 	//		 different target options.
 	schedulingSelectors := map[string]string{}

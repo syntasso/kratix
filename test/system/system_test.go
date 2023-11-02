@@ -201,7 +201,7 @@ var _ = Describe("Kratix", func() {
 					By("redeploying the contents of /kratix/output to the worker destination", func() {
 						Eventually(func() string {
 							return worker.kubectl("get", "namespace")
-						}, "30s").Should(
+						}, timeout).Should(
 							SatisfyAll(
 								Not(ContainSubstring(oldNamespaceName)),
 								ContainSubstring(newNamespaceName),

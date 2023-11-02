@@ -167,10 +167,9 @@ var _ = Context("WorkReconciler.Reconcile()", func() {
 			BeforeEach(func() {
 				anotherDestination = createDestination("worker-2", map[string]string{"destination": "worker-2"})
 
-				work = createWork(platformv1alpha1.ResourceRequestReplicas, &platformv1alpha1.WorkScheduling{
-					Promise: []platformv1alpha1.Selector{
-						{MatchLabels: map[string]string{"destination": "worker-1"}},
-					},
+				work = createWork(platformv1alpha1.ResourceRequestReplicas, &platformv1alpha1.WorkloadGroupScheduling{
+					MatchLabels: map[string]string{"destination": "worker-1"},
+					Source:      "promise",
 				})
 				workPlacementList := waitForWorkPlacements(work)
 				Expect(workPlacementList.Items).To(HaveLen(1), "expected one WorkPlacement")
@@ -183,11 +182,7 @@ var _ = Context("WorkReconciler.Reconcile()", func() {
 			When("the scheduling changes", func() {
 				It("does not create a new workplacement", func() {
 					work = getWork(work.GetName(), work.GetNamespace())
-					work.Spec.DestinationSelectors.Promise = []platformv1alpha1.Selector{
-						{
-							MatchLabels: map[string]string{"destination": "worker-2"},
-						},
-					}
+					work.Spec.WorkloadGroups[0].DestinationSelectors[0].MatchLabels = map[string]string{"destination": "worker-2"}
 
 					Expect(k8sClient.Update(context.Background(), work)).To(Succeed())
 					Consistently(func() int {
@@ -207,19 +202,17 @@ var _ = Context("WorkReconciler.Reconcile()", func() {
 				BeforeEach(func() {
 					anotherDestination = createDestination("worker-2", map[string]string{"destination": "worker-2"})
 					//worker-1 and worker-2
-					work = createWork(platformv1alpha1.DependencyReplicas, &platformv1alpha1.WorkScheduling{
-						Promise: []platformv1alpha1.Selector{
-							{MatchLabels: map[string]string{"destination": "worker-1"}},
-						},
-					})
+					work = createWork(platformv1alpha1.DependencyReplicas, &platformv1alpha1.WorkloadGroupScheduling{
+						MatchLabels: map[string]string{"destination": "worker-1"},
+						Source:      "promise",
+					},
+					)
 
 					workPlacements := waitForWorkPlacements(work)
 					Expect(workPlacements.Items).To(HaveLen(1))
 
 					work = getWork(work.Name, work.Namespace)
-					work.Spec.DestinationSelectors.Promise = []platformv1alpha1.Selector{
-						{MatchLabels: map[string]string{"destination": "worker-2"}},
-					}
+					work.Spec.WorkloadGroups[0].DestinationSelectors[0].MatchLabels = map[string]string{"destination": "worker-2"}
 					Expect(k8sClient.Update(context.Background(), work)).To(Succeed())
 				})
 
@@ -284,7 +277,7 @@ func workPlacementsFor(work *platformv1alpha1.Work) *platformv1alpha1.WorkPlacem
 	return workPlacementList
 }
 
-func createWork(replicas int, destinationSelectors *platformv1alpha1.WorkScheduling) *platformv1alpha1.Work {
+func createWork(replicas int, destinationSelectors *platformv1alpha1.WorkloadGroupScheduling) *platformv1alpha1.Work {
 	work = &platformv1alpha1.Work{}
 	work.Name = "work-" + rand.String(10)
 	work.Spec.ResourceName = "someName"
@@ -305,7 +298,9 @@ func createWork(replicas int, destinationSelectors *platformv1alpha1.WorkSchedul
 		},
 	}
 	if destinationSelectors != nil {
-		work.Spec.DestinationSelectors = *destinationSelectors
+		work.Spec.WorkloadGroups[0].DestinationSelectors = []platformv1alpha1.WorkloadGroupScheduling{
+			*destinationSelectors,
+		}
 	}
 	err := k8sClient.Create(context.Background(), work)
 	Expect(err).ToNot(HaveOccurred())

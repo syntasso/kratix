@@ -51,15 +51,6 @@ var _ = Describe("WorkCreator", func() {
 			})
 
 			It("has a correctly configured Work resource", func() {
-				Expect(workResource.Spec.DestinationSelectors).To(Equal(
-					v1alpha1.WorkScheduling{
-						Promise: []v1alpha1.Selector{
-							{
-								MatchLabels: map[string]string{"environment": "dev"},
-								Directory:   ".",
-							},
-						},
-					}))
 				Expect(workResource.Spec.Replicas).To(Equal(1))
 			})
 
@@ -77,9 +68,15 @@ var _ = Describe("WorkCreator", func() {
 						Expect(err).NotTo(HaveOccurred())
 						Expect(workload.Content).To(Equal(string(fileContent)))
 					}
-					Expect(workResource.Spec.WorkloadGroups[0].DestinationSelectors).To(Equal(map[string]string{
-						"environment": "staging",
-					}))
+
+					Expect(workResource.Spec.WorkloadGroups[0].DestinationSelectors).To(ConsistOf(
+						v1alpha1.WorkloadGroupScheduling{
+							MatchLabels: map[string]string{
+								"environment": "staging",
+							},
+							Source: "resource-workflow",
+						},
+					))
 
 					paths = []string{}
 					for _, workload := range workResource.Spec.WorkloadGroups[1].Workloads {
@@ -91,10 +88,18 @@ var _ = Describe("WorkCreator", func() {
 						Expect(err).NotTo(HaveOccurred())
 						Expect(workload.Content).To(Equal(string(fileContent)))
 					}
-					Expect(workResource.Spec.WorkloadGroups[1].DestinationSelectors).To(Equal(
-						map[string]string{"environment": "production", "region": "europe"},
+					Expect(workResource.Spec.WorkloadGroups[1].DestinationSelectors).To(ConsistOf(
+						v1alpha1.WorkloadGroupScheduling{
+							MatchLabels: map[string]string{"environment": "production", "region": "europe"},
+							Source:      "resource-workflow",
+						},
+						v1alpha1.WorkloadGroupScheduling{
+							MatchLabels: map[string]string{
+								"environment": "dev",
+							},
+							Source: "promise",
+						},
 					))
-
 				})
 			})
 		})
@@ -140,15 +145,14 @@ var _ = Describe("WorkCreator", func() {
 			It("does not try to apply the metadata/destination-selectors.yaml when its not present", func() {
 				workResource := getWork(expectedNamespace, resourceWorkName)
 				Expect(workResource.GetName()).To(Equal(resourceWorkName))
-				Expect(workResource.Spec.DestinationSelectors).To(Equal(
-					v1alpha1.WorkScheduling{
-						Promise: []v1alpha1.Selector{
-							{
-								MatchLabels: map[string]string{"environment": "dev"},
-								Directory:   ".",
-							},
+				Expect(workResource.Spec.WorkloadGroups[0].DestinationSelectors).To(ConsistOf(
+					v1alpha1.WorkloadGroupScheduling{
+						MatchLabels: map[string]string{
+							"environment": "dev",
 						},
-					}))
+						Source: "promise",
+					},
+				))
 			})
 		})
 
@@ -174,16 +178,28 @@ var _ = Describe("WorkCreator", func() {
 				expectedNamespace = "kratix-platform-system"
 				workResource := getWork(expectedNamespace, promiseWorkName)
 
-				Expect(workResource.Spec.DestinationSelectors).To(Equal(
-					v1alpha1.WorkScheduling{
-						Promise: []v1alpha1.Selector{
-							{
-								MatchLabels: map[string]string{"environment": "dev"},
-								Directory:   ".",
-							},
-						},
-					}))
 				Expect(workResource.Spec.Replicas).To(Equal(-1))
+				Expect(workResource.Spec.WorkloadGroups[0].DestinationSelectors).To(ConsistOf(
+					v1alpha1.WorkloadGroupScheduling{
+						MatchLabels: map[string]string{
+							"environment": "staging",
+						},
+						Source: "promise-workflow",
+					},
+				))
+
+				Expect(workResource.Spec.WorkloadGroups[1].DestinationSelectors).To(ConsistOf(
+					v1alpha1.WorkloadGroupScheduling{
+						MatchLabels: map[string]string{"environment": "production", "region": "europe"},
+						Source:      "promise-workflow",
+					},
+					v1alpha1.WorkloadGroupScheduling{
+						MatchLabels: map[string]string{
+							"environment": "dev",
+						},
+						Source: "promise",
+					},
+				))
 			})
 		})
 	})

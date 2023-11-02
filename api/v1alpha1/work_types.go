@@ -44,10 +44,6 @@ type Work struct {
 
 // WorkSpec defines the desired state of Work
 type WorkSpec struct {
-
-	// DestinationSelectors is used for selecting the destination
-	DestinationSelectors WorkScheduling `json:"destinationSelectors,omitempty"`
-
 	// -1 denotes dependencies, 1 denotes Resource Request
 	Replicas int `json:"replicas,omitempty"`
 
@@ -63,10 +59,6 @@ type WorkloadCoreFields struct {
 	ResourceName string `json:"resourceName,omitempty"`
 }
 
-type WorkScheduling struct {
-	Promise []Selector `json:"promise,omitempty"`
-}
-
 func NewPromiseDependenciesWork(promise *Promise) (*Work, error) {
 	work := &Work{
 		ObjectMeta: metav1.ObjectMeta{
@@ -79,9 +71,6 @@ func NewPromiseDependenciesWork(promise *Promise) (*Work, error) {
 				PromiseName: promise.GetName(),
 			},
 			Replicas: DependencyReplicas,
-			DestinationSelectors: WorkScheduling{
-				Promise: promise.Spec.DestinationSelectors,
-			},
 		},
 	}
 
@@ -103,6 +92,15 @@ func NewPromiseDependenciesWork(promise *Promise) (*Work, error) {
 		},
 	}
 
+	if len(promise.Spec.DestinationSelectors) > 0 {
+		work.Spec.WorkloadGroups[0].DestinationSelectors = []WorkloadGroupScheduling{
+			{
+				MatchLabels: promise.Spec.DestinationSelectors[0].MatchLabels,
+				Source:      "promise",
+			},
+		}
+	}
+
 	return work, nil
 }
 
@@ -118,10 +116,15 @@ func (w *Work) IsDependency() bool {
 // be scheduled to a to Destination
 type WorkloadGroup struct {
 	// +optional
-	Workloads            []Workload        `json:"workloads,omitempty"`
-	Directory            string            `json:"directory,omitempty"`
-	ID                   string            `json:"id,omitempty"`
-	DestinationSelectors map[string]string `json:"destinationSelectors,omitempty"`
+	Workloads            []Workload                `json:"workloads,omitempty"`
+	Directory            string                    `json:"directory,omitempty"`
+	ID                   string                    `json:"id,omitempty"`
+	DestinationSelectors []WorkloadGroupScheduling `json:"destinationSelectors,omitempty"`
+}
+
+type WorkloadGroupScheduling struct {
+	MatchLabels map[string]string `json:"matchLabels,omitempty"`
+	Source      string            `json:"source,omitempty"`
 }
 
 // Workload represents the manifest workload to be deployed on destination

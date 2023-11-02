@@ -62,8 +62,6 @@ func (r *WorkReconciler) Reconcile(ctx context.Context, req ctrl.Request) (ctrl.
 		return ctrl.Result{Requeue: false}, err
 	}
 
-	logger = logger.WithValues("scheduling", work.Spec.DestinationSelectors)
-
 	logger.Info("Requesting scheduling for Work")
 	unscheduledWorkloadGroupIDs, err := r.Scheduler.ReconcileWork(work)
 	if err != nil {
