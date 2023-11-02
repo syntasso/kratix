@@ -54,7 +54,7 @@ type PromiseSpec struct {
 
 	Dependencies Dependencies `json:"dependencies,omitempty"`
 
-	DestinationSelectors []Selector `json:"destinationSelectors,omitempty"`
+	DestinationSelectors []PromiseScheduling `json:"destinationSelectors,omitempty"`
 }
 
 type Workflows struct {
@@ -79,8 +79,16 @@ type Dependency struct {
 	unstructured.Unstructured `json:",inline"`
 }
 
-type Selector struct {
+// For Promise spec
+type PromiseScheduling struct {
 	MatchLabels map[string]string `json:"matchLabels,omitempty"`
+}
+
+// For /kratix/metadata/destination-selectors.yaml
+type WorkflowDestinationSelectors struct {
+	MatchLabels map[string]string `json:"matchLabels,omitempty"`
+	// +optional
+	Directory string `json:"directory,omitempty"`
 }
 
 // PromiseStatus defines the observed state of Promise
@@ -104,11 +112,26 @@ type Promise struct {
 
 var ErrNoAPI = fmt.Errorf("promise does not contain an API")
 
+func SquashPromiseScheduling(scheduling []PromiseScheduling) map[string]string {
+	if len(scheduling) == 0 {
+		return nil
+	}
+
+	labels := map[string]string{}
+	//Reverse order, first item in the array gets priority this way
+	for i := len(scheduling) - 1; i >= 0; i-- {
+		for key, value := range scheduling[i].MatchLabels {
+			labels[key] = value
+		}
+	}
+	return labels
+}
+
 func (p *Promise) GetSchedulingSelectors() map[string]string {
 	return generateLabelSelectorsFromScheduling(p.Spec.DestinationSelectors)
 }
 
-func generateLabelSelectorsFromScheduling(scheduling []Selector) map[string]string {
+func generateLabelSelectorsFromScheduling(scheduling []PromiseScheduling) map[string]string {
 	// TODO: Support more complex scheduling as it is introduced including resource selection and
 	//		 different target options.
 	schedulingSelectors := map[string]string{}

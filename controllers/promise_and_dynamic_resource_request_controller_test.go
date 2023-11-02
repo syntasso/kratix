@@ -228,7 +228,7 @@ var _ = Context("Promise Reconciler", func() {
 					Expect(configMap.Data).To(HaveKey("destinationSelectors"))
 					space := regexp.MustCompile(`\s+`)
 					destinationSelectors := space.ReplaceAllString(configMap.Data["destinationSelectors"], " ")
-					Expect(strings.TrimSpace(destinationSelectors)).To(Equal(`- matchlabels: environment: dev`))
+					Expect(strings.TrimSpace(destinationSelectors)).To(Equal(`- matchlabels: environment: dev source: promise`))
 				})
 
 				It("adds finalizers to the Promise", func() {
@@ -357,7 +357,7 @@ var _ = Context("Promise Reconciler", func() {
 				Expect(configMap.Data).To(HaveKey("destinationSelectors"))
 				space := regexp.MustCompile(`\s+`)
 				destinationSelectors := space.ReplaceAllString(configMap.Data["destinationSelectors"], " ")
-				Expect(strings.TrimSpace(destinationSelectors)).To(Equal(`- matchlabels: environment: dev`))
+				Expect(strings.TrimSpace(destinationSelectors)).To(Equal(`- matchlabels: environment: dev source: promise`))
 			})
 
 			It("adds finalizers to the Promise", func() {
@@ -681,7 +681,7 @@ var _ = Context("Promise Reconciler", func() {
 				destinationB = createDestination("destination-b")
 
 				promise = parseYAML(RedisPromisePath)
-				promise.Spec.DestinationSelectors = []v1alpha1.Selector{
+				promise.Spec.DestinationSelectors = []v1alpha1.PromiseScheduling{
 					{
 						MatchLabels: map[string]string{
 							"destination": "a",
@@ -693,7 +693,7 @@ var _ = Context("Promise Reconciler", func() {
 				waitForWork(promise.GetName())
 
 				promise = getPromise(promise.GetName())
-				promise.Spec.DestinationSelectors = []v1alpha1.Selector{
+				promise.Spec.DestinationSelectors = []v1alpha1.PromiseScheduling{
 					{
 						MatchLabels: map[string]string{
 							"destination": "b",
@@ -704,18 +704,16 @@ var _ = Context("Promise Reconciler", func() {
 			})
 
 			It("schedules any dependencies to the new destinations", func() {
-				Eventually(func() v1alpha1.WorkScheduling {
+				Eventually(func() v1alpha1.WorkloadGroupScheduling {
 					work := waitForWork(promise.GetName())
-					return work.Spec.DestinationSelectors
-				}, timeout, interval).Should(Equal(v1alpha1.WorkScheduling{
-					Promise: []v1alpha1.Selector{
-						{
-							MatchLabels: map[string]string{
-								"destination": "b",
-							},
-						},
+					return work.Spec.WorkloadGroups[0].DestinationSelectors[0]
+				}, timeout, interval).Should(Equal(v1alpha1.WorkloadGroupScheduling{
+					MatchLabels: map[string]string{
+						"destination": "b",
 					},
-				}))
+					Source: "promise",
+				},
+				))
 			})
 
 			AfterEach(func() {
@@ -738,7 +736,7 @@ var _ = Context("Promise Reconciler", func() {
 				waitForWork(promise.GetName())
 				Eventually(func() string {
 					work := waitForWork(promise.GetName())
-					return work.Spec.Workloads[0].Content
+					return work.Spec.WorkloadGroups[0].Workloads[0].Content
 				}, timeout, interval).Should(ContainSubstring("a-non-crd-resource"))
 
 				promise = getPromise(promise.GetName())
@@ -750,11 +748,11 @@ var _ = Context("Promise Reconciler", func() {
 			It("updates the Work resource to have only the new workloads", func() {
 				Eventually(func() string {
 					work := waitForWork(promise.GetName())
-					return work.Spec.Workloads[0].Content
+					return work.Spec.WorkloadGroups[0].Workloads[0].Content
 				}, timeout, interval).Should(ContainSubstring("super-secret-new-namespace"))
 				Eventually(func() string {
 					work := waitForWork(promise.GetName())
-					return work.Spec.Workloads[0].Content
+					return work.Spec.WorkloadGroups[0].Workloads[0].Content
 				}, timeout, interval).ShouldNot(ContainSubstring("a-non-crd-resource"))
 			})
 

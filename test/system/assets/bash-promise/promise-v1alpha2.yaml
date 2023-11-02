@@ -84,6 +84,9 @@ spec:
       kind: Namespace
       metadata:
         name: bash-dep-namespace-v1alpha2
+  destinationSelectors:
+  - matchLabels:
+      environment: dev
   workflows:
     resource:
       configure:

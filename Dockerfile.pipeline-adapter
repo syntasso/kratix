@@ -1,4 +1,4 @@
-FROM --platform=${TARGETPLATFORM} golang:1.19 as builder
+FROM --platform=${TARGETPLATFORM} golang:1.21 as builder
 ARG TARGETARCH
 ARG TARGETOS
 
@@ -7,6 +7,7 @@ WORKDIR /workspace
 COPY go.mod go.mod
 COPY go.sum go.sum
 COPY api/ api/
+COPY lib/ lib/
 COPY work-creator/ work-creator/
 # cache deps before building and copying source so that we don't need to re-download as much
 # and so that source changes don't invalidate our downloaded layer

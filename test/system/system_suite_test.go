@@ -30,6 +30,10 @@ var _ = BeforeSuite(func() {
 		storeType = "git"
 	}
 	fmt.Println("Running system tests with statestore " + storeType)
+
+	platform.kubectl("apply", "-f", fmt.Sprintf("./assets/%s/platform_gitops-tk-resources.yaml", storeType))
+	platform.kubectl("apply", "-f", fmt.Sprintf("./assets/%s/platform_statestore.yaml", storeType))
+	platform.kubectl("apply", "-f", fmt.Sprintf("./assets/%s/platform_kratix_destination.yaml", storeType))
 })
 
 func initK8sClient() {

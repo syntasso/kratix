@@ -24,7 +24,7 @@ func NewConfigureResource(
 	pipelines []platformv1alpha1.Pipeline,
 	resourceRequestIdentifier,
 	promiseIdentifier string,
-	promiseDestinationSelectors []platformv1alpha1.Selector,
+	promiseDestinationSelectors []platformv1alpha1.PromiseScheduling,
 	logger logr.Logger,
 ) ([]client.Object, error) {
 
@@ -54,7 +54,7 @@ func NewConfigurePromise(
 	unstructedPromise *unstructured.Unstructured,
 	pipelines []platformv1alpha1.Pipeline,
 	promiseIdentifier string,
-	promiseDestinationSelectors []platformv1alpha1.Selector,
+	promiseDestinationSelectors []platformv1alpha1.PromiseScheduling,
 	logger logr.Logger,
 ) ([]client.Object, error) {
 
@@ -86,7 +86,7 @@ func ConfigurePipeline(obj *unstructured.Unstructured, pipelines []platformv1alp
 	initContainers, pipelineVolumes := configurePipelineInitContainers(obj, pipelines, promiseName, promiseWorkflow, logger)
 	volumes = append(volumes, pipelineVolumes...)
 
-	objHash, err := hash.ComputeHash(obj)
+	objHash, err := hash.ComputeHashForResource(obj)
 	if err != nil {
 		return nil, err
 	}

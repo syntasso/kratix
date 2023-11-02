@@ -100,7 +100,7 @@ var _ = Describe("Kratix", func() {
 				platform.eventuallyKubectl("get", "crd", "bash.test.kratix.io")
 			})
 
-			It("executes the pipelines and schedules the work", func() {
+			It("executes the pipelines and schedules the work to the appropiate destinations", func() {
 				rrName := "rr-test"
 
 				c1Command := `kop="delete"
@@ -114,7 +114,10 @@ var _ = Describe("Kratix", func() {
 							fi
 			                kubectl delete namespace imperative-$(yq '.metadata.name' /kratix/input/object.yaml)`
 
-				c2Command := `kubectl create namespace declarative-$(yq '.metadata.name' /kratix/input/object.yaml) --dry-run=client -oyaml > /kratix/output/namespace.yaml`
+				c2Command := `kubectl create namespace declarative-$(yq '.metadata.name' /kratix/input/object.yaml) --dry-run=client -oyaml > /kratix/output/namespace.yaml
+        mkdir /kratix/output/platform/
+        kubectl create namespace declarative-platform-only-$(yq '.metadata.name' /kratix/input/object.yaml) --dry-run=client -oyaml > /kratix/output/platform/namespace.yaml
+        echo "[{\"matchLabels\":{\"environment\":\"platform\"}, \"directory\":\"platform\"}]" > /kratix/metadata/destination-selectors.yaml`
 
 				commands := []string{c1Command, c2Command}
 
@@ -124,9 +127,22 @@ var _ = Describe("Kratix", func() {
 					platform.kubectl("wait", "--for=condition=PipelineCompleted", "bash", rrName, pipelineTimeout)
 				})
 
-				By("deploying the contents of /kratix/output to the worker destination", func() {
-					platform.eventuallyKubectl("get", "namespace", "imperative-rr-test")
+				By("deploying the contents of /kratix/output/platform to the platform destination only", func() {
+					platform.eventuallyKubectl("get", "namespace", "declarative-platform-only-rr-test")
+					Consistently(func() string {
+						return worker.kubectl("get", "namespace")
+					}, "10s").ShouldNot(ContainSubstring("declarative-platform-only-rr-test"))
+				})
+
+				By("deploying the remaining contents of /kratix/output to the worker destination only", func() {
 					worker.eventuallyKubectl("get", "namespace", "declarative-rr-test")
+					Consistently(func() string {
+						return platform.kubectl("get", "namespace")
+					}, "10s").ShouldNot(ContainSubstring("declarative-rr-test"))
+				})
+
+				By("the imperative API call in the pipeline to the platform cluster succeeding", func() {
+					platform.eventuallyKubectl("get", "namespace", "imperative-rr-test")
 				})
 
 				By("mirroring the directory and files from /kratix/output to the statestore", func() {
@@ -185,7 +201,7 @@ var _ = Describe("Kratix", func() {
 					By("redeploying the contents of /kratix/output to the worker destination", func() {
 						Eventually(func() string {
 							return worker.kubectl("get", "namespace")
-						}, "30s").Should(
+						}, timeout).Should(
 							SatisfyAll(
 								Not(ContainSubstring(oldNamespaceName)),
 								ContainSubstring(newNamespaceName),
@@ -284,13 +300,10 @@ var _ = Describe("Kratix", func() {
 		// Platform destination (GitStateStore):
 		// - environment: platform
 
-		// PromiseScheduling:
+		// Destination selectors in the promise:
 		// - security: high
 		BeforeEach(func() {
 			platform.kubectl("label", "destination", "worker-1", "security=high")
-			platform.kubectl("apply", "-f", fmt.Sprintf("./assets/%s/platform_gitops-tk-resources.yaml", storeType))
-			platform.kubectl("apply", "-f", fmt.Sprintf("./assets/%s/platform_statestore.yaml", storeType))
-			platform.kubectl("apply", "-f", fmt.Sprintf("./assets/%s/platform_kratix_destination.yaml", storeType))
 			platform.kubectl("apply", "-f", promiseWithSchedulingPath)
 			platform.eventuallyKubectl("get", "crd", "bash.test.kratix.io")
 		})
@@ -298,8 +311,6 @@ var _ = Describe("Kratix", func() {
 		AfterEach(func() {
 			platform.kubectl("label", "destination", "worker-1", "security-", "pci-")
 			platform.kubectl("delete", "-f", promiseWithSchedulingPath)
-			platform.kubectl("delete", "-f", fmt.Sprintf("./assets/%s/platform_kratix_destination.yaml", storeType))
-			platform.kubectl("delete", "-f", fmt.Sprintf("./assets/%s/platform_statestore.yaml", storeType))
 		})
 
 		It("schedules resources to the correct Destinations", func() {
@@ -331,14 +342,30 @@ var _ = Describe("Kratix", func() {
 
 					worker.eventuallyKubectl("get", "namespace", "rr-2-namespace")
 				})
+				platform.kubectl("label", "destination", "platform-1", "security-")
 			})
 		})
 
+		// Worker destination (BucketStateStore):
+		// - environment: dev
+
+		// Platform destination (GitStateStore):
+		// - environment: platform
+
+		// Destination selectors in the promise:
+		// - security: high
 		It("allows updates to scheduling", func() {
+			platform.kubectl("delete", "-f", fmt.Sprintf("./assets/%s/platform_kratix_destination.yaml", storeType))
+			platform.kubectl("delete", "-f", fmt.Sprintf("./assets/%s/platform_statestore.yaml", storeType))
+
 			By("only the worker Destination getting the dependency initially", func() {
 				Consistently(func() {
 					worker.eventuallyKubectl("get", "namespace", "bash-dep-namespace-v1alpha1")
 				}, consistentlyTimeout, interval)
+
+				Eventually(func() string {
+					return platform.kubectl("get", "namespace")
+				}, timeout, interval).ShouldNot(ContainSubstring("bash-dep-namespace-v1alpha1"))
 
 				Consistently(func() string {
 					return platform.kubectl("get", "namespace")

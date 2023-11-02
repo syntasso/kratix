@@ -288,6 +288,7 @@ spec:
                 type: array
               destinationSelectors:
                 items:
+                  description: For Promise spec
                   properties:
                     matchLabels:
                       additionalProperties:
@@ -448,8 +449,6 @@ spec:
               targetDestinationName:
                 type: string
               workloads:
-                description: Workload represents the manifest workload to be deployed
-                  on destination
                 items:
                   description: Workload represents the manifest workload to be deployed
                     on destination
@@ -574,28 +573,6 @@ spec:
           spec:
             description: WorkSpec defines the desired state of Work
             properties:
-              destinationSelectors:
-                description: DestinationSelectors is used for selecting the destination
-                properties:
-                  promise:
-                    items:
-                      properties:
-                        matchLabels:
-                          additionalProperties:
-                            type: string
-                          type: object
-                      type: object
-                    type: array
-                  resource:
-                    items:
-                      properties:
-                        matchLabels:
-                          additionalProperties:
-                            type: string
-                          type: object
-                      type: object
-                    type: array
-                type: object
               promiseName:
                 type: string
               replicas:
@@ -603,17 +580,39 @@ spec:
                 type: integer
               resourceName:
                 type: string
-              workloads:
+              workloadGroups:
                 description: Workload represents the manifest workload to be deployed
                   on destination
                 items:
-                  description: Workload represents the manifest workload to be deployed
-                    on destination
+                  description: WorkloadGroup represents the workloads in a particular
+                    directory that should be scheduled to a to Destination
                   properties:
-                    content:
+                    destinationSelectors:
+                      items:
+                        properties:
+                          matchLabels:
+                            additionalProperties:
+                              type: string
+                            type: object
+                          source:
+                            type: string
+                        type: object
+                      type: array
+                    directory:
                       type: string
-                    filepath:
+                    id:
                       type: string
+                    workloads:
+                      items:
+                        description: Workload represents the manifest workload to
+                          be deployed on destination
+                        properties:
+                          content:
+                            type: string
+                          filepath:
+                            type: string
+                        type: object
+                      type: array
                   type: object
                 type: array
             type: object
@@ -979,7 +978,7 @@ metadata:
 ---
 apiVersion: v1
 data:
-  WC_IMG: syntasso/kratix-platform-pipeline-adapter:e60f09fa360221ce59950b3821a4c7e7ba1a3408
+  WC_IMG: syntasso/kratix-platform-pipeline-adapter:974645ebf383f2038f3fe665ace17c1187e9af3d
 kind: ConfigMap
 metadata:
   name: kratix-platform-wc-img-config
@@ -1050,7 +1049,7 @@ spec:
             configMapKeyRef:
               key: WC_IMG
               name: kratix-platform-wc-img-config
-        image: syntasso/kratix-platform:e60f09fa360221ce59950b3821a4c7e7ba1a3408
+        image: syntasso/kratix-platform:974645ebf383f2038f3fe665ace17c1187e9af3d
         livenessProbe:
           httpGet:
             path: /healthz

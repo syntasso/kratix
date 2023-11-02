@@ -18,7 +18,6 @@ package controllers
 
 import (
 	"context"
-	"strings"
 
 	"github.com/go-logr/logr"
 	platformv1alpha1 "github.com/syntasso/kratix/api/v1alpha1"
@@ -63,21 +62,20 @@ func (r *WorkReconciler) Reconcile(ctx context.Context, req ctrl.Request) (ctrl.
 		return ctrl.Result{Requeue: false}, err
 	}
 
-	logger = logger.WithValues("scheduling", work.Spec.DestinationSelectors)
-
 	logger.Info("Requesting scheduling for Work")
-	err = r.Scheduler.ReconcileWork(work)
+	unscheduledWorkloadGroupIDs, err := r.Scheduler.ReconcileWork(work)
 	if err != nil {
 		//TODO remove this error checking
 		//temp fix until resolved: https://syntasso.slack.com/archives/C044T9ZFUMN/p1674058648965449
-		if work.IsResourceRequest() && strings.Contains(err.Error(), "no Destinations can be selected for scheduling") {
-			logger.Info("no available Destinations for requested resource, trying again shortly")
-			return slowRequeue, nil
-		}
-
 		logger.Error(err, "Error scheduling Work, will retry...")
 		return defaultRequeue, err
 	}
+
+	if work.IsResourceRequest() && len(unscheduledWorkloadGroupIDs) > 0 {
+		logger.Info("no available Destinations for some of the workload groups, trying again shortly", "workloadGroupIDs", unscheduledWorkloadGroupIDs)
+		return slowRequeue, nil
+	}
+
 	return ctrl.Result{}, nil
 
 }
