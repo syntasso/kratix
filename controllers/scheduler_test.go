@@ -146,6 +146,42 @@ var _ = Describe("Controllers/Scheduler", func() {
 					Content: "fake: content",
 				}))
 			})
+			When("An update removes a workload group", func() {
+				It("removes the workplacements for the deleted workloadgroup", func() {
+					_, err := scheduler.ReconcileWork(&resourceWork)
+					Expect(err).ToNot(HaveOccurred())
+
+					Expect(k8sClient.List(context.Background(), &workPlacements)).To(Succeed())
+
+					Expect(workPlacements.Items).To(HaveLen(1))
+					workPlacement := workPlacements.Items[0]
+					Expect(workPlacement.Spec.Workloads).To(HaveLen(1))
+
+					preexistingWorkplacementName := workPlacement.Name
+
+					resourceWork.Spec.WorkloadGroups[0].Directory = "foo"
+					resourceWork.Spec.WorkloadGroups[0].ID = hash.ComputeHash("foo")
+					resourceWork.Spec.WorkloadGroups[0].Workloads = append(resourceWork.Spec.WorkloadGroups[0].Workloads, Workload{
+						Content: "fake: content",
+					})
+
+					//Remove finalizers so it can be deleted
+					workPlacement.Finalizers = nil
+					Expect(k8sClient.Update(context.Background(), &workPlacement)).To(Succeed())
+					_, err = scheduler.ReconcileWork(&resourceWork)
+					Expect(err).ToNot(HaveOccurred())
+
+					Expect(k8sClient.List(context.Background(), &workPlacements)).To(Succeed())
+
+					Expect(workPlacements.Items).To(HaveLen(1))
+					workPlacement = workPlacements.Items[0]
+					Expect(workPlacement.Name).NotTo(Equal(preexistingWorkplacementName))
+					Expect(workPlacement.Spec.Workloads).To(HaveLen(2))
+					Expect(workPlacement.Spec.Workloads).To(ContainElement(Workload{
+						Content: "fake: content",
+					}))
+				})
+			})
 
 			When("the Work needs to schedule to multiple destinations", func() {
 				It("creates a WorkPlacement per workloadGroup", func() {

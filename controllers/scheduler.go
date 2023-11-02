@@ -88,7 +88,38 @@ func (s *Scheduler) ReconcileWork(work *platformv1alpha1.Work) ([]string, error)
 			unscheduable = append(unscheduable, wg.ID)
 		}
 	}
-	return unscheduable, nil
+
+	return unscheduable, s.cleanupDanglingWorkplacements(work)
+}
+
+func (s *Scheduler) cleanupDanglingWorkplacements(work *platformv1alpha1.Work) error {
+	workplacementsThatShouldExist := map[string]interface{}{}
+	for _, wg := range work.Spec.WorkloadGroups {
+		workPlacements, err := s.getExistingWorkPlacementsForWorkloadGroup(work.Namespace, work.Name, wg)
+		if err != nil {
+			return err
+		}
+		for _, wp := range workPlacements {
+			workplacementsThatShouldExist[wp.Name] = nil
+		}
+	}
+
+	allWorkplacementsForWork, err := s.getExistingWorkPlacementsForWork(work.Namespace, work.Name)
+	if err != nil {
+		return err
+	}
+
+	for _, wp := range allWorkplacementsForWork {
+		if _, exists := workplacementsThatShouldExist[wp.Name]; !exists {
+			s.Log.Info("deleting workplacement that no longer references a workloadGroup", "workName", work.Name, "workPlacementName", wp.Name, "namespace", work.Namespace)
+			err := s.Client.Delete(context.TODO(), &wp)
+			if err != nil {
+				return err
+			}
+		}
+	}
+
+	return nil
 }
 
 // TODO why pointer for work?
@@ -169,14 +200,24 @@ func misscheduledWorkPlacements(listA, listB []v1alpha1.WorkPlacement) []v1alpha
 }
 
 func (s *Scheduler) getExistingWorkPlacementsForWorkloadGroup(namespace, workName string, workloadGroup platformv1alpha1.WorkloadGroup) ([]platformv1alpha1.WorkPlacement, error) {
+	return s.listWorkplacementWithLabels(namespace, map[string]string{
+		workLabelKey:       workName,
+		workloadGroupIDKey: workloadGroup.ID,
+	})
+}
+
+func (s *Scheduler) getExistingWorkPlacementsForWork(namespace, workName string) ([]platformv1alpha1.WorkPlacement, error) {
+	return s.listWorkplacementWithLabels(namespace, map[string]string{
+		workLabelKey: workName,
+	})
+}
+
+func (s *Scheduler) listWorkplacementWithLabels(namespace string, matchLabels map[string]string) ([]platformv1alpha1.WorkPlacement, error) {
 	workPlacementList := &platformv1alpha1.WorkPlacementList{}
 	workPlacementListOptions := &client.ListOptions{
 		Namespace: namespace,
 	}
-	workSelectorLabel := labels.FormatLabels(map[string]string{
-		workLabelKey:       workName,
-		workloadGroupIDKey: workloadGroup.ID,
-	})
+	workSelectorLabel := labels.FormatLabels(matchLabels)
 	//<none> is valid output from above
 	selector, err := labels.Parse(workSelectorLabel)
 
@@ -185,7 +226,7 @@ func (s *Scheduler) getExistingWorkPlacementsForWorkloadGroup(namespace, workNam
 	}
 	workPlacementListOptions.LabelSelector = selector
 
-	s.Log.Info("Listing Workplacements for Work")
+	s.Log.Info("Listing Workplacements", "labels", workSelectorLabel)
 	err = s.Client.List(context.Background(), workPlacementList, workPlacementListOptions)
 	if err != nil {
 		s.Log.Error(err, "Error getting WorkPlacements")
