@@ -246,6 +246,7 @@ spec:
                   type: array
                 destinationSelectors:
                   items:
+                    description: For Promise spec
                     properties:
                       matchLabels:
                         additionalProperties:
