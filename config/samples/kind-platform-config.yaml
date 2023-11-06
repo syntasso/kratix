@@ -5,5 +5,8 @@ nodes:
   extraPortMappings:
   - containerPort: 31337
     hostPort: 31337
+  # for backstage demos
+  - containerPort: 31340
+    hostPort: 31340
   - containerPort: 31333
     hostPort: 31333
