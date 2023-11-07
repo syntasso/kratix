@@ -97,6 +97,24 @@ func ensurePipelineIsReconciled(j jobOpts) (*ctrl.Result, error) {
 	}
 
 	j.logger.Info("Job already exists and is complete for workflow")
+	return deleteConfigMap(j)
+}
+
+func deleteConfigMap(j jobOpts) (*ctrl.Result, error) {
+	configMap := &v1.ConfigMap{}
+	for _, resource := range j.pipelineResources {
+		if resource.GetObjectKind().GroupVersionKind().Kind == "ConfigMap" {
+			configMap = resource.(*v1.ConfigMap)
+			break
+		}
+	}
+
+	j.logger.Info("Removing configmap", "name", configMap.GetName())
+	if err := j.client.Delete(j.ctx, configMap); err != nil {
+		j.logger.Info("failed to delete configmap", "name", configMap.GetName(), "error", err)
+		return &fastRequeue, nil
+	}
+
 	return nil, nil
 }
 
