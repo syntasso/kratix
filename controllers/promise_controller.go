@@ -20,6 +20,7 @@ import (
 	"context"
 	"encoding/json"
 	"fmt"
+	"strings"
 	"time"
 
 	controllerutil "sigs.k8s.io/controller-runtime/pkg/controller/controllerutil"
@@ -126,9 +127,13 @@ func (r *PromiseReconciler) Reconcile(ctx context.Context, req ctrl.Request) (ct
 			return ctrl.Result{}, err
 		}
 
-		err := r.ensureCRDExists(ctx, promise, rrCRD, rrGVK, logger)
+		requeue, err := r.ensureCRDExists(ctx, promise, rrCRD, rrGVK, logger)
 		if err != nil {
 			return ctrl.Result{}, err
+		}
+
+		if requeue != nil {
+			return *requeue, nil
 		}
 
 		if resourceutil.DoesNotContainFinalizer(promise, crdCleanupFinalizer) {
@@ -385,7 +390,7 @@ func (r *PromiseReconciler) createResourcesForDynamicControllerIfTheyDontExist(c
 }
 
 func (r *PromiseReconciler) ensureCRDExists(ctx context.Context, promise *v1alpha1.Promise, rrCRD *apiextensionsv1.CustomResourceDefinition,
-	rrGVK schema.GroupVersionKind, logger logr.Logger) error {
+	rrGVK schema.GroupVersionKind, logger logr.Logger) (*ctrl.Result, error) {
 
 	_, err := r.ApiextensionsClient.ApiextensionsV1().
 		CustomResourceDefinitions().
@@ -396,7 +401,7 @@ func (r *PromiseReconciler) ensureCRDExists(ctx context.Context, promise *v1alph
 			logger.Info("CRD already exists", "crdName", rrCRD.Name)
 			existingCRD, err := r.ApiextensionsClient.ApiextensionsV1().CustomResourceDefinitions().Get(ctx, rrCRD.GetName(), metav1.GetOptions{})
 			if err != nil {
-				return err
+				return nil, err
 			}
 
 			existingCRD.Spec.Versions = rrCRD.Spec.Versions
@@ -404,28 +409,42 @@ func (r *PromiseReconciler) ensureCRDExists(ctx context.Context, promise *v1alph
 			existingCRD.Spec.PreserveUnknownFields = rrCRD.Spec.PreserveUnknownFields
 			_, err = r.ApiextensionsClient.ApiextensionsV1().CustomResourceDefinitions().Update(ctx, existingCRD, metav1.UpdateOptions{})
 			if err != nil {
-				return err
+				return nil, err
 			}
 		} else {
 			logger.Error(err, "Error creating crd")
 		}
 	}
+	version := ""
+	for _, v := range rrCRD.Spec.Versions {
+		if v.Storage {
+			version = v.Name
+			break
+		}
+	}
 
-	if err := r.updateStatus(promise, rrCRD.Name); err != nil {
-		return err
+	statusUpdated, err := r.updateStatus(promise, rrCRD.Spec.Names.Kind, rrCRD.Spec.Group, version)
+	if err != nil {
+		return nil, err
+	}
+
+	if statusUpdated {
+		return &fastRequeue, nil
 	}
 
 	_, err = r.Manager.GetRESTMapper().RESTMapping(rrGVK.GroupKind(), rrGVK.Version)
-	return err
+	return nil, err
 }
 
-func (r *PromiseReconciler) updateStatus(promise *v1alpha1.Promise, kind string) error {
-	if promise.Status.Kind == kind {
-		return nil
+func (r *PromiseReconciler) updateStatus(promise *v1alpha1.Promise, kind, group, version string) (bool, error) {
+	apiVersion := strings.ToLower(group + "/" + version)
+	if promise.Status.Kind == kind && promise.Status.APIVersion == apiVersion {
+		return false, nil
 	}
 
 	promise.Status.Kind = kind
-	return r.Client.Status().Update(context.TODO(), promise)
+	promise.Status.APIVersion = apiVersion
+	return true, r.Client.Status().Update(context.TODO(), promise)
 }
 
 func (r *PromiseReconciler) deletePromise(o opts, promise *v1alpha1.Promise) (ctrl.Result, error) {
