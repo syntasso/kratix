@@ -126,7 +126,7 @@ func (r *PromiseReconciler) Reconcile(ctx context.Context, req ctrl.Request) (ct
 			return ctrl.Result{}, err
 		}
 
-		err := r.ensureCRDExists(ctx, rrCRD, rrGVK, logger)
+		err := r.ensureCRDExists(ctx, promise, rrCRD, rrGVK, logger)
 		if err != nil {
 			return ctrl.Result{}, err
 		}
@@ -384,7 +384,7 @@ func (r *PromiseReconciler) createResourcesForDynamicControllerIfTheyDontExist(c
 	return nil
 }
 
-func (r *PromiseReconciler) ensureCRDExists(ctx context.Context, rrCRD *apiextensionsv1.CustomResourceDefinition,
+func (r *PromiseReconciler) ensureCRDExists(ctx context.Context, promise *v1alpha1.Promise, rrCRD *apiextensionsv1.CustomResourceDefinition,
 	rrGVK schema.GroupVersionKind, logger logr.Logger) error {
 
 	_, err := r.ApiextensionsClient.ApiextensionsV1().
@@ -411,8 +411,21 @@ func (r *PromiseReconciler) ensureCRDExists(ctx context.Context, rrCRD *apiexten
 		}
 	}
 
+	if err := r.updateStatus(promise, rrCRD.Name); err != nil {
+		return err
+	}
+
 	_, err = r.Manager.GetRESTMapper().RESTMapping(rrGVK.GroupKind(), rrGVK.Version)
 	return err
+}
+
+func (r *PromiseReconciler) updateStatus(promise *v1alpha1.Promise, kind string) error {
+	if promise.Status.Kind == kind {
+		return nil
+	}
+
+	promise.Status.Kind = kind
+	return r.Client.Status().Update(context.TODO(), promise)
 }
 
 func (r *PromiseReconciler) deletePromise(o opts, promise *v1alpha1.Promise) (ctrl.Result, error) {

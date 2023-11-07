@@ -218,7 +218,11 @@ spec:
     singular: promise
   scope: Cluster
   versions:
-    - name: v1alpha1
+    - additionalPrinterColumns:
+        - jsonPath: .status.kind
+          name: Kind
+          type: string
+      name: v1alpha1
       schema:
         openAPIV3Schema:
           description: Promise is the Schema for the promises API
@@ -330,6 +334,8 @@ spec:
                       - type
                     type: object
                   type: array
+                kind:
+                  type: string
                 observedGeneration:
                   format: int64
                   type: integer

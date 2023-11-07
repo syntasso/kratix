@@ -95,11 +95,13 @@ type WorkflowDestinationSelectors struct {
 type PromiseStatus struct {
 	Conditions         []metav1.Condition `json:"conditions,omitempty"`
 	ObservedGeneration int64              `json:"observedGeneration,omitempty"`
+	Kind               string             `json:"kind,omitempty"`
 }
 
 //+kubebuilder:object:root=true
 //+kubebuilder:subresource:status
 //+kubebuilder:resource:scope=Cluster,path=promises
+//+kubebuilder:printcolumn:JSONPath=".status.kind",name=Kind,type=string
 
 // Promise is the Schema for the promises API
 type Promise struct {
