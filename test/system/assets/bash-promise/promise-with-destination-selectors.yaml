@@ -41,6 +41,17 @@ spec:
   - matchLabels:
       security: high
   workflows:
+    promise:
+      configure:
+        - apiVersion: platform.kratix.io/v1alpha1
+          kind: Pipeline
+          metadata:
+            name: promise-configure
+            namespace: default
+          spec:
+            containers:
+              - image: syntassodev/bash-promise-configure:v1alpha1
+                name: bash-promise-configure
     resource:
       configure:
         - apiVersion: platform.kratix.io/v1alpha1

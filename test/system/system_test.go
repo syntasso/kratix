@@ -74,6 +74,14 @@ spec:
 
 var _ = Describe("Kratix", func() {
 	Describe("Promise lifecycle", func() {
+		BeforeEach(func() {
+			platform.kubectl("label", "destination", "worker-1", "extra=label")
+		})
+
+		AfterEach(func() {
+			platform.kubectl("label", "destination", "worker-1", "extra-")
+		})
+
 		It("successfully manages the promise lifecycle", func() {
 			By("installing the promise", func() {
 				platform.kubectl("apply", "-f", promisePath)
@@ -81,6 +89,7 @@ var _ = Describe("Kratix", func() {
 				platform.eventuallyKubectl("get", "crd", "bash.test.kratix.io")
 				worker.eventuallyKubectl("get", "namespace", "bash-dep-namespace-v1alpha1")
 				worker.eventuallyKubectl("get", "namespace", "bash-workflow-namespace-v1alpha1")
+				platform.eventuallyKubectl("get", "namespace", "promise-workflow-namespace")
 			})
 
 			By("deleting a promise", func() {
@@ -88,6 +97,7 @@ var _ = Describe("Kratix", func() {
 
 				Eventually(func(g Gomega) {
 					g.Expect(worker.kubectl("get", "namespace")).NotTo(ContainSubstring("bash-dep-namespace-v1alpha1"))
+					g.Expect(platform.kubectl("get", "namespace")).NotTo(ContainSubstring("promise-workflow-namespace"))
 					g.Expect(platform.kubectl("get", "promise")).ShouldNot(ContainSubstring("bash"))
 					g.Expect(platform.kubectl("get", "crd")).ShouldNot(ContainSubstring("bash"))
 				}, timeout, interval).Should(Succeed())
@@ -134,11 +144,8 @@ var _ = Describe("Kratix", func() {
 					}, "10s").ShouldNot(ContainSubstring("declarative-platform-only-rr-test"))
 				})
 
-				By("deploying the remaining contents of /kratix/output to the worker destination only", func() {
+				By("deploying the remaining contents of /kratix/output to the worker destination", func() {
 					worker.eventuallyKubectl("get", "namespace", "declarative-rr-test")
-					Consistently(func() string {
-						return platform.kubectl("get", "namespace")
-					}, "10s").ShouldNot(ContainSubstring("declarative-rr-test"))
 				})
 
 				By("the imperative API call in the pipeline to the platform cluster succeeding", func() {
@@ -303,28 +310,58 @@ var _ = Describe("Kratix", func() {
 		// Destination selectors in the promise:
 		// - security: high
 		BeforeEach(func() {
-			platform.kubectl("label", "destination", "worker-1", "security=high")
 			platform.kubectl("apply", "-f", promiseWithSchedulingPath)
 			platform.eventuallyKubectl("get", "crd", "bash.test.kratix.io")
 		})
 
 		AfterEach(func() {
-			platform.kubectl("label", "destination", "worker-1", "security-", "pci-")
+			platform.kubectl("label", "destination", "worker-1", "security-", "pci-", "extra-")
+			platform.kubectl("label", "destination", "platform-1", "security-", "extra-")
 			platform.kubectl("delete", "-f", promiseWithSchedulingPath)
 		})
 
 		It("schedules resources to the correct Destinations", func() {
 			By("reconciling on new Destinations", func() {
-				By("only the worker Destination getting the dependency", func() {
-					worker.eventuallyKubectl("get", "namespace", "bash-dep-namespace-v1alpha1")
-					Expect(platform.kubectl("get", "namespace")).NotTo(ContainSubstring("bash-dep-namespace-v1alpha1"))
+				depNamespaceName := "bash-dep-namespace-v1alpha1"
+				By("scheduling to the Worker when it gets all the required labels", func() {
+					/*
+						The required labels are:
+						- security: high (from the promise)
+						- extra: label (from the promise workflow)
+					*/
+
+					// Promise Level DestinationSelectors
+
+					Consistently(func() string {
+						return worker.kubectl("get", "namespace")
+					}, "5s").ShouldNot(ContainSubstring(depNamespaceName))
+
+					platform.kubectl("label", "destination", "worker-1", "security=high")
+
+					Consistently(func() string {
+						return worker.kubectl("get", "namespace")
+					}, "5s").ShouldNot(ContainSubstring(depNamespaceName))
+
+					// Promise Configure Workflow DestinationSelectors
+					platform.kubectl("label", "destination", "worker-1", "extra=label", "security-")
+					Consistently(func() string {
+						return worker.kubectl("get", "namespace")
+					}, "10s").ShouldNot(ContainSubstring(depNamespaceName))
+
+					platform.kubectl("label", "destination", "worker-1", "extra=label", "security=high")
+
+					worker.eventuallyKubectl("get", "namespace", depNamespaceName)
+					Expect(platform.kubectl("get", "namespace")).NotTo(ContainSubstring(depNamespaceName))
 				})
 
 				By("labeling the platform Destination, it gets the dependencies assigned", func() {
-					platform.kubectl("label", "destination", "platform-1", "security=high")
-					platform.eventuallyKubectl("get", "namespace", "bash-dep-namespace-v1alpha1")
+					platform.kubectl("label", "destination", "platform-1", "security=high", "extra=label")
+					platform.eventuallyKubectl("get", "namespace", depNamespaceName)
 				})
 			})
+
+			// Remove the labels again so we can check the same flow for resource requests
+			platform.kubectl("label", "destination", "worker-1", "extra-")
 
 			By("respecting the pipeline's scheduling", func() {
 				pipelineCmd := `echo "[{\"matchLabels\":{\"pci\":\"true\"}}]" > /kratix/metadata/destination-selectors.yaml
@@ -334,15 +371,28 @@ var _ = Describe("Kratix", func() {
 				platform.kubectl("wait", "--for=condition=PipelineCompleted", "bash", "rr-2", pipelineTimeout)
 
 				By("only scheduling the work when a Destination label matches", func() {
+					/*
+						The required labels are:
+						- security: high (from the promise)
+						- extra: label (from the promise workflow)
+						- pci: true (from the resource workflow)
+					*/
 					Consistently(func() string {
 						return platform.kubectl("get", "namespace") + "\n" + worker.kubectl("get", "namespace")
 					}, "10s").ShouldNot(ContainSubstring("rr-2-namespace"))
 
+					// Add the label defined in the resource.configure workflow
 					platform.kubectl("label", "destination", "worker-1", "pci=true")
+
+					Consistently(func() string {
+						return platform.kubectl("get", "namespace") + "\n" + worker.kubectl("get", "namespace")
+					}, "10s").ShouldNot(ContainSubstring("rr-2-namespace"))
+
+					// Add the label defined in the promise.configure workflow
+					platform.kubectl("label", "destination", "worker-1", "extra=label")
 
 					worker.eventuallyKubectl("get", "namespace", "rr-2-namespace")
 				})
-				platform.kubectl("label", "destination", "platform-1", "security-")
 			})
 		})
 
@@ -354,9 +404,10 @@ var _ = Describe("Kratix", func() {
 
 		// Destination selectors in the promise:
 		// - security: high
+		// - extra: label
 		It("allows updates to scheduling", func() {
-			platform.kubectl("delete", "-f", fmt.Sprintf("./assets/%s/platform_kratix_destination.yaml", storeType))
-			platform.kubectl("delete", "-f", fmt.Sprintf("./assets/%s/platform_statestore.yaml", storeType))
+			platform.kubectl("label", "destination", "worker-1", "extra=label")
+			platform.kubectl("label", "destination", "platform-1", "extra=label", "environment=platform", "security-")
 
 			By("only the worker Destination getting the dependency initially", func() {
 				Consistently(func() {
@@ -373,7 +424,7 @@ var _ = Describe("Kratix", func() {
 			})
 
 			//changes from security: high to environment: platform
-			platform.kubectl("apply", "-f", promiseWithSchedulingPath)
+			platform.kubectl("apply", "-f", promiseWithSchedulingPathUpdated)
 
 			By("scheduling to the new destination and preserving the old orphaned destinations", func() {
 				Consistently(func() {

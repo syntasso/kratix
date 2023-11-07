@@ -71,6 +71,7 @@ func ensurePipelineIsReconciled(j jobOpts) (*ctrl.Result, error) {
 	}
 
 	if resourceutil.IsThereAPipelineRunning(j.logger, pipelineJobs) {
+		/* Suspend all pipelines if the promise was updated */
 		for _, job := range resourceutil.SuspendablePipelines(j.logger, pipelineJobs) {
 			//Don't suspend a the job that is the desired spec
 			if existingPipelineJob != nil && job.GetName() != existingPipelineJob.GetName() {
@@ -84,6 +85,8 @@ func ensurePipelineIsReconciled(j jobOpts) (*ctrl.Result, error) {
 				}
 			}
 		}
+
+		// Wait the pipeline to complete
 		j.logger.Info("Job already inflight for workflow, waiting for it to be inactive")
 		return &slowRequeue, nil
 	}

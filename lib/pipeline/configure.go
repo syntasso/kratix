@@ -25,11 +25,12 @@ func NewConfigureResource(
 	resourceRequestIdentifier,
 	promiseIdentifier string,
 	promiseDestinationSelectors []platformv1alpha1.PromiseScheduling,
+	promiseWorkflowSelectors *platformv1alpha1.WorkloadGroupScheduling,
 	logger logr.Logger,
 ) ([]client.Object, error) {
 
 	pipelineResources := NewPipelineArgs(promiseIdentifier, resourceRequestIdentifier, rr.GetNamespace())
-	destinationSelectorsConfigMap, err := destinationSelectorsConfigMap(pipelineResources, promiseDestinationSelectors)
+	destinationSelectorsConfigMap, err := destinationSelectorsConfigMap(pipelineResources, promiseDestinationSelectors, promiseWorkflowSelectors)
 	if err != nil {
 		return nil, err
 	}
@@ -59,7 +60,7 @@ func NewConfigurePromise(
 ) ([]client.Object, error) {
 
 	pipelineResources := NewPipelineArgs(promiseIdentifier, "", v1alpha1.KratixSystemNamespace)
-	destinationSelectorsConfigMap, err := destinationSelectorsConfigMap(pipelineResources, promiseDestinationSelectors)
+	destinationSelectorsConfigMap, err := destinationSelectorsConfigMap(pipelineResources, promiseDestinationSelectors, nil)
 	if err != nil {
 		return nil, err
 	}

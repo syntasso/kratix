@@ -137,7 +137,7 @@ func clusterRoleBinding(args PipelineArgs) *rbacv1.ClusterRoleBinding {
 	}
 }
 
-func destinationSelectorsConfigMap(resources PipelineArgs, destinationSelectors []v1alpha1.PromiseScheduling) (*v1.ConfigMap, error) {
+func destinationSelectorsConfigMap(resources PipelineArgs, destinationSelectors []v1alpha1.PromiseScheduling, promiseWorkflowSelectors *v1alpha1.WorkloadGroupScheduling) (*v1.ConfigMap, error) {
 	workloadGroupScheduling := []v1alpha1.WorkloadGroupScheduling{}
 	for _, scheduling := range destinationSelectors {
 		workloadGroupScheduling = append(workloadGroupScheduling, v1alpha1.WorkloadGroupScheduling{
@@ -145,6 +145,11 @@ func destinationSelectorsConfigMap(resources PipelineArgs, destinationSelectors 
 			Source:      "promise",
 		})
 	}
+
+	if promiseWorkflowSelectors != nil {
+		workloadGroupScheduling = append(workloadGroupScheduling, *promiseWorkflowSelectors)
+	}
+
 	schedulingYAML, err := yaml.Marshal(workloadGroupScheduling)
 	if err != nil {
 		return nil, errors.Wrap(err, "error marshalling destinationSelectors to yaml")

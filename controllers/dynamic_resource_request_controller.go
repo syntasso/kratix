@@ -63,6 +63,7 @@ type dynamicResourceRequestController struct {
 	enabled                     *bool
 	crd                         *apiextensionsv1.CustomResourceDefinition
 	promiseDestinationSelectors []v1alpha1.PromiseScheduling
+	promiseWorkflowSelectors    *v1alpha1.WorkloadGroupScheduling
 }
 
 //+kubebuilder:rbac:groups="batch",resources=jobs,verbs=get;list;watch;create;update;patch;delete
@@ -117,9 +118,9 @@ func (r *dynamicResourceRequestController) Reconcile(ctx context.Context, req ct
 		resourceRequestIdentifier,
 		r.promiseIdentifier,
 		r.promiseDestinationSelectors,
+		r.promiseWorkflowSelectors,
 		opts.logger,
 	)
-
 	if err != nil {
 		return ctrl.Result{}, err
 	}
