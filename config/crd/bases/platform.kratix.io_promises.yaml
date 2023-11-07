@@ -14,7 +14,14 @@ spec:
     singular: promise
   scope: Cluster
   versions:
-  - name: v1alpha1
+  - additionalPrinterColumns:
+    - jsonPath: .status.kind
+      name: Kind
+      type: string
+    - jsonPath: .status.apiVersion
+      name: API Version
+      type: string
+    name: v1alpha1
     schema:
       openAPIV3Schema:
         description: Promise is the Schema for the promises API
@@ -88,6 +95,8 @@ spec:
           status:
             description: PromiseStatus defines the observed state of Promise
             properties:
+              apiVersion:
+                type: string
               conditions:
                 items:
                   description: "Condition contains details for one aspect of the current
@@ -156,6 +165,8 @@ spec:
                   - type
                   type: object
                 type: array
+              kind:
+                type: string
               observedGeneration:
                 format: int64
                 type: integer
