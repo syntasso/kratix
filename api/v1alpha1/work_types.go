@@ -146,3 +146,24 @@ type WorkList struct {
 func init() {
 	SchemeBuilder.Register(&Work{}, &WorkList{})
 }
+
+// Returns the WorkloadGroupScheduling for the given source and directory
+func (w *Work) GetWorkloadGroupScheduling(source, directory string) *WorkloadGroupScheduling {
+	var promiseWorkflowSelectors *WorkloadGroupScheduling
+	for _, wg := range w.Spec.WorkloadGroups {
+		if wg.Directory == directory {
+			for _, selectors := range wg.DestinationSelectors {
+				if selectors.Source == source {
+					promiseWorkflowSelectors = &selectors
+					break
+				}
+			}
+			break
+		}
+	}
+	return promiseWorkflowSelectors
+}
+
+func (w *Work) GetDefaultScheduling(source string) *WorkloadGroupScheduling {
+	return w.GetWorkloadGroupScheduling(source, DefaultWorkloadGroupDirectory)
+}

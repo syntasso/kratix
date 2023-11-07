@@ -7,6 +7,9 @@ RUN chmod u+x kubectl && mv kubectl /bin/kubectl
 
 ARG VERSION
 ENV VERSION=${VERSION}
+ADD dependencies.sh /execute-pipeline
+RUN chmod +x /execute-pipeline
 
-CMD [ "sh", "-c", "kubectl create namespace bash-workflow-namespace-${VERSION} --dry-run=client -oyaml > /kratix/output/namespace.yaml; yq -i '.metadata.labels.modifydepsinpipeline = \"yup\"' /kratix/output/static/dependencies.yaml" ]
+CMD [ "/execute-pipeline"]
 ENTRYPOINT []
+
