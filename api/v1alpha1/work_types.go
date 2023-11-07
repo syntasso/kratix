@@ -27,7 +27,7 @@ const DefaultWorkloadGroupDirectory = "."
 
 // WorkStatus defines the observed state of Work
 type WorkStatus struct {
-	// Important: Run "make" to regenerate code after modifying this file
+	Conditions []metav1.Condition `json:"conditions,omitempty"`
 }
 
 //+kubebuilder:object:root=true
