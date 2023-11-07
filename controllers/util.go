@@ -111,6 +111,9 @@ func deleteConfigMap(j jobOpts) (*ctrl.Result, error) {
 
 	j.logger.Info("Removing configmap", "name", configMap.GetName())
 	if err := j.client.Delete(j.ctx, configMap); err != nil {
+		if errors.IsNotFound(err) {
+			return nil, nil
+		}
 		j.logger.Info("failed to delete configmap", "name", configMap.GetName(), "error", err)
 		return &fastRequeue, nil
 	}
