@@ -7,6 +7,7 @@ import (
 	"sort"
 	"time"
 
+	metav1 "k8s.io/apimachinery/pkg/apis/meta/v1"
 	v1 "k8s.io/apimachinery/pkg/apis/meta/v1"
 	"k8s.io/client-go/kubernetes/scheme"
 
@@ -22,6 +23,14 @@ const (
 	workLabelKey       = kratixPrefix + "work"
 	workloadGroupIDKey = kratixPrefix + "workload-group-id"
 	misscheduledLabel  = kratixPrefix + "misscheduled"
+)
+
+type schedulingStatus string
+
+const (
+	scheduledStatus    schedulingStatus = "scheduled"
+	unscheduledStatus  schedulingStatus = "unscheduled"
+	misscheduledStatus schedulingStatus = "misscheduled"
 )
 
 type Scheduler struct {
@@ -48,7 +57,7 @@ func (s *Scheduler) ReconcileDestination() error {
 	return nil
 }
 
-func (s *Scheduler) UpdateWorkPlacement(workloadGroup platformv1alpha1.WorkloadGroup, work *platformv1alpha1.Work, workPlacement *platformv1alpha1.WorkPlacement) error {
+func (s *Scheduler) UpdateWorkPlacement(workloadGroup platformv1alpha1.WorkloadGroup, work *platformv1alpha1.Work, workPlacement *platformv1alpha1.WorkPlacement) (bool, error) {
 	misscheduled := true
 	destinationSelectors := resolveDestinationSelectorsForWorkloadGroup(workloadGroup, work)
 	for _, dest := range s.getTargetDestinationNames(destinationSelectors, work) {
@@ -65,31 +74,91 @@ func (s *Scheduler) UpdateWorkPlacement(workloadGroup platformv1alpha1.WorkloadG
 	workPlacement.Spec.Workloads = workloadGroup.Workloads
 	if err := s.Client.Update(context.Background(), workPlacement); err != nil {
 		s.Log.Error(err, "Error updating WorkPlacement", "workplacement", workPlacement.Name)
-		return err
+		return false, err
 	}
 
 	if err := s.updateStatus(workPlacement, misscheduled); err != nil {
-		return err
+		return false, err
 	}
 
 	s.Log.Info("Successfully updated WorkPlacement workloads", "workplacement", workPlacement.Name)
-	return nil
+	return misscheduled, nil
 }
 
 func (s *Scheduler) ReconcileWork(work *platformv1alpha1.Work) ([]string, error) {
 	unscheduable := []string{}
+	misscheduled := []string{}
 	for _, wg := range work.Spec.WorkloadGroups {
-		scheduled, err := s.reconcileWorkloadGroup(wg, work)
+		schedulingStatus, err := s.reconcileWorkloadGroup(wg, work)
 		if err != nil {
 			return nil, err
 		}
 
-		if !scheduled {
+		if schedulingStatus == unscheduledStatus {
 			unscheduable = append(unscheduable, wg.ID)
+		}
+
+		if schedulingStatus == misscheduledStatus {
+			misscheduled = append(misscheduled, wg.ID)
 		}
 	}
 
+	if err := s.updateWorkStatus(work, unscheduable, misscheduled); err != nil {
+		return nil, err
+	}
+
 	return unscheduable, s.cleanupDanglingWorkplacements(work)
+}
+
+func (s *Scheduler) updateWorkStatus(work *platformv1alpha1.Work, unscheduledWorkloadGroupIDs, missscheduledWorkloadGroupIDs []string) error {
+	work = work.DeepCopy()
+	conditions := []metav1.Condition{
+		{
+			//Always same
+			Type:               "Scheduled",
+			LastTransitionTime: v1.NewTime(time.Now()),
+
+			//Might Change
+			Status:  "True",
+			Message: "Work Scheduled to Destination(s)",
+			Reason:  "ScheduledToDestinations",
+		},
+		{
+			//Always same
+			Type:               "Misscheduled",
+			LastTransitionTime: v1.NewTime(time.Now()),
+
+			//Might Change
+			Status:  "False",
+			Message: "WorkGroups that have been scheduled are at the correct Destination(s)",
+			Reason:  "ScheduledToCorrectDestinations",
+		},
+	}
+
+	if len(unscheduledWorkloadGroupIDs) > 0 {
+		conditions[0].Status = "False"
+		conditions[0].Message = fmt.Sprintf("No Destinations available work WorkloadGroups: %v", unscheduledWorkloadGroupIDs)
+		conditions[0].Reason = "UnscheduledWorkloadGroups"
+	}
+
+	if len(missscheduledWorkloadGroupIDs) > 0 {
+		conditions[1].Status = "True"
+		conditions[1].Message = fmt.Sprintf("WorkloadGroup(s) not scheduled to correct Destinations: %v", missscheduledWorkloadGroupIDs)
+		conditions[1].Reason = "ScheduledToIncorrectDestinations"
+	}
+
+	if len(work.Status.Conditions) == 2 &&
+		work.Status.Conditions[0].Status == conditions[0].Status &&
+		work.Status.Conditions[0].Message == conditions[0].Message &&
+		work.Status.Conditions[0].Reason == conditions[0].Reason &&
+		work.Status.Conditions[1].Status == conditions[1].Status &&
+		work.Status.Conditions[1].Message == conditions[1].Message &&
+		work.Status.Conditions[1].Reason == conditions[1].Reason {
+		return nil
+	}
+
+	work.Status.Conditions = conditions
+	return s.Client.Status().Update(context.Background(), work)
 }
 
 func (s *Scheduler) cleanupDanglingWorkplacements(work *platformv1alpha1.Work) error {
@@ -123,27 +192,32 @@ func (s *Scheduler) cleanupDanglingWorkplacements(work *platformv1alpha1.Work) e
 }
 
 // TODO why pointer for work?
-func (s *Scheduler) reconcileWorkloadGroup(workloadGroup platformv1alpha1.WorkloadGroup, work *platformv1alpha1.Work) (bool, error) {
+func (s *Scheduler) reconcileWorkloadGroup(workloadGroup platformv1alpha1.WorkloadGroup, work *platformv1alpha1.Work) (schedulingStatus, error) {
 	existingWorkplacements, err := s.getExistingWorkPlacementsForWorkloadGroup(work.Namespace, work.Name, workloadGroup)
 	if err != nil {
-		return false, err
+		return "", err
 	}
 
+	status := scheduledStatus
 	if work.IsResourceRequest() {
 		if len(existingWorkplacements) > 0 {
 			var errored int
 			for _, existingWorkplacement := range existingWorkplacements {
 				s.Log.Info("found workplacement for work; will try an update")
-				if err := s.UpdateWorkPlacement(workloadGroup, work, &existingWorkplacement); err != nil {
+				misscheduled, err := s.UpdateWorkPlacement(workloadGroup, work, &existingWorkplacement)
+				if err != nil {
 					s.Log.Error(err, "error updating workplacement for work", "workplacement", existingWorkplacement.Name, "work", work.Name, "workloadGroupID", workloadGroup.ID)
 					errored++
+				}
+				if misscheduled {
+					status = misscheduledStatus
 				}
 			}
 
 			if errored > 0 {
-				return false, fmt.Errorf("failed to update %d of %d workplacements for work", errored, len(existingWorkplacements))
+				return "", fmt.Errorf("failed to update %d of %d workplacements for work", errored, len(existingWorkplacements))
 			}
-			return true, nil
+			return status, nil
 		}
 	}
 
@@ -166,11 +240,20 @@ func (s *Scheduler) reconcileWorkloadGroup(workloadGroup platformv1alpha1.Worklo
 
 	if len(targetDestinationMap) == 0 {
 		s.Log.Info("no Destinations can be selected for scheduling", "scheduling", destinationSelectors, "workloadGroupDirectory", workloadGroup.Directory, "workloadGroupID", workloadGroup.ID)
-		return false, nil
+		return unscheduledStatus, nil
 	}
 
 	s.Log.Info("found available target Destinations", "work", work.GetName(), "destinations", targetDestinationNames)
-	return true, s.applyWorkplacementsForTargetDestinations(workloadGroup, work, targetDestinationMap)
+	misscheduled, err := s.applyWorkplacementsForTargetDestinations(workloadGroup, work, targetDestinationMap)
+	if err != nil {
+		return "", err
+	}
+
+	if misscheduled {
+		status = misscheduledStatus
+	}
+
+	return status, nil
 }
 
 func (s *Scheduler) labelWorkplacementAsMisscheduled(workPlacement *v1alpha1.WorkPlacement) {
@@ -236,7 +319,8 @@ func (s *Scheduler) listWorkplacementWithLabels(namespace string, matchLabels ma
 	return workPlacementList.Items, nil
 }
 
-func (s *Scheduler) applyWorkplacementsForTargetDestinations(workloadGroup platformv1alpha1.WorkloadGroup, work *platformv1alpha1.Work, targetDestinationNames map[string]bool) error {
+func (s *Scheduler) applyWorkplacementsForTargetDestinations(workloadGroup platformv1alpha1.WorkloadGroup, work *platformv1alpha1.Work, targetDestinationNames map[string]bool) (bool, error) {
+	containsMischeduledWorkplacement := false
 	for targetDestinationName, misscheduled := range targetDestinationNames {
 		workPlacement := &platformv1alpha1.WorkPlacement{}
 		workPlacement.Namespace = work.GetNamespace()
@@ -251,6 +335,7 @@ func (s *Scheduler) applyWorkplacementsForTargetDestinations(workloadGroup platf
 
 			if misscheduled {
 				s.labelWorkplacementAsMisscheduled(workPlacement)
+				containsMischeduledWorkplacement = true
 			}
 
 			workPlacement.Spec.PromiseName = work.Spec.PromiseName
@@ -266,14 +351,14 @@ func (s *Scheduler) applyWorkplacementsForTargetDestinations(workloadGroup platf
 		})
 
 		if err != nil {
-			return err
+			return false, err
 		}
 		if err := s.updateStatus(workPlacement, misscheduled); err != nil {
-			return err
+			return false, err
 		}
 		s.Log.Info("workplacement reconciled", "operation", op, "namespace", workPlacement.GetNamespace(), "workplacement", workPlacement.GetName(), "work", work.GetName(), "destination", targetDestinationName)
 	}
-	return nil
+	return containsMischeduledWorkplacement, nil
 }
 
 func (s *Scheduler) updateStatus(workPlacement *platformv1alpha1.WorkPlacement, misscheduled bool) error {
