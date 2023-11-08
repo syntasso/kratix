@@ -99,6 +99,12 @@ var _ = Describe("WorkCreator", func() {
 							},
 							Source: "promise",
 						},
+						v1alpha1.WorkloadGroupScheduling{
+							MatchLabels: map[string]string{
+								"workflow": "label",
+							},
+							Source: "promise-workflow",
+						},
 					))
 				})
 			})
@@ -170,7 +176,7 @@ var _ = Describe("WorkCreator", func() {
 
 		Context("complete set of inputs for a Promise", func() {
 			BeforeEach(func() {
-				err = workCreator.Execute(filepath.Join(getRootDirectory(), "complete"), "promise-name", "", "resource-name", "promise")
+				err = workCreator.Execute(filepath.Join(getRootDirectory(), "complete-for-promise"), "promise-name", "", "resource-name", "promise")
 				Expect(err).NotTo(HaveOccurred())
 			})
 

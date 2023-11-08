@@ -95,15 +95,42 @@ func (w *WorkCreator) Execute(rootDirectory, promiseName, namespace, resourceNam
 		}
 	}
 
-	promiseScheduling, err := w.getPromiseScheduling(rootDirectory)
+	destinationSelectors, err := w.getPromiseScheduling(rootDirectory)
 	if err != nil {
 		return err
 	}
-	if len(promiseScheduling) > 0 {
-		defaultWorkloadGroup.DestinationSelectors = append(defaultWorkloadGroup.DestinationSelectors, platformv1alpha1.WorkloadGroupScheduling{
-			MatchLabels: platformv1alpha1.SquashPromiseScheduling(promiseScheduling),
-			Source:      "promise",
-		})
+	if len(destinationSelectors) > 0 {
+		p := []platformv1alpha1.PromiseScheduling{}
+		pw := []platformv1alpha1.PromiseScheduling{}
+		for _, selector := range destinationSelectors {
+			switch selector.Source {
+			case "promise":
+				p = append(p, platformv1alpha1.PromiseScheduling{
+					MatchLabels: selector.MatchLabels,
+				})
+			case "promise-workflow":
+				pw = append(pw, platformv1alpha1.PromiseScheduling{
+					MatchLabels: selector.MatchLabels,
+				})
+			}
+		}
+
+		if len(pw) > 0 {
+			defaultWorkloadGroup.DestinationSelectors = append(defaultWorkloadGroup.DestinationSelectors, platformv1alpha1.WorkloadGroupScheduling{
+				MatchLabels: platformv1alpha1.SquashPromiseScheduling(pw),
+				Source:      "promise-workflow",
+			})
+		}
+
+		if len(p) > 0 {
+			defaultWorkloadGroup.DestinationSelectors = append(
+				defaultWorkloadGroup.DestinationSelectors,
+				platformv1alpha1.WorkloadGroupScheduling{
+					MatchLabels: platformv1alpha1.SquashPromiseScheduling(p),
+					Source:      "promise",
+				},
+			)
+		}
 	}
 
 	workloadGroups = append(workloadGroups, defaultWorkloadGroup)
@@ -207,7 +234,7 @@ func (w *WorkCreator) getWorkflowScheduling(rootDirectory string) ([]platformv1a
 	return getSelectorsFromFile(filepath.Join(metadataDirectory, "destination-selectors.yaml"))
 }
 
-func (w *WorkCreator) getPromiseScheduling(rootDirectory string) ([]platformv1alpha1.PromiseScheduling, error) {
+func (w *WorkCreator) getPromiseScheduling(rootDirectory string) ([]platformv1alpha1.WorkloadGroupScheduling, error) {
 	kratixSystemDirectory := filepath.Join(rootDirectory, "kratix-system")
 	file := filepath.Join(kratixSystemDirectory, "promise-scheduling")
 	fileContents, err := os.ReadFile(file)
@@ -218,7 +245,7 @@ func (w *WorkCreator) getPromiseScheduling(rootDirectory string) ([]platformv1al
 		return nil, err
 	}
 
-	var schedulingConfig []platformv1alpha1.PromiseScheduling
+	var schedulingConfig []platformv1alpha1.WorkloadGroupScheduling
 	err = yaml.Unmarshal(fileContents, &schedulingConfig)
 
 	if err != nil {

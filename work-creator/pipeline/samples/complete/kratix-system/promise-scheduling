@@ -1,2 +1,6 @@
 - matchLabels:
-    environment: dev
+      environment: dev
+  source: "promise"
+- matchLabels:
+      workflow: label
+  source: "promise-workflow"
