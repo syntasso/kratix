@@ -53,6 +53,7 @@ var _ = Context("WorkReconciler.Reconcile()", func() {
 			err := workReconciler.SetupWithManager(k8sManager)
 			Expect(err).ToNot(HaveOccurred())
 		}
+		workReconciler.Disabled = false
 	}
 
 	BeforeEach(func() {
@@ -67,6 +68,7 @@ var _ = Context("WorkReconciler.Reconcile()", func() {
 	AfterEach(func() {
 		err := k8sClient.Delete(context.Background(), destination)
 		Expect(err).ToNot(HaveOccurred())
+		workReconciler.Disabled = true
 	})
 
 	Describe("On Work Creation", func() {
