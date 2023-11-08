@@ -45,6 +45,7 @@ type jobOpts struct {
 	obj               *unstructured.Unstructured
 	pipelineLabels    map[string]string
 	pipelineResources []client.Object
+	source            string
 }
 
 func ensurePipelineIsReconciled(j jobOpts) (*ctrl.Result, error) {
@@ -97,7 +98,10 @@ func ensurePipelineIsReconciled(j jobOpts) (*ctrl.Result, error) {
 	}
 
 	j.logger.Info("Job already exists and is complete for workflow")
-	return deleteConfigMap(j)
+	if j.source == "promise" {
+		return deleteConfigMap(j)
+	}
+	return nil, nil
 }
 
 func deleteConfigMap(j jobOpts) (*ctrl.Result, error) {
@@ -111,11 +115,10 @@ func deleteConfigMap(j jobOpts) (*ctrl.Result, error) {
 
 	j.logger.Info("Removing configmap", "name", configMap.GetName())
 	if err := j.client.Delete(j.ctx, configMap); err != nil {
-		if errors.IsNotFound(err) {
-			return nil, nil
+		if !errors.IsNotFound(err) {
+			j.logger.Info("failed to delete configmap", "name", configMap.GetName(), "error", err)
+			return &fastRequeue, nil
 		}
-		j.logger.Info("failed to delete configmap", "name", configMap.GetName(), "error", err)
-		return &fastRequeue, nil
 	}
 
 	return nil, nil
