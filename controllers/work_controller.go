@@ -31,6 +31,7 @@ type WorkReconciler struct {
 	Client    client.Client
 	Log       logr.Logger
 	Scheduler *Scheduler
+	Disabled  bool
 }
 
 //+kubebuilder:rbac:groups=platform.kratix.io,resources=works,verbs=get;list;watch;create;update;patch;delete
@@ -49,6 +50,11 @@ type WorkReconciler struct {
 // For more details, check Reconcile and its Result here:
 // - https://pkg.go.dev/sigs.k8s.io/controller-runtime@v0.7.2/pkg/reconcile
 func (r *WorkReconciler) Reconcile(ctx context.Context, req ctrl.Request) (ctrl.Result, error) {
+	if r.Disabled {
+		//TODO tech debt. We want this controller runnign *for some unit tests*, not
+		//for all. So we do this to disable it
+		return ctrl.Result{}, nil
+	}
 	logger := r.Log.WithValues("work", req.NamespacedName)
 	logger.Info("Reconciling Work")
 
