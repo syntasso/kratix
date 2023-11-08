@@ -236,6 +236,7 @@ func (r *PromiseReconciler) reconcileDependencies(o opts, promise *v1alpha1.Prom
 		obj:               unstructuredPromise,
 		pipelineLabels:    pipeline.LabelsForConfigurePromise(promise.GetName()),
 		pipelineResources: pipelineResources,
+		source:            "promise",
 	}
 
 	return ensurePipelineIsReconciled(jobOpts)
