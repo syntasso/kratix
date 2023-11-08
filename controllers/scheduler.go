@@ -120,7 +120,7 @@ func (s *Scheduler) updateWorkStatus(work *platformv1alpha1.Work, unscheduledWor
 
 			//Might Change
 			Status:  "True",
-			Message: "Work Scheduled to Destination(s)",
+			Message: "All WorkloadGroups scheduled to Destination(s)",
 			Reason:  "ScheduledToDestinations",
 		},
 		{
@@ -143,7 +143,7 @@ func (s *Scheduler) updateWorkStatus(work *platformv1alpha1.Work, unscheduledWor
 
 	if len(missscheduledWorkloadGroupIDs) > 0 {
 		conditions[1].Status = "True"
-		conditions[1].Message = fmt.Sprintf("WorkloadGroup(s) not scheduled to correct Destinations: %v", missscheduledWorkloadGroupIDs)
+		conditions[1].Message = fmt.Sprintf("WorkloadGroup(s) not scheduled to correct Destination(s): %v", missscheduledWorkloadGroupIDs)
 		conditions[1].Reason = "ScheduledToIncorrectDestinations"
 	}
 
