@@ -119,7 +119,7 @@ var _ = Describe("Controllers/Scheduler", func() {
 				Expect(resourceWork.Status.Conditions).To(HaveLen(2))
 				Expect(resourceWork.Status.Conditions[0].Type).To(Equal("Scheduled"))
 				Expect(resourceWork.Status.Conditions[0].Status).To(Equal(v1.ConditionTrue))
-				Expect(resourceWork.Status.Conditions[0].Message).To(Equal("All WorkloadGroups scheduled to Destination(s)"))
+				Expect(resourceWork.Status.Conditions[0].Message).To(Equal("Work Scheduled to Destination(s)"))
 				Expect(resourceWork.Status.Conditions[0].Reason).To(Equal("ScheduledToDestinations"))
 
 				Expect(resourceWork.Status.Conditions[1].Type).To(Equal("Misscheduled"))
@@ -301,7 +301,7 @@ var _ = Describe("Controllers/Scheduler", func() {
 
 					Expect(resourceWork.Status.Conditions[1].Type).To(Equal("Misscheduled"))
 					Expect(resourceWork.Status.Conditions[1].Status).To(Equal(v1.ConditionTrue))
-					Expect(resourceWork.Status.Conditions[1].Message).To(Equal("WorkloadGroup(s) not scheduled to correct Destination(s): [" + resourceWork.Spec.WorkloadGroups[0].ID + "]"))
+					Expect(resourceWork.Status.Conditions[1].Message).To(Equal("WorkloadGroup(s) not scheduled to correct Destinations: [" + resourceWork.Spec.WorkloadGroups[0].ID + "]"))
 					Expect(resourceWork.Status.Conditions[1].Reason).To(Equal("ScheduledToIncorrectDestinations"))
 				})
 			})
