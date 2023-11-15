@@ -337,66 +337,73 @@ load_images() {
 }
 
 step_create_platform_cluster() {
-    log -n "Creating platform destination..."
+    log "Creating platform destination..."
     if ! run kind create cluster --name platform --image $KIND_IMAGE \
         --config ${ROOT}/hack/platform/kind-platform-config.yaml
     then
         error "Could not create platform destination"
         exit 1
     fi
+    log "Finished creating platform destination..."
 }
 
 step_create_worker_cluster(){
     if ! $SINGLE_DESTINATION; then
-        log -n "Creating worker destination..."
+        log "Creating worker destination..."
         if ! run kind create cluster --name worker --image $KIND_IMAGE \
             --config ${ROOT}/hack/destination/kind-worker-config.yaml
         then
             error "Could not create worker destination"
             exit 1
         fi
+        log "Finished creating worker destination..."
     fi
 
 }
 
 step_create_third_worker_cluster() {
     if $THIRD_DESTINATION; then
-        log -n "Creating worker destination..."
+        log "Creating worker destination..."
         if ! run kind create cluster --name worker-2 --image $KIND_IMAGE \
             --config ${ROOT}/config/samples/kind-worker-2-config.yaml
         then
             error "Could not create worker destination 2"
             exit 1
         fi
+        log "Finished creating worker destination..."
     fi
 }
 
 step_build_and_load_kratix() {
+    log "Building and loading Kratix images..."
     if ${BUILD_KRATIX_IMAGES}; then
         build_and_load_local_images
     fi
+    log "Finished building and loading Kratix images..."
 }
 
 step_register_destinations() {
-    log -n "Setting up platform destination..."
+    log "Setting up platform destination..."
     if ! run setup_platform_destination; then
         error " failed"
         exit 1
     fi
+    log "Finished setting up platform destination..."
 }
 
 step_load_images() {
     if [ -d "${LOCAL_IMAGES_DIR}" ]; then
-        log -n "Loading images in platform destination..."
+        log "Loading images in platform destination..."
         if ! run load_images; then
             error "Failed to load images in platform destination"
             exit 1;
         fi
+        log "Finished loading images in platform destination..."
     fi
 }
 
 step_setup_worker_cluster() {
-    log -n "Setting up worker destination..."
+    log "Setting up worker destination..."
     if ! run setup_worker_destination; then
         error " failed"
         exit 1
@@ -408,7 +415,7 @@ step_setup_worker_cluster() {
             exit 1
         fi
     fi
-
+    log "Finished setting up worker destination..."
 }
 
 install_kratix() {
