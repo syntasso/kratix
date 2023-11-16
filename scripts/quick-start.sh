@@ -415,6 +415,7 @@ step_setup_worker_cluster() {
 }
 
 install_kratix() {
+    trap "trap - SIGTERM && kill -- -$$" SIGINT SIGTERM EXIT
     verify_prerequisites
 
     if ${KRATIX_DEVELOPER:-false}; then
