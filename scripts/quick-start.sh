@@ -168,20 +168,24 @@ _build_work_creator_image() {
     kind load docker-image $docker_org/kratix-platform-pipeline-adapter:${VERSION} --name platform
 }
 
-build_and_load_local_images() {
+step_build_and_load_kratix() {
     export DOCKER_BUILDKIT
-
-    log -n "Building and loading Kratix image locally..."
+    log "Building and loading Kratix image locally..."
     if ! run _build_kratix_image; then
         error "Failed to build Kratix image"
         exit 1;
     fi
+    log "Finished building and loading Kratix image locally..."
+}
 
-    log -n "Building and loading Work Creator image locally..."
+step_build_and_load_kratix_work_creator() {
+    export DOCKER_BUILDKIT
+    log "Building and loading Work Creator image locally..."
     if ! run _build_work_creator_image; then
         error "Failed to build Work Creator image"
         exit 1;
     fi
+    log "Finished building and loading Work Creator image locally..."
 }
 
 patch_image() {
@@ -313,7 +317,7 @@ pull_save_load_image() {
 
     image=$1
     image_tar=$(echo "$image" | cut -d"@" -f1 | sed "s/\//__/g").tar
-    stat "${image_tar}" || docker pull "${1}" && docker save --output "${image_tar}" "${image}"
+    stat "${image_tar}" || ( docker pull "${image}" && docker save --output "${image_tar}" "${image}" )
     for destination in "${dests[@]}"
     do
         kind load image-archive --name "$destination" "$image_tar" &
@@ -374,14 +378,6 @@ step_create_third_worker_cluster() {
     fi
 }
 
-step_build_and_load_kratix() {
-    log "Building and loading Kratix images..."
-    if ${BUILD_KRATIX_IMAGES}; then
-        build_and_load_local_images
-    fi
-    log "Finished building and loading Kratix images..."
-}
-
 step_register_destinations() {
     log "Setting up platform destination..."
     if ! run setup_platform_destination; then
@@ -434,11 +430,14 @@ install_kratix() {
     step_create_platform_cluster &
     step_create_worker_cluster &
     step_create_third_worker_cluster &
-
     wait
 
     step_load_images &
-    step_build_and_load_kratix &
+    if ${BUILD_KRATIX_IMAGES}; then
+        step_build_and_load_kratix &
+        step_build_and_load_kratix_work_creator &
+    fi
+
     wait
 
     step_register_destinations
