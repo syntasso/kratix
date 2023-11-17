@@ -26,8 +26,10 @@ type PipelineSpec struct {
 }
 
 type Container struct {
-	Name  string `json:"name,omitempty"`
-	Image string `json:"image,omitempty"`
+	Name    string   `json:"name,omitempty"`
+	Image   string   `json:"image,omitempty"`
+	Args    []string `json:"args,omitempty"`
+	Command []string `json:"command,omitempty"`
 }
 
 // Pipeline is the Schema for the pipelines API

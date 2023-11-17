@@ -160,6 +160,8 @@ func configurePipelineInitContainers(obj *unstructured.Unstructured, pipelines [
 				Name:         providedOrDefaultName(c.Name, i),
 				Image:        c.Image,
 				VolumeMounts: volumeMounts,
+				Args:         c.Args,
+				Command:      c.Command,
 				Env: []v1.EnvVar{
 					{
 						Name:  kratixActionEnvVar,
