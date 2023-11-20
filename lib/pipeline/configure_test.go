@@ -6,6 +6,7 @@ import (
 	. "github.com/onsi/gomega"
 	platformv1alpha1 "github.com/syntasso/kratix/api/v1alpha1"
 	"github.com/syntasso/kratix/lib/pipeline"
+	corev1 "k8s.io/api/core/v1"
 	"k8s.io/apimachinery/pkg/apis/meta/v1/unstructured"
 )
 
@@ -57,8 +58,8 @@ var _ = Describe("Configure Pipeline", func() {
 		})
 	})
 
-	When("a container contains args and command", func() {
-		It("is included in the pipeline job", func() {
+	Describe("optional workflow configs", func() {
+		It("can include args and commands", func() {
 			pipelines[0].Spec.Containers = append(pipelines[0].Spec.Containers, platformv1alpha1.Container{
 				Name:    "another-container",
 				Image:   "another-image",
@@ -72,6 +73,52 @@ var _ = Describe("Configure Pipeline", func() {
 			Expect(job.Spec.Template.Spec.InitContainers[1].Command).To(BeEmpty())
 			Expect(job.Spec.Template.Spec.InitContainers[2].Args).To(Equal([]string{"arg1", "arg2"}))
 			Expect(job.Spec.Template.Spec.InitContainers[2].Command).To(Equal([]string{"command1", "command2"}))
+		})
+
+		It("can include env", func() {
+			pipelines[0].Spec.Containers = append(pipelines[0].Spec.Containers, platformv1alpha1.Container{
+				Name:  "another-container",
+				Image: "another-image",
+				Env: []corev1.EnvVar{
+					{Name: "env1", Value: "value1"},
+				},
+			})
+			job, err := pipeline.ConfigurePipeline(rr, pipelines, pipelineResources, "test-promise", false, logger)
+			Expect(err).NotTo(HaveOccurred())
+
+			Expect(job.Spec.Template.Spec.InitContainers[1].Env).To(ContainElements(
+				corev1.EnvVar{Name: "KRATIX_WORKFLOW_ACTION", Value: "configure"},
+				corev1.EnvVar{Name: "KRATIX_WORKFLOW_TYPE", Value: "resource"},
+			))
+			Expect(job.Spec.Template.Spec.InitContainers[2].Env).To(ContainElements(
+				corev1.EnvVar{Name: "KRATIX_WORKFLOW_ACTION", Value: "configure"},
+				corev1.EnvVar{Name: "KRATIX_WORKFLOW_TYPE", Value: "resource"},
+				corev1.EnvVar{Name: "env1", Value: "value1"},
+			))
+		})
+
+		It("can include volume and volume mounts", func() {
+			pipelines[0].Spec.Volumes = []corev1.Volume{
+				{Name: "test-volume", VolumeSource: corev1.VolumeSource{EmptyDir: &corev1.EmptyDirVolumeSource{}}},
+			}
+			pipelines[0].Spec.Containers = append(pipelines[0].Spec.Containers, platformv1alpha1.Container{
+				Name:  "another-container",
+				Image: "another-image",
+				VolumeMounts: []corev1.VolumeMount{
+					{Name: "test-volume-mount", MountPath: "/test-mount-path"},
+				},
+			})
+			job, err := pipeline.ConfigurePipeline(rr, pipelines, pipelineResources, "test-promise", false, logger)
+			Expect(err).NotTo(HaveOccurred())
+
+			Expect(job.Spec.Template.Spec.InitContainers[1].VolumeMounts).To(HaveLen(3), "default volume mounts should've been included")
+			Expect(job.Spec.Template.Spec.InitContainers[1].Command).To(BeEmpty())
+			Expect(job.Spec.Template.Spec.InitContainers[2].VolumeMounts).To(ContainElement(
+				corev1.VolumeMount{Name: "test-volume-mount", MountPath: "/test-mount-path"},
+			))
+			Expect(job.Spec.Template.Spec.Volumes).To(ContainElement(
+				corev1.Volume{Name: "test-volume", VolumeSource: corev1.VolumeSource{EmptyDir: &corev1.EmptyDirVolumeSource{}}},
+			))
 		})
 	})
 })
