@@ -221,7 +221,8 @@ setup_platform_destination() {
 
 setup_worker_destination() {
     if ${INSTALL_AND_CREATE_GITEA_REPO}; then
-       kubectl --context kind-platform apply --filename "${ROOT}/config/samples/platform_v1alpha1_gitstatestore.yaml"
+       PLATFORM_DESTINATION_IP=`docker inspect platform-control-plane | grep '"IPAddress": "172' | awk -F '"' '{print $4}'`
+       cat "${ROOT}/config/samples/platform_v1alpha1_gitstatestore.yaml" | sed "s/172.18.0.2/${PLATFORM_DESTINATION_IP}/g" | kubectl --context kind-platform apply -f -
     fi
 
     if ${INSTALL_AND_CREATE_MINIO_BUCKET}; then

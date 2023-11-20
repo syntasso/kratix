@@ -9,3 +9,8 @@ ghcr.io/fluxcd/helm-controller:v0.27.0
 ghcr.io/fluxcd/kustomize-controller:v0.31.0
 ghcr.io/fluxcd/notification-controller:v0.29.0
 ghcr.io/fluxcd/source-controller:v0.32.1
+gitea/gitea:1.17.3
+alpine/git:2.36.3
+bitnami/memcached:1.6.9-debian-10-r114
+bitnami/postgresql:11.11.0-debian-10-r62
+
