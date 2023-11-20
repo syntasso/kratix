@@ -1,0 +1,24 @@
+#!/usr/bin/env bash
+
+root="$(cd "$(dirname "${BASH_SOURCE[0]}")/.." && pwd)"
+
+shopt -s expand_aliases
+alias kp="kubectl --context kind-platform"
+
+main() {
+    if ! kind get clusters | grep -q "platform"; then
+        echo "No kind-platform cluster found; nothing to teardown."
+        exit 0
+    fi
+
+    resources=(promises destinations gitstatestores bucketstatestores)
+    for resource in "${resources[@]}"; do
+        kp delete "$resource" --all
+    done
+
+    kp -n kratix-platform-system delete deployment kratix-platform-controller-manager || true
+}
+
+if [[ "${BASH_SOURCE[0]}" == "${0}" ]]; then
+    main "$@"
+fi
