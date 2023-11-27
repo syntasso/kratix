@@ -3,6 +3,8 @@ package system_test
 import (
 	"fmt"
 	"os"
+	"path/filepath"
+	"strings"
 	"testing"
 
 	. "github.com/onsi/ginkgo/v2"
@@ -31,10 +33,24 @@ var _ = BeforeSuite(func() {
 	}
 	fmt.Println("Running system tests with statestore " + storeType)
 
-	platform.kubectl("apply", "-f", fmt.Sprintf("./assets/%s/platform_gitops-tk-resources.yaml", storeType))
-	platform.kubectl("apply", "-f", fmt.Sprintf("./assets/%s/platform_statestore.yaml", storeType))
-	platform.kubectl("apply", "-f", fmt.Sprintf("./assets/%s/platform_kratix_destination.yaml", storeType))
+	tmpDir, err := os.MkdirTemp(os.TempDir(), "systest")
+	Expect(err).NotTo(HaveOccurred())
+	platform.kubectl("apply", "-f", catAndReplace(tmpDir, fmt.Sprintf("./assets/%s/platform_gitops-tk-resources.yaml", storeType)))
+	platform.kubectl("apply", "-f", catAndReplace(tmpDir, fmt.Sprintf("./assets/%s/platform_statestore.yaml", storeType)))
+	platform.kubectl("apply", "-f", catAndReplace(tmpDir, fmt.Sprintf("./assets/%s/platform_kratix_destination.yaml", storeType)))
+	os.RemoveAll(tmpDir)
 })
+
+func catAndReplace(tmpDir, file string) string {
+	bytes, err := os.ReadFile(file)
+	Expect(err).NotTo(HaveOccurred())
+	//Set via the Makefile
+	output := strings.ReplaceAll(string(bytes), "PLACEHOLDER", os.Getenv("PLATFORM_DESTINATION_IP"))
+	tmpFile := filepath.Join(tmpDir, filepath.Base(file))
+	err = os.WriteFile(tmpFile, []byte(output), 0777)
+	Expect(err).NotTo(HaveOccurred())
+	return tmpFile
+}
 
 func initK8sClient() {
 	cfg := ctrl.GetConfigOrDie()
