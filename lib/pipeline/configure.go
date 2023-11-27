@@ -169,6 +169,10 @@ func configurePipelineInitContainers(obj *unstructured.Unstructured, pipelines [
 						Name:  kratixTypeEnvVar,
 						Value: kratixWorkflowType,
 					},
+					{
+						Name:  kratixPromiseEnvVar,
+						Value: promiseName,
+					},
 				},
 			})
 		}
