@@ -45,7 +45,8 @@ func catAndReplace(tmpDir, file string) string {
 	bytes, err := os.ReadFile(file)
 	Expect(err).NotTo(HaveOccurred())
 	//Set via the Makefile
-	output := strings.ReplaceAll(string(bytes), "PLACEHOLDER", os.Getenv("PLATFORM_DESTINATION_IP"))
+	ip := os.Getenv("PLATFORM_DESTINATION_IP")
+	output := strings.ReplaceAll(string(bytes), "PLACEHOLDER", ip)
 	tmpFile := filepath.Join(tmpDir, filepath.Base(file))
 	err = os.WriteFile(tmpFile, []byte(output), 0777)
 	Expect(err).NotTo(HaveOccurred())

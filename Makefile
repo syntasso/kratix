@@ -121,8 +121,7 @@ system-test: generate fmt vet ## Run integrations tests.
 	fi
 	make build-and-load-bash
 	make install-flux-to-platform
-	export PLATFORM_DESTINATION_IP=`docker inspect platform-control-plane | grep '"IPAddress": "172' | awk -F '"' '{print $4}'`
-	make ginkgo-system-test
+	PLATFORM_DESTINATION_IP=`docker inspect platform-control-plane | grep '"IPAddress": "172' | awk -F '"' '{print $$4}'` make ginkgo-system-test
 
 ginkgo-system-test:
 	go run ${GINKGO} ./test/system/ -r  --coverprofile cover.out
