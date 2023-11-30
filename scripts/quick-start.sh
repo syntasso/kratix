@@ -255,7 +255,7 @@ wait_for_minio() {
     while ! kubectl get job --context kind-platform -n default | grep minio-create-bucket; do
         sleep 1
     done
-    kubectl wait job minio-create-bucket --for condition=Complete
+    kubectl --context kind-platform wait job minio-create-bucket --for condition=Complete
 }
 
 wait_for_local_repository() {
