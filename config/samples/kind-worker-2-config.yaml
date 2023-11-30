@@ -5,4 +5,4 @@ nodes:
   extraPortMappings:
   # spare port to be used as nodeport. Used in the demo for exposing nginx ingress
   - containerPort: 31341
-    hostPort: 31339
+    hostPort: 31341

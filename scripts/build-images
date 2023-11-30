@@ -19,7 +19,7 @@ case "$1" in
         ;;
     work-creator)
         # Work Creator image
-        make work-creator-docker-build-and-push
+        make build-and-push-work-creator
         ;;
     samples)
         # Build workshop images

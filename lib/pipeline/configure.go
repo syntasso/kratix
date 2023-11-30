@@ -168,6 +168,10 @@ func configurePipelineInitContainers(obj *unstructured.Unstructured, pipelines [
 					Name:  kratixTypeEnvVar,
 					Value: kratixWorkflowType,
 				},
+        {
+					Name:  kratixPromiseEnvVar,
+					Value: promiseName,
+				},
 			}
 			if len(c.VolumeMounts) > 0 {
 				volumeMounts = append(volumeMounts, c.VolumeMounts...)

@@ -8,5 +8,5 @@ spec:
   secretRef:
     name: gitea-credentials
     namespace: default
-  url: https://172.18.0.2:31333/gitea_admin/kratix
+  url: https://PLACEHOLDER:31333/gitea_admin/kratix
   branch: main

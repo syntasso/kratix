@@ -7,7 +7,7 @@ source "${ROOT}/scripts/utils.sh"
 source "${ROOT}/scripts/install-gitops"
 
 BUILD_KRATIX_IMAGES=false
-RECREATE=false
+RECREATE=${RECREATE:-false}
 SINGLE_DESTINATION=false
 THIRD_DESTINATION=false
 
@@ -136,17 +136,6 @@ verify_prerequisites() {
             log -n "Deleting third destination..."
             run kind delete clusters worker-2
         fi
-    else
-        log -n "Verifying no clusters exist..."
-        if kind get clusters 2>&1 | grep --quiet --regexp "platform\|worker"; then
-            error_mark
-            log ""
-            log "🚨 Please ensure there's no KinD clusters named $(info platform) or $(info worker)."
-            log "You can run this script with $(info --recreate)"
-            log "Or you can manually remove the current clusters by running: "
-            log "\tkind delete clusters platform worker"
-            exit 1
-        fi
     fi
 }
 
@@ -168,20 +157,29 @@ _build_work_creator_image() {
     kind load docker-image $docker_org/kratix-platform-pipeline-adapter:${VERSION} --name platform
 }
 
-build_and_load_local_images() {
-    export DOCKER_BUILDKIT
+cluster_exists() {
+    local cluster_name="$1"
+    kind get clusters | grep -q "$cluster_name"
+}
 
-    log -n "Building and loading Kratix image locally..."
+step_build_and_load_kratix() {
+    export DOCKER_BUILDKIT
+    log "Building and loading Kratix image locally..."
     if ! run _build_kratix_image; then
         error "Failed to build Kratix image"
         exit 1;
     fi
+    log "Finished building and loading Kratix image locally..."
+}
 
-    log -n "Building and loading Work Creator image locally..."
+step_build_and_load_kratix_work_creator() {
+    export DOCKER_BUILDKIT
+    log "Building and loading Work Creator image locally..."
     if ! run _build_work_creator_image; then
         error "Failed to build Work Creator image"
         exit 1;
     fi
+    log "Finished building and loading Work Creator image locally..."
 }
 
 patch_image() {
@@ -217,7 +215,8 @@ setup_platform_destination() {
 
 setup_worker_destination() {
     if ${INSTALL_AND_CREATE_GITEA_REPO}; then
-       kubectl --context kind-platform apply --filename "${ROOT}/config/samples/platform_v1alpha1_gitstatestore.yaml"
+       PLATFORM_DESTINATION_IP=`docker inspect platform-control-plane | grep '"IPAddress": "172' | awk -F '"' '{print $4}'`
+       cat "${ROOT}/config/samples/platform_v1alpha1_gitstatestore.yaml" | sed "s/172.18.0.2/${PLATFORM_DESTINATION_IP}/g" | kubectl --context kind-platform apply -f -
     fi
 
     if ${INSTALL_AND_CREATE_MINIO_BUCKET}; then
@@ -252,6 +251,11 @@ wait_for_minio() {
         sleep 1
     done
     kubectl wait pod --context kind-platform -n kratix-platform-system --selector run=minio --for=condition=ready ${opts}
+
+    while ! kubectl get job --context kind-platform -n default | grep minio-create-bucket; do
+        sleep 1
+    done
+    kubectl --context kind-platform wait job minio-create-bucket --for condition=Complete
 }
 
 wait_for_local_repository() {
@@ -281,7 +285,9 @@ wait_for_namespace() {
         if [ -z "${timeout_flag}" ] && (( loops > 20 )); then
             return 1
         fi
-        sleep 5
+        kubectl --context $context annotate --field-manager=flux-client-side-apply --overwrite  -n flux-system bucket/kratix-bucket reconcile.fluxcd.io/requestedAt="$(date +%s)" || true
+        kubectl --context $context annotate --field-manager=flux-client-side-apply --overwrite  -n flux-system gitrepository/kratix-source reconcile.fluxcd.io/requestedAt="$(date +%s)" || true
+        sleep 2
         loops=$(( loops + 1 ))
     done
     return 0
@@ -300,12 +306,31 @@ load_kind_image() {
     popd > /dev/null
 }
 
+pull_save_load_image() {
+    dests=("platform")
+    if ! $SINGLE_DESTINATION; then
+        dests=("platform" "worker")
+        if $THIRD_DESTINATION; then
+            dests=("platform" "worker" "worker-2")
+        fi
+    fi
+
+    image=$1
+    image_tar=$(echo "$image" | cut -d"@" -f1 | sed "s/\//__/g").tar
+    stat "${image_tar}" || ( docker pull "${image}" && docker save --output "${image_tar}" "${image}" )
+    for destination in "${dests[@]}"
+    do
+        kind load image-archive --name "$destination" "$image_tar" &
+    done
+    wait
+}
+
 load_images() {
     ps_ids=()
-    local destination="$1"
     pushd ${LOCAL_IMAGES_DIR} > /dev/null
-    for image_tar in $(ls *.tar | grep -v kindest); do
-        kind load image-archive --name "$destination" "$image_tar" &
+    for image in $(cat $ROOT/.images); do
+        echo "image: $image"
+        pull_save_load_image "$image" &
         ps_ids+=("$!")
     done
     popd > /dev/null
@@ -315,93 +340,78 @@ load_images() {
     done
 }
 
-install_kratix() {
-    verify_prerequisites
-
-    if [ -d "${LOCAL_IMAGES_DIR}" ]; then
-        log -n "Loading KinD images... "
-        if ! run load_kind_image; then
-            error "Failed to load KinD image"
-            exit 1;
-        fi
+step_create_platform_cluster() {
+    if cluster_exists platform; then
+        log "Platform cluster already exists, skipping..."
+        return
     fi
-
-    log -n "Creating platform destination..."
+    log "Creating platform destination..."
     if ! run kind create cluster --name platform --image $KIND_IMAGE \
         --config ${ROOT}/hack/platform/kind-platform-config.yaml
     then
         error "Could not create platform destination"
         exit 1
     fi
+    log "Finished creating platform destination..."
+}
 
-    if ${BUILD_KRATIX_IMAGES}; then
-        build_and_load_local_images
-    fi
-
-    if [ -d "${LOCAL_IMAGES_DIR}" ]; then
-        log -n "Loading images in platform destination..."
-        if ! run load_images platform; then
-            error "Failed to load images in platform destination"
-            exit 1;
-        fi
-    fi
-
-    log -n "Setting up platform destination..."
-    if ! run setup_platform_destination; then
-        error " failed"
-        exit 1
-    fi
-
+step_create_worker_cluster(){
     if ! $SINGLE_DESTINATION; then
-        log -n "Creating worker destination..."
+        if cluster_exists worker; then
+            log "Worker cluster already exists, skipping..."
+            return
+        fi
+        log "Creating worker destination..."
         if ! run kind create cluster --name worker --image $KIND_IMAGE \
             --config ${ROOT}/hack/destination/kind-worker-config.yaml
         then
             error "Could not create worker destination"
             exit 1
         fi
+        log "Finished creating worker destination..."
     fi
 
+}
+
+step_create_third_worker_cluster() {
     if $THIRD_DESTINATION; then
-        log -n "Creating worker destination..."
+        if cluster_exists worker-2; then
+            log "Worker cluster already exists, skipping..."
+            return
+        fi
+        log "Creating worker destination..."
         if ! run kind create cluster --name worker-2 --image $KIND_IMAGE \
             --config ${ROOT}/config/samples/kind-worker-2-config.yaml
         then
             error "Could not create worker destination 2"
             exit 1
         fi
+        log "Finished creating worker destination..."
     fi
+}
 
-    log -n "Waiting for local repository to be running..."
-    if ! SUPRESS_OUTPUT=true run wait_for_local_repository; then
-        log "\n\nIt's taking longer than usual for the local repository to start."
-        log "You can check the platform pods to ensure there are no errors."
-        log "This script will continue to wait for the local repository to come up. You can kill it with $(info "CTRL+C.")"
-        log -n "\nWaiting for the local repository to be running... "
-        run wait_for_local_repository --no-timeout
+step_register_destinations() {
+    log "Setting up platform destination..."
+    if ! run setup_platform_destination; then
+        error " failed"
+        exit 1
     fi
+    log "Finished setting up platform destination..."
+}
 
-    if ! $SINGLE_DESTINATION; then
-        if [ -d "${LOCAL_IMAGES_DIR}" ]; then
-            log -n "Loading images in worker destination..."
-            if ! run load_images worker; then
-                error "Failed to load images in worker destination"
-                exit 1;
-            fi
+step_load_images() {
+    if [ -d "${LOCAL_IMAGES_DIR}" ]; then
+        log "Loading images in platform destination..."
+        if ! run load_images; then
+            error "Failed to load images in platform destination"
+            exit 1;
         fi
+        log "Finished loading images in platform destination..."
     fi
+}
 
-    if $THIRD_DESTINATION; then
-        if [ -d "${LOCAL_IMAGES_DIR}" ]; then
-            log -n "Loading images in worker destination..."
-            if ! run load_images worker-2; then
-                error "Failed to load images in worker destination"
-                exit 1;
-            fi
-        fi
-    fi
-
-    log -n "Setting up worker destination..."
+step_setup_worker_cluster() {
+    log "Setting up worker destination..."
     if ! run setup_worker_destination; then
         error " failed"
         exit 1
@@ -412,6 +422,47 @@ install_kratix() {
             error " failed"
             exit 1
         fi
+    fi
+    log "Finished setting up worker destination..."
+}
+
+install_kratix() {
+    trap "trap - SIGTERM && kill -- -$$" SIGINT SIGTERM EXIT
+    verify_prerequisites
+
+    if ${KRATIX_DEVELOPER:-false}; then
+        export LOCAL_IMAGES_DIR=$ROOT/.image-cache/
+        mkdir -p $LOCAL_IMAGES_DIR
+        log -n "Loading KinD images... "
+        if ! run load_kind_image; then
+            error "Failed to load KinD image"
+            exit 1;
+        fi
+    fi
+
+    step_create_platform_cluster &
+    step_create_worker_cluster &
+    step_create_third_worker_cluster &
+    wait
+
+    step_load_images &
+    if ${BUILD_KRATIX_IMAGES}; then
+        step_build_and_load_kratix &
+        step_build_and_load_kratix_work_creator &
+    fi
+
+    wait
+
+    step_register_destinations
+    step_setup_worker_cluster
+
+    log -n "Waiting for local repository to be running..."
+    if ! SUPRESS_OUTPUT=true run wait_for_local_repository; then
+        log "\n\nIt's taking longer than usual for the local repository to start."
+        log "You can check the platform pods to ensure there are no errors."
+        log "This script will continue to wait for the local repository to come up. You can kill it with $(info "CTRL+C.")"
+        log -n "\nWaiting for the local repository to be running... "
+        run wait_for_local_repository --no-timeout
     fi
 
     log -n "Waiting for system to reconcile... "

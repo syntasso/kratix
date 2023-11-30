@@ -41,3 +41,5 @@ destination-values.yaml
 platform-values.yaml
 
 .envrc
+
+.image-cache/
