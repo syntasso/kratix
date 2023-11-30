@@ -179,6 +179,7 @@ func configurePipelineInitContainers(obj *unstructured.Unstructured, pipelines [
 				Args:         c.Args,
 				Command:      c.Command,
 				Env:          append(kratixEnvVars, c.Env...),
+				EnvFrom:      c.EnvFrom,
 			})
 		}
 	}

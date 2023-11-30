@@ -75,12 +75,19 @@ var _ = Describe("Configure Pipeline", func() {
 			Expect(job.Spec.Template.Spec.InitContainers[2].Command).To(Equal([]string{"command1", "command2"}))
 		})
 
-		It("can include env", func() {
+		It("can include env and envFrom", func() {
 			pipelines[0].Spec.Containers = append(pipelines[0].Spec.Containers, platformv1alpha1.Container{
 				Name:  "another-container",
 				Image: "another-image",
 				Env: []corev1.EnvVar{
 					{Name: "env1", Value: "value1"},
+				},
+				EnvFrom: []corev1.EnvFromSource{
+					{
+						ConfigMapRef: &corev1.ConfigMapEnvSource{
+							LocalObjectReference: corev1.LocalObjectReference{Name: "test-configmap"},
+						},
+					},
 				},
 			})
 			job, err := pipeline.ConfigurePipeline(rr, pipelines, pipelineResources, "test-promise", false, logger)
@@ -94,6 +101,15 @@ var _ = Describe("Configure Pipeline", func() {
 				corev1.EnvVar{Name: "KRATIX_WORKFLOW_ACTION", Value: "configure"},
 				corev1.EnvVar{Name: "KRATIX_WORKFLOW_TYPE", Value: "resource"},
 				corev1.EnvVar{Name: "env1", Value: "value1"},
+			))
+
+			Expect(job.Spec.Template.Spec.InitContainers[1].EnvFrom).To(BeNil())
+			Expect(job.Spec.Template.Spec.InitContainers[2].EnvFrom).To(ContainElements(
+				corev1.EnvFromSource{
+					ConfigMapRef: &corev1.ConfigMapEnvSource{
+						LocalObjectReference: corev1.LocalObjectReference{Name: "test-configmap"},
+					},
+				},
 			))
 		})
 
