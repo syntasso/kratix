@@ -155,25 +155,35 @@ func configurePipelineInitContainers(obj *unstructured.Unstructured, pipelines [
 
 	if len(pipelines) > 0 {
 		//TODO: We only support 1 workflow for now
+		if len(pipelines[0].Spec.Volumes) > 0 {
+			volumes = append(volumes, pipelines[0].Spec.Volumes...)
+		}
 		for i, c := range pipelines[0].Spec.Containers {
+			kratixEnvVars := []v1.EnvVar{
+				{
+					Name:  kratixActionEnvVar,
+					Value: platformv1alpha1.KratixActionConfigure,
+				},
+				{
+					Name:  kratixTypeEnvVar,
+					Value: kratixWorkflowType,
+				},
+        			{
+					Name:  kratixPromiseEnvVar,
+					Value: promiseName,
+				},
+			}
+			if len(c.VolumeMounts) > 0 {
+				volumeMounts = append(volumeMounts, c.VolumeMounts...)
+			}
 			containers = append(containers, v1.Container{
 				Name:         providedOrDefaultName(c.Name, i),
 				Image:        c.Image,
 				VolumeMounts: volumeMounts,
-				Env: []v1.EnvVar{
-					{
-						Name:  kratixActionEnvVar,
-						Value: platformv1alpha1.KratixActionConfigure,
-					},
-					{
-						Name:  kratixTypeEnvVar,
-						Value: kratixWorkflowType,
-					},
-					{
-						Name:  kratixPromiseEnvVar,
-						Value: promiseName,
-					},
-				},
+				Args:         c.Args,
+				Command:      c.Command,
+				Env:          append(kratixEnvVars, c.Env...),
+				EnvFrom:      c.EnvFrom,
 			})
 		}
 	}
