@@ -251,6 +251,10 @@ wait_for_minio() {
         sleep 1
     done
     kubectl wait pod --context kind-platform -n kratix-platform-system --selector run=minio --for=condition=ready ${opts}
+
+    while ! kubectl get job --context kind-platform -n default | grep minio-create-bucket; do
+        sleep 1
+    done
     kubectl wait job minio-create-bucket --for condition=Complete
 }
 
