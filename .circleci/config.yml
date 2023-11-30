@@ -112,7 +112,7 @@ jobs:
       - run:
           name: System tests
           command: |
-            SYSTEM_TEST_STORE_TYPE=git DOCKER_BUILDKIT=1 ACK_GINKGO_RC=true make --jobs=4 system-test
+            SYSTEM_TEST_STORE_TYPE=git DOCKER_BUILDKIT=1 ACK_GINKGO_RC=true make system-test
 
   system-tests-bucket:
     executor: machine-large
@@ -121,7 +121,7 @@ jobs:
       - run:
           name: System tests
           command: |
-            SYSTEM_TEST_STORE_TYPE=bucket DOCKER_BUILDKIT=1 ACK_GINKGO_RC=true make --jobs=4 system-test
+            SYSTEM_TEST_STORE_TYPE=bucket DOCKER_BUILDKIT=1 ACK_GINKGO_RC=true make system-test
 
   e2e-demo-test-helm-git:
     executor: machine-large

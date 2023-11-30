@@ -7,7 +7,7 @@ source "${ROOT}/scripts/utils.sh"
 source "${ROOT}/scripts/install-gitops"
 
 BUILD_KRATIX_IMAGES=false
-RECREATE=false
+RECREATE=${RECREATE:-false}
 SINGLE_DESTINATION=false
 THIRD_DESTINATION=false
 
@@ -136,17 +136,6 @@ verify_prerequisites() {
             log -n "Deleting third destination..."
             run kind delete clusters worker-2
         fi
-    else
-        log -n "Verifying no clusters exist..."
-        if kind get clusters 2>&1 | grep --quiet --regexp "platform\|worker"; then
-            error_mark
-            log ""
-            log "🚨 Please ensure there's no KinD clusters named $(info platform) or $(info worker)."
-            log "You can run this script with $(info --recreate)"
-            log "Or you can manually remove the current clusters by running: "
-            log "\tkind delete clusters platform worker"
-            exit 1
-        fi
     fi
 }
 
@@ -166,6 +155,11 @@ _build_work_creator_image() {
     fi
     docker build --tag $docker_org/kratix-platform-pipeline-adapter:${VERSION} --quiet --file ${ROOT}/Dockerfile.pipeline-adapter ${ROOT} &&
     kind load docker-image $docker_org/kratix-platform-pipeline-adapter:${VERSION} --name platform
+}
+
+cluster_exists() {
+    local cluster_name="$1"
+    kind get clusters | grep -q "$cluster_name"
 }
 
 step_build_and_load_kratix() {
@@ -257,6 +251,11 @@ wait_for_minio() {
         sleep 1
     done
     kubectl wait pod --context kind-platform -n kratix-platform-system --selector run=minio --for=condition=ready ${opts}
+
+    while ! kubectl get job --context kind-platform -n default | grep minio-create-bucket; do
+        sleep 1
+    done
+    kubectl --context kind-platform wait job minio-create-bucket --for condition=Complete
 }
 
 wait_for_local_repository() {
@@ -342,6 +341,10 @@ load_images() {
 }
 
 step_create_platform_cluster() {
+    if cluster_exists platform; then
+        log "Platform cluster already exists, skipping..."
+        return
+    fi
     log "Creating platform destination..."
     if ! run kind create cluster --name platform --image $KIND_IMAGE \
         --config ${ROOT}/hack/platform/kind-platform-config.yaml
@@ -354,6 +357,10 @@ step_create_platform_cluster() {
 
 step_create_worker_cluster(){
     if ! $SINGLE_DESTINATION; then
+        if cluster_exists worker; then
+            log "Worker cluster already exists, skipping..."
+            return
+        fi
         log "Creating worker destination..."
         if ! run kind create cluster --name worker --image $KIND_IMAGE \
             --config ${ROOT}/hack/destination/kind-worker-config.yaml
@@ -368,6 +375,10 @@ step_create_worker_cluster(){
 
 step_create_third_worker_cluster() {
     if $THIRD_DESTINATION; then
+        if cluster_exists worker-2; then
+            log "Worker cluster already exists, skipping..."
+            return
+        fi
         log "Creating worker destination..."
         if ! run kind create cluster --name worker-2 --image $KIND_IMAGE \
             --config ${ROOT}/config/samples/kind-worker-2-config.yaml

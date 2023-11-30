@@ -1,0 +1,28 @@
+#!/usr/bin/env bash
+
+root="$(cd "$(dirname "${BASH_SOURCE[0]}")/.." && pwd)"
+
+shopt -s expand_aliases
+alias kp="kubectl --context kind-platform"
+alias kw="kubectl --context kind-worker"
+
+main() {
+    if ! kind get clusters | grep -q "platform"; then
+        echo "No kind-platform cluster found; nothing to teardown."
+        exit 0
+    fi
+
+    resources=(promises destinations gitstatestores bucketstatestores)
+    for resource in "${resources[@]}"; do
+        kp delete "$resource" --all
+    done
+
+    kw delete namespace kratix-worker-system || true
+    kp -n kratix-platform-system delete deployment kratix-platform-controller-manager 2>/dev/null || true
+    kp -n kratix-platform-system delete deployment minio 2>/dev/null || true
+    kp delete -f $root/hack/platform/gitea-install.yaml 2>/dev/null || true
+}
+
+if [[ "${BASH_SOURCE[0]}" == "${0}" ]]; then
+    main "$@"
+fi
