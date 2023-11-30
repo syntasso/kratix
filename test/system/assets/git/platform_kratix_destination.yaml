@@ -2,7 +2,7 @@
 apiVersion: platform.kratix.io/v1alpha1
 kind: Destination
 metadata:
-  name: platform-1
+  name: platform-cluster
   labels:
     environment: platform
 spec:

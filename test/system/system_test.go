@@ -18,6 +18,7 @@ import (
 	. "github.com/onsi/ginkgo/v2"
 	. "github.com/onsi/gomega"
 	"github.com/onsi/gomega/gexec"
+	"k8s.io/apimachinery/pkg/apis/meta/v1/unstructured"
 )
 
 type destination struct {
@@ -112,26 +113,37 @@ var _ = Describe("Kratix", func() {
 
 			It("executes the pipelines and schedules the work to the appropiate destinations", func() {
 				rrName := "rr-test"
+				request := unstructured.Unstructured{
+					Object: map[string]interface{}{
+						"apiVersion": "test.kratix.io/v1alpha1",
+						"kind":       "bash",
+						"metadata": map[string]interface{}{
+							"name": rrName,
+						},
+						"spec": map[string]interface{}{
+							"container0Cmd": `
+								set -x
+								if [ "${KRATIX_WORKFLOW_ACTION}" = "configure" ]; then :
+									echo "message: My awesome status message" > /kratix/metadata/status.yaml
+									echo "key: value" >> /kratix/metadata/status.yaml
+									mkdir -p /kratix/output/foo/
+									echo "{}" > /kratix/output/foo/example.json
+									kubectl get namespace imperative-$(yq '.metadata.name' /kratix/input/object.yaml) || kubectl create namespace imperative-$(yq '.metadata.name' /kratix/input/object.yaml)
+									exit 0
+								fi
+								kubectl delete namespace imperative-$(yq '.metadata.name' /kratix/input/object.yaml)
+							`,
+							"container1Cmd": `
+								kubectl create namespace declarative-$(yq '.metadata.name' /kratix/input/object.yaml) --dry-run=client -oyaml > /kratix/output/namespace.yaml
+								mkdir /kratix/output/platform/
+								kubectl create namespace declarative-platform-only-$(yq '.metadata.name' /kratix/input/object.yaml) --dry-run=client -oyaml > /kratix/output/platform/namespace.yaml
+								echo "[{\"matchLabels\":{\"environment\":\"platform\"}, \"directory\":\"platform\"}]" > /kratix/metadata/destination-selectors.yaml
+							`,
+						},
+					},
+				}
 
-				c1Command := `kop="delete"
-							if [ "${KRATIX_WORKFLOW_ACTION}" != "delete" ]; then kop="create"
-								echo "message: My awesome status message" > /kratix/metadata/status.yaml
-								echo "key: value" >> /kratix/metadata/status.yaml
-								mkdir -p /kratix/output/foo/
-								echo "{}" > /kratix/output/foo/example.json
-			          kubectl get namespace imperative-$(yq '.metadata.name' /kratix/input/object.yaml) || kubectl create namespace imperative-$(yq '.metadata.name' /kratix/input/object.yaml)
-								exit 0
-							fi
-			                kubectl delete namespace imperative-$(yq '.metadata.name' /kratix/input/object.yaml)`
-
-				c2Command := `kubectl create namespace declarative-$(yq '.metadata.name' /kratix/input/object.yaml) --dry-run=client -oyaml > /kratix/output/namespace.yaml
-        mkdir /kratix/output/platform/
-        kubectl create namespace declarative-platform-only-$(yq '.metadata.name' /kratix/input/object.yaml) --dry-run=client -oyaml > /kratix/output/platform/namespace.yaml
-        echo "[{\"matchLabels\":{\"environment\":\"platform\"}, \"directory\":\"platform\"}]" > /kratix/metadata/destination-selectors.yaml`
-
-				commands := []string{c1Command, c2Command}
-
-				platform.kubectl("apply", "-f", requestWithNameAndCommand(rrName, commands...))
+				platform.kubectl("apply", "-f", asFile(request))
 
 				By("executing the pipeline pod", func() {
 					platform.kubectl("wait", "--for=condition=PipelineCompleted", "bash", rrName, pipelineTimeout)
@@ -316,7 +328,7 @@ var _ = Describe("Kratix", func() {
 
 		AfterEach(func() {
 			platform.kubectl("label", "destination", "worker-1", "security-", "pci-", "extra-")
-			platform.kubectl("label", "destination", "platform-1", "security-", "extra-")
+			platform.kubectl("label", "destination", "platform-cluster", "security-", "extra-")
 			platform.kubectl("delete", "-f", promiseWithSchedulingPath)
 		})
 
@@ -355,7 +367,7 @@ var _ = Describe("Kratix", func() {
 				})
 
 				By("labeling the platform Destination, it gets the dependencies assigned", func() {
-					platform.kubectl("label", "destination", "platform-1", "security=high", "extra=label")
+					platform.kubectl("label", "destination", "platform-cluster", "security=high", "extra=label")
 					platform.eventuallyKubectl("get", "namespace", depNamespaceName)
 				})
 			})
@@ -407,7 +419,7 @@ var _ = Describe("Kratix", func() {
 		// - extra: label
 		It("allows updates to scheduling", func() {
 			platform.kubectl("label", "destination", "worker-1", "extra=label")
-			platform.kubectl("label", "destination", "platform-1", "extra=label", "environment=platform", "security-")
+			platform.kubectl("label", "destination", "platform-cluster", "extra=label", "environment=platform", "security-")
 
 			By("only the worker Destination getting the dependency initially", func() {
 				Consistently(func() {
@@ -437,6 +449,21 @@ var _ = Describe("Kratix", func() {
 		})
 	})
 })
+
+func asFile(object unstructured.Unstructured) string {
+	file, err := os.CreateTemp("", "kratix-test")
+	ExpectWithOffset(1, err).NotTo(HaveOccurred())
+
+	contents, err := object.MarshalJSON()
+	ExpectWithOffset(1, err).NotTo(HaveOccurred())
+
+	fmt.Fprintln(GinkgoWriter, "Resource Request:")
+	fmt.Fprintln(GinkgoWriter, string(contents))
+
+	ExpectWithOffset(1, os.WriteFile(file.Name(), contents, 0644)).NotTo(HaveOccurred())
+
+	return file.Name()
+}
 
 func requestWithNameAndCommand(name string, containerCmds ...string) string {
 	normalisedCmds := make([]string, 2)
