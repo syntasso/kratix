@@ -123,7 +123,7 @@ docker-build-and-push: ## Push multi-arch docker image with the manager.
 	docker buildx build --builder kratix-image-builder --push --platform linux/arm64,linux/amd64 -t ${IMG} .
 	docker buildx build --builder kratix-image-builder --push --platform linux/arm64,linux/amd64 -t ${IMG_MIRROR} .
 
-work-creator-docker-build-and-push:
+build-and-push-work-creator:
 	WC_IMG=${WC_IMG} WC_IMG_MIRROR=${WC_IMG_MIRROR} $(MAKE) -C work-creator docker-build-and-push
 
 # If not installed, use: go install github.com/goreleaser/goreleaser@latest
@@ -157,7 +157,7 @@ chart:
 	  yq 'select(.kind != "CustomResourceDefinition")' > \
           ${CHART_DISTRIBUTION}
 
-release: distribution docker-build-and-push work-creator-docker-build-and-push ## Create a release. Set VERSION env var to "vX.Y.Z-n".
+release: distribution docker-build-and-push build-and-push-work-creator ## Create a release. Set VERSION env var to "vX.Y.Z-n".
 
 undeploy: ## Undeploy controller from the K8s cluster specified in ~/.kube/config.
 	$(KUSTOMIZE) build config/default | kubectl delete -f -
