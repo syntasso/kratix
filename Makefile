@@ -123,7 +123,7 @@ docker-build-and-push: ## Push multi-arch docker image with the manager.
 	docker buildx build --builder kratix-image-builder --push --platform linux/arm64,linux/amd64 -t ${IMG} .
 	docker buildx build --builder kratix-image-builder --push --platform linux/arm64,linux/amd64 -t ${IMG_MIRROR} .
 
-build-and-push-work-creator:
+build-and-push-work-creator: ## Build and push the Work Creator image
 	WC_IMG=${WC_IMG} WC_IMG_MIRROR=${WC_IMG_MIRROR} $(MAKE) -C work-creator docker-build-and-push
 
 # If not installed, use: go install github.com/goreleaser/goreleaser@latest
