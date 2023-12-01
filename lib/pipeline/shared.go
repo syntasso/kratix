@@ -17,7 +17,7 @@ import (
 const (
 	kratixActionEnvVar  = "KRATIX_WORKFLOW_ACTION"
 	kratixTypeEnvVar    = "KRATIX_WORKFLOW_TYPE"
-	kratixPromiseEnvVar = "KRATIX_PROMISE"
+	kratixPromiseEnvVar = "KRATIX_PROMISE_NAME"
 )
 
 func pipelineVolumes() ([]v1.Volume, []v1.VolumeMount) {
