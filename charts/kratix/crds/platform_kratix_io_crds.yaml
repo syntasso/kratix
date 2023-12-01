@@ -337,6 +337,17 @@ spec:
                         type: object
                     type: object
                   type: array
+                requires:
+                  items:
+                    properties:
+                      name:
+                        description: Name of Promise
+                        type: string
+                      version:
+                        description: Version of Promise
+                        type: string
+                    type: object
+                  type: array
                 workflows:
                   properties:
                     promise:

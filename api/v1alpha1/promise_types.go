@@ -52,9 +52,18 @@ type PromiseSpec struct {
 
 	Workflows Workflows `json:"workflows,omitempty"`
 
+	Requires []Requirement `json:"requires,omitempty"`
+
 	Dependencies Dependencies `json:"dependencies,omitempty"`
 
 	DestinationSelectors []PromiseScheduling `json:"destinationSelectors,omitempty"`
+}
+
+type Requirement struct {
+	// Name of Promise
+	Name string `json:"name,omitempty"`
+	// Version of Promise
+	Version string `json:"version,omitempty"`
 }
 
 type Workflows struct {
