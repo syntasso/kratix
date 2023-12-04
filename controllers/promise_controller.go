@@ -20,6 +20,7 @@ import (
 	"context"
 	"encoding/json"
 	"fmt"
+	"slices"
 	"strings"
 	"time"
 
@@ -60,6 +61,11 @@ const (
 	dynamicControllerDependantResourcesCleaupFinalizer = kratixPrefix + "dynamic-controller-dependant-resources-cleanup"
 	crdCleanupFinalizer                                = kratixPrefix + "api-crd-cleanup"
 	dependenciesCleanupFinalizer                       = kratixPrefix + "dependencies-cleanup"
+
+	requirementStateInstalled                      = "Requirement installed"
+	requirementStateNotInstalled                   = "Requirement not installed"
+	requirementStateNotInstalledAtSpecifiedVersion = "Requirement not installed at the specified version"
+	requirementUnknownInstallationState            = "Requirement state unknown"
 )
 
 var (
@@ -121,6 +127,30 @@ func (r *PromiseReconciler) Reconcile(ctx context.Context, req ctrl.Request) (ct
 		if promise.Status.Version != value {
 			promise.Status.Version = value
 			return ctrl.Result{}, r.Client.Status().Update(ctx, promise)
+		}
+	}
+	// 2 things will happen
+	//either we make it too line
+	// 220
+	// or we error or requeue earlier
+	// if we error or requeue earlier, technicallqy status is always unavailable
+	//only when we make it to 220 is status available
+	promise.Status.Status = v1alpha1.PromiseStatusUnavailable
+	updated, err := r.ensureRequirementStatusIsUpToDate(ctx, promise)
+
+	if err != nil {
+		return ctrl.Result{}, err
+	}
+
+	if updated {
+		return ctrl.Result{}, nil
+	}
+
+	//return forever here if requirements not met
+	for _, req := range promise.Status.Requirements {
+		if req.State != requirementStateInstalled {
+			logger.Info("requeueing, not all requirements are fulfilled", "requirementsStatus", promise.Status.Requirements)
+			return slowRequeue, nil
 		}
 	}
 
@@ -201,8 +231,53 @@ func (r *PromiseReconciler) Reconcile(ctx context.Context, req ctrl.Request) (ct
 		promise.Status.ObservedGeneration = promise.GetGeneration()
 		return ctrl.Result{}, r.Client.Status().Update(ctx, promise)
 	}
+	logger.Info("Promise status being set to Available")
 
+	promise.Status.Status = v1alpha1.PromiseStatusAvailable
+	err = r.Client.Status().Update(ctx, promise)
+	if err != nil {
+		logger.Error(err, "Failed updating Promise status")
+	}
 	return ctrl.Result{}, nil
+}
+
+func (r *PromiseReconciler) ensureRequirementStatusIsUpToDate(ctx context.Context, promise *v1alpha1.Promise) (bool, error) {
+	currentCondition, requirements := r.statusForRequirements(ctx, promise)
+
+	compareValue := slices.CompareFunc(promise.Status.Requirements, requirements, func(a, b v1alpha1.RequirementStatus) int {
+		if a.Name == b.Name && a.Version == b.Version && a.State == b.State {
+			return 0
+		}
+		return -1
+	})
+
+	requirementsNeedUpdating := false
+	if compareValue != 0 {
+		requirementsNeedUpdating = true
+		promise.Status.Requirements = requirements
+	}
+
+	var conditionFound = false
+	for i, condition := range promise.Status.Conditions {
+		if condition.Type == currentCondition.Type {
+			conditionFound = true
+			if condition.Status != currentCondition.Status {
+				promise.Status.Conditions[i] = currentCondition
+				return true, r.Client.Status().Update(ctx, promise)
+			}
+		}
+	}
+
+	if !conditionFound {
+		promise.Status.Conditions = append(promise.Status.Conditions, currentCondition)
+		return true, r.Client.Status().Update(ctx, promise)
+	}
+
+	if requirementsNeedUpdating {
+		return true, r.Client.Status().Update(ctx, promise)
+	}
+
+	return false, nil
 }
 
 func (r *PromiseReconciler) reconcileDependencies(o opts, promise *v1alpha1.Promise, configurePipeline []v1alpha1.Pipeline) (*ctrl.Result, error) {
@@ -817,4 +892,48 @@ func generatePipeline(pipelines []unstructured.Unstructured, logger logr.Logger)
 
 	return nil, fmt.Errorf("unsupported pipeline %q (%s.%s)",
 		pipeline.GetName(), pipeline.GetKind(), pipeline.GetAPIVersion())
+}
+
+func (r *PromiseReconciler) statusForRequirements(ctx context.Context, promise *v1alpha1.Promise) (metav1.Condition, []v1alpha1.RequirementStatus) {
+	var condition = metav1.Condition{
+		Type:               "RequirementsFulfilled",
+		LastTransitionTime: metav1.NewTime(time.Now()),
+		Status:             metav1.ConditionTrue,
+		Message:            "Requirements fulfilled",
+		Reason:             "RequirementInstalled",
+	}
+
+	var requirements []v1alpha1.RequirementStatus
+
+	for _, requirement := range promise.Spec.Requires {
+		state := requirementStateInstalled
+		requiredPromise := &v1alpha1.Promise{}
+		err := r.Client.Get(ctx, types.NamespacedName{Name: requirement.Name}, requiredPromise)
+		if err != nil {
+			condition.Reason = "RequirementNotInstalled"
+			if errors.IsNotFound(err) && condition.Status != metav1.ConditionUnknown {
+				state = requirementStateNotInstalled
+				condition.Status = metav1.ConditionFalse
+				condition.Message = "Requirements not fulfilled"
+			} else {
+				state = requirementUnknownInstallationState
+				condition.Status = metav1.ConditionUnknown
+				condition.Message = "Unable to determine if requirements are fulfilled"
+			}
+		} else {
+			if requiredPromise.Status.Version != requirement.Version {
+				state = requirementStateNotInstalledAtSpecifiedVersion
+				condition.Status = metav1.ConditionFalse
+				condition.Message = "Requirements not fulfilled"
+			}
+		}
+
+		requirements = append(requirements, v1alpha1.RequirementStatus{
+			Name:    requirement.Name,
+			Version: requirement.Version,
+			State:   state,
+		})
+	}
+
+	return condition, requirements
 }

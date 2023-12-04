@@ -184,6 +184,19 @@ spec:
               observedGeneration:
                 format: int64
                 type: integer
+              requirements:
+                items:
+                  properties:
+                    name:
+                      type: string
+                    state:
+                      type: string
+                    version:
+                      type: string
+                  type: object
+                type: array
+              status:
+                type: string
               version:
                 type: string
             type: object

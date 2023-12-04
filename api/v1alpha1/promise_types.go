@@ -30,6 +30,11 @@ import (
 	"k8s.io/apimachinery/pkg/runtime"
 )
 
+const (
+	PromiseStatusAvailable   = "Available"
+	PromiseStatusUnavailable = "Unavailable"
+)
+
 // NOTE: json tags are required.  Any new fields you add must have json tags for the fields to be serialized.
 
 // PromiseSpec defines the desired state of Promise
@@ -102,11 +107,19 @@ type WorkflowDestinationSelectors struct {
 
 // PromiseStatus defines the observed state of Promise
 type PromiseStatus struct {
-	Conditions         []metav1.Condition `json:"conditions,omitempty"`
-	Version            string             `json:"version,omitempty"`
-	ObservedGeneration int64              `json:"observedGeneration,omitempty"`
-	Kind               string             `json:"kind,omitempty"`
-	APIVersion         string             `json:"apiVersion,omitempty"`
+	Conditions         []metav1.Condition  `json:"conditions,omitempty"`
+	Version            string              `json:"version,omitempty"`
+	ObservedGeneration int64               `json:"observedGeneration,omitempty"`
+	Kind               string              `json:"kind,omitempty"`
+	APIVersion         string              `json:"apiVersion,omitempty"`
+	Status             string              `json:"status,omitempty"`
+	Requirements       []RequirementStatus `json:"requirements,omitempty"`
+}
+
+type RequirementStatus struct {
+	Name    string `json:"name,omitempty"`
+	Version string `json:"version,omitempty"`
+	State   string `json:"state,omitempty"`
 }
 
 //+kubebuilder:object:root=true
