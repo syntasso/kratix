@@ -125,6 +125,7 @@ type RequirementStatus struct {
 //+kubebuilder:object:root=true
 //+kubebuilder:subresource:status
 //+kubebuilder:resource:scope=Cluster,path=promises
+//+kubebuilder:printcolumn:JSONPath=".status.status",name="Status",type=string
 //+kubebuilder:printcolumn:JSONPath=".status.kind",name=Kind,type=string
 //+kubebuilder:printcolumn:JSONPath=".status.apiVersion",name="API Version",type=string
 //+kubebuilder:printcolumn:JSONPath=".status.version",name="Version",type=string

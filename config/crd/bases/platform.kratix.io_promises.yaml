@@ -15,6 +15,9 @@ spec:
   scope: Cluster
   versions:
   - additionalPrinterColumns:
+    - jsonPath: .status.status
+      name: Status
+      type: string
     - jsonPath: .status.kind
       name: Kind
       type: string
