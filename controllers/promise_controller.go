@@ -56,7 +56,6 @@ type PromiseReconciler struct {
 }
 
 const (
-	kratixPrefix                                       = "kratix.io/"
 	resourceRequestCleanupFinalizer                    = kratixPrefix + "resource-request-cleanup"
 	dynamicControllerDependantResourcesCleaupFinalizer = kratixPrefix + "dynamic-controller-dependant-resources-cleanup"
 	crdCleanupFinalizer                                = kratixPrefix + "api-crd-cleanup"
@@ -104,6 +103,15 @@ func (r *PromiseReconciler) Reconcile(ctx context.Context, req ctrl.Request) (ct
 		}
 		r.Log.Error(err, "Failed getting Promise", "namespacedName", req.NamespacedName)
 		return defaultRequeue, nil
+	}
+
+	if value, found := promise.Labels[promiseReleaseVersionLabel]; found {
+		if promise.Status.Version != value {
+			promise.Status.Version = value
+			return ctrl.Result{}, r.Client.Status().Update(ctx, promise)
+		}
+		delete(promise.Labels, promiseReleaseVersionLabel)
+		return ctrl.Result{}, r.Client.Update(ctx, promise)
 	}
 
 	logger := r.Log.WithValues("identifier", promise.GetName())

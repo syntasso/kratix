@@ -94,6 +94,7 @@ type WorkflowDestinationSelectors struct {
 // PromiseStatus defines the observed state of Promise
 type PromiseStatus struct {
 	Conditions         []metav1.Condition `json:"conditions,omitempty"`
+	Version            string             `json:"version,omitempty"`
 	ObservedGeneration int64              `json:"observedGeneration,omitempty"`
 	Kind               string             `json:"kind,omitempty"`
 	APIVersion         string             `json:"apiVersion,omitempty"`

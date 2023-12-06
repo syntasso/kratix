@@ -232,6 +232,63 @@ apiVersion: apiextensions.k8s.io/v1
 kind: CustomResourceDefinition
 metadata:
   annotations:
+    controller-gen.kubebuilder.io/version: v0.12.0
+  name: promisereleases.platform.kratix.io
+spec:
+  group: platform.kratix.io
+  names:
+    kind: PromiseRelease
+    listKind: PromiseReleaseList
+    plural: promisereleases
+    singular: promiserelease
+  scope: Cluster
+  versions:
+  - name: v1alpha1
+    schema:
+      openAPIV3Schema:
+        description: PromiseRelease is the Schema for the promisereleases API
+        properties:
+          apiVersion:
+            description: 'APIVersion defines the versioned schema of this representation
+              of an object. Servers should convert recognized schemas to the latest
+              internal value, and may reject unrecognized values. More info: https://git.k8s.io/community/contributors/devel/sig-architecture/api-conventions.md#resources'
+            type: string
+          kind:
+            description: 'Kind is a string value representing the REST resource this
+              object represents. Servers may infer this from the endpoint the client
+              submits requests to. Cannot be updated. In CamelCase. More info: https://git.k8s.io/community/contributors/devel/sig-architecture/api-conventions.md#types-kinds'
+            type: string
+          metadata:
+            type: object
+          spec:
+            description: PromiseReleaseSpec defines the desired state of PromiseRelease
+            properties:
+              sourceRef:
+                properties:
+                  type:
+                    type: string
+                  url:
+                    type: string
+                type: object
+              version:
+                type: string
+            type: object
+          status:
+            description: PromiseReleaseStatus defines the observed state of PromiseRelease
+            properties:
+              installed:
+                type: boolean
+            type: object
+        type: object
+    served: true
+    storage: true
+    subresources:
+      status: {}
+---
+apiVersion: apiextensions.k8s.io/v1
+kind: CustomResourceDefinition
+metadata:
+  annotations:
     cert-manager.io/inject-ca-from: kratix-platform-system/kratix-platform-serving-cert
     controller-gen.kubebuilder.io/version: v0.12.0
   name: promises.platform.kratix.io
@@ -411,6 +468,8 @@ spec:
               observedGeneration:
                 format: int64
                 type: integer
+              version:
+                type: string
             type: object
         type: object
     served: true
@@ -845,6 +904,32 @@ rules:
 - apiGroups:
   - platform.kratix.io
   resources:
+  - promisereleases
+  verbs:
+  - create
+  - delete
+  - get
+  - list
+  - patch
+  - update
+  - watch
+- apiGroups:
+  - platform.kratix.io
+  resources:
+  - promisereleases/finalizers
+  verbs:
+  - update
+- apiGroups:
+  - platform.kratix.io
+  resources:
+  - promisereleases/status
+  verbs:
+  - get
+  - patch
+  - update
+- apiGroups:
+  - platform.kratix.io
+  resources:
   - promises
   verbs:
   - create
@@ -1058,7 +1143,7 @@ metadata:
 ---
 apiVersion: v1
 data:
-  WC_IMG: syntasso/kratix-platform-pipeline-adapter:2bf3ca6df3d1797c10c1387067db9dfceec5196f
+  WC_IMG: syntasso/kratix-platform-pipeline-adapter:c54e0b5037642d25a73f8988ce27770ba3c82f5e
 kind: ConfigMap
 metadata:
   name: kratix-platform-wc-img-config
@@ -1129,7 +1214,7 @@ spec:
             configMapKeyRef:
               key: WC_IMG
               name: kratix-platform-wc-img-config
-        image: syntasso/kratix-platform:2bf3ca6df3d1797c10c1387067db9dfceec5196f
+        image: syntasso/kratix-platform:c54e0b5037642d25a73f8988ce27770ba3c82f5e
         livenessProbe:
           httpGet:
             path: /healthz

@@ -145,6 +145,32 @@ rules:
   - apiGroups:
       - platform.kratix.io
     resources:
+      - promisereleases
+    verbs:
+      - create
+      - delete
+      - get
+      - list
+      - patch
+      - update
+      - watch
+  - apiGroups:
+      - platform.kratix.io
+    resources:
+      - promisereleases/finalizers
+    verbs:
+      - update
+  - apiGroups:
+      - platform.kratix.io
+    resources:
+      - promisereleases/status
+    verbs:
+      - get
+      - patch
+      - update
+  - apiGroups:
+      - platform.kratix.io
+    resources:
       - promises
     verbs:
       - create
@@ -358,7 +384,7 @@ metadata:
 ---
 apiVersion: v1
 data:
-  WC_IMG: syntasso/kratix-platform-pipeline-adapter:2bf3ca6df3d1797c10c1387067db9dfceec5196f
+  WC_IMG: syntasso/kratix-platform-pipeline-adapter:c54e0b5037642d25a73f8988ce27770ba3c82f5e
 kind: ConfigMap
 metadata:
   name: kratix-platform-wc-img-config
@@ -429,7 +455,7 @@ spec:
                 configMapKeyRef:
                   key: WC_IMG
                   name: kratix-platform-wc-img-config
-          image: syntasso/kratix-platform:2bf3ca6df3d1797c10c1387067db9dfceec5196f
+          image: syntasso/kratix-platform:c54e0b5037642d25a73f8988ce27770ba3c82f5e
           livenessProbe:
             httpGet:
               path: /healthz
