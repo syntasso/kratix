@@ -68,6 +68,7 @@ func (r *PromiseReleaseReconciler) Reconcile(ctx context.Context, req ctrl.Reque
 	}
 
 	logger := r.Log.WithValues("identifier", promiseRelease.GetName())
+	logger.Info("Reconciling PromiseRelease")
 
 	opts := opts{
 		client: r.Client,
