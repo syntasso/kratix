@@ -105,13 +105,6 @@ func (r *PromiseReconciler) Reconcile(ctx context.Context, req ctrl.Request) (ct
 		return defaultRequeue, nil
 	}
 
-	if value, found := promise.Labels[promiseReleaseVersionLabel]; found {
-		if promise.Status.Version != value {
-			promise.Status.Version = value
-			return ctrl.Result{}, r.Client.Status().Update(ctx, promise)
-		}
-	}
-
 	logger := r.Log.WithValues("identifier", promise.GetName())
 
 	opts := opts{
@@ -122,6 +115,13 @@ func (r *PromiseReconciler) Reconcile(ctx context.Context, req ctrl.Request) (ct
 
 	if !promise.DeletionTimestamp.IsZero() {
 		return r.deletePromise(opts, promise)
+	}
+
+	if value, found := promise.Labels[promiseReleaseVersionLabel]; found {
+		if promise.Status.Version != value {
+			promise.Status.Version = value
+			return ctrl.Result{}, r.Client.Status().Update(ctx, promise)
+		}
 	}
 
 	var rrCRD *apiextensionsv1.CustomResourceDefinition
