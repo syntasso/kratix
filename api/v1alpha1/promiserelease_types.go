@@ -39,6 +39,8 @@ type PromiseReleaseStatus struct {
 //+kubebuilder:object:root=true
 //+kubebuilder:subresource:status
 //+kubebuilder:resource:scope=Cluster,path=promisereleases
+//+kubebuilder:printcolumn:JSONPath=".status.installed",name="Installed",type=boolean
+//+kubebuilder:printcolumn:JSONPath=".spec.version",name="Version",type=string
 
 // PromiseRelease is the Schema for the promisereleases API
 type PromiseRelease struct {

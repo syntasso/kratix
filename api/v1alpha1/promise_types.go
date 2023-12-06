@@ -105,6 +105,7 @@ type PromiseStatus struct {
 //+kubebuilder:resource:scope=Cluster,path=promises
 //+kubebuilder:printcolumn:JSONPath=".status.kind",name=Kind,type=string
 //+kubebuilder:printcolumn:JSONPath=".status.apiVersion",name="API Version",type=string
+//+kubebuilder:printcolumn:JSONPath=".status.version",name="Version",type=string
 
 // Promise is the Schema for the promises API
 type Promise struct {
