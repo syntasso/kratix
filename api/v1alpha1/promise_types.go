@@ -57,7 +57,7 @@ type PromiseSpec struct {
 
 	Workflows Workflows `json:"workflows,omitempty"`
 
-	Requires []Requirement `json:"requires,omitempty"`
+	Requirements []Requirement `json:"requirements,omitempty"`
 
 	Dependencies Dependencies `json:"dependencies,omitempty"`
 

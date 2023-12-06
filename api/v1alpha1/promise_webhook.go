@@ -104,7 +104,7 @@ func (p *Promise) ValidateCreate() (admission.Warnings, error) {
 
 func (p *Promise) validateRequirements() admission.Warnings {
 	warnings := []string{}
-	for _, requirement := range p.Spec.Requires {
+	for _, requirement := range p.Spec.Requirements {
 		promiselog.Info("validating requirement", "name", p.Name, "requirement", requirement.Name, "version", requirement.Version)
 		promise := &Promise{}
 		err := k8sClient.Get(context.TODO(), client.ObjectKey{

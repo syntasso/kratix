@@ -65,7 +65,7 @@ spec:
                       type: object
                   type: object
                 type: array
-              requires:
+              requirements:
                 items:
                   properties:
                     name:

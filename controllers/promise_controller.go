@@ -151,6 +151,8 @@ func (r *PromiseReconciler) Reconcile(ctx context.Context, req ctrl.Request) (ct
 		}
 	}
 
+	logger.Info("requirements are fulfilled", "requirementsStatus", promise.Status.Requirements)
+
 	var rrCRD *apiextensionsv1.CustomResourceDefinition
 	var rrGVK schema.GroupVersionKind
 
@@ -286,7 +288,7 @@ func (r *PromiseReconciler) statusForRequirements(ctx context.Context, promise *
 
 	requirements := []v1alpha1.RequirementStatus{}
 
-	for _, requirement := range promise.Spec.Requires {
+	for _, requirement := range promise.Spec.Requirements {
 		state := requirementStateInstalled
 
 		requiredPromise := &v1alpha1.Promise{}

@@ -612,8 +612,8 @@ func (in *PromiseSpec) DeepCopyInto(out *PromiseSpec) {
 		(*in).DeepCopyInto(*out)
 	}
 	in.Workflows.DeepCopyInto(&out.Workflows)
-	if in.Requires != nil {
-		in, out := &in.Requires, &out.Requires
+	if in.Requirements != nil {
+		in, out := &in.Requirements, &out.Requirements
 		*out = make([]Requirement, len(*in))
 		copy(*out, *in)
 	}

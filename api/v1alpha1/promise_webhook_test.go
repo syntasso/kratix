@@ -127,7 +127,7 @@ var _ = Describe("PromiseWebhook", func() {
 					},
 					Spec: v1alpha1.PromiseSpec{
 						API: RawExtension(nil),
-						Requires: []v1alpha1.Requirement{
+						Requirements: []v1alpha1.Requirement{
 							{
 								Name:    "redis",
 								Version: "v1.0.0",
@@ -176,7 +176,7 @@ var _ = Describe("PromiseWebhook", func() {
 					},
 					Spec: v1alpha1.PromiseSpec{
 						API: RawExtension(nil),
-						Requires: []v1alpha1.Requirement{
+						Requirements: []v1alpha1.Requirement{
 							{
 								Name:    "kafka",
 								Version: "v1.2.0",

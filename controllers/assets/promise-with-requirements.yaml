@@ -3681,6 +3681,6 @@ spec:
             containers:
               - image: syntasso/demo-redis-configure-pipeline:v0.1.0
                 name: demo-redis-configure-pipeline
-  requires:
+  requirements:
   - name: kafka
     version: v1.2.0
