@@ -114,6 +114,17 @@ type PromiseStatus struct {
 	APIVersion         string              `json:"apiVersion,omitempty"`
 	Status             string              `json:"status,omitempty"`
 	Requirements       []RequirementStatus `json:"requirements,omitempty"`
+	RequiredBy         []RequiredBy        `json:"requiredBy,omitempty"`
+}
+
+type PromiseSummary struct {
+	Name    string `json:"name,omitempty"`
+	Version string `json:"version,omitempty"`
+}
+
+type RequiredBy struct {
+	Promise         PromiseSummary `json:"promise,omitempty"`
+	RequiredVersion string         `json:"requiredVersion,omitempty"`
 }
 
 type RequirementStatus struct {

@@ -25,6 +25,8 @@ import (
 	"time"
 
 	controllerutil "sigs.k8s.io/controller-runtime/pkg/controller/controllerutil"
+	"sigs.k8s.io/controller-runtime/pkg/handler"
+	"sigs.k8s.io/controller-runtime/pkg/reconcile"
 
 	"github.com/go-logr/logr"
 	"github.com/syntasso/kratix/api/v1alpha1"
@@ -237,7 +239,7 @@ func (r *PromiseReconciler) Reconcile(ctx context.Context, req ctrl.Request) (ct
 }
 
 func (r *PromiseReconciler) ensureRequirementStatusIsUpToDate(ctx context.Context, promise *v1alpha1.Promise) (bool, error) {
-	latestCondition, latestRequirements := r.statusForRequirements(ctx, promise)
+	latestCondition, latestRequirements := r.generateStatusAndMarkRequirements(ctx, promise)
 
 	requirementsFieldChanged := updateRequirementsStatusOnPromise(promise, promise.Status.Requirements, latestRequirements)
 	conditionsFieldChanged := updateConditionOnPromise(promise, latestCondition)
@@ -277,7 +279,7 @@ func updateRequirementsStatusOnPromise(promise *v1alpha1.Promise, oldReqs, newRe
 	return false
 }
 
-func (r *PromiseReconciler) statusForRequirements(ctx context.Context, promise *v1alpha1.Promise) (metav1.Condition, []v1alpha1.RequirementStatus) {
+func (r *PromiseReconciler) generateStatusAndMarkRequirements(ctx context.Context, promise *v1alpha1.Promise) (metav1.Condition, []v1alpha1.RequirementStatus) {
 	condition := metav1.Condition{
 		Type:               "RequirementsFulfilled",
 		LastTransitionTime: metav1.NewTime(time.Now()),
@@ -291,8 +293,8 @@ func (r *PromiseReconciler) statusForRequirements(ctx context.Context, promise *
 	for _, requirement := range promise.Spec.Requirements {
 		state := requirementStateInstalled
 
-		requiredPromise := &v1alpha1.Promise{}
-		err := r.Client.Get(ctx, types.NamespacedName{Name: requirement.Name}, requiredPromise)
+		dependantPromise := &v1alpha1.Promise{}
+		err := r.Client.Get(ctx, types.NamespacedName{Name: requirement.Name}, dependantPromise)
 		if err != nil {
 			condition.Reason = "RequirementNotInstalled"
 			if errors.IsNotFound(err) && condition.Status != metav1.ConditionUnknown {
@@ -305,11 +307,13 @@ func (r *PromiseReconciler) statusForRequirements(ctx context.Context, promise *
 				condition.Message = "Unable to determine if requirements are fulfilled"
 			}
 		} else {
-			if requiredPromise.Status.Version != requirement.Version {
+			if dependantPromise.Status.Version != requirement.Version {
 				state = requirementStateNotInstalledAtSpecifiedVersion
 				condition.Status = metav1.ConditionFalse
 				condition.Message = "Requirements not fulfilled"
 			}
+
+			r.markDependantPromiseAsRequired(ctx, requirement.Version, promise, dependantPromise)
 		}
 
 		requirements = append(requirements, v1alpha1.RequirementStatus{
@@ -770,6 +774,17 @@ func (r *PromiseReconciler) SetupWithManager(mgr ctrl.Manager) error {
 	return ctrl.NewControllerManagedBy(mgr).
 		For(&v1alpha1.Promise{}).
 		Owns(&batchv1.Job{}).
+		Watches(
+			&v1alpha1.Promise{},
+			handler.EnqueueRequestsFromMapFunc(func(ctx context.Context, obj client.Object) []reconcile.Request {
+				promise := obj.(*v1alpha1.Promise)
+				var resources []reconcile.Request
+				for _, req := range promise.Status.RequiredBy {
+					resources = append(resources, reconcile.Request{NamespacedName: types.NamespacedName{Name: req.Promise.Name}})
+				}
+				return resources
+			}),
+		).
 		Complete(r)
 }
 
@@ -934,4 +949,31 @@ func generatePipeline(pipelines []unstructured.Unstructured, logger logr.Logger)
 
 	return nil, fmt.Errorf("unsupported pipeline %q (%s.%s)",
 		pipeline.GetName(), pipeline.GetKind(), pipeline.GetAPIVersion())
+}
+
+func (r *PromiseReconciler) markDependantPromiseAsRequired(ctx context.Context, version string, promise, dependantPromise *v1alpha1.Promise) {
+	requiredBy := v1alpha1.RequiredBy{
+		Promise: v1alpha1.PromiseSummary{
+			Name:    promise.Name,
+			Version: promise.Status.Version,
+		},
+		RequiredVersion: version,
+	}
+
+	var found bool
+	for i, required := range dependantPromise.Status.RequiredBy {
+		if required.Promise.Name == promise.GetName() {
+			dependantPromise.Status.RequiredBy[i] = requiredBy
+			found = true
+		}
+	}
+
+	if !found {
+		dependantPromise.Status.RequiredBy = append(dependantPromise.Status.RequiredBy, requiredBy)
+	}
+
+	err := r.Client.Status().Update(ctx, dependantPromise)
+	if err != nil {
+		r.Log.Error(err, "error updating promise required by promise", "promise", promise.GetName(), "required promise", dependantPromise.GetName())
+	}
 }

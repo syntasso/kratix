@@ -187,6 +187,20 @@ spec:
               observedGeneration:
                 format: int64
                 type: integer
+              requiredBy:
+                items:
+                  properties:
+                    promise:
+                      properties:
+                        name:
+                          type: string
+                        version:
+                          type: string
+                      type: object
+                    requiredVersion:
+                      type: string
+                  type: object
+                type: array
               requirements:
                 items:
                   properties:

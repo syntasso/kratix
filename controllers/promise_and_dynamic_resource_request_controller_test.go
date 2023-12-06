@@ -447,6 +447,14 @@ var _ = Context("Promise Reconciler", func() {
 						))
 
 						g.Expect(promise.Status.Status).To(Equal(v1alpha1.PromiseStatusAvailable))
+						g.Expect(kafkaPromise.Status.RequiredBy).To(ConsistOf(
+							v1alpha1.RequiredBy{
+								Promise: v1alpha1.PromiseSummary{
+									Name: promiseCR.Name,
+								},
+								RequiredVersion: "v1.2.0",
+							},
+						))
 					}, timeout, interval).Should(Succeed())
 				})
 			})
