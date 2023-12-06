@@ -20,26 +20,25 @@ import (
 	metav1 "k8s.io/apimachinery/pkg/apis/meta/v1"
 )
 
-// EDIT THIS FILE!  THIS IS SCAFFOLDING FOR YOU TO OWN!
-// NOTE: json tags are required.  Any new fields you add must have json tags for the fields to be serialized.
-
 // PromiseReleaseSpec defines the desired state of PromiseRelease
 type PromiseReleaseSpec struct {
-	// INSERT ADDITIONAL SPEC FIELDS - desired state of cluster
-	// Important: Run "make" to regenerate code after modifying this file
+	Version   string    `json:"version,omitempty"`
+	SourceRef SourceRef `json:"sourceRef,omitempty"`
+}
 
-	// Foo is an example field of PromiseRelease. Edit promiserelease_types.go to remove/update
-	Foo string `json:"foo,omitempty"`
+type SourceRef struct {
+	Type string `json:"type,omitempty"`
+	URL  string `json:"url,omitempty"`
 }
 
 // PromiseReleaseStatus defines the observed state of PromiseRelease
 type PromiseReleaseStatus struct {
-	// INSERT ADDITIONAL STATUS FIELD - define observed state of cluster
-	// Important: Run "make" to regenerate code after modifying this file
+	Installed bool `json:"installed,omitempty"`
 }
 
 //+kubebuilder:object:root=true
 //+kubebuilder:subresource:status
+//+kubebuilder:resource:scope=Cluster,path=promisereleases
 
 // PromiseRelease is the Schema for the promisereleases API
 type PromiseRelease struct {

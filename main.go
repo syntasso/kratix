@@ -32,9 +32,12 @@ import (
 	ctrl "sigs.k8s.io/controller-runtime"
 	"sigs.k8s.io/controller-runtime/pkg/healthz"
 	"sigs.k8s.io/controller-runtime/pkg/log/zap"
+	metricsserver "sigs.k8s.io/controller-runtime/pkg/metrics/server"
+	"sigs.k8s.io/controller-runtime/pkg/webhook"
 
 	platformv1alpha1 "github.com/syntasso/kratix/api/v1alpha1"
 	"github.com/syntasso/kratix/controllers"
+	"github.com/syntasso/kratix/lib/fetchers"
 	//+kubebuilder:scaffold:imports
 )
 
@@ -69,10 +72,17 @@ func main() {
 
 		config := ctrl.GetConfigOrDie()
 		apiextensionsClient := clientset.NewForConfigOrDie(config)
+		metricsServerOptions := metricsserver.Options{
+			BindAddress: metricsAddr,
+		}
+		webhookServer := webhook.NewServer(webhook.Options{
+			Port: 9443,
+		})
+
 		mgr, err := ctrl.NewManager(config, ctrl.Options{
 			Scheme:                 scheme.Scheme,
-			MetricsBindAddress:     metricsAddr,
-			Port:                   9443,
+			Metrics:                metricsServerOptions,
+			WebhookServer:          webhookServer,
 			HealthProbeBindAddress: probeAddr,
 			LeaderElection:         enableLeaderElection,
 			LeaderElectionID:       "2743c979.kratix.io",
@@ -127,9 +137,12 @@ func main() {
 			setupLog.Error(err, "unable to create webhook", "webhook", "Promise")
 			os.Exit(1)
 		}
+
 		if err = (&controllers.PromiseReleaseReconciler{
-			Client: mgr.GetClient(),
-			Scheme: mgr.GetScheme(),
+			Log:            ctrl.Log.WithName("controllers").WithName("PromiseReleaseController"),
+			Client:         mgr.GetClient(),
+			Scheme:         mgr.GetScheme(),
+			PromiseFetcher: &fetchers.URLFetcher{},
 		}).SetupWithManager(mgr); err != nil {
 			setupLog.Error(err, "unable to create controller", "controller", "PromiseRelease")
 			os.Exit(1)

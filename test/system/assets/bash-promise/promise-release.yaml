@@ -1,0 +1,9 @@
+apiVersion: platform.kratix.io/v1alpha1
+kind: PromiseRelease
+metadata:
+  name: bash
+spec:
+  version: v1.1.0
+  sourceRef:
+    type: http
+    url: https://raw.githubusercontent.com/syntasso/kratix/main/test/system/assets/bash-promise/promise-with-destination-selectors.yaml

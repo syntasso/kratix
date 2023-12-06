@@ -6,7 +6,6 @@ import (
 
 	"github.com/go-logr/logr"
 	"github.com/syntasso/kratix/api/v1alpha1"
-	platformv1alpha1 "github.com/syntasso/kratix/api/v1alpha1"
 	"github.com/syntasso/kratix/lib/resourceutil"
 	"github.com/syntasso/kratix/lib/writers"
 	batchv1 "k8s.io/api/batch/v1"
@@ -21,6 +20,12 @@ import (
 	"sigs.k8s.io/controller-runtime/pkg/client"
 	"sigs.k8s.io/controller-runtime/pkg/controller/controllerutil"
 	"sigs.k8s.io/yaml"
+)
+
+const (
+	kratixPrefix               = "kratix.io/"
+	promiseReleaseVersionLabel = kratixPrefix + "promise-release-version"
+	promiseReleaseNameLabel    = kratixPrefix + "promise-release-name"
 )
 
 type StateStore interface {
@@ -213,7 +218,7 @@ func fetchObjectAndSecret(o opts, stateStoreRef client.ObjectKey, stateStore Sta
 	return secret, nil
 }
 
-func newWriter(o opts, destination platformv1alpha1.Destination) (writers.StateStoreWriter, error) {
+func newWriter(o opts, destination v1alpha1.Destination) (writers.StateStoreWriter, error) {
 	stateStoreRef := client.ObjectKey{
 		Name:      destination.Spec.StateStoreRef.Name,
 		Namespace: destination.Namespace,
@@ -223,7 +228,7 @@ func newWriter(o opts, destination platformv1alpha1.Destination) (writers.StateS
 	var err error
 	switch destination.Spec.StateStoreRef.Kind {
 	case "BucketStateStore":
-		stateStore := &platformv1alpha1.BucketStateStore{}
+		stateStore := &v1alpha1.BucketStateStore{}
 		secret, fetchErr := fetchObjectAndSecret(o, stateStoreRef, stateStore)
 		if fetchErr != nil {
 			return nil, fetchErr
@@ -231,7 +236,7 @@ func newWriter(o opts, destination platformv1alpha1.Destination) (writers.StateS
 
 		writer, err = writers.NewS3Writer(o.logger.WithName("writers").WithName("BucketStateStoreWriter"), stateStore.Spec, destination, secret.Data)
 	case "GitStateStore":
-		stateStore := &platformv1alpha1.GitStateStore{}
+		stateStore := &v1alpha1.GitStateStore{}
 		secret, fetchErr := fetchObjectAndSecret(o, stateStoreRef, stateStore)
 		if fetchErr != nil {
 			return nil, fetchErr
