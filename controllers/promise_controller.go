@@ -110,8 +110,6 @@ func (r *PromiseReconciler) Reconcile(ctx context.Context, req ctrl.Request) (ct
 			promise.Status.Version = value
 			return ctrl.Result{}, r.Client.Status().Update(ctx, promise)
 		}
-		delete(promise.Labels, promiseReleaseVersionLabel)
-		return ctrl.Result{}, r.Client.Update(ctx, promise)
 	}
 
 	logger := r.Log.WithValues("identifier", promise.GetName())
