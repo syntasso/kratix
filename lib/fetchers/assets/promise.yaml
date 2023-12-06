@@ -1,0 +1,97 @@
+apiVersion: platform.kratix.io/v1alpha1
+kind: Promise
+metadata:
+  name: redis
+  labels:
+    clashing-label: "new-promise-value"
+    new-promise-label: "value"
+  annotations:
+    clashing-annotation: "new-promise-value"
+    new-promise-annotation: "value"
+spec:
+  api:
+    apiVersion: apiextensions.k8s.io/v1
+    kind: CustomResourceDefinition
+    metadata:
+      name: redis.marketplace.kratix.io
+    spec:
+      group: marketplace.kratix.io
+      names:
+        kind: redis
+        plural: redis
+        singular: redis
+      scope: Namespaced
+      versions:
+        - name: v1alpha1
+          schema:
+            openAPIV3Schema:
+              properties:
+                spec:
+                  properties:
+                    clusterSelectors:
+                      description: |
+                        List of key:value pairs to use as cluster selectors when scheduling
+                      type: object
+                      x-kubernetes-preserve-unknown-fields: true
+                    size:
+                      default: small
+                      description: |
+                        Size of this Redis deployment. If small, it deploy redis with a single replica; if large, deploy redis with 3 replicas.
+                      pattern: ^(small|large)$
+                      type: string
+                  type: object
+              type: object
+          served: true
+          storage: true
+  dependencies:
+    - apiVersion: apps/v1
+      kind: Deployment
+      metadata:
+        labels:
+          app: redisoperator
+        name: redisoperator
+        namespace: default
+      spec:
+        replicas: 1
+        selector:
+          matchLabels:
+            app: redisoperator
+        strategy:
+          type: RollingUpdate
+        template:
+          metadata:
+            labels:
+              app: redisoperator
+          spec:
+            containers:
+              - image: quay.io/spotahome/redis-operator:v1.1.0
+                imagePullPolicy: IfNotPresent
+                name: app
+                resources:
+                  limits:
+                    cpu: 100m
+                    memory: 50Mi
+                  requests:
+                    cpu: 10m
+                    memory: 50Mi
+                securityContext:
+                  readOnlyRootFilesystem: true
+                  runAsNonRoot: true
+                  runAsUser: 1000
+            restartPolicy: Always
+            serviceAccountName: redisoperator
+  destinationSelectors:
+  - matchLabels:
+      environment: dev
+  workflows:
+    resource:
+      configure:
+        - apiVersion: platform.kratix.io/v1alpha1
+          kind: Pipeline
+          metadata:
+            name: instance-configure
+            namespace: default
+          spec:
+            containers:
+              - image: syntasso/demo-redis-configure-pipeline:v0.1.0
+                name: demo-redis-configure-pipeline
