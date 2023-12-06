@@ -3687,3 +3687,9 @@ spec:
             containers:
               - image: syntasso/demo-redis-configure-pipeline:v0.1.0
                 name: demo-redis-configure-pipeline
+---
+apiVersion: v1
+kind: Namespace
+metadata:
+  name: redis
+spec: {}

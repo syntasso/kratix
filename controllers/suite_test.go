@@ -26,12 +26,14 @@ import (
 	. "github.com/onsi/ginkgo/v2"
 	. "github.com/onsi/gomega"
 	platformv1alpha1 "github.com/syntasso/kratix/api/v1alpha1"
+
 	. "github.com/syntasso/kratix/controllers"
 	v1 "k8s.io/api/core/v1"
 	"k8s.io/apiextensions-apiserver/pkg/client/clientset/clientset"
 	"k8s.io/client-go/kubernetes/scheme"
 	ctrl "sigs.k8s.io/controller-runtime"
 	"sigs.k8s.io/controller-runtime/pkg/client"
+	"sigs.k8s.io/controller-runtime/pkg/client/fake"
 	"sigs.k8s.io/controller-runtime/pkg/envtest"
 	logf "sigs.k8s.io/controller-runtime/pkg/log"
 	"sigs.k8s.io/controller-runtime/pkg/log/zap"
@@ -43,6 +45,7 @@ import (
 
 var (
 	k8sClient          client.Client
+	fakeK8sClient      client.Client
 	apiextensionClient *clientset.Clientset
 	testEnv            *envtest.Environment
 	k8sManager         ctrl.Manager
@@ -51,6 +54,7 @@ var (
 	consistentlyTimeout = "6s"
 	interval            = "3s"
 )
+
 var _ = BeforeSuite(func(_ SpecContext) {
 	logf.SetLogger(zap.New(zap.WriteTo(GinkgoWriter), zap.UseDevMode(true)))
 
@@ -105,6 +109,18 @@ var _ = BeforeSuite(func(_ SpecContext) {
 var _ = AfterSuite(func() {
 	By("tearing down the test environment")
 	testEnv.Stop()
+})
+
+var _ = BeforeEach(func() {
+	fakeK8sClient = fake.NewClientBuilder().WithScheme(scheme.Scheme).WithStatusSubresource(
+		&platformv1alpha1.PromiseRelease{},
+		&platformv1alpha1.Promise{},
+		&platformv1alpha1.Work{},
+		&platformv1alpha1.WorkPlacement{},
+		&platformv1alpha1.Destination{},
+		&platformv1alpha1.GitStateStore{},
+		&platformv1alpha1.BucketStateStore{},
+	).Build()
 })
 
 func cleanEnvironment() {

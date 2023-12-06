@@ -19,6 +19,8 @@ package tools
  * See https://pkg.go.dev/cmd/go#hdr-Build_constraints for more details
  */
 import (
+	// Counterfeiter is used to generate mocks
+	_ "github.com/maxbrunsfeld/counterfeiter/v6"
 	// Ginkgo is what we use to run our tests
 	_ "github.com/onsi/ginkgo/v2/ginkgo"
 )

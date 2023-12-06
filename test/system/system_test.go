@@ -4,15 +4,19 @@ import (
 	"context"
 	"fmt"
 	"io/ioutil"
+	"log"
 	"os"
 	"os/exec"
 	"path/filepath"
 	"strings"
 	"time"
 
+	gohttp "net/http"
+
 	"github.com/go-git/go-git/v5"
 	"github.com/go-git/go-git/v5/plumbing"
 	"github.com/go-git/go-git/v5/plumbing/transport/http"
+	"github.com/gorilla/mux"
 	"github.com/minio/minio-go/v7"
 	"github.com/minio/minio-go/v7/pkg/credentials"
 	. "github.com/onsi/ginkgo/v2"
@@ -27,6 +31,7 @@ type destination struct {
 
 var (
 	promisePath                      = "./assets/bash-promise/promise.yaml"
+	promiseReleasePath               = "./assets/bash-promise/promise-release.yaml"
 	promiseV1Alpha2Path              = "./assets/bash-promise/promise-v1alpha2.yaml"
 	promiseWithSchedulingPath        = "./assets/bash-promise/promise-with-destination-selectors.yaml"
 	promiseWithSchedulingPathUpdated = "./assets/bash-promise/promise-with-destination-selectors-updated.yaml"
@@ -445,6 +450,60 @@ var _ = Describe("Kratix", func() {
 				Consistently(func() {
 					platform.eventuallyKubectl("get", "namespace", "bash-dep-namespace-v1alpha1")
 				}, consistentlyTimeout, interval)
+			})
+		})
+	})
+
+	Describe("PromiseRelease", func() {
+		var srv *gohttp.Server
+
+		BeforeEach(func() {
+			router := mux.NewRouter()
+			router.HandleFunc("/promise", func(w gohttp.ResponseWriter, _ *gohttp.Request) {
+				bytes, err := os.ReadFile(promisePath)
+				Expect(err).NotTo(HaveOccurred())
+				w.Write(bytes)
+			}).Methods("GET")
+
+			srv = &gohttp.Server{
+				Addr:    ":8081",
+				Handler: router,
+			}
+
+			go func() {
+				if err := srv.ListenAndServe(); err != nil && err != gohttp.ErrServerClosed {
+					log.Fatalf("listen: %s\n", err)
+				}
+			}()
+		})
+
+		AfterEach(func() {
+			srv.Shutdown(context.TODO())
+		})
+
+		When("a PromiseRelease is installed", func() {
+			BeforeEach(func() {
+				platform.kubectl("apply", "-f", promiseReleasePath)
+			})
+
+			It("installs the Promises specified", func() {
+				platform.eventuallyKubectl("get", "promiserelease", "bash")
+				platform.eventuallyKubectl("get", "promise", "bash")
+				platform.eventuallyKubectl("get", "crd", "bash.test.kratix.io")
+			})
+		})
+
+		When("a PromiseRelease is deleted", func() {
+			BeforeEach(func() {
+				platform.kubectl("delete", "-f", promiseReleasePath)
+			})
+
+			It("deletes the PromiseRelease and the Promises", func() {
+				Eventually(func(g Gomega) {
+					g.Expect(platform.kubectl("get", "promise")).ShouldNot(ContainSubstring("bash"))
+					g.Expect(platform.kubectl("get", "crd")).ShouldNot(ContainSubstring("bash"))
+					g.Expect(platform.kubectl("get", "promiserelease")).ShouldNot(ContainSubstring("bash"))
+				}, timeout, interval).Should(Succeed())
 			})
 		})
 	})
