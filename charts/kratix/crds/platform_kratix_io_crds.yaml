@@ -206,7 +206,14 @@ spec:
     singular: promiserelease
   scope: Cluster
   versions:
-    - name: v1alpha1
+    - additionalPrinterColumns:
+        - jsonPath: .status.installed
+          name: Installed
+          type: boolean
+        - jsonPath: .spec.version
+          name: Version
+          type: string
+      name: v1alpha1
       schema:
         openAPIV3Schema:
           description: PromiseRelease is the Schema for the promisereleases API
@@ -277,6 +284,9 @@ spec:
           type: string
         - jsonPath: .status.apiVersion
           name: API Version
+          type: string
+        - jsonPath: .status.version
+          name: Version
           type: string
       name: v1alpha1
       schema:

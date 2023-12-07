@@ -68,6 +68,7 @@ func (r *PromiseReleaseReconciler) Reconcile(ctx context.Context, req ctrl.Reque
 	}
 
 	logger := r.Log.WithValues("identifier", promiseRelease.GetName())
+	logger.Info("Reconciling PromiseRelease")
 
 	opts := opts{
 		client: r.Client,
@@ -202,6 +203,9 @@ func (r *PromiseReleaseReconciler) reconcileOnInstalledPromise(o opts, promiseRe
 
 	switch len(promises.Items) {
 	case 1:
+		if !promises.Items[0].GetDeletionTimestamp().IsZero() {
+			return defaultRequeue, nil
+		}
 		if promises.Items[0].Labels[promiseReleaseVersionLabel] == promiseRelease.Spec.Version {
 			break
 		}

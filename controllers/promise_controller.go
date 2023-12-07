@@ -105,13 +105,6 @@ func (r *PromiseReconciler) Reconcile(ctx context.Context, req ctrl.Request) (ct
 		return defaultRequeue, nil
 	}
 
-	if value, found := promise.Labels[promiseReleaseVersionLabel]; found {
-		if promise.Status.Version != value {
-			promise.Status.Version = value
-			return ctrl.Result{}, r.Client.Status().Update(ctx, promise)
-		}
-	}
-
 	logger := r.Log.WithValues("identifier", promise.GetName())
 
 	opts := opts{
@@ -122,6 +115,13 @@ func (r *PromiseReconciler) Reconcile(ctx context.Context, req ctrl.Request) (ct
 
 	if !promise.DeletionTimestamp.IsZero() {
 		return r.deletePromise(opts, promise)
+	}
+
+	if value, found := promise.Labels[promiseReleaseVersionLabel]; found {
+		if promise.Status.Version != value {
+			promise.Status.Version = value
+			return ctrl.Result{}, r.Client.Status().Update(ctx, promise)
+		}
 	}
 
 	var rrCRD *apiextensionsv1.CustomResourceDefinition
@@ -462,7 +462,7 @@ func (r *PromiseReconciler) deletePromise(o opts, promise *v1alpha1.Promise) (ct
 	if controllerutil.ContainsFinalizer(promise, workflowsFinalizer) {
 		err := r.deleteWorkflows(o, promise, workflowsFinalizer)
 		if err != nil {
-			return defaultRequeue, err
+			return ctrl.Result{}, err
 		}
 		return fastRequeue, nil
 	}
@@ -471,7 +471,7 @@ func (r *PromiseReconciler) deletePromise(o opts, promise *v1alpha1.Promise) (ct
 		o.logger.Info("deleting resources associated with finalizer", "finalizer", resourceRequestCleanupFinalizer)
 		err := r.deleteResourceRequests(o, promise)
 		if err != nil {
-			return defaultRequeue, err
+			return ctrl.Result{}, err
 		}
 		return fastRequeue, nil
 	}
@@ -488,7 +488,7 @@ func (r *PromiseReconciler) deletePromise(o opts, promise *v1alpha1.Promise) (ct
 		o.logger.Info("deleting resources associated with finalizer", "finalizer", dynamicControllerDependantResourcesCleaupFinalizer)
 		err := r.deleteDynamicControllerResources(o, promise)
 		if err != nil {
-			return defaultRequeue, err
+			return defaultRequeue, nil
 		}
 		return fastRequeue, nil
 	}
@@ -497,7 +497,7 @@ func (r *PromiseReconciler) deletePromise(o opts, promise *v1alpha1.Promise) (ct
 		o.logger.Info("deleting Work associated with finalizer", "finalizer", dependenciesCleanupFinalizer)
 		err := r.deleteWork(o, promise)
 		if err != nil {
-			return defaultRequeue, err
+			return ctrl.Result{}, err
 		}
 		return fastRequeue, nil
 	}
@@ -506,7 +506,7 @@ func (r *PromiseReconciler) deletePromise(o opts, promise *v1alpha1.Promise) (ct
 		o.logger.Info("deleting CRDs associated with finalizer", "finalizer", crdCleanupFinalizer)
 		err := r.deleteCRDs(o, promise)
 		if err != nil {
-			return defaultRequeue, err
+			return ctrl.Result{}, err
 		}
 		return fastRequeue, nil
 	}

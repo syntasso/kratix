@@ -243,7 +243,14 @@ spec:
     singular: promiserelease
   scope: Cluster
   versions:
-  - name: v1alpha1
+  - additionalPrinterColumns:
+    - jsonPath: .status.installed
+      name: Installed
+      type: boolean
+    - jsonPath: .spec.version
+      name: Version
+      type: string
+    name: v1alpha1
     schema:
       openAPIV3Schema:
         description: PromiseRelease is the Schema for the promisereleases API
@@ -318,6 +325,9 @@ spec:
       type: string
     - jsonPath: .status.apiVersion
       name: API Version
+      type: string
+    - jsonPath: .status.version
+      name: Version
       type: string
     name: v1alpha1
     schema:
@@ -1143,7 +1153,7 @@ metadata:
 ---
 apiVersion: v1
 data:
-  WC_IMG: syntasso/kratix-platform-pipeline-adapter:07cec7f9c0faf8449d23572d1e90818cf0cdf485
+  WC_IMG: syntasso/kratix-platform-pipeline-adapter:61bd2212532c4a6fe81f8bff53b456ab95a823a7
 kind: ConfigMap
 metadata:
   name: kratix-platform-wc-img-config
@@ -1214,7 +1224,7 @@ spec:
             configMapKeyRef:
               key: WC_IMG
               name: kratix-platform-wc-img-config
-        image: syntasso/kratix-platform:07cec7f9c0faf8449d23572d1e90818cf0cdf485
+        image: syntasso/kratix-platform:61bd2212532c4a6fe81f8bff53b456ab95a823a7
         livenessProbe:
           httpGet:
             path: /healthz
