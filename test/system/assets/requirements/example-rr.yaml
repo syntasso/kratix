@@ -1,0 +1,6 @@
+apiVersion: test.kratix.io/v1alpha1
+kind: redis
+metadata:
+  name: example-rr
+spec:
+  size: small

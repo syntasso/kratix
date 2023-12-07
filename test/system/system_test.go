@@ -36,6 +36,9 @@ var (
 	promiseWithSchedulingPath        = "./assets/bash-promise/promise-with-destination-selectors.yaml"
 	promiseWithSchedulingPathUpdated = "./assets/bash-promise/promise-with-destination-selectors-updated.yaml"
 
+	resourceRequestPath    = "./assets/requirements/example-rr.yaml"
+	promiseWithRequirement = "./assets/requirements/promise-with-requirement.yaml"
+
 	workerCtx = "--context=kind-worker"
 	platCtx   = "--context=kind-platform"
 
@@ -110,13 +113,58 @@ var _ = Describe("Kratix", func() {
 			})
 		})
 
+		When("the promise has requirements that are fulfilled", func() {
+			BeforeEach(func() {
+				platform.kubectl("apply", "-f", promiseWithRequirement)
+			})
+
+			It("can fulfil resource requests once requirements are met", func() {
+				By("the Promise being Unavailable when installed without requirements", func() {
+					Eventually(func(g Gomega) {
+						platform.eventuallyKubectl("get", "promise", "redis")
+						g.Expect(platform.kubectl("get", "promise", "redis")).To(ContainSubstring("Unavailable"))
+						platform.eventuallyKubectl("get", "crd", "redis.marketplace.kratix.io")
+					}, timeout, interval).Should(Succeed())
+				})
+
+				By("allowing resource requests to be created in Pending state", func() {
+					platform.kubectl("apply", "-f", resourceRequestPath)
+
+					Eventually(func(g Gomega) {
+						platform.eventuallyKubectl("get", "redis")
+						g.Expect(platform.kubectl("get", "redis")).To(ContainSubstring("Pending"))
+					}, timeout, interval).Should(Succeed())
+				})
+
+				By("the Promise being Available once requirements are installed", func() {
+					platform.kubectl("apply", "-f", promiseReleasePath)
+
+					Eventually(func(g Gomega) {
+						g.Expect(platform.kubectl("get", "promise")).Should(ContainSubstring("bash"))
+						g.Expect(platform.kubectl("get", "crd")).Should(ContainSubstring("bash"))
+						g.Expect(platform.kubectl("get", "promiserelease")).Should(ContainSubstring("bash"))
+					}, timeout, interval).Should(Succeed())
+
+					Eventually(func(g Gomega) {
+						g.Expect(platform.kubectl("get", "promise", "redis")).To(ContainSubstring("Available"))
+					}, timeout, interval).Should(Succeed())
+				})
+
+				By("creating resources with Reconciled status", func() {
+					Eventually(func(g Gomega) {
+						g.Expect(platform.kubectl("get", "bash")).To(ContainSubstring("Reconciled"))
+					}, timeout, interval).Should(Succeed())
+				})
+			})
+		})
+
 		Describe("Resource requests", func() {
 			BeforeEach(func() {
 				platform.kubectl("apply", "-f", promisePath)
 				platform.eventuallyKubectl("get", "crd", "bash.test.kratix.io")
 			})
 
-			It("executes the pipelines and schedules the work to the appropiate destinations", func() {
+			It("executes the pipelines and schedules the work to the appropriate destinations", func() {
 				rrName := "rr-test"
 				request := unstructured.Unstructured{
 					Object: map[string]interface{}{
