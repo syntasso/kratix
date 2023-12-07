@@ -116,6 +116,7 @@ func (r *PromiseReleaseReconciler) Reconcile(ctx context.Context, req ctrl.Reque
 func (r *PromiseReleaseReconciler) SetupWithManager(mgr ctrl.Manager) error {
 	return ctrl.NewControllerManagedBy(mgr).
 		For(&v1alpha1.PromiseRelease{}).
+		Owns(&v1alpha1.Promise{}).
 		Complete(r)
 }
 
