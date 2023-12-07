@@ -174,6 +174,43 @@ var _ = Describe("WorkCreator", func() {
 			})
 		})
 
+		When("the default workload group contains no workloads", func() {
+			var workResource v1alpha1.Work
+			var mockPipelineDirectory string
+
+			BeforeEach(func() {
+				mockPipelineDirectory = filepath.Join(getRootDirectory(), "empty-default-workload-group")
+				err := workCreator.Execute(mockPipelineDirectory, "promise-name", "default", "resource-name", "resource")
+				Expect(err).ToNot(HaveOccurred())
+
+				workResource = getWork(expectedNamespace, resourceWorkName)
+			})
+
+			It("does not append the default workload group to the work", func() {
+				Expect(workResource.Spec.WorkloadGroups).To(HaveLen(1))
+
+				paths := []string{}
+				for _, workload := range workResource.Spec.WorkloadGroups[0].Workloads {
+					paths = append(paths, workload.Filepath)
+				}
+				Expect(paths).To(ConsistOf("baz/baz-namespace-resource-request.yaml"))
+				for _, workload := range workResource.Spec.WorkloadGroups[0].Workloads {
+					fileContent, err := os.ReadFile(filepath.Join(mockPipelineDirectory, "input", workload.Filepath))
+					Expect(err).NotTo(HaveOccurred())
+					Expect(workload.Content).To(Equal(string(fileContent)))
+				}
+
+				Expect(workResource.Spec.WorkloadGroups[0].DestinationSelectors).To(ConsistOf(
+					v1alpha1.WorkloadGroupScheduling{
+						MatchLabels: map[string]string{
+							"environment": "staging",
+						},
+						Source: "resource-workflow",
+					},
+				))
+			})
+		})
+
 		Context("complete set of inputs for a Promise", func() {
 			BeforeEach(func() {
 				err = workCreator.Execute(filepath.Join(getRootDirectory(), "complete-for-promise"), "promise-name", "", "resource-name", "promise")
