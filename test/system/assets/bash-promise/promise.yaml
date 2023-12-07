@@ -69,9 +69,6 @@ spec:
   destinationSelectors:
   - matchLabels:
       environment: dev
-  requirements:
-  - name: redis
-    version: "v1.0.0"
   workflows:
     resource:
       configure:
