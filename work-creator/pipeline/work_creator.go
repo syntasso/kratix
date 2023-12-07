@@ -80,60 +80,62 @@ func (w *WorkCreator) Execute(rootDirectory, promiseName, namespace, resourceNam
 		return err
 	}
 
-	defaultWorkloadGroup := platformv1alpha1.WorkloadGroup{
-		Workloads: workloads,
-		Directory: platformv1alpha1.DefaultWorkloadGroupDirectory,
-		ID:        hash.ComputeHash(platformv1alpha1.DefaultWorkloadGroupDirectory),
-	}
-
-	if defaultDestinationSelectors != nil {
-		defaultWorkloadGroup.DestinationSelectors = []platformv1alpha1.WorkloadGroupScheduling{
-			{
-				MatchLabels: defaultDestinationSelectors,
-				Source:      workflowType + "-" + "workflow",
-			},
+	if len(workloads) > 0 {
+		defaultWorkloadGroup := platformv1alpha1.WorkloadGroup{
+			Workloads: workloads,
+			Directory: platformv1alpha1.DefaultWorkloadGroupDirectory,
+			ID:        hash.ComputeHash(platformv1alpha1.DefaultWorkloadGroupDirectory),
 		}
-	}
 
-	destinationSelectors, err := w.getPromiseScheduling(rootDirectory)
-	if err != nil {
-		return err
-	}
-	if len(destinationSelectors) > 0 {
-		p := []platformv1alpha1.PromiseScheduling{}
-		pw := []platformv1alpha1.PromiseScheduling{}
-		for _, selector := range destinationSelectors {
-			switch selector.Source {
-			case "promise":
-				p = append(p, platformv1alpha1.PromiseScheduling{
-					MatchLabels: selector.MatchLabels,
-				})
-			case "promise-workflow":
-				pw = append(pw, platformv1alpha1.PromiseScheduling{
-					MatchLabels: selector.MatchLabels,
-				})
+		if defaultDestinationSelectors != nil {
+			defaultWorkloadGroup.DestinationSelectors = []platformv1alpha1.WorkloadGroupScheduling{
+				{
+					MatchLabels: defaultDestinationSelectors,
+					Source:      workflowType + "-" + "workflow",
+				},
 			}
 		}
 
-		if len(pw) > 0 {
-			defaultWorkloadGroup.DestinationSelectors = append(defaultWorkloadGroup.DestinationSelectors, platformv1alpha1.WorkloadGroupScheduling{
-				MatchLabels: platformv1alpha1.SquashPromiseScheduling(pw),
-				Source:      "promise-workflow",
-			})
+		destinationSelectors, err := w.getPromiseScheduling(rootDirectory)
+		if err != nil {
+			return err
+		}
+		if len(destinationSelectors) > 0 {
+			p := []platformv1alpha1.PromiseScheduling{}
+			pw := []platformv1alpha1.PromiseScheduling{}
+			for _, selector := range destinationSelectors {
+				switch selector.Source {
+				case "promise":
+					p = append(p, platformv1alpha1.PromiseScheduling{
+						MatchLabels: selector.MatchLabels,
+					})
+				case "promise-workflow":
+					pw = append(pw, platformv1alpha1.PromiseScheduling{
+						MatchLabels: selector.MatchLabels,
+					})
+				}
+			}
+
+			if len(pw) > 0 {
+				defaultWorkloadGroup.DestinationSelectors = append(defaultWorkloadGroup.DestinationSelectors, platformv1alpha1.WorkloadGroupScheduling{
+					MatchLabels: platformv1alpha1.SquashPromiseScheduling(pw),
+					Source:      "promise-workflow",
+				})
+			}
+
+			if len(p) > 0 {
+				defaultWorkloadGroup.DestinationSelectors = append(
+					defaultWorkloadGroup.DestinationSelectors,
+					platformv1alpha1.WorkloadGroupScheduling{
+						MatchLabels: platformv1alpha1.SquashPromiseScheduling(p),
+						Source:      "promise",
+					},
+				)
+			}
 		}
 
-		if len(p) > 0 {
-			defaultWorkloadGroup.DestinationSelectors = append(
-				defaultWorkloadGroup.DestinationSelectors,
-				platformv1alpha1.WorkloadGroupScheduling{
-					MatchLabels: platformv1alpha1.SquashPromiseScheduling(p),
-					Source:      "promise",
-				},
-			)
-		}
+		workloadGroups = append(workloadGroups, defaultWorkloadGroup)
 	}
-
-	workloadGroups = append(workloadGroups, defaultWorkloadGroup)
 
 	work := &platformv1alpha1.Work{}
 

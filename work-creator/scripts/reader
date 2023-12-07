@@ -6,7 +6,7 @@ kubectl get $OBJECT_KIND.$OBJECT_GROUP/$OBJECT_NAME --namespace $OBJECT_NAMESPAC
 echo "Object have been written to /kratix/input/object.yaml. Head is:"
 head -n 50 /kratix/input/object.yaml
 
-if [ $KRATIX_WORKFLOW_TYPE == "promise" ]; then
+if [ $KRATIX_WORKFLOW_TYPE == "promise" ] && [ "$(yq '.spec | has("dependencies")' /kratix/input/object.yaml)" == "true" ]; then
 	  mkdir -p /kratix/output/static/
 		yq '.spec.dependencies[] | split_doc' /kratix/input/object.yaml > /kratix/output/static/dependencies.yaml
 		echo "Dependencies have been written to /kratix/output/static/dependencies.yaml. Head is:"
