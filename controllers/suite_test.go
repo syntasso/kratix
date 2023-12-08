@@ -56,6 +56,10 @@ var (
 )
 
 var _ = BeforeSuite(func(_ SpecContext) {
+	err := platformv1alpha1.AddToScheme(scheme.Scheme)
+	Expect(err).NotTo(HaveOccurred())
+	//+kubebuilder:scaffold:scheme
+
 	logf.SetLogger(zap.New(zap.WriteTo(GinkgoWriter), zap.UseDevMode(true)))
 
 	By("bootstrapping test environment")
@@ -67,10 +71,6 @@ var _ = BeforeSuite(func(_ SpecContext) {
 	cfg, err := testEnv.Start()
 	Expect(err).NotTo(HaveOccurred())
 	Expect(cfg).NotTo(BeNil())
-
-	err = platformv1alpha1.AddToScheme(scheme.Scheme)
-	Expect(err).NotTo(HaveOccurred())
-	//+kubebuilder:scaffold:scheme
 
 	apiextensionClient = clientset.NewForConfigOrDie(cfg)
 	k8sClient, err = client.New(cfg, client.Options{Scheme: scheme.Scheme})
@@ -161,7 +161,7 @@ func deleteInNamespace(obj client.Object, namespace string) {
 	Expect(k8sClient.DeleteAllOf(context.Background(), obj, client.InNamespace(namespace))).To(Succeed())
 }
 
-func TestAPIs(t *testing.T) {
+func TestControllers(t *testing.T) {
 	RegisterFailHandler(Fail)
 
 	RunSpecs(t, "Controller Suite")
