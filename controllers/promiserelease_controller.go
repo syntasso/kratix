@@ -58,7 +58,7 @@ func (r *PromiseReleaseReconciler) Reconcile(ctx context.Context, req ctrl.Reque
 	_ = log.FromContext(ctx)
 
 	promiseRelease := &v1alpha1.PromiseRelease{}
-	err := r.Client.Get(ctx, req.NamespacedName, promiseRelease)
+	err := r.Get(ctx, req.NamespacedName, promiseRelease)
 	if err != nil {
 		if errors.IsNotFound(err) {
 			return ctrl.Result{}, nil

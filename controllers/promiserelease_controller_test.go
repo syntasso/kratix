@@ -3,7 +3,6 @@ package controllers_test
 import (
 	"context"
 	"fmt"
-	"os"
 
 	. "github.com/onsi/ginkgo/v2"
 	. "github.com/onsi/gomega"
@@ -13,19 +12,15 @@ import (
 	"k8s.io/apimachinery/pkg/api/errors"
 	metav1 "k8s.io/apimachinery/pkg/apis/meta/v1"
 	"k8s.io/apimachinery/pkg/types"
-	"k8s.io/apimachinery/pkg/util/yaml"
 	"k8s.io/client-go/kubernetes/scheme"
 	ctrl "sigs.k8s.io/controller-runtime"
 )
-
-const promisePath = "assets/redis-simple-promise.yaml"
-const updatedPromisePath = "assets/redis-simple-promise-updated.yaml"
 
 var _ = Describe("PromiseReleaseController", func() {
 	var (
 		promiseRelease               v1alpha1.PromiseRelease
 		promiseReleaseNamespacedName types.NamespacedName
-		reconciler                   controllers.PromiseReleaseReconciler
+		reconciler                   *controllers.PromiseReleaseReconciler
 		fakeFetcher                  *controllersfakes.FakePromiseFetcher
 		promise                      *v1alpha1.Promise
 	)
@@ -34,7 +29,7 @@ var _ = Describe("PromiseReleaseController", func() {
 		fakeFetcher = &controllersfakes.FakePromiseFetcher{}
 		fakeFetcher.FromURLReturns(promiseFromFile(promisePath), nil)
 
-		reconciler = controllers.PromiseReleaseReconciler{
+		reconciler = &controllers.PromiseReleaseReconciler{
 			Client:         fakeK8sClient,
 			Scheme:         scheme.Scheme,
 			PromiseFetcher: fakeFetcher,
@@ -43,6 +38,10 @@ var _ = Describe("PromiseReleaseController", func() {
 		promiseRelease = v1alpha1.PromiseRelease{
 			ObjectMeta: metav1.ObjectMeta{
 				Name: "redis",
+			},
+			TypeMeta: metav1.TypeMeta{
+				Kind:       "PromiseRelease",
+				APIVersion: "platform.kratix.io/v1alpha1",
 			},
 			Spec: v1alpha1.PromiseReleaseSpec{
 				Version: "v1.1.0",
@@ -66,14 +65,14 @@ var _ = Describe("PromiseReleaseController", func() {
 				err = fakeK8sClient.Create(context.TODO(), &promiseRelease)
 				Expect(err).ToNot(HaveOccurred())
 
-				_, err = promiseReleaseReconcile(reconciler, promiseReleaseNamespacedName)
+				_, err = reconcile(reconciler, &promiseRelease)
 				Expect(err).ToNot(HaveOccurred(), "reconciliation failed; expected it to work")
 
 				promise = fetchPromise(promiseReleaseNamespacedName)
 			})
 
 			It("sets the promise as a dependent of the promise release", func() {
-				var tru bool = true
+				tru := true
 				Expect(promise.GetOwnerReferences()).To(ContainElement(metav1.OwnerReference{
 					APIVersion:         "platform.kratix.io/v1alpha1",
 					Kind:               "PromiseRelease",
@@ -104,7 +103,7 @@ var _ = Describe("PromiseReleaseController", func() {
 				err := fakeK8sClient.Create(context.TODO(), &promiseRelease)
 				Expect(err).ToNot(HaveOccurred())
 
-				_, err = promiseReleaseReconcile(reconciler, promiseReleaseNamespacedName)
+				_, err = reconcile(reconciler, &promiseRelease)
 
 				Expect(err).To(MatchError("unknown sourceRef type: unknown"))
 			})
@@ -119,7 +118,7 @@ var _ = Describe("PromiseReleaseController", func() {
 				})
 
 				It("installs the promise from the URL", func() {
-					_, err := promiseReleaseReconcile(reconciler, promiseReleaseNamespacedName)
+					_, err := reconcile(reconciler, &promiseRelease)
 					Expect(err).To(MatchError("failed to fetch promise from url: can't do mate"))
 				})
 			})
@@ -129,7 +128,7 @@ var _ = Describe("PromiseReleaseController", func() {
 					err := fakeK8sClient.Create(context.TODO(), &promiseRelease)
 					Expect(err).ToNot(HaveOccurred())
 
-					_, err = promiseReleaseReconcile(reconciler, promiseReleaseNamespacedName)
+					_, err = reconcile(reconciler, &promiseRelease)
 					Expect(err).ToNot(HaveOccurred())
 
 					promise = fetchPromise(promiseReleaseNamespacedName)
@@ -186,7 +185,7 @@ var _ = Describe("PromiseReleaseController", func() {
 		BeforeEach(func() {
 			Expect(fakeK8sClient.Create(context.TODO(), &promiseRelease)).To(Succeed())
 
-			_, err := promiseReleaseReconcile(reconciler, promiseReleaseNamespacedName)
+			_, err := reconcile(reconciler, &promiseRelease)
 			Expect(err).ToNot(HaveOccurred())
 
 			promise := fetchPromise(promiseReleaseNamespacedName)
@@ -195,7 +194,7 @@ var _ = Describe("PromiseReleaseController", func() {
 
 			Expect(fakeK8sClient.Delete(context.TODO(), &promiseRelease)).To(Succeed())
 
-			result, err = promiseReleaseReconcile(reconciler, promiseReleaseNamespacedName)
+			result, err = reconcile(reconciler, &promiseRelease)
 			Expect(err).ToNot(HaveOccurred())
 		})
 
@@ -218,7 +217,7 @@ var _ = Describe("PromiseReleaseController", func() {
 			It("removes the promise release on the next reconciliation", func() {
 				deletePromise(promiseReleaseNamespacedName)
 
-				_, err := promiseReleaseReconcile(reconciler, promiseReleaseNamespacedName)
+				_, err := reconcile(reconciler, &promiseRelease)
 				Expect(err).ToNot(HaveOccurred())
 
 				err = fakeK8sClient.Get(context.TODO(), promiseReleaseNamespacedName, &promiseRelease)
@@ -231,7 +230,7 @@ var _ = Describe("PromiseReleaseController", func() {
 		BeforeEach(func() {
 			Expect(fakeK8sClient.Create(context.Background(), &promiseRelease)).To(Succeed())
 
-			_, err := promiseReleaseReconcile(reconciler, promiseReleaseNamespacedName)
+			_, err := reconcile(reconciler, &promiseRelease)
 			Expect(err).ToNot(HaveOccurred())
 
 			promise = fetchPromise(promiseReleaseNamespacedName)
@@ -241,7 +240,7 @@ var _ = Describe("PromiseReleaseController", func() {
 		})
 
 		It("reinstalls the promise in the next reconciliation", func() {
-			_, err := promiseReleaseReconcile(reconciler, promiseReleaseNamespacedName)
+			_, err := reconcile(reconciler, &promiseRelease)
 			Expect(err).ToNot(HaveOccurred())
 
 			promise = fetchPromise(promiseReleaseNamespacedName)
@@ -254,7 +253,7 @@ var _ = Describe("PromiseReleaseController", func() {
 		BeforeEach(func() {
 			Expect(fakeK8sClient.Create(context.TODO(), &promiseRelease)).To(Succeed())
 
-			_, err := promiseReleaseReconcile(reconciler, promiseReleaseNamespacedName)
+			_, err := reconcile(reconciler, &promiseRelease)
 			Expect(err).ToNot(HaveOccurred())
 
 			fakeFetcher.FromURLReturns(promiseFromFile(updatedPromisePath), nil)
@@ -263,7 +262,7 @@ var _ = Describe("PromiseReleaseController", func() {
 			promiseRelease.Spec.Version = "v1.2.0"
 			Expect(fakeK8sClient.Update(context.Background(), &promiseRelease)).To(Succeed())
 
-			_, err = promiseReleaseReconcile(reconciler, promiseReleaseNamespacedName)
+			_, err = reconcile(reconciler, &promiseRelease)
 			Expect(err).ToNot(HaveOccurred())
 
 			promise = fetchPromise(promiseReleaseNamespacedName)
@@ -271,7 +270,8 @@ var _ = Describe("PromiseReleaseController", func() {
 
 		Context("sourceRef URL", func() {
 			It("downloads the latest version from the url", func() {
-				// Expect(fakeHTTPClient.DoCallCount()).To(Equal(2))
+				Expect(fakeFetcher.FromURLCallCount()).To(Equal(2))
+				Expect(fakeFetcher.FromURLArgsForCall(0)).To(Equal("example.com"))
 			})
 		})
 
@@ -310,64 +310,3 @@ var _ = Describe("PromiseReleaseController", func() {
 		})
 	})
 })
-
-func promiseFromFile(path string) *v1alpha1.Promise {
-	promiseBody, err := os.Open(path)
-	Expect(err).ToNot(HaveOccurred())
-
-	decoder := yaml.NewYAMLOrJSONDecoder(promiseBody, 2048)
-	promise := &v1alpha1.Promise{}
-	err = decoder.Decode(promise)
-	Expect(err).ToNot(HaveOccurred())
-	promiseBody.Close()
-
-	return promise
-}
-
-func fetchPromise(namespacedName types.NamespacedName) *v1alpha1.Promise {
-	promise := &v1alpha1.Promise{}
-	err := fakeK8sClient.Get(context.TODO(), namespacedName, promise)
-	Expect(err).ToNot(HaveOccurred())
-	return promise
-}
-
-func deletePromise(namespacedName types.NamespacedName) {
-	// The fakeClient will return 404 if the object has deletionTimestamp and no Finalizers
-	promise := fetchPromise(namespacedName)
-
-	promise.SetFinalizers([]string{})
-	Expect(fakeK8sClient.Update(context.TODO(), promise)).To(Succeed())
-
-	fakeK8sClient.Delete(context.TODO(), promise)
-}
-
-func promiseReleaseReconcile(reconciler controllers.PromiseReleaseReconciler, promiseReleaseNamespacedName types.NamespacedName) (ctrl.Result, error) {
-	releaseObject := &v1alpha1.PromiseRelease{}
-	Expect(fakeK8sClient.Get(context.Background(), promiseReleaseNamespacedName, releaseObject)).To(Succeed())
-
-	result, err := reconciler.Reconcile(context.TODO(), ctrl.Request{
-		NamespacedName: promiseReleaseNamespacedName,
-	})
-	if err != nil {
-		return result, err
-	}
-
-	newReleaseObject := &v1alpha1.PromiseRelease{}
-
-	err = fakeK8sClient.Get(context.Background(), promiseReleaseNamespacedName, newReleaseObject)
-	if err != nil {
-		if errors.IsNotFound(err) {
-			return result, nil
-		}
-		Fail(err.Error())
-	}
-
-	if releaseObject.ResourceVersion == "20" { // arbitrary number to stop infinite loops
-		return result, nil
-	}
-	if releaseObject.ResourceVersion == newReleaseObject.ResourceVersion {
-		return result, nil
-	}
-
-	return promiseReleaseReconcile(reconciler, promiseReleaseNamespacedName)
-}
