@@ -307,3 +307,7 @@ func or(a, b string) string {
 	}
 	return b
 }
+
+func shortID(id string) string {
+	return id[0:5]
+}

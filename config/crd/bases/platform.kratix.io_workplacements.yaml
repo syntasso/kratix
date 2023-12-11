@@ -34,6 +34,8 @@ spec:
           spec:
             description: WorkPlacementSpec defines the desired state of WorkPlacement
             properties:
+              id:
+                type: string
               promiseName:
                 type: string
               resourceName:
