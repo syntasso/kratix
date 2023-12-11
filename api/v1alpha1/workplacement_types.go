@@ -27,6 +27,7 @@ type WorkPlacementSpec struct {
 	PromiseName           string     `json:"promiseName,omitempty"`
 	// +optional
 	ResourceName string `json:"resourceName,omitempty"`
+	ID           string `json:"id,omitempty"`
 }
 
 // WorkPlacementStatus defines the observed state of WorkPlacement

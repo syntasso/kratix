@@ -324,7 +324,7 @@ func (s *Scheduler) applyWorkplacementsForTargetDestinations(workloadGroup platf
 	for targetDestinationName, misscheduled := range targetDestinationNames {
 		workPlacement := &platformv1alpha1.WorkPlacement{}
 		workPlacement.Namespace = work.GetNamespace()
-		workPlacement.Name = work.Name + "." + targetDestinationName + "-" + workloadGroup.ID[0:5]
+		workPlacement.Name = work.Name + "." + targetDestinationName + "-" + shortID(workloadGroup.ID)
 
 		op, err := controllerutil.CreateOrUpdate(context.Background(), s.Client, workPlacement, func() error {
 			workPlacement.Spec.Workloads = workloadGroup.Workloads
@@ -338,6 +338,7 @@ func (s *Scheduler) applyWorkplacementsForTargetDestinations(workloadGroup platf
 				containsMischeduledWorkplacement = true
 			}
 
+			workPlacement.Spec.ID = workloadGroup.ID
 			workPlacement.Spec.PromiseName = work.Spec.PromiseName
 			workPlacement.Spec.ResourceName = work.Spec.ResourceName
 			workPlacement.Spec.TargetDestinationName = targetDestinationName

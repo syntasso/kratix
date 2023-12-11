@@ -170,7 +170,7 @@ var _ = Describe("Kratix", func() {
 				})
 
 				By("mirroring the directory and files from /kratix/output to the statestore", func() {
-					Expect(listFilesInStateStore("worker-1", "default", "bash", rrName)).To(ConsistOf("foo/example.json", "namespace.yaml"))
+					Expect(listFilesInStateStore("worker-1", "default", "bash", rrName)).To(ConsistOf("5058f/foo/example.json", "5058f/namespace.yaml"))
 				})
 
 				By("updating the resource status", func() {
