@@ -29,6 +29,11 @@ type BucketStateStoreSpec struct {
 
 	//+kubebuilder:validation:Optional
 	Insecure bool `json:"insecure"`
+
+	// AuthMethod used to access the StateStore
+	//+kubebuilder:validation:Enum=accessKey;IAM
+	//+kubebuilder:default:=accessKey
+	AuthMethod string `json:"authMethod,omitempty"`
 }
 
 // BucketStateStoreStatus defines the observed state of BucketStateStore

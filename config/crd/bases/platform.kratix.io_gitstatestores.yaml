@@ -34,6 +34,12 @@ spec:
           spec:
             description: GitStateStoreSpec defines the desired state of GitStateStore
             properties:
+              authMethod:
+                default: basicAuth
+                description: AuthMethod used to access the StateStore
+                enum:
+                - basicAuth
+                type: string
               branch:
                 default: main
                 type: string
