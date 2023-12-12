@@ -34,6 +34,13 @@ spec:
           spec:
             description: BucketStateStoreSpec defines the desired state of BucketStateStore
             properties:
+              authMethod:
+                default: accessKey
+                description: AuthMethod used to access the StateStore
+                enum:
+                - accessKey
+                - IAM
+                type: string
               bucketName:
                 type: string
               endpoint:

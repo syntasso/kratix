@@ -29,6 +29,13 @@ spec:
             spec:
               description: BucketStateStoreSpec defines the desired state of BucketStateStore
               properties:
+                authMethod:
+                  default: accessKey
+                  description: AuthMethod used to access the StateStore
+                  enum:
+                    - accessKey
+                    - IAM
+                  type: string
                 bucketName:
                   type: string
                 endpoint:
@@ -162,6 +169,12 @@ spec:
             spec:
               description: GitStateStoreSpec defines the desired state of GitStateStore
               properties:
+                authMethod:
+                  default: basicAuth
+                  description: AuthMethod used to access the StateStore
+                  enum:
+                    - basicAuth
+                  type: string
                 branch:
                   default: main
                   type: string
