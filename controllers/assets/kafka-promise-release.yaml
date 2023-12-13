@@ -1,0 +1,9 @@
+apiVersion: platform.kratix.io/v1alpha1
+kind: PromiseRelease
+metadata:
+  name: kafka
+spec:
+  version: v1.2.0
+  sourceRef:
+    type: http
+    url: https://raw.githubusercontent.com/syntasso/kratix-marketplace/main/kafka/promise.yaml

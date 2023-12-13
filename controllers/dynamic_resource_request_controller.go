@@ -76,6 +76,18 @@ func (r *dynamicResourceRequestController) Reconcile(ctx context.Context, req ct
 		return ctrl.Result{}, nil
 	}
 
+	/*
+		TODO
+
+		Undecided about _how_ we do this, but these are the cases to distinguish:
+
+		- r.disabledDueToPromiseDeletion
+			- don't update the status; just return
+
+		- r.disabledDueToUnmetDependencies
+		    - update the status to Pending (if status is unset) before returning
+	*/
+
 	resourceRequestIdentifier := fmt.Sprintf("%s-%s", r.promiseIdentifier, req.Name)
 	logger := r.log.WithValues(
 		"uid", r.uid,
