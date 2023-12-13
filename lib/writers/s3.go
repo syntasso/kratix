@@ -14,6 +14,11 @@ import (
 	platformv1alpha1 "github.com/syntasso/kratix/api/v1alpha1"
 )
 
+const (
+	AuthMethodIAM       = "IAM"
+	AuthMethodAccessKey = "accessKey"
+)
+
 type S3Writer struct {
 	Log        logr.Logger
 	RepoClient *minio.Client
@@ -24,20 +29,35 @@ type S3Writer struct {
 func NewS3Writer(logger logr.Logger, stateStoreSpec platformv1alpha1.BucketStateStoreSpec, destination platformv1alpha1.Destination, creds map[string][]byte) (StateStoreWriter, error) {
 	endpoint := stateStoreSpec.Endpoint
 
-	accessKeyID, ok := creds["accessKeyID"]
-	if !ok {
-		return nil, fmt.Errorf("accessKeyID not found in secret %s/%s", destination.Namespace, stateStoreSpec.SecretRef.Name)
-	}
-
-	secretAccessKey, ok := creds["secretAccessKey"]
-	if !ok {
-		return nil, fmt.Errorf("secretAccessKey not found in secret %s/%s", destination.Namespace, stateStoreSpec.SecretRef.Name)
-	}
-
-	minioClient, err := minio.New(endpoint, &minio.Options{
-		Creds:  credentials.NewStaticV4(string(accessKeyID), string(secretAccessKey), ""),
+	opts := &minio.Options{
 		Secure: !stateStoreSpec.Insecure,
-	})
+	}
+
+	logger.Info("setting up s3 client", "authMethod", stateStoreSpec.AuthMethod, "endpoint", endpoint, "insecure", stateStoreSpec.Insecure)
+	switch stateStoreSpec.AuthMethod {
+	case AuthMethodIAM:
+		opts.Creds = credentials.NewIAM("")
+
+	case "", AuthMethodAccessKey: //used to be optional so lets handle empty as the default
+		if creds == nil {
+			return nil, fmt.Errorf("secret not provided")
+		}
+		accessKeyID, ok := creds["accessKeyID"]
+		if !ok {
+			return nil, fmt.Errorf("missing key accessKeyID")
+		}
+
+		secretAccessKey, ok := creds["secretAccessKey"]
+		if !ok {
+			return nil, fmt.Errorf("missing key secretAccessKey")
+		}
+		opts.Creds = credentials.NewStaticV4(string(accessKeyID), string(secretAccessKey), "")
+
+	default:
+		return nil, fmt.Errorf("unknown authMethod %s", stateStoreSpec.AuthMethod)
+	}
+
+	minioClient, err := minio.New(endpoint, opts)
 
 	if err != nil {
 		logger.Error(err, "Error initalising Minio client")

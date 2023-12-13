@@ -17,6 +17,7 @@ spec:
   endpoint: minio.kratix-platform-system.svc.cluster.local
   insecure: true
   bucketName: kratix
+  authMethod: accessKey
   secretRef:
     name: minio-credentials
     namespace: default

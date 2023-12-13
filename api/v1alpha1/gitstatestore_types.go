@@ -30,6 +30,11 @@ type GitStateStoreSpec struct {
 	//+kubebuilder:validation:Optional
 	//+kubebuilder:default=main
 	Branch string `json:"branch,omitempty"`
+
+	// AuthMethod used to access the StateStore
+	//+kubebuilder:validation:Enum=basicAuth
+	//+kubebuilder:default:=basicAuth
+	AuthMethod string `json:"authMethod,omitempty"`
 }
 
 // GitStateStoreStatus defines the observed state of GitStateStore

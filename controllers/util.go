@@ -199,6 +199,11 @@ func fetchObjectAndSecret(o opts, stateStoreRef client.ObjectKey, stateStore Sta
 		o.logger.Error(err, "unable to fetch resource", "resourceKind", stateStore.GetObjectKind(), "stateStoreRef", stateStoreRef)
 		return nil, err
 	}
+
+	if stateStore.GetSecretRef() == nil {
+		return nil, nil
+	}
+
 	namespace := stateStore.GetSecretRef().Namespace
 	if namespace == "" {
 		namespace = v1alpha1.KratixSystemNamespace
@@ -233,8 +238,12 @@ func newWriter(o opts, destination v1alpha1.Destination) (writers.StateStoreWrit
 		if fetchErr != nil {
 			return nil, fetchErr
 		}
+		var data map[string][]byte = nil
+		if secret != nil {
+			data = secret.Data
+		}
 
-		writer, err = writers.NewS3Writer(o.logger.WithName("writers").WithName("BucketStateStoreWriter"), stateStore.Spec, destination, secret.Data)
+		writer, err = writers.NewS3Writer(o.logger.WithName("writers").WithName("BucketStateStoreWriter"), stateStore.Spec, destination, data)
 	case "GitStateStore":
 		stateStore := &v1alpha1.GitStateStore{}
 		secret, fetchErr := fetchObjectAndSecret(o, stateStoreRef, stateStore)
