@@ -201,7 +201,6 @@ func fetchObjectAndSecret(o opts, stateStoreRef client.ObjectKey, stateStore Sta
 	}
 
 	if stateStore.GetSecretRef() == nil {
-		o.logger.Info("No secret ref found, assuming IAM role should be used", "stateStore", stateStoreRef)
 		return nil, nil
 	}
 

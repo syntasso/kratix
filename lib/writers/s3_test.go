@@ -36,7 +36,7 @@ var _ = Describe("S3", func() {
 
 		})
 
-		Context("secretAccessKey", func() {
+		Context("accessKey", func() {
 			BeforeEach(func() {
 				stateStoreSpec.AuthMethod = "accessKey"
 			})
