@@ -52,9 +52,9 @@ var _ = Describe("PromiseController", func() {
 			})
 		})
 
-		When("the promise is created via a PromiseRelease", func() {
+		When("the promise contains a version label", func() {
 			BeforeEach(func() {
-				promise.Labels["kratix.io/promise-release-version"] = "v1.2.3"
+				promise.Labels["kratix.io/promise-version"] = "v1.2.3"
 				Expect(fakeK8sClient.Create(ctx, promise)).To(Succeed())
 
 				result, err := reconcile(&reconciler, promise, &opts{singleReconcile: true})
@@ -62,7 +62,7 @@ var _ = Describe("PromiseController", func() {
 				Expect(result).To(Equal(ctrl.Result{}))
 			})
 
-			It("persists the value labels in the Status", func() {
+			It("it gets its status updated with the version", func() {
 				promise := fetchPromise(promiseName)
 				Expect(promise.Status.Version).To(Equal("v1.2.3"))
 			})
