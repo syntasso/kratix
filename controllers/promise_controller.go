@@ -567,13 +567,29 @@ func (r *PromiseReconciler) deleteDynamicControllerResources(o opts, promise *v1
 }
 
 func (r *PromiseReconciler) deleteResourceRequests(o opts, promise *v1alpha1.Promise) error {
-	_, rrGVK, err := generateCRDAndGVK(promise, o.logger)
+	rrCRD, rrGVK, err := generateCRDAndGVK(promise, o.logger)
 	if err != nil {
 		return err
 	}
 
 	// No need to pass labels since all resource requests are of Kind
 	resourcesRemaining, err := deleteAllResourcesWithKindMatchingLabel(o, rrGVK, nil)
+	if err != nil {
+		return err
+	}
+
+	var work v1alpha1.Work
+	err = r.Client.Get(o.ctx, types.NamespacedName{Name: promise.GetName(), Namespace: v1alpha1.KratixSystemNamespace}, &work)
+	if err != nil {
+		return err
+	}
+
+	pipelines, err := r.generatePipelines(promise, o.logger)
+	if err != nil {
+		return err
+	}
+
+	err = r.ensureDynamicControllerIsStarted(promise, &work, rrCRD, rrGVK, pipelines.ConfigureResource, pipelines.DeleteResource, o.logger)
 	if err != nil {
 		return err
 	}
