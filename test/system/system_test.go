@@ -150,9 +150,9 @@ var _ = Describe("Kratix", func() {
 					}, timeout, interval).Should(Succeed())
 				})
 
-				By("creating resources with Reconciled status", func() {
+				By("creating resources with 'Resource requested' status", func() {
 					Eventually(func(g Gomega) {
-						g.Expect(platform.kubectl("get", "bash")).To(ContainSubstring("Reconciled"))
+						g.Expect(platform.kubectl("get", "bash")).To(ContainSubstring("Resource requested"))
 					}, timeout, interval).Should(Succeed())
 				})
 			})

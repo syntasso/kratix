@@ -206,7 +206,15 @@ func (r *PromiseReconciler) Reconcile(ctx context.Context, req ctrl.Request) (ct
 		return ctrl.Result{}, err
 	}
 
-	err = r.ensureDynamicControllerIsStarted(promise, &work, rrCRD, rrGVK, pipelines.ConfigureResource, pipelines.DeleteResource, logger)
+	dynamicControllerCanCreateResources := true
+	for _, req := range promise.Status.Requirements {
+		if req.State != requirementStateInstalled {
+			logger.Info("requirement not installed, disabling dynamic controller", "requirement", req)
+			dynamicControllerCanCreateResources = false
+		}
+	}
+
+	err = r.ensureDynamicControllerIsStarted(promise, &work, rrCRD, rrGVK, pipelines.ConfigureResource, pipelines.DeleteResource, &dynamicControllerCanCreateResources, logger)
 	if err != nil {
 		return ctrl.Result{}, err
 	}
@@ -215,15 +223,9 @@ func (r *PromiseReconciler) Reconcile(ctx context.Context, req ctrl.Request) (ct
 		return addFinalizers(opts, promise, []string{resourceRequestCleanupFinalizer})
 	}
 
-	//return forever here if requirements not met
-	for _, req := range promise.Status.Requirements {
-		if req.State != requirementStateInstalled {
-			logger.Info("requeueing, not all requirements are fulfilled", "requirementsStatus", promise.Status.Requirements)
-
-			// TODO disable the dynamic controller if it has already started
-
-			return slowRequeue, nil
-		}
+	if !dynamicControllerCanCreateResources {
+		logger.Info("requirements not fulfilled, disabled dynamic controller and requeuing", "requirementsStatus", promise.Status.Requirements)
+		return slowRequeue, nil
 	}
 
 	logger.Info("requirements are fulfilled", "requirementsStatus", promise.Status.Requirements)
@@ -397,17 +399,19 @@ func (r *PromiseReconciler) reconcileAllRRs(rrGVK schema.GroupVersionKind) error
 	return nil
 }
 
-func (r *PromiseReconciler) ensureDynamicControllerIsStarted(promise *v1alpha1.Promise, work *v1alpha1.Work, rrCRD *apiextensionsv1.CustomResourceDefinition, rrGVK schema.GroupVersionKind, configurePipelines, deletePipelines []v1alpha1.Pipeline, logger logr.Logger) error {
+func (r *PromiseReconciler) ensureDynamicControllerIsStarted(promise *v1alpha1.Promise, work *v1alpha1.Work, rrCRD *apiextensionsv1.CustomResourceDefinition, rrGVK schema.GroupVersionKind, configurePipelines, deletePipelines []v1alpha1.Pipeline, canCreateResources *bool, logger logr.Logger) error {
 
 	// The Dynamic Controller needs to be started once and only once.
 	if r.dynamicControllerHasAlreadyStarted(promise) {
-		logger.Info("dynamic controller already started")
+		logger.Info("dynamic controller already started, ensuring it is up to date")
 
 		dynamicController := r.StartedDynamicControllers[string(promise.GetUID())]
 		dynamicController.deletePipelines = deletePipelines
 		dynamicController.configurePipelines = configurePipelines
 		dynamicController.gvk = &rrGVK
 		dynamicController.crd = rrCRD
+
+		dynamicController.canCreateResources = canCreateResources
 
 		dynamicController.promiseDestinationSelectors = promise.Spec.DestinationSelectors
 		dynamicController.promiseWorkflowSelectors = work.GetDefaultScheduling("promise-workflow")
@@ -432,6 +436,7 @@ func (r *PromiseReconciler) ensureDynamicControllerIsStarted(promise *v1alpha1.P
 		log:                         r.Log.WithName(promise.GetName()),
 		uid:                         string(promise.GetUID())[0:5],
 		enabled:                     &enabled,
+		canCreateResources:          canCreateResources,
 	}
 	r.StartedDynamicControllers[string(promise.GetUID())] = dynamicResourceRequestController
 
@@ -546,6 +551,8 @@ func (r *PromiseReconciler) ensureCRDExists(ctx context.Context, promise *v1alph
 		} else {
 			logger.Error(err, "Error creating crd")
 		}
+	} else {
+		logger.Info("Installed CRD", "crdName", rrCRD.Name)
 	}
 	version := ""
 	for _, v := range rrCRD.Spec.Versions {

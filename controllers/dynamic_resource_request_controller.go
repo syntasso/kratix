@@ -61,6 +61,7 @@ type dynamicResourceRequestController struct {
 	finalizers                  []string
 	uid                         string
 	enabled                     *bool
+	canCreateResources          *bool
 	crd                         *apiextensionsv1.CustomResourceDefinition
 	promiseDestinationSelectors []v1alpha1.PromiseScheduling
 	promiseWorkflowSelectors    *v1alpha1.WorkloadGroupScheduling
@@ -106,6 +107,23 @@ func (r *dynamicResourceRequestController) Reconcile(ctx context.Context, req ct
 		}
 		logger.Error(err, "Failed getting Promise CRD")
 		return defaultRequeue, nil
+	}
+
+	// TODO maybe delete the resource before this?
+	if !*r.canCreateResources {
+		logger.Info("Cannot create resources; ensuring status is set to Pending")
+		status := rr.Object["status"]
+		if status == nil {
+			resourceutil.SetStatus(rr, logger, "message", "Pending")
+
+			if err := r.Client.Status().Update(ctx, rr); err != nil {
+				return ctrl.Result{}, err
+			}
+
+			return slowRequeue, nil
+		} else if status.(map[string]interface{})["message"] == "Pending" {
+			return slowRequeue, nil
+		}
 	}
 
 	opts := opts{
