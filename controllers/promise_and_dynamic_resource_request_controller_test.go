@@ -89,7 +89,6 @@ var _ = Context("Promise Reconciler", func() {
 			It("creates a CRD for the promise", func() {
 				Eventually(func() string {
 					crd, _ := apiextensionClient.
-						ApiextensionsV1().
 						CustomResourceDefinitions().
 						Get(ctx, expectedCRDName, metav1.GetOptions{})
 
@@ -529,7 +528,6 @@ var _ = Context("Promise Reconciler", func() {
 				By("deleting the Promise CRD", func() {
 					Eventually(func() bool {
 						_, err := apiextensionClient.
-							ApiextensionsV1().
 							CustomResourceDefinitions().
 							Get(ctx, expectedCRDName, metav1.GetOptions{})
 
@@ -617,7 +615,6 @@ var _ = Context("Promise Reconciler", func() {
 
 			Eventually(func() string {
 				crd, _ = apiextensionClient.
-					ApiextensionsV1().
 					CustomResourceDefinitions().
 					Get(ctx, expectedCRDName, metav1.GetOptions{})
 

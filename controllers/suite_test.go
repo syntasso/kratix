@@ -26,10 +26,13 @@ import (
 	. "github.com/onsi/ginkgo/v2"
 	. "github.com/onsi/gomega"
 	platformv1alpha1 "github.com/syntasso/kratix/api/v1alpha1"
+	"k8s.io/apiextensions-apiserver/pkg/client/clientset/clientset"
 
 	. "github.com/syntasso/kratix/controllers"
+
 	v1 "k8s.io/api/core/v1"
-	"k8s.io/apiextensions-apiserver/pkg/client/clientset/clientset"
+	fakeclientset "k8s.io/apiextensions-apiserver/pkg/client/clientset/clientset/fake"
+	apiextensionsv1 "k8s.io/apiextensions-apiserver/pkg/client/clientset/clientset/typed/apiextensions/v1"
 	"k8s.io/client-go/kubernetes/scheme"
 	ctrl "sigs.k8s.io/controller-runtime"
 	"sigs.k8s.io/controller-runtime/pkg/client"
@@ -44,11 +47,12 @@ import (
 // http://onsi.github.io/ginkgo/ to learn more about Ginkgo.
 
 var (
-	k8sClient          client.Client
-	fakeK8sClient      client.Client
-	apiextensionClient *clientset.Clientset
-	testEnv            *envtest.Environment
-	k8sManager         ctrl.Manager
+	k8sClient               client.Client
+	fakeK8sClient           client.Client
+	fakeApiExtensionsClient apiextensionsv1.CustomResourceDefinitionsGetter
+	apiextensionClient      apiextensionsv1.CustomResourceDefinitionsGetter
+	testEnv                 *envtest.Environment
+	k8sManager              ctrl.Manager
 
 	timeout             = "30s"
 	consistentlyTimeout = "6s"
@@ -72,7 +76,7 @@ var _ = BeforeSuite(func(_ SpecContext) {
 	Expect(err).NotTo(HaveOccurred())
 	Expect(cfg).NotTo(BeNil())
 
-	apiextensionClient = clientset.NewForConfigOrDie(cfg)
+	apiextensionClient = clientset.NewForConfigOrDie(cfg).ApiextensionsV1()
 	k8sClient, err = client.New(cfg, client.Options{Scheme: scheme.Scheme})
 	Expect(err).NotTo(HaveOccurred())
 	Expect(k8sClient).NotTo(BeNil())
@@ -121,6 +125,8 @@ var _ = BeforeEach(func() {
 		&platformv1alpha1.GitStateStore{},
 		&platformv1alpha1.BucketStateStore{},
 	).Build()
+
+	fakeApiExtensionsClient = fakeclientset.NewSimpleClientset().ApiextensionsV1()
 })
 
 func cleanEnvironment() {
