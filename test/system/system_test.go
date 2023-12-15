@@ -460,7 +460,7 @@ var _ = Describe("Kratix", func() {
 		BeforeEach(func() {
 			router := mux.NewRouter()
 			router.HandleFunc("/promise", func(w gohttp.ResponseWriter, _ *gohttp.Request) {
-				bytes, err := os.ReadFile(promisePath)
+				bytes, err := os.ReadFile(promiseWithSchedulingPath)
 				Expect(err).NotTo(HaveOccurred())
 				w.Write(bytes)
 			}).Methods("GET")
@@ -483,7 +483,10 @@ var _ = Describe("Kratix", func() {
 
 		When("a PromiseRelease is installed", func() {
 			BeforeEach(func() {
-				platform.kubectl("apply", "-f", promiseReleasePath)
+				tmpDir, err := os.MkdirTemp(os.TempDir(), "systest")
+				Expect(err).NotTo(HaveOccurred())
+				platform.kubectl("apply", "-f", catAndReplace(tmpDir, promiseReleasePath))
+				os.RemoveAll(tmpDir)
 			})
 
 			It("installs the Promises specified", func() {

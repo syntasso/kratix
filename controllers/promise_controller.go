@@ -117,7 +117,7 @@ func (r *PromiseReconciler) Reconcile(ctx context.Context, req ctrl.Request) (ct
 		return r.deletePromise(opts, promise)
 	}
 
-	if value, found := promise.Labels[promiseReleaseVersionLabel]; found {
+	if value, found := promise.Labels[promiseVersionLabel]; found {
 		if promise.Status.Version != value {
 			promise.Status.Version = value
 			return ctrl.Result{}, r.Client.Status().Update(ctx, promise)
