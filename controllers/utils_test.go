@@ -2,6 +2,7 @@ package controllers_test
 
 import (
 	"context"
+	"encoding/json"
 	"fmt"
 	"os"
 
@@ -11,6 +12,7 @@ import (
 	"k8s.io/apimachinery/pkg/apis/meta/v1/unstructured"
 	"k8s.io/apimachinery/pkg/types"
 	"k8s.io/apimachinery/pkg/util/yaml"
+	clusterv1 "sigs.k8s.io/cluster-api/api/v1beta1"
 	ctrl "sigs.k8s.io/controller-runtime"
 	"sigs.k8s.io/controller-runtime/pkg/client"
 	kubebuilder "sigs.k8s.io/controller-runtime/pkg/reconcile"
@@ -88,4 +90,35 @@ func reconcile(r kubebuilder.Reconciler, obj client.Object, opts ...*opts) (ctrl
 	}
 
 	return reconcile(r, obj, opts...)
+}
+
+func conditionsFromStatus(status interface{}) ([]clusterv1.Condition, error) {
+	conditions := []clusterv1.Condition{}
+
+	statusMap := status.(map[string]interface{})
+	conditionsMap, ok := statusMap["conditions"].([]interface{})
+	if !ok {
+		return conditions, fmt.Errorf("invalid status format")
+	}
+
+	for _, rawCondition := range conditionsMap {
+		conditionData, ok := rawCondition.(map[string]interface{})
+		if !ok {
+			return conditions, fmt.Errorf("invalid condition data format")
+		}
+
+		conditionBytes, err := json.Marshal(conditionData)
+		if err != nil {
+			return conditions, err
+		}
+
+		var condition clusterv1.Condition
+		if err := json.Unmarshal(conditionBytes, &condition); err != nil {
+			return conditions, err
+		}
+
+		conditions = append(conditions, condition)
+	}
+
+	return conditions, nil
 }

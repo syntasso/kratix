@@ -18,6 +18,7 @@ package controllers
 
 import (
 	"context"
+	"time"
 
 	apiextensionsv1 "k8s.io/apiextensions-apiserver/pkg/apis/apiextensions/v1"
 	"k8s.io/apimachinery/pkg/types"
@@ -33,18 +34,25 @@ import (
 	corev1 "k8s.io/api/core/v1"
 
 	"k8s.io/apimachinery/pkg/api/errors"
+	metav1 "k8s.io/apimachinery/pkg/apis/meta/v1"
 	"k8s.io/apimachinery/pkg/apis/meta/v1/unstructured"
 	"k8s.io/apimachinery/pkg/runtime"
 	"k8s.io/apimachinery/pkg/runtime/schema"
+	clusterv1 "sigs.k8s.io/cluster-api/api/v1beta1"
 	ctrl "sigs.k8s.io/controller-runtime"
 	"sigs.k8s.io/controller-runtime/pkg/client"
 	"sigs.k8s.io/yaml"
 )
 
 const (
-	workFinalizer            = kratixPrefix + "work-cleanup"
-	workflowsFinalizer       = kratixPrefix + "workflows-cleanup"
-	deleteWorkflowsFinalizer = kratixPrefix + "delete-workflows"
+	workFinalizer                    = kratixPrefix + "work-cleanup"
+	workflowsFinalizer               = kratixPrefix + "workflows-cleanup"
+	deleteWorkflowsFinalizer         = kratixPrefix + "delete-workflows"
+	promiseAvailableCondition        = clusterv1.ConditionType("PromiseAvailable")
+	promiseRequirementsNotMetReason  = "PromiseRequirementsNotInstalled"
+	promiseRequirementsNotMetMessage = "Promise Requirements are not installed"
+	promiseRequirementsMetReason     = "PromiseAvailable"
+	promiseRequirementsMetMessage    = "Promise Requirements are met"
 )
 
 var rrFinalizers = []string{workFinalizer, workflowsFinalizer, deleteWorkflowsFinalizer}
@@ -77,18 +85,6 @@ func (r *dynamicResourceRequestController) Reconcile(ctx context.Context, req ct
 		return ctrl.Result{}, nil
 	}
 
-	/*
-		TODO
-
-		Undecided about _how_ we do this, but these are the cases to distinguish:
-
-		- r.disabledDueToPromiseDeletion
-			- don't update the status; just return
-
-		- r.disabledDueToUnmetDependencies
-		    - update the status to Pending (if status is unset) before returning
-	*/
-
 	resourceRequestIdentifier := fmt.Sprintf("%s-%s", r.promiseIdentifier, req.Name)
 	logger := r.log.WithValues(
 		"uid", r.uid,
@@ -109,23 +105,6 @@ func (r *dynamicResourceRequestController) Reconcile(ctx context.Context, req ct
 		return defaultRequeue, nil
 	}
 
-	// TODO maybe delete the resource before this?
-	if !*r.canCreateResources {
-		logger.Info("Cannot create resources; ensuring status is set to Pending")
-		status := rr.Object["status"]
-		if status == nil {
-			resourceutil.SetStatus(rr, logger, "message", "Pending")
-
-			if err := r.Client.Status().Update(ctx, rr); err != nil {
-				return ctrl.Result{}, err
-			}
-
-			return slowRequeue, nil
-		} else if status.(map[string]interface{})["message"] == "Pending" {
-			return slowRequeue, nil
-		}
-	}
-
 	opts := opts{
 		client: r.Client,
 		ctx:    ctx,
@@ -134,6 +113,50 @@ func (r *dynamicResourceRequestController) Reconcile(ctx context.Context, req ct
 
 	if !rr.GetDeletionTimestamp().IsZero() {
 		return r.deleteResources(opts, rr, resourceRequestIdentifier)
+	}
+
+	if !*r.canCreateResources {
+		logger.Info("Cannot create resources; ensuring status is set to Pending")
+		status := rr.Object["status"]
+		if status == nil || status.(map[string]interface{})["message"] != "Pending" {
+			resourceutil.SetStatus(rr, logger, "message", "Pending")
+
+			condition := &clusterv1.Condition{
+				Type:               promiseAvailableCondition,
+				Status:             corev1.ConditionFalse,
+				Reason:             promiseRequirementsNotMetReason,
+				Message:            promiseRequirementsNotMetMessage,
+				LastTransitionTime: metav1.NewTime(time.Now()),
+			}
+
+			resourceutil.SetCondition(rr, condition)
+
+			if err := r.Client.Status().Update(ctx, rr); err != nil {
+				return ctrl.Result{}, err
+			}
+
+			return ctrl.Result{}, nil
+		}
+
+		return slowRequeue, nil
+	}
+
+	condition := resourceutil.GetCondition(rr, promiseAvailableCondition)
+	if condition != nil && condition.Status == corev1.ConditionFalse {
+		updatedCondition := &clusterv1.Condition{
+			Type:               promiseAvailableCondition,
+			Status:             corev1.ConditionTrue,
+			Reason:             promiseRequirementsMetReason,
+			Message:            promiseRequirementsMetMessage,
+			LastTransitionTime: metav1.NewTime(time.Now()),
+		}
+
+		resourceutil.SetCondition(rr, updatedCondition)
+
+		if err := r.Client.Status().Update(ctx, rr); err != nil {
+			return ctrl.Result{}, err
+		}
+		return ctrl.Result{}, nil
 	}
 
 	// Reconcile necessary finalizers

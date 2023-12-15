@@ -136,13 +136,8 @@ func (r *PromiseReconciler) Reconcile(ctx context.Context, req ctrl.Request) (ct
 	//available. If at anytime we return early, it persisted as unavailable
 	promise.Status.Status = v1alpha1.PromiseStatusUnavailable
 	updated, err := r.ensureRequirementStatusIsUpToDate(ctx, promise)
-
-	if err != nil {
+	if err != nil || updated {
 		return ctrl.Result{}, err
-	}
-
-	if updated {
-		return ctrl.Result{}, nil
 	}
 
 	var rrCRD *apiextensionsv1.CustomResourceDefinition
@@ -721,7 +716,8 @@ func (r *PromiseReconciler) deleteResourceRequests(o opts, promise *v1alpha1.Pro
 		return err
 	}
 
-	err = r.ensureDynamicControllerIsStarted(promise, &work, rrCRD, rrGVK, pipelines.ConfigureResource, pipelines.DeleteResource, o.logger)
+	var canCreateResources bool
+	err = r.ensureDynamicControllerIsStarted(promise, &work, rrCRD, rrGVK, pipelines.ConfigureResource, pipelines.DeleteResource, &canCreateResources, o.logger)
 	if err != nil {
 		return err
 	}

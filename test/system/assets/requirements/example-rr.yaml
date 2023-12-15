@@ -1,4 +1,4 @@
-apiVersion: test.kratix.io/v1alpha1
+apiVersion: marketplace.kratix.io/v1alpha1
 kind: redis
 metadata:
   name: example-rr
