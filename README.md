@@ -7,17 +7,7 @@
 
 κρατήστε μια υπόσχεση | *kratíste mia ypóschesi* | **Keep a promise**
 
-Platform engineering is a struggle between off-the-shelf offerings that only
-serve a small percentage of your applications and unmaintainable bespoke
-solutions your teams build on Kubernetes… which only serve a small percentage of
-your applications.
-
-For even a moderately complex environment, this build vs buy
-situation is lose-lose. We built Kratix, an open-source framework for building
-platforms. Kratix makes it possible for you to stand up a platform (or many
-platforms!) that is specific to your needs but easy to maintain and upgrade
-because it’s built on the best of open-source and cloud offerings.
-
+Kratix is an open-source platform framework that combines the flexibility and customisability of building your platform from scratch with the on-demand and self-service power of public clouds.
 
 ## Want to learn more?
 
