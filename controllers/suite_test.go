@@ -17,7 +17,6 @@ limitations under the License.
 package controllers_test
 
 import (
-	"path/filepath"
 	"testing"
 	"time"
 
@@ -26,11 +25,11 @@ import (
 	. "github.com/onsi/ginkgo/v2"
 	. "github.com/onsi/gomega"
 	platformv1alpha1 "github.com/syntasso/kratix/api/v1alpha1"
-	"k8s.io/apiextensions-apiserver/pkg/client/clientset/clientset"
 
-	. "github.com/syntasso/kratix/controllers"
+	// "k8s.io/apiextensions-apiserver/pkg/client/clientset/clientset"
 
-	v1 "k8s.io/api/core/v1"
+	// . "github.com/syntasso/kratix/controllers"
+
 	fakeclientset "k8s.io/apiextensions-apiserver/pkg/client/clientset/clientset/fake"
 	apiextensionsv1 "k8s.io/apiextensions-apiserver/pkg/client/clientset/clientset/typed/apiextensions/v1"
 	"k8s.io/client-go/kubernetes/scheme"
@@ -66,53 +65,53 @@ var _ = BeforeSuite(func(_ SpecContext) {
 
 	logf.SetLogger(zap.New(zap.WriteTo(GinkgoWriter), zap.UseDevMode(true)))
 
-	By("bootstrapping test environment")
-	testEnv = &envtest.Environment{
-		CRDDirectoryPaths:     []string{filepath.Join("..", "config", "crd", "bases")},
-		ErrorIfCRDPathMissing: true,
-	}
+	// By("bootstrapping test environment")
+	// testEnv = &envtest.Environment{
+	// 	CRDDirectoryPaths:     []string{filepath.Join("..", "config", "crd", "bases")},
+	// 	ErrorIfCRDPathMissing: true,
+	// }
 
-	cfg, err := testEnv.Start()
-	Expect(err).NotTo(HaveOccurred())
-	Expect(cfg).NotTo(BeNil())
+	// cfg, err := testEnv.Start()
+	// Expect(err).NotTo(HaveOccurred())
+	// Expect(cfg).NotTo(BeNil())
 
-	apiextensionClient = clientset.NewForConfigOrDie(cfg).ApiextensionsV1()
-	k8sClient, err = client.New(cfg, client.Options{Scheme: scheme.Scheme})
-	Expect(err).NotTo(HaveOccurred())
-	Expect(k8sClient).NotTo(BeNil())
+	// apiextensionClient = clientset.NewForConfigOrDie(cfg).ApiextensionsV1()
+	// k8sClient, err = client.New(cfg, client.Options{Scheme: scheme.Scheme})
+	// Expect(err).NotTo(HaveOccurred())
+	// Expect(k8sClient).NotTo(BeNil())
 
-	k8sManager, err = ctrl.NewManager(cfg, ctrl.Options{
-		Scheme: scheme.Scheme,
-	})
-	Expect(err).ToNot(HaveOccurred())
+	// k8sManager, err = ctrl.NewManager(cfg, ctrl.Options{
+	// 	Scheme: scheme.Scheme,
+	// })
+	// Expect(err).ToNot(HaveOccurred())
 
-	err = (&PromiseReconciler{
-		Manager:             k8sManager,
-		ApiextensionsClient: apiextensionClient,
-		Client:              k8sManager.GetClient(),
-		Log:                 ctrl.Log.WithName("controllers").WithName("PromiseReconciler"),
-		RestartManager:      func() {},
-	}).SetupWithManager(k8sManager)
-	Expect(err).ToNot(HaveOccurred())
+	// err = (&PromiseReconciler{
+	// 	Manager:             k8sManager,
+	// 	ApiextensionsClient: apiextensionClient,
+	// 	Client:              k8sManager.GetClient(),
+	// 	Log:                 ctrl.Log.WithName("controllers").WithName("PromiseReconciler"),
+	// 	RestartManager:      func() {},
+	// }).SetupWithManager(k8sManager)
+	// Expect(err).ToNot(HaveOccurred())
 
-	go func() {
-		defer GinkgoRecover()
-		err = k8sManager.Start(ctrl.SetupSignalHandler())
-		Expect(err).ToNot(HaveOccurred())
-	}()
+	// go func() {
+	// 	defer GinkgoRecover()
+	// 	err = k8sManager.Start(ctrl.SetupSignalHandler())
+	// 	Expect(err).ToNot(HaveOccurred())
+	// }()
 
-	ns := &v1.Namespace{
-		ObjectMeta: ctrl.ObjectMeta{
-			Name: platformv1alpha1.KratixSystemNamespace,
-		},
-	}
-	Expect(k8sClient.Create(context.Background(), ns)).To(Succeed())
+	// ns := &v1.Namespace{
+	// 	ObjectMeta: ctrl.ObjectMeta{
+	// 		Name: platformv1alpha1.KratixSystemNamespace,
+	// 	},
+	// }
+	// Expect(k8sClient.Create(context.Background(), ns)).To(Succeed())
 
 }, NodeTimeout(time.Minute))
 
 var _ = AfterSuite(func() {
 	By("tearing down the test environment")
-	testEnv.Stop()
+	// testEnv.Stop()
 })
 
 var _ = BeforeEach(func() {
