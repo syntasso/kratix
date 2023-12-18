@@ -44,20 +44,18 @@ import (
 
 var _ = Context("Promise Reconciler", func() {
 	var (
-		promiseCR           *v1alpha1.Promise
-		ctx                 = context.Background()
-		promiseCommonLabels map[string]string
+		promiseCR *v1alpha1.Promise
+		ctx       = context.Background()
 
 		expectedCRDName = "redises.redis.redis.opstreelabs.in"
 
-		requestedResource                     *unstructured.Unstructured
-		promiseCommonName, resourceCommonName types.NamespacedName
-		yamlContent                           = map[string]*v1alpha1.Promise{}
+		requestedResource  *unstructured.Unstructured
+		resourceCommonName types.NamespacedName
+		yamlContent        = map[string]*v1alpha1.Promise{}
 	)
 
 	const (
-		RedisPromisePath    = "../config/samples/redis/redis-promise.yaml"
-		promiseWithWorkflow = "assets/promise-with-workflow.yaml"
+		RedisPromisePath = "../config/samples/redis/redis-promise.yaml"
 	)
 
 	applyPromise := func(promisePath string) {
@@ -74,8 +72,7 @@ var _ = Context("Promise Reconciler", func() {
 
 	Describe("Promise reconciliation lifecycle", func() {
 		var (
-			promiseGroup        = "redis.redis.opstreelabs.in"
-			promiseResourceName = "redises"
+			promiseGroup = "redis.redis.opstreelabs.in"
 		)
 
 		BeforeEach(func() {
@@ -83,188 +80,6 @@ var _ = Context("Promise Reconciler", func() {
 			promiseCommonLabels = map[string]string{
 				"kratix-promise-id": promiseCR.GetName(),
 			}
-		})
-
-		When("the promise is installed", func() {
-			It("creates a CRD for the promise", func() {
-				Eventually(func() string {
-					crd, _ := apiextensionClient.
-						CustomResourceDefinitions().
-						Get(ctx, expectedCRDName, metav1.GetOptions{})
-
-					// The returned CRD is missing the expected metadata,
-					// therefore we need to reach inside the spec to get the
-					// underlying Redis crd definition to allow us to assert correctly.
-					return crd.Spec.Names.Plural + "." + crd.Spec.Group
-				}, timeout, interval).Should(Equal(expectedCRDName))
-			})
-
-			It("creates a ClusterRole to access the Promise CRD", func() {
-				clusterRoleName := types.NamespacedName{
-					Name: promiseCR.GetControllerResourceName(),
-				}
-
-				clusterrole := &rbacv1.ClusterRole{}
-				Eventually(func() error {
-					return k8sClient.Get(ctx, clusterRoleName, clusterrole)
-				}, timeout, interval).Should(Succeed(), "Expected controller ClusterRole to exist")
-
-				Expect(clusterrole.Rules).To(ConsistOf(
-					rbacv1.PolicyRule{
-						Verbs:     []string{rbacv1.VerbAll},
-						APIGroups: []string{promiseGroup},
-						Resources: []string{promiseResourceName},
-					},
-					rbacv1.PolicyRule{
-						Verbs:     []string{"update"},
-						APIGroups: []string{promiseGroup},
-						Resources: []string{promiseResourceName + "/finalizers"},
-					},
-					rbacv1.PolicyRule{
-						Verbs:     []string{"get", "update", "patch"},
-						APIGroups: []string{promiseGroup},
-						Resources: []string{promiseResourceName + "/status"},
-					},
-				))
-
-				Expect(clusterrole.GetLabels()).To(Equal(promiseCommonLabels))
-			})
-
-			It("binds the Kratix SA the newly created ClusterRole", func() {
-				bindingName := types.NamespacedName{
-					Name: promiseCR.GetControllerResourceName(),
-				}
-
-				binding := &rbacv1.ClusterRoleBinding{}
-				Eventually(func() error {
-					return k8sClient.Get(ctx, bindingName, binding)
-				}, timeout, interval).Should(Succeed(), "Expected controller binding to exist")
-
-				Expect(binding.RoleRef.Name).To(Equal(promiseCR.GetControllerResourceName()))
-				Expect(binding.Subjects).To(HaveLen(1))
-				Expect(binding.Subjects[0]).To(Equal(rbacv1.Subject{
-					Kind:      "ServiceAccount",
-					Namespace: v1alpha1.KratixSystemNamespace,
-					Name:      "kratix-platform-controller-manager",
-				}))
-				Expect(binding.GetLabels()).To(Equal(promiseCommonLabels))
-			})
-
-			It("creates works for the dependencies, on the "+v1alpha1.KratixSystemNamespace+" namespace", func() {
-				workNamespacedName := types.NamespacedName{
-					Name:      promiseCR.GetName(),
-					Namespace: v1alpha1.KratixSystemNamespace,
-				}
-				Eventually(func() error {
-					return k8sClient.Get(ctx, workNamespacedName, &v1alpha1.Work{})
-				}, timeout, interval).Should(Succeed())
-			})
-
-			When("the promise has a configure workflow", func() {
-				BeforeEach(func() {
-					applyPromise(promiseWithWorkflow)
-					promiseCommonLabels = map[string]string{
-						"kratix-promise-id": promiseCR.GetName(),
-					}
-
-					promiseCommonName = types.NamespacedName{
-						Name:      promiseCR.GetName() + "-promise-pipeline",
-						Namespace: "kratix-platform-system",
-					}
-				})
-
-				It("creates a service account for pipeline", func() {
-					sa := &v1.ServiceAccount{}
-					Eventually(func() error {
-						return k8sClient.Get(ctx, promiseCommonName, sa)
-					}, timeout, interval).Should(Succeed(), "Expected SA for pipeline to exist")
-
-					Expect(sa.GetLabels()).To(Equal(promiseCommonLabels))
-				})
-
-				It("creates a role for the pipeline service account", func() {
-					role := &rbacv1.ClusterRole{}
-					Eventually(func() error {
-						return k8sClient.Get(ctx, promiseCommonName, role)
-					}, timeout, interval).Should(Succeed(), "Expected Role for pipeline to exist")
-
-					Expect(role.GetLabels()).To(Equal(promiseCommonLabels))
-					Expect(role.Rules).To(ConsistOf(
-						rbacv1.PolicyRule{
-							Verbs:     []string{"get", "list", "update", "create", "patch"},
-							APIGroups: []string{"platform.kratix.io"},
-							Resources: []string{"promises", "promises/status", "works"},
-						},
-					))
-					Expect(role.GetLabels()).To(Equal(promiseCommonLabels))
-				})
-
-				It("associates the new role with the new service account", func() {
-					binding := &rbacv1.ClusterRoleBinding{}
-					Eventually(func() error {
-						return k8sClient.Get(ctx, promiseCommonName, binding)
-					}, timeout, interval).Should(Succeed(), "Expected ClusterRoleBinding for pipeline to exist")
-					Expect(binding.RoleRef.Name).To(Equal(promiseCommonName.Name))
-					Expect(binding.Subjects).To(HaveLen(1))
-					Expect(binding.Subjects[0]).To(Equal(rbacv1.Subject{
-						Kind:      "ServiceAccount",
-						Namespace: "kratix-platform-system",
-						Name:      promiseCommonName.Name,
-					}))
-					Expect(binding.GetLabels()).To(Equal(promiseCommonLabels))
-				})
-
-				It("creates a config map with the promise scheduling in it", func() {
-					configMap := &v1.ConfigMap{}
-					configMapName := types.NamespacedName{
-						Name:      "destination-selectors-" + promiseCR.GetName(),
-						Namespace: "kratix-platform-system",
-					}
-					Eventually(func() error {
-						return k8sClient.Get(ctx, configMapName, configMap)
-					}, timeout, interval).Should(Succeed(), "Expected ConfigMap for pipeline to exist")
-					Expect(configMap.GetLabels()).To(Equal(promiseCommonLabels))
-					Expect(configMap.Data).To(HaveKey("destinationSelectors"))
-					space := regexp.MustCompile(`\s+`)
-					destinationSelectors := space.ReplaceAllString(configMap.Data["destinationSelectors"], " ")
-					Expect(strings.TrimSpace(destinationSelectors)).To(Equal(`- matchlabels: environment: dev source: promise`))
-				})
-
-				It("adds finalizers to the Promise", func() {
-					promise := &v1alpha1.Promise{}
-					expectedPromise := types.NamespacedName{
-						Name: promiseCR.Name,
-					}
-
-					Eventually(func() []string {
-						Expect(k8sClient.Get(ctx, expectedPromise, promise)).To(Succeed())
-						return promise.GetFinalizers()
-					}, timeout, interval).Should(
-						ConsistOf(
-							"kratix.io/dependencies-cleanup",
-							"kratix.io/workflows-cleanup",
-						),
-						"Promise should have finalizers set",
-					)
-				})
-
-				It("triggers the promise configure workflow", func() {
-					Eventually(func() int {
-						jobs := getPromiseConfigurePipelineJobs(promiseCR, k8sClient)
-						return len(jobs)
-					}, timeout, interval).Should(Equal(1), "Configure Pipeline never trigerred")
-				})
-
-				When("deleting", func() {
-					It("removes the workflows jobs", func() {
-						Expect(k8sClient.Delete(ctx, promiseCR)).To(Succeed())
-						Eventually(func() int {
-							jobs := getPromiseConfigurePipelineJobs(promiseCR, k8sClient)
-							return len(jobs)
-						}, timeout, interval).Should(Equal(0), "Configure Pipeline never deleted")
-					})
-				})
-			})
 		})
 
 		When("a resource is requested", func() {

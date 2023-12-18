@@ -4,7 +4,6 @@ import (
 	"context"
 	"fmt"
 	"os"
-	"strconv"
 
 	. "github.com/onsi/ginkgo/v2"
 	. "github.com/onsi/gomega"
@@ -18,8 +17,11 @@ import (
 	kubebuilder "sigs.k8s.io/controller-runtime/pkg/reconcile"
 )
 
-const promisePath = "assets/redis-simple-promise.yaml"
-const updatedPromisePath = "assets/redis-simple-promise-updated.yaml"
+const (
+	promisePath         = "assets/redis-simple-promise.yaml"
+	promiseWithWorkflow = "assets/promise-with-workflow.yaml"
+	updatedPromisePath  = "assets/redis-simple-promise-updated.yaml"
+)
 
 func promiseFromFile(path string) *v1alpha1.Promise {
 	promiseBody, err := os.Open(path)
@@ -58,18 +60,23 @@ type opts struct {
 	funcs []func(client.Object) error
 	// Number of errors to tolerate before failing
 	errorBudget int
+}
+
+type testReconciler struct {
 	// Number of errors that have occurred, not to be set by the caller
-	actualErrorCount int
+	errorCount int
+	// Number of times to reconcile
+	reconcileCount int
 }
 
 // Run the reconciler until all these are satisfied:
-// - reconciler is not returning a requeuing result
+// - reconciler is not returning a requeuing result and no error
 // - the resource is not updated after a reconcile
 // TODO: We watch for various other resources to trigger reconciliaton loop,
 // e.g. changes to jobs owned by a promise trigger the promise. Need to improve
 // this to handle that
-func reconcileUntilCompletion(r kubebuilder.Reconciler, obj client.Object, opts ...*opts) (ctrl.Result, error) {
-	fmt.Println("reconcile")
+func (t *testReconciler) reconcileUntilCompletion(r kubebuilder.Reconciler, obj client.Object, opts ...*opts) (ctrl.Result, error) {
+	t.reconcileCount++
 	k8sObj := &unstructured.Unstructured{}
 	k8sObj.SetGroupVersionKind(obj.GetObjectKind().GroupVersionKind())
 
@@ -95,11 +102,11 @@ func reconcileUntilCompletion(r kubebuilder.Reconciler, obj client.Object, opts 
 
 	result, err := r.Reconcile(context.Background(), ctrl.Request{NamespacedName: namespacedName})
 	if err != nil {
-		if len(opts) > 0 && opts[0].actualErrorCount <= opts[0].errorBudget {
+		if len(opts) > 0 && t.errorCount <= opts[0].errorBudget {
 			// Some errors can naturally occur, e.g. race conditions between gets/deletes is okay.
-			opts[0].actualErrorCount++
+			t.errorCount++
 			fmt.Println("reconcile1")
-			return reconcileUntilCompletion(r, obj, opts...)
+			return t.reconcileUntilCompletion(r, obj, opts...)
 		}
 		return result, err
 	}
@@ -108,7 +115,10 @@ func reconcileUntilCompletion(r kubebuilder.Reconciler, obj client.Object, opts 
 		return result, err
 	}
 
-	if v, _ := strconv.Atoi(k8sObj.GetResourceVersion()); v > 30 { // arbitrary number to stop infinite loops
+	if t.reconcileCount > 30 { // arbitrary number to stop infinite loops
+		//reset so func can be run again
+		t.reconcileCount = 0
+		t.errorCount = 0
 		return ctrl.Result{}, fmt.Errorf("reconcile loop detected")
 	}
 
@@ -128,6 +138,5 @@ func reconcileUntilCompletion(r kubebuilder.Reconciler, obj client.Object, opts 
 		return result, nil
 	}
 
-	fmt.Println("reconcile2")
-	return reconcileUntilCompletion(r, obj, opts...)
+	return t.reconcileUntilCompletion(r, obj, opts...)
 }

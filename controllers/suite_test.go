@@ -52,6 +52,7 @@ var (
 	apiextensionClient      apiextensionsv1.CustomResourceDefinitionsGetter
 	testEnv                 *envtest.Environment
 	k8sManager              ctrl.Manager
+	t                       *testReconciler
 
 	timeout             = "30s"
 	consistentlyTimeout = "6s"
@@ -126,6 +127,7 @@ var _ = BeforeEach(func() {
 	).Build()
 
 	fakeApiExtensionsClient = fakeclientset.NewSimpleClientset().ApiextensionsV1()
+	t = &testReconciler{}
 })
 
 func cleanEnvironment() {

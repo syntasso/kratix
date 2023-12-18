@@ -165,10 +165,11 @@ func deleteAllResourcesWithKindMatchingLabel(o opts, gvk schema.GroupVersionKind
 		return true, err
 	}
 
-	o.logger.Info("deleting resources", "kind", resourceList.GetKind(), "withLabels", resourceLabels, "resources", resourceutil.GetResourceNames(resourceList.Items))
+	o.logger.Info("deleting resources", "gvk", resourceList.GroupVersionKind(), "withLabels", resourceLabels, "resources", resourceutil.GetResourceNames(resourceList.Items))
 
 	for _, resource := range resourceList.Items {
 		err = o.client.Delete(o.ctx, &resource, client.PropagationPolicy(metav1.DeletePropagationBackground))
+		o.logger.Info("deleting resource", "res", resource.GetName(), "gvk", resource.GroupVersionKind())
 		if err != nil && !errors.IsNotFound(err) {
 			o.logger.Error(err, "Error deleting resource, will try again in 5 seconds", "name", resource.GetName(), "kind", resource.GetKind())
 			return true, err
@@ -290,7 +291,7 @@ func applyResources(o opts, resources ...client.Object) {
 	o.logger.Info("Reconciling pipeline resources")
 
 	for _, resource := range resources {
-		logger := o.logger.WithValues("kind", resource.GetObjectKind().GroupVersionKind().Kind, "name", resource.GetName(), "namespace", resource.GetNamespace(), "labels", resource.GetLabels())
+		logger := o.logger.WithValues("gvk", resource.GetObjectKind().GroupVersionKind(), "name", resource.GetName(), "namespace", resource.GetNamespace(), "labels", resource.GetLabels())
 
 		logger.Info("Reconciling")
 		if err := o.client.Create(o.ctx, resource); err != nil {

@@ -65,7 +65,7 @@ var _ = PDescribe("PromiseReleaseController", func() {
 				err = fakeK8sClient.Create(context.TODO(), &promiseRelease)
 				Expect(err).ToNot(HaveOccurred())
 
-				_, err = reconcileUntilCompletion(reconciler, &promiseRelease)
+				_, err = t.reconcileUntilCompletion(reconciler, &promiseRelease)
 				Expect(err).ToNot(HaveOccurred(), "reconciliation failed; expected it to work")
 
 				promise = fetchPromise(promiseReleaseNamespacedName)
@@ -103,7 +103,7 @@ var _ = PDescribe("PromiseReleaseController", func() {
 				err := fakeK8sClient.Create(context.TODO(), &promiseRelease)
 				Expect(err).ToNot(HaveOccurred())
 
-				_, err = reconcileUntilCompletion(reconciler, &promiseRelease)
+				_, err = t.reconcileUntilCompletion(reconciler, &promiseRelease)
 
 				Expect(err).To(MatchError("unknown sourceRef type: unknown"))
 			})
@@ -118,7 +118,7 @@ var _ = PDescribe("PromiseReleaseController", func() {
 				})
 
 				It("installs the promise from the URL", func() {
-					_, err := reconcileUntilCompletion(reconciler, &promiseRelease)
+					_, err := t.reconcileUntilCompletion(reconciler, &promiseRelease)
 					Expect(err).To(MatchError("failed to fetch promise from url: can't do mate"))
 				})
 			})
@@ -128,7 +128,7 @@ var _ = PDescribe("PromiseReleaseController", func() {
 					err := fakeK8sClient.Create(context.TODO(), &promiseRelease)
 					Expect(err).ToNot(HaveOccurred())
 
-					_, err = reconcileUntilCompletion(reconciler, &promiseRelease)
+					_, err = t.reconcileUntilCompletion(reconciler, &promiseRelease)
 					Expect(err).ToNot(HaveOccurred())
 
 					promise = fetchPromise(promiseReleaseNamespacedName)
@@ -185,7 +185,7 @@ var _ = PDescribe("PromiseReleaseController", func() {
 		BeforeEach(func() {
 			Expect(fakeK8sClient.Create(context.TODO(), &promiseRelease)).To(Succeed())
 
-			_, err := reconcileUntilCompletion(reconciler, &promiseRelease)
+			_, err := t.reconcileUntilCompletion(reconciler, &promiseRelease)
 			Expect(err).ToNot(HaveOccurred())
 
 			promise := fetchPromise(promiseReleaseNamespacedName)
@@ -194,7 +194,7 @@ var _ = PDescribe("PromiseReleaseController", func() {
 
 			Expect(fakeK8sClient.Delete(context.TODO(), &promiseRelease)).To(Succeed())
 
-			result, err = reconcileUntilCompletion(reconciler, &promiseRelease)
+			result, err = t.reconcileUntilCompletion(reconciler, &promiseRelease)
 			Expect(err).ToNot(HaveOccurred())
 		})
 
@@ -217,7 +217,7 @@ var _ = PDescribe("PromiseReleaseController", func() {
 			It("removes the promise release on the next reconciliation", func() {
 				deletePromise(promiseReleaseNamespacedName)
 
-				_, err := reconcileUntilCompletion(reconciler, &promiseRelease)
+				_, err := t.reconcileUntilCompletion(reconciler, &promiseRelease)
 				Expect(err).ToNot(HaveOccurred())
 
 				err = fakeK8sClient.Get(context.TODO(), promiseReleaseNamespacedName, &promiseRelease)
@@ -230,7 +230,7 @@ var _ = PDescribe("PromiseReleaseController", func() {
 		BeforeEach(func() {
 			Expect(fakeK8sClient.Create(context.Background(), &promiseRelease)).To(Succeed())
 
-			_, err := reconcileUntilCompletion(reconciler, &promiseRelease)
+			_, err := t.reconcileUntilCompletion(reconciler, &promiseRelease)
 			Expect(err).ToNot(HaveOccurred())
 
 			promise = fetchPromise(promiseReleaseNamespacedName)
@@ -240,7 +240,7 @@ var _ = PDescribe("PromiseReleaseController", func() {
 		})
 
 		It("reinstalls the promise in the next reconciliation", func() {
-			_, err := reconcileUntilCompletion(reconciler, &promiseRelease)
+			_, err := t.reconcileUntilCompletion(reconciler, &promiseRelease)
 			Expect(err).ToNot(HaveOccurred())
 
 			promise = fetchPromise(promiseReleaseNamespacedName)
@@ -253,7 +253,7 @@ var _ = PDescribe("PromiseReleaseController", func() {
 		BeforeEach(func() {
 			Expect(fakeK8sClient.Create(context.TODO(), &promiseRelease)).To(Succeed())
 
-			_, err := reconcileUntilCompletion(reconciler, &promiseRelease)
+			_, err := t.reconcileUntilCompletion(reconciler, &promiseRelease)
 			Expect(err).ToNot(HaveOccurred())
 
 			fakeFetcher.FromURLReturns(promiseFromFile(updatedPromisePath), nil)
@@ -262,7 +262,7 @@ var _ = PDescribe("PromiseReleaseController", func() {
 			promiseRelease.Spec.Version = "v1.2.0"
 			Expect(fakeK8sClient.Update(context.Background(), &promiseRelease)).To(Succeed())
 
-			_, err = reconcileUntilCompletion(reconciler, &promiseRelease)
+			_, err = t.reconcileUntilCompletion(reconciler, &promiseRelease)
 			Expect(err).ToNot(HaveOccurred())
 
 			promise = fetchPromise(promiseReleaseNamespacedName)
