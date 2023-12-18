@@ -247,7 +247,7 @@ var _ = Describe("Kratix", func() {
 				Eventually(platform.kubectl("get", "promise")).ShouldNot(ContainSubstring("bash"))
 			})
 
-			It("propogates the changes and re-runs all the pipelines", func() {
+			It("propagates the changes and re-runs all the pipelines", func() {
 				By("installing and requesting v1alpha1 promise", func() {
 					platform.kubectl("apply", "-f", promisePath)
 
