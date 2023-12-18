@@ -60,7 +60,7 @@ func NewS3Writer(logger logr.Logger, stateStoreSpec platformv1alpha1.BucketState
 	minioClient, err := minio.New(endpoint, opts)
 
 	if err != nil {
-		logger.Error(err, "Error initalising Minio client")
+		logger.Error(err, "Error initialising Minio client")
 		return nil, err
 	}
 

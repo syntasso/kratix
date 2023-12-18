@@ -96,6 +96,10 @@ func (r *PromiseReleaseReconciler) Reconcile(ctx context.Context, req ctrl.Reque
 		if err != nil {
 			return ctrl.Result{}, fmt.Errorf("failed to fetch promise from url: %w", err)
 		}
+		updated, err := r.validateVersion(opts, promiseRelease, promise)
+		if err != nil || updated {
+			return ctrl.Result{}, err
+		}
 	default:
 		return ctrl.Result{}, fmt.Errorf("unknown sourceRef type: %s", sourceRefType)
 	}
@@ -137,7 +141,6 @@ func (r *PromiseReleaseReconciler) installPromise(o opts, promiseRelease *v1alph
 		// existing Promise, prioritising the PromiseRelease Promise's labels and
 		// annotations.
 		existingPromise.SetLabels(labels.Merge(existingPromise.Labels, promise.Labels))
-		existingPromise.Labels[promiseReleaseVersionLabel] = promiseRelease.Spec.Version
 		existingPromise.Labels[promiseReleaseNameLabel] = promiseRelease.GetName()
 
 		annotations.AddAnnotations(&existingPromise.ObjectMeta, promise.Annotations)
@@ -207,7 +210,7 @@ func (r *PromiseReleaseReconciler) reconcileOnInstalledPromise(o opts, promiseRe
 		if !promises.Items[0].GetDeletionTimestamp().IsZero() {
 			return defaultRequeue, nil
 		}
-		if promises.Items[0].Labels[promiseReleaseVersionLabel] == promiseRelease.Spec.Version {
+		if promises.Items[0].Labels[promiseVersionLabel] == promiseRelease.Spec.Version {
 			break
 		}
 		fallthrough
@@ -224,4 +227,30 @@ func (r *PromiseReleaseReconciler) reconcileOnInstalledPromise(o opts, promiseRe
 	}
 
 	return ctrl.Result{}, nil
+}
+
+func (r *PromiseReleaseReconciler) validateVersion(o opts, promiseRelease *v1alpha1.PromiseRelease, promise *v1alpha1.Promise) (updated bool, err error) {
+	promiseVersion, found := promise.GetLabels()[promiseVersionLabel]
+	if !found {
+		return false, fmt.Errorf("version label (%s) not found on promise; refusing to install", promiseVersionLabel)
+	}
+
+	if promiseRelease.Spec.Version == "" {
+		promiseRelease.Spec.Version = promiseVersion
+		err := o.client.Update(o.ctx, promiseRelease)
+		if err != nil {
+			return false, fmt.Errorf("failed to set promise release version: %w", err)
+		}
+		return true, nil
+	}
+
+	if promiseVersion != promiseRelease.Spec.Version {
+		return false, fmt.Errorf(
+			"version label on promise (%s) does not match version on promise release (%s); refusing to install",
+			promiseVersion,
+			promiseRelease.Spec.Version,
+		)
+	}
+
+	return false, nil
 }

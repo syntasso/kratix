@@ -129,9 +129,9 @@ func (g *GitWriter) WriteDirWithObjects(deleteExistingContentsInDir bool, subDir
 		///tmp/git-dir/worker-cluster/resources/<rr-namespace>/<promise-name>/<rr-name>/foo/bar/baz.yaml
 		absoluteFilePath := filepath.Join(localTmpDir, worktreeFilePath)
 
-		//We need to protect against paths containg `..`
+		//We need to protect against paths containing `..`
 		//filepath.Join expands any '../' in the path to the actual, e.g. /tmp/foo/../ resolves to /tmp/
-		//To ensure they can't write to files on disk outside of the tmp git repostiroy we check the absolute path
+		//To ensure they can't write to files on disk outside of the tmp git repository we check the absolute path
 		//returned by `filepath.Join` is still contained with the git repository:
 		// Note: This means `../` can still be used, but only if the end result is still contained within the git repository
 		if !strings.HasPrefix(absoluteFilePath, localTmpDir) {
@@ -225,7 +225,7 @@ func (g *GitWriter) commitAndPush(repo *git.Repository, worktree *git.Worktree, 
 	}
 
 	//should fileToAdd be here at all? is it valuable? specifically the fileToAdd parameter
-	logger.Info("commiting changes", "filesAdded", filesToAdd)
+	logger.Info("committing changes", "filesAdded", filesToAdd)
 	_, err = worktree.Commit(fmt.Sprintf("%s: %v", action, filesToAdd), &git.CommitOptions{
 		Author: &object.Signature{
 			Name:  g.author.Name,
