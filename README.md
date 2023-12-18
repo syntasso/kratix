@@ -11,12 +11,12 @@ Kratix is an open-source platform framework that combines the flexibility and cu
 
 ## Want to learn more?
 
-For case studies, documentation, and a quick start tutorial, checkout [kratix.io](kratix.io).
+For case studies, documentation, and a quick start tutorial, checkout [kratix.io](https://kratix.io).
 
 
 ## Community
 
 Kratix is apache 2.0 licensed and open for both contribution and feedback.
 
-For more information, please see the [community details page](https://kratix.io/community).
+For more information, please see the [community details page](https://kratix.io/docs/main/community).
 
