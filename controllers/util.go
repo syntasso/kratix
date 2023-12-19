@@ -112,7 +112,7 @@ func ensurePipelineIsReconciled(j jobOpts) (*ctrl.Result, error) {
 func deleteConfigMap(j jobOpts) (*ctrl.Result, error) {
 	configMap := &v1.ConfigMap{}
 	for _, resource := range j.pipelineResources {
-		if resource.GetObjectKind().GroupVersionKind().Kind == "ConfigMap" {
+		if _, ok := resource.(*v1.ConfigMap); ok {
 			configMap = resource.(*v1.ConfigMap)
 			break
 		}

@@ -342,21 +342,40 @@ func autoMarkConfigureJobAsCompleteAndCreateWorkForJob(obj client.Object) error 
 		return nil
 	}
 
-	Expect(jobs.Items[0].Labels).To(HaveKeyWithValue("kratix-promise-id", obj.GetName()))
-	jobs.Items[0].Status.Conditions = append(jobs.Items[0].Status.Conditions, batchv1.JobCondition{
-		Type:   batchv1.JobComplete,
-		Status: v1.ConditionTrue,
-	})
+	job := &batchv1.Job{}
+	Expect(fakeK8sClient.Get(ctx, types.NamespacedName{
+		Name:      jobs.Items[0].GetName(),
+		Namespace: jobs.Items[0].GetNamespace(),
+	}, job)).To(Succeed())
 
-	err := fakeK8sClient.Update(ctx, &jobs.Items[0])
-	if err != nil {
+	Expect(job.Labels).To(HaveKeyWithValue("kratix-promise-id", obj.GetName()))
+
+	if len(job.Status.Conditions) > 0 {
+		//means we've already updated it
 		return nil
 	}
+
+	job.Status.Conditions = []batchv1.JobCondition{
+		{
+			Type:   batchv1.JobComplete,
+			Status: v1.ConditionTrue,
+		},
+	}
+
+	err := fakeK8sClient.Status().Update(ctx, job)
+	if err != nil {
+		return err
+	}
+
+	Expect(fakeK8sClient.Get(ctx, client.ObjectKeyFromObject(job), job)).To(Succeed())
 
 	return fakeK8sClient.Create(ctx, &v1alpha1.Work{
 		ObjectMeta: metav1.ObjectMeta{
 			Name:      obj.GetName(),
 			Namespace: v1alpha1.KratixSystemNamespace,
+			Labels: map[string]string{
+				"kratix-promise-id": obj.GetName(),
+			},
 		},
 	})
 }
