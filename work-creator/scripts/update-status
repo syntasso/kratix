@@ -17,7 +17,12 @@ if [ -f "$status_file" ]; then
 	export status_values="$(cat $status_file)"
 fi
 
-yq -n '.status = env(status_values)' |  yq '.status.conditions[0] = env(conditions)' > status.yaml
+kubectl get $OBJECT_KIND.$OBJECT_GROUP/$OBJECT_NAME --namespace $OBJECT_NAMESPACE  -oyaml > existing-object.yaml
+export existing_conditions=$(yq -r '.status.conditions' existing-object.yaml)
+
+yq -n '.status = env(status_values)' |
+	yq '.status.conditions = env(existing_conditions)' |
+	yq '(.status.conditions[] | select(.type == "PipelineCompleted")) = env(conditions)' > status.yaml
 # TODO: Should we check if printer fields values exist?
 #       Default behaviour is to just be empty (not error)
 
