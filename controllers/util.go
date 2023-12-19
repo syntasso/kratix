@@ -189,7 +189,7 @@ func addFinalizers(o opts, resource client.Object, finalizers []string) (ctrl.Re
 		controllerutil.AddFinalizer(resource, finalizer)
 	}
 	if err := o.client.Update(o.ctx, resource); err != nil {
-		return defaultRequeue, err
+		return ctrl.Result{}, err
 	}
 	return ctrl.Result{}, nil
 }

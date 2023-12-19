@@ -61,6 +61,7 @@ type dynamicResourceRequestController struct {
 	finalizers                  []string
 	uid                         string
 	enabled                     *bool
+	canCreateResources          *bool
 	crd                         *apiextensionsv1.CustomResourceDefinition
 	promiseDestinationSelectors []v1alpha1.PromiseScheduling
 	promiseWorkflowSelectors    *v1alpha1.WorkloadGroupScheduling
@@ -104,6 +105,22 @@ func (r *dynamicResourceRequestController) Reconcile(ctx context.Context, req ct
 
 	if !rr.GetDeletionTimestamp().IsZero() {
 		return r.deleteResources(opts, rr, resourceRequestIdentifier)
+	}
+
+	if !*r.canCreateResources {
+		if !resourceutil.IsPromiseMarkedAsUnavailable(rr) {
+			logger.Info("Cannot create resources; setting PromiseAvailable to false in resource status")
+			resourceutil.MarkPromiseConditionAsNotAvailable(rr, logger)
+
+			return ctrl.Result{}, r.Client.Status().Update(ctx, rr)
+		}
+
+		return slowRequeue, nil
+	}
+
+	if resourceutil.IsPromiseMarkedAsUnavailable(rr) {
+		resourceutil.MarkPromiseConditionAsAvailable(rr, logger)
+		return ctrl.Result{}, r.Client.Status().Update(ctx, rr)
 	}
 
 	// Reconcile necessary finalizers
