@@ -190,47 +190,47 @@ func (r *PromiseReconciler) Reconcile(ctx context.Context, req ctrl.Request) (ct
 		return *requeue, nil
 	}
 
-	if promise.DoesNotContainAPI() {
-		logger.Info("Promise only contains dependencies, skipping creation of API and dynamic controller")
-		return ctrl.Result{}, nil
-	}
-
-	var work v1alpha1.Work
-	err = r.Client.Get(ctx, types.NamespacedName{Name: promise.GetName(), Namespace: v1alpha1.KratixSystemNamespace}, &work)
-	if err != nil {
-		return ctrl.Result{}, err
-	}
-
-	dynamicControllerCanCreateResources := true
-	for _, req := range promise.Status.Requirements {
-		if req.State != requirementStateInstalled {
-			logger.Info("requirement not installed, disabling dynamic controller", "requirement", req)
-			dynamicControllerCanCreateResources = false
-		}
-	}
-
-	err = r.ensureDynamicControllerIsStarted(promise, &work, rrCRD, rrGVK, pipelines.ConfigureResource, pipelines.DeleteResource, &dynamicControllerCanCreateResources, logger)
-	if err != nil {
-		return ctrl.Result{}, err
-	}
-
-	if resourceutil.DoesNotContainFinalizer(promise, resourceRequestCleanupFinalizer) {
-		return addFinalizers(opts, promise, []string{resourceRequestCleanupFinalizer})
-	}
-
-	if !dynamicControllerCanCreateResources {
-		logger.Info("requirements not fulfilled, disabled dynamic controller and requeuing", "requirementsStatus", promise.Status.Requirements)
-		return slowRequeue, nil
-	}
-
-	logger.Info("requirements are fulfilled", "requirementsStatus", promise.Status.Requirements)
-
-	if promise.GetGeneration() != promise.Status.ObservedGeneration {
-		if err := r.reconcileAllRRs(rrGVK); err != nil {
+	if promise.ContainsAPI() {
+		var work v1alpha1.Work
+		err = r.Client.Get(ctx, types.NamespacedName{Name: promise.GetName(), Namespace: v1alpha1.KratixSystemNamespace}, &work)
+		if err != nil {
+			logger.Error(err, "Error getting Work")
 			return ctrl.Result{}, err
 		}
-		promise.Status.ObservedGeneration = promise.GetGeneration()
-		return ctrl.Result{}, r.Client.Status().Update(ctx, promise)
+
+		dynamicControllerCanCreateResources := true
+		for _, req := range promise.Status.Requirements {
+			if req.State != requirementStateInstalled {
+				logger.Info("requirement not installed, disabling dynamic controller", "requirement", req)
+				dynamicControllerCanCreateResources = false
+			}
+		}
+
+		err = r.ensureDynamicControllerIsStarted(promise, &work, rrCRD, rrGVK, pipelines.ConfigureResource, pipelines.DeleteResource, &dynamicControllerCanCreateResources, logger)
+		if err != nil {
+			return ctrl.Result{}, err
+		}
+
+		if resourceutil.DoesNotContainFinalizer(promise, resourceRequestCleanupFinalizer) {
+			return addFinalizers(opts, promise, []string{resourceRequestCleanupFinalizer})
+		}
+
+		if !dynamicControllerCanCreateResources {
+			logger.Info("requirements not fulfilled, disabled dynamic controller and requeuing", "requirementsStatus", promise.Status.Requirements)
+			return slowRequeue, nil
+		}
+
+		logger.Info("requirements are fulfilled", "requirementsStatus", promise.Status.Requirements)
+
+		if promise.GetGeneration() != promise.Status.ObservedGeneration {
+			if err := r.reconcileAllRRs(rrGVK); err != nil {
+				return ctrl.Result{}, err
+			}
+			promise.Status.ObservedGeneration = promise.GetGeneration()
+			return ctrl.Result{}, r.Client.Status().Update(ctx, promise)
+		}
+	} else {
+		logger.Info("Promise only contains dependencies, skipping creation of API and dynamic controller")
 	}
 
 	logger.Info("Promise status being set to Available")
@@ -306,7 +306,7 @@ func (r *PromiseReconciler) generateStatusAndMarkRequirements(ctx context.Contex
 				promiseCondition.Message = "Unable to determine if requirements are fulfilled"
 			}
 		} else {
-			if requiredPromise.Status.Version != requirement.Version {
+			if requiredPromise.Status.Version != requirement.Version || requiredPromise.Status.Status != v1alpha1.PromiseStatusAvailable {
 				requirementState = requirementStateNotInstalledAtSpecifiedVersion
 
 				if promiseCondition.Status != metav1.ConditionUnknown {

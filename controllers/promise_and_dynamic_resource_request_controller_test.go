@@ -1030,7 +1030,8 @@ var _ = Context("Promise Reconciler", func() {
 		})
 
 		When("the promise requirements are installed at the specified version", func() {
-			BeforeEach(func() {
+			var workflows v1alpha1.Workflows
+			JustBeforeEach(func() {
 				// send a resource request
 				namespaceRR = createResourceRequest(resourceRequestForPromiseWithRequirements, "namespace-with-requirements")
 
@@ -1042,6 +1043,9 @@ var _ = Context("Promise Reconciler", func() {
 							"kratix.io/promise-version": "v1.2.0",
 						},
 					},
+					Spec: v1alpha1.PromiseSpec{
+						Workflows: workflows,
+					},
 				})
 				Expect(err).ToNot(HaveOccurred())
 
@@ -1051,78 +1055,121 @@ var _ = Context("Promise Reconciler", func() {
 					err := k8sClient.Get(ctx, types.NamespacedName{Name: "kafka"}, kafkaPromise)
 					g.Expect(err).ToNot(HaveOccurred())
 					g.Expect(kafkaPromise.Status.Version).To(Equal("v1.2.0"))
-				})
+				}, timeout, interval).Should(Succeed())
 			})
 
 			AfterEach(func() {
 				deleteTestEnvPromise("kafka")
 			})
 
-			It("updates the status to indicate the dependencies are installed at the specified version", func() {
-				Eventually(func(g Gomega) {
-					kafkaPromise := &v1alpha1.Promise{}
-					err := k8sClient.Get(ctx, types.NamespacedName{Name: "kafka"}, kafkaPromise)
-					g.Expect(err).ToNot(HaveOccurred())
-
-					promise := getPromise(namespacePromiseCR.GetName())
-					g.Expect(promise.Status.Conditions).To(HaveLen(1))
-					g.Expect(promise.Status.Conditions[0].Type).To(Equal("RequirementsFulfilled"))
-					g.Expect(promise.Status.Conditions[0].Status).To(Equal(metav1.ConditionTrue))
-					g.Expect(promise.Status.Conditions[0].Message).To(Equal("Requirements fulfilled"))
-					g.Expect(promise.Status.Conditions[0].Reason).To(Equal("RequirementsInstalled"))
-					g.Expect(promise.Status.Conditions[0].LastTransitionTime).ToNot(BeNil())
-
-					g.Expect(promise.Status.Requirements).To(ConsistOf(
-						v1alpha1.RequirementStatus{
-							Name:    "kafka",
-							Version: "v1.2.0",
-							State:   "Requirement installed",
-						},
-					))
-
-					g.Expect(promise.Status.Status).To(Equal(v1alpha1.PromiseStatusAvailable))
-					g.Expect(kafkaPromise.Status.RequiredBy).To(ConsistOf(
-						v1alpha1.RequiredBy{
-							Promise: v1alpha1.PromiseSummary{
-								Name: namespacePromiseCR.Name,
+			Context("but the required promise is not available", func() {
+				BeforeEach(func() {
+					workflows = v1alpha1.Workflows{
+						Promise: v1alpha1.WorkflowTriggers{
+							Configure: []unstructured.Unstructured{
+								{
+									Object: map[string]interface{}{
+										"apiVersion": "platform.kratix.io/v1alpha1",
+										"kind":       "Pipeline",
+										"metadata": map[string]interface{}{
+											"name": "kafka-pipeline",
+										},
+										"spec": map[string]interface{}{
+											"containers": []interface{}{
+												map[string]interface{}{
+													"name":  "kafka",
+													"image": "syntasso/kustomize-kafka",
+												},
+											},
+										},
+									},
+								},
 							},
-							RequiredVersion: "v1.2.0",
 						},
-					))
-				}, timeout, interval).Should(Succeed())
+					}
+				})
+
+				It("does't update the status", func() {
+					Consistently(func(g Gomega) {
+						promise := getPromise(namespacePromiseCR.GetName())
+						g.Expect(promise.Status.Conditions).To(HaveLen(1))
+						g.Expect(promise.Status.Conditions[0].Type).To(Equal("RequirementsFulfilled"))
+						g.Expect(promise.Status.Conditions[0].Status).To(Equal(metav1.ConditionFalse))
+					}, "30s", interval).Should(Succeed())
+				})
 			})
 
-			It("ensures requested resources can be created and the resources configured", func() {
-				Eventually(func(g Gomega) {
-					resourceRequest := &unstructured.Unstructured{}
-					resourceRequest.SetGroupVersionKind(namespaceRR.GroupVersionKind())
-					err := k8sClient.Get(ctx, types.NamespacedName{Name: "namespace-with-requirements", Namespace: "default"}, resourceRequest)
-					g.Expect(err).ToNot(HaveOccurred())
+			Context("and the required promise is available", func() {
+				BeforeEach(func() {
+					workflows = v1alpha1.Workflows{}
+				})
 
-					status := resourceRequest.Object["status"]
-					g.Expect(status).ToNot(BeNil())
+				It("updates the status to indicate the dependencies are installed at the specified version", func() {
+					Eventually(func(g Gomega) {
+						kafkaPromise := &v1alpha1.Promise{}
+						err := k8sClient.Get(ctx, types.NamespacedName{Name: "kafka"}, kafkaPromise)
+						g.Expect(err).ToNot(HaveOccurred())
 
-					conditions, err := conditionsFromStatus(status)
-					Expect(err).ToNot(HaveOccurred())
-					g.Expect(conditions).To(ContainElement(
-						gstruct.MatchFields(
-							gstruct.IgnoreExtras,
-							gstruct.Fields{
-								"Type":               Equal(clusterv1.ConditionType("PromiseAvailable")),
-								"Status":             Equal(v1.ConditionTrue),
-								"Reason":             Equal("PromiseAvailable"),
-								"Message":            Equal("Promise Requirements are met"),
-								"LastTransitionTime": Not(BeNil()),
+						promise := getPromise(namespacePromiseCR.GetName())
+						g.Expect(promise.Status.Conditions).To(HaveLen(1))
+						g.Expect(promise.Status.Conditions[0].Type).To(Equal("RequirementsFulfilled"))
+						g.Expect(promise.Status.Conditions[0].Status).To(Equal(metav1.ConditionTrue))
+						g.Expect(promise.Status.Conditions[0].Message).To(Equal("Requirements fulfilled"))
+						g.Expect(promise.Status.Conditions[0].Reason).To(Equal("RequirementsInstalled"))
+						g.Expect(promise.Status.Conditions[0].LastTransitionTime).ToNot(BeNil())
+
+						g.Expect(promise.Status.Requirements).To(ConsistOf(
+							v1alpha1.RequirementStatus{
+								Name:    "kafka",
+								Version: "v1.2.0",
+								State:   "Requirement installed",
 							},
-						),
-					))
-				}, timeout, interval).Should(Succeed())
+						))
 
-				Eventually(func() int {
-					jobs := getResourceConfigurePipelineJobs(namespacePromiseCR, k8sClient)
-					return len(jobs)
-				}, timeout, interval).Should(Equal(1), "Configure Pipeline never trigerred")
+						g.Expect(promise.Status.Status).To(Equal(v1alpha1.PromiseStatusAvailable))
+						g.Expect(kafkaPromise.Status.RequiredBy).To(ConsistOf(
+							v1alpha1.RequiredBy{
+								Promise: v1alpha1.PromiseSummary{
+									Name: namespacePromiseCR.Name,
+								},
+								RequiredVersion: "v1.2.0",
+							},
+						))
+					}, timeout, interval).Should(Succeed())
+				})
 
+				It("ensures requested resources can be created and the resources configured", func() {
+					Eventually(func(g Gomega) {
+						resourceRequest := &unstructured.Unstructured{}
+						resourceRequest.SetGroupVersionKind(namespaceRR.GroupVersionKind())
+						err := k8sClient.Get(ctx, types.NamespacedName{Name: "namespace-with-requirements", Namespace: "default"}, resourceRequest)
+						g.Expect(err).ToNot(HaveOccurred())
+
+						status := resourceRequest.Object["status"]
+						g.Expect(status).ToNot(BeNil())
+
+						conditions, err := conditionsFromStatus(status)
+						Expect(err).ToNot(HaveOccurred())
+						g.Expect(conditions).To(ContainElement(
+							gstruct.MatchFields(
+								gstruct.IgnoreExtras,
+								gstruct.Fields{
+									"Type":               Equal(clusterv1.ConditionType("PromiseAvailable")),
+									"Status":             Equal(v1.ConditionTrue),
+									"Reason":             Equal("PromiseAvailable"),
+									"Message":            Equal("Promise Requirements are met"),
+									"LastTransitionTime": Not(BeNil()),
+								},
+							),
+						))
+					}, timeout, interval).Should(Succeed())
+
+					Eventually(func() int {
+						jobs := getResourceConfigurePipelineJobs(namespacePromiseCR, k8sClient)
+						return len(jobs)
+					}, timeout, interval).Should(Equal(1), "Configure Pipeline never trigerred")
+
+				})
 			})
 		})
 	})
