@@ -18,7 +18,6 @@ package controllers
 
 import (
 	"context"
-	"time"
 
 	apiextensionsv1 "k8s.io/apiextensions-apiserver/pkg/apis/apiextensions/v1"
 	"k8s.io/apimachinery/pkg/types"
@@ -34,25 +33,18 @@ import (
 	corev1 "k8s.io/api/core/v1"
 
 	"k8s.io/apimachinery/pkg/api/errors"
-	metav1 "k8s.io/apimachinery/pkg/apis/meta/v1"
 	"k8s.io/apimachinery/pkg/apis/meta/v1/unstructured"
 	"k8s.io/apimachinery/pkg/runtime"
 	"k8s.io/apimachinery/pkg/runtime/schema"
-	clusterv1 "sigs.k8s.io/cluster-api/api/v1beta1"
 	ctrl "sigs.k8s.io/controller-runtime"
 	"sigs.k8s.io/controller-runtime/pkg/client"
 	"sigs.k8s.io/yaml"
 )
 
 const (
-	workFinalizer                    = kratixPrefix + "work-cleanup"
-	workflowsFinalizer               = kratixPrefix + "workflows-cleanup"
-	deleteWorkflowsFinalizer         = kratixPrefix + "delete-workflows"
-	promiseAvailableCondition        = clusterv1.ConditionType("PromiseAvailable")
-	promiseRequirementsNotMetReason  = "PromiseRequirementsNotInstalled"
-	promiseRequirementsNotMetMessage = "Promise Requirements are not installed"
-	promiseRequirementsMetReason     = "PromiseAvailable"
-	promiseRequirementsMetMessage    = "Promise Requirements are met"
+	workFinalizer            = kratixPrefix + "work-cleanup"
+	workflowsFinalizer       = kratixPrefix + "workflows-cleanup"
+	deleteWorkflowsFinalizer = kratixPrefix + "delete-workflows"
 )
 
 var rrFinalizers = []string{workFinalizer, workflowsFinalizer, deleteWorkflowsFinalizer}
@@ -116,47 +108,19 @@ func (r *dynamicResourceRequestController) Reconcile(ctx context.Context, req ct
 	}
 
 	if !*r.canCreateResources {
-		logger.Info("Cannot create resources; ensuring status is set to Pending")
-		status := rr.Object["status"]
-		if status == nil || status.(map[string]interface{})["message"] != "Pending" {
-			resourceutil.SetStatus(rr, logger, "message", "Pending")
+		if !resourceutil.IsPromiseMarkedAsUnavailable(rr) {
+			logger.Info("Cannot create resources; setting PromiseAvailable to false in resource status")
+			resourceutil.MarkPromiseConditionAsNotAvailable(rr, logger)
 
-			condition := &clusterv1.Condition{
-				Type:               promiseAvailableCondition,
-				Status:             corev1.ConditionFalse,
-				Reason:             promiseRequirementsNotMetReason,
-				Message:            promiseRequirementsNotMetMessage,
-				LastTransitionTime: metav1.NewTime(time.Now()),
-			}
-
-			resourceutil.SetCondition(rr, condition)
-
-			if err := r.Client.Status().Update(ctx, rr); err != nil {
-				return ctrl.Result{}, err
-			}
-
-			return ctrl.Result{}, nil
+			return ctrl.Result{}, r.Client.Status().Update(ctx, rr)
 		}
 
 		return slowRequeue, nil
 	}
 
-	condition := resourceutil.GetCondition(rr, promiseAvailableCondition)
-	if condition != nil && condition.Status == corev1.ConditionFalse {
-		updatedCondition := &clusterv1.Condition{
-			Type:               promiseAvailableCondition,
-			Status:             corev1.ConditionTrue,
-			Reason:             promiseRequirementsMetReason,
-			Message:            promiseRequirementsMetMessage,
-			LastTransitionTime: metav1.NewTime(time.Now()),
-		}
-
-		resourceutil.SetCondition(rr, updatedCondition)
-
-		if err := r.Client.Status().Update(ctx, rr); err != nil {
-			return ctrl.Result{}, err
-		}
-		return ctrl.Result{}, nil
+	if resourceutil.IsPromiseMarkedAsUnavailable(rr) {
+		resourceutil.MarkPromiseConditionAsAvailable(rr, logger)
+		return ctrl.Result{}, r.Client.Status().Update(ctx, rr)
 	}
 
 	// Reconcile necessary finalizers

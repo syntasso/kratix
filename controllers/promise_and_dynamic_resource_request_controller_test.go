@@ -187,7 +187,7 @@ var _ = Context("Promise Reconciler", func() {
 					g.Expect(promise.Status.Conditions[0].Type).To(Equal("RequirementsFulfilled"))
 					g.Expect(promise.Status.Conditions[0].Status).To(Equal(metav1.ConditionTrue))
 					g.Expect(promise.Status.Conditions[0].Message).To(Equal("Requirements fulfilled"))
-					g.Expect(promise.Status.Conditions[0].Reason).To(Equal("RequirementInstalled"))
+					g.Expect(promise.Status.Conditions[0].Reason).To(Equal("RequirementsInstalled"))
 					g.Expect(promise.Status.Conditions[0].LastTransitionTime).ToNot(BeNil())
 					g.Expect(promise.Status.Requirements).To(BeEmpty())
 				}, timeout, interval).Should(Succeed())
@@ -861,7 +861,7 @@ var _ = Context("Promise Reconciler", func() {
 					g.Expect(promise.Status.Conditions[0].Type).To(Equal("RequirementsFulfilled"))
 					g.Expect(promise.Status.Conditions[0].Status).To(Equal(metav1.ConditionFalse))
 					g.Expect(promise.Status.Conditions[0].Message).To(Equal("Requirements not fulfilled"))
-					g.Expect(promise.Status.Conditions[0].Reason).To(Equal("RequirementNotInstalled"))
+					g.Expect(promise.Status.Conditions[0].Reason).To(Equal("RequirementsNotInstalled"))
 					g.Expect(promise.Status.Conditions[0].LastTransitionTime).ToNot(BeNil())
 
 					g.Expect(promise.Status.Requirements).To(ConsistOf(
@@ -1013,7 +1013,7 @@ var _ = Context("Promise Reconciler", func() {
 					g.Expect(promise.Status.Conditions[0].Type).To(Equal("RequirementsFulfilled"))
 					g.Expect(promise.Status.Conditions[0].Status).To(Equal(metav1.ConditionFalse))
 					g.Expect(promise.Status.Conditions[0].Message).To(Equal("Requirements not fulfilled"))
-					g.Expect(promise.Status.Conditions[0].Reason).To(Equal("RequirementNotInstalled"))
+					g.Expect(promise.Status.Conditions[0].Reason).To(Equal("RequirementsNotInstalled"))
 					g.Expect(promise.Status.Conditions[0].LastTransitionTime).ToNot(BeNil())
 
 					g.Expect(promise.Status.Requirements).To(ConsistOf(
@@ -1069,7 +1069,7 @@ var _ = Context("Promise Reconciler", func() {
 					g.Expect(promise.Status.Conditions[0].Type).To(Equal("RequirementsFulfilled"))
 					g.Expect(promise.Status.Conditions[0].Status).To(Equal(metav1.ConditionTrue))
 					g.Expect(promise.Status.Conditions[0].Message).To(Equal("Requirements fulfilled"))
-					g.Expect(promise.Status.Conditions[0].Reason).To(Equal("RequirementInstalled"))
+					g.Expect(promise.Status.Conditions[0].Reason).To(Equal("RequirementsInstalled"))
 					g.Expect(promise.Status.Conditions[0].LastTransitionTime).ToNot(BeNil())
 
 					g.Expect(promise.Status.Requirements).To(ConsistOf(

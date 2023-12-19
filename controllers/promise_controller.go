@@ -280,38 +280,39 @@ func updateRequirementsStatusOnPromise(promise *v1alpha1.Promise, oldReqs, newRe
 }
 
 func (r *PromiseReconciler) generateStatusAndMarkRequirements(ctx context.Context, promise *v1alpha1.Promise) (metav1.Condition, []v1alpha1.RequirementStatus) {
-	condition := metav1.Condition{
+	promiseCondition := metav1.Condition{
 		Type:               "RequirementsFulfilled",
 		LastTransitionTime: metav1.NewTime(time.Now()),
 		Status:             metav1.ConditionTrue,
 		Message:            "Requirements fulfilled",
-		Reason:             "RequirementInstalled",
+		Reason:             "RequirementsInstalled",
 	}
 
 	requirements := []v1alpha1.RequirementStatus{}
 
 	for _, requirement := range promise.Spec.Requirements {
-		state := requirementStateInstalled
-
+		requirementState := requirementStateInstalled
 		requiredPromise := &v1alpha1.Promise{}
 		err := r.Client.Get(ctx, types.NamespacedName{Name: requirement.Name}, requiredPromise)
-
 		if err != nil {
-			condition.Reason = "RequirementNotInstalled"
-			if errors.IsNotFound(err) && condition.Status != metav1.ConditionUnknown {
-				state = requirementStateNotInstalled
-				condition.Status = metav1.ConditionFalse
-				condition.Message = "Requirements not fulfilled"
+			promiseCondition.Reason = "RequirementsNotInstalled"
+			if errors.IsNotFound(err) && promiseCondition.Status != metav1.ConditionUnknown {
+				requirementState = requirementStateNotInstalled
+				promiseCondition.Status = metav1.ConditionFalse
+				promiseCondition.Message = "Requirements not fulfilled"
 			} else {
-				state = requirementUnknownInstallationState
-				condition.Status = metav1.ConditionUnknown
-				condition.Message = "Unable to determine if requirements are fulfilled"
+				requirementState = requirementUnknownInstallationState
+				promiseCondition.Status = metav1.ConditionUnknown
+				promiseCondition.Message = "Unable to determine if requirements are fulfilled"
 			}
 		} else {
 			if requiredPromise.Status.Version != requirement.Version {
-				state = requirementStateNotInstalledAtSpecifiedVersion
-				condition.Status = metav1.ConditionFalse
-				condition.Message = "Requirements not fulfilled"
+				requirementState = requirementStateNotInstalledAtSpecifiedVersion
+
+				if promiseCondition.Status != metav1.ConditionUnknown {
+					promiseCondition.Status = metav1.ConditionFalse
+					promiseCondition.Message = "Requirements not fulfilled"
+				}
 			}
 
 			r.markRequiredPromiseAsRequired(ctx, requirement.Version, promise, requiredPromise)
@@ -320,11 +321,11 @@ func (r *PromiseReconciler) generateStatusAndMarkRequirements(ctx context.Contex
 		requirements = append(requirements, v1alpha1.RequirementStatus{
 			Name:    requirement.Name,
 			Version: requirement.Version,
-			State:   state,
+			State:   requirementState,
 		})
 	}
 
-	return condition, requirements
+	return promiseCondition, requirements
 }
 
 func (r *PromiseReconciler) reconcileDependencies(o opts, promise *v1alpha1.Promise, configurePipeline []v1alpha1.Pipeline) (*ctrl.Result, error) {
