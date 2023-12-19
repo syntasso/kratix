@@ -20,4 +20,4 @@ configMapGenerator:
 images:
 - name: controller
   newName: syntasso/kratix-platform
-  newTag: 0238e7fc888a8e94ec5d56c56d0a785244a4edde
+  newTag: 621497df079b5f98d09e0378d998760d1b7c5743

@@ -15,6 +15,9 @@ spec:
   scope: Cluster
   versions:
   - additionalPrinterColumns:
+    - jsonPath: .status.status
+      name: Status
+      type: string
     - jsonPath: .status.kind
       name: Kind
       type: string
@@ -63,6 +66,17 @@ spec:
                       additionalProperties:
                         type: string
                       type: object
+                  type: object
+                type: array
+              requirements:
+                items:
+                  properties:
+                    name:
+                      description: Name of Promise
+                      type: string
+                    version:
+                      description: Version of Promise
+                      type: string
                   type: object
                 type: array
               workflows:
@@ -173,6 +187,33 @@ spec:
               observedGeneration:
                 format: int64
                 type: integer
+              requiredBy:
+                items:
+                  properties:
+                    promise:
+                      properties:
+                        name:
+                          type: string
+                        version:
+                          type: string
+                      type: object
+                    requiredVersion:
+                      type: string
+                  type: object
+                type: array
+              requirements:
+                items:
+                  properties:
+                    name:
+                      type: string
+                    state:
+                      type: string
+                    version:
+                      type: string
+                  type: object
+                type: array
+              status:
+                type: string
               version:
                 type: string
             type: object

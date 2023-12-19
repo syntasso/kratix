@@ -30,6 +30,11 @@ import (
 	"k8s.io/apimachinery/pkg/runtime"
 )
 
+const (
+	PromiseStatusAvailable   = "Available"
+	PromiseStatusUnavailable = "Unavailable"
+)
+
 // NOTE: json tags are required.  Any new fields you add must have json tags for the fields to be serialized.
 
 // PromiseSpec defines the desired state of Promise
@@ -52,9 +57,18 @@ type PromiseSpec struct {
 
 	Workflows Workflows `json:"workflows,omitempty"`
 
+	Requirements []Requirement `json:"requirements,omitempty"`
+
 	Dependencies Dependencies `json:"dependencies,omitempty"`
 
 	DestinationSelectors []PromiseScheduling `json:"destinationSelectors,omitempty"`
+}
+
+type Requirement struct {
+	// Name of Promise
+	Name string `json:"name,omitempty"`
+	// Version of Promise
+	Version string `json:"version,omitempty"`
 }
 
 type Workflows struct {
@@ -93,16 +107,36 @@ type WorkflowDestinationSelectors struct {
 
 // PromiseStatus defines the observed state of Promise
 type PromiseStatus struct {
-	Conditions         []metav1.Condition `json:"conditions,omitempty"`
-	Version            string             `json:"version,omitempty"`
-	ObservedGeneration int64              `json:"observedGeneration,omitempty"`
-	Kind               string             `json:"kind,omitempty"`
-	APIVersion         string             `json:"apiVersion,omitempty"`
+	Conditions         []metav1.Condition  `json:"conditions,omitempty"`
+	Version            string              `json:"version,omitempty"`
+	ObservedGeneration int64               `json:"observedGeneration,omitempty"`
+	Kind               string              `json:"kind,omitempty"`
+	APIVersion         string              `json:"apiVersion,omitempty"`
+	Status             string              `json:"status,omitempty"`
+	Requirements       []RequirementStatus `json:"requirements,omitempty"`
+	RequiredBy         []RequiredBy        `json:"requiredBy,omitempty"`
+}
+
+type PromiseSummary struct {
+	Name    string `json:"name,omitempty"`
+	Version string `json:"version,omitempty"`
+}
+
+type RequiredBy struct {
+	Promise         PromiseSummary `json:"promise,omitempty"`
+	RequiredVersion string         `json:"requiredVersion,omitempty"`
+}
+
+type RequirementStatus struct {
+	Name    string `json:"name,omitempty"`
+	Version string `json:"version,omitempty"`
+	State   string `json:"state,omitempty"`
 }
 
 //+kubebuilder:object:root=true
 //+kubebuilder:subresource:status
 //+kubebuilder:resource:scope=Cluster,path=promises
+//+kubebuilder:printcolumn:JSONPath=".status.status",name="Status",type=string
 //+kubebuilder:printcolumn:JSONPath=".status.kind",name=Kind,type=string
 //+kubebuilder:printcolumn:JSONPath=".status.apiVersion",name="API Version",type=string
 //+kubebuilder:printcolumn:JSONPath=".status.version",name="Version",type=string

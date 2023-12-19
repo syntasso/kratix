@@ -16,8 +16,13 @@ import (
 )
 
 const (
-	PipelineCompletedCondition = clusterv1.ConditionType("PipelineCompleted")
-	ManualReconciliationLabel  = "kratix.io/manual-reconciliation"
+	PipelineCompletedCondition       = clusterv1.ConditionType("PipelineCompleted")
+	ManualReconciliationLabel        = "kratix.io/manual-reconciliation"
+	promiseAvailableCondition        = clusterv1.ConditionType("PromiseAvailable")
+	promiseRequirementsNotMetReason  = "PromiseRequirementsNotInstalled"
+	promiseRequirementsNotMetMessage = "Promise Requirements are not installed"
+	promiseRequirementsMetReason     = "PromiseAvailable"
+	promiseRequirementsMetMessage    = "Promise Requirements are met"
 )
 
 func GetPipelineCompletedConditionStatus(obj *unstructured.Unstructured) v1.ConditionStatus {
@@ -171,4 +176,39 @@ func GetResourceNames(items []unstructured.Unstructured) []string {
 	}
 
 	return names
+}
+
+func MarkPromiseConditionAsNotAvailable(obj *unstructured.Unstructured, logger logr.Logger) {
+	SetStatus(obj, logger, "message", "Pending")
+
+	condition := &clusterv1.Condition{
+		Type:               promiseAvailableCondition,
+		Status:             v1.ConditionFalse,
+		Reason:             promiseRequirementsNotMetReason,
+		Message:            promiseRequirementsNotMetMessage,
+		LastTransitionTime: metav1.NewTime(time.Now()),
+	}
+
+	SetCondition(obj, condition)
+}
+
+func MarkPromiseConditionAsAvailable(obj *unstructured.Unstructured, logger logr.Logger) {
+	condition := &clusterv1.Condition{
+		Type:               promiseAvailableCondition,
+		Status:             v1.ConditionTrue,
+		Reason:             promiseRequirementsMetReason,
+		Message:            promiseRequirementsMetMessage,
+		LastTransitionTime: metav1.NewTime(time.Now()),
+	}
+
+	SetCondition(obj, condition)
+}
+
+func IsPromiseMarkedAsUnavailable(obj *unstructured.Unstructured) bool {
+	condition := GetCondition(obj, promiseAvailableCondition)
+	if condition == nil {
+		return false
+	}
+
+	return condition.Status == v1.ConditionFalse
 }

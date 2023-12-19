@@ -333,6 +333,9 @@ spec:
   scope: Cluster
   versions:
   - additionalPrinterColumns:
+    - jsonPath: .status.status
+      name: Status
+      type: string
     - jsonPath: .status.kind
       name: Kind
       type: string
@@ -381,6 +384,17 @@ spec:
                       additionalProperties:
                         type: string
                       type: object
+                  type: object
+                type: array
+              requirements:
+                items:
+                  properties:
+                    name:
+                      description: Name of Promise
+                      type: string
+                    version:
+                      description: Version of Promise
+                      type: string
                   type: object
                 type: array
               workflows:
@@ -491,6 +505,33 @@ spec:
               observedGeneration:
                 format: int64
                 type: integer
+              requiredBy:
+                items:
+                  properties:
+                    promise:
+                      properties:
+                        name:
+                          type: string
+                        version:
+                          type: string
+                      type: object
+                    requiredVersion:
+                      type: string
+                  type: object
+                type: array
+              requirements:
+                items:
+                  properties:
+                    name:
+                      type: string
+                    state:
+                      type: string
+                    version:
+                      type: string
+                  type: object
+                type: array
+              status:
+                type: string
               version:
                 type: string
             type: object
@@ -1168,7 +1209,7 @@ metadata:
 ---
 apiVersion: v1
 data:
-  WC_IMG: syntasso/kratix-platform-pipeline-adapter:0238e7fc888a8e94ec5d56c56d0a785244a4edde
+  WC_IMG: syntasso/kratix-platform-pipeline-adapter:621497df079b5f98d09e0378d998760d1b7c5743
 kind: ConfigMap
 metadata:
   name: kratix-platform-wc-img-config
@@ -1239,7 +1280,7 @@ spec:
             configMapKeyRef:
               key: WC_IMG
               name: kratix-platform-wc-img-config
-        image: syntasso/kratix-platform:0238e7fc888a8e94ec5d56c56d0a785244a4edde
+        image: syntasso/kratix-platform:621497df079b5f98d09e0378d998760d1b7c5743
         livenessProbe:
           httpGet:
             path: /healthz

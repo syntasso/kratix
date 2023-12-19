@@ -25,6 +25,7 @@ import (
 
 	. "github.com/onsi/ginkgo/v2"
 	. "github.com/onsi/gomega"
+	"github.com/onsi/gomega/gstruct"
 	batchv1 "k8s.io/api/batch/v1"
 	v1 "k8s.io/api/core/v1"
 	rbacv1 "k8s.io/api/rbac/v1"
@@ -36,6 +37,7 @@ import (
 	"k8s.io/apimachinery/pkg/runtime/schema"
 	"k8s.io/apimachinery/pkg/types"
 	"k8s.io/apimachinery/pkg/util/yaml"
+	clusterv1 "sigs.k8s.io/cluster-api/api/v1beta1"
 	"sigs.k8s.io/controller-runtime/pkg/client"
 
 	"github.com/syntasso/kratix/api/v1alpha1"
@@ -56,8 +58,10 @@ var _ = Context("Promise Reconciler", func() {
 	)
 
 	const (
-		RedisPromisePath    = "../config/samples/redis/redis-promise.yaml"
-		promiseWithWorkflow = "assets/promise-with-workflow.yaml"
+		RedisPromisePath                          = "../config/samples/redis/redis-promise.yaml"
+		promiseWithWorkflow                       = "assets/promise-with-workflow.yaml"
+		promiseWithRequirements                   = "assets/promise-with-requirements.yaml"
+		resourceRequestForPromiseWithRequirements = "assets/namespace-resource-request.yaml"
 	)
 
 	applyPromise := func(promisePath string) {
@@ -69,7 +73,21 @@ var _ = Context("Promise Reconciler", func() {
 		}
 
 		k8sClient.Create(ctx, promiseFromYAML)
+
 		promiseCR = getPromise(promiseFromYAML.GetName())
+	}
+
+	requestOnce := func(resourcePath string) {
+		if requestedResource != nil {
+			return
+		}
+		yamlFile, err := os.ReadFile(resourcePath)
+		Expect(err).ToNot(HaveOccurred())
+
+		requestedResource = &unstructured.Unstructured{}
+		Expect(yaml.Unmarshal(yamlFile, requestedResource)).To(Succeed())
+		requestedResource.SetNamespace("default")
+		Expect(k8sClient.Create(ctx, requestedResource)).To(Succeed())
 	}
 
 	Describe("Promise reconciliation lifecycle", func() {
@@ -85,7 +103,7 @@ var _ = Context("Promise Reconciler", func() {
 			}
 		})
 
-		When("the promise is installed", func() {
+		When("installing a Promise", func() {
 			It("creates a CRD for the promise", func() {
 				Eventually(func() string {
 					crd, _ := apiextensionClient.
@@ -158,6 +176,20 @@ var _ = Context("Promise Reconciler", func() {
 				}
 				Eventually(func() error {
 					return k8sClient.Get(ctx, workNamespacedName, &v1alpha1.Work{})
+				}, timeout, interval).Should(Succeed())
+			})
+
+			It("sets the status to available", func() {
+				Eventually(func(g Gomega) {
+					promise := getPromise(promiseCR.GetName())
+					g.Expect(promise.Status.Status).To(Equal(v1alpha1.PromiseStatusAvailable))
+					g.Expect(promise.Status.Conditions).To(HaveLen(1))
+					g.Expect(promise.Status.Conditions[0].Type).To(Equal("RequirementsFulfilled"))
+					g.Expect(promise.Status.Conditions[0].Status).To(Equal(metav1.ConditionTrue))
+					g.Expect(promise.Status.Conditions[0].Message).To(Equal("Requirements fulfilled"))
+					g.Expect(promise.Status.Conditions[0].Reason).To(Equal("RequirementsInstalled"))
+					g.Expect(promise.Status.Conditions[0].LastTransitionTime).ToNot(BeNil())
+					g.Expect(promise.Status.Requirements).To(BeEmpty())
 				}, timeout, interval).Should(Succeed())
 			})
 
@@ -272,19 +304,6 @@ var _ = Context("Promise Reconciler", func() {
 			var (
 				resourceLabels map[string]string
 			)
-
-			requestOnce := func(resourcePath string) {
-				if requestedResource != nil {
-					return
-				}
-				yamlFile, err := os.ReadFile(resourcePath)
-				Expect(err).ToNot(HaveOccurred())
-
-				requestedResource = &unstructured.Unstructured{}
-				Expect(yaml.Unmarshal(yamlFile, requestedResource)).To(Succeed())
-				requestedResource.SetNamespace("default")
-				Expect(k8sClient.Create(ctx, requestedResource)).To(Succeed())
-			}
 
 			BeforeEach(func() {
 				requestOnce("../config/samples/redis/redis-resource-request.yaml")
@@ -819,6 +838,341 @@ var _ = Context("Promise Reconciler", func() {
 
 		})
 	})
+
+	Describe("Promise with requirements", func() {
+		var (
+			namespacePromiseCR *v1alpha1.Promise
+			namespaceRR        *unstructured.Unstructured
+		)
+		BeforeEach(func() {
+			err := k8sClient.Get(ctx, types.NamespacedName{Name: "namespace"}, &v1alpha1.Promise{})
+			if err != nil {
+				promiseFromYAML := parseYAML(promiseWithRequirements)
+				Expect(k8sClient.Create(ctx, promiseFromYAML)).To(Succeed())
+				namespacePromiseCR = getPromise(promiseFromYAML.GetName())
+			}
+		})
+
+		When("the promise requirements are not installed", func() {
+			It("updates the status to indicate the dependencies are not installed", func() {
+				Eventually(func(g Gomega) {
+					promise := getPromise(namespacePromiseCR.GetName())
+					g.Expect(promise.Status.Conditions).To(HaveLen(1))
+					g.Expect(promise.Status.Conditions[0].Type).To(Equal("RequirementsFulfilled"))
+					g.Expect(promise.Status.Conditions[0].Status).To(Equal(metav1.ConditionFalse))
+					g.Expect(promise.Status.Conditions[0].Message).To(Equal("Requirements not fulfilled"))
+					g.Expect(promise.Status.Conditions[0].Reason).To(Equal("RequirementsNotInstalled"))
+					g.Expect(promise.Status.Conditions[0].LastTransitionTime).ToNot(BeNil())
+
+					g.Expect(promise.Status.Requirements).To(ConsistOf(
+						v1alpha1.RequirementStatus{
+							Name:    "kafka",
+							Version: "v1.2.0",
+							State:   "Requirement not installed",
+						},
+					))
+
+					g.Expect(promise.Status.Status).To(Equal(v1alpha1.PromiseStatusUnavailable))
+				}, timeout, interval).Should(Succeed())
+			})
+
+			It("ensures requested resources can be created and left in pending state", func() {
+				// create the resource request
+				namespaceRR = createResourceRequest(resourceRequestForPromiseWithRequirements, "namespace-with-requirements")
+
+				Eventually(func(g Gomega) {
+					resourceRequest := &unstructured.Unstructured{}
+					// We set the GVK to match the requested resource as this is not set
+					// by default on the unstructured object.
+					// In the absence of this, the package will return marshalling errors
+					// on the client.Get() as the 'kind' cannot be found.
+					resourceRequest.SetGroupVersionKind(namespaceRR.GroupVersionKind())
+					err := k8sClient.Get(ctx, types.NamespacedName{Name: "namespace-with-requirements", Namespace: "default"}, resourceRequest)
+					g.Expect(err).ToNot(HaveOccurred())
+
+					status := resourceRequest.Object["status"]
+					g.Expect(status).ToNot(BeNil())
+					statusMap := status.(map[string]interface{})
+					g.Expect(statusMap["message"]).To(Equal("Pending"))
+
+					conditions, err := conditionsFromStatus(status)
+					Expect(err).ToNot(HaveOccurred())
+					g.Expect(conditions).To(ContainElement(
+						gstruct.MatchFields(
+							gstruct.IgnoreExtras,
+							gstruct.Fields{
+								"Type":               Equal(clusterv1.ConditionType("PromiseAvailable")),
+								"Status":             Equal(v1.ConditionFalse),
+								"Reason":             Equal("PromiseRequirementsNotInstalled"),
+								"Message":            Equal("Promise Requirements are not installed"),
+								"LastTransitionTime": Not(BeNil()),
+							},
+						),
+					))
+				}, timeout, interval).Should(Succeed())
+
+				// Check that the status of the resource never changes from Pending
+				Consistently(func(g Gomega) {
+					resourceRequest := &unstructured.Unstructured{}
+					resourceRequest.SetGroupVersionKind(namespaceRR.GroupVersionKind())
+					err := k8sClient.Get(ctx, types.NamespacedName{Name: "namespace-with-requirements", Namespace: "default"}, resourceRequest)
+					g.Expect(err).ToNot(HaveOccurred())
+
+					status := resourceRequest.Object["status"]
+					g.Expect(status).ToNot(BeNil())
+					statusMap := status.(map[string]interface{})
+
+					g.Expect(statusMap["message"]).To(Equal("Pending"))
+				}, "5s", interval).Should(Succeed())
+
+				// Delete the resource request
+				Expect(k8sClient.Delete(ctx, namespaceRR)).To(Succeed())
+
+				// Check that the resource request is deleted
+				Eventually(func(g Gomega) {
+					resourceRequest := &unstructured.Unstructured{}
+					resourceRequest.SetGroupVersionKind(namespaceRR.GroupVersionKind())
+					err := k8sClient.Get(ctx, types.NamespacedName{Name: "namespace-with-requirements", Namespace: "default"}, resourceRequest)
+					g.Expect(err).To(HaveOccurred())
+					g.Expect(errors.IsNotFound(err)).To(BeTrue())
+				}, timeout, interval).Should(Succeed())
+			})
+
+			When("there's a resource request with a status other than Pending", func() {
+				BeforeEach(func() {
+					requestedResource = createResourceRequest(resourceRequestForPromiseWithRequirements, "namespace-with-requirements")
+
+					resourceRequest := &unstructured.Unstructured{}
+					Eventually(func(g Gomega) {
+						resourceRequest.SetGroupVersionKind(requestedResource.GroupVersionKind())
+						err := k8sClient.Get(ctx, types.NamespacedName{Name: "namespace-with-requirements", Namespace: "default"}, resourceRequest)
+						g.Expect(err).ToNot(HaveOccurred())
+
+						status := resourceRequest.Object["status"]
+						g.Expect(status).ToNot(BeNil())
+						statusMap := status.(map[string]interface{})
+						g.Expect(statusMap["message"]).To(Equal("Pending"))
+					}, timeout, interval).Should(Succeed())
+
+					resourceRequest.Object["status"] = map[string]interface{}{
+						"message": "NotPending",
+					}
+					Expect(k8sClient.Status().Update(ctx, resourceRequest)).To(Succeed())
+				})
+
+				AfterEach(func() {
+					Expect(k8sClient.Delete(ctx, requestedResource)).To(Succeed())
+
+					// Check that the resource request is deleted
+					Eventually(func(g Gomega) {
+						resourceRequest := &unstructured.Unstructured{}
+						resourceRequest.SetGroupVersionKind(requestedResource.GroupVersionKind())
+						err := k8sClient.Get(ctx, types.NamespacedName{Name: "namespace-with-requirements", Namespace: "default"}, resourceRequest)
+						g.Expect(err).To(HaveOccurred())
+						g.Expect(errors.IsNotFound(err)).To(BeTrue())
+					}, timeout, interval).Should(Succeed())
+				})
+
+				It("updates the rr status to indicate the now Pending state", func() {
+					Eventually(func(g Gomega) string {
+						resourceRequest := &unstructured.Unstructured{}
+						resourceRequest.SetGroupVersionKind(requestedResource.GroupVersionKind())
+						err := k8sClient.Get(ctx, types.NamespacedName{Name: "namespace-with-requirements", Namespace: "default"}, resourceRequest)
+						g.Expect(err).ToNot(HaveOccurred())
+
+						status := resourceRequest.Object["status"]
+						g.Expect(status).ToNot(BeNil())
+						statusMap := status.(map[string]interface{})
+						return statusMap["message"].(string)
+					}, timeout, interval).Should(Equal("Pending"))
+				})
+			})
+		})
+
+		When("the promise requirements are not installed at the specified version", func() {
+			BeforeEach(func() {
+				err := k8sClient.Create(ctx, &v1alpha1.Promise{
+					ObjectMeta: metav1.ObjectMeta{
+						Name: "kafka",
+						Labels: map[string]string{
+							"kratix.io/promise-version": "v1.0.0",
+						},
+					},
+				})
+				Expect(err).ToNot(HaveOccurred())
+			})
+
+			AfterEach(func() {
+				deleteTestEnvPromise("kafka")
+			})
+
+			It("updates the status to indicate the dependencies are not installed at the specified version", func() {
+				Eventually(func(g Gomega) {
+					promise := getPromise(namespacePromiseCR.GetName())
+					g.Expect(promise.Status.Conditions).To(HaveLen(1))
+					g.Expect(promise.Status.Conditions[0].Type).To(Equal("RequirementsFulfilled"))
+					g.Expect(promise.Status.Conditions[0].Status).To(Equal(metav1.ConditionFalse))
+					g.Expect(promise.Status.Conditions[0].Message).To(Equal("Requirements not fulfilled"))
+					g.Expect(promise.Status.Conditions[0].Reason).To(Equal("RequirementsNotInstalled"))
+					g.Expect(promise.Status.Conditions[0].LastTransitionTime).ToNot(BeNil())
+
+					g.Expect(promise.Status.Requirements).To(ConsistOf(
+						v1alpha1.RequirementStatus{
+							Name:    "kafka",
+							Version: "v1.2.0",
+							State:   "Requirement not installed at the specified version",
+						},
+					))
+
+					g.Expect(promise.Status.Status).To(Equal(v1alpha1.PromiseStatusUnavailable))
+				}, timeout, interval).Should(Succeed())
+			})
+		})
+
+		When("the promise requirements are installed at the specified version", func() {
+			var workflows v1alpha1.Workflows
+			JustBeforeEach(func() {
+				// send a resource request
+				namespaceRR = createResourceRequest(resourceRequestForPromiseWithRequirements, "namespace-with-requirements")
+
+				// satisfy the promise requirements
+				err := k8sClient.Create(ctx, &v1alpha1.Promise{
+					ObjectMeta: metav1.ObjectMeta{
+						Name: "kafka",
+						Labels: map[string]string{
+							"kratix.io/promise-version": "v1.2.0",
+						},
+					},
+					Spec: v1alpha1.PromiseSpec{
+						Workflows: workflows,
+					},
+				})
+				Expect(err).ToNot(HaveOccurred())
+
+				// wait for the version to make its way to status
+				Eventually(func(g Gomega) {
+					kafkaPromise := &v1alpha1.Promise{}
+					err := k8sClient.Get(ctx, types.NamespacedName{Name: "kafka"}, kafkaPromise)
+					g.Expect(err).ToNot(HaveOccurred())
+					g.Expect(kafkaPromise.Status.Version).To(Equal("v1.2.0"))
+				}, timeout, interval).Should(Succeed())
+			})
+
+			AfterEach(func() {
+				deleteTestEnvPromise("kafka")
+			})
+
+			Context("but the required promise is not available", func() {
+				BeforeEach(func() {
+					workflows = v1alpha1.Workflows{
+						Promise: v1alpha1.WorkflowTriggers{
+							Configure: []unstructured.Unstructured{
+								{
+									Object: map[string]interface{}{
+										"apiVersion": "platform.kratix.io/v1alpha1",
+										"kind":       "Pipeline",
+										"metadata": map[string]interface{}{
+											"name": "kafka-pipeline",
+										},
+										"spec": map[string]interface{}{
+											"containers": []interface{}{
+												map[string]interface{}{
+													"name":  "kafka",
+													"image": "syntasso/kustomize-kafka",
+												},
+											},
+										},
+									},
+								},
+							},
+						},
+					}
+				})
+
+				It("does't update the status", func() {
+					Consistently(func(g Gomega) {
+						promise := getPromise(namespacePromiseCR.GetName())
+						g.Expect(promise.Status.Conditions).To(HaveLen(1))
+						g.Expect(promise.Status.Conditions[0].Type).To(Equal("RequirementsFulfilled"))
+						g.Expect(promise.Status.Conditions[0].Status).To(Equal(metav1.ConditionFalse))
+					}, "30s", interval).Should(Succeed())
+				})
+			})
+
+			Context("and the required promise is available", func() {
+				BeforeEach(func() {
+					workflows = v1alpha1.Workflows{}
+				})
+
+				It("updates the status to indicate the dependencies are installed at the specified version", func() {
+					Eventually(func(g Gomega) {
+						kafkaPromise := &v1alpha1.Promise{}
+						err := k8sClient.Get(ctx, types.NamespacedName{Name: "kafka"}, kafkaPromise)
+						g.Expect(err).ToNot(HaveOccurred())
+
+						promise := getPromise(namespacePromiseCR.GetName())
+						g.Expect(promise.Status.Conditions).To(HaveLen(1))
+						g.Expect(promise.Status.Conditions[0].Type).To(Equal("RequirementsFulfilled"))
+						g.Expect(promise.Status.Conditions[0].Status).To(Equal(metav1.ConditionTrue))
+						g.Expect(promise.Status.Conditions[0].Message).To(Equal("Requirements fulfilled"))
+						g.Expect(promise.Status.Conditions[0].Reason).To(Equal("RequirementsInstalled"))
+						g.Expect(promise.Status.Conditions[0].LastTransitionTime).ToNot(BeNil())
+
+						g.Expect(promise.Status.Requirements).To(ConsistOf(
+							v1alpha1.RequirementStatus{
+								Name:    "kafka",
+								Version: "v1.2.0",
+								State:   "Requirement installed",
+							},
+						))
+
+						g.Expect(promise.Status.Status).To(Equal(v1alpha1.PromiseStatusAvailable))
+						g.Expect(kafkaPromise.Status.RequiredBy).To(ConsistOf(
+							v1alpha1.RequiredBy{
+								Promise: v1alpha1.PromiseSummary{
+									Name: namespacePromiseCR.Name,
+								},
+								RequiredVersion: "v1.2.0",
+							},
+						))
+					}, timeout, interval).Should(Succeed())
+				})
+
+				It("ensures requested resources can be created and the resources configured", func() {
+					Eventually(func(g Gomega) {
+						resourceRequest := &unstructured.Unstructured{}
+						resourceRequest.SetGroupVersionKind(namespaceRR.GroupVersionKind())
+						err := k8sClient.Get(ctx, types.NamespacedName{Name: "namespace-with-requirements", Namespace: "default"}, resourceRequest)
+						g.Expect(err).ToNot(HaveOccurred())
+
+						status := resourceRequest.Object["status"]
+						g.Expect(status).ToNot(BeNil())
+
+						conditions, err := conditionsFromStatus(status)
+						Expect(err).ToNot(HaveOccurred())
+						g.Expect(conditions).To(ContainElement(
+							gstruct.MatchFields(
+								gstruct.IgnoreExtras,
+								gstruct.Fields{
+									"Type":               Equal(clusterv1.ConditionType("PromiseAvailable")),
+									"Status":             Equal(v1.ConditionTrue),
+									"Reason":             Equal("PromiseAvailable"),
+									"Message":            Equal("Promise Requirements are met"),
+									"LastTransitionTime": Not(BeNil()),
+								},
+							),
+						))
+					}, timeout, interval).Should(Succeed())
+
+					Eventually(func() int {
+						jobs := getResourceConfigurePipelineJobs(namespacePromiseCR, k8sClient)
+						return len(jobs)
+					}, timeout, interval).Should(Equal(1), "Configure Pipeline never trigerred")
+
+				})
+			})
+		})
+	})
 })
 
 func completeAllJobs(k8sClient client.Client) {
@@ -920,7 +1274,7 @@ func getPromise(promiseName string) *v1alpha1.Promise {
 	promise := &v1alpha1.Promise{}
 	Eventually(func() error {
 		return k8sClient.Get(context.Background(), types.NamespacedName{Name: promiseName}, promise)
-	}).Should(Succeed())
+	}, timeout, interval).Should(Succeed())
 	return promise
 }
 
@@ -933,4 +1287,56 @@ func waitForWork(workName string) *v1alpha1.Work {
 		}, work)
 	}, timeout, interval).Should(Succeed())
 	return work
+}
+
+func createResourceRequest(path string, name string) *unstructured.Unstructured {
+	rr := &unstructured.Unstructured{}
+	yamlFile, err := os.ReadFile(path)
+	Expect(err).ToNot(HaveOccurred())
+	Expect(yaml.Unmarshal(yamlFile, rr)).To(Succeed())
+	rr.SetNamespace("default")
+
+	resourceRequest := &unstructured.Unstructured{}
+	resourceRequest.SetGroupVersionKind(rr.GroupVersionKind())
+	err = k8sClient.Get(context.Background(), types.NamespacedName{Name: rr.GetName(), Namespace: "default"}, resourceRequest)
+	if err == nil {
+		return resourceRequest
+	}
+
+	Eventually(func() error {
+		return k8sClient.Create(context.Background(), rr)
+	}, timeout, interval).Should(BeNil())
+
+	Eventually(func(g Gomega) {
+		resourceRequest := &unstructured.Unstructured{}
+		resourceRequest.SetGroupVersionKind(rr.GroupVersionKind())
+		err := k8sClient.Get(context.Background(), types.NamespacedName{Name: name, Namespace: "default"}, resourceRequest)
+		g.Expect(err).ToNot(HaveOccurred())
+
+		status := resourceRequest.Object["status"]
+		g.Expect(status).ToNot(BeNil())
+	}, timeout, interval).Should(Succeed())
+	return rr
+}
+
+func deleteTestEnvPromise(name string) {
+	ctx := context.Background()
+	promise := &v1alpha1.Promise{}
+	err := k8sClient.Get(ctx, types.NamespacedName{Name: name}, promise)
+	Expect(err).ToNot(HaveOccurred())
+
+	err = k8sClient.Delete(ctx, promise)
+	Expect(err).ToNot(HaveOccurred())
+
+	Eventually(func(g Gomega) error {
+		err = k8sClient.Get(ctx, types.NamespacedName{Name: name}, promise)
+		if errors.IsNotFound(err) {
+			return nil
+		}
+		g.Expect(err).ToNot(HaveOccurred())
+		promise.Finalizers = []string{}
+		err = k8sClient.Update(ctx, promise)
+		g.Expect(err).ToNot(HaveOccurred())
+		return fmt.Errorf("%s promise still exists", name)
+	}, timeout, interval).Should(BeNil())
 }
