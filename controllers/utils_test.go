@@ -18,9 +18,13 @@ import (
 )
 
 const (
-	promisePath         = "assets/redis-simple-promise.yaml"
-	promiseWithWorkflow = "assets/promise-with-workflow.yaml"
-	updatedPromisePath  = "assets/redis-simple-promise-updated.yaml"
+	promisePath                    = "assets/redis-simple-promise.yaml"
+	promiseWithWorkflowPath        = "assets/promise-with-workflow.yaml"
+	promiseWithWorkflowUpdatedPath = "assets/promise-with-workflow-updated.yaml"
+	promiseWithOnlyDepsPath        = "assets/promise-with-deps-only.yaml"
+	promiseWithOnlyDepsUpdatedPath = "assets/promise-with-deps-only-updated.yaml"
+	resourceRequestPath            = "assets/redis-request.yaml"
+	updatedPromisePath             = "assets/redis-simple-promise-updated.yaml"
 )
 
 func promiseFromFile(path string) *v1alpha1.Promise {
@@ -105,7 +109,6 @@ func (t *testReconciler) reconcileUntilCompletion(r kubebuilder.Reconciler, obj 
 		if len(opts) > 0 && t.errorCount <= opts[0].errorBudget {
 			// Some errors can naturally occur, e.g. race conditions between gets/deletes is okay.
 			t.errorCount++
-			fmt.Println("reconcile1")
 			return t.reconcileUntilCompletion(r, obj, opts...)
 		}
 		return result, err
