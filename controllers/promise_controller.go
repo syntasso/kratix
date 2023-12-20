@@ -320,6 +320,7 @@ func (r *PromiseReconciler) generateStatusAndMarkRequirements(ctx context.Contex
 			}
 		} else {
 			if requiredPromise.Status.Version != requirement.Version || requiredPromise.Status.Status != v1alpha1.PromiseStatusAvailable {
+				promiseCondition.Reason = "RequirementsNotInstalled"
 				requirementState = requirementStateNotInstalledAtSpecifiedVersion
 
 				if promiseCondition.Status != metav1.ConditionUnknown {

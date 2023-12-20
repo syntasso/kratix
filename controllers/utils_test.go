@@ -25,6 +25,7 @@ const (
 	promiseWithWorkflowUpdatedPath = "assets/promise-with-workflow-updated.yaml"
 	promiseWithOnlyDepsPath        = "assets/promise-with-deps-only.yaml"
 	promiseWithOnlyDepsUpdatedPath = "assets/promise-with-deps-only-updated.yaml"
+	promiseWithRequirements        = "assets/promise-with-requirements.yaml"
 	resourceRequestPath            = "assets/redis-request.yaml"
 	resourceRequestUpdatedPath     = "assets/redis-request-updated.yaml"
 
