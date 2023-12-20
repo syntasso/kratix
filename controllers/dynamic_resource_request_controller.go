@@ -49,43 +49,42 @@ const (
 
 var rrFinalizers = []string{workFinalizer, workflowsFinalizer, deleteWorkflowsFinalizer}
 
-type dynamicResourceRequestController struct {
+type DynamicResourceRequestController struct {
 	//use same naming conventions as other controllers
 	Client                      client.Client
-	gvk                         *schema.GroupVersionKind
-	scheme                      *runtime.Scheme
-	promiseIdentifier           string
-	configurePipelines          []v1alpha1.Pipeline
-	deletePipelines             []v1alpha1.Pipeline
-	log                         logr.Logger
-	finalizers                  []string
-	uid                         string
-	enabled                     *bool
-	crd                         *apiextensionsv1.CustomResourceDefinition
-	promiseDestinationSelectors []v1alpha1.PromiseScheduling
-	promiseWorkflowSelectors    *v1alpha1.WorkloadGroupScheduling
+	GVK                         *schema.GroupVersionKind
+	Scheme                      *runtime.Scheme
+	PromiseIdentifier           string
+	ConfigurePipelines          []v1alpha1.Pipeline
+	DeletePipelines             []v1alpha1.Pipeline
+	Log                         logr.Logger
+	UID                         string
+	Enabled                     *bool
+	CRD                         *apiextensionsv1.CustomResourceDefinition
+	PromiseDestinationSelectors []v1alpha1.PromiseScheduling
+	PromiseWorkflowSelectors    *v1alpha1.WorkloadGroupScheduling
 }
 
 //+kubebuilder:rbac:groups="batch",resources=jobs,verbs=get;list;watch;create;update;patch;delete
 //+kubebuilder:rbac:groups="",resources=serviceaccounts,verbs=create
 
-func (r *dynamicResourceRequestController) Reconcile(ctx context.Context, req ctrl.Request) (ctrl.Result, error) {
-	if !*r.enabled {
+func (r *DynamicResourceRequestController) Reconcile(ctx context.Context, req ctrl.Request) (ctrl.Result, error) {
+	if !*r.Enabled {
 		//temporary fix until https://github.com/kubernetes-sigs/controller-runtime/issues/1884 is resolved
 		//once resolved, this won't be necessary since the dynamic controller will be deleted
 		return ctrl.Result{}, nil
 	}
 
-	resourceRequestIdentifier := fmt.Sprintf("%s-%s", r.promiseIdentifier, req.Name)
-	logger := r.log.WithValues(
-		"uid", r.uid,
-		"promiseID", r.promiseIdentifier,
+	resourceRequestIdentifier := fmt.Sprintf("%s-%s", r.PromiseIdentifier, req.Name)
+	logger := r.Log.WithValues(
+		"uid", r.UID,
+		"promiseID", r.PromiseIdentifier,
 		"namespace", req.NamespacedName,
 		"resourceRequest", resourceRequestIdentifier,
 	)
 
 	rr := &unstructured.Unstructured{}
-	rr.SetGroupVersionKind(*r.gvk)
+	rr.SetGroupVersionKind(*r.GVK)
 
 	err := r.Client.Get(ctx, req.NamespacedName, rr)
 	if err != nil {
@@ -113,12 +112,12 @@ func (r *dynamicResourceRequestController) Reconcile(ctx context.Context, req ct
 
 	pipelineResources, err := pipeline.NewConfigureResource(
 		rr,
-		r.crd.Spec.Names.Plural,
-		r.configurePipelines,
+		r.CRD.Spec.Names.Plural,
+		r.ConfigurePipelines,
 		resourceRequestIdentifier,
-		r.promiseIdentifier,
-		r.promiseDestinationSelectors,
-		r.promiseWorkflowSelectors,
+		r.PromiseIdentifier,
+		r.PromiseDestinationSelectors,
+		r.PromiseWorkflowSelectors,
 		opts.logger,
 	)
 	if err != nil {
@@ -128,7 +127,7 @@ func (r *dynamicResourceRequestController) Reconcile(ctx context.Context, req ct
 	jobOpts := jobOpts{
 		opts:              opts,
 		obj:               rr,
-		pipelineLabels:    pipeline.LabelsForConfigureResource(resourceRequestIdentifier, r.promiseIdentifier),
+		pipelineLabels:    pipeline.LabelsForConfigureResource(resourceRequestIdentifier, r.PromiseIdentifier),
 		pipelineResources: pipelineResources,
 	}
 	requeue, err := ensurePipelineIsReconciled(jobOpts)
@@ -167,7 +166,7 @@ func setPipelineCompletedConditionStatus(o opts, obj *unstructured.Unstructured)
 	return false, nil
 }
 
-func (r *dynamicResourceRequestController) deleteResources(o opts, resourceRequest *unstructured.Unstructured, resourceRequestIdentifier string) (ctrl.Result, error) {
+func (r *DynamicResourceRequestController) deleteResources(o opts, resourceRequest *unstructured.Unstructured, resourceRequestIdentifier string) (ctrl.Result, error) {
 	if resourceutil.FinalizersAreDeleted(resourceRequest, rrFinalizers) {
 		return ctrl.Result{}, nil
 	}
@@ -179,7 +178,7 @@ func (r *dynamicResourceRequestController) deleteResources(o opts, resourceReque
 		}
 
 		if existingDeletePipeline == nil {
-			deletePipeline := pipeline.NewDeletePipeline(resourceRequest, r.deletePipelines, resourceRequestIdentifier, r.promiseIdentifier)
+			deletePipeline := pipeline.NewDeletePipeline(resourceRequest, r.DeletePipelines, resourceRequestIdentifier, r.PromiseIdentifier)
 			o.logger.Info("Creating Delete Pipeline. The pipeline will now execute...")
 			err = r.Client.Create(o.ctx, &deletePipeline)
 			if err != nil {
@@ -224,15 +223,15 @@ func (r *dynamicResourceRequestController) deleteResources(o opts, resourceReque
 	return fastRequeue, nil
 }
 
-func (r *dynamicResourceRequestController) getDeletePipeline(o opts, resourceRequestIdentifier, namespace string) (*batchv1.Job, error) {
-	jobs, err := getJobsWithLabels(o, pipeline.LabelsForDeleteResource(resourceRequestIdentifier, r.promiseIdentifier), namespace)
+func (r *DynamicResourceRequestController) getDeletePipeline(o opts, resourceRequestIdentifier, namespace string) (*batchv1.Job, error) {
+	jobs, err := getJobsWithLabels(o, pipeline.LabelsForDeleteResource(resourceRequestIdentifier, r.PromiseIdentifier), namespace)
 	if err != nil || len(jobs) == 0 {
 		return nil, err
 	}
 	return &jobs[0], nil
 }
 
-func (r *dynamicResourceRequestController) deleteWork(o opts, resourceRequest *unstructured.Unstructured, workName string, finalizer string) error {
+func (r *DynamicResourceRequestController) deleteWork(o opts, resourceRequest *unstructured.Unstructured, workName string, finalizer string) error {
 	work := &v1alpha1.Work{}
 	err := r.Client.Get(o.ctx, types.NamespacedName{
 		Namespace: resourceRequest.GetNamespace(),
@@ -271,14 +270,14 @@ func (r *dynamicResourceRequestController) deleteWork(o opts, resourceRequest *u
 	return nil
 }
 
-func (r *dynamicResourceRequestController) deleteWorkflows(o opts, resourceRequest *unstructured.Unstructured, resourceRequestIdentifier, finalizer string) error {
+func (r *DynamicResourceRequestController) deleteWorkflows(o opts, resourceRequest *unstructured.Unstructured, resourceRequestIdentifier, finalizer string) error {
 	jobGVK := schema.GroupVersionKind{
 		Group:   batchv1.SchemeGroupVersion.Group,
 		Version: batchv1.SchemeGroupVersion.Version,
 		Kind:    "Job",
 	}
 
-	jobLabels := pipeline.LabelsForAllResourceWorkflows(resourceRequestIdentifier, r.promiseIdentifier)
+	jobLabels := pipeline.LabelsForAllResourceWorkflows(resourceRequestIdentifier, r.PromiseIdentifier)
 
 	resourcesRemaining, err := deleteAllResourcesWithKindMatchingLabel(o, jobGVK, jobLabels)
 	if err != nil {

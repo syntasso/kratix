@@ -17,6 +17,7 @@ limitations under the License.
 package controllers_test
 
 import (
+	"os"
 	"testing"
 	"time"
 
@@ -32,6 +33,8 @@ import (
 
 	fakeclientset "k8s.io/apiextensions-apiserver/pkg/client/clientset/clientset/fake"
 	apiextensionsv1 "k8s.io/apiextensions-apiserver/pkg/client/clientset/clientset/typed/apiextensions/v1"
+	"k8s.io/apimachinery/pkg/apis/meta/v1/unstructured"
+	"k8s.io/apimachinery/pkg/util/yaml"
 	"k8s.io/client-go/kubernetes/scheme"
 	ctrl "sigs.k8s.io/controller-runtime"
 	"sigs.k8s.io/controller-runtime/pkg/client"
@@ -116,6 +119,12 @@ var _ = AfterSuite(func() {
 })
 
 var _ = BeforeEach(func() {
+	yamlFile, err := os.ReadFile(resourceRequestPath)
+	Expect(err).ToNot(HaveOccurred())
+
+	resReq := &unstructured.Unstructured{}
+	Expect(yaml.Unmarshal(yamlFile, resReq)).To(Succeed())
+
 	fakeK8sClient = fake.NewClientBuilder().WithScheme(scheme.Scheme).WithStatusSubresource(
 		&platformv1alpha1.PromiseRelease{},
 		&platformv1alpha1.Promise{},
@@ -124,6 +133,8 @@ var _ = BeforeEach(func() {
 		&platformv1alpha1.Destination{},
 		&platformv1alpha1.GitStateStore{},
 		&platformv1alpha1.BucketStateStore{},
+		//Add redis.marketplace.kratix.io/v1alpha1 so we can update its status
+		resReq,
 	).Build()
 
 	fakeApiExtensionsClient = fakeclientset.NewSimpleClientset().ApiextensionsV1()

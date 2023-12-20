@@ -24,7 +24,9 @@ const (
 	promiseWithOnlyDepsPath        = "assets/promise-with-deps-only.yaml"
 	promiseWithOnlyDepsUpdatedPath = "assets/promise-with-deps-only-updated.yaml"
 	resourceRequestPath            = "assets/redis-request.yaml"
-	updatedPromisePath             = "assets/redis-simple-promise-updated.yaml"
+	resourceRequestUpdatedPath     = "assets/redis-request-updated.yaml"
+
+	updatedPromisePath = "assets/redis-simple-promise-updated.yaml"
 )
 
 func promiseFromFile(path string) *v1alpha1.Promise {

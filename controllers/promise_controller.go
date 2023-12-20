@@ -59,7 +59,7 @@ type PromiseReconciler struct {
 	ApiextensionsClient       apiextensionsv1cs.CustomResourceDefinitionsGetter
 	Log                       logr.Logger
 	Manager                   ctrl.Manager
-	StartedDynamicControllers map[string]*dynamicResourceRequestController
+	StartedDynamicControllers map[string]*DynamicResourceRequestController
 	RestartManager            func()
 }
 
@@ -101,7 +101,7 @@ var (
 
 func (r *PromiseReconciler) Reconcile(ctx context.Context, req ctrl.Request) (ctrl.Result, error) {
 	if r.StartedDynamicControllers == nil {
-		r.StartedDynamicControllers = make(map[string]*dynamicResourceRequestController)
+		r.StartedDynamicControllers = make(map[string]*DynamicResourceRequestController)
 	}
 	promise := &v1alpha1.Promise{}
 	err := r.Client.Get(ctx, req.NamespacedName, promise)
@@ -288,13 +288,13 @@ func (r *PromiseReconciler) ensureDynamicControllerIsStarted(promise *v1alpha1.P
 		logger.Info("dynamic controller already started")
 
 		dynamicController := r.StartedDynamicControllers[string(promise.GetUID())]
-		dynamicController.deletePipelines = deletePipelines
-		dynamicController.configurePipelines = configurePipelines
-		dynamicController.gvk = &rrGVK
-		dynamicController.crd = rrCRD
+		dynamicController.DeletePipelines = deletePipelines
+		dynamicController.ConfigurePipelines = configurePipelines
+		dynamicController.GVK = &rrGVK
+		dynamicController.CRD = rrCRD
 
-		dynamicController.promiseDestinationSelectors = promise.Spec.DestinationSelectors
-		dynamicController.promiseWorkflowSelectors = work.GetDefaultScheduling("promise-workflow")
+		dynamicController.PromiseDestinationSelectors = promise.Spec.DestinationSelectors
+		dynamicController.PromiseWorkflowSelectors = work.GetDefaultScheduling("promise-workflow")
 
 		return nil
 	}
@@ -303,19 +303,19 @@ func (r *PromiseReconciler) ensureDynamicControllerIsStarted(promise *v1alpha1.P
 	//temporary fix until https://github.com/kubernetes-sigs/controller-runtime/issues/1884 is resolved
 	//once resolved, delete dynamic controller rather than disable
 	enabled := true
-	dynamicResourceRequestController := &dynamicResourceRequestController{
+	dynamicResourceRequestController := &DynamicResourceRequestController{
 		Client:                      r.Client,
-		scheme:                      r.Scheme,
-		gvk:                         &rrGVK,
-		crd:                         rrCRD,
-		promiseIdentifier:           promise.GetName(),
-		configurePipelines:          configurePipelines,
-		deletePipelines:             deletePipelines,
-		promiseDestinationSelectors: promise.Spec.DestinationSelectors,
-		promiseWorkflowSelectors:    work.GetDefaultScheduling("promise-workflow"),
-		log:                         r.Log.WithName(promise.GetName()),
-		uid:                         string(promise.GetUID())[0:5],
-		enabled:                     &enabled,
+		Scheme:                      r.Scheme,
+		GVK:                         &rrGVK,
+		CRD:                         rrCRD,
+		PromiseIdentifier:           promise.GetName(),
+		ConfigurePipelines:          configurePipelines,
+		DeletePipelines:             deletePipelines,
+		PromiseDestinationSelectors: promise.Spec.DestinationSelectors,
+		PromiseWorkflowSelectors:    work.GetDefaultScheduling("promise-workflow"),
+		Log:                         r.Log.WithName(promise.GetName()),
+		UID:                         string(promise.GetUID())[0:5],
+		Enabled:                     &enabled,
 	}
 	r.StartedDynamicControllers[string(promise.GetUID())] = dynamicResourceRequestController
 
@@ -506,7 +506,7 @@ func (r *PromiseReconciler) deletePromise(o opts, promise *v1alpha1.Promise) (ct
 	if d, exists := r.StartedDynamicControllers[string(promise.GetUID())]; exists {
 		r.RestartManager()
 		enabled := false
-		d.enabled = &enabled
+		d.Enabled = &enabled
 	}
 
 	if controllerutil.ContainsFinalizer(promise, dynamicControllerDependantResourcesCleaupFinalizer) {

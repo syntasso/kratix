@@ -24,10 +24,12 @@ import (
 	. "github.com/onsi/gomega"
 	. "github.com/syntasso/kratix/controllers"
 	"github.com/syntasso/kratix/lib/hash"
+	metav1 "k8s.io/apimachinery/pkg/apis/meta/v1"
 	"k8s.io/apimachinery/pkg/util/rand"
 	ctrl "sigs.k8s.io/controller-runtime"
 	"sigs.k8s.io/controller-runtime/pkg/client"
 
+	"github.com/syntasso/kratix/api/v1alpha1"
 	platformv1alpha1 "github.com/syntasso/kratix/api/v1alpha1"
 	//+kubebuilder:scaffold:imports
 )
@@ -322,4 +324,20 @@ func getWork(name, namespace string) *platformv1alpha1.Work {
 	err := k8sClient.Get(context.Background(), client.ObjectKey{Name: name, Namespace: namespace}, work)
 	Expect(err).ToNot(HaveOccurred())
 	return work
+}
+
+func createDestination(name string, labels ...map[string]string) *v1alpha1.Destination {
+	destination := &v1alpha1.Destination{
+		ObjectMeta: metav1.ObjectMeta{
+			Name:      name,
+			Namespace: v1alpha1.KratixSystemNamespace,
+		},
+	}
+
+	if len(labels) > 0 {
+		destination.SetLabels(labels[0])
+	}
+
+	Expect(k8sClient.Create(context.Background(), destination)).To(Succeed())
+	return destination
 }
