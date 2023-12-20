@@ -205,6 +205,11 @@ var _ = Describe("PromiseController", func() {
 						Expect(fakeK8sClient.Get(ctx, promiseName, promise)).To(Succeed())
 						Expect(promise.Status.ObservedGeneration).To(Equal(promise.Generation))
 					})
+
+					By("starting the dynamic controller", func() {
+						Expect(reconciler.StartedDynamicControllers).To(HaveLen(1))
+						Expect(*reconciler.StartedDynamicControllers["1234abcd"].CanCreateResources).To(BeTrue())
+					})
 				})
 			})
 			When("the promise has requirements", func() {
@@ -224,8 +229,10 @@ var _ = Describe("PromiseController", func() {
 				})
 
 				When("the promise requirements are not installed", func() {
-					It("updates the status to indicate the dependencies are not installed", func() {
-						_, err := t.reconcileUntilCompletion(reconciler, promise)
+					It("updates the status to indicate the dependencies are not installed and prevents RRs being reconciled", func() {
+						_, err := t.reconcileUntilCompletion(reconciler, promise, &opts{
+							funcs: []func(client.Object) error{autoMarkCRDAsEstablished},
+						})
 						Expect(err).To(MatchError("reconcile loop detected"))
 						Expect(fakeK8sClient.Get(ctx, promiseName, promise)).To(Succeed())
 						Expect(promise.Status.Conditions).To(HaveLen(1))
@@ -242,8 +249,10 @@ var _ = Describe("PromiseController", func() {
 								State:   "Requirement not installed",
 							},
 						))
-
 						Expect(promise.Status.Status).To(Equal(v1alpha1.PromiseStatusUnavailable))
+
+						Expect(reconciler.StartedDynamicControllers).To(HaveLen(1))
+						Expect(*reconciler.StartedDynamicControllers["1234abcd"].CanCreateResources).To(BeFalse())
 					})
 				})
 
@@ -372,8 +381,10 @@ var _ = Describe("PromiseController", func() {
 									State:   "Requirement installed",
 								},
 							))
-
 							Expect(promise.Status.Status).To(Equal(v1alpha1.PromiseStatusAvailable))
+
+							Expect(reconciler.StartedDynamicControllers).To(HaveLen(1))
+							Expect(*reconciler.StartedDynamicControllers["1234abcd"].CanCreateResources).To(BeTrue())
 						})
 					})
 				})
