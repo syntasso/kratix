@@ -36,6 +36,9 @@ var (
 	promiseWithSchedulingPath        = "./assets/bash-promise/promise-with-destination-selectors.yaml"
 	promiseWithSchedulingPathUpdated = "./assets/bash-promise/promise-with-destination-selectors-updated.yaml"
 
+	resourceRequestPath    = "./assets/requirements/example-rr.yaml"
+	promiseWithRequirement = "./assets/requirements/promise-with-requirement.yaml"
+
 	workerCtx = "--context=kind-worker"
 	platCtx   = "--context=kind-platform"
 
@@ -79,6 +82,32 @@ spec:
 )
 
 var _ = Describe("Kratix", func() {
+	var srv *gohttp.Server
+
+	BeforeEach(func() {
+		router := mux.NewRouter()
+		router.HandleFunc("/promise", func(w gohttp.ResponseWriter, _ *gohttp.Request) {
+			bytes, err := os.ReadFile(promiseWithSchedulingPath)
+			Expect(err).NotTo(HaveOccurred())
+			w.Write(bytes)
+		}).Methods("GET")
+
+		srv = &gohttp.Server{
+			Addr:    ":8081",
+			Handler: router,
+		}
+
+		go func() {
+			if err := srv.ListenAndServe(); err != nil && err != gohttp.ErrServerClosed {
+				log.Fatalf("listen: %s\n", err)
+			}
+		}()
+	})
+
+	AfterEach(func() {
+		srv.Shutdown(context.TODO())
+	})
+
 	Describe("Promise lifecycle", func() {
 		BeforeEach(func() {
 			platform.kubectl("label", "destination", "worker-1", "extra=label")
@@ -110,13 +139,80 @@ var _ = Describe("Kratix", func() {
 			})
 		})
 
+		When("the promise has requirements that are fulfilled", func() {
+			var tmpDir string
+			BeforeEach(func() {
+				var err error
+				tmpDir, err = os.MkdirTemp(os.TempDir(), "systest")
+				Expect(err).NotTo(HaveOccurred())
+
+				platform.kubectl("apply", "-f", promiseWithRequirement)
+			})
+
+			AfterEach(func() {
+				platform.kubectl("delete", "-f", promiseWithRequirement)
+				os.RemoveAll(tmpDir)
+			})
+
+			It("can fulfil resource requests once requirements are met", func() {
+				By("the Promise being Unavailable when installed without requirements", func() {
+					Eventually(func(g Gomega) {
+						platform.eventuallyKubectl("get", "promise", "redis")
+						g.Expect(platform.kubectl("get", "promise", "redis")).To(ContainSubstring("Unavailable"))
+						platform.eventuallyKubectl("get", "crd", "redis.marketplace.kratix.io")
+					}, timeout, interval).Should(Succeed())
+				})
+
+				By("allowing resource requests to be created in Pending state", func() {
+					platform.kubectl("apply", "-f", resourceRequestPath)
+
+					Eventually(func(g Gomega) {
+						platform.eventuallyKubectl("get", "redis")
+						g.Expect(platform.kubectl("get", "redis", "example-rr")).To(ContainSubstring("Pending"))
+					}, timeout, interval).Should(Succeed())
+				})
+
+				By("the Promise being Available once requirements are installed", func() {
+					platform.kubectl("apply", "-f", catAndReplace(tmpDir, promiseReleasePath))
+
+					Eventually(func(g Gomega) {
+						g.Expect(platform.kubectl("get", "promise")).Should(ContainSubstring("bash"))
+						g.Expect(platform.kubectl("get", "crd")).Should(ContainSubstring("bash"))
+						g.Expect(platform.kubectl("get", "promiserelease")).Should(ContainSubstring("bash"))
+					}, timeout, interval).Should(Succeed())
+
+					Eventually(func(g Gomega) {
+						g.Expect(platform.kubectl("get", "promise", "redis")).To(ContainSubstring("Available"))
+					}, timeout, interval).Should(Succeed())
+				})
+
+				By("creating the 'pending' resource requests", func() {
+					Eventually(func(g Gomega) {
+						g.Expect(platform.kubectl("get", "redis", "example-rr")).To(ContainSubstring("Resource requested"))
+					}, timeout, interval).Should(Succeed())
+				})
+
+				By("marking the Promise as Unavailable when the requirements are deleted", func() {
+					platform.kubectl("delete", "-f", catAndReplace(tmpDir, promiseReleasePath))
+
+					Eventually(func(g Gomega) {
+						g.Expect(platform.kubectl("get", "promiserelease")).ShouldNot(ContainSubstring("bash"))
+					}, timeout, interval).Should(Succeed())
+
+					Eventually(func(g Gomega) {
+						g.Expect(platform.kubectl("get", "promise", "redis")).To(ContainSubstring("Unavailable"))
+					}, timeout, interval).Should(Succeed())
+				})
+			})
+		})
+
 		Describe("Resource requests", func() {
 			BeforeEach(func() {
 				platform.kubectl("apply", "-f", promisePath)
 				platform.eventuallyKubectl("get", "crd", "bash.test.kratix.io")
 			})
 
-			It("executes the pipelines and schedules the work to the appropiate destinations", func() {
+			It("executes the pipelines and schedules the work to the appropriate destinations", func() {
 				rrName := "rr-test"
 				request := unstructured.Unstructured{
 					Object: map[string]interface{}{
@@ -247,7 +343,7 @@ var _ = Describe("Kratix", func() {
 				Eventually(platform.kubectl("get", "promise")).ShouldNot(ContainSubstring("bash"))
 			})
 
-			It("propogates the changes and re-runs all the pipelines", func() {
+			It("propagates the changes and re-runs all the pipelines", func() {
 				By("installing and requesting v1alpha1 promise", func() {
 					platform.kubectl("apply", "-f", promisePath)
 
@@ -455,35 +551,12 @@ var _ = Describe("Kratix", func() {
 	})
 
 	Describe("PromiseRelease", func() {
-		var srv *gohttp.Server
-
-		BeforeEach(func() {
-			router := mux.NewRouter()
-			router.HandleFunc("/promise", func(w gohttp.ResponseWriter, _ *gohttp.Request) {
-				bytes, err := os.ReadFile(promisePath)
-				Expect(err).NotTo(HaveOccurred())
-				w.Write(bytes)
-			}).Methods("GET")
-
-			srv = &gohttp.Server{
-				Addr:    ":8081",
-				Handler: router,
-			}
-
-			go func() {
-				if err := srv.ListenAndServe(); err != nil && err != gohttp.ErrServerClosed {
-					log.Fatalf("listen: %s\n", err)
-				}
-			}()
-		})
-
-		AfterEach(func() {
-			srv.Shutdown(context.TODO())
-		})
-
 		When("a PromiseRelease is installed", func() {
 			BeforeEach(func() {
-				platform.kubectl("apply", "-f", promiseReleasePath)
+				tmpDir, err := os.MkdirTemp(os.TempDir(), "systest")
+				Expect(err).NotTo(HaveOccurred())
+				platform.kubectl("apply", "-f", catAndReplace(tmpDir, promiseReleasePath))
+				os.RemoveAll(tmpDir)
 			})
 
 			It("installs the Promises specified", func() {

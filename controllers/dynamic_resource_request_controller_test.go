@@ -2,7 +2,6 @@ package controllers_test
 
 import (
 	"context"
-	"fmt"
 	"os"
 	"regexp"
 	"strings"
@@ -24,7 +23,7 @@ import (
 	"github.com/syntasso/kratix/controllers"
 )
 
-var _ = FDescribe("DynamicResourceRequestController", func() {
+var _ = Describe("DynamicResourceRequestController", func() {
 	var (
 		reconciler          *controllers.DynamicResourceRequestController
 		resReq              *unstructured.Unstructured
@@ -54,11 +53,12 @@ var _ = FDescribe("DynamicResourceRequestController", func() {
 
 		enabled := true
 		reconciler = &controllers.DynamicResourceRequestController{
-			Client:            fakeK8sClient,
-			Scheme:            scheme.Scheme,
-			GVK:               &rrGVK,
-			CRD:               rrCRD,
-			PromiseIdentifier: promise.GetName(),
+			CanCreateResources: &enabled,
+			Client:             fakeK8sClient,
+			Scheme:             scheme.Scheme,
+			GVK:                &rrGVK,
+			CRD:                rrCRD,
+			PromiseIdentifier:  promise.GetName(),
 			ConfigurePipelines: []v1alpha1.Pipeline{
 				{
 					Spec: v1alpha1.PipelineSpec{
@@ -305,8 +305,6 @@ var _ = FDescribe("DynamicResourceRequestController", func() {
 				jobs := &batchv1.JobList{}
 				Expect(fakeK8sClient.List(ctx, jobs)).To(Succeed())
 				Expect(jobs.Items).To(HaveLen(2))
-				fmt.Printf("%+v\n", jobs.Items[0].Spec.Template.Spec.InitContainers)
-				fmt.Printf("%+v\n", jobs.Items[1].Spec.Template.Spec.InitContainers)
 				Expect([]string{
 					jobs.Items[0].Spec.Template.Spec.InitContainers[1].Image,
 					jobs.Items[1].Spec.Template.Spec.Containers[0].Image,

@@ -23,9 +23,9 @@ import (
 )
 
 const (
-	kratixPrefix               = "kratix.io/"
-	promiseReleaseVersionLabel = kratixPrefix + "promise-release-version"
-	promiseReleaseNameLabel    = kratixPrefix + "promise-release-name"
+	kratixPrefix            = "kratix.io/"
+	promiseVersionLabel     = kratixPrefix + "promise-version"
+	promiseReleaseNameLabel = kratixPrefix + "promise-release-name"
 )
 
 type StateStore interface {
@@ -190,7 +190,7 @@ func addFinalizers(o opts, resource client.Object, finalizers []string) (ctrl.Re
 		controllerutil.AddFinalizer(resource, finalizer)
 	}
 	if err := o.client.Update(o.ctx, resource); err != nil {
-		return defaultRequeue, err
+		return ctrl.Result{}, err
 	}
 	return ctrl.Result{}, nil
 }

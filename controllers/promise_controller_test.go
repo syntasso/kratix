@@ -44,7 +44,7 @@ var (
 
 const promiseKind = "Promise"
 
-var _ = FDescribe("PromiseController", func() {
+var _ = Describe("PromiseController", func() {
 	BeforeEach(func() {
 		ctx = context.Background()
 		managerRestarted = false
@@ -442,6 +442,9 @@ var _ = FDescribe("PromiseController", func() {
 				Expect(configMaps.Items).To(HaveLen(0))
 				Expect(serviceAccounts.Items).To(HaveLen(0))
 			})
+
+			//TODO
+			// - test https://github.com/syntasso/kratix/blob/dev/controllers/promise_controller_test.go#L65
 
 			When("a resource request exists", func() {
 				It("deletes them", func() {

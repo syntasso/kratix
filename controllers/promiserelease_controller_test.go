@@ -16,7 +16,7 @@ import (
 	ctrl "sigs.k8s.io/controller-runtime"
 )
 
-var _ = PDescribe("PromiseReleaseController", func() {
+var _ = Describe("PromiseReleaseController", func() {
 	var (
 		promiseRelease               v1alpha1.PromiseRelease
 		promiseReleaseNamespacedName types.NamespacedName
@@ -33,6 +33,7 @@ var _ = PDescribe("PromiseReleaseController", func() {
 			Client:         fakeK8sClient,
 			Scheme:         scheme.Scheme,
 			PromiseFetcher: fakeFetcher,
+			Log:            ctrl.Log.WithName("controllers").WithName("PromiseRelease"),
 		}
 
 		promiseRelease = v1alpha1.PromiseRelease{
@@ -84,7 +85,7 @@ var _ = PDescribe("PromiseReleaseController", func() {
 
 			It("adds the promise release labels to the promise", func() {
 				Expect(promise.Labels).To(SatisfyAll(
-					HaveKeyWithValue("kratix.io/promise-release-version", "v1.1.0"),
+					HaveKeyWithValue("kratix.io/promise-version", "v1.1.0"),
 					HaveKeyWithValue("kratix.io/promise-release-name", "redis"),
 				))
 			})
@@ -124,68 +125,126 @@ var _ = PDescribe("PromiseReleaseController", func() {
 			})
 
 			When("the url fetcher succeeds", func() {
-				BeforeEach(func() {
-					err := fakeK8sClient.Create(context.TODO(), &promiseRelease)
-					Expect(err).ToNot(HaveOccurred())
+				When("the Promise has no defined version", func() {
+					BeforeEach(func() {
+						unversionedPromise := promiseFromFile(promisePath)
+						unversionedPromise.Labels = nil
+						fakeFetcher.FromURLReturns(unversionedPromise, nil)
+						err := fakeK8sClient.Create(context.TODO(), &promiseRelease)
+						Expect(err).ToNot(HaveOccurred())
+					})
 
-					_, err = t.reconcileUntilCompletion(reconciler, &promiseRelease)
-					Expect(err).ToNot(HaveOccurred())
-
-					promise = fetchPromise(promiseReleaseNamespacedName)
-					err = fakeK8sClient.Get(context.TODO(), promiseReleaseNamespacedName, &promiseRelease)
-					Expect(err).ToNot(HaveOccurred())
+					It("errors", func() {
+						result, err := t.reconcileUntilCompletion(reconciler, &promiseRelease)
+						Expect(result).To(Equal(ctrl.Result{}))
+						Expect(err).To(MatchError(ContainSubstring("version label (kratix.io/promise-version) not found on promise; refusing to install")))
+					})
 				})
 
-				It("installs the promise from the URL", func() {
-					expectedPromise := promiseFromFile(promisePath)
-					Expect(promise.Spec).To(Equal(expectedPromise.Spec))
+				When("the Promise version doesn't match the Promise Release version", func() {
+					BeforeEach(func() {
+						unversionedPromise := promiseFromFile(promisePath)
+						unversionedPromise.Labels["kratix.io/promise-version"] = "v2.2.0"
+						fakeFetcher.FromURLReturns(unversionedPromise, nil)
+						err := fakeK8sClient.Create(context.TODO(), &promiseRelease)
+						Expect(err).ToNot(HaveOccurred())
+					})
+
+					It("errors", func() {
+						result, err := t.reconcileUntilCompletion(reconciler, &promiseRelease)
+						Expect(result).To(Equal(ctrl.Result{}))
+						Expect(err).To(MatchError(ContainSubstring("version label on promise (v2.2.0) does not match version on promise release (v1.1.0); refusing to install")))
+					})
 				})
 
-				It("sets the labels on the promise from the URL definition, including the promise release labels", func() {
-					Expect(promise.Labels).To(Equal(map[string]string{
-						"new-promise-label":                 "value",
-						"clashing-label":                    "new-promise-value",
-						"kratix.io/promise-release-version": "v1.1.0",
-						"kratix.io/promise-release-name":    "redis",
-					}))
+				When("the PromiseRelease does not specify a version", func() {
+					BeforeEach(func() {
+						promiseRelease.Spec.Version = ""
+						err := fakeK8sClient.Create(context.TODO(), &promiseRelease)
+						Expect(err).ToNot(HaveOccurred())
+
+						_, err = t.reconcileUntilCompletion(reconciler, &promiseRelease)
+						Expect(err).ToNot(HaveOccurred())
+					})
+
+					It("installs the promise from the URL", func() {
+						expectedPromise := promiseFromFile(promisePath)
+						Expect(promise.Spec).To(Equal(expectedPromise.Spec))
+					})
+
+					It("updates the PromiseRelease with the Promise version", func() {
+						err := fakeK8sClient.Get(context.Background(), promiseReleaseNamespacedName, &promiseRelease)
+						Expect(err).ToNot(HaveOccurred())
+						Expect(promiseRelease.Spec.Version).To(Equal("v1.1.0"))
+					})
 				})
 
-				It("sets the annotations on the promise from the URL definition", func() {
-					Expect(promise.Annotations).To(Equal(map[string]string{
-						"new-promise-annotation": "value",
-						"clashing-annotation":    "new-promise-value",
-					}))
-				})
+				When("the Promise has a defined version", func() {
+					BeforeEach(func() {
+						err := fakeK8sClient.Create(context.TODO(), &promiseRelease)
+						Expect(err).ToNot(HaveOccurred())
 
-				It("sets the promise as a dependent of the promise release", func() {
-					var tru bool = true
-					Expect(promise.GetOwnerReferences()).To(ContainElement(metav1.OwnerReference{
-						APIVersion:         "platform.kratix.io/v1alpha1",
-						Kind:               "PromiseRelease",
-						Name:               "redis",
-						Controller:         &tru,
-						BlockOwnerDeletion: &tru,
-					}))
-				})
+						_, err = t.reconcileUntilCompletion(reconciler, &promiseRelease)
+						Expect(err).ToNot(HaveOccurred())
 
-				It("updates the promise release status to installed", func() {
-					Expect(promiseRelease.Status.Installed).To(BeTrue())
-				})
+						promise = fetchPromise(promiseReleaseNamespacedName)
+						err = fakeK8sClient.Get(context.TODO(), promiseReleaseNamespacedName, &promiseRelease)
+						Expect(err).ToNot(HaveOccurred())
+					})
 
-				It("adds a finalizer for the promise to the promise release", func() {
-					Expect(promiseRelease.GetFinalizers()).To(ConsistOf("kratix.io/promise-cleanup"))
+					It("installs the promise from the URL", func() {
+						expectedPromise := promiseFromFile(promisePath)
+						Expect(promise.Spec).To(Equal(expectedPromise.Spec))
+					})
+
+					It("sets the labels on the promise from the URL definition, including the promise release labels", func() {
+						Expect(promise.Labels).To(Equal(map[string]string{
+							"new-promise-label":              "value",
+							"clashing-label":                 "new-promise-value",
+							"kratix.io/promise-version":      "v1.1.0",
+							"kratix.io/promise-release-name": "redis",
+						}))
+					})
+
+					It("sets the annotations on the promise from the URL definition", func() {
+						Expect(promise.Annotations).To(Equal(map[string]string{
+							"new-promise-annotation": "value",
+							"clashing-annotation":    "new-promise-value",
+						}))
+					})
+
+					It("sets the promise as a dependent of the promise release", func() {
+						tru := true
+						Expect(promise.GetOwnerReferences()).To(ContainElement(metav1.OwnerReference{
+							APIVersion:         "platform.kratix.io/v1alpha1",
+							Kind:               "PromiseRelease",
+							Name:               "redis",
+							Controller:         &tru,
+							BlockOwnerDeletion: &tru,
+						}))
+					})
+
+					It("updates the promise release status to installed", func() {
+						Expect(promiseRelease.Status.Installed).To(BeTrue())
+					})
+
+					It("adds a finalizer for the promise to the promise release", func() {
+						Expect(promiseRelease.GetFinalizers()).To(ConsistOf("kratix.io/promise-cleanup"))
+					})
 				})
 			})
 		})
 	})
 
 	When("the PromiseRelease is deleted", func() {
-		var result ctrl.Result
+		var (
+			err error
+		)
 
 		BeforeEach(func() {
 			Expect(fakeK8sClient.Create(context.TODO(), &promiseRelease)).To(Succeed())
 
-			_, err := t.reconcileUntilCompletion(reconciler, &promiseRelease)
+			_, err = t.reconcileUntilCompletion(reconciler, &promiseRelease)
 			Expect(err).ToNot(HaveOccurred())
 
 			promise := fetchPromise(promiseReleaseNamespacedName)
@@ -194,8 +253,7 @@ var _ = PDescribe("PromiseReleaseController", func() {
 
 			Expect(fakeK8sClient.Delete(context.TODO(), &promiseRelease)).To(Succeed())
 
-			result, err = t.reconcileUntilCompletion(reconciler, &promiseRelease)
-			Expect(err).ToNot(HaveOccurred())
+			_, err = t.reconcileUntilCompletion(reconciler, &promiseRelease)
 		})
 
 		It("triggers the removal of the promise", func() {
@@ -209,12 +267,13 @@ var _ = PDescribe("PromiseReleaseController", func() {
 			Expect(promiseRelease.GetFinalizers()).To(ConsistOf("kratix.io/promise-cleanup"))
 		})
 
-		It("requeues", func() {
-			Expect(result.RequeueAfter > 0).To(BeTrue())
+		It("requeues forever", func() {
+			Expect(err).To(MatchError("reconcile loop detected"))
 		})
 
 		When("the promise is gone", func() {
 			It("removes the promise release on the next reconciliation", func() {
+				//Remove finalizers from promise so it can disappear
 				deletePromise(promiseReleaseNamespacedName)
 
 				_, err := t.reconcileUntilCompletion(reconciler, &promiseRelease)
@@ -277,11 +336,11 @@ var _ = PDescribe("PromiseReleaseController", func() {
 
 		It("updates the promise labels", func() {
 			Expect(promise.Labels).To(Equal(map[string]string{
-				"new-promise-label":                 "value",
-				"new-promise-v2-label":              "value",
-				"clashing-label":                    "new-promise-v2-value",
-				"kratix.io/promise-release-version": "v1.2.0",
-				"kratix.io/promise-release-name":    "redis",
+				"new-promise-label":              "value",
+				"new-promise-v2-label":           "value",
+				"clashing-label":                 "new-promise-v2-value",
+				"kratix.io/promise-version":      "v1.2.0",
+				"kratix.io/promise-release-name": "redis",
 			}))
 		})
 
@@ -309,4 +368,6 @@ var _ = PDescribe("PromiseReleaseController", func() {
 			Expect(promise.Spec).To(Equal(expectedPromise.Spec))
 		})
 	})
+
+	When("The PromiseRelease version is not specified", func() {})
 })

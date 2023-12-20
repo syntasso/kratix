@@ -2,14 +2,10 @@ apiVersion: platform.kratix.io/v1alpha1
 kind: Promise
 metadata:
   name: redis
-  labels:
-    kratix.io/promise-version: v1.2.0
-    clashing-label: "new-promise-v2-value"
-    new-promise-v2-label: "value"
-  annotations:
-    clashing-annotation: "new-promise-v2-value"
-    new-promise-v2-annotation: "value"
 spec:
+  requirements:
+  - name: bash
+    version: "v1.0.0"
   api:
     apiVersion: apiextensions.k8s.io/v1
     kind: CustomResourceDefinition
@@ -66,5 +62,9 @@ spec:
             namespace: default
           spec:
             containers:
-              - image: syntasso/demo-redis-configure-pipeline:v1.1.0
-                name: demo-redis-configure-pipeline
+              - image: syntassodev/bash-promise-test-c0:dev
+                name: redis-configure-pipeline
+                command: ["sh", "-c"]
+                args:
+                - |
+                  echo "Running configure pipeline"

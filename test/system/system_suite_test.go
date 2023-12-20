@@ -4,6 +4,7 @@ import (
 	"fmt"
 	"os"
 	"path/filepath"
+	"runtime"
 	"strings"
 	"testing"
 
@@ -46,7 +47,12 @@ func catAndReplace(tmpDir, file string) string {
 	Expect(err).NotTo(HaveOccurred())
 	//Set via the Makefile
 	ip := os.Getenv("PLATFORM_DESTINATION_IP")
+	hostIP := "host.docker.internal"
+	if runtime.GOOS == "linux" {
+		hostIP = "172.17.0.1"
+	}
 	output := strings.ReplaceAll(string(bytes), "PLACEHOLDER", ip)
+	output = strings.ReplaceAll(output, "LOCALHOST", hostIP)
 	tmpFile := filepath.Join(tmpDir, filepath.Base(file))
 	err = os.WriteFile(tmpFile, []byte(output), 0777)
 	Expect(err).NotTo(HaveOccurred())

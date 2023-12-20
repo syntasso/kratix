@@ -2,7 +2,6 @@ package controllers_test
 
 import (
 	"context"
-	"fmt"
 
 	. "github.com/onsi/ginkgo/v2"
 	. "github.com/onsi/gomega"
@@ -72,9 +71,6 @@ var _ = Describe("Controllers/Scheduler", func() {
 
 				lo.LabelSelector = selector
 				Expect(k8sClient.List(context.Background(), &workplacementList, lo)).To(Succeed())
-				for _, wp := range workplacementList.Items {
-					fmt.Println(wp.Name)
-				}
 				Expect(workplacementList.Items).To(HaveLen(3))
 				Expect(workplacementList.Items[0].Name).To(HavePrefix("dev-work-name.dev-1"))
 				Expect(workplacementList.Items[0].Namespace).To(Equal(KratixSystemNamespace))

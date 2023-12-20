@@ -32,7 +32,7 @@ commands:
       - k8s/install
       - golang/install:
           cache: true
-          version: 1.21.3
+          version: 1.21.5
       - run:
           name: Install Kind
           command: |
@@ -95,6 +95,20 @@ jobs:
           root: .
           paths:
             - .
+
+  govulncheck:
+    executor: machine-medium
+    steps:
+      - install_software
+      - run:
+          name: install govulncheck
+          command: |
+            set -o pipefail
+            go install golang.org/x/vuln/cmd/govulncheck@latest
+      - run:
+          name: run check
+          command: govulncheck ./...
+
   unit-tests:
     executor: machine-medium
     steps:
@@ -308,3 +322,15 @@ workflows:
           requires: [git-clone]
       - git-push-to-dev:
           requires: [generate-demo-image-list]
+
+  security-scan:
+    triggers:
+      - schedule:
+          cron: "0 0 * * *"
+          filters:
+            branches:
+              only: [main]
+    jobs:
+      - git-clone
+      - govulncheck:
+          requires: [git-clone]

@@ -27,6 +27,7 @@ import (
 	metav1 "k8s.io/apimachinery/pkg/apis/meta/v1"
 	"k8s.io/apimachinery/pkg/runtime"
 	ctrl "sigs.k8s.io/controller-runtime"
+	"sigs.k8s.io/controller-runtime/pkg/client"
 	logf "sigs.k8s.io/controller-runtime/pkg/log"
 	"sigs.k8s.io/controller-runtime/pkg/webhook"
 	"sigs.k8s.io/controller-runtime/pkg/webhook/admission"
@@ -34,12 +35,14 @@ import (
 
 // log is for logging in this package.
 var (
-	promiselog = logf.Log.WithName("promise-webhook")
-	clientSet  clientset.Interface
+	promiselog   = logf.Log.WithName("promise-webhook")
+	k8sClientSet clientset.Interface
+	k8sClient    client.Client
 )
 
-func (p *Promise) SetupWebhookWithManager(mgr ctrl.Manager, client *clientset.Clientset) error {
-	clientSet = client
+func (p *Promise) SetupWebhookWithManager(mgr ctrl.Manager, cs *clientset.Clientset, c client.Client) error {
+	k8sClient = c
+	k8sClientSet = cs
 	return ctrl.NewWebhookManagedBy(mgr).
 		For(p).
 		Complete()
@@ -66,16 +69,16 @@ func (p *Promise) validateCRD() error {
 		}
 		return err
 	}
-	_, err = clientSet.ApiextensionsV1().CustomResourceDefinitions().Create(context.TODO(), newCrd, metav1.CreateOptions{DryRun: []string{metav1.DryRunAll}})
+	_, err = k8sClientSet.ApiextensionsV1().CustomResourceDefinitions().Create(context.TODO(), newCrd, metav1.CreateOptions{DryRun: []string{metav1.DryRunAll}})
 	if err != nil {
 		if errors.IsAlreadyExists(err) {
-			existingCrd, err := clientSet.ApiextensionsV1().CustomResourceDefinitions().Get(context.TODO(), newCrd.Name, metav1.GetOptions{})
+			existingCrd, err := k8sClientSet.ApiextensionsV1().CustomResourceDefinitions().Get(context.TODO(), newCrd.Name, metav1.GetOptions{})
 			if err != nil {
 				return err
 			}
 
 			existingCrd.Spec = newCrd.Spec
-			_, err = clientSet.ApiextensionsV1().CustomResourceDefinitions().Update(context.TODO(), existingCrd, metav1.UpdateOptions{DryRun: []string{metav1.DryRunAll}})
+			_, err = k8sClientSet.ApiextensionsV1().CustomResourceDefinitions().Update(context.TODO(), existingCrd, metav1.UpdateOptions{DryRun: []string{metav1.DryRunAll}})
 			if err != nil {
 				return fmt.Errorf("invalid CRD changes: %w", err)
 			}
@@ -89,17 +92,50 @@ func (p *Promise) validateCRD() error {
 // ValidateCreate implements webhook.Validator so a webhook will be registered for the type
 func (p *Promise) ValidateCreate() (admission.Warnings, error) {
 	promiselog.Info("validate create", "name", p.Name)
+
+	warnings := p.validateRequirements()
+
 	if err := p.validateCRD(); err != nil {
 		return nil, err
 	}
 
-	return nil, nil
+	return warnings, nil
+}
+
+func (p *Promise) validateRequirements() admission.Warnings {
+	warnings := []string{}
+	for _, requirement := range p.Spec.Requirements {
+		promiselog.Info("validating requirement", "name", p.Name, "requirement", requirement.Name, "version", requirement.Version)
+		promise := &Promise{}
+		err := k8sClient.Get(context.TODO(), client.ObjectKey{
+			Namespace: p.Namespace,
+			Name:      requirement.Name,
+		}, promise)
+		if err != nil {
+			if errors.IsNotFound(err) {
+				warnings = append(warnings, fmt.Sprintf("Requirement Promise %q at version %q not installed", requirement.Name, requirement.Version))
+				continue
+			}
+			promiselog.Error(err, "failed to get requirement", "requirement", requirement.Name, "version", requirement.Version)
+			continue
+		}
+		if promise.Status.Version != requirement.Version {
+			warnings = append(warnings, fmt.Sprintf("Requirement Promise %q installed but not at a compatible version, want: %q have: %q", requirement.Name, requirement.Version, promise.Status.Version))
+		}
+	}
+
+	if len(warnings) != 0 {
+		warnings = append(warnings, "Promise will not be available until the above issue(s) is resolved")
+	}
+	return warnings
 }
 
 // ValidateUpdate implements webhook.Validator so a webhook will be registered for the type
 func (p *Promise) ValidateUpdate(old runtime.Object) (admission.Warnings, error) {
 	promiselog.Info("validating promise update", "name", p.Name)
 	oldPromise, _ := old.(*Promise)
+
+	warnings := p.validateRequirements()
 
 	if err := p.validateCRD(); err != nil {
 		return nil, err
@@ -108,7 +144,7 @@ func (p *Promise) ValidateUpdate(old runtime.Object) (admission.Warnings, error)
 	oldCrd, errOldCrd := oldPromise.GetAPIAsCRD()
 	newCrd, errNewCrd := p.GetAPIAsCRD()
 	if errOldCrd == ErrNoAPI {
-		return nil, nil
+		return warnings, nil
 	}
 	if errNewCrd == ErrNoAPI {
 		return nil, fmt.Errorf("cannot remove API from existing promise")
@@ -142,7 +178,7 @@ func (p *Promise) ValidateUpdate(old runtime.Object) (admission.Warnings, error)
 		return nil, fmt.Errorf("promises.platform.kratix.io %q was not valid:\n%s", p.Name, strings.Join(errors, "\n"))
 	}
 
-	return nil, nil
+	return warnings, nil
 }
 
 // ValidateDelete implements webhook.Validator so a webhook will be registered for the type

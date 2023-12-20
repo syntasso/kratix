@@ -63,6 +63,7 @@ type DynamicResourceRequestController struct {
 	CRD                         *apiextensionsv1.CustomResourceDefinition
 	PromiseDestinationSelectors []v1alpha1.PromiseScheduling
 	PromiseWorkflowSelectors    *v1alpha1.WorkloadGroupScheduling
+	CanCreateResources          *bool
 }
 
 //+kubebuilder:rbac:groups="batch",resources=jobs,verbs=get;list;watch;create;update;patch;delete
@@ -103,6 +104,22 @@ func (r *DynamicResourceRequestController) Reconcile(ctx context.Context, req ct
 
 	if !rr.GetDeletionTimestamp().IsZero() {
 		return r.deleteResources(opts, rr, resourceRequestIdentifier)
+	}
+
+	if !*r.CanCreateResources {
+		if !resourceutil.IsPromiseMarkedAsUnavailable(rr) {
+			logger.Info("Cannot create resources; setting PromiseAvailable to false in resource status")
+			resourceutil.MarkPromiseConditionAsNotAvailable(rr, logger)
+
+			return ctrl.Result{}, r.Client.Status().Update(ctx, rr)
+		}
+
+		return slowRequeue, nil
+	}
+
+	if resourceutil.IsPromiseMarkedAsUnavailable(rr) {
+		resourceutil.MarkPromiseConditionAsAvailable(rr, logger)
+		return ctrl.Result{}, r.Client.Status().Update(ctx, rr)
 	}
 
 	// Reconcile necessary finalizers

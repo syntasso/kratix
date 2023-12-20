@@ -20,11 +20,14 @@ import (
 	"context"
 	"encoding/json"
 	"fmt"
+	"slices"
 	"strings"
 	"time"
 
 	controllerutil "sigs.k8s.io/controller-runtime/pkg/controller/controllerutil"
+	"sigs.k8s.io/controller-runtime/pkg/handler"
 	"sigs.k8s.io/controller-runtime/pkg/manager"
+	"sigs.k8s.io/controller-runtime/pkg/reconcile"
 
 	"github.com/go-logr/logr"
 	"github.com/syntasso/kratix/api/v1alpha1"
@@ -68,6 +71,11 @@ const (
 	dynamicControllerDependantResourcesCleaupFinalizer = kratixPrefix + "dynamic-controller-dependant-resources-cleanup"
 	crdCleanupFinalizer                                = kratixPrefix + "api-crd-cleanup"
 	dependenciesCleanupFinalizer                       = kratixPrefix + "dependencies-cleanup"
+
+	requirementStateInstalled                      = "Requirement installed"
+	requirementStateNotInstalled                   = "Requirement not installed"
+	requirementStateNotInstalledAtSpecifiedVersion = "Requirement not installed at the specified version"
+	requirementUnknownInstallationState            = "Requirement state unknown"
 )
 
 var (
@@ -113,6 +121,7 @@ func (r *PromiseReconciler) Reconcile(ctx context.Context, req ctrl.Request) (ct
 		r.Log.Error(err, "Failed getting Promise", "namespacedName", req.NamespacedName)
 		return defaultRequeue, nil
 	}
+	originalStatus := promise.Status.Status
 
 	logger := r.Log.WithValues("identifier", promise.GetName())
 
@@ -126,11 +135,19 @@ func (r *PromiseReconciler) Reconcile(ctx context.Context, req ctrl.Request) (ct
 		return r.deletePromise(opts, promise)
 	}
 
-	if value, found := promise.Labels[promiseReleaseVersionLabel]; found {
+	if value, found := promise.Labels[promiseVersionLabel]; found {
 		if promise.Status.Version != value {
 			promise.Status.Version = value
 			return ctrl.Result{}, r.Client.Status().Update(ctx, promise)
 		}
+	}
+
+	//Set status to unavailable, at the end of this function we set it to
+	//available. If at anytime we return early, it persisted as unavailable
+	promise.Status.Status = v1alpha1.PromiseStatusUnavailable
+	updated, err := r.ensureRequirementStatusIsUpToDate(ctx, promise)
+	if err != nil || updated {
+		return ctrl.Result{}, err
 	}
 
 	var rrCRD *apiextensionsv1.CustomResourceDefinition
@@ -183,35 +200,145 @@ func (r *PromiseReconciler) Reconcile(ctx context.Context, req ctrl.Request) (ct
 		return *requeue, nil
 	}
 
-	if promise.DoesNotContainAPI() {
-		logger.Info("Promise only contains dependencies, skipping creation of API and dynamic controller")
-		return ctrl.Result{}, nil
-	}
-
-	var work v1alpha1.Work
-	err = r.Client.Get(ctx, types.NamespacedName{Name: promise.GetName(), Namespace: v1alpha1.KratixSystemNamespace}, &work)
-	if err != nil {
-		return ctrl.Result{}, err
-	}
-
-	err = r.ensureDynamicControllerIsStarted(promise, &work, rrCRD, rrGVK, pipelines.ConfigureResource, pipelines.DeleteResource, logger)
-	if err != nil {
-		return ctrl.Result{}, err
-	}
-
-	if resourceutil.DoesNotContainFinalizer(promise, resourceRequestCleanupFinalizer) {
-		return addFinalizers(opts, promise, []string{resourceRequestCleanupFinalizer})
-	}
-
-	if promise.GetGeneration() != promise.Status.ObservedGeneration {
-		if err := r.reconcileAllRRs(rrGVK); err != nil {
+	if promise.ContainsAPI() {
+		var work v1alpha1.Work
+		err = r.Client.Get(ctx, types.NamespacedName{Name: promise.GetName(), Namespace: v1alpha1.KratixSystemNamespace}, &work)
+		if err != nil {
+			logger.Error(err, "Error getting Work")
 			return ctrl.Result{}, err
 		}
-		promise.Status.ObservedGeneration = promise.GetGeneration()
-		return ctrl.Result{}, r.Client.Status().Update(ctx, promise)
+
+		dynamicControllerCanCreateResources := true
+		for _, req := range promise.Status.Requirements {
+			if req.State != requirementStateInstalled {
+				logger.Info("requirement not installed, disabling dynamic controller", "requirement", req)
+				dynamicControllerCanCreateResources = false
+			}
+		}
+
+		err = r.ensureDynamicControllerIsStarted(promise, &work, rrCRD, rrGVK, pipelines.ConfigureResource, pipelines.DeleteResource, &dynamicControllerCanCreateResources, logger)
+		if err != nil {
+			return ctrl.Result{}, err
+		}
+
+		if resourceutil.DoesNotContainFinalizer(promise, resourceRequestCleanupFinalizer) {
+			return addFinalizers(opts, promise, []string{resourceRequestCleanupFinalizer})
+		}
+
+		if !dynamicControllerCanCreateResources {
+			logger.Info("requirements not fulfilled, disabled dynamic controller and requeuing", "requirementsStatus", promise.Status.Requirements)
+			return slowRequeue, nil
+		}
+
+		logger.Info("requirements are fulfilled", "requirementsStatus", promise.Status.Requirements)
+
+		if promise.GetGeneration() != promise.Status.ObservedGeneration {
+			if err := r.reconcileAllRRs(rrGVK); err != nil {
+				return ctrl.Result{}, err
+			}
+			promise.Status.ObservedGeneration = promise.GetGeneration()
+			return ctrl.Result{}, r.Client.Status().Update(ctx, promise)
+		}
+	} else {
+		logger.Info("Promise only contains dependencies, skipping creation of API and dynamic controller")
 	}
 
-	return ctrl.Result{}, nil
+	if originalStatus == v1alpha1.PromiseStatusAvailable {
+		return ctrl.Result{}, nil
+	}
+	logger.Info("Promise status being set to Available")
+	promise.Status.Status = v1alpha1.PromiseStatusAvailable
+	return ctrl.Result{}, r.Client.Status().Update(ctx, promise)
+}
+
+func (r *PromiseReconciler) ensureRequirementStatusIsUpToDate(ctx context.Context, promise *v1alpha1.Promise) (bool, error) {
+	latestCondition, latestRequirements := r.generateStatusAndMarkRequirements(ctx, promise)
+
+	requirementsFieldChanged := updateRequirementsStatusOnPromise(promise, promise.Status.Requirements, latestRequirements)
+	conditionsFieldChanged := updateConditionOnPromise(promise, latestCondition)
+
+	if conditionsFieldChanged || requirementsFieldChanged {
+		return true, r.Client.Status().Update(ctx, promise)
+	}
+
+	return false, nil
+}
+
+func updateConditionOnPromise(promise *v1alpha1.Promise, latestCondition metav1.Condition) bool {
+	for i, condition := range promise.Status.Conditions {
+		if condition.Type == latestCondition.Type {
+			if condition.Status != latestCondition.Status {
+				promise.Status.Conditions[i] = latestCondition
+				return true
+			}
+			return false
+		}
+	}
+	promise.Status.Conditions = append(promise.Status.Conditions, latestCondition)
+	return true
+}
+
+func updateRequirementsStatusOnPromise(promise *v1alpha1.Promise, oldReqs, newReqs []v1alpha1.RequirementStatus) bool {
+	compareValue := slices.CompareFunc(oldReqs, newReqs, func(a, b v1alpha1.RequirementStatus) int {
+		if a.Name == b.Name && a.Version == b.Version && a.State == b.State {
+			return 0
+		}
+		return -1
+	})
+	if compareValue != 0 {
+		promise.Status.Requirements = newReqs
+		return true
+	}
+	return false
+}
+
+func (r *PromiseReconciler) generateStatusAndMarkRequirements(ctx context.Context, promise *v1alpha1.Promise) (metav1.Condition, []v1alpha1.RequirementStatus) {
+	promiseCondition := metav1.Condition{
+		Type:               "RequirementsFulfilled",
+		LastTransitionTime: metav1.NewTime(time.Now()),
+		Status:             metav1.ConditionTrue,
+		Message:            "Requirements fulfilled",
+		Reason:             "RequirementsInstalled",
+	}
+
+	requirements := []v1alpha1.RequirementStatus{}
+
+	for _, requirement := range promise.Spec.Requirements {
+		requirementState := requirementStateInstalled
+		requiredPromise := &v1alpha1.Promise{}
+		err := r.Client.Get(ctx, types.NamespacedName{Name: requirement.Name}, requiredPromise)
+		if err != nil {
+			promiseCondition.Reason = "RequirementsNotInstalled"
+			if errors.IsNotFound(err) && promiseCondition.Status != metav1.ConditionUnknown {
+				requirementState = requirementStateNotInstalled
+				promiseCondition.Status = metav1.ConditionFalse
+				promiseCondition.Message = "Requirements not fulfilled"
+			} else {
+				requirementState = requirementUnknownInstallationState
+				promiseCondition.Status = metav1.ConditionUnknown
+				promiseCondition.Message = "Unable to determine if requirements are fulfilled"
+			}
+		} else {
+			if requiredPromise.Status.Version != requirement.Version || requiredPromise.Status.Status != v1alpha1.PromiseStatusAvailable {
+				requirementState = requirementStateNotInstalledAtSpecifiedVersion
+
+				if promiseCondition.Status != metav1.ConditionUnknown {
+					promiseCondition.Status = metav1.ConditionFalse
+					promiseCondition.Message = "Requirements not fulfilled"
+				}
+			}
+
+			r.markRequiredPromiseAsRequired(ctx, requirement.Version, promise, requiredPromise)
+		}
+
+		requirements = append(requirements, v1alpha1.RequirementStatus{
+			Name:    requirement.Name,
+			Version: requirement.Version,
+			State:   requirementState,
+		})
+	}
+
+	return promiseCondition, requirements
 }
 
 func (r *PromiseReconciler) reconcileDependencies(o opts, promise *v1alpha1.Promise, configurePipeline []v1alpha1.Pipeline) (*ctrl.Result, error) {
@@ -281,17 +408,19 @@ func (r *PromiseReconciler) reconcileAllRRs(rrGVK schema.GroupVersionKind) error
 	return nil
 }
 
-func (r *PromiseReconciler) ensureDynamicControllerIsStarted(promise *v1alpha1.Promise, work *v1alpha1.Work, rrCRD *apiextensionsv1.CustomResourceDefinition, rrGVK schema.GroupVersionKind, configurePipelines, deletePipelines []v1alpha1.Pipeline, logger logr.Logger) error {
+func (r *PromiseReconciler) ensureDynamicControllerIsStarted(promise *v1alpha1.Promise, work *v1alpha1.Work, rrCRD *apiextensionsv1.CustomResourceDefinition, rrGVK schema.GroupVersionKind, configurePipelines, deletePipelines []v1alpha1.Pipeline, canCreateResources *bool, logger logr.Logger) error {
 
 	// The Dynamic Controller needs to be started once and only once.
 	if r.dynamicControllerHasAlreadyStarted(promise) {
-		logger.Info("dynamic controller already started")
+		logger.Info("dynamic controller already started, ensuring it is up to date")
 
 		dynamicController := r.StartedDynamicControllers[string(promise.GetUID())]
 		dynamicController.DeletePipelines = deletePipelines
 		dynamicController.ConfigurePipelines = configurePipelines
 		dynamicController.GVK = &rrGVK
 		dynamicController.CRD = rrCRD
+
+		dynamicController.CanCreateResources = canCreateResources
 
 		dynamicController.PromiseDestinationSelectors = promise.Spec.DestinationSelectors
 		dynamicController.PromiseWorkflowSelectors = work.GetDefaultScheduling("promise-workflow")
@@ -316,6 +445,7 @@ func (r *PromiseReconciler) ensureDynamicControllerIsStarted(promise *v1alpha1.P
 		Log:                         r.Log.WithName(promise.GetName()),
 		UID:                         string(promise.GetUID())[0:5],
 		Enabled:                     &enabled,
+		CanCreateResources:          canCreateResources,
 	}
 	r.StartedDynamicControllers[string(promise.GetUID())] = dynamicResourceRequestController
 
@@ -614,7 +744,8 @@ func (r *PromiseReconciler) deleteResourceRequests(o opts, promise *v1alpha1.Pro
 		return err
 	}
 
-	err = r.ensureDynamicControllerIsStarted(promise, &work, rrCRD, rrGVK, pipelines.ConfigureResource, pipelines.DeleteResource, o.logger)
+	var canCreateResources bool
+	err = r.ensureDynamicControllerIsStarted(promise, &work, rrCRD, rrGVK, pipelines.ConfigureResource, pipelines.DeleteResource, &canCreateResources, o.logger)
 	if err != nil {
 		return err
 	}
@@ -681,6 +812,17 @@ func (r *PromiseReconciler) SetupWithManager(mgr ctrl.Manager) error {
 	return ctrl.NewControllerManagedBy(mgr).
 		For(&v1alpha1.Promise{}).
 		Owns(&batchv1.Job{}).
+		Watches(
+			&v1alpha1.Promise{},
+			handler.EnqueueRequestsFromMapFunc(func(ctx context.Context, obj client.Object) []reconcile.Request {
+				promise := obj.(*v1alpha1.Promise)
+				var resources []reconcile.Request
+				for _, req := range promise.Status.RequiredBy {
+					resources = append(resources, reconcile.Request{NamespacedName: types.NamespacedName{Name: req.Promise.Name}})
+				}
+				return resources
+			}),
+		).
 		Complete(r)
 }
 
@@ -845,4 +987,31 @@ func generatePipeline(pipelines []unstructured.Unstructured, logger logr.Logger)
 
 	return nil, fmt.Errorf("unsupported pipeline %q (%s.%s)",
 		pipeline.GetName(), pipeline.GetKind(), pipeline.GetAPIVersion())
+}
+
+func (r *PromiseReconciler) markRequiredPromiseAsRequired(ctx context.Context, version string, promise, requiredPromise *v1alpha1.Promise) {
+	requiredBy := v1alpha1.RequiredBy{
+		Promise: v1alpha1.PromiseSummary{
+			Name:    promise.Name,
+			Version: promise.Status.Version,
+		},
+		RequiredVersion: version,
+	}
+
+	var found bool
+	for i, required := range requiredPromise.Status.RequiredBy {
+		if required.Promise.Name == promise.GetName() {
+			requiredPromise.Status.RequiredBy[i] = requiredBy
+			found = true
+		}
+	}
+
+	if !found {
+		requiredPromise.Status.RequiredBy = append(requiredPromise.Status.RequiredBy, requiredBy)
+	}
+
+	err := r.Client.Status().Update(ctx, requiredPromise)
+	if err != nil {
+		r.Log.Error(err, "error updating promise required by promise", "promise", promise.GetName(), "required promise", requiredPromise.GetName())
+	}
 }

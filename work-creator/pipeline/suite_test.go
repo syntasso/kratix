@@ -37,7 +37,7 @@ var _ = BeforeSuite(func(_ SpecContext) {
 	Expect(err).NotTo(HaveOccurred())
 	Expect(cfg).NotTo(BeNil())
 
-	By("Initalise k8s client")
+	By("Initialise k8s client")
 	err = v1alpha1.AddToScheme(scheme.Scheme)
 	Expect(err).NotTo(HaveOccurred())
 	k8sClient, err = client.New(cfg, client.Options{Scheme: scheme.Scheme})
