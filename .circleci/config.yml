@@ -2,6 +2,7 @@ version: 2.1
 
 orbs:
   k8s: circleci/kubernetes@1.3.1
+  gh: circleci/github-cli@2.3.0
   golang: circleci/go@1.7.2
   retry: kimh/run-with-retry@1.0.0
 
@@ -231,6 +232,8 @@ jobs:
     parameters:
       image:
         type: string
+    environment:
+      VERSION: << pipeline.git.tag >>
     steps:
       - attach_workspace:
           at: .
@@ -239,7 +242,7 @@ jobs:
           docker_layer_caching: true
       - docker_login
       - run:
-          name: Build and push sample images
+          name: Build and push images
           command: |
             ./scripts/build-images << parameters.image >>
 
@@ -276,8 +279,26 @@ jobs:
             git commit --amend --no-edit
             git push origin main
 
+  copy-release-files:
+    executor: machine-large
+    environment:
+      VERSION: << pipeline.git.tag >>
+    steps:
+      - attach_workspace:
+          at: .
+      - run:
+          name: Generate new distribution
+          command: |
+            ./scripts/make-distribution
+      - run:
+          name: Copy release files
+          command: |
+            mkdir -p dist
+            cp -r distribution/kratix.yaml dist/kratix.yaml
+            cp -r distribution/single-cluster/* dist/
+
 workflows:
-  run-tests:
+  run-ci:
     jobs:
       - git-clone
       - unit-tests:
@@ -290,6 +311,7 @@ workflows:
           requires: [git-clone]
       - e2e-demo-test-helm-git:
           requires: [git-clone]
+
       - git-merge:
           requires:
             - unit-tests
@@ -306,8 +328,41 @@ workflows:
             parameters:
               image: [kratix, work-creator, samples]
       - git-push:
-          requires:
-            - build-and-push-images
+          requires: [build-and-push-images]
+
+      # - tag-new-version:
+      #     requires:
+      #       - unit-tests
+      #       - system-tests-git
+      #       - system-tests-bucket
+      #       - e2e-demo-test-helm-git
+      #       - e2e-demo-test-helm-bucket
+      #     filters:
+      #       branches:
+      #         only: main
+      # END MAIN ONLY
+
+  release:
+    jobs:
+      - git-clone:
+          filters:
+            tags:
+              only: /^v.*/
+            branches:
+              ignore: /.*/
+      - build-and-push-images:
+          requires: [git-clone]
+          matrix:
+            parameters:
+              image: [kratix, work-creator, samples]
+      - copy-release-files:
+          requires: [git-clone]
+      - gh/release:
+          requires: [build-and-push-images, copy-release-files]
+          context: [github-credentials]
+          tag: <<pipeline.git.tag>>
+          title: <<pipeline.git.tag>>
+          files: dist/**/*.yaml
 
   update-demo:
     triggers:
