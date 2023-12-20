@@ -7,7 +7,7 @@ set -eu
 cd $ROOT
 source "$ROOT/scripts/utils.sh"
 
-export VERSION="${VERSION:-(commit_sha)}"
+export VERSION="${VERSION:-$(commit_sha)}"
 
 make distribution
 
