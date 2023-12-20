@@ -212,6 +212,22 @@ var _ = Describe("DynamicResourceRequestController", func() {
 				))
 			})
 		})
+
+		When("CanCreateResources is set to false", func() {
+			BeforeEach(func() {
+				canCreate := false
+				reconciler.CanCreateResources = &canCreate
+			})
+
+			It("sets the status of resource request to pending", func() {
+				_, err := t.reconcileUntilCompletion(reconciler, resReq)
+				Expect(err).To(MatchError("reconcile loop detected"))
+				Expect(fakeK8sClient.Get(ctx, resReqNameNamespace, resReq)).To(Succeed())
+				status := resReq.Object["status"]
+				statusMap := status.(map[string]interface{})
+				Expect(statusMap["message"].(string)).To(Equal("Pending"))
+			})
+		})
 	})
 
 	When("resource is being updated", func() {
