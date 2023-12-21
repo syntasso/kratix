@@ -319,6 +319,20 @@ jobs:
             git tag -a $new_tag -m"${new_tag}"
             git push origin $new_tag
 
+  gh-release:
+    docker:
+      - image: cimg/base:current
+    resource_class: large
+    steps:
+      - attach_workspace:
+          at: .
+      - gh/setup
+      - run:
+          name: Release
+          command: |
+            gh config set prompt disabled
+            gh release create <<pipeline.git.tag>> --title <<pipeline.git.tag>> ./distribution/**/*.yaml ./distribution/*.yaml
+
 workflows:
   run-ci:
     jobs:
@@ -378,12 +392,9 @@ workflows:
       - generate-release-distribution:
           <<: *filter-for-tags
           requires: [git-clone]
-      - gh/release:
+      - gh-release:
           <<: *filter-for-tags
           requires: [build-and-push-images, generate-release-distribution]
-          tag: <<pipeline.git.tag>>
-          title: <<pipeline.git.tag>>
-          files: project/distribution/**/*.yaml
 
   update-demo:
     triggers:
