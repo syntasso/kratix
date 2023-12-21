@@ -297,6 +297,13 @@ jobs:
             cp -r distribution/kratix.yaml dist/kratix.yaml
             cp -r distribution/single-cluster/* dist/
 
+filter-for-tags: &filter-for-tags
+  filters:
+    tags:
+      only: /^v.*/
+    branches:
+      ignore: /.*/
+
 workflows:
   run-ci:
     jobs:
@@ -345,19 +352,18 @@ workflows:
   release:
     jobs:
       - git-clone:
-          filters:
-            tags:
-              only: /^v.*/
-            branches:
-              ignore: /.*/
+          <<: *filter-for-tags
       - build-and-push-images:
+          <<: *filter-for-tags
           requires: [git-clone]
           matrix:
             parameters:
               image: [kratix, work-creator, samples]
       - copy-release-files:
+          <<: *filter-for-tags
           requires: [git-clone]
       - gh/release:
+          <<: *filter-for-tags
           requires: [build-and-push-images, copy-release-files]
           context: [github-credentials]
           tag: <<pipeline.git.tag>>
