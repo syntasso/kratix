@@ -297,6 +297,21 @@ jobs:
             cp -r distribution/kratix.yaml dist/kratix.yaml
             cp -r distribution/single-cluster/* dist/
 
+  tag-new-version:
+    executor: machine-large
+    steps:
+      - attach_workspace:
+          at: .
+      - run:
+          name: bump minor version and push tag
+          command: |
+            latest_tag=$(git describe --tags --abbrev=0)
+            IFS='.' read -r -a array <<< "$latest_tag"
+            new_tag="${array[0]}.$((${array[1]}+1)).0"
+
+            git tag -a $new_tag -m"${new_tag}"
+            git push origin $new_tag
+
 filter-for-tags: &filter-for-tags
   filters:
     tags:
@@ -336,18 +351,16 @@ workflows:
               image: [kratix, work-creator, samples]
       - git-push:
           requires: [build-and-push-images]
-
-      # - tag-new-version:
-      #     requires:
-      #       - unit-tests
-      #       - system-tests-git
-      #       - system-tests-bucket
-      #       - e2e-demo-test-helm-git
-      #       - e2e-demo-test-helm-bucket
-      #     filters:
-      #       branches:
-      #         only: main
-      # END MAIN ONLY
+      - tag-new-version:
+          requires:
+            - unit-tests
+            - system-tests-git
+            - system-tests-bucket
+            - e2e-demo-test-helm-git
+            - e2e-demo-test-helm-bucket
+          filters:
+            branches:
+              only: main
 
   release:
     jobs:
