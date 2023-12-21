@@ -297,6 +297,10 @@ jobs:
             mkdir -p dist
             cp -r distribution/kratix.yaml dist/kratix.yaml
             cp -r distribution/single-cluster/* dist/
+      - persist_to_workspace:
+          root: .
+          paths:
+            - .
 
   tag-new-version:
     executor: machine-large
@@ -313,6 +317,19 @@ jobs:
 
             git tag -a $new_tag -m"${new_tag}"
             git push origin $new_tag
+  gh-release:
+    docker:
+      - image: cimg/base:current
+    resource_class: large
+    steps:
+      - attach_workspace:
+          at: .
+      - gh/setup
+      - gh/release:
+          <<: *filter-for-tags
+          tag: <<pipeline.git.tag>>
+          title: <<pipeline.git.tag>>
+          files: dist/**/*.yaml
 
 filter-for-tags: &filter-for-tags
   filters:
@@ -335,7 +352,7 @@ workflows:
           requires: [git-clone]
       - e2e-demo-test-helm-git:
           requires: [git-clone]
-
+      ### ONLY DEV
       - git-merge:
           requires:
             - unit-tests
@@ -353,6 +370,8 @@ workflows:
               image: [kratix, work-creator, samples]
       - git-push:
           requires: [build-and-push-images]
+      ### END ONLY DEV
+      ### ONLY MAIN
       - tag-new-version:
           requires:
             - unit-tests
@@ -363,6 +382,7 @@ workflows:
           filters:
             branches:
               only: main
+      ### END ONLY MAIN
 
   release:
     jobs:
@@ -377,13 +397,9 @@ workflows:
       - copy-release-files:
           <<: *filter-for-tags
           requires: [git-clone]
-      - gh/release:
+      - gh-release:
           <<: *filter-for-tags
           requires: [build-and-push-images, copy-release-files]
-          context: [github-credentials]
-          tag: <<pipeline.git.tag>>
-          title: <<pipeline.git.tag>>
-          files: dist/**/*.yaml
 
   update-demo:
     triggers:
