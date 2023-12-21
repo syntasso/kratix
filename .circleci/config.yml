@@ -286,7 +286,7 @@ jobs:
             git commit --amend --no-edit
             git push origin main
 
-  copy-release-files:
+  generate-release-distribution:
     executor: machine-large
     environment:
       VERSION: << pipeline.git.tag >>
@@ -298,12 +298,6 @@ jobs:
           name: Generate new distribution
           command: |
             ./scripts/make-distribution
-      - run:
-          name: Copy release files
-          command: |
-            mkdir -p dist
-            cp -r distribution/kratix.yaml dist/kratix.yaml
-            cp -r distribution/single-cluster/* dist/
       - persist_to_workspace:
           root: .
           paths:
@@ -324,19 +318,6 @@ jobs:
 
             git tag -a $new_tag -m"${new_tag}"
             git push origin $new_tag
-  gh-release:
-    docker:
-      - image: cimg/base:current
-    resource_class: large
-    steps:
-      - attach_workspace:
-          at: .
-      - gh/setup
-      - gh/release:
-          <<: *filter-for-tags
-          tag: <<pipeline.git.tag>>
-          title: <<pipeline.git.tag>>
-          files: dist/**/*.yaml
 
 workflows:
   run-ci:
@@ -394,12 +375,15 @@ workflows:
           matrix:
             parameters:
               image: [kratix, work-creator, samples]
-      - copy-release-files:
+      - generate-release-distribution:
           <<: *filter-for-tags
           requires: [git-clone]
-      - gh-release:
+      - gh/release:
           <<: *filter-for-tags
-          requires: [build-and-push-images, copy-release-files]
+          requires: [build-and-push-images, generate-release-distribution]
+          tag: <<pipeline.git.tag>>
+          title: <<pipeline.git.tag>>
+          files: project/distribution/**/*.yaml
 
   update-demo:
     triggers:
