@@ -286,6 +286,7 @@ jobs:
     steps:
       - attach_workspace:
           at: .
+      - install_software
       - run:
           name: Generate new distribution
           command: |
