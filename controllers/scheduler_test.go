@@ -49,13 +49,14 @@ var _ = FDescribe("Controllers/Scheduler", func() {
 		Expect(fakeK8sClient.Create(context.Background(), &prodDestination)).To(Succeed())
 	})
 
-	Describe("#ReconcileDestination", func() {
+	Describe("#ReconcileAllDependencyWorks", func() {
 		var devDestination3 Destination
 		BeforeEach(func() {
 			// register new destination dev
 			devDestination3 = newDestination("dev-3", map[string]string{"environment": "dev"})
 			Expect(fakeK8sClient.Create(context.Background(), &devDestination3)).To(Succeed())
-			scheduler.ReconcileDestination()
+
+			scheduler.ReconcileAllDependencyWorks()
 		})
 
 		When("a new destination is added", func() {
