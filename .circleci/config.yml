@@ -306,8 +306,8 @@ jobs:
           name: bump minor version and push tag
           command: |
             latest_tag=$(git describe --tags --abbrev=0)
-            IFS='.' read -r -a array <<< "$latest_tag"
-            new_tag="${array[0]}.$((${array[1]}+1)).0"
+            minor=$(echo "${latest_tag}" | cut -d '.' -f 2)
+            new_tag="v0.$(($minor+1)).0"
 
             git tag -a $new_tag -m"${new_tag}"
             git push origin $new_tag
