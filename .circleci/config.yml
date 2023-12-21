@@ -20,6 +20,13 @@ executors:
     working_directory: ~/repo
     resource_class: large
 
+filter-for-tags: &filter-for-tags
+  filters:
+    tags:
+      only: /^v.*/
+    branches:
+      ignore: /.*/
+
 commands:
   docker_login:
     steps:
@@ -330,13 +337,6 @@ jobs:
           tag: <<pipeline.git.tag>>
           title: <<pipeline.git.tag>>
           files: dist/**/*.yaml
-
-filter-for-tags: &filter-for-tags
-  filters:
-    tags:
-      only: /^v.*/
-    branches:
-      ignore: /.*/
 
 workflows:
   run-ci:
