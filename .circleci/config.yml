@@ -20,6 +20,13 @@ executors:
     working_directory: ~/repo
     resource_class: large
 
+filter-for-tags: &filter-for-tags
+  filters:
+    tags:
+      only: /^v.*/
+    branches:
+      ignore: /.*/
+
 commands:
   docker_login:
     steps:
@@ -279,7 +286,7 @@ jobs:
             git commit --amend --no-edit
             git push origin main
 
-  copy-release-files:
+  generate-release-distribution:
     executor: machine-large
     environment:
       VERSION: << pipeline.git.tag >>
@@ -291,12 +298,10 @@ jobs:
           name: Generate new distribution
           command: |
             ./scripts/make-distribution
-      - run:
-          name: Copy release files
-          command: |
-            mkdir -p dist
-            cp -r distribution/kratix.yaml dist/kratix.yaml
-            cp -r distribution/single-cluster/* dist/
+      - persist_to_workspace:
+          root: .
+          paths:
+            - .
 
   tag-new-version:
     executor: machine-large
@@ -314,13 +319,6 @@ jobs:
             git tag -a $new_tag -m"${new_tag}"
             git push origin $new_tag
 
-filter-for-tags: &filter-for-tags
-  filters:
-    tags:
-      only: /^v.*/
-    branches:
-      ignore: /.*/
-
 workflows:
   run-ci:
     jobs:
@@ -335,7 +333,7 @@ workflows:
           requires: [git-clone]
       - e2e-demo-test-helm-git:
           requires: [git-clone]
-
+      ### ONLY DEV
       - git-merge:
           requires:
             - unit-tests
@@ -353,6 +351,8 @@ workflows:
               image: [kratix, work-creator, samples]
       - git-push:
           requires: [build-and-push-images]
+      ### END ONLY DEV
+      ### ONLY MAIN
       - tag-new-version:
           requires:
             - unit-tests
@@ -363,6 +363,7 @@ workflows:
           filters:
             branches:
               only: main
+      ### END ONLY MAIN
 
   release:
     jobs:
@@ -374,16 +375,15 @@ workflows:
           matrix:
             parameters:
               image: [kratix, work-creator, samples]
-      - copy-release-files:
+      - generate-release-distribution:
           <<: *filter-for-tags
           requires: [git-clone]
       - gh/release:
           <<: *filter-for-tags
-          requires: [build-and-push-images, copy-release-files]
-          context: [github-credentials]
+          requires: [build-and-push-images, generate-release-distribution]
           tag: <<pipeline.git.tag>>
           title: <<pipeline.git.tag>>
-          files: dist/**/*.yaml
+          files: project/distribution/**/*.yaml
 
   update-demo:
     triggers:
