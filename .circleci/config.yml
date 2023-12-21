@@ -302,6 +302,7 @@ jobs:
     steps:
       - attach_workspace:
           at: .
+      - setup_git
       - run:
           name: bump minor version and push tag
           command: |
