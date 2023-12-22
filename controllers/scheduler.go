@@ -38,8 +38,10 @@ type Scheduler struct {
 	Log    logr.Logger
 }
 
-// Only reconciles Works that are from a Promise Dependency
-func (s *Scheduler) ReconcileDestination() error {
+// Reconciles all Works by scheduling each Work's WorkloadGroups to appropriate
+// Destinations.
+// Only reconciles Works that are from a Promise Dependency.
+func (s *Scheduler) ReconcileAllDependencyWorks() error {
 	works := platformv1alpha1.WorkList{}
 	lo := &client.ListOptions{}
 	if err := s.Client.List(context.Background(), &works, lo); err != nil {
@@ -57,36 +59,10 @@ func (s *Scheduler) ReconcileDestination() error {
 	return nil
 }
 
-func (s *Scheduler) UpdateWorkPlacement(workloadGroup platformv1alpha1.WorkloadGroup, work *platformv1alpha1.Work, workPlacement *platformv1alpha1.WorkPlacement) (bool, error) {
-	misscheduled := true
-	destinationSelectors := resolveDestinationSelectorsForWorkloadGroup(workloadGroup, work)
-	for _, dest := range s.getTargetDestinationNames(destinationSelectors, work) {
-		if dest == workPlacement.Spec.TargetDestinationName {
-			misscheduled = false
-			break
-		}
-	}
-
-	if misscheduled {
-		s.labelWorkplacementAsMisscheduled(workPlacement)
-	}
-
-	workPlacement.Spec.Workloads = workloadGroup.Workloads
-	if err := s.Client.Update(context.Background(), workPlacement); err != nil {
-		s.Log.Error(err, "Error updating WorkPlacement", "workplacement", workPlacement.Name)
-		return false, err
-	}
-
-	if err := s.updateStatus(workPlacement, misscheduled); err != nil {
-		return false, err
-	}
-
-	s.Log.Info("Successfully updated WorkPlacement workloads", "workplacement", workPlacement.Name)
-	return misscheduled, nil
-}
-
+// Reconciles all WorkloadGroups in a Work by scheduling them to Destinations via
+// Workplacements.
 func (s *Scheduler) ReconcileWork(work *platformv1alpha1.Work) ([]string, error) {
-	unscheduable := []string{}
+	unschedulable := []string{}
 	misscheduled := []string{}
 	for _, wg := range work.Spec.WorkloadGroups {
 		schedulingStatus, err := s.reconcileWorkloadGroup(wg, work)
@@ -95,7 +71,7 @@ func (s *Scheduler) ReconcileWork(work *platformv1alpha1.Work) ([]string, error)
 		}
 
 		if schedulingStatus == unscheduledStatus {
-			unscheduable = append(unscheduable, wg.ID)
+			unschedulable = append(unschedulable, wg.ID)
 		}
 
 		if schedulingStatus == misscheduledStatus {
@@ -103,11 +79,11 @@ func (s *Scheduler) ReconcileWork(work *platformv1alpha1.Work) ([]string, error)
 		}
 	}
 
-	if err := s.updateWorkStatus(work, unscheduable, misscheduled); err != nil {
+	if err := s.updateWorkStatus(work, unschedulable, misscheduled); err != nil {
 		return nil, err
 	}
 
-	return unscheduable, s.cleanupDanglingWorkplacements(work)
+	return unschedulable, s.cleanupDanglingWorkplacements(work)
 }
 
 func (s *Scheduler) updateWorkStatus(work *platformv1alpha1.Work, unscheduledWorkloadGroupIDs, missscheduledWorkloadGroupIDs []string) error {
@@ -191,8 +167,10 @@ func (s *Scheduler) cleanupDanglingWorkplacements(work *platformv1alpha1.Work) e
 	return nil
 }
 
-// TODO why pointer for work?
+// Reconciles a WorkloadGroup by scheduling it to a Destination via a Workplacement.
 func (s *Scheduler) reconcileWorkloadGroup(workloadGroup platformv1alpha1.WorkloadGroup, work *platformv1alpha1.Work) (schedulingStatus, error) {
+	// TODO why pointer for work?
+
 	existingWorkplacements, err := s.getExistingWorkPlacementsForWorkloadGroup(work.Namespace, work.Name, workloadGroup)
 	if err != nil {
 		return "", err
@@ -200,11 +178,13 @@ func (s *Scheduler) reconcileWorkloadGroup(workloadGroup platformv1alpha1.Worklo
 
 	status := scheduledStatus
 	if work.IsResourceRequest() {
+		// If the Work is for a Resource Request, only one Workplacement will be created per
+		// WorkloadGroup. If this Workplacement already exists, it will be updated.
 		if len(existingWorkplacements) > 0 {
 			var errored int
 			for _, existingWorkplacement := range existingWorkplacements {
 				s.Log.Info("found workplacement for work; will try an update")
-				misscheduled, err := s.UpdateWorkPlacement(workloadGroup, work, &existingWorkplacement)
+				misscheduled, err := s.updateWorkPlacement(workloadGroup, work, &existingWorkplacement)
 				if err != nil {
 					s.Log.Error(err, "error updating workplacement for work", "workplacement", existingWorkplacement.Name, "work", work.Name, "workloadGroupID", workloadGroup.ID)
 					errored++
@@ -217,6 +197,7 @@ func (s *Scheduler) reconcileWorkloadGroup(workloadGroup platformv1alpha1.Worklo
 			if errored > 0 {
 				return "", fmt.Errorf("failed to update %d of %d workplacements for work", errored, len(existingWorkplacements))
 			}
+
 			return status, nil
 		}
 	}
@@ -254,6 +235,34 @@ func (s *Scheduler) reconcileWorkloadGroup(workloadGroup platformv1alpha1.Worklo
 	}
 
 	return status, nil
+}
+
+func (s *Scheduler) updateWorkPlacement(workloadGroup platformv1alpha1.WorkloadGroup, work *platformv1alpha1.Work, workPlacement *platformv1alpha1.WorkPlacement) (bool, error) {
+	misscheduled := true
+	destinationSelectors := resolveDestinationSelectorsForWorkloadGroup(workloadGroup, work)
+	for _, dest := range s.getTargetDestinationNames(destinationSelectors, work) {
+		if dest == workPlacement.Spec.TargetDestinationName {
+			misscheduled = false
+			break
+		}
+	}
+
+	if misscheduled {
+		s.labelWorkplacementAsMisscheduled(workPlacement)
+	}
+
+	workPlacement.Spec.Workloads = workloadGroup.Workloads
+	if err := s.Client.Update(context.Background(), workPlacement); err != nil {
+		s.Log.Error(err, "Error updating WorkPlacement", "workplacement", workPlacement.Name)
+		return false, err
+	}
+
+	if err := s.updateStatus(workPlacement, misscheduled); err != nil {
+		return false, err
+	}
+
+	s.Log.Info("Successfully updated WorkPlacement workloads", "workplacement", workPlacement.Name)
+	return misscheduled, nil
 }
 
 func (s *Scheduler) labelWorkplacementAsMisscheduled(workPlacement *v1alpha1.WorkPlacement) {

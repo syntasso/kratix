@@ -92,7 +92,9 @@ func (r *DestinationReconciler) Reconcile(ctx context.Context, req ctrl.Request)
 		return defaultRequeue, nil
 	}
 
-	if err := r.Scheduler.ReconcileDestination(); err != nil {
+	// TODO: Instead of this function call, we could watch for changes to the Destination
+	// CRD and triggering all Works to reconcile on every change.
+	if err := r.Scheduler.ReconcileAllDependencyWorks(); err != nil {
 		logger.Error(err, "unable to schedule destination resources")
 		return defaultRequeue, nil
 	}
