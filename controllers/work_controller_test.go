@@ -18,13 +18,16 @@ package controllers_test
 
 import (
 	"context"
+	"errors"
 	"strings"
 
 	. "github.com/onsi/ginkgo/v2"
 	. "github.com/onsi/gomega"
-	. "github.com/syntasso/kratix/controllers"
+	"github.com/syntasso/kratix/controllers"
+	"github.com/syntasso/kratix/controllers/controllersfakes"
 	"github.com/syntasso/kratix/lib/hash"
 	metav1 "k8s.io/apimachinery/pkg/apis/meta/v1"
+	"k8s.io/apimachinery/pkg/types"
 	"k8s.io/apimachinery/pkg/util/rand"
 	ctrl "sigs.k8s.io/controller-runtime"
 	"sigs.k8s.io/controller-runtime/pkg/client"
@@ -34,83 +37,116 @@ import (
 	//+kubebuilder:scaffold:imports
 )
 
-var destination *platformv1alpha1.Destination
 var work *platformv1alpha1.Work
 
-var _ = Context("WorkReconciler.Reconcile()", func() {
-
-	var workReconciler *WorkReconciler
-
-	setupControllersOnce := func() {
-		if workReconciler == nil {
-			scheduler := &Scheduler{
-				Client: k8sClient,
-				Log:    ctrl.Log.WithName("controllers").WithName("Scheduler"),
-			}
-			workReconciler = &WorkReconciler{
-				Client:    k8sClient,
-				Scheduler: scheduler,
-				Log:       ctrl.Log.WithName("controllers").WithName("WorkReconciler"),
-			}
-			err := workReconciler.SetupWithManager(k8sManager)
-			Expect(err).ToNot(HaveOccurred())
-		}
-		workReconciler.Disabled = false
-	}
+var _ = Describe("WorkReconciler", func() {
+	var (
+		ctx              context.Context
+		reconciler       *controllers.WorkReconciler
+		fakeScheduler    *controllersfakes.FakeWorkScheduler
+		workName         types.NamespacedName
+		work             *v1alpha1.Work
+		workResourceName = "work-controller-test-resource-request"
+	)
 
 	BeforeEach(func() {
-		setupControllersOnce()
-		destination = &platformv1alpha1.Destination{}
-		destination.Name = "worker-1"
-		destination.Namespace = "default"
-		destination.Labels = map[string]string{"destination": "worker-1"}
-		Expect(k8sClient.Create(context.Background(), destination)).To(Succeed())
-	})
+		ctx = context.Background()
+		disabled := false
+		fakeScheduler = &controllersfakes.FakeWorkScheduler{}
+		reconciler = &controllers.WorkReconciler{
+			Client:    fakeK8sClient,
+			Log:       ctrl.Log.WithName("controllers").WithName("Work"),
+			Scheduler: fakeScheduler,
+			Disabled:  disabled,
+		}
 
-	AfterEach(func() {
-		err := k8sClient.Delete(context.Background(), destination)
-		Expect(err).ToNot(HaveOccurred())
-		workReconciler.Disabled = true
-	})
-
-	Describe("On Work Creation", func() {
-		It("creates a WorkPlacement", func() {
-			var timeout = "30s"
-			var interval = "3s"
-
-			work = &platformv1alpha1.Work{}
-			work.Name = "work-controller-test-resource-request"
-			work.Namespace = "default"
-			work.Spec.Replicas = platformv1alpha1.ResourceRequestReplicas
-			work.Spec.WorkloadGroups = []platformv1alpha1.WorkloadGroup{
-				{
-					ID: hash.ComputeHash("."),
-					Workloads: []platformv1alpha1.Workload{
-						{
-							Content: "{someApi: foo, someValue: bar}",
-						},
-						{
-							Content: "{someApi: baz, someValue: bat}",
-						},
+		workName = types.NamespacedName{
+			Name:      workResourceName,
+			Namespace: "default",
+		}
+		work = &platformv1alpha1.Work{}
+		work.Name = workResourceName
+		work.Namespace = "default"
+		work.Spec.Replicas = platformv1alpha1.ResourceRequestReplicas
+		work.Spec.WorkloadGroups = []platformv1alpha1.WorkloadGroup{
+			{
+				ID: hash.ComputeHash("."),
+				Workloads: []platformv1alpha1.Workload{
+					{
+						Content: "{someApi: foo, someValue: bar}",
+					},
+					{
+						Content: "{someApi: baz, someValue: bat}",
 					},
 				},
-			}
-			err := k8sClient.Create(context.Background(), work)
-			Expect(err).ToNot(HaveOccurred())
+			},
+		}
+	})
 
-			Eventually(func(g Gomega) {
-				workPlacementList := workPlacementsFor(work)
-				g.Expect(workPlacementList.Items).To(HaveLen(1), "expected one WorkPlacement")
-
-				var createdWork platformv1alpha1.Work
-				err = k8sClient.Get(context.Background(), client.ObjectKeyFromObject(work), &createdWork)
-				g.Expect(err).ToNot(HaveOccurred())
-
-				workPlacement := workPlacementList.Items[0]
-				g.Expect(workPlacement.GetOwnerReferences()[0].UID).To(Equal(createdWork.GetUID()))
-
-			}, timeout, interval).Should(Succeed(), "WorkPlacement was not created")
+	When("the work is being created", func() {
+		When("the scheduler is able to schedule the work successfully", func() {
+			BeforeEach(func() {
+				fakeScheduler.ReconcileWorkReturns([]string{}, nil)
+				Expect(fakeK8sClient.Create(ctx, work)).To(Succeed())
+				Expect(fakeK8sClient.Get(ctx, workName, work)).To(Succeed())
+			})
+			It("re-reconciles until completion", func() {
+				_, err := t.reconcileUntilCompletion(reconciler, work)
+				Expect(err).ToNot(HaveOccurred())
+			})
 		})
+
+		When("the scheduler returns an error reconciling the work", func() {
+			var schedulingErrorString = "scheduling error"
+			BeforeEach(func() {
+				fakeScheduler.ReconcileWorkReturns([]string{}, errors.New(schedulingErrorString))
+				Expect(fakeK8sClient.Create(ctx, work)).To(Succeed())
+				Expect(fakeK8sClient.Get(ctx, workName, work)).To(Succeed())
+
+			})
+
+			It("returns an error and requeues", func() {
+				_, err := t.reconcileUntilCompletion(reconciler, work)
+				Expect(err).To(MatchError(schedulingErrorString))
+			})
+		})
+
+		When("the scheduler returns work that could not be scheduled", func() {
+			When("the work is a resource request", func() {
+				BeforeEach(func() {
+					workloadGroupIds := []string{"5058f1af8388633f609cadb75a75dc9d"}
+					fakeScheduler.ReconcileWorkReturns(workloadGroupIds, nil)
+					Expect(fakeK8sClient.Create(ctx, work)).To(Succeed())
+					Expect(fakeK8sClient.Get(ctx, workName, work)).To(Succeed())
+
+				})
+				It("re-reconciles unless destinations become available", func() {
+					_, err := t.reconcileUntilCompletion(reconciler, work)
+					Expect(err).To(MatchError("reconcile loop detected"))
+				})
+			})
+
+			When("the work is a dependency", func() {
+				BeforeEach(func() {
+					workloadGroupIds := []string{"5058f1af8388633f609cadb75a75dc9d"}
+					work.Spec.Replicas = -1
+					fakeScheduler.ReconcileWorkReturns(workloadGroupIds, nil)
+					Expect(fakeK8sClient.Create(ctx, work)).To(Succeed())
+					Expect(fakeK8sClient.Get(ctx, workName, work)).To(Succeed())
+
+				})
+				It("re-reconciles unless destinations become available", func() {
+					result, err := t.reconcileUntilCompletion(reconciler, work)
+					Expect(err).ToNot(HaveOccurred())
+					Expect(result).To(Equal(ctrl.Result{}))
+				})
+			})
+
+		})
+
+		// When the work cannot be found
+		// When the work cannot be scheduled
+		// When there are no available destinations (surfaced already)
 	})
 
 	Describe("On Work updates", func() {
