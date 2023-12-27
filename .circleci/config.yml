@@ -84,6 +84,7 @@ commands:
           # https://circleci.com/docs/github-integration#create-a-github-deploy-key
           fingerprints:
             - "5e:1e:ea:52:8b:1b:ad:a2:66:1a:40:98:a3:f5:96:f5"
+            - "4b:78:81:17:99:0c:1d:63:42:dc:bb:1f:bd:d6:54:a8"
       - run:
           # see https://circleci.com/docs/github-integration#establish-the-authenticity-of-an-ssh-host
           name: setup git
