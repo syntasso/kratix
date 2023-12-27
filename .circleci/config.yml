@@ -95,7 +95,19 @@ commands:
             git config --global user.email "kratix@syntasso.io"
 
 jobs:
-  git-clone:
+  clone-helm-charts:
+    executor: machine-medium
+    steps:
+      - run:
+          name: Clone helm charts
+          command: |
+            git clone --depth 1 git@github.com:syntasso/helm-charts.git ~/repo/charts
+      - persist_to_workspace:
+          root: .
+          paths:
+            - charts/
+
+  clone-kratix:
     executor: machine-medium
     steps:
       - checkout
@@ -336,17 +348,18 @@ jobs:
 workflows:
   run-ci:
     jobs:
-      - git-clone
+      - clone-kratix
+      - clone-helm-charts
       - unit-tests:
-          requires: [git-clone]
+          requires: [clone-kratix, clone-helm-charts]
       - system-tests-git:
-          requires: [git-clone]
+          requires: [clone-kratix, clone-helm-charts]
       - system-tests-bucket:
-          requires: [git-clone]
+          requires: [clone-kratix, clone-helm-charts]
       - e2e-demo-test-helm-bucket:
-          requires: [git-clone]
+          requires: [clone-kratix, clone-helm-charts]
       - e2e-demo-test-helm-git:
-          requires: [git-clone]
+          requires: [clone-kratix, clone-helm-charts]
       ### ONLY DEV
       - git-merge:
           requires:
@@ -381,17 +394,17 @@ workflows:
 
   release:
     jobs:
-      - git-clone:
+      - clone-kratix:
           <<: *filter-for-tags
       - build-and-push-images:
           <<: *filter-for-tags
-          requires: [git-clone]
+          requires: [clone-kratix]
           matrix:
             parameters:
               image: [kratix, work-creator, samples]
       - generate-release-distribution:
           <<: *filter-for-tags
-          requires: [git-clone]
+          requires: [clone-kratix]
       - gh-release:
           <<: *filter-for-tags
           requires: [build-and-push-images, generate-release-distribution]
@@ -404,9 +417,9 @@ workflows:
             branches:
               only: [dev]
     jobs:
-      - git-clone
+      - clone-kratix
       - generate-demo-image-list:
-          requires: [git-clone]
+          requires: [clone-kratix]
       - git-push-to-dev:
           requires: [generate-demo-image-list]
 
@@ -418,6 +431,6 @@ workflows:
             branches:
               only: [main]
     jobs:
-      - git-clone
+      - clone-kratix
       - govulncheck:
-          requires: [git-clone]
+          requires: [clone-kratix]
