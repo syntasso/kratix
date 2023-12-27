@@ -12,7 +12,8 @@ const kratixDeveloper = process.env.KRATIX_DEVELOPER === 'true'
 const containerOrg = kratixDeveloper ? 'syntassodev' : 'syntasso'
 const kratixImageTag = `${containerOrg}/kratix-platform:${version}`
 const workerImageTag = `${containerOrg}/kratix-platform-pipeline-adapter:${version}`
-const minioBacked = true
+const minioBacked = argv['git-and-minio'] === true || ! (argv.git === true)
+const gitBacked = argv['git-and-minio'] === true || argv.git === true
 const labels = argv.labels === false
 const thirdCluster = argv["third-cluster"] === true
 const localImageDir = kratixDeveloper ? `${projectRoot}/.image-cache` : ''
@@ -21,23 +22,6 @@ const cachedImages = fs.readFileSync(`${projectRoot}/.images`)
         .split('\n')
         .filter(line => line.length > 0)
 const noCache = argv.cache === false
-
-$.log = (entry) => {
-    switch (entry.kind) {
-        case 'stderr':
-        case 'stdout':
-            if (!entry.verbose) {
-                break
-            }
-            process.stdout.write(chalk.dim(entry.data))
-            break
-        case 'retry':
-            process.stdout.write('.')
-            break
-        default:
-            log(entry)
-    }
-}
 
 const main = async () => {
     await Promise.all([
@@ -58,172 +42,6 @@ const main = async () => {
     await cleanupJobs()
 
     console.log(chalk.green('\nKratix installation is complete!'))
-}
-
-const clusterExists = async (name) => {
-    return (await $`kind get clusters`.quiet()).stdout.includes(name)
-}
-
-const loadImages = async (destination) => {
-    if (!fs.existsSync(`${localImageDir}`) || noCache) {
-        return
-    }
-    await Promise.all(cachedImages.map(image => {
-        return loadFromArchive(image, destination)
-    }))
-}
-
-const pullImages = async() => {
-    if (noCache) {
-        return
-    }
-    return Promise.all(cachedImages.map(image => {
-        if (!fs.existsSync(imageTar(image))) {
-            return $`docker pull ${image} && docker save --output ${imageTar(image)} ${image}`
-        }
-    }))
-}
-
-const imageTar = (image) => {
-    return `${localImageDir}/${image.split('@')[0].replaceAll('/', '__')}.tar`
-}
-
-const loadFromArchive = async (image, destination) => {
-    if (noCache) {
-        return
-    }
-    return $`kind load image-archive ${imageTar(image)} --name ${destination}`
-}
-
-const buildImage = async (name, dockerfile) => {
-    try {
-        await $`docker build -t ${name} -f ${dockerfile} ${projectRoot}`.quiet()
-        console.log(chalk.green(`Image ${name} built`))
-    } catch (e) {
-        console.log(`Failed to build image ${name}`)
-        throw e
-    }
-}
-
-const preloadKindImage = async () => {
-    if (!kratixDeveloper || noCache) {
-        return
-    }
-
-    await $`mkdir -p ${localImageDir}`.quiet()
-
-    let kindImageCache = await glob(`${localImageDir}/kindest*.tar`)
-    if (kindImageCache.length === 0) {
-        await $`docker save --output ${imageTar(kindImage)} ${kindImage}`.quiet()
-        kindImageCache = await glob(`${localImageDir}/kindest*.tar`)
-    }
-
-    const loadOutput = (await $`docker load --input ${kindImageCache}`).stdout.split('\n').pop()
-    if (!loadOutput.includes('Loaded image ID')) {
-        return
-    }
-    const imageID = loadOutput.split(':')[2].trim()
-    const imageTag = kindImage.split(':')[1]
-    return $`docker tag ${imageID} ${imageTag}`
-}
-
-const createKindCluster = async (name, config) => {
-    if (clusterExists(name)) {
-        if (recreate) {
-            const deleteProcess = () => $`kind delete cluster --name ${name}`.quiet()
-            await retry(5, deleteProcess)
-        }
-    }
-
-    await $`kind create cluster --name ${name} --image ${kindImage} --config ${config}`
-}
-
-const installCertManager = async () => {
-    await $`kubectl --context kind-platform apply --filename ${certManagerDist}`.quiet()
-
-    const deployments = ['cert-manager', 'cert-manager-cainjector', 'cert-manager-webhook']
-    await Promise.all(deployments.map(deployment => {
-        return $`kubectl --context kind-platform wait --for condition=available --namespace cert-manager deployment/${deployment} --timeout 60s`
-    }))
-}
-
-const deployLocalRepository = async () => {
-    await $`kubectl --context kind-platform apply --filename ${projectRoot}/hack/platform/minio-install.yaml`.quiet()
-}
-
-const makeDistribution = async () => {
-    if (!localDistribution) {
-        return
-    }
-    await $`cd ${projectRoot} && make distribution`.quiet()
-}
-
-const installKratix = async () => {
-    makeDistribution()
-
-    let dist = fs.readFileSync(`${projectRoot}/distribution/kratix.yaml`)
-        .toString()
-
-    if (kratixDeveloper) {
-        dist = dist.replaceAll("syntasso/kratix", "syntassodev/kratix")
-    }
-
-    const p = $`kubectl --context kind-platform apply --filename -`
-    p.stdin.write(dist)
-    p.stdin.end()
-    await p
-}
-
-const configureStateStores = async () => {
-    if (minioBacked) {
-        await $`kubectl --context kind-platform apply --filename ${projectRoot}/config/samples/platform_v1alpha1_bucketstatestore.yaml`.quiet()
-    }
-}
-
-const registerDestination = async () => {
-    if (singleDestination) {
-        const flags = [
-            '--name platform-cluster',
-            '--context kind-platform',
-        ]
-        if (!minioBacked) {
-            flags.push('--git')
-        }
-        return await $`${projectRoot}/scripts/register-destination ${flags}`.quiet()
-    }
-
-    const stateStoreType = minioBacked ? 'BucketStateStore' : 'GitStateStore'
-    let destination = fs.readFileSync(`${projectRoot}/config/samples/platform_v1alpha1_worker.yaml`)
-        .toString()
-        .replaceAll('BucketStateStore', stateStoreType)
-
-    const p = $`kubectl --context kind-platform apply --filename -`
-    p.stdin.write(destination)
-    p.stdin.end()
-    await p
-
-    if (!labels) {
-        await $`kubectl --context kind-platform label destination worker-1 environment-`.quiet()
-    }
-}
-
-const installGitOps = async (context, path) => {
-    await $`${projectRoot}/scripts/install-gitops --context kind-${context} --path ${path}`.quiet()
-}
-
-const waitForNamespace = async () => {
-    console.log('Waiting for the system to reconcile...')
-    const context = singleDestination ? 'kind-platform' : 'kind-worker'
-    await retry(60, '2s', () => {
-        return $`kubectl --context ${context} get namespace kratix-worker-system`.quiet()
-    })
-}
-
-const cleanupJobs = async () => {
-    return Promise.all([
-        $`kubectl --context kind-platform delete job minio-create-bucket`.quiet().nothrow(),
-        $`kubectl --context kind-platform delete job gitea-create-repository`.quiet().nothrow()
-    ])
 }
 
 const createPlatformCluster = async () => {
@@ -259,7 +77,7 @@ const createWorkerClusters = async () => {
     if (singleDestination) {
         return
     }
-    console.log('Creating worker cluster')
+    console.log('Creating worker cluster(s)')
 
     const workers = [{
         name: 'worker',
@@ -287,9 +105,222 @@ const createWorkerClusters = async () => {
         await installGitOps(worker.name, worker.destinationName)
     }))
 
-    console.log(chalk.green('Worker cluster ready'))
+    console.log(chalk.green('Worker cluster(s) ready'))
 }
 
+const createKindCluster = async (name, config) => {
+    if (clusterExists(name)) {
+        if (recreate) {
+            const deleteProcess = () => $`kind delete cluster --name ${name}`.quiet()
+            await retry(5, deleteProcess)
+        }
+    }
+
+    await $`kind create cluster --name ${name} --image ${kindImage} --config ${config}`
+}
+
+const registerDestination = async () => {
+    console.log('Registering destinations')
+    if (singleDestination) {
+        const flags = [
+            '--name platform-cluster',
+            '--context kind-platform',
+        ]
+        if (gitBacked) {
+            flags.push('--git')
+        }
+        return await $`${projectRoot}/scripts/register-destination ${flags}`.quiet()
+    }
+
+    const stateStoreType = minioBacked ? 'BucketStateStore' : 'GitStateStore'
+    let destination = fs.readFileSync(`${projectRoot}/config/samples/platform_v1alpha1_worker.yaml`)
+        .toString()
+        .replaceAll('BucketStateStore', stateStoreType)
+
+    const p = $`kubectl --context kind-platform apply --filename -`
+    p.stdin.write(destination)
+    p.stdin.end()
+    await p
+
+    if (!labels) {
+        await $`kubectl --context kind-platform label destination worker-1 environment-`.quiet()
+    }
+}
+
+const clusterExists = async (name) => {
+    return (await $`kind get clusters`.quiet()).stdout.includes(name)
+}
+
+/* Build Kratix images */
+const buildImage = async (name, dockerfile) => {
+    try {
+        await $`docker build -t ${name} -f ${dockerfile} ${projectRoot}`.quiet()
+        console.log(chalk.green(`Image ${name} built`))
+    } catch (e) {
+        console.log(`Failed to build image ${name}`)
+        throw e
+    }
+}
+
+
+const installCertManager = async () => {
+    console.log('Installing cert-manager')
+    await $`kubectl --context kind-platform apply --filename ${certManagerDist}`.quiet()
+
+    const deployments = ['cert-manager', 'cert-manager-cainjector', 'cert-manager-webhook']
+    await Promise.all(deployments.map(deployment => {
+        return $`kubectl --context kind-platform wait --for condition=available --namespace cert-manager deployment/${deployment} --timeout 60s`
+    }))
+}
+
+const deployLocalRepository = async () => {
+    console.log('Deploying local repository')
+    if (minioBacked) {
+        await $`kubectl --context kind-platform apply --filename ${projectRoot}/hack/platform/minio-install.yaml`.quiet()
+    }
+    if (gitBacked) {
+        await $`kubectl --context kind-platform apply --filename ${projectRoot}/hack/platform/gitea-install.yaml`.quiet()
+    }
+}
+
+const makeDistribution = async () => {
+    if (!localDistribution) {
+        return
+    }
+    await $`cd ${projectRoot} && make distribution`.quiet()
+}
+
+const installKratix = async () => {
+    console.log('Installing Kratix')
+    makeDistribution()
+
+    let dist = fs.readFileSync(`${projectRoot}/distribution/kratix.yaml`)
+        .toString()
+
+    if (kratixDeveloper) {
+        dist = dist.replaceAll("syntasso/kratix", "syntassodev/kratix")
+    }
+
+    const p = $`kubectl --context kind-platform apply --filename -`
+    p.stdin.write(dist)
+    p.stdin.end()
+    await p
+}
+
+const configureStateStores = async () => {
+    if (minioBacked) {
+        await $`kubectl --context kind-platform apply --filename ${projectRoot}/config/samples/platform_v1alpha1_bucketstatestore.yaml`.quiet()
+    }
+
+    if (gitBacked) {
+        const platformIP = (await $`docker inspect platform-control-plane | grep '"IPAddress": "172' | awk -F '"' '{print $4}'`).stdout.trim()
+        const gitStateStore = fs.readFileSync(`${projectRoot}/config/samples/platform_v1alpha1_gitstatestore.yaml`)
+            .toString()
+            .replaceAll('172.18.0.2', platformIP)
+
+        const p = $`kubectl --context kind-platform apply --filename -`
+        p.stdin.write(gitStateStore)
+        p.stdin.end()
+        await p
+    }
+}
+
+
+const installGitOps = async (context, path) => {
+    const flags = []
+    if (!minioBacked) {
+        flags.push('--git')
+    }
+    await $`${projectRoot}/scripts/install-gitops --context kind-${context} --path ${path} ${flags}`.quiet()
+}
+
+const waitForNamespace = async () => {
+    console.log('Waiting for the system to reconcile...')
+    const context = singleDestination ? 'kind-platform' : 'kind-worker'
+    await retry(60, '2s', () => {
+        return $`kubectl --context ${context} get namespace kratix-worker-system`.quiet()
+    })
+}
+
+const cleanupJobs = async () => {
+    return Promise.all([
+        $`kubectl --context kind-platform delete job minio-create-bucket`.quiet().nothrow(),
+        $`kubectl --context kind-platform delete job gitea-create-repository`.quiet().nothrow()
+    ])
+}
+
+/* Image caching */
+const loadImages = async (destination) => {
+    if (!fs.existsSync(`${localImageDir}`) || noCache) {
+        return
+    }
+    await Promise.all(cachedImages.map(image => {
+        return loadFromArchive(image, destination)
+    }))
+}
+
+const pullImages = async() => {
+    if (noCache) {
+        return
+    }
+    return Promise.all(cachedImages.map(image => {
+        if (!fs.existsSync(imageTar(image))) {
+            return $`docker pull ${image} && docker save --output ${imageTar(image)} ${image}`
+        }
+    }))
+}
+
+const imageTar = (image) => {
+    return `${localImageDir}/${image.split('@')[0].replaceAll('/', '__')}.tar`
+}
+
+const loadFromArchive = async (image, destination) => {
+    if (noCache) {
+        return
+    }
+    return $`kind load image-archive ${imageTar(image)} --name ${destination}`
+}
+
+const preloadKindImage = async () => {
+    if (!kratixDeveloper || noCache) {
+        return
+    }
+
+    await $`mkdir -p ${localImageDir}`.quiet()
+
+    let kindImageCache = await glob(`${localImageDir}/kindest*.tar`)
+    if (kindImageCache.length === 0) {
+        await $`docker save --output ${imageTar(kindImage)} ${kindImage}`.quiet()
+        kindImageCache = await glob(`${localImageDir}/kindest*.tar`)
+    }
+
+    const loadOutput = (await $`docker load --input ${kindImageCache}`).stdout.split('\n').pop()
+    if (!loadOutput.includes('Loaded image ID')) {
+        return
+    }
+    const imageID = loadOutput.split(':')[2].trim()
+    const imageTag = kindImage.split(':')[1]
+    return $`docker tag ${imageID} ${imageTag}`
+}
+
+
+/* Configure log format */
+$.log = (entry) => {
+    switch (entry.kind) {
+        case 'stderr':
+        case 'stdout':
+            if (!entry.verbose) {
+                break
+            }
+            process.stdout.write(chalk.dim(entry.data))
+            break
+        case 'retry':
+            process.stdout.write('.')
+            break
+        default:
+            log(entry)
+    }
+}
 
 void async function () {
     main()
