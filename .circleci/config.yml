@@ -282,26 +282,6 @@ jobs:
             git commit -m"update demo image list"
             git push origin dev
 
-  git-push-helm:
-    executor: machine-large
-    environment:
-      VERSION: << pipeline.git.tag >>
-    steps:
-      - attach_workspace:
-          at: .
-      - setup_git
-      - run:
-          name: Push main
-          command: |
-            cd charts
-            git add kratix/
-            git diff --cached --quiet && exit 0 || true
-
-            ./scripts/bump-minor kratix/
-            git add kratix/
-            git commit -m"update kratix package"
-            git push origin main
-
   git-push:
     executor: machine-large
     steps:
@@ -370,12 +350,24 @@ jobs:
   helm-release:
     docker:
       - image: cimg/base:current
+    environment:
+      VERSION: << pipeline.git.tag >>
     resource_class: large
     steps:
       - attach_workspace:
           at: .
       - setup_git
-      - git-push-helm
+      - run:
+          name: Push to helm-charts
+          command: |
+            cd charts
+            git add kratix/
+            git diff --cached --quiet && exit 0 || true
+
+            ./scripts/bump-minor kratix/
+            git add kratix/
+            git commit -m"update kratix package"
+            git push origin main
 
 workflows:
   run-ci:
