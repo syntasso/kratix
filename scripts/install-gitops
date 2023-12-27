@@ -15,7 +15,7 @@ usage() {
     echo -e "\t--context='', -c,\t Required. The Kubernetes context where to install FluxCD onto."
     echo -e "\t--path='', -b,\t The Repository name, must match the name used when registering the destination. Defaults to context."
     echo -e "\t--git, -g,\t Reads from local Gitea installation (default: Read from local MinIO installation)"
-    exit "${1:-0}"
+    exit "${1:-1}"
 }
 
 load_options() {
@@ -34,7 +34,7 @@ load_options() {
     while getopts "hc:gb:" opt
     do
       case "$opt" in
-        'h') usage ;;
+        'h') usage 0 ;;
         'c') CONTEXT=$OPTARG ;;
         'g') WORKER_STATESTORE_TYPE=GitStateStore ;;
         'b') BUCKET_PATH=$OPTARG ;;
