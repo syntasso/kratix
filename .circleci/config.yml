@@ -95,7 +95,19 @@ commands:
             git config --global user.email "kratix@syntasso.io"
 
 jobs:
-  git-clone:
+  clone-helm-charts:
+    executor: machine-medium
+    steps:
+      - run:
+          name: Clone helm charts
+          command: |
+            git clone --depth 1 git@github.com:syntasso/helm-charts.git ~/repo/charts
+      - persist_to_workspace:
+          root: .
+          paths:
+            - charts/
+
+  clone-kratix:
     executor: machine-medium
     steps:
       - checkout
@@ -153,6 +165,7 @@ jobs:
           name: Create Destinations and helm install
           command: |
             make distribution
+            ./charts/scripts/generate-templates-and-crds ./distribution/kratix.yaml
             export DOCKER_BUILDKIT=1
 
             # setup platform and install GitStateStore
@@ -181,6 +194,7 @@ jobs:
           name: Create Destinations and helm install
           command: |
             make distribution
+            ./charts/scripts/generate-templates-and-crds ./distribution/kratix.yaml
             export DOCKER_BUILDKIT=1
 
             # setup platform and install BucketStateStore
@@ -279,10 +293,6 @@ jobs:
           command: |
             git add -f config/
             git add -f demo/demo-image-list
-            git add -f distribution/kratix.yaml
-            git add -f distribution/single-cluster/
-            git add -f charts/kratix/crds/platform_kratix_io_crds.yaml
-            git add -f charts/kratix/templates/distribution.yaml
             git commit --amend --no-edit
             git push origin main
 
@@ -298,6 +308,10 @@ jobs:
           name: Generate new distribution
           command: |
             ./scripts/make-distribution
+      - run:
+          name: Generate helm charts
+          command: |
+            ./charts/scripts/generate-templates-and-crds ./distribution/kratix.yaml
       - persist_to_workspace:
           root: .
           paths:
@@ -333,20 +347,43 @@ jobs:
             gh config set prompt disabled
             gh release create <<pipeline.git.tag>> --title <<pipeline.git.tag>> ./distribution/**/*.yaml ./distribution/*.yaml
 
+  helm-release:
+    docker:
+      - image: cimg/base:current
+    environment:
+      VERSION: << pipeline.git.tag >>
+    resource_class: large
+    steps:
+      - attach_workspace:
+          at: .
+      - setup_git
+      - run:
+          name: Push to helm-charts
+          command: |
+            cd charts
+            git add kratix/
+            git diff --cached --quiet && exit 0 || true
+
+            ./scripts/bump-minor kratix/
+            git add kratix/
+            git commit -m"update kratix package"
+            git push origin main
+
 workflows:
   run-ci:
     jobs:
-      - git-clone
+      - clone-kratix
+      - clone-helm-charts
       - unit-tests:
-          requires: [git-clone]
+          requires: [clone-kratix, clone-helm-charts]
       - system-tests-git:
-          requires: [git-clone]
+          requires: [clone-kratix, clone-helm-charts]
       - system-tests-bucket:
-          requires: [git-clone]
+          requires: [clone-kratix, clone-helm-charts]
       - e2e-demo-test-helm-bucket:
-          requires: [git-clone]
+          requires: [clone-kratix, clone-helm-charts]
       - e2e-demo-test-helm-git:
-          requires: [git-clone]
+          requires: [clone-kratix, clone-helm-charts]
       ### ONLY DEV
       - git-merge:
           requires:
@@ -358,13 +395,8 @@ workflows:
           filters:
             branches:
               only: dev
-      - build-and-push-images:
-          requires: [git-merge]
-          matrix:
-            parameters:
-              image: [kratix, work-creator, samples]
       - git-push:
-          requires: [build-and-push-images]
+          requires: [git-merge]
       ### END ONLY DEV
       ### ONLY MAIN
       - tag-new-version:
@@ -381,17 +413,22 @@ workflows:
 
   release:
     jobs:
-      - git-clone:
+      - clone-kratix:
+          <<: *filter-for-tags
+      - clone-helm-charts:
           <<: *filter-for-tags
       - build-and-push-images:
           <<: *filter-for-tags
-          requires: [git-clone]
+          requires: [clone-kratix, clone-helm-charts]
           matrix:
             parameters:
               image: [kratix, work-creator, samples]
       - generate-release-distribution:
           <<: *filter-for-tags
-          requires: [git-clone]
+          requires: [clone-kratix, clone-helm-charts]
+      - helm-release:
+          <<: *filter-for-tags
+          requires: [build-and-push-images, generate-release-distribution]
       - gh-release:
           <<: *filter-for-tags
           requires: [build-and-push-images, generate-release-distribution]
@@ -404,9 +441,9 @@ workflows:
             branches:
               only: [dev]
     jobs:
-      - git-clone
+      - clone-kratix
       - generate-demo-image-list:
-          requires: [git-clone]
+          requires: [clone-kratix]
       - git-push-to-dev:
           requires: [generate-demo-image-list]
 
@@ -418,6 +455,6 @@ workflows:
             branches:
               only: [main]
     jobs:
-      - git-clone
+      - clone-kratix
       - govulncheck:
-          requires: [git-clone]
+          requires: [clone-kratix]
