@@ -14,12 +14,13 @@ const kratixImageTag = `${containerOrg}/kratix-platform:${version}`
 const workerImageTag = `${containerOrg}/kratix-platform-pipeline-adapter:${version}`
 const minioBacked = true
 const labels = argv.labels === false
-const thirdCluster = argv.thirdCluster === true
+const thirdCluster = argv["third-cluster"] === true
 const localImageDir = kratixDeveloper ? `${projectRoot}/.image-cache` : ''
 const cachedImages = fs.readFileSync(`${projectRoot}/.images`)
         .toString()
         .split('\n')
         .filter(line => line.length > 0)
+const noCache = argv.cache === false
 
 $.log = (entry) => {
     switch (entry.kind) {
@@ -64,19 +65,20 @@ const clusterExists = async (name) => {
 }
 
 const loadImages = async (destination) => {
-    if (!fs.existsSync(`${localImageDir}`)) {
+    if (!fs.existsSync(`${localImageDir}`) || noCache) {
         return
     }
-    return Promise.all(cachedImages.map(image => {
+    await Promise.all(cachedImages.map(image => {
         return loadFromArchive(image, destination)
     }))
 }
 
 const pullImages = async() => {
-    console.log('Caching images')
+    if (noCache) {
+        return
+    }
     return Promise.all(cachedImages.map(image => {
-        if (!fs.existsSync(`${localImageDir}/${image}.tar`)) {
-            console.log(`Caching image ${image}`)
+        if (!fs.existsSync(imageTar(image))) {
             return $`docker pull ${image} && docker save --output ${imageTar(image)} ${image}`
         }
     }))
@@ -87,7 +89,10 @@ const imageTar = (image) => {
 }
 
 const loadFromArchive = async (image, destination) => {
-    return $`kind load docker-image ${imageTar(image)} --name ${destination}`.quiet()
+    if (noCache) {
+        return
+    }
+    return $`kind load image-archive ${imageTar(image)} --name ${destination}`
 }
 
 const buildImage = async (name, dockerfile) => {
@@ -101,7 +106,7 @@ const buildImage = async (name, dockerfile) => {
 }
 
 const preloadKindImage = async () => {
-    if (!kratixDeveloper) {
+    if (!kratixDeveloper || noCache) {
         return
     }
 
@@ -130,7 +135,7 @@ const createKindCluster = async (name, config) => {
         }
     }
 
-    return $`kind create cluster --name ${name} --image ${kindImage} --config ${config}`
+    await $`kind create cluster --name ${name} --image ${kindImage} --config ${config}`
 }
 
 const installCertManager = async () => {
@@ -203,7 +208,7 @@ const registerDestination = async () => {
 }
 
 const installGitOps = async (context, path) => {
-    return $`${projectRoot}/scripts/install-gitops --context ${context} --path ${path}`.quiet()
+    await $`${projectRoot}/scripts/install-gitops --context kind-${context} --path ${path}`.quiet()
 }
 
 const waitForNamespace = async () => {
@@ -271,15 +276,15 @@ const createWorkerClusters = async () => {
     }
 
     await Promise.all(workers.map(async worker => {
-        createKindCluster(worker.name, worker.config)
+        await createKindCluster(worker.name, worker.config)
     }))
 
     await Promise.all(workers.map(async worker => {
-        loadImages(worker.name)
+        await loadImages(worker.name)
     }))
 
     await Promise.all(workers.map(async worker => {
-        installGitOps(worker.name, worker.destinationName)
+        await installGitOps(worker.name, worker.destinationName)
     }))
 
     console.log(chalk.green('Worker cluster ready'))
