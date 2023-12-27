@@ -84,6 +84,21 @@ commands:
           # https://circleci.com/docs/github-integration#create-a-github-deploy-key
           fingerprints:
             - "5e:1e:ea:52:8b:1b:ad:a2:66:1a:40:98:a3:f5:96:f5"
+      - run:
+          # see https://circleci.com/docs/github-integration#establish-the-authenticity-of-an-ssh-host
+          name: setup git
+          command: |
+            mkdir -p ~/.ssh
+            ssh-keyscan github.com > ~/.ssh/known_hosts
+
+            git config --global user.name "syntassodev"
+            git config --global user.email "kratix@syntasso.io"
+  setup_git_helm:
+    steps:
+      - add_ssh_keys:
+          # Add github deploy key
+          # https://circleci.com/docs/github-integration#create-a-github-deploy-key
+          fingerprints:
             - "4b:78:81:17:99:0c:1d:63:42:dc:bb:1f:bd:d6:54:a8"
       - run:
           # see https://circleci.com/docs/github-integration#establish-the-authenticity-of-an-ssh-host
@@ -357,7 +372,7 @@ jobs:
     steps:
       - attach_workspace:
           at: .
-      - setup_git
+      - setup_git_helm
       - run:
           name: Push to helm-charts
           command: |
