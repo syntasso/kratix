@@ -123,9 +123,9 @@ verify_prerequisites() {
 
     log -n "Looking for distribution/kratix.yaml... "
     if [ ! -f "${ROOT}/distribution/kratix.yaml" ]; then
-        error " not found"
-        log "\tEnsure you are on the $(info main) branch or run $(info make distribution)"
-        exit 1
+        log "distribution/kratix.yaml not found; downloading latest version..."
+        mkdir -p ${ROOT}/distribution
+        curl -sL https://github.com/syntasso/kratix/releases/latest/download/kratix.yaml -o ${ROOT}/distribution/kratix.yaml
     fi
     success_mark
 
