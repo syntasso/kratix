@@ -144,18 +144,8 @@ deploy: manifests kustomize ## Deploy controller to the K8s cluster specified in
 
 distribution: manifests kustomize ## Create a deployment manifest in /distribution/kratix.yaml
 	cd config/manager && $(KUSTOMIZE) edit set image controller=${IMG}
+	mkdir -p distribution
 	WC_IMG=${WC_IMG} $(KUSTOMIZE) build config/default --output distribution/kratix.yaml
-	make chart
-
-CHART_CRDS = charts/kratix/crds/platform_kratix_io_crds.yaml
-CHART_DISTRIBUTION = charts/kratix/templates/distribution.yaml
-chart:
-	cat distribution/kratix.yaml | \
-	  yq 'select(.kind == "CustomResourceDefinition")' > \
-	  ${CHART_CRDS}
-	cat distribution/kratix.yaml | \
-	  yq 'select(.kind != "CustomResourceDefinition")' > \
-          ${CHART_DISTRIBUTION}
 
 release: distribution docker-build-and-push build-and-push-work-creator ## Create a release. Set VERSION env var to "vX.Y.Z-n".
 

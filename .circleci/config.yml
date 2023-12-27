@@ -165,6 +165,7 @@ jobs:
           name: Create Destinations and helm install
           command: |
             make distribution
+            ./charts/scripts/generate-templates-and-crds ./distribution/kratix.yaml
             export DOCKER_BUILDKIT=1
 
             # setup platform and install GitStateStore
@@ -193,6 +194,7 @@ jobs:
           name: Create Destinations and helm install
           command: |
             make distribution
+            ./charts/scripts/generate-templates-and-crds ./distribution/kratix.yaml
             export DOCKER_BUILDKIT=1
 
             # setup platform and install BucketStateStore
@@ -280,6 +282,21 @@ jobs:
             git commit -m"update demo image list"
             git push origin dev
 
+  git-push-helm:
+    executor: machine-large
+    steps:
+      - attach_workspace:
+          at: .
+      - setup_git
+      - install_software
+      - run:
+          name: Push main
+          command: |
+            make distribution
+            cd charts
+            ./scripts/generate-templates-and-crds ../distribution/kratix.yaml
+            git push origin wip-helm
+
   git-push:
     executor: machine-large
     steps:
@@ -291,10 +308,6 @@ jobs:
           command: |
             git add -f config/
             git add -f demo/demo-image-list
-            git add -f distribution/kratix.yaml
-            git add -f distribution/single-cluster/
-            git add -f charts/kratix/crds/platform_kratix_io_crds.yaml
-            git add -f charts/kratix/templates/distribution.yaml
             git commit --amend --no-edit
             git push origin main
 
@@ -361,6 +374,8 @@ workflows:
       - e2e-demo-test-helm-git:
           requires: [clone-kratix, clone-helm-charts]
       ### ONLY DEV
+      - git-push-helm:
+          requires: [clone-kratix, clone-helm-charts]
       - git-merge:
           requires:
             - unit-tests
@@ -371,13 +386,14 @@ workflows:
           filters:
             branches:
               only: dev
-      - build-and-push-images:
-          requires: [git-merge]
-          matrix:
-            parameters:
-              image: [kratix, work-creator, samples]
+      # - build-and-push-images:
+      #     requires: [git-merge]
+      #     matrix:
+      #       parameters:
+      #         image: [kratix, work-creator, samples]
       - git-push:
-          requires: [build-and-push-images]
+          requires: [git-merge]
+          # requires: [git-merge]
       ### END ONLY DEV
       ### ONLY MAIN
       - tag-new-version:
