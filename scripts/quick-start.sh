@@ -447,13 +447,11 @@ install_kratix() {
     step_create_third_worker_cluster &
     wait
 
-    step_load_images &
+    step_load_images
     if ${BUILD_KRATIX_IMAGES}; then
-        step_build_and_load_kratix &
-        step_build_and_load_kratix_work_creator &
+        step_build_and_load_kratix
+        step_build_and_load_kratix_work_creator
     fi
-
-    wait
 
     step_register_destinations
     step_setup_worker_cluster
