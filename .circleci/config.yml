@@ -38,7 +38,7 @@ commands:
             echo "$DOCKER_PASSWORD" | docker login --username $DOCKER_USERNAME --password-stdin
   install_software:
     steps:
-      - k8s/install
+      - k8s/install-kubectl
       - golang/install:
           cache: true
           version: 1.21.5
