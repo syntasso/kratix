@@ -20,9 +20,7 @@ help: ## Display this help.
 ENVTEST_ASSETS_DIR=$(shell pwd)/../testbin
 .PHONY: test
 test: ## Run tests.
-	mkdir -p ${ENVTEST_ASSETS_DIR}
-	test -f ${ENVTEST_ASSETS_DIR}/setup-envtest.sh || curl -sSLo ${ENVTEST_ASSETS_DIR}/setup-envtest.sh https://raw.githubusercontent.com/kubernetes-sigs/controller-runtime/v0.7.2/hack/setup-envtest.sh
-	source ${ENVTEST_ASSETS_DIR}/setup-envtest.sh;  ENVTEST_K8S_VERSION=1.24.2 fetch_envtest_tools $(ENVTEST_ASSETS_DIR); setup_envtest_env $(ENVTEST_ASSETS_DIR); go run ${GINKGO} ./pipeline/ -r  --coverprofile cover.out
+	go run ${GINKGO} ./pipeline/ -r  --coverprofile cover.out
 
 kind-load-image: docker-build ## Load locally built image into KinD, use export WC_IMG=syntasso/kratix-platform-pipeline-adapter:dev
 	kind load docker-image ${WC_IMG} --name platform

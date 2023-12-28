@@ -428,6 +428,19 @@ step_setup_worker_cluster() {
     log "Finished setting up worker destination..."
 }
 
+wait_for_pids() {
+    pids=$1
+    RESULT=0
+    for pid in $pids; do
+        wait $pid || let "RESULT=1"
+    done
+
+    if [ "$RESULT" == "1" ];
+        then
+           exit 1
+    fi
+}
+
 install_kratix() {
     trap "trap - SIGTERM && kill -- -$$" SIGINT SIGTERM EXIT
     verify_prerequisites
@@ -442,18 +455,20 @@ install_kratix() {
         fi
     fi
 
+    pids=""
     step_create_platform_cluster &
+    pids="$pids $!"
     step_create_worker_cluster &
+    pids="$pids $!"
     step_create_third_worker_cluster &
-    wait
+    pids="$pids $!"
+    wait_for_pids $pids
 
-    step_load_images &
+    step_load_images
     if ${BUILD_KRATIX_IMAGES}; then
-        step_build_and_load_kratix &
-        step_build_and_load_kratix_work_creator &
+        step_build_and_load_kratix
+        step_build_and_load_kratix_work_creator
     fi
-
-    wait
 
     step_register_destinations
     step_setup_worker_cluster

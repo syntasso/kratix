@@ -186,15 +186,13 @@ system-test: ## Recreate the clusters and run system tests
 fast-system-test: fast-quick-start ## Run the system tests without recreating the clusters
 	make -j4 run-system-test
 
-# ENVTEST_K8S_VERSION refers to the version of kubebuilder assets to be downloaded by envtest binary.
-ENVTEST_K8S_VERSION = 1.23
 # kubebuilder-tools does not yet support darwin/arm64. The following is a workaround (see https://github.com/kubernetes-sigs/controller-runtime/issues/1657)
 ARCH_FLAG =
 ifeq ($(shell uname -sm),Darwin arm64)
 	ARCH_FLAG = --arch=amd64
 endif
 .PHONY: test
-test: manifests generate fmt vet envtest ## Run unit tests.
+test: manifests generate fmt vet ## Run unit tests.
 	go run ${GINKGO} -r --coverprofile cover.out --skip-package=system
 
 .PHONY: run-system-test
@@ -218,36 +216,6 @@ build-and-load-bash: # Build and load all test pipeline images
 	kind load docker-image syntassodev/bash-promise-test-c2:dev --name platform
 	kind load docker-image syntassodev/bash-promise-configure:v1alpha1 --name platform
 	kind load docker-image syntassodev/bash-promise-configure:v1alpha2 --name platform
-
-ENVTEST = $(shell pwd)/bin/setup-envtest
-.PHONY: envtest
-envtest: ## Download envtest-setup locally if necessary.
-	$(call go-get-tool,$(ENVTEST),sigs.k8s.io/controller-runtime/tools/setup-envtest@latest)
-
-
-## Unused?
-# load-pipeline-images:
-# 	docker pull docker.io/bitnami/kubectl:1.20.10
-# 	kind load docker-image docker.io/bitnami/kubectl:1.20.10 --name platform
-# 	docker pull syntasso/knative-serving-pipeline:latest
-# 	kind load docker-image syntasso/knative-serving-pipeline:latest --name platform
-# 	docker pull syntasso/postgres-configure-pipeline:latest
-# 	kind load docker-image syntasso/postgres-configure-pipeline:latest --name platform
-# 	docker pull syntasso/paved-path-demo-configure-pipeline:latest
-# 	kind load docker-image syntasso/paved-path-demo-configure-pipeline:latest --name platform
-#
-#
-# install-minio: ## Install test Minio server
-# 	kubectl --context kind-platform apply -f hack/platform/minio-install.yaml
-#
-# install-gitea: ## Install test gitea server
-# 	kubectl --context kind-platform apply -f hack/platform/gitea-install.yaml
-#
-# install-flux-to-platform:
-# 	kubectl apply -f ./hack/destination/gitops-tk-install.yaml
-# 	kubectl wait --namespace flux-system --for=condition=Available deployment source-controller --timeout=120s
-# 	kubectl wait --namespace flux-system --for=condition=Available deployment kustomize-controller --timeout=120s
-
 
 ##@ Deprecated: will be deleted soon
 
