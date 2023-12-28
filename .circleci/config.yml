@@ -2,6 +2,7 @@ version: 2.1
 
 orbs:
   k8s: circleci/kubernetes@1.3.1
+  gh: circleci/github-cli@2.3.0
   golang: circleci/go@1.7.2
   retry: kimh/run-with-retry@1.0.0
 
@@ -18,6 +19,13 @@ executors:
       docker_layer_caching: true
     working_directory: ~/repo
     resource_class: large
+
+filter-for-tags: &filter-for-tags
+  filters:
+    tags:
+      only: /^v.*/
+    branches:
+      ignore: /.*/
 
 commands:
   docker_login:
@@ -85,9 +93,37 @@ commands:
 
             git config --global user.name "syntassodev"
             git config --global user.email "kratix@syntasso.io"
+  setup_git_helm:
+    steps:
+      - add_ssh_keys:
+          # Add github deploy key
+          # https://circleci.com/docs/github-integration#create-a-github-deploy-key
+          fingerprints:
+            - "4b:78:81:17:99:0c:1d:63:42:dc:bb:1f:bd:d6:54:a8"
+      - run:
+          # see https://circleci.com/docs/github-integration#establish-the-authenticity-of-an-ssh-host
+          name: setup git
+          command: |
+            mkdir -p ~/.ssh
+            ssh-keyscan github.com > ~/.ssh/known_hosts
+
+            git config --global user.name "syntassodev"
+            git config --global user.email "kratix@syntasso.io"
 
 jobs:
-  git-clone:
+  clone-helm-charts:
+    executor: machine-medium
+    steps:
+      - run:
+          name: Clone helm charts
+          command: |
+            git clone --depth 1 git@github.com:syntasso/helm-charts.git ~/repo/charts
+      - persist_to_workspace:
+          root: .
+          paths:
+            - charts/
+
+  clone-kratix:
     executor: machine-medium
     steps:
       - checkout
@@ -145,6 +181,7 @@ jobs:
           name: Create Destinations and helm install
           command: |
             make distribution
+            ./charts/scripts/generate-templates-and-crds ./distribution/kratix.yaml
             export DOCKER_BUILDKIT=1
 
             # setup platform and install GitStateStore
@@ -173,6 +210,7 @@ jobs:
           name: Create Destinations and helm install
           command: |
             make distribution
+            ./charts/scripts/generate-templates-and-crds ./distribution/kratix.yaml
             export DOCKER_BUILDKIT=1
 
             # setup platform and install BucketStateStore
@@ -231,6 +269,8 @@ jobs:
     parameters:
       image:
         type: string
+    environment:
+      VERSION: << pipeline.git.tag >>
     steps:
       - attach_workspace:
           at: .
@@ -239,7 +279,7 @@ jobs:
           docker_layer_caching: true
       - docker_login
       - run:
-          name: Build and push sample images
+          name: Build and push images
           command: |
             ./scripts/build-images << parameters.image >>
 
@@ -269,27 +309,98 @@ jobs:
           command: |
             git add -f config/
             git add -f demo/demo-image-list
-            git add -f distribution/kratix.yaml
-            git add -f distribution/single-cluster/
-            git add -f charts/kratix/crds/platform_kratix_io_crds.yaml
-            git add -f charts/kratix/templates/distribution.yaml
             git commit --amend --no-edit
             git push origin main
 
+  generate-release-distribution:
+    executor: machine-large
+    environment:
+      VERSION: << pipeline.git.tag >>
+    steps:
+      - attach_workspace:
+          at: .
+      - install_software
+      - run:
+          name: Generate new distribution
+          command: |
+            ./scripts/make-distribution
+      - run:
+          name: Generate helm charts
+          command: |
+            ./charts/scripts/generate-templates-and-crds ./distribution/kratix.yaml
+      - persist_to_workspace:
+          root: .
+          paths:
+            - .
+
+  tag-new-version:
+    executor: machine-large
+    steps:
+      - attach_workspace:
+          at: .
+      - setup_git
+      - run:
+          name: bump minor version and push tag
+          command: |
+            latest_tag=$(git describe --tags --abbrev=0)
+            minor=$(echo "${latest_tag}" | cut -d '.' -f 2)
+            new_tag="v0.$(($minor+1)).0"
+
+            git tag -a $new_tag -m"${new_tag}"
+            git push origin $new_tag
+
+  gh-release:
+    docker:
+      - image: cimg/base:current
+    resource_class: large
+    steps:
+      - attach_workspace:
+          at: .
+      - gh/setup
+      - run:
+          name: Release
+          command: |
+            gh config set prompt disabled
+            gh release create <<pipeline.git.tag>> --title <<pipeline.git.tag>> ./distribution/**/*.yaml ./distribution/*.yaml
+
+  helm-release:
+    docker:
+      - image: cimg/base:current
+    environment:
+      VERSION: << pipeline.git.tag >>
+    resource_class: large
+    steps:
+      - attach_workspace:
+          at: .
+      - setup_git_helm
+      - run:
+          name: Push to helm-charts
+          command: |
+            cd charts
+            git add kratix/
+            git diff --cached --quiet && exit 0 || true
+
+            ./scripts/bump-minor kratix/
+            git add kratix/
+            git commit -m"update kratix package"
+            git push origin main
+
 workflows:
-  run-tests:
+  run-ci:
     jobs:
-      - git-clone
+      - clone-kratix
+      - clone-helm-charts
       - unit-tests:
-          requires: [git-clone]
+          requires: [clone-kratix, clone-helm-charts]
       - system-tests-git:
-          requires: [git-clone]
+          requires: [clone-kratix, clone-helm-charts]
       - system-tests-bucket:
-          requires: [git-clone]
+          requires: [clone-kratix, clone-helm-charts]
       - e2e-demo-test-helm-bucket:
-          requires: [git-clone]
+          requires: [clone-kratix, clone-helm-charts]
       - e2e-demo-test-helm-git:
-          requires: [git-clone]
+          requires: [clone-kratix, clone-helm-charts]
+      ### ONLY DEV
       - git-merge:
           requires:
             - unit-tests
@@ -300,14 +411,43 @@ workflows:
           filters:
             branches:
               only: dev
-      - build-and-push-images:
+      - git-push:
           requires: [git-merge]
+      ### END ONLY DEV
+      ### ONLY MAIN
+      - tag-new-version:
+          requires:
+            - unit-tests
+            - system-tests-git
+            - system-tests-bucket
+            - e2e-demo-test-helm-git
+            - e2e-demo-test-helm-bucket
+          filters:
+            branches:
+              only: main
+      ### END ONLY MAIN
+
+  release:
+    jobs:
+      - clone-kratix:
+          <<: *filter-for-tags
+      - clone-helm-charts:
+          <<: *filter-for-tags
+      - build-and-push-images:
+          <<: *filter-for-tags
+          requires: [clone-kratix, clone-helm-charts]
           matrix:
             parameters:
               image: [kratix, work-creator, samples]
-      - git-push:
-          requires:
-            - build-and-push-images
+      - generate-release-distribution:
+          <<: *filter-for-tags
+          requires: [clone-kratix, clone-helm-charts]
+      - helm-release:
+          <<: *filter-for-tags
+          requires: [build-and-push-images, generate-release-distribution]
+      - gh-release:
+          <<: *filter-for-tags
+          requires: [build-and-push-images, generate-release-distribution]
 
   update-demo:
     triggers:
@@ -317,9 +457,9 @@ workflows:
             branches:
               only: [dev]
     jobs:
-      - git-clone
+      - clone-kratix
       - generate-demo-image-list:
-          requires: [git-clone]
+          requires: [clone-kratix]
       - git-push-to-dev:
           requires: [generate-demo-image-list]
 
@@ -331,6 +471,6 @@ workflows:
             branches:
               only: [main]
     jobs:
-      - git-clone
+      - clone-kratix
       - govulncheck:
-          requires: [git-clone]
+          requires: [clone-kratix]

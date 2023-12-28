@@ -123,9 +123,9 @@ verify_prerequisites() {
 
     log -n "Looking for distribution/kratix.yaml... "
     if [ ! -f "${ROOT}/distribution/kratix.yaml" ]; then
-        error " not found"
-        log "\tEnsure you are on the $(info main) branch or run $(info make distribution)"
-        exit 1
+        log "distribution/kratix.yaml not found; downloading latest version..."
+        mkdir -p ${ROOT}/distribution
+        curl -sL https://github.com/syntasso/kratix/releases/latest/download/kratix.yaml -o ${ROOT}/distribution/kratix.yaml
     fi
     success_mark
 
@@ -243,34 +243,36 @@ setup_worker_2_destination() {
 }
 
 wait_for_gitea() {
-    kubectl wait pod --context kind-platform -n gitea --selector app=gitea --for=condition=ready ${opts}
+    wait_opts=$1
+    kubectl wait pod --context kind-platform -n gitea --selector app=gitea --for=condition=ready ${wait_opts}
 }
 
 wait_for_minio() {
+    wait_opts=$1
     while ! kubectl get pods --context kind-platform -n kratix-platform-system | grep minio; do
         sleep 1
     done
-    kubectl wait pod --context kind-platform -n kratix-platform-system --selector run=minio --for=condition=ready ${opts}
+    kubectl wait pod --context kind-platform -n kratix-platform-system --selector run=minio --for=condition=ready ${wait_opts}
 
     while ! kubectl get job --context kind-platform -n default | grep minio-create-bucket; do
         sleep 1
     done
-    kubectl --context kind-platform wait job minio-create-bucket --for condition=Complete
+    kubectl --context kind-platform wait job minio-create-bucket --for condition=Complete ${wait_opts}
 }
 
 wait_for_local_repository() {
     local timeout_flag="${1:-""}"
-    opts=""
+    wait_opts=""
     if [ -z "${timeout_flag}" ]; then
-        opts="--timeout=${WAIT_TIMEOUT}"
+        wait_opts="--timeout=${WAIT_TIMEOUT}"
     fi
 
     if ${INSTALL_AND_CREATE_GITEA_REPO}; then
-        wait_for_gitea
+        wait_for_gitea ${wait_opts}
     fi
 
     if ${INSTALL_AND_CREATE_MINIO_BUCKET}; then
-        wait_for_minio
+        wait_for_minio ${wait_opts}
     fi
 }
 
