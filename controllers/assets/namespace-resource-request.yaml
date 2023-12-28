@@ -1,7 +1,0 @@
-#https://raw.githubusercontent.com/OT-CONTAINER-KIT/redis-operator/master/example/redis-standalone-example.yaml
----
-apiVersion: marketplace.kratix.io/v1alpha1
-kind: namespace
-metadata:
-  name: namespace-with-requirements
-spec: {}

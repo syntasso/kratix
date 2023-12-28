@@ -33,6 +33,7 @@ var _ = Describe("PromiseReleaseController", func() {
 			Client:         fakeK8sClient,
 			Scheme:         scheme.Scheme,
 			PromiseFetcher: fakeFetcher,
+			Log:            ctrl.Log.WithName("controllers").WithName("PromiseRelease"),
 		}
 
 		promiseRelease = v1alpha1.PromiseRelease{
@@ -65,7 +66,7 @@ var _ = Describe("PromiseReleaseController", func() {
 				err = fakeK8sClient.Create(context.TODO(), &promiseRelease)
 				Expect(err).ToNot(HaveOccurred())
 
-				_, err = reconcile(reconciler, &promiseRelease)
+				_, err = t.reconcileUntilCompletion(reconciler, &promiseRelease)
 				Expect(err).ToNot(HaveOccurred(), "reconciliation failed; expected it to work")
 
 				promise = fetchPromise(promiseReleaseNamespacedName)
@@ -103,7 +104,7 @@ var _ = Describe("PromiseReleaseController", func() {
 				err := fakeK8sClient.Create(context.TODO(), &promiseRelease)
 				Expect(err).ToNot(HaveOccurred())
 
-				_, err = reconcile(reconciler, &promiseRelease)
+				_, err = t.reconcileUntilCompletion(reconciler, &promiseRelease)
 
 				Expect(err).To(MatchError("unknown sourceRef type: unknown"))
 			})
@@ -118,7 +119,7 @@ var _ = Describe("PromiseReleaseController", func() {
 				})
 
 				It("installs the promise from the URL", func() {
-					_, err := reconcile(reconciler, &promiseRelease)
+					_, err := t.reconcileUntilCompletion(reconciler, &promiseRelease)
 					Expect(err).To(MatchError("failed to fetch promise from url: can't do mate"))
 				})
 			})
@@ -134,7 +135,7 @@ var _ = Describe("PromiseReleaseController", func() {
 					})
 
 					It("errors", func() {
-						result, err := reconcile(reconciler, &promiseRelease)
+						result, err := t.reconcileUntilCompletion(reconciler, &promiseRelease)
 						Expect(result).To(Equal(ctrl.Result{}))
 						Expect(err).To(MatchError(ContainSubstring("version label (kratix.io/promise-version) not found on promise; refusing to install")))
 					})
@@ -150,7 +151,7 @@ var _ = Describe("PromiseReleaseController", func() {
 					})
 
 					It("errors", func() {
-						result, err := reconcile(reconciler, &promiseRelease)
+						result, err := t.reconcileUntilCompletion(reconciler, &promiseRelease)
 						Expect(result).To(Equal(ctrl.Result{}))
 						Expect(err).To(MatchError(ContainSubstring("version label on promise (v2.2.0) does not match version on promise release (v1.1.0); refusing to install")))
 					})
@@ -162,7 +163,7 @@ var _ = Describe("PromiseReleaseController", func() {
 						err := fakeK8sClient.Create(context.TODO(), &promiseRelease)
 						Expect(err).ToNot(HaveOccurred())
 
-						_, err = reconcile(reconciler, &promiseRelease)
+						_, err = t.reconcileUntilCompletion(reconciler, &promiseRelease)
 						Expect(err).ToNot(HaveOccurred())
 					})
 
@@ -183,7 +184,7 @@ var _ = Describe("PromiseReleaseController", func() {
 						err := fakeK8sClient.Create(context.TODO(), &promiseRelease)
 						Expect(err).ToNot(HaveOccurred())
 
-						_, err = reconcile(reconciler, &promiseRelease)
+						_, err = t.reconcileUntilCompletion(reconciler, &promiseRelease)
 						Expect(err).ToNot(HaveOccurred())
 
 						promise = fetchPromise(promiseReleaseNamespacedName)
@@ -236,12 +237,14 @@ var _ = Describe("PromiseReleaseController", func() {
 	})
 
 	When("the PromiseRelease is deleted", func() {
-		var result ctrl.Result
+		var (
+			err error
+		)
 
 		BeforeEach(func() {
 			Expect(fakeK8sClient.Create(context.TODO(), &promiseRelease)).To(Succeed())
 
-			_, err := reconcile(reconciler, &promiseRelease)
+			_, err = t.reconcileUntilCompletion(reconciler, &promiseRelease)
 			Expect(err).ToNot(HaveOccurred())
 
 			promise := fetchPromise(promiseReleaseNamespacedName)
@@ -250,8 +253,7 @@ var _ = Describe("PromiseReleaseController", func() {
 
 			Expect(fakeK8sClient.Delete(context.TODO(), &promiseRelease)).To(Succeed())
 
-			result, err = reconcile(reconciler, &promiseRelease)
-			Expect(err).ToNot(HaveOccurred())
+			_, err = t.reconcileUntilCompletion(reconciler, &promiseRelease)
 		})
 
 		It("triggers the removal of the promise", func() {
@@ -265,15 +267,16 @@ var _ = Describe("PromiseReleaseController", func() {
 			Expect(promiseRelease.GetFinalizers()).To(ConsistOf("kratix.io/promise-cleanup"))
 		})
 
-		It("requeues", func() {
-			Expect(result.RequeueAfter > 0).To(BeTrue())
+		It("requeues forever", func() {
+			Expect(err).To(MatchError("reconcile loop detected"))
 		})
 
 		When("the promise is gone", func() {
 			It("removes the promise release on the next reconciliation", func() {
+				//Remove finalizers from promise so it can disappear
 				deletePromise(promiseReleaseNamespacedName)
 
-				_, err := reconcile(reconciler, &promiseRelease)
+				_, err := t.reconcileUntilCompletion(reconciler, &promiseRelease)
 				Expect(err).ToNot(HaveOccurred())
 
 				err = fakeK8sClient.Get(context.TODO(), promiseReleaseNamespacedName, &promiseRelease)
@@ -286,7 +289,7 @@ var _ = Describe("PromiseReleaseController", func() {
 		BeforeEach(func() {
 			Expect(fakeK8sClient.Create(context.Background(), &promiseRelease)).To(Succeed())
 
-			_, err := reconcile(reconciler, &promiseRelease)
+			_, err := t.reconcileUntilCompletion(reconciler, &promiseRelease)
 			Expect(err).ToNot(HaveOccurred())
 
 			promise = fetchPromise(promiseReleaseNamespacedName)
@@ -296,7 +299,7 @@ var _ = Describe("PromiseReleaseController", func() {
 		})
 
 		It("reinstalls the promise in the next reconciliation", func() {
-			_, err := reconcile(reconciler, &promiseRelease)
+			_, err := t.reconcileUntilCompletion(reconciler, &promiseRelease)
 			Expect(err).ToNot(HaveOccurred())
 
 			promise = fetchPromise(promiseReleaseNamespacedName)
@@ -309,7 +312,7 @@ var _ = Describe("PromiseReleaseController", func() {
 		BeforeEach(func() {
 			Expect(fakeK8sClient.Create(context.TODO(), &promiseRelease)).To(Succeed())
 
-			_, err := reconcile(reconciler, &promiseRelease)
+			_, err := t.reconcileUntilCompletion(reconciler, &promiseRelease)
 			Expect(err).ToNot(HaveOccurred())
 
 			fakeFetcher.FromURLReturns(promiseFromFile(updatedPromisePath), nil)
@@ -318,7 +321,7 @@ var _ = Describe("PromiseReleaseController", func() {
 			promiseRelease.Spec.Version = "v1.2.0"
 			Expect(fakeK8sClient.Update(context.Background(), &promiseRelease)).To(Succeed())
 
-			_, err = reconcile(reconciler, &promiseRelease)
+			_, err = t.reconcileUntilCompletion(reconciler, &promiseRelease)
 			Expect(err).ToNot(HaveOccurred())
 
 			promise = fetchPromise(promiseReleaseNamespacedName)

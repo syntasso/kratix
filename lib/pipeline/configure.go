@@ -93,9 +93,6 @@ func ConfigurePipeline(obj *unstructured.Unstructured, pipelines []platformv1alp
 	}
 
 	job := &batchv1.Job{
-		TypeMeta: metav1.TypeMeta{
-			Kind: "Job",
-		},
 		ObjectMeta: metav1.ObjectMeta{
 			Name:      pipelineArgs.ConfigurePipelineName(),
 			Namespace: pipelineArgs.Namespace(),

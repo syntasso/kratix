@@ -98,10 +98,11 @@ func main() {
 		}
 
 		if err = (&controllers.PromiseReconciler{
-			ApiextensionsClient: apiextensionsClient,
+			ApiextensionsClient: apiextensionsClient.ApiextensionsV1(),
 			Client:              mgr.GetClient(),
 			Log:                 ctrl.Log.WithName("controllers").WithName("Promise"),
 			Manager:             mgr,
+			Scheme:              mgr.GetScheme(),
 			RestartManager: func() {
 				restartManager = true
 				cancelManagerCtxFunc()

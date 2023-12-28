@@ -30,8 +30,13 @@ import (
 type WorkReconciler struct {
 	Client    client.Client
 	Log       logr.Logger
-	Scheduler *Scheduler
+	Scheduler WorkScheduler
 	Disabled  bool
+}
+
+//go:generate go run github.com/maxbrunsfeld/counterfeiter/v6 . WorkScheduler
+type WorkScheduler interface {
+	ReconcileWork(work *platformv1alpha1.Work) ([]string, error)
 }
 
 //+kubebuilder:rbac:groups=platform.kratix.io,resources=works,verbs=get;list;watch;create;update;patch;delete
@@ -51,7 +56,7 @@ type WorkReconciler struct {
 // - https://pkg.go.dev/sigs.k8s.io/controller-runtime@v0.7.2/pkg/reconcile
 func (r *WorkReconciler) Reconcile(ctx context.Context, req ctrl.Request) (ctrl.Result, error) {
 	if r.Disabled {
-		//TODO tech debt. We want this controller runnign *for some unit tests*, not
+		//TODO tech debt. We want this controller running *for some unit tests*, not
 		//for all. So we do this to disable it
 		return ctrl.Result{}, nil
 	}

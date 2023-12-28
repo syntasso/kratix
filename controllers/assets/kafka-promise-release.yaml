@@ -1,9 +1,0 @@
-apiVersion: platform.kratix.io/v1alpha1
-kind: PromiseRelease
-metadata:
-  name: kafka
-spec:
-  version: v1.2.0
-  sourceRef:
-    type: http
-    url: https://gist.githubusercontent.com/kirederik/7db68f8b8d29c904412179c5dd1a9da9/raw/7cae1c849f5bed9f81544bca6ca26c9665b54d2e/kafka.yaml
