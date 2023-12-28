@@ -217,30 +217,6 @@ build-and-load-bash: # Build and load all test pipeline images
 	kind load docker-image syntassodev/bash-promise-configure:v1alpha1 --name platform
 	kind load docker-image syntassodev/bash-promise-configure:v1alpha2 --name platform
 
-## Unused?
-# load-pipeline-images:
-# 	docker pull docker.io/bitnami/kubectl:1.20.10
-# 	kind load docker-image docker.io/bitnami/kubectl:1.20.10 --name platform
-# 	docker pull syntasso/knative-serving-pipeline:latest
-# 	kind load docker-image syntasso/knative-serving-pipeline:latest --name platform
-# 	docker pull syntasso/postgres-configure-pipeline:latest
-# 	kind load docker-image syntasso/postgres-configure-pipeline:latest --name platform
-# 	docker pull syntasso/paved-path-demo-configure-pipeline:latest
-# 	kind load docker-image syntasso/paved-path-demo-configure-pipeline:latest --name platform
-#
-#
-# install-minio: ## Install test Minio server
-# 	kubectl --context kind-platform apply -f hack/platform/minio-install.yaml
-#
-# install-gitea: ## Install test gitea server
-# 	kubectl --context kind-platform apply -f hack/platform/gitea-install.yaml
-#
-# install-flux-to-platform:
-# 	kubectl apply -f ./hack/destination/gitops-tk-install.yaml
-# 	kubectl wait --namespace flux-system --for=condition=Available deployment source-controller --timeout=120s
-# 	kubectl wait --namespace flux-system --for=condition=Available deployment kustomize-controller --timeout=120s
-
-
 ##@ Deprecated: will be deleted soon
 
 # build-and-reload-kratix is deprecated in favor of build-and-load-kratix

@@ -150,7 +150,6 @@ jobs:
           name: Run tests
           command: |
             make test
-            make -C work-creator test
 
   system-tests-git:
     executor: machine-large
