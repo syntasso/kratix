@@ -1,17 +1,17 @@
 package pipeline_test
 
 import (
-	"context"
-	"path/filepath"
 	"testing"
 	"time"
 
 	. "github.com/onsi/ginkgo/v2"
 	. "github.com/onsi/gomega"
-	"github.com/syntasso/kratix/api/v1alpha1"
+	platformv1alpha1 "github.com/syntasso/kratix/api/v1alpha1"
 	"k8s.io/client-go/kubernetes/scheme"
 	"sigs.k8s.io/controller-runtime/pkg/client"
-	"sigs.k8s.io/controller-runtime/pkg/envtest"
+	"sigs.k8s.io/controller-runtime/pkg/client/fake"
+	logf "sigs.k8s.io/controller-runtime/pkg/log"
+	"sigs.k8s.io/controller-runtime/pkg/log/zap"
 )
 
 func TestIntegration(t *testing.T) {
@@ -20,40 +20,24 @@ func TestIntegration(t *testing.T) {
 }
 
 var (
-	testEnv   *envtest.Environment
 	k8sClient client.Client
-	err       error
 )
 
 var _ = BeforeSuite(func(_ SpecContext) {
-	//Env Test
-	By("bootstrapping test environment")
-	testEnv = &envtest.Environment{
-		CRDDirectoryPaths:     []string{filepath.Join("..", "..", "config", "crd", "bases")},
-		ErrorIfCRDPathMissing: true,
-	}
-
-	cfg, err := testEnv.Start()
+	err := platformv1alpha1.AddToScheme(scheme.Scheme)
 	Expect(err).NotTo(HaveOccurred())
-	Expect(cfg).NotTo(BeNil())
-
-	By("Initialise k8s client")
-	err = v1alpha1.AddToScheme(scheme.Scheme)
-	Expect(err).NotTo(HaveOccurred())
-	k8sClient, err = client.New(cfg, client.Options{Scheme: scheme.Scheme})
-	Expect(err).NotTo(HaveOccurred())
-	Expect(k8sClient).NotTo(BeNil())
+	logf.SetLogger(zap.New(zap.WriteTo(GinkgoWriter), zap.UseDevMode(true)))
 
 }, NodeTimeout(time.Minute))
 
-var _ = AfterSuite(func() {
-	By("tearing down the test environment")
-	testEnv.Stop()
-})
-
-var _ = AfterEach(func() {
-	Expect(k8sClient.DeleteAllOf(context.Background(), &v1alpha1.Destination{}, client.InNamespace("default"))).To(Succeed())
-	Expect(k8sClient.DeleteAllOf(context.Background(), &v1alpha1.Promise{}, client.InNamespace("default"))).To(Succeed())
-	Expect(k8sClient.DeleteAllOf(context.Background(), &v1alpha1.Work{}, client.InNamespace("default"))).To(Succeed())
-	Expect(k8sClient.DeleteAllOf(context.Background(), &v1alpha1.WorkPlacement{}, client.InNamespace("default"))).To(Succeed())
+var _ = BeforeEach(func() {
+	k8sClient = fake.NewClientBuilder().WithScheme(scheme.Scheme).WithStatusSubresource(
+		&platformv1alpha1.PromiseRelease{},
+		&platformv1alpha1.Promise{},
+		&platformv1alpha1.Work{},
+		&platformv1alpha1.WorkPlacement{},
+		&platformv1alpha1.Destination{},
+		&platformv1alpha1.GitStateStore{},
+		&platformv1alpha1.BucketStateStore{},
+	).Build()
 })
