@@ -1,0 +1,22 @@
+#!/usr/bin/env bash
+
+set -eux
+
+# ensure we are on the latest main
+git pull origin main
+
+latest_tag=$(git describe --tags --abbrev=0)
+current_commit=${CIRCLE_SHA1:-$(git rev-parse HEAD)}
+
+commit_list=$(git rev-list "$latest_tag".."$current_commit")
+
+# Check if the commit list is not empty
+if [ -n "$commit_list" ]; then
+    echo "Current commit is ahead of the previous tag; pushing a new tag"
+    minor=$(echo "${latest_tag}" | cut -d '.' -f 2)
+    new_tag="v0.$(($minor+1)).0"
+    git tag -a $new_tag -m"${new_tag}"
+    git push origin $new_tag
+else
+    echo "Current commit is not ahead of the previous tag; not pushing a new tag"
+fi
