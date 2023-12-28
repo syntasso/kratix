@@ -142,15 +142,6 @@ jobs:
           name: run check
           command: govulncheck ./...
 
-  unit-tests:
-    executor: machine-medium
-    steps:
-      - install_software
-      - run:
-          name: Run tests
-          command: |
-            make test
-
   system-tests-git:
     executor: machine-large
     steps:
@@ -160,13 +151,14 @@ jobs:
           command: |
             SYSTEM_TEST_STORE_TYPE=git DOCKER_BUILDKIT=1 ACK_GINKGO_RC=true make system-test
 
-  system-tests-bucket:
+  test:
     executor: machine-large
     steps:
       - install_software
       - run:
           name: System tests
           command: |
+            make test
             SYSTEM_TEST_STORE_TYPE=bucket DOCKER_BUILDKIT=1 ACK_GINKGO_RC=true make system-test
 
   e2e-demo-test-helm-git:
@@ -373,11 +365,9 @@ workflows:
     jobs:
       - clone-kratix
       - clone-helm-charts
-      - unit-tests:
-          requires: [clone-kratix, clone-helm-charts]
       - system-tests-git:
           requires: [clone-kratix, clone-helm-charts]
-      - system-tests-bucket:
+      - test:
           requires: [clone-kratix, clone-helm-charts]
       - e2e-demo-test-helm-bucket:
           requires: [clone-kratix, clone-helm-charts]
@@ -386,9 +376,8 @@ workflows:
       ### ONLY DEV
       - git-merge-and-push:
           requires:
-            - unit-tests
             - system-tests-git
-            - system-tests-bucket
+            - test
             - e2e-demo-test-helm-git
             - e2e-demo-test-helm-bucket
           filters:
@@ -398,9 +387,8 @@ workflows:
       ### ONLY MAIN
       - tag-new-version:
           requires:
-            - unit-tests
             - system-tests-git
-            - system-tests-bucket
+            - test
             - e2e-demo-test-helm-git
             - e2e-demo-test-helm-bucket
           filters:
