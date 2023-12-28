@@ -26,7 +26,8 @@ import (
 )
 
 type destination struct {
-	context string
+	context       string
+	checkExitCode bool
 }
 
 var (
@@ -214,37 +215,8 @@ var _ = Describe("Kratix", func() {
 
 			It("executes the pipelines and schedules the work to the appropriate destinations", func() {
 				rrName := "rr-test"
-				request := unstructured.Unstructured{
-					Object: map[string]interface{}{
-						"apiVersion": "test.kratix.io/v1alpha1",
-						"kind":       "bash",
-						"metadata": map[string]interface{}{
-							"name": rrName,
-						},
-						"spec": map[string]interface{}{
-							"container0Cmd": `
-								set -x
-								if [ "${KRATIX_WORKFLOW_ACTION}" = "configure" ]; then :
-									echo "message: My awesome status message" > /kratix/metadata/status.yaml
-									echo "key: value" >> /kratix/metadata/status.yaml
-									mkdir -p /kratix/output/foo/
-									echo "{}" > /kratix/output/foo/example.json
-									kubectl get namespace imperative-$(yq '.metadata.name' /kratix/input/object.yaml) || kubectl create namespace imperative-$(yq '.metadata.name' /kratix/input/object.yaml)
-									exit 0
-								fi
-								kubectl delete namespace imperative-$(yq '.metadata.name' /kratix/input/object.yaml)
-							`,
-							"container1Cmd": `
-								kubectl create namespace declarative-$(yq '.metadata.name' /kratix/input/object.yaml) --dry-run=client -oyaml > /kratix/output/namespace.yaml
-								mkdir /kratix/output/platform/
-								kubectl create namespace declarative-platform-only-$(yq '.metadata.name' /kratix/input/object.yaml) --dry-run=client -oyaml > /kratix/output/platform/namespace.yaml
-								echo "[{\"matchLabels\":{\"environment\":\"platform\"}, \"directory\":\"platform\"}]" > /kratix/metadata/destination-selectors.yaml
-							`,
-						},
-					},
-				}
 
-				platform.kubectl("apply", "-f", asFile(request))
+				platform.kubectl("apply", "-f", exampleBashRequest(rrName))
 
 				By("executing the pipeline pod", func() {
 					platform.kubectl("wait", "--for=condition=PipelineCompleted", "bash", rrName, pipelineTimeout)
@@ -580,7 +552,112 @@ var _ = Describe("Kratix", func() {
 			})
 		})
 	})
+
+	When("Using a GitStateStore", func() {
+		BeforeEach(func() {
+			platform.ignoreExitCode().kubectl("delete", "promises", "bash")
+			platform.ignoreExitCode().kubectl("delete", "destination", "worker-1")
+
+			cmd := exec.Command("bash", "-c", "cd ../.. && ./scripts/register-destination --git --name worker-1 --context kind-worker --path worker-1")
+			session, err := gexec.Start(cmd, GinkgoWriter, GinkgoWriter)
+			Expect(err).NotTo(HaveOccurred())
+			Eventually(session, timeout, interval).Should(gexec.Exit(0))
+
+			Eventually(func(g Gomega) {
+				g.Expect(platform.kubectl("get", "promise")).ShouldNot(ContainSubstring("bash"))
+			}, timeout, interval).Should(Succeed())
+		})
+
+		It("can read/update/delete from the repository", func() {
+			rrName := "rr-test"
+
+			By("writing the canary namespace on registration", func() {
+				platform.kubectl("apply", "-f", "./assets/git/worker_destination.yaml")
+				worker.kubectl("delete", "namespace", "kratix-worker-system")
+
+				worker.eventuallyKubectl("get", "namespace", "kratix-worker-system")
+			})
+
+			By("writing to the repo on promise install", func() {
+				platform.kubectl("apply", "-f", promisePath)
+
+				platform.eventuallyKubectl("get", "crd", "bash.test.kratix.io")
+				platform.eventuallyKubectl("get", "namespace", "promise-workflow-namespace")
+				worker.eventuallyKubectl("get", "namespace", "bash-dep-namespace-v1alpha1")
+				worker.eventuallyKubectl("get", "namespace", "bash-workflow-namespace-v1alpha1")
+			})
+
+			By("fulfiling the resource request", func() {
+				platform.kubectl("apply", "-f", exampleBashRequest(rrName))
+
+				By("executing the pipeline pod", func() {
+					platform.kubectl("wait", "--for=condition=PipelineCompleted", "bash", rrName, pipelineTimeout)
+				})
+
+				By("deploying the contents of /kratix/output to the appropriate destinations", func() {
+					platform.eventuallyKubectl("get", "namespace", "declarative-platform-only-rr-test")
+					worker.eventuallyKubectl("get", "namespace", "declarative-rr-test")
+				})
+			})
+
+			By("removing from the repo on resource delete", func() {
+				platform.kubectl("delete", "bash", rrName)
+
+				Eventually(func(g Gomega) {
+					g.Expect(platform.kubectl("get", "bash")).NotTo(ContainSubstring(rrName))
+					g.Expect(platform.kubectl("get", "namespace")).NotTo(ContainSubstring("imperative-rr-test"))
+					g.Expect(platform.kubectl("get", "namespace")).NotTo(ContainSubstring("declarative-platform-only-rr-test"))
+					g.Expect(worker.kubectl("get", "namespace")).NotTo(ContainSubstring("declarative-rr-test"))
+				}, timeout, interval).Should(Succeed())
+			})
+
+			By("removing from the repo on promise delete", func() {
+				platform.kubectl("delete", "promise", "bash")
+
+				Eventually(func(g Gomega) {
+					g.Expect(worker.kubectl("get", "namespace")).NotTo(ContainSubstring("bash-dep-namespace-v1alpha1"))
+					g.Expect(platform.kubectl("get", "namespace")).NotTo(ContainSubstring("promise-workflow-namespace"))
+					g.Expect(platform.kubectl("get", "promise")).ShouldNot(ContainSubstring("bash"))
+					g.Expect(platform.kubectl("get", "crd")).ShouldNot(ContainSubstring("bash"))
+				}, timeout, interval).Should(Succeed())
+			})
+		})
+	})
+
 })
+
+func exampleBashRequest(name string) string {
+	request := unstructured.Unstructured{
+		Object: map[string]interface{}{
+			"apiVersion": "test.kratix.io/v1alpha1",
+			"kind":       "bash",
+			"metadata": map[string]interface{}{
+				"name": name,
+			},
+			"spec": map[string]interface{}{
+				"container0Cmd": `
+					set -x
+					if [ "${KRATIX_WORKFLOW_ACTION}" = "configure" ]; then :
+						echo "message: My awesome status message" > /kratix/metadata/status.yaml
+						echo "key: value" >> /kratix/metadata/status.yaml
+						mkdir -p /kratix/output/foo/
+						echo "{}" > /kratix/output/foo/example.json
+						kubectl get namespace imperative-$(yq '.metadata.name' /kratix/input/object.yaml) || kubectl create namespace imperative-$(yq '.metadata.name' /kratix/input/object.yaml)
+						exit 0
+					fi
+					kubectl delete namespace imperative-$(yq '.metadata.name' /kratix/input/object.yaml)
+				`,
+				"container1Cmd": `
+					kubectl create namespace declarative-$(yq '.metadata.name' /kratix/input/object.yaml) --dry-run=client -oyaml > /kratix/output/namespace.yaml
+					mkdir /kratix/output/platform/
+					kubectl create namespace declarative-platform-only-$(yq '.metadata.name' /kratix/input/object.yaml) --dry-run=client -oyaml > /kratix/output/platform/namespace.yaml
+					echo "[{\"matchLabels\":{\"environment\":\"platform\"}, \"directory\":\"platform\"}]" > /kratix/metadata/destination-selectors.yaml
+			`,
+			},
+		},
+	}
+	return asFile(request)
+}
 
 func asFile(object unstructured.Unstructured) string {
 	file, err := os.CreateTemp("", "kratix-test")
@@ -651,8 +728,19 @@ func (c destination) kubectl(args ...string) string {
 	command := exec.Command("kubectl", args...)
 	session, err := gexec.Start(command, GinkgoWriter, GinkgoWriter)
 	ExpectWithOffset(1, err).ShouldNot(HaveOccurred())
-	EventuallyWithOffset(1, session, timeout, interval).Should(gexec.Exit(0))
+	if c.checkExitCode {
+		EventuallyWithOffset(1, session).Should(gexec.Exit(0))
+	} else {
+		EventuallyWithOffset(1, session, timeout, interval).Should(gexec.Exit())
+	}
 	return string(session.Out.Contents())
+}
+
+func (c destination) ignoreExitCode() destination {
+	newDestination := destination{}
+	newDestination.context = c.context
+	newDestination.checkExitCode = false
+	return newDestination
 }
 
 func listFilesInStateStore(destinationName, namespace, promiseName, resourceName string) []string {

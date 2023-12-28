@@ -1,0 +1,12 @@
+---
+apiVersion: platform.kratix.io/v1alpha1
+kind: Destination
+metadata:
+  name: worker-1
+  labels:
+    environment: dev
+    extra: label
+spec:
+  stateStoreRef:
+    name: default
+    kind: GitStateStore
