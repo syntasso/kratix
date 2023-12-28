@@ -68,11 +68,7 @@ fast-quick-start: teardown ## Install Kratix without recreating the local cluste
 	RECREATE=false make quick-start
 
 quick-start: generate distribution ## Recreates the clusters and install Kratix
-	if [ "$(SYSTEM_TEST_STORE_TYPE)" == "git" ]; then \
-		VERSION=dev DOCKER_BUILDKIT=1 ./scripts/quick-start.sh --local --git; \
-	else \
-		VERSION=dev DOCKER_BUILDKIT=1 ./scripts/quick-start.sh --local; \
-	fi
+	VERSION=dev DOCKER_BUILDKIT=1 ./scripts/quick-start.sh --local --git-and-minio
 
 prepare-platform-as-destination: ## Installs flux onto platform cluster and registers as a destination
 	./scripts/register-destination --with-label environment=platform --context kind-platform --name platform-cluster
