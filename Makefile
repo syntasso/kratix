@@ -195,7 +195,7 @@ ifeq ($(shell uname -sm),Darwin arm64)
 endif
 .PHONY: test
 test: manifests generate fmt vet envtest ## Run unit tests.
-	KUBEBUILDER_ASSETS="$(shell $(ENVTEST) $(ARCH_FLAG) use $(ENVTEST_K8S_VERSION) -p path)" WC_IMG=${WC_IMG} go run ${GINKGO} -r --coverprofile cover.out --skip-package=system
+	go run ${GINKGO} -r --coverprofile cover.out --skip-package=system
 
 .PHONY: run-system-test
 run-system-test: fmt vet build-and-load-bash prepare-platform-as-destination

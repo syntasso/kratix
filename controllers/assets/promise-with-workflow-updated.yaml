@@ -16,7 +16,7 @@ spec:
         singular: redis
       scope: Namespaced
       versions:
-        - name: v1alpha1
+        - name: v1alpha2 # was v1alpha1
           schema:
             openAPIV3Schema:
               properties:
@@ -39,7 +39,7 @@ spec:
           storage: true
   destinationSelectors:
     - matchLabels:
-        environment: dev
+        environment: prod # was dev
   workflows:
     resource:
       configure:
@@ -50,7 +50,7 @@ spec:
             namespace: default
           spec:
             containers:
-              - image: syntasso/demo-redis-configure-pipeline:v0.1.0
+              - image: syntasso/demo-redis-configure-pipeline:v0.2.0 # was v0.1.0
                 name: demo-redis-configure-pipeline
     promise:
       configure:
@@ -61,5 +61,6 @@ spec:
             namespace: default
           spec:
             containers:
-              - image: syntasso/promise-with-workflow:v0.1.0
+              - image: syntasso/promise-with-workflow:v0.2.0 # was v0.1.0
+
                 name: promise-with-workflow

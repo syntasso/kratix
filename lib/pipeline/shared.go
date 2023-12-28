@@ -36,9 +36,6 @@ func pipelineVolumes() ([]v1.Volume, []v1.VolumeMount) {
 
 func serviceAccount(args PipelineArgs) *v1.ServiceAccount {
 	return &v1.ServiceAccount{
-		TypeMeta: metav1.TypeMeta{
-			Kind: "ServiceAccount",
-		},
 		ObjectMeta: metav1.ObjectMeta{
 			Name:      args.ServiceAccountName(),
 			Namespace: args.Namespace(),
@@ -49,9 +46,6 @@ func serviceAccount(args PipelineArgs) *v1.ServiceAccount {
 
 func role(obj *unstructured.Unstructured, objPluralName string, args PipelineArgs) *rbacv1.Role {
 	return &rbacv1.Role{
-		TypeMeta: metav1.TypeMeta{
-			Kind: "Role",
-		},
 		ObjectMeta: metav1.ObjectMeta{
 			Name:      args.RoleName(),
 			Labels:    args.Labels(),
@@ -74,9 +68,6 @@ func role(obj *unstructured.Unstructured, objPluralName string, args PipelineArg
 
 func roleBinding(args PipelineArgs) *rbacv1.RoleBinding {
 	return &rbacv1.RoleBinding{
-		TypeMeta: metav1.TypeMeta{
-			Kind: "RoleBinding",
-		},
 		ObjectMeta: metav1.ObjectMeta{
 			Name:      args.RoleBindingName(),
 			Labels:    args.Labels(),
@@ -99,9 +90,6 @@ func roleBinding(args PipelineArgs) *rbacv1.RoleBinding {
 
 func clusterRole(args PipelineArgs) *rbacv1.ClusterRole {
 	return &rbacv1.ClusterRole{
-		TypeMeta: metav1.TypeMeta{
-			Kind: "ClusterRole",
-		},
 		ObjectMeta: metav1.ObjectMeta{
 			Name:   args.RoleName(),
 			Labels: args.Labels(),
@@ -118,9 +106,6 @@ func clusterRole(args PipelineArgs) *rbacv1.ClusterRole {
 
 func clusterRoleBinding(args PipelineArgs) *rbacv1.ClusterRoleBinding {
 	return &rbacv1.ClusterRoleBinding{
-		TypeMeta: metav1.TypeMeta{
-			Kind: "ClusterRoleBinding",
-		},
 		ObjectMeta: metav1.ObjectMeta{
 			Name:   args.RoleBindingName(),
 			Labels: args.Labels(),
@@ -159,9 +144,6 @@ func destinationSelectorsConfigMap(resources PipelineArgs, destinationSelectors 
 	}
 
 	return &v1.ConfigMap{
-		TypeMeta: metav1.TypeMeta{
-			Kind: "ConfigMap",
-		},
 		ObjectMeta: metav1.ObjectMeta{
 			Name:      resources.ConfigMapName(),
 			Namespace: resources.Namespace(),

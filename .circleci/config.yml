@@ -5,6 +5,7 @@ orbs:
   gh: circleci/github-cli@2.3.0
   golang: circleci/go@1.7.2
   retry: kimh/run-with-retry@1.0.0
+  queue: eddiewebb/queue@2.2.1
 
 executors:
   machine-medium:
@@ -77,38 +78,34 @@ commands:
           name: Install Dependencies
           command: |
             go mod download
+
+  configure_git:
+    steps:
+      - run:
+          # see https://circleci.com/docs/github-integration#establish-the-authenticity-of-an-ssh-host
+          name: setup git
+          command: |
+            mkdir -p ~/.ssh
+            ssh-keyscan github.com > ~/.ssh/known_hosts
+
+            git config --global user.name "syntassodev"
+            git config --global user.email "kratix@syntasso.io"
+
   setup_git:
     steps:
       - add_ssh_keys:
           # Add github deploy key
           # https://circleci.com/docs/github-integration#create-a-github-deploy-key
           fingerprints:
-            - "5e:1e:ea:52:8b:1b:ad:a2:66:1a:40:98:a3:f5:96:f5"
-      - run:
-          # see https://circleci.com/docs/github-integration#establish-the-authenticity-of-an-ssh-host
-          name: setup git
-          command: |
-            mkdir -p ~/.ssh
-            ssh-keyscan github.com > ~/.ssh/known_hosts
+            - "5e:1e:ea:52:8b:1b:ad:a2:66:1a:40:98:a3:f5:96:f5" # deploy key for kratix
+      - configure_git
 
-            git config --global user.name "syntassodev"
-            git config --global user.email "kratix@syntasso.io"
   setup_git_helm:
     steps:
       - add_ssh_keys:
-          # Add github deploy key
-          # https://circleci.com/docs/github-integration#create-a-github-deploy-key
           fingerprints:
-            - "4b:78:81:17:99:0c:1d:63:42:dc:bb:1f:bd:d6:54:a8"
-      - run:
-          # see https://circleci.com/docs/github-integration#establish-the-authenticity-of-an-ssh-host
-          name: setup git
-          command: |
-            mkdir -p ~/.ssh
-            ssh-keyscan github.com > ~/.ssh/known_hosts
-
-            git config --global user.name "syntassodev"
-            git config --global user.email "kratix@syntasso.io"
+            - "4b:78:81:17:99:0c:1d:63:42:dc:bb:1f:bd:d6:54:a8" # deploy key for helm-charts
+      - configure_git
 
 jobs:
   clone-helm-charts:
@@ -232,15 +229,18 @@ jobs:
           command: |
             ./scripts/install-jenkins.sh
 
-  git-merge:
-    executor: machine-large
+  git-merge-and-push:
+    executor: machine-medium
     steps:
       - install_software
       - setup_git
       - run:
           name: Merge dev to main
           command: |
-            ./scripts/merge-dev.sh
+            git checkout main
+            git merge --no-ff --no-edit dev
+            git push origin main
+
       - persist_to_workspace:
           root: .
           paths:
@@ -284,7 +284,7 @@ jobs:
             ./scripts/build-images << parameters.image >>
 
   git-push-to-dev:
-    executor: machine-large
+    executor: machine-medium
     steps:
       - attach_workspace:
           at: .
@@ -298,22 +298,8 @@ jobs:
             git commit -m"update demo image list"
             git push origin dev
 
-  git-push:
-    executor: machine-large
-    steps:
-      - attach_workspace:
-          at: .
-      - setup_git
-      - run:
-          name: Push main
-          command: |
-            git add -f config/
-            git add -f demo/demo-image-list
-            git commit --amend --no-edit
-            git push origin main
-
   generate-release-distribution:
-    executor: machine-large
+    executor: machine-medium
     environment:
       VERSION: << pipeline.git.tag >>
     steps:
@@ -334,20 +320,18 @@ jobs:
             - .
 
   tag-new-version:
-    executor: machine-large
+    executor: machine-medium
     steps:
+      - queue/until_front_of_line: # ensure only one of those runs at a time
+          only-on-branch: main
+          time: "5"
       - attach_workspace:
           at: .
       - setup_git
       - run:
           name: bump minor version and push tag
           command: |
-            latest_tag=$(git describe --tags --abbrev=0)
-            minor=$(echo "${latest_tag}" | cut -d '.' -f 2)
-            new_tag="v0.$(($minor+1)).0"
-
-            git tag -a $new_tag -m"${new_tag}"
-            git push origin $new_tag
+            ./scripts/tag-new-version
 
   gh-release:
     docker:
@@ -401,7 +385,7 @@ workflows:
       - e2e-demo-test-helm-git:
           requires: [clone-kratix, clone-helm-charts]
       ### ONLY DEV
-      - git-merge:
+      - git-merge-and-push:
           requires:
             - unit-tests
             - system-tests-git
@@ -411,8 +395,6 @@ workflows:
           filters:
             branches:
               only: dev
-      - git-push:
-          requires: [git-merge]
       ### END ONLY DEV
       ### ONLY MAIN
       - tag-new-version:

@@ -165,7 +165,7 @@ var _ = Describe("WorkCreator", func() {
 		Context("with empty namespace string", func() {
 			BeforeEach(func() {
 				expectedNamespace = "kratix-platform-system"
-				err = workCreator.Execute(filepath.Join(getRootDirectory(), "empty-metadata"), "promise-name", "", "resource-name", "resource")
+				err := workCreator.Execute(filepath.Join(getRootDirectory(), "empty-metadata"), "promise-name", "", "resource-name", "resource")
 				Expect(err).NotTo(HaveOccurred())
 			})
 
@@ -213,7 +213,7 @@ var _ = Describe("WorkCreator", func() {
 
 		Context("complete set of inputs for a Promise", func() {
 			BeforeEach(func() {
-				err = workCreator.Execute(filepath.Join(getRootDirectory(), "complete-for-promise"), "promise-name", "", "resource-name", "promise")
+				err := workCreator.Execute(filepath.Join(getRootDirectory(), "complete-for-promise"), "promise-name", "", "resource-name", "promise")
 				Expect(err).NotTo(HaveOccurred())
 			})
 
@@ -268,7 +268,7 @@ func getExpectedManifests(rootDirectory string) []unstructured.Unstructured {
 		decoder := yaml.NewYAMLOrJSONDecoder(file, 2048)
 		for {
 			us := unstructured.Unstructured{}
-			err = decoder.Decode(&us)
+			err := decoder.Decode(&us)
 			if err == io.EOF {
 				//We reached the end of the file, move on to looking for the resource
 				break

@@ -26,6 +26,7 @@ import (
 
 	controllerutil "sigs.k8s.io/controller-runtime/pkg/controller/controllerutil"
 	"sigs.k8s.io/controller-runtime/pkg/handler"
+	"sigs.k8s.io/controller-runtime/pkg/manager"
 	"sigs.k8s.io/controller-runtime/pkg/reconcile"
 
 	"github.com/go-logr/logr"
@@ -35,8 +36,9 @@ import (
 	batchv1 "k8s.io/api/batch/v1"
 	v1 "k8s.io/api/core/v1"
 	rbacv1 "k8s.io/api/rbac/v1"
+	"k8s.io/apiextensions-apiserver/pkg/apis/apiextensions"
 	apiextensionsv1 "k8s.io/apiextensions-apiserver/pkg/apis/apiextensions/v1"
-	"k8s.io/apiextensions-apiserver/pkg/client/clientset/clientset"
+	apiextensionsv1cs "k8s.io/apiextensions-apiserver/pkg/client/clientset/clientset/typed/apiextensions/v1"
 	"k8s.io/apimachinery/pkg/api/errors"
 	metav1 "k8s.io/apimachinery/pkg/apis/meta/v1"
 	"k8s.io/apimachinery/pkg/apis/meta/v1/unstructured"
@@ -48,13 +50,19 @@ import (
 	"sigs.k8s.io/controller-runtime/pkg/client"
 )
 
+//go:generate go run github.com/maxbrunsfeld/counterfeiter/v6 . Manager
+type Manager interface {
+	manager.Manager
+}
+
 // PromiseReconciler reconciles a Promise object
 type PromiseReconciler struct {
+	Scheme                    *runtime.Scheme
 	Client                    client.Client
-	ApiextensionsClient       *clientset.Clientset
+	ApiextensionsClient       apiextensionsv1cs.CustomResourceDefinitionsGetter
 	Log                       logr.Logger
 	Manager                   ctrl.Manager
-	StartedDynamicControllers map[string]*dynamicResourceRequestController
+	StartedDynamicControllers map[string]*DynamicResourceRequestController
 	RestartManager            func()
 }
 
@@ -101,17 +109,19 @@ var (
 
 func (r *PromiseReconciler) Reconcile(ctx context.Context, req ctrl.Request) (ctrl.Result, error) {
 	if r.StartedDynamicControllers == nil {
-		r.StartedDynamicControllers = make(map[string]*dynamicResourceRequestController)
+		r.StartedDynamicControllers = make(map[string]*DynamicResourceRequestController)
 	}
 	promise := &v1alpha1.Promise{}
 	err := r.Client.Get(ctx, req.NamespacedName, promise)
 	if err != nil {
 		if errors.IsNotFound(err) {
+			r.Log.Info("Promise not found", "namespacedName", req.NamespacedName)
 			return ctrl.Result{}, nil
 		}
 		r.Log.Error(err, "Failed getting Promise", "namespacedName", req.NamespacedName)
 		return defaultRequeue, nil
 	}
+	originalStatus := promise.Status.Status
 
 	logger := r.Log.WithValues("identifier", promise.GetName())
 
@@ -233,6 +243,9 @@ func (r *PromiseReconciler) Reconcile(ctx context.Context, req ctrl.Request) (ct
 		logger.Info("Promise only contains dependencies, skipping creation of API and dynamic controller")
 	}
 
+	if originalStatus == v1alpha1.PromiseStatusAvailable {
+		return ctrl.Result{}, nil
+	}
 	logger.Info("Promise status being set to Available")
 	promise.Status.Status = v1alpha1.PromiseStatusAvailable
 	return ctrl.Result{}, r.Client.Status().Update(ctx, promise)
@@ -307,6 +320,7 @@ func (r *PromiseReconciler) generateStatusAndMarkRequirements(ctx context.Contex
 			}
 		} else {
 			if requiredPromise.Status.Version != requirement.Version || requiredPromise.Status.Status != v1alpha1.PromiseStatusAvailable {
+				promiseCondition.Reason = "RequirementsNotInstalled"
 				requirementState = requirementStateNotInstalledAtSpecifiedVersion
 
 				if promiseCondition.Status != metav1.ConditionUnknown {
@@ -402,15 +416,15 @@ func (r *PromiseReconciler) ensureDynamicControllerIsStarted(promise *v1alpha1.P
 		logger.Info("dynamic controller already started, ensuring it is up to date")
 
 		dynamicController := r.StartedDynamicControllers[string(promise.GetUID())]
-		dynamicController.deletePipelines = deletePipelines
-		dynamicController.configurePipelines = configurePipelines
-		dynamicController.gvk = &rrGVK
-		dynamicController.crd = rrCRD
+		dynamicController.DeletePipelines = deletePipelines
+		dynamicController.ConfigurePipelines = configurePipelines
+		dynamicController.GVK = &rrGVK
+		dynamicController.CRD = rrCRD
 
-		dynamicController.canCreateResources = canCreateResources
+		dynamicController.CanCreateResources = canCreateResources
 
-		dynamicController.promiseDestinationSelectors = promise.Spec.DestinationSelectors
-		dynamicController.promiseWorkflowSelectors = work.GetDefaultScheduling("promise-workflow")
+		dynamicController.PromiseDestinationSelectors = promise.Spec.DestinationSelectors
+		dynamicController.PromiseWorkflowSelectors = work.GetDefaultScheduling("promise-workflow")
 
 		return nil
 	}
@@ -419,20 +433,20 @@ func (r *PromiseReconciler) ensureDynamicControllerIsStarted(promise *v1alpha1.P
 	//temporary fix until https://github.com/kubernetes-sigs/controller-runtime/issues/1884 is resolved
 	//once resolved, delete dynamic controller rather than disable
 	enabled := true
-	dynamicResourceRequestController := &dynamicResourceRequestController{
-		Client:                      r.Manager.GetClient(),
-		scheme:                      r.Manager.GetScheme(),
-		gvk:                         &rrGVK,
-		crd:                         rrCRD,
-		promiseIdentifier:           promise.GetName(),
-		configurePipelines:          configurePipelines,
-		deletePipelines:             deletePipelines,
-		promiseDestinationSelectors: promise.Spec.DestinationSelectors,
-		promiseWorkflowSelectors:    work.GetDefaultScheduling("promise-workflow"),
-		log:                         r.Log.WithName(promise.GetName()),
-		uid:                         string(promise.GetUID())[0:5],
-		enabled:                     &enabled,
-		canCreateResources:          canCreateResources,
+	dynamicResourceRequestController := &DynamicResourceRequestController{
+		Client:                      r.Client,
+		Scheme:                      r.Scheme,
+		GVK:                         &rrGVK,
+		CRD:                         rrCRD,
+		PromiseIdentifier:           promise.GetName(),
+		ConfigurePipelines:          configurePipelines,
+		DeletePipelines:             deletePipelines,
+		PromiseDestinationSelectors: promise.Spec.DestinationSelectors,
+		PromiseWorkflowSelectors:    work.GetDefaultScheduling("promise-workflow"),
+		Log:                         r.Log.WithName(promise.GetName()),
+		UID:                         string(promise.GetUID())[0:5],
+		Enabled:                     &enabled,
+		CanCreateResources:          canCreateResources,
 	}
 	r.StartedDynamicControllers[string(promise.GetUID())] = dynamicResourceRequestController
 
@@ -525,31 +539,32 @@ func (r *PromiseReconciler) createResourcesForDynamicControllerIfTheyDontExist(c
 func (r *PromiseReconciler) ensureCRDExists(ctx context.Context, promise *v1alpha1.Promise, rrCRD *apiextensionsv1.CustomResourceDefinition,
 	rrGVK schema.GroupVersionKind, logger logr.Logger) (*ctrl.Result, error) {
 
-	_, err := r.ApiextensionsClient.ApiextensionsV1().
+	_, err := r.ApiextensionsClient.
 		CustomResourceDefinitions().
 		Create(ctx, rrCRD, metav1.CreateOptions{})
-	if err != nil {
-		if errors.IsAlreadyExists(err) {
-			//todo test for existence and handle gracefully.
-			logger.Info("CRD already exists", "crdName", rrCRD.Name)
-			existingCRD, err := r.ApiextensionsClient.ApiextensionsV1().CustomResourceDefinitions().Get(ctx, rrCRD.GetName(), metav1.GetOptions{})
-			if err != nil {
-				return nil, err
-			}
 
-			existingCRD.Spec.Versions = rrCRD.Spec.Versions
-			existingCRD.Spec.Conversion = rrCRD.Spec.Conversion
-			existingCRD.Spec.PreserveUnknownFields = rrCRD.Spec.PreserveUnknownFields
-			_, err = r.ApiextensionsClient.ApiextensionsV1().CustomResourceDefinitions().Update(ctx, existingCRD, metav1.UpdateOptions{})
-			if err != nil {
-				return nil, err
-			}
-		} else {
-			logger.Error(err, "Error creating crd")
-		}
-	} else {
-		logger.Info("Installed CRD", "crdName", rrCRD.Name)
+	if err == nil {
+		return &fastRequeue, nil
 	}
+
+	if !errors.IsAlreadyExists(err) {
+		return nil, fmt.Errorf("Error creating crd: %w", err)
+	}
+
+	logger.Info("CRD already exists", "crdName", rrCRD.Name)
+	existingCRD, err := r.ApiextensionsClient.CustomResourceDefinitions().Get(ctx, rrCRD.GetName(), metav1.GetOptions{})
+	if err != nil {
+		return nil, err
+	}
+
+	existingCRD.Spec.Versions = rrCRD.Spec.Versions
+	existingCRD.Spec.Conversion = rrCRD.Spec.Conversion
+	existingCRD.Spec.PreserveUnknownFields = rrCRD.Spec.PreserveUnknownFields
+	_, err = r.ApiextensionsClient.CustomResourceDefinitions().Update(ctx, existingCRD, metav1.UpdateOptions{})
+	if err != nil {
+		return nil, err
+	}
+
 	version := ""
 	for _, v := range rrCRD.Spec.Versions {
 		if v.Storage {
@@ -567,8 +582,21 @@ func (r *PromiseReconciler) ensureCRDExists(ctx context.Context, promise *v1alph
 		return &fastRequeue, nil
 	}
 
-	_, err = r.Manager.GetRESTMapper().RESTMapping(rrGVK.GroupKind(), rrGVK.Version)
-	return nil, err
+	updatedCRD, err := r.ApiextensionsClient.CustomResourceDefinitions().Get(ctx, rrCRD.GetName(), metav1.GetOptions{})
+	if err != nil {
+		return nil, err
+	}
+
+	for _, cond := range updatedCRD.Status.Conditions {
+		if string(cond.Type) == string(apiextensions.Established) && cond.Status == apiextensionsv1.ConditionTrue {
+			logger.Info("CRD established", "crdName", rrCRD.Name)
+			return nil, nil
+		}
+	}
+
+	logger.Info("CRD not yet established", "crdName", rrCRD.Name, "statusConditions", updatedCRD.Status.Conditions)
+
+	return &fastRequeue, nil
 }
 
 func (r *PromiseReconciler) updateStatus(promise *v1alpha1.Promise, kind, group, version string) (bool, error) {
@@ -609,7 +637,7 @@ func (r *PromiseReconciler) deletePromise(o opts, promise *v1alpha1.Promise) (ct
 	if d, exists := r.StartedDynamicControllers[string(promise.GetUID())]; exists {
 		r.RestartManager()
 		enabled := false
-		d.enabled = &enabled
+		d.Enabled = &enabled
 	}
 
 	if controllerutil.ContainsFinalizer(promise, dynamicControllerDependantResourcesCleaupFinalizer) {
@@ -734,25 +762,28 @@ func (r *PromiseReconciler) deleteResourceRequests(o opts, promise *v1alpha1.Pro
 }
 
 func (r *PromiseReconciler) deleteCRDs(o opts, promise *v1alpha1.Promise) error {
-	crdGVK := schema.GroupVersionKind{
-		Group:   apiextensionsv1.SchemeGroupVersion.Group,
-		Version: apiextensionsv1.SchemeGroupVersion.Version,
-		Kind:    "CustomResourceDefinition",
-	}
-
-	resourcesRemaining, err := deleteAllResourcesWithKindMatchingLabel(o, crdGVK, promise.GenerateSharedLabels())
+	rrCRD, err := promise.GetAPIAsCRD()
 	if err != nil {
-		return err
+		o.logger.Error(err, "Failed unmarshalling CRD, skipping deletion")
+		controllerutil.RemoveFinalizer(promise, crdCleanupFinalizer)
+		if err := r.Client.Update(o.ctx, promise); err != nil {
+			return err
+		}
+		return nil
 	}
 
-	if !resourcesRemaining {
+	_, err = r.ApiextensionsClient.CustomResourceDefinitions().Get(o.ctx, rrCRD.GetName(), metav1.GetOptions{})
+
+	if errors.IsNotFound(err) {
 		controllerutil.RemoveFinalizer(promise, crdCleanupFinalizer)
 		if err := r.Client.Update(o.ctx, promise); err != nil {
 			return err
 		}
 	}
 
-	return nil
+	return r.ApiextensionsClient.
+		CustomResourceDefinitions().
+		Delete(o.ctx, rrCRD.GetName(), metav1.DeleteOptions{})
 }
 
 func (r *PromiseReconciler) deleteWork(o opts, promise *v1alpha1.Promise) error {
