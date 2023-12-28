@@ -322,7 +322,7 @@ jobs:
   tag-new-version:
     executor: machine-medium
     steps:
-      - queue/until_front_of_line:: # ensure only one of those runs at a time
+      - queue/until_front_of_line: # ensure only one of those runs at a time
           only-on-branch: main
           time: "5"
       - attach_workspace:
