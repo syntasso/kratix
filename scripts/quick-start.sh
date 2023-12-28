@@ -245,6 +245,7 @@ setup_worker_2_destination() {
 wait_for_gitea() {
     wait_opts=$1
     kubectl wait pod --context kind-platform -n gitea --selector app=gitea --for=condition=ready ${wait_opts}
+    kubectl wait job --context kind-platform -n gitea gitea-create-repository --for condition=Complete ${wait_opts}
 }
 
 wait_for_minio() {
