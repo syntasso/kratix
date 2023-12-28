@@ -18,20 +18,12 @@ package controllers_test
 
 import (
 	"os"
-	"path/filepath"
 	"testing"
 	"time"
-
-	"golang.org/x/net/context"
 
 	. "github.com/onsi/ginkgo/v2"
 	. "github.com/onsi/gomega"
 	platformv1alpha1 "github.com/syntasso/kratix/api/v1alpha1"
-
-	v1 "k8s.io/api/core/v1"
-	"k8s.io/apiextensions-apiserver/pkg/client/clientset/clientset"
-
-	. "github.com/syntasso/kratix/controllers"
 
 	fakeclientset "k8s.io/apiextensions-apiserver/pkg/client/clientset/clientset/fake"
 	apiextensionsv1 "k8s.io/apiextensions-apiserver/pkg/client/clientset/clientset/typed/apiextensions/v1"
@@ -51,7 +43,6 @@ import (
 // http://onsi.github.io/ginkgo/ to learn more about Ginkgo.
 
 var (
-	k8sClient               client.Client
 	fakeK8sClient           client.Client
 	fakeApiExtensionsClient apiextensionsv1.CustomResourceDefinitionsGetter
 	apiextensionClient      apiextensionsv1.CustomResourceDefinitionsGetter
@@ -71,53 +62,9 @@ var _ = BeforeSuite(func(_ SpecContext) {
 
 	logf.SetLogger(zap.New(zap.WriteTo(GinkgoWriter), zap.UseDevMode(true)))
 
-	By("bootstrapping test environment")
-	testEnv = &envtest.Environment{
-		CRDDirectoryPaths:     []string{filepath.Join("..", "config", "crd", "bases")},
-		ErrorIfCRDPathMissing: true,
-	}
-
-	cfg, err := testEnv.Start()
-	Expect(err).NotTo(HaveOccurred())
-	Expect(cfg).NotTo(BeNil())
-
-	apiextensionClient = clientset.NewForConfigOrDie(cfg).ApiextensionsV1()
-	k8sClient, err = client.New(cfg, client.Options{Scheme: scheme.Scheme})
-	Expect(err).NotTo(HaveOccurred())
-	Expect(k8sClient).NotTo(BeNil())
-
-	k8sManager, err = ctrl.NewManager(cfg, ctrl.Options{
-		Scheme: scheme.Scheme,
-	})
-	Expect(err).ToNot(HaveOccurred())
-
-	err = (&PromiseReconciler{
-		Manager:             k8sManager,
-		ApiextensionsClient: apiextensionClient,
-		Client:              k8sManager.GetClient(),
-		Log:                 ctrl.Log.WithName("controllers").WithName("PromiseReconciler"),
-		RestartManager:      func() {},
-	}).SetupWithManager(k8sManager)
-	Expect(err).ToNot(HaveOccurred())
-
-	go func() {
-		defer GinkgoRecover()
-		err = k8sManager.Start(ctrl.SetupSignalHandler())
-		Expect(err).ToNot(HaveOccurred())
-	}()
-
-	ns := &v1.Namespace{
-		ObjectMeta: ctrl.ObjectMeta{
-			Name: platformv1alpha1.KratixSystemNamespace,
-		},
-	}
-	Expect(k8sClient.Create(context.Background(), ns)).To(Succeed())
-
 }, NodeTimeout(time.Minute))
 
 var _ = AfterSuite(func() {
-	By("tearing down the test environment")
-	testEnv.Stop()
 })
 
 var _ = BeforeEach(func() {
@@ -142,44 +89,6 @@ var _ = BeforeEach(func() {
 	fakeApiExtensionsClient = fakeclientset.NewSimpleClientset().ApiextensionsV1()
 	t = &testReconciler{}
 })
-
-func cleanEnvironment() {
-	Expect(k8sClient.DeleteAllOf(context.Background(), &platformv1alpha1.Destination{})).To(Succeed())
-	var promises platformv1alpha1.PromiseList
-	Expect(k8sClient.List(context.Background(), &promises)).To(Succeed())
-	for _, p := range promises.Items {
-		p.Finalizers = nil
-		k8sClient.Update(context.Background(), &p)
-	}
-	Expect(k8sClient.DeleteAllOf(context.Background(), &platformv1alpha1.Promise{})).To(Succeed())
-
-	Eventually(func(g Gomega) {
-		var work platformv1alpha1.WorkList
-		g.Expect(k8sClient.List(context.Background(), &work)).To(Succeed())
-		for _, w := range work.Items {
-			w.Finalizers = nil
-			g.Expect(k8sClient.Update(context.Background(), &w)).To(Succeed())
-		}
-	}, "5s").Should(Succeed())
-
-	deleteInNamespace(&platformv1alpha1.Work{}, "default")
-	deleteInNamespace(&platformv1alpha1.Work{}, platformv1alpha1.KratixSystemNamespace)
-
-	Eventually(func(g Gomega) {
-		var workPlacements platformv1alpha1.WorkPlacementList
-		g.Expect(k8sClient.List(context.Background(), &workPlacements)).To(Succeed())
-		for _, wp := range workPlacements.Items {
-			wp.Finalizers = nil
-			g.Expect(k8sClient.Update(context.Background(), &wp)).To(Succeed())
-		}
-	}, "5s").Should(Succeed())
-	deleteInNamespace(&platformv1alpha1.WorkPlacement{}, "default")
-	deleteInNamespace(&platformv1alpha1.WorkPlacement{}, platformv1alpha1.KratixSystemNamespace)
-}
-
-func deleteInNamespace(obj client.Object, namespace string) {
-	Expect(k8sClient.DeleteAllOf(context.Background(), obj, client.InNamespace(namespace))).To(Succeed())
-}
 
 func TestControllers(t *testing.T) {
 	RegisterFailHandler(Fail)
