@@ -148,7 +148,7 @@ func main() {
 			setupLog.Error(err, "unable to create controller", "controller", "PromiseRelease")
 			os.Exit(1)
 		}
-		if err = (&platformv1alpha1.PromiseRelease{}).SetupWebhookWithManager(mgr); err != nil {
+		if err = (&platformv1alpha1.PromiseRelease{}).SetupWebhookWithManager(mgr, &fetchers.URLFetcher{}); err != nil {
 			setupLog.Error(err, "unable to create webhook", "webhook", "PromiseRelease")
 			os.Exit(1)
 		}

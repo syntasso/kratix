@@ -17,6 +17,8 @@ limitations under the License.
 package v1alpha1
 
 import (
+	"fmt"
+
 	"k8s.io/apimachinery/pkg/runtime"
 	ctrl "sigs.k8s.io/controller-runtime"
 	logf "sigs.k8s.io/controller-runtime/pkg/log"
@@ -24,43 +26,58 @@ import (
 	"sigs.k8s.io/controller-runtime/pkg/webhook/admission"
 )
 
-// log is for logging in this package.
-var promisereleaselog = logf.Log.WithName("promiserelease-resource")
+var (
+	promiseFetcher    PromiseFetcher
+	promisereleaselog = logf.Log.WithName("promiserelease-resource")
+)
 
-func (r *PromiseRelease) SetupWebhookWithManager(mgr ctrl.Manager) error {
+func (r *PromiseRelease) SetupWebhookWithManager(mgr ctrl.Manager, pf PromiseFetcher) error {
+	promiseFetcher = pf
 	return ctrl.NewWebhookManagedBy(mgr).
 		For(r).
 		Complete()
 }
 
-// TODO(user): EDIT THIS FILE!  THIS IS SCAFFOLDING FOR YOU TO OWN!
-
-// TODO(user): change verbs to "verbs=create;update;delete" if you want to enable deletion validation.
-//+kubebuilder:webhook:path=/validate-platform-kratix-io-v1alpha1-promiserelease,mutating=false,failurePolicy=fail,sideEffects=None,groups=platform.kratix.io,resources=promisereleases,verbs=create;update,versions=v1alpha1,name=vpromiserelease.kb.io,admissionReviewVersions=v1
-
+// +kubebuilder:webhook:path=/validate-platform-kratix-io-v1alpha1-promiserelease,mutating=false,failurePolicy=fail,sideEffects=None,groups=platform.kratix.io,resources=promisereleases,verbs=create;update,versions=v1alpha1,name=vpromiserelease.kb.io,admissionReviewVersions=v1
 var _ webhook.Validator = &PromiseRelease{}
 
-// ValidateCreate implements webhook.Validator so a webhook will be registered for the type
 func (r *PromiseRelease) ValidateCreate() (admission.Warnings, error) {
 	promisereleaselog.Info("validate create", "name", r.Name)
+	if err := r.validate(); err != nil {
+		return nil, err
+	}
 
-	// TODO(user): fill in your validation logic upon object creation.
+	_, err := promiseFetcher.FromURL(r.Spec.SourceRef.URL)
+	if err != nil {
+		return nil, fmt.Errorf("failed to fetch promise: %w", err)
+	}
+
 	return nil, nil
 }
 
-// ValidateUpdate implements webhook.Validator so a webhook will be registered for the type
 func (r *PromiseRelease) ValidateUpdate(old runtime.Object) (admission.Warnings, error) {
 	promisereleaselog.Info("validate update", "name", r.Name)
 	// oldPromiseRelease, _ := old.(*PromiseRelease)
+	if err := r.validate(); err != nil {
+		return nil, err
+	}
 
-	// TODO(user): fill in your validation logic upon object update.
 	return nil, nil
 }
 
-// ValidateDelete implements webhook.Validator so a webhook will be registered for the type
-func (r *PromiseRelease) ValidateDelete() (admission.Warnings, error) {
-	promisereleaselog.Info("validate delete", "name", r.Name)
+func (r *PromiseRelease) validate() error {
+	if r.Spec.SourceRef.Type != TypeHTTP {
+		return fmt.Errorf("unknown sourceRef type %q", r.Spec.SourceRef.Type)
+	}
 
-	// TODO(user): fill in your validation logic upon object deletion.
+	if r.Spec.SourceRef.URL == "" {
+		return fmt.Errorf("sourceRef.url must be set")
+	}
+
+	return nil
+}
+
+func (r *PromiseRelease) ValidateDelete() (admission.Warnings, error) {
+	// promisereleaselog.Info("validate delete", "name", r.Name)
 	return nil, nil
 }
