@@ -3,7 +3,7 @@ apiVersion: apiextensions.k8s.io/v1
 kind: CustomResourceDefinition
 metadata:
   annotations:
-    controller-gen.kubebuilder.io/version: v0.12.0
+    controller-gen.kubebuilder.io/version: v0.13.0
   name: promisereleases.platform.kratix.io
 spec:
   group: platform.kratix.io
@@ -15,9 +15,9 @@ spec:
   scope: Cluster
   versions:
   - additionalPrinterColumns:
-    - jsonPath: .status.installed
-      name: Installed
-      type: boolean
+    - jsonPath: .status.status
+      name: Status
+      type: string
     - jsonPath: .spec.version
       name: Version
       type: string
@@ -122,8 +122,6 @@ spec:
                   - type
                   type: object
                 type: array
-              installed:
-                type: boolean
               status:
                 type: string
             type: object
