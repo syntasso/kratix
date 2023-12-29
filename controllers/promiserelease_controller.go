@@ -19,6 +19,7 @@ package controllers
 import (
 	"context"
 	"fmt"
+	"time"
 
 	"k8s.io/apimachinery/pkg/api/errors"
 	v1 "k8s.io/apimachinery/pkg/apis/meta/v1"
@@ -252,10 +253,11 @@ func (r *PromiseReleaseReconciler) updateStatus(o opts, pr *v1alpha1.PromiseRele
 	}
 
 	condition := v1.Condition{
-		Type:    "Installed",
-		Message: conditionMessage,
-		Reason:  conditionReason,
-		Status:  conditionStatus,
+		Type:               "Installed",
+		Message:            conditionMessage,
+		Reason:             conditionReason,
+		Status:             conditionStatus,
+		LastTransitionTime: v1.Time{Time: time.Now()},
 	}
 
 	if existingConditionIndex == -1 {
