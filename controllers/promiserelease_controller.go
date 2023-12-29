@@ -233,8 +233,8 @@ func (r *PromiseReleaseReconciler) promiseExistsAtDesiredVersion(o opts, promise
 }
 
 func (r *PromiseReleaseReconciler) updateStatus(o opts, pr *v1alpha1.PromiseRelease,
-	message string, conditionMessage, conditionReason string) {
-	pr.Status.Status = message
+	status string, conditionMessage, conditionReason string) {
+	pr.Status.Status = status
 	existingConditionIndex := -1
 	for i, condition := range pr.Status.Conditions {
 		if condition.Type == "Installed" {
@@ -268,7 +268,7 @@ func (r *PromiseReleaseReconciler) updateStatus(o opts, pr *v1alpha1.PromiseRele
 
 	err := o.client.Status().Update(o.ctx, pr)
 	if err != nil {
-		o.logger.Error(err, "Failed to update PromiseRelease status", "promiseReleaseName", pr.GetName(), "message", message)
+		o.logger.Error(err, "Failed to update PromiseRelease status", "promiseReleaseName", pr.GetName(), "status", status, "condition", condition)
 	}
 }
 
