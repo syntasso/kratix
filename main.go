@@ -138,7 +138,6 @@ func main() {
 			setupLog.Error(err, "unable to create webhook", "webhook", "Promise")
 			os.Exit(1)
 		}
-
 		if err = (&controllers.PromiseReleaseReconciler{
 			Log:            ctrl.Log.WithName("controllers").WithName("PromiseReleaseController"),
 			Client:         mgr.GetClient(),
