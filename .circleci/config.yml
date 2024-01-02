@@ -6,6 +6,7 @@ orbs:
   golang: circleci/go@1.7.2
   retry: kimh/run-with-retry@1.0.0
   queue: eddiewebb/queue@2.2.1
+  snyk: snyk/snyk@2.0.2
 
 executors:
   machine-medium:
@@ -141,6 +142,7 @@ jobs:
       - run:
           name: run check
           command: govulncheck ./...
+      - snyk/scan
 
   test:
     executor: machine-large
