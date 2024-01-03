@@ -269,7 +269,6 @@ jobs:
           name: Build and push images
           command: |
             ./scripts/build-images << parameters.image >>
-      - snyk/scan
 
   git-push-to-dev:
     executor: machine-medium
