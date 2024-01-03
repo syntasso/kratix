@@ -23,9 +23,7 @@ import (
 )
 
 const (
-	kratixPrefix            = "kratix.io/"
-	promiseVersionLabel     = kratixPrefix + "promise-version"
-	promiseReleaseNameLabel = kratixPrefix + "promise-release-name"
+	promiseReleaseNameLabel = v1alpha1.KratixPrefix + "promise-release-name"
 )
 
 type StateStore interface {

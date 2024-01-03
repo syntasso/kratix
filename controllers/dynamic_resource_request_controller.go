@@ -42,9 +42,9 @@ import (
 )
 
 const (
-	workFinalizer            = kratixPrefix + "work-cleanup"
-	workflowsFinalizer       = kratixPrefix + "workflows-cleanup"
-	deleteWorkflowsFinalizer = kratixPrefix + "delete-workflows"
+	workFinalizer            = v1alpha1.KratixPrefix + "work-cleanup"
+	workflowsFinalizer       = v1alpha1.KratixPrefix + "workflows-cleanup"
+	deleteWorkflowsFinalizer = v1alpha1.KratixPrefix + "delete-workflows"
 )
 
 var rrFinalizers = []string{workFinalizer, workflowsFinalizer, deleteWorkflowsFinalizer}

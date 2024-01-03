@@ -52,7 +52,7 @@ type PromiseReleaseReconciler struct {
 	PromiseFetcher v1alpha1.PromiseFetcher
 }
 
-const promiseCleanupFinalizer = kratixPrefix + "promise-cleanup"
+const promiseCleanupFinalizer = v1alpha1.KratixPrefix + "promise-cleanup"
 
 //+kubebuilder:rbac:groups=platform.kratix.io,resources=promisereleases,verbs=get;list;watch;create;update;patch;delete
 //+kubebuilder:rbac:groups=platform.kratix.io,resources=promisereleases/status,verbs=get;update;patch
@@ -221,7 +221,7 @@ func (r *PromiseReleaseReconciler) promiseExistsAtDesiredVersion(o opts, promise
 
 	switch len(promises.Items) {
 	case 1:
-		if promises.Items[0].Labels[promiseVersionLabel] == promiseRelease.Spec.Version {
+		if promises.Items[0].Labels[v1alpha1.PromiseVersionLabel] == promiseRelease.Spec.Version {
 			return true, nil
 		}
 		fallthrough
@@ -273,10 +273,10 @@ func (r *PromiseReleaseReconciler) updateStatus(o opts, pr *v1alpha1.PromiseRele
 }
 
 func (r *PromiseReleaseReconciler) validateVersion(o opts, promiseRelease *v1alpha1.PromiseRelease, promise *v1alpha1.Promise) (updated bool, err error) {
-	promiseVersion, found := promise.GetLabels()[promiseVersionLabel]
+	promiseVersion, found := promise.GetLabels()[v1alpha1.PromiseVersionLabel]
 	if !found {
 		r.updateStatus(o, promiseRelease, statusErrorInstalling, "Version label not found on Promise", "VersionLabelNotFound")
-		return false, fmt.Errorf("version label (%s) not found on promise; refusing to install", promiseVersionLabel)
+		return false, fmt.Errorf("version label (%s) not found on promise; refusing to install", v1alpha1.PromiseVersionLabel)
 	}
 
 	if promiseRelease.Spec.Version == "" {

@@ -26,6 +26,11 @@ import (
 	"sigs.k8s.io/controller-runtime/pkg/webhook/admission"
 )
 
+const (
+	KratixPrefix        = "kratix.io/"
+	PromiseVersionLabel = KratixPrefix + "promise-version"
+)
+
 var (
 	promiseFetcher    PromiseFetcher
 	promisereleaselog = logf.Log.WithName("promiserelease-resource")
@@ -47,9 +52,20 @@ func (r *PromiseRelease) ValidateCreate() (admission.Warnings, error) {
 		return nil, err
 	}
 
-	_, err := promiseFetcher.FromURL(r.Spec.SourceRef.URL)
+	promise, err := promiseFetcher.FromURL(r.Spec.SourceRef.URL)
 	if err != nil {
 		return nil, fmt.Errorf("failed to fetch promise: %w", err)
+	}
+
+	promiseVersion, found := promise.GetLabels()[PromiseVersionLabel]
+	if !found {
+		msg := fmt.Sprintf("Warning: version label (%s) not found on promise, installation will fail", PromiseVersionLabel)
+		return []string{msg}, nil
+	}
+
+	if promiseVersion != r.Spec.Version {
+		msg := fmt.Sprintf("Warning: version labels do not match, found: %s, expected: %s, installaton will fail", promiseVersion, r.Spec.Version)
+		return []string{msg}, nil
 	}
 
 	return nil, nil

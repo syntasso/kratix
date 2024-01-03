@@ -12,6 +12,7 @@ import (
 
 var _ = Describe("PromiseReleaseWebhook", func() {
 	var (
+		p              *v1alpha1.Promise
 		pr             *v1alpha1.PromiseRelease
 		promiseFetcher v1alpha1fakes.FakePromiseFetcher
 	)
@@ -29,6 +30,15 @@ var _ = Describe("PromiseReleaseWebhook", func() {
 				SourceRef: v1alpha1.SourceRef{
 					Type: "http",
 					URL:  "example.com",
+				},
+			},
+		}
+
+		p = &v1alpha1.Promise{
+			ObjectMeta: metav1.ObjectMeta{
+				Name: "foo",
+				Labels: map[string]string{
+					"kratix.io/promise-version": "v0.1.0",
 				},
 			},
 		}
@@ -62,7 +72,7 @@ var _ = Describe("PromiseReleaseWebhook", func() {
 
 	When("fetching the URL fails", func() {
 		It("errors on create", func() {
-			promiseFetcher.FromURLReturns(nil, fmt.Errorf("foo"))
+			promiseFetcher.FromURLReturns(p, fmt.Errorf("foo"))
 			warnings, err := pr.ValidateCreate()
 			Expect(warnings).To(BeEmpty())
 			Expect(err).To(MatchError("failed to fetch promise: foo"))
@@ -75,10 +85,32 @@ var _ = Describe("PromiseReleaseWebhook", func() {
 		It("does not error on update", func() {
 			//We only want to fetch it on create, its expensive to do this call
 			//frequently.
-			promiseFetcher.FromURLReturns(nil, fmt.Errorf("foo"))
+			promiseFetcher.FromURLReturns(p, fmt.Errorf("foo"))
 			warnings, err := pr.ValidateUpdate(pr)
 			Expect(warnings).To(BeEmpty())
 			Expect(err).NotTo(HaveOccurred())
+		})
+	})
+
+	When("the promise is missing the label", func() {
+		It("emits a warning", func() {
+			p.Labels = map[string]string{}
+			promiseFetcher.FromURLReturns(p, nil)
+			warnings, err := pr.ValidateCreate()
+			Expect(err).NotTo(HaveOccurred())
+			Expect(warnings).To(ConsistOf("Warning: version label (kratix.io/promise-version) not found on promise, installation will fail"))
+		})
+	})
+
+	When("the promise is at a different version", func() {
+		It("emits a warning", func() {
+			p.Labels = map[string]string{
+				"kratix.io/promise-version": "v0.2.0",
+			}
+			promiseFetcher.FromURLReturns(p, nil)
+			warnings, err := pr.ValidateCreate()
+			Expect(err).NotTo(HaveOccurred())
+			Expect(warnings).To(ConsistOf("Warning: version labels do not match, found: v0.2.0, expected: v0.1.0"))
 		})
 	})
 })
