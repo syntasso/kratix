@@ -130,7 +130,7 @@ jobs:
           paths:
             - .
 
-  govulncheck:
+  vulnchecks:
     executor: machine-medium
     steps:
       - install_software
@@ -269,6 +269,7 @@ jobs:
           name: Build and push images
           command: |
             ./scripts/build-images << parameters.image >>
+      - snyk/scan
 
   git-push-to-dev:
     executor: machine-medium
@@ -433,5 +434,5 @@ workflows:
               only: [main]
     jobs:
       - clone-kratix
-      - govulncheck:
+      - vulnchecks:
           requires: [clone-kratix]
