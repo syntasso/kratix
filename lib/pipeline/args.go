@@ -37,6 +37,9 @@ func (p PipelineArgs) ConfigurePipelinePodLabels(objHash string) pipelineLabels 
 
 func (p PipelineArgs) DeletePipelinePodLabels() pipelineLabels {
 	resourceRequestID := p.names["resource-request-id"]
+	if resourceRequestID == "" {
+		return LabelsForDeletePromise(p.PromiseID())
+	}
 	return LabelsForDeleteResource(resourceRequestID, p.PromiseID())
 }
 

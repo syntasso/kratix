@@ -5,11 +5,15 @@ import (
 	"encoding/json"
 	"fmt"
 	"os"
+	"time"
 
 	. "github.com/onsi/ginkgo/v2"
 	. "github.com/onsi/gomega"
 	"github.com/syntasso/kratix/api/v1alpha1"
+	batchv1 "k8s.io/api/batch/v1"
+	v1 "k8s.io/api/core/v1"
 	"k8s.io/apimachinery/pkg/api/errors"
+	metav1 "k8s.io/apimachinery/pkg/apis/meta/v1"
 	"k8s.io/apimachinery/pkg/apis/meta/v1/unstructured"
 	"k8s.io/apimachinery/pkg/types"
 	"k8s.io/apimachinery/pkg/util/yaml"
@@ -22,6 +26,7 @@ import (
 const (
 	promisePath                    = "assets/redis-simple-promise.yaml"
 	promiseWithWorkflowPath        = "assets/promise-with-workflow.yaml"
+	promiseWithDeleteWorkflowPath  = "assets/promise-with-delete-workflow.yaml"
 	promiseWithWorkflowUpdatedPath = "assets/promise-with-workflow-updated.yaml"
 	promiseWithOnlyDepsPath        = "assets/promise-with-deps-only.yaml"
 	promiseWithOnlyDepsUpdatedPath = "assets/promise-with-deps-only-updated.yaml"
@@ -178,4 +183,74 @@ func conditionsFromStatus(status interface{}) ([]clusterv1.Condition, error) {
 	}
 
 	return conditions, nil
+}
+
+// doesn't need to be reset, just need an int going up every call
+var callCount = 0
+
+// Creating the work to mimic the pipelines behaviour.
+func autoCompleteJobAndCreateWork(labels map[string]string, workName string) func(client.Object) error {
+	return func(obj client.Object) error {
+		callCount++
+		jobs := &batchv1.JobList{}
+		Expect(fakeK8sClient.List(ctx, jobs)).To(Succeed())
+		if len(jobs.Items) == 0 {
+			return nil
+		}
+
+		for _, j := range jobs.Items {
+			job := &batchv1.Job{}
+			Expect(fakeK8sClient.Get(ctx, types.NamespacedName{
+				Name:      j.GetName(),
+				Namespace: j.GetNamespace(),
+			}, job)).To(Succeed())
+
+			if len(job.Status.Conditions) > 0 {
+				continue
+			}
+
+			//Fake library doesn't set timestamp, and we need it set for comparing age
+			//of jobs. This ensures its set once, and only when its first created, and
+			//that they differ by a large enough amont (time.Now() alone was not enough)
+			job.CreationTimestamp = metav1.NewTime(time.Now().Add(time.Duration(callCount) * time.Hour))
+			err := fakeK8sClient.Update(ctx, job)
+			if err != nil {
+				return err
+			}
+
+			Expect(fakeK8sClient.Get(ctx, types.NamespacedName{
+				Name:      j.GetName(),
+				Namespace: j.GetNamespace(),
+			}, job)).To(Succeed())
+
+			job.Status.Conditions = []batchv1.JobCondition{
+				{
+					Type:   batchv1.JobComplete,
+					Status: v1.ConditionTrue,
+				},
+			}
+			job.Status.Succeeded = 1
+
+			err = fakeK8sClient.Status().Update(ctx, job)
+			if err != nil {
+				return err
+			}
+
+			namespace := obj.GetNamespace()
+			if obj.GetNamespace() == "" {
+				namespace = v1alpha1.KratixSystemNamespace
+			}
+
+			Expect(fakeK8sClient.Get(ctx, client.ObjectKeyFromObject(job), job)).To(Succeed())
+			fakeK8sClient.Create(ctx, &v1alpha1.Work{
+				ObjectMeta: metav1.ObjectMeta{
+					Name:      workName,
+					Namespace: namespace,
+					Labels:    labels,
+				},
+			})
+
+		}
+		return nil
+	}
 }
