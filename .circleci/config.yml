@@ -130,7 +130,7 @@ jobs:
           paths:
             - .
 
-  vulnchecks:
+  go-dependencies-vulnerability-scan:
     executor: machine-medium
     steps:
       - install_software
@@ -142,7 +142,20 @@ jobs:
       - run:
           name: run check
           command: govulncheck ./...
-      - snyk/scan
+      - snyk/scan:
+          severity-threshold: medium
+  
+  kratix-containers-vulnerability-scan:
+    executor: machine-medium
+    environment:
+      IMAGE_VERSION: << pipeline.git.tag >>
+      # IMAGE_VERSION: v0.17.0
+      IMAGE_NAME: syntasso/kratix-platform
+    steps:
+      - snyk/scan:
+          severity-threshold: medium
+          docker-image-name: $IMAGE_NAME:$IMAGE_VERSION
+
 
   test:
     executor: machine-large
@@ -433,5 +446,6 @@ workflows:
               only: [main]
     jobs:
       - clone-kratix
-      - vulnchecks:
+      - go-dependencies-vulnerability-scan:
           requires: [clone-kratix]
+      - kratix-containers-vulnerability-scan
