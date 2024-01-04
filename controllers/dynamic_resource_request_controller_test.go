@@ -312,11 +312,12 @@ var _ = Describe("DynamicResourceRequestController", func() {
 				"kratix.io/delete-workflows",
 			))
 		})
+
 		It("re-reconciles until completetion", func() {
 			Expect(fakeK8sClient.Delete(ctx, resReq)).To(Succeed())
 			_, err := t.reconcileUntilCompletion(reconciler, resReq)
 
-			By("requeuing forever until jobs finishes", func() {
+			By("requeuing forever until delete jobs finishes", func() {
 				Expect(err).To(MatchError("reconcile loop detected"))
 				jobs := &batchv1.JobList{}
 				Expect(fakeK8sClient.List(ctx, jobs)).To(Succeed())

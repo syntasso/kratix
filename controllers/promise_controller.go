@@ -616,7 +616,7 @@ func (r *PromiseReconciler) deletePromise(o opts, promise *v1alpha1.Promise) (ct
 	}
 
 	if controllerutil.ContainsFinalizer(promise, workflowsFinalizer) {
-		err := r.deleteWorkflows(o, promise, workflowsFinalizer)
+		err := r.deleteJobs(o, promise, workflowsFinalizer)
 		if err != nil {
 			return ctrl.Result{}, err
 		}
@@ -670,7 +670,7 @@ func (r *PromiseReconciler) deletePromise(o opts, promise *v1alpha1.Promise) (ct
 	return fastRequeue, nil
 }
 
-func (r *PromiseReconciler) deleteWorkflows(o opts, promise *v1alpha1.Promise, finalizer string) error {
+func (r *PromiseReconciler) deleteJobs(o opts, promise *v1alpha1.Promise, finalizer string) error {
 	jobGVK := schema.GroupVersionKind{
 		Group:   batchv1.SchemeGroupVersion.Group,
 		Version: batchv1.SchemeGroupVersion.Version,
