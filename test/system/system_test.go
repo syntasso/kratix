@@ -118,7 +118,7 @@ var _ = Describe("Kratix", func() {
 			platform.kubectl("label", "destination", "worker-1", "extra-")
 		})
 
-		FIt("successfully manages the promise lifecycle", func() {
+		It("successfully manages the promise lifecycle", func() {
 			By("installing the promise", func() {
 				platform.kubectl("apply", "-f", promisePath)
 

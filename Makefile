@@ -205,13 +205,13 @@ build-and-load-bash: # Build and load all test pipeline images
 	docker build --tag syntassodev/bash-promise-test-c0:dev ./test/system/assets/bash-promise --build-arg CONTAINER_INDEX=0
 	docker build --tag syntassodev/bash-promise-test-c1:dev ./test/system/assets/bash-promise --build-arg CONTAINER_INDEX=1
 	docker build --tag syntassodev/bash-promise-test-c2:dev ./test/system/assets/bash-promise --build-arg CONTAINER_INDEX=2
-	docker build --tag syntassodev/bash-promise-configure:v1alpha1 -f ./test/system/assets/bash-promise/Dockerfile.promise ./test/system/assets/bash-promise --build-arg VERSION="v1alpha1"
-	docker build --tag syntassodev/bash-promise-configure:v1alpha2 -f ./test/system/assets/bash-promise/Dockerfile.promise ./test/system/assets/bash-promise --build-arg VERSION="v1alpha2"
+	docker build --tag syntassodev/bash-promise:v1alpha1 -f ./test/system/assets/bash-promise/Dockerfile.promise ./test/system/assets/bash-promise --build-arg VERSION="v1alpha1"
+	docker build --tag syntassodev/bash-promise:v1alpha2 -f ./test/system/assets/bash-promise/Dockerfile.promise ./test/system/assets/bash-promise --build-arg VERSION="v1alpha2"
 	kind load docker-image syntassodev/bash-promise-test-c0:dev --name platform
 	kind load docker-image syntassodev/bash-promise-test-c1:dev --name platform
 	kind load docker-image syntassodev/bash-promise-test-c2:dev --name platform
-	kind load docker-image syntassodev/bash-promise-configure:v1alpha1 --name platform
-	kind load docker-image syntassodev/bash-promise-configure:v1alpha2 --name platform
+	kind load docker-image syntassodev/bash-promise:v1alpha1 --name platform
+	kind load docker-image syntassodev/bash-promise:v1alpha2 --name platform
 
 ##@ Deprecated: will be deleted soon
 

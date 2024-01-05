@@ -52,8 +52,8 @@ spec:
             namespace: default
           spec:
             containers:
-              - image: syntassodev/bash-promise-configure:v1alpha1
-                name: bash-promise-configure
+              - image: syntassodev/bash-promise:v1alpha1
+                name: bash-promise
     resource:
       configure:
         - apiVersion: platform.kratix.io/v1alpha1

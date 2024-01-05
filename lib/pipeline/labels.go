@@ -40,6 +40,14 @@ func LabelsForConfigureResource(rrID, promiseID string, requestSHA ...string) ma
 	return labels
 }
 
+func LabelsForDeletePromise(promiseID string, requestSHA ...string) map[string]string {
+	labels := PromiseLabels(promiseID).WithWorkflow(promiseType, deleteAction)
+	if len(requestSHA) > 0 {
+		return labels.WithRequestSHA(requestSHA[0])
+	}
+	return labels
+}
+
 func LabelsForConfigurePromise(promiseID string, requestSHA ...string) map[string]string {
 	labels := PromiseLabels(promiseID).WithWorkflow(promiseType, configureAction)
 	if len(requestSHA) > 0 {

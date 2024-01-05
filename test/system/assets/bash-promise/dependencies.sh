@@ -1,5 +1,6 @@
 #!/usr/bin/env sh
-set -eux
+set -euo pipefail
+set +x
 
 
 if [ "${KRATIX_WORKFLOW_ACTION}" = "configure" ]; then
@@ -20,5 +21,6 @@ EOF
   exit 0
 fi
 
+cat /kratix/input/object.yaml
 kubectl delete namespace $(yq '.metadata.name' /kratix/input/object.yaml)-workflow-imperative-namespace
 

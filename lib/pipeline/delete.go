@@ -1,6 +1,7 @@
 package pipeline
 
 import (
+	"github.com/syntasso/kratix/api/v1alpha1"
 	platformv1alpha1 "github.com/syntasso/kratix/api/v1alpha1"
 	batchv1 "k8s.io/api/batch/v1"
 	v1 "k8s.io/api/core/v1"
@@ -10,11 +11,24 @@ import (
 
 const kratixActionDelete = "delete"
 
-func NewDeletePipeline(rr *unstructured.Unstructured, pipelines []platformv1alpha1.Pipeline, resourceRequestIdentifier, promiseIdentifier string) batchv1.Job {
+func NewDeleteResource(rr *unstructured.Unstructured, pipelines []platformv1alpha1.Pipeline, resourceRequestIdentifier, promiseIdentifier string) batchv1.Job {
+	return newDelete(rr, pipelines, resourceRequestIdentifier, promiseIdentifier)
+}
 
-	args := NewPipelineArgs(promiseIdentifier, resourceRequestIdentifier, rr.GetNamespace())
+func NewDeletePromise(promise *unstructured.Unstructured, pipelines []platformv1alpha1.Pipeline, promiseIdentifier string) batchv1.Job {
+	return newDelete(promise, pipelines, "", promiseIdentifier)
+}
 
-	containers, pipelineVolumes := deletePipelineContainers(rr, pipelines)
+func newDelete(obj *unstructured.Unstructured, pipelines []platformv1alpha1.Pipeline, resourceRequestIdentifier, promiseIdentifier string) batchv1.Job {
+	isPromise := resourceRequestIdentifier == ""
+	namespace := obj.GetNamespace()
+	if isPromise {
+		namespace = v1alpha1.KratixSystemNamespace
+	}
+
+	args := NewPipelineArgs(promiseIdentifier, resourceRequestIdentifier, namespace)
+
+	containers, pipelineVolumes := deletePipelineContainers(obj, isPromise, pipelines)
 
 	return batchv1.Job{
 		ObjectMeta: metav1.ObjectMeta{
@@ -39,11 +53,16 @@ func NewDeletePipeline(rr *unstructured.Unstructured, pipelines []platformv1alph
 	}
 }
 
-func deletePipelineContainers(rr *unstructured.Unstructured, pipelines []platformv1alpha1.Pipeline) ([]v1.Container, []v1.Volume) {
+func deletePipelineContainers(obj *unstructured.Unstructured, isPromise bool, pipelines []platformv1alpha1.Pipeline) ([]v1.Container, []v1.Volume) {
 	volumes, volumeMounts := pipelineVolumes()
 
 	//TODO: Does this get called for promises too? If so, change the parameter name and dynamically set input below
-	readerContainer := readerContainer(rr, platformv1alpha1.KratixWorkflowTypeResource, "shared-input")
+	workflowType := platformv1alpha1.KratixWorkflowTypeResource
+	if isPromise {
+		workflowType = platformv1alpha1.KratixWorkflowTypePromise
+	}
+
+	readerContainer := readerContainer(obj, workflowType, "shared-input")
 	containers := []v1.Container{
 		readerContainer,
 	}
