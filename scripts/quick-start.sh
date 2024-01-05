@@ -121,6 +121,11 @@ verify_prerequisites() {
         exit $((exit_code))
     fi
 
+    if [ "${VERSION}" == "main" ]; then
+        # we always want to fetch the latest from main
+        rm distribution/kratix.yaml
+    fi
+
     log -n "Looking for distribution/kratix.yaml... "
     if [ ! -f "${ROOT}/distribution/kratix.yaml" ]; then
         log "distribution/kratix.yaml not found; downloading latest version..."
