@@ -67,7 +67,17 @@ spec:
           spec:
             containers:
               - image: syntasso/demo-redis-configure-pipeline:v1.1.0
-                name: demo-redis-configure-pipeline
+                name: demo-redis-resource-configure-pipeline
+      delete:
+        - apiVersion: platform.kratix.io/v1alpha1
+          kind: Pipeline
+          metadata:
+            name: instance-delete
+            namespace: default
+          spec:
+            containers:
+              - image: syntasso/demo-redis-delete-pipeline:v1.1.0
+                name: demo-redis-resource-delete-pipeline
     promise:
       delete:
         - apiVersion: platform.kratix.io/v1alpha1
@@ -78,4 +88,4 @@ spec:
           spec:
             containers:
               - image: syntasso/demo-redis-delete-pipeline:v1.1.0
-                name: demo-redis-delete-pipeline
+                name: demo-redis-promise-delete-pipeline
