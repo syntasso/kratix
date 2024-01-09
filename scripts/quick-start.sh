@@ -123,7 +123,7 @@ verify_prerequisites() {
 
     if [ "${VERSION}" == "main" ]; then
         # we always want to fetch the latest from main
-        rm distribution/kratix.yaml
+        rm distribution/kratix.yaml || true
     fi
 
     log -n "Looking for distribution/kratix.yaml... "
