@@ -24,6 +24,7 @@ import (
 	. "github.com/onsi/gomega"
 	"github.com/onsi/gomega/gexec"
 	"github.com/syntasso/kratix/api/v1alpha1"
+	v1 "k8s.io/apiextensions-apiserver/pkg/apis/apiextensions/v1"
 	"k8s.io/apimachinery/pkg/apis/meta/v1/unstructured"
 	"k8s.io/apimachinery/pkg/runtime"
 	"k8s.io/apimachinery/pkg/util/uuid"
@@ -77,7 +78,7 @@ const pipelineTimeout = "--timeout=89s"
 // e.g. `container0Cmd` is run in the first container of the pipeline.
 var (
 	baseRequestYAML = `apiVersion: test.kratix.io/v1alpha1
-kind: bash
+kind: %s
 metadata:
   name: %s
 spec:
@@ -91,6 +92,9 @@ spec:
 	declarativePlatformNamespace     = "%s-worker-declarative"
 	declarativeWorkerNamespace       = "%s-platform-declarative"
 	declarativeStaticWorkerNamespace = "%s-static-decl-v1alpha1"
+	bashPromise                      *v1alpha1.Promise
+	promiseID                        string
+	crd                              *v1.CustomResourceDefinition
 )
 
 var _ = Describe("Kratix", func() {
@@ -114,6 +118,17 @@ var _ = Describe("Kratix", func() {
 				log.Fatalf("listen: %s\n", err)
 			}
 		}()
+
+		bashPromise = generateUniquePromise(promisePath)
+		promiseID = bashPromise.Name
+		imperativePlatformNamespace = fmt.Sprintf("%s-platform-imperative", promiseID)
+		declarativePlatformNamespace = fmt.Sprintf("%s-worker-declarative", promiseID)
+		declarativeWorkerNamespace = fmt.Sprintf("%s-platform-declarative", promiseID)
+		declarativeStaticWorkerNamespace = fmt.Sprintf("%s-static-decl-v1alpha1", promiseID)
+		var err error
+		crd, err = bashPromise.GetAPIAsCRD()
+		Expect(err).NotTo(HaveOccurred())
+
 	})
 
 	AfterEach(func() {
@@ -121,17 +136,7 @@ var _ = Describe("Kratix", func() {
 	})
 
 	Describe("Promise lifecycle", func() {
-		var bashPromise *v1alpha1.Promise
-		var promiseID string
-
 		BeforeEach(func() {
-			bashPromise = generateUniquePromise(promisePath)
-			promiseID = bashPromise.Name
-			imperativePlatformNamespace = fmt.Sprintf("%s-platform-imperative", promiseID)
-			declarativePlatformNamespace = fmt.Sprintf("%s-worker-declarative", promiseID)
-			declarativeWorkerNamespace = fmt.Sprintf("%s-platform-declarative", promiseID)
-			declarativeStaticWorkerNamespace = fmt.Sprintf("%s-static-decl-v1alpha1", promiseID)
-
 			platform.kubectl("label", "destination", "worker-1", "extra=label")
 		})
 
@@ -140,10 +145,7 @@ var _ = Describe("Kratix", func() {
 			platform.ignoreExitCode().kubectl("delete", "promises", "bash")
 		})
 
-		FIt("can install, update, and delete a promise", func() {
-			crd, err := bashPromise.GetAPIAsCRD()
-			Expect(err).NotTo(HaveOccurred())
-
+		It("can install, update, and delete a promise", func() {
 			By("installing the promise", func() {
 				platform.kubectl("apply", "-f", cat(bashPromise))
 
@@ -178,8 +180,8 @@ var _ = Describe("Kratix", func() {
 				}, timeout, interval).Should(Succeed())
 				platform.kubectl("apply", "-f", cat(bashPromise))
 
-				worker.eventuallyKubectl("get", "namespace", updatedDeclarativeStaticWorkerNamespace)          // new dependency
-				worker.withExitCode(1).eventuallyKubectl("get", "namespace", declarativeStaticWorkerNamespace) // old dep
+				worker.eventuallyKubectl("get", "namespace", updatedDeclarativeStaticWorkerNamespace)
+				worker.withExitCode(1).eventuallyKubectl("get", "namespace", declarativeStaticWorkerNamespace)
 				worker.eventuallyKubectl("get", "namespace", declarativeWorkerNamespace)
 				platform.eventuallyKubectl("get", "namespace", declarativePlatformNamespace)
 			})
@@ -187,6 +189,7 @@ var _ = Describe("Kratix", func() {
 			By("deleting a promise", func() {
 				platform.kubectl("delete", "promise", bashPromise.Name)
 
+				//TODO: list all namespaces and expect it not to contain substrings
 				worker.withExitCode(1).eventuallyKubectl("get", "namespace", updatedDeclarativeStaticWorkerNamespace)
 				worker.withExitCode(1).eventuallyKubectl("get", "namespace", declarativeWorkerNamespace)
 				platform.withExitCode(1).eventuallyKubectl("get", "namespace", declarativePlatformNamespace)
@@ -202,6 +205,8 @@ var _ = Describe("Kratix", func() {
 				tmpDir, err = os.MkdirTemp(os.TempDir(), "systest")
 				Expect(err).NotTo(HaveOccurred())
 
+				//TODO replace with bash promise or just completely separate it with
+				//non-bash promises
 				platform.kubectl("apply", "-f", promiseWithRequirement)
 			})
 
@@ -263,18 +268,16 @@ var _ = Describe("Kratix", func() {
 		})
 
 		Describe("Resource requests", func() {
-			BeforeEach(func() {
-				platform.kubectl("apply", "-f", promisePath)
-				platform.eventuallyKubectl("get", "crd", "bash.test.kratix.io")
-			})
-
 			It("executes the pipelines and schedules the work to the appropriate destinations", func() {
-				rrName := "rr-test"
+				platform.kubectl("apply", "-f", cat(bashPromise))
+				platform.eventuallyKubectl("get", "crd", crd.Name)
+				worker.eventuallyKubectl("get", "namespace", declarativeWorkerNamespace)
 
+				rrName := "rr-test"
 				platform.kubectl("apply", "-f", exampleBashRequest(rrName))
 
 				By("executing the pipeline pod", func() {
-					platform.kubectl("wait", "--for=condition=PipelineCompleted", "bash", rrName, pipelineTimeout)
+					platform.kubectl("wait", "--for=condition=PipelineCompleted", promiseID, rrName, pipelineTimeout)
 				})
 
 				By("deploying the contents of /kratix/output/platform to the platform destination only", func() {
@@ -321,12 +324,19 @@ var _ = Describe("Kratix", func() {
 						g.Expect(platform.kubectl("get", "pods")).NotTo(ContainSubstring("delete"))
 					}, timeout, interval).Should(Succeed())
 				})
+
+				platform.kubectl("delete", "promise", promiseID)
+				Eventually(platform.kubectl("get", "promise")).ShouldNot(ContainSubstring("bash"))
 			})
 
 			When("an existing resource request is updated", func() {
 				const requestName = "update-test"
 				var oldNamespaceName string
 				BeforeEach(func() {
+					platform.kubectl("apply", "-f", cat(bashPromise))
+					platform.eventuallyKubectl("get", "crd", crd.Name)
+					worker.eventuallyKubectl("get", "namespace", declarativeWorkerNamespace)
+
 					oldNamespaceName = fmt.Sprintf("old-%s", requestName)
 					createNamespace := fmt.Sprintf(
 						`kubectl create namespace %s --dry-run=client -oyaml > /kratix/output/old-namespace.yaml`,
@@ -355,26 +365,20 @@ var _ = Describe("Kratix", func() {
 							),
 						)
 					})
-				})
-			})
 
-			AfterEach(func() {
-				platform.kubectl("delete", "promise", "bash")
-				Eventually(platform.kubectl("get", "promise")).ShouldNot(ContainSubstring("bash"))
+					platform.kubectl("delete", "promise", promiseID)
+					Eventually(platform.kubectl("get", "promise")).ShouldNot(ContainSubstring("bash"))
+				})
 			})
 		})
 
 		When("A Promise is updated", func() {
-			AfterEach(func() {
-				platform.kubectl("delete", "promise", "bash")
-				Eventually(platform.kubectl("get", "promise")).ShouldNot(ContainSubstring("bash"))
-			})
-
 			It("propagates the changes and re-runs all the pipelines", func() {
 				By("installing and requesting v1alpha1 promise", func() {
-					platform.kubectl("apply", "-f", promisePath)
+					platform.kubectl("apply", "-f", cat(bashPromise))
 
-					platform.eventuallyKubectl("get", "crd", "bash.test.kratix.io")
+					platform.eventuallyKubectl("get", "crd", crd.Name)
+					//TODO wheres the change coming from
 					Expect(worker.eventuallyKubectl("get", "namespace", declarativeStaticWorkerNamespace, "-o=yaml")).To(ContainSubstring("modifydepsinpipeline"))
 				})
 
@@ -435,6 +439,9 @@ var _ = Describe("Kratix", func() {
 						g.Expect(namespaces).NotTo(ContainSubstring(declarativeStaticWorkerNamespace))
 					}, timeout, interval).Should(Succeed())
 				})
+
+				platform.kubectl("delete", "promise", "bash")
+				Eventually(platform.kubectl("get", "promise")).ShouldNot(ContainSubstring("bash"))
 			})
 		})
 	})
@@ -450,6 +457,7 @@ var _ = Describe("Kratix", func() {
 		// Destination selectors in the promise:
 		// - security: high
 		BeforeEach(func() {
+			//TODO replace with bash promise and inject scheduling here
 			platform.kubectl("apply", "-f", promiseWithSchedulingPath)
 			platform.eventuallyKubectl("get", "crd", "bash.test.kratix.io")
 		})
@@ -685,7 +693,7 @@ func exampleBashRequest(name string) string {
 	request := unstructured.Unstructured{
 		Object: map[string]interface{}{
 			"apiVersion": "test.kratix.io/v1alpha1",
-			"kind":       "bash",
+			"kind":       promiseID,
 			"metadata": map[string]interface{}{
 				"name": name,
 			},
@@ -765,7 +773,7 @@ func requestWithNameAndCommand(name string, containerCmds ...string) string {
 	file, err := ioutil.TempFile("", "kratix-test")
 	ExpectWithOffset(1, err).NotTo(HaveOccurred())
 
-	args := []interface{}{name}
+	args := []interface{}{promiseID, name}
 	for _, cmd := range normalisedCmds {
 		args = append(args, cmd)
 	}
