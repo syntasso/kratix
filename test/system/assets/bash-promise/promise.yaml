@@ -2,7 +2,7 @@
 apiVersion: rbac.authorization.k8s.io/v1
 kind: ClusterRole
 metadata:
-  name: bash-default-resource-pipeline-credentials
+  name: REPLACEBASH-default-resource-pipeline-credentials
 rules:
 - apiGroups:
   - ""
@@ -14,23 +14,23 @@ rules:
 apiVersion: rbac.authorization.k8s.io/v1
 kind: ClusterRoleBinding
 metadata:
-  name: bash-default-resource-pipeline-credentials
+  name: REPLACEBASH-default-resource-pipeline-credentials
 roleRef:
   apiGroup: rbac.authorization.k8s.io
   kind: ClusterRole
-  name: bash-default-resource-pipeline-credentials
+  name: REPLACEBASH-default-resource-pipeline-credentials
 subjects:
 - kind: ServiceAccount
-  name: bash-resource-pipeline
+  name: REPLACEBASH-resource-pipeline
   namespace: default
 - kind: ServiceAccount
-  name: bash-promise-pipeline
+  name: REPLACEBASH-promise-pipeline
   namespace: kratix-platform-system
 ---
 apiVersion: platform.kratix.io/v1alpha1
 kind: Promise
 metadata:
-  name: bash
+  name: REPLACEBASH
   namespace: default
   labels:
     kratix.io/promise-version: v1.0.0
@@ -39,13 +39,13 @@ spec:
     apiVersion: apiextensions.k8s.io/v1
     kind: CustomResourceDefinition
     metadata:
-      name: bash.test.kratix.io
+      name: REPLACEBASH.test.kratix.io
     spec:
       group: test.kratix.io
       names:
-        kind: bash
-        plural: bash
-        singular: bash
+        kind: REPLACEBASH
+        plural: REPLACEBASH
+        singular: REPLACEBASH
       scope: Namespaced
       versions:
         - name: v1alpha1
@@ -68,10 +68,10 @@ spec:
     - apiVersion: v1
       kind: Namespace
       metadata:
-        name: bash-dep-namespace-v1alpha1
+        name: REPLACEBASH-static-decl-v1alpha1
   destinationSelectors:
-  - matchLabels:
-      environment: dev
+    - matchLabels:
+        environment: dev
   workflows:
     resource:
       configure:
@@ -116,4 +116,4 @@ spec:
           spec:
             containers:
               - image: syntassodev/bash-promise:v1alpha1
-                name: bash-promise
+                name: bash-promise-configure

@@ -1,6 +1,7 @@
 package system_test
 
 import (
+	"bytes"
 	"context"
 	"fmt"
 	"io/ioutil"
@@ -22,12 +23,17 @@ import (
 	. "github.com/onsi/ginkgo/v2"
 	. "github.com/onsi/gomega"
 	"github.com/onsi/gomega/gexec"
+	"github.com/syntasso/kratix/api/v1alpha1"
 	"k8s.io/apimachinery/pkg/apis/meta/v1/unstructured"
+	"k8s.io/apimachinery/pkg/runtime"
+	"k8s.io/apimachinery/pkg/util/uuid"
+	"k8s.io/apimachinery/pkg/util/yaml"
 )
 
 type destination struct {
 	context       string
 	checkExitCode bool
+	exitCode      int
 }
 
 var (
@@ -43,7 +49,7 @@ var (
 	workerCtx = "--context=kind-worker"
 	platCtx   = "--context=kind-platform"
 
-	timeout             = time.Second * 90
+	timeout             = time.Second * 30
 	consistentlyTimeout = time.Second * 20
 	interval            = time.Second * 2
 
@@ -80,6 +86,11 @@ spec:
   container1Cmd: |
     %s`
 	storeType string
+
+	imperativePlatformNamespace      = "%s-platform-imperative"
+	declarativePlatformNamespace     = "%s-worker-declarative"
+	declarativeWorkerNamespace       = "%s-platform-declarative"
+	declarativeStaticWorkerNamespace = "%s-static-decl-v1alpha1"
 )
 
 var _ = Describe("Kratix", func() {
@@ -110,35 +121,77 @@ var _ = Describe("Kratix", func() {
 	})
 
 	Describe("Promise lifecycle", func() {
+		var bashPromise *v1alpha1.Promise
+		var promiseID string
+
 		BeforeEach(func() {
+			bashPromise = generateUniquePromise(promisePath)
+			promiseID = bashPromise.Name
+			imperativePlatformNamespace = fmt.Sprintf("%s-platform-imperative", promiseID)
+			declarativePlatformNamespace = fmt.Sprintf("%s-worker-declarative", promiseID)
+			declarativeWorkerNamespace = fmt.Sprintf("%s-platform-declarative", promiseID)
+			declarativeStaticWorkerNamespace = fmt.Sprintf("%s-static-decl-v1alpha1", promiseID)
+
 			platform.kubectl("label", "destination", "worker-1", "extra=label")
 		})
 
 		AfterEach(func() {
 			platform.kubectl("label", "destination", "worker-1", "extra-")
+			platform.ignoreExitCode().kubectl("delete", "promises", "bash")
 		})
 
-		It("successfully manages the promise lifecycle", func() {
-			By("installing the promise", func() {
-				platform.kubectl("apply", "-f", promisePath)
+		FIt("can install, update, and delete a promise", func() {
+			crd, err := bashPromise.GetAPIAsCRD()
+			Expect(err).NotTo(HaveOccurred())
 
-				platform.eventuallyKubectl("get", "crd", "bash.test.kratix.io")
-				worker.eventuallyKubectl("get", "namespace", "bash-dep-namespace-v1alpha1")
-				worker.eventuallyKubectl("get", "namespace", "bash-workflow-namespace-v1alpha1")
-				platform.eventuallyKubectl("get", "namespace", "bash-workflow-imperative-namespace")
-				platform.eventuallyKubectl("get", "namespace", "promise-workflow-namespace")
+			By("installing the promise", func() {
+				platform.kubectl("apply", "-f", cat(bashPromise))
+
+				platform.eventuallyKubectl("get", "crd", crd.Name)
+				worker.eventuallyKubectl("get", "namespace", declarativeStaticWorkerNamespace)
+				worker.eventuallyKubectl("get", "namespace", declarativeWorkerNamespace)
+				platform.eventuallyKubectl("get", "namespace", imperativePlatformNamespace)
+				platform.eventuallyKubectl("get", "namespace", declarativePlatformNamespace)
 			})
 
-			By("deleting a promise", func() {
-				platform.kubectl("delete", "promise", "bash")
+			updatedDeclarativeStaticWorkerNamespace := declarativeStaticWorkerNamespace + "-new"
+			By("updating the promise", func() {
+				bashPromise.Spec.Dependencies[0] = v1alpha1.Dependency{
+					Unstructured: unstructured.Unstructured{
+						Object: map[string]interface{}{
+							"apiVersion": "v1",
+							"kind":       "Namespace",
+							"metadata": map[string]interface{}{
+								"name": updatedDeclarativeStaticWorkerNamespace,
+							},
+						},
+					},
+				}
 
 				Eventually(func(g Gomega) {
-					g.Expect(worker.kubectl("get", "namespace")).NotTo(ContainSubstring("bash-dep-namespace-v1alpha1"))
-					g.Expect(platform.kubectl("get", "namespace")).NotTo(ContainSubstring("promise-workflow-namespace"))
-					g.Expect(platform.kubectl("get", "namespace")).NotTo(ContainSubstring("bash-workflow-imperative-namespace"))
+					g.Expect(worker.kubectl("get", "namespace")).NotTo(ContainSubstring(declarativeStaticWorkerNamespace))
+					g.Expect(platform.kubectl("get", "namespace")).NotTo(ContainSubstring(declarativePlatformNamespace))
+					g.Expect(platform.kubectl("get", "namespace")).NotTo(ContainSubstring(imperativePlatformNamespace))
+					//TODO what?
 					g.Expect(platform.kubectl("get", "promise")).ShouldNot(ContainSubstring("bash"))
 					g.Expect(platform.kubectl("get", "crd")).ShouldNot(ContainSubstring("bash"))
 				}, timeout, interval).Should(Succeed())
+				platform.kubectl("apply", "-f", cat(bashPromise))
+
+				worker.eventuallyKubectl("get", "namespace", updatedDeclarativeStaticWorkerNamespace)          // new dependency
+				worker.withExitCode(1).eventuallyKubectl("get", "namespace", declarativeStaticWorkerNamespace) // old dep
+				worker.eventuallyKubectl("get", "namespace", declarativeWorkerNamespace)
+				platform.eventuallyKubectl("get", "namespace", declarativePlatformNamespace)
+			})
+
+			By("deleting a promise", func() {
+				platform.kubectl("delete", "promise", bashPromise.Name)
+
+				worker.withExitCode(1).eventuallyKubectl("get", "namespace", updatedDeclarativeStaticWorkerNamespace)
+				worker.withExitCode(1).eventuallyKubectl("get", "namespace", declarativeWorkerNamespace)
+				platform.withExitCode(1).eventuallyKubectl("get", "namespace", declarativePlatformNamespace)
+				platform.withExitCode(1).eventuallyKubectl("get", "promise", "bash")
+				platform.withExitCode(1).eventuallyKubectl("get", "crd", bashPromise.Name)
 			})
 		})
 
@@ -322,7 +375,7 @@ var _ = Describe("Kratix", func() {
 					platform.kubectl("apply", "-f", promisePath)
 
 					platform.eventuallyKubectl("get", "crd", "bash.test.kratix.io")
-					Expect(worker.eventuallyKubectl("get", "namespace", "bash-dep-namespace-v1alpha1", "-o=yaml")).To(ContainSubstring("modifydepsinpipeline"))
+					Expect(worker.eventuallyKubectl("get", "namespace", declarativeStaticWorkerNamespace, "-o=yaml")).To(ContainSubstring("modifydepsinpipeline"))
 				})
 
 				rrName := "rr-test"
@@ -377,9 +430,9 @@ var _ = Describe("Kratix", func() {
 
 					Eventually(func(g Gomega) {
 						namespaces := worker.kubectl("get", "namespaces")
-						g.Expect(namespaces).NotTo(ContainSubstring("bash-dep-namespace-v1alpha1"))
-						g.Expect(namespaces).NotTo(ContainSubstring("bash-workflow-namespace-v1alpha1"))
-						g.Expect(namespaces).NotTo(ContainSubstring("bash-dep-namespace-v1alpha1"))
+						g.Expect(namespaces).NotTo(ContainSubstring(declarativeStaticWorkerNamespace))
+						g.Expect(namespaces).NotTo(ContainSubstring(declarativeWorkerNamespace))
+						g.Expect(namespaces).NotTo(ContainSubstring(declarativeStaticWorkerNamespace))
 					}, timeout, interval).Should(Succeed())
 				})
 			})
@@ -409,7 +462,7 @@ var _ = Describe("Kratix", func() {
 
 		It("schedules resources to the correct Destinations", func() {
 			By("reconciling on new Destinations", func() {
-				depNamespaceName := "bash-dep-namespace-v1alpha1"
+				depNamespaceName := declarativeStaticWorkerNamespace
 				By("scheduling to the Worker when it gets all the required labels", func() {
 					/*
 						The required labels are:
@@ -498,16 +551,16 @@ var _ = Describe("Kratix", func() {
 
 			By("only the worker Destination getting the dependency initially", func() {
 				Consistently(func() {
-					worker.eventuallyKubectl("get", "namespace", "bash-dep-namespace-v1alpha1")
+					worker.eventuallyKubectl("get", "namespace", declarativeStaticWorkerNamespace)
 				}, consistentlyTimeout, interval)
 
 				Eventually(func() string {
 					return platform.kubectl("get", "namespace")
-				}, timeout, interval).ShouldNot(ContainSubstring("bash-dep-namespace-v1alpha1"))
+				}, timeout, interval).ShouldNot(ContainSubstring(declarativeStaticWorkerNamespace))
 
 				Consistently(func() string {
 					return platform.kubectl("get", "namespace")
-				}, consistentlyTimeout, interval).ShouldNot(ContainSubstring("bash-dep-namespace-v1alpha1"))
+				}, consistentlyTimeout, interval).ShouldNot(ContainSubstring(declarativeStaticWorkerNamespace))
 			})
 
 			//changes from security: high to environment: platform
@@ -515,10 +568,10 @@ var _ = Describe("Kratix", func() {
 
 			By("scheduling to the new destination and preserving the old orphaned destinations", func() {
 				Consistently(func() {
-					worker.eventuallyKubectl("get", "namespace", "bash-dep-namespace-v1alpha1")
+					worker.eventuallyKubectl("get", "namespace", declarativeStaticWorkerNamespace)
 				}, consistentlyTimeout, interval)
 				Consistently(func() {
-					platform.eventuallyKubectl("get", "namespace", "bash-dep-namespace-v1alpha1")
+					platform.eventuallyKubectl("get", "namespace", declarativeStaticWorkerNamespace)
 				}, consistentlyTimeout, interval)
 			})
 		})
@@ -584,9 +637,9 @@ var _ = Describe("Kratix", func() {
 				platform.kubectl("apply", "-f", promisePath)
 
 				platform.eventuallyKubectl("get", "crd", "bash.test.kratix.io")
-				platform.eventuallyKubectl("get", "namespace", "promise-workflow-namespace")
-				worker.eventuallyKubectl("get", "namespace", "bash-dep-namespace-v1alpha1")
-				worker.eventuallyKubectl("get", "namespace", "bash-workflow-namespace-v1alpha1")
+				platform.eventuallyKubectl("get", "namespace", declarativePlatformNamespace)
+				worker.eventuallyKubectl("get", "namespace", declarativeStaticWorkerNamespace)
+				worker.eventuallyKubectl("get", "namespace", declarativeWorkerNamespace)
 			})
 
 			By("fulfiling the resource request", func() {
@@ -617,8 +670,8 @@ var _ = Describe("Kratix", func() {
 				platform.kubectl("delete", "promise", "bash")
 
 				Eventually(func(g Gomega) {
-					g.Expect(worker.kubectl("get", "namespace")).NotTo(ContainSubstring("bash-dep-namespace-v1alpha1"))
-					g.Expect(platform.kubectl("get", "namespace")).NotTo(ContainSubstring("promise-workflow-namespace"))
+					g.Expect(worker.kubectl("get", "namespace")).NotTo(ContainSubstring(declarativeStaticWorkerNamespace))
+					g.Expect(platform.kubectl("get", "namespace")).NotTo(ContainSubstring(declarativePlatformNamespace))
 					g.Expect(platform.kubectl("get", "promise")).ShouldNot(ContainSubstring("bash"))
 					g.Expect(platform.kubectl("get", "crd")).ShouldNot(ContainSubstring("bash"))
 				}, timeout, interval).Should(Succeed())
@@ -676,6 +729,22 @@ func asFile(object unstructured.Unstructured) string {
 	return file.Name()
 }
 
+func cat(obj interface{}) string {
+	file, err := os.CreateTemp(testTempDir, "kratix-test")
+	ExpectWithOffset(1, err).NotTo(HaveOccurred())
+
+	var buf bytes.Buffer
+	err = unstructured.UnstructuredJSONScheme.Encode(obj.(runtime.Object), &buf)
+	ExpectWithOffset(1, err).NotTo(HaveOccurred())
+
+	fmt.Fprintln(GinkgoWriter, "Object")
+	fmt.Fprintln(GinkgoWriter, buf.String())
+
+	ExpectWithOffset(1, os.WriteFile(file.Name(), buf.Bytes(), 0644)).NotTo(HaveOccurred())
+
+	return file.Name()
+}
+
 func requestWithNameAndCommand(name string, containerCmds ...string) string {
 	normalisedCmds := make([]string, 2)
 	for i := range normalisedCmds {
@@ -718,7 +787,7 @@ func (c destination) eventuallyKubectl(args ...string) string {
 		command := exec.Command("kubectl", args...)
 		session, err := gexec.Start(command, GinkgoWriter, GinkgoWriter)
 		g.ExpectWithOffset(1, err).ShouldNot(HaveOccurred())
-		g.EventuallyWithOffset(1, session).Should(gexec.Exit(0))
+		g.EventuallyWithOffset(1, session).Should(gexec.Exit(c.exitCode))
 		content = string(session.Out.Contents())
 	}, timeout, interval).Should(Succeed(), strings.Join(args, " "))
 	return content
@@ -738,13 +807,25 @@ func (c destination) kubectl(args ...string) string {
 	return string(session.Out.Contents())
 }
 
+func (c destination) clone() destination {
+	return destination{
+		context:       c.context,
+		exitCode:      c.exitCode,
+		checkExitCode: c.checkExitCode,
+	}
+}
+
 func (c destination) ignoreExitCode() destination {
-	newDestination := destination{}
-	newDestination.context = c.context
+	newDestination := c.clone()
 	newDestination.checkExitCode = false
 	return newDestination
 }
 
+func (c destination) withExitCode(code int) destination {
+	newDestination := c.clone()
+	newDestination.exitCode = code
+	return newDestination
+}
 func listFilesInStateStore(destinationName, namespace, promiseName, resourceName string) []string {
 	paths := []string{}
 	resourceSubDir := filepath.Join(destinationName, "resources", namespace, promiseName, resourceName)
@@ -807,4 +888,17 @@ func listFilesInStateStore(destinationName, namespace, promiseName, resourceName
 
 	}
 	return paths
+}
+
+func generateUniquePromise(promisePath string) *v1alpha1.Promise {
+	promise := &v1alpha1.Promise{}
+	promiseContentBytes, err := os.ReadFile(promisePath)
+	Expect(err).NotTo(HaveOccurred())
+	randString := string(uuid.NewUUID())[0:3]
+
+	promiseContents := strings.ReplaceAll(string(promiseContentBytes), "REPLACEBASH", "bash"+randString)
+	err = yaml.NewYAMLOrJSONDecoder(strings.NewReader(promiseContents), 100).Decode(promise)
+	Expect(err).NotTo(HaveOccurred())
+
+	return promise
 }

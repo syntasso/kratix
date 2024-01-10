@@ -18,7 +18,8 @@ import (
 )
 
 var (
-	k8sClient client.Client
+	k8sClient   client.Client
+	testTempDir string
 )
 
 func TestSystem(t *testing.T) {
@@ -27,6 +28,8 @@ func TestSystem(t *testing.T) {
 }
 
 var _ = BeforeSuite(func() {
+	var err error
+	testTempDir, err = os.MkdirTemp(os.TempDir(), "systest")
 	initK8sClient()
 	storeType = "bucket"
 	if os.Getenv("SYSTEM_TEST_STORE_TYPE") == "git" {
@@ -40,6 +43,10 @@ var _ = BeforeSuite(func() {
 	platform.kubectl("apply", "-f", catAndReplace(tmpDir, fmt.Sprintf("./assets/%s/platform_statestore.yaml", storeType)))
 	platform.kubectl("apply", "-f", catAndReplace(tmpDir, fmt.Sprintf("./assets/%s/platform_kratix_destination.yaml", storeType)))
 	os.RemoveAll(tmpDir)
+})
+
+var _ = AfterSuite(func() {
+	os.RemoveAll(testTempDir)
 })
 
 func catAndReplace(tmpDir, file string) string {
