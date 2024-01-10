@@ -38,16 +38,11 @@ import (
 	"k8s.io/apimachinery/pkg/runtime/schema"
 	ctrl "sigs.k8s.io/controller-runtime"
 	"sigs.k8s.io/controller-runtime/pkg/client"
-	"sigs.k8s.io/yaml"
 )
 
-const (
-	workFinalizer            = kratixPrefix + "work-cleanup"
-	workflowsFinalizer       = kratixPrefix + "workflows-cleanup"
-	deleteWorkflowsFinalizer = kratixPrefix + "delete-workflows"
-)
+const workFinalizer = kratixPrefix + "work-cleanup"
 
-var rrFinalizers = []string{workFinalizer, workflowsFinalizer, deleteWorkflowsFinalizer}
+var rrFinalizers = []string{workFinalizer, removeAllWorkflowJobsFinalizer, runDeleteWorkflowsFinalizer}
 
 type DynamicResourceRequestController struct {
 	//use same naming conventions as other controllers
@@ -123,8 +118,8 @@ func (r *DynamicResourceRequestController) Reconcile(ctx context.Context, req ct
 	}
 
 	// Reconcile necessary finalizers
-	if resourceutil.FinalizersAreMissing(rr, []string{workFinalizer, workflowsFinalizer, deleteWorkflowsFinalizer}) {
-		return addFinalizers(opts, rr, []string{workFinalizer, workflowsFinalizer, deleteWorkflowsFinalizer})
+	if resourceutil.FinalizersAreMissing(rr, []string{workFinalizer, removeAllWorkflowJobsFinalizer, runDeleteWorkflowsFinalizer}) {
+		return addFinalizers(opts, rr, []string{workFinalizer, removeAllWorkflowJobsFinalizer, runDeleteWorkflowsFinalizer})
 	}
 
 	pipelineResources, err := pipeline.NewConfigureResource(
@@ -147,7 +142,7 @@ func (r *DynamicResourceRequestController) Reconcile(ctx context.Context, req ct
 		pipelineLabels:    pipeline.LabelsForConfigureResource(resourceRequestIdentifier, r.PromiseIdentifier),
 		pipelineResources: pipelineResources,
 	}
-	requeue, err := ensurePipelineIsReconciled(jobOpts)
+	requeue, err := ensureConfigurePipelineIsReconciled(jobOpts)
 	if err != nil {
 		return ctrl.Result{}, err
 	}
@@ -188,37 +183,21 @@ func (r *DynamicResourceRequestController) deleteResources(o opts, resourceReque
 		return ctrl.Result{}, nil
 	}
 
-	if controllerutil.ContainsFinalizer(resourceRequest, deleteWorkflowsFinalizer) {
-		existingDeletePipeline, err := r.getDeletePipeline(o, resourceRequestIdentifier, resourceRequest.GetNamespace())
-		if err != nil {
-			return defaultRequeue, err
+	if controllerutil.ContainsFinalizer(resourceRequest, runDeleteWorkflowsFinalizer) {
+		pipelineLabels := pipeline.LabelsForDeleteResource(resourceRequestIdentifier, r.PromiseIdentifier)
+
+		pipelineResources := pipeline.NewDeleteResource(
+			resourceRequest, r.DeletePipelines, resourceRequestIdentifier, r.PromiseIdentifier,
+		)
+
+		jobOpts := jobOpts{
+			opts:              o,
+			obj:               resourceRequest,
+			pipelineLabels:    pipelineLabels,
+			pipelineResources: pipelineResources,
 		}
 
-		if existingDeletePipeline == nil {
-			deletePipeline := pipeline.NewDeletePipeline(resourceRequest, r.DeletePipelines, resourceRequestIdentifier, r.PromiseIdentifier)
-			o.logger.Info("Creating Delete Pipeline. The pipeline will now execute...")
-			err = r.Client.Create(o.ctx, &deletePipeline)
-			if err != nil {
-				o.logger.Error(err, "Error creating delete pipeline")
-				y, _ := yaml.Marshal(&deletePipeline)
-				o.logger.Error(err, string(y))
-				return ctrl.Result{}, err
-			}
-			return defaultRequeue, nil
-		}
-
-		o.logger.Info("Checking status of Delete Pipeline")
-		if existingDeletePipeline.Status.Succeeded > 0 {
-			o.logger.Info("Delete Pipeline Completed")
-			controllerutil.RemoveFinalizer(resourceRequest, deleteWorkflowsFinalizer)
-			if err := r.Client.Update(o.ctx, resourceRequest); err != nil {
-				return ctrl.Result{}, err
-			}
-		}
-
-		o.logger.Info("Delete Pipeline not finished", "status", existingDeletePipeline.Status)
-
-		return fastRequeue, nil
+		return ensureDeletePipelineIsReconciled(jobOpts)
 	}
 
 	if controllerutil.ContainsFinalizer(resourceRequest, workFinalizer) {
@@ -229,8 +208,8 @@ func (r *DynamicResourceRequestController) deleteResources(o opts, resourceReque
 		return fastRequeue, nil
 	}
 
-	if controllerutil.ContainsFinalizer(resourceRequest, workflowsFinalizer) {
-		err := r.deleteWorkflows(o, resourceRequest, resourceRequestIdentifier, workflowsFinalizer)
+	if controllerutil.ContainsFinalizer(resourceRequest, removeAllWorkflowJobsFinalizer) {
+		err := r.deleteWorkflows(o, resourceRequest, resourceRequestIdentifier, removeAllWorkflowJobsFinalizer)
 		if err != nil {
 			return defaultRequeue, err
 		}

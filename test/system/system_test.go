@@ -125,6 +125,7 @@ var _ = Describe("Kratix", func() {
 				platform.eventuallyKubectl("get", "crd", "bash.test.kratix.io")
 				worker.eventuallyKubectl("get", "namespace", "bash-dep-namespace-v1alpha1")
 				worker.eventuallyKubectl("get", "namespace", "bash-workflow-namespace-v1alpha1")
+				platform.eventuallyKubectl("get", "namespace", "bash-workflow-imperative-namespace")
 				platform.eventuallyKubectl("get", "namespace", "promise-workflow-namespace")
 			})
 
@@ -134,6 +135,7 @@ var _ = Describe("Kratix", func() {
 				Eventually(func(g Gomega) {
 					g.Expect(worker.kubectl("get", "namespace")).NotTo(ContainSubstring("bash-dep-namespace-v1alpha1"))
 					g.Expect(platform.kubectl("get", "namespace")).NotTo(ContainSubstring("promise-workflow-namespace"))
+					g.Expect(platform.kubectl("get", "namespace")).NotTo(ContainSubstring("bash-workflow-imperative-namespace"))
 					g.Expect(platform.kubectl("get", "promise")).ShouldNot(ContainSubstring("bash"))
 					g.Expect(platform.kubectl("get", "crd")).ShouldNot(ContainSubstring("bash"))
 				}, timeout, interval).Should(Succeed())
