@@ -23,6 +23,9 @@ subjects:
 - kind: ServiceAccount
   name: bash-resource-pipeline
   namespace: default
+- kind: ServiceAccount
+  name: bash-promise-pipeline
+  namespace: kratix-platform-system
 ---
 apiVersion: platform.kratix.io/v1alpha1
 kind: Promise
@@ -87,7 +90,7 @@ spec:
         - apiVersion: platform.kratix.io/v1alpha1
           kind: Pipeline
           metadata:
-            name: instance-configure
+            name: instance-delete
             namespace: default
           spec:
             containers:
@@ -102,5 +105,15 @@ spec:
             namespace: default
           spec:
             containers:
-              - image: syntassodev/bash-promise-configure:v1alpha1
-                name: bash-promise-configure
+              - image: syntassodev/bash-promise:v1alpha1
+                name: bash-promise
+      delete:
+        - apiVersion: platform.kratix.io/v1alpha1
+          kind: Pipeline
+          metadata:
+            name: promise-delete
+            namespace: default
+          spec:
+            containers:
+              - image: syntassodev/bash-promise:v1alpha1
+                name: bash-promise

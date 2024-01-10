@@ -182,6 +182,8 @@ func readerContainer(obj *unstructured.Unstructured, kratixWorkflowType, volumeN
 	return readerContainer
 }
 
+// TODO(breaking) change this to {promiseIdentifier}-{pipelineType}-pipeline-{short-uuid}
+// for consistency with other resource names (e.g. service account)
 func pipelineName(pipelineType, promiseIdentifier string) string {
 	return pipelineType + "-pipeline-" + promiseIdentifier + "-" + getShortUuid()
 }
