@@ -159,18 +159,12 @@ func ensureDeletePipelineIsReconciled(jobOpts jobOpts) (ctrl.Result, error) {
 	}
 
 	if existingDeletePipeline == nil {
+		jobOpts.logger.Info("Creating Delete Pipeline. The pipeline will now execute...")
+
+		//TODO retrieve error information from applyResources to return to the caller
 		applyResources(jobOpts.opts, jobOpts.pipelineResources...)
+
 		return defaultRequeue, nil
-		// jobOpts.logger.Info("Creating Delete Pipeline. The pipeline will now execute...")
-		// //TODO come back and address- do we know for sure that the cluster roles and service accounts will exist?
-		// err = jobOpts.client.Create(jobOpts.ctx, jobOpts.pipelineResources[0])
-		// if err != nil {
-		// 	jobOpts.logger.Error(err, "Error creating delete pipeline")
-		// 	y, _ := yaml.Marshal(&jobOpts.pipelineResources[0])
-		// 	jobOpts.logger.Error(err, string(y))
-		// 	return ctrl.Result{}, err
-		// }
-		// return defaultRequeue, nil
 	}
 
 	jobOpts.logger.Info("Checking status of Delete Pipeline")
@@ -180,9 +174,9 @@ func ensureDeletePipelineIsReconciled(jobOpts jobOpts) (ctrl.Result, error) {
 		if err := jobOpts.client.Update(jobOpts.ctx, jobOpts.obj); err != nil {
 			return ctrl.Result{}, err
 		}
+	} else {
+		jobOpts.logger.Info("Delete Pipeline not finished", "status", existingDeletePipeline.Status)
 	}
-
-	jobOpts.logger.Info("Delete Pipeline not finished", "status", existingDeletePipeline.Status)
 
 	return fastRequeue, nil
 }
@@ -327,6 +321,7 @@ func getJobsWithLabels(o opts, jobLabels map[string]string, namespace string) ([
 	return jobs.Items, nil
 }
 
+// TODO return error info (summary of errors from resources?) to the caller, instead of just logging
 func applyResources(o opts, resources ...client.Object) {
 	o.logger.Info("Reconciling pipeline resources")
 
