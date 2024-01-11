@@ -1,7 +1,7 @@
 apiVersion: platform.kratix.io/v1alpha1
 kind: Promise
 metadata:
-  name: redis
+  name: custom-namespace
   labels:
     kratix.io/promise-version: v1.2.0
     clashing-label: "new-promise-v2-value"
@@ -14,13 +14,13 @@ spec:
     apiVersion: apiextensions.k8s.io/v1
     kind: CustomResourceDefinition
     metadata:
-      name: redis.marketplace.kratix.io
+      name: custom-namespaces.marketplace.kratix.io
     spec:
       group: marketplace.kratix.io
       names:
-        kind: redis
-        plural: redis
-        singular: redis
+        kind: custom-namespace
+        plural: custom-namespaces
+        singular: custom-namespace
       scope: Namespaced
       versions:
         - name: v1alpha1
@@ -34,12 +34,6 @@ spec:
                         List of key:value pairs to use as cluster selectors when scheduling
                       type: object
                       x-kubernetes-preserve-unknown-fields: true
-                    size:
-                      default: small
-                      description: |
-                        Size of this Redis deployment. If small, it deploy redis with a single replica; if large, deploy redis with 3 replicas.
-                      pattern: ^(small|large)$
-                      type: string
                     newConfig:
                       default: "1"
                       description: example config
@@ -52,7 +46,7 @@ spec:
   - apiVersion: v1
     kind: Namespace
     metadata:
-      name: updated-namespace
+      name: custom
   destinationSelectors:
   - matchLabels:
       environment: dev
@@ -66,8 +60,8 @@ spec:
             namespace: default
           spec:
             containers:
-              - image: syntasso/demo-redis-configure-pipeline:v1.1.0
-                name: demo-redis-resource-configure-pipeline
+              - image: syntasso/demo-custom-namespace-configure-pipeline:v1.1.0
+                name: demo-custom-namespace-resource-configure-pipeline
       delete:
         - apiVersion: platform.kratix.io/v1alpha1
           kind: Pipeline
@@ -76,8 +70,8 @@ spec:
             namespace: default
           spec:
             containers:
-              - image: syntasso/demo-redis-delete-pipeline:v1.1.0
-                name: demo-redis-resource-delete-pipeline
+              - image: syntasso/demo-custom-namespace-delete-pipeline:v1.1.0
+                name: demo-custom-namespace-resource-delete-pipeline
     promise:
       delete:
         - apiVersion: platform.kratix.io/v1alpha1
@@ -87,5 +81,5 @@ spec:
             namespace: default
           spec:
             containers:
-              - image: syntasso/demo-redis-delete-pipeline:v1.1.0
-                name: demo-redis-promise-delete-pipeline
+              - image: syntasso/demo-custom-namespace-delete-pipeline:v1.1.0
+                name: demo-custom-namespace-promise-delete-pipeline
