@@ -187,7 +187,7 @@ func (r *DynamicResourceRequestController) deleteResources(o opts, resourceReque
 		pipelineLabels := pipeline.LabelsForDeleteResource(resourceRequestIdentifier, r.PromiseIdentifier)
 
 		pipelineResources := pipeline.NewDeleteResource(
-			resourceRequest, r.DeletePipelines, resourceRequestIdentifier, r.PromiseIdentifier,
+			resourceRequest, r.DeletePipelines, resourceRequestIdentifier, r.PromiseIdentifier, r.CRD.Spec.Names.Plural,
 		)
 
 		jobOpts := jobOpts{

@@ -97,7 +97,7 @@ func clusterRole(args PipelineArgs) *rbacv1.ClusterRole {
 		Rules: []rbacv1.PolicyRule{
 			{
 				APIGroups: []string{"platform.kratix.io"},
-				Resources: []string{"promises", "promises/status", "works"},
+				Resources: []string{v1alpha1.PromisePlural, v1alpha1.PromisePlural + "/status", "works"},
 				Verbs:     []string{"get", "list", "update", "create", "patch"},
 			},
 		},

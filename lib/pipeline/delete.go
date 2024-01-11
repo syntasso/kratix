@@ -12,15 +12,15 @@ import (
 
 const kratixActionDelete = "delete"
 
-func NewDeleteResource(rr *unstructured.Unstructured, pipelines []platformv1alpha1.Pipeline, resourceRequestIdentifier, promiseIdentifier string) []client.Object {
-	return newDelete(rr, pipelines, resourceRequestIdentifier, promiseIdentifier)
+func NewDeleteResource(rr *unstructured.Unstructured, pipelines []platformv1alpha1.Pipeline, resourceRequestIdentifier, promiseIdentifier, crdPlural string) []client.Object {
+	return newDelete(rr, pipelines, resourceRequestIdentifier, promiseIdentifier, crdPlural)
 }
 
 func NewDeletePromise(promise *unstructured.Unstructured, pipelines []platformv1alpha1.Pipeline) []client.Object {
-	return newDelete(promise, pipelines, "", promise.GetName())
+	return newDelete(promise, pipelines, "", promise.GetName(), platformv1alpha1.PromisePlural)
 }
 
-func newDelete(obj *unstructured.Unstructured, pipelines []platformv1alpha1.Pipeline, resourceRequestIdentifier, promiseIdentifier string) []client.Object {
+func newDelete(obj *unstructured.Unstructured, pipelines []platformv1alpha1.Pipeline, resourceRequestIdentifier, promiseIdentifier, objPlural string) []client.Object {
 	isPromise := resourceRequestIdentifier == ""
 	namespace := obj.GetNamespace()
 	if isPromise {
@@ -33,7 +33,7 @@ func newDelete(obj *unstructured.Unstructured, pipelines []platformv1alpha1.Pipe
 
 	resources := []client.Object{
 		serviceAccount(args),
-		role(obj, obj.GetKind(), args),
+		role(obj, objPlural, args),
 		roleBinding(args),
 		&batchv1.Job{
 			ObjectMeta: metav1.ObjectMeta{
