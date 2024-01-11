@@ -13,7 +13,7 @@ STATE_STORE="default"
 GITOPS_PATH="platform-cluster"
 
 usage() {
-    echo -e "Usage: register-destination [--help] [--git] [--with-label foo=bar] [--context k8s-context] [--name  some-name ] [--platform-context 'kind-platform'] [--path platform-cluster] [--secret-name 'a-secret'] [--secret-namespace 'a-namespace']"
+    echo -e "Usage: register-destination [--help] [--git] [--with-label foo=bar] [--context k8s-context] [--name  some-name ] [--platform-context 'kind-platform'] [--path platform-cluster]"
     echo -e "\t--context='', -c,\t The Kubernetes context where to install FluxCD onto"
     echo -e "\t--git, -g\t Use Gitea as local repository in place of default local MinIO"
     echo -e "\t--help, -h\t Prints this message"
@@ -22,8 +22,6 @@ usage() {
     echo -e "\t--platform-context='', -p,\t The Kubernetes context of the Platform destination"
     echo -e "\t--state-store,-s\t Name of the state store to use"
     echo -e "\t--with-label foo=bar, -l\t Adds a label to the destination during registration"
-    echo -e "\t--secret-name\t The name of the secret to use when authenticating against the destination"
-    echo -e "\t--secret-namespace\t The namespace of the secret to use when authenticating against the destination; defaults to default"
     exit "${1:-0}"
 }
 
@@ -38,14 +36,13 @@ load_options() {
         '--platform-context') set -- "$@" '-p'   ;;
         '--state-store')      set -- "$@" '-s'   ;;
         '--with-label')       set -- "$@" '-l'   ;;
-        '--secret-name')      set -- "$@" '-r'   ;;
-        '--secret-namespace') set -- "$@" '-m'   ;;
+        '--path')             set -- "$@" '-t'   ;;
         *)                    set -- "$@" "$arg" ;;
       esac
     done
 
     OPTIND=1
-    while getopts "p:hgn:c:l:s:t:r:m:" opt
+    while getopts "p:hgn:c:l:s:t:" opt
     do
       case "$opt" in
         'c') DESTINATION_CONTEXT="$OPTARG";;
@@ -56,8 +53,6 @@ load_options() {
         'p') PLATFORM_CONTEXT="$OPTARG";;
         's') STATE_STORE="$OPTARG";;
         't') GITOPS_PATH="$OPTARG";;
-        'r') SECRET_NAME="$OPTARG";;
-        'm') SECRET_NAMESPACE="$OPTARG";;
         *) usage 1 ;;
       esac
     done
@@ -84,10 +79,6 @@ prepare_destination() {
   $ROOT/scripts/install-gitops --context $DESTINATION_CONTEXT --path "$GITOPS_PATH" "$flags"
 
   local yqOpts=".metadata.name = \"$NAME\" | .metadata.labels = {} | .spec.stateStoreRef.name = \"$STATE_STORE\" | .spec.stateStoreRef.kind = \"$state_store_type\""
-  if [ -n "$SECRET_NAME" ]; then
-    SECRET_NAMESPACE="${SECRET_NAMESPACE:-default}"
-    yqOpts+=" | .spec.secretRef.name = \"$SECRET_NAME\" | .spec.secretRef.namespace = \"$SECRET_NAMESPACE\""
-  fi
   yq "${yqOpts}" $ROOT/config/samples/platform_v1alpha1_worker.yaml |
     kubectl --context $PLATFORM_CONTEXT apply -f -
 
