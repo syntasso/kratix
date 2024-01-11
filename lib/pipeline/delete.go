@@ -17,7 +17,7 @@ func NewDeleteResource(rr *unstructured.Unstructured, pipelines []platformv1alph
 }
 
 func NewDeletePromise(promise *unstructured.Unstructured, pipelines []platformv1alpha1.Pipeline) []client.Object {
-	return newDelete(promise, pipelines, "", promise.GetName(), "promises")
+	return newDelete(promise, pipelines, "", promise.GetName(), platformv1alpha1.PromisePlural)
 }
 
 func newDelete(obj *unstructured.Unstructured, pipelines []platformv1alpha1.Pipeline, resourceRequestIdentifier, promiseIdentifier, objPlural string) []client.Object {
