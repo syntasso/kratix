@@ -122,7 +122,7 @@ var _ = Describe("Kratix", func() {
 			By("installing the promise", func() {
 				platform.kubectl("apply", "-f", promisePath)
 
-				platform.eventuallyKubectl("get", "crd", "bash.test.kratix.io")
+				platform.eventuallyKubectl("get", "crd", "bashes.test.kratix.io")
 				worker.eventuallyKubectl("get", "namespace", "bash-dep-namespace-v1alpha1")
 				worker.eventuallyKubectl("get", "namespace", "bash-workflow-namespace-v1alpha1")
 				platform.eventuallyKubectl("get", "namespace", "bash-workflow-imperative-namespace")
@@ -137,7 +137,7 @@ var _ = Describe("Kratix", func() {
 					g.Expect(platform.kubectl("get", "namespace")).NotTo(ContainSubstring("promise-workflow-namespace"))
 					g.Expect(platform.kubectl("get", "namespace")).NotTo(ContainSubstring("bash-workflow-imperative-namespace"))
 					g.Expect(platform.kubectl("get", "promise")).ShouldNot(ContainSubstring("bash"))
-					g.Expect(platform.kubectl("get", "crd")).ShouldNot(ContainSubstring("bash"))
+					g.Expect(platform.kubectl("get", "crd")).ShouldNot(ContainSubstring("bashes"))
 				}, timeout, interval).Should(Succeed())
 			})
 		})
@@ -180,7 +180,7 @@ var _ = Describe("Kratix", func() {
 
 					Eventually(func(g Gomega) {
 						g.Expect(platform.kubectl("get", "promise")).Should(ContainSubstring("bash"))
-						g.Expect(platform.kubectl("get", "crd")).Should(ContainSubstring("bash"))
+						g.Expect(platform.kubectl("get", "crd")).Should(ContainSubstring("bashes"))
 						g.Expect(platform.kubectl("get", "promiserelease")).Should(ContainSubstring("bash"))
 					}, timeout, interval).Should(Succeed())
 
@@ -212,7 +212,7 @@ var _ = Describe("Kratix", func() {
 		Describe("Resource requests", func() {
 			BeforeEach(func() {
 				platform.kubectl("apply", "-f", promisePath)
-				platform.eventuallyKubectl("get", "crd", "bash.test.kratix.io")
+				platform.eventuallyKubectl("get", "crd", "bashes.test.kratix.io")
 			})
 
 			It("executes the pipelines and schedules the work to the appropriate destinations", func() {
@@ -221,7 +221,7 @@ var _ = Describe("Kratix", func() {
 				platform.kubectl("apply", "-f", exampleBashRequest(rrName))
 
 				By("executing the pipeline pod", func() {
-					platform.kubectl("wait", "--for=condition=PipelineCompleted", "bash", rrName, pipelineTimeout)
+					platform.kubectl("wait", "--for=condition=PipelineCompleted", "bashes", rrName, pipelineTimeout)
 				})
 
 				By("deploying the contents of /kratix/output/platform to the platform destination only", func() {
@@ -245,18 +245,18 @@ var _ = Describe("Kratix", func() {
 
 				By("updating the resource status", func() {
 					Eventually(func() string {
-						return platform.kubectl("get", "bash", rrName)
+						return platform.kubectl("get", "bashes", rrName)
 					}, timeout, interval).Should(ContainSubstring("My awesome status message"))
 					Eventually(func() string {
-						return platform.kubectl("get", "bash", rrName, "-o", "jsonpath='{.status.key}'")
+						return platform.kubectl("get", "bashes", rrName, "-o", "jsonpath='{.status.key}'")
 					}, timeout, interval).Should(ContainSubstring("value"))
 				})
 
 				By("deleting the resource request", func() {
-					platform.kubectl("delete", "bash", rrName)
+					platform.kubectl("delete", "bashes", rrName)
 
 					Eventually(func(g Gomega) {
-						g.Expect(platform.kubectl("get", "bash")).NotTo(ContainSubstring(rrName))
+						g.Expect(platform.kubectl("get", "bashes")).NotTo(ContainSubstring(rrName))
 						g.Expect(platform.kubectl("get", "namespace")).NotTo(ContainSubstring("imperative-rr-test"))
 						g.Expect(worker.kubectl("get", "namespace")).NotTo(ContainSubstring("declarative-rr-test"))
 					}, timeout, interval).Should(Succeed())
@@ -280,7 +280,7 @@ var _ = Describe("Kratix", func() {
 						oldNamespaceName,
 					)
 					platform.kubectl("apply", "-f", requestWithNameAndCommand(requestName, createNamespace))
-					platform.kubectl("wait", "--for=condition=PipelineCompleted", "bash", requestName, pipelineTimeout)
+					platform.kubectl("wait", "--for=condition=PipelineCompleted", "bashes", requestName, pipelineTimeout)
 					worker.eventuallyKubectl("get", "namespace", oldNamespaceName)
 				})
 
@@ -321,7 +321,7 @@ var _ = Describe("Kratix", func() {
 				By("installing and requesting v1alpha1 promise", func() {
 					platform.kubectl("apply", "-f", promisePath)
 
-					platform.eventuallyKubectl("get", "crd", "bash.test.kratix.io")
+					platform.eventuallyKubectl("get", "crd", "bashes.test.kratix.io")
 					Expect(worker.eventuallyKubectl("get", "namespace", "bash-dep-namespace-v1alpha1", "-o=yaml")).To(ContainSubstring("modifydepsinpipeline"))
 				})
 
@@ -398,7 +398,7 @@ var _ = Describe("Kratix", func() {
 		// - security: high
 		BeforeEach(func() {
 			platform.kubectl("apply", "-f", promiseWithSchedulingPath)
-			platform.eventuallyKubectl("get", "crd", "bash.test.kratix.io")
+			platform.eventuallyKubectl("get", "crd", "bashes.test.kratix.io")
 		})
 
 		AfterEach(func() {
@@ -455,7 +455,7 @@ var _ = Describe("Kratix", func() {
 				kubectl create namespace rr-2-namespace --dry-run=client -oyaml > /kratix/output/ns.yaml`
 				platform.kubectl("apply", "-f", requestWithNameAndCommand("rr-2", pipelineCmd))
 
-				platform.kubectl("wait", "--for=condition=PipelineCompleted", "bash", "rr-2", pipelineTimeout)
+				platform.kubectl("wait", "--for=condition=PipelineCompleted", "bashes", "rr-2", pipelineTimeout)
 
 				By("only scheduling the work when a Destination label matches", func() {
 					/*
@@ -536,7 +536,7 @@ var _ = Describe("Kratix", func() {
 			It("installs the Promises specified", func() {
 				platform.eventuallyKubectl("get", "promiserelease", "bash")
 				platform.eventuallyKubectl("get", "promise", "bash")
-				platform.eventuallyKubectl("get", "crd", "bash.test.kratix.io")
+				platform.eventuallyKubectl("get", "crd", "bashes.test.kratix.io")
 			})
 		})
 
@@ -548,7 +548,7 @@ var _ = Describe("Kratix", func() {
 			It("deletes the PromiseRelease and the Promises", func() {
 				Eventually(func(g Gomega) {
 					g.Expect(platform.kubectl("get", "promise")).ShouldNot(ContainSubstring("bash"))
-					g.Expect(platform.kubectl("get", "crd")).ShouldNot(ContainSubstring("bash"))
+					g.Expect(platform.kubectl("get", "crd")).ShouldNot(ContainSubstring("bashes"))
 					g.Expect(platform.kubectl("get", "promiserelease")).ShouldNot(ContainSubstring("bash"))
 				}, timeout, interval).Should(Succeed())
 			})
@@ -583,7 +583,7 @@ var _ = Describe("Kratix", func() {
 			By("writing to the repo on promise install", func() {
 				platform.kubectl("apply", "-f", promisePath)
 
-				platform.eventuallyKubectl("get", "crd", "bash.test.kratix.io")
+				platform.eventuallyKubectl("get", "crd", "bashes.test.kratix.io")
 				platform.eventuallyKubectl("get", "namespace", "promise-workflow-namespace")
 				worker.eventuallyKubectl("get", "namespace", "bash-dep-namespace-v1alpha1")
 				worker.eventuallyKubectl("get", "namespace", "bash-workflow-namespace-v1alpha1")
@@ -593,7 +593,7 @@ var _ = Describe("Kratix", func() {
 				platform.kubectl("apply", "-f", exampleBashRequest(rrName))
 
 				By("executing the pipeline pod", func() {
-					platform.kubectl("wait", "--for=condition=PipelineCompleted", "bash", rrName, pipelineTimeout)
+					platform.kubectl("wait", "--for=condition=PipelineCompleted", "bashes", rrName, pipelineTimeout)
 				})
 
 				By("deploying the contents of /kratix/output to the appropriate destinations", func() {
@@ -603,10 +603,10 @@ var _ = Describe("Kratix", func() {
 			})
 
 			By("removing from the repo on resource delete", func() {
-				platform.kubectl("delete", "bash", rrName)
+				platform.kubectl("delete", "bashes", rrName)
 
 				Eventually(func(g Gomega) {
-					g.Expect(platform.kubectl("get", "bash")).NotTo(ContainSubstring(rrName))
+					g.Expect(platform.kubectl("get", "bashes")).NotTo(ContainSubstring(rrName))
 					g.Expect(platform.kubectl("get", "namespace")).NotTo(ContainSubstring("imperative-rr-test"))
 					g.Expect(platform.kubectl("get", "namespace")).NotTo(ContainSubstring("declarative-platform-only-rr-test"))
 					g.Expect(worker.kubectl("get", "namespace")).NotTo(ContainSubstring("declarative-rr-test"))
@@ -620,7 +620,7 @@ var _ = Describe("Kratix", func() {
 					g.Expect(worker.kubectl("get", "namespace")).NotTo(ContainSubstring("bash-dep-namespace-v1alpha1"))
 					g.Expect(platform.kubectl("get", "namespace")).NotTo(ContainSubstring("promise-workflow-namespace"))
 					g.Expect(platform.kubectl("get", "promise")).ShouldNot(ContainSubstring("bash"))
-					g.Expect(platform.kubectl("get", "crd")).ShouldNot(ContainSubstring("bash"))
+					g.Expect(platform.kubectl("get", "crd")).ShouldNot(ContainSubstring("bashes"))
 				}, timeout, interval).Should(Succeed())
 			})
 		})

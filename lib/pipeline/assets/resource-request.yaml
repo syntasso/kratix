@@ -1,7 +1,7 @@
 apiVersion: marketplace.kratix.io/v1alpha1
-kind: redis
+kind: custom-namespace
 metadata:
   name: example
   namespace: default
 spec:
-  size: small
+  newConfig: "1"

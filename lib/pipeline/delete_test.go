@@ -37,10 +37,10 @@ var _ = Describe("Delete Pipeline", func() {
 	Describe("Promise", func() {
 		var (
 			expectedObjectMeta = metav1.ObjectMeta{
-				Name:      "redis-promise-pipeline",
+				Name:      "custom-namespace-promise-pipeline",
 				Namespace: "kratix-platform-system",
 				Labels: map[string]string{
-					"kratix-promise-id": "redis",
+					"kratix-promise-id": "custom-namespace",
 				},
 			}
 		)
@@ -86,7 +86,7 @@ var _ = Describe("Delete Pipeline", func() {
 					Rules: []rbacv1.PolicyRule{
 						{
 							APIGroups: []string{"platform.kratix.io"},
-							Resources: []string{"Promise", "Promise/status"},
+							Resources: []string{"promises", "promises/status"},
 							Verbs:     []string{"get", "list", "update", "create", "patch"},
 						},
 						{
@@ -106,13 +106,13 @@ var _ = Describe("Delete Pipeline", func() {
 					RoleRef: rbacv1.RoleRef{
 						Kind:     "Role",
 						APIGroup: "rbac.authorization.k8s.io",
-						Name:     "redis-promise-pipeline",
+						Name:     "custom-namespace-promise-pipeline",
 					},
 					Subjects: []rbacv1.Subject{
 						{
 							Kind:      "ServiceAccount",
 							Namespace: "kratix-platform-system",
-							Name:      "redis-promise-pipeline",
+							Name:      "custom-namespace-promise-pipeline",
 						},
 					},
 				}
@@ -127,12 +127,12 @@ var _ = Describe("Delete Pipeline", func() {
 					"kratix-workflow-promise-version": Equal("v1alpha1"),
 					"kratix-workflow-type":            Equal("promise"),
 					"kratix-workflow-action":          Equal("delete"),
-					"kratix-promise-id":               Equal("redis"),
+					"kratix-promise-id":               Equal("custom-namespace"),
 				})
 
 				Expect(job).To(MatchFields(IgnoreExtras, Fields{
 					"ObjectMeta": MatchFields(IgnoreExtras, Fields{
-						"Name":      HavePrefix("delete-pipeline-redis-"),
+						"Name":      HavePrefix("delete-pipeline-custom-namespace-"),
 						"Namespace": Equal("kratix-platform-system"),
 						"Labels":    labelsMatcher,
 					}),
@@ -143,11 +143,11 @@ var _ = Describe("Delete Pipeline", func() {
 							}),
 							"Spec": MatchFields(IgnoreExtras, Fields{
 								"RestartPolicy":      Equal(v1.RestartPolicyOnFailure),
-								"ServiceAccountName": Equal("redis-promise-pipeline"),
+								"ServiceAccountName": Equal("custom-namespace-promise-pipeline"),
 								"Containers": MatchAllElementsWithIndex(IndexIdentity, Elements{
 									"0": MatchFields(IgnoreExtras, Fields{
-										"Name":  Equal("demo-redis-promise-delete-pipeline"),
-										"Image": Equal("syntasso/demo-redis-delete-pipeline:v1.1.0"),
+										"Name":  Equal("demo-custom-namespace-promise-delete-pipeline"),
+										"Image": Equal("syntasso/demo-custom-namespace-delete-pipeline:v1.1.0"),
 										"VolumeMounts": ConsistOf(
 											MatchFields(IgnoreExtras, Fields{
 												"MountPath": Equal("/kratix/input"),
@@ -185,7 +185,7 @@ var _ = Describe("Delete Pipeline", func() {
 											}),
 											MatchFields(IgnoreExtras, Fields{
 												"Name":  Equal("OBJECT_NAME"),
-												"Value": Equal("redis"),
+												"Value": Equal("custom-namespace"),
 											}),
 											MatchFields(IgnoreExtras, Fields{
 												"Name":  Equal("OBJECT_NAMESPACE"),
@@ -224,10 +224,10 @@ var _ = Describe("Delete Pipeline", func() {
 	Describe("Resource", func() {
 		var (
 			expectedObjectMeta = metav1.ObjectMeta{
-				Name:      "redis-resource-pipeline",
+				Name:      "custom-namespace-resource-pipeline",
 				Namespace: "default",
 				Labels: map[string]string{
-					"kratix-promise-id": "redis",
+					"kratix-promise-id": "custom-namespace",
 				},
 			}
 		)
@@ -243,8 +243,9 @@ var _ = Describe("Delete Pipeline", func() {
 				pipelineResources = pipeline.NewDeleteResource(
 					resourceRequest,
 					pipelines.DeleteResource,
-					"example-redis",
-					"redis",
+					"example-custom-namespace",
+					"custom-namespace",
+					"custom-namespaces",
 				)
 			})
 
@@ -274,7 +275,7 @@ var _ = Describe("Delete Pipeline", func() {
 					Rules: []rbacv1.PolicyRule{
 						{
 							APIGroups: []string{"marketplace.kratix.io"},
-							Resources: []string{"redis", "redis/status"},
+							Resources: []string{"custom-namespaces", "custom-namespaces/status"},
 							Verbs:     []string{"get", "list", "update", "create", "patch"},
 						},
 						{
@@ -294,13 +295,13 @@ var _ = Describe("Delete Pipeline", func() {
 					RoleRef: rbacv1.RoleRef{
 						Kind:     "Role",
 						APIGroup: "rbac.authorization.k8s.io",
-						Name:     "redis-resource-pipeline",
+						Name:     "custom-namespace-resource-pipeline",
 					},
 					Subjects: []rbacv1.Subject{
 						{
 							Kind:      "ServiceAccount",
 							Namespace: "default",
-							Name:      "redis-resource-pipeline",
+							Name:      "custom-namespace-resource-pipeline",
 						},
 					},
 				}
@@ -315,13 +316,13 @@ var _ = Describe("Delete Pipeline", func() {
 					"kratix-workflow-promise-version":    Equal("v1alpha1"),
 					"kratix-workflow-type":               Equal("resource"),
 					"kratix-workflow-action":             Equal("delete"),
-					"kratix-promise-id":                  Equal("redis"),
-					"kratix-promise-resource-request-id": Equal("example-redis"),
+					"kratix-promise-id":                  Equal("custom-namespace"),
+					"kratix-promise-resource-request-id": Equal("example-custom-namespace"),
 				})
 
 				Expect(job).To(MatchFields(IgnoreExtras, Fields{
 					"ObjectMeta": MatchFields(IgnoreExtras, Fields{
-						"Name":      HavePrefix("delete-pipeline-redis-"),
+						"Name":      HavePrefix("delete-pipeline-custom-namespace-"),
 						"Namespace": Equal("default"),
 						"Labels":    labelsMatcher,
 					}),
@@ -332,11 +333,11 @@ var _ = Describe("Delete Pipeline", func() {
 							}),
 							"Spec": MatchFields(IgnoreExtras, Fields{
 								"RestartPolicy":      Equal(v1.RestartPolicyOnFailure),
-								"ServiceAccountName": Equal("redis-resource-pipeline"),
+								"ServiceAccountName": Equal("custom-namespace-resource-pipeline"),
 								"Containers": MatchAllElementsWithIndex(IndexIdentity, Elements{
 									"0": MatchFields(IgnoreExtras, Fields{
-										"Name":  Equal("demo-redis-resource-delete-pipeline"),
-										"Image": Equal("syntasso/demo-redis-delete-pipeline:v1.1.0"),
+										"Name":  Equal("demo-custom-namespace-resource-delete-pipeline"),
+										"Image": Equal("syntasso/demo-custom-namespace-delete-pipeline:v1.1.0"),
 										"VolumeMounts": ConsistOf(
 											MatchFields(IgnoreExtras, Fields{
 												"MountPath": Equal("/kratix/input"),
@@ -366,7 +367,7 @@ var _ = Describe("Delete Pipeline", func() {
 										"Env": ConsistOf(
 											MatchFields(IgnoreExtras, Fields{
 												"Name":  Equal("OBJECT_KIND"),
-												"Value": Equal("redis"),
+												"Value": Equal("custom-namespace"),
 											}),
 											MatchFields(IgnoreExtras, Fields{
 												"Name":  Equal("OBJECT_GROUP"),
