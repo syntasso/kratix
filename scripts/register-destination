@@ -11,6 +11,8 @@ DESTINATION_CONTEXT=""
 PLATFORM_CONTEXT="kind-platform"
 STATE_STORE="default"
 GITOPS_PATH="platform-cluster"
+SECRET_NAME=""
+SECRET_NAMESPACE=""
 
 usage() {
     echo -e "Usage: register-destination [--help] [--git] [--with-label foo=bar] [--context k8s-context] [--name  some-name ] [--platform-context 'kind-platform'] [--path platform-cluster] [--secret-name 'a-secret'] [--secret-namespace 'a-namespace']"
