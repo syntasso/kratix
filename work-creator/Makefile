@@ -25,7 +25,7 @@ test: ## Run tests.
 	go run ${GINKGO} ./pipeline/ -r  --coverprofile cover.out
 
 kind-load-image: docker-build ## Load locally built image into KinD, use export WC_IMG=syntasso/kratix-platform-pipeline-adapter:dev
-	kind load docker-image ${WC_IMG} --name platform
+	kind load docker-image ${WC_IMG_TAG} --name platform
 	kind load docker-image ${WC_IMG_MIRROR} --name platform
 
 ##@ Build
@@ -38,5 +38,5 @@ docker-build-and-push: ## Push multi-arch docker image with the manager.
 	if ! docker buildx ls | grep -q "work-creator-image-builder"; then \
 		docker buildx create --name work-creator-image-builder; \
 	fi;
-	docker buildx build --builder work-creator-image-builder --push --platform linux/arm64,linux/amd64 --file ../Dockerfile.pipeline-adapter --tag ${WC_IMG} --tag ${WC_IMG_NAME}:latest ../
+	docker buildx build --builder work-creator-image-builder --push --platform linux/arm64,linux/amd64 --file ../Dockerfile.pipeline-adapter --tag ${WC_IMG_TAG} --tag ${WC_IMG_NAME}:latest ../
 	docker buildx build --builder work-creator-image-builder --push --platform linux/arm64,linux/amd64 --file ../Dockerfile.pipeline-adapter --tag ${WC_IMG_MIRROR} ../
