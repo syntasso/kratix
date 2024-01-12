@@ -82,7 +82,7 @@ spec:
       containers:
       - name: minio-event-configuration
         image: minio/mc:RELEASE.2023-06-06T13-48-56Z
-        command: ["mc", "mb", "minio/kratix"]
+        command: ["mc", "mb", "--ignore-existing", "minio/kratix"]
         env:
         - name: MC_ACCESS_KEY
           valueFrom:
