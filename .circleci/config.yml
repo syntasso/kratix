@@ -116,7 +116,7 @@ commands:
 
 jobs:
   clone-helm-charts:
-    executor: machine-medium
+    executor: machine-small
     steps:
       - run:
           name: Clone helm charts
@@ -128,7 +128,7 @@ jobs:
             - charts/
 
   clone-kratix:
-    executor: machine-medium
+    executor: machine-small
     steps:
       - checkout
       - persist_to_workspace:
@@ -237,7 +237,7 @@ jobs:
             ./scripts/install-jenkins.sh
 
   git-merge-and-push:
-    executor: machine-medium
+    executor: machine-small
     steps:
       - install_software
       - setup_git
@@ -306,7 +306,7 @@ jobs:
             git push origin dev
 
   generate-release-distribution:
-    executor: machine-medium
+    executor: machine-small
     environment:
       VERSION: << pipeline.git.tag >>
     steps:
@@ -327,7 +327,7 @@ jobs:
             - .
 
   tag-new-version:
-    executor: machine-medium
+    executor: machine-small
     steps:
       - queue/until_front_of_line: # ensure only one of those runs at a time
           only-on-branch: main
@@ -343,7 +343,7 @@ jobs:
   gh-release:
     docker:
       - image: cimg/base:current
-    resource_class: large
+    resource_class: small
     steps:
       - attach_workspace:
           at: .
@@ -359,7 +359,7 @@ jobs:
       - image: cimg/base:current
     environment:
       VERSION: << pipeline.git.tag >>
-    resource_class: large
+    resource_class: small
     steps:
       - attach_workspace:
           at: .
