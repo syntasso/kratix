@@ -154,14 +154,15 @@ jobs:
   kratix-containers-vulnerability-scan:
     executor: machine-medium
     environment:
-      IMAGE_VERSION: << pipeline.git.tag >>
-      # IMAGE_VERSION: v0.17.0
-      IMAGE_NAME: syntasso/kratix-platform
+      KRATIX_IMAGE_NAME: syntasso/kratix-platform
+      WORKER_IMAGE_NAME: syntasso/kratix-platform-pipeline-adapter
     steps:
       - snyk/scan:
           severity-threshold: medium
-          docker-image-name: $IMAGE_NAME:$IMAGE_VERSION
-
+          docker-image-name: $IMAGE_NAME:latest
+      - snyk/scan:
+          severity-threshold: medium
+          docker-image-name: $WORKER_IMAGE_NAME:latest
 
   test:
     executor: machine-large

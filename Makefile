@@ -1,10 +1,13 @@
 # Version to use for building/releasing artifacts
 VERSION ?= dev
 # Image URL to use all building/pushing image targets
-IMG ?= syntasso/kratix-platform:${VERSION}
+IMG_NAME ?= syntasso/kratix-platform
+IMG_VERSION ?= ${VERSION}
+IMG_TAG ?= ${IMG_NAME}:${IMG_VERSION}
 IMG_MIRROR ?= syntassodev/kratix-platform:${VERSION}
 # Image URL to use for work creator image in promise_controller.go
-WC_IMG ?= syntasso/kratix-platform-pipeline-adapter:${VERSION}
+WC_IMG_VERSION ?= ${VERSION}
+WC_IMG ?= syntasso/kratix-platform-pipeline-adapter:${WC_IMG_VERSION}
 WC_IMG_MIRROR ?= syntassodev/kratix-platform-pipeline-adapter:${VERSION}
 # Version of the worker-resource-builder binary to build and release
 WRB_VERSION ?= 0.0.0
@@ -87,14 +90,14 @@ install-cert-manager: ## Install cert-manager on the platform cluster; used in t
 ##@ Container Images
 
 kind-load-image: docker-build ## Load locally built image into KinD
-	kind load docker-image ${IMG} --name platform
+	kind load docker-image ${IMG_TAG} --name platform
 	kind load docker-image ${IMG_MIRROR} --name platform
 
 build-and-load-kratix: kind-load-image ## Build kratix container image and reloads
 	kubectl rollout restart deployment -n kratix-platform-system -l control-plane=controller-manager
 
 build-and-load-worker-creator: ## Build worker-creator container image and reloads
-	WC_IMG=${WC_IMG} WC_IMG_MIRROR=${WC_IMG_MIRROR} make -C work-creator kind-load-image
+	WC_IMG_VERSION=${WC_IMG_VERSION} WC_IMG_MIRROR=${WC_IMG_MIRROR} make -C work-creator kind-load-image
 
 ##@ Build
 
@@ -109,18 +112,18 @@ debug-run: manifests generate fmt vet ## Run a controller in debug mode from you
 	dlv --listen=:2345 --headless=true --api-version=2 --accept-multiclient debug ./main.go
 
 docker-build: ## Build docker image with the manager.
-	docker build -t ${IMG} .
-	docker tag ${IMG} ${IMG_MIRROR}
+	docker build -t ${IMG_TAG} -t ${IMG_NAME}:latest .
+	docker tag ${IMG_TAG} ${IMG_MIRROR}
 
 docker-build-and-push: ## Push multi-arch docker image with the manager.
 	if ! docker buildx ls | grep -q "kratix-image-builder"; then \
 		docker buildx create --name kratix-image-builder; \
 	fi;
-	docker buildx build --builder kratix-image-builder --push --platform linux/arm64,linux/amd64 -t ${IMG} .
+	docker buildx build --builder kratix-image-builder --push --platform linux/arm64,linux/amd64 -t ${IMG_TAG} -t ${IMG_NAME}:latest .
 	docker buildx build --builder kratix-image-builder --push --platform linux/arm64,linux/amd64 -t ${IMG_MIRROR} .
 
 build-and-push-work-creator: ## Build and push the Work Creator image
-	WC_IMG=${WC_IMG} WC_IMG_MIRROR=${WC_IMG_MIRROR} $(MAKE) -C work-creator docker-build-and-push
+	WC_IMG_VERSION=${WC_IMG_VERSION} WC_IMG_MIRROR=${WC_IMG_MIRROR} $(MAKE) -C work-creator docker-build-and-push
 
 # If not installed, use: go install github.com/goreleaser/goreleaser@latest
 build-worker-resource-builder-binary: ## Uses the goreleaser config to generate binaries
@@ -135,11 +138,11 @@ uninstall: manifests kustomize ## Uninstall CRDs from the K8s cluster specified 
 	$(KUSTOMIZE) build config/crd | kubectl delete -f -
 
 deploy: manifests kustomize ## Deploy controller to the K8s cluster specified in ~/.kube/config.
-	cd config/manager && $(KUSTOMIZE) edit set image controller=${IMG}
+	cd config/manager && $(KUSTOMIZE) edit set image controller=${IMG_TAG}
 	WC_IMG=${WC_IMG} $(KUSTOMIZE) build config/default | kubectl apply -f -
 
 distribution: manifests kustomize ## Create a deployment manifest in /distribution/kratix.yaml
-	cd config/manager && $(KUSTOMIZE) edit set image controller=${IMG}
+	cd config/manager && $(KUSTOMIZE) edit set image controller=${IMG_TAG}
 	mkdir -p distribution
 	WC_IMG=${WC_IMG} $(KUSTOMIZE) build config/default --output distribution/kratix.yaml
 
