@@ -21,12 +21,6 @@ executors:
       docker_layer_caching: true
     working_directory: ~/repo
     resource_class: large
-  machine-small:
-    machine:
-      image: ubuntu-2204:2023.04.2
-      docker_layer_caching: true
-    working_directory: ~/repo
-    resource_class: small
 
 filter-for-tags: &filter-for-tags
   filters:
@@ -116,7 +110,7 @@ commands:
 
 jobs:
   clone-helm-charts:
-    executor: machine-small
+    executor: machine-medium
     steps:
       - run:
           name: Clone helm charts
@@ -128,7 +122,7 @@ jobs:
             - charts/
 
   clone-kratix:
-    executor: machine-small
+    executor: machine-medium
     steps:
       - checkout
       - persist_to_workspace:
@@ -237,7 +231,7 @@ jobs:
             ./scripts/install-jenkins.sh
 
   git-merge-and-push:
-    executor: machine-small
+    executor: machine-medium
     steps:
       - install_software
       - setup_git
@@ -291,7 +285,7 @@ jobs:
             ./scripts/build-images << parameters.image >>
 
   git-push-to-dev:
-    executor: machine-small
+    executor: machine-medium
     steps:
       - attach_workspace:
           at: .
@@ -306,7 +300,7 @@ jobs:
             git push origin dev
 
   generate-release-distribution:
-    executor: machine-small
+    executor: machine-medium
     environment:
       VERSION: << pipeline.git.tag >>
     steps:
@@ -327,7 +321,7 @@ jobs:
             - .
 
   tag-new-version:
-    executor: machine-small
+    executor: machine-medium
     steps:
       - queue/until_front_of_line: # ensure only one of those runs at a time
           only-on-branch: main
@@ -343,7 +337,7 @@ jobs:
   gh-release:
     docker:
       - image: cimg/base:current
-    resource_class: small
+    resource_class: large
     steps:
       - attach_workspace:
           at: .
@@ -359,7 +353,7 @@ jobs:
       - image: cimg/base:current
     environment:
       VERSION: << pipeline.git.tag >>
-    resource_class: small
+    resource_class: large
     steps:
       - attach_workspace:
           at: .
