@@ -143,7 +143,6 @@ var _ = Describe("Kratix", func() {
 
 		AfterEach(func() {
 			platform.kubectl("label", "destination", "worker-1", "extra-")
-			platform.ignoreExitCode().kubectl("delete", "promises", "bash")
 		})
 
 		FIt("can install, update, and delete a promise", func() {
@@ -192,6 +191,7 @@ var _ = Describe("Kratix", func() {
 			})
 		})
 
+		//TODO fix
 		When("the promise has requirements that are fulfilled", func() {
 			var tmpDir string
 			BeforeEach(func() {
@@ -262,12 +262,12 @@ var _ = Describe("Kratix", func() {
 		})
 
 		Describe("Resource requests", func() {
-			It("executes the pipelines and schedules the work to the appropriate destinations", func() {
+			FIt("executes the pipelines and schedules the work to the appropriate destinations", func() {
 				platform.kubectl("apply", "-f", cat(bashPromise))
 				platform.eventuallyKubectl("get", "crd", crd.Name)
 				worker.eventuallyKubectl("get", "namespace", declarativeWorkerNamespace)
 
-				rrName := "rr-test"
+				rrName := promiseID + "rr-test"
 				platform.kubectl("apply", "-f", exampleBashRequest(rrName))
 
 				By("executing the pipeline pod", func() {
@@ -275,40 +275,40 @@ var _ = Describe("Kratix", func() {
 				})
 
 				By("deploying the contents of /kratix/output/platform to the platform destination only", func() {
-					platform.eventuallyKubectl("get", "namespace", "declarative-platform-only-rr-test")
+					platform.eventuallyKubectl("get", "namespace", "declarative-platform-only"+rrName)
 					Consistently(func() string {
 						return worker.kubectl("get", "namespace")
-					}, "10s").ShouldNot(ContainSubstring("declarative-platform-only-rr-test"))
+					}, "10s").ShouldNot(ContainSubstring("declarative-platform-only" + rrName))
 				})
 
 				By("deploying the remaining contents of /kratix/output to the worker destination", func() {
-					worker.eventuallyKubectl("get", "namespace", "declarative-rr-test")
+					worker.eventuallyKubectl("get", "namespace", "declarative"+rrName)
 				})
 
 				By("the imperative API call in the pipeline to the platform cluster succeeding", func() {
-					platform.eventuallyKubectl("get", "namespace", "imperative-rr-test")
+					platform.eventuallyKubectl("get", "namespace", "imperative"+rrName)
 				})
 
 				By("mirroring the directory and files from /kratix/output to the statestore", func() {
-					Expect(listFilesInStateStore("worker-1", "default", "bash", rrName)).To(ConsistOf("5058f/foo/example.json", "5058f/namespace.yaml"))
+					Expect(listFilesInStateStore("worker-1", "default", promiseID, rrName)).To(ConsistOf("5058f/foo/example.json", "5058f/namespace.yaml"))
 				})
 
 				By("updating the resource status", func() {
 					Eventually(func() string {
-						return platform.kubectl("get", "bash", rrName)
+						return platform.kubectl("get", promiseID, rrName)
 					}, timeout, interval).Should(ContainSubstring("My awesome status message"))
 					Eventually(func() string {
-						return platform.kubectl("get", "bash", rrName, "-o", "jsonpath='{.status.key}'")
+						return platform.kubectl("get", promiseID, rrName, "-o", "jsonpath='{.status.key}'")
 					}, timeout, interval).Should(ContainSubstring("value"))
 				})
 
 				By("deleting the resource request", func() {
-					platform.kubectl("delete", "bash", rrName)
+					platform.kubectl("delete", promiseID, rrName)
 
 					Eventually(func(g Gomega) {
-						g.Expect(platform.kubectl("get", "bash")).NotTo(ContainSubstring(rrName))
-						g.Expect(platform.kubectl("get", "namespace")).NotTo(ContainSubstring("imperative-rr-test"))
-						g.Expect(worker.kubectl("get", "namespace")).NotTo(ContainSubstring("declarative-rr-test"))
+						g.Expect(platform.kubectl("get", promiseID)).NotTo(ContainSubstring(rrName))
+						g.Expect(platform.kubectl("get", "namespace")).NotTo(ContainSubstring("imperative" + rrName))
+						g.Expect(worker.kubectl("get", "namespace")).NotTo(ContainSubstring("declarative" + rrName))
 					}, timeout, interval).Should(Succeed())
 				})
 
@@ -320,7 +320,7 @@ var _ = Describe("Kratix", func() {
 				})
 
 				platform.kubectl("delete", "promise", promiseID)
-				Eventually(platform.kubectl("get", "promise")).ShouldNot(ContainSubstring("bash"))
+				Eventually(platform.kubectl("get", "promise")).ShouldNot(ContainSubstring(promiseID))
 			})
 
 			When("an existing resource request is updated", func() {
