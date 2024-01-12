@@ -21,6 +21,12 @@ executors:
       docker_layer_caching: true
     working_directory: ~/repo
     resource_class: large
+  machine-small:
+    machine:
+      image: ubuntu-2204:2023.04.2
+      docker_layer_caching: true
+    working_directory: ~/repo
+    resource_class: small
 
 filter-for-tags: &filter-for-tags
   filters:
@@ -144,7 +150,7 @@ jobs:
           command: govulncheck ./...
       - snyk/scan:
           severity-threshold: medium
-  
+
   kratix-containers-vulnerability-scan:
     executor: machine-medium
     environment:
@@ -284,7 +290,7 @@ jobs:
             ./scripts/build-images << parameters.image >>
 
   git-push-to-dev:
-    executor: machine-medium
+    executor: machine-small
     steps:
       - attach_workspace:
           at: .
@@ -426,7 +432,7 @@ workflows:
   update-demo:
     triggers:
       - schedule:
-          cron: "0 0 * * 1-5"
+          cron: "0 0 * * 1"
           filters:
             branches:
               only: [dev]
