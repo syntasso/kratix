@@ -1,9 +1,9 @@
 apiVersion: platform.kratix.io/v1alpha1
 kind: PromiseRelease
 metadata:
-  name: bash
+  name: REPLACEBASH
 spec:
   version: v1.0.0
   sourceRef:
     type: http
-    url: http://LOCALHOST:8081/promise
+    url: http://LOCALHOST:REPLACEPORT/promise

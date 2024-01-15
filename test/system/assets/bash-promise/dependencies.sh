@@ -4,7 +4,7 @@ set -eux
 unique_id=$(yq '.metadata.name' /kratix/input/object.yaml)
 
 imperative_platform_namespace=${unique_id}-platform-imperative
-declarative_worker_namespace=${unique_id}-worker-declarative
+declarative_worker_namespace=${unique_id}-worker-declarative-${VERSION}
 declarative_platform_namespace=${unique_id}-platform-declarative
 
 if [ "${KRATIX_WORKFLOW_ACTION}" = "configure" ]; then

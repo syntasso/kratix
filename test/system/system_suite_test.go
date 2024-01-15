@@ -1,7 +1,6 @@
 package system_test
 
 import (
-	"fmt"
 	"os"
 	"path/filepath"
 	"runtime"
@@ -30,18 +29,13 @@ func TestSystem(t *testing.T) {
 var _ = BeforeSuite(func() {
 	var err error
 	testTempDir, err = os.MkdirTemp(os.TempDir(), "systest")
+	Expect(err).NotTo(HaveOccurred())
 	initK8sClient()
-	storeType = "bucket"
-	if os.Getenv("SYSTEM_TEST_STORE_TYPE") == "git" {
-		storeType = "git"
-	}
-	fmt.Println("Running system tests with statestore " + storeType)
-
 	tmpDir, err := os.MkdirTemp(os.TempDir(), "systest")
 	Expect(err).NotTo(HaveOccurred())
-	platform.kubectl("apply", "-f", catAndReplace(tmpDir, fmt.Sprintf("./assets/%s/platform_gitops-tk-resources.yaml", storeType)))
-	platform.kubectl("apply", "-f", catAndReplace(tmpDir, fmt.Sprintf("./assets/%s/platform_statestore.yaml", storeType)))
-	platform.kubectl("apply", "-f", catAndReplace(tmpDir, fmt.Sprintf("./assets/%s/platform_kratix_destination.yaml", storeType)))
+	platform.kubectl("apply", "-f", catAndReplaceFluxResources(tmpDir, "./assets/git/platform_gitops-tk-resources.yaml"))
+	platform.kubectl("apply", "-f", catAndReplaceFluxResources(tmpDir, "./assets/git/platform_statestore.yaml"))
+	platform.kubectl("apply", "-f", catAndReplaceFluxResources(tmpDir, "./assets/git/platform_kratix_destination.yaml"))
 	os.RemoveAll(tmpDir)
 })
 
@@ -49,7 +43,7 @@ var _ = AfterSuite(func() {
 	os.RemoveAll(testTempDir)
 })
 
-func catAndReplace(tmpDir, file string) string {
+func catAndReplaceFluxResources(tmpDir, file string) string {
 	bytes, err := os.ReadFile(file)
 	Expect(err).NotTo(HaveOccurred())
 	//Set via the Makefile
@@ -60,6 +54,23 @@ func catAndReplace(tmpDir, file string) string {
 	}
 	output := strings.ReplaceAll(string(bytes), "PLACEHOLDER", ip)
 	output = strings.ReplaceAll(output, "LOCALHOST", hostIP)
+	tmpFile := filepath.Join(tmpDir, filepath.Base(file))
+	err = os.WriteFile(tmpFile, []byte(output), 0777)
+	Expect(err).NotTo(HaveOccurred())
+	return tmpFile
+}
+
+func catAndReplacePromiseRelease(tmpDir, file, port, bashPromiseName string) string {
+	bytes, err := os.ReadFile(file)
+	Expect(err).NotTo(HaveOccurred())
+	//Set via the Makefile
+	hostIP := "host.docker.internal"
+	if runtime.GOOS == "linux" {
+		hostIP = "172.17.0.1"
+	}
+	output := strings.ReplaceAll(string(bytes), "LOCALHOST", hostIP)
+	output = strings.ReplaceAll(output, "REPLACEPORT", port)
+	output = strings.ReplaceAll(output, "REPLACEBASH", bashPromiseName)
 	tmpFile := filepath.Join(tmpDir, filepath.Base(file))
 	err = os.WriteFile(tmpFile, []byte(output), 0777)
 	Expect(err).NotTo(HaveOccurred())
