@@ -49,6 +49,14 @@ type DestinationSpec struct {
 	//+kubebuilder:validation:Optional
 	StateStoreCoreFields `json:",inline"`
 	StateStoreRef        *StateStoreReference `json:"stateStoreRef,omitempty"`
+
+	// By default, Kratix will schedule works without labels to all destinations
+	// (for promise dependencies) or to a random destination (for resource
+	// requests). If StrictLabelsMatch is true, Kratix will only schedule works
+	// to this destination if the labels match strictly (that is, an empty label
+	// set on the work won't be schedule to this destination, unless the
+	// destination label set is also empty). +kubebuilder:validation:Optional
+	StrictLabelsMatch bool `json:"strictLabelsMatch,omitempty"`
 }
 
 // DestinationStatus defines the observed state of Destination

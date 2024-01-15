@@ -20,7 +20,7 @@ import (
 )
 
 var _ = Describe("Controllers/Scheduler", func() {
-	var devDestination, devDestination2, pciDestination, prodDestination Destination
+	var devDestination, devDestination2, pciDestination, prodDestination, strictDestination Destination
 	var workPlacements WorkPlacementList
 	var scheduler *Scheduler
 
@@ -28,6 +28,8 @@ var _ = Describe("Controllers/Scheduler", func() {
 		// create a set of destinations to be used throughout the tests
 		devDestination = newDestination("dev-1", map[string]string{"environment": "dev"})
 		devDestination2 = newDestination("dev-2", map[string]string{"environment": "dev"})
+		strictDestination = newDestination("strict", map[string]string{"strict": "true"})
+		strictDestination.Spec.StrictLabelsMatch = true
 		pciDestination = newDestination("pci", map[string]string{"pci": "true"})
 		prodDestination = newDestination("prod", map[string]string{"environment": "prod"})
 
@@ -35,6 +37,7 @@ var _ = Describe("Controllers/Scheduler", func() {
 		Expect(fakeK8sClient.Create(context.Background(), &devDestination2)).To(Succeed())
 		Expect(fakeK8sClient.Create(context.Background(), &pciDestination)).To(Succeed())
 		Expect(fakeK8sClient.Create(context.Background(), &prodDestination)).To(Succeed())
+		Expect(fakeK8sClient.Create(context.Background(), &strictDestination)).To(Succeed())
 
 		scheduler = &Scheduler{
 			Client: fakeK8sClient,
@@ -753,13 +756,14 @@ var _ = Describe("Controllers/Scheduler", func() {
 					Expect(err).ToNot(HaveOccurred())
 				})
 
-				It("creates WorkPlacements for all registered Destinations", func() {
+				It("creates WorkPlacements for all non-strict label matching registered Destinations", func() {
 					Expect(fakeK8sClient.List(context.Background(), &workPlacements)).To(Succeed())
 					Expect(len(workPlacements.Items)).To(Equal(4))
 					for _, workPlacement := range workPlacements.Items {
 						Expect(workPlacement.Spec.Workloads).To(ConsistOf(Workload{
 							Content: "key: value",
 						}))
+						Expect(workPlacement.Spec.TargetDestinationName).ToNot(Equal(strictDestination.Name))
 					}
 				})
 

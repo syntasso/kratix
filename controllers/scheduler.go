@@ -427,7 +427,7 @@ func (s *Scheduler) getTargetDestinationNames(destinationSelectors map[string]st
 
 // By default, all destinations are returned. However, if scheduling is provided, only matching destinations will be returned.
 func (s *Scheduler) getDestinationsForWorkloadGroup(destinationSelectors map[string]string) []platformv1alpha1.Destination {
-	destinations := &platformv1alpha1.DestinationList{}
+	destinationList := &platformv1alpha1.DestinationList{}
 	lo := &client.ListOptions{}
 
 	if len(destinationSelectors) > 0 {
@@ -441,11 +441,23 @@ func (s *Scheduler) getDestinationsForWorkloadGroup(destinationSelectors map[str
 		lo.LabelSelector = selector
 	}
 
-	err := s.Client.List(context.Background(), destinations, lo)
+	err := s.Client.List(context.Background(), destinationList, lo)
 	if err != nil {
 		s.Log.Error(err, "Error listing available Destinations")
 	}
-	return destinations.Items
+
+	if len(destinationSelectors) > 0 {
+		return destinationList.Items
+	}
+
+	destinations := []platformv1alpha1.Destination{}
+	for _, destination := range destinationList.Items {
+		if destination.Spec.StrictLabelsMatch && len(destination.GetLabels()) > 0 {
+			continue
+		}
+		destinations = append(destinations, destination)
+	}
+	return destinations
 }
 
 func resolveDestinationSelectorsForWorkloadGroup(workloadGroup platformv1alpha1.WorkloadGroup, work *platformv1alpha1.Work) map[string]string {
