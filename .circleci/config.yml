@@ -153,7 +153,7 @@ jobs:
     steps:
       - snyk/scan:
           severity-threshold: medium
-          docker-image-name: $IMAGE_NAME:latest
+          docker-image-name: $KRATIX_IMAGE_NAME:latest
       - snyk/scan:
           severity-threshold: medium
           docker-image-name: $WORKER_IMAGE_NAME:latest
