@@ -110,7 +110,7 @@ var _ = Describe("Kratix", func() {
 
 		//TODO either 1 server or server per test
 		srv = &gohttp.Server{
-			Addr:    ":8081",
+			Addr:    fmt.Sprintf(":808%d", GinkgoParallelProcess()),
 			Handler: router,
 		}
 
@@ -129,7 +129,6 @@ var _ = Describe("Kratix", func() {
 		var err error
 		crd, err = bashPromise.GetAPIAsCRD()
 		Expect(err).NotTo(HaveOccurred())
-
 	})
 
 	AfterEach(func() {
@@ -270,23 +269,26 @@ var _ = Describe("Kratix", func() {
 				rrName := promiseID + "rr-test"
 				platform.kubectl("apply", "-f", exampleBashRequest(rrName))
 
+				rrDeclarativePlatformNamespace := "declarative-platform-only-" + rrName
+				rrDeclarativeWorkerNamespace := "declarative-" + rrName
+				rrImperativePlatformNamespace := "imperative-" + rrName
 				By("executing the pipeline pod", func() {
 					platform.kubectl("wait", "--for=condition=PipelineCompleted", promiseID, rrName, pipelineTimeout)
 				})
 
 				By("deploying the contents of /kratix/output/platform to the platform destination only", func() {
-					platform.eventuallyKubectl("get", "namespace", "declarative-platform-only"+rrName)
+					platform.eventuallyKubectl("get", "namespace", rrDeclarativePlatformNamespace)
 					Consistently(func() string {
 						return worker.kubectl("get", "namespace")
-					}, "10s").ShouldNot(ContainSubstring("declarative-platform-only" + rrName))
+					}, "10s").ShouldNot(ContainSubstring(rrDeclarativePlatformNamespace))
 				})
 
 				By("deploying the remaining contents of /kratix/output to the worker destination", func() {
-					worker.eventuallyKubectl("get", "namespace", "declarative"+rrName)
+					worker.eventuallyKubectl("get", "namespace", rrDeclarativeWorkerNamespace)
 				})
 
 				By("the imperative API call in the pipeline to the platform cluster succeeding", func() {
-					platform.eventuallyKubectl("get", "namespace", "imperative"+rrName)
+					platform.eventuallyKubectl("get", "namespace", rrImperativePlatformNamespace)
 				})
 
 				By("mirroring the directory and files from /kratix/output to the statestore", func() {
@@ -307,8 +309,8 @@ var _ = Describe("Kratix", func() {
 
 					Eventually(func(g Gomega) {
 						g.Expect(platform.kubectl("get", promiseID)).NotTo(ContainSubstring(rrName))
-						g.Expect(platform.kubectl("get", "namespace")).NotTo(ContainSubstring("imperative" + rrName))
-						g.Expect(worker.kubectl("get", "namespace")).NotTo(ContainSubstring("declarative" + rrName))
+						g.Expect(platform.kubectl("get", "namespace")).NotTo(ContainSubstring(rrImperativePlatformNamespace))
+						g.Expect(worker.kubectl("get", "namespace")).NotTo(ContainSubstring(rrDeclarativeWorkerNamespace))
 					}, timeout, interval).Should(Succeed())
 				})
 
