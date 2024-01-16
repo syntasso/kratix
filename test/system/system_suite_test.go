@@ -26,7 +26,8 @@ func TestSystem(t *testing.T) {
 	RunSpecs(t, "System Suite")
 }
 
-var _ = BeforeSuite(func() {
+var _ = SynchronizedBeforeSuite(func() {
+	//this runs once for the whole suite
 	var err error
 	testTempDir, err = os.MkdirTemp(os.TempDir(), "systest")
 	Expect(err).NotTo(HaveOccurred())
@@ -37,7 +38,7 @@ var _ = BeforeSuite(func() {
 	platform.kubectl("apply", "-f", catAndReplaceFluxResources(tmpDir, "./assets/git/platform_statestore.yaml"))
 	platform.kubectl("apply", "-f", catAndReplaceFluxResources(tmpDir, "./assets/git/platform_kratix_destination.yaml"))
 	os.RemoveAll(tmpDir)
-})
+}, func() {})
 
 var _ = AfterSuite(func() {
 	os.RemoveAll(testTempDir)
