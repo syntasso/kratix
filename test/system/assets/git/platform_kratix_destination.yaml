@@ -8,5 +8,5 @@ metadata:
 spec:
   path: bar/baz
   stateStoreRef:
-    name: system-test
+    name: default
     kind: GitStateStore

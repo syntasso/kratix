@@ -195,7 +195,7 @@ test: manifests generate fmt vet ## Run unit tests.
 	go run ${GINKGO} -r --coverprofile cover.out --skip-package=system
 
 .PHONY: run-system-test
-run-system-test: fmt vet build-and-load-bash prepare-platform-as-destination
+run-system-test: fmt vet build-and-load-bash
 	# PLATFORM_DESTINATION_IP=`docker inspect platform-control-plane | grep '"IPAddress": "172' | awk -F '"' '{print $$4}'` go run ${GINKGO} -p --output-interceptor-mode=none ./test/system/  --coverprofile cover.out
 	PLATFORM_DESTINATION_IP=`docker inspect platform-control-plane | grep '"IPAddress": "172' | awk -F '"' '{print $$4}'` go run ${GINKGO} ./test/system/  --coverprofile cover.out
 
