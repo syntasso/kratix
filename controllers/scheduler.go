@@ -452,7 +452,7 @@ func (s *Scheduler) getDestinationsForWorkloadGroup(destinationSelectors map[str
 
 	destinations := []platformv1alpha1.Destination{}
 	for _, destination := range destinationList.Items {
-		if destination.Spec.StrictLabelsMatch && len(destination.GetLabels()) > 0 {
+		if destination.Spec.StrictMatchLabels && len(destination.GetLabels()) > 0 {
 			continue
 		}
 		destinations = append(destinations, destination)

@@ -29,7 +29,7 @@ var _ = Describe("Controllers/Scheduler", func() {
 		devDestination = newDestination("dev-1", map[string]string{"environment": "dev"})
 		devDestination2 = newDestination("dev-2", map[string]string{"environment": "dev"})
 		strictDestination = newDestination("strict", map[string]string{"strict": "true"})
-		strictDestination.Spec.StrictLabelsMatch = true
+		strictDestination.Spec.StrictMatchLabels = true
 		pciDestination = newDestination("pci", map[string]string{"pci": "true"})
 		prodDestination = newDestination("prod", map[string]string{"environment": "prod"})
 
