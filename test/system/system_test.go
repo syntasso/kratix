@@ -279,7 +279,7 @@ var _ = Describe("Kratix", func() {
 				pipelineLabel := fmt.Sprintf("kratix-promise-resource-request-id=%s-%s", bashPromiseName, rrName)
 				By("executing the pipeline pod", func() {
 					platform.eventuallyKubectl("wait", "--for=condition=PipelineCompleted", bashPromiseName, rrName, pipelineTimeout)
-					Expect(platform.eventuallyKubectl("get", "pods", "--selector", pipelineLabel)).To(ContainSubstring("Completed"))
+					Eventually(platform.eventuallyKubectl("get", "pods", "--selector", pipelineLabel), timeout, interval).Should(ContainSubstring("Completed"))
 				})
 
 				By("deploying the contents of /kratix/output/platform to the platform destination only", func() {
