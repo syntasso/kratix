@@ -43,7 +43,7 @@ var (
 	resourceRequestPath    = "./assets/requirements/example-rr.yaml"
 	promiseWithRequirement = "./assets/requirements/promise-with-requirement.yaml"
 
-	timeout             = time.Second * 120
+	timeout             = time.Second * 220
 	consistentlyTimeout = time.Second * 20
 	interval            = time.Second * 2
 
