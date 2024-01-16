@@ -36,7 +36,7 @@ spec:
   sourceRef:
     kind: GitRepository
     name: kratix-source
-  path: "foo/bar/baz/platform-cluster/resources/"
+  path: "platform-cluster/resources/"
   prune: true
 ---
 apiVersion: kustomize.toolkit.fluxcd.io/v1beta1
@@ -49,5 +49,5 @@ spec:
   sourceRef:
     kind: GitRepository
     name: kratix-source
-  path: "foo/bar/baz/platform-cluster/dependencies/"
+  path: "platform-cluster/dependencies/"
   prune: true

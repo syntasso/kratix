@@ -6,7 +6,6 @@ metadata:
   labels:
     environment: platform
 spec:
-  path: bar/baz
   stateStoreRef:
     name: default
     kind: GitStateStore
