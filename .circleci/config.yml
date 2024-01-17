@@ -21,12 +21,6 @@ executors:
       docker_layer_caching: true
     working_directory: ~/repo
     resource_class: large
-  machine-xlarge:
-    machine:
-      image: ubuntu-2204:2023.04.2
-      docker_layer_caching: true
-    working_directory: ~/repo
-    resource_class: xlarge
 
 filter-for-tags: &filter-for-tags
   filters:
@@ -165,7 +159,7 @@ jobs:
           docker-image-name: $WORKER_IMAGE_NAME:latest
 
   test:
-    executor: machine-xlarge
+    executor: machine-large
     steps:
       - install_software
       - run:
@@ -175,7 +169,7 @@ jobs:
       - run:
           name: System tests
           command: |
-            DOCKER_BUILDKIT=1 ACK_GINKGO_RC=true make system-test
+            DOCKER_BUILDKIT=1 ACK_GINKGO_RC=true GINKGO_EXTRA_FLAGS="--nodes 2" make system-test
 
   e2e-demo-test-helm-git:
     executor: machine-large
