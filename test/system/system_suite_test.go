@@ -1,6 +1,7 @@
 package system_test
 
 import (
+	"fmt"
 	"os"
 	"path/filepath"
 	"runtime"
@@ -61,7 +62,7 @@ func catAndReplaceFluxResources(tmpDir, file string) string {
 	return tmpFile
 }
 
-func catAndReplacePromiseRelease(tmpDir, file, port, bashPromiseName string) string {
+func catAndReplacePromiseRelease(tmpDir, file string, port int, bashPromiseName string) string {
 	bytes, err := os.ReadFile(file)
 	Expect(err).NotTo(HaveOccurred())
 	//Set via the Makefile
@@ -70,7 +71,7 @@ func catAndReplacePromiseRelease(tmpDir, file, port, bashPromiseName string) str
 		hostIP = "172.17.0.1"
 	}
 	output := strings.ReplaceAll(string(bytes), "LOCALHOST", hostIP)
-	output = strings.ReplaceAll(output, "REPLACEPORT", port)
+	output = strings.ReplaceAll(output, "REPLACEPORT", fmt.Sprint(port))
 	output = strings.ReplaceAll(output, "REPLACEBASH", bashPromiseName)
 	tmpFile := filepath.Join(tmpDir, filepath.Base(file))
 	err = os.WriteFile(tmpFile, []byte(output), 0777)

@@ -95,7 +95,7 @@ spec:
 	bashPromise                      *v1alpha1.Promise
 	bashPromiseName                  string
 	crd                              *v1.CustomResourceDefinition
-	port                             string
+	port                             int
 )
 
 var _ = Describe("Kratix", func() {
@@ -119,9 +119,9 @@ var _ = Describe("Kratix", func() {
 			w.Write(bytes)
 		}).Methods("GET")
 
-		port = fmt.Sprintf("808%d", GinkgoParallelProcess())
+		port = 8080 + GinkgoParallelProcess()
 		srv = &gohttp.Server{
-			Addr:    ":" + port,
+			Addr:    ":" + fmt.Sprint(port),
 			Handler: router,
 		}
 
