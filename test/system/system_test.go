@@ -18,6 +18,7 @@ import (
 	"github.com/minio/minio-go/v7"
 	"github.com/minio/minio-go/v7/pkg/credentials"
 	. "github.com/onsi/ginkgo/v2"
+	"github.com/onsi/ginkgo/v2/types"
 	. "github.com/onsi/gomega"
 	"github.com/onsi/gomega/gexec"
 	"github.com/syntasso/kratix/api/v1alpha1"
@@ -94,6 +95,8 @@ spec:
 	declarativeStaticWorkerNamespace string
 	bashPromise                      *v1alpha1.Promise
 	bashPromiseName                  string
+	bashPromiseUniqueLabel           string
+	removeBashPromiseUniqueLabel     string
 	crd                              *v1.CustomResourceDefinition
 	port                             int
 )
@@ -104,6 +107,8 @@ var _ = Describe("Kratix", func() {
 	BeforeEach(func() {
 		bashPromise = generateUniquePromise(promisePath)
 		bashPromiseName = bashPromise.Name
+		bashPromiseUniqueLabel = bashPromiseName + "=label"
+		removeBashPromiseUniqueLabel = bashPromiseName + "-"
 		imperativePlatformNamespace = fmt.Sprintf(templateImperativePlatformNamespace, bashPromiseName)
 		declarativePlatformNamespace = fmt.Sprintf(templateDeclarativePlatformNamespace, bashPromiseName)
 		declarativeWorkerNamespace = fmt.Sprintf(templateDeclarativeWorkerNamespace, bashPromiseName, "v1alpha1")
@@ -130,19 +135,20 @@ var _ = Describe("Kratix", func() {
 				log.Fatalf("listen: %s\n", err)
 			}
 		}()
+
+		platform.kubectl("label", "destination", "worker-1", bashPromiseUniqueLabel)
 	})
 
 	AfterEach(func() {
+		if CurrentSpecReport().State.Is(types.SpecStatePassed) {
+			platform.kubectl("label", "destination", "worker-1", removeBashPromiseUniqueLabel)
+			platform.kubectl("label", "destination", "platform-cluster", removeBashPromiseUniqueLabel)
+		}
 		srv.Shutdown(context.TODO())
 	})
 
 	Describe("Promise lifecycle", func() {
 		BeforeEach(func() {
-			platform.kubectl("label", "destination", "worker-1", "extra=label")
-		})
-
-		AfterEach(func() {
-			platform.kubectl("label", "destination", "worker-1", "extra-")
 		})
 
 		It("can install, update, and delete a promise", func() {
@@ -486,6 +492,8 @@ var _ = Describe("Kratix", func() {
 		It("schedules resources to the correct Destinations", func() {
 			By("reconciling on new Destinations", func() {
 				depNamespaceName := declarativeStaticWorkerNamespace
+				platform.kubectl("label", "destination", "worker-1", removeBashPromiseUniqueLabel)
+
 				By("scheduling to the Worker when it gets all the required labels", func() {
 					bashPromise.Spec.DestinationSelectors[0] = v1alpha1.PromiseScheduling{
 						MatchLabels: map[string]string{
@@ -498,42 +506,42 @@ var _ = Describe("Kratix", func() {
 					/*
 						The required labels are:
 						- security: high (from the promise)
-						- extra: label (from the promise workflow)
+						- uniquepromisename: label (from the promise workflow)
 					*/
 
 					// Promise Level DestinationSelectors
 
 					Consistently(func() string {
 						return worker.kubectl("get", "namespace")
-					}, "5s").ShouldNot(ContainSubstring(depNamespaceName))
+					}, "10s").ShouldNot(ContainSubstring(depNamespaceName))
 
 					platform.kubectl("label", "destination", "worker-1", "security=high")
 
 					Consistently(func() string {
 						return worker.kubectl("get", "namespace")
-					}, "5s").ShouldNot(ContainSubstring(depNamespaceName))
+					}, "10s").ShouldNot(ContainSubstring(depNamespaceName))
 
 					// Promise Configure Workflow DestinationSelectors
-					platform.kubectl("label", "destination", "worker-1", "extra=label", "security-")
+					platform.kubectl("label", "destination", "worker-1", bashPromiseUniqueLabel, "security-")
 					Consistently(func() string {
 						return worker.kubectl("get", "namespace")
 					}, "10s").ShouldNot(ContainSubstring(depNamespaceName))
 
-					platform.kubectl("label", "destination", "worker-1", "extra=label", "security=high")
+					platform.kubectl("label", "destination", "worker-1", bashPromiseUniqueLabel, "security=high")
 
 					worker.eventuallyKubectl("get", "namespace", depNamespaceName)
 					Expect(platform.kubectl("get", "namespace")).NotTo(ContainSubstring(depNamespaceName))
 				})
 
 				By("labeling the platform Destination, it gets the dependencies assigned", func() {
-					platform.kubectl("label", "destination", "platform-cluster", "security=high", "extra=label")
+					platform.kubectl("label", "destination", "platform-cluster", "security=high", bashPromiseUniqueLabel)
 					platform.eventuallyKubectl("get", "namespace", depNamespaceName)
 				})
 
 			})
 
 			// Remove the labels again so we can check the same flow for resource requests
-			platform.kubectl("label", "destination", "worker-1", "extra-")
+			platform.kubectl("label", "destination", "worker-1", removeBashPromiseUniqueLabel)
 
 			By("respecting the pipeline's scheduling", func() {
 				pipelineCmd := `echo "[{\"matchLabels\":{\"pci\":\"true\"}}]" > /kratix/metadata/destination-selectors.yaml
@@ -561,15 +569,15 @@ var _ = Describe("Kratix", func() {
 					}, "10s").ShouldNot(ContainSubstring("rr-2-namespace"))
 
 					// Add the label defined in the promise.configure workflow
-					platform.kubectl("label", "destination", "worker-1", "extra=label")
+					platform.kubectl("label", "destination", "worker-1", bashPromiseUniqueLabel)
 
 					worker.eventuallyKubectl("get", "namespace", "rr-2-namespace")
 				})
 			})
 
 			platform.eventuallyKubectlDelete("promise", bashPromiseName)
-			platform.kubectl("label", "destination", "worker-1", "security-", "pci-", "extra-")
-			platform.kubectl("label", "destination", "platform-cluster", "security-", "extra-")
+			platform.kubectl("label", "destination", "worker-1", "security-", "pci-", removeBashPromiseUniqueLabel)
+			platform.kubectl("label", "destination", "platform-cluster", "security-", removeBashPromiseUniqueLabel)
 		})
 
 		// Worker destination (BucketStateStore):
@@ -580,7 +588,7 @@ var _ = Describe("Kratix", func() {
 
 		// Destination selectors in the promise:
 		// - security: high
-		// - extra: label
+		// - uniquepromisename: label
 		It("allows updates to scheduling", func() {
 			bashPromise.Spec.DestinationSelectors[0] = v1alpha1.PromiseScheduling{
 				MatchLabels: map[string]string{
@@ -590,8 +598,7 @@ var _ = Describe("Kratix", func() {
 			platform.eventuallyKubectl("apply", "-f", cat(bashPromise))
 			platform.eventuallyKubectl("get", "crd", crd.Name)
 
-			platform.kubectl("label", "destination", "worker-1", "extra=label")
-			platform.kubectl("label", "destination", "platform-cluster", "extra=label", "security-")
+			platform.kubectl("label", "destination", "platform-cluster", bashPromiseUniqueLabel, "security-")
 
 			By("only the worker Destination getting the dependency initially", func() {
 				Consistently(func() {
@@ -625,8 +632,8 @@ var _ = Describe("Kratix", func() {
 			})
 
 			platform.eventuallyKubectlDelete("promise", bashPromiseName)
-			platform.kubectl("label", "destination", "worker-1", "security-", "pci-", "extra-")
-			platform.kubectl("label", "destination", "platform-cluster", "security-", "extra-")
+			platform.kubectl("label", "destination", "worker-1", "security-", "pci-", removeBashPromiseUniqueLabel)
+			platform.kubectl("label", "destination", "platform-cluster", "security-", removeBashPromiseUniqueLabel)
 		})
 	})
 })

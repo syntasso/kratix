@@ -18,7 +18,7 @@ if [ "${KRATIX_WORKFLOW_ACTION}" = "configure" ]; then
     matchLabels:
       environment: platform
   - matchLabels:
-      extra: label
+      ${unique_id}: label
 EOF
 
 	kubectl get namespace ${imperative_platform_namespace} || kubectl create namespace ${imperative_platform_namespace}
