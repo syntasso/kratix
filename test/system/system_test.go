@@ -119,7 +119,6 @@ var _ = Describe("Kratix", func() {
 			w.Write(bytes)
 		}).Methods("GET")
 
-		//TODO either 1 server or server per test
 		port = fmt.Sprintf("808%d", GinkgoParallelProcess())
 		srv = &gohttp.Server{
 			Addr:    ":" + port,
@@ -183,7 +182,6 @@ var _ = Describe("Kratix", func() {
 			By("deleting a promise", func() {
 				platform.eventuallyKubectlDelete("promise", bashPromiseName)
 
-				//TODO: list all namespaces and expect it not to contain substrings
 				worker.withExitCode(1).eventuallyKubectl("get", "namespace", updatedDeclarativeStaticWorkerNamespace)
 				worker.withExitCode(1).eventuallyKubectl("get", "namespace", declarativeWorkerNamespace)
 				platform.withExitCode(1).eventuallyKubectl("get", "namespace", declarativePlatformNamespace)
@@ -369,7 +367,6 @@ var _ = Describe("Kratix", func() {
 					platform.eventuallyKubectl("apply", "-f", cat(bashPromise))
 
 					platform.eventuallyKubectl("get", "crd", crd.Name)
-					//TODO wheres the change coming from
 					Expect(worker.eventuallyKubectl("get", "namespace", declarativeStaticWorkerNamespace, "-o=yaml")).To(ContainSubstring("modifydepsinpipeline"))
 				})
 
