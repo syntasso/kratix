@@ -64,7 +64,7 @@ func (r *PromiseRelease) ValidateCreate() (admission.Warnings, error) {
 	}
 
 	if promiseVersion != r.Spec.Version {
-		msg := fmt.Sprintf("Warning: version labels do not match, found: %s, expected: %s, installaton will fail", promiseVersion, r.Spec.Version)
+		msg := fmt.Sprintf("Warning: version labels do not match, found: %s, expected: %s, installation will fail", promiseVersion, r.Spec.Version)
 		return []string{msg}, nil
 	}
 

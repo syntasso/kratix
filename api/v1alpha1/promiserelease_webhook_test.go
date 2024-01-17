@@ -110,7 +110,7 @@ var _ = Describe("PromiseReleaseWebhook", func() {
 			promiseFetcher.FromURLReturns(p, nil)
 			warnings, err := pr.ValidateCreate()
 			Expect(err).NotTo(HaveOccurred())
-			Expect(warnings).To(ConsistOf("Warning: version labels do not match, found: v0.2.0, expected: v0.1.0"))
+			Expect(warnings).To(ConsistOf("Warning: version labels do not match, found: v0.2.0, expected: v0.1.0, installation will fail"))
 		})
 	})
 })
