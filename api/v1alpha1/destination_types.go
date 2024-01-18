@@ -53,9 +53,9 @@ type DestinationSpec struct {
 	// By default, Kratix will schedule works without labels to all destinations
 	// (for promise dependencies) or to a random destination (for resource
 	// requests). If StrictMatchLabels is true, Kratix will only schedule works
-	// to this destination if the labels match strictly (that is, an empty label
-	// set on the work won't be schedule to this destination, unless the
-	// destination label set is also empty).
+	// to this destination if it can be selected by the Promise's
+	// destinationSelectors. An empty label set on the work won't be scheduled
+	// to this destination, unless the destination label set is also empty
 	// +kubebuilder:validation:Optional
 	StrictMatchLabels bool `json:"strictMatchLabels,omitempty"`
 }
