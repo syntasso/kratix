@@ -169,7 +169,7 @@ jobs:
       - run:
           name: System tests
           command: |
-            DOCKER_BUILDKIT=1 ACK_GINKGO_RC=true GINKGO_EXTRA_FLAGS="--nodes 2" make system-test
+            DOCKER_BUILDKIT=1 ACK_GINKGO_RC=true GINKGO_EXTRA_FLAGS="--nodes 1 -v" make system-test
 
   e2e-demo-test-helm-git:
     executor: machine-large
