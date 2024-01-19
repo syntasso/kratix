@@ -58,6 +58,9 @@ type DestinationSpec struct {
 	// to this destination, unless the destination label set is also empty
 	// +kubebuilder:validation:Optional
 	StrictMatchLabels bool `json:"strictMatchLabels,omitempty"`
+
+	//Type, e.g. Kubernetes, Backstage, Terraform etc
+	Type string `json:"type, omitempty"`
 }
 
 // DestinationStatus defines the observed state of Destination
