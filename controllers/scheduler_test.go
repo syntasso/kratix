@@ -10,6 +10,7 @@ import (
 	"github.com/syntasso/kratix/api/v1alpha1"
 	. "github.com/syntasso/kratix/api/v1alpha1"
 	"github.com/syntasso/kratix/lib/hash"
+	corev1 "k8s.io/api/core/v1"
 	v1 "k8s.io/apimachinery/pkg/apis/meta/v1"
 	"k8s.io/apimachinery/pkg/labels"
 	"k8s.io/apimachinery/pkg/types"
@@ -119,7 +120,7 @@ var _ = Describe("Controllers/Scheduler", func() {
 					Expect(err).ToNot(HaveOccurred())
 				})
 
-				It("creates a WorkPlacement for the new Work", func() {
+				FIt("creates a WorkPlacement for the new Work", func() {
 					Expect(fakeK8sClient.List(context.Background(), &workPlacements)).To(Succeed())
 					Expect(workPlacements.Items).To(HaveLen(1))
 
@@ -135,6 +136,14 @@ var _ = Describe("Controllers/Scheduler", func() {
 					Expect(workPlacement.Finalizers[0]).To(Equal("finalizers.workplacement.kratix.io/repo-cleanup"))
 					Expect(workPlacement.Spec.PromiseName).To(Equal("promise"))
 					Expect(workPlacement.Spec.ResourceName).To(Equal("resource"))
+				})
+
+				FIt("does not schedule the namespace, instead creates a reference", func() {
+					cm := &corev1.ConfigMap{}
+					Expect(fakeK8sClient.Get(context.Background(), types.NamespacedName{
+						Name:      "rr-work-name",
+						Namespace: "kratix-platform-system",
+					}, cm)).To(Succeed())
 				})
 
 				It("sets the scheduling conditions on the Work", func() {
@@ -882,6 +891,9 @@ func newDestination(name string, labels map[string]string) Destination {
 			Name:   name,
 			Labels: labels,
 		},
+		Spec: v1alpha1.DestinationSpec{
+			Type: "Kubernetes",
+		},
 	}
 }
 
@@ -905,6 +917,17 @@ func newWork(name string, replicas int, scheduling ...WorkloadGroupScheduling) W
 					{
 						Workloads: []Workload{
 							{Content: "key: value"},
+						},
+						Directory:            ".",
+						ID:                   hash.ComputeHash("."),
+						DestinationSelectors: scheduling,
+					},
+					{
+						Workloads: []Workload{
+							{
+								Content:  `{"apiVersion":"v1","kind":"Namespace","metadata":{"name":"test"}}`,
+								Filepath: "namespace.yaml",
+							},
 						},
 						Directory:            ".",
 						ID:                   hash.ComputeHash("."),

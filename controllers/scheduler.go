@@ -38,6 +38,11 @@ type Scheduler struct {
 	Log    logr.Logger
 }
 
+type destScheduling struct {
+	Dest         platformv1alpha1.Destination
+	Misscheduled bool
+}
+
 // Reconciles all Works by scheduling each Work's WorkloadGroups to appropriate
 // Destinations.
 // Only reconciles Works that are from a Promise Dependency.
@@ -204,10 +209,13 @@ func (s *Scheduler) reconcileWorkloadGroup(workloadGroup platformv1alpha1.Worklo
 
 	destinationSelectors := resolveDestinationSelectorsForWorkloadGroup(workloadGroup, work)
 	targetDestinationNames := s.getTargetDestinationNames(destinationSelectors, work)
-	targetDestinationMap := map[string]bool{}
+	targetDestinationMap := map[string]*destScheduling{}
 	for _, dest := range targetDestinationNames {
 		//false == not misscheduled
-		targetDestinationMap[dest] = false
+		targetDestinationMap[dest.Name] = &destScheduling{
+			Dest:         dest,
+			Misscheduled: false,
+		}
 	}
 
 	for _, existingWorkplacement := range existingWorkplacements {
@@ -215,7 +223,7 @@ func (s *Scheduler) reconcileWorkloadGroup(workloadGroup platformv1alpha1.Worklo
 		_, exists := targetDestinationMap[dest]
 		if !exists {
 			//true == misscheduled
-			targetDestinationMap[dest] = true
+			targetDestinationMap[dest].Misscheduled = true
 		}
 	}
 
@@ -241,7 +249,7 @@ func (s *Scheduler) updateWorkPlacement(workloadGroup platformv1alpha1.WorkloadG
 	misscheduled := true
 	destinationSelectors := resolveDestinationSelectorsForWorkloadGroup(workloadGroup, work)
 	for _, dest := range s.getTargetDestinationNames(destinationSelectors, work) {
-		if dest == workPlacement.Spec.TargetDestinationName {
+		if dest.Name == workPlacement.Spec.TargetDestinationName {
 			misscheduled = false
 			break
 		}
@@ -328,21 +336,24 @@ func (s *Scheduler) listWorkplacementWithLabels(namespace string, matchLabels ma
 	return workPlacementList.Items, nil
 }
 
-func (s *Scheduler) applyWorkplacementsForTargetDestinations(workloadGroup platformv1alpha1.WorkloadGroup, work *platformv1alpha1.Work, targetDestinationNames map[string]bool) (bool, error) {
+func (s *Scheduler) applyWorkplacementsForTargetDestinations(workloadGroup platformv1alpha1.WorkloadGroup, work *platformv1alpha1.Work, targetDestinationNames map[string]*destScheduling) (bool, error) {
 	containsMischeduledWorkplacement := false
-	for targetDestinationName, misscheduled := range targetDestinationNames {
+	for destName, dest := range targetDestinationNames {
 		workPlacement := &platformv1alpha1.WorkPlacement{}
 		workPlacement.Namespace = work.GetNamespace()
-		workPlacement.Name = work.Name + "." + targetDestinationName + "-" + shortID(workloadGroup.ID)
+		workPlacement.Name = work.Name + "." + destName + "-" + shortID(workloadGroup.ID)
 
 		op, err := controllerutil.CreateOrUpdate(context.Background(), s.Client, workPlacement, func() error {
-			workPlacement.Spec.Workloads = workloadGroup.Workloads
+			wg := workloadGroup.Workloads
+			if dest.Dest.Spec.Type == "Kubernetes" {
+			}
+			workPlacement.Spec.Workloads = wg
 			workPlacement.Labels = map[string]string{
 				workLabelKey:       work.Name,
 				workloadGroupIDKey: workloadGroup.ID,
 			}
 
-			if misscheduled {
+			if dest.Misscheduled {
 				s.labelWorkplacementAsMisscheduled(workPlacement)
 				containsMischeduledWorkplacement = true
 			}
@@ -350,7 +361,7 @@ func (s *Scheduler) applyWorkplacementsForTargetDestinations(workloadGroup platf
 			workPlacement.Spec.ID = workloadGroup.ID
 			workPlacement.Spec.PromiseName = work.Spec.PromiseName
 			workPlacement.Spec.ResourceName = work.Spec.ResourceName
-			workPlacement.Spec.TargetDestinationName = targetDestinationName
+			workPlacement.Spec.TargetDestinationName = destName
 			controllerutil.AddFinalizer(workPlacement, repoCleanupWorkPlacementFinalizer)
 
 			if err := controllerutil.SetControllerReference(work, workPlacement, scheme.Scheme); err != nil {
@@ -363,10 +374,10 @@ func (s *Scheduler) applyWorkplacementsForTargetDestinations(workloadGroup platf
 		if err != nil {
 			return false, err
 		}
-		if err := s.updateStatus(workPlacement, misscheduled); err != nil {
+		if err := s.updateStatus(workPlacement, dest.Misscheduled); err != nil {
 			return false, err
 		}
-		s.Log.Info("workplacement reconciled", "operation", op, "namespace", workPlacement.GetNamespace(), "workplacement", workPlacement.GetName(), "work", work.GetName(), "destination", targetDestinationName)
+		s.Log.Info("workplacement reconciled", "operation", op, "namespace", workPlacement.GetNamespace(), "workplacement", workPlacement.GetName(), "work", work.GetName(), "destination", destName)
 	}
 	return containsMischeduledWorkplacement, nil
 }
@@ -395,11 +406,11 @@ func (s *Scheduler) updateStatus(workPlacement *platformv1alpha1.WorkPlacement, 
 
 // Where Work is a Resource Request return one random Destination name, where Work is a
 // DestinationWorkerResource return all Destination names
-func (s *Scheduler) getTargetDestinationNames(destinationSelectors map[string]string, work *platformv1alpha1.Work) []string {
+func (s *Scheduler) getTargetDestinationNames(destinationSelectors map[string]string, work *platformv1alpha1.Work) []platformv1alpha1.Destination {
 	destinations := s.getDestinationsForWorkloadGroup(destinationSelectors)
 
 	if len(destinations) == 0 {
-		return make([]string, 0)
+		return make([]platformv1alpha1.Destination, 0)
 	}
 
 	if work.IsResourceRequest() {
@@ -409,19 +420,19 @@ func (s *Scheduler) getTargetDestinationNames(destinationSelectors map[string]st
 		randomDestinationIndex := rand.Intn(len(destinations))
 		targetDestinationNames[0] = destinations[randomDestinationIndex].Name
 		s.Log.Info("Adding Destination: " + targetDestinationNames[0])
-		return targetDestinationNames
+		return []platformv1alpha1.Destination{destinations[randomDestinationIndex]}
 	} else if work.IsDependency() {
 		s.Log.Info("Getting Destination names for dependencies")
-		var targetDestinationNames = make([]string, len(destinations))
+		var targetDestinationNames = make([]platformv1alpha1.Destination, len(destinations))
 		for i := 0; i < len(destinations); i++ {
-			targetDestinationNames[i] = destinations[i].Name
-			s.Log.Info("Adding Destination: " + targetDestinationNames[i])
+			targetDestinationNames[i] = destinations[i]
+			s.Log.Info("Adding Destination: " + targetDestinationNames[i].Name)
 		}
 		return targetDestinationNames
 	} else {
 		replicas := work.Spec.Replicas
 		s.Log.Info("Cannot interpret replica count: " + fmt.Sprint(replicas))
-		return make([]string, 0)
+		return nil
 	}
 }
 
