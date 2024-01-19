@@ -60,7 +60,7 @@ type DestinationSpec struct {
 	StrictMatchLabels bool `json:"strictMatchLabels,omitempty"`
 
 	//Type, e.g. Kubernetes, Backstage, Terraform etc
-	Type string `json:"type, omitempty"`
+	Type string `json:"type,omitempty"`
 }
 
 // DestinationStatus defines the observed state of Destination

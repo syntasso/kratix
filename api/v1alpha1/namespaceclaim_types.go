@@ -29,7 +29,8 @@ type NamespaceClaimSpec struct {
 	// Important: Run "make" to regenerate code after modifying this file
 
 	// Foo is an example field of NamespaceClaim. Edit namespaceclaim_types.go to remove/update
-	Foo string `json:"foo,omitempty"`
+	Namespace   string `json:"namespace,omitempty"`
+	Destination string `json:"destination"`
 }
 
 // NamespaceClaimStatus defines the observed state of NamespaceClaim
@@ -40,6 +41,8 @@ type NamespaceClaimStatus struct {
 
 //+kubebuilder:object:root=true
 //+kubebuilder:subresource:status
+// +kubebuilder:printcolumn:JSONPath=".spec.destination",name="Destination",type=string
+// +kubebuilder:printcolumn:JSONPath=".spec.namespace",name="Namespace",type=string
 
 // NamespaceClaim is the Schema for the namespaceclaims API
 type NamespaceClaim struct {

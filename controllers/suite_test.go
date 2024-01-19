@@ -86,6 +86,7 @@ var _ = BeforeEach(func() {
 		&platformv1alpha1.Destination{},
 		&platformv1alpha1.GitStateStore{},
 		&platformv1alpha1.BucketStateStore{},
+		&platformv1alpha1.NamespaceClaim{},
 		//Add redis.marketplace.kratix.io/v1alpha1 so we can update its status
 		resReq,
 	).Build()

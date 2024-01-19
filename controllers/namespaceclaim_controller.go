@@ -19,11 +19,18 @@ package controllers
 import (
 	"context"
 
+	"golang.org/x/exp/slices"
+
+	corev1 "k8s.io/api/core/v1"
+	metav1 "k8s.io/apimachinery/pkg/apis/meta/v1"
 	"k8s.io/apimachinery/pkg/runtime"
 	ctrl "sigs.k8s.io/controller-runtime"
 	"sigs.k8s.io/controller-runtime/pkg/client"
+	"sigs.k8s.io/controller-runtime/pkg/controller/controllerutil"
 	"sigs.k8s.io/controller-runtime/pkg/log"
+	kyaml "sigs.k8s.io/yaml"
 
+	"github.com/syntasso/kratix/api/v1alpha1"
 	platformv1alpha1 "github.com/syntasso/kratix/api/v1alpha1"
 )
 
@@ -47,9 +54,63 @@ type NamespaceClaimReconciler struct {
 // For more details, check Reconcile and its Result here:
 // - https://pkg.go.dev/sigs.k8s.io/controller-runtime@v0.14.4/pkg/reconcile
 func (r *NamespaceClaimReconciler) Reconcile(ctx context.Context, req ctrl.Request) (ctrl.Result, error) {
-	_ = log.FromContext(ctx)
+	logger := log.FromContext(ctx)
 
 	// TODO(user): your logic here
+
+	ncList := &platformv1alpha1.NamespaceClaimList{}
+	r.Client.List(ctx, ncList)
+
+	destShouldContainNamespaces := map[string][]string{}
+
+	for _, nc := range ncList.Items {
+		val, ok := destShouldContainNamespaces[nc.Spec.Destination]
+		if !ok {
+			destShouldContainNamespaces[nc.Spec.Destination] = []string{nc.Spec.Namespace}
+		} else {
+			if !slices.Contains(val, nc.Spec.Namespace) {
+				val = append(val, nc.Spec.Namespace)
+				destShouldContainNamespaces[nc.Spec.Destination] = val
+			}
+		}
+	}
+
+	for dest, namespaces := range destShouldContainNamespaces {
+		workPlacement := &platformv1alpha1.WorkPlacement{}
+		workPlacement.Namespace = "kratix-platform-system"
+		workPlacement.Name = dest + "-namespaces"
+
+		op, err := controllerutil.CreateOrUpdate(context.Background(), r.Client, workPlacement, func() error {
+			var workloads []v1alpha1.Workload
+			for _, namespace := range namespaces {
+				content, err := kyaml.Marshal(&corev1.Namespace{
+					ObjectMeta: metav1.ObjectMeta{
+						Name: namespace,
+					},
+					TypeMeta: metav1.TypeMeta{
+						Kind:       "Namespace",
+						APIVersion: "v1",
+					},
+				})
+				if err != nil {
+					return err
+				}
+				workloads = append(workloads, v1alpha1.Workload{
+					Content:  string(content),
+					Filepath: namespace + ".yaml",
+				})
+			}
+
+			workPlacement.Spec.Workloads = workloads
+			workPlacement.Spec.TargetDestinationName = dest
+			controllerutil.AddFinalizer(workPlacement, repoCleanupWorkPlacementFinalizer)
+			return nil
+		})
+		if err != nil {
+			return ctrl.Result{}, err
+		}
+		logger.Info("workplacement reconciled", "operation", op, "namespace", workPlacement.GetNamespace(), "workplacement", workPlacement.GetName(), "work", workPlacement.GetName(), "destination", dest)
+	}
 
 	return ctrl.Result{}, nil
 }

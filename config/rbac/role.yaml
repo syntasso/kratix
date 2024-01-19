@@ -95,6 +95,32 @@ rules:
 - apiGroups:
   - platform.kratix.io
   resources:
+  - namespaceclaims
+  verbs:
+  - create
+  - delete
+  - get
+  - list
+  - patch
+  - update
+  - watch
+- apiGroups:
+  - platform.kratix.io
+  resources:
+  - namespaceclaims/finalizers
+  verbs:
+  - update
+- apiGroups:
+  - platform.kratix.io
+  resources:
+  - namespaceclaims/status
+  verbs:
+  - get
+  - patch
+  - update
+- apiGroups:
+  - platform.kratix.io
+  resources:
   - promisereleases
   verbs:
   - create

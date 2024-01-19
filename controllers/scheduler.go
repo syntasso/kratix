@@ -7,9 +7,11 @@ import (
 	"sort"
 	"time"
 
+	corev1 "k8s.io/api/core/v1"
 	metav1 "k8s.io/apimachinery/pkg/apis/meta/v1"
 	v1 "k8s.io/apimachinery/pkg/apis/meta/v1"
 	"k8s.io/client-go/kubernetes/scheme"
+	kyaml "sigs.k8s.io/yaml"
 
 	"github.com/go-logr/logr"
 	"github.com/syntasso/kratix/api/v1alpha1"
@@ -248,9 +250,11 @@ func (s *Scheduler) reconcileWorkloadGroup(workloadGroup platformv1alpha1.Worklo
 func (s *Scheduler) updateWorkPlacement(workloadGroup platformv1alpha1.WorkloadGroup, work *platformv1alpha1.Work, workPlacement *platformv1alpha1.WorkPlacement) (bool, error) {
 	misscheduled := true
 	destinationSelectors := resolveDestinationSelectorsForWorkloadGroup(workloadGroup, work)
+	d := platformv1alpha1.Destination{}
 	for _, dest := range s.getTargetDestinationNames(destinationSelectors, work) {
 		if dest.Name == workPlacement.Spec.TargetDestinationName {
 			misscheduled = false
+			d = dest
 			break
 		}
 	}
@@ -259,7 +263,12 @@ func (s *Scheduler) updateWorkPlacement(workloadGroup platformv1alpha1.WorkloadG
 		s.labelWorkplacementAsMisscheduled(workPlacement)
 	}
 
-	workPlacement.Spec.Workloads = workloadGroup.Workloads
+	workloads, err := s.filterNamespaces(work, *workPlacement, workloadGroup.Workloads, d)
+	if err != nil {
+		return false, err
+	}
+
+	workPlacement.Spec.Workloads = workloads
 	if err := s.Client.Update(context.Background(), workPlacement); err != nil {
 		s.Log.Error(err, "Error updating WorkPlacement", "workplacement", workPlacement.Name)
 		return false, err
@@ -344,10 +353,11 @@ func (s *Scheduler) applyWorkplacementsForTargetDestinations(workloadGroup platf
 		workPlacement.Name = work.Name + "." + destName + "-" + shortID(workloadGroup.ID)
 
 		op, err := controllerutil.CreateOrUpdate(context.Background(), s.Client, workPlacement, func() error {
-			wg := workloadGroup.Workloads
-			if dest.Dest.Spec.Type == "Kubernetes" {
+			workloads, err := s.filterNamespaces(work, *workPlacement, workloadGroup.Workloads, dest.Dest)
+			if err != nil {
+				return err
 			}
-			workPlacement.Spec.Workloads = wg
+			workPlacement.Spec.Workloads = workloads
 			workPlacement.Labels = map[string]string{
 				workLabelKey:       work.Name,
 				workloadGroupIDKey: workloadGroup.ID,
@@ -380,6 +390,51 @@ func (s *Scheduler) applyWorkplacementsForTargetDestinations(workloadGroup platf
 		s.Log.Info("workplacement reconciled", "operation", op, "namespace", workPlacement.GetNamespace(), "workplacement", workPlacement.GetName(), "work", work.GetName(), "destination", destName)
 	}
 	return containsMischeduledWorkplacement, nil
+}
+
+func (s *Scheduler) filterNamespaces(work *platformv1alpha1.Work, workPlacement platformv1alpha1.WorkPlacement, oldWorkloads []platformv1alpha1.Workload, dest platformv1alpha1.Destination) ([]platformv1alpha1.Workload, error) {
+	if dest.Spec.Type != "kubernetes" {
+		return oldWorkloads, nil
+	}
+
+	destName := dest.Name
+	workloads := []platformv1alpha1.Workload{}
+	for _, workload := range oldWorkloads {
+		ns := &corev1.Namespace{}
+		err := kyaml.Unmarshal([]byte(workload.Content), ns)
+		if err == nil && ns.Name != "" && ns.Kind == "Namespace" {
+			nc := &v1alpha1.NamespaceClaim{
+				ObjectMeta: metav1.ObjectMeta{
+					Name:      workPlacement.Name,
+					Namespace: workPlacement.Namespace,
+				},
+				Spec: v1alpha1.NamespaceClaimSpec{
+					Namespace:   ns.Name,
+					Destination: destName,
+				},
+			}
+
+			if err := controllerutil.SetControllerReference(work, nc, scheme.Scheme); err != nil {
+				s.Log.Error(err, "Error setting ownership")
+				return nil, err
+			}
+
+			op, err := controllerutil.CreateOrUpdate(context.Background(), s.Client, nc, func() error {
+				nc.Spec.Namespace = ns.Name
+				nc.Spec.Destination = destName
+				return nil
+			})
+
+			if err != nil {
+				return nil, err
+			}
+
+			s.Log.Info("NamespaceClaim reconciled", "operation", op, "namespace", nc.GetNamespace(), "namespaceClaim", nc.GetName(), "work", work.GetName(), "destination", destName)
+		} else {
+			workloads = append(workloads, workload)
+		}
+	}
+	return workloads, nil
 }
 
 func (s *Scheduler) updateStatus(workPlacement *platformv1alpha1.WorkPlacement, misscheduled bool) error {

@@ -10,7 +10,6 @@ import (
 	"github.com/syntasso/kratix/api/v1alpha1"
 	. "github.com/syntasso/kratix/api/v1alpha1"
 	"github.com/syntasso/kratix/lib/hash"
-	corev1 "k8s.io/api/core/v1"
 	v1 "k8s.io/apimachinery/pkg/apis/meta/v1"
 	"k8s.io/apimachinery/pkg/labels"
 	"k8s.io/apimachinery/pkg/types"
@@ -87,7 +86,8 @@ var _ = Describe("Controllers/Scheduler", func() {
 				Expect(workPlacements.Items[0].Name).To(HavePrefix("dev-work-name.dev-1"))
 				Expect(workPlacements.Items[0].Namespace).To(Equal(KratixSystemNamespace))
 				Expect(workPlacements.Items[0].Spec.TargetDestinationName).To(Equal(devDestination.Name))
-				Expect(workPlacements.Items[0].Spec.Workloads).To(Equal(dependencyWorkForDev.Spec.WorkloadGroups[0].Workloads))
+				Expect(workPlacements.Items[0].Spec.Workloads).To(HaveLen(1))
+				Expect(workPlacements.Items[0].Spec.Workloads[0]).To(Equal(dependencyWorkForDev.Spec.WorkloadGroups[0].Workloads[0]))
 				Expect(workPlacements.Items[0].Spec.ID).To(Equal(dependencyWorkForDev.Spec.WorkloadGroups[0].ID))
 
 				Expect(workPlacements.Items[1].Name).To(HavePrefix("dev-work-name.dev-2"))
@@ -129,7 +129,8 @@ var _ = Describe("Controllers/Scheduler", func() {
 					Expect(workPlacement.ObjectMeta.Labels["kratix.io/work"]).To(Equal("rr-work-name"))
 					Expect(workPlacement.ObjectMeta.Labels["kratix.io/workload-group-id"]).To(Equal(hash.ComputeHash(".")))
 					Expect(workPlacement.Name).To(Equal("rr-work-name." + workPlacement.Spec.TargetDestinationName + "-" + hash.ComputeHash(".")[0:5]))
-					Expect(workPlacement.Spec.Workloads).To(Equal(resourceWork.Spec.WorkloadGroups[0].Workloads))
+					Expect(workPlacements.Items[0].Spec.Workloads).To(HaveLen(1))
+					Expect(workPlacements.Items[0].Spec.Workloads[0]).To(Equal(resourceWork.Spec.WorkloadGroups[0].Workloads[0]))
 					Expect(workPlacement.Spec.ID).To(Equal(resourceWork.Spec.WorkloadGroups[0].ID))
 					Expect(workPlacement.Spec.TargetDestinationName).To(MatchRegexp("prod|dev\\-\\d"))
 					Expect(workPlacement.Finalizers).To(HaveLen(1), "expected one finalizer")
@@ -139,11 +140,17 @@ var _ = Describe("Controllers/Scheduler", func() {
 				})
 
 				FIt("does not schedule the namespace, instead creates a reference", func() {
-					cm := &corev1.ConfigMap{}
+					Expect(fakeK8sClient.List(context.Background(), &workPlacements)).To(Succeed())
+					Expect(workPlacements.Items).To(HaveLen(1))
+					workPlacement := workPlacements.Items[0]
+
+					nc := &v1alpha1.NamespaceClaim{}
 					Expect(fakeK8sClient.Get(context.Background(), types.NamespacedName{
-						Name:      "rr-work-name",
-						Namespace: "kratix-platform-system",
-					}, cm)).To(Succeed())
+						Name:      workPlacement.Name,
+						Namespace: workPlacement.Namespace,
+					}, nc)).To(Succeed())
+					Expect(nc.Spec.Namespace).To(Equal("test"))
+					Expect(nc.Spec.Destination).To(Equal(workPlacement.Spec.TargetDestinationName))
 				})
 
 				It("sets the scheduling conditions on the Work", func() {
@@ -916,17 +923,15 @@ func newWork(name string, replicas int, scheduling ...WorkloadGroupScheduling) W
 				WorkloadGroups: []WorkloadGroup{
 					{
 						Workloads: []Workload{
-							{Content: "key: value"},
-						},
-						Directory:            ".",
-						ID:                   hash.ComputeHash("."),
-						DestinationSelectors: scheduling,
-					},
-					{
-						Workloads: []Workload{
 							{
-								Content:  `{"apiVersion":"v1","kind":"Namespace","metadata":{"name":"test"}}`,
-								Filepath: "namespace.yaml",
+								Content: "key: value",
+							},
+							{
+								Content: `apiVersion: v1
+kind: Namespace
+metadata:
+  name: test
+`,
 							},
 						},
 						Directory:            ".",

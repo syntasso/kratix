@@ -9,7 +9,7 @@ resources:
   - bases/platform.kratix.io_bucketstatestores.yaml
   - bases/platform.kratix.io_gitstatestores.yaml
   - bases/platform.kratix.io_promisereleases.yaml
-- bases/platform.kratix.io_namespaceclaims.yaml
+  - bases/platform.kratix.io_namespaceclaims.yaml
 #+kubebuilder:scaffold:crdkustomizeresource
 
 patchesStrategicMerge:
