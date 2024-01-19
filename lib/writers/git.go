@@ -3,6 +3,7 @@ package writers
 import (
 	"fmt"
 	"io/ioutil"
+	"log"
 	"os"
 	"path/filepath"
 	"strings"
@@ -11,8 +12,11 @@ import (
 	"github.com/go-git/go-git/v5"
 	"github.com/go-git/go-git/v5/plumbing"
 	"github.com/go-git/go-git/v5/plumbing/object"
+	"github.com/go-git/go-git/v5/plumbing/transport"
 	"github.com/go-git/go-git/v5/plumbing/transport/http"
+	"github.com/go-git/go-git/v5/plumbing/transport/ssh"
 	"github.com/go-logr/logr"
+	"github.com/syntasso/kratix/api/v1alpha1"
 	platformv1alpha1 "github.com/syntasso/kratix/api/v1alpha1"
 )
 
@@ -26,7 +30,7 @@ type GitWriter struct {
 type gitServer struct {
 	URL    string
 	Branch string
-	Auth   *http.BasicAuth
+	Auth   transport.AuthMethod
 }
 
 type gitAuthor struct {
@@ -40,24 +44,44 @@ const (
 )
 
 func NewGitWriter(logger logr.Logger, stateStoreSpec platformv1alpha1.GitStateStoreSpec, destination platformv1alpha1.Destination, creds map[string][]byte) (StateStoreWriter, error) {
-	username, ok := creds["username"]
-	if !ok {
-		return nil, fmt.Errorf("username not found in secret %s/%s", destination.Namespace, stateStoreSpec.SecretRef.Name)
-	}
 
-	password, ok := creds["password"]
-	if !ok {
-		return nil, fmt.Errorf("password not found in secret %s/%s", destination.Namespace, stateStoreSpec.SecretRef.Name)
+	//if basic auth check this
+	//otherwise check ssh and build using ssh lib
+	var authMethod transport.AuthMethod
+	switch stateStoreSpec.AuthMethod {
+	case v1alpha1.SSHAuthMethod:
+		sshKey, ok := creds["sshPrivateKey"]
+		if !ok {
+			return nil, fmt.Errorf("sshPrivateKey not found in secret %s/%s", destination.Namespace, stateStoreSpec.SecretRef.Name)
+		}
+		publicKey, err := ssh.NewPublicKeys("", []byte(sshKey), "")
+		if err != nil {
+			log.Fatalf("creating ssh auth method")
+		}
+
+		authMethod = publicKey
+	case v1alpha1.BasicAuthMethod:
+		username, ok := creds["username"]
+		if !ok {
+			return nil, fmt.Errorf("username not found in secret %s/%s", destination.Namespace, stateStoreSpec.SecretRef.Name)
+		}
+
+		password, ok := creds["password"]
+		if !ok {
+			return nil, fmt.Errorf("password not found in secret %s/%s", destination.Namespace, stateStoreSpec.SecretRef.Name)
+		}
+
+		authMethod = &http.BasicAuth{
+			Username: string(username),
+			Password: string(password),
+		}
 	}
 
 	return &GitWriter{
 		gitServer: gitServer{
 			URL:    stateStoreSpec.URL,
 			Branch: stateStoreSpec.Branch,
-			Auth: &http.BasicAuth{
-				Username: string(username),
-				Password: string(password),
-			},
+			Auth:   authMethod,
 		},
 		author: gitAuthor{
 			Name:  "Kratix",
