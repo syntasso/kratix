@@ -3,7 +3,6 @@ package writers
 import (
 	"fmt"
 	"io/ioutil"
-	"log"
 	"os"
 	"path/filepath"
 	"strings"
@@ -54,12 +53,35 @@ func NewGitWriter(logger logr.Logger, stateStoreSpec platformv1alpha1.GitStateSt
 		if !ok {
 			return nil, fmt.Errorf("sshPrivateKey not found in secret %s/%s", destination.Namespace, stateStoreSpec.SecretRef.Name)
 		}
-		publicKey, err := ssh.NewPublicKeys("", []byte(sshKey), "")
-		if err != nil {
-			log.Fatalf("creating ssh auth method")
+
+		knownHosts, ok := creds["knownHosts"]
+		if !ok {
+			return nil, fmt.Errorf("knownHosts not found in secret %s/%s", destination.Namespace, stateStoreSpec.SecretRef.Name)
 		}
 
-		authMethod = publicKey
+		sshPrivateKey, err := ssh.NewPublicKeys("git", []byte(sshKey), "")
+		if err != nil {
+			return nil, fmt.Errorf("error parsing sshPrivateKey: %w", err)
+		}
+
+		knownHostsFile, err := os.CreateTemp("", "knownHosts")
+		if err != nil {
+			return nil, fmt.Errorf("error creating knownhosts file: %w", err)
+		}
+
+		knownHostsFile.Write(knownHosts)
+		knownHostsCallback, err := ssh.NewKnownHostsCallback(knownHostsFile.Name())
+		if err != nil {
+			return nil, fmt.Errorf("error parsing known hosts: %w", err)
+		}
+
+		sshPrivateKey.HostKeyCallback = knownHostsCallback
+		err = os.Remove(knownHostsFile.Name())
+		if err != nil {
+			return nil, fmt.Errorf("error removing knownhosts file: %w", err)
+		}
+
+		authMethod = sshPrivateKey
 	case v1alpha1.BasicAuthMethod:
 		username, ok := creds["username"]
 		if !ok {
