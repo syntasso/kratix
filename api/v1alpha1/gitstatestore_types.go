@@ -21,6 +21,11 @@ import (
 	metav1 "k8s.io/apimachinery/pkg/apis/meta/v1"
 )
 
+const (
+	BasicAuthMethod = "basicAuth"
+	SSHAuthMethod   = "ssh"
+)
+
 // GitStateStoreSpec defines the desired state of GitStateStore
 type GitStateStoreSpec struct {
 	URL string `json:"url,omitempty"`
@@ -32,7 +37,7 @@ type GitStateStoreSpec struct {
 	Branch string `json:"branch,omitempty"`
 
 	// AuthMethod used to access the StateStore
-	//+kubebuilder:validation:Enum=basicAuth
+	//+kubebuilder:validation:Enum=basicAuth;ssh
 	//+kubebuilder:default:=basicAuth
 	AuthMethod string `json:"authMethod,omitempty"`
 }
