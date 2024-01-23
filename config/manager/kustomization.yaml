@@ -10,9 +10,6 @@ generatorOptions:
 # The wc-img-config config map drives the WC_IMG env var, which is used by the promise
 # controller as the last container in the workflow Pipeline pod spec.
 configMapGenerator:
-- files:
-  - controller_manager_config.yaml
-  name: manager-config
 - envs:
   - wc-img-config.properties
   name: wc-img-config
@@ -20,4 +17,4 @@ configMapGenerator:
 images:
 - name: controller
   newName: syntasso/kratix-platform
-  newTag: 1def67e581932755ef4c7a80103e1ff6d80e5b43
+  newTag: dev

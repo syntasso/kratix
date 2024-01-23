@@ -22,6 +22,7 @@ import (
 	"fmt"
 	"io"
 
+	"github.com/go-logr/logr"
 	"gopkg.in/yaml.v2"
 	v1 "k8s.io/apiextensions-apiserver/pkg/apis/apiextensions/v1"
 	metav1 "k8s.io/apimachinery/pkg/apis/meta/v1"
@@ -33,6 +34,7 @@ import (
 const (
 	PromiseStatusAvailable   = "Available"
 	PromiseStatusUnavailable = "Unavailable"
+	PromisePlural            = "promises"
 )
 
 // NOTE: json tags are required.  Any new fields you add must have json tags for the fields to be serialized.
@@ -150,6 +152,13 @@ type Promise struct {
 	Status PromiseStatus `json:"status,omitempty"`
 }
 
+type PromisePipelines struct {
+	DeleteResource    []Pipeline
+	ConfigureResource []Pipeline
+	ConfigurePromise  []Pipeline
+	DeletePromise     []Pipeline
+}
+
 var ErrNoAPI = fmt.Errorf("promise does not contain an API")
 
 func SquashPromiseScheduling(scheduling []PromiseScheduling) map[string]string {
@@ -224,6 +233,77 @@ func (p *Promise) GetPipelineResourceName() string {
 
 func (p *Promise) GetPipelineResourceNamespace() string {
 	return "default"
+}
+
+func (p *Promise) ToUnstructured() (*unstructured.Unstructured, error) {
+	objMap, err := runtime.DefaultUnstructuredConverter.ToUnstructured(p)
+	if err != nil {
+		return nil, err
+	}
+	unstructuredPromise := &unstructured.Unstructured{Object: objMap}
+
+	return unstructuredPromise, nil
+}
+
+func (p *Promise) GeneratePipelines(logger logr.Logger) (PromisePipelines, error) {
+	pipelineWorkflows := [][]unstructured.Unstructured{
+		p.Spec.Workflows.Resource.Configure,
+		p.Spec.Workflows.Resource.Delete,
+		p.Spec.Workflows.Promise.Configure,
+		p.Spec.Workflows.Promise.Delete,
+	}
+
+	var pipelines [][]Pipeline
+	for _, pipeline := range pipelineWorkflows {
+		p, err := generatePipeline(pipeline, logger)
+		if err != nil {
+			return PromisePipelines{}, err
+		}
+		pipelines = append(pipelines, p)
+	}
+
+	return PromisePipelines{
+		ConfigureResource: pipelines[0],
+		DeleteResource:    pipelines[1],
+		ConfigurePromise:  pipelines[2],
+		DeletePromise:     pipelines[3],
+	}, nil
+}
+
+func generatePipeline(pipelines []unstructured.Unstructured, logger logr.Logger) ([]Pipeline, error) {
+	if len(pipelines) == 0 {
+		return nil, nil
+	}
+
+	//We only support 1 pipeline for now
+	pipeline := pipelines[0]
+
+	pipelineLogger := logger.WithValues(
+		"pipelineKind", pipeline.GetKind(),
+		"pipelineVersion", pipeline.GetAPIVersion(),
+		"pipelineName", pipeline.GetName())
+
+	if pipeline.GetKind() == "Pipeline" && pipeline.GetAPIVersion() == "platform.kratix.io/v1alpha1" {
+		jsonPipeline, err := pipeline.MarshalJSON()
+		if err != nil {
+			// TODO test
+			pipelineLogger.Error(err, "Failed marshalling pipeline to json")
+			return nil, err
+		}
+
+		p := Pipeline{}
+		err = json.Unmarshal(jsonPipeline, &p)
+		if err != nil {
+			// TODO test
+			pipelineLogger.Error(err, "Failed unmarshalling pipeline")
+			return nil, err
+		}
+
+		return []Pipeline{p}, nil
+	}
+
+	return nil, fmt.Errorf("unsupported pipeline %q (%s.%s)",
+		pipeline.GetName(), pipeline.GetKind(), pipeline.GetAPIVersion())
 }
 
 func (d Dependencies) Marshal() ([]byte, error) {

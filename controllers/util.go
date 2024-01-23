@@ -23,7 +23,11 @@ import (
 )
 
 const (
-	promiseReleaseNameLabel = v1alpha1.KratixPrefix + "promise-release-name"
+	kratixPrefix                   = "kratix.io/"
+	promiseVersionLabel            = kratixPrefix + "promise-version"
+	promiseReleaseNameLabel        = kratixPrefix + "promise-release-name"
+	removeAllWorkflowJobsFinalizer = kratixPrefix + "workflows-cleanup"
+	runDeleteWorkflowsFinalizer    = kratixPrefix + "delete-workflows"
 )
 
 type StateStore interface {
@@ -37,12 +41,6 @@ type opts struct {
 	logger logr.Logger
 }
 
-type promisePipelines struct {
-	DeleteResource    []v1alpha1.Pipeline
-	ConfigureResource []v1alpha1.Pipeline
-	ConfigurePromise  []v1alpha1.Pipeline
-}
-
 type jobOpts struct {
 	opts
 	obj               *unstructured.Unstructured
@@ -51,7 +49,7 @@ type jobOpts struct {
 	source            string
 }
 
-func ensurePipelineIsReconciled(j jobOpts) (*ctrl.Result, error) {
+func ensureConfigurePipelineIsReconciled(j jobOpts) (*ctrl.Result, error) {
 	namespace := j.obj.GetNamespace()
 	if namespace == "" {
 		namespace = v1alpha1.KratixSystemNamespace
@@ -151,6 +149,44 @@ func createConfigurePipeline(j jobOpts) error {
 	}
 
 	return nil
+}
+
+func ensureDeletePipelineIsReconciled(jobOpts jobOpts) (ctrl.Result, error) {
+	jobOpts.logger.Info("labels", "labels", jobOpts.pipelineLabels)
+	existingDeletePipeline, err := getDeletePipeline(jobOpts.opts, jobOpts.obj.GetNamespace(), jobOpts.pipelineLabels)
+	if err != nil {
+		return defaultRequeue, err
+	}
+
+	if existingDeletePipeline == nil {
+		jobOpts.logger.Info("Creating Delete Pipeline. The pipeline will now execute...")
+
+		//TODO retrieve error information from applyResources to return to the caller
+		applyResources(jobOpts.opts, jobOpts.pipelineResources...)
+
+		return defaultRequeue, nil
+	}
+
+	jobOpts.logger.Info("Checking status of Delete Pipeline")
+	if existingDeletePipeline.Status.Succeeded > 0 {
+		jobOpts.logger.Info("Delete Pipeline Completed")
+		controllerutil.RemoveFinalizer(jobOpts.obj, runDeleteWorkflowsFinalizer)
+		if err := jobOpts.client.Update(jobOpts.ctx, jobOpts.obj); err != nil {
+			return ctrl.Result{}, err
+		}
+	} else {
+		jobOpts.logger.Info("Delete Pipeline not finished", "status", existingDeletePipeline.Status)
+	}
+
+	return fastRequeue, nil
+}
+
+func getDeletePipeline(o opts, namespace string, labels map[string]string) (*batchv1.Job, error) {
+	jobs, err := getJobsWithLabels(o, labels, namespace)
+	if err != nil || len(jobs) == 0 {
+		return nil, err
+	}
+	return &jobs[0], nil
 }
 
 // pass in nil resourceLabels to delete all resources of the GVK
@@ -285,6 +321,7 @@ func getJobsWithLabels(o opts, jobLabels map[string]string, namespace string) ([
 	return jobs.Items, nil
 }
 
+// TODO return error info (summary of errors from resources?) to the caller, instead of just logging
 func applyResources(o opts, resources ...client.Object) {
 	o.logger.Info("Reconciling pipeline resources")
 

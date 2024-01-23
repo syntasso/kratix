@@ -6,6 +6,7 @@ orbs:
   golang: circleci/go@1.7.2
   retry: kimh/run-with-retry@1.0.0
   queue: eddiewebb/queue@2.2.1
+  snyk: snyk/snyk@2.0.2
 
 executors:
   machine-medium:
@@ -20,6 +21,12 @@ executors:
       docker_layer_caching: true
     working_directory: ~/repo
     resource_class: large
+  machine-xlarge:
+    machine:
+      image: ubuntu-2204:2023.04.2
+      docker_layer_caching: true
+    working_directory: ~/repo
+    resource_class: xlarge
 
 filter-for-tags: &filter-for-tags
   filters:
@@ -129,7 +136,7 @@ jobs:
           paths:
             - .
 
-  govulncheck:
+  go-dependencies-vulnerability-scan:
     executor: machine-medium
     steps:
       - install_software
@@ -141,9 +148,24 @@ jobs:
       - run:
           name: run check
           command: govulncheck ./...
+      - snyk/scan:
+          severity-threshold: medium
+
+  kratix-containers-vulnerability-scan:
+    executor: machine-medium
+    environment:
+      KRATIX_IMAGE_NAME: syntasso/kratix-platform
+      WORKER_IMAGE_NAME: syntasso/kratix-platform-pipeline-adapter
+    steps:
+      - snyk/scan:
+          severity-threshold: medium
+          docker-image-name: $KRATIX_IMAGE_NAME:latest
+      - snyk/scan:
+          severity-threshold: medium
+          docker-image-name: $WORKER_IMAGE_NAME:latest
 
   test:
-    executor: machine-large
+    executor: machine-xlarge
     steps:
       - install_software
       - run:
@@ -411,7 +433,7 @@ workflows:
   update-demo:
     triggers:
       - schedule:
-          cron: "0 0 * * 1-5"
+          cron: "0 0 * * 1"
           filters:
             branches:
               only: [dev]
@@ -431,5 +453,6 @@ workflows:
               only: [main]
     jobs:
       - clone-kratix
-      - govulncheck:
+      - go-dependencies-vulnerability-scan:
           requires: [clone-kratix]
+      - kratix-containers-vulnerability-scan

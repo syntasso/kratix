@@ -1,11 +1,8 @@
 apiVersion: platform.kratix.io/v1alpha1
 kind: Promise
 metadata:
-  name: redis
+  name: promise-with-workflow
 spec:
-  requirements:
-  - name: REPLACEBASH
-    version: "v1.0.0"
   api:
     apiVersion: apiextensions.k8s.io/v1
     kind: CustomResourceDefinition
@@ -36,22 +33,13 @@ spec:
                         Size of this Redis deployment. If small, it deploy redis with a single replica; if large, deploy redis with 3 replicas.
                       pattern: ^(small|large)$
                       type: string
-                    newConfig:
-                      default: "1"
-                      description: example config
-                      type: string
                   type: object
               type: object
           served: true
           storage: true
-  dependencies:
-  - apiVersion: v1
-    kind: Namespace
-    metadata:
-      name: updated-namespace
   destinationSelectors:
-  - matchLabels:
-      environment: dev
+    - matchLabels:
+        environment: dev
   workflows:
     resource:
       configure:
@@ -62,9 +50,16 @@ spec:
             namespace: default
           spec:
             containers:
-              - image: syntassodev/bash-promise-test-c0:dev
-                name: redis-configure-pipeline
-                command: ["sh", "-c"]
-                args:
-                - |
-                  echo "Running configure pipeline"
+              - image: syntasso/demo-redis-configure-pipeline:v0.1.0
+                name: demo-redis-configure-pipeline
+    promise:
+      delete:
+        - apiVersion: platform.kratix.io/v1alpha1
+          kind: Pipeline
+          metadata:
+            name: promise-delete
+            namespace: default
+          spec:
+            containers:
+              - image: syntasso/promise-with-workflow-delete:v0.1.0
+                name: promise-with-workflow-delete

@@ -39,6 +39,7 @@ spec:
                 description: AuthMethod used to access the StateStore
                 enum:
                 - basicAuth
+                - ssh
                 type: string
               branch:
                 default: main

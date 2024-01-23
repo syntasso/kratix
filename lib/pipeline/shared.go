@@ -97,7 +97,7 @@ func clusterRole(args PipelineArgs) *rbacv1.ClusterRole {
 		Rules: []rbacv1.PolicyRule{
 			{
 				APIGroups: []string{"platform.kratix.io"},
-				Resources: []string{"promises", "promises/status", "works"},
+				Resources: []string{v1alpha1.PromisePlural, v1alpha1.PromisePlural + "/status", "works"},
 				Verbs:     []string{"get", "list", "update", "create", "patch"},
 			},
 		},
@@ -182,6 +182,8 @@ func readerContainer(obj *unstructured.Unstructured, kratixWorkflowType, volumeN
 	return readerContainer
 }
 
+// TODO(breaking) change this to {promiseIdentifier}-{pipelineType}-pipeline-{short-uuid}
+// for consistency with other resource names (e.g. service account)
 func pipelineName(pipelineType, promiseIdentifier string) string {
 	return pipelineType + "-pipeline-" + promiseIdentifier + "-" + getShortUuid()
 }

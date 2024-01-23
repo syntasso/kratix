@@ -18,7 +18,6 @@ package controllers
 
 import (
 	"context"
-	"encoding/json"
 	"fmt"
 	"slices"
 	"strings"
@@ -67,10 +66,11 @@ type PromiseReconciler struct {
 }
 
 const (
-	resourceRequestCleanupFinalizer                    = v1alpha1.KratixPrefix + "resource-request-cleanup"
-	dynamicControllerDependantResourcesCleaupFinalizer = v1alpha1.KratixPrefix + "dynamic-controller-dependant-resources-cleanup"
-	crdCleanupFinalizer                                = v1alpha1.KratixPrefix + "api-crd-cleanup"
-	dependenciesCleanupFinalizer                       = v1alpha1.KratixPrefix + "dependencies-cleanup"
+	resourceRequestCleanupFinalizer = kratixPrefix + "resource-request-cleanup"
+	// TODO fix the name of this finalizer: dependant -> dependent (breaking change)
+	dynamicControllerDependantResourcesCleaupFinalizer = kratixPrefix + "dynamic-controller-dependant-resources-cleanup"
+	crdCleanupFinalizer                                = kratixPrefix + "api-crd-cleanup"
+	dependenciesCleanupFinalizer                       = kratixPrefix + "dependencies-cleanup"
 
 	requirementStateInstalled                      = "Requirement installed"
 	requirementStateNotInstalled                   = "Requirement not installed"
@@ -131,8 +131,13 @@ func (r *PromiseReconciler) Reconcile(ctx context.Context, req ctrl.Request) (ct
 		logger: logger,
 	}
 
+	pipelines, err := promise.GeneratePipelines(logger)
+	if err != nil {
+		return ctrl.Result{}, err
+	}
+
 	if !promise.DeletionTimestamp.IsZero() {
-		return r.deletePromise(opts, promise)
+		return r.deletePromise(opts, promise, pipelines.DeletePromise)
 	}
 
 	if value, found := promise.Labels[v1alpha1.PromiseVersionLabel]; found {
@@ -149,6 +154,17 @@ func (r *PromiseReconciler) Reconcile(ctx context.Context, req ctrl.Request) (ct
 	if err != nil || updated {
 		return ctrl.Result{}, err
 	}
+
+	//TODO handle removing finalizer
+	requeue, err := ensurePromiseDeleteWorkflowFinalizer(opts, promise, pipelines.DeletePromise)
+	if err != nil {
+		return ctrl.Result{}, err
+	}
+	if requeue != nil {
+		return *requeue, nil
+	}
+
+	//TODO add workflowFinalizzer if deletes exist (currently we only add it if we have a configure pipeline)
 
 	var rrCRD *apiextensionsv1.CustomResourceDefinition
 	var rrGVK schema.GroupVersionKind
@@ -182,16 +198,11 @@ func (r *PromiseReconciler) Reconcile(ctx context.Context, req ctrl.Request) (ct
 		}
 	}
 
-	pipelines, err := r.generatePipelines(promise, logger)
-	if err != nil {
-		return ctrl.Result{}, err
-	}
-
 	if resourceutil.DoesNotContainFinalizer(promise, dependenciesCleanupFinalizer) {
 		return addFinalizers(opts, promise, []string{dependenciesCleanupFinalizer})
 	}
 
-	requeue, err := r.reconcileDependencies(opts, promise, pipelines.ConfigurePromise)
+	requeue, err = r.reconcileDependencies(opts, promise, pipelines.ConfigurePromise)
 	if err != nil {
 		return ctrl.Result{}, nil
 	}
@@ -352,17 +363,17 @@ func (r *PromiseReconciler) reconcileDependencies(o opts, promise *v1alpha1.Prom
 		return nil, nil
 	}
 
-	if resourceutil.DoesNotContainFinalizer(promise, workflowsFinalizer) {
-		result, err := addFinalizers(o, promise, []string{workflowsFinalizer})
+	//TODO remove finalaizer if we don't have any configure (or delete?)
+	if resourceutil.DoesNotContainFinalizer(promise, removeAllWorkflowJobsFinalizer) {
+		result, err := addFinalizers(o, promise, []string{removeAllWorkflowJobsFinalizer})
 		return &result, err
 	}
 
 	o.logger.Info("Promise contains workflows.promise.configure, reconciling workflows")
-	objMap, err := runtime.DefaultUnstructuredConverter.ToUnstructured(&promise)
+	unstructuredPromise, err := promise.ToUnstructured()
 	if err != nil {
 		return nil, err
 	}
-	unstructuredPromise := &unstructured.Unstructured{Object: objMap}
 	pipelineResources, err := pipeline.NewConfigurePromise(
 		unstructuredPromise,
 		configurePipeline,
@@ -382,7 +393,7 @@ func (r *PromiseReconciler) reconcileDependencies(o opts, promise *v1alpha1.Prom
 		source:            "promise",
 	}
 
-	return ensurePipelineIsReconciled(jobOpts)
+	return ensureConfigurePipelineIsReconciled(jobOpts)
 }
 
 func (r *PromiseReconciler) reconcileAllRRs(rrGVK schema.GroupVersionKind) error {
@@ -610,13 +621,36 @@ func (r *PromiseReconciler) updateStatus(promise *v1alpha1.Promise, kind, group,
 	return true, r.Client.Status().Update(context.TODO(), promise)
 }
 
-func (r *PromiseReconciler) deletePromise(o opts, promise *v1alpha1.Promise) (ctrl.Result, error) {
+func (r *PromiseReconciler) deletePromise(o opts, promise *v1alpha1.Promise, deletePipelines []v1alpha1.Pipeline) (ctrl.Result, error) {
+	o.logger.Info("finalizers existing", "finalizers", promise.GetFinalizers())
 	if resourceutil.FinalizersAreDeleted(promise, promiseFinalizers) {
 		return ctrl.Result{}, nil
 	}
 
-	if controllerutil.ContainsFinalizer(promise, workflowsFinalizer) {
-		err := r.deleteWorkflows(o, promise, workflowsFinalizer)
+	if controllerutil.ContainsFinalizer(promise, runDeleteWorkflowsFinalizer) {
+		pipelineLabels := pipeline.LabelsForDeletePromise(promise.GetName())
+
+		unstructuredPromise, err := promise.ToUnstructured()
+		if err != nil {
+			return ctrl.Result{}, err
+		}
+		pipelineResources := pipeline.NewDeletePromise(
+			unstructuredPromise, deletePipelines,
+		)
+
+		jobOpts := jobOpts{
+			opts:              o,
+			obj:               unstructuredPromise,
+			pipelineLabels:    pipelineLabels,
+			pipelineResources: pipelineResources,
+			source:            "promise",
+		}
+
+		return ensureDeletePipelineIsReconciled(jobOpts)
+	}
+
+	if controllerutil.ContainsFinalizer(promise, removeAllWorkflowJobsFinalizer) {
+		err := r.deleteJobs(o, promise, removeAllWorkflowJobsFinalizer)
 		if err != nil {
 			return ctrl.Result{}, err
 		}
@@ -670,7 +704,7 @@ func (r *PromiseReconciler) deletePromise(o opts, promise *v1alpha1.Promise) (ct
 	return fastRequeue, nil
 }
 
-func (r *PromiseReconciler) deleteWorkflows(o opts, promise *v1alpha1.Promise, finalizer string) error {
+func (r *PromiseReconciler) deleteJobs(o opts, promise *v1alpha1.Promise, finalizer string) error {
 	jobGVK := schema.GroupVersionKind{
 		Group:   batchv1.SchemeGroupVersion.Group,
 		Version: batchv1.SchemeGroupVersion.Version,
@@ -740,7 +774,7 @@ func (r *PromiseReconciler) deleteResourceRequests(o opts, promise *v1alpha1.Pro
 		return err
 	}
 
-	pipelines, err := r.generatePipelines(promise, o.logger)
+	pipelines, err := promise.GeneratePipelines(o.logger)
 	if err != nil {
 		return err
 	}
@@ -776,9 +810,7 @@ func (r *PromiseReconciler) deleteCRDs(o opts, promise *v1alpha1.Promise) error 
 
 	if errors.IsNotFound(err) {
 		controllerutil.RemoveFinalizer(promise, crdCleanupFinalizer)
-		if err := r.Client.Update(o.ctx, promise); err != nil {
-			return err
-		}
+		return r.Client.Update(o.ctx, promise)
 	}
 
 	return r.ApiextensionsClient.
@@ -825,6 +857,25 @@ func (r *PromiseReconciler) SetupWithManager(mgr ctrl.Manager) error {
 			}),
 		).
 		Complete(r)
+}
+
+func ensurePromiseDeleteWorkflowFinalizer(o opts, promise *v1alpha1.Promise, deletePipelines []v1alpha1.Pipeline) (*ctrl.Result, error) {
+	promiseDeletePipelineExists := deletePipelines != nil
+	promiseContainsDeleteWorkflowsFinalizer := controllerutil.ContainsFinalizer(promise, runDeleteWorkflowsFinalizer)
+	promiseContainsRemoveAllWorkflowJobsFinalizer := controllerutil.ContainsFinalizer(promise, removeAllWorkflowJobsFinalizer)
+
+	if promiseDeletePipelineExists &&
+		(!promiseContainsDeleteWorkflowsFinalizer || !promiseContainsRemoveAllWorkflowJobsFinalizer) {
+		result, err := addFinalizers(o, promise, []string{runDeleteWorkflowsFinalizer, removeAllWorkflowJobsFinalizer})
+		return &result, err
+	}
+
+	if !promiseDeletePipelineExists && promiseContainsDeleteWorkflowsFinalizer {
+		controllerutil.RemoveFinalizer(promise, runDeleteWorkflowsFinalizer)
+		return &ctrl.Result{}, o.client.Update(o.ctx, promise)
+	}
+
+	return nil, nil
 }
 
 func generateCRDAndGVK(promise *v1alpha1.Promise, logger logr.Logger) (*apiextensionsv1.CustomResourceDefinition, schema.GroupVersionKind, error) {
@@ -929,65 +980,6 @@ func (r *PromiseReconciler) applyWorkResourceForDependencies(o opts, promise *v1
 
 	o.logger.Info("resource reconciled", "operation", op, "namespace", work.GetNamespace(), "name", work.GetName(), "gvk", work.GroupVersionKind())
 	return nil
-}
-
-func (r *PromiseReconciler) generatePipelines(promise *v1alpha1.Promise, logger logr.Logger) (promisePipelines, error) {
-	pipelineWorkflows := [][]unstructured.Unstructured{
-		promise.Spec.Workflows.Resource.Configure,
-		promise.Spec.Workflows.Resource.Delete,
-		promise.Spec.Workflows.Promise.Configure,
-	}
-
-	var pipelines [][]v1alpha1.Pipeline
-	for _, pipeline := range pipelineWorkflows {
-		p, err := generatePipeline(pipeline, logger)
-		if err != nil {
-			return promisePipelines{}, err
-		}
-		pipelines = append(pipelines, p)
-	}
-
-	return promisePipelines{
-		ConfigureResource: pipelines[0],
-		DeleteResource:    pipelines[1],
-		ConfigurePromise:  pipelines[2],
-	}, nil
-}
-
-func generatePipeline(pipelines []unstructured.Unstructured, logger logr.Logger) ([]v1alpha1.Pipeline, error) {
-	if len(pipelines) == 0 {
-		return nil, nil
-	}
-
-	//We only support 1 pipeline for now
-	pipeline := pipelines[0]
-
-	pipelineLogger := logger.WithValues(
-		"pipelineKind", pipeline.GetKind(),
-		"pipelineVersion", pipeline.GetAPIVersion(),
-		"pipelineName", pipeline.GetName())
-
-	if pipeline.GetKind() == "Pipeline" && pipeline.GetAPIVersion() == "platform.kratix.io/v1alpha1" {
-		jsonPipeline, err := pipeline.MarshalJSON()
-		if err != nil {
-			// TODO test
-			pipelineLogger.Error(err, "Failed marshalling pipeline to json")
-			return nil, err
-		}
-
-		p := v1alpha1.Pipeline{}
-		err = json.Unmarshal(jsonPipeline, &p)
-		if err != nil {
-			// TODO test
-			pipelineLogger.Error(err, "Failed unmarshalling pipeline")
-			return nil, err
-		}
-
-		return []v1alpha1.Pipeline{p}, nil
-	}
-
-	return nil, fmt.Errorf("unsupported pipeline %q (%s.%s)",
-		pipeline.GetName(), pipeline.GetKind(), pipeline.GetAPIVersion())
 }
 
 func (r *PromiseReconciler) markRequiredPromiseAsRequired(ctx context.Context, version string, promise, requiredPromise *v1alpha1.Promise) {

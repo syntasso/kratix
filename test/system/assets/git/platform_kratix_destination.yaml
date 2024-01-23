@@ -6,7 +6,6 @@ metadata:
   labels:
     environment: platform
 spec:
-  path: bar/baz
   stateStoreRef:
-    name: system-test
+    name: default
     kind: GitStateStore
