@@ -1,9 +1,9 @@
----
-apiVersion: example.promise.syntasso.io/v1
-kind: postgres
+apiVersion: marketplace.kratix.io/v1alpha1
+kind: postgresql
 metadata:
-  name: acid-minimal-cluster
+  name: example
   namespace: default
 spec:
-  preparedDatabases:
-    mydb: {}
+  env: dev
+  teamId: acid
+  dbName: bestdb

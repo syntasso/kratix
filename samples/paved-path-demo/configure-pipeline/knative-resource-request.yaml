@@ -1,6 +1,8 @@
 ---
-apiVersion: example.promise.syntasso.io/v1
-kind: knativeserving
+apiVersion: marketplace.kratix.io/v1alpha1
+kind: knative
 metadata:
-  name: knative-serving
+  name: example
   namespace: default
+spec:
+  env: dev
