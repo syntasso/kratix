@@ -28,6 +28,7 @@ func TestSystem(t *testing.T) {
 }
 
 var _ = SynchronizedBeforeSuite(func() {
+	//this runs once for the whole suite
 	worker = &destination{
 		context:       getEnvOrDefault("WORKER_CONTEXT", "kind-worker"),
 		checkExitCode: true,
@@ -39,7 +40,6 @@ var _ = SynchronizedBeforeSuite(func() {
 		name:          getEnvOrDefault("PLATFORM_NAME", "platform-cluster"),
 	}
 
-	//this runs once for the whole suite
 	if getEnvOrDefault("PLATFORM_SKIP_SETUP", "false") == "true" {
 		return
 	}
@@ -57,6 +57,9 @@ var _ = SynchronizedBeforeSuite(func() {
 	os.RemoveAll(tmpDir)
 }, func() {
 	//this runs before each test
+
+	//This variable gets set in func above, but only for 1 of the nodes, so we set
+	//it again here to ensure all nodes have it
 	worker = &destination{
 		context:       getEnvOrDefault("WORKER_CONTEXT", "kind-worker"),
 		checkExitCode: true,

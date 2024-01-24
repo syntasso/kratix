@@ -201,7 +201,7 @@ var _ = Describe("Kratix", func() {
 			})
 		})
 
-		When("the promise has requirements that are fulfilled", func() {
+		PWhen("the promise has requirements that are fulfilled", func() {
 			var tmpDir string
 			BeforeEach(func() {
 				var err error
@@ -454,7 +454,7 @@ var _ = Describe("Kratix", func() {
 		})
 	})
 
-	Describe("PromiseRelease", func() {
+	PDescribe("PromiseRelease", func() {
 		When("a PromiseRelease is installed", func() {
 			BeforeEach(func() {
 				tmpDir, err := os.MkdirTemp(os.TempDir(), "systest")

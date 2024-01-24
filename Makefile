@@ -216,6 +216,14 @@ build-and-load-bash: # Build and load all test pipeline images
 	kind load docker-image syntassodev/bash-promise:v1alpha1 --name platform
 	kind load docker-image syntassodev/bash-promise:v1alpha2 --name platform
 
+build-and-push-bash:
+	docker buildx build --builder kratix-image-builder --push --platform linux/arm64,linux/amd64 --tag syntassodev/bash-promise-test-c0:dev ./test/system/assets/bash-promise --build-arg CONTAINER_INDEX=0
+	docker buildx build --builder kratix-image-builder --push --platform linux/arm64,linux/amd64 --tag syntassodev/bash-promise-test-c1:dev ./test/system/assets/bash-promise --build-arg CONTAINER_INDEX=1
+	docker buildx build --builder kratix-image-builder --push --platform linux/arm64,linux/amd64 --tag syntassodev/bash-promise-test-c2:dev ./test/system/assets/bash-promise --build-arg CONTAINER_INDEX=2
+	docker buildx build --builder kratix-image-builder --push --platform linux/arm64,linux/amd64 --tag syntassodev/bash-promise:v1alpha1 -f ./test/system/assets/bash-promise/Dockerfile.promise ./test/system/assets/bash-promise --build-arg VERSION="v1alpha1"
+	docker buildx build --builder kratix-image-builder --push --platform linux/arm64,linux/amd64 --tag syntassodev/bash-promise:v1alpha2 -f ./test/system/assets/bash-promise/Dockerfile.promise ./test/system/assets/bash-promise --build-arg VERSION="v1alpha2"
+
+
 ##@ Deprecated: will be deleted soon
 
 # build-and-reload-kratix is deprecated in favor of build-and-load-kratix
