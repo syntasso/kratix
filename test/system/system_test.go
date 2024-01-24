@@ -34,6 +34,7 @@ type destination struct {
 	context       string
 	checkExitCode bool
 	exitCode      int
+	name          string
 }
 
 var (
@@ -48,10 +49,14 @@ var (
 	consistentlyTimeout = time.Second * 20
 	interval            = time.Second * 2
 
-	workerCtx = "--context=kind-worker"
-	worker    = destination{context: workerCtx, checkExitCode: true}
-	platCtx   = "--context=kind-platform"
-	platform  = destination{context: platCtx, checkExitCode: true}
+	worker   *destination
+	platform *destination
+
+	endpoint        string
+	secretAccessKey string
+	accessKeyID     string
+	useSSL          bool
+	bucketName      string
 )
 
 const pipelineTimeout = "--timeout=89s"
@@ -136,13 +141,13 @@ var _ = Describe("Kratix", func() {
 			}
 		}()
 
-		platform.kubectl("label", "destination", "worker-1", bashPromiseUniqueLabel)
+		platform.kubectl("label", "destination", worker.name, bashPromiseUniqueLabel)
 	})
 
 	AfterEach(func() {
 		if CurrentSpecReport().State.Is(types.SpecStatePassed) {
-			platform.kubectl("label", "destination", "worker-1", removeBashPromiseUniqueLabel)
-			platform.kubectl("label", "destination", "platform-cluster", removeBashPromiseUniqueLabel)
+			platform.kubectl("label", "destination", worker.name, removeBashPromiseUniqueLabel)
+			platform.kubectl("label", "destination", platform.name, removeBashPromiseUniqueLabel)
 		}
 		srv.Shutdown(context.TODO())
 	})
@@ -304,7 +309,10 @@ var _ = Describe("Kratix", func() {
 				})
 
 				By("mirroring the directory and files from /kratix/output to the statestore", func() {
-					Expect(listFilesMinIOInStateStore("worker-1", "default", bashPromiseName, rrName)).To(ConsistOf("5058f/foo/example.json", "5058f/namespace.yaml"))
+
+					if getEnvOrDefault("TEST_SKIP_BUCKET_CHECK", "false") != "true" {
+						Expect(listFilesMinIOInStateStore(worker.name, "default", bashPromiseName, rrName)).To(ConsistOf("5058f/foo/example.json", "5058f/namespace.yaml"))
+					}
 				})
 
 				By("updating the resource status", func() {
@@ -492,7 +500,7 @@ var _ = Describe("Kratix", func() {
 		It("schedules resources to the correct Destinations", func() {
 			By("reconciling on new Destinations", func() {
 				depNamespaceName := declarativeStaticWorkerNamespace
-				platform.kubectl("label", "destination", "worker-1", removeBashPromiseUniqueLabel)
+				platform.kubectl("label", "destination", worker.name, removeBashPromiseUniqueLabel)
 
 				By("scheduling to the Worker when it gets all the required labels", func() {
 					bashPromise.Spec.DestinationSelectors[0] = v1alpha1.PromiseScheduling{
@@ -515,33 +523,33 @@ var _ = Describe("Kratix", func() {
 						return worker.kubectl("get", "namespace")
 					}, "10s").ShouldNot(ContainSubstring(depNamespaceName))
 
-					platform.kubectl("label", "destination", "worker-1", "security=high")
+					platform.kubectl("label", "destination", worker.name, "security=high")
 
 					Consistently(func() string {
 						return worker.kubectl("get", "namespace")
 					}, "10s").ShouldNot(ContainSubstring(depNamespaceName))
 
 					// Promise Configure Workflow DestinationSelectors
-					platform.kubectl("label", "destination", "worker-1", bashPromiseUniqueLabel, "security-")
+					platform.kubectl("label", "destination", worker.name, bashPromiseUniqueLabel, "security-")
 					Consistently(func() string {
 						return worker.kubectl("get", "namespace")
 					}, "10s").ShouldNot(ContainSubstring(depNamespaceName))
 
-					platform.kubectl("label", "destination", "worker-1", bashPromiseUniqueLabel, "security=high")
+					platform.kubectl("label", "destination", worker.name, bashPromiseUniqueLabel, "security=high")
 
 					worker.eventuallyKubectl("get", "namespace", depNamespaceName)
 					Expect(platform.kubectl("get", "namespace")).NotTo(ContainSubstring(depNamespaceName))
 				})
 
 				By("labeling the platform Destination, it gets the dependencies assigned", func() {
-					platform.kubectl("label", "destination", "platform-cluster", "security=high", bashPromiseUniqueLabel)
+					platform.kubectl("label", "destination", platform.name, "security=high", bashPromiseUniqueLabel)
 					platform.eventuallyKubectl("get", "namespace", depNamespaceName)
 				})
 
 			})
 
 			// Remove the labels again so we can check the same flow for resource requests
-			platform.kubectl("label", "destination", "worker-1", removeBashPromiseUniqueLabel)
+			platform.kubectl("label", "destination", worker.name, removeBashPromiseUniqueLabel)
 
 			By("respecting the pipeline's scheduling", func() {
 				pipelineCmd := `echo "[{\"matchLabels\":{\"pci\":\"true\"}}]" > /kratix/metadata/destination-selectors.yaml
@@ -562,22 +570,22 @@ var _ = Describe("Kratix", func() {
 					}, "10s").ShouldNot(ContainSubstring("rr-2-namespace"))
 
 					// Add the label defined in the resource.configure workflow
-					platform.kubectl("label", "destination", "worker-1", "pci=true")
+					platform.kubectl("label", "destination", worker.name, "pci=true")
 
 					Consistently(func() string {
 						return platform.kubectl("get", "namespace") + "\n" + worker.kubectl("get", "namespace")
 					}, "10s").ShouldNot(ContainSubstring("rr-2-namespace"))
 
 					// Add the label defined in the promise.configure workflow
-					platform.kubectl("label", "destination", "worker-1", bashPromiseUniqueLabel)
+					platform.kubectl("label", "destination", worker.name, bashPromiseUniqueLabel)
 
 					worker.eventuallyKubectl("get", "namespace", "rr-2-namespace")
 				})
 			})
 
 			platform.eventuallyKubectlDelete("promise", bashPromiseName)
-			platform.kubectl("label", "destination", "worker-1", "security-", "pci-", removeBashPromiseUniqueLabel)
-			platform.kubectl("label", "destination", "platform-cluster", "security-", removeBashPromiseUniqueLabel)
+			platform.kubectl("label", "destination", worker.name, "security-", "pci-", removeBashPromiseUniqueLabel)
+			platform.kubectl("label", "destination", platform.name, "security-", removeBashPromiseUniqueLabel)
 		})
 
 		// Worker destination (BucketStateStore):
@@ -598,7 +606,7 @@ var _ = Describe("Kratix", func() {
 			platform.eventuallyKubectl("apply", "-f", cat(bashPromise))
 			platform.eventuallyKubectl("get", "crd", crd.Name)
 
-			platform.kubectl("label", "destination", "platform-cluster", bashPromiseUniqueLabel, "security-")
+			platform.kubectl("label", "destination", platform.name, bashPromiseUniqueLabel, "security-")
 
 			By("only the worker Destination getting the dependency initially", func() {
 				Consistently(func() {
@@ -632,8 +640,8 @@ var _ = Describe("Kratix", func() {
 			})
 
 			platform.eventuallyKubectlDelete("promise", bashPromiseName)
-			platform.kubectl("label", "destination", "worker-1", "security-", "pci-", removeBashPromiseUniqueLabel)
-			platform.kubectl("label", "destination", "platform-cluster", "security-", removeBashPromiseUniqueLabel)
+			platform.kubectl("label", "destination", worker.name, "security-", "pci-", removeBashPromiseUniqueLabel)
+			platform.kubectl("label", "destination", platform.name, "security-", removeBashPromiseUniqueLabel)
 		})
 	})
 })
@@ -737,7 +745,7 @@ func requestWithNameAndCommand(name string, containerCmds ...string) string {
 }
 
 func (c destination) eventuallyKubectlDelete(args ...string) string {
-	args = append([]string{"delete", c.context}, args...)
+	args = append([]string{"delete", "--context=" + c.context}, args...)
 	var content string
 	EventuallyWithOffset(1, func(g Gomega) {
 		command := exec.Command("kubectl", args...)
@@ -751,7 +759,7 @@ func (c destination) eventuallyKubectlDelete(args ...string) string {
 
 // run a command until it exits 0
 func (c destination) eventuallyKubectl(args ...string) string {
-	args = append(args, c.context)
+	args = append(args, "--context="+c.context)
 	var content string
 	EventuallyWithOffset(1, func(g Gomega) {
 		command := exec.Command("kubectl", args...)
@@ -765,7 +773,7 @@ func (c destination) eventuallyKubectl(args ...string) string {
 
 // run command and return stdout. Errors if exit code non-zero
 func (c destination) kubectl(args ...string) string {
-	args = append(args, c.context)
+	args = append(args, "--context="+c.context)
 	command := exec.Command("kubectl", args...)
 	session, err := gexec.Start(command, GinkgoWriter, GinkgoWriter)
 	ExpectWithOffset(1, err).ShouldNot(HaveOccurred())
@@ -799,11 +807,6 @@ func (c destination) withExitCode(code int) destination {
 func listFilesMinIOInStateStore(destinationName, namespace, promiseName, resourceName string) []string {
 	paths := []string{}
 	resourceSubDir := filepath.Join(destinationName, "resources", namespace, promiseName, resourceName)
-	endpoint := "localhost:31337"
-	secretAccessKey := "minioadmin"
-	accessKeyID := "minioadmin"
-	useSSL := false
-	bucketName := "kratix"
 
 	// Initialize minio client object.
 	minioClient, err := minio.New(endpoint, &minio.Options{

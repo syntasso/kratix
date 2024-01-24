@@ -28,18 +28,60 @@ func TestSystem(t *testing.T) {
 }
 
 var _ = SynchronizedBeforeSuite(func() {
+	worker = &destination{
+		context:       getEnvOrDefault("WORKER_CONTEXT", "kind-worker"),
+		checkExitCode: true,
+		name:          getEnvOrDefault("WORKER_NAME", "worker-1"),
+	}
+	platform = &destination{
+		context:       getEnvOrDefault("PLATFORM_CONTEXT", "kind-platform"),
+		checkExitCode: true,
+		name:          getEnvOrDefault("PLATFORM_NAME", "platform-cluster"),
+	}
+
 	//this runs once for the whole suite
+	if getEnvOrDefault("PLATFORM_SKIP_SETUP", "false") == "true" {
+		return
+	}
+
 	var err error
 	testTempDir, err = os.MkdirTemp(os.TempDir(), "systest")
 	Expect(err).NotTo(HaveOccurred())
 	initK8sClient()
 	tmpDir, err := os.MkdirTemp(os.TempDir(), "systest")
 	Expect(err).NotTo(HaveOccurred())
+
 	platform.kubectl("apply", "-f", "../../hack/destination/gitops-tk-install.yaml")
 	platform.kubectl("apply", "-f", catAndReplaceFluxResources(tmpDir, "./assets/git/platform_gitops-tk-resources.yaml"))
 	platform.kubectl("apply", "-f", catAndReplaceFluxResources(tmpDir, "./assets/git/platform_kratix_destination.yaml"))
 	os.RemoveAll(tmpDir)
-}, func() {})
+}, func() {
+	//this runs before each test
+	worker = &destination{
+		context:       getEnvOrDefault("WORKER_CONTEXT", "kind-worker"),
+		checkExitCode: true,
+		name:          getEnvOrDefault("WORKER_NAME", "worker-1"),
+	}
+	platform = &destination{
+		context:       getEnvOrDefault("PLATFORM_CONTEXT", "kind-platform"),
+		checkExitCode: true,
+		name:          getEnvOrDefault("PLATFORM_NAME", "platform-cluster"),
+	}
+
+	endpoint = getEnvOrDefault("BUCKET_ENDPOINT)", "localhost:31337")
+	secretAccessKey = getEnvOrDefault("BUCKET_SECRET_KEY", "minioadmin")
+	accessKeyID = getEnvOrDefault("BUCKET_ACCESS_KEY", "minioadmin")
+	useSSL = getEnvOrDefault("BUCKET_SSL", "false") == "true"
+	bucketName = getEnvOrDefault("BUCKET_NAME", "kratix")
+})
+
+func getEnvOrDefault(envVar, defaultValue string) string {
+	value := os.Getenv(envVar)
+	if value == "" {
+		return defaultValue
+	}
+	return value
+}
 
 var _ = AfterSuite(func() {
 	os.RemoveAll(testTempDir)
