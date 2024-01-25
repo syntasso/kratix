@@ -46,7 +46,7 @@ var (
 	promiseWithRequirement = "./assets/requirements/promise-with-requirement.yaml"
 
 	timeout             = time.Second * 400
-	shortTimeout        = time.Second * 20
+	shortTimeout        = time.Second * 40
 	consistentlyTimeout = time.Second * 20
 	interval            = time.Second * 2
 
@@ -745,12 +745,27 @@ func requestWithNameAndCommand(name string, containerCmds ...string) string {
 	return file.Name()
 }
 
-func (c destination) eventuallyKubectlDelete(args ...string) string {
-	args = append([]string{"delete", "--context=" + c.context}, args...)
+// When deleting a Promise a number of things can happen:
+// - It takes a long time for finalizers to be removed
+// - Kratix restarts, which means the webhook is down temporarily, which results
+// in the kubectl delete failing straight away
+//   - By time kratix starts back up, it has already been deleted
+//
+// This means we need a more roboust approach for deleting Promises
+func (c destination) eventuallyKubectlDelete(kind, name string) string {
 	var content string
 	EventuallyWithOffset(1, func(g Gomega) {
-		command := exec.Command("kubectl", args...)
+		command := exec.Command("kubectl", "get", "--context="+c.context, kind, name)
 		session, err := gexec.Start(command, GinkgoWriter, GinkgoWriter)
+		g.ExpectWithOffset(1, err).ShouldNot(HaveOccurred())
+		g.EventuallyWithOffset(1, session, shortTimeout).Should(gexec.Exit())
+		//If it doesn't exist, lets succeed
+		if strings.Contains(string(session.Out.Contents()), "not found") {
+			return
+		}
+
+		command = exec.Command("kubectl", "delete", "--context="+c.context, kind, name)
+		session, err = gexec.Start(command, GinkgoWriter, GinkgoWriter)
 		g.ExpectWithOffset(1, err).ShouldNot(HaveOccurred())
 		g.EventuallyWithOffset(1, session, shortTimeout).Should(gexec.Exit(c.exitCode))
 		content = string(session.Out.Contents())
