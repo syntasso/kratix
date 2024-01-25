@@ -221,10 +221,7 @@ func (r *PromiseReleaseReconciler) promiseExistsAtDesiredVersion(o opts, promise
 
 	switch len(promises.Items) {
 	case 1:
-		if promises.Items[0].Labels[v1alpha1.PromiseVersionLabel] == promiseRelease.Spec.Version {
-			return true, nil
-		}
-		fallthrough
+		return promises.Items[0].Labels[v1alpha1.PromiseVersionLabel] == promiseRelease.Spec.Version, nil
 	case 0:
 		return false, nil
 	default:
