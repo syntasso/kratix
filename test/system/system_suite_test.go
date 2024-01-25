@@ -1,7 +1,6 @@
 package system_test
 
 import (
-	"fmt"
 	"os"
 	"path/filepath"
 	"runtime"
@@ -52,6 +51,7 @@ var _ = SynchronizedBeforeSuite(func() {
 	Expect(err).NotTo(HaveOccurred())
 
 	platform.kubectl("apply", "-f", "../../hack/destination/gitops-tk-install.yaml")
+	platform.kubectl("apply", "-f", "./assets/bash-promise/deployment.yaml")
 	platform.kubectl("apply", "-f", catAndReplaceFluxResources(tmpDir, "./assets/git/platform_gitops-tk-resources.yaml"))
 	platform.kubectl("apply", "-f", catAndReplaceFluxResources(tmpDir, "./assets/git/platform_kratix_destination.yaml"))
 	os.RemoveAll(tmpDir)
@@ -107,17 +107,11 @@ func catAndReplaceFluxResources(tmpDir, file string) string {
 	return tmpFile
 }
 
-func catAndReplacePromiseRelease(tmpDir, file string, port int, bashPromiseName string) string {
+func catAndReplacePromiseRelease(tmpDir, file string, bashPromiseName string) string {
 	bytes, err := os.ReadFile(file)
 	Expect(err).NotTo(HaveOccurred())
-	//Set via the Makefile
-	hostIP := "host.docker.internal"
-	if runtime.GOOS == "linux" {
-		hostIP = "172.17.0.1"
-	}
-	output := strings.ReplaceAll(string(bytes), "LOCALHOST", hostIP)
-	output = strings.ReplaceAll(output, "REPLACEPORT", fmt.Sprint(port))
-	output = strings.ReplaceAll(output, "REPLACEBASH", bashPromiseName)
+	output := strings.ReplaceAll(string(bytes), "REPLACEBASH", bashPromiseName)
+	output = strings.ReplaceAll(output, "REPLACEURL", "http://kratix-promise-release-test-hoster.kratix-platform-system:8080/promise/"+bashPromiseName)
 	tmpFile := filepath.Join(tmpDir, filepath.Base(file))
 	err = os.WriteFile(tmpFile, []byte(output), 0777)
 	Expect(err).NotTo(HaveOccurred())

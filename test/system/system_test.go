@@ -3,18 +3,15 @@ package system_test
 import (
 	"bytes"
 	"context"
+	"encoding/base64"
 	"fmt"
 	"io/ioutil"
-	"log"
 	"os"
 	"os/exec"
 	"path/filepath"
 	"strings"
 	"time"
 
-	gohttp "net/http"
-
-	"github.com/gorilla/mux"
 	"github.com/minio/minio-go/v7"
 	"github.com/minio/minio-go/v7/pkg/credentials"
 	. "github.com/onsi/ginkgo/v2"
@@ -46,7 +43,7 @@ var (
 	promiseWithRequirement = "./assets/requirements/promise-with-requirement.yaml"
 
 	timeout             = time.Second * 400
-	shortTimeout        = time.Second * 40
+	shortTimeout        = time.Second * 200
 	consistentlyTimeout = time.Second * 20
 	interval            = time.Second * 2
 
@@ -104,12 +101,9 @@ spec:
 	bashPromiseUniqueLabel           string
 	removeBashPromiseUniqueLabel     string
 	crd                              *v1.CustomResourceDefinition
-	port                             int
 )
 
 var _ = Describe("Kratix", func() {
-	var srv *gohttp.Server
-
 	BeforeEach(func() {
 		bashPromise = generateUniquePromise(promisePath)
 		bashPromiseName = bashPromise.Name
@@ -123,25 +117,6 @@ var _ = Describe("Kratix", func() {
 		crd, err = bashPromise.GetAPIAsCRD()
 		Expect(err).NotTo(HaveOccurred())
 
-		router := mux.NewRouter()
-		router.HandleFunc("/promise", func(w gohttp.ResponseWriter, _ *gohttp.Request) {
-			bytes, err := kyaml.Marshal(bashPromise)
-			Expect(err).NotTo(HaveOccurred())
-			w.Write(bytes)
-		}).Methods("GET")
-
-		port = 8080 + GinkgoParallelProcess()
-		srv = &gohttp.Server{
-			Addr:    ":" + fmt.Sprint(port),
-			Handler: router,
-		}
-
-		go func() {
-			if err := srv.ListenAndServe(); err != nil && err != gohttp.ErrServerClosed {
-				log.Fatalf("listen: %s\n", err)
-			}
-		}()
-
 		platform.kubectl("label", "destination", worker.name, bashPromiseUniqueLabel)
 	})
 
@@ -150,7 +125,6 @@ var _ = Describe("Kratix", func() {
 			platform.kubectl("label", "destination", worker.name, removeBashPromiseUniqueLabel)
 			platform.kubectl("label", "destination", platform.name, removeBashPromiseUniqueLabel)
 		}
-		srv.Shutdown(context.TODO())
 	})
 
 	Describe("Promise lifecycle", func() {
@@ -202,7 +176,7 @@ var _ = Describe("Kratix", func() {
 			})
 		})
 
-		PWhen("the promise has requirements that are fulfilled", func() {
+		When("the promise has requirements that are fulfilled", func() {
 			var tmpDir string
 			BeforeEach(func() {
 				var err error
@@ -235,8 +209,12 @@ var _ = Describe("Kratix", func() {
 				})
 
 				By("the Promise being Available once requirements are installed", func() {
-					//inject bash name and port name
-					platform.eventuallyKubectl("apply", "-f", catAndReplacePromiseRelease(tmpDir, promiseReleasePath, port, bashPromiseName))
+					promiseBytes, err := kyaml.Marshal(bashPromise)
+					Expect(err).NotTo(HaveOccurred())
+					bashPromiseEncoded := base64.StdEncoding.EncodeToString(promiseBytes)
+					platform.eventuallyKubectl("set", "env", "-n=kratix-platform-system", "deployment", "kratix-promise-release-test-hoster", fmt.Sprintf("%s=%s", bashPromiseName, bashPromiseEncoded))
+					platform.eventuallyKubectl("rollout", "status", "-n=kratix-platform-system", "deployment", "kratix-promise-release-test-hoster")
+					platform.eventuallyKubectl("apply", "-f", catAndReplacePromiseRelease(tmpDir, promiseReleasePath, bashPromiseName))
 
 					Eventually(func(g Gomega) {
 						g.Expect(platform.kubectl("get", "promise")).Should(ContainSubstring(bashPromiseName))
@@ -256,7 +234,7 @@ var _ = Describe("Kratix", func() {
 				})
 
 				By("marking the Promise as Unavailable when the requirements are deleted", func() {
-					platform.eventuallyKubectlDelete("-f", catAndReplacePromiseRelease(tmpDir, promiseReleasePath, port, bashPromiseName))
+					platform.eventuallyKubectlDelete("-f", catAndReplacePromiseRelease(tmpDir, promiseReleasePath, bashPromiseName))
 
 					Eventually(func(g Gomega) {
 						g.Expect(platform.kubectl("get", "promiserelease")).ShouldNot(ContainSubstring(bashPromiseName))
@@ -455,12 +433,17 @@ var _ = Describe("Kratix", func() {
 		})
 	})
 
-	PDescribe("PromiseRelease", func() {
+	Describe("PromiseRelease", func() {
 		When("a PromiseRelease is installed", func() {
 			BeforeEach(func() {
 				tmpDir, err := os.MkdirTemp(os.TempDir(), "systest")
 				Expect(err).NotTo(HaveOccurred())
-				platform.eventuallyKubectl("apply", "-f", catAndReplacePromiseRelease(tmpDir, promiseReleasePath, port, bashPromise.Name))
+				promiseBytes, err := kyaml.Marshal(bashPromise)
+				Expect(err).NotTo(HaveOccurred())
+				bashPromiseEncoded := base64.StdEncoding.EncodeToString(promiseBytes)
+				platform.eventuallyKubectl("set", "env", "-n=kratix-platform-system", "deployment", "kratix-promise-release-test-hoster", fmt.Sprintf("%s=%s", bashPromiseName, bashPromiseEncoded))
+				platform.eventuallyKubectl("rollout", "status", "-n=kratix-platform-system", "deployment", "kratix-promise-release-test-hoster")
+				platform.eventuallyKubectl("apply", "-f", catAndReplacePromiseRelease(tmpDir, promiseReleasePath, bashPromiseName))
 				os.RemoveAll(tmpDir)
 			})
 
