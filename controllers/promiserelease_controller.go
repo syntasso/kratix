@@ -235,15 +235,11 @@ func (r *PromiseReleaseReconciler) promiseExistsAtDesiredVersion(o opts, promise
 func (r *PromiseReleaseReconciler) updateStatusAndConditions(o opts, pr *v1alpha1.PromiseRelease,
 	status string, conditionMessage, conditionReason string) {
 	pr.Status.Status = status
-	existingConditionIndex := -1
-	for i, condition := range pr.Status.Conditions {
-		if condition.Type == "Installed" {
-			existingConditionIndex = i
-			if condition.Message == conditionMessage &&
-				condition.Reason == conditionReason {
-				//don't update the status if its already correct
-				return
-			}
+	existingCondition := meta.FindStatusCondition(pr.Status.Conditions, "Installed")
+	if existingCondition != nil {
+		if existingCondition.Message == conditionMessage && existingCondition.Reason == conditionReason {
+			//don't update the status if its already correct
+			return
 		}
 	}
 
