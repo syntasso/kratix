@@ -12,6 +12,6 @@ jobs:
         uses: CircleCI-Public/trigger-circleci-pipeline-action@v1.1.0
         with:
           GHA_Meta: ${{ github.event.release.tag_name }}
-          target-slug: ${{ secrets.CIRCLECI_TARGET_SLUG }}
+          target-slug: ${{ secrets.CCI_TARGET_SLUG }}
         env:
           CCI_TOKEN: ${{ secrets.CCI_TOKEN }}

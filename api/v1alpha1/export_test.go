@@ -12,3 +12,7 @@ func SetClientSet(cs clientset.Interface) {
 func SetClient(c client.Client) {
 	k8sClient = c
 }
+
+func SetPromiseFetcher(pf PromiseFetcher) {
+	promiseFetcher = pf
+}

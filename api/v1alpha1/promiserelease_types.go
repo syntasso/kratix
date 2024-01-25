@@ -20,6 +20,10 @@ import (
 	metav1 "k8s.io/apimachinery/pkg/apis/meta/v1"
 )
 
+const (
+	TypeHTTP = "http"
+)
+
 // PromiseReleaseSpec defines the desired state of PromiseRelease
 type PromiseReleaseSpec struct {
 	Version   string    `json:"version,omitempty"`
@@ -33,13 +37,14 @@ type SourceRef struct {
 
 // PromiseReleaseStatus defines the observed state of PromiseRelease
 type PromiseReleaseStatus struct {
-	Installed bool `json:"installed,omitempty"`
+	Status     string             `json:"status,omitempty"`
+	Conditions []metav1.Condition `json:"conditions,omitempty"`
 }
 
 //+kubebuilder:object:root=true
 //+kubebuilder:subresource:status
 //+kubebuilder:resource:scope=Cluster,path=promisereleases
-//+kubebuilder:printcolumn:JSONPath=".status.installed",name="Installed",type=boolean
+//+kubebuilder:printcolumn:JSONPath=".status.status",name="Status",type=string
 //+kubebuilder:printcolumn:JSONPath=".spec.version",name="Version",type=string
 
 // PromiseRelease is the Schema for the promisereleases API
