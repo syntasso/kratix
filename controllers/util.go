@@ -23,11 +23,10 @@ import (
 )
 
 const (
-	kratixPrefix                   = "kratix.io/"
-	promiseVersionLabel            = kratixPrefix + "promise-version"
-	promiseReleaseNameLabel        = kratixPrefix + "promise-release-name"
-	removeAllWorkflowJobsFinalizer = kratixPrefix + "workflows-cleanup"
-	runDeleteWorkflowsFinalizer    = kratixPrefix + "delete-workflows"
+	promiseVersionLabel            = v1alpha1.KratixPrefix + "promise-version"
+	promiseReleaseNameLabel        = v1alpha1.KratixPrefix + "promise-release-name"
+	removeAllWorkflowJobsFinalizer = v1alpha1.KratixPrefix + "workflows-cleanup"
+	runDeleteWorkflowsFinalizer    = v1alpha1.KratixPrefix + "delete-workflows"
 )
 
 type StateStore interface {
