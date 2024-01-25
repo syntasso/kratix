@@ -46,6 +46,7 @@ var (
 	promiseWithRequirement = "./assets/requirements/promise-with-requirement.yaml"
 
 	timeout             = time.Second * 400
+	shortTimeout        = time.Second * 20
 	consistentlyTimeout = time.Second * 20
 	interval            = time.Second * 2
 
@@ -751,7 +752,7 @@ func (c destination) eventuallyKubectlDelete(args ...string) string {
 		command := exec.Command("kubectl", args...)
 		session, err := gexec.Start(command, GinkgoWriter, GinkgoWriter)
 		g.ExpectWithOffset(1, err).ShouldNot(HaveOccurred())
-		g.EventuallyWithOffset(1, session, timeout).Should(gexec.Exit(c.exitCode))
+		g.EventuallyWithOffset(1, session, shortTimeout).Should(gexec.Exit(c.exitCode))
 		content = string(session.Out.Contents())
 	}, timeout, time.Millisecond).Should(Succeed())
 	return content
@@ -765,7 +766,7 @@ func (c destination) eventuallyKubectl(args ...string) string {
 		command := exec.Command("kubectl", args...)
 		session, err := gexec.Start(command, GinkgoWriter, GinkgoWriter)
 		g.ExpectWithOffset(1, err).ShouldNot(HaveOccurred())
-		g.EventuallyWithOffset(1, session).Should(gexec.Exit(c.exitCode))
+		g.EventuallyWithOffset(1, session, shortTimeout).Should(gexec.Exit(c.exitCode))
 		content = string(session.Out.Contents())
 	}, timeout, interval).Should(Succeed(), strings.Join(args, " "))
 	return content
