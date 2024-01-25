@@ -19,9 +19,9 @@ package controllers
 import (
 	"context"
 	"fmt"
-	"time"
 
 	"k8s.io/apimachinery/pkg/api/errors"
+	"k8s.io/apimachinery/pkg/api/meta"
 	v1 "k8s.io/apimachinery/pkg/apis/meta/v1"
 	"k8s.io/apimachinery/pkg/labels"
 	"k8s.io/apimachinery/pkg/runtime"
@@ -249,13 +249,13 @@ func (r *PromiseReleaseReconciler) updateStatusAndConditions(o opts, pr *v1alpha
 	}
 
 	condition := v1.Condition{
-		Type:               "Installed",
-		Message:            conditionMessage,
-		Reason:             conditionReason,
-		Status:             conditionStatus,
+		Type:    "Installed",
+		Message: conditionMessage,
+		Reason:  conditionReason,
+		Status:  conditionStatus,
 	}
 
-        meta.SetStatusCondition(&pr.Status.Conditions, condition)
+	meta.SetStatusCondition(&pr.Status.Conditions, condition)
 
 	err := o.client.Status().Update(o.ctx, pr)
 	if err != nil {
