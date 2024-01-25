@@ -20,9 +20,9 @@ import (
 )
 
 const (
-	workLabelKey       = kratixPrefix + "work"
-	workloadGroupIDKey = kratixPrefix + "workload-group-id"
-	misscheduledLabel  = kratixPrefix + "misscheduled"
+	workLabelKey       = v1alpha1.KratixPrefix + "work"
+	workloadGroupIDKey = v1alpha1.KratixPrefix + "workload-group-id"
+	misscheduledLabel  = v1alpha1.KratixPrefix + "misscheduled"
 )
 
 type schedulingStatus string

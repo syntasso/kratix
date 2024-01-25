@@ -66,11 +66,11 @@ type PromiseReconciler struct {
 }
 
 const (
-	resourceRequestCleanupFinalizer = kratixPrefix + "resource-request-cleanup"
+	resourceRequestCleanupFinalizer = v1alpha1.KratixPrefix + "resource-request-cleanup"
 	// TODO fix the name of this finalizer: dependant -> dependent (breaking change)
-	dynamicControllerDependantResourcesCleaupFinalizer = kratixPrefix + "dynamic-controller-dependant-resources-cleanup"
-	crdCleanupFinalizer                                = kratixPrefix + "api-crd-cleanup"
-	dependenciesCleanupFinalizer                       = kratixPrefix + "dependencies-cleanup"
+	dynamicControllerDependantResourcesCleaupFinalizer = v1alpha1.KratixPrefix + "dynamic-controller-dependant-resources-cleanup"
+	crdCleanupFinalizer                                = v1alpha1.KratixPrefix + "api-crd-cleanup"
+	dependenciesCleanupFinalizer                       = v1alpha1.KratixPrefix + "dependencies-cleanup"
 
 	requirementStateInstalled                      = "Requirement installed"
 	requirementStateNotInstalled                   = "Requirement not installed"
@@ -140,7 +140,7 @@ func (r *PromiseReconciler) Reconcile(ctx context.Context, req ctrl.Request) (ct
 		return r.deletePromise(opts, promise, pipelines.DeletePromise)
 	}
 
-	if value, found := promise.Labels[promiseVersionLabel]; found {
+	if value, found := promise.Labels[v1alpha1.PromiseVersionLabel]; found {
 		if promise.Status.Version != value {
 			promise.Status.Version = value
 			return ctrl.Result{}, r.Client.Status().Update(ctx, promise)
