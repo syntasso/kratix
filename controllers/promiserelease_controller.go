@@ -95,7 +95,7 @@ func (r *PromiseReleaseReconciler) Reconcile(ctx context.Context, req ctrl.Reque
 
 	if exists {
 		logger.Info("Promise exists, skipping install")
-		r.updateStatus(opts, promiseRelease, statusInstalled, conditionMessageInstalled, conditionReasonInstalled)
+		r.updateStatusAndConditions(opts, promiseRelease, statusInstalled, conditionMessageInstalled, conditionReasonInstalled)
 		return ctrl.Result{}, nil
 	}
 
@@ -107,7 +107,7 @@ func (r *PromiseReleaseReconciler) Reconcile(ctx context.Context, req ctrl.Reque
 	case v1alpha1.TypeHTTP:
 		promise, err = r.PromiseFetcher.FromURL(promiseRelease.Spec.SourceRef.URL)
 		if err != nil {
-			r.updateStatus(opts, promiseRelease, statusErrorInstalling, "Failed to fetch Promise from URL", "FailedToFetchPromise")
+			r.updateStatusAndConditions(opts, promiseRelease, statusErrorInstalling, "Failed to fetch Promise from URL", "FailedToFetchPromise")
 			return ctrl.Result{}, fmt.Errorf("failed to fetch promise from url: %w", err)
 		}
 		updated, err := r.validateVersion(opts, promiseRelease, promise)
@@ -120,12 +120,12 @@ func (r *PromiseReleaseReconciler) Reconcile(ctx context.Context, req ctrl.Reque
 	}
 
 	if err := r.installPromise(opts, promiseRelease, promise); err != nil {
-		r.updateStatus(opts, promiseRelease, statusErrorInstalling, "Failed to create or update Promise", "FailedToCreateOrUpdatePromise")
+		r.updateStatusAndConditions(opts, promiseRelease, statusErrorInstalling, "Failed to create or update Promise", "FailedToCreateOrUpdatePromise")
 		return ctrl.Result{}, fmt.Errorf("failed to create or update promise: %w", err)
 	}
 
 	promiseRelease.Status.Status = statusInstalled
-	r.updateStatus(opts, promiseRelease, statusInstalled, conditionMessageInstalled, conditionReasonInstalled)
+	r.updateStatusAndConditions(opts, promiseRelease, statusInstalled, conditionMessageInstalled, conditionReasonInstalled)
 	return ctrl.Result{}, nil
 }
 
@@ -232,7 +232,7 @@ func (r *PromiseReleaseReconciler) promiseExistsAtDesiredVersion(o opts, promise
 	}
 }
 
-func (r *PromiseReleaseReconciler) updateStatus(o opts, pr *v1alpha1.PromiseRelease,
+func (r *PromiseReleaseReconciler) updateStatusAndConditions(o opts, pr *v1alpha1.PromiseRelease,
 	status string, conditionMessage, conditionReason string) {
 	pr.Status.Status = status
 	existingConditionIndex := -1
@@ -275,7 +275,7 @@ func (r *PromiseReleaseReconciler) updateStatus(o opts, pr *v1alpha1.PromiseRele
 func (r *PromiseReleaseReconciler) validateVersion(o opts, promiseRelease *v1alpha1.PromiseRelease, promise *v1alpha1.Promise) (updated bool, err error) {
 	promiseVersion, found := promise.GetLabels()[v1alpha1.PromiseVersionLabel]
 	if !found {
-		r.updateStatus(o, promiseRelease, statusErrorInstalling, "Version label not found on Promise", "VersionLabelNotFound")
+		r.updateStatusAndConditions(o, promiseRelease, statusErrorInstalling, "Version label not found on Promise", "VersionLabelNotFound")
 		return false, fmt.Errorf("version label (%s) not found on promise; refusing to install", v1alpha1.PromiseVersionLabel)
 	}
 
@@ -290,7 +290,7 @@ func (r *PromiseReleaseReconciler) validateVersion(o opts, promiseRelease *v1alp
 
 	if promiseVersion != promiseRelease.Spec.Version {
 		msg := fmt.Sprintf("Version labels do not match, found: %s, expected: %s", promiseVersion, promiseRelease.Spec.Version)
-		r.updateStatus(o, promiseRelease, statusErrorInstalling, msg, "VersionNotMatching")
+		r.updateStatusAndConditions(o, promiseRelease, statusErrorInstalling, msg, "VersionNotMatching")
 		return false, fmt.Errorf(
 			"version label on promise (%s) does not match version on promise release (%s); refusing to install",
 			promiseVersion,
