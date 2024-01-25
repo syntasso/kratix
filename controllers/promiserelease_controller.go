@@ -257,14 +257,9 @@ func (r *PromiseReleaseReconciler) updateStatusAndConditions(o opts, pr *v1alpha
 		Message:            conditionMessage,
 		Reason:             conditionReason,
 		Status:             conditionStatus,
-		LastTransitionTime: v1.Time{Time: time.Now()},
 	}
 
-	if existingConditionIndex == -1 {
-		pr.Status.Conditions = append(pr.Status.Conditions, condition)
-	} else {
-		pr.Status.Conditions[existingConditionIndex] = condition
-	}
+        meta.SetStatusCondition(&pr.Status.Conditions, condition)
 
 	err := o.client.Status().Update(o.ctx, pr)
 	if err != nil {
