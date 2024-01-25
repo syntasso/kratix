@@ -9,7 +9,7 @@ jobs:
     steps:
       - name: trigger-run-ci
         id: trigger-run-ci
-        uses: CircleCI-Public/trigger-circleci-pipeline-action@v1.0
+        uses: CircleCI-Public/trigger-circleci-pipeline-action@v1.1.0
         with:
           GHA_Meta: ${{ github.event.release.tag_name }}
         env:
