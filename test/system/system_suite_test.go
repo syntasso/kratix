@@ -56,7 +56,8 @@ var _ = SynchronizedBeforeSuite(func() {
 }, func() {
 	//this runs before each test
 
-	//This variable gets set in func above, but only for 1 of the nodes, so we set
+	//These variables get set in func above, but only for 1 of the nodes, so we set
+	//them again here to ensure all nodes have them
 	//it again here to ensure all nodes have it
 	worker = &destination{
 		context: getEnvOrDefault("WORKER_CONTEXT", "kind-worker"),

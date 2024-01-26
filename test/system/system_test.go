@@ -27,10 +27,10 @@ import (
 )
 
 type destination struct {
-	context         string
-	ignoreExistCode bool
-	exitCode        int
-	name            string
+	context        string
+	ignoreExitCode bool
+	exitCode       int
+	name           string
 }
 
 var (
@@ -775,7 +775,7 @@ func (c destination) kubectl(args ...string) string {
 	command := exec.Command("kubectl", args...)
 	session, err := gexec.Start(command, GinkgoWriter, GinkgoWriter)
 	ExpectWithOffset(1, err).ShouldNot(HaveOccurred())
-	if c.ignoreExistCode {
+	if c.ignoreExitCode {
 		EventuallyWithOffset(1, session, timeout, interval).Should(gexec.Exit())
 	} else {
 		EventuallyWithOffset(1, session, timeout, interval).Should(gexec.Exit(0))
@@ -785,16 +785,10 @@ func (c destination) kubectl(args ...string) string {
 
 func (c destination) clone() destination {
 	return destination{
-		context:         c.context,
-		exitCode:        c.exitCode,
-		ignoreExistCode: c.ignoreExistCode,
+		context:        c.context,
+		exitCode:       c.exitCode,
+		ignoreExitCode: c.ignoreExitCode,
 	}
-}
-
-func (c destination) ignoreExitCode() destination {
-	newDestination := c.clone()
-	newDestination.ignoreExistCode = true
-	return newDestination
 }
 
 func (c destination) withExitCode(code int) destination {

@@ -3,18 +3,18 @@ apiVersion: apps/v1
 kind: Deployment
 metadata:
   labels:
-    kratix-promie-release: pod
+    kratix-promise-release: pod
   name: kratix-promise-release-test-hoster
   namespace: kratix-platform-system
 spec:
   replicas: 1
   selector:
     matchLabels:
-      kratix-promie-release: pod
+      kratix-promise-release: pod
   template:
     metadata:
       labels:
-        kratix-promie-release: pod
+        kratix-promise-release: pod
     spec:
       containers:
       - image: syntassodev/kratix-promise-release-test-hoster:v0.0.2
@@ -37,6 +37,6 @@ spec:
     protocol: TCP
     targetPort: 8080
   selector:
-    kratix-promie-release: pod
+    kratix-promise-release: pod
   sessionAffinity: None
   type: ClusterIP
