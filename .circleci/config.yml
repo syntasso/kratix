@@ -37,6 +37,34 @@ filter-for-tags: &filter-for-tags
       ignore: /.*/
 
 commands:
+  notify-slack:
+    description: Notify failures via Slack
+    parameters:
+      fail_only:
+        type: boolean
+        default: true
+      only_for_branches:
+        type: string
+      success_message:
+        type: string
+        default: ':tada: A $CIRCLE_JOB job has succeeded!'
+      failure_message:
+        type: string
+        default: ':red_circle: A $CIRCLE_JOB job has failed!'
+      channel:
+        type: string
+        default: eng-chatter
+    steps:
+      - run: exit 0
+      - slack/status:
+          channel: << parameters.channel >>
+          include_job_number_field: false
+          include_project_field: false
+          fail_only: << parameters.fail_only >>
+          success_message: << parameters.success_message >>
+          failure_message: << parameters.failure_message >>
+          only_for_branches: << parameters.only_for_branches >>
+
   docker_login:
     steps:
       - run:
@@ -164,63 +192,6 @@ jobs:
       - snyk/scan:
           severity-threshold: medium
           docker-image-name: $WORKER_IMAGE_NAME:latest
-      - slack/notify:
-          custom: |
-            {
-              "text": "",
-              "blocks": [
-                {
-                  "type": "section",
-                  "text": {
-                    "type": "mrkdwn",
-                    "text": "Security scan failed"
-                  }
-                },
-                {
-                  "type": "actions",
-                  "elements": [
-                    {
-                      "type": "button",
-                      "text": {
-                        "type": "plain_text",
-                        "text": "View Job"
-                      },
-                      "url": "${CIRCLE_BUILD_URL}"
-                    }
-                  ]
-                }
-              ]
-            }
-        when: on_fail
-      - slack/notify:
-          custom: |
-            {
-              "text": "",
-              "blocks": [
-                {
-                  "type": "section",
-                  "text": {
-                    "type": "mrkdwn",
-                    "text": "Security scan passed"
-                  }
-                },
-                {
-                  "type": "actions",
-                  "elements": [
-                    {
-                      "type": "button",
-                      "text": {
-                        "type": "plain_text",
-                        "text": "View Job"
-                      },
-                      "url": "${CIRCLE_BUILD_URL}"
-                    }
-                  ]
-                }
-              ]
-            }
-        when: on_success
-
   test:
     executor: machine-xlarge
     steps:
@@ -513,3 +484,5 @@ workflows:
       - go-dependencies-vulnerability-scan:
           requires: [clone-kratix]
       - kratix-containers-vulnerability-scan
+      - notify-slack
+
