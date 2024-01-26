@@ -5,7 +5,6 @@ import (
 	"context"
 	"encoding/base64"
 	"fmt"
-	"io/ioutil"
 	"os"
 	"os/exec"
 	"path/filepath"
@@ -711,7 +710,7 @@ func requestWithNameAndCommand(name string, containerCmds ...string) string {
 	}
 	normalisedCmds[lci] = lastCommand
 
-	file, err := ioutil.TempFile("", "kratix-test")
+	file, err := os.CreateTemp("", "kratix-test")
 	ExpectWithOffset(1, err).NotTo(HaveOccurred())
 
 	args := []interface{}{bashPromiseName, name}
@@ -723,7 +722,7 @@ func requestWithNameAndCommand(name string, containerCmds ...string) string {
 	fmt.Fprintln(GinkgoWriter, "Resource Request:")
 	fmt.Fprintln(GinkgoWriter, contents)
 
-	ExpectWithOffset(1, ioutil.WriteFile(file.Name(), []byte(contents), 0644)).NotTo(HaveOccurred())
+	ExpectWithOffset(1, os.WriteFile(file.Name(), []byte(contents), 0644)).NotTo(HaveOccurred())
 
 	return file.Name()
 }
