@@ -55,7 +55,6 @@ commands:
         type: string
         default: eng-chatter
     steps:
-      - run: exit 0
       - slack/status:
           webhook: ${SLACK_ENG_CHATTER}
           channel: << parameters.channel >>
@@ -65,7 +64,6 @@ commands:
           success_message: << parameters.success_message >>
           failure_message: << parameters.failure_message >>
           only_for_branches: << parameters.only_for_branches >>
-
   docker_login:
     steps:
       - run:
@@ -166,22 +164,7 @@ jobs:
           paths:
             - .
 
-  go-dependencies-vulnerability-scan:
-    executor: machine-medium
-    steps:
-      - install_software
-      - run:
-          name: install govulncheck
-          command: |
-            set -o pipefail
-            go install golang.org/x/vuln/cmd/govulncheck@latest
-      - run:
-          name: run check
-          command: govulncheck ./...
-      - snyk/scan:
-          severity-threshold: medium
-
-  kratix-containers-vulnerability-scan:
+  kratix-security-scan:
     executor: machine-medium
     environment:
       KRATIX_IMAGE_NAME: syntasso/kratix-platform
@@ -193,6 +176,16 @@ jobs:
       - snyk/scan:
           severity-threshold: medium
           docker-image-name: $WORKER_IMAGE_NAME:latest
+      - run:
+          name: install govulncheck
+          command: |
+            set -o pipefail
+            go install golang.org/x/vuln/cmd/govulncheck@latest
+      - run:
+          name: run check
+          command: govulncheck ./...
+      - snyk/scan:
+          severity-threshold: medium
       - notify-slack:
           only_for_branches: ""
   test:
@@ -484,7 +477,6 @@ workflows:
     #           only: [main]
     jobs:
       - clone-kratix
-      - go-dependencies-vulnerability-scan:
+      - kratix-security-scan:
           requires: [clone-kratix]
-      - kratix-containers-vulnerability-scan
 
