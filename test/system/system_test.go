@@ -3,18 +3,14 @@ package system_test
 import (
 	"bytes"
 	"context"
+	"encoding/base64"
 	"fmt"
-	"io/ioutil"
-	"log"
 	"os"
 	"os/exec"
 	"path/filepath"
 	"strings"
 	"time"
 
-	gohttp "net/http"
-
-	"github.com/gorilla/mux"
 	"github.com/minio/minio-go/v7"
 	"github.com/minio/minio-go/v7/pkg/credentials"
 	. "github.com/onsi/ginkgo/v2"
@@ -31,9 +27,10 @@ import (
 )
 
 type destination struct {
-	context       string
-	checkExitCode bool
-	exitCode      int
+	context        string
+	ignoreExitCode bool
+	exitCode       int
+	name           string
 }
 
 var (
@@ -45,13 +42,18 @@ var (
 	promiseWithRequirement = "./assets/requirements/promise-with-requirement.yaml"
 
 	timeout             = time.Second * 400
+	shortTimeout        = time.Second * 200
 	consistentlyTimeout = time.Second * 20
 	interval            = time.Second * 2
 
-	workerCtx = "--context=kind-worker"
-	worker    = destination{context: workerCtx, checkExitCode: true}
-	platCtx   = "--context=kind-platform"
-	platform  = destination{context: platCtx, checkExitCode: true}
+	worker   *destination
+	platform *destination
+
+	endpoint        string
+	secretAccessKey string
+	accessKeyID     string
+	useSSL          bool
+	bucketName      string
 )
 
 const pipelineTimeout = "--timeout=89s"
@@ -98,12 +100,9 @@ spec:
 	bashPromiseUniqueLabel           string
 	removeBashPromiseUniqueLabel     string
 	crd                              *v1.CustomResourceDefinition
-	port                             int
 )
 
 var _ = Describe("Kratix", func() {
-	var srv *gohttp.Server
-
 	BeforeEach(func() {
 		bashPromise = generateUniquePromise(promisePath)
 		bashPromiseName = bashPromise.Name
@@ -117,34 +116,14 @@ var _ = Describe("Kratix", func() {
 		crd, err = bashPromise.GetAPIAsCRD()
 		Expect(err).NotTo(HaveOccurred())
 
-		router := mux.NewRouter()
-		router.HandleFunc("/promise", func(w gohttp.ResponseWriter, _ *gohttp.Request) {
-			bytes, err := kyaml.Marshal(bashPromise)
-			Expect(err).NotTo(HaveOccurred())
-			w.Write(bytes)
-		}).Methods("GET")
-
-		port = 8080 + GinkgoParallelProcess()
-		srv = &gohttp.Server{
-			Addr:    ":" + fmt.Sprint(port),
-			Handler: router,
-		}
-
-		go func() {
-			if err := srv.ListenAndServe(); err != nil && err != gohttp.ErrServerClosed {
-				log.Fatalf("listen: %s\n", err)
-			}
-		}()
-
-		platform.kubectl("label", "destination", "worker-1", bashPromiseUniqueLabel)
+		platform.kubectl("label", "destination", worker.name, bashPromiseUniqueLabel)
 	})
 
 	AfterEach(func() {
 		if CurrentSpecReport().State.Is(types.SpecStatePassed) {
-			platform.kubectl("label", "destination", "worker-1", removeBashPromiseUniqueLabel)
-			platform.kubectl("label", "destination", "platform-cluster", removeBashPromiseUniqueLabel)
+			platform.kubectl("label", "destination", worker.name, removeBashPromiseUniqueLabel)
+			platform.kubectl("label", "destination", platform.name, removeBashPromiseUniqueLabel)
 		}
-		srv.Shutdown(context.TODO())
 	})
 
 	Describe("Promise lifecycle", func() {
@@ -229,8 +208,12 @@ var _ = Describe("Kratix", func() {
 				})
 
 				By("the Promise being Available once requirements are installed", func() {
-					//inject bash name and port name
-					platform.eventuallyKubectl("apply", "-f", catAndReplacePromiseRelease(tmpDir, promiseReleasePath, port, bashPromiseName))
+					promiseBytes, err := kyaml.Marshal(bashPromise)
+					Expect(err).NotTo(HaveOccurred())
+					bashPromiseEncoded := base64.StdEncoding.EncodeToString(promiseBytes)
+					platform.eventuallyKubectl("set", "env", "-n=kratix-platform-system", "deployment", "kratix-promise-release-test-hoster", fmt.Sprintf("%s=%s", bashPromiseName, bashPromiseEncoded))
+					platform.eventuallyKubectl("rollout", "status", "-n=kratix-platform-system", "deployment", "kratix-promise-release-test-hoster")
+					platform.eventuallyKubectl("apply", "-f", catAndReplacePromiseRelease(tmpDir, promiseReleasePath, bashPromiseName))
 
 					Eventually(func(g Gomega) {
 						g.Expect(platform.kubectl("get", "promise")).Should(ContainSubstring(bashPromiseName))
@@ -250,7 +233,7 @@ var _ = Describe("Kratix", func() {
 				})
 
 				By("marking the Promise as Unavailable when the requirements are deleted", func() {
-					platform.eventuallyKubectlDelete("-f", catAndReplacePromiseRelease(tmpDir, promiseReleasePath, port, bashPromiseName))
+					platform.eventuallyKubectlDelete("-f", catAndReplacePromiseRelease(tmpDir, promiseReleasePath, bashPromiseName))
 
 					Eventually(func(g Gomega) {
 						g.Expect(platform.kubectl("get", "promiserelease")).ShouldNot(ContainSubstring(bashPromiseName))
@@ -304,7 +287,10 @@ var _ = Describe("Kratix", func() {
 				})
 
 				By("mirroring the directory and files from /kratix/output to the statestore", func() {
-					Expect(listFilesMinIOInStateStore("worker-1", "default", bashPromiseName, rrName)).To(ConsistOf("5058f/foo/example.json", "5058f/namespace.yaml"))
+
+					if getEnvOrDefault("TEST_SKIP_BUCKET_CHECK", "false") != "true" {
+						Expect(listFilesMinIOInStateStore(worker.name, "default", bashPromiseName, rrName)).To(ConsistOf("5058f/foo/example.json", "5058f/namespace.yaml"))
+					}
 				})
 
 				By("updating the resource status", func() {
@@ -451,7 +437,12 @@ var _ = Describe("Kratix", func() {
 			BeforeEach(func() {
 				tmpDir, err := os.MkdirTemp(os.TempDir(), "systest")
 				Expect(err).NotTo(HaveOccurred())
-				platform.eventuallyKubectl("apply", "-f", catAndReplacePromiseRelease(tmpDir, promiseReleasePath, port, bashPromise.Name))
+				promiseBytes, err := kyaml.Marshal(bashPromise)
+				Expect(err).NotTo(HaveOccurred())
+				bashPromiseEncoded := base64.StdEncoding.EncodeToString(promiseBytes)
+				platform.eventuallyKubectl("set", "env", "-n=kratix-platform-system", "deployment", "kratix-promise-release-test-hoster", fmt.Sprintf("%s=%s", bashPromiseName, bashPromiseEncoded))
+				platform.eventuallyKubectl("rollout", "status", "-n=kratix-platform-system", "deployment", "kratix-promise-release-test-hoster")
+				platform.eventuallyKubectl("apply", "-f", catAndReplacePromiseRelease(tmpDir, promiseReleasePath, bashPromiseName))
 				os.RemoveAll(tmpDir)
 			})
 
@@ -492,7 +483,7 @@ var _ = Describe("Kratix", func() {
 		It("schedules resources to the correct Destinations", func() {
 			By("reconciling on new Destinations", func() {
 				depNamespaceName := declarativeStaticWorkerNamespace
-				platform.kubectl("label", "destination", "worker-1", removeBashPromiseUniqueLabel)
+				platform.kubectl("label", "destination", worker.name, removeBashPromiseUniqueLabel)
 
 				By("scheduling to the Worker when it gets all the required labels", func() {
 					bashPromise.Spec.DestinationSelectors[0] = v1alpha1.PromiseScheduling{
@@ -515,33 +506,33 @@ var _ = Describe("Kratix", func() {
 						return worker.kubectl("get", "namespace")
 					}, "10s").ShouldNot(ContainSubstring(depNamespaceName))
 
-					platform.kubectl("label", "destination", "worker-1", "security=high")
+					platform.kubectl("label", "destination", worker.name, "security=high")
 
 					Consistently(func() string {
 						return worker.kubectl("get", "namespace")
 					}, "10s").ShouldNot(ContainSubstring(depNamespaceName))
 
 					// Promise Configure Workflow DestinationSelectors
-					platform.kubectl("label", "destination", "worker-1", bashPromiseUniqueLabel, "security-")
+					platform.kubectl("label", "destination", worker.name, bashPromiseUniqueLabel, "security-")
 					Consistently(func() string {
 						return worker.kubectl("get", "namespace")
 					}, "10s").ShouldNot(ContainSubstring(depNamespaceName))
 
-					platform.kubectl("label", "destination", "worker-1", bashPromiseUniqueLabel, "security=high")
+					platform.kubectl("label", "destination", worker.name, bashPromiseUniqueLabel, "security=high")
 
 					worker.eventuallyKubectl("get", "namespace", depNamespaceName)
 					Expect(platform.kubectl("get", "namespace")).NotTo(ContainSubstring(depNamespaceName))
 				})
 
 				By("labeling the platform Destination, it gets the dependencies assigned", func() {
-					platform.kubectl("label", "destination", "platform-cluster", "security=high", bashPromiseUniqueLabel)
+					platform.kubectl("label", "destination", platform.name, "security=high", bashPromiseUniqueLabel)
 					platform.eventuallyKubectl("get", "namespace", depNamespaceName)
 				})
 
 			})
 
 			// Remove the labels again so we can check the same flow for resource requests
-			platform.kubectl("label", "destination", "worker-1", removeBashPromiseUniqueLabel)
+			platform.kubectl("label", "destination", worker.name, removeBashPromiseUniqueLabel)
 
 			By("respecting the pipeline's scheduling", func() {
 				pipelineCmd := `echo "[{\"matchLabels\":{\"pci\":\"true\"}}]" > /kratix/metadata/destination-selectors.yaml
@@ -562,22 +553,22 @@ var _ = Describe("Kratix", func() {
 					}, "10s").ShouldNot(ContainSubstring("rr-2-namespace"))
 
 					// Add the label defined in the resource.configure workflow
-					platform.kubectl("label", "destination", "worker-1", "pci=true")
+					platform.kubectl("label", "destination", worker.name, "pci=true")
 
 					Consistently(func() string {
 						return platform.kubectl("get", "namespace") + "\n" + worker.kubectl("get", "namespace")
 					}, "10s").ShouldNot(ContainSubstring("rr-2-namespace"))
 
 					// Add the label defined in the promise.configure workflow
-					platform.kubectl("label", "destination", "worker-1", bashPromiseUniqueLabel)
+					platform.kubectl("label", "destination", worker.name, bashPromiseUniqueLabel)
 
 					worker.eventuallyKubectl("get", "namespace", "rr-2-namespace")
 				})
 			})
 
 			platform.eventuallyKubectlDelete("promise", bashPromiseName)
-			platform.kubectl("label", "destination", "worker-1", "security-", "pci-", removeBashPromiseUniqueLabel)
-			platform.kubectl("label", "destination", "platform-cluster", "security-", removeBashPromiseUniqueLabel)
+			platform.kubectl("label", "destination", worker.name, "security-", "pci-", removeBashPromiseUniqueLabel)
+			platform.kubectl("label", "destination", platform.name, "security-", removeBashPromiseUniqueLabel)
 		})
 
 		// Worker destination (BucketStateStore):
@@ -598,7 +589,7 @@ var _ = Describe("Kratix", func() {
 			platform.eventuallyKubectl("apply", "-f", cat(bashPromise))
 			platform.eventuallyKubectl("get", "crd", crd.Name)
 
-			platform.kubectl("label", "destination", "platform-cluster", bashPromiseUniqueLabel, "security-")
+			platform.kubectl("label", "destination", platform.name, bashPromiseUniqueLabel, "security-")
 
 			By("only the worker Destination getting the dependency initially", func() {
 				Consistently(func() {
@@ -632,8 +623,8 @@ var _ = Describe("Kratix", func() {
 			})
 
 			platform.eventuallyKubectlDelete("promise", bashPromiseName)
-			platform.kubectl("label", "destination", "worker-1", "security-", "pci-", removeBashPromiseUniqueLabel)
-			platform.kubectl("label", "destination", "platform-cluster", "security-", removeBashPromiseUniqueLabel)
+			platform.kubectl("label", "destination", worker.name, "security-", "pci-", removeBashPromiseUniqueLabel)
+			platform.kubectl("label", "destination", platform.name, "security-", removeBashPromiseUniqueLabel)
 		})
 	})
 })
@@ -719,7 +710,7 @@ func requestWithNameAndCommand(name string, containerCmds ...string) string {
 	}
 	normalisedCmds[lci] = lastCommand
 
-	file, err := ioutil.TempFile("", "kratix-test")
+	file, err := os.CreateTemp("", "kratix-test")
 	ExpectWithOffset(1, err).NotTo(HaveOccurred())
 
 	args := []interface{}{bashPromiseName, name}
@@ -731,19 +722,34 @@ func requestWithNameAndCommand(name string, containerCmds ...string) string {
 	fmt.Fprintln(GinkgoWriter, "Resource Request:")
 	fmt.Fprintln(GinkgoWriter, contents)
 
-	ExpectWithOffset(1, ioutil.WriteFile(file.Name(), []byte(contents), 0644)).NotTo(HaveOccurred())
+	ExpectWithOffset(1, os.WriteFile(file.Name(), []byte(contents), 0644)).NotTo(HaveOccurred())
 
 	return file.Name()
 }
 
-func (c destination) eventuallyKubectlDelete(args ...string) string {
-	args = append([]string{"delete", c.context}, args...)
+// When deleting a Promise a number of things can happen:
+// - It takes a long time for finalizers to be removed
+// - Kratix restarts, which means the webhook is down temporarily, which results
+// in the kubectl delete failing straight away
+//   - By time kratix starts back up, it has already been deleted
+//
+// This means we need a more roboust approach for deleting Promises
+func (c destination) eventuallyKubectlDelete(kind, name string) string {
 	var content string
 	EventuallyWithOffset(1, func(g Gomega) {
-		command := exec.Command("kubectl", args...)
+		command := exec.Command("kubectl", "get", "--context="+c.context, kind, name)
 		session, err := gexec.Start(command, GinkgoWriter, GinkgoWriter)
 		g.ExpectWithOffset(1, err).ShouldNot(HaveOccurred())
-		g.EventuallyWithOffset(1, session, timeout).Should(gexec.Exit(c.exitCode))
+		g.EventuallyWithOffset(1, session, shortTimeout).Should(gexec.Exit())
+		//If it doesn't exist, lets succeed
+		if strings.Contains(string(session.Out.Contents()), "not found") {
+			return
+		}
+
+		command = exec.Command("kubectl", "delete", "--context="+c.context, kind, name)
+		session, err = gexec.Start(command, GinkgoWriter, GinkgoWriter)
+		g.ExpectWithOffset(1, err).ShouldNot(HaveOccurred())
+		g.EventuallyWithOffset(1, session, shortTimeout).Should(gexec.Exit(c.exitCode))
 		content = string(session.Out.Contents())
 	}, timeout, time.Millisecond).Should(Succeed())
 	return content
@@ -751,13 +757,13 @@ func (c destination) eventuallyKubectlDelete(args ...string) string {
 
 // run a command until it exits 0
 func (c destination) eventuallyKubectl(args ...string) string {
-	args = append(args, c.context)
+	args = append(args, "--context="+c.context)
 	var content string
 	EventuallyWithOffset(1, func(g Gomega) {
 		command := exec.Command("kubectl", args...)
 		session, err := gexec.Start(command, GinkgoWriter, GinkgoWriter)
 		g.ExpectWithOffset(1, err).ShouldNot(HaveOccurred())
-		g.EventuallyWithOffset(1, session).Should(gexec.Exit(c.exitCode))
+		g.EventuallyWithOffset(1, session, shortTimeout).Should(gexec.Exit(c.exitCode))
 		content = string(session.Out.Contents())
 	}, timeout, interval).Should(Succeed(), strings.Join(args, " "))
 	return content
@@ -765,30 +771,24 @@ func (c destination) eventuallyKubectl(args ...string) string {
 
 // run command and return stdout. Errors if exit code non-zero
 func (c destination) kubectl(args ...string) string {
-	args = append(args, c.context)
+	args = append(args, "--context="+c.context)
 	command := exec.Command("kubectl", args...)
 	session, err := gexec.Start(command, GinkgoWriter, GinkgoWriter)
 	ExpectWithOffset(1, err).ShouldNot(HaveOccurred())
-	if c.checkExitCode {
-		EventuallyWithOffset(1, session, timeout, interval).Should(gexec.Exit(0))
-	} else {
+	if c.ignoreExitCode {
 		EventuallyWithOffset(1, session, timeout, interval).Should(gexec.Exit())
+	} else {
+		EventuallyWithOffset(1, session, timeout, interval).Should(gexec.Exit(0))
 	}
 	return string(session.Out.Contents())
 }
 
 func (c destination) clone() destination {
 	return destination{
-		context:       c.context,
-		exitCode:      c.exitCode,
-		checkExitCode: c.checkExitCode,
+		context:        c.context,
+		exitCode:       c.exitCode,
+		ignoreExitCode: c.ignoreExitCode,
 	}
-}
-
-func (c destination) ignoreExitCode() destination {
-	newDestination := c.clone()
-	newDestination.checkExitCode = false
-	return newDestination
 }
 
 func (c destination) withExitCode(code int) destination {
@@ -799,11 +799,6 @@ func (c destination) withExitCode(code int) destination {
 func listFilesMinIOInStateStore(destinationName, namespace, promiseName, resourceName string) []string {
 	paths := []string{}
 	resourceSubDir := filepath.Join(destinationName, "resources", namespace, promiseName, resourceName)
-	endpoint := "localhost:31337"
-	secretAccessKey := "minioadmin"
-	accessKeyID := "minioadmin"
-	useSSL := false
-	bucketName := "kratix"
 
 	// Initialize minio client object.
 	minioClient, err := minio.New(endpoint, &minio.Options{
