@@ -7,6 +7,7 @@ orbs:
   retry: kimh/run-with-retry@1.0.0
   queue: eddiewebb/queue@2.2.1
   snyk: snyk/snyk@2.0.2
+  slack: circleci/slack@3.4.2
 
 executors:
   machine-medium:
@@ -36,6 +37,33 @@ filter-for-tags: &filter-for-tags
       ignore: /.*/
 
 commands:
+  notify-slack:
+    description: Notify failures via Slack
+    parameters:
+      fail_only:
+        type: boolean
+        default: true
+      only_for_branches:
+        type: string
+      success_message:
+        type: string
+        default: ':tada: A $CIRCLE_JOB job has succeeded!'
+      failure_message:
+        type: string
+        default: ':red_circle: A $CIRCLE_JOB job has failed!'
+      channel:
+        type: string
+        default: eng-chatter
+    steps:
+      - slack/status:
+          webhook: ${SLACK_ENG_CHATTER}
+          channel: << parameters.channel >>
+          include_job_number_field: false
+          include_project_field: false
+          fail_only: << parameters.fail_only >>
+          success_message: << parameters.success_message >>
+          failure_message: << parameters.failure_message >>
+          only_for_branches: << parameters.only_for_branches >>
   docker_login:
     steps:
       - run:
@@ -136,10 +164,18 @@ jobs:
           paths:
             - .
 
-  go-dependencies-vulnerability-scan:
+  kratix-security-scan:
     executor: machine-medium
+    environment:
+      KRATIX_IMAGE_NAME: syntasso/kratix-platform
+      WORKER_IMAGE_NAME: syntasso/kratix-platform-pipeline-adapter
     steps:
-      - install_software
+      - snyk/scan:
+          severity-threshold: high
+          docker-image-name: $KRATIX_IMAGE_NAME:latest
+      - snyk/scan:
+          severity-threshold: high
+          docker-image-name: $WORKER_IMAGE_NAME:latest
       - run:
           name: install govulncheck
           command: |
@@ -149,21 +185,9 @@ jobs:
           name: run check
           command: govulncheck ./...
       - snyk/scan:
-          severity-threshold: medium
-
-  kratix-containers-vulnerability-scan:
-    executor: machine-medium
-    environment:
-      KRATIX_IMAGE_NAME: syntasso/kratix-platform
-      WORKER_IMAGE_NAME: syntasso/kratix-platform-pipeline-adapter
-    steps:
-      - snyk/scan:
-          severity-threshold: medium
-          docker-image-name: $KRATIX_IMAGE_NAME:latest
-      - snyk/scan:
-          severity-threshold: medium
-          docker-image-name: $WORKER_IMAGE_NAME:latest
-
+          severity-threshold: high
+      - notify-slack:
+          only_for_branches: "main"
   test:
     executor: machine-xlarge
     steps:
@@ -453,6 +477,6 @@ workflows:
               only: [main]
     jobs:
       - clone-kratix
-      - go-dependencies-vulnerability-scan:
+      - kratix-security-scan:
           requires: [clone-kratix]
-      - kratix-containers-vulnerability-scan
+
