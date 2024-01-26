@@ -70,7 +70,7 @@ var _ = SynchronizedBeforeSuite(func() {
 	endpoint = getEnvOrDefault("BUCKET_ENDPOINT", "localhost:31337")
 	secretAccessKey = getEnvOrDefault("BUCKET_SECRET_KEY", "minioadmin")
 	accessKeyID = getEnvOrDefault("BUCKET_ACCESS_KEY", "minioadmin")
-	useSSL = os.GetEnv("BUCKET_SSL") == "true"
+	useSSL = os.Getenv("BUCKET_SSL") == "true"
 	bucketName = getEnvOrDefault("BUCKET_NAME", "kratix")
 })
 
