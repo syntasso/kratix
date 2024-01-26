@@ -6,4 +6,4 @@ spec:
   version: v1.0.0
   sourceRef:
     type: http
-    url: http://LOCALHOST:REPLACEPORT/promise
+    url: REPLACEURL

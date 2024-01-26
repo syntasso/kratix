@@ -2,7 +2,7 @@ package writers
 
 import (
 	"fmt"
-	"io/ioutil"
+	"io/fs"
 	"os"
 	"path/filepath"
 	"strings"
@@ -222,7 +222,17 @@ func (g *GitWriter) RemoveObject(filePath string) error {
 		}
 		logger.Info("successfully deleted file from worktree")
 	} else {
-		logger.Info("file does not exist on worktree, nothing to delete")
+		// Added for debugging purposes to help with bug #186921254
+		files := []string{}
+		walkFunc := func(s string, d fs.DirEntry, err error) error {
+			if err != nil {
+				return nil
+			}
+			files = append(files, s)
+			return nil
+		}
+		filepath.WalkDir(localTmpDir, walkFunc)
+		logger.Info("file does not exist on worktree, nothing to delete", "lstatErr", err, "allFiles", files)
 		return nil
 	}
 
@@ -295,7 +305,7 @@ func (g *GitWriter) commitAndPush(repo *git.Repository, worktree *git.Worktree, 
 
 func createLocalDirectory(logger logr.Logger) (string, error) {
 	logger.Info("creating local directory")
-	dir, err := ioutil.TempDir("", "kratix-repo")
+	dir, err := os.MkdirTemp("", "kratix-repo")
 	if err != nil {
 		return "", err
 	}
