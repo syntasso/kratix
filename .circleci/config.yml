@@ -191,8 +191,7 @@ jobs:
                 }
               ]
             }
-          event: fail
-          when: on_fail
+        when: on_fail
       - slack/notify:
           custom: |
             {
@@ -220,8 +219,7 @@ jobs:
                 }
               ]
             }
-          event: success
-          when: on_success
+        when: on_success
 
   test:
     executor: machine-xlarge
