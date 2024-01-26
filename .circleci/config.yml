@@ -7,6 +7,7 @@ orbs:
   retry: kimh/run-with-retry@1.0.0
   queue: eddiewebb/queue@2.2.1
   snyk: snyk/snyk@2.0.2
+  slack: circleci/slack@4.12.6
 
 executors:
   machine-medium:
@@ -163,6 +164,64 @@ jobs:
       - snyk/scan:
           severity-threshold: medium
           docker-image-name: $WORKER_IMAGE_NAME:latest
+      - slack/notify:
+          custom: |
+            {
+              "text": "",
+              "blocks": [
+                {
+                  "type": "section",
+                  "text": {
+                    "type": "mrkdwn",
+                    "text": "Security scan failed"
+                  }
+                },
+                {
+                  "type": "actions",
+                  "elements": [
+                    {
+                      "type": "button",
+                      "text": {
+                        "type": "plain_text",
+                        "text": "View Job"
+                      },
+                      "url": "${CIRCLE_BUILD_URL}"
+                    }
+                  ]
+                }
+              ]
+            }
+          event: fail
+          when: on_fail
+      - slack/notify:
+          custom: |
+            {
+              "text": "",
+              "blocks": [
+                {
+                  "type": "section",
+                  "text": {
+                    "type": "mrkdwn",
+                    "text": "Security scan passed"
+                  }
+                },
+                {
+                  "type": "actions",
+                  "elements": [
+                    {
+                      "type": "button",
+                      "text": {
+                        "type": "plain_text",
+                        "text": "View Job"
+                      },
+                      "url": "${CIRCLE_BUILD_URL}"
+                    }
+                  ]
+                }
+              ]
+            }
+          event: success
+          when: on_success
 
   test:
     executor: machine-xlarge
