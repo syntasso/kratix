@@ -29,14 +29,12 @@ func TestSystem(t *testing.T) {
 var _ = SynchronizedBeforeSuite(func() {
 	//this runs once for the whole suite
 	worker = &destination{
-		context:       getEnvOrDefault("WORKER_CONTEXT", "kind-worker"),
-		checkExitCode: true,
-		name:          getEnvOrDefault("WORKER_NAME", "worker-1"),
+		context: getEnvOrDefault("WORKER_CONTEXT", "kind-worker"),
+		name:    getEnvOrDefault("WORKER_NAME", "worker-1"),
 	}
 	platform = &destination{
-		context:       getEnvOrDefault("PLATFORM_CONTEXT", "kind-platform"),
-		checkExitCode: true,
-		name:          getEnvOrDefault("PLATFORM_NAME", "platform-cluster"),
+		context: getEnvOrDefault("PLATFORM_CONTEXT", "kind-platform"),
+		name:    getEnvOrDefault("PLATFORM_NAME", "platform-cluster"),
 	}
 
 	if getEnvOrDefault("PLATFORM_SKIP_SETUP", "false") == "true" {
@@ -61,17 +59,15 @@ var _ = SynchronizedBeforeSuite(func() {
 	//This variable gets set in func above, but only for 1 of the nodes, so we set
 	//it again here to ensure all nodes have it
 	worker = &destination{
-		context:       getEnvOrDefault("WORKER_CONTEXT", "kind-worker"),
-		checkExitCode: true,
-		name:          getEnvOrDefault("WORKER_NAME", "worker-1"),
+		context: getEnvOrDefault("WORKER_CONTEXT", "kind-worker"),
+		name:    getEnvOrDefault("WORKER_NAME", "worker-1"),
 	}
 	platform = &destination{
-		context:       getEnvOrDefault("PLATFORM_CONTEXT", "kind-platform"),
-		checkExitCode: true,
-		name:          getEnvOrDefault("PLATFORM_NAME", "platform-cluster"),
+		context: getEnvOrDefault("PLATFORM_CONTEXT", "kind-platform"),
+		name:    getEnvOrDefault("PLATFORM_NAME", "platform-cluster"),
 	}
 
-	endpoint = getEnvOrDefault("BUCKET_ENDPOINT)", "localhost:31337")
+	endpoint = getEnvOrDefault("BUCKET_ENDPOINT", "localhost:31337")
 	secretAccessKey = getEnvOrDefault("BUCKET_SECRET_KEY", "minioadmin")
 	accessKeyID = getEnvOrDefault("BUCKET_ACCESS_KEY", "minioadmin")
 	useSSL = getEnvOrDefault("BUCKET_SSL", "false") == "true"
