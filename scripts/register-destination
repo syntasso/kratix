@@ -11,9 +11,10 @@ DESTINATION_CONTEXT=""
 PLATFORM_CONTEXT="kind-platform"
 STATE_STORE="default"
 GITOPS_PATH="platform-cluster"
+STRICT_MATCH_LABELS=false
 
 usage() {
-    echo -e "Usage: register-destination [--help] [--git] [--with-label foo=bar] [--context k8s-context] [--name  some-name ] [--platform-context 'kind-platform'] [--path platform-cluster]"
+    echo -e "Usage: register-destination [--help] [--git] [--with-label foo=bar] [--context k8s-context] [--name  some-name ] [--platform-context 'kind-platform'] [--path platform-cluster] [--strict-match-labels]"
     echo -e "\t--context='', -c,\t The Kubernetes context where to install FluxCD onto"
     echo -e "\t--git, -g\t Use Gitea as local repository in place of default local MinIO"
     echo -e "\t--help, -h\t Prints this message"
@@ -22,6 +23,7 @@ usage() {
     echo -e "\t--platform-context='', -p,\t The Kubernetes context of the Platform destination"
     echo -e "\t--state-store,-s\t Name of the state store to use"
     echo -e "\t--with-label foo=bar, -l\t Adds a label to the destination during registration"
+    echo -e "\t--strict-match-labels\t If set, the destination will only be matched if all labels are present"
     exit "${1:-0}"
 }
 
@@ -29,20 +31,21 @@ load_options() {
     for arg in "$@"; do
       shift
       case "$arg" in
-        '--context')          set -- "$@" '-c'   ;;
-        '--git')              set -- "$@" '-g'   ;;
-        '--help')             set -- "$@" '-h'   ;;
-        '--name')             set -- "$@" '-n'   ;;
-        '--platform-context') set -- "$@" '-p'   ;;
-        '--state-store')      set -- "$@" '-s'   ;;
-        '--with-label')       set -- "$@" '-l'   ;;
-        '--path')             set -- "$@" '-t'   ;;
-        *)                    set -- "$@" "$arg" ;;
+        '--context')             set -- "$@" '-c'   ;;
+        '--git')                 set -- "$@" '-g'   ;;
+        '--help')                set -- "$@" '-h'   ;;
+        '--name')                set -- "$@" '-n'   ;;
+        '--platform-context')    set -- "$@" '-p'   ;;
+        '--state-store')         set -- "$@" '-s'   ;;
+        '--with-label')          set -- "$@" '-l'   ;;
+        '--strict-match-labels') set -- "$@" '-m'   ;;
+        '--path')                set -- "$@" '-t'   ;;
+        *)                       set -- "$@" "$arg" ;;
       esac
     done
 
     OPTIND=1
-    while getopts "p:hgn:c:l:s:t:" opt
+    while getopts "p:hgn:c:l:s:t:m" opt
     do
       case "$opt" in
         'c') DESTINATION_CONTEXT="$OPTARG";;
@@ -53,6 +56,7 @@ load_options() {
         'p') PLATFORM_CONTEXT="$OPTARG";;
         's') STATE_STORE="$OPTARG";;
         't') GITOPS_PATH="$OPTARG";;
+        'm') STRICT_MATCH_LABELS=true;;
         *) usage 1 ;;
       esac
     done
@@ -78,7 +82,7 @@ prepare_destination() {
   fi
   $ROOT/scripts/install-gitops --context $DESTINATION_CONTEXT --path "$GITOPS_PATH" "$flags"
 
-  local yqOpts=".metadata.name = \"$NAME\" | .metadata.labels = {} | .spec.stateStoreRef.name = \"$STATE_STORE\" | .spec.stateStoreRef.kind = \"$state_store_type\""
+  local yqOpts=".metadata.name = \"$NAME\" | .metadata.labels = {} | .spec.stateStoreRef.name = \"$STATE_STORE\" | .spec.stateStoreRef.kind = \"$state_store_type\" | .spec.strictMatchLabels = $STRICT_MATCH_LABELS"
   yq "${yqOpts}" $ROOT/config/samples/platform_v1alpha1_worker.yaml |
     kubectl --context $PLATFORM_CONTEXT apply -f -
 
