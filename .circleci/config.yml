@@ -409,16 +409,16 @@ workflows:
       - clone-helm-charts
       - test:
           requires: [clone-kratix, clone-helm-charts]
-      # - e2e-demo-test-helm-bucket:
-      #     requires: [clone-kratix, clone-helm-charts]
-      # - e2e-demo-test-helm-git:
-      #     requires: [clone-kratix, clone-helm-charts]
+      - e2e-demo-test-helm-bucket:
+          requires: [clone-kratix, clone-helm-charts]
+      - e2e-demo-test-helm-git:
+          requires: [clone-kratix, clone-helm-charts]
       ### ONLY DEV
       - git-merge-and-push:
           requires:
             - test
-            # - e2e-demo-test-helm-git
-            # - e2e-demo-test-helm-bucket
+            - e2e-demo-test-helm-git
+            - e2e-demo-test-helm-bucket
           filters:
             branches:
               only: dev
@@ -427,8 +427,8 @@ workflows:
       - tag-new-version:
           requires:
             - test
-            # - e2e-demo-test-helm-git
-            # - e2e-demo-test-helm-bucket
+            - e2e-demo-test-helm-git
+            - e2e-demo-test-helm-bucket
           filters:
             branches:
               only: main
