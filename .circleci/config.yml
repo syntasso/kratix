@@ -171,12 +171,7 @@ jobs:
       WORKER_IMAGE_NAME: syntasso/kratix-platform-pipeline-adapter
     steps:
       - checkout
-      - snyk/scan:
-          severity-threshold: high
-          docker-image-name: $KRATIX_IMAGE_NAME:latest
-      - snyk/scan:
-          severity-threshold: high
-          docker-image-name: $WORKER_IMAGE_NAME:latest
+      - install_software
       - run:
           name: install govulncheck
           command: |
@@ -185,6 +180,12 @@ jobs:
       - run:
           name: run check
           command: govulncheck ./...
+      - snyk/scan:
+          severity-threshold: high
+          docker-image-name: $KRATIX_IMAGE_NAME:latest
+      - snyk/scan:
+          severity-threshold: high
+          docker-image-name: $WORKER_IMAGE_NAME:latest
       - snyk/scan:
           severity-threshold: high
       - notify-slack:
