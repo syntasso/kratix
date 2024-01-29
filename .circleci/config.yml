@@ -170,6 +170,7 @@ jobs:
       KRATIX_IMAGE_NAME: syntasso/kratix-platform
       WORKER_IMAGE_NAME: syntasso/kratix-platform-pipeline-adapter
     steps:
+      - checkout
       - snyk/scan:
           severity-threshold: high
           docker-image-name: $KRATIX_IMAGE_NAME:latest
