@@ -4,7 +4,6 @@ import (
 	"flag"
 	"fmt"
 	"io"
-	"io/ioutil"
 	"log"
 	"os"
 	"path/filepath"
@@ -33,7 +32,7 @@ func main() {
 	}
 
 	//Read Resources
-	files, err := ioutil.ReadDir(resourcesPath)
+	files, err := os.ReadDir(resourcesPath)
 	if err != nil {
 		fmt.Println("Error reading resourcesPath: " + resourcesPath)
 		os.Exit(1)
