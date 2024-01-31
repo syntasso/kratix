@@ -12,10 +12,10 @@ documentation for details on how to setup your platform.
 This Promise provides an App-as-a-Service. This is a compound Promise that installs the following Promises:
 
 - [Nginx-ingress](https://github.com/syntasso/kratix-marketplace/tree/main/nginx-ingress)
-- [Postgres](https://github.com/syntasso/kratix-marketplace/tree/main/postgresql)
+- [Postgres](https://github.com/syntasso/promise-postgresql)
 - [Redis](https://github.com/syntasso/kratix-marketplace/tree/main/redis)
 - [Slack](https://github.com/syntasso/kratix-marketplace/tree/main/slack)
-- [Deployment](../deployment/) (which deploys the sample application to the Destination with the configured ingress)
+- [Deployment](../internal/deployment/deployment-promise.yaml) (which deploys the sample application to the Destination with the configured ingress)
 
 The following fields are configurable:
 
