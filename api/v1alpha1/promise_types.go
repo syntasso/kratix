@@ -44,7 +44,7 @@ type PromiseSpec struct {
 
 	// Important: Run "make" to regenerate code after modifying this file
 
-	// TODO (has since been merged!): apiextemnsion.CustomResourceDefinitionSpec struct(s) don't have the required jsontags and
+	// TODO (has since been merged!): apiextension.CustomResourceDefinitionSpec struct(s) don't have the required jsontags and
 	// cannot be used as a Type. See https://github.com/kubernetes-sigs/controller-tools/pull/528
 	// && https://github.com/kubernetes-sigs/controller-tools/issues/291
 	//

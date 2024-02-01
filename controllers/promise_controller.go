@@ -68,9 +68,9 @@ type PromiseReconciler struct {
 const (
 	resourceRequestCleanupFinalizer = v1alpha1.KratixPrefix + "resource-request-cleanup"
 	// TODO fix the name of this finalizer: dependant -> dependent (breaking change)
-	dynamicControllerDependantResourcesCleaupFinalizer = v1alpha1.KratixPrefix + "dynamic-controller-dependant-resources-cleanup"
-	crdCleanupFinalizer                                = v1alpha1.KratixPrefix + "api-crd-cleanup"
-	dependenciesCleanupFinalizer                       = v1alpha1.KratixPrefix + "dependencies-cleanup"
+	dynamicControllerDependantResourcesCleanupFinalizer = v1alpha1.KratixPrefix + "dynamic-controller-dependant-resources-cleanup"
+	crdCleanupFinalizer                                 = v1alpha1.KratixPrefix + "api-crd-cleanup"
+	dependenciesCleanupFinalizer                        = v1alpha1.KratixPrefix + "dependencies-cleanup"
 
 	requirementStateInstalled                      = "Requirement installed"
 	requirementStateNotInstalled                   = "Requirement not installed"
@@ -81,7 +81,7 @@ const (
 var (
 	promiseFinalizers = []string{
 		resourceRequestCleanupFinalizer,
-		dynamicControllerDependantResourcesCleaupFinalizer,
+		dynamicControllerDependantResourcesCleanupFinalizer,
 		crdCleanupFinalizer,
 		dependenciesCleanupFinalizer,
 	}
@@ -193,8 +193,8 @@ func (r *PromiseReconciler) Reconcile(ctx context.Context, req ctrl.Request) (ct
 			return ctrl.Result{}, err
 		}
 
-		if resourceutil.DoesNotContainFinalizer(promise, dynamicControllerDependantResourcesCleaupFinalizer) {
-			return addFinalizers(opts, promise, []string{dynamicControllerDependantResourcesCleaupFinalizer})
+		if resourceutil.DoesNotContainFinalizer(promise, dynamicControllerDependantResourcesCleanupFinalizer) {
+			return addFinalizers(opts, promise, []string{dynamicControllerDependantResourcesCleanupFinalizer})
 		}
 	}
 
@@ -752,7 +752,7 @@ func (r *PromiseReconciler) deleteDynamicControllerResources(o opts, promise *v1
 		}
 	}
 
-	controllerutil.RemoveFinalizer(promise, dynamicControllerDependantResourcesCleaupFinalizer)
+	controllerutil.RemoveFinalizer(promise, dynamicControllerDependantResourcesCleanupFinalizer)
 	return r.Client.Update(o.ctx, promise)
 }
 
