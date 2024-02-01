@@ -231,8 +231,8 @@ var _ = Describe("PromiseController", func() {
 						Expect(promise.Status.Conditions[0].Reason).To(Equal("RequirementsNotInstalled"))
 						Expect(promise.Status.Conditions[0].LastTransitionTime).ToNot(BeNil())
 
-						Expect(promise.Status.Requirements).To(ConsistOf(
-							v1alpha1.RequirementStatus{
+						Expect(promise.Status.RequiredPromises).To(ConsistOf(
+							v1alpha1.RequiredPromiseStatus{
 								Name:    "kafka",
 								Version: "v1.2.0",
 								State:   "Requirement not installed",
@@ -278,8 +278,8 @@ var _ = Describe("PromiseController", func() {
 						Expect(promise.Status.Conditions[0].Reason).To(Equal("RequirementsNotInstalled"))
 						Expect(promise.Status.Conditions[0].LastTransitionTime).ToNot(BeNil())
 
-						Expect(promise.Status.Requirements).To(ConsistOf(
-							v1alpha1.RequirementStatus{
+						Expect(promise.Status.RequiredPromises).To(ConsistOf(
+							v1alpha1.RequiredPromiseStatus{
 								Name:    "kafka",
 								Version: "v1.2.0",
 								State:   "Requirement not installed at the specified version",
@@ -321,8 +321,8 @@ var _ = Describe("PromiseController", func() {
 							Expect(promise.Status.Conditions[0].Type).To(Equal("RequirementsFulfilled"))
 							Expect(promise.Status.Conditions[0].Status).To(Equal(metav1.ConditionFalse))
 
-							Expect(promise.Status.Requirements).To(ConsistOf(
-								v1alpha1.RequirementStatus{
+							Expect(promise.Status.RequiredPromises).To(ConsistOf(
+								v1alpha1.RequiredPromiseStatus{
 									Name:    "kafka",
 									Version: "v1.2.0",
 									State:   "Requirement not installed at the specified version",
@@ -363,8 +363,8 @@ var _ = Describe("PromiseController", func() {
 							Expect(promise.Status.Conditions[0].Type).To(Equal("RequirementsFulfilled"))
 							Expect(promise.Status.Conditions[0].Status).To(Equal(metav1.ConditionTrue))
 
-							Expect(promise.Status.Requirements).To(ConsistOf(
-								v1alpha1.RequirementStatus{
+							Expect(promise.Status.RequiredPromises).To(ConsistOf(
+								v1alpha1.RequiredPromiseStatus{
 									Name:    "kafka",
 									Version: "v1.2.0",
 									State:   "Requirement installed",

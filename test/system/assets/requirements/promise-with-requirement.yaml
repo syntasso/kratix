@@ -3,7 +3,7 @@ kind: Promise
 metadata:
   name: redis
 spec:
-  requirements:
+  requiredPromises:
   - name: REPLACEBASH
     version: "v1.0.0"
   api:
