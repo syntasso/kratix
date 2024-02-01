@@ -35,6 +35,6 @@ spec:
   - matchLabels:
       environment: dev
   workflows: {}
-  requirements:
+  requiredPromises:
   - name: kafka
     version: v1.2.0
