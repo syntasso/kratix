@@ -150,7 +150,7 @@ func (r *PromiseReconciler) Reconcile(ctx context.Context, req ctrl.Request) (ct
 	//Set status to unavailable, at the end of this function we set it to
 	//available. If at anytime we return early, it persisted as unavailable
 	promise.Status.Status = v1alpha1.PromiseStatusUnavailable
-	updated, err := r.ensureRequirementStatusIsUpToDate(ctx, promise)
+	updated, err := r.ensureRequiredPromiseStatusIsUpToDate(ctx, promise)
 	if err != nil || updated {
 		return ctrl.Result{}, err
 	}
@@ -220,7 +220,7 @@ func (r *PromiseReconciler) Reconcile(ctx context.Context, req ctrl.Request) (ct
 		}
 
 		dynamicControllerCanCreateResources := true
-		for _, req := range promise.Status.Requirements {
+		for _, req := range promise.Status.RequiredPromises {
 			if req.State != requirementStateInstalled {
 				logger.Info("requirement not installed, disabling dynamic controller", "requirement", req)
 				dynamicControllerCanCreateResources = false
@@ -237,11 +237,11 @@ func (r *PromiseReconciler) Reconcile(ctx context.Context, req ctrl.Request) (ct
 		}
 
 		if !dynamicControllerCanCreateResources {
-			logger.Info("requirements not fulfilled, disabled dynamic controller and requeuing", "requirementsStatus", promise.Status.Requirements)
+			logger.Info("requirements not fulfilled, disabled dynamic controller and requeuing", "requirementsStatus", promise.Status.RequiredPromises)
 			return slowRequeue, nil
 		}
 
-		logger.Info("requirements are fulfilled", "requirementsStatus", promise.Status.Requirements)
+		logger.Info("requirements are fulfilled", "requirementsStatus", promise.Status.RequiredPromises)
 
 		if promise.GetGeneration() != promise.Status.ObservedGeneration {
 			if err := r.reconcileAllRRs(rrGVK); err != nil {
@@ -262,10 +262,10 @@ func (r *PromiseReconciler) Reconcile(ctx context.Context, req ctrl.Request) (ct
 	return ctrl.Result{}, r.Client.Status().Update(ctx, promise)
 }
 
-func (r *PromiseReconciler) ensureRequirementStatusIsUpToDate(ctx context.Context, promise *v1alpha1.Promise) (bool, error) {
+func (r *PromiseReconciler) ensureRequiredPromiseStatusIsUpToDate(ctx context.Context, promise *v1alpha1.Promise) (bool, error) {
 	latestCondition, latestRequirements := r.generateStatusAndMarkRequirements(ctx, promise)
 
-	requirementsFieldChanged := updateRequirementsStatusOnPromise(promise, promise.Status.Requirements, latestRequirements)
+	requirementsFieldChanged := updateRequirementsStatusOnPromise(promise, promise.Status.RequiredPromises, latestRequirements)
 	conditionsFieldChanged := updateConditionOnPromise(promise, latestCondition)
 
 	if conditionsFieldChanged || requirementsFieldChanged {
@@ -289,21 +289,21 @@ func updateConditionOnPromise(promise *v1alpha1.Promise, latestCondition metav1.
 	return true
 }
 
-func updateRequirementsStatusOnPromise(promise *v1alpha1.Promise, oldReqs, newReqs []v1alpha1.RequirementStatus) bool {
-	compareValue := slices.CompareFunc(oldReqs, newReqs, func(a, b v1alpha1.RequirementStatus) int {
+func updateRequirementsStatusOnPromise(promise *v1alpha1.Promise, oldReqs, newReqs []v1alpha1.RequiredPromiseStatus) bool {
+	compareValue := slices.CompareFunc(oldReqs, newReqs, func(a, b v1alpha1.RequiredPromiseStatus) int {
 		if a.Name == b.Name && a.Version == b.Version && a.State == b.State {
 			return 0
 		}
 		return -1
 	})
 	if compareValue != 0 {
-		promise.Status.Requirements = newReqs
+		promise.Status.RequiredPromises = newReqs
 		return true
 	}
 	return false
 }
 
-func (r *PromiseReconciler) generateStatusAndMarkRequirements(ctx context.Context, promise *v1alpha1.Promise) (metav1.Condition, []v1alpha1.RequirementStatus) {
+func (r *PromiseReconciler) generateStatusAndMarkRequirements(ctx context.Context, promise *v1alpha1.Promise) (metav1.Condition, []v1alpha1.RequiredPromiseStatus) {
 	promiseCondition := metav1.Condition{
 		Type:               "RequirementsFulfilled",
 		LastTransitionTime: metav1.NewTime(time.Now()),
@@ -312,9 +312,9 @@ func (r *PromiseReconciler) generateStatusAndMarkRequirements(ctx context.Contex
 		Reason:             "RequirementsInstalled",
 	}
 
-	requirements := []v1alpha1.RequirementStatus{}
+	requirements := []v1alpha1.RequiredPromiseStatus{}
 
-	for _, requirement := range promise.Spec.Requirements {
+	for _, requirement := range promise.Spec.RequiredPromises {
 		requirementState := requirementStateInstalled
 		requiredPromise := &v1alpha1.Promise{}
 		err := r.Client.Get(ctx, types.NamespacedName{Name: requirement.Name}, requiredPromise)
@@ -343,7 +343,7 @@ func (r *PromiseReconciler) generateStatusAndMarkRequirements(ctx context.Contex
 			r.markRequiredPromiseAsRequired(ctx, requirement.Version, promise, requiredPromise)
 		}
 
-		requirements = append(requirements, v1alpha1.RequirementStatus{
+		requirements = append(requirements, v1alpha1.RequiredPromiseStatus{
 			Name:    requirement.Name,
 			Version: requirement.Version,
 			State:   requirementState,
@@ -674,8 +674,8 @@ func (r *PromiseReconciler) deletePromise(o opts, promise *v1alpha1.Promise, del
 		d.Enabled = &enabled
 	}
 
-	if controllerutil.ContainsFinalizer(promise, dynamicControllerDependantResourcesCleaupFinalizer) {
-		o.logger.Info("deleting resources associated with finalizer", "finalizer", dynamicControllerDependantResourcesCleaupFinalizer)
+	if controllerutil.ContainsFinalizer(promise, dynamicControllerDependantResourcesCleanupFinalizer) {
+		o.logger.Info("deleting resources associated with finalizer", "finalizer", dynamicControllerDependantResourcesCleanupFinalizer)
 		err := r.deleteDynamicControllerResources(o, promise)
 		if err != nil {
 			return defaultRequeue, nil

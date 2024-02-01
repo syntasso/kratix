@@ -109,8 +109,8 @@ var _ = Describe("PromiseWebhook", func() {
 		})
 	})
 
-	When("Requirements", func() {
-		When("the promise requirements are not satisfied", func() {
+	When("Required Promises", func() {
+		When("the required promises are not satisfied", func() {
 			It("returns a list of warnings", func() {
 				err := fakeClient.Create(context.TODO(), &v1alpha1.Promise{
 					ObjectMeta: metav1.ObjectMeta{
@@ -127,7 +127,7 @@ var _ = Describe("PromiseWebhook", func() {
 					},
 					Spec: v1alpha1.PromiseSpec{
 						API: RawExtension(nil),
-						Requirements: []v1alpha1.Requirement{
+						RequiredPromises: []v1alpha1.RequiredPromise{
 							{
 								Name:    "redis",
 								Version: "v1.0.0",
@@ -143,16 +143,16 @@ var _ = Describe("PromiseWebhook", func() {
 				warnings, err := promise.ValidateCreate()
 				Expect(err).NotTo(HaveOccurred())
 				Expect(warnings).To(ConsistOf(
-					`Requirement Promise "redis" at version "v1.0.0" not installed`,
-					`Requirement Promise "kafka" installed but not at a compatible version, want: "v1.2.0" have: "v1.0.0"`,
+					`Required Promise "redis" at version "v1.0.0" not installed`,
+					`Required Promise "kafka" installed but not at a compatible version, want: "v1.2.0" have: "v1.0.0"`,
 					`Promise will not be available until the above issue(s) is resolved`,
 				))
 
 				warnings, err = promise.ValidateUpdate(promise)
 				Expect(err).NotTo(HaveOccurred())
 				Expect(warnings).To(ConsistOf(
-					`Requirement Promise "redis" at version "v1.0.0" not installed`,
-					`Requirement Promise "kafka" installed but not at a compatible version, want: "v1.2.0" have: "v1.0.0"`,
+					`Required Promise "redis" at version "v1.0.0" not installed`,
+					`Required Promise "kafka" installed but not at a compatible version, want: "v1.2.0" have: "v1.0.0"`,
 					`Promise will not be available until the above issue(s) is resolved`,
 				))
 			})
@@ -176,7 +176,7 @@ var _ = Describe("PromiseWebhook", func() {
 					},
 					Spec: v1alpha1.PromiseSpec{
 						API: RawExtension(nil),
-						Requirements: []v1alpha1.Requirement{
+						RequiredPromises: []v1alpha1.RequiredPromise{
 							{
 								Name:    "kafka",
 								Version: "v1.2.0",

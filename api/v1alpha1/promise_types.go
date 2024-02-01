@@ -59,14 +59,14 @@ type PromiseSpec struct {
 
 	Workflows Workflows `json:"workflows,omitempty"`
 
-	Requirements []Requirement `json:"requirements,omitempty"`
+	RequiredPromises []RequiredPromise `json:"requiredPromises,omitempty"`
 
 	Dependencies Dependencies `json:"dependencies,omitempty"`
 
 	DestinationSelectors []PromiseScheduling `json:"destinationSelectors,omitempty"`
 }
 
-type Requirement struct {
+type RequiredPromise struct {
 	// Name of Promise
 	Name string `json:"name,omitempty"`
 	// Version of Promise
@@ -109,14 +109,14 @@ type WorkflowDestinationSelectors struct {
 
 // PromiseStatus defines the observed state of Promise
 type PromiseStatus struct {
-	Conditions         []metav1.Condition  `json:"conditions,omitempty"`
-	Version            string              `json:"version,omitempty"`
-	ObservedGeneration int64               `json:"observedGeneration,omitempty"`
-	Kind               string              `json:"kind,omitempty"`
-	APIVersion         string              `json:"apiVersion,omitempty"`
-	Status             string              `json:"status,omitempty"`
-	Requirements       []RequirementStatus `json:"requirements,omitempty"`
-	RequiredBy         []RequiredBy        `json:"requiredBy,omitempty"`
+	Conditions         []metav1.Condition      `json:"conditions,omitempty"`
+	Version            string                  `json:"version,omitempty"`
+	ObservedGeneration int64                   `json:"observedGeneration,omitempty"`
+	Kind               string                  `json:"kind,omitempty"`
+	APIVersion         string                  `json:"apiVersion,omitempty"`
+	Status             string                  `json:"status,omitempty"`
+	RequiredPromises   []RequiredPromiseStatus `json:"requiredPromises,omitempty"`
+	RequiredBy         []RequiredBy            `json:"requiredBy,omitempty"`
 }
 
 type PromiseSummary struct {
@@ -129,7 +129,7 @@ type RequiredBy struct {
 	RequiredVersion string         `json:"requiredVersion,omitempty"`
 }
 
-type RequirementStatus struct {
+type RequiredPromiseStatus struct {
 	Name    string `json:"name,omitempty"`
 	Version string `json:"version,omitempty"`
 	State   string `json:"state,omitempty"`

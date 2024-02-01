@@ -90,7 +90,7 @@ func (p *Promise) validateCRD() error {
 func (p *Promise) ValidateCreate() (admission.Warnings, error) {
 	promiselog.Info("validate create", "name", p.Name)
 
-	warnings := p.validateRequirements()
+	warnings := p.validateRequiredPromises()
 
 	if err := p.validateCRD(); err != nil {
 		return nil, err
@@ -99,9 +99,9 @@ func (p *Promise) ValidateCreate() (admission.Warnings, error) {
 	return warnings, nil
 }
 
-func (p *Promise) validateRequirements() admission.Warnings {
+func (p *Promise) validateRequiredPromises() admission.Warnings {
 	warnings := []string{}
-	for _, requirement := range p.Spec.Requirements {
+	for _, requirement := range p.Spec.RequiredPromises {
 		promiselog.Info("validating requirement", "name", p.Name, "requirement", requirement.Name, "version", requirement.Version)
 		promise := &Promise{}
 		err := k8sClient.Get(context.TODO(), client.ObjectKey{
@@ -110,14 +110,14 @@ func (p *Promise) validateRequirements() admission.Warnings {
 		}, promise)
 		if err != nil {
 			if errors.IsNotFound(err) {
-				warnings = append(warnings, fmt.Sprintf("Requirement Promise %q at version %q not installed", requirement.Name, requirement.Version))
+				warnings = append(warnings, fmt.Sprintf("Required Promise %q at version %q not installed", requirement.Name, requirement.Version))
 				continue
 			}
 			promiselog.Error(err, "failed to get requirement", "requirement", requirement.Name, "version", requirement.Version)
 			continue
 		}
 		if promise.Status.Version != requirement.Version {
-			warnings = append(warnings, fmt.Sprintf("Requirement Promise %q installed but not at a compatible version, want: %q have: %q", requirement.Name, requirement.Version, promise.Status.Version))
+			warnings = append(warnings, fmt.Sprintf("Required Promise %q installed but not at a compatible version, want: %q have: %q", requirement.Name, requirement.Version, promise.Status.Version))
 		}
 	}
 
@@ -132,7 +132,7 @@ func (p *Promise) ValidateUpdate(old runtime.Object) (admission.Warnings, error)
 	promiselog.Info("validating promise update", "name", p.Name)
 	oldPromise, _ := old.(*Promise)
 
-	warnings := p.validateRequirements()
+	warnings := p.validateRequiredPromises()
 
 	if err := p.validateCRD(); err != nil {
 		return nil, err
