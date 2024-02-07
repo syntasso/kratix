@@ -30,7 +30,7 @@ images=(
   "syntassodev/kratix-platform-pipeline-adapter:${kratix_version}"
 
   # Dynamic controller "reader" image
-  "bitnami/kubectl:1.20.10"
+  "bitnami/kubectl:1.28.6"
 
   # Extra
   "minio/minio:RELEASE.2022-06-30T20-58-09Z"
@@ -62,4 +62,3 @@ for image in "${images[@]}"; do
 
   echo ""
 done
-

@@ -420,7 +420,7 @@ stringData:
         # skip empty line
         return
       fi
-      
+
       # 'xargs echo -n' trims all leading/trailing whitespaces and a trailing new line
       local setting="$(awk -F '=' '{print $1}' <<< "${line}" | xargs echo -n)"
 
@@ -930,7 +930,7 @@ spec:
       serviceAccountName: gitea-create-repository
       initContainers:
       - name: wait-for-git
-        image: bitnami/kubectl:1.20.10
+        image: bitnami/kubectl:1.28.6
         command: ["sh", "-c", "kubectl wait --for=condition=Ready --timeout=120s -n gitea pod -l app.kubernetes.io/instance=gitea"]
       - name: init
         env:

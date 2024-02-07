@@ -77,7 +77,7 @@ spec:
       serviceAccountName: minio-create-bucket
       initContainers:
       - name: wait-for-minio
-        image: bitnami/kubectl:1.20.10
+        image: bitnami/kubectl:1.28.6
         command: ["sh", "-c", "kubectl wait --for=condition=Ready --timeout=120s -n kratix-platform-system pod -l run=minio"]
       containers:
       - name: minio-event-configuration
