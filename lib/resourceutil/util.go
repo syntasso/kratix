@@ -55,18 +55,23 @@ func MarkPipelineAsCompleted(logger logr.Logger, obj *unstructured.Unstructured)
 	logger.Info("set conditions", "condition", PipelineCompletedCondition, "value", v1.ConditionTrue)
 }
 
+func SortJobsByCreationDateTime(jobs []batchv1.Job) []batchv1.Job {
+	sort.Slice(jobs, func(i, j int) bool {
+		t1 := jobs[i].GetCreationTimestamp().Time
+		t2 := jobs[j].GetCreationTimestamp().Time
+		return t1.Before(t2)
+	})
+	return jobs
+}
+
 func PipelineWithDesiredSpecExists(logger logr.Logger, obj *unstructured.Unstructured, jobs []batchv1.Job) (*batchv1.Job, error) {
 	if len(jobs) == 0 {
 		return nil, nil
 	}
 
 	// sort the pipepeineJobs by creation date
-	sort.Slice(jobs, func(i, j int) bool {
-		t1 := jobs[i].GetCreationTimestamp().Time
-		t2 := jobs[j].GetCreationTimestamp().Time
-		return t1.Before(t2)
-	})
 
+	jobs = SortJobsByCreationDateTime(jobs)
 	mostRecentJob := jobs[len(jobs)-1]
 
 	mostRecentHash := mostRecentJob.GetLabels()[pipeline.KratixResourceHashLabel]

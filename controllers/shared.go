@@ -101,7 +101,50 @@ func ensureConfigurePipelineIsReconciled(j jobOpts) (*ctrl.Result, error) {
 	if j.source == "promise" {
 		return deleteConfigMap(j)
 	}
+
+	//delete 5 old jobs
+	err = deleteAllButLastFiveJobs(j)
+	if err != nil {
+		j.logger.Error(err, "failed to delete old jobs")
+	}
+
 	return nil, nil
+}
+
+const numberOfJobsToKeep = 5
+
+func deleteAllButLastFiveJobs(j jobOpts) error {
+	namespace := j.obj.GetNamespace()
+	if namespace == "" {
+		namespace = v1alpha1.KratixSystemNamespace
+	}
+
+	pipelineJobs, err := getJobsWithLabels(j.opts, j.pipelineLabels, namespace)
+	if err != nil {
+		j.logger.Info("Failed getting Promise pipeline jobs", "error", err)
+		return nil
+	}
+
+	if len(pipelineJobs) <= numberOfJobsToKeep {
+		return nil
+	}
+
+	// Sort jobs by creation time
+	pipelineJobs = resourceutil.SortJobsByCreationDateTime(pipelineJobs)
+
+	// Delete all but the last 5 jobs
+	for i := 0; i < len(pipelineJobs)-numberOfJobsToKeep; i++ {
+		job := pipelineJobs[i]
+		j.logger.Info("Deleting old job", "job", job.GetName())
+		if err := j.client.Delete(j.ctx, &job); err != nil {
+			if !errors.IsNotFound(err) {
+				j.logger.Info("failed to delete job", "job", job.GetName(), "error", err)
+				return nil
+			}
+		}
+	}
+
+	return nil
 }
 
 func deleteConfigMap(j jobOpts) (*ctrl.Result, error) {
