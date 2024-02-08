@@ -99,7 +99,13 @@ func ensureConfigurePipelineIsReconciled(j jobOpts) (*ctrl.Result, error) {
 
 	j.logger.Info("Job already exists and is complete for workflow")
 	if j.source == "promise" {
-		return deleteConfigMap(j)
+		requeue, err := deleteConfigMap(j)
+		if err != nil {
+			return nil, err
+		}
+		if requeue != nil {
+			return requeue, nil
+		}
 	}
 
 	//delete 5 old jobs
@@ -136,7 +142,7 @@ func deleteAllButLastFiveJobs(j jobOpts) error {
 	for i := 0; i < len(pipelineJobs)-numberOfJobsToKeep; i++ {
 		job := pipelineJobs[i]
 		j.logger.Info("Deleting old job", "job", job.GetName())
-		if err := j.client.Delete(j.ctx, &job); err != nil {
+		if err := j.client.Delete(j.ctx, &job, client.PropagationPolicy(metav1.DeletePropagationBackground)); err != nil {
 			if !errors.IsNotFound(err) {
 				j.logger.Info("failed to delete job", "job", job.GetName(), "error", err)
 				return nil
