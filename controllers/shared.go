@@ -109,7 +109,7 @@ func ensureConfigurePipelineIsReconciled(j jobOpts) (*ctrl.Result, error) {
 	}
 
 	//delete 5 old jobs
-	err = deleteAllButLastFiveJobs(j)
+	err = deleteAllButLastFiveJobs(j, pipelineJobs)
 	if err != nil {
 		j.logger.Error(err, "failed to delete old jobs")
 	}
@@ -119,18 +119,7 @@ func ensureConfigurePipelineIsReconciled(j jobOpts) (*ctrl.Result, error) {
 
 const numberOfJobsToKeep = 5
 
-func deleteAllButLastFiveJobs(j jobOpts) error {
-	namespace := j.obj.GetNamespace()
-	if namespace == "" {
-		namespace = v1alpha1.KratixSystemNamespace
-	}
-
-	pipelineJobs, err := getJobsWithLabels(j.opts, j.pipelineLabels, namespace)
-	if err != nil {
-		j.logger.Info("Failed getting Promise pipeline jobs", "error", err)
-		return nil
-	}
-
+func deleteAllButLastFiveJobs(j jobOpts, pipelineJobs []batchv1.Job) error {
 	if len(pipelineJobs) <= numberOfJobsToKeep {
 		return nil
 	}
