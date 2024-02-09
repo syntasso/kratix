@@ -15,5 +15,5 @@ jobs:
         run: |
           curl -H "Circle-Token: ${CCI_TOKEN}" \
             -H 'content-type: application/json' \
-            -d '{"GHA_Actor":"syntassodev","GHA_Action":"trigger-run-ci","GHA_Event":"release","GHA_Meta":"'${GHA_META}'"}' \
+            -d '{"parameters":{"GHA_Actor":"syntassodev","GHA_Action":"trigger-run-ci","GHA_Event":"release","GHA_Meta":"'${GHA_META}'"}}' \
             https://circleci.com/api/v2/project/${CCI_TARGET_SLUG}/pipeline
