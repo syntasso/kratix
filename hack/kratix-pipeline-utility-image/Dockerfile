@@ -7,7 +7,12 @@ RUN [ "mkdir", "/tmp/transfer" ]
 RUN apk update && apk add --no-cache \
 	bash yq curl git \
 	pwgen bash openssl wget bind-tools \
-	github-cli
+	github-cli unzip fortune ruby
+
+RUN curl https://releases.hashicorp.com/terraform/1.7.1/terraform_1.7.1_linux_amd64.zip -o terraform.zip && \
+    unzip terraform.zip && \
+    mv terraform /usr/local/bin/terraform && \
+    rm terraform.zip
 
 RUN curl -LO https://storage.googleapis.com/kubernetes-release/release/v1.25.1/bin/linux/amd64/kubectl
 RUN chmod u+x kubectl && mv kubectl /bin/kubectl
