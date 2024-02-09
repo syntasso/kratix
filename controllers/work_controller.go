@@ -20,7 +20,7 @@ import (
 	"context"
 
 	"github.com/go-logr/logr"
-	platformv1alpha1 "github.com/syntasso/kratix/api/v1alpha1"
+	"github.com/syntasso/kratix/api/v1alpha1"
 	"k8s.io/apimachinery/pkg/api/errors"
 	ctrl "sigs.k8s.io/controller-runtime"
 	"sigs.k8s.io/controller-runtime/pkg/client"
@@ -36,7 +36,7 @@ type WorkReconciler struct {
 
 //go:generate go run github.com/maxbrunsfeld/counterfeiter/v6 . WorkScheduler
 type WorkScheduler interface {
-	ReconcileWork(work *platformv1alpha1.Work) ([]string, error)
+	ReconcileWork(work *v1alpha1.Work) ([]string, error)
 }
 
 //+kubebuilder:rbac:groups=platform.kratix.io,resources=works,verbs=get;list;watch;create;update;patch;delete
@@ -63,7 +63,7 @@ func (r *WorkReconciler) Reconcile(ctx context.Context, req ctrl.Request) (ctrl.
 	logger := r.Log.WithValues("work", req.NamespacedName)
 	logger.Info("Reconciling Work")
 
-	work := &platformv1alpha1.Work{}
+	work := &v1alpha1.Work{}
 	err := r.Client.Get(context.Background(), req.NamespacedName, work)
 	if err != nil {
 		if errors.IsNotFound(err) {
@@ -94,7 +94,7 @@ func (r *WorkReconciler) Reconcile(ctx context.Context, req ctrl.Request) (ctrl.
 // SetupWithManager sets up the controller with the Manager.
 func (r *WorkReconciler) SetupWithManager(mgr ctrl.Manager) error {
 	return ctrl.NewControllerManagedBy(mgr).
-		For(&platformv1alpha1.Work{}).
-		Owns(&platformv1alpha1.WorkPlacement{}).
+		For(&v1alpha1.Work{}).
+		Owns(&v1alpha1.WorkPlacement{}).
 		Complete(r)
 }

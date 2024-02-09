@@ -6,7 +6,6 @@ import (
 	"os"
 
 	"github.com/syntasso/kratix/api/v1alpha1"
-	platformv1alpha1 "github.com/syntasso/kratix/api/v1alpha1"
 	"github.com/syntasso/kratix/work-creator/pipeline"
 	"k8s.io/client-go/kubernetes/scheme"
 	ctrl "sigs.k8s.io/controller-runtime"
@@ -37,8 +36,8 @@ func main() {
 		os.Exit(1)
 	}
 
-	//Teach our client to speak platformv1alpha1.Work
-	platformv1alpha1.AddToScheme(scheme.Scheme)
+	//Teach our client to speak v1alpha1.Work
+	v1alpha1.AddToScheme(scheme.Scheme)
 
 	k8sClient, err := getClient()
 	if err != nil {

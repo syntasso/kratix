@@ -29,11 +29,10 @@ import (
 	ctrl "sigs.k8s.io/controller-runtime"
 
 	"github.com/syntasso/kratix/api/v1alpha1"
-	platformv1alpha1 "github.com/syntasso/kratix/api/v1alpha1"
 	//+kubebuilder:scaffold:imports
 )
 
-var work *platformv1alpha1.Work
+var work *v1alpha1.Work
 
 var _ = Describe("WorkReconciler", func() {
 	var (
@@ -60,14 +59,14 @@ var _ = Describe("WorkReconciler", func() {
 			Name:      workResourceName,
 			Namespace: "default",
 		}
-		work = &platformv1alpha1.Work{}
+		work = &v1alpha1.Work{}
 		work.Name = workResourceName
 		work.Namespace = "default"
-		work.Spec.Replicas = platformv1alpha1.ResourceRequestReplicas
-		work.Spec.WorkloadGroups = []platformv1alpha1.WorkloadGroup{
+		work.Spec.Replicas = v1alpha1.ResourceRequestReplicas
+		work.Spec.WorkloadGroups = []v1alpha1.WorkloadGroup{
 			{
 				ID: hash.ComputeHash("."),
-				Workloads: []platformv1alpha1.Workload{
+				Workloads: []v1alpha1.Workload{
 					{
 						Content: "{someApi: foo, someValue: bar}",
 					},

@@ -4,7 +4,7 @@ import (
 	"github.com/go-logr/logr"
 	. "github.com/onsi/ginkgo/v2"
 	. "github.com/onsi/gomega"
-	platformv1alpha1 "github.com/syntasso/kratix/api/v1alpha1"
+	"github.com/syntasso/kratix/api/v1alpha1"
 	"github.com/syntasso/kratix/lib/writers"
 	metav1 "k8s.io/apimachinery/pkg/apis/meta/v1"
 	ctrl "sigs.k8s.io/controller-runtime"
@@ -14,24 +14,24 @@ var _ = Describe("S3", func() {
 	Describe("NewS3Writer", func() {
 		var (
 			logger         logr.Logger
-			dest           platformv1alpha1.Destination
-			stateStoreSpec platformv1alpha1.BucketStateStoreSpec
+			dest           v1alpha1.Destination
+			stateStoreSpec v1alpha1.BucketStateStoreSpec
 		)
 
 		BeforeEach(func() {
 			logger = ctrl.Log.WithName("setup")
-			stateStoreSpec = platformv1alpha1.BucketStateStoreSpec{
+			stateStoreSpec = v1alpha1.BucketStateStoreSpec{
 				Endpoint:   "example.com",
 				Insecure:   true,
 				AuthMethod: "secretAccessKey",
 			}
 
-			dest = platformv1alpha1.Destination{
+			dest = v1alpha1.Destination{
 				ObjectMeta: metav1.ObjectMeta{
 					Namespace: "default",
 					Name:      "test",
 				},
-				Spec: platformv1alpha1.DestinationSpec{},
+				Spec: v1alpha1.DestinationSpec{},
 			}
 
 		})

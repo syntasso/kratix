@@ -29,7 +29,7 @@ import (
 	"sigs.k8s.io/yaml"
 
 	"github.com/go-logr/logr"
-	platformv1alpha1 "github.com/syntasso/kratix/api/v1alpha1"
+	"github.com/syntasso/kratix/api/v1alpha1"
 	"github.com/syntasso/kratix/lib/writers"
 )
 
@@ -55,7 +55,7 @@ func (r *DestinationReconciler) Reconcile(ctx context.Context, req ctrl.Request)
 		"destination", req.NamespacedName,
 	)
 
-	destination := &platformv1alpha1.Destination{}
+	destination := &v1alpha1.Destination{}
 	logger.Info("Registering Destination", "requestName", req.Name)
 	if err := r.Client.Get(ctx, client.ObjectKey{Name: req.Name}, destination); err != nil {
 		if errors.IsNotFound(err) {
@@ -117,7 +117,7 @@ func (r *DestinationReconciler) createResourcePathWithExample(writer writers.Sta
 	}
 	nsBytes, _ := yaml.Marshal(kratixConfigMap)
 
-	return writer.WriteDirWithObjects(writers.PreserveExistingContentsInDir, resourcesDir, platformv1alpha1.Workload{
+	return writer.WriteDirWithObjects(writers.PreserveExistingContentsInDir, resourcesDir, v1alpha1.Workload{
 		Filepath: "kratix-canary-configmap.yaml",
 		Content:  string(nsBytes),
 	})
@@ -133,7 +133,7 @@ func (r *DestinationReconciler) createDependenciesPathWithExample(writer writers
 	}
 	nsBytes, _ := yaml.Marshal(kratixNamespace)
 
-	return writer.WriteDirWithObjects(writers.PreserveExistingContentsInDir, dependenciesDir, platformv1alpha1.Workload{
+	return writer.WriteDirWithObjects(writers.PreserveExistingContentsInDir, dependenciesDir, v1alpha1.Workload{
 		Filepath: "kratix-canary-namespace.yaml",
 		Content:  string(nsBytes),
 	})
@@ -142,6 +142,6 @@ func (r *DestinationReconciler) createDependenciesPathWithExample(writer writers
 // SetupWithManager sets up the controller with the Manager.
 func (r *DestinationReconciler) SetupWithManager(mgr ctrl.Manager) error {
 	return ctrl.NewControllerManagedBy(mgr).
-		For(&platformv1alpha1.Destination{}).
+		For(&v1alpha1.Destination{}).
 		Complete(r)
 }

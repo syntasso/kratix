@@ -2,7 +2,6 @@ package pipeline
 
 import (
 	"github.com/syntasso/kratix/api/v1alpha1"
-	platformv1alpha1 "github.com/syntasso/kratix/api/v1alpha1"
 	batchv1 "k8s.io/api/batch/v1"
 	v1 "k8s.io/api/core/v1"
 	metav1 "k8s.io/apimachinery/pkg/apis/meta/v1"
@@ -12,15 +11,15 @@ import (
 
 const kratixActionDelete = "delete"
 
-func NewDeleteResource(rr *unstructured.Unstructured, pipelines []platformv1alpha1.Pipeline, resourceRequestIdentifier, promiseIdentifier, crdPlural string) []client.Object {
+func NewDeleteResource(rr *unstructured.Unstructured, pipelines []v1alpha1.Pipeline, resourceRequestIdentifier, promiseIdentifier, crdPlural string) []client.Object {
 	return newDelete(rr, pipelines, resourceRequestIdentifier, promiseIdentifier, crdPlural)
 }
 
-func NewDeletePromise(promise *unstructured.Unstructured, pipelines []platformv1alpha1.Pipeline) []client.Object {
-	return newDelete(promise, pipelines, "", promise.GetName(), platformv1alpha1.PromisePlural)
+func NewDeletePromise(promise *unstructured.Unstructured, pipelines []v1alpha1.Pipeline) []client.Object {
+	return newDelete(promise, pipelines, "", promise.GetName(), v1alpha1.PromisePlural)
 }
 
-func newDelete(obj *unstructured.Unstructured, pipelines []platformv1alpha1.Pipeline, resourceRequestIdentifier, promiseIdentifier, objPlural string) []client.Object {
+func newDelete(obj *unstructured.Unstructured, pipelines []v1alpha1.Pipeline, resourceRequestIdentifier, promiseIdentifier, objPlural string) []client.Object {
 	isPromise := resourceRequestIdentifier == ""
 	namespace := obj.GetNamespace()
 	if isPromise {
@@ -61,13 +60,13 @@ func newDelete(obj *unstructured.Unstructured, pipelines []platformv1alpha1.Pipe
 	return resources
 }
 
-func deletePipelineContainers(obj *unstructured.Unstructured, isPromise bool, pipelines []platformv1alpha1.Pipeline) ([]v1.Container, []v1.Volume) {
+func deletePipelineContainers(obj *unstructured.Unstructured, isPromise bool, pipelines []v1alpha1.Pipeline) ([]v1.Container, []v1.Volume) {
 	volumes, volumeMounts := pipelineVolumes()
 
 	//TODO: Does this get called for promises too? If so, change the parameter name and dynamically set input below
-	workflowType := platformv1alpha1.WorkflowTypeResource
+	workflowType := v1alpha1.WorkflowTypeResource
 	if isPromise {
-		workflowType = platformv1alpha1.WorkflowTypePromise
+		workflowType = v1alpha1.WorkflowTypePromise
 	}
 
 	readerContainer := readerContainer(obj, workflowType, "shared-input")

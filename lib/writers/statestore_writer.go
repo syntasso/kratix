@@ -1,6 +1,6 @@
 package writers
 
-import platformv1alpha1 "github.com/syntasso/kratix/api/v1alpha1"
+import "github.com/syntasso/kratix/api/v1alpha1"
 
 const (
 	DeleteExistingContentsInDir   = true
@@ -8,6 +8,6 @@ const (
 )
 
 type StateStoreWriter interface {
-	WriteDirWithObjects(deleteExistingContentsInDir bool, dir string, workloads ...platformv1alpha1.Workload) error
+	WriteDirWithObjects(deleteExistingContentsInDir bool, dir string, workloads ...v1alpha1.Workload) error
 	RemoveObject(objectName string) error
 }

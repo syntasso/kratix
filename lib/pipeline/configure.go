@@ -7,7 +7,6 @@ import (
 
 	"github.com/go-logr/logr"
 	"github.com/syntasso/kratix/api/v1alpha1"
-	platformv1alpha1 "github.com/syntasso/kratix/api/v1alpha1"
 	"github.com/syntasso/kratix/lib/hash"
 	batchv1 "k8s.io/api/batch/v1"
 	v1 "k8s.io/api/core/v1"
@@ -21,11 +20,11 @@ import (
 func NewConfigureResource(
 	rr *unstructured.Unstructured,
 	crdPlural string,
-	pipelines []platformv1alpha1.Pipeline,
+	pipelines []v1alpha1.Pipeline,
 	resourceRequestIdentifier,
 	promiseIdentifier string,
-	promiseDestinationSelectors []platformv1alpha1.PromiseScheduling,
-	promiseWorkflowSelectors *platformv1alpha1.WorkloadGroupScheduling,
+	promiseDestinationSelectors []v1alpha1.PromiseScheduling,
+	promiseWorkflowSelectors *v1alpha1.WorkloadGroupScheduling,
 	logger logr.Logger,
 ) ([]client.Object, error) {
 
@@ -53,9 +52,9 @@ func NewConfigureResource(
 
 func NewConfigurePromise(
 	unstructedPromise *unstructured.Unstructured,
-	pipelines []platformv1alpha1.Pipeline,
+	pipelines []v1alpha1.Pipeline,
 	promiseIdentifier string,
-	promiseDestinationSelectors []platformv1alpha1.PromiseScheduling,
+	promiseDestinationSelectors []v1alpha1.PromiseScheduling,
 	logger logr.Logger,
 ) ([]client.Object, error) {
 
@@ -81,7 +80,7 @@ func NewConfigurePromise(
 	return resources, nil
 }
 
-func ConfigurePipeline(obj *unstructured.Unstructured, pipelines []platformv1alpha1.Pipeline, pipelineArgs PipelineArgs, promiseName string, promiseWorkflow bool, logger logr.Logger) (*batchv1.Job, error) {
+func ConfigurePipeline(obj *unstructured.Unstructured, pipelines []v1alpha1.Pipeline, pipelineArgs PipelineArgs, promiseName string, promiseWorkflow bool, logger logr.Logger) (*batchv1.Job, error) {
 	volumes := metadataAndSchedulingVolumes(pipelineArgs.ConfigMapName())
 
 	initContainers, pipelineVolumes := configurePipelineInitContainers(obj, pipelines, promiseName, promiseWorkflow, logger)
@@ -137,12 +136,12 @@ func ConfigurePipeline(obj *unstructured.Unstructured, pipelines []platformv1alp
 	return job, nil
 }
 
-func configurePipelineInitContainers(obj *unstructured.Unstructured, pipelines []platformv1alpha1.Pipeline, promiseName string, promiseWorkflow bool, logger logr.Logger) ([]v1.Container, []v1.Volume) {
+func configurePipelineInitContainers(obj *unstructured.Unstructured, pipelines []v1alpha1.Pipeline, promiseName string, promiseWorkflow bool, logger logr.Logger) ([]v1.Container, []v1.Volume) {
 	volumes, volumeMounts := pipelineVolumes()
 
-	kratixWorkflowType := platformv1alpha1.WorkflowTypeResource
+	kratixWorkflowType := v1alpha1.WorkflowTypeResource
 	if promiseWorkflow {
-		kratixWorkflowType = platformv1alpha1.WorkflowTypePromise
+		kratixWorkflowType = v1alpha1.WorkflowTypePromise
 	}
 
 	readerContainer := readerContainer(obj, kratixWorkflowType, "shared-input")
@@ -159,7 +158,7 @@ func configurePipelineInitContainers(obj *unstructured.Unstructured, pipelines [
 			kratixEnvVars := []v1.EnvVar{
 				{
 					Name:  kratixActionEnvVar,
-					Value: string(platformv1alpha1.WorkflowActionConfigure),
+					Value: string(v1alpha1.WorkflowActionConfigure),
 				},
 				{
 					Name:  kratixTypeEnvVar,
@@ -187,9 +186,9 @@ func configurePipelineInitContainers(obj *unstructured.Unstructured, pipelines [
 
 	workCreatorCommand := fmt.Sprintf("./work-creator -input-directory /work-creator-files -promise-name %s -namespace %q", promiseName, obj.GetNamespace())
 	if promiseWorkflow {
-		workCreatorCommand += fmt.Sprintf(" -workflow-type %s", platformv1alpha1.WorkflowTypePromise)
+		workCreatorCommand += fmt.Sprintf(" -workflow-type %s", v1alpha1.WorkflowTypePromise)
 	} else {
-		workCreatorCommand += fmt.Sprintf(" -resource-name %s -workflow-type %s", obj.GetName(), platformv1alpha1.WorkflowTypeResource)
+		workCreatorCommand += fmt.Sprintf(" -resource-name %s -workflow-type %s", obj.GetName(), v1alpha1.WorkflowTypeResource)
 	}
 	writer := v1.Container{
 		Name:    "work-writer",

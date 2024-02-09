@@ -11,7 +11,7 @@ import (
 	"github.com/go-logr/logr"
 	minio "github.com/minio/minio-go/v7"
 	"github.com/minio/minio-go/v7/pkg/credentials"
-	platformv1alpha1 "github.com/syntasso/kratix/api/v1alpha1"
+	"github.com/syntasso/kratix/api/v1alpha1"
 )
 
 const (
@@ -26,7 +26,7 @@ type S3Writer struct {
 	path       string
 }
 
-func NewS3Writer(logger logr.Logger, stateStoreSpec platformv1alpha1.BucketStateStoreSpec, destination platformv1alpha1.Destination, creds map[string][]byte) (StateStoreWriter, error) {
+func NewS3Writer(logger logr.Logger, stateStoreSpec v1alpha1.BucketStateStoreSpec, destination v1alpha1.Destination, creds map[string][]byte) (StateStoreWriter, error) {
 	endpoint := stateStoreSpec.Endpoint
 
 	opts := &minio.Options{
@@ -72,7 +72,7 @@ func NewS3Writer(logger logr.Logger, stateStoreSpec platformv1alpha1.BucketState
 	}, nil
 }
 
-func (b *S3Writer) WriteDirWithObjects(deleteExistingContentsInDir bool, dir string, toWrite ...platformv1alpha1.Workload) error {
+func (b *S3Writer) WriteDirWithObjects(deleteExistingContentsInDir bool, dir string, toWrite ...v1alpha1.Workload) error {
 	logger := b.Log.WithValues(
 		"bucketName", b.BucketName,
 		"path", b.path,

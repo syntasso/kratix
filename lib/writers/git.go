@@ -16,7 +16,6 @@ import (
 	"github.com/go-git/go-git/v5/plumbing/transport/ssh"
 	"github.com/go-logr/logr"
 	"github.com/syntasso/kratix/api/v1alpha1"
-	platformv1alpha1 "github.com/syntasso/kratix/api/v1alpha1"
 )
 
 type GitWriter struct {
@@ -42,7 +41,7 @@ const (
 	Delete string = "Delete"
 )
 
-func NewGitWriter(logger logr.Logger, stateStoreSpec platformv1alpha1.GitStateStoreSpec, destination platformv1alpha1.Destination, creds map[string][]byte) (StateStoreWriter, error) {
+func NewGitWriter(logger logr.Logger, stateStoreSpec v1alpha1.GitStateStoreSpec, destination v1alpha1.Destination, creds map[string][]byte) (StateStoreWriter, error) {
 
 	//if basic auth check this
 	//otherwise check ssh and build using ssh lib
@@ -135,7 +134,7 @@ func (g *GitWriter) setupLocalDirectoryWithRepo(logger logr.Logger) (string, *gi
 	return localTmpDir, repo, worktree, nil
 }
 
-func (g *GitWriter) WriteDirWithObjects(deleteExistingContentsInDir bool, subDir string, toWrite ...platformv1alpha1.Workload) error {
+func (g *GitWriter) WriteDirWithObjects(deleteExistingContentsInDir bool, subDir string, toWrite ...v1alpha1.Workload) error {
 	dirInGitRepo := filepath.Join(g.path, subDir)
 	logger := g.Log.WithValues(
 		"dir", dirInGitRepo,
