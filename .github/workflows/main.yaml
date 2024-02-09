@@ -13,5 +13,6 @@ jobs:
         with:
           GHA_Meta: ${{ github.event.release.tag_name }}
           target-slug: ${{ secrets.CCI_TARGET_SLUG }}
+          target-branch: main
         env:
           CCI_TOKEN: ${{ secrets.CCI_TOKEN }}
