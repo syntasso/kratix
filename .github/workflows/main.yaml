@@ -8,11 +8,12 @@ jobs:
     runs-on: ubuntu-latest
     steps:
       - name: trigger-run-ci
-        id: trigger-run-ci
-        uses: CircleCI-Public/trigger-circleci-pipeline-action@v1.1.0
-        with:
-          GHA_Meta: ${{ github.event.release.tag_name }}
-          target-slug: ${{ secrets.CCI_TARGET_SLUG }}
-          target-branch: main
         env:
           CCI_TOKEN: ${{ secrets.CCI_TOKEN }}
+          CCI_TARGET_SLUG: ${{ secrets.CCI_TARGET_SLUG }}
+          GHA_META: ${{ github.event.release.tag_name }}
+        run: |
+          curl -H "Circle-Token: ${CCI_TOKEN}" \
+            -H 'content-type: application/json' \
+            -d '{"GHA_Actor":"syntassodev","GHA_Action":"trigger-run-ci","GHA_Event":"release","GHA_Meta":"'${GHA_META}'"}' \
+            https://circleci.com/api/v2/project/${CCI_TARGET_SLUG}/pipeline
