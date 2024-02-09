@@ -53,7 +53,7 @@ commands:
         default: ':red_circle: A $CIRCLE_JOB job has failed!'
       channel:
         type: string
-        default: eng-chatter
+        default: eng-alerts-ci
     steps:
       - slack/status:
           webhook: ${SLACK_ENG_CHATTER}
