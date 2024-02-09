@@ -155,12 +155,12 @@ func destinationSelectorsConfigMap(resources PipelineArgs, destinationSelectors 
 	}, nil
 }
 
-func readerContainer(obj *unstructured.Unstructured, kratixWorkflowType, volumeName string) v1.Container {
+func readerContainer(obj *unstructured.Unstructured, kratixWorkflowType v1alpha1.Type, volumeName string) v1.Container {
 	namespace := obj.GetNamespace()
 	if namespace == "" {
 		// if namespace is empty it means its a unnamespaced resource, so providing
 		// any value is valid for kubectl
-		namespace = v1alpha1.KratixSystemNamespace
+		namespace = v1alpha1.SystemNamespace
 	}
 
 	readerContainer := v1.Container{
@@ -171,7 +171,7 @@ func readerContainer(obj *unstructured.Unstructured, kratixWorkflowType, volumeN
 			{Name: "OBJECT_GROUP", Value: obj.GroupVersionKind().Group},
 			{Name: "OBJECT_NAME", Value: obj.GetName()},
 			{Name: "OBJECT_NAMESPACE", Value: namespace},
-			{Name: "KRATIX_WORKFLOW_TYPE", Value: kratixWorkflowType},
+			{Name: "KRATIX_WORKFLOW_TYPE", Value: string(kratixWorkflowType)},
 		},
 		VolumeMounts: []v1.VolumeMount{
 			{MountPath: "/kratix/input", Name: "shared-input"},

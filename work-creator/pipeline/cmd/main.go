@@ -22,7 +22,7 @@ func main() {
 
 	flag.StringVar(&inputDirectoy, "input-directory", "", "Absolute path to directory containing yaml documents required to build Work")
 	flag.StringVar(&promiseName, "promise-name", "", "Name of the promise")
-	flag.StringVar(&namespace, "namespace", v1alpha1.KratixSystemNamespace, "Namespace")
+	flag.StringVar(&namespace, "namespace", v1alpha1.SystemNamespace, "Namespace")
 	flag.StringVar(&resourceName, "resource-name", "", "Name of the resource")
 	flag.StringVar(&workflowType, "workflow-type", "resource", "Create a Work for Promise or Resource type scheduling")
 	flag.Parse()

@@ -213,7 +213,7 @@ func (r *PromiseReconciler) Reconcile(ctx context.Context, req ctrl.Request) (ct
 
 	if promise.ContainsAPI() {
 		var work v1alpha1.Work
-		err = r.Client.Get(ctx, types.NamespacedName{Name: promise.GetName(), Namespace: v1alpha1.KratixSystemNamespace}, &work)
+		err = r.Client.Get(ctx, types.NamespacedName{Name: promise.GetName(), Namespace: v1alpha1.SystemNamespace}, &work)
 		if err != nil {
 			logger.Error(err, "Error getting Work")
 			return ctrl.Result{}, err
@@ -525,7 +525,7 @@ func (r *PromiseReconciler) createResourcesForDynamicControllerIfTheyDontExist(c
 		Subjects: []rbacv1.Subject{
 			{
 				Kind:      "ServiceAccount",
-				Namespace: v1alpha1.KratixSystemNamespace,
+				Namespace: v1alpha1.SystemNamespace,
 				Name:      "kratix-platform-controller-manager",
 			},
 		},
@@ -769,7 +769,7 @@ func (r *PromiseReconciler) deleteResourceRequests(o opts, promise *v1alpha1.Pro
 	}
 
 	var work v1alpha1.Work
-	err = r.Client.Get(o.ctx, types.NamespacedName{Name: promise.GetName(), Namespace: v1alpha1.KratixSystemNamespace}, &work)
+	err = r.Client.Get(o.ctx, types.NamespacedName{Name: promise.GetName(), Namespace: v1alpha1.SystemNamespace}, &work)
 	if err != nil {
 		return err
 	}

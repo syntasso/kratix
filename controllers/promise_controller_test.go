@@ -168,7 +168,7 @@ var _ = Describe("PromiseController", func() {
 						Expect(binding.Subjects).To(HaveLen(1))
 						Expect(binding.Subjects[0]).To(Equal(rbacv1.Subject{
 							Kind:      "ServiceAccount",
-							Namespace: v1alpha1.KratixSystemNamespace,
+							Namespace: v1alpha1.SystemNamespace,
 							Name:      "kratix-platform-controller-manager",
 						}))
 						Expect(binding.GetLabels()).To(Equal(promiseCommonLabels))
@@ -187,7 +187,7 @@ var _ = Describe("PromiseController", func() {
 					By("creating a Work resource for the dependencies", func() {
 						workNamespacedName := types.NamespacedName{
 							Name:      promise.GetName(),
-							Namespace: v1alpha1.KratixSystemNamespace,
+							Namespace: v1alpha1.SystemNamespace,
 						}
 						Expect(fakeK8sClient.Get(ctx, workNamespacedName, &v1alpha1.Work{})).To(Succeed())
 					})

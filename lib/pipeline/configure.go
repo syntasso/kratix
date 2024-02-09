@@ -59,7 +59,7 @@ func NewConfigurePromise(
 	logger logr.Logger,
 ) ([]client.Object, error) {
 
-	pipelineResources := NewPipelineArgs(promiseIdentifier, "", v1alpha1.KratixSystemNamespace)
+	pipelineResources := NewPipelineArgs(promiseIdentifier, "", v1alpha1.SystemNamespace)
 	destinationSelectorsConfigMap, err := destinationSelectorsConfigMap(pipelineResources, promiseDestinationSelectors, nil)
 	if err != nil {
 		return nil, err
@@ -140,9 +140,9 @@ func ConfigurePipeline(obj *unstructured.Unstructured, pipelines []platformv1alp
 func configurePipelineInitContainers(obj *unstructured.Unstructured, pipelines []platformv1alpha1.Pipeline, promiseName string, promiseWorkflow bool, logger logr.Logger) ([]v1.Container, []v1.Volume) {
 	volumes, volumeMounts := pipelineVolumes()
 
-	kratixWorkflowType := platformv1alpha1.KratixWorkflowTypeResource
+	kratixWorkflowType := platformv1alpha1.WorkflowTypeResource
 	if promiseWorkflow {
-		kratixWorkflowType = platformv1alpha1.KratixWorkflowTypePromise
+		kratixWorkflowType = platformv1alpha1.WorkflowTypePromise
 	}
 
 	readerContainer := readerContainer(obj, kratixWorkflowType, "shared-input")
@@ -159,11 +159,11 @@ func configurePipelineInitContainers(obj *unstructured.Unstructured, pipelines [
 			kratixEnvVars := []v1.EnvVar{
 				{
 					Name:  kratixActionEnvVar,
-					Value: platformv1alpha1.KratixActionConfigure,
+					Value: string(platformv1alpha1.WorkflowActionConfigure),
 				},
 				{
 					Name:  kratixTypeEnvVar,
-					Value: kratixWorkflowType,
+					Value: string(kratixWorkflowType),
 				},
 				{
 					Name:  kratixPromiseEnvVar,
@@ -187,9 +187,9 @@ func configurePipelineInitContainers(obj *unstructured.Unstructured, pipelines [
 
 	workCreatorCommand := fmt.Sprintf("./work-creator -input-directory /work-creator-files -promise-name %s -namespace %q", promiseName, obj.GetNamespace())
 	if promiseWorkflow {
-		workCreatorCommand += fmt.Sprintf(" -workflow-type %s", platformv1alpha1.KratixWorkflowTypePromise)
+		workCreatorCommand += fmt.Sprintf(" -workflow-type %s", platformv1alpha1.WorkflowTypePromise)
 	} else {
-		workCreatorCommand += fmt.Sprintf(" -resource-name %s -workflow-type %s", obj.GetName(), platformv1alpha1.KratixWorkflowTypeResource)
+		workCreatorCommand += fmt.Sprintf(" -resource-name %s -workflow-type %s", obj.GetName(), platformv1alpha1.WorkflowTypeResource)
 	}
 	writer := v1.Container{
 		Name:    "work-writer",

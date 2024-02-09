@@ -24,7 +24,7 @@ func newDelete(obj *unstructured.Unstructured, pipelines []platformv1alpha1.Pipe
 	isPromise := resourceRequestIdentifier == ""
 	namespace := obj.GetNamespace()
 	if isPromise {
-		namespace = v1alpha1.KratixSystemNamespace
+		namespace = v1alpha1.SystemNamespace
 	}
 
 	args := NewPipelineArgs(promiseIdentifier, resourceRequestIdentifier, namespace)
@@ -65,9 +65,9 @@ func deletePipelineContainers(obj *unstructured.Unstructured, isPromise bool, pi
 	volumes, volumeMounts := pipelineVolumes()
 
 	//TODO: Does this get called for promises too? If so, change the parameter name and dynamically set input below
-	workflowType := platformv1alpha1.KratixWorkflowTypeResource
+	workflowType := platformv1alpha1.WorkflowTypeResource
 	if isPromise {
-		workflowType = platformv1alpha1.KratixWorkflowTypePromise
+		workflowType = platformv1alpha1.WorkflowTypePromise
 	}
 
 	readerContainer := readerContainer(obj, workflowType, "shared-input")

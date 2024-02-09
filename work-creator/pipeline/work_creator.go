@@ -146,9 +146,9 @@ func (w *WorkCreator) Execute(rootDirectory, promiseName, namespace, resourceNam
 	work.Spec.PromiseName = promiseName
 	work.Spec.ResourceName = resourceName
 
-	if workflowType == platformv1alpha1.KratixWorkflowTypePromise {
+	if workflowType == string(platformv1alpha1.WorkflowTypePromise) {
 		work.Name = promiseName
-		work.Namespace = platformv1alpha1.KratixSystemNamespace
+		work.Namespace = platformv1alpha1.SystemNamespace
 		work.Spec.Replicas = platformv1alpha1.DependencyReplicas
 		work.Spec.ResourceName = ""
 		work.Labels = platformv1alpha1.GenerateSharedLabelsForPromise(promiseName)
