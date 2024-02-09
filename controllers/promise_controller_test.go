@@ -2,9 +2,11 @@ package controllers_test
 
 import (
 	"context"
+	"fmt"
 	"os"
 	"regexp"
 	"strings"
+	"time"
 
 	. "github.com/onsi/ginkgo/v2"
 	. "github.com/onsi/gomega"
@@ -802,7 +804,37 @@ var _ = Describe("PromiseController", func() {
 						Expect(crds.Items[0].Spec.Versions[0].Name).To(Equal("v1alpha2"))
 					})
 				})
+
+				When("the promise is updated repeatedly", func() {
+					It("ensures only the last 5 jobs are kept", func() {
+						var timestamp time.Time
+						for i := 0; i < 10; i++ {
+							if i == 6 {
+								timestamp = time.Now()
+							}
+
+							Expect(fakeK8sClient.Get(ctx, promiseName, promise)).To(Succeed())
+							promise.Spec.Workflows.Promise.Configure[0].Object["metadata"].(map[string]interface{})["name"] = fmt.Sprintf("%d", i)
+							Expect(fakeK8sClient.Update(ctx, promise)).To(Succeed())
+
+							result, err := t.reconcileUntilCompletion(reconciler, promise, &opts{
+								funcs: []func(client.Object) error{autoMarkCRDAsEstablished, autoCompleteJobAndCreateWork(promiseCommonLabels, promise.GetName())},
+							})
+							t.reconcileCount = 0
+							Expect(err).NotTo(HaveOccurred())
+							Expect(result).To(Equal(ctrl.Result{}))
+						}
+
+						jobs := &batchv1.JobList{}
+						Expect(fakeK8sClient.List(ctx, jobs)).To(Succeed())
+						Expect(jobs.Items).To(HaveLen(5))
+						for _, job := range jobs.Items {
+							Expect(job.CreationTimestamp.Time).To(BeTemporally(">", timestamp))
+						}
+					})
+				})
 			})
+
 			When("it contains static dependencies", func() {
 				BeforeEach(func() {
 					promise = promiseFromFile(promiseWithOnlyDepsPath)

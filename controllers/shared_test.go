@@ -89,6 +89,7 @@ type testReconciler struct {
 // TODO: We watch for various other resources to trigger reconciliaton loop,
 // e.g. changes to jobs owned by a promise trigger the promise. Need to improve
 // this to handle that
+
 func (t *testReconciler) reconcileUntilCompletion(r kubebuilder.Reconciler, obj client.Object, opts ...*opts) (ctrl.Result, error) {
 	t.reconcileCount++
 	k8sObj := &unstructured.Unstructured{}

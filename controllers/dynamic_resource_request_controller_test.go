@@ -2,9 +2,11 @@ package controllers_test
 
 import (
 	"context"
+	"fmt"
 	"os"
 	"regexp"
 	"strings"
+	"time"
 
 	. "github.com/onsi/ginkgo/v2"
 	. "github.com/onsi/gomega"
@@ -292,6 +294,35 @@ var _ = Describe("DynamicResourceRequestController", func() {
 				jobs := &batchv1.JobList{}
 				Expect(fakeK8sClient.List(ctx, jobs)).To(Succeed())
 				Expect(jobs.Items).To(HaveLen(2))
+			})
+		})
+
+		When("the request is updated repeatedly", func() {
+			It("ensures only the last 5 jobs are kept", func() {
+				var timestamp time.Time
+				for i := 0; i < 10; i++ {
+					if i == 6 {
+						timestamp = time.Now()
+					}
+
+					Expect(fakeK8sClient.Get(ctx, resReqNameNamespace, resReq)).To(Succeed())
+					resReq.Object["spec"].(map[string]interface{})["size"] = fmt.Sprintf("%d", i)
+					Expect(fakeK8sClient.Update(ctx, resReq)).To(Succeed())
+
+					_, err := t.reconcileUntilCompletion(reconciler, resReq, &opts{
+						funcs: []func(client.Object) error{
+							autoCompleteJobAndCreateWork(promiseCommonLabels, promise.GetName()+"-"+resReq.GetName()),
+						},
+					})
+					Expect(err).NotTo(HaveOccurred())
+				}
+
+				jobs := &batchv1.JobList{}
+				Expect(fakeK8sClient.List(ctx, jobs)).To(Succeed())
+				Expect(jobs.Items).To(HaveLen(5))
+				for _, job := range jobs.Items {
+					Expect(job.CreationTimestamp.Time).To(BeTemporally(">", timestamp))
+				}
 			})
 		})
 	})
