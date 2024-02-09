@@ -51,7 +51,7 @@ type jobOpts struct {
 func ensureConfigurePipelineIsReconciled(j jobOpts) (*ctrl.Result, error) {
 	namespace := j.obj.GetNamespace()
 	if namespace == "" {
-		namespace = v1alpha1.KratixSystemNamespace
+		namespace = v1alpha1.SystemNamespace
 	}
 
 	pipelineJobs, err := getJobsWithLabels(j.opts, j.pipelineLabels, namespace)
@@ -278,7 +278,7 @@ func fetchObjectAndSecret(o opts, stateStoreRef client.ObjectKey, stateStore Sta
 
 	namespace := stateStore.GetSecretRef().Namespace
 	if namespace == "" {
-		namespace = v1alpha1.KratixSystemNamespace
+		namespace = v1alpha1.SystemNamespace
 	}
 
 	secret := &v1.Secret{}

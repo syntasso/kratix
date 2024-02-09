@@ -4,7 +4,7 @@ import (
 	"github.com/go-logr/logr"
 	. "github.com/onsi/ginkgo/v2"
 	. "github.com/onsi/gomega"
-	platformv1alpha1 "github.com/syntasso/kratix/api/v1alpha1"
+	"github.com/syntasso/kratix/api/v1alpha1"
 	"github.com/syntasso/kratix/lib/pipeline"
 	corev1 "k8s.io/api/core/v1"
 	"k8s.io/apimachinery/pkg/apis/meta/v1/unstructured"
@@ -13,7 +13,7 @@ import (
 var _ = Describe("Configure Pipeline", func() {
 	var (
 		rr                *unstructured.Unstructured
-		pipelines         []platformv1alpha1.Pipeline
+		pipelines         []v1alpha1.Pipeline
 		pipelineResources pipeline.PipelineArgs
 		logger            logr.Logger
 	)
@@ -33,10 +33,10 @@ var _ = Describe("Configure Pipeline", func() {
 			},
 		}
 
-		pipelines = []platformv1alpha1.Pipeline{
+		pipelines = []v1alpha1.Pipeline{
 			{
-				Spec: platformv1alpha1.PipelineSpec{
-					Containers: []platformv1alpha1.Container{
+				Spec: v1alpha1.PipelineSpec{
+					Containers: []v1alpha1.Container{
 						{Name: "test-container", Image: "test-image"},
 					},
 				},
@@ -60,7 +60,7 @@ var _ = Describe("Configure Pipeline", func() {
 
 	Describe("optional workflow configs", func() {
 		It("can include args and commands", func() {
-			pipelines[0].Spec.Containers = append(pipelines[0].Spec.Containers, platformv1alpha1.Container{
+			pipelines[0].Spec.Containers = append(pipelines[0].Spec.Containers, v1alpha1.Container{
 				Name:    "another-container",
 				Image:   "another-image",
 				Args:    []string{"arg1", "arg2"},
@@ -76,7 +76,7 @@ var _ = Describe("Configure Pipeline", func() {
 		})
 
 		It("can include env and envFrom", func() {
-			pipelines[0].Spec.Containers = append(pipelines[0].Spec.Containers, platformv1alpha1.Container{
+			pipelines[0].Spec.Containers = append(pipelines[0].Spec.Containers, v1alpha1.Container{
 				Name:  "another-container",
 				Image: "another-image",
 				Env: []corev1.EnvVar{
@@ -117,7 +117,7 @@ var _ = Describe("Configure Pipeline", func() {
 			pipelines[0].Spec.Volumes = []corev1.Volume{
 				{Name: "test-volume", VolumeSource: corev1.VolumeSource{EmptyDir: &corev1.EmptyDirVolumeSource{}}},
 			}
-			pipelines[0].Spec.Containers = append(pipelines[0].Spec.Containers, platformv1alpha1.Container{
+			pipelines[0].Spec.Containers = append(pipelines[0].Spec.Containers, v1alpha1.Container{
 				Name:  "another-container",
 				Image: "another-image",
 				VolumeMounts: []corev1.VolumeMount{

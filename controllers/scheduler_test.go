@@ -84,19 +84,19 @@ var _ = Describe("Controllers/Scheduler", func() {
 				Expect(workPlacements.Items).To(HaveLen(3))
 
 				Expect(workPlacements.Items[0].Name).To(HavePrefix("dev-work-name.dev-1"))
-				Expect(workPlacements.Items[0].Namespace).To(Equal(KratixSystemNamespace))
+				Expect(workPlacements.Items[0].Namespace).To(Equal(SystemNamespace))
 				Expect(workPlacements.Items[0].Spec.TargetDestinationName).To(Equal(devDestination.Name))
 				Expect(workPlacements.Items[0].Spec.Workloads).To(Equal(dependencyWorkForDev.Spec.WorkloadGroups[0].Workloads))
 				Expect(workPlacements.Items[0].Spec.ID).To(Equal(dependencyWorkForDev.Spec.WorkloadGroups[0].ID))
 
 				Expect(workPlacements.Items[1].Name).To(HavePrefix("dev-work-name.dev-2"))
-				Expect(workPlacements.Items[1].Namespace).To(Equal(KratixSystemNamespace))
+				Expect(workPlacements.Items[1].Namespace).To(Equal(SystemNamespace))
 				Expect(workPlacements.Items[1].Spec.TargetDestinationName).To(Equal(devDestination2.Name))
 				Expect(workPlacements.Items[1].Spec.Workloads).To(Equal(dependencyWorkForDev.Spec.WorkloadGroups[0].Workloads))
 				Expect(workPlacements.Items[1].Spec.ID).To(Equal(dependencyWorkForDev.Spec.WorkloadGroups[0].ID))
 
 				Expect(workPlacements.Items[2].Name).To(HavePrefix("dev-work-name.dev-3"))
-				Expect(workPlacements.Items[2].Namespace).To(Equal(KratixSystemNamespace))
+				Expect(workPlacements.Items[2].Namespace).To(Equal(SystemNamespace))
 				Expect(workPlacements.Items[2].Spec.TargetDestinationName).To(Equal(devDestination3.Name))
 				Expect(workPlacements.Items[2].Spec.Workloads).To(Equal(dependencyWorkForDev.Spec.WorkloadGroups[0].Workloads))
 				Expect(workPlacements.Items[2].Spec.ID).To(Equal(dependencyWorkForDev.Spec.WorkloadGroups[0].ID))
@@ -888,7 +888,7 @@ func newDestination(name string, labels map[string]string) Destination {
 func newWork(name string, replicas int, scheduling ...WorkloadGroupScheduling) Work {
 	namespace := "default"
 	if replicas == DependencyReplicas {
-		namespace = KratixSystemNamespace
+		namespace = SystemNamespace
 	}
 	work := &Work{
 		ObjectMeta: v1.ObjectMeta{
@@ -927,7 +927,7 @@ func newWork(name string, replicas int, scheduling ...WorkloadGroupScheduling) W
 func newWorkWithTwoWorkloadGroups(name string, replicas int, promiseScheduling, directoryOverrideScheduling WorkloadGroupScheduling) Work {
 	namespace := "default"
 	if replicas == DependencyReplicas {
-		namespace = KratixSystemNamespace
+		namespace = SystemNamespace
 	}
 
 	work := &Work{

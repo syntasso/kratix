@@ -1,12 +1,11 @@
 package pipeline
 
+import "github.com/syntasso/kratix/api/v1alpha1"
+
 type pipelineLabels map[string]string
+type action string
 
 const (
-	configureAction         = "configure"
-	deleteAction            = "delete"
-	resourceType            = "resource"
-	promiseType             = "promise"
 	KratixResourceHashLabel = "kratix-resource-hash"
 )
 
@@ -16,16 +15,16 @@ func newPipelineLabels() pipelineLabels {
 
 func LabelsForAllResourceWorkflows(rrID, promiseID string) map[string]string {
 	return ResourceLabels(rrID, promiseID).
-		WithWorkflow(resourceType, "")
+		WithWorkflow(v1alpha1.WorkflowTypeResource, "")
 }
 
 func LabelsForAllPromiseWorkflows(promiseID string) map[string]string {
 	return PromiseLabels(promiseID).
-		WithWorkflow(promiseType, "")
+		WithWorkflow(v1alpha1.WorkflowTypePromise, "")
 }
 
 func LabelsForDeleteResource(rrID, promiseID string, requestSHA ...string) map[string]string {
-	labels := ResourceLabels(rrID, promiseID).WithWorkflow(resourceType, deleteAction)
+	labels := ResourceLabels(rrID, promiseID).WithWorkflow(v1alpha1.WorkflowTypeResource, v1alpha1.WorkflowActionDelete)
 	if len(requestSHA) > 0 {
 		return labels.WithRequestSHA(requestSHA[0])
 	}
@@ -33,7 +32,7 @@ func LabelsForDeleteResource(rrID, promiseID string, requestSHA ...string) map[s
 }
 
 func LabelsForConfigureResource(rrID, promiseID string, requestSHA ...string) map[string]string {
-	labels := ResourceLabels(rrID, promiseID).WithWorkflow(resourceType, configureAction)
+	labels := ResourceLabels(rrID, promiseID).WithWorkflow(v1alpha1.WorkflowTypeResource, v1alpha1.WorkflowActionConfigure)
 	if len(requestSHA) > 0 {
 		return labels.WithRequestSHA(requestSHA[0])
 	}
@@ -41,7 +40,7 @@ func LabelsForConfigureResource(rrID, promiseID string, requestSHA ...string) ma
 }
 
 func LabelsForDeletePromise(promiseID string, requestSHA ...string) map[string]string {
-	labels := PromiseLabels(promiseID).WithWorkflow(promiseType, deleteAction)
+	labels := PromiseLabels(promiseID).WithWorkflow(v1alpha1.WorkflowTypePromise, v1alpha1.WorkflowActionDelete)
 	if len(requestSHA) > 0 {
 		return labels.WithRequestSHA(requestSHA[0])
 	}
@@ -49,7 +48,7 @@ func LabelsForDeletePromise(promiseID string, requestSHA ...string) map[string]s
 }
 
 func LabelsForConfigurePromise(promiseID string, requestSHA ...string) map[string]string {
-	labels := PromiseLabels(promiseID).WithWorkflow(promiseType, configureAction)
+	labels := PromiseLabels(promiseID).WithWorkflow(v1alpha1.WorkflowTypePromise, v1alpha1.WorkflowActionConfigure)
 	if len(requestSHA) > 0 {
 		return labels.WithRequestSHA(requestSHA[0])
 	}
@@ -74,12 +73,12 @@ func (p pipelineLabels) WithResourceRequestID(resourceRequestID string) pipeline
 	return p
 }
 
-func (p pipelineLabels) WithWorkflow(workflowType, workflowAction string) pipelineLabels {
+func (p pipelineLabels) WithWorkflow(workflowType v1alpha1.Type, workflowAction v1alpha1.Action) pipelineLabels {
 	p["kratix-workflow-kind"] = "pipeline.platform.kratix.io"
 	p["kratix-workflow-promise-version"] = "v1alpha1"
-	p["kratix-workflow-type"] = workflowType
+	p["kratix-workflow-type"] = string(workflowType)
 	if workflowAction != "" {
-		p["kratix-workflow-action"] = workflowAction
+		p["kratix-workflow-action"] = string(workflowAction)
 	}
 	return p
 }

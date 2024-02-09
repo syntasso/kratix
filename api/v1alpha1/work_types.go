@@ -63,7 +63,7 @@ func NewPromiseDependenciesWork(promise *Promise) (*Work, error) {
 	work := &Work{
 		ObjectMeta: metav1.ObjectMeta{
 			Name:      promise.GetName(),
-			Namespace: KratixSystemNamespace,
+			Namespace: SystemNamespace,
 			Labels:    promise.GenerateSharedLabels(),
 		},
 		Spec: WorkSpec{

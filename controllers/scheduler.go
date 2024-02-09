@@ -13,7 +13,6 @@ import (
 
 	"github.com/go-logr/logr"
 	"github.com/syntasso/kratix/api/v1alpha1"
-	platformv1alpha1 "github.com/syntasso/kratix/api/v1alpha1"
 	"k8s.io/apimachinery/pkg/labels"
 	"sigs.k8s.io/controller-runtime/pkg/client"
 	"sigs.k8s.io/controller-runtime/pkg/controller/controllerutil"
@@ -42,7 +41,7 @@ type Scheduler struct {
 // Destinations.
 // Only reconciles Works that are from a Promise Dependency.
 func (s *Scheduler) ReconcileAllDependencyWorks() error {
-	works := platformv1alpha1.WorkList{}
+	works := v1alpha1.WorkList{}
 	lo := &client.ListOptions{}
 	if err := s.Client.List(context.Background(), &works, lo); err != nil {
 		return err
@@ -61,7 +60,7 @@ func (s *Scheduler) ReconcileAllDependencyWorks() error {
 
 // Reconciles all WorkloadGroups in a Work by scheduling them to Destinations via
 // Workplacements.
-func (s *Scheduler) ReconcileWork(work *platformv1alpha1.Work) ([]string, error) {
+func (s *Scheduler) ReconcileWork(work *v1alpha1.Work) ([]string, error) {
 	unschedulable := []string{}
 	misscheduled := []string{}
 	for _, wg := range work.Spec.WorkloadGroups {
@@ -86,7 +85,7 @@ func (s *Scheduler) ReconcileWork(work *platformv1alpha1.Work) ([]string, error)
 	return unschedulable, s.cleanupDanglingWorkplacements(work)
 }
 
-func (s *Scheduler) updateWorkStatus(work *platformv1alpha1.Work, unscheduledWorkloadGroupIDs, missscheduledWorkloadGroupIDs []string) error {
+func (s *Scheduler) updateWorkStatus(work *v1alpha1.Work, unscheduledWorkloadGroupIDs, missscheduledWorkloadGroupIDs []string) error {
 	work = work.DeepCopy()
 	conditions := []metav1.Condition{
 		{
@@ -137,7 +136,7 @@ func (s *Scheduler) updateWorkStatus(work *platformv1alpha1.Work, unscheduledWor
 	return s.Client.Status().Update(context.Background(), work)
 }
 
-func (s *Scheduler) cleanupDanglingWorkplacements(work *platformv1alpha1.Work) error {
+func (s *Scheduler) cleanupDanglingWorkplacements(work *v1alpha1.Work) error {
 	workplacementsThatShouldExist := map[string]interface{}{}
 	for _, wg := range work.Spec.WorkloadGroups {
 		workPlacements, err := s.getExistingWorkPlacementsForWorkloadGroup(work.Namespace, work.Name, wg)
@@ -168,7 +167,7 @@ func (s *Scheduler) cleanupDanglingWorkplacements(work *platformv1alpha1.Work) e
 }
 
 // Reconciles a WorkloadGroup by scheduling it to a Destination via a Workplacement.
-func (s *Scheduler) reconcileWorkloadGroup(workloadGroup platformv1alpha1.WorkloadGroup, work *platformv1alpha1.Work) (schedulingStatus, error) {
+func (s *Scheduler) reconcileWorkloadGroup(workloadGroup v1alpha1.WorkloadGroup, work *v1alpha1.Work) (schedulingStatus, error) {
 	// TODO why pointer for work?
 
 	existingWorkplacements, err := s.getExistingWorkPlacementsForWorkloadGroup(work.Namespace, work.Name, workloadGroup)
@@ -237,7 +236,7 @@ func (s *Scheduler) reconcileWorkloadGroup(workloadGroup platformv1alpha1.Worklo
 	return status, nil
 }
 
-func (s *Scheduler) updateWorkPlacement(workloadGroup platformv1alpha1.WorkloadGroup, work *platformv1alpha1.Work, workPlacement *platformv1alpha1.WorkPlacement) (bool, error) {
+func (s *Scheduler) updateWorkPlacement(workloadGroup v1alpha1.WorkloadGroup, work *v1alpha1.Work, workPlacement *v1alpha1.WorkPlacement) (bool, error) {
 	misscheduled := true
 	destinationSelectors := resolveDestinationSelectorsForWorkloadGroup(workloadGroup, work)
 	for _, dest := range s.getTargetDestinationNames(destinationSelectors, work) {
@@ -291,21 +290,21 @@ func misscheduledWorkPlacements(listA, listB []v1alpha1.WorkPlacement) []v1alpha
 	return diff
 }
 
-func (s *Scheduler) getExistingWorkPlacementsForWorkloadGroup(namespace, workName string, workloadGroup platformv1alpha1.WorkloadGroup) ([]platformv1alpha1.WorkPlacement, error) {
+func (s *Scheduler) getExistingWorkPlacementsForWorkloadGroup(namespace, workName string, workloadGroup v1alpha1.WorkloadGroup) ([]v1alpha1.WorkPlacement, error) {
 	return s.listWorkplacementWithLabels(namespace, map[string]string{
 		workLabelKey:       workName,
 		workloadGroupIDKey: workloadGroup.ID,
 	})
 }
 
-func (s *Scheduler) getExistingWorkPlacementsForWork(namespace, workName string) ([]platformv1alpha1.WorkPlacement, error) {
+func (s *Scheduler) getExistingWorkPlacementsForWork(namespace, workName string) ([]v1alpha1.WorkPlacement, error) {
 	return s.listWorkplacementWithLabels(namespace, map[string]string{
 		workLabelKey: workName,
 	})
 }
 
-func (s *Scheduler) listWorkplacementWithLabels(namespace string, matchLabels map[string]string) ([]platformv1alpha1.WorkPlacement, error) {
-	workPlacementList := &platformv1alpha1.WorkPlacementList{}
+func (s *Scheduler) listWorkplacementWithLabels(namespace string, matchLabels map[string]string) ([]v1alpha1.WorkPlacement, error) {
+	workPlacementList := &v1alpha1.WorkPlacementList{}
 	workPlacementListOptions := &client.ListOptions{
 		Namespace: namespace,
 	}
@@ -328,10 +327,10 @@ func (s *Scheduler) listWorkplacementWithLabels(namespace string, matchLabels ma
 	return workPlacementList.Items, nil
 }
 
-func (s *Scheduler) applyWorkplacementsForTargetDestinations(workloadGroup platformv1alpha1.WorkloadGroup, work *platformv1alpha1.Work, targetDestinationNames map[string]bool) (bool, error) {
+func (s *Scheduler) applyWorkplacementsForTargetDestinations(workloadGroup v1alpha1.WorkloadGroup, work *v1alpha1.Work, targetDestinationNames map[string]bool) (bool, error) {
 	containsMischeduledWorkplacement := false
 	for targetDestinationName, misscheduled := range targetDestinationNames {
-		workPlacement := &platformv1alpha1.WorkPlacement{}
+		workPlacement := &v1alpha1.WorkPlacement{}
 		workPlacement.Namespace = work.GetNamespace()
 		workPlacement.Name = work.Name + "." + targetDestinationName + "-" + shortID(workloadGroup.ID)
 
@@ -371,8 +370,8 @@ func (s *Scheduler) applyWorkplacementsForTargetDestinations(workloadGroup platf
 	return containsMischeduledWorkplacement, nil
 }
 
-func (s *Scheduler) updateStatus(workPlacement *platformv1alpha1.WorkPlacement, misscheduled bool) error {
-	updatedWorkPlacement := &platformv1alpha1.WorkPlacement{}
+func (s *Scheduler) updateStatus(workPlacement *v1alpha1.WorkPlacement, misscheduled bool) error {
+	updatedWorkPlacement := &v1alpha1.WorkPlacement{}
 	if err := s.Client.Get(context.Background(), client.ObjectKeyFromObject(workPlacement), updatedWorkPlacement); err != nil {
 		return err
 	}
@@ -395,7 +394,7 @@ func (s *Scheduler) updateStatus(workPlacement *platformv1alpha1.WorkPlacement, 
 
 // Where Work is a Resource Request return one random Destination name, where Work is a
 // DestinationWorkerResource return all Destination names
-func (s *Scheduler) getTargetDestinationNames(destinationSelectors map[string]string, work *platformv1alpha1.Work) []string {
+func (s *Scheduler) getTargetDestinationNames(destinationSelectors map[string]string, work *v1alpha1.Work) []string {
 	destinations := s.getDestinationsForWorkloadGroup(destinationSelectors)
 
 	if len(destinations) == 0 {
@@ -426,8 +425,8 @@ func (s *Scheduler) getTargetDestinationNames(destinationSelectors map[string]st
 }
 
 // By default, all destinations are returned. However, if scheduling is provided, only matching destinations will be returned.
-func (s *Scheduler) getDestinationsForWorkloadGroup(destinationSelectors map[string]string) []platformv1alpha1.Destination {
-	destinationList := &platformv1alpha1.DestinationList{}
+func (s *Scheduler) getDestinationsForWorkloadGroup(destinationSelectors map[string]string) []v1alpha1.Destination {
+	destinationList := &v1alpha1.DestinationList{}
 	lo := &client.ListOptions{}
 
 	if len(destinationSelectors) > 0 {
@@ -450,7 +449,7 @@ func (s *Scheduler) getDestinationsForWorkloadGroup(destinationSelectors map[str
 		return destinationList.Items
 	}
 
-	destinations := []platformv1alpha1.Destination{}
+	destinations := []v1alpha1.Destination{}
 	for _, destination := range destinationList.Items {
 		if destination.Spec.StrictMatchLabels && len(destination.GetLabels()) > 0 {
 			continue
@@ -460,7 +459,7 @@ func (s *Scheduler) getDestinationsForWorkloadGroup(destinationSelectors map[str
 	return destinations
 }
 
-func resolveDestinationSelectorsForWorkloadGroup(workloadGroup platformv1alpha1.WorkloadGroup, work *platformv1alpha1.Work) map[string]string {
+func resolveDestinationSelectorsForWorkloadGroup(workloadGroup v1alpha1.WorkloadGroup, work *v1alpha1.Work) map[string]string {
 	sortedWorkloadGroupDestinations := sortWorkloadGroupDestinationsByLowestPriority(workloadGroup.DestinationSelectors)
 	destinationSelectors := map[string]string{}
 
@@ -477,7 +476,7 @@ func resolveDestinationSelectorsForWorkloadGroup(workloadGroup platformv1alpha1.
 // Resource-workflow, then
 // Promise-workflow, then
 // Promise
-func sortWorkloadGroupDestinationsByLowestPriority(selector []platformv1alpha1.WorkloadGroupScheduling) []platformv1alpha1.WorkloadGroupScheduling {
+func sortWorkloadGroupDestinationsByLowestPriority(selector []v1alpha1.WorkloadGroupScheduling) []v1alpha1.WorkloadGroupScheduling {
 	sort.SliceStable(selector, func(i, j int) bool {
 		iSource := selector[i].Source
 		jSource := selector[j].Source

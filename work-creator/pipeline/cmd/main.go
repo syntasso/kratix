@@ -6,7 +6,6 @@ import (
 	"os"
 
 	"github.com/syntasso/kratix/api/v1alpha1"
-	platformv1alpha1 "github.com/syntasso/kratix/api/v1alpha1"
 	"github.com/syntasso/kratix/work-creator/pipeline"
 	"k8s.io/client-go/kubernetes/scheme"
 	ctrl "sigs.k8s.io/controller-runtime"
@@ -22,7 +21,7 @@ func main() {
 
 	flag.StringVar(&inputDirectoy, "input-directory", "", "Absolute path to directory containing yaml documents required to build Work")
 	flag.StringVar(&promiseName, "promise-name", "", "Name of the promise")
-	flag.StringVar(&namespace, "namespace", v1alpha1.KratixSystemNamespace, "Namespace")
+	flag.StringVar(&namespace, "namespace", v1alpha1.SystemNamespace, "Namespace")
 	flag.StringVar(&resourceName, "resource-name", "", "Name of the resource")
 	flag.StringVar(&workflowType, "workflow-type", "resource", "Create a Work for Promise or Resource type scheduling")
 	flag.Parse()
@@ -37,8 +36,8 @@ func main() {
 		os.Exit(1)
 	}
 
-	//Teach our client to speak platformv1alpha1.Work
-	platformv1alpha1.AddToScheme(scheme.Scheme)
+	//Teach our client to speak v1alpha1.Work
+	v1alpha1.AddToScheme(scheme.Scheme)
 
 	k8sClient, err := getClient()
 	if err != nil {

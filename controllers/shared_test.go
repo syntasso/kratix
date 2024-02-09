@@ -239,7 +239,7 @@ func autoCompleteJobAndCreateWork(labels map[string]string, workName string) fun
 
 			namespace := obj.GetNamespace()
 			if obj.GetNamespace() == "" {
-				namespace = v1alpha1.KratixSystemNamespace
+				namespace = v1alpha1.SystemNamespace
 			}
 
 			Expect(fakeK8sClient.Get(ctx, client.ObjectKeyFromObject(job), job)).To(Succeed())

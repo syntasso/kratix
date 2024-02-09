@@ -28,7 +28,6 @@ import (
 	"sigs.k8s.io/controller-runtime/pkg/controller/controllerutil"
 
 	"github.com/syntasso/kratix/api/v1alpha1"
-	platformv1alpha1 "github.com/syntasso/kratix/api/v1alpha1"
 	"github.com/syntasso/kratix/lib/resourceutil"
 	"github.com/syntasso/kratix/lib/writers"
 )
@@ -59,7 +58,7 @@ var workPlacementFinalizers = []string{repoCleanupWorkPlacementFinalizer}
 func (r *WorkPlacementReconciler) Reconcile(ctx context.Context, req ctrl.Request) (ctrl.Result, error) {
 	logger := r.Log.WithValues("work-placement-controller", req.NamespacedName)
 
-	workPlacement := &platformv1alpha1.WorkPlacement{}
+	workPlacement := &v1alpha1.WorkPlacement{}
 	err := r.Client.Get(context.Background(), req.NamespacedName, workPlacement)
 	if err != nil {
 		if errors.IsNotFound(err) {
@@ -69,7 +68,7 @@ func (r *WorkPlacementReconciler) Reconcile(ctx context.Context, req ctrl.Reques
 		return defaultRequeue, nil
 	}
 
-	destination := &platformv1alpha1.Destination{}
+	destination := &v1alpha1.Destination{}
 	destinationName := client.ObjectKey{
 		Name: workPlacement.Spec.TargetDestinationName,
 	}
@@ -110,7 +109,7 @@ func (r *WorkPlacementReconciler) Reconcile(ctx context.Context, req ctrl.Reques
 	return ctrl.Result{}, nil
 }
 
-func (r *WorkPlacementReconciler) deleteWorkPlacement(ctx context.Context, writer writers.StateStoreWriter, workPlacement *platformv1alpha1.WorkPlacement, logger logr.Logger) (ctrl.Result, error) {
+func (r *WorkPlacementReconciler) deleteWorkPlacement(ctx context.Context, writer writers.StateStoreWriter, workPlacement *v1alpha1.WorkPlacement, logger logr.Logger) (ctrl.Result, error) {
 	if !controllerutil.ContainsFinalizer(workPlacement, repoCleanupWorkPlacementFinalizer) {
 		return ctrl.Result{}, nil
 	}
@@ -160,8 +159,8 @@ func getDir(workPlacement v1alpha1.WorkPlacement) string {
 	}
 }
 
-func (r *WorkPlacementReconciler) getWork(workName, workNamespace string, logger logr.Logger) *platformv1alpha1.Work {
-	work := &platformv1alpha1.Work{}
+func (r *WorkPlacementReconciler) getWork(workName, workNamespace string, logger logr.Logger) *v1alpha1.Work {
+	work := &v1alpha1.Work{}
 	namespaceName := types.NamespacedName{
 		Namespace: workNamespace,
 		Name:      workName,
@@ -170,7 +169,7 @@ func (r *WorkPlacementReconciler) getWork(workName, workNamespace string, logger
 	return work
 }
 
-func (r *WorkPlacementReconciler) addFinalizer(ctx context.Context, workPlacement *platformv1alpha1.WorkPlacement, logger logr.Logger) (ctrl.Result, error) {
+func (r *WorkPlacementReconciler) addFinalizer(ctx context.Context, workPlacement *v1alpha1.WorkPlacement, logger logr.Logger) (ctrl.Result, error) {
 	controllerutil.AddFinalizer(workPlacement, repoCleanupWorkPlacementFinalizer)
 	if err := r.Client.Update(ctx, workPlacement); err != nil {
 		logger.Error(err, "failed to add finalizer to WorkPlacement")
@@ -182,6 +181,6 @@ func (r *WorkPlacementReconciler) addFinalizer(ctx context.Context, workPlacemen
 // SetupWithManager sets up the controller with the Manager.
 func (r *WorkPlacementReconciler) SetupWithManager(mgr ctrl.Manager) error {
 	return ctrl.NewControllerManagedBy(mgr).
-		For(&platformv1alpha1.WorkPlacement{}).
+		For(&v1alpha1.WorkPlacement{}).
 		Complete(r)
 }
