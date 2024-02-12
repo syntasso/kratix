@@ -213,7 +213,7 @@ func autoCompleteJobAndCreateWork(labels map[string]string, workName string) fun
 			//Fake library doesn't set timestamp, and we need it set for comparing age
 			//of jobs. This ensures its set once, and only when its first created, and
 			//that they differ by a large enough amont (time.Now() alone was not enough)
-			job.CreationTimestamp = metav1.NewTime(time.Now().Add(time.Duration(callCount) * time.Hour))
+			job.CreationTimestamp = metav1.NewTime(time.Now().Add(time.Duration(callCount) * time.Minute))
 			err := fakeK8sClient.Update(ctx, job)
 			if err != nil {
 				return err
