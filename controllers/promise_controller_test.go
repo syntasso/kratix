@@ -5,6 +5,7 @@ import (
 	"fmt"
 	"os"
 	"regexp"
+	"sort"
 	"strings"
 	"time"
 
@@ -806,8 +807,8 @@ var _ = Describe("PromiseController", func() {
 				})
 
 				When("the promise is updated repeatedly", func() {
-					It("ensures only the last 5 jobs are kept", func() {
-						var timestamp time.Time
+					var timestamp time.Time
+					BeforeEach(func() {
 						for i := 0; i < 10; i++ {
 							if i == 6 {
 								timestamp = time.Now()
@@ -825,12 +826,46 @@ var _ = Describe("PromiseController", func() {
 							Expect(result).To(Equal(ctrl.Result{}))
 						}
 
+					})
+
+					It("ensures only the last 5 jobs are kept", func() {
 						jobs := &batchv1.JobList{}
 						Expect(fakeK8sClient.List(ctx, jobs)).To(Succeed())
 						Expect(jobs.Items).To(HaveLen(5))
 						for _, job := range jobs.Items {
 							Expect(job.CreationTimestamp.Time).To(BeTemporally(">", timestamp))
 						}
+					})
+
+					When("a pipeline is in progress", func() {
+						BeforeEach(func() {
+							//Mark the latest job as still running
+							jobs := &batchv1.JobList{}
+							Expect(fakeK8sClient.List(ctx, jobs)).To(Succeed())
+							latestJob := jobs.Items[len(jobs.Items)-1]
+							latestJob.Status.Conditions = nil
+							latestJob.Status.Succeeded = 0
+							Expect(fakeK8sClient.Status().Update(ctx, &latestJob)).To(Succeed())
+
+							_, err := t.reconcileUntilCompletion(reconciler, promise, &opts{
+								funcs: []func(client.Object) error{autoMarkCRDAsEstablished},
+							})
+							t.reconcileCount = 0
+							Expect(err).To(MatchError("reconcile loop detected"))
+						})
+
+						It("suspends all existing jobs apart from the latest", func() {
+							jobs := &batchv1.JobList{}
+							Expect(fakeK8sClient.List(ctx, jobs)).To(Succeed())
+							Expect(jobs.Items).To(HaveLen(5))
+							sortedJobs := sortJobsByCreationDateTime(jobs.Items)
+							for x := 0; x < len(jobs.Items)-1; x++ {
+								job := sortedJobs[x]
+								Expect(job.Spec.Suspend).NotTo(BeNil())
+								Expect(*job.Spec.Suspend).To(BeTrue())
+							}
+							Expect(jobs.Items[len(jobs.Items)-1].Spec.Suspend).To(BeNil())
+						})
 					})
 				})
 			})
@@ -912,4 +947,13 @@ func autoMarkCRDAsEstablished(obj client.Object) error {
 		return err
 	}
 	return nil
+}
+
+func sortJobsByCreationDateTime(jobs []batchv1.Job) []batchv1.Job {
+	sort.Slice(jobs, func(i, j int) bool {
+		t1 := jobs[i].GetCreationTimestamp().Time
+		t2 := jobs[j].GetCreationTimestamp().Time
+		return t1.Before(t2)
+	})
+	return jobs
 }
