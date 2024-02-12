@@ -837,7 +837,7 @@ var _ = Describe("PromiseController", func() {
 						}
 					})
 
-					When("an outdated pipeine is in-progress", func() {
+					When("a pipeline is in progress", func() {
 						BeforeEach(func() {
 							//Mark the latest job as still running
 							jobs := &batchv1.JobList{}
