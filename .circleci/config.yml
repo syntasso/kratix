@@ -56,7 +56,7 @@ commands:
         default: eng-alerts-ci
     steps:
       - slack/status:
-          webhook: ${SLACK_ENG_CHATTER}
+          webhook: ${SLACK_ENG_ALERTS_CI}
           channel: << parameters.channel >>
           include_job_number_field: false
           include_project_field: false
