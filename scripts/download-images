@@ -16,24 +16,24 @@ if [ ! -d "$location" ]; then
 fi
 
 PWD="$( cd $(dirname $0)/../.. && pwd)"
-kratix_version=$(cat $PWD/distribution/kratix.yaml| grep "image: syntasso/kratix-platform:" | awk -F':' '{print $3}')
+kratix_version=$(cat $PWD/distribution/kratix.yaml| grep "image: docker.io/syntasso/kratix-platform:" | awk -F':' '{print $3}')
 
 images=(
   # Kind image
-  "kindest/node:v1.24.7@sha256:577c630ce8e509131eab1aea12c022190978dd2f745aac5eb1fe65c0807eb315"
+  "docker.io/kindest/node:v1.24.7@sha256:577c630ce8e509131eab1aea12c022190978dd2f745aac5eb1fe65c0807eb315"
 
   # Kratix Distribution Images
   "gcr.io/kubebuilder/kube-rbac-proxy:v0.8.0"
-  "syntasso/kratix-platform:${kratix_version}"
-  "syntasso/kratix-platform-pipeline-adapter:${kratix_version}"
-  "syntassodev/kratix-platform:${kratix_version}"
-  "syntassodev/kratix-platform-pipeline-adapter:${kratix_version}"
+  "docker.io/syntasso/kratix-platform:${kratix_version}"
+  "docker.io/syntasso/kratix-platform-pipeline-adapter:${kratix_version}"
+  "docker.io/syntassodev/kratix-platform:${kratix_version}"
+  "docker.io/syntassodev/kratix-platform-pipeline-adapter:${kratix_version}"
 
   # Dynamic controller "reader" image
-  "bitnami/kubectl:1.20.10"
+  "docker.io/bitnami/kubectl:1.28.6"
 
   # Extra
-  "minio/minio:RELEASE.2022-06-30T20-58-09Z"
+  "docker.io/minio/minio:RELEASE.2022-06-30T20-58-09Z"
   "ghcr.io/fluxcd/helm-controller:v0.27.0"
   "ghcr.io/fluxcd/kustomize-controller:v0.31.0"
   "ghcr.io/fluxcd/notification-controller:v0.29.0"
@@ -62,4 +62,3 @@ for image in "${images[@]}"; do
 
   echo ""
 done
-

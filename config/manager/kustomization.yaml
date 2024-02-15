@@ -2,7 +2,7 @@ apiVersion: kustomize.config.k8s.io/v1beta1
 kind: Kustomization
 
 resources:
-- manager.yaml
+  - manager.yaml
 
 generatorOptions:
   disableNameSuffixHash: true
@@ -10,11 +10,11 @@ generatorOptions:
 # The wc-img-config config map drives the WC_IMG env var, which is used by the promise
 # controller as the last container in the workflow Pipeline pod spec.
 configMapGenerator:
-- envs:
-  - wc-img-config.properties
-  name: wc-img-config
+  - envs:
+      - wc-img-config.properties
+    name: wc-img-config
 
 images:
-- name: controller
-  newName: syntasso/kratix-platform
-  newTag: dev
+  - name: controller
+    newName: docker.io/syntasso/kratix-platform
+    newTag: dev
