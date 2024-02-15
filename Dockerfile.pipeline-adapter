@@ -17,7 +17,7 @@ RUN go mod download
 RUN CGO_ENABLED=0 GOOS=${TARGETOS} GOARCH=${TARGETARCH} GO111MODULE=on go build -a -o work-creator work-creator/pipeline/cmd/main.go
 
 FROM --platform=${TARGETPLATFORM} alpine
-# Use rancher/kubectl to get ./kubeconfig
+
 COPY --from=mikefarah/yq:4 /usr/bin/yq /bin/yq
 
 WORKDIR /
@@ -27,9 +27,7 @@ COPY --from=builder /workspace/work-creator/main ./work-creator
 COPY work-creator/scripts/update-status /bin/update-status
 COPY work-creator/scripts/reader /bin/reader
 
-RUN apk update && apk add --no-cache curl bash
-RUN curl -LO https://storage.googleapis.com/kubernetes-release/release/v1.29.1/bin/linux/amd64/kubectl
-RUN chmod u+x kubectl && mv kubectl /bin/kubectl
+COPY --from=bitnami/kubectl:1.28.6 /opt/bitnami/kubectl/bin/kubectl /bin/kubectl
 
 ENTRYPOINT []
 CMD []
