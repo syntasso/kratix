@@ -1,8 +1,8 @@
 # Image URL to use all building/pushing image targets
-WC_IMG_NAME ?= syntasso/kratix-platform-pipeline-adapter
+WC_IMG_NAME ?= docker.io/syntasso/kratix-platform-pipeline-adapter
 WC_IMG_VERSION ?= dev
 WC_IMG_TAG ?= ${WC_IMG_NAME}:${WC_IMG_VERSION}
-WC_IMG_MIRROR ?= syntassodev/kratix-platform-pipeline-adapter:dev
+WC_IMG_MIRROR ?= docker.io/syntassodev/kratix-platform-pipeline-adapter:dev
 # Enable buildkit for docker
 DOCKER_BUILDKIT ?= 1
 

@@ -577,10 +577,10 @@ metadata:
 spec:
   type: NodePort
   ports:
-  - port: 443
-    protocol: TCP
-    targetPort: 3000
-    nodePort: 31333
+    - port: 443
+      protocol: TCP
+      targetPort: 3000
+      nodePort: 31333
   selector:
     app.kubernetes.io/name: gitea
     app.kubernetes.io/instance: gitea
@@ -731,7 +731,7 @@ spec:
         fsGroup: 1000
       initContainers:
         - name: init-directories
-          image: "gitea/gitea:1.17.3"
+          image: "docker.io/gitea/gitea:1.17.3"
           imagePullPolicy: Always
           command: ["/usr/sbin/init_directory_structure.sh"]
           env:
@@ -763,7 +763,7 @@ spec:
 
           securityContext: {}
         - name: init-app-ini
-          image: "gitea/gitea:1.17.3"
+          image: "docker.io/gitea/gitea:1.17.3"
           imagePullPolicy: Always
           command: ["/usr/sbin/config_environment.sh"]
           env:
@@ -787,7 +787,7 @@ spec:
 
           securityContext: {}
         - name: configure-gitea
-          image: "gitea/gitea:1.17.3"
+          image: "docker.io/gitea/gitea:1.17.3"
           command: ["/usr/sbin/configure_gitea.sh"]
           imagePullPolicy: Always
           securityContext:
@@ -822,7 +822,7 @@ spec:
       terminationGracePeriodSeconds: 60
       containers:
         - name: gitea
-          image: "gitea/gitea:1.17.3"
+          docker.io/gitea/gitea:1.17.3"
           imagePullPolicy: Always
           env:
             # SSH Port values have to be set here as well for openssh configuration
@@ -929,71 +929,76 @@ spec:
     spec:
       serviceAccountName: gitea-create-repository
       initContainers:
-      - name: wait-for-git
-        image: bitnami/kubectl:1.20.10
-        command: ["sh", "-c", "kubectl wait --for=condition=Ready --timeout=120s -n gitea pod -l app.kubernetes.io/instance=gitea"]
-      - name: init
-        env:
-        - name: GIT_DISCOVERY_ACROSS_FILESYSTEM
-          value: "true"
-        image: alpine/git:2.36.3
-        args:
-        - init
-        - --separate-git-dir=/repo/.git
-        volumeMounts:
-        - mountPath: /repo
-          name: repo
-      - name: branch
-        env:
-        - name: GIT_DISCOVERY_ACROSS_FILESYSTEM
-          value: "true"
-        image: alpine/git:2.36.3
-        args:
-        - --git-dir=/repo/.git
-        - branch
-        - -m
-        - main
-        volumeMounts:
-        - mountPath: /repo
-          name: repo
-      - name: commit
-        image: alpine/git:2.36.3
-        env:
-        - name: GIT_DISCOVERY_ACROSS_FILESYSTEM
-          value: "true"
-        args:
-        - --git-dir=/repo/.git
-        - -c
-        - "user.name='kratix'"
-        - -c
-        - "user.email='kratix@kratix.io'"
-        - commit
-        - --allow-empty
-        - -m
-        - "Kratix creating demo repo"
-        volumeMounts:
-        - mountPath: /repo
-          name: repo
+        - name: wait-for-git
+          image: docker.io/bitnami/kubectl:1.28.6
+          command:
+            [
+              "sh",
+              "-c",
+              "kubectl wait --for=condition=Ready --timeout=120s -n gitea pod -l app.kubernetes.io/instance=gitea",
+            ]
+        - name: init
+          env:
+            - name: GIT_DISCOVERY_ACROSS_FILESYSTEM
+              value: "true"
+          image: docker.io/alpine/git:2.36.3
+          args:
+            - init
+            - --separate-git-dir=/repo/.git
+          volumeMounts:
+            - mountPath: /repo
+              name: repo
+        - name: branch
+          env:
+            - name: GIT_DISCOVERY_ACROSS_FILESYSTEM
+              value: "true"
+          image: docker.io/alpine/git:2.36.3
+          args:
+            - --git-dir=/repo/.git
+            - branch
+            - -m
+            - main
+          volumeMounts:
+            - mountPath: /repo
+              name: repo
+        - name: commit
+          image: docker.io/alpine/git:2.36.3
+          env:
+            - name: GIT_DISCOVERY_ACROSS_FILESYSTEM
+              value: "true"
+          args:
+            - --git-dir=/repo/.git
+            - -c
+            - "user.name='kratix'"
+            - -c
+            - "user.email='kratix@kratix.io'"
+            - commit
+            - --allow-empty
+            - -m
+            - "Kratix creating demo repo"
+          volumeMounts:
+            - mountPath: /repo
+              name: repo
       containers:
-      - name: push
-        image: alpine/git:2.36.3
-        args:
-        - --git-dir=/repo/.git
-        - -c
-        - http.sslVerify=false
-        - push
-        - https://gitea_admin:r8sA8CPHD9!bt6d@gitea-http.gitea.svc.cluster.local/gitea_admin/kratix.git
-        - --all
-        env:
-        - name: GIT_DISCOVERY_ACROSS_FILESYSTEM
-          value: "true"
-        volumeMounts:
-        - mountPath: /repo
-          name: repo
+        - name: push
+          image: docker.io/alpine/git:2.36.3
+          args:
+            - --git-dir=/repo/.git
+            - -c
+            - http.sslVerify=false
+            - push
+            - https://gitea_admin:r8sA8CPHD9!bt6d@gitea-http.gitea.svc.cluster.local/gitea_admin/kratix.git
+            - --all
+          env:
+            - name: GIT_DISCOVERY_ACROSS_FILESYSTEM
+              value: "true"
+          volumeMounts:
+            - mountPath: /repo
+              name: repo
       restartPolicy: Never
       volumes:
-      - name: repo
-        emptyDir: {}
+        - name: repo
+          emptyDir: {}
 ---
 apiVersion: rbac.authorization.k8s.io/v1
 kind: Role
@@ -1001,14 +1006,14 @@ metadata:
   name: gitea-create-repository
   namespace: gitea
 rules:
-- apiGroups:
-  - ""
-  resources:
-  - pods
-  verbs:
-  - get
-  - list
-  - watch
+  - apiGroups:
+      - ""
+    resources:
+      - pods
+    verbs:
+      - get
+      - list
+      - watch
 ---
 apiVersion: rbac.authorization.k8s.io/v1
 kind: RoleBinding
@@ -1020,8 +1025,8 @@ roleRef:
   kind: Role
   name: gitea-create-repository
 subjects:
-- kind: ServiceAccount
-  name: gitea-create-repository
+  - kind: ServiceAccount
+    name: gitea-create-repository
 ---
 apiVersion: v1
 kind: ServiceAccount
