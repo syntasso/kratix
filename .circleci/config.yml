@@ -47,10 +47,10 @@ commands:
         type: string
       success_message:
         type: string
-        default: ':tada: A $CIRCLE_JOB job has succeeded!'
+        default: ":tada: A $CIRCLE_JOB job has succeeded!"
       failure_message:
         type: string
-        default: ':red_circle: A $CIRCLE_JOB job has failed!'
+        default: ":red_circle: A $CIRCLE_JOB job has failed!"
       channel:
         type: string
         default: eng-alerts-ci
@@ -167,8 +167,8 @@ jobs:
   kratix-security-scan:
     executor: machine-medium
     environment:
-      KRATIX_IMAGE_NAME: syntasso/kratix-platform
-      WORKER_IMAGE_NAME: syntasso/kratix-platform-pipeline-adapter
+      KRATIX_IMAGE_NAME: docker.io/syntasso/kratix-platform
+      WORKER_IMAGE_NAME: docker.io/syntasso/kratix-platform-pipeline-adapter
     steps:
       - checkout
       - install_software
@@ -481,4 +481,3 @@ workflows:
       - clone-kratix
       - kratix-security-scan:
           requires: [clone-kratix]
-
