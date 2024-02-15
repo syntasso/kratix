@@ -8,7 +8,7 @@ IMG_MIRROR ?= syntassodev/kratix-platform:${VERSION}
 # Image URL to use for work creator image in promise_controller.go
 WC_IMG_VERSION ?= ${VERSION}
 WC_IMG ?= docker.io/syntasso/kratix-platform-pipeline-adapter:${WC_IMG_VERSION}
-WC_IMG_MIRROR ?= docker.io/syntassodev/kratix-platform-pipeline-adapter:${VERSION}
+WC_IMG_MIRROR ?= syntassodev/kratix-platform-pipeline-adapter:${VERSION}
 # Version of the worker-resource-builder binary to build and release
 WRB_VERSION ?= 0.0.0
 # Produce CRDs that work back to Kubernetes 1.11 (no version conversion)
