@@ -822,7 +822,7 @@ spec:
       terminationGracePeriodSeconds: 60
       containers:
         - name: gitea
-          image: "docker.io/gitea/gitea:1.17.3"
+          docker.io/gitea/gitea:1.17.3"
           imagePullPolicy: Always
           env:
             # SSH Port values have to be set here as well for openssh configuration
