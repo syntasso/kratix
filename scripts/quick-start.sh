@@ -447,6 +447,82 @@ wait_for_pids() {
     fi
 }
 
+step_install_prometheus() {
+    kubectl apply --server-side -f ~/dev/tmp/prometheus-operator/kube-prometheus/manifests/setup
+    kubectl wait \
+        --for condition=Established \
+        --all CustomResourceDefinition \
+        --namespace=monitoring
+    kubectl apply -f ~/dev/tmp/prometheus-operator/kube-prometheus/manifests/
+
+    curl -s https://raw.githubusercontent.com/prometheus-operator/kube-prometheus/main/manifests/prometheus-prometheus.yaml | yq '.spec.podMonitorNamespaceSelector += {"matchLabels": {"prometheus-scrape": "true"}}' | kubectl apply --filename -
+
+    kubectl create namespace kratix-platform-system || true
+    cat <<EOF | kubectl apply --filename -
+---
+apiVersion: rbac.authorization.k8s.io/v1
+kind: Role
+metadata:
+  labels:
+    app.kubernetes.io/component: prometheus
+    app.kubernetes.io/instance: k8s
+    app.kubernetes.io/name: prometheus
+    app.kubernetes.io/part-of: kube-prometheus
+    app.kubernetes.io/version: 2.48.0
+  name: prometheus-k8s
+  namespace: kratix-platform-system
+rules:
+  - apiGroups:
+    - ""
+    resources:
+    - services
+    - endpoints
+    - pods
+    verbs:
+    - get
+    - list
+    - watch
+  - apiGroups:
+    - extensions
+    resources:
+    - ingresses
+    verbs:
+    - get
+    - list
+    - watch
+  - apiGroups:
+    - networking.k8s.io
+    resources:
+    - ingresses
+    verbs:
+    - get
+    - list
+    - watch
+---
+apiVersion: rbac.authorization.k8s.io/v1
+kind: RoleBinding
+metadata:
+  labels:
+    app.kubernetes.io/component: prometheus
+    app.kubernetes.io/instance: k8s
+    app.kubernetes.io/name: prometheus
+    app.kubernetes.io/part-of: kube-prometheus
+    app.kubernetes.io/version: 2.48.0
+  name: prometheus-k8s
+  namespace: kratix-platform-system
+roleRef:
+  apiGroup: rbac.authorization.k8s.io
+  kind: Role
+  name: prometheus-k8s
+subjects:
+- kind: ServiceAccount
+  name: prometheus-k8s
+  namespace: monitoring
+EOF
+
+    kubectl label namespace kratix-platform-system prometheus-scrape=true
+}
+
 install_kratix() {
     trap "trap - SIGTERM && kill -- -$$" SIGINT SIGTERM EXIT
     verify_prerequisites
@@ -469,6 +545,8 @@ install_kratix() {
     step_create_third_worker_cluster &
     pids="$pids $!"
     wait_for_pids $pids
+
+    step_install_prometheus
 
     step_load_images
     if ${BUILD_KRATIX_IMAGES}; then

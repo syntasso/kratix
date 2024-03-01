@@ -30,6 +30,7 @@ import (
 
 	"github.com/go-logr/logr"
 	"github.com/syntasso/kratix/api/v1alpha1"
+	"github.com/syntasso/kratix/lib/metrics"
 	"github.com/syntasso/kratix/lib/pipeline"
 	"github.com/syntasso/kratix/lib/resourceutil"
 	batchv1 "k8s.io/api/batch/v1"
@@ -108,6 +109,7 @@ var (
 //+kubebuilder:rbac:groups=apiextensions.k8s.io,resources=customresourcedefinitions,verbs=get;list;watch;create;update;patch;delete
 
 func (r *PromiseReconciler) Reconcile(ctx context.Context, req ctrl.Request) (ctrl.Result, error) {
+	metrics.PromiseReconciles.Inc()
 	if r.StartedDynamicControllers == nil {
 		r.StartedDynamicControllers = make(map[string]*DynamicResourceRequestController)
 	}

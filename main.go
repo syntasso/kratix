@@ -32,12 +32,14 @@ import (
 	ctrl "sigs.k8s.io/controller-runtime"
 	"sigs.k8s.io/controller-runtime/pkg/healthz"
 	"sigs.k8s.io/controller-runtime/pkg/log/zap"
+	otel "sigs.k8s.io/controller-runtime/pkg/metrics"
 	metricsserver "sigs.k8s.io/controller-runtime/pkg/metrics/server"
 	"sigs.k8s.io/controller-runtime/pkg/webhook"
 
 	platformv1alpha1 "github.com/syntasso/kratix/api/v1alpha1"
 	"github.com/syntasso/kratix/controllers"
 	"github.com/syntasso/kratix/lib/fetchers"
+	"github.com/syntasso/kratix/lib/metrics"
 	//+kubebuilder:scaffold:imports
 )
 
@@ -46,6 +48,7 @@ var setupLog = ctrl.Log.WithName("setup")
 func init() {
 	utilruntime.Must(platformv1alpha1.AddToScheme(scheme.Scheme))
 	//+kubebuilder:scaffold:scheme
+	otel.Registry.MustRegister(metrics.PromiseReconciles)
 }
 
 func main() {

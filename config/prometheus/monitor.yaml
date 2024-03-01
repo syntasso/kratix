@@ -5,6 +5,7 @@ kind: ServiceMonitor
 metadata:
   labels:
     control-plane: controller-manager
+    prometheus-scrape: "true"
   name: controller-manager-metrics-monitor
   namespace: system
 spec:
