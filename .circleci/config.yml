@@ -76,7 +76,7 @@ commands:
       - k8s/install-kubectl
       - golang/install:
           cache: true
-          version: 1.21.5
+          version: 1.22.0
       - run:
           name: Install Kind
           command: |
