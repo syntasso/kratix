@@ -25,8 +25,8 @@ type WorkCreator struct {
 	K8sClient client.Client
 }
 
-func (w *WorkCreator) Execute(rootDirectory, promiseName, namespace, resourceName, workflowType string) error {
-	identifier := fmt.Sprintf("%s-%s", promiseName, resourceName)
+func (w *WorkCreator) Execute(rootDirectory, promiseName, namespace, resourceName, workflowType, pipelineName string) error {
+	identifier := fmt.Sprintf("%s-%s-%s", pipelineName, promiseName, resourceName)
 
 	if namespace == "" {
 		namespace = "kratix-platform-system"
@@ -139,20 +139,25 @@ func (w *WorkCreator) Execute(rootDirectory, promiseName, namespace, resourceNam
 
 	work := &v1alpha1.Work{}
 
-	work.Name = identifier
+	work.Name = pipelineName
 	work.Namespace = namespace
 	work.Spec.Replicas = v1alpha1.ResourceRequestReplicas
 	work.Spec.WorkloadGroups = workloadGroups
 	work.Spec.PromiseName = promiseName
 	work.Spec.ResourceName = resourceName
+	work.Labels = map[string]string{}
 
 	if workflowType == string(v1alpha1.WorkflowTypePromise) {
-		work.Name = promiseName
+		work.Name = pipelineName
 		work.Namespace = v1alpha1.SystemNamespace
 		work.Spec.Replicas = v1alpha1.DependencyReplicas
 		work.Spec.ResourceName = ""
 		work.Labels = v1alpha1.GenerateSharedLabelsForPromise(promiseName)
 	}
+
+	work.Labels["promise-name"] = promiseName
+	work.Labels["resource-name"] = resourceName
+	work.Labels["pipeline-name"] = pipelineName
 
 	err = w.K8sClient.Create(context.Background(), work)
 

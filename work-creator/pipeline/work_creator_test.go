@@ -19,8 +19,7 @@ import (
 
 var _ = Describe("WorkCreator", func() {
 	var (
-		resourceWorkName = "promise-name-resource-name"
-		promiseWorkName  = "promise-name"
+		pipelineName = "configure-job"
 	)
 
 	When("WorkCreator Executes", func() {
@@ -44,14 +43,22 @@ var _ = Describe("WorkCreator", func() {
 
 			BeforeEach(func() {
 				mockPipelineDirectory = filepath.Join(getRootDirectory(), "complete")
-				err := workCreator.Execute(mockPipelineDirectory, "promise-name", "default", "resource-name", "resource")
+				err := workCreator.Execute(mockPipelineDirectory, "promise-name", "default", "resource-name", "resource", pipelineName)
 				Expect(err).ToNot(HaveOccurred())
 
-				workResource = getWork(expectedNamespace, resourceWorkName)
+				workResource = getWork(expectedNamespace, pipelineName)
 			})
 
 			It("has a correctly configured Work resource", func() {
 				Expect(workResource.Spec.Replicas).To(Equal(1))
+			})
+
+			It("has the expected labels", func() {
+				Expect(workResource.Labels).To(Equal(map[string]string{
+					"promise-name":  "promise-name",
+					"resource-name": "resource-name",
+					"pipeline-name": "configure-job",
+				}))
 			})
 
 			Describe("the Work resource workloads list", func() {
@@ -113,14 +120,14 @@ var _ = Describe("WorkCreator", func() {
 		When("the destination-selectors contain multiple entries for the same directory", func() {
 			It("errors", func() {
 				mockPipelineDirectory := filepath.Join(getRootDirectory(), "duplicate-destination-selectors")
-				err := workCreator.Execute(mockPipelineDirectory, "promise-name", "default", "resource-name", "resource")
+				err := workCreator.Execute(mockPipelineDirectory, "promise-name", "default", "resource-name", "resource", pipelineName)
 				Expect(err).To(MatchError(ContainSubstring("duplicate entries in destination-selectors.yaml")))
 			})
 
 			When("and the directory is empty string", func() {
 				It("errors", func() {
 					mockPipelineDirectory := filepath.Join(getRootDirectory(), "duplicate-destination-selectors-with-empty-directory")
-					err := workCreator.Execute(mockPipelineDirectory, "promise-name", "default", "resource-name", "resource")
+					err := workCreator.Execute(mockPipelineDirectory, "promise-name", "default", "resource-name", "resource", pipelineName)
 					Expect(err).To(MatchError(ContainSubstring("duplicate entries in destination-selectors.yaml")))
 				})
 			})
@@ -129,7 +136,7 @@ var _ = Describe("WorkCreator", func() {
 		When("the destination-selectors contain a non-root directory", func() {
 			It("errors", func() {
 				mockPipelineDirectory := filepath.Join(getRootDirectory(), "destination-selectors-with-non-root-directory")
-				err := workCreator.Execute(mockPipelineDirectory, "promise-name", "default", "resource-name", "resource")
+				err := workCreator.Execute(mockPipelineDirectory, "promise-name", "default", "resource-name", "resource", pipelineName)
 				Expect(err).To(MatchError(ContainSubstring("invalid directory in destination-selectors.yaml: foo/bar, directory must be top-level")))
 			})
 		})
@@ -137,20 +144,20 @@ var _ = Describe("WorkCreator", func() {
 		When("the destination-selectors contain duplicate directories, one with a trailing slash and one without", func() {
 			It("errors as they are treated as the same value", func() {
 				mockPipelineDirectory := filepath.Join(getRootDirectory(), "destination-selectors-trailing-slash")
-				err := workCreator.Execute(mockPipelineDirectory, "promise-name", "default", "resource-name", "resource")
+				err := workCreator.Execute(mockPipelineDirectory, "promise-name", "default", "resource-name", "resource", pipelineName)
 				Expect(err).To(MatchError(ContainSubstring("duplicate entries in destination-selectors.yaml")))
 			})
 		})
 
 		Context("with empty metadata directory", func() {
 			BeforeEach(func() {
-				err := workCreator.Execute(filepath.Join(getRootDirectory(), "empty-metadata"), "promise-name", "default", "resource-name", "resource")
+				err := workCreator.Execute(filepath.Join(getRootDirectory(), "empty-metadata"), "promise-name", "default", "resource-name", "resource", pipelineName)
 				Expect(err).ToNot(HaveOccurred())
 			})
 
 			It("does not try to apply the metadata/destination-selectors.yaml when its not present", func() {
-				workResource := getWork(expectedNamespace, resourceWorkName)
-				Expect(workResource.GetName()).To(Equal(resourceWorkName))
+				workResource := getWork(expectedNamespace, pipelineName)
+				Expect(workResource.GetName()).To(Equal(pipelineName))
 				Expect(workResource.Spec.WorkloadGroups[0].DestinationSelectors).To(ConsistOf(
 					v1alpha1.WorkloadGroupScheduling{
 						MatchLabels: map[string]string{
@@ -165,12 +172,12 @@ var _ = Describe("WorkCreator", func() {
 		Context("with empty namespace string", func() {
 			BeforeEach(func() {
 				expectedNamespace = "kratix-platform-system"
-				err := workCreator.Execute(filepath.Join(getRootDirectory(), "empty-metadata"), "promise-name", "", "resource-name", "resource")
+				err := workCreator.Execute(filepath.Join(getRootDirectory(), "empty-metadata"), "promise-name", "", "resource-name", "resource", pipelineName)
 				Expect(err).NotTo(HaveOccurred())
 			})
 
 			It("creates works with the namespace 'kratix-platform-system'", func() {
-				getWork(expectedNamespace, resourceWorkName)
+				getWork(expectedNamespace, pipelineName)
 			})
 		})
 
@@ -180,10 +187,10 @@ var _ = Describe("WorkCreator", func() {
 
 			BeforeEach(func() {
 				mockPipelineDirectory = filepath.Join(getRootDirectory(), "empty-default-workload-group")
-				err := workCreator.Execute(mockPipelineDirectory, "promise-name", "default", "resource-name", "resource")
+				err := workCreator.Execute(mockPipelineDirectory, "promise-name", "default", "resource-name", "resource", pipelineName)
 				Expect(err).ToNot(HaveOccurred())
 
-				workResource = getWork(expectedNamespace, resourceWorkName)
+				workResource = getWork(expectedNamespace, pipelineName)
 			})
 
 			It("does not append the default workload group to the work", func() {
@@ -213,13 +220,13 @@ var _ = Describe("WorkCreator", func() {
 
 		Context("complete set of inputs for a Promise", func() {
 			BeforeEach(func() {
-				err := workCreator.Execute(filepath.Join(getRootDirectory(), "complete-for-promise"), "promise-name", "", "resource-name", "promise")
+				err := workCreator.Execute(filepath.Join(getRootDirectory(), "complete-for-promise"), "promise-name", "", "resource-name", "promise", pipelineName)
 				Expect(err).NotTo(HaveOccurred())
 			})
 
 			It("has a correctly configured Work resource", func() {
 				expectedNamespace = "kratix-platform-system"
-				workResource := getWork(expectedNamespace, promiseWorkName)
+				workResource := getWork(expectedNamespace, pipelineName)
 
 				Expect(workResource.Spec.Replicas).To(Equal(-1))
 				Expect(workResource.Spec.WorkloadGroups[0].DestinationSelectors).To(ConsistOf(
