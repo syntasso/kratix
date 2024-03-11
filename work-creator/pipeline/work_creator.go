@@ -17,9 +17,9 @@ import (
 	"github.com/syntasso/kratix/api/v1alpha1"
 	"github.com/syntasso/kratix/lib/hash"
 	"github.com/syntasso/kratix/lib/resourceutil"
+	"k8s.io/apimachinery/pkg/labels"
 	"k8s.io/apimachinery/pkg/util/yaml"
 	"sigs.k8s.io/controller-runtime/pkg/client"
-	"k8s.io/apimachinery/pkg/labels"
 )
 
 type WorkCreator struct {
@@ -215,7 +215,7 @@ func (w *WorkCreator) getExistingWork(namespace, promiseName, resourceName, pipe
 	//TODO test
 	if len(works.Items) > 1 {
 		return nil, fmt.Errorf("more than 1 work exist with the matching labels for Promise: %q, Resource: %q, Pipeline: %q. unable to update",
-		 promiseName, resourceName, pipelineName)
+			promiseName, resourceName, pipelineName)
 	}
 
 	if len(works.Items) == 0 {
@@ -224,6 +224,7 @@ func (w *WorkCreator) getExistingWork(namespace, promiseName, resourceName, pipe
 
 	return &works.Items[0], nil
 }
+
 // /kratix/output/     /kratix/output/   "bar"
 func (w *WorkCreator) getWorkloadsFromDir(prefixToTrimFromWorkloadFilepath, rootDir string, directoriesToIgnoreAtTheRootLevel []string) ([]v1alpha1.Workload, error) {
 	filesAndDirs, err := os.ReadDir(rootDir)

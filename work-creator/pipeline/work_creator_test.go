@@ -65,12 +65,12 @@ var _ = Describe("WorkCreator", func() {
 				Expect(workResource.Name).To(MatchRegexp(`^promise-name-resource-name-\b\w{5}\b$`))
 			})
 
-			When("it runs for a second time", func(){
-				It("Should update the previously created work", func(){
+			When("it runs for a second time", func() {
+				It("Should update the previously created work", func() {
 					mockPipelineDirectory = filepath.Join(getRootDirectory(), "complete")
 					err := workCreator.Execute(mockPipelineDirectory, "promise-name", "default", "resource-name", "resource", pipelineName)
 					Expect(err).ToNot(HaveOccurred())
-	
+
 					workResource = getWork(expectedNamespace, promiseName, resourceName, pipelineName)
 					Expect(workResource.Spec.WorkloadGroups).To(HaveLen(2))
 
