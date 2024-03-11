@@ -68,6 +68,46 @@ var _ = Describe("WorkCreator", func() {
 				Expect(workResource.Name).To(MatchRegexp(`^promise-name-resource-name-\b\w{5}\b$`))
 			})
 
+			When("it runs for a second time", func(){
+				It("Should update the previously created work", func(){
+					mockPipelineDirectory = filepath.Join(getRootDirectory(), "complete")
+					err := workCreator.Execute(mockPipelineDirectory, "promise-name", "default", "resource-name", "resource", pipelineName)
+					Expect(err).ToNot(HaveOccurred())
+	
+					workResource = getWork(expectedNamespace, promiseName, resourceName, pipelineName)
+					Expect(workResource.Spec.WorkloadGroups).To(HaveLen(2))
+
+					paths := []string{}
+					for _, workload := range workResource.Spec.WorkloadGroups[0].Workloads {
+						paths = append(paths, workload.Filepath)
+					}
+					Expect(paths).To(ConsistOf("baz/baz-namespace-resource-request.yaml"))
+					for _, workload := range workResource.Spec.WorkloadGroups[0].Workloads {
+						fileContent, err := os.ReadFile(filepath.Join(mockPipelineDirectory, "input", workload.Filepath))
+						Expect(err).NotTo(HaveOccurred())
+						Expect(workload.Content).To(Equal(string(fileContent)))
+					}
+
+					mockPipelineDirectory = filepath.Join(getRootDirectory(), "complete-updated")
+					err = workCreator.Execute(mockPipelineDirectory, "promise-name", "default", "resource-name", "resource", pipelineName)
+					Expect(err).ToNot(HaveOccurred())
+	
+					newWorkResource := getWork(expectedNamespace, promiseName, resourceName, pipelineName)
+					Expect(newWorkResource.Name).To(Equal(workResource.Name))
+					Expect(newWorkResource.Spec.WorkloadGroups).To(HaveLen(2))
+					paths = []string{}
+					for _, workload := range workResource.Spec.WorkloadGroups[0].Workloads {
+						paths = append(paths, workload.Filepath)
+					}
+					Expect(paths).To(ConsistOf("baz/baz-namespace-resource-request.yaml"))
+					for _, workload := range newWorkResource.Spec.WorkloadGroups[0].Workloads {
+						fileContent, err := os.ReadFile(filepath.Join(mockPipelineDirectory, "input", workload.Filepath))
+						Expect(err).NotTo(HaveOccurred())
+						Expect(workload.Content).To(Equal(string(fileContent)))
+					}
+				})
+			})
+
 			Describe("the Work resource workloads list", func() {
 				It("has three files", func() {
 					Expect(workResource.Spec.WorkloadGroups).To(HaveLen(2))

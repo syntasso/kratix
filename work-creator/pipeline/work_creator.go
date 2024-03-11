@@ -17,9 +17,9 @@ import (
 	"github.com/syntasso/kratix/api/v1alpha1"
 	"github.com/syntasso/kratix/lib/hash"
 	"github.com/syntasso/kratix/lib/resourceutil"
-	"k8s.io/apimachinery/pkg/api/errors"
 	"k8s.io/apimachinery/pkg/util/yaml"
 	"sigs.k8s.io/controller-runtime/pkg/client"
+	"k8s.io/apimachinery/pkg/labels"
 )
 
 type WorkCreator struct {
@@ -162,34 +162,67 @@ func (w *WorkCreator) Execute(rootDirectory, promiseName, namespace, resourceNam
 	work.Labels[v1alpha1.KratixPrefix+"resource-name"] = resourceName
 	work.Labels[v1alpha1.KratixPrefix+"pipeline-name"] = pipelineName
 
-	err = w.K8sClient.Create(context.Background(), work)
-
-	if errors.IsAlreadyExists(err) {
-		logger.Info("Work already exists, will update")
-		currentWork := v1alpha1.Work{}
-		key := client.ObjectKeyFromObject(work)
-
-		err := w.K8sClient.Get(context.Background(), key, &currentWork)
-		if err != nil {
-			logger.Error(err, "Error retrieving Work")
-		}
-
-		currentWork.Spec = work.Spec
-		err = w.K8sClient.Update(context.Background(), &currentWork)
-
-		if err != nil {
-			logger.Error(err, "Error updating Work")
-		}
-		logger.Info("Work updated")
-		return nil
-	} else if err != nil {
+	currentWork, err := w.getExistingWork(namespace, promiseName, resourceName, pipelineName)
+	if err != nil {
 		return err
-	} else {
-		logger.Info("Work created")
+	}
+
+	if currentWork == nil {
+		err := w.K8sClient.Create(context.Background(), work)
+		if err != nil {
+			return err
+		}
+		logger.Info("Work created", "workName", work.Name)
 		return nil
 	}
+
+	logger.Info("Work already exists, will update")
+	currentWork.Spec = work.Spec
+	err = w.K8sClient.Update(context.Background(), currentWork)
+
+	if err != nil {
+		logger.Error(err, "Error updating Work")
+		return err
+	}
+	
+	logger.Info("Work updated", "workName", currentWork.Name)
+	return nil
 }
 
+func (w *WorkCreator) getExistingWork(namespace, promiseName, resourceName, pipelineName string) (*v1alpha1.Work, error) {
+	l := map[string]string{
+		"kratix.io/promise-name":  promiseName,
+		"kratix.io/pipeline-name": pipelineName,
+	}
+	if resourceName != "" {
+		l["kratix.io/resource-name"] = resourceName
+	}
+
+	workSelectorLabel := labels.FormatLabels(l)
+	selector, err := labels.Parse(workSelectorLabel)
+	if err != nil {
+		return nil, err
+	}
+	works := v1alpha1.WorkList{}
+	err = w.K8sClient.List(context.Background(), &works, &client.ListOptions{
+		LabelSelector: selector,
+		Namespace:     namespace,
+	})
+	if err != nil {
+		return nil, err
+	}
+
+	//TODO test
+	if len(works.Items) > 1 {
+		//blow up
+	}
+
+	if len(works.Items) == 0 {
+		return nil, nil
+	}
+
+	return &works.Items[0], nil
+}
 // /kratix/output/     /kratix/output/   "bar"
 func (w *WorkCreator) getWorkloadsFromDir(prefixToTrimFromWorkloadFilepath, rootDir string, directoriesToIgnoreAtTheRootLevel []string) ([]v1alpha1.Workload, error) {
 	filesAndDirs, err := os.ReadDir(rootDir)
