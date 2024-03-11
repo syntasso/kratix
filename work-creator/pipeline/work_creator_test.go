@@ -13,14 +13,16 @@ import (
 	v1 "k8s.io/api/core/v1"
 	metav1 "k8s.io/apimachinery/pkg/apis/meta/v1"
 	"k8s.io/apimachinery/pkg/apis/meta/v1/unstructured"
-	"k8s.io/apimachinery/pkg/types"
+	"k8s.io/apimachinery/pkg/labels"
 	"k8s.io/apimachinery/pkg/util/yaml"
+	"sigs.k8s.io/controller-runtime/pkg/client"
 )
 
 var _ = Describe("WorkCreator", func() {
 	var (
 		pipelineName = "configure-job"
-		workName     = "promise-name-resource-name-configure-job"
+		promiseName  = "promise-name"
+		resourceName = "resource-name"
 	)
 
 	When("WorkCreator Executes", func() {
@@ -47,7 +49,7 @@ var _ = Describe("WorkCreator", func() {
 				err := workCreator.Execute(mockPipelineDirectory, "promise-name", "default", "resource-name", "resource", pipelineName)
 				Expect(err).ToNot(HaveOccurred())
 
-				workResource = getWork(expectedNamespace, workName)
+				workResource = getWork(expectedNamespace, promiseName, resourceName, pipelineName)
 			})
 
 			It("has a correctly configured Work resource", func() {
@@ -56,10 +58,14 @@ var _ = Describe("WorkCreator", func() {
 
 			It("has the expected labels", func() {
 				Expect(workResource.Labels).To(Equal(map[string]string{
-					"promise-name":  "promise-name",
-					"resource-name": "resource-name",
-					"pipeline-name": "configure-job",
+					"kratix.io/promise-name":  "promise-name",
+					"kratix.io/resource-name": "resource-name",
+					"kratix.io/pipeline-name": "configure-job",
 				}))
+			})
+
+			It("has the expected Work name", func() {
+				Expect(workResource.Name).To(MatchRegexp(`^promise-name-resource-name-\b\w{5}\b$`))
 			})
 
 			Describe("the Work resource workloads list", func() {
@@ -157,8 +163,7 @@ var _ = Describe("WorkCreator", func() {
 			})
 
 			It("does not try to apply the metadata/destination-selectors.yaml when its not present", func() {
-				workResource := getWork(expectedNamespace, workName)
-				Expect(workResource.GetName()).To(Equal(workName))
+				workResource := getWork(expectedNamespace, promiseName, resourceName, pipelineName)
 				Expect(workResource.Spec.WorkloadGroups[0].DestinationSelectors).To(ConsistOf(
 					v1alpha1.WorkloadGroupScheduling{
 						MatchLabels: map[string]string{
@@ -178,7 +183,7 @@ var _ = Describe("WorkCreator", func() {
 			})
 
 			It("creates works with the namespace 'kratix-platform-system'", func() {
-				getWork(expectedNamespace, workName)
+				getWork(expectedNamespace, promiseName, resourceName, pipelineName)
 			})
 		})
 
@@ -191,7 +196,7 @@ var _ = Describe("WorkCreator", func() {
 				err := workCreator.Execute(mockPipelineDirectory, "promise-name", "default", "resource-name", "resource", pipelineName)
 				Expect(err).ToNot(HaveOccurred())
 
-				workResource = getWork(expectedNamespace, workName)
+				workResource = getWork(expectedNamespace, promiseName, resourceName, pipelineName)
 			})
 
 			It("does not append the default workload group to the work", func() {
@@ -223,12 +228,11 @@ var _ = Describe("WorkCreator", func() {
 			BeforeEach(func() {
 				err := workCreator.Execute(filepath.Join(getRootDirectory(), "complete-for-promise"), "promise-name", "", "resource-name", "promise", pipelineName)
 				Expect(err).NotTo(HaveOccurred())
-				workName = "promise-name-configure-job"
 			})
 
 			It("has a correctly configured Work resource", func() {
 				expectedNamespace = "kratix-platform-system"
-				workResource := getWork(expectedNamespace, workName)
+				workResource := getWork(expectedNamespace, promiseName, "", pipelineName)
 
 				Expect(workResource.Spec.Replicas).To(Equal(-1))
 				Expect(workResource.Spec.WorkloadGroups[0].DestinationSelectors).To(ConsistOf(
@@ -292,14 +296,26 @@ func getExpectedManifests(rootDirectory string) []unstructured.Unstructured {
 	return ul
 }
 
-func getWork(namespace, name string) v1alpha1.Work {
-	expectedName := types.NamespacedName{
-		Name:      name,
-		Namespace: namespace,
-	}
+func getWork(namespace, promiseName, resourceName, pipelineName string) v1alpha1.Work {
 	ExpectWithOffset(1, k8sClient).NotTo(BeNil())
-	work := v1alpha1.Work{}
-	err := k8sClient.Get(context.Background(), expectedName, &work)
+	works := v1alpha1.WorkList{}
+
+	l := map[string]string{
+		"kratix.io/promise-name":  promiseName,
+		"kratix.io/pipeline-name": pipelineName,
+	}
+	if resourceName != "" {
+		l["kratix.io/resource-name"] = resourceName
+	}
+
+	workSelectorLabel := labels.FormatLabels(l)
+	selector, err := labels.Parse(workSelectorLabel)
+	err = k8sClient.List(context.Background(), &works, &client.ListOptions{
+		LabelSelector: selector,
+		Namespace:     namespace,
+	})
 	ExpectWithOffset(1, err).NotTo(HaveOccurred())
-	return work
+	ExpectWithOffset(1, works.Items).To(HaveLen(1))
+
+	return works.Items[0]
 }

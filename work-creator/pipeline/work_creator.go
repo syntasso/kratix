@@ -16,6 +16,7 @@ import (
 
 	"github.com/syntasso/kratix/api/v1alpha1"
 	"github.com/syntasso/kratix/lib/hash"
+	"github.com/syntasso/kratix/lib/resourceutil"
 	"k8s.io/apimachinery/pkg/api/errors"
 	"k8s.io/apimachinery/pkg/util/yaml"
 	"sigs.k8s.io/controller-runtime/pkg/client"
@@ -26,9 +27,9 @@ type WorkCreator struct {
 }
 
 func (w *WorkCreator) Execute(rootDirectory, promiseName, namespace, resourceName, workflowType, pipelineName string) error {
-	identifier := fmt.Sprintf("%s-%s-%s", promiseName, resourceName, pipelineName)
+	identifier := fmt.Sprintf("%s-%s", promiseName, resourceName)
 	if workflowType == string(v1alpha1.WorkflowTypePromise) {
-		identifier = fmt.Sprintf("%s-%s", promiseName, pipelineName)
+		identifier = promiseName
 	}
 	if namespace == "" {
 		namespace = "kratix-platform-system"
@@ -39,7 +40,8 @@ func (w *WorkCreator) Execute(rootDirectory, promiseName, namespace, resourceNam
 		WithValues("workName", identifier).
 		WithValues("namespace", namespace).
 		WithValues("resourceName", resourceName).
-		WithValues("promiseName", promiseName)
+		WithValues("promiseName", promiseName).
+		WithValues("pipelineName", pipelineName)
 
 	workflowScheduling, err := w.getWorkflowScheduling(rootDirectory)
 	if err != nil {
@@ -141,7 +143,7 @@ func (w *WorkCreator) Execute(rootDirectory, promiseName, namespace, resourceNam
 
 	work := &v1alpha1.Work{}
 
-	work.Name = identifier
+	work.Name = resourceutil.GenerateObjectName(identifier)
 	work.Namespace = namespace
 	work.Spec.Replicas = v1alpha1.ResourceRequestReplicas
 	work.Spec.WorkloadGroups = workloadGroups
@@ -156,9 +158,9 @@ func (w *WorkCreator) Execute(rootDirectory, promiseName, namespace, resourceNam
 		work.Labels = v1alpha1.GenerateSharedLabelsForPromise(promiseName)
 	}
 
-	work.Labels["promise-name"] = promiseName
-	work.Labels["resource-name"] = resourceName
-	work.Labels["pipeline-name"] = pipelineName
+	work.Labels[v1alpha1.KratixPrefix+"promise-name"] = promiseName
+	work.Labels[v1alpha1.KratixPrefix+"resource-name"] = resourceName
+	work.Labels[v1alpha1.KratixPrefix+"pipeline-name"] = pipelineName
 
 	err = w.K8sClient.Create(context.Background(), work)
 
