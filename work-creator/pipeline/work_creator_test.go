@@ -306,36 +306,6 @@ func getRootDirectory() string {
 	return d
 }
 
-// Returns a []unstructured.Unstructured created from all Yaml documents contained
-// in all files located in rootDirectory
-func getExpectedManifests(rootDirectory string) []unstructured.Unstructured {
-	inputDirectory := filepath.Join(rootDirectory, "/input")
-	files, _ := os.ReadDir(inputDirectory)
-	ul := []unstructured.Unstructured{}
-
-	for _, fileInfo := range files {
-		fileName := filepath.Join(inputDirectory, fileInfo.Name())
-		file, err := os.Open(fileName)
-		Expect(err).ToNot(HaveOccurred())
-
-		decoder := yaml.NewYAMLOrJSONDecoder(file, 2048)
-		for {
-			us := unstructured.Unstructured{}
-			err := decoder.Decode(&us)
-			if err == io.EOF {
-				//We reached the end of the file, move on to looking for the resource
-				break
-			} else {
-				Expect(err).To(BeNil())
-				//append the first resource to the resource slice, and go back through the loop
-				ul = append(ul, us)
-			}
-		}
-	}
-
-	return ul
-}
-
 func getWork(namespace, promiseName, resourceName, pipelineName string) v1alpha1.Work {
 	ExpectWithOffset(1, k8sClient).NotTo(BeNil())
 	works := v1alpha1.WorkList{}
