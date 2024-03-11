@@ -184,7 +184,7 @@ func (w *WorkCreator) Execute(rootDirectory, promiseName, namespace, resourceNam
 		logger.Error(err, "Error updating Work")
 		return err
 	}
-	
+
 	logger.Info("Work updated", "workName", currentWork.Name)
 	return nil
 }
@@ -214,7 +214,8 @@ func (w *WorkCreator) getExistingWork(namespace, promiseName, resourceName, pipe
 
 	//TODO test
 	if len(works.Items) > 1 {
-		//blow up
+		return nil, fmt.Errorf("more than 1 work exist with the matching labels for Promise: %q, Resource: %q, Pipeline: %q. unable to update",
+		 promiseName, resourceName, pipelineName)
 	}
 
 	if len(works.Items) == 0 {
