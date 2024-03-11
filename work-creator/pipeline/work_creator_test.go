@@ -20,6 +20,7 @@ import (
 var _ = Describe("WorkCreator", func() {
 	var (
 		pipelineName = "configure-job"
+		workName     = "promise-name-resource-name-configure-job"
 	)
 
 	When("WorkCreator Executes", func() {
@@ -46,7 +47,7 @@ var _ = Describe("WorkCreator", func() {
 				err := workCreator.Execute(mockPipelineDirectory, "promise-name", "default", "resource-name", "resource", pipelineName)
 				Expect(err).ToNot(HaveOccurred())
 
-				workResource = getWork(expectedNamespace, pipelineName)
+				workResource = getWork(expectedNamespace, workName)
 			})
 
 			It("has a correctly configured Work resource", func() {
@@ -156,8 +157,8 @@ var _ = Describe("WorkCreator", func() {
 			})
 
 			It("does not try to apply the metadata/destination-selectors.yaml when its not present", func() {
-				workResource := getWork(expectedNamespace, pipelineName)
-				Expect(workResource.GetName()).To(Equal(pipelineName))
+				workResource := getWork(expectedNamespace, workName)
+				Expect(workResource.GetName()).To(Equal(workName))
 				Expect(workResource.Spec.WorkloadGroups[0].DestinationSelectors).To(ConsistOf(
 					v1alpha1.WorkloadGroupScheduling{
 						MatchLabels: map[string]string{
@@ -177,7 +178,7 @@ var _ = Describe("WorkCreator", func() {
 			})
 
 			It("creates works with the namespace 'kratix-platform-system'", func() {
-				getWork(expectedNamespace, pipelineName)
+				getWork(expectedNamespace, workName)
 			})
 		})
 
@@ -190,7 +191,7 @@ var _ = Describe("WorkCreator", func() {
 				err := workCreator.Execute(mockPipelineDirectory, "promise-name", "default", "resource-name", "resource", pipelineName)
 				Expect(err).ToNot(HaveOccurred())
 
-				workResource = getWork(expectedNamespace, pipelineName)
+				workResource = getWork(expectedNamespace, workName)
 			})
 
 			It("does not append the default workload group to the work", func() {
@@ -222,11 +223,12 @@ var _ = Describe("WorkCreator", func() {
 			BeforeEach(func() {
 				err := workCreator.Execute(filepath.Join(getRootDirectory(), "complete-for-promise"), "promise-name", "", "resource-name", "promise", pipelineName)
 				Expect(err).NotTo(HaveOccurred())
+				workName = "promise-name-configure-job"
 			})
 
 			It("has a correctly configured Work resource", func() {
 				expectedNamespace = "kratix-platform-system"
-				workResource := getWork(expectedNamespace, pipelineName)
+				workResource := getWork(expectedNamespace, workName)
 
 				Expect(workResource.Spec.Replicas).To(Equal(-1))
 				Expect(workResource.Spec.WorkloadGroups[0].DestinationSelectors).To(ConsistOf(

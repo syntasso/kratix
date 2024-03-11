@@ -26,8 +26,10 @@ type WorkCreator struct {
 }
 
 func (w *WorkCreator) Execute(rootDirectory, promiseName, namespace, resourceName, workflowType, pipelineName string) error {
-	identifier := fmt.Sprintf("%s-%s-%s", pipelineName, promiseName, resourceName)
-
+	identifier := fmt.Sprintf("%s-%s-%s", promiseName, resourceName, pipelineName)
+	if workflowType == string(v1alpha1.WorkflowTypePromise) {
+		identifier = fmt.Sprintf("%s-%s", promiseName, pipelineName)
+	}
 	if namespace == "" {
 		namespace = "kratix-platform-system"
 	}
@@ -139,7 +141,7 @@ func (w *WorkCreator) Execute(rootDirectory, promiseName, namespace, resourceNam
 
 	work := &v1alpha1.Work{}
 
-	work.Name = pipelineName
+	work.Name = identifier
 	work.Namespace = namespace
 	work.Spec.Replicas = v1alpha1.ResourceRequestReplicas
 	work.Spec.WorkloadGroups = workloadGroups
@@ -148,7 +150,6 @@ func (w *WorkCreator) Execute(rootDirectory, promiseName, namespace, resourceNam
 	work.Labels = map[string]string{}
 
 	if workflowType == string(v1alpha1.WorkflowTypePromise) {
-		work.Name = pipelineName
 		work.Namespace = v1alpha1.SystemNamespace
 		work.Spec.Replicas = v1alpha1.DependencyReplicas
 		work.Spec.ResourceName = ""
