@@ -88,7 +88,7 @@ var _ = Describe("WorkCreator", func() {
 					mockPipelineDirectory = filepath.Join(getRootDirectory(), "complete-updated")
 					err = workCreator.Execute(mockPipelineDirectory, "promise-name", "default", "resource-name", "resource", pipelineName)
 					Expect(err).ToNot(HaveOccurred())
-	
+
 					newWorkResource := getWork(expectedNamespace, promiseName, resourceName, pipelineName)
 					Expect(newWorkResource.Name).To(Equal(workResource.Name))
 					Expect(newWorkResource.Spec.WorkloadGroups).To(HaveLen(2))

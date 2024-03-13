@@ -186,7 +186,6 @@ func configurePipelineInitContainers(obj *unstructured.Unstructured, pipelines [
 		}
 	}
 
-
 	workCreatorCommand := fmt.Sprintf("./work-creator -input-directory /work-creator-files -promise-name %s -pipeline-name %s", promiseName, pipelineName)
 	logger.Info("workcreatorcommand before", "command", workCreatorCommand)
 

@@ -126,13 +126,13 @@ var _ = Describe("Kratix", func() {
 		}
 	})
 
-	FDescribe("Promise lifecycle", func() {
+	Describe("Promise lifecycle", func() {
 		var secondPromiseConfigureWorkflowName string
 		BeforeEach(func() {
 			secondPromiseConfigureWorkflowName = fmt.Sprintf("%s-2nd-workflow", bashPromiseName)
 		})
 
-		It("can install, update, and delete a promise", func() {
+		FIt("can install, update, and delete a promise", func() {
 			By("installing the promise", func() {
 				platform.eventuallyKubectl("apply", "-f", cat(bashPromise))
 

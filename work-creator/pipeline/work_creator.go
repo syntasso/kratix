@@ -17,7 +17,6 @@ import (
 	"github.com/syntasso/kratix/api/v1alpha1"
 	"github.com/syntasso/kratix/lib/hash"
 	"github.com/syntasso/kratix/lib/resourceutil"
-	"k8s.io/apimachinery/pkg/labels"
 	"k8s.io/apimachinery/pkg/util/yaml"
 	"sigs.k8s.io/controller-runtime/pkg/client"
 )
@@ -162,7 +161,13 @@ func (w *WorkCreator) Execute(rootDirectory, promiseName, namespace, resourceNam
 	work.Labels[v1alpha1.KratixPrefix+"resource-name"] = resourceName
 	work.Labels[v1alpha1.KratixPrefix+"pipeline-name"] = pipelineName
 
-	currentWork, err := w.getExistingWork(namespace, promiseName, resourceName, pipelineName)
+	var currentWork *v1alpha1.Work
+	if resourceName == "" {
+		currentWork, err = resourceutil.GetExistingWorkForPromise(w.K8sClient, namespace, promiseName, pipelineName)
+	} else {
+		currentWork, err = resourceutil.GetExistingWorkForResource(w.K8sClient, namespace, promiseName, resourceName, pipelineName)
+	}
+
 	if err != nil {
 		return err
 	}
@@ -187,42 +192,6 @@ func (w *WorkCreator) Execute(rootDirectory, promiseName, namespace, resourceNam
 
 	logger.Info("Work updated", "workName", currentWork.Name)
 	return nil
-}
-
-func (w *WorkCreator) getExistingWork(namespace, promiseName, resourceName, pipelineName string) (*v1alpha1.Work, error) {
-	l := map[string]string{
-		"kratix.io/promise-name":  promiseName,
-		"kratix.io/pipeline-name": pipelineName,
-	}
-	if resourceName != "" {
-		l["kratix.io/resource-name"] = resourceName
-	}
-
-	workSelectorLabel := labels.FormatLabels(l)
-	selector, err := labels.Parse(workSelectorLabel)
-	if err != nil {
-		return nil, err
-	}
-	works := v1alpha1.WorkList{}
-	err = w.K8sClient.List(context.Background(), &works, &client.ListOptions{
-		LabelSelector: selector,
-		Namespace:     namespace,
-	})
-	if err != nil {
-		return nil, err
-	}
-
-	//TODO test
-	if len(works.Items) > 1 {
-		return nil, fmt.Errorf("more than 1 work exist with the matching labels for Promise: %q, Resource: %q, Pipeline: %q. unable to update",
-			promiseName, resourceName, pipelineName)
-	}
-
-	if len(works.Items) == 0 {
-		return nil, nil
-	}
-
-	return &works.Items[0], nil
 }
 
 // /kratix/output/     /kratix/output/   "bar"

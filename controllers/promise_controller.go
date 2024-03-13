@@ -212,8 +212,7 @@ func (r *PromiseReconciler) Reconcile(ctx context.Context, req ctrl.Request) (ct
 	}
 
 	if promise.ContainsAPI() {
-		var work v1alpha1.Work
-		err = r.Client.Get(ctx, types.NamespacedName{Name: promise.GetName(), Namespace: v1alpha1.SystemNamespace}, &work)
+		work, err := resourceutil.GetExistingWorkForPromise(r.Client, promise.Namespace, promise.Name, pipelines.ConfigurePromise[0].Name)
 		if err != nil {
 			logger.Error(err, "Error getting Work")
 			return ctrl.Result{}, err
@@ -227,7 +226,7 @@ func (r *PromiseReconciler) Reconcile(ctx context.Context, req ctrl.Request) (ct
 			}
 		}
 
-		err = r.ensureDynamicControllerIsStarted(promise, &work, rrCRD, rrGVK, pipelines.ConfigureResource, pipelines.DeleteResource, &dynamicControllerCanCreateResources, logger)
+		err = r.ensureDynamicControllerIsStarted(promise, work, rrCRD, rrGVK, pipelines.ConfigureResource, pipelines.DeleteResource, &dynamicControllerCanCreateResources, logger)
 		if err != nil {
 			return ctrl.Result{}, err
 		}
