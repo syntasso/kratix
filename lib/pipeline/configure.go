@@ -91,6 +91,11 @@ func ConfigurePipeline(obj *unstructured.Unstructured, pipelines []v1alpha1.Pipe
 		return nil, err
 	}
 
+	var imagePullSecrets []v1.LocalObjectReference
+	if len(pipelines) > 0 {
+		imagePullSecrets = pipelines[0].Spec.ImagePullSecrets
+	}
+
 	job := &batchv1.Job{
 		ObjectMeta: metav1.ObjectMeta{
 			Name:      pipelineArgs.ConfigurePipelineName(),
@@ -122,8 +127,9 @@ func ConfigurePipeline(obj *unstructured.Unstructured, pipelines []v1alpha1.Pipe
 							}},
 						},
 					},
-					InitContainers: initContainers,
-					Volumes:        volumes,
+					ImagePullSecrets: imagePullSecrets,
+					InitContainers:   initContainers,
+					Volumes:          volumes,
 				},
 			},
 		},
@@ -173,13 +179,14 @@ func configurePipelineInitContainers(obj *unstructured.Unstructured, pipelines [
 				volumeMounts = append(volumeMounts, c.VolumeMounts...)
 			}
 			containers = append(containers, v1.Container{
-				Name:         providedOrDefaultName(c.Name, i),
-				Image:        c.Image,
-				VolumeMounts: volumeMounts,
-				Args:         c.Args,
-				Command:      c.Command,
-				Env:          append(kratixEnvVars, c.Env...),
-				EnvFrom:      c.EnvFrom,
+				Name:            providedOrDefaultName(c.Name, i),
+				Image:           c.Image,
+				VolumeMounts:    volumeMounts,
+				Args:            c.Args,
+				Command:         c.Command,
+				Env:             append(kratixEnvVars, c.Env...),
+				EnvFrom:         c.EnvFrom,
+				ImagePullPolicy: c.ImagePullPolicy,
 			})
 		}
 	}

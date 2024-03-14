@@ -136,5 +136,24 @@ var _ = Describe("Configure Pipeline", func() {
 				corev1.Volume{Name: "test-volume", VolumeSource: corev1.VolumeSource{EmptyDir: &corev1.EmptyDirVolumeSource{}}},
 			))
 		})
+
+		It("can include imagePullPolicy and imagePullSecrets", func() {
+			pipelines[0].Spec.ImagePullSecrets = []corev1.LocalObjectReference{{Name: "test-secret"}, {Name: "another-secret"}}
+			pipelines[0].Spec.Containers = append(pipelines[0].Spec.Containers, v1alpha1.Container{
+				Name:            "another-container",
+				Image:           "another-image",
+				ImagePullPolicy: corev1.PullAlways,
+			})
+			job, err := pipeline.ConfigurePipeline(rr, pipelines, pipelineResources, "test-promise", false, logger)
+			Expect(err).NotTo(HaveOccurred())
+
+			Expect(job.Spec.Template.Spec.ImagePullSecrets).To(HaveLen(2), "imagePullSecrets should've been included")
+			Expect(job.Spec.Template.Spec.ImagePullSecrets).To(ContainElements(
+				corev1.LocalObjectReference{Name: "test-secret"},
+				corev1.LocalObjectReference{Name: "another-secret"},
+			), "imagePullSecrets should've been included")
+			Expect(job.Spec.Template.Spec.InitContainers[1].ImagePullPolicy).To(BeEmpty())
+			Expect(job.Spec.Template.Spec.InitContainers[2].ImagePullPolicy).To(Equal(corev1.PullAlways))
+		})
 	})
 })

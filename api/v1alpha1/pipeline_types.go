@@ -23,18 +23,20 @@ import (
 
 // PipelineSpec defines the desired state of Pipeline
 type PipelineSpec struct {
-	Containers []Container     `json:"containers,omitempty"`
-	Volumes    []corev1.Volume `json:"volumes,omitempty"`
+	Containers       []Container                   `json:"containers,omitempty"`
+	Volumes          []corev1.Volume               `json:"volumes,omitempty"`
+	ImagePullSecrets []corev1.LocalObjectReference `json:"imagePullSecrets,omitempty"`
 }
 
 type Container struct {
-	Name         string                 `json:"name,omitempty"`
-	Image        string                 `json:"image,omitempty"`
-	Args         []string               `json:"args,omitempty"`
-	Command      []string               `json:"command,omitempty"`
-	Env          []corev1.EnvVar        `json:"env,omitempty"`
-	EnvFrom      []corev1.EnvFromSource `json:"envFrom,omitempty"`
-	VolumeMounts []corev1.VolumeMount   `json:"volumeMounts,omitempty"`
+	Name            string                 `json:"name,omitempty"`
+	Image           string                 `json:"image,omitempty"`
+	Args            []string               `json:"args,omitempty"`
+	Command         []string               `json:"command,omitempty"`
+	Env             []corev1.EnvVar        `json:"env,omitempty"`
+	EnvFrom         []corev1.EnvFromSource `json:"envFrom,omitempty"`
+	VolumeMounts    []corev1.VolumeMount   `json:"volumeMounts,omitempty"`
+	ImagePullPolicy corev1.PullPolicy      `json:"imagePullPolicy,omitempty"`
 }
 
 // Pipeline is the Schema for the pipelines API
