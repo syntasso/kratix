@@ -17,6 +17,7 @@ import (
 	apiextensionsv1 "k8s.io/apiextensions-apiserver/pkg/apis/apiextensions/v1"
 	metav1 "k8s.io/apimachinery/pkg/apis/meta/v1"
 	"k8s.io/apimachinery/pkg/apis/meta/v1/unstructured"
+	"k8s.io/apimachinery/pkg/labels"
 	"k8s.io/apimachinery/pkg/types"
 	"k8s.io/apimachinery/pkg/util/yaml"
 	ctrl "sigs.k8s.io/controller-runtime"
@@ -186,11 +187,10 @@ var _ = Describe("PromiseController", func() {
 					})
 
 					By("creating a Work resource for the dependencies", func() {
-						workNamespacedName := types.NamespacedName{
-							Name:      promise.GetName(),
-							Namespace: v1alpha1.SystemNamespace,
-						}
-						Expect(fakeK8sClient.Get(ctx, workNamespacedName, &v1alpha1.Work{})).To(Succeed())
+						work := getWork("kratix-platform-system", promise.GetName(), "", "")
+						Expect(work.Spec.WorkloadGroups[0].Workloads[0].Content).To(ContainSubstring("kind: Deployment"))
+						Expect(work.Spec.WorkloadGroups[0].Workloads[0].Content).To(ContainSubstring("kind: ClusterRoleBinding"))
+
 					})
 
 					By("updating the status.obeservedGeneration", func() {
@@ -956,4 +956,34 @@ func sortJobsByCreationDateTime(jobs []batchv1.Job) []batchv1.Job {
 		return t1.Before(t2)
 	})
 	return jobs
+}
+
+func getWork(namespace, promiseName, resourceName, pipelineName string) v1alpha1.Work {
+	ExpectWithOffset(1, fakeK8sClient).NotTo(BeNil())
+	works := v1alpha1.WorkList{}
+
+	l := map[string]string{}
+	l[v1alpha1.WorkPromiseNameLabel] = promiseName
+	l[v1alpha1.WorkTypeLabel] = v1alpha1.WorkTypeStaticDependency
+
+	if pipelineName != "" {
+		l[v1alpha1.WorkPipelineNameLabel] = pipelineName
+		l[v1alpha1.WorkTypeLabel] = v1alpha1.WorkTypePromise
+	}
+
+	if resourceName != "" {
+		l[v1alpha1.WorkResourceNameLabel] = resourceName
+		l[v1alpha1.WorkTypeLabel] = v1alpha1.WorkTypeResource
+	}
+
+	workSelectorLabel := labels.FormatLabels(l)
+	selector, err := labels.Parse(workSelectorLabel)
+	err = fakeK8sClient.List(context.Background(), &works, &client.ListOptions{
+		LabelSelector: selector,
+		Namespace:     namespace,
+	})
+	ExpectWithOffset(1, err).NotTo(HaveOccurred())
+	ExpectWithOffset(1, works.Items).To(HaveLen(1))
+
+	return works.Items[0]
 }

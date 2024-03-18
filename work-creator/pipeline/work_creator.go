@@ -16,7 +16,7 @@ import (
 
 	"github.com/syntasso/kratix/api/v1alpha1"
 	"github.com/syntasso/kratix/lib/hash"
-	"k8s.io/apimachinery/pkg/api/errors"
+	"github.com/syntasso/kratix/lib/resourceutil"
 	"k8s.io/apimachinery/pkg/util/yaml"
 	"sigs.k8s.io/controller-runtime/pkg/client"
 )
@@ -25,9 +25,11 @@ type WorkCreator struct {
 	K8sClient client.Client
 }
 
-func (w *WorkCreator) Execute(rootDirectory, promiseName, namespace, resourceName, workflowType string) error {
+func (w *WorkCreator) Execute(rootDirectory, promiseName, namespace, resourceName, workflowType, pipelineName string) error {
 	identifier := fmt.Sprintf("%s-%s", promiseName, resourceName)
-
+	if workflowType == string(v1alpha1.WorkflowTypePromise) {
+		identifier = promiseName
+	}
 	if namespace == "" {
 		namespace = "kratix-platform-system"
 	}
@@ -37,7 +39,8 @@ func (w *WorkCreator) Execute(rootDirectory, promiseName, namespace, resourceNam
 		WithValues("workName", identifier).
 		WithValues("namespace", namespace).
 		WithValues("resourceName", resourceName).
-		WithValues("promiseName", promiseName)
+		WithValues("promiseName", promiseName).
+		WithValues("pipelineName", pipelineName)
 
 	workflowScheduling, err := w.getWorkflowScheduling(rootDirectory)
 	if err != nil {
@@ -139,47 +142,54 @@ func (w *WorkCreator) Execute(rootDirectory, promiseName, namespace, resourceNam
 
 	work := &v1alpha1.Work{}
 
-	work.Name = identifier
+	work.Name = resourceutil.GenerateObjectName(identifier)
 	work.Namespace = namespace
 	work.Spec.Replicas = v1alpha1.ResourceRequestReplicas
 	work.Spec.WorkloadGroups = workloadGroups
 	work.Spec.PromiseName = promiseName
 	work.Spec.ResourceName = resourceName
+	work.Labels = map[string]string{}
+	resourceutil.SetResourceWorkLabels(work.Labels, promiseName, resourceName, pipelineName)
 
 	if workflowType == string(v1alpha1.WorkflowTypePromise) {
-		work.Name = promiseName
 		work.Namespace = v1alpha1.SystemNamespace
 		work.Spec.Replicas = v1alpha1.DependencyReplicas
 		work.Spec.ResourceName = ""
 		work.Labels = v1alpha1.GenerateSharedLabelsForPromise(promiseName)
+		resourceutil.SetPromiseWorkLabels(work.Labels, promiseName, pipelineName)
 	}
 
-	err = w.K8sClient.Create(context.Background(), work)
-
-	if errors.IsAlreadyExists(err) {
-		logger.Info("Work already exists, will update")
-		currentWork := v1alpha1.Work{}
-		key := client.ObjectKeyFromObject(work)
-
-		err := w.K8sClient.Get(context.Background(), key, &currentWork)
-		if err != nil {
-			logger.Error(err, "Error retrieving Work")
-		}
-
-		currentWork.Spec = work.Spec
-		err = w.K8sClient.Update(context.Background(), &currentWork)
-
-		if err != nil {
-			logger.Error(err, "Error updating Work")
-		}
-		logger.Info("Work updated")
-		return nil
-	} else if err != nil {
-		return err
+	var currentWork *v1alpha1.Work
+	if resourceName == "" {
+		currentWork, err = resourceutil.GetWorkForPromisePipeline(w.K8sClient, namespace, promiseName, pipelineName)
 	} else {
-		logger.Info("Work created")
+		currentWork, err = resourceutil.GetWorkForResourcePipeline(w.K8sClient, namespace, promiseName, resourceName, pipelineName)
+	}
+
+	if err != nil {
+		return err
+	}
+
+	if currentWork == nil {
+		err := w.K8sClient.Create(context.Background(), work)
+		if err != nil {
+			return err
+		}
+		logger.Info("Work created", "workName", work.Name)
 		return nil
 	}
+
+	logger.Info("Work already exists, will update")
+	currentWork.Spec = work.Spec
+	err = w.K8sClient.Update(context.Background(), currentWork)
+
+	if err != nil {
+		logger.Error(err, "Error updating Work")
+		return err
+	}
+
+	logger.Info("Work updated", "workName", currentWork.Name)
+	return nil
 }
 
 // /kratix/output/     /kratix/output/   "bar"

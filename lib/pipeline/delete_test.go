@@ -93,7 +93,7 @@ var _ = Describe("Delete Pipeline", func() {
 						{
 							APIGroups: []string{"platform.kratix.io"},
 							Resources: []string{"works"},
-							Verbs:     []string{"get", "update", "create", "patch"},
+							Verbs:     []string{"*"},
 						},
 					},
 				}
@@ -282,7 +282,7 @@ var _ = Describe("Delete Pipeline", func() {
 						{
 							APIGroups: []string{"platform.kratix.io"},
 							Resources: []string{"works"},
-							Verbs:     []string{"get", "update", "create", "patch"},
+							Verbs:     []string{"*"},
 						},
 					},
 				}
