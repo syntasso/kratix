@@ -132,7 +132,7 @@ var _ = Describe("Kratix", func() {
 			secondPromiseConfigureWorkflowName = fmt.Sprintf("%s-2nd-workflow", bashPromiseName)
 		})
 
-		FIt("can install, update, and delete a promise", func() {
+		It("can install, update, and delete a promise", func() {
 			By("installing the promise", func() {
 				platform.eventuallyKubectl("apply", "-f", cat(bashPromise))
 
@@ -552,7 +552,6 @@ var _ = Describe("Kratix", func() {
 					/*
 						The required labels are:
 						- security: high (from the promise)
-						- extra: label (from the promise workflow)
 						- pci: true (from the resource workflow)
 					*/
 					Consistently(func() string {
@@ -561,13 +560,6 @@ var _ = Describe("Kratix", func() {
 
 					// Add the label defined in the resource.configure workflow
 					platform.kubectl("label", "destination", worker.name, "pci=true")
-
-					Consistently(func() string {
-						return platform.kubectl("get", "namespace") + "\n" + worker.kubectl("get", "namespace")
-					}, "10s").ShouldNot(ContainSubstring("rr-2-namespace"))
-
-					// Add the label defined in the promise.configure workflow
-					platform.kubectl("label", "destination", worker.name, bashPromiseUniqueLabel)
 
 					worker.eventuallyKubectl("get", "namespace", "rr-2-namespace")
 				})
