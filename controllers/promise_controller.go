@@ -212,13 +212,6 @@ func (r *PromiseReconciler) Reconcile(ctx context.Context, req ctrl.Request) (ct
 	}
 
 	if promise.ContainsAPI() {
-		var work v1alpha1.Work
-		err = r.Client.Get(ctx, types.NamespacedName{Name: promise.GetName(), Namespace: v1alpha1.SystemNamespace}, &work)
-		if err != nil {
-			logger.Error(err, "Error getting Work")
-			return ctrl.Result{}, err
-		}
-
 		dynamicControllerCanCreateResources := true
 		for _, req := range promise.Status.RequiredPromises {
 			if req.State != requirementStateInstalled {
@@ -227,7 +220,7 @@ func (r *PromiseReconciler) Reconcile(ctx context.Context, req ctrl.Request) (ct
 			}
 		}
 
-		err = r.ensureDynamicControllerIsStarted(promise, &work, rrCRD, rrGVK, pipelines.ConfigureResource, pipelines.DeleteResource, &dynamicControllerCanCreateResources, logger)
+		err = r.ensureDynamicControllerIsStarted(promise, rrCRD, rrGVK, pipelines.ConfigureResource, pipelines.DeleteResource, &dynamicControllerCanCreateResources, logger)
 		if err != nil {
 			return ctrl.Result{}, err
 		}
@@ -420,7 +413,7 @@ func (r *PromiseReconciler) reconcileAllRRs(rrGVK schema.GroupVersionKind) error
 	return nil
 }
 
-func (r *PromiseReconciler) ensureDynamicControllerIsStarted(promise *v1alpha1.Promise, work *v1alpha1.Work, rrCRD *apiextensionsv1.CustomResourceDefinition, rrGVK schema.GroupVersionKind, configurePipelines, deletePipelines []v1alpha1.Pipeline, canCreateResources *bool, logger logr.Logger) error {
+func (r *PromiseReconciler) ensureDynamicControllerIsStarted(promise *v1alpha1.Promise, rrCRD *apiextensionsv1.CustomResourceDefinition, rrGVK schema.GroupVersionKind, configurePipelines, deletePipelines []v1alpha1.Pipeline, canCreateResources *bool, logger logr.Logger) error {
 
 	// The Dynamic Controller needs to be started once and only once.
 	if r.dynamicControllerHasAlreadyStarted(promise) {
@@ -435,7 +428,6 @@ func (r *PromiseReconciler) ensureDynamicControllerIsStarted(promise *v1alpha1.P
 		dynamicController.CanCreateResources = canCreateResources
 
 		dynamicController.PromiseDestinationSelectors = promise.Spec.DestinationSelectors
-		dynamicController.PromiseWorkflowSelectors = work.GetDefaultScheduling("promise-workflow")
 
 		return nil
 	}
@@ -453,7 +445,6 @@ func (r *PromiseReconciler) ensureDynamicControllerIsStarted(promise *v1alpha1.P
 		ConfigurePipelines:          configurePipelines,
 		DeletePipelines:             deletePipelines,
 		PromiseDestinationSelectors: promise.Spec.DestinationSelectors,
-		PromiseWorkflowSelectors:    work.GetDefaultScheduling("promise-workflow"),
 		Log:                         r.Log.WithName(promise.GetName()),
 		UID:                         string(promise.GetUID())[0:5],
 		Enabled:                     &enabled,
@@ -768,19 +759,13 @@ func (r *PromiseReconciler) deleteResourceRequests(o opts, promise *v1alpha1.Pro
 		return err
 	}
 
-	var work v1alpha1.Work
-	err = r.Client.Get(o.ctx, types.NamespacedName{Name: promise.GetName(), Namespace: v1alpha1.SystemNamespace}, &work)
-	if err != nil {
-		return err
-	}
-
 	pipelines, err := promise.GeneratePipelines(o.logger)
 	if err != nil {
 		return err
 	}
 
 	var canCreateResources bool
-	err = r.ensureDynamicControllerIsStarted(promise, &work, rrCRD, rrGVK, pipelines.ConfigureResource, pipelines.DeleteResource, &canCreateResources, o.logger)
+	err = r.ensureDynamicControllerIsStarted(promise, rrCRD, rrGVK, pipelines.ConfigureResource, pipelines.DeleteResource, &canCreateResources, o.logger)
 	if err != nil {
 		return err
 	}
@@ -961,18 +946,27 @@ func setStatusFieldsOnCRD(rrCRD *apiextensionsv1.CustomResourceDefinition) {
 }
 
 func (r *PromiseReconciler) applyWorkResourceForDependencies(o opts, promise *v1alpha1.Promise) error {
-	work, err := v1alpha1.NewPromiseDependenciesWork(promise)
+	name := resourceutil.GenerateObjectName(promise.GetName() + "-static-deps")
+	work, err := v1alpha1.NewPromiseDependenciesWork(promise, name)
+	if err != nil {
+		return err
+	}
+	resourceutil.SetStaticDependencyWorkLabels(work.Labels, promise.GetName())
+
+	existingWork, err := resourceutil.GetWorkForStaticDependencies(r.Client, v1alpha1.SystemNamespace, promise.GetName())
 	if err != nil {
 		return err
 	}
 
-	workCopy := work.DeepCopy()
-
-	op, err := controllerutil.CreateOrUpdate(o.ctx, r.Client, work, func() error {
-		work.ObjectMeta.Labels = workCopy.ObjectMeta.Labels
-		work.Spec = workCopy.Spec
-		return nil
-	})
+	var op string
+	if existingWork == nil {
+		op = "created"
+		err = r.Client.Create(o.ctx, work)
+	} else {
+		op = "updated"
+		existingWork.Spec = work.Spec
+		err = r.Client.Update(o.ctx, existingWork)
+	}
 
 	if err != nil {
 		return err

@@ -7,6 +7,7 @@ import (
 	"github.com/syntasso/kratix/api/v1alpha1"
 	"github.com/syntasso/kratix/lib/pipeline"
 	corev1 "k8s.io/api/core/v1"
+	metav1 "k8s.io/apimachinery/pkg/apis/meta/v1"
 	"k8s.io/apimachinery/pkg/apis/meta/v1/unstructured"
 )
 
@@ -35,6 +36,9 @@ var _ = Describe("Configure Pipeline", func() {
 
 		pipelines = []v1alpha1.Pipeline{
 			{
+				ObjectMeta: metav1.ObjectMeta{
+					Name: "configure-step",
+				},
 				Spec: v1alpha1.PipelineSpec{
 					Containers: []v1alpha1.Container{
 						{Name: "test-container", Image: "test-image"},
@@ -55,6 +59,46 @@ var _ = Describe("Configure Pipeline", func() {
 			Expect(err).NotTo(HaveOccurred())
 
 			Expect(job.Labels).To(HaveKeyWithValue("kratix-resource-hash", expectedHash))
+		})
+	})
+
+	Describe("WorkWriter", func() {
+		When("its a promise", func() {
+			It("runs the work-creator with the correct arguments", func() {
+				pipelines[0].Spec.Containers = append(pipelines[0].Spec.Containers, v1alpha1.Container{
+					Name:    "another-container",
+					Image:   "another-image",
+					Args:    []string{"arg1", "arg2"},
+					Command: []string{"command1", "command2"},
+				})
+				job, err := pipeline.ConfigurePipeline(rr, pipelines, pipelineResources, "test-promise", true, logger)
+				Expect(err).NotTo(HaveOccurred())
+
+				Expect(job.Spec.Template.Spec.InitContainers[3].Command).To(ConsistOf(
+					"sh",
+					"-c",
+					"./work-creator -input-directory /work-creator-files -promise-name test-promise -pipeline-name configure-step -namespace kratix-platform-system -workflow-type promise",
+				))
+			})
+		})
+
+		When("its a resource request", func() {
+			It("runs the work-creator with the correct arguments", func() {
+				pipelines[0].Spec.Containers = append(pipelines[0].Spec.Containers, v1alpha1.Container{
+					Name:    "another-container",
+					Image:   "another-image",
+					Args:    []string{"arg1", "arg2"},
+					Command: []string{"command1", "command2"},
+				})
+				job, err := pipeline.ConfigurePipeline(rr, pipelines, pipelineResources, "test-promise", false, logger)
+				Expect(err).NotTo(HaveOccurred())
+
+				Expect(job.Spec.Template.Spec.InitContainers[3].Command).To(ConsistOf(
+					"sh",
+					"-c",
+					"./work-creator -input-directory /work-creator-files -promise-name test-promise -pipeline-name configure-step -namespace test-namespace -resource-name test-pod -workflow-type resource",
+				))
+			})
 		})
 	})
 

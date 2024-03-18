@@ -20,7 +20,6 @@ import (
 	"context"
 
 	apiextensionsv1 "k8s.io/apiextensions-apiserver/pkg/apis/apiextensions/v1"
-	"k8s.io/apimachinery/pkg/types"
 	"sigs.k8s.io/controller-runtime/pkg/controller/controllerutil"
 
 	"fmt"
@@ -29,6 +28,7 @@ import (
 	"github.com/syntasso/kratix/api/v1alpha1"
 	"github.com/syntasso/kratix/lib/pipeline"
 	"github.com/syntasso/kratix/lib/resourceutil"
+
 	batchv1 "k8s.io/api/batch/v1"
 	corev1 "k8s.io/api/core/v1"
 
@@ -61,7 +61,6 @@ type DynamicResourceRequestController struct {
 	Enabled                     *bool
 	CRD                         *apiextensionsv1.CustomResourceDefinition
 	PromiseDestinationSelectors []v1alpha1.PromiseScheduling
-	PromiseWorkflowSelectors    *v1alpha1.WorkloadGroupScheduling
 	CanCreateResources          *bool
 }
 
@@ -133,7 +132,6 @@ func (r *DynamicResourceRequestController) Reconcile(ctx context.Context, req ct
 		resourceRequestIdentifier,
 		r.PromiseIdentifier,
 		r.PromiseDestinationSelectors,
-		r.PromiseWorkflowSelectors,
 		opts.logger,
 	)
 	if err != nil {
@@ -232,39 +230,29 @@ func (r *DynamicResourceRequestController) getDeletePipeline(o opts, resourceReq
 }
 
 func (r *DynamicResourceRequestController) deleteWork(o opts, resourceRequest *unstructured.Unstructured, workName string, finalizer string) error {
-	work := &v1alpha1.Work{}
-	err := r.Client.Get(o.ctx, types.NamespacedName{
-		Namespace: resourceRequest.GetNamespace(),
-		Name:      workName,
-	}, work)
-
+	works, err := resourceutil.GetAllWorksForResource(r.Client, resourceRequest.GetNamespace(), r.PromiseIdentifier, resourceRequest.GetName())
 	if err != nil {
-		if errors.IsNotFound(err) {
-			// only remove finalizer at this point because deletion success is guaranteed
-			controllerutil.RemoveFinalizer(resourceRequest, finalizer)
-			if err := r.Client.Update(o.ctx, resourceRequest); err != nil {
-				return err
-			}
-			return nil
-		}
-
-		o.logger.Error(err, "Error locating Work, will try again in 5 seconds", "workName", workName)
 		return err
 	}
 
-	err = r.Client.Delete(o.ctx, work)
-	if err != nil {
-		if errors.IsNotFound(err) {
-			// only remove finalizer at this point because deletion success is guaranteed
-			controllerutil.RemoveFinalizer(resourceRequest, finalizer)
-			if err := r.Client.Update(o.ctx, resourceRequest); err != nil {
+	if len(works) == 0 {
+		// only remove finalizer at this point because deletion success is guaranteed
+		controllerutil.RemoveFinalizer(resourceRequest, finalizer)
+		if err := r.Client.Update(o.ctx, resourceRequest); err != nil {
+			return err
+		}
+		return nil
+	}
+
+	for _, work := range works {
+		err = r.Client.Delete(o.ctx, &work)
+		if err != nil {
+			if !errors.IsNotFound(err) {
 				return err
 			}
-			return nil
+			o.logger.Error(err, "Error deleting Work %s, will try again", "workName", workName)
+			return err
 		}
-
-		o.logger.Error(err, "Error deleting Work %s, will try again in 5 seconds", "workName", workName)
-		return err
 	}
 
 	return nil

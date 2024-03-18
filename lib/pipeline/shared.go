@@ -60,7 +60,7 @@ func role(obj *unstructured.Unstructured, objPluralName string, args PipelineArg
 			{
 				APIGroups: []string{"platform.kratix.io"},
 				Resources: []string{"works"},
-				Verbs:     []string{"get", "update", "create", "patch"},
+				Verbs:     []string{"*"},
 			},
 		},
 	}

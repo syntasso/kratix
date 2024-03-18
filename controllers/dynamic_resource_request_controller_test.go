@@ -111,6 +111,9 @@ var _ = Describe("DynamicResourceRequestController", func() {
 		promiseCommonLabels = map[string]string{
 			"kratix-promise-id":                  promise.GetName(),
 			"kratix-promise-resource-request-id": promise.GetName() + "-" + resReq.GetName(),
+			"kratix.io/resource-name":            resReq.GetName(),
+			"kratix.io/promise-name":             promise.GetName(),
+			"kratix.io/work-type":                "resource",
 		}
 
 	})
@@ -152,7 +155,7 @@ var _ = Describe("DynamicResourceRequestController", func() {
 						Resources: []string{"redis", "redis/status"},
 					},
 					rbacv1.PolicyRule{
-						Verbs:     []string{"get", "update", "create", "patch"},
+						Verbs:     []string{"*"},
 						APIGroups: []string{"platform.kratix.io"},
 						Resources: []string{"works"},
 					},

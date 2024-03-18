@@ -24,12 +24,11 @@ func NewConfigureResource(
 	resourceRequestIdentifier,
 	promiseIdentifier string,
 	promiseDestinationSelectors []v1alpha1.PromiseScheduling,
-	promiseWorkflowSelectors *v1alpha1.WorkloadGroupScheduling,
 	logger logr.Logger,
 ) ([]client.Object, error) {
 
 	pipelineResources := NewPipelineArgs(promiseIdentifier, resourceRequestIdentifier, rr.GetNamespace())
-	destinationSelectorsConfigMap, err := destinationSelectorsConfigMap(pipelineResources, promiseDestinationSelectors, promiseWorkflowSelectors)
+	destinationSelectorsConfigMap, err := destinationSelectorsConfigMap(pipelineResources, promiseDestinationSelectors, nil)
 	if err != nil {
 		return nil, err
 	}
@@ -155,7 +154,9 @@ func configurePipelineInitContainers(obj *unstructured.Unstructured, pipelines [
 		readerContainer,
 	}
 
+	var pipelineName string
 	if len(pipelines) > 0 {
+		pipelineName = pipelines[0].Name
 		//TODO: We only support 1 workflow for now
 		if len(pipelines[0].Spec.Volumes) > 0 {
 			volumes = append(volumes, pipelines[0].Spec.Volumes...)
@@ -191,12 +192,18 @@ func configurePipelineInitContainers(obj *unstructured.Unstructured, pipelines [
 		}
 	}
 
-	workCreatorCommand := fmt.Sprintf("./work-creator -input-directory /work-creator-files -promise-name %s -namespace %q", promiseName, obj.GetNamespace())
+	workCreatorCommand := fmt.Sprintf("./work-creator -input-directory /work-creator-files -promise-name %s -pipeline-name %s", promiseName, pipelineName)
+	logger.Info("workcreatorcommand before", "command", workCreatorCommand)
+
 	if promiseWorkflow {
-		workCreatorCommand += fmt.Sprintf(" -workflow-type %s", v1alpha1.WorkflowTypePromise)
+		workCreatorCommand += fmt.Sprintf(" -namespace %s -workflow-type %s", v1alpha1.SystemNamespace, v1alpha1.WorkflowTypePromise)
 	} else {
-		workCreatorCommand += fmt.Sprintf(" -resource-name %s -workflow-type %s", obj.GetName(), v1alpha1.WorkflowTypeResource)
+		workCreatorCommand += fmt.Sprintf(" -namespace %s -resource-name %s -workflow-type %s", obj.GetNamespace(), obj.GetName(), v1alpha1.WorkflowTypeResource)
 	}
+
+	logger.Info("pipelines", "configure[0]", pipelines[0])
+	logger.Info("workcreatorcommand after", "command", workCreatorCommand)
+
 	writer := v1.Container{
 		Name:    "work-writer",
 		Image:   os.Getenv("WC_IMG"),
