@@ -149,23 +149,21 @@ func (w *WorkCreator) Execute(rootDirectory, promiseName, namespace, resourceNam
 	work.Spec.PromiseName = promiseName
 	work.Spec.ResourceName = resourceName
 	work.Labels = map[string]string{}
+	resourceutil.SetResourceWorkLabels(work.Labels, promiseName, resourceName, pipelineName)
 
 	if workflowType == string(v1alpha1.WorkflowTypePromise) {
 		work.Namespace = v1alpha1.SystemNamespace
 		work.Spec.Replicas = v1alpha1.DependencyReplicas
 		work.Spec.ResourceName = ""
 		work.Labels = v1alpha1.GenerateSharedLabelsForPromise(promiseName)
+		resourceutil.SetPromiseWorkLabels(work.Labels, promiseName, pipelineName)
 	}
-
-	work.Labels[v1alpha1.KratixPrefix+"promise-name"] = promiseName
-	work.Labels[v1alpha1.KratixPrefix+"resource-name"] = resourceName
-	work.Labels[v1alpha1.KratixPrefix+"pipeline-name"] = pipelineName
 
 	var currentWork *v1alpha1.Work
 	if resourceName == "" {
-		currentWork, err = resourceutil.GetExistingWorkForPromise(w.K8sClient, namespace, promiseName, pipelineName)
+		currentWork, err = resourceutil.GetWorkForPromisePipeline(w.K8sClient, namespace, promiseName, pipelineName)
 	} else {
-		currentWork, err = resourceutil.GetExistingWorkForResource(w.K8sClient, namespace, promiseName, resourceName, pipelineName)
+		currentWork, err = resourceutil.GetWorkForResourcePipeline(w.K8sClient, namespace, promiseName, resourceName, pipelineName)
 	}
 
 	if err != nil {

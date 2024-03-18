@@ -24,12 +24,11 @@ func NewConfigureResource(
 	resourceRequestIdentifier,
 	promiseIdentifier string,
 	promiseDestinationSelectors []v1alpha1.PromiseScheduling,
-	promiseWorkflowSelectors *v1alpha1.WorkloadGroupScheduling,
 	logger logr.Logger,
 ) ([]client.Object, error) {
 
 	pipelineResources := NewPipelineArgs(promiseIdentifier, resourceRequestIdentifier, rr.GetNamespace())
-	destinationSelectorsConfigMap, err := destinationSelectorsConfigMap(pipelineResources, promiseDestinationSelectors, promiseWorkflowSelectors)
+	destinationSelectorsConfigMap, err := destinationSelectorsConfigMap(pipelineResources, promiseDestinationSelectors, nil)
 	if err != nil {
 		return nil, err
 	}

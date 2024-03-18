@@ -58,6 +58,7 @@ var _ = Describe("WorkCreator", func() {
 					"kratix.io/promise-name":  "promise-name",
 					"kratix.io/resource-name": "resource-name",
 					"kratix.io/pipeline-name": "configure-job",
+					"kratix.io/work-type":     "resource",
 				}))
 			})
 
@@ -261,7 +262,7 @@ var _ = Describe("WorkCreator", func() {
 			})
 		})
 
-		Context("complete set of inputs for a Promise", func() {
+		When("given a complete set of inputs for a Promise", func() {
 			BeforeEach(func() {
 				err := workCreator.Execute(filepath.Join(getRootDirectory(), "complete-for-promise"), "promise-name", "", "resource-name", "promise", pipelineName)
 				Expect(err).NotTo(HaveOccurred())
@@ -270,6 +271,13 @@ var _ = Describe("WorkCreator", func() {
 			It("has a correctly configured Work resource", func() {
 				expectedNamespace = "kratix-platform-system"
 				workResource := getWork(expectedNamespace, promiseName, "", pipelineName)
+
+				Expect(workResource.Labels).To(Equal(map[string]string{
+					"kratix.io/promise-name":  "promise-name",
+					"kratix.io/pipeline-name": "configure-job",
+					"kratix.io/work-type":     "promise",
+					"kratix-promise-id":       "promise-name",
+				}))
 
 				Expect(workResource.Spec.Replicas).To(Equal(-1))
 				Expect(workResource.Spec.WorkloadGroups[0].DestinationSelectors).To(ConsistOf(

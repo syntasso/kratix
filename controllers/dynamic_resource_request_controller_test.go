@@ -111,6 +111,9 @@ var _ = Describe("DynamicResourceRequestController", func() {
 		promiseCommonLabels = map[string]string{
 			"kratix-promise-id":                  promise.GetName(),
 			"kratix-promise-resource-request-id": promise.GetName() + "-" + resReq.GetName(),
+			"kratix.io/resource-name":            resReq.GetName(),
+			"kratix.io/promise-name":             promise.GetName(),
+			"kratix.io/work-type":                "resource",
 		}
 
 	})

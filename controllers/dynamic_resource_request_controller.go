@@ -61,7 +61,6 @@ type DynamicResourceRequestController struct {
 	Enabled                     *bool
 	CRD                         *apiextensionsv1.CustomResourceDefinition
 	PromiseDestinationSelectors []v1alpha1.PromiseScheduling
-	PromiseWorkflowSelectors    *v1alpha1.WorkloadGroupScheduling
 	CanCreateResources          *bool
 }
 
@@ -133,7 +132,6 @@ func (r *DynamicResourceRequestController) Reconcile(ctx context.Context, req ct
 		resourceRequestIdentifier,
 		r.PromiseIdentifier,
 		r.PromiseDestinationSelectors,
-		r.PromiseWorkflowSelectors,
 		opts.logger,
 	)
 	if err != nil {
