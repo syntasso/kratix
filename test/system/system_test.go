@@ -127,12 +127,12 @@ var _ = Describe("Kratix", func() {
 	})
 
 	Describe("Promise lifecycle", func() {
-		// var secondPromiseConfigureWorkflowName string
+		var secondPromiseConfigureWorkflowName string
 		BeforeEach(func() {
-			// secondPromiseConfigureWorkflowName = fmt.Sprintf("%s-2nd-workflow", bashPromiseName)
+			secondPromiseConfigureWorkflowName = fmt.Sprintf("%s-2nd-workflow", bashPromiseName)
 		})
 
-		It("can install, update, and delete a promise", func() {
+		FIt("can install, update, and delete a promise", func() {
 			By("installing the promise", func() {
 				platform.eventuallyKubectl("apply", "-f", cat(bashPromise))
 
@@ -141,7 +141,7 @@ var _ = Describe("Kratix", func() {
 				platform.eventuallyKubectl("get", "namespace", declarativePlatformNamespace)
 				worker.eventuallyKubectl("get", "namespace", declarativeStaticWorkerNamespace)
 				worker.eventuallyKubectl("get", "namespace", declarativeWorkerNamespace)
-				// worker.eventuallyKubectl("get", "configmap", secondPromiseConfigureWorkflowName)
+				worker.eventuallyKubectl("get", "configmap", secondPromiseConfigureWorkflowName)
 			})
 
 			updatedDeclarativeStaticWorkerNamespace := declarativeStaticWorkerNamespace + "-new"
@@ -158,7 +158,7 @@ var _ = Describe("Kratix", func() {
 					},
 				}
 
-				// bashPromise.Spec.Workflows.Resource.Configure[1].Object["spec"].(map[string]interface{})["containers"].(map[string]interface{})["command"].([]string)[2] = "kubectl create configmap REPLACEBASH-2nd-workflow-new -o yaml > /kratix/output/configmap.yaml"
+				bashPromise.Spec.Workflows.Resource.Configure[1].Object["spec"].(map[string]interface{})["containers"].(map[string]interface{})["command"].([]string)[2] = "kubectl create configmap REPLACEBASH-2nd-workflow-new -o yaml > /kratix/output/configmap.yaml"
 
 				platform.eventuallyKubectl("apply", "-f", cat(bashPromise))
 
@@ -166,7 +166,7 @@ var _ = Describe("Kratix", func() {
 				worker.withExitCode(1).eventuallyKubectl("get", "namespace", declarativeStaticWorkerNamespace)
 				worker.eventuallyKubectl("get", "namespace", updatedDeclarativeStaticWorkerNamespace)
 				worker.eventuallyKubectl("get", "namespace", declarativeWorkerNamespace)
-				// worker.eventuallyKubectl("get", "configmap", secondPromiseConfigureWorkflowName+"-new")
+				worker.eventuallyKubectl("get", "configmap", secondPromiseConfigureWorkflowName+"-new")
 				platform.eventuallyKubectl("get", "namespace", declarativePlatformNamespace)
 			})
 
@@ -178,7 +178,7 @@ var _ = Describe("Kratix", func() {
 				platform.withExitCode(1).eventuallyKubectl("get", "namespace", declarativePlatformNamespace)
 				platform.withExitCode(1).eventuallyKubectl("get", "promise", bashPromiseName)
 				platform.withExitCode(1).eventuallyKubectl("get", "crd", bashPromise.Name)
-				// worker.eventuallyKubectl("get", "configmap", secondPromiseConfigureWorkflowName)
+				worker.eventuallyKubectl("get", "configmap", secondPromiseConfigureWorkflowName)
 			})
 		})
 
