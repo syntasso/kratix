@@ -230,12 +230,6 @@ func (r *DynamicResourceRequestController) getDeletePipeline(o opts, resourceReq
 }
 
 func (r *DynamicResourceRequestController) deleteWork(o opts, resourceRequest *unstructured.Unstructured, workName string, finalizer string) error {
-	// work := &v1alpha1.Work{}
-	// err := r.Client.Get(o.ctx, types.NamespacedName{
-	// 	Namespace: resourceRequest.GetNamespace(),
-	// 	Name:      workName,
-	// }, work)
-
 	works, err := resourceutil.GetAllWorksForResource(r.Client, resourceRequest.GetNamespace(), r.PromiseIdentifier, resourceRequest.GetName())
 	if err != nil {
 		return err
@@ -253,16 +247,10 @@ func (r *DynamicResourceRequestController) deleteWork(o opts, resourceRequest *u
 	for _, work := range works {
 		err = r.Client.Delete(o.ctx, &work)
 		if err != nil {
-			if errors.IsNotFound(err) {
-				// only remove finalizer at this point because deletion success is guaranteed
-				controllerutil.RemoveFinalizer(resourceRequest, finalizer)
-				if err := r.Client.Update(o.ctx, resourceRequest); err != nil {
-					return err
-				}
-				return nil
+			if !errors.IsNotFound(err) {
+				return err
 			}
-
-			o.logger.Error(err, "Error deleting Work %s, will try again in 5 seconds", "workName", workName)
+			o.logger.Error(err, "Error deleting Work %s, will try again", "workName", workName)
 			return err
 		}
 	}
