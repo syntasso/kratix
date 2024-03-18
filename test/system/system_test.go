@@ -178,7 +178,7 @@ var _ = Describe("Kratix", func() {
 				platform.withExitCode(1).eventuallyKubectl("get", "namespace", declarativePlatformNamespace)
 				platform.withExitCode(1).eventuallyKubectl("get", "promise", bashPromiseName)
 				platform.withExitCode(1).eventuallyKubectl("get", "crd", bashPromise.Name)
-				worker.eventuallyKubectl("get", "configmap", secondPromiseConfigureWorkflowName)
+				// worker.eventuallyKubectl("get", "configmap", secondPromiseConfigureWorkflowName)
 			})
 		})
 

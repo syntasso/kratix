@@ -155,7 +155,7 @@ var _ = Describe("DynamicResourceRequestController", func() {
 						Resources: []string{"redis", "redis/status"},
 					},
 					rbacv1.PolicyRule{
-						Verbs:     []string{"get", "update", "create", "patch"},
+						Verbs:     []string{"*"},
 						APIGroups: []string{"platform.kratix.io"},
 						Resources: []string{"works"},
 					},
