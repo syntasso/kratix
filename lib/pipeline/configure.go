@@ -150,36 +150,36 @@ func configurePipelineInitContainers(obj *unstructured.Unstructured, pipelines [
 		kratixWorkflowType = v1alpha1.WorkflowTypePromise
 	}
 
+	kratixEnvVars := []v1.EnvVar{
+		{
+			Name:  kratixActionEnvVar,
+			Value: string(v1alpha1.WorkflowActionConfigure),
+		},
+		{
+			Name:  kratixTypeEnvVar,
+			Value: string(kratixWorkflowType),
+		},
+		{
+			Name:  kratixPromiseEnvVar,
+			Value: promiseName,
+		},
+	}
+
 	readerContainer := readerContainer(obj, kratixWorkflowType, "shared-input")
 	containers := []v1.Container{
 		readerContainer,
 	}
 
 	if len(pipelines) > 0 {
-		//TODO: We only support 1 workflow for now
 		if len(pipelines[0].Spec.Volumes) > 0 {
 			volumes = append(volumes, pipelines[0].Spec.Volumes...)
 		}
-		for i, c := range pipelines[0].Spec.Containers {
-			kratixEnvVars := []v1.EnvVar{
-				{
-					Name:  kratixActionEnvVar,
-					Value: string(v1alpha1.WorkflowActionConfigure),
-				},
-				{
-					Name:  kratixTypeEnvVar,
-					Value: string(kratixWorkflowType),
-				},
-				{
-					Name:  kratixPromiseEnvVar,
-					Value: promiseName,
-				},
-			}
+		for _, c := range pipelines[0].Spec.Containers {
 			if len(c.VolumeMounts) > 0 {
 				volumeMounts = append(volumeMounts, c.VolumeMounts...)
 			}
 			containers = append(containers, v1.Container{
-				Name:            providedOrDefaultName(c.Name, i),
+				Name:            c.Name,
 				Image:           c.Image,
 				VolumeMounts:    volumeMounts,
 				Args:            c.Args,
@@ -242,11 +242,4 @@ func metadataAndSchedulingVolumes(configMapName string) []v1.Volume {
 			},
 		},
 	}
-}
-
-func providedOrDefaultName(providedName string, index int) string {
-	if providedName == "" {
-		return fmt.Sprintf("default-container-name-%d", index)
-	}
-	return providedName
 }
