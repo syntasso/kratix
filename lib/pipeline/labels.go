@@ -15,40 +15,40 @@ func newPipelineLabels() pipelineLabels {
 
 func LabelsForAllResourceWorkflows(rrID, promiseID string) map[string]string {
 	return ResourceLabels(rrID, promiseID).
-		WithWorkflow(v1alpha1.WorkflowTypeResource, "")
+		WithWorkflow(v1alpha1.WorkflowTypeResource, "", "")
 }
 
 func LabelsForAllPromiseWorkflows(promiseID string) map[string]string {
 	return PromiseLabels(promiseID).
-		WithWorkflow(v1alpha1.WorkflowTypePromise, "")
+		WithWorkflow(v1alpha1.WorkflowTypePromise, "", "")
 }
 
-func LabelsForDeleteResource(rrID, promiseID string, requestSHA ...string) map[string]string {
-	labels := ResourceLabels(rrID, promiseID).WithWorkflow(v1alpha1.WorkflowTypeResource, v1alpha1.WorkflowActionDelete)
+func LabelsForDeleteResource(rrID, promiseID, pipelineName string, requestSHA ...string) map[string]string {
+	labels := ResourceLabels(rrID, promiseID).WithWorkflow(v1alpha1.WorkflowTypeResource, v1alpha1.WorkflowActionDelete, pipelineName)
 	if len(requestSHA) > 0 {
 		return labels.WithRequestSHA(requestSHA[0])
 	}
 	return labels
 }
 
-func LabelsForConfigureResource(rrID, promiseID string, requestSHA ...string) map[string]string {
-	labels := ResourceLabels(rrID, promiseID).WithWorkflow(v1alpha1.WorkflowTypeResource, v1alpha1.WorkflowActionConfigure)
+func LabelsForConfigureResource(rrID, promiseID, pipelineName string, requestSHA ...string) map[string]string {
+	labels := ResourceLabels(rrID, promiseID).WithWorkflow(v1alpha1.WorkflowTypeResource, v1alpha1.WorkflowActionConfigure, pipelineName)
 	if len(requestSHA) > 0 {
 		return labels.WithRequestSHA(requestSHA[0])
 	}
 	return labels
 }
 
-func LabelsForDeletePromise(promiseID string, requestSHA ...string) map[string]string {
-	labels := PromiseLabels(promiseID).WithWorkflow(v1alpha1.WorkflowTypePromise, v1alpha1.WorkflowActionDelete)
+func LabelsForDeletePromise(promiseID, pipelineName string, requestSHA ...string) map[string]string {
+	labels := PromiseLabels(promiseID).WithWorkflow(v1alpha1.WorkflowTypePromise, v1alpha1.WorkflowActionDelete, pipelineName)
 	if len(requestSHA) > 0 {
 		return labels.WithRequestSHA(requestSHA[0])
 	}
 	return labels
 }
 
-func LabelsForConfigurePromise(promiseID string, requestSHA ...string) map[string]string {
-	labels := PromiseLabels(promiseID).WithWorkflow(v1alpha1.WorkflowTypePromise, v1alpha1.WorkflowActionConfigure)
+func LabelsForConfigurePromise(promiseID, pipelineName string, requestSHA ...string) map[string]string {
+	labels := PromiseLabels(promiseID).WithWorkflow(v1alpha1.WorkflowTypePromise, v1alpha1.WorkflowActionConfigure, pipelineName)
 	if len(requestSHA) > 0 {
 		return labels.WithRequestSHA(requestSHA[0])
 	}
@@ -65,20 +65,25 @@ func PromiseLabels(promiseID string) pipelineLabels {
 
 func (p pipelineLabels) WithPromiseID(promiseID string) pipelineLabels {
 	p["kratix-promise-id"] = promiseID
+	p[v1alpha1.WorkPromiseNameLabel] = promiseID
 	return p
 }
 
 func (p pipelineLabels) WithResourceRequestID(resourceRequestID string) pipelineLabels {
 	p["kratix-promise-resource-request-id"] = resourceRequestID
+	p[v1alpha1.WorkPromiseNameLabel] = resourceRequestID
 	return p
 }
 
-func (p pipelineLabels) WithWorkflow(workflowType v1alpha1.Type, workflowAction v1alpha1.Action) pipelineLabels {
+func (p pipelineLabels) WithWorkflow(workflowType v1alpha1.Type, workflowAction v1alpha1.Action, pipelineName string) pipelineLabels {
 	p["kratix-workflow-kind"] = "pipeline.platform.kratix.io"
 	p["kratix-workflow-promise-version"] = "v1alpha1"
 	p["kratix-workflow-type"] = string(workflowType)
 	if workflowAction != "" {
 		p["kratix-workflow-action"] = string(workflowAction)
+	}
+	if pipelineName != "" {
+		p["kraitx-workflow-pipeline-name"] = pipelineName
 	}
 	return p
 }

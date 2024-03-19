@@ -182,7 +182,7 @@ func readerContainer(obj *unstructured.Unstructured, kratixWorkflowType v1alpha1
 	return readerContainer
 }
 
-func generateContainersAndVolumes(obj *unstructured.Unstructured, workflowType v1alpha1.Type, pipelines []v1alpha1.Pipeline, kratixEnvVars []v1.EnvVar) ([]v1.Container, []v1.Volume) {
+func generateContainersAndVolumes(obj *unstructured.Unstructured, workflowType v1alpha1.Type, pipeline v1alpha1.Pipeline, kratixEnvVars []v1.EnvVar) ([]v1.Container, []v1.Volume) {
 	volumes, volumeMounts := defaultPipelineVolumes()
 
 	readerContainer := readerContainer(obj, workflowType, "shared-input")
@@ -190,26 +190,24 @@ func generateContainersAndVolumes(obj *unstructured.Unstructured, workflowType v
 		readerContainer,
 	}
 
-	if len(pipelines) > 0 {
-		if len(pipelines[0].Spec.Volumes) > 0 {
-			volumes = append(volumes, pipelines[0].Spec.Volumes...)
+	if len(pipeline.Spec.Volumes) > 0 {
+		volumes = append(volumes, pipeline.Spec.Volumes...)
+	}
+	for _, c := range pipeline.Spec.Containers {
+		if len(c.VolumeMounts) > 0 {
+			volumeMounts = append(volumeMounts, c.VolumeMounts...)
 		}
-		for _, c := range pipelines[0].Spec.Containers {
-			if len(c.VolumeMounts) > 0 {
-				volumeMounts = append(volumeMounts, c.VolumeMounts...)
-			}
 
-			containers = append(containers, v1.Container{
-				Name:            c.Name,
-				Image:           c.Image,
-				VolumeMounts:    volumeMounts,
-				Args:            c.Args,
-				Command:         c.Command,
-				Env:             append(kratixEnvVars, c.Env...),
-				EnvFrom:         c.EnvFrom,
-				ImagePullPolicy: c.ImagePullPolicy,
-			})
-		}
+		containers = append(containers, v1.Container{
+			Name:            c.Name,
+			Image:           c.Image,
+			VolumeMounts:    volumeMounts,
+			Args:            c.Args,
+			Command:         c.Command,
+			Env:             append(kratixEnvVars, c.Env...),
+			EnvFrom:         c.EnvFrom,
+			ImagePullPolicy: c.ImagePullPolicy,
+		})
 	}
 
 	return containers, volumes

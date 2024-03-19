@@ -25,11 +25,11 @@ import (
 
 	controllerutil "sigs.k8s.io/controller-runtime/pkg/controller/controllerutil"
 	"sigs.k8s.io/controller-runtime/pkg/handler"
-	"sigs.k8s.io/controller-runtime/pkg/manager"
 	"sigs.k8s.io/controller-runtime/pkg/reconcile"
 
 	"github.com/go-logr/logr"
 	"github.com/syntasso/kratix/api/v1alpha1"
+	"github.com/syntasso/kratix/lib/manager"
 	"github.com/syntasso/kratix/lib/pipeline"
 	"github.com/syntasso/kratix/lib/resourceutil"
 	batchv1 "k8s.io/api/batch/v1"
@@ -47,11 +47,12 @@ import (
 	"k8s.io/apimachinery/pkg/types"
 	ctrl "sigs.k8s.io/controller-runtime"
 	"sigs.k8s.io/controller-runtime/pkg/client"
+	kmanager "sigs.k8s.io/controller-runtime/pkg/manager"
 )
 
 //go:generate go run github.com/maxbrunsfeld/counterfeiter/v6 . Manager
 type Manager interface {
-	manager.Manager
+	kmanager.Manager
 }
 
 // PromiseReconciler reconciles a Promise object
@@ -367,26 +368,32 @@ func (r *PromiseReconciler) reconcileDependencies(o opts, promise *v1alpha1.Prom
 	if err != nil {
 		return nil, err
 	}
-	pipelineResources, err := pipeline.NewConfigurePromise(
-		unstructuredPromise,
-		configurePipeline,
-		promise.GetName(),
-		promise.Spec.DestinationSelectors,
-		o.logger,
-	)
-	if err != nil {
-		return nil, err
+
+	var pipelines []manager.Pipeline
+	for _, p := range configurePipeline {
+		pipelineResources, err := pipeline.NewConfigurePromise(
+			unstructuredPromise,
+			p,
+			promise.GetName(),
+			promise.Spec.DestinationSelectors,
+			o.logger,
+		)
+		if err != nil {
+			return nil, err
+		}
+		pipelines = append(pipelines, manager.Pipeline{
+			Resources: pipelineResources,
+			Name:      p.Name,
+		})
 	}
 
-	jobOpts := jobOpts{
-		opts:              o,
-		obj:               unstructuredPromise,
-		pipelineLabels:    pipeline.LabelsForConfigurePromise(promise.GetName()),
-		pipelineResources: pipelineResources,
-		source:            "promise",
-	}
+	jobOpts := manager.NewWorkflowOpts(o.ctx, o.client, o.logger, unstructuredPromise, pipelines, "promise")
 
-	return ensureConfigurePipelineIsReconciled(jobOpts)
+	finished, err := manager.ReconcileConfigurePipeline(jobOpts)
+	if err == nil && finished {
+		return nil, nil
+	}
+	return &defaultRequeue, err
 }
 
 func (r *PromiseReconciler) reconcileAllRRs(rrGVK schema.GroupVersionKind) error {
@@ -619,25 +626,29 @@ func (r *PromiseReconciler) deletePromise(o opts, promise *v1alpha1.Promise, del
 	}
 
 	if controllerutil.ContainsFinalizer(promise, runDeleteWorkflowsFinalizer) {
-		pipelineLabels := pipeline.LabelsForDeletePromise(promise.GetName())
-
 		unstructuredPromise, err := promise.ToUnstructured()
 		if err != nil {
 			return ctrl.Result{}, err
 		}
-		pipelineResources := pipeline.NewDeletePromise(
-			unstructuredPromise, deletePipelines,
-		)
+		var pipelines []manager.Pipeline
+		for _, p := range deletePipelines {
+			pipelineResources := pipeline.NewDeletePromise(
+				unstructuredPromise, p,
+			)
 
-		jobOpts := jobOpts{
-			opts:              o,
-			obj:               unstructuredPromise,
-			pipelineLabels:    pipelineLabels,
-			pipelineResources: pipelineResources,
-			source:            "promise",
+			pipelines = append(pipelines, manager.Pipeline{
+				Resources: pipelineResources,
+				Name:      p.Name,
+			})
 		}
 
-		return ensureDeletePipelineIsReconciled(jobOpts)
+		jobOpts := manager.NewWorkflowOpts(o.ctx, o.client, o.logger, unstructuredPromise, pipelines, "promise")
+
+		finished, err := manager.ReconcileDeletePipeline(jobOpts, pipelines[0])
+		if err == nil && finished {
+			return ctrl.Result{}, nil
+		}
+		return defaultRequeue, err
 	}
 
 	if controllerutil.ContainsFinalizer(promise, removeAllWorkflowJobsFinalizer) {

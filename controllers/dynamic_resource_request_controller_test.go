@@ -52,6 +52,7 @@ var _ = Describe("DynamicResourceRequestController", func() {
 		Expect(fakeK8sClient.Get(ctx, promiseName, promise)).To(Succeed())
 		promise.UID = types.UID("1234abcd")
 		Expect(fakeK8sClient.Update(ctx, promise)).To(Succeed())
+		l = ctrl.Log.WithName("controllers").WithName("dynamic")
 
 		enabled := true
 		reconciler = &controllers.DynamicResourceRequestController{
@@ -88,7 +89,7 @@ var _ = Describe("DynamicResourceRequestController", func() {
 
 			PromiseDestinationSelectors: promise.Spec.DestinationSelectors,
 			// promiseWorkflowSelectors:    work.GetDefaultScheduling("promise-workflow"),
-			Log:     ctrl.Log.WithName("controllers").WithName("Promise"),
+			Log:     l,
 			UID:     "1234abcd",
 			Enabled: &enabled,
 		}
@@ -129,7 +130,8 @@ var _ = Describe("DynamicResourceRequestController", func() {
 			}
 
 			resourceLabels := map[string]string{
-				"kratix-promise-id": promise.GetName(),
+				"kratix-promise-id":      promise.GetName(),
+				"kratix.io/promise-name": promise.GetName(),
 			}
 
 			By("creating a service account for pipeline", func() {
@@ -361,7 +363,6 @@ var _ = Describe("DynamicResourceRequestController", func() {
 					jobs.Items[1].Spec.Template.Spec.Containers[0].Image,
 				}).To(ConsistOf("configure:v0.1.0", "delete:v0.1.0"))
 			})
-
 			result, err := t.reconcileUntilCompletion(reconciler, resReq, &opts{
 				funcs: []func(client.Object) error{
 					autoCompleteJobAndCreateWork(promiseCommonLabels, promise.GetName()+"-"+resReq.GetName()),

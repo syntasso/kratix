@@ -20,20 +20,20 @@ import (
 func NewConfigureResource(
 	rr *unstructured.Unstructured,
 	crdPlural string,
-	pipelines []v1alpha1.Pipeline,
+	pipeline v1alpha1.Pipeline,
 	resourceRequestIdentifier,
 	promiseIdentifier string,
 	promiseDestinationSelectors []v1alpha1.PromiseScheduling,
 	logger logr.Logger,
 ) ([]client.Object, error) {
 
-	pipelineResources := NewPipelineArgs(promiseIdentifier, resourceRequestIdentifier, rr.GetNamespace())
+	pipelineResources := NewPipelineArgs(promiseIdentifier, resourceRequestIdentifier, pipeline.Name, rr.GetNamespace())
 	destinationSelectorsConfigMap, err := destinationSelectorsConfigMap(pipelineResources, promiseDestinationSelectors, nil)
 	if err != nil {
 		return nil, err
 	}
 
-	pipeline, err := ConfigurePipeline(rr, pipelines, pipelineResources, promiseIdentifier, false, logger)
+	job, err := ConfigurePipeline(rr, pipeline, pipelineResources, promiseIdentifier, false, logger)
 	if err != nil {
 		return nil, err
 	}
@@ -43,27 +43,27 @@ func NewConfigureResource(
 		role(rr, crdPlural, pipelineResources),
 		roleBinding((pipelineResources)),
 		destinationSelectorsConfigMap,
-		pipeline,
+		job,
 	}
 
 	return resources, nil
 }
 
 func NewConfigurePromise(
-	unstructuredPromise *unstructured.Unstructured,
-	pipelines []v1alpha1.Pipeline,
+	unstructedPromise *unstructured.Unstructured,
+	p v1alpha1.Pipeline,
 	promiseIdentifier string,
 	promiseDestinationSelectors []v1alpha1.PromiseScheduling,
 	logger logr.Logger,
 ) ([]client.Object, error) {
 
-	pipelineResources := NewPipelineArgs(promiseIdentifier, "", v1alpha1.SystemNamespace)
+	pipelineResources := NewPipelineArgs(promiseIdentifier, "", p.Name, v1alpha1.SystemNamespace)
 	destinationSelectorsConfigMap, err := destinationSelectorsConfigMap(pipelineResources, promiseDestinationSelectors, nil)
 	if err != nil {
 		return nil, err
 	}
 
-	pipeline, err := ConfigurePipeline(unstructuredPromise, pipelines, pipelineResources, promiseIdentifier, true, logger)
+	pipeline, err := ConfigurePipeline(unstructedPromise, p, pipelineResources, promiseIdentifier, true, logger)
 	if err != nil {
 		return nil, err
 	}
@@ -79,10 +79,10 @@ func NewConfigurePromise(
 	return resources, nil
 }
 
-func ConfigurePipeline(obj *unstructured.Unstructured, pipelines []v1alpha1.Pipeline, pipelineArgs PipelineArgs, promiseName string, promiseWorkflow bool, logger logr.Logger) (*batchv1.Job, error) {
+func ConfigurePipeline(obj *unstructured.Unstructured, pipeline v1alpha1.Pipeline, pipelineArgs PipelineArgs, promiseName string, promiseWorkflow bool, logger logr.Logger) (*batchv1.Job, error) {
 	volumes := metadataAndSchedulingVolumes(pipelineArgs.ConfigMapName())
 
-	initContainers, pipelineVolumes := generateConfigurePipelineContainersAndVolumes(obj, pipelines, promiseName, promiseWorkflow, logger)
+	initContainers, pipelineVolumes := generateConfigurePipelineContainersAndVolumes(obj, pipeline, promiseName, promiseWorkflow, logger)
 	volumes = append(volumes, pipelineVolumes...)
 
 	objHash, err := hash.ComputeHashForResource(obj)
@@ -96,20 +96,18 @@ func ConfigurePipeline(obj *unstructured.Unstructured, pipelines []v1alpha1.Pipe
 		imagePullSecrets = append(imagePullSecrets, v1.LocalObjectReference{Name: workCreatorPullSecrets})
 	}
 
-	if len(pipelines) > 0 {
-		imagePullSecrets = append(imagePullSecrets, pipelines[0].Spec.ImagePullSecrets...)
-	}
+	imagePullSecrets = append(imagePullSecrets, pipeline.Spec.ImagePullSecrets...)
 
 	job := &batchv1.Job{
 		ObjectMeta: metav1.ObjectMeta{
 			Name:      pipelineArgs.ConfigurePipelineName(),
 			Namespace: pipelineArgs.Namespace(),
-			Labels:    pipelineArgs.ConfigurePipelinePodLabels(objHash),
+			Labels:    pipelineArgs.ConfigurePipelineJobLabels(objHash),
 		},
 		Spec: batchv1.JobSpec{
 			Template: v1.PodTemplateSpec{
 				ObjectMeta: metav1.ObjectMeta{
-					Labels: pipelineArgs.ConfigurePipelinePodLabels(objHash),
+					Labels: pipelineArgs.ConfigurePipelineJobLabels(objHash),
 				},
 				Spec: v1.PodSpec{
 					RestartPolicy:      v1.RestartPolicyOnFailure,
@@ -146,7 +144,7 @@ func ConfigurePipeline(obj *unstructured.Unstructured, pipelines []v1alpha1.Pipe
 	return job, nil
 }
 
-func generateConfigurePipelineContainersAndVolumes(obj *unstructured.Unstructured, pipelines []v1alpha1.Pipeline, promiseName string, promiseWorkflow bool, logger logr.Logger) ([]v1.Container, []v1.Volume) {
+func generateConfigurePipelineContainersAndVolumes(obj *unstructured.Unstructured, pipeline v1alpha1.Pipeline, promiseName string, promiseWorkflow bool, logger logr.Logger) ([]v1.Container, []v1.Volume) {
 	workflowType := v1alpha1.WorkflowTypeResource
 	if promiseWorkflow {
 		workflowType = v1alpha1.WorkflowTypePromise
@@ -167,24 +165,14 @@ func generateConfigurePipelineContainersAndVolumes(obj *unstructured.Unstructure
 		},
 	}
 
-	containers, volumes := generateContainersAndVolumes(obj, workflowType, pipelines, kratixEnvVars)
+	containers, volumes := generateContainersAndVolumes(obj, workflowType, pipeline, kratixEnvVars)
 
-	var pipelineName string
-	if len(pipelines) > 0 {
-		pipelineName = pipelines[0].Name
-	}
-
-	workCreatorCommand := fmt.Sprintf("./work-creator -input-directory /work-creator-files -promise-name %s -pipeline-name %s", promiseName, pipelineName)
-	logger.Info("workcreatorcommand before", "command", workCreatorCommand)
-
+	workCreatorCommand := fmt.Sprintf("./work-creator -input-directory /work-creator-files -promise-name %s -pipeline-name %s", promiseName, pipeline.Name)
 	if promiseWorkflow {
 		workCreatorCommand += fmt.Sprintf(" -namespace %s -workflow-type %s", v1alpha1.SystemNamespace, v1alpha1.WorkflowTypePromise)
 	} else {
 		workCreatorCommand += fmt.Sprintf(" -namespace %s -resource-name %s -workflow-type %s", obj.GetNamespace(), obj.GetName(), v1alpha1.WorkflowTypeResource)
 	}
-
-	logger.Info("pipelines", "configure[0]", pipelines[0])
-	logger.Info("workcreatorcommand after", "command", workCreatorCommand)
 
 	writer := v1.Container{
 		Name:    "work-writer",
