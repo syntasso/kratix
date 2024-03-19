@@ -20,20 +20,20 @@ import (
 func NewConfigureResource(
 	rr *unstructured.Unstructured,
 	crdPlural string,
-	pipelines []v1alpha1.Pipeline,
+	pipeline v1alpha1.Pipeline,
 	resourceRequestIdentifier,
 	promiseIdentifier string,
 	promiseDestinationSelectors []v1alpha1.PromiseScheduling,
 	logger logr.Logger,
 ) ([]client.Object, error) {
 
-	pipelineResources := NewPipelineArgs(promiseIdentifier, resourceRequestIdentifier, rr.GetNamespace())
+	pipelineResources := NewPipelineArgs(promiseIdentifier, resourceRequestIdentifier, pipeline.Name, rr.GetNamespace())
 	destinationSelectorsConfigMap, err := destinationSelectorsConfigMap(pipelineResources, promiseDestinationSelectors, nil)
 	if err != nil {
 		return nil, err
 	}
 
-	pipeline, err := ConfigurePipeline(rr, pipelines, pipelineResources, promiseIdentifier, false, logger)
+	job, err := ConfigurePipeline(rr, pipeline, pipelineResources, promiseIdentifier, false, logger)
 	if err != nil {
 		return nil, err
 	}
@@ -43,7 +43,7 @@ func NewConfigureResource(
 		role(rr, crdPlural, pipelineResources),
 		roleBinding((pipelineResources)),
 		destinationSelectorsConfigMap,
-		pipeline,
+		job,
 	}
 
 	return resources, nil
@@ -51,19 +51,19 @@ func NewConfigureResource(
 
 func NewConfigurePromise(
 	unstructedPromise *unstructured.Unstructured,
-	pipelines []v1alpha1.Pipeline,
+	p v1alpha1.Pipeline,
 	promiseIdentifier string,
 	promiseDestinationSelectors []v1alpha1.PromiseScheduling,
 	logger logr.Logger,
 ) ([]client.Object, error) {
 
-	pipelineResources := NewPipelineArgs(promiseIdentifier, "", v1alpha1.SystemNamespace)
+	pipelineResources := NewPipelineArgs(promiseIdentifier, "", p.Name, v1alpha1.SystemNamespace)
 	destinationSelectorsConfigMap, err := destinationSelectorsConfigMap(pipelineResources, promiseDestinationSelectors, nil)
 	if err != nil {
 		return nil, err
 	}
 
-	pipeline, err := ConfigurePipeline(unstructedPromise, pipelines, pipelineResources, promiseIdentifier, true, logger)
+	pipeline, err := ConfigurePipeline(unstructedPromise, p, pipelineResources, promiseIdentifier, true, logger)
 	if err != nil {
 		return nil, err
 	}
@@ -79,10 +79,10 @@ func NewConfigurePromise(
 	return resources, nil
 }
 
-func ConfigurePipeline(obj *unstructured.Unstructured, pipelines []v1alpha1.Pipeline, pipelineArgs PipelineArgs, promiseName string, promiseWorkflow bool, logger logr.Logger) (*batchv1.Job, error) {
+func ConfigurePipeline(obj *unstructured.Unstructured, pipeline v1alpha1.Pipeline, pipelineArgs PipelineArgs, promiseName string, promiseWorkflow bool, logger logr.Logger) (*batchv1.Job, error) {
 	volumes := metadataAndSchedulingVolumes(pipelineArgs.ConfigMapName())
 
-	initContainers, pipelineVolumes := configurePipelineInitContainers(obj, pipelines, promiseName, promiseWorkflow, logger)
+	initContainers, pipelineVolumes := configurePipelineInitContainers(obj, pipeline, promiseName, promiseWorkflow, logger)
 	volumes = append(volumes, pipelineVolumes...)
 
 	objHash, err := hash.ComputeHashForResource(obj)
@@ -91,20 +91,18 @@ func ConfigurePipeline(obj *unstructured.Unstructured, pipelines []v1alpha1.Pipe
 	}
 
 	var imagePullSecrets []v1.LocalObjectReference
-	if len(pipelines) > 0 {
-		imagePullSecrets = pipelines[0].Spec.ImagePullSecrets
-	}
+	imagePullSecrets = pipeline.Spec.ImagePullSecrets
 
 	job := &batchv1.Job{
 		ObjectMeta: metav1.ObjectMeta{
 			Name:      pipelineArgs.ConfigurePipelineName(),
 			Namespace: pipelineArgs.Namespace(),
-			Labels:    pipelineArgs.ConfigurePipelinePodLabels(objHash),
+			Labels:    pipelineArgs.ConfigurePipelineJobLabels(objHash),
 		},
 		Spec: batchv1.JobSpec{
 			Template: v1.PodTemplateSpec{
 				ObjectMeta: metav1.ObjectMeta{
-					Labels: pipelineArgs.ConfigurePipelinePodLabels(objHash),
+					Labels: pipelineArgs.ConfigurePipelineJobLabels(objHash),
 				},
 				Spec: v1.PodSpec{
 					RestartPolicy:      v1.RestartPolicyOnFailure,
@@ -141,7 +139,7 @@ func ConfigurePipeline(obj *unstructured.Unstructured, pipelines []v1alpha1.Pipe
 	return job, nil
 }
 
-func configurePipelineInitContainers(obj *unstructured.Unstructured, pipelines []v1alpha1.Pipeline, promiseName string, promiseWorkflow bool, logger logr.Logger) ([]v1.Container, []v1.Volume) {
+func configurePipelineInitContainers(obj *unstructured.Unstructured, pipelines v1alpha1.Pipeline, promiseName string, promiseWorkflow bool, logger logr.Logger) ([]v1.Container, []v1.Volume) {
 	volumes, volumeMounts := pipelineVolumes()
 
 	kratixWorkflowType := v1alpha1.WorkflowTypeResource
@@ -155,54 +153,47 @@ func configurePipelineInitContainers(obj *unstructured.Unstructured, pipelines [
 	}
 
 	var pipelineName string
-	if len(pipelines) > 0 {
-		pipelineName = pipelines[0].Name
-		//TODO: We only support 1 workflow for now
-		if len(pipelines[0].Spec.Volumes) > 0 {
-			volumes = append(volumes, pipelines[0].Spec.Volumes...)
+	pipelineName = pipelines.Name
+	//TODO: We only support 1 workflow for now
+	if len(pipelines.Spec.Volumes) > 0 {
+		volumes = append(volumes, pipelines.Spec.Volumes...)
+	}
+	for i, c := range pipelines.Spec.Containers {
+		kratixEnvVars := []v1.EnvVar{
+			{
+				Name:  kratixActionEnvVar,
+				Value: string(v1alpha1.WorkflowActionConfigure),
+			},
+			{
+				Name:  kratixTypeEnvVar,
+				Value: string(kratixWorkflowType),
+			},
+			{
+				Name:  kratixPromiseEnvVar,
+				Value: promiseName,
+			},
 		}
-		for i, c := range pipelines[0].Spec.Containers {
-			kratixEnvVars := []v1.EnvVar{
-				{
-					Name:  kratixActionEnvVar,
-					Value: string(v1alpha1.WorkflowActionConfigure),
-				},
-				{
-					Name:  kratixTypeEnvVar,
-					Value: string(kratixWorkflowType),
-				},
-				{
-					Name:  kratixPromiseEnvVar,
-					Value: promiseName,
-				},
-			}
-			if len(c.VolumeMounts) > 0 {
-				volumeMounts = append(volumeMounts, c.VolumeMounts...)
-			}
-			containers = append(containers, v1.Container{
-				Name:            providedOrDefaultName(c.Name, i),
-				Image:           c.Image,
-				VolumeMounts:    volumeMounts,
-				Args:            c.Args,
-				Command:         c.Command,
-				Env:             append(kratixEnvVars, c.Env...),
-				EnvFrom:         c.EnvFrom,
-				ImagePullPolicy: c.ImagePullPolicy,
-			})
+		if len(c.VolumeMounts) > 0 {
+			volumeMounts = append(volumeMounts, c.VolumeMounts...)
 		}
+		containers = append(containers, v1.Container{
+			Name:            providedOrDefaultName(c.Name, i),
+			Image:           c.Image,
+			VolumeMounts:    volumeMounts,
+			Args:            c.Args,
+			Command:         c.Command,
+			Env:             append(kratixEnvVars, c.Env...),
+			EnvFrom:         c.EnvFrom,
+			ImagePullPolicy: c.ImagePullPolicy,
+		})
 	}
 
 	workCreatorCommand := fmt.Sprintf("./work-creator -input-directory /work-creator-files -promise-name %s -pipeline-name %s", promiseName, pipelineName)
-	logger.Info("workcreatorcommand before", "command", workCreatorCommand)
-
 	if promiseWorkflow {
 		workCreatorCommand += fmt.Sprintf(" -namespace %s -workflow-type %s", v1alpha1.SystemNamespace, v1alpha1.WorkflowTypePromise)
 	} else {
 		workCreatorCommand += fmt.Sprintf(" -namespace %s -resource-name %s -workflow-type %s", obj.GetNamespace(), obj.GetName(), v1alpha1.WorkflowTypeResource)
 	}
-
-	logger.Info("pipelines", "configure[0]", pipelines[0])
-	logger.Info("workcreatorcommand after", "command", workCreatorCommand)
 
 	writer := v1.Container{
 		Name:    "work-writer",

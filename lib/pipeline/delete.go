@@ -26,7 +26,7 @@ func newDelete(obj *unstructured.Unstructured, pipelines []v1alpha1.Pipeline, re
 		namespace = v1alpha1.SystemNamespace
 	}
 
-	args := NewPipelineArgs(promiseIdentifier, resourceRequestIdentifier, namespace)
+	args := NewPipelineArgs(promiseIdentifier, resourceRequestIdentifier, pipelines[0].Name, namespace)
 
 	containers, pipelineVolumes := deletePipelineContainers(obj, isPromise, pipelines)
 
@@ -38,12 +38,12 @@ func newDelete(obj *unstructured.Unstructured, pipelines []v1alpha1.Pipeline, re
 			ObjectMeta: metav1.ObjectMeta{
 				Name:      args.DeletePipelineName(),
 				Namespace: args.Namespace(),
-				Labels:    args.DeletePipelinePodLabels(),
+				Labels:    args.DeletePipelineJobLabels(),
 			},
 			Spec: batchv1.JobSpec{
 				Template: v1.PodTemplateSpec{
 					ObjectMeta: metav1.ObjectMeta{
-						Labels: args.DeletePipelinePodLabels(),
+						Labels: args.DeletePipelineJobLabels(),
 					},
 					Spec: v1.PodSpec{
 						RestartPolicy:      v1.RestartPolicyOnFailure,
