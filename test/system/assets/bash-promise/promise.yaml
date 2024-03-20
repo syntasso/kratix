@@ -57,19 +57,6 @@ spec:
                 name: bash-promise-test-c0
               - image: syntassodev/bash-promise-test-c1:dev
                 name: bash-promise-test-c1
-        - apiVersion: platform.kratix.io/v1alpha1
-          kind: Pipeline
-          metadata:
-            name: 2nd-workflow
-            namespace: default
-          spec:
-            containers:
-              - image: syntassodev/bash-promise-test-c0:dev
-                name: bash-promise-test-c0
-                command:
-                - sh
-                - -c
-                - kubectl create configmap REPLACEBASH-2nd-workflow -o yaml > /kratix/output/configmap.yaml
       delete:
         - apiVersion: platform.kratix.io/v1alpha1
           kind: Pipeline
@@ -91,6 +78,19 @@ spec:
             containers:
               - image: syntassodev/bash-promise:v1alpha1
                 name: bash-promise
+        - apiVersion: platform.kratix.io/v1alpha1
+          kind: Pipeline
+          metadata:
+            name: 2nd-workflow
+            namespace: default
+          spec:
+            containers:
+              - image: syntassodev/bash-promise-test-c0:dev
+                name: bash-promise-test-c0
+                command:
+                - sh
+                - -c
+                - kubectl create configmap REPLACEBASH-2nd-workflow -o yaml > /kratix/output/configmap.yaml
       delete:
         - apiVersion: platform.kratix.io/v1alpha1
           kind: Pipeline
