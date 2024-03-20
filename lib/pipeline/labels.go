@@ -1,6 +1,8 @@
 package pipeline
 
-import "github.com/syntasso/kratix/api/v1alpha1"
+import (
+	"github.com/syntasso/kratix/api/v1alpha1"
+)
 
 type pipelineLabels map[string]string
 type action string
@@ -65,13 +67,12 @@ func PromiseLabels(promiseID string) pipelineLabels {
 
 func (p pipelineLabels) WithPromiseID(promiseID string) pipelineLabels {
 	p["kratix-promise-id"] = promiseID
-	p[v1alpha1.WorkPromiseNameLabel] = promiseID
+	p[v1alpha1.PromiseNameLabel] = promiseID
 	return p
 }
 
 func (p pipelineLabels) WithResourceRequestID(resourceRequestID string) pipelineLabels {
 	p["kratix-promise-resource-request-id"] = resourceRequestID
-	p[v1alpha1.WorkPromiseNameLabel] = resourceRequestID
 	return p
 }
 
@@ -83,7 +84,7 @@ func (p pipelineLabels) WithWorkflow(workflowType v1alpha1.Type, workflowAction 
 		p["kratix-workflow-action"] = string(workflowAction)
 	}
 	if pipelineName != "" {
-		p["kraitx-workflow-pipeline-name"] = pipelineName
+		p["kratix-workflow-pipeline-name"] = pipelineName
 	}
 	return p
 }
