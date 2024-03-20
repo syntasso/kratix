@@ -53,16 +53,19 @@ func NewWorkflowOpts(ctx context.Context, client client.Client, logger logr.Logg
 func ReconcileConfigurePipeline(w WorkflowOpts) (bool, error) {
 	originalLogger := w.logger
 	for _, pipeline := range w.pipelines {
+		w.logger.Info("pipelines: " + pipeline.Name)
+	}
+	for _, pipeline := range w.pipelines {
 		labels := getLabelsForJobs(pipeline)
 		pipeline.Labels = labels
 		w.logger = originalLogger.WithName(pipeline.Name).WithValues("labels", pipeline.Labels)
+		w.logger.Info("Reconciling pipeline " + pipeline.Name)
 		finished, err := reconcileConfigurePipeline(w, pipeline)
-		if err != nil {
-			return false, err
+		if err == nil && finished {
+			w.logger.Info("Pipeline reconciled, moving to next", "name", pipeline.Name)
+			continue
 		}
-		if !finished {
-			return false, nil
-		}
+		return finished, err
 	}
 	return true, nil
 }
