@@ -27,16 +27,16 @@ func SetStaticDependencyWorkLabels(l map[string]string, promiseName string) {
 }
 
 func setWorkLabels(l map[string]string, promiseName, resourceName, pipelineName string) {
-	l[v1alpha1.WorkPromiseNameLabel] = promiseName
+	l[v1alpha1.PromiseNameLabel] = promiseName
 	l[v1alpha1.WorkTypeLabel] = v1alpha1.WorkTypeStaticDependency
 
 	if pipelineName != "" {
-		l[v1alpha1.WorkPipelineNameLabel] = pipelineName
+		l[v1alpha1.PipelineNameLabel] = pipelineName
 		l[v1alpha1.WorkTypeLabel] = v1alpha1.WorkTypePromise
 	}
 
 	if resourceName != "" {
-		l[v1alpha1.WorkResourceNameLabel] = resourceName
+		l[v1alpha1.ResourceNameLabel] = resourceName
 		l[v1alpha1.WorkTypeLabel] = v1alpha1.WorkTypeResource
 	}
 }

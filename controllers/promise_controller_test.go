@@ -849,16 +849,16 @@ func getWork(namespace, promiseName, resourceName, pipelineName string) v1alpha1
 	works := v1alpha1.WorkList{}
 
 	l := map[string]string{}
-	l[v1alpha1.WorkPromiseNameLabel] = promiseName
+	l[v1alpha1.PromiseNameLabel] = promiseName
 	l[v1alpha1.WorkTypeLabel] = v1alpha1.WorkTypeStaticDependency
 
 	if pipelineName != "" {
-		l[v1alpha1.WorkPipelineNameLabel] = pipelineName
+		l[v1alpha1.PipelineNameLabel] = pipelineName
 		l[v1alpha1.WorkTypeLabel] = v1alpha1.WorkTypePromise
 	}
 
 	if resourceName != "" {
-		l[v1alpha1.WorkResourceNameLabel] = resourceName
+		l[v1alpha1.ResourceNameLabel] = resourceName
 		l[v1alpha1.WorkTypeLabel] = v1alpha1.WorkTypeResource
 	}
 

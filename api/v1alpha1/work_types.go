@@ -26,10 +26,10 @@ const (
 	ResourceRequestReplicas       = 1
 	DefaultWorkloadGroupDirectory = "."
 
-	WorkPromiseNameLabel  = KratixPrefix + "promise-name"
-	WorkResourceNameLabel = KratixPrefix + "resource-name"
-	WorkPipelineNameLabel = KratixPrefix + "pipeline-name"
-	WorkTypeLabel         = KratixPrefix + "work-type"
+	PromiseNameLabel  = KratixPrefix + "promise-name"
+	ResourceNameLabel = KratixPrefix + "resource-name"
+	PipelineNameLabel = KratixPrefix + "pipeline-name"
+	WorkTypeLabel     = KratixPrefix + "work-type"
 
 	WorkTypePromise          = "promise"
 	WorkTypeResource         = "resource"
