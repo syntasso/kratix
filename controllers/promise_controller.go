@@ -50,6 +50,9 @@ import (
 	kmanager "sigs.k8s.io/controller-runtime/pkg/manager"
 )
 
+var reconcileConfigurePipeline = manager.ReconcileConfigurePipeline
+var reconcileDeletePipeline = manager.ReconcileDeletePipeline
+
 //go:generate go run github.com/maxbrunsfeld/counterfeiter/v6 . Manager
 type Manager interface {
 	kmanager.Manager
@@ -389,7 +392,7 @@ func (r *PromiseReconciler) reconcileDependencies(o opts, promise *v1alpha1.Prom
 
 	jobOpts := manager.NewWorkflowOpts(o.ctx, o.client, o.logger, unstructuredPromise, pipelines, "promise")
 
-	finished, err := manager.ReconcileConfigurePipeline(jobOpts)
+	finished, err := reconcileConfigurePipeline(jobOpts)
 	if err == nil && finished {
 		return nil, nil
 	}
@@ -644,7 +647,7 @@ func (r *PromiseReconciler) deletePromise(o opts, promise *v1alpha1.Promise, del
 
 		jobOpts := manager.NewWorkflowOpts(o.ctx, o.client, o.logger, unstructuredPromise, pipelines, "promise")
 
-		finished, err := manager.ReconcileDeletePipeline(jobOpts, pipelines[0])
+		finished, err := reconcileDeletePipeline(jobOpts, pipelines[0])
 		if err == nil && finished {
 			return ctrl.Result{}, nil
 		}

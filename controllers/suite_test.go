@@ -24,6 +24,8 @@ import (
 	. "github.com/onsi/ginkgo/v2"
 	. "github.com/onsi/gomega"
 	"github.com/syntasso/kratix/api/v1alpha1"
+	"github.com/syntasso/kratix/controllers"
+	"github.com/syntasso/kratix/lib/manager"
 
 	fakeclientset "k8s.io/apiextensions-apiserver/pkg/client/clientset/clientset/fake"
 	apiextensionsv1 "k8s.io/apiextensions-apiserver/pkg/client/clientset/clientset/typed/apiextensions/v1"
@@ -67,6 +69,11 @@ var _ = BeforeSuite(func(_ SpecContext) {
 var _ = AfterSuite(func() {
 })
 
+var reconcileConfigurePipelineArg manager.WorkflowOpts
+var reconcileDeletePipelineManagerArg manager.WorkflowOpts
+var reconcileDeletePipelineArg manager.Pipeline
+var callCount int
+
 var _ = BeforeEach(func() {
 	yamlFile, err := os.ReadFile(resourceRequestPath)
 	Expect(err).ToNot(HaveOccurred())
@@ -88,6 +95,17 @@ var _ = BeforeEach(func() {
 
 	fakeApiExtensionsClient = fakeclientset.NewSimpleClientset().ApiextensionsV1()
 	t = &testReconciler{}
+
+	controllers.SetReconcileConfigurePipeline(func(w manager.WorkflowOpts) (bool, error) {
+		reconcileConfigurePipelineArg = w
+		return false, nil
+	})
+
+	controllers.SetReconcileDeletePipeline(func(w manager.WorkflowOpts, p manager.Pipeline) (bool, error) {
+		reconcileDeletePipelineManagerArg = w
+		reconcileDeletePipelineArg = p
+		return false, nil
+	})
 })
 
 func TestControllers(t *testing.T) {

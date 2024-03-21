@@ -27,7 +27,7 @@ type opts struct {
 type WorkflowOpts struct {
 	opts
 	parentObject *unstructured.Unstructured
-	pipelines    []Pipeline
+	Pipelines    []Pipeline
 	source       string
 }
 
@@ -46,16 +46,16 @@ func NewWorkflowOpts(ctx context.Context, client client.Client, logger logr.Logg
 		},
 		parentObject: obj,
 		source:       source,
-		pipelines:    pipelines,
+		Pipelines:    pipelines,
 	}
 }
 
 func ReconcileConfigurePipeline(w WorkflowOpts) (bool, error) {
 	originalLogger := w.logger
-	for _, pipeline := range w.pipelines {
+	for _, pipeline := range w.Pipelines {
 		w.logger.Info("pipelines: " + pipeline.Name)
 	}
-	for _, pipeline := range w.pipelines {
+	for _, pipeline := range w.Pipelines {
 		labels := getLabelsForJobs(pipeline)
 		pipeline.Labels = labels
 		w.logger = originalLogger.WithName(pipeline.Name).WithValues("labels", pipeline.Labels)
