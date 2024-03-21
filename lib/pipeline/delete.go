@@ -28,7 +28,7 @@ func NewDelete(obj *unstructured.Unstructured, pipelines []v1alpha1.Pipeline, re
 
 	args := NewPipelineArgs(promiseIdentifier, resourceRequestIdentifier, namespace)
 
-	containers, pipelineVolumes := deletePipelineContainers(obj, isPromise, pipelines)
+	containers, pipelineVolumes := generateDeletePipelineContainersAndVolumes(obj, isPromise, pipelines)
 
 	var imagePullSecrets []v1.LocalObjectReference
 	if len(pipelines) > 0 {
@@ -66,15 +66,7 @@ func NewDelete(obj *unstructured.Unstructured, pipelines []v1alpha1.Pipeline, re
 	return resources
 }
 
-func deletePipelineContainers(obj *unstructured.Unstructured, isPromise bool, pipelines []v1alpha1.Pipeline) ([]v1.Container, []v1.Volume) {
-	volumes, volumeMounts := pipelineVolumes()
-
-	//TODO: Does this get called for promises too? If so, change the parameter name and dynamically set input below
-	workflowType := v1alpha1.WorkflowTypeResource
-	if isPromise {
-		workflowType = v1alpha1.WorkflowTypePromise
-	}
-
+func generateDeletePipelineContainersAndVolumes(obj *unstructured.Unstructured, isPromise bool, pipelines []v1alpha1.Pipeline) ([]v1.Container, []v1.Volume) {
 	kratixEnvVars := []v1.EnvVar{
 		{
 			Name:  kratixActionEnvVar,
@@ -82,31 +74,10 @@ func deletePipelineContainers(obj *unstructured.Unstructured, isPromise bool, pi
 		},
 	}
 
-	readerContainer := readerContainer(obj, workflowType, "shared-input")
-	containers := []v1.Container{
-		readerContainer,
+	workflowType := v1alpha1.WorkflowTypeResource
+	if isPromise {
+		workflowType = v1alpha1.WorkflowTypePromise
 	}
 
-	if len(pipelines) > 0 {
-		if len(pipelines[0].Spec.Volumes) > 0 {
-			volumes = append(volumes, pipelines[0].Spec.Volumes...)
-		}
-		for _, c := range pipelines[0].Spec.Containers {
-			if len(c.VolumeMounts) > 0 {
-				volumeMounts = append(volumeMounts, c.VolumeMounts...)
-			}
-			containers = append(containers, v1.Container{
-				Name:            c.Name,
-				Image:           c.Image,
-				VolumeMounts:    volumeMounts,
-				Args:            c.Args,
-				Command:         c.Command,
-				Env:             append(kratixEnvVars, c.Env...),
-				EnvFrom:         c.EnvFrom,
-				ImagePullPolicy: c.ImagePullPolicy,
-			})
-		}
-	}
-
-	return containers, volumes
+	return generateContainersAndVolumes(obj, workflowType, pipelines, kratixEnvVars)
 }

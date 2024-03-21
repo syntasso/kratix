@@ -20,7 +20,7 @@ const (
 	kratixPromiseEnvVar = "KRATIX_PROMISE_NAME"
 )
 
-func pipelineVolumes() ([]v1.Volume, []v1.VolumeMount) {
+func defaultPipelineVolumes() ([]v1.Volume, []v1.VolumeMount) {
 	volumes := []v1.Volume{
 		{Name: "shared-input", VolumeSource: v1.VolumeSource{EmptyDir: &v1.EmptyDirVolumeSource{}}},
 		{Name: "shared-output", VolumeSource: v1.VolumeSource{EmptyDir: &v1.EmptyDirVolumeSource{}}},
@@ -180,6 +180,39 @@ func readerContainer(obj *unstructured.Unstructured, kratixWorkflowType v1alpha1
 		Command: []string{"sh", "-c", "reader"},
 	}
 	return readerContainer
+}
+
+func generateContainersAndVolumes(obj *unstructured.Unstructured, workflowType v1alpha1.Type, pipelines []v1alpha1.Pipeline, kratixEnvVars []v1.EnvVar) ([]v1.Container, []v1.Volume) {
+	volumes, volumeMounts := defaultPipelineVolumes()
+
+	readerContainer := readerContainer(obj, workflowType, "shared-input")
+	containers := []v1.Container{
+		readerContainer,
+	}
+
+	if len(pipelines) > 0 {
+		if len(pipelines[0].Spec.Volumes) > 0 {
+			volumes = append(volumes, pipelines[0].Spec.Volumes...)
+		}
+		for _, c := range pipelines[0].Spec.Containers {
+			if len(c.VolumeMounts) > 0 {
+				volumeMounts = append(volumeMounts, c.VolumeMounts...)
+			}
+
+			containers = append(containers, v1.Container{
+				Name:            c.Name,
+				Image:           c.Image,
+				VolumeMounts:    volumeMounts,
+				Args:            c.Args,
+				Command:         c.Command,
+				Env:             append(kratixEnvVars, c.Env...),
+				EnvFrom:         c.EnvFrom,
+				ImagePullPolicy: c.ImagePullPolicy,
+			})
+		}
+	}
+
+	return containers, volumes
 }
 
 // TODO(breaking) change this to {promiseIdentifier}-{pipelineType}-pipeline-{short-uuid}
