@@ -51,7 +51,7 @@ func NewConfigureResource(
 }
 
 func NewConfigurePromise(
-	unstructedPromise *unstructured.Unstructured,
+	unstructuredPromise *unstructured.Unstructured,
 	pipelines []v1alpha1.Pipeline,
 	promiseIdentifier string,
 	promiseDestinationSelectors []v1alpha1.PromiseScheduling,
@@ -64,7 +64,7 @@ func NewConfigurePromise(
 		return nil, err
 	}
 
-	pipeline, err := ConfigurePipeline(unstructedPromise, pipelines, pipelineResources, promiseIdentifier, true, logger)
+	pipeline, err := ConfigurePipeline(unstructuredPromise, pipelines, pipelineResources, promiseIdentifier, true, logger)
 	if err != nil {
 		return nil, err
 	}
@@ -83,7 +83,7 @@ func NewConfigurePromise(
 func ConfigurePipeline(obj *unstructured.Unstructured, pipelines []v1alpha1.Pipeline, pipelineArgs PipelineArgs, promiseName string, promiseWorkflow bool, logger logr.Logger) (*batchv1.Job, error) {
 	volumes := metadataAndSchedulingVolumes(pipelineArgs.ConfigMapName())
 
-	initContainers, pipelineVolumes := configurePipelineInitContainers(obj, pipelines, promiseName, promiseWorkflow, logger)
+	initContainers, pipelineVolumes := generateConfigurePipelineContainersAndVolumes(obj, pipelines, promiseName, promiseWorkflow)
 	volumes = append(volumes, pipelineVolumes...)
 
 	objHash, err := hash.ComputeHashForResource(obj)
@@ -142,54 +142,28 @@ func ConfigurePipeline(obj *unstructured.Unstructured, pipelines []v1alpha1.Pipe
 	return job, nil
 }
 
-func configurePipelineInitContainers(obj *unstructured.Unstructured, pipelines []v1alpha1.Pipeline, promiseName string, promiseWorkflow bool, logger logr.Logger) ([]v1.Container, []v1.Volume) {
-	volumes, volumeMounts := pipelineVolumes()
-
-	kratixWorkflowType := v1alpha1.WorkflowTypeResource
+func generateConfigurePipelineContainersAndVolumes(obj *unstructured.Unstructured, pipelines []v1alpha1.Pipeline, promiseName string, promiseWorkflow bool) ([]v1.Container, []v1.Volume) {
+	workflowType := v1alpha1.WorkflowTypeResource
 	if promiseWorkflow {
-		kratixWorkflowType = v1alpha1.WorkflowTypePromise
+		workflowType = v1alpha1.WorkflowTypePromise
 	}
 
-	readerContainer := readerContainer(obj, kratixWorkflowType, "shared-input")
-	containers := []v1.Container{
-		readerContainer,
+	kratixEnvVars := []v1.EnvVar{
+		{
+			Name:  kratixActionEnvVar,
+			Value: string(v1alpha1.WorkflowActionConfigure),
+		},
+		{
+			Name:  kratixTypeEnvVar,
+			Value: string(workflowType),
+		},
+		{
+			Name:  kratixPromiseEnvVar,
+			Value: promiseName,
+		},
 	}
 
-	if len(pipelines) > 0 {
-		//TODO: We only support 1 workflow for now
-		if len(pipelines[0].Spec.Volumes) > 0 {
-			volumes = append(volumes, pipelines[0].Spec.Volumes...)
-		}
-		for i, c := range pipelines[0].Spec.Containers {
-			kratixEnvVars := []v1.EnvVar{
-				{
-					Name:  kratixActionEnvVar,
-					Value: string(v1alpha1.WorkflowActionConfigure),
-				},
-				{
-					Name:  kratixTypeEnvVar,
-					Value: string(kratixWorkflowType),
-				},
-				{
-					Name:  kratixPromiseEnvVar,
-					Value: promiseName,
-				},
-			}
-			if len(c.VolumeMounts) > 0 {
-				volumeMounts = append(volumeMounts, c.VolumeMounts...)
-			}
-			containers = append(containers, v1.Container{
-				Name:            providedOrDefaultName(c.Name, i),
-				Image:           c.Image,
-				VolumeMounts:    volumeMounts,
-				Args:            c.Args,
-				Command:         c.Command,
-				Env:             append(kratixEnvVars, c.Env...),
-				EnvFrom:         c.EnvFrom,
-				ImagePullPolicy: c.ImagePullPolicy,
-			})
-		}
-	}
+	containers, volumes := generateContainersAndVolumes(obj, workflowType, pipelines, kratixEnvVars)
 
 	workCreatorCommand := fmt.Sprintf("./work-creator -input-directory /work-creator-files -promise-name %s -namespace %q", promiseName, obj.GetNamespace())
 	if promiseWorkflow {
@@ -242,11 +216,4 @@ func metadataAndSchedulingVolumes(configMapName string) []v1.Volume {
 			},
 		},
 	}
-}
-
-func providedOrDefaultName(providedName string, index int) string {
-	if providedName == "" {
-		return fmt.Sprintf("default-container-name-%d", index)
-	}
-	return providedName
 }

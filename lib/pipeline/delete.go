@@ -12,14 +12,14 @@ import (
 const kratixActionDelete = "delete"
 
 func NewDeleteResource(rr *unstructured.Unstructured, pipelines []v1alpha1.Pipeline, resourceRequestIdentifier, promiseIdentifier, crdPlural string) []client.Object {
-	return newDelete(rr, pipelines, resourceRequestIdentifier, promiseIdentifier, crdPlural)
+	return NewDelete(rr, pipelines, resourceRequestIdentifier, promiseIdentifier, crdPlural)
 }
 
 func NewDeletePromise(promise *unstructured.Unstructured, pipelines []v1alpha1.Pipeline) []client.Object {
-	return newDelete(promise, pipelines, "", promise.GetName(), v1alpha1.PromisePlural)
+	return NewDelete(promise, pipelines, "", promise.GetName(), v1alpha1.PromisePlural)
 }
 
-func newDelete(obj *unstructured.Unstructured, pipelines []v1alpha1.Pipeline, resourceRequestIdentifier, promiseIdentifier, objPlural string) []client.Object {
+func NewDelete(obj *unstructured.Unstructured, pipelines []v1alpha1.Pipeline, resourceRequestIdentifier, promiseIdentifier, objPlural string) []client.Object {
 	isPromise := resourceRequestIdentifier == ""
 	namespace := obj.GetNamespace()
 	if isPromise {
@@ -28,7 +28,12 @@ func newDelete(obj *unstructured.Unstructured, pipelines []v1alpha1.Pipeline, re
 
 	args := NewPipelineArgs(promiseIdentifier, resourceRequestIdentifier, namespace)
 
-	containers, pipelineVolumes := deletePipelineContainers(obj, isPromise, pipelines)
+	containers, pipelineVolumes := generateDeletePipelineContainersAndVolumes(obj, isPromise, pipelines)
+
+	var imagePullSecrets []v1.LocalObjectReference
+	if len(pipelines) > 0 {
+		imagePullSecrets = pipelines[0].Spec.ImagePullSecrets
+	}
 
 	resources := []client.Object{
 		serviceAccount(args),
@@ -51,6 +56,7 @@ func newDelete(obj *unstructured.Unstructured, pipelines []v1alpha1.Pipeline, re
 						Containers:         []v1.Container{containers[len(containers)-1]},
 						InitContainers:     containers[0 : len(containers)-1],
 						Volumes:            pipelineVolumes,
+						ImagePullSecrets:   imagePullSecrets,
 					},
 				},
 			},
@@ -60,36 +66,18 @@ func newDelete(obj *unstructured.Unstructured, pipelines []v1alpha1.Pipeline, re
 	return resources
 }
 
-func deletePipelineContainers(obj *unstructured.Unstructured, isPromise bool, pipelines []v1alpha1.Pipeline) ([]v1.Container, []v1.Volume) {
-	volumes, volumeMounts := pipelineVolumes()
+func generateDeletePipelineContainersAndVolumes(obj *unstructured.Unstructured, isPromise bool, pipelines []v1alpha1.Pipeline) ([]v1.Container, []v1.Volume) {
+	kratixEnvVars := []v1.EnvVar{
+		{
+			Name:  kratixActionEnvVar,
+			Value: kratixActionDelete,
+		},
+	}
 
-	//TODO: Does this get called for promises too? If so, change the parameter name and dynamically set input below
 	workflowType := v1alpha1.WorkflowTypeResource
 	if isPromise {
 		workflowType = v1alpha1.WorkflowTypePromise
 	}
 
-	readerContainer := readerContainer(obj, workflowType, "shared-input")
-	containers := []v1.Container{
-		readerContainer,
-	}
-
-	if len(pipelines) > 0 {
-		//TODO: We only support 1 workflow for now
-		for _, c := range pipelines[0].Spec.Containers {
-			containers = append(containers, v1.Container{
-				Name:         c.Name,
-				Image:        c.Image,
-				VolumeMounts: volumeMounts,
-				Env: []v1.EnvVar{
-					{
-						Name:  kratixActionEnvVar,
-						Value: kratixActionDelete,
-					},
-				},
-			})
-		}
-	}
-
-	return containers, volumes
+	return generateContainersAndVolumes(obj, workflowType, pipelines, kratixEnvVars)
 }
