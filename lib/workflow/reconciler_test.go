@@ -1,4 +1,4 @@
-package manager_test
+package workflow_test
 
 import (
 	"time"
@@ -7,7 +7,7 @@ import (
 	. "github.com/onsi/gomega"
 	"github.com/syntasso/kratix/api/v1alpha1"
 	"github.com/syntasso/kratix/lib/hash"
-	"github.com/syntasso/kratix/lib/manager"
+	"github.com/syntasso/kratix/lib/workflow"
 	batchv1 "k8s.io/api/batch/v1"
 	v1 "k8s.io/api/core/v1"
 	metav1 "k8s.io/apimachinery/pkg/apis/meta/v1"
@@ -17,7 +17,8 @@ import (
 
 var namespace = "default"
 
-var _ = Describe("ReconcileConfigurePipeline", func() {
+var _ = Describe("ReconcileConfigure", func() {
+	//TODO move commented out tests from promise and dynamic controllers to here
 	It("reconcile until all jobs are complete", func() {
 		promise := v1alpha1.Promise{
 			ObjectMeta: metav1.ObjectMeta{
@@ -34,7 +35,7 @@ var _ = Describe("ReconcileConfigurePipeline", func() {
 
 		hash, err := hash.ComputeHashForResource(obj)
 		Expect(err).NotTo(HaveOccurred())
-		pipelines := []manager.Pipeline{
+		pipelines := []workflow.Pipeline{
 			{
 				Resources: []client.Object{
 					&batchv1.Job{
@@ -68,16 +69,16 @@ var _ = Describe("ReconcileConfigurePipeline", func() {
 				Name: "pipeline-2",
 			},
 		}
-		p := manager.NewWorkflowOpts(ctx, fakeK8sClient, logger, obj, pipelines, "test")
+		p := workflow.NewOpts(ctx, fakeK8sClient, logger, obj, pipelines, "test")
 
 		By("creating the job for the 1st pipeline")
-		complete, err := manager.ReconcileConfigurePipeline(p)
+		complete, err := workflow.ReconcileConfigure(p)
 		Expect(complete).To(BeFalse())
 		Expect(err).NotTo(HaveOccurred())
 		Expect(listJobs()).To(HaveLen(1))
 
 		By("waiting for the 1st pipeline to complete")
-		complete, err = manager.ReconcileConfigurePipeline(p)
+		complete, err = workflow.ReconcileConfigure(p)
 		Expect(complete).To(BeFalse())
 		Expect(err).NotTo(HaveOccurred())
 		jobs := listJobs()
@@ -85,13 +86,13 @@ var _ = Describe("ReconcileConfigurePipeline", func() {
 
 		By("creating the job for the 2nd pipeline once the 1st is finished")
 		markJobAsComplete(jobs[0].Name)
-		complete, err = manager.ReconcileConfigurePipeline(p)
+		complete, err = workflow.ReconcileConfigure(p)
 		Expect(complete).To(BeFalse())
 		Expect(err).NotTo(HaveOccurred())
 		Expect(listJobs()).To(HaveLen(2))
 
 		By("waiting for the 2nd pipeline to complete")
-		complete, err = manager.ReconcileConfigurePipeline(p)
+		complete, err = workflow.ReconcileConfigure(p)
 		Expect(complete).To(BeFalse())
 		Expect(err).NotTo(HaveOccurred())
 		jobs = listJobs()
@@ -99,7 +100,7 @@ var _ = Describe("ReconcileConfigurePipeline", func() {
 
 		By("being complete when the 2nd pipeline is done")
 		markJobAsComplete(jobs[1].Name)
-		complete, err = manager.ReconcileConfigurePipeline(p)
+		complete, err = workflow.ReconcileConfigure(p)
 		Expect(complete).To(BeTrue())
 		Expect(err).NotTo(HaveOccurred())
 		Expect(listJobs()).To(HaveLen(2))

@@ -1,4 +1,4 @@
-package manager_test
+package workflow_test
 
 import (
 	"context"

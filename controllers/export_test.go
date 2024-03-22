@@ -1,11 +1,11 @@
 package controllers
 
-import "github.com/syntasso/kratix/lib/manager"
+import "github.com/syntasso/kratix/lib/workflow"
 
-func SetReconcileConfigurePipeline(f func(manager.WorkflowOpts) (bool, error)) {
-	reconcileConfigurePipeline = f
+func SetReconcileConfigurePipeline(f func(workflow.Opts) (bool, error)) {
+	reconcileConfigure = f
 }
 
-func SetReconcileDeletePipeline(f func(manager.WorkflowOpts, manager.Pipeline) (bool, error)) {
-	reconcileDeletePipeline = f
+func SetReconcileDeletePipeline(f func(workflow.Opts, workflow.Pipeline) (bool, error)) {
+	reconcileDelete = f
 }

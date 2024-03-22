@@ -21,7 +21,7 @@ import (
 
 	"github.com/syntasso/kratix/api/v1alpha1"
 	"github.com/syntasso/kratix/controllers"
-	"github.com/syntasso/kratix/lib/manager"
+	"github.com/syntasso/kratix/lib/workflow"
 )
 
 var _ = Describe("DynamicResourceRequestController", func() {
@@ -323,7 +323,7 @@ var _ = Describe("DynamicResourceRequestController", func() {
 
 		It("re-reconciles until completetion", func() {
 			Expect(fakeK8sClient.Delete(ctx, resReq)).To(Succeed())
-			controllers.SetReconcileDeletePipeline(func(w manager.WorkflowOpts, p manager.Pipeline) (bool, error) {
+			controllers.SetReconcileDeletePipeline(func(w workflow.Opts, p workflow.Pipeline) (bool, error) {
 				reconcileDeletePipelineManagerArg = w
 				reconcileDeletePipelineArg = p
 				return false, nil
