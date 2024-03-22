@@ -18,91 +18,182 @@ import (
 var namespace = "default"
 
 var _ = Describe("ReconcileConfigure", func() {
-	//TODO move commented out tests from promise and dynamic controllers to here
-	It("reconcile until all jobs are complete", func() {
-		promise := v1alpha1.Promise{
-			ObjectMeta: metav1.ObjectMeta{
-				Name:      "redis",
-				Namespace: namespace,
-			},
-		}
+	When("creating", func() {
 
-		Expect(fakeK8sClient.Create(ctx, &promise)).To(Succeed())
-		Expect(fakeK8sClient.Get(ctx, client.ObjectKey{Name: "redis", Namespace: namespace}, &promise)).To(Succeed())
+		//TODO move commented out tests from promise and dynamic controllers to here
+		It("reconcile until all jobs are complete", func() {
+			promise := v1alpha1.Promise{
+				ObjectMeta: metav1.ObjectMeta{
+					Name:      "redis",
+					Namespace: namespace,
+				},
+			}
 
-		obj, err := promise.ToUnstructured()
-		Expect(err).NotTo(HaveOccurred())
+			Expect(fakeK8sClient.Create(ctx, &promise)).To(Succeed())
+			Expect(fakeK8sClient.Get(ctx, client.ObjectKey{Name: "redis", Namespace: namespace}, &promise)).To(Succeed())
 
-		hash, err := hash.ComputeHashForResource(obj)
-		Expect(err).NotTo(HaveOccurred())
-		pipelines := []workflow.Pipeline{
-			{
-				//TODO test it creates these as well
-				JobRequiredResources: []client.Object{},
-				Job: &batchv1.Job{
-					ObjectMeta: metav1.ObjectMeta{
-						Name:      "pipeline-1",
-						Namespace: namespace,
-						Labels: map[string]string{
-							"unique":                        "pipeline",
-							"kratix-workflow-pipeline-name": "pipeline-1",
-							"kratix.io/hash":                hash,
+			obj, err := promise.ToUnstructured()
+			Expect(err).NotTo(HaveOccurred())
+
+			hash, err := hash.ComputeHashForResource(obj)
+			Expect(err).NotTo(HaveOccurred())
+			pipelines := []workflow.Pipeline{
+				{
+					//TODO test it creates these as well
+					JobRequiredResources: []client.Object{},
+					Job: &batchv1.Job{
+						ObjectMeta: metav1.ObjectMeta{
+							Name:      "pipeline-1",
+							Namespace: namespace,
+							Labels: map[string]string{
+								"unique":                        "pipeline",
+								"kratix-workflow-pipeline-name": "pipeline-1",
+								"kratix.io/hash":                hash,
+							},
 						},
 					},
+					Name: "pipeline-1",
 				},
-				Name: "pipeline-1",
-			},
-			{
-				JobRequiredResources: []client.Object{},
-				Job: &batchv1.Job{
-					ObjectMeta: metav1.ObjectMeta{
-						Name:      "pipeline-2",
-						Namespace: namespace,
-						Labels: map[string]string{
-							"unique":                        "pipeline",
-							"kratix-workflow-pipeline-name": "pipeline-2",
-							"kratix.io/hash":                hash,
+				{
+					JobRequiredResources: []client.Object{},
+					Job: &batchv1.Job{
+						ObjectMeta: metav1.ObjectMeta{
+							Name:      "pipeline-2",
+							Namespace: namespace,
+							Labels: map[string]string{
+								"unique":                        "pipeline",
+								"kratix-workflow-pipeline-name": "pipeline-2",
+								"kratix.io/hash":                hash,
+							},
 						},
 					},
+					Name: "pipeline-2",
 				},
-				Name: "pipeline-2",
-			},
-		}
-		p := workflow.NewOpts(ctx, fakeK8sClient, logger, obj, pipelines, "test")
+			}
+			p := workflow.NewOpts(ctx, fakeK8sClient, logger, obj, pipelines, "test")
 
-		By("creating the job for the 1st pipeline")
-		complete, err := workflow.ReconcileConfigure(p)
-		Expect(complete).To(BeFalse())
-		Expect(err).NotTo(HaveOccurred())
-		Expect(listJobs()).To(HaveLen(1))
+			By("creating the job for the 1st pipeline")
+			complete, err := workflow.ReconcileConfigure(p)
+			Expect(complete).To(BeFalse())
+			Expect(err).NotTo(HaveOccurred())
+			Expect(listJobs()).To(HaveLen(1))
 
-		By("waiting for the 1st pipeline to complete")
-		complete, err = workflow.ReconcileConfigure(p)
-		Expect(complete).To(BeFalse())
-		Expect(err).NotTo(HaveOccurred())
-		jobs := listJobs()
-		Expect(jobs).To(HaveLen(1))
+			By("waiting for the 1st pipeline to complete")
+			complete, err = workflow.ReconcileConfigure(p)
+			Expect(complete).To(BeFalse())
+			Expect(err).NotTo(HaveOccurred())
+			jobs := listJobs()
+			Expect(jobs).To(HaveLen(1))
 
-		By("creating the job for the 2nd pipeline once the 1st is finished")
-		markJobAsComplete(jobs[0].Name)
-		complete, err = workflow.ReconcileConfigure(p)
-		Expect(complete).To(BeFalse())
-		Expect(err).NotTo(HaveOccurred())
-		Expect(listJobs()).To(HaveLen(2))
+			By("creating the job for the 2nd pipeline once the 1st is finished")
+			markJobAsComplete(jobs[0].Name)
+			complete, err = workflow.ReconcileConfigure(p)
+			Expect(complete).To(BeFalse())
+			Expect(err).NotTo(HaveOccurred())
+			Expect(listJobs()).To(HaveLen(2))
 
-		By("waiting for the 2nd pipeline to complete")
-		complete, err = workflow.ReconcileConfigure(p)
-		Expect(complete).To(BeFalse())
-		Expect(err).NotTo(HaveOccurred())
-		jobs = listJobs()
-		Expect(jobs).To(HaveLen(2))
+			By("waiting for the 2nd pipeline to complete")
+			complete, err = workflow.ReconcileConfigure(p)
+			Expect(complete).To(BeFalse())
+			Expect(err).NotTo(HaveOccurred())
+			jobs = listJobs()
+			Expect(jobs).To(HaveLen(2))
 
-		By("being complete when the 2nd pipeline is done")
-		markJobAsComplete(jobs[1].Name)
-		complete, err = workflow.ReconcileConfigure(p)
-		Expect(complete).To(BeTrue())
-		Expect(err).NotTo(HaveOccurred())
-		Expect(listJobs()).To(HaveLen(2))
+			By("being complete when the 2nd pipeline is done")
+			markJobAsComplete(jobs[1].Name)
+			complete, err = workflow.ReconcileConfigure(p)
+			Expect(complete).To(BeTrue())
+			Expect(err).NotTo(HaveOccurred())
+			Expect(listJobs()).To(HaveLen(2))
+		})
+	})
+
+	When("updating", func() {
+		It("creates a new job for the updated object", func() {
+		})
+
+		When("the object is updated more than 5 times", func() {
+			It("only keeps the last 5 workflow runs jobs", func() {
+
+			})
+		})
+		//BeforeEach(func() {
+		//	result, err := t.reconcileUntilCompletion(reconciler, resReq, &opts{
+		//		funcs: []func(client.Object) error{
+		//			autoCompleteJobAndCreateWork(promiseCommonLabels, promise.GetName()+"-"+resReq.GetName()),
+		//		},
+		//	})
+
+		//	Expect(result).To(Equal(ctrl.Result{}))
+		//	Expect(err).NotTo(HaveOccurred())
+		//	Expect(fakeK8sClient.Get(ctx, resReqNameNamespace, resReq)).To(Succeed())
+		//})
+
+		//It("re-runs the pipeline", func() {
+		//	yamlFile, err := os.ReadFile(resourceRequestUpdatedPath)
+		//	Expect(err).ToNot(HaveOccurred())
+
+		//	updateResReq := &unstructured.Unstructured{}
+		//	Expect(yaml.Unmarshal(yamlFile, updateResReq)).To(Succeed())
+
+		//	Expect(fakeK8sClient.Get(ctx, resReqNameNamespace, resReq)).To(Succeed())
+		//	resReq.Object["spec"] = updateResReq.Object["spec"]
+		//	Expect(fakeK8sClient.Update(ctx, resReq)).To(Succeed())
+
+		//	//run the reconciler
+		//	//check that a new job runs for the new resource request
+		//	_, err = t.reconcileUntilCompletion(reconciler, resReq, &opts{
+		//		funcs: []func(client.Object) error{
+		//			// autoCompleteJobAndCreateWork(promiseCommonLabels, promise.GetName()+"-"+resReq.GetName()),
+		//		},
+		//	})
+
+		//	By("requeuing forever until the new jobs finishes", func() {
+		//		Expect(err).To(MatchError("reconcile loop detected"))
+		//	})
+
+		//	result, err := t.reconcileUntilCompletion(reconciler, resReq, &opts{
+		//		funcs: []func(client.Object) error{
+		//			autoCompleteJobAndCreateWork(promiseCommonLabels, promise.GetName()+"-"+resReq.GetName()),
+		//		},
+		//	})
+
+		//	Expect(err).NotTo(HaveOccurred())
+		//	Expect(result).To(Equal(ctrl.Result{}))
+
+		//	result, err = t.reconcileUntilCompletion(reconciler, resReq)
+		//	Expect(err).NotTo(HaveOccurred())
+		//	Expect(result).To(Equal(ctrl.Result{}))
+		//})
+
+		// When("the request is updated repeatedly", func() {
+		// 	It("ensures only the last 5 jobs are kept", func() {
+		// 		var timestamp time.Time
+		// 		for i := 0; i < 10; i++ {
+		// 			if i == 6 {
+		// 				timestamp = time.Now()
+		// 			}
+
+		// 			Expect(fakeK8sClient.Get(ctx, resReqNameNamespace, resReq)).To(Succeed())
+		// 			resReq.Object["spec"].(map[string]interface{})["size"] = fmt.Sprintf("%d", i)
+		// 			Expect(fakeK8sClient.Update(ctx, resReq)).To(Succeed())
+
+		// 			_, err := t.reconcileUntilCompletion(reconciler, resReq, &opts{
+		// 				funcs: []func(client.Object) error{
+		// 					autoCompleteJobAndCreateWork(promiseCommonLabels, promise.GetName()+"-"+resReq.GetName()),
+		// 				},
+		// 			})
+		// 			Expect(err).NotTo(HaveOccurred())
+		// 		}
+
+		// 		jobs := &batchv1.JobList{}
+		// 		Expect(fakeK8sClient.List(ctx, jobs)).To(Succeed())
+		// 		Expect(jobs.Items).To(HaveLen(5))
+		// 		for _, job := range jobs.Items {
+		// 			Expect(job.CreationTimestamp.Time).To(BeTemporally(">", timestamp))
+		// 		}
+		// 	})
+		// })
 	})
 })
 
