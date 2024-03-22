@@ -657,7 +657,7 @@ func (r *PromiseReconciler) deletePromise(o opts, promise *v1alpha1.Promise, del
 	}
 
 	if controllerutil.ContainsFinalizer(promise, removeAllWorkflowJobsFinalizer) {
-		err := r.deleteJobs(o, promise, removeAllWorkflowJobsFinalizer)
+		err := r.deletePromiseWorkflowJobs(o, promise, removeAllWorkflowJobsFinalizer)
 		if err != nil {
 			return ctrl.Result{}, err
 		}
@@ -683,7 +683,7 @@ func (r *PromiseReconciler) deletePromise(o opts, promise *v1alpha1.Promise, del
 
 	if controllerutil.ContainsFinalizer(promise, dynamicControllerDependantResourcesCleanupFinalizer) {
 		o.logger.Info("deleting resources associated with finalizer", "finalizer", dynamicControllerDependantResourcesCleanupFinalizer)
-		err := r.deleteDynamicControllerResources(o, promise)
+		err := r.deleteDynamicControllerAndWorkflowResources(o, promise)
 		if err != nil {
 			return defaultRequeue, nil
 		}
@@ -711,7 +711,7 @@ func (r *PromiseReconciler) deletePromise(o opts, promise *v1alpha1.Promise, del
 	return fastRequeue, nil
 }
 
-func (r *PromiseReconciler) deleteJobs(o opts, promise *v1alpha1.Promise, finalizer string) error {
+func (r *PromiseReconciler) deletePromiseWorkflowJobs(o opts, promise *v1alpha1.Promise, finalizer string) error {
 	jobGVK := schema.GroupVersionKind{
 		Group:   batchv1.SchemeGroupVersion.Group,
 		Version: batchv1.SchemeGroupVersion.Version,
@@ -735,7 +735,7 @@ func (r *PromiseReconciler) deleteJobs(o opts, promise *v1alpha1.Promise, finali
 	return nil
 }
 
-func (r *PromiseReconciler) deleteDynamicControllerResources(o opts, promise *v1alpha1.Promise) error {
+func (r *PromiseReconciler) deleteDynamicControllerAndWorkflowResources(o opts, promise *v1alpha1.Promise) error {
 	resourcesToDelete := map[schema.GroupVersion][]string{
 		rbacv1.SchemeGroupVersion: {"ClusterRoleBinding", "ClusterRole", "RoleBinding", "Role"},
 		v1.SchemeGroupVersion:     {"ServiceAccount", "ConfigMap"},

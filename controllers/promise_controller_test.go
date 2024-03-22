@@ -566,55 +566,55 @@ var _ = Describe("PromiseController", func() {
 					))
 				})
 
-				//It("deletes all resources for the promise workflow and dynamic controller", func() {
-				//	//check resources all exist before deletion
-				//	crds, err := fakeApiExtensionsClient.CustomResourceDefinitions().List(ctx, metav1.ListOptions{})
-				//	Expect(err).NotTo(HaveOccurred())
-				//	Expect(crds.Items).To(HaveLen(1))
+				FIt("deletes all resources for the promise workflow and dynamic controller", func() {
+					//check resources all exist before deletion
+					crds, err := fakeApiExtensionsClient.CustomResourceDefinitions().List(ctx, metav1.ListOptions{})
+					Expect(err).NotTo(HaveOccurred())
+					Expect(crds.Items).To(HaveLen(1))
 
-				//	clusterRoles := &rbacv1.ClusterRoleList{}
-				//	clusterRoleBindings := &rbacv1.ClusterRoleBindingList{}
-				//	jobs := &batchv1.JobList{}
-				//	works := &v1alpha1.WorkList{}
-				//	configMaps := &v1.ConfigMapList{}
-				//	serviceAccounts := &v1.ServiceAccountList{}
-				//	Expect(fakeK8sClient.List(ctx, clusterRoles)).To(Succeed())
-				//	Expect(fakeK8sClient.List(ctx, clusterRoleBindings)).To(Succeed())
-				//	Expect(fakeK8sClient.List(ctx, works)).To(Succeed())
-				//	Expect(fakeK8sClient.List(ctx, jobs)).To(Succeed())
-				//	Expect(fakeK8sClient.List(ctx, serviceAccounts)).To(Succeed())
-				//	Expect(clusterRoles.Items).To(HaveLen(2))
-				//	Expect(clusterRoleBindings.Items).To(HaveLen(2))
-				//	Expect(works.Items).To(HaveLen(1))
-				//	Expect(jobs.Items).To(HaveLen(1))
-				//	Expect(serviceAccounts.Items).To(HaveLen(1))
+					clusterRoles := &rbacv1.ClusterRoleList{}
+					clusterRoleBindings := &rbacv1.ClusterRoleBindingList{}
+					jobs := &batchv1.JobList{}
+					works := &v1alpha1.WorkList{}
+					configMaps := &v1.ConfigMapList{}
+					serviceAccounts := &v1.ServiceAccountList{}
+					Expect(fakeK8sClient.List(ctx, clusterRoles)).To(Succeed())
+					Expect(fakeK8sClient.List(ctx, clusterRoleBindings)).To(Succeed())
+					Expect(fakeK8sClient.List(ctx, works)).To(Succeed())
+					Expect(fakeK8sClient.List(ctx, jobs)).To(Succeed())
+					Expect(fakeK8sClient.List(ctx, serviceAccounts)).To(Succeed())
+					Expect(clusterRoles.Items).To(HaveLen(1))
+					Expect(clusterRoleBindings.Items).To(HaveLen(1))
+					Expect(works.Items).To(HaveLen(0))
+					Expect(jobs.Items).To(HaveLen(0))
+					Expect(serviceAccounts.Items).To(HaveLen(0))
 
-				//	//Delete
-				//	Expect(fakeK8sClient.Delete(ctx, promise)).To(Succeed())
-				//	result, err := t.reconcileUntilCompletion(reconciler, promise, &opts{errorBudget: 5})
-				//	Expect(err).NotTo(HaveOccurred())
-				//	Expect(result).To(Equal(ctrl.Result{}))
-				//	Expect(managerRestarted).To(BeTrue())
+					//Delete
+					Expect(fakeK8sClient.Delete(ctx, promise)).To(Succeed())
+					result, err := t.reconcileUntilCompletion(reconciler, promise, &opts{errorBudget: 5})
+					Expect(err).NotTo(HaveOccurred())
+					Expect(result).To(Equal(ctrl.Result{}))
+					Expect(managerRestarted).To(BeTrue())
 
-				//	//Check they are all gone
-				//	Expect(fakeK8sClient.List(ctx, jobs)).To(Succeed())
-				//	Expect(jobs.Items).To(HaveLen(0))
+					//Check they are all gone
+					Expect(fakeK8sClient.List(ctx, jobs)).To(Succeed())
+					Expect(jobs.Items).To(HaveLen(0))
 
-				//	crds, err = fakeApiExtensionsClient.CustomResourceDefinitions().List(ctx, metav1.ListOptions{})
-				//	Expect(err).NotTo(HaveOccurred())
-				//	Expect(crds.Items).To(HaveLen(0))
-				//	Expect(fakeK8sClient.Get(ctx, promiseName, promise)).To(MatchError(ContainSubstring("not found")))
-				//	Expect(fakeK8sClient.List(ctx, clusterRoles)).To(Succeed())
-				//	Expect(fakeK8sClient.List(ctx, clusterRoleBindings)).To(Succeed())
-				//	Expect(fakeK8sClient.List(ctx, works)).To(Succeed())
-				//	Expect(fakeK8sClient.List(ctx, configMaps)).To(Succeed())
-				//	Expect(fakeK8sClient.List(ctx, serviceAccounts)).To(Succeed())
-				//	Expect(clusterRoles.Items).To(HaveLen(0))
-				//	Expect(clusterRoleBindings.Items).To(HaveLen(0))
-				//	Expect(works.Items).To(HaveLen(0))
-				//	Expect(configMaps.Items).To(HaveLen(0))
-				//	Expect(serviceAccounts.Items).To(HaveLen(0))
-				//})
+					crds, err = fakeApiExtensionsClient.CustomResourceDefinitions().List(ctx, metav1.ListOptions{})
+					Expect(err).NotTo(HaveOccurred())
+					Expect(crds.Items).To(HaveLen(0))
+					Expect(fakeK8sClient.Get(ctx, promiseName, promise)).To(MatchError(ContainSubstring("not found")))
+					Expect(fakeK8sClient.List(ctx, clusterRoles)).To(Succeed())
+					Expect(fakeK8sClient.List(ctx, clusterRoleBindings)).To(Succeed())
+					Expect(fakeK8sClient.List(ctx, works)).To(Succeed())
+					Expect(fakeK8sClient.List(ctx, configMaps)).To(Succeed())
+					Expect(fakeK8sClient.List(ctx, serviceAccounts)).To(Succeed())
+					Expect(clusterRoles.Items).To(HaveLen(0))
+					Expect(clusterRoleBindings.Items).To(HaveLen(0))
+					Expect(works.Items).To(HaveLen(0))
+					Expect(configMaps.Items).To(HaveLen(0))
+					Expect(serviceAccounts.Items).To(HaveLen(0))
+				})
 
 				When("a resource request exists", func() {
 					It("deletes them", func() {
