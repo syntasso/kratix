@@ -29,9 +29,9 @@ import (
 
 	"github.com/go-logr/logr"
 	"github.com/syntasso/kratix/api/v1alpha1"
-	"github.com/syntasso/kratix/lib/manager"
 	"github.com/syntasso/kratix/lib/pipeline"
 	"github.com/syntasso/kratix/lib/resourceutil"
+	"github.com/syntasso/kratix/lib/workflow"
 	batchv1 "k8s.io/api/batch/v1"
 	v1 "k8s.io/api/core/v1"
 	rbacv1 "k8s.io/api/rbac/v1"
@@ -50,8 +50,8 @@ import (
 	kmanager "sigs.k8s.io/controller-runtime/pkg/manager"
 )
 
-var reconcileConfigurePipeline = manager.ReconcileConfigurePipeline
-var reconcileDeletePipeline = manager.ReconcileDeletePipeline
+var reconcileConfigure = workflow.ReconcileConfigure
+var reconcileDelete = workflow.ReconcileDelete
 
 //go:generate go run github.com/maxbrunsfeld/counterfeiter/v6 . Manager
 type Manager interface {
@@ -372,7 +372,7 @@ func (r *PromiseReconciler) reconcileDependencies(o opts, promise *v1alpha1.Prom
 		return nil, err
 	}
 
-	var pipelines []manager.Pipeline
+	var pipelines []workflow.Pipeline
 	for _, p := range configurePipeline {
 		pipelineResources, err := pipeline.NewConfigurePromise(
 			unstructuredPromise,
@@ -384,15 +384,15 @@ func (r *PromiseReconciler) reconcileDependencies(o opts, promise *v1alpha1.Prom
 		if err != nil {
 			return nil, err
 		}
-		pipelines = append(pipelines, manager.Pipeline{
+		pipelines = append(pipelines, workflow.Pipeline{
 			Resources: pipelineResources,
 			Name:      p.Name,
 		})
 	}
 
-	jobOpts := manager.NewWorkflowOpts(o.ctx, o.client, o.logger, unstructuredPromise, pipelines, "promise")
+	jobOpts := workflow.NewOpts(o.ctx, o.client, o.logger, unstructuredPromise, pipelines, "promise")
 
-	finished, err := reconcileConfigurePipeline(jobOpts)
+	finished, err := reconcileConfigure(jobOpts)
 	if err == nil && finished {
 		return nil, nil
 	}
@@ -633,21 +633,21 @@ func (r *PromiseReconciler) deletePromise(o opts, promise *v1alpha1.Promise, del
 		if err != nil {
 			return ctrl.Result{}, err
 		}
-		var pipelines []manager.Pipeline
+		var pipelines []workflow.Pipeline
 		for _, p := range deletePipelines {
 			pipelineResources := pipeline.NewDeletePromise(
 				unstructuredPromise, p,
 			)
 
-			pipelines = append(pipelines, manager.Pipeline{
+			pipelines = append(pipelines, workflow.Pipeline{
 				Resources: pipelineResources,
 				Name:      p.Name,
 			})
 		}
 
-		jobOpts := manager.NewWorkflowOpts(o.ctx, o.client, o.logger, unstructuredPromise, pipelines, "promise")
+		jobOpts := workflow.NewOpts(o.ctx, o.client, o.logger, unstructuredPromise, pipelines, "promise")
 
-		finished, err := reconcileDeletePipeline(jobOpts, pipelines[0])
+		finished, err := reconcileDelete(jobOpts, pipelines[0])
 		if err == nil && finished {
 			return ctrl.Result{}, nil
 		}

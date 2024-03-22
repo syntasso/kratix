@@ -10,7 +10,7 @@ import (
 	. "github.com/onsi/gomega"
 	"github.com/syntasso/kratix/api/v1alpha1"
 	"github.com/syntasso/kratix/controllers"
-	"github.com/syntasso/kratix/lib/manager"
+	"github.com/syntasso/kratix/lib/workflow"
 	"k8s.io/apimachinery/pkg/api/errors"
 	"k8s.io/apimachinery/pkg/apis/meta/v1/unstructured"
 	"k8s.io/apimachinery/pkg/types"
@@ -190,12 +190,12 @@ func conditionsFromStatus(status interface{}) ([]clusterv1.Condition, error) {
 // Creating the work to mimic the pipelines behaviour.
 func autoCompleteJobAndCreateWork(labels map[string]string, workName string) func(client.Object) error {
 	return func(obj client.Object) error {
-		controllers.SetReconcileConfigurePipeline(func(w manager.WorkflowOpts) (bool, error) {
+		controllers.SetReconcileConfigurePipeline(func(w workflow.Opts) (bool, error) {
 			reconcileConfigurePipelineArg = w
 			return true, nil
 		})
 
-		controllers.SetReconcileDeletePipeline(func(w manager.WorkflowOpts, p manager.Pipeline) (bool, error) {
+		controllers.SetReconcileDeletePipeline(func(w workflow.Opts, p workflow.Pipeline) (bool, error) {
 			us := &unstructured.Unstructured{}
 			us.SetGroupVersionKind(obj.GetObjectKind().GroupVersionKind())
 			Expect(fakeK8sClient.Get(ctx, types.NamespacedName{

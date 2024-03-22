@@ -25,7 +25,7 @@ import (
 	"github.com/syntasso/kratix/api/v1alpha1"
 	"github.com/syntasso/kratix/controllers"
 	"github.com/syntasso/kratix/controllers/controllersfakes"
-	"github.com/syntasso/kratix/lib/manager"
+	"github.com/syntasso/kratix/lib/workflow"
 )
 
 var (
@@ -684,7 +684,7 @@ var _ = Describe("PromiseController", func() {
 
 				It("requeues forever until the delete job finishes", func() {
 					Expect(fakeK8sClient.Delete(ctx, promise)).To(Succeed())
-					controllers.SetReconcileDeletePipeline(func(w manager.WorkflowOpts, p manager.Pipeline) (bool, error) {
+					controllers.SetReconcileDeletePipeline(func(w workflow.Opts, p workflow.Pipeline) (bool, error) {
 						reconcileDeletePipelineManagerArg = w
 						reconcileDeletePipelineArg = p
 						return false, nil
@@ -697,7 +697,7 @@ var _ = Describe("PromiseController", func() {
 				It("finishes the deletion once the job is finished", func() {
 					Expect(fakeK8sClient.Delete(ctx, promise)).To(Succeed())
 					_, err = t.reconcileUntilCompletion(reconciler, promise)
-					controllers.SetReconcileDeletePipeline(func(w manager.WorkflowOpts, p manager.Pipeline) (bool, error) {
+					controllers.SetReconcileDeletePipeline(func(w workflow.Opts, p workflow.Pipeline) (bool, error) {
 						reconcileDeletePipelineManagerArg = w
 						reconcileDeletePipelineArg = p
 						return false, nil

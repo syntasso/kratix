@@ -26,9 +26,9 @@ import (
 
 	"github.com/go-logr/logr"
 	"github.com/syntasso/kratix/api/v1alpha1"
-	"github.com/syntasso/kratix/lib/manager"
 	"github.com/syntasso/kratix/lib/pipeline"
 	"github.com/syntasso/kratix/lib/resourceutil"
+	"github.com/syntasso/kratix/lib/workflow"
 
 	batchv1 "k8s.io/api/batch/v1"
 
@@ -125,7 +125,7 @@ func (r *DynamicResourceRequestController) Reconcile(ctx context.Context, req ct
 		return addFinalizers(opts, rr, []string{workFinalizer, removeAllWorkflowJobsFinalizer, runDeleteWorkflowsFinalizer})
 	}
 
-	var pipelines []manager.Pipeline
+	var pipelines []workflow.Pipeline
 	for _, p := range r.ConfigurePipelines {
 		pipelineResources, err := pipeline.NewConfigureResource(
 			rr,
@@ -139,15 +139,15 @@ func (r *DynamicResourceRequestController) Reconcile(ctx context.Context, req ct
 		if err != nil {
 			return ctrl.Result{}, err
 		}
-		pipelines = append(pipelines, manager.Pipeline{
+		pipelines = append(pipelines, workflow.Pipeline{
 			Resources: pipelineResources,
 			Name:      p.Name,
 		})
 	}
 
-	jobOpts := manager.NewWorkflowOpts(ctx, r.Client, logger, rr, pipelines, "resource")
+	jobOpts := workflow.NewOpts(ctx, r.Client, logger, rr, pipelines, "resource")
 
-	finished, err := reconcileConfigurePipeline(jobOpts)
+	finished, err := reconcileConfigure(jobOpts)
 	if err == nil && finished {
 		return ctrl.Result{}, nil
 	}
@@ -161,21 +161,21 @@ func (r *DynamicResourceRequestController) deleteResources(o opts, resourceReque
 	}
 
 	if controllerutil.ContainsFinalizer(resourceRequest, runDeleteWorkflowsFinalizer) {
-		var pipelines []manager.Pipeline
+		var pipelines []workflow.Pipeline
 		for _, p := range r.DeletePipelines {
 			pipelineResources := pipeline.NewDeleteResource(
 				resourceRequest, p, resourceRequestIdentifier, r.PromiseIdentifier, r.CRD.Spec.Names.Plural,
 			)
 
-			pipelines = append(pipelines, manager.Pipeline{
+			pipelines = append(pipelines, workflow.Pipeline{
 				Resources: pipelineResources,
 				Name:      p.Name,
 			})
 		}
 
-		jobOpts := manager.NewWorkflowOpts(o.ctx, o.client, o.logger, resourceRequest, pipelines, "resource")
+		jobOpts := workflow.NewOpts(o.ctx, o.client, o.logger, resourceRequest, pipelines, "resource")
 
-		finished, err := reconcileDeletePipeline(jobOpts, pipelines[0])
+		finished, err := reconcileDelete(jobOpts, pipelines[0])
 		if err == nil && finished {
 			return ctrl.Result{}, nil
 		}
