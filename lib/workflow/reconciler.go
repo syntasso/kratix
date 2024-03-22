@@ -23,22 +23,24 @@ type Opts struct {
 	client       client.Client
 	logger       logr.Logger
 	parentObject *unstructured.Unstructured
-	Pipelines    []Pipeline
-	source       string
+	//TODO make this field private too? or everything public and no constructor func
+	Pipelines []Pipeline
+	source    string
 }
 
 type Pipeline struct {
-	Name      string
-	Resources []client.Object
-	Labels    map[string]string
+	Name string
+	Job  *batchv1.Job
+	// ServiceAccount, Role, Rolebinding, ConfigMap etc (differs for delete vs configure)
+	JobRequiredResources []client.Object
 }
 
-func NewOpts(ctx context.Context, client client.Client, logger logr.Logger, obj *unstructured.Unstructured, pipelines []Pipeline, source string) Opts {
+func NewOpts(ctx context.Context, client client.Client, logger logr.Logger, parentObj *unstructured.Unstructured, pipelines []Pipeline, source string) Opts {
 	return Opts{
 		ctx:          ctx,
 		client:       client,
 		logger:       logger,
-		parentObject: obj,
+		parentObject: parentObj,
 		source:       source,
 		Pipelines:    pipelines,
 	}
@@ -50,9 +52,7 @@ func ReconcileConfigure(opts Opts) (bool, error) {
 		opts.logger.Info("pipelines: " + pipeline.Name)
 	}
 	for _, pipeline := range opts.Pipelines {
-		labels := getLabelsForJobs(pipeline)
-		pipeline.Labels = labels
-		opts.logger = originalLogger.WithName(pipeline.Name).WithValues("labels", pipeline.Labels)
+		opts.logger = originalLogger.WithName(pipeline.Name)
 		opts.logger.Info("Reconciling pipeline " + pipeline.Name)
 		finished, err := reconcileConfigurePipeline(opts, pipeline)
 		if err == nil && finished {
@@ -64,10 +64,10 @@ func ReconcileConfigure(opts Opts) (bool, error) {
 	return true, nil
 }
 
+// TODO refactor
 func ReconcileDelete(opts Opts, pipeline Pipeline) (bool, error) {
 	opts.logger.Info("Reconciling Delete Pipeline")
-	pipeline.Labels = getLabelsForJobs(pipeline)
-	existingDeletePipeline, err := getDeletePipeline(opts, opts.parentObject.GetNamespace(), pipeline.Labels)
+	existingDeletePipeline, err := getDeletePipeline(opts, opts.parentObject.GetNamespace(), pipeline)
 	if err != nil {
 		return false, err
 	}
@@ -76,7 +76,7 @@ func ReconcileDelete(opts Opts, pipeline Pipeline) (bool, error) {
 		opts.logger.Info("Creating Delete Pipeline. The pipeline will now execute...")
 
 		//TODO retrieve error information from applyResources to return to the caller
-		applyResources(opts, pipeline.Resources...)
+		applyResources(opts, append(pipeline.JobRequiredResources, pipeline.Job)...)
 
 		return false, nil
 	}
@@ -96,20 +96,28 @@ func ReconcileDelete(opts Opts, pipeline Pipeline) (bool, error) {
 	return false, nil
 }
 
-func getLabelsForJobs(pipeline Pipeline) map[string]string {
-	for _, resource := range pipeline.Resources {
-		if job, ok := resource.(*batchv1.Job); ok {
-			labels := job.DeepCopy().GetLabels()
-			//TODO use const
-			delete(labels, "kratix-resource-hash")
-			return labels
-		}
-	}
-	//TODO fix
-	panic("whoops")
+// Job:
+// kratix.io/promise-name
+// kratix.io/pipeline-name
+// kratix.io/resource-name
+// kratix.io/hash
+func getLabelsForPipelineJob(pipeline Pipeline) map[string]string {
+	labels := pipeline.Job.DeepCopy().GetLabels()
+	//TODO use const
+	delete(labels, v1alpha1.KratixResourceHashLabel)
+	return labels
+}
+
+func getLabelsForAllJobs(pipeline Pipeline) map[string]string {
+	labels := pipeline.Job.DeepCopy().GetLabels()
+	//TODO use const
+	delete(labels, v1alpha1.KratixResourceHashLabel)
+	delete(labels, "kratix.io/pipeline-name")
+	return labels
 }
 
 func reconcileConfigurePipeline(opts Opts, pipeline Pipeline) (bool, error) {
+	labels := getLabelsForPipelineJob(pipeline)
 	namespace := opts.parentObject.GetNamespace()
 	if namespace == "" {
 		namespace = v1alpha1.SystemNamespace
@@ -123,7 +131,7 @@ func reconcileConfigurePipeline(opts Opts, pipeline Pipeline) (bool, error) {
 	// Requests gets updated
 	// A-new starts
 	// B and A-new are now both in parallel?
-	pipelineJobs, err := getJobsWithLabels(opts, pipeline.Labels, namespace)
+	pipelineJobs, err := getJobsWithLabels(opts, labels, namespace)
 	if err != nil {
 		opts.logger.Info("Failed getting Promise pipeline jobs", "error", err)
 		return false, nil
@@ -211,7 +219,7 @@ func deleteAllButLastFiveJobs(opts Opts, pipelineJobs []batchv1.Job) error {
 
 func deleteConfigMap(opts Opts, pipeline Pipeline) error {
 	configMap := &v1.ConfigMap{}
-	for _, resource := range pipeline.Resources {
+	for _, resource := range pipeline.JobRequiredResources {
 		if _, ok := resource.(*v1.ConfigMap); ok {
 			configMap = resource.(*v1.ConfigMap)
 			break
@@ -238,7 +246,7 @@ func createConfigurePipeline(opts Opts, pipeline Pipeline) error {
 
 	opts.logger.Info("Triggering Promise pipeline")
 
-	applyResources(opts, pipeline.Resources...)
+	applyResources(opts, append(pipeline.JobRequiredResources, pipeline.Job)...)
 
 	if isManualReconciliation(opts.parentObject.GetLabels()) {
 		newLabels := opts.parentObject.GetLabels()
@@ -268,7 +276,8 @@ func setPipelineCompletedConditionStatus(opts Opts, obj *unstructured.Unstructur
 	return false, nil
 }
 
-func getDeletePipeline(opts Opts, namespace string, labels map[string]string) (*batchv1.Job, error) {
+func getDeletePipeline(opts Opts, namespace string, pipeline Pipeline) (*batchv1.Job, error) {
+	labels := getLabelsForPipelineJob(pipeline)
 	jobs, err := getJobsWithLabels(opts, labels, namespace)
 	if err != nil || len(jobs) == 0 {
 		return nil, err

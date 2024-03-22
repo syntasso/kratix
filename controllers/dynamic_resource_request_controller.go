@@ -139,9 +139,13 @@ func (r *DynamicResourceRequestController) Reconcile(ctx context.Context, req ct
 		if err != nil {
 			return ctrl.Result{}, err
 		}
+
+		//TODO smelly, refactor. Should we merge the lib/pipeline package with lib/workflow?
+		//TODO if we dont do that, backfil unit tests for dynamic and promise controllers to assert the job is correct
 		pipelines = append(pipelines, workflow.Pipeline{
-			Resources: pipelineResources,
-			Name:      p.Name,
+			Job:                  pipelineResources[4].(*batchv1.Job),
+			JobRequiredResources: pipelineResources[0:4],
+			Name:                 p.Name,
 		})
 	}
 
@@ -168,8 +172,9 @@ func (r *DynamicResourceRequestController) deleteResources(o opts, resourceReque
 			)
 
 			pipelines = append(pipelines, workflow.Pipeline{
-				Resources: pipelineResources,
-				Name:      p.Name,
+				Job:                  pipelineResources[3].(*batchv1.Job),
+				JobRequiredResources: pipelineResources[0:3],
+				Name:                 p.Name,
 			})
 		}
 

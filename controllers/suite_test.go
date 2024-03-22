@@ -30,11 +30,13 @@ import (
 	fakeclientset "k8s.io/apiextensions-apiserver/pkg/client/clientset/clientset/fake"
 	apiextensionsv1 "k8s.io/apiextensions-apiserver/pkg/client/clientset/clientset/typed/apiextensions/v1"
 	"k8s.io/apimachinery/pkg/apis/meta/v1/unstructured"
+	"k8s.io/apimachinery/pkg/types"
 	"k8s.io/apimachinery/pkg/util/yaml"
 	"k8s.io/client-go/kubernetes/scheme"
 	ctrl "sigs.k8s.io/controller-runtime"
 	"sigs.k8s.io/controller-runtime/pkg/client"
 	"sigs.k8s.io/controller-runtime/pkg/client/fake"
+	"sigs.k8s.io/controller-runtime/pkg/controller/controllerutil"
 	"sigs.k8s.io/controller-runtime/pkg/envtest"
 	logf "sigs.k8s.io/controller-runtime/pkg/log"
 	"sigs.k8s.io/controller-runtime/pkg/log/zap"
@@ -69,8 +71,8 @@ var _ = BeforeSuite(func(_ SpecContext) {
 var _ = AfterSuite(func() {
 })
 
-var reconcileConfigurePipelineArg workflow.Opts
-var reconcileDeletePipelineManagerArg workflow.Opts
+var reconcileConfigureOptsArg workflow.Opts
+var reconcileDeleteOptsArg workflow.Opts
 var reconcileDeletePipelineArg workflow.Pipeline
 var callCount int
 
@@ -96,13 +98,13 @@ var _ = BeforeEach(func() {
 	fakeApiExtensionsClient = fakeclientset.NewSimpleClientset().ApiextensionsV1()
 	t = &testReconciler{}
 
-	controllers.SetReconcileConfigurePipeline(func(w workflow.Opts) (bool, error) {
-		reconcileConfigurePipelineArg = w
+	controllers.SetReconcileConfigureWorkflow(func(w workflow.Opts) (bool, error) {
+		reconcileConfigureOptsArg = w
 		return false, nil
 	})
 
-	controllers.SetReconcileDeletePipeline(func(w workflow.Opts, p workflow.Pipeline) (bool, error) {
-		reconcileDeletePipelineManagerArg = w
+	controllers.SetReconcileDeleteWorkflow(func(w workflow.Opts, p workflow.Pipeline) (bool, error) {
+		reconcileDeleteOptsArg = w
 		reconcileDeletePipelineArg = p
 		return false, nil
 	})
@@ -112,4 +114,29 @@ func TestControllers(t *testing.T) {
 	RegisterFailHandler(Fail)
 
 	RunSpecs(t, "Controller Suite")
+}
+
+func setReconcileConfigureWorkflowToReturnFinished() {
+	controllers.SetReconcileConfigureWorkflow(func(w workflow.Opts) (bool, error) {
+		reconcileConfigureOptsArg = w
+		return true, nil
+	})
+}
+
+func setReconcileDeleteWorkflowToReturnFinished(obj client.Object) {
+	controllers.SetReconcileDeleteWorkflow(func(w workflow.Opts, p workflow.Pipeline) (bool, error) {
+		us := &unstructured.Unstructured{}
+		us.SetGroupVersionKind(obj.GetObjectKind().GroupVersionKind())
+		Expect(fakeK8sClient.Get(ctx, types.NamespacedName{
+			Name:      obj.GetName(),
+			Namespace: obj.GetNamespace(),
+		}, us)).To(Succeed())
+
+		controllerutil.RemoveFinalizer(us, "kratix.io/delete-workflows")
+		Expect(fakeK8sClient.Update(ctx, us)).To(Succeed())
+
+		reconcileDeleteOptsArg = w
+		reconcileDeletePipelineArg = p
+		return true, nil
+	})
 }

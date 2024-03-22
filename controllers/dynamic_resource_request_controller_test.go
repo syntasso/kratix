@@ -17,11 +17,9 @@ import (
 	"k8s.io/apimachinery/pkg/util/yaml"
 	"k8s.io/client-go/kubernetes/scheme"
 	ctrl "sigs.k8s.io/controller-runtime"
-	"sigs.k8s.io/controller-runtime/pkg/client"
 
 	"github.com/syntasso/kratix/api/v1alpha1"
 	"github.com/syntasso/kratix/controllers"
-	"github.com/syntasso/kratix/lib/workflow"
 )
 
 var _ = Describe("DynamicResourceRequestController", func() {
@@ -132,7 +130,8 @@ var _ = Describe("DynamicResourceRequestController", func() {
 				"kratix-promise-id":      promise.GetName(),
 				"kratix.io/promise-name": promise.GetName(),
 			}
-			resources := reconcileConfigurePipelineArg.Pipelines[0].Resources
+
+			resources := reconcileConfigureOptsArg.Pipelines[0].JobRequiredResources
 			By("creating a service account for pipeline", func() {
 				Expect(resources[0]).To(BeAssignableToTypeOf(&v1.ServiceAccount{}))
 				sa := resources[0].(*v1.ServiceAccount)
@@ -188,11 +187,8 @@ var _ = Describe("DynamicResourceRequestController", func() {
 			})
 
 			By("finishing the creation once the job is finished", func() {
-				result, err := t.reconcileUntilCompletion(reconciler, promise, &opts{
-					funcs: []func(client.Object) error{
-						autoCompleteJobAndCreateWork(promiseCommonLabels, promise.GetName()+"-"+resReq.GetName()),
-					},
-				})
+				setReconcileConfigureWorkflowToReturnFinished()
+				result, err := t.reconcileUntilCompletion(reconciler, promise)
 
 				Expect(err).NotTo(HaveOccurred())
 				Expect(result).To(Equal(ctrl.Result{}))
@@ -306,11 +302,8 @@ var _ = Describe("DynamicResourceRequestController", func() {
 
 	When("resource is being deleted", func() {
 		BeforeEach(func() {
-			result, err := t.reconcileUntilCompletion(reconciler, resReq, &opts{
-				funcs: []func(client.Object) error{
-					autoCompleteJobAndCreateWork(promiseCommonLabels, promise.GetName()+"-"+resReq.GetName()),
-				},
-			})
+			setReconcileConfigureWorkflowToReturnFinished()
+			result, err := t.reconcileUntilCompletion(reconciler, resReq)
 			Expect(err).NotTo(HaveOccurred())
 			Expect(result).To(Equal(ctrl.Result{}))
 			Expect(fakeK8sClient.Get(ctx, resReqNameNamespace, resReq)).To(Succeed())
@@ -323,22 +316,14 @@ var _ = Describe("DynamicResourceRequestController", func() {
 
 		It("re-reconciles until completetion", func() {
 			Expect(fakeK8sClient.Delete(ctx, resReq)).To(Succeed())
-			controllers.SetReconcileDeletePipeline(func(w workflow.Opts, p workflow.Pipeline) (bool, error) {
-				reconcileDeletePipelineManagerArg = w
-				reconcileDeletePipelineArg = p
-				return false, nil
-			})
 			_, err := t.reconcileUntilCompletion(reconciler, resReq)
 
 			By("requeuing forever until delete jobs finishes", func() {
 				Expect(err).To(MatchError("reconcile loop detected"))
 			})
 
-			result, err := t.reconcileUntilCompletion(reconciler, resReq, &opts{
-				funcs: []func(client.Object) error{
-					autoCompleteJobAndCreateWork(promiseCommonLabels, promise.GetName()+"-"+resReq.GetName()),
-				},
-			})
+			setReconcileDeleteWorkflowToReturnFinished(resReq)
+			result, err := t.reconcileUntilCompletion(reconciler, resReq)
 			Expect(result).To(Equal(ctrl.Result{}))
 			Expect(err).NotTo(HaveOccurred())
 			Expect(fakeK8sClient.Get(ctx, resReqNameNamespace, resReq)).To(MatchError(ContainSubstring("not found")))

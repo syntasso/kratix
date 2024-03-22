@@ -37,32 +37,31 @@ var _ = Describe("ReconcileConfigure", func() {
 		Expect(err).NotTo(HaveOccurred())
 		pipelines := []workflow.Pipeline{
 			{
-				Resources: []client.Object{
-					&batchv1.Job{
-						ObjectMeta: metav1.ObjectMeta{
-							Name:      "pipeline-1",
-							Namespace: namespace,
-							Labels: map[string]string{
-								"unique":                        "pipeline",
-								"kratix-workflow-pipeline-name": "pipeline-1",
-								"kratix-resource-hash":          hash,
-							},
+				//TODO test it creates these as well
+				JobRequiredResources: []client.Object{},
+				Job: &batchv1.Job{
+					ObjectMeta: metav1.ObjectMeta{
+						Name:      "pipeline-1",
+						Namespace: namespace,
+						Labels: map[string]string{
+							"unique":                        "pipeline",
+							"kratix-workflow-pipeline-name": "pipeline-1",
+							"kratix.io/hash":                hash,
 						},
 					},
 				},
 				Name: "pipeline-1",
 			},
 			{
-				Resources: []client.Object{
-					&batchv1.Job{
-						ObjectMeta: metav1.ObjectMeta{
-							Name:      "pipeline-2",
-							Namespace: namespace,
-							Labels: map[string]string{
-								"unique":                        "pipeline",
-								"kratix-workflow-pipeline-name": "pipeline-2",
-								"kratix-resource-hash":          hash,
-							},
+				JobRequiredResources: []client.Object{},
+				Job: &batchv1.Job{
+					ObjectMeta: metav1.ObjectMeta{
+						Name:      "pipeline-2",
+						Namespace: namespace,
+						Labels: map[string]string{
+							"unique":                        "pipeline",
+							"kratix-workflow-pipeline-name": "pipeline-2",
+							"kratix.io/hash":                hash,
 						},
 					},
 				},

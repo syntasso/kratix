@@ -58,7 +58,7 @@ var _ = Describe("Configure Pipeline", func() {
 			job, err := pipeline.ConfigurePipeline(rr, p, pipelineResources, "test-promise", false, logger)
 			Expect(err).NotTo(HaveOccurred())
 
-			Expect(job.Labels).To(HaveKeyWithValue("kratix-resource-hash", expectedHash))
+			Expect(job.Labels).To(HaveKeyWithValue("kratix.io/hash", expectedHash))
 		})
 	})
 
