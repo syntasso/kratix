@@ -385,8 +385,9 @@ func (r *PromiseReconciler) reconcileDependencies(o opts, promise *v1alpha1.Prom
 			return nil, err
 		}
 		pipelines = append(pipelines, workflow.Pipeline{
-			Resources: pipelineResources,
-			Name:      p.Name,
+			Job:                  pipelineResources[4].(*batchv1.Job),
+			JobRequiredResources: pipelineResources[0:4],
+			Name:                 p.Name,
 		})
 	}
 
@@ -640,8 +641,9 @@ func (r *PromiseReconciler) deletePromise(o opts, promise *v1alpha1.Promise, del
 			)
 
 			pipelines = append(pipelines, workflow.Pipeline{
-				Resources: pipelineResources,
-				Name:      p.Name,
+				Job:                  pipelineResources[3].(*batchv1.Job),
+				JobRequiredResources: pipelineResources[0:3],
+				Name:                 p.Name,
 			})
 		}
 

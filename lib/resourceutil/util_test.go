@@ -58,7 +58,7 @@ var _ = Describe("Conditions", func() {
 					ObjectMeta: metav1.ObjectMeta{
 						CreationTimestamp: metav1.Now(),
 						Labels: map[string]string{
-							"kratix-resource-hash": originalHash,
+							"kratix.io/hash": originalHash,
 						},
 						Name: "expected",
 					},
@@ -82,7 +82,7 @@ var _ = Describe("Conditions", func() {
 					ObjectMeta: metav1.ObjectMeta{
 						CreationTimestamp: metav1.Now(),
 						Labels: map[string]string{
-							"kratix-resource-hash": originalHash,
+							"kratix.io/hash": originalHash,
 						},
 					},
 					Status: completedStatus,
@@ -99,7 +99,7 @@ var _ = Describe("Conditions", func() {
 					ObjectMeta: metav1.ObjectMeta{
 						CreationTimestamp: metav1.NewTime(time.Now().Add(-3 * time.Hour)),
 						Labels: map[string]string{
-							"kratix-resource-hash": "some-old-hash",
+							"kratix.io/hash": "some-old-hash",
 						},
 					},
 					Status: completedStatus,
@@ -108,7 +108,7 @@ var _ = Describe("Conditions", func() {
 					ObjectMeta: metav1.ObjectMeta{
 						CreationTimestamp: metav1.NewTime(time.Now().Add(-1 * time.Hour)),
 						Labels: map[string]string{
-							"kratix-resource-hash": originalHash,
+							"kratix.io/hash": originalHash,
 						},
 						Name: "expected",
 					},
@@ -118,7 +118,7 @@ var _ = Describe("Conditions", func() {
 					ObjectMeta: metav1.ObjectMeta{
 						CreationTimestamp: metav1.NewTime(time.Now().Add(-2 * time.Hour)),
 						Labels: map[string]string{
-							"kratix-resource-hash": "some-older-hash",
+							"kratix.io/hash": "some-older-hash",
 						},
 					},
 					Status: completedStatus,
@@ -134,7 +134,7 @@ var _ = Describe("Conditions", func() {
 				ObjectMeta: metav1.ObjectMeta{
 					CreationTimestamp: metav1.Now(),
 					Labels: map[string]string{
-						"kratix-resource-hash": "some-newer-hash",
+						"kratix.io/hash": "some-newer-hash",
 					},
 				},
 			})
@@ -154,7 +154,7 @@ var _ = Describe("Conditions", func() {
 					ObjectMeta: metav1.ObjectMeta{
 						CreationTimestamp: metav1.Now(),
 						Labels: map[string]string{
-							"kratix-resource-hash": originalHash,
+							"kratix.io/hash": originalHash,
 						},
 					},
 					Status: completedStatus,
@@ -163,7 +163,7 @@ var _ = Describe("Conditions", func() {
 					ObjectMeta: metav1.ObjectMeta{
 						CreationTimestamp: metav1.Now(),
 						Labels: map[string]string{
-							"kratix-resource-hash": originalHash,
+							"kratix.io/hash": originalHash,
 						},
 					},
 					Status: batchv1.JobStatus{
@@ -179,7 +179,7 @@ var _ = Describe("Conditions", func() {
 					ObjectMeta: metav1.ObjectMeta{
 						CreationTimestamp: metav1.Now(),
 						Labels: map[string]string{
-							"kratix-resource-hash": originalHash,
+							"kratix.io/hash": originalHash,
 						},
 					},
 					Status: batchv1.JobStatus{
@@ -201,7 +201,7 @@ var _ = Describe("Conditions", func() {
 					ObjectMeta: metav1.ObjectMeta{
 						CreationTimestamp: metav1.Now(),
 						Labels: map[string]string{
-							"kratix-resource-hash": originalHash,
+							"kratix.io/hash": originalHash,
 						},
 					},
 					Status: completedStatus,
@@ -210,7 +210,7 @@ var _ = Describe("Conditions", func() {
 					ObjectMeta: metav1.ObjectMeta{
 						CreationTimestamp: metav1.Now(),
 						Labels: map[string]string{
-							"kratix-resource-hash": originalHash,
+							"kratix.io/hash": originalHash,
 						},
 					},
 					Status: completedStatus,
@@ -225,7 +225,7 @@ var _ = Describe("Conditions", func() {
 					ObjectMeta: metav1.ObjectMeta{
 						CreationTimestamp: metav1.Now(),
 						Labels: map[string]string{
-							"kratix-resource-hash": originalHash,
+							"kratix.io/hash": originalHash,
 						},
 					},
 					Status: completedStatus,
@@ -234,7 +234,7 @@ var _ = Describe("Conditions", func() {
 					ObjectMeta: metav1.ObjectMeta{
 						CreationTimestamp: metav1.Now(),
 						Labels: map[string]string{
-							"kratix-resource-hash": originalHash,
+							"kratix.io/hash": originalHash,
 						},
 					},
 					Status: batchv1.JobStatus{
@@ -256,7 +256,7 @@ var _ = Describe("Conditions", func() {
 					ObjectMeta: metav1.ObjectMeta{
 						CreationTimestamp: metav1.Now(),
 						Labels: map[string]string{
-							"kratix-resource-hash": originalHash,
+							"kratix.io/hash": originalHash,
 						},
 					},
 					Status: completedStatus,
@@ -265,7 +265,7 @@ var _ = Describe("Conditions", func() {
 					ObjectMeta: metav1.ObjectMeta{
 						CreationTimestamp: metav1.Now(),
 						Labels: map[string]string{
-							"kratix-resource-hash": originalHash,
+							"kratix.io/hash": originalHash,
 						},
 					},
 					Status: batchv1.JobStatus{},
@@ -287,7 +287,7 @@ var _ = Describe("Conditions", func() {
 					ObjectMeta: metav1.ObjectMeta{
 						CreationTimestamp: metav1.Now(),
 						Labels: map[string]string{
-							"kratix-resource-hash": originalHash,
+							"kratix.io/hash": originalHash,
 						},
 						Name: "unactive-but-suspended",
 					},
@@ -302,7 +302,7 @@ var _ = Describe("Conditions", func() {
 					ObjectMeta: metav1.ObjectMeta{
 						CreationTimestamp: metav1.Now(),
 						Labels: map[string]string{
-							"kratix-resource-hash": originalHash,
+							"kratix.io/hash": originalHash,
 						},
 						Name: "unactive",
 					},

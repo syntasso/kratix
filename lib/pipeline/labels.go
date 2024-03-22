@@ -7,10 +7,6 @@ import (
 type pipelineLabels map[string]string
 type action string
 
-const (
-	KratixResourceHashLabel = "kratix-resource-hash"
-)
-
 func newPipelineLabels() pipelineLabels {
 	return make(map[string]string)
 }
@@ -90,6 +86,6 @@ func (p pipelineLabels) WithWorkflow(workflowType v1alpha1.Type, workflowAction 
 }
 
 func (p pipelineLabels) WithRequestSHA(requestSHA string) pipelineLabels {
-	p[KratixResourceHashLabel] = requestSHA
+	p[v1alpha1.KratixResourceHashLabel] = requestSHA
 	return p
 }

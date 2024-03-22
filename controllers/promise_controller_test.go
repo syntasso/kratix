@@ -417,7 +417,7 @@ var _ = Describe("PromiseController", func() {
 						Expect(promise.Finalizers).To(ContainElement("kratix.io/workflows-cleanup"))
 					})
 
-					resources := reconcileConfigurePipelineArg.Pipelines[0].Resources
+					resources := reconcileConfigureOptsArg.Pipelines[0].JobRequiredResources
 					By("creates a service account for pipeline", func() {
 						Expect(resources[0]).To(BeAssignableToTypeOf(&v1.ServiceAccount{}))
 						sa := resources[0].(*v1.ServiceAccount)
@@ -469,11 +469,8 @@ var _ = Describe("PromiseController", func() {
 					})
 
 					By("finishing the creation once the job is finished", func() {
-						result, err := t.reconcileUntilCompletion(reconciler, promise, &opts{
-							funcs: []func(client.Object) error{
-								autoCompleteJobAndCreateWork(promiseCommonLabels, promise.GetName()),
-							},
-						})
+						setReconcileConfigureWorkflowToReturnFinished()
+						result, err := t.reconcileUntilCompletion(reconciler, promise)
 
 						Expect(err).NotTo(HaveOccurred())
 						Expect(result).To(Equal(ctrl.Result{}))
@@ -546,10 +543,11 @@ var _ = Describe("PromiseController", func() {
 					Expect(fakeK8sClient.Get(ctx, promiseName, promise)).To(Succeed())
 					promise.UID = types.UID("1234abcd")
 					Expect(fakeK8sClient.Update(ctx, promise)).To(Succeed())
+
+					setReconcileConfigureWorkflowToReturnFinished()
 					result, err := t.reconcileUntilCompletion(reconciler, promise, &opts{
 						funcs: []func(client.Object) error{
 							autoMarkCRDAsEstablished,
-							autoCompleteJobAndCreateWork(promiseCommonLabels, promise.GetName()),
 						},
 					})
 
@@ -659,10 +657,10 @@ var _ = Describe("PromiseController", func() {
 					promise.UID = types.UID("1234abcd")
 					Expect(fakeK8sClient.Create(ctx, promise)).To(Succeed())
 
+					setReconcileConfigureWorkflowToReturnFinished()
 					result, err := t.reconcileUntilCompletion(reconciler, promise, &opts{
 						funcs: []func(client.Object) error{
 							autoMarkCRDAsEstablished,
-							autoCompleteJobAndCreateWork(promiseCommonLabels, promise.GetName()),
 						},
 					})
 
@@ -684,8 +682,8 @@ var _ = Describe("PromiseController", func() {
 
 				It("requeues forever until the delete job finishes", func() {
 					Expect(fakeK8sClient.Delete(ctx, promise)).To(Succeed())
-					controllers.SetReconcileDeletePipeline(func(w workflow.Opts, p workflow.Pipeline) (bool, error) {
-						reconcileDeletePipelineManagerArg = w
+					controllers.SetReconcileDeleteWorkflow(func(w workflow.Opts, p workflow.Pipeline) (bool, error) {
+						reconcileDeleteOptsArg = w
 						reconcileDeletePipelineArg = p
 						return false, nil
 					})
@@ -697,17 +695,14 @@ var _ = Describe("PromiseController", func() {
 				It("finishes the deletion once the job is finished", func() {
 					Expect(fakeK8sClient.Delete(ctx, promise)).To(Succeed())
 					_, err = t.reconcileUntilCompletion(reconciler, promise)
-					controllers.SetReconcileDeletePipeline(func(w workflow.Opts, p workflow.Pipeline) (bool, error) {
-						reconcileDeletePipelineManagerArg = w
+					controllers.SetReconcileDeleteWorkflow(func(w workflow.Opts, p workflow.Pipeline) (bool, error) {
+						reconcileDeleteOptsArg = w
 						reconcileDeletePipelineArg = p
 						return false, nil
 					})
 
-					result, err := t.reconcileUntilCompletion(reconciler, promise, &opts{
-						funcs: []func(client.Object) error{
-							autoCompleteJobAndCreateWork(promiseCommonLabels, promise.GetName()),
-						},
-					})
+					setReconcileDeleteWorkflowToReturnFinished(promise)
+					result, err := t.reconcileUntilCompletion(reconciler, promise)
 					Expect(err).NotTo(HaveOccurred())
 					Expect(result).To(Equal(ctrl.Result{}))
 				})
@@ -718,11 +713,8 @@ var _ = Describe("PromiseController", func() {
 						promise.Spec.Workflows.Promise.Delete = nil
 						Expect(fakeK8sClient.Update(ctx, promise)).To(Succeed())
 
-						result, err := t.reconcileUntilCompletion(reconciler, promise, &opts{
-							funcs: []func(client.Object) error{
-								autoCompleteJobAndCreateWork(promiseCommonLabels, promise.GetName()),
-							},
-						})
+						setReconcileDeleteWorkflowToReturnFinished(promise)
+						result, err := t.reconcileUntilCompletion(reconciler, promise)
 						Expect(err).NotTo(HaveOccurred())
 						Expect(result).To(Equal(ctrl.Result{}))
 					})
@@ -765,8 +757,10 @@ var _ = Describe("PromiseController", func() {
 					Expect(fakeK8sClient.Get(ctx, promiseName, promise)).To(Succeed())
 					promise.UID = types.UID("1234abcd")
 					Expect(fakeK8sClient.Update(ctx, promise)).To(Succeed())
+
+					setReconcileConfigureWorkflowToReturnFinished()
 					result, err := t.reconcileUntilCompletion(reconciler, promise, &opts{
-						funcs: []func(client.Object) error{autoMarkCRDAsEstablished, autoCompleteJobAndCreateWork(promiseCommonLabels, promise.GetName())},
+						funcs: []func(client.Object) error{autoMarkCRDAsEstablished},
 					})
 					Expect(err).NotTo(HaveOccurred())
 					Expect(result).To(Equal(ctrl.Result{}))
@@ -778,8 +772,9 @@ var _ = Describe("PromiseController", func() {
 					promise.Spec = updatedPromise.Spec
 					Expect(fakeK8sClient.Update(ctx, promise)).To(Succeed())
 
+					setReconcileConfigureWorkflowToReturnFinished()
 					result, err := t.reconcileUntilCompletion(reconciler, promise, &opts{
-						funcs: []func(client.Object) error{autoMarkCRDAsEstablished, autoCompleteJobAndCreateWork(promiseCommonLabels, promise.GetName())},
+						funcs: []func(client.Object) error{autoMarkCRDAsEstablished},
 					})
 					Expect(err).NotTo(HaveOccurred())
 					Expect(result).To(Equal(ctrl.Result{}))

@@ -6,8 +6,8 @@ import (
 	"time"
 
 	"github.com/go-logr/logr"
+	"github.com/syntasso/kratix/api/v1alpha1"
 	"github.com/syntasso/kratix/lib/hash"
-	"github.com/syntasso/kratix/lib/pipeline"
 	batchv1 "k8s.io/api/batch/v1"
 	v1 "k8s.io/api/core/v1"
 	metav1 "k8s.io/apimachinery/pkg/apis/meta/v1"
@@ -74,7 +74,7 @@ func PipelineWithDesiredSpecExists(logger logr.Logger, obj *unstructured.Unstruc
 	jobs = SortJobsByCreationDateTime(jobs)
 	mostRecentJob := jobs[len(jobs)-1]
 
-	mostRecentHash := mostRecentJob.GetLabels()[pipeline.KratixResourceHashLabel]
+	mostRecentHash := mostRecentJob.GetLabels()[v1alpha1.KratixResourceHashLabel]
 	currentRequestHash, err := hash.ComputeHashForResource(obj)
 	if err != nil {
 		logger.Info("Cannot determine if the request is an update. Requeueing", "reason", err.Error())
