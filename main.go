@@ -143,6 +143,7 @@ func main() {
 			Client:         mgr.GetClient(),
 			Scheme:         mgr.GetScheme(),
 			PromiseFetcher: &fetchers.URLFetcher{},
+			EventRecorder:  mgr.GetEventRecorderFor("PromiseReleaseController"),
 		}).SetupWithManager(mgr); err != nil {
 			setupLog.Error(err, "unable to create controller", "controller", "PromiseRelease")
 			os.Exit(1)
