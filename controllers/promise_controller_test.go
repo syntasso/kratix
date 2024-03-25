@@ -566,7 +566,7 @@ var _ = Describe("PromiseController", func() {
 					))
 				})
 
-				FIt("deletes all resources for the promise workflow and dynamic controller", func() {
+				It("deletes all resources for the promise workflow and dynamic controller", func() {
 					//check resources all exist before deletion
 					crds, err := fakeApiExtensionsClient.CustomResourceDefinitions().List(ctx, metav1.ListOptions{})
 					Expect(err).NotTo(HaveOccurred())

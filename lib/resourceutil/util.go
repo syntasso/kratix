@@ -69,8 +69,6 @@ func PipelineWithDesiredSpecExists(logger logr.Logger, obj *unstructured.Unstruc
 		return nil, nil
 	}
 
-	// sort the pipepeineJobs by creation date
-
 	jobs = SortJobsByCreationDateTime(jobs)
 	mostRecentJob := jobs[len(jobs)-1]
 

@@ -81,6 +81,7 @@ func (p pipelineLabels) WithWorkflow(workflowType v1alpha1.Type, workflowAction 
 	}
 	if pipelineName != "" {
 		p["kratix-workflow-pipeline-name"] = pipelineName
+		p[v1alpha1.PipelineNameLabel] = pipelineName
 	}
 	return p
 }

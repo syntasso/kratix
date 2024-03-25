@@ -53,13 +53,13 @@ func ReconcileConfigure(opts Opts) (bool, error) {
 	}
 	for _, pipeline := range opts.Pipelines {
 		opts.logger = originalLogger.WithName(pipeline.Name)
+		// TODO this will be very noisy - might want to slowRequeue?
 		opts.logger.Info("Reconciling pipeline " + pipeline.Name)
 		finished, err := reconcileConfigurePipeline(opts, pipeline)
-		if err == nil && finished {
-			opts.logger.Info("Pipeline reconciled, moving to next", "name", pipeline.Name)
-			continue
+		if err != nil || !finished {
+			return false, err
 		}
-		return false, err
+		opts.logger.Info("Pipeline reconciled, moving to next", "name", pipeline.Name)
 	}
 	return true, nil
 }
@@ -98,62 +98,74 @@ func ReconcileDelete(opts Opts, pipeline Pipeline) (bool, error) {
 
 // Job:
 // kratix.io/promise-name
+// kratix.io/hash
 // kratix.io/pipeline-name
 // kratix.io/resource-name
-// kratix.io/hash
+
+// Old labels:
+// kratix-promise-id
+// kratix-workflow-kind
+// kraitx-workflow-promise-version
+// kratix-workflow-type
+// kratix-workflow-action
+// kratix-workflow-pipeline-name
 func getLabelsForPipelineJob(pipeline Pipeline) map[string]string {
 	labels := pipeline.Job.DeepCopy().GetLabels()
 	//TODO use const
-	delete(labels, v1alpha1.KratixResourceHashLabel)
+	// delete(labels, v1alpha1.KratixResourceHashLabel)
 	return labels
 }
 
-func getLabelsForAllJobs(pipeline Pipeline) map[string]string {
-	labels := pipeline.Job.DeepCopy().GetLabels()
-	//TODO use const
-	delete(labels, v1alpha1.KratixResourceHashLabel)
-	delete(labels, "kratix.io/pipeline-name")
+func labelsForPipelineJob(pipeline Pipeline) map[string]string {
+	return map[string]string{
+		v1alpha1.KratixResourceHashLabel: pipeline.Job.GetLabels()[v1alpha1.KratixResourceHashLabel],
+		v1alpha1.PipelineNameLabel:       pipeline.Job.GetLabels()[v1alpha1.PipelineNameLabel],
+	}
+}
+
+func labelsForAllPipelineJobs(pipeline Pipeline) map[string]string {
+	pipelineLabels := pipeline.Job.GetLabels()
+	labels := map[string]string{
+		v1alpha1.PromiseNameLabel: pipelineLabels[v1alpha1.PromiseNameLabel],
+	}
+	if pipelineLabels[v1alpha1.ResourceNameLabel] != "" {
+		labels[v1alpha1.ResourceNameLabel] = pipelineLabels[v1alpha1.ResourceNameLabel]
+	}
 	return labels
 }
 
 func reconcileConfigurePipeline(opts Opts, pipeline Pipeline) (bool, error) {
-	labels := getLabelsForPipelineJob(pipeline)
+	// labels := getLabelsForAllJobs(pipeline)
 	namespace := opts.parentObject.GetNamespace()
 	if namespace == "" {
 		namespace = v1alpha1.SystemNamespace
 	}
 
-	//TODO this only searchs for jobs for a given pipeline, it should search for all?
-	// Create request
-	// A starts
-	// A finished
-	// B starts
-	// Requests gets updated
-	// A-new starts
-	// B and A-new are now both in parallel?
-	pipelineJobs, err := getJobsWithLabels(opts, labels, namespace)
-	if err != nil {
-		opts.logger.Info("Failed getting Promise pipeline jobs", "error", err)
-		return false, nil
-	}
+	opts.logger.Info("pipeline labels", "labels", pipeline.Job.GetLabels())
+	pipelineJobsAtCurrentSpec, _ := getJobsWithLabels(opts, labelsForPipelineJob(pipeline), namespace)
+	if len(pipelineJobsAtCurrentSpec) == 0 {
+		allJobsWithParentObject, _ := getJobsWithLabels(opts, labelsForAllPipelineJobs(pipeline), namespace)
+		if resourceutil.IsThereAPipelineRunning(opts.logger, allJobsWithParentObject) {
+			return false, nil
+		}
 
-	// No jobs indicates this is the first reconciliation loop of this resource request
-	if len(pipelineJobs) == 0 {
-		opts.logger.Info("No jobs found, creating workflow Job")
+		opts.logger.Info("No jobs found for resource at current spec, creating workflow Job")
 		return false, createConfigurePipeline(opts, pipeline)
 	}
 
-	existingPipelineJob, err := resourceutil.PipelineWithDesiredSpecExists(opts.logger, opts.parentObject, pipelineJobs)
+	// TODO: this is really only filtering the most recent job, so we should update the
+	// function eventually
+	mostRecentJobAtCurrentSpec, err := resourceutil.PipelineWithDesiredSpecExists(opts.logger, opts.parentObject, pipelineJobsAtCurrentSpec)
 	if err != nil {
 		return false, nil
 	}
 
 	//TODO how does this change with multiple workflows?
-	if resourceutil.IsThereAPipelineRunning(opts.logger, pipelineJobs) {
+	if resourceutil.IsThereAPipelineRunning(opts.logger, pipelineJobsAtCurrentSpec) {
 		/* Suspend all pipelines if the promise was updated */
-		for _, job := range resourceutil.SuspendablePipelines(opts.logger, pipelineJobs) {
+		for _, job := range resourceutil.SuspendablePipelines(opts.logger, pipelineJobsAtCurrentSpec) {
 			//Don't suspend a the job that is the desired spec
-			if existingPipelineJob != nil && job.GetName() != existingPipelineJob.GetName() {
+			if mostRecentJobAtCurrentSpec != nil && job.GetName() != mostRecentJobAtCurrentSpec.GetName() {
 				trueBool := true
 				patch := client.MergeFrom(job.DeepCopy())
 				job.Spec.Suspend = &trueBool
@@ -170,7 +182,7 @@ func reconcileConfigurePipeline(opts Opts, pipeline Pipeline) (bool, error) {
 		return false, nil
 	}
 
-	if isManualReconciliation(opts.parentObject.GetLabels()) || existingPipelineJob == nil {
+	if mostRecentJobAtCurrentSpec == nil || isManualReconciliation(opts.parentObject.GetLabels()) {
 		opts.logger.Info("Creating job for workflow", "manualTrigger", isManualReconciliation(opts.parentObject.GetLabels()))
 		return false, createConfigurePipeline(opts, pipeline)
 	}
@@ -184,7 +196,7 @@ func reconcileConfigurePipeline(opts Opts, pipeline Pipeline) (bool, error) {
 	}
 
 	//delete 5 old jobs
-	err = deleteAllButLastFiveJobs(opts, pipelineJobs)
+	err = deleteAllButLastFiveJobs(opts, pipelineJobsAtCurrentSpec)
 	if err != nil {
 		opts.logger.Error(err, "failed to delete old jobs")
 	}
@@ -194,17 +206,17 @@ func reconcileConfigurePipeline(opts Opts, pipeline Pipeline) (bool, error) {
 
 const numberOfJobsToKeep = 5
 
-func deleteAllButLastFiveJobs(opts Opts, pipelineJobs []batchv1.Job) error {
-	if len(pipelineJobs) <= numberOfJobsToKeep {
+func deleteAllButLastFiveJobs(opts Opts, pipelineJobsAtCurrentSpec []batchv1.Job) error {
+	if len(pipelineJobsAtCurrentSpec) <= numberOfJobsToKeep {
 		return nil
 	}
 
 	// Sort jobs by creation time
-	pipelineJobs = resourceutil.SortJobsByCreationDateTime(pipelineJobs)
+	pipelineJobsAtCurrentSpec = resourceutil.SortJobsByCreationDateTime(pipelineJobsAtCurrentSpec)
 
 	// Delete all but the last 5 jobs
-	for i := 0; i < len(pipelineJobs)-numberOfJobsToKeep; i++ {
-		job := pipelineJobs[i]
+	for i := 0; i < len(pipelineJobsAtCurrentSpec)-numberOfJobsToKeep; i++ {
+		job := pipelineJobsAtCurrentSpec[i]
 		opts.logger.Info("Deleting old job", "job", job.GetName())
 		if err := opts.client.Delete(opts.ctx, &job, client.PropagationPolicy(metav1.DeletePropagationBackground)); err != nil {
 			if !errors.IsNotFound(err) {
@@ -339,3 +351,41 @@ func applyResources(opts Opts, resources ...client.Object) {
 		}
 	}
 }
+
+/*
+	for each pipeline in the workflow
+		completed = reconcilePipeline(pipeline)
+		if completed
+			should I trigger the next?
+				trigger to the next
+			if not
+				return true
+		else wait
+	return all completed
+
+	reconcilePipeline
+		jobs = getAllJobsForPipeline(pipeline) (includes the hash)
+		if jobs is empty
+			jobs = getAllJobsUsingImmutableLabels
+			if jobs is empty
+				trigger new job
+				return false
+			else if job is running
+				return false
+			else
+				return true
+				return false
+		else if job is running
+			return false
+		else
+			return true
+
+	getAllJobsForPipeline(pipeline)
+		filtering jobs by labels
+			promise-name
+			resource-name
+			---
+			pipeline-name
+			promise-hash
+			resource-hash
+*/

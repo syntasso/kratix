@@ -131,6 +131,7 @@ var _ = Describe("Delete Pipeline", func() {
 					"kratix-workflow-action":          Equal("delete"),
 					"kratix-promise-id":               Equal("custom-namespace"),
 					"kratix.io/promise-name":          Equal("custom-namespace"),
+					"kratix.io/pipeline-name":         Equal("promise-delete"),
 					"kratix-workflow-pipeline-name":   Equal("promise-delete"),
 				})
 
@@ -325,6 +326,7 @@ var _ = Describe("Delete Pipeline", func() {
 					"kratix.io/promise-name":             Equal("custom-namespace"),
 					"kratix-promise-resource-request-id": Equal("example-custom-namespace"),
 					"kratix-workflow-pipeline-name":      Equal("instance-delete"),
+					"kratix.io/pipeline-name":            Equal("instance-delete"),
 				})
 
 				Expect(job).To(MatchFields(IgnoreExtras, Fields{
