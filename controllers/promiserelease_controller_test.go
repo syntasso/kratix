@@ -12,8 +12,11 @@ import (
 	"k8s.io/apimachinery/pkg/api/errors"
 	metav1 "k8s.io/apimachinery/pkg/apis/meta/v1"
 	"k8s.io/apimachinery/pkg/types"
+	"k8s.io/apimachinery/pkg/util/validation/field"
 	"k8s.io/client-go/kubernetes/scheme"
+	"k8s.io/client-go/tools/record"
 	ctrl "sigs.k8s.io/controller-runtime"
+	"sigs.k8s.io/controller-runtime/pkg/client"
 )
 
 var _ = Describe("PromiseReleaseController", func() {
@@ -268,6 +271,56 @@ var _ = Describe("PromiseReleaseController", func() {
 						Expect(promiseRelease.GetFinalizers()).To(ConsistOf("kratix.io/promise-cleanup"))
 					})
 				})
+
+				When("the Promise manifest is invalid", func() {
+					var (
+						promiseNamespacedName types.NamespacedName
+						eventRecorder         *record.FakeRecorder
+					)
+
+					BeforeEach(func() {
+						promiseNamespacedName = types.NamespacedName{
+							Name: promise.Name,
+							// Note: Promise is cluster-scoped
+						}
+
+						fakeK8sClient = &mockPromiseCtrlRuntimeClient{
+							Client:  fakeK8sClient,
+							promise: promise.Name,
+							mockErr: errors.NewInvalid( // Create mock error for invalid promise
+								promise.GroupVersionKind().GroupKind(),
+								promise.Name,
+								field.ErrorList{},
+							),
+						}
+
+						eventRecorder = record.NewFakeRecorder(1024)
+
+						reconciler = &controllers.PromiseReleaseReconciler{
+							Client:         fakeK8sClient,
+							Scheme:         scheme.Scheme,
+							PromiseFetcher: fakeFetcher,
+							Log:            ctrl.Log.WithName("controllers").WithName("PromiseRelease"),
+							EventRecorder:  eventRecorder,
+						}
+
+						err := fakeK8sClient.Create(context.TODO(), &promiseRelease)
+						Expect(err).NotTo(HaveOccurred())
+					})
+
+					It("fails the PromiseRelease's reconciliation", func() {
+						_, err := t.reconcileUntilCompletion(reconciler, &promiseRelease)
+						Expect(err).To(HaveOccurred())
+						Expect(eventRecorder.Events).To(Receive(ContainSubstring(
+							fmt.Sprintf("Promise.platform.kratix.io %q is invalid", promise.Name)),
+						))
+					})
+
+					It("doesn't create the Promise", func() {
+						err := fakeK8sClient.Get(context.TODO(), promiseNamespacedName, promise)
+						Expect(err).To(HaveOccurred())
+					})
+				})
 			})
 		})
 	})
@@ -403,3 +456,29 @@ var _ = Describe("PromiseReleaseController", func() {
 		})
 	})
 })
+
+type mockPromiseCtrlRuntimeClient struct {
+	client.Client
+	promise string              // Name of the Promise
+	mockErr *errors.StatusError // Error returned by this client when expected conditions meet
+}
+
+// Create mocks the client.Client's Create method in mockPromiseCtrlRuntimeClient
+//
+// If the object being created is of kind "Promise", and the name matches, it returns a predefined error. Else, it
+// invokes the client.Client 's Create method.
+func (m *mockPromiseCtrlRuntimeClient) Create(ctx context.Context, obj client.Object, opts ...client.CreateOption) error {
+	// Parse the object as "Promise"
+	if _, ok := obj.(*v1alpha1.Promise); !ok {
+		// When the object is not a Promise, invoke the client.Client's Create method
+		return m.Client.Create(ctx, obj)
+	}
+
+	// Check if the object's name matches the expected name
+	if obj.GetName() == m.promise {
+		return m.mockErr
+	}
+
+	// When the object doesn't match the required Promise, invoke the client.Client's Create method
+	return m.Client.Create(ctx, obj)
+}
