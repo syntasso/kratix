@@ -11,6 +11,7 @@ import (
 	"github.com/syntasso/kratix/lib/workflow"
 	batchv1 "k8s.io/api/batch/v1"
 	v1 "k8s.io/api/core/v1"
+	"k8s.io/apimachinery/pkg/api/errors"
 	metav1 "k8s.io/apimachinery/pkg/apis/meta/v1"
 	"k8s.io/apimachinery/pkg/apis/meta/v1/unstructured"
 	"k8s.io/apimachinery/pkg/types"
@@ -179,6 +180,18 @@ var _ = Describe("ReconcileConfigure", func() {
 				Expect(completed).To(BeFalse())
 			})
 
+			It("suspends the previous job", func() {
+				opts := workflow.NewOpts(ctx, fakeK8sClient, logger, uPromise, updatedWorkflowPipeline, "test")
+				_, err := workflow.ReconcileConfigure(opts)
+				Expect(err).NotTo(HaveOccurred())
+
+				job := &batchv1.Job{}
+				Expect(fakeK8sClient.Get(ctx, client.ObjectKey{Namespace: namespace, Name: workflowPipelines[0].Job.Name}, job)).To(Succeed())
+
+				Expect(job.Spec.Suspend).NotTo(BeNil())
+				Expect(*job.Spec.Suspend).To(BeTrue())
+			})
+
 			When("the outdated job completes", func() {
 				var jobList []batchv1.Job
 
@@ -202,6 +215,78 @@ var _ = Describe("ReconcileConfigure", func() {
 			})
 		})
 	})
+
+	Context("promise workflows", func() {
+		var opts workflow.Opts
+		BeforeEach(func() {
+			opts = workflow.NewOpts(ctx, fakeK8sClient, logger, uPromise, workflowPipelines, "promise")
+
+			completed, err := workflow.ReconcileConfigure(opts)
+			Expect(err).NotTo(HaveOccurred())
+			Expect(completed).To(BeFalse())
+
+			markJobAsComplete(workflowPipelines[0].Job.Name)
+
+			completed, err = workflow.ReconcileConfigure(opts)
+			Expect(err).NotTo(HaveOccurred())
+			Expect(completed).To(BeFalse())
+		})
+
+		When("there are still workflows to execute", func() {
+			It("doesn't delete the promise scheduling config map", func() {
+				configMap := &v1.ConfigMap{}
+				Expect(fakeK8sClient.Get(ctx, types.NamespacedName{
+					Name: "destination-selectors-redis", Namespace: namespace},
+					configMap,
+				)).To(Succeed())
+			})
+		})
+
+		When("all workflows are executed", func() {
+			BeforeEach(func() {
+				markJobAsComplete(workflowPipelines[1].Job.Name)
+				completed, err := workflow.ReconcileConfigure(opts)
+				Expect(err).NotTo(HaveOccurred())
+				Expect(completed).To(BeTrue())
+			})
+
+			It("deletes the promise scheduling configmap", func() {
+				configMap := &v1.ConfigMap{}
+				err := fakeK8sClient.Get(ctx, types.NamespacedName{Name: "destination-selectors-redis", Namespace: namespace}, configMap)
+				Expect(err).To(HaveOccurred())
+				Expect(errors.IsNotFound(err)).To(BeTrue())
+			})
+
+		})
+	})
+
+	When("there are more than 5 old workflow execution", func() {
+		It("deletes the oldests jobs", func() {
+			var updatedPromise v1alpha1.Promise
+			for i := range 6 {
+				Expect(fakeK8sClient.Get(ctx, types.NamespacedName{Name: promise.Name}, &updatedPromise)).To(Succeed())
+				updatedPromise.Spec.DestinationSelectors = []v1alpha1.PromiseScheduling{{
+					MatchLabels: map[string]string{"app": fmt.Sprintf("redis-%d", i)},
+				}}
+				Expect(fakeK8sClient.Update(ctx, &updatedPromise)).To(Succeed())
+
+				updatedWorkflowPipeline, uPromise := setupTest(updatedPromise, pipelines)
+				opts := workflow.NewOpts(ctx, fakeK8sClient, logger, uPromise, updatedWorkflowPipeline, "test")
+				for j := range 2 {
+					_, err := workflow.ReconcileConfigure(opts)
+					Expect(err).NotTo(HaveOccurred())
+					markJobAsComplete(updatedWorkflowPipeline[j].Job.Name)
+				}
+			}
+			updatedWorkflowPipeline, uPromise := setupTest(updatedPromise, pipelines)
+			opts := workflow.NewOpts(ctx, fakeK8sClient, logger, uPromise, updatedWorkflowPipeline, "test")
+			_, err := workflow.ReconcileConfigure(opts)
+			Expect(err).NotTo(HaveOccurred())
+
+			jobList := listJobs(namespace)
+			Expect(len(jobList)).To(Equal(5 * len(updatedWorkflowPipeline)))
+		})
+	})
 })
 
 var callCount = 0
@@ -212,18 +297,20 @@ func setupTest(promise v1alpha1.Promise, pipelines []v1alpha1.Pipeline) ([]workf
 	Expect(err).NotTo(HaveOccurred())
 
 	jobs := []*batchv1.Job{}
+	otherResources := [][]client.Object{}
 	for _, p := range pipelines {
 		generatedResources, err := pipeline.NewConfigurePromise(
 			uPromise, p, promise.Name, nil, logger,
 		)
 		Expect(err).NotTo(HaveOccurred())
 		jobs = append(jobs, generatedResources[4].(*batchv1.Job))
+		otherResources = append(otherResources, generatedResources[0:4])
 	}
 
 	workflowPipelines := []workflow.Pipeline{}
 	for i, j := range jobs {
 		workflowPipelines = append(workflowPipelines, workflow.Pipeline{
-			JobRequiredResources: []client.Object{},
+			JobRequiredResources: otherResources[i],
 			Job:                  j,
 			Name:                 fmt.Sprintf("pipeline-%d", i+1),
 		})
