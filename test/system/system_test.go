@@ -158,7 +158,7 @@ var _ = Describe("Kratix", func() {
 					},
 				}
 
-				bashPromise.Spec.Workflows.Resource.Configure[1].Object["spec"].(map[string]interface{})["containers"].(map[string]interface{})["command"].([]string)[2] = "kubectl create configmap REPLACEBASH-2nd-workflow-new -o yaml > /kratix/output/configmap.yaml"
+				bashPromise.Spec.Workflows.Resource.Configure[1].Object["spec"].(map[string]interface{})["containers"].(map[string]interface{})["command"].([]string)[2] = "kubectl create configmap REPLACEBASH-2nd-workflow-new -o yaml --dry-run=client > /kratix/output/configmap.yaml"
 
 				platform.eventuallyKubectl("apply", "-f", cat(bashPromise))
 
