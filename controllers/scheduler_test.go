@@ -2,9 +2,11 @@ package controllers_test
 
 import (
 	"context"
+	"fmt"
 	"sort"
 	"strconv"
 
+	"github.com/google/uuid"
 	. "github.com/onsi/ginkgo/v2"
 	. "github.com/onsi/gomega"
 	"github.com/syntasso/kratix/api/v1alpha1"
@@ -135,6 +137,9 @@ var _ = Describe("Controllers/Scheduler", func() {
 					Expect(workPlacement.Finalizers[0]).To(Equal("finalizers.workplacement.kratix.io/repo-cleanup"))
 					Expect(workPlacement.Spec.PromiseName).To(Equal("promise"))
 					Expect(workPlacement.Spec.ResourceName).To(Equal("resource"))
+					Expect(workPlacement.GetLabels()).To(SatisfyAll(
+						HaveKeyWithValue("kratix.io/pipeline-name", resourceWork.Labels["kratix.io/pipeline-name"]),
+					))
 				})
 
 				It("sets the scheduling conditions on the Work", func() {
@@ -597,7 +602,10 @@ var _ = Describe("Controllers/Scheduler", func() {
 						Expect(fakeK8sClient.List(context.Background(), &workPlacements)).To(Succeed())
 						Expect(workPlacements.Items).To(HaveLen(1))
 						Expect(workPlacements.Items[0].Spec.TargetDestinationName).To(Equal(prodDestination.Name))
-						Expect(workPlacements.Items[0].ObjectMeta.Labels["kratix.io/work"]).To(Equal(dependencyWorkForProd.Name))
+						Expect(workPlacements.Items[0].GetLabels()).To(SatisfyAll(
+							HaveKeyWithValue("kratix.io/pipeline-name", dependencyWorkForProd.Labels["kratix.io/pipeline-name"]),
+							HaveKeyWithValue("kratix.io/work", dependencyWorkForProd.Name),
+						))
 					})
 				})
 
@@ -895,6 +903,10 @@ func newWork(name string, replicas int, scheduling ...WorkloadGroupScheduling) W
 			Name:      name,
 			Namespace: namespace,
 			UID:       types.UID(name),
+			Labels: map[string]string{
+				"kratix.io/work":          name,
+				"kratix.io/pipeline-name": fmt.Sprintf("workflow-%s", uuid.New().String()[0:8]),
+			},
 		},
 		Spec: WorkSpec{
 			Replicas: replicas,

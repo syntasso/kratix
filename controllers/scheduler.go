@@ -340,6 +340,7 @@ func (s *Scheduler) applyWorkplacementsForTargetDestinations(workloadGroup v1alp
 				workLabelKey:       work.Name,
 				workloadGroupIDKey: workloadGroup.ID,
 			}
+			workPlacement.SetPipelineName(work)
 
 			if misscheduled {
 				s.labelWorkplacementAsMisscheduled(workPlacement)
