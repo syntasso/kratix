@@ -36,6 +36,7 @@ import (
 	"k8s.io/apimachinery/pkg/apis/meta/v1/unstructured"
 	"k8s.io/apimachinery/pkg/runtime"
 	"k8s.io/apimachinery/pkg/runtime/schema"
+	"k8s.io/apimachinery/pkg/types"
 	ctrl "sigs.k8s.io/controller-runtime"
 	"sigs.k8s.io/controller-runtime/pkg/client"
 )
@@ -85,8 +86,18 @@ func (r *DynamicResourceRequestController) Reconcile(ctx context.Context, req ct
 	rr := &unstructured.Unstructured{}
 	rr.SetGroupVersionKind(*r.GVK)
 
-	err := r.Client.Get(ctx, req.NamespacedName, rr)
+	promise := &v1alpha1.Promise{}
+	if err := r.Client.Get(ctx, types.NamespacedName{Name: r.PromiseIdentifier}, promise); err != nil {
+		logger.Error(err, "Failed getting Promise")
+		return ctrl.Result{}, err
+	}
+	unstructuredPromise, err := promise.ToUnstructured()
 	if err != nil {
+		logger.Error(err, "Failed converting Promise to Unstructured")
+		return ctrl.Result{}, err
+	}
+
+	if err := r.Client.Get(ctx, req.NamespacedName, rr); err != nil {
 		if errors.IsNotFound(err) {
 			return ctrl.Result{}, nil
 		}
@@ -129,6 +140,7 @@ func (r *DynamicResourceRequestController) Reconcile(ctx context.Context, req ct
 	for _, p := range r.ConfigurePipelines {
 		pipelineResources, err := pipeline.NewConfigureResource(
 			rr,
+			unstructuredPromise,
 			r.CRD.Spec.Names.Plural,
 			p,
 			resourceRequestIdentifier,
