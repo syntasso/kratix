@@ -59,3 +59,12 @@ type WorkPlacementList struct {
 func init() {
 	SchemeBuilder.Register(&WorkPlacement{}, &WorkPlacementList{})
 }
+
+func (w *WorkPlacement) SetPipelineName(work *Work) {
+	pipelineName := work.GetLabels()[PipelineNameLabel]
+	w.Labels[PipelineNameLabel] = pipelineName
+}
+
+func (w *WorkPlacement) PipelineName() string {
+	return w.GetLabels()[PipelineNameLabel]
+}
