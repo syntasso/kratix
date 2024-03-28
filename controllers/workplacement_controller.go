@@ -152,7 +152,7 @@ func (r *WorkPlacementReconciler) removeWorkFromRepository(writer writers.StateS
 func getDir(workPlacement v1alpha1.WorkPlacement) string {
 	if workPlacement.Spec.ResourceName == "" {
 		//dependencies/<promise-name>/<dir-sha>/
-		return filepath.Join(dependenciesDir, workPlacement.Spec.PromiseName, shortID(workPlacement.Spec.ID))
+		return filepath.Join(dependenciesDir, workPlacement.Spec.PromiseName, workPlacement.PipelineName(), shortID(workPlacement.Spec.ID))
 	} else {
 		//resources/<rr-namespace>/<promise-name>/<rr-name>/<dir-sha>/
 		return filepath.Join(resourcesDir, workPlacement.GetNamespace(), workPlacement.Spec.PromiseName, workPlacement.Spec.ResourceName, shortID(workPlacement.Spec.ID))
