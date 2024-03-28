@@ -19,6 +19,7 @@ import (
 
 func NewConfigureResource(
 	rr *unstructured.Unstructured,
+	promise *unstructured.Unstructured,
 	crdPlural string,
 	pipeline v1alpha1.Pipeline,
 	resourceRequestIdentifier,
@@ -33,7 +34,19 @@ func NewConfigureResource(
 		return nil, err
 	}
 
-	job, err := ConfigurePipeline(rr, pipeline, pipelineResources, promiseIdentifier, false, logger)
+	promiseHash, err := hash.ComputeHashForResource(promise)
+	if err != nil {
+		return nil, err
+	}
+
+	objHash, err := hash.ComputeHashForResource(rr)
+	if err != nil {
+		return nil, err
+	}
+
+	combinedHash := hash.ComputeHash(fmt.Sprintf("%s-%s", promiseHash, objHash))
+
+	job, err := ConfigurePipeline(rr, combinedHash, pipeline, pipelineResources, promiseIdentifier, false, logger)
 	if err != nil {
 		return nil, err
 	}
@@ -63,7 +76,12 @@ func NewConfigurePromise(
 		return nil, err
 	}
 
-	pipeline, err := ConfigurePipeline(unstructedPromise, p, pipelineResources, promiseIdentifier, true, logger)
+	objHash, err := hash.ComputeHashForResource(unstructedPromise)
+	if err != nil {
+		return nil, err
+	}
+
+	pipeline, err := ConfigurePipeline(unstructedPromise, objHash, p, pipelineResources, promiseIdentifier, true, logger)
 	if err != nil {
 		return nil, err
 	}
@@ -79,7 +97,7 @@ func NewConfigurePromise(
 	return resources, nil
 }
 
-func ConfigurePipeline(obj *unstructured.Unstructured, pipeline v1alpha1.Pipeline, pipelineArgs PipelineArgs, promiseName string, promiseWorkflow bool, logger logr.Logger) (*batchv1.Job, error) {
+func ConfigurePipeline(obj *unstructured.Unstructured, objHash string, pipeline v1alpha1.Pipeline, pipelineArgs PipelineArgs, promiseName string, promiseWorkflow bool, logger logr.Logger) (*batchv1.Job, error) {
 	volumes := metadataAndSchedulingVolumes(pipelineArgs.ConfigMapName())
 
 	initContainers, pipelineVolumes := generateConfigurePipelineContainersAndVolumes(obj, pipeline, promiseName, promiseWorkflow, logger)

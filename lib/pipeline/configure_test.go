@@ -55,7 +55,7 @@ var _ = Describe("Configure Pipeline", func() {
 		const expectedHash = "9bb58f26192e4ba00f01e2e7b136bbd8"
 
 		It("is included as a label to the pipeline job", func() {
-			job, err := pipeline.ConfigurePipeline(rr, p, pipelineResources, "test-promise", false, logger)
+			job, err := pipeline.ConfigurePipeline(rr, expectedHash, p, pipelineResources, "test-promise", false, logger)
 			Expect(err).NotTo(HaveOccurred())
 
 			Expect(job.Labels).To(HaveKeyWithValue("kratix.io/hash", expectedHash))
@@ -71,7 +71,7 @@ var _ = Describe("Configure Pipeline", func() {
 					Args:    []string{"arg1", "arg2"},
 					Command: []string{"command1", "command2"},
 				})
-				job, err := pipeline.ConfigurePipeline(rr, p, pipelineResources, "test-promise", true, logger)
+				job, err := pipeline.ConfigurePipeline(rr, "hash", p, pipelineResources, "test-promise", true, logger)
 				Expect(err).NotTo(HaveOccurred())
 
 				Expect(job.Spec.Template.Spec.InitContainers[3].Command).To(ConsistOf(
@@ -90,7 +90,7 @@ var _ = Describe("Configure Pipeline", func() {
 					Args:    []string{"arg1", "arg2"},
 					Command: []string{"command1", "command2"},
 				})
-				job, err := pipeline.ConfigurePipeline(rr, p, pipelineResources, "test-promise", false, logger)
+				job, err := pipeline.ConfigurePipeline(rr, "hash", p, pipelineResources, "test-promise", false, logger)
 				Expect(err).NotTo(HaveOccurred())
 
 				Expect(job.Spec.Template.Spec.InitContainers[3].Command).To(ConsistOf(
@@ -110,7 +110,7 @@ var _ = Describe("Configure Pipeline", func() {
 				Args:    []string{"arg1", "arg2"},
 				Command: []string{"command1", "command2"},
 			})
-			job, err := pipeline.ConfigurePipeline(rr, p, pipelineResources, "test-promise", false, logger)
+			job, err := pipeline.ConfigurePipeline(rr, "hash", p, pipelineResources, "test-promise", false, logger)
 			Expect(err).NotTo(HaveOccurred())
 
 			Expect(job.Spec.Template.Spec.InitContainers[1].Args).To(BeEmpty())
@@ -134,7 +134,7 @@ var _ = Describe("Configure Pipeline", func() {
 					},
 				},
 			})
-			job, err := pipeline.ConfigurePipeline(rr, p, pipelineResources, "test-promise", false, logger)
+			job, err := pipeline.ConfigurePipeline(rr, "hash", p, pipelineResources, "test-promise", false, logger)
 			Expect(err).NotTo(HaveOccurred())
 
 			Expect(job.Spec.Template.Spec.InitContainers[1].Env).To(ContainElements(
@@ -168,7 +168,7 @@ var _ = Describe("Configure Pipeline", func() {
 					{Name: "test-volume-mount", MountPath: "/test-mount-path"},
 				},
 			})
-			job, err := pipeline.ConfigurePipeline(rr, p, pipelineResources, "test-promise", false, logger)
+			job, err := pipeline.ConfigurePipeline(rr, "hash", p, pipelineResources, "test-promise", false, logger)
 			Expect(err).NotTo(HaveOccurred())
 
 			Expect(job.Spec.Template.Spec.InitContainers[1].VolumeMounts).To(HaveLen(3), "default volume mounts should've been included")
@@ -189,7 +189,7 @@ var _ = Describe("Configure Pipeline", func() {
 				Image:           "another-image",
 				ImagePullPolicy: corev1.PullAlways,
 			})
-			job, err := pipeline.ConfigurePipeline(rr, p, pipelineResources, "test-promise", false, logger)
+			job, err := pipeline.ConfigurePipeline(rr, "hash", p, pipelineResources, "test-promise", false, logger)
 			Expect(err).NotTo(HaveOccurred())
 
 			Expect(job.Spec.Template.Spec.ImagePullSecrets).To(HaveLen(3), "imagePullSecrets should've been included")
