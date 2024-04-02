@@ -149,22 +149,55 @@ var _ = Describe("ReconcileConfigure", func() {
 		})
 
 		When("there are no jobs for the promise at this spec", func() {
-			BeforeEach(func() {
-				Expect(fakeK8sClient.Create(ctx, workflowPipelines[0].Job)).To(Succeed())
-				Expect(fakeK8sClient.Create(ctx, workflowPipelines[1].Job)).To(Succeed())
-				markJobAsComplete(workflowPipelines[0].Job.Name)
-				markJobAsComplete(workflowPipelines[1].Job.Name)
-			})
-
 			It("triggers the first pipeline in the workflow", func() {
 				opts := workflow.NewOpts(ctx, fakeK8sClient, logger, uPromise, updatedWorkflowPipeline, "test")
 				completed, err := workflow.ReconcileConfigure(opts)
 				Expect(err).NotTo(HaveOccurred())
 				jobList := listJobs(namespace)
-				Expect(jobList).To(HaveLen(3))
+				Expect(jobList).To(HaveLen(1))
 				Expect(completed).To(BeFalse())
 
 				Expect(findByName(jobList, updatedWorkflowPipeline[0].Job.Name)).To(BeTrue())
+			})
+		})
+
+		When("there are jobs for the promise at this spec", func() {
+			var originalWorkflowPipelines []workflow.Pipeline
+
+			BeforeEach(func() {
+				// Run the original pipeline jobs to completion, so they exist in the
+				// history of jobs
+				Expect(fakeK8sClient.Create(ctx, workflowPipelines[0].Job)).To(Succeed())
+				Expect(fakeK8sClient.Create(ctx, workflowPipelines[1].Job)).To(Succeed())
+				markJobAsComplete(workflowPipelines[0].Job.Name)
+				markJobAsComplete(workflowPipelines[1].Job.Name)
+
+				// Run the updated-spec jobs to completion, so they're the most recent
+				Expect(fakeK8sClient.Create(ctx, updatedWorkflowPipeline[0].Job)).To(Succeed())
+				Expect(fakeK8sClient.Create(ctx, updatedWorkflowPipeline[1].Job)).To(Succeed())
+				markJobAsComplete(updatedWorkflowPipeline[0].Job.Name)
+				markJobAsComplete(updatedWorkflowPipeline[1].Job.Name)
+
+				// Update the promise back to its original spec
+				promise.Spec.DestinationSelectors = []v1alpha1.PromiseScheduling{}
+				Expect(fakeK8sClient.Update(ctx, &promise)).To(Succeed())
+
+				originalWorkflowPipelines, uPromise = setupTest(promise, pipelines)
+			})
+
+			Context("but they are not the most recent", func() {
+				It("triggers the first pipeline in the workflow", func() {
+					// Reconcile with the *original* pipelines and promise spec
+					opts := workflow.NewOpts(ctx, fakeK8sClient, logger, uPromise, originalWorkflowPipelines, "test")
+					completed, err := workflow.ReconcileConfigure(opts)
+					Expect(err).NotTo(HaveOccurred())
+					jobList := listJobs(namespace)
+					Expect(completed).To(BeFalse())
+
+					// Expect the original 2 jobs, the updated 2 jobs, and the first job
+					// from re-running the first pipeline again on this reconciliation
+					Expect(jobList).To(HaveLen(5))
+				})
 			})
 		})
 
@@ -290,7 +323,7 @@ var _ = Describe("ReconcileConfigure", func() {
 		})
 	})
 
-	FWhen("all pipelines have executed", func() {
+	When("all pipelines have executed", func() {
 		var updatedWorkflows []workflow.Pipeline
 
 		BeforeEach(func() {
@@ -359,6 +392,7 @@ var _ = Describe("ReconcileConfigure", func() {
 			}))
 		})
 	})
+
 })
 
 func createFakeWorks(pipelines []v1alpha1.Pipeline, promiseName string) {

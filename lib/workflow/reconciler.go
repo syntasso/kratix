@@ -201,6 +201,7 @@ func reconcileConfigurePipeline(opts Opts, namespace string, pipeline Pipeline) 
 		}
 
 		opts.logger.Info("No jobs found for resource at current spec, creating workflow Job")
+
 		return false, createConfigurePipeline(opts, pipeline)
 	}
 
@@ -211,6 +212,19 @@ func reconcileConfigurePipeline(opts Opts, namespace string, pipeline Pipeline) 
 
 	if isManualReconciliation(opts.parentObject.GetLabels()) {
 		opts.logger.Info("Creating job for workflow", "manualTrigger", isManualReconciliation(opts.parentObject.GetLabels()))
+		return false, createConfigurePipeline(opts, pipeline)
+	}
+
+	allJobsWithParentObject, err := getJobsWithLabels(opts, labelsForAllPipelineJobs(pipeline), namespace)
+	if err != nil {
+		return false, err
+	}
+	job, err := resourceutil.PipelineWithDesiredSpecExists(opts.logger, opts.parentObject, allJobsWithParentObject)
+	if err != nil {
+		return false, err
+	}
+
+	if job == nil {
 		return false, createConfigurePipeline(opts, pipeline)
 	}
 

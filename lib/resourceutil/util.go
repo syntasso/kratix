@@ -76,7 +76,7 @@ func PipelineWithDesiredSpecExists(logger logr.Logger, obj *unstructured.Unstruc
 	currentRequestHash, err := hash.ComputeHashForResource(obj)
 	if err != nil {
 		logger.Info("Cannot determine if the request is an update. Requeueing", "reason", err.Error())
-		return nil, nil
+		return nil, err
 	}
 
 	if mostRecentHash == currentRequestHash {
