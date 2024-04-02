@@ -4,10 +4,12 @@ import (
 	"fmt"
 	"time"
 
+	"github.com/google/uuid"
 	. "github.com/onsi/ginkgo/v2"
 	. "github.com/onsi/gomega"
 	"github.com/syntasso/kratix/api/v1alpha1"
 	"github.com/syntasso/kratix/lib/pipeline"
+	"github.com/syntasso/kratix/lib/resourceutil"
 	"github.com/syntasso/kratix/lib/workflow"
 	batchv1 "k8s.io/api/batch/v1"
 	v1 "k8s.io/api/core/v1"
@@ -146,7 +148,7 @@ var _ = Describe("ReconcileConfigure", func() {
 			Expect(updatedWorkflowPipeline[1].Job.Name).NotTo(Equal(workflowPipelines[1].Job.Name))
 		})
 
-		When("there is no jobs for the promise at this spec", func() {
+		When("there are no jobs for the promise at this spec", func() {
 			BeforeEach(func() {
 				Expect(fakeK8sClient.Create(ctx, workflowPipelines[0].Job)).To(Succeed())
 				Expect(fakeK8sClient.Create(ctx, workflowPipelines[1].Job)).To(Succeed())
@@ -287,9 +289,99 @@ var _ = Describe("ReconcileConfigure", func() {
 			Expect(len(jobList)).To(Equal(5 * len(updatedWorkflowPipeline)))
 		})
 	})
+
+	FWhen("all pipelines have executed", func() {
+		var updatedWorkflows []workflow.Pipeline
+
+		BeforeEach(func() {
+			Expect(fakeK8sClient.Create(ctx, workflowPipelines[0].Job)).To(Succeed())
+			Expect(fakeK8sClient.Create(ctx, workflowPipelines[1].Job)).To(Succeed())
+			markJobAsComplete(workflowPipelines[0].Job.Name)
+			markJobAsComplete(workflowPipelines[1].Job.Name)
+
+			createFakeWorks(pipelines, promise.Name)
+
+			opts := workflow.NewOpts(ctx, fakeK8sClient, logger, uPromise, workflowPipelines, "promise")
+			completed, err := workflow.ReconcileConfigure(opts)
+			Expect(err).NotTo(HaveOccurred())
+			Expect(completed).To(BeTrue())
+
+			updatedPipelines := []v1alpha1.Pipeline{{
+				ObjectMeta: metav1.ObjectMeta{
+					Name: "pipeline-new-name",
+				},
+				Spec: v1alpha1.PipelineSpec{
+					Containers: []v1alpha1.Container{
+						{Name: "container-1", Image: "busybox"},
+					},
+				},
+			}}
+
+			updatedWorkflows, uPromise = setupTest(promise, updatedPipelines)
+			Expect(fakeK8sClient.Create(ctx, updatedWorkflows[0].Job)).To(Succeed())
+			markJobAsComplete(updatedWorkflows[0].Job.Name)
+
+			opts = workflow.NewOpts(ctx, fakeK8sClient, logger, uPromise, updatedWorkflows, "promise")
+			completed, err = workflow.ReconcileConfigure(opts)
+			Expect(err).NotTo(HaveOccurred())
+			Expect(completed).To(BeTrue())
+
+			createFakeWorks(updatedPipelines, promise.Name)
+			createFakeWorks(pipelines, "not-redis")
+			createStaticDependencyWork(promise.Name)
+		})
+
+		It("cleans up any leftover works from previous runs", func() {
+			opts := workflow.NewOpts(ctx, fakeK8sClient, logger, uPromise, updatedWorkflows, "promise")
+			completed, err := workflow.ReconcileConfigure(opts)
+			Expect(err).NotTo(HaveOccurred())
+			Expect(completed).To(BeTrue())
+
+			works := v1alpha1.WorkList{}
+			Expect(fakeK8sClient.List(ctx, &works)).To(Succeed())
+
+			ids := []string{}
+			for _, work := range works.Items {
+				ids = append(ids,
+					fmt.Sprintf(
+						"%s/%s/%s",
+						work.GetLabels()["kratix.io/work-type"],
+						work.GetLabels()["kratix.io/promise-name"],
+						work.GetLabels()["kratix.io/pipeline-name"],
+					),
+				)
+			}
+			Expect(ids).To(ConsistOf([]string{
+				"promise/redis/pipeline-new-name",
+				"promise/not-redis/pipeline-2",
+				"promise/not-redis/pipeline-1",
+				"static-dependency/redis/",
+			}))
+		})
+	})
 })
 
-var callCount = 0
+func createFakeWorks(pipelines []v1alpha1.Pipeline, promiseName string) {
+	for _, pipeline := range pipelines {
+		work := v1alpha1.Work{}
+		work.Name = fmt.Sprintf("work-%s", uuid.New().String()[0:5])
+		work.Namespace = namespace
+		work.Spec.PromiseName = promiseName
+		work.Labels = map[string]string{}
+		resourceutil.SetPromiseWorkLabels(work.Labels, promiseName, pipeline.Name)
+		Expect(fakeK8sClient.Create(ctx, &work)).To(Succeed())
+	}
+}
+
+func createStaticDependencyWork(promiseName string) {
+	work := v1alpha1.Work{}
+	work.Name = fmt.Sprintf("static-deps-%s", uuid.New().String()[0:5])
+	work.Spec.PromiseName = promiseName
+	work.Namespace = namespace
+	work.Labels = map[string]string{}
+	resourceutil.SetPromiseWorkLabels(work.Labels, promiseName, "")
+	Expect(fakeK8sClient.Create(ctx, &work)).To(Succeed())
+}
 
 func setupTest(promise v1alpha1.Promise, pipelines []v1alpha1.Pipeline) ([]workflow.Pipeline, *unstructured.Unstructured) {
 	var err error
@@ -312,11 +404,13 @@ func setupTest(promise v1alpha1.Promise, pipelines []v1alpha1.Pipeline) ([]workf
 		workflowPipelines = append(workflowPipelines, workflow.Pipeline{
 			JobRequiredResources: otherResources[i],
 			Job:                  j,
-			Name:                 fmt.Sprintf("pipeline-%d", i+1),
+			Name:                 j.GetLabels()["kratix.io/pipeline-name"],
 		})
 	}
 	return workflowPipelines, uPromise
 }
+
+var callCount = 0
 
 func markJobAsComplete(name string) {
 	callCount++

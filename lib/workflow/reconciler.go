@@ -140,12 +140,33 @@ func ReconcileConfigure(opts Opts) (bool, error) {
 		}
 	}
 
+	pipelineNames := map[string]bool{}
 	for _, pipeline := range opts.Pipelines {
 		l := labelsForAllPipelineJobs(pipeline)
 		l[v1alpha1.PipelineNameLabel] = pipeline.Name
+		pipelineNames[pipeline.Name] = true
 		jobsForPipeline, _ := getJobsWithLabels(opts, l, namespace)
+		// TODO: come back to this and reason about it
 		if err := deleteAllButLastFiveJobs(opts, jobsForPipeline); err != nil {
 			opts.logger.Error(err, "failed to delete old jobs")
+			return false, err
+		}
+	}
+
+	allPipelineWorks, err := resourceutil.GetWorksByType(opts.client, v1alpha1.Type(opts.source), opts.parentObject)
+	if err != nil {
+		opts.logger.Error(err, "failed to list works for Promise", "promise", opts.parentObject.GetName())
+		return false, err
+	}
+	for _, work := range allPipelineWorks {
+		workPipelineName := work.GetLabels()[v1alpha1.PipelineNameLabel]
+		if !pipelineNames[workPipelineName] {
+			opts.logger.Info("Deleting old work", "work", work.GetName(), "objectName", opts.parentObject.GetName(), "workType", work.Labels[v1alpha1.WorkTypeLabel])
+			if err := opts.client.Delete(opts.ctx, &work); err != nil {
+				opts.logger.Error(err, "failed to delete old work", "work", work.GetName())
+				return false, err
+			}
+
 		}
 	}
 
