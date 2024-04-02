@@ -219,12 +219,21 @@ func reconcileConfigurePipeline(opts Opts, namespace string, pipeline Pipeline) 
 	if err != nil {
 		return false, err
 	}
-	job, err := resourceutil.PipelineWithDesiredSpecExists(opts.logger, opts.parentObject, allJobsWithParentObject)
-	if err != nil {
-		return false, err
+
+	resourceutil.SortJobsByCreationDateTime(allJobsWithParentObject, false)
+	foundJob := false
+	for _, job := range allJobsWithParentObject {
+		if job.GetLabels()[v1alpha1.KratixResourceHashLabel] != pipeline.Job.GetLabels()[v1alpha1.KratixResourceHashLabel] {
+			break
+		}
+
+		if job.GetLabels()[v1alpha1.PipelineNameLabel] == pipeline.Job.GetLabels()[v1alpha1.PipelineNameLabel] {
+			foundJob = true
+			break
+		}
 	}
 
-	if job == nil {
+	if !foundJob {
 		return false, createConfigurePipeline(opts, pipeline)
 	}
 
@@ -239,7 +248,7 @@ func deleteAllButLastFiveJobs(opts Opts, pipelineJobsAtCurrentSpec []batchv1.Job
 	}
 
 	// Sort jobs by creation time
-	pipelineJobsAtCurrentSpec = resourceutil.SortJobsByCreationDateTime(pipelineJobsAtCurrentSpec)
+	pipelineJobsAtCurrentSpec = resourceutil.SortJobsByCreationDateTime(pipelineJobsAtCurrentSpec, true)
 
 	// Delete all but the last 5 jobs
 	for i := 0; i < len(pipelineJobsAtCurrentSpec)-numberOfJobsToKeep; i++ {

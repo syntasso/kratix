@@ -186,17 +186,25 @@ var _ = Describe("ReconcileConfigure", func() {
 			})
 
 			Context("but they are not the most recent", func() {
-				It("triggers the first pipeline in the workflow", func() {
+				It("re-runs all pipelines in the workflow", func() {
 					// Reconcile with the *original* pipelines and promise spec
 					opts := workflow.NewOpts(ctx, fakeK8sClient, logger, uPromise, originalWorkflowPipelines, "test")
 					completed, err := workflow.ReconcileConfigure(opts)
 					Expect(err).NotTo(HaveOccurred())
-					jobList := listJobs(namespace)
 					Expect(completed).To(BeFalse())
 
 					// Expect the original 2 jobs, the updated 2 jobs, and the first job
 					// from re-running the first pipeline again on this reconciliation
+					jobList := listJobs(namespace)
 					Expect(jobList).To(HaveLen(5))
+
+					markJobAsComplete(originalWorkflowPipelines[0].Job.Name)
+
+					completed, err = workflow.ReconcileConfigure(opts)
+					Expect(err).NotTo(HaveOccurred())
+					Expect(completed).To(BeFalse())
+					jobList = listJobs(namespace)
+					Expect(jobList).To(HaveLen(6))
 				})
 			})
 		})
