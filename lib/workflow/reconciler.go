@@ -82,19 +82,6 @@ func ReconcileDelete(opts Opts, pipelines []Pipeline) (bool, error) {
 	return false, nil
 }
 
-// Job:
-// kratix.io/promise-name
-// kratix.io/hash
-// kratix.io/pipeline-name
-// kratix.io/resource-name
-
-// Old labels:
-// kratix-promise-id
-// kratix-workflow-kind
-// kraitx-workflow-promise-version
-// kratix-workflow-type
-// kratix-workflow-action
-// kratix-workflow-pipeline-name
 func getLabelsForPipelineJob(pipeline Pipeline) map[string]string {
 	labels := pipeline.Job.DeepCopy().GetLabels()
 	return labels
