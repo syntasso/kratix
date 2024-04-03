@@ -649,11 +649,20 @@ func (r *PromiseReconciler) deletePromise(o opts, promise *v1alpha1.Promise, del
 
 		jobOpts := workflow.NewOpts(o.ctx, o.client, o.logger, unstructuredPromise, pipelines, "promise")
 
-		finished, err := reconcileDelete(jobOpts, pipelines[0])
-		if err == nil && finished {
-			return ctrl.Result{}, nil
+		finished, err := reconcileDelete(jobOpts, pipelines)
+		if err != nil {
+			return ctrl.Result{}, err
 		}
-		return defaultRequeue, err
+
+		if !finished {
+			return defaultRequeue, nil
+		}
+
+		controllerutil.RemoveFinalizer(promise, runDeleteWorkflowsFinalizer)
+		if err := r.Client.Update(o.ctx, promise); err != nil {
+			return ctrl.Result{}, err
+		}
+		return ctrl.Result{}, nil
 	}
 
 	if controllerutil.ContainsFinalizer(promise, removeAllWorkflowJobsFinalizer) {

@@ -6,6 +6,6 @@ func SetReconcileConfigureWorkflow(f func(workflow.Opts) (bool, error)) {
 	reconcileConfigure = f
 }
 
-func SetReconcileDeleteWorkflow(f func(workflow.Opts, workflow.Pipeline) (bool, error)) {
+func SetReconcileDeleteWorkflow(f func(workflow.Opts, []workflow.Pipeline) (bool, error)) {
 	reconcileDelete = f
 }

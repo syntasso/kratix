@@ -15,7 +15,6 @@ import (
 	"k8s.io/apimachinery/pkg/apis/meta/v1/unstructured"
 	"k8s.io/apimachinery/pkg/labels"
 	"sigs.k8s.io/controller-runtime/pkg/client"
-	"sigs.k8s.io/controller-runtime/pkg/controller/controllerutil"
 )
 
 type Opts struct {
@@ -47,8 +46,18 @@ func NewOpts(ctx context.Context, client client.Client, logger logr.Logger, pare
 }
 
 // TODO refactor
-func ReconcileDelete(opts Opts, pipeline Pipeline) (bool, error) {
+func ReconcileDelete(opts Opts, pipelines []Pipeline) (bool, error) {
 	opts.logger.Info("Reconciling Delete Pipeline")
+
+	if len(pipelines) == 0 {
+		return true, nil
+	}
+
+	if len(pipelines) > 1 {
+		opts.logger.Info("Multiple delete pipeline found but only one delete pipeline is currently supported. Ignoring all but the first")
+	}
+
+	pipeline := pipelines[0]
 	existingDeletePipeline, err := getDeletePipeline(opts, opts.parentObject.GetNamespace(), pipeline)
 	if err != nil {
 		return false, err
@@ -66,11 +75,6 @@ func ReconcileDelete(opts Opts, pipeline Pipeline) (bool, error) {
 	opts.logger.Info("Checking status of Delete Pipeline")
 	if existingDeletePipeline.Status.Succeeded > 0 {
 		opts.logger.Info("Delete Pipeline Completed")
-		//TODO use const
-		controllerutil.RemoveFinalizer(opts.parentObject, v1alpha1.KratixPrefix+"delete-workflows")
-		if err := opts.client.Update(opts.ctx, opts.parentObject); err != nil {
-			return false, err
-		}
 		return true, nil
 	}
 

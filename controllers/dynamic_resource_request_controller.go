@@ -191,21 +191,25 @@ func (r *DynamicResourceRequestController) deleteResources(o opts, resourceReque
 		}
 
 		jobOpts := workflow.NewOpts(o.ctx, o.client, o.logger, resourceRequest, pipelines, "resource")
+		finished, err := reconcileDelete(jobOpts, pipelines)
+		if err != nil {
+			return ctrl.Result{}, err
+		}
+		if !finished {
+			return defaultRequeue, nil
+		}
 
-		if len(pipelines) == 0 {
-			return ctrl.Result{}, nil
+		controllerutil.RemoveFinalizer(resourceRequest, runDeleteWorkflowsFinalizer)
+		if err := o.client.Update(o.ctx, resourceRequest); err != nil {
+			return ctrl.Result{}, err
 		}
-		finished, err := reconcileDelete(jobOpts, pipelines[0])
-		if err == nil && finished {
-			return ctrl.Result{}, nil
-		}
-		return defaultRequeue, err
+		return ctrl.Result{}, nil
 	}
 
 	if controllerutil.ContainsFinalizer(resourceRequest, workFinalizer) {
 		err := r.deleteWork(o, resourceRequest, resourceRequestIdentifier, workFinalizer)
 		if err != nil {
-			return defaultRequeue, err
+			return ctrl.Result{}, err
 		}
 		return fastRequeue, nil
 	}

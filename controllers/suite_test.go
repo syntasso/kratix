@@ -36,7 +36,6 @@ import (
 	ctrl "sigs.k8s.io/controller-runtime"
 	"sigs.k8s.io/controller-runtime/pkg/client"
 	"sigs.k8s.io/controller-runtime/pkg/client/fake"
-	"sigs.k8s.io/controller-runtime/pkg/controller/controllerutil"
 	"sigs.k8s.io/controller-runtime/pkg/envtest"
 	logf "sigs.k8s.io/controller-runtime/pkg/log"
 	"sigs.k8s.io/controller-runtime/pkg/log/zap"
@@ -73,7 +72,7 @@ var _ = AfterSuite(func() {
 
 var reconcileConfigureOptsArg workflow.Opts
 var reconcileDeleteOptsArg workflow.Opts
-var reconcileDeletePipelineArg workflow.Pipeline
+var reconcileDeletePipelineArg []workflow.Pipeline
 var callCount int
 
 var _ = BeforeEach(func() {
@@ -103,7 +102,7 @@ var _ = BeforeEach(func() {
 		return false, nil
 	})
 
-	controllers.SetReconcileDeleteWorkflow(func(w workflow.Opts, p workflow.Pipeline) (bool, error) {
+	controllers.SetReconcileDeleteWorkflow(func(w workflow.Opts, p []workflow.Pipeline) (bool, error) {
 		reconcileDeleteOptsArg = w
 		reconcileDeletePipelineArg = p
 		return false, nil
@@ -124,16 +123,13 @@ func setReconcileConfigureWorkflowToReturnFinished() {
 }
 
 func setReconcileDeleteWorkflowToReturnFinished(obj client.Object) {
-	controllers.SetReconcileDeleteWorkflow(func(w workflow.Opts, p workflow.Pipeline) (bool, error) {
+	controllers.SetReconcileDeleteWorkflow(func(w workflow.Opts, p []workflow.Pipeline) (bool, error) {
 		us := &unstructured.Unstructured{}
 		us.SetGroupVersionKind(obj.GetObjectKind().GroupVersionKind())
 		Expect(fakeK8sClient.Get(ctx, types.NamespacedName{
 			Name:      obj.GetName(),
 			Namespace: obj.GetNamespace(),
 		}, us)).To(Succeed())
-
-		controllerutil.RemoveFinalizer(us, "kratix.io/delete-workflows")
-		Expect(fakeK8sClient.Update(ctx, us)).To(Succeed())
 
 		reconcileDeleteOptsArg = w
 		reconcileDeletePipelineArg = p
