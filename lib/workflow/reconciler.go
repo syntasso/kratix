@@ -46,18 +46,18 @@ func NewOpts(ctx context.Context, client client.Client, logger logr.Logger, pare
 }
 
 // TODO refactor
-func ReconcileDelete(opts Opts, pipelines []Pipeline) (bool, error) {
+func ReconcileDelete(opts Opts) (bool, error) {
 	opts.logger.Info("Reconciling Delete Pipeline")
 
-	if len(pipelines) == 0 {
+	if len(opts.Pipelines) == 0 {
 		return true, nil
 	}
 
-	if len(pipelines) > 1 {
+	if len(opts.Pipelines) > 1 {
 		opts.logger.Info("Multiple delete pipeline found but only one delete pipeline is currently supported. Ignoring all but the first")
 	}
 
-	pipeline := pipelines[0]
+	pipeline := opts.Pipelines[0]
 	existingDeletePipeline, err := getDeletePipeline(opts, opts.parentObject.GetNamespace(), pipeline)
 	if err != nil {
 		return false, err

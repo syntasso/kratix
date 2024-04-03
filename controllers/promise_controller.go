@@ -649,7 +649,7 @@ func (r *PromiseReconciler) deletePromise(o opts, promise *v1alpha1.Promise, del
 
 		jobOpts := workflow.NewOpts(o.ctx, o.client, o.logger, unstructuredPromise, pipelines, "promise")
 
-		finished, err := reconcileDelete(jobOpts, pipelines)
+		finished, err := reconcileDelete(jobOpts)
 		if err != nil {
 			return ctrl.Result{}, err
 		}

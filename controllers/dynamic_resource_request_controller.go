@@ -205,7 +205,7 @@ func (r *DynamicResourceRequestController) deleteResources(o opts, resourceReque
 		}
 
 		jobOpts := workflow.NewOpts(o.ctx, o.client, o.logger, resourceRequest, pipelines, "resource")
-		finished, err := reconcileDelete(jobOpts, pipelines)
+		finished, err := reconcileDelete(jobOpts)
 		if err != nil {
 			return ctrl.Result{}, err
 		}

@@ -72,7 +72,6 @@ var _ = AfterSuite(func() {
 
 var reconcileConfigureOptsArg workflow.Opts
 var reconcileDeleteOptsArg workflow.Opts
-var reconcileDeletePipelineArg []workflow.Pipeline
 var callCount int
 
 var _ = BeforeEach(func() {
@@ -102,9 +101,8 @@ var _ = BeforeEach(func() {
 		return false, nil
 	})
 
-	controllers.SetReconcileDeleteWorkflow(func(w workflow.Opts, p []workflow.Pipeline) (bool, error) {
+	controllers.SetReconcileDeleteWorkflow(func(w workflow.Opts) (bool, error) {
 		reconcileDeleteOptsArg = w
-		reconcileDeletePipelineArg = p
 		return false, nil
 	})
 })
@@ -123,7 +121,7 @@ func setReconcileConfigureWorkflowToReturnFinished() {
 }
 
 func setReconcileDeleteWorkflowToReturnFinished(obj client.Object) {
-	controllers.SetReconcileDeleteWorkflow(func(w workflow.Opts, p []workflow.Pipeline) (bool, error) {
+	controllers.SetReconcileDeleteWorkflow(func(w workflow.Opts) (bool, error) {
 		us := &unstructured.Unstructured{}
 		us.SetGroupVersionKind(obj.GetObjectKind().GroupVersionKind())
 		Expect(fakeK8sClient.Get(ctx, types.NamespacedName{
@@ -132,7 +130,6 @@ func setReconcileDeleteWorkflowToReturnFinished(obj client.Object) {
 		}, us)).To(Succeed())
 
 		reconcileDeleteOptsArg = w
-		reconcileDeletePipelineArg = p
 		return true, nil
 	})
 }
