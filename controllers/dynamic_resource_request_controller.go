@@ -105,6 +105,20 @@ func (r *DynamicResourceRequestController) Reconcile(ctx context.Context, req ct
 		return defaultRequeue, nil
 	}
 
+	resourceLabels := rr.GetLabels()
+	if resourceLabels == nil {
+		resourceLabels = map[string]string{}
+	}
+	if resourceLabels[v1alpha1.PromiseNameLabel] != r.PromiseIdentifier {
+		resourceLabels[v1alpha1.PromiseNameLabel] = promise.GetName()
+		rr.SetLabels(resourceLabels)
+		if err := r.Client.Update(ctx, rr); err != nil {
+			logger.Error(err, "Failed updating resource request with Promise label")
+			return ctrl.Result{}, err
+		}
+		return ctrl.Result{}, nil
+	}
+
 	opts := opts{
 		client: r.Client,
 		ctx:    ctx,

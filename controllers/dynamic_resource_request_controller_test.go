@@ -194,11 +194,20 @@ var _ = Describe("DynamicResourceRequestController", func() {
 				Expect(result).To(Equal(ctrl.Result{}))
 			})
 
-			By("seting the finalizers on the resource", func() {
+			By("setting the finalizers on the resource", func() {
 				Expect(resReq.GetFinalizers()).To(ConsistOf(
 					"kratix.io/work-cleanup",
 					"kratix.io/workflows-cleanup",
 					"kratix.io/delete-workflows",
+				))
+			})
+
+			By("setting the labels on the resource", func() {
+				Expect(resReq.GetLabels()).To(Equal(
+					map[string]string{
+						"kratix.io/promise-name": promise.GetName(),
+						"non-kratix-label":       "true",
+					},
 				))
 			})
 		})
