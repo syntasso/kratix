@@ -178,7 +178,6 @@ func ReconcileConfigure(opts Opts) (bool, error) {
 }
 
 func reconcileConfigurePipeline(opts Opts, namespace string, pipeline Pipeline) (bool, error) {
-	opts.logger.Info("pipeline labels", "labels", pipeline.Job.GetLabels())
 	pipelineJobsAtCurrentSpec, err := getJobsWithLabels(opts, labelsForPipelineJob(pipeline), namespace)
 	if err != nil {
 		return false, err
