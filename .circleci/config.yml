@@ -212,6 +212,11 @@ jobs:
             set -o pipefail
             go install golang.org/x/vuln/cmd/govulncheck@latest
       - run:
+          name: pull latest version of images so we dont use cached versions
+          command: |
+            docker pull $KRATIX_IMAGE_NAME:latest
+            docker pull $WORKER_IMAGE_NAME:latest
+      - run:
           name: run check
           command: govulncheck ./...
       - snyk/scan:
@@ -230,6 +235,10 @@ jobs:
     steps:
       - checkout
       - install_node
+      - run:
+          name: pull latest version of images so we dont use cached versions
+          command: |
+            docker pull $BACKSTAGE_GENERATOR_IMAGE_NAME:latest
       - snyk/scan:
           severity-threshold: high
           docker-image-name: $BACKSTAGE_GENERATOR_IMAGE_NAME:latest
