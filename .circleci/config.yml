@@ -533,12 +533,6 @@ workflows:
           requires: [generate-demo-image-list]
 
   security-scan:
-    triggers:
-      - schedule:
-          cron: "0 0 * * *"
-          filters:
-            branches:
-              only: [main]
     jobs:
       - clone-kratix
       - clone-backstage
