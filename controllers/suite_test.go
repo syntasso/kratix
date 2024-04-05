@@ -98,12 +98,12 @@ var _ = BeforeEach(func() {
 
 	controllers.SetReconcileConfigureWorkflow(func(w workflow.Opts) (bool, error) {
 		reconcileConfigureOptsArg = w
-		return false, nil
+		return true, nil
 	})
 
 	controllers.SetReconcileDeleteWorkflow(func(w workflow.Opts) (bool, error) {
 		reconcileDeleteOptsArg = w
-		return false, nil
+		return true, nil
 	})
 })
 
@@ -116,7 +116,7 @@ func TestControllers(t *testing.T) {
 func setReconcileConfigureWorkflowToReturnFinished() {
 	controllers.SetReconcileConfigureWorkflow(func(w workflow.Opts) (bool, error) {
 		reconcileConfigureOptsArg = w
-		return true, nil
+		return false, nil
 	})
 }
 
@@ -130,6 +130,6 @@ func setReconcileDeleteWorkflowToReturnFinished(obj client.Object) {
 		}, us)).To(Succeed())
 
 		reconcileDeleteOptsArg = w
-		return true, nil
+		return false, nil
 	})
 }

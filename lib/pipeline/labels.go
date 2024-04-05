@@ -76,6 +76,7 @@ func (p pipelineLabels) WithWorkflow(workflowType v1alpha1.Type, workflowAction 
 	p["kratix-workflow-kind"] = "pipeline.platform.kratix.io"
 	p["kratix-workflow-promise-version"] = "v1alpha1"
 	p["kratix-workflow-type"] = string(workflowType)
+	p[v1alpha1.WorkTypeLabel] = string(workflowType)
 	if workflowAction != "" {
 		p["kratix-workflow-action"] = string(workflowAction)
 	}

@@ -684,7 +684,7 @@ var _ = Describe("PromiseController", func() {
 					Expect(fakeK8sClient.Delete(ctx, promise)).To(Succeed())
 					controllers.SetReconcileDeleteWorkflow(func(w workflow.Opts) (bool, error) {
 						reconcileDeleteOptsArg = w
-						return false, nil
+						return true, nil
 					})
 					_, err = t.reconcileUntilCompletion(reconciler, promise)
 

@@ -177,11 +177,14 @@ func (r *DynamicResourceRequestController) Reconcile(ctx context.Context, req ct
 
 	jobOpts := workflow.NewOpts(ctx, r.Client, logger, rr, pipelines, "resource")
 
-	finished, err := reconcileConfigure(jobOpts)
-	if err == nil && finished {
-		return ctrl.Result{}, nil
+	requeue, err := reconcileConfigure(jobOpts)
+	if err != nil {
+		return ctrl.Result{}, err
 	}
-	return defaultRequeue, err
+	if requeue {
+		return defaultRequeue, nil
+	}
+	return ctrl.Result{}, nil
 
 }
 
@@ -205,11 +208,11 @@ func (r *DynamicResourceRequestController) deleteResources(o opts, resourceReque
 		}
 
 		jobOpts := workflow.NewOpts(o.ctx, o.client, o.logger, resourceRequest, pipelines, "resource")
-		finished, err := reconcileDelete(jobOpts)
+		requeue, err := reconcileDelete(jobOpts)
 		if err != nil {
 			return ctrl.Result{}, err
 		}
-		if !finished {
+		if requeue {
 			return defaultRequeue, nil
 		}
 
@@ -231,7 +234,7 @@ func (r *DynamicResourceRequestController) deleteResources(o opts, resourceReque
 	if controllerutil.ContainsFinalizer(resourceRequest, removeAllWorkflowJobsFinalizer) {
 		err := r.deleteWorkflows(o, resourceRequest, resourceRequestIdentifier, removeAllWorkflowJobsFinalizer)
 		if err != nil {
-			return defaultRequeue, err
+			return ctrl.Result{}, err
 		}
 		return fastRequeue, nil
 	}

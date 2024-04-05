@@ -129,6 +129,10 @@ func (r *PromiseReconciler) Reconcile(ctx context.Context, req ctrl.Request) (ct
 
 	logger := r.Log.WithValues("identifier", promise.GetName())
 
+	logger.Info("Reconciling Promise", "promise", promise)
+	logger.Info("")
+	logger.Info("")
+
 	opts := opts{
 		client: r.Client,
 		ctx:    ctx,
@@ -208,7 +212,7 @@ func (r *PromiseReconciler) Reconcile(ctx context.Context, req ctrl.Request) (ct
 
 	requeue, err = r.reconcileDependencies(opts, promise, pipelines.ConfigurePromise)
 	if err != nil {
-		return ctrl.Result{}, nil
+		return ctrl.Result{}, err
 	}
 
 	if requeue != nil {
@@ -393,11 +397,15 @@ func (r *PromiseReconciler) reconcileDependencies(o opts, promise *v1alpha1.Prom
 
 	jobOpts := workflow.NewOpts(o.ctx, o.client, o.logger, unstructuredPromise, pipelines, "promise")
 
-	finished, err := reconcileConfigure(jobOpts)
-	if err == nil && finished {
-		return nil, nil
+	requeue, err := reconcileConfigure(jobOpts)
+	if err == nil {
+		return nil, err
 	}
-	return &defaultRequeue, err
+
+	if requeue {
+		return &defaultRequeue, nil
+	}
+	return nil, nil
 }
 
 func (r *PromiseReconciler) reconcileAllRRs(rrGVK schema.GroupVersionKind) error {
@@ -649,12 +657,12 @@ func (r *PromiseReconciler) deletePromise(o opts, promise *v1alpha1.Promise, del
 
 		jobOpts := workflow.NewOpts(o.ctx, o.client, o.logger, unstructuredPromise, pipelines, "promise")
 
-		finished, err := reconcileDelete(jobOpts)
+		requeue, err := reconcileDelete(jobOpts)
 		if err != nil {
 			return ctrl.Result{}, err
 		}
 
-		if !finished {
+		if requeue {
 			return defaultRequeue, nil
 		}
 
