@@ -106,7 +106,7 @@ func (t *testReconciler) reconcileUntilCompletion(r kubebuilder.Reconciler, obj 
 		for _, f := range opts[0].funcs {
 			err := f(k8sObj)
 			if err != nil {
-				GinkgoWriter.Write([]byte(fmt.Sprintf("error in func: %v\n", err)))
+				fmt.Fprintf(GinkgoWriter, "error in func: %v\n", err)
 			}
 		}
 	}

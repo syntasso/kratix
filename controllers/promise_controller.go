@@ -129,10 +129,6 @@ func (r *PromiseReconciler) Reconcile(ctx context.Context, req ctrl.Request) (ct
 
 	logger := r.Log.WithValues("identifier", promise.GetName())
 
-	logger.Info("Reconciling Promise", "promise", promise)
-	logger.Info("")
-	logger.Info("")
-
 	opts := opts{
 		client: r.Client,
 		ctx:    ctx,
@@ -398,7 +394,7 @@ func (r *PromiseReconciler) reconcileDependencies(o opts, promise *v1alpha1.Prom
 	jobOpts := workflow.NewOpts(o.ctx, o.client, o.logger, unstructuredPromise, pipelines, "promise")
 
 	requeue, err := reconcileConfigure(jobOpts)
-	if err == nil {
+	if err != nil {
 		return nil, err
 	}
 
