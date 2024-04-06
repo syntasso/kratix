@@ -26,7 +26,7 @@ func NewDelete(obj *unstructured.Unstructured, pipeline v1alpha1.Pipeline, resou
 		namespace = v1alpha1.SystemNamespace
 	}
 
-	args := NewPipelineArgs(promiseIdentifier, resourceRequestIdentifier, pipeline.Name, namespace)
+	args := NewPipelineArgs(promiseIdentifier, resourceRequestIdentifier, pipeline.Name, obj.GetName(), namespace)
 
 	containers, pipelineVolumes := generateDeletePipelineContainersAndVolumes(obj, isPromise, pipeline)
 

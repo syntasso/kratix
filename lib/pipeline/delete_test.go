@@ -329,6 +329,7 @@ var _ = Describe("Delete Pipeline", func() {
 					"kratix-workflow-pipeline-name":      Equal("instance-delete"),
 					"kratix.io/pipeline-name":            Equal("instance-delete"),
 					"kratix.io/work-type":                Equal("resource"),
+					"kratix.io/resource-name":            Equal("example"),
 				})
 
 				Expect(job).To(MatchFields(IgnoreExtras, Fields{

@@ -48,7 +48,7 @@ var _ = Describe("Configure Pipeline", func() {
 		}
 		logger = logr.Logger{}
 
-		pipelineResources = pipeline.NewPipelineArgs("test-promise", "test-resource-request", "configure-step", "test-namespace")
+		pipelineResources = pipeline.NewPipelineArgs("test-promise", "test-resource-request", "configure-step", "test-name", "test-namespace")
 	})
 
 	Describe("Pipeline Request Hash", func() {

@@ -28,7 +28,7 @@ func NewConfigureResource(
 	logger logr.Logger,
 ) ([]client.Object, error) {
 
-	pipelineResources := NewPipelineArgs(promiseIdentifier, resourceRequestIdentifier, pipeline.Name, rr.GetNamespace())
+	pipelineResources := NewPipelineArgs(promiseIdentifier, resourceRequestIdentifier, pipeline.Name, rr.GetName(), rr.GetNamespace())
 	destinationSelectorsConfigMap, err := destinationSelectorsConfigMap(pipelineResources, promiseDestinationSelectors, nil)
 	if err != nil {
 		return nil, err
@@ -63,25 +63,25 @@ func NewConfigureResource(
 }
 
 func NewConfigurePromise(
-	unstructedPromise *unstructured.Unstructured,
+	uPromise *unstructured.Unstructured,
 	p v1alpha1.Pipeline,
 	promiseIdentifier string,
 	promiseDestinationSelectors []v1alpha1.PromiseScheduling,
 	logger logr.Logger,
 ) ([]client.Object, error) {
 
-	pipelineResources := NewPipelineArgs(promiseIdentifier, "", p.Name, v1alpha1.SystemNamespace)
+	pipelineResources := NewPipelineArgs(promiseIdentifier, "", p.Name, uPromise.GetName(), v1alpha1.SystemNamespace)
 	destinationSelectorsConfigMap, err := destinationSelectorsConfigMap(pipelineResources, promiseDestinationSelectors, nil)
 	if err != nil {
 		return nil, err
 	}
 
-	objHash, err := hash.ComputeHashForResource(unstructedPromise)
+	objHash, err := hash.ComputeHashForResource(uPromise)
 	if err != nil {
 		return nil, err
 	}
 
-	pipeline, err := ConfigurePipeline(unstructedPromise, objHash, p, pipelineResources, promiseIdentifier, true, logger)
+	pipeline, err := ConfigurePipeline(uPromise, objHash, p, pipelineResources, promiseIdentifier, true, logger)
 	if err != nil {
 		return nil, err
 	}

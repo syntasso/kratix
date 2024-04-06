@@ -12,7 +12,7 @@ func newPipelineLabels() pipelineLabels {
 }
 
 func LabelsForAllResourceWorkflows(rrID, promiseID string) map[string]string {
-	return ResourceLabels(rrID, promiseID).
+	return ResourceLabels(rrID, "", promiseID).
 		WithWorkflow(v1alpha1.WorkflowTypeResource, "", "")
 }
 
@@ -21,16 +21,16 @@ func LabelsForAllPromiseWorkflows(promiseID string) map[string]string {
 		WithWorkflow(v1alpha1.WorkflowTypePromise, "", "")
 }
 
-func LabelsForDeleteResource(rrID, promiseID, pipelineName string, requestSHA ...string) map[string]string {
-	labels := ResourceLabels(rrID, promiseID).WithWorkflow(v1alpha1.WorkflowTypeResource, v1alpha1.WorkflowActionDelete, pipelineName)
+func LabelsForDeleteResource(rrID, rrName, promiseID, pipelineName string, requestSHA ...string) map[string]string {
+	labels := ResourceLabels(rrID, rrName, promiseID).WithWorkflow(v1alpha1.WorkflowTypeResource, v1alpha1.WorkflowActionDelete, pipelineName)
 	if len(requestSHA) > 0 {
 		return labels.WithRequestSHA(requestSHA[0])
 	}
 	return labels
 }
 
-func LabelsForConfigureResource(rrID, promiseID, pipelineName string, requestSHA ...string) map[string]string {
-	labels := ResourceLabels(rrID, promiseID).WithWorkflow(v1alpha1.WorkflowTypeResource, v1alpha1.WorkflowActionConfigure, pipelineName)
+func LabelsForConfigureResource(rrID, rrName, promiseID, pipelineName string, requestSHA ...string) map[string]string {
+	labels := ResourceLabels(rrID, rrName, promiseID).WithWorkflow(v1alpha1.WorkflowTypeResource, v1alpha1.WorkflowActionConfigure, pipelineName)
 	if len(requestSHA) > 0 {
 		return labels.WithRequestSHA(requestSHA[0])
 	}
@@ -53,8 +53,8 @@ func LabelsForConfigurePromise(promiseID, pipelineName string, requestSHA ...str
 	return labels
 }
 
-func ResourceLabels(rrID, promiseID string) pipelineLabels {
-	return PromiseLabels(promiseID).WithResourceRequestID(rrID)
+func ResourceLabels(rrID, rrName, promiseID string) pipelineLabels {
+	return PromiseLabels(promiseID).WithResourceRequestID(rrID, rrName)
 }
 
 func PromiseLabels(promiseID string) pipelineLabels {
@@ -67,8 +67,11 @@ func (p pipelineLabels) WithPromiseID(promiseID string) pipelineLabels {
 	return p
 }
 
-func (p pipelineLabels) WithResourceRequestID(resourceRequestID string) pipelineLabels {
+func (p pipelineLabels) WithResourceRequestID(resourceRequestID, resourceRequestName string) pipelineLabels {
 	p["kratix-promise-resource-request-id"] = resourceRequestID
+	if resourceRequestName != "" {
+		p[v1alpha1.ResourceNameLabel] = resourceRequestName
+	}
 	return p
 }
 

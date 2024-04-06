@@ -4,7 +4,7 @@ type PipelineArgs struct {
 	names map[string]string
 }
 
-func NewPipelineArgs(promiseIdentifier, resourceRequestIdentifier, pName, namespace string) PipelineArgs {
+func NewPipelineArgs(promiseIdentifier, resourceRequestIdentifier, pName, name, namespace string) PipelineArgs {
 	pipelineID := promiseIdentifier + "-promise-pipeline"
 	if resourceRequestIdentifier != "" {
 		pipelineID = promiseIdentifier + "-resource-pipeline"
@@ -21,6 +21,7 @@ func NewPipelineArgs(promiseIdentifier, resourceRequestIdentifier, pName, namesp
 		"resource-request-id":     resourceRequestIdentifier,
 		"namespace":               namespace,
 		"pipeline-name":           pName,
+		"name":                    name,
 	}
 
 	return PipelineArgs{
@@ -33,7 +34,7 @@ func (p PipelineArgs) ConfigurePipelineJobLabels(objHash string) pipelineLabels 
 	if resourceRequestID == "" {
 		return LabelsForConfigurePromise(p.PromiseID(), p.PipelineName(), objHash)
 	}
-	return LabelsForConfigureResource(resourceRequestID, p.PromiseID(), p.PipelineName(), objHash)
+	return LabelsForConfigureResource(resourceRequestID, p.Name(), p.PromiseID(), p.PipelineName(), objHash)
 }
 
 func (p PipelineArgs) DeletePipelineJobLabels() pipelineLabels {
@@ -41,7 +42,7 @@ func (p PipelineArgs) DeletePipelineJobLabels() pipelineLabels {
 	if resourceRequestID == "" {
 		return LabelsForDeletePromise(p.PromiseID(), p.PipelineName())
 	}
-	return LabelsForDeleteResource(resourceRequestID, p.PromiseID(), p.PipelineName())
+	return LabelsForDeleteResource(resourceRequestID, p.Name(), p.PromiseID(), p.PipelineName())
 }
 
 func (p PipelineArgs) ConfigMapName() string {
@@ -54,6 +55,10 @@ func (p PipelineArgs) ServiceAccountName() string {
 
 func (p PipelineArgs) RoleName() string {
 	return p.names["role"]
+}
+
+func (p PipelineArgs) Name() string {
+	return p.names["name"]
 }
 
 func (p PipelineArgs) RoleBindingName() string {
