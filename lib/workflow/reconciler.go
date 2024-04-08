@@ -50,7 +50,7 @@ func ReconcileDelete(opts Opts) (bool, error) {
 	opts.logger.Info("Reconciling Delete Pipeline")
 
 	if len(opts.Pipelines) == 0 {
-		return true, nil
+		return false, nil
 	}
 
 	if len(opts.Pipelines) > 1 {
@@ -69,17 +69,17 @@ func ReconcileDelete(opts Opts) (bool, error) {
 		//TODO retrieve error information from applyResources to return to the caller
 		applyResources(opts, append(pipeline.JobRequiredResources, pipeline.Job)...)
 
-		return false, nil
+		return true, nil
 	}
 
 	opts.logger.Info("Checking status of Delete Pipeline")
 	if existingDeletePipeline.Status.Succeeded > 0 {
 		opts.logger.Info("Delete Pipeline Completed")
-		return true, nil
+		return false, nil
 	}
 
 	opts.logger.Info("Delete Pipeline not finished", "status", existingDeletePipeline.Status)
-	return false, nil
+	return true, nil
 }
 
 func getLabelsForPipelineJob(pipeline Pipeline) map[string]string {
