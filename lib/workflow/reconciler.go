@@ -164,10 +164,6 @@ func isRunning(job *batchv1.Job) bool {
 		return true
 	}
 
-	if len(job.Status.Conditions) == 0 {
-		return true
-	}
-
 	for _, condition := range job.Status.Conditions {
 		if condition.Type == batchv1.JobComplete || condition.Type == batchv1.JobSuspended {
 			return false
@@ -214,6 +210,8 @@ func ReconcileConfigure(opts Opts) (bool, error) {
 	opts.logger = originalLogger.WithName(pipeline.Name)
 
 	if jobIsForPipeline(pipeline, mostRecentJob) {
+		// TODO: isRunning considers "Failed" jobs as "running"; this will requeue
+		// forever if the job fails
 		if isRunning(mostRecentJob) {
 			opts.logger.Info("Job already inflight for workflow, waiting for it to complete")
 			return true, nil
@@ -224,6 +222,10 @@ func ReconcileConfigure(opts Opts) (bool, error) {
 		return false, nil
 	}
 
+	// TODO this will suspend any job that is in flight (without checking if it's active)
+	// and the next pipeline will immediately be started - this may be okay, but is
+	// different to how things used to be (where we only suspended a job if it didn't
+	// have any active pods)
 	if isRunning(mostRecentJob) {
 		opts.logger.Info("Job already inflight for another workflow, suspending it")
 		trueBool := true

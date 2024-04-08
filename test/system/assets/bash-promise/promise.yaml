@@ -90,6 +90,7 @@ spec:
                 command:
                   - sh
                   - -c
+                args:
                   - kubectl create configmap REPLACEBASH-2nd-workflow -o yaml --dry-run=client > /kratix/output/configmap.yaml
       delete:
         - apiVersion: platform.kratix.io/v1alpha1
