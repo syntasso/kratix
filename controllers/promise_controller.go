@@ -356,8 +356,11 @@ func (r *PromiseReconciler) reconcileDependencies(o opts, promise *v1alpha1.Prom
 		o.logger.Error(err, "Error creating Works")
 		return nil, err
 	}
+	if len(configurePipeline) == 0 {
+		return nil, nil
+	}
 
-	//TODO remove finalaizer if we don't have any configure (or delete?)
+	//TODO remove finalizer if we don't have any configure (or delete?)
 	if resourceutil.DoesNotContainFinalizer(promise, removeAllWorkflowJobsFinalizer) {
 		result, err := addFinalizers(o, promise, []string{removeAllWorkflowJobsFinalizer})
 		return &result, err
@@ -657,10 +660,6 @@ func (r *PromiseReconciler) deletePromise(o opts, promise *v1alpha1.Promise, del
 
 		if requeue {
 			return defaultRequeue, nil
-		}
-
-		if err := r.deleteWorkForDependencies(o.ctx, promise); err != nil {
-			return ctrl.Result{}, err
 		}
 
 		controllerutil.RemoveFinalizer(promise, runDeleteWorkflowsFinalizer)
@@ -1031,18 +1030,4 @@ func (r *PromiseReconciler) markRequiredPromiseAsRequired(ctx context.Context, v
 	if err != nil {
 		r.Log.Error(err, "error updating promise required by promise", "promise", promise.GetName(), "required promise", requiredPromise.GetName())
 	}
-}
-
-func (r *PromiseReconciler) deleteWorkForDependencies(ctx context.Context, promise *v1alpha1.Promise) error {
-	work, err := resourceutil.GetWorkForStaticDependencies(r.Client, v1alpha1.SystemNamespace, promise.GetName())
-	if err != nil {
-		r.Log.Error(err, "error retrieving work for static dependencies")
-		return err
-	}
-	err = r.Client.Delete(ctx, work)
-	if err != nil {
-		r.Log.Error(err, "error deleting work for static dependencies")
-		return err
-	}
-	return nil
 }

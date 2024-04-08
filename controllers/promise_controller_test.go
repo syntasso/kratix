@@ -500,7 +500,7 @@ var _ = Describe("PromiseController", func() {
 					Expect(fakeK8sClient.Update(ctx, promise)).To(Succeed())
 				})
 
-				It("re-reconciles until completetion", func() {
+				It("re-reconciles until completion", func() {
 					result, err := t.reconcileUntilCompletion(reconciler, promise)
 					Expect(err).NotTo(HaveOccurred())
 					Expect(result).To(Equal(ctrl.Result{}))
@@ -566,7 +566,7 @@ var _ = Describe("PromiseController", func() {
 					))
 				})
 
-				FIt("deletes all resources for the promise workflow and dynamic controller", func() {
+				It("deletes all resources for the promise workflow and dynamic controller", func() {
 					//check resources all exist before deletion
 					crds, err := fakeApiExtensionsClient.CustomResourceDefinitions().List(ctx, metav1.ListOptions{})
 					Expect(err).NotTo(HaveOccurred())
@@ -585,7 +585,7 @@ var _ = Describe("PromiseController", func() {
 					Expect(fakeK8sClient.List(ctx, serviceAccounts)).To(Succeed())
 					Expect(clusterRoles.Items).To(HaveLen(1))
 					Expect(clusterRoleBindings.Items).To(HaveLen(1))
-					Expect(works.Items).To(HaveLen(0))
+					Expect(works.Items).To(HaveLen(1))
 					Expect(jobs.Items).To(HaveLen(0))
 					Expect(serviceAccounts.Items).To(HaveLen(0))
 

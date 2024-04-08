@@ -132,7 +132,7 @@ var _ = Describe("Kratix", func() {
 			secondPromiseConfigureWorkflowName = fmt.Sprintf("%s-2nd-workflow", bashPromiseName)
 		})
 
-		FIt("can install, update, and delete a promise", func() {
+		It("can install, update, and delete a promise", func() {
 			By("installing the promise", func() {
 				platform.eventuallyKubectl("apply", "-f", cat(bashPromise))
 
@@ -158,7 +158,11 @@ var _ = Describe("Kratix", func() {
 					},
 				}
 
-				bashPromise.Spec.Workflows.Promise.Configure[1].Object["spec"].(map[string]interface{})["containers"].(map[string]interface{})["args"].([]string)[0] = "kubectl create configmap REPLACEBASH-2nd-workflow-new -o yaml --dry-run=client > /kratix/output/configmap.yaml"
+				newCmd := fmt.Sprintf(
+					"kubectl create configmap %s-new -o yaml --namespace default --dry-run=client > /kratix/output/configmap.yaml",
+					secondPromiseConfigureWorkflowName,
+				)
+				bashPromise.Spec.Workflows.Promise.Configure[1].Object["spec"].(map[string]interface{})["containers"].([]interface{})[0].(map[string]interface{})["args"].([]interface{})[0] = newCmd
 
 				platform.eventuallyKubectl("apply", "-f", cat(bashPromise))
 
@@ -167,6 +171,7 @@ var _ = Describe("Kratix", func() {
 				worker.eventuallyKubectl("get", "namespace", updatedDeclarativeStaticWorkerNamespace)
 				worker.eventuallyKubectl("get", "namespace", declarativeWorkerNamespace)
 				worker.eventuallyKubectl("get", "configmap", secondPromiseConfigureWorkflowName+"-new")
+				worker.withExitCode(1).eventuallyKubectl("get", "configmap", secondPromiseConfigureWorkflowName)
 				platform.eventuallyKubectl("get", "namespace", declarativePlatformNamespace)
 			})
 
@@ -175,10 +180,10 @@ var _ = Describe("Kratix", func() {
 
 				worker.withExitCode(1).eventuallyKubectl("get", "namespace", updatedDeclarativeStaticWorkerNamespace)
 				worker.withExitCode(1).eventuallyKubectl("get", "namespace", declarativeWorkerNamespace)
+				worker.withExitCode(1).eventuallyKubectl("get", "configmap", secondPromiseConfigureWorkflowName+"-new")
 				platform.withExitCode(1).eventuallyKubectl("get", "namespace", declarativePlatformNamespace)
 				platform.withExitCode(1).eventuallyKubectl("get", "promise", bashPromiseName)
 				platform.withExitCode(1).eventuallyKubectl("get", "crd", bashPromise.Name)
-				worker.eventuallyKubectl("get", "configmap", secondPromiseConfigureWorkflowName)
 			})
 		})
 
@@ -294,9 +299,9 @@ var _ = Describe("Kratix", func() {
 				})
 
 				By("mirroring the directory and files from /kratix/output to the statestore", func() {
-
+					pipelineName := "instance-configure"
 					if getEnvOrDefault("TEST_SKIP_BUCKET_CHECK", "false") != "true" {
-						Expect(listFilesMinIOInStateStore(worker.name, "default", bashPromiseName, rrName)).To(ConsistOf("5058f/foo/example.json", "5058f/namespace.yaml"))
+						Expect(listFilesMinIOInStateStore(worker.name, "default", bashPromiseName, rrName, pipelineName)).To(ConsistOf("5058f/foo/example.json", "5058f/namespace.yaml"))
 					}
 				})
 
@@ -366,7 +371,6 @@ var _ = Describe("Kratix", func() {
 					platform.eventuallyKubectl("apply", "-f", cat(bashPromise))
 
 					platform.eventuallyKubectl("get", "crd", crd.Name)
-					Expect(worker.eventuallyKubectl("get", "namespace", declarativeStaticWorkerNamespace, "-o=yaml")).To(ContainSubstring("modifydepsinpipeline"))
 				})
 
 				rrName := bashPromiseName + "rr-test"
@@ -515,25 +519,32 @@ var _ = Describe("Kratix", func() {
 
 					platform.kubectl("label", "destination", worker.name, "security=high")
 
+					worker.eventuallyKubectl("get", "namespace", depNamespaceName)
+
 					Consistently(func() string {
 						return worker.kubectl("get", "namespace")
-					}, "10s").ShouldNot(ContainSubstring(depNamespaceName))
+					}, "10s").ShouldNot(ContainSubstring(declarativeWorkerNamespace))
 
 					// Promise Configure Workflow DestinationSelectors
 					platform.kubectl("label", "destination", worker.name, bashPromiseUniqueLabel, "security-")
+
+					worker.eventuallyKubectl("get", "namespace", depNamespaceName)
+
 					Consistently(func() string {
 						return worker.kubectl("get", "namespace")
-					}, "10s").ShouldNot(ContainSubstring(depNamespaceName))
+					}, "10s").ShouldNot(ContainSubstring(declarativeWorkerNamespace))
 
 					platform.kubectl("label", "destination", worker.name, bashPromiseUniqueLabel, "security=high")
 
 					worker.eventuallyKubectl("get", "namespace", depNamespaceName)
+					worker.eventuallyKubectl("get", "namespace", declarativeWorkerNamespace)
 					Expect(platform.kubectl("get", "namespace")).NotTo(ContainSubstring(depNamespaceName))
 				})
 
 				By("labeling the platform Destination, it gets the dependencies assigned", func() {
 					platform.kubectl("label", "destination", platform.name, "security=high", bashPromiseUniqueLabel)
 					platform.eventuallyKubectl("get", "namespace", depNamespaceName)
+					platform.eventuallyKubectl("get", "namespace", declarativeWorkerNamespace)
 				})
 
 			})
@@ -795,9 +806,9 @@ func (c destination) withExitCode(code int) destination {
 	newDestination.exitCode = code
 	return newDestination
 }
-func listFilesMinIOInStateStore(destinationName, namespace, promiseName, resourceName string) []string {
+func listFilesMinIOInStateStore(destinationName, namespace, promiseName, resourceName, pipelineName string) []string {
 	paths := []string{}
-	resourceSubDir := filepath.Join(destinationName, "resources", namespace, promiseName, resourceName)
+	resourceSubDir := filepath.Join(destinationName, "resources", namespace, promiseName, resourceName, pipelineName)
 
 	// Initialize minio client object.
 	minioClient, err := minio.New(endpoint, &minio.Options{
@@ -806,7 +817,7 @@ func listFilesMinIOInStateStore(destinationName, namespace, promiseName, resourc
 	})
 	Expect(err).ToNot(HaveOccurred())
 
-	//worker-1/resources/default/redis/rr-test
+	//worker-1/resources/default/redis/rr-test/configure/
 	objectCh := minioClient.ListObjects(context.TODO(), bucketName, minio.ListObjectsOptions{
 		Prefix:    resourceSubDir,
 		Recursive: true,
