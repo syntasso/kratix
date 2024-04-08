@@ -280,7 +280,7 @@ var _ = Describe("Workflow Reconciler", func() {
 				Expect(requeue).To(BeTrue())
 			})
 
-			When("there are still workflows to execute", func() {
+			When("there are still pipelines to execute", func() {
 				It("doesn't delete the promise scheduling config map", func() {
 					configMap := &v1.ConfigMap{}
 					Expect(fakeK8sClient.Get(ctx, types.NamespacedName{
@@ -290,7 +290,7 @@ var _ = Describe("Workflow Reconciler", func() {
 				})
 			})
 
-			When("all workflows are executed", func() {
+			When("all pipelines are executed", func() {
 				BeforeEach(func() {
 					markJobAsComplete(workflowPipelines[1].Job.Name)
 					requeue, err := workflow.ReconcileConfigure(opts)
@@ -490,7 +490,6 @@ var _ = Describe("Workflow Reconciler", func() {
 					Expect(jobs).To(HaveLen(4))
 				})
 			})
-
 		})
 	})
 

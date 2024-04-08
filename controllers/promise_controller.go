@@ -351,13 +351,10 @@ func (r *PromiseReconciler) generateStatusAndMarkRequirements(ctx context.Contex
 }
 
 func (r *PromiseReconciler) reconcileDependencies(o opts, promise *v1alpha1.Promise, configurePipeline []v1alpha1.Pipeline) (*ctrl.Result, error) {
-	if len(promise.Spec.Workflows.Promise.Configure) == 0 {
-		o.logger.Info("Promise does not contain workflows.promise.configure, applying dependencies directly")
-		if err := r.applyWorkResourceForDependencies(o, promise); err != nil {
-			o.logger.Error(err, "Error creating Works")
-			return nil, err
-		}
-		return nil, nil
+	o.logger.Info("Applying static dependencies for Promise", "promise", promise.GetName())
+	if err := r.applyWorkForDependencies(o, promise); err != nil {
+		o.logger.Error(err, "Error creating Works")
+		return nil, err
 	}
 
 	//TODO remove finalaizer if we don't have any configure (or delete?)
@@ -660,6 +657,10 @@ func (r *PromiseReconciler) deletePromise(o opts, promise *v1alpha1.Promise, del
 
 		if requeue {
 			return defaultRequeue, nil
+		}
+
+		if err := r.deleteWorkForDependencies(o.ctx, promise); err != nil {
+			return ctrl.Result{}, err
 		}
 
 		controllerutil.RemoveFinalizer(promise, runDeleteWorkflowsFinalizer)
@@ -974,7 +975,7 @@ func setStatusFieldsOnCRD(rrCRD *apiextensionsv1.CustomResourceDefinition) {
 	}
 }
 
-func (r *PromiseReconciler) applyWorkResourceForDependencies(o opts, promise *v1alpha1.Promise) error {
+func (r *PromiseReconciler) applyWorkForDependencies(o opts, promise *v1alpha1.Promise) error {
 	name := resourceutil.GenerateObjectName(promise.GetName() + "-static-deps")
 	work, err := v1alpha1.NewPromiseDependenciesWork(promise, name)
 	if err != nil {
@@ -1030,4 +1031,18 @@ func (r *PromiseReconciler) markRequiredPromiseAsRequired(ctx context.Context, v
 	if err != nil {
 		r.Log.Error(err, "error updating promise required by promise", "promise", promise.GetName(), "required promise", requiredPromise.GetName())
 	}
+}
+
+func (r *PromiseReconciler) deleteWorkForDependencies(ctx context.Context, promise *v1alpha1.Promise) error {
+	work, err := resourceutil.GetWorkForStaticDependencies(r.Client, v1alpha1.SystemNamespace, promise.GetName())
+	if err != nil {
+		r.Log.Error(err, "error retrieving work for static dependencies")
+		return err
+	}
+	err = r.Client.Delete(ctx, work)
+	if err != nil {
+		r.Log.Error(err, "error deleting work for static dependencies")
+		return err
+	}
+	return nil
 }

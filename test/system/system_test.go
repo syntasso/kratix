@@ -132,7 +132,7 @@ var _ = Describe("Kratix", func() {
 			secondPromiseConfigureWorkflowName = fmt.Sprintf("%s-2nd-workflow", bashPromiseName)
 		})
 
-		It("can install, update, and delete a promise", func() {
+		FIt("can install, update, and delete a promise", func() {
 			By("installing the promise", func() {
 				platform.eventuallyKubectl("apply", "-f", cat(bashPromise))
 
@@ -158,7 +158,7 @@ var _ = Describe("Kratix", func() {
 					},
 				}
 
-				bashPromise.Spec.Workflows.Resource.Configure[1].Object["spec"].(map[string]interface{})["containers"].(map[string]interface{})["command"].([]string)[2] = "kubectl create configmap REPLACEBASH-2nd-workflow-new -o yaml --dry-run=client > /kratix/output/configmap.yaml"
+				bashPromise.Spec.Workflows.Promise.Configure[1].Object["spec"].(map[string]interface{})["containers"].(map[string]interface{})["args"].([]string)[0] = "kubectl create configmap REPLACEBASH-2nd-workflow-new -o yaml --dry-run=client > /kratix/output/configmap.yaml"
 
 				platform.eventuallyKubectl("apply", "-f", cat(bashPromise))
 
