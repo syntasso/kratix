@@ -240,7 +240,7 @@ func ReconcileConfigure(opts Opts) (bool, error) {
 
 	// TODO this will be very noisy - might want to slowRequeue?
 	opts.logger.Info("Reconciling pipeline " + pipeline.Name)
-	return createConfigurePipeline(opts, pipeline)
+	return createConfigurePipeline(opts, pipelineIndex, pipeline)
 }
 
 func cleanup(opts Opts, namespace string) error {
@@ -330,8 +330,8 @@ func deleteConfigMap(opts Opts, pipeline Pipeline) error {
 	return nil
 }
 
-func createConfigurePipeline(opts Opts, pipeline Pipeline) (bool, error) {
-	updated, err := setPipelineCompletedConditionStatus(opts, opts.parentObject)
+func createConfigurePipeline(opts Opts, pipelineIndex int, pipeline Pipeline) (bool, error) {
+	updated, err := setPipelineCompletedConditionStatus(opts, pipelineIndex == 0, opts.parentObject)
 	if err != nil || updated {
 		return updated, err
 	}
@@ -340,25 +340,38 @@ func createConfigurePipeline(opts Opts, pipeline Pipeline) (bool, error) {
 
 	applyResources(opts, append(pipeline.JobRequiredResources, pipeline.Job)...)
 
+	opts.logger.Info("Parent object:", "parent", opts.parentObject.GetName())
 	if isManualReconciliation(opts.parentObject.GetLabels()) {
-		newLabels := opts.parentObject.GetLabels()
-		delete(newLabels, resourceutil.ManualReconciliationLabel)
-		opts.parentObject.SetLabels(newLabels)
-		if err := opts.client.Update(opts.ctx, opts.parentObject); err != nil {
+		if err := removeManualReconciliationLabel(opts); err != nil {
 			return false, err
 		}
-		return true, nil
+		return false, nil
 	}
 
 	return true, nil
 }
 
-func setPipelineCompletedConditionStatus(opts Opts, obj *unstructured.Unstructured) (bool, error) {
+func removeManualReconciliationLabel(opts Opts) error {
+	opts.logger.Info("Manual reconciliation label detected; removing it")
+	newLabels := opts.parentObject.GetLabels()
+	delete(newLabels, resourceutil.ManualReconciliationLabel)
+	opts.parentObject.SetLabels(newLabels)
+	if err := opts.client.Update(opts.ctx, opts.parentObject); err != nil {
+		opts.logger.Error(err, "couldn't remove the label...")
+		return err
+	}
+	return nil
+}
+
+func setPipelineCompletedConditionStatus(opts Opts, isTheFirstPipeline bool, obj *unstructured.Unstructured) (bool, error) {
 	switch resourceutil.GetPipelineCompletedConditionStatus(obj) {
 	case v1.ConditionTrue:
 		fallthrough
 	case v1.ConditionUnknown:
-		resourceutil.SetStatus(obj, opts.logger, "message", "Pending")
+		currentMessage := resourceutil.GetStatus(obj, "message")
+		if isTheFirstPipeline || currentMessage == "" || currentMessage == "Resource requested" {
+			resourceutil.SetStatus(obj, opts.logger, "message", "Pending")
+		}
 		resourceutil.MarkPipelineAsRunning(opts.logger, obj)
 		err := opts.client.Status().Update(opts.ctx, obj)
 		if err != nil {

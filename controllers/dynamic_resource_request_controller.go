@@ -18,6 +18,7 @@ package controllers
 
 import (
 	"context"
+	"strconv"
 
 	apiextensionsv1 "k8s.io/apiextensions-apiserver/pkg/apis/apiextensions/v1"
 	"sigs.k8s.io/controller-runtime/pkg/controller/controllerutil"
@@ -31,6 +32,7 @@ import (
 	"github.com/syntasso/kratix/lib/workflow"
 
 	batchv1 "k8s.io/api/batch/v1"
+	v1 "k8s.io/api/core/v1"
 
 	"k8s.io/apimachinery/pkg/api/errors"
 	"k8s.io/apimachinery/pkg/apis/meta/v1/unstructured"
@@ -151,7 +153,7 @@ func (r *DynamicResourceRequestController) Reconcile(ctx context.Context, req ct
 	}
 
 	var pipelines []workflow.Pipeline
-	for _, p := range r.ConfigurePipelines {
+	for i, p := range r.ConfigurePipelines {
 		pipelineResources, err := pipeline.NewConfigureResource(
 			rr,
 			unstructuredPromise,
@@ -166,10 +168,17 @@ func (r *DynamicResourceRequestController) Reconcile(ctx context.Context, req ct
 			return ctrl.Result{}, err
 		}
 
+		isLast := i == len(r.ConfigurePipelines)-1
+		job := pipelineResources[4].(*batchv1.Job)
+		job.Spec.Template.Spec.Containers[0].Env = append(job.Spec.Template.Spec.Containers[0].Env, v1.EnvVar{
+			Name:  "IS_LAST_PIPELINE",
+			Value: strconv.FormatBool(isLast),
+		})
+
 		//TODO smelly, refactor. Should we merge the lib/pipeline package with lib/workflow?
 		//TODO if we dont do that, backfil unit tests for dynamic and promise controllers to assert the job is correct
 		pipelines = append(pipelines, workflow.Pipeline{
-			Job:                  pipelineResources[4].(*batchv1.Job),
+			Job:                  job,
 			JobRequiredResources: pipelineResources[0:4],
 			Name:                 p.Name,
 		})

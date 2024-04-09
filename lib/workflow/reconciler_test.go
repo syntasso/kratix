@@ -309,7 +309,7 @@ var _ = Describe("Workflow Reconciler", func() {
 		})
 
 		When("there are more than 5 old workflow execution", func() {
-			It("deletes the oldests jobs", func() {
+			It("deletes the oldest jobs", func() {
 				var updatedPromise v1alpha1.Promise
 				for i := range 6 {
 					Expect(fakeK8sClient.Get(ctx, types.NamespacedName{Name: promise.Name}, &updatedPromise)).To(Succeed())
@@ -406,7 +406,7 @@ var _ = Describe("Workflow Reconciler", func() {
 			})
 		})
 
-		When("the manual reconcilation label exists in the parent resource", func() {
+		When("the manual reconciliation label exists in the parent resource", func() {
 			BeforeEach(func() {
 				Expect(fakeK8sClient.Create(ctx, workflowPipelines[0].Job)).To(Succeed())
 				Expect(fakeK8sClient.Create(ctx, workflowPipelines[1].Job)).To(Succeed())
@@ -436,7 +436,7 @@ var _ = Describe("Workflow Reconciler", func() {
 				By("re-triggering the first pipeline on the next reconciliation", func() {
 					requeue, err := workflow.ReconcileConfigure(opts)
 					Expect(err).NotTo(HaveOccurred())
-					Expect(requeue).To(BeTrue())
+					Expect(requeue).To(BeFalse())
 
 					jobs = resourceutil.SortJobsByCreationDateTime(listJobs(namespace), true)
 					Expect(jobs).To(HaveLen(3))

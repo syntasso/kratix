@@ -20,6 +20,7 @@ import (
 	"context"
 	"fmt"
 	"slices"
+	"strconv"
 	"strings"
 	"time"
 
@@ -373,7 +374,8 @@ func (r *PromiseReconciler) reconcileDependencies(o opts, promise *v1alpha1.Prom
 	}
 
 	var pipelines []workflow.Pipeline
-	for _, p := range configurePipeline {
+	for i, p := range configurePipeline {
+		isLast := i == len(configurePipeline)-1
 		pipelineResources, err := pipeline.NewConfigurePromise(
 			unstructuredPromise,
 			p,
@@ -384,8 +386,13 @@ func (r *PromiseReconciler) reconcileDependencies(o opts, promise *v1alpha1.Prom
 		if err != nil {
 			return nil, err
 		}
+		job := pipelineResources[4].(*batchv1.Job)
+		job.Spec.Template.Spec.Containers[0].Env = append(job.Spec.Template.Spec.Containers[0].Env, v1.EnvVar{
+			Name:  "IS_LAST_PIPELINE",
+			Value: strconv.FormatBool(isLast),
+		})
 		pipelines = append(pipelines, workflow.Pipeline{
-			Job:                  pipelineResources[4].(*batchv1.Job),
+			Job:                  job,
 			JobRequiredResources: pipelineResources[0:4],
 			Name:                 p.Name,
 		})

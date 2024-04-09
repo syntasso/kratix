@@ -170,6 +170,19 @@ func SetStatus(rr *unstructured.Unstructured, logger logr.Logger, statuses ...st
 	}
 }
 
+func GetStatus(rr *unstructured.Unstructured, key string) string {
+	if rr.Object["status"] == nil {
+		return ""
+	}
+
+	nestedMap := rr.Object["status"].(map[string]interface{})
+	if nestedMap[key] == nil {
+		return ""
+	}
+
+	return nestedMap[key].(string)
+}
+
 func GetResourceNames(items []unstructured.Unstructured) []string {
 	var names []string
 	for _, item := range items {
