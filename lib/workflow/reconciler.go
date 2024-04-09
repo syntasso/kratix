@@ -216,9 +216,15 @@ func ReconcileConfigure(opts Opts) (bool, error) {
 			opts.logger.Info("Job already inflight for workflow, waiting for it to complete")
 			return true, nil
 		}
+
+		if isManualReconciliation(opts.parentObject.GetLabels()) {
+			return createConfigurePipeline(opts, pipelineIndex, pipeline)
+		}
+
 		if err := cleanup(opts, namespace); err != nil {
 			return false, err
 		}
+
 		return false, nil
 	}
 
