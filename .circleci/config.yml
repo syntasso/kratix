@@ -8,7 +8,6 @@ orbs:
   queue: eddiewebb/queue@2.2.1
   snyk: snyk/snyk@2.0.2
   slack: circleci/slack@3.4.2
-  node: circleci/node@5.2.0
 
 executors:
   machine-medium:
@@ -115,14 +114,6 @@ commands:
           command: |
             go mod download
 
-  install_node:
-    steps:
-      - node/install:
-          install-yarn: true
-          node-version: "20.5.1"
-      - attach_workspace:
-          at: .
-
   configure_git:
     steps:
       - run:
@@ -151,13 +142,6 @@ commands:
             - "4b:78:81:17:99:0c:1d:63:42:dc:bb:1f:bd:d6:54:a8" # deploy key for helm-charts
       - configure_git
 
-  setup_git_backstage:
-    steps:
-      - add_ssh_keys:
-          fingerprints:
-            - "SHA256:uuVDD9uT5dujNQ1PJ3wYFknIO3JrkF2xBxsv4k/Jq0Y" # deploy key for pulling backstage repo
-      - configure_git
-
 jobs:
   clone-helm-charts:
     executor: machine-medium
@@ -179,24 +163,6 @@ jobs:
           root: .
           paths:
             - .
-
-  clone-backstage:
-    executor: machine-medium
-    steps:
-      - setup_git_backstage
-      - run:
-          name: Clone Backstage repo
-          command: |
-            git clone --depth 1 git@github.com:syntasso/backstage.git ~/repo/backstage-plugins
-      - run:
-          name: Install Dependencies
-          command: |
-            cd ~/repo/backstage-plugins/plugins/ske-backend && yarn install
-            cd ~/repo/backstage-plugins/plugins/ske-frontend && yarn install
-      - persist_to_workspace:
-          root: .
-          paths:
-            - backstage-plugins/
 
   kratix-security-scan:
     executor: machine-medium
@@ -227,28 +193,6 @@ jobs:
           docker-image-name: $WORKER_IMAGE_NAME:latest
       - snyk/scan:
           severity-threshold: high
-      - notify-slack:
-          only_for_branches: "main"
-
-  ske-security-scan:
-    executor: machine-medium
-    steps:
-      - checkout
-      - install_node
-      - run:
-          name: pull latest version of images so we dont use cached versions
-          command: |
-            docker pull $BACKSTAGE_GENERATOR_IMAGE_NAME:latest
-      - snyk/scan:
-          severity-threshold: high
-          docker-image-name: $BACKSTAGE_GENERATOR_IMAGE_NAME:latest
-          additional-arguments: "--username=$GITHUB_USER --password=$GITHUB_PACKAGE_TOKEN"
-      - snyk/scan:
-          severity-threshold: high
-          additional-arguments: "--file=$BACKSTAGE_BACKEND_PLUGIN_PACKAGE_JSON_PATH"
-      - snyk/scan:
-          severity-threshold: high
-          additional-arguments: "--file=$BACKSTAGE_FRONTEND_PLUGIN_PACKAGE_JSON_PATH"
       - notify-slack:
           only_for_branches: "main"
 
@@ -541,8 +485,5 @@ workflows:
               only: [main]
     jobs:
       - clone-kratix
-      - clone-backstage
       - kratix-security-scan:
           requires: [clone-kratix]
-      - ske-security-scan:
-          requires: [clone-backstage]
