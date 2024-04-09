@@ -92,6 +92,11 @@ func main() {
 			os.Exit(1)
 		}
 
+		prefix := os.Getenv("KRATIX_LOGGER_PREFIX")
+		if prefix != "" {
+			ctrl.Log = ctrl.Log.WithName(prefix)
+		}
+
 		scheduler := controllers.Scheduler{
 			Client: mgr.GetClient(),
 			Log:    ctrl.Log.WithName("controllers").WithName("Scheduler"),

@@ -36,6 +36,11 @@ func main() {
 		os.Exit(1)
 	}
 
+	prefix := os.Getenv("KRATIX_LOGGER_PREFIX")
+	if prefix != "" {
+		ctrl.Log = ctrl.Log.WithName(prefix)
+	}
+
 	//Teach our client to speak v1alpha1.Work
 	v1alpha1.AddToScheme(scheme.Scheme)
 
