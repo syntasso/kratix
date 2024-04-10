@@ -92,8 +92,13 @@ func ConfigurePipeline(obj *unstructured.Unstructured, pipelines []v1alpha1.Pipe
 	}
 
 	var imagePullSecrets []v1.LocalObjectReference
+	workCreatorPullSecrets := os.Getenv("WC_PULL_SECRET")
+	if workCreatorPullSecrets != "" {
+		imagePullSecrets = append(imagePullSecrets, v1.LocalObjectReference{Name: workCreatorPullSecrets})
+	}
+
 	if len(pipelines) > 0 {
-		imagePullSecrets = pipelines[0].Spec.ImagePullSecrets
+		imagePullSecrets = append(imagePullSecrets, pipelines[0].Spec.ImagePullSecrets...)
 	}
 
 	job := &batchv1.Job{
