@@ -448,6 +448,7 @@ var _ = Describe("Kratix", func() {
 					// Pipeline:
 					//    resource
 					//      Extra container to run the 3rd command field
+					//      rename configmap from from bashrr-test-default to bashrr-test-default-v2
 					//    promise
 					//      rename namespace from bash-dep-namespace-v1alpha1 to
 					//      bash-dep-namespace-v1alpha2
@@ -456,8 +457,6 @@ var _ = Describe("Kratix", func() {
 					updatedPromise := readPromiseAndReplaceWithUniqueBashName(promiseV1Alpha2Path, bashPromiseName)
 					platform.eventuallyKubectl("apply", "-f", cat(updatedPromise))
 
-					// imperativePlatformNamespace = fmt.Sprintf(templateImperativePlatformNamespace, bashPromiseName)
-					// declarativePlatformNamespace = fmt.Sprintf(templateDeclarativePlatformNamespace, bashPromiseName)
 					updatedDeclarativeWorkerNamespace := fmt.Sprintf(templateDeclarativeWorkerNamespace, bashPromiseName, "v1alpha2")
 					updatedDeclarativeStaticWorkerNamespace := fmt.Sprintf(templateDeclarativeStaticWorkerNamespace, bashPromiseName, "v1alpha2")
 
