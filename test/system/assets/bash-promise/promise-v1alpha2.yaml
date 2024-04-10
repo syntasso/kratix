@@ -97,7 +97,7 @@ spec:
                   - -c
                 args:
                   - |
-                    kubectl create configmap $(yq '.metadata.name' /kratix/input/object.yaml)-$(yq '.spec.suffix' /kratix/input/object.yaml)-v2 --namespace default -o yaml --dry-run=client > /kratix/output/configmap.yaml
+                    kubectl create configmap $(yq '.metadata.name' /kratix/input/object.yaml)-$(yq '.spec.suffix // "default"' /kratix/input/object.yaml)-v2 --namespace default -o yaml --dry-run=client > /kratix/output/configmap.yaml
       delete:
         - apiVersion: platform.kratix.io/v1alpha1
           kind: Pipeline

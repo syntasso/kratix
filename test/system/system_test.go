@@ -431,7 +431,7 @@ var _ = Describe("Kratix", func() {
 
 				rrImperativeNamespace := "imperative-" + rrName
 				rrDeclarativeNamespace := "declarative-" + rrName
-				rrDeclarativeConfigMap := rrName + "-default-v2"
+				rrDeclarativeConfigMap := rrName + "-default"
 
 				By("deploying the contents of /kratix/output to the worker destination", func() {
 					platform.eventuallyKubectl("get", "namespace", rrImperativeNamespace)
@@ -475,7 +475,7 @@ var _ = Describe("Kratix", func() {
 						g.Expect(namespaces).NotTo(ContainSubstring(declarativeStaticWorkerNamespace))
 					}, timeout, interval).Should(Succeed())
 
-					worker.withExitCode(1).kubectl("get", "configmap", rrDeclarativeConfigMap)
+					worker.withExitCode(1).eventuallyKubectl("get", "configmap", rrDeclarativeConfigMap)
 				})
 
 				platform.eventuallyKubectlDelete("promise", bashPromiseName)
