@@ -1,6 +1,8 @@
 package pipeline_test
 
 import (
+	"os"
+
 	"github.com/go-logr/logr"
 	. "github.com/onsi/ginkgo/v2"
 	. "github.com/onsi/gomega"
@@ -138,6 +140,7 @@ var _ = Describe("Configure Pipeline", func() {
 		})
 
 		It("can include imagePullPolicy and imagePullSecrets", func() {
+			os.Setenv("WC_PULL_SECRET", "registry-secret")
 			pipelines[0].Spec.ImagePullSecrets = []corev1.LocalObjectReference{{Name: "test-secret"}, {Name: "another-secret"}}
 			pipelines[0].Spec.Containers = append(pipelines[0].Spec.Containers, v1alpha1.Container{
 				Name:            "another-container",
@@ -147,8 +150,9 @@ var _ = Describe("Configure Pipeline", func() {
 			job, err := pipeline.ConfigurePipeline(rr, pipelines, pipelineResources, "test-promise", false, logger)
 			Expect(err).NotTo(HaveOccurred())
 
-			Expect(job.Spec.Template.Spec.ImagePullSecrets).To(HaveLen(2), "imagePullSecrets should've been included")
+			Expect(job.Spec.Template.Spec.ImagePullSecrets).To(HaveLen(3), "imagePullSecrets should've been included")
 			Expect(job.Spec.Template.Spec.ImagePullSecrets).To(ContainElements(
+				corev1.LocalObjectReference{Name: "registry-secret"},
 				corev1.LocalObjectReference{Name: "test-secret"},
 				corev1.LocalObjectReference{Name: "another-secret"},
 			), "imagePullSecrets should've been included")
