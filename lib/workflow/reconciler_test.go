@@ -134,6 +134,49 @@ var _ = Describe("Workflow Reconciler", func() {
 					})
 				})
 			})
+
+			Context("and the job has failed", func() {
+				var requeue bool
+				var err error
+
+				BeforeEach(func() {
+					markJobAsFailed(workflowPipelines[0].Job.Name)
+					newWorkflowPipelines, uPromise := setupTest(promise, pipelines)
+					opts := workflow.NewOpts(ctx, fakeK8sClient, logger, uPromise, newWorkflowPipelines, "promise")
+					requeue, err = workflow.ReconcileConfigure(opts)
+				})
+
+				It("does not create any new Jobs on the next reconciliation", func() {
+					// Expect only the failed job to exist
+					jobList := listJobs(namespace)
+					Expect(jobList).To(HaveLen(1))
+					job := jobList[0]
+					Expect(job.Labels["kratix.io/pipeline-name"]).To(Equal(workflowPipelines[0].Job.Labels["kratix.io/pipeline-name"]))
+				})
+
+				It("halts the workflow by not requeuing", func() {
+					Expect(requeue).To(BeFalse())
+					Expect(err).NotTo(HaveOccurred())
+				})
+
+				When("the parent is later manually reconciled", func() {
+					var newWorkflowPipelines []workflow.Pipeline
+
+					BeforeEach(func() {
+						labelPromiseForManualReconciliation("redis")
+						newWorkflowPipelines, uPromise = setupTest(promise, pipelines)
+						opts := workflow.NewOpts(ctx, fakeK8sClient, logger, uPromise, newWorkflowPipelines, "promise")
+						requeue, err = workflow.ReconcileConfigure(opts)
+					})
+
+					It("re-triggers the first pipeline in the workflow", func() {
+						Expect(err).NotTo(HaveOccurred())
+						jobList := listJobs(namespace)
+						Expect(jobList).To(HaveLen(2))
+						Expect(findByName(jobList, newWorkflowPipelines[0].Job.Name)).To(BeTrue())
+					})
+				})
+			})
 		})
 
 		When("the promise spec is updated", func() {
@@ -407,129 +450,166 @@ var _ = Describe("Workflow Reconciler", func() {
 		})
 
 		When("the manual reconciliation label exists in the parent resource", func() {
-			BeforeEach(func() {
-				Expect(fakeK8sClient.Create(ctx, workflowPipelines[0].Job)).To(Succeed())
-				Expect(fakeK8sClient.Create(ctx, workflowPipelines[1].Job)).To(Succeed())
-				markJobAsComplete(workflowPipelines[0].Job.Name)
-				markJobAsComplete(workflowPipelines[1].Job.Name)
+			When("there are no jobs in progress", func() {
+				BeforeEach(func() {
+					Expect(fakeK8sClient.Create(ctx, workflowPipelines[0].Job)).To(Succeed())
+					Expect(fakeK8sClient.Create(ctx, workflowPipelines[1].Job)).To(Succeed())
+					markJobAsComplete(workflowPipelines[0].Job.Name)
+					markJobAsComplete(workflowPipelines[1].Job.Name)
 
-				opts := workflow.NewOpts(ctx, fakeK8sClient, logger, uPromise, workflowPipelines, "promise")
-				requeue, err := workflow.ReconcileConfigure(opts)
-				Expect(err).NotTo(HaveOccurred())
-				Expect(requeue).To(BeFalse())
+					opts := workflow.NewOpts(ctx, fakeK8sClient, logger, uPromise, workflowPipelines, "promise")
+					requeue, err := workflow.ReconcileConfigure(opts)
+					Expect(err).NotTo(HaveOccurred())
+					Expect(requeue).To(BeFalse())
 
-				Expect(listJobs(namespace)).To(HaveLen(2))
+					Expect(listJobs(namespace)).To(HaveLen(2))
 
-				Expect(fakeK8sClient.Get(ctx, types.NamespacedName{Name: "redis"}, &promise)).To(Succeed())
-				promise.SetLabels(labels.Merge(promise.GetLabels(), map[string]string{
-					"kratix.io/manual-reconciliation": "true",
-				}))
+					labelPromiseForManualReconciliation("redis")
 
-				Expect(fakeK8sClient.Update(ctx, &promise)).To(Succeed())
+					workflowPipelines, uPromise = setupTest(promise, pipelines)
+				})
 
-				workflowPipelines, uPromise = setupTest(promise, pipelines)
+				It("re-triggers all the pipelines in the workflow", func() {
+					var jobs []batchv1.Job
+					opts := workflow.NewOpts(ctx, fakeK8sClient, logger, uPromise, workflowPipelines, "promise")
+					By("re-triggering the first pipeline on the next reconciliation", func() {
+						requeue, err := workflow.ReconcileConfigure(opts)
+						Expect(err).NotTo(HaveOccurred())
+						Expect(requeue).To(BeFalse())
+
+						jobs = resourceutil.SortJobsByCreationDateTime(listJobs(namespace), true)
+						Expect(jobs).To(HaveLen(3))
+						Expect(jobs[0].GetLabels()).To(HaveKeyWithValue("kratix.io/pipeline-name", workflowPipelines[0].Name))
+						Expect(jobs[1].GetLabels()).To(HaveKeyWithValue("kratix.io/pipeline-name", workflowPipelines[1].Name))
+						Expect(jobs[2].GetLabels()).To(HaveKeyWithValue("kratix.io/pipeline-name", workflowPipelines[0].Name))
+					})
+
+					By("removing the label from the parent after the first reconcilation", func() {
+						promise := v1alpha1.Promise{}
+						Expect(fakeK8sClient.Get(ctx, types.NamespacedName{Name: "redis"}, &promise)).To(Succeed())
+						Expect(promise.GetLabels()).NotTo(HaveKey("kratix.io/manual-reconciliation"))
+					})
+
+					By("handling cases where label gets added mid-flight on the first pipeline", func() {
+						labelPromiseForManualReconciliation("redis")
+
+						workflowPipelines, uPromise = setupTest(promise, pipelines)
+						opts = workflow.NewOpts(ctx, fakeK8sClient, logger, uPromise, workflowPipelines, "promise")
+					})
+
+					By("waiting for the first pipeline to complete", func() {
+						requeue, err := workflow.ReconcileConfigure(opts)
+						Expect(err).NotTo(HaveOccurred())
+						Expect(requeue).To(BeTrue())
+
+						jobs = resourceutil.SortJobsByCreationDateTime(listJobs(namespace), true)
+						Expect(jobs).To(HaveLen(3))
+					})
+
+					markJobAsComplete(jobs[2].Name)
+
+					By("removing the manual reconciliation label again", func() {
+						requeue, err := workflow.ReconcileConfigure(opts)
+						Expect(err).NotTo(HaveOccurred())
+						Expect(requeue).To(BeFalse())
+
+						promise := v1alpha1.Promise{}
+						Expect(fakeK8sClient.Get(ctx, types.NamespacedName{Name: "redis"}, &promise)).To(Succeed())
+						Expect(promise.GetLabels()).NotTo(HaveKey("kratix.io/manual-reconciliation"))
+					})
+
+					By("restarting from pipeline 0, respecting the label added mid-flight", func() {
+						requeue, err := workflow.ReconcileConfigure(opts)
+						Expect(err).NotTo(HaveOccurred())
+						Expect(requeue).To(BeTrue())
+
+						jobs = resourceutil.SortJobsByCreationDateTime(listJobs(namespace), true)
+						Expect(jobs).To(HaveLen(4))
+						Expect(jobs[3].GetLabels()).To(HaveKeyWithValue("kratix.io/pipeline-name", workflowPipelines[0].Name))
+					})
+
+					By("waiting for the first pipeline to complete again", func() {
+						requeue, err := workflow.ReconcileConfigure(opts)
+						Expect(err).NotTo(HaveOccurred())
+						Expect(requeue).To(BeTrue())
+
+						jobs = resourceutil.SortJobsByCreationDateTime(listJobs(namespace), true)
+						Expect(jobs).To(HaveLen(4))
+					})
+
+					markJobAsComplete(jobs[3].Name)
+					By("triggering the second pipeline when the previous completes", func() {
+						requeue, err := workflow.ReconcileConfigure(opts)
+						Expect(err).NotTo(HaveOccurred())
+						Expect(requeue).To(BeTrue())
+
+						jobs = resourceutil.SortJobsByCreationDateTime(listJobs(namespace), true)
+						Expect(jobs).To(HaveLen(5))
+						Expect(jobs[4].GetLabels()).To(HaveKeyWithValue("kratix.io/pipeline-name", workflowPipelines[1].Name))
+					})
+
+					By("waiting for the second pipeline to complete", func() {
+						requeue, err := workflow.ReconcileConfigure(opts)
+						Expect(err).NotTo(HaveOccurred())
+						Expect(requeue).To(BeTrue())
+
+						jobs = resourceutil.SortJobsByCreationDateTime(listJobs(namespace), true)
+						Expect(jobs).To(HaveLen(5))
+					})
+
+					By("marking it all as completed once the last pipeline completes", func() {
+						markJobAsComplete(jobs[4].Name)
+						requeue, err := workflow.ReconcileConfigure(opts)
+						Expect(err).NotTo(HaveOccurred())
+						Expect(requeue).To(BeFalse())
+
+						jobs = resourceutil.SortJobsByCreationDateTime(listJobs(namespace), true)
+						Expect(jobs).To(HaveLen(5))
+					})
+				})
 			})
 
-			It("re-triggers all the pipelines in the workflow", func() {
-				var jobs []batchv1.Job
-				opts := workflow.NewOpts(ctx, fakeK8sClient, logger, uPromise, workflowPipelines, "promise")
-				By("re-triggering the first pipeline on the next reconciliation", func() {
-					requeue, err := workflow.ReconcileConfigure(opts)
-					Expect(err).NotTo(HaveOccurred())
-					Expect(requeue).To(BeFalse())
+			When("there is a job in progress", func() {
+				var requeue bool
 
-					jobs = resourceutil.SortJobsByCreationDateTime(listJobs(namespace), true)
-					Expect(jobs).To(HaveLen(3))
+				BeforeEach(func() {
+					var err error
+
+					Expect(fakeK8sClient.Create(ctx, workflowPipelines[0].Job)).To(Succeed())
+					markJobAsComplete(workflowPipelines[0].Job.Name)
+
+					// Create the second job, but don't mark it as complete
+					Expect(fakeK8sClient.Create(ctx, workflowPipelines[1].Job)).To(Succeed())
+
+					Expect(listJobs(namespace)).To(HaveLen(2))
+
+					labelPromiseForManualReconciliation("redis")
+
+					workflowPipelines, uPromise = setupTest(promise, pipelines)
+
+					opts := workflow.NewOpts(ctx, fakeK8sClient, logger, uPromise, workflowPipelines, "promise")
+
+					requeue, err = workflow.ReconcileConfigure(opts)
+					Expect(err).NotTo(HaveOccurred())
+				})
+
+				It("suspends the current job", func() {
+					jobs := resourceutil.SortJobsByCreationDateTime(listJobs(namespace), true)
+					Expect(jobs).To(HaveLen(2))
 					Expect(jobs[0].GetLabels()).To(HaveKeyWithValue("kratix.io/pipeline-name", workflowPipelines[0].Name))
 					Expect(jobs[1].GetLabels()).To(HaveKeyWithValue("kratix.io/pipeline-name", workflowPipelines[1].Name))
-					Expect(jobs[2].GetLabels()).To(HaveKeyWithValue("kratix.io/pipeline-name", workflowPipelines[0].Name))
+					Expect(jobs[1].Spec.Suspend).NotTo(BeNil())
+					Expect(*jobs[1].Spec.Suspend).To(BeTrue())
 				})
 
-				By("removing the label from the parent after the first reconcilation", func() {
+				It("requeues", func() {
+					Expect(requeue).To(BeTrue())
+				})
+
+				It("does not remove the manual reconciliation label from the parent", func() {
 					promise := v1alpha1.Promise{}
 					Expect(fakeK8sClient.Get(ctx, types.NamespacedName{Name: "redis"}, &promise)).To(Succeed())
-					Expect(promise.GetLabels()).NotTo(HaveKey("kratix.io/manual-reconciliation"))
-				})
-
-				By("handling cases where label gets added mid-flight on the first pipeline", func() {
-					Expect(fakeK8sClient.Get(ctx, types.NamespacedName{Name: "redis"}, &promise)).To(Succeed())
-					promise.SetLabels(labels.Merge(promise.GetLabels(), map[string]string{
-						"kratix.io/manual-reconciliation": "true",
-					}))
-
-					Expect(fakeK8sClient.Update(ctx, &promise)).To(Succeed())
-					workflowPipelines, uPromise = setupTest(promise, pipelines)
-					opts = workflow.NewOpts(ctx, fakeK8sClient, logger, uPromise, workflowPipelines, "promise")
-				})
-
-				By("waiting for the first pipeline to complete", func() {
-					requeue, err := workflow.ReconcileConfigure(opts)
-					Expect(err).NotTo(HaveOccurred())
-					Expect(requeue).To(BeTrue())
-
-					jobs = resourceutil.SortJobsByCreationDateTime(listJobs(namespace), true)
-					Expect(jobs).To(HaveLen(3))
-				})
-
-				markJobAsComplete(jobs[2].Name)
-
-				By("removing the manual reconciliation label again", func() {
-					requeue, err := workflow.ReconcileConfigure(opts)
-					Expect(err).NotTo(HaveOccurred())
-					Expect(requeue).To(BeFalse())
-
-					promise := v1alpha1.Promise{}
-					Expect(fakeK8sClient.Get(ctx, types.NamespacedName{Name: "redis"}, &promise)).To(Succeed())
-					Expect(promise.GetLabels()).NotTo(HaveKey("kratix.io/manual-reconciliation"))
-				})
-
-				By("restarting from pipeline 0, respecting the label added mid-flight", func() {
-					requeue, err := workflow.ReconcileConfigure(opts)
-					Expect(err).NotTo(HaveOccurred())
-					Expect(requeue).To(BeTrue())
-
-					jobs = resourceutil.SortJobsByCreationDateTime(listJobs(namespace), true)
-					Expect(jobs).To(HaveLen(4))
-					Expect(jobs[3].GetLabels()).To(HaveKeyWithValue("kratix.io/pipeline-name", workflowPipelines[0].Name))
-				})
-
-				By("waiting for the first pipeline to complete again", func() {
-					requeue, err := workflow.ReconcileConfigure(opts)
-					Expect(err).NotTo(HaveOccurred())
-					Expect(requeue).To(BeTrue())
-
-					jobs = resourceutil.SortJobsByCreationDateTime(listJobs(namespace), true)
-					Expect(jobs).To(HaveLen(4))
-				})
-
-				markJobAsComplete(jobs[3].Name)
-				By("triggering the second pipeline when the previous completes", func() {
-					requeue, err := workflow.ReconcileConfigure(opts)
-					Expect(err).NotTo(HaveOccurred())
-					Expect(requeue).To(BeTrue())
-
-					jobs = resourceutil.SortJobsByCreationDateTime(listJobs(namespace), true)
-					Expect(jobs).To(HaveLen(5))
-					Expect(jobs[4].GetLabels()).To(HaveKeyWithValue("kratix.io/pipeline-name", workflowPipelines[1].Name))
-				})
-
-				By("waiting for the second pipeline to complete", func() {
-					requeue, err := workflow.ReconcileConfigure(opts)
-					Expect(err).NotTo(HaveOccurred())
-					Expect(requeue).To(BeTrue())
-
-					jobs = resourceutil.SortJobsByCreationDateTime(listJobs(namespace), true)
-					Expect(jobs).To(HaveLen(5))
-				})
-
-				By("marking it all as completed once the last pipeline completes", func() {
-					markJobAsComplete(jobs[4].Name)
-					requeue, err := workflow.ReconcileConfigure(opts)
-					Expect(err).NotTo(HaveOccurred())
-					Expect(requeue).To(BeFalse())
-
-					jobs = resourceutil.SortJobsByCreationDateTime(listJobs(namespace), true)
-					Expect(jobs).To(HaveLen(5))
+					Expect(promise.GetLabels()).To(HaveKey("kratix.io/manual-reconciliation"))
 				})
 			})
 		})
@@ -640,15 +720,29 @@ func setupTest(promise v1alpha1.Promise, pipelines []v1alpha1.Pipeline) ([]workf
 	return workflowPipelines, uPromise
 }
 
+func labelPromiseForManualReconciliation(name string) {
+	promise := &v1alpha1.Promise{}
+	Expect(fakeK8sClient.Get(ctx, types.NamespacedName{Name: name}, promise)).To(Succeed())
+	promise.SetLabels(labels.Merge(promise.GetLabels(), map[string]string{
+		"kratix.io/manual-reconciliation": "true",
+	}))
+	Expect(fakeK8sClient.Update(ctx, promise)).To(Succeed())
+}
+
 func markJobAsComplete(name string) {
+	markJobAs(batchv1.JobComplete, name)
+}
+
+func markJobAsFailed(name string) {
+	markJobAs(batchv1.JobFailed, name)
+}
+
+func markJobAsSuspended(name string) {
+	markJobAs(batchv1.JobSuspended, name)
+}
+
+func markJobAs(conditionType batchv1.JobConditionType, name string) {
 	job := &batchv1.Job{}
-	Expect(fakeK8sClient.Get(ctx, types.NamespacedName{
-		Name:      name,
-		Namespace: namespace,
-	}, job)).To(Succeed())
-
-	Expect(fakeK8sClient.Update(ctx, job)).To(Succeed())
-
 	Expect(fakeK8sClient.Get(ctx, types.NamespacedName{
 		Name:      name,
 		Namespace: namespace,
@@ -656,14 +750,18 @@ func markJobAsComplete(name string) {
 
 	job.Status.Conditions = []batchv1.JobCondition{
 		{
-			Type:   batchv1.JobComplete,
+			Type:   conditionType,
 			Status: v1.ConditionTrue,
 		},
 	}
-	job.Status.Succeeded = 1
+
+	if conditionType == batchv1.JobComplete {
+		job.Status.Succeeded = 1
+	} else if conditionType == batchv1.JobFailed {
+		job.Status.Failed = 1
+	}
 
 	Expect(fakeK8sClient.Status().Update(ctx, job)).To(Succeed())
-
 }
 
 func listJobs(namespace string) []batchv1.Job {

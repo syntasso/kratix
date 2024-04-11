@@ -82,16 +82,95 @@ func ReconcileDelete(opts Opts) (bool, error) {
 	return true, nil
 }
 
+func ReconcileConfigure(opts Opts) (bool, error) {
+	originalLogger := opts.logger
+	namespace := opts.parentObject.GetNamespace()
+	if namespace == "" {
+		namespace = v1alpha1.SystemNamespace
+	}
+
+	l := labelsForJobs(opts)
+	allJobs, err := getJobsWithLabels(opts, l, namespace)
+	if err != nil {
+		opts.logger.Error(err, "failed to list jobs")
+		return false, err
+	}
+
+	var pipelineIndex int = 0
+	var mostRecentJob *batchv1.Job
+
+	if len(allJobs) != 0 {
+		resourceutil.SortJobsByCreationDateTime(allJobs, false)
+		mostRecentJob = &allJobs[0]
+		pipelineIndex = nextPipelineIndex(opts, mostRecentJob)
+	}
+
+	if pipelineIndex >= len(opts.Pipelines) {
+		pipelineIndex = len(opts.Pipelines) - 1
+	}
+
+	if pipelineIndex < 0 {
+		opts.logger.Info("No pipeline to reconcile")
+		return false, nil
+	}
+
+	var mostRecentJobName string = "n/a"
+	if mostRecentJob != nil {
+		mostRecentJobName = mostRecentJob.Name
+	}
+
+	opts.logger.Info("Reconciling Configure workflow", "pipelineIndex", pipelineIndex, "mostRecentJob", mostRecentJobName)
+
+	pipeline := opts.Pipelines[pipelineIndex]
+	opts.logger = originalLogger.WithName(pipeline.Name)
+
+	if jobIsForPipeline(pipeline, mostRecentJob) {
+		if isRunning(mostRecentJob) {
+			opts.logger.Info("Job already inflight for Pipeline, waiting for it to complete", "job", mostRecentJob.Name, "pipeline", pipeline.Name)
+			return true, nil
+		}
+
+		if isManualReconciliation(opts.parentObject.GetLabels()) {
+			opts.logger.Info("Pipeline running due to manual reconciliation", "pipeline", pipeline.Name)
+			return createConfigurePipeline(opts, pipelineIndex, pipeline)
+		}
+
+		if isFailed(mostRecentJob) {
+			opts.logger.Info("Last Job for Pipeline has failed, exiting workflow", "failedJob", mostRecentJob.Name, "pipeline", pipeline.Name)
+			return false, nil
+		}
+
+		if err := cleanup(opts, namespace); err != nil {
+			return false, err
+		}
+
+		return false, nil
+	}
+
+	// TODO this will suspend any job that is in flight (without checking if it's active)
+	// and the next pipeline will immediately be started - this may be okay, but is
+	// different to how things used to be (where we only suspended a job if it didn't
+	// have any active pods)
+	if isRunning(mostRecentJob) {
+		opts.logger.Info("Job already inflight for another workflow, suspending it", "job", mostRecentJob.Name)
+		trueBool := true
+		patch := client.MergeFrom(mostRecentJob.DeepCopy())
+		mostRecentJob.Spec.Suspend = &trueBool
+		err := opts.client.Patch(opts.ctx, mostRecentJob, patch)
+		if err != nil {
+			opts.logger.Error(err, "failed to patch Job", "job", mostRecentJob.GetName())
+		}
+		return true, nil
+	}
+
+	// TODO this will be very noisy - might want to slowRequeue?
+	opts.logger.Info("Reconciling pipeline", "pipeline", pipeline.Name)
+	return createConfigurePipeline(opts, pipelineIndex, pipeline)
+}
+
 func getLabelsForPipelineJob(pipeline Pipeline) map[string]string {
 	labels := pipeline.Job.DeepCopy().GetLabels()
 	return labels
-}
-
-func labelsForPipelineJob(pipeline Pipeline) map[string]string {
-	return map[string]string{
-		v1alpha1.KratixResourceHashLabel: pipeline.Job.GetLabels()[v1alpha1.KratixResourceHashLabel],
-		v1alpha1.PipelineNameLabel:       pipeline.Job.GetLabels()[v1alpha1.PipelineNameLabel],
-	}
 }
 
 func labelsForJobs(opts Opts) map[string]string {
@@ -143,7 +222,7 @@ func nextPipelineIndex(opts Opts, mostRecentJob *batchv1.Job) int {
 	for i >= 0 {
 		if jobIsForPipeline(opts.Pipelines[i], mostRecentJob) {
 			opts.logger.Info("Found job for pipeline", "pipeline", opts.Pipelines[i].Name, "index", i)
-			if isRunning(mostRecentJob) {
+			if isFailed(mostRecentJob) || isRunning(mostRecentJob) {
 				return i
 			}
 			break
@@ -153,6 +232,19 @@ func nextPipelineIndex(opts Opts, mostRecentJob *batchv1.Job) int {
 
 	opts.logger.Info("Next pipeline is", "index", i+1)
 	return i + 1
+}
+
+func isFailed(job *batchv1.Job) bool {
+	if job == nil {
+		return false
+	}
+
+	for _, condition := range job.Status.Conditions {
+		if condition.Type == batchv1.JobFailed {
+			return true
+		}
+	}
+	return false
 }
 
 func isRunning(job *batchv1.Job) bool {
@@ -165,88 +257,11 @@ func isRunning(job *batchv1.Job) bool {
 	}
 
 	for _, condition := range job.Status.Conditions {
-		if condition.Type == batchv1.JobComplete || condition.Type == batchv1.JobSuspended {
+		if condition.Type == batchv1.JobComplete || condition.Type == batchv1.JobSuspended || condition.Type == batchv1.JobFailed {
 			return false
 		}
 	}
 	return true
-}
-
-func ReconcileConfigure(opts Opts) (bool, error) {
-	originalLogger := opts.logger
-	namespace := opts.parentObject.GetNamespace()
-	if namespace == "" {
-		namespace = v1alpha1.SystemNamespace
-	}
-
-	l := labelsForJobs(opts)
-	allJobs, err := getJobsWithLabels(opts, l, namespace)
-	if err != nil {
-		opts.logger.Error(err, "failed to list jobs")
-		return false, err
-	}
-
-	var pipelineIndex int
-	var mostRecentJob *batchv1.Job
-
-	if len(allJobs) != 0 {
-		resourceutil.SortJobsByCreationDateTime(allJobs, false)
-		mostRecentJob = &allJobs[0]
-		pipelineIndex = nextPipelineIndex(opts, mostRecentJob)
-	}
-
-	if pipelineIndex >= len(opts.Pipelines) {
-		pipelineIndex = len(opts.Pipelines) - 1
-	}
-
-	if pipelineIndex < 0 {
-		opts.logger.Info("No pipeline to reconcile")
-		return false, nil
-	}
-
-	opts.logger.Info("Reconciling Configure Pipeline", "pipelineIndex", pipelineIndex)
-
-	pipeline := opts.Pipelines[pipelineIndex]
-	opts.logger = originalLogger.WithName(pipeline.Name)
-
-	if jobIsForPipeline(pipeline, mostRecentJob) {
-		// TODO: isRunning considers "Failed" jobs as "running"; this will requeue
-		// forever if the job fails
-		if isRunning(mostRecentJob) {
-			opts.logger.Info("Job already inflight for workflow, waiting for it to complete")
-			return true, nil
-		}
-
-		if isManualReconciliation(opts.parentObject.GetLabels()) {
-			return createConfigurePipeline(opts, pipelineIndex, pipeline)
-		}
-
-		if err := cleanup(opts, namespace); err != nil {
-			return false, err
-		}
-
-		return false, nil
-	}
-
-	// TODO this will suspend any job that is in flight (without checking if it's active)
-	// and the next pipeline will immediately be started - this may be okay, but is
-	// different to how things used to be (where we only suspended a job if it didn't
-	// have any active pods)
-	if isRunning(mostRecentJob) {
-		opts.logger.Info("Job already inflight for another workflow, suspending it")
-		trueBool := true
-		patch := client.MergeFrom(mostRecentJob.DeepCopy())
-		mostRecentJob.Spec.Suspend = &trueBool
-		err := opts.client.Patch(opts.ctx, mostRecentJob, patch)
-		if err != nil {
-			opts.logger.Error(err, "failed to patch Job", "job", mostRecentJob.GetName())
-		}
-		return true, nil
-	}
-
-	// TODO this will be very noisy - might want to slowRequeue?
-	opts.logger.Info("Reconciling pipeline " + pipeline.Name)
-	return createConfigurePipeline(opts, pipelineIndex, pipeline)
 }
 
 func cleanup(opts Opts, namespace string) error {
