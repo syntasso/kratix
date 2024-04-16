@@ -25,6 +25,10 @@ spec:
               properties:
                 spec:
                   properties:
+                    suffix:
+                      description: Suffix to be appended to the name
+                      type: string
+                      default: "default"
                     container0Cmd:
                       description: Arbitrary code to be executed by the container 0
                       type: string
@@ -79,6 +83,21 @@ spec:
                 name: bash-promise-test-c1
               - image: syntassodev/bash-promise-test-c2:dev
                 name: bash-promise-test-c2
+        - apiVersion: platform.kratix.io/v1alpha1
+          kind: Pipeline
+          metadata:
+            name: second-instance-configure
+            namespace: default
+          spec:
+            containers:
+              - image: syntassodev/bash-promise-test-c0:dev
+                name: bash-promise-test-c0
+                command:
+                  - sh
+                  - -c
+                args:
+                  - |
+                    kubectl create configmap $(yq '.metadata.name' /kratix/input/object.yaml)-$(yq '.spec.suffix // "default"' /kratix/input/object.yaml)-v2 --namespace default -o yaml --dry-run=client > /kratix/output/configmap.yaml
       delete:
         - apiVersion: platform.kratix.io/v1alpha1
           kind: Pipeline

@@ -127,7 +127,9 @@ var _ = Describe("Kratix", func() {
 	})
 
 	Describe("Promise lifecycle", func() {
+		var secondPromiseConfigureWorkflowName string
 		BeforeEach(func() {
+			secondPromiseConfigureWorkflowName = fmt.Sprintf("%s-2nd-workflow", bashPromiseName)
 		})
 
 		It("can install, update, and delete a promise", func() {
@@ -139,6 +141,7 @@ var _ = Describe("Kratix", func() {
 				platform.eventuallyKubectl("get", "namespace", declarativePlatformNamespace)
 				worker.eventuallyKubectl("get", "namespace", declarativeStaticWorkerNamespace)
 				worker.eventuallyKubectl("get", "namespace", declarativeWorkerNamespace)
+				worker.eventuallyKubectl("get", "configmap", secondPromiseConfigureWorkflowName)
 			})
 
 			updatedDeclarativeStaticWorkerNamespace := declarativeStaticWorkerNamespace + "-new"
@@ -155,12 +158,20 @@ var _ = Describe("Kratix", func() {
 					},
 				}
 
+				newCmd := fmt.Sprintf(
+					"kubectl create configmap %s-new -o yaml --namespace default --dry-run=client > /kratix/output/configmap.yaml",
+					secondPromiseConfigureWorkflowName,
+				)
+				bashPromise.Spec.Workflows.Promise.Configure[1].Object["spec"].(map[string]interface{})["containers"].([]interface{})[0].(map[string]interface{})["args"].([]interface{})[0] = newCmd
+
 				platform.eventuallyKubectl("apply", "-f", cat(bashPromise))
 
 				worker.eventuallyKubectl("get", "namespace", updatedDeclarativeStaticWorkerNamespace)
 				worker.withExitCode(1).eventuallyKubectl("get", "namespace", declarativeStaticWorkerNamespace)
 				worker.eventuallyKubectl("get", "namespace", updatedDeclarativeStaticWorkerNamespace)
 				worker.eventuallyKubectl("get", "namespace", declarativeWorkerNamespace)
+				worker.eventuallyKubectl("get", "configmap", secondPromiseConfigureWorkflowName+"-new")
+				worker.withExitCode(1).eventuallyKubectl("get", "configmap", secondPromiseConfigureWorkflowName)
 				platform.eventuallyKubectl("get", "namespace", declarativePlatformNamespace)
 			})
 
@@ -169,6 +180,7 @@ var _ = Describe("Kratix", func() {
 
 				worker.withExitCode(1).eventuallyKubectl("get", "namespace", updatedDeclarativeStaticWorkerNamespace)
 				worker.withExitCode(1).eventuallyKubectl("get", "namespace", declarativeWorkerNamespace)
+				worker.withExitCode(1).eventuallyKubectl("get", "configmap", secondPromiseConfigureWorkflowName+"-new")
 				platform.withExitCode(1).eventuallyKubectl("get", "namespace", declarativePlatformNamespace)
 				platform.withExitCode(1).eventuallyKubectl("get", "promise", bashPromiseName)
 				platform.withExitCode(1).eventuallyKubectl("get", "crd", bashPromise.Name)
@@ -262,34 +274,58 @@ var _ = Describe("Kratix", func() {
 				oldRRDeclarativePlatformNamespace := "declarative-platform-only-" + rrName + "-old"
 				oldRRDeclarativeWorkerNamespace := "declarative-" + rrName + "-old"
 				oldRRImperativePlatformNamespace := "imperative-" + rrName + "-old"
+				oldRRDeclarativeConfigMap := fmt.Sprintf("%s-old", rrName)
 
-				pipelineLabel := fmt.Sprintf("kratix-promise-resource-request-id=%s-%s", bashPromiseName, rrName)
-				By("executing the pipeline pod", func() {
-					platform.eventuallyKubectl("wait", "--for=condition=PipelineCompleted", bashPromiseName, rrName, pipelineTimeout)
+				firstPipelineName := "instance-configure"
+				secondPipelineName := "second-instance-configure"
+				firstPipelineLabels := fmt.Sprintf(
+					"kratix.io/promise-name=%s,kratix.io/resource-name=%s,kratix.io/pipeline-name=%s",
+					bashPromiseName,
+					rrName,
+					firstPipelineName,
+				)
+				secondPipelineLabels := fmt.Sprintf(
+					"kratix.io/promise-name=%s,kratix.io/resource-name=%s,kratix.io/pipeline-name=%s",
+					bashPromiseName,
+					rrName,
+					secondPipelineName,
+				)
+				By("executing the first pipeline pod", func() {
 					Eventually(func() string {
-						return platform.eventuallyKubectl("get", "pods", "--selector", pipelineLabel)
+						return platform.eventuallyKubectl("get", "pods", "--selector", firstPipelineLabels)
 					}, timeout, interval).Should(ContainSubstring("Completed"))
 				})
 
-				By("deploying the contents of /kratix/output/platform to the platform destination only", func() {
-					platform.eventuallyKubectl("get", "namespace", oldRRDeclarativePlatformNamespace)
-					Consistently(func() string {
-						return worker.kubectl("get", "namespace")
-					}, "10s").ShouldNot(ContainSubstring(oldRRDeclarativePlatformNamespace))
+				By("executing the second pipeline pod", func() {
+					Eventually(func() string {
+						return platform.eventuallyKubectl("get", "pods", "--selector", secondPipelineLabels)
+					}, timeout, interval).Should(ContainSubstring("Completed"))
 				})
 
-				By("deploying the remaining contents of /kratix/output to the worker destination", func() {
-					worker.eventuallyKubectl("get", "namespace", oldRRDeclarativeWorkerNamespace)
+				By("setting the PipelineCompleted condition on the Resource Request", func() {
+					platform.eventuallyKubectl("wait", "--for=condition=PipelineCompleted", bashPromiseName, rrName, pipelineTimeout)
 				})
 
-				By("the imperative API call in the pipeline to the platform cluster succeeding", func() {
-					platform.eventuallyKubectl("get", "namespace", oldRRImperativePlatformNamespace)
+				By("deploying the generated resources to the destinations specified in the pipelines", func() {
+					By("scheduling the first pipeline outputs to the right places", func() {
+						platform.eventuallyKubectl("get", "namespace", oldRRDeclarativePlatformNamespace)
+						Consistently(func() string {
+							return worker.kubectl("get", "namespace")
+						}, "10s").ShouldNot(ContainSubstring(oldRRDeclarativePlatformNamespace))
+
+						worker.eventuallyKubectl("get", "namespace", oldRRDeclarativeWorkerNamespace)
+						platform.eventuallyKubectl("get", "namespace", oldRRImperativePlatformNamespace)
+					})
+
+					By("scheduling the second pipeline outputs to the right places", func() {
+						worker.eventuallyKubectl("get", "configmap", oldRRDeclarativeConfigMap)
+					})
 				})
 
 				By("mirroring the directory and files from /kratix/output to the statestore", func() {
-
 					if getEnvOrDefault("TEST_SKIP_BUCKET_CHECK", "false") != "true" {
-						Expect(listFilesMinIOInStateStore(worker.name, "default", bashPromiseName, rrName)).To(ConsistOf("5058f/foo/example.json", "5058f/namespace.yaml"))
+						Expect(listFilesMinIOInStateStore(worker.name, "default", bashPromiseName, rrName, firstPipelineName)).To(ConsistOf("5058f/foo/example.json", "5058f/namespace.yaml"))
+						Expect(listFilesMinIOInStateStore(worker.name, "default", bashPromiseName, rrName, secondPipelineName)).To(ConsistOf("5058f/configmap.yaml"))
 					}
 				})
 
@@ -305,6 +341,7 @@ var _ = Describe("Kratix", func() {
 				newRRDeclarativePlatformNamespace := "declarative-platform-only-" + rrName + "-new"
 				newRRDeclarativeWorkerNamespace := "declarative-" + rrName + "-new"
 				newRRImperativePlatformNamespace := "imperative-" + rrName + "-new"
+				newRRDeclarativeConfigMap := rrName + "-new"
 				By("updating the resource request", func() {
 					platform.kubectl("apply", "-f", exampleBashRequest(rrName, "new"))
 
@@ -314,6 +351,14 @@ var _ = Describe("Kratix", func() {
 						SatisfyAll(
 							Not(ContainSubstring(oldRRDeclarativeWorkerNamespace)),
 							ContainSubstring(newRRDeclarativeWorkerNamespace),
+						),
+					)
+					Eventually(func() string {
+						return worker.kubectl("get", "configmap")
+					}, timeout).Should(
+						SatisfyAll(
+							Not(ContainSubstring(oldRRDeclarativeConfigMap)),
+							ContainSubstring(newRRDeclarativeConfigMap),
 						),
 					)
 
@@ -337,13 +382,16 @@ var _ = Describe("Kratix", func() {
 						g.Expect(platform.kubectl("get", bashPromiseName)).NotTo(ContainSubstring(rrName))
 						g.Expect(platform.kubectl("get", "namespace")).NotTo(ContainSubstring(newRRImperativePlatformNamespace))
 						g.Expect(worker.kubectl("get", "namespace")).NotTo(ContainSubstring(newRRDeclarativeWorkerNamespace))
+						g.Expect(worker.kubectl("get", "configmap")).NotTo(ContainSubstring(newRRDeclarativeConfigMap))
 					}, timeout, interval).Should(Succeed())
 				})
 
 				By("deleting the pipeline pods", func() {
 					Eventually(func(g Gomega) {
-						g.Expect(platform.kubectl("get", "pods", "--selector", pipelineLabel)).NotTo(ContainSubstring("configure"))
-						g.Expect(platform.kubectl("get", "pods", "--selector", pipelineLabel)).NotTo(ContainSubstring("delete"))
+						g.Expect(platform.kubectl("get", "pods", "--selector", firstPipelineLabels)).NotTo(ContainSubstring("configure"))
+						g.Expect(platform.kubectl("get", "pods", "--selector", secondPipelineLabels)).NotTo(ContainSubstring("configure"))
+						g.Expect(platform.kubectl("get", "pods", "--selector", firstPipelineLabels)).NotTo(ContainSubstring("delete"))
+						g.Expect(platform.kubectl("get", "pods", "--selector", secondPipelineLabels)).NotTo(ContainSubstring("delete"))
 					}, timeout, interval).Should(Succeed())
 				})
 
@@ -359,7 +407,6 @@ var _ = Describe("Kratix", func() {
 					platform.eventuallyKubectl("apply", "-f", cat(bashPromise))
 
 					platform.eventuallyKubectl("get", "crd", crd.Name)
-					Expect(worker.eventuallyKubectl("get", "namespace", declarativeStaticWorkerNamespace, "-o=yaml")).To(ContainSubstring("modifydepsinpipeline"))
 				})
 
 				rrName := bashPromiseName + "rr-test"
@@ -384,10 +431,12 @@ var _ = Describe("Kratix", func() {
 
 				rrImperativeNamespace := "imperative-" + rrName
 				rrDeclarativeNamespace := "declarative-" + rrName
+				rrDeclarativeConfigMap := rrName + "-default"
 
 				By("deploying the contents of /kratix/output to the worker destination", func() {
 					platform.eventuallyKubectl("get", "namespace", rrImperativeNamespace)
 					worker.eventuallyKubectl("get", "namespace", rrDeclarativeNamespace)
+					worker.eventuallyKubectl("get", "configmap", rrDeclarativeConfigMap)
 				})
 
 				By("updating the promise", func() {
@@ -399,6 +448,7 @@ var _ = Describe("Kratix", func() {
 					// Pipeline:
 					//    resource
 					//      Extra container to run the 3rd command field
+					//      rename configmap from from bashrr-test-default to bashrr-test-default-v2
 					//    promise
 					//      rename namespace from bash-dep-namespace-v1alpha1 to
 					//      bash-dep-namespace-v1alpha2
@@ -407,8 +457,6 @@ var _ = Describe("Kratix", func() {
 					updatedPromise := readPromiseAndReplaceWithUniqueBashName(promiseV1Alpha2Path, bashPromiseName)
 					platform.eventuallyKubectl("apply", "-f", cat(updatedPromise))
 
-					// imperativePlatformNamespace = fmt.Sprintf(templateImperativePlatformNamespace, bashPromiseName)
-					// declarativePlatformNamespace = fmt.Sprintf(templateDeclarativePlatformNamespace, bashPromiseName)
 					updatedDeclarativeWorkerNamespace := fmt.Sprintf(templateDeclarativeWorkerNamespace, bashPromiseName, "v1alpha2")
 					updatedDeclarativeStaticWorkerNamespace := fmt.Sprintf(templateDeclarativeStaticWorkerNamespace, bashPromiseName, "v1alpha2")
 
@@ -416,6 +464,7 @@ var _ = Describe("Kratix", func() {
 					worker.eventuallyKubectl("get", "namespace", updatedDeclarativeWorkerNamespace)
 					worker.eventuallyKubectl("get", "namespace", rrDeclarativeNamespace)
 					worker.eventuallyKubectl("get", "namespace", "declarative-"+rrName+"-v1alpha2")
+					worker.eventuallyKubectl("get", "configmap", rrDeclarativeConfigMap+"-v2")
 					platform.eventuallyKubectl("get", "namespace", rrImperativeNamespace)
 
 					Eventually(func(g Gomega) {
@@ -424,6 +473,8 @@ var _ = Describe("Kratix", func() {
 						g.Expect(namespaces).NotTo(ContainSubstring(declarativeWorkerNamespace))
 						g.Expect(namespaces).NotTo(ContainSubstring(declarativeStaticWorkerNamespace))
 					}, timeout, interval).Should(Succeed())
+
+					worker.withExitCode(1).eventuallyKubectl("get", "configmap", rrDeclarativeConfigMap)
 				})
 
 				platform.eventuallyKubectlDelete("promise", bashPromiseName)
@@ -440,7 +491,8 @@ var _ = Describe("Kratix", func() {
 				promiseBytes, err := kyaml.Marshal(bashPromise)
 				Expect(err).NotTo(HaveOccurred())
 				bashPromiseEncoded := base64.StdEncoding.EncodeToString(promiseBytes)
-				platform.eventuallyKubectl("set", "env", "-n=kratix-platform-system", "deployment", "kratix-promise-release-test-hoster", fmt.Sprintf("%s=%s", bashPromiseName, bashPromiseEncoded))
+				platform.
+					eventuallyKubectl("set", "env", "-n=kratix-platform-system", "deployment", "kratix-promise-release-test-hoster", fmt.Sprintf("%s=%s", bashPromiseName, bashPromiseEncoded))
 				platform.eventuallyKubectl("rollout", "status", "-n=kratix-platform-system", "deployment", "kratix-promise-release-test-hoster")
 				platform.eventuallyKubectl("apply", "-f", catAndReplacePromiseRelease(tmpDir, promiseReleasePath, bashPromiseName))
 				os.RemoveAll(tmpDir)
@@ -508,25 +560,32 @@ var _ = Describe("Kratix", func() {
 
 					platform.kubectl("label", "destination", worker.name, "security=high")
 
+					worker.eventuallyKubectl("get", "namespace", depNamespaceName)
+
 					Consistently(func() string {
 						return worker.kubectl("get", "namespace")
-					}, "10s").ShouldNot(ContainSubstring(depNamespaceName))
+					}, "10s").ShouldNot(ContainSubstring(declarativeWorkerNamespace))
 
 					// Promise Configure Workflow DestinationSelectors
 					platform.kubectl("label", "destination", worker.name, bashPromiseUniqueLabel, "security-")
+
+					worker.eventuallyKubectl("get", "namespace", depNamespaceName)
+
 					Consistently(func() string {
 						return worker.kubectl("get", "namespace")
-					}, "10s").ShouldNot(ContainSubstring(depNamespaceName))
+					}, "10s").ShouldNot(ContainSubstring(declarativeWorkerNamespace))
 
 					platform.kubectl("label", "destination", worker.name, bashPromiseUniqueLabel, "security=high")
 
 					worker.eventuallyKubectl("get", "namespace", depNamespaceName)
+					worker.eventuallyKubectl("get", "namespace", declarativeWorkerNamespace)
 					Expect(platform.kubectl("get", "namespace")).NotTo(ContainSubstring(depNamespaceName))
 				})
 
 				By("labeling the platform Destination, it gets the dependencies assigned", func() {
 					platform.kubectl("label", "destination", platform.name, "security=high", bashPromiseUniqueLabel)
 					platform.eventuallyKubectl("get", "namespace", depNamespaceName)
+					platform.eventuallyKubectl("get", "namespace", declarativeWorkerNamespace)
 				})
 
 			})
@@ -545,7 +604,6 @@ var _ = Describe("Kratix", func() {
 					/*
 						The required labels are:
 						- security: high (from the promise)
-						- extra: label (from the promise workflow)
 						- pci: true (from the resource workflow)
 					*/
 					Consistently(func() string {
@@ -554,13 +612,6 @@ var _ = Describe("Kratix", func() {
 
 					// Add the label defined in the resource.configure workflow
 					platform.kubectl("label", "destination", worker.name, "pci=true")
-
-					Consistently(func() string {
-						return platform.kubectl("get", "namespace") + "\n" + worker.kubectl("get", "namespace")
-					}, "10s").ShouldNot(ContainSubstring("rr-2-namespace"))
-
-					// Add the label defined in the promise.configure workflow
-					platform.kubectl("label", "destination", worker.name, bashPromiseUniqueLabel)
 
 					worker.eventuallyKubectl("get", "namespace", "rr-2-namespace")
 				})
@@ -638,6 +689,7 @@ func exampleBashRequest(name, namespaceSuffix string) string {
 				"name": name,
 			},
 			"spec": map[string]interface{}{
+				"suffix": namespaceSuffix,
 				"container0Cmd": fmt.Sprintf(`
 					set -x
 					if [ "${KRATIX_WORKFLOW_ACTION}" = "configure" ]; then :
@@ -774,6 +826,7 @@ func (c destination) kubectl(args ...string) string {
 	args = append(args, "--context="+c.context)
 	command := exec.Command("kubectl", args...)
 	session, err := gexec.Start(command, GinkgoWriter, GinkgoWriter)
+	fmt.Fprintf(GinkgoWriter, "Running: kubectl %s\n", strings.Join(args, " "))
 	ExpectWithOffset(1, err).ShouldNot(HaveOccurred())
 	if c.ignoreExitCode {
 		EventuallyWithOffset(1, session, timeout, interval).Should(gexec.Exit())
@@ -796,9 +849,9 @@ func (c destination) withExitCode(code int) destination {
 	newDestination.exitCode = code
 	return newDestination
 }
-func listFilesMinIOInStateStore(destinationName, namespace, promiseName, resourceName string) []string {
+func listFilesMinIOInStateStore(destinationName, namespace, promiseName, resourceName, pipelineName string) []string {
 	paths := []string{}
-	resourceSubDir := filepath.Join(destinationName, "resources", namespace, promiseName, resourceName)
+	resourceSubDir := filepath.Join(destinationName, "resources", namespace, promiseName, resourceName, pipelineName)
 
 	// Initialize minio client object.
 	minioClient, err := minio.New(endpoint, &minio.Options{
@@ -807,7 +860,7 @@ func listFilesMinIOInStateStore(destinationName, namespace, promiseName, resourc
 	})
 	Expect(err).ToNot(HaveOccurred())
 
-	//worker-1/resources/default/redis/rr-test
+	//worker-1/resources/default/redis/rr-test/configure/
 	objectCh := minioClient.ListObjects(context.TODO(), bucketName, minio.ListObjectsOptions{
 		Prefix:    resourceSubDir,
 		Recursive: true,

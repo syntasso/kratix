@@ -35,6 +35,8 @@ const (
 	PromiseStatusAvailable   = "Available"
 	PromiseStatusUnavailable = "Unavailable"
 	PromisePlural            = "promises"
+
+	KratixResourceHashLabel = "kratix.io/hash"
 )
 
 // NOTE: json tags are required.  Any new fields you add must have json tags for the fields to be serialized.
@@ -219,7 +221,8 @@ func (p *Promise) GenerateSharedLabels() map[string]string {
 
 func GenerateSharedLabelsForPromise(promiseName string) map[string]string {
 	return map[string]string{
-		"kratix-promise-id": promiseName,
+		"kratix-promise-id":      promiseName,
+		"kratix.io/promise-name": promiseName,
 	}
 }
 
@@ -276,34 +279,36 @@ func generatePipeline(pipelines []unstructured.Unstructured, logger logr.Logger)
 	}
 
 	//We only support 1 pipeline for now
-	pipeline := pipelines[0]
+	ps := []Pipeline{}
+	for _, pipeline := range pipelines {
+		pipelineLogger := logger.WithValues(
+			"pipelineKind", pipeline.GetKind(),
+			"pipelineVersion", pipeline.GetAPIVersion(),
+			"pipelineName", pipeline.GetName())
 
-	pipelineLogger := logger.WithValues(
-		"pipelineKind", pipeline.GetKind(),
-		"pipelineVersion", pipeline.GetAPIVersion(),
-		"pipelineName", pipeline.GetName())
+		if pipeline.GetKind() == "Pipeline" && pipeline.GetAPIVersion() == "platform.kratix.io/v1alpha1" {
+			jsonPipeline, err := pipeline.MarshalJSON()
+			if err != nil {
+				// TODO test
+				pipelineLogger.Error(err, "Failed marshalling pipeline to json")
+				return nil, err
+			}
 
-	if pipeline.GetKind() == "Pipeline" && pipeline.GetAPIVersion() == "platform.kratix.io/v1alpha1" {
-		jsonPipeline, err := pipeline.MarshalJSON()
-		if err != nil {
-			// TODO test
-			pipelineLogger.Error(err, "Failed marshalling pipeline to json")
-			return nil, err
+			p := Pipeline{}
+			err = json.Unmarshal(jsonPipeline, &p)
+			if err != nil {
+				// TODO test
+				pipelineLogger.Error(err, "Failed unmarshalling pipeline")
+				return nil, err
+			}
+			ps = append(ps, p)
+		} else {
+			return nil, fmt.Errorf("unsupported pipeline %q (%s.%s)",
+				pipeline.GetName(), pipeline.GetKind(), pipeline.GetAPIVersion())
 		}
-
-		p := Pipeline{}
-		err = json.Unmarshal(jsonPipeline, &p)
-		if err != nil {
-			// TODO test
-			pipelineLogger.Error(err, "Failed unmarshalling pipeline")
-			return nil, err
-		}
-
-		return []Pipeline{p}, nil
 	}
+	return ps, nil
 
-	return nil, fmt.Errorf("unsupported pipeline %q (%s.%s)",
-		pipeline.GetName(), pipeline.GetKind(), pipeline.GetAPIVersion())
 }
 
 func (d Dependencies) Marshal() ([]byte, error) {

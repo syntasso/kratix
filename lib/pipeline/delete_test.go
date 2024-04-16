@@ -41,7 +41,8 @@ var _ = Describe("Delete Pipeline", func() {
 				Name:      "custom-namespace-promise-pipeline",
 				Namespace: "kratix-platform-system",
 				Labels: map[string]string{
-					"kratix-promise-id": "custom-namespace",
+					"kratix-promise-id":      "custom-namespace",
+					"kratix.io/promise-name": "custom-namespace",
 				},
 			}
 		)
@@ -57,7 +58,7 @@ var _ = Describe("Delete Pipeline", func() {
 
 				pipelineResources = pipeline.NewDeletePromise(
 					unstructuredPromise,
-					pipelines.DeletePromise,
+					pipelines.DeletePromise[0],
 				)
 			})
 
@@ -93,7 +94,7 @@ var _ = Describe("Delete Pipeline", func() {
 						{
 							APIGroups: []string{"platform.kratix.io"},
 							Resources: []string{"works"},
-							Verbs:     []string{"get", "update", "create", "patch"},
+							Verbs:     []string{"*"},
 						},
 					},
 				}
@@ -129,6 +130,10 @@ var _ = Describe("Delete Pipeline", func() {
 					"kratix-workflow-type":            Equal("promise"),
 					"kratix-workflow-action":          Equal("delete"),
 					"kratix-promise-id":               Equal("custom-namespace"),
+					"kratix.io/promise-name":          Equal("custom-namespace"),
+					"kratix.io/pipeline-name":         Equal("promise-delete"),
+					"kratix.io/work-type":             Equal("promise"),
+					"kratix-workflow-pipeline-name":   Equal("promise-delete"),
 				})
 
 				Expect(job).To(MatchFields(IgnoreExtras, Fields{
@@ -228,7 +233,8 @@ var _ = Describe("Delete Pipeline", func() {
 				Name:      "custom-namespace-resource-pipeline",
 				Namespace: "default",
 				Labels: map[string]string{
-					"kratix-promise-id": "custom-namespace",
+					"kratix-promise-id":      "custom-namespace",
+					"kratix.io/promise-name": "custom-namespace",
 				},
 			}
 		)
@@ -243,7 +249,7 @@ var _ = Describe("Delete Pipeline", func() {
 
 				pipelineResources = pipeline.NewDeleteResource(
 					resourceRequest,
-					pipelines.DeleteResource,
+					pipelines.DeleteResource[0],
 					"example-custom-namespace",
 					"custom-namespace",
 					"custom-namespaces",
@@ -282,7 +288,7 @@ var _ = Describe("Delete Pipeline", func() {
 						{
 							APIGroups: []string{"platform.kratix.io"},
 							Resources: []string{"works"},
-							Verbs:     []string{"get", "update", "create", "patch"},
+							Verbs:     []string{"*"},
 						},
 					},
 				}
@@ -318,7 +324,12 @@ var _ = Describe("Delete Pipeline", func() {
 					"kratix-workflow-type":               Equal("resource"),
 					"kratix-workflow-action":             Equal("delete"),
 					"kratix-promise-id":                  Equal("custom-namespace"),
+					"kratix.io/promise-name":             Equal("custom-namespace"),
 					"kratix-promise-resource-request-id": Equal("example-custom-namespace"),
+					"kratix-workflow-pipeline-name":      Equal("instance-delete"),
+					"kratix.io/pipeline-name":            Equal("instance-delete"),
+					"kratix.io/work-type":                Equal("resource"),
+					"kratix.io/resource-name":            Equal("example"),
 				})
 
 				Expect(job).To(MatchFields(IgnoreExtras, Fields{
@@ -414,8 +425,8 @@ var _ = Describe("Delete Pipeline", func() {
 
 	Describe("optional workflow configs", func() {
 		var (
-			rr        *unstructured.Unstructured
-			pipelines []v1alpha1.Pipeline
+			rr *unstructured.Unstructured
+			p  v1alpha1.Pipeline
 		)
 
 		BeforeEach(func() {
@@ -433,25 +444,23 @@ var _ = Describe("Delete Pipeline", func() {
 				},
 			}
 
-			pipelines = []v1alpha1.Pipeline{
-				{
-					Spec: v1alpha1.PipelineSpec{
-						Containers: []v1alpha1.Container{
-							{Name: "test-container", Image: "test-image"},
-						},
+			p = v1alpha1.Pipeline{
+				Spec: v1alpha1.PipelineSpec{
+					Containers: []v1alpha1.Container{
+						{Name: "test-container", Image: "test-image"},
 					},
 				},
 			}
 		})
 
 		It("can include args and commands", func() {
-			pipelines[0].Spec.Containers = append(pipelines[0].Spec.Containers, v1alpha1.Container{
+			p.Spec.Containers = append(p.Spec.Containers, v1alpha1.Container{
 				Name:    "another-container",
 				Image:   "another-image",
 				Args:    []string{"arg1", "arg2"},
 				Command: []string{"command1", "command2"},
 			})
-			resources := pipeline.NewDelete(rr, pipelines, "", "test-promise", "promises")
+			resources := pipeline.NewDelete(rr, p, "", "test-promise", "promises")
 			job := resources[3].(*batchv1.Job)
 
 			Expect(job.Spec.Template.Spec.InitContainers[1].Args).To(BeEmpty())
@@ -461,7 +470,7 @@ var _ = Describe("Delete Pipeline", func() {
 		})
 
 		It("can include env and envFrom", func() {
-			pipelines[0].Spec.Containers = append(pipelines[0].Spec.Containers, v1alpha1.Container{
+			p.Spec.Containers = append(p.Spec.Containers, v1alpha1.Container{
 				Name:  "another-container",
 				Image: "another-image",
 				Env: []corev1.EnvVar{
@@ -475,7 +484,7 @@ var _ = Describe("Delete Pipeline", func() {
 					},
 				},
 			})
-			resources := pipeline.NewDelete(rr, pipelines, "", "test-promise", "promises")
+			resources := pipeline.NewDelete(rr, p, "", "test-promise", "promises")
 			job := resources[3].(*batchv1.Job)
 
 			Expect(job.Spec.Template.Spec.InitContainers[1].Env).To(ContainElements(
@@ -497,17 +506,17 @@ var _ = Describe("Delete Pipeline", func() {
 		})
 
 		It("can include volume and volume mounts", func() {
-			pipelines[0].Spec.Volumes = []corev1.Volume{
+			p.Spec.Volumes = []corev1.Volume{
 				{Name: "test-volume", VolumeSource: corev1.VolumeSource{EmptyDir: &corev1.EmptyDirVolumeSource{}}},
 			}
-			pipelines[0].Spec.Containers = append(pipelines[0].Spec.Containers, v1alpha1.Container{
+			p.Spec.Containers = append(p.Spec.Containers, v1alpha1.Container{
 				Name:  "another-container",
 				Image: "another-image",
 				VolumeMounts: []corev1.VolumeMount{
 					{Name: "test-volume-mount", MountPath: "/test-mount-path"},
 				},
 			})
-			resources := pipeline.NewDelete(rr, pipelines, "", "test-promise", "promises")
+			resources := pipeline.NewDelete(rr, p, "", "test-promise", "promises")
 			job := resources[3].(*batchv1.Job)
 
 			Expect(job.Spec.Template.Spec.InitContainers[1].VolumeMounts).To(HaveLen(3), "default volume mounts should've been included")
@@ -521,13 +530,13 @@ var _ = Describe("Delete Pipeline", func() {
 		})
 
 		It("can include imagePullPolicy and imagePullSecrets", func() {
-			pipelines[0].Spec.ImagePullSecrets = []corev1.LocalObjectReference{{Name: "test-secret"}, {Name: "another-secret"}}
-			pipelines[0].Spec.Containers = append(pipelines[0].Spec.Containers, v1alpha1.Container{
+			p.Spec.ImagePullSecrets = []corev1.LocalObjectReference{{Name: "test-secret"}, {Name: "another-secret"}}
+			p.Spec.Containers = append(p.Spec.Containers, v1alpha1.Container{
 				Name:            "another-container",
 				Image:           "another-image",
 				ImagePullPolicy: corev1.PullAlways,
 			})
-			resources := pipeline.NewDelete(rr, pipelines, "", "test-promise", "promises")
+			resources := pipeline.NewDelete(rr, p, "", "test-promise", "promises")
 			job := resources[3].(*batchv1.Job)
 
 			Expect(job.Spec.Template.Spec.ImagePullSecrets).To(HaveLen(2), "imagePullSecrets should've been included")

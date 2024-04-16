@@ -24,10 +24,13 @@ import (
 	. "github.com/onsi/ginkgo/v2"
 	. "github.com/onsi/gomega"
 	"github.com/syntasso/kratix/api/v1alpha1"
+	"github.com/syntasso/kratix/controllers"
+	"github.com/syntasso/kratix/lib/workflow"
 
 	fakeclientset "k8s.io/apiextensions-apiserver/pkg/client/clientset/clientset/fake"
 	apiextensionsv1 "k8s.io/apiextensions-apiserver/pkg/client/clientset/clientset/typed/apiextensions/v1"
 	"k8s.io/apimachinery/pkg/apis/meta/v1/unstructured"
+	"k8s.io/apimachinery/pkg/types"
 	"k8s.io/apimachinery/pkg/util/yaml"
 	"k8s.io/client-go/kubernetes/scheme"
 	ctrl "sigs.k8s.io/controller-runtime"
@@ -67,6 +70,10 @@ var _ = BeforeSuite(func(_ SpecContext) {
 var _ = AfterSuite(func() {
 })
 
+var reconcileConfigureOptsArg workflow.Opts
+var reconcileDeleteOptsArg workflow.Opts
+var callCount int
+
 var _ = BeforeEach(func() {
 	yamlFile, err := os.ReadFile(resourceRequestPath)
 	Expect(err).ToNot(HaveOccurred())
@@ -88,10 +95,41 @@ var _ = BeforeEach(func() {
 
 	fakeApiExtensionsClient = fakeclientset.NewSimpleClientset().ApiextensionsV1()
 	t = &testReconciler{}
+
+	controllers.SetReconcileConfigureWorkflow(func(w workflow.Opts) (bool, error) {
+		reconcileConfigureOptsArg = w
+		return true, nil
+	})
+
+	controllers.SetReconcileDeleteWorkflow(func(w workflow.Opts) (bool, error) {
+		reconcileDeleteOptsArg = w
+		return true, nil
+	})
 })
 
 func TestControllers(t *testing.T) {
 	RegisterFailHandler(Fail)
 
 	RunSpecs(t, "Controller Suite")
+}
+
+func setReconcileConfigureWorkflowToReturnFinished() {
+	controllers.SetReconcileConfigureWorkflow(func(w workflow.Opts) (bool, error) {
+		reconcileConfigureOptsArg = w
+		return false, nil
+	})
+}
+
+func setReconcileDeleteWorkflowToReturnFinished(obj client.Object) {
+	controllers.SetReconcileDeleteWorkflow(func(w workflow.Opts) (bool, error) {
+		us := &unstructured.Unstructured{}
+		us.SetGroupVersionKind(obj.GetObjectKind().GroupVersionKind())
+		Expect(fakeK8sClient.Get(ctx, types.NamespacedName{
+			Name:      obj.GetName(),
+			Namespace: obj.GetNamespace(),
+		}, us)).To(Succeed())
+
+		reconcileDeleteOptsArg = w
+		return false, nil
+	})
 }

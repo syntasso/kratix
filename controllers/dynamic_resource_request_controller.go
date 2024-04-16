@@ -18,9 +18,9 @@ package controllers
 
 import (
 	"context"
+	"strconv"
 
 	apiextensionsv1 "k8s.io/apiextensions-apiserver/pkg/apis/apiextensions/v1"
-	"k8s.io/apimachinery/pkg/types"
 	"sigs.k8s.io/controller-runtime/pkg/controller/controllerutil"
 
 	"fmt"
@@ -29,13 +29,16 @@ import (
 	"github.com/syntasso/kratix/api/v1alpha1"
 	"github.com/syntasso/kratix/lib/pipeline"
 	"github.com/syntasso/kratix/lib/resourceutil"
+	"github.com/syntasso/kratix/lib/workflow"
+
 	batchv1 "k8s.io/api/batch/v1"
-	corev1 "k8s.io/api/core/v1"
+	v1 "k8s.io/api/core/v1"
 
 	"k8s.io/apimachinery/pkg/api/errors"
 	"k8s.io/apimachinery/pkg/apis/meta/v1/unstructured"
 	"k8s.io/apimachinery/pkg/runtime"
 	"k8s.io/apimachinery/pkg/runtime/schema"
+	"k8s.io/apimachinery/pkg/types"
 	ctrl "sigs.k8s.io/controller-runtime"
 	"sigs.k8s.io/controller-runtime/pkg/client"
 )
@@ -61,7 +64,6 @@ type DynamicResourceRequestController struct {
 	Enabled                     *bool
 	CRD                         *apiextensionsv1.CustomResourceDefinition
 	PromiseDestinationSelectors []v1alpha1.PromiseScheduling
-	PromiseWorkflowSelectors    *v1alpha1.WorkloadGroupScheduling
 	CanCreateResources          *bool
 }
 
@@ -86,13 +88,37 @@ func (r *DynamicResourceRequestController) Reconcile(ctx context.Context, req ct
 	rr := &unstructured.Unstructured{}
 	rr.SetGroupVersionKind(*r.GVK)
 
-	err := r.Client.Get(ctx, req.NamespacedName, rr)
+	promise := &v1alpha1.Promise{}
+	if err := r.Client.Get(ctx, types.NamespacedName{Name: r.PromiseIdentifier}, promise); err != nil {
+		logger.Error(err, "Failed getting Promise")
+		return ctrl.Result{}, err
+	}
+	unstructuredPromise, err := promise.ToUnstructured()
 	if err != nil {
+		logger.Error(err, "Failed converting Promise to Unstructured")
+		return ctrl.Result{}, err
+	}
+
+	if err := r.Client.Get(ctx, req.NamespacedName, rr); err != nil {
 		if errors.IsNotFound(err) {
 			return ctrl.Result{}, nil
 		}
 		logger.Error(err, "Failed getting Promise CRD")
 		return defaultRequeue, nil
+	}
+
+	resourceLabels := rr.GetLabels()
+	if resourceLabels == nil {
+		resourceLabels = map[string]string{}
+	}
+	if resourceLabels[v1alpha1.PromiseNameLabel] != r.PromiseIdentifier {
+		resourceLabels[v1alpha1.PromiseNameLabel] = promise.GetName()
+		rr.SetLabels(resourceLabels)
+		if err := r.Client.Update(ctx, rr); err != nil {
+			logger.Error(err, "Failed updating resource request with Promise label")
+			return ctrl.Result{}, err
+		}
+		return ctrl.Result{}, nil
 	}
 
 	opts := opts{
@@ -126,60 +152,49 @@ func (r *DynamicResourceRequestController) Reconcile(ctx context.Context, req ct
 		return addFinalizers(opts, rr, []string{workFinalizer, removeAllWorkflowJobsFinalizer, runDeleteWorkflowsFinalizer})
 	}
 
-	pipelineResources, err := pipeline.NewConfigureResource(
-		rr,
-		r.CRD.Spec.Names.Plural,
-		r.ConfigurePipelines,
-		resourceRequestIdentifier,
-		r.PromiseIdentifier,
-		r.PromiseDestinationSelectors,
-		r.PromiseWorkflowSelectors,
-		opts.logger,
-	)
-	if err != nil {
-		return ctrl.Result{}, err
-	}
-
-	jobOpts := jobOpts{
-		opts:              opts,
-		obj:               rr,
-		pipelineLabels:    pipeline.LabelsForConfigureResource(resourceRequestIdentifier, r.PromiseIdentifier),
-		pipelineResources: pipelineResources,
-	}
-	requeue, err := ensureConfigurePipelineIsReconciled(jobOpts)
-	if err != nil {
-		return ctrl.Result{}, err
-	}
-
-	if requeue != nil {
-		return *requeue, nil
-	}
-
-	return ctrl.Result{}, nil
-}
-
-func isManualReconciliation(labels map[string]string) bool {
-	if labels == nil {
-		return false
-	}
-	val, exists := labels[resourceutil.ManualReconciliationLabel]
-	return exists && val == "true"
-}
-
-func setPipelineCompletedConditionStatus(o opts, obj *unstructured.Unstructured) (bool, error) {
-	switch resourceutil.GetPipelineCompletedConditionStatus(obj) {
-	case corev1.ConditionTrue:
-		fallthrough
-	case corev1.ConditionUnknown:
-		resourceutil.SetStatus(obj, o.logger, "message", "Pending")
-		resourceutil.MarkPipelineAsRunning(o.logger, obj)
-		err := o.client.Status().Update(o.ctx, obj)
+	var pipelines []workflow.Pipeline
+	for i, p := range r.ConfigurePipelines {
+		pipelineResources, err := pipeline.NewConfigureResource(
+			rr,
+			unstructuredPromise,
+			r.CRD.Spec.Names.Plural,
+			p,
+			resourceRequestIdentifier,
+			r.PromiseIdentifier,
+			r.PromiseDestinationSelectors,
+			opts.logger,
+		)
 		if err != nil {
-			return false, err
+			return ctrl.Result{}, err
 		}
-		return true, nil
+
+		isLast := i == len(r.ConfigurePipelines)-1
+		job := pipelineResources[4].(*batchv1.Job)
+		job.Spec.Template.Spec.Containers[0].Env = append(job.Spec.Template.Spec.Containers[0].Env, v1.EnvVar{
+			Name:  "IS_LAST_PIPELINE",
+			Value: strconv.FormatBool(isLast),
+		})
+
+		//TODO smelly, refactor. Should we merge the lib/pipeline package with lib/workflow?
+		//TODO if we dont do that, backfil unit tests for dynamic and promise controllers to assert the job is correct
+		pipelines = append(pipelines, workflow.Pipeline{
+			Job:                  job,
+			JobRequiredResources: pipelineResources[0:4],
+			Name:                 p.Name,
+		})
 	}
-	return false, nil
+
+	jobOpts := workflow.NewOpts(ctx, r.Client, logger, rr, pipelines, "resource")
+
+	requeue, err := reconcileConfigure(jobOpts)
+	if err != nil {
+		return ctrl.Result{}, err
+	}
+	if requeue {
+		return defaultRequeue, nil
+	}
+	return ctrl.Result{}, nil
+
 }
 
 func (r *DynamicResourceRequestController) deleteResources(o opts, resourceRequest *unstructured.Unstructured, resourceRequestIdentifier string) (ctrl.Result, error) {
@@ -188,26 +203,39 @@ func (r *DynamicResourceRequestController) deleteResources(o opts, resourceReque
 	}
 
 	if controllerutil.ContainsFinalizer(resourceRequest, runDeleteWorkflowsFinalizer) {
-		pipelineLabels := pipeline.LabelsForDeleteResource(resourceRequestIdentifier, r.PromiseIdentifier)
+		var pipelines []workflow.Pipeline
+		for _, p := range r.DeletePipelines {
+			pipelineResources := pipeline.NewDeleteResource(
+				resourceRequest, p, resourceRequestIdentifier, r.PromiseIdentifier, r.CRD.Spec.Names.Plural,
+			)
 
-		pipelineResources := pipeline.NewDeleteResource(
-			resourceRequest, r.DeletePipelines, resourceRequestIdentifier, r.PromiseIdentifier, r.CRD.Spec.Names.Plural,
-		)
-
-		jobOpts := jobOpts{
-			opts:              o,
-			obj:               resourceRequest,
-			pipelineLabels:    pipelineLabels,
-			pipelineResources: pipelineResources,
+			pipelines = append(pipelines, workflow.Pipeline{
+				Job:                  pipelineResources[3].(*batchv1.Job),
+				JobRequiredResources: pipelineResources[0:3],
+				Name:                 p.Name,
+			})
 		}
 
-		return ensureDeletePipelineIsReconciled(jobOpts)
+		jobOpts := workflow.NewOpts(o.ctx, o.client, o.logger, resourceRequest, pipelines, "resource")
+		requeue, err := reconcileDelete(jobOpts)
+		if err != nil {
+			return ctrl.Result{}, err
+		}
+		if requeue {
+			return defaultRequeue, nil
+		}
+
+		controllerutil.RemoveFinalizer(resourceRequest, runDeleteWorkflowsFinalizer)
+		if err := o.client.Update(o.ctx, resourceRequest); err != nil {
+			return ctrl.Result{}, err
+		}
+		return ctrl.Result{}, nil
 	}
 
 	if controllerutil.ContainsFinalizer(resourceRequest, workFinalizer) {
 		err := r.deleteWork(o, resourceRequest, resourceRequestIdentifier, workFinalizer)
 		if err != nil {
-			return defaultRequeue, err
+			return ctrl.Result{}, err
 		}
 		return fastRequeue, nil
 	}
@@ -215,7 +243,7 @@ func (r *DynamicResourceRequestController) deleteResources(o opts, resourceReque
 	if controllerutil.ContainsFinalizer(resourceRequest, removeAllWorkflowJobsFinalizer) {
 		err := r.deleteWorkflows(o, resourceRequest, resourceRequestIdentifier, removeAllWorkflowJobsFinalizer)
 		if err != nil {
-			return defaultRequeue, err
+			return ctrl.Result{}, err
 		}
 		return fastRequeue, nil
 	}
@@ -223,48 +251,30 @@ func (r *DynamicResourceRequestController) deleteResources(o opts, resourceReque
 	return fastRequeue, nil
 }
 
-func (r *DynamicResourceRequestController) getDeletePipeline(o opts, resourceRequestIdentifier, namespace string) (*batchv1.Job, error) {
-	jobs, err := getJobsWithLabels(o, pipeline.LabelsForDeleteResource(resourceRequestIdentifier, r.PromiseIdentifier), namespace)
-	if err != nil || len(jobs) == 0 {
-		return nil, err
-	}
-	return &jobs[0], nil
-}
-
 func (r *DynamicResourceRequestController) deleteWork(o opts, resourceRequest *unstructured.Unstructured, workName string, finalizer string) error {
-	work := &v1alpha1.Work{}
-	err := r.Client.Get(o.ctx, types.NamespacedName{
-		Namespace: resourceRequest.GetNamespace(),
-		Name:      workName,
-	}, work)
-
+	works, err := resourceutil.GetAllWorksForResource(r.Client, resourceRequest.GetNamespace(), r.PromiseIdentifier, resourceRequest.GetName())
 	if err != nil {
-		if errors.IsNotFound(err) {
-			// only remove finalizer at this point because deletion success is guaranteed
-			controllerutil.RemoveFinalizer(resourceRequest, finalizer)
-			if err := r.Client.Update(o.ctx, resourceRequest); err != nil {
-				return err
-			}
-			return nil
-		}
-
-		o.logger.Error(err, "Error locating Work, will try again in 5 seconds", "workName", workName)
 		return err
 	}
 
-	err = r.Client.Delete(o.ctx, work)
-	if err != nil {
-		if errors.IsNotFound(err) {
-			// only remove finalizer at this point because deletion success is guaranteed
-			controllerutil.RemoveFinalizer(resourceRequest, finalizer)
-			if err := r.Client.Update(o.ctx, resourceRequest); err != nil {
+	if len(works) == 0 {
+		// only remove finalizer at this point because deletion success is guaranteed
+		controllerutil.RemoveFinalizer(resourceRequest, finalizer)
+		if err := r.Client.Update(o.ctx, resourceRequest); err != nil {
+			return err
+		}
+		return nil
+	}
+
+	for _, work := range works {
+		err = r.Client.Delete(o.ctx, &work)
+		if err != nil {
+			if !errors.IsNotFound(err) {
 				return err
 			}
-			return nil
+			o.logger.Error(err, "Error deleting Work %s, will try again", "workName", workName)
+			return err
 		}
-
-		o.logger.Error(err, "Error deleting Work %s, will try again in 5 seconds", "workName", workName)
-		return err
 	}
 
 	return nil

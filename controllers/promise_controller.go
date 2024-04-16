@@ -20,18 +20,19 @@ import (
 	"context"
 	"fmt"
 	"slices"
+	"strconv"
 	"strings"
 	"time"
 
 	controllerutil "sigs.k8s.io/controller-runtime/pkg/controller/controllerutil"
 	"sigs.k8s.io/controller-runtime/pkg/handler"
-	"sigs.k8s.io/controller-runtime/pkg/manager"
 	"sigs.k8s.io/controller-runtime/pkg/reconcile"
 
 	"github.com/go-logr/logr"
 	"github.com/syntasso/kratix/api/v1alpha1"
 	"github.com/syntasso/kratix/lib/pipeline"
 	"github.com/syntasso/kratix/lib/resourceutil"
+	"github.com/syntasso/kratix/lib/workflow"
 	batchv1 "k8s.io/api/batch/v1"
 	v1 "k8s.io/api/core/v1"
 	rbacv1 "k8s.io/api/rbac/v1"
@@ -47,11 +48,15 @@ import (
 	"k8s.io/apimachinery/pkg/types"
 	ctrl "sigs.k8s.io/controller-runtime"
 	"sigs.k8s.io/controller-runtime/pkg/client"
+	kmanager "sigs.k8s.io/controller-runtime/pkg/manager"
 )
+
+var reconcileConfigure = workflow.ReconcileConfigure
+var reconcileDelete = workflow.ReconcileDelete
 
 //go:generate go run github.com/maxbrunsfeld/counterfeiter/v6 . Manager
 type Manager interface {
-	manager.Manager
+	kmanager.Manager
 }
 
 // PromiseReconciler reconciles a Promise object
@@ -204,7 +209,7 @@ func (r *PromiseReconciler) Reconcile(ctx context.Context, req ctrl.Request) (ct
 
 	requeue, err = r.reconcileDependencies(opts, promise, pipelines.ConfigurePromise)
 	if err != nil {
-		return ctrl.Result{}, nil
+		return ctrl.Result{}, err
 	}
 
 	if requeue != nil {
@@ -212,13 +217,6 @@ func (r *PromiseReconciler) Reconcile(ctx context.Context, req ctrl.Request) (ct
 	}
 
 	if promise.ContainsAPI() {
-		var work v1alpha1.Work
-		err = r.Client.Get(ctx, types.NamespacedName{Name: promise.GetName(), Namespace: v1alpha1.SystemNamespace}, &work)
-		if err != nil {
-			logger.Error(err, "Error getting Work")
-			return ctrl.Result{}, err
-		}
-
 		dynamicControllerCanCreateResources := true
 		for _, req := range promise.Status.RequiredPromises {
 			if req.State != requirementStateInstalled {
@@ -227,7 +225,7 @@ func (r *PromiseReconciler) Reconcile(ctx context.Context, req ctrl.Request) (ct
 			}
 		}
 
-		err = r.ensureDynamicControllerIsStarted(promise, &work, rrCRD, rrGVK, pipelines.ConfigureResource, pipelines.DeleteResource, &dynamicControllerCanCreateResources, logger)
+		err = r.ensureDynamicControllerIsStarted(promise, rrCRD, rrGVK, pipelines.ConfigureResource, pipelines.DeleteResource, &dynamicControllerCanCreateResources, logger)
 		if err != nil {
 			return ctrl.Result{}, err
 		}
@@ -354,16 +352,16 @@ func (r *PromiseReconciler) generateStatusAndMarkRequirements(ctx context.Contex
 }
 
 func (r *PromiseReconciler) reconcileDependencies(o opts, promise *v1alpha1.Promise, configurePipeline []v1alpha1.Pipeline) (*ctrl.Result, error) {
-	if len(promise.Spec.Workflows.Promise.Configure) == 0 {
-		o.logger.Info("Promise does not contain workflows.promise.configure, applying dependencies directly")
-		if err := r.applyWorkResourceForDependencies(o, promise); err != nil {
-			o.logger.Error(err, "Error creating Works")
-			return nil, err
-		}
+	o.logger.Info("Applying static dependencies for Promise", "promise", promise.GetName())
+	if err := r.applyWorkForDependencies(o, promise); err != nil {
+		o.logger.Error(err, "Error creating Works")
+		return nil, err
+	}
+	if len(configurePipeline) == 0 {
 		return nil, nil
 	}
 
-	//TODO remove finalaizer if we don't have any configure (or delete?)
+	//TODO remove finalizer if we don't have any configure (or delete?)
 	if resourceutil.DoesNotContainFinalizer(promise, removeAllWorkflowJobsFinalizer) {
 		result, err := addFinalizers(o, promise, []string{removeAllWorkflowJobsFinalizer})
 		return &result, err
@@ -374,26 +372,43 @@ func (r *PromiseReconciler) reconcileDependencies(o opts, promise *v1alpha1.Prom
 	if err != nil {
 		return nil, err
 	}
-	pipelineResources, err := pipeline.NewConfigurePromise(
-		unstructuredPromise,
-		configurePipeline,
-		promise.GetName(),
-		promise.Spec.DestinationSelectors,
-		o.logger,
-	)
+
+	var pipelines []workflow.Pipeline
+	for i, p := range configurePipeline {
+		isLast := i == len(configurePipeline)-1
+		pipelineResources, err := pipeline.NewConfigurePromise(
+			unstructuredPromise,
+			p,
+			promise.GetName(),
+			promise.Spec.DestinationSelectors,
+			o.logger,
+		)
+		if err != nil {
+			return nil, err
+		}
+		job := pipelineResources[4].(*batchv1.Job)
+		job.Spec.Template.Spec.Containers[0].Env = append(job.Spec.Template.Spec.Containers[0].Env, v1.EnvVar{
+			Name:  "IS_LAST_PIPELINE",
+			Value: strconv.FormatBool(isLast),
+		})
+		pipelines = append(pipelines, workflow.Pipeline{
+			Job:                  job,
+			JobRequiredResources: pipelineResources[0:4],
+			Name:                 p.Name,
+		})
+	}
+
+	jobOpts := workflow.NewOpts(o.ctx, o.client, o.logger, unstructuredPromise, pipelines, "promise")
+
+	requeue, err := reconcileConfigure(jobOpts)
 	if err != nil {
 		return nil, err
 	}
 
-	jobOpts := jobOpts{
-		opts:              o,
-		obj:               unstructuredPromise,
-		pipelineLabels:    pipeline.LabelsForConfigurePromise(promise.GetName()),
-		pipelineResources: pipelineResources,
-		source:            "promise",
+	if requeue {
+		return &defaultRequeue, nil
 	}
-
-	return ensureConfigurePipelineIsReconciled(jobOpts)
+	return nil, nil
 }
 
 func (r *PromiseReconciler) reconcileAllRRs(rrGVK schema.GroupVersionKind) error {
@@ -420,7 +435,7 @@ func (r *PromiseReconciler) reconcileAllRRs(rrGVK schema.GroupVersionKind) error
 	return nil
 }
 
-func (r *PromiseReconciler) ensureDynamicControllerIsStarted(promise *v1alpha1.Promise, work *v1alpha1.Work, rrCRD *apiextensionsv1.CustomResourceDefinition, rrGVK schema.GroupVersionKind, configurePipelines, deletePipelines []v1alpha1.Pipeline, canCreateResources *bool, logger logr.Logger) error {
+func (r *PromiseReconciler) ensureDynamicControllerIsStarted(promise *v1alpha1.Promise, rrCRD *apiextensionsv1.CustomResourceDefinition, rrGVK schema.GroupVersionKind, configurePipelines, deletePipelines []v1alpha1.Pipeline, canCreateResources *bool, logger logr.Logger) error {
 
 	// The Dynamic Controller needs to be started once and only once.
 	if r.dynamicControllerHasAlreadyStarted(promise) {
@@ -435,7 +450,6 @@ func (r *PromiseReconciler) ensureDynamicControllerIsStarted(promise *v1alpha1.P
 		dynamicController.CanCreateResources = canCreateResources
 
 		dynamicController.PromiseDestinationSelectors = promise.Spec.DestinationSelectors
-		dynamicController.PromiseWorkflowSelectors = work.GetDefaultScheduling("promise-workflow")
 
 		return nil
 	}
@@ -453,7 +467,6 @@ func (r *PromiseReconciler) ensureDynamicControllerIsStarted(promise *v1alpha1.P
 		ConfigurePipelines:          configurePipelines,
 		DeletePipelines:             deletePipelines,
 		PromiseDestinationSelectors: promise.Spec.DestinationSelectors,
-		PromiseWorkflowSelectors:    work.GetDefaultScheduling("promise-workflow"),
 		Log:                         r.Log.WithName(promise.GetName()),
 		UID:                         string(promise.GetUID())[0:5],
 		Enabled:                     &enabled,
@@ -628,29 +641,43 @@ func (r *PromiseReconciler) deletePromise(o opts, promise *v1alpha1.Promise, del
 	}
 
 	if controllerutil.ContainsFinalizer(promise, runDeleteWorkflowsFinalizer) {
-		pipelineLabels := pipeline.LabelsForDeletePromise(promise.GetName())
-
 		unstructuredPromise, err := promise.ToUnstructured()
 		if err != nil {
 			return ctrl.Result{}, err
 		}
-		pipelineResources := pipeline.NewDeletePromise(
-			unstructuredPromise, deletePipelines,
-		)
+		var pipelines []workflow.Pipeline
+		for _, p := range deletePipelines {
+			pipelineResources := pipeline.NewDeletePromise(
+				unstructuredPromise, p,
+			)
 
-		jobOpts := jobOpts{
-			opts:              o,
-			obj:               unstructuredPromise,
-			pipelineLabels:    pipelineLabels,
-			pipelineResources: pipelineResources,
-			source:            "promise",
+			pipelines = append(pipelines, workflow.Pipeline{
+				Job:                  pipelineResources[3].(*batchv1.Job),
+				JobRequiredResources: pipelineResources[0:3],
+				Name:                 p.Name,
+			})
 		}
 
-		return ensureDeletePipelineIsReconciled(jobOpts)
+		jobOpts := workflow.NewOpts(o.ctx, o.client, o.logger, unstructuredPromise, pipelines, "promise")
+
+		requeue, err := reconcileDelete(jobOpts)
+		if err != nil {
+			return ctrl.Result{}, err
+		}
+
+		if requeue {
+			return defaultRequeue, nil
+		}
+
+		controllerutil.RemoveFinalizer(promise, runDeleteWorkflowsFinalizer)
+		if err := r.Client.Update(o.ctx, promise); err != nil {
+			return ctrl.Result{}, err
+		}
+		return ctrl.Result{}, nil
 	}
 
 	if controllerutil.ContainsFinalizer(promise, removeAllWorkflowJobsFinalizer) {
-		err := r.deleteJobs(o, promise, removeAllWorkflowJobsFinalizer)
+		err := r.deletePromiseWorkflowJobs(o, promise, removeAllWorkflowJobsFinalizer)
 		if err != nil {
 			return ctrl.Result{}, err
 		}
@@ -676,7 +703,7 @@ func (r *PromiseReconciler) deletePromise(o opts, promise *v1alpha1.Promise, del
 
 	if controllerutil.ContainsFinalizer(promise, dynamicControllerDependantResourcesCleanupFinalizer) {
 		o.logger.Info("deleting resources associated with finalizer", "finalizer", dynamicControllerDependantResourcesCleanupFinalizer)
-		err := r.deleteDynamicControllerResources(o, promise)
+		err := r.deleteDynamicControllerAndWorkflowResources(o, promise)
 		if err != nil {
 			return defaultRequeue, nil
 		}
@@ -704,7 +731,7 @@ func (r *PromiseReconciler) deletePromise(o opts, promise *v1alpha1.Promise, del
 	return fastRequeue, nil
 }
 
-func (r *PromiseReconciler) deleteJobs(o opts, promise *v1alpha1.Promise, finalizer string) error {
+func (r *PromiseReconciler) deletePromiseWorkflowJobs(o opts, promise *v1alpha1.Promise, finalizer string) error {
 	jobGVK := schema.GroupVersionKind{
 		Group:   batchv1.SchemeGroupVersion.Group,
 		Version: batchv1.SchemeGroupVersion.Version,
@@ -728,7 +755,7 @@ func (r *PromiseReconciler) deleteJobs(o opts, promise *v1alpha1.Promise, finali
 	return nil
 }
 
-func (r *PromiseReconciler) deleteDynamicControllerResources(o opts, promise *v1alpha1.Promise) error {
+func (r *PromiseReconciler) deleteDynamicControllerAndWorkflowResources(o opts, promise *v1alpha1.Promise) error {
 	resourcesToDelete := map[schema.GroupVersion][]string{
 		rbacv1.SchemeGroupVersion: {"ClusterRoleBinding", "ClusterRole", "RoleBinding", "Role"},
 		v1.SchemeGroupVersion:     {"ServiceAccount", "ConfigMap"},
@@ -768,19 +795,13 @@ func (r *PromiseReconciler) deleteResourceRequests(o opts, promise *v1alpha1.Pro
 		return err
 	}
 
-	var work v1alpha1.Work
-	err = r.Client.Get(o.ctx, types.NamespacedName{Name: promise.GetName(), Namespace: v1alpha1.SystemNamespace}, &work)
-	if err != nil {
-		return err
-	}
-
 	pipelines, err := promise.GeneratePipelines(o.logger)
 	if err != nil {
 		return err
 	}
 
 	var canCreateResources bool
-	err = r.ensureDynamicControllerIsStarted(promise, &work, rrCRD, rrGVK, pipelines.ConfigureResource, pipelines.DeleteResource, &canCreateResources, o.logger)
+	err = r.ensureDynamicControllerIsStarted(promise, rrCRD, rrGVK, pipelines.ConfigureResource, pipelines.DeleteResource, &canCreateResources, o.logger)
 	if err != nil {
 		return err
 	}
@@ -960,19 +981,28 @@ func setStatusFieldsOnCRD(rrCRD *apiextensionsv1.CustomResourceDefinition) {
 	}
 }
 
-func (r *PromiseReconciler) applyWorkResourceForDependencies(o opts, promise *v1alpha1.Promise) error {
-	work, err := v1alpha1.NewPromiseDependenciesWork(promise)
+func (r *PromiseReconciler) applyWorkForDependencies(o opts, promise *v1alpha1.Promise) error {
+	name := resourceutil.GenerateObjectName(promise.GetName() + "-static-deps")
+	work, err := v1alpha1.NewPromiseDependenciesWork(promise, name)
+	if err != nil {
+		return err
+	}
+	resourceutil.SetStaticDependencyWorkLabels(work.Labels, promise.GetName())
+
+	existingWork, err := resourceutil.GetWorkForStaticDependencies(r.Client, v1alpha1.SystemNamespace, promise.GetName())
 	if err != nil {
 		return err
 	}
 
-	workCopy := work.DeepCopy()
-
-	op, err := controllerutil.CreateOrUpdate(o.ctx, r.Client, work, func() error {
-		work.ObjectMeta.Labels = workCopy.ObjectMeta.Labels
-		work.Spec = workCopy.Spec
-		return nil
-	})
+	var op string
+	if existingWork == nil {
+		op = "created"
+		err = r.Client.Create(o.ctx, work)
+	} else {
+		op = "updated"
+		existingWork.Spec = work.Spec
+		err = r.Client.Update(o.ctx, existingWork)
+	}
 
 	if err != nil {
 		return err
