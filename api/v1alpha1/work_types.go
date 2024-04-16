@@ -21,9 +21,20 @@ import (
 	metav1 "k8s.io/apimachinery/pkg/apis/meta/v1"
 )
 
-const DependencyReplicas = -1
-const ResourceRequestReplicas = 1
-const DefaultWorkloadGroupDirectory = "."
+const (
+	DependencyReplicas            = -1
+	ResourceRequestReplicas       = 1
+	DefaultWorkloadGroupDirectory = "."
+
+	PromiseNameLabel  = KratixPrefix + "promise-name"
+	ResourceNameLabel = KratixPrefix + "resource-name"
+	PipelineNameLabel = KratixPrefix + "pipeline-name"
+	WorkTypeLabel     = KratixPrefix + "work-type"
+
+	WorkTypePromise          = "promise"
+	WorkTypeResource         = "resource"
+	WorkTypeStaticDependency = "static-dependency"
+)
 
 // WorkStatus defines the observed state of Work
 type WorkStatus struct {
@@ -59,10 +70,10 @@ type WorkloadCoreFields struct {
 	ResourceName string `json:"resourceName,omitempty"`
 }
 
-func NewPromiseDependenciesWork(promise *Promise) (*Work, error) {
+func NewPromiseDependenciesWork(promise *Promise, name string) (*Work, error) {
 	work := &Work{
 		ObjectMeta: metav1.ObjectMeta{
-			Name:      promise.GetName(),
+			Name:      name,
 			Namespace: SystemNamespace,
 			Labels:    promise.GenerateSharedLabels(),
 		},

@@ -11,19 +11,32 @@ type: PipelineCompleted
 reason: PipelineExecutedSuccessfully
 "
 
-# If Resource doesn't have status.message field...
-export status_values="message: Resource requested"
+kubectl get $OBJECT_KIND.$OBJECT_GROUP/$OBJECT_NAME --namespace $OBJECT_NAMESPACE  -oyaml > existing-object.yaml
+
+yq '.status // {}' existing-object.yaml > existing-status.yaml
+echo "{}" > incoming-status.yaml
+incoming_status="{}"
 if [ -f "$status_file" ]; then
-	export status_values="$(cat $status_file)"
+	cat $status_file > incoming-status.yaml
 fi
 
-kubectl get $OBJECT_KIND.$OBJECT_GROUP/$OBJECT_NAME --namespace $OBJECT_NAMESPACE  -oyaml > existing-object.yaml
-export existing_conditions=$(yq -r '.status.conditions' existing-object.yaml)
+export status="$(yq '. *= load("incoming-status.yaml")' existing-status.yaml)"
 
-yq -n '.status = env(status_values)' |
+current_message=$(echo "$status" | yq -r '.message')
+
+if [ "${IS_LAST_PIPELINE}" = "true" ]; then
+	if [ "${current_message}" = "Pending" ]; then
+		status="$(yq -n '.message = "Resource requested"')"
+	fi
+fi
+
+export existing_conditions=$(yq -r '.status.conditions // []' existing-object.yaml)
+
+yq -n '.status = env(status)' |
 	yq '.status.conditions = env(existing_conditions)' |
 	yq '(.status.conditions[] | select(.type == "PipelineCompleted")) = env(conditions)' > status.yaml
 # TODO: Should we check if printer fields values exist?
 #       Default behaviour is to just be empty (not error)
 
 kubectl patch $OBJECT_KIND.$OBJECT_GROUP/$OBJECT_NAME --namespace $OBJECT_NAMESPACE --type merge --patch-file status.yaml --subresource status
+

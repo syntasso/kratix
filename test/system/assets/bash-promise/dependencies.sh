@@ -9,7 +9,6 @@ declarative_platform_namespace=${unique_id}-platform-declarative
 
 if [ "${KRATIX_WORKFLOW_ACTION}" = "configure" ]; then
 	kubectl create namespace ${declarative_worker_namespace} --dry-run=client -oyaml > /kratix/output/namespace.yaml
-	yq -i '.metadata.labels.modifydepsinpipeline = "yup"' /kratix/output/static/dependencies.yaml
 
 	mkdir -p /kratix/output/platform/
 	kubectl create namespace ${declarative_platform_namespace} --dry-run=client -oyaml > /kratix/output/platform/namespace.yaml
@@ -26,5 +25,3 @@ EOF
 fi
 
 kubectl delete namespace ${imperative_platform_namespace}
-
-

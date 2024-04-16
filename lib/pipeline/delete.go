@@ -11,29 +11,26 @@ import (
 
 const kratixActionDelete = "delete"
 
-func NewDeleteResource(rr *unstructured.Unstructured, pipelines []v1alpha1.Pipeline, resourceRequestIdentifier, promiseIdentifier, crdPlural string) []client.Object {
-	return NewDelete(rr, pipelines, resourceRequestIdentifier, promiseIdentifier, crdPlural)
+func NewDeleteResource(rr *unstructured.Unstructured, pipeline v1alpha1.Pipeline, resourceRequestIdentifier, promiseIdentifier, crdPlural string) []client.Object {
+	return NewDelete(rr, pipeline, resourceRequestIdentifier, promiseIdentifier, crdPlural)
 }
 
-func NewDeletePromise(promise *unstructured.Unstructured, pipelines []v1alpha1.Pipeline) []client.Object {
-	return NewDelete(promise, pipelines, "", promise.GetName(), v1alpha1.PromisePlural)
+func NewDeletePromise(promise *unstructured.Unstructured, pipeline v1alpha1.Pipeline) []client.Object {
+	return NewDelete(promise, pipeline, "", promise.GetName(), v1alpha1.PromisePlural)
 }
 
-func NewDelete(obj *unstructured.Unstructured, pipelines []v1alpha1.Pipeline, resourceRequestIdentifier, promiseIdentifier, objPlural string) []client.Object {
+func NewDelete(obj *unstructured.Unstructured, pipeline v1alpha1.Pipeline, resourceRequestIdentifier, promiseIdentifier, objPlural string) []client.Object {
 	isPromise := resourceRequestIdentifier == ""
 	namespace := obj.GetNamespace()
 	if isPromise {
 		namespace = v1alpha1.SystemNamespace
 	}
 
-	args := NewPipelineArgs(promiseIdentifier, resourceRequestIdentifier, namespace)
+	args := NewPipelineArgs(promiseIdentifier, resourceRequestIdentifier, pipeline.Name, obj.GetName(), namespace)
 
-	containers, pipelineVolumes := generateDeletePipelineContainersAndVolumes(obj, isPromise, pipelines)
+	containers, pipelineVolumes := generateDeletePipelineContainersAndVolumes(obj, isPromise, pipeline)
 
-	var imagePullSecrets []v1.LocalObjectReference
-	if len(pipelines) > 0 {
-		imagePullSecrets = pipelines[0].Spec.ImagePullSecrets
-	}
+	imagePullSecrets := pipeline.Spec.ImagePullSecrets
 
 	resources := []client.Object{
 		serviceAccount(args),
@@ -43,12 +40,12 @@ func NewDelete(obj *unstructured.Unstructured, pipelines []v1alpha1.Pipeline, re
 			ObjectMeta: metav1.ObjectMeta{
 				Name:      args.DeletePipelineName(),
 				Namespace: args.Namespace(),
-				Labels:    args.DeletePipelinePodLabels(),
+				Labels:    args.DeletePipelineJobLabels(),
 			},
 			Spec: batchv1.JobSpec{
 				Template: v1.PodTemplateSpec{
 					ObjectMeta: metav1.ObjectMeta{
-						Labels: args.DeletePipelinePodLabels(),
+						Labels: args.DeletePipelineJobLabels(),
 					},
 					Spec: v1.PodSpec{
 						RestartPolicy:      v1.RestartPolicyOnFailure,
@@ -66,7 +63,7 @@ func NewDelete(obj *unstructured.Unstructured, pipelines []v1alpha1.Pipeline, re
 	return resources
 }
 
-func generateDeletePipelineContainersAndVolumes(obj *unstructured.Unstructured, isPromise bool, pipelines []v1alpha1.Pipeline) ([]v1.Container, []v1.Volume) {
+func generateDeletePipelineContainersAndVolumes(obj *unstructured.Unstructured, isPromise bool, pipeline v1alpha1.Pipeline) ([]v1.Container, []v1.Volume) {
 	kratixEnvVars := []v1.EnvVar{
 		{
 			Name:  kratixActionEnvVar,
@@ -79,5 +76,5 @@ func generateDeletePipelineContainersAndVolumes(obj *unstructured.Unstructured, 
 		workflowType = v1alpha1.WorkflowTypePromise
 	}
 
-	return generateContainersAndVolumes(obj, workflowType, pipelines, kratixEnvVars)
+	return generateContainersAndVolumes(obj, workflowType, pipeline, kratixEnvVars)
 }

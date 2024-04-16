@@ -6,8 +6,8 @@ import (
 	"time"
 
 	"github.com/go-logr/logr"
+	"github.com/syntasso/kratix/api/v1alpha1"
 	"github.com/syntasso/kratix/lib/hash"
-	"github.com/syntasso/kratix/lib/pipeline"
 	batchv1 "k8s.io/api/batch/v1"
 	v1 "k8s.io/api/core/v1"
 	metav1 "k8s.io/apimachinery/pkg/apis/meta/v1"
@@ -55,11 +55,14 @@ func MarkPipelineAsCompleted(logger logr.Logger, obj *unstructured.Unstructured)
 	logger.Info("set conditions", "condition", PipelineCompletedCondition, "value", v1.ConditionTrue)
 }
 
-func SortJobsByCreationDateTime(jobs []batchv1.Job) []batchv1.Job {
+func SortJobsByCreationDateTime(jobs []batchv1.Job, desc bool) []batchv1.Job {
 	sort.Slice(jobs, func(i, j int) bool {
 		t1 := jobs[i].GetCreationTimestamp().Time
 		t2 := jobs[j].GetCreationTimestamp().Time
-		return t1.Before(t2)
+		if desc {
+			return t1.Before(t2)
+		}
+		return t1.After(t2)
 	})
 	return jobs
 }
@@ -69,16 +72,14 @@ func PipelineWithDesiredSpecExists(logger logr.Logger, obj *unstructured.Unstruc
 		return nil, nil
 	}
 
-	// sort the pipepeineJobs by creation date
-
-	jobs = SortJobsByCreationDateTime(jobs)
+	jobs = SortJobsByCreationDateTime(jobs, true)
 	mostRecentJob := jobs[len(jobs)-1]
 
-	mostRecentHash := mostRecentJob.GetLabels()[pipeline.KratixResourceHashLabel]
+	mostRecentHash := mostRecentJob.GetLabels()[v1alpha1.KratixResourceHashLabel]
 	currentRequestHash, err := hash.ComputeHashForResource(obj)
 	if err != nil {
 		logger.Info("Cannot determine if the request is an update. Requeueing", "reason", err.Error())
-		return nil, nil
+		return nil, err
 	}
 
 	if mostRecentHash == currentRequestHash {
@@ -167,6 +168,19 @@ func SetStatus(rr *unstructured.Unstructured, logger logr.Logger, statuses ...st
 	if err != nil {
 		logger.Info("failed to set status; ignoring", "map", nestedMap)
 	}
+}
+
+func GetStatus(rr *unstructured.Unstructured, key string) string {
+	if rr.Object["status"] == nil {
+		return ""
+	}
+
+	nestedMap := rr.Object["status"].(map[string]interface{})
+	if nestedMap[key] == nil {
+		return ""
+	}
+
+	return nestedMap[key].(string)
 }
 
 func GetResourceNames(items []unstructured.Unstructured) []string {

@@ -2,13 +2,12 @@ package controllers_test
 
 import (
 	"context"
-	"fmt"
 	"os"
 	"regexp"
 	"sort"
 	"strings"
-	"time"
 
+	"github.com/go-logr/logr"
 	. "github.com/onsi/ginkgo/v2"
 	. "github.com/onsi/gomega"
 	batchv1 "k8s.io/api/batch/v1"
@@ -17,6 +16,7 @@ import (
 	apiextensionsv1 "k8s.io/apiextensions-apiserver/pkg/apis/apiextensions/v1"
 	metav1 "k8s.io/apimachinery/pkg/apis/meta/v1"
 	"k8s.io/apimachinery/pkg/apis/meta/v1/unstructured"
+	"k8s.io/apimachinery/pkg/labels"
 	"k8s.io/apimachinery/pkg/types"
 	"k8s.io/apimachinery/pkg/util/yaml"
 	ctrl "sigs.k8s.io/controller-runtime"
@@ -25,6 +25,7 @@ import (
 	"github.com/syntasso/kratix/api/v1alpha1"
 	"github.com/syntasso/kratix/controllers"
 	"github.com/syntasso/kratix/controllers/controllersfakes"
+	"github.com/syntasso/kratix/lib/workflow"
 )
 
 var (
@@ -39,6 +40,7 @@ var (
 	expectedCRDName     string
 	promiseCommonLabels map[string]string
 	managerRestarted    bool
+	l                   logr.Logger
 )
 
 var _ = Describe("PromiseController", func() {
@@ -47,10 +49,11 @@ var _ = Describe("PromiseController", func() {
 		expectedCRDName = promiseResourceName + "." + promiseGroup
 		ctx = context.Background()
 		managerRestarted = false
+		l = ctrl.Log.WithName("controllers").WithName("Promise")
 		reconciler = &controllers.PromiseReconciler{
 			Client:              fakeK8sClient,
 			ApiextensionsClient: fakeApiExtensionsClient,
-			Log:                 ctrl.Log.WithName("controllers").WithName("Promise"),
+			Log:                 l,
 			Manager:             &controllersfakes.FakeManager{},
 			RestartManager: func() {
 				managerRestarted = true
@@ -69,7 +72,8 @@ var _ = Describe("PromiseController", func() {
 					}
 
 					promiseCommonLabels = map[string]string{
-						"kratix-promise-id": promise.GetName(),
+						"kratix-promise-id":      promise.GetName(),
+						"kratix.io/promise-name": promise.GetName(),
 					}
 
 					Expect(fakeK8sClient.Create(ctx, promise)).To(Succeed())
@@ -186,11 +190,10 @@ var _ = Describe("PromiseController", func() {
 					})
 
 					By("creating a Work resource for the dependencies", func() {
-						workNamespacedName := types.NamespacedName{
-							Name:      promise.GetName(),
-							Namespace: v1alpha1.SystemNamespace,
-						}
-						Expect(fakeK8sClient.Get(ctx, workNamespacedName, &v1alpha1.Work{})).To(Succeed())
+						work := getWork("kratix-platform-system", promise.GetName(), "", "")
+						Expect(work.Spec.WorkloadGroups[0].Workloads[0].Content).To(ContainSubstring("kind: Deployment"))
+						Expect(work.Spec.WorkloadGroups[0].Workloads[0].Content).To(ContainSubstring("kind: ClusterRoleBinding"))
+
 					})
 
 					By("updating the status.obeservedGeneration", func() {
@@ -390,7 +393,8 @@ var _ = Describe("PromiseController", func() {
 						Namespace: promise.GetNamespace(),
 					}
 					promiseCommonLabels = map[string]string{
-						"kratix-promise-id": promise.GetName(),
+						"kratix-promise-id":      promise.GetName(),
+						"kratix.io/promise-name": promise.GetName(),
 					}
 					promiseResourcesName = types.NamespacedName{
 						Name:      promise.GetName() + "-promise-pipeline",
@@ -413,19 +417,18 @@ var _ = Describe("PromiseController", func() {
 						Expect(promise.Finalizers).To(ContainElement("kratix.io/workflows-cleanup"))
 					})
 
+					resources := reconcileConfigureOptsArg.Pipelines[0].JobRequiredResources
 					By("creates a service account for pipeline", func() {
-						sa := &v1.ServiceAccount{}
-						Expect(fakeK8sClient.Get(ctx, promiseResourcesName, sa)).To(Succeed(), "Expected SA for pipeline to exist")
+						Expect(resources[0]).To(BeAssignableToTypeOf(&v1.ServiceAccount{}))
+						sa := resources[0].(*v1.ServiceAccount)
 						Expect(sa.GetLabels()).To(Equal(promiseCommonLabels))
 					})
 
 					By("creates a config map with the promise scheduling in it", func() {
-						configMap := &v1.ConfigMap{}
-						configMapName := types.NamespacedName{
-							Name:      "destination-selectors-" + promise.GetName(),
-							Namespace: "kratix-platform-system",
-						}
-						Expect(fakeK8sClient.Get(ctx, configMapName, configMap)).Should(Succeed(), "Expected ConfigMap for pipeline to exist")
+						Expect(resources[3]).To(BeAssignableToTypeOf(&v1.ConfigMap{}))
+						configMap := resources[3].(*v1.ConfigMap)
+						Expect(configMap.GetName()).To(Equal("destination-selectors-" + promise.GetName()))
+						Expect(configMap.GetNamespace()).To(Equal("kratix-platform-system"))
 						Expect(configMap.GetLabels()).To(Equal(promiseCommonLabels))
 						Expect(configMap.Data).To(HaveKey("destinationSelectors"))
 						space := regexp.MustCompile(`\s+`)
@@ -435,8 +438,8 @@ var _ = Describe("PromiseController", func() {
 
 					promiseResourcesName.Namespace = ""
 					By("creates a role for the pipeline service account", func() {
-						role := &rbacv1.ClusterRole{}
-						Expect(fakeK8sClient.Get(ctx, promiseResourcesName, role)).To(Succeed(), "Expected Role for pipeline to exist")
+						Expect(resources[1]).To(BeAssignableToTypeOf(&rbacv1.ClusterRole{}))
+						role := resources[1].(*rbacv1.ClusterRole)
 						Expect(role.GetLabels()).To(Equal(promiseCommonLabels))
 						Expect(role.Rules).To(ConsistOf(
 							rbacv1.PolicyRule{
@@ -449,8 +452,8 @@ var _ = Describe("PromiseController", func() {
 					})
 
 					By("associates the new role with the new service account", func() {
-						binding := &rbacv1.ClusterRoleBinding{}
-						Expect(fakeK8sClient.Get(ctx, promiseResourcesName, binding)).To(Succeed(), "Expected ClusterRoleBinding for pipeline to exist")
+						Expect(resources[2]).To(BeAssignableToTypeOf(&rbacv1.ClusterRoleBinding{}))
+						binding := resources[2].(*rbacv1.ClusterRoleBinding)
 						Expect(binding.RoleRef.Name).To(Equal(promiseResourcesName.Name))
 						Expect(binding.Subjects).To(HaveLen(1))
 						Expect(binding.Subjects[0]).To(Equal(rbacv1.Subject{
@@ -463,18 +466,11 @@ var _ = Describe("PromiseController", func() {
 
 					By("requeuing forever until jobs finishes", func() {
 						Expect(err).To(MatchError("reconcile loop detected"))
-						jobs := &batchv1.JobList{}
-						Expect(fakeK8sClient.List(ctx, jobs)).To(Succeed())
-						Expect(jobs.Items).To(HaveLen(1))
-						Expect(jobs.Items[0].Spec.Template.Spec.InitContainers[1].Image).To(Equal("syntasso/promise-with-workflow:v0.1.0"))
 					})
 
 					By("finishing the creation once the job is finished", func() {
-						result, err := t.reconcileUntilCompletion(reconciler, promise, &opts{
-							funcs: []func(client.Object) error{
-								autoCompleteJobAndCreateWork(promiseCommonLabels, promise.GetName()),
-							},
-						})
+						setReconcileConfigureWorkflowToReturnFinished()
+						result, err := t.reconcileUntilCompletion(reconciler, promise)
 
 						Expect(err).NotTo(HaveOccurred())
 						Expect(result).To(Equal(ctrl.Result{}))
@@ -490,7 +486,8 @@ var _ = Describe("PromiseController", func() {
 						Namespace: promise.GetNamespace(),
 					}
 					promiseCommonLabels = map[string]string{
-						"kratix-promise-id": promise.GetName(),
+						"kratix-promise-id":      promise.GetName(),
+						"kratix.io/promise-name": promise.GetName(),
 					}
 					promiseResourcesName = types.NamespacedName{
 						Name:      promise.GetName() + "-promise-pipeline",
@@ -503,7 +500,7 @@ var _ = Describe("PromiseController", func() {
 					Expect(fakeK8sClient.Update(ctx, promise)).To(Succeed())
 				})
 
-				It("re-reconciles until completetion", func() {
+				It("re-reconciles until completion", func() {
 					result, err := t.reconcileUntilCompletion(reconciler, promise)
 					Expect(err).NotTo(HaveOccurred())
 					Expect(result).To(Equal(ctrl.Result{}))
@@ -538,17 +535,19 @@ var _ = Describe("PromiseController", func() {
 						Namespace: promise.GetNamespace(),
 					}
 					promiseCommonLabels = map[string]string{
-						"kratix-promise-id": promise.GetName(),
+						"kratix-promise-id":      promise.GetName(),
+						"kratix.io/promise-name": promise.GetName(),
 					}
 
 					Expect(fakeK8sClient.Create(ctx, promise)).To(Succeed())
 					Expect(fakeK8sClient.Get(ctx, promiseName, promise)).To(Succeed())
 					promise.UID = types.UID("1234abcd")
 					Expect(fakeK8sClient.Update(ctx, promise)).To(Succeed())
+
+					setReconcileConfigureWorkflowToReturnFinished()
 					result, err := t.reconcileUntilCompletion(reconciler, promise, &opts{
 						funcs: []func(client.Object) error{
 							autoMarkCRDAsEstablished,
-							autoCompleteJobAndCreateWork(promiseCommonLabels, promise.GetName()),
 						},
 					})
 
@@ -584,11 +583,11 @@ var _ = Describe("PromiseController", func() {
 					Expect(fakeK8sClient.List(ctx, works)).To(Succeed())
 					Expect(fakeK8sClient.List(ctx, jobs)).To(Succeed())
 					Expect(fakeK8sClient.List(ctx, serviceAccounts)).To(Succeed())
-					Expect(clusterRoles.Items).To(HaveLen(2))
-					Expect(clusterRoleBindings.Items).To(HaveLen(2))
+					Expect(clusterRoles.Items).To(HaveLen(1))
+					Expect(clusterRoleBindings.Items).To(HaveLen(1))
 					Expect(works.Items).To(HaveLen(1))
-					Expect(jobs.Items).To(HaveLen(1))
-					Expect(serviceAccounts.Items).To(HaveLen(1))
+					Expect(jobs.Items).To(HaveLen(0))
+					Expect(serviceAccounts.Items).To(HaveLen(0))
 
 					//Delete
 					Expect(fakeK8sClient.Delete(ctx, promise)).To(Succeed())
@@ -651,16 +650,17 @@ var _ = Describe("PromiseController", func() {
 						Namespace: promise.GetNamespace(),
 					}
 					promiseCommonLabels = map[string]string{
-						"kratix-promise-id": promise.GetName(),
+						"kratix-promise-id":      promise.GetName(),
+						"kratix.io/promise-name": promise.GetName(),
 					}
 
 					promise.UID = types.UID("1234abcd")
 					Expect(fakeK8sClient.Create(ctx, promise)).To(Succeed())
 
+					setReconcileConfigureWorkflowToReturnFinished()
 					result, err := t.reconcileUntilCompletion(reconciler, promise, &opts{
 						funcs: []func(client.Object) error{
 							autoMarkCRDAsEstablished,
-							autoCompleteJobAndCreateWork(promiseCommonLabels, promise.GetName()),
 						},
 					})
 
@@ -682,38 +682,27 @@ var _ = Describe("PromiseController", func() {
 
 				It("requeues forever until the delete job finishes", func() {
 					Expect(fakeK8sClient.Delete(ctx, promise)).To(Succeed())
+					controllers.SetReconcileDeleteWorkflow(func(w workflow.Opts) (bool, error) {
+						reconcileDeleteOptsArg = w
+						return true, nil
+					})
 					_, err = t.reconcileUntilCompletion(reconciler, promise)
 
 					Expect(err).To(MatchError("reconcile loop detected"))
-					jobs := &batchv1.JobList{}
-					Expect(fakeK8sClient.List(ctx, jobs)).To(Succeed())
-					Expect(jobs.Items).To(HaveLen(1))
-					Expect([]string{
-						//Configure have initcontainer[0] = reader, initcontainer[1] = users pipeline
-						jobs.Items[0].Spec.Template.Spec.Containers[0].Image,
-					}).To(ConsistOf(
-						"syntasso/promise-with-workflow-delete:v0.1.0",
-					))
 				})
 
 				It("finishes the deletion once the job is finished", func() {
 					Expect(fakeK8sClient.Delete(ctx, promise)).To(Succeed())
 					_, err = t.reconcileUntilCompletion(reconciler, promise)
-
-					result, err := t.reconcileUntilCompletion(reconciler, promise, &opts{
-						funcs: []func(client.Object) error{
-							autoCompleteJobAndCreateWork(promiseCommonLabels, promise.GetName()),
-						},
+					controllers.SetReconcileDeleteWorkflow(func(w workflow.Opts) (bool, error) {
+						reconcileDeleteOptsArg = w
+						return false, nil
 					})
+
+					setReconcileDeleteWorkflowToReturnFinished(promise)
+					result, err := t.reconcileUntilCompletion(reconciler, promise)
 					Expect(err).NotTo(HaveOccurred())
 					Expect(result).To(Equal(ctrl.Result{}))
-
-					jobs := &batchv1.JobList{}
-					works := &v1alpha1.WorkList{}
-					Expect(fakeK8sClient.List(ctx, works)).To(Succeed())
-					Expect(fakeK8sClient.List(ctx, jobs)).To(Succeed())
-					Expect(works.Items).To(HaveLen(0))
-					Expect(jobs.Items).To(HaveLen(0))
 				})
 
 				When("the Promise is updated to no longer have a delete workflow", func() {
@@ -722,11 +711,8 @@ var _ = Describe("PromiseController", func() {
 						promise.Spec.Workflows.Promise.Delete = nil
 						Expect(fakeK8sClient.Update(ctx, promise)).To(Succeed())
 
-						result, err := t.reconcileUntilCompletion(reconciler, promise, &opts{
-							funcs: []func(client.Object) error{
-								autoCompleteJobAndCreateWork(promiseCommonLabels, promise.GetName()),
-							},
-						})
+						setReconcileDeleteWorkflowToReturnFinished(promise)
+						result, err := t.reconcileUntilCompletion(reconciler, promise)
 						Expect(err).NotTo(HaveOccurred())
 						Expect(result).To(Equal(ctrl.Result{}))
 					})
@@ -749,127 +735,6 @@ var _ = Describe("PromiseController", func() {
 		})
 
 		When("the promise is being updated", func() {
-			When("it contains a workflow", func() {
-				BeforeEach(func() {
-					promise = promiseFromFile(promiseWithWorkflowPath)
-					promiseName = types.NamespacedName{
-						Name:      promise.GetName(),
-						Namespace: promise.GetNamespace(),
-					}
-					promiseCommonLabels = map[string]string{
-						"kratix-promise-id": promise.GetName(),
-					}
-					promiseResourcesName = types.NamespacedName{
-						Name:      promise.GetName() + "-promise-pipeline",
-						Namespace: "kratix-platform-system",
-					}
-
-					Expect(fakeK8sClient.Create(ctx, promise)).To(Succeed())
-					Expect(fakeK8sClient.Get(ctx, promiseName, promise)).To(Succeed())
-					promise.UID = types.UID("1234abcd")
-					Expect(fakeK8sClient.Update(ctx, promise)).To(Succeed())
-					result, err := t.reconcileUntilCompletion(reconciler, promise, &opts{
-						funcs: []func(client.Object) error{autoMarkCRDAsEstablished, autoCompleteJobAndCreateWork(promiseCommonLabels, promise.GetName())},
-					})
-					Expect(err).NotTo(HaveOccurred())
-					Expect(result).To(Equal(ctrl.Result{}))
-				})
-
-				It("re-reconciles until completion", func() {
-					Expect(fakeK8sClient.Get(ctx, promiseName, promise)).To(Succeed())
-					updatedPromise := promiseFromFile(promiseWithWorkflowUpdatedPath)
-					promise.Spec = updatedPromise.Spec
-					Expect(fakeK8sClient.Update(ctx, promise)).To(Succeed())
-
-					result, err := t.reconcileUntilCompletion(reconciler, promise, &opts{
-						funcs: []func(client.Object) error{autoMarkCRDAsEstablished, autoCompleteJobAndCreateWork(promiseCommonLabels, promise.GetName())},
-					})
-					Expect(err).NotTo(HaveOccurred())
-					Expect(result).To(Equal(ctrl.Result{}))
-
-					By("creating a new job with the updated image", func() {
-						jobs := &batchv1.JobList{}
-						Expect(fakeK8sClient.List(ctx, jobs)).To(Succeed())
-						Expect(jobs.Items).To(HaveLen(2))
-						//return order is random
-						Expect([]string{
-							jobs.Items[0].Spec.Template.Spec.InitContainers[1].Image,
-							jobs.Items[1].Spec.Template.Spec.InitContainers[1].Image,
-						}).To(ContainElements("syntasso/promise-with-workflow:v0.1.0", "syntasso/promise-with-workflow:v0.2.0"))
-					})
-
-					By("updating the CRD", func() {
-						crds, err := fakeApiExtensionsClient.CustomResourceDefinitions().List(ctx, metav1.ListOptions{})
-						Expect(err).NotTo(HaveOccurred())
-						Expect(crds.Items).To(HaveLen(1))
-						Expect(crds.Items[0].Spec.Versions[0].Name).To(Equal("v1alpha2"))
-					})
-				})
-
-				When("the promise is updated repeatedly", func() {
-					var timestamp time.Time
-					BeforeEach(func() {
-						for i := 0; i < 10; i++ {
-							if i == 6 {
-								timestamp = time.Now()
-							}
-
-							Expect(fakeK8sClient.Get(ctx, promiseName, promise)).To(Succeed())
-							promise.Spec.Workflows.Promise.Configure[0].Object["metadata"].(map[string]interface{})["name"] = fmt.Sprintf("%d", i)
-							Expect(fakeK8sClient.Update(ctx, promise)).To(Succeed())
-
-							result, err := t.reconcileUntilCompletion(reconciler, promise, &opts{
-								funcs: []func(client.Object) error{autoMarkCRDAsEstablished, autoCompleteJobAndCreateWork(promiseCommonLabels, promise.GetName())},
-							})
-							t.reconcileCount = 0
-							Expect(err).NotTo(HaveOccurred())
-							Expect(result).To(Equal(ctrl.Result{}))
-						}
-
-					})
-
-					It("ensures only the last 5 jobs are kept", func() {
-						jobs := &batchv1.JobList{}
-						Expect(fakeK8sClient.List(ctx, jobs)).To(Succeed())
-						Expect(jobs.Items).To(HaveLen(5))
-						for _, job := range jobs.Items {
-							Expect(job.CreationTimestamp.Time).To(BeTemporally(">", timestamp))
-						}
-					})
-
-					When("a pipeline is in progress", func() {
-						BeforeEach(func() {
-							//Mark the latest job as still running
-							jobs := &batchv1.JobList{}
-							Expect(fakeK8sClient.List(ctx, jobs)).To(Succeed())
-							latestJob := jobs.Items[len(jobs.Items)-1]
-							latestJob.Status.Conditions = nil
-							latestJob.Status.Succeeded = 0
-							Expect(fakeK8sClient.Status().Update(ctx, &latestJob)).To(Succeed())
-
-							_, err := t.reconcileUntilCompletion(reconciler, promise, &opts{
-								funcs: []func(client.Object) error{autoMarkCRDAsEstablished},
-							})
-							t.reconcileCount = 0
-							Expect(err).To(MatchError("reconcile loop detected"))
-						})
-
-						It("suspends all existing jobs apart from the latest", func() {
-							jobs := &batchv1.JobList{}
-							Expect(fakeK8sClient.List(ctx, jobs)).To(Succeed())
-							Expect(jobs.Items).To(HaveLen(5))
-							sortedJobs := sortJobsByCreationDateTime(jobs.Items)
-							for x := 0; x < len(jobs.Items)-1; x++ {
-								job := sortedJobs[x]
-								Expect(job.Spec.Suspend).NotTo(BeNil())
-								Expect(*job.Spec.Suspend).To(BeTrue())
-							}
-							Expect(jobs.Items[len(jobs.Items)-1].Spec.Suspend).To(BeNil())
-						})
-					})
-				})
-			})
-
 			When("it contains static dependencies", func() {
 				BeforeEach(func() {
 					promise = promiseFromFile(promiseWithOnlyDepsPath)
@@ -878,7 +743,8 @@ var _ = Describe("PromiseController", func() {
 						Namespace: promise.GetNamespace(),
 					}
 					promiseCommonLabels = map[string]string{
-						"kratix-promise-id": promise.GetName(),
+						"kratix-promise-id":      promise.GetName(),
+						"kratix.io/promise-name": promise.GetName(),
 					}
 					promiseResourcesName = types.NamespacedName{
 						Name:      promise.GetName() + "-promise-pipeline",
@@ -889,8 +755,10 @@ var _ = Describe("PromiseController", func() {
 					Expect(fakeK8sClient.Get(ctx, promiseName, promise)).To(Succeed())
 					promise.UID = types.UID("1234abcd")
 					Expect(fakeK8sClient.Update(ctx, promise)).To(Succeed())
+
+					setReconcileConfigureWorkflowToReturnFinished()
 					result, err := t.reconcileUntilCompletion(reconciler, promise, &opts{
-						funcs: []func(client.Object) error{autoMarkCRDAsEstablished, autoCompleteJobAndCreateWork(promiseCommonLabels, promise.GetName())},
+						funcs: []func(client.Object) error{autoMarkCRDAsEstablished},
 					})
 					Expect(err).NotTo(HaveOccurred())
 					Expect(result).To(Equal(ctrl.Result{}))
@@ -902,8 +770,9 @@ var _ = Describe("PromiseController", func() {
 					promise.Spec = updatedPromise.Spec
 					Expect(fakeK8sClient.Update(ctx, promise)).To(Succeed())
 
+					setReconcileConfigureWorkflowToReturnFinished()
 					result, err := t.reconcileUntilCompletion(reconciler, promise, &opts{
-						funcs: []func(client.Object) error{autoMarkCRDAsEstablished, autoCompleteJobAndCreateWork(promiseCommonLabels, promise.GetName())},
+						funcs: []func(client.Object) error{autoMarkCRDAsEstablished},
 					})
 					Expect(err).NotTo(HaveOccurred())
 					Expect(result).To(Equal(ctrl.Result{}))
@@ -956,4 +825,34 @@ func sortJobsByCreationDateTime(jobs []batchv1.Job) []batchv1.Job {
 		return t1.Before(t2)
 	})
 	return jobs
+}
+
+func getWork(namespace, promiseName, resourceName, pipelineName string) v1alpha1.Work {
+	ExpectWithOffset(1, fakeK8sClient).NotTo(BeNil())
+	works := v1alpha1.WorkList{}
+
+	l := map[string]string{}
+	l[v1alpha1.PromiseNameLabel] = promiseName
+	l[v1alpha1.WorkTypeLabel] = v1alpha1.WorkTypeStaticDependency
+
+	if pipelineName != "" {
+		l[v1alpha1.PipelineNameLabel] = pipelineName
+		l[v1alpha1.WorkTypeLabel] = v1alpha1.WorkTypePromise
+	}
+
+	if resourceName != "" {
+		l[v1alpha1.ResourceNameLabel] = resourceName
+		l[v1alpha1.WorkTypeLabel] = v1alpha1.WorkTypeResource
+	}
+
+	workSelectorLabel := labels.FormatLabels(l)
+	selector, err := labels.Parse(workSelectorLabel)
+	err = fakeK8sClient.List(context.Background(), &works, &client.ListOptions{
+		LabelSelector: selector,
+		Namespace:     namespace,
+	})
+	ExpectWithOffset(1, err).NotTo(HaveOccurred())
+	ExpectWithOffset(1, works.Items).To(HaveLen(1))
+
+	return works.Items[0]
 }

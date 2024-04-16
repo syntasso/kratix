@@ -3,5 +3,7 @@ kind: redis
 metadata:
   name: example
   namespace: default
+  labels:
+    non-kratix-label: "true"
 spec:
   size: small

@@ -4,7 +4,7 @@ type PipelineArgs struct {
 	names map[string]string
 }
 
-func NewPipelineArgs(promiseIdentifier, resourceRequestIdentifier, namespace string) PipelineArgs {
+func NewPipelineArgs(promiseIdentifier, resourceRequestIdentifier, pName, name, namespace string) PipelineArgs {
 	pipelineID := promiseIdentifier + "-promise-pipeline"
 	if resourceRequestIdentifier != "" {
 		pipelineID = promiseIdentifier + "-resource-pipeline"
@@ -20,6 +20,8 @@ func NewPipelineArgs(promiseIdentifier, resourceRequestIdentifier, namespace str
 		"config-map":              "destination-selectors-" + promiseIdentifier,
 		"resource-request-id":     resourceRequestIdentifier,
 		"namespace":               namespace,
+		"pipeline-name":           pName,
+		"name":                    name,
 	}
 
 	return PipelineArgs{
@@ -27,20 +29,20 @@ func NewPipelineArgs(promiseIdentifier, resourceRequestIdentifier, namespace str
 	}
 }
 
-func (p PipelineArgs) ConfigurePipelinePodLabels(objHash string) pipelineLabels {
+func (p PipelineArgs) ConfigurePipelineJobLabels(objHash string) pipelineLabels {
 	resourceRequestID := p.names["resource-request-id"]
 	if resourceRequestID == "" {
-		return LabelsForConfigurePromise(p.PromiseID(), objHash)
+		return LabelsForConfigurePromise(p.PromiseID(), p.PipelineName(), objHash)
 	}
-	return LabelsForConfigureResource(resourceRequestID, p.PromiseID(), objHash)
+	return LabelsForConfigureResource(resourceRequestID, p.Name(), p.PromiseID(), p.PipelineName(), objHash)
 }
 
-func (p PipelineArgs) DeletePipelinePodLabels() pipelineLabels {
+func (p PipelineArgs) DeletePipelineJobLabels() pipelineLabels {
 	resourceRequestID := p.names["resource-request-id"]
 	if resourceRequestID == "" {
-		return LabelsForDeletePromise(p.PromiseID())
+		return LabelsForDeletePromise(p.PromiseID(), p.PipelineName())
 	}
-	return LabelsForDeleteResource(resourceRequestID, p.PromiseID())
+	return LabelsForDeleteResource(resourceRequestID, p.Name(), p.PromiseID(), p.PipelineName())
 }
 
 func (p PipelineArgs) ConfigMapName() string {
@@ -53,6 +55,10 @@ func (p PipelineArgs) ServiceAccountName() string {
 
 func (p PipelineArgs) RoleName() string {
 	return p.names["role"]
+}
+
+func (p PipelineArgs) Name() string {
+	return p.names["name"]
 }
 
 func (p PipelineArgs) RoleBindingName() string {
@@ -73,6 +79,10 @@ func (p PipelineArgs) ConfigurePipelineName() string {
 
 func (p PipelineArgs) DeletePipelineName() string {
 	return p.names["delete-pipeline-name"]
+}
+
+func (p PipelineArgs) PipelineName() string {
+	return p.names["pipeline-name"]
 }
 
 func (p PipelineArgs) Labels() pipelineLabels {
