@@ -174,6 +174,10 @@ var _ = Describe("Delete Pipeline", func() {
 												"Name":  Equal("KRATIX_WORKFLOW_ACTION"),
 												"Value": Equal("delete"),
 											}),
+											MatchFields(IgnoreExtras, Fields{
+												"Name":  Equal("KRATIX_WORKFLOW_TYPE"),
+												"Value": Equal("promise"),
+											}),
 										),
 									}),
 								}),
@@ -369,6 +373,10 @@ var _ = Describe("Delete Pipeline", func() {
 											MatchFields(IgnoreExtras, Fields{
 												"Name":  Equal("KRATIX_WORKFLOW_ACTION"),
 												"Value": Equal("delete"),
+											}),
+											MatchFields(IgnoreExtras, Fields{
+												"Name":  Equal("KRATIX_WORKFLOW_TYPE"),
+												"Value": Equal("resource"),
 											}),
 										),
 									}),
