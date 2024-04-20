@@ -77,12 +77,21 @@ spec:
             namespace: default
           spec:
             containers:
-              - image: syntassodev/bash-promise-test-c0:dev
+              - image: syntassodev/bash-promise:dev1
                 name: bash-promise-test-c0
-              - image: syntassodev/bash-promise-test-c1:dev
+                env:
+                  - name: CONTAINER_INDEX
+                    value: "0"
+              - image: syntassodev/bash-promise:dev1
                 name: bash-promise-test-c1
-              - image: syntassodev/bash-promise-test-c2:dev
+                env:
+                  - name: CONTAINER_INDEX
+                    value: "1"
+              - image: syntassodev/bash-promise:dev1
                 name: bash-promise-test-c2
+                env:
+                  - name: CONTAINER_INDEX
+                    value: "2"
         - apiVersion: platform.kratix.io/v1alpha1
           kind: Pipeline
           metadata:
@@ -90,7 +99,7 @@ spec:
             namespace: default
           spec:
             containers:
-              - image: syntassodev/bash-promise-test-c0:dev
+              - image: syntassodev/bash-promise:dev1
                 name: bash-promise-test-c0
                 command:
                   - sh
@@ -106,8 +115,11 @@ spec:
             namespace: default
           spec:
             containers:
-              - image: syntassodev/bash-promise-test-c0:dev
+              - image: syntassodev/bash-promise:dev1
                 name: bash-promise-test-c0
+                env:
+                  - name: CONTAINER_INDEX
+                    value: "1"
     promise:
       configure:
         - apiVersion: platform.kratix.io/v1alpha1
@@ -117,8 +129,11 @@ spec:
             namespace: default
           spec:
             containers:
-              - image: syntassodev/bash-promise:v1alpha2
+              - image: syntassodev/bash-promise:dev1
                 name: bash-promise
+                env:
+                  - name: VERSION
+                    value: v1alpha2
       delete:
         - apiVersion: platform.kratix.io/v1alpha1
           kind: Pipeline
@@ -127,5 +142,8 @@ spec:
             namespace: default
           spec:
             containers:
-              - image: syntassodev/bash-promise:v1alpha2
-                name: bash-promise-configure
+              - image: syntassodev/bash-promise:dev1
+                name: bash-promise
+                env:
+                  - name: VERSION
+                    value: v1alpha2
