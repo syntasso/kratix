@@ -64,16 +64,19 @@ func NewDelete(obj *unstructured.Unstructured, pipeline v1alpha1.Pipeline, resou
 }
 
 func generateDeletePipelineContainersAndVolumes(obj *unstructured.Unstructured, isPromise bool, pipeline v1alpha1.Pipeline) ([]v1.Container, []v1.Volume) {
+	workflowType := v1alpha1.WorkflowTypeResource
+	if isPromise {
+		workflowType = v1alpha1.WorkflowTypePromise
+	}
 	kratixEnvVars := []v1.EnvVar{
 		{
 			Name:  kratixActionEnvVar,
 			Value: kratixActionDelete,
 		},
-	}
-
-	workflowType := v1alpha1.WorkflowTypeResource
-	if isPromise {
-		workflowType = v1alpha1.WorkflowTypePromise
+		{
+			Name:  kratixTypeEnvVar,
+			Value: string(workflowType),
+		},
 	}
 
 	return generateContainersAndVolumes(obj, workflowType, pipeline, kratixEnvVars)
