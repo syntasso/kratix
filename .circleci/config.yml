@@ -226,6 +226,10 @@ jobs:
             make build-and-load-kratix
             make build-and-load-worker-creator
             helm install kratix charts/kratix/ -f hack/platform/helm-values-gitea.yaml
+
+            source ./scripts/quick-start.sh
+            generate_gitea_credentials
+
             kubectl --context kind-platform apply --filename "hack/platform/gitea-install.yaml"
             kubectl --context kind-platform wait --for=condition=Ready --timeout=300s -n gitea pod -l app.kubernetes.io/instance=gitea
 

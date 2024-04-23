@@ -1,7 +1,5 @@
 #!/usr/bin/env bash
 
-set -euo pipefail
-
 ROOT=$( cd -- "$( dirname -- "${BASH_SOURCE[0]}" )/.." &> /dev/null && pwd )
 source "${ROOT}/scripts/utils.sh"
 source "${ROOT}/scripts/install-gitops"
@@ -199,7 +197,7 @@ patch_statestore() {
     sed "s_BucketStateStore_${WORKER_STATESTORE_TYPE}_g"
 }
 
- platform_destination_ip() {
+platform_destination_ip() {
     docker inspect platform-control-plane | grep '"IPAddress": "172' | awk -F '"' '{print $4}'
 }
 
@@ -215,7 +213,7 @@ generate_gitea_credentials() {
         --from-file=caFile=${ROOT}/cert.pem \
         --from-file=privateKey=${ROOT}/key.pem \
         --from-literal=username="gitea_admin" \
-        --from-literal=password="r8sA8CPHD9!bt6d"\
+        --from-literal=password="r8sA8CPHD9!bt6d" \
         --namespace=gitea
 
     kubectl create secret generic gitea-credentials \
@@ -223,7 +221,7 @@ generate_gitea_credentials() {
         --from-file=caFile=${ROOT}/cert.pem \
         --from-file=privateKey=${ROOT}/key.pem \
         --from-literal=username="gitea_admin" \
-        --from-literal=password="r8sA8CPHD9!bt6d"\
+        --from-literal=password="r8sA8CPHD9!bt6d" \
         --namespace=default
 
     rm ${ROOT}/cert.pem ${ROOT}/key.pem
@@ -559,5 +557,6 @@ main() {
 
 
 if [ "$0" = "${BASH_SOURCE[0]}" ]; then
+    set -euo pipefail
     main $@
 fi
