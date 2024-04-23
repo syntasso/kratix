@@ -199,6 +199,36 @@ patch_statestore() {
     sed "s_BucketStateStore_${WORKER_STATESTORE_TYPE}_g"
 }
 
+ platform_destination_ip() {
+    docker inspect platform-control-plane | grep '"IPAddress": "172' | awk -F '"' '{print $4}'
+}
+
+generate_gitea_credentials() {
+    if [ ! -f "${ROOT}/bin/gitea" ]; then
+        error "gitea cli not found; run `make gitea-cli` to download it"
+        exit 1
+    fi
+    ${ROOT}/bin/gitea cert --host $(platform_destination_ip) --ca
+
+    kubectl create secret generic gitea-credentials \
+        --context kind-platform \
+        --from-file=caFile=${ROOT}/cert.pem \
+        --from-file=privateKey=${ROOT}/key.pem \
+        --from-literal=username="gitea_admin" \
+        --from-literal=password="r8sA8CPHD9!bt6d"\
+        --namespace=gitea
+
+    kubectl create secret generic gitea-credentials \
+        --context kind-platform \
+        --from-file=caFile=${ROOT}/cert.pem \
+        --from-file=privateKey=${ROOT}/key.pem \
+        --from-literal=username="gitea_admin" \
+        --from-literal=password="r8sA8CPHD9!bt6d"\
+        --namespace=default
+
+    rm ${ROOT}/cert.pem ${ROOT}/key.pem
+}
+
 setup_platform_destination() {
     if ${WITH_CERT_MANAGER}; then
         kubectl --context kind-platform apply --filename ${CERT_MANAGER_DIST}
@@ -209,6 +239,7 @@ setup_platform_destination() {
 
     if ${INSTALL_AND_CREATE_GITEA_REPO}; then
         kubectl --context kind-platform apply --filename "${ROOT}/hack/platform/gitea-install.yaml"
+        generate_gitea_credentials
     fi
 
     if ${INSTALL_AND_CREATE_MINIO_BUCKET}; then
@@ -220,8 +251,7 @@ setup_platform_destination() {
 
 setup_worker_destination() {
     if ${INSTALL_AND_CREATE_GITEA_REPO}; then
-       PLATFORM_DESTINATION_IP=`docker inspect platform-control-plane | grep '"IPAddress": "172' | awk -F '"' '{print $4}'`
-       cat "${ROOT}/config/samples/platform_v1alpha1_gitstatestore.yaml" | sed "s/172.18.0.2/${PLATFORM_DESTINATION_IP}/g" | kubectl --context kind-platform apply -f -
+       cat "${ROOT}/config/samples/platform_v1alpha1_gitstatestore.yaml" | sed "s/172.18.0.2/$(platform_destination_ip)/g" | kubectl --context kind-platform apply -f -
     fi
 
     if ${INSTALL_AND_CREATE_MINIO_BUCKET}; then

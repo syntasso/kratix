@@ -70,7 +70,7 @@ teardown: ## Delete all Kratix resources from the Platform cluster
 fast-quick-start: teardown ## Install Kratix without recreating the local clusters
 	RECREATE=false make quick-start
 
-quick-start: generate distribution ## Recreates the clusters and install Kratix
+quick-start: gitea-cli generate distribution ## Recreates the clusters and install Kratix
 	VERSION=dev DOCKER_BUILDKIT=1 ./scripts/quick-start.sh --local --git-and-minio
 
 prepare-platform-as-destination: ## Installs flux onto platform cluster and registers as a destination
@@ -172,6 +172,21 @@ GOBIN=$(PROJECT_DIR)/bin go install $(2) ;\
 rm -rf $$TMP_DIR ;\
 }
 endef
+
+GITEA_PLATFORM=$(shell uname -s | tr '[:upper:]' '[:lower:]')
+ifeq ($(GITEA_PLATFORM),darwin)
+	GITEA_PLATFORM=darwin-10.12
+endif
+ARCH=$(shell uname -m)
+
+define get-gitea-cli
+@[ -f $(PROJECT_DIR)/bin/gitea ] || { \
+curl --silent --output $(PROJECT_DIR)/bin/gitea https://dl.gitea.com/gitea/1.21.10/gitea-1.21.10-$(GITEA_PLATFORM)-$(ARCH); \
+chmod +x $(PROJECT_DIR)/bin/gitea; \
+}
+endef
+gitea-cli:
+	$(call get-gitea-cli)
 
 .PHONY: list
 list:

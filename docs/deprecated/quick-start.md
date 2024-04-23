@@ -64,7 +64,7 @@ Some KinD installations use non-standard networking. To ensure cross-cluster com
 
 ```
 PLATFORM_DESTINATION_IP=`docker inspect platform-control-plane | grep '"IPAddress": "172' | awk '{print $2}' | awk -F '"' '{print $2}'`
-sed -i'' -e "s/172.18.0.2/$PLATFORM_DESTINATION_IP/g" hack/worker/gitops-tk-resources.yaml
+sed -i'' -e "s/172.18.0.2/$(platform_destination_ip)/g" hack/worker/gitops-tk-resources.yaml
 ```
 
 ### Set up Worker Cluster

@@ -43,3 +43,5 @@ platform-values.yaml
 .envrc
 
 .image-cache/
+cert.pem
+key.pem
