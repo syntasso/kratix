@@ -217,6 +217,7 @@ jobs:
           name: Create Destinations and helm install
           command: |
             make distribution
+            make gitea-cli
             ./charts/scripts/generate-templates-and-crds ./distribution/kratix.yaml
             export DOCKER_BUILDKIT=1
 
