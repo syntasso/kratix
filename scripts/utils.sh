@@ -28,6 +28,37 @@ error() {
     echo -e "${RED}$@${NOCOLOR}"
 }
 
+platform_destination_ip() {
+    docker inspect platform-control-plane | grep '"IPAddress": "172' | awk -F '"' '{print $4}'
+}
+
+generate_gitea_credentials() {
+    if [ ! -f "${ROOT}/bin/gitea" ]; then
+        error "gitea cli not found; run `make gitea-cli` to download it"
+        exit 1
+    fi
+    ${ROOT}/bin/gitea cert --host $(platform_destination_ip) --ca
+
+    kubectl create secret generic gitea-credentials \
+        --context kind-platform \
+        --from-file=caFile=${ROOT}/cert.pem \
+        --from-file=privateKey=${ROOT}/key.pem \
+        --from-literal=username="gitea_admin" \
+        --from-literal=password="r8sA8CPHD9!bt6d" \
+        --namespace=gitea
+
+    kubectl create secret generic gitea-credentials \
+        --context kind-platform \
+        --from-file=caFile=${ROOT}/cert.pem \
+        --from-file=privateKey=${ROOT}/key.pem \
+        --from-literal=username="gitea_admin" \
+        --from-literal=password="r8sA8CPHD9!bt6d" \
+        --namespace=default
+
+    rm ${ROOT}/cert.pem ${ROOT}/key.pem
+}
+
+
 run() {
     SUPRESS_OUTPUT=${SUPRESS_OUTPUT:-false}
     stdout="$(mktemp)"
