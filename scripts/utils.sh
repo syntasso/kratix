@@ -3,6 +3,7 @@ GREEN=$'\033[1;32m'
 BLUE=$'\033[1;34m'
 NOCOLOR=$'\033[0m'
 VERBOSE=false
+ROOT=$( cd -- "$( dirname -- "${BASH_SOURCE[0]}" )/.." &> /dev/null && pwd )
 
 log() {
     echo -e $@
