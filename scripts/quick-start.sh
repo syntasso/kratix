@@ -1,7 +1,5 @@
 #!/usr/bin/env bash
 
-set -euo pipefail
-
 ROOT=$( cd -- "$( dirname -- "${BASH_SOURCE[0]}" )/.." &> /dev/null && pwd )
 source "${ROOT}/scripts/utils.sh"
 source "${ROOT}/scripts/install-gitops"
@@ -209,6 +207,7 @@ setup_platform_destination() {
 
     if ${INSTALL_AND_CREATE_GITEA_REPO}; then
         kubectl --context kind-platform apply --filename "${ROOT}/hack/platform/gitea-install.yaml"
+        generate_gitea_credentials
     fi
 
     if ${INSTALL_AND_CREATE_MINIO_BUCKET}; then
@@ -220,8 +219,7 @@ setup_platform_destination() {
 
 setup_worker_destination() {
     if ${INSTALL_AND_CREATE_GITEA_REPO}; then
-       PLATFORM_DESTINATION_IP=`docker inspect platform-control-plane | grep '"IPAddress": "172' | awk -F '"' '{print $4}'`
-       cat "${ROOT}/config/samples/platform_v1alpha1_gitstatestore.yaml" | sed "s/172.18.0.2/${PLATFORM_DESTINATION_IP}/g" | kubectl --context kind-platform apply -f -
+       cat "${ROOT}/config/samples/platform_v1alpha1_gitstatestore.yaml" | sed "s/172.18.0.2/$(platform_destination_ip)/g" | kubectl --context kind-platform apply -f -
     fi
 
     if ${INSTALL_AND_CREATE_MINIO_BUCKET}; then
@@ -529,5 +527,6 @@ main() {
 
 
 if [ "$0" = "${BASH_SOURCE[0]}" ]; then
+    set -euo pipefail
     main $@
 fi

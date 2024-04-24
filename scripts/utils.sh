@@ -3,6 +3,7 @@ GREEN=$'\033[1;32m'
 BLUE=$'\033[1;34m'
 NOCOLOR=$'\033[0m'
 VERBOSE=false
+ROOT=$( cd -- "$( dirname -- "${BASH_SOURCE[0]}" )/.." &> /dev/null && pwd )
 
 log() {
     echo -e $@
@@ -26,6 +27,59 @@ info() {
 
 error() {
     echo -e "${RED}$@${NOCOLOR}"
+}
+
+platform_destination_ip() {
+    docker inspect platform-control-plane | grep '"IPAddress": "172' | awk -F '"' '{print $4}'
+}
+
+generate_gitea_credentials() {
+    if [ ! -f "${ROOT}/bin/gitea" ]; then
+        error "gitea cli not found; run 'make gitea-cli' to download it"
+        exit 1
+    fi
+    local context="${1:-kind-platform}"
+    ${ROOT}/bin/gitea cert --host $(platform_destination_ip) --ca
+
+    kubectl create namespace gitea --context ${context} || true
+
+    kubectl create secret generic gitea-credentials \
+        --context "${context}" \
+        --from-file=caFile=${ROOT}/cert.pem \
+        --from-file=privateKey=${ROOT}/key.pem \
+        --from-literal=username="gitea_admin" \
+        --from-literal=password="r8sA8CPHD9!bt6d" \
+        --namespace=gitea
+
+    kubectl create secret generic gitea-credentials \
+        --context "${context}" \
+        --from-file=caFile=${ROOT}/cert.pem \
+        --from-file=privateKey=${ROOT}/key.pem \
+        --from-literal=username="gitea_admin" \
+        --from-literal=password="r8sA8CPHD9!bt6d" \
+        --namespace=default
+
+    kubectl create namespace flux-system --context ${context} || true
+    kubectl create secret generic gitea-credentials \
+        --context "${context}" \
+        --from-file=caFile=${ROOT}/cert.pem \
+        --from-file=privateKey=${ROOT}/key.pem \
+        --from-literal=username="gitea_admin" \
+        --from-literal=password="r8sA8CPHD9!bt6d" \
+        --namespace=flux-system
+
+    rm ${ROOT}/cert.pem ${ROOT}/key.pem
+}
+
+copy_gitea_credentials() {
+    local fromCtx="${1:-kind-platform}"
+    local toCtx="${2:-kind-worker}"
+    local targetNamespace="${3:-default}"
+
+    kubectl create namespace ${targetNamespace} --context ${toCtx} || true
+    kubectl get secret gitea-credentials --context ${fromCtx} -n gitea -o yaml | \
+        yq 'del(.metadata["namespace","creationTimestamp","resourceVersion","selfLink","uid"])' | \
+        kubectl apply --namespace ${targetNamespace} --context ${toCtx} -f -
 }
 
 run() {
