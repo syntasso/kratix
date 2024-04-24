@@ -207,6 +207,7 @@ setup_platform_destination() {
 
     if ${INSTALL_AND_CREATE_GITEA_REPO}; then
         kubectl --context kind-platform apply --filename "${ROOT}/hack/platform/gitea-install.yaml"
+        make gitea-cli
         generate_gitea_credentials
     fi
 
