@@ -78,7 +78,7 @@ var _ = Describe("PromiseController", func() {
 
 					Expect(fakeK8sClient.Create(ctx, promise)).To(Succeed())
 					Expect(fakeK8sClient.Get(ctx, promiseName, promise)).To(Succeed())
-					promise.UID = types.UID("1234abcd")
+					promise.UID = "1234abcd"
 					Expect(fakeK8sClient.Update(ctx, promise)).To(Succeed())
 				})
 
@@ -219,7 +219,7 @@ var _ = Describe("PromiseController", func() {
 
 					Expect(fakeK8sClient.Create(ctx, promise)).To(Succeed())
 					Expect(fakeK8sClient.Get(ctx, promiseName, promise)).To(Succeed())
-					promise.UID = types.UID("1234abcd")
+					promise.UID = "1234abcd"
 					Expect(fakeK8sClient.Update(ctx, promise)).To(Succeed())
 				})
 
@@ -403,7 +403,7 @@ var _ = Describe("PromiseController", func() {
 
 					Expect(fakeK8sClient.Create(ctx, promise)).To(Succeed())
 					Expect(fakeK8sClient.Get(ctx, promiseName, promise)).To(Succeed())
-					promise.UID = types.UID("1234abcd")
+					promise.UID = "1234abcd"
 					Expect(fakeK8sClient.Update(ctx, promise)).To(Succeed())
 				})
 
@@ -496,7 +496,7 @@ var _ = Describe("PromiseController", func() {
 
 					Expect(fakeK8sClient.Create(ctx, promise)).To(Succeed())
 					Expect(fakeK8sClient.Get(ctx, promiseName, promise)).To(Succeed())
-					promise.UID = types.UID("1234abcd")
+					promise.UID = "1234abcd"
 					Expect(fakeK8sClient.Update(ctx, promise)).To(Succeed())
 				})
 
@@ -541,7 +541,7 @@ var _ = Describe("PromiseController", func() {
 
 					Expect(fakeK8sClient.Create(ctx, promise)).To(Succeed())
 					Expect(fakeK8sClient.Get(ctx, promiseName, promise)).To(Succeed())
-					promise.UID = types.UID("1234abcd")
+					promise.UID = "1234abcd"
 					Expect(fakeK8sClient.Update(ctx, promise)).To(Succeed())
 
 					setReconcileConfigureWorkflowToReturnFinished()
@@ -654,7 +654,7 @@ var _ = Describe("PromiseController", func() {
 						"kratix.io/promise-name": promise.GetName(),
 					}
 
-					promise.UID = types.UID("1234abcd")
+					promise.UID = "1234abcd"
 					Expect(fakeK8sClient.Create(ctx, promise)).To(Succeed())
 
 					setReconcileConfigureWorkflowToReturnFinished()
@@ -753,7 +753,7 @@ var _ = Describe("PromiseController", func() {
 
 					Expect(fakeK8sClient.Create(ctx, promise)).To(Succeed())
 					Expect(fakeK8sClient.Get(ctx, promiseName, promise)).To(Succeed())
-					promise.UID = types.UID("1234abcd")
+					promise.UID = "1234abcd"
 					Expect(fakeK8sClient.Update(ctx, promise)).To(Succeed())
 
 					setReconcileConfigureWorkflowToReturnFinished()

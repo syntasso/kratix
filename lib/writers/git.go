@@ -58,7 +58,7 @@ func NewGitWriter(logger logr.Logger, stateStoreSpec v1alpha1.GitStateStoreSpec,
 			return nil, fmt.Errorf("knownHosts not found in secret %s/%s", destination.Namespace, stateStoreSpec.SecretRef.Name)
 		}
 
-		sshPrivateKey, err := ssh.NewPublicKeys("git", []byte(sshKey), "")
+		sshPrivateKey, err := ssh.NewPublicKeys("git", sshKey, "")
 		if err != nil {
 			return nil, fmt.Errorf("error parsing sshPrivateKey: %w", err)
 		}

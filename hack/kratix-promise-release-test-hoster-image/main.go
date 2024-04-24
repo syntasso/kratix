@@ -22,7 +22,7 @@ func main() {
 		if err != nil {
 			panic(err)
 		}
-		w.Write([]byte(promiseContent))
+		w.Write(promiseContent)
 	}).Methods("GET")
 
 	srv := &gohttp.Server{
