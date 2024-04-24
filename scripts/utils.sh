@@ -35,13 +35,16 @@ platform_destination_ip() {
 
 generate_gitea_credentials() {
     if [ ! -f "${ROOT}/bin/gitea" ]; then
-        error "gitea cli not found; run `make gitea-cli` to download it"
+        error "gitea cli not found; run 'make gitea-cli' to download it"
         exit 1
     fi
+    local context="${1:-kind-platform}"
     ${ROOT}/bin/gitea cert --host $(platform_destination_ip) --ca
 
+    kubectl create namespace gitea --context ${context} || true
+
     kubectl create secret generic gitea-credentials \
-        --context kind-platform \
+        --context "${context}" \
         --from-file=caFile=${ROOT}/cert.pem \
         --from-file=privateKey=${ROOT}/key.pem \
         --from-literal=username="gitea_admin" \
@@ -49,16 +52,35 @@ generate_gitea_credentials() {
         --namespace=gitea
 
     kubectl create secret generic gitea-credentials \
-        --context kind-platform \
+        --context "${context}" \
         --from-file=caFile=${ROOT}/cert.pem \
         --from-file=privateKey=${ROOT}/key.pem \
         --from-literal=username="gitea_admin" \
         --from-literal=password="r8sA8CPHD9!bt6d" \
         --namespace=default
 
+    kubectl create namespace flux-system --context ${context} || true
+    kubectl create secret generic gitea-credentials \
+        --context "${context}" \
+        --from-file=caFile=${ROOT}/cert.pem \
+        --from-file=privateKey=${ROOT}/key.pem \
+        --from-literal=username="gitea_admin" \
+        --from-literal=password="r8sA8CPHD9!bt6d" \
+        --namespace=flux-system
+
     rm ${ROOT}/cert.pem ${ROOT}/key.pem
 }
 
+copy_gitea_credentials() {
+    local fromCtx="${1:-kind-platform}"
+    local toCtx="${2:-kind-worker}"
+    local targetNamespace="${3:-default}"
+
+    kubectl create namespace ${targetNamespace} --context ${toCtx} || true
+    kubectl get secret gitea-credentials --context ${fromCtx} -n gitea -o yaml | \
+        yq 'del(.metadata["namespace","creationTimestamp","resourceVersion","selfLink","uid"])' | \
+        kubectl apply --namespace ${targetNamespace} --context ${toCtx} -f -
+}
 
 run() {
     SUPRESS_OUTPUT=${SUPRESS_OUTPUT:-false}

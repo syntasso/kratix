@@ -229,7 +229,7 @@ jobs:
             helm install kratix charts/kratix/ -f hack/platform/helm-values-gitea.yaml
 
             source ./scripts/utils.sh
-            generate_gitea_credentials
+            generate_gitea_credentials "kind-platform"
 
             kubectl --context kind-platform apply --filename "hack/platform/gitea-install.yaml"
             kubectl --context kind-platform wait --for=condition=Ready --timeout=300s -n gitea pod -l app.kubernetes.io/instance=gitea
@@ -237,6 +237,9 @@ jobs:
             # setup worker cluster and register as destination
             kind create cluster --image kindest/node:v1.27.3 --name worker --config hack/destination/kind-worker-config.yaml
             helm install kratix-destination charts/kratix-destination/ -f hack/destination/helm-values-gitea.yaml
+
+            copy_gitea_credentials "kind-platform" "kind-worker"
+
             kubectl --context kind-worker wait --for=condition=Ready --timeout=300s -n default kustomization kratix-workload-resources
       - run:
           name: Verify Jenkins

@@ -17,14 +17,3 @@ destinations:
     stateStoreRef:
       name: default
       kind: GitStateStore
-
-additionalResources:
-  - apiVersion: v1
-    kind: Secret
-    metadata:
-      name: gitea-credentials
-      namespace: default
-    type: Opaque
-    data:
-      username: Z2l0ZWFfYWRtaW4=
-      password: cjhzQThDUEhEOSFidDZk
