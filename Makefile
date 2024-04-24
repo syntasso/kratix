@@ -178,6 +178,9 @@ ifeq ($(GITEA_PLATFORM),darwin)
 	GITEA_PLATFORM=darwin-10.12
 endif
 ARCH=$(shell uname -m)
+ifeq ($(GITEA_PLATFORM),linux)
+	ARCH=$(shell dpkg --print-architecture)
+endif
 
 define get-gitea-cli
 @[ -f $(PROJECT_DIR)/bin/gitea ] || { \
