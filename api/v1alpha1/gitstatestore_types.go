@@ -50,7 +50,7 @@ type GitStateStoreStatus struct {
 
 //+kubebuilder:object:root=true
 //+kubebuilder:subresource:status
-//+kubebuilder:resource:scope=Cluster,path=gitstatestores
+//+kubebuilder:resource:scope=Cluster,path=gitstatestores,categories=kratix
 
 // GitStateStore is the Schema for the gitstatestores API
 type GitStateStore struct {

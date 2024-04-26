@@ -37,6 +37,7 @@ type WorkPlacementStatus struct {
 
 //+kubebuilder:object:root=true
 //+kubebuilder:subresource:status
+//+kubebuilder:resource:categories=kratix
 
 // WorkPlacement is the Schema for the workplacements API
 type WorkPlacement struct {

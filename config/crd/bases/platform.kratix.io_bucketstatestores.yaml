@@ -8,6 +8,8 @@ metadata:
 spec:
   group: platform.kratix.io
   names:
+    categories:
+    - kratix
     kind: BucketStateStore
     listKind: BucketStateStoreList
     plural: bucketstatestores
