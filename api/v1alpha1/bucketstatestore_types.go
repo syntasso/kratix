@@ -44,7 +44,7 @@ type BucketStateStoreStatus struct {
 
 //+kubebuilder:object:root=true
 //+kubebuilder:subresource:status
-//+kubebuilder:resource:scope=Cluster,path=bucketstatestores
+//+kubebuilder:resource:scope=Cluster,path=bucketstatestores,categories=kratix
 
 // BucketStateStore is the Schema for the bucketstatestores API
 type BucketStateStore struct {
