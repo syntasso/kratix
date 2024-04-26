@@ -54,7 +54,7 @@ func NewConfigureResource(
 	resources := []client.Object{
 		serviceAccount(pipelineResources),
 		role(rr, crdPlural, pipelineResources),
-		roleBinding((pipelineResources)),
+		roleBinding(pipelineResources),
 		destinationSelectorsConfigMap,
 		job,
 	}
