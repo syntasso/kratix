@@ -118,14 +118,15 @@ func (r *PromiseReconciler) Reconcile(ctx context.Context, req ctrl.Request) (ct
 	}
 	promise := &v1alpha1.Promise{}
 	err := r.Client.Get(ctx, req.NamespacedName, promise)
-	if err != nil {
-		if errors.IsNotFound(err) {
-			r.Log.Info("Promise not found", "namespacedName", req.NamespacedName)
-			return ctrl.Result{}, nil
-		}
+
+	if errors.IsNotFound(err) {
+		return ctrl.Result{}, nil
+	}
+	if client.IgnoreNotFound(err) != nil {
 		r.Log.Error(err, "Failed getting Promise", "namespacedName", req.NamespacedName)
 		return defaultRequeue, nil
 	}
+
 	originalStatus := promise.Status.Status
 
 	logger := r.Log.WithValues("identifier", promise.GetName())
