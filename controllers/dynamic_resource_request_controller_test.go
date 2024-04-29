@@ -41,13 +41,13 @@ var _ = Describe("DynamicResourceRequestController", func() {
 		Expect(err).ToNot(HaveOccurred())
 		rrGVK := schema.GroupVersionKind{
 			Group:   rrCRD.Spec.Group,
-			Version: string(rrCRD.Spec.Versions[0].Name),
+			Version: rrCRD.Spec.Versions[0].Name,
 			Kind:    rrCRD.Spec.Names.Kind,
 		}
 
 		Expect(fakeK8sClient.Create(ctx, promise)).To(Succeed())
 		Expect(fakeK8sClient.Get(ctx, promiseName, promise)).To(Succeed())
-		promise.UID = types.UID("1234abcd")
+		promise.UID = "1234abcd"
 		Expect(fakeK8sClient.Update(ctx, promise)).To(Succeed())
 		l = ctrl.Log.WithName("controllers").WithName("dynamic")
 
