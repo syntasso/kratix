@@ -58,7 +58,7 @@ func NewGitWriter(logger logr.Logger, stateStoreSpec v1alpha1.GitStateStoreSpec,
 			return nil, fmt.Errorf("knownHosts not found in secret %s/%s", destination.Namespace, stateStoreSpec.SecretRef.Name)
 		}
 
-		sshPrivateKey, err := ssh.NewPublicKeys("git", []byte(sshKey), "")
+		sshPrivateKey, err := ssh.NewPublicKeys("git", sshKey, "")
 		if err != nil {
 			return nil, fmt.Errorf("error parsing sshPrivateKey: %w", err)
 		}
@@ -184,7 +184,7 @@ func (g *GitWriter) WriteDirWithObjects(deleteExistingContentsInDir bool, subDir
 			return nil //We don't want to retry as this isn't a recoverable error. Log error and return nil.
 		}
 
-		if os.MkdirAll(filepath.Dir(absoluteFilePath), 0700); err != nil {
+		if err := os.MkdirAll(filepath.Dir(absoluteFilePath), 0700); err != nil {
 			logger.Error(err, "could not generate local directories")
 			return err
 		}

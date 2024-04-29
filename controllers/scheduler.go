@@ -405,7 +405,6 @@ func (s *Scheduler) getTargetDestinationNames(destinationSelectors map[string]st
 	if work.IsResourceRequest() {
 		s.Log.Info("Getting Destination names for Resource Request")
 		var targetDestinationNames = make([]string, 1)
-		rand.Seed(time.Now().UnixNano())
 		randomDestinationIndex := rand.Intn(len(destinations))
 		targetDestinationNames[0] = destinations[randomDestinationIndex].Name
 		s.Log.Info("Adding Destination: " + targetDestinationNames[0])

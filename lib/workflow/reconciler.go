@@ -96,7 +96,7 @@ func ReconcileConfigure(opts Opts) (bool, error) {
 		return false, err
 	}
 
-	var pipelineIndex int = 0
+	var pipelineIndex = 0
 	var mostRecentJob *batchv1.Job
 
 	if len(allJobs) != 0 {
@@ -114,7 +114,7 @@ func ReconcileConfigure(opts Opts) (bool, error) {
 		return false, nil
 	}
 
-	var mostRecentJobName string = "n/a"
+	var mostRecentJobName = "n/a"
 	if mostRecentJob != nil {
 		mostRecentJobName = mostRecentJob.Name
 	}
