@@ -42,7 +42,7 @@ commands:
     parameters:
       fail_only:
         type: boolean
-        default: false
+        default: true
       only_for_branches:
         type: string
       success_message:
