@@ -53,11 +53,12 @@ load_options() {
 }
 
 patch_kind_networking() {
+    local file_name=$1
     if [[ "${CONTEXT}" =~ ^kind-.* ]]; then
         PLATFORM_DESTINATION_IP=`docker inspect platform-control-plane | grep '"IPAddress": "172' | awk -F '"' '{print $4}'`
-        sed "s/172.18.0.2/${PLATFORM_DESTINATION_IP}/g" ${resource_file}
+        sed "s/172.18.0.2/${PLATFORM_DESTINATION_IP}/g" ${file_name}
     else
-        cat "${resource_file}"
+        cat "${file_name}"
     fi
 }
 
@@ -80,7 +81,7 @@ install_gitops() {
     # install flux crds
     kubectl --context "${CONTEXT}" apply --filename ${ROOT}/hack/destination/gitops-tk-install.yaml
 
-    patch_kind_networking | patch_flux_resources | kubectl --context "${CONTEXT}" apply --filename -
+    patch_kind_networking $resource_file | patch_flux_resources | kubectl --context "${CONTEXT}" apply --filename -
 }
 
 main() {
