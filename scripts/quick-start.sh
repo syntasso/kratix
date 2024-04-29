@@ -220,7 +220,7 @@ setup_platform_destination() {
 
 setup_worker_destination() {
     if ${INSTALL_AND_CREATE_GITEA_REPO}; then
-       cat "${ROOT}/config/samples/platform_v1alpha1_gitstatestore.yaml" | sed "s/172.18.0.2/$(platform_destination_ip)/g" | kubectl --context kind-platform apply -f -
+        cat "${ROOT}/config/samples/platform_v1alpha1_gitstatestore.yaml" | sed "s/172.18.0.2/$(platform_destination_ip)/g" | kubectl --context kind-platform apply -f -
     fi
 
     if ${INSTALL_AND_CREATE_MINIO_BUCKET}; then
@@ -273,10 +273,12 @@ wait_for_local_repository() {
     fi
 
     if ${INSTALL_AND_CREATE_GITEA_REPO}; then
+        log "\nwaiting for gitea..."
         wait_for_gitea ${wait_opts}
     fi
 
     if ${INSTALL_AND_CREATE_MINIO_BUCKET}; then
+        log "\nwaiting for minio..."
         wait_for_minio ${wait_opts}
     fi
 }
