@@ -921,19 +921,7 @@ spec:
           args:
             - init
             - --separate-git-dir=/repo/.git
-          volumeMounts:
-            - mountPath: /repo
-              name: repo
-        - name: branch
-          env:
-            - name: GIT_DISCOVERY_ACROSS_FILESYSTEM
-              value: "true"
-          image: docker.io/alpine/git:2.36.3
-          args:
-            - --git-dir=/repo/.git
-            - branch
-            - -m
-            - main
+            - --initial-branch=main
           volumeMounts:
             - mountPath: /repo
               name: repo
@@ -951,23 +939,46 @@ spec:
             - commit
             - --allow-empty
             - -m
-            - "Kratix creating demo repo"
+            - "Kratix verify demo repo exists"
+          volumeMounts:
+            - mountPath: /repo
+              name: repo
+        - name: pull-rebase
+          # Note: this makes us more resilient if the repo already exists.
+          image: ghcr.io/syntasso/kratix-pipeline-utility:v0.0.1
+          env:
+            - name: GIT_DISCOVERY_ACROSS_FILESYSTEM
+              value: "true"
+          command:
+            - "sh"
+            - "-c"
+            - |
+              exit_code=$(git -c http.sslVerify=false ls-remote https://gitea_admin:r8sA8CPHD9!bt6d@gitea-http.gitea.svc.cluster.local/gitea_admin/kratix.git > /dev/null 2>&1 && echo $?)
+              if [ $exit_code -eq 0 ]; then
+                touch /repo/.already-exists
+              else
+                echo "remote repo does not yet exist, continuing with push"
+              fi
           volumeMounts:
             - mountPath: /repo
               name: repo
       containers:
         - name: push
-          image: docker.io/alpine/git:2.36.3
-          args:
-            - --git-dir=/repo/.git
-            - -c
-            - http.sslVerify=false
-            - push
-            - https://gitea_admin:r8sA8CPHD9!bt6d@gitea-http.gitea.svc.cluster.local/gitea_admin/kratix.git
-            - --all
+          # Note: this makes us more resilient if the repo already exists.
+          image: ghcr.io/syntasso/kratix-pipeline-utility:v0.0.1
           env:
             - name: GIT_DISCOVERY_ACROSS_FILESYSTEM
               value: "true"
+          command:
+            - "sh"
+            - "-c"
+            - |
+              if [ -f /repo/.already-exists ]; then
+                echo "remote repo already exists, skipping push"
+                exit 0
+              fi
+              git --git-dir=/repo/.git -c http.sslVerify=false \
+                push https://gitea_admin:r8sA8CPHD9!bt6d@gitea-http.gitea.svc.cluster.local/gitea_admin/kratix.git --all
           volumeMounts:
             - mountPath: /repo
               name: repo

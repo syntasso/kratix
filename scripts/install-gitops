@@ -1,6 +1,7 @@
 #!/usr/bin/env bash
 
 ROOT=$( cd -- "$( dirname -- "${BASH_SOURCE[0]}" )/.." &> /dev/null && pwd )
+source "${ROOT}/scripts/utils.sh"
 
 set -euo pipefail
 cd $ROOT
@@ -52,11 +53,12 @@ load_options() {
 }
 
 patch_kind_networking() {
+    local file_name=$1
     if [[ "${CONTEXT}" =~ ^kind-.* ]]; then
         PLATFORM_DESTINATION_IP=`docker inspect platform-control-plane | grep '"IPAddress": "172' | awk -F '"' '{print $4}'`
-        sed "s/172.18.0.2/${PLATFORM_DESTINATION_IP}/g" ${resource_file}
+        sed "s/172.18.0.2/${PLATFORM_DESTINATION_IP}/g" ${file_name}
     else
-        cat "${resource_file}"
+        cat "${file_name}"
     fi
 }
 
@@ -71,12 +73,15 @@ install_gitops() {
     CONTEXT="${CONTEXT:-$1}"
     BUCKET_PATH="${BUCKET_PATH:-$2}"
     resource_file=${ROOT}/hack/destination/gitops-tk-resources.yaml
-    if [ ${WORKER_STATESTORE_TYPE} = "GitStateStore" ]; then resource_file=${ROOT}/hack/destination/gitops-tk-resources-git.yaml; fi
+    if [ ${WORKER_STATESTORE_TYPE} = "GitStateStore" ]; then
+        resource_file=${ROOT}/hack/destination/gitops-tk-resources-git.yaml;
+        copy_gitea_credentials kind-platform ${CONTEXT} flux-system
+    fi
 
     # install flux crds
     kubectl --context "${CONTEXT}" apply --filename ${ROOT}/hack/destination/gitops-tk-install.yaml
 
-    patch_kind_networking | patch_flux_resources | kubectl --context "${CONTEXT}" apply --filename -
+    patch_kind_networking $resource_file | patch_flux_resources | kubectl --context "${CONTEXT}" apply --filename -
 }
 
 main() {
