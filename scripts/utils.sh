@@ -108,7 +108,7 @@ run() {
     wait $pid
     exit_code="$?"
 
-    if [ "$exit_code" -eq "0" ]; then
+    if [ "$exit_code" -eq "0" ] && ! ${SUPRESS_OUTPUT}; then
         success_mark
     else
         if ! ${SUPRESS_OUTPUT}; then

@@ -167,22 +167,20 @@ cluster_exists() {
 
 step_build_and_load_kratix() {
     export DOCKER_BUILDKIT
-    log "Building and loading Kratix image locally..."
+    log -n "Building and loading Kratix image locally..."
     if ! run _build_kratix_image; then
         error "Failed to build Kratix image"
         exit 1;
     fi
-    log "Finished building and loading Kratix image locally..."
 }
 
 step_build_and_load_kratix_work_creator() {
     export DOCKER_BUILDKIT
-    log "Building and loading Work Creator image locally..."
+    log -n "Building and loading Work Creator image locally..."
     if ! run _build_work_creator_image; then
         error "Failed to build Work Creator image"
         exit 1;
     fi
-    log "Finished building and loading Work Creator image locally..."
 }
 
 patch_image() {
@@ -273,12 +271,10 @@ wait_for_local_repository() {
     fi
 
     if ${INSTALL_AND_CREATE_GITEA_REPO}; then
-        log "\nwaiting for gitea..."
         wait_for_gitea ${wait_opts}
     fi
 
     if ${INSTALL_AND_CREATE_MINIO_BUCKET}; then
-        log "\nwaiting for minio..."
         wait_for_minio ${wait_opts}
     fi
 }
@@ -355,13 +351,13 @@ step_create_platform_cluster() {
         return
     fi
     log "Creating platform destination..."
-    if ! run kind create cluster --name platform --image $KIND_IMAGE \
+    if ! SUPRESS_OUTPUT=true run kind create cluster --name platform --image $KIND_IMAGE \
         --config ${ROOT}/hack/platform/kind-platform-config.yaml
     then
         error "Could not create platform destination"
         exit 1
     fi
-    log "Finished creating platform destination..."
+    log -n "Finished creating platform destination" && success_mark
 }
 
 step_create_worker_cluster(){
@@ -371,13 +367,13 @@ step_create_worker_cluster(){
             return
         fi
         log "Creating worker destination..."
-        if ! run kind create cluster --name worker --image $KIND_IMAGE \
+        if ! SUPRESS_OUTPUT=true run kind create cluster --name worker --image $KIND_IMAGE \
             --config ${ROOT}/hack/destination/kind-worker-config.yaml
         then
             error "Could not create worker destination"
             exit 1
         fi
-        log "Finished creating worker destination..."
+        log -n "Finished creating worker destination" && success_mark
     fi
 
 }
@@ -389,38 +385,35 @@ step_create_third_worker_cluster() {
             return
         fi
         log "Creating worker destination..."
-        if ! run kind create cluster --name worker-2 --image $KIND_IMAGE \
+        if ! SUPRESS_OUTPUT=true run kind create cluster --name worker-2 --image $KIND_IMAGE \
             --config ${ROOT}/config/samples/kind-worker-2-config.yaml
         then
             error "Could not create worker destination 2"
             exit 1
         fi
-        log "Finished creating worker destination..."
     fi
 }
 
 step_register_destinations() {
-    log "Setting up platform destination..."
+    log -n "Setting up platform destination..."
     if ! run setup_platform_destination; then
         error " failed"
         exit 1
     fi
-    log "Finished setting up platform destination..."
 }
 
 step_load_images() {
     if [ -d "${LOCAL_IMAGES_DIR}" ]; then
-        log "Loading images in platform destination..."
+        log -n "Loading images in platform destination..."
         if ! run load_images; then
             error "Failed to load images in platform destination"
             exit 1;
         fi
-        log "Finished loading images in platform destination..."
     fi
 }
 
 step_setup_worker_cluster() {
-    log "Setting up worker destination..."
+    log -n "Setting up worker destination..."
     if ! run setup_worker_destination; then
         error " failed"
         exit 1
@@ -432,7 +425,6 @@ step_setup_worker_cluster() {
             exit 1
         fi
     fi
-    log "Finished setting up worker destination..."
 }
 
 wait_for_pids() {
@@ -446,6 +438,7 @@ wait_for_pids() {
         then
            exit 1
     fi
+    sleep 1 # Just makes sure output works well with the next command
 }
 
 install_kratix() {
@@ -487,6 +480,8 @@ install_kratix() {
         log "This script will continue to wait for the local repository to come up. You can kill it with $(info "CTRL+C.")"
         log -n "\nWaiting for the local repository to be running... "
         run wait_for_local_repository --no-timeout
+    else
+        success_mark
     fi
 
     log -n "Waiting for system to reconcile... "
@@ -496,6 +491,8 @@ install_kratix() {
         log "This script will continue to wait. You can kill it with $(info "CTRL+C.")"
         log -n "\nWaiting for local repository to be running... "
         run wait_for_namespace --no-timeout
+    else
+        success_mark
     fi
 
     kubectl config use-context kind-platform >/dev/null
