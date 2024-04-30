@@ -49,7 +49,8 @@ generate_gitea_credentials() {
         --from-file=privateKey=${ROOT}/key.pem \
         --from-literal=username="gitea_admin" \
         --from-literal=password="r8sA8CPHD9!bt6d" \
-        --namespace=gitea
+        --namespace=gitea \
+        --dry-run=client -o yaml | kubectl apply --context ${context} -f -
 
     kubectl create secret generic gitea-credentials \
         --context "${context}" \
@@ -57,7 +58,8 @@ generate_gitea_credentials() {
         --from-file=privateKey=${ROOT}/key.pem \
         --from-literal=username="gitea_admin" \
         --from-literal=password="r8sA8CPHD9!bt6d" \
-        --namespace=default
+        --namespace=default \
+        --dry-run=client -o yaml | kubectl apply --context ${context} -f -
 
     kubectl create namespace flux-system --context ${context} || true
     kubectl create secret generic gitea-credentials \
@@ -66,7 +68,8 @@ generate_gitea_credentials() {
         --from-file=privateKey=${ROOT}/key.pem \
         --from-literal=username="gitea_admin" \
         --from-literal=password="r8sA8CPHD9!bt6d" \
-        --namespace=flux-system
+        --namespace=flux-system \
+        --dry-run=client -o yaml | kubectl apply --context ${context} -f -
 
     rm ${ROOT}/cert.pem ${ROOT}/key.pem
 }
@@ -105,7 +108,7 @@ run() {
     wait $pid
     exit_code="$?"
 
-    if [ "$exit_code" -eq "0" ]; then
+    if [ "$exit_code" -eq "0" ] && ! ${SUPRESS_OUTPUT}; then
         success_mark
     else
         if ! ${SUPRESS_OUTPUT}; then
