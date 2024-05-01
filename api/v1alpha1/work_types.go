@@ -43,6 +43,7 @@ type WorkStatus struct {
 
 //+kubebuilder:object:root=true
 //+kubebuilder:subresource:status
+//+kubebuilder:resource:categories=kratix
 
 // Work is the Schema for the works API
 type Work struct {

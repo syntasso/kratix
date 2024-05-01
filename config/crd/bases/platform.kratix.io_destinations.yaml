@@ -8,6 +8,8 @@ metadata:
 spec:
   group: platform.kratix.io
   names:
+    categories:
+    - kratix
     kind: Destination
     listKind: DestinationList
     plural: destinations

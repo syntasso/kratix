@@ -68,7 +68,7 @@ type DestinationStatus struct {
 
 //+kubebuilder:object:root=true
 //+kubebuilder:subresource:status
-//+kubebuilder:resource:scope=Cluster,path=destinations
+//+kubebuilder:resource:scope=Cluster,path=destinations,categories=kratix
 
 // Destination is the Schema for the Destinations API
 type Destination struct {

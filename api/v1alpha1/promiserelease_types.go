@@ -43,7 +43,7 @@ type PromiseReleaseStatus struct {
 
 //+kubebuilder:object:root=true
 //+kubebuilder:subresource:status
-//+kubebuilder:resource:scope=Cluster,path=promisereleases
+//+kubebuilder:resource:scope=Cluster,path=promisereleases,categories=kratix
 //+kubebuilder:printcolumn:JSONPath=".status.status",name="Status",type=string
 //+kubebuilder:printcolumn:JSONPath=".spec.version",name="Version",type=string
 
