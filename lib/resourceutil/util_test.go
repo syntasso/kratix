@@ -323,19 +323,64 @@ var _ = Describe("Conditions", func() {
 	})
 
 	Describe("SetStatus", func() {
-		It("sets the status of a resource", func() {
-			rr = &unstructured.Unstructured{
-				Object: map[string]interface{}{
-					"status": map[string]interface{}{
-						"foo": "bar",
-					},
-				},
-			}
-			resourceutil.SetStatus(rr, logger, "test", "val")
+		var rr *unstructured.Unstructured
 
-			Expect(rr.Object).To(HaveKey("status"))
-			Expect(rr.Object["status"]).To(HaveKeyWithValue("foo", "bar"))
-			Expect(rr.Object["status"]).To(HaveKeyWithValue("test", "val"))
+		When("there is an existing status", func() {
+			BeforeEach(func() {
+				rr = &unstructured.Unstructured{
+					Object: map[string]interface{}{
+						"status": map[string]interface{}{
+							"foo": "bar",
+						},
+					},
+				}
+			})
+
+			It("sets the status of a resource", func() {
+				resourceutil.SetStatus(rr, logger, "test", "val", "key1", int64(1))
+				Expect(rr.Object).To(HaveKey("status"))
+				Expect(rr.Object["status"]).To(HaveKeyWithValue("foo", "bar"))
+				Expect(rr.Object["status"]).To(HaveKeyWithValue("test", "val"))
+				Expect(rr.Object["status"]).To(HaveKeyWithValue("key1", int64(1)))
+			})
+
+			When("a non-string key is provided", func() {
+				It("does not set that key/value pair", func() {
+					resourceutil.SetStatus(rr, logger, 1, "val")
+					Expect(rr.Object).To(HaveKey("status"))
+					Expect(rr.Object["status"]).To(Equal(map[string]interface{}{"foo": "bar"}))
+				})
+			})
+
+			When("an odd number of arguments is provided", func() {
+				It("does not set any new key/value pairs", func() {
+					resourceutil.SetStatus(rr, logger, "key1", "value1", "key2")
+					Expect(rr.Object).To(HaveKey("status"))
+					Expect(rr.Object["status"]).To(Equal(map[string]interface{}{"foo": "bar"}))
+				})
+			})
+		})
+
+		When("there is no existing status", func() {
+			BeforeEach(func() {
+				rr = &unstructured.Unstructured{
+					Object: map[string]interface{}{},
+				}
+			})
+
+			It("sets the status of a resource", func() {
+				resourceutil.SetStatus(rr, logger, "test", "val", "key1", int64(1))
+				Expect(rr.Object).To(HaveKey("status"))
+				Expect(rr.Object["status"]).To(HaveKeyWithValue("test", "val"))
+				Expect(rr.Object["status"]).To(HaveKeyWithValue("key1", int64(1)))
+			})
+
+			When("there are no valid status key/value pairs", func() {
+				It("does not set status", func() {
+					resourceutil.SetStatus(rr, logger, 1, "val")
+					Expect(rr.Object).NotTo(HaveKey("status"))
+				})
+			})
 		})
 	})
 })
