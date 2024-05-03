@@ -188,7 +188,7 @@ var _ = Describe("DynamicResourceRequestController", func() {
 
 			By("finishing the creation once the job is finished", func() {
 				setReconcileConfigureWorkflowToReturnFinished()
-				result, err := t.reconcileUntilCompletion(reconciler, promise)
+				result, err := t.reconcileUntilCompletion(reconciler, resReq)
 
 				Expect(err).NotTo(HaveOccurred())
 				Expect(result).To(Equal(ctrl.Result{}))
