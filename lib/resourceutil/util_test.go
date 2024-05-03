@@ -383,4 +383,50 @@ var _ = Describe("Conditions", func() {
 			})
 		})
 	})
+
+	Describe("GetObservedGeneration", func() {
+		var rr *unstructured.Unstructured
+
+		When("status is nil", func() {
+			BeforeEach(func() {
+				rr = &unstructured.Unstructured{
+					Object: map[string]interface{}{},
+				}
+			})
+
+			It("returns 0", func() {
+				Expect(resourceutil.GetObservedGeneration(rr)).To(Equal(int64(0)))
+			})
+		})
+
+		When("status.observedGeneration is nil", func() {
+			BeforeEach(func() {
+				rr = &unstructured.Unstructured{
+					Object: map[string]interface{}{
+						"status": map[string]interface{}{},
+					},
+				}
+			})
+
+			It("returns 0", func() {
+				Expect(resourceutil.GetObservedGeneration(rr)).To(Equal(int64(0)))
+			})
+		})
+
+		When("status.observedGeneration is set", func() {
+			BeforeEach(func() {
+				rr = &unstructured.Unstructured{
+					Object: map[string]interface{}{
+						"status": map[string]interface{}{
+							"observedGeneration": int64(1),
+						},
+					},
+				}
+			})
+
+			It("returns the observedGeneration", func() {
+				Expect(resourceutil.GetObservedGeneration(rr)).To(Equal(int64(1)))
+			})
+		})
+	})
 })

@@ -336,6 +336,10 @@ var _ = Describe("Kratix", func() {
 					Eventually(func() string {
 						return platform.kubectl("get", bashPromiseName, rrName, "-o", "jsonpath='{.status.key}'")
 					}, timeout, interval).Should(ContainSubstring("value"))
+					generation := platform.kubectl("get", bashPromiseName, rrName, "-o", "jsonpath='{.metadata.generation}'")
+					Eventually(func() string {
+						return platform.kubectl("get", bashPromiseName, rrName, "-o", "jsonpath='{.status.observedGeneration}'")
+					}, timeout, interval).Should(Equal(generation))
 				})
 
 				newRRDeclarativePlatformNamespace := "declarative-platform-only-" + rrName + "-new"

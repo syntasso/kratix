@@ -199,6 +199,20 @@ func GetStatus(rr *unstructured.Unstructured, key string) string {
 	return nestedMap[key].(string)
 }
 
+// GetObservedGeneration returns 0 when either status or status.observedGeneration is nil
+func GetObservedGeneration(rr *unstructured.Unstructured) int64 {
+	if rr.Object["status"] == nil {
+		return 0
+	}
+
+	nestedMap := rr.Object["status"].(map[string]interface{})
+	if nestedMap["observedGeneration"] == nil {
+		return 0
+	}
+
+	return nestedMap["observedGeneration"].(int64)
+}
+
 func GetResourceNames(items []unstructured.Unstructured) []string {
 	var names []string
 	for _, item := range items {

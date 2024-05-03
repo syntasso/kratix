@@ -951,6 +951,10 @@ func setStatusFieldsOnCRD(rrCRD *apiextensionsv1.CustomResourceDefinition) {
 				"message": {
 					Type: "string",
 				},
+				"observedGeneration": {
+					Type:   "integer",
+					Format: "int64",
+				},
 				"conditions": {
 					Type: "array",
 					Items: &apiextensionsv1.JSONSchemaPropsOrArray{

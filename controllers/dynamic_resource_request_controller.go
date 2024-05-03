@@ -193,8 +193,13 @@ func (r *DynamicResourceRequestController) Reconcile(ctx context.Context, req ct
 	if requeue {
 		return defaultRequeue, nil
 	}
-	return ctrl.Result{}, nil
 
+	if rr.GetGeneration() != resourceutil.GetObservedGeneration(rr) {
+		resourceutil.SetStatus(rr, logger, "observedGeneration", rr.GetGeneration())
+		return ctrl.Result{}, opts.client.Status().Update(opts.ctx, rr)
+	}
+
+	return ctrl.Result{}, nil
 }
 
 func (r *DynamicResourceRequestController) deleteResources(o opts, resourceRequest *unstructured.Unstructured, resourceRequestIdentifier string) (ctrl.Result, error) {
