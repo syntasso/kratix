@@ -103,6 +103,7 @@ var _ = Describe("DynamicResourceRequestController", func() {
 		}
 		Expect(fakeK8sClient.Get(ctx, resReqNameNamespace, resReq)).To(Succeed())
 		resReq.SetUID("1234abcd")
+		resReq.SetGeneration(1)
 		Expect(fakeK8sClient.Update(ctx, resReq)).To(Succeed())
 		Expect(fakeK8sClient.Get(ctx, resReqNameNamespace, resReq)).To(Succeed())
 
@@ -117,7 +118,7 @@ var _ = Describe("DynamicResourceRequestController", func() {
 	})
 
 	When("resource is being created", func() {
-		It("re-reconciles until completetion", func() {
+		It("re-reconciles until completion", func() {
 			_, err := t.reconcileUntilCompletion(reconciler, resReq)
 			Expect(fakeK8sClient.Get(ctx, resReqNameNamespace, resReq)).To(Succeed())
 
@@ -188,7 +189,7 @@ var _ = Describe("DynamicResourceRequestController", func() {
 
 			By("finishing the creation once the job is finished", func() {
 				setReconcileConfigureWorkflowToReturnFinished()
-				result, err := t.reconcileUntilCompletion(reconciler, promise)
+				result, err := t.reconcileUntilCompletion(reconciler, resReq)
 
 				Expect(err).NotTo(HaveOccurred())
 				Expect(result).To(Equal(ctrl.Result{}))
@@ -209,6 +210,14 @@ var _ = Describe("DynamicResourceRequestController", func() {
 						"non-kratix-label":       "true",
 					},
 				))
+			})
+
+			By("setting the observedGeneration in the resource status", func() {
+				Expect(fakeK8sClient.Get(ctx, resReqNameNamespace, resReq)).To(Succeed())
+				status := resReq.Object["status"]
+				Expect(status).NotTo(BeNil())
+				statusMap := status.(map[string]interface{})
+				Expect(statusMap["observedGeneration"]).To(Equal(int64(1)))
 			})
 		})
 

@@ -143,7 +143,10 @@ func SuspendablePipelines(logger logr.Logger, jobs []batchv1.Job) []batchv1.Job 
 	return jobsToSuspend
 }
 
-func SetStatus(rr *unstructured.Unstructured, logger logr.Logger, statuses ...string) {
+// SetStatus takes in key value pairs in the statuses argument.
+// Example: key1, value1, key2, value2, ...
+// All keys must be castable to string. Values can be any type.
+func SetStatus(rr *unstructured.Unstructured, logger logr.Logger, statuses ...interface{}) {
 	if len(statuses) == 0 {
 		return
 	}
@@ -156,11 +159,24 @@ func SetStatus(rr *unstructured.Unstructured, logger logr.Logger, statuses ...st
 	if rr.Object["status"] == nil {
 		rr.Object["status"] = map[string]interface{}{}
 	}
+
 	nestedMap := rr.Object["status"].(map[string]interface{})
 	for i := 0; i < len(statuses); i += 2 {
 		key := statuses[i]
+		// convert key to string
+		keyStr, ok := key.(string)
+		if !ok {
+			logger.Info("invalid status key; expecting string", "key", key)
+			continue
+		}
 		value := statuses[i+1]
-		nestedMap[key] = value
+		nestedMap[keyStr] = value
+	}
+
+	// If there is no status, clean up empty status map
+	if len(nestedMap) == 0 {
+		delete(rr.Object, "status")
+		return
 	}
 
 	err := unstructured.SetNestedMap(rr.Object, nestedMap, "status")
@@ -181,6 +197,20 @@ func GetStatus(rr *unstructured.Unstructured, key string) string {
 	}
 
 	return nestedMap[key].(string)
+}
+
+// GetObservedGeneration returns 0 when either status or status.observedGeneration is nil
+func GetObservedGeneration(rr *unstructured.Unstructured) int64 {
+	if rr.Object["status"] == nil {
+		return 0
+	}
+
+	nestedMap := rr.Object["status"].(map[string]interface{})
+	if nestedMap["observedGeneration"] == nil {
+		return 0
+	}
+
+	return nestedMap["observedGeneration"].(int64)
 }
 
 func GetResourceNames(items []unstructured.Unstructured) []string {
