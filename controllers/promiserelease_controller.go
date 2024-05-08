@@ -25,6 +25,7 @@ import (
 	v1 "k8s.io/apimachinery/pkg/apis/meta/v1"
 	"k8s.io/apimachinery/pkg/labels"
 	"k8s.io/apimachinery/pkg/runtime"
+	"k8s.io/client-go/tools/record"
 	"sigs.k8s.io/cluster-api/util/annotations"
 	ctrl "sigs.k8s.io/controller-runtime"
 	"sigs.k8s.io/controller-runtime/pkg/client"
@@ -50,6 +51,7 @@ type PromiseReleaseReconciler struct {
 	Scheme         *runtime.Scheme
 	Log            logr.Logger
 	PromiseFetcher v1alpha1.PromiseFetcher
+	EventRecorder  record.EventRecorder
 }
 
 const promiseCleanupFinalizer = v1alpha1.KratixPrefix + "promise-cleanup"
@@ -57,6 +59,7 @@ const promiseCleanupFinalizer = v1alpha1.KratixPrefix + "promise-cleanup"
 //+kubebuilder:rbac:groups=platform.kratix.io,resources=promisereleases,verbs=get;list;watch;create;update;patch;delete
 //+kubebuilder:rbac:groups=platform.kratix.io,resources=promisereleases/status,verbs=get;update;patch
 //+kubebuilder:rbac:groups=platform.kratix.io,resources=promisereleases/finalizers,verbs=update
+//+kubebuilder:rbac:groups="",resources=events,verbs=create;patch
 
 func (r *PromiseReleaseReconciler) Reconcile(ctx context.Context, req ctrl.Request) (ctrl.Result, error) {
 	_ = log.FromContext(ctx)
@@ -160,9 +163,18 @@ func (r *PromiseReleaseReconciler) installPromise(o opts, promiseRelease *v1alph
 
 		return ctrl.SetControllerReference(promiseRelease, &existingPromise, r.Scheme)
 	})
-
 	if err != nil {
-		return nil
+		// Determine the reason for the failure to install the Promise
+		eventReason := "Failed"
+		if errors.IsInvalid(err) {
+			eventReason = "Invalid Promise"
+		}
+
+		// Add an event to PromiseRelease about the failure of installing the Promise
+		r.EventRecorder.Eventf(promiseRelease, "Warning", eventReason,
+			"Failed to install Promise %q: %v", promise.GetName(), err)
+
+		return err
 	}
 
 	o.logger.Info("Promise reconciled during PromiseRelease reconciliation",
