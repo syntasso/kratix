@@ -34,12 +34,17 @@ platform_destination_ip() {
 }
 
 generate_gitea_credentials() {
-    if [ ! -f "${ROOT}/bin/gitea" ]; then
+    giteabin="${ROOT}/bin/gitea"
+    if which gitea > /dev/null; then
+        giteabin="$(which gitea)"
+    fi
+
+    if [ ! -f "${giteabin}" ]; then
         error "gitea cli not found; run 'make gitea-cli' to download it"
         exit 1
     fi
     local context="${1:-kind-platform}"
-    ${ROOT}/bin/gitea cert --host $(platform_destination_ip) --ca
+    $giteabin cert --host $(platform_destination_ip) --ca
 
     kubectl create namespace gitea --context ${context} || true
 
