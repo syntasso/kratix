@@ -43,11 +43,14 @@ func main() {
 		ctrl.Log = ctrl.Log.WithName(prefix)
 	}
 
+<<<<<<< HEAD
 	if pipelineName == "" {
 		fmt.Println("Must provide -pipeline-name")
 		os.Exit(1)
 	}
 
+=======
+>>>>>>> Bhargav-InfraCloud-br_fail_promiserelease_if_error_installing_promise
 	//Teach our client to speak v1alpha1.Work
 	v1alpha1.AddToScheme(scheme.Scheme)
 
