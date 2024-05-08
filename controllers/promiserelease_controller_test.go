@@ -271,6 +271,56 @@ var _ = Describe("PromiseReleaseController", func() {
 						Expect(promiseRelease.GetFinalizers()).To(ConsistOf("kratix.io/promise-cleanup"))
 					})
 				})
+
+				When("the Promise manifest is invalid", func() {
+					var (
+						promiseNamespacedName types.NamespacedName
+						eventRecorder         *record.FakeRecorder
+					)
+
+					BeforeEach(func() {
+						promiseNamespacedName = types.NamespacedName{
+							Name: promise.Name,
+							// Note: Promise is cluster-scoped
+						}
+
+						fakeK8sClient = &mockPromiseCtrlRuntimeClient{
+							Client:  fakeK8sClient,
+							promise: promise.Name,
+							mockErr: errors.NewInvalid( // Create mock error for invalid promise
+								promise.GroupVersionKind().GroupKind(),
+								promise.Name,
+								field.ErrorList{},
+							),
+						}
+
+						eventRecorder = record.NewFakeRecorder(1024)
+
+						reconciler = &controllers.PromiseReleaseReconciler{
+							Client:         fakeK8sClient,
+							Scheme:         scheme.Scheme,
+							PromiseFetcher: fakeFetcher,
+							Log:            ctrl.Log.WithName("controllers").WithName("PromiseRelease"),
+							EventRecorder:  eventRecorder,
+						}
+
+						err := fakeK8sClient.Create(context.TODO(), &promiseRelease)
+						Expect(err).NotTo(HaveOccurred())
+					})
+
+					It("fails the PromiseRelease's reconciliation", func() {
+						_, err := t.reconcileUntilCompletion(reconciler, &promiseRelease)
+						Expect(err).To(HaveOccurred())
+						Expect(eventRecorder.Events).To(Receive(ContainSubstring(
+							fmt.Sprintf("Promise.platform.kratix.io %q is invalid", promise.Name)),
+						))
+					})
+
+					It("doesn't create the Promise", func() {
+						err := fakeK8sClient.Get(context.TODO(), promiseNamespacedName, promise)
+						Expect(err).To(HaveOccurred())
+					})
+				})
 			})
 		})
 	})
