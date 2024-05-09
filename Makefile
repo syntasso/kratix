@@ -189,6 +189,7 @@ chmod +x $(PROJECT_DIR)/bin/gitea; \
 }
 endef
 gitea-cli:
+	mkdir -p bin
 	$(call get-gitea-cli)
 
 .PHONY: list
