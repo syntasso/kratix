@@ -204,9 +204,9 @@ setup_platform_destination() {
     fi
 
     if ${INSTALL_AND_CREATE_GITEA_REPO}; then
-        kubectl --context kind-platform apply --filename "${ROOT}/hack/platform/gitea-install.yaml"
         make gitea-cli
         generate_gitea_credentials
+        kubectl --context kind-platform apply --filename "${ROOT}/hack/platform/gitea-install.yaml"
     fi
 
     if ${INSTALL_AND_CREATE_MINIO_BUCKET}; then
@@ -351,7 +351,7 @@ step_create_platform_cluster() {
         return
     fi
     log "Creating platform destination..."
-    if ! SUPRESS_OUTPUT=true run kind create cluster --name platform --image $KIND_IMAGE \
+    if ! run kind create cluster --name platform --image $KIND_IMAGE \
         --config ${ROOT}/hack/platform/kind-platform-config.yaml
     then
         error "Could not create platform destination"
@@ -367,7 +367,7 @@ step_create_worker_cluster(){
             return
         fi
         log "Creating worker destination..."
-        if ! SUPRESS_OUTPUT=true run kind create cluster --name worker --image $KIND_IMAGE \
+        if ! run kind create cluster --name worker --image $KIND_IMAGE \
             --config ${ROOT}/hack/destination/kind-worker-config.yaml
         then
             error "Could not create worker destination"
