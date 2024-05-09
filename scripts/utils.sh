@@ -30,7 +30,7 @@ error() {
 }
 
 platform_destination_ip() {
-    docker inspect platform-control-plane | grep '"IPAddress": "172' | awk -F '"' '{print $4}'
+    docker inspect platform-control-plane | yq ".[0].NetworkSettings.Networks.kind.IPAddress"
 }
 
 generate_gitea_credentials() {
