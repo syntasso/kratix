@@ -475,6 +475,12 @@ var _ = Describe("PromiseController", func() {
 						Expect(err).NotTo(HaveOccurred())
 						Expect(result).To(Equal(ctrl.Result{}))
 					})
+
+					By("not creating a Work for the empty static dependencies", func() {
+						works := &v1alpha1.WorkList{}
+						Expect(fakeK8sClient.List(ctx, works)).To(Succeed())
+						Expect(works.Items).To(HaveLen(0))
+					})
 				})
 			})
 
@@ -585,7 +591,7 @@ var _ = Describe("PromiseController", func() {
 					Expect(fakeK8sClient.List(ctx, serviceAccounts)).To(Succeed())
 					Expect(clusterRoles.Items).To(HaveLen(1))
 					Expect(clusterRoleBindings.Items).To(HaveLen(1))
-					Expect(works.Items).To(HaveLen(1))
+					Expect(works.Items).To(HaveLen(0))
 					Expect(jobs.Items).To(HaveLen(0))
 					Expect(serviceAccounts.Items).To(HaveLen(0))
 
