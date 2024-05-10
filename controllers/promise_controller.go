@@ -354,9 +354,11 @@ func (r *PromiseReconciler) generateStatusAndMarkRequirements(ctx context.Contex
 
 func (r *PromiseReconciler) reconcileDependencies(o opts, promise *v1alpha1.Promise, configurePipeline []v1alpha1.Pipeline) (*ctrl.Result, error) {
 	o.logger.Info("Applying static dependencies for Promise", "promise", promise.GetName())
-	if err := r.applyWorkForDependencies(o, promise); err != nil {
-		o.logger.Error(err, "Error creating Works")
-		return nil, err
+	if len(promise.Spec.Dependencies) > 0 {
+		if err := r.applyWorkForDependencies(o, promise); err != nil {
+			o.logger.Error(err, "Error creating Works")
+			return nil, err
+		}
 	}
 	if len(configurePipeline) == 0 {
 		return nil, nil
