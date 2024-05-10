@@ -26,7 +26,7 @@ current_message=$(echo "$status" | yq -r '.message')
 
 if [ "${IS_LAST_PIPELINE}" = "true" ]; then
 	if [ "${current_message}" = "Pending" ]; then
-		status="$(yq -n '.message = "Resource requested"')"
+		status=$(echo "$status" | yq '.message = "Resource requested"')
 	fi
 fi
 
