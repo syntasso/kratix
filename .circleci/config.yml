@@ -313,20 +313,20 @@ jobs:
           command: |
             ./scripts/build-images << parameters.image >>
 
-  git-push-to-dev:
+  git-push-to-main:
     executor: machine-medium
     steps:
       - attach_workspace:
           at: .
       - setup_git
       - run:
-          name: Push dev
+          name: Push main
           command: |
             git add -f demo/
             # below command exits 0 when nothing is added
             git diff --cached --quiet && exit 0 || true
             git commit -m"update demo image list"
-            git push origin dev
+            git push origin main
 
   generate-release-distribution:
     executor: machine-medium
@@ -454,7 +454,7 @@ workflows:
       - clone-kratix
       - generate-demo-image-list:
           requires: [clone-kratix]
-      - git-push-to-dev:
+      - git-push-to-main:
           requires: [generate-demo-image-list]
 
   security-scan:
