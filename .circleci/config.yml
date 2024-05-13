@@ -449,7 +449,7 @@ workflows:
           cron: "0 0 * * 1"
           filters:
             branches:
-              only: [dev]
+              only: [main]
     jobs:
       - clone-kratix
       - generate-demo-image-list:
