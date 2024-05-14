@@ -281,7 +281,6 @@ var _ = Describe("PromiseReleaseController", func() {
 					BeforeEach(func() {
 						promiseNamespacedName = types.NamespacedName{
 							Name: promise.Name,
-							// Note: Promise is cluster-scoped
 						}
 
 						fakeK8sClient = &mockPromiseCtrlRuntimeClient{
@@ -312,7 +311,7 @@ var _ = Describe("PromiseReleaseController", func() {
 						_, err := t.reconcileUntilCompletion(reconciler, &promiseRelease)
 						Expect(err).To(HaveOccurred())
 						Expect(eventRecorder.Events).To(Receive(ContainSubstring(
-							fmt.Sprintf("Promise.platform.kratix.io %q is invalid", promise.Name)),
+							fmt.Sprintf("%q is invalid", promise.Name)),
 						))
 					})
 
@@ -502,7 +501,7 @@ var _ = Describe("PromiseReleaseController", func() {
 						_, err := t.reconcileUntilCompletion(reconciler, &promiseRelease)
 						Expect(err).To(HaveOccurred())
 						Expect(<-eventRecorder.Events).To(ContainSubstring(
-							fmt.Sprintf("Promise.platform.kratix.io %q is invalid", promise.Name)),
+							fmt.Sprintf("%q is invalid", promise.Name)),
 						)
 					})
 
