@@ -8,6 +8,7 @@ cd $ROOT
 
 CONTEXT=""
 WORKER_STATESTORE_TYPE=${WORKER_STATESTORE_TYPE:-BucketStateStore}
+KUSTOMIZATION_NAME=""
 
 usage() {
     echo -e "Usage: ${BASH_SOURCE[0]} [--help] [--context=""] [--path=""] [--git]"
@@ -16,6 +17,7 @@ usage() {
     echo -e "\t--context='', -c,\t Required. The Kubernetes context where to install FluxCD onto."
     echo -e "\t--path='', -b,\t The Repository name, must match the name used when registering the destination. Defaults to context."
     echo -e "\t--git, -g,\t Reads from local Gitea installation (default: Read from local MinIO installation)"
+    echo -e "\t--kustomization-name, -k,\t Name of the Flux Kustomizations"
     exit "${1:-0}"
 }
 
@@ -23,22 +25,24 @@ load_options() {
     for arg in "$@"; do
       shift
       case "$arg" in
-        '--help')        set -- "$@" '-h'   ;;
-        '--context')     set -- "$@" '-c'   ;;
-        '--path')        set -- "$@" '-b'   ;;
-        '--git')         set -- "$@" '-g'   ;;
-        *)               set -- "$@" "$arg" ;;
+        '--help')                       set -- "$@" '-h'   ;;
+        '--context')                    set -- "$@" '-c'   ;;
+        '--path')                       set -- "$@" '-b'   ;;
+        '--kustomization-name')         set -- "$@" '-k'   ;;
+        '--git')                        set -- "$@" '-g'   ;;
+        *)                              set -- "$@" "$arg" ;;
       esac
     done
 
     OPTIND=1
-    while getopts "hc:gb:" opt
+    while getopts "hc:gb:k:" opt
     do
       case "$opt" in
         'h') usage ;;
         'c') CONTEXT=$OPTARG ;;
         'g') WORKER_STATESTORE_TYPE=GitStateStore ;;
         'b') BUCKET_PATH=$OPTARG ;;
+        'k') KUSTOMIZATION_NAME=$OPTARG ;;
         *) usage 1 ;;
       esac
     done
@@ -64,6 +68,10 @@ patch_kind_networking() {
 
 patch_flux_resources() {
     local name="$(echo "${CONTEXT}" | cut -d "-" -f 2)"
+    if [[ ! $KUSTOMIZATION_NAME == "" ]]; then
+        name=$KUSTOMIZATION_NAME
+    fi
+
     sed "s/worker-1/${BUCKET_PATH}/g" |
         sed "s/kratix-workload-dependencies/kratix-${name}-dependencies/g" |
         sed "s/kratix-workload-resources/kratix-${name}-resources/g"
