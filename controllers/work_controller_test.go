@@ -19,6 +19,7 @@ package controllers_test
 import (
 	"context"
 	"errors"
+	v1 "k8s.io/apimachinery/pkg/apis/meta/v1"
 
 	. "github.com/onsi/ginkgo/v2"
 	. "github.com/onsi/gomega"
@@ -59,19 +60,30 @@ var _ = Describe("WorkReconciler", func() {
 			Name:      workResourceName,
 			Namespace: "default",
 		}
-		work = &v1alpha1.Work{}
-		work.Name = workResourceName
-		work.Namespace = "default"
-		work.Spec.Replicas = v1alpha1.ResourceRequestReplicas
-		work.Spec.WorkloadGroups = []v1alpha1.WorkloadGroup{
-			{
-				ID: hash.ComputeHash("."),
-				Workloads: []v1alpha1.Workload{
-					{
-						Content: "{someApi: foo, someValue: bar}",
-					},
-					{
-						Content: "{someApi: baz, someValue: bat}",
+		work = &v1alpha1.Work{
+			TypeMeta: v1.TypeMeta{
+				Kind:       "work",
+				APIVersion: "platform.kratix.io/v1alpha1",
+			},
+			ObjectMeta: v1.ObjectMeta{
+				Name:      workResourceName,
+				Namespace: "default",
+			},
+			Spec: v1alpha1.WorkSpec{
+				Replicas: v1alpha1.ResourceRequestReplicas,
+				WorkloadCoreFields: v1alpha1.WorkloadCoreFields{
+					WorkloadGroups: []v1alpha1.WorkloadGroup{
+						{
+							ID: hash.ComputeHash("."),
+							Workloads: []v1alpha1.Workload{
+								{
+									Content: "{someApi: foo, someValue: bar}",
+								},
+								{
+									Content: "{someApi: baz, someValue: bat}",
+								},
+							},
+						},
 					},
 				},
 			},
