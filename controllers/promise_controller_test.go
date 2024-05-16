@@ -2,6 +2,7 @@ package controllers_test
 
 import (
 	"context"
+	"encoding/json"
 	"os"
 	"regexp"
 	"sort"
@@ -17,6 +18,7 @@ import (
 	metav1 "k8s.io/apimachinery/pkg/apis/meta/v1"
 	"k8s.io/apimachinery/pkg/apis/meta/v1/unstructured"
 	"k8s.io/apimachinery/pkg/labels"
+	"k8s.io/apimachinery/pkg/runtime"
 	"k8s.io/apimachinery/pkg/types"
 	"k8s.io/apimachinery/pkg/util/yaml"
 	ctrl "sigs.k8s.io/controller-runtime"
@@ -65,21 +67,7 @@ var _ = Describe("PromiseController", func() {
 		When("the promise is being created", func() {
 			When("it contains everything apart from promise workflows", func() {
 				BeforeEach(func() {
-					promise = promiseFromFile(promisePath)
-					promiseName = types.NamespacedName{
-						Name:      promise.GetName(),
-						Namespace: promise.GetNamespace(),
-					}
-
-					promiseCommonLabels = map[string]string{
-						"kratix-promise-id":      promise.GetName(),
-						"kratix.io/promise-name": promise.GetName(),
-					}
-
-					Expect(fakeK8sClient.Create(ctx, promise)).To(Succeed())
-					Expect(fakeK8sClient.Get(ctx, promiseName, promise)).To(Succeed())
-					promise.UID = "1234abcd"
-					Expect(fakeK8sClient.Update(ctx, promise)).To(Succeed())
+					promise = createPromise(promisePath)
 				})
 
 				It("re-reconciles until completion", func() {
@@ -804,6 +792,65 @@ var _ = Describe("PromiseController", func() {
 
 		})
 	})
+
+	Describe("Promise API", func() {
+		When("the crd does not define additional printer columns", func() {
+			It("uses the default printer columns", func() {
+				promise = createPromise(promisePath)
+
+				result, err := t.reconcileUntilCompletion(reconciler, promise, &opts{
+					funcs: []func(client.Object) error{autoMarkCRDAsEstablished},
+				})
+				Expect(err).NotTo(HaveOccurred())
+				Expect(result).To(Equal(ctrl.Result{}))
+
+				crd, err := fakeApiExtensionsClient.CustomResourceDefinitions().Get(ctx, expectedCRDName, metav1.GetOptions{})
+				Expect(err).ToNot(HaveOccurred())
+				Expect(crd.Spec.Versions).To(HaveLen(1))
+
+				Expect(crd.Spec.Versions[0].AdditionalPrinterColumns).To(HaveLen(1))
+				Expect(crd.Spec.Versions[0].AdditionalPrinterColumns[0].Name).To(Equal("status"))
+				Expect(crd.Spec.Versions[0].AdditionalPrinterColumns[0].Type).To(Equal("string"))
+				Expect(crd.Spec.Versions[0].AdditionalPrinterColumns[0].JSONPath).To(Equal(".status.message"))
+			})
+		})
+
+		When("the crd defines additional printer columns", func() {
+			It("uses the additional printer columns as defined", func() {
+				promise = createPromise(promisePath)
+
+				promiseCrd, err := promise.GetAPIAsCRD()
+				Expect(err).ToNot(HaveOccurred())
+				promiseCrd.Spec.Versions[0].AdditionalPrinterColumns = []apiextensionsv1.CustomResourceColumnDefinition{
+					{
+						Name:     "MyField",
+						Type:     "string",
+						JSONPath: ".status.myfield",
+					},
+				}
+				b, err := json.Marshal(promiseCrd)
+				Expect(err).NotTo(HaveOccurred())
+				rawCrd := &runtime.RawExtension{Raw: b}
+				promise.Spec.API = rawCrd
+				Expect(fakeK8sClient.Update(ctx, promise)).To(Succeed())
+
+				result, err := t.reconcileUntilCompletion(reconciler, promise, &opts{
+					funcs: []func(client.Object) error{autoMarkCRDAsEstablished},
+				})
+
+				Expect(err).NotTo(HaveOccurred())
+				Expect(result).To(Equal(ctrl.Result{}))
+
+				crd, err := fakeApiExtensionsClient.CustomResourceDefinitions().Get(ctx, expectedCRDName, metav1.GetOptions{})
+				Expect(err).ToNot(HaveOccurred())
+
+				Expect(crd.Spec.Versions[0].AdditionalPrinterColumns).To(HaveLen(1))
+				Expect(crd.Spec.Versions[0].AdditionalPrinterColumns[0].Name).To(Equal("MyField"))
+				Expect(crd.Spec.Versions[0].AdditionalPrinterColumns[0].Type).To(Equal("string"))
+				Expect(crd.Spec.Versions[0].AdditionalPrinterColumns[0].JSONPath).To(Equal(".status.myfield"))
+			})
+		})
+	})
 })
 
 func autoMarkCRDAsEstablished(obj client.Object) error {
@@ -861,4 +908,25 @@ func getWork(namespace, promiseName, resourceName, pipelineName string) v1alpha1
 	ExpectWithOffset(1, works.Items).To(HaveLen(1))
 
 	return works.Items[0]
+}
+
+func createPromise(promisePath string) *v1alpha1.Promise {
+	promise := promiseFromFile(promisePath)
+	promiseName = types.NamespacedName{
+		Name:      promise.GetName(),
+		Namespace: promise.GetNamespace(),
+	}
+
+	promiseCommonLabels = map[string]string{
+		"kratix-promise-id":      promise.GetName(),
+		"kratix.io/promise-name": promise.GetName(),
+	}
+
+	Expect(fakeK8sClient.Create(ctx, promise)).To(Succeed())
+	Expect(fakeK8sClient.Get(ctx, promiseName, promise)).To(Succeed())
+	promise.UID = "1234abcd"
+	Expect(fakeK8sClient.Update(ctx, promise)).To(Succeed())
+
+	Expect(fakeK8sClient.Get(ctx, promiseName, promise)).To(Succeed())
+	return promise
 }

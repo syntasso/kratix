@@ -938,12 +938,14 @@ func setStatusFieldsOnCRD(rrCRD *apiextensionsv1.CustomResourceDefinition) {
 			Status: &apiextensionsv1.CustomResourceSubresourceStatus{},
 		}
 
-		rrCRD.Spec.Versions[i].AdditionalPrinterColumns = []apiextensionsv1.CustomResourceColumnDefinition{
-			{
-				Name:     "status",
-				Type:     "string",
-				JSONPath: ".status.message",
-			},
+		if len(rrCRD.Spec.Versions[i].AdditionalPrinterColumns) == 0 {
+			rrCRD.Spec.Versions[i].AdditionalPrinterColumns = []apiextensionsv1.CustomResourceColumnDefinition{
+				{
+					Name:     "status",
+					Type:     "string",
+					JSONPath: ".status.message",
+				},
+			}
 		}
 
 		rrCRD.Spec.Versions[i].Schema.OpenAPIV3Schema.Properties["status"] = apiextensionsv1.JSONSchemaProps{
