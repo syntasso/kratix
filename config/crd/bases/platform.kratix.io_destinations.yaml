@@ -46,14 +46,14 @@ spec:
                   destination.
                 properties:
                   type:
-                    default: nested
+                    default: nestedByMetadata
                     description: |-
                       The type of filepathExpression, either:
-                      - nested: files from the pipeline will be placed in a nested directory structure
-                      - flat: file from the pipeline will be placed in a flat directory structure
+                      - nestedByMetadata: files from the pipeline will be placed in a nested directory structure
+                      - none: file from the pipeline will be placed in a flat directory structure
                     enum:
-                    - nested
-                    - flat
+                    - nestedByMetadata
+                    - none
                     type: string
                 required:
                 - type
