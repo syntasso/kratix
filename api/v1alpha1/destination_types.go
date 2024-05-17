@@ -58,6 +58,32 @@ type DestinationSpec struct {
 	// to this destination, unless the destination label set is also empty
 	// +kubebuilder:validation:Optional
 	StrictMatchLabels bool `json:"strictMatchLabels,omitempty"`
+
+	//The directory mode to use when writing documents to the destination.
+	FilepathExpression FilepathExpression `json:"filepathExpression,omitempty"`
+}
+
+const (
+	FilepathExpressionTypeNone             = "none"
+	FilepathExpressionTypeNestedByMetadata = "nestedByMetadata"
+)
+
+type FilepathExpression struct {
+	//+kubebuilder:default:=nestedByMetadata
+	//+kubebuilder:validation:Enum:={nestedByMetadata,none}
+	//The type of filepathExpression, either:
+	// - nestedByMetadata: files from the pipeline will be placed in a nested directory structure
+	// - none: file from the pipeline will be placed in a flat directory structure
+	Type string `json:"type"`
+}
+
+// it gets defaulted by the K8s API, but for unit testing it wont be defaulted
+// since its not a real k8s api, so it may be empty when running unit tests.
+func (d *Destination) GetFilepathExpressionType() string {
+	if d.Spec.FilepathExpression.Type == "" {
+		return FilepathExpressionTypeNestedByMetadata
+	}
+	return d.Spec.FilepathExpression.Type
 }
 
 // DestinationStatus defines the observed state of Destination

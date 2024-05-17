@@ -28,6 +28,14 @@ const (
 	runDeleteWorkflowsFinalizer    = v1alpha1.KratixPrefix + "delete-workflows"
 )
 
+var (
+	newS3Writer func(logger logr.Logger, stateStoreSpec v1alpha1.BucketStateStoreSpec, destination v1alpha1.Destination,
+		creds map[string][]byte) (writers.StateStoreWriter, error) = writers.NewS3Writer
+
+	newGitWriter func(logger logr.Logger, stateStoreSpec v1alpha1.GitStateStoreSpec, destination v1alpha1.Destination,
+		creds map[string][]byte) (writers.StateStoreWriter, error) = writers.NewGitWriter
+)
+
 type StateStore interface {
 	client.Object
 	GetSecretRef() *v1.SecretReference
@@ -128,7 +136,7 @@ func newWriter(o opts, destination v1alpha1.Destination) (writers.StateStoreWrit
 			data = secret.Data
 		}
 
-		writer, err = writers.NewS3Writer(o.logger.WithName("writers").WithName("BucketStateStoreWriter"), stateStore.Spec, destination, data)
+		writer, err = newS3Writer(o.logger.WithName("writers").WithName("BucketStateStoreWriter"), stateStore.Spec, destination, data)
 	case "GitStateStore":
 		stateStore := &v1alpha1.GitStateStore{}
 		secret, fetchErr := fetchObjectAndSecret(o, stateStoreRef, stateStore)
@@ -136,7 +144,7 @@ func newWriter(o opts, destination v1alpha1.Destination) (writers.StateStoreWrit
 			return nil, fetchErr
 		}
 
-		writer, err = writers.NewGitWriter(o.logger.WithName("writers").WithName("GitStateStoreWriter"), stateStore.Spec, destination, secret.Data)
+		writer, err = newGitWriter(o.logger.WithName("writers").WithName("GitStateStoreWriter"), stateStore.Spec, destination, secret.Data)
 	default:
 		return nil, fmt.Errorf("unsupported kind %s", destination.Spec.StateStoreRef.Kind)
 	}
