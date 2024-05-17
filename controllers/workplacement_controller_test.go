@@ -98,8 +98,8 @@ var _ = Describe("WorkplacementReconciler", func() {
 				Name: "test-destination",
 			},
 			Spec: v1alpha1.DestinationSpec{
-				FilepathExpression: v1alpha1.FilepathExpression{
-					Type: v1alpha1.FilepathExpressionTypeNone,
+				Filepath: v1alpha1.Filepath{
+					Mode: v1alpha1.FilepathExpressionTypeNone,
 				},
 				StateStoreRef: &v1alpha1.StateStoreReference{
 					//Set in the tests beforeach
@@ -239,7 +239,7 @@ var _ = Describe("WorkplacementReconciler", func() {
 
 				destination.Spec.StateStoreRef.Kind = "GitStateStore"
 				destination.Spec.StateStoreRef.Name = "test-state-store"
-				destination.Spec.FilepathExpression.Type = v1alpha1.FilepathExpressionTypeNestedByMetadata
+				destination.Spec.Filepath.Mode = v1alpha1.FilepathExpressionTypeNestedByMetadata
 				Expect(fakeK8sClient.Create(ctx, &destination)).To(Succeed())
 				controllers.SetNewGitWriter(func(logger logr.Logger, stateStoreSpec v1alpha1.GitStateStoreSpec, destination v1alpha1.Destination,
 					creds map[string][]byte) (writers.StateStoreWriter, error) {
