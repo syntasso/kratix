@@ -32,7 +32,7 @@ executors:
 filter-for-tags: &filter-for-tags
   filters:
     tags:
-      only: /^v.*/
+      only: latest
     branches:
       ignore: /.*/
 
