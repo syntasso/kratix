@@ -389,7 +389,7 @@ jobs:
     docker:
       - image: cimg/base:current
     environment:
-      VERSION: << pipeline.git.tag >>
+      VERSION: latest
     resource_class: large
     steps:
       - attach_workspace:
@@ -402,7 +402,6 @@ jobs:
             git add kratix/
             git diff --cached --quiet && exit 0 || true
 
-            ./scripts/bump-minor kratix/
             git add kratix/
             git commit -m"update kratix package"
             git push origin main
