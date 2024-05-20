@@ -369,7 +369,7 @@ jobs:
       - run:
           name: bump minor version and push tag
           command: |
-            ./scripts/tag-new-version
+            ./scripts/tag-latest-version
 
   gh-release:
     docker:
