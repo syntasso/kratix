@@ -44,7 +44,7 @@ spec:
               filepath:
                 description: The filepath mode to use when writing files to the destination.
                 properties:
-                  type:
+                  mode:
                     default: nestedByMetadata
                     description: |-
                       The type of filepathExpression, either:
@@ -55,7 +55,7 @@ spec:
                     - none
                     type: string
                 required:
-                - type
+                - mode
                 type: object
               path:
                 description: |-

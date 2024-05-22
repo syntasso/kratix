@@ -38,9 +38,6 @@ type StateStoreCoreFields struct {
 
 // DestinationSpec defines the desired state of Destination
 type DestinationSpec struct {
-	// INSERT ADDITIONAL SPEC FIELDS - desired state of destination
-	// Important: Run "make" to regenerate code after modifying this file
-
 	// Path within StateStore to write documents, this will be appended to any
 	// specficed Spec.Path provided in the referenced StateStore.
 	// Kratix will then namespace any resources within the provided path.
@@ -76,7 +73,7 @@ type Filepath struct {
 	//The type of filepathExpression, either:
 	// - nestedByMetadata (default): files from the pipeline will be placed in a nested directory structure
 	// - none: file from the pipeline will be placed in a flat directory structure
-	Mode string `json:"type"`
+	Mode string `json:"mode"`
 }
 
 // it gets defaulted by the K8s API, but for unit testing it wont be defaulted
