@@ -59,7 +59,7 @@ type DestinationSpec struct {
 	// +kubebuilder:validation:Optional
 	StrictMatchLabels bool `json:"strictMatchLabels,omitempty"`
 
-	//The directory mode to use when writing documents to the destination.
+	//The filepath mode to use when writing files to the destination.
 	Filepath Filepath `json:"filepath,omitempty"`
 }
 
@@ -74,7 +74,7 @@ type Filepath struct {
 	//+kubebuilder:default:=nestedByMetadata
 	//+kubebuilder:validation:Enum:={nestedByMetadata,none}
 	//The type of filepathExpression, either:
-	// - nestedByMetadata: files from the pipeline will be placed in a nested directory structure
+	// - nestedByMetadata (default): files from the pipeline will be placed in a nested directory structure
 	// - none: file from the pipeline will be placed in a flat directory structure
 	Mode string `json:"type"`
 }

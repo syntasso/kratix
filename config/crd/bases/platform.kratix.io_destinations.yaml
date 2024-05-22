@@ -42,14 +42,13 @@ spec:
             description: DestinationSpec defines the desired state of Destination
             properties:
               filepath:
-                description: The directory mode to use when writing documents to the
-                  destination.
+                description: The filepath mode to use when writing files to the destination.
                 properties:
                   type:
                     default: nestedByMetadata
                     description: |-
                       The type of filepathExpression, either:
-                      - nestedByMetadata: files from the pipeline will be placed in a nested directory structure
+                      - nestedByMetadata (default): files from the pipeline will be placed in a nested directory structure
                       - none: file from the pipeline will be placed in a flat directory structure
                     enum:
                     - nestedByMetadata

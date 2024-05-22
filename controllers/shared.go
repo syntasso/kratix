@@ -150,7 +150,6 @@ func newWriter(o opts, destination v1alpha1.Destination) (writers.StateStoreWrit
 	}
 
 	if err != nil {
-		//TODO: should this be a retryable error?
 		o.logger.Error(err, "unable to create StateStoreWriter")
 		return nil, err
 	}
