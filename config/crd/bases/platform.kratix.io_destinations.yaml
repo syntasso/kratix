@@ -41,6 +41,22 @@ spec:
           spec:
             description: DestinationSpec defines the desired state of Destination
             properties:
+              filepath:
+                description: The filepath mode to use when writing files to the destination.
+                properties:
+                  type:
+                    default: nestedByMetadata
+                    description: |-
+                      The type of filepathExpression, either:
+                      - nestedByMetadata (default): files from the pipeline will be placed in a nested directory structure
+                      - none: file from the pipeline will be placed in a flat directory structure
+                    enum:
+                    - nestedByMetadata
+                    - none
+                    type: string
+                required:
+                - type
+                type: object
               path:
                 description: |-
                   Path within the StateStore to write documents. This path should be allocated

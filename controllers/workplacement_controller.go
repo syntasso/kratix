@@ -84,6 +84,7 @@ func (r *WorkPlacementReconciler) Reconcile(ctx context.Context, req ctrl.Reques
 		logger: logger,
 	}
 
+	//Mock this out
 	writer, err := newWriter(opts, *destination)
 	if err != nil {
 		if errors.IsNotFound(err) {
@@ -100,7 +101,7 @@ func (r *WorkPlacementReconciler) Reconcile(ctx context.Context, req ctrl.Reques
 		return addFinalizers(opts, workPlacement, workPlacementFinalizers)
 	}
 
-	err = r.writeWorkloadsToStateStore(writer, *workPlacement, logger)
+	err = r.writeWorkloadsToStateStore(writer, *workPlacement, *destination, logger)
 	if err != nil {
 		logger.Error(err, "Error writing to repository, will try again in 5 seconds")
 		return defaultRequeue, err
@@ -129,8 +130,12 @@ func (r *WorkPlacementReconciler) deleteWorkPlacement(ctx context.Context, write
 	return fastRequeue, nil
 }
 
-func (r *WorkPlacementReconciler) writeWorkloadsToStateStore(writer writers.StateStoreWriter, workPlacement v1alpha1.WorkPlacement, logger logr.Logger) error {
-	err := writer.WriteDirWithObjects(writers.DeleteExistingContentsInDir, getDir(workPlacement), workPlacement.Spec.Workloads...)
+func (r *WorkPlacementReconciler) writeWorkloadsToStateStore(writer writers.StateStoreWriter, workPlacement v1alpha1.WorkPlacement, destination v1alpha1.Destination, logger logr.Logger) error {
+	dir := getDir(workPlacement)
+	if destination.GetFilepathExpressionType() == v1alpha1.FilepathExpressionTypeNone {
+		dir = ""
+	}
+	err := writer.WriteDirWithObjects(writers.DeleteExistingContentsInDir, dir, workPlacement.Spec.Workloads...)
 	if err != nil {
 		logger.Error(err, "Error writing resources to repository")
 		return err

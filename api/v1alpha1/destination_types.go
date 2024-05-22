@@ -58,6 +58,34 @@ type DestinationSpec struct {
 	// to this destination, unless the destination label set is also empty
 	// +kubebuilder:validation:Optional
 	StrictMatchLabels bool `json:"strictMatchLabels,omitempty"`
+
+	//The filepath mode to use when writing files to the destination.
+	Filepath Filepath `json:"filepath,omitempty"`
+}
+
+const (
+	//if modifying these dont forget to edit below where they are written as a
+	//kubebuilder comment for setting the default and Enum values.
+	FilepathExpressionTypeNone             = "none"
+	FilepathExpressionTypeNestedByMetadata = "nestedByMetadata"
+)
+
+type Filepath struct {
+	//+kubebuilder:default:=nestedByMetadata
+	//+kubebuilder:validation:Enum:={nestedByMetadata,none}
+	//The type of filepathExpression, either:
+	// - nestedByMetadata (default): files from the pipeline will be placed in a nested directory structure
+	// - none: file from the pipeline will be placed in a flat directory structure
+	Mode string `json:"type"`
+}
+
+// it gets defaulted by the K8s API, but for unit testing it wont be defaulted
+// since its not a real k8s api, so it may be empty when running unit tests.
+func (d *Destination) GetFilepathExpressionType() string {
+	if d.Spec.Filepath.Mode == "" {
+		return FilepathExpressionTypeNestedByMetadata
+	}
+	return d.Spec.Filepath.Mode
 }
 
 // DestinationStatus defines the observed state of Destination
