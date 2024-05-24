@@ -51,7 +51,7 @@ type FeatureFlagSpec struct {
 	// DestinationSelectors is a list of selectors that determine which destinations
 	// this feature flag applies to. If empty, the feature flag applies to all
 	// destinations.
-	DestinationSelectors FeatureFlagSelectors `json:"destinationSelectors,omitempty"`
+	DestinationSelectors []FeatureFlagSelectors `json:"destinationSelectors,omitempty"`
 }
 
 type FeatureFlagSelectors struct {

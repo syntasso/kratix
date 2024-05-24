@@ -25,7 +25,7 @@ func (r *FeatureFlagReconciler) Reconcile(ctx context.Context, req ctrl.Request)
 		return ctrl.Result{}, client.IgnoreNotFound(err)
 	}
 
-	// TODO: What do we actually want to reconcile here?
+	// TODO: What do we actually want to reconcile here? Updating the status, maybe?
 
 	return ctrl.Result{}, nil
 }

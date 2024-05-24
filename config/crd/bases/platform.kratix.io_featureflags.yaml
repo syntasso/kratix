@@ -46,12 +46,14 @@ spec:
                   DestinationSelectors is a list of selectors that determine which destinations
                   this feature flag applies to. If empty, the feature flag applies to all
                   destinations.
-                properties:
-                  matchLabels:
-                    additionalProperties:
-                      type: string
-                    type: object
-                type: object
+                items:
+                  properties:
+                    matchLabels:
+                      additionalProperties:
+                        type: string
+                      type: object
+                  type: object
+                type: array
               enabled:
                 description: Enabled indicates if the feature flag is enabled
                 type: boolean

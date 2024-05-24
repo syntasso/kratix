@@ -21,6 +21,7 @@ import (
 	"path/filepath"
 
 	"k8s.io/apimachinery/pkg/api/errors"
+	"k8s.io/apimachinery/pkg/types"
 
 	v1 "k8s.io/api/core/v1"
 	metav1 "k8s.io/apimachinery/pkg/apis/meta/v1"
@@ -31,6 +32,10 @@ import (
 	"github.com/go-logr/logr"
 	"github.com/syntasso/kratix/api/v1alpha1"
 	"github.com/syntasso/kratix/lib/writers"
+)
+
+const (
+	featureFlagWriteExampleManifests = "write-example-manifests-to-destinations"
 )
 
 // DestinationReconciler reconciles a Destination object
@@ -57,6 +62,7 @@ func (r *DestinationReconciler) Reconcile(ctx context.Context, req ctrl.Request)
 
 	destination := &v1alpha1.Destination{}
 	logger.Info("Registering Destination", "requestName", req.Name)
+	logger.Info("TESTING")
 	if err := r.Client.Get(ctx, client.ObjectKey{Name: req.Name}, destination); err != nil {
 		if errors.IsNotFound(err) {
 			return ctrl.Result{}, nil
@@ -82,6 +88,34 @@ func (r *DestinationReconciler) Reconcile(ctx context.Context, req ctrl.Request)
 	path := filepath.Join(destination.Spec.Path, destination.Name)
 	logger = logger.WithValues("path", path)
 
+	// TODO: Instead of this function call, we could watch for changes to the Destination
+	// CRD and triggering all Works to reconcile on every change.
+	if err := r.Scheduler.ReconcileAllDependencyWorks(); err != nil {
+		logger.Error(err, "unable to schedule destination resources")
+		return defaultRequeue, nil
+	}
+
+	// Get the feature flag to figure out if we should write the example files
+	featureFlag := &v1alpha1.FeatureFlag{}
+	featureFlagNamespacedName := types.NamespacedName{
+		Namespace: destination.Namespace,
+		Name:      featureFlagWriteExampleManifests,
+	}
+	if err := r.Client.Get(ctx, featureFlagNamespacedName, featureFlag); err != nil {
+		if errors.IsNotFound(err) {
+			logger.Info("Feature flag not found, skipping writing example manifests")
+			return defaultRequeue, nil
+		}
+		return ctrl.Result{}, err
+	}
+
+	logger.Info("Feature flag found", "enabled", featureFlag.Spec.Enabled)
+
+	if !featureFlag.Spec.Enabled {
+		logger.Info("Feature flag is disabled, skipping writing example manifests")
+		return ctrl.Result{}, nil
+	}
+
 	if err := r.createDependenciesPathWithExample(writer); err != nil {
 		logger.Error(err, "unable to write dependencies to state store")
 		return defaultRequeue, nil
@@ -89,13 +123,6 @@ func (r *DestinationReconciler) Reconcile(ctx context.Context, req ctrl.Request)
 
 	if err := r.createResourcePathWithExample(writer); err != nil {
 		logger.Error(err, "unable to write dependencies to state store")
-		return defaultRequeue, nil
-	}
-
-	// TODO: Instead of this function call, we could watch for changes to the Destination
-	// CRD and triggering all Works to reconcile on every change.
-	if err := r.Scheduler.ReconcileAllDependencyWorks(); err != nil {
-		logger.Error(err, "unable to schedule destination resources")
 		return defaultRequeue, nil
 	}
 	return ctrl.Result{}, nil
