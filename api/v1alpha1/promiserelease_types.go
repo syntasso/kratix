@@ -20,18 +20,18 @@ import (
 	metav1 "k8s.io/apimachinery/pkg/apis/meta/v1"
 )
 
-const (
-	TypeHTTP = "http"
-)
+const TypeHTTP = "http"
 
 // PromiseReleaseSpec defines the desired state of PromiseRelease
 type PromiseReleaseSpec struct {
-	Version   string    `json:"version,omitempty"`
-	SourceRef SourceRef `json:"sourceRef,omitempty"`
+	Version string `json:"version,omitempty"`
+	// +kubebuilder:default:={type: "http"}
+	SourceRef SourceRef `json:"sourceRef"`
 }
 
 type SourceRef struct {
-	Type string `json:"type,omitempty"`
+	// +kubebuilder:validation:Enum:={http}
+	Type string `json:"type"`
 	URL  string `json:"url,omitempty"`
 }
 

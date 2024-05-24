@@ -49,14 +49,22 @@ spec:
             description: PromiseReleaseSpec defines the desired state of PromiseRelease
             properties:
               sourceRef:
+                default:
+                  type: http
                 properties:
                   type:
+                    enum:
+                    - http
                     type: string
                   url:
                     type: string
+                required:
+                - type
                 type: object
               version:
                 type: string
+            required:
+            - sourceRef
             type: object
           status:
             description: PromiseReleaseStatus defines the observed state of PromiseRelease
