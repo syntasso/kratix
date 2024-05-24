@@ -1,0 +1,10 @@
+apiVersion: platform.kratix.io/v1alpha1
+kind: FeatureFlag
+metadata:
+  name: write-example-manifests-to-destinations
+spec:
+  description: "Whether to write example manifests to destinations."
+  # destinationSelectors:
+  #   - matchLabels:
+  #       environment: dev
+  enabled: false
