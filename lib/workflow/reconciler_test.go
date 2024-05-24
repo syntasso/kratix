@@ -737,10 +737,6 @@ func markJobAsFailed(name string) {
 	markJobAs(batchv1.JobFailed, name)
 }
 
-func markJobAsSuspended(name string) {
-	markJobAs(batchv1.JobSuspended, name)
-}
-
 func markJobAs(conditionType batchv1.JobConditionType, name string) {
 	job := &batchv1.Job{}
 	Expect(fakeK8sClient.Get(ctx, types.NamespacedName{

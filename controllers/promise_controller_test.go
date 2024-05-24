@@ -5,7 +5,6 @@ import (
 	"encoding/json"
 	"os"
 	"regexp"
-	"sort"
 	"strings"
 
 	"github.com/go-logr/logr"
@@ -869,15 +868,6 @@ func autoMarkCRDAsEstablished(obj client.Object) error {
 		return err
 	}
 	return nil
-}
-
-func sortJobsByCreationDateTime(jobs []batchv1.Job) []batchv1.Job {
-	sort.Slice(jobs, func(i, j int) bool {
-		t1 := jobs[i].GetCreationTimestamp().Time
-		t2 := jobs[j].GetCreationTimestamp().Time
-		return t1.Before(t2)
-	})
-	return jobs
 }
 
 func getWork(namespace, promiseName, resourceName, pipelineName string) v1alpha1.Work {

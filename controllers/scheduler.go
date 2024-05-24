@@ -274,22 +274,6 @@ func (s *Scheduler) labelWorkplacementAsMisscheduled(workPlacement *v1alpha1.Wor
 	workPlacement.SetLabels(newLabels)
 }
 
-func misscheduledWorkPlacements(listA, listB []v1alpha1.WorkPlacement) []v1alpha1.WorkPlacement {
-	mb := make(map[string]struct{}, len(listB))
-	for _, x := range listB {
-		mb[x.GetNamespace()+"/"+x.GetName()] = struct{}{}
-	}
-
-	var diff []v1alpha1.WorkPlacement
-	for _, x := range listA {
-		if _, found := mb[x.GetNamespace()+"/"+x.GetName()]; !found {
-			diff = append(diff, x)
-		}
-	}
-
-	return diff
-}
-
 func (s *Scheduler) getExistingWorkPlacementsForWorkloadGroup(namespace, workName string, workloadGroup v1alpha1.WorkloadGroup) ([]v1alpha1.WorkPlacement, error) {
 	return s.listWorkplacementWithLabels(namespace, map[string]string{
 		workLabelKey:       workName,

@@ -35,16 +35,13 @@ const (
 	PromiseStatusAvailable   = "Available"
 	PromiseStatusUnavailable = "Unavailable"
 	PromisePlural            = "promises"
-
-	KratixResourceHashLabel = "kratix.io/hash"
+	KratixResourceHashLabel  = "kratix.io/hash"
 )
 
 // NOTE: json tags are required.  Any new fields you add must have json tags for the fields to be serialized.
 
 // PromiseSpec defines the desired state of Promise
 type PromiseSpec struct {
-
-	// Important: Run "make" to regenerate code after modifying this file
 
 	// TODO (has since been merged!): apiextension.CustomResourceDefinitionSpec struct(s) don't have the required jsontags and
 	// cannot be used as a Type. See https://github.com/kubernetes-sigs/controller-tools/pull/528

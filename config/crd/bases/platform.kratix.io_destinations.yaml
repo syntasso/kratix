@@ -42,20 +42,23 @@ spec:
             description: DestinationSpec defines the desired state of Destination
             properties:
               filepath:
+                default:
+                  mode: nestedByMetadata
                 description: The filepath mode to use when writing files to the destination.
                 properties:
                   mode:
-                    default: nestedByMetadata
                     description: |-
-                      The type of filepathExpression, either:
+                      The  of filepathExpression, either:
                       - nestedByMetadata (default): files from the pipeline will be placed in a nested directory structure
                       - none: file from the pipeline will be placed in a flat directory structure
+                      filepath.mode is immutable
                     enum:
                     - nestedByMetadata
                     - none
                     type: string
-                required:
-                - mode
+                    x-kubernetes-validations:
+                    - message: filepath.mode is immutable
+                      rule: self == oldSelf
                 type: object
               path:
                 description: |-

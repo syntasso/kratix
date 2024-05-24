@@ -44,19 +44,6 @@ var _ = Describe("PromiseReleaseWebhook", func() {
 		}
 	})
 
-	When("source ref is unknown", func() {
-		It("errors on create and update", func() {
-			pr.Spec.SourceRef.Type = "ssh"
-			warnings, err := pr.ValidateCreate()
-			Expect(warnings).To(BeEmpty())
-			Expect(err).To(MatchError("unknown sourceRef type \"ssh\""))
-
-			warnings, err = pr.ValidateUpdate(pr)
-			Expect(warnings).To(BeEmpty())
-			Expect(err).To(MatchError("unknown sourceRef type \"ssh\""))
-		})
-	})
-
 	When("URL is empty", func() {
 		It("errors on create and update", func() {
 			pr.Spec.SourceRef.URL = ""

@@ -57,6 +57,7 @@ type DestinationSpec struct {
 	StrictMatchLabels bool `json:"strictMatchLabels,omitempty"`
 
 	//The filepath mode to use when writing files to the destination.
+	// +kubebuilder:default:={mode: "nestedByMetadata"}
 	Filepath Filepath `json:"filepath,omitempty"`
 }
 
@@ -68,12 +69,13 @@ const (
 )
 
 type Filepath struct {
-	//+kubebuilder:default:=nestedByMetadata
-	//+kubebuilder:validation:Enum:={nestedByMetadata,none}
-	//The type of filepathExpression, either:
+	// +kubebuilder:validation:Enum:={nestedByMetadata,none}
+	// +kubebuilder:validation:XValidation:rule="self == oldSelf",message="filepath.mode is immutable"
+	// The  of filepathExpression, either:
 	// - nestedByMetadata (default): files from the pipeline will be placed in a nested directory structure
 	// - none: file from the pipeline will be placed in a flat directory structure
-	Mode string `json:"mode"`
+	// filepath.mode is immutable
+	Mode string `json:"mode,omitempty"`
 }
 
 // it gets defaulted by the K8s API, but for unit testing it wont be defaulted

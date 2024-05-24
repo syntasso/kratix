@@ -73,27 +73,20 @@ func (r *PromiseRelease) ValidateCreate() (admission.Warnings, error) {
 
 func (r *PromiseRelease) ValidateUpdate(old runtime.Object) (admission.Warnings, error) {
 	promisereleaselog.Info("validate update", "name", r.Name)
-	// oldPromiseRelease, _ := old.(*PromiseRelease)
 	if err := r.validate(); err != nil {
 		return nil, err
 	}
-
 	return nil, nil
-}
-
-func (r *PromiseRelease) validate() error {
-	if r.Spec.SourceRef.Type != TypeHTTP {
-		return fmt.Errorf("unknown sourceRef type %q", r.Spec.SourceRef.Type)
-	}
-
-	if r.Spec.SourceRef.URL == "" {
-		return fmt.Errorf("sourceRef.url must be set")
-	}
-
-	return nil
 }
 
 func (r *PromiseRelease) ValidateDelete() (admission.Warnings, error) {
 	// promisereleaselog.Info("validate delete", "name", r.Name)
 	return nil, nil
+}
+
+func (r *PromiseRelease) validate() error {
+	if r.Spec.SourceRef.URL == "" {
+		return fmt.Errorf("sourceRef.url must be set")
+	}
+	return nil
 }

@@ -8,7 +8,6 @@ import (
 	"github.com/syntasso/kratix/api/v1alpha1"
 	"github.com/syntasso/kratix/lib/resourceutil"
 	"github.com/syntasso/kratix/lib/writers"
-	batchv1 "k8s.io/api/batch/v1"
 	v1 "k8s.io/api/core/v1"
 	"k8s.io/apimachinery/pkg/api/errors"
 	metav1 "k8s.io/apimachinery/pkg/apis/meta/v1"
@@ -154,35 +153,6 @@ func newWriter(o opts, destination v1alpha1.Destination) (writers.StateStoreWrit
 		return nil, err
 	}
 	return writer, nil
-}
-
-func getJobsWithLabels(o opts, jobLabels map[string]string, namespace string) ([]batchv1.Job, error) {
-	selectorLabels := labels.FormatLabels(jobLabels)
-	selector, err := labels.Parse(selectorLabels)
-
-	if err != nil {
-		return nil, fmt.Errorf("error parsing labels %v: %w", jobLabels, err)
-	}
-
-	listOps := &client.ListOptions{
-		LabelSelector: selector,
-		Namespace:     namespace,
-	}
-
-	jobs := &batchv1.JobList{}
-	err = o.client.List(o.ctx, jobs, listOps)
-	if err != nil {
-		o.logger.Error(err, "error listing jobs", "selectors", selector.String())
-		return nil, err
-	}
-	return jobs.Items, nil
-}
-
-func or(a, b string) string {
-	if a != "" {
-		return a
-	}
-	return b
 }
 
 func shortID(id string) string {
