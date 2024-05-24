@@ -41,21 +41,39 @@ type FeatureFlagList struct {
 	Items           []FeatureFlag `json:"items"`
 }
 
+// TODO: Think about this abstraction in a lot more detail! The aim was something
+// like "I want this feature turned on in dev but not prod" so I went for the
+// DestinationSelectors approach, but I didn't put too much thought into it and it
+// feels a bit off.
+//
+// On second thoughts, maybe it's okay... "I want this feature turned on whenever I'm
+// scheduling to a destination with label X" might be a reasonable use case?
+//
+// It makes a bit more sense with the DefaultEnabled field, which is a "catch all" for
+// destinations that don't match any selectors.
+
 type FeatureFlagSpec struct {
 	// Description of the feature flag
 	Description string `json:"description,omitempty"`
 
-	// Enabled indicates if the feature flag is enabled
-	Enabled bool `json:"enabled,omitempty"`
-
-	// DestinationSelectors is a list of selectors that determine which destinations
-	// this feature flag applies to. If empty, the feature flag applies to all
-	// destinations.
+	// DestinationSelectors is a list of selectors that allows toggling features per
+	// destination.
+	// Any destination that matches any of the selectors will have the feature flag
+	// enabled according to the Enabled field in the selector.
+	// Any destination that doesn't match any of the selectors will have the feature flag
+	// enabled according to the DefaultEnabled field.
 	DestinationSelectors []FeatureFlagSelectors `json:"destinationSelectors,omitempty"`
+
+	// DefaultEnabled indicates if the feature flag is enabled by default (i.e. the
+	// behaviour for destinations that don't match any selectors).
+	DefaultEnabled bool `json:"defaultEnabled,omitempty"`
 }
 
 type FeatureFlagSelectors struct {
 	MatchLabels map[string]string `json:"matchLabels,omitempty"`
+
+	// Enabled indicates if the feature flag is enabled
+	Enabled bool `json:"enabled,omitempty"`
 }
 
 func init() {

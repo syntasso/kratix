@@ -3,8 +3,9 @@ kind: FeatureFlag
 metadata:
   name: write-example-manifests-to-destinations
 spec:
-  description: "Whether to write example manifests to destinations."
-  # destinationSelectors:
-  #   - matchLabels:
-  #       environment: dev
-  enabled: false
+  description: "Whether to write example canary manifests to Destinations."
+  destinationSelectors:
+    - matchLabels:
+        environment: dev
+      enabled: false
+  defaultEnabled: true

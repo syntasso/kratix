@@ -62,6 +62,10 @@ func (r *DestinationReconciler) Reconcile(ctx context.Context, req ctrl.Request)
 
 	destination := &v1alpha1.Destination{}
 	logger.Info("Registering Destination", "requestName", req.Name)
+	// TODO: WHY IS THIS NOT WORKING?! :(
+	// For some reason, I can't see this log, and none of the changes are building/loading
+	// - I thought it was an image versioning issue, but build-and-load-kratix seems to be
+	// happening correctly... so what's going on?
 	logger.Info("TESTING")
 	if err := r.Client.Get(ctx, client.ObjectKey{Name: req.Name}, destination); err != nil {
 		if errors.IsNotFound(err) {
@@ -109,10 +113,19 @@ func (r *DestinationReconciler) Reconcile(ctx context.Context, req ctrl.Request)
 		return ctrl.Result{}, err
 	}
 
-	logger.Info("Feature flag found", "enabled", featureFlag.Spec.Enabled)
+	// Check if the feature flag's DestinationSelectors match this Destination's labels
+	enabled := featureFlag.Spec.DefaultEnabled
+	if featureFlag.Spec.DestinationSelectors != nil {
+		for _, selector := range featureFlag.Spec.DestinationSelectors {
+			if matchLabels(selector.MatchLabels, destination.Labels) {
+				enabled = selector.Enabled
+				break
+			}
+		}
+	}
 
-	if !featureFlag.Spec.Enabled {
-		logger.Info("Feature flag is disabled, skipping writing example manifests")
+	if !enabled {
+		logger.Info("Feature flag is disabled for this destination, skipping writing example manifests")
 		return ctrl.Result{}, nil
 	}
 
@@ -171,4 +184,14 @@ func (r *DestinationReconciler) SetupWithManager(mgr ctrl.Manager) error {
 	return ctrl.NewControllerManagedBy(mgr).
 		For(&v1alpha1.Destination{}).
 		Complete(r)
+}
+
+// TODO: There must be a common fn for this!
+func matchLabels(selectorLabels, resourceLabels map[string]string) bool {
+	for key, value := range selectorLabels {
+		if resourceLabels[key] != value {
+			return false
+		}
+	}
+	return true
 }

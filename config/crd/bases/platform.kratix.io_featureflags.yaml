@@ -38,25 +38,33 @@ spec:
             type: object
           spec:
             properties:
+              defaultEnabled:
+                description: |-
+                  DefaultEnabled indicates if the feature flag is enabled by default (i.e. the
+                  behaviour for destinations that don't match any selectors).
+                type: boolean
               description:
                 description: Description of the feature flag
                 type: string
               destinationSelectors:
                 description: |-
-                  DestinationSelectors is a list of selectors that determine which destinations
-                  this feature flag applies to. If empty, the feature flag applies to all
-                  destinations.
+                  DestinationSelectors is a list of selectors that allows toggling features per
+                  destination.
+                  Any destination that matches any of the selectors will have the feature flag
+                  enabled according to the Enabled field in the selector.
+                  Any destination that doesn't match any of the selectors will have the feature flag
+                  enabled according to the DefaultEnabled field.
                 items:
                   properties:
+                    enabled:
+                      description: Enabled indicates if the feature flag is enabled
+                      type: boolean
                     matchLabels:
                       additionalProperties:
                         type: string
                       type: object
                   type: object
                 type: array
-              enabled:
-                description: Enabled indicates if the feature flag is enabled
-                type: boolean
             type: object
         type: object
     served: true
