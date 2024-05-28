@@ -2,7 +2,6 @@ package writers
 
 import (
 	"fmt"
-	"io/fs"
 	"os"
 	"path/filepath"
 	"strings"
@@ -36,15 +35,7 @@ type gitAuthor struct {
 	Email string
 }
 
-const (
-	Add    string = "Add"
-	Delete string = "Delete"
-)
-
 func NewGitWriter(logger logr.Logger, stateStoreSpec v1alpha1.GitStateStoreSpec, destination v1alpha1.Destination, creds map[string][]byte) (StateStoreWriter, error) {
-
-	//if basic auth check this
-	//otherwise check ssh and build using ssh lib
 	var authMethod transport.AuthMethod
 	switch stateStoreSpec.AuthMethod {
 	case v1alpha1.SSHAuthMethod:
@@ -113,6 +104,125 @@ func NewGitWriter(logger logr.Logger, stateStoreSpec v1alpha1.GitStateStoreSpec,
 	}, nil
 }
 
+func (g *GitWriter) UpdateFiles(workPlacementName string, workloadsToCreate []v1alpha1.Workload, workloadsToDelete []string) error {
+	return g.update("", workPlacementName, workloadsToCreate, workloadsToDelete)
+}
+
+func (g *GitWriter) UpdateInDir(subDir, workPlacementName string, workloadsToCreate []v1alpha1.Workload) error {
+	return g.update(subDir, workPlacementName, workloadsToCreate, nil)
+}
+
+func (g *GitWriter) update(subDir, workPlacementName string, workloadsToCreate []v1alpha1.Workload, workloadsToDelete []string) error {
+	if len(workloadsToCreate) == 0 && len(workloadsToDelete) == 0 && subDir == "" {
+		return nil
+	}
+
+	dirInGitRepo := filepath.Join(g.path, subDir)
+	logger := g.Log.WithValues(
+		"dir", dirInGitRepo,
+		"branch", g.gitServer.Branch,
+	)
+
+	localTmpDir, repo, worktree, err := g.setupLocalDirectoryWithRepo(logger)
+	if err != nil {
+		return err
+	}
+	defer os.RemoveAll(filepath.Dir(localTmpDir))
+
+	err = g.deleteExistingFiles(subDir == "", dirInGitRepo, workloadsToDelete, worktree, logger)
+	if err != nil {
+		return err
+	}
+
+	for _, file := range workloadsToCreate {
+		//worker-cluster/resources/<rr-namespace>/<promise-name>/<rr-name>/foo/bar/baz.yaml
+		worktreeFilePath := filepath.Join(dirInGitRepo, file.Filepath)
+		log := logger.WithValues(
+			"filepath", worktreeFilePath,
+		)
+
+		///tmp/git-dir/worker-cluster/resources/<rr-namespace>/<promise-name>/<rr-name>/foo/bar/baz.yaml
+		absoluteFilePath := filepath.Join(localTmpDir, worktreeFilePath)
+
+		//We need to protect against paths containing `..`
+		//filepath.Join expands any '../' in the path to the actual, e.g. /tmp/foo/../ resolves to /tmp/
+		//To ensure they can't write to files on disk outside the tmp git repository we check the absolute path
+		//returned by `filepath.Join` is still contained with the git repository:
+		// Note: This means `../` can still be used, but only if the end result is still contained within the git repository
+		if !strings.HasPrefix(absoluteFilePath, localTmpDir) {
+			log.Error(nil, "path of file to write is not located within the git repostiory", "absolutePath", absoluteFilePath, "tmpDir", localTmpDir)
+			return nil //We don't want to retry as this isn't a recoverable error. Log error and return nil.
+		}
+
+		if err := os.MkdirAll(filepath.Dir(absoluteFilePath), 0700); err != nil {
+			log.Error(err, "could not generate local directories")
+			return err
+		}
+
+		if err := os.WriteFile(absoluteFilePath, []byte(file.Content), 0644); err != nil {
+			log.Error(err, "could not write to file")
+			return err
+		}
+
+		if _, err := worktree.Add(worktreeFilePath); err != nil {
+			log.Error(err, "could not add file to worktree")
+			return err
+		}
+	}
+
+	action := "Delete"
+	if len(workloadsToCreate) > 0 {
+		action = "Update"
+	}
+	return g.commitAndPush(repo, worktree, action, workPlacementName, logger)
+}
+
+// deleteExistingFiles removes all files in dir when removeDirectory is set to true
+// else it removes files listed in workloadsToDelete
+func (g *GitWriter) deleteExistingFiles(removeDirectory bool, dir string, workloadsToDelete []string, worktree *git.Worktree, logger logr.Logger) error {
+	if removeDirectory {
+		if _, err := worktree.Filesystem.Lstat(dir); err == nil {
+			logger.Info("deleting existing content")
+			if _, err := worktree.Remove(dir); err != nil {
+				logger.Error(err, "could not add directory deletion to worktree", "dir", dir)
+				return err
+			}
+		}
+	} else {
+		for _, file := range workloadsToDelete {
+			worktreeFilePath := filepath.Join(dir, file)
+			log := logger.WithValues(
+				"filepath", worktreeFilePath,
+			)
+			if _, err := worktree.Filesystem.Lstat(worktreeFilePath); err != nil {
+				log.Info("file requested to be deleted from worktree but does not exist")
+				continue
+			}
+			if _, err := worktree.Remove(worktreeFilePath); err != nil {
+				logger.Error(err, "could not remove file from worktree")
+				return err
+			}
+			logger.Info("successfully deleted file from worktree")
+		}
+	}
+	return nil
+}
+
+func (g *GitWriter) ReadFile(filePath string) ([]byte, error) {
+	logger := g.Log.WithValues(
+		"path", filePath,
+		"branch", g.gitServer.Branch,
+	)
+
+	localTmpDir, _, _, err := g.setupLocalDirectoryWithRepo(logger)
+	if err != nil {
+		return nil, err
+	}
+	defer os.RemoveAll(filepath.Dir(localTmpDir))
+
+	return os.ReadFile(filepath.Join(localTmpDir, filePath))
+}
+
 func (g *GitWriter) setupLocalDirectoryWithRepo(logger logr.Logger) (string, *git.Repository, *git.Worktree, error) {
 	localTmpDir, err := createLocalDirectory(logger)
 	if err != nil {
@@ -132,113 +242,6 @@ func (g *GitWriter) setupLocalDirectoryWithRepo(logger logr.Logger) (string, *gi
 		return "", nil, nil, err
 	}
 	return localTmpDir, repo, worktree, nil
-}
-
-func (g *GitWriter) WriteDirWithObjects(deleteExistingContentsInDir bool, subDir string, toWrite ...v1alpha1.Workload) error {
-	dirInGitRepo := filepath.Join(g.path, subDir)
-	logger := g.Log.WithValues(
-		"dir", dirInGitRepo,
-		"branch", g.gitServer.Branch,
-	)
-
-	if len(toWrite) == 0 {
-		logger.Info("Empty workloads. Nothing to write to Git")
-		return nil
-	}
-
-	localTmpDir, repo, worktree, err := g.setupLocalDirectoryWithRepo(logger)
-	if err != nil {
-		return err
-	}
-	defer os.RemoveAll(filepath.Dir(localTmpDir))
-
-	if deleteExistingContentsInDir {
-		logger.Info("checking if any existing directories needs to be deleted")
-		if _, err := worktree.Filesystem.Lstat(dirInGitRepo); err == nil {
-			logger.Info("deleting existing content")
-			if _, err := worktree.Remove(dirInGitRepo); err != nil {
-				logger.Error(err, "could not add directory deletion to worktree", "dir", dirInGitRepo)
-				return err
-			}
-		}
-	}
-
-	var filesCommitted []string
-	for _, item := range toWrite {
-		//worker-cluster/resources/<rr-namespace>/<promise-name>/<rr-name>/foo/bar/baz.yaml
-		worktreeFilePath := filepath.Join(dirInGitRepo, item.Filepath)
-		logger := logger.WithValues(
-			"filepath", worktreeFilePath,
-		)
-
-		///tmp/git-dir/worker-cluster/resources/<rr-namespace>/<promise-name>/<rr-name>/foo/bar/baz.yaml
-		absoluteFilePath := filepath.Join(localTmpDir, worktreeFilePath)
-
-		//We need to protect against paths containing `..`
-		//filepath.Join expands any '../' in the path to the actual, e.g. /tmp/foo/../ resolves to /tmp/
-		//To ensure they can't write to files on disk outside of the tmp git repository we check the absolute path
-		//returned by `filepath.Join` is still contained with the git repository:
-		// Note: This means `../` can still be used, but only if the end result is still contained within the git repository
-		if !strings.HasPrefix(absoluteFilePath, localTmpDir) {
-			logger.Error(nil, "path of file to write is not located within the git repostiory", "absolutePath", absoluteFilePath, "tmpDir", localTmpDir)
-			return nil //We don't want to retry as this isn't a recoverable error. Log error and return nil.
-		}
-
-		if err := os.MkdirAll(filepath.Dir(absoluteFilePath), 0700); err != nil {
-			logger.Error(err, "could not generate local directories")
-			return err
-		}
-
-		if err := os.WriteFile(absoluteFilePath, []byte(item.Content), 0644); err != nil {
-			logger.Error(err, "could not write to file")
-			return err
-		}
-
-		if _, err := worktree.Add(worktreeFilePath); err != nil {
-			logger.Error(err, "could not add file to worktree")
-			return err
-		}
-		filesCommitted = append(filesCommitted, worktreeFilePath)
-	}
-
-	return g.commitAndPush(repo, worktree, Add, filesCommitted, logger)
-}
-
-func (g *GitWriter) RemoveObject(filePath string) error {
-	logger := g.Log.WithValues("dir", g.path, "filepath", filePath)
-
-	localTmpDir, repo, worktree, err := g.setupLocalDirectoryWithRepo(logger)
-	if err != nil {
-		return err
-	}
-	defer os.RemoveAll(filepath.Dir(localTmpDir))
-
-	worktreeFilepath := filepath.Join(g.path, filePath)
-	if _, err := worktree.Filesystem.Lstat(worktreeFilepath); err == nil {
-		if _, err := worktree.Remove(worktreeFilepath); err != nil {
-			logger.Error(err, "could not remove file from worktree")
-			return err
-		}
-		logger.Info("successfully deleted file from worktree")
-	} else {
-		// Added for debugging purposes to help with bug #186921254
-		files := []string{}
-		walkFunc := func(s string, d fs.DirEntry, err error) error {
-			if err != nil {
-				return nil
-			}
-			files = append(files, s)
-			return nil
-		}
-		filepath.WalkDir(localTmpDir, walkFunc)
-		logger.Info("file does not exist on worktree, nothing to delete", "lstatErr", err, "allFiles", files)
-		return nil
-	}
-
-	if err := g.commitAndPush(repo, worktree, Delete, []string{worktreeFilepath}, logger); err != nil {
-		return err
-	}
-	return nil
 }
 
 func (g *GitWriter) push(repo *git.Repository, logger logr.Logger) error {
@@ -267,7 +270,7 @@ func (g *GitWriter) cloneRepo(localRepoFilePath string, logger logr.Logger) (*gi
 	})
 }
 
-func (g *GitWriter) commitAndPush(repo *git.Repository, worktree *git.Worktree, action string, filesToAdd []string, logger logr.Logger) error {
+func (g *GitWriter) commitAndPush(repo *git.Repository, worktree *git.Worktree, action, workPlacementName string, logger logr.Logger) error {
 	status, err := worktree.Status()
 	if err != nil {
 		logger.Error(err, "could not get worktree status")
@@ -279,9 +282,7 @@ func (g *GitWriter) commitAndPush(repo *git.Repository, worktree *git.Worktree, 
 		return nil
 	}
 
-	//should fileToAdd be here at all? is it valuable? specifically the fileToAdd parameter
-	logger.Info("committing changes", "filesAdded", filesToAdd)
-	_, err = worktree.Commit(fmt.Sprintf("%s: %v", action, filesToAdd), &git.CommitOptions{
+	_, err = worktree.Commit(fmt.Sprintf("%s from: %s", action, workPlacementName), &git.CommitOptions{
 		Author: &object.Signature{
 			Name:  g.author.Name,
 			Email: g.author.Email,

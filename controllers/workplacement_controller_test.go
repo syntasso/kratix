@@ -18,9 +18,7 @@ package controllers_test
 
 import (
 	"context"
-
-	corev1 "k8s.io/api/core/v1"
-	v1 "k8s.io/apimachinery/pkg/apis/meta/v1"
+	"fmt"
 	"k8s.io/apimachinery/pkg/types"
 
 	"github.com/go-logr/logr"
@@ -30,13 +28,13 @@ import (
 	"github.com/syntasso/kratix/lib/hash"
 	"github.com/syntasso/kratix/lib/writers"
 	"github.com/syntasso/kratix/lib/writers/writersfakes"
+	corev1 "k8s.io/api/core/v1"
+	v1 "k8s.io/apimachinery/pkg/apis/meta/v1"
 	ctrl "sigs.k8s.io/controller-runtime"
 
 	"github.com/syntasso/kratix/api/v1alpha1"
 	//+kubebuilder:scaffold:imports
 )
-
-var workplacement *v1alpha1.Work
 
 var _ = Describe("WorkplacementReconciler", func() {
 	var (
@@ -66,7 +64,8 @@ var _ = Describe("WorkplacementReconciler", func() {
 
 		workloads = []v1alpha1.Workload{
 			{
-				Content: "{someApi: foo, someValue: bar}",
+				Filepath: "fruit.yaml",
+				Content:  "{someApi: foo, someValue: bar}",
 			},
 		}
 		workPlacement = v1alpha1.WorkPlacement{
@@ -99,19 +98,15 @@ var _ = Describe("WorkplacementReconciler", func() {
 			},
 			Spec: v1alpha1.DestinationSpec{
 				Filepath: v1alpha1.Filepath{
-					Mode: v1alpha1.FilepathExpressionTypeNone,
+					Mode: v1alpha1.FilepathModeNone,
 				},
-				StateStoreRef: &v1alpha1.StateStoreReference{
-					//Set in the tests beforeach
-					// Kind: "Git/BucketStateStore",
-					// Name: "test-state-store",
-				},
+				StateStoreRef: &v1alpha1.StateStoreReference{},
 			},
 		}
 	})
 
 	When("the destination statestore is s3", func() {
-		When("the destination has filepathExpression type none", func() {
+		When("the destination has filepath mode of none", func() {
 			BeforeEach(func() {
 				Expect(fakeK8sClient.Create(ctx, &corev1.Secret{
 					TypeMeta: v1.TypeMeta{
@@ -161,45 +156,104 @@ var _ = Describe("WorkplacementReconciler", func() {
 					return fakeWriter, nil
 				})
 			})
-			It("calls the writer with an empty dir", func() {
+
+			It("reconciles", func() {
 				result, err := t.reconcileUntilCompletion(reconciler, &workPlacement)
 				Expect(err).NotTo(HaveOccurred())
 				Expect(result).To(Equal(ctrl.Result{}))
 
-				Expect(fakeWriter.WriteDirWithObjectsCallCount()).To(Equal(1))
-				deleteExistingDir, dir, workloadsToCreate := fakeWriter.WriteDirWithObjectsArgsForCall(0)
-				Expect(deleteExistingDir).To(BeTrue())
-				Expect(dir).To(Equal(""))
-				Expect(workloadsToCreate).To(Equal(workloads))
-			})
+				By("calling UpdateFiles()")
+				Expect(fakeWriter.UpdateFilesCallCount()).To(Equal(1))
+				Expect(fakeWriter.UpdateInDirCallCount()).To(Equal(0))
+				workPlacementName, workloadsToCreate, workloadsToDelete := fakeWriter.UpdateFilesArgsForCall(0)
+				Expect(workPlacementName).To(Equal(workPlacement.Name))
 
-			It("constructs the writer using the statestore and destination", func() {
-				result, err := t.reconcileUntilCompletion(reconciler, &workPlacement)
-				Expect(err).NotTo(HaveOccurred())
-				Expect(result).To(Equal(ctrl.Result{}))
+				By("writing workloads files and kratix state file")
+				Expect(workloadsToCreate).To(ConsistOf(append(workloads, v1alpha1.Workload{
+					Filepath: fmt.Sprintf(".kratix/%s-%s.yaml", workPlacement.Namespace, workPlacement.Name),
+					Content: `files:
+- fruit.yaml
+`,
+				})))
+				Expect(workloadsToDelete).To(BeNil())
 
+				By("constructing the writer using the statestore and destination")
 				Expect(argCreds).To(Equal(map[string][]byte{
 					"accessKeyID":     []byte("test-access"),
 					"secretAccessKey": []byte("test-secret"),
 				}))
 				Expect(argDestination).To(Equal(destination))
 				Expect(argBucketStateStoreSpec).To(Equal(bucketStateStore.Spec))
-			})
 
-			It("sets the finalizer", func() {
-				result, err := t.reconcileUntilCompletion(reconciler, &workPlacement)
-				Expect(err).NotTo(HaveOccurred())
-				Expect(result).To(Equal(ctrl.Result{}))
+				By("setting the finalizer")
 				workplacement := &v1alpha1.WorkPlacement{}
 				Expect(fakeK8sClient.Get(ctx, types.NamespacedName{Name: workplacementName, Namespace: "default"}, workplacement)).
 					To(Succeed())
 				Expect(workplacement.GetFinalizers()).To(ContainElement("finalizers.workplacement.kratix.io/repo-cleanup"))
+
+			})
+
+			When("deleting a workplacement", func() {
+				BeforeEach(func() {
+					result, err := t.reconcileUntilCompletion(reconciler, &workPlacement)
+					Expect(err).NotTo(HaveOccurred())
+					Expect(result).To(Equal(ctrl.Result{}))
+				})
+
+				It("calls UpdateFiles()", func() {
+					fakeWriter.ReadFileReturns([]byte(`
+files: 
+  - fruit.yaml`), nil)
+					Expect(fakeK8sClient.Delete(ctx, &workPlacement)).To(Succeed())
+					result, err := t.reconcileUntilCompletion(reconciler, &workPlacement)
+					Expect(err).NotTo(HaveOccurred())
+					Expect(result).To(Equal(ctrl.Result{}))
+
+					Expect(fakeWriter.UpdateFilesCallCount()).To(Equal(2))
+					Expect(fakeWriter.UpdateInDirCallCount()).To(Equal(0))
+					Expect(fakeWriter.ReadFileCallCount()).To(Equal(2))
+					Expect(fakeWriter.ReadFileArgsForCall(1)).To(Equal(fmt.Sprintf(".kratix/%s-%s.yaml", workPlacement.Namespace, workPlacement.Name)))
+
+					workPlacementName, workloadsToCreate, workloadsToDelete := fakeWriter.UpdateFilesArgsForCall(1)
+					Expect(workPlacementName).To(Equal(workPlacement.Name))
+					Expect(workloadsToCreate).To(BeNil())
+					Expect(workloadsToDelete).To(ConsistOf("fruit.yaml"))
+				})
+			})
+
+			When("statestore and workplacement.spec.workloads has diverged", func() {
+				It("reflects workplacement.spec.workloads", func() {
+					fakeWriter.ReadFileReturns([]byte(`
+files:
+  - banana.yaml
+  - apple.yaml
+  - fruit.yaml`), nil)
+
+					result, err := t.reconcileUntilCompletion(reconciler, &workPlacement)
+					Expect(err).NotTo(HaveOccurred())
+					Expect(result).To(Equal(ctrl.Result{}))
+
+					Expect(fakeWriter.ReadFileCallCount()).To(Equal(1))
+					Expect(fakeWriter.ReadFileArgsForCall(0)).To(Equal(fmt.Sprintf(".kratix/%s-%s.yaml", workPlacement.Namespace, workPlacement.Name)))
+
+					Expect(fakeWriter.UpdateFilesCallCount()).To(Equal(1))
+					Expect(fakeWriter.UpdateInDirCallCount()).To(Equal(0))
+					workPlacementName, workloadsToCreate, workloadsToDelete := fakeWriter.UpdateFilesArgsForCall(0)
+					Expect(workPlacementName).To(Equal(workPlacement.Name))
+					Expect(workloadsToCreate).To(ConsistOf(append(workloads, v1alpha1.Workload{
+						Filepath: fmt.Sprintf(".kratix/%s-%s.yaml", workPlacement.Namespace, workPlacement.Name),
+						Content: `files:
+- fruit.yaml
+`,
+					})))
+					Expect(workloadsToDelete).To(ConsistOf("banana.yaml", "apple.yaml"))
+				})
 			})
 		})
 	})
 
 	When("the destination statestore is git", func() {
-		When("the destination has filepathExpression type nestedByMetdata", func() {
+		When("the destination has filepath mode of nestedByMetadata", func() {
 			BeforeEach(func() {
 				Expect(fakeK8sClient.Create(ctx, &corev1.Secret{
 					TypeMeta: v1.TypeMeta{
@@ -239,7 +293,7 @@ var _ = Describe("WorkplacementReconciler", func() {
 
 				destination.Spec.StateStoreRef.Kind = "GitStateStore"
 				destination.Spec.StateStoreRef.Name = "test-state-store"
-				destination.Spec.Filepath.Mode = v1alpha1.FilepathExpressionTypeNestedByMetadata
+				destination.Spec.Filepath.Mode = v1alpha1.FilepathModeNestedByMetadata
 				Expect(fakeK8sClient.Create(ctx, &destination)).To(Succeed())
 				controllers.SetNewGitWriter(func(logger logr.Logger, stateStoreSpec v1alpha1.GitStateStoreSpec, destination v1alpha1.Destination,
 					creds map[string][]byte) (writers.StateStoreWriter, error) {
@@ -255,10 +309,11 @@ var _ = Describe("WorkplacementReconciler", func() {
 				Expect(err).NotTo(HaveOccurred())
 				Expect(result).To(Equal(ctrl.Result{}))
 
-				Expect(fakeWriter.WriteDirWithObjectsCallCount()).To(Equal(1))
-				deleteExistingDir, dir, workloadsToCreate := fakeWriter.WriteDirWithObjectsArgsForCall(0)
-				Expect(deleteExistingDir).To(BeTrue())
+				Expect(fakeWriter.UpdateInDirCallCount()).To(Equal(1))
+				Expect(fakeWriter.UpdateFilesCallCount()).To(Equal(0))
+				dir, workPlacementName, workloadsToCreate := fakeWriter.UpdateInDirArgsForCall(0)
 				Expect(dir).To(Equal("resources/default/test-promise/test-resource/5058f"))
+				Expect(workPlacementName).To(Equal(workPlacement.Name))
 				Expect(workloadsToCreate).To(Equal(workloads))
 			})
 
@@ -283,12 +338,15 @@ var _ = Describe("WorkplacementReconciler", func() {
 					Expect(err).NotTo(HaveOccurred())
 					Expect(result).To(Equal(ctrl.Result{}))
 
-					Expect(fakeWriter.WriteDirWithObjectsCallCount()).To(Equal(1))
-					deleteExistingDir, dir, _ := fakeWriter.WriteDirWithObjectsArgsForCall(0)
-					Expect(deleteExistingDir).To(BeTrue())
+					Expect(fakeWriter.UpdateInDirCallCount()).To(Equal(1))
+					Expect(fakeWriter.UpdateFilesCallCount()).To(Equal(0))
+					dir, workPlacementName, workloadsToCreate := fakeWriter.UpdateInDirArgsForCall(0)
 					Expect(dir).To(Equal("dependencies/test-promise/5058f"))
+					Expect(workPlacementName).To(Equal(workPlacement.Name))
+					Expect(workloadsToCreate).To(Equal(workloads))
 				})
 			})
 		})
+
 	})
 })

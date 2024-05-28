@@ -72,21 +72,52 @@ func NewS3Writer(logger logr.Logger, stateStoreSpec v1alpha1.BucketStateStoreSpe
 	}, nil
 }
 
-func (b *S3Writer) WriteDirWithObjects(deleteExistingContentsInDir bool, dir string, toWrite ...v1alpha1.Workload) error {
-	logger := b.Log.WithValues(
-		"bucketName", b.BucketName,
-		"path", b.path,
-	)
+func (b *S3Writer) ReadFile(filename string) ([]byte, error) {
+	obj, err := b.RepoClient.GetObject(context.Background(), b.BucketName, filepath.Join(b.path, filename), minio.GetObjectOptions{})
+	if err != nil {
+		return nil, err
+	}
+	defer obj.Close()
+
+	var content []byte
+	if _, err = obj.Read(content); err != nil {
+		return nil, err
+	}
+	return content, nil
+}
+
+func (b *S3Writer) UpdateFiles(_ string, workloadsToCreate []v1alpha1.Workload, workloadsToDelete []string) error {
+	return b.update("", workloadsToCreate, workloadsToDelete)
+}
+
+func (b *S3Writer) UpdateInDir(subDir, _ string, workloadsToCreate []v1alpha1.Workload) error {
+	return b.update(subDir, workloadsToCreate, nil)
+}
+
+func (b *S3Writer) update(subDir string, workloadsToCreate []v1alpha1.Workload, workloadsToDelete []string) error {
+	ctx := context.Background()
+	logger := b.Log.WithValues("bucketName", b.BucketName, "path", b.path)
 
 	objectsToDeleteMap := map[string]minio.ObjectInfo{}
-	ctx := context.Background()
 
 	//Get a list of all the old workload files, we delete any that aren't part of the new workload at the end of this function.
-	if deleteExistingContentsInDir {
+	if subDir != "" {
 		var err error
-		objectsToDeleteMap, err = b.getObjectsInDir(ctx, dir, logger)
+		objectsToDeleteMap, err = b.getObjectsInDir(ctx, subDir, logger)
 		if err != nil {
 			return err
+		}
+	} else {
+		for _, work := range workloadsToDelete {
+			objStat, err := b.RepoClient.StatObject(ctx, b.BucketName, filepath.Join(b.path, work), minio.GetObjectOptions{})
+			if err != nil {
+				if minio.ToErrorResponse(err).Code != "NoSuchKey" {
+					logger.Error(err, "Error fetching object")
+					return err
+				}
+				logger.Info("Object does not exist yet")
+			}
+			objectsToDeleteMap[objStat.Key] = objStat
 		}
 	}
 
@@ -97,41 +128,34 @@ func (b *S3Writer) WriteDirWithObjects(deleteExistingContentsInDir bool, dir str
 		logger.Info("Bucket provided does not exist (or the provided keys don't have permissions)")
 	}
 
-	for _, item := range toWrite {
-		objectFullPath := filepath.Join(b.path, dir, item.Filepath)
-		// Make sure we don't delete this object, remove this object from the map
+	for _, work := range workloadsToCreate {
+		objectFullPath := filepath.Join(b.path, subDir, work.Filepath)
 		delete(objectsToDeleteMap, objectFullPath)
+		log := logger.WithValues("objectName", objectFullPath)
 
-		logger := b.Log.WithValues(
-			"objectName", objectFullPath,
-		)
-
-		ctx := context.Background()
-
-		reader := bytes.NewReader([]byte(item.Content))
-
+		reader := bytes.NewReader([]byte(work.Content))
 		objStat, err := b.RepoClient.StatObject(ctx, b.BucketName, objectFullPath, minio.GetObjectOptions{})
 		if err != nil {
 			if minio.ToErrorResponse(err).Code != "NoSuchKey" {
-				logger.Error(err, "Error fetching object")
+				log.Error(err, "Error fetching object")
 				return err
 			}
-			logger.Info("Object does not exist yet")
+			log.Info("Object does not exist yet")
 		} else {
-			contentMd5 := fmt.Sprintf("%x", md5.Sum([]byte(item.Content)))
+			contentMd5 := fmt.Sprintf("%x", md5.Sum([]byte(work.Content)))
 			if objStat.ETag == contentMd5 {
-				logger.Info("Content has not changed, will not re-write to bucket")
+				log.Info("Content has not changed, will not re-write to bucket")
 				continue
 			}
 		}
 
-		logger.Info("Writing object to bucket")
+		log.Info("Writing object to bucket")
 		_, err = b.RepoClient.PutObject(ctx, b.BucketName, objectFullPath, reader, reader.Size(), minio.PutObjectOptions{})
 		if err != nil {
-			logger.Error(err, "Error writing object to bucket")
+			log.Error(err, "Error writing object to bucket")
 			return err
 		}
-		logger.Info("Object written to bucket")
+		log.Info("Object written to bucket")
 	}
 
 	return b.deleteObjects(ctx, objectsToDeleteMap, logger)

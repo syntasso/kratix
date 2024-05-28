@@ -84,7 +84,6 @@ spec:
     %s
   container1Cmd: |
     %s`
-	storeType string
 
 	templateImperativePlatformNamespace      = "%s-platform-imperative"
 	templateDeclarativePlatformNamespace     = "%s-platform-declarative"
@@ -402,6 +401,10 @@ var _ = Describe("Kratix", func() {
 				platform.eventuallyKubectlDelete("promise", bashPromiseName)
 				platform.kubectl("delete", "namespace", oldRRImperativePlatformNamespace)
 				Eventually(platform.kubectl("get", "promise")).ShouldNot(ContainSubstring(bashPromiseName))
+			})
+
+			XContext("filepathMode set to none", func() {
+
 			})
 		})
 
