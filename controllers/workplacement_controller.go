@@ -18,10 +18,11 @@ package controllers
 
 import (
 	"context"
+	"errors"
 	"fmt"
 	"github.com/go-logr/logr"
 	"gopkg.in/yaml.v2"
-	"k8s.io/apimachinery/pkg/api/errors"
+	k8sErrors "k8s.io/apimachinery/pkg/api/errors"
 	"k8s.io/apimachinery/pkg/types"
 	"path/filepath"
 	ctrl "sigs.k8s.io/controller-runtime"
@@ -66,7 +67,7 @@ func (r *WorkPlacementReconciler) Reconcile(ctx context.Context, req ctrl.Reques
 	workPlacement := &v1alpha1.WorkPlacement{}
 	err := r.Client.Get(context.Background(), req.NamespacedName, workPlacement)
 	if err != nil {
-		if errors.IsNotFound(err) {
+		if k8sErrors.IsNotFound(err) {
 			return ctrl.Result{}, nil
 		}
 		logger.Error(err, "Error getting WorkPlacement", "workPlacement", req.Name)
@@ -92,7 +93,7 @@ func (r *WorkPlacementReconciler) Reconcile(ctx context.Context, req ctrl.Reques
 	//Mock this out
 	writer, err := newWriter(opts, *destination)
 	if err != nil {
-		if errors.IsNotFound(err) {
+		if k8sErrors.IsNotFound(err) {
 			return defaultRequeue, nil
 		}
 		return ctrl.Result{}, err
@@ -119,17 +120,18 @@ func (r *WorkPlacementReconciler) deleteWorkPlacement(ctx context.Context, write
 	if !controllerutil.ContainsFinalizer(workPlacement, repoCleanupWorkPlacementFinalizer) {
 		return ctrl.Result{}, nil
 	}
-
-	logger.Info("cleaning up files on repository", "repository", workPlacement.Name)
+	logger.Info("cleaning up work on repository", "workplacement", workPlacement.Name)
 
 	var err error
 	if filePathMode == v1alpha1.FilepathModeNone {
 		var kratixFile []byte
 		if kratixFile, err = writer.ReadFile(fmt.Sprintf(".kratix/%s-%s.yaml", workPlacement.Namespace, workPlacement.Name)); err != nil {
+			logger.Error(err, "failed to read .kratix state file")
 			return defaultRequeue, err
 		}
 		stateFile := StateFile{}
 		if err = yaml.Unmarshal(kratixFile, &stateFile); err != nil {
+			logger.Error(err, "failed to unmarshall .kratix state file")
 			return defaultRequeue, err
 		}
 		err = writer.UpdateFiles(workPlacement.Name, nil, stateFile.Files)
@@ -154,27 +156,26 @@ func (r *WorkPlacementReconciler) writeWorkloadsToStateStore(writer writers.Stat
 	var err error
 	if destination.GetFilepathMode() == v1alpha1.FilepathModeNone {
 		var kratixFile []byte
-		if kratixFile, err = writer.ReadFile(fmt.Sprintf(".kratix/%s-%s.yaml", workPlacement.Namespace, workPlacement.Name)); err != nil {
-			return err
+		if kratixFile, err = writer.ReadFile(fmt.Sprintf(".kratix/%s-%s.yaml", workPlacement.Namespace, workPlacement.Name)); ignoreNotFound(err) != nil {
+			return fmt.Errorf("failed to read .kratix state file: %s", err)
 		}
 		oldStateFile := StateFile{}
 		if err = yaml.Unmarshal(kratixFile, &oldStateFile); err != nil {
-			return err
+			return fmt.Errorf("failed to unmarshall .kratix state file: %s", err)
 		}
 
 		newStateFile := StateFile{
 			Files: workLoadsFilenames(workPlacement.Spec.Workloads),
 		}
-		stateFileContent, err := yaml.Marshal(newStateFile)
-		if err != nil {
-			return err
+		stateFileContent, marshalErr := yaml.Marshal(newStateFile)
+		if marshalErr != nil {
+			return fmt.Errorf("failed to marshal new .kratix state file: %s", err)
 		}
 
 		stateFileWorkload := v1alpha1.Workload{
 			Filepath: fmt.Sprintf(".kratix/%s-%s.yaml", workPlacement.Namespace, workPlacement.Name),
 			Content:  string(stateFileContent),
 		}
-
 		err = writer.UpdateFiles(workPlacement.Name, append(workPlacement.Spec.Workloads, stateFileWorkload), cleanupWorkloads(oldStateFile.Files, workPlacement.Spec.Workloads))
 	} else {
 		err = writer.UpdateInDir(getDir(workPlacement), workPlacement.Name, workPlacement.Spec.Workloads)
@@ -185,6 +186,13 @@ func (r *WorkPlacementReconciler) writeWorkloadsToStateStore(writer writers.Stat
 		return err
 	}
 	return nil
+}
+
+func ignoreNotFound(err error) error {
+	if errors.Is(err, writers.FileNotFound) {
+		return nil
+	}
+	return err
 }
 
 func workLoadsFilenames(works []v1alpha1.Workload) []string {

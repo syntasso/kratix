@@ -214,11 +214,15 @@ func (g *GitWriter) ReadFile(filePath string) ([]byte, error) {
 		"branch", g.gitServer.Branch,
 	)
 
-	localTmpDir, _, _, err := g.setupLocalDirectoryWithRepo(logger)
+	localTmpDir, _, worktree, err := g.setupLocalDirectoryWithRepo(logger)
 	if err != nil {
 		return nil, err
 	}
 	defer os.RemoveAll(filepath.Dir(localTmpDir))
+
+	if _, err := worktree.Filesystem.Lstat(filePath); err != nil {
+		return nil, FileNotFound
+	}
 
 	return os.ReadFile(filepath.Join(localTmpDir, filePath))
 }

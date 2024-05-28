@@ -323,8 +323,9 @@ var _ = Describe("Kratix", func() {
 
 				By("mirroring the directory and files from /kratix/output to the statestore", func() {
 					if getEnvOrDefault("TEST_SKIP_BUCKET_CHECK", "false") != "true" {
-						Expect(listFilesMinIOInStateStore(worker.name, "default", bashPromiseName, rrName, firstPipelineName)).To(ConsistOf("5058f/foo/example.json", "5058f/namespace.yaml"))
-						Expect(listFilesMinIOInStateStore(worker.name, "default", bashPromiseName, rrName, secondPipelineName)).To(ConsistOf("5058f/configmap.yaml"))
+						Expect(listFilesInMinIOStateStore(filepath.Join(worker.name, "resources", "default", bashPromiseName, rrName, firstPipelineName))).To(ConsistOf("5058f/foo/example.json",
+							fmt.Sprintf("5058f/namespace-%s.yaml", rrName)))
+						Expect(listFilesInMinIOStateStore(filepath.Join(worker.name, "resources", "default", bashPromiseName, rrName, secondPipelineName))).To(ConsistOf("5058f/configmap.yaml"))
 					}
 				})
 
@@ -401,10 +402,6 @@ var _ = Describe("Kratix", func() {
 				platform.eventuallyKubectlDelete("promise", bashPromiseName)
 				platform.kubectl("delete", "namespace", oldRRImperativePlatformNamespace)
 				Eventually(platform.kubectl("get", "promise")).ShouldNot(ContainSubstring(bashPromiseName))
-			})
-
-			XContext("filepathMode set to none", func() {
-
 			})
 		})
 
@@ -685,7 +682,59 @@ var _ = Describe("Kratix", func() {
 			platform.kubectl("label", "destination", platform.name, "security-", removeBashPromiseUniqueLabel)
 		})
 	})
+
+	Describe("filepathMode set to none", func() {
+		It("manages output files from multiple resource requests", func() {
+			bashPromise.Spec.DestinationSelectors = []v1alpha1.PromiseScheduling{{
+				MatchLabels: map[string]string{
+					"environment": "terraform",
+				},
+			}}
+
+			platform.eventuallyKubectl("apply", "-f", cat(bashPromise))
+			platform.eventuallyKubectl("get", "crd", crd.Name)
+			rrNameOne := bashPromiseName + "terraform-1"
+			platform.kubectl("apply", "-f", terraformRequeset(rrNameOne))
+			rrNameTwo := bashPromiseName + "terraform-2"
+			platform.kubectl("apply", "-f", terraformRequeset(rrNameTwo))
+
+			By("writing output files to the root of stateStore")
+			destinationName := "terraform"
+			Eventually(func() []string {
+				return listFilesInMinIOStateStore(destinationName)
+			}, shortTimeout, interval).Should(ContainElements(
+				fmt.Sprintf("%s.yaml", rrNameOne),
+				fmt.Sprintf("%s.yaml", rrNameTwo)))
+
+			By("removing only files associated with the resource request at deletion")
+			platform.kubectl("delete", crd.Name, rrNameOne)
+			Eventually(func() []string {
+				return listFilesInMinIOStateStore(destinationName)
+			}, shortTimeout, interval).ShouldNot(ContainElements(
+				fmt.Sprintf("%s.yaml", rrNameOne)))
+			Expect(listFilesInMinIOStateStore(destinationName)).To(ContainElements(fmt.Sprintf("%s.yaml", rrNameTwo)))
+		})
+	})
 })
+
+func terraformRequeset(name string) string {
+	request := unstructured.Unstructured{
+		Object: map[string]interface{}{
+			"apiVersion": "test.kratix.io/v1alpha1",
+			"kind":       bashPromiseName,
+			"metadata": map[string]interface{}{
+				"name": name,
+			},
+			"spec": map[string]interface{}{
+				"container0Cmd": fmt.Sprintf(`
+					touch /kratix/output/%s.yaml
+			`, name),
+				"container1Cmd": "exit 0",
+			},
+		},
+	}
+	return asFile(request)
+}
 
 func exampleBashRequest(name, namespaceSuffix string) string {
 	request := unstructured.Unstructured{
@@ -710,11 +759,11 @@ func exampleBashRequest(name, namespaceSuffix string) string {
 					kubectl delete namespace imperative-$(yq '.metadata.name' /kratix/input/object.yaml)-%[1]s
 				`, namespaceSuffix, namespaceSuffix),
 				"container1Cmd": fmt.Sprintf(`
-					kubectl create namespace declarative-$(yq '.metadata.name' /kratix/input/object.yaml)-%[1]s --dry-run=client -oyaml > /kratix/output/namespace.yaml
+					kubectl create namespace declarative-$(yq '.metadata.name' /kratix/input/object.yaml)-%[1]s --dry-run=client -oyaml > /kratix/output/namespace-%[2]s.yaml
 					mkdir /kratix/output/platform/
-					kubectl create namespace declarative-platform-only-$(yq '.metadata.name' /kratix/input/object.yaml)-%[1]s --dry-run=client -oyaml > /kratix/output/platform/namespace.yaml
+					kubectl create namespace declarative-platform-only-$(yq '.metadata.name' /kratix/input/object.yaml)-%[1]s --dry-run=client -oyaml > /kratix/output/platform/namespace-%[2]s.yaml
 					echo "[{\"matchLabels\":{\"environment\":\"platform\"}, \"directory\":\"platform\"}]" > /kratix/metadata/destination-selectors.yaml
-			`, namespaceSuffix),
+			`, namespaceSuffix, name),
 			},
 		},
 	}
@@ -856,31 +905,29 @@ func (c destination) withExitCode(code int) destination {
 	newDestination.exitCode = code
 	return newDestination
 }
-func listFilesMinIOInStateStore(destinationName, namespace, promiseName, resourceName, pipelineName string) []string {
-	paths := []string{}
-	resourceSubDir := filepath.Join(destinationName, "resources", namespace, promiseName, resourceName, pipelineName)
+
+func listFilesInMinIOStateStore(path string) []string {
+	files := []string{}
 
 	// Initialize minio client object.
 	minioClient, err := minio.New(endpoint, &minio.Options{
 		Creds:  credentials.NewStaticV4(accessKeyID, secretAccessKey, ""),
 		Secure: useSSL,
 	})
-	Expect(err).ToNot(HaveOccurred())
+	ExpectWithOffset(1, err).ToNot(HaveOccurred())
 
-	//worker-1/resources/default/redis/rr-test/configure/
 	objectCh := minioClient.ListObjects(context.TODO(), bucketName, minio.ListObjectsOptions{
-		Prefix:    resourceSubDir,
+		Prefix:    path,
 		Recursive: true,
 	})
 
 	for object := range objectCh {
-		Expect(object.Err).NotTo(HaveOccurred())
-
-		path, err := filepath.Rel(resourceSubDir, object.Key)
-		Expect(err).ToNot(HaveOccurred())
-		paths = append(paths, path)
+		ExpectWithOffset(1, object.Err).NotTo(HaveOccurred())
+		path, err := filepath.Rel(path, object.Key)
+		ExpectWithOffset(1, err).ToNot(HaveOccurred())
+		files = append(files, path)
 	}
-	return paths
+	return files
 }
 
 func generateUniquePromise(promisePath string) *v1alpha1.Promise {

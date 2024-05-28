@@ -1,6 +1,9 @@
 package writers
 
-import "github.com/syntasso/kratix/api/v1alpha1"
+import (
+	"fmt"
+	"github.com/syntasso/kratix/api/v1alpha1"
+)
 
 //go:generate go run github.com/maxbrunsfeld/counterfeiter/v6 . StateStoreWriter
 type StateStoreWriter interface {
@@ -8,3 +11,5 @@ type StateStoreWriter interface {
 	UpdateInDir(subDir, workPlacementName string, workloadsToCreate []v1alpha1.Workload) error
 	ReadFile(filename string) ([]byte, error)
 }
+
+var FileNotFound = fmt.Errorf("file not found")

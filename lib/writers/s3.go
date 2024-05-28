@@ -73,17 +73,25 @@ func NewS3Writer(logger logr.Logger, stateStoreSpec v1alpha1.BucketStateStoreSpe
 }
 
 func (b *S3Writer) ReadFile(filename string) ([]byte, error) {
+	_, err := b.RepoClient.StatObject(context.Background(), b.BucketName, filepath.Join(b.path, filename), minio.GetObjectOptions{})
+	if err != nil {
+		if minio.ToErrorResponse(err).Code == "NoSuchKey" {
+			return nil, FileNotFound
+		}
+		return nil, err
+	}
+
 	obj, err := b.RepoClient.GetObject(context.Background(), b.BucketName, filepath.Join(b.path, filename), minio.GetObjectOptions{})
 	if err != nil {
 		return nil, err
 	}
 	defer obj.Close()
 
-	var content []byte
-	if _, err = obj.Read(content); err != nil {
-		return nil, err
-	}
-	return content, nil
+	buf := new(bytes.Buffer)
+	buf.ReadFrom(obj)
+
+	return buf.Bytes(), nil
+
 }
 
 func (b *S3Writer) UpdateFiles(_ string, workloadsToCreate []v1alpha1.Workload, workloadsToDelete []string) error {

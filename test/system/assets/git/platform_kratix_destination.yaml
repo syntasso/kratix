@@ -9,3 +9,16 @@ spec:
   stateStoreRef:
     name: default
     kind: GitStateStore
+---
+apiVersion: platform.kratix.io/v1alpha1
+kind: Destination
+metadata:
+  name: terraform
+  labels:
+    environment: terraform
+spec:
+  filepath:
+    mode: none
+  stateStoreRef:
+    name: default
+    kind: BucketStateStore
