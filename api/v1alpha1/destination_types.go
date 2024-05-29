@@ -62,16 +62,16 @@ type DestinationSpec struct {
 }
 
 const (
-	//if modifying these dont forget to edit below where they are written as a
-	//kubebuilder comment for setting the default and Enum values.
-	FilepathExpressionTypeNone             = "none"
-	FilepathExpressionTypeNestedByMetadata = "nestedByMetadata"
+	// if modifying these dont forget to edit below where they are written as a
+	// kubebuilder comment for setting the default and Enum values.
+	FilepathModeNone             = "none"
+	FilepathModeNestedByMetadata = "nestedByMetadata"
 )
 
 type Filepath struct {
 	// +kubebuilder:validation:Enum:={nestedByMetadata,none}
 	// +kubebuilder:validation:XValidation:rule="self == oldSelf",message="filepath.mode is immutable"
-	// The  of filepathExpression, either:
+	// filepath.mode can be set to either:
 	// - nestedByMetadata (default): files from the pipeline will be placed in a nested directory structure
 	// - none: file from the pipeline will be placed in a flat directory structure
 	// filepath.mode is immutable
@@ -80,9 +80,9 @@ type Filepath struct {
 
 // it gets defaulted by the K8s API, but for unit testing it wont be defaulted
 // since its not a real k8s api, so it may be empty when running unit tests.
-func (d *Destination) GetFilepathExpressionType() string {
+func (d *Destination) GetFilepathMode() string {
 	if d.Spec.Filepath.Mode == "" {
-		return FilepathExpressionTypeNestedByMetadata
+		return FilepathModeNestedByMetadata
 	}
 	return d.Spec.Filepath.Mode
 }

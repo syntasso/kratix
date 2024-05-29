@@ -18,11 +18,13 @@ package controllers
 
 import (
 	"context"
-	"path/filepath"
-
+	"errors"
+	"fmt"
 	"github.com/go-logr/logr"
-	"k8s.io/apimachinery/pkg/api/errors"
+	"gopkg.in/yaml.v2"
+	k8sErrors "k8s.io/apimachinery/pkg/api/errors"
 	"k8s.io/apimachinery/pkg/types"
+	"path/filepath"
 	ctrl "sigs.k8s.io/controller-runtime"
 	"sigs.k8s.io/controller-runtime/pkg/client"
 	"sigs.k8s.io/controller-runtime/pkg/controller/controllerutil"
@@ -36,6 +38,10 @@ const (
 	resourcesDir    = "resources"
 	dependenciesDir = "dependencies"
 )
+
+type StateFile struct {
+	Files []string `json:"files"`
+}
 
 // WorkPlacementReconciler reconciles a WorkPlacement object
 type WorkPlacementReconciler struct {
@@ -61,7 +67,7 @@ func (r *WorkPlacementReconciler) Reconcile(ctx context.Context, req ctrl.Reques
 	workPlacement := &v1alpha1.WorkPlacement{}
 	err := r.Client.Get(context.Background(), req.NamespacedName, workPlacement)
 	if err != nil {
-		if errors.IsNotFound(err) {
+		if k8sErrors.IsNotFound(err) {
 			return ctrl.Result{}, nil
 		}
 		logger.Error(err, "Error getting WorkPlacement", "workPlacement", req.Name)
@@ -87,14 +93,14 @@ func (r *WorkPlacementReconciler) Reconcile(ctx context.Context, req ctrl.Reques
 	//Mock this out
 	writer, err := newWriter(opts, *destination)
 	if err != nil {
-		if errors.IsNotFound(err) {
+		if k8sErrors.IsNotFound(err) {
 			return defaultRequeue, nil
 		}
 		return ctrl.Result{}, err
 	}
 
 	if !workPlacement.DeletionTimestamp.IsZero() {
-		return r.deleteWorkPlacement(ctx, writer, workPlacement, logger)
+		return r.deleteWorkPlacement(ctx, writer, workPlacement, destination.GetFilepathMode(), logger)
 	}
 
 	if resourceutil.FinalizersAreMissing(workPlacement, workPlacementFinalizers) {
@@ -110,13 +116,30 @@ func (r *WorkPlacementReconciler) Reconcile(ctx context.Context, req ctrl.Reques
 	return ctrl.Result{}, nil
 }
 
-func (r *WorkPlacementReconciler) deleteWorkPlacement(ctx context.Context, writer writers.StateStoreWriter, workPlacement *v1alpha1.WorkPlacement, logger logr.Logger) (ctrl.Result, error) {
+func (r *WorkPlacementReconciler) deleteWorkPlacement(ctx context.Context, writer writers.StateStoreWriter, workPlacement *v1alpha1.WorkPlacement, filePathMode string, logger logr.Logger) (ctrl.Result, error) {
 	if !controllerutil.ContainsFinalizer(workPlacement, repoCleanupWorkPlacementFinalizer) {
 		return ctrl.Result{}, nil
 	}
+	logger.Info("cleaning up work on repository", "workplacement", workPlacement.Name)
 
-	logger.Info("cleaning up files on repository", "repository", workPlacement.Name)
-	err := r.removeWorkFromRepository(writer, *workPlacement, logger)
+	var err error
+	if filePathMode == v1alpha1.FilepathModeNone {
+		var kratixFile []byte
+		kratixFilePath := fmt.Sprintf(".kratix/%s-%s.yaml", workPlacement.Namespace, workPlacement.Name)
+		if kratixFile, err = writer.ReadFile(kratixFilePath); err != nil {
+			logger.Error(err, "failed to read .kratix state file")
+			return defaultRequeue, err
+		}
+		stateFile := StateFile{}
+		if err = yaml.Unmarshal(kratixFile, &stateFile); err != nil {
+			logger.Error(err, "failed to unmarshal .kratix state file")
+			return defaultRequeue, err
+		}
+		err = writer.UpdateFiles(workPlacement.Name, nil, append(stateFile.Files, kratixFilePath))
+	} else {
+		err = writer.UpdateInDir(getDir(*workPlacement)+"/", workPlacement.Name, nil)
+	}
+
 	if err != nil {
 		logger.Error(err, "error removing work from repository, will try again in 5 seconds")
 		return defaultRequeue, err
@@ -131,27 +154,68 @@ func (r *WorkPlacementReconciler) deleteWorkPlacement(ctx context.Context, write
 }
 
 func (r *WorkPlacementReconciler) writeWorkloadsToStateStore(writer writers.StateStoreWriter, workPlacement v1alpha1.WorkPlacement, destination v1alpha1.Destination, logger logr.Logger) error {
-	dir := getDir(workPlacement)
-	if destination.GetFilepathExpressionType() == v1alpha1.FilepathExpressionTypeNone {
-		dir = ""
+	var err error
+	if destination.GetFilepathMode() == v1alpha1.FilepathModeNone {
+		var kratixFile []byte
+		if kratixFile, err = writer.ReadFile(fmt.Sprintf(".kratix/%s-%s.yaml", workPlacement.Namespace, workPlacement.Name)); ignoreNotFound(err) != nil {
+			return fmt.Errorf("failed to read .kratix state file: %s", err)
+		}
+		oldStateFile := StateFile{}
+		if err = yaml.Unmarshal(kratixFile, &oldStateFile); err != nil {
+			return fmt.Errorf("failed to unmarshal .kratix state file: %s", err)
+		}
+
+		newStateFile := StateFile{
+			Files: workloadsFilenames(workPlacement.Spec.Workloads),
+		}
+		stateFileContent, marshalErr := yaml.Marshal(newStateFile)
+		if marshalErr != nil {
+			return fmt.Errorf("failed to marshal new .kratix state file: %s", err)
+		}
+
+		stateFileWorkload := v1alpha1.Workload{
+			Filepath: fmt.Sprintf(".kratix/%s-%s.yaml", workPlacement.Namespace, workPlacement.Name),
+			Content:  string(stateFileContent),
+		}
+		err = writer.UpdateFiles(workPlacement.Name, append(workPlacement.Spec.Workloads, stateFileWorkload), cleanupWorkloads(oldStateFile.Files, workPlacement.Spec.Workloads))
+	} else {
+		err = writer.UpdateInDir(getDir(workPlacement), workPlacement.Name, workPlacement.Spec.Workloads)
 	}
-	err := writer.WriteDirWithObjects(writers.DeleteExistingContentsInDir, dir, workPlacement.Spec.Workloads...)
+
 	if err != nil {
 		logger.Error(err, "Error writing resources to repository")
 		return err
 	}
-
 	return nil
 }
 
-func (r *WorkPlacementReconciler) removeWorkFromRepository(writer writers.StateStoreWriter, workPlacement v1alpha1.WorkPlacement, logger logr.Logger) error {
-	//MinIO needs a trailing slash to delete a directory
-	dir := getDir(workPlacement) + "/"
-	if err := writer.RemoveObject(dir); err != nil {
-		logger.Error(err, "Error removing workloads from repository", "dir", dir)
-		return err
+func ignoreNotFound(err error) error {
+	if errors.Is(err, writers.FileNotFound) {
+		return nil
 	}
-	return nil
+	return err
+}
+
+func workloadsFilenames(works []v1alpha1.Workload) []string {
+	var result []string
+	for _, w := range works {
+		result = append(result, w.Filepath)
+	}
+	return result
+}
+
+func cleanupWorkloads(old []string, new []v1alpha1.Workload) []string {
+	works := make(map[string]bool)
+	for _, w := range new {
+		works[w.Filepath] = true
+	}
+	var result []string
+	for _, w := range old {
+		if _, ok := works[w]; !ok {
+			result = append(result, w)
+		}
+	}
+	return result
 }
 
 func getDir(workPlacement v1alpha1.WorkPlacement) string {

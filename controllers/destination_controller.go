@@ -18,20 +18,22 @@ package controllers
 
 import (
 	"context"
-	"path/filepath"
-
-	"k8s.io/apimachinery/pkg/api/errors"
-
+	"fmt"
 	v1 "k8s.io/api/core/v1"
 	metav1 "k8s.io/apimachinery/pkg/apis/meta/v1"
-	ctrl "sigs.k8s.io/controller-runtime"
-	"sigs.k8s.io/controller-runtime/pkg/client"
+	"path/filepath"
 	"sigs.k8s.io/yaml"
+
+	"k8s.io/apimachinery/pkg/api/errors"
 
 	"github.com/go-logr/logr"
 	"github.com/syntasso/kratix/api/v1alpha1"
 	"github.com/syntasso/kratix/lib/writers"
+	ctrl "sigs.k8s.io/controller-runtime"
+	"sigs.k8s.io/controller-runtime/pkg/client"
 )
+
+const canaryWorkload = "kratix-canary"
 
 // DestinationReconciler reconciles a Destination object
 type DestinationReconciler struct {
@@ -117,10 +119,9 @@ func (r *DestinationReconciler) createResourcePathWithExample(writer writers.Sta
 	}
 	nsBytes, _ := yaml.Marshal(kratixConfigMap)
 
-	return writer.WriteDirWithObjects(writers.PreserveExistingContentsInDir, resourcesDir, v1alpha1.Workload{
-		Filepath: "kratix-canary-configmap.yaml",
-		Content:  string(nsBytes),
-	})
+	return writer.UpdateFiles(canaryWorkload, []v1alpha1.Workload{{
+		Filepath: fmt.Sprintf("%s/kratix-canary-configmap.yaml", resourcesDir),
+		Content:  string(nsBytes)}}, nil)
 }
 
 func (r *DestinationReconciler) createDependenciesPathWithExample(writer writers.StateStoreWriter) error {
@@ -133,10 +134,9 @@ func (r *DestinationReconciler) createDependenciesPathWithExample(writer writers
 	}
 	nsBytes, _ := yaml.Marshal(kratixNamespace)
 
-	return writer.WriteDirWithObjects(writers.PreserveExistingContentsInDir, dependenciesDir, v1alpha1.Workload{
-		Filepath: "kratix-canary-namespace.yaml",
-		Content:  string(nsBytes),
-	})
+	return writer.UpdateFiles(canaryWorkload, []v1alpha1.Workload{{
+		Filepath: fmt.Sprintf("%s/kratix-canary-namespace.yaml", dependenciesDir),
+		Content:  string(nsBytes)}}, nil)
 }
 
 // SetupWithManager sets up the controller with the Manager.

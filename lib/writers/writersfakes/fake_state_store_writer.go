@@ -9,109 +9,137 @@ import (
 )
 
 type FakeStateStoreWriter struct {
-	RemoveObjectStub        func(string) error
-	removeObjectMutex       sync.RWMutex
-	removeObjectArgsForCall []struct {
+	ReadFileStub        func(string) ([]byte, error)
+	readFileMutex       sync.RWMutex
+	readFileArgsForCall []struct {
 		arg1 string
 	}
-	removeObjectReturns struct {
+	readFileReturns struct {
+		result1 []byte
+		result2 error
+	}
+	readFileReturnsOnCall map[int]struct {
+		result1 []byte
+		result2 error
+	}
+	UpdateFilesStub        func(string, []v1alpha1.Workload, []string) error
+	updateFilesMutex       sync.RWMutex
+	updateFilesArgsForCall []struct {
+		arg1 string
+		arg2 []v1alpha1.Workload
+		arg3 []string
+	}
+	updateFilesReturns struct {
 		result1 error
 	}
-	removeObjectReturnsOnCall map[int]struct {
+	updateFilesReturnsOnCall map[int]struct {
 		result1 error
 	}
-	WriteDirWithObjectsStub        func(bool, string, ...v1alpha1.Workload) error
-	writeDirWithObjectsMutex       sync.RWMutex
-	writeDirWithObjectsArgsForCall []struct {
-		arg1 bool
+	UpdateInDirStub        func(string, string, []v1alpha1.Workload) error
+	updateInDirMutex       sync.RWMutex
+	updateInDirArgsForCall []struct {
+		arg1 string
 		arg2 string
 		arg3 []v1alpha1.Workload
 	}
-	writeDirWithObjectsReturns struct {
+	updateInDirReturns struct {
 		result1 error
 	}
-	writeDirWithObjectsReturnsOnCall map[int]struct {
+	updateInDirReturnsOnCall map[int]struct {
 		result1 error
 	}
 	invocations      map[string][][]interface{}
 	invocationsMutex sync.RWMutex
 }
 
-func (fake *FakeStateStoreWriter) RemoveObject(arg1 string) error {
-	fake.removeObjectMutex.Lock()
-	ret, specificReturn := fake.removeObjectReturnsOnCall[len(fake.removeObjectArgsForCall)]
-	fake.removeObjectArgsForCall = append(fake.removeObjectArgsForCall, struct {
+func (fake *FakeStateStoreWriter) ReadFile(arg1 string) ([]byte, error) {
+	fake.readFileMutex.Lock()
+	ret, specificReturn := fake.readFileReturnsOnCall[len(fake.readFileArgsForCall)]
+	fake.readFileArgsForCall = append(fake.readFileArgsForCall, struct {
 		arg1 string
 	}{arg1})
-	stub := fake.RemoveObjectStub
-	fakeReturns := fake.removeObjectReturns
-	fake.recordInvocation("RemoveObject", []interface{}{arg1})
-	fake.removeObjectMutex.Unlock()
+	stub := fake.ReadFileStub
+	fakeReturns := fake.readFileReturns
+	fake.recordInvocation("ReadFile", []interface{}{arg1})
+	fake.readFileMutex.Unlock()
 	if stub != nil {
 		return stub(arg1)
 	}
 	if specificReturn {
-		return ret.result1
+		return ret.result1, ret.result2
 	}
-	return fakeReturns.result1
+	return fakeReturns.result1, fakeReturns.result2
 }
 
-func (fake *FakeStateStoreWriter) RemoveObjectCallCount() int {
-	fake.removeObjectMutex.RLock()
-	defer fake.removeObjectMutex.RUnlock()
-	return len(fake.removeObjectArgsForCall)
+func (fake *FakeStateStoreWriter) ReadFileCallCount() int {
+	fake.readFileMutex.RLock()
+	defer fake.readFileMutex.RUnlock()
+	return len(fake.readFileArgsForCall)
 }
 
-func (fake *FakeStateStoreWriter) RemoveObjectCalls(stub func(string) error) {
-	fake.removeObjectMutex.Lock()
-	defer fake.removeObjectMutex.Unlock()
-	fake.RemoveObjectStub = stub
+func (fake *FakeStateStoreWriter) ReadFileCalls(stub func(string) ([]byte, error)) {
+	fake.readFileMutex.Lock()
+	defer fake.readFileMutex.Unlock()
+	fake.ReadFileStub = stub
 }
 
-func (fake *FakeStateStoreWriter) RemoveObjectArgsForCall(i int) string {
-	fake.removeObjectMutex.RLock()
-	defer fake.removeObjectMutex.RUnlock()
-	argsForCall := fake.removeObjectArgsForCall[i]
+func (fake *FakeStateStoreWriter) ReadFileArgsForCall(i int) string {
+	fake.readFileMutex.RLock()
+	defer fake.readFileMutex.RUnlock()
+	argsForCall := fake.readFileArgsForCall[i]
 	return argsForCall.arg1
 }
 
-func (fake *FakeStateStoreWriter) RemoveObjectReturns(result1 error) {
-	fake.removeObjectMutex.Lock()
-	defer fake.removeObjectMutex.Unlock()
-	fake.RemoveObjectStub = nil
-	fake.removeObjectReturns = struct {
-		result1 error
-	}{result1}
+func (fake *FakeStateStoreWriter) ReadFileReturns(result1 []byte, result2 error) {
+	fake.readFileMutex.Lock()
+	defer fake.readFileMutex.Unlock()
+	fake.ReadFileStub = nil
+	fake.readFileReturns = struct {
+		result1 []byte
+		result2 error
+	}{result1, result2}
 }
 
-func (fake *FakeStateStoreWriter) RemoveObjectReturnsOnCall(i int, result1 error) {
-	fake.removeObjectMutex.Lock()
-	defer fake.removeObjectMutex.Unlock()
-	fake.RemoveObjectStub = nil
-	if fake.removeObjectReturnsOnCall == nil {
-		fake.removeObjectReturnsOnCall = make(map[int]struct {
-			result1 error
+func (fake *FakeStateStoreWriter) ReadFileReturnsOnCall(i int, result1 []byte, result2 error) {
+	fake.readFileMutex.Lock()
+	defer fake.readFileMutex.Unlock()
+	fake.ReadFileStub = nil
+	if fake.readFileReturnsOnCall == nil {
+		fake.readFileReturnsOnCall = make(map[int]struct {
+			result1 []byte
+			result2 error
 		})
 	}
-	fake.removeObjectReturnsOnCall[i] = struct {
-		result1 error
-	}{result1}
+	fake.readFileReturnsOnCall[i] = struct {
+		result1 []byte
+		result2 error
+	}{result1, result2}
 }
 
-func (fake *FakeStateStoreWriter) WriteDirWithObjects(arg1 bool, arg2 string, arg3 ...v1alpha1.Workload) error {
-	fake.writeDirWithObjectsMutex.Lock()
-	ret, specificReturn := fake.writeDirWithObjectsReturnsOnCall[len(fake.writeDirWithObjectsArgsForCall)]
-	fake.writeDirWithObjectsArgsForCall = append(fake.writeDirWithObjectsArgsForCall, struct {
-		arg1 bool
-		arg2 string
-		arg3 []v1alpha1.Workload
-	}{arg1, arg2, arg3})
-	stub := fake.WriteDirWithObjectsStub
-	fakeReturns := fake.writeDirWithObjectsReturns
-	fake.recordInvocation("WriteDirWithObjects", []interface{}{arg1, arg2, arg3})
-	fake.writeDirWithObjectsMutex.Unlock()
+func (fake *FakeStateStoreWriter) UpdateFiles(arg1 string, arg2 []v1alpha1.Workload, arg3 []string) error {
+	var arg2Copy []v1alpha1.Workload
+	if arg2 != nil {
+		arg2Copy = make([]v1alpha1.Workload, len(arg2))
+		copy(arg2Copy, arg2)
+	}
+	var arg3Copy []string
+	if arg3 != nil {
+		arg3Copy = make([]string, len(arg3))
+		copy(arg3Copy, arg3)
+	}
+	fake.updateFilesMutex.Lock()
+	ret, specificReturn := fake.updateFilesReturnsOnCall[len(fake.updateFilesArgsForCall)]
+	fake.updateFilesArgsForCall = append(fake.updateFilesArgsForCall, struct {
+		arg1 string
+		arg2 []v1alpha1.Workload
+		arg3 []string
+	}{arg1, arg2Copy, arg3Copy})
+	stub := fake.UpdateFilesStub
+	fakeReturns := fake.updateFilesReturns
+	fake.recordInvocation("UpdateFiles", []interface{}{arg1, arg2Copy, arg3Copy})
+	fake.updateFilesMutex.Unlock()
 	if stub != nil {
-		return stub(arg1, arg2, arg3...)
+		return stub(arg1, arg2, arg3)
 	}
 	if specificReturn {
 		return ret.result1
@@ -119,44 +147,112 @@ func (fake *FakeStateStoreWriter) WriteDirWithObjects(arg1 bool, arg2 string, ar
 	return fakeReturns.result1
 }
 
-func (fake *FakeStateStoreWriter) WriteDirWithObjectsCallCount() int {
-	fake.writeDirWithObjectsMutex.RLock()
-	defer fake.writeDirWithObjectsMutex.RUnlock()
-	return len(fake.writeDirWithObjectsArgsForCall)
+func (fake *FakeStateStoreWriter) UpdateFilesCallCount() int {
+	fake.updateFilesMutex.RLock()
+	defer fake.updateFilesMutex.RUnlock()
+	return len(fake.updateFilesArgsForCall)
 }
 
-func (fake *FakeStateStoreWriter) WriteDirWithObjectsCalls(stub func(bool, string, ...v1alpha1.Workload) error) {
-	fake.writeDirWithObjectsMutex.Lock()
-	defer fake.writeDirWithObjectsMutex.Unlock()
-	fake.WriteDirWithObjectsStub = stub
+func (fake *FakeStateStoreWriter) UpdateFilesCalls(stub func(string, []v1alpha1.Workload, []string) error) {
+	fake.updateFilesMutex.Lock()
+	defer fake.updateFilesMutex.Unlock()
+	fake.UpdateFilesStub = stub
 }
 
-func (fake *FakeStateStoreWriter) WriteDirWithObjectsArgsForCall(i int) (bool, string, []v1alpha1.Workload) {
-	fake.writeDirWithObjectsMutex.RLock()
-	defer fake.writeDirWithObjectsMutex.RUnlock()
-	argsForCall := fake.writeDirWithObjectsArgsForCall[i]
+func (fake *FakeStateStoreWriter) UpdateFilesArgsForCall(i int) (string, []v1alpha1.Workload, []string) {
+	fake.updateFilesMutex.RLock()
+	defer fake.updateFilesMutex.RUnlock()
+	argsForCall := fake.updateFilesArgsForCall[i]
 	return argsForCall.arg1, argsForCall.arg2, argsForCall.arg3
 }
 
-func (fake *FakeStateStoreWriter) WriteDirWithObjectsReturns(result1 error) {
-	fake.writeDirWithObjectsMutex.Lock()
-	defer fake.writeDirWithObjectsMutex.Unlock()
-	fake.WriteDirWithObjectsStub = nil
-	fake.writeDirWithObjectsReturns = struct {
+func (fake *FakeStateStoreWriter) UpdateFilesReturns(result1 error) {
+	fake.updateFilesMutex.Lock()
+	defer fake.updateFilesMutex.Unlock()
+	fake.UpdateFilesStub = nil
+	fake.updateFilesReturns = struct {
 		result1 error
 	}{result1}
 }
 
-func (fake *FakeStateStoreWriter) WriteDirWithObjectsReturnsOnCall(i int, result1 error) {
-	fake.writeDirWithObjectsMutex.Lock()
-	defer fake.writeDirWithObjectsMutex.Unlock()
-	fake.WriteDirWithObjectsStub = nil
-	if fake.writeDirWithObjectsReturnsOnCall == nil {
-		fake.writeDirWithObjectsReturnsOnCall = make(map[int]struct {
+func (fake *FakeStateStoreWriter) UpdateFilesReturnsOnCall(i int, result1 error) {
+	fake.updateFilesMutex.Lock()
+	defer fake.updateFilesMutex.Unlock()
+	fake.UpdateFilesStub = nil
+	if fake.updateFilesReturnsOnCall == nil {
+		fake.updateFilesReturnsOnCall = make(map[int]struct {
 			result1 error
 		})
 	}
-	fake.writeDirWithObjectsReturnsOnCall[i] = struct {
+	fake.updateFilesReturnsOnCall[i] = struct {
+		result1 error
+	}{result1}
+}
+
+func (fake *FakeStateStoreWriter) UpdateInDir(arg1 string, arg2 string, arg3 []v1alpha1.Workload) error {
+	var arg3Copy []v1alpha1.Workload
+	if arg3 != nil {
+		arg3Copy = make([]v1alpha1.Workload, len(arg3))
+		copy(arg3Copy, arg3)
+	}
+	fake.updateInDirMutex.Lock()
+	ret, specificReturn := fake.updateInDirReturnsOnCall[len(fake.updateInDirArgsForCall)]
+	fake.updateInDirArgsForCall = append(fake.updateInDirArgsForCall, struct {
+		arg1 string
+		arg2 string
+		arg3 []v1alpha1.Workload
+	}{arg1, arg2, arg3Copy})
+	stub := fake.UpdateInDirStub
+	fakeReturns := fake.updateInDirReturns
+	fake.recordInvocation("UpdateInDir", []interface{}{arg1, arg2, arg3Copy})
+	fake.updateInDirMutex.Unlock()
+	if stub != nil {
+		return stub(arg1, arg2, arg3)
+	}
+	if specificReturn {
+		return ret.result1
+	}
+	return fakeReturns.result1
+}
+
+func (fake *FakeStateStoreWriter) UpdateInDirCallCount() int {
+	fake.updateInDirMutex.RLock()
+	defer fake.updateInDirMutex.RUnlock()
+	return len(fake.updateInDirArgsForCall)
+}
+
+func (fake *FakeStateStoreWriter) UpdateInDirCalls(stub func(string, string, []v1alpha1.Workload) error) {
+	fake.updateInDirMutex.Lock()
+	defer fake.updateInDirMutex.Unlock()
+	fake.UpdateInDirStub = stub
+}
+
+func (fake *FakeStateStoreWriter) UpdateInDirArgsForCall(i int) (string, string, []v1alpha1.Workload) {
+	fake.updateInDirMutex.RLock()
+	defer fake.updateInDirMutex.RUnlock()
+	argsForCall := fake.updateInDirArgsForCall[i]
+	return argsForCall.arg1, argsForCall.arg2, argsForCall.arg3
+}
+
+func (fake *FakeStateStoreWriter) UpdateInDirReturns(result1 error) {
+	fake.updateInDirMutex.Lock()
+	defer fake.updateInDirMutex.Unlock()
+	fake.UpdateInDirStub = nil
+	fake.updateInDirReturns = struct {
+		result1 error
+	}{result1}
+}
+
+func (fake *FakeStateStoreWriter) UpdateInDirReturnsOnCall(i int, result1 error) {
+	fake.updateInDirMutex.Lock()
+	defer fake.updateInDirMutex.Unlock()
+	fake.UpdateInDirStub = nil
+	if fake.updateInDirReturnsOnCall == nil {
+		fake.updateInDirReturnsOnCall = make(map[int]struct {
+			result1 error
+		})
+	}
+	fake.updateInDirReturnsOnCall[i] = struct {
 		result1 error
 	}{result1}
 }
@@ -164,10 +260,12 @@ func (fake *FakeStateStoreWriter) WriteDirWithObjectsReturnsOnCall(i int, result
 func (fake *FakeStateStoreWriter) Invocations() map[string][][]interface{} {
 	fake.invocationsMutex.RLock()
 	defer fake.invocationsMutex.RUnlock()
-	fake.removeObjectMutex.RLock()
-	defer fake.removeObjectMutex.RUnlock()
-	fake.writeDirWithObjectsMutex.RLock()
-	defer fake.writeDirWithObjectsMutex.RUnlock()
+	fake.readFileMutex.RLock()
+	defer fake.readFileMutex.RUnlock()
+	fake.updateFilesMutex.RLock()
+	defer fake.updateFilesMutex.RUnlock()
+	fake.updateInDirMutex.RLock()
+	defer fake.updateInDirMutex.RUnlock()
 	copiedInvocations := map[string][][]interface{}{}
 	for key, value := range fake.invocations {
 		copiedInvocations[key] = value
