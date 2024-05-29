@@ -48,7 +48,7 @@ spec:
                 properties:
                   mode:
                     description: |-
-                      The  of filepathExpression, either:
+                      The of filepathExpression, either:
                       - nestedByMetadata (default): files from the pipeline will be placed in a nested directory structure
                       - none: file from the pipeline will be placed in a flat directory structure
                       filepath.mode is immutable

@@ -323,8 +323,7 @@ var _ = Describe("Kratix", func() {
 
 				By("mirroring the directory and files from /kratix/output to the statestore", func() {
 					if getEnvOrDefault("TEST_SKIP_BUCKET_CHECK", "false") != "true" {
-						Expect(listFilesInMinIOStateStore(filepath.Join(worker.name, "resources", "default", bashPromiseName, rrName, firstPipelineName))).To(ConsistOf("5058f/foo/example.json",
-							fmt.Sprintf("5058f/namespace-%s.yaml", rrName)))
+						Expect(listFilesInMinIOStateStore(filepath.Join(worker.name, "resources", "default", bashPromiseName, rrName, firstPipelineName))).To(ConsistOf("5058f/foo/example.json", "5058f/namespace.yaml"))
 						Expect(listFilesInMinIOStateStore(filepath.Join(worker.name, "resources", "default", bashPromiseName, rrName, secondPipelineName))).To(ConsistOf("5058f/configmap.yaml"))
 					}
 				})
@@ -759,13 +758,13 @@ func exampleBashRequest(name, namespaceSuffix string) string {
 						exit 0
 					fi
 					kubectl delete namespace imperative-$(yq '.metadata.name' /kratix/input/object.yaml)-%[1]s
-				`, namespaceSuffix, namespaceSuffix),
+				`, namespaceSuffix),
 				"container1Cmd": fmt.Sprintf(`
-					kubectl create namespace declarative-$(yq '.metadata.name' /kratix/input/object.yaml)-%[1]s --dry-run=client -oyaml > /kratix/output/namespace-%[2]s.yaml
+					kubectl create namespace declarative-$(yq '.metadata.name' /kratix/input/object.yaml)-%[1]s --dry-run=client -oyaml > /kratix/output/namespace.yaml
 					mkdir /kratix/output/platform/
-					kubectl create namespace declarative-platform-only-$(yq '.metadata.name' /kratix/input/object.yaml)-%[1]s --dry-run=client -oyaml > /kratix/output/platform/namespace-%[2]s.yaml
+					kubectl create namespace declarative-platform-only-$(yq '.metadata.name' /kratix/input/object.yaml)-%[1]s --dry-run=client -oyaml > /kratix/output/platform/namespace.yaml
 					echo "[{\"matchLabels\":{\"environment\":\"platform\"}, \"directory\":\"platform\"}]" > /kratix/metadata/destination-selectors.yaml
-			`, namespaceSuffix, name),
+			`, namespaceSuffix),
 			},
 		},
 	}

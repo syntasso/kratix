@@ -71,7 +71,7 @@ const (
 type Filepath struct {
 	// +kubebuilder:validation:Enum:={nestedByMetadata,none}
 	// +kubebuilder:validation:XValidation:rule="self == oldSelf",message="filepath.mode is immutable"
-	// The  of filepathExpression, either:
+	// The of filepathExpression, either:
 	// - nestedByMetadata (default): files from the pipeline will be placed in a nested directory structure
 	// - none: file from the pipeline will be placed in a flat directory structure
 	// filepath.mode is immutable
