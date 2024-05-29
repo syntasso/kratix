@@ -129,7 +129,7 @@ func (g *GitWriter) update(subDir, workPlacementName string, workloadsToCreate [
 	}
 	defer os.RemoveAll(filepath.Dir(localTmpDir))
 
-	err = g.deleteExistingFiles(subDir == "", dirInGitRepo, workloadsToDelete, worktree, logger)
+	err = g.deleteExistingFiles(subDir != "", dirInGitRepo, workloadsToDelete, worktree, logger)
 	if err != nil {
 		return err
 	}
