@@ -516,12 +516,12 @@ workflows:
           requires: [clone-kratix]
 
   upgrade-deps:
-    # triggers:
-    #   - schedule:
-    #       cron: "0 0 * * 3" # https://crontab.guru/#0_0_*_*_3 (every Wednesday at midnight)
-    #       filters:
-    #         branches:
-    #           only: [main]
+    triggers:
+      - schedule:
+          cron: "0 0 * * 3" # https://crontab.guru/#0_0_*_*_3 (every Wednesday at midnight)
+          filters:
+            branches:
+              only: [main]
     jobs:
       - clone-kratix
       - upgrade-flux:
