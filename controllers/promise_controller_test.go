@@ -194,6 +194,7 @@ var _ = Describe("PromiseController", func() {
 					})
 				})
 			})
+
 			When("the promise has requirements", func() {
 				BeforeEach(func() {
 					promise = promiseFromFile(promiseWithRequirements)
@@ -728,36 +729,36 @@ var _ = Describe("PromiseController", func() {
 		})
 
 		When("the promise is being updated", func() {
-			When("it contains static dependencies", func() {
-				BeforeEach(func() {
-					promise = promiseFromFile(promiseWithOnlyDepsPath)
-					promiseName = types.NamespacedName{
-						Name:      promise.GetName(),
-						Namespace: promise.GetNamespace(),
-					}
-					promiseCommonLabels = map[string]string{
-						"kratix-promise-id":      promise.GetName(),
-						"kratix.io/promise-name": promise.GetName(),
-					}
-					promiseResourcesName = types.NamespacedName{
-						Name:      promise.GetName() + "-promise-pipeline",
-						Namespace: "kratix-platform-system",
-					}
+			BeforeEach(func() {
+				promise = promiseFromFile(promiseWithOnlyDepsPath)
+				promiseName = types.NamespacedName{
+					Name:      promise.GetName(),
+					Namespace: promise.GetNamespace(),
+				}
+				promiseCommonLabels = map[string]string{
+					"kratix-promise-id":      promise.GetName(),
+					"kratix.io/promise-name": promise.GetName(),
+				}
+				promiseResourcesName = types.NamespacedName{
+					Name:      promise.GetName() + "-promise-pipeline",
+					Namespace: "kratix-platform-system",
+				}
 
-					Expect(fakeK8sClient.Create(ctx, promise)).To(Succeed())
-					Expect(fakeK8sClient.Get(ctx, promiseName, promise)).To(Succeed())
-					promise.UID = "1234abcd"
-					Expect(fakeK8sClient.Update(ctx, promise)).To(Succeed())
+				Expect(fakeK8sClient.Create(ctx, promise)).To(Succeed())
+				Expect(fakeK8sClient.Get(ctx, promiseName, promise)).To(Succeed())
+				promise.UID = "1234abcd"
+				Expect(fakeK8sClient.Update(ctx, promise)).To(Succeed())
 
-					setReconcileConfigureWorkflowToReturnFinished()
-					result, err := t.reconcileUntilCompletion(reconciler, promise, &opts{
-						funcs: []func(client.Object) error{autoMarkCRDAsEstablished},
-					})
-					Expect(err).NotTo(HaveOccurred())
-					Expect(result).To(Equal(ctrl.Result{}))
+				setReconcileConfigureWorkflowToReturnFinished()
+				result, err := t.reconcileUntilCompletion(reconciler, promise, &opts{
+					funcs: []func(client.Object) error{autoMarkCRDAsEstablished},
 				})
+				Expect(err).NotTo(HaveOccurred())
+				Expect(result).To(Equal(ctrl.Result{}))
+			})
 
-				It("re-reconciles until completetion", func() {
+			When("it contains static dependencies", func() {
+				It("re-reconciles until completion", func() {
 					Expect(fakeK8sClient.Get(ctx, promiseName, promise)).To(Succeed())
 					updatedPromise := promiseFromFile(promiseWithOnlyDepsUpdatedPath)
 					promise.Spec = updatedPromise.Spec
@@ -789,6 +790,26 @@ var _ = Describe("PromiseController", func() {
 				})
 			})
 
+			When("the static dependencies are removed", func() {
+				It("re-reconciles until completion", func() {
+					Expect(fakeK8sClient.Get(ctx, promiseName, promise)).To(Succeed())
+					promise.Spec.Dependencies = nil
+					Expect(fakeK8sClient.Update(ctx, promise)).To(Succeed())
+
+					setReconcileConfigureWorkflowToReturnFinished()
+					result, err := t.reconcileUntilCompletion(reconciler, promise, &opts{
+						funcs: []func(client.Object) error{autoMarkCRDAsEstablished},
+					})
+					Expect(err).NotTo(HaveOccurred())
+					Expect(result).To(Equal(ctrl.Result{}))
+
+					By("deleting the work", func() {
+						works := &v1alpha1.WorkList{}
+						Expect(fakeK8sClient.List(ctx, works)).To(Succeed())
+						Expect(works.Items).To(HaveLen(0))
+					})
+				})
+			})
 		})
 	})
 
