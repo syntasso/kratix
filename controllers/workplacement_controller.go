@@ -132,7 +132,7 @@ func (r *WorkPlacementReconciler) deleteWorkPlacement(ctx context.Context, write
 		}
 		stateFile := StateFile{}
 		if err = yaml.Unmarshal(kratixFile, &stateFile); err != nil {
-			logger.Error(err, "failed to unmarshall .kratix state file")
+			logger.Error(err, "failed to unmarshal .kratix state file")
 			return defaultRequeue, err
 		}
 		err = writer.UpdateFiles(workPlacement.Name, nil, append(stateFile.Files, kratixFilePath))
@@ -162,11 +162,11 @@ func (r *WorkPlacementReconciler) writeWorkloadsToStateStore(writer writers.Stat
 		}
 		oldStateFile := StateFile{}
 		if err = yaml.Unmarshal(kratixFile, &oldStateFile); err != nil {
-			return fmt.Errorf("failed to unmarshall .kratix state file: %s", err)
+			return fmt.Errorf("failed to unmarshal .kratix state file: %s", err)
 		}
 
 		newStateFile := StateFile{
-			Files: workLoadsFilenames(workPlacement.Spec.Workloads),
+			Files: workloadsFilenames(workPlacement.Spec.Workloads),
 		}
 		stateFileContent, marshalErr := yaml.Marshal(newStateFile)
 		if marshalErr != nil {
@@ -196,7 +196,7 @@ func ignoreNotFound(err error) error {
 	return err
 }
 
-func workLoadsFilenames(works []v1alpha1.Workload) []string {
+func workloadsFilenames(works []v1alpha1.Workload) []string {
 	var result []string
 	for _, w := range works {
 		result = append(result, w.Filepath)

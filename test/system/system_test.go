@@ -693,9 +693,9 @@ var _ = Describe("Kratix", func() {
 			platform.eventuallyKubectl("apply", "-f", cat(bashPromise))
 			platform.eventuallyKubectl("get", "crd", crd.Name)
 			rrNameOne := bashPromiseName + "terraform-1"
-			platform.kubectl("apply", "-f", terraformRequeset(rrNameOne))
+			platform.kubectl("apply", "-f", terraformRequest(rrNameOne))
 			rrNameTwo := bashPromiseName + "terraform-2"
-			platform.kubectl("apply", "-f", terraformRequeset(rrNameTwo))
+			platform.kubectl("apply", "-f", terraformRequest(rrNameTwo))
 
 			By("writing output files to the root of stateStore")
 			destinationName := "terraform"
@@ -718,7 +718,7 @@ var _ = Describe("Kratix", func() {
 	})
 })
 
-func terraformRequeset(name string) string {
+func terraformRequest(name string) string {
 	request := unstructured.Unstructured{
 		Object: map[string]interface{}{
 			"apiVersion": "test.kratix.io/v1alpha1",

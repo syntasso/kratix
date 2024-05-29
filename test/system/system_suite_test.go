@@ -51,7 +51,7 @@ var _ = SynchronizedBeforeSuite(func() {
 	platform.kubectl("apply", "-f", "../../hack/destination/gitops-tk-install.yaml")
 	platform.kubectl("apply", "-f", "./assets/bash-promise/deployment.yaml")
 	platform.kubectl("apply", "-f", catAndReplaceFluxResources(tmpDir, "./assets/git/platform_gitops-tk-resources.yaml"))
-	platform.kubectl("apply", "-f", catAndReplaceFluxResources(tmpDir, "./assets/git/platform_kratix_destination.yaml"))
+	platform.kubectl("apply", "-f", catAndReplaceFluxResources(tmpDir, "./assets/git/destinations.yaml"))
 	os.RemoveAll(tmpDir)
 }, func() {
 	//this runs before each test
