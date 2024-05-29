@@ -403,6 +403,7 @@ jobs:
             git add kratix/
             git diff --cached --quiet && exit 0 || true
 
+            VERSION=v0.0.0-latest ./scripts/bump-version kratix/
             git add kratix/
             git commit -m"update kratix package"
             git push origin main
