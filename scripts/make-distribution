@@ -8,6 +8,10 @@ cd $ROOT
 source "$ROOT/scripts/utils.sh"
 
 export VERSION="${VERSION:-$(commit_sha)}"
+export PIPELINE_ADAPTER_VERSION_MANIFEST_DIGEST=$(docker manifest inspect syntasso/kratix-platform-pipeline-adapter | jq -r '.manifests[] | select(.platform.architecture=="amd64").digest')
+export KRATIX_PLATFORM_MANIFEST_DIGEST=$(docker manifest inspect syntasso/kratix-platform | jq -r '.manifests[] | select(.platform.architecture=="amd64").digest')
+export WC_IMG=docker.io/syntasso/kratix-platform-pipeline-adapter@${PIPELINE_ADAPTER_VERSION_MANIFEST_DIGEST}
+export IMG_TAG=docker.io/syntasso/kratix-platform@${KRATIX_PLATFORM_MANIFEST_DIGEST}
 
 make distribution
 
