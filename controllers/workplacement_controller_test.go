@@ -217,7 +217,7 @@ files:
 					workPlacementName, workloadsToCreate, workloadsToDelete := fakeWriter.UpdateFilesArgsForCall(1)
 					Expect(workPlacementName).To(Equal(workPlacement.Name))
 					Expect(workloadsToCreate).To(BeNil())
-					Expect(workloadsToDelete).To(ConsistOf("fruit.yaml"))
+					Expect(workloadsToDelete).To(ConsistOf("fruit.yaml", ".kratix/default-test-workplacement.yaml"))
 				})
 			})
 

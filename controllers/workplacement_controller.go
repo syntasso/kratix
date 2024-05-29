@@ -125,7 +125,8 @@ func (r *WorkPlacementReconciler) deleteWorkPlacement(ctx context.Context, write
 	var err error
 	if filePathMode == v1alpha1.FilepathModeNone {
 		var kratixFile []byte
-		if kratixFile, err = writer.ReadFile(fmt.Sprintf(".kratix/%s-%s.yaml", workPlacement.Namespace, workPlacement.Name)); err != nil {
+		kratixFilePath := fmt.Sprintf(".kratix/%s-%s.yaml", workPlacement.Namespace, workPlacement.Name)
+		if kratixFile, err = writer.ReadFile(kratixFilePath); err != nil {
 			logger.Error(err, "failed to read .kratix state file")
 			return defaultRequeue, err
 		}
@@ -134,7 +135,7 @@ func (r *WorkPlacementReconciler) deleteWorkPlacement(ctx context.Context, write
 			logger.Error(err, "failed to unmarshall .kratix state file")
 			return defaultRequeue, err
 		}
-		err = writer.UpdateFiles(workPlacement.Name, nil, stateFile.Files)
+		err = writer.UpdateFiles(workPlacement.Name, nil, append(stateFile.Files, kratixFilePath))
 	} else {
 		err = writer.UpdateInDir(getDir(*workPlacement)+"/", workPlacement.Name, nil)
 	}

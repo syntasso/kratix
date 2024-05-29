@@ -713,6 +713,8 @@ var _ = Describe("Kratix", func() {
 			}, shortTimeout, interval).ShouldNot(ContainElements(
 				fmt.Sprintf("%s.yaml", rrNameOne)))
 			Expect(listFilesInMinIOStateStore(destinationName)).To(ContainElements(fmt.Sprintf("%s.yaml", rrNameTwo)))
+
+			platform.eventuallyKubectlDelete("promise", bashPromiseName)
 		})
 	})
 })
