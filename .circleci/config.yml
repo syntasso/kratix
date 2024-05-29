@@ -399,6 +399,52 @@ jobs:
             git commit -m"update kratix package"
             git push origin main
 
+  upgrade-flux:
+    executor: machine-medium
+    steps:
+      - attach_workspace:
+          at: .
+      - install_software
+      - run:
+          name: setup git
+          command: |
+            rm -rf ~/.ssh
+            mkdir ~/.ssh
+            ssh-keyscan github.com > ~/.ssh/known_hosts
+
+            git config --global user.name "syntassodev"
+            git config --global user.email "kratix@syntasso.io"
+      - gh/setup
+      - setup_git
+      - run:
+          name: fetch latest release manifest for flux
+          command: |
+            flux install --export > ./hack/destination/gitops-tk-install.yaml
+      - run:
+          name: Create a PR to upgrade flux
+          command: |
+            if [ $(git status --porcelain=1 | wc -l) -eq 0 ]; then
+              echo "No changes to commit"
+              exit 0
+            fi
+
+            version=$(grep "Flux Version" ./hack/destination/gitops-tk-install.yaml | cut -d ":" -f 2 | tr -d " ")
+
+            echo "This PR upgrades Flux to version ${version}." > ../pr_body.txt
+            echo "" >> ../pr_body.txt
+            echo "Manifest generated with \`flux install --export\`." >> ../pr_body.txt
+
+            git checkout -b upgrade-flux-to-${version}
+            git add .
+            git commit -m "auto: update Flux to ${version}"
+            git push origin upgrade-flux-to-${version}
+
+            gh pr create \
+              --title "upgrade Flux to ${version}" \
+              --body-file ../pr_body.txt \
+              --base main \
+              --head upgrade-flux-to-${version}
+
 workflows:
   run-ci:
     jobs:
@@ -468,3 +514,17 @@ workflows:
       - clone-kratix
       - kratix-security-scan:
           requires: [clone-kratix]
+
+  upgrade-deps:
+    # triggers:
+    #   - schedule:
+    #       cron: "0 0 * * 3" # https://crontab.guru/#0_0_*_*_3 (every Wednesday at midnight)
+    #       filters:
+    #         branches:
+    #           only: [main]
+    jobs:
+      - clone-kratix
+      - upgrade-flux:
+          requires: [clone-kratix]
+
+
