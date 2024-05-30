@@ -104,13 +104,13 @@ func NewGitWriter(logger logr.Logger, stateStoreSpec v1alpha1.GitStateStoreSpec,
 	}, nil
 }
 
-func (g *GitWriter) UpdateFiles(subDir string, workPlacementName string, workloadsToCreate []v1alpha1.Workload, workloadsToDelete []string) error {
+func (g *GitWriter) UpdateFiles(subDir string, workPlacementName string, workloadsToCreate []v1alpha1.Workload, workloadsToDelete []string) (string, error) {
 	return g.update(subDir, workPlacementName, workloadsToCreate, workloadsToDelete)
 }
 
-func (g *GitWriter) update(subDir, workPlacementName string, workloadsToCreate []v1alpha1.Workload, workloadsToDelete []string) error {
+func (g *GitWriter) update(subDir, workPlacementName string, workloadsToCreate []v1alpha1.Workload, workloadsToDelete []string) (string, error) {
 	if len(workloadsToCreate) == 0 && len(workloadsToDelete) == 0 && subDir == "" {
-		return nil
+		return "", nil
 	}
 
 	dirInGitRepo := filepath.Join(g.path, subDir)
@@ -121,13 +121,13 @@ func (g *GitWriter) update(subDir, workPlacementName string, workloadsToCreate [
 
 	localTmpDir, repo, worktree, err := g.setupLocalDirectoryWithRepo(logger)
 	if err != nil {
-		return err
+		return "", err
 	}
 	defer os.RemoveAll(filepath.Dir(localTmpDir))
 
 	err = g.deleteExistingFiles(subDir != "", dirInGitRepo, workloadsToDelete, worktree, logger)
 	if err != nil {
-		return err
+		return "", err
 	}
 
 	for _, file := range workloadsToCreate {
@@ -147,22 +147,22 @@ func (g *GitWriter) update(subDir, workPlacementName string, workloadsToCreate [
 		// Note: This means `../` can still be used, but only if the end result is still contained within the git repository
 		if !strings.HasPrefix(absoluteFilePath, localTmpDir) {
 			log.Error(nil, "path of file to write is not located within the git repostiory", "absolutePath", absoluteFilePath, "tmpDir", localTmpDir)
-			return nil //We don't want to retry as this isn't a recoverable error. Log error and return nil.
+			return "", nil //We don't want to retry as this isn't a recoverable error. Log error and return nil.
 		}
 
 		if err := os.MkdirAll(filepath.Dir(absoluteFilePath), 0700); err != nil {
 			log.Error(err, "could not generate local directories")
-			return err
+			return "", err
 		}
 
 		if err := os.WriteFile(absoluteFilePath, []byte(file.Content), 0644); err != nil {
 			log.Error(err, "could not write to file")
-			return err
+			return "", err
 		}
 
 		if _, err := worktree.Add(worktreeFilePath); err != nil {
 			log.Error(err, "could not add file to worktree")
-			return err
+			return "", err
 		}
 	}
 
@@ -270,19 +270,19 @@ func (g *GitWriter) cloneRepo(localRepoFilePath string, logger logr.Logger) (*gi
 	})
 }
 
-func (g *GitWriter) commitAndPush(repo *git.Repository, worktree *git.Worktree, action, workPlacementName string, logger logr.Logger) error {
+func (g *GitWriter) commitAndPush(repo *git.Repository, worktree *git.Worktree, action, workPlacementName string, logger logr.Logger) (string, error) {
 	status, err := worktree.Status()
 	if err != nil {
 		logger.Error(err, "could not get worktree status")
-		return err
+		return "", err
 	}
 
 	if status.IsClean() {
 		logger.Info("no changes to be committed")
-		return nil
+		return "", nil
 	}
 
-	_, err = worktree.Commit(fmt.Sprintf("%s from: %s", action, workPlacementName), &git.CommitOptions{
+	commitHash, err := worktree.Commit(fmt.Sprintf("%s from: %s", action, workPlacementName), &git.CommitOptions{
 		Author: &object.Signature{
 			Name:  g.author.Name,
 			Email: g.author.Email,
@@ -290,17 +290,22 @@ func (g *GitWriter) commitAndPush(repo *git.Repository, worktree *git.Worktree, 
 		},
 	})
 
+	var sha string
+	if !commitHash.IsZero() {
+		sha = commitHash.String()
+	}
+
 	if err != nil {
 		logger.Error(err, "could not commit file to worktree")
-		return err
+		return "", err
 	}
 
 	logger.Info("pushing changes")
 	if err := g.push(repo, logger); err != nil {
 		logger.Error(err, "could not push changes")
-		return err
+		return "", err
 	}
-	return nil
+	return sha, nil
 }
 
 func createLocalDirectory(logger logr.Logger) (string, error) {

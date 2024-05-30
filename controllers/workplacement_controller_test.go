@@ -255,46 +255,7 @@ files:
 	When("the destination statestore is git", func() {
 		When("the destination has filepath mode of nestedByMetadata", func() {
 			BeforeEach(func() {
-				Expect(fakeK8sClient.Create(ctx, &corev1.Secret{
-					TypeMeta: v1.TypeMeta{
-						Kind:       "Secret",
-						APIVersion: "v1",
-					},
-					ObjectMeta: v1.ObjectMeta{
-						Name:      "test-secret",
-						Namespace: "default",
-					},
-					Data: map[string][]byte{
-						"username": []byte("test-username"),
-						"password": []byte("test-password"),
-					},
-				})).To(Succeed())
-				gitStateStore = v1alpha1.GitStateStore{
-					TypeMeta: v1.TypeMeta{
-						Kind:       "GitStateStore",
-						APIVersion: "platform.kratix.io/v1alpha1",
-					},
-					ObjectMeta: v1.ObjectMeta{
-						Name: "test-state-store",
-					},
-					Spec: v1alpha1.GitStateStoreSpec{
-						StateStoreCoreFields: v1alpha1.StateStoreCoreFields{
-							SecretRef: &corev1.SecretReference{
-								Name:      "test-secret",
-								Namespace: "default",
-							},
-						},
-						URL:        "",
-						Branch:     "main",
-						AuthMethod: v1alpha1.BasicAuthMethod,
-					},
-				}
-				Expect(fakeK8sClient.Create(ctx, &gitStateStore)).To(Succeed())
-
-				destination.Spec.StateStoreRef.Kind = "GitStateStore"
-				destination.Spec.StateStoreRef.Name = "test-state-store"
-				destination.Spec.Filepath.Mode = v1alpha1.FilepathModeNestedByMetadata
-				Expect(fakeK8sClient.Create(ctx, &destination)).To(Succeed())
+				setupGitDestination(&gitStateStore, &destination)
 				controllers.SetNewGitWriter(func(logger logr.Logger, stateStoreSpec v1alpha1.GitStateStoreSpec, destination v1alpha1.Destination,
 					creds map[string][]byte) (writers.StateStoreWriter, error) {
 					argGitStateStoreSpec = stateStoreSpec
@@ -348,4 +309,94 @@ files:
 			})
 		})
 	})
+
+	Describe("WorkPlacement Status", func() {
+		BeforeEach(func() {
+			setupGitDestination(&gitStateStore, &destination)
+			controllers.SetNewGitWriter(func(logger logr.Logger, stateStoreSpec v1alpha1.GitStateStoreSpec, destination v1alpha1.Destination,
+				creds map[string][]byte) (writers.StateStoreWriter, error) {
+				argGitStateStoreSpec = stateStoreSpec
+				argDestination = destination
+				argCreds = creds
+				return fakeWriter, nil
+			})
+		})
+
+		It("is updated with the last VersionID", func() {
+			fakeWriter.UpdateFilesReturns("an-amazing-version-id", nil)
+
+			result, err := t.reconcileUntilCompletion(reconciler, &workPlacement)
+			Expect(err).NotTo(HaveOccurred())
+			Expect(result).To(Equal(ctrl.Result{}))
+
+			updatedWorkplacement := v1alpha1.WorkPlacement{}
+			Expect(fakeK8sClient.Get(ctx, types.NamespacedName{
+				Name:      workPlacement.GetName(),
+				Namespace: workPlacement.GetNamespace(),
+			}, &updatedWorkplacement)).To(Succeed())
+			Expect(updatedWorkplacement.Status.VersionID).To(Equal("an-amazing-version-id"))
+		})
+
+		It("won't update the versionid when no new version is generated", func() {
+			workPlacement.Status.VersionID = "an-amazing-version-id"
+			Expect(fakeK8sClient.Status().Update(ctx, &workPlacement)).To(Succeed())
+
+			fakeWriter.UpdateFilesReturns("", nil)
+
+			result, err := t.reconcileUntilCompletion(reconciler, &workPlacement)
+			Expect(err).NotTo(HaveOccurred())
+			Expect(result).To(Equal(ctrl.Result{}))
+
+			updatedWorkplacement := v1alpha1.WorkPlacement{}
+			Expect(fakeK8sClient.Get(ctx, types.NamespacedName{
+				Name:      workPlacement.GetName(),
+				Namespace: workPlacement.GetNamespace(),
+			}, &updatedWorkplacement)).To(Succeed())
+
+			Expect(updatedWorkplacement.Status.VersionID).To(Equal("an-amazing-version-id"))
+		})
+	})
 })
+
+func setupGitDestination(gitStateStore *v1alpha1.GitStateStore, destination *v1alpha1.Destination) {
+	Expect(fakeK8sClient.Create(ctx, &corev1.Secret{
+		TypeMeta: v1.TypeMeta{
+			Kind:       "Secret",
+			APIVersion: "v1",
+		},
+		ObjectMeta: v1.ObjectMeta{
+			Name:      "test-secret",
+			Namespace: "default",
+		},
+		Data: map[string][]byte{
+			"username": []byte("test-username"),
+			"password": []byte("test-password"),
+		},
+	})).To(Succeed())
+	*gitStateStore = v1alpha1.GitStateStore{
+		TypeMeta: v1.TypeMeta{
+			Kind:       "GitStateStore",
+			APIVersion: "platform.kratix.io/v1alpha1",
+		},
+		ObjectMeta: v1.ObjectMeta{
+			Name: "test-state-store",
+		},
+		Spec: v1alpha1.GitStateStoreSpec{
+			StateStoreCoreFields: v1alpha1.StateStoreCoreFields{
+				SecretRef: &corev1.SecretReference{
+					Name:      "test-secret",
+					Namespace: "default",
+				},
+			},
+			URL:        "",
+			Branch:     "main",
+			AuthMethod: v1alpha1.BasicAuthMethod,
+		},
+	}
+	Expect(fakeK8sClient.Create(ctx, gitStateStore)).To(Succeed())
+
+	destination.Spec.StateStoreRef.Kind = "GitStateStore"
+	destination.Spec.StateStoreRef.Name = "test-state-store"
+	destination.Spec.Filepath.Mode = v1alpha1.FilepathModeNestedByMetadata
+	Expect(fakeK8sClient.Create(ctx, destination)).To(Succeed())
+}

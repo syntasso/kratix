@@ -133,6 +133,12 @@ spec:
                   - type
                   type: object
                 type: array
+              versionID:
+                description: |-
+                  VersionID contains the version identifier of the last applied workplacement
+                  For Git StateStores, this is the SHA of the last applied commit
+                  For Bucket StateStores, this is always empty
+                type: string
             type: object
         type: object
     served: true

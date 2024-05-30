@@ -108,11 +108,21 @@ func (r *WorkPlacementReconciler) Reconcile(ctx context.Context, req ctrl.Reques
 		return addFinalizers(opts, workPlacement, workPlacementFinalizers)
 	}
 
-	err = r.writeWorkloadsToStateStore(writer, *workPlacement, *destination, logger)
+	versionID, err := r.writeWorkloadsToStateStore(writer, *workPlacement, *destination, logger)
 	if err != nil {
 		logger.Error(err, "Error writing to repository, will try again in 5 seconds")
 		return defaultRequeue, err
 	}
+
+	if workPlacement.Status.VersionID != versionID && versionID != "" {
+		workPlacement.Status.VersionID = versionID
+		err = r.Client.Status().Update(ctx, workPlacement)
+		if err != nil {
+			logger.Error(err, "Error updating WorkPlacement status")
+			return ctrl.Result{}, err
+		}
+	}
+	logger.Info("WorkPlacement successfully reconciled", "workPlacement", workPlacement.Name, "versionID", versionID)
 
 	return ctrl.Result{}, nil
 }
@@ -143,7 +153,7 @@ func (r *WorkPlacementReconciler) deleteWorkPlacement(ctx context.Context, write
 		dir = ""
 		workloadsToDelete = append(stateFile.Files, kratixFilePath)
 	}
-	err = writer.UpdateFiles(dir, workPlacement.Name, nil, workloadsToDelete)
+	_, err = writer.UpdateFiles(dir, workPlacement.Name, nil, workloadsToDelete)
 
 	if err != nil {
 		logger.Error(err, "error removing work from repository, will try again in 5 seconds")
@@ -158,7 +168,7 @@ func (r *WorkPlacementReconciler) deleteWorkPlacement(ctx context.Context, write
 	return fastRequeue, nil
 }
 
-func (r *WorkPlacementReconciler) writeWorkloadsToStateStore(writer writers.StateStoreWriter, workPlacement v1alpha1.WorkPlacement, destination v1alpha1.Destination, logger logr.Logger) error {
+func (r *WorkPlacementReconciler) writeWorkloadsToStateStore(writer writers.StateStoreWriter, workPlacement v1alpha1.WorkPlacement, destination v1alpha1.Destination, logger logr.Logger) (string, error) {
 	var err error
 	var workloadsToDelete []string
 	var dir = getDir(workPlacement)
@@ -167,11 +177,11 @@ func (r *WorkPlacementReconciler) writeWorkloadsToStateStore(writer writers.Stat
 	if destination.GetFilepathMode() == v1alpha1.FilepathModeNone {
 		var kratixFile []byte
 		if kratixFile, err = writer.ReadFile(fmt.Sprintf(".kratix/%s-%s.yaml", workPlacement.Namespace, workPlacement.Name)); ignoreNotFound(err) != nil {
-			return fmt.Errorf("failed to read .kratix state file: %s", err)
+			return "", fmt.Errorf("failed to read .kratix state file: %s", err)
 		}
 		oldStateFile := StateFile{}
 		if err = yaml.Unmarshal(kratixFile, &oldStateFile); err != nil {
-			return fmt.Errorf("failed to unmarshal .kratix state file: %s", err)
+			return "", fmt.Errorf("failed to unmarshal .kratix state file: %s", err)
 		}
 
 		newStateFile := StateFile{
@@ -179,7 +189,7 @@ func (r *WorkPlacementReconciler) writeWorkloadsToStateStore(writer writers.Stat
 		}
 		stateFileContent, marshalErr := yaml.Marshal(newStateFile)
 		if marshalErr != nil {
-			return fmt.Errorf("failed to marshal new .kratix state file: %s", err)
+			return "", fmt.Errorf("failed to marshal new .kratix state file: %s", err)
 		}
 
 		stateFileWorkload := v1alpha1.Workload{
@@ -192,7 +202,7 @@ func (r *WorkPlacementReconciler) writeWorkloadsToStateStore(writer writers.Stat
 		workloadsToDelete = cleanupWorkloads(oldStateFile.Files, workPlacement.Spec.Workloads)
 	}
 
-	err = writer.UpdateFiles(
+	versionID, err := writer.UpdateFiles(
 		dir,
 		workPlacement.Name,
 		workloadsToCreate,
@@ -200,9 +210,9 @@ func (r *WorkPlacementReconciler) writeWorkloadsToStateStore(writer writers.Stat
 	)
 	if err != nil {
 		logger.Error(err, "Error writing resources to repository")
-		return err
+		return "", err
 	}
-	return nil
+	return versionID, nil
 }
 
 func ignoreNotFound(err error) error {
