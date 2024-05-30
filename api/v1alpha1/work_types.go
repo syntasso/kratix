@@ -17,6 +17,8 @@ limitations under the License.
 package v1alpha1
 
 import (
+	"fmt"
+
 	"github.com/syntasso/kratix/lib/hash"
 	metav1 "k8s.io/apimachinery/pkg/apis/meta/v1"
 )
@@ -98,7 +100,7 @@ func NewPromiseDependenciesWork(promise *Promise, name string) (*Work, error) {
 			Workloads: []Workload{
 				{
 					Content:  string(yamlBytes),
-					Filepath: "static/dependencies.yaml",
+					Filepath: fmt.Sprintf("static/%s-dependencies.yaml", promise.GetName()),
 				},
 			},
 		},
