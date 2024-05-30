@@ -104,12 +104,8 @@ func NewGitWriter(logger logr.Logger, stateStoreSpec v1alpha1.GitStateStoreSpec,
 	}, nil
 }
 
-func (g *GitWriter) UpdateFiles(workPlacementName string, workloadsToCreate []v1alpha1.Workload, workloadsToDelete []string) error {
-	return g.update("", workPlacementName, workloadsToCreate, workloadsToDelete)
-}
-
-func (g *GitWriter) UpdateInDir(subDir, workPlacementName string, workloadsToCreate []v1alpha1.Workload) error {
-	return g.update(subDir, workPlacementName, workloadsToCreate, nil)
+func (g *GitWriter) UpdateFiles(subDir string, workPlacementName string, workloadsToCreate []v1alpha1.Workload, workloadsToDelete []string) error {
+	return g.update(subDir, workPlacementName, workloadsToCreate, workloadsToDelete)
 }
 
 func (g *GitWriter) update(subDir, workPlacementName string, workloadsToCreate []v1alpha1.Workload, workloadsToDelete []string) error {

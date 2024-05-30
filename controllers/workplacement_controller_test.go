@@ -19,6 +19,7 @@ package controllers_test
 import (
 	"context"
 	"fmt"
+
 	"k8s.io/apimachinery/pkg/types"
 
 	"github.com/go-logr/logr"
@@ -164,9 +165,9 @@ var _ = Describe("WorkplacementReconciler", func() {
 
 				By("calling UpdateFiles()")
 				Expect(fakeWriter.UpdateFilesCallCount()).To(Equal(1))
-				Expect(fakeWriter.UpdateInDirCallCount()).To(Equal(0))
-				workPlacementName, workloadsToCreate, workloadsToDelete := fakeWriter.UpdateFilesArgsForCall(0)
+				dir, workPlacementName, workloadsToCreate, workloadsToDelete := fakeWriter.UpdateFilesArgsForCall(0)
 				Expect(workPlacementName).To(Equal(workPlacement.Name))
+				Expect(dir).To(Equal(""))
 
 				By("writing workloads files and kratix state file")
 				Expect(workloadsToCreate).To(ConsistOf(append(workloads, v1alpha1.Workload{
@@ -190,7 +191,6 @@ var _ = Describe("WorkplacementReconciler", func() {
 				Expect(fakeK8sClient.Get(ctx, types.NamespacedName{Name: workplacementName, Namespace: "default"}, workplacement)).
 					To(Succeed())
 				Expect(workplacement.GetFinalizers()).To(ContainElement("finalizers.workplacement.kratix.io/repo-cleanup"))
-
 			})
 
 			When("deleting a workplacement", func() {
@@ -202,7 +202,7 @@ var _ = Describe("WorkplacementReconciler", func() {
 
 				It("calls UpdateFiles()", func() {
 					fakeWriter.ReadFileReturns([]byte(`
-files: 
+files:
   - fruit.yaml`), nil)
 					Expect(fakeK8sClient.Delete(ctx, &workPlacement)).To(Succeed())
 					result, err := t.reconcileUntilCompletion(reconciler, &workPlacement)
@@ -210,14 +210,14 @@ files:
 					Expect(result).To(Equal(ctrl.Result{}))
 
 					Expect(fakeWriter.UpdateFilesCallCount()).To(Equal(2))
-					Expect(fakeWriter.UpdateInDirCallCount()).To(Equal(0))
 					Expect(fakeWriter.ReadFileCallCount()).To(Equal(2))
 					Expect(fakeWriter.ReadFileArgsForCall(1)).To(Equal(fmt.Sprintf(".kratix/%s-%s.yaml", workPlacement.Namespace, workPlacement.Name)))
 
-					workPlacementName, workloadsToCreate, workloadsToDelete := fakeWriter.UpdateFilesArgsForCall(1)
+					dir, workPlacementName, workloadsToCreate, workloadsToDelete := fakeWriter.UpdateFilesArgsForCall(1)
 					Expect(workPlacementName).To(Equal(workPlacement.Name))
 					Expect(workloadsToCreate).To(BeNil())
 					Expect(workloadsToDelete).To(ConsistOf("fruit.yaml", ".kratix/default-test-workplacement.yaml"))
+					Expect(dir).To(Equal(""))
 				})
 			})
 
@@ -237,8 +237,7 @@ files:
 					Expect(fakeWriter.ReadFileArgsForCall(0)).To(Equal(fmt.Sprintf(".kratix/%s-%s.yaml", workPlacement.Namespace, workPlacement.Name)))
 
 					Expect(fakeWriter.UpdateFilesCallCount()).To(Equal(1))
-					Expect(fakeWriter.UpdateInDirCallCount()).To(Equal(0))
-					workPlacementName, workloadsToCreate, workloadsToDelete := fakeWriter.UpdateFilesArgsForCall(0)
+					dir, workPlacementName, workloadsToCreate, workloadsToDelete := fakeWriter.UpdateFilesArgsForCall(0)
 					Expect(workPlacementName).To(Equal(workPlacement.Name))
 					Expect(workloadsToCreate).To(ConsistOf(append(workloads, v1alpha1.Workload{
 						Filepath: fmt.Sprintf(".kratix/%s-%s.yaml", workPlacement.Namespace, workPlacement.Name),
@@ -247,6 +246,7 @@ files:
 `,
 					})))
 					Expect(workloadsToDelete).To(ConsistOf("banana.yaml", "apple.yaml"))
+					Expect(dir).To(Equal(""))
 				})
 			})
 		})
@@ -309,12 +309,12 @@ files:
 				Expect(err).NotTo(HaveOccurred())
 				Expect(result).To(Equal(ctrl.Result{}))
 
-				Expect(fakeWriter.UpdateInDirCallCount()).To(Equal(1))
-				Expect(fakeWriter.UpdateFilesCallCount()).To(Equal(0))
-				dir, workPlacementName, workloadsToCreate := fakeWriter.UpdateInDirArgsForCall(0)
+				Expect(fakeWriter.UpdateFilesCallCount()).To(Equal(1))
+				dir, workPlacementName, workloadsToCreate, workloadsToDelete := fakeWriter.UpdateFilesArgsForCall(0)
 				Expect(dir).To(Equal("resources/default/test-promise/test-resource/5058f"))
 				Expect(workPlacementName).To(Equal(workPlacement.Name))
 				Expect(workloadsToCreate).To(Equal(workloads))
+				Expect(workloadsToDelete).To(BeEmpty())
 			})
 
 			It("constructs the writer using the statestore and destination", func() {
@@ -338,15 +338,14 @@ files:
 					Expect(err).NotTo(HaveOccurred())
 					Expect(result).To(Equal(ctrl.Result{}))
 
-					Expect(fakeWriter.UpdateInDirCallCount()).To(Equal(1))
-					Expect(fakeWriter.UpdateFilesCallCount()).To(Equal(0))
-					dir, workPlacementName, workloadsToCreate := fakeWriter.UpdateInDirArgsForCall(0)
+					Expect(fakeWriter.UpdateFilesCallCount()).To(Equal(1))
+					dir, workPlacementName, workloadsToCreate, workloadsToDelete := fakeWriter.UpdateFilesArgsForCall(0)
 					Expect(dir).To(Equal("dependencies/test-promise/5058f"))
 					Expect(workPlacementName).To(Equal(workPlacement.Name))
 					Expect(workloadsToCreate).To(Equal(workloads))
+					Expect(workloadsToDelete).To(BeEmpty())
 				})
 			})
 		})
-
 	})
 })

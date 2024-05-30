@@ -94,12 +94,8 @@ func (b *S3Writer) ReadFile(filename string) ([]byte, error) {
 
 }
 
-func (b *S3Writer) UpdateFiles(_ string, workloadsToCreate []v1alpha1.Workload, workloadsToDelete []string) error {
-	return b.update("", workloadsToCreate, workloadsToDelete)
-}
-
-func (b *S3Writer) UpdateInDir(subDir, _ string, workloadsToCreate []v1alpha1.Workload) error {
-	return b.update(subDir, workloadsToCreate, nil)
+func (b *S3Writer) UpdateFiles(subDir string, _ string, workloadsToCreate []v1alpha1.Workload, workloadsToDelete []string) error {
+	return b.update(subDir, workloadsToCreate, workloadsToDelete)
 }
 
 func (b *S3Writer) update(subDir string, workloadsToCreate []v1alpha1.Workload, workloadsToDelete []string) error {
