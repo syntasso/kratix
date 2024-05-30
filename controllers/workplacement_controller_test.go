@@ -59,8 +59,9 @@ var _ = Describe("WorkplacementReconciler", func() {
 	BeforeEach(func() {
 		ctx = context.Background()
 		reconciler = &controllers.WorkPlacementReconciler{
-			Client: fakeK8sClient,
-			Log:    ctrl.Log.WithName("controllers").WithName("Work"),
+			Client:       fakeK8sClient,
+			Log:          ctrl.Log.WithName("controllers").WithName("Work"),
+			VersionCache: make(map[string]string),
 		}
 
 		workloads = []v1alpha1.Workload{
@@ -354,6 +355,34 @@ files:
 			}, &updatedWorkplacement)).To(Succeed())
 
 			Expect(updatedWorkplacement.Status.VersionID).To(Equal("an-amazing-version-id"))
+		})
+
+		When("updating the status fails", func() {
+			It("applies the Version ID on the next reconcile", func() {
+				subResourceUpdateError = fmt.Errorf("an-error")
+
+				fakeWriter.UpdateFilesReturnsOnCall(0, "an-amazing-version-id", nil)
+				fakeWriter.UpdateFilesReturnsOnCall(1, "", nil)
+
+				result, err := t.reconcileUntilCompletion(reconciler, &workPlacement)
+				Expect(err).To(HaveOccurred())
+				Expect(result).To(Equal(ctrl.Result{}))
+				Expect(fakeWriter.UpdateFilesCallCount()).To(Equal(1))
+
+				subResourceUpdateError = nil
+
+				result, err = t.reconcileUntilCompletion(reconciler, &workPlacement)
+				Expect(err).ToNot(HaveOccurred())
+				Expect(result).To(Equal(ctrl.Result{}))
+
+				latestWP := v1alpha1.WorkPlacement{}
+				Expect(fakeK8sClient.Get(ctx, types.NamespacedName{
+					Name:      workPlacement.GetName(),
+					Namespace: workPlacement.GetNamespace(),
+				}, &latestWP)).To(Succeed())
+
+				Expect(latestWP.Status.VersionID).To(Equal("an-amazing-version-id"))
+			})
 		})
 	})
 })

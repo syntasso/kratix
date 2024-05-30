@@ -17,6 +17,8 @@ limitations under the License.
 package v1alpha1
 
 import (
+	"fmt"
+
 	metav1 "k8s.io/apimachinery/pkg/apis/meta/v1"
 )
 
@@ -74,4 +76,8 @@ func (w *WorkPlacement) SetPipelineName(work *Work) {
 
 func (w *WorkPlacement) PipelineName() string {
 	return w.GetLabels()[PipelineNameLabel]
+}
+
+func (w *WorkPlacement) GetUniqueID() string {
+	return fmt.Sprintf("%s-%s", w.Namespace, w.Name)
 }

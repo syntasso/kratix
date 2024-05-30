@@ -48,6 +48,8 @@ type StateFile struct {
 type WorkPlacementReconciler struct {
 	Client client.Client
 	Log    logr.Logger
+
+	VersionCache map[string]string
 }
 
 const repoCleanupWorkPlacementFinalizer = "finalizers.workplacement.kratix.io/repo-cleanup"
@@ -114,10 +116,16 @@ func (r *WorkPlacementReconciler) Reconcile(ctx context.Context, req ctrl.Reques
 		return defaultRequeue, err
 	}
 
-	if workPlacement.Status.VersionID != versionID && versionID != "" {
+	if versionID == "" && r.VersionCache[workPlacement.GetUniqueID()] != "" {
+		versionID = r.VersionCache[workPlacement.GetUniqueID()]
+		delete(r.VersionCache, workPlacement.GetUniqueID())
+	}
+
+	if versionID != "" && workPlacement.Status.VersionID != versionID {
 		workPlacement.Status.VersionID = versionID
 		err = r.Client.Status().Update(ctx, workPlacement)
 		if err != nil {
+			r.VersionCache[workPlacement.GetUniqueID()] = versionID
 			logger.Error(err, "Error updating WorkPlacement status")
 			return ctrl.Result{}, err
 		}
