@@ -19,9 +19,10 @@ package controllers
 import (
 	"context"
 	"fmt"
+	"path/filepath"
+
 	v1 "k8s.io/api/core/v1"
 	metav1 "k8s.io/apimachinery/pkg/apis/meta/v1"
-	"path/filepath"
 	"sigs.k8s.io/yaml"
 
 	"k8s.io/apimachinery/pkg/api/errors"
@@ -119,9 +120,10 @@ func (r *DestinationReconciler) createResourcePathWithExample(writer writers.Sta
 	}
 	nsBytes, _ := yaml.Marshal(kratixConfigMap)
 
-	return writer.UpdateFiles(canaryWorkload, []v1alpha1.Workload{{
+	_, err := writer.UpdateFiles("", canaryWorkload, []v1alpha1.Workload{{
 		Filepath: fmt.Sprintf("%s/kratix-canary-configmap.yaml", resourcesDir),
 		Content:  string(nsBytes)}}, nil)
+	return err
 }
 
 func (r *DestinationReconciler) createDependenciesPathWithExample(writer writers.StateStoreWriter) error {
@@ -134,9 +136,10 @@ func (r *DestinationReconciler) createDependenciesPathWithExample(writer writers
 	}
 	nsBytes, _ := yaml.Marshal(kratixNamespace)
 
-	return writer.UpdateFiles(canaryWorkload, []v1alpha1.Workload{{
+	_, err := writer.UpdateFiles("", canaryWorkload, []v1alpha1.Workload{{
 		Filepath: fmt.Sprintf("%s/kratix-canary-namespace.yaml", dependenciesDir),
 		Content:  string(nsBytes)}}, nil)
+	return err
 }
 
 // SetupWithManager sets up the controller with the Manager.

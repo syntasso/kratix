@@ -361,8 +361,9 @@ func (s *Scheduler) updateStatus(workPlacement *v1alpha1.WorkPlacement, missched
 		return err
 	}
 
-	updatedWorkPlacement.Status.Conditions = nil
-	if misscheduled {
+	var needsUpdate bool
+
+	if misscheduled && updatedWorkPlacement.Status.Conditions == nil {
 		updatedWorkPlacement.Status.Conditions = []v1.Condition{
 			{
 				Message:            "Target destination no longer matches destinationSelectors",
@@ -372,6 +373,16 @@ func (s *Scheduler) updateStatus(workPlacement *v1alpha1.WorkPlacement, missched
 				LastTransitionTime: v1.NewTime(time.Now()),
 			},
 		}
+		needsUpdate = true
+	}
+
+	if !misscheduled && len(updatedWorkPlacement.Status.Conditions) > 0 {
+		updatedWorkPlacement.Status.Conditions = nil
+		needsUpdate = true
+	}
+
+	if !needsUpdate {
+		return nil
 	}
 
 	return s.Client.Status().Update(context.Background(), updatedWorkPlacement)

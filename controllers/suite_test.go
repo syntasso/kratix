@@ -17,6 +17,7 @@ limitations under the License.
 package controllers_test
 
 import (
+	"context"
 	"os"
 	"testing"
 	"time"
@@ -36,6 +37,7 @@ import (
 	ctrl "sigs.k8s.io/controller-runtime"
 	"sigs.k8s.io/controller-runtime/pkg/client"
 	"sigs.k8s.io/controller-runtime/pkg/client/fake"
+	"sigs.k8s.io/controller-runtime/pkg/client/interceptor"
 	"sigs.k8s.io/controller-runtime/pkg/envtest"
 	logf "sigs.k8s.io/controller-runtime/pkg/log"
 	"sigs.k8s.io/controller-runtime/pkg/log/zap"
@@ -52,6 +54,8 @@ var (
 	testEnv                 *envtest.Environment
 	k8sManager              ctrl.Manager
 	t                       *testReconciler
+	interceptorsFuncs       interceptor.Funcs
+	subResourceUpdateError  error
 
 	timeout             = "30s"
 	consistentlyTimeout = "6s"
@@ -81,7 +85,15 @@ var _ = BeforeEach(func() {
 	resReq := &unstructured.Unstructured{}
 	Expect(yaml.Unmarshal(yamlFile, resReq)).To(Succeed())
 
-	fakeK8sClient = fake.NewClientBuilder().WithScheme(scheme.Scheme).WithStatusSubresource(
+	interceptorsFuncs = interceptor.Funcs{}
+	interceptorsFuncs.SubResourceUpdate = func(ctx context.Context, client client.Client, subResourceName string, obj client.Object, opts ...client.SubResourceUpdateOption) error {
+		if subResourceUpdateError != nil {
+			return subResourceUpdateError
+		}
+		return client.Status().Update(ctx, obj, opts...)
+	}
+
+	fakeK8sClient = fake.NewClientBuilder().WithInterceptorFuncs(interceptorsFuncs).WithScheme(scheme.Scheme).WithStatusSubresource(
 		&v1alpha1.PromiseRelease{},
 		&v1alpha1.Promise{},
 		&v1alpha1.Work{},

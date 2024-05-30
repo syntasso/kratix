@@ -4,6 +4,7 @@ import (
 	"bytes"
 	"context"
 	"crypto/md5"
+	"crypto/sha256"
 	"fmt"
 	"path/filepath"
 	"strings"
@@ -94,15 +95,11 @@ func (b *S3Writer) ReadFile(filename string) ([]byte, error) {
 
 }
 
-func (b *S3Writer) UpdateFiles(_ string, workloadsToCreate []v1alpha1.Workload, workloadsToDelete []string) error {
-	return b.update("", workloadsToCreate, workloadsToDelete)
+func (b *S3Writer) UpdateFiles(subDir string, _ string, workloadsToCreate []v1alpha1.Workload, workloadsToDelete []string) (string, error) {
+	return b.update(subDir, workloadsToCreate, workloadsToDelete)
 }
 
-func (b *S3Writer) UpdateInDir(subDir, _ string, workloadsToCreate []v1alpha1.Workload) error {
-	return b.update(subDir, workloadsToCreate, nil)
-}
-
-func (b *S3Writer) update(subDir string, workloadsToCreate []v1alpha1.Workload, workloadsToDelete []string) error {
+func (b *S3Writer) update(subDir string, workloadsToCreate []v1alpha1.Workload, workloadsToDelete []string) (string, error) {
 	ctx := context.Background()
 	logger := b.Log.WithValues("bucketName", b.BucketName, "path", b.path)
 
@@ -113,7 +110,7 @@ func (b *S3Writer) update(subDir string, workloadsToCreate []v1alpha1.Workload, 
 		var err error
 		objectsToDeleteMap, err = b.getObjectsInDir(ctx, subDir, logger)
 		if err != nil {
-			return err
+			return "", err
 		}
 	} else {
 		for _, work := range workloadsToDelete {
@@ -121,7 +118,7 @@ func (b *S3Writer) update(subDir string, workloadsToCreate []v1alpha1.Workload, 
 			if err != nil {
 				if minio.ToErrorResponse(err).Code != "NoSuchKey" {
 					logger.Error(err, "Error fetching object")
-					return err
+					return "", err
 				}
 				logger.Info("Object does not exist yet")
 			}
@@ -136,6 +133,8 @@ func (b *S3Writer) update(subDir string, workloadsToCreate []v1alpha1.Workload, 
 		logger.Info("Bucket provided does not exist (or the provided keys don't have permissions)")
 	}
 
+	var versionID string
+
 	for _, work := range workloadsToCreate {
 		objectFullPath := filepath.Join(b.path, subDir, work.Filepath)
 		delete(objectsToDeleteMap, objectFullPath)
@@ -146,7 +145,7 @@ func (b *S3Writer) update(subDir string, workloadsToCreate []v1alpha1.Workload, 
 		if err != nil {
 			if minio.ToErrorResponse(err).Code != "NoSuchKey" {
 				log.Error(err, "Error fetching object")
-				return err
+				return "", err
 			}
 			log.Info("Object does not exist yet")
 		} else {
@@ -158,15 +157,17 @@ func (b *S3Writer) update(subDir string, workloadsToCreate []v1alpha1.Workload, 
 		}
 
 		log.Info("Writing object to bucket")
-		_, err = b.RepoClient.PutObject(ctx, b.BucketName, objectFullPath, reader, reader.Size(), minio.PutObjectOptions{})
+		uploadInfo, err := b.RepoClient.PutObject(ctx, b.BucketName, objectFullPath, reader, reader.Size(), minio.PutObjectOptions{})
 		if err != nil {
 			log.Error(err, "Error writing object to bucket")
-			return err
+			return "", err
 		}
+
+		versionID = fmt.Sprintf("%x", sha256.Sum256([]byte(versionID+uploadInfo.VersionID)))
 		log.Info("Object written to bucket")
 	}
 
-	return b.deleteObjects(ctx, objectsToDeleteMap, logger)
+	return versionID, b.deleteObjects(ctx, objectsToDeleteMap, logger)
 }
 
 func (b *S3Writer) deleteObjects(ctx context.Context, oldObjectsToDelete map[string]minio.ObjectInfo, logger logr.Logger) error {
