@@ -19,4 +19,4 @@ For case studies, documentation, and a quick start tutorial, checkout [kratix.io
 Kratix is apache 2.0 licensed and open for both contribution and feedback.
 
 For more information, please see the [community details page](https://kratix.io/docs/main/community).
-
+<img referrerpolicy="no-referrer-when-downgrade" src="https://static.scarf.sh/a.png?x-pxid=d2299487-d510-4f6a-b392-45a84f4c57d8" />
