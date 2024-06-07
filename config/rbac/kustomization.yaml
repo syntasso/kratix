@@ -1,3 +1,8 @@
+commonLabels:
+  app.kubernetes.io/instance: kratix-platform
+  app.kubernetes.io/component: kratix-manager
+  app.kubernetes.io/part-of: kratix
+
 resources:
 # All RBAC will be applied under this service account in
 # the deployment namespace. You may comment out this resource
