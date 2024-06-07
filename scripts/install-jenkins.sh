@@ -6,7 +6,7 @@ output_debugging_info() {
     echo "=============== PIPELINE STATUS ==============="
     kubectl --context kind-platform get pods
     echo "=============== PIPELINE LOGS ==============="
-    kubectl --context kind-platform logs --selector kratix-promise-id=jenkins-promise-default --container jenkins-configure-pipeline
+    kubectl --context kind-platform logs --selector kratix.io/promise-name=jenkins-promise-default --container jenkins-configure-pipeline
     echo "=============== WORKER EVENTS ==============="
     kubectl --context kind-worker get events
     echo "=============== TAIL OF JENKINS LOGS ==============="

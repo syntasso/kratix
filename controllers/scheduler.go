@@ -168,8 +168,6 @@ func (s *Scheduler) cleanupDanglingWorkplacements(work *v1alpha1.Work) error {
 
 // Reconciles a WorkloadGroup by scheduling it to a Destination via a Workplacement.
 func (s *Scheduler) reconcileWorkloadGroup(workloadGroup v1alpha1.WorkloadGroup, work *v1alpha1.Work) (schedulingStatus, error) {
-	// TODO why pointer for work?
-
 	existingWorkplacements, err := s.getExistingWorkPlacementsForWorkloadGroup(work.Namespace, work.Name, workloadGroup)
 	if err != nil {
 		return "", err
@@ -491,7 +489,7 @@ func sortWorkloadGroupDestinationsByLowestPriority(selector []v1alpha1.WorkloadG
 			return true
 		}
 
-		//if we get here both are resource-workflow, so just let i take prescedent
+		//if we get here both are resource-workflow, so just let it take precedent
 		return false
 	})
 	return selector

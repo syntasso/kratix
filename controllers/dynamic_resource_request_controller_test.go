@@ -108,7 +108,6 @@ var _ = Describe("DynamicResourceRequestController", func() {
 		Expect(fakeK8sClient.Get(ctx, resReqNameNamespace, resReq)).To(Succeed())
 
 		promiseCommonLabels = map[string]string{
-			"kratix-promise-id":                  promise.GetName(),
 			"kratix-promise-resource-request-id": promise.GetName() + "-" + resReq.GetName(),
 			"kratix.io/resource-name":            resReq.GetName(),
 			"kratix.io/promise-name":             promise.GetName(),
@@ -128,7 +127,6 @@ var _ = Describe("DynamicResourceRequestController", func() {
 			}
 
 			resourceLabels := map[string]string{
-				"kratix-promise-id":      promise.GetName(),
 				"kratix.io/promise-name": promise.GetName(),
 			}
 

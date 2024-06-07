@@ -381,7 +381,6 @@ var _ = Describe("PromiseController", func() {
 						Namespace: promise.GetNamespace(),
 					}
 					promiseCommonLabels = map[string]string{
-						"kratix-promise-id":      promise.GetName(),
 						"kratix.io/promise-name": promise.GetName(),
 					}
 					promiseResourcesName = types.NamespacedName{
@@ -480,7 +479,6 @@ var _ = Describe("PromiseController", func() {
 						Namespace: promise.GetNamespace(),
 					}
 					promiseCommonLabels = map[string]string{
-						"kratix-promise-id":      promise.GetName(),
 						"kratix.io/promise-name": promise.GetName(),
 					}
 					promiseResourcesName = types.NamespacedName{
@@ -529,7 +527,6 @@ var _ = Describe("PromiseController", func() {
 						Namespace: promise.GetNamespace(),
 					}
 					promiseCommonLabels = map[string]string{
-						"kratix-promise-id":      promise.GetName(),
 						"kratix.io/promise-name": promise.GetName(),
 					}
 
@@ -644,7 +641,6 @@ var _ = Describe("PromiseController", func() {
 						Namespace: promise.GetNamespace(),
 					}
 					promiseCommonLabels = map[string]string{
-						"kratix-promise-id":      promise.GetName(),
 						"kratix.io/promise-name": promise.GetName(),
 					}
 
@@ -736,7 +732,6 @@ var _ = Describe("PromiseController", func() {
 					Namespace: promise.GetNamespace(),
 				}
 				promiseCommonLabels = map[string]string{
-					"kratix-promise-id":      promise.GetName(),
 					"kratix.io/promise-name": promise.GetName(),
 				}
 				promiseResourcesName = types.NamespacedName{
@@ -929,7 +924,6 @@ func createPromise(promisePath string) *v1alpha1.Promise {
 	}
 
 	promiseCommonLabels = map[string]string{
-		"kratix-promise-id":      promise.GetName(),
 		"kratix.io/promise-name": promise.GetName(),
 	}
 
