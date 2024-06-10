@@ -32,25 +32,31 @@ type GitStateStoreSpec struct {
 
 	StateStoreCoreFields `json:",inline"`
 
-	//+kubebuilder:validation:Optional
-	//+kubebuilder:default=main
+	// +kubebuilder:validation:Optional
+	// +kubebuilder:default=main
 	Branch string `json:"branch,omitempty"`
 
 	// AuthMethod used to access the StateStore
-	//+kubebuilder:validation:Enum=basicAuth;ssh
-	//+kubebuilder:default:=basicAuth
+	// +kubebuilder:validation:Enum=basicAuth;ssh
+	// +kubebuilder:default:=basicAuth
 	AuthMethod string `json:"authMethod,omitempty"`
+	// Git author name and email used to commit this git state store; name defaults to 'kratix'
+	// +kubebuilder:default:={name: "kratix"}
+	GitAuthor GitAuthor `json:"gitAuthor,omitempty"`
+}
+
+type GitAuthor struct {
+	Name  string `json:"name,omitempty"`
+	Email string `json:"email,omitempty"`
 }
 
 // GitStateStoreStatus defines the observed state of GitStateStore
 type GitStateStoreStatus struct {
-	// INSERT ADDITIONAL STATUS FIELD - define observed state of GitStateStore
-	// Important: Run "make" to regenerate code after modifying this file
 }
 
-//+kubebuilder:object:root=true
-//+kubebuilder:subresource:status
-//+kubebuilder:resource:scope=Cluster,path=gitstatestores,categories=kratix
+// +kubebuilder:object:root=true
+// +kubebuilder:subresource:status
+// +kubebuilder:resource:scope=Cluster,path=gitstatestores,categories=kratix
 
 // GitStateStore is the Schema for the gitstatestores API
 type GitStateStore struct {
@@ -65,7 +71,7 @@ func (g *GitStateStore) GetSecretRef() *corev1.SecretReference {
 	return g.Spec.SecretRef
 }
 
-//+kubebuilder:object:root=true
+// +kubebuilder:object:root=true
 
 // GitStateStoreList contains a list of GitStateStore
 type GitStateStoreList struct {
