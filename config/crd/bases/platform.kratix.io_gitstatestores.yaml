@@ -51,6 +51,17 @@ spec:
               branch:
                 default: main
                 type: string
+              gitAuthor:
+                default:
+                  name: kratix
+                description: Git author name and email used to commit this git state
+                  store; name defaults to 'kratix'
+                properties:
+                  email:
+                    type: string
+                  name:
+                    type: string
+                type: object
               path:
                 description: |-
                   Path within the StateStore to write documents. This path should be allocated

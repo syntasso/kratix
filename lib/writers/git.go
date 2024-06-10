@@ -18,10 +18,10 @@ import (
 )
 
 type GitWriter struct {
+	GitServer gitServer
+	Author    gitAuthor
+	Path      string
 	Log       logr.Logger
-	gitServer gitServer
-	author    gitAuthor
-	path      string
 }
 
 type gitServer struct {
@@ -39,9 +39,9 @@ func NewGitWriter(logger logr.Logger, stateStoreSpec v1alpha1.GitStateStoreSpec,
 	var authMethod transport.AuthMethod
 	switch stateStoreSpec.AuthMethod {
 	case v1alpha1.SSHAuthMethod:
-		sshKey, ok := creds["sshPrivateKey"]
+		sshPrivateKey, ok := creds["sshPrivateKey"]
 		if !ok {
-			return nil, fmt.Errorf("sshPrivateKey not found in secret %s/%s", destination.Namespace, stateStoreSpec.SecretRef.Name)
+			return nil, fmt.Errorf("sshKey not found in secret %s/%s", destination.Namespace, stateStoreSpec.SecretRef.Name)
 		}
 
 		knownHosts, ok := creds["knownHosts"]
@@ -49,9 +49,9 @@ func NewGitWriter(logger logr.Logger, stateStoreSpec v1alpha1.GitStateStoreSpec,
 			return nil, fmt.Errorf("knownHosts not found in secret %s/%s", destination.Namespace, stateStoreSpec.SecretRef.Name)
 		}
 
-		sshPrivateKey, err := ssh.NewPublicKeys("git", sshKey, "")
+		sshKey, err := ssh.NewPublicKeys("git", sshPrivateKey, "")
 		if err != nil {
-			return nil, fmt.Errorf("error parsing sshPrivateKey: %w", err)
+			return nil, fmt.Errorf("error parsing sshKey: %w", err)
 		}
 
 		knownHostsFile, err := os.CreateTemp("", "knownHosts")
@@ -65,13 +65,13 @@ func NewGitWriter(logger logr.Logger, stateStoreSpec v1alpha1.GitStateStoreSpec,
 			return nil, fmt.Errorf("error parsing known hosts: %w", err)
 		}
 
-		sshPrivateKey.HostKeyCallback = knownHostsCallback
+		sshKey.HostKeyCallback = knownHostsCallback
 		err = os.Remove(knownHostsFile.Name())
 		if err != nil {
 			return nil, fmt.Errorf("error removing knownhosts file: %w", err)
 		}
 
-		authMethod = sshPrivateKey
+		authMethod = sshKey
 	case v1alpha1.BasicAuthMethod:
 		username, ok := creds["username"]
 		if !ok {
@@ -90,17 +90,17 @@ func NewGitWriter(logger logr.Logger, stateStoreSpec v1alpha1.GitStateStoreSpec,
 	}
 
 	return &GitWriter{
-		gitServer: gitServer{
+		GitServer: gitServer{
 			URL:    stateStoreSpec.URL,
 			Branch: stateStoreSpec.Branch,
 			Auth:   authMethod,
 		},
-		author: gitAuthor{
-			Name:  "Kratix",
-			Email: "kratix@syntasso.io",
+		Author: gitAuthor{
+			Name:  stateStoreSpec.GitAuthor.Name,
+			Email: stateStoreSpec.GitAuthor.Email,
 		},
 		Log:  logger,
-		path: filepath.Join(stateStoreSpec.Path, destination.Spec.Path, destination.Namespace, destination.Name),
+		Path: filepath.Join(stateStoreSpec.Path, destination.Spec.Path, destination.Namespace, destination.Name),
 	}, nil
 }
 
@@ -113,10 +113,10 @@ func (g *GitWriter) update(subDir, workPlacementName string, workloadsToCreate [
 		return "", nil
 	}
 
-	dirInGitRepo := filepath.Join(g.path, subDir)
+	dirInGitRepo := filepath.Join(g.Path, subDir)
 	logger := g.Log.WithValues(
 		"dir", dirInGitRepo,
-		"branch", g.gitServer.Branch,
+		"branch", g.GitServer.Branch,
 	)
 
 	localTmpDir, repo, worktree, err := g.setupLocalDirectoryWithRepo(logger)
@@ -141,12 +141,12 @@ func (g *GitWriter) update(subDir, workPlacementName string, workloadsToCreate [
 		absoluteFilePath := filepath.Join(localTmpDir, worktreeFilePath)
 
 		//We need to protect against paths containing `..`
-		//filepath.Join expands any '../' in the path to the actual, e.g. /tmp/foo/../ resolves to /tmp/
-		//To ensure they can't write to files on disk outside the tmp git repository we check the absolute path
+		//filepath.Join expands any '../' in the Path to the actual, e.g. /tmp/foo/../ resolves to /tmp/
+		//To ensure they can't write to files on disk outside the tmp git repository we check the absolute Path
 		//returned by `filepath.Join` is still contained with the git repository:
 		// Note: This means `../` can still be used, but only if the end result is still contained within the git repository
 		if !strings.HasPrefix(absoluteFilePath, localTmpDir) {
-			log.Error(nil, "path of file to write is not located within the git repostiory", "absolutePath", absoluteFilePath, "tmpDir", localTmpDir)
+			log.Error(nil, "Path of file to write is not located within the git repostiory", "absolutePath", absoluteFilePath, "tmpDir", localTmpDir)
 			return "", nil //We don't want to retry as this isn't a recoverable error. Log error and return nil.
 		}
 
@@ -206,8 +206,8 @@ func (g *GitWriter) deleteExistingFiles(removeDirectory bool, dir string, worklo
 
 func (g *GitWriter) ReadFile(filePath string) ([]byte, error) {
 	logger := g.Log.WithValues(
-		"path", filePath,
-		"branch", g.gitServer.Branch,
+		"Path", filePath,
+		"branch", g.GitServer.Branch,
 	)
 
 	localTmpDir, _, worktree, err := g.setupLocalDirectoryWithRepo(logger)
@@ -247,7 +247,7 @@ func (g *GitWriter) setupLocalDirectoryWithRepo(logger logr.Logger) (string, *gi
 func (g *GitWriter) push(repo *git.Repository, logger logr.Logger) error {
 	err := repo.Push(&git.PushOptions{
 		RemoteName:      "origin",
-		Auth:            g.gitServer.Auth,
+		Auth:            g.GitServer.Auth,
 		InsecureSkipTLS: true,
 	})
 	if err != nil {
@@ -260,9 +260,9 @@ func (g *GitWriter) push(repo *git.Repository, logger logr.Logger) error {
 func (g *GitWriter) cloneRepo(localRepoFilePath string, logger logr.Logger) (*git.Repository, error) {
 	logger.Info("cloning repo")
 	return git.PlainClone(localRepoFilePath, false, &git.CloneOptions{
-		Auth:            g.gitServer.Auth,
-		URL:             g.gitServer.URL,
-		ReferenceName:   plumbing.NewBranchReferenceName(g.gitServer.Branch),
+		Auth:            g.GitServer.Auth,
+		URL:             g.GitServer.URL,
+		ReferenceName:   plumbing.NewBranchReferenceName(g.GitServer.Branch),
 		SingleBranch:    true,
 		Depth:           1,
 		NoCheckout:      false,
@@ -284,8 +284,8 @@ func (g *GitWriter) commitAndPush(repo *git.Repository, worktree *git.Worktree, 
 
 	commitHash, err := worktree.Commit(fmt.Sprintf("%s from: %s", action, workPlacementName), &git.CommitOptions{
 		Author: &object.Signature{
-			Name:  g.author.Name,
-			Email: g.author.Email,
+			Name:  g.Author.Name,
+			Email: g.Author.Email,
 			When:  time.Now(),
 		},
 	})
