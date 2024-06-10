@@ -11,6 +11,11 @@ resources:
   - bases/platform.kratix.io_promisereleases.yaml
 #+kubebuilder:scaffold:crdkustomizeresource
 
+commonLabels:
+  app.kubernetes.io/instance: kratix-platform
+  app.kubernetes.io/component: kratix-manager
+  app.kubernetes.io/part-of: kratix
+
 patchesStrategicMerge:
 # [WEBHOOK] To enable webhook, uncomment all the sections with [WEBHOOK] prefix.
 # patches here are for enabling the conversion webhook for each CRD

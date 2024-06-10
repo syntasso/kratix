@@ -7,6 +7,11 @@ resources:
 generatorOptions:
   disableNameSuffixHash: true
 
+commonLabels:
+  app.kubernetes.io/component: kratix-manager
+  app.kubernetes.io/instance: kratix-platform
+  app.kubernetes.io/part-of: kratix
+
 # The wc-img-config config map drives the WC_IMG env var, which is used by the promise
 # controller as the last container in the workflow Pipeline pod spec.
 configMapGenerator:
