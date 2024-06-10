@@ -62,7 +62,6 @@ func PromiseLabels(promiseID string) pipelineLabels {
 }
 
 func (p pipelineLabels) WithPromiseID(promiseID string) pipelineLabels {
-	p["kratix-promise-id"] = promiseID
 	p[v1alpha1.PromiseNameLabel] = promiseID
 	return p
 }

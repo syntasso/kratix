@@ -276,7 +276,6 @@ var _ = Describe("WorkCreator", func() {
 					"kratix.io/promise-name":  "promise-name",
 					"kratix.io/pipeline-name": "configure-job",
 					"kratix.io/work-type":     "promise",
-					"kratix-promise-id":       "promise-name",
 				}))
 
 				Expect(workResource.Spec.Replicas).To(Equal(-1))

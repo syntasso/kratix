@@ -41,7 +41,6 @@ var _ = Describe("Delete Pipeline", func() {
 				Name:      "custom-namespace-promise-pipeline",
 				Namespace: "kratix-platform-system",
 				Labels: map[string]string{
-					"kratix-promise-id":      "custom-namespace",
 					"kratix.io/promise-name": "custom-namespace",
 				},
 			}
@@ -129,7 +128,6 @@ var _ = Describe("Delete Pipeline", func() {
 					"kratix-workflow-promise-version": Equal("v1alpha1"),
 					"kratix-workflow-type":            Equal("promise"),
 					"kratix-workflow-action":          Equal("delete"),
-					"kratix-promise-id":               Equal("custom-namespace"),
 					"kratix.io/promise-name":          Equal("custom-namespace"),
 					"kratix.io/pipeline-name":         Equal("promise-delete"),
 					"kratix.io/work-type":             Equal("promise"),
@@ -237,7 +235,6 @@ var _ = Describe("Delete Pipeline", func() {
 				Name:      "custom-namespace-resource-pipeline",
 				Namespace: "default",
 				Labels: map[string]string{
-					"kratix-promise-id":      "custom-namespace",
 					"kratix.io/promise-name": "custom-namespace",
 				},
 			}
@@ -327,7 +324,6 @@ var _ = Describe("Delete Pipeline", func() {
 					"kratix-workflow-promise-version":    Equal("v1alpha1"),
 					"kratix-workflow-type":               Equal("resource"),
 					"kratix-workflow-action":             Equal("delete"),
-					"kratix-promise-id":                  Equal("custom-namespace"),
 					"kratix.io/promise-name":             Equal("custom-namespace"),
 					"kratix-promise-resource-request-id": Equal("example-custom-namespace"),
 					"kratix-workflow-pipeline-name":      Equal("instance-delete"),
