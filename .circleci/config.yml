@@ -102,11 +102,7 @@ commands:
       - run:
           name: Install Flux
           command: |
-            curl -L https://github.com/fluxcd/flux2/releases/download/v0.41.2/flux_0.41.2_linux_amd64.tar.gz -o flux.tar.gz
-            tar -xvf flux.tar.gz
-            mv flux ~/bin/flux
-            chmod +x ~/bin/flux
-            rm flux.tar.gz
+            curl -s https://fluxcd.io/install.sh | sudo FLUX_VERSION=2.3.0 bash
       - attach_workspace:
           at: .
       - run:
