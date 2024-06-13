@@ -5,14 +5,15 @@ import (
 	"context"
 	"encoding/base64"
 	"fmt"
-	"github.com/go-git/go-git/v5"
-	"github.com/go-git/go-git/v5/plumbing"
-	"github.com/go-git/go-git/v5/plumbing/transport/http"
 	"os"
 	"os/exec"
 	"path/filepath"
 	"strings"
 	"time"
+
+	"github.com/go-git/go-git/v5"
+	"github.com/go-git/go-git/v5/plumbing"
+	"github.com/go-git/go-git/v5/plumbing/transport/http"
 
 	"github.com/minio/minio-go/v7"
 	"github.com/minio/minio-go/v7/pkg/credentials"
@@ -930,9 +931,8 @@ func (c destination) withExitCode(code int) destination {
 }
 
 func listFilesInGitStateStore(subDir string) []string {
-	dir, err := os.MkdirTemp("", "kratix-test-repo")
+	dir, err := os.MkdirTemp(testTempDir, "git-state-store")
 	ExpectWithOffset(1, err).NotTo(HaveOccurred())
-	defer os.RemoveAll(filepath.Dir(dir))
 
 	_, err = git.PlainClone(dir, false, &git.CloneOptions{
 		Auth: &http.BasicAuth{
