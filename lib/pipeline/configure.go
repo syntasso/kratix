@@ -28,7 +28,7 @@ func NewConfigureResource(
 	logger logr.Logger,
 ) ([]client.Object, error) {
 
-	pipelineResources := NewPipelineArgs(promiseIdentifier, rr.GetName(), pipeline.Name, rr.GetName(), rr.GetNamespace())
+	pipelineResources := NewPipelineArgs(promiseIdentifier, resourceRequestIdentifier, pipeline.Name, rr.GetName(), rr.GetNamespace())
 	destinationSelectorsConfigMap, err := destinationSelectorsConfigMap(pipelineResources, promiseDestinationSelectors, nil)
 	if err != nil {
 		return nil, err
