@@ -11,6 +11,10 @@ import (
 	"strings"
 	"time"
 
+	"github.com/go-git/go-git/v5"
+	"github.com/go-git/go-git/v5/plumbing"
+	"github.com/go-git/go-git/v5/plumbing/transport/http"
+
 	"github.com/minio/minio-go/v7"
 	"github.com/minio/minio-go/v7/pkg/credentials"
 	. "github.com/onsi/ginkgo/v2"
@@ -686,7 +690,7 @@ var _ = Describe("Kratix", func() {
 		It("manages output files from multiple resource requests", func() {
 			bashPromise.Spec.DestinationSelectors = []v1alpha1.PromiseScheduling{{
 				MatchLabels: map[string]string{
-					"environment": "terraform",
+					"environment": "filepathmode-none",
 				},
 			}}
 
@@ -698,22 +702,40 @@ var _ = Describe("Kratix", func() {
 			platform.kubectl("apply", "-f", terraformRequest(rrNameTwo))
 
 			By("writing output files to the root of stateStore")
-			destinationName := "terraform"
+			promiseDestName := "filepathmode-none-git"
 			Eventually(func() []string {
-				return listFilesInMinIOStateStore(destinationName)
+				return listFilesInGitStateStore(promiseDestName)
+			}, shortTimeout, interval).Should(ContainElements("configmap.yaml"))
+
+			resourceDestName := "filepathmode-none-bucket"
+			Eventually(func() []string {
+				return listFilesInMinIOStateStore(resourceDestName)
 			}, shortTimeout, interval).Should(ContainElements(
+				"configmap.yaml",
 				fmt.Sprintf("%s.yaml", rrNameOne),
 				fmt.Sprintf("%s.yaml", rrNameTwo)))
 
 			By("removing only files associated with the resource request at deletion")
 			platform.kubectl("delete", crd.Name, rrNameOne)
 			Eventually(func() []string {
-				return listFilesInMinIOStateStore(destinationName)
+				return listFilesInMinIOStateStore(resourceDestName)
 			}, shortTimeout, interval).ShouldNot(ContainElements(
 				fmt.Sprintf("%s.yaml", rrNameOne)))
-			Expect(listFilesInMinIOStateStore(destinationName)).To(ContainElements(fmt.Sprintf("%s.yaml", rrNameTwo)))
+			Expect(listFilesInMinIOStateStore(resourceDestName)).To(ContainElements(fmt.Sprintf("%s.yaml", rrNameTwo)))
 
+			By("cleaning up files from state store at deletion")
 			platform.eventuallyKubectlDelete("promise", bashPromiseName)
+			Eventually(func() []string {
+				return listFilesInGitStateStore(promiseDestName)
+			}, shortTimeout, interval).ShouldNot(ContainElements("configmap.yaml", ".kratix/"))
+
+			Eventually(func() []string {
+				return listFilesInMinIOStateStore(resourceDestName)
+			}, shortTimeout, interval).ShouldNot(ContainElements(
+				"configmap.yaml",
+				".kratix/",
+				fmt.Sprintf("%s.yaml", rrNameOne),
+				fmt.Sprintf("%s.yaml", rrNameTwo)))
 		})
 	})
 })
@@ -729,6 +751,7 @@ func terraformRequest(name string) string {
 			"spec": map[string]interface{}{
 				"container0Cmd": fmt.Sprintf(`
 					touch /kratix/output/%s.yaml
+					echo "[{\"matchLabels\":{\"type\":\"bucket\"}}]" > /kratix/metadata/destination-selectors.yaml
 			`, name),
 				"container1Cmd": "exit 0",
 			},
@@ -905,6 +928,37 @@ func (c destination) withExitCode(code int) destination {
 	newDestination := c.clone()
 	newDestination.exitCode = code
 	return newDestination
+}
+
+func listFilesInGitStateStore(subDir string) []string {
+	dir, err := os.MkdirTemp(testTempDir, "git-state-store")
+	ExpectWithOffset(1, err).NotTo(HaveOccurred())
+
+	_, err = git.PlainClone(dir, false, &git.CloneOptions{
+		Auth: &http.BasicAuth{
+			Username: "gitea_admin",
+			Password: "r8sA8CPHD9!bt6d",
+		},
+		URL:             "https://localhost:31333/gitea_admin/kratix",
+		ReferenceName:   plumbing.NewBranchReferenceName("main"),
+		SingleBranch:    true,
+		Depth:           1,
+		NoCheckout:      false,
+		InsecureSkipTLS: true,
+	})
+	ExpectWithOffset(1, err).NotTo(HaveOccurred())
+	var paths []string
+	absoluteDir := filepath.Join(dir, subDir)
+	err = filepath.Walk(absoluteDir, func(path string, info os.FileInfo, err error) error {
+		if !info.IsDir() {
+			path, err := filepath.Rel(absoluteDir, path)
+			Expect(err).NotTo(HaveOccurred())
+			paths = append(paths, path)
+		}
+		return nil
+	})
+	ExpectWithOffset(1, err).NotTo(HaveOccurred())
+	return paths
 }
 
 func listFilesInMinIOStateStore(path string) []string {

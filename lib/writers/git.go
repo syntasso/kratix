@@ -146,7 +146,7 @@ func (g *GitWriter) update(subDir, workPlacementName string, workloadsToCreate [
 		//returned by `filepath.Join` is still contained with the git repository:
 		// Note: This means `../` can still be used, but only if the end result is still contained within the git repository
 		if !strings.HasPrefix(absoluteFilePath, localTmpDir) {
-			log.Error(nil, "Path of file to write is not located within the git repostiory", "absolutePath", absoluteFilePath, "tmpDir", localTmpDir)
+			log.Error(nil, "Path of file to write is not located within the git repository", "absolutePath", absoluteFilePath, "tmpDir", localTmpDir)
 			return "", nil //We don't want to retry as this isn't a recoverable error. Log error and return nil.
 		}
 
@@ -205,8 +205,9 @@ func (g *GitWriter) deleteExistingFiles(removeDirectory bool, dir string, worklo
 }
 
 func (g *GitWriter) ReadFile(filePath string) ([]byte, error) {
+	fullPath := filepath.Join(g.Path, filePath)
 	logger := g.Log.WithValues(
-		"Path", filePath,
+		"Path", fullPath,
 		"branch", g.GitServer.Branch,
 	)
 
@@ -216,11 +217,17 @@ func (g *GitWriter) ReadFile(filePath string) ([]byte, error) {
 	}
 	defer os.RemoveAll(filepath.Dir(localTmpDir))
 
-	if _, err := worktree.Filesystem.Lstat(filePath); err != nil {
+	if _, err := worktree.Filesystem.Lstat(fullPath); err != nil {
+		logger.Error(err, "could not stat file")
 		return nil, FileNotFound
 	}
 
-	return os.ReadFile(filepath.Join(localTmpDir, filePath))
+	var content []byte
+	if content, err = os.ReadFile(filepath.Join(localTmpDir, fullPath)); err != nil {
+		logger.Error(err, "could not read file")
+		return nil, err
+	}
+	return content, nil
 }
 
 func (g *GitWriter) setupLocalDirectoryWithRepo(logger logr.Logger) (string, *git.Repository, *git.Worktree, error) {

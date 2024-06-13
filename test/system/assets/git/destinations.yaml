@@ -13,12 +13,26 @@ spec:
 apiVersion: platform.kratix.io/v1alpha1
 kind: Destination
 metadata:
-  name: terraform
+  name: filepathmode-none-bucket
   labels:
-    environment: terraform
+    environment: filepathmode-none
+    type: bucket
 spec:
   filepath:
     mode: none
   stateStoreRef:
     name: default
     kind: BucketStateStore
+---
+apiVersion: platform.kratix.io/v1alpha1
+kind: Destination
+metadata:
+  name: filepathmode-none-git
+  labels:
+    environment: filepathmode-none
+spec:
+  filepath:
+    mode: none
+  stateStoreRef:
+    name: default
+    kind: GitStateStore
