@@ -8,6 +8,7 @@ require (
 	github.com/go-git/go-git/v5 v5.11.0
 	github.com/go-logr/logr v1.4.1
 	github.com/google/uuid v1.6.0
+	github.com/maxbrunsfeld/counterfeiter/v6 v6.8.1
 	github.com/minio/minio-go/v7 v7.0.68
 	github.com/onsi/ginkgo/v2 v2.17.2
 	github.com/onsi/gomega v1.33.1
