@@ -7,12 +7,12 @@ import (
 
 	"github.com/pkg/errors"
 	"github.com/syntasso/kratix/api/v1alpha1"
+	"github.com/syntasso/kratix/lib/resourceutil"
 	"gopkg.in/yaml.v2"
 	v1 "k8s.io/api/core/v1"
 	rbacv1 "k8s.io/api/rbac/v1"
 	metav1 "k8s.io/apimachinery/pkg/apis/meta/v1"
 	"k8s.io/apimachinery/pkg/apis/meta/v1/unstructured"
-	"k8s.io/apimachinery/pkg/util/uuid"
 )
 
 const (
@@ -216,25 +216,13 @@ func generateContainersAndVolumes(obj *unstructured.Unstructured, workflowType v
 
 // TODO(breaking) change this to {promiseIdentifier}-{pipelineType}-pipeline-{short-uuid}
 // for consistency with other resource names (e.g. service account)
-func pipelineName(promiseIdentifier, resourceName, pipelineName string) string {
-	var resource_and_separator = ""
-	if resourceName != "" {
-		resource_and_separator = resourceName + "-"
+func pipelineName(promiseIdentifier, resourceIdentifier, name, pipelineName string) string {
+	var promise_resource = promiseIdentifier
+	if resourceIdentifier != "" {
+		promise_resource = fmt.Sprintf("%s-%s", promiseIdentifier, name)
 	}
 
-	name := fmt.Sprintf("kratix-%s-%s%s", promiseIdentifier, resource_and_separator, pipelineName)
+	pipelineIdentifier := fmt.Sprintf("kratix-%s-%s", promise_resource, pipelineName)
 
-	if len(name) > 57 {
-		return enforceCharacterLimit(name, 57) + "-" + getShortUuid()
-	}
-
-	return fmt.Sprintf("kratix-%s-%s%s-%s", promiseIdentifier, resource_and_separator, pipelineName, getShortUuid())
-}
-
-func getShortUuid() string {
-	return string(uuid.NewUUID()[0:5])
-}
-
-func enforceCharacterLimit(name string, limit int) string {
-	return name[0:limit]
+	return resourceutil.GenerateObjectName(pipelineIdentifier)
 }

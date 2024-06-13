@@ -11,8 +11,8 @@ func NewPipelineArgs(promiseIdentifier, resourceRequestIdentifier, pName, name, 
 	}
 
 	names := map[string]string{
-		"configure-pipeline-name": pipelineName(promiseIdentifier, resourceRequestIdentifier, pName),
-		"delete-pipeline-name":    pipelineName(promiseIdentifier, resourceRequestIdentifier, pName),
+		"configure-pipeline-name": pipelineName(promiseIdentifier, resourceRequestIdentifier, name, pName),
+		"delete-pipeline-name":    pipelineName(promiseIdentifier, resourceRequestIdentifier, name, pName),
 		"promise-id":              promiseIdentifier,
 		"service-account":         pipelineID,
 		"role":                    pipelineID,

@@ -245,8 +245,8 @@ var _ = Describe("Delete Pipeline", func() {
 
 				It("concatenates the pipeline name to ensure it fits the 63 character limit", func() {
 					job = *pipelineResources[3].(*batchv1.Job)
-					Expect(job.ObjectMeta.Name).To(HaveLen(63))
-					Expect(job.ObjectMeta.Name).To(HavePrefix("kratix-long-long-long-long-long-long-promise-promise-dele-"))
+					Expect(job.ObjectMeta.Name).To(HaveLen(62))
+					Expect(job.ObjectMeta.Name).To(HavePrefix("kratix-long-long-long-long-long-long-promise-promise-del-"))
 				})
 			})
 		})
@@ -357,7 +357,7 @@ var _ = Describe("Delete Pipeline", func() {
 
 				Expect(job).To(MatchFields(IgnoreExtras, Fields{
 					"ObjectMeta": MatchFields(IgnoreExtras, Fields{
-						"Name":      HavePrefix("kratix-custom-namespace-example-ns-instance-delete-"),
+						"Name":      HavePrefix("kratix-custom-namespace-example-instance-delete-"),
 						"Namespace": Equal("default"),
 						"Labels":    labelsMatcher,
 					}),
@@ -452,6 +452,7 @@ var _ = Describe("Delete Pipeline", func() {
 				BeforeEach(func() {
 					promise := promiseFromFile(promisePath)
 					resourceRequest := resourceRequestFromFile(resourceRequestPath)
+					resourceRequest.SetName("long-long-request")
 
 					pipelines, err := promise.GeneratePipelines(logger)
 					Expect(err).ToNot(HaveOccurred())
@@ -467,8 +468,8 @@ var _ = Describe("Delete Pipeline", func() {
 
 				It("concatenates the pipeline name to ensure it fits the 63 character limit", func() {
 					job = *pipelineResources[3].(*batchv1.Job)
-					Expect(job.ObjectMeta.Name).To(HaveLen(63))
-					Expect(job.ObjectMeta.Name).To(HavePrefix("kratix-long-long-promise-long-long-request-instance-delet-"))
+					Expect(job.ObjectMeta.Name).To(HaveLen(62))
+					Expect(job.ObjectMeta.Name).To(HavePrefix("kratix-long-long-promise-long-long-request-instance-dele-"))
 				})
 			})
 		})
