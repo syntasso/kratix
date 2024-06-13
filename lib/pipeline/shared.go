@@ -1,6 +1,7 @@
 package pipeline
 
 import (
+	"fmt"
 	"os"
 	"strings"
 
@@ -215,8 +216,12 @@ func generateContainersAndVolumes(obj *unstructured.Unstructured, workflowType v
 
 // TODO(breaking) change this to {promiseIdentifier}-{pipelineType}-pipeline-{short-uuid}
 // for consistency with other resource names (e.g. service account)
-func pipelineName(pipelineType, promiseIdentifier string) string {
-	return pipelineType + "-pipeline-" + promiseIdentifier + "-" + getShortUuid()
+func pipelineName(promiseIdentifier, resourceName, pipelineName string) string {
+	var resource_and_separator = ""
+	if resourceName != "" {
+		resource_and_separator = resourceName + "-"
+	}
+	return fmt.Sprintf("kratix-%s-%s%s-%s", promiseIdentifier, resource_and_separator, pipelineName, getShortUuid())
 }
 
 func getShortUuid() string {

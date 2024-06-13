@@ -6,8 +6,12 @@ import (
 	"github.com/go-logr/logr"
 	. "github.com/onsi/ginkgo/v2"
 	. "github.com/onsi/gomega"
+	. "github.com/onsi/gomega/gstruct"
+	"github.com/onsi/gomega/types"
+
 	"github.com/syntasso/kratix/api/v1alpha1"
 	"github.com/syntasso/kratix/lib/pipeline"
+	batchv1 "k8s.io/api/batch/v1"
 	corev1 "k8s.io/api/core/v1"
 	metav1 "k8s.io/apimachinery/pkg/apis/meta/v1"
 	"k8s.io/apimachinery/pkg/apis/meta/v1/unstructured"
@@ -19,6 +23,9 @@ var _ = Describe("Configure Pipeline", func() {
 		p                 v1alpha1.Pipeline
 		pipelineResources pipeline.PipelineArgs
 		logger            logr.Logger
+		job               *batchv1.Job
+		err               error
+		labelsMatcher     types.GomegaMatcher
 	)
 
 	BeforeEach(func() {
@@ -48,17 +55,34 @@ var _ = Describe("Configure Pipeline", func() {
 		}
 		logger = logr.Logger{}
 
-		pipelineResources = pipeline.NewPipelineArgs("test-promise", "test-resource-request", "configure-step", "test-name", "test-namespace")
+		pipelineResources = pipeline.NewPipelineArgs("test-promise", "", "configure-step", "test-name", "test-namespace")
 	})
 
-	Describe("Pipeline Request Hash", func() {
+	Describe("Promise", func() {
 		const expectedHash = "9bb58f26192e4ba00f01e2e7b136bbd8"
-
-		It("is included as a label to the pipeline job", func() {
-			job, err := pipeline.ConfigurePipeline(rr, expectedHash, p, pipelineResources, "test-promise", false, logger)
+		BeforeEach(func() {
+			job, err = pipeline.ConfigurePipeline(rr, expectedHash, p, pipelineResources, "test-promise", false, logger)
 			Expect(err).NotTo(HaveOccurred())
 
-			Expect(job.Labels).To(HaveKeyWithValue("kratix.io/hash", expectedHash))
+			labelsMatcher = MatchAllKeys(Keys{
+				"kratix.io/hash":                  Equal(expectedHash),
+				"kratix-workflow-action":          Equal("configure"),
+				"kratix-workflow-pipeline-name":   Equal("configure-step"),
+				"kratix.io/pipeline-name":         Equal("configure-step"),
+				"kratix-workflow-type":            Equal("promise"),
+				"kratix-workflow-kind":            Equal("pipeline.platform.kratix.io"),
+				"kratix-workflow-promise-version": Equal("v1alpha1"),
+				"kratix.io/work-type":             Equal("promise"),
+				"kratix.io/promise-name":          Equal("test-promise"),
+			})
+		})
+
+		It("creates a job with the expected metadata", func() {
+			Expect(job.ObjectMeta).To(MatchFields(IgnoreExtras, Fields{
+				"Name":      HavePrefix("kratix-test-promise-configure-step-"),
+				"Namespace": Equal("test-namespace"),
+				"Labels":    labelsMatcher,
+			}))
 		})
 	})
 

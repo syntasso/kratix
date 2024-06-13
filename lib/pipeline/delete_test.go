@@ -136,7 +136,7 @@ var _ = Describe("Delete Pipeline", func() {
 
 				Expect(job).To(MatchFields(IgnoreExtras, Fields{
 					"ObjectMeta": MatchFields(IgnoreExtras, Fields{
-						"Name":      HavePrefix("delete-pipeline-custom-namespace-"),
+						"Name":      HavePrefix("kratix-custom-namespace-promise-delete-"),
 						"Namespace": Equal("kratix-platform-system"),
 						"Labels":    labelsMatcher,
 					}),
@@ -334,7 +334,7 @@ var _ = Describe("Delete Pipeline", func() {
 
 				Expect(job).To(MatchFields(IgnoreExtras, Fields{
 					"ObjectMeta": MatchFields(IgnoreExtras, Fields{
-						"Name":      HavePrefix("delete-pipeline-custom-namespace-"),
+						"Name":      HavePrefix("kratix-custom-namespace-example-custom-namespace-instance-delete-"),
 						"Namespace": Equal("default"),
 						"Labels":    labelsMatcher,
 					}),
