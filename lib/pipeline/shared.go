@@ -221,9 +221,20 @@ func pipelineName(promiseIdentifier, resourceName, pipelineName string) string {
 	if resourceName != "" {
 		resource_and_separator = resourceName + "-"
 	}
+
+	name := fmt.Sprintf("kratix-%s-%s%s", promiseIdentifier, resource_and_separator, pipelineName)
+
+	if len(name) > 57 {
+		return enforceCharacterLimit(name, 57) + "-" + getShortUuid()
+	}
+
 	return fmt.Sprintf("kratix-%s-%s%s-%s", promiseIdentifier, resource_and_separator, pipelineName, getShortUuid())
 }
 
 func getShortUuid() string {
 	return string(uuid.NewUUID()[0:5])
+}
+
+func enforceCharacterLimit(name string, limit int) string {
+	return name[0:limit]
 }

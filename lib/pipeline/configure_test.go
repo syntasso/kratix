@@ -58,7 +58,7 @@ var _ = Describe("Configure Pipeline", func() {
 		pipelineResources = pipeline.NewPipelineArgs("test-promise", "", "configure-step", "test-name", "test-namespace")
 	})
 
-	Describe("Promise", func() {
+	Describe("Promise Configure Pipeline", func() {
 		const expectedHash = "9bb58f26192e4ba00f01e2e7b136bbd8"
 		BeforeEach(func() {
 			job, err = pipeline.ConfigurePipeline(rr, expectedHash, p, pipelineResources, "test-promise", false, logger)
@@ -83,6 +83,100 @@ var _ = Describe("Configure Pipeline", func() {
 				"Namespace": Equal("test-namespace"),
 				"Labels":    labelsMatcher,
 			}))
+		})
+
+		Context("when the pipeline name would exceed the 63 character limit", func() {
+			BeforeEach(func() {
+				promise_identifier := "long-long-long-long-promise"
+				pipeline_name := "also-very-verbose-pipeline"
+				pipelineResources = pipeline.NewPipelineArgs(promise_identifier, "", pipeline_name, "test-name", "test-namespace")
+
+				job, err = pipeline.ConfigurePipeline(rr, expectedHash, p, pipelineResources, "test-promise", false, logger)
+
+				labelsMatcher = MatchAllKeys(Keys{
+					"kratix.io/hash":                  Equal(expectedHash),
+					"kratix-workflow-action":          Equal("configure"),
+					"kratix-workflow-pipeline-name":   Equal(pipeline_name),
+					"kratix.io/pipeline-name":         Equal(pipeline_name),
+					"kratix-workflow-type":            Equal("promise"),
+					"kratix-workflow-kind":            Equal("pipeline.platform.kratix.io"),
+					"kratix-workflow-promise-version": Equal("v1alpha1"),
+					"kratix.io/work-type":             Equal("promise"),
+					"kratix.io/promise-name":          Equal(promise_identifier),
+				})
+			})
+
+			It("concatenates the pipeline name to ensure it fits the 63 character limit", func() {
+				Expect(job.ObjectMeta.Name).To(HaveLen(63))
+				Expect(job.ObjectMeta).To(MatchFields(IgnoreExtras, Fields{
+					"Name":      HavePrefix("kratix-long-long-long-long-promise-also-very-verbose-pipe-"),
+					"Namespace": Equal("test-namespace"),
+					"Labels":    labelsMatcher,
+				}))
+			})
+		})
+	})
+
+	Describe("Resource Configure Pipeline", func() {
+		const expectedHash = "9bb58f26192e4ba00f01e2e7b136bbd8"
+		BeforeEach(func() {
+			pipelineResources = pipeline.NewPipelineArgs("test-promise", "test-resource", "configure-step", "test-rr", "test-namespace")
+			job, err = pipeline.ConfigurePipeline(rr, expectedHash, p, pipelineResources, "test-promise", false, logger)
+			Expect(err).NotTo(HaveOccurred())
+
+			labelsMatcher = MatchAllKeys(Keys{
+				"kratix.io/hash":                     Equal(expectedHash),
+				"kratix-workflow-action":             Equal("configure"),
+				"kratix-workflow-pipeline-name":      Equal("configure-step"),
+				"kratix.io/pipeline-name":            Equal("configure-step"),
+				"kratix-workflow-type":               Equal("resource"),
+				"kratix-workflow-kind":               Equal("pipeline.platform.kratix.io"),
+				"kratix-workflow-promise-version":    Equal("v1alpha1"),
+				"kratix.io/work-type":                Equal("resource"),
+				"kratix.io/promise-name":             Equal("test-promise"),
+				"kratix-promise-resource-request-id": Equal("test-resource"),
+				"kratix.io/resource-name":            Equal("test-rr"),
+			})
+		})
+
+		It("creates a job with the expected metadata", func() {
+			Expect(job.ObjectMeta).To(MatchFields(IgnoreExtras, Fields{
+				"Name":      HavePrefix("kratix-test-promise-test-resource-configure-step-"),
+				"Namespace": Equal("test-namespace"),
+				"Labels":    labelsMatcher,
+			}))
+		})
+
+		Context("when the pipeline name would exceed the 63 character limit", func() {
+			BeforeEach(func() {
+				promise_identifier := "long-long-long-long-promise"
+				pipelineResources = pipeline.NewPipelineArgs(promise_identifier, "test-resource", "configure-step", "test-rr", "test-namespace")
+
+				job, err = pipeline.ConfigurePipeline(rr, expectedHash, p, pipelineResources, "test-promise", false, logger)
+
+				labelsMatcher = MatchAllKeys(Keys{
+					"kratix.io/hash":                     Equal(expectedHash),
+					"kratix-workflow-action":             Equal("configure"),
+					"kratix-workflow-pipeline-name":      Equal("configure-step"),
+					"kratix.io/pipeline-name":            Equal("configure-step"),
+					"kratix-workflow-type":               Equal("resource"),
+					"kratix-workflow-kind":               Equal("pipeline.platform.kratix.io"),
+					"kratix-workflow-promise-version":    Equal("v1alpha1"),
+					"kratix.io/work-type":                Equal("resource"),
+					"kratix.io/promise-name":             Equal(promise_identifier),
+					"kratix-promise-resource-request-id": Equal("test-resource"),
+					"kratix.io/resource-name":            Equal("test-rr"),
+				})
+			})
+
+			It("concatenates the pipeline name to ensure it fits the 63 character limit", func() {
+				Expect(job.ObjectMeta.Name).To(HaveLen(63))
+				Expect(job.ObjectMeta).To(MatchFields(IgnoreExtras, Fields{
+					"Name":      HavePrefix("kratix-long-long-long-long-promise-test-resource-configur-"),
+					"Namespace": Equal("test-namespace"),
+					"Labels":    labelsMatcher,
+				}))
+			})
 		})
 	})
 
