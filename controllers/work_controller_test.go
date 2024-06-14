@@ -19,17 +19,15 @@ package controllers_test
 import (
 	"context"
 	"errors"
-	v1 "k8s.io/apimachinery/pkg/apis/meta/v1"
-
 	. "github.com/onsi/ginkgo/v2"
 	. "github.com/onsi/gomega"
+	"github.com/syntasso/kratix/api/v1alpha1"
 	"github.com/syntasso/kratix/controllers"
 	"github.com/syntasso/kratix/controllers/controllersfakes"
 	"github.com/syntasso/kratix/lib/hash"
+	v1 "k8s.io/apimachinery/pkg/apis/meta/v1"
 	"k8s.io/apimachinery/pkg/types"
 	ctrl "sigs.k8s.io/controller-runtime"
-
-	"github.com/syntasso/kratix/api/v1alpha1"
 	//+kubebuilder:scaffold:imports
 )
 
@@ -163,6 +161,47 @@ var _ = Describe("WorkReconciler", func() {
 				Expect(err).NotTo(HaveOccurred())
 				Expect(result).To(Equal(ctrl.Result{}))
 			})
+		})
+	})
+
+	When("work is deleted", func() {
+		BeforeEach(func() {
+			fakeScheduler.ReconcileWorkReturns([]string{}, nil)
+			Expect(fakeK8sClient.Create(ctx, work)).To(Succeed())
+			Expect(fakeK8sClient.Get(ctx, workName, work)).To(Succeed())
+		})
+
+		It("succeeds", func() {
+			result, err := t.reconcileUntilCompletion(reconciler, work)
+			Expect(err).NotTo(HaveOccurred())
+			Expect(result).To(Equal(ctrl.Result{}))
+
+			By("setting the finalizer on work on creation")
+			work := &v1alpha1.Work{}
+			Expect(fakeK8sClient.Get(ctx, workName, work)).
+				To(Succeed())
+			Expect(work.GetFinalizers()).To(ContainElement("kratix.io/work-cleanup"))
+
+			By("cleaning up workplacement with matching label on deletion")
+			workPlacement := v1alpha1.WorkPlacement{
+				ObjectMeta: v1.ObjectMeta{
+					Name:      work.Name,
+					Namespace: "default",
+					Labels:    map[string]string{v1alpha1.KratixPrefix + "work": work.Name},
+				},
+				Spec: v1alpha1.WorkPlacementSpec{TargetDestinationName: "test-destination"},
+			}
+			Expect(fakeK8sClient.Create(ctx, &workPlacement)).To(Succeed())
+			Expect(fakeK8sClient.Get(ctx, types.NamespacedName{Name: workPlacement.Name, Namespace: workPlacement.Namespace},
+				&v1alpha1.WorkPlacement{})).To(Succeed())
+
+			Expect(fakeK8sClient.Delete(ctx, work)).To(Succeed())
+			_, err = t.reconcileUntilCompletion(reconciler, work)
+			Expect(err).NotTo(HaveOccurred())
+
+			Expect(fakeK8sClient.Get(ctx, workName, work)).To(MatchError(ContainSubstring("not found")))
+			Expect(fakeK8sClient.Get(ctx, types.NamespacedName{Name: workPlacement.Name, Namespace: workPlacement.Namespace},
+				&v1alpha1.WorkPlacement{})).To(MatchError(ContainSubstring("not found")))
 		})
 	})
 })

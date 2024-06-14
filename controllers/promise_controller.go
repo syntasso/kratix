@@ -170,7 +170,7 @@ func (r *PromiseReconciler) Reconcile(ctx context.Context, req ctrl.Request) (ct
 		return *requeue, nil
 	}
 
-	//TODO add workflowFinalizzer if deletes exist (currently we only add it if we have a configure pipeline)
+	//TODO add workflowFinalizer if deletes exist (currently we only add it if we have a configure pipeline)
 
 	var rrCRD *apiextensionsv1.CustomResourceDefinition
 	var rrGVK schema.GroupVersionKind
