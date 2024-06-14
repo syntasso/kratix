@@ -1,17 +1,18 @@
 package pipeline
 
 import (
+	"fmt"
 	"os"
 	"strings"
 
 	"github.com/pkg/errors"
 	"github.com/syntasso/kratix/api/v1alpha1"
+	"github.com/syntasso/kratix/lib/resourceutil"
 	"gopkg.in/yaml.v2"
 	v1 "k8s.io/api/core/v1"
 	rbacv1 "k8s.io/api/rbac/v1"
 	metav1 "k8s.io/apimachinery/pkg/apis/meta/v1"
 	"k8s.io/apimachinery/pkg/apis/meta/v1/unstructured"
-	"k8s.io/apimachinery/pkg/util/uuid"
 )
 
 const (
@@ -213,12 +214,13 @@ func generateContainersAndVolumes(obj *unstructured.Unstructured, workflowType v
 	return containers, volumes
 }
 
-// TODO(breaking) change this to {promiseIdentifier}-{pipelineType}-pipeline-{short-uuid}
-// for consistency with other resource names (e.g. service account)
-func pipelineName(pipelineType, promiseIdentifier string) string {
-	return pipelineType + "-pipeline-" + promiseIdentifier + "-" + getShortUuid()
-}
+func pipelineName(promiseIdentifier, resourceIdentifier, objectName, pipelineName string) string {
+	var promiseResource = promiseIdentifier
+	if resourceIdentifier != "" {
+		promiseResource = fmt.Sprintf("%s-%s", promiseIdentifier, objectName)
+	}
 
-func getShortUuid() string {
-	return string(uuid.NewUUID()[0:5])
+	pipelineIdentifier := fmt.Sprintf("kratix-%s-%s", promiseResource, pipelineName)
+
+	return resourceutil.GenerateObjectName(pipelineIdentifier)
 }
