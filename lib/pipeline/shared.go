@@ -214,15 +214,13 @@ func generateContainersAndVolumes(obj *unstructured.Unstructured, workflowType v
 	return containers, volumes
 }
 
-// TODO(breaking) change this to {promiseIdentifier}-{pipelineType}-pipeline-{short-uuid}
-// for consistency with other resource names (e.g. service account)
-func pipelineName(promiseIdentifier, resourceIdentifier, name, pipelineName string) string {
-	var promise_resource = promiseIdentifier
+func pipelineName(promiseIdentifier, resourceIdentifier, objectName, pipelineName string) string {
+	var promiseResource = promiseIdentifier
 	if resourceIdentifier != "" {
-		promise_resource = fmt.Sprintf("%s-%s", promiseIdentifier, name)
+		promiseResource = fmt.Sprintf("%s-%s", promiseIdentifier, objectName)
 	}
 
-	pipelineIdentifier := fmt.Sprintf("kratix-%s-%s", promise_resource, pipelineName)
+	pipelineIdentifier := fmt.Sprintf("kratix-%s-%s", promiseResource, pipelineName)
 
 	return resourceutil.GenerateObjectName(pipelineIdentifier)
 }

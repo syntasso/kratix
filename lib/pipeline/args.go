@@ -4,15 +4,15 @@ type PipelineArgs struct {
 	names map[string]string
 }
 
-func NewPipelineArgs(promiseIdentifier, resourceRequestIdentifier, pName, name, namespace string) PipelineArgs {
+func NewPipelineArgs(promiseIdentifier, resourceRequestIdentifier, pName, objectName, namespace string) PipelineArgs {
 	pipelineID := promiseIdentifier + "-promise-pipeline"
 	if resourceRequestIdentifier != "" {
 		pipelineID = promiseIdentifier + "-resource-pipeline"
 	}
 
 	names := map[string]string{
-		"configure-pipeline-name": pipelineName(promiseIdentifier, resourceRequestIdentifier, name, pName),
-		"delete-pipeline-name":    pipelineName(promiseIdentifier, resourceRequestIdentifier, name, pName),
+		"configure-pipeline-name": pipelineName(promiseIdentifier, resourceRequestIdentifier, objectName, pName),
+		"delete-pipeline-name":    pipelineName(promiseIdentifier, resourceRequestIdentifier, objectName, pName),
 		"promise-id":              promiseIdentifier,
 		"service-account":         pipelineID,
 		"role":                    pipelineID,
@@ -21,7 +21,7 @@ func NewPipelineArgs(promiseIdentifier, resourceRequestIdentifier, pName, name, 
 		"resource-request-id":     resourceRequestIdentifier,
 		"namespace":               namespace,
 		"pipeline-name":           pName,
-		"name":                    name,
+		"name":                    objectName,
 	}
 
 	return PipelineArgs{

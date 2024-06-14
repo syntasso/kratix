@@ -106,7 +106,7 @@ var _ = Describe("Configure Pipeline", func() {
 				})
 			})
 
-			It("concatenates the pipeline name to ensure it fits the 63 character limit", func() {
+			It("truncates the pipeline name to ensure it fits the 63 character limit", func() {
 				Expect(job.ObjectMeta.Name).To(HaveLen(62))
 				Expect(job.ObjectMeta).To(MatchFields(IgnoreExtras, Fields{
 					"Name":      HavePrefix("kratix-long-long-long-long-promise-also-very-verbose-pip-"),
@@ -169,7 +169,7 @@ var _ = Describe("Configure Pipeline", func() {
 				})
 			})
 
-			It("concatenates the pipeline name to ensure it fits the 63 character limit", func() {
+			It("truncates the pipeline name to ensure it fits the 63 character limit", func() {
 				Expect(job.ObjectMeta.Name).To(HaveLen(62))
 				Expect(job.ObjectMeta).To(MatchFields(IgnoreExtras, Fields{
 					"Name":      HavePrefix("kratix-long-long-long-long-promise-test-resource-configu-"),
