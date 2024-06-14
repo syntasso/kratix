@@ -31,7 +31,6 @@ import (
 	"sigs.k8s.io/controller-runtime/pkg/controller/controllerutil"
 
 	"github.com/syntasso/kratix/api/v1alpha1"
-	"github.com/syntasso/kratix/lib/resourceutil"
 	"github.com/syntasso/kratix/lib/writers"
 )
 
@@ -54,16 +53,10 @@ type WorkPlacementReconciler struct {
 
 const repoCleanupWorkPlacementFinalizer = "finalizers.workplacement.kratix.io/repo-cleanup"
 
-var workPlacementFinalizers = []string{repoCleanupWorkPlacementFinalizer}
-
 //+kubebuilder:rbac:groups=platform.kratix.io,resources=workplacements,verbs=get;list;watch;create;update;patch;delete
 //+kubebuilder:rbac:groups=platform.kratix.io,resources=workplacements/status,verbs=get;update;patch
 //+kubebuilder:rbac:groups=platform.kratix.io,resources=workplacements/finalizers,verbs=update
 
-// Reconcile is part of the main kubernetes reconciliation loop which aims to
-// move the current state of the destination closer to the desired state.
-// For more details, check Reconcile and its Result here:
-// - https://pkg.go.dev/sigs.k8s.io/controller-runtime@v0.11.0/pkg/reconcile
 func (r *WorkPlacementReconciler) Reconcile(ctx context.Context, req ctrl.Request) (ctrl.Result, error) {
 	logger := r.Log.WithValues("work-placement-controller", req.NamespacedName)
 
@@ -106,8 +99,8 @@ func (r *WorkPlacementReconciler) Reconcile(ctx context.Context, req ctrl.Reques
 		return r.deleteWorkPlacement(ctx, writer, workPlacement, destination.GetFilepathMode(), logger)
 	}
 
-	if resourceutil.FinalizersAreMissing(workPlacement, workPlacementFinalizers) {
-		return addFinalizers(opts, workPlacement, workPlacementFinalizers)
+	if !controllerutil.ContainsFinalizer(workPlacement, repoCleanupWorkPlacementFinalizer) {
+		return addFinalizers(opts, workPlacement, []string{repoCleanupWorkPlacementFinalizer})
 	}
 
 	versionID, err := r.writeWorkloadsToStateStore(writer, *workPlacement, *destination, logger)

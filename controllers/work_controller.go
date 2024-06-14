@@ -18,13 +18,16 @@ package controllers
 
 import (
 	"context"
-
 	"github.com/go-logr/logr"
 	"github.com/syntasso/kratix/api/v1alpha1"
 	"k8s.io/apimachinery/pkg/api/errors"
+	"k8s.io/apimachinery/pkg/runtime/schema"
 	ctrl "sigs.k8s.io/controller-runtime"
 	"sigs.k8s.io/controller-runtime/pkg/client"
+	"sigs.k8s.io/controller-runtime/pkg/controller/controllerutil"
 )
+
+const workCleanUpFinalizer = v1alpha1.KratixPrefix + "work-cleanup"
 
 // WorkReconciler reconciles a Work object
 type WorkReconciler struct {
@@ -64,6 +67,17 @@ func (r *WorkReconciler) Reconcile(ctx context.Context, req ctrl.Request) (ctrl.
 		return ctrl.Result{Requeue: false}, err
 	}
 
+	if !work.DeletionTimestamp.IsZero() {
+		return r.deleteWork(ctx, work)
+	}
+
+	if !controllerutil.ContainsFinalizer(work, workCleanUpFinalizer) {
+		return addFinalizers(opts{
+			client: r.Client,
+			logger: r.Log,
+			ctx:    ctx}, work, []string{workFinalizer})
+	}
+
 	logger.Info("Requesting scheduling for Work")
 	unscheduledWorkloadGroupIDs, err := r.Scheduler.ReconcileWork(work)
 	if err != nil {
@@ -80,6 +94,29 @@ func (r *WorkReconciler) Reconcile(ctx context.Context, req ctrl.Request) (ctrl.
 
 	return ctrl.Result{}, nil
 
+}
+
+func (r *WorkReconciler) deleteWork(ctx context.Context, work *v1alpha1.Work) (ctrl.Result, error) {
+	workplacementGVK := schema.GroupVersionKind{
+		Group:   v1alpha1.GroupVersion.Group,
+		Version: v1alpha1.GroupVersion.Version,
+		Kind:    "WorkPlacement",
+	}
+
+	resourcesRemaining, err := deleteAllResourcesWithKindMatchingLabel(opts{client: r.Client, logger: r.Log, ctx: ctx},
+		workplacementGVK, map[string]string{workLabelKey: work.Name})
+	if err != nil {
+		return defaultRequeue, err
+	}
+
+	if !resourcesRemaining {
+		controllerutil.RemoveFinalizer(work, workCleanUpFinalizer)
+		err = r.Client.Update(ctx, work)
+		if err != nil {
+			return defaultRequeue, err
+		}
+	}
+	return defaultRequeue, nil
 }
 
 // SetupWithManager sets up the controller with the Manager.
