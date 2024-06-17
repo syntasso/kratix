@@ -135,7 +135,6 @@ func (r *WorkPlacementReconciler) deleteWorkPlacement(ctx context.Context, write
 	logger.Info("cleaning up work on repository", "workplacement", workPlacement.Name)
 
 	var err error
-
 	var dir = getDir(*workPlacement) + "/"
 	var workloadsToDelete []string
 
@@ -143,7 +142,16 @@ func (r *WorkPlacementReconciler) deleteWorkPlacement(ctx context.Context, write
 		var kratixFile []byte
 		kratixFilePath := fmt.Sprintf(".kratix/%s-%s.yaml", workPlacement.Namespace, workPlacement.Name)
 		if kratixFile, err = writer.ReadFile(kratixFilePath); err != nil {
-			logger.Error(err, "failed to read .kratix state file")
+			if errors.Is(err, writers.FileNotFound) {
+				logger.Info(".kratix state file not found on delete", "file path", kratixFilePath)
+				controllerutil.RemoveFinalizer(workPlacement, repoCleanupWorkPlacementFinalizer)
+				err = r.Client.Update(ctx, workPlacement)
+				if err != nil {
+					return defaultRequeue, err
+				}
+				return fastRequeue, nil
+			}
+			logger.Error(err, "failed to read .kratix state file", "file path", kratixFilePath)
 			return defaultRequeue, err
 		}
 		stateFile := StateFile{}
