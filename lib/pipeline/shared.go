@@ -184,7 +184,7 @@ func readerContainer(obj *unstructured.Unstructured, kratixWorkflowType v1alpha1
 }
 
 func generateContainersAndVolumes(obj *unstructured.Unstructured, workflowType v1alpha1.Type, pipeline v1alpha1.Pipeline, kratixEnvVars []v1.EnvVar) ([]v1.Container, []v1.Volume) {
-	volumes, volumeMounts := defaultPipelineVolumes()
+	volumes, defaultVolumeMounts := defaultPipelineVolumes()
 
 	readerContainer := readerContainer(obj, workflowType, "shared-input")
 	containers := []v1.Container{
@@ -194,15 +194,14 @@ func generateContainersAndVolumes(obj *unstructured.Unstructured, workflowType v
 	if len(pipeline.Spec.Volumes) > 0 {
 		volumes = append(volumes, pipeline.Spec.Volumes...)
 	}
+
 	for _, c := range pipeline.Spec.Containers {
-		if len(c.VolumeMounts) > 0 {
-			volumeMounts = append(volumeMounts, c.VolumeMounts...)
-		}
+		containerVolumeMounts := append(defaultVolumeMounts, c.VolumeMounts...)
 
 		containers = append(containers, v1.Container{
 			Name:            c.Name,
 			Image:           c.Image,
-			VolumeMounts:    volumeMounts,
+			VolumeMounts:    containerVolumeMounts,
 			Args:            c.Args,
 			Command:         c.Command,
 			Env:             append(kratixEnvVars, c.Env...),
