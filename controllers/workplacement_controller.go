@@ -53,7 +53,7 @@ type WorkPlacementReconciler struct {
 
 const (
 	repoCleanupWorkPlacementFinalizer       = "finalizers.workplacement.kratix.io/repo-cleanup"
-	kratixFileCleanupWorkPlacementFinalizer = "finalizers.workplacement.kratix.io/kratix-file-cleanup"
+	kratixFileCleanupWorkPlacementFinalizer = "finalizers.workplacement.kratix.io/kratix-dot-files-cleanup"
 )
 
 //+kubebuilder:rbac:groups=platform.kratix.io,resources=workplacements,verbs=get;list;watch;create;update;patch;delete
@@ -136,13 +136,7 @@ func (r *WorkPlacementReconciler) deleteWorkPlacement(ctx context.Context, write
 	pendingRepoCleanup := controllerutil.ContainsFinalizer(workPlacement, repoCleanupWorkPlacementFinalizer)
 	pendingKratixFileCleanup := controllerutil.ContainsFinalizer(workPlacement, kratixFileCleanupWorkPlacementFinalizer)
 
-	if !pendingRepoCleanup && !pendingKratixFileCleanup {
-		return ctrl.Result{}, nil
-	}
-
 	var err error
-	var workloadsToDelete []string
-	var finalizerToRemove string
 	kratixFilePath := fmt.Sprintf(".kratix/%s-%s.yaml", workPlacement.Namespace, workPlacement.Name)
 
 	var dir string
@@ -152,8 +146,8 @@ func (r *WorkPlacementReconciler) deleteWorkPlacement(ctx context.Context, write
 	}
 
 	if pendingRepoCleanup {
-		finalizerToRemove = repoCleanupWorkPlacementFinalizer
 		logger.Info("cleaning up work on repository", "workplacement", workPlacement.Name)
+		var workloadsToDelete []string
 		if filePathMode == v1alpha1.FilepathModeNone {
 			var kratixFile []byte
 			if kratixFile, err = writer.ReadFile(kratixFilePath); err != nil {
@@ -167,14 +161,18 @@ func (r *WorkPlacementReconciler) deleteWorkPlacement(ctx context.Context, write
 			}
 			workloadsToDelete = stateFile.Files
 		}
+
+		return r.delete(ctx, writer, dir, workPlacement, workloadsToDelete, repoCleanupWorkPlacementFinalizer, logger)
 	}
 
-	if !pendingRepoCleanup && pendingKratixFileCleanup {
+	if pendingKratixFileCleanup {
 		logger.Info("cleaning up .kratix state file", "workplacement", workPlacement.Name)
-		workloadsToDelete = []string{kratixFilePath}
-		finalizerToRemove = kratixFileCleanupWorkPlacementFinalizer
+		return r.delete(ctx, writer, "", workPlacement, []string{kratixFilePath}, kratixFileCleanupWorkPlacementFinalizer, logger)
 	}
+	return ctrl.Result{}, nil
+}
 
+func (r *WorkPlacementReconciler) delete(ctx context.Context, writer writers.StateStoreWriter, dir string, workPlacement *v1alpha1.WorkPlacement, workloadsToDelete []string, finalizerToRemove string, logger logr.Logger) (ctrl.Result, error) {
 	if _, err := writer.UpdateFiles(dir, workPlacement.Name, nil, workloadsToDelete); err != nil {
 		logger.Error(err, "error removing work from repository, will try again in 5 seconds")
 		return ctrl.Result{}, err

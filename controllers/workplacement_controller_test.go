@@ -193,7 +193,7 @@ var _ = Describe("WorkplacementReconciler", func() {
 					To(Succeed())
 				Expect(workplacement.GetFinalizers()).To(ConsistOf(
 					"finalizers.workplacement.kratix.io/repo-cleanup",
-					"finalizers.workplacement.kratix.io/kratix-file-cleanup",
+					"finalizers.workplacement.kratix.io/kratix-dot-files-cleanup",
 				))
 			})
 
