@@ -191,7 +191,10 @@ var _ = Describe("WorkplacementReconciler", func() {
 				workplacement := &v1alpha1.WorkPlacement{}
 				Expect(fakeK8sClient.Get(ctx, types.NamespacedName{Name: workplacementName, Namespace: "default"}, workplacement)).
 					To(Succeed())
-				Expect(workplacement.GetFinalizers()).To(ContainElement("finalizers.workplacement.kratix.io/repo-cleanup"))
+				Expect(workplacement.GetFinalizers()).To(ConsistOf(
+					"finalizers.workplacement.kratix.io/repo-cleanup",
+					"finalizers.workplacement.kratix.io/kratix-dot-files-cleanup",
+				))
 			})
 
 			When("deleting a workplacement", func() {
@@ -210,14 +213,21 @@ files:
 					Expect(err).NotTo(HaveOccurred())
 					Expect(result).To(Equal(ctrl.Result{}))
 
-					Expect(fakeWriter.UpdateFilesCallCount()).To(Equal(2))
+					kratixStateFile := fmt.Sprintf(".kratix/%s-%s.yaml", workPlacement.Namespace, workPlacement.Name)
+					Expect(fakeWriter.UpdateFilesCallCount()).To(Equal(3))
 					Expect(fakeWriter.ReadFileCallCount()).To(Equal(2))
-					Expect(fakeWriter.ReadFileArgsForCall(1)).To(Equal(fmt.Sprintf(".kratix/%s-%s.yaml", workPlacement.Namespace, workPlacement.Name)))
+					Expect(fakeWriter.ReadFileArgsForCall(1)).To(Equal(kratixStateFile))
 
 					dir, workPlacementName, workloadsToCreate, workloadsToDelete := fakeWriter.UpdateFilesArgsForCall(1)
 					Expect(workPlacementName).To(Equal(workPlacement.Name))
 					Expect(workloadsToCreate).To(BeNil())
-					Expect(workloadsToDelete).To(ConsistOf("fruit.yaml", ".kratix/default-test-workplacement.yaml"))
+					Expect(workloadsToDelete).To(ConsistOf("fruit.yaml"))
+					Expect(dir).To(Equal(""))
+
+					dir, workPlacementName, workloadsToCreate, workloadsToDelete = fakeWriter.UpdateFilesArgsForCall(2)
+					Expect(workPlacementName).To(Equal(workPlacement.Name))
+					Expect(workloadsToCreate).To(BeNil())
+					Expect(workloadsToDelete).To(ConsistOf(kratixStateFile))
 					Expect(dir).To(Equal(""))
 				})
 			})

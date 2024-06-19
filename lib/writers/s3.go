@@ -102,7 +102,6 @@ func (b *S3Writer) UpdateFiles(subDir string, _ string, workloadsToCreate []v1al
 func (b *S3Writer) update(subDir string, workloadsToCreate []v1alpha1.Workload, workloadsToDelete []string) (string, error) {
 	ctx := context.Background()
 	logger := b.Log.WithValues("bucketName", b.BucketName, "path", b.path)
-
 	objectsToDeleteMap := map[string]minio.ObjectInfo{}
 
 	//Get a list of all the old workload files, we delete any that aren't part of the new workload at the end of this function.

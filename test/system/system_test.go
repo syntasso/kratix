@@ -712,8 +712,9 @@ var _ = Describe("Kratix", func() {
 				return listFilesInMinIOStateStore(resourceDestName)
 			}, shortTimeout, interval).Should(ContainElements(
 				"configmap.yaml",
-				fmt.Sprintf("%s.yaml", rrNameOne),
-				fmt.Sprintf("%s.yaml", rrNameTwo)))
+				ContainSubstring(fmt.Sprintf("%s.yaml", rrNameOne)),
+				ContainSubstring(fmt.Sprintf("%s.yaml", rrNameTwo)),
+			))
 
 			By("removing only files associated with the resource request at deletion")
 			platform.kubectl("delete", crd.Name, rrNameOne)
@@ -721,21 +722,27 @@ var _ = Describe("Kratix", func() {
 				return listFilesInMinIOStateStore(resourceDestName)
 			}, shortTimeout, interval).ShouldNot(ContainElements(
 				fmt.Sprintf("%s.yaml", rrNameOne)))
-			Expect(listFilesInMinIOStateStore(resourceDestName)).To(ContainElements(fmt.Sprintf("%s.yaml", rrNameTwo)))
+			Expect(listFilesInMinIOStateStore(resourceDestName)).To(ContainElements(
+				ContainSubstring(fmt.Sprintf("%s.yaml", rrNameTwo)),
+			))
 
 			By("cleaning up files from state store at deletion")
 			platform.eventuallyKubectlDelete("promise", bashPromiseName)
 			Eventually(func() []string {
 				return listFilesInGitStateStore(promiseDestName)
-			}, shortTimeout, interval).ShouldNot(ContainElements("configmap.yaml", ".kratix/"))
+			}, shortTimeout, interval).ShouldNot(ContainElements(
+				"configmap.yaml",
+				ContainSubstring(".kratix"),
+			))
 
 			Eventually(func() []string {
 				return listFilesInMinIOStateStore(resourceDestName)
 			}, shortTimeout, interval).ShouldNot(ContainElements(
 				"configmap.yaml",
-				".kratix/",
-				fmt.Sprintf("%s.yaml", rrNameOne),
-				fmt.Sprintf("%s.yaml", rrNameTwo)))
+				ContainSubstring(".kratix"),
+				ContainSubstring(fmt.Sprintf("%s.yaml", rrNameOne)),
+				ContainSubstring(fmt.Sprintf("%s.yaml", rrNameTwo)),
+			))
 		})
 	})
 })
