@@ -121,10 +121,13 @@ func main() {
 				// Once sleep finishes: restartInProgress set to false.
 				restartManager = true
 				if !restartManagerInProgress {
-					restartManagerInProgress = true
-					time.Sleep(time.Minute * 2)
-					cancelManagerCtxFunc()
-					restartManagerInProgress = false
+					// start in a go routine to avoid blocking the main thread
+					go func() {
+						restartManagerInProgress = true
+						time.Sleep(time.Minute * 2)
+						cancelManagerCtxFunc()
+						restartManagerInProgress = false
+					}()
 				}
 			},
 		}).SetupWithManager(mgr); err != nil {
