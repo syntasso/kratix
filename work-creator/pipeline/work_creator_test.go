@@ -75,7 +75,7 @@ var _ = Describe("WorkCreator", func() {
 					workResource = getWork(expectedNamespace, promiseName, resourceName, pipelineName)
 					Expect(workResource.Spec.WorkloadGroups).To(HaveLen(2))
 
-					paths := []string{}
+					var paths []string
 					for _, workload := range workResource.Spec.WorkloadGroups[0].Workloads {
 						paths = append(paths, workload.Filepath)
 					}
@@ -110,7 +110,7 @@ var _ = Describe("WorkCreator", func() {
 				It("has three files", func() {
 					Expect(workResource.Spec.WorkloadGroups).To(HaveLen(2))
 
-					paths := []string{}
+					var paths []string
 					for _, workload := range workResource.Spec.WorkloadGroups[0].Workloads {
 						paths = append(paths, workload.Filepath)
 					}
@@ -240,7 +240,7 @@ var _ = Describe("WorkCreator", func() {
 			It("does not append the default workload group to the work", func() {
 				Expect(workResource.Spec.WorkloadGroups).To(HaveLen(1))
 
-				paths := []string{}
+				var paths []string
 				for _, workload := range workResource.Spec.WorkloadGroups[0].Workloads {
 					paths = append(paths, workload.Filepath)
 				}
