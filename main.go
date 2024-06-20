@@ -68,11 +68,16 @@ func main() {
 
 	ctx, cancelManagerCtxFunc := context.WithCancel(context.Background())
 	restartManager := false
-	for {
-		ctrl.SetLogger(zap.New(zap.UseFlagOptions(&opts), func(o *zap.Options) {
-			o.TimeEncoder = zapcore.TimeEncoderOfLayout("2006-01-02T15:04:05Z07:00")
-		}))
+	ctrl.SetLogger(zap.New(zap.UseFlagOptions(&opts), func(o *zap.Options) {
+		o.TimeEncoder = zapcore.TimeEncoderOfLayout("2006-01-02T15:04:05Z07:00")
+	}))
 
+	prefix := os.Getenv("KRATIX_LOGGER_PREFIX")
+	if prefix != "" {
+		ctrl.Log = ctrl.Log.WithName(prefix)
+	}
+
+	for {
 		config := ctrl.GetConfigOrDie()
 		apiextensionsClient := clientset.NewForConfigOrDie(config)
 		metricsServerOptions := metricsserver.Options{
@@ -94,11 +99,6 @@ func main() {
 		if err != nil {
 			setupLog.Error(err, "unable to start manager")
 			os.Exit(1)
-		}
-
-		prefix := os.Getenv("KRATIX_LOGGER_PREFIX")
-		if prefix != "" {
-			ctrl.Log = ctrl.Log.WithName(prefix)
 		}
 
 		scheduler := controllers.Scheduler{
