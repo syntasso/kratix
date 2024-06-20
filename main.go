@@ -71,7 +71,6 @@ func main() {
 	ctrl.SetLogger(zap.New(zap.UseFlagOptions(&opts), func(o *zap.Options) {
 		o.TimeEncoder = zapcore.TimeEncoderOfLayout("2006-01-02T15:04:05Z07:00")
 	}))
-
 	prefix := os.Getenv("KRATIX_LOGGER_PREFIX")
 	if prefix != "" {
 		ctrl.Log = ctrl.Log.WithName(prefix)
