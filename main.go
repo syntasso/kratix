@@ -125,8 +125,8 @@ func main() {
 					go func() {
 						restartManagerInProgress = true
 						time.Sleep(time.Minute * 2)
-						cancelManagerCtxFunc()
 						restartManagerInProgress = false
+						cancelManagerCtxFunc()
 					}()
 				}
 			},
