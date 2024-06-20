@@ -20,6 +20,7 @@ import (
 	"context"
 	"flag"
 	"os"
+	"time"
 
 	// Import all Kubernetes client auth plugins (e.g. Azure, GCP, OIDC, etc.)
 	// to ensure that exec-entrypoint and run can make use of them.
@@ -67,7 +68,6 @@ func main() {
 	flag.Parse()
 
 	ctx, cancelManagerCtxFunc := context.WithCancel(context.Background())
-	restartManager := false
 	ctrl.SetLogger(zap.New(zap.UseFlagOptions(&opts), func(o *zap.Options) {
 		o.TimeEncoder = zapcore.TimeEncoderOfLayout("2006-01-02T15:04:05Z07:00")
 	}))
@@ -106,6 +106,8 @@ func main() {
 			Log:    ctrl.Log.WithName("controllers").WithName("Scheduler"),
 		}
 
+		restartManager := false
+		restartManagerInProgress := false
 		if err = (&controllers.PromiseReconciler{
 			ApiextensionsClient: apiextensionsClient.ApiextensionsV1(),
 			Client:              mgr.GetClient(),
@@ -113,8 +115,20 @@ func main() {
 			Manager:             mgr,
 			Scheme:              mgr.GetScheme(),
 			RestartManager: func() {
+				// This function gets called multiple times
+				// First call: restartInProgress get set to true, sleeps starts
+				// Following calls: no-op
+				// Once sleep finishes: restartInProgress set to false.
 				restartManager = true
-				cancelManagerCtxFunc()
+				if !restartManagerInProgress {
+					// start in a go routine to avoid blocking the main thread
+					go func() {
+						restartManagerInProgress = true
+						time.Sleep(time.Minute * 2)
+						restartManagerInProgress = false
+						cancelManagerCtxFunc()
+					}()
+				}
 			},
 		}).SetupWithManager(mgr); err != nil {
 			setupLog.Error(err, "unable to create controller", "controller", "Promise")
