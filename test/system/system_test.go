@@ -686,65 +686,67 @@ var _ = Describe("Kratix", func() {
 		})
 	})
 
-	Describe("filepathMode set to none", func() {
-		It("manages output files from multiple resource requests", func() {
-			bashPromise.Spec.DestinationSelectors = []v1alpha1.PromiseScheduling{{
-				MatchLabels: map[string]string{
-					"environment": "filepathmode-none",
-				},
-			}}
+	if getEnvOrDefault("TEST_SKIP_BUCKET_CHECK", "false") != "true" {
+		Describe("filepathMode set to none", func() {
+			It("manages output files from multiple resource requests", func() {
+				bashPromise.Spec.DestinationSelectors = []v1alpha1.PromiseScheduling{{
+					MatchLabels: map[string]string{
+						"environment": "filepathmode-none",
+					},
+				}}
 
-			platform.eventuallyKubectl("apply", "-f", cat(bashPromise))
-			platform.eventuallyKubectl("get", "crd", crd.Name)
-			rrNameOne := bashPromiseName + "terraform-1"
-			platform.kubectl("apply", "-f", terraformRequest(rrNameOne))
-			rrNameTwo := bashPromiseName + "terraform-2"
-			platform.kubectl("apply", "-f", terraformRequest(rrNameTwo))
+				platform.eventuallyKubectl("apply", "-f", cat(bashPromise))
+				platform.eventuallyKubectl("get", "crd", crd.Name)
+				rrNameOne := bashPromiseName + "terraform-1"
+				platform.kubectl("apply", "-f", terraformRequest(rrNameOne))
+				rrNameTwo := bashPromiseName + "terraform-2"
+				platform.kubectl("apply", "-f", terraformRequest(rrNameTwo))
 
-			By("writing output files to the root of stateStore")
-			promiseDestName := "filepathmode-none-git"
-			Eventually(func() []string {
-				return listFilesInGitStateStore(promiseDestName)
-			}, shortTimeout, interval).Should(ContainElements("configmap.yaml"))
+				By("writing output files to the root of stateStore")
+				promiseDestName := "filepathmode-none-git"
+				Eventually(func() []string {
+					return listFilesInGitStateStore(promiseDestName)
+				}, shortTimeout, interval).Should(ContainElements("configmap.yaml"))
 
-			resourceDestName := "filepathmode-none-bucket"
-			Eventually(func() []string {
-				return listFilesInMinIOStateStore(resourceDestName)
-			}, shortTimeout, interval).Should(ContainElements(
-				"configmap.yaml",
-				ContainSubstring(fmt.Sprintf("%s.yaml", rrNameOne)),
-				ContainSubstring(fmt.Sprintf("%s.yaml", rrNameTwo)),
-			))
+				resourceDestName := "filepathmode-none-bucket"
+				Eventually(func() []string {
+					return listFilesInMinIOStateStore(resourceDestName)
+				}, shortTimeout, interval).Should(ContainElements(
+					"configmap.yaml",
+					ContainSubstring(fmt.Sprintf("%s.yaml", rrNameOne)),
+					ContainSubstring(fmt.Sprintf("%s.yaml", rrNameTwo)),
+				))
 
-			By("removing only files associated with the resource request at deletion")
-			platform.kubectl("delete", crd.Name, rrNameOne)
-			Eventually(func() []string {
-				return listFilesInMinIOStateStore(resourceDestName)
-			}, shortTimeout, interval).ShouldNot(ContainElements(
-				fmt.Sprintf("%s.yaml", rrNameOne)))
-			Expect(listFilesInMinIOStateStore(resourceDestName)).To(ContainElements(
-				ContainSubstring(fmt.Sprintf("%s.yaml", rrNameTwo)),
-			))
+				By("removing only files associated with the resource request at deletion")
+				platform.kubectl("delete", crd.Name, rrNameOne)
+				Eventually(func() []string {
+					return listFilesInMinIOStateStore(resourceDestName)
+				}, shortTimeout, interval).ShouldNot(ContainElements(
+					fmt.Sprintf("%s.yaml", rrNameOne)))
+				Expect(listFilesInMinIOStateStore(resourceDestName)).To(ContainElements(
+					ContainSubstring(fmt.Sprintf("%s.yaml", rrNameTwo)),
+				))
 
-			By("cleaning up files from state store at deletion")
-			platform.eventuallyKubectlDelete("promise", bashPromiseName)
-			Eventually(func() []string {
-				return listFilesInGitStateStore(promiseDestName)
-			}, shortTimeout, interval).ShouldNot(ContainElements(
-				"configmap.yaml",
-				ContainSubstring(".kratix"),
-			))
+				By("cleaning up files from state store at deletion")
+				platform.eventuallyKubectlDelete("promise", bashPromiseName)
+				Eventually(func() []string {
+					return listFilesInGitStateStore(promiseDestName)
+				}, shortTimeout, interval).ShouldNot(ContainElements(
+					"configmap.yaml",
+					ContainSubstring(".kratix"),
+				))
 
-			Eventually(func() []string {
-				return listFilesInMinIOStateStore(resourceDestName)
-			}, shortTimeout, interval).ShouldNot(ContainElements(
-				"configmap.yaml",
-				ContainSubstring(".kratix"),
-				ContainSubstring(fmt.Sprintf("%s.yaml", rrNameOne)),
-				ContainSubstring(fmt.Sprintf("%s.yaml", rrNameTwo)),
-			))
+				Eventually(func() []string {
+					return listFilesInMinIOStateStore(resourceDestName)
+				}, shortTimeout, interval).ShouldNot(ContainElements(
+					"configmap.yaml",
+					ContainSubstring(".kratix"),
+					ContainSubstring(fmt.Sprintf("%s.yaml", rrNameOne)),
+					ContainSubstring(fmt.Sprintf("%s.yaml", rrNameTwo)),
+				))
+			})
 		})
-	})
+	}
 })
 
 func terraformRequest(name string) string {
