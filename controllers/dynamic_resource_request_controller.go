@@ -43,11 +43,7 @@ import (
 	"sigs.k8s.io/controller-runtime/pkg/client"
 )
 
-const (
-	workFinalizer            = v1alpha1.KratixPrefix + "work-cleanup"
-	workflowsFinalizer       = v1alpha1.KratixPrefix + "workflows-cleanup"
-	deleteWorkflowsFinalizer = v1alpha1.KratixPrefix + "delete-workflows"
-)
+const workFinalizer = v1alpha1.KratixPrefix + "work-cleanup"
 
 var rrFinalizers = []string{workFinalizer, removeAllWorkflowJobsFinalizer, runDeleteWorkflowsFinalizer}
 
