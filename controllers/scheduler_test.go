@@ -53,16 +53,16 @@ var _ = Describe("Controllers/Scheduler", func() {
 
 		BeforeEach(func() {
 			// dependency Work which is scheduled to all Destinations
-			newWork("work-name", DependencyReplicas)
+			newWork("work-name", false)
 
 			// dependency Work scheduled only to devDestination
-			dependencyWorkForDev = newWork("dev-work-name", DependencyReplicas, schedulingFor(devDestination))
+			dependencyWorkForDev = newWork("dev-work-name", false, schedulingFor(devDestination))
 
 			// dependency Work scheduled only to prodDestination
-			newWork("prod-work-name", DependencyReplicas, schedulingFor(prodDestination))
+			newWork("prod-work-name", false, schedulingFor(prodDestination))
 
 			// resource Work scheduled only to devDestination
-			newWork("rr-work-name", ResourceRequestReplicas, schedulingFor(devDestination))
+			newWork("rr-work-name", true, schedulingFor(devDestination))
 		})
 
 		When("a new Destination is added which matches a Work's scheduling", func() {
@@ -107,12 +107,12 @@ var _ = Describe("Controllers/Scheduler", func() {
 	})
 
 	Describe("#ReconcileWork", func() {
-		Describe("Scheduling Resources (replicas=1)", func() {
+		Describe("Scheduling Resources", func() {
 			var resourceWork, resourceWorkWithMultipleGroups Work
 
 			BeforeEach(func() {
-				resourceWork = newWork("rr-work-name", ResourceRequestReplicas, schedulingFor(devDestination))
-				resourceWorkWithMultipleGroups = newWorkWithTwoWorkloadGroups("rr-work-name-with-two-groups", ResourceRequestReplicas, schedulingFor(devDestination), schedulingFor(pciDestination))
+				resourceWork = newWork("rr-work-name", true, schedulingFor(devDestination))
+				resourceWorkWithMultipleGroups = newWorkWithTwoWorkloadGroups("rr-work-name-with-two-groups", true, schedulingFor(devDestination), schedulingFor(pciDestination))
 			})
 
 			When("a resource Work with scheduling is reconciled", func() {
@@ -582,13 +582,13 @@ var _ = Describe("Controllers/Scheduler", func() {
 			})
 		})
 
-		Describe("Scheduling Dependencies (replicas=-1)", func() {
+		Describe("Scheduling Dependencies", func() {
 			var dependencyWork, dependencyWorkForDev, dependencyWorkForProd Work
 
 			BeforeEach(func() {
-				dependencyWork = newWork("work-name", DependencyReplicas)
-				dependencyWorkForDev = newWork("dev-work-name", DependencyReplicas, schedulingFor(devDestination))
-				dependencyWorkForProd = newWork("prod-work-name", DependencyReplicas, schedulingFor(prodDestination))
+				dependencyWork = newWork("work-name", false)
+				dependencyWorkForDev = newWork("dev-work-name", false, schedulingFor(devDestination))
+				dependencyWorkForProd = newWork("prod-work-name", false, schedulingFor(prodDestination))
 			})
 
 			When("the Work matches a single Destination", func() {
@@ -893,12 +893,12 @@ func newDestination(name string, labels map[string]string) Destination {
 	}
 }
 
-func newWork(name string, replicas int, scheduling ...WorkloadGroupScheduling) Work {
+func newWork(name string, isResource bool, scheduling ...WorkloadGroupScheduling) Work {
 	namespace := "default"
-	if replicas == DependencyReplicas {
+	if !isResource {
 		namespace = SystemNamespace
 	}
-	work := &Work{
+	w := &Work{
 		ObjectMeta: v1.ObjectMeta{
 			Name:      name,
 			Namespace: namespace,
@@ -909,75 +909,73 @@ func newWork(name string, replicas int, scheduling ...WorkloadGroupScheduling) W
 			},
 		},
 		Spec: WorkSpec{
-			Replicas: replicas,
-			WorkloadCoreFields: WorkloadCoreFields{
-				PromiseName:  "promise",
-				ResourceName: "resource",
-				WorkloadGroups: []WorkloadGroup{
-					{
-						Workloads: []Workload{
-							{Content: "key: value"},
-						},
-						Directory:            ".",
-						ID:                   hash.ComputeHash("."),
-						DestinationSelectors: scheduling,
+			PromiseName: "promise",
+			WorkloadGroups: []WorkloadGroup{
+				{
+					Workloads: []Workload{
+						{Content: "key: value"},
 					},
+					Directory:            ".",
+					ID:                   hash.ComputeHash("."),
+					DestinationSelectors: scheduling,
 				},
 			},
 		},
 	}
+	if isResource {
+		w.Spec.ResourceName = "resource"
+	}
 
-	Expect(fakeK8sClient.Create(context.Background(), work)).To(Succeed())
+	Expect(fakeK8sClient.Create(context.Background(), w)).To(Succeed())
 
 	//sets the APIVersion, Kind, and ResourceVersion
 	workWithDefaultFields := &Work{}
-	Expect(fakeK8sClient.Get(context.Background(), client.ObjectKeyFromObject(work), workWithDefaultFields)).To(Succeed())
+	Expect(fakeK8sClient.Get(context.Background(), client.ObjectKeyFromObject(w), workWithDefaultFields)).To(Succeed())
 
 	return *workWithDefaultFields
 }
 
-func newWorkWithTwoWorkloadGroups(name string, replicas int, promiseScheduling, directoryOverrideScheduling WorkloadGroupScheduling) Work {
+func newWorkWithTwoWorkloadGroups(name string, isResource bool, promiseScheduling, directoryOverrideScheduling WorkloadGroupScheduling) Work {
 	namespace := "default"
-	if replicas == DependencyReplicas {
+	if !isResource {
 		namespace = SystemNamespace
 	}
 
-	work := &Work{
+	w := &Work{
 		ObjectMeta: v1.ObjectMeta{
 			Name:      name,
 			Namespace: namespace,
 		},
 		Spec: WorkSpec{
-			Replicas: replicas,
-			WorkloadCoreFields: WorkloadCoreFields{
-				PromiseName:  "promise",
-				ResourceName: "resource",
-				WorkloadGroups: []WorkloadGroup{
-					{
-						Workloads: []Workload{
-							{Content: "key: value"},
-						},
-						Directory:            ".",
-						ID:                   hash.ComputeHash("."),
-						DestinationSelectors: []WorkloadGroupScheduling{promiseScheduling},
+			PromiseName: "promise",
+			WorkloadGroups: []WorkloadGroup{
+				{
+					Workloads: []Workload{
+						{Content: "key: value"},
 					},
-					{
-						Workloads: []Workload{
-							{Content: "foo: bar"},
-						},
-						DestinationSelectors: []WorkloadGroupScheduling{directoryOverrideScheduling},
-						Directory:            "foo",
-						ID:                   hash.ComputeHash("foo"),
+					Directory:            ".",
+					ID:                   hash.ComputeHash("."),
+					DestinationSelectors: []WorkloadGroupScheduling{promiseScheduling},
+				},
+				{
+					Workloads: []Workload{
+						{Content: "foo: bar"},
 					},
+					DestinationSelectors: []WorkloadGroupScheduling{directoryOverrideScheduling},
+					Directory:            "foo",
+					ID:                   hash.ComputeHash("foo"),
 				},
 			},
 		},
 	}
+	if isResource {
+		w.Spec.ResourceName = "resource"
+	}
 
-	Expect(fakeK8sClient.Create(context.Background(), work)).To(Succeed())
+	Expect(fakeK8sClient.Create(context.Background(), w)).To(Succeed())
 
 	workWithDefaultFields := &Work{}
-	Expect(fakeK8sClient.Get(context.Background(), client.ObjectKeyFromObject(work), workWithDefaultFields)).To(Succeed())
+	Expect(fakeK8sClient.Get(context.Background(), client.ObjectKeyFromObject(w), workWithDefaultFields)).To(Succeed())
 
 	return *workWithDefaultFields
 }

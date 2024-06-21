@@ -411,8 +411,7 @@ func (s *Scheduler) getTargetDestinationNames(destinationSelectors map[string]st
 		}
 		return targetDestinationNames
 	} else {
-		replicas := work.Spec.Replicas
-		s.Log.Info("Cannot interpret replica count: " + fmt.Sprint(replicas))
+		s.Log.Info("Work is neither resource request nor dependency")
 		return make([]string, 0)
 	}
 }

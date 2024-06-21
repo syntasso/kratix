@@ -50,7 +50,7 @@ var _ = Describe("WorkCreator", func() {
 			})
 
 			It("has a correctly configured Work resource", func() {
-				Expect(workResource.Spec.Replicas).To(Equal(1))
+				Expect(workResource.Spec.ResourceName).To(Equal("resource-name"))
 			})
 
 			It("has the expected labels", func() {
@@ -278,7 +278,7 @@ var _ = Describe("WorkCreator", func() {
 					"kratix.io/work-type":     "promise",
 				}))
 
-				Expect(workResource.Spec.Replicas).To(Equal(-1))
+				Expect(workResource.Spec.ResourceName).To(Equal(""))
 				Expect(workResource.Spec.WorkloadGroups[0].DestinationSelectors).To(ConsistOf(
 					v1alpha1.WorkloadGroupScheduling{
 						MatchLabels: map[string]string{

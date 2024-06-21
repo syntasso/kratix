@@ -68,18 +68,16 @@ var _ = Describe("WorkReconciler", func() {
 				Namespace: "default",
 			},
 			Spec: v1alpha1.WorkSpec{
-				Replicas: v1alpha1.ResourceRequestReplicas,
-				WorkloadCoreFields: v1alpha1.WorkloadCoreFields{
-					WorkloadGroups: []v1alpha1.WorkloadGroup{
-						{
-							ID: hash.ComputeHash("."),
-							Workloads: []v1alpha1.Workload{
-								{
-									Content: "{someApi: foo, someValue: bar}",
-								},
-								{
-									Content: "{someApi: baz, someValue: bat}",
-								},
+				ResourceName: "resource-name",
+				WorkloadGroups: []v1alpha1.WorkloadGroup{
+					{
+						ID: hash.ComputeHash("."),
+						Workloads: []v1alpha1.Workload{
+							{
+								Content: "{someApi: foo, someValue: bar}",
+							},
+							{
+								Content: "{someApi: baz, someValue: bat}",
 							},
 						},
 					},
@@ -129,7 +127,7 @@ var _ = Describe("WorkReconciler", func() {
 		When("the work is a resource request", func() {
 			BeforeEach(func() {
 				workloadGroupIds := []string{"5058f1af8388633f609cadb75a75dc9d"}
-				work.Spec.Replicas = 1
+				work.Spec.ResourceName = "resource-name"
 				fakeScheduler.ReconcileWorkReturns(workloadGroupIds, nil)
 				Expect(fakeK8sClient.Create(ctx, work)).To(Succeed())
 				Expect(fakeK8sClient.Get(ctx, workName, work)).To(Succeed())
@@ -149,7 +147,7 @@ var _ = Describe("WorkReconciler", func() {
 		When("the work is a dependency", func() {
 			BeforeEach(func() {
 				workloadGroupIds := []string{"5058f1af8388633f609cadb75a75dc9d"}
-				work.Spec.Replicas = -1
+				work.Spec.ResourceName = ""
 				fakeScheduler.ReconcileWorkReturns(workloadGroupIds, nil)
 				Expect(fakeK8sClient.Create(ctx, work)).To(Succeed())
 				Expect(fakeK8sClient.Get(ctx, workName, work)).To(Succeed())

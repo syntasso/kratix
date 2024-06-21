@@ -144,7 +144,6 @@ func (w *WorkCreator) Execute(rootDirectory, promiseName, namespace, resourceNam
 
 	work.Name = resourceutil.GenerateObjectName(identifier)
 	work.Namespace = namespace
-	work.Spec.Replicas = v1alpha1.ResourceRequestReplicas
 	work.Spec.WorkloadGroups = workloadGroups
 	work.Spec.PromiseName = promiseName
 	work.Spec.ResourceName = resourceName
@@ -153,7 +152,6 @@ func (w *WorkCreator) Execute(rootDirectory, promiseName, namespace, resourceNam
 
 	if workflowType == string(v1alpha1.WorkflowTypePromise) {
 		work.Namespace = v1alpha1.SystemNamespace
-		work.Spec.Replicas = v1alpha1.DependencyReplicas
 		work.Spec.ResourceName = ""
 		work.Labels = v1alpha1.GenerateSharedLabelsForPromise(promiseName)
 		resourceutil.SetPromiseWorkLabels(work.Labels, promiseName, pipelineName)
