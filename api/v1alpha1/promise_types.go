@@ -23,7 +23,9 @@ import (
 	"io"
 
 	"github.com/go-logr/logr"
+	"github.com/pkg/errors"
 	"gopkg.in/yaml.v2"
+	corev1 "k8s.io/api/core/v1"
 	v1 "k8s.io/apiextensions-apiserver/pkg/apis/apiextensions/v1"
 	metav1 "k8s.io/apimachinery/pkg/apis/meta/v1"
 	"k8s.io/apimachinery/pkg/apis/meta/v1/unstructured"
@@ -331,4 +333,29 @@ type PromiseList struct {
 
 func init() {
 	SchemeBuilder.Register(&Promise{}, &PromiseList{})
+}
+
+func (p *Promise) SchedulingConfigMap(id, namespace string, labels map[string]string) (*corev1.ConfigMap, error) {
+	workloadGroupScheduling := []WorkloadGroupScheduling{}
+	for _, scheduling := range p.Spec.DestinationSelectors {
+		workloadGroupScheduling = append(workloadGroupScheduling, WorkloadGroupScheduling{
+			MatchLabels: scheduling.MatchLabels,
+			Source:      "promise",
+		})
+	}
+
+	schedulingYAML, err := yaml.Marshal(workloadGroupScheduling)
+	if err != nil {
+		return nil, errors.Wrap(err, "error marshalling destinationSelectors to yaml")
+	}
+	return &corev1.ConfigMap{
+		ObjectMeta: metav1.ObjectMeta{
+			Name:      "destination-selectors-" + id,
+			Namespace: namespace,
+			Labels:    labels,
+		},
+		Data: map[string]string{
+			"destinationSelectors": string(schedulingYAML),
+		},
+	}, nil
 }

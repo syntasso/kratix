@@ -89,11 +89,6 @@ func (r *DynamicResourceRequestController) Reconcile(ctx context.Context, req ct
 		logger.Error(err, "Failed getting Promise")
 		return ctrl.Result{}, err
 	}
-	unstructuredPromise, err := promise.ToUnstructured()
-	if err != nil {
-		logger.Error(err, "Failed converting Promise to Unstructured")
-		return ctrl.Result{}, err
-	}
 
 	if err := r.Client.Get(ctx, req.NamespacedName, rr); err != nil {
 		if errors.IsNotFound(err) {
@@ -124,7 +119,7 @@ func (r *DynamicResourceRequestController) Reconcile(ctx context.Context, req ct
 	}
 
 	if !rr.GetDeletionTimestamp().IsZero() {
-		return r.deleteResources(opts, rr, resourceRequestIdentifier)
+		return r.deleteResources(opts, promise, rr, resourceRequestIdentifier)
 	}
 
 	if !*r.CanCreateResources {
@@ -150,27 +145,14 @@ func (r *DynamicResourceRequestController) Reconcile(ctx context.Context, req ct
 
 	var pipelines []workflow.Pipeline
 	for i, p := range r.ConfigurePipelines {
-		pipelineResources, err := pipeline.NewConfigureResource(
-			rr,
-			unstructuredPromise,
-			r.CRD.Spec.Names.Plural,
-			p,
-			resourceRequestIdentifier,
-			r.PromiseIdentifier,
-			r.PromiseDestinationSelectors,
-			opts.logger,
+		isLast := i == len(r.ConfigurePipelines)-1
+		pipelineResources, err := p.ForConfigureResource(promise, r.CRD, rr, logger).Resources(
+			[]v1.EnvVar{{Name: "IS_LAST_PIPELINE", Value: strconv.FormatBool(isLast)}},
 		)
 		if err != nil {
 			return ctrl.Result{}, err
 		}
-
-		isLast := i == len(r.ConfigurePipelines)-1
 		job := pipelineResources[4].(*batchv1.Job)
-		job.Spec.Template.Spec.Containers[0].Env = append(job.Spec.Template.Spec.Containers[0].Env, v1.EnvVar{
-			Name:  "IS_LAST_PIPELINE",
-			Value: strconv.FormatBool(isLast),
-		})
-
 		//TODO smelly, refactor. Should we merge the lib/pipeline package with lib/workflow?
 		//TODO if we dont do that, backfil unit tests for dynamic and promise controllers to assert the job is correct
 		pipelines = append(pipelines, workflow.Pipeline{
@@ -198,7 +180,7 @@ func (r *DynamicResourceRequestController) Reconcile(ctx context.Context, req ct
 	return ctrl.Result{}, nil
 }
 
-func (r *DynamicResourceRequestController) deleteResources(o opts, resourceRequest *unstructured.Unstructured, resourceRequestIdentifier string) (ctrl.Result, error) {
+func (r *DynamicResourceRequestController) deleteResources(o opts, promise *v1alpha1.Promise, resourceRequest *unstructured.Unstructured, resourceRequestIdentifier string) (ctrl.Result, error) {
 	if resourceutil.FinalizersAreDeleted(resourceRequest, rrFinalizers) {
 		return ctrl.Result{}, nil
 	}
@@ -206,9 +188,12 @@ func (r *DynamicResourceRequestController) deleteResources(o opts, resourceReque
 	if controllerutil.ContainsFinalizer(resourceRequest, runDeleteWorkflowsFinalizer) {
 		var pipelines []workflow.Pipeline
 		for _, p := range r.DeletePipelines {
-			pipelineResources := pipeline.NewDeleteResource(
-				resourceRequest, p, resourceRequestIdentifier, r.PromiseIdentifier, r.CRD.Spec.Names.Plural,
-			)
+			pipelineResources, err := p.
+				ForDeleteResource(promise, r.CRD, resourceRequest, o.logger).
+				Resources([]v1.EnvVar{})
+			if err != nil {
+				return ctrl.Result{}, err
+			}
 
 			pipelines = append(pipelines, workflow.Pipeline{
 				Job:                  pipelineResources[3].(*batchv1.Job),
