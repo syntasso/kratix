@@ -150,7 +150,7 @@ func (p *Pipeline) ForResource(promise *Promise, action Action, crd *apiextensio
 }
 
 func (p *pipelineWrapper) Resources(jobEnv []corev1.EnvVar) (pipelineutil.PipelineJobResources, error) {
-	schedulingConfigMap, err := p.Promise.SchedulingConfigMap(p.ID, p.Namespace, p.labels())
+	schedulingConfigMap, err := p.Promise.SchedulingConfigMap(p.Promise.GetName(), p.Namespace, p.labels())
 	if err != nil {
 		return nil, err
 	}
