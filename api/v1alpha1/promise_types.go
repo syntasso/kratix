@@ -292,79 +292,8 @@ func (p *Promise) SchedulingConfigMap(id, namespace string, labels map[string]st
 	}, nil
 }
 
-type pipelineMap map[Type]map[Action][]Pipeline
-
-func (p *Promise) GeneratePipelinesMap(logger logr.Logger) (pipelineMap, error) {
-	unstructuredMap := map[Type]map[Action][]unstructured.Unstructured{
-		WorkflowTypeResource: {
-			WorkflowActionConfigure: p.Spec.Workflows.Resource.Configure,
-			WorkflowActionDelete:    p.Spec.Workflows.Resource.Delete,
-		},
-		WorkflowTypePromise: {
-			WorkflowActionConfigure: p.Spec.Workflows.Promise.Configure,
-			WorkflowActionDelete:    p.Spec.Workflows.Promise.Delete,
-		},
-	}
-
-	pipelinesMap := map[Type]map[Action][]Pipeline{}
-
-	for _, t := range []Type{WorkflowTypeResource, WorkflowTypePromise} {
-		if _, ok := pipelinesMap[t]; !ok {
-			pipelinesMap[t] = map[Action][]Pipeline{}
-		}
-		for _, a := range []Action{WorkflowActionConfigure, WorkflowActionDelete} {
-			pipelines, err := generatePipeline(unstructuredMap[t][a], logger)
-			if err != nil {
-				return nil, err
-			}
-			pipelinesMap[t][a] = pipelines
-		}
-
-	}
-
-	return pipelinesMap, nil
-}
-
-func generatePipeline(pipelines []unstructured.Unstructured, logger logr.Logger) ([]Pipeline, error) {
-	if len(pipelines) == 0 {
-		return nil, nil
-	}
-
-	//We only support 1 pipeline for now
-	ps := []Pipeline{}
-	for _, pipeline := range pipelines {
-		pipelineLogger := logger.WithValues(
-			"pipelineKind", pipeline.GetKind(),
-			"pipelineVersion", pipeline.GetAPIVersion(),
-			"pipelineName", pipeline.GetName())
-
-		if pipeline.GetKind() == "Pipeline" && pipeline.GetAPIVersion() == "platform.kratix.io/v1alpha1" {
-			jsonPipeline, err := pipeline.MarshalJSON()
-			if err != nil {
-				// TODO test
-				pipelineLogger.Error(err, "Failed marshalling pipeline to json")
-				return nil, err
-			}
-
-			p := Pipeline{}
-			err = json.Unmarshal(jsonPipeline, &p)
-			if err != nil {
-				// TODO test
-				pipelineLogger.Error(err, "Failed unmarshalling pipeline")
-				return nil, err
-			}
-			ps = append(ps, p)
-		} else {
-			return nil, fmt.Errorf("unsupported pipeline %q (%s.%s)",
-				pipeline.GetName(), pipeline.GetKind(), pipeline.GetAPIVersion())
-		}
-	}
-	return ps, nil
-
-}
-
 func (p *Promise) generatePipelinesObjects(workflowType Type, workflowAction Action, crd *apiextensionsv1.CustomResourceDefinition, resourceRequest *unstructured.Unstructured, logger logr.Logger) ([]pipelineutil.PipelineJobResources, error) {
-	promisePipelines, err := p.GeneratePipelinesMap(logger)
+	promisePipelines, err := NewPipelinesMap(p, logger)
 	if err != nil {
 		return nil, err
 	}
@@ -402,4 +331,57 @@ func (p *Promise) GeneratePromisePipelines(workflowAction Action, logger logr.Lo
 
 func (p *Promise) GenerateResourcePipelines(workflowAction Action, crd *apiextensionsv1.CustomResourceDefinition, resourceRequest *unstructured.Unstructured, logger logr.Logger) ([]pipelineutil.PipelineJobResources, error) {
 	return p.generatePipelinesObjects(WorkflowTypeResource, workflowAction, crd, resourceRequest, logger)
+}
+
+func (p *Promise) HasPipeline(workflowType Type, workflowAction Action) bool {
+	switch workflowType {
+	case WorkflowTypeResource:
+		switch workflowAction {
+		case WorkflowActionConfigure:
+			return len(p.Spec.Workflows.Resource.Configure) > 0
+		case WorkflowActionDelete:
+			return len(p.Spec.Workflows.Resource.Delete) > 0
+		}
+	case WorkflowTypePromise:
+		switch workflowAction {
+		case WorkflowActionConfigure:
+			return len(p.Spec.Workflows.Promise.Configure) > 0
+		case WorkflowActionDelete:
+			return len(p.Spec.Workflows.Promise.Delete) > 0
+		}
+	}
+	return false
+}
+
+type pipelineMap map[Type]map[Action][]Pipeline
+
+func NewPipelinesMap(promise *Promise, logger logr.Logger) (pipelineMap, error) {
+	unstructuredMap := map[Type]map[Action][]unstructured.Unstructured{
+		WorkflowTypeResource: {
+			WorkflowActionConfigure: promise.Spec.Workflows.Resource.Configure,
+			WorkflowActionDelete:    promise.Spec.Workflows.Resource.Delete,
+		},
+		WorkflowTypePromise: {
+			WorkflowActionConfigure: promise.Spec.Workflows.Promise.Configure,
+			WorkflowActionDelete:    promise.Spec.Workflows.Promise.Delete,
+		},
+	}
+
+	pipelinesMap := map[Type]map[Action][]Pipeline{}
+
+	for _, t := range []Type{WorkflowTypeResource, WorkflowTypePromise} {
+		if _, ok := pipelinesMap[t]; !ok {
+			pipelinesMap[t] = map[Action][]Pipeline{}
+		}
+		for _, a := range []Action{WorkflowActionConfigure, WorkflowActionDelete} {
+			pipelines, err := PipelinesFromUnstructured(unstructuredMap[t][a], logger)
+			if err != nil {
+				return nil, err
+			}
+			pipelinesMap[t][a] = pipelines
+		}
+
+	}
+
+	return pipelinesMap, nil
 }

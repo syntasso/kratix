@@ -51,8 +51,6 @@ type DynamicResourceRequestController struct {
 	GVK                         *schema.GroupVersionKind
 	Scheme                      *runtime.Scheme
 	PromiseIdentifier           string
-	ConfigurePipelines          []v1alpha1.Pipeline
-	DeletePipelines             []v1alpha1.Pipeline
 	Log                         logr.Logger
 	UID                         string
 	Enabled                     *bool

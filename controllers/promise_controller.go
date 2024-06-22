@@ -136,11 +136,6 @@ func (r *PromiseReconciler) Reconcile(ctx context.Context, req ctrl.Request) (ct
 		logger: logger,
 	}
 
-	pipelinesMap, err := promise.GeneratePipelinesMap(logger)
-	if err != nil {
-		return ctrl.Result{}, err
-	}
-
 	if !promise.DeletionTimestamp.IsZero() {
 		return r.deletePromise(opts, promise)
 	}
@@ -161,7 +156,7 @@ func (r *PromiseReconciler) Reconcile(ctx context.Context, req ctrl.Request) (ct
 	}
 
 	//TODO handle removing finalizer
-	requeue, err := ensurePromiseDeleteWorkflowFinalizer(opts, promise, pipelinesMap[v1alpha1.WorkflowTypePromise][v1alpha1.WorkflowActionDelete])
+	requeue, err := ensurePromiseDeleteWorkflowFinalizer(opts, promise, promise.HasPipeline(v1alpha1.WorkflowTypePromise, v1alpha1.WorkflowActionDelete))
 	if err != nil {
 		return ctrl.Result{}, err
 	}
@@ -207,7 +202,7 @@ func (r *PromiseReconciler) Reconcile(ctx context.Context, req ctrl.Request) (ct
 		return addFinalizers(opts, promise, []string{dependenciesCleanupFinalizer})
 	}
 
-	requeue, err = r.reconcileDependencies(opts, promise, pipelinesMap[v1alpha1.WorkflowTypePromise][v1alpha1.WorkflowActionConfigure])
+	requeue, err = r.reconcileDependencies(opts, promise)
 	if err != nil {
 		return ctrl.Result{}, err
 	}
@@ -225,9 +220,7 @@ func (r *PromiseReconciler) Reconcile(ctx context.Context, req ctrl.Request) (ct
 			}
 		}
 
-		configureResource := pipelinesMap[v1alpha1.WorkflowTypeResource][v1alpha1.WorkflowActionConfigure]
-		deleteResource := pipelinesMap[v1alpha1.WorkflowTypeResource][v1alpha1.WorkflowActionDelete]
-		err = r.ensureDynamicControllerIsStarted(promise, rrCRD, rrGVK, configureResource, deleteResource, &dynamicControllerCanCreateResources, logger)
+		err = r.ensureDynamicControllerIsStarted(promise, rrCRD, rrGVK, &dynamicControllerCanCreateResources, logger)
 		if err != nil {
 			return ctrl.Result{}, err
 		}
@@ -353,7 +346,7 @@ func (r *PromiseReconciler) generateStatusAndMarkRequirements(ctx context.Contex
 	return promiseCondition, requirements
 }
 
-func (r *PromiseReconciler) reconcileDependencies(o opts, promise *v1alpha1.Promise, configurePipeline []v1alpha1.Pipeline) (*ctrl.Result, error) {
+func (r *PromiseReconciler) reconcileDependencies(o opts, promise *v1alpha1.Promise) (*ctrl.Result, error) {
 	if len(promise.Spec.Dependencies) > 0 {
 		o.logger.Info("Applying static dependencies for Promise", "promise", promise.GetName())
 		if err := r.applyWorkForStaticDependencies(o, promise); err != nil {
@@ -369,7 +362,7 @@ func (r *PromiseReconciler) reconcileDependencies(o opts, promise *v1alpha1.Prom
 		}
 	}
 
-	if len(configurePipeline) == 0 {
+	if !promise.HasPipeline(v1alpha1.WorkflowTypePromise, v1alpha1.WorkflowActionConfigure) {
 		return nil, nil
 	}
 
@@ -427,15 +420,13 @@ func (r *PromiseReconciler) reconcileAllRRs(rrGVK schema.GroupVersionKind) error
 	return nil
 }
 
-func (r *PromiseReconciler) ensureDynamicControllerIsStarted(promise *v1alpha1.Promise, rrCRD *apiextensionsv1.CustomResourceDefinition, rrGVK schema.GroupVersionKind, configurePipelines, deletePipelines []v1alpha1.Pipeline, canCreateResources *bool, logger logr.Logger) error {
+func (r *PromiseReconciler) ensureDynamicControllerIsStarted(promise *v1alpha1.Promise, rrCRD *apiextensionsv1.CustomResourceDefinition, rrGVK schema.GroupVersionKind, canCreateResources *bool, logger logr.Logger) error {
 
 	// The Dynamic Controller needs to be started once and only once.
 	if r.dynamicControllerHasAlreadyStarted(promise) {
 		logger.Info("dynamic controller already started, ensuring it is up to date")
 
 		dynamicController := r.StartedDynamicControllers[string(promise.GetUID())]
-		dynamicController.DeletePipelines = deletePipelines
-		dynamicController.ConfigurePipelines = configurePipelines
 		dynamicController.GVK = &rrGVK
 		dynamicController.CRD = rrCRD
 
@@ -456,8 +447,6 @@ func (r *PromiseReconciler) ensureDynamicControllerIsStarted(promise *v1alpha1.P
 		GVK:                         &rrGVK,
 		CRD:                         rrCRD,
 		PromiseIdentifier:           promise.GetName(),
-		ConfigurePipelines:          configurePipelines,
-		DeletePipelines:             deletePipelines,
 		PromiseDestinationSelectors: promise.Spec.DestinationSelectors,
 		Log:                         r.Log.WithName(promise.GetName()),
 		UID:                         string(promise.GetUID())[0:5],
@@ -778,15 +767,8 @@ func (r *PromiseReconciler) deleteResourceRequests(o opts, promise *v1alpha1.Pro
 		return err
 	}
 
-	pipelines, err := promise.GeneratePipelinesMap(o.logger)
-	if err != nil {
-		return err
-	}
-
 	var canCreateResources bool
-	configureResource := pipelines[v1alpha1.WorkflowTypePromise][v1alpha1.WorkflowActionConfigure]
-	deleteResource := pipelines[v1alpha1.WorkflowTypePromise][v1alpha1.WorkflowActionDelete]
-	err = r.ensureDynamicControllerIsStarted(promise, rrCRD, rrGVK, configureResource, deleteResource, &canCreateResources, o.logger)
+	err = r.ensureDynamicControllerIsStarted(promise, rrCRD, rrGVK, &canCreateResources, o.logger)
 	if err != nil {
 		return err
 	}
@@ -865,8 +847,7 @@ func (r *PromiseReconciler) SetupWithManager(mgr ctrl.Manager) error {
 		Complete(r)
 }
 
-func ensurePromiseDeleteWorkflowFinalizer(o opts, promise *v1alpha1.Promise, deletePipelines []v1alpha1.Pipeline) (*ctrl.Result, error) {
-	promiseDeletePipelineExists := deletePipelines != nil
+func ensurePromiseDeleteWorkflowFinalizer(o opts, promise *v1alpha1.Promise, promiseDeletePipelineExists bool) (*ctrl.Result, error) {
 	promiseContainsDeleteWorkflowsFinalizer := controllerutil.ContainsFinalizer(promise, runDeleteWorkflowsFinalizer)
 	promiseContainsRemoveAllWorkflowJobsFinalizer := controllerutil.ContainsFinalizer(promise, removeAllWorkflowJobsFinalizer)
 

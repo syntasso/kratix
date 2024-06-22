@@ -17,6 +17,7 @@ limitations under the License.
 package v1alpha1
 
 import (
+	"encoding/json"
 	"fmt"
 	"os"
 	"strings"
@@ -80,6 +81,43 @@ type pipelineWrapper struct {
 
 	WorkflowAction Action
 	WorkflowType   Type
+}
+
+func PipelinesFromUnstructured(pipelines []unstructured.Unstructured, logger logr.Logger) ([]Pipeline, error) {
+	if len(pipelines) == 0 {
+		return nil, nil
+	}
+
+	//We only support 1 pipeline for now
+	ps := []Pipeline{}
+	for _, pipeline := range pipelines {
+		pipelineLogger := logger.WithValues(
+			"pipelineKind", pipeline.GetKind(),
+			"pipelineVersion", pipeline.GetAPIVersion(),
+			"pipelineName", pipeline.GetName())
+
+		if pipeline.GetKind() == "Pipeline" && pipeline.GetAPIVersion() == "platform.kratix.io/v1alpha1" {
+			jsonPipeline, err := pipeline.MarshalJSON()
+			if err != nil {
+				// TODO test
+				pipelineLogger.Error(err, "Failed marshalling pipeline to json")
+				return nil, err
+			}
+
+			p := Pipeline{}
+			err = json.Unmarshal(jsonPipeline, &p)
+			if err != nil {
+				// TODO test
+				pipelineLogger.Error(err, "Failed unmarshalling pipeline")
+				return nil, err
+			}
+			ps = append(ps, p)
+		} else {
+			return nil, fmt.Errorf("unsupported pipeline %q (%s.%s)",
+				pipeline.GetName(), pipeline.GetKind(), pipeline.GetAPIVersion())
+		}
+	}
+	return ps, nil
 }
 
 func (p *Pipeline) ForPromise(promise *Promise, action Action, log logr.Logger) *pipelineWrapper {

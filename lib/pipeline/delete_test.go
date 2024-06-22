@@ -52,7 +52,7 @@ var _ = Describe("Delete Pipeline", func() {
 				unstructuredPromise, err := promise.ToUnstructured()
 				Expect(err).ToNot(HaveOccurred())
 
-				pipelinesMap, err := promise.GeneratePipelinesMap(logger)
+				pipelinesMap, err := v1alpha1.NewPipelinesMap(promise, logger)
 				Expect(err).ToNot(HaveOccurred())
 
 				deletePromise := pipelinesMap[v1alpha1.WorkflowTypePromise][v1alpha1.WorkflowActionDelete]
@@ -235,7 +235,7 @@ var _ = Describe("Delete Pipeline", func() {
 					unstructuredPromise, err := promise.ToUnstructured()
 					Expect(err).ToNot(HaveOccurred())
 
-					pipelinesMap, err := promise.GeneratePipelinesMap(logger)
+					pipelinesMap, err := v1alpha1.NewPipelinesMap(promise, logger)
 					Expect(err).ToNot(HaveOccurred())
 
 					deletePromise := pipelinesMap[v1alpha1.WorkflowTypePromise][v1alpha1.WorkflowActionDelete]
@@ -271,7 +271,7 @@ var _ = Describe("Delete Pipeline", func() {
 				promise := promiseFromFile(promisePath)
 				resourceRequest := resourceRequestFromFile(resourceRequestPath)
 
-				pipelinesMap, err := promise.GeneratePipelinesMap(logger)
+				pipelinesMap, err := v1alpha1.NewPipelinesMap(promise, logger)
 				Expect(err).ToNot(HaveOccurred())
 
 				deleteResource := pipelinesMap[v1alpha1.WorkflowTypeResource][v1alpha1.WorkflowActionDelete]
@@ -459,7 +459,7 @@ var _ = Describe("Delete Pipeline", func() {
 					resourceRequest := resourceRequestFromFile(resourceRequestPath)
 					resourceRequest.SetName("long-long-request")
 
-					pipelinesMap, err := promise.GeneratePipelinesMap(logger)
+					pipelinesMap, err := v1alpha1.NewPipelinesMap(promise, logger)
 					Expect(err).ToNot(HaveOccurred())
 
 					deleteResource := pipelinesMap[v1alpha1.WorkflowTypeResource][v1alpha1.WorkflowActionDelete]
