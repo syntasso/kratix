@@ -21,12 +21,14 @@ import (
 	"encoding/json"
 	"fmt"
 	"io"
+	"strconv"
 
 	"github.com/go-logr/logr"
 	"github.com/pkg/errors"
+	"github.com/syntasso/kratix/lib/pipelineutil"
 	"gopkg.in/yaml.v2"
 	corev1 "k8s.io/api/core/v1"
-	v1 "k8s.io/apiextensions-apiserver/pkg/apis/apiextensions/v1"
+	apiextensionsv1 "k8s.io/apiextensions-apiserver/pkg/apis/apiextensions/v1"
 	metav1 "k8s.io/apimachinery/pkg/apis/meta/v1"
 	"k8s.io/apimachinery/pkg/apis/meta/v1/unstructured"
 	"k8s.io/apimachinery/pkg/labels"
@@ -153,13 +155,6 @@ type Promise struct {
 	Status PromiseStatus `json:"status,omitempty"`
 }
 
-type PromisePipelines struct {
-	DeleteResource    []Pipeline
-	ConfigureResource []Pipeline
-	ConfigurePromise  []Pipeline
-	DeletePromise     []Pipeline
-}
-
 var ErrNoAPI = fmt.Errorf("promise does not contain an API")
 
 func SquashPromiseScheduling(scheduling []PromiseScheduling) map[string]string {
@@ -197,12 +192,12 @@ func (p *Promise) DoesNotContainAPI() bool {
 	return p.Spec.API == nil || p.Spec.API.Raw == nil
 }
 
-func (p *Promise) GetAPIAsCRD() (*v1.CustomResourceDefinition, error) {
+func (p *Promise) GetAPIAsCRD() (*apiextensionsv1.CustomResourceDefinition, error) {
 	if p.DoesNotContainAPI() {
 		return nil, ErrNoAPI
 	}
 
-	crd := v1.CustomResourceDefinition{}
+	crd := apiextensionsv1.CustomResourceDefinition{}
 	if err := json.Unmarshal(p.Spec.API.Raw, &crd); err != nil {
 		return nil, fmt.Errorf("api is not a valid CRD: %w", err)
 	}
@@ -244,69 +239,6 @@ func (p *Promise) ToUnstructured() (*unstructured.Unstructured, error) {
 	unstructuredPromise := &unstructured.Unstructured{Object: objMap}
 
 	return unstructuredPromise, nil
-}
-
-func (p *Promise) GeneratePipelines(logger logr.Logger) (PromisePipelines, error) {
-	pipelineWorkflows := [][]unstructured.Unstructured{
-		p.Spec.Workflows.Resource.Configure,
-		p.Spec.Workflows.Resource.Delete,
-		p.Spec.Workflows.Promise.Configure,
-		p.Spec.Workflows.Promise.Delete,
-	}
-
-	var pipelines [][]Pipeline
-	for _, pipeline := range pipelineWorkflows {
-		p, err := generatePipeline(pipeline, logger)
-		if err != nil {
-			return PromisePipelines{}, err
-		}
-		pipelines = append(pipelines, p)
-	}
-
-	return PromisePipelines{
-		ConfigureResource: pipelines[0],
-		DeleteResource:    pipelines[1],
-		ConfigurePromise:  pipelines[2],
-		DeletePromise:     pipelines[3],
-	}, nil
-}
-
-func generatePipeline(pipelines []unstructured.Unstructured, logger logr.Logger) ([]Pipeline, error) {
-	if len(pipelines) == 0 {
-		return nil, nil
-	}
-
-	//We only support 1 pipeline for now
-	ps := []Pipeline{}
-	for _, pipeline := range pipelines {
-		pipelineLogger := logger.WithValues(
-			"pipelineKind", pipeline.GetKind(),
-			"pipelineVersion", pipeline.GetAPIVersion(),
-			"pipelineName", pipeline.GetName())
-
-		if pipeline.GetKind() == "Pipeline" && pipeline.GetAPIVersion() == "platform.kratix.io/v1alpha1" {
-			jsonPipeline, err := pipeline.MarshalJSON()
-			if err != nil {
-				// TODO test
-				pipelineLogger.Error(err, "Failed marshalling pipeline to json")
-				return nil, err
-			}
-
-			p := Pipeline{}
-			err = json.Unmarshal(jsonPipeline, &p)
-			if err != nil {
-				// TODO test
-				pipelineLogger.Error(err, "Failed unmarshalling pipeline")
-				return nil, err
-			}
-			ps = append(ps, p)
-		} else {
-			return nil, fmt.Errorf("unsupported pipeline %q (%s.%s)",
-				pipeline.GetName(), pipeline.GetKind(), pipeline.GetAPIVersion())
-		}
-	}
-	return ps, nil
-
 }
 
 func (d Dependencies) Marshal() ([]byte, error) {
@@ -358,4 +290,116 @@ func (p *Promise) SchedulingConfigMap(id, namespace string, labels map[string]st
 			"destinationSelectors": string(schedulingYAML),
 		},
 	}, nil
+}
+
+type pipelineMap map[Type]map[Action][]Pipeline
+
+func (p *Promise) GeneratePipelinesMap(logger logr.Logger) (pipelineMap, error) {
+	unstructuredMap := map[Type]map[Action][]unstructured.Unstructured{
+		WorkflowTypeResource: {
+			WorkflowActionConfigure: p.Spec.Workflows.Resource.Configure,
+			WorkflowActionDelete:    p.Spec.Workflows.Resource.Delete,
+		},
+		WorkflowTypePromise: {
+			WorkflowActionConfigure: p.Spec.Workflows.Promise.Configure,
+			WorkflowActionDelete:    p.Spec.Workflows.Promise.Delete,
+		},
+	}
+
+	pipelinesMap := map[Type]map[Action][]Pipeline{}
+
+	for _, t := range []Type{WorkflowTypeResource, WorkflowTypePromise} {
+		if _, ok := pipelinesMap[t]; !ok {
+			pipelinesMap[t] = map[Action][]Pipeline{}
+		}
+		for _, a := range []Action{WorkflowActionConfigure, WorkflowActionDelete} {
+			pipelines, err := generatePipeline(unstructuredMap[t][a], logger)
+			if err != nil {
+				return nil, err
+			}
+			pipelinesMap[t][a] = pipelines
+		}
+
+	}
+
+	return pipelinesMap, nil
+}
+
+func generatePipeline(pipelines []unstructured.Unstructured, logger logr.Logger) ([]Pipeline, error) {
+	if len(pipelines) == 0 {
+		return nil, nil
+	}
+
+	//We only support 1 pipeline for now
+	ps := []Pipeline{}
+	for _, pipeline := range pipelines {
+		pipelineLogger := logger.WithValues(
+			"pipelineKind", pipeline.GetKind(),
+			"pipelineVersion", pipeline.GetAPIVersion(),
+			"pipelineName", pipeline.GetName())
+
+		if pipeline.GetKind() == "Pipeline" && pipeline.GetAPIVersion() == "platform.kratix.io/v1alpha1" {
+			jsonPipeline, err := pipeline.MarshalJSON()
+			if err != nil {
+				// TODO test
+				pipelineLogger.Error(err, "Failed marshalling pipeline to json")
+				return nil, err
+			}
+
+			p := Pipeline{}
+			err = json.Unmarshal(jsonPipeline, &p)
+			if err != nil {
+				// TODO test
+				pipelineLogger.Error(err, "Failed unmarshalling pipeline")
+				return nil, err
+			}
+			ps = append(ps, p)
+		} else {
+			return nil, fmt.Errorf("unsupported pipeline %q (%s.%s)",
+				pipeline.GetName(), pipeline.GetKind(), pipeline.GetAPIVersion())
+		}
+	}
+	return ps, nil
+
+}
+
+func (p *Promise) generatePipelinesObjects(workflowType Type, workflowAction Action, crd *apiextensionsv1.CustomResourceDefinition, resourceRequest *unstructured.Unstructured, logger logr.Logger) ([]pipelineutil.PipelineJobResources, error) {
+	promisePipelines, err := p.GeneratePipelinesMap(logger)
+	if err != nil {
+		return nil, err
+	}
+
+	allResources := []pipelineutil.PipelineJobResources{}
+	pipelines := promisePipelines[workflowType][workflowAction]
+
+	lastIndex := len(pipelines) - 1
+	for i, pipe := range pipelines {
+		isLast := i == lastIndex
+		additionalJobEnv := []corev1.EnvVar{
+			{Name: "IS_LAST_PIPELINE", Value: strconv.FormatBool(isLast)},
+		}
+
+		var resources pipelineutil.PipelineJobResources
+		var err error
+		switch workflowType {
+		case WorkflowTypeResource:
+			resources, err = pipe.ForResource(p, workflowAction, crd, resourceRequest, logger).Resources(additionalJobEnv)
+		case WorkflowTypePromise:
+			resources, err = pipe.ForPromise(p, workflowAction, logger).Resources(additionalJobEnv)
+		}
+		if err != nil {
+			return nil, err
+		}
+
+		allResources = append(allResources, resources)
+	}
+	return allResources, nil
+}
+
+func (p *Promise) GeneratePromisePipelines(workflowAction Action, logger logr.Logger) ([]pipelineutil.PipelineJobResources, error) {
+	return p.generatePipelinesObjects(WorkflowTypePromise, workflowAction, nil, nil, logger)
+}
+
+func (p *Promise) GenerateResourcePipelines(workflowAction Action, crd *apiextensionsv1.CustomResourceDefinition, resourceRequest *unstructured.Unstructured, logger logr.Logger) ([]pipelineutil.PipelineJobResources, error) {
+	return p.generatePipelinesObjects(WorkflowTypeResource, workflowAction, crd, resourceRequest, logger)
 }

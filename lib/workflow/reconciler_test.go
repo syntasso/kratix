@@ -9,6 +9,7 @@ import (
 	. "github.com/onsi/gomega"
 	"github.com/syntasso/kratix/api/v1alpha1"
 	"github.com/syntasso/kratix/lib/pipeline"
+	"github.com/syntasso/kratix/lib/pipelineutil"
 	"github.com/syntasso/kratix/lib/resourceutil"
 	"github.com/syntasso/kratix/lib/workflow"
 	batchv1 "k8s.io/api/batch/v1"
@@ -25,7 +26,7 @@ var namespace = "kratix-platform-system"
 
 var _ = Describe("Workflow Reconciler", func() {
 	var promise v1alpha1.Promise
-	var workflowPipelines []workflow.Pipeline
+	var workflowPipelines []pipelineutil.PipelineJobResources
 	var uPromise *unstructured.Unstructured
 	var pipelines []v1alpha1.Pipeline
 
@@ -74,13 +75,13 @@ var _ = Describe("Workflow Reconciler", func() {
 				Expect(requeue).To(BeTrue())
 				jobList := listJobs(namespace)
 				Expect(jobList).To(HaveLen(1))
-				Expect(jobList[0].Name).To(Equal(workflowPipelines[0].Job.Name))
+				Expect(jobList[0].Name).To(Equal(workflowPipelines[0].GetJob().Name))
 			})
 		})
 
 		When("there are jobs for this workflow", func() {
 			BeforeEach(func() {
-				j := workflowPipelines[0].Job
+				j := workflowPipelines[0].GetJob()
 				Expect(fakeK8sClient.Create(ctx, j)).To(Succeed())
 			})
 
@@ -105,7 +106,7 @@ var _ = Describe("Workflow Reconciler", func() {
 
 			Context("and the job is completed", func() {
 				BeforeEach(func() {
-					markJobAsComplete(workflowPipelines[0].Job.Name)
+					markJobAsComplete(workflowPipelines[0].GetJob().Name)
 				})
 
 				It("triggers the next pipeline in the workflow", func() {
@@ -115,12 +116,12 @@ var _ = Describe("Workflow Reconciler", func() {
 					Expect(err).NotTo(HaveOccurred())
 					jobList := listJobs(namespace)
 					Expect(jobList).To(HaveLen(2))
-					Expect(findByName(jobList, workflowPipelines[1].Job.Name)).To(BeTrue())
+					Expect(findByName(jobList, workflowPipelines[1].GetJob().Name)).To(BeTrue())
 				})
 
 				When("there are no more pipelines to run", func() {
 					BeforeEach(func() {
-						j := workflowPipelines[1].Job
+						j := workflowPipelines[1].GetJob()
 						Expect(fakeK8sClient.Create(ctx, j)).To(Succeed())
 						markJobAsComplete(j.Name)
 					})
@@ -140,7 +141,7 @@ var _ = Describe("Workflow Reconciler", func() {
 				var err error
 
 				BeforeEach(func() {
-					markJobAsFailed(workflowPipelines[0].Job.Name)
+					markJobAsFailed(workflowPipelines[0].GetJob().Name)
 					newWorkflowPipelines, uPromise := setupTest(promise, pipelines)
 					opts := workflow.NewOpts(ctx, fakeK8sClient, logger, uPromise, newWorkflowPipelines, "promise")
 					requeue, err = workflow.ReconcileConfigure(opts)
@@ -151,7 +152,7 @@ var _ = Describe("Workflow Reconciler", func() {
 					jobList := listJobs(namespace)
 					Expect(jobList).To(HaveLen(1))
 					job := jobList[0]
-					Expect(job.Labels["kratix.io/pipeline-name"]).To(Equal(workflowPipelines[0].Job.Labels["kratix.io/pipeline-name"]))
+					Expect(job.Labels["kratix.io/pipeline-name"]).To(Equal(workflowPipelines[0].GetJob().Labels["kratix.io/pipeline-name"]))
 				})
 
 				It("halts the workflow by not requeuing", func() {
@@ -160,7 +161,7 @@ var _ = Describe("Workflow Reconciler", func() {
 				})
 
 				When("the parent is later manually reconciled", func() {
-					var newWorkflowPipelines []workflow.Pipeline
+					var newWorkflowPipelines []pipelineutil.PipelineJobResources
 
 					BeforeEach(func() {
 						labelPromiseForManualReconciliation("redis")
@@ -173,14 +174,14 @@ var _ = Describe("Workflow Reconciler", func() {
 						Expect(err).NotTo(HaveOccurred())
 						jobList := listJobs(namespace)
 						Expect(jobList).To(HaveLen(2))
-						Expect(findByName(jobList, newWorkflowPipelines[0].Job.Name)).To(BeTrue())
+						Expect(findByName(jobList, newWorkflowPipelines[0].GetJob().GetName())).To(BeTrue())
 					})
 				})
 			})
 		})
 
 		When("the promise spec is updated", func() {
-			var updatedWorkflowPipeline []workflow.Pipeline
+			var updatedWorkflowPipeline []pipelineutil.PipelineJobResources
 
 			BeforeEach(func() {
 				Expect(fakeK8sClient.Get(ctx, types.NamespacedName{Name: "redis"}, &promise)).To(Succeed())
@@ -191,8 +192,8 @@ var _ = Describe("Workflow Reconciler", func() {
 				Expect(fakeK8sClient.Update(ctx, &promise)).To(Succeed())
 
 				updatedWorkflowPipeline, uPromise = setupTest(promise, pipelines)
-				Expect(updatedWorkflowPipeline[0].Job.Name).NotTo(Equal(workflowPipelines[0].Job.Name))
-				Expect(updatedWorkflowPipeline[1].Job.Name).NotTo(Equal(workflowPipelines[1].Job.Name))
+				Expect(updatedWorkflowPipeline[0].GetJob().Name).NotTo(Equal(workflowPipelines[0].GetJob().Name))
+				Expect(updatedWorkflowPipeline[1].GetJob().Name).NotTo(Equal(workflowPipelines[1].GetJob().Name))
 			})
 
 			When("there are no jobs for the promise at this spec", func() {
@@ -204,26 +205,26 @@ var _ = Describe("Workflow Reconciler", func() {
 					Expect(jobList).To(HaveLen(1))
 					Expect(requeue).To(BeTrue())
 
-					Expect(findByName(jobList, updatedWorkflowPipeline[0].Job.Name)).To(BeTrue())
+					Expect(findByName(jobList, updatedWorkflowPipeline[0].GetJob().Name)).To(BeTrue())
 				})
 			})
 
 			When("there are jobs for the promise at this spec", func() {
-				var originalWorkflowPipelines []workflow.Pipeline
+				var originalWorkflowPipelines []pipelineutil.PipelineJobResources
 
 				BeforeEach(func() {
 					// Run the original pipeline jobs to completion, so they exist in the
 					// history of jobs
-					Expect(fakeK8sClient.Create(ctx, workflowPipelines[0].Job)).To(Succeed())
-					Expect(fakeK8sClient.Create(ctx, workflowPipelines[1].Job)).To(Succeed())
-					markJobAsComplete(workflowPipelines[0].Job.Name)
-					markJobAsComplete(workflowPipelines[1].Job.Name)
+					Expect(fakeK8sClient.Create(ctx, workflowPipelines[0].GetJob())).To(Succeed())
+					Expect(fakeK8sClient.Create(ctx, workflowPipelines[1].GetJob())).To(Succeed())
+					markJobAsComplete(workflowPipelines[0].GetJob().Name)
+					markJobAsComplete(workflowPipelines[1].GetJob().Name)
 
 					// Run the updated-spec jobs to completion, so they're the most recent
-					Expect(fakeK8sClient.Create(ctx, updatedWorkflowPipeline[0].Job)).To(Succeed())
-					Expect(fakeK8sClient.Create(ctx, updatedWorkflowPipeline[1].Job)).To(Succeed())
-					markJobAsComplete(updatedWorkflowPipeline[0].Job.Name)
-					markJobAsComplete(updatedWorkflowPipeline[1].Job.Name)
+					Expect(fakeK8sClient.Create(ctx, updatedWorkflowPipeline[0].GetJob())).To(Succeed())
+					Expect(fakeK8sClient.Create(ctx, updatedWorkflowPipeline[1].GetJob())).To(Succeed())
+					markJobAsComplete(updatedWorkflowPipeline[0].GetJob().Name)
+					markJobAsComplete(updatedWorkflowPipeline[1].GetJob().Name)
 
 					// Update the promise back to its original spec
 					Expect(fakeK8sClient.Get(ctx, types.NamespacedName{Name: "redis"}, &promise)).To(Succeed())
@@ -246,7 +247,7 @@ var _ = Describe("Workflow Reconciler", func() {
 						jobList := listJobs(namespace)
 						Expect(jobList).To(HaveLen(5))
 
-						markJobAsComplete(originalWorkflowPipelines[0].Job.Name)
+						markJobAsComplete(originalWorkflowPipelines[0].GetJob().Name)
 
 						requeue, err = workflow.ReconcileConfigure(opts)
 						Expect(err).NotTo(HaveOccurred())
@@ -259,7 +260,7 @@ var _ = Describe("Workflow Reconciler", func() {
 
 			When("there is a job in progress for this promise at a previous spec", func() {
 				BeforeEach(func() {
-					Expect(fakeK8sClient.Create(ctx, workflowPipelines[0].Job)).To(Succeed())
+					Expect(fakeK8sClient.Create(ctx, workflowPipelines[0].GetJob())).To(Succeed())
 				})
 
 				It("does not create a new job", func() {
@@ -277,7 +278,7 @@ var _ = Describe("Workflow Reconciler", func() {
 					Expect(err).NotTo(HaveOccurred())
 
 					job := &batchv1.Job{}
-					Expect(fakeK8sClient.Get(ctx, client.ObjectKey{Namespace: namespace, Name: workflowPipelines[0].Job.Name}, job)).To(Succeed())
+					Expect(fakeK8sClient.Get(ctx, client.ObjectKey{Namespace: namespace, Name: workflowPipelines[0].GetJob().Name}, job)).To(Succeed())
 
 					Expect(job.Spec.Suspend).NotTo(BeNil())
 					Expect(*job.Spec.Suspend).To(BeTrue())
@@ -287,21 +288,21 @@ var _ = Describe("Workflow Reconciler", func() {
 					var jobList []batchv1.Job
 
 					BeforeEach(func() {
-						markJobAsComplete(workflowPipelines[0].Job.Name)
+						markJobAsComplete(workflowPipelines[0].GetJob().Name)
 						opts := workflow.NewOpts(ctx, fakeK8sClient, logger, uPromise, updatedWorkflowPipeline, "promise")
 						requeue, err := workflow.ReconcileConfigure(opts)
 						Expect(err).NotTo(HaveOccurred())
 						jobList = listJobs(namespace)
 						Expect(requeue).To(BeTrue())
-						Expect(findByName(jobList, workflowPipelines[0].Job.Name)).To(BeTrue())
+						Expect(findByName(jobList, workflowPipelines[0].GetJob().Name)).To(BeTrue())
 					})
 
 					It("triggers the first pipeline in the workflow at the new spec", func() {
-						Expect(findByName(jobList, updatedWorkflowPipeline[0].Job.Name)).To(BeTrue())
+						Expect(findByName(jobList, updatedWorkflowPipeline[0].GetJob().Name)).To(BeTrue())
 					})
 
 					It("never triggers the next job in the outdated workflow", func() {
-						Expect(findByName(jobList, workflowPipelines[1].Job.Name)).To(BeFalse())
+						Expect(findByName(jobList, workflowPipelines[1].GetJob().Name)).To(BeFalse())
 					})
 				})
 			})
@@ -316,7 +317,7 @@ var _ = Describe("Workflow Reconciler", func() {
 				Expect(err).NotTo(HaveOccurred())
 				Expect(requeue).To(BeTrue())
 
-				markJobAsComplete(workflowPipelines[0].Job.Name)
+				markJobAsComplete(workflowPipelines[0].GetJob().Name)
 
 				requeue, err = workflow.ReconcileConfigure(opts)
 				Expect(err).NotTo(HaveOccurred())
@@ -335,7 +336,7 @@ var _ = Describe("Workflow Reconciler", func() {
 
 			When("all pipelines are executed", func() {
 				BeforeEach(func() {
-					markJobAsComplete(workflowPipelines[1].Job.Name)
+					markJobAsComplete(workflowPipelines[1].GetJob().Name)
 					requeue, err := workflow.ReconcileConfigure(opts)
 					Expect(err).NotTo(HaveOccurred())
 					Expect(requeue).To(BeFalse())
@@ -366,7 +367,7 @@ var _ = Describe("Workflow Reconciler", func() {
 					for j := range 2 {
 						_, err := workflow.ReconcileConfigure(opts)
 						Expect(err).NotTo(HaveOccurred())
-						markJobAsComplete(updatedWorkflowPipeline[j].Job.Name)
+						markJobAsComplete(updatedWorkflowPipeline[j].GetJob().Name)
 					}
 				}
 				updatedWorkflowPipeline, uPromise := setupTest(updatedPromise, pipelines)
@@ -380,13 +381,13 @@ var _ = Describe("Workflow Reconciler", func() {
 		})
 
 		When("all pipelines have executed", func() {
-			var updatedWorkflows []workflow.Pipeline
+			var updatedWorkflows []pipelineutil.PipelineJobResources
 
 			BeforeEach(func() {
-				Expect(fakeK8sClient.Create(ctx, workflowPipelines[0].Job)).To(Succeed())
-				Expect(fakeK8sClient.Create(ctx, workflowPipelines[1].Job)).To(Succeed())
-				markJobAsComplete(workflowPipelines[0].Job.Name)
-				markJobAsComplete(workflowPipelines[1].Job.Name)
+				Expect(fakeK8sClient.Create(ctx, workflowPipelines[0].GetJob())).To(Succeed())
+				Expect(fakeK8sClient.Create(ctx, workflowPipelines[1].GetJob())).To(Succeed())
+				markJobAsComplete(workflowPipelines[0].GetJob().Name)
+				markJobAsComplete(workflowPipelines[1].GetJob().Name)
 
 				createFakeWorks(pipelines, promise.Name)
 
@@ -407,8 +408,8 @@ var _ = Describe("Workflow Reconciler", func() {
 				}}
 
 				updatedWorkflows, uPromise = setupTest(promise, updatedPipelines)
-				Expect(fakeK8sClient.Create(ctx, updatedWorkflows[0].Job)).To(Succeed())
-				markJobAsComplete(updatedWorkflows[0].Job.Name)
+				Expect(fakeK8sClient.Create(ctx, updatedWorkflows[0].GetJob())).To(Succeed())
+				markJobAsComplete(updatedWorkflows[0].GetJob().Name)
 
 				opts = workflow.NewOpts(ctx, fakeK8sClient, logger, uPromise, updatedWorkflows, "promise")
 				requeue, err = workflow.ReconcileConfigure(opts)
@@ -452,10 +453,10 @@ var _ = Describe("Workflow Reconciler", func() {
 		When("the manual reconciliation label exists in the parent resource", func() {
 			When("there are no jobs in progress", func() {
 				BeforeEach(func() {
-					Expect(fakeK8sClient.Create(ctx, workflowPipelines[0].Job)).To(Succeed())
-					Expect(fakeK8sClient.Create(ctx, workflowPipelines[1].Job)).To(Succeed())
-					markJobAsComplete(workflowPipelines[0].Job.Name)
-					markJobAsComplete(workflowPipelines[1].Job.Name)
+					Expect(fakeK8sClient.Create(ctx, workflowPipelines[0].GetJob())).To(Succeed())
+					Expect(fakeK8sClient.Create(ctx, workflowPipelines[1].GetJob())).To(Succeed())
+					markJobAsComplete(workflowPipelines[0].GetJob().Name)
+					markJobAsComplete(workflowPipelines[1].GetJob().Name)
 
 					opts := workflow.NewOpts(ctx, fakeK8sClient, logger, uPromise, workflowPipelines, "promise")
 					requeue, err := workflow.ReconcileConfigure(opts)
@@ -479,9 +480,9 @@ var _ = Describe("Workflow Reconciler", func() {
 
 						jobs = resourceutil.SortJobsByCreationDateTime(listJobs(namespace), true)
 						Expect(jobs).To(HaveLen(3))
-						Expect(jobs[0].GetLabels()).To(HaveKeyWithValue("kratix.io/pipeline-name", workflowPipelines[0].Name))
-						Expect(jobs[1].GetLabels()).To(HaveKeyWithValue("kratix.io/pipeline-name", workflowPipelines[1].Name))
-						Expect(jobs[2].GetLabels()).To(HaveKeyWithValue("kratix.io/pipeline-name", workflowPipelines[0].Name))
+						Expect(jobs[0].GetLabels()).To(HaveKeyWithValue("kratix.io/pipeline-name", workflowPipelines[0].GetName()))
+						Expect(jobs[1].GetLabels()).To(HaveKeyWithValue("kratix.io/pipeline-name", workflowPipelines[1].GetName()))
+						Expect(jobs[2].GetLabels()).To(HaveKeyWithValue("kratix.io/pipeline-name", workflowPipelines[0].GetName()))
 					})
 
 					By("removing the label from the parent after the first reconcilation", func() {
@@ -525,7 +526,7 @@ var _ = Describe("Workflow Reconciler", func() {
 
 						jobs = resourceutil.SortJobsByCreationDateTime(listJobs(namespace), true)
 						Expect(jobs).To(HaveLen(4))
-						Expect(jobs[3].GetLabels()).To(HaveKeyWithValue("kratix.io/pipeline-name", workflowPipelines[0].Name))
+						Expect(jobs[3].GetLabels()).To(HaveKeyWithValue("kratix.io/pipeline-name", workflowPipelines[0].GetName()))
 					})
 
 					By("waiting for the first pipeline to complete again", func() {
@@ -545,7 +546,7 @@ var _ = Describe("Workflow Reconciler", func() {
 
 						jobs = resourceutil.SortJobsByCreationDateTime(listJobs(namespace), true)
 						Expect(jobs).To(HaveLen(5))
-						Expect(jobs[4].GetLabels()).To(HaveKeyWithValue("kratix.io/pipeline-name", workflowPipelines[1].Name))
+						Expect(jobs[4].GetLabels()).To(HaveKeyWithValue("kratix.io/pipeline-name", workflowPipelines[1].GetName()))
 					})
 
 					By("waiting for the second pipeline to complete", func() {
@@ -575,11 +576,11 @@ var _ = Describe("Workflow Reconciler", func() {
 				BeforeEach(func() {
 					var err error
 
-					Expect(fakeK8sClient.Create(ctx, workflowPipelines[0].Job)).To(Succeed())
-					markJobAsComplete(workflowPipelines[0].Job.Name)
+					Expect(fakeK8sClient.Create(ctx, workflowPipelines[0].GetJob())).To(Succeed())
+					markJobAsComplete(workflowPipelines[0].GetJob().Name)
 
 					// Create the second job, but don't mark it as complete
-					Expect(fakeK8sClient.Create(ctx, workflowPipelines[1].Job)).To(Succeed())
+					Expect(fakeK8sClient.Create(ctx, workflowPipelines[1].GetJob())).To(Succeed())
 
 					Expect(listJobs(namespace)).To(HaveLen(2))
 
@@ -596,8 +597,8 @@ var _ = Describe("Workflow Reconciler", func() {
 				It("suspends the current job", func() {
 					jobs := resourceutil.SortJobsByCreationDateTime(listJobs(namespace), true)
 					Expect(jobs).To(HaveLen(2))
-					Expect(jobs[0].GetLabels()).To(HaveKeyWithValue("kratix.io/pipeline-name", workflowPipelines[0].Name))
-					Expect(jobs[1].GetLabels()).To(HaveKeyWithValue("kratix.io/pipeline-name", workflowPipelines[1].Name))
+					Expect(jobs[0].GetLabels()).To(HaveKeyWithValue("kratix.io/pipeline-name", workflowPipelines[0].GetName()))
+					Expect(jobs[1].GetLabels()).To(HaveKeyWithValue("kratix.io/pipeline-name", workflowPipelines[1].GetName()))
 					Expect(jobs[1].Spec.Suspend).NotTo(BeNil())
 					Expect(*jobs[1].Spec.Suspend).To(BeTrue())
 				})
@@ -618,7 +619,7 @@ var _ = Describe("Workflow Reconciler", func() {
 	Describe("ReconcileDelete", func() {
 		When("there are no pipelines to reconcile", func() {
 			It("considers the workflow as completed", func() {
-				opts := workflow.NewOpts(ctx, fakeK8sClient, logger, nil, []workflow.Pipeline{}, "promise")
+				opts := workflow.NewOpts(ctx, fakeK8sClient, logger, nil, []pipelineutil.PipelineJobResources{}, "promise")
 				requeue, err := workflow.ReconcileDelete(opts)
 				Expect(err).NotTo(HaveOccurred())
 				Expect(requeue).To(BeFalse())
@@ -634,7 +635,7 @@ var _ = Describe("Workflow Reconciler", func() {
 				jobList := listJobs(namespace)
 				Expect(jobList).To(HaveLen(1))
 
-				Expect(findByName(jobList, workflowPipelines[0].Job.Name)).To(BeTrue())
+				Expect(findByName(jobList, workflowPipelines[0].GetJob().Name)).To(BeTrue())
 
 				By("not returning completed until the job is marked as completed", func() {
 					requeue, err := workflow.ReconcileDelete(opts)
@@ -645,8 +646,8 @@ var _ = Describe("Workflow Reconciler", func() {
 
 			When("the first pipeline is completed", func() {
 				BeforeEach(func() {
-					Expect(fakeK8sClient.Create(ctx, workflowPipelines[0].Job)).To(Succeed())
-					markJobAsComplete(workflowPipelines[0].Job.Name)
+					Expect(fakeK8sClient.Create(ctx, workflowPipelines[0].GetJob())).To(Succeed())
+					markJobAsComplete(workflowPipelines[0].GetJob().Name)
 				})
 
 				It("considers the workflow as completed", func() {
@@ -657,7 +658,7 @@ var _ = Describe("Workflow Reconciler", func() {
 					jobList := listJobs(namespace)
 					Expect(jobList).To(HaveLen(1))
 
-					Expect(findByName(jobList, workflowPipelines[0].Job.Name)).To(BeTrue())
+					Expect(findByName(jobList, workflowPipelines[0].GetJob().Name)).To(BeTrue())
 				})
 			})
 		})
@@ -686,7 +687,7 @@ func createStaticDependencyWork(promiseName string) {
 	Expect(fakeK8sClient.Create(ctx, &work)).To(Succeed())
 }
 
-func setupTest(promise v1alpha1.Promise, pipelines []v1alpha1.Pipeline) ([]workflow.Pipeline, *unstructured.Unstructured) {
+func setupTest(promise v1alpha1.Promise, pipelines []v1alpha1.Pipeline) ([]pipelineutil.PipelineJobResources, *unstructured.Unstructured) {
 	var err error
 	p := v1alpha1.Promise{}
 	Expect(fakeK8sClient.Get(ctx, types.NamespacedName{Name: promise.GetName()}, &p)).To(Succeed())
@@ -707,14 +708,14 @@ func setupTest(promise v1alpha1.Promise, pipelines []v1alpha1.Pipeline) ([]workf
 		otherResources = append(otherResources, generatedResources[0:4])
 	}
 
-	workflowPipelines := []workflow.Pipeline{}
+	workflowPipelines := []pipelineutil.PipelineJobResources{}
 	for i, j := range jobs {
 		j.SetCreationTimestamp(nextTimestamp())
-		workflowPipelines = append(workflowPipelines, workflow.Pipeline{
-			JobRequiredResources: otherResources[i],
-			Job:                  j,
-			Name:                 j.GetLabels()["kratix.io/pipeline-name"],
-		})
+		workflowPipelines = append(workflowPipelines, pipelineutil.NewPipelineObjects(
+			j.GetLabels()["kratix.io/pipeline-name"],
+			j,
+			otherResources[i],
+		))
 	}
 
 	return workflowPipelines, uPromise
@@ -751,9 +752,10 @@ func markJobAs(conditionType batchv1.JobConditionType, name string) {
 		},
 	}
 
-	if conditionType == batchv1.JobComplete {
+	switch conditionType {
+	case batchv1.JobComplete:
 		job.Status.Succeeded = 1
-	} else if conditionType == batchv1.JobFailed {
+	case batchv1.JobFailed:
 		job.Status.Failed = 1
 	}
 

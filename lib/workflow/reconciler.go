@@ -6,6 +6,7 @@ import (
 
 	"github.com/go-logr/logr"
 	"github.com/syntasso/kratix/api/v1alpha1"
+	"github.com/syntasso/kratix/lib/pipelineutil"
 	"github.com/syntasso/kratix/lib/resourceutil"
 	"gopkg.in/yaml.v2"
 	batchv1 "k8s.io/api/batch/v1"
@@ -23,25 +24,18 @@ type Opts struct {
 	logger       logr.Logger
 	parentObject *unstructured.Unstructured
 	//TODO make this field private too? or everything public and no constructor func
-	Pipelines []Pipeline
+	Resources []pipelineutil.PipelineJobResources
 	source    string
 }
 
-type Pipeline struct {
-	Name string
-	Job  *batchv1.Job
-	// ServiceAccount, Role, Rolebinding, ConfigMap etc (differs for delete vs configure)
-	JobRequiredResources []client.Object
-}
-
-func NewOpts(ctx context.Context, client client.Client, logger logr.Logger, parentObj *unstructured.Unstructured, pipelines []Pipeline, source string) Opts {
+func NewOpts(ctx context.Context, client client.Client, logger logr.Logger, parentObj *unstructured.Unstructured, resources []pipelineutil.PipelineJobResources, source string) Opts {
 	return Opts{
 		ctx:          ctx,
 		client:       client,
 		logger:       logger,
 		parentObject: parentObj,
 		source:       source,
-		Pipelines:    pipelines,
+		Resources:    resources,
 	}
 }
 
@@ -49,15 +43,15 @@ func NewOpts(ctx context.Context, client client.Client, logger logr.Logger, pare
 func ReconcileDelete(opts Opts) (bool, error) {
 	opts.logger.Info("Reconciling Delete Pipeline")
 
-	if len(opts.Pipelines) == 0 {
+	if len(opts.Resources) == 0 {
 		return false, nil
 	}
 
-	if len(opts.Pipelines) > 1 {
+	if len(opts.Resources) > 1 {
 		opts.logger.Info("Multiple delete pipeline found but only one delete pipeline is currently supported. Ignoring all but the first")
 	}
 
-	pipeline := opts.Pipelines[0]
+	pipeline := opts.Resources[0]
 	existingDeletePipeline, err := getDeletePipeline(opts, opts.parentObject.GetNamespace(), pipeline)
 	if err != nil {
 		return false, err
@@ -67,7 +61,7 @@ func ReconcileDelete(opts Opts) (bool, error) {
 		opts.logger.Info("Creating Delete Pipeline. The pipeline will now execute...")
 
 		//TODO retrieve error information from applyResources to return to the caller
-		applyResources(opts, append(pipeline.JobRequiredResources, pipeline.Job)...)
+		applyResources(opts, append(pipeline.GetRequiredResources(), pipeline.GetJob())...)
 
 		return true, nil
 	}
@@ -105,8 +99,8 @@ func ReconcileConfigure(opts Opts) (bool, error) {
 		pipelineIndex = nextPipelineIndex(opts, mostRecentJob)
 	}
 
-	if pipelineIndex >= len(opts.Pipelines) {
-		pipelineIndex = len(opts.Pipelines) - 1
+	if pipelineIndex >= len(opts.Resources) {
+		pipelineIndex = len(opts.Resources) - 1
 	}
 
 	if pipelineIndex < 0 {
@@ -121,22 +115,22 @@ func ReconcileConfigure(opts Opts) (bool, error) {
 
 	opts.logger.Info("Reconciling Configure workflow", "pipelineIndex", pipelineIndex, "mostRecentJob", mostRecentJobName)
 
-	pipeline := opts.Pipelines[pipelineIndex]
-	opts.logger = originalLogger.WithName(pipeline.Name)
+	pipeline := opts.Resources[pipelineIndex]
+	opts.logger = originalLogger.WithName(pipeline.GetName())
 
 	if jobIsForPipeline(pipeline, mostRecentJob) {
 		if isRunning(mostRecentJob) {
-			opts.logger.Info("Job already inflight for Pipeline, waiting for it to complete", "job", mostRecentJob.Name, "pipeline", pipeline.Name)
+			opts.logger.Info("Job already inflight for Pipeline, waiting for it to complete", "job", mostRecentJob.Name, "pipeline", pipeline.GetName())
 			return true, nil
 		}
 
 		if isManualReconciliation(opts.parentObject.GetLabels()) {
-			opts.logger.Info("Pipeline running due to manual reconciliation", "pipeline", pipeline.Name)
+			opts.logger.Info("Pipeline running due to manual reconciliation", "pipeline", pipeline.GetName())
 			return createConfigurePipeline(opts, pipelineIndex, pipeline)
 		}
 
 		if isFailed(mostRecentJob) {
-			opts.logger.Info("Last Job for Pipeline has failed, exiting workflow", "failedJob", mostRecentJob.Name, "pipeline", pipeline.Name)
+			opts.logger.Info("Last Job for Pipeline has failed, exiting workflow", "failedJob", mostRecentJob.Name, "pipeline", pipeline.GetName())
 			return false, nil
 		}
 
@@ -164,12 +158,12 @@ func ReconcileConfigure(opts Opts) (bool, error) {
 	}
 
 	// TODO this will be very noisy - might want to slowRequeue?
-	opts.logger.Info("Reconciling pipeline", "pipeline", pipeline.Name)
+	opts.logger.Info("Reconciling pipeline", "pipeline", pipeline.GetName())
 	return createConfigurePipeline(opts, pipelineIndex, pipeline)
 }
 
-func getLabelsForPipelineJob(pipeline Pipeline) map[string]string {
-	labels := pipeline.Job.DeepCopy().GetLabels()
+func getLabelsForPipelineJob(pipeline pipelineutil.PipelineJobResources) map[string]string {
+	labels := pipeline.GetJob().DeepCopy().GetLabels()
 	return labels
 }
 
@@ -186,8 +180,8 @@ func labelsForJobs(opts Opts) map[string]string {
 	return l
 }
 
-func labelsForAllPipelineJobs(pipeline Pipeline) map[string]string {
-	pipelineLabels := pipeline.Job.GetLabels()
+func labelsForAllPipelineJobs(pipeline pipelineutil.PipelineJobResources) map[string]string {
+	pipelineLabels := pipeline.GetJob().GetLabels()
 	labels := map[string]string{
 		v1alpha1.PromiseNameLabel: pipelineLabels[v1alpha1.PromiseNameLabel],
 	}
@@ -197,16 +191,16 @@ func labelsForAllPipelineJobs(pipeline Pipeline) map[string]string {
 	return labels
 }
 
-func jobIsForPipeline(pipeline Pipeline, job *batchv1.Job) bool {
+func jobIsForPipeline(pipeline pipelineutil.PipelineJobResources, job *batchv1.Job) bool {
 	if job == nil {
 		return false
 	}
 
-	if job.GetLabels()[v1alpha1.KratixResourceHashLabel] != pipeline.Job.GetLabels()[v1alpha1.KratixResourceHashLabel] {
+	if job.GetLabels()[v1alpha1.KratixResourceHashLabel] != pipeline.GetJob().GetLabels()[v1alpha1.KratixResourceHashLabel] {
 		return false
 	}
 
-	return job.GetLabels()[v1alpha1.PipelineNameLabel] == pipeline.Job.GetLabels()[v1alpha1.PipelineNameLabel]
+	return job.GetLabels()[v1alpha1.PipelineNameLabel] == pipeline.GetJob().GetLabels()[v1alpha1.PipelineNameLabel]
 }
 
 func nextPipelineIndex(opts Opts, mostRecentJob *batchv1.Job) int {
@@ -218,10 +212,10 @@ func nextPipelineIndex(opts Opts, mostRecentJob *batchv1.Job) int {
 		return 0
 	}
 
-	i := len(opts.Pipelines) - 1
+	i := len(opts.Resources) - 1
 	for i >= 0 {
-		if jobIsForPipeline(opts.Pipelines[i], mostRecentJob) {
-			opts.logger.Info("Found job for pipeline", "pipeline", opts.Pipelines[i].Name, "index", i)
+		if jobIsForPipeline(opts.Resources[i], mostRecentJob) {
+			opts.logger.Info("Found job for pipeline", "pipeline", opts.Resources[i].GetName(), "index", i)
 			if isFailed(mostRecentJob) || isRunning(mostRecentJob) {
 				return i
 			}
@@ -266,7 +260,7 @@ func isRunning(job *batchv1.Job) bool {
 
 func cleanup(opts Opts, namespace string) error {
 	if opts.source == "promise" {
-		for _, pipeline := range opts.Pipelines {
+		for _, pipeline := range opts.Resources {
 			if err := deleteConfigMap(opts, pipeline); err != nil {
 				return err
 			}
@@ -274,10 +268,10 @@ func cleanup(opts Opts, namespace string) error {
 	}
 
 	pipelineNames := map[string]bool{}
-	for _, pipeline := range opts.Pipelines {
+	for _, pipeline := range opts.Resources {
 		l := labelsForAllPipelineJobs(pipeline)
-		l[v1alpha1.PipelineNameLabel] = pipeline.Name
-		pipelineNames[pipeline.Name] = true
+		l[v1alpha1.PipelineNameLabel] = pipeline.GetName()
+		pipelineNames[pipeline.GetName()] = true
 		jobsForPipeline, _ := getJobsWithLabels(opts, l, namespace)
 		// TODO: come back to this and reason about it
 		if err := deleteAllButLastFiveJobs(opts, jobsForPipeline); err != nil {
@@ -331,9 +325,9 @@ func deleteAllButLastFiveJobs(opts Opts, pipelineJobsAtCurrentSpec []batchv1.Job
 	return nil
 }
 
-func deleteConfigMap(opts Opts, pipeline Pipeline) error {
+func deleteConfigMap(opts Opts, pipeline pipelineutil.PipelineJobResources) error {
 	configMap := &v1.ConfigMap{}
-	for _, resource := range pipeline.JobRequiredResources {
+	for _, resource := range pipeline.GetRequiredResources() {
 		if _, ok := resource.(*v1.ConfigMap); ok {
 			configMap = resource.(*v1.ConfigMap)
 			break
@@ -351,7 +345,7 @@ func deleteConfigMap(opts Opts, pipeline Pipeline) error {
 	return nil
 }
 
-func createConfigurePipeline(opts Opts, pipelineIndex int, pipeline Pipeline) (bool, error) {
+func createConfigurePipeline(opts Opts, pipelineIndex int, pipeline pipelineutil.PipelineJobResources) (bool, error) {
 	updated, err := setPipelineCompletedConditionStatus(opts, pipelineIndex == 0, opts.parentObject)
 	if err != nil || updated {
 		return updated, err
@@ -359,7 +353,7 @@ func createConfigurePipeline(opts Opts, pipelineIndex int, pipeline Pipeline) (b
 
 	opts.logger.Info("Triggering Promise pipeline")
 
-	applyResources(opts, append(pipeline.JobRequiredResources, pipeline.Job)...)
+	applyResources(opts, append(pipeline.GetRequiredResources(), pipeline.GetJob())...)
 
 	opts.logger.Info("Parent object:", "parent", opts.parentObject.GetName())
 	if isManualReconciliation(opts.parentObject.GetLabels()) {
@@ -403,7 +397,7 @@ func setPipelineCompletedConditionStatus(opts Opts, isTheFirstPipeline bool, obj
 	return false, nil
 }
 
-func getDeletePipeline(opts Opts, namespace string, pipeline Pipeline) (*batchv1.Job, error) {
+func getDeletePipeline(opts Opts, namespace string, pipeline pipelineutil.PipelineJobResources) (*batchv1.Job, error) {
 	labels := getLabelsForPipelineJob(pipeline)
 	jobs, err := getJobsWithLabels(opts, labels, namespace)
 	if err != nil || len(jobs) == 0 {

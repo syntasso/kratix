@@ -404,7 +404,7 @@ var _ = Describe("PromiseController", func() {
 						Expect(promise.Finalizers).To(ContainElement("kratix.io/workflows-cleanup"))
 					})
 
-					resources := reconcileConfigureOptsArg.Pipelines[0].JobRequiredResources
+					resources := reconcileConfigureOptsArg.Resources[0].GetRequiredResources()
 					By("creates a service account for pipeline", func() {
 						Expect(resources[0]).To(BeAssignableToTypeOf(&v1.ServiceAccount{}))
 						sa := resources[0].(*v1.ServiceAccount)

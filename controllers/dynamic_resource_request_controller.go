@@ -18,7 +18,6 @@ package controllers
 
 import (
 	"context"
-	"strconv"
 
 	apiextensionsv1 "k8s.io/apiextensions-apiserver/pkg/apis/apiextensions/v1"
 	"sigs.k8s.io/controller-runtime/pkg/controller/controllerutil"
@@ -32,7 +31,6 @@ import (
 	"github.com/syntasso/kratix/lib/workflow"
 
 	batchv1 "k8s.io/api/batch/v1"
-	v1 "k8s.io/api/core/v1"
 
 	"k8s.io/apimachinery/pkg/api/errors"
 	"k8s.io/apimachinery/pkg/apis/meta/v1/unstructured"
@@ -143,26 +141,12 @@ func (r *DynamicResourceRequestController) Reconcile(ctx context.Context, req ct
 		return addFinalizers(opts, rr, []string{workFinalizer, removeAllWorkflowJobsFinalizer, runDeleteWorkflowsFinalizer})
 	}
 
-	var pipelines []workflow.Pipeline
-	for i, p := range r.ConfigurePipelines {
-		isLast := i == len(r.ConfigurePipelines)-1
-		pipelineResources, err := p.ForConfigureResource(promise, r.CRD, rr, logger).Resources(
-			[]v1.EnvVar{{Name: "IS_LAST_PIPELINE", Value: strconv.FormatBool(isLast)}},
-		)
-		if err != nil {
-			return ctrl.Result{}, err
-		}
-		job := pipelineResources[4].(*batchv1.Job)
-		//TODO smelly, refactor. Should we merge the lib/pipeline package with lib/workflow?
-		//TODO if we dont do that, backfil unit tests for dynamic and promise controllers to assert the job is correct
-		pipelines = append(pipelines, workflow.Pipeline{
-			Job:                  job,
-			JobRequiredResources: pipelineResources[0:4],
-			Name:                 p.Name,
-		})
+	pipelineResources, err := promise.GenerateResourcePipelines(v1alpha1.WorkflowActionConfigure, r.CRD, rr, logger)
+	if err != nil {
+		return ctrl.Result{}, err
 	}
 
-	jobOpts := workflow.NewOpts(ctx, r.Client, logger, rr, pipelines, "resource")
+	jobOpts := workflow.NewOpts(ctx, r.Client, logger, rr, pipelineResources, "resource")
 
 	requeue, err := reconcileConfigure(jobOpts)
 	if err != nil {
@@ -186,23 +170,12 @@ func (r *DynamicResourceRequestController) deleteResources(o opts, promise *v1al
 	}
 
 	if controllerutil.ContainsFinalizer(resourceRequest, runDeleteWorkflowsFinalizer) {
-		var pipelines []workflow.Pipeline
-		for _, p := range r.DeletePipelines {
-			pipelineResources, err := p.
-				ForDeleteResource(promise, r.CRD, resourceRequest, o.logger).
-				Resources([]v1.EnvVar{})
-			if err != nil {
-				return ctrl.Result{}, err
-			}
-
-			pipelines = append(pipelines, workflow.Pipeline{
-				Job:                  pipelineResources[3].(*batchv1.Job),
-				JobRequiredResources: pipelineResources[0:3],
-				Name:                 p.Name,
-			})
+		pipelineResources, err := promise.GenerateResourcePipelines(v1alpha1.WorkflowActionDelete, r.CRD, resourceRequest, o.logger)
+		if err != nil {
+			return ctrl.Result{}, err
 		}
 
-		jobOpts := workflow.NewOpts(o.ctx, o.client, o.logger, resourceRequest, pipelines, "resource")
+		jobOpts := workflow.NewOpts(o.ctx, o.client, o.logger, resourceRequest, pipelineResources, "resource")
 		requeue, err := reconcileDelete(jobOpts)
 		if err != nil {
 			return ctrl.Result{}, err

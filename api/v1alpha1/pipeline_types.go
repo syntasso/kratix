@@ -23,6 +23,7 @@ import (
 
 	"github.com/go-logr/logr"
 	"github.com/syntasso/kratix/lib/hash"
+	"github.com/syntasso/kratix/lib/pipelineutil"
 	batchv1 "k8s.io/api/batch/v1"
 	corev1 "k8s.io/api/core/v1"
 	rbacv1 "k8s.io/api/rbac/v1"
@@ -81,35 +82,20 @@ type pipelineWrapper struct {
 	WorkflowType   Type
 }
 
-func (p *Pipeline) ForConfigurePromise(promise *Promise, log logr.Logger) *pipelineWrapper {
+func (p *Pipeline) ForPromise(promise *Promise, action Action, log logr.Logger) *pipelineWrapper {
 	return &pipelineWrapper{
-		ID:           promise.GetName() + "-promise-pipeline",
-		Promise:      promise,
-		Pipeline:     p,
-		Log:          log,
-		Namespace:    SystemNamespace,
-		ClusterScope: true,
-
+		ID:             promise.GetName() + "-promise-pipeline",
+		Promise:        promise,
+		Pipeline:       p,
+		Log:            log,
+		Namespace:      SystemNamespace,
+		ClusterScope:   true,
 		WorkflowType:   WorkflowTypePromise,
-		WorkflowAction: WorkflowActionConfigure,
+		WorkflowAction: action,
 	}
 }
 
-func (p *Pipeline) ForDeletePromise(promise *Promise, log logr.Logger) *pipelineWrapper {
-	return &pipelineWrapper{
-		ID:           promise.GetName() + "-promise-pipeline",
-		Promise:      promise,
-		Pipeline:     p,
-		Log:          log,
-		Namespace:    SystemNamespace,
-		ClusterScope: true,
-
-		WorkflowType:   WorkflowTypePromise,
-		WorkflowAction: WorkflowActionDelete,
-	}
-}
-
-func (p *Pipeline) ForConfigureResource(promise *Promise, crd *apiextensionsv1.CustomResourceDefinition, resourceRequest *unstructured.Unstructured, log logr.Logger) *pipelineWrapper {
+func (p *Pipeline) ForResource(promise *Promise, action Action, crd *apiextensionsv1.CustomResourceDefinition, resourceRequest *unstructured.Unstructured, log logr.Logger) *pipelineWrapper {
 	return &pipelineWrapper{
 		ID:               promise.GetName() + "-resource-pipeline",
 		Promise:          promise,
@@ -119,31 +105,13 @@ func (p *Pipeline) ForConfigureResource(promise *Promise, crd *apiextensionsv1.C
 		Namespace:        resourceRequest.GetNamespace(),
 		ClusterScope:     false,
 		ResourceWorkflow: true,
-
-		CRD:            crd,
-		WorkflowType:   WorkflowTypeResource,
-		WorkflowAction: WorkflowActionConfigure,
+		CRD:              crd,
+		WorkflowType:     WorkflowTypeResource,
+		WorkflowAction:   action,
 	}
 }
 
-func (p *Pipeline) ForDeleteResource(promise *Promise, crd *apiextensionsv1.CustomResourceDefinition, resourceRequest *unstructured.Unstructured, log logr.Logger) *pipelineWrapper {
-	return &pipelineWrapper{
-		ID:               promise.GetName() + "-resource-pipeline",
-		Promise:          promise,
-		Pipeline:         p,
-		ResourceRequest:  resourceRequest,
-		Log:              log,
-		Namespace:        resourceRequest.GetNamespace(),
-		ClusterScope:     false,
-		ResourceWorkflow: true,
-
-		CRD:            crd,
-		WorkflowType:   WorkflowTypeResource,
-		WorkflowAction: WorkflowActionDelete,
-	}
-}
-
-func (p *pipelineWrapper) Resources(jobEnv []corev1.EnvVar) ([]client.Object, error) {
+func (p *pipelineWrapper) Resources(jobEnv []corev1.EnvVar) (pipelineutil.PipelineJobResources, error) {
 	schedulingConfigMap, err := p.Promise.SchedulingConfigMap(p.ID, p.Namespace, p.labels())
 	if err != nil {
 		return nil, err
@@ -159,11 +127,12 @@ func (p *pipelineWrapper) Resources(jobEnv []corev1.EnvVar) ([]client.Object, er
 		return nil, err
 	}
 
-	if p.WorkflowAction == WorkflowActionDelete {
-		return []client.Object{serviceAccount, role, roleBinding, job}, nil
+	requiredResources := []client.Object{serviceAccount, role, roleBinding}
+	if p.WorkflowAction == WorkflowActionConfigure {
+		requiredResources = append(requiredResources, schedulingConfigMap)
 	}
 
-	return []client.Object{serviceAccount, role, roleBinding, schedulingConfigMap, job}, nil
+	return pipelineutil.NewPipelineObjects(p.Pipeline.GetName(), job, requiredResources), nil
 }
 
 func (p *pipelineWrapper) labels() map[string]string {

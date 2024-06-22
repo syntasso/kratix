@@ -20,7 +20,6 @@ import (
 	"context"
 	"fmt"
 	"slices"
-	"strconv"
 	"strings"
 	"time"
 
@@ -137,13 +136,13 @@ func (r *PromiseReconciler) Reconcile(ctx context.Context, req ctrl.Request) (ct
 		logger: logger,
 	}
 
-	pipelines, err := promise.GeneratePipelines(logger)
+	pipelinesMap, err := promise.GeneratePipelinesMap(logger)
 	if err != nil {
 		return ctrl.Result{}, err
 	}
 
 	if !promise.DeletionTimestamp.IsZero() {
-		return r.deletePromise(opts, promise, pipelines.DeletePromise)
+		return r.deletePromise(opts, promise)
 	}
 
 	if value, found := promise.Labels[v1alpha1.PromiseVersionLabel]; found {
@@ -162,7 +161,7 @@ func (r *PromiseReconciler) Reconcile(ctx context.Context, req ctrl.Request) (ct
 	}
 
 	//TODO handle removing finalizer
-	requeue, err := ensurePromiseDeleteWorkflowFinalizer(opts, promise, pipelines.DeletePromise)
+	requeue, err := ensurePromiseDeleteWorkflowFinalizer(opts, promise, pipelinesMap[v1alpha1.WorkflowTypePromise][v1alpha1.WorkflowActionDelete])
 	if err != nil {
 		return ctrl.Result{}, err
 	}
@@ -208,7 +207,7 @@ func (r *PromiseReconciler) Reconcile(ctx context.Context, req ctrl.Request) (ct
 		return addFinalizers(opts, promise, []string{dependenciesCleanupFinalizer})
 	}
 
-	requeue, err = r.reconcileDependencies(opts, promise, pipelines.ConfigurePromise)
+	requeue, err = r.reconcileDependencies(opts, promise, pipelinesMap[v1alpha1.WorkflowTypePromise][v1alpha1.WorkflowActionConfigure])
 	if err != nil {
 		return ctrl.Result{}, err
 	}
@@ -226,7 +225,9 @@ func (r *PromiseReconciler) Reconcile(ctx context.Context, req ctrl.Request) (ct
 			}
 		}
 
-		err = r.ensureDynamicControllerIsStarted(promise, rrCRD, rrGVK, pipelines.ConfigureResource, pipelines.DeleteResource, &dynamicControllerCanCreateResources, logger)
+		configureResource := pipelinesMap[v1alpha1.WorkflowTypeResource][v1alpha1.WorkflowActionConfigure]
+		deleteResource := pipelinesMap[v1alpha1.WorkflowTypeResource][v1alpha1.WorkflowActionDelete]
+		err = r.ensureDynamicControllerIsStarted(promise, rrCRD, rrGVK, configureResource, deleteResource, &dynamicControllerCanCreateResources, logger)
 		if err != nil {
 			return ctrl.Result{}, err
 		}
@@ -384,29 +385,12 @@ func (r *PromiseReconciler) reconcileDependencies(o opts, promise *v1alpha1.Prom
 		return nil, err
 	}
 
-	var pipelines []workflow.Pipeline
-	for i, p := range configurePipeline {
-		isLast := i == len(configurePipeline)-1
-		additionalJobEnv := []v1.EnvVar{
-			{Name: "IS_LAST_PIPELINE", Value: strconv.FormatBool(isLast)},
-		}
-
-		pipelineResources, err := p.
-			ForConfigurePromise(promise, o.logger).
-			Resources(additionalJobEnv)
-		if err != nil {
-			return nil, err
-		}
-
-		job := pipelineResources[4].(*batchv1.Job)
-		pipelines = append(pipelines, workflow.Pipeline{
-			Job:                  job,
-			JobRequiredResources: pipelineResources[0:4],
-			Name:                 p.Name,
-		})
+	pipelineResources, err := promise.GeneratePromisePipelines(v1alpha1.WorkflowActionConfigure, o.logger)
+	if err != nil {
+		return nil, err
 	}
 
-	jobOpts := workflow.NewOpts(o.ctx, o.client, o.logger, unstructuredPromise, pipelines, "promise")
+	jobOpts := workflow.NewOpts(o.ctx, o.client, o.logger, unstructuredPromise, pipelineResources, "promise")
 
 	requeue, err := reconcileConfigure(jobOpts)
 	if err != nil {
@@ -642,7 +626,7 @@ func (r *PromiseReconciler) updateStatus(promise *v1alpha1.Promise, kind, group,
 	return true, r.Client.Status().Update(context.TODO(), promise)
 }
 
-func (r *PromiseReconciler) deletePromise(o opts, promise *v1alpha1.Promise, deletePipelines []v1alpha1.Pipeline) (ctrl.Result, error) {
+func (r *PromiseReconciler) deletePromise(o opts, promise *v1alpha1.Promise) (ctrl.Result, error) {
 	o.logger.Info("finalizers existing", "finalizers", promise.GetFinalizers())
 	if resourceutil.FinalizersAreDeleted(promise, promiseFinalizers) {
 		return ctrl.Result{}, nil
@@ -653,17 +637,10 @@ func (r *PromiseReconciler) deletePromise(o opts, promise *v1alpha1.Promise, del
 		if err != nil {
 			return ctrl.Result{}, err
 		}
-		var pipelines []workflow.Pipeline
-		for _, p := range deletePipelines {
-			pipelineResources, _ := p.ForDeletePromise(promise, o.logger).Resources([]v1.EnvVar{})
-
-			pipelines = append(pipelines, workflow.Pipeline{
-				Job:                  pipelineResources[3].(*batchv1.Job),
-				JobRequiredResources: pipelineResources[0:3],
-				Name:                 p.Name,
-			})
+		pipelines, err := promise.GeneratePromisePipelines(v1alpha1.WorkflowActionDelete, o.logger)
+		if err != nil {
+			return ctrl.Result{}, err
 		}
-
 		jobOpts := workflow.NewOpts(o.ctx, o.client, o.logger, unstructuredPromise, pipelines, "promise")
 
 		requeue, err := reconcileDelete(jobOpts)
@@ -801,13 +778,15 @@ func (r *PromiseReconciler) deleteResourceRequests(o opts, promise *v1alpha1.Pro
 		return err
 	}
 
-	pipelines, err := promise.GeneratePipelines(o.logger)
+	pipelines, err := promise.GeneratePipelinesMap(o.logger)
 	if err != nil {
 		return err
 	}
 
 	var canCreateResources bool
-	err = r.ensureDynamicControllerIsStarted(promise, rrCRD, rrGVK, pipelines.ConfigureResource, pipelines.DeleteResource, &canCreateResources, o.logger)
+	configureResource := pipelines[v1alpha1.WorkflowTypePromise][v1alpha1.WorkflowActionConfigure]
+	deleteResource := pipelines[v1alpha1.WorkflowTypePromise][v1alpha1.WorkflowActionDelete]
+	err = r.ensureDynamicControllerIsStarted(promise, rrCRD, rrGVK, configureResource, deleteResource, &canCreateResources, o.logger)
 	if err != nil {
 		return err
 	}
