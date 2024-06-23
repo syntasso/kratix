@@ -24,7 +24,6 @@ import (
 	"strconv"
 
 	"github.com/go-logr/logr"
-	"github.com/pkg/errors"
 	"github.com/syntasso/kratix/lib/pipelineutil"
 	"gopkg.in/yaml.v2"
 	corev1 "k8s.io/api/core/v1"
@@ -267,7 +266,7 @@ func init() {
 	SchemeBuilder.Register(&Promise{}, &PromiseList{})
 }
 
-func (p *Promise) SchedulingConfigMap(id, namespace string, labels map[string]string) (*corev1.ConfigMap, error) {
+func (p *Promise) GetWorkloadGroupScheduling() []WorkloadGroupScheduling {
 	workloadGroupScheduling := []WorkloadGroupScheduling{}
 	for _, scheduling := range p.Spec.DestinationSelectors {
 		workloadGroupScheduling = append(workloadGroupScheduling, WorkloadGroupScheduling{
@@ -276,20 +275,7 @@ func (p *Promise) SchedulingConfigMap(id, namespace string, labels map[string]st
 		})
 	}
 
-	schedulingYAML, err := yaml.Marshal(workloadGroupScheduling)
-	if err != nil {
-		return nil, errors.Wrap(err, "error marshalling destinationSelectors to yaml")
-	}
-	return &corev1.ConfigMap{
-		ObjectMeta: metav1.ObjectMeta{
-			Name:      "destination-selectors-" + id,
-			Namespace: namespace,
-			Labels:    labels,
-		},
-		Data: map[string]string{
-			"destinationSelectors": string(schedulingYAML),
-		},
-	}, nil
+	return workloadGroupScheduling
 }
 
 func (p *Promise) generatePipelinesObjects(workflowType Type, workflowAction Action, crd *apiextensionsv1.CustomResourceDefinition, resourceRequest *unstructured.Unstructured, logger logr.Logger) ([]pipelineutil.PipelineJobResources, error) {

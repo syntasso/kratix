@@ -23,8 +23,10 @@ import (
 	"strings"
 
 	"github.com/go-logr/logr"
+	"github.com/pkg/errors"
 	"github.com/syntasso/kratix/lib/hash"
 	"github.com/syntasso/kratix/lib/pipelineutil"
+	"gopkg.in/yaml.v2"
 	batchv1 "k8s.io/api/batch/v1"
 	corev1 "k8s.io/api/core/v1"
 	rbacv1 "k8s.io/api/rbac/v1"
@@ -150,7 +152,8 @@ func (p *Pipeline) ForResource(promise *Promise, action Action, crd *apiextensio
 }
 
 func (p *pipelineWrapper) Resources(jobEnv []corev1.EnvVar) (pipelineutil.PipelineJobResources, error) {
-	schedulingConfigMap, err := p.Promise.SchedulingConfigMap(p.Promise.GetName(), p.Namespace, p.labels())
+	wgScheduling := p.Promise.GetWorkloadGroupScheduling()
+	schedulingConfigMap, err := p.ConfigMap(wgScheduling)
 	if err != nil {
 		return nil, err
 	}
@@ -285,6 +288,23 @@ func (p *pipelineWrapper) clusterRoleBinding(clusterRoleName string, serviceAcco
 			},
 		},
 	}
+}
+
+func (p *pipelineWrapper) ConfigMap(workloadGroupScheduling []WorkloadGroupScheduling) (*corev1.ConfigMap, error) {
+	schedulingYAML, err := yaml.Marshal(workloadGroupScheduling)
+	if err != nil {
+		return nil, errors.Wrap(err, "error marshalling destinationSelectors to yaml")
+	}
+	return &corev1.ConfigMap{
+		ObjectMeta: metav1.ObjectMeta{
+			Name:      "destination-selectors-" + p.ID,
+			Namespace: p.Namespace,
+			Labels:    p.labels(),
+		},
+		Data: map[string]string{
+			"destinationSelectors": string(schedulingYAML),
+		},
+	}, nil
 }
 
 func (p *pipelineWrapper) defaultVolumes(schedulingConfigMap *corev1.ConfigMap) []corev1.Volume {
