@@ -104,8 +104,8 @@ func (w *WorkCreator) Execute(rootDirectory, promiseName, namespace, resourceNam
 			return err
 		}
 		if len(destinationSelectors) > 0 {
-			p := []v1alpha1.PromiseScheduling{}
-			pw := []v1alpha1.PromiseScheduling{}
+			var p []v1alpha1.PromiseScheduling
+			var pw []v1alpha1.PromiseScheduling
 			for _, selector := range destinationSelectors {
 				switch selector.Source {
 				case "promise":
@@ -144,7 +144,6 @@ func (w *WorkCreator) Execute(rootDirectory, promiseName, namespace, resourceNam
 
 	work.Name = resourceutil.GenerateObjectName(identifier)
 	work.Namespace = namespace
-	work.Spec.Replicas = v1alpha1.ResourceRequestReplicas
 	work.Spec.WorkloadGroups = workloadGroups
 	work.Spec.PromiseName = promiseName
 	work.Spec.ResourceName = resourceName
@@ -153,7 +152,6 @@ func (w *WorkCreator) Execute(rootDirectory, promiseName, namespace, resourceNam
 
 	if workflowType == string(v1alpha1.WorkflowTypePromise) {
 		work.Namespace = v1alpha1.SystemNamespace
-		work.Spec.Replicas = v1alpha1.DependencyReplicas
 		work.Spec.ResourceName = ""
 		work.Labels = v1alpha1.GenerateSharedLabelsForPromise(promiseName)
 		resourceutil.SetPromiseWorkLabels(work.Labels, promiseName, pipelineName)
@@ -199,7 +197,7 @@ func (w *WorkCreator) getWorkloadsFromDir(prefixToTrimFromWorkloadFilepath, root
 		return nil, err
 	}
 
-	workloads := []v1alpha1.Workload{}
+	var workloads []v1alpha1.Workload
 
 	for _, info := range filesAndDirs {
 		// TODO: currently we assume everything is a file or a dir, we don't handle
@@ -310,7 +308,7 @@ func containsNonRootDirectory(schedulingConfig []v1alpha1.WorkflowDestinationSel
 }
 
 func containsDuplicateScheduling(schedulingConfig []v1alpha1.WorkflowDestinationSelectors) bool {
-	directoriesSeen := []string{}
+	var directoriesSeen []string
 
 	for _, selector := range schedulingConfig {
 		if slices.Contains(directoriesSeen, selector.Directory) {

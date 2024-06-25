@@ -87,22 +87,22 @@ var _ = Describe("Configure Pipeline", func() {
 
 		Context("when the pipeline name would exceed the 63 character limit", func() {
 			BeforeEach(func() {
-				promise_identifier := "long-long-long-long-promise"
-				pipeline_name := "also-very-verbose-pipeline"
-				pipelineResources = pipeline.NewPipelineArgs(promise_identifier, "", pipeline_name, "test-name", "test-namespace")
+				promiseIdentifier := "long-long-long-long-promise"
+				pipelineName := "also-very-verbose-pipeline"
+				pipelineResources = pipeline.NewPipelineArgs(promiseIdentifier, "", pipelineName, "test-name", "test-namespace")
 
 				job, err = pipeline.ConfigurePipeline(rr, expectedHash, p, pipelineResources, "test-promise", false, logger)
 
 				labelsMatcher = MatchAllKeys(Keys{
 					"kratix.io/hash":                  Equal(expectedHash),
 					"kratix-workflow-action":          Equal("configure"),
-					"kratix-workflow-pipeline-name":   Equal(pipeline_name),
-					"kratix.io/pipeline-name":         Equal(pipeline_name),
+					"kratix-workflow-pipeline-name":   Equal(pipelineName),
+					"kratix.io/pipeline-name":         Equal(pipelineName),
 					"kratix-workflow-type":            Equal("promise"),
 					"kratix-workflow-kind":            Equal("pipeline.platform.kratix.io"),
 					"kratix-workflow-promise-version": Equal("v1alpha1"),
 					"kratix.io/work-type":             Equal("promise"),
-					"kratix.io/promise-name":          Equal(promise_identifier),
+					"kratix.io/promise-name":          Equal(promiseIdentifier),
 				})
 			})
 
@@ -149,8 +149,8 @@ var _ = Describe("Configure Pipeline", func() {
 
 		Context("when the pipeline name would exceed the 63 character limit", func() {
 			BeforeEach(func() {
-				promise_identifier := "long-long-long-long-promise"
-				pipelineResources = pipeline.NewPipelineArgs(promise_identifier, "long-long-long-long-promise-test-resource", "configure-step", "test-resource", "test-namespace")
+				promiseIdentifier := "long-long-long-long-promise"
+				pipelineResources = pipeline.NewPipelineArgs(promiseIdentifier, "long-long-long-long-promise-test-resource", "configure-step", "test-resource", "test-namespace")
 
 				job, err = pipeline.ConfigurePipeline(rr, expectedHash, p, pipelineResources, "test-promise", false, logger)
 
@@ -163,7 +163,7 @@ var _ = Describe("Configure Pipeline", func() {
 					"kratix-workflow-kind":               Equal("pipeline.platform.kratix.io"),
 					"kratix-workflow-promise-version":    Equal("v1alpha1"),
 					"kratix.io/work-type":                Equal("resource"),
-					"kratix.io/promise-name":             Equal(promise_identifier),
+					"kratix.io/promise-name":             Equal(promiseIdentifier),
 					"kratix-promise-resource-request-id": Equal("long-long-long-long-promise-test-resource"),
 					"kratix.io/resource-name":            Equal("test-resource"),
 				})

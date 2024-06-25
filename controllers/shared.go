@@ -21,7 +21,6 @@ import (
 )
 
 const (
-	promiseVersionLabel            = v1alpha1.KratixPrefix + "promise-version"
 	promiseReleaseNameLabel        = v1alpha1.KratixPrefix + "promise-release-name"
 	removeAllWorkflowJobsFinalizer = v1alpha1.KratixPrefix + "workflows-cleanup"
 	runDeleteWorkflowsFinalizer    = v1alpha1.KratixPrefix + "delete-workflows"

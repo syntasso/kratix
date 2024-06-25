@@ -43,9 +43,6 @@ spec:
             properties:
               promiseName:
                 type: string
-              replicas:
-                description: -1 denotes dependencies, 1 denotes Resource Request
-                type: integer
               resourceName:
                 type: string
               workloadGroups:
@@ -54,7 +51,7 @@ spec:
                 items:
                   description: |-
                     WorkloadGroup represents the workloads in a particular directory that should
-                    be scheduled to a to Destination
+                    be scheduled to a Destination
                   properties:
                     destinationSelectors:
                       items:

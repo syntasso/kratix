@@ -50,7 +50,7 @@ var _ = Describe("WorkCreator", func() {
 			})
 
 			It("has a correctly configured Work resource", func() {
-				Expect(workResource.Spec.Replicas).To(Equal(1))
+				Expect(workResource.Spec.ResourceName).To(Equal("resource-name"))
 			})
 
 			It("has the expected labels", func() {
@@ -75,7 +75,7 @@ var _ = Describe("WorkCreator", func() {
 					workResource = getWork(expectedNamespace, promiseName, resourceName, pipelineName)
 					Expect(workResource.Spec.WorkloadGroups).To(HaveLen(2))
 
-					paths := []string{}
+					var paths []string
 					for _, workload := range workResource.Spec.WorkloadGroups[0].Workloads {
 						paths = append(paths, workload.Filepath)
 					}
@@ -110,7 +110,7 @@ var _ = Describe("WorkCreator", func() {
 				It("has three files", func() {
 					Expect(workResource.Spec.WorkloadGroups).To(HaveLen(2))
 
-					paths := []string{}
+					var paths []string
 					for _, workload := range workResource.Spec.WorkloadGroups[0].Workloads {
 						paths = append(paths, workload.Filepath)
 					}
@@ -240,7 +240,7 @@ var _ = Describe("WorkCreator", func() {
 			It("does not append the default workload group to the work", func() {
 				Expect(workResource.Spec.WorkloadGroups).To(HaveLen(1))
 
-				paths := []string{}
+				var paths []string
 				for _, workload := range workResource.Spec.WorkloadGroups[0].Workloads {
 					paths = append(paths, workload.Filepath)
 				}
@@ -278,7 +278,7 @@ var _ = Describe("WorkCreator", func() {
 					"kratix.io/work-type":     "promise",
 				}))
 
-				Expect(workResource.Spec.Replicas).To(Equal(-1))
+				Expect(workResource.Spec.ResourceName).To(Equal(""))
 				Expect(workResource.Spec.WorkloadGroups[0].DestinationSelectors).To(ConsistOf(
 					v1alpha1.WorkloadGroupScheduling{
 						MatchLabels: map[string]string{

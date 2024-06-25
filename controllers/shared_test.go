@@ -21,14 +21,11 @@ const (
 	promisePath                    = "assets/redis-simple-promise.yaml"
 	promiseWithWorkflowPath        = "assets/promise-with-workflow.yaml"
 	promiseWithDeleteWorkflowPath  = "assets/promise-with-delete-workflow.yaml"
-	promiseWithWorkflowUpdatedPath = "assets/promise-with-workflow-updated.yaml"
 	promiseWithOnlyDepsPath        = "assets/promise-with-deps-only.yaml"
 	promiseWithOnlyDepsUpdatedPath = "assets/promise-with-deps-only-updated.yaml"
 	promiseWithRequirements        = "assets/promise-with-requirements.yaml"
 	resourceRequestPath            = "assets/redis-request.yaml"
-	resourceRequestUpdatedPath     = "assets/redis-request-updated.yaml"
-
-	updatedPromisePath = "assets/redis-simple-promise-updated.yaml"
+	updatedPromisePath             = "assets/redis-simple-promise-updated.yaml"
 )
 
 func promiseFromFile(path string) *v1alpha1.Promise {

@@ -24,8 +24,6 @@ import (
 )
 
 const (
-	DependencyReplicas            = -1
-	ResourceRequestReplicas       = 1
 	DefaultWorkloadGroupDirectory = "."
 
 	PromiseNameLabel  = KratixPrefix + "promise-name"
@@ -58,13 +56,6 @@ type Work struct {
 
 // WorkSpec defines the desired state of Work
 type WorkSpec struct {
-	// -1 denotes dependencies, 1 denotes Resource Request
-	Replicas int `json:"replicas,omitempty"`
-
-	WorkloadCoreFields `json:",inline"`
-}
-
-type WorkloadCoreFields struct {
 	// Workload represents the manifest workload to be deployed on destination
 	WorkloadGroups []WorkloadGroup `json:"workloadGroups,omitempty"`
 
@@ -81,10 +72,7 @@ func NewPromiseDependenciesWork(promise *Promise, name string) (*Work, error) {
 			Labels:    promise.GenerateSharedLabels(),
 		},
 		Spec: WorkSpec{
-			WorkloadCoreFields: WorkloadCoreFields{
-				PromiseName: promise.GetName(),
-			},
-			Replicas: DependencyReplicas,
+			PromiseName: promise.GetName(),
 		},
 	}
 
@@ -119,15 +107,15 @@ func NewPromiseDependenciesWork(promise *Promise, name string) (*Work, error) {
 }
 
 func (w *Work) IsResourceRequest() bool {
-	return w.Spec.Replicas == ResourceRequestReplicas
+	return w.Spec.ResourceName != ""
 }
 
 func (w *Work) IsDependency() bool {
-	return w.Spec.Replicas == DependencyReplicas
+	return w.Spec.ResourceName == ""
 }
 
 // WorkloadGroup represents the workloads in a particular directory that should
-// be scheduled to a to Destination
+// be scheduled to a Destination
 type WorkloadGroup struct {
 	// +optional
 	Workloads            []Workload                `json:"workloads,omitempty"`
