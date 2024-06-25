@@ -298,9 +298,9 @@ func (p *Promise) generatePipelinesObjects(workflowType Type, workflowAction Act
 		var err error
 		switch workflowType {
 		case WorkflowTypeResource:
-			resources, err = pipe.ForResource(p, workflowAction, crd, resourceRequest, logger).Resources(additionalJobEnv)
+			resources, err = pipe.ForResource(p, workflowAction, crd, resourceRequest).Resources(additionalJobEnv)
 		case WorkflowTypePromise:
-			resources, err = pipe.ForPromise(p, workflowAction, logger).Resources(additionalJobEnv)
+			resources, err = pipe.ForPromise(p, workflowAction).Resources(additionalJobEnv)
 		}
 		if err != nil {
 			return nil, err

@@ -1,4 +1,4 @@
-package resourceutil
+package objectutil
 
 import (
 	"k8s.io/apimachinery/pkg/util/uuid"

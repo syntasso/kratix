@@ -8,7 +8,6 @@ import (
 	. "github.com/onsi/ginkgo/v2"
 	. "github.com/onsi/gomega"
 	"github.com/syntasso/kratix/api/v1alpha1"
-	"github.com/syntasso/kratix/lib/pipeline"
 	"github.com/syntasso/kratix/lib/pipelineutil"
 	"github.com/syntasso/kratix/lib/resourceutil"
 	"github.com/syntasso/kratix/lib/workflow"
@@ -700,12 +699,10 @@ func setupTest(promise v1alpha1.Promise, pipelines []v1alpha1.Pipeline) ([]pipel
 	jobs := []*batchv1.Job{}
 	otherResources := [][]client.Object{}
 	for _, p := range pipelines {
-		generatedResources, err := pipeline.NewConfigurePromise(
-			uPromise, p, promise.Name, nil, logger,
-		)
+		generatedResources, err := p.ForPromise(&promise, v1alpha1.WorkflowActionConfigure).Resources(nil)
 		Expect(err).NotTo(HaveOccurred())
-		jobs = append(jobs, generatedResources[4].(*batchv1.Job))
-		otherResources = append(otherResources, generatedResources[0:4])
+		jobs = append(jobs, generatedResources.GetJob())
+		otherResources = append(otherResources, generatedResources.GetRequiredResources())
 	}
 
 	workflowPipelines := []pipelineutil.PipelineJobResources{}

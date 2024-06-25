@@ -19,6 +19,7 @@ package controllers
 import (
 	"context"
 	"fmt"
+	"github.com/syntasso/kratix/lib/objectutil"
 	"slices"
 	"strings"
 	"time"
@@ -29,7 +30,6 @@ import (
 
 	"github.com/go-logr/logr"
 	"github.com/syntasso/kratix/api/v1alpha1"
-	"github.com/syntasso/kratix/lib/pipeline"
 	"github.com/syntasso/kratix/lib/resourceutil"
 	"github.com/syntasso/kratix/lib/workflow"
 	batchv1 "k8s.io/api/batch/v1"
@@ -710,7 +710,10 @@ func (r *PromiseReconciler) deletePromiseWorkflowJobs(o opts, promise *v1alpha1.
 		Kind:    "Job",
 	}
 
-	jobLabels := pipeline.LabelsForAllPromiseWorkflows(promise.GetName())
+	jobLabels := map[string]string{
+		v1alpha1.PromiseNameLabel: promise.GetName(),
+		v1alpha1.WorkTypeLabel:    v1alpha1.WorkTypePromise,
+	}
 
 	resourcesRemaining, err := deleteAllResourcesWithKindMatchingLabel(o, jobGVK, jobLabels)
 	if err != nil {
@@ -954,7 +957,7 @@ func setStatusFieldsOnCRD(rrCRD *apiextensionsv1.CustomResourceDefinition) {
 }
 
 func (r *PromiseReconciler) applyWorkForStaticDependencies(o opts, promise *v1alpha1.Promise) error {
-	name := resourceutil.GenerateObjectName(promise.GetName() + "-static-deps")
+	name := objectutil.GenerateObjectName(promise.GetName() + "-static-deps")
 	work, err := v1alpha1.NewPromiseDependenciesWork(promise, name)
 	if err != nil {
 		return err

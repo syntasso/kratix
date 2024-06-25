@@ -26,7 +26,6 @@ import (
 
 	"github.com/go-logr/logr"
 	"github.com/syntasso/kratix/api/v1alpha1"
-	"github.com/syntasso/kratix/lib/pipeline"
 	"github.com/syntasso/kratix/lib/resourceutil"
 	"github.com/syntasso/kratix/lib/workflow"
 
@@ -244,7 +243,11 @@ func (r *DynamicResourceRequestController) deleteWorkflows(o opts, resourceReque
 		Kind:    "Job",
 	}
 
-	jobLabels := pipeline.LabelsForAllResourceWorkflows(resourceRequestIdentifier, r.PromiseIdentifier)
+	jobLabels := map[string]string{
+		v1alpha1.PromiseNameLabel:  r.PromiseIdentifier,
+		v1alpha1.ResourceNameLabel: resourceRequest.GetName(),
+		v1alpha1.WorkTypeLabel:     v1alpha1.WorkTypeResource,
+	}
 
 	resourcesRemaining, err := deleteAllResourcesWithKindMatchingLabel(o, jobGVK, jobLabels)
 	if err != nil {
