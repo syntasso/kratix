@@ -4,6 +4,7 @@ import (
 	"context"
 	"crypto/md5"
 	"fmt"
+	"github.com/syntasso/kratix/lib/objectutil"
 	"io"
 	"os"
 	"path/filepath"
@@ -142,7 +143,7 @@ func (w *WorkCreator) Execute(rootDirectory, promiseName, namespace, resourceNam
 
 	work := &v1alpha1.Work{}
 
-	work.Name = resourceutil.GenerateObjectName(identifier)
+	work.Name = objectutil.GenerateObjectName(identifier)
 	work.Namespace = namespace
 	work.Spec.WorkloadGroups = workloadGroups
 	work.Spec.PromiseName = promiseName

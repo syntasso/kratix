@@ -53,37 +53,12 @@ var _ = Describe("DynamicResourceRequestController", func() {
 
 		enabled := true
 		reconciler = &controllers.DynamicResourceRequestController{
-			CanCreateResources: &enabled,
-			Client:             fakeK8sClient,
-			Scheme:             scheme.Scheme,
-			GVK:                &rrGVK,
-			CRD:                rrCRD,
-			PromiseIdentifier:  promise.GetName(),
-			ConfigurePipelines: []v1alpha1.Pipeline{
-				{
-					Spec: v1alpha1.PipelineSpec{
-						Containers: []v1alpha1.Container{
-							{
-								Name:  "test",
-								Image: "configure:v0.1.0",
-							},
-						},
-					},
-				},
-			},
-			DeletePipelines: []v1alpha1.Pipeline{
-				{
-					Spec: v1alpha1.PipelineSpec{
-						Containers: []v1alpha1.Container{
-							{
-								Name:  "test",
-								Image: "delete:v0.1.0",
-							},
-						},
-					},
-				},
-			},
-
+			CanCreateResources:          &enabled,
+			Client:                      fakeK8sClient,
+			Scheme:                      scheme.Scheme,
+			GVK:                         &rrGVK,
+			CRD:                         rrCRD,
+			PromiseIdentifier:           promise.GetName(),
 			PromiseDestinationSelectors: promise.Spec.DestinationSelectors,
 			// promiseWorkflowSelectors:    work.GetDefaultScheduling("promise-workflow"),
 			Log:     l,
@@ -130,7 +105,7 @@ var _ = Describe("DynamicResourceRequestController", func() {
 				"kratix.io/promise-name": promise.GetName(),
 			}
 
-			resources := reconcileConfigureOptsArg.Pipelines[0].JobRequiredResources
+			resources := reconcileConfigureOptsArg.Resources[0].RequiredResources
 			By("creating a service account for pipeline", func() {
 				Expect(resources[0]).To(BeAssignableToTypeOf(&v1.ServiceAccount{}))
 				sa := resources[0].(*v1.ServiceAccount)

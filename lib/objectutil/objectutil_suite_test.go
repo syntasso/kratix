@@ -1,4 +1,4 @@
-package pipeline_test
+package objectutil_test
 
 import (
 	"testing"
@@ -7,7 +7,7 @@ import (
 	. "github.com/onsi/gomega"
 )
 
-func TestPipeline(t *testing.T) {
+func TestObjectutil(t *testing.T) {
 	RegisterFailHandler(Fail)
-	RunSpecs(t, "Pipeline Suite")
+	RunSpecs(t, "Objectutil Suite")
 }

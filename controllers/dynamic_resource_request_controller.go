@@ -18,7 +18,6 @@ package controllers
 
 import (
 	"context"
-	"strconv"
 
 	apiextensionsv1 "k8s.io/apiextensions-apiserver/pkg/apis/apiextensions/v1"
 	"sigs.k8s.io/controller-runtime/pkg/controller/controllerutil"
@@ -27,12 +26,10 @@ import (
 
 	"github.com/go-logr/logr"
 	"github.com/syntasso/kratix/api/v1alpha1"
-	"github.com/syntasso/kratix/lib/pipeline"
 	"github.com/syntasso/kratix/lib/resourceutil"
 	"github.com/syntasso/kratix/lib/workflow"
 
 	batchv1 "k8s.io/api/batch/v1"
-	v1 "k8s.io/api/core/v1"
 
 	"k8s.io/apimachinery/pkg/api/errors"
 	"k8s.io/apimachinery/pkg/apis/meta/v1/unstructured"
@@ -53,8 +50,6 @@ type DynamicResourceRequestController struct {
 	GVK                         *schema.GroupVersionKind
 	Scheme                      *runtime.Scheme
 	PromiseIdentifier           string
-	ConfigurePipelines          []v1alpha1.Pipeline
-	DeletePipelines             []v1alpha1.Pipeline
 	Log                         logr.Logger
 	UID                         string
 	Enabled                     *bool
@@ -89,11 +84,6 @@ func (r *DynamicResourceRequestController) Reconcile(ctx context.Context, req ct
 		logger.Error(err, "Failed getting Promise")
 		return ctrl.Result{}, err
 	}
-	unstructuredPromise, err := promise.ToUnstructured()
-	if err != nil {
-		logger.Error(err, "Failed converting Promise to Unstructured")
-		return ctrl.Result{}, err
-	}
 
 	if err := r.Client.Get(ctx, req.NamespacedName, rr); err != nil {
 		if errors.IsNotFound(err) {
@@ -124,7 +114,7 @@ func (r *DynamicResourceRequestController) Reconcile(ctx context.Context, req ct
 	}
 
 	if !rr.GetDeletionTimestamp().IsZero() {
-		return r.deleteResources(opts, rr, resourceRequestIdentifier)
+		return r.deleteResources(opts, promise, rr, resourceRequestIdentifier)
 	}
 
 	if !*r.CanCreateResources {
@@ -148,39 +138,12 @@ func (r *DynamicResourceRequestController) Reconcile(ctx context.Context, req ct
 		return addFinalizers(opts, rr, []string{workFinalizer, removeAllWorkflowJobsFinalizer, runDeleteWorkflowsFinalizer})
 	}
 
-	var pipelines []workflow.Pipeline
-	for i, p := range r.ConfigurePipelines {
-		pipelineResources, err := pipeline.NewConfigureResource(
-			rr,
-			unstructuredPromise,
-			r.CRD.Spec.Names.Plural,
-			p,
-			resourceRequestIdentifier,
-			r.PromiseIdentifier,
-			r.PromiseDestinationSelectors,
-			opts.logger,
-		)
-		if err != nil {
-			return ctrl.Result{}, err
-		}
-
-		isLast := i == len(r.ConfigurePipelines)-1
-		job := pipelineResources[4].(*batchv1.Job)
-		job.Spec.Template.Spec.Containers[0].Env = append(job.Spec.Template.Spec.Containers[0].Env, v1.EnvVar{
-			Name:  "IS_LAST_PIPELINE",
-			Value: strconv.FormatBool(isLast),
-		})
-
-		//TODO smelly, refactor. Should we merge the lib/pipeline package with lib/workflow?
-		//TODO if we dont do that, backfil unit tests for dynamic and promise controllers to assert the job is correct
-		pipelines = append(pipelines, workflow.Pipeline{
-			Job:                  job,
-			JobRequiredResources: pipelineResources[0:4],
-			Name:                 p.Name,
-		})
+	pipelineResources, err := promise.GenerateResourcePipelines(v1alpha1.WorkflowActionConfigure, r.CRD, rr, logger)
+	if err != nil {
+		return ctrl.Result{}, err
 	}
 
-	jobOpts := workflow.NewOpts(ctx, r.Client, logger, rr, pipelines, "resource")
+	jobOpts := workflow.NewOpts(ctx, r.Client, logger, rr, pipelineResources, "resource")
 
 	requeue, err := reconcileConfigure(jobOpts)
 	if err != nil {
@@ -198,26 +161,18 @@ func (r *DynamicResourceRequestController) Reconcile(ctx context.Context, req ct
 	return ctrl.Result{}, nil
 }
 
-func (r *DynamicResourceRequestController) deleteResources(o opts, resourceRequest *unstructured.Unstructured, resourceRequestIdentifier string) (ctrl.Result, error) {
+func (r *DynamicResourceRequestController) deleteResources(o opts, promise *v1alpha1.Promise, resourceRequest *unstructured.Unstructured, resourceRequestIdentifier string) (ctrl.Result, error) {
 	if resourceutil.FinalizersAreDeleted(resourceRequest, rrFinalizers) {
 		return ctrl.Result{}, nil
 	}
 
 	if controllerutil.ContainsFinalizer(resourceRequest, runDeleteWorkflowsFinalizer) {
-		var pipelines []workflow.Pipeline
-		for _, p := range r.DeletePipelines {
-			pipelineResources := pipeline.NewDeleteResource(
-				resourceRequest, p, resourceRequestIdentifier, r.PromiseIdentifier, r.CRD.Spec.Names.Plural,
-			)
-
-			pipelines = append(pipelines, workflow.Pipeline{
-				Job:                  pipelineResources[3].(*batchv1.Job),
-				JobRequiredResources: pipelineResources[0:3],
-				Name:                 p.Name,
-			})
+		pipelineResources, err := promise.GenerateResourcePipelines(v1alpha1.WorkflowActionDelete, r.CRD, resourceRequest, o.logger)
+		if err != nil {
+			return ctrl.Result{}, err
 		}
 
-		jobOpts := workflow.NewOpts(o.ctx, o.client, o.logger, resourceRequest, pipelines, "resource")
+		jobOpts := workflow.NewOpts(o.ctx, o.client, o.logger, resourceRequest, pipelineResources, "resource")
 		requeue, err := reconcileDelete(jobOpts)
 		if err != nil {
 			return ctrl.Result{}, err
@@ -288,7 +243,11 @@ func (r *DynamicResourceRequestController) deleteWorkflows(o opts, resourceReque
 		Kind:    "Job",
 	}
 
-	jobLabels := pipeline.LabelsForAllResourceWorkflows(resourceRequestIdentifier, r.PromiseIdentifier)
+	jobLabels := map[string]string{
+		v1alpha1.PromiseNameLabel:  r.PromiseIdentifier,
+		v1alpha1.ResourceNameLabel: resourceRequest.GetName(),
+		v1alpha1.WorkTypeLabel:     v1alpha1.WorkTypeResource,
+	}
 
 	resourcesRemaining, err := deleteAllResourcesWithKindMatchingLabel(o, jobGVK, jobLabels)
 	if err != nil {
