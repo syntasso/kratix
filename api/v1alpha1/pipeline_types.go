@@ -30,7 +30,6 @@ import (
 	batchv1 "k8s.io/api/batch/v1"
 	corev1 "k8s.io/api/core/v1"
 	rbacv1 "k8s.io/api/rbac/v1"
-	apiextensionsv1 "k8s.io/apiextensions-apiserver/pkg/apis/apiextensions/v1"
 	metav1 "k8s.io/apimachinery/pkg/apis/meta/v1"
 	"k8s.io/apimachinery/pkg/apis/meta/v1/unstructured"
 	"k8s.io/apimachinery/pkg/labels"
@@ -68,18 +67,14 @@ type Pipeline struct {
 }
 
 type PipelineFactory struct {
-	ID        string
-	Promise   *Promise
-	Pipeline  *Pipeline
-	Namespace string
-
-	ResourceRequest *unstructured.Unstructured
-	CRD             *apiextensionsv1.CustomResourceDefinition
-
+	ID               string
+	Promise          *Promise
+	Pipeline         *Pipeline
+	Namespace        string
+	ResourceRequest  *unstructured.Unstructured
 	ResourceWorkflow bool
-
-	WorkflowAction Action
-	WorkflowType   Type
+	WorkflowAction   Action
+	WorkflowType     Type
 }
 
 // +kubebuilder:object:generate=false
@@ -140,7 +135,7 @@ func (p *Pipeline) ForPromise(promise *Promise, action Action) *PipelineFactory 
 	}
 }
 
-func (p *Pipeline) ForResource(promise *Promise, action Action, crd *apiextensionsv1.CustomResourceDefinition, resourceRequest *unstructured.Unstructured) *PipelineFactory {
+func (p *Pipeline) ForResource(promise *Promise, action Action, resourceRequest *unstructured.Unstructured) *PipelineFactory {
 	return &PipelineFactory{
 		ID:               promise.GetName() + "-resource-pipeline",
 		Promise:          promise,
@@ -148,7 +143,6 @@ func (p *Pipeline) ForResource(promise *Promise, action Action, crd *apiextensio
 		ResourceRequest:  resourceRequest,
 		Namespace:        resourceRequest.GetNamespace(),
 		ResourceWorkflow: true,
-		CRD:              crd,
 		WorkflowType:     WorkflowTypeResource,
 		WorkflowAction:   action,
 	}
@@ -163,7 +157,10 @@ func (p *PipelineFactory) Resources(jobEnv []corev1.EnvVar) (PipelineJobResource
 
 	serviceAccount := p.ServiceAccount()
 
-	role := p.ObjectRole()
+	role, err := p.ObjectRole()
+	if err != nil {
+		return PipelineJobResources{}, err
+	}
 	roleBinding := p.ObjectRoleBinding(role.GetName(), serviceAccount)
 
 	job, err := p.PipelineJob(schedulingConfigMap, serviceAccount, jobEnv)
@@ -193,11 +190,11 @@ func (p *PipelineFactory) ServiceAccount() *corev1.ServiceAccount {
 	}
 }
 
-func (p *PipelineFactory) ObjectRole() client.Object {
+func (p *PipelineFactory) ObjectRole() (client.Object, error) {
 	if p.ResourceWorkflow {
 		return p.role()
 	}
-	return p.clusterRole()
+	return p.clusterRole(), nil
 }
 
 func (p *PipelineFactory) ObjectRoleBinding(roleName string, serviceAccount *corev1.ServiceAccount) client.Object {
@@ -481,8 +478,12 @@ func (p *PipelineFactory) getObjAndHash() (*unstructured.Unstructured, string, e
 	return p.ResourceRequest, hash.ComputeHash(fmt.Sprintf("%s-%s", promiseHash, resourceHash)), nil
 }
 
-func (p *PipelineFactory) role() *rbacv1.Role {
-	plural := p.CRD.Spec.Names.Plural
+func (p *PipelineFactory) role() (*rbacv1.Role, error) {
+	crd, err := p.Promise.GetAPIAsCRD()
+	if err != nil {
+		return nil, err
+	}
+	plural := crd.Spec.Names.Plural
 	return &rbacv1.Role{
 		ObjectMeta: metav1.ObjectMeta{
 			Name:      p.ID,
@@ -491,7 +492,7 @@ func (p *PipelineFactory) role() *rbacv1.Role {
 		},
 		Rules: []rbacv1.PolicyRule{
 			{
-				APIGroups: []string{p.CRD.Spec.Group},
+				APIGroups: []string{crd.Spec.Group},
 				Resources: []string{plural, plural + "/status"},
 				Verbs:     []string{"get", "list", "update", "create", "patch"},
 			},
@@ -501,7 +502,7 @@ func (p *PipelineFactory) role() *rbacv1.Role {
 				Verbs:     []string{"*"},
 			},
 		},
-	}
+	}, nil
 }
 
 func (p *PipelineFactory) roleBinding(roleName string, serviceAccount *corev1.ServiceAccount) *rbacv1.RoleBinding {
@@ -591,7 +592,9 @@ func WorkflowLabels(workflowType Type, workflowAction Action, pipelineName strin
 	}
 
 	if workflowAction != "" {
-		ls = labels.Merge(ls, map[string]string{})
+		ls = labels.Merge(ls, map[string]string{
+			WorkActionLabel: string(workflowAction),
+		})
 	}
 	return ls
 }

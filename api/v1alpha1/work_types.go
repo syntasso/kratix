@@ -30,6 +30,7 @@ const (
 	ResourceNameLabel = KratixPrefix + "resource-name"
 	PipelineNameLabel = KratixPrefix + "pipeline-name"
 	WorkTypeLabel     = KratixPrefix + "work-type"
+	WorkActionLabel   = KratixPrefix + "work-action"
 
 	WorkTypePromise          = "promise"
 	WorkTypeResource         = "resource"

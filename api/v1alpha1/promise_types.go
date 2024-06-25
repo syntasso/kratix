@@ -283,7 +283,7 @@ func (p *Promise) generatePipelinesObjects(workflowType Type, workflowAction Act
 		return nil, err
 	}
 
-	allResources := []PipelineJobResources{}
+	var allResources []PipelineJobResources
 	pipelines := promisePipelines[workflowType][workflowAction]
 
 	lastIndex := len(pipelines) - 1
@@ -297,7 +297,7 @@ func (p *Promise) generatePipelinesObjects(workflowType Type, workflowAction Act
 		var err error
 		switch workflowType {
 		case WorkflowTypeResource:
-			resources, err = pipe.ForResource(p, workflowAction, crd, resourceRequest).Resources(additionalJobEnv)
+			resources, err = pipe.ForResource(p, workflowAction, resourceRequest).Resources(additionalJobEnv)
 		case WorkflowTypePromise:
 			resources, err = pipe.ForPromise(p, workflowAction).Resources(additionalJobEnv)
 		}

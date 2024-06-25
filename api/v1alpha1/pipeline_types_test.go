@@ -1,6 +1,7 @@
 package v1alpha1_test
 
 import (
+	"encoding/json"
 	. "github.com/onsi/ginkgo/v2"
 	. "github.com/onsi/gomega"
 	. "github.com/onsi/gomega/gstruct"
@@ -11,6 +12,7 @@ import (
 	apiextensionsv1 "k8s.io/apiextensions-apiserver/pkg/apis/apiextensions/v1"
 	metav1 "k8s.io/apimachinery/pkg/apis/meta/v1"
 	"k8s.io/apimachinery/pkg/apis/meta/v1/unstructured"
+	"k8s.io/apimachinery/pkg/runtime"
 	"strings"
 )
 
@@ -47,6 +49,17 @@ var _ = Describe("Pipeline", func() {
 				ImagePullSecrets: []corev1.LocalObjectReference{{Name: "imagePullSecret"}},
 			},
 		}
+		promiseCrd = &apiextensionsv1.CustomResourceDefinition{
+			Spec: apiextensionsv1.CustomResourceDefinitionSpec{
+				Group: "promise.crd.group",
+				Names: apiextensionsv1.CustomResourceDefinitionNames{
+					Plural: "promiseCrdPlural",
+				},
+			},
+		}
+
+		rawCrd, err := json.Marshal(promiseCrd)
+		Expect(err).ToNot(HaveOccurred())
 		promise = &v1alpha1.Promise{
 			TypeMeta: metav1.TypeMeta{
 				APIVersion: "fake.promise.group/v1",
@@ -60,17 +73,10 @@ var _ = Describe("Pipeline", func() {
 					{MatchLabels: map[string]string{"label": "value"}},
 					{MatchLabels: map[string]string{"another-label": "another-value"}},
 				},
+				API: &runtime.RawExtension{Raw: rawCrd},
 			},
 		}
 
-		promiseCrd = &apiextensionsv1.CustomResourceDefinition{
-			Spec: apiextensionsv1.CustomResourceDefinitionSpec{
-				Group: "promise.crd.group",
-				Names: apiextensionsv1.CustomResourceDefinitionNames{
-					Plural: "promiseCrdPlural",
-				},
-			},
-		}
 		resourceRequest = &unstructured.Unstructured{
 			Object: map[string]interface{}{
 				"apiVersion": "fake.resource.group/v1",
@@ -83,7 +89,7 @@ var _ = Describe("Pipeline", func() {
 	})
 
 	Describe("Pipeline Factory Constructors", func() {
-		Describe("#ForPromise", func() {
+		Describe("ForPromise", func() {
 			It("sets the appropriate fields", func() {
 				f := pipeline.ForPromise(promise, v1alpha1.WorkflowActionConfigure)
 				Expect(f).ToNot(BeNil())
@@ -98,9 +104,9 @@ var _ = Describe("Pipeline", func() {
 			})
 		})
 
-		Describe("#ForResource", func() {
+		Describe("ForResource", func() {
 			It("sets the appropriate fields", func() {
-				f := pipeline.ForResource(promise, v1alpha1.WorkflowActionConfigure, promiseCrd, resourceRequest)
+				f := pipeline.ForResource(promise, v1alpha1.WorkflowActionConfigure, resourceRequest)
 				Expect(f).ToNot(BeNil())
 				Expect(f.ID).To(Equal(promise.GetName() + "-resource-pipeline"))
 				Expect(f.Promise).To(Equal(promise))
@@ -124,7 +130,6 @@ var _ = Describe("Pipeline", func() {
 				ID:              "factoryID",
 				Namespace:       "factoryNamespace",
 				Promise:         promise,
-				CRD:             promiseCrd,
 				WorkflowAction:  "fakeAction",
 				WorkflowType:    "fakeType",
 				ResourceRequest: resourceRequest,
@@ -132,12 +137,13 @@ var _ = Describe("Pipeline", func() {
 			}
 		})
 
-		Describe("#Resources", func() {
+		Describe("Resources", func() {
 			When("building resources for the configure action", func() {
 				It("should return a list of resources", func() {
 					factory.WorkflowAction = v1alpha1.WorkflowActionConfigure
 					env := []corev1.EnvVar{{Name: "env1", Value: "value1"}}
-					role := factory.ObjectRole()
+					role, err := factory.ObjectRole()
+					Expect(err).ToNot(HaveOccurred())
 					serviceAccount := factory.ServiceAccount()
 					configMap, err := factory.ConfigMap(promise.GetWorkloadGroupScheduling())
 					Expect(err).ToNot(HaveOccurred())
@@ -161,7 +167,8 @@ var _ = Describe("Pipeline", func() {
 				It("should return a list of resources", func() {
 					factory.WorkflowAction = v1alpha1.WorkflowActionDelete
 					env := []corev1.EnvVar{{Name: "env1", Value: "value1"}}
-					role := factory.ObjectRole()
+					role, err := factory.ObjectRole()
+					Expect(err).ToNot(HaveOccurred())
 					serviceAccount := factory.ServiceAccount()
 					configMap, err := factory.ConfigMap(promise.GetWorkloadGroupScheduling())
 					Expect(err).ToNot(HaveOccurred())
@@ -183,7 +190,7 @@ var _ = Describe("Pipeline", func() {
 			})
 		})
 
-		Describe("#ServiceAccount", func() {
+		Describe("ServiceAccount", func() {
 			It("should return a service account", func() {
 				sa := factory.ServiceAccount()
 				Expect(sa).ToNot(BeNil())
@@ -193,10 +200,11 @@ var _ = Describe("Pipeline", func() {
 			})
 		})
 
-		Describe("#ObjectRole", func() {
+		Describe("ObjectRole", func() {
 			When("building a role for a promise pipeline", func() {
 				It("returns a cluster role", func() {
-					objectRole := factory.ObjectRole()
+					objectRole, err := factory.ObjectRole()
+					Expect(err).ToNot(HaveOccurred())
 					Expect(objectRole).ToNot(BeNil())
 					Expect(objectRole).To(BeAssignableToTypeOf(&rbacv1.ClusterRole{}))
 
@@ -216,7 +224,8 @@ var _ = Describe("Pipeline", func() {
 				It("returns a role", func() {
 					factory.ResourceWorkflow = true
 
-					objectRole := factory.ObjectRole()
+					objectRole, err := factory.ObjectRole()
+					Expect(err).ToNot(HaveOccurred())
 					Expect(objectRole).ToNot(BeNil())
 					Expect(objectRole).To(BeAssignableToTypeOf(&rbacv1.Role{}))
 
@@ -238,7 +247,7 @@ var _ = Describe("Pipeline", func() {
 			})
 		})
 
-		Describe("#ObjectRoleBinding", func() {
+		Describe("ObjectRoleBinding", func() {
 			var serviceAccount *corev1.ServiceAccount
 			BeforeEach(func() {
 				serviceAccount = &corev1.ServiceAccount{
@@ -300,7 +309,7 @@ var _ = Describe("Pipeline", func() {
 			})
 		})
 
-		Describe("#ConfigMap", func() {
+		Describe("ConfigMap", func() {
 			It("should return a config map", func() {
 				workloadGroupScheduling := []v1alpha1.WorkloadGroupScheduling{
 					{MatchLabels: map[string]string{"label": "value"}, Source: "promise"},
@@ -316,7 +325,7 @@ var _ = Describe("Pipeline", func() {
 			})
 		})
 
-		Describe("#DefaultVolumes", func() {
+		Describe("DefaultVolumes", func() {
 			It("should return a list of default volumes", func() {
 				configMap := &corev1.ConfigMap{
 					ObjectMeta: metav1.ObjectMeta{
@@ -339,7 +348,7 @@ var _ = Describe("Pipeline", func() {
 			})
 		})
 
-		Describe("#DefaultPipelineVolumes", func() {
+		Describe("DefaultPipelineVolumes", func() {
 			It("should return a list of default pipeline volumes", func() {
 				volumes, volumeMounts := factory.DefaultPipelineVolumes()
 				Expect(volumes).To(HaveLen(3))
@@ -358,7 +367,7 @@ var _ = Describe("Pipeline", func() {
 			})
 		})
 
-		Describe("#DefaultEnvVars", func() {
+		Describe("DefaultEnvVars", func() {
 			It("should return a list of default environment variables", func() {
 				envVars := factory.DefaultEnvVars()
 				Expect(envVars).To(HaveLen(3))
@@ -370,7 +379,7 @@ var _ = Describe("Pipeline", func() {
 			})
 		})
 
-		Describe("#ReaderContainer", func() {
+		Describe("ReaderContainer", func() {
 			When("building the reader container for a promise pipeline", func() {
 				It("returns a the reader container with the promise information", func() {
 					container := factory.ReaderContainer()
@@ -414,7 +423,7 @@ var _ = Describe("Pipeline", func() {
 			})
 		})
 
-		Describe("#WorkCreatorContainer", func() {
+		Describe("WorkCreatorContainer", func() {
 			When("building the work creator container for a promise pipeline", func() {
 				It("returns a the work creator container with the appropriate command", func() {
 					expectedFlags := strings.Join([]string{
@@ -463,7 +472,7 @@ var _ = Describe("Pipeline", func() {
 			})
 		})
 
-		Describe("#PipelineContainers", func() {
+		Describe("PipelineContainers", func() {
 			var defaultEnvVars []corev1.EnvVar
 			var defaultVolumes []corev1.Volume
 			var defaultVolumeMounts []corev1.VolumeMount
@@ -504,7 +513,7 @@ var _ = Describe("Pipeline", func() {
 			})
 		})
 
-		Describe("#StatusWriterContainer", func() {
+		Describe("StatusWriterContainer", func() {
 			var obj *unstructured.Unstructured
 			var envVars []corev1.EnvVar
 			BeforeEach(func() {
@@ -546,7 +555,7 @@ var _ = Describe("Pipeline", func() {
 			})
 		})
 
-		Describe("#PipelineJob", func() {
+		Describe("PipelineJob", func() {
 			var (
 				serviceAccount *corev1.ServiceAccount
 				configMap      *corev1.ConfigMap
@@ -576,6 +585,7 @@ var _ = Describe("Pipeline", func() {
 							Expect(definedLabels).To(SatisfyAll(
 								HaveKeyWithValue(v1alpha1.PromiseNameLabel, promise.GetName()),
 								HaveKeyWithValue(v1alpha1.WorkTypeLabel, string(factory.WorkflowType)),
+								HaveKeyWithValue(v1alpha1.WorkActionLabel, string(factory.WorkflowAction)),
 								HaveKeyWithValue(v1alpha1.PipelineNameLabel, pipeline.GetName()),
 								HaveKeyWithValue(v1alpha1.KratixResourceHashLabel, promiseHash(promise)),
 								Not(HaveKey(v1alpha1.ResourceNameLabel)),
@@ -660,6 +670,7 @@ var _ = Describe("Pipeline", func() {
 							Expect(definedLabels).To(SatisfyAll(
 								HaveKeyWithValue(v1alpha1.PromiseNameLabel, promise.GetName()),
 								HaveKeyWithValue(v1alpha1.WorkTypeLabel, string(factory.WorkflowType)),
+								HaveKeyWithValue(v1alpha1.WorkActionLabel, string(factory.WorkflowAction)),
 								HaveKeyWithValue(v1alpha1.PipelineNameLabel, pipeline.GetName()),
 								HaveKeyWithValue(v1alpha1.KratixResourceHashLabel, combinedHash(promiseHash(promise), resourceHash(resourceRequest))),
 								HaveKeyWithValue(v1alpha1.ResourceNameLabel, resourceRequest.GetName()),

@@ -22,7 +22,6 @@ package v1alpha1
 
 import (
 	"k8s.io/api/core/v1"
-	apiextensionsv1 "k8s.io/apiextensions-apiserver/pkg/apis/apiextensions/v1"
 	metav1 "k8s.io/apimachinery/pkg/apis/meta/v1"
 	"k8s.io/apimachinery/pkg/apis/meta/v1/unstructured"
 	"k8s.io/apimachinery/pkg/runtime"
@@ -451,11 +450,6 @@ func (in *PipelineFactory) DeepCopyInto(out *PipelineFactory) {
 	if in.ResourceRequest != nil {
 		in, out := &in.ResourceRequest, &out.ResourceRequest
 		*out = (*in).DeepCopy()
-	}
-	if in.CRD != nil {
-		in, out := &in.CRD, &out.CRD
-		*out = new(apiextensionsv1.CustomResourceDefinition)
-		(*in).DeepCopyInto(*out)
 	}
 }
 
