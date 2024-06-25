@@ -24,7 +24,6 @@ import (
 	"strconv"
 
 	"github.com/go-logr/logr"
-	"github.com/syntasso/kratix/lib/pipelineutil"
 	"gopkg.in/yaml.v2"
 	corev1 "k8s.io/api/core/v1"
 	apiextensionsv1 "k8s.io/apiextensions-apiserver/pkg/apis/apiextensions/v1"
@@ -278,13 +277,13 @@ func (p *Promise) GetWorkloadGroupScheduling() []WorkloadGroupScheduling {
 	return workloadGroupScheduling
 }
 
-func (p *Promise) generatePipelinesObjects(workflowType Type, workflowAction Action, crd *apiextensionsv1.CustomResourceDefinition, resourceRequest *unstructured.Unstructured, logger logr.Logger) ([]pipelineutil.PipelineJobResources, error) {
+func (p *Promise) generatePipelinesObjects(workflowType Type, workflowAction Action, crd *apiextensionsv1.CustomResourceDefinition, resourceRequest *unstructured.Unstructured, logger logr.Logger) ([]PipelineJobResources, error) {
 	promisePipelines, err := NewPipelinesMap(p, logger)
 	if err != nil {
 		return nil, err
 	}
 
-	allResources := []pipelineutil.PipelineJobResources{}
+	allResources := []PipelineJobResources{}
 	pipelines := promisePipelines[workflowType][workflowAction]
 
 	lastIndex := len(pipelines) - 1
@@ -294,7 +293,7 @@ func (p *Promise) generatePipelinesObjects(workflowType Type, workflowAction Act
 			{Name: "IS_LAST_PIPELINE", Value: strconv.FormatBool(isLast)},
 		}
 
-		var resources pipelineutil.PipelineJobResources
+		var resources PipelineJobResources
 		var err error
 		switch workflowType {
 		case WorkflowTypeResource:
@@ -311,11 +310,11 @@ func (p *Promise) generatePipelinesObjects(workflowType Type, workflowAction Act
 	return allResources, nil
 }
 
-func (p *Promise) GeneratePromisePipelines(workflowAction Action, logger logr.Logger) ([]pipelineutil.PipelineJobResources, error) {
+func (p *Promise) GeneratePromisePipelines(workflowAction Action, logger logr.Logger) ([]PipelineJobResources, error) {
 	return p.generatePipelinesObjects(WorkflowTypePromise, workflowAction, nil, nil, logger)
 }
 
-func (p *Promise) GenerateResourcePipelines(workflowAction Action, crd *apiextensionsv1.CustomResourceDefinition, resourceRequest *unstructured.Unstructured, logger logr.Logger) ([]pipelineutil.PipelineJobResources, error) {
+func (p *Promise) GenerateResourcePipelines(workflowAction Action, crd *apiextensionsv1.CustomResourceDefinition, resourceRequest *unstructured.Unstructured, logger logr.Logger) ([]PipelineJobResources, error) {
 	return p.generatePipelinesObjects(WorkflowTypeResource, workflowAction, crd, resourceRequest, logger)
 }
 

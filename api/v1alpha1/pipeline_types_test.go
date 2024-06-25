@@ -146,14 +146,14 @@ var _ = Describe("Pipeline", func() {
 
 					resources, err := factory.Resources(env)
 					Expect(err).ToNot(HaveOccurred())
-					Expect(resources.GetName()).To(Equal(pipeline.GetName()))
-					Expect(resources.GetRequiredResources()).To(HaveLen(4))
-					Expect(resources.GetRequiredResources()).To(ConsistOf(
+					Expect(resources.Name).To(Equal(pipeline.GetName()))
+					Expect(resources.RequiredResources).To(HaveLen(4))
+					Expect(resources.RequiredResources).To(ConsistOf(
 						serviceAccount, role, factory.ObjectRoleBinding(role.GetName(), serviceAccount), configMap,
 					))
-					Expect(resources.GetJob().Name).To(HavePrefix("kratix-%s-%s", promise.GetName(), pipeline.GetName()))
-					job.Name = resources.GetJob().Name
-					Expect(resources.GetJob()).To(Equal(job))
+					Expect(resources.Job.Name).To(HavePrefix("kratix-%s-%s", promise.GetName(), pipeline.GetName()))
+					job.Name = resources.Job.Name
+					Expect(resources.Job).To(Equal(job))
 				})
 			})
 
@@ -170,15 +170,15 @@ var _ = Describe("Pipeline", func() {
 
 					resources, err := factory.Resources(env)
 					Expect(err).ToNot(HaveOccurred())
-					Expect(resources.GetName()).To(Equal(pipeline.GetName()))
-					Expect(resources.GetRequiredResources()).To(HaveLen(3))
-					Expect(resources.GetRequiredResources()).To(ConsistOf(
+					Expect(resources.Name).To(Equal(pipeline.GetName()))
+					Expect(resources.RequiredResources).To(HaveLen(3))
+					Expect(resources.RequiredResources).To(ConsistOf(
 						serviceAccount, role, factory.ObjectRoleBinding(role.GetName(), serviceAccount),
 					))
 
-					Expect(resources.GetJob().Name).To(HavePrefix("kratix-%s-%s", promise.GetName(), pipeline.GetName()))
-					job.Name = resources.GetJob().Name
-					Expect(resources.GetJob()).To(Equal(job))
+					Expect(resources.Job.Name).To(HavePrefix("kratix-%s-%s", promise.GetName(), pipeline.GetName()))
+					job.Name = resources.Job.Name
+					Expect(resources.Job).To(Equal(job))
 				})
 			})
 		})

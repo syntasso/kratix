@@ -105,7 +105,7 @@ var _ = Describe("DynamicResourceRequestController", func() {
 				"kratix.io/promise-name": promise.GetName(),
 			}
 
-			resources := reconcileConfigureOptsArg.Resources[0].GetRequiredResources()
+			resources := reconcileConfigureOptsArg.Resources[0].RequiredResources
 			By("creating a service account for pipeline", func() {
 				Expect(resources[0]).To(BeAssignableToTypeOf(&v1.ServiceAccount{}))
 				sa := resources[0].(*v1.ServiceAccount)

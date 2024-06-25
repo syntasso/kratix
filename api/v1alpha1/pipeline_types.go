@@ -26,7 +26,6 @@ import (
 	"github.com/go-logr/logr"
 	"github.com/pkg/errors"
 	"github.com/syntasso/kratix/lib/hash"
-	"github.com/syntasso/kratix/lib/pipelineutil"
 	"gopkg.in/yaml.v2"
 	batchv1 "k8s.io/api/batch/v1"
 	corev1 "k8s.io/api/core/v1"
@@ -83,6 +82,13 @@ type PipelineFactory struct {
 	WorkflowType   Type
 }
 
+// +kubebuilder:object:generate=false
+type PipelineJobResources struct {
+	Name              string
+	Job               *batchv1.Job
+	RequiredResources []client.Object
+}
+
 const (
 	kratixActionEnvVar  = "KRATIX_WORKFLOW_ACTION"
 	kratixTypeEnvVar    = "KRATIX_WORKFLOW_TYPE"
@@ -94,8 +100,7 @@ func PipelinesFromUnstructured(pipelines []unstructured.Unstructured, logger log
 		return nil, nil
 	}
 
-	//We only support 1 pipeline for now
-	ps := []Pipeline{}
+	var ps []Pipeline
 	for _, pipeline := range pipelines {
 		pipelineLogger := logger.WithValues(
 			"pipelineKind", pipeline.GetKind(),
@@ -105,7 +110,6 @@ func PipelinesFromUnstructured(pipelines []unstructured.Unstructured, logger log
 		if pipeline.GetKind() == "Pipeline" && pipeline.GetAPIVersion() == "platform.kratix.io/v1alpha1" {
 			jsonPipeline, err := pipeline.MarshalJSON()
 			if err != nil {
-				// TODO test
 				pipelineLogger.Error(err, "Failed marshalling pipeline to json")
 				return nil, err
 			}
@@ -113,7 +117,6 @@ func PipelinesFromUnstructured(pipelines []unstructured.Unstructured, logger log
 			p := Pipeline{}
 			err = json.Unmarshal(jsonPipeline, &p)
 			if err != nil {
-				// TODO test
 				pipelineLogger.Error(err, "Failed unmarshalling pipeline")
 				return nil, err
 			}
@@ -151,11 +154,11 @@ func (p *Pipeline) ForResource(promise *Promise, action Action, crd *apiextensio
 	}
 }
 
-func (p *PipelineFactory) Resources(jobEnv []corev1.EnvVar) (pipelineutil.PipelineJobResources, error) {
+func (p *PipelineFactory) Resources(jobEnv []corev1.EnvVar) (PipelineJobResources, error) {
 	wgScheduling := p.Promise.GetWorkloadGroupScheduling()
 	schedulingConfigMap, err := p.ConfigMap(wgScheduling)
 	if err != nil {
-		return nil, err
+		return PipelineJobResources{}, err
 	}
 
 	serviceAccount := p.ServiceAccount()
@@ -165,7 +168,7 @@ func (p *PipelineFactory) Resources(jobEnv []corev1.EnvVar) (pipelineutil.Pipeli
 
 	job, err := p.PipelineJob(schedulingConfigMap, serviceAccount, jobEnv)
 	if err != nil {
-		return nil, err
+		return PipelineJobResources{}, err
 	}
 
 	requiredResources := []client.Object{serviceAccount, role, roleBinding}
@@ -173,7 +176,11 @@ func (p *PipelineFactory) Resources(jobEnv []corev1.EnvVar) (pipelineutil.Pipeli
 		requiredResources = append(requiredResources, schedulingConfigMap)
 	}
 
-	return pipelineutil.NewPipelineObjects(p.Pipeline.GetName(), job, requiredResources), nil
+	return PipelineJobResources{
+		Name:              p.Pipeline.GetName(),
+		Job:               job,
+		RequiredResources: requiredResources,
+	}, nil
 }
 
 func (p *PipelineFactory) ServiceAccount() *corev1.ServiceAccount {
