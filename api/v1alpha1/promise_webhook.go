@@ -48,6 +48,13 @@ func (p *Promise) SetupWebhookWithManager(mgr ctrl.Manager, cs *clientset.Client
 		Complete()
 }
 
+var _ webhook.Defaulter = &Promise{}
+
+// Default implements webhook.Defaulter so a webhook will be registered for the type
+func (p *Promise) Default() {
+	promiselog.Info("default", "name", p.Name)
+}
+
 // +kubebuilder:webhook:path=/validate-platform-kratix-io-v1alpha1-promise,mutating=false,failurePolicy=fail,sideEffects=None,groups=platform.kratix.io,resources=promises,verbs=create;update,versions=v1alpha1,name=vpromise.kb.io,admissionReviewVersions=v1
 var _ webhook.Validator = &Promise{}
 
