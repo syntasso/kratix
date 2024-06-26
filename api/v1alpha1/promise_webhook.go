@@ -48,6 +48,7 @@ func (p *Promise) SetupWebhookWithManager(mgr ctrl.Manager, cs *clientset.Client
 		Complete()
 }
 
+//Don't delete- breaking change
 var _ webhook.Defaulter = &Promise{}
 
 // Default implements webhook.Defaulter so a webhook will be registered for the type
