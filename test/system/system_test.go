@@ -686,9 +686,9 @@ var _ = Describe("Kratix", func() {
 		})
 	})
 
-	if getEnvOrDefault("TEST_SKIP_BUCKET_CHECK", "false") != "true" {
-		Describe("filepathMode set to none", func() {
-			It("manages output files from multiple resource requests", func() {
+	Describe("filepathMode set to none", func() {
+		It("manages output files from multiple resource requests", func() {
+			if getEnvOrDefault("TEST_SKIP_BUCKET_CHECK", "false") != "true" {
 				bashPromise.Spec.DestinationSelectors = []v1alpha1.PromiseScheduling{{
 					MatchLabels: map[string]string{
 						"environment": "filepathmode-none",
@@ -744,9 +744,9 @@ var _ = Describe("Kratix", func() {
 					ContainSubstring(fmt.Sprintf("%s.yaml", rrNameOne)),
 					ContainSubstring(fmt.Sprintf("%s.yaml", rrNameTwo)),
 				))
-			})
+			}
 		})
-	}
+	})
 })
 
 func terraformRequest(name string) string {
