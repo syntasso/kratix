@@ -117,13 +117,23 @@ func ReconcileConfigure(opts Opts) (bool, error) {
 	pipeline := opts.Resources[pipelineIndex]
 	opts.logger = originalLogger.WithName(pipeline.Name)
 
+	isManualReconciliation := isManualReconciliation(opts.parentObject.GetLabels())
 	if jobIsForPipeline(pipeline, mostRecentJob) {
 		if isRunning(mostRecentJob) {
+			if isManualReconciliation {
+				err := suspendJob(opts.ctx, opts.client, mostRecentJob)
+				if err != nil {
+					opts.logger.Error(err, "failed to suspend Job", "job", mostRecentJob.GetName())
+					return true, err
+				}
+				return true, nil
+			}
+
 			opts.logger.Info("Job already inflight for Pipeline, waiting for it to complete", "job", mostRecentJob.Name, "pipeline", pipeline.Name)
 			return true, nil
 		}
 
-		if isManualReconciliation(opts.parentObject.GetLabels()) {
+		if isManualReconciliation {
 			opts.logger.Info("Pipeline running due to manual reconciliation", "pipeline", pipeline.Name)
 			return createConfigurePipeline(opts, pipelineIndex, pipeline)
 		}
@@ -146,12 +156,9 @@ func ReconcileConfigure(opts Opts) (bool, error) {
 	// have any active pods)
 	if isRunning(mostRecentJob) {
 		opts.logger.Info("Job already inflight for another workflow, suspending it", "job", mostRecentJob.Name)
-		trueBool := true
-		patch := client.MergeFrom(mostRecentJob.DeepCopy())
-		mostRecentJob.Spec.Suspend = &trueBool
-		err := opts.client.Patch(opts.ctx, mostRecentJob, patch)
+		err := suspendJob(opts.ctx, opts.client, mostRecentJob)
 		if err != nil {
-			opts.logger.Error(err, "failed to patch Job", "job", mostRecentJob.GetName())
+			opts.logger.Error(err, "failed to suspend Job", "job", mostRecentJob.GetName())
 		}
 		return true, nil
 	}
@@ -159,6 +166,13 @@ func ReconcileConfigure(opts Opts) (bool, error) {
 	// TODO this will be very noisy - might want to slowRequeue?
 	opts.logger.Info("Reconciling pipeline", "pipeline", pipeline.Name)
 	return createConfigurePipeline(opts, pipelineIndex, pipeline)
+}
+
+func suspendJob(ctx context.Context, c client.Client, job *batchv1.Job) error {
+	trueBool := true
+	patch := client.MergeFrom(job.DeepCopy())
+	job.Spec.Suspend = &trueBool
+	return c.Patch(ctx, job, patch)
 }
 
 func getLabelsForPipelineJob(pipeline v1alpha1.PipelineJobResources) map[string]string {
