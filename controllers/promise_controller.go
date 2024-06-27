@@ -19,10 +19,11 @@ package controllers
 import (
 	"context"
 	"fmt"
-	"github.com/syntasso/kratix/lib/objectutil"
 	"slices"
 	"strings"
 	"time"
+
+	"github.com/syntasso/kratix/lib/objectutil"
 
 	"sigs.k8s.io/controller-runtime/pkg/controller/controllerutil"
 	"sigs.k8s.io/controller-runtime/pkg/handler"
@@ -175,7 +176,7 @@ func (r *PromiseReconciler) Reconcile(ctx context.Context, req ctrl.Request) (ct
 			return ctrl.Result{}, err
 		}
 
-		requeue, err := r.ensureCRDExists(ctx, promise, rrCRD, rrGVK, logger)
+		requeue, err := r.ensureCRDExists(ctx, promise, rrCRD, logger)
 		if err != nil {
 			return ctrl.Result{}, err
 		}
@@ -498,8 +499,17 @@ func (r *PromiseReconciler) createResourcesForDynamicControllerIfTheyDontExist(c
 	err := r.Client.Create(ctx, &cr)
 	if err != nil {
 		if errors.IsAlreadyExists(err) {
-			// TODO: Handle updates of all Promise resources gracefully.
-			logger.Info("Cannot execute update on pre-existing ClusterRole")
+			existingCR := &rbacv1.ClusterRole{}
+			err := r.Client.Get(ctx, types.NamespacedName{Name: cr.Name}, existingCR)
+			if err != nil {
+				return fmt.Errorf("Error getting ClusterRole: %w", err)
+			}
+			existingCR.Rules = cr.Rules
+			existingCR.Labels = labels.Merge(existingCR.Labels, cr.Labels)
+
+			if err = r.Client.Update(ctx, existingCR); err != nil {
+				return fmt.Errorf("Error updating ClusterRole: %w", err)
+			}
 		} else {
 			logger.Error(err, "Error creating ClusterRole")
 			return err
@@ -529,8 +539,18 @@ func (r *PromiseReconciler) createResourcesForDynamicControllerIfTheyDontExist(c
 	err = r.Client.Create(ctx, &crb)
 	if err != nil {
 		if errors.IsAlreadyExists(err) {
-			// TODO: Handle updates of all Promise resources gracefully.
-			logger.Info("Cannot execute update on pre-existing ClusterRoleBinding")
+			existingCRB := &rbacv1.ClusterRoleBinding{}
+			err := r.Client.Get(ctx, types.NamespacedName{Name: cr.Name}, existingCRB)
+			if err != nil {
+				return fmt.Errorf("Error getting ClusterRoleBinding: %w", err)
+			}
+			existingCRB.RoleRef = crb.RoleRef
+			existingCRB.Subjects = crb.Subjects
+			existingCRB.Labels = labels.Merge(existingCRB.Labels, crb.Labels)
+
+			if err = r.Client.Update(ctx, existingCRB); err != nil {
+				return fmt.Errorf("Error updating ClusterRoleBinding: %w", err)
+			}
 		} else {
 			logger.Error(err, "Error creating ClusterRoleBinding")
 			return err
@@ -541,8 +561,7 @@ func (r *PromiseReconciler) createResourcesForDynamicControllerIfTheyDontExist(c
 	return nil
 }
 
-func (r *PromiseReconciler) ensureCRDExists(ctx context.Context, promise *v1alpha1.Promise, rrCRD *apiextensionsv1.CustomResourceDefinition,
-	rrGVK schema.GroupVersionKind, logger logr.Logger) (*ctrl.Result, error) {
+func (r *PromiseReconciler) ensureCRDExists(ctx context.Context, promise *v1alpha1.Promise, rrCRD *apiextensionsv1.CustomResourceDefinition, logger logr.Logger) (*ctrl.Result, error) {
 
 	_, err := r.ApiextensionsClient.
 		CustomResourceDefinitions().
@@ -565,6 +584,7 @@ func (r *PromiseReconciler) ensureCRDExists(ctx context.Context, promise *v1alph
 	existingCRD.Spec.Versions = rrCRD.Spec.Versions
 	existingCRD.Spec.Conversion = rrCRD.Spec.Conversion
 	existingCRD.Spec.PreserveUnknownFields = rrCRD.Spec.PreserveUnknownFields
+	existingCRD.Labels = labels.Merge(existingCRD.Labels, rrCRD.Labels)
 	_, err = r.ApiextensionsClient.CustomResourceDefinitions().Update(ctx, existingCRD, metav1.UpdateOptions{})
 	if err != nil {
 		return nil, err
