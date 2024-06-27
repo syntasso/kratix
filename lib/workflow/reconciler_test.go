@@ -100,6 +100,21 @@ var _ = Describe("Workflow Reconciler", func() {
 				It("returns true", func() {
 					Expect(requeue).To(BeTrue())
 				})
+
+				When("a new manual reconciliation request is made", func() {
+					It("cancels the current job (allowing a new job to be queued up)", func() {
+						uPromise.SetLabels(map[string]string{
+							"kratix.io/manual-reconciliation": "true",
+						})
+						opts := workflow.NewOpts(ctx, fakeK8sClient, logger, uPromise, workflowPipelines, "promise")
+						requeue, err := workflow.ReconcileConfigure(opts)
+
+						Expect(err).NotTo(HaveOccurred())
+						Expect(requeue).To(BeTrue())
+						Expect(listJobs(namespace)).To(HaveLen(1))
+						Expect(*listJobs(namespace)[0].Spec.Suspend).To(BeTrue())
+					})
+				})
 			})
 
 			Context("and the job is completed", func() {
