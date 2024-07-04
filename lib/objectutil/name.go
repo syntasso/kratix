@@ -1,6 +1,8 @@
 package objectutil
 
 import (
+	"regexp"
+
 	"k8s.io/apimachinery/pkg/util/uuid"
 )
 
@@ -11,7 +13,15 @@ func GenerateObjectName(name string) string {
 		name = name[0 : maxNameLength-1]
 	}
 
+	for !isAlphanumeric(name[len(name)-1]) {
+		name = name[0 : len(name)-1]
+	}
+
 	id := uuid.NewUUID()
 
 	return name + "-" + string(id[0:5])
+}
+
+func isAlphanumeric(s byte) bool {
+	return regexp.MustCompile(`^[a-zA-Z0-9]*$`).MatchString(string(s))
 }
