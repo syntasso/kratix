@@ -27,4 +27,12 @@ var _ = Describe("Name Utils", func() {
 			Expect(name).To(MatchRegexp(`^aaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaab-\b\w{5}\b$`))
 		})
 	})
+
+	When("truncating the name would result in an invalid name", func() {
+		It("truncates it properly", func() {
+			longName := "kratix-promise-1.-@$#%&*()_+{}|:<>?/\\`~[]"
+			name := objectutil.GenerateObjectName(longName)
+			Expect(name).To(MatchRegexp(`^kratix-promise-1-\b\w{5}\b$`))
+		})
+	})
 })
