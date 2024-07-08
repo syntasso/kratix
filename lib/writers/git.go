@@ -56,7 +56,7 @@ func NewGitWriter(logger logr.Logger, stateStoreSpec v1alpha1.GitStateStoreSpec,
 
 		knownHostsFile, err := os.CreateTemp("", "knownHosts")
 		if err != nil {
-			return nil, fmt.Errorf("error creating knownhosts file: %w", err)
+			return nil, fmt.Errorf("error creating knownHosts file: %w", err)
 		}
 
 		knownHostsFile.Write(knownHosts)
@@ -68,7 +68,7 @@ func NewGitWriter(logger logr.Logger, stateStoreSpec v1alpha1.GitStateStoreSpec,
 		sshKey.HostKeyCallback = knownHostsCallback
 		err = os.Remove(knownHostsFile.Name())
 		if err != nil {
-			return nil, fmt.Errorf("error removing knownhosts file: %w", err)
+			return nil, fmt.Errorf("error removing knownHosts file: %w", err)
 		}
 
 		authMethod = sshKey
@@ -146,7 +146,7 @@ func (g *GitWriter) update(subDir, workPlacementName string, workloadsToCreate [
 		//returned by `filepath.Join` is still contained with the git repository:
 		// Note: This means `../` can still be used, but only if the end result is still contained within the git repository
 		if !strings.HasPrefix(absoluteFilePath, localTmpDir) {
-			log.Error(nil, "Path of file to write is not located within the git repository", "absolutePath", absoluteFilePath, "tmpDir", localTmpDir)
+			log.Error(nil, "path of file to write is not located within the git repository", "absolutePath", absoluteFilePath, "tmpDir", localTmpDir)
 			return "", nil //We don't want to retry as this isn't a recoverable error. Log error and return nil.
 		}
 
