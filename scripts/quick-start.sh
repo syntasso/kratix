@@ -21,7 +21,7 @@ WAIT_TIMEOUT="180s"
 KIND_IMAGE="${KIND_IMAGE:-"kindest/node:v1.27.3"}"
 
 WITH_CERT_MANAGER=true
-CERT_MANAGER_DIST=https://github.com/cert-manager/cert-manager/releases/download/v1.12.0/cert-manager.yaml
+CERT_MANAGER_DIST=https://github.com/cert-manager/cert-manager/releases/download/v1.15.0/cert-manager.yaml
 ENABLE_WEBHOOKS=true
 
 LABELS=true
