@@ -201,7 +201,7 @@ jobs:
       - run:
           name: Check circleci go version matches docker image
           command: |
-            circleci_go_version=$(go version | awk '{print $3}')
+            circleci_go_version=$(go version | awk '{print $3}' | sed 's/^go//')
             go_image_tag=$(grep '^FROM' Dockerfile | head -n 1 | cut -d ' ' -f 3)
 
             docker pull $go_image_tag
