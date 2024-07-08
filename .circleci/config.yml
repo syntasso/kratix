@@ -3,7 +3,7 @@ version: 2.1
 orbs:
   k8s: circleci/kubernetes@1.3.1
   gh: circleci/github-cli@2.3.0
-  golang: circleci/go@1.7.2
+  golang: circleci/go@1.7.3
   retry: kimh/run-with-retry@1.0.0
   queue: eddiewebb/queue@2.2.1
   snyk: snyk/snyk@2.0.2
@@ -168,6 +168,18 @@ jobs:
     steps:
       - checkout
       - install_software
+      - run:
+          name: Check circleci go version matches docker image
+          command: |
+            circleci_go_version=$(go version | awk '{print $3}' | sed 's/^go//')
+            go_image_tag=$(grep '^FROM' Dockerfile | head -n 1 | cut -d ' ' -f 3)
+
+            docker pull $go_image_tag
+            docker_go_version=$(docker inspect $go_image_tag | grep 'GOLANG_VERSION=' | sed -n 's/.*GOLANG_VERSION=\([^"]*\).*/\1/p')
+            if [ "$circleci_go_version" != "$docker_go_version" ]; then
+              echo "Go version mismatch: $circleci_go_version != $docker_go_version. Please update the Dockerfile to match the CircleCI go version."
+              exit 1
+            fi
       - run:
           name: install govulncheck
           command: |
