@@ -197,6 +197,7 @@ jobs:
     steps:
       - attach_workspace:
           at: .
+      - install_software
       - run:
           name: Check circleci go version matches docker image
           command: |
