@@ -1,8 +1,8 @@
 docker.io/minio/mc:RELEASE.2023-06-06T13-48-56Z
 docker.io/minio/minio:RELEASE.2022-06-30T20-58-09Z
-quay.io/jetstack/cert-manager-controller:v1.12.0
-quay.io/jetstack/cert-manager-cainjector:v1.12.0
-quay.io/jetstack/cert-manager-webhook:v1.12.0
+quay.io/jetstack/cert-manager-controller:v1.15.0
+quay.io/jetstack/cert-manager-cainjector:v1.15.0
+quay.io/jetstack/cert-manager-webhook:v1.15.0
 docker.io/bitnami/kubectl:1.28.6
 gcr.io/kubebuilder/kube-rbac-proxy:v0.8.0
 ghcr.io/fluxcd/helm-controller:v0.27.0
