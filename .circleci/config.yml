@@ -389,8 +389,6 @@ jobs:
   helm-release:
     docker:
       - image: cimg/base:current
-    environment:
-      VERSION: latest
     resource_class: large
     steps:
       - attach_workspace:
@@ -403,8 +401,6 @@ jobs:
             git add kratix/
             git diff --cached --quiet && exit 0 || true
 
-            VERSION=v0.0.0-latest ./scripts/bump-version kratix/
-            git add kratix/
             git commit -m"update kratix package"
             git push origin main
 
