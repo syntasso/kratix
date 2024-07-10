@@ -383,7 +383,7 @@ jobs:
           name: Release
           command: |
             gh config set prompt disabled
-            gh release delete <<pipeline.git.tag>>
+            gh release delete <<pipeline.git.tag>> || true
             gh release create <<pipeline.git.tag>> --title <<pipeline.git.tag>> ./distribution/**/*.yaml ./distribution/*.yaml
 
   helm-release:
