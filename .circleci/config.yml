@@ -32,7 +32,7 @@ executors:
 filter-for-tags: &filter-for-tags
   filters:
     tags:
-      only: /^v.*/
+      only: latest
     branches:
       ignore: /.*/
 
@@ -369,7 +369,7 @@ jobs:
       - run:
           name: bump minor version and push tag
           command: |
-            ./scripts/tag-new-version
+            ./scripts/tag-latest-version
 
   gh-release:
     docker:
@@ -383,13 +383,12 @@ jobs:
           name: Release
           command: |
             gh config set prompt disabled
+            gh release delete <<pipeline.git.tag>> || true
             gh release create <<pipeline.git.tag>> --title <<pipeline.git.tag>> ./distribution/**/*.yaml ./distribution/*.yaml
 
   helm-release:
     docker:
       - image: cimg/base:current
-    environment:
-      VERSION: << pipeline.git.tag >>
     resource_class: large
     steps:
       - attach_workspace:
@@ -402,8 +401,6 @@ jobs:
             git add kratix/
             git diff --cached --quiet && exit 0 || true
 
-            ./scripts/bump-minor kratix/
-            git add kratix/
             git commit -m"update kratix package"
             git push origin main
 
