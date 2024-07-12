@@ -9,10 +9,10 @@ source "$ROOT/scripts/utils.sh"
 
 export VERSION="${VERSION:-$(commit_sha)}"
 
-PIPELINE_ADAPTER_VERSION_MANIFEST_DIGEST=$(docker manifest inspect syntasso/kratix-platform-pipeline-adapter | yq -r '.manifests[] | select(.platform.architecture=="amd64").digest')
+PIPELINE_ADAPTER_VERSION_MANIFEST_DIGEST=$(docker buildx imagetools inspect syntasso/kratix-platform-pipeline-adapter --raw | yq -r '.manifests[] | select(.platform.architecture=="amd64").digest')
 export PIPELINE_ADAPTER_VERSION_MANIFEST_DIGEST
 
-KRATIX_PLATFORM_MANIFEST_DIGEST=$(docker manifest inspect syntasso/kratix-platform | yq -r '.manifests[] | select(.platform.architecture=="amd64").digest')
+KRATIX_PLATFORM_MANIFEST_DIGEST=$(docker buildx imagetools inspect syntasso/kratix-platform --raw | yq -r '.manifests[] | select(.platform.architecture=="amd64").digest')
 export KRATIX_PLATFORM_MANIFEST_DIGEST
 
 export WC_IMG=docker.io/syntasso/kratix-platform-pipeline-adapter@${PIPELINE_ADAPTER_VERSION_MANIFEST_DIGEST}
