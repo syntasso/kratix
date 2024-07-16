@@ -279,10 +279,8 @@ func (g *GitWriter) cloneRepo(localRepoFilePath string, logger logr.Logger) (*gi
 		}
 	}
 
-	transport.UnsupportedCapabilities = oldUnsupportedCaps
-
 	logger.Info("cloning repo")
-	return git.PlainClone(localRepoFilePath, false, &git.CloneOptions{
+	repo, err := git.PlainClone(localRepoFilePath, false, &git.CloneOptions{
 		Auth:            g.GitServer.Auth,
 		URL:             g.GitServer.URL,
 		ReferenceName:   plumbing.NewBranchReferenceName(g.GitServer.Branch),
@@ -291,6 +289,9 @@ func (g *GitWriter) cloneRepo(localRepoFilePath string, logger logr.Logger) (*gi
 		NoCheckout:      false,
 		InsecureSkipTLS: true,
 	})
+
+	transport.UnsupportedCapabilities = oldUnsupportedCaps
+	return repo, err
 }
 
 func (g *GitWriter) commitAndPush(repo *git.Repository, worktree *git.Worktree, action, workPlacementName string, logger logr.Logger) (string, error) {
