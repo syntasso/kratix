@@ -9,14 +9,20 @@
 
 Kratix is an open-source platform framework that combines the flexibility and customisability of building your platform from scratch with the on-demand and self-service power of public clouds.
 
+## Getting Started
+
+Follow our [Quick Start](https://docs.kratix.io/main/quick-start) to get up-and-running with Kratix.
+
 ## Want to learn more?
 
-For case studies, documentation, and a quick start tutorial, checkout [kratix.io](https://kratix.io).
-
+For case studies, documentation, and guides, checkout [kratix.io](https://kratix.io).
 
 ## Community
 
 Kratix is apache 2.0 licensed and open for both contribution and feedback.
+
+- Reach out to us and fellow Kratix users on the [Kratix Slack](https://join.slack.com/t/kratixworkspace/shared_invite/zt-2aqdyq16t-geFUqrQgaTFbcBaP1FlY4g)
+- Contact us at [feedback@syntasso.io](mailto:feedback@syntasso.io)
 
 For more information, please see the [community details page](https://kratix.io/docs/main/community).
 <img referrerpolicy="no-referrer-when-downgrade" src="https://static.scarf.sh/a.png?x-pxid=d2299487-d510-4f6a-b392-45a84f4c57d8" />
