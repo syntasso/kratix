@@ -44,6 +44,11 @@ type PipelineSpec struct {
 	Containers       []Container                   `json:"containers,omitempty"`
 	Volumes          []corev1.Volume               `json:"volumes,omitempty"`
 	ImagePullSecrets []corev1.LocalObjectReference `json:"imagePullSecrets,omitempty"`
+	RBAC             RBAC                          `json:"rbac,omitempty"`
+}
+
+type RBAC struct {
+	ServiceAccount string `json:"serviceAccount,omitempty"`
 }
 
 type Container struct {
@@ -182,9 +187,17 @@ func (p *PipelineFactory) Resources(jobEnv []corev1.EnvVar) (PipelineJobResource
 }
 
 func (p *PipelineFactory) ServiceAccount() *corev1.ServiceAccount {
+	serviceAccountName := p.ID
+	if p.Pipeline.Spec.RBAC.ServiceAccount != "" {
+		serviceAccountName = p.Pipeline.Spec.RBAC.ServiceAccount
+	}
 	return &corev1.ServiceAccount{
+		TypeMeta: metav1.TypeMeta{
+			APIVersion: "v1",
+			Kind:       "ServiceAccount",
+		},
 		ObjectMeta: metav1.ObjectMeta{
-			Name:      p.ID,
+			Name:      serviceAccountName,
 			Namespace: p.Namespace,
 			Labels:    PromiseLabels(p.Promise),
 		},
