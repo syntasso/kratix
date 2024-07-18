@@ -73,8 +73,7 @@ spec:
         - apiVersion: platform.kratix.io/v1alpha1
           kind: Pipeline
           metadata:
-            name: instance-configure
-            namespace: default
+            name: first
           spec:
             containers:
               - image: syntassodev/bash-promise:dev1
@@ -95,8 +94,7 @@ spec:
         - apiVersion: platform.kratix.io/v1alpha1
           kind: Pipeline
           metadata:
-            name: second-instance-configure
-            namespace: default
+            name: second
           spec:
             containers:
               - image: syntassodev/bash-promise:dev1
@@ -111,8 +109,7 @@ spec:
         - apiVersion: platform.kratix.io/v1alpha1
           kind: Pipeline
           metadata:
-            name: instance-configure
-            namespace: default
+            name: delete-first
           spec:
             containers:
               - image: syntassodev/bash-promise:dev1
@@ -125,8 +122,7 @@ spec:
         - apiVersion: platform.kratix.io/v1alpha1
           kind: Pipeline
           metadata:
-            name: promise-configure
-            namespace: default
+            name: first
           spec:
             containers:
               - image: syntassodev/bash-promise:dev1
@@ -138,8 +134,7 @@ spec:
         - apiVersion: platform.kratix.io/v1alpha1
           kind: Pipeline
           metadata:
-            name: instance-delete
-            namespace: default
+            name: delete-first
           spec:
             containers:
               - image: syntassodev/bash-promise:dev1

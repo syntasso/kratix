@@ -126,6 +126,8 @@ var _ = Describe("Kratix", func() {
 		if CurrentSpecReport().State.Is(types.SpecStatePassed) {
 			platform.kubectl("label", "destination", worker.name, removeBashPromiseUniqueLabel)
 			platform.kubectl("label", "destination", platform.name, removeBashPromiseUniqueLabel)
+			platform.kubectl("delete", "clusterrole", bashPromiseName+"-default-resource-pipeline-credentials")
+			platform.kubectl("delete", "clusterrolebinding", bashPromiseName+"-default-resource-pipeline-credentials")
 		}
 	})
 
