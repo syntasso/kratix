@@ -2,6 +2,8 @@ package v1alpha1_test
 
 import (
 	"encoding/json"
+	"strings"
+
 	. "github.com/onsi/ginkgo/v2"
 	. "github.com/onsi/gomega"
 	. "github.com/onsi/gomega/gstruct"
@@ -13,7 +15,6 @@ import (
 	metav1 "k8s.io/apimachinery/pkg/apis/meta/v1"
 	"k8s.io/apimachinery/pkg/apis/meta/v1/unstructured"
 	"k8s.io/apimachinery/pkg/runtime"
-	"strings"
 )
 
 var _ = Describe("Pipeline", func() {
@@ -93,7 +94,7 @@ var _ = Describe("Pipeline", func() {
 			It("sets the appropriate fields", func() {
 				f := pipeline.ForPromise(promise, v1alpha1.WorkflowActionConfigure)
 				Expect(f).ToNot(BeNil())
-				Expect(f.ID).To(Equal(promise.GetName() + "-promise-pipeline"))
+				Expect(f.ID).To(Equal(promise.GetName() + "-promise-pipelineName"))
 				Expect(f.Promise).To(Equal(promise))
 				Expect(f.ResourceRequest).To(BeNil())
 				Expect(f.Pipeline).To(Equal(pipeline))
@@ -108,7 +109,7 @@ var _ = Describe("Pipeline", func() {
 			It("sets the appropriate fields", func() {
 				f := pipeline.ForResource(promise, v1alpha1.WorkflowActionConfigure, resourceRequest)
 				Expect(f).ToNot(BeNil())
-				Expect(f.ID).To(Equal(promise.GetName() + "-resource-pipeline"))
+				Expect(f.ID).To(Equal(promise.GetName() + "-resource-pipelineName"))
 				Expect(f.Promise).To(Equal(promise))
 				Expect(f.ResourceRequest).To(Equal(resourceRequest))
 				Expect(f.Pipeline).To(Equal(pipeline))
@@ -157,6 +158,8 @@ var _ = Describe("Pipeline", func() {
 					Expect(resources.RequiredResources).To(ConsistOf(
 						serviceAccount, role, factory.ObjectRoleBinding(role.GetName(), serviceAccount), configMap,
 					))
+					Expect(resources.RequiredResources[0]).To(BeAssignableToTypeOf(&corev1.ServiceAccount{}))
+					Expect(resources.RequiredResources[0].GetName()).To(Equal("factoryID"))
 					Expect(resources.Job.Name).To(HavePrefix("kratix-%s-%s", promise.GetName(), pipeline.GetName()))
 					job.Name = resources.Job.Name
 					Expect(resources.Job).To(Equal(job))
