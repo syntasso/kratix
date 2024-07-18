@@ -281,8 +281,8 @@ var _ = Describe("Kratix", func() {
 				oldRRImperativePlatformNamespace := "imperative-" + rrName + "-old"
 				oldRRDeclarativeConfigMap := fmt.Sprintf("%s-old", rrName)
 
-				firstPipelineName := "instance-configure"
-				secondPipelineName := "second-instance-configure"
+				firstPipelineName := "first"
+				secondPipelineName := "second"
 				firstPipelineLabels := fmt.Sprintf(
 					"kratix.io/promise-name=%s,kratix.io/resource-name=%s,kratix.io/pipeline-name=%s",
 					bashPromiseName,
