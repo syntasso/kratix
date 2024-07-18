@@ -3,12 +3,17 @@ package v1alpha1_test
 import (
 	"context"
 	"encoding/json"
+	"fmt"
+	"time"
 
 	. "github.com/onsi/ginkgo/v2"
 	. "github.com/onsi/gomega"
+	"golang.org/x/exp/rand"
+	corev1 "k8s.io/api/core/v1"
 	v1 "k8s.io/apiextensions-apiserver/pkg/apis/apiextensions/v1"
 	"k8s.io/apiextensions-apiserver/pkg/client/clientset/clientset/fake"
 	metav1 "k8s.io/apimachinery/pkg/apis/meta/v1"
+	"k8s.io/apimachinery/pkg/apis/meta/v1/unstructured"
 	"k8s.io/apimachinery/pkg/runtime"
 	"k8s.io/client-go/kubernetes/scheme"
 	"sigs.k8s.io/controller-runtime/pkg/client"
@@ -31,6 +36,9 @@ var _ = Describe("PromiseWebhook", func() {
 
 	newPromise := func() *v1alpha1.Promise {
 		return &v1alpha1.Promise{
+			ObjectMeta: metav1.ObjectMeta{
+				Name: "mypromise",
+			},
 			Spec: v1alpha1.PromiseSpec{
 				API: RawExtension(newCRD),
 			},
@@ -106,6 +114,68 @@ var _ = Describe("PromiseWebhook", func() {
 			warnings, err := promise.ValidateCreate()
 			Expect(warnings).To(BeEmpty())
 			Expect(err).NotTo(HaveOccurred())
+		})
+	})
+
+	Describe("Workflows", func() {
+		When("the pipeline is invalid", func() {
+			It("returns an error", func() {
+				promise := newPromise()
+				objMap, err := runtime.DefaultUnstructuredConverter.ToUnstructured(&corev1.ConfigMap{ObjectMeta: metav1.ObjectMeta{Name: "test"}})
+				Expect(err).NotTo(HaveOccurred())
+				unstructuredPipeline := &unstructured.Unstructured{Object: objMap}
+				unstructuredPipeline.SetAPIVersion("v1")
+				unstructuredPipeline.SetKind("ConfigMap")
+				promise.Spec.Workflows.Resource.Configure = []unstructured.Unstructured{*unstructuredPipeline}
+				_, err = promise.ValidateCreate()
+				Expect(err).To(MatchError(`unsupported pipeline "test" with APIVersion "ConfigMap/v1"`))
+			})
+		})
+
+		Describe("pipeline name", func() {
+			var (
+				promise  *v1alpha1.Promise
+				maxLimit int
+			)
+
+			BeforeEach(func() {
+				promise = newPromise()
+				maxLimit = 63 - len(promise.Name+"-resource-")
+			})
+
+			It("returns an error when too long", func() {
+				pipeline := v1alpha1.Pipeline{
+					ObjectMeta: metav1.ObjectMeta{
+						Name: randomString(maxLimit + 1),
+					},
+				}
+				objMap, err := runtime.DefaultUnstructuredConverter.ToUnstructured(&pipeline)
+				Expect(err).NotTo(HaveOccurred())
+				unstructuredPipeline := &unstructured.Unstructured{Object: objMap}
+				unstructuredPipeline.SetAPIVersion("platform.kratix.io/v1alpha1")
+				unstructuredPipeline.SetKind("Pipeline")
+				promise.Spec.Workflows.Resource.Configure = []unstructured.Unstructured{*unstructuredPipeline}
+				_, err = promise.ValidateCreate()
+				Expect(err).To(MatchError("resource.configure pipeline with name \"" + pipeline.GetName() + "\" is too long. " +
+					"The name is used when generating resources for the pipeline,including the ServiceAccount which follows the format of " +
+					"\"mypromise-resource-" + pipeline.GetName() + "\", which cannot be longer than 63 characters in total"))
+			})
+
+			It("succeeds when within the character limit", func() {
+				pipeline := v1alpha1.Pipeline{
+					ObjectMeta: metav1.ObjectMeta{
+						Name: randomString(maxLimit),
+					},
+				}
+				objMap, err := runtime.DefaultUnstructuredConverter.ToUnstructured(&pipeline)
+				Expect(err).NotTo(HaveOccurred())
+				unstructuredPipeline := &unstructured.Unstructured{Object: objMap}
+				unstructuredPipeline.SetAPIVersion("platform.kratix.io/v1alpha1")
+				unstructuredPipeline.SetKind("Pipeline")
+				promise.Spec.Workflows.Resource.Configure = []unstructured.Unstructured{*unstructuredPipeline}
+				_, err = promise.ValidateCreate()
+				Expect(err).NotTo(HaveOccurred())
+			})
 		})
 	})
 
@@ -196,3 +266,10 @@ var _ = Describe("PromiseWebhook", func() {
 		})
 	})
 })
+
+func randomString(length int) string {
+	rand.Seed(uint64(time.Now().UnixNano()))
+	b := make([]byte, length+2)
+	rand.Read(b)
+	return fmt.Sprintf("%x", b)[2 : length+2]
+}

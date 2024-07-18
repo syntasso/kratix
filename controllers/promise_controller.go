@@ -203,7 +203,7 @@ func (r *PromiseReconciler) Reconcile(ctx context.Context, req ctrl.Request) (ct
 		return addFinalizers(opts, promise, []string{dependenciesCleanupFinalizer})
 	}
 
-	requeue, err = r.reconcileDependencies(opts, promise)
+	requeue, err = r.reconcileDependenciesAndPromiseWorkflows(opts, promise)
 	if err != nil {
 		return ctrl.Result{}, err
 	}
@@ -347,7 +347,7 @@ func (r *PromiseReconciler) generateStatusAndMarkRequirements(ctx context.Contex
 	return promiseCondition, requirements
 }
 
-func (r *PromiseReconciler) reconcileDependencies(o opts, promise *v1alpha1.Promise) (*ctrl.Result, error) {
+func (r *PromiseReconciler) reconcileDependenciesAndPromiseWorkflows(o opts, promise *v1alpha1.Promise) (*ctrl.Result, error) {
 	if len(promise.Spec.Dependencies) > 0 {
 		o.logger.Info("Applying static dependencies for Promise", "promise", promise.GetName())
 		if err := r.applyWorkForStaticDependencies(o, promise); err != nil {

@@ -118,7 +118,7 @@ func PipelinesFromUnstructured(pipelines []unstructured.Unstructured, logger log
 			}
 			ps = append(ps, p)
 		} else {
-			return nil, fmt.Errorf("unsupported pipeline %q (%s.%s)",
+			return nil, fmt.Errorf("unsupported pipeline %q with APIVersion \"%s/%s\"",
 				pipeline.GetName(), pipeline.GetKind(), pipeline.GetAPIVersion())
 		}
 	}
