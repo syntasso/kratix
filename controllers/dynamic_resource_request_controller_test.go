@@ -96,11 +96,6 @@ var _ = Describe("DynamicResourceRequestController", func() {
 			_, err := t.reconcileUntilCompletion(reconciler, resReq)
 			Expect(fakeK8sClient.Get(ctx, resReqNameNamespace, resReq)).To(Succeed())
 
-			resourceCommonName := types.NamespacedName{
-				Name:      promise.GetName() + "-resource-pipeline",
-				Namespace: "default",
-			}
-
 			resourceLabels := map[string]string{
 				"kratix.io/promise-name": promise.GetName(),
 			}
@@ -134,12 +129,12 @@ var _ = Describe("DynamicResourceRequestController", func() {
 			By("associates the new role with the new service account", func() {
 				Expect(resources[2]).To(BeAssignableToTypeOf(&rbacv1.RoleBinding{}))
 				binding := resources[2].(*rbacv1.RoleBinding)
-				Expect(binding.RoleRef.Name).To(Equal(resourceCommonName.Name))
+				Expect(binding.RoleRef.Name).To(Equal("redis-resource-instance-configure"))
 				Expect(binding.Subjects).To(HaveLen(1))
 				Expect(binding.Subjects[0]).To(Equal(rbacv1.Subject{
 					Kind:      "ServiceAccount",
 					Namespace: resReq.GetNamespace(),
-					Name:      resourceCommonName.Name,
+					Name:      "redis-resource-instance-configure",
 				}))
 				Expect(binding.GetLabels()).To(Equal(resourceLabels))
 			})

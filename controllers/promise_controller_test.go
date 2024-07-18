@@ -441,12 +441,12 @@ var _ = Describe("PromiseController", func() {
 					By("associates the new role with the new service account", func() {
 						Expect(resources[2]).To(BeAssignableToTypeOf(&rbacv1.ClusterRoleBinding{}))
 						binding := resources[2].(*rbacv1.ClusterRoleBinding)
-						Expect(binding.RoleRef.Name).To(Equal(promiseResourcesName.Name))
+						Expect(binding.RoleRef.Name).To(Equal("promise-with-workflow-promise-promise-configure"))
 						Expect(binding.Subjects).To(HaveLen(1))
 						Expect(binding.Subjects[0]).To(Equal(rbacv1.Subject{
 							Kind:      "ServiceAccount",
 							Namespace: "kratix-platform-system",
-							Name:      promiseResourcesName.Name,
+							Name:      "promise-with-workflow-promise-promise-configure",
 						}))
 						Expect(binding.GetLabels()).To(Equal(promiseCommonLabels))
 					})
