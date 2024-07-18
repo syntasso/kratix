@@ -102,7 +102,13 @@ func (p *Promise) validatePipelines() error {
 
 	for workflowType, actionToPipelineMap := range promisePipelines {
 		for workflowAction, pipelines := range actionToPipelineMap {
+			pipelineNamesMap := map[string]bool{}
 			for _, pipeline := range pipelines {
+				_, ok := pipelineNamesMap[pipeline.GetName()]
+				if ok {
+					return fmt.Errorf("duplicate pipeline name %q in workflow %q action %q", pipeline.GetName(), workflowType, workflowAction)
+				}
+				pipelineNamesMap[pipeline.GetName()] = true
 				var factory *PipelineFactory
 				switch workflowType {
 				case WorkflowTypeResource:

@@ -132,6 +132,25 @@ var _ = Describe("PromiseWebhook", func() {
 			})
 		})
 
+		When("multiple pipelines within the same workflow and action have the same name", func() {
+			It("errors", func() {
+				promise := newPromise()
+				pipeline := v1alpha1.Pipeline{
+					ObjectMeta: metav1.ObjectMeta{
+						Name: "foo",
+					},
+				}
+				objMap, err := runtime.DefaultUnstructuredConverter.ToUnstructured(&pipeline)
+				Expect(err).NotTo(HaveOccurred())
+				unstructuredPipeline := &unstructured.Unstructured{Object: objMap}
+				unstructuredPipeline.SetAPIVersion("platform.kratix.io/v1alpha1")
+				unstructuredPipeline.SetKind("Pipeline")
+				promise.Spec.Workflows.Resource.Configure = []unstructured.Unstructured{*unstructuredPipeline, *unstructuredPipeline}
+				_, err = promise.ValidateCreate()
+				Expect(err).To(MatchError("duplicate pipeline name \"foo\" in workflow \"resource\" action \"configure\""))
+			})
+		})
+
 		Describe("pipeline name", func() {
 			var (
 				promise  *v1alpha1.Promise
