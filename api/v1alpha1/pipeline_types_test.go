@@ -94,7 +94,7 @@ var _ = Describe("Pipeline", func() {
 			It("sets the appropriate fields", func() {
 				f := pipeline.ForPromise(promise, v1alpha1.WorkflowActionConfigure)
 				Expect(f).ToNot(BeNil())
-				Expect(f.ID).To(Equal(promise.GetName() + "-promise-pipelineName"))
+				Expect(f.ID).To(Equal(promise.GetName() + "-promise-configure-pipelineName"))
 				Expect(f.Promise).To(Equal(promise))
 				Expect(f.ResourceRequest).To(BeNil())
 				Expect(f.Pipeline).To(Equal(pipeline))
@@ -109,7 +109,7 @@ var _ = Describe("Pipeline", func() {
 			It("sets the appropriate fields", func() {
 				f := pipeline.ForResource(promise, v1alpha1.WorkflowActionConfigure, resourceRequest)
 				Expect(f).ToNot(BeNil())
-				Expect(f.ID).To(Equal(promise.GetName() + "-resource-pipelineName"))
+				Expect(f.ID).To(Equal(promise.GetName() + "-resource-configure-pipelineName"))
 				Expect(f.Promise).To(Equal(promise))
 				Expect(f.ResourceRequest).To(Equal(resourceRequest))
 				Expect(f.Pipeline).To(Equal(pipeline))

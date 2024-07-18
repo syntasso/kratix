@@ -119,8 +119,8 @@ func (p *Promise) validatePipelines() error {
 
 				if len(factory.ID) > 63 {
 					return fmt.Errorf("%s.%s pipeline with name %q is too long. The name is used when generating resources "+
-						"for the pipeline,including the ServiceAccount which follows the format of \"%s-%s-%s\", which cannot be longer than 63 characters in total",
-						workflowType, workflowAction, pipeline.GetName(), p.GetName(), workflowType, pipeline.GetName())
+						"for the pipeline,including the ServiceAccount which follows the format of \"%s-%s-%s-%s\", which cannot be longer than 63 characters in total",
+						workflowType, workflowAction, pipeline.GetName(), p.GetName(), workflowType, workflowAction, pipeline.GetName())
 				}
 			}
 		}

@@ -127,7 +127,7 @@ func PipelinesFromUnstructured(pipelines []unstructured.Unstructured, logger log
 
 func (p *Pipeline) ForPromise(promise *Promise, action Action) *PipelineFactory {
 	return &PipelineFactory{
-		ID:             promise.GetName() + "-promise-" + p.GetName(),
+		ID:             promise.GetName() + "-promise-" + string(action) + "-" + p.GetName(),
 		Promise:        promise,
 		Pipeline:       p,
 		Namespace:      SystemNamespace,
@@ -138,7 +138,7 @@ func (p *Pipeline) ForPromise(promise *Promise, action Action) *PipelineFactory 
 
 func (p *Pipeline) ForResource(promise *Promise, action Action, resourceRequest *unstructured.Unstructured) *PipelineFactory {
 	return &PipelineFactory{
-		ID:               promise.GetName() + "-resource-" + p.GetName(),
+		ID:               promise.GetName() + "-resource-" + string(action) + "-" + p.GetName(),
 		Promise:          promise,
 		Pipeline:         p,
 		ResourceRequest:  resourceRequest,

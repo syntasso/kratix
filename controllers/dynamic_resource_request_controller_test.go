@@ -129,12 +129,12 @@ var _ = Describe("DynamicResourceRequestController", func() {
 			By("associates the new role with the new service account", func() {
 				Expect(resources[2]).To(BeAssignableToTypeOf(&rbacv1.RoleBinding{}))
 				binding := resources[2].(*rbacv1.RoleBinding)
-				Expect(binding.RoleRef.Name).To(Equal("redis-resource-instance-configure"))
+				Expect(binding.RoleRef.Name).To(Equal("redis-resource-configure-first-pipeline"))
 				Expect(binding.Subjects).To(HaveLen(1))
 				Expect(binding.Subjects[0]).To(Equal(rbacv1.Subject{
 					Kind:      "ServiceAccount",
 					Namespace: resReq.GetNamespace(),
-					Name:      "redis-resource-instance-configure",
+					Name:      "redis-resource-configure-first-pipeline",
 				}))
 				Expect(binding.GetLabels()).To(Equal(resourceLabels))
 			})
