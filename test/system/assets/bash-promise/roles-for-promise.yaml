@@ -21,10 +21,10 @@ roleRef:
   name: REPLACEBASH-default-resource-pipeline-credentials
 subjects:
 - kind: ServiceAccount
-  name: REPLACEBASH-resource-first
+  name: REPLACEBASH-resource-configure-first
   namespace: default
 - kind: ServiceAccount
-  name: REPLACEBASH-promise-first
+  name: REPLACEBASH-promise-configure-first
   namespace: kratix-platform-system
 - kind: ServiceAccount
   name: REPLACEBASH-promise-delete-first

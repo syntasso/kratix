@@ -84,7 +84,7 @@ spec:
         - apiVersion: platform.kratix.io/v1alpha1
           kind: Pipeline
           metadata:
-            name: delete-first
+            name: first
           spec:
             containers:
               - image: syntassodev/bash-promise:dev1
@@ -119,7 +119,7 @@ spec:
         - apiVersion: platform.kratix.io/v1alpha1
           kind: Pipeline
           metadata:
-            name: delete-first
+            name: first
           spec:
             containers:
               - image: syntassodev/bash-promise:dev1
