@@ -124,6 +124,8 @@ spec:
           metadata:
             name: first
           spec:
+            rbac:
+              serviceAccount: REPLACEBASH-existing-custom-sa
             containers:
               - image: syntassodev/bash-promise:dev1
                 name: bash-promise
@@ -136,6 +138,8 @@ spec:
           metadata:
             name: first
           spec:
+            rbac:
+              serviceAccount: REPLACEBASH-new-custom-sa
             containers:
               - image: syntassodev/bash-promise:dev1
                 name: bash-promise
