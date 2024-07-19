@@ -459,9 +459,6 @@ func applyResources(opts Opts, resources ...client.Object) {
 		logger.Info("Reconciling")
 		if err := opts.client.Create(opts.ctx, resource); err != nil {
 			if errors.IsAlreadyExists(err) {
-				if _, ok := existingResource.GetLabels()[v1alpha1.PromiseNameLabel]; !ok {
-					continue
-				}
 				logger.Info("Resource already exists, will update")
 				if err = opts.client.Update(opts.ctx, resource); err == nil {
 					continue

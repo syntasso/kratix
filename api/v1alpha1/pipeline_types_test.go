@@ -201,19 +201,6 @@ var _ = Describe("Pipeline", func() {
 				Expect(sa.GetNamespace()).To(Equal(factory.Namespace))
 				Expect(sa.GetLabels()).To(HaveKeyWithValue(v1alpha1.PromiseNameLabel, promise.GetName()))
 			})
-
-			When("A customer service accout name is provided", func() {
-				It("should return a service account with the provided name", func() {
-					factory.Pipeline.Spec.RBAC = v1alpha1.RBAC{
-						ServiceAccount: "someServiceAccount",
-					}
-					sa := factory.ServiceAccount()
-					Expect(sa).ToNot(BeNil())
-					Expect(sa.GetName()).To(Equal("someServiceAccount"))
-					Expect(sa.GetNamespace()).To(Equal(factory.Namespace))
-					Expect(sa.GetLabels()).To(HaveKeyWithValue(v1alpha1.PromiseNameLabel, promise.GetName()))
-				})
-			})
 		})
 
 		Describe("ObjectRole", func() {

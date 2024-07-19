@@ -77,26 +77,6 @@ var _ = Describe("Workflow Reconciler", func() {
 			})
 		})
 
-		When("the service account does exist", func() {
-			When("the service account does not have the kratix label", func() {
-				It("should not add the kratix label to the service account", func() {
-					Expect(fakeK8sClient.Create(ctx, &v1.ServiceAccount{
-						ObjectMeta: metav1.ObjectMeta{
-							Name:      "redis-promise-configure-pipeline-1",
-							Namespace: namespace,
-						},
-					})).NotTo(HaveOccurred())
-
-					opts := workflow.NewOpts(ctx, fakeK8sClient, logger, uPromise, workflowPipelines, "promise")
-					_, err := workflow.ReconcileConfigure(opts)
-					Expect(err).NotTo(HaveOccurred())
-					sa := &v1.ServiceAccount{}
-					Expect(fakeK8sClient.Get(ctx, types.NamespacedName{Name: "redis-promise-configure-pipeline-1", Namespace: namespace}, sa)).To(Succeed())
-					Expect(sa.GetLabels()).To(BeEmpty())
-				})
-			})
-		})
-
 		When("there are jobs for this workflow", func() {
 			BeforeEach(func() {
 				j := workflowPipelines[0].Job

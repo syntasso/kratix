@@ -213,7 +213,7 @@ func (p *Promise) GenerateSharedLabels() map[string]string {
 
 func GenerateSharedLabelsForPromise(promiseName string) map[string]string {
 	return map[string]string{
-		PromiseNameLabel: promiseName,
+		"kratix.io/promise-name": promiseName,
 	}
 }
 
