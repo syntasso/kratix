@@ -25,6 +25,7 @@ import (
 	"k8s.io/apiextensions-apiserver/pkg/client/clientset/clientset"
 	"k8s.io/apimachinery/pkg/api/errors"
 	metav1 "k8s.io/apimachinery/pkg/apis/meta/v1"
+	"k8s.io/apimachinery/pkg/apis/meta/v1/unstructured"
 	"k8s.io/apimachinery/pkg/runtime"
 	ctrl "sigs.k8s.io/controller-runtime"
 	"sigs.k8s.io/controller-runtime/pkg/client"
@@ -33,7 +34,6 @@ import (
 	"sigs.k8s.io/controller-runtime/pkg/webhook/admission"
 )
 
-// log is for logging in this package.
 var (
 	promiselog   = logf.Log.WithName("promise-webhook")
 	k8sClientSet clientset.Interface
@@ -51,13 +51,82 @@ func (p *Promise) SetupWebhookWithManager(mgr ctrl.Manager, cs *clientset.Client
 // Don't delete- breaking change
 var _ webhook.Defaulter = &Promise{}
 
-// Default implements webhook.Defaulter so a webhook will be registered for the type
 func (p *Promise) Default() {
 	promiselog.Info("default", "name", p.Name)
 }
 
+func (p *Promise) ValidateCreate() (admission.Warnings, error) {
+	promiselog.Info("validating promise create", "name", p.Name)
+	return p.validate()
+}
+
+func (p *Promise) ValidateUpdate(old runtime.Object) (admission.Warnings, error) {
+	promiselog.Info("validating promise update", "name", p.Name)
+	oldPromise, _ := old.(*Promise)
+
+	warnings, err := p.validate()
+	if err != nil {
+		return nil, err
+	}
+
+	if err := p.validateCRDChanges(oldPromise); err != nil {
+		return nil, err
+	}
+
+	return warnings, nil
+}
+
+func (p *Promise) ValidateDelete() (admission.Warnings, error) {
+	return nil, nil
+}
+
 // +kubebuilder:webhook:path=/validate-platform-kratix-io-v1alpha1-promise,mutating=false,failurePolicy=fail,sideEffects=None,groups=platform.kratix.io,resources=promises,verbs=create;update,versions=v1alpha1,name=vpromise.kb.io,admissionReviewVersions=v1
 var _ webhook.Validator = &Promise{}
+
+func (p *Promise) validate() ([]string, error) {
+	if err := p.validateCRD(); err != nil {
+		return nil, err
+	}
+
+	if err := p.validatePipelines(); err != nil {
+		return nil, err
+	}
+	return p.validateRequiredPromisesAreAvailable(), nil
+}
+
+func (p *Promise) validatePipelines() error {
+	promisePipelines, err := NewPipelinesMap(p, promiselog)
+	if err != nil {
+		return err
+	}
+
+	for workflowType, actionToPipelineMap := range promisePipelines {
+		for workflowAction, pipelines := range actionToPipelineMap {
+			pipelineNamesMap := map[string]bool{}
+			for _, pipeline := range pipelines {
+				_, ok := pipelineNamesMap[pipeline.GetName()]
+				if ok {
+					return fmt.Errorf("duplicate pipeline name %q in workflow %q action %q", pipeline.GetName(), workflowType, workflowAction)
+				}
+				pipelineNamesMap[pipeline.GetName()] = true
+				var factory *PipelineFactory
+				switch workflowType {
+				case WorkflowTypeResource:
+					factory = pipeline.ForResource(p, workflowAction, &unstructured.Unstructured{})
+				case WorkflowTypePromise:
+					factory = pipeline.ForPromise(p, workflowAction)
+				}
+
+				if len(factory.ID) > 63 {
+					return fmt.Errorf("%s.%s pipeline with name %q is too long. The name is used when generating resources "+
+						"for the pipeline,including the ServiceAccount which follows the format of \"%s-%s-%s-%s\", which cannot be longer than 63 characters in total",
+						workflowType, workflowAction, pipeline.GetName(), p.GetName(), workflowType, workflowAction, pipeline.GetName())
+				}
+			}
+		}
+	}
+	return nil
+}
 
 func (p *Promise) validateCRD() error {
 	newCrd, err := p.GetAPIAsCRD()
@@ -87,20 +156,7 @@ func (p *Promise) validateCRD() error {
 	return nil
 }
 
-// ValidateCreate implements webhook.Validator so a webhook will be registered for the type
-func (p *Promise) ValidateCreate() (admission.Warnings, error) {
-	promiselog.Info("validate create", "name", p.Name)
-
-	warnings := p.validateRequiredPromises()
-
-	if err := p.validateCRD(); err != nil {
-		return nil, err
-	}
-
-	return warnings, nil
-}
-
-func (p *Promise) validateRequiredPromises() admission.Warnings {
+func (p *Promise) validateRequiredPromisesAreAvailable() admission.Warnings {
 	warnings := []string{}
 	for _, requirement := range p.Spec.RequiredPromises {
 		promiselog.Info("validating requirement", "name", p.Name, "requirement", requirement.Name, "version", requirement.Version)
@@ -128,24 +184,14 @@ func (p *Promise) validateRequiredPromises() admission.Warnings {
 	return warnings
 }
 
-// ValidateUpdate implements webhook.Validator so a webhook will be registered for the type
-func (p *Promise) ValidateUpdate(old runtime.Object) (admission.Warnings, error) {
-	promiselog.Info("validating promise update", "name", p.Name)
-	oldPromise, _ := old.(*Promise)
-
-	warnings := p.validateRequiredPromises()
-
-	if err := p.validateCRD(); err != nil {
-		return nil, err
-	}
-
+func (p *Promise) validateCRDChanges(oldPromise *Promise) error {
 	oldCrd, errOldCrd := oldPromise.GetAPIAsCRD()
 	newCrd, errNewCrd := p.GetAPIAsCRD()
 	if errOldCrd == ErrNoAPI {
-		return warnings, nil
+		return nil
 	}
 	if errNewCrd == ErrNoAPI {
-		return nil, fmt.Errorf("cannot remove API from existing promise")
+		return fmt.Errorf("cannot remove API from existing promise")
 	}
 
 	errors := []string{}
@@ -172,17 +218,7 @@ func (p *Promise) ValidateUpdate(old runtime.Object) (admission.Warnings, error)
 	}
 
 	if len(errors) > 0 {
-		//TODO: p.Name is coming through empty or so it seems!
-		return nil, fmt.Errorf("promises.platform.kratix.io %q was not valid:\n%s", p.Name, strings.Join(errors, "\n"))
+		return fmt.Errorf("promises.platform.kratix.io %q was not valid:\n%s", p.Name, strings.Join(errors, "\n"))
 	}
-
-	return warnings, nil
-}
-
-// ValidateDelete implements webhook.Validator so a webhook will be registered for the type
-func (p *Promise) ValidateDelete() (admission.Warnings, error) {
-	promiselog.Info("validate delete", "name", p.Name)
-
-	// TODO(user): fill in your validation logic upon object deletion.
-	return nil, nil
+	return nil
 }

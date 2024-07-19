@@ -80,7 +80,6 @@ func (r *PromiseRelease) ValidateUpdate(old runtime.Object) (admission.Warnings,
 }
 
 func (r *PromiseRelease) ValidateDelete() (admission.Warnings, error) {
-	// promisereleaselog.Info("validate delete", "name", r.Name)
 	return nil, nil
 }
 

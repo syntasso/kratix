@@ -126,6 +126,8 @@ var _ = Describe("Kratix", func() {
 		if CurrentSpecReport().State.Is(types.SpecStatePassed) {
 			platform.kubectl("label", "destination", worker.name, removeBashPromiseUniqueLabel)
 			platform.kubectl("label", "destination", platform.name, removeBashPromiseUniqueLabel)
+			platform.kubectl("delete", "clusterrole", bashPromiseName+"-default-resource-pipeline-credentials")
+			platform.kubectl("delete", "clusterrolebinding", bashPromiseName+"-default-resource-pipeline-credentials")
 		}
 	})
 
@@ -279,8 +281,8 @@ var _ = Describe("Kratix", func() {
 				oldRRImperativePlatformNamespace := "imperative-" + rrName + "-old"
 				oldRRDeclarativeConfigMap := fmt.Sprintf("%s-old", rrName)
 
-				firstPipelineName := "instance-configure"
-				secondPipelineName := "second-instance-configure"
+				firstPipelineName := "first"
+				secondPipelineName := "second"
 				firstPipelineLabels := fmt.Sprintf(
 					"kratix.io/promise-name=%s,kratix.io/resource-name=%s,kratix.io/pipeline-name=%s",
 					bashPromiseName,

@@ -19,9 +19,10 @@ package v1alpha1
 import (
 	"encoding/json"
 	"fmt"
-	"github.com/syntasso/kratix/lib/objectutil"
 	"os"
 	"strings"
+
+	"github.com/syntasso/kratix/lib/objectutil"
 
 	"github.com/go-logr/logr"
 	"github.com/pkg/errors"
@@ -117,7 +118,7 @@ func PipelinesFromUnstructured(pipelines []unstructured.Unstructured, logger log
 			}
 			ps = append(ps, p)
 		} else {
-			return nil, fmt.Errorf("unsupported pipeline %q (%s.%s)",
+			return nil, fmt.Errorf("unsupported pipeline %q with APIVersion \"%s/%s\"",
 				pipeline.GetName(), pipeline.GetKind(), pipeline.GetAPIVersion())
 		}
 	}
@@ -126,7 +127,7 @@ func PipelinesFromUnstructured(pipelines []unstructured.Unstructured, logger log
 
 func (p *Pipeline) ForPromise(promise *Promise, action Action) *PipelineFactory {
 	return &PipelineFactory{
-		ID:             promise.GetName() + "-promise-pipeline",
+		ID:             promise.GetName() + "-promise-" + string(action) + "-" + p.GetName(),
 		Promise:        promise,
 		Pipeline:       p,
 		Namespace:      SystemNamespace,
@@ -137,7 +138,7 @@ func (p *Pipeline) ForPromise(promise *Promise, action Action) *PipelineFactory 
 
 func (p *Pipeline) ForResource(promise *Promise, action Action, resourceRequest *unstructured.Unstructured) *PipelineFactory {
 	return &PipelineFactory{
-		ID:               promise.GetName() + "-resource-pipeline",
+		ID:               promise.GetName() + "-resource-" + string(action) + "-" + p.GetName(),
 		Promise:          promise,
 		Pipeline:         p,
 		ResourceRequest:  resourceRequest,

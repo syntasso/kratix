@@ -3682,7 +3682,7 @@ spec:
         - apiVersion: platform.kratix.io/v1alpha1
           kind: Pipeline
           metadata:
-            name: instance-configure
+            name: first-pipeline
             namespace: default
           spec:
             containers:
