@@ -459,7 +459,6 @@ func applyResources(opts Opts, resources ...client.Object) {
 		logger.Info("Reconciling")
 		if err := opts.client.Create(opts.ctx, resource); err != nil {
 			if errors.IsAlreadyExists(err) {
-				// if _, ok := existingResource.GetLabels()[v1alpha1.PromiseNameLabel]; !ok {
 				if resource.GetObjectKind().GroupVersionKind().Kind == "ServiceAccount" {
 					serviceAccount := &v1.ServiceAccount{}
 					if err := opts.client.Get(opts.ctx, client.ObjectKey{Namespace: resource.GetNamespace(), Name: resource.GetName()}, serviceAccount); err != nil {
