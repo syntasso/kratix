@@ -108,8 +108,8 @@ var _ = Describe("Workflow Reconciler", func() {
 						},
 					})).NotTo(HaveOccurred())
 
-					Expect(workflowPipelines[0].RequiredResources[0]).To(BeAssignableToTypeOf(&v1.ServiceAccount{}))
-					workflowPipelines[0].RequiredResources[0].SetLabels(map[string]string{
+					Expect(workflowPipelines[0].GetObjects()[0]).To(BeAssignableToTypeOf(&v1.ServiceAccount{}))
+					workflowPipelines[0].GetObjects()[0].SetLabels(map[string]string{
 						"kratix.io/promise-name": "redis",
 						"new-labels":             "new-labels",
 					})
@@ -756,25 +756,13 @@ func setupTest(promise v1alpha1.Promise, pipelines []v1alpha1.Pipeline) ([]v1alp
 	resourceutil.MarkPipelineAsRunning(logger, uPromise)
 	Expect(fakeK8sClient.Status().Update(ctx, uPromise)).To(Succeed())
 
-	jobs := []*batchv1.Job{}
-	otherResources := [][]client.Object{}
+	var workflowPipelines []v1alpha1.PipelineJobResources
 	for _, p := range pipelines {
 		generatedResources, err := p.ForPromise(&promise, v1alpha1.WorkflowActionConfigure).Resources(nil)
 		Expect(err).NotTo(HaveOccurred())
-		jobs = append(jobs, generatedResources.Job)
-		otherResources = append(otherResources, generatedResources.RequiredResources)
+		generatedResources.Job.SetCreationTimestamp(nextTimestamp())
+		workflowPipelines = append(workflowPipelines, generatedResources)
 	}
-
-	workflowPipelines := []v1alpha1.PipelineJobResources{}
-	for i, j := range jobs {
-		j.SetCreationTimestamp(nextTimestamp())
-		workflowPipelines = append(workflowPipelines, v1alpha1.PipelineJobResources{
-			Name:              j.GetLabels()["kratix.io/pipeline-name"],
-			Job:               j,
-			RequiredResources: otherResources[i],
-		})
-	}
-
 	return workflowPipelines, uPromise
 }
 

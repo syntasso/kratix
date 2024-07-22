@@ -20,6 +20,7 @@ import (
 	"encoding/json"
 	"fmt"
 	"os"
+	"sigs.k8s.io/controller-runtime/pkg/client"
 	"strings"
 
 	"github.com/syntasso/kratix/lib/objectutil"
@@ -35,8 +36,13 @@ import (
 	"k8s.io/apimachinery/pkg/apis/meta/v1/unstructured"
 	"k8s.io/apimachinery/pkg/labels"
 	"k8s.io/client-go/kubernetes/scheme"
-	"sigs.k8s.io/controller-runtime/pkg/client"
 	"sigs.k8s.io/controller-runtime/pkg/controller/controllerutil"
+)
+
+const (
+	kratixActionEnvVar  = "KRATIX_WORKFLOW_ACTION"
+	kratixTypeEnvVar    = "KRATIX_WORKFLOW_TYPE"
+	kratixPromiseEnvVar = "KRATIX_PROMISE_NAME"
 )
 
 // PipelineSpec defines the desired state of Pipeline
@@ -90,16 +96,42 @@ type PipelineFactory struct {
 
 // +kubebuilder:object:generate=false
 type PipelineJobResources struct {
-	Name              string
-	Job               *batchv1.Job
-	RequiredResources []client.Object
+	Name   string
+	Job    *batchv1.Job
+	Shared SharedPipelineResources
 }
 
-const (
-	kratixActionEnvVar  = "KRATIX_WORKFLOW_ACTION"
-	kratixTypeEnvVar    = "KRATIX_WORKFLOW_TYPE"
-	kratixPromiseEnvVar = "KRATIX_PROMISE_NAME"
-)
+type SharedPipelineResources struct {
+	ServiceAccount      *corev1.ServiceAccount
+	ConfigMap           *corev1.ConfigMap
+	Roles               []rbacv1.Role
+	RoleBindings        []rbacv1.RoleBinding
+	ClusterRoles        []rbacv1.ClusterRole
+	ClusterRoleBindings []rbacv1.ClusterRoleBinding
+}
+
+func (p *PipelineJobResources) GetObjects() []client.Object {
+	var objs []client.Object
+	if p.Shared.ServiceAccount != nil {
+		objs = append(objs, p.Shared.ServiceAccount)
+	}
+	if p.Shared.ConfigMap != nil {
+		objs = append(objs, p.Shared.ConfigMap)
+	}
+	for _, r := range p.Shared.Roles {
+		objs = append(objs, &r)
+	}
+	for _, r := range p.Shared.RoleBindings {
+		objs = append(objs, &r)
+	}
+	for _, c := range p.Shared.ClusterRoles {
+		objs = append(objs, &c)
+	}
+	for _, c := range p.Shared.ClusterRoleBindings {
+		objs = append(objs, &c)
+	}
+	return objs
+}
 
 func PipelinesFromUnstructured(pipelines []unstructured.Unstructured, logger logr.Logger) ([]Pipeline, error) {
 	if len(pipelines) == 0 {
@@ -161,39 +193,42 @@ func (p *Pipeline) ForResource(promise *Promise, action Action, resourceRequest 
 
 func (p *PipelineFactory) Resources(jobEnv []corev1.EnvVar) (PipelineJobResources, error) {
 	wgScheduling := p.Promise.GetWorkloadGroupScheduling()
-	schedulingConfigMap, err := p.ConfigMap(wgScheduling)
+	schedulingConfigMap, err := p.configMap(wgScheduling)
 	if err != nil {
 		return PipelineJobResources{}, err
 	}
 
-	serviceAccount := p.ServiceAccount()
+	sa := p.serviceAccount()
 
-	role, err := p.ObjectRole()
+	roles, err := p.role()
 	if err != nil {
 		return PipelineJobResources{}, err
 	}
-	roleBinding := p.ObjectRoleBinding(role.GetName(), serviceAccount)
+	roleBindings := p.roleBindings(roles, sa)
 
-	job, err := p.PipelineJob(schedulingConfigMap, serviceAccount, jobEnv)
+	job, err := p.pipelineJob(schedulingConfigMap, sa, jobEnv)
 	if err != nil {
 		return PipelineJobResources{}, err
 	}
 
-	requiredResources := []client.Object{serviceAccount, role, roleBinding}
-	requiredResources = append(requiredResources, p.UserProvidedPermObjects(serviceAccount)...)
-
-	if p.WorkflowAction == WorkflowActionConfigure {
-		requiredResources = append(requiredResources, schedulingConfigMap)
-	}
+	clusterRoles := p.clusterRole()
+	clusterRoleBindings := p.clusterRoleBinding(clusterRoles, sa)
 
 	return PipelineJobResources{
-		Name:              p.Pipeline.GetName(),
-		Job:               job,
-		RequiredResources: requiredResources,
+		Name: p.Pipeline.GetName(),
+		Job:  job,
+		Shared: SharedPipelineResources{
+			ServiceAccount:      sa,
+			ConfigMap:           schedulingConfigMap,
+			Roles:               roles,
+			RoleBindings:        roleBindings,
+			ClusterRoles:        clusterRoles,
+			ClusterRoleBindings: clusterRoleBindings,
+		},
 	}, nil
 }
 
-func (p *PipelineFactory) ServiceAccount() *corev1.ServiceAccount {
+func (p *PipelineFactory) serviceAccount() *corev1.ServiceAccount {
 	serviceAccountName := p.ID
 	if p.Pipeline.Spec.RBAC.ServiceAccount != "" {
 		serviceAccountName = p.Pipeline.Spec.RBAC.ServiceAccount
@@ -211,29 +246,10 @@ func (p *PipelineFactory) ServiceAccount() *corev1.ServiceAccount {
 	}
 }
 
-func (p *PipelineFactory) ObjectRole() (client.Object, error) {
-	if p.ResourceWorkflow {
-		return p.role()
+func (p *PipelineFactory) configMap(workloadGroupScheduling []WorkloadGroupScheduling) (*corev1.ConfigMap, error) {
+	if p.WorkflowAction != WorkflowActionConfigure {
+		return nil, nil
 	}
-	return p.clusterRole(), nil
-}
-
-func (p *PipelineFactory) UserProvidedPermObjects(sa *corev1.ServiceAccount) []client.Object {
-	if len(p.Pipeline.Spec.RBAC.Permissions) == 0 {
-		return nil
-	}
-	role, binding := p.userProvidedPermissions(sa)
-	return []client.Object{role, binding}
-}
-
-func (p *PipelineFactory) ObjectRoleBinding(roleName string, serviceAccount *corev1.ServiceAccount) client.Object {
-	if p.ResourceWorkflow {
-		return p.roleBinding(roleName, serviceAccount)
-	}
-	return p.clusterRoleBinding(roleName, serviceAccount)
-}
-
-func (p *PipelineFactory) ConfigMap(workloadGroupScheduling []WorkloadGroupScheduling) (*corev1.ConfigMap, error) {
 	schedulingYAML, err := yaml.Marshal(workloadGroupScheduling)
 	if err != nil {
 		return nil, errors.Wrap(err, "error marshalling destinationSelectors to yaml")
@@ -250,7 +266,10 @@ func (p *PipelineFactory) ConfigMap(workloadGroupScheduling []WorkloadGroupSched
 	}, nil
 }
 
-func (p *PipelineFactory) DefaultVolumes(schedulingConfigMap *corev1.ConfigMap) []corev1.Volume {
+func (p *PipelineFactory) defaultVolumes(schedulingConfigMap *corev1.ConfigMap) []corev1.Volume {
+	if p.WorkflowAction != WorkflowActionConfigure {
+		return []corev1.Volume{}
+	}
 	return []corev1.Volume{
 		{
 			Name: "promise-scheduling",
@@ -269,7 +288,7 @@ func (p *PipelineFactory) DefaultVolumes(schedulingConfigMap *corev1.ConfigMap) 
 	}
 }
 
-func (p *PipelineFactory) DefaultPipelineVolumes() ([]corev1.Volume, []corev1.VolumeMount) {
+func (p *PipelineFactory) defaultPipelineVolumes() ([]corev1.Volume, []corev1.VolumeMount) {
 	volumes := []corev1.Volume{
 		{Name: "shared-input", VolumeSource: corev1.VolumeSource{EmptyDir: &corev1.EmptyDirVolumeSource{}}},
 		{Name: "shared-output", VolumeSource: corev1.VolumeSource{EmptyDir: &corev1.EmptyDirVolumeSource{}}},
@@ -283,7 +302,7 @@ func (p *PipelineFactory) DefaultPipelineVolumes() ([]corev1.Volume, []corev1.Vo
 	return volumes, volumeMounts
 }
 
-func (p *PipelineFactory) DefaultEnvVars() []corev1.EnvVar {
+func (p *PipelineFactory) defaultEnvVars() []corev1.EnvVar {
 	return []corev1.EnvVar{
 		{Name: kratixActionEnvVar, Value: string(p.WorkflowAction)},
 		{Name: kratixTypeEnvVar, Value: string(p.WorkflowType)},
@@ -291,7 +310,7 @@ func (p *PipelineFactory) DefaultEnvVars() []corev1.EnvVar {
 	}
 }
 
-func (p *PipelineFactory) ReaderContainer() corev1.Container {
+func (p *PipelineFactory) readerContainer() corev1.Container {
 	kind := p.Promise.GroupVersionKind().Kind
 	group := p.Promise.GroupVersionKind().Group
 	name := p.Promise.GetName()
@@ -320,7 +339,7 @@ func (p *PipelineFactory) ReaderContainer() corev1.Container {
 	}
 }
 
-func (p *PipelineFactory) WorkCreatorContainer() corev1.Container {
+func (p *PipelineFactory) workCreatorContainer() corev1.Container {
 	workCreatorCommand := "./work-creator"
 
 	args := []string{
@@ -349,15 +368,15 @@ func (p *PipelineFactory) WorkCreatorContainer() corev1.Container {
 	}
 }
 
-func (p *PipelineFactory) PipelineContainers() ([]corev1.Container, []corev1.Volume) {
-	volumes, defaultVolumeMounts := p.DefaultPipelineVolumes()
+func (p *PipelineFactory) pipelineContainers() ([]corev1.Container, []corev1.Volume) {
+	volumes, defaultVolumeMounts := p.defaultPipelineVolumes()
 	pipeline := p.Pipeline
 	if len(pipeline.Spec.Volumes) > 0 {
 		volumes = append(volumes, pipeline.Spec.Volumes...)
 	}
 
 	var containers []corev1.Container
-	kratixEnvVars := p.DefaultEnvVars()
+	kratixEnvVars := p.defaultEnvVars()
 	for _, c := range pipeline.Spec.Containers {
 		containerVolumeMounts := append(defaultVolumeMounts, c.VolumeMounts...)
 
@@ -376,7 +395,7 @@ func (p *PipelineFactory) PipelineContainers() ([]corev1.Container, []corev1.Vol
 	return containers, volumes
 }
 
-func (p *PipelineFactory) PipelineJob(schedulingConfigMap *corev1.ConfigMap, serviceAccount *corev1.ServiceAccount, env []corev1.EnvVar) (*batchv1.Job, error) {
+func (p *PipelineFactory) pipelineJob(schedulingConfigMap *corev1.ConfigMap, serviceAccount *corev1.ServiceAccount, env []corev1.EnvVar) (*batchv1.Job, error) {
 	obj, objHash, err := p.getObjAndHash()
 	if err != nil {
 		return nil, err
@@ -390,12 +409,12 @@ func (p *PipelineFactory) PipelineJob(schedulingConfigMap *corev1.ConfigMap, ser
 
 	imagePullSecrets = append(imagePullSecrets, p.Pipeline.Spec.ImagePullSecrets...)
 
-	readerContainer := p.ReaderContainer()
-	pipelineContainers, pipelineVolumes := p.PipelineContainers()
-	workCreatorContainer := p.WorkCreatorContainer()
-	statusWriterContainer := p.StatusWriterContainer(obj, env)
+	readerContainer := p.readerContainer()
+	pipelineContainers, pipelineVolumes := p.pipelineContainers()
+	workCreatorContainer := p.workCreatorContainer()
+	statusWriterContainer := p.statusWriterContainer(obj, env)
 
-	volumes := append(p.DefaultVolumes(schedulingConfigMap), pipelineVolumes...)
+	volumes := append(p.defaultVolumes(schedulingConfigMap), pipelineVolumes...)
 
 	var initContainers []corev1.Container
 	var containers []corev1.Container
@@ -439,7 +458,7 @@ func (p *PipelineFactory) PipelineJob(schedulingConfigMap *corev1.ConfigMap, ser
 	return job, nil
 }
 
-func (p *PipelineFactory) StatusWriterContainer(obj *unstructured.Unstructured, env []corev1.EnvVar) corev1.Container {
+func (p *PipelineFactory) statusWriterContainer(obj *unstructured.Unstructured, env []corev1.EnvVar) corev1.Container {
 	return corev1.Container{
 		Name:    "status-writer",
 		Image:   os.Getenv("WC_IMG"),
@@ -507,129 +526,126 @@ func (p *PipelineFactory) getObjAndHash() (*unstructured.Unstructured, string, e
 	return p.ResourceRequest, hash.ComputeHash(fmt.Sprintf("%s-%s", promiseHash, resourceHash)), nil
 }
 
-func (p *PipelineFactory) role() (*rbacv1.Role, error) {
-	crd, err := p.Promise.GetAPIAsCRD()
-	if err != nil {
-		return nil, err
+func (p *PipelineFactory) role() ([]rbacv1.Role, error) {
+	var roles []rbacv1.Role
+	if p.ResourceWorkflow {
+		crd, err := p.Promise.GetAPIAsCRD()
+		if err != nil {
+			return nil, err
+		}
+		plural := crd.Spec.Names.Plural
+		roles = append(roles, rbacv1.Role{
+			ObjectMeta: metav1.ObjectMeta{
+				Name:      p.ID,
+				Labels:    PromiseLabels(p.Promise),
+				Namespace: p.Namespace,
+			},
+			Rules: []rbacv1.PolicyRule{
+				{
+					APIGroups: []string{crd.Spec.Group},
+					Resources: []string{plural, plural + "/status"},
+					Verbs:     []string{"get", "list", "update", "create", "patch"},
+				},
+				{
+					APIGroups: []string{GroupVersion.Group},
+					Resources: []string{"works"},
+					Verbs:     []string{"*"},
+				},
+			},
+		})
 	}
-	plural := crd.Spec.Names.Plural
-	return &rbacv1.Role{
-		ObjectMeta: metav1.ObjectMeta{
-			Name:      p.ID,
-			Labels:    PromiseLabels(p.Promise),
-			Namespace: p.Namespace,
-		},
-		Rules: []rbacv1.PolicyRule{
-			{
-				APIGroups: []string{crd.Spec.Group},
-				Resources: []string{plural, plural + "/status"},
-				Verbs:     []string{"get", "list", "update", "create", "patch"},
+
+	if p.Pipeline.hasUserPermissions() {
+		var rules []rbacv1.PolicyRule
+		for _, r := range p.Pipeline.Spec.RBAC.Permissions {
+			rules = append(rules, r.PolicyRule)
+		}
+		roles = append(roles, rbacv1.Role{
+			ObjectMeta: metav1.ObjectMeta{
+				Name:      fmt.Sprintf("%s-up", p.ID),
+				Namespace: p.Namespace,
+				Labels:    PromiseLabels(p.Promise),
 			},
-			{
-				APIGroups: []string{GroupVersion.Group},
-				Resources: []string{"works"},
-				Verbs:     []string{"*"},
-			},
-		},
-	}, nil
+			Rules: rules,
+		})
+	}
+	return roles, nil
 }
 
-func (p *PipelineFactory) userProvidedPermissions(serviceAccount *corev1.ServiceAccount) (*rbacv1.Role, *rbacv1.RoleBinding) {
-	var rules []rbacv1.PolicyRule
+func (p *PipelineFactory) roleBindings(roles []rbacv1.Role, serviceAccount *corev1.ServiceAccount) []rbacv1.RoleBinding {
+	var bindings []rbacv1.RoleBinding
 
-	for _, r := range p.Pipeline.Spec.RBAC.Permissions {
-		rules = append(rules, r.PolicyRule)
-	}
-
-	objName := fmt.Sprintf("%s-up", p.ID)
-	role := &rbacv1.Role{
-		ObjectMeta: metav1.ObjectMeta{
-			Name:      objName,
-			Namespace: p.Namespace,
-			Labels:    PromiseLabels(p.Promise),
-		},
-		Rules: rules,
-	}
-
-	binding := &rbacv1.RoleBinding{
-		ObjectMeta: metav1.ObjectMeta{
-			Name:      objName,
-			Namespace: p.Namespace,
-			Labels:    PromiseLabels(p.Promise),
-		},
-		RoleRef: rbacv1.RoleRef{
-			Kind:     "Role",
-			APIGroup: rbacv1.GroupName,
-			Name:     objName,
-		},
-		Subjects: []rbacv1.Subject{
-			{
-				Kind:      rbacv1.ServiceAccountKind,
-				Name:      serviceAccount.GetName(),
-				Namespace: serviceAccount.GetNamespace(),
+	for _, role := range roles {
+		bindings = append(bindings, rbacv1.RoleBinding{
+			ObjectMeta: metav1.ObjectMeta{
+				Name:      role.GetName(),
+				Labels:    PromiseLabels(p.Promise),
+				Namespace: p.Namespace,
 			},
-		},
+			RoleRef: rbacv1.RoleRef{
+				Kind:     "Role",
+				APIGroup: rbacv1.GroupName,
+				Name:     role.GetName(),
+			},
+			Subjects: []rbacv1.Subject{
+				{
+					Kind:      rbacv1.ServiceAccountKind,
+					Name:      serviceAccount.GetName(),
+					Namespace: serviceAccount.GetNamespace(),
+				},
+			},
+		})
 	}
-	return role, binding
+	return bindings
 }
 
-func (p *PipelineFactory) roleBinding(roleName string, serviceAccount *corev1.ServiceAccount) *rbacv1.RoleBinding {
-	return &rbacv1.RoleBinding{
-		ObjectMeta: metav1.ObjectMeta{
-			Name:      p.ID,
-			Labels:    PromiseLabels(p.Promise),
-			Namespace: p.Namespace,
-		},
-		RoleRef: rbacv1.RoleRef{
-			Kind:     "Role",
-			APIGroup: rbacv1.GroupName,
-			Name:     roleName,
-		},
-		Subjects: []rbacv1.Subject{
-			{
-				Kind:      rbacv1.ServiceAccountKind,
-				Name:      serviceAccount.GetName(),
-				Namespace: serviceAccount.GetNamespace(),
-			},
-		},
-	}
+func (p *Pipeline) hasUserPermissions() bool {
+	return len(p.Spec.RBAC.Permissions) > 0
 }
 
-func (p *PipelineFactory) clusterRole() *rbacv1.ClusterRole {
-	return &rbacv1.ClusterRole{
-		ObjectMeta: metav1.ObjectMeta{
-			Name:   p.ID,
-			Labels: PromiseLabels(p.Promise),
-		},
-		Rules: []rbacv1.PolicyRule{
-			{
-				APIGroups: []string{GroupVersion.Group},
-				Resources: []string{PromisePlural, PromisePlural + "/status", "works"},
-				Verbs:     []string{"get", "list", "update", "create", "patch"},
+func (p *PipelineFactory) clusterRole() []rbacv1.ClusterRole {
+	var clusterRoles []rbacv1.ClusterRole
+	if !p.ResourceWorkflow {
+		clusterRoles = append(clusterRoles, rbacv1.ClusterRole{
+			ObjectMeta: metav1.ObjectMeta{
+				Name:   p.ID,
+				Labels: PromiseLabels(p.Promise),
 			},
-		},
+			Rules: []rbacv1.PolicyRule{
+				{
+					APIGroups: []string{GroupVersion.Group},
+					Resources: []string{PromisePlural, PromisePlural + "/status", "works"},
+					Verbs:     []string{"get", "list", "update", "create", "patch"},
+				},
+			},
+		})
 	}
+	return clusterRoles
 }
 
-func (p *PipelineFactory) clusterRoleBinding(clusterRoleName string, serviceAccount *corev1.ServiceAccount) *rbacv1.ClusterRoleBinding {
-	return &rbacv1.ClusterRoleBinding{
-		ObjectMeta: metav1.ObjectMeta{
-			Name:   p.ID,
-			Labels: PromiseLabels(p.Promise),
-		},
-		RoleRef: rbacv1.RoleRef{
-			Kind:     "ClusterRole",
-			APIGroup: rbacv1.GroupName,
-			Name:     clusterRoleName,
-		},
-		Subjects: []rbacv1.Subject{
-			{
-				Kind:      rbacv1.ServiceAccountKind,
-				Namespace: serviceAccount.GetNamespace(),
-				Name:      serviceAccount.GetName(),
+func (p *PipelineFactory) clusterRoleBinding(clusterRoles []rbacv1.ClusterRole, serviceAccount *corev1.ServiceAccount) []rbacv1.ClusterRoleBinding {
+	var clusterRoleBindings []rbacv1.ClusterRoleBinding
+	for _, r := range clusterRoles {
+		clusterRoleBindings = append(clusterRoleBindings, rbacv1.ClusterRoleBinding{
+			ObjectMeta: metav1.ObjectMeta{
+				Name:   p.ID,
+				Labels: PromiseLabels(p.Promise),
 			},
-		},
+			RoleRef: rbacv1.RoleRef{
+				Kind:     "ClusterRole",
+				APIGroup: rbacv1.GroupName,
+				Name:     r.GetName(),
+			},
+			Subjects: []rbacv1.Subject{
+				{
+					Kind:      rbacv1.ServiceAccountKind,
+					Namespace: serviceAccount.GetNamespace(),
+					Name:      serviceAccount.GetName(),
+				},
+			},
+		})
 	}
+	return clusterRoleBindings
 }
 
 func PromiseLabels(promise *Promise) map[string]string {

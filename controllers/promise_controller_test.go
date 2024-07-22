@@ -404,7 +404,7 @@ var _ = Describe("PromiseController", func() {
 						Expect(promise.Finalizers).To(ContainElement("kratix.io/workflows-cleanup"))
 					})
 
-					resources := reconcileConfigureOptsArg.Resources[0].RequiredResources
+					resources := reconcileConfigureOptsArg.Resources[0].GetObjects()
 					By("creates a service account for pipeline", func() {
 						Expect(resources[0]).To(BeAssignableToTypeOf(&v1.ServiceAccount{}))
 						sa := resources[0].(*v1.ServiceAccount)
@@ -412,8 +412,8 @@ var _ = Describe("PromiseController", func() {
 					})
 
 					By("creates a config map with the promise scheduling in it", func() {
-						Expect(resources[3]).To(BeAssignableToTypeOf(&v1.ConfigMap{}))
-						configMap := resources[3].(*v1.ConfigMap)
+						Expect(resources[1]).To(BeAssignableToTypeOf(&v1.ConfigMap{}))
+						configMap := resources[1].(*v1.ConfigMap)
 						Expect(configMap.GetName()).To(Equal("destination-selectors-" + promise.GetName()))
 						Expect(configMap.GetNamespace()).To(Equal("kratix-platform-system"))
 						Expect(configMap.GetLabels()).To(Equal(promiseCommonLabels))
@@ -425,8 +425,8 @@ var _ = Describe("PromiseController", func() {
 
 					promiseResourcesName.Namespace = ""
 					By("creates a role for the pipeline service account", func() {
-						Expect(resources[1]).To(BeAssignableToTypeOf(&rbacv1.ClusterRole{}))
-						role := resources[1].(*rbacv1.ClusterRole)
+						Expect(resources[2]).To(BeAssignableToTypeOf(&rbacv1.ClusterRole{}))
+						role := resources[2].(*rbacv1.ClusterRole)
 						Expect(role.GetLabels()).To(Equal(promiseCommonLabels))
 						Expect(role.Rules).To(ConsistOf(
 							rbacv1.PolicyRule{
@@ -439,8 +439,8 @@ var _ = Describe("PromiseController", func() {
 					})
 
 					By("associates the new role with the new service account", func() {
-						Expect(resources[2]).To(BeAssignableToTypeOf(&rbacv1.ClusterRoleBinding{}))
-						binding := resources[2].(*rbacv1.ClusterRoleBinding)
+						Expect(resources[3]).To(BeAssignableToTypeOf(&rbacv1.ClusterRoleBinding{}))
+						binding := resources[3].(*rbacv1.ClusterRoleBinding)
 						Expect(binding.RoleRef.Name).To(Equal("promise-with-workflow-promise-configure-first-pipeline"))
 						Expect(binding.Subjects).To(HaveLen(1))
 						Expect(binding.Subjects[0]).To(Equal(rbacv1.Subject{

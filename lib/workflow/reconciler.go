@@ -3,6 +3,7 @@ package workflow
 import (
 	"context"
 	"fmt"
+	rbacv1 "k8s.io/api/rbac/v1"
 
 	"github.com/go-logr/logr"
 	"github.com/syntasso/kratix/api/v1alpha1"
@@ -38,7 +39,6 @@ func NewOpts(ctx context.Context, client client.Client, logger logr.Logger, pare
 	}
 }
 
-// TODO refactor
 func ReconcileDelete(opts Opts) (bool, error) {
 	opts.logger.Info("Reconciling Delete Pipeline")
 
@@ -60,7 +60,7 @@ func ReconcileDelete(opts Opts) (bool, error) {
 		opts.logger.Info("Creating Delete Pipeline. The pipeline will now execute...")
 
 		//TODO retrieve error information from applyResources to return to the caller
-		applyResources(opts, append(pipeline.RequiredResources, pipeline.Job)...)
+		applyResources(opts, append(pipeline.GetObjects(), pipeline.Job)...)
 
 		return true, nil
 	}
@@ -340,7 +340,7 @@ func deleteAllButLastFiveJobs(opts Opts, pipelineJobsAtCurrentSpec []batchv1.Job
 
 func deleteConfigMap(opts Opts, pipeline v1alpha1.PipelineJobResources) error {
 	configMap := &v1.ConfigMap{}
-	for _, resource := range pipeline.RequiredResources {
+	for _, resource := range pipeline.GetObjects() {
 		if _, ok := resource.(*v1.ConfigMap); ok {
 			configMap = resource.(*v1.ConfigMap)
 			break
@@ -366,7 +366,7 @@ func createConfigurePipeline(opts Opts, pipelineIndex int, pipeline v1alpha1.Pip
 
 	opts.logger.Info("Triggering Promise pipeline")
 
-	applyResources(opts, append(pipeline.RequiredResources, pipeline.Job)...)
+	applyResources(opts, append(pipeline.GetObjects(), pipeline.Job)...)
 
 	opts.logger.Info("Parent object:", "parent", opts.parentObject.GetName())
 	if isManualReconciliation(opts.parentObject.GetLabels()) {
@@ -459,7 +459,7 @@ func applyResources(opts Opts, resources ...client.Object) {
 		logger.Info("Reconciling")
 		if err := opts.client.Create(opts.ctx, resource); err != nil {
 			if errors.IsAlreadyExists(err) {
-				if resource.GetObjectKind().GroupVersionKind().Kind == "ServiceAccount" {
+				if resource.GetObjectKind().GroupVersionKind().Kind == rbacv1.ServiceAccountKind {
 					serviceAccount := &v1.ServiceAccount{}
 					if err := opts.client.Get(opts.ctx, client.ObjectKey{Namespace: resource.GetNamespace(), Name: resource.GetName()}, serviceAccount); err != nil {
 						logger.Error(err, "Error getting service account")
@@ -467,7 +467,7 @@ func applyResources(opts Opts, resources ...client.Object) {
 					}
 
 					if _, ok := serviceAccount.Labels[v1alpha1.PromiseNameLabel]; !ok {
-						opts.logger.Info("Service Account already exists but was not orignally created by Kratix, skipping update", "name", serviceAccount.GetName(), "namespace", serviceAccount.GetNamespace(), "labels", serviceAccount.GetLabels())
+						opts.logger.Info("Service Account already exists but was not originally created by Kratix, skipping update", "name", serviceAccount.GetName(), "namespace", serviceAccount.GetNamespace(), "labels", serviceAccount.GetLabels())
 						continue
 					}
 
