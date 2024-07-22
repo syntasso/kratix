@@ -788,6 +788,7 @@ func exampleBashRequest(name, namespaceSuffix string) string {
 						echo "key: value" >> /kratix/metadata/status.yaml
 						mkdir -p /kratix/output/foo/
 						echo "{}" > /kratix/output/foo/example.json
+						kubectl get secret,role,service
 						kubectl get namespace imperative-$(yq '.metadata.name' /kratix/input/object.yaml)-%[1]s || kubectl create namespace imperative-$(yq '.metadata.name' /kratix/input/object.yaml)-%[1]s
 						exit 0
 					fi

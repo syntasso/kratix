@@ -2,6 +2,7 @@ package v1alpha1_test
 
 import (
 	"encoding/json"
+	"fmt"
 	"strings"
 
 	. "github.com/onsi/ginkgo/v2"
@@ -202,7 +203,7 @@ var _ = Describe("Pipeline", func() {
 				Expect(sa.GetLabels()).To(HaveKeyWithValue(v1alpha1.PromiseNameLabel, promise.GetName()))
 			})
 
-			When("a service accout name is provided", func() {
+			When("a service account name is provided", func() {
 				It("should create a service account with the provided name", func() {
 					factory.Pipeline.Spec.RBAC = v1alpha1.RBAC{
 						ServiceAccount: "someServiceAccount",
@@ -754,6 +755,57 @@ var _ = Describe("Pipeline", func() {
 				})
 			})
 		})
+
+		DescribeTable("User provided permissions",
+			func(resource bool) {
+				if resource {
+					factory.ResourceWorkflow = true
+				}
+				factory.Pipeline.Spec.RBAC.Permissions = []v1alpha1.Permission{
+					{
+						PolicyRule: rbacv1.PolicyRule{
+							Verbs:         []string{"watch", "create"},
+							APIGroups:     []string{"", "apps"},
+							Resources:     []string{"deployments", "deployments/status"},
+							ResourceNames: []string{"a-deployment", "b-deployment"},
+						},
+					},
+				}
+
+				resources, err := factory.Resources(nil)
+				Expect(err).ToNot(HaveOccurred())
+				Expect(resources).ToNot(BeNil())
+
+				Expect(resources.RequiredResources[3]).To(BeAssignableToTypeOf(&rbacv1.Role{}))
+				role := resources.RequiredResources[3].(*rbacv1.Role)
+				expectedName := fmt.Sprintf("%s-up", factory.ID)
+				Expect(role.GetName()).To(Equal(expectedName))
+				Expect(role.GetNamespace()).To(Equal("factoryNamespace"))
+				Expect(role.GetLabels()).To(HaveKeyWithValue(v1alpha1.PromiseNameLabel, promise.GetName()))
+				Expect(role.Rules).To(ConsistOf(rbacv1.PolicyRule{
+					Verbs:         []string{"watch", "create"},
+					APIGroups:     []string{"", "apps"},
+					Resources:     []string{"deployments", "deployments/status"},
+					ResourceNames: []string{"a-deployment", "b-deployment"},
+				}))
+
+				Expect(resources.RequiredResources[4]).To(BeAssignableToTypeOf(&rbacv1.RoleBinding{}))
+				binding := resources.RequiredResources[4].(*rbacv1.RoleBinding)
+				Expect(binding.GetName()).To(Equal(expectedName))
+				Expect(binding.GetNamespace()).To(Equal("factoryNamespace"))
+				Expect(binding.GetLabels()).To(HaveKeyWithValue(v1alpha1.PromiseNameLabel, promise.GetName()))
+				Expect(binding.RoleRef.Name).To(Equal(expectedName))
+				Expect(binding.RoleRef.Kind).To(Equal("Role"))
+				Expect(binding.RoleRef.APIGroup).To(Equal("rbac.authorization.k8s.io"))
+				Expect(binding.Subjects).To(ConsistOf(rbacv1.Subject{
+					Kind:      rbacv1.ServiceAccountKind,
+					Namespace: resources.RequiredResources[0].GetNamespace(),
+					Name:      resources.RequiredResources[0].GetName(),
+				}))
+			},
+			Entry("promise pipeline", false),
+			Entry("resource pipeline", true),
+		)
 	})
 })
 

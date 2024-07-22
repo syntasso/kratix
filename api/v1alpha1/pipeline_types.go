@@ -48,7 +48,12 @@ type PipelineSpec struct {
 }
 
 type RBAC struct {
-	ServiceAccount string `json:"serviceAccount,omitempty"`
+	ServiceAccount string       `json:"serviceAccount,omitempty"`
+	Permissions    []Permission `json:"permissions,omitempty"`
+}
+
+type Permission struct {
+	rbacv1.PolicyRule `json:",inline"`
 }
 
 type Container struct {
@@ -175,6 +180,8 @@ func (p *PipelineFactory) Resources(jobEnv []corev1.EnvVar) (PipelineJobResource
 	}
 
 	requiredResources := []client.Object{serviceAccount, role, roleBinding}
+	requiredResources = append(requiredResources, p.UserProvidedPermObjects(serviceAccount)...)
+
 	if p.WorkflowAction == WorkflowActionConfigure {
 		requiredResources = append(requiredResources, schedulingConfigMap)
 	}
@@ -209,6 +216,14 @@ func (p *PipelineFactory) ObjectRole() (client.Object, error) {
 		return p.role()
 	}
 	return p.clusterRole(), nil
+}
+
+func (p *PipelineFactory) UserProvidedPermObjects(sa *corev1.ServiceAccount) []client.Object {
+	if len(p.Pipeline.Spec.RBAC.Permissions) == 0 {
+		return nil
+	}
+	role, binding := p.userProvidedPermissions(sa)
+	return []client.Object{role, binding}
 }
 
 func (p *PipelineFactory) ObjectRoleBinding(roleName string, serviceAccount *corev1.ServiceAccount) client.Object {
@@ -517,6 +532,45 @@ func (p *PipelineFactory) role() (*rbacv1.Role, error) {
 			},
 		},
 	}, nil
+}
+
+func (p *PipelineFactory) userProvidedPermissions(serviceAccount *corev1.ServiceAccount) (*rbacv1.Role, *rbacv1.RoleBinding) {
+	var rules []rbacv1.PolicyRule
+
+	for _, r := range p.Pipeline.Spec.RBAC.Permissions {
+		rules = append(rules, r.PolicyRule)
+	}
+
+	objName := fmt.Sprintf("%s-up", p.ID)
+	role := &rbacv1.Role{
+		ObjectMeta: metav1.ObjectMeta{
+			Name:      objName,
+			Namespace: p.Namespace,
+			Labels:    PromiseLabels(p.Promise),
+		},
+		Rules: rules,
+	}
+
+	binding := &rbacv1.RoleBinding{
+		ObjectMeta: metav1.ObjectMeta{
+			Name:      objName,
+			Namespace: p.Namespace,
+			Labels:    PromiseLabels(p.Promise),
+		},
+		RoleRef: rbacv1.RoleRef{
+			Kind:     "Role",
+			APIGroup: rbacv1.GroupName,
+			Name:     objName,
+		},
+		Subjects: []rbacv1.Subject{
+			{
+				Kind:      rbacv1.ServiceAccountKind,
+				Name:      serviceAccount.GetName(),
+				Namespace: serviceAccount.GetNamespace(),
+			},
+		},
+	}
+	return role, binding
 }
 
 func (p *PipelineFactory) roleBinding(roleName string, serviceAccount *corev1.ServiceAccount) *rbacv1.RoleBinding {
