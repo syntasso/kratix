@@ -459,6 +459,19 @@ func applyResources(opts Opts, resources ...client.Object) {
 		logger.Info("Reconciling")
 		if err := opts.client.Create(opts.ctx, resource); err != nil {
 			if errors.IsAlreadyExists(err) {
+				if resource.GetObjectKind().GroupVersionKind().Kind == "ServiceAccount" {
+					serviceAccount := &v1.ServiceAccount{}
+					if err := opts.client.Get(opts.ctx, client.ObjectKey{Namespace: resource.GetNamespace(), Name: resource.GetName()}, serviceAccount); err != nil {
+						logger.Error(err, "Error getting service account")
+						continue
+					}
+
+					if _, ok := serviceAccount.Labels[v1alpha1.PromiseNameLabel]; !ok {
+						opts.logger.Info("Service Account already exists but was not orignally created by Kratix, skipping update", "name", serviceAccount.GetName(), "namespace", serviceAccount.GetNamespace(), "labels", serviceAccount.GetLabels())
+						continue
+					}
+
+				}
 				logger.Info("Resource already exists, will update")
 				if err = opts.client.Update(opts.ctx, resource); err == nil {
 					continue

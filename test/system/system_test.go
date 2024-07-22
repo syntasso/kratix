@@ -48,7 +48,7 @@ var (
 	timeout             = time.Second * 400
 	shortTimeout        = time.Second * 200
 	consistentlyTimeout = time.Second * 20
-	interval            = time.Second * 2
+	interval            = time.Millisecond * 10
 
 	worker   *destination
 	platform *destination
@@ -883,7 +883,7 @@ func (c destination) eventuallyKubectlDelete(kind, name string) string {
 		command := exec.Command("kubectl", "get", "--context="+c.context, kind, name)
 		session, err := gexec.Start(command, GinkgoWriter, GinkgoWriter)
 		g.ExpectWithOffset(1, err).ShouldNot(HaveOccurred())
-		g.EventuallyWithOffset(1, session, shortTimeout).Should(gexec.Exit())
+		g.EventuallyWithOffset(1, session, time.Second*20).Should(gexec.Exit())
 		//If it doesn't exist, lets succeed
 		if strings.Contains(string(session.Out.Contents()), "not found") {
 			return
