@@ -73,6 +73,8 @@ func (r *WorkPlacementReconciler) Reconcile(ctx context.Context, req ctrl.Reques
 		return defaultRequeue, nil
 	}
 
+	logger.Info("Reconciling WorkPlacement")
+
 	destination := &v1alpha1.Destination{}
 	destinationName := client.ObjectKey{
 		Name: workPlacement.Spec.TargetDestinationName,
@@ -103,14 +105,11 @@ func (r *WorkPlacementReconciler) Reconcile(ctx context.Context, req ctrl.Reques
 		return r.deleteWorkPlacement(ctx, writer, workPlacement, filepathMode, logger)
 	}
 
+	logger.Info("Updating files in statestore if required")
 	versionID, err := r.writeWorkloadsToStateStore(writer, *workPlacement, *destination, logger)
 	if err != nil {
 		logger.Error(err, "Error writing to repository, will try again in 5 seconds")
 		return defaultRequeue, err
-	}
-
-	if missingFinalizers := checkWorkPlacementFinalizers(workPlacement, filepathMode); len(missingFinalizers) > 0 {
-		return addFinalizers(opts, workPlacement, missingFinalizers)
 	}
 
 	if versionID == "" && r.VersionCache[workPlacement.GetUniqueID()] != "" {
@@ -120,6 +119,7 @@ func (r *WorkPlacementReconciler) Reconcile(ctx context.Context, req ctrl.Reques
 
 	if versionID != "" && workPlacement.Status.VersionID != versionID {
 		workPlacement.Status.VersionID = versionID
+		logger.Info("Updating version status", "versionID", versionID)
 		err = r.Client.Status().Update(ctx, workPlacement)
 		if err != nil {
 			r.VersionCache[workPlacement.GetUniqueID()] = versionID
@@ -127,8 +127,12 @@ func (r *WorkPlacementReconciler) Reconcile(ctx context.Context, req ctrl.Reques
 			return ctrl.Result{}, err
 		}
 	}
-	logger.Info("WorkPlacement successfully reconciled", "workPlacement", workPlacement.Name, "versionID", versionID)
 
+	if missingFinalizers := checkWorkPlacementFinalizers(workPlacement, filepathMode); len(missingFinalizers) > 0 {
+		return addFinalizers(opts, workPlacement, missingFinalizers)
+	}
+
+	logger.Info("WorkPlacement successfully reconciled", "workPlacement", workPlacement.Name, "versionID", versionID)
 	return ctrl.Result{}, nil
 }
 
