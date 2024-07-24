@@ -372,14 +372,7 @@ func createConfigurePipeline(opts Opts, pipelineIndex int, pipeline v1alpha1.Pip
 		return updated, err
 	}
 
-	opts.logger.Info("Triggering Promise pipeline")
-	isManualRec := isManualReconciliation(opts.parentObject.GetLabels())
-
-	if isManualRec {
-		time.Sleep(time.Millisecond * 1100)
-	}
 	applyResources(opts, append(pipeline.RequiredResources, pipeline.Job)...)
-
 	opts.logger.Info("Parent object:", "parent", opts.parentObject.GetName())
 	if isManualReconciliation(opts.parentObject.GetLabels()) {
 		if err := removeManualReconciliationLabel(opts); err != nil {
@@ -497,4 +490,6 @@ func applyResources(opts Opts, resources ...client.Object) {
 			logger.Info("Resource created")
 		}
 	}
+
+	time.Sleep(time.Second * 1100)
 }
