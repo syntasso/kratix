@@ -40,9 +40,10 @@ import (
 )
 
 const (
-	kratixActionEnvVar  = "KRATIX_WORKFLOW_ACTION"
-	kratixTypeEnvVar    = "KRATIX_WORKFLOW_TYPE"
-	kratixPromiseEnvVar = "KRATIX_PROMISE_NAME"
+	kratixActionEnvVar           = "KRATIX_WORKFLOW_ACTION"
+	kratixTypeEnvVar             = "KRATIX_WORKFLOW_TYPE"
+	kratixPromiseEnvVar          = "KRATIX_PROMISE_NAME"
+	userProvidedPermissionSuffix = "-up"
 )
 
 // PipelineSpec defines the desired state of Pipeline
@@ -96,9 +97,10 @@ type PipelineFactory struct {
 
 // +kubebuilder:object:generate=false
 type PipelineJobResources struct {
-	Name   string
-	Job    *batchv1.Job
-	Shared SharedPipelineResources
+	Name       string
+	PipelineID string
+	Job        *batchv1.Job
+	Shared     SharedPipelineResources
 }
 
 type SharedPipelineResources struct {
@@ -131,6 +133,10 @@ func (p *PipelineJobResources) GetObjects() []client.Object {
 		objs = append(objs, &c)
 	}
 	return objs
+}
+
+func (p *PipelineJobResources) UserProvidedPermissionObjectName() string {
+	return fmt.Sprintf("%s%s", p.PipelineID, userProvidedPermissionSuffix)
 }
 
 func PipelinesFromUnstructured(pipelines []unstructured.Unstructured, logger logr.Logger) ([]Pipeline, error) {
@@ -215,8 +221,9 @@ func (p *PipelineFactory) Resources(jobEnv []corev1.EnvVar) (PipelineJobResource
 	clusterRoleBindings := p.clusterRoleBinding(clusterRoles, sa)
 
 	return PipelineJobResources{
-		Name: p.Pipeline.GetName(),
-		Job:  job,
+		Name:       p.Pipeline.GetName(),
+		PipelineID: p.ID,
+		Job:        job,
 		Shared: SharedPipelineResources{
 			ServiceAccount:      sa,
 			ConfigMap:           schedulingConfigMap,
@@ -562,7 +569,7 @@ func (p *PipelineFactory) role() ([]rbacv1.Role, error) {
 		}
 		roles = append(roles, rbacv1.Role{
 			ObjectMeta: metav1.ObjectMeta{
-				Name:      fmt.Sprintf("%s-up", p.ID),
+				Name:      fmt.Sprintf("%s%s", p.ID, userProvidedPermissionSuffix),
 				Namespace: p.Namespace,
 				Labels:    PromiseLabels(p.Promise),
 			},

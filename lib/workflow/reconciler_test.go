@@ -12,6 +12,7 @@ import (
 	"github.com/syntasso/kratix/lib/workflow"
 	batchv1 "k8s.io/api/batch/v1"
 	v1 "k8s.io/api/core/v1"
+	rbacv1 "k8s.io/api/rbac/v1"
 	"k8s.io/apimachinery/pkg/api/errors"
 	metav1 "k8s.io/apimachinery/pkg/apis/meta/v1"
 	"k8s.io/apimachinery/pkg/apis/meta/v1/unstructured"
@@ -363,6 +364,96 @@ var _ = Describe("Workflow Reconciler", func() {
 					It("never triggers the next job in the outdated workflow", func() {
 						Expect(findByName(jobList, workflowPipelines[1].Job.Name)).To(BeFalse())
 					})
+				})
+			})
+		})
+
+		When("user provided pipeline permissions updated", func() {
+			var updatedWorkflowPipeline []v1alpha1.PipelineJobResources
+
+			BeforeEach(func() {
+				role := &rbacv1.Role{
+					ObjectMeta: metav1.ObjectMeta{
+						Name:      fmt.Sprintf("%s-promise-configure-%s-up", promise.GetName(), pipelines[0].Name),
+						Namespace: namespace,
+					},
+					Rules: []rbacv1.PolicyRule{
+						{
+							Verbs:     []string{"list"},
+							APIGroups: []string{"v1"},
+							Resources: []string{"configmaps"},
+						},
+						{
+							Verbs:     []string{"get"},
+							APIGroups: []string{"v1"},
+							Resources: []string{"secret"},
+						},
+					},
+				}
+
+				Expect(fakeK8sClient.Create(ctx, role)).To(Succeed())
+			})
+
+			When("pipeline permissions are removed", func() {
+				BeforeEach(func() {
+					pipelines[0].Spec.RBAC.Permissions = nil
+					updatedWorkflowPipeline, uPromise = setupTest(promise, pipelines)
+					Expect(updatedWorkflowPipeline[0].Job.Name).NotTo(Equal(workflowPipelines[0].Job.Name))
+					Expect(updatedWorkflowPipeline[1].Job.Name).NotTo(Equal(workflowPipelines[1].Job.Name))
+
+					opts := workflow.NewOpts(ctx, fakeK8sClient, logger, uPromise, updatedWorkflowPipeline, "promise")
+					_, err := workflow.ReconcileConfigure(opts)
+					Expect(err).NotTo(HaveOccurred())
+				})
+
+				It("removes role and role binding", func() {
+					role := &rbacv1.Role{}
+					Expect(fakeK8sClient.Get(ctx, types.NamespacedName{
+						Name:      fmt.Sprintf("%s-promise-configure-%s-up", promise.GetName(), updatedWorkflowPipeline[0].Name),
+						Namespace: namespace},
+						role,
+					)).To(MatchError(ContainSubstring("not found")))
+
+					binding := &rbacv1.RoleBinding{}
+					Expect(fakeK8sClient.Get(ctx, types.NamespacedName{
+						Name:      fmt.Sprintf("%s-promise-configure-%s-up", promise.GetName(), updatedWorkflowPipeline[0].Name),
+						Namespace: namespace},
+						binding,
+					)).To(MatchError(ContainSubstring("not found")))
+				})
+			})
+
+			When("pipeline permissions are updated", func() {
+				BeforeEach(func() {
+					pipelines[0].Spec.RBAC.Permissions = []v1alpha1.Permission{
+						{
+							PolicyRule: rbacv1.PolicyRule{
+								Verbs:     []string{"list"},
+								APIGroups: []string{"v5"},
+								Resources: []string{"configmaps"},
+							},
+						},
+					}
+					updatedWorkflowPipeline, uPromise = setupTest(promise, pipelines)
+					Expect(updatedWorkflowPipeline[0].Job.Name).NotTo(Equal(workflowPipelines[0].Job.Name))
+					Expect(updatedWorkflowPipeline[1].Job.Name).NotTo(Equal(workflowPipelines[1].Job.Name))
+					opts := workflow.NewOpts(ctx, fakeK8sClient, logger, uPromise, updatedWorkflowPipeline, "promise")
+					_, err := workflow.ReconcileConfigure(opts)
+					Expect(err).NotTo(HaveOccurred())
+				})
+
+				It("updates user provided permission role", func() {
+					role := &rbacv1.Role{}
+					Expect(fakeK8sClient.Get(ctx, types.NamespacedName{
+						Name:      fmt.Sprintf("%s-promise-configure-%s-up", promise.GetName(), updatedWorkflowPipeline[0].Name),
+						Namespace: namespace},
+						role,
+					)).To(Succeed())
+
+					Expect(role.Rules).To(HaveLen(1))
+					Expect(role.Rules[0].Verbs).To(ConsistOf("list"))
+					Expect(role.Rules[0].APIGroups).To(ConsistOf("v5"))
+					Expect(role.Rules[0].Resources).To(ConsistOf("configmaps"))
 				})
 			})
 		})

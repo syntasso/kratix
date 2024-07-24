@@ -15,6 +15,7 @@ import (
 	metav1 "k8s.io/apimachinery/pkg/apis/meta/v1"
 	"k8s.io/apimachinery/pkg/apis/meta/v1/unstructured"
 	"k8s.io/apimachinery/pkg/labels"
+	"k8s.io/apimachinery/pkg/types"
 	"sigs.k8s.io/controller-runtime/pkg/client"
 )
 
@@ -364,8 +365,14 @@ func createConfigurePipeline(opts Opts, pipelineIndex int, pipeline v1alpha1.Pip
 		return updated, err
 	}
 
-	opts.logger.Info("Triggering Promise pipeline")
+	opts.logger.Info("Triggering Configure pipeline")
 
+	var objectToDelete []client.Object
+	if objectToDelete, err = getOutdatedPipelineResources(opts, pipeline); err != nil {
+		return false, err
+	}
+
+	deleteResources(opts, objectToDelete...)
 	applyResources(opts, append(pipeline.GetObjects(), pipeline.Job)...)
 
 	opts.logger.Info("Parent object:", "parent", opts.parentObject.GetName())
@@ -377,6 +384,24 @@ func createConfigurePipeline(opts Opts, pipelineIndex int, pipeline v1alpha1.Pip
 	}
 
 	return true, nil
+}
+
+func getOutdatedPipelineResources(opts Opts, pipeline v1alpha1.PipelineJobResources) ([]client.Object, error) {
+	var toDelete []client.Object
+
+	if roleToDelete, err := getRoleToDelete(opts, pipeline); err != nil {
+		return nil, err
+	} else if roleToDelete != nil {
+		toDelete = append(toDelete, roleToDelete)
+	}
+
+	if bindingToDelete, err := getRoleBindingToDelete(opts, pipeline); err != nil {
+		return nil, err
+	} else if bindingToDelete != nil {
+		toDelete = append(toDelete, bindingToDelete)
+	}
+
+	return toDelete, nil
 }
 
 func removeManualReconciliationLabel(opts Opts) error {
@@ -485,4 +510,74 @@ func applyResources(opts Opts, resources ...client.Object) {
 			logger.Info("Resource created")
 		}
 	}
+}
+
+func deleteResources(opts Opts, resources ...client.Object) {
+	for _, resource := range resources {
+		logger := opts.logger.WithValues("gvk", resource.GetObjectKind().GroupVersionKind(), "name", resource.GetName(), "namespace", resource.GetNamespace(), "labels", resource.GetLabels())
+		logger.Info("Reconciling")
+		if err := opts.client.Delete(opts.ctx, resource); err != nil {
+			if errors.IsNotFound(err) {
+				logger.Info("Resource already deleted")
+				continue
+			}
+			logger.Error(err, "Error deleting a resource")
+			y, _ := yaml.Marshal(&resource)
+			logger.Error(err, string(y))
+		} else {
+			logger.Info("Resource deleted")
+		}
+	}
+}
+
+func getRoleToDelete(opts Opts, pipeline v1alpha1.PipelineJobResources) (*rbacv1.Role, error) {
+	existingRole := rbacv1.Role{}
+	err := opts.client.Get(opts.ctx, types.NamespacedName{
+		Name:      pipeline.UserProvidedPermissionObjectName(),
+		Namespace: pipeline.Job.GetNamespace(),
+	}, &existingRole)
+
+	if err == nil {
+		delete := true
+		for _, r := range pipeline.Shared.Roles {
+			if r.Name == pipeline.UserProvidedPermissionObjectName() {
+				delete = false
+			}
+		}
+		if delete {
+			return &existingRole, nil
+		}
+
+	} else if !errors.IsNotFound(err) {
+		opts.logger.Error(err, "failed to get user provided permission role")
+		return nil, err
+	}
+
+	return nil, nil
+}
+
+func getRoleBindingToDelete(opts Opts, pipeline v1alpha1.PipelineJobResources) (*rbacv1.RoleBinding, error) {
+	existingRoleBinding := rbacv1.RoleBinding{}
+	err := opts.client.Get(opts.ctx, types.NamespacedName{
+		Name:      pipeline.UserProvidedPermissionObjectName(),
+		Namespace: pipeline.Job.GetNamespace(),
+	}, &existingRoleBinding)
+
+	if err == nil {
+		delete := true
+		for _, r := range pipeline.Shared.RoleBindings {
+			if r.Name == pipeline.UserProvidedPermissionObjectName() {
+				delete = false
+			}
+		}
+		if delete {
+			return &existingRoleBinding, nil
+		}
+
+	} else if !errors.IsNotFound(err) {
+		opts.logger.Error(err, "failed to get user provided permission role binding")
+		return nil, err
+	}
+
+	return nil, nil
 }
