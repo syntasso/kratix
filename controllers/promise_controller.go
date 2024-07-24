@@ -238,8 +238,10 @@ func (r *PromiseReconciler) Reconcile(ctx context.Context, req ctrl.Request) (ct
 		logger.Info("requirements are fulfilled", "requirementsStatus", promise.Status.RequiredPromises)
 
 		if promise.GetGeneration() != promise.Status.ObservedGeneration {
-			if err := r.reconcileAllRRs(rrGVK); err != nil {
-				return ctrl.Result{}, err
+			if promise.GetGeneration() != 1 {
+				if err := r.reconcileAllRRs(rrGVK); err != nil {
+					return ctrl.Result{}, err
+				}
 			}
 			promise.Status.ObservedGeneration = promise.GetGeneration()
 			return ctrl.Result{}, r.Client.Status().Update(ctx, promise)
