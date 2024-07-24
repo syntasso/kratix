@@ -18,6 +18,7 @@ package controllers
 
 import (
 	"context"
+
 	"github.com/go-logr/logr"
 	"github.com/syntasso/kratix/api/v1alpha1"
 	"k8s.io/apimachinery/pkg/api/errors"
@@ -25,6 +26,8 @@ import (
 	ctrl "sigs.k8s.io/controller-runtime"
 	"sigs.k8s.io/controller-runtime/pkg/client"
 	"sigs.k8s.io/controller-runtime/pkg/controller/controllerutil"
+	"sigs.k8s.io/controller-runtime/pkg/handler"
+	"sigs.k8s.io/controller-runtime/pkg/reconcile"
 )
 
 const workCleanUpFinalizer = v1alpha1.KratixPrefix + "work-cleanup"
@@ -124,5 +127,30 @@ func (r *WorkReconciler) SetupWithManager(mgr ctrl.Manager) error {
 	return ctrl.NewControllerManagedBy(mgr).
 		For(&v1alpha1.Work{}).
 		Owns(&v1alpha1.WorkPlacement{}).
+		Watches(
+			&v1alpha1.Destination{},
+			handler.EnqueueRequestsFromMapFunc(r.requestReconilationOfAllWorksOnDestinationCreateOrUpdate),
+		).
 		Complete(r)
+}
+
+func (r *WorkReconciler) requestReconilationOfAllWorksOnDestinationCreateOrUpdate(ctx context.Context, obj client.Object) []reconcile.Request {
+	dest := obj.(*v1alpha1.Destination)
+
+	if dest.GetDeletionTimestamp() != nil {
+		return nil
+	}
+
+	allWorks := &v1alpha1.WorkList{}
+	err := r.Client.List(ctx, allWorks)
+	if err != nil {
+		r.Log.Error(err, "Error listing all Works")
+		return nil
+	}
+
+	var requests []reconcile.Request
+	for _, work := range allWorks.Items {
+		requests = append(requests, reconcile.Request{NamespacedName: client.ObjectKeyFromObject(&work)})
+	}
+	return requests
 }

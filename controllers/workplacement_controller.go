@@ -103,14 +103,14 @@ func (r *WorkPlacementReconciler) Reconcile(ctx context.Context, req ctrl.Reques
 		return r.deleteWorkPlacement(ctx, writer, workPlacement, filepathMode, logger)
 	}
 
-	if missingFinalizers := checkWorkPlacementFinalizers(workPlacement, filepathMode); len(missingFinalizers) > 0 {
-		return addFinalizers(opts, workPlacement, missingFinalizers)
-	}
-
 	versionID, err := r.writeWorkloadsToStateStore(writer, *workPlacement, *destination, logger)
 	if err != nil {
 		logger.Error(err, "Error writing to repository, will try again in 5 seconds")
 		return defaultRequeue, err
+	}
+
+	if missingFinalizers := checkWorkPlacementFinalizers(workPlacement, filepathMode); len(missingFinalizers) > 0 {
+		return addFinalizers(opts, workPlacement, missingFinalizers)
 	}
 
 	if versionID == "" && r.VersionCache[workPlacement.GetUniqueID()] != "" {
