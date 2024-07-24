@@ -149,6 +149,7 @@ func (r *DynamicResourceRequestController) Reconcile(ctx context.Context, req ct
 	if err != nil {
 		return ctrl.Result{}, err
 	}
+
 	if requeue {
 		return defaultRequeue, nil
 	}
