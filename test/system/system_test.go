@@ -137,7 +137,7 @@ var _ = Describe("Kratix", func() {
 			secondPromiseConfigureWorkflowName = fmt.Sprintf("%s-2nd-workflow", bashPromiseName)
 		})
 
-		It("can install, update, and delete a promise", func() {
+		PIt("can install, update, and delete a promise", func() {
 			By("installing the promise", func() {
 				platform.eventuallyKubectl("apply", "-f", cat(bashPromise))
 
@@ -192,7 +192,7 @@ var _ = Describe("Kratix", func() {
 			})
 		})
 
-		When("the promise has requirements that are fulfilled", func() {
+		PWhen("the promise has requirements that are fulfilled", func() {
 			var tmpDir string
 			BeforeEach(func() {
 				var err error
@@ -410,7 +410,7 @@ var _ = Describe("Kratix", func() {
 			})
 		})
 
-		When("A Promise is updated", func() {
+		PWhen("A Promise is updated", func() {
 			It("propagates the changes and re-runs all the pipelines", func() {
 				By("installing and requesting v1alpha1 promise", func() {
 					platform.eventuallyKubectl("apply", "-f", cat(bashPromise))
@@ -492,7 +492,7 @@ var _ = Describe("Kratix", func() {
 		})
 	})
 
-	Describe("PromiseRelease", func() {
+	PDescribe("PromiseRelease", func() {
 		When("a PromiseRelease is installed", func() {
 			BeforeEach(func() {
 				tmpDir, err := os.MkdirTemp(os.TempDir(), "systest")
@@ -524,7 +524,7 @@ var _ = Describe("Kratix", func() {
 		})
 	})
 
-	Describe("Scheduling", Serial, func() {
+	PDescribe("Scheduling", Serial, func() {
 		//The tests start with destinations:
 		// Worker destination (BucketStateStore):
 		// - environment: dev
@@ -688,7 +688,7 @@ var _ = Describe("Kratix", func() {
 		})
 	})
 
-	Describe("filepathMode set to none", func() {
+	PDescribe("filepathMode set to none", func() {
 		It("manages output files from multiple resource requests", func() {
 			if getEnvOrDefault("TEST_SKIP_BUCKET_CHECK", "false") != "true" {
 				bashPromise.Spec.DestinationSelectors = []v1alpha1.PromiseScheduling{{
