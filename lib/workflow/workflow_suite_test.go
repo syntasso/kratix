@@ -33,7 +33,7 @@ var _ = BeforeSuite(func() {
 	err := v1alpha1.AddToScheme(scheme.Scheme)
 	Expect(err).NotTo(HaveOccurred())
 	logf.SetLogger(zap.New(zap.WriteTo(GinkgoWriter), zap.UseDevMode(true)))
-	workflow.SetMinimumPeriodBetweenCratingPipelineResources(time.Nanosecond)
+	workflow.SetMinimumPeriodBetweenCreatingPipelineResources(time.Nanosecond)
 	//+kubebuilder:scaffold:scheme
 })
 

@@ -2,6 +2,6 @@ package workflow
 
 import "time"
 
-func SetMinimumPeriodBetweenCratingPipelineResources(t time.Duration) {
+func SetMinimumPeriodBetweenCreatingPipelineResources(t time.Duration) {
 	minimumPeriodBetweenCreatingPipelineResources = t
 }
