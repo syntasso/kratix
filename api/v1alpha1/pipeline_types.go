@@ -41,10 +41,10 @@ import (
 )
 
 const (
-	kratixActionEnvVar           = "KRATIX_WORKFLOW_ACTION"
-	kratixTypeEnvVar             = "KRATIX_WORKFLOW_TYPE"
-	kratixPromiseEnvVar          = "KRATIX_PROMISE_NAME"
-	userProvidedPermissionSuffix = "-up"
+	kratixActionEnvVar                      = "KRATIX_WORKFLOW_ACTION"
+	kratixTypeEnvVar                        = "KRATIX_WORKFLOW_TYPE"
+	kratixPromiseEnvVar                     = "KRATIX_PROMISE_NAME"
+	userPermissionResourceNamespaceLabelAll = "kratix-all-namespaces"
 )
 
 // PipelineSpec defines the desired state of Pipeline
@@ -61,6 +61,7 @@ type RBAC struct {
 }
 
 type Permission struct {
+	ResourceNamespace string `json:"resourceNamespace,omitempty"`
 	rbacv1.PolicyRule `json:",inline"`
 }
 
@@ -136,10 +137,6 @@ func (p *PipelineJobResources) GetObjects() []client.Object {
 	return objs
 }
 
-func (p *PipelineJobResources) UserProvidedPermissionObjectName() string {
-	return fmt.Sprintf("%s%s", p.PipelineID, userProvidedPermissionSuffix)
-}
-
 func PipelinesFromUnstructured(pipelines []unstructured.Unstructured, logger logr.Logger) ([]Pipeline, error) {
 	if len(pipelines) == 0 {
 		return nil, nil
@@ -211,7 +208,6 @@ func (p *PipelineFactory) Resources(jobEnv []corev1.EnvVar) (PipelineJobResource
 	if err != nil {
 		return PipelineJobResources{}, err
 	}
-	roleBindings := p.roleBindings(roles, sa)
 
 	job, err := p.pipelineJob(schedulingConfigMap, sa, jobEnv)
 	if err != nil {
@@ -220,6 +216,8 @@ func (p *PipelineFactory) Resources(jobEnv []corev1.EnvVar) (PipelineJobResource
 
 	clusterRoles := p.clusterRole()
 	clusterRoleBindings := p.clusterRoleBinding(clusterRoles, sa)
+
+	roleBindings := p.roleBindings(roles, clusterRoles, sa)
 
 	return PipelineJobResources{
 		Name:       p.Pipeline.GetName(),
@@ -566,7 +564,9 @@ func (p *PipelineFactory) role() ([]rbacv1.Role, error) {
 	if p.Pipeline.hasUserPermissions() {
 		var rules []rbacv1.PolicyRule
 		for _, r := range p.Pipeline.Spec.RBAC.Permissions {
-			rules = append(rules, r.PolicyRule)
+			if r.ResourceNamespace == "" {
+				rules = append(rules, r.PolicyRule)
+			}
 		}
 
 		labels := labels.Merge(
@@ -574,19 +574,21 @@ func (p *PipelineFactory) role() ([]rbacv1.Role, error) {
 			WorkflowLabels(p.WorkflowType, p.WorkflowAction, p.Pipeline.GetName()),
 		)
 
-		roles = append(roles, rbacv1.Role{
-			ObjectMeta: metav1.ObjectMeta{
-				Name:      fmt.Sprintf("%s%s", p.ID, userProvidedPermissionSuffix),
-				Namespace: p.Namespace,
-				Labels:    labels,
-			},
-			Rules: rules,
-		})
+		if len(rules) > 0 {
+			roles = append(roles, rbacv1.Role{
+				ObjectMeta: metav1.ObjectMeta{
+					Name:      objectutil.GenerateObjectName(p.ID),
+					Namespace: p.Namespace,
+					Labels:    labels,
+				},
+				Rules: rules,
+			})
+		}
 	}
 	return roles, nil
 }
 
-func (p *PipelineFactory) roleBindings(roles []rbacv1.Role, serviceAccount *corev1.ServiceAccount) []rbacv1.RoleBinding {
+func (p *PipelineFactory) roleBindings(roles []rbacv1.Role, clusterRoles []rbacv1.ClusterRole, serviceAccount *corev1.ServiceAccount) []rbacv1.RoleBinding {
 	var bindings []rbacv1.RoleBinding
 
 	for _, role := range roles {
@@ -610,6 +612,33 @@ func (p *PipelineFactory) roleBindings(roles []rbacv1.Role, serviceAccount *core
 			},
 		})
 	}
+
+	for _, clusterRole := range clusterRoles {
+		labels := clusterRole.GetLabels()
+
+		if ns, ok := labels[UserPermissionResourceNamespaceLabel]; ok && ns != userPermissionResourceNamespaceLabelAll {
+			bindings = append(bindings, rbacv1.RoleBinding{
+				ObjectMeta: metav1.ObjectMeta{
+					Name:      clusterRole.GetName(),
+					Namespace: ns,
+					Labels:    labels,
+				},
+				RoleRef: rbacv1.RoleRef{
+					Kind:     "ClusterRole",
+					APIGroup: rbacv1.GroupName,
+					Name:     clusterRole.GetName(),
+				},
+				Subjects: []rbacv1.Subject{
+					{
+						Kind:      rbacv1.ServiceAccountKind,
+						Name:      serviceAccount.GetName(),
+						Namespace: serviceAccount.GetNamespace(),
+					},
+				},
+			})
+		}
+	}
+
 	return bindings
 }
 
@@ -634,30 +663,79 @@ func (p *PipelineFactory) clusterRole() []rbacv1.ClusterRole {
 			},
 		})
 	}
+
+	if p.Pipeline.hasUserPermissions() {
+		for _, r := range p.Pipeline.Spec.RBAC.Permissions {
+			if r.ResourceNamespace != "" {
+				labels := labels.Merge(
+					PromiseLabels(p.Promise),
+					WorkflowLabels(p.WorkflowType, p.WorkflowAction, p.Pipeline.GetName()),
+				)
+				userPermissionResourceNamespaceLabel := r.ResourceNamespace
+				if r.ResourceNamespace == "*" {
+					userPermissionResourceNamespaceLabel = userPermissionResourceNamespaceLabelAll
+				}
+				labels[UserPermissionResourceNamespaceLabel] = userPermissionResourceNamespaceLabel
+
+				clusterRoles = append(clusterRoles, rbacv1.ClusterRole{
+					ObjectMeta: metav1.ObjectMeta{
+						Name:   objectutil.GenerateObjectName(p.ID),
+						Labels: labels,
+					},
+					Rules: []rbacv1.PolicyRule{r.PolicyRule},
+				})
+			}
+		}
+	}
+
 	return clusterRoles
 }
 
 func (p *PipelineFactory) clusterRoleBinding(clusterRoles []rbacv1.ClusterRole, serviceAccount *corev1.ServiceAccount) []rbacv1.ClusterRoleBinding {
 	var clusterRoleBindings []rbacv1.ClusterRoleBinding
 	for _, r := range clusterRoles {
-		clusterRoleBindings = append(clusterRoleBindings, rbacv1.ClusterRoleBinding{
-			ObjectMeta: metav1.ObjectMeta{
-				Name:   p.ID,
-				Labels: PromiseLabels(p.Promise),
-			},
-			RoleRef: rbacv1.RoleRef{
-				Kind:     "ClusterRole",
-				APIGroup: rbacv1.GroupName,
-				Name:     r.GetName(),
-			},
-			Subjects: []rbacv1.Subject{
-				{
-					Kind:      rbacv1.ServiceAccountKind,
-					Namespace: serviceAccount.GetNamespace(),
-					Name:      serviceAccount.GetName(),
+		if ns, ok := r.GetLabels()[UserPermissionResourceNamespaceLabel]; !ok {
+			clusterRoleBindings = append(clusterRoleBindings, rbacv1.ClusterRoleBinding{
+				ObjectMeta: metav1.ObjectMeta{
+					Name:   p.ID,
+					Labels: PromiseLabels(p.Promise),
 				},
-			},
-		})
+				RoleRef: rbacv1.RoleRef{
+					Kind:     "ClusterRole",
+					APIGroup: rbacv1.GroupName,
+					Name:     r.GetName(),
+				},
+				Subjects: []rbacv1.Subject{
+					{
+						Kind:      rbacv1.ServiceAccountKind,
+						Namespace: serviceAccount.GetNamespace(),
+						Name:      serviceAccount.GetName(),
+					},
+				},
+			})
+		} else if ns == userPermissionResourceNamespaceLabelAll {
+			clusterRoleBindings = append(clusterRoleBindings, rbacv1.ClusterRoleBinding{
+				ObjectMeta: metav1.ObjectMeta{
+					Name: objectutil.GenerateObjectName(p.ID),
+					Labels: labels.Merge(
+						PromiseLabels(p.Promise),
+						WorkflowLabels(p.WorkflowType, p.WorkflowAction, p.Pipeline.GetName()),
+					),
+				},
+				RoleRef: rbacv1.RoleRef{
+					Kind:     "ClusterRole",
+					APIGroup: rbacv1.GroupName,
+					Name:     r.GetName(),
+				},
+				Subjects: []rbacv1.Subject{
+					{
+						Kind:      rbacv1.ServiceAccountKind,
+						Namespace: serviceAccount.GetNamespace(),
+						Name:      serviceAccount.GetName(),
+					},
+				},
+			})
+		}
 	}
 	return clusterRoleBindings
 }

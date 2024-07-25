@@ -704,7 +704,7 @@ var _ = Describe("Pipeline", func() {
 			})
 		})
 
-		DescribeTable("User provided permissions",
+		DescribeTable("User provided permissions within the Pipeline namespace",
 			func(resource bool, numRoles int) {
 				if resource {
 					factory.ResourceWorkflow = true
@@ -725,22 +725,20 @@ var _ = Describe("Pipeline", func() {
 				Expect(resources.Name).To(Equal(pipeline.GetName()))
 
 				Expect(resources.Shared.Roles).To(HaveLen(numRoles))
-				expectedName := fmt.Sprintf("%s-up", factory.ID)
-				Expect(resources.Shared.Roles[numRoles-1].GetName()).To(Equal(expectedName))
+				Expect(resources.Shared.Roles[numRoles-1].GetName()).To(ContainSubstring(factory.ID))
 				Expect(resources.Shared.Roles[numRoles-1].GetNamespace()).To(Equal("factoryNamespace"))
-				Expect(resources.Shared.Roles[numRoles-1].GetLabels()).To(HaveKeyWithValue(v1alpha1.PromiseNameLabel, promise.GetName()))
 				Expect(resources.Shared.Roles[numRoles-1].Rules).To(ConsistOf(rbacv1.PolicyRule{
 					Verbs:         []string{"watch", "create"},
 					APIGroups:     []string{"", "apps"},
 					Resources:     []string{"deployments", "deployments/status"},
 					ResourceNames: []string{"a-deployment", "b-deployment"},
 				}))
+				matchUserPermissionsLabels(&resources, resources.Shared.Roles[numRoles-1].GetLabels())
 
 				Expect(resources.Shared.RoleBindings).To(HaveLen(numRoles))
-				Expect(resources.Shared.RoleBindings[numRoles-1].GetName()).To(Equal(expectedName))
+				Expect(resources.Shared.RoleBindings[numRoles-1].GetName()).To(ContainSubstring(factory.ID))
 				Expect(resources.Shared.RoleBindings[numRoles-1].GetNamespace()).To(Equal("factoryNamespace"))
-				Expect(resources.Shared.RoleBindings[numRoles-1].GetLabels()).To(HaveKeyWithValue(v1alpha1.PromiseNameLabel, promise.GetName()))
-				Expect(resources.Shared.RoleBindings[numRoles-1].RoleRef.Name).To(Equal(expectedName))
+				Expect(resources.Shared.RoleBindings[numRoles-1].RoleRef.Name).To(ContainSubstring(factory.ID))
 				Expect(resources.Shared.RoleBindings[numRoles-1].RoleRef.Kind).To(Equal("Role"))
 				Expect(resources.Shared.RoleBindings[numRoles-1].RoleRef.APIGroup).To(Equal("rbac.authorization.k8s.io"))
 				Expect(resources.Shared.RoleBindings[numRoles-1].Subjects).To(ConsistOf(rbacv1.Subject{
@@ -748,12 +746,207 @@ var _ = Describe("Pipeline", func() {
 					Namespace: resources.Shared.ServiceAccount.GetNamespace(),
 					Name:      resources.Shared.ServiceAccount.GetName(),
 				}))
+				matchUserPermissionsLabels(&resources, resources.Shared.RoleBindings[numRoles-1].GetLabels())
 			},
 			Entry("promise pipeline", false, 1),
 			Entry("resource pipeline", true, 2),
 		)
+
+		Describe("User provided permissions with specific resource namespaces", func() {
+			When("resource namespace is a specific namespace", func() {
+				It("should create a cluster role and role binding for the specific namespace", func() {
+					factory.Pipeline.Spec.RBAC.Permissions = []v1alpha1.Permission{
+						{
+							ResourceNamespace: "specific-namespace",
+							PolicyRule: rbacv1.PolicyRule{
+								Verbs:         []string{"watch", "create"},
+								APIGroups:     []string{"", "apps"},
+								Resources:     []string{"deployments", "deployments/status"},
+								ResourceNames: []string{"a-deployment", "b-deployment"},
+							},
+						},
+					}
+
+					resources, err := factory.Resources(nil)
+					Expect(err).ToNot(HaveOccurred())
+					Expect(resources.Name).To(Equal(pipeline.GetName()))
+
+					Expect(resources.Shared.Roles).To(HaveLen(0))
+					Expect(resources.Shared.ClusterRoleBindings).To(HaveLen(1))
+
+					Expect(resources.Shared.ClusterRoles).To(HaveLen(2))
+					Expect(resources.Shared.ClusterRoles[1].Rules).To(ConsistOf(rbacv1.PolicyRule{
+						Verbs:         []string{"watch", "create"},
+						APIGroups:     []string{"", "apps"},
+						Resources:     []string{"deployments", "deployments/status"},
+						ResourceNames: []string{"a-deployment", "b-deployment"},
+					}))
+					matchUserPermissionsLabels(&resources, resources.Shared.ClusterRoles[1].GetLabels())
+
+					Expect(resources.Shared.RoleBindings).To(HaveLen(1))
+					matchUserPermissionsLabels(&resources, resources.Shared.RoleBindings[0].GetLabels())
+					Expect(resources.Shared.RoleBindings[0].GetNamespace()).To(Equal("specific-namespace"))
+					Expect(resources.Shared.RoleBindings[0].RoleRef.Name).To(Equal(resources.Shared.ClusterRoles[1].GetName()))
+					Expect(resources.Shared.RoleBindings[0].RoleRef.Kind).To(Equal("ClusterRole"))
+					Expect(resources.Shared.RoleBindings[0].RoleRef.APIGroup).To(Equal("rbac.authorization.k8s.io"))
+					Expect(resources.Shared.RoleBindings[0].Subjects).To(ConsistOf(rbacv1.Subject{
+						Kind:      rbacv1.ServiceAccountKind,
+						Namespace: resources.Shared.ServiceAccount.GetNamespace(),
+						Name:      resources.Shared.ServiceAccount.GetName(),
+					}))
+				})
+			})
+
+			When("resource namespace is all namespaces", func() {
+				It("should create a cluster role and cluster role binding", func() {
+					factory.Pipeline.Spec.RBAC.Permissions = []v1alpha1.Permission{
+						{
+							ResourceNamespace: "*",
+							PolicyRule: rbacv1.PolicyRule{
+								Verbs:         []string{"watch", "create"},
+								APIGroups:     []string{"", "apps"},
+								Resources:     []string{"deployments", "deployments/status"},
+								ResourceNames: []string{"a-deployment", "b-deployment"},
+							},
+						},
+					}
+
+					resources, err := factory.Resources(nil)
+					Expect(err).ToNot(HaveOccurred())
+					Expect(resources.Name).To(Equal(pipeline.GetName()))
+
+					Expect(resources.Shared.Roles).To(HaveLen(0))
+					Expect(resources.Shared.RoleBindings).To(HaveLen(0))
+
+					Expect(resources.Shared.ClusterRoles).To(HaveLen(2))
+					Expect(resources.Shared.ClusterRoles[1].Rules).To(ConsistOf(rbacv1.PolicyRule{
+						Verbs:         []string{"watch", "create"},
+						APIGroups:     []string{"", "apps"},
+						Resources:     []string{"deployments", "deployments/status"},
+						ResourceNames: []string{"a-deployment", "b-deployment"},
+					}))
+					matchUserPermissionsLabels(&resources, resources.Shared.ClusterRoles[1].GetLabels())
+
+					Expect(resources.Shared.ClusterRoleBindings).To(HaveLen(2))
+					matchUserPermissionsLabels(&resources, resources.Shared.ClusterRoleBindings[1].GetLabels())
+					Expect(resources.Shared.ClusterRoleBindings[1].RoleRef.Name).To(Equal(resources.Shared.ClusterRoles[1].GetName()))
+					Expect(resources.Shared.ClusterRoleBindings[1].RoleRef.Kind).To(Equal("ClusterRole"))
+					Expect(resources.Shared.ClusterRoleBindings[1].RoleRef.APIGroup).To(Equal("rbac.authorization.k8s.io"))
+					Expect(resources.Shared.ClusterRoleBindings[1].Subjects).To(ConsistOf(rbacv1.Subject{
+						Kind:      rbacv1.ServiceAccountKind,
+						Namespace: resources.Shared.ServiceAccount.GetNamespace(),
+						Name:      resources.Shared.ServiceAccount.GetName(),
+					}))
+				})
+			})
+
+			When("resource namespace is a specific namespace and all namespaces", func() {
+				It("should create a cluster role and role binding for the specific namespace and a cluster role and cluster role binding for all namespaces", func() {
+					factory.Pipeline.Spec.RBAC.Permissions = []v1alpha1.Permission{
+						{
+							PolicyRule: rbacv1.PolicyRule{
+								Verbs:         []string{"watch", "create"},
+								APIGroups:     []string{"", "apps"},
+								Resources:     []string{"deployments", "deployments/status"},
+								ResourceNames: []string{"a-deployment", "b-deployment"},
+							},
+						},
+						{
+							ResourceNamespace: "specific-namespace",
+							PolicyRule: rbacv1.PolicyRule{
+								Verbs:         []string{"watch", "create"},
+								APIGroups:     []string{"", "apps"},
+								Resources:     []string{"deployments", "deployments/status"},
+								ResourceNames: []string{"c-deployment", "d-deployment"},
+							},
+						},
+						{
+							ResourceNamespace: "*",
+							PolicyRule: rbacv1.PolicyRule{
+								Verbs:         []string{"watch", "create"},
+								APIGroups:     []string{"", "apps"},
+								Resources:     []string{"deployments", "deployments/status"},
+								ResourceNames: []string{"e-deployment", "f-deployment"},
+							},
+						},
+					}
+
+					resources, err := factory.Resources(nil)
+					Expect(err).ToNot(HaveOccurred())
+					Expect(resources.Name).To(Equal(pipeline.GetName()))
+
+					Expect(resources.Shared.Roles).To(HaveLen(1))
+					Expect(resources.Shared.RoleBindings).To(HaveLen(2))
+					Expect(resources.Shared.ClusterRoles).To(HaveLen(3))
+					Expect(resources.Shared.ClusterRoleBindings).To(HaveLen(2))
+
+					By("creating the role and role binding in the pipeline namespace")
+					Expect(resources.Shared.Roles[0].Rules).To(ConsistOf(rbacv1.PolicyRule{
+						Verbs:         []string{"watch", "create"},
+						APIGroups:     []string{"", "apps"},
+						Resources:     []string{"deployments", "deployments/status"},
+						ResourceNames: []string{"a-deployment", "b-deployment"},
+					}))
+					matchUserPermissionsLabels(&resources, resources.Shared.Roles[0].GetLabels())
+					Expect(resources.Shared.RoleBindings[0].RoleRef.Name).To(Equal(resources.Shared.Roles[0].GetName()))
+					Expect(resources.Shared.RoleBindings[0].Namespace).To(Equal("factoryNamespace"))
+					Expect(resources.Shared.RoleBindings[0].RoleRef.Kind).To(Equal("Role"))
+					Expect(resources.Shared.RoleBindings[0].RoleRef.APIGroup).To(Equal("rbac.authorization.k8s.io"))
+					Expect(resources.Shared.RoleBindings[0].Subjects).To(ConsistOf(rbacv1.Subject{
+						Kind:      rbacv1.ServiceAccountKind,
+						Namespace: resources.Shared.ServiceAccount.GetNamespace(),
+						Name:      resources.Shared.ServiceAccount.GetName(),
+					}))
+
+					By("creating the cluster role and role binding for the specific namespace")
+					Expect(resources.Shared.ClusterRoles[1].Rules).To(ConsistOf(rbacv1.PolicyRule{
+						Verbs:         []string{"watch", "create"},
+						APIGroups:     []string{"", "apps"},
+						Resources:     []string{"deployments", "deployments/status"},
+						ResourceNames: []string{"c-deployment", "d-deployment"},
+					}))
+					matchUserPermissionsLabels(&resources, resources.Shared.ClusterRoles[1].GetLabels())
+					Expect(resources.Shared.RoleBindings[1].RoleRef.Name).To(Equal(resources.Shared.ClusterRoles[1].GetName()))
+					Expect(resources.Shared.RoleBindings[1].Namespace).To(Equal("specific-namespace"))
+					Expect(resources.Shared.RoleBindings[1].RoleRef.Kind).To(Equal("ClusterRole"))
+					Expect(resources.Shared.RoleBindings[1].RoleRef.APIGroup).To(Equal("rbac.authorization.k8s.io"))
+					Expect(resources.Shared.RoleBindings[1].Subjects).To(ConsistOf(rbacv1.Subject{
+						Kind:      rbacv1.ServiceAccountKind,
+						Namespace: resources.Shared.ServiceAccount.GetNamespace(),
+						Name:      resources.Shared.ServiceAccount.GetName(),
+					}))
+
+					By("creating the cluster role and cluster role binding for all namespaces")
+					Expect(resources.Shared.ClusterRoles[2].Rules).To(ConsistOf(rbacv1.PolicyRule{
+						Verbs:         []string{"watch", "create"},
+						APIGroups:     []string{"", "apps"},
+						Resources:     []string{"deployments", "deployments/status"},
+						ResourceNames: []string{"e-deployment", "f-deployment"},
+					}))
+					matchUserPermissionsLabels(&resources, resources.Shared.ClusterRoles[2].GetLabels())
+					Expect(resources.Shared.ClusterRoleBindings[1].RoleRef.Name).To(Equal(resources.Shared.ClusterRoles[2].GetName()))
+					Expect(resources.Shared.ClusterRoleBindings[1].RoleRef.Kind).To(Equal("ClusterRole"))
+					Expect(resources.Shared.ClusterRoleBindings[1].RoleRef.APIGroup).To(Equal("rbac.authorization.k8s.io"))
+					Expect(resources.Shared.ClusterRoleBindings[1].Subjects).To(ConsistOf(rbacv1.Subject{
+						Kind:      rbacv1.ServiceAccountKind,
+						Namespace: resources.Shared.ServiceAccount.GetNamespace(),
+						Name:      resources.Shared.ServiceAccount.GetName(),
+					}))
+				})
+			})
+		})
 	})
 })
+
+func matchUserPermissionsLabels(pipelineJobResources *v1alpha1.PipelineJobResources, labels map[string]string) {
+	jobLabels := pipelineJobResources.Job.GetLabels()
+	Expect(labels).To(SatisfyAll(
+		HaveKeyWithValue(v1alpha1.PromiseNameLabel, jobLabels[v1alpha1.PromiseNameLabel]),
+		HaveKeyWithValue(v1alpha1.PipelineNameLabel, pipelineJobResources.Name),
+		HaveKeyWithValue(v1alpha1.WorkTypeLabel, jobLabels[v1alpha1.WorkTypeLabel]),
+		HaveKeyWithValue(v1alpha1.WorkActionLabel, jobLabels[v1alpha1.WorkActionLabel]),
+	))
+}
 
 func matchPromiseClusterRolesAndBindings(clusterRoles []rbacv1.ClusterRole, clusterRoleBindings []rbacv1.ClusterRoleBinding, factory *v1alpha1.PipelineFactory, sa *corev1.ServiceAccount) {
 	ExpectWithOffset(1, clusterRoles).To(HaveLen(1))

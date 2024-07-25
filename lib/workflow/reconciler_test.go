@@ -419,13 +419,61 @@ var _ = Describe("Workflow Reconciler", func() {
 					Subjects: []rbacv1.Subject{
 						{
 							Kind:      "ServiceAccount",
-							Name:      "default",
+							Name:      "redis-promise-configure-pipeline-1",
 							Namespace: namespace,
 						},
 					},
 				}
 
 				Expect(fakeK8sClient.Create(ctx, roleBinding)).To(Succeed())
+
+				clusterRole := &rbacv1.ClusterRole{
+					ObjectMeta: metav1.ObjectMeta{
+						Name: "perm-test",
+						Labels: map[string]string{
+							"kratix.io/promise-name":       promise.GetName(),
+							"kratix.io/pipeline-name":      pipelines[0].Name,
+							"kratix.io/work-type":          "promise",
+							"kratix.io/work-action":        "configure",
+							"kratix.io/resource-namespace": "kratix-all-namespaces",
+						},
+					},
+					Rules: []rbacv1.PolicyRule{
+						{
+							Verbs:     []string{"list"},
+							APIGroups: []string{"v1"},
+							Resources: []string{"deployments"},
+						},
+					},
+				}
+
+				Expect(fakeK8sClient.Create(ctx, clusterRole)).To(Succeed())
+
+				clusterRoleBinding := &rbacv1.ClusterRoleBinding{
+					ObjectMeta: metav1.ObjectMeta{
+						Name: "perm-test",
+						Labels: map[string]string{
+							"kratix.io/promise-name":  promise.GetName(),
+							"kratix.io/pipeline-name": pipelines[0].Name,
+							"kratix.io/work-type":     "promise",
+							"kratix.io/work-action":   "configure",
+						},
+					},
+					RoleRef: rbacv1.RoleRef{
+						APIGroup: "rbac.authorization.k8s.io",
+						Kind:     "ClusterRole",
+						Name:     "perm-test",
+					},
+					Subjects: []rbacv1.Subject{
+						{
+							Kind:      "ServiceAccount",
+							Name:      "redis-promise-configure-pipeline-1",
+							Namespace: namespace,
+						},
+					},
+				}
+
+				Expect(fakeK8sClient.Create(ctx, clusterRoleBinding)).To(Succeed())
 			})
 
 			When("pipeline permissions are removed", func() {
@@ -440,7 +488,7 @@ var _ = Describe("Workflow Reconciler", func() {
 					Expect(err).NotTo(HaveOccurred())
 				})
 
-				It("removes role and role binding", func() {
+				It("removes the outdated rbac resources", func() {
 					role := &rbacv1.Role{}
 					Expect(fakeK8sClient.Get(ctx, types.NamespacedName{
 						Name:      "perm-test",
@@ -454,6 +502,16 @@ var _ = Describe("Workflow Reconciler", func() {
 						Namespace: namespace},
 						binding,
 					)).To(MatchError(ContainSubstring("not found")))
+
+					clusterRole := &rbacv1.ClusterRole{}
+					Expect(fakeK8sClient.Get(ctx, types.NamespacedName{Name: "perm-test"},
+						clusterRole,
+					)).To(MatchError(ContainSubstring("not found")))
+
+					clusterRoleBinding := &rbacv1.ClusterRoleBinding{}
+					Expect(fakeK8sClient.Get(ctx, types.NamespacedName{Name: "perm-test"},
+						clusterRoleBinding,
+					)).To(MatchError(ContainSubstring("not found")))
 				})
 			})
 
@@ -465,6 +523,22 @@ var _ = Describe("Workflow Reconciler", func() {
 								Verbs:     []string{"list"},
 								APIGroups: []string{"v5"},
 								Resources: []string{"configmaps"},
+							},
+						},
+						{
+							ResourceNamespace: "specific-namespace",
+							PolicyRule: rbacv1.PolicyRule{
+								Verbs:     []string{"list"},
+								APIGroups: []string{"v7"},
+								Resources: []string{"secrets"},
+							},
+						},
+						{
+							ResourceNamespace: "*",
+							PolicyRule: rbacv1.PolicyRule{
+								Verbs:     []string{"list"},
+								APIGroups: []string{"v1"},
+								Resources: []string{"deployments"},
 							},
 						},
 					}
@@ -492,6 +566,100 @@ var _ = Describe("Workflow Reconciler", func() {
 					Expect(role.Rules[0].Verbs).To(ConsistOf("list"))
 					Expect(role.Rules[0].APIGroups).To(ConsistOf("v5"))
 					Expect(role.Rules[0].Resources).To(ConsistOf("configmaps"))
+					Expect(role.GetNamespace()).To(Equal(namespace))
+					Expect(role.GetName()).To(ContainSubstring("redis-promise-configure-pipeline-1-"))
+				})
+
+				It("updates the user provided permission role bindings", func() {
+					bindings := &rbacv1.RoleBindingList{}
+					Expect(fakeK8sClient.List(ctx, bindings, client.MatchingLabels(labels.Set{
+						"kratix.io/promise-name":  promise.GetName(),
+						"kratix.io/pipeline-name": pipelines[0].Name,
+						"kratix.io/work-type":     "promise",
+						"kratix.io/work-action":   "configure",
+					}))).To(Succeed())
+
+					Expect(bindings.Items).To(HaveLen(2))
+
+					pipelineBinding := &bindings.Items[0]
+
+					// The role has been updated, so the role binding will be updated to
+					// reflect the new roleRef
+					Expect(pipelineBinding.GetName()).To(ContainSubstring("redis-promise-configure-pipeline-1-"))
+					Expect(pipelineBinding.GetNamespace()).To(Equal(namespace))
+					Expect(pipelineBinding.RoleRef.Name).To(ContainSubstring("redis-promise-configure-pipeline-1-"))
+					Expect(pipelineBinding.RoleRef.Kind).To(Equal("Role"))
+					Expect(pipelineBinding.Subjects).To(HaveLen(1))
+					Expect(pipelineBinding.Subjects[0].Kind).To(Equal("ServiceAccount"))
+					Expect(pipelineBinding.Subjects[0].Name).To(Equal("redis-promise-configure-pipeline-1"))
+					Expect(pipelineBinding.Subjects[0].Namespace).To(Equal(namespace))
+
+					clusterBinding := &bindings.Items[1]
+
+					// A new cluster role binding is created to allow the "*" permissions
+					Expect(clusterBinding.GetName()).To(ContainSubstring("redis-promise-configure-pipeline-1-"))
+					Expect(clusterBinding.GetNamespace()).To(Equal("specific-namespace"))
+					Expect(clusterBinding.RoleRef.Name).To(ContainSubstring("redis-promise-configure-pipeline-1-"))
+					Expect(clusterBinding.RoleRef.Kind).To(Equal("ClusterRole"))
+					Expect(clusterBinding.Subjects).To(HaveLen(1))
+					Expect(clusterBinding.Subjects[0].Kind).To(Equal("ServiceAccount"))
+					Expect(clusterBinding.Subjects[0].Name).To(Equal("redis-promise-configure-pipeline-1"))
+					Expect(clusterBinding.Subjects[0].Namespace).To(Equal(namespace))
+				})
+
+				It("updates user provided cluster role and retains the unchanged cluster role", func() {
+					clusterRoles := &rbacv1.ClusterRoleList{}
+					Expect(fakeK8sClient.List(ctx, clusterRoles, client.MatchingLabels(labels.Set{
+						"kratix.io/promise-name":  promise.GetName(),
+						"kratix.io/pipeline-name": pipelines[0].Name,
+						"kratix.io/work-type":     "promise",
+						"kratix.io/work-action":   "configure",
+					}))).To(Succeed())
+
+					Expect(clusterRoles.Items).To(HaveLen(2))
+
+					originalClusterRole := &clusterRoles.Items[0]
+
+					// Assert that the cluster role is the one we originally created
+					Expect(originalClusterRole.GetName()).To(Equal("perm-test"))
+
+					Expect(originalClusterRole.Rules).To(HaveLen(1))
+					Expect(originalClusterRole.Rules[0].Verbs).To(ConsistOf("list"))
+					Expect(originalClusterRole.Rules[0].APIGroups).To(ConsistOf("v1"))
+					Expect(originalClusterRole.Rules[0].Resources).To(ConsistOf("deployments"))
+
+					newClusterRole := &clusterRoles.Items[1]
+
+					Expect(newClusterRole.GetName()).To(ContainSubstring("redis-promise-configure-pipeline-1-"))
+
+					Expect(newClusterRole.Rules).To(HaveLen(1))
+					Expect(newClusterRole.Rules[0].Verbs).To(ConsistOf("list"))
+					Expect(newClusterRole.Rules[0].APIGroups).To(ConsistOf("v7"))
+					Expect(newClusterRole.Rules[0].Resources).To(ConsistOf("secrets"))
+				})
+
+				It("updates the user provided cluster role binding", func() {
+					clusterRoleBindings := &rbacv1.ClusterRoleBindingList{}
+					Expect(fakeK8sClient.List(ctx, clusterRoleBindings, client.MatchingLabels(labels.Set{
+						"kratix.io/promise-name":  promise.GetName(),
+						"kratix.io/pipeline-name": pipelines[0].Name,
+						"kratix.io/work-type":     "promise",
+						"kratix.io/work-action":   "configure",
+					}))).To(Succeed())
+
+					Expect(clusterRoleBindings.Items).To(HaveLen(1))
+					clusterRoleBinding := &clusterRoleBindings.Items[0]
+
+					// The cluster role has been updated, so the cluster role binding will
+					// be updated to reflect the new roleRef
+					Expect(clusterRoleBinding.GetName()).To(ContainSubstring("redis-promise-configure-pipeline-1-"))
+
+					Expect(clusterRoleBinding.RoleRef.Name).To(ContainSubstring("redis-promise-configure-pipeline-1-"))
+					Expect(clusterRoleBinding.RoleRef.Kind).To(Equal("ClusterRole"))
+					Expect(clusterRoleBinding.Subjects).To(HaveLen(1))
+					Expect(clusterRoleBinding.Subjects[0].Kind).To(Equal("ServiceAccount"))
+					Expect(clusterRoleBinding.Subjects[0].Name).To(Equal("redis-promise-configure-pipeline-1"))
+					Expect(clusterRoleBinding.Subjects[0].Namespace).To(Equal(namespace))
 				})
 			})
 		})

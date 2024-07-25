@@ -273,6 +273,9 @@ var _ = Describe("Kratix", func() {
 				platform.eventuallyKubectl("get", "crd", crd.Name)
 				worker.eventuallyKubectl("get", "namespace", declarativeWorkerNamespace)
 
+				platform.eventuallyKubectl("delete", "namespace", "pipeline-perms-ns")
+				platform.eventuallyKubectl("create", "namespace", "pipeline-perms-ns")
+
 				rrName := bashPromiseName + "rr-test"
 				platform.kubectl("apply", "-f", exampleBashRequest(rrName, "old"))
 
@@ -789,6 +792,8 @@ func exampleBashRequest(name, namespaceSuffix string) string {
 						mkdir -p /kratix/output/foo/
 						echo "{}" > /kratix/output/foo/example.json
 						kubectl get secret,role,service
+						kubectl get configmaps -n kratix-platform-system
+						kubectl get deployments -n pipeline-perms-ns
 						kubectl get namespace imperative-$(yq '.metadata.name' /kratix/input/object.yaml)-%[1]s || kubectl create namespace imperative-$(yq '.metadata.name' /kratix/input/object.yaml)-%[1]s
 						exit 0
 					fi
