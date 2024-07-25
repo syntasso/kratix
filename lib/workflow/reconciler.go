@@ -29,6 +29,8 @@ type Opts struct {
 	source    string
 }
 
+var minimumPeriodBetweenCreatingPipelineResources = 1100 * time.Millisecond
+
 func NewOpts(ctx context.Context, client client.Client, logger logr.Logger, parentObj *unstructured.Unstructured, resources []v1alpha1.PipelineJobResources, source string) Opts {
 	return Opts{
 		ctx:          ctx,
@@ -491,5 +493,5 @@ func applyResources(opts Opts, resources ...client.Object) {
 		}
 	}
 
-	time.Sleep(time.Second * 1100)
+	time.Sleep(minimumPeriodBetweenCreatingPipelineResources)
 }
