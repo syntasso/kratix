@@ -165,7 +165,7 @@ var _ = Describe("WorkplacementReconciler", func() {
 				Expect(result).To(Equal(ctrl.Result{}))
 
 				By("calling UpdateFiles()")
-				Expect(fakeWriter.UpdateFilesCallCount()).To(Equal(1))
+				Expect(fakeWriter.UpdateFilesCallCount()).To(Equal(2))
 				dir, workPlacementName, workloadsToCreate, workloadsToDelete := fakeWriter.UpdateFilesArgsForCall(0)
 				Expect(workPlacementName).To(Equal(workPlacement.Name))
 				Expect(dir).To(Equal(""))
@@ -214,17 +214,17 @@ files:
 					Expect(result).To(Equal(ctrl.Result{}))
 
 					kratixStateFile := fmt.Sprintf(".kratix/%s-%s.yaml", workPlacement.Namespace, workPlacement.Name)
-					Expect(fakeWriter.UpdateFilesCallCount()).To(Equal(3))
-					Expect(fakeWriter.ReadFileCallCount()).To(Equal(2))
+					Expect(fakeWriter.UpdateFilesCallCount()).To(Equal(4))
+					Expect(fakeWriter.ReadFileCallCount()).To(Equal(3))
 					Expect(fakeWriter.ReadFileArgsForCall(1)).To(Equal(kratixStateFile))
 
-					dir, workPlacementName, workloadsToCreate, workloadsToDelete := fakeWriter.UpdateFilesArgsForCall(1)
+					dir, workPlacementName, workloadsToCreate, workloadsToDelete := fakeWriter.UpdateFilesArgsForCall(2)
 					Expect(workPlacementName).To(Equal(workPlacement.Name))
 					Expect(workloadsToCreate).To(BeNil())
 					Expect(workloadsToDelete).To(ConsistOf("fruit.yaml"))
 					Expect(dir).To(Equal(""))
 
-					dir, workPlacementName, workloadsToCreate, workloadsToDelete = fakeWriter.UpdateFilesArgsForCall(2)
+					dir, workPlacementName, workloadsToCreate, workloadsToDelete = fakeWriter.UpdateFilesArgsForCall(3)
 					Expect(workPlacementName).To(Equal(workPlacement.Name))
 					Expect(workloadsToCreate).To(BeNil())
 					Expect(workloadsToDelete).To(ConsistOf(kratixStateFile))
@@ -244,10 +244,10 @@ files:
 					Expect(err).NotTo(HaveOccurred())
 					Expect(result).To(Equal(ctrl.Result{}))
 
-					Expect(fakeWriter.ReadFileCallCount()).To(Equal(1))
+					Expect(fakeWriter.ReadFileCallCount()).To(Equal(2))
 					Expect(fakeWriter.ReadFileArgsForCall(0)).To(Equal(fmt.Sprintf(".kratix/%s-%s.yaml", workPlacement.Namespace, workPlacement.Name)))
 
-					Expect(fakeWriter.UpdateFilesCallCount()).To(Equal(1))
+					Expect(fakeWriter.UpdateFilesCallCount()).To(Equal(2))
 					dir, workPlacementName, workloadsToCreate, workloadsToDelete := fakeWriter.UpdateFilesArgsForCall(0)
 					Expect(workPlacementName).To(Equal(workPlacement.Name))
 					Expect(workloadsToCreate).To(ConsistOf(append(workloads, v1alpha1.Workload{
@@ -281,7 +281,7 @@ files:
 				Expect(err).NotTo(HaveOccurred())
 				Expect(result).To(Equal(ctrl.Result{}))
 
-				Expect(fakeWriter.UpdateFilesCallCount()).To(Equal(1))
+				Expect(fakeWriter.UpdateFilesCallCount()).To(Equal(2))
 				dir, workPlacementName, workloadsToCreate, workloadsToDelete := fakeWriter.UpdateFilesArgsForCall(0)
 				Expect(dir).To(Equal("resources/default/test-promise/test-resource/5058f"))
 				Expect(workPlacementName).To(Equal(workPlacement.Name))
@@ -310,7 +310,7 @@ files:
 					Expect(err).NotTo(HaveOccurred())
 					Expect(result).To(Equal(ctrl.Result{}))
 
-					Expect(fakeWriter.UpdateFilesCallCount()).To(Equal(1))
+					Expect(fakeWriter.UpdateFilesCallCount()).To(Equal(2))
 					dir, workPlacementName, workloadsToCreate, workloadsToDelete := fakeWriter.UpdateFilesArgsForCall(0)
 					Expect(dir).To(Equal("dependencies/test-promise/5058f"))
 					Expect(workPlacementName).To(Equal(workPlacement.Name))
@@ -372,7 +372,6 @@ files:
 				subResourceUpdateError = fmt.Errorf("an-error")
 
 				fakeWriter.UpdateFilesReturnsOnCall(0, "an-amazing-version-id", nil)
-				fakeWriter.UpdateFilesReturnsOnCall(1, "", nil)
 
 				result, err := t.reconcileUntilCompletion(reconciler, &workPlacement)
 				Expect(err).To(HaveOccurred())
@@ -384,6 +383,7 @@ files:
 				result, err = t.reconcileUntilCompletion(reconciler, &workPlacement)
 				Expect(err).ToNot(HaveOccurred())
 				Expect(result).To(Equal(ctrl.Result{}))
+				Expect(fakeWriter.UpdateFilesCallCount()).To(Equal(3))
 
 				latestWP := v1alpha1.WorkPlacement{}
 				Expect(fakeK8sClient.Get(ctx, types.NamespacedName{
