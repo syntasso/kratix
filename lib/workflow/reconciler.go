@@ -3,6 +3,9 @@ package workflow
 import (
 	"context"
 	"fmt"
+	"reflect"
+	"time"
+
 	rbacv1 "k8s.io/api/rbac/v1"
 
 	"github.com/go-logr/logr"
@@ -28,6 +31,8 @@ type Opts struct {
 	Resources []v1alpha1.PipelineJobResources
 	source    string
 }
+
+var minimumPeriodBetweenCreatingPipelineResources = 1100 * time.Millisecond
 
 func NewOpts(ctx context.Context, client client.Client, logger logr.Logger, parentObj *unstructured.Unstructured, resources []v1alpha1.PipelineJobResources, source string) Opts {
 	return Opts{
@@ -94,6 +99,7 @@ func ReconcileConfigure(opts Opts) (bool, error) {
 	var mostRecentJob *batchv1.Job
 
 	if len(allJobs) != 0 {
+		opts.logger.Info("found existing jobs, checking to see which pipeline the most recent job is for")
 		resourceutil.SortJobsByCreationDateTime(allJobs, false)
 		mostRecentJob = &allJobs[0]
 		pipelineIndex = nextPipelineIndex(opts, mostRecentJob)
@@ -102,6 +108,8 @@ func ReconcileConfigure(opts Opts) (bool, error) {
 	if pipelineIndex >= len(opts.Resources) {
 		pipelineIndex = len(opts.Resources) - 1
 	}
+
+	opts.logger.Info("pipeline index", "index", pipelineIndex)
 
 	if pipelineIndex < 0 {
 		opts.logger.Info("No pipeline to reconcile")
@@ -116,10 +124,11 @@ func ReconcileConfigure(opts Opts) (bool, error) {
 	opts.logger.Info("Reconciling Configure workflow", "pipelineIndex", pipelineIndex, "mostRecentJob", mostRecentJobName)
 
 	pipeline := opts.Resources[pipelineIndex]
-	opts.logger = originalLogger.WithName(pipeline.Name)
-
 	isManualReconciliation := isManualReconciliation(opts.parentObject.GetLabels())
+	opts.logger = originalLogger.WithName(pipeline.Name).WithValues("isManualReconciliation", isManualReconciliation)
+
 	if jobIsForPipeline(pipeline, mostRecentJob) {
+		opts.logger.Info("checking if job is for pipeline", "job", mostRecentJob.Name, "pipeline", pipeline.Name)
 		if isRunning(mostRecentJob) {
 			if isManualReconciliation {
 				err := suspendJob(opts.ctx, opts.client, mostRecentJob)
@@ -135,7 +144,7 @@ func ReconcileConfigure(opts Opts) (bool, error) {
 		}
 
 		if isManualReconciliation {
-			opts.logger.Info("Pipeline running due to manual reconciliation", "pipeline", pipeline.Name)
+			opts.logger.Info("Pipeline running due to manual reconciliation", "pipeline", pipeline.Name, "parentLabels", opts.parentObject.GetLabels())
 			return createConfigurePipeline(opts, pipelineIndex, pipeline)
 		}
 
@@ -226,10 +235,13 @@ func nextPipelineIndex(opts Opts, mostRecentJob *batchv1.Job) int {
 		return 0
 	}
 
+	// in reverse order loop through the pipeline, see if the latest job is for
+	// the pipeline if it is and its finished then we know the pipeline at the
+	// index is done, and we need to start the next one
 	i := len(opts.Resources) - 1
 	for i >= 0 {
 		if jobIsForPipeline(opts.Resources[i], mostRecentJob) {
-			opts.logger.Info("Found job for pipeline", "pipeline", opts.Resources[i].Name, "index", i)
+			opts.logger.Info("Found job for pipeline", "pipeline", opts.Resources[i].Name, "job", mostRecentJob.Name, "status", mostRecentJob.Status, "index", i)
 			if isFailed(mostRecentJob) || isRunning(mostRecentJob) {
 				return i
 			}
@@ -238,7 +250,6 @@ func nextPipelineIndex(opts Opts, mostRecentJob *batchv1.Job) int {
 		i -= 1
 	}
 
-	opts.logger.Info("Next pipeline is", "index", i+1)
 	return i + 1
 }
 
@@ -248,7 +259,7 @@ func isFailed(job *batchv1.Job) bool {
 	}
 
 	for _, condition := range job.Status.Conditions {
-		if condition.Type == batchv1.JobFailed {
+		if condition.Type == batchv1.JobFailed || condition.Type == batchv1.JobSuspended {
 			return true
 		}
 	}
@@ -479,9 +490,9 @@ func applyResources(opts Opts, resources ...client.Object) {
 	opts.logger.Info("Reconciling pipeline resources")
 
 	for _, resource := range resources {
-		logger := opts.logger.WithValues("gvk", resource.GetObjectKind().GroupVersionKind(), "name", resource.GetName(), "namespace", resource.GetNamespace(), "labels", resource.GetLabels())
+		logger := opts.logger.WithValues("type", reflect.TypeOf(resource), "gvk", resource.GetObjectKind().GroupVersionKind(), "name", resource.GetName(), "namespace", resource.GetNamespace(), "labels", resource.GetLabels())
 
-		logger.Info("Reconciling")
+		logger.Info("Reconciling resource")
 		if err := opts.client.Create(opts.ctx, resource); err != nil {
 			if errors.IsAlreadyExists(err) {
 				if resource.GetObjectKind().GroupVersionKind().Kind == rbacv1.ServiceAccountKind {
@@ -510,6 +521,8 @@ func applyResources(opts Opts, resources ...client.Object) {
 			logger.Info("Resource created")
 		}
 	}
+
+	time.Sleep(minimumPeriodBetweenCreatingPipelineResources)
 }
 
 func deleteResources(opts Opts, resources ...client.Object) {

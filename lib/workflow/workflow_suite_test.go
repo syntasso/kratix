@@ -3,11 +3,13 @@ package workflow_test
 import (
 	"context"
 	"testing"
+	"time"
 
 	"github.com/go-logr/logr"
 	. "github.com/onsi/ginkgo/v2"
 	. "github.com/onsi/gomega"
 	"github.com/syntasso/kratix/api/v1alpha1"
+	"github.com/syntasso/kratix/lib/workflow"
 	"k8s.io/client-go/kubernetes/scheme"
 	ctrl "sigs.k8s.io/controller-runtime"
 	"sigs.k8s.io/controller-runtime/pkg/client"
@@ -24,13 +26,14 @@ var (
 
 func TestManager(t *testing.T) {
 	RegisterFailHandler(Fail)
-	RunSpecs(t, "Manager Suite")
+	RunSpecs(t, "Workflow Reconciler Suite")
 }
 
 var _ = BeforeSuite(func() {
 	err := v1alpha1.AddToScheme(scheme.Scheme)
 	Expect(err).NotTo(HaveOccurred())
 	logf.SetLogger(zap.New(zap.WriteTo(GinkgoWriter), zap.UseDevMode(true)))
+	workflow.SetMinimumPeriodBetweenCreatingPipelineResources(time.Nanosecond)
 	//+kubebuilder:scaffold:scheme
 })
 
