@@ -138,7 +138,7 @@ func (r *DynamicResourceRequestController) Reconcile(ctx context.Context, req ct
 		return addFinalizers(opts, rr, []string{workFinalizer, removeAllWorkflowJobsFinalizer, runDeleteWorkflowsFinalizer})
 	}
 
-	pipelineResources, err := promise.GenerateResourcePipelines(v1alpha1.WorkflowActionConfigure, r.CRD, rr, logger)
+	pipelineResources, err := promise.GenerateResourcePipelines(v1alpha1.WorkflowActionConfigure, rr, logger)
 	if err != nil {
 		return ctrl.Result{}, err
 	}
@@ -167,7 +167,7 @@ func (r *DynamicResourceRequestController) deleteResources(o opts, promise *v1al
 	}
 
 	if controllerutil.ContainsFinalizer(resourceRequest, runDeleteWorkflowsFinalizer) {
-		pipelineResources, err := promise.GenerateResourcePipelines(v1alpha1.WorkflowActionDelete, r.CRD, resourceRequest, o.logger)
+		pipelineResources, err := promise.GenerateResourcePipelines(v1alpha1.WorkflowActionDelete, resourceRequest, o.logger)
 		if err != nil {
 			return ctrl.Result{}, err
 		}

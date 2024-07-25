@@ -159,7 +159,7 @@ var _ = Describe("PromiseWebhook", func() {
 
 			BeforeEach(func() {
 				promise = newPromise()
-				maxLimit = 63 - len(promise.Name+"-resource-configure-")
+				maxLimit = 60 - len(promise.Name+"-resource-configure-")
 			})
 
 			It("returns an error when too long", func() {
@@ -177,7 +177,7 @@ var _ = Describe("PromiseWebhook", func() {
 				_, err = promise.ValidateCreate()
 				Expect(err).To(MatchError("resource.configure pipeline with name \"" + pipeline.GetName() + "\" is too long. " +
 					"The name is used when generating resources for the pipeline,including the ServiceAccount which follows the format of " +
-					"\"mypromise-resource-configure-" + pipeline.GetName() + "\", which cannot be longer than 63 characters in total"))
+					"\"mypromise-resource-configure-" + pipeline.GetName() + "\", which cannot be longer than 60 characters in total"))
 			})
 
 			It("succeeds when within the character limit", func() {

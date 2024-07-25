@@ -100,7 +100,7 @@ var _ = Describe("DynamicResourceRequestController", func() {
 				"kratix.io/promise-name": promise.GetName(),
 			}
 
-			resources := reconcileConfigureOptsArg.Resources[0].RequiredResources
+			resources := reconcileConfigureOptsArg.Resources[0].GetObjects()
 			By("creating a service account for pipeline", func() {
 				Expect(resources[0]).To(BeAssignableToTypeOf(&v1.ServiceAccount{}))
 				sa := resources[0].(*v1.ServiceAccount)
@@ -108,8 +108,8 @@ var _ = Describe("DynamicResourceRequestController", func() {
 			})
 
 			By("creates a role for the pipeline service account", func() {
-				Expect(resources[1]).To(BeAssignableToTypeOf(&rbacv1.Role{}))
-				role := resources[1].(*rbacv1.Role)
+				Expect(resources[2]).To(BeAssignableToTypeOf(&rbacv1.Role{}))
+				role := resources[2].(*rbacv1.Role)
 				Expect(role.GetLabels()).To(Equal(resourceLabels))
 				Expect(role.Rules).To(ConsistOf(
 					rbacv1.PolicyRule{
@@ -127,8 +127,8 @@ var _ = Describe("DynamicResourceRequestController", func() {
 			})
 
 			By("associates the new role with the new service account", func() {
-				Expect(resources[2]).To(BeAssignableToTypeOf(&rbacv1.RoleBinding{}))
-				binding := resources[2].(*rbacv1.RoleBinding)
+				Expect(resources[3]).To(BeAssignableToTypeOf(&rbacv1.RoleBinding{}))
+				binding := resources[3].(*rbacv1.RoleBinding)
 				Expect(binding.RoleRef.Name).To(Equal("redis-resource-configure-first-pipeline"))
 				Expect(binding.Subjects).To(HaveLen(1))
 				Expect(binding.Subjects[0]).To(Equal(rbacv1.Subject{
@@ -140,8 +140,8 @@ var _ = Describe("DynamicResourceRequestController", func() {
 			})
 
 			By("creates a config map with the promise scheduling in it", func() {
-				Expect(resources[3]).To(BeAssignableToTypeOf(&v1.ConfigMap{}))
-				configMap := resources[3].(*v1.ConfigMap)
+				Expect(resources[1]).To(BeAssignableToTypeOf(&v1.ConfigMap{}))
+				configMap := resources[1].(*v1.ConfigMap)
 				Expect(configMap.GetName()).To(Equal("destination-selectors-" + promise.GetName()))
 				Expect(configMap.GetNamespace()).To(Equal("default"))
 				Expect(configMap.GetLabels()).To(Equal(resourceLabels))
