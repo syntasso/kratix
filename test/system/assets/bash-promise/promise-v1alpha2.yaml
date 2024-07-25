@@ -75,6 +75,14 @@ spec:
           metadata:
             name: first
           spec:
+            rbac:
+              permissions:
+                - apiGroups: [ "" ]
+                  resources: [ "secrets", "services" ]
+                  verbs: [ "list" ]
+                - apiGroups: [ "rbac.authorization.k8s.io" ]
+                  resources: [ "roles" ]
+                  verbs: [ "list" ]
             containers:
               - image: syntassodev/bash-promise:dev1
                 name: bash-promise-test-c0

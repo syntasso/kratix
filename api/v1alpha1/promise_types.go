@@ -277,7 +277,7 @@ func (p *Promise) GetWorkloadGroupScheduling() []WorkloadGroupScheduling {
 	return workloadGroupScheduling
 }
 
-func (p *Promise) generatePipelinesObjects(workflowType Type, workflowAction Action, crd *apiextensionsv1.CustomResourceDefinition, resourceRequest *unstructured.Unstructured, logger logr.Logger) ([]PipelineJobResources, error) {
+func (p *Promise) generatePipelinesObjects(workflowType Type, workflowAction Action, resourceRequest *unstructured.Unstructured, logger logr.Logger) ([]PipelineJobResources, error) {
 	promisePipelines, err := NewPipelinesMap(p, logger)
 	if err != nil {
 		return nil, err
@@ -311,11 +311,11 @@ func (p *Promise) generatePipelinesObjects(workflowType Type, workflowAction Act
 }
 
 func (p *Promise) GeneratePromisePipelines(workflowAction Action, logger logr.Logger) ([]PipelineJobResources, error) {
-	return p.generatePipelinesObjects(WorkflowTypePromise, workflowAction, nil, nil, logger)
+	return p.generatePipelinesObjects(WorkflowTypePromise, workflowAction, nil, logger)
 }
 
-func (p *Promise) GenerateResourcePipelines(workflowAction Action, crd *apiextensionsv1.CustomResourceDefinition, resourceRequest *unstructured.Unstructured, logger logr.Logger) ([]PipelineJobResources, error) {
-	return p.generatePipelinesObjects(WorkflowTypeResource, workflowAction, crd, resourceRequest, logger)
+func (p *Promise) GenerateResourcePipelines(workflowAction Action, resourceRequest *unstructured.Unstructured, logger logr.Logger) ([]PipelineJobResources, error) {
+	return p.generatePipelinesObjects(WorkflowTypeResource, workflowAction, resourceRequest, logger)
 }
 
 func (p *Promise) HasPipeline(workflowType Type, workflowAction Action) bool {
