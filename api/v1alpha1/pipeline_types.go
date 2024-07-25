@@ -20,8 +20,9 @@ import (
 	"encoding/json"
 	"fmt"
 	"os"
-	"sigs.k8s.io/controller-runtime/pkg/client"
 	"strings"
+
+	"sigs.k8s.io/controller-runtime/pkg/client"
 
 	"github.com/syntasso/kratix/lib/objectutil"
 
@@ -567,11 +568,17 @@ func (p *PipelineFactory) role() ([]rbacv1.Role, error) {
 		for _, r := range p.Pipeline.Spec.RBAC.Permissions {
 			rules = append(rules, r.PolicyRule)
 		}
+
+		labels := labels.Merge(
+			PromiseLabels(p.Promise),
+			WorkflowLabels(p.WorkflowType, p.WorkflowAction, p.Pipeline.GetName()),
+		)
+
 		roles = append(roles, rbacv1.Role{
 			ObjectMeta: metav1.ObjectMeta{
 				Name:      fmt.Sprintf("%s%s", p.ID, userProvidedPermissionSuffix),
 				Namespace: p.Namespace,
-				Labels:    PromiseLabels(p.Promise),
+				Labels:    labels,
 			},
 			Rules: rules,
 		})
@@ -586,7 +593,7 @@ func (p *PipelineFactory) roleBindings(roles []rbacv1.Role, serviceAccount *core
 		bindings = append(bindings, rbacv1.RoleBinding{
 			ObjectMeta: metav1.ObjectMeta{
 				Name:      role.GetName(),
-				Labels:    PromiseLabels(p.Promise),
+				Labels:    role.Labels,
 				Namespace: p.Namespace,
 			},
 			RoleRef: rbacv1.RoleRef{

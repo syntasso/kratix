@@ -18,7 +18,6 @@ import (
 	metav1 "k8s.io/apimachinery/pkg/apis/meta/v1"
 	"k8s.io/apimachinery/pkg/apis/meta/v1/unstructured"
 	"k8s.io/apimachinery/pkg/labels"
-	"k8s.io/apimachinery/pkg/types"
 	"sigs.k8s.io/controller-runtime/pkg/client"
 )
 
@@ -399,18 +398,21 @@ func createConfigurePipeline(opts Opts, pipelineIndex int, pipeline v1alpha1.Pip
 
 func getOutdatedPipelineResources(opts Opts, pipeline v1alpha1.PipelineJobResources) ([]client.Object, error) {
 	var toDelete []client.Object
+	var err error
 
-	if roleToDelete, err := getRoleToDelete(opts, pipeline); err != nil {
+	var rolesToDelete []client.Object
+	if rolesToDelete, err = getRolesToDelete(opts, pipeline); err != nil {
 		return nil, err
-	} else if roleToDelete != nil {
-		toDelete = append(toDelete, roleToDelete)
 	}
 
-	if bindingToDelete, err := getRoleBindingToDelete(opts, pipeline); err != nil {
+	toDelete = append(toDelete, rolesToDelete...)
+
+	var bindingsToDelete []client.Object
+	if bindingsToDelete, err = getRoleBindingsToDelete(opts, pipeline); err != nil {
 		return nil, err
-	} else if bindingToDelete != nil {
-		toDelete = append(toDelete, bindingToDelete)
 	}
+
+	toDelete = append(toDelete, bindingsToDelete...)
 
 	return toDelete, nil
 }
@@ -543,54 +545,104 @@ func deleteResources(opts Opts, resources ...client.Object) {
 	}
 }
 
-func getRoleToDelete(opts Opts, pipeline v1alpha1.PipelineJobResources) (*rbacv1.Role, error) {
-	existingRole := rbacv1.Role{}
-	err := opts.client.Get(opts.ctx, types.NamespacedName{
-		Name:      pipeline.UserProvidedPermissionObjectName(),
-		Namespace: pipeline.Job.GetNamespace(),
-	}, &existingRole)
+func getRolesToDelete(opts Opts, pipeline v1alpha1.PipelineJobResources) ([]client.Object, error) {
+	rolesToDelete := []client.Object{}
+	existingRoles := rbacv1.RoleList{}
+	labelSelector := labels.SelectorFromSet(map[string]string{
+		v1alpha1.PipelineNameLabel: pipeline.Name,
+		v1alpha1.PromiseNameLabel:  pipeline.Job.GetLabels()[v1alpha1.PromiseNameLabel],
+		v1alpha1.WorkTypeLabel:     pipeline.Job.GetLabels()[v1alpha1.WorkTypeLabel],
+		v1alpha1.WorkActionLabel:   pipeline.Job.GetLabels()[v1alpha1.WorkActionLabel],
+	})
+
+	listOption := client.ListOptions{
+		LabelSelector: labelSelector,
+	}
+	err := opts.client.List(opts.ctx, &existingRoles, &listOption)
 
 	if err == nil {
-		delete := true
-		for _, r := range pipeline.Shared.Roles {
-			if r.Name == pipeline.UserProvidedPermissionObjectName() {
-				delete = false
+		for _, existingRole := range existingRoles.Items {
+			delete := true
+			for _, desiredRole := range pipeline.Shared.Roles {
+				if rolesMatch(existingRole, desiredRole) {
+					delete = false
+					break
+				}
+			}
+
+			if delete {
+				rolesToDelete = append(rolesToDelete, &existingRole)
 			}
 		}
-		if delete {
-			return &existingRole, nil
-		}
-
 	} else if !errors.IsNotFound(err) {
-		opts.logger.Error(err, "failed to get user provided permission role")
+		opts.logger.Error(err, "failed to list user provided permission roles")
 		return nil, err
 	}
 
-	return nil, nil
+	return rolesToDelete, nil
 }
 
-func getRoleBindingToDelete(opts Opts, pipeline v1alpha1.PipelineJobResources) (*rbacv1.RoleBinding, error) {
-	existingRoleBinding := rbacv1.RoleBinding{}
-	err := opts.client.Get(opts.ctx, types.NamespacedName{
-		Name:      pipeline.UserProvidedPermissionObjectName(),
-		Namespace: pipeline.Job.GetNamespace(),
-	}, &existingRoleBinding)
+func rolesMatch(existingRole rbacv1.Role, desiredRole rbacv1.Role) bool {
+	if len(existingRole.Rules) != len(desiredRole.Rules) {
+		return false
+	}
+
+	for i, existingRule := range existingRole.Rules {
+		if existingRule.String() != desiredRole.Rules[i].String() {
+			return false
+		}
+	}
+
+	return true
+}
+
+func getRoleBindingsToDelete(opts Opts, pipeline v1alpha1.PipelineJobResources) ([]client.Object, error) {
+	roleBindingsToDelete := []client.Object{}
+	existingRoleBindings := rbacv1.RoleBindingList{}
+	labelSelector := labels.SelectorFromSet(map[string]string{
+		v1alpha1.PipelineNameLabel: pipeline.Name,
+		v1alpha1.PromiseNameLabel:  pipeline.Job.GetLabels()[v1alpha1.PromiseNameLabel],
+		v1alpha1.WorkTypeLabel:     pipeline.Job.GetLabels()[v1alpha1.WorkTypeLabel],
+		v1alpha1.WorkActionLabel:   pipeline.Job.GetLabels()[v1alpha1.WorkActionLabel],
+	})
+
+	listOption := client.ListOptions{
+		LabelSelector: labelSelector,
+	}
+	err := opts.client.List(opts.ctx, &existingRoleBindings, &listOption)
 
 	if err == nil {
-		delete := true
-		for _, r := range pipeline.Shared.RoleBindings {
-			if r.Name == pipeline.UserProvidedPermissionObjectName() {
-				delete = false
+		for _, existingRoleBinding := range existingRoleBindings.Items {
+			delete := true
+			for _, desiredRoleBinding := range pipeline.Shared.RoleBindings {
+				if roleBindingsMatch(existingRoleBinding, desiredRoleBinding) {
+					delete = false
+					break
+				}
+			}
+
+			if delete {
+				roleBindingsToDelete = append(roleBindingsToDelete, &existingRoleBinding)
 			}
 		}
-		if delete {
-			return &existingRoleBinding, nil
-		}
-
 	} else if !errors.IsNotFound(err) {
-		opts.logger.Error(err, "failed to get user provided permission role binding")
+		opts.logger.Error(err, "failed to list user provided permission role bindings")
 		return nil, err
 	}
 
-	return nil, nil
+	return roleBindingsToDelete, nil
+}
+
+func roleBindingsMatch(existingRoleBinding rbacv1.RoleBinding, desiredRoleBinding rbacv1.RoleBinding) bool {
+	if len(existingRoleBinding.Subjects) != len(desiredRoleBinding.Subjects) {
+		return false
+	}
+
+	for i, existingSubject := range existingRoleBinding.Subjects {
+		if existingSubject.String() != desiredRoleBinding.Subjects[i].String() {
+			return false
+		}
+	}
+
+	return existingRoleBinding.RoleRef.String() != desiredRoleBinding.RoleRef.String()
 }

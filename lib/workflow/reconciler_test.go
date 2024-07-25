@@ -374,8 +374,15 @@ var _ = Describe("Workflow Reconciler", func() {
 			BeforeEach(func() {
 				role := &rbacv1.Role{
 					ObjectMeta: metav1.ObjectMeta{
-						Name:      fmt.Sprintf("%s-promise-configure-%s-up", promise.GetName(), pipelines[0].Name),
+						Name:      "perm-test",
 						Namespace: namespace,
+						Labels: map[string]string{
+							// TODO: use actual variables for label names
+							"kratix.io/promise-name":  promise.GetName(),
+							"kratix.io/pipeline-name": pipelines[0].Name,
+							"kratix.io/work-type":     "promise",
+							"kratix.io/work-action":   "configure",
+						},
 					},
 					Rules: []rbacv1.PolicyRule{
 						{
@@ -392,6 +399,33 @@ var _ = Describe("Workflow Reconciler", func() {
 				}
 
 				Expect(fakeK8sClient.Create(ctx, role)).To(Succeed())
+
+				roleBinding := &rbacv1.RoleBinding{
+					ObjectMeta: metav1.ObjectMeta{
+						Name:      "perm-test",
+						Namespace: namespace,
+						Labels: map[string]string{
+							"kratix.io/promise-name":  promise.GetName(),
+							"kratix.io/pipeline-name": pipelines[0].Name,
+							"kratix.io/work-type":     "promise",
+							"kratix.io/work-action":   "configure",
+						},
+					},
+					RoleRef: rbacv1.RoleRef{
+						APIGroup: "rbac.authorization.k8s.io",
+						Kind:     "Role",
+						Name:     "perm-test",
+					},
+					Subjects: []rbacv1.Subject{
+						{
+							Kind:      "ServiceAccount",
+							Name:      "default",
+							Namespace: namespace,
+						},
+					},
+				}
+
+				Expect(fakeK8sClient.Create(ctx, roleBinding)).To(Succeed())
 			})
 
 			When("pipeline permissions are removed", func() {
@@ -409,14 +443,14 @@ var _ = Describe("Workflow Reconciler", func() {
 				It("removes role and role binding", func() {
 					role := &rbacv1.Role{}
 					Expect(fakeK8sClient.Get(ctx, types.NamespacedName{
-						Name:      fmt.Sprintf("%s-promise-configure-%s-up", promise.GetName(), updatedWorkflowPipeline[0].Name),
+						Name:      "perm-test",
 						Namespace: namespace},
 						role,
 					)).To(MatchError(ContainSubstring("not found")))
 
 					binding := &rbacv1.RoleBinding{}
 					Expect(fakeK8sClient.Get(ctx, types.NamespacedName{
-						Name:      fmt.Sprintf("%s-promise-configure-%s-up", promise.GetName(), updatedWorkflowPipeline[0].Name),
+						Name:      "perm-test",
 						Namespace: namespace},
 						binding,
 					)).To(MatchError(ContainSubstring("not found")))
@@ -443,12 +477,16 @@ var _ = Describe("Workflow Reconciler", func() {
 				})
 
 				It("updates user provided permission role", func() {
-					role := &rbacv1.Role{}
-					Expect(fakeK8sClient.Get(ctx, types.NamespacedName{
-						Name:      fmt.Sprintf("%s-promise-configure-%s-up", promise.GetName(), updatedWorkflowPipeline[0].Name),
-						Namespace: namespace},
-						role,
-					)).To(Succeed())
+					roles := &rbacv1.RoleList{}
+					Expect(fakeK8sClient.List(ctx, roles, client.MatchingLabels(labels.Set{
+						"kratix.io/promise-name":  promise.GetName(),
+						"kratix.io/pipeline-name": pipelines[0].Name,
+						"kratix.io/work-type":     "promise",
+						"kratix.io/work-action":   "configure",
+					}))).To(Succeed())
+
+					Expect(roles.Items).To(HaveLen(1))
+					role := &roles.Items[0]
 
 					Expect(role.Rules).To(HaveLen(1))
 					Expect(role.Rules[0].Verbs).To(ConsistOf("list"))
