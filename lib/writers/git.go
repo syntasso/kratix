@@ -219,7 +219,7 @@ func (g *GitWriter) ReadFile(filePath string) ([]byte, error) {
 	defer os.RemoveAll(filepath.Dir(localTmpDir))
 
 	if _, err := worktree.Filesystem.Lstat(fullPath); err != nil {
-		logger.Error(err, "could not stat file")
+		logger.Info("could not stat file", "err", err)
 		return nil, FileNotFound
 	}
 
