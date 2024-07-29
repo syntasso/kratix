@@ -268,14 +268,16 @@ var _ = Describe("Kratix", func() {
 		})
 
 		Describe("Resource requests", func() {
-			It("executes the pipelines and schedules the work to the appropriate destinations", func() {
+			BeforeEach(func() {
 				platform.eventuallyKubectl("apply", "-f", cat(bashPromise))
 				platform.eventuallyKubectl("get", "crd", crd.Name)
 				worker.eventuallyKubectl("get", "namespace", declarativeWorkerNamespace)
 
-				platform.eventuallyKubectl("delete", "namespace", "pipeline-perms-ns")
+				platform.kubectlForce("delete", "namespace", "pipeline-perms-ns")
 				platform.eventuallyKubectl("create", "namespace", "pipeline-perms-ns")
+			})
 
+			It("executes the pipelines and schedules the work to the appropriate destinations", func() {
 				rrName := bashPromiseName + "rr-test"
 				platform.kubectl("apply", "-f", exampleBashRequest(rrName, "old"))
 
@@ -930,6 +932,17 @@ func (c destination) kubectl(args ...string) string {
 	} else {
 		EventuallyWithOffset(1, session, timeout, interval).Should(gexec.Exit(0))
 	}
+	return string(session.Out.Contents())
+}
+
+// run command and return stdout. Ignores the exit code
+func (c destination) kubectlForce(args ...string) string {
+	args = append(args, "--context="+c.context)
+	command := exec.Command("kubectl", args...)
+	session, err := gexec.Start(command, GinkgoWriter, GinkgoWriter)
+	fmt.Fprintf(GinkgoWriter, "Running: kubectl %s\n", strings.Join(args, " "))
+	ExpectWithOffset(1, err).ShouldNot(HaveOccurred())
+	EventuallyWithOffset(1, session, timeout, interval).Should(gexec.Exit())
 	return string(session.Out.Contents())
 }
 
