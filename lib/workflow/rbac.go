@@ -1,6 +1,8 @@
 package workflow
 
 import (
+	"reflect"
+
 	"github.com/syntasso/kratix/api/v1alpha1"
 	rbacv1 "k8s.io/api/rbac/v1"
 	"k8s.io/apimachinery/pkg/api/errors"
@@ -8,18 +10,19 @@ import (
 	"sigs.k8s.io/controller-runtime/pkg/client"
 )
 
-func getObjectsToCreate(opts Opts, resourcesObjects []client.Object, objectsToSkip []client.Object) []client.Object {
+func filterObjectsToCreate(opts Opts, resourcesObjects []client.Object, objectsToSkip []client.Object) []client.Object {
 	var objectsToCreate []client.Object
 	for _, resource := range resourcesObjects {
 		found := false
 		for _, skip := range objectsToSkip {
-			if resourcesMatchNamespacedNameAndGVK(resource, skip) {
-				opts.logger.Info("Skipping resource because it already exists", "name", resource.GetName(), "namespace", resource.GetNamespace(), "gvk", resource.GetObjectKind().GroupVersionKind())
+			if resourcesMatchNamespacedNameAndType(resource, skip) {
+				opts.logger.Info("Skipping resource because it already exists", "type", reflect.TypeOf(resource), "name", resource.GetName(), "namespace", resource.GetNamespace(), "gvk", resource.GetObjectKind().GroupVersionKind().String())
 				found = true
 				break
 			}
 		}
 		if !found {
+			opts.logger.Info("Will create resource", "type", reflect.TypeOf(resource), "name", resource.GetName(), "namespace", resource.GetNamespace(), "gvk", resource.GetObjectKind().GroupVersionKind().String())
 			objectsToCreate = append(objectsToCreate, resource)
 		}
 	}
@@ -44,15 +47,6 @@ func getObjectsToDeleteOrSkip(opts Opts, pipeline v1alpha1.PipelineJobResources)
 	toDelete = append(toDelete, rolesToDelete...)
 	toSkip = append(toSkip, rolesToSkip...)
 
-	var roleBindingsToDelete []client.Object
-	var roleBindingsToSkip []client.Object
-	if roleBindingsToDelete, roleBindingsToSkip, err = getRoleBindingsToDeleteOrSkip(opts, pipeline.Shared.RoleBindings, listOptions); err != nil {
-		return nil, nil, err
-	}
-
-	toDelete = append(toDelete, roleBindingsToDelete...)
-	toSkip = append(toSkip, roleBindingsToSkip...)
-
 	var clusterRolesToDelete []client.Object
 	var clusterRolesToSkip []client.Object
 	if clusterRolesToDelete, clusterRolesToSkip, err = getClusterRolesToDeleteOrSkip(opts, pipeline.Shared.ClusterRoles, listOptions); err != nil {
@@ -61,6 +55,17 @@ func getObjectsToDeleteOrSkip(opts Opts, pipeline v1alpha1.PipelineJobResources)
 
 	toDelete = append(toDelete, clusterRolesToDelete...)
 	toSkip = append(toSkip, clusterRolesToSkip...)
+
+	var roleBindingsToDelete []client.Object
+	var roleBindingsToSkip []client.Object
+	// TODO: we could pass in the toDelete and toSkip here, so we can make the comparison
+	// logic better (with the roleRef)
+	if roleBindingsToDelete, roleBindingsToSkip, err = getRoleBindingsToDeleteOrSkip(opts, pipeline.Shared.RoleBindings, listOptions); err != nil {
+		return nil, nil, err
+	}
+
+	toDelete = append(toDelete, roleBindingsToDelete...)
+	toSkip = append(toSkip, roleBindingsToSkip...)
 
 	var clusterRoleBindingsToDelete []client.Object
 	var clusterRoleBindingsToSkip []client.Object
@@ -74,10 +79,11 @@ func getObjectsToDeleteOrSkip(opts Opts, pipeline v1alpha1.PipelineJobResources)
 	return toDelete, toSkip, nil
 }
 
-func resourcesMatchNamespacedNameAndGVK(a, b client.Object) bool {
+func resourcesMatchNamespacedNameAndType(a, b client.Object) bool {
+	// NOTE: GVK not present on the objects, therefore using type as a workaround for comparison
 	return a.GetName() == b.GetName() &&
 		a.GetNamespace() == b.GetNamespace() &&
-		a.GetObjectKind().GroupVersionKind() == b.GetObjectKind().GroupVersionKind()
+		reflect.TypeOf(a) == reflect.TypeOf(b)
 }
 
 func getRolesToDeleteOrSkip(opts Opts, desiredRoles []rbacv1.Role, listOptions client.ListOptions) ([]client.Object, []client.Object, error) {
@@ -99,6 +105,7 @@ func getRolesToDeleteOrSkip(opts Opts, desiredRoles []rbacv1.Role, listOptions c
 			}
 
 			if delete {
+				opts.logger.Info("No matching role found, deleting", "role", existingRole.Name)
 				rolesToDelete = append(rolesToDelete, &existingRole)
 			}
 		}
@@ -143,6 +150,7 @@ func getRoleBindingsToDeleteOrSkip(opts Opts, desiredRoleBindings []rbacv1.RoleB
 			}
 
 			if delete {
+				opts.logger.Info("No matching role binding found, deleting", "roleBinding", existingRoleBinding.Name)
 				roleBindingsToDelete = append(roleBindingsToDelete, &existingRoleBinding)
 			}
 		}
@@ -234,6 +242,7 @@ func getClusterRoleBindingsToDeleteOrSkip(opts Opts, desiredClusterRoleBindings 
 			}
 
 			if delete {
+				opts.logger.Info("No matching cluster role binding found, deleting", "clusterRoleBinding", existingClusterRoleBinding.Name)
 				clusterRoleBindingsToDelete = append(clusterRoleBindingsToDelete, &existingClusterRoleBinding)
 			}
 		}

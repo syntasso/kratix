@@ -59,7 +59,7 @@ func deleteAllResourcesWithKindMatchingLabel(o opts, gvk schema.GroupVersionKind
 
 	for _, resource := range resourceList.Items {
 		err = o.client.Delete(o.ctx, &resource, client.PropagationPolicy(metav1.DeletePropagationBackground))
-		o.logger.Info("deleting resource", "res", resource.GetName(), "gvk", resource.GroupVersionKind())
+		o.logger.Info("deleting resource", "res", resource.GetName(), "gvk", resource.GroupVersionKind().String())
 		if err != nil && !errors.IsNotFound(err) {
 			o.logger.Error(err, "Error deleting resource, will try again in 5 seconds", "name", resource.GetName(), "kind", resource.GetKind())
 			return true, err

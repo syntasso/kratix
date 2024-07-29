@@ -383,7 +383,7 @@ func createConfigurePipeline(opts Opts, pipelineIndex int, resources v1alpha1.Pi
 		return false, err
 	}
 
-	objectsToCreate := getObjectsToCreate(opts, resources.GetObjects(), objectsToSkip)
+	objectsToCreate := filterObjectsToCreate(opts, resources.GetObjects(), objectsToSkip)
 
 	deleteResources(opts, objectToDelete...)
 	applyResources(opts, append(objectsToCreate, resources.Job)...)
@@ -474,7 +474,7 @@ func applyResources(opts Opts, resources ...client.Object) {
 	opts.logger.Info("Reconciling pipeline resources")
 
 	for _, resource := range resources {
-		logger := opts.logger.WithValues("type", reflect.TypeOf(resource), "gvk", resource.GetObjectKind().GroupVersionKind(), "name", resource.GetName(), "namespace", resource.GetNamespace(), "labels", resource.GetLabels())
+		logger := opts.logger.WithValues("type", reflect.TypeOf(resource), "gvk", resource.GetObjectKind().GroupVersionKind().String(), "name", resource.GetName(), "namespace", resource.GetNamespace(), "labels", resource.GetLabels())
 
 		logger.Info("Reconciling resource")
 		if err := opts.client.Create(opts.ctx, resource); err != nil {
@@ -511,8 +511,8 @@ func applyResources(opts Opts, resources ...client.Object) {
 
 func deleteResources(opts Opts, resources ...client.Object) {
 	for _, resource := range resources {
-		logger := opts.logger.WithValues("gvk", resource.GetObjectKind().GroupVersionKind(), "name", resource.GetName(), "namespace", resource.GetNamespace(), "labels", resource.GetLabels())
-		logger.Info("Reconciling")
+		logger := opts.logger.WithValues("type", reflect.TypeOf(resource), "gvk", resource.GetObjectKind().GroupVersionKind().String(), "name", resource.GetName(), "namespace", resource.GetNamespace(), "labels", resource.GetLabels())
+		logger.Info("Deleting resource")
 		if err := opts.client.Delete(opts.ctx, resource); err != nil {
 			if errors.IsNotFound(err) {
 				logger.Info("Resource already deleted")
