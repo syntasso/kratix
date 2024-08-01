@@ -552,6 +552,10 @@ func (p *PipelineFactory) role() ([]rbacv1.Role, error) {
 				Labels:    PromiseLabels(p.Promise),
 				Namespace: p.Namespace,
 			},
+			TypeMeta: metav1.TypeMeta{
+				APIVersion: rbacv1.SchemeGroupVersion.String(),
+				Kind:       "Role",
+			},
 			Rules: []rbacv1.PolicyRule{
 				{
 					APIGroups: []string{crd.Spec.Group},
@@ -575,17 +579,16 @@ func (p *PipelineFactory) role() ([]rbacv1.Role, error) {
 			}
 		}
 
-		labels := labels.Merge(
-			PromiseLabels(p.Promise),
-			WorkflowLabels(p.WorkflowType, p.WorkflowAction, p.Pipeline.GetName()),
-		)
-
 		if len(rules) > 0 {
 			roles = append(roles, rbacv1.Role{
 				ObjectMeta: metav1.ObjectMeta{
 					Name:      objectutil.GenerateDeterministicObjectName(p.ID),
 					Namespace: p.Namespace,
-					Labels:    labels,
+					Labels:    p.userPermissionPipelineLabels(),
+				},
+				TypeMeta: metav1.TypeMeta{
+					APIVersion: rbacv1.SchemeGroupVersion.String(),
+					Kind:       "Role",
 				},
 				Rules: rules,
 			})
@@ -603,6 +606,10 @@ func (p *PipelineFactory) roleBindings(roles []rbacv1.Role, clusterRoles []rbacv
 				Name:      role.GetName(),
 				Labels:    role.Labels,
 				Namespace: p.Namespace,
+			},
+			TypeMeta: metav1.TypeMeta{
+				APIVersion: rbacv1.SchemeGroupVersion.String(),
+				Kind:       "RoleBinding",
 			},
 			RoleRef: rbacv1.RoleRef{
 				Kind:     "Role",
@@ -628,6 +635,10 @@ func (p *PipelineFactory) roleBindings(roles []rbacv1.Role, clusterRoles []rbacv
 					Name:      objectutil.GenerateDeterministicObjectName(p.ID + "-" + ns),
 					Namespace: ns,
 					Labels:    labels,
+				},
+				TypeMeta: metav1.TypeMeta{
+					APIVersion: rbacv1.SchemeGroupVersion.String(),
+					Kind:       "RoleBinding",
 				},
 				RoleRef: rbacv1.RoleRef{
 					Kind:     "ClusterRole",
@@ -660,6 +671,10 @@ func (p *PipelineFactory) clusterRole() []rbacv1.ClusterRole {
 				Name:   p.ID,
 				Labels: PromiseLabels(p.Promise),
 			},
+			TypeMeta: metav1.TypeMeta{
+				APIVersion: rbacv1.SchemeGroupVersion.String(),
+				Kind:       "ClusterRole",
+			},
 			Rules: []rbacv1.PolicyRule{
 				{
 					APIGroups: []string{GroupVersion.Group},
@@ -682,10 +697,7 @@ func (p *PipelineFactory) clusterRole() []rbacv1.ClusterRole {
 		}
 
 		for namespace, rules := range namespaceRulesMap {
-			labels := labels.Merge(
-				PromiseLabels(p.Promise),
-				WorkflowLabels(p.WorkflowType, p.WorkflowAction, p.Pipeline.GetName()),
-			)
+			labels := p.userPermissionPipelineLabels()
 			userPermissionResourceNamespaceLabel := namespace
 			labels[UserPermissionResourceNamespaceLabel] = namespace
 			if namespace == "*" {
@@ -699,6 +711,10 @@ func (p *PipelineFactory) clusterRole() []rbacv1.ClusterRole {
 				ObjectMeta: metav1.ObjectMeta{
 					Name:   generatedName,
 					Labels: labels,
+				},
+				TypeMeta: metav1.TypeMeta{
+					APIVersion: rbacv1.SchemeGroupVersion.String(),
+					Kind:       "ClusterRole",
 				},
 				Rules: rules,
 			}
@@ -719,6 +735,10 @@ func (p *PipelineFactory) clusterRoleBinding(clusterRoles []rbacv1.ClusterRole, 
 					Name:   r.GetName(),
 					Labels: PromiseLabels(p.Promise),
 				},
+				TypeMeta: metav1.TypeMeta{
+					APIVersion: rbacv1.SchemeGroupVersion.String(),
+					Kind:       "ClusterRoleBinding",
+				},
 				RoleRef: rbacv1.RoleRef{
 					Kind:     "ClusterRole",
 					APIGroup: rbacv1.GroupName,
@@ -735,11 +755,12 @@ func (p *PipelineFactory) clusterRoleBinding(clusterRoles []rbacv1.ClusterRole, 
 		} else if ns == userPermissionResourceNamespaceLabelAll {
 			clusterRoleBindings = append(clusterRoleBindings, rbacv1.ClusterRoleBinding{
 				ObjectMeta: metav1.ObjectMeta{
-					Name: objectutil.GenerateDeterministicObjectName(p.ID),
-					Labels: labels.Merge(
-						PromiseLabels(p.Promise),
-						WorkflowLabels(p.WorkflowType, p.WorkflowAction, p.Pipeline.GetName()),
-					),
+					Name:   objectutil.GenerateDeterministicObjectName(p.ID),
+					Labels: p.userPermissionPipelineLabels(),
+				},
+				TypeMeta: metav1.TypeMeta{
+					APIVersion: rbacv1.SchemeGroupVersion.String(),
+					Kind:       "ClusterRoleBinding",
 				},
 				RoleRef: rbacv1.RoleRef{
 					Kind:     "ClusterRole",
@@ -757,6 +778,13 @@ func (p *PipelineFactory) clusterRoleBinding(clusterRoles []rbacv1.ClusterRole, 
 		}
 	}
 	return clusterRoleBindings
+}
+
+func (p *PipelineFactory) userPermissionPipelineLabels() map[string]string {
+	return labels.Merge(
+		PromiseLabels(p.Promise),
+		WorkflowLabels(p.WorkflowType, p.WorkflowAction, p.Pipeline.GetName()),
+	)
 }
 
 func PromiseLabels(promise *Promise) map[string]string {

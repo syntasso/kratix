@@ -15,7 +15,7 @@ func filterObjectsToCreate(opts Opts, resourcesObjects []client.Object, objectsT
 	for _, resource := range resourcesObjects {
 		found := false
 		for _, skip := range objectsToSkip {
-			if resourcesMatchNamespacedNameAndType(resource, skip) {
+			if resourcesMatchNamespacedNameAndGVK(resource, skip) {
 				opts.logger.Info("Skipping resource because it already exists", "type", reflect.TypeOf(resource), "name", resource.GetName(), "namespace", resource.GetNamespace(), "gvk", resource.GetObjectKind().GroupVersionKind().String())
 				found = true
 				break
@@ -79,11 +79,10 @@ func getObjectsToDeleteOrSkip(opts Opts, pipeline v1alpha1.PipelineJobResources)
 	return toDelete, toSkip, nil
 }
 
-func resourcesMatchNamespacedNameAndType(a, b client.Object) bool {
-	// NOTE: GVK not present on the objects, therefore using type as a workaround for comparison
+func resourcesMatchNamespacedNameAndGVK(a, b client.Object) bool {
 	return a.GetName() == b.GetName() &&
 		a.GetNamespace() == b.GetNamespace() &&
-		reflect.TypeOf(a) == reflect.TypeOf(b)
+		a.GetObjectKind().GroupVersionKind().String() == b.GetObjectKind().GroupVersionKind().String()
 }
 
 func getRolesToDeleteOrSkip(opts Opts, desiredRoles []rbacv1.Role, listOptions client.ListOptions) ([]client.Object, []client.Object, error) {
