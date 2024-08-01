@@ -840,7 +840,7 @@ var _ = Describe("Pipeline", func() {
 				})
 			})
 
-			When("resource namespace is a specific namespace and all namespaces", func() {
+			When("there are both specific- and all-namespace resource namespaces", func() {
 				It("should create a cluster role and role binding for the specific namespace and a cluster role and cluster role binding for all namespaces", func() {
 					factory.Pipeline.Spec.RBAC.Permissions = []v1alpha1.Permission{
 						{
@@ -875,64 +875,198 @@ var _ = Describe("Pipeline", func() {
 					Expect(err).ToNot(HaveOccurred())
 					Expect(resources.Name).To(Equal(pipeline.GetName()))
 
-					Expect(resources.Shared.Roles).To(HaveLen(1))
 					Expect(resources.Shared.RoleBindings).To(HaveLen(2))
 					Expect(resources.Shared.ClusterRoles).To(HaveLen(3))
 					Expect(resources.Shared.ClusterRoleBindings).To(HaveLen(2))
 
-					By("creating the role and role binding in the pipeline namespace")
-					Expect(resources.Shared.Roles[0].Rules).To(ConsistOf(rbacv1.PolicyRule{
-						Verbs:         []string{"watch", "create"},
-						APIGroups:     []string{"", "apps"},
-						Resources:     []string{"deployments", "deployments/status"},
-						ResourceNames: []string{"a-deployment", "b-deployment"},
-					}))
+					By("creating the role in the pipeline namespace")
+					Expect(resources.Shared.Roles).To(ConsistOf(
+						MatchFields(IgnoreExtras, Fields{
+							"ObjectMeta": MatchFields(IgnoreExtras, Fields{
+								"Name":      MatchRegexp(fmt.Sprintf(`^%s-\b\w{5}\b$`, factory.ID)),
+								"Namespace": Equal(factory.Namespace),
+							}),
+							"Rules": ConsistOf(rbacv1.PolicyRule{
+								Verbs:         []string{"watch", "create"},
+								APIGroups:     []string{"", "apps"},
+								Resources:     []string{"deployments", "deployments/status"},
+								ResourceNames: []string{"a-deployment", "b-deployment"},
+							}),
+						}),
+					))
 					matchUserPermissionsLabels(&resources, resources.Shared.Roles[0].GetLabels())
-					Expect(resources.Shared.RoleBindings[0].RoleRef.Name).To(Equal(resources.Shared.Roles[0].GetName()))
-					Expect(resources.Shared.RoleBindings[0].Namespace).To(Equal("factoryNamespace"))
-					Expect(resources.Shared.RoleBindings[0].RoleRef.Kind).To(Equal("Role"))
-					Expect(resources.Shared.RoleBindings[0].RoleRef.APIGroup).To(Equal("rbac.authorization.k8s.io"))
-					Expect(resources.Shared.RoleBindings[0].Subjects).To(ConsistOf(rbacv1.Subject{
-						Kind:      rbacv1.ServiceAccountKind,
-						Namespace: resources.Shared.ServiceAccount.GetNamespace(),
-						Name:      resources.Shared.ServiceAccount.GetName(),
-					}))
 
-					By("creating the cluster role and role binding for the specific namespace")
-					Expect(resources.Shared.ClusterRoles[1].Rules).To(ConsistOf(rbacv1.PolicyRule{
-						Verbs:         []string{"watch", "create"},
-						APIGroups:     []string{"", "apps"},
-						Resources:     []string{"deployments", "deployments/status"},
-						ResourceNames: []string{"c-deployment", "d-deployment"},
-					}))
-					matchUserPermissionsLabels(&resources, resources.Shared.ClusterRoles[1].GetLabels())
-					Expect(resources.Shared.RoleBindings[1].RoleRef.Name).To(Equal(resources.Shared.ClusterRoles[1].GetName()))
-					Expect(resources.Shared.RoleBindings[1].Namespace).To(Equal("specific-namespace"))
-					Expect(resources.Shared.RoleBindings[1].RoleRef.Kind).To(Equal("ClusterRole"))
-					Expect(resources.Shared.RoleBindings[1].RoleRef.APIGroup).To(Equal("rbac.authorization.k8s.io"))
-					Expect(resources.Shared.RoleBindings[1].Subjects).To(ConsistOf(rbacv1.Subject{
-						Kind:      rbacv1.ServiceAccountKind,
-						Namespace: resources.Shared.ServiceAccount.GetNamespace(),
-						Name:      resources.Shared.ServiceAccount.GetName(),
-					}))
+					By("creating the role bindings for the pipeline and specific namespace")
+					Expect(resources.Shared.RoleBindings).To(ConsistOf(
+						MatchFields(IgnoreExtras, Fields{
+							"ObjectMeta": MatchFields(IgnoreExtras, Fields{
+								"Name":      MatchRegexp(fmt.Sprintf(`^%s-\b\w{5}\b$`, factory.ID)),
+								"Namespace": Equal(factory.Namespace),
+							}),
+							"RoleRef": MatchFields(IgnoreExtras, Fields{
+								"Name":     MatchRegexp(fmt.Sprintf(`^%s-\b\w{5}\b$`, factory.ID)),
+								"Kind":     Equal("Role"),
+								"APIGroup": Equal("rbac.authorization.k8s.io"),
+							}),
+							"Subjects": ConsistOf(rbacv1.Subject{
+								Kind:      rbacv1.ServiceAccountKind,
+								Namespace: resources.Shared.ServiceAccount.GetNamespace(),
+								Name:      resources.Shared.ServiceAccount.GetName(),
+							}),
+						}),
+						MatchFields(IgnoreExtras, Fields{
+							"ObjectMeta": MatchFields(IgnoreExtras, Fields{
+								"Name":      MatchRegexp(fmt.Sprintf(`^%s-%s-\b\w{5}\b$`, factory.ID, "specific-namespace")),
+								"Namespace": Equal("specific-namespace"),
+							}),
+							"RoleRef": MatchFields(IgnoreExtras, Fields{
+								"Name":     MatchRegexp(fmt.Sprintf(`^%s-%s-\b\w{5}\b$`, factory.ID, "specific-namespace")),
+								"Kind":     Equal("ClusterRole"),
+								"APIGroup": Equal("rbac.authorization.k8s.io"),
+							}),
+							"Subjects": ConsistOf(rbacv1.Subject{
+								Kind:      rbacv1.ServiceAccountKind,
+								Namespace: resources.Shared.ServiceAccount.GetNamespace(),
+								Name:      resources.Shared.ServiceAccount.GetName(),
+							}),
+						}),
+					))
 
-					By("creating the cluster role and cluster role binding for all namespaces")
-					Expect(resources.Shared.ClusterRoles[2].Rules).To(ConsistOf(rbacv1.PolicyRule{
-						Verbs:         []string{"watch", "create"},
-						APIGroups:     []string{"", "apps"},
-						Resources:     []string{"deployments", "deployments/status"},
-						ResourceNames: []string{"e-deployment", "f-deployment"},
-					}))
-					matchUserPermissionsLabels(&resources, resources.Shared.ClusterRoles[2].GetLabels())
-					Expect(resources.Shared.ClusterRoleBindings[1].RoleRef.Name).To(Equal(resources.Shared.ClusterRoles[2].GetName()))
-					Expect(resources.Shared.ClusterRoleBindings[1].RoleRef.Kind).To(Equal("ClusterRole"))
-					Expect(resources.Shared.ClusterRoleBindings[1].RoleRef.APIGroup).To(Equal("rbac.authorization.k8s.io"))
-					Expect(resources.Shared.ClusterRoleBindings[1].Subjects).To(ConsistOf(rbacv1.Subject{
-						Kind:      rbacv1.ServiceAccountKind,
-						Namespace: resources.Shared.ServiceAccount.GetNamespace(),
-						Name:      resources.Shared.ServiceAccount.GetName(),
-					}))
+					By("creating a cluster role for the specific- and all-namespace permissions, and the promise permissions")
+					Expect(resources.Shared.ClusterRoles).To(ConsistOf(
+						MatchFields(IgnoreExtras, Fields{
+							"ObjectMeta": MatchFields(IgnoreExtras, Fields{
+								"Name": Equal(factory.ID),
+								"Labels": SatisfyAll(
+									HaveKeyWithValue(v1alpha1.PromiseNameLabel, promise.GetName()),
+									HaveLen(1),
+								),
+							}),
+							"Rules": ConsistOf(rbacv1.PolicyRule{
+								Verbs:     []string{"get", "list", "update", "create", "patch"},
+								APIGroups: []string{v1alpha1.GroupVersion.Group},
+								Resources: []string{v1alpha1.PromisePlural, v1alpha1.PromisePlural + "/status", "works"},
+							}),
+						}),
+						MatchFields(IgnoreExtras, Fields{
+							"ObjectMeta": MatchFields(IgnoreExtras, Fields{
+								"Name": MatchRegexp(fmt.Sprintf(`^%s-%s-\b\w{5}\b$`, factory.ID, "specific-namespace")),
+								"Labels": SatisfyAll(
+									HaveKeyWithValue(v1alpha1.PromiseNameLabel, promise.GetName()),
+									HaveKeyWithValue(v1alpha1.WorkTypeLabel, "fakeType"),
+									HaveKeyWithValue(v1alpha1.WorkActionLabel, "fakeAction"),
+									HaveKeyWithValue(v1alpha1.PipelineNameLabel, factory.Pipeline.Name),
+									HaveKeyWithValue(v1alpha1.UserPermissionResourceNamespaceLabel, "specific-namespace"),
+									HaveLen(5),
+								),
+							}),
+							"Rules": ConsistOf(rbacv1.PolicyRule{
+								Verbs:         []string{"watch", "create"},
+								APIGroups:     []string{"", "apps"},
+								Resources:     []string{"deployments", "deployments/status"},
+								ResourceNames: []string{"c-deployment", "d-deployment"},
+							}),
+						}),
+						MatchFields(IgnoreExtras, Fields{
+							"ObjectMeta": MatchFields(IgnoreExtras, Fields{
+								"Name": MatchRegexp(fmt.Sprintf(`^%s-%s-\b\w{5}\b$`, factory.ID, "kratix-all-namespaces")),
+								"Labels": SatisfyAll(
+									HaveKeyWithValue(v1alpha1.PromiseNameLabel, promise.GetName()),
+									HaveKeyWithValue(v1alpha1.WorkTypeLabel, "fakeType"),
+									HaveKeyWithValue(v1alpha1.WorkActionLabel, "fakeAction"),
+									HaveKeyWithValue(v1alpha1.PipelineNameLabel, factory.Pipeline.Name),
+									HaveKeyWithValue(v1alpha1.UserPermissionResourceNamespaceLabel, "kratix_all_namespaces"),
+									HaveLen(5),
+								),
+							}),
+							"Rules": ConsistOf(rbacv1.PolicyRule{
+								Verbs:         []string{"watch", "create"},
+								APIGroups:     []string{"", "apps"},
+								Resources:     []string{"deployments", "deployments/status"},
+								ResourceNames: []string{"e-deployment", "f-deployment"},
+							}),
+						}),
+					))
+
+					By("creating the cluster role binding for all namespaces, and the promise permissions")
+					Expect(resources.Shared.ClusterRoleBindings).To(ConsistOf(
+						MatchFields(IgnoreExtras, Fields{
+							"ObjectMeta": MatchFields(IgnoreExtras, Fields{
+								"Name": MatchRegexp(fmt.Sprintf(`^%s-\b\w{5}\b$`, factory.ID)),
+								"Labels": SatisfyAll(
+									HaveKeyWithValue(v1alpha1.PromiseNameLabel, promise.GetName()),
+									HaveKeyWithValue(v1alpha1.WorkTypeLabel, "fakeType"),
+									HaveKeyWithValue(v1alpha1.WorkActionLabel, "fakeAction"),
+									HaveKeyWithValue(v1alpha1.PipelineNameLabel, factory.Pipeline.Name),
+									HaveLen(4),
+								),
+							}),
+							"RoleRef": MatchFields(IgnoreExtras, Fields{
+								"Name":     MatchRegexp(fmt.Sprintf(`^%s-%s-\b\w{5}\b$`, factory.ID, "kratix-all-namespaces")),
+								"Kind":     Equal("ClusterRole"),
+								"APIGroup": Equal("rbac.authorization.k8s.io"),
+							}),
+							"Subjects": ConsistOf(rbacv1.Subject{
+								Kind:      rbacv1.ServiceAccountKind,
+								Namespace: resources.Shared.ServiceAccount.GetNamespace(),
+								Name:      resources.Shared.ServiceAccount.GetName(),
+							}),
+						}),
+						MatchFields(IgnoreExtras, Fields{
+							"ObjectMeta": MatchFields(IgnoreExtras, Fields{
+								"Name": Equal(factory.ID),
+								"Labels": SatisfyAll(
+									HaveKeyWithValue(v1alpha1.PromiseNameLabel, promise.GetName()),
+									HaveLen(1),
+								),
+							}),
+							"RoleRef": MatchFields(IgnoreExtras, Fields{
+								"Name":     Equal(factory.ID),
+								"Kind":     Equal("ClusterRole"),
+								"APIGroup": Equal("rbac.authorization.k8s.io"),
+							}),
+							"Subjects": ConsistOf(rbacv1.Subject{
+								Kind:      rbacv1.ServiceAccountKind,
+								Namespace: resources.Shared.ServiceAccount.GetNamespace(),
+								Name:      resources.Shared.ServiceAccount.GetName(),
+							}),
+						}),
+					))
 				})
+			})
+		})
+
+		Describe("User provided permissions with a resource workflow", func() {
+			It("should create the user-provided permission role and the default role", func() {
+				factory.ResourceWorkflow = true
+				factory.Pipeline.Spec.RBAC.Permissions = []v1alpha1.Permission{
+					{
+						PolicyRule: rbacv1.PolicyRule{
+							Verbs:         []string{"watch", "create"},
+							APIGroups:     []string{"", "apps"},
+							Resources:     []string{"deployments", "deployments/status"},
+							ResourceNames: []string{"a-deployment", "b-deployment"},
+						},
+					},
+				}
+
+				resources, err := factory.Resources(nil)
+				Expect(err).ToNot(HaveOccurred())
+
+				Expect(resources.Shared.Roles).To(ConsistOf(
+					MatchFields(IgnoreExtras, Fields{
+						"ObjectMeta": MatchFields(IgnoreExtras, Fields{
+							"Name":      Equal(factory.ID),
+							"Namespace": Equal(factory.Namespace),
+						}),
+					}),
+					MatchFields(IgnoreExtras, Fields{
+						"ObjectMeta": MatchFields(IgnoreExtras, Fields{
+							"Name":      MatchRegexp(fmt.Sprintf(`^%s-\b\w{5}\b$`, factory.ID)),
+							"Namespace": Equal(factory.Namespace),
+						}),
+					}),
+				))
 			})
 		})
 	})

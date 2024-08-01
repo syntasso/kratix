@@ -738,7 +738,7 @@ var _ = Describe("Workflow Reconciler", func() {
 					specificNamespaceClusterRole = &cr
 					specificNamespaceClusterRole.SetGeneration(originalResourceGeneration)
 					Expect(fakeK8sClient.Update(ctx, specificNamespaceClusterRole)).To(Succeed())
-				} else if ns == "kratix-all-namespaces" {
+				} else if ns == "kratix_all_namespaces" {
 					allNamespaceClusterRole = &cr
 					allNamespaceClusterRole.SetGeneration(originalResourceGeneration)
 					Expect(fakeK8sClient.Update(ctx, allNamespaceClusterRole)).To(Succeed())
@@ -780,7 +780,7 @@ var _ = Describe("Workflow Reconciler", func() {
 					},
 				))
 				Expect(initialRole.GetNamespace()).To(Equal(namespace))
-				Expect(initialRole.GetName()).To(Equal("redis-promise-configure-pipeline-1"))
+				Expect(initialRole.GetName()).To(MatchRegexp(`^redis-promise-configure-pipeline-1-\b\w{5}\b$`))
 
 				By("creating a cluster role for each set of specific- and all-namespace permissions")
 				Expect(initialClusterRoles.Items).To(HaveLen(2))
@@ -795,7 +795,7 @@ var _ = Describe("Workflow Reconciler", func() {
 							}),
 						),
 						"ObjectMeta": MatchFields(IgnoreExtras, Fields{
-							"Name": ContainSubstring("redis-promise-configure-pipeline-1-"),
+							"Name": MatchRegexp(`^redis-promise-configure-pipeline-1-specific-namespace-\b\w{5}\b$`),
 						}),
 					}),
 					MatchFields(IgnoreExtras, Fields{
@@ -807,7 +807,7 @@ var _ = Describe("Workflow Reconciler", func() {
 							}),
 						),
 						"ObjectMeta": MatchFields(IgnoreExtras, Fields{
-							"Name": ContainSubstring("redis-promise-configure-pipeline-1-"),
+							"Name": MatchRegexp(`^redis-promise-configure-pipeline-1-kratix-all-namespaces-\b\w{5}\b$`),
 						}),
 					}),
 				))
@@ -822,7 +822,7 @@ var _ = Describe("Workflow Reconciler", func() {
 							"Kind": Equal("ClusterRole"),
 						}),
 						"ObjectMeta": MatchFields(IgnoreExtras, Fields{
-							"Name":      ContainSubstring("redis-promise-configure-pipeline-1-"),
+							"Name":      MatchRegexp(`^redis-promise-configure-pipeline-1-specific-namespace-\b\w{5}\b$`),
 							"Namespace": Equal("specific-namespace"),
 						}),
 					}),
@@ -832,7 +832,7 @@ var _ = Describe("Workflow Reconciler", func() {
 							"Kind": Equal("Role"),
 						}),
 						"ObjectMeta": MatchFields(IgnoreExtras, Fields{
-							"Name":      Equal("redis-promise-configure-pipeline-1"),
+							"Name":      Equal(initialRole.GetName()),
 							"Namespace": Equal(namespace),
 						}),
 					}),
@@ -842,7 +842,7 @@ var _ = Describe("Workflow Reconciler", func() {
 				Expect(initialClusterRoleBindings.Items).To(HaveLen(1))
 				clusterRoleBinding := &initialClusterRoleBindings.Items[0]
 
-				Expect(clusterRoleBinding.GetName()).To(ContainSubstring("redis-promise-configure-pipeline-1-"))
+				Expect(clusterRoleBinding.GetName()).To(MatchRegexp(`^redis-promise-configure-pipeline-1-\b\w{5}\b$`))
 				Expect(clusterRoleBinding.RoleRef.Name).To(Equal(allNamespaceClusterRole.GetName()))
 				Expect(clusterRoleBinding.RoleRef.Kind).To(Equal("ClusterRole"))
 				Expect(clusterRoleBinding.Subjects).To(HaveLen(1))
@@ -964,7 +964,7 @@ var _ = Describe("Workflow Reconciler", func() {
 							"Kind": Equal("ClusterRole"),
 						}),
 						"ObjectMeta": MatchFields(IgnoreExtras, Fields{
-							"Name":       ContainSubstring("redis-promise-configure-pipeline-1-"),
+							"Name":       MatchRegexp(`^redis-promise-configure-pipeline-1-specific-namespace-\b\w{5}\b$`),
 							"Generation": Equal(originalResourceGeneration),
 						}),
 					}),

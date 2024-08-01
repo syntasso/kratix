@@ -41,10 +41,15 @@ import (
 )
 
 const (
-	kratixActionEnvVar                      = "KRATIX_WORKFLOW_ACTION"
-	kratixTypeEnvVar                        = "KRATIX_WORKFLOW_TYPE"
-	kratixPromiseEnvVar                     = "KRATIX_PROMISE_NAME"
-	userPermissionResourceNamespaceLabelAll = "kratix-all-namespaces"
+	kratixActionEnvVar  = "KRATIX_WORKFLOW_ACTION"
+	kratixTypeEnvVar    = "KRATIX_WORKFLOW_TYPE"
+	kratixPromiseEnvVar = "KRATIX_PROMISE_NAME"
+
+	// This is used to identify the * namespace case in user permissions. Kubernetes does
+	// not allow * as a label value, so we use this value instead.
+	// It contains underscores, which makes it an invalid namespace, so it won't conflict
+	// with real user namespaces.
+	userPermissionResourceNamespaceLabelAll = "kratix_all_namespaces"
 )
 
 // PipelineSpec defines the desired state of Pipeline
@@ -578,7 +583,7 @@ func (p *PipelineFactory) role() ([]rbacv1.Role, error) {
 		if len(rules) > 0 {
 			roles = append(roles, rbacv1.Role{
 				ObjectMeta: metav1.ObjectMeta{
-					Name:      p.ID,
+					Name:      objectutil.GenerateDeterministicObjectName(p.ID),
 					Namespace: p.Namespace,
 					Labels:    labels,
 				},
@@ -682,10 +687,11 @@ func (p *PipelineFactory) clusterRole() []rbacv1.ClusterRole {
 				WorkflowLabels(p.WorkflowType, p.WorkflowAction, p.Pipeline.GetName()),
 			)
 			userPermissionResourceNamespaceLabel := namespace
+			labels[UserPermissionResourceNamespaceLabel] = namespace
 			if namespace == "*" {
-				userPermissionResourceNamespaceLabel = userPermissionResourceNamespaceLabelAll
+				userPermissionResourceNamespaceLabel = "kratix-all-namespaces"
+				labels[UserPermissionResourceNamespaceLabel] = userPermissionResourceNamespaceLabelAll
 			}
-			labels[UserPermissionResourceNamespaceLabel] = userPermissionResourceNamespaceLabel
 
 			generatedName := objectutil.GenerateDeterministicObjectName(p.ID + "-" + userPermissionResourceNamespaceLabel)
 
@@ -707,11 +713,10 @@ func (p *PipelineFactory) clusterRole() []rbacv1.ClusterRole {
 func (p *PipelineFactory) clusterRoleBinding(clusterRoles []rbacv1.ClusterRole, serviceAccount *corev1.ServiceAccount) []rbacv1.ClusterRoleBinding {
 	var clusterRoleBindings []rbacv1.ClusterRoleBinding
 	for _, r := range clusterRoles {
-		// Check if Kratix created CR
 		if ns, ok := r.GetLabels()[UserPermissionResourceNamespaceLabel]; !ok {
 			clusterRoleBindings = append(clusterRoleBindings, rbacv1.ClusterRoleBinding{
 				ObjectMeta: metav1.ObjectMeta{
-					Name:   p.ID,
+					Name:   r.GetName(),
 					Labels: PromiseLabels(p.Promise),
 				},
 				RoleRef: rbacv1.RoleRef{
@@ -727,7 +732,6 @@ func (p *PipelineFactory) clusterRoleBinding(clusterRoles []rbacv1.ClusterRole, 
 					},
 				},
 			})
-			// Only create CRB if not targeting specific NS
 		} else if ns == userPermissionResourceNamespaceLabelAll {
 			clusterRoleBindings = append(clusterRoleBindings, rbacv1.ClusterRoleBinding{
 				ObjectMeta: metav1.ObjectMeta{
