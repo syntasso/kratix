@@ -7,15 +7,15 @@
 
 κρατήστε μια υπόσχεση | *kratíste mia ypóschesi* | **Keep a promise**
 
-Kratix is an open-source platform framework that combines the flexibility and customisability of building your platform from scratch with the on-demand and self-service power of public clouds.
+Created by Syntasso, Kratix is an open-source platform framework that combines the flexibility and customisability of building your platform from scratch with the on-demand and self-service power of public clouds.
 
 ## Getting Started
 
-Follow our [Quick Start](https://docs.kratix.io/main/quick-start) to get up-and-running with Kratix.
+Follow our [quick start](https://docs.kratix.io/main/quick-start) to get up-and-running with Kratix.
 
 ## Want to learn more?
 
-For case studies, documentation, and guides, checkout [kratix.io](https://kratix.io).
+For case studies, guides, and more checkout [syntasso.io](https://syntasso.io?utm_source=github&utm_medium=readme&utm_id=kratix).
 
 ## Community
 
