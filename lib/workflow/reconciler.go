@@ -378,15 +378,12 @@ func createConfigurePipeline(opts Opts, pipelineIndex int, resources v1alpha1.Pi
 	opts.logger.Info("Triggering Configure pipeline")
 
 	var objectToDelete []client.Object
-	var objectsToSkip []client.Object
-	if objectToDelete, objectsToSkip, err = getObjectsToDeleteOrSkip(opts, resources); err != nil {
+	if objectToDelete, err = getObjectsToDelete(opts, resources); err != nil {
 		return false, err
 	}
 
-	objectsToCreate := filterObjectsToCreate(opts, resources.GetObjects(), objectsToSkip)
-
 	deleteResources(opts, objectToDelete...)
-	applyResources(opts, append(objectsToCreate, resources.Job)...)
+	applyResources(opts, append(resources.GetObjects(), resources.Job)...)
 
 	opts.logger.Info("Parent object:", "parent", opts.parentObject.GetName())
 	if isManualReconciliation(opts.parentObject.GetLabels()) {

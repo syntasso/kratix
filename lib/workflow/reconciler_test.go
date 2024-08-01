@@ -41,31 +41,31 @@ var _ = Describe("Workflow Reconciler", func() {
 			},
 		}
 
+		pipelines = []v1alpha1.Pipeline{{
+			ObjectMeta: metav1.ObjectMeta{
+				Name: "pipeline-1",
+			},
+			Spec: v1alpha1.PipelineSpec{
+				Containers: []v1alpha1.Container{
+					{Name: "container-1", Image: "busybox"},
+				},
+			},
+		}, {
+			ObjectMeta: metav1.ObjectMeta{
+				Name: "pipeline-2",
+			},
+			Spec: v1alpha1.PipelineSpec{
+				Containers: []v1alpha1.Container{
+					{Name: "container-1", Image: "busybox"},
+				},
+			},
+		}}
+
 		Expect(fakeK8sClient.Create(ctx, &promise)).To(Succeed())
 	})
 
 	Describe("ReconcileConfigure", func() {
 		BeforeEach(func() {
-			pipelines = []v1alpha1.Pipeline{{
-				ObjectMeta: metav1.ObjectMeta{
-					Name: "pipeline-1",
-				},
-				Spec: v1alpha1.PipelineSpec{
-					Containers: []v1alpha1.Container{
-						{Name: "container-1", Image: "busybox"},
-					},
-				},
-			}, {
-				ObjectMeta: metav1.ObjectMeta{
-					Name: "pipeline-2",
-				},
-				Spec: v1alpha1.PipelineSpec{
-					Containers: []v1alpha1.Container{
-						{Name: "container-1", Image: "busybox"},
-					},
-				},
-			}}
-
 			workflowPipelines, uPromise = setupTest(promise, pipelines)
 		})
 
@@ -688,7 +688,6 @@ var _ = Describe("Workflow Reconciler", func() {
 		var initialClusterRoleBindings *rbacv1.ClusterRoleBindingList
 		var specificNamespaceClusterRole *rbacv1.ClusterRole
 		var allNamespaceClusterRole *rbacv1.ClusterRole
-		var originalResourceGeneration int64 = 42
 
 		BeforeEach(func() {
 			pipelines[0].Spec.RBAC.Permissions = []v1alpha1.Permission{
@@ -725,23 +724,15 @@ var _ = Describe("Workflow Reconciler", func() {
 
 			Expect(roles.Items).To(HaveLen(1))
 			initialRole = &roles.Items[0]
-			initialRole.SetGeneration(originalResourceGeneration)
-			Expect(fakeK8sClient.Update(ctx, initialRole)).To(Succeed())
 
 			initialClusterRoles = &rbacv1.ClusterRoleList{}
 			Expect(fakeK8sClient.List(ctx, initialClusterRoles, userPermissionPipelineLabels(promise, pipelines[0]))).To(Succeed())
 
-			// TODO: Handle changing of the set up data. This is very dependent on the list that we currently have.
-			//		 Specifically, having two total, one for single ns scoped and one for all ns's.
 			for _, cr := range initialClusterRoles.Items {
 				if ns, ok := cr.Labels[v1alpha1.UserPermissionResourceNamespaceLabel]; ok && ns == "specific-namespace" {
 					specificNamespaceClusterRole = &cr
-					specificNamespaceClusterRole.SetGeneration(originalResourceGeneration)
-					Expect(fakeK8sClient.Update(ctx, specificNamespaceClusterRole)).To(Succeed())
 				} else if ns == "kratix_all_namespaces" {
 					allNamespaceClusterRole = &cr
-					allNamespaceClusterRole.SetGeneration(originalResourceGeneration)
-					Expect(fakeK8sClient.Update(ctx, allNamespaceClusterRole)).To(Succeed())
 				}
 			}
 
@@ -751,22 +742,13 @@ var _ = Describe("Workflow Reconciler", func() {
 			for _, rb := range initialRoleBindings.Items {
 				if rb.Namespace == "specific-namespace" {
 					specificNamespaceRoleBinding = &rb
-					specificNamespaceRoleBinding.SetGeneration(originalResourceGeneration)
-					Expect(fakeK8sClient.Update(ctx, specificNamespaceRoleBinding)).To(Succeed())
 				} else {
 					pipelineNamespaceRoleBinding = &rb
-					pipelineNamespaceRoleBinding.SetGeneration(originalResourceGeneration)
-					Expect(fakeK8sClient.Update(ctx, pipelineNamespaceRoleBinding)).To(Succeed())
 				}
 			}
 
 			initialClusterRoleBindings = &rbacv1.ClusterRoleBindingList{}
 			Expect(fakeK8sClient.List(ctx, initialClusterRoleBindings, userPermissionPipelineLabels(promise, pipelines[0]))).To(Succeed())
-
-			for _, crb := range initialClusterRoleBindings.Items {
-				crb.SetGeneration(originalResourceGeneration)
-				Expect(fakeK8sClient.Update(ctx, &crb)).To(Succeed())
-			}
 		})
 
 		When("the pipeline is reconciled", func() {
@@ -822,7 +804,7 @@ var _ = Describe("Workflow Reconciler", func() {
 							"Kind": Equal("ClusterRole"),
 						}),
 						"ObjectMeta": MatchFields(IgnoreExtras, Fields{
-							"Name":      MatchRegexp(`^redis-promise-configure-pipeline-1-specific-namespace-\b\w{5}\b$`),
+							"Name":      Equal(specificNamespaceRoleBinding.GetName()),
 							"Namespace": Equal("specific-namespace"),
 						}),
 					}),
@@ -832,7 +814,7 @@ var _ = Describe("Workflow Reconciler", func() {
 							"Kind": Equal("Role"),
 						}),
 						"ObjectMeta": MatchFields(IgnoreExtras, Fields{
-							"Name":      Equal(initialRole.GetName()),
+							"Name":      Equal(pipelineNamespaceRoleBinding.GetName()),
 							"Namespace": Equal(namespace),
 						}),
 					}),
@@ -857,38 +839,97 @@ var _ = Describe("Workflow Reconciler", func() {
 				forceManualReconciliation(promise, pipelines)
 			})
 
-			It("does not recreate the role", func() {
+			It("retains the role", func() {
 				roles := &rbacv1.RoleList{}
 				Expect(fakeK8sClient.List(ctx, roles, userPermissionPipelineLabels(promise, pipelines[0]))).To(Succeed())
 
 				Expect(roles.Items).To(HaveLen(1))
-				Expect(roles.Items[0].GetGeneration()).To(Equal(originalResourceGeneration))
+				Expect(roles.Items[0].GetName()).To(Equal(initialRole.GetName()))
+				Expect(roles.Items[0].GetNamespace()).To(Equal(initialRole.GetNamespace()))
+				Expect(roles.Items[0].Rules).To(HaveLen(1))
+				Expect(roles.Items[0].Rules).To(ConsistOf(
+					rbacv1.PolicyRule{
+						Verbs:     []string{"list"},
+						APIGroups: []string{"v5"},
+						Resources: []string{"configmaps"},
+					},
+				))
 			})
 
-			It("does not recreate the cluster roles", func() {
+			It("retains the cluster roles", func() {
 				clusterRoles := &rbacv1.ClusterRoleList{}
 				Expect(fakeK8sClient.List(ctx, clusterRoles, userPermissionPipelineLabels(promise, pipelines[0]))).To(Succeed())
 
 				Expect(clusterRoles.Items).To(HaveLen(2))
-				Expect(clusterRoles.Items[0].GetGeneration()).To(Equal(originalResourceGeneration))
-				Expect(clusterRoles.Items[1].GetGeneration()).To(Equal(originalResourceGeneration))
+				Expect(clusterRoles.Items).To(ConsistOf(
+					MatchFields(IgnoreExtras, Fields{
+						"ObjectMeta": MatchFields(IgnoreExtras, Fields{
+							"Name": Equal(specificNamespaceClusterRole.GetName()),
+						}),
+						"Rules": ConsistOf(
+							MatchFields(IgnoreExtras, Fields{
+								"Verbs":     ConsistOf("list"),
+								"APIGroups": ConsistOf("v7"),
+								"Resources": ConsistOf("secrets"),
+							}),
+						),
+					}),
+					MatchFields(IgnoreExtras, Fields{
+						"ObjectMeta": MatchFields(IgnoreExtras, Fields{
+							"Name": Equal(allNamespaceClusterRole.GetName()),
+						}),
+						"Rules": ConsistOf(
+							MatchFields(IgnoreExtras, Fields{
+								"Verbs":     ConsistOf("list"),
+								"APIGroups": ConsistOf("v2"),
+								"Resources": ConsistOf("pods"),
+							}),
+						),
+					}),
+				))
 			})
 
-			It("does not recreate the role bindings", func() {
+			It("retains the role bindings", func() {
 				roleBindings := &rbacv1.RoleBindingList{}
 				Expect(fakeK8sClient.List(ctx, roleBindings, userPermissionPipelineLabels(promise, pipelines[0]))).To(Succeed())
 
 				Expect(roleBindings.Items).To(HaveLen(2))
-				Expect(roleBindings.Items[0].GetGeneration()).To(Equal(originalResourceGeneration))
-				Expect(roleBindings.Items[1].GetGeneration()).To(Equal(originalResourceGeneration))
+				Expect(roleBindings.Items).To(ConsistOf(
+					MatchFields(IgnoreExtras, Fields{
+						"ObjectMeta": MatchFields(IgnoreExtras, Fields{
+							"Name":      Equal(specificNamespaceRoleBinding.GetName()),
+							"Namespace": Equal("specific-namespace"),
+						}),
+						"RoleRef": MatchFields(IgnoreExtras, Fields{
+							"Name": Equal(specificNamespaceClusterRole.GetName()),
+							"Kind": Equal("ClusterRole"),
+						}),
+					}),
+					MatchFields(IgnoreExtras, Fields{
+						"ObjectMeta": MatchFields(IgnoreExtras, Fields{
+							"Name":      Equal(pipelineNamespaceRoleBinding.GetName()),
+							"Namespace": Equal(namespace),
+						}),
+						"RoleRef": MatchFields(IgnoreExtras, Fields{
+							"Name": Equal(initialRole.GetName()),
+							"Kind": Equal("Role"),
+						}),
+					}),
+				))
 			})
 
-			It("does not recreate the cluster role bindings", func() {
+			It("retains the cluster role binding", func() {
 				clusterRoleBindings := &rbacv1.ClusterRoleBindingList{}
 				Expect(fakeK8sClient.List(ctx, clusterRoleBindings, userPermissionPipelineLabels(promise, pipelines[0]))).To(Succeed())
 
 				Expect(clusterRoleBindings.Items).To(HaveLen(1))
-				Expect(clusterRoleBindings.Items[0].GetGeneration()).To(Equal(originalResourceGeneration))
+				Expect(clusterRoleBindings.Items[0].GetName()).To(Equal(initialClusterRoleBindings.Items[0].GetName()))
+				Expect(clusterRoleBindings.Items[0].RoleRef.Name).To(Equal(allNamespaceClusterRole.GetName()))
+				Expect(clusterRoleBindings.Items[0].RoleRef.Kind).To(Equal("ClusterRole"))
+				Expect(clusterRoleBindings.Items[0].Subjects).To(HaveLen(1))
+				Expect(clusterRoleBindings.Items[0].Subjects[0].Kind).To(Equal("ServiceAccount"))
+				Expect(clusterRoleBindings.Items[0].Subjects[0].Name).To(Equal("redis-promise-configure-pipeline-1"))
+				Expect(clusterRoleBindings.Items[0].Subjects[0].Namespace).To(Equal(namespace))
 			})
 		})
 
@@ -960,12 +1001,12 @@ var _ = Describe("Workflow Reconciler", func() {
 				Expect(bindings.Items).To(ConsistOf(
 					MatchFields(IgnoreExtras, Fields{
 						"RoleRef": MatchFields(IgnoreExtras, Fields{
-							"Name": Equal(specificNamespaceClusterRole.Name),
+							"Name": Equal(specificNamespaceClusterRole.GetName()),
 							"Kind": Equal("ClusterRole"),
 						}),
 						"ObjectMeta": MatchFields(IgnoreExtras, Fields{
-							"Name":       MatchRegexp(`^redis-promise-configure-pipeline-1-specific-namespace-\b\w{5}\b$`),
-							"Generation": Equal(originalResourceGeneration),
+							"Name":      Equal(specificNamespaceRoleBinding.GetName()),
+							"Namespace": Equal("specific-namespace"),
 						}),
 					}),
 				))
@@ -976,16 +1017,47 @@ var _ = Describe("Workflow Reconciler", func() {
 				Expect(fakeK8sClient.List(ctx, clusterRoles, userPermissionPipelineLabels(promise, pipelines[0]))).To(Succeed())
 
 				Expect(clusterRoles.Items).To(HaveLen(2))
-				Expect(clusterRoles.Items[0].GetGeneration()).To(Equal(originalResourceGeneration))
-				Expect(clusterRoles.Items[1].GetGeneration()).To(Equal(originalResourceGeneration))
+				Expect(clusterRoles.Items).To(ConsistOf(
+					MatchFields(IgnoreExtras, Fields{
+						"ObjectMeta": MatchFields(IgnoreExtras, Fields{
+							"Name": Equal(specificNamespaceClusterRole.GetName()),
+						}),
+						"Rules": ConsistOf(
+							MatchFields(IgnoreExtras, Fields{
+								"Verbs":     ConsistOf("list"),
+								"APIGroups": ConsistOf("v7"),
+								"Resources": ConsistOf("secrets"),
+							}),
+						),
+					}),
+					MatchFields(IgnoreExtras, Fields{
+						"ObjectMeta": MatchFields(IgnoreExtras, Fields{
+							"Name": Equal(allNamespaceClusterRole.GetName()),
+						}),
+						"Rules": ConsistOf(
+							MatchFields(IgnoreExtras, Fields{
+								"Verbs":     ConsistOf("list"),
+								"APIGroups": ConsistOf("v2"),
+								"Resources": ConsistOf("pods"),
+							}),
+						),
+					}),
+				))
+
 			})
 
 			It("retains the cluster role binding for the all-namespace", func() {
-				bindings := &rbacv1.ClusterRoleBindingList{}
-				Expect(fakeK8sClient.List(ctx, bindings, userPermissionPipelineLabels(promise, pipelines[0]))).To(Succeed())
+				clusterRoleBindings := &rbacv1.ClusterRoleBindingList{}
+				Expect(fakeK8sClient.List(ctx, clusterRoleBindings, userPermissionPipelineLabels(promise, pipelines[0]))).To(Succeed())
 
-				Expect(bindings.Items).To(HaveLen(1))
-				Expect(bindings.Items[0].GetGeneration()).To(Equal(originalResourceGeneration))
+				Expect(clusterRoleBindings.Items).To(HaveLen(1))
+				Expect(clusterRoleBindings.Items[0].GetName()).To(Equal(initialClusterRoleBindings.Items[0].GetName()))
+				Expect(clusterRoleBindings.Items[0].RoleRef.Name).To(Equal(allNamespaceClusterRole.GetName()))
+				Expect(clusterRoleBindings.Items[0].RoleRef.Kind).To(Equal("ClusterRole"))
+				Expect(clusterRoleBindings.Items[0].Subjects).To(HaveLen(1))
+				Expect(clusterRoleBindings.Items[0].Subjects[0].Kind).To(Equal("ServiceAccount"))
+				Expect(clusterRoleBindings.Items[0].Subjects[0].Name).To(Equal("redis-promise-configure-pipeline-1"))
+				Expect(clusterRoleBindings.Items[0].Subjects[0].Namespace).To(Equal(namespace))
 			})
 		})
 
@@ -1009,15 +1081,49 @@ var _ = Describe("Workflow Reconciler", func() {
 				Expect(fakeK8sClient.List(ctx, roles, userPermissionPipelineLabels(promise, pipelines[0]))).To(Succeed())
 
 				Expect(roles.Items).To(HaveLen(1))
-				Expect(roles.Items[0].GetGeneration()).To(Equal(originalResourceGeneration))
+				Expect(roles.Items).To(ConsistOf(
+					MatchFields(IgnoreExtras, Fields{
+						"ObjectMeta": MatchFields(IgnoreExtras, Fields{
+							"Name":      Equal(initialRole.GetName()),
+							"Namespace": Equal(initialRole.GetNamespace()),
+						}),
+						"Rules": ConsistOf(
+							MatchFields(IgnoreExtras, Fields{
+								"Verbs":     ConsistOf("list"),
+								"APIGroups": ConsistOf("v5"),
+								"Resources": ConsistOf("configmaps"),
+							}),
+						),
+					}),
+				))
 
 				By("retaining the role bindings for the pipeline scoped role and namespace scoped role")
 				bindings := &rbacv1.RoleBindingList{}
 				Expect(fakeK8sClient.List(ctx, bindings, userPermissionPipelineLabels(promise, pipelines[0]))).To(Succeed())
 
 				Expect(bindings.Items).To(HaveLen(2))
-				Expect(bindings.Items[0].GetGeneration()).To(Equal(originalResourceGeneration))
-				Expect(bindings.Items[1].GetGeneration()).To(Equal(originalResourceGeneration))
+				Expect(bindings.Items).To(ConsistOf(
+					MatchFields(IgnoreExtras, Fields{
+						"ObjectMeta": MatchFields(IgnoreExtras, Fields{
+							"Name":      Equal(pipelineNamespaceRoleBinding.GetName()),
+							"Namespace": Equal(namespace),
+						}),
+						"RoleRef": MatchFields(IgnoreExtras, Fields{
+							"Name": Equal(initialRole.GetName()),
+							"Kind": Equal("Role"),
+						}),
+					}),
+					MatchFields(IgnoreExtras, Fields{
+						"ObjectMeta": MatchFields(IgnoreExtras, Fields{
+							"Name":      Equal(specificNamespaceRoleBinding.GetName()),
+							"Namespace": Equal("specific-namespace"),
+						}),
+						"RoleRef": MatchFields(IgnoreExtras, Fields{
+							"Name": Equal(specificNamespaceClusterRole.GetName()),
+							"Kind": Equal("ClusterRole"),
+						}),
+					}),
+				))
 
 				By("extending the namespace specific cluster role's rules to include the new permission")
 				clusterRoles := &rbacv1.ClusterRoleList{}
@@ -1039,14 +1145,20 @@ var _ = Describe("Workflow Reconciler", func() {
 							}),
 						),
 						"ObjectMeta": MatchFields(IgnoreExtras, Fields{
-							"Name":       Equal(specificNamespaceClusterRole.GetName()),
-							"Generation": Not(Equal(originalResourceGeneration)),
+							"Name": Equal(specificNamespaceClusterRole.GetName()),
 						}),
 					}),
 					MatchFields(IgnoreExtras, Fields{
 						"ObjectMeta": MatchFields(IgnoreExtras, Fields{
-							"Generation": Equal(originalResourceGeneration),
+							"Name": Equal(allNamespaceClusterRole.GetName()),
 						}),
+						"Rules": ConsistOf(
+							MatchFields(IgnoreExtras, Fields{
+								"Verbs":     ConsistOf("list"),
+								"APIGroups": ConsistOf("v2"),
+								"Resources": ConsistOf("pods"),
+							}),
+						),
 					}),
 				))
 
@@ -1055,7 +1167,24 @@ var _ = Describe("Workflow Reconciler", func() {
 				Expect(fakeK8sClient.List(ctx, clusterBindings, userPermissionPipelineLabels(promise, pipelines[0]))).To(Succeed())
 
 				Expect(clusterBindings.Items).To(HaveLen(1))
-				Expect(clusterBindings.Items[0].GetGeneration()).To(Equal(originalResourceGeneration))
+				Expect(clusterBindings.Items).To(ConsistOf(
+					MatchFields(IgnoreExtras, Fields{
+						"ObjectMeta": MatchFields(IgnoreExtras, Fields{
+							"Name": Equal(initialClusterRoleBindings.Items[0].GetName()),
+						}),
+						"RoleRef": MatchFields(IgnoreExtras, Fields{
+							"Name": Equal(allNamespaceClusterRole.GetName()),
+							"Kind": Equal("ClusterRole"),
+						}),
+						"Subjects": ConsistOf(
+							MatchFields(IgnoreExtras, Fields{
+								"Kind":      Equal("ServiceAccount"),
+								"Name":      Equal("redis-promise-configure-pipeline-1"),
+								"Namespace": Equal(namespace),
+							}),
+						),
+					}),
+				))
 			})
 		})
 
@@ -1093,8 +1222,8 @@ var _ = Describe("Workflow Reconciler", func() {
 							}),
 						),
 						"ObjectMeta": MatchFields(IgnoreExtras, Fields{
-							"Generation": Not(Equal(originalResourceGeneration)),
-							"Name":       Equal(initialRole.GetName()),
+							"Name":      Equal(initialRole.GetName()),
+							"Namespace": Equal(initialRole.GetNamespace()),
 						}),
 					}),
 				))
@@ -1104,22 +1233,84 @@ var _ = Describe("Workflow Reconciler", func() {
 				Expect(fakeK8sClient.List(ctx, bindings, userPermissionPipelineLabels(promise, pipelines[0]))).To(Succeed())
 
 				Expect(bindings.Items).To(HaveLen(2))
-				Expect(bindings.Items[0].GetGeneration()).To(Equal(originalResourceGeneration))
-				Expect(bindings.Items[1].GetGeneration()).To(Equal(originalResourceGeneration))
+				Expect(bindings.Items).To(ConsistOf(
+					MatchFields(IgnoreExtras, Fields{
+						"ObjectMeta": MatchFields(IgnoreExtras, Fields{
+							"Name":      Equal(pipelineNamespaceRoleBinding.GetName()),
+							"Namespace": Equal(namespace),
+						}),
+						"RoleRef": MatchFields(IgnoreExtras, Fields{
+							"Name": Equal(initialRole.GetName()),
+							"Kind": Equal("Role"),
+						}),
+					}),
+					MatchFields(IgnoreExtras, Fields{
+						"ObjectMeta": MatchFields(IgnoreExtras, Fields{
+							"Name":      Equal(specificNamespaceRoleBinding.GetName()),
+							"Namespace": Equal("specific-namespace"),
+						}),
+						"RoleRef": MatchFields(IgnoreExtras, Fields{
+							"Name": Equal(specificNamespaceClusterRole.GetName()),
+							"Kind": Equal("ClusterRole"),
+						}),
+					}),
+				))
 
 				By("retaining the cluster roles for the all- and specific- namespaces")
 				clusterRoles := &rbacv1.ClusterRoleList{}
 				Expect(fakeK8sClient.List(ctx, clusterRoles, userPermissionPipelineLabels(promise, pipelines[0]))).To(Succeed())
 
 				Expect(clusterRoles.Items).To(HaveLen(2))
-				Expect(clusterRoles.Items[0].GetGeneration()).To(Equal(originalResourceGeneration))
+				Expect(clusterRoles.Items).To(ConsistOf(
+					MatchFields(IgnoreExtras, Fields{
+						"ObjectMeta": MatchFields(IgnoreExtras, Fields{
+							"Name": Equal(specificNamespaceClusterRole.GetName()),
+						}),
+						"Rules": ConsistOf(
+							MatchFields(IgnoreExtras, Fields{
+								"Verbs":     ConsistOf("list"),
+								"APIGroups": ConsistOf("v7"),
+								"Resources": ConsistOf("secrets"),
+							}),
+						),
+					}),
+					MatchFields(IgnoreExtras, Fields{
+						"ObjectMeta": MatchFields(IgnoreExtras, Fields{
+							"Name": Equal(allNamespaceClusterRole.GetName()),
+						}),
+						"Rules": ConsistOf(
+							MatchFields(IgnoreExtras, Fields{
+								"Verbs":     ConsistOf("list"),
+								"APIGroups": ConsistOf("v2"),
+								"Resources": ConsistOf("pods"),
+							}),
+						),
+					}),
+				))
 
 				By("retaining the all namespace cluster role binding")
 				clusterBindings := &rbacv1.ClusterRoleBindingList{}
 				Expect(fakeK8sClient.List(ctx, clusterBindings, userPermissionPipelineLabels(promise, pipelines[0]))).To(Succeed())
 
 				Expect(clusterBindings.Items).To(HaveLen(1))
-				Expect(clusterBindings.Items[0].GetGeneration()).To(Equal(originalResourceGeneration))
+				Expect(clusterBindings.Items).To(ConsistOf(
+					MatchFields(IgnoreExtras, Fields{
+						"ObjectMeta": MatchFields(IgnoreExtras, Fields{
+							"Name": Equal(initialClusterRoleBindings.Items[0].GetName()),
+						}),
+						"RoleRef": MatchFields(IgnoreExtras, Fields{
+							"Name": Equal(allNamespaceClusterRole.GetName()),
+							"Kind": Equal("ClusterRole"),
+						}),
+						"Subjects": ConsistOf(
+							MatchFields(IgnoreExtras, Fields{
+								"Kind":      Equal("ServiceAccount"),
+								"Name":      Equal("redis-promise-configure-pipeline-1"),
+								"Namespace": Equal(namespace),
+							}),
+						),
+					}),
+				))
 			})
 		})
 
@@ -1162,10 +1353,20 @@ var _ = Describe("Workflow Reconciler", func() {
 				Expect(clusterRoles.Items).To(ConsistOf(
 					MatchFields(IgnoreExtras, Fields{
 						"ObjectMeta": MatchFields(IgnoreExtras, Fields{
-							"Generation": Equal(originalResourceGeneration),
+							"Name": Equal(specificNamespaceClusterRole.GetName()),
 						}),
+						"Rules": ConsistOf(
+							MatchFields(IgnoreExtras, Fields{
+								"Verbs":     ConsistOf("list"),
+								"APIGroups": ConsistOf("v7"),
+								"Resources": ConsistOf("secrets"),
+							}),
+						),
 					}),
 					MatchFields(IgnoreExtras, Fields{
+						"ObjectMeta": MatchFields(IgnoreExtras, Fields{
+							"Name": Equal(allNamespaceClusterRole.GetName()),
+						}),
 						"Rules": ConsistOf(
 							MatchFields(IgnoreExtras, Fields{
 								"Verbs":     ConsistOf("list"),
@@ -1173,10 +1374,6 @@ var _ = Describe("Workflow Reconciler", func() {
 								"Resources": ConsistOf("jobs"),
 							}),
 						),
-						"ObjectMeta": MatchFields(IgnoreExtras, Fields{
-							"Name":       Equal(allNamespaceClusterRole.GetName()),
-							"Generation": Not(Equal(originalResourceGeneration)),
-						}),
 					}),
 				))
 
@@ -1185,22 +1382,73 @@ var _ = Describe("Workflow Reconciler", func() {
 				Expect(fakeK8sClient.List(ctx, bindings, userPermissionPipelineLabels(promise, pipelines[0]))).To(Succeed())
 
 				Expect(bindings.Items).To(HaveLen(2))
-				Expect(bindings.Items[0].GetGeneration()).To(Equal(originalResourceGeneration))
-				Expect(bindings.Items[1].GetGeneration()).To(Equal(originalResourceGeneration))
+				Expect(bindings.Items).To(ConsistOf(
+					MatchFields(IgnoreExtras, Fields{
+						"ObjectMeta": MatchFields(IgnoreExtras, Fields{
+							"Name":      Equal(pipelineNamespaceRoleBinding.GetName()),
+							"Namespace": Equal(namespace),
+						}),
+						"RoleRef": MatchFields(IgnoreExtras, Fields{
+							"Name": Equal(initialRole.GetName()),
+							"Kind": Equal("Role"),
+						}),
+					}),
+					MatchFields(IgnoreExtras, Fields{
+						"ObjectMeta": MatchFields(IgnoreExtras, Fields{
+							"Name":      Equal(specificNamespaceRoleBinding.GetName()),
+							"Namespace": Equal("specific-namespace"),
+						}),
+						"RoleRef": MatchFields(IgnoreExtras, Fields{
+							"Name": Equal(specificNamespaceClusterRole.GetName()),
+							"Kind": Equal("ClusterRole"),
+						}),
+					}),
+				))
 
 				By("retaining the cluster role binding for the all-namespace permission")
 				clusterBindings := &rbacv1.ClusterRoleBindingList{}
 				Expect(fakeK8sClient.List(ctx, clusterBindings, userPermissionPipelineLabels(promise, pipelines[0]))).To(Succeed())
 
 				Expect(clusterBindings.Items).To(HaveLen(1))
-				Expect(clusterBindings.Items[0].GetGeneration()).To(Equal(originalResourceGeneration))
+				Expect(clusterBindings.Items).To(ConsistOf(
+					MatchFields(IgnoreExtras, Fields{
+						"ObjectMeta": MatchFields(IgnoreExtras, Fields{
+							"Name": Equal(initialClusterRoleBindings.Items[0].GetName()),
+						}),
+						"RoleRef": MatchFields(IgnoreExtras, Fields{
+							"Name": Equal(allNamespaceClusterRole.GetName()),
+							"Kind": Equal("ClusterRole"),
+						}),
+						"Subjects": ConsistOf(
+							MatchFields(IgnoreExtras, Fields{
+								"Kind":      Equal("ServiceAccount"),
+								"Name":      Equal("redis-promise-configure-pipeline-1"),
+								"Namespace": Equal(namespace),
+							}),
+						),
+					}),
+				))
 
 				By("retaining the role for the pipeline namespace")
 				roles := &rbacv1.RoleList{}
 				Expect(fakeK8sClient.List(ctx, roles, userPermissionPipelineLabels(promise, pipelines[0]))).To(Succeed())
 
 				Expect(roles.Items).To(HaveLen(1))
-				Expect(roles.Items[0].GetGeneration()).To(Equal(originalResourceGeneration))
+				Expect(roles.Items).To(ConsistOf(
+					MatchFields(IgnoreExtras, Fields{
+						"ObjectMeta": MatchFields(IgnoreExtras, Fields{
+							"Name":      Equal(initialRole.GetName()),
+							"Namespace": Equal(initialRole.GetNamespace()),
+						}),
+						"Rules": ConsistOf(
+							MatchFields(IgnoreExtras, Fields{
+								"Verbs":     ConsistOf("list"),
+								"APIGroups": ConsistOf("v5"),
+								"Resources": ConsistOf("configmaps"),
+							}),
+						),
+					}),
+				))
 			})
 		})
 
@@ -1256,8 +1504,7 @@ var _ = Describe("Workflow Reconciler", func() {
 							}),
 						),
 						"ObjectMeta": MatchFields(IgnoreExtras, Fields{
-							"Name":       Equal(specificNamespaceClusterRole.GetName()),
-							"Generation": Equal(originalResourceGeneration),
+							"Name": Equal(specificNamespaceClusterRole.GetName()),
 						}),
 					}),
 				))
@@ -1267,8 +1514,26 @@ var _ = Describe("Workflow Reconciler", func() {
 				Expect(fakeK8sClient.List(ctx, bindings, userPermissionPipelineLabels(promise, pipelines[0]))).To(Succeed())
 
 				Expect(bindings.Items).To(HaveLen(2))
-				Expect(bindings.Items[0].GetGeneration()).To(Equal(originalResourceGeneration))
-				Expect(bindings.Items[1].GetGeneration()).To(Equal(originalResourceGeneration))
+				Expect(bindings.Items).To(ConsistOf(
+					MatchFields(IgnoreExtras, Fields{
+						"RoleRef": MatchFields(IgnoreExtras, Fields{
+							"Name": Equal(specificNamespaceClusterRole.GetName()),
+							"Kind": Equal("ClusterRole"),
+						}),
+						"ObjectMeta": MatchFields(IgnoreExtras, Fields{
+							"Name": Equal(specificNamespaceRoleBinding.GetName()),
+						}),
+					}),
+					MatchFields(IgnoreExtras, Fields{
+						"RoleRef": MatchFields(IgnoreExtras, Fields{
+							"Name": Equal(initialRole.GetName()),
+							"Kind": Equal("Role"),
+						}),
+						"ObjectMeta": MatchFields(IgnoreExtras, Fields{
+							"Name": Equal(pipelineNamespaceRoleBinding.GetName()),
+						}),
+					}),
+				))
 
 				By("updating the pipeline scoped role")
 				roles := &rbacv1.RoleList{}
@@ -1290,8 +1555,8 @@ var _ = Describe("Workflow Reconciler", func() {
 							}),
 						),
 						"ObjectMeta": MatchFields(IgnoreExtras, Fields{
-							"Name":       Equal(initialRole.GetName()),
-							"Generation": Not(Equal(originalResourceGeneration)),
+							"Name":      Equal(initialRole.GetName()),
+							"Namespace": Equal(initialRole.GetNamespace()),
 						}),
 					}),
 				))
@@ -1350,8 +1615,7 @@ var _ = Describe("Workflow Reconciler", func() {
 							}),
 						),
 						"ObjectMeta": MatchFields(IgnoreExtras, Fields{
-							"Name":       Equal(allNamespaceClusterRole.GetName()),
-							"Generation": Not(Equal(originalResourceGeneration)),
+							"Name": Equal(allNamespaceClusterRole.GetName()),
 						}),
 					}),
 				))
@@ -1361,7 +1625,21 @@ var _ = Describe("Workflow Reconciler", func() {
 				Expect(fakeK8sClient.List(ctx, roles, userPermissionPipelineLabels(promise, pipelines[0]))).To(Succeed())
 
 				Expect(roles.Items).To(HaveLen(1))
-				Expect(roles.Items[0].GetGeneration()).To(Equal(originalResourceGeneration))
+				Expect(roles.Items).To(ConsistOf(
+					MatchFields(IgnoreExtras, Fields{
+						"Rules": ConsistOf(
+							MatchFields(IgnoreExtras, Fields{
+								"Verbs":     ConsistOf("list"),
+								"APIGroups": ConsistOf("v5"),
+								"Resources": ConsistOf("configmaps"),
+							}),
+						),
+						"ObjectMeta": MatchFields(IgnoreExtras, Fields{
+							"Name":      Equal(initialRole.GetName()),
+							"Namespace": Equal(initialRole.GetNamespace()),
+						}),
+					}),
+				))
 
 				bindings := &rbacv1.RoleBindingList{}
 				Expect(fakeK8sClient.List(ctx, bindings, userPermissionPipelineLabels(promise, pipelines[0]))).To(Succeed())
@@ -1374,8 +1652,8 @@ var _ = Describe("Workflow Reconciler", func() {
 							"Kind": Equal("Role"),
 						}),
 						"ObjectMeta": MatchFields(IgnoreExtras, Fields{
-							"Name":       Equal(initialRole.GetName()),
-							"Generation": Equal(originalResourceGeneration),
+							"Name":      Equal(initialRole.GetName()),
+							"Namespace": Equal(namespace),
 						}),
 					}),
 				))
@@ -1385,7 +1663,24 @@ var _ = Describe("Workflow Reconciler", func() {
 				Expect(fakeK8sClient.List(ctx, clusterBindings, userPermissionPipelineLabels(promise, pipelines[0]))).To(Succeed())
 
 				Expect(clusterBindings.Items).To(HaveLen(1))
-				Expect(clusterBindings.Items[0].GetGeneration()).To(Equal(originalResourceGeneration))
+				Expect(clusterBindings.Items).To(ConsistOf(
+					MatchFields(IgnoreExtras, Fields{
+						"ObjectMeta": MatchFields(IgnoreExtras, Fields{
+							"Name": Equal(initialClusterRoleBindings.Items[0].GetName()),
+						}),
+						"RoleRef": MatchFields(IgnoreExtras, Fields{
+							"Name": Equal(allNamespaceClusterRole.GetName()),
+							"Kind": Equal("ClusterRole"),
+						}),
+						"Subjects": ConsistOf(
+							MatchFields(IgnoreExtras, Fields{
+								"Kind":      Equal("ServiceAccount"),
+								"Name":      Equal("redis-promise-configure-pipeline-1"),
+								"Namespace": Equal(namespace),
+							}),
+						),
+					}),
+				))
 			})
 		})
 	})
