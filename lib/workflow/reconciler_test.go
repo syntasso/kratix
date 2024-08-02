@@ -7,6 +7,7 @@ import (
 	"github.com/google/uuid"
 	. "github.com/onsi/ginkgo/v2"
 	. "github.com/onsi/gomega"
+	. "github.com/onsi/gomega/gstruct"
 	"github.com/syntasso/kratix/api/v1alpha1"
 	"github.com/syntasso/kratix/lib/resourceutil"
 	"github.com/syntasso/kratix/lib/workflow"
@@ -40,8 +41,6 @@ var _ = Describe("Workflow Reconciler", func() {
 			},
 		}
 
-		Expect(fakeK8sClient.Create(ctx, &promise)).To(Succeed())
-
 		pipelines = []v1alpha1.Pipeline{{
 			ObjectMeta: metav1.ObjectMeta{
 				Name: "pipeline-1",
@@ -62,10 +61,14 @@ var _ = Describe("Workflow Reconciler", func() {
 			},
 		}}
 
-		workflowPipelines, uPromise = setupTest(promise, pipelines)
+		Expect(fakeK8sClient.Create(ctx, &promise)).To(Succeed())
 	})
 
 	Describe("ReconcileConfigure", func() {
+		BeforeEach(func() {
+			workflowPipelines, uPromise = setupTest(promise, pipelines)
+		})
+
 		When("no pipeline for the workflow was executed", func() {
 			It("creates a new job with the first pipeline job spec", func() {
 				opts := workflow.NewOpts(ctx, fakeK8sClient, logger, uPromise, workflowPipelines, "promise")
@@ -364,96 +367,6 @@ var _ = Describe("Workflow Reconciler", func() {
 					It("never triggers the next job in the outdated workflow", func() {
 						Expect(findByName(jobList, workflowPipelines[1].Job.Name)).To(BeFalse())
 					})
-				})
-			})
-		})
-
-		When("user provided pipeline permissions updated", func() {
-			var updatedWorkflowPipeline []v1alpha1.PipelineJobResources
-
-			BeforeEach(func() {
-				role := &rbacv1.Role{
-					ObjectMeta: metav1.ObjectMeta{
-						Name:      fmt.Sprintf("%s-promise-configure-%s-up", promise.GetName(), pipelines[0].Name),
-						Namespace: namespace,
-					},
-					Rules: []rbacv1.PolicyRule{
-						{
-							Verbs:     []string{"list"},
-							APIGroups: []string{"v1"},
-							Resources: []string{"configmaps"},
-						},
-						{
-							Verbs:     []string{"get"},
-							APIGroups: []string{"v1"},
-							Resources: []string{"secret"},
-						},
-					},
-				}
-
-				Expect(fakeK8sClient.Create(ctx, role)).To(Succeed())
-			})
-
-			When("pipeline permissions are removed", func() {
-				BeforeEach(func() {
-					pipelines[0].Spec.RBAC.Permissions = nil
-					updatedWorkflowPipeline, uPromise = setupTest(promise, pipelines)
-					Expect(updatedWorkflowPipeline[0].Job.Name).NotTo(Equal(workflowPipelines[0].Job.Name))
-					Expect(updatedWorkflowPipeline[1].Job.Name).NotTo(Equal(workflowPipelines[1].Job.Name))
-
-					opts := workflow.NewOpts(ctx, fakeK8sClient, logger, uPromise, updatedWorkflowPipeline, "promise")
-					_, err := workflow.ReconcileConfigure(opts)
-					Expect(err).NotTo(HaveOccurred())
-				})
-
-				It("removes role and role binding", func() {
-					role := &rbacv1.Role{}
-					Expect(fakeK8sClient.Get(ctx, types.NamespacedName{
-						Name:      fmt.Sprintf("%s-promise-configure-%s-up", promise.GetName(), updatedWorkflowPipeline[0].Name),
-						Namespace: namespace},
-						role,
-					)).To(MatchError(ContainSubstring("not found")))
-
-					binding := &rbacv1.RoleBinding{}
-					Expect(fakeK8sClient.Get(ctx, types.NamespacedName{
-						Name:      fmt.Sprintf("%s-promise-configure-%s-up", promise.GetName(), updatedWorkflowPipeline[0].Name),
-						Namespace: namespace},
-						binding,
-					)).To(MatchError(ContainSubstring("not found")))
-				})
-			})
-
-			When("pipeline permissions are updated", func() {
-				BeforeEach(func() {
-					pipelines[0].Spec.RBAC.Permissions = []v1alpha1.Permission{
-						{
-							PolicyRule: rbacv1.PolicyRule{
-								Verbs:     []string{"list"},
-								APIGroups: []string{"v5"},
-								Resources: []string{"configmaps"},
-							},
-						},
-					}
-					updatedWorkflowPipeline, uPromise = setupTest(promise, pipelines)
-					Expect(updatedWorkflowPipeline[0].Job.Name).NotTo(Equal(workflowPipelines[0].Job.Name))
-					Expect(updatedWorkflowPipeline[1].Job.Name).NotTo(Equal(workflowPipelines[1].Job.Name))
-					opts := workflow.NewOpts(ctx, fakeK8sClient, logger, uPromise, updatedWorkflowPipeline, "promise")
-					_, err := workflow.ReconcileConfigure(opts)
-					Expect(err).NotTo(HaveOccurred())
-				})
-
-				It("updates user provided permission role", func() {
-					role := &rbacv1.Role{}
-					Expect(fakeK8sClient.Get(ctx, types.NamespacedName{
-						Name:      fmt.Sprintf("%s-promise-configure-%s-up", promise.GetName(), updatedWorkflowPipeline[0].Name),
-						Namespace: namespace},
-						role,
-					)).To(Succeed())
-
-					Expect(role.Rules).To(HaveLen(1))
-					Expect(role.Rules[0].Verbs).To(ConsistOf("list"))
-					Expect(role.Rules[0].APIGroups).To(ConsistOf("v5"))
-					Expect(role.Rules[0].Resources).To(ConsistOf("configmaps"))
 				})
 			})
 		})
@@ -766,7 +679,1037 @@ var _ = Describe("Workflow Reconciler", func() {
 		})
 	})
 
+	Describe("ReconcileConfigure with user-configured permissions", func() {
+		var initialRole *rbacv1.Role
+		var initialRoleBindings *rbacv1.RoleBindingList
+		var pipelineNamespaceRoleBinding *rbacv1.RoleBinding
+		var specificNamespaceRoleBinding *rbacv1.RoleBinding
+		var initialClusterRoles *rbacv1.ClusterRoleList
+		var initialClusterRoleBindings *rbacv1.ClusterRoleBindingList
+		var specificNamespaceClusterRole *rbacv1.ClusterRole
+		var allNamespaceClusterRole *rbacv1.ClusterRole
+
+		BeforeEach(func() {
+			pipelines[0].Spec.RBAC.Permissions = []v1alpha1.Permission{
+				{
+					PolicyRule: rbacv1.PolicyRule{
+						Verbs:     []string{"list"},
+						APIGroups: []string{"v5"},
+						Resources: []string{"configmaps"},
+					},
+				},
+				{
+					ResourceNamespace: "specific-namespace",
+					PolicyRule: rbacv1.PolicyRule{
+						Verbs:     []string{"list"},
+						APIGroups: []string{"v7"},
+						Resources: []string{"secrets"},
+					},
+				},
+				{
+					ResourceNamespace: "*",
+					PolicyRule: rbacv1.PolicyRule{
+						Verbs:     []string{"list"},
+						APIGroups: []string{"v2"},
+						Resources: []string{"pods"},
+					},
+				},
+			}
+
+			_, uPromise = setupAndReconcileUntilPipelinesCompleted(promise, pipelines)
+
+			//Collect resources for later validation
+			roles := &rbacv1.RoleList{}
+			Expect(fakeK8sClient.List(ctx, roles, userPermissionPipelineLabels(promise, pipelines[0]))).To(Succeed())
+
+			Expect(roles.Items).To(HaveLen(1))
+			initialRole = &roles.Items[0]
+
+			initialClusterRoles = &rbacv1.ClusterRoleList{}
+			Expect(fakeK8sClient.List(ctx, initialClusterRoles, userPermissionPipelineLabels(promise, pipelines[0]))).To(Succeed())
+
+			for _, cr := range initialClusterRoles.Items {
+				if ns, ok := cr.Labels[v1alpha1.UserPermissionResourceNamespaceLabel]; ok && ns == "specific-namespace" {
+					specificNamespaceClusterRole = &cr
+				} else if ns == "kratix_all_namespaces" {
+					allNamespaceClusterRole = &cr
+				}
+			}
+
+			initialRoleBindings = &rbacv1.RoleBindingList{}
+			Expect(fakeK8sClient.List(ctx, initialRoleBindings, userPermissionPipelineLabels(promise, pipelines[0]))).To(Succeed())
+
+			for _, rb := range initialRoleBindings.Items {
+				if rb.Namespace == "specific-namespace" {
+					specificNamespaceRoleBinding = &rb
+				} else {
+					pipelineNamespaceRoleBinding = &rb
+				}
+			}
+
+			initialClusterRoleBindings = &rbacv1.ClusterRoleBindingList{}
+			Expect(fakeK8sClient.List(ctx, initialClusterRoleBindings, userPermissionPipelineLabels(promise, pipelines[0]))).To(Succeed())
+		})
+
+		When("the pipeline is reconciled", func() {
+			It("creates the rbac resources", func() {
+				By("creating the role in the pipeline namespace")
+				Expect(initialRole.Rules).To(ConsistOf(
+					rbacv1.PolicyRule{
+						Verbs:     []string{"list"},
+						APIGroups: []string{"v5"},
+						Resources: []string{"configmaps"},
+					},
+				))
+				Expect(initialRole.GetNamespace()).To(Equal(namespace))
+				Expect(initialRole.GetName()).To(MatchRegexp(`^redis-promise-configure-pipeline-1-\b\w{5}\b$`))
+
+				By("creating a cluster role for each set of specific- and all-namespace permissions")
+				Expect(initialClusterRoles.Items).To(HaveLen(2))
+
+				Expect(initialClusterRoles.Items).To(ConsistOf(
+					MatchFields(IgnoreExtras, Fields{
+						"Rules": ConsistOf(
+							MatchFields(IgnoreExtras, Fields{
+								"Verbs":     ConsistOf("list"),
+								"APIGroups": ConsistOf("v7"),
+								"Resources": ConsistOf("secrets"),
+							}),
+						),
+						"ObjectMeta": MatchFields(IgnoreExtras, Fields{
+							"Name": MatchRegexp(`^redis-promise-configure-pipeline-1-specific-namespace-\b\w{5}\b$`),
+						}),
+					}),
+					MatchFields(IgnoreExtras, Fields{
+						"Rules": ConsistOf(
+							MatchFields(IgnoreExtras, Fields{
+								"Verbs":     ConsistOf("list"),
+								"APIGroups": ConsistOf("v2"),
+								"Resources": ConsistOf("pods"),
+							}),
+						),
+						"ObjectMeta": MatchFields(IgnoreExtras, Fields{
+							"Name": MatchRegexp(`^redis-promise-configure-pipeline-1-kratix-all-namespaces-\b\w{5}\b$`),
+						}),
+					}),
+				))
+
+				By("creating the role binding for the pipeline- and specific-namespace permissions")
+				Expect(initialRoleBindings.Items).To(HaveLen(2))
+
+				Expect(initialRoleBindings.Items).To(ConsistOf(
+					MatchFields(IgnoreExtras, Fields{
+						"RoleRef": MatchFields(IgnoreExtras, Fields{
+							"Name": Equal(specificNamespaceClusterRole.GetName()),
+							"Kind": Equal("ClusterRole"),
+						}),
+						"ObjectMeta": MatchFields(IgnoreExtras, Fields{
+							"Name":      Equal(specificNamespaceRoleBinding.GetName()),
+							"Namespace": Equal("specific-namespace"),
+						}),
+					}),
+					MatchFields(IgnoreExtras, Fields{
+						"RoleRef": MatchFields(IgnoreExtras, Fields{
+							"Name": Equal(initialRole.GetName()),
+							"Kind": Equal("Role"),
+						}),
+						"ObjectMeta": MatchFields(IgnoreExtras, Fields{
+							"Name":      Equal(pipelineNamespaceRoleBinding.GetName()),
+							"Namespace": Equal(namespace),
+						}),
+					}),
+				))
+
+				By("creating the cluster role binding for all-namespace permissions")
+				Expect(initialClusterRoleBindings.Items).To(HaveLen(1))
+				clusterRoleBinding := &initialClusterRoleBindings.Items[0]
+
+				Expect(clusterRoleBinding.GetName()).To(MatchRegexp(`^redis-promise-configure-pipeline-1-\b\w{5}\b$`))
+				Expect(clusterRoleBinding.RoleRef.Name).To(Equal(allNamespaceClusterRole.GetName()))
+				Expect(clusterRoleBinding.RoleRef.Kind).To(Equal("ClusterRole"))
+				Expect(clusterRoleBinding.Subjects).To(HaveLen(1))
+				Expect(clusterRoleBinding.Subjects[0].Kind).To(Equal("ServiceAccount"))
+				Expect(clusterRoleBinding.Subjects[0].Name).To(Equal("redis-promise-configure-pipeline-1"))
+				Expect(clusterRoleBinding.Subjects[0].Namespace).To(Equal(namespace))
+			})
+		})
+
+		When("the pipeline is re-reconciled with the same user-configured permissions", func() {
+			BeforeEach(func() {
+				forceManualReconciliation(promise, pipelines)
+			})
+
+			It("retains the role", func() {
+				roles := &rbacv1.RoleList{}
+				Expect(fakeK8sClient.List(ctx, roles, userPermissionPipelineLabels(promise, pipelines[0]))).To(Succeed())
+
+				Expect(roles.Items).To(HaveLen(1))
+				Expect(roles.Items[0].GetName()).To(Equal(initialRole.GetName()))
+				Expect(roles.Items[0].GetNamespace()).To(Equal(initialRole.GetNamespace()))
+				Expect(roles.Items[0].Rules).To(HaveLen(1))
+				Expect(roles.Items[0].Rules).To(ConsistOf(
+					rbacv1.PolicyRule{
+						Verbs:     []string{"list"},
+						APIGroups: []string{"v5"},
+						Resources: []string{"configmaps"},
+					},
+				))
+			})
+
+			It("retains the cluster roles", func() {
+				clusterRoles := &rbacv1.ClusterRoleList{}
+				Expect(fakeK8sClient.List(ctx, clusterRoles, userPermissionPipelineLabels(promise, pipelines[0]))).To(Succeed())
+
+				Expect(clusterRoles.Items).To(HaveLen(2))
+				Expect(clusterRoles.Items).To(ConsistOf(
+					MatchFields(IgnoreExtras, Fields{
+						"ObjectMeta": MatchFields(IgnoreExtras, Fields{
+							"Name": Equal(specificNamespaceClusterRole.GetName()),
+						}),
+						"Rules": ConsistOf(
+							MatchFields(IgnoreExtras, Fields{
+								"Verbs":     ConsistOf("list"),
+								"APIGroups": ConsistOf("v7"),
+								"Resources": ConsistOf("secrets"),
+							}),
+						),
+					}),
+					MatchFields(IgnoreExtras, Fields{
+						"ObjectMeta": MatchFields(IgnoreExtras, Fields{
+							"Name": Equal(allNamespaceClusterRole.GetName()),
+						}),
+						"Rules": ConsistOf(
+							MatchFields(IgnoreExtras, Fields{
+								"Verbs":     ConsistOf("list"),
+								"APIGroups": ConsistOf("v2"),
+								"Resources": ConsistOf("pods"),
+							}),
+						),
+					}),
+				))
+			})
+
+			It("retains the role bindings", func() {
+				roleBindings := &rbacv1.RoleBindingList{}
+				Expect(fakeK8sClient.List(ctx, roleBindings, userPermissionPipelineLabels(promise, pipelines[0]))).To(Succeed())
+
+				Expect(roleBindings.Items).To(HaveLen(2))
+				Expect(roleBindings.Items).To(ConsistOf(
+					MatchFields(IgnoreExtras, Fields{
+						"ObjectMeta": MatchFields(IgnoreExtras, Fields{
+							"Name":      Equal(specificNamespaceRoleBinding.GetName()),
+							"Namespace": Equal("specific-namespace"),
+						}),
+						"RoleRef": MatchFields(IgnoreExtras, Fields{
+							"Name": Equal(specificNamespaceClusterRole.GetName()),
+							"Kind": Equal("ClusterRole"),
+						}),
+					}),
+					MatchFields(IgnoreExtras, Fields{
+						"ObjectMeta": MatchFields(IgnoreExtras, Fields{
+							"Name":      Equal(pipelineNamespaceRoleBinding.GetName()),
+							"Namespace": Equal(namespace),
+						}),
+						"RoleRef": MatchFields(IgnoreExtras, Fields{
+							"Name": Equal(initialRole.GetName()),
+							"Kind": Equal("Role"),
+						}),
+					}),
+				))
+			})
+
+			It("retains the cluster role binding", func() {
+				clusterRoleBindings := &rbacv1.ClusterRoleBindingList{}
+				Expect(fakeK8sClient.List(ctx, clusterRoleBindings, userPermissionPipelineLabels(promise, pipelines[0]))).To(Succeed())
+
+				Expect(clusterRoleBindings.Items).To(HaveLen(1))
+				Expect(clusterRoleBindings.Items[0].GetName()).To(Equal(initialClusterRoleBindings.Items[0].GetName()))
+				Expect(clusterRoleBindings.Items[0].RoleRef.Name).To(Equal(allNamespaceClusterRole.GetName()))
+				Expect(clusterRoleBindings.Items[0].RoleRef.Kind).To(Equal("ClusterRole"))
+				Expect(clusterRoleBindings.Items[0].Subjects).To(HaveLen(1))
+				Expect(clusterRoleBindings.Items[0].Subjects[0].Kind).To(Equal("ServiceAccount"))
+				Expect(clusterRoleBindings.Items[0].Subjects[0].Name).To(Equal("redis-promise-configure-pipeline-1"))
+				Expect(clusterRoleBindings.Items[0].Subjects[0].Namespace).To(Equal(namespace))
+			})
+		})
+
+		When("all pipeline permissions are removed", func() {
+			BeforeEach(func() {
+				pipelines[0].Spec.RBAC.Permissions = nil
+				forceManualReconciliation(promise, pipelines)
+			})
+
+			It("removes the outdated rbac resources", func() {
+				roles := &rbacv1.RoleList{}
+				Expect(fakeK8sClient.List(ctx, roles, userPermissionPipelineLabels(promise, pipelines[0]))).To(Succeed())
+
+				Expect(roles.Items).To(HaveLen(0))
+
+				clusterRoles := &rbacv1.ClusterRoleList{}
+				Expect(fakeK8sClient.List(ctx, clusterRoles, userPermissionPipelineLabels(promise, pipelines[0]))).To(Succeed())
+
+				Expect(clusterRoles.Items).To(HaveLen(0))
+
+				roleBindings := &rbacv1.RoleBindingList{}
+				Expect(fakeK8sClient.List(ctx, roleBindings, userPermissionPipelineLabels(promise, pipelines[0]))).To(Succeed())
+
+				Expect(roleBindings.Items).To(HaveLen(0))
+
+				clusterRoleBindings := &rbacv1.ClusterRoleBindingList{}
+				Expect(fakeK8sClient.List(ctx, clusterRoleBindings, userPermissionPipelineLabels(promise, pipelines[0]))).To(Succeed())
+
+				Expect(clusterRoleBindings.Items).To(HaveLen(0))
+			})
+		})
+
+		When("deleting pipeline scoped permissions", func() {
+			BeforeEach(func() {
+				pipelines[0].Spec.RBAC.Permissions = []v1alpha1.Permission{
+					// Deleted the pipeline scoped permission: list v5 configmaps
+					{
+						ResourceNamespace: "specific-namespace",
+						PolicyRule: rbacv1.PolicyRule{
+							Verbs:     []string{"list"},
+							APIGroups: []string{"v7"},
+							Resources: []string{"secrets"},
+						},
+					},
+					{
+						ResourceNamespace: "*",
+						PolicyRule: rbacv1.PolicyRule{
+							Verbs:     []string{"list"},
+							APIGroups: []string{"v2"},
+							Resources: []string{"pods"},
+						},
+					},
+				}
+				forceManualReconciliation(promise, pipelines)
+			})
+
+			It("removes the user provided pipeline scoped role", func() {
+				roles := &rbacv1.RoleList{}
+				Expect(fakeK8sClient.List(ctx, roles, userPermissionPipelineLabels(promise, pipelines[0]))).To(Succeed())
+
+				Expect(roles.Items).To(HaveLen(0))
+			})
+
+			It("removes the user provided pipeline scoped role binding and retains the role binding for the specific namespace", func() {
+				bindings := &rbacv1.RoleBindingList{}
+				Expect(fakeK8sClient.List(ctx, bindings, userPermissionPipelineLabels(promise, pipelines[0]))).To(Succeed())
+
+				Expect(bindings.Items).To(HaveLen(1))
+				Expect(bindings.Items).To(ConsistOf(
+					MatchFields(IgnoreExtras, Fields{
+						"RoleRef": MatchFields(IgnoreExtras, Fields{
+							"Name": Equal(specificNamespaceClusterRole.GetName()),
+							"Kind": Equal("ClusterRole"),
+						}),
+						"ObjectMeta": MatchFields(IgnoreExtras, Fields{
+							"Name":      Equal(specificNamespaceRoleBinding.GetName()),
+							"Namespace": Equal("specific-namespace"),
+						}),
+					}),
+				))
+			})
+
+			It("retains the cluster role for the all- and specific- namespace", func() {
+				clusterRoles := &rbacv1.ClusterRoleList{}
+				Expect(fakeK8sClient.List(ctx, clusterRoles, userPermissionPipelineLabels(promise, pipelines[0]))).To(Succeed())
+
+				Expect(clusterRoles.Items).To(HaveLen(2))
+				Expect(clusterRoles.Items).To(ConsistOf(
+					MatchFields(IgnoreExtras, Fields{
+						"ObjectMeta": MatchFields(IgnoreExtras, Fields{
+							"Name": Equal(specificNamespaceClusterRole.GetName()),
+						}),
+						"Rules": ConsistOf(
+							MatchFields(IgnoreExtras, Fields{
+								"Verbs":     ConsistOf("list"),
+								"APIGroups": ConsistOf("v7"),
+								"Resources": ConsistOf("secrets"),
+							}),
+						),
+					}),
+					MatchFields(IgnoreExtras, Fields{
+						"ObjectMeta": MatchFields(IgnoreExtras, Fields{
+							"Name": Equal(allNamespaceClusterRole.GetName()),
+						}),
+						"Rules": ConsistOf(
+							MatchFields(IgnoreExtras, Fields{
+								"Verbs":     ConsistOf("list"),
+								"APIGroups": ConsistOf("v2"),
+								"Resources": ConsistOf("pods"),
+							}),
+						),
+					}),
+				))
+
+			})
+
+			It("retains the cluster role binding for the all-namespace", func() {
+				clusterRoleBindings := &rbacv1.ClusterRoleBindingList{}
+				Expect(fakeK8sClient.List(ctx, clusterRoleBindings, userPermissionPipelineLabels(promise, pipelines[0]))).To(Succeed())
+
+				Expect(clusterRoleBindings.Items).To(HaveLen(1))
+				Expect(clusterRoleBindings.Items[0].GetName()).To(Equal(initialClusterRoleBindings.Items[0].GetName()))
+				Expect(clusterRoleBindings.Items[0].RoleRef.Name).To(Equal(allNamespaceClusterRole.GetName()))
+				Expect(clusterRoleBindings.Items[0].RoleRef.Kind).To(Equal("ClusterRole"))
+				Expect(clusterRoleBindings.Items[0].Subjects).To(HaveLen(1))
+				Expect(clusterRoleBindings.Items[0].Subjects[0].Kind).To(Equal("ServiceAccount"))
+				Expect(clusterRoleBindings.Items[0].Subjects[0].Name).To(Equal("redis-promise-configure-pipeline-1"))
+				Expect(clusterRoleBindings.Items[0].Subjects[0].Namespace).To(Equal(namespace))
+			})
+		})
+
+		When("adding a specific-namespace scoped permission", func() {
+			BeforeEach(func() {
+				namespaceScopedPermission := v1alpha1.Permission{
+					ResourceNamespace: "specific-namespace",
+					PolicyRule: rbacv1.PolicyRule{
+						Verbs:     []string{"list"},
+						APIGroups: []string{"v1"},
+						Resources: []string{"jobs"},
+					},
+				}
+				pipelines[0].Spec.RBAC.Permissions = append(pipelines[0].Spec.RBAC.Permissions, namespaceScopedPermission)
+				forceManualReconciliation(promise, pipelines)
+			})
+
+			It("adds the new permission while retaining the existing permissions", func() {
+				By("retaining the pipeline scoped permission role")
+				roles := &rbacv1.RoleList{}
+				Expect(fakeK8sClient.List(ctx, roles, userPermissionPipelineLabels(promise, pipelines[0]))).To(Succeed())
+
+				Expect(roles.Items).To(HaveLen(1))
+				Expect(roles.Items).To(ConsistOf(
+					MatchFields(IgnoreExtras, Fields{
+						"ObjectMeta": MatchFields(IgnoreExtras, Fields{
+							"Name":      Equal(initialRole.GetName()),
+							"Namespace": Equal(initialRole.GetNamespace()),
+						}),
+						"Rules": ConsistOf(
+							MatchFields(IgnoreExtras, Fields{
+								"Verbs":     ConsistOf("list"),
+								"APIGroups": ConsistOf("v5"),
+								"Resources": ConsistOf("configmaps"),
+							}),
+						),
+					}),
+				))
+
+				By("retaining the role bindings for the pipeline scoped role and namespace scoped role")
+				bindings := &rbacv1.RoleBindingList{}
+				Expect(fakeK8sClient.List(ctx, bindings, userPermissionPipelineLabels(promise, pipelines[0]))).To(Succeed())
+
+				Expect(bindings.Items).To(HaveLen(2))
+				Expect(bindings.Items).To(ConsistOf(
+					MatchFields(IgnoreExtras, Fields{
+						"ObjectMeta": MatchFields(IgnoreExtras, Fields{
+							"Name":      Equal(pipelineNamespaceRoleBinding.GetName()),
+							"Namespace": Equal(namespace),
+						}),
+						"RoleRef": MatchFields(IgnoreExtras, Fields{
+							"Name": Equal(initialRole.GetName()),
+							"Kind": Equal("Role"),
+						}),
+					}),
+					MatchFields(IgnoreExtras, Fields{
+						"ObjectMeta": MatchFields(IgnoreExtras, Fields{
+							"Name":      Equal(specificNamespaceRoleBinding.GetName()),
+							"Namespace": Equal("specific-namespace"),
+						}),
+						"RoleRef": MatchFields(IgnoreExtras, Fields{
+							"Name": Equal(specificNamespaceClusterRole.GetName()),
+							"Kind": Equal("ClusterRole"),
+						}),
+					}),
+				))
+
+				By("extending the namespace specific cluster role's rules to include the new permission")
+				clusterRoles := &rbacv1.ClusterRoleList{}
+				Expect(fakeK8sClient.List(ctx, clusterRoles, userPermissionPipelineLabels(promise, pipelines[0]))).To(Succeed())
+
+				Expect(clusterRoles.Items).To(HaveLen(2))
+				Expect(clusterRoles.Items).To(ConsistOf(
+					MatchFields(IgnoreExtras, Fields{
+						"Rules": ConsistOf(
+							MatchFields(IgnoreExtras, Fields{
+								"Verbs":     ConsistOf("list"),
+								"APIGroups": ConsistOf("v7"),
+								"Resources": ConsistOf("secrets"),
+							}),
+							MatchFields(IgnoreExtras, Fields{
+								"Verbs":     ConsistOf("list"),
+								"APIGroups": ConsistOf("v1"),
+								"Resources": ConsistOf("jobs"),
+							}),
+						),
+						"ObjectMeta": MatchFields(IgnoreExtras, Fields{
+							"Name": Equal(specificNamespaceClusterRole.GetName()),
+						}),
+					}),
+					MatchFields(IgnoreExtras, Fields{
+						"ObjectMeta": MatchFields(IgnoreExtras, Fields{
+							"Name": Equal(allNamespaceClusterRole.GetName()),
+						}),
+						"Rules": ConsistOf(
+							MatchFields(IgnoreExtras, Fields{
+								"Verbs":     ConsistOf("list"),
+								"APIGroups": ConsistOf("v2"),
+								"Resources": ConsistOf("pods"),
+							}),
+						),
+					}),
+				))
+
+				By("retaining the all namespace cluster role binding")
+				clusterBindings := &rbacv1.ClusterRoleBindingList{}
+				Expect(fakeK8sClient.List(ctx, clusterBindings, userPermissionPipelineLabels(promise, pipelines[0]))).To(Succeed())
+
+				Expect(clusterBindings.Items).To(HaveLen(1))
+				Expect(clusterBindings.Items).To(ConsistOf(
+					MatchFields(IgnoreExtras, Fields{
+						"ObjectMeta": MatchFields(IgnoreExtras, Fields{
+							"Name": Equal(initialClusterRoleBindings.Items[0].GetName()),
+						}),
+						"RoleRef": MatchFields(IgnoreExtras, Fields{
+							"Name": Equal(allNamespaceClusterRole.GetName()),
+							"Kind": Equal("ClusterRole"),
+						}),
+						"Subjects": ConsistOf(
+							MatchFields(IgnoreExtras, Fields{
+								"Kind":      Equal("ServiceAccount"),
+								"Name":      Equal("redis-promise-configure-pipeline-1"),
+								"Namespace": Equal(namespace),
+							}),
+						),
+					}),
+				))
+			})
+		})
+
+		When("adding a pipeline-scoped permission", func() {
+			BeforeEach(func() {
+				pipelineScopedPermission := v1alpha1.Permission{
+					PolicyRule: rbacv1.PolicyRule{
+						Verbs:     []string{"list"},
+						APIGroups: []string{"v1"},
+						Resources: []string{"jobs"},
+					},
+				}
+				pipelines[0].Spec.RBAC.Permissions = append(pipelines[0].Spec.RBAC.Permissions, pipelineScopedPermission)
+				forceManualReconciliation(promise, pipelines)
+			})
+
+			It("adds the new permission while retaining the existing permissions", func() {
+				By("extending the pipeline scoped role's rules to include the new permission")
+				roles := &rbacv1.RoleList{}
+				Expect(fakeK8sClient.List(ctx, roles, userPermissionPipelineLabels(promise, pipelines[0]))).To(Succeed())
+
+				Expect(roles.Items).To(HaveLen(1))
+				Expect(roles.Items).To(ConsistOf(
+					MatchFields(IgnoreExtras, Fields{
+						"Rules": ConsistOf(
+							MatchFields(IgnoreExtras, Fields{
+								"Verbs":     ConsistOf("list"),
+								"APIGroups": ConsistOf("v5"),
+								"Resources": ConsistOf("configmaps"),
+							}),
+							MatchFields(IgnoreExtras, Fields{
+								"Verbs":     ConsistOf("list"),
+								"APIGroups": ConsistOf("v1"),
+								"Resources": ConsistOf("jobs"),
+							}),
+						),
+						"ObjectMeta": MatchFields(IgnoreExtras, Fields{
+							"Name":      Equal(initialRole.GetName()),
+							"Namespace": Equal(initialRole.GetNamespace()),
+						}),
+					}),
+				))
+
+				By("retaining the role bindings for the pipeline scoped role and namespace scoped role")
+				bindings := &rbacv1.RoleBindingList{}
+				Expect(fakeK8sClient.List(ctx, bindings, userPermissionPipelineLabels(promise, pipelines[0]))).To(Succeed())
+
+				Expect(bindings.Items).To(HaveLen(2))
+				Expect(bindings.Items).To(ConsistOf(
+					MatchFields(IgnoreExtras, Fields{
+						"ObjectMeta": MatchFields(IgnoreExtras, Fields{
+							"Name":      Equal(pipelineNamespaceRoleBinding.GetName()),
+							"Namespace": Equal(namespace),
+						}),
+						"RoleRef": MatchFields(IgnoreExtras, Fields{
+							"Name": Equal(initialRole.GetName()),
+							"Kind": Equal("Role"),
+						}),
+					}),
+					MatchFields(IgnoreExtras, Fields{
+						"ObjectMeta": MatchFields(IgnoreExtras, Fields{
+							"Name":      Equal(specificNamespaceRoleBinding.GetName()),
+							"Namespace": Equal("specific-namespace"),
+						}),
+						"RoleRef": MatchFields(IgnoreExtras, Fields{
+							"Name": Equal(specificNamespaceClusterRole.GetName()),
+							"Kind": Equal("ClusterRole"),
+						}),
+					}),
+				))
+
+				By("retaining the cluster roles for the all- and specific- namespaces")
+				clusterRoles := &rbacv1.ClusterRoleList{}
+				Expect(fakeK8sClient.List(ctx, clusterRoles, userPermissionPipelineLabels(promise, pipelines[0]))).To(Succeed())
+
+				Expect(clusterRoles.Items).To(HaveLen(2))
+				Expect(clusterRoles.Items).To(ConsistOf(
+					MatchFields(IgnoreExtras, Fields{
+						"ObjectMeta": MatchFields(IgnoreExtras, Fields{
+							"Name": Equal(specificNamespaceClusterRole.GetName()),
+						}),
+						"Rules": ConsistOf(
+							MatchFields(IgnoreExtras, Fields{
+								"Verbs":     ConsistOf("list"),
+								"APIGroups": ConsistOf("v7"),
+								"Resources": ConsistOf("secrets"),
+							}),
+						),
+					}),
+					MatchFields(IgnoreExtras, Fields{
+						"ObjectMeta": MatchFields(IgnoreExtras, Fields{
+							"Name": Equal(allNamespaceClusterRole.GetName()),
+						}),
+						"Rules": ConsistOf(
+							MatchFields(IgnoreExtras, Fields{
+								"Verbs":     ConsistOf("list"),
+								"APIGroups": ConsistOf("v2"),
+								"Resources": ConsistOf("pods"),
+							}),
+						),
+					}),
+				))
+
+				By("retaining the all namespace cluster role binding")
+				clusterBindings := &rbacv1.ClusterRoleBindingList{}
+				Expect(fakeK8sClient.List(ctx, clusterBindings, userPermissionPipelineLabels(promise, pipelines[0]))).To(Succeed())
+
+				Expect(clusterBindings.Items).To(HaveLen(1))
+				Expect(clusterBindings.Items).To(ConsistOf(
+					MatchFields(IgnoreExtras, Fields{
+						"ObjectMeta": MatchFields(IgnoreExtras, Fields{
+							"Name": Equal(initialClusterRoleBindings.Items[0].GetName()),
+						}),
+						"RoleRef": MatchFields(IgnoreExtras, Fields{
+							"Name": Equal(allNamespaceClusterRole.GetName()),
+							"Kind": Equal("ClusterRole"),
+						}),
+						"Subjects": ConsistOf(
+							MatchFields(IgnoreExtras, Fields{
+								"Kind":      Equal("ServiceAccount"),
+								"Name":      Equal("redis-promise-configure-pipeline-1"),
+								"Namespace": Equal(namespace),
+							}),
+						),
+					}),
+				))
+			})
+		})
+
+		When("changing the rule set on an all-namespace permission", func() {
+			BeforeEach(func() {
+				pipelines[0].Spec.RBAC.Permissions = []v1alpha1.Permission{
+					{
+						PolicyRule: rbacv1.PolicyRule{
+							Verbs:     []string{"list"},
+							APIGroups: []string{"v5"},
+							Resources: []string{"configmaps"},
+						},
+					},
+					{
+						ResourceNamespace: "specific-namespace",
+						PolicyRule: rbacv1.PolicyRule{
+							Verbs:     []string{"list"},
+							APIGroups: []string{"v7"},
+							Resources: []string{"secrets"},
+						},
+					},
+					{
+						ResourceNamespace: "*",
+						PolicyRule: rbacv1.PolicyRule{
+							Verbs:     []string{"list"},
+							APIGroups: []string{"v1"},
+							Resources: []string{"jobs"},
+						},
+					},
+				}
+				forceManualReconciliation(promise, pipelines)
+			})
+
+			It("updates the all-namespace cluster role and cluster role binding while retaining the other permissions", func() {
+				By("updating the cluster role for the all-namespace permission")
+				clusterRoles := &rbacv1.ClusterRoleList{}
+				Expect(fakeK8sClient.List(ctx, clusterRoles, userPermissionPipelineLabels(promise, pipelines[0]))).To(Succeed())
+
+				Expect(clusterRoles.Items).To(HaveLen(2))
+				Expect(clusterRoles.Items).To(ConsistOf(
+					MatchFields(IgnoreExtras, Fields{
+						"ObjectMeta": MatchFields(IgnoreExtras, Fields{
+							"Name": Equal(specificNamespaceClusterRole.GetName()),
+						}),
+						"Rules": ConsistOf(
+							MatchFields(IgnoreExtras, Fields{
+								"Verbs":     ConsistOf("list"),
+								"APIGroups": ConsistOf("v7"),
+								"Resources": ConsistOf("secrets"),
+							}),
+						),
+					}),
+					MatchFields(IgnoreExtras, Fields{
+						"ObjectMeta": MatchFields(IgnoreExtras, Fields{
+							"Name": Equal(allNamespaceClusterRole.GetName()),
+						}),
+						"Rules": ConsistOf(
+							MatchFields(IgnoreExtras, Fields{
+								"Verbs":     ConsistOf("list"),
+								"APIGroups": ConsistOf("v1"),
+								"Resources": ConsistOf("jobs"),
+							}),
+						),
+					}),
+				))
+
+				By("retaining the role bindings for the pipeline scoped role and namespace-scoped cluster role")
+				bindings := &rbacv1.RoleBindingList{}
+				Expect(fakeK8sClient.List(ctx, bindings, userPermissionPipelineLabels(promise, pipelines[0]))).To(Succeed())
+
+				Expect(bindings.Items).To(HaveLen(2))
+				Expect(bindings.Items).To(ConsistOf(
+					MatchFields(IgnoreExtras, Fields{
+						"ObjectMeta": MatchFields(IgnoreExtras, Fields{
+							"Name":      Equal(pipelineNamespaceRoleBinding.GetName()),
+							"Namespace": Equal(namespace),
+						}),
+						"RoleRef": MatchFields(IgnoreExtras, Fields{
+							"Name": Equal(initialRole.GetName()),
+							"Kind": Equal("Role"),
+						}),
+					}),
+					MatchFields(IgnoreExtras, Fields{
+						"ObjectMeta": MatchFields(IgnoreExtras, Fields{
+							"Name":      Equal(specificNamespaceRoleBinding.GetName()),
+							"Namespace": Equal("specific-namespace"),
+						}),
+						"RoleRef": MatchFields(IgnoreExtras, Fields{
+							"Name": Equal(specificNamespaceClusterRole.GetName()),
+							"Kind": Equal("ClusterRole"),
+						}),
+					}),
+				))
+
+				By("retaining the cluster role binding for the all-namespace permission")
+				clusterBindings := &rbacv1.ClusterRoleBindingList{}
+				Expect(fakeK8sClient.List(ctx, clusterBindings, userPermissionPipelineLabels(promise, pipelines[0]))).To(Succeed())
+
+				Expect(clusterBindings.Items).To(HaveLen(1))
+				Expect(clusterBindings.Items).To(ConsistOf(
+					MatchFields(IgnoreExtras, Fields{
+						"ObjectMeta": MatchFields(IgnoreExtras, Fields{
+							"Name": Equal(initialClusterRoleBindings.Items[0].GetName()),
+						}),
+						"RoleRef": MatchFields(IgnoreExtras, Fields{
+							"Name": Equal(allNamespaceClusterRole.GetName()),
+							"Kind": Equal("ClusterRole"),
+						}),
+						"Subjects": ConsistOf(
+							MatchFields(IgnoreExtras, Fields{
+								"Kind":      Equal("ServiceAccount"),
+								"Name":      Equal("redis-promise-configure-pipeline-1"),
+								"Namespace": Equal(namespace),
+							}),
+						),
+					}),
+				))
+
+				By("retaining the role for the pipeline namespace")
+				roles := &rbacv1.RoleList{}
+				Expect(fakeK8sClient.List(ctx, roles, userPermissionPipelineLabels(promise, pipelines[0]))).To(Succeed())
+
+				Expect(roles.Items).To(HaveLen(1))
+				Expect(roles.Items).To(ConsistOf(
+					MatchFields(IgnoreExtras, Fields{
+						"ObjectMeta": MatchFields(IgnoreExtras, Fields{
+							"Name":      Equal(initialRole.GetName()),
+							"Namespace": Equal(initialRole.GetNamespace()),
+						}),
+						"Rules": ConsistOf(
+							MatchFields(IgnoreExtras, Fields{
+								"Verbs":     ConsistOf("list"),
+								"APIGroups": ConsistOf("v5"),
+								"Resources": ConsistOf("configmaps"),
+							}),
+						),
+					}),
+				))
+			})
+		})
+
+		When("changing an all-namespace permission to a pipeline scoped permission", func() {
+			BeforeEach(func() {
+				pipelines[0].Spec.RBAC.Permissions = []v1alpha1.Permission{
+					{
+						PolicyRule: rbacv1.PolicyRule{
+							Verbs:     []string{"list"},
+							APIGroups: []string{"v5"},
+							Resources: []string{"configmaps"},
+						},
+					},
+					{
+						ResourceNamespace: "specific-namespace",
+						PolicyRule: rbacv1.PolicyRule{
+							Verbs:     []string{"list"},
+							APIGroups: []string{"v7"},
+							Resources: []string{"secrets"},
+						},
+					},
+					// Below has changed from all-namespace to pipeline scoped
+					{
+						PolicyRule: rbacv1.PolicyRule{
+							Verbs:     []string{"list"},
+							APIGroups: []string{"v2"},
+							Resources: []string{"pods"},
+						},
+					},
+				}
+				forceManualReconciliation(promise, pipelines)
+			})
+
+			It("updates the permissions correctly", func() {
+				By("removing the cluster role binding for the all-namespace permission")
+				clusterBindings := &rbacv1.ClusterRoleBindingList{}
+				Expect(fakeK8sClient.List(ctx, clusterBindings, userPermissionPipelineLabels(promise, pipelines[0]))).To(Succeed())
+
+				Expect(clusterBindings.Items).To(HaveLen(0))
+
+				By("removing the all-namespace cluster role")
+				clusterRoles := &rbacv1.ClusterRoleList{}
+				Expect(fakeK8sClient.List(ctx, clusterRoles, userPermissionPipelineLabels(promise, pipelines[0]))).To(Succeed())
+
+				Expect(clusterRoles.Items).To(HaveLen(1))
+				Expect(clusterRoles.Items).To(ConsistOf(
+					MatchFields(IgnoreExtras, Fields{
+						"Rules": ConsistOf(
+							MatchFields(IgnoreExtras, Fields{
+								"Verbs":     ConsistOf("list"),
+								"APIGroups": ConsistOf("v7"),
+								"Resources": ConsistOf("secrets"),
+							}),
+						),
+						"ObjectMeta": MatchFields(IgnoreExtras, Fields{
+							"Name": Equal(specificNamespaceClusterRole.GetName()),
+						}),
+					}),
+				))
+
+				By("retaining the role binding for the pipeline scoped role and specific namespace cluster role")
+				bindings := &rbacv1.RoleBindingList{}
+				Expect(fakeK8sClient.List(ctx, bindings, userPermissionPipelineLabels(promise, pipelines[0]))).To(Succeed())
+
+				Expect(bindings.Items).To(HaveLen(2))
+				Expect(bindings.Items).To(ConsistOf(
+					MatchFields(IgnoreExtras, Fields{
+						"RoleRef": MatchFields(IgnoreExtras, Fields{
+							"Name": Equal(specificNamespaceClusterRole.GetName()),
+							"Kind": Equal("ClusterRole"),
+						}),
+						"ObjectMeta": MatchFields(IgnoreExtras, Fields{
+							"Name": Equal(specificNamespaceRoleBinding.GetName()),
+						}),
+					}),
+					MatchFields(IgnoreExtras, Fields{
+						"RoleRef": MatchFields(IgnoreExtras, Fields{
+							"Name": Equal(initialRole.GetName()),
+							"Kind": Equal("Role"),
+						}),
+						"ObjectMeta": MatchFields(IgnoreExtras, Fields{
+							"Name": Equal(pipelineNamespaceRoleBinding.GetName()),
+						}),
+					}),
+				))
+
+				By("updating the pipeline scoped role")
+				roles := &rbacv1.RoleList{}
+				Expect(fakeK8sClient.List(ctx, roles, userPermissionPipelineLabels(promise, pipelines[0]))).To(Succeed())
+
+				Expect(roles.Items).To(HaveLen(1))
+				Expect(roles.Items).To(ConsistOf(
+					MatchFields(IgnoreExtras, Fields{
+						"Rules": ConsistOf(
+							MatchFields(IgnoreExtras, Fields{
+								"Verbs":     ConsistOf("list"),
+								"APIGroups": ConsistOf("v2"),
+								"Resources": ConsistOf("pods"),
+							}),
+							MatchFields(IgnoreExtras, Fields{
+								"Verbs":     ConsistOf("list"),
+								"APIGroups": ConsistOf("v5"),
+								"Resources": ConsistOf("configmaps"),
+							}),
+						),
+						"ObjectMeta": MatchFields(IgnoreExtras, Fields{
+							"Name":      Equal(initialRole.GetName()),
+							"Namespace": Equal(initialRole.GetNamespace()),
+						}),
+					}),
+				))
+			})
+		})
+
+		When("changing a namespace scoped permission to an all-namespace permission", func() {
+			BeforeEach(func() {
+				pipelines[0].Spec.RBAC.Permissions = []v1alpha1.Permission{
+					{
+						PolicyRule: rbacv1.PolicyRule{
+							Verbs:     []string{"list"},
+							APIGroups: []string{"v5"},
+							Resources: []string{"configmaps"},
+						},
+					},
+					// This has been updated from specific-namespace to *
+					{
+						ResourceNamespace: "*",
+						PolicyRule: rbacv1.PolicyRule{
+							Verbs:     []string{"list"},
+							APIGroups: []string{"v7"},
+							Resources: []string{"secrets"},
+						},
+					},
+					{
+						ResourceNamespace: "*",
+						PolicyRule: rbacv1.PolicyRule{
+							Verbs:     []string{"list"},
+							APIGroups: []string{"v2"},
+							Resources: []string{"pods"},
+						},
+					},
+				}
+				forceManualReconciliation(promise, pipelines)
+			})
+
+			It("updates the permissions correctly", func() {
+				By("updating the cluster role for the all-namespace permission")
+				clusterRoles := &rbacv1.ClusterRoleList{}
+				Expect(fakeK8sClient.List(ctx, clusterRoles, userPermissionPipelineLabels(promise, pipelines[0]))).To(Succeed())
+
+				Expect(clusterRoles.Items).To(HaveLen(1))
+				Expect(clusterRoles.Items).To(ConsistOf(
+					MatchFields(IgnoreExtras, Fields{
+						"Rules": ConsistOf(
+							MatchFields(IgnoreExtras, Fields{
+								"Verbs":     ConsistOf("list"),
+								"APIGroups": ConsistOf("v2"),
+								"Resources": ConsistOf("pods"),
+							}),
+							MatchFields(IgnoreExtras, Fields{
+								"Verbs":     ConsistOf("list"),
+								"APIGroups": ConsistOf("v7"),
+								"Resources": ConsistOf("secrets"),
+							}),
+						),
+						"ObjectMeta": MatchFields(IgnoreExtras, Fields{
+							"Name": Equal(allNamespaceClusterRole.GetName()),
+						}),
+					}),
+				))
+
+				By("retaining the role and role binding for the pipeline scoped role, and deleting the namespace-specific role binding")
+				roles := &rbacv1.RoleList{}
+				Expect(fakeK8sClient.List(ctx, roles, userPermissionPipelineLabels(promise, pipelines[0]))).To(Succeed())
+
+				Expect(roles.Items).To(HaveLen(1))
+				Expect(roles.Items).To(ConsistOf(
+					MatchFields(IgnoreExtras, Fields{
+						"Rules": ConsistOf(
+							MatchFields(IgnoreExtras, Fields{
+								"Verbs":     ConsistOf("list"),
+								"APIGroups": ConsistOf("v5"),
+								"Resources": ConsistOf("configmaps"),
+							}),
+						),
+						"ObjectMeta": MatchFields(IgnoreExtras, Fields{
+							"Name":      Equal(initialRole.GetName()),
+							"Namespace": Equal(initialRole.GetNamespace()),
+						}),
+					}),
+				))
+
+				bindings := &rbacv1.RoleBindingList{}
+				Expect(fakeK8sClient.List(ctx, bindings, userPermissionPipelineLabels(promise, pipelines[0]))).To(Succeed())
+
+				Expect(bindings.Items).To(HaveLen(1))
+				Expect(bindings.Items).To(ConsistOf(
+					MatchFields(IgnoreExtras, Fields{
+						"RoleRef": MatchFields(IgnoreExtras, Fields{
+							"Name": Equal(initialRole.Name),
+							"Kind": Equal("Role"),
+						}),
+						"ObjectMeta": MatchFields(IgnoreExtras, Fields{
+							"Name":      Equal(initialRole.GetName()),
+							"Namespace": Equal(namespace),
+						}),
+					}),
+				))
+
+				By("retaining the cluster role binding for the all-namespace permission")
+				clusterBindings := &rbacv1.ClusterRoleBindingList{}
+				Expect(fakeK8sClient.List(ctx, clusterBindings, userPermissionPipelineLabels(promise, pipelines[0]))).To(Succeed())
+
+				Expect(clusterBindings.Items).To(HaveLen(1))
+				Expect(clusterBindings.Items).To(ConsistOf(
+					MatchFields(IgnoreExtras, Fields{
+						"ObjectMeta": MatchFields(IgnoreExtras, Fields{
+							"Name": Equal(initialClusterRoleBindings.Items[0].GetName()),
+						}),
+						"RoleRef": MatchFields(IgnoreExtras, Fields{
+							"Name": Equal(allNamespaceClusterRole.GetName()),
+							"Kind": Equal("ClusterRole"),
+						}),
+						"Subjects": ConsistOf(
+							MatchFields(IgnoreExtras, Fields{
+								"Kind":      Equal("ServiceAccount"),
+								"Name":      Equal("redis-promise-configure-pipeline-1"),
+								"Namespace": Equal(namespace),
+							}),
+						),
+					}),
+				))
+			})
+		})
+	})
+
 	Describe("ReconcileDelete", func() {
+		BeforeEach(func() {
+			pipelines = []v1alpha1.Pipeline{{
+				ObjectMeta: metav1.ObjectMeta{
+					Name: "pipeline-1",
+				},
+				Spec: v1alpha1.PipelineSpec{
+					Containers: []v1alpha1.Container{
+						{Name: "container-1", Image: "busybox"},
+					},
+				},
+			}, {
+				ObjectMeta: metav1.ObjectMeta{
+					Name: "pipeline-2",
+				},
+				Spec: v1alpha1.PipelineSpec{
+					Containers: []v1alpha1.Container{
+						{Name: "container-1", Image: "busybox"},
+					},
+				},
+			}}
+
+			workflowPipelines, uPromise = setupTest(promise, pipelines)
+		})
+
 		When("there are no pipelines to reconcile", func() {
 			It("considers the workflow as completed", func() {
 				opts := workflow.NewOpts(ctx, fakeK8sClient, logger, nil, []v1alpha1.PipelineJobResources{}, "promise")
@@ -857,6 +1800,21 @@ func setupTest(promise v1alpha1.Promise, pipelines []v1alpha1.Pipeline) ([]v1alp
 	return workflowPipelines, uPromise
 }
 
+func setupAndReconcileUntilPipelinesCompleted(promise v1alpha1.Promise, pipelines []v1alpha1.Pipeline) ([]v1alpha1.PipelineJobResources, *unstructured.Unstructured) {
+	updatedWorkflowPipeline, uPromise := setupTest(promise, pipelines)
+	opts := workflow.NewOpts(ctx, fakeK8sClient, logger, uPromise, updatedWorkflowPipeline, "promise")
+	_, err := workflow.ReconcileConfigure(opts)
+	Expect(err).NotTo(HaveOccurred())
+
+	markJobAsComplete(updatedWorkflowPipeline[0].Job.Name)
+	_, err = workflow.ReconcileConfigure(opts)
+	Expect(err).NotTo(HaveOccurred())
+
+	markJobAsComplete(updatedWorkflowPipeline[1].Job.Name)
+
+	return updatedWorkflowPipeline, uPromise
+}
+
 func labelPromiseForManualReconciliation(name string) {
 	promise := &v1alpha1.Promise{}
 	Expect(fakeK8sClient.Get(ctx, types.NamespacedName{Name: name}, promise)).To(Succeed())
@@ -919,4 +1877,21 @@ var timestamp = metav1.NewTime(time.Now())
 func nextTimestamp() metav1.Time {
 	timestamp = metav1.NewTime(timestamp.Add(time.Minute))
 	return timestamp
+}
+
+func userPermissionPipelineLabels(promise v1alpha1.Promise, pipeline v1alpha1.Pipeline) client.MatchingLabels {
+	return client.MatchingLabels(labels.Set{
+		"kratix.io/promise-name":  promise.GetName(),
+		"kratix.io/pipeline-name": pipeline.Name,
+		"kratix.io/work-type":     "promise",
+		"kratix.io/work-action":   "configure",
+	})
+}
+
+func forceManualReconciliation(promise v1alpha1.Promise, pipelines []v1alpha1.Pipeline) {
+	labelPromiseForManualReconciliation(promise.GetName())
+	resources, uPromise := setupTest(promise, pipelines)
+	opts := workflow.NewOpts(ctx, fakeK8sClient, logger, uPromise, resources, "promise")
+	_, err := workflow.ReconcileConfigure(opts)
+	Expect(err).NotTo(HaveOccurred())
 }

@@ -26,11 +26,12 @@ import (
 const (
 	DefaultWorkloadGroupDirectory = "."
 
-	PromiseNameLabel  = KratixPrefix + "promise-name"
-	ResourceNameLabel = KratixPrefix + "resource-name"
-	PipelineNameLabel = KratixPrefix + "pipeline-name"
-	WorkTypeLabel     = KratixPrefix + "work-type"
-	WorkActionLabel   = KratixPrefix + "work-action"
+	PromiseNameLabel                     = KratixPrefix + "promise-name"
+	ResourceNameLabel                    = KratixPrefix + "resource-name"
+	PipelineNameLabel                    = KratixPrefix + "pipeline-name"
+	WorkTypeLabel                        = KratixPrefix + "work-type"
+	WorkActionLabel                      = KratixPrefix + "work-action"
+	UserPermissionResourceNamespaceLabel = KratixPrefix + "resource-namespace"
 
 	WorkTypePromise          = "promise"
 	WorkTypeResource         = "resource"
