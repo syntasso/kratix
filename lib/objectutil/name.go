@@ -18,9 +18,9 @@ func GenerateObjectName(name string) string {
 }
 
 func GenerateDeterministicObjectName(name string) string {
-	name = processName(name)
-
 	id := hash.ComputeHash(name)
+
+	name = processName(name)
 
 	return name + "-" + string(id[0:5])
 }
