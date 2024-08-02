@@ -78,6 +78,14 @@ spec:
             rbac:
               permissions:
                 - apiGroups: [ "" ]
+                  resources: [ "configmaps" ]
+                  verbs: [ "list" ]
+                  resourceNamespace: "*"
+                - apiGroups: [ "apps" ]
+                  resources: [ "deployments" ]
+                  verbs: [ "list" ]
+                  resourceNamespace: "pipeline-perms-ns"
+                - apiGroups: [ "" ]
                   resources: [ "secrets", "services" ]
                   verbs: [ "list" ]
                 - apiGroups: [ "rbac.authorization.k8s.io" ]

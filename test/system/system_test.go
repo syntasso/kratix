@@ -5,6 +5,7 @@ import (
 	"context"
 	"encoding/base64"
 	"fmt"
+	"github.com/onsi/ginkgo/v2/types"
 	"os"
 	"os/exec"
 	"path/filepath"
@@ -18,7 +19,6 @@ import (
 	"github.com/minio/minio-go/v7"
 	"github.com/minio/minio-go/v7/pkg/credentials"
 	. "github.com/onsi/ginkgo/v2"
-	"github.com/onsi/ginkgo/v2/types"
 	. "github.com/onsi/gomega"
 	"github.com/onsi/gomega/gexec"
 	"github.com/syntasso/kratix/api/v1alpha1"
@@ -453,6 +453,26 @@ var _ = Describe("Kratix", func() {
 					worker.eventuallyKubectl("get", "configmap", rrDeclarativeConfigMap)
 				})
 
+				roleName := strings.Trim(platform.kubectl("get", "role", "-l",
+					userPermissionRoleLabels(bashPromiseName, "resource", "configure", "first"),
+					"-o=jsonpath='{.items[0].metadata.name}'"), "'")
+				roleCreationTimestamp := platform.kubectl("get", "role", roleName, "-o=jsonpath='{.metadata.creationTimestamp}'")
+
+				bindingName := strings.Trim(platform.kubectl("get", "rolebinding", "-l",
+					userPermissionRoleLabels(bashPromiseName, "resource", "configure", "first"),
+					"-o=jsonpath='{.items[0].metadata.name}'"), "'")
+				bindingCreationTimestamp := platform.kubectl("get", "rolebinding", bindingName, "-o=jsonpath='{.metadata.creationTimestamp}'")
+
+				specificNamespaceClusterRoleName := strings.Trim(platform.kubectl("get", "ClusterRole", "-l",
+					userPermissionClusterRoleLabels(bashPromiseName, "resource", "configure", "first", "pipeline-perms-ns"),
+					"-o=jsonpath='{.items[0].metadata.name}'"), "'")
+				specificNamespaceClusterRoleCreationTimestamp := platform.kubectl("get", "ClusterRole", specificNamespaceClusterRoleName, "-o=jsonpath='{.metadata.creationTimestamp}'")
+
+				allNamespaceClusterRoleName := strings.Trim(platform.kubectl("get", "ClusterRole", "-l",
+					userPermissionClusterRoleLabels(bashPromiseName, "resource", "configure", "first", "kratix_all_namespaces"),
+					"-o=jsonpath='{.items[0].metadata.name}'"), "'")
+				allNamespaceClusterRoleCreationTimestamp := platform.kubectl("get", "ClusterRole", allNamespaceClusterRoleName, "-o=jsonpath='{.metadata.creationTimestamp}'")
+
 				By("updating the promise", func() {
 					//Promise has:
 					// API:
@@ -462,7 +482,7 @@ var _ = Describe("Kratix", func() {
 					// Pipeline:
 					//    resource
 					//      Extra container to run the 3rd command field
-					//      rename configmap from from bashrr-test-default to bashrr-test-default-v2
+					//      rename configmap from bashrr-test-default to bashrr-test-default-v2
 					//    promise
 					//      rename namespace from bash-dep-namespace-v1alpha1 to
 					//      bash-dep-namespace-v1alpha2
@@ -489,6 +509,13 @@ var _ = Describe("Kratix", func() {
 					}, timeout, interval).Should(Succeed())
 
 					worker.withExitCode(1).eventuallyKubectl("get", "configmap", rrDeclarativeConfigMap)
+				})
+
+				By("not recreating permission objects", func() {
+					Expect(platform.kubectl("get", "role", roleName, "-o=jsonpath='{.metadata.creationTimestamp}'")).To(Equal(roleCreationTimestamp))
+					Expect(platform.kubectl("get", "rolebinding", bindingName, "-o=jsonpath='{.metadata.creationTimestamp}'")).To(Equal(bindingCreationTimestamp))
+					Expect(platform.kubectl("get", "clusterrole", specificNamespaceClusterRoleName, "-o=jsonpath='{.metadata.creationTimestamp}'")).To(Equal(specificNamespaceClusterRoleCreationTimestamp))
+					Expect(platform.kubectl("get", "clusterrole", allNamespaceClusterRoleName, "-o=jsonpath='{.metadata.creationTimestamp}'")).To(Equal(allNamespaceClusterRoleCreationTimestamp))
 				})
 
 				platform.eventuallyKubectlDelete("promise", bashPromiseName)
@@ -1045,4 +1072,18 @@ func readPromiseAndReplaceWithUniqueBashName(promisePath, bashPromiseName string
 	err = yaml.NewYAMLOrJSONDecoder(strings.NewReader(promiseContents), 100).Decode(promise)
 	Expect(err).NotTo(HaveOccurred())
 	return promise
+}
+
+func userPermissionRoleLabels(promiseName, workflowType, action, pipelineName string) string {
+	return fmt.Sprintf("%s=%s,%s=%s,%s=%s,%s=%s",
+		v1alpha1.PromiseNameLabel, promiseName,
+		v1alpha1.WorkTypeLabel, workflowType,
+		v1alpha1.WorkActionLabel, action,
+		v1alpha1.PipelineNameLabel, pipelineName)
+}
+
+func userPermissionClusterRoleLabels(promiseName, workflowType, action, pipelineName, namespace string) string {
+	return fmt.Sprintf("%s,%s=%s",
+		userPermissionRoleLabels(promiseName, workflowType, action, pipelineName),
+		v1alpha1.UserPermissionResourceNamespaceLabel, namespace)
 }
