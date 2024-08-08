@@ -43,13 +43,16 @@ spec:
             properties:
               authMethod:
                 default: basicAuth
-                description: AuthMethod used to access the StateStore
+                description: |-
+                  Authentication method used to access the StateStore.
+                  Default to basicAuth; options are basicAuth and ssh.
                 enum:
                 - basicAuth
                 - ssh
                 type: string
               branch:
                 default: main
+                description: Branch of the git repository; default to main.
                 type: string
               gitAuthor:
                 default:
@@ -84,6 +87,7 @@ spec:
                 type: object
                 x-kubernetes-map-type: atomic
               url:
+                description: URL of the git repository.
                 type: string
             type: object
           status:

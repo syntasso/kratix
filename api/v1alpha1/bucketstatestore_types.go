@@ -23,14 +23,19 @@ import (
 
 // BucketStateStoreSpec defines the desired state of BucketStateStore
 type BucketStateStoreSpec struct {
-	BucketName           string `json:"bucketName"`
+	// Name of the bucket; required field.
+	BucketName string `json:"bucketName"`
+	// Endpoint to access the bucket.
+	// Required field.
 	Endpoint             string `json:"endpoint"`
 	StateStoreCoreFields `json:",inline"`
 
+	// Toggle to turn off or on SSL verification when connecting to the bucket.
 	//+kubebuilder:validation:Optional
 	Insecure bool `json:"insecure"`
 
-	// AuthMethod used to access the StateStore
+	// Authentication method used to access the StateStore.
+	// Default to accessKey; options are accessKey and IAM.
 	//+kubebuilder:validation:Enum=accessKey;IAM
 	//+kubebuilder:default:=accessKey
 	AuthMethod string `json:"authMethod,omitempty"`

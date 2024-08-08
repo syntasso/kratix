@@ -28,15 +28,18 @@ const (
 
 // GitStateStoreSpec defines the desired state of GitStateStore
 type GitStateStoreSpec struct {
+	// URL of the git repository.
 	URL string `json:"url,omitempty"`
 
 	StateStoreCoreFields `json:",inline"`
 
+	// Branch of the git repository; default to main.
 	// +kubebuilder:validation:Optional
 	// +kubebuilder:default=main
 	Branch string `json:"branch,omitempty"`
 
-	// AuthMethod used to access the StateStore
+	// Authentication method used to access the StateStore.
+	// Default to basicAuth; options are basicAuth and ssh.
 	// +kubebuilder:validation:Enum=basicAuth;ssh
 	// +kubebuilder:default:=basicAuth
 	AuthMethod string `json:"authMethod,omitempty"`
