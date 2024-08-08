@@ -43,16 +43,24 @@ spec:
             properties:
               authMethod:
                 default: accessKey
-                description: AuthMethod used to access the StateStore
+                description: |-
+                  Authentication method used to access the StateStore.
+                  Default to accessKey; options are accessKey and IAM.
                 enum:
                 - accessKey
                 - IAM
                 type: string
               bucketName:
+                description: Name of the bucket; required field.
                 type: string
               endpoint:
+                description: |-
+                  Endpoint to access the bucket.
+                  Required field.
                 type: string
               insecure:
+                description: Toggle to turn off or on SSL verification when connecting
+                  to the bucket.
                 type: boolean
               path:
                 description: |-
