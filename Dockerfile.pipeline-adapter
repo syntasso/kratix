@@ -1,4 +1,4 @@
-FROM --platform=${TARGETPLATFORM} golang:1.22 AS builder
+FROM golang:1.22 AS builder
 ARG TARGETARCH
 ARG TARGETOS
 
@@ -16,18 +16,26 @@ RUN go mod download
 # Build work-creator binary
 RUN CGO_ENABLED=0 GOOS=${TARGETOS} GOARCH=${TARGETARCH} GO111MODULE=on go build -a -o work-creator work-creator/pipeline/cmd/main.go
 
-FROM --platform=${TARGETPLATFORM} alpine
+RUN mkdir work-creator-files
 
-COPY --from=mikefarah/yq:4 /usr/bin/yq /bin/yq
+# Use distroless as minimal base image to package the manager binary
+# Refer to https://github.com/GoogleContainerTools/distroless for more details
+FROM gcr.io/distroless/cc:nonroot
 
-WORKDIR /
+COPY --chown=nonroot:nonroot --from=busybox /usr/bin/env /usr/bin/env
+COPY --chown=nonroot:nonroot --from=busybox /bin/sh /bin/sh
+COPY --chown=nonroot:nonroot --from=busybox /bin/cat /bin/cat
+COPY --chown=nonroot:nonroot --from=busybox /bin/date /bin/date
+COPY --chown=nonroot:nonroot --from=busybox /bin/head /bin/head
+COPY --chown=nonroot:nonroot --from=mikefarah/yq:4 /usr/bin/yq /bin/yq
+COPY --chown=nonroot:nonroot --from=bitnami/kubectl:1.29.4 /opt/bitnami/kubectl/bin/kubectl /bin/kubectl
 
-COPY --from=builder /workspace/work-creator/main ./work-creator
+COPY --chown=nonroot:nonroot --from=builder /workspace/work-creator/main ./work-creator
+COPY --chown=nonroot:nonroot --from=builder /workspace/work-creator/scripts/update-status /bin/update-status
+COPY --chown=nonroot:nonroot --from=builder /workspace/work-creator/scripts/reader /bin/reader
+COPY --chown=nonroot:nonroot --from=builder /workspace/work-creator-files /work-creator-files
 
-COPY work-creator/scripts/update-status /bin/update-status
-COPY work-creator/scripts/reader /bin/reader
-
-COPY --from=bitnami/kubectl:1.29.4 /opt/bitnami/kubectl/bin/kubectl /bin/kubectl
+USER 65532:65532
 
 ENTRYPOINT []
 CMD []
