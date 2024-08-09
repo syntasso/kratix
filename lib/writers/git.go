@@ -100,8 +100,13 @@ func NewGitWriter(logger logr.Logger, stateStoreSpec v1alpha1.GitStateStoreSpec,
 			Name:  stateStoreSpec.GitAuthor.Name,
 			Email: stateStoreSpec.GitAuthor.Email,
 		},
-		Log:  logger,
-		Path: filepath.Join(stateStoreSpec.Path, destination.Spec.Path, destination.Namespace, destination.Name),
+		Log: logger,
+		Path: filepath.Join(
+			strings.TrimPrefix(stateStoreSpec.Path, "/"),
+			destination.Spec.Path,
+			destination.Namespace,
+			destination.Name,
+		),
 	}, nil
 }
 

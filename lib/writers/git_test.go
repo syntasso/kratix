@@ -6,6 +6,8 @@ import (
 	"crypto/rsa"
 	"crypto/x509"
 	"encoding/pem"
+	"log"
+
 	"github.com/go-git/go-git/v5/plumbing/transport/http"
 	"github.com/go-git/go-git/v5/plumbing/transport/ssh"
 	"github.com/go-logr/logr"
@@ -14,7 +16,6 @@ import (
 	"github.com/syntasso/kratix/api/v1alpha1"
 	"github.com/syntasso/kratix/lib/writers"
 	metav1 "k8s.io/apimachinery/pkg/apis/meta/v1"
-	"log"
 	ctrl "sigs.k8s.io/controller-runtime"
 )
 
@@ -69,6 +70,20 @@ var _ = Describe("NewGitWriter", func() {
 		Expect(gitWriter.GitServer.Branch).To(Equal("test"))
 		Expect(gitWriter.Author.Email).To(Equal("test@example.com"))
 		Expect(gitWriter.Author.Name).To(Equal("a-user"))
+	})
+
+	It("removes leading slash from the StateStore Path", func() {
+		creds := map[string][]byte{
+			"username": []byte("user1"),
+			"password": []byte("pw1"),
+		}
+		stateStoreSpec.Path = "/test"
+		writer, err := writers.NewGitWriter(logger, stateStoreSpec, dest, creds)
+		Expect(err).NotTo(HaveOccurred())
+		Expect(writer).To(BeAssignableToTypeOf(&writers.GitWriter{}))
+		gitWriter, ok := writer.(*writers.GitWriter)
+		Expect(ok).To(BeTrue())
+		Expect(gitWriter.Path).To(HavePrefix("test"))
 	})
 
 	Context("authenticate with SSH", func() {
