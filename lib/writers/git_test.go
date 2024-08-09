@@ -72,18 +72,32 @@ var _ = Describe("NewGitWriter", func() {
 		Expect(gitWriter.Author.Name).To(Equal("a-user"))
 	})
 
-	It("removes leading slash from the StateStore Path", func() {
+	It("removes leading slash from the Path", func() {
 		creds := map[string][]byte{
 			"username": []byte("user1"),
 			"password": []byte("pw1"),
 		}
-		stateStoreSpec.Path = "/test"
-		writer, err := writers.NewGitWriter(logger, stateStoreSpec, dest, creds)
-		Expect(err).NotTo(HaveOccurred())
-		Expect(writer).To(BeAssignableToTypeOf(&writers.GitWriter{}))
-		gitWriter, ok := writer.(*writers.GitWriter)
-		Expect(ok).To(BeTrue())
-		Expect(gitWriter.Path).To(HavePrefix("test"))
+		By("removing the leading slash when StateStore.Path is defined", func() {
+			stateStoreSpec.Path = "/test"
+			writer, err := writers.NewGitWriter(logger, stateStoreSpec, dest, creds)
+			Expect(err).NotTo(HaveOccurred())
+			Expect(writer).To(BeAssignableToTypeOf(&writers.GitWriter{}))
+			gitWriter, ok := writer.(*writers.GitWriter)
+			Expect(ok).To(BeTrue())
+			Expect(gitWriter.Path).To(HavePrefix("test"))
+
+			stateStoreSpec.Path = ""
+		})
+
+		By("removing the leading slash when Destination.Path is defined", func() {
+			dest.Spec.Path = "/dst-test"
+			writer, err := writers.NewGitWriter(logger, stateStoreSpec, dest, creds)
+			Expect(err).NotTo(HaveOccurred())
+			Expect(writer).To(BeAssignableToTypeOf(&writers.GitWriter{}))
+			gitWriter, ok := writer.(*writers.GitWriter)
+			Expect(ok).To(BeTrue())
+			Expect(gitWriter.Path).To(HavePrefix("dst-test"))
+		})
 	})
 
 	Context("authenticate with SSH", func() {
