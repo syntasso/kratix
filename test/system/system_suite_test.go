@@ -37,10 +37,6 @@ var _ = SynchronizedBeforeSuite(func() {
 		name:    getEnvOrDefault("PLATFORM_NAME", "platform-cluster"),
 	}
 
-	if getEnvOrDefault("PLATFORM_SKIP_SETUP", "false") == "true" {
-		return
-	}
-
 	var err error
 	testTempDir, err = os.MkdirTemp(os.TempDir(), "systest")
 	Expect(err).NotTo(HaveOccurred())
@@ -48,8 +44,15 @@ var _ = SynchronizedBeforeSuite(func() {
 	tmpDir, err := os.MkdirTemp(os.TempDir(), "systest")
 	Expect(err).NotTo(HaveOccurred())
 
-	platform.kubectl("apply", "-f", "../../hack/destination/gitops-tk-install.yaml")
 	platform.kubectl("apply", "-f", "./assets/bash-promise/deployment.yaml")
+
+	if getEnvOrDefault("PLATFORM_SKIP_SETUP", "false") == "true" {
+		// Useful when running tests against a non-kind cluster
+		// Files applied below are configured for local development
+		return
+	}
+
+	platform.kubectl("apply", "-f", "../../hack/destination/gitops-tk-install.yaml")
 	platform.kubectl("apply", "-f", catAndReplaceFluxResources(tmpDir, "./assets/git/platform_gitops-tk-resources.yaml"))
 	platform.kubectl("apply", "-f", catAndReplaceFluxResources(tmpDir, "./assets/git/destinations.yaml"))
 	os.RemoveAll(tmpDir)
