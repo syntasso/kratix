@@ -514,11 +514,12 @@ var _ = Describe("Pipeline", func() {
 			Describe("DefaultEnvVars", func() {
 				It("should return a list of default environment variables", func() {
 					envVars := resources.Job.Spec.Template.Spec.InitContainers[1].Env
-					Expect(envVars).To(HaveLen(4))
+					Expect(envVars).To(HaveLen(5))
 					Expect(envVars).To(ContainElements(
 						corev1.EnvVar{Name: "KRATIX_WORKFLOW_ACTION", Value: "configure"},
 						corev1.EnvVar{Name: "KRATIX_WORKFLOW_TYPE", Value: "fakeType"},
 						corev1.EnvVar{Name: "KRATIX_PROMISE_NAME", Value: promise.GetName()},
+						corev1.EnvVar{Name: "KRATIX_PIPELINE_NAME", Value: "pipelineName"},
 					))
 				})
 			})

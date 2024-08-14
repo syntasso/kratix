@@ -41,9 +41,10 @@ import (
 )
 
 const (
-	kratixActionEnvVar  = "KRATIX_WORKFLOW_ACTION"
-	kratixTypeEnvVar    = "KRATIX_WORKFLOW_TYPE"
-	kratixPromiseEnvVar = "KRATIX_PROMISE_NAME"
+	kratixActionEnvVar       = "KRATIX_WORKFLOW_ACTION"
+	kratixTypeEnvVar         = "KRATIX_WORKFLOW_TYPE"
+	kratixPromiseEnvVar      = "KRATIX_PROMISE_NAME"
+	kratixPipelineNameEnvVar = "KRATIX_PIPELINE_NAME"
 
 	// This is used to identify the * namespace case in user permissions. Kubernetes does
 	// not allow * as a label value, so we use this value instead.
@@ -319,6 +320,7 @@ func (p *PipelineFactory) defaultEnvVars() []corev1.EnvVar {
 		{Name: kratixActionEnvVar, Value: string(p.WorkflowAction)},
 		{Name: kratixTypeEnvVar, Value: string(p.WorkflowType)},
 		{Name: kratixPromiseEnvVar, Value: p.Promise.GetName()},
+		{Name: kratixPipelineNameEnvVar, Value: p.Pipeline.Name},
 	}
 }
 
