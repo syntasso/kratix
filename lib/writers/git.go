@@ -42,12 +42,12 @@ func NewGitWriter(logger logr.Logger, stateStoreSpec v1alpha1.GitStateStoreSpec,
 	case v1alpha1.SSHAuthMethod:
 		sshPrivateKey, ok := creds["sshPrivateKey"]
 		if !ok {
-			return nil, fmt.Errorf("sshKey not found in secret %s/%s", destination.Namespace, stateStoreSpec.SecretRef.Name)
+			return nil, fmt.Errorf("sshKey not found in secret %s/%s", stateStoreSpec.SecretRef.Namespace, stateStoreSpec.SecretRef.Name)
 		}
 
 		knownHosts, ok := creds["knownHosts"]
 		if !ok {
-			return nil, fmt.Errorf("knownHosts not found in secret %s/%s", destination.Namespace, stateStoreSpec.SecretRef.Name)
+			return nil, fmt.Errorf("knownHosts not found in secret %s/%s", stateStoreSpec.SecretRef.Namespace, stateStoreSpec.SecretRef.Name)
 		}
 
 		sshKey, err := ssh.NewPublicKeys("git", sshPrivateKey, "")
@@ -76,12 +76,12 @@ func NewGitWriter(logger logr.Logger, stateStoreSpec v1alpha1.GitStateStoreSpec,
 	case v1alpha1.BasicAuthMethod:
 		username, ok := creds["username"]
 		if !ok {
-			return nil, fmt.Errorf("username not found in secret %s/%s", destination.Namespace, stateStoreSpec.SecretRef.Name)
+			return nil, fmt.Errorf("username not found in secret %s/%s", stateStoreSpec.SecretRef.Namespace, stateStoreSpec.SecretRef.Name)
 		}
 
 		password, ok := creds["password"]
 		if !ok {
-			return nil, fmt.Errorf("password not found in secret %s/%s", destination.Namespace, stateStoreSpec.SecretRef.Name)
+			return nil, fmt.Errorf("password not found in secret %s/%s", stateStoreSpec.SecretRef.Namespace, stateStoreSpec.SecretRef.Name)
 		}
 
 		authMethod = &http.BasicAuth{
@@ -104,7 +104,6 @@ func NewGitWriter(logger logr.Logger, stateStoreSpec v1alpha1.GitStateStoreSpec,
 		Path: strings.TrimPrefix(filepath.Join(
 			stateStoreSpec.Path,
 			destination.Spec.Path,
-			destination.Namespace,
 			destination.Name,
 		), "/"),
 	}, nil

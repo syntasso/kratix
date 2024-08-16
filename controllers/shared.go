@@ -116,8 +116,7 @@ func fetchObjectAndSecret(o opts, stateStoreRef client.ObjectKey, stateStore Sta
 
 func newWriter(o opts, destination v1alpha1.Destination) (writers.StateStoreWriter, error) {
 	stateStoreRef := client.ObjectKey{
-		Name:      destination.Spec.StateStoreRef.Name,
-		Namespace: destination.Namespace,
+		Name: destination.Spec.StateStoreRef.Name,
 	}
 
 	var writer writers.StateStoreWriter
