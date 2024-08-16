@@ -56,6 +56,7 @@ type DynamicResourceRequestController struct {
 	CRD                         *apiextensionsv1.CustomResourceDefinition
 	PromiseDestinationSelectors []v1alpha1.PromiseScheduling
 	CanCreateResources          *bool
+	NumberOfJobsToKeep          int
 }
 
 //+kubebuilder:rbac:groups="batch",resources=jobs,verbs=get;list;watch;create;update;patch;delete
@@ -142,7 +143,7 @@ func (r *DynamicResourceRequestController) Reconcile(ctx context.Context, req ct
 		return ctrl.Result{}, err
 	}
 
-	jobOpts := workflow.NewOpts(ctx, r.Client, logger, rr, pipelineResources, "resource")
+	jobOpts := workflow.NewOpts(ctx, r.Client, logger, rr, pipelineResources, "resource", r.NumberOfJobsToKeep)
 
 	requeue, err := reconcileConfigure(jobOpts)
 	if err != nil {
@@ -172,7 +173,7 @@ func (r *DynamicResourceRequestController) deleteResources(o opts, promise *v1al
 			return ctrl.Result{}, err
 		}
 
-		jobOpts := workflow.NewOpts(o.ctx, o.client, o.logger, resourceRequest, pipelineResources, "resource")
+		jobOpts := workflow.NewOpts(o.ctx, o.client, o.logger, resourceRequest, pipelineResources, "resource", r.NumberOfJobsToKeep)
 		requeue, err := reconcileDelete(jobOpts)
 		if err != nil {
 			return ctrl.Result{}, err

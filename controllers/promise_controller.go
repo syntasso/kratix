@@ -68,6 +68,7 @@ type PromiseReconciler struct {
 	Manager                   ctrl.Manager
 	StartedDynamicControllers map[string]*DynamicResourceRequestController
 	RestartManager            func()
+	NumberOfJobsToKeep        int
 }
 
 const (
@@ -386,7 +387,7 @@ func (r *PromiseReconciler) reconcileDependenciesAndPromiseWorkflows(o opts, pro
 		return nil, err
 	}
 
-	jobOpts := workflow.NewOpts(o.ctx, o.client, o.logger, unstructuredPromise, pipelineResources, "promise")
+	jobOpts := workflow.NewOpts(o.ctx, o.client, o.logger, unstructuredPromise, pipelineResources, "promise", r.NumberOfJobsToKeep)
 
 	requeue, err := reconcileConfigure(jobOpts)
 	if err != nil {
@@ -455,6 +456,7 @@ func (r *PromiseReconciler) ensureDynamicControllerIsStarted(promise *v1alpha1.P
 		UID:                         string(promise.GetUID())[0:5],
 		Enabled:                     &enabled,
 		CanCreateResources:          canCreateResources,
+		NumberOfJobsToKeep:          r.NumberOfJobsToKeep,
 	}
 	r.StartedDynamicControllers[string(promise.GetUID())] = dynamicResourceRequestController
 
@@ -628,7 +630,7 @@ func (r *PromiseReconciler) deletePromise(o opts, promise *v1alpha1.Promise) (ct
 		if err != nil {
 			return ctrl.Result{}, err
 		}
-		jobOpts := workflow.NewOpts(o.ctx, o.client, o.logger, unstructuredPromise, pipelines, "promise")
+		jobOpts := workflow.NewOpts(o.ctx, o.client, o.logger, unstructuredPromise, pipelines, "promise", r.NumberOfJobsToKeep)
 
 		requeue, err := reconcileDelete(jobOpts)
 		if err != nil {

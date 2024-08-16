@@ -27,20 +27,22 @@ type Opts struct {
 	logger       logr.Logger
 	parentObject *unstructured.Unstructured
 	//TODO make this field private too? or everything public and no constructor func
-	Resources []v1alpha1.PipelineJobResources
-	source    string
+	Resources          []v1alpha1.PipelineJobResources
+	source             string
+	numberOfJobsToKeep int
 }
 
 var minimumPeriodBetweenCreatingPipelineResources = 1100 * time.Millisecond
 
-func NewOpts(ctx context.Context, client client.Client, logger logr.Logger, parentObj *unstructured.Unstructured, resources []v1alpha1.PipelineJobResources, source string) Opts {
+func NewOpts(ctx context.Context, client client.Client, logger logr.Logger, parentObj *unstructured.Unstructured, resources []v1alpha1.PipelineJobResources, source string, numberOfJobsToKeep int) Opts {
 	return Opts{
-		ctx:          ctx,
-		client:       client,
-		logger:       logger,
-		parentObject: parentObj,
-		source:       source,
-		Resources:    resources,
+		ctx:                ctx,
+		client:             client,
+		logger:             logger,
+		parentObject:       parentObj,
+		source:             source,
+		numberOfJobsToKeep: numberOfJobsToKeep,
+		Resources:          resources,
 	}
 }
 
@@ -297,8 +299,7 @@ func cleanup(opts Opts, namespace string) error {
 		l[v1alpha1.PipelineNameLabel] = pipeline.Name
 		pipelineNames[pipeline.Name] = true
 		jobsForPipeline, _ := getJobsWithLabels(opts, l, namespace)
-		// TODO: come back to this and reason about it
-		if err := deleteAllButLastFiveJobs(opts, jobsForPipeline); err != nil {
+		if err := cleanupJobs(opts, jobsForPipeline); err != nil {
 			opts.logger.Error(err, "failed to delete old jobs")
 			return err
 		}
@@ -324,18 +325,16 @@ func cleanup(opts Opts, namespace string) error {
 	return nil
 }
 
-const numberOfJobsToKeep = 5
-
-func deleteAllButLastFiveJobs(opts Opts, pipelineJobsAtCurrentSpec []batchv1.Job) error {
-	if len(pipelineJobsAtCurrentSpec) <= numberOfJobsToKeep {
+func cleanupJobs(opts Opts, pipelineJobsAtCurrentSpec []batchv1.Job) error {
+	if len(pipelineJobsAtCurrentSpec) <= opts.numberOfJobsToKeep {
 		return nil
 	}
 
 	// Sort jobs by creation time
 	pipelineJobsAtCurrentSpec = resourceutil.SortJobsByCreationDateTime(pipelineJobsAtCurrentSpec, true)
 
-	// Delete all but the last 5 jobs
-	for i := 0; i < len(pipelineJobsAtCurrentSpec)-numberOfJobsToKeep; i++ {
+	// Delete all but the last n jobs; n defaults to 5 and can be configured by env var for the operator
+	for i := 0; i < len(pipelineJobsAtCurrentSpec)-opts.numberOfJobsToKeep; i++ {
 		job := pipelineJobsAtCurrentSpec[i]
 		opts.logger.Info("Deleting old job", "job", job.GetName())
 		if err := opts.client.Delete(opts.ctx, &job, client.PropagationPolicy(metav1.DeletePropagationBackground)); err != nil {
