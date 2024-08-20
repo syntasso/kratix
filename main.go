@@ -20,6 +20,7 @@ import (
 	"context"
 	"flag"
 	"os"
+	"strconv"
 	"time"
 
 	// Import all Kubernetes client auth plugins (e.g. Azure, GCP, OIDC, etc.)
@@ -71,6 +72,7 @@ func main() {
 	ctrl.SetLogger(zap.New(zap.UseFlagOptions(&opts), func(o *zap.Options) {
 		o.TimeEncoder = zapcore.TimeEncoderOfLayout("2006-01-02T15:04:05Z07:00")
 	}))
+
 	prefix := os.Getenv("KRATIX_LOGGER_PREFIX")
 	if prefix != "" {
 		ctrl.Log = ctrl.Log.WithName(prefix)
@@ -113,6 +115,7 @@ func main() {
 			Log:                 ctrl.Log.WithName("controllers").WithName("Promise"),
 			Manager:             mgr,
 			Scheme:              mgr.GetScheme(),
+			NumberOfJobsToKeep:  getNumJobsToKeep(),
 			RestartManager: func() {
 				// This function gets called multiple times
 				// First call: restartInProgress get set to true, sleeps starts
@@ -203,4 +206,23 @@ func main() {
 		ctx, cancelManagerCtxFunc = context.WithCancel(context.Background())
 		restartManager = false
 	}
+}
+
+const numJobsToKeepDefault = 5
+
+func getNumJobsToKeep() int {
+	numberOfJobsToKeep := numJobsToKeepDefault
+	numberOfJobsToKeepEnvVar := os.Getenv("NUMBER_OF_JOBS_TO_KEEP")
+	if numberOfJobsToKeepEnvVar != "" {
+		var err error
+		numberOfJobsToKeep, err = strconv.Atoi(numberOfJobsToKeepEnvVar)
+		if err != nil {
+			setupLog.Error(err, "unable to parse env var", "NUMBER_OF_JOBS_TO_KEEP", numberOfJobsToKeepEnvVar)
+			numberOfJobsToKeep = numJobsToKeepDefault
+		} else if numberOfJobsToKeep < 1 {
+			setupLog.Error(err, "NUMBER_OF_JOBS_TO_KEEP cannot be less than one", "NUMBER_OF_JOBS_TO_KEEP", numberOfJobsToKeepEnvVar)
+			numberOfJobsToKeep = numJobsToKeepDefault
+		}
+	}
+	return numberOfJobsToKeep
 }
