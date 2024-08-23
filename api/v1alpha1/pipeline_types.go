@@ -53,6 +53,8 @@ const (
 	userPermissionResourceNamespaceLabelAll = "kratix_all_namespaces"
 )
 
+var pipelinePrefix = "kratix"
+
 // PipelineSpec defines the desired state of Pipeline
 type PipelineSpec struct {
 	Containers       []Container                   `json:"containers,omitempty"`
@@ -491,7 +493,7 @@ func (p *PipelineFactory) statusWriterContainer(obj *unstructured.Unstructured, 
 }
 
 func (p *PipelineFactory) pipelineJobName() string {
-	name := fmt.Sprintf("kratix-%s", p.Promise.GetName())
+	name := fmt.Sprintf("%s-%s", pipelinePrefix, p.Promise.GetName())
 
 	if p.ResourceWorkflow {
 		name = fmt.Sprintf("%s-%s", name, p.ResourceRequest.GetName())
