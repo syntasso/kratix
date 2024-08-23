@@ -65,6 +65,9 @@ type PromiseSpec struct {
 	Dependencies Dependencies `json:"dependencies,omitempty"`
 
 	DestinationSelectors []PromiseScheduling `json:"destinationSelectors,omitempty"`
+
+	// +default:value=allInOne
+	UpgradeStrategy string `json:"upgradeStrategy,omitempty"`
 }
 
 type RequiredPromise struct {

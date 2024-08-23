@@ -24,6 +24,7 @@ import (
 	"time"
 
 	"github.com/syntasso/kratix/lib/objectutil"
+	"github.com/syntasso/kratix/lib/upgrader"
 
 	"sigs.k8s.io/controller-runtime/pkg/controller/controllerutil"
 	"sigs.k8s.io/controller-runtime/pkg/handler"
@@ -240,7 +241,12 @@ func (r *PromiseReconciler) Reconcile(ctx context.Context, req ctrl.Request) (ct
 
 		if promise.GetGeneration() != promise.Status.ObservedGeneration {
 			if promise.GetGeneration() != 1 {
-				if err := r.reconcileAllRRs(rrGVK); err != nil {
+				upgrader, err := upgrader.NewStrategy(promise.Spec.UpgradeStrategy, r.Client, rrGVK)
+				if err != nil {
+					return ctrl.Result{}, err
+				}
+
+				if err := upgrader.Upgrade(promise); err != nil {
 					return ctrl.Result{}, err
 				}
 			}
