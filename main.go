@@ -28,6 +28,7 @@ import (
 	"go.uber.org/zap/zapcore"
 	"k8s.io/apiextensions-apiserver/pkg/client/clientset/clientset"
 	_ "k8s.io/client-go/plugin/pkg/client/auth"
+	"k8s.io/utils/ptr"
 
 	utilruntime "k8s.io/apimachinery/pkg/util/runtime"
 	"k8s.io/client-go/kubernetes/scheme"
@@ -36,6 +37,8 @@ import (
 	"sigs.k8s.io/controller-runtime/pkg/log/zap"
 	metricsserver "sigs.k8s.io/controller-runtime/pkg/metrics/server"
 	"sigs.k8s.io/controller-runtime/pkg/webhook"
+
+	corev1 "k8s.io/api/core/v1"
 
 	platformv1alpha1 "github.com/syntasso/kratix/api/v1alpha1"
 	"github.com/syntasso/kratix/controllers"
@@ -110,12 +113,13 @@ func main() {
 		restartManager := false
 		restartManagerInProgress := false
 		if err = (&controllers.PromiseReconciler{
-			ApiextensionsClient: apiextensionsClient.ApiextensionsV1(),
-			Client:              mgr.GetClient(),
-			Log:                 ctrl.Log.WithName("controllers").WithName("Promise"),
-			Manager:             mgr,
-			Scheme:              mgr.GetScheme(),
-			NumberOfJobsToKeep:  getNumJobsToKeep(),
+			ApiextensionsClient:    apiextensionsClient.ApiextensionsV1(),
+			Client:                 mgr.GetClient(),
+			Log:                    ctrl.Log.WithName("controllers").WithName("Promise"),
+			Manager:                mgr,
+			Scheme:                 mgr.GetScheme(),
+			NumberOfJobsToKeep:     getNumJobsToKeep(),
+			DefaultSecurityContext: getDefaultSecurityContext(),
 			RestartManager: func() {
 				// This function gets called multiple times
 				// First call: restartInProgress get set to true, sleeps starts
@@ -225,4 +229,17 @@ func getNumJobsToKeep() int {
 		}
 	}
 	return numberOfJobsToKeep
+}
+
+func getDefaultSecurityContext() *corev1.SecurityContext {
+	return &corev1.SecurityContext{
+		RunAsNonRoot: ptr.To(true),
+		Privileged:   ptr.To(false),
+		Capabilities: &corev1.Capabilities{
+			Drop: []corev1.Capability{"ALL"},
+		},
+		SeccompProfile: &corev1.SeccompProfile{
+			Type: "RuntimeDefault",
+		},
+	}
 }
