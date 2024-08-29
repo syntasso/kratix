@@ -57,11 +57,10 @@ const (
 var (
 	defaultSecurityContext = &corev1.SecurityContext{
 		RunAsNonRoot: ptr.To(true),
-		RunAsUser:    ptr.To(int64(65532)),
+		Privileged:   ptr.To(false),
 		Capabilities: &corev1.Capabilities{
 			Drop: []corev1.Capability{"ALL"},
 		},
-		Privileged: ptr.To(false),
 		SeccompProfile: &corev1.SeccompProfile{
 			Type: "RuntimeDefault",
 		},
