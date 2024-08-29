@@ -55,7 +55,7 @@ const (
 )
 
 var (
-	defaultSecurityContext = &corev1.SecurityContext{
+	kratixSecurityContext = &corev1.SecurityContext{
 		RunAsNonRoot: ptr.To(true),
 		Privileged:   ptr.To(false),
 		Capabilities: &corev1.Capabilities{
@@ -365,7 +365,7 @@ func (p *PipelineFactory) readerContainer() corev1.Container {
 			{MountPath: "/kratix/input", Name: "shared-input"},
 			{MountPath: "/kratix/output", Name: "shared-output"},
 		},
-		SecurityContext: defaultSecurityContext,
+		SecurityContext: kratixSecurityContext,
 	}
 }
 
@@ -395,7 +395,7 @@ func (p *PipelineFactory) workCreatorContainer() corev1.Container {
 			{MountPath: "/work-creator-files/metadata", Name: "shared-metadata"},
 			{MountPath: "/work-creator-files/kratix-system", Name: "promise-scheduling"}, // this volumemount is a configmap
 		},
-		SecurityContext: defaultSecurityContext,
+		SecurityContext: kratixSecurityContext,
 	}
 }
 
@@ -505,7 +505,7 @@ func (p *PipelineFactory) statusWriterContainer(obj *unstructured.Unstructured, 
 			MountPath: "/work-creator-files/metadata",
 			Name:      "shared-metadata",
 		}},
-		SecurityContext: defaultSecurityContext,
+		SecurityContext: kratixSecurityContext,
 	}
 }
 
