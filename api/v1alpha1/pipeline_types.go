@@ -350,11 +350,12 @@ func (p *PipelineFactory) readerContainer() corev1.Container {
 			{MountPath: "/kratix/input", Name: "shared-input"},
 			{MountPath: "/kratix/output", Name: "shared-output"},
 		},
+		SecurityContext: defaultSecurityContext,
 	}
 }
 
 func (p *PipelineFactory) workCreatorContainer() corev1.Container {
-	workCreatorCommand := "./work-creator"
+	workCreatorCommand := "work-creator"
 
 	args := []string{
 		"-input-directory", "/work-creator-files",

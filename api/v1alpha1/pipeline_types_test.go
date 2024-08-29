@@ -586,7 +586,7 @@ var _ = Describe("Pipeline", func() {
 						Expect(container).ToNot(BeNil())
 						Expect(container.Name).To(Equal("work-writer"))
 						Expect(container.Image).To(Equal(workCreatorImage))
-						Expect(container.Command).To(Equal([]string{"sh", "-c", "./work-creator " + expectedFlags}))
+						Expect(container.Command).To(Equal([]string{"sh", "-c", "work-creator " + expectedFlags}))
 						Expect(container.VolumeMounts).To(ConsistOf(
 							corev1.VolumeMount{Name: "shared-output", MountPath: "/work-creator-files/input"},
 							corev1.VolumeMount{Name: "shared-metadata", MountPath: "/work-creator-files/metadata"},
@@ -616,7 +616,7 @@ var _ = Describe("Pipeline", func() {
 						Expect(container).ToNot(BeNil())
 						Expect(container.Name).To(Equal("work-writer"))
 						Expect(container.Image).To(Equal(workCreatorImage))
-						Expect(container.Command).To(Equal([]string{"sh", "-c", "./work-creator " + expectedFlags}))
+						Expect(container.Command).To(Equal([]string{"sh", "-c", "work-creator " + expectedFlags}))
 						Expect(container.VolumeMounts).To(ConsistOf(
 							corev1.VolumeMount{Name: "shared-output", MountPath: "/work-creator-files/input"},
 							corev1.VolumeMount{Name: "shared-metadata", MountPath: "/work-creator-files/metadata"},
