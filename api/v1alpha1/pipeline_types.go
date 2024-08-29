@@ -421,6 +421,7 @@ func (p *PipelineFactory) pipelineContainers() ([]corev1.Container, []corev1.Vol
 			Env:             append(kratixEnvVars, c.Env...),
 			EnvFrom:         c.EnvFrom,
 			ImagePullPolicy: c.ImagePullPolicy,
+			SecurityContext: c.SecurityContext,
 		})
 	}
 

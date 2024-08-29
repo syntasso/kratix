@@ -16,6 +16,7 @@ import (
 	metav1 "k8s.io/apimachinery/pkg/apis/meta/v1"
 	"k8s.io/apimachinery/pkg/apis/meta/v1/unstructured"
 	"k8s.io/apimachinery/pkg/runtime"
+	"k8s.io/utils/pointer"
 )
 
 var _ = Describe("Pipeline", func() {
@@ -44,6 +45,9 @@ var _ = Describe("Pipeline", func() {
 						EnvFrom:         []corev1.EnvFromSource{{Prefix: "prefix1", SecretRef: secretRef}},
 						VolumeMounts:    []corev1.VolumeMount{{Name: "customVolume", MountPath: "/mount/path"}},
 						ImagePullPolicy: "Always",
+						SecurityContext: &corev1.SecurityContext{
+							Privileged: pointer.Bool(true),
+						},
 					},
 					{Name: "container-1", Image: "container-1-image"},
 				},
@@ -643,6 +647,7 @@ var _ = Describe("Pipeline", func() {
 						"EnvFrom":         Equal(expectedContainer0.EnvFrom),
 						"VolumeMounts":    ContainElements(expectedContainer0.VolumeMounts),
 						"ImagePullPolicy": Equal(expectedContainer0.ImagePullPolicy),
+						"SecurityContext": Equal(expectedContainer0.SecurityContext),
 					}))
 
 					expectedContainer1 := pipeline.Spec.Containers[1]
@@ -653,6 +658,7 @@ var _ = Describe("Pipeline", func() {
 						"Command":         BeNil(),
 						"EnvFrom":         BeNil(),
 						"ImagePullPolicy": BeEmpty(),
+						"SecurityContext": BeNil(),
 					}))
 				})
 			})
