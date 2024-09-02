@@ -27,6 +27,7 @@ func TestSystem(t *testing.T) {
 }
 
 var _ = SynchronizedBeforeSuite(func() {
+
 	//this runs once for the whole suite
 	worker = &destination{
 		context: getEnvOrDefault("WORKER_CONTEXT", "kind-worker"),
@@ -36,6 +37,9 @@ var _ = SynchronizedBeforeSuite(func() {
 		context: getEnvOrDefault("PLATFORM_CONTEXT", "kind-platform"),
 		name:    getEnvOrDefault("PLATFORM_NAME", "platform-cluster"),
 	}
+
+	platform.kubectl("apply", "-f", "./assets/kratix-config.yaml")
+	platform.kubectl("delete", "pod", "-l", "control-plane=controller-manager", "-n", "kratix-platform-system")
 
 	var err error
 	testTempDir, err = os.MkdirTemp(os.TempDir(), "systest")

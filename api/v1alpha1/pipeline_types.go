@@ -65,6 +65,8 @@ var (
 			Type: "RuntimeDefault",
 		},
 	}
+
+	DefaultUserProvidedContainersSecurityContext *corev1.SecurityContext
 )
 
 // PipelineSpec defines the desired state of Pipeline
@@ -408,8 +410,13 @@ func (p *PipelineFactory) pipelineContainers() ([]corev1.Container, []corev1.Vol
 
 	var containers []corev1.Container
 	kratixEnvVars := p.defaultEnvVars()
+
 	for _, c := range pipeline.Spec.Containers {
 		containerVolumeMounts := append(defaultVolumeMounts, c.VolumeMounts...)
+
+		if c.SecurityContext == nil {
+			c.SecurityContext = DefaultUserProvidedContainersSecurityContext
+		}
 
 		containers = append(containers, corev1.Container{
 			Name:            c.Name,

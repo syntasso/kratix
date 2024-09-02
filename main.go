@@ -19,6 +19,7 @@ package main
 import (
 	"context"
 	"flag"
+	"fmt"
 	"os"
 	"strconv"
 	"time"
@@ -26,9 +27,11 @@ import (
 	// Import all Kubernetes client auth plugins (e.g. Azure, GCP, OIDC, etc.)
 	// to ensure that exec-entrypoint and run can make use of them.
 	"go.uber.org/zap/zapcore"
+	"gopkg.in/yaml.v2"
 	"k8s.io/apiextensions-apiserver/pkg/client/clientset/clientset"
+	apierrors "k8s.io/apimachinery/pkg/api/errors"
 	_ "k8s.io/client-go/plugin/pkg/client/auth"
-	"k8s.io/utils/ptr"
+	"sigs.k8s.io/controller-runtime/pkg/client"
 
 	utilruntime "k8s.io/apimachinery/pkg/util/runtime"
 	"k8s.io/client-go/kubernetes/scheme"
@@ -40,6 +43,7 @@ import (
 
 	corev1 "k8s.io/api/core/v1"
 
+	"github.com/syntasso/kratix/api/v1alpha1"
 	platformv1alpha1 "github.com/syntasso/kratix/api/v1alpha1"
 	"github.com/syntasso/kratix/controllers"
 	"github.com/syntasso/kratix/lib/fetchers"
@@ -51,6 +55,13 @@ var setupLog = ctrl.Log.WithName("setup")
 func init() {
 	utilruntime.Must(platformv1alpha1.AddToScheme(scheme.Scheme))
 	//+kubebuilder:scaffold:scheme
+}
+
+type KratixConfig struct {
+	Workflows struct {
+		// The default security context for user-provided containers.
+		DefaultContainerSecurityContext *corev1.SecurityContext `json:"defaultUserProvidedContainerSecurityContext"`
+	} `json:"workflows"`
 }
 
 func main() {
@@ -79,6 +90,20 @@ func main() {
 	prefix := os.Getenv("KRATIX_LOGGER_PREFIX")
 	if prefix != "" {
 		ctrl.Log = ctrl.Log.WithName(prefix)
+	}
+
+	kClient, err := client.New(ctrl.GetConfigOrDie(), client.Options{})
+	if err != nil {
+		panic(err)
+	}
+
+	kratixConfig, err := readKratixConfig(kClient)
+	if err != nil {
+		panic(err)
+	}
+
+	if kratixConfig != nil && kratixConfig.Workflows.DefaultContainerSecurityContext != nil {
+		v1alpha1.DefaultUserProvidedContainersSecurityContext = kratixConfig.Workflows.DefaultContainerSecurityContext
 	}
 
 	for {
@@ -113,13 +138,12 @@ func main() {
 		restartManager := false
 		restartManagerInProgress := false
 		if err = (&controllers.PromiseReconciler{
-			ApiextensionsClient:    apiextensionsClient.ApiextensionsV1(),
-			Client:                 mgr.GetClient(),
-			Log:                    ctrl.Log.WithName("controllers").WithName("Promise"),
-			Manager:                mgr,
-			Scheme:                 mgr.GetScheme(),
-			NumberOfJobsToKeep:     getNumJobsToKeep(),
-			DefaultSecurityContext: getDefaultSecurityContext(),
+			ApiextensionsClient: apiextensionsClient.ApiextensionsV1(),
+			Client:              mgr.GetClient(),
+			Log:                 ctrl.Log.WithName("controllers").WithName("Promise"),
+			Manager:             mgr,
+			Scheme:              mgr.GetScheme(),
+			NumberOfJobsToKeep:  getNumJobsToKeep(),
 			RestartManager: func() {
 				// This function gets called multiple times
 				// First call: restartInProgress get set to true, sleeps starts
@@ -214,6 +238,30 @@ func main() {
 
 const numJobsToKeepDefault = 5
 
+func readKratixConfig(kClient client.Client) (*KratixConfig, error) {
+	cm := &corev1.ConfigMap{}
+	err := kClient.Get(context.Background(), client.ObjectKey{Namespace: "kratix-platform-system", Name: "kratix"}, cm)
+	if err != nil {
+		if apierrors.IsNotFound(err) {
+			return nil, nil
+		}
+		return nil, fmt.Errorf("failed to get kratix-platform-system/kratix configmap: %w", err)
+	}
+
+	config, exists := cm.Data["config"]
+	if !exists {
+		return nil, fmt.Errorf("configmap kratix-platform-system/kratix does not contain a 'config' key")
+	}
+
+	kratixConfig := &KratixConfig{}
+	err = yaml.Unmarshal([]byte(config), kratixConfig)
+	if err != nil {
+		return nil, fmt.Errorf("failed to unmarshal configmap kratix-platform-system/kratix: %w", err)
+	}
+
+	return kratixConfig, nil
+}
+
 func getNumJobsToKeep() int {
 	numberOfJobsToKeep := numJobsToKeepDefault
 	numberOfJobsToKeepEnvVar := os.Getenv("NUMBER_OF_JOBS_TO_KEEP")
@@ -229,17 +277,4 @@ func getNumJobsToKeep() int {
 		}
 	}
 	return numberOfJobsToKeep
-}
-
-func getDefaultSecurityContext() *corev1.SecurityContext {
-	return &corev1.SecurityContext{
-		RunAsNonRoot: ptr.To(true),
-		Privileged:   ptr.To(false),
-		Capabilities: &corev1.Capabilities{
-			Drop: []corev1.Capability{"ALL"},
-		},
-		SeccompProfile: &corev1.SeccompProfile{
-			Type: "RuntimeDefault",
-		},
-	}
 }
