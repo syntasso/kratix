@@ -27,9 +27,9 @@ import (
 	// Import all Kubernetes client auth plugins (e.g. Azure, GCP, OIDC, etc.)
 	// to ensure that exec-entrypoint and run can make use of them.
 	"go.uber.org/zap/zapcore"
-	"gopkg.in/yaml.v2"
 	"k8s.io/apiextensions-apiserver/pkg/client/clientset/clientset"
 	apierrors "k8s.io/apimachinery/pkg/api/errors"
+	"k8s.io/apimachinery/pkg/util/yaml"
 	_ "k8s.io/client-go/plugin/pkg/client/auth"
 	"sigs.k8s.io/controller-runtime/pkg/client"
 
@@ -58,10 +58,11 @@ func init() {
 }
 
 type KratixConfig struct {
-	Workflows struct {
-		// The default security context for user-provided containers.
-		DefaultContainerSecurityContext *corev1.SecurityContext `json:"defaultUserProvidedContainerSecurityContext"`
-	} `json:"workflows"`
+	Workflows Workflows `json:"workflows"`
+}
+
+type Workflows struct {
+	DefaultContainerSecurityContext corev1.SecurityContext `json:"defaultContainerSecurityContext"`
 }
 
 func main() {
@@ -102,8 +103,8 @@ func main() {
 		panic(err)
 	}
 
-	if kratixConfig != nil && kratixConfig.Workflows.DefaultContainerSecurityContext != nil {
-		v1alpha1.DefaultUserProvidedContainersSecurityContext = kratixConfig.Workflows.DefaultContainerSecurityContext
+	if kratixConfig != nil {
+		v1alpha1.DefaultUserProvidedContainersSecurityContext = &kratixConfig.Workflows.DefaultContainerSecurityContext
 	}
 
 	for {
