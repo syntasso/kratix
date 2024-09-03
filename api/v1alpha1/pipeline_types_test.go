@@ -17,14 +17,26 @@ import (
 	"k8s.io/apimachinery/pkg/apis/meta/v1/unstructured"
 	"k8s.io/apimachinery/pkg/runtime"
 	"k8s.io/utils/pointer"
+	"k8s.io/utils/ptr"
 )
 
 var _ = Describe("Pipeline", func() {
 	var (
-		pipeline        *v1alpha1.Pipeline
-		promise         *v1alpha1.Promise
-		promiseCrd      *apiextensionsv1.CustomResourceDefinition
-		resourceRequest *unstructured.Unstructured
+		pipeline                     *v1alpha1.Pipeline
+		promise                      *v1alpha1.Promise
+		promiseCrd                   *apiextensionsv1.CustomResourceDefinition
+		resourceRequest              *unstructured.Unstructured
+		defaultSecurityContext       *corev1.SecurityContext
+		defaultKratixSecurityContext = &corev1.SecurityContext{
+			RunAsNonRoot: ptr.To(true),
+			Privileged:   ptr.To(false),
+			Capabilities: &corev1.Capabilities{
+				Drop: []corev1.Capability{"ALL"},
+			},
+			SeccompProfile: &corev1.SeccompProfile{
+				Type: "RuntimeDefault",
+			},
+		}
 	)
 
 	BeforeEach(func() {
@@ -55,6 +67,11 @@ var _ = Describe("Pipeline", func() {
 				ImagePullSecrets: []corev1.LocalObjectReference{{Name: "imagePullSecret"}},
 			},
 		}
+
+		defaultSecurityContext = &corev1.SecurityContext{
+			Privileged: pointer.Bool(false),
+		}
+		v1alpha1.DefaultUserProvidedContainersSecurityContext = defaultSecurityContext
 		promiseCrd = &apiextensionsv1.CustomResourceDefinition{
 			Spec: apiextensionsv1.CustomResourceDefinitionSpec{
 				Group: "promise.crd.group",
@@ -346,6 +363,10 @@ var _ = Describe("Pipeline", func() {
 								pipeline.Spec.Containers[1].Name,
 								"work-writer",
 							}))
+
+							Expect(podSpec.InitContainers[0].SecurityContext).To(Equal(defaultKratixSecurityContext))
+							Expect(podSpec.InitContainers[len(podSpec.InitContainers)-1].SecurityContext).To(Equal(defaultKratixSecurityContext))
+							Expect(podSpec.Containers[0].SecurityContext).To(Equal(defaultKratixSecurityContext))
 							Expect(initContainerImages).To(Equal([]string{
 								workCreatorImage,
 								pipeline.Spec.Containers[0].Image,
@@ -658,7 +679,7 @@ var _ = Describe("Pipeline", func() {
 						"Command":         BeNil(),
 						"EnvFrom":         BeNil(),
 						"ImagePullPolicy": BeEmpty(),
-						"SecurityContext": BeNil(),
+						"SecurityContext": Equal(defaultSecurityContext),
 					}))
 				})
 			})
