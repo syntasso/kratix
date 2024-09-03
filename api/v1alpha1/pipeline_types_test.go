@@ -26,7 +26,7 @@ var _ = Describe("Pipeline", func() {
 		promise                      *v1alpha1.Promise
 		promiseCrd                   *apiextensionsv1.CustomResourceDefinition
 		resourceRequest              *unstructured.Unstructured
-		defaultSecurityContext       *corev1.SecurityContext
+		globalDefaultSecurityContext *corev1.SecurityContext
 		defaultKratixSecurityContext = &corev1.SecurityContext{
 			RunAsNonRoot: ptr.To(true),
 			Privileged:   ptr.To(false),
@@ -68,10 +68,10 @@ var _ = Describe("Pipeline", func() {
 			},
 		}
 
-		defaultSecurityContext = &corev1.SecurityContext{
+		globalDefaultSecurityContext = &corev1.SecurityContext{
 			Privileged: pointer.Bool(false),
 		}
-		v1alpha1.DefaultUserProvidedContainersSecurityContext = defaultSecurityContext
+		v1alpha1.DefaultUserProvidedContainersSecurityContext = globalDefaultSecurityContext
 		promiseCrd = &apiextensionsv1.CustomResourceDefinition{
 			Spec: apiextensionsv1.CustomResourceDefinitionSpec{
 				Group: "promise.crd.group",
@@ -679,8 +679,22 @@ var _ = Describe("Pipeline", func() {
 						"Command":         BeNil(),
 						"EnvFrom":         BeNil(),
 						"ImagePullPolicy": BeEmpty(),
-						"SecurityContext": Equal(defaultSecurityContext),
+						"SecurityContext": Equal(globalDefaultSecurityContext),
 					}))
+				})
+
+				When("neither a global or container specific security context is provided", func() {
+					BeforeEach(func() {
+						v1alpha1.DefaultUserProvidedContainersSecurityContext = nil
+						pipeline.Spec.Containers[0].SecurityContext = nil
+					})
+
+					It("should not set a security context", func() {
+						resources, err := factory.Resources(nil)
+						Expect(err).ToNot(HaveOccurred())
+						containers := resources.Job.Spec.Template.Spec.InitContainers
+						Expect(containers[1].SecurityContext).To(BeNil())
+					})
 				})
 			})
 

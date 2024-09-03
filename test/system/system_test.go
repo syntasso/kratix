@@ -310,7 +310,6 @@ var _ = Describe("Kratix", func() {
 
 				By("using the security context defined in the promise", func() {
 					podYaml := platform.eventuallyKubectl("get", "pods", "--selector", firstPipelineLabels, "-o=yaml")
-					fmt.Println("first: " + podYaml)
 					Expect(podYaml).To(ContainSubstring("setInPromise"))
 					Expect(podYaml).NotTo(ContainSubstring("setInKratixConfig"))
 				})
@@ -323,7 +322,6 @@ var _ = Describe("Kratix", func() {
 
 				By("using the security context defined in the kratix config", func() {
 					podYaml := platform.eventuallyKubectl("get", "pods", "--selector", secondPipelineLabels, "-o=yaml")
-					fmt.Println("second: " + podYaml)
 					Expect(podYaml).To(ContainSubstring("setInKratixConfig"))
 					Expect(podYaml).NotTo(ContainSubstring("setInPromise"))
 				})
