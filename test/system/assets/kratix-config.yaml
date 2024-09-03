@@ -7,10 +7,5 @@ data:
   config: |
     workflows:
       defaultContainerSecurityContext:
-        capabilities:
-          drop:
-            - ALL
-        privileged: false
-        runAsNonRoot: true
-        seccompProfile:
-          type: RuntimeDefault
+        windowsOptions:
+          runAsUserName: "setInKratixConfig"

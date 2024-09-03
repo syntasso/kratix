@@ -77,11 +77,17 @@ spec:
                 env:
                   - name: CONTAINER_INDEX
                     value: "0"
+                securityContext:
+                  windowsOptions:
+                    runAsUserName: "setInPromise"
               - image: syntassodev/bash-promise:dev1
                 name: bash-promise-test-c1
                 env:
                   - name: CONTAINER_INDEX
                     value: "1"
+                securityContext:
+                  windowsOptions:
+                    runAsUserName: "setInPromise"
         - apiVersion: platform.kratix.io/v1alpha1
           kind: Pipeline
           metadata:
