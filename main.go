@@ -19,6 +19,7 @@ package main
 import (
 	"context"
 	"flag"
+	"fmt"
 	"os"
 	"strconv"
 	"time"
@@ -27,7 +28,10 @@ import (
 	// to ensure that exec-entrypoint and run can make use of them.
 	"go.uber.org/zap/zapcore"
 	"k8s.io/apiextensions-apiserver/pkg/client/clientset/clientset"
+	apierrors "k8s.io/apimachinery/pkg/api/errors"
+	"k8s.io/apimachinery/pkg/util/yaml"
 	_ "k8s.io/client-go/plugin/pkg/client/auth"
+	"sigs.k8s.io/controller-runtime/pkg/client"
 
 	utilruntime "k8s.io/apimachinery/pkg/util/runtime"
 	"k8s.io/client-go/kubernetes/scheme"
@@ -37,6 +41,9 @@ import (
 	metricsserver "sigs.k8s.io/controller-runtime/pkg/metrics/server"
 	"sigs.k8s.io/controller-runtime/pkg/webhook"
 
+	corev1 "k8s.io/api/core/v1"
+
+	"github.com/syntasso/kratix/api/v1alpha1"
 	platformv1alpha1 "github.com/syntasso/kratix/api/v1alpha1"
 	"github.com/syntasso/kratix/controllers"
 	"github.com/syntasso/kratix/lib/fetchers"
@@ -48,6 +55,14 @@ var setupLog = ctrl.Log.WithName("setup")
 func init() {
 	utilruntime.Must(platformv1alpha1.AddToScheme(scheme.Scheme))
 	//+kubebuilder:scaffold:scheme
+}
+
+type KratixConfig struct {
+	Workflows Workflows `json:"workflows"`
+}
+
+type Workflows struct {
+	DefaultContainerSecurityContext corev1.SecurityContext `json:"defaultContainerSecurityContext"`
 }
 
 func main() {
@@ -76,6 +91,20 @@ func main() {
 	prefix := os.Getenv("KRATIX_LOGGER_PREFIX")
 	if prefix != "" {
 		ctrl.Log = ctrl.Log.WithName(prefix)
+	}
+
+	kClient, err := client.New(ctrl.GetConfigOrDie(), client.Options{})
+	if err != nil {
+		panic(err)
+	}
+
+	kratixConfig, err := readKratixConfig(kClient)
+	if err != nil {
+		panic(err)
+	}
+
+	if kratixConfig != nil {
+		v1alpha1.DefaultUserProvidedContainersSecurityContext = &kratixConfig.Workflows.DefaultContainerSecurityContext
 	}
 
 	for {
@@ -209,6 +238,30 @@ func main() {
 }
 
 const numJobsToKeepDefault = 5
+
+func readKratixConfig(kClient client.Client) (*KratixConfig, error) {
+	cm := &corev1.ConfigMap{}
+	err := kClient.Get(context.Background(), client.ObjectKey{Namespace: "kratix-platform-system", Name: "kratix"}, cm)
+	if err != nil {
+		if apierrors.IsNotFound(err) {
+			return nil, nil
+		}
+		return nil, fmt.Errorf("failed to get kratix-platform-system/kratix configmap: %w", err)
+	}
+
+	config, exists := cm.Data["config"]
+	if !exists {
+		return nil, fmt.Errorf("configmap kratix-platform-system/kratix does not contain a 'config' key")
+	}
+
+	kratixConfig := &KratixConfig{}
+	err = yaml.Unmarshal([]byte(config), kratixConfig)
+	if err != nil {
+		return nil, fmt.Errorf("failed to unmarshal configmap kratix-platform-system/kratix: %w", err)
+	}
+
+	return kratixConfig, nil
+}
 
 func getNumJobsToKeep() int {
 	numberOfJobsToKeep := numJobsToKeepDefault

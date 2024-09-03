@@ -37,6 +37,7 @@ import (
 	"k8s.io/apimachinery/pkg/apis/meta/v1/unstructured"
 	"k8s.io/apimachinery/pkg/labels"
 	"k8s.io/client-go/kubernetes/scheme"
+	"k8s.io/utils/ptr"
 	"sigs.k8s.io/controller-runtime/pkg/controller/controllerutil"
 )
 
@@ -51,6 +52,21 @@ const (
 	// It contains underscores, which makes it an invalid namespace, so it won't conflict
 	// with real user namespaces.
 	userPermissionResourceNamespaceLabelAll = "kratix_all_namespaces"
+)
+
+var (
+	kratixSecurityContext = &corev1.SecurityContext{
+		RunAsNonRoot: ptr.To(true),
+		Privileged:   ptr.To(false),
+		Capabilities: &corev1.Capabilities{
+			Drop: []corev1.Capability{"ALL"},
+		},
+		SeccompProfile: &corev1.SeccompProfile{
+			Type: "RuntimeDefault",
+		},
+	}
+
+	DefaultUserProvidedContainersSecurityContext *corev1.SecurityContext
 )
 
 // PipelineSpec defines the desired state of Pipeline
@@ -72,14 +88,15 @@ type Permission struct {
 }
 
 type Container struct {
-	Name            string                 `json:"name,omitempty"`
-	Image           string                 `json:"image,omitempty"`
-	Args            []string               `json:"args,omitempty"`
-	Command         []string               `json:"command,omitempty"`
-	Env             []corev1.EnvVar        `json:"env,omitempty"`
-	EnvFrom         []corev1.EnvFromSource `json:"envFrom,omitempty"`
-	VolumeMounts    []corev1.VolumeMount   `json:"volumeMounts,omitempty"`
-	ImagePullPolicy corev1.PullPolicy      `json:"imagePullPolicy,omitempty"`
+	Name            string                  `json:"name,omitempty"`
+	Image           string                  `json:"image,omitempty"`
+	Args            []string                `json:"args,omitempty"`
+	Command         []string                `json:"command,omitempty"`
+	Env             []corev1.EnvVar         `json:"env,omitempty"`
+	EnvFrom         []corev1.EnvFromSource  `json:"envFrom,omitempty"`
+	VolumeMounts    []corev1.VolumeMount    `json:"volumeMounts,omitempty"`
+	ImagePullPolicy corev1.PullPolicy       `json:"imagePullPolicy,omitempty"`
+	SecurityContext *corev1.SecurityContext `json:"securityContext,omitempty"`
 }
 
 // Pipeline is the Schema for the pipelines API
@@ -350,11 +367,12 @@ func (p *PipelineFactory) readerContainer() corev1.Container {
 			{MountPath: "/kratix/input", Name: "shared-input"},
 			{MountPath: "/kratix/output", Name: "shared-output"},
 		},
+		SecurityContext: kratixSecurityContext,
 	}
 }
 
 func (p *PipelineFactory) workCreatorContainer() corev1.Container {
-	workCreatorCommand := "./work-creator"
+	workCreatorCommand := "work-creator"
 
 	args := []string{
 		"-input-directory", "/work-creator-files",
@@ -379,6 +397,7 @@ func (p *PipelineFactory) workCreatorContainer() corev1.Container {
 			{MountPath: "/work-creator-files/metadata", Name: "shared-metadata"},
 			{MountPath: "/work-creator-files/kratix-system", Name: "promise-scheduling"}, // this volumemount is a configmap
 		},
+		SecurityContext: kratixSecurityContext,
 	}
 }
 
@@ -391,8 +410,13 @@ func (p *PipelineFactory) pipelineContainers() ([]corev1.Container, []corev1.Vol
 
 	var containers []corev1.Container
 	kratixEnvVars := p.defaultEnvVars()
+
 	for _, c := range pipeline.Spec.Containers {
 		containerVolumeMounts := append(defaultVolumeMounts, c.VolumeMounts...)
+
+		if c.SecurityContext == nil {
+			c.SecurityContext = DefaultUserProvidedContainersSecurityContext
+		}
 
 		containers = append(containers, corev1.Container{
 			Name:            c.Name,
@@ -403,6 +427,7 @@ func (p *PipelineFactory) pipelineContainers() ([]corev1.Container, []corev1.Vol
 			Env:             append(kratixEnvVars, c.Env...),
 			EnvFrom:         c.EnvFrom,
 			ImagePullPolicy: c.ImagePullPolicy,
+			SecurityContext: c.SecurityContext,
 		})
 	}
 
@@ -487,6 +512,7 @@ func (p *PipelineFactory) statusWriterContainer(obj *unstructured.Unstructured, 
 			MountPath: "/work-creator-files/metadata",
 			Name:      "shared-metadata",
 		}},
+		SecurityContext: kratixSecurityContext,
 	}
 }
 

@@ -16,14 +16,27 @@ import (
 	metav1 "k8s.io/apimachinery/pkg/apis/meta/v1"
 	"k8s.io/apimachinery/pkg/apis/meta/v1/unstructured"
 	"k8s.io/apimachinery/pkg/runtime"
+	"k8s.io/utils/pointer"
+	"k8s.io/utils/ptr"
 )
 
 var _ = Describe("Pipeline", func() {
 	var (
-		pipeline        *v1alpha1.Pipeline
-		promise         *v1alpha1.Promise
-		promiseCrd      *apiextensionsv1.CustomResourceDefinition
-		resourceRequest *unstructured.Unstructured
+		pipeline                     *v1alpha1.Pipeline
+		promise                      *v1alpha1.Promise
+		promiseCrd                   *apiextensionsv1.CustomResourceDefinition
+		resourceRequest              *unstructured.Unstructured
+		globalDefaultSecurityContext *corev1.SecurityContext
+		defaultKratixSecurityContext = &corev1.SecurityContext{
+			RunAsNonRoot: ptr.To(true),
+			Privileged:   ptr.To(false),
+			Capabilities: &corev1.Capabilities{
+				Drop: []corev1.Capability{"ALL"},
+			},
+			SeccompProfile: &corev1.SeccompProfile{
+				Type: "RuntimeDefault",
+			},
+		}
 	)
 
 	BeforeEach(func() {
@@ -44,6 +57,9 @@ var _ = Describe("Pipeline", func() {
 						EnvFrom:         []corev1.EnvFromSource{{Prefix: "prefix1", SecretRef: secretRef}},
 						VolumeMounts:    []corev1.VolumeMount{{Name: "customVolume", MountPath: "/mount/path"}},
 						ImagePullPolicy: "Always",
+						SecurityContext: &corev1.SecurityContext{
+							Privileged: pointer.Bool(true),
+						},
 					},
 					{Name: "container-1", Image: "container-1-image"},
 				},
@@ -51,6 +67,11 @@ var _ = Describe("Pipeline", func() {
 				ImagePullSecrets: []corev1.LocalObjectReference{{Name: "imagePullSecret"}},
 			},
 		}
+
+		globalDefaultSecurityContext = &corev1.SecurityContext{
+			Privileged: pointer.Bool(false),
+		}
+		v1alpha1.DefaultUserProvidedContainersSecurityContext = globalDefaultSecurityContext
 		promiseCrd = &apiextensionsv1.CustomResourceDefinition{
 			Spec: apiextensionsv1.CustomResourceDefinitionSpec{
 				Group: "promise.crd.group",
@@ -342,6 +363,10 @@ var _ = Describe("Pipeline", func() {
 								pipeline.Spec.Containers[1].Name,
 								"work-writer",
 							}))
+
+							Expect(podSpec.InitContainers[0].SecurityContext).To(Equal(defaultKratixSecurityContext))
+							Expect(podSpec.InitContainers[len(podSpec.InitContainers)-1].SecurityContext).To(Equal(defaultKratixSecurityContext))
+							Expect(podSpec.Containers[0].SecurityContext).To(Equal(defaultKratixSecurityContext))
 							Expect(initContainerImages).To(Equal([]string{
 								workCreatorImage,
 								pipeline.Spec.Containers[0].Image,
@@ -586,7 +611,7 @@ var _ = Describe("Pipeline", func() {
 						Expect(container).ToNot(BeNil())
 						Expect(container.Name).To(Equal("work-writer"))
 						Expect(container.Image).To(Equal(workCreatorImage))
-						Expect(container.Command).To(Equal([]string{"sh", "-c", "./work-creator " + expectedFlags}))
+						Expect(container.Command).To(Equal([]string{"sh", "-c", "work-creator " + expectedFlags}))
 						Expect(container.VolumeMounts).To(ConsistOf(
 							corev1.VolumeMount{Name: "shared-output", MountPath: "/work-creator-files/input"},
 							corev1.VolumeMount{Name: "shared-metadata", MountPath: "/work-creator-files/metadata"},
@@ -616,7 +641,7 @@ var _ = Describe("Pipeline", func() {
 						Expect(container).ToNot(BeNil())
 						Expect(container.Name).To(Equal("work-writer"))
 						Expect(container.Image).To(Equal(workCreatorImage))
-						Expect(container.Command).To(Equal([]string{"sh", "-c", "./work-creator " + expectedFlags}))
+						Expect(container.Command).To(Equal([]string{"sh", "-c", "work-creator " + expectedFlags}))
 						Expect(container.VolumeMounts).To(ConsistOf(
 							corev1.VolumeMount{Name: "shared-output", MountPath: "/work-creator-files/input"},
 							corev1.VolumeMount{Name: "shared-metadata", MountPath: "/work-creator-files/metadata"},
@@ -643,6 +668,7 @@ var _ = Describe("Pipeline", func() {
 						"EnvFrom":         Equal(expectedContainer0.EnvFrom),
 						"VolumeMounts":    ContainElements(expectedContainer0.VolumeMounts),
 						"ImagePullPolicy": Equal(expectedContainer0.ImagePullPolicy),
+						"SecurityContext": Equal(expectedContainer0.SecurityContext),
 					}))
 
 					expectedContainer1 := pipeline.Spec.Containers[1]
@@ -653,7 +679,22 @@ var _ = Describe("Pipeline", func() {
 						"Command":         BeNil(),
 						"EnvFrom":         BeNil(),
 						"ImagePullPolicy": BeEmpty(),
+						"SecurityContext": Equal(globalDefaultSecurityContext),
 					}))
+				})
+
+				When("neither a global or container specific security context is provided", func() {
+					BeforeEach(func() {
+						v1alpha1.DefaultUserProvidedContainersSecurityContext = nil
+						pipeline.Spec.Containers[0].SecurityContext = nil
+					})
+
+					It("should not set a security context", func() {
+						resources, err := factory.Resources(nil)
+						Expect(err).ToNot(HaveOccurred())
+						containers := resources.Job.Spec.Template.Spec.InitContainers
+						Expect(containers[1].SecurityContext).To(BeNil())
+					})
 				})
 			})
 

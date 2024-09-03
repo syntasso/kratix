@@ -5,12 +5,13 @@ import (
 	"context"
 	"encoding/base64"
 	"fmt"
-	"github.com/onsi/ginkgo/v2/types"
 	"os"
 	"os/exec"
 	"path/filepath"
 	"strings"
 	"time"
+
+	"github.com/onsi/ginkgo/v2/types"
 
 	"github.com/go-git/go-git/v5"
 	"github.com/go-git/go-git/v5/plumbing"
@@ -300,16 +301,29 @@ var _ = Describe("Kratix", func() {
 					rrName,
 					secondPipelineName,
 				)
+
 				By("executing the first pipeline pod", func() {
 					Eventually(func() string {
 						return platform.eventuallyKubectl("get", "pods", "--selector", firstPipelineLabels)
 					}, timeout, interval).Should(ContainSubstring("Completed"))
 				})
 
+				By("using the security context defined in the promise", func() {
+					podYaml := platform.eventuallyKubectl("get", "pods", "--selector", firstPipelineLabels, "-o=yaml")
+					Expect(podYaml).To(ContainSubstring("setInPromise"))
+					Expect(podYaml).NotTo(ContainSubstring("setInKratixConfig"))
+				})
+
 				By("executing the second pipeline pod", func() {
 					Eventually(func() string {
 						return platform.eventuallyKubectl("get", "pods", "--selector", secondPipelineLabels)
 					}, timeout, interval).Should(ContainSubstring("Completed"))
+				})
+
+				By("using the security context defined in the kratix config", func() {
+					podYaml := platform.eventuallyKubectl("get", "pods", "--selector", secondPipelineLabels, "-o=yaml")
+					Expect(podYaml).To(ContainSubstring("setInKratixConfig"))
+					Expect(podYaml).NotTo(ContainSubstring("setInPromise"))
 				})
 
 				By("setting the PipelineCompleted condition on the Resource Request", func() {
