@@ -13,7 +13,6 @@ import (
 	"github.com/syntasso/kratix/lib/resourceutil"
 	"gopkg.in/yaml.v2"
 	batchv1 "k8s.io/api/batch/v1"
-	corev1 "k8s.io/api/core/v1"
 	v1 "k8s.io/api/core/v1"
 	"k8s.io/apimachinery/pkg/api/errors"
 	metav1 "k8s.io/apimachinery/pkg/apis/meta/v1"
@@ -28,24 +27,22 @@ type Opts struct {
 	logger       logr.Logger
 	parentObject *unstructured.Unstructured
 	//TODO make this field private too? or everything public and no constructor func
-	Resources              []v1alpha1.PipelineJobResources
-	source                 string
-	numberOfJobsToKeep     int
-	defaultSecurityContext *corev1.SecurityContext
+	Resources          []v1alpha1.PipelineJobResources
+	source             string
+	numberOfJobsToKeep int
 }
 
 var minimumPeriodBetweenCreatingPipelineResources = 1100 * time.Millisecond
 
 func NewOpts(ctx context.Context, client client.Client, logger logr.Logger, parentObj *unstructured.Unstructured, resources []v1alpha1.PipelineJobResources, source string, numberOfJobsToKeep int) Opts {
 	return Opts{
-		ctx:                    ctx,
-		client:                 client,
-		logger:                 logger,
-		parentObject:           parentObj,
-		source:                 source,
-		numberOfJobsToKeep:     numberOfJobsToKeep,
-		defaultSecurityContext: &corev1.SecurityContext{},
-		Resources:              resources,
+		ctx:                ctx,
+		client:             client,
+		logger:             logger,
+		parentObject:       parentObj,
+		source:             source,
+		numberOfJobsToKeep: numberOfJobsToKeep,
+		Resources:          resources,
 	}
 }
 
