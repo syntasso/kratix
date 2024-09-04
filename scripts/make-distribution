@@ -15,8 +15,8 @@ export PIPELINE_ADAPTER_VERSION_MANIFEST_DIGEST
 KRATIX_PLATFORM_MANIFEST_DIGEST=$(docker buildx imagetools inspect syntasso/kratix-platform --raw | yq -r '.manifests[] | select(.platform.architecture=="amd64").digest')
 export KRATIX_PLATFORM_MANIFEST_DIGEST
 
-export WC_IMG=docker.io/syntasso/kratix-platform-pipeline-adapter@${PIPELINE_ADAPTER_VERSION_MANIFEST_DIGEST}
-export IMG_TAG=docker.io/syntasso/kratix-platform@${KRATIX_PLATFORM_MANIFEST_DIGEST}
+export WC_IMG=syntasso.docker.scarf.sh/syntasso/kratix-platform-pipeline-adapter@${PIPELINE_ADAPTER_VERSION_MANIFEST_DIGEST}
+export IMG_TAG=syntasso.docker.scarf.sh/syntasso/kratix-platform@${KRATIX_PLATFORM_MANIFEST_DIGEST}
 
 if [ -z "${KRATIX_PLATFORM_MANIFEST_DIGEST}" ]; then
     echo "Error: KRATIX_PLATFORM_MANIFEST_DIGEST is empty"
