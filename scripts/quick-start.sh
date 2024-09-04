@@ -14,7 +14,7 @@ INSTALL_AND_CREATE_GITEA_REPO=false
 WORKER_STATESTORE_TYPE=BucketStateStore
 
 LOCAL_IMAGES_DIR=""
-VERSION=${VERSION:-"$(cd $ROOT; git branch --show-current)"}
+VERSION=$(cd $ROOT; git branch --show-current)
 DOCKER_BUILDKIT="${DOCKER_BUILDKIT:-1}"
 
 WAIT_TIMEOUT="180s"
@@ -76,6 +76,11 @@ load_options() {
       esac
     done
     shift $(expr $OPTIND - 1)
+
+    # we don't want to use the scarf iamges 
+    if [ ${KRATIX_DEVELOPER:-false} = true ]; then
+        VERSION="dev"
+    fi
 
     # Always build local images and regenerate distribution when running from `dev`
     if [ "${VERSION}" != "main" ]; then
