@@ -263,7 +263,7 @@ func readKratixConfig(logger logr.Logger, kClient client.Client) (*KratixConfig,
 		return nil, fmt.Errorf("failed to unmarshal ConfigMap kratix-platform-system/kratix into Kratix config: %w", err)
 	}
 
-	logger.Info("kratix config loaded", "config", kratixConfig)
+	logger.Info("Kratix config loaded", "config", kratixConfig)
 
 	return kratixConfig, nil
 }
