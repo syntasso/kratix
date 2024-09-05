@@ -43,6 +43,7 @@ import (
 
 	corev1 "k8s.io/api/core/v1"
 
+	"github.com/go-logr/logr"
 	"github.com/syntasso/kratix/api/v1alpha1"
 	platformv1alpha1 "github.com/syntasso/kratix/api/v1alpha1"
 	"github.com/syntasso/kratix/controllers"
@@ -98,7 +99,7 @@ func main() {
 		panic(err)
 	}
 
-	kratixConfig, err := readKratixConfig(kClient)
+	kratixConfig, err := readKratixConfig(ctrl.Log, kClient)
 	if err != nil {
 		panic(err)
 	}
@@ -239,16 +240,18 @@ func main() {
 
 const numJobsToKeepDefault = 5
 
-func readKratixConfig(kClient client.Client) (*KratixConfig, error) {
+func readKratixConfig(logger logr.Logger, kClient client.Client) (*KratixConfig, error) {
 	cm := &corev1.ConfigMap{}
 	err := kClient.Get(context.Background(), client.ObjectKey{Namespace: "kratix-platform-system", Name: "kratix"}, cm)
 	if err != nil {
 		if apierrors.IsNotFound(err) {
+			logger.Info("kratix-platform-system/kratix ConfigMap not found, using default config")
 			return nil, nil
 		}
 		return nil, fmt.Errorf("failed to get kratix-platform-system/kratix configmap: %w", err)
 	}
 
+	logger.Info("kratix-platform-system/kratix ConfigMap found")
 	config, exists := cm.Data["config"]
 	if !exists {
 		return nil, fmt.Errorf("configmap kratix-platform-system/kratix does not contain a 'config' key")
@@ -257,8 +260,10 @@ func readKratixConfig(kClient client.Client) (*KratixConfig, error) {
 	kratixConfig := &KratixConfig{}
 	err = yaml.Unmarshal([]byte(config), kratixConfig)
 	if err != nil {
-		return nil, fmt.Errorf("failed to unmarshal configmap kratix-platform-system/kratix: %w", err)
+		return nil, fmt.Errorf("failed to unmarshal ConfigMap kratix-platform-system/kratix into Kratix config: %w", err)
 	}
+
+	logger.Info("Kratix config loaded", "config", kratixConfig)
 
 	return kratixConfig, nil
 }
