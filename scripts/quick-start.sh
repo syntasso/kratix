@@ -14,7 +14,7 @@ INSTALL_AND_CREATE_GITEA_REPO=false
 WORKER_STATESTORE_TYPE=BucketStateStore
 
 LOCAL_IMAGES_DIR=""
-VERSION=$(cd $ROOT; git branch --show-current)
+VERSION=${VERSION:-"$(cd $ROOT; git branch --show-current)"}
 DOCKER_BUILDKIT="${DOCKER_BUILDKIT:-1}"
 
 WAIT_TIMEOUT="180s"
