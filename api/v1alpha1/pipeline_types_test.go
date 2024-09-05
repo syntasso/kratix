@@ -28,8 +28,9 @@ var _ = Describe("Pipeline", func() {
 		resourceRequest              *unstructured.Unstructured
 		globalDefaultSecurityContext *corev1.SecurityContext
 		defaultKratixSecurityContext = &corev1.SecurityContext{
-			RunAsNonRoot: ptr.To(true),
-			Privileged:   ptr.To(false),
+			AllowPrivilegeEscalation: ptr.To(false),
+			RunAsNonRoot:             ptr.To(true),
+			Privileged:               ptr.To(false),
 			Capabilities: &corev1.Capabilities{
 				Drop: []corev1.Capability{"ALL"},
 			},

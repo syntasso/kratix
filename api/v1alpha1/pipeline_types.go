@@ -56,14 +56,15 @@ const (
 
 var (
 	kratixSecurityContext = &corev1.SecurityContext{
-		RunAsNonRoot: ptr.To(true),
-		Privileged:   ptr.To(false),
+		AllowPrivilegeEscalation: ptr.To(false),
 		Capabilities: &corev1.Capabilities{
 			Drop: []corev1.Capability{"ALL"},
 		},
+		RunAsNonRoot: ptr.To(true),
 		SeccompProfile: &corev1.SeccompProfile{
 			Type: "RuntimeDefault",
 		},
+		Privileged: ptr.To(false),
 	}
 
 	DefaultUserProvidedContainersSecurityContext *corev1.SecurityContext
