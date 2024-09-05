@@ -245,7 +245,7 @@ func readKratixConfig(logger logr.Logger, kClient client.Client) (*KratixConfig,
 	err := kClient.Get(context.Background(), client.ObjectKey{Namespace: "kratix-platform-system", Name: "kratix"}, cm)
 	if err != nil {
 		if apierrors.IsNotFound(err) {
-			logger.Info("kratix-platform-system/kratix configmap not found, using default config")
+			logger.Info("kratix-platform-system/kratix ConfigMap not found, using default config")
 			return nil, nil
 		}
 		return nil, fmt.Errorf("failed to get kratix-platform-system/kratix configmap: %w", err)
