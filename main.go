@@ -21,7 +21,6 @@ import (
 	"flag"
 	"fmt"
 	"os"
-	"strconv"
 	"time"
 
 	// Import all Kubernetes client auth plugins (e.g. Azure, GCP, OIDC, etc.)
@@ -59,7 +58,8 @@ func init() {
 }
 
 type KratixConfig struct {
-	Workflows Workflows `json:"workflows"`
+	Workflows          Workflows `json:"workflows"`
+	NumberOfJobsToKeep int       `json:"numberOfJobsToKeep,omitempty"`
 }
 
 type Workflows struct {
@@ -145,7 +145,7 @@ func main() {
 			Log:                 ctrl.Log.WithName("controllers").WithName("Promise"),
 			Manager:             mgr,
 			Scheme:              mgr.GetScheme(),
-			NumberOfJobsToKeep:  getNumJobsToKeep(),
+			NumberOfJobsToKeep:  getNumJobsToKeep(kratixConfig),
 			RestartManager: func() {
 				// This function gets called multiple times
 				// First call: restartInProgress get set to true, sleeps starts
@@ -268,19 +268,15 @@ func readKratixConfig(logger logr.Logger, kClient client.Client) (*KratixConfig,
 	return kratixConfig, nil
 }
 
-func getNumJobsToKeep() int {
-	numberOfJobsToKeep := numJobsToKeepDefault
-	numberOfJobsToKeepEnvVar := os.Getenv("NUMBER_OF_JOBS_TO_KEEP")
-	if numberOfJobsToKeepEnvVar != "" {
-		var err error
-		numberOfJobsToKeep, err = strconv.Atoi(numberOfJobsToKeepEnvVar)
-		if err != nil {
-			setupLog.Error(err, "unable to parse env var", "NUMBER_OF_JOBS_TO_KEEP", numberOfJobsToKeepEnvVar)
-			numberOfJobsToKeep = numJobsToKeepDefault
-		} else if numberOfJobsToKeep < 1 {
-			setupLog.Error(err, "NUMBER_OF_JOBS_TO_KEEP cannot be less than one", "NUMBER_OF_JOBS_TO_KEEP", numberOfJobsToKeepEnvVar)
-			numberOfJobsToKeep = numJobsToKeepDefault
-		}
+func getNumJobsToKeep(kratixConfig *KratixConfig) int {
+	if kratixConfig == nil || kratixConfig.NumberOfJobsToKeep == 0 {
+		return numJobsToKeepDefault
 	}
-	return numberOfJobsToKeep
+	if kratixConfig.NumberOfJobsToKeep < 1 {
+		setupLog.Error(fmt.Errorf("invalid Kratix Config"),
+			"numberOfJobsToKeep cannot be less than one; set to default value",
+			"numberOfJobsToKeep", kratixConfig.NumberOfJobsToKeep)
+		return numJobsToKeepDefault
+	}
+	return kratixConfig.NumberOfJobsToKeep
 }
