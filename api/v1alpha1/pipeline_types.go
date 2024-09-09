@@ -24,6 +24,7 @@ import (
 
 	"sigs.k8s.io/controller-runtime/pkg/client"
 
+	"github.com/syntasso/kratix/lib/config"
 	"github.com/syntasso/kratix/lib/objectutil"
 
 	"github.com/go-logr/logr"
@@ -110,6 +111,12 @@ type Pipeline struct {
 	Spec PipelineSpec `json:"spec,omitempty"`
 }
 
+// +kubebuilder:object:generate=false
+type PipelineConfig interface {
+	PipelineNamePrefix() string
+}
+
+// +kubebuilder:object:generate=false
 type PipelineFactory struct {
 	ID               string
 	Promise          *Promise
@@ -119,6 +126,8 @@ type PipelineFactory struct {
 	ResourceWorkflow bool
 	WorkflowAction   Action
 	WorkflowType     Type
+
+	config PipelineConfig
 }
 
 // +kubebuilder:object:generate=false
@@ -203,6 +212,7 @@ func (p *Pipeline) ForPromise(promise *Promise, action Action) *PipelineFactory 
 		Namespace:      SystemNamespace,
 		WorkflowType:   WorkflowTypePromise,
 		WorkflowAction: action,
+		config:         config.NewPipelineConfig(),
 	}
 }
 
@@ -216,6 +226,7 @@ func (p *Pipeline) ForResource(promise *Promise, action Action, resourceRequest 
 		ResourceWorkflow: true,
 		WorkflowType:     WorkflowTypeResource,
 		WorkflowAction:   action,
+		config:           config.NewPipelineConfig(),
 	}
 }
 
@@ -518,7 +529,7 @@ func (p *PipelineFactory) statusWriterContainer(obj *unstructured.Unstructured, 
 }
 
 func (p *PipelineFactory) pipelineJobName() string {
-	name := fmt.Sprintf("kratix-%s", p.Promise.GetName())
+	name := fmt.Sprintf("%s-%s", p.config.PipelineNamePrefix(), p.Promise.GetName())
 
 	if p.ResourceWorkflow {
 		name = fmt.Sprintf("%s-%s", name, p.ResourceRequest.GetName())
