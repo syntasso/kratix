@@ -29,6 +29,7 @@ GOBIN=$(shell go env GOBIN)
 endif
 
 GINKGO = github.com/onsi/ginkgo/v2/ginkgo
+GINKGO_FLAGS ?= ""
 
 # Setting SHELL to bash allows bash commands to be executed by recipes.
 # This is a requirement for 'setup-envtest.sh' in the test target.
@@ -209,13 +210,14 @@ ARCH_FLAG =
 ifeq ($(shell uname -sm),Darwin arm64)
 	ARCH_FLAG = --arch=amd64
 endif
+
 .PHONY: test
 test: manifests generate fmt vet ## Run unit tests.
-	go run ${GINKGO} -r --coverprofile cover.out --skip-package=system
+	go run ${GINKGO} $(GINKGO_FLAGS) -r --coverprofile cover.out --skip-package=system
 
 .PHONY: run-system-test
 run-system-test: fmt vet build-and-load-bash
-	PLATFORM_DESTINATION_IP=`docker inspect platform-control-plane | grep '"IPAddress": "172' | awk -F '"' '{print $$4}'` go run ${GINKGO} -p --output-interceptor-mode=none ./test/system/  --coverprofile cover.out
+	PLATFORM_DESTINATION_IP=`docker inspect platform-control-plane | grep '"IPAddress": "172' | awk -F '"' '{print $$4}'` go run ${GINKGO} ${GINKGO_FLAGS} -p --output-interceptor-mode=none ./test/system/  --coverprofile cover.out
 
 fmt: ## Run go fmt against code.
 	go fmt ./...
