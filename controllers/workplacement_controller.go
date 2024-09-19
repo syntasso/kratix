@@ -194,7 +194,7 @@ func (r *WorkPlacementReconciler) writeWorkloadsToStateStore(writer writers.Stat
 	var workloadsToDelete []string
 	var dir = getDir(workPlacement)
 	var workloadsToCreate = workPlacement.Spec.Workloads
-
+	//decompress before writing
 	if destination.GetFilepathMode() == v1alpha1.FilepathModeNone {
 		var kratixFile []byte
 		if kratixFile, err = writer.ReadFile(fmt.Sprintf(".kratix/%s-%s.yaml", workPlacement.Namespace, workPlacement.Name)); ignoreNotFound(err) != nil {

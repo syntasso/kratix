@@ -1,7 +1,10 @@
 package pipeline_test
 
 import (
+	"bytes"
+	"compress/gzip"
 	"context"
+	"fmt"
 	"os"
 	"path/filepath"
 
@@ -63,37 +66,52 @@ var _ = Describe("WorkCreator", func() {
 			})
 
 			It("has the expected Work name", func() {
+				fmt.Printf("%+v ", workResource)
 				Expect(workResource.Name).To(MatchRegexp(`^promise-name-resource-name-\b\w{5}\b$`))
+			})
+
+			It("has the expected workloads", func() {
+				bazNamespaceContents, err := os.ReadFile(filepath.Join(getRootDirectory(), "complete", "input", "baz", "/baz-namespace-resource-request.yaml"))
+				Expect(err).ToNot(HaveOccurred())
+				compressedbazNamespaceContents, err := compressContent(bazNamespaceContents)
+
+				namespaceFileContents, err := os.ReadFile(filepath.Join(getRootDirectory(), "complete", "input", "foo", "bar", "/namespace-resource-request.yaml"))
+				Expect(err).ToNot(HaveOccurred())
+				compressednamespaceFileContents, err := compressContent(namespaceFileContents)
+
+				multiResourceResquest, err := os.ReadFile(filepath.Join(getRootDirectory(), "complete", "input", "foo", "/multi-resource-request.yaml"))
+				Expect(err).ToNot(HaveOccurred())
+				compressedmultiResourceRequest, err := compressContent(multiResourceResquest)
+
+				mockPipelineDirectory = filepath.Join(getRootDirectory(), "complete")
+				err = workCreator.Execute(mockPipelineDirectory, "promise-name", "default", "resource-name", "resource", pipelineName)
+				Expect(err).ToNot(HaveOccurred())
+
+				workResource = getWork(expectedNamespace, promiseName, resourceName, pipelineName)
+				Expect(workResource.Spec.WorkloadGroups).To(HaveLen(2))
+
+				var paths []string
+				for _, workload := range workResource.Spec.WorkloadGroups[0].Workloads {
+					paths = append(paths, workload.Filepath)
+				}
+				Expect(paths).To(ConsistOf("baz/baz-namespace-resource-request.yaml"))
+				for _, workload := range workResource.Spec.WorkloadGroups[0].Workloads {
+					fileContent, err := os.ReadFile(filepath.Join(mockPipelineDirectory, "input", workload.Filepath))
+					Expect(err).NotTo(HaveOccurred())
+					Expect(workload.Content).To(Equal(string(fileContent)))
+				}
 			})
 
 			When("it runs for a second time", func() {
 				It("Should update the previously created work", func() {
-					mockPipelineDirectory = filepath.Join(getRootDirectory(), "complete")
-					err := workCreator.Execute(mockPipelineDirectory, "promise-name", "default", "resource-name", "resource", pipelineName)
-					Expect(err).ToNot(HaveOccurred())
-
-					workResource = getWork(expectedNamespace, promiseName, resourceName, pipelineName)
-					Expect(workResource.Spec.WorkloadGroups).To(HaveLen(2))
-
-					var paths []string
-					for _, workload := range workResource.Spec.WorkloadGroups[0].Workloads {
-						paths = append(paths, workload.Filepath)
-					}
-					Expect(paths).To(ConsistOf("baz/baz-namespace-resource-request.yaml"))
-					for _, workload := range workResource.Spec.WorkloadGroups[0].Workloads {
-						fileContent, err := os.ReadFile(filepath.Join(mockPipelineDirectory, "input", workload.Filepath))
-						Expect(err).NotTo(HaveOccurred())
-						Expect(workload.Content).To(Equal(string(fileContent)))
-					}
-
 					mockPipelineDirectory = filepath.Join(getRootDirectory(), "complete-updated")
-					err = workCreator.Execute(mockPipelineDirectory, "promise-name", "default", "resource-name", "resource", pipelineName)
+					err := workCreator.Execute(mockPipelineDirectory, "promise-name", "default", "resource-name", "resource", pipelineName)
 					Expect(err).ToNot(HaveOccurred())
 
 					newWorkResource := getWork(expectedNamespace, promiseName, resourceName, pipelineName)
 					Expect(newWorkResource.Name).To(Equal(workResource.Name))
 					Expect(newWorkResource.Spec.WorkloadGroups).To(HaveLen(2))
-					paths = []string{}
+					paths := []string{}
 					for _, workload := range workResource.Spec.WorkloadGroups[0].Workloads {
 						paths = append(paths, workload.Filepath)
 					}
@@ -332,4 +350,17 @@ func getWork(namespace, promiseName, resourceName, pipelineName string) v1alpha1
 	ExpectWithOffset(1, works.Items).To(HaveLen(1))
 
 	return works.Items[0]
+}
+
+func compressContent(content []byte) ([]byte, error) {
+	var buf bytes.Buffer
+	zw := gzip.NewWriter(&buf)
+	_, err := zw.Write(content)
+	if err != nil {
+		return nil, err
+	}
+	if err := zw.Close(); err != nil {
+		return nil, err
+	}
+	return buf.Bytes(), nil
 }

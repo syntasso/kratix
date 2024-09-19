@@ -40,6 +40,7 @@ type Scheduler struct {
 // Reconciles all Works by scheduling each Work's WorkloadGroups to appropriate
 // Destinations.
 // Only reconciles Works that are from a Promise Dependency.
+// TODO: Validate that this can be deleted
 func (s *Scheduler) ReconcileAllDependencyWorks() error {
 	works := v1alpha1.WorkList{}
 	lo := &client.ListOptions{}

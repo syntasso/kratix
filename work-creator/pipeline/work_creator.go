@@ -4,10 +4,11 @@ import (
 	"context"
 	"crypto/md5"
 	"fmt"
-	"github.com/syntasso/kratix/lib/objectutil"
 	"io"
 	"os"
 	"path/filepath"
+
+	"github.com/syntasso/kratix/lib/objectutil"
 
 	goerr "errors"
 
@@ -170,6 +171,7 @@ func (w *WorkCreator) Execute(rootDirectory, promiseName, namespace, resourceNam
 	}
 
 	if currentWork == nil {
+		// compress before here?
 		err := w.K8sClient.Create(context.Background(), work)
 		if err != nil {
 			return err
@@ -193,6 +195,7 @@ func (w *WorkCreator) Execute(rootDirectory, promiseName, namespace, resourceNam
 
 // /kratix/output/     /kratix/output/   "bar"
 func (w *WorkCreator) getWorkloadsFromDir(prefixToTrimFromWorkloadFilepath, rootDir string, directoriesToIgnoreAtTheRootLevel []string) ([]v1alpha1.Workload, error) {
+	// decompress here
 	filesAndDirs, err := os.ReadDir(rootDir)
 	if err != nil {
 		return nil, err
