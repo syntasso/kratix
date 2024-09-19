@@ -29,7 +29,6 @@ GOBIN=$(shell go env GOBIN)
 endif
 
 GINKGO = github.com/onsi/ginkgo/v2/ginkgo
-GINKGO_FLAGS ?= ""
 
 # Setting SHELL to bash allows bash commands to be executed by recipes.
 # This is a requirement for 'setup-envtest.sh' in the test target.
@@ -213,7 +212,7 @@ endif
 
 .PHONY: test
 test: manifests generate fmt vet ## Run unit tests.
-	go run ${GINKGO} $(GINKGO_FLAGS) -r --coverprofile cover.out --skip-package=system
+	go run ${GINKGO} ${GINKGO_FLAGS} -r --coverprofile cover.out --skip-package=system
 
 .PHONY: run-system-test
 run-system-test: fmt vet build-and-load-bash
