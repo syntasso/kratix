@@ -212,7 +212,7 @@ endif
 
 .PHONY: test
 test: manifests generate fmt vet ## Run unit tests.
-	go run ${GINKGO} ${GINKGO_FLAGS} -r --coverprofile cover.out --skip-package=system
+	go run ${GINKGO} ${GINKGO_FLAGS} -r --coverprofile cover.out --skip-package=system ./... ./test/...;
 
 .PHONY: run-system-test
 run-system-test: fmt vet build-and-load-bash
