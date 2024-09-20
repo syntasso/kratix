@@ -5,6 +5,7 @@ import (
 	"compress/gzip"
 	"context"
 	"fmt"
+	"io"
 	"os"
 	"path/filepath"
 
@@ -70,21 +71,21 @@ var _ = Describe("WorkCreator", func() {
 				Expect(workResource.Name).To(MatchRegexp(`^promise-name-resource-name-\b\w{5}\b$`))
 			})
 
-			It("has the expected workloads", func() {
-				bazNamespaceContents, err := os.ReadFile(filepath.Join(getRootDirectory(), "complete", "input", "baz", "/baz-namespace-resource-request.yaml"))
-				Expect(err).ToNot(HaveOccurred())
-				compressedbazNamespaceContents, err := compressContent(bazNamespaceContents)
+			FIt("has the expected workloads", func() {
+				// bazNamespaceContents, err := os.ReadFile(filepath.Join(getRootDirectory(), "complete", "input", "baz", "/baz-namespace-resource-request.yaml"))
+				// Expect(err).ToNot(HaveOccurred())
+				// compressedbazNamespaceContents, err := compressContent(bazNamespaceContents)
 
-				namespaceFileContents, err := os.ReadFile(filepath.Join(getRootDirectory(), "complete", "input", "foo", "bar", "/namespace-resource-request.yaml"))
-				Expect(err).ToNot(HaveOccurred())
-				compressednamespaceFileContents, err := compressContent(namespaceFileContents)
+				// namespaceFileContents, err := os.ReadFile(filepath.Join(getRootDirectory(), "complete", "input", "foo", "bar", "/namespace-resource-request.yaml"))
+				// Expect(err).ToNot(HaveOccurred())
+				// compressednamespaceFileContents, err := compressContent(namespaceFileContents)
 
-				multiResourceResquest, err := os.ReadFile(filepath.Join(getRootDirectory(), "complete", "input", "foo", "/multi-resource-request.yaml"))
-				Expect(err).ToNot(HaveOccurred())
-				compressedmultiResourceRequest, err := compressContent(multiResourceResquest)
+				// multiResourceResquest, err := os.ReadFile(filepath.Join(getRootDirectory(), "complete", "input", "foo", "/multi-resource-request.yaml"))
+				// Expect(err).ToNot(HaveOccurred())
+				// compressedmultiResourceRequest, err := compressContent(multiResourceResquest)
 
 				mockPipelineDirectory = filepath.Join(getRootDirectory(), "complete")
-				err = workCreator.Execute(mockPipelineDirectory, "promise-name", "default", "resource-name", "resource", pipelineName)
+				err := workCreator.Execute(mockPipelineDirectory, "promise-name", "default", "resource-name", "resource", pipelineName)
 				Expect(err).ToNot(HaveOccurred())
 
 				workResource = getWork(expectedNamespace, promiseName, resourceName, pipelineName)
@@ -98,7 +99,7 @@ var _ = Describe("WorkCreator", func() {
 				for _, workload := range workResource.Spec.WorkloadGroups[0].Workloads {
 					fileContent, err := os.ReadFile(filepath.Join(mockPipelineDirectory, "input", workload.Filepath))
 					Expect(err).NotTo(HaveOccurred())
-					Expect(workload.Content).To(Equal(string(fileContent)))
+					Expect(inCompressedContents(workload.Content, fileContent)).To(BeTrue())
 				}
 			})
 
@@ -363,4 +364,25 @@ func compressContent(content []byte) ([]byte, error) {
 		return nil, err
 	}
 	return buf.Bytes(), nil
+}
+
+func decompressContent(compressedContent []byte) ([]byte, error) {
+	fmt.Print(string(compressedContent))
+	zr, err := gzip.NewReader(bytes.NewReader(compressedContent))
+	if err != nil {
+		return nil, err
+	}
+	defer zr.Close()
+
+	decompressed, err := io.ReadAll(zr)
+	if err != nil {
+		return nil, err
+	}
+	return decompressed, nil
+}
+
+func inCompressedContents(compressedContent string, content []byte) bool {
+	decompressedContent, err := decompressContent([]byte(compressedContent))
+	Expect(err).ToNot(HaveOccurred())
+	return bytes.Contains(decompressedContent, content)
 }

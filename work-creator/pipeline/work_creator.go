@@ -1,6 +1,8 @@
 package pipeline
 
 import (
+	"bytes"
+	"compress/gzip"
 	"context"
 	"crypto/md5"
 	"fmt"
@@ -232,8 +234,13 @@ func (w *WorkCreator) getWorkloadsFromDir(prefixToTrimFromWorkloadFilepath, root
 				return nil, err
 			}
 
+			content, err := compressContent(byteValue)
+			if err != nil {
+				return nil, err
+			}
+
 			workload := v1alpha1.Workload{
-				Content:  string(byteValue),
+				Content:  content,
 				Filepath: path,
 			}
 
@@ -328,4 +335,17 @@ func containsDuplicateScheduling(schedulingConfig []v1alpha1.WorkflowDestination
 // Assumes Dir has already been filepath.Clean'd
 func isRootDirectory(dir string) bool {
 	return dir == v1alpha1.DefaultWorkloadGroupDirectory
+}
+
+func compressContent(content []byte) (string, error) {
+	var buf bytes.Buffer
+	zw := gzip.NewWriter(&buf)
+	_, err := zw.Write(content)
+	if err != nil {
+		return "", err
+	}
+	if err := zw.Close(); err != nil {
+		return "", err
+	}
+	return string(buf.Bytes()), nil
 }
