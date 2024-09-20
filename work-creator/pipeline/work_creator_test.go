@@ -2,10 +2,8 @@ package pipeline_test
 
 import (
 	"bytes"
-	"compress/gzip"
 	"context"
 	"fmt"
-	"io"
 	"os"
 	"path/filepath"
 
@@ -13,6 +11,7 @@ import (
 	. "github.com/onsi/gomega"
 	"github.com/syntasso/kratix/api/v1alpha1"
 	"github.com/syntasso/kratix/work-creator/pipeline"
+	utils "github.com/syntasso/kratix/work-creator/pipeline/lib"
 	v1 "k8s.io/api/core/v1"
 	metav1 "k8s.io/apimachinery/pkg/apis/meta/v1"
 	"k8s.io/apimachinery/pkg/labels"
@@ -353,36 +352,8 @@ func getWork(namespace, promiseName, resourceName, pipelineName string) v1alpha1
 	return works.Items[0]
 }
 
-func compressContent(content []byte) ([]byte, error) {
-	var buf bytes.Buffer
-	zw := gzip.NewWriter(&buf)
-	_, err := zw.Write(content)
-	if err != nil {
-		return nil, err
-	}
-	if err := zw.Close(); err != nil {
-		return nil, err
-	}
-	return buf.Bytes(), nil
-}
-
-func decompressContent(compressedContent []byte) ([]byte, error) {
-	fmt.Print(string(compressedContent))
-	zr, err := gzip.NewReader(bytes.NewReader(compressedContent))
-	if err != nil {
-		return nil, err
-	}
-	defer zr.Close()
-
-	decompressed, err := io.ReadAll(zr)
-	if err != nil {
-		return nil, err
-	}
-	return decompressed, nil
-}
-
 func inCompressedContents(compressedContent string, content []byte) bool {
-	decompressedContent, err := decompressContent([]byte(compressedContent))
+	decompressedContent, err := utils.DecompressContent([]byte(compressedContent))
 	Expect(err).ToNot(HaveOccurred())
 	return bytes.Contains(decompressedContent, content)
 }
