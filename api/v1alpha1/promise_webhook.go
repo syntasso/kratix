@@ -27,6 +27,7 @@ import (
 	metav1 "k8s.io/apimachinery/pkg/apis/meta/v1"
 	"k8s.io/apimachinery/pkg/apis/meta/v1/unstructured"
 	"k8s.io/apimachinery/pkg/runtime"
+	"k8s.io/apimachinery/pkg/util/validation"
 	ctrl "sigs.k8s.io/controller-runtime"
 	"sigs.k8s.io/controller-runtime/pkg/client"
 	logf "sigs.k8s.io/controller-runtime/pkg/log"
@@ -104,6 +105,10 @@ func (p *Promise) validatePipelines() error {
 		for workflowAction, pipelines := range actionToPipelineMap {
 			pipelineNamesMap := map[string]bool{}
 			for _, pipeline := range pipelines {
+				if err := validatePipelineLabels(pipeline, string(workflowType), string(workflowAction)); err != nil {
+					return err
+				}
+
 				_, ok := pipelineNamesMap[pipeline.GetName()]
 				if ok {
 					return fmt.Errorf("duplicate pipeline name %q in workflow %q action %q", pipeline.GetName(), workflowType, workflowAction)
@@ -219,6 +224,20 @@ func (p *Promise) validateCRDChanges(oldPromise *Promise) error {
 
 	if len(errors) > 0 {
 		return fmt.Errorf("promises.platform.kratix.io %q was not valid:\n%s", p.Name, strings.Join(errors, "\n"))
+	}
+	return nil
+}
+
+func validatePipelineLabels(pipeline Pipeline, workflowType, workflowAction string) error {
+	for key, value := range pipeline.GetLabels() {
+		errors := validation.IsValidLabelValue(value)
+		if len(errors) > 0 {
+			return fmt.Errorf("invalid label value %q for key %q in workflow %q action %q: %s", value, key, workflowType, workflowAction, strings.Join(errors, ","))
+		}
+		errors = validation.IsQualifiedName(key)
+		if len(errors) > 0 {
+			return fmt.Errorf("invalid label key %q in workflow %q action %q: %s", key, workflowType, workflowAction, strings.Join(errors, ","))
+		}
 	}
 	return nil
 }
