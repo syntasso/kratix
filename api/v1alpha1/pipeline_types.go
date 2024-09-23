@@ -478,7 +478,8 @@ func (p *PipelineFactory) pipelineJob(schedulingConfigMap *corev1.ConfigMap, ser
 		Spec: batchv1.JobSpec{
 			Template: corev1.PodTemplateSpec{
 				ObjectMeta: metav1.ObjectMeta{
-					Labels: p.pipelineJobLabels(objHash),
+					Labels:      p.pipelineJobLabels(objHash),
+					Annotations: p.Pipeline.GetAnnotations(),
 				},
 				Spec: corev1.PodSpec{
 					RestartPolicy:      corev1.RestartPolicyOnFailure,
@@ -541,7 +542,7 @@ func (p *PipelineFactory) pipelineJobLabels(requestSHA string) map[string]string
 		ls[KratixResourceHashLabel] = requestSHA
 	}
 
-	return ls
+	return labels.Merge(ls, p.Pipeline.GetLabels())
 }
 
 func (p *PipelineFactory) getObjAndHash() (*unstructured.Unstructured, string, error) {

@@ -46,6 +46,12 @@ var _ = Describe("Pipeline", func() {
 		pipeline = &v1alpha1.Pipeline{
 			ObjectMeta: metav1.ObjectMeta{
 				Name: "pipelineName",
+				Labels: map[string]string{
+					"user-provided-label": "label-value",
+				},
+				Annotations: map[string]string{
+					"user-provided-annotation": "annotation-value",
+				},
 			},
 			Spec: v1alpha1.PipelineSpec{
 				Containers: []v1alpha1.Container{
@@ -199,7 +205,6 @@ var _ = Describe("Pipeline", func() {
 						Expect(configMap).ToNot(BeNil())
 						matchConfigureConfigmap(configMap, factory)
 					})
-
 				})
 
 				When("building for delete action", func() {
@@ -430,8 +435,9 @@ var _ = Describe("Pipeline", func() {
 							Expect(job).ToNot(BeNil())
 
 							Expect(job.GetName()).To(HavePrefix("kratix-%s-%s-%s", promise.GetName(), resourceRequest.GetName(), pipeline.GetName()))
+							podTemplate := job.Spec.Template
 							Expect(job.GetNamespace()).To(Equal(factory.Namespace))
-							for _, definedLabels := range []map[string]string{job.GetLabels(), job.Spec.Template.GetLabels()} {
+							for _, definedLabels := range []map[string]string{job.GetLabels(), podTemplate.GetLabels()} {
 								Expect(definedLabels).To(SatisfyAll(
 									HaveKeyWithValue(v1alpha1.PromiseNameLabel, promise.GetName()),
 									HaveKeyWithValue(v1alpha1.WorkTypeLabel, string(factory.WorkflowType)),
@@ -441,7 +447,17 @@ var _ = Describe("Pipeline", func() {
 									HaveKeyWithValue(v1alpha1.ResourceNameLabel, resourceRequest.GetName()),
 								))
 							}
-							podSpec := job.Spec.Template.Spec
+
+							By("injecting the pipeline labels and annotations into the templated pod", func() {
+								for key, val := range pipeline.GetLabels() {
+									Expect(podTemplate.GetLabels()).To(HaveKeyWithValue(key, val))
+								}
+								for key, val := range pipeline.GetAnnotations() {
+									Expect(podTemplate.GetAnnotations()).To(HaveKeyWithValue(key, val))
+								}
+							})
+
+							podSpec := podTemplate.Spec
 							Expect(podSpec.ServiceAccountName).To(Equal(serviceAccount.GetName()))
 							Expect(podSpec.ImagePullSecrets).To(ConsistOf(pipeline.Spec.ImagePullSecrets))
 							Expect(podSpec.InitContainers).To(HaveLen(4))
@@ -491,7 +507,17 @@ var _ = Describe("Pipeline", func() {
 							job := resources.Job
 							Expect(job).ToNot(BeNil())
 
-							podSpec := job.Spec.Template.Spec
+							podTemplate := job.Spec.Template
+							By("injecting the pipeline labels and annotations into the templated pod", func() {
+								for key, val := range pipeline.GetLabels() {
+									Expect(podTemplate.GetLabels()).To(HaveKeyWithValue(key, val))
+								}
+								for key, val := range pipeline.GetAnnotations() {
+									Expect(podTemplate.GetAnnotations()).To(HaveKeyWithValue(key, val))
+								}
+							})
+
+							podSpec := podTemplate.Spec
 							Expect(podSpec.InitContainers).To(HaveLen(2))
 							var initContainerNames []string
 							for _, container := range podSpec.InitContainers {
