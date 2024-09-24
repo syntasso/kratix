@@ -96,7 +96,7 @@ kind-load-image: docker-build ## Load locally built image into KinD
 build-and-load-kratix: kind-load-image ## Build kratix container image and reloads
 	kubectl rollout restart deployment -n kratix-platform-system -l control-plane=controller-manager
 
-build-and-load-worker-creator: ## Build worker-creator container image and reloads
+build-and-load-work-creator: ## Build work-creator container image and reloads
 	WC_IMG_VERSION=${WC_IMG_VERSION} WC_IMG_MIRROR=${WC_IMG_MIRROR} make -C work-creator kind-load-image
 
 ##@ Build
