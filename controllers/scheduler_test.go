@@ -215,6 +215,7 @@ var _ = Describe("Controllers/Scheduler", func() {
 					Expect(workPlacement.Spec.Workloads).To(HaveLen(1))
 
 					previousResourceVersion, err := strconv.Atoi(workPlacement.ResourceVersion)
+					Expect(err).ToNot(HaveOccurred())
 
 					// update the Work's WorkloadGroup with an extra Workload
 					Expect(fakeK8sClient.Get(context.Background(), client.ObjectKeyFromObject(&resourceWork), &resourceWork))
@@ -236,6 +237,7 @@ var _ = Describe("Controllers/Scheduler", func() {
 					}))
 
 					newResourceVersion, err := strconv.Atoi(workPlacement.ResourceVersion)
+					Expect(err).ToNot(HaveOccurred())
 					Expect(newResourceVersion).To(BeNumerically(">", previousResourceVersion))
 				})
 			})
@@ -947,6 +949,11 @@ func newWorkWithTwoWorkloadGroups(name string, isResource bool, promiseSchedulin
 		namespace = SystemNamespace
 	}
 
+	newFakeCompressedContent, err := compression.CompressContent([]byte(string("key: value")))
+	Expect(err).ToNot(HaveOccurred())
+	additionalFakeCompressedContent, err := compression.CompressContent([]byte(string("foo: bar")))
+	Expect(err).ToNot(HaveOccurred())
+
 	w := &Work{
 		ObjectMeta: v1.ObjectMeta{
 			Name:      name,
@@ -957,7 +964,7 @@ func newWorkWithTwoWorkloadGroups(name string, isResource bool, promiseSchedulin
 			WorkloadGroups: []WorkloadGroup{
 				{
 					Workloads: []Workload{
-						{Content: "key: value"},
+						{Content: string(newFakeCompressedContent)},
 					},
 					Directory:            ".",
 					ID:                   hash.ComputeHash("."),
@@ -965,7 +972,7 @@ func newWorkWithTwoWorkloadGroups(name string, isResource bool, promiseSchedulin
 				},
 				{
 					Workloads: []Workload{
-						{Content: "foo: bar"},
+						{Content: string(additionalFakeCompressedContent)},
 					},
 					DestinationSelectors: []WorkloadGroupScheduling{directoryOverrideScheduling},
 					Directory:            "foo",
