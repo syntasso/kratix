@@ -64,10 +64,16 @@ var _ = Describe("WorkplacementReconciler", func() {
 			VersionCache: make(map[string]string),
 		}
 
+		content, err := compression.CompressContent([]byte("{someApi: foo, someValue: bar}"))
+		Expect(err).ToNot(HaveOccurred())
+
+		compressedContent, err := compression.CompressContent(content)
+		Expect(err).ToNot(HaveOccurred())
+
 		workloads = []v1alpha1.Workload{
 			{
 				Filepath: "fruit.yaml",
-				Content:  "{someApi: foo, someValue: bar}",
+				Content:  string(compressedContent),
 			},
 		}
 		workPlacement = v1alpha1.WorkPlacement{

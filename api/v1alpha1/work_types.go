@@ -21,6 +21,8 @@ import (
 
 	"github.com/syntasso/kratix/lib/hash"
 	metav1 "k8s.io/apimachinery/pkg/apis/meta/v1"
+
+	"github.com/syntasso/kratix/lib/compression"
 )
 
 const (
@@ -83,13 +85,18 @@ func NewPromiseDependenciesWork(promise *Promise, name string) (*Work, error) {
 		return nil, err
 	}
 
+	workContent, err := compression.CompressContent(yamlBytes)
+	if err != nil {
+		return nil, err
+	}
+
 	work.Spec.WorkloadGroups = []WorkloadGroup{
 		{
 			ID:        hash.ComputeHash(DefaultWorkloadGroupDirectory),
 			Directory: DefaultWorkloadGroupDirectory,
 			Workloads: []Workload{
 				{
-					Content:  string(yamlBytes),
+					Content:  string(workContent),
 					Filepath: fmt.Sprintf("static/%s-dependencies.yaml", promise.GetName()),
 				},
 			},

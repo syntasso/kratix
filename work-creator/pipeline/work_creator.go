@@ -19,7 +19,7 @@ import (
 	"github.com/syntasso/kratix/api/v1alpha1"
 	"github.com/syntasso/kratix/lib/hash"
 	"github.com/syntasso/kratix/lib/resourceutil"
-	utils "github.com/syntasso/kratix/work-creator/pipeline/lib"
+	"github.com/syntasso/kratix/lib/compression"
 	"k8s.io/apimachinery/pkg/util/yaml"
 	"sigs.k8s.io/controller-runtime/pkg/client"
 )
@@ -233,11 +233,10 @@ func (w *WorkCreator) getWorkloadsFromDir(prefixToTrimFromWorkloadFilepath, root
 				return nil, err
 			}
 
-			content, err := utils.CompressContent(byteValue)
+			content, err := compression.CompressContent(byteValue)
 			if err != nil {
 				return nil, err
 			}
-			fmt.Print(content)
 
 			workload := v1alpha1.Workload{
 				Content:  string(content),

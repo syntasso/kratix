@@ -12,6 +12,7 @@ import (
 	"github.com/syntasso/kratix/api/v1alpha1"
 	. "github.com/syntasso/kratix/api/v1alpha1"
 	"github.com/syntasso/kratix/lib/hash"
+	"github.com/syntasso/kratix/lib/compression"
 	v1 "k8s.io/apimachinery/pkg/apis/meta/v1"
 	"k8s.io/apimachinery/pkg/labels"
 	"k8s.io/apimachinery/pkg/types"
@@ -25,6 +26,7 @@ var _ = Describe("Controllers/Scheduler", func() {
 	var devDestination, devDestination2, pciDestination, prodDestination, strictDestination Destination
 	var workPlacements WorkPlacementList
 	var scheduler *Scheduler
+	var fakeCompressedContent []byte
 
 	BeforeEach(func() {
 		// create a set of destinations to be used throughout the tests
@@ -40,6 +42,10 @@ var _ = Describe("Controllers/Scheduler", func() {
 		Expect(fakeK8sClient.Create(context.Background(), &pciDestination)).To(Succeed())
 		Expect(fakeK8sClient.Create(context.Background(), &prodDestination)).To(Succeed())
 		Expect(fakeK8sClient.Create(context.Background(), &strictDestination)).To(Succeed())
+
+		var err error
+		fakeCompressedContent, err = compression.CompressContent([]byte(string("fake: content")))
+		Expect(err).ToNot(HaveOccurred())
 
 		scheduler = &Scheduler{
 			Client: fakeK8sClient,
@@ -213,7 +219,7 @@ var _ = Describe("Controllers/Scheduler", func() {
 					// update the Work's WorkloadGroup with an extra Workload
 					Expect(fakeK8sClient.Get(context.Background(), client.ObjectKeyFromObject(&resourceWork), &resourceWork))
 					resourceWork.Spec.WorkloadGroups[0].Workloads = append(resourceWork.Spec.WorkloadGroups[0].Workloads, Workload{
-						Content: "fake: content",
+						Content: string(fakeCompressedContent),
 					})
 
 					_, err = scheduler.ReconcileWork(&resourceWork)
@@ -226,7 +232,7 @@ var _ = Describe("Controllers/Scheduler", func() {
 					workPlacement = workPlacements.Items[0]
 					Expect(workPlacement.Spec.Workloads).To(HaveLen(2))
 					Expect(workPlacement.Spec.Workloads).To(ContainElement(Workload{
-						Content: "fake: content",
+						Content: string(fakeCompressedContent),
 					}))
 
 					newResourceVersion, err := strconv.Atoi(workPlacement.ResourceVersion)
@@ -281,7 +287,7 @@ var _ = Describe("Controllers/Scheduler", func() {
 						ID:        hash.ComputeHash("foo"),
 						Workloads: []Workload{
 							{
-								Content: "fake: content",
+								Content: string(fakeCompressedContent),
 							},
 						},
 						DestinationSelectors: []WorkloadGroupScheduling{schedulingFor(devDestination)},
@@ -332,7 +338,7 @@ var _ = Describe("Controllers/Scheduler", func() {
 							ID:        hash.ComputeHash("foo"),
 							Workloads: []Workload{
 								{
-									Content: "fake: content",
+									Content: string(fakeCompressedContent),
 								},
 							},
 						},
