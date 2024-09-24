@@ -118,9 +118,16 @@ var _ = Describe("PromiseWebhook", func() {
 	})
 
 	Describe("Workflows", func() {
+		var (
+			promise *v1alpha1.Promise
+		)
+
+		BeforeEach(func() {
+			promise = newPromise()
+		})
+
 		When("the pipeline is invalid", func() {
 			It("returns an error", func() {
-				promise := newPromise()
 				objMap, err := runtime.DefaultUnstructuredConverter.ToUnstructured(&corev1.ConfigMap{ObjectMeta: metav1.ObjectMeta{Name: "test"}})
 				Expect(err).NotTo(HaveOccurred())
 				unstructuredPipeline := &unstructured.Unstructured{Object: objMap}
@@ -153,12 +160,10 @@ var _ = Describe("PromiseWebhook", func() {
 
 		Describe("pipeline name", func() {
 			var (
-				promise  *v1alpha1.Promise
 				maxLimit int
 			)
 
 			BeforeEach(func() {
-				promise = newPromise()
 				maxLimit = 60 - len(promise.Name+"-resource-configure-")
 			})
 
@@ -196,6 +201,29 @@ var _ = Describe("PromiseWebhook", func() {
 				Expect(err).NotTo(HaveOccurred())
 			})
 		})
+
+		DescribeTable("validates the provided labels", func(key, val, error string) {
+			pipeline := v1alpha1.Pipeline{
+				ObjectMeta: metav1.ObjectMeta{
+					Name: "pipeline-name",
+					Labels: map[string]string{
+						key: val,
+					},
+				},
+			}
+			setPipeline(promise, pipeline)
+			warnings, err := promise.ValidateCreate()
+			Expect(warnings).To(BeEmpty())
+			if error != "" {
+				Expect(err).To(MatchError(ContainSubstring(error)))
+			} else {
+				Expect(err).NotTo(HaveOccurred())
+			}
+		},
+			Entry("by not erroring for valid labels", "app.kubernetes.io/name", "test-label-123", ""),
+			Entry("by erroring for non-conforming label values", "labelKey", "a bad label", `invalid label value "a bad label"`),
+			Entry("by erroring for non-conforming label keys", "invalid key", "valid-value", `invalid label key "invalid key"`),
+		)
 	})
 
 	When("Required Promises", func() {
@@ -291,4 +319,13 @@ func randomString(length int) string {
 	b := make([]byte, length+2)
 	rand.Read(b)
 	return fmt.Sprintf("%x", b)[2 : length+2]
+}
+
+func setPipeline(promise *v1alpha1.Promise, pipeline v1alpha1.Pipeline) {
+	objMap, err := runtime.DefaultUnstructuredConverter.ToUnstructured(&pipeline)
+	Expect(err).NotTo(HaveOccurred())
+	unstructuredPipeline := &unstructured.Unstructured{Object: objMap}
+	unstructuredPipeline.SetAPIVersion("platform.kratix.io/v1alpha1")
+	unstructuredPipeline.SetKind("Pipeline")
+	promise.Spec.Workflows.Resource.Configure = []unstructured.Unstructured{*unstructuredPipeline}
 }
