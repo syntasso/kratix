@@ -28,7 +28,7 @@ COPY --chown=nonroot:nonroot --from=busybox /bin/cat /bin/cat
 COPY --chown=nonroot:nonroot --from=busybox /bin/date /bin/date
 COPY --chown=nonroot:nonroot --from=busybox /bin/head /bin/head
 COPY --chown=nonroot:nonroot --from=mikefarah/yq:4 /usr/bin/yq /bin/yq
-COPY --chown=nonroot:nonroot --from=bitnami/kubectl:1.29.4 /opt/bitnami/kubectl/bin/kubectl /bin/kubectl
+COPY --chown=nonroot:nonroot --from=bitnami/kubectl:1.31.1 /opt/bitnami/kubectl/bin/kubectl /bin/kubectl
 
 COPY --chown=nonroot:nonroot --from=builder /workspace/work-creator/main /bin/work-creator
 COPY --chown=nonroot:nonroot --from=builder /workspace/work-creator/scripts/update-status /bin/update-status
