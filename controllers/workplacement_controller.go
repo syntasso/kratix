@@ -194,10 +194,9 @@ func (r *WorkPlacementReconciler) writeWorkloadsToStateStore(writer writers.Stat
 	var err error
 	var workloadsToDelete []string
 	var dir = getDir(workPlacement)
-	//decompress before creating workloads to create
-
 	var workloadsToCreate []v1alpha1.Workload
-	//loop through workloads and decompress them
+
+	//loop through workloads and decompress them so the works written to the State Store are decompressed
 	for _, workload := range workPlacement.Spec.Workloads {
 		decompressedContent, err := compression.DecompressContent([]byte(workload.Content))
 		if err != nil {

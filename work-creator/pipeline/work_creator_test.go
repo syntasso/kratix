@@ -2,15 +2,14 @@ package pipeline_test
 
 import (
 	"context"
-	"fmt"
 	"os"
 	"path/filepath"
 
 	. "github.com/onsi/ginkgo/v2"
 	. "github.com/onsi/gomega"
 	"github.com/syntasso/kratix/api/v1alpha1"
-	"github.com/syntasso/kratix/work-creator/pipeline"
 	"github.com/syntasso/kratix/lib/compression"
+	"github.com/syntasso/kratix/work-creator/pipeline"
 	v1 "k8s.io/api/core/v1"
 	metav1 "k8s.io/apimachinery/pkg/apis/meta/v1"
 	"k8s.io/apimachinery/pkg/labels"

@@ -172,7 +172,6 @@ func (w *WorkCreator) Execute(rootDirectory, promiseName, namespace, resourceNam
 	}
 
 	if currentWork == nil {
-		// compress before here?
 		err := w.K8sClient.Create(context.Background(), work)
 		if err != nil {
 			return err
