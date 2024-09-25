@@ -37,28 +37,6 @@ type Scheduler struct {
 	Log    logr.Logger
 }
 
-// Reconciles all Works by scheduling each Work's WorkloadGroups to appropriate
-// Destinations.
-// Only reconciles Works that are from a Promise Dependency.
-// TODO: Validate that this can be deleted
-func (s *Scheduler) ReconcileAllDependencyWorks() error {
-	works := v1alpha1.WorkList{}
-	lo := &client.ListOptions{}
-	if err := s.Client.List(context.Background(), &works, lo); err != nil {
-		return err
-	}
-
-	for _, work := range works.Items {
-		if work.IsDependency() {
-			if _, err := s.ReconcileWork(&work); err != nil {
-				s.Log.Error(err, "Failed reconciling Work: ")
-			}
-		}
-	}
-
-	return nil
-}
-
 // Reconciles all WorkloadGroups in a Work by scheduling them to Destinations via
 // Workplacements.
 func (s *Scheduler) ReconcileWork(work *v1alpha1.Work) ([]string, error) {
