@@ -2,6 +2,8 @@ module github.com/syntasso/kratix
 
 go 1.22.5
 
+replace github.com/syntasso/kratix/lib/compression => ./lib/compression
+
 require (
 	github.com/go-git/go-git/v5 v5.11.0
 	github.com/go-logr/logr v1.4.1
@@ -102,5 +104,3 @@ require (
 	sigs.k8s.io/json v0.0.0-20221116044647-bc3834ca7abd // indirect
 	sigs.k8s.io/structured-merge-diff/v4 v4.4.1 // indirect
 )
-
-replace github.com/syntasso/kratix/lib/compression => ./lib/compression
