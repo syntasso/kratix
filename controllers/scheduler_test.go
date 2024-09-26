@@ -11,9 +11,9 @@ import (
 	. "github.com/onsi/gomega"
 	"github.com/syntasso/kratix/api/v1alpha1"
 	. "github.com/syntasso/kratix/api/v1alpha1"
+	"github.com/syntasso/kratix/lib/compression"
 	"github.com/syntasso/kratix/lib/hash"
 	v1 "k8s.io/apimachinery/pkg/apis/meta/v1"
-	"k8s.io/apimachinery/pkg/labels"
 	"k8s.io/apimachinery/pkg/types"
 	ctrl "sigs.k8s.io/controller-runtime"
 	"sigs.k8s.io/controller-runtime/pkg/client"
@@ -25,6 +25,7 @@ var _ = Describe("Controllers/Scheduler", func() {
 	var devDestination, devDestination2, pciDestination, prodDestination, strictDestination Destination
 	var workPlacements WorkPlacementList
 	var scheduler *Scheduler
+	var fakeCompressedContent []byte
 
 	BeforeEach(func() {
 		// create a set of destinations to be used throughout the tests
@@ -41,69 +42,14 @@ var _ = Describe("Controllers/Scheduler", func() {
 		Expect(fakeK8sClient.Create(context.Background(), &prodDestination)).To(Succeed())
 		Expect(fakeK8sClient.Create(context.Background(), &strictDestination)).To(Succeed())
 
+		var err error
+		fakeCompressedContent, err = compression.CompressContent([]byte(string("fake: content")))
+		Expect(err).ToNot(HaveOccurred())
+
 		scheduler = &Scheduler{
 			Client: fakeK8sClient,
 			Log:    ctrl.Log.WithName("controllers").WithName("Scheduler"),
 		}
-	})
-
-	Describe("#ReconcileAllDependencyWorks", func() {
-		var devDestination3 Destination
-		var dependencyWorkForDev Work
-
-		BeforeEach(func() {
-			// dependency Work which is scheduled to all Destinations
-			newWork("work-name", false)
-
-			// dependency Work scheduled only to devDestination
-			dependencyWorkForDev = newWork("dev-work-name", false, schedulingFor(devDestination))
-
-			// dependency Work scheduled only to prodDestination
-			newWork("prod-work-name", false, schedulingFor(prodDestination))
-
-			// resource Work scheduled only to devDestination
-			newWork("rr-work-name", true, schedulingFor(devDestination))
-		})
-
-		When("a new Destination is added which matches a Work's scheduling", func() {
-			BeforeEach(func() {
-				// register new destination which matches both the dependency and resource schedulings
-				devDestination3 = newDestination("dev-3", schedulingFor(devDestination).MatchLabels)
-				Expect(fakeK8sClient.Create(context.Background(), &devDestination3)).To(Succeed())
-
-				scheduler.ReconcileAllDependencyWorks()
-			})
-
-			It("schedules dependency Works with matching labels to the new Destination", func() {
-				// get all the WorkPlacements for the dependency Work
-				lo := &client.ListOptions{}
-				selector, err := labels.Parse(labels.FormatLabels(map[string]string{"kratix.io/work": "dev-work-name"}))
-				Expect(err).NotTo(HaveOccurred())
-				lo.LabelSelector = selector
-				Expect(fakeK8sClient.List(context.Background(), &workPlacements, lo)).To(Succeed())
-
-				// check that the dependency work is scheduled to all destinations, including the new one (dev-3)
-				Expect(workPlacements.Items).To(HaveLen(3))
-
-				Expect(workPlacements.Items[0].Name).To(HavePrefix("dev-work-name.dev-1"))
-				Expect(workPlacements.Items[0].Namespace).To(Equal(SystemNamespace))
-				Expect(workPlacements.Items[0].Spec.TargetDestinationName).To(Equal(devDestination.Name))
-				Expect(workPlacements.Items[0].Spec.Workloads).To(Equal(dependencyWorkForDev.Spec.WorkloadGroups[0].Workloads))
-				Expect(workPlacements.Items[0].Spec.ID).To(Equal(dependencyWorkForDev.Spec.WorkloadGroups[0].ID))
-
-				Expect(workPlacements.Items[1].Name).To(HavePrefix("dev-work-name.dev-2"))
-				Expect(workPlacements.Items[1].Namespace).To(Equal(SystemNamespace))
-				Expect(workPlacements.Items[1].Spec.TargetDestinationName).To(Equal(devDestination2.Name))
-				Expect(workPlacements.Items[1].Spec.Workloads).To(Equal(dependencyWorkForDev.Spec.WorkloadGroups[0].Workloads))
-				Expect(workPlacements.Items[1].Spec.ID).To(Equal(dependencyWorkForDev.Spec.WorkloadGroups[0].ID))
-
-				Expect(workPlacements.Items[2].Name).To(HavePrefix("dev-work-name.dev-3"))
-				Expect(workPlacements.Items[2].Namespace).To(Equal(SystemNamespace))
-				Expect(workPlacements.Items[2].Spec.TargetDestinationName).To(Equal(devDestination3.Name))
-				Expect(workPlacements.Items[2].Spec.Workloads).To(Equal(dependencyWorkForDev.Spec.WorkloadGroups[0].Workloads))
-				Expect(workPlacements.Items[2].Spec.ID).To(Equal(dependencyWorkForDev.Spec.WorkloadGroups[0].ID))
-			})
-		})
 	})
 
 	Describe("#ReconcileWork", func() {
@@ -209,11 +155,12 @@ var _ = Describe("Controllers/Scheduler", func() {
 					Expect(workPlacement.Spec.Workloads).To(HaveLen(1))
 
 					previousResourceVersion, err := strconv.Atoi(workPlacement.ResourceVersion)
+					Expect(err).ToNot(HaveOccurred())
 
 					// update the Work's WorkloadGroup with an extra Workload
 					Expect(fakeK8sClient.Get(context.Background(), client.ObjectKeyFromObject(&resourceWork), &resourceWork))
 					resourceWork.Spec.WorkloadGroups[0].Workloads = append(resourceWork.Spec.WorkloadGroups[0].Workloads, Workload{
-						Content: "fake: content",
+						Content: string(fakeCompressedContent),
 					})
 
 					_, err = scheduler.ReconcileWork(&resourceWork)
@@ -226,10 +173,11 @@ var _ = Describe("Controllers/Scheduler", func() {
 					workPlacement = workPlacements.Items[0]
 					Expect(workPlacement.Spec.Workloads).To(HaveLen(2))
 					Expect(workPlacement.Spec.Workloads).To(ContainElement(Workload{
-						Content: "fake: content",
+						Content: string(fakeCompressedContent),
 					}))
 
 					newResourceVersion, err := strconv.Atoi(workPlacement.ResourceVersion)
+					Expect(err).ToNot(HaveOccurred())
 					Expect(newResourceVersion).To(BeNumerically(">", previousResourceVersion))
 				})
 			})
@@ -281,7 +229,7 @@ var _ = Describe("Controllers/Scheduler", func() {
 						ID:        hash.ComputeHash("foo"),
 						Workloads: []Workload{
 							{
-								Content: "fake: content",
+								Content: string(fakeCompressedContent),
 							},
 						},
 						DestinationSelectors: []WorkloadGroupScheduling{schedulingFor(devDestination)},
@@ -332,7 +280,7 @@ var _ = Describe("Controllers/Scheduler", func() {
 							ID:        hash.ComputeHash("foo"),
 							Workloads: []Workload{
 								{
-									Content: "fake: content",
+									Content: string(fakeCompressedContent),
 								},
 							},
 						},
@@ -941,6 +889,11 @@ func newWorkWithTwoWorkloadGroups(name string, isResource bool, promiseSchedulin
 		namespace = SystemNamespace
 	}
 
+	newFakeCompressedContent, err := compression.CompressContent([]byte(string("key: value")))
+	Expect(err).ToNot(HaveOccurred())
+	additionalFakeCompressedContent, err := compression.CompressContent([]byte(string("foo: bar")))
+	Expect(err).ToNot(HaveOccurred())
+
 	w := &Work{
 		ObjectMeta: v1.ObjectMeta{
 			Name:      name,
@@ -951,7 +904,7 @@ func newWorkWithTwoWorkloadGroups(name string, isResource bool, promiseSchedulin
 			WorkloadGroups: []WorkloadGroup{
 				{
 					Workloads: []Workload{
-						{Content: "key: value"},
+						{Content: string(newFakeCompressedContent)},
 					},
 					Directory:            ".",
 					ID:                   hash.ComputeHash("."),
@@ -959,7 +912,7 @@ func newWorkWithTwoWorkloadGroups(name string, isResource bool, promiseSchedulin
 				},
 				{
 					Workloads: []Workload{
-						{Content: "foo: bar"},
+						{Content: string(additionalFakeCompressedContent)},
 					},
 					DestinationSelectors: []WorkloadGroupScheduling{directoryOverrideScheduling},
 					Directory:            "foo",

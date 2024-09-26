@@ -21,6 +21,8 @@ import (
 
 	"github.com/syntasso/kratix/lib/hash"
 	metav1 "k8s.io/apimachinery/pkg/apis/meta/v1"
+
+	"github.com/syntasso/kratix/lib/compression"
 )
 
 const (
@@ -83,13 +85,18 @@ func NewPromiseDependenciesWork(promise *Promise, name string) (*Work, error) {
 		return nil, err
 	}
 
+	workContent, err := compression.CompressContent(yamlBytes)
+	if err != nil {
+		return nil, err
+	}
+
 	work.Spec.WorkloadGroups = []WorkloadGroup{
 		{
 			ID:        hash.ComputeHash(DefaultWorkloadGroupDirectory),
 			Directory: DefaultWorkloadGroupDirectory,
 			Workloads: []Workload{
 				{
-					Content:  string(yamlBytes),
+					Content:  string(workContent),
 					Filepath: fmt.Sprintf("static/%s-dependencies.yaml", promise.GetName()),
 				},
 			},
@@ -120,6 +127,9 @@ func (w *Work) IsDependency() bool {
 // be scheduled to a Destination
 type WorkloadGroup struct {
 	// +optional
+	// List of Workloads scheduled to target Destination;
+	// Each Workload details name of the filepath on Destination,
+	// and the compressed content of the workload.
 	Workloads            []Workload                `json:"workloads,omitempty"`
 	Directory            string                    `json:"directory,omitempty"`
 	ID                   string                    `json:"id,omitempty"`
@@ -135,7 +145,8 @@ type WorkloadGroupScheduling struct {
 type Workload struct {
 	// +optional
 	Filepath string `json:"filepath,omitempty"`
-	Content  string `json:"content,omitempty"`
+	// Content of the workload, which is base64 encoded and compressed with gzip.
+	Content string `json:"content,omitempty"`
 }
 
 //+kubebuilder:object:root=true

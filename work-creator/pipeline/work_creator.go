@@ -4,10 +4,11 @@ import (
 	"context"
 	"crypto/md5"
 	"fmt"
-	"github.com/syntasso/kratix/lib/objectutil"
 	"io"
 	"os"
 	"path/filepath"
+
+	"github.com/syntasso/kratix/lib/objectutil"
 
 	goerr "errors"
 
@@ -16,6 +17,7 @@ import (
 	ctrl "sigs.k8s.io/controller-runtime"
 
 	"github.com/syntasso/kratix/api/v1alpha1"
+	"github.com/syntasso/kratix/lib/compression"
 	"github.com/syntasso/kratix/lib/hash"
 	"github.com/syntasso/kratix/lib/resourceutil"
 	"k8s.io/apimachinery/pkg/util/yaml"
@@ -193,6 +195,7 @@ func (w *WorkCreator) Execute(rootDirectory, promiseName, namespace, resourceNam
 
 // /kratix/output/     /kratix/output/   "bar"
 func (w *WorkCreator) getWorkloadsFromDir(prefixToTrimFromWorkloadFilepath, rootDir string, directoriesToIgnoreAtTheRootLevel []string) ([]v1alpha1.Workload, error) {
+	// decompress here
 	filesAndDirs, err := os.ReadDir(rootDir)
 	if err != nil {
 		return nil, err
@@ -229,8 +232,13 @@ func (w *WorkCreator) getWorkloadsFromDir(prefixToTrimFromWorkloadFilepath, root
 				return nil, err
 			}
 
+			content, err := compression.CompressContent(byteValue)
+			if err != nil {
+				return nil, err
+			}
+
 			workload := v1alpha1.Workload{
-				Content:  string(byteValue),
+				Content:  string(content),
 				Filepath: path,
 			}
 

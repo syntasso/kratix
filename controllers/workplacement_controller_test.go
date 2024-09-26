@@ -25,25 +25,26 @@ import (
 	"github.com/go-logr/logr"
 	. "github.com/onsi/ginkgo/v2"
 	. "github.com/onsi/gomega"
+	"github.com/syntasso/kratix/api/v1alpha1"
 	"github.com/syntasso/kratix/controllers"
+	"github.com/syntasso/kratix/lib/compression"
 	"github.com/syntasso/kratix/lib/hash"
 	"github.com/syntasso/kratix/lib/writers"
 	"github.com/syntasso/kratix/lib/writers/writersfakes"
 	corev1 "k8s.io/api/core/v1"
 	v1 "k8s.io/apimachinery/pkg/apis/meta/v1"
 	ctrl "sigs.k8s.io/controller-runtime"
-
-	"github.com/syntasso/kratix/api/v1alpha1"
 	//+kubebuilder:scaffold:imports
 )
 
 var _ = Describe("WorkplacementReconciler", func() {
 	var (
-		ctx              context.Context
-		workloads        []v1alpha1.Workload
-		destination      v1alpha1.Destination
-		gitStateStore    v1alpha1.GitStateStore
-		bucketStateStore v1alpha1.BucketStateStore
+		ctx                   context.Context
+		workloads             []v1alpha1.Workload
+		decompressedWorkloads []v1alpha1.Workload
+		destination           v1alpha1.Destination
+		gitStateStore         v1alpha1.GitStateStore
+		bucketStateStore      v1alpha1.BucketStateStore
 
 		workplacementName = "test-workplacement"
 		workPlacement     v1alpha1.WorkPlacement
@@ -64,12 +65,23 @@ var _ = Describe("WorkplacementReconciler", func() {
 			VersionCache: make(map[string]string),
 		}
 
+		compressedContent, err := compression.CompressContent([]byte("{someApi: foo, someValue: bar}"))
+		Expect(err).ToNot(HaveOccurred())
+
 		workloads = []v1alpha1.Workload{
 			{
 				Filepath: "fruit.yaml",
-				Content:  "{someApi: foo, someValue: bar}",
+				Content:  string(compressedContent),
 			},
 		}
+
+		decompressedWorkloads = []v1alpha1.Workload{
+			{
+				Filepath: "fruit.yaml",
+				Content:  string("{someApi: foo, someValue: bar}"),
+			},
+		}
+
 		workPlacement = v1alpha1.WorkPlacement{
 			TypeMeta: v1.TypeMeta{
 				Kind:       "WorkPlacement",
@@ -87,6 +99,7 @@ var _ = Describe("WorkplacementReconciler", func() {
 				ResourceName:          "test-resource",
 			},
 		}
+
 		Expect(fakeK8sClient.Create(ctx, &workPlacement)).To(Succeed())
 		fakeWriter = &writersfakes.FakeStateStoreWriter{}
 
@@ -171,7 +184,7 @@ var _ = Describe("WorkplacementReconciler", func() {
 				Expect(dir).To(Equal(""))
 
 				By("writing workloads files and kratix state file")
-				Expect(workloadsToCreate).To(ConsistOf(append(workloads, v1alpha1.Workload{
+				Expect(workloadsToCreate).To(ConsistOf(append(decompressedWorkloads, v1alpha1.Workload{
 					Filepath: fmt.Sprintf(".kratix/%s-%s.yaml", workPlacement.Namespace, workPlacement.Name),
 					Content: `files:
 - fruit.yaml
@@ -250,7 +263,7 @@ files:
 					Expect(fakeWriter.UpdateFilesCallCount()).To(Equal(2))
 					dir, workPlacementName, workloadsToCreate, workloadsToDelete := fakeWriter.UpdateFilesArgsForCall(0)
 					Expect(workPlacementName).To(Equal(workPlacement.Name))
-					Expect(workloadsToCreate).To(ConsistOf(append(workloads, v1alpha1.Workload{
+					Expect(workloadsToCreate).To(ConsistOf(append(decompressedWorkloads, v1alpha1.Workload{
 						Filepath: fmt.Sprintf(".kratix/%s-%s.yaml", workPlacement.Namespace, workPlacement.Name),
 						Content: `files:
 - fruit.yaml
@@ -285,7 +298,7 @@ files:
 				dir, workPlacementName, workloadsToCreate, workloadsToDelete := fakeWriter.UpdateFilesArgsForCall(0)
 				Expect(dir).To(Equal("resources/default/test-promise/test-resource/5058f"))
 				Expect(workPlacementName).To(Equal(workPlacement.Name))
-				Expect(workloadsToCreate).To(Equal(workloads))
+				Expect(workloadsToCreate).To(Equal(decompressedWorkloads))
 				Expect(workloadsToDelete).To(BeEmpty())
 			})
 
@@ -314,7 +327,7 @@ files:
 					dir, workPlacementName, workloadsToCreate, workloadsToDelete := fakeWriter.UpdateFilesArgsForCall(0)
 					Expect(dir).To(Equal("dependencies/test-promise/5058f"))
 					Expect(workPlacementName).To(Equal(workPlacement.Name))
-					Expect(workloadsToCreate).To(Equal(workloads))
+					Expect(workloadsToCreate).To(Equal(decompressedWorkloads))
 					Expect(workloadsToDelete).To(BeEmpty())
 				})
 			})

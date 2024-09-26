@@ -31,6 +31,7 @@ import (
 	"sigs.k8s.io/controller-runtime/pkg/controller/controllerutil"
 
 	"github.com/syntasso/kratix/api/v1alpha1"
+	"github.com/syntasso/kratix/lib/compression"
 	"github.com/syntasso/kratix/lib/writers"
 )
 
@@ -193,7 +194,18 @@ func (r *WorkPlacementReconciler) writeWorkloadsToStateStore(writer writers.Stat
 	var err error
 	var workloadsToDelete []string
 	var dir = getDir(workPlacement)
-	var workloadsToCreate = workPlacement.Spec.Workloads
+	var workloadsToCreate []v1alpha1.Workload
+
+	//loop through workloads and decompress them so the works written to the State Store are decompressed
+	for _, workload := range workPlacement.Spec.Workloads {
+		decompressedContent, err := compression.DecompressContent([]byte(workload.Content))
+		if err != nil {
+			return "", fmt.Errorf("unable to decompress file content: %s", err)
+		}
+
+		workload.Content = string(decompressedContent)
+		workloadsToCreate = append(workloadsToCreate, workload)
+	}
 
 	if destination.GetFilepathMode() == v1alpha1.FilepathModeNone {
 		var kratixFile []byte
@@ -219,7 +231,7 @@ func (r *WorkPlacementReconciler) writeWorkloadsToStateStore(writer writers.Stat
 		}
 
 		dir = ""
-		workloadsToCreate = append(workPlacement.Spec.Workloads, stateFileWorkload)
+		workloadsToCreate = append(workloadsToCreate, stateFileWorkload)
 		workloadsToDelete = cleanupWorkloads(oldStateFile.Files, workPlacement.Spec.Workloads)
 	}
 

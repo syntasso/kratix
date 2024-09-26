@@ -24,9 +24,12 @@ import (
 
 // WorkPlacementSpec defines the desired state of WorkPlacement
 type WorkPlacementSpec struct {
-	TargetDestinationName string     `json:"targetDestinationName,omitempty"`
-	Workloads             []Workload `json:"workloads,omitempty"`
-	PromiseName           string     `json:"promiseName,omitempty"`
+	TargetDestinationName string `json:"targetDestinationName,omitempty"`
+	// List of Workloads scheduled to target Destination;
+	// Each Workload details name of the filepath on Destination,
+	// and the compressed content of the workload.
+	Workloads   []Workload `json:"workloads,omitempty"`
+	PromiseName string     `json:"promiseName,omitempty"`
 	// +optional
 	ResourceName string `json:"resourceName,omitempty"`
 	ID           string `json:"id,omitempty"`

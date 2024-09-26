@@ -8,6 +8,7 @@ import (
 	. "github.com/onsi/ginkgo/v2"
 	. "github.com/onsi/gomega"
 	"github.com/syntasso/kratix/api/v1alpha1"
+	"github.com/syntasso/kratix/lib/compression"
 	"github.com/syntasso/kratix/work-creator/pipeline"
 	v1 "k8s.io/api/core/v1"
 	metav1 "k8s.io/apimachinery/pkg/apis/meta/v1"
@@ -66,34 +67,38 @@ var _ = Describe("WorkCreator", func() {
 				Expect(workResource.Name).To(MatchRegexp(`^promise-name-resource-name-\b\w{5}\b$`))
 			})
 
+			It("has the expected workloads", func() {
+				mockPipelineDirectory = filepath.Join(getRootDirectory(), "complete")
+				err := workCreator.Execute(mockPipelineDirectory, "promise-name", "default", "resource-name", "resource", pipelineName)
+				Expect(err).ToNot(HaveOccurred())
+
+				workResource = getWork(expectedNamespace, promiseName, resourceName, pipelineName)
+				Expect(workResource.Spec.WorkloadGroups).To(HaveLen(2))
+
+				var paths []string
+				for _, workload := range workResource.Spec.WorkloadGroups[0].Workloads {
+					paths = append(paths, workload.Filepath)
+				}
+				Expect(paths).To(ConsistOf("baz/baz-namespace-resource-request.yaml"))
+				for _, workload := range workResource.Spec.WorkloadGroups[0].Workloads {
+					fileContent, err := os.ReadFile(filepath.Join(mockPipelineDirectory, "input", workload.Filepath))
+					Expect(err).NotTo(HaveOccurred())
+					included, err := compression.InCompressedContents(workload.Content, fileContent)
+					Expect(err).NotTo(HaveOccurred())
+					Expect(included).To(BeTrue())
+				}
+			})
+
 			When("it runs for a second time", func() {
 				It("Should update the previously created work", func() {
-					mockPipelineDirectory = filepath.Join(getRootDirectory(), "complete")
-					err := workCreator.Execute(mockPipelineDirectory, "promise-name", "default", "resource-name", "resource", pipelineName)
-					Expect(err).ToNot(HaveOccurred())
-
-					workResource = getWork(expectedNamespace, promiseName, resourceName, pipelineName)
-					Expect(workResource.Spec.WorkloadGroups).To(HaveLen(2))
-
-					var paths []string
-					for _, workload := range workResource.Spec.WorkloadGroups[0].Workloads {
-						paths = append(paths, workload.Filepath)
-					}
-					Expect(paths).To(ConsistOf("baz/baz-namespace-resource-request.yaml"))
-					for _, workload := range workResource.Spec.WorkloadGroups[0].Workloads {
-						fileContent, err := os.ReadFile(filepath.Join(mockPipelineDirectory, "input", workload.Filepath))
-						Expect(err).NotTo(HaveOccurred())
-						Expect(workload.Content).To(Equal(string(fileContent)))
-					}
-
 					mockPipelineDirectory = filepath.Join(getRootDirectory(), "complete-updated")
-					err = workCreator.Execute(mockPipelineDirectory, "promise-name", "default", "resource-name", "resource", pipelineName)
+					err := workCreator.Execute(mockPipelineDirectory, "promise-name", "default", "resource-name", "resource", pipelineName)
 					Expect(err).ToNot(HaveOccurred())
 
 					newWorkResource := getWork(expectedNamespace, promiseName, resourceName, pipelineName)
 					Expect(newWorkResource.Name).To(Equal(workResource.Name))
 					Expect(newWorkResource.Spec.WorkloadGroups).To(HaveLen(2))
-					paths = []string{}
+					paths := []string{}
 					for _, workload := range workResource.Spec.WorkloadGroups[0].Workloads {
 						paths = append(paths, workload.Filepath)
 					}
@@ -101,7 +106,9 @@ var _ = Describe("WorkCreator", func() {
 					for _, workload := range newWorkResource.Spec.WorkloadGroups[0].Workloads {
 						fileContent, err := os.ReadFile(filepath.Join(mockPipelineDirectory, "input", workload.Filepath))
 						Expect(err).NotTo(HaveOccurred())
-						Expect(workload.Content).To(Equal(string(fileContent)))
+						included, err := compression.InCompressedContents(workload.Content, fileContent)
+						Expect(err).NotTo(HaveOccurred())
+						Expect(included).To(BeTrue())
 					}
 				})
 			})
@@ -118,7 +125,9 @@ var _ = Describe("WorkCreator", func() {
 					for _, workload := range workResource.Spec.WorkloadGroups[0].Workloads {
 						fileContent, err := os.ReadFile(filepath.Join(mockPipelineDirectory, "input", workload.Filepath))
 						Expect(err).NotTo(HaveOccurred())
-						Expect(workload.Content).To(Equal(string(fileContent)))
+						included, err := compression.InCompressedContents(workload.Content, fileContent)
+						Expect(err).NotTo(HaveOccurred())
+						Expect(included).To(BeTrue())
 					}
 
 					Expect(workResource.Spec.WorkloadGroups[0].DestinationSelectors).To(ConsistOf(
@@ -138,7 +147,9 @@ var _ = Describe("WorkCreator", func() {
 					for _, workload := range workResource.Spec.WorkloadGroups[1].Workloads {
 						fileContent, err := os.ReadFile(filepath.Join(mockPipelineDirectory, "input", workload.Filepath))
 						Expect(err).NotTo(HaveOccurred())
-						Expect(workload.Content).To(Equal(string(fileContent)))
+						included, err := compression.InCompressedContents(workload.Content, fileContent)
+						Expect(err).NotTo(HaveOccurred())
+						Expect(included).To(BeTrue())
 					}
 					Expect(workResource.Spec.WorkloadGroups[1].DestinationSelectors).To(ConsistOf(
 						v1alpha1.WorkloadGroupScheduling{
@@ -248,7 +259,9 @@ var _ = Describe("WorkCreator", func() {
 				for _, workload := range workResource.Spec.WorkloadGroups[0].Workloads {
 					fileContent, err := os.ReadFile(filepath.Join(mockPipelineDirectory, "input", workload.Filepath))
 					Expect(err).NotTo(HaveOccurred())
-					Expect(workload.Content).To(Equal(string(fileContent)))
+					included, err := compression.InCompressedContents(workload.Content, fileContent)
+					Expect(err).NotTo(HaveOccurred())
+					Expect(included).To(BeTrue())
 				}
 
 				Expect(workResource.Spec.WorkloadGroups[0].DestinationSelectors).To(ConsistOf(

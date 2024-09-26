@@ -1,6 +1,7 @@
 package controllers_test
 
 import (
+	"bytes"
 	"context"
 	"encoding/json"
 	"os"
@@ -26,6 +27,7 @@ import (
 	"github.com/syntasso/kratix/api/v1alpha1"
 	"github.com/syntasso/kratix/controllers"
 	"github.com/syntasso/kratix/controllers/controllersfakes"
+	"github.com/syntasso/kratix/lib/compression"
 	"github.com/syntasso/kratix/lib/workflow"
 )
 
@@ -178,8 +180,8 @@ var _ = Describe("PromiseController", func() {
 
 					By("creating a Work resource for the dependencies", func() {
 						work := getWork("kratix-platform-system", promise.GetName(), "", "")
-						Expect(work.Spec.WorkloadGroups[0].Workloads[0].Content).To(ContainSubstring("kind: Deployment"))
-						Expect(work.Spec.WorkloadGroups[0].Workloads[0].Content).To(ContainSubstring("kind: ClusterRoleBinding"))
+						Expect(inCompressedContents(work.Spec.WorkloadGroups[0].Workloads[0].Content, []byte("kind: Deployment"))).To(BeTrue())
+						Expect(inCompressedContents(work.Spec.WorkloadGroups[0].Workloads[0].Content, []byte("kind: ClusterRoleBinding"))).To(BeTrue())
 
 					})
 
@@ -504,7 +506,7 @@ var _ = Describe("PromiseController", func() {
 					Expect(fakeK8sClient.List(ctx, works)).To(Succeed())
 					Expect(works.Items).To(HaveLen(1))
 					Expect(works.Items[0].Spec.WorkloadGroups[0].Workloads).To(HaveLen(1))
-					Expect(works.Items[0].Spec.WorkloadGroups[0].Workloads[0].Content).To(ContainSubstring("redisoperator"))
+					Expect(inCompressedContents(works.Items[0].Spec.WorkloadGroups[0].Workloads[0].Content, []byte("redisoperator"))).To(BeTrue())
 					Expect(works.Items[0].Spec.WorkloadGroups[0].DestinationSelectors).To(HaveLen(1))
 					Expect(works.Items[0].Spec.WorkloadGroups[0].DestinationSelectors[0]).To(Equal(
 						v1alpha1.WorkloadGroupScheduling{
@@ -771,7 +773,7 @@ var _ = Describe("PromiseController", func() {
 						Expect(fakeK8sClient.List(ctx, works)).To(Succeed())
 						Expect(works.Items).To(HaveLen(1))
 						Expect(works.Items[0].Spec.WorkloadGroups[0].Workloads).To(HaveLen(1))
-						Expect(works.Items[0].Spec.WorkloadGroups[0].Workloads[0].Content).To(ContainSubstring("postgresoperator"))
+						Expect(inCompressedContents(works.Items[0].Spec.WorkloadGroups[0].Workloads[0].Content, []byte("postgresoperator"))).To(BeTrue())
 						Expect(works.Items[0].Spec.WorkloadGroups[0].DestinationSelectors).To(HaveLen(1))
 						Expect(works.Items[0].Spec.WorkloadGroups[0].DestinationSelectors[0]).To(Equal(
 							v1alpha1.WorkloadGroupScheduling{
@@ -934,4 +936,10 @@ func createPromise(promisePath string) *v1alpha1.Promise {
 
 	Expect(fakeK8sClient.Get(ctx, promiseName, promise)).To(Succeed())
 	return promise
+}
+
+func inCompressedContents(compressedContent string, content []byte) bool {
+	decompressedContent, err := compression.DecompressContent([]byte(compressedContent))
+	Expect(err).ToNot(HaveOccurred())
+	return bytes.Contains(decompressedContent, content)
 }
