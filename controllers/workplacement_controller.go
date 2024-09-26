@@ -31,8 +31,8 @@ import (
 	"sigs.k8s.io/controller-runtime/pkg/controller/controllerutil"
 
 	"github.com/syntasso/kratix/api/v1alpha1"
-	"github.com/syntasso/kratix/lib/writers"
 	"github.com/syntasso/kratix/lib/compression"
+	"github.com/syntasso/kratix/lib/writers"
 )
 
 const (

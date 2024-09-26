@@ -27,8 +27,8 @@ import (
 	"github.com/syntasso/kratix/api/v1alpha1"
 	"github.com/syntasso/kratix/controllers"
 	"github.com/syntasso/kratix/controllers/controllersfakes"
-	"github.com/syntasso/kratix/lib/workflow"
 	"github.com/syntasso/kratix/lib/compression"
+	"github.com/syntasso/kratix/lib/workflow"
 )
 
 var (
