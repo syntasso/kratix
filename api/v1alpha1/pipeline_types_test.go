@@ -16,6 +16,7 @@ import (
 	metav1 "k8s.io/apimachinery/pkg/apis/meta/v1"
 	"k8s.io/apimachinery/pkg/apis/meta/v1/unstructured"
 	"k8s.io/apimachinery/pkg/runtime"
+	"k8s.io/utils/pointer"
 	"k8s.io/utils/ptr"
 )
 
@@ -58,7 +59,7 @@ var _ = Describe("Pipeline", func() {
 						VolumeMounts:    []corev1.VolumeMount{{Name: "customVolume", MountPath: "/mount/path"}},
 						ImagePullPolicy: "Always",
 						SecurityContext: &corev1.SecurityContext{
-							Privileged: ptr.Bool(true),
+							Privileged: pointer.Bool(true),
 						},
 					},
 					{Name: "container-1", Image: "container-1-image"},
@@ -69,7 +70,7 @@ var _ = Describe("Pipeline", func() {
 		}
 
 		globalDefaultSecurityContext = &corev1.SecurityContext{
-			Privileged: ptr.Bool(false),
+			Privileged: pointer.Bool(false),
 		}
 		v1alpha1.DefaultUserProvidedContainersSecurityContext = globalDefaultSecurityContext
 		promiseCrd = &apiextensionsv1.CustomResourceDefinition{
