@@ -2,7 +2,7 @@ module github.com/syntasso/kratix
 
 go 1.22.5
 
-replace github.com/syntasso/kratix/lib/compression => ./lib/compression
+replace github.com/syntasso/kratix/lib/compression => /lib/compression
 
 require (
 	github.com/go-git/go-git/v5 v5.11.0
