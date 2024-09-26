@@ -127,6 +127,9 @@ func (w *Work) IsDependency() bool {
 // be scheduled to a Destination
 type WorkloadGroup struct {
 	// +optional
+	// List of Workloads scheduled to target Destination;
+	// Each Workload details name of the filepath on Destination,
+	// and the compressed content of the workload.
 	Workloads            []Workload                `json:"workloads,omitempty"`
 	Directory            string                    `json:"directory,omitempty"`
 	ID                   string                    `json:"id,omitempty"`
@@ -142,7 +145,8 @@ type WorkloadGroupScheduling struct {
 type Workload struct {
 	// +optional
 	Filepath string `json:"filepath,omitempty"`
-	Content  string `json:"content,omitempty"`
+	// Content of the workload, which is base64 encoded and compressed with gzip.
+	Content string `json:"content,omitempty"`
 }
 
 //+kubebuilder:object:root=true

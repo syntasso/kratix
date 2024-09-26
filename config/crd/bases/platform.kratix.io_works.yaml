@@ -69,11 +69,17 @@ spec:
                     id:
                       type: string
                     workloads:
+                      description: |-
+                        List of Workloads scheduled to target Destination;
+                        Each Workload details name of the filepath on Destination,
+                        and the compressed content of the workload.
                       items:
                         description: Workload represents the manifest workload to
                           be deployed on destination
                         properties:
                           content:
+                            description: Content of the workload, which is base64
+                              encoded and compressed with gzip.
                             type: string
                           filepath:
                             type: string
