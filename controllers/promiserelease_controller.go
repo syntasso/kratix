@@ -59,6 +59,7 @@ const promiseCleanupFinalizer = v1alpha1.KratixPrefix + "promise-cleanup"
 //+kubebuilder:rbac:groups=platform.kratix.io,resources=promisereleases,verbs=get;list;watch;create;update;patch;delete
 //+kubebuilder:rbac:groups=platform.kratix.io,resources=promisereleases/status,verbs=get;update;patch
 //+kubebuilder:rbac:groups=platform.kratix.io,resources=promisereleases/finalizers,verbs=update
+//+kubebuilder:rbac:groups="",resources=secrets,verbs=get;list;watch // for fetching auth headers
 //+kubebuilder:rbac:groups="",resources=events,verbs=create;patch
 
 func (r *PromiseReleaseReconciler) Reconcile(ctx context.Context, req ctrl.Request) (ctrl.Result, error) {
@@ -106,7 +107,16 @@ func (r *PromiseReleaseReconciler) Reconcile(ctx context.Context, req ctrl.Reque
 
 	var promise *v1alpha1.Promise
 
+	secretRefData, err := promiseRelease.FetchSecretFromReference()
+	if err != nil {
+		return ctrl.Result{}, fmt.Errorf("failed to fetch data from secretRef: %w", err)
+	}
+
 	authHeader := ""
+	if secretRefData != nil {
+		authHeader = string(secretRefData["authorizationHeader"])
+	}
+
 	switch sourceRefType := promiseRelease.Spec.SourceRef.Type; sourceRefType {
 	case v1alpha1.TypeHTTP:
 		promise, err = r.PromiseFetcher.FromURL(promiseRelease.Spec.SourceRef.URL, authHeader)

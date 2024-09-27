@@ -29,6 +29,7 @@ rules:
   - get
   - list
   - watch
+  - watch // for fetching auth headers
 - apiGroups:
   - ""
   resources:
