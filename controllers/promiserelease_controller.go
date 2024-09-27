@@ -106,9 +106,10 @@ func (r *PromiseReleaseReconciler) Reconcile(ctx context.Context, req ctrl.Reque
 
 	var promise *v1alpha1.Promise
 
+	authHeader := ""
 	switch sourceRefType := promiseRelease.Spec.SourceRef.Type; sourceRefType {
 	case v1alpha1.TypeHTTP:
-		promise, err = r.PromiseFetcher.FromURL(promiseRelease.Spec.SourceRef.URL)
+		promise, err = r.PromiseFetcher.FromURL(promiseRelease.Spec.SourceRef.URL, authHeader)
 		if err != nil {
 			r.updateStatusAndConditions(opts, promiseRelease, statusErrorInstalling, "Failed to fetch Promise from URL", "FailedToFetchPromise")
 			return ctrl.Result{}, fmt.Errorf("failed to fetch promise from url: %w", err)
