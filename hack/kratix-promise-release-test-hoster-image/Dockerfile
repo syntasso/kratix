@@ -1,4 +1,4 @@
-FROM --platform=${TARGETPLATFORM} golang:1.21 as builder
+FROM golang:1.21 AS builder
 ARG TARGETARCH
 ARG TARGETOS
 
@@ -12,7 +12,7 @@ RUN go mod download
 # Build work-creator binary
 RUN CGO_ENABLED=0 GOOS=${TARGETOS} GOARCH=${TARGETARCH} GO111MODULE=on go build -a main.go
 
-FROM --platform=${TARGETPLATFORM} alpine
+FROM alpine
 # Use rancher/kubectl to get ./kubeconfig
 WORKDIR /
 

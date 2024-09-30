@@ -111,17 +111,6 @@ func catAndReplaceFluxResources(tmpDir, file string) string {
 	return tmpFile
 }
 
-func catAndReplacePromiseRelease(tmpDir, file string, bashPromiseName string) string {
-	bytes, err := os.ReadFile(file)
-	Expect(err).NotTo(HaveOccurred())
-	output := strings.ReplaceAll(string(bytes), "REPLACEBASH", bashPromiseName)
-	output = strings.ReplaceAll(output, "REPLACEURL", "http://kratix-promise-release-test-hoster.kratix-platform-system:8080/promise/"+bashPromiseName)
-	tmpFile := filepath.Join(tmpDir, filepath.Base(file))
-	err = os.WriteFile(tmpFile, []byte(output), 0777)
-	Expect(err).NotTo(HaveOccurred())
-	return tmpFile
-}
-
 func initK8sClient() {
 	cfg := ctrl.GetConfigOrDie()
 
