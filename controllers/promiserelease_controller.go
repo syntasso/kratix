@@ -59,7 +59,6 @@ const promiseCleanupFinalizer = v1alpha1.KratixPrefix + "promise-cleanup"
 //+kubebuilder:rbac:groups=platform.kratix.io,resources=promisereleases,verbs=get;list;watch;create;update;patch;delete
 //+kubebuilder:rbac:groups=platform.kratix.io,resources=promisereleases/status,verbs=get;update;patch
 //+kubebuilder:rbac:groups=platform.kratix.io,resources=promisereleases/finalizers,verbs=update
-//+kubebuilder:rbac:groups="",resources=secrets,verbs=get;list;watch // for fetching auth headers
 //+kubebuilder:rbac:groups="",resources=events,verbs=create;patch
 
 func (r *PromiseReleaseReconciler) Reconcile(ctx context.Context, req ctrl.Request) (ctrl.Result, error) {
