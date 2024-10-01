@@ -4,5 +4,5 @@ package v1alpha1
 //
 //go:generate go run github.com/maxbrunsfeld/counterfeiter/v6 . PromiseFetcher
 type PromiseFetcher interface {
-	FromURL(string) (*Promise, error)
+	FromURL(string, string) (*Promise, error)
 }

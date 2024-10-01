@@ -17,7 +17,11 @@ limitations under the License.
 package v1alpha1
 
 import (
+	"context"
+
+	corev1 "k8s.io/api/core/v1"
 	metav1 "k8s.io/apimachinery/pkg/apis/meta/v1"
+	"sigs.k8s.io/controller-runtime/pkg/client"
 )
 
 const TypeHTTP = "http"
@@ -33,6 +37,10 @@ type SourceRef struct {
 	// +kubebuilder:validation:Enum:={http}
 	Type string `json:"type"`
 	URL  string `json:"url,omitempty"`
+	// Reference a secret with credentials to access the source.
+	// For more details on the secret format, see the documentation:
+	//   https://docs.kratix.io/main/reference/promises/releases#promise-release
+	SecretRef *corev1.SecretReference `json:"secretRef,omitempty"`
 }
 
 // PromiseReleaseStatus defines the observed state of PromiseRelease
@@ -67,4 +75,26 @@ type PromiseReleaseList struct {
 
 func init() {
 	SchemeBuilder.Register(&PromiseRelease{}, &PromiseReleaseList{})
+}
+
+func (pr *PromiseRelease) FetchSecretFromReference() (map[string][]byte, error) {
+	if pr.Spec.SourceRef.SecretRef == nil {
+		return nil, nil
+	}
+
+	fetchSecret := &corev1.Secret{}
+	ns := pr.Namespace
+	if pr.Spec.SourceRef.SecretRef.Namespace != "" {
+		ns = pr.Spec.SourceRef.SecretRef.Namespace
+	}
+	namespacedName := client.ObjectKey{
+		Namespace: ns,
+		Name:      pr.Spec.SourceRef.SecretRef.Name,
+	}
+
+	err := k8sClient.Get(context.TODO(), namespacedName, fetchSecret)
+	if err != nil {
+		return nil, err
+	}
+	return fetchSecret.Data, nil
 }

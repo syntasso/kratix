@@ -54,7 +54,7 @@ var _ = Describe("#FromURL", func() {
 		})
 
 		It("returns a Promise and no error", func() {
-			promise, err := urlFetcher.FromURL(fakeServer.URL())
+			promise, err := urlFetcher.FromURL(fakeServer.URL(), "")
 			Expect(err).ToNot(HaveOccurred())
 
 			expectedPromise := &v1alpha1.Promise{}
@@ -65,9 +65,26 @@ var _ = Describe("#FromURL", func() {
 		})
 	})
 
+	When("the url requires authorization", func() {
+		BeforeEach(func() {
+			var err error
+			responseBody, err = os.ReadFile("assets/promise.yaml")
+			Expect(err).ToNot(HaveOccurred())
+		})
+
+		It("an authorization header can be provided", func() {
+			_, err := urlFetcher.FromURL(fakeServer.URL(), "bearer abc123")
+			Expect(err).ToNot(HaveOccurred())
+
+			req := fakeServer.ReceivedRequests()
+			Expect(req).To(HaveLen(1))
+			Expect(req[0].Header.Get("Authorization")).To(Equal("bearer abc123"))
+		})
+	})
+
 	When("the url is invalid", func() {
 		It("errors", func() {
-			_, err := urlFetcher.FromURL("invalid-url")
+			_, err := urlFetcher.FromURL("invalid-url", "")
 			Expect(err).To(MatchError(ContainSubstring("failed to get url")))
 		})
 	})
@@ -80,7 +97,7 @@ var _ = Describe("#FromURL", func() {
 		})
 
 		It("errors", func() {
-			_, err := urlFetcher.FromURL(fakeServer.URL())
+			_, err := urlFetcher.FromURL(fakeServer.URL(), "")
 			Expect(err).To(MatchError(ContainSubstring("expected single document yaml, but found multiple documents")))
 		})
 	})
@@ -91,7 +108,7 @@ var _ = Describe("#FromURL", func() {
 		})
 
 		It("errors", func() {
-			_, err := urlFetcher.FromURL(fakeServer.URL())
+			_, err := urlFetcher.FromURL(fakeServer.URL(), "")
 			Expect(err).To(MatchError("expected single Promise object but found object of kind: Namespace"))
 		})
 	})
@@ -102,7 +119,7 @@ var _ = Describe("#FromURL", func() {
 		})
 
 		It("errors", func() {
-			_, err := urlFetcher.FromURL(fakeServer.URL())
+			_, err := urlFetcher.FromURL(fakeServer.URL(), "")
 			Expect(err).To(MatchError("failed to get Promise from URL: status code 400"))
 		})
 	})
@@ -113,14 +130,14 @@ var _ = Describe("#FromURL", func() {
 		})
 
 		It("errors", func() {
-			_, err := urlFetcher.FromURL(fakeServer.URL())
+			_, err := urlFetcher.FromURL(fakeServer.URL(), "")
 			Expect(err).To(MatchError(ContainSubstring("failed to unmarshal into Kubernetes object: ")))
 		})
 	})
 
 	DescribeTable("invalid documents", func(response string) {
 		responseBody = []byte(response)
-		_, err := urlFetcher.FromURL(fakeServer.URL())
+		_, err := urlFetcher.FromURL(fakeServer.URL(), "")
 		Expect(err).To(MatchError(ContainSubstring("failed to unmarshal into Kubernetes object: ")))
 	},
 		Entry("empty document", ""),

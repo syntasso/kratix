@@ -17,14 +17,14 @@ spec:
         kratix-promise-release: pod
     spec:
       containers:
-      - image: syntassodev/kratix-promise-release-test-hoster:v0.0.2
-        name: test
-        resources: {}
-        env:
-        - name: PROMISE_ENCODED
-          value: "REPLACEME"
-        ports:
-        - containerPort: 8080
+        - image: syntassodev/kratix-promise-release-test-hoster:v0.0.3
+          name: test
+          resources: {}
+          env:
+            - name: PROMISE_ENCODED
+              value: "REPLACEME"
+          ports:
+            - containerPort: 8080
 ---
 apiVersion: v1
 kind: Service
@@ -33,9 +33,9 @@ metadata:
   namespace: kratix-platform-system
 spec:
   ports:
-  - port: 8080
-    protocol: TCP
-    targetPort: 8080
+    - port: 8080
+      protocol: TCP
+      targetPort: 8080
   selector:
     kratix-promise-release: pod
   sessionAffinity: None

@@ -11,6 +11,8 @@ import (
 	"strings"
 	"time"
 
+	"k8s.io/apimachinery/pkg/util/yaml"
+
 	"github.com/onsi/ginkgo/v2/types"
 
 	"github.com/go-git/go-git/v5"
@@ -23,11 +25,12 @@ import (
 	. "github.com/onsi/gomega"
 	"github.com/onsi/gomega/gexec"
 	"github.com/syntasso/kratix/api/v1alpha1"
+	corev1 "k8s.io/api/core/v1"
 	v1 "k8s.io/apiextensions-apiserver/pkg/apis/apiextensions/v1"
 	"k8s.io/apimachinery/pkg/apis/meta/v1/unstructured"
 	"k8s.io/apimachinery/pkg/runtime"
 	"k8s.io/apimachinery/pkg/util/uuid"
-	"k8s.io/apimachinery/pkg/util/yaml"
+	"sigs.k8s.io/controller-runtime/pkg/client"
 	kyaml "sigs.k8s.io/yaml"
 )
 
@@ -59,6 +62,9 @@ var (
 	accessKeyID     string
 	useSSL          bool
 	bucketName      string
+
+	authenticatedEndpoint   = true
+	unauthenticatedEndpoint = false
 )
 
 const pipelineTimeout = "--timeout=89s"
@@ -197,7 +203,7 @@ var _ = Describe("Kratix", func() {
 			var tmpDir string
 			BeforeEach(func() {
 				var err error
-				tmpDir, err = os.MkdirTemp(os.TempDir(), "systest")
+				tmpDir, err = os.MkdirTemp(os.TempDir(), "systest-"+bashPromiseName)
 				Expect(err).NotTo(HaveOccurred())
 			})
 
@@ -231,7 +237,7 @@ var _ = Describe("Kratix", func() {
 					bashPromiseEncoded := base64.StdEncoding.EncodeToString(promiseBytes)
 					platform.eventuallyKubectl("set", "env", "-n=kratix-platform-system", "deployment", "kratix-promise-release-test-hoster", fmt.Sprintf("%s=%s", bashPromiseName, bashPromiseEncoded))
 					platform.eventuallyKubectl("rollout", "status", "-n=kratix-platform-system", "deployment", "kratix-promise-release-test-hoster")
-					platform.eventuallyKubectl("apply", "-f", catAndReplacePromiseRelease(tmpDir, promiseReleasePath, bashPromiseName))
+					platform.eventuallyKubectl("apply", "-f", promiseReleaseForHttp(tmpDir, promiseReleasePath, bashPromiseName, unauthenticatedEndpoint))
 
 					Eventually(func(g Gomega) {
 						g.Expect(platform.kubectl("get", "promise")).Should(ContainSubstring(bashPromiseName))
@@ -251,7 +257,7 @@ var _ = Describe("Kratix", func() {
 				})
 
 				By("marking the Promise as Unavailable when the requirements are deleted", func() {
-					platform.eventuallyKubectlDelete("-f", catAndReplacePromiseRelease(tmpDir, promiseReleasePath, bashPromiseName))
+					platform.eventuallyKubectlDelete("-f", promiseReleaseForHttp(tmpDir, promiseReleasePath, bashPromiseName, unauthenticatedEndpoint))
 
 					Eventually(func(g Gomega) {
 						g.Expect(platform.kubectl("get", "promiserelease")).ShouldNot(ContainSubstring(bashPromiseName))
@@ -539,18 +545,30 @@ var _ = Describe("Kratix", func() {
 	})
 
 	Describe("PromiseRelease", func() {
+		var tmpDir string
+		BeforeEach(func() {
+			var err error
+			tmpDir, err = os.MkdirTemp(os.TempDir(), "systest-"+bashPromiseName)
+			Expect(err).NotTo(HaveOccurred())
+			promiseBytes, err := kyaml.Marshal(bashPromise)
+			Expect(err).NotTo(HaveOccurred())
+			bashPromiseEncoded := base64.StdEncoding.EncodeToString(promiseBytes)
+			platform.
+				eventuallyKubectl("set", "env", "-n=kratix-platform-system", "deployment", "kratix-promise-release-test-hoster", fmt.Sprintf("%s=%s", bashPromiseName, bashPromiseEncoded))
+			platform.eventuallyKubectl("rollout", "status", "-n=kratix-platform-system", "deployment", "kratix-promise-release-test-hoster")
+		})
+
+		AfterEach(func() {
+			os.RemoveAll(tmpDir)
+		})
+
 		When("a PromiseRelease is installed", func() {
 			BeforeEach(func() {
-				tmpDir, err := os.MkdirTemp(os.TempDir(), "systest")
+				var err error
+				tmpDir, err = os.MkdirTemp(os.TempDir(), "systest-"+bashPromiseName)
 				Expect(err).NotTo(HaveOccurred())
-				promiseBytes, err := kyaml.Marshal(bashPromise)
-				Expect(err).NotTo(HaveOccurred())
-				bashPromiseEncoded := base64.StdEncoding.EncodeToString(promiseBytes)
-				platform.
-					eventuallyKubectl("set", "env", "-n=kratix-platform-system", "deployment", "kratix-promise-release-test-hoster", fmt.Sprintf("%s=%s", bashPromiseName, bashPromiseEncoded))
-				platform.eventuallyKubectl("rollout", "status", "-n=kratix-platform-system", "deployment", "kratix-promise-release-test-hoster")
-				platform.eventuallyKubectl("apply", "-f", catAndReplacePromiseRelease(tmpDir, promiseReleasePath, bashPromiseName))
-				os.RemoveAll(tmpDir)
+
+				platform.eventuallyKubectl("apply", "-f", promiseReleaseForHttp(tmpDir, promiseReleasePath, bashPromiseName, unauthenticatedEndpoint))
 			})
 
 			It("can be created and deleted", func() {
@@ -566,6 +584,20 @@ var _ = Describe("Kratix", func() {
 					g.Expect(platform.kubectl("get", "promiserelease")).ShouldNot(ContainSubstring(bashPromiseName))
 					g.Expect(worker.kubectl("get", "namespace")).NotTo(ContainSubstring(declarativeWorkerNamespace))
 				}, timeout, interval).Should(Succeed())
+			})
+		})
+		When("a PromiseRelease source requires authorization", func() {
+			BeforeEach(func() {
+				var err error
+				tmpDir, err = os.MkdirTemp(os.TempDir(), "systest-"+bashPromiseName)
+				Expect(err).NotTo(HaveOccurred())
+
+				platform.eventuallyKubectl("apply", "-f", promiseReleaseForHttp(tmpDir, promiseReleasePath, bashPromiseName, authenticatedEndpoint))
+			})
+
+			It("it can fetch and apply the Promise", func() {
+				platform.eventuallyKubectl("get", "promiserelease", bashPromiseName)
+				platform.eventuallyKubectl("get", "promise", bashPromiseName)
 			})
 		})
 	})
@@ -978,13 +1010,8 @@ func (c destination) kubectl(args ...string) string {
 
 // run command and return stdout. Ignores the exit code
 func (c destination) kubectlForce(args ...string) string {
-	args = append(args, "--context="+c.context)
-	command := exec.Command("kubectl", args...)
-	session, err := gexec.Start(command, GinkgoWriter, GinkgoWriter)
-	fmt.Fprintf(GinkgoWriter, "Running: kubectl %s\n", strings.Join(args, " "))
-	ExpectWithOffset(1, err).ShouldNot(HaveOccurred())
-	EventuallyWithOffset(1, session, timeout, interval).Should(gexec.Exit())
-	return string(session.Out.Contents())
+	c.ignoreExitCode = true
+	return c.kubectl(args...)
 }
 
 func (c destination) clone() destination {
@@ -1100,4 +1127,40 @@ func userPermissionClusterRoleLabels(promiseName, workflowType, action, pipeline
 	return fmt.Sprintf("%s,%s=%s",
 		userPermissionRoleLabels(promiseName, workflowType, action, pipelineName),
 		v1alpha1.UserPermissionResourceNamespaceLabel, namespace)
+}
+
+func promiseReleaseForHttp(tmpDir, file, bashPromiseName string, authenticated bool) string {
+	bytes, err := os.ReadFile(file)
+	Expect(err).NotTo(HaveOccurred())
+
+	output := strings.ReplaceAll(string(bytes), "REPLACEBASH", bashPromiseName)
+	if authenticated {
+		output = strings.ReplaceAll(output, "REPLACEURL", "http://kratix-promise-release-test-hoster.kratix-platform-system:8080/secure/promise/"+bashPromiseName)
+
+		secretNamespacedName := client.ObjectKey{Name: "kratix-promise-release-authorization-header", Namespace: "kratix-platform-system"}
+		platform.kubectlForce("create", "secret", "generic", secretNamespacedName.Name, "-n", secretNamespacedName.Namespace, "--from-literal=authorizationHeader=Bearer your-secret-token")
+		output = addSecretRefToPromiseRelease(output, secretNamespacedName)
+	} else {
+		output = strings.ReplaceAll(output, "REPLACEURL", "http://kratix-promise-release-test-hoster.kratix-platform-system:8080/promise/"+bashPromiseName)
+	}
+	tmpFile := filepath.Join(tmpDir, filepath.Base(file))
+	err = os.WriteFile(tmpFile, []byte(output), 0777)
+	Expect(err).NotTo(HaveOccurred())
+
+	return tmpFile
+}
+
+func addSecretRefToPromiseRelease(promiseRelease string, secretNamespacedName client.ObjectKey) string {
+	var err error
+	tmpPromiseRelease := &v1alpha1.PromiseRelease{}
+	kyaml.Unmarshal([]byte(promiseRelease), &tmpPromiseRelease)
+	Expect(err).NotTo(HaveOccurred())
+
+	tmpPromiseRelease.Spec.SourceRef.SecretRef = &corev1.SecretReference{
+		Name:      secretNamespacedName.Name,
+		Namespace: secretNamespacedName.Namespace,
+	}
+	outputBytes, err := kyaml.Marshal(tmpPromiseRelease)
+	Expect(err).NotTo(HaveOccurred())
+	return string(outputBytes)
 }

@@ -21,6 +21,7 @@ import (
 
 	"k8s.io/apimachinery/pkg/runtime"
 	ctrl "sigs.k8s.io/controller-runtime"
+	"sigs.k8s.io/controller-runtime/pkg/client"
 	logf "sigs.k8s.io/controller-runtime/pkg/log"
 	"sigs.k8s.io/controller-runtime/pkg/webhook"
 	"sigs.k8s.io/controller-runtime/pkg/webhook/admission"
@@ -36,7 +37,8 @@ var (
 	promisereleaselog = logf.Log.WithName("promiserelease-resource")
 )
 
-func (r *PromiseRelease) SetupWebhookWithManager(mgr ctrl.Manager, pf PromiseFetcher) error {
+func (r *PromiseRelease) SetupWebhookWithManager(mgr ctrl.Manager, c client.Client, pf PromiseFetcher) error {
+	k8sClient = c
 	promiseFetcher = pf
 	return ctrl.NewWebhookManagedBy(mgr).
 		For(r).
@@ -52,7 +54,17 @@ func (r *PromiseRelease) ValidateCreate() (admission.Warnings, error) {
 		return nil, err
 	}
 
-	promise, err := promiseFetcher.FromURL(r.Spec.SourceRef.URL)
+	secretRefData, err := r.FetchSecretFromReference()
+	if err != nil {
+		return nil, fmt.Errorf("failed to fetch data from secretRef: %w", err)
+	}
+
+	authHeader, exists := secretRefData["authorizationHeader"]
+	if !exists {
+		authHeader = []byte("")
+	}
+
+	promise, err := promiseFetcher.FromURL(r.Spec.SourceRef.URL, string(authHeader))
 	if err != nil {
 		return nil, fmt.Errorf("failed to fetch promise: %w", err)
 	}

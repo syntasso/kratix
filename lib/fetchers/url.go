@@ -3,6 +3,7 @@ package fetchers
 import (
 	"fmt"
 	"net/http"
+	"time"
 
 	"github.com/syntasso/kratix/api/v1alpha1"
 	"k8s.io/apimachinery/pkg/apis/meta/v1/unstructured"
@@ -13,8 +14,20 @@ import (
 type URLFetcher struct {
 }
 
-func (u *URLFetcher) FromURL(urlString string) (*v1alpha1.Promise, error) {
-	resp, err := http.Get(urlString)
+func (u *URLFetcher) FromURL(urlString, authHeader string) (*v1alpha1.Promise, error) {
+	req, err := http.NewRequest("GET", urlString, nil)
+	if err != nil {
+		return nil, err
+	}
+
+	if authHeader != "" {
+		req.Header.Add("Authorization", authHeader)
+	}
+
+	client := &http.Client{
+		Timeout: time.Second * 10,
+	}
+	resp, err := client.Do(req)
 	if err != nil {
 		return nil, fmt.Errorf("failed to get url: %w", err)
 	}
