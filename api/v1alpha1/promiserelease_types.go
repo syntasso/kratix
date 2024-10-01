@@ -20,7 +20,6 @@ import (
 	"context"
 
 	corev1 "k8s.io/api/core/v1"
-	"k8s.io/apimachinery/pkg/api/errors"
 	metav1 "k8s.io/apimachinery/pkg/apis/meta/v1"
 	"sigs.k8s.io/controller-runtime/pkg/client"
 )
@@ -92,9 +91,6 @@ func (pr *PromiseRelease) FetchSecretFromReference() (map[string][]byte, error) 
 
 	err := k8sClient.Get(context.TODO(), namespacedName, fetchSecret)
 	if err != nil {
-		if errors.IsNotFound(err) {
-			return nil, err
-		}
 		return nil, err
 	}
 	return fetchSecret.Data, nil
