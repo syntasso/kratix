@@ -35,8 +35,11 @@ type PromiseReleaseSpec struct {
 
 type SourceRef struct {
 	// +kubebuilder:validation:Enum:={http}
-	Type      string                  `json:"type"`
-	URL       string                  `json:"url,omitempty"`
+	Type string `json:"type"`
+	URL  string `json:"url,omitempty"`
+	// Reference a secret with credentials to access the source.
+	// For more details on the secret format, see the documentation:
+	//   https://docs.kratix.io/main/reference/promises/releases#promise-release
 	SecretRef *corev1.SecretReference `json:"secretRef,omitempty"`
 }
 
