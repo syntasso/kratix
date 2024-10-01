@@ -203,7 +203,7 @@ var _ = Describe("Kratix", func() {
 			var tmpDir string
 			BeforeEach(func() {
 				var err error
-				tmpDir, err = os.MkdirTemp(os.TempDir(), "systest")
+				tmpDir, err = os.MkdirTemp(os.TempDir(), "systest-"+bashPromiseName)
 				Expect(err).NotTo(HaveOccurred())
 			})
 
@@ -548,7 +548,7 @@ var _ = Describe("Kratix", func() {
 		var tmpDir string
 		BeforeEach(func() {
 			var err error
-			tmpDir, err = os.MkdirTemp(os.TempDir(), "systest")
+			tmpDir, err = os.MkdirTemp(os.TempDir(), "systest-"+bashPromiseName)
 			Expect(err).NotTo(HaveOccurred())
 			promiseBytes, err := kyaml.Marshal(bashPromise)
 			Expect(err).NotTo(HaveOccurred())
@@ -564,6 +564,10 @@ var _ = Describe("Kratix", func() {
 
 		When("a PromiseRelease is installed", func() {
 			BeforeEach(func() {
+				var err error
+				tmpDir, err = os.MkdirTemp(os.TempDir(), "systest-"+bashPromiseName)
+				Expect(err).NotTo(HaveOccurred())
+
 				platform.eventuallyKubectl("apply", "-f", promiseReleaseForHttp(tmpDir, promiseReleasePath, bashPromiseName, unauthenticatedEndpoint))
 			})
 
@@ -584,6 +588,10 @@ var _ = Describe("Kratix", func() {
 		})
 		When("a PromiseRelease source requires authorization", func() {
 			BeforeEach(func() {
+				var err error
+				tmpDir, err = os.MkdirTemp(os.TempDir(), "systest-"+bashPromiseName)
+				Expect(err).NotTo(HaveOccurred())
+
 				platform.eventuallyKubectl("apply", "-f", promiseReleaseForHttp(tmpDir, promiseReleasePath, bashPromiseName, authenticatedEndpoint))
 			})
 
