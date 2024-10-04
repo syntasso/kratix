@@ -40,30 +40,27 @@ const (
 	KratixResourceHashLabel  = "kratix.io/hash"
 )
 
-// NOTE: json tags are required.  Any new fields you add must have json tags for the fields to be serialized.
-
 // PromiseSpec defines the desired state of Promise
 type PromiseSpec struct {
 
-	// TODO (has since been merged!): apiextension.CustomResourceDefinitionSpec struct(s) don't have the required jsontags and
-	// cannot be used as a Type. See https://github.com/kubernetes-sigs/controller-tools/pull/528
-	// && https://github.com/kubernetes-sigs/controller-tools/issues/291
-	//
-	// OPA Validation pattern:
-	// https://github.com/open-policy-agent/frameworks/blob/1307ba72bce38ee3cf44f94def1bbc41eb4ffa90/constraint/pkg/apis/templates/v1beta1/constrainttemplate_types.go#L46
-	// API runtime.RawExtension      `json:"api,omitempty"`
-
+	// API an application developers will use to request a Resource from this Promise.
+	// Must be a valid kubernetes custom resource definition.
 	// +kubebuilder:pruning:PreserveUnknownFields
 	// +kubebuilder:validation:EmbeddedResource
 	// +kubebuilder:validation:Optional
 	API *runtime.RawExtension `json:"api,omitempty"`
 
+	// A list of pipelines to be executed at different stages of the Promise lifecycle.
 	Workflows Workflows `json:"workflows,omitempty"`
 
+	// A list of Promises that are required by this Promise.
+	// All required Promises must be present and available for this promise to be made available.
 	RequiredPromises []RequiredPromise `json:"requiredPromises,omitempty"`
 
+	// A collection of prerequisites that enable the creation of a Resource.
 	Dependencies Dependencies `json:"dependencies,omitempty"`
 
+	// A list of key and value pairs (labels) used for scheduling.
 	DestinationSelectors []PromiseScheduling `json:"destinationSelectors,omitempty"`
 }
 
@@ -96,7 +93,6 @@ type Dependency struct {
 	unstructured.Unstructured `json:",inline"`
 }
 
-// For Promise spec
 type PromiseScheduling struct {
 	MatchLabels map[string]string `json:"matchLabels,omitempty"`
 }
