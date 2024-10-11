@@ -19,12 +19,12 @@ package controllers
 import (
 	"context"
 	"fmt"
+	"k8s.io/client-go/util/retry"
 	"slices"
 	"strings"
 	"time"
 
 	"github.com/syntasso/kratix/lib/objectutil"
-
 	"sigs.k8s.io/controller-runtime/pkg/controller/controllerutil"
 	"sigs.k8s.io/controller-runtime/pkg/handler"
 	"sigs.k8s.io/controller-runtime/pkg/reconcile"
@@ -144,8 +144,15 @@ func (r *PromiseReconciler) Reconcile(ctx context.Context, req ctrl.Request) (ct
 
 	if value, found := promise.Labels[v1alpha1.PromiseVersionLabel]; found {
 		if promise.Status.Version != value {
-			promise.Status.Version = value
-			return ctrl.Result{}, r.Client.Status().Update(ctx, promise)
+			return ctrl.Result{}, retry.RetryOnConflict(retry.DefaultRetry, func() error {
+				p := &v1alpha1.Promise{}
+				if err = r.Client.Get(ctx, types.NamespacedName{
+					Name: promise.Name, Namespace: promise.Namespace}, p); err != nil {
+					return err
+				}
+				p.Status.Version = value
+				return r.Client.Status().Update(ctx, p)
+			})
 		}
 	}
 
@@ -244,8 +251,15 @@ func (r *PromiseReconciler) Reconcile(ctx context.Context, req ctrl.Request) (ct
 					return ctrl.Result{}, err
 				}
 			}
-			promise.Status.ObservedGeneration = promise.GetGeneration()
-			return ctrl.Result{}, r.Client.Status().Update(ctx, promise)
+			return ctrl.Result{}, retry.RetryOnConflict(retry.DefaultRetry, func() error {
+				p := &v1alpha1.Promise{}
+				if err = r.Client.Get(ctx, types.NamespacedName{
+					Name: promise.Name, Namespace: promise.Namespace}, p); err != nil {
+					return err
+				}
+				p.Status.ObservedGeneration = p.GetGeneration()
+				return r.Client.Status().Update(ctx, p)
+			})
 		}
 	} else {
 		logger.Info("Promise only contains dependencies, skipping creation of API and dynamic controller")
@@ -255,21 +269,37 @@ func (r *PromiseReconciler) Reconcile(ctx context.Context, req ctrl.Request) (ct
 		return ctrl.Result{}, nil
 	}
 	logger.Info("Promise status being set to Available")
-	promise.Status.Status = v1alpha1.PromiseStatusAvailable
-	return ctrl.Result{}, r.Client.Status().Update(ctx, promise)
+
+	return ctrl.Result{}, retry.RetryOnConflict(retry.DefaultRetry, func() error {
+		p := &v1alpha1.Promise{}
+		if err = r.Client.Get(ctx, types.NamespacedName{
+			Name: promise.Name, Namespace: promise.Namespace}, p); err != nil {
+			return err
+		}
+		p.Status.Status = v1alpha1.PromiseStatusAvailable
+		return r.Client.Status().Update(ctx, p)
+	})
 }
 
 func (r *PromiseReconciler) ensureRequiredPromiseStatusIsUpToDate(ctx context.Context, promise *v1alpha1.Promise) (bool, error) {
 	latestCondition, latestRequirements := r.generateStatusAndMarkRequirements(ctx, promise)
 
-	requirementsFieldChanged := updateRequirementsStatusOnPromise(promise, promise.Status.RequiredPromises, latestRequirements)
-	conditionsFieldChanged := updateConditionOnPromise(promise, latestCondition)
+	var conditionsFieldChanged, requirementsFieldChanged bool
+	updateErr := retry.RetryOnConflict(retry.DefaultRetry, func() error {
+		p := &v1alpha1.Promise{}
+		if err := r.Client.Get(ctx, types.NamespacedName{
+			Name: promise.Name, Namespace: promise.Namespace}, p); err != nil {
+			return err
+		}
+		requirementsFieldChanged = updateRequirementsStatusOnPromise(promise, promise.Status.RequiredPromises, latestRequirements)
+		conditionsFieldChanged = updateConditionOnPromise(promise, latestCondition)
+		if conditionsFieldChanged || requirementsFieldChanged {
+			return r.Client.Status().Update(ctx, promise)
+		}
+		return nil
+	})
 
-	if conditionsFieldChanged || requirementsFieldChanged {
-		return true, r.Client.Status().Update(ctx, promise)
-	}
-
-	return false, nil
+	return requirementsFieldChanged || conditionsFieldChanged, updateErr
 }
 
 func updateConditionOnPromise(promise *v1alpha1.Promise, latestCondition metav1.Condition) bool {

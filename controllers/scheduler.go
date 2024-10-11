@@ -3,6 +3,8 @@ package controllers
 import (
 	"context"
 	"fmt"
+	"k8s.io/apimachinery/pkg/types"
+	"k8s.io/client-go/util/retry"
 	"math/rand"
 	"sort"
 	"time"
@@ -65,7 +67,28 @@ func (s *Scheduler) ReconcileWork(work *v1alpha1.Work) ([]string, error) {
 }
 
 func (s *Scheduler) updateWorkStatus(work *v1alpha1.Work, unscheduledWorkloadGroupIDs, missscheduledWorkloadGroupIDs []string) error {
-	work = work.DeepCopy()
+	return retry.RetryOnConflict(retry.DefaultRetry, func() error {
+		w := &v1alpha1.Work{}
+		if err := s.Client.Get(context.Background(), types.NamespacedName{
+			Name: work.Name, Namespace: work.Namespace}, w); err != nil {
+			return err
+		}
+		conditions := generateConditions(unscheduledWorkloadGroupIDs, missscheduledWorkloadGroupIDs)
+		if len(w.Status.Conditions) == 2 &&
+			w.Status.Conditions[0].Status == conditions[0].Status &&
+			w.Status.Conditions[0].Message == conditions[0].Message &&
+			w.Status.Conditions[0].Reason == conditions[0].Reason &&
+			w.Status.Conditions[1].Status == conditions[1].Status &&
+			w.Status.Conditions[1].Message == conditions[1].Message &&
+			w.Status.Conditions[1].Reason == conditions[1].Reason {
+			return nil
+		}
+		w.Status.Conditions = conditions
+		return s.Client.Status().Update(context.Background(), w)
+	})
+}
+
+func generateConditions(unscheduledWorkloadGroupIDs []string, missscheduledWorkloadGroupIDs []string) []v1.Condition {
 	conditions := []metav1.Condition{
 		{
 			//Always same
@@ -100,19 +123,7 @@ func (s *Scheduler) updateWorkStatus(work *v1alpha1.Work, unscheduledWorkloadGro
 		conditions[1].Message = fmt.Sprintf("WorkloadGroup(s) not scheduled to correct Destination(s): %v", missscheduledWorkloadGroupIDs)
 		conditions[1].Reason = "ScheduledToIncorrectDestinations"
 	}
-
-	if len(work.Status.Conditions) == 2 &&
-		work.Status.Conditions[0].Status == conditions[0].Status &&
-		work.Status.Conditions[0].Message == conditions[0].Message &&
-		work.Status.Conditions[0].Reason == conditions[0].Reason &&
-		work.Status.Conditions[1].Status == conditions[1].Status &&
-		work.Status.Conditions[1].Message == conditions[1].Message &&
-		work.Status.Conditions[1].Reason == conditions[1].Reason {
-		return nil
-	}
-
-	work.Status.Conditions = conditions
-	return s.Client.Status().Update(context.Background(), work)
+	return conditions
 }
 
 func (s *Scheduler) cleanupDanglingWorkplacements(work *v1alpha1.Work) error {
@@ -333,36 +344,34 @@ func (s *Scheduler) applyWorkplacementsForTargetDestinations(workloadGroup v1alp
 }
 
 func (s *Scheduler) updateStatus(workPlacement *v1alpha1.WorkPlacement, misscheduled bool) error {
-	updatedWorkPlacement := &v1alpha1.WorkPlacement{}
-	if err := s.Client.Get(context.Background(), client.ObjectKeyFromObject(workPlacement), updatedWorkPlacement); err != nil {
-		return err
-	}
-
-	var needsUpdate bool
-
-	if misscheduled && updatedWorkPlacement.Status.Conditions == nil {
-		updatedWorkPlacement.Status.Conditions = []v1.Condition{
-			{
-				Message:            "Target destination no longer matches destinationSelectors",
-				Reason:             "DestinationSelectorMismatch",
-				Type:               "Misscheduled",
-				Status:             "True",
-				LastTransitionTime: v1.NewTime(time.Now()),
-			},
+	return retry.RetryOnConflict(retry.DefaultRetry, func() error {
+		updatedWorkPlacement := &v1alpha1.WorkPlacement{}
+		if err := s.Client.Get(context.Background(), client.ObjectKeyFromObject(workPlacement), updatedWorkPlacement); err != nil {
+			return err
 		}
-		needsUpdate = true
-	}
 
-	if !misscheduled && len(updatedWorkPlacement.Status.Conditions) > 0 {
-		updatedWorkPlacement.Status.Conditions = nil
-		needsUpdate = true
-	}
-
-	if !needsUpdate {
-		return nil
-	}
-
-	return s.Client.Status().Update(context.Background(), updatedWorkPlacement)
+		var needsUpdate bool
+		if misscheduled && updatedWorkPlacement.Status.Conditions == nil {
+			updatedWorkPlacement.Status.Conditions = []v1.Condition{
+				{
+					Message:            "Target destination no longer matches destinationSelectors",
+					Reason:             "DestinationSelectorMismatch",
+					Type:               "Misscheduled",
+					Status:             "True",
+					LastTransitionTime: v1.NewTime(time.Now()),
+				},
+			}
+			needsUpdate = true
+		}
+		if !misscheduled && len(updatedWorkPlacement.Status.Conditions) > 0 {
+			updatedWorkPlacement.Status.Conditions = nil
+			needsUpdate = true
+		}
+		if !needsUpdate {
+			return nil
+		}
+		return s.Client.Status().Update(context.Background(), updatedWorkPlacement)
+	})
 }
 
 // Where Work is a Resource Request return one random Destination name, where Work is a
