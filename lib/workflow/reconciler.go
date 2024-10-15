@@ -82,22 +82,21 @@ func ReconcileDelete(opts Opts) (bool, error) {
 	return true, nil
 }
 
-func ReconcileConfigure(opts Opts) (bool, error) {
+func ReconcileConfigure(opts Opts) (abort bool, err error) {
+	var pipelineIndex = 0
+	var mostRecentJob *batchv1.Job
+
 	originalLogger := opts.logger
 	namespace := opts.parentObject.GetNamespace()
 	if namespace == "" {
 		namespace = v1alpha1.SystemNamespace
 	}
 
-	l := labelsForJobs(opts)
-	allJobs, err := getJobsWithLabels(opts, l, namespace)
+	allJobs, err := getJobsWithLabels(opts, labelsForJobs(opts), namespace)
 	if err != nil {
 		opts.logger.Error(err, "failed to list jobs")
 		return false, err
 	}
-
-	var pipelineIndex = 0
-	var mostRecentJob *batchv1.Job
 
 	if len(allJobs) != 0 {
 		opts.logger.Info("found existing jobs, checking to see which pipeline the most recent job is for")
@@ -132,12 +131,11 @@ func ReconcileConfigure(opts Opts) (bool, error) {
 		opts.logger.Info("checking if job is for pipeline", "job", mostRecentJob.Name, "pipeline", pipeline.Name)
 		if isRunning(mostRecentJob) {
 			if isManualReconciliation {
-				err := suspendJob(opts.ctx, opts.client, mostRecentJob)
-				if err != nil {
+				opts.logger.Info("Suspending job for manual reconciliation", "job", mostRecentJob.Name, "pipeline", pipeline.Name)
+				if err = suspendJob(opts.ctx, opts.client, mostRecentJob); err != nil {
 					opts.logger.Error(err, "failed to suspend Job", "job", mostRecentJob.GetName())
-					return true, err
 				}
-				return true, nil
+				return true, err
 			}
 
 			opts.logger.Info("Job already inflight for Pipeline, waiting for it to complete", "job", mostRecentJob.Name, "pipeline", pipeline.Name)
@@ -151,20 +149,12 @@ func ReconcileConfigure(opts Opts) (bool, error) {
 
 		if isFailed(mostRecentJob) {
 			opts.logger.Info("Last Job for Pipeline has failed, exiting workflow", "failedJob", mostRecentJob.Name, "pipeline", pipeline.Name)
-			return false, nil
+			return true, nil
 		}
 
-		if err := cleanup(opts, namespace); err != nil {
-			return false, err
-		}
-
-		return false, nil
+		return false, cleanup(opts, namespace)
 	}
 
-	// TODO this will suspend any job that is in flight (without checking if it's active)
-	// and the next pipeline will immediately be started - this may be okay, but is
-	// different to how things used to be (where we only suspended a job if it didn't
-	// have any active pods)
 	if isRunning(mostRecentJob) {
 		opts.logger.Info("Job already inflight for another workflow, suspending it", "job", mostRecentJob.Name)
 		err := suspendJob(opts.ctx, opts.client, mostRecentJob)
@@ -228,11 +218,7 @@ func jobIsForPipeline(pipeline v1alpha1.PipelineJobResources, job *batchv1.Job) 
 }
 
 func nextPipelineIndex(opts Opts, mostRecentJob *batchv1.Job) int {
-	if mostRecentJob == nil {
-		return 0
-	}
-
-	if isManualReconciliation(opts.parentObject.GetLabels()) {
+	if mostRecentJob == nil || isManualReconciliation(opts.parentObject.GetLabels()) {
 		return 0
 	}
 
@@ -368,7 +354,7 @@ func deleteConfigMap(opts Opts, pipeline v1alpha1.PipelineJobResources) error {
 	return nil
 }
 
-func createConfigurePipeline(opts Opts, pipelineIndex int, resources v1alpha1.PipelineJobResources) (bool, error) {
+func createConfigurePipeline(opts Opts, pipelineIndex int, resources v1alpha1.PipelineJobResources) (abort bool, err error) {
 	updated, err := setPipelineCompletedConditionStatus(opts, pipelineIndex == 0, opts.parentObject)
 	if err != nil || updated {
 		return updated, err
@@ -381,16 +367,15 @@ func createConfigurePipeline(opts Opts, pipelineIndex int, resources v1alpha1.Pi
 		return false, err
 	}
 
-	deleteResources(opts, objectToDelete...)
-	applyResources(opts, append(resources.GetObjects(), resources.Job)...)
-
 	opts.logger.Info("Parent object:", "parent", opts.parentObject.GetName())
 	if isManualReconciliation(opts.parentObject.GetLabels()) {
 		if err := removeManualReconciliationLabel(opts); err != nil {
 			return false, err
 		}
-		return false, nil
 	}
+
+	deleteResources(opts, objectToDelete...)
+	applyResources(opts, append(resources.GetObjects(), resources.Job)...)
 
 	return true, nil
 }

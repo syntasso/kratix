@@ -7,6 +7,7 @@ import (
 	"os"
 	"regexp"
 	"strings"
+	"time"
 
 	"github.com/go-logr/logr"
 	. "github.com/onsi/ginkgo/v2"
@@ -28,7 +29,9 @@ import (
 	"github.com/syntasso/kratix/controllers"
 	"github.com/syntasso/kratix/controllers/controllersfakes"
 	"github.com/syntasso/kratix/lib/compression"
+	"github.com/syntasso/kratix/lib/resourceutil"
 	"github.com/syntasso/kratix/lib/workflow"
+	clusterv1 "sigs.k8s.io/cluster-api/api/v1beta1"
 )
 
 var (
@@ -54,10 +57,11 @@ var _ = Describe("PromiseController", func() {
 		managerRestarted = false
 		l = ctrl.Log.WithName("controllers").WithName("Promise")
 		reconciler = &controllers.PromiseReconciler{
-			Client:              fakeK8sClient,
-			ApiextensionsClient: fakeApiExtensionsClient,
-			Log:                 l,
-			Manager:             &controllersfakes.FakeManager{},
+			Client:                  fakeK8sClient,
+			ApiextensionsClient:     fakeApiExtensionsClient,
+			Log:                     l,
+			Manager:                 &controllersfakes.FakeManager{},
+			ScheduledReconciliation: map[string]metav1.Time{},
 			RestartManager: func() {
 				managerRestarted = true
 			},
@@ -77,7 +81,7 @@ var _ = Describe("PromiseController", func() {
 					})
 
 					Expect(err).NotTo(HaveOccurred())
-					Expect(result).To(Equal(ctrl.Result{}))
+					Expect(result).To(Equal(ctrl.Result{RequeueAfter: controllers.DefaultReconciliationInterval}))
 
 					By("creating the CRD", func() {
 						crd, err := fakeApiExtensionsClient.CustomResourceDefinitions().Get(ctx, expectedCRDName, metav1.GetOptions{})
@@ -182,6 +186,7 @@ var _ = Describe("PromiseController", func() {
 						work := getWork("kratix-platform-system", promise.GetName(), "", "")
 						Expect(inCompressedContents(work.Spec.WorkloadGroups[0].Workloads[0].Content, []byte("kind: Deployment"))).To(BeTrue())
 						Expect(inCompressedContents(work.Spec.WorkloadGroups[0].Workloads[0].Content, []byte("kind: ClusterRoleBinding"))).To(BeTrue())
+						Expect(work.GetAnnotations()).To(HaveKey("kratix.io/last-updated-at"))
 
 					})
 
@@ -397,7 +402,7 @@ var _ = Describe("PromiseController", func() {
 				})
 
 				It("re-reconciles until completion", func() {
-					_, err := t.reconcileUntilCompletion(reconciler, promise, &opts{
+					result, err := t.reconcileUntilCompletion(reconciler, promise, &opts{
 						funcs: []func(client.Object) error{autoMarkCRDAsEstablished},
 					})
 
@@ -453,8 +458,9 @@ var _ = Describe("PromiseController", func() {
 						Expect(binding.GetLabels()).To(Equal(promiseCommonLabels))
 					})
 
-					By("requeuing forever until jobs finishes", func() {
-						Expect(err).To(MatchError("reconcile loop detected"))
+					By("not requeueing while the job is in flight", func() {
+						Expect(result).To(Equal(ctrl.Result{}))
+						Expect(err).To(BeNil())
 					})
 
 					By("finishing the creation once the job is finished", func() {
@@ -462,7 +468,7 @@ var _ = Describe("PromiseController", func() {
 						result, err := t.reconcileUntilCompletion(reconciler, promise)
 
 						Expect(err).NotTo(HaveOccurred())
-						Expect(result).To(Equal(ctrl.Result{}))
+						Expect(result).To(Equal(ctrl.Result{RequeueAfter: controllers.DefaultReconciliationInterval}))
 					})
 
 					By("not creating a Work for the empty static dependencies", func() {
@@ -497,7 +503,7 @@ var _ = Describe("PromiseController", func() {
 				It("re-reconciles until completion", func() {
 					result, err := t.reconcileUntilCompletion(reconciler, promise)
 					Expect(err).NotTo(HaveOccurred())
-					Expect(result).To(Equal(ctrl.Result{}))
+					Expect(result).To(Equal(ctrl.Result{RequeueAfter: controllers.DefaultReconciliationInterval}))
 
 					crds, err := fakeApiExtensionsClient.CustomResourceDefinitions().List(ctx, metav1.ListOptions{})
 					Expect(err).NotTo(HaveOccurred())
@@ -545,7 +551,7 @@ var _ = Describe("PromiseController", func() {
 					})
 
 					Expect(err).NotTo(HaveOccurred())
-					Expect(result).To(Equal(ctrl.Result{}))
+					Expect(result).To(Equal(ctrl.Result{RequeueAfter: controllers.DefaultReconciliationInterval}))
 				})
 
 				It("sets the finalizers on the Promise", func() {
@@ -657,7 +663,7 @@ var _ = Describe("PromiseController", func() {
 					})
 
 					Expect(err).NotTo(HaveOccurred())
-					Expect(result).To(Equal(ctrl.Result{}))
+					Expect(result).To(Equal(ctrl.Result{RequeueAfter: controllers.DefaultReconciliationInterval}))
 				})
 
 				It("sets the delete-workflows finalizer", func() {
@@ -751,7 +757,7 @@ var _ = Describe("PromiseController", func() {
 					funcs: []func(client.Object) error{autoMarkCRDAsEstablished},
 				})
 				Expect(err).NotTo(HaveOccurred())
-				Expect(result).To(Equal(ctrl.Result{}))
+				Expect(result).To(Equal(ctrl.Result{RequeueAfter: controllers.DefaultReconciliationInterval}))
 			})
 
 			When("it contains static dependencies", func() {
@@ -808,6 +814,104 @@ var _ = Describe("PromiseController", func() {
 				})
 			})
 		})
+
+		When("the reconciliation interval is reached", func() {
+			BeforeEach(func() {
+				promise = createPromise(promiseWithWorkflowPath)
+				setReconcileConfigureWorkflowToReturnFinished()
+
+				result, err := t.reconcileUntilCompletion(reconciler, promise, &opts{
+					funcs: []func(client.Object) error{autoMarkCRDAsEstablished},
+				})
+
+				Expect(err).NotTo(HaveOccurred())
+				Expect(result).To(Equal(ctrl.Result{RequeueAfter: controllers.DefaultReconciliationInterval}))
+
+				Expect(fakeK8sClient.Get(ctx, types.NamespacedName{Name: promise.GetName()}, promise)).To(Succeed())
+
+				uPromise, err := promise.ToUnstructured()
+				Expect(err).NotTo(HaveOccurred())
+
+				resourceutil.SetCondition(uPromise, &clusterv1.Condition{
+					Type:               resourceutil.PipelineCompletedCondition,
+					Status:             v1.ConditionTrue,
+					Message:            "Pipeline completed",
+					Reason:             "PipelineExecutedSuccessfully",
+					LastTransitionTime: metav1.NewTime(time.Now().Add(-controllers.DefaultReconciliationInterval)),
+				})
+				resourceutil.MarkPipelineAsCompleted(logr.Logger{}, uPromise)
+				Expect(fakeK8sClient.Status().Update(ctx, uPromise)).To(Succeed())
+			})
+
+			It("re-runs the promise.configure workflow and sets the next reconciliation timestamp", func() {
+				Expect(fakeK8sClient.Get(ctx, promiseName, promise)).To(Succeed())
+				tm := metav1.NewTime(time.Now().Add(-controllers.DefaultReconciliationInterval))
+				promise.Status.LastAvailableTime = &tm
+				Expect(fakeK8sClient.Status().Update(ctx, promise)).To(Succeed())
+
+				result, err := reconciler.Reconcile(ctx, ctrl.Request{NamespacedName: types.NamespacedName{Name: promise.GetName(), Namespace: promise.GetNamespace()}})
+				Expect(err).NotTo(HaveOccurred())
+				Expect(result).To(Equal(ctrl.Result{}))
+
+				Expect(fakeK8sClient.Get(ctx, promiseName, promise)).To(Succeed())
+				Expect(promise.Status.Status).To(Equal(v1alpha1.PromiseStatusUnavailable))
+
+				By("Adding the manual reconciliation label", func() {
+					result, err := reconciler.Reconcile(ctx, ctrl.Request{NamespacedName: types.NamespacedName{Name: promise.GetName(), Namespace: promise.GetNamespace()}})
+					Expect(err).NotTo(HaveOccurred())
+					Expect(result).To(Equal(ctrl.Result{}))
+
+					Expect(fakeK8sClient.Get(ctx, promiseName, promise)).To(Succeed())
+					Expect(promise.Labels[resourceutil.ManualReconciliationLabel]).To(Equal("true"))
+				})
+
+				By("running the pipelines", func() {
+					Expect(fakeK8sClient.Get(ctx, types.NamespacedName{Name: promise.GetName()}, promise)).To(Succeed())
+
+					uPromise, err := promise.ToUnstructured()
+					Expect(err).NotTo(HaveOccurred())
+
+					resourceutil.MarkPipelineAsRunning(logr.Logger{}, uPromise)
+					Expect(fakeK8sClient.Status().Update(ctx, uPromise)).To(Succeed())
+
+					result, err := reconciler.Reconcile(ctx, ctrl.Request{NamespacedName: types.NamespacedName{Name: promise.GetName(), Namespace: promise.GetNamespace()}})
+					Expect(err).ToNot(HaveOccurred())
+					Expect(result).To(Equal(ctrl.Result{}))
+				})
+
+				By("completing the pipelines", func() {
+					Expect(fakeK8sClient.Get(ctx, types.NamespacedName{Name: promise.GetName()}, promise)).To(Succeed())
+
+					uPromise, err := promise.ToUnstructured()
+					Expect(err).NotTo(HaveOccurred())
+
+					resourceutil.SetCondition(uPromise, &clusterv1.Condition{
+						Type:               resourceutil.PipelineCompletedCondition,
+						Status:             v1.ConditionTrue,
+						Message:            "Pipeline completed",
+						Reason:             "PipelineExecutedSuccessfully",
+						LastTransitionTime: metav1.NewTime(time.Now()),
+					})
+					resourceutil.MarkPipelineAsCompleted(logr.Logger{}, uPromise)
+					Expect(fakeK8sClient.Status().Update(ctx, uPromise)).To(Succeed())
+
+					Expect(fakeK8sClient.Get(ctx, promiseName, promise)).To(Succeed())
+					Expect(promise.Status.Status).To(Equal(v1alpha1.PromiseStatusAvailable))
+				})
+
+				By("setting up the next reconciliation loop", func() {
+					result, err := t.reconcileUntilCompletion(reconciler, promise, &opts{
+						funcs: []func(client.Object) error{autoMarkCRDAsEstablished},
+					})
+
+					Expect(fakeK8sClient.Get(ctx, types.NamespacedName{Name: promise.GetName()}, promise)).To(Succeed())
+
+					Expect(err).NotTo(HaveOccurred())
+					Expect(result).To(Equal(ctrl.Result{}))
+					Expect(reconciler.ScheduledReconciliation[promise.GetName()].Unix()).To(Equal(time.Now().Add(controllers.DefaultReconciliationInterval).Unix()))
+				})
+			})
+		})
 	})
 
 	Describe("Promise API", func() {
@@ -819,7 +923,7 @@ var _ = Describe("PromiseController", func() {
 					funcs: []func(client.Object) error{autoMarkCRDAsEstablished},
 				})
 				Expect(err).NotTo(HaveOccurred())
-				Expect(result).To(Equal(ctrl.Result{}))
+				Expect(result).To(Equal(ctrl.Result{RequeueAfter: controllers.DefaultReconciliationInterval}))
 
 				crd, err := fakeApiExtensionsClient.CustomResourceDefinitions().Get(ctx, expectedCRDName, metav1.GetOptions{})
 				Expect(err).ToNot(HaveOccurred())
@@ -856,7 +960,7 @@ var _ = Describe("PromiseController", func() {
 				})
 
 				Expect(err).NotTo(HaveOccurred())
-				Expect(result).To(Equal(ctrl.Result{}))
+				Expect(result).To(Equal(ctrl.Result{RequeueAfter: controllers.DefaultReconciliationInterval}))
 
 				crd, err := fakeApiExtensionsClient.CustomResourceDefinitions().Get(ctx, expectedCRDName, metav1.GetOptions{})
 				Expect(err).ToNot(HaveOccurred())
@@ -908,6 +1012,8 @@ func getWork(namespace, promiseName, resourceName, pipelineName string) v1alpha1
 
 	workSelectorLabel := labels.FormatLabels(l)
 	selector, err := labels.Parse(workSelectorLabel)
+	ExpectWithOffset(1, err).NotTo(HaveOccurred())
+
 	err = fakeK8sClient.List(context.Background(), &works, &client.ListOptions{
 		LabelSelector: selector,
 		Namespace:     namespace,

@@ -118,6 +118,7 @@ type PromiseStatus struct {
 	Status             string                  `json:"status,omitempty"`
 	RequiredPromises   []RequiredPromiseStatus `json:"requiredPromises,omitempty"`
 	RequiredBy         []RequiredBy            `json:"requiredBy,omitempty"`
+	LastAvailableTime  *metav1.Time            `json:"lastAvailableTime,omitempty"`
 }
 
 type PromiseSummary struct {
@@ -250,6 +251,15 @@ func (d Dependencies) Marshal() ([]byte, error) {
 	}
 
 	return io.ReadAll(buf)
+}
+
+func (p *Promise) GetCondition(conditionType string) *metav1.Condition {
+	for i := range p.Status.Conditions {
+		if p.Status.Conditions[i].Type == conditionType {
+			return &p.Status.Conditions[i]
+		}
+	}
+	return nil
 }
 
 //+kubebuilder:object:root=true

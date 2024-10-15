@@ -54,8 +54,9 @@ spec:
                 properties:
                   secretRef:
                     description: |-
-                      SecretReference represents a Secret Reference. It has enough information to retrieve secret
-                      in any namespace
+                      Reference a secret with credentials to access the source.
+                      For more details on the secret format, see the documentation:
+                        https://docs.kratix.io/main/reference/promises/releases#promise-release
                     properties:
                       name:
                         description: name is unique within a namespace to reference

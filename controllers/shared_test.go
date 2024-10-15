@@ -8,6 +8,7 @@ import (
 	. "github.com/onsi/ginkgo/v2"
 	. "github.com/onsi/gomega"
 	"github.com/syntasso/kratix/api/v1alpha1"
+	"github.com/syntasso/kratix/controllers"
 	"k8s.io/apimachinery/pkg/api/errors"
 	"k8s.io/apimachinery/pkg/apis/meta/v1/unstructured"
 	"k8s.io/apimachinery/pkg/types"
@@ -75,7 +76,7 @@ type testReconciler struct {
 }
 
 // Run the reconciler until all these are satisfied:
-// - reconciler is not returning a requeuing result and no error
+// - reconciler is not returning a requeuing result and no error (e.g. `ctrl.Result{}, nil`)
 // - the resource is not updated after a reconcile
 // TODO: We watch for various other resources to trigger reconciliaton loop,
 // e.g. changes to jobs owned by a promise trigger the promise. Need to improve
@@ -132,14 +133,14 @@ func (t *testReconciler) reconcileUntilCompletion(r kubebuilder.Reconciler, obj 
 	err = fakeK8sClient.Get(context.Background(), namespacedName, newK8sObj)
 	if err != nil {
 		if errors.IsNotFound(err) {
-			// The object was deleted, so we need to requeue one last time to mimick
-			// the k8s api behaviou
+			// The object was deleted, so we need to requeue one last time to mimic
+			// the k8s api behaviour
 			return r.Reconcile(context.Background(), ctrl.Request{NamespacedName: namespacedName})
 		}
 		return ctrl.Result{}, err
 	}
 
-	if int64(result.RequeueAfter) == 0 && k8sObj.GetResourceVersion() == newK8sObj.GetResourceVersion() {
+	if (int64(result.RequeueAfter) == 0 || result.RequeueAfter == controllers.DefaultReconciliationInterval) && k8sObj.GetResourceVersion() == newK8sObj.GetResourceVersion() {
 		return result, nil
 	}
 
