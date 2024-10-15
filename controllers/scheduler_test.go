@@ -86,6 +86,7 @@ var _ = Describe("Controllers/Scheduler", func() {
 					Expect(workPlacement.GetLabels()).To(SatisfyAll(
 						HaveKeyWithValue("kratix.io/pipeline-name", resourceWork.Labels["kratix.io/pipeline-name"]),
 					))
+					Expect(workPlacement.GetAnnotations()).To(Equal(resourceWork.GetAnnotations()))
 				})
 
 				It("sets the scheduling conditions on the Work", func() {
@@ -138,6 +139,7 @@ var _ = Describe("Controllers/Scheduler", func() {
 					Expect(newWorkPlacement.Finalizers).To(Equal(workPlacement.Finalizers))
 					Expect(newWorkPlacement.Spec.PromiseName).To(Equal(workPlacement.Spec.PromiseName))
 					Expect(newWorkPlacement.Spec.ResourceName).To(Equal(workPlacement.Spec.ResourceName))
+					Expect(newWorkPlacement.GetAnnotations()).To(Equal(workPlacement.GetAnnotations()))
 				})
 			})
 
@@ -345,6 +347,7 @@ var _ = Describe("Controllers/Scheduler", func() {
 						Expect(devOrProdWorkPlacement.Finalizers[0]).To(Equal("finalizers.workplacement.kratix.io/repo-cleanup"))
 						Expect(devOrProdWorkPlacement.Spec.PromiseName).To(Equal("promise"))
 						Expect(devOrProdWorkPlacement.Spec.ResourceName).To(Equal("resource"))
+						Expect(devOrProdWorkPlacement.GetAnnotations()).To(Equal(resourceWorkWithMultipleGroups.GetAnnotations()))
 
 						Expect(pciWorkPlacement.Namespace).To(Equal("default"))
 						Expect(pciWorkPlacement.ObjectMeta.Labels["kratix.io/work"]).To(Equal("rr-work-name-with-two-groups"))
@@ -356,6 +359,8 @@ var _ = Describe("Controllers/Scheduler", func() {
 						Expect(pciWorkPlacement.Finalizers[0]).To(Equal("finalizers.workplacement.kratix.io/repo-cleanup"))
 						Expect(pciWorkPlacement.Spec.PromiseName).To(Equal("promise"))
 						Expect(pciWorkPlacement.Spec.ResourceName).To(Equal("resource"))
+						Expect(pciWorkPlacement.Spec.ResourceName).To(Equal("resource"))
+						Expect(pciWorkPlacement.GetAnnotations()).To(Equal(resourceWorkWithMultipleGroups.GetAnnotations()))
 					})
 				})
 
@@ -434,6 +439,7 @@ var _ = Describe("Controllers/Scheduler", func() {
 						Expect(pciWorkPlacement.Spec.Workloads).To(Equal(resourceWorkWithMultipleGroups.Spec.WorkloadGroups[1].Workloads))
 						Expect(pciWorkPlacement.Spec.PromiseName).To(Equal("promise"))
 						Expect(pciWorkPlacement.Spec.ResourceName).To(Equal("resource"))
+						Expect(pciWorkPlacement.GetAnnotations()).To(Equal(resourceWorkWithMultipleGroups.GetAnnotations()))
 					})
 
 					It("returns an error indicating what was unschedulable", func() {
@@ -554,6 +560,7 @@ var _ = Describe("Controllers/Scheduler", func() {
 							HaveKeyWithValue("kratix.io/pipeline-name", dependencyWorkForProd.Labels["kratix.io/pipeline-name"]),
 							HaveKeyWithValue("kratix.io/work", dependencyWorkForProd.Name),
 						))
+						Expect(workPlacements.Items[0].GetAnnotations()).To(Equal(dependencyWorkForProd.GetAnnotations()))
 					})
 				})
 
@@ -855,6 +862,9 @@ func newWork(name string, isResource bool, scheduling ...WorkloadGroupScheduling
 				"kratix.io/work":          name,
 				"kratix.io/pipeline-name": fmt.Sprintf("workflow-%s", uuid.New().String()[0:8]),
 			},
+			Annotations: map[string]string{
+				"kratix.io/some-annotation": "some-value",
+			},
 		},
 		Spec: WorkSpec{
 			PromiseName: "promise",
@@ -898,6 +908,9 @@ func newWorkWithTwoWorkloadGroups(name string, isResource bool, promiseSchedulin
 		ObjectMeta: v1.ObjectMeta{
 			Name:      name,
 			Namespace: namespace,
+			Annotations: map[string]string{
+				"kratix.io/annotation-key": "annotation-value",
+			},
 		},
 		Spec: WorkSpec{
 			PromiseName: "promise",

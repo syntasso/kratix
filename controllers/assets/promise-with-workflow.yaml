@@ -2,6 +2,8 @@ apiVersion: platform.kratix.io/v1alpha1
 kind: Promise
 metadata:
   name: promise-with-workflow
+  labels:
+    kratix.io/promise-version: v1.1.0
 spec:
   api:
     apiVersion: apiextensions.k8s.io/v1

@@ -3,6 +3,7 @@ package controllers
 import (
 	"context"
 	"fmt"
+	"time"
 
 	"github.com/go-logr/logr"
 	"github.com/syntasso/kratix/api/v1alpha1"
@@ -24,6 +25,7 @@ const (
 	promiseReleaseNameLabel        = v1alpha1.KratixPrefix + "promise-release-name"
 	removeAllWorkflowJobsFinalizer = v1alpha1.KratixPrefix + "workflows-cleanup"
 	runDeleteWorkflowsFinalizer    = v1alpha1.KratixPrefix + "delete-workflows"
+	DefaultReconciliationInterval  = time.Hour * 10
 )
 
 var (
