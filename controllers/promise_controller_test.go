@@ -397,7 +397,7 @@ var _ = Describe("PromiseController", func() {
 				})
 
 				It("re-reconciles until completion", func() {
-					_, err := t.reconcileUntilCompletion(reconciler, promise, &opts{
+					result, err := t.reconcileUntilCompletion(reconciler, promise, &opts{
 						funcs: []func(client.Object) error{autoMarkCRDAsEstablished},
 					})
 
@@ -453,8 +453,9 @@ var _ = Describe("PromiseController", func() {
 						Expect(binding.GetLabels()).To(Equal(promiseCommonLabels))
 					})
 
-					By("requeuing forever until jobs finishes", func() {
-						Expect(err).To(MatchError("reconcile loop detected"))
+					By("not requeueing while the job is in flight", func() {
+						Expect(result).To(Equal(ctrl.Result{}))
+						Expect(err).To(BeNil())
 					})
 
 					By("finishing the creation once the job is finished", func() {

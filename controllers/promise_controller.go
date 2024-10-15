@@ -389,19 +389,20 @@ func (r *PromiseReconciler) reconcileDependenciesAndPromiseWorkflows(o opts, pro
 
 	jobOpts := workflow.NewOpts(o.ctx, o.client, o.logger, unstructuredPromise, pipelineResources, "promise", r.NumberOfJobsToKeep)
 
-	requeue, err := reconcileConfigure(jobOpts)
+	abort, err := reconcileConfigure(jobOpts)
 	if err != nil {
 		return nil, err
 	}
 
-	if requeue {
-		return &defaultRequeue, nil
+	if abort {
+		return &ctrl.Result{}, nil
 	}
+
 	return nil, nil
 }
 
 func (r *PromiseReconciler) reconcileAllRRs(rrGVK schema.GroupVersionKind) error {
-	//label all rr with manual reocnciliation
+	//label all rr with manual reconciliation
 	rrs := &unstructured.UnstructuredList{}
 	rrListGVK := rrGVK
 	rrListGVK.Kind = rrListGVK.Kind + "List"

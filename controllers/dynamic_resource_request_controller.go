@@ -145,13 +145,9 @@ func (r *DynamicResourceRequestController) Reconcile(ctx context.Context, req ct
 
 	jobOpts := workflow.NewOpts(ctx, r.Client, logger, rr, pipelineResources, "resource", r.NumberOfJobsToKeep)
 
-	requeue, err := reconcileConfigure(jobOpts)
-	if err != nil {
+	abort, err := reconcileConfigure(jobOpts)
+	if err != nil || abort {
 		return ctrl.Result{}, err
-	}
-
-	if requeue {
-		return defaultRequeue, nil
 	}
 
 	if rr.GetGeneration() != resourceutil.GetObservedGeneration(rr) {
