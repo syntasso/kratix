@@ -266,7 +266,7 @@ func (r *PromiseReconciler) Reconcile(ctx context.Context, req ctrl.Request) (ct
 					return ctrl.Result{}, err
 				}
 			}
-      logger.Info("updating observed generation", "from", promise.Status.ObservedGeneration, "to", promise.GetGeneration())
+			logger.Info("updating observed generation", "from", promise.Status.ObservedGeneration, "to", promise.GetGeneration())
 			return ctrl.Result{}, retry.RetryOnConflict(retry.DefaultRetry, func() error {
 				p := &v1alpha1.Promise{}
 				if err = r.Client.Get(ctx, types.NamespacedName{
@@ -293,7 +293,7 @@ func (r *PromiseReconciler) Reconcile(ctx context.Context, req ctrl.Request) (ct
 			return err
 		}
 		p.Status.Status = v1alpha1.PromiseStatusAvailable
-	  promise.Status.LastAvailableTime = &metav1.Time{Time: time.Now()}
+		p.Status.LastAvailableTime = &metav1.Time{Time: time.Now()}
 		return r.Client.Status().Update(ctx, p)
 	})
 }
@@ -316,8 +316,8 @@ func (r *PromiseReconciler) nextReconciliation(promise *v1alpha1.Promise, logger
 
 func (r *PromiseReconciler) hasPromiseRequirementsChanged(ctx context.Context, promise *v1alpha1.Promise) bool {
 	latestCondition, latestRequirements := r.generateStatusAndMarkRequirements(ctx, promise)
-	
-  requirementsFieldChanged := updateRequirementsStatusOnPromise(promise, promise.Status.RequiredPromises, latestRequirements)
+
+	requirementsFieldChanged := updateRequirementsStatusOnPromise(promise, promise.Status.RequiredPromises, latestRequirements)
 	conditionsFieldChanged := updateConditionOnPromise(promise, latestCondition)
 
 	return conditionsFieldChanged || requirementsFieldChanged
