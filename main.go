@@ -41,6 +41,7 @@ import (
 	"sigs.k8s.io/controller-runtime/pkg/webhook"
 
 	corev1 "k8s.io/api/core/v1"
+	metav1 "k8s.io/apimachinery/pkg/apis/meta/v1"
 
 	"github.com/go-logr/logr"
 	"github.com/syntasso/kratix/api/v1alpha1"
@@ -140,12 +141,13 @@ func main() {
 		restartManager := false
 		restartManagerInProgress := false
 		if err = (&controllers.PromiseReconciler{
-			ApiextensionsClient: apiextensionsClient.ApiextensionsV1(),
-			Client:              mgr.GetClient(),
-			Log:                 ctrl.Log.WithName("controllers").WithName("Promise"),
-			Manager:             mgr,
-			Scheme:              mgr.GetScheme(),
-			NumberOfJobsToKeep:  getNumJobsToKeep(kratixConfig),
+			ApiextensionsClient:     apiextensionsClient.ApiextensionsV1(),
+			Client:                  mgr.GetClient(),
+			Log:                     ctrl.Log.WithName("controllers").WithName("Promise"),
+			Manager:                 mgr,
+			Scheme:                  mgr.GetScheme(),
+			NumberOfJobsToKeep:      getNumJobsToKeep(kratixConfig),
+			ScheduledReconciliation: map[string]metav1.Time{},
 			RestartManager: func() {
 				// This function gets called multiple times
 				// First call: restartInProgress get set to true, sleeps starts

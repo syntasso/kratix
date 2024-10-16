@@ -93,7 +93,7 @@ var _ = Describe("DynamicResourceRequestController", func() {
 
 	When("resource is being created", func() {
 		It("re-reconciles until completion", func() {
-			_, err := t.reconcileUntilCompletion(reconciler, resReq)
+			result, err := t.reconcileUntilCompletion(reconciler, resReq)
 			Expect(fakeK8sClient.Get(ctx, resReqNameNamespace, resReq)).To(Succeed())
 
 			resourceLabels := map[string]string{
@@ -151,8 +151,9 @@ var _ = Describe("DynamicResourceRequestController", func() {
 				Expect(strings.TrimSpace(destinationSelectors)).To(Equal(`- matchlabels: environment: dev source: promise`))
 			})
 
-			By("requeuing forever until jobs finishes", func() {
-				Expect(err).To(MatchError("reconcile loop detected"))
+			By("not requeuing, since the controller is watching the job", func() {
+				Expect(err).To(BeNil())
+				Expect(result).To(Equal(ctrl.Result{}))
 			})
 
 			By("finishing the creation once the job is finished", func() {

@@ -72,9 +72,9 @@ var _ = Describe("Workflow Reconciler", func() {
 		When("no pipeline for the workflow was executed", func() {
 			It("creates a new job with the first pipeline job spec", func() {
 				opts := workflow.NewOpts(ctx, fakeK8sClient, logger, uPromise, workflowPipelines, "promise", 5)
-				requeue, err := workflow.ReconcileConfigure(opts)
+				abort, err := workflow.ReconcileConfigure(opts)
 				Expect(err).NotTo(HaveOccurred())
-				Expect(requeue).To(BeTrue())
+				Expect(abort).To(BeTrue())
 				jobList := listJobs(namespace)
 				Expect(jobList).To(HaveLen(1))
 				Expect(jobList[0].Name).To(Equal(workflowPipelines[0].Job.Name))
@@ -134,12 +134,12 @@ var _ = Describe("Workflow Reconciler", func() {
 			})
 
 			Context("and the job is in progress", func() {
-				var requeue bool
+				var abort bool
 
 				BeforeEach(func() {
 					opts := workflow.NewOpts(ctx, fakeK8sClient, logger, uPromise, workflowPipelines, "promise", 5)
 					var err error
-					requeue, err = workflow.ReconcileConfigure(opts)
+					abort, err = workflow.ReconcileConfigure(opts)
 					Expect(err).NotTo(HaveOccurred())
 				})
 
@@ -148,7 +148,7 @@ var _ = Describe("Workflow Reconciler", func() {
 				})
 
 				It("returns true", func() {
-					Expect(requeue).To(BeTrue())
+					Expect(abort).To(BeTrue())
 				})
 
 				When("a new manual reconciliation request is made", func() {
@@ -157,10 +157,10 @@ var _ = Describe("Workflow Reconciler", func() {
 							"kratix.io/manual-reconciliation": "true",
 						})
 						opts := workflow.NewOpts(ctx, fakeK8sClient, logger, uPromise, workflowPipelines, "promise", 5)
-						requeue, err := workflow.ReconcileConfigure(opts)
+						abort, err := workflow.ReconcileConfigure(opts)
 
 						Expect(err).NotTo(HaveOccurred())
-						Expect(requeue).To(BeTrue())
+						Expect(abort).To(BeTrue())
 						Expect(listJobs(namespace)).To(HaveLen(1))
 						Expect(*listJobs(namespace)[0].Spec.Suspend).To(BeTrue())
 					})
@@ -174,8 +174,8 @@ var _ = Describe("Workflow Reconciler", func() {
 
 				It("triggers the next pipeline in the workflow", func() {
 					opts := workflow.NewOpts(ctx, fakeK8sClient, logger, uPromise, workflowPipelines, "promise", 5)
-					requeue, err := workflow.ReconcileConfigure(opts)
-					Expect(requeue).To(BeTrue())
+					abort, err := workflow.ReconcileConfigure(opts)
+					Expect(abort).To(BeTrue())
 					Expect(err).NotTo(HaveOccurred())
 					jobList := listJobs(namespace)
 					Expect(jobList).To(HaveLen(2))
@@ -191,23 +191,23 @@ var _ = Describe("Workflow Reconciler", func() {
 
 					It("returns true (representing all pipelines completed)", func() {
 						opts := workflow.NewOpts(ctx, fakeK8sClient, logger, uPromise, workflowPipelines, "promise", 5)
-						requeue, err := workflow.ReconcileConfigure(opts)
+						abort, err := workflow.ReconcileConfigure(opts)
 						Expect(err).NotTo(HaveOccurred())
 						Expect(listJobs(namespace)).To(HaveLen(2))
-						Expect(requeue).To(BeFalse())
+						Expect(abort).To(BeFalse())
 					})
 				})
 			})
 
 			Context("and the job has failed", func() {
-				var requeue bool
+				var abort bool
 				var err error
 
 				BeforeEach(func() {
 					markJobAsFailed(workflowPipelines[0].Job.Name)
 					newWorkflowPipelines, uPromise := setupTest(promise, pipelines)
 					opts := workflow.NewOpts(ctx, fakeK8sClient, logger, uPromise, newWorkflowPipelines, "promise", 5)
-					requeue, err = workflow.ReconcileConfigure(opts)
+					abort, err = workflow.ReconcileConfigure(opts)
 				})
 
 				It("does not create any new Jobs on the next reconciliation", func() {
@@ -219,7 +219,7 @@ var _ = Describe("Workflow Reconciler", func() {
 				})
 
 				It("halts the workflow by not requeuing", func() {
-					Expect(requeue).To(BeFalse())
+					Expect(abort).To(BeTrue())
 					Expect(err).NotTo(HaveOccurred())
 				})
 
@@ -230,7 +230,9 @@ var _ = Describe("Workflow Reconciler", func() {
 						labelPromiseForManualReconciliation("redis")
 						newWorkflowPipelines, uPromise = setupTest(promise, pipelines)
 						opts := workflow.NewOpts(ctx, fakeK8sClient, logger, uPromise, newWorkflowPipelines, "promise", 5)
-						requeue, err = workflow.ReconcileConfigure(opts)
+						abort, err = workflow.ReconcileConfigure(opts)
+						Expect(abort).To(BeTrue())
+						Expect(err).NotTo(HaveOccurred())
 					})
 
 					It("re-triggers the first pipeline in the workflow", func() {
@@ -262,11 +264,11 @@ var _ = Describe("Workflow Reconciler", func() {
 			When("there are no jobs for the promise at this spec", func() {
 				It("triggers the first pipeline in the workflow", func() {
 					opts := workflow.NewOpts(ctx, fakeK8sClient, logger, uPromise, updatedWorkflowPipeline, "promise", 5)
-					requeue, err := workflow.ReconcileConfigure(opts)
+					abort, err := workflow.ReconcileConfigure(opts)
 					Expect(err).NotTo(HaveOccurred())
 					jobList := listJobs(namespace)
 					Expect(jobList).To(HaveLen(1))
-					Expect(requeue).To(BeTrue())
+					Expect(abort).To(BeTrue())
 
 					Expect(findByName(jobList, updatedWorkflowPipeline[0].Job.Name)).To(BeTrue())
 				})
@@ -301,9 +303,9 @@ var _ = Describe("Workflow Reconciler", func() {
 					It("re-runs all pipelines in the workflow", func() {
 						// Reconcile with the *original* pipelines and promise spec
 						opts := workflow.NewOpts(ctx, fakeK8sClient, logger, uPromise, originalWorkflowPipelines, "promise", 5)
-						requeue, err := workflow.ReconcileConfigure(opts)
+						abort, err := workflow.ReconcileConfigure(opts)
 						Expect(err).NotTo(HaveOccurred())
-						Expect(requeue).To(BeTrue())
+						Expect(abort).To(BeTrue())
 
 						// Expect the original 2 jobs, the updated 2 jobs, and the first job
 						// from re-running the first pipeline again on this reconciliation
@@ -312,9 +314,9 @@ var _ = Describe("Workflow Reconciler", func() {
 
 						markJobAsComplete(originalWorkflowPipelines[0].Job.Name)
 
-						requeue, err = workflow.ReconcileConfigure(opts)
+						abort, err = workflow.ReconcileConfigure(opts)
 						Expect(err).NotTo(HaveOccurred())
-						Expect(requeue).To(BeTrue())
+						Expect(abort).To(BeTrue())
 						jobList = listJobs(namespace)
 						Expect(jobList).To(HaveLen(6))
 					})
@@ -328,11 +330,11 @@ var _ = Describe("Workflow Reconciler", func() {
 
 				It("does not create a new job", func() {
 					opts := workflow.NewOpts(ctx, fakeK8sClient, logger, uPromise, updatedWorkflowPipeline, "promise", 5)
-					requeue, err := workflow.ReconcileConfigure(opts)
+					abort, err := workflow.ReconcileConfigure(opts)
 					Expect(err).NotTo(HaveOccurred())
 					jobList := listJobs(namespace)
 					Expect(len(jobList)).To(Equal(1))
-					Expect(requeue).To(BeTrue())
+					Expect(abort).To(BeTrue())
 				})
 
 				It("suspends the previous job", func() {
@@ -353,10 +355,10 @@ var _ = Describe("Workflow Reconciler", func() {
 					BeforeEach(func() {
 						markJobAsComplete(workflowPipelines[0].Job.Name)
 						opts := workflow.NewOpts(ctx, fakeK8sClient, logger, uPromise, updatedWorkflowPipeline, "promise", 5)
-						requeue, err := workflow.ReconcileConfigure(opts)
+						abort, err := workflow.ReconcileConfigure(opts)
 						Expect(err).NotTo(HaveOccurred())
 						jobList = listJobs(namespace)
-						Expect(requeue).To(BeTrue())
+						Expect(abort).To(BeTrue())
 						Expect(findByName(jobList, workflowPipelines[0].Job.Name)).To(BeTrue())
 					})
 
@@ -376,15 +378,15 @@ var _ = Describe("Workflow Reconciler", func() {
 			BeforeEach(func() {
 				opts = workflow.NewOpts(ctx, fakeK8sClient, logger, uPromise, workflowPipelines, "promise", 5)
 
-				requeue, err := workflow.ReconcileConfigure(opts)
+				abort, err := workflow.ReconcileConfigure(opts)
 				Expect(err).NotTo(HaveOccurred())
-				Expect(requeue).To(BeTrue())
+				Expect(abort).To(BeTrue())
 
 				markJobAsComplete(workflowPipelines[0].Job.Name)
 
-				requeue, err = workflow.ReconcileConfigure(opts)
+				abort, err = workflow.ReconcileConfigure(opts)
 				Expect(err).NotTo(HaveOccurred())
-				Expect(requeue).To(BeTrue())
+				Expect(abort).To(BeTrue())
 			})
 
 			When("there are still pipelines to execute", func() {
@@ -400,9 +402,9 @@ var _ = Describe("Workflow Reconciler", func() {
 			When("all pipelines are executed", func() {
 				BeforeEach(func() {
 					markJobAsComplete(workflowPipelines[1].Job.Name)
-					requeue, err := workflow.ReconcileConfigure(opts)
+					abort, err := workflow.ReconcileConfigure(opts)
 					Expect(err).NotTo(HaveOccurred())
-					Expect(requeue).To(BeFalse())
+					Expect(abort).To(BeFalse())
 				})
 
 				It("deletes the promise scheduling configmap", func() {
@@ -456,9 +458,9 @@ var _ = Describe("Workflow Reconciler", func() {
 				createFakeWorks(pipelines, promise.Name)
 
 				opts := workflow.NewOpts(ctx, fakeK8sClient, logger, uPromise, workflowPipelines, "promise", 5)
-				requeue, err := workflow.ReconcileConfigure(opts)
+				abort, err := workflow.ReconcileConfigure(opts)
 				Expect(err).NotTo(HaveOccurred())
-				Expect(requeue).To(BeFalse())
+				Expect(abort).To(BeFalse())
 
 				updatedPipelines := []v1alpha1.Pipeline{{
 					ObjectMeta: metav1.ObjectMeta{
@@ -476,9 +478,9 @@ var _ = Describe("Workflow Reconciler", func() {
 				markJobAsComplete(updatedWorkflows[0].Job.Name)
 
 				opts = workflow.NewOpts(ctx, fakeK8sClient, logger, uPromise, updatedWorkflows, "promise", 5)
-				requeue, err = workflow.ReconcileConfigure(opts)
+				abort, err = workflow.ReconcileConfigure(opts)
 				Expect(err).NotTo(HaveOccurred())
-				Expect(requeue).To(BeFalse())
+				Expect(abort).To(BeFalse())
 
 				createFakeWorks(updatedPipelines, promise.Name)
 				createFakeWorks(pipelines, "not-redis")
@@ -487,9 +489,9 @@ var _ = Describe("Workflow Reconciler", func() {
 
 			It("cleans up any leftover works from previous runs", func() {
 				opts := workflow.NewOpts(ctx, fakeK8sClient, logger, uPromise, updatedWorkflows, "promise", 5)
-				requeue, err := workflow.ReconcileConfigure(opts)
+				abort, err := workflow.ReconcileConfigure(opts)
 				Expect(err).NotTo(HaveOccurred())
-				Expect(requeue).To(BeFalse())
+				Expect(abort).To(BeFalse())
 
 				works := v1alpha1.WorkList{}
 				Expect(fakeK8sClient.List(ctx, &works)).To(Succeed())
@@ -523,9 +525,9 @@ var _ = Describe("Workflow Reconciler", func() {
 					markJobAsComplete(workflowPipelines[1].Job.Name)
 
 					opts := workflow.NewOpts(ctx, fakeK8sClient, logger, uPromise, workflowPipelines, "promise", 5)
-					requeue, err := workflow.ReconcileConfigure(opts)
+					abort, err := workflow.ReconcileConfigure(opts)
 					Expect(err).NotTo(HaveOccurred())
-					Expect(requeue).To(BeFalse())
+					Expect(abort).To(BeFalse())
 
 					Expect(listJobs(namespace)).To(HaveLen(2))
 
@@ -538,9 +540,9 @@ var _ = Describe("Workflow Reconciler", func() {
 					var jobs []batchv1.Job
 					opts := workflow.NewOpts(ctx, fakeK8sClient, logger, uPromise, workflowPipelines, "promise", 5)
 					By("re-triggering the first pipeline on the next reconciliation", func() {
-						requeue, err := workflow.ReconcileConfigure(opts)
+						abort, err := workflow.ReconcileConfigure(opts)
 						Expect(err).NotTo(HaveOccurred())
-						Expect(requeue).To(BeFalse())
+						Expect(abort).To(BeTrue())
 
 						jobs = resourceutil.SortJobsByCreationDateTime(listJobs(namespace), true)
 						Expect(jobs).To(HaveLen(3))
@@ -563,9 +565,9 @@ var _ = Describe("Workflow Reconciler", func() {
 					})
 
 					By("waiting for the first pipeline to complete", func() {
-						requeue, err := workflow.ReconcileConfigure(opts)
+						abort, err := workflow.ReconcileConfigure(opts)
 						Expect(err).NotTo(HaveOccurred())
-						Expect(requeue).To(BeTrue())
+						Expect(abort).To(BeTrue())
 
 						jobs = resourceutil.SortJobsByCreationDateTime(listJobs(namespace), true)
 						Expect(jobs).To(HaveLen(3))
@@ -574,9 +576,9 @@ var _ = Describe("Workflow Reconciler", func() {
 					markJobAsComplete(jobs[2].Name)
 
 					By("removing the manual reconciliation label again", func() {
-						requeue, err := workflow.ReconcileConfigure(opts)
+						abort, err := workflow.ReconcileConfigure(opts)
 						Expect(err).NotTo(HaveOccurred())
-						Expect(requeue).To(BeFalse())
+						Expect(abort).To(BeTrue())
 
 						promise := v1alpha1.Promise{}
 						Expect(fakeK8sClient.Get(ctx, types.NamespacedName{Name: "redis"}, &promise)).To(Succeed())
@@ -584,9 +586,9 @@ var _ = Describe("Workflow Reconciler", func() {
 					})
 
 					By("restarting from pipeline 0, respecting the label added mid-flight", func() {
-						requeue, err := workflow.ReconcileConfigure(opts)
+						abort, err := workflow.ReconcileConfigure(opts)
 						Expect(err).NotTo(HaveOccurred())
-						Expect(requeue).To(BeTrue())
+						Expect(abort).To(BeTrue())
 
 						jobs = resourceutil.SortJobsByCreationDateTime(listJobs(namespace), true)
 						Expect(jobs).To(HaveLen(4))
@@ -594,9 +596,9 @@ var _ = Describe("Workflow Reconciler", func() {
 					})
 
 					By("waiting for the first pipeline to complete again", func() {
-						requeue, err := workflow.ReconcileConfigure(opts)
+						abort, err := workflow.ReconcileConfigure(opts)
 						Expect(err).NotTo(HaveOccurred())
-						Expect(requeue).To(BeTrue())
+						Expect(abort).To(BeTrue())
 
 						jobs = resourceutil.SortJobsByCreationDateTime(listJobs(namespace), true)
 						Expect(jobs).To(HaveLen(4))
@@ -604,9 +606,9 @@ var _ = Describe("Workflow Reconciler", func() {
 
 					markJobAsComplete(jobs[3].Name)
 					By("triggering the second pipeline when the previous completes", func() {
-						requeue, err := workflow.ReconcileConfigure(opts)
+						abort, err := workflow.ReconcileConfigure(opts)
 						Expect(err).NotTo(HaveOccurred())
-						Expect(requeue).To(BeTrue())
+						Expect(abort).To(BeTrue())
 
 						jobs = resourceutil.SortJobsByCreationDateTime(listJobs(namespace), true)
 						Expect(jobs).To(HaveLen(5))
@@ -614,9 +616,9 @@ var _ = Describe("Workflow Reconciler", func() {
 					})
 
 					By("waiting for the second pipeline to complete", func() {
-						requeue, err := workflow.ReconcileConfigure(opts)
+						abort, err := workflow.ReconcileConfigure(opts)
 						Expect(err).NotTo(HaveOccurred())
-						Expect(requeue).To(BeTrue())
+						Expect(abort).To(BeTrue())
 
 						jobs = resourceutil.SortJobsByCreationDateTime(listJobs(namespace), true)
 						Expect(jobs).To(HaveLen(5))
@@ -624,9 +626,9 @@ var _ = Describe("Workflow Reconciler", func() {
 
 					By("marking it all as completed once the last pipeline completes", func() {
 						markJobAsComplete(jobs[4].Name)
-						requeue, err := workflow.ReconcileConfigure(opts)
+						abort, err := workflow.ReconcileConfigure(opts)
 						Expect(err).NotTo(HaveOccurred())
-						Expect(requeue).To(BeFalse())
+						Expect(abort).To(BeFalse())
 
 						jobs = resourceutil.SortJobsByCreationDateTime(listJobs(namespace), true)
 						Expect(jobs).To(HaveLen(5))
@@ -635,7 +637,7 @@ var _ = Describe("Workflow Reconciler", func() {
 			})
 
 			When("there is a job in progress", func() {
-				var requeue bool
+				var abort bool
 
 				BeforeEach(func() {
 					var err error
@@ -654,7 +656,7 @@ var _ = Describe("Workflow Reconciler", func() {
 
 					opts := workflow.NewOpts(ctx, fakeK8sClient, logger, uPromise, workflowPipelines, "promise", 5)
 
-					requeue, err = workflow.ReconcileConfigure(opts)
+					abort, err = workflow.ReconcileConfigure(opts)
 					Expect(err).NotTo(HaveOccurred())
 				})
 
@@ -667,8 +669,8 @@ var _ = Describe("Workflow Reconciler", func() {
 					Expect(*jobs[1].Spec.Suspend).To(BeTrue())
 				})
 
-				It("requeues", func() {
-					Expect(requeue).To(BeTrue())
+				It("aborts the reconciliation loop", func() {
+					Expect(abort).To(BeTrue())
 				})
 
 				It("does not remove the manual reconciliation label from the parent", func() {

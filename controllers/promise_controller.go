@@ -22,6 +22,7 @@ import (
 	"k8s.io/client-go/util/retry"
 	"slices"
 	"strings"
+	"sync"
 	"time"
 
 	"github.com/syntasso/kratix/lib/objectutil"
@@ -69,6 +70,10 @@ type PromiseReconciler struct {
 	StartedDynamicControllers map[string]*DynamicResourceRequestController
 	RestartManager            func()
 	NumberOfJobsToKeep        int
+
+	ScheduledReconciliation map[string]metav1.Time
+
+	mutex sync.Mutex
 }
 
 const (
@@ -77,6 +82,7 @@ const (
 	dynamicControllerDependantResourcesCleanupFinalizer = v1alpha1.KratixPrefix + "dynamic-controller-dependant-resources-cleanup"
 	crdCleanupFinalizer                                 = v1alpha1.KratixPrefix + "api-crd-cleanup"
 	dependenciesCleanupFinalizer                        = v1alpha1.KratixPrefix + "dependencies-cleanup"
+	lastUpdatedAtAnnotation                             = v1alpha1.KratixPrefix + "last-updated-at"
 
 	requirementStateInstalled                      = "Requirement installed"
 	requirementStateNotInstalled                   = "Requirement not installed"
@@ -95,9 +101,9 @@ var (
 	// fastRequeue can be used whenever we want to quickly requeue, and we don't expect
 	// an error to occur. Example: we delete a resource, we then requeue
 	// to check it's been deleted. Here we can use a fastRequeue instead of a defaultRequeue
-	fastRequeue    = ctrl.Result{RequeueAfter: 1 * time.Second}
-	defaultRequeue = ctrl.Result{RequeueAfter: 5 * time.Second}
-	slowRequeue    = ctrl.Result{RequeueAfter: 15 * time.Second}
+	fastRequeue    = ctrl.Result{RequeueAfter: 5 * time.Second}
+	defaultRequeue = ctrl.Result{RequeueAfter: 15 * time.Second}
+	slowRequeue    = ctrl.Result{RequeueAfter: 60 * time.Second}
 )
 
 //+kubebuilder:rbac:groups=platform.kratix.io,resources=promises,verbs=get;list;watch;create;update;patch;delete
@@ -159,9 +165,16 @@ func (r *PromiseReconciler) Reconcile(ctx context.Context, req ctrl.Request) (ct
 	//Set status to unavailable, at the end of this function we set it to
 	//available. If at anytime we return early, it persisted as unavailable
 	promise.Status.Status = v1alpha1.PromiseStatusUnavailable
-	updated, err := r.ensureRequiredPromiseStatusIsUpToDate(ctx, promise)
-	if err != nil || updated {
-		return ctrl.Result{}, err
+	requirementsChanged := r.hasPromiseRequirementsChanged(ctx, promise)
+
+	scheduledReconciliation := promise.Status.LastAvailableTime != nil && time.Since(promise.Status.LastAvailableTime.Time) > DefaultReconciliationInterval
+	if (requirementsChanged || scheduledReconciliation) && originalStatus == v1alpha1.PromiseStatusAvailable {
+		err := r.Client.Status().Update(ctx, promise)
+		if err != nil {
+			return ctrl.Result{}, err
+		}
+		logger.Info("Requeueing: requirements changed or scheduled reconciliation")
+		return ctrl.Result{}, nil
 	}
 
 	//TODO handle removing finalizer
@@ -211,13 +224,14 @@ func (r *PromiseReconciler) Reconcile(ctx context.Context, req ctrl.Request) (ct
 		return addFinalizers(opts, promise, []string{dependenciesCleanupFinalizer})
 	}
 
-	requeue, err = r.reconcileDependenciesAndPromiseWorkflows(opts, promise)
+	ctrlResult, err := r.reconcileDependenciesAndPromiseWorkflows(opts, promise)
 	if err != nil {
 		return ctrl.Result{}, err
 	}
 
-	if requeue != nil {
-		return *requeue, nil
+	if ctrlResult != nil {
+		logger.Info("stopping reconciliation while reconciling dependencies")
+		return *ctrlResult, nil
 	}
 
 	if promise.ContainsAPI() {
@@ -247,10 +261,12 @@ func (r *PromiseReconciler) Reconcile(ctx context.Context, req ctrl.Request) (ct
 
 		if promise.GetGeneration() != promise.Status.ObservedGeneration {
 			if promise.GetGeneration() != 1 {
+				logger.Info("reconciling all RRs")
 				if err := r.reconcileAllRRs(rrGVK); err != nil {
 					return ctrl.Result{}, err
 				}
 			}
+      logger.Info("updating observed generation", "from", promise.Status.ObservedGeneration, "to", promise.GetGeneration())
 			return ctrl.Result{}, retry.RetryOnConflict(retry.DefaultRetry, func() error {
 				p := &v1alpha1.Promise{}
 				if err = r.Client.Get(ctx, types.NamespacedName{
@@ -266,10 +282,10 @@ func (r *PromiseReconciler) Reconcile(ctx context.Context, req ctrl.Request) (ct
 	}
 
 	if originalStatus == v1alpha1.PromiseStatusAvailable {
-		return ctrl.Result{}, nil
+		return r.nextReconciliation(promise, logger)
 	}
-	logger.Info("Promise status being set to Available")
 
+	logger.Info("Promise status being set to Available")
 	return ctrl.Result{}, retry.RetryOnConflict(retry.DefaultRetry, func() error {
 		p := &v1alpha1.Promise{}
 		if err = r.Client.Get(ctx, types.NamespacedName{
@@ -277,29 +293,34 @@ func (r *PromiseReconciler) Reconcile(ctx context.Context, req ctrl.Request) (ct
 			return err
 		}
 		p.Status.Status = v1alpha1.PromiseStatusAvailable
+	  promise.Status.LastAvailableTime = &metav1.Time{Time: time.Now()}
 		return r.Client.Status().Update(ctx, p)
 	})
 }
 
-func (r *PromiseReconciler) ensureRequiredPromiseStatusIsUpToDate(ctx context.Context, promise *v1alpha1.Promise) (bool, error) {
+func (r *PromiseReconciler) nextReconciliation(promise *v1alpha1.Promise, logger logr.Logger) (ctrl.Result, error) {
+	r.mutex.Lock()
+	defer r.mutex.Unlock()
+
+	scheduled, found := r.ScheduledReconciliation[promise.GetName()]
+	if !found || time.Now().After(scheduled.Time) {
+		next := metav1.NewTime(time.Now().Add(DefaultReconciliationInterval))
+		r.ScheduledReconciliation[promise.GetName()] = next
+
+		logger.Info("Scheduling next reconciliation", "scheduledReconciliationTimestamp", next.Time.String())
+		return ctrl.Result{RequeueAfter: DefaultReconciliationInterval}, nil
+	}
+	logger.Info("Reconciliation already scheduled", "scheduledReconciliationTimestamp", scheduled.Time.String(), "labels", promise.Labels)
+	return ctrl.Result{}, nil
+}
+
+func (r *PromiseReconciler) hasPromiseRequirementsChanged(ctx context.Context, promise *v1alpha1.Promise) bool {
 	latestCondition, latestRequirements := r.generateStatusAndMarkRequirements(ctx, promise)
+	
+  requirementsFieldChanged := updateRequirementsStatusOnPromise(promise, promise.Status.RequiredPromises, latestRequirements)
+	conditionsFieldChanged := updateConditionOnPromise(promise, latestCondition)
 
-	var conditionsFieldChanged, requirementsFieldChanged bool
-	updateErr := retry.RetryOnConflict(retry.DefaultRetry, func() error {
-		p := &v1alpha1.Promise{}
-		if err := r.Client.Get(ctx, types.NamespacedName{
-			Name: promise.Name, Namespace: promise.Namespace}, p); err != nil {
-			return err
-		}
-		requirementsFieldChanged = updateRequirementsStatusOnPromise(promise, promise.Status.RequiredPromises, latestRequirements)
-		conditionsFieldChanged = updateConditionOnPromise(promise, latestCondition)
-		if conditionsFieldChanged || requirementsFieldChanged {
-			return r.Client.Status().Update(ctx, promise)
-		}
-		return nil
-	})
-
-	return requirementsFieldChanged || conditionsFieldChanged, updateErr
+	return conditionsFieldChanged || requirementsFieldChanged
 }
 
 func updateConditionOnPromise(promise *v1alpha1.Promise, latestCondition metav1.Condition) bool {
@@ -407,6 +428,19 @@ func (r *PromiseReconciler) reconcileDependenciesAndPromiseWorkflows(o opts, pro
 	}
 
 	o.logger.Info("Promise contains workflows.promise.configure, reconciling workflows")
+	pipelineCompletedCondition := promise.GetCondition(string(resourceutil.PipelineCompletedCondition))
+	forcePipelineRun := pipelineCompletedCondition != nil && pipelineCompletedCondition.Status == "True" && time.Since(pipelineCompletedCondition.LastTransitionTime.Time) > DefaultReconciliationInterval
+	if forcePipelineRun {
+		o.logger.Info("Pipeline completed too long ago... forcing the reconciliation", "lastTransitionTime", pipelineCompletedCondition.LastTransitionTime.Time.String())
+		if promise.Labels == nil {
+			promise.Labels = make(map[string]string)
+		}
+		promise.Labels[resourceutil.ManualReconciliationLabel] = "true"
+		if err := r.Client.Update(o.ctx, promise); err != nil {
+			return &ctrl.Result{}, err
+		}
+	}
+
 	unstructuredPromise, err := promise.ToUnstructured()
 	if err != nil {
 		return nil, err
@@ -419,19 +453,20 @@ func (r *PromiseReconciler) reconcileDependenciesAndPromiseWorkflows(o opts, pro
 
 	jobOpts := workflow.NewOpts(o.ctx, o.client, o.logger, unstructuredPromise, pipelineResources, "promise", r.NumberOfJobsToKeep)
 
-	requeue, err := reconcileConfigure(jobOpts)
+	abort, err := reconcileConfigure(jobOpts)
 	if err != nil {
 		return nil, err
 	}
 
-	if requeue {
-		return &defaultRequeue, nil
+	if abort {
+		return &ctrl.Result{}, nil
 	}
+
 	return nil, nil
 }
 
 func (r *PromiseReconciler) reconcileAllRRs(rrGVK schema.GroupVersionKind) error {
-	//label all rr with manual reocnciliation
+	//label all rr with manual reconciliation
 	rrs := &unstructured.UnstructuredList{}
 	rrListGVK := rrGVK
 	rrListGVK.Kind = rrListGVK.Kind + "List"
@@ -1006,6 +1041,14 @@ func (r *PromiseReconciler) applyWorkForStaticDependencies(o opts, promise *v1al
 	} else {
 		op = "updated"
 		existingWork.Spec = work.Spec
+
+		ann := existingWork.GetAnnotations()
+		if ann == nil {
+			ann = map[string]string{}
+		}
+		ann[lastUpdatedAtAnnotation] = time.Now().Local().String()
+		existingWork.SetAnnotations(ann)
+
 		err = r.Client.Update(o.ctx, existingWork)
 	}
 
