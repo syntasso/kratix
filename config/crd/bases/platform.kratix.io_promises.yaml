@@ -55,10 +55,15 @@ spec:
             description: PromiseSpec defines the desired state of Promise
             properties:
               api:
+                description: |-
+                  API an application developers will use to request a Resource from this Promise.
+                  Must be a valid kubernetes custom resource definition.
                 type: object
                 x-kubernetes-embedded-resource: true
                 x-kubernetes-preserve-unknown-fields: true
               dependencies:
+                description: A collection of prerequisites that enable the creation
+                  of a Resource.
                 items:
                   description: Resources represents the manifest workload to be deployed
                     on Destinations
@@ -66,8 +71,8 @@ spec:
                   x-kubernetes-preserve-unknown-fields: true
                 type: array
               destinationSelectors:
+                description: A list of key and value pairs (labels) used for scheduling.
                 items:
-                  description: For Promise spec
                   properties:
                     matchLabels:
                       additionalProperties:
@@ -76,6 +81,9 @@ spec:
                   type: object
                 type: array
               requiredPromises:
+                description: |-
+                  A list of Promises that are required by this Promise.
+                  All required Promises must be present and available for this promise to be made available.
                 items:
                   properties:
                     name:
@@ -87,6 +95,8 @@ spec:
                   type: object
                 type: array
               workflows:
+                description: A list of pipelines to be executed at different stages
+                  of the Promise lifecycle.
                 properties:
                   promise:
                     properties:
