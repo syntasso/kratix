@@ -35,5 +35,6 @@ COPY --chown=nonroot:nonroot --from=builder /workspace/work-creator/scripts/upda
 COPY --chown=nonroot:nonroot --from=builder /workspace/work-creator/scripts/reader /bin/reader
 COPY --chown=nonroot:nonroot --from=builder /workspace/work-creator-files /work-creator-files
 
+USER 65532:65532
 ENTRYPOINT []
 CMD []
