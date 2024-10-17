@@ -151,7 +151,7 @@ func (r *PromiseReconciler) Reconcile(ctx context.Context, req ctrl.Request) (ct
 	if value, found := promise.Labels[v1alpha1.PromiseVersionLabel]; found {
 		if promise.Status.Version != value {
 			promise.Status.Version = value
-			return ctrl.Result{}, r.Client.Status().Update(ctx, promise)
+			return r.updatePromiseStatus(ctx, promise)
 		}
 	}
 
@@ -162,10 +162,10 @@ func (r *PromiseReconciler) Reconcile(ctx context.Context, req ctrl.Request) (ct
 
 	scheduledReconciliation := promise.Status.LastAvailableTime != nil && time.Since(promise.Status.LastAvailableTime.Time) > DefaultReconciliationInterval
 	if (requirementsChanged || scheduledReconciliation) && originalStatus == v1alpha1.PromiseStatusAvailable {
-		err := r.Client.Status().Update(ctx, promise)
-		if err != nil {
-			return ctrl.Result{}, err
+		if result, statusUpdateErr := r.updatePromiseStatus(ctx, promise); statusUpdateErr != nil || !result.IsZero() {
+			return result, statusUpdateErr
 		}
+
 		logger.Info("Requeueing: requirements changed or scheduled reconciliation")
 		return ctrl.Result{}, nil
 	}
@@ -261,7 +261,7 @@ func (r *PromiseReconciler) Reconcile(ctx context.Context, req ctrl.Request) (ct
 			}
 			logger.Info("updating observed generation", "from", promise.Status.ObservedGeneration, "to", promise.GetGeneration())
 			promise.Status.ObservedGeneration = promise.GetGeneration()
-			return ctrl.Result{}, r.Client.Status().Update(ctx, promise)
+			return r.updatePromiseStatus(ctx, promise)
 		}
 	} else {
 		logger.Info("Promise only contains dependencies, skipping creation of API and dynamic controller")
@@ -274,7 +274,7 @@ func (r *PromiseReconciler) Reconcile(ctx context.Context, req ctrl.Request) (ct
 	logger.Info("Promise status being set to Available")
 	promise.Status.Status = v1alpha1.PromiseStatusAvailable
 	promise.Status.LastAvailableTime = &metav1.Time{Time: time.Now()}
-	return ctrl.Result{}, r.Client.Status().Update(ctx, promise)
+	return r.updatePromiseStatus(ctx, promise)
 }
 
 func (r *PromiseReconciler) nextReconciliation(promise *v1alpha1.Promise, logger logr.Logger) (ctrl.Result, error) {
@@ -1078,4 +1078,13 @@ func (r *PromiseReconciler) markRequiredPromiseAsRequired(ctx context.Context, v
 	if err != nil {
 		r.Log.Error(err, "error updating promise required by promise", "promise", promise.GetName(), "required promise", requiredPromise.GetName())
 	}
+}
+
+func (r *PromiseReconciler) updatePromiseStatus(ctx context.Context, promise *v1alpha1.Promise) (ctrl.Result, error) {
+	err := r.Client.Status().Update(ctx, promise)
+	if errors.IsConflict(err) {
+		r.Log.Info("failed to update Promise status due to update conflict, requeue...")
+		return fastRequeue, nil
+	}
+	return ctrl.Result{}, err
 }
