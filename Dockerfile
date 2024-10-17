@@ -26,5 +26,6 @@ FROM gcr.io/distroless/cc:nonroot
 WORKDIR /
 COPY --from=builder /workspace/manager .
 COPY --from=alpine/git /usr/bin/git /usr/bin/git
+USER 65532:65532
 
 ENTRYPOINT ["/manager"]
