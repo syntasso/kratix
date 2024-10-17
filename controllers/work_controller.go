@@ -81,7 +81,10 @@ func (r *WorkReconciler) Reconcile(ctx context.Context, req ctrl.Request) (ctrl.
 
 	logger.Info("Requesting scheduling for Work")
 	unscheduledWorkloadGroupIDs, err := r.Scheduler.ReconcileWork(work)
-	if err != nil {
+	if errors.IsConflict(err) {
+		logger.Info("failed to schedule Work due to update conflict, requeue...")
+		return fastRequeue, nil
+	} else if err != nil {
 		//TODO remove this error checking
 		//temp fix until resolved: https://syntasso.slack.com/archives/C044T9ZFUMN/p1674058648965449
 		logger.Error(err, "Error scheduling Work, will retry...")

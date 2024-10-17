@@ -25,6 +25,7 @@ import (
 	"github.com/go-logr/logr"
 	"gopkg.in/yaml.v2"
 	k8sErrors "k8s.io/apimachinery/pkg/api/errors"
+	kerrors "k8s.io/apimachinery/pkg/api/errors"
 	"k8s.io/apimachinery/pkg/types"
 	ctrl "sigs.k8s.io/controller-runtime"
 	"sigs.k8s.io/controller-runtime/pkg/client"
@@ -122,7 +123,11 @@ func (r *WorkPlacementReconciler) Reconcile(ctx context.Context, req ctrl.Reques
 		workPlacement.Status.VersionID = versionID
 		logger.Info("Updating version status", "versionID", versionID)
 		err = r.Client.Status().Update(ctx, workPlacement)
-		if err != nil {
+		if kerrors.IsConflict(err) {
+			r.VersionCache[workPlacement.GetUniqueID()] = versionID
+			r.Log.Info("failed to update WorkPlacement status due to update conflict, requeue...")
+			return fastRequeue, nil
+		} else if err != nil {
 			r.VersionCache[workPlacement.GetUniqueID()] = versionID
 			logger.Error(err, "Error updating WorkPlacement status")
 			return ctrl.Result{}, err
