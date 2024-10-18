@@ -16,43 +16,43 @@ import (
 )
 
 const (
-	PipelineCompletedCondition       = clusterv1.ConditionType("PipelineCompleted")
-	ManualReconciliationLabel        = "kratix.io/manual-reconciliation"
-	promiseAvailableCondition        = clusterv1.ConditionType("PromiseAvailable")
-	promiseRequirementsNotMetReason  = "PromiseRequirementsNotInstalled"
-	promiseRequirementsNotMetMessage = "Promise Requirements are not installed"
-	promiseRequirementsMetReason     = "PromiseAvailable"
-	promiseRequirementsMetMessage    = "Promise Requirements are met"
+	ConfigureWorkflowCompletedCondition = clusterv1.ConditionType("ConfigureWorkflowCompleted")
+	ManualReconciliationLabel           = "kratix.io/manual-reconciliation"
+	promiseAvailableCondition           = clusterv1.ConditionType("PromiseAvailable")
+	promiseRequirementsNotMetReason     = "PromiseRequirementsNotInstalled"
+	promiseRequirementsNotMetMessage    = "Promise Requirements are not installed"
+	promiseRequirementsMetReason        = "PromiseAvailable"
+	promiseRequirementsMetMessage       = "Promise Requirements are met"
 )
 
-func GetPipelineCompletedConditionStatus(obj *unstructured.Unstructured) v1.ConditionStatus {
-	condition := GetCondition(obj, PipelineCompletedCondition)
+func GetConfigureWorkflowCompletedConditionStatus(obj *unstructured.Unstructured) v1.ConditionStatus {
+	condition := GetCondition(obj, ConfigureWorkflowCompletedCondition)
 	if condition == nil {
 		return v1.ConditionUnknown
 	}
 	return condition.Status
 }
 
-func MarkPipelineAsRunning(logger logr.Logger, obj *unstructured.Unstructured) {
+func MarkWorkflowAsRunning(logger logr.Logger, obj *unstructured.Unstructured) {
 	SetCondition(obj, &clusterv1.Condition{
-		Type:               PipelineCompletedCondition,
+		Type:               ConfigureWorkflowCompletedCondition,
 		Status:             v1.ConditionFalse,
-		Message:            "Pipeline has not completed",
-		Reason:             "PipelineNotCompleted",
+		Message:            "Pipelines are still in progress",
+		Reason:             "PipelinesInProgress",
 		LastTransitionTime: metav1.NewTime(time.Now()),
 	})
-	logger.Info("set conditions", "condition", PipelineCompletedCondition, "value", v1.ConditionFalse)
+	logger.Info("set conditions", "condition", ConfigureWorkflowCompletedCondition, "value", v1.ConditionFalse, "reason", "PipelinesInProgress")
 }
 
-func MarkPipelineAsCompleted(logger logr.Logger, obj *unstructured.Unstructured) {
+func MarkWorkflowAsFailed(logger logr.Logger, obj *unstructured.Unstructured, failedPipeline string) {
 	SetCondition(obj, &clusterv1.Condition{
-		Type:               PipelineCompletedCondition,
-		Status:             v1.ConditionTrue,
-		Message:            "Pipeline completed",
-		Reason:             "PipelineExecutedSuccessfully",
+		Type:               ConfigureWorkflowCompletedCondition,
+		Status:             v1.ConditionFalse,
+		Message:            fmt.Sprintf("A Pipeline has failed: %s", failedPipeline),
+		Reason:             "ConfigureWorkflowFailed",
 		LastTransitionTime: metav1.NewTime(time.Now()),
 	})
-	logger.Info("set conditions", "condition", PipelineCompletedCondition, "value", v1.ConditionTrue)
+	logger.Info("set conditions", "condition", ConfigureWorkflowCompletedCondition, "value", v1.ConditionFalse, "reason", "ConfigureWorkflowFailed")
 }
 
 func SortJobsByCreationDateTime(jobs []batchv1.Job, desc bool) []batchv1.Job {

@@ -10,6 +10,7 @@ import (
 	v1 "k8s.io/api/core/v1"
 	metav1 "k8s.io/apimachinery/pkg/apis/meta/v1"
 	"k8s.io/apimachinery/pkg/apis/meta/v1/unstructured"
+	clusterv1 "sigs.k8s.io/cluster-api/api/v1beta1"
 
 	"github.com/syntasso/kratix/lib/hash"
 	"github.com/syntasso/kratix/lib/resourceutil"
@@ -93,7 +94,7 @@ var _ = Describe("Conditions", func() {
 		})
 
 		It("only compares hashes of the most recent job", func() {
-			resourceutil.MarkPipelineAsCompleted(logger, rr)
+			markWorkflowAsCompleted(rr)
 			jobs := []batchv1.Job{
 				{
 					ObjectMeta: metav1.ObjectMeta{
@@ -430,3 +431,13 @@ var _ = Describe("Conditions", func() {
 		})
 	})
 })
+
+func markWorkflowAsCompleted(obj *unstructured.Unstructured) {
+	resourceutil.SetCondition(obj, &clusterv1.Condition{
+		Type:               resourceutil.ConfigureWorkflowCompletedCondition,
+		Status:             v1.ConditionTrue,
+		Message:            "Pipelines completed",
+		Reason:             "PipelinesExecutedSuccessfully",
+		LastTransitionTime: metav1.NewTime(time.Now()),
+	})
+}

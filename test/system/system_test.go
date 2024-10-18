@@ -332,8 +332,8 @@ var _ = Describe("Kratix", func() {
 					Expect(podYaml).NotTo(ContainSubstring("setInPromise"))
 				})
 
-				By("setting the PipelineCompleted condition on the Resource Request", func() {
-					platform.eventuallyKubectl("wait", "--for=condition=PipelineCompleted", bashPromiseName, rrName, pipelineTimeout)
+				By("setting the ConfigureWorkflowCompleted condition on the Resource Request", func() {
+					platform.eventuallyKubectl("wait", "--for=condition=ConfigureWorkflowCompleted", bashPromiseName, rrName, pipelineTimeout)
 				})
 
 				By("deploying the generated resources to the destinations specified in the pipelines", func() {
@@ -685,7 +685,7 @@ var _ = Describe("Kratix", func() {
 				kubectl create namespace rr-2-namespace --dry-run=client -oyaml > /kratix/output/ns.yaml`
 				platform.kubectl("apply", "-f", requestWithNameAndCommand("rr-2", pipelineCmd))
 
-				platform.eventuallyKubectl("wait", "--for=condition=PipelineCompleted", bashPromiseName, "rr-2", pipelineTimeout)
+				platform.eventuallyKubectl("wait", "--for=condition=ConfigureWorkflowCompleted", bashPromiseName, "rr-2", pipelineTimeout)
 
 				By("only scheduling the work when a Destination label matches", func() {
 					/*
