@@ -93,7 +93,7 @@ var _ = Describe("Conditions", func() {
 		})
 
 		It("only compares hashes of the most recent job", func() {
-			resourceutil.MarkPipelineAsCompleted(logger, rr)
+			resourceutil.MarkWorkflowAsCompleted(logger, rr)
 			jobs := []batchv1.Job{
 				{
 					ObjectMeta: metav1.ObjectMeta{

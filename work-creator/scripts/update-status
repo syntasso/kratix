@@ -5,18 +5,17 @@ set -euxo pipefail
 workspace_dir=/work-creator-files
 status_file=${workspace_dir}/metadata/status.yaml
 # timestamp is RFC3339
-export conditions="message: Pipeline completed
+export workflow_completed_condition="message: Pipelines completed
 lastTransitionTime: \"$(date -u +"%Y-%m-%dT%H:%M:%SZ")\"
 status: \"True\"
-type: PipelineCompleted
-reason: PipelineExecutedSuccessfully
+type: ConfigureWorkflowCompleted
+reason: PipelinesExecutedSuccessfully
 "
 
 kubectl get $OBJECT_KIND.$OBJECT_GROUP/$OBJECT_NAME --namespace $OBJECT_NAMESPACE  -oyaml > ${workspace_dir}/existing-object.yaml
 
 yq '.status // {}' ${workspace_dir}/existing-object.yaml > ${workspace_dir}/existing-status.yaml
 echo "{}" > ${workspace_dir}/incoming-status.yaml
-incoming_status="{}"
 if [ -f "$status_file" ]; then
 	cat $status_file > ${workspace_dir}/incoming-status.yaml
 fi
@@ -25,18 +24,15 @@ export status="$(yq ". *= load(\"${workspace_dir}/incoming-status.yaml\")" ${wor
 
 current_message=$(echo "$status" | yq -r '.message')
 
-if [ "${IS_LAST_PIPELINE}" = "true" ]; then
-	if [ "${current_message}" = "Pending" ]; then
-		status=$(echo "$status" | yq '.message = "Resource requested"')
-	fi
-fi
-
 export existing_conditions=$(yq -r '.status.conditions // []' ${workspace_dir}/existing-object.yaml)
 
-yq -n '.status = env(status)' |
-	yq '.status.conditions = env(existing_conditions)' |
-	yq '(.status.conditions[] | select(.type == "PipelineCompleted")) = env(conditions)' > ${workspace_dir}/status.yaml
-# TODO: Should we check if printer fields values exist?
-#       Default behaviour is to just be empty (not error)
+yq -n '.status = env(status)' | yq '.status.conditions = env(existing_conditions)' > ${workspace_dir}/status.yaml
+
+if [ "${IS_LAST_PIPELINE}" = "true" ]; then
+	if [ "${current_message}" = "Pending" ]; then
+		yq -i '.status.message = "Resource requested"' ${workspace_dir}/status.yaml
+	fi
+	yq -i '(.status.conditions[] | select(.type == "ConfigureWorkflowCompleted")) = env(workflow_completed_condition)' ${workspace_dir}/status.yaml
+fi
 
 kubectl patch $OBJECT_KIND.$OBJECT_GROUP/$OBJECT_NAME --namespace $OBJECT_NAMESPACE --type merge --patch-file ${workspace_dir}/status.yaml --subresource status
