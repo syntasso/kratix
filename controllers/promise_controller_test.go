@@ -839,7 +839,7 @@ var _ = Describe("PromiseController", func() {
 					Reason:             "PipelinesExecutedSuccessfully",
 					LastTransitionTime: metav1.NewTime(time.Now().Add(-controllers.DefaultReconciliationInterval)),
 				})
-				resourceutil.MarkPipelineAsCompleted(logr.Logger{}, uPromise)
+				resourceutil.MarkWorkflowAsCompleted(logr.Logger{}, uPromise)
 				Expect(fakeK8sClient.Status().Update(ctx, uPromise)).To(Succeed())
 			})
 
@@ -871,7 +871,7 @@ var _ = Describe("PromiseController", func() {
 					uPromise, err := promise.ToUnstructured()
 					Expect(err).NotTo(HaveOccurred())
 
-					resourceutil.MarkPipelineAsRunning(logr.Logger{}, uPromise)
+					resourceutil.MarkWorkflowAsRunning(logr.Logger{}, uPromise)
 					Expect(fakeK8sClient.Status().Update(ctx, uPromise)).To(Succeed())
 
 					result, err := reconciler.Reconcile(ctx, ctrl.Request{NamespacedName: types.NamespacedName{Name: promise.GetName(), Namespace: promise.GetNamespace()}})
@@ -892,7 +892,7 @@ var _ = Describe("PromiseController", func() {
 						Reason:             "PipelineExecutedSuccessfully",
 						LastTransitionTime: metav1.NewTime(time.Now()),
 					})
-					resourceutil.MarkPipelineAsCompleted(logr.Logger{}, uPromise)
+					resourceutil.MarkWorkflowAsCompleted(logr.Logger{}, uPromise)
 					Expect(fakeK8sClient.Status().Update(ctx, uPromise)).To(Succeed())
 
 					Expect(fakeK8sClient.Get(ctx, promiseName, promise)).To(Succeed())

@@ -33,18 +33,29 @@ func GetConfigureWorkflowCompletedConditionStatus(obj *unstructured.Unstructured
 	return condition.Status
 }
 
-func MarkPipelineAsRunning(logger logr.Logger, obj *unstructured.Unstructured) {
+func MarkWorkflowAsRunning(logger logr.Logger, obj *unstructured.Unstructured) {
 	SetCondition(obj, &clusterv1.Condition{
 		Type:               ConfigureWorkflowCompletedCondition,
 		Status:             v1.ConditionFalse,
-		Message:            "Pipelines have not all completed",
-		Reason:             "NotAllPipelinesCompleted",
+		Message:            "Pipelines are still in progress",
+		Reason:             "PipelinesInProgress",
 		LastTransitionTime: metav1.NewTime(time.Now()),
 	})
-	logger.Info("set conditions", "condition", ConfigureWorkflowCompletedCondition, "value", v1.ConditionFalse)
+	logger.Info("set conditions", "condition", ConfigureWorkflowCompletedCondition, "value", v1.ConditionFalse, "reason", "PipelinesInProgress")
 }
 
-func MarkPipelineAsCompleted(logger logr.Logger, obj *unstructured.Unstructured) {
+func MarkWorkflowAsFailed(logger logr.Logger, obj *unstructured.Unstructured, failedPipeline string) {
+	SetCondition(obj, &clusterv1.Condition{
+		Type:               ConfigureWorkflowCompletedCondition,
+		Status:             v1.ConditionFalse,
+		Message:            fmt.Sprintf("A Pipeline has failed: %s", failedPipeline),
+		Reason:             "ConfigureWorkflowFailed",
+		LastTransitionTime: metav1.NewTime(time.Now()),
+	})
+	logger.Info("set conditions", "condition", ConfigureWorkflowCompletedCondition, "value", v1.ConditionFalse, "reason", "ConfigureWorkflowFailed")
+}
+
+func MarkWorkflowAsCompleted(logger logr.Logger, obj *unstructured.Unstructured) {
 	SetCondition(obj, &clusterv1.Condition{
 		Type:               ConfigureWorkflowCompletedCondition,
 		Status:             v1.ConditionTrue,
@@ -52,7 +63,7 @@ func MarkPipelineAsCompleted(logger logr.Logger, obj *unstructured.Unstructured)
 		Reason:             "PipelinesExecutedSuccessfully",
 		LastTransitionTime: metav1.NewTime(time.Now()),
 	})
-	logger.Info("set conditions", "condition", ConfigureWorkflowCompletedCondition, "value", v1.ConditionTrue)
+	logger.Info("set conditions", "condition", ConfigureWorkflowCompletedCondition, "value", v1.ConditionTrue, "reason", "PipelinesExecutedSuccessfully")
 }
 
 func SortJobsByCreationDateTime(jobs []batchv1.Job, desc bool) []batchv1.Job {

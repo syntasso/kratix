@@ -223,6 +223,16 @@ var _ = Describe("Workflow Reconciler", func() {
 					Expect(err).NotTo(HaveOccurred())
 				})
 
+				It("updates the Promise status", func() {
+					Expect(fakeK8sClient.Get(ctx, types.NamespacedName{Name: promise.Name}, &promise)).To(Succeed())
+					Expect(promise.Status.Conditions).To(ContainElement(MatchFields(IgnoreExtras, Fields{
+						"Type":    Equal(string(resourceutil.ConfigureWorkflowCompletedCondition)),
+						"Status":  Equal(v1.ConditionFalse),
+						"Message": Equal("A Pipeline has failed: pipeline-1"),
+						"Reason":  Equal("ConfigureWorkflowFailed"),
+					})))
+				})
+
 				When("the parent is later manually reconciled", func() {
 					var newWorkflowPipelines []v1alpha1.PipelineJobResources
 
@@ -1790,7 +1800,7 @@ func setupTest(promise v1alpha1.Promise, pipelines []v1alpha1.Pipeline) ([]v1alp
 	uPromise, err := p.ToUnstructured()
 	Expect(err).NotTo(HaveOccurred())
 
-	resourceutil.MarkPipelineAsRunning(logger, uPromise)
+	resourceutil.MarkWorkflowAsRunning(logger, uPromise)
 	Expect(fakeK8sClient.Status().Update(ctx, uPromise)).To(Succeed())
 
 	var workflowPipelines []v1alpha1.PipelineJobResources

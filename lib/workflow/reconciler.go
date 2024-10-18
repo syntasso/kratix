@@ -148,6 +148,11 @@ func ReconcileConfigure(opts Opts) (abort bool, err error) {
 		}
 
 		if isFailed(mostRecentJob) {
+			resourceutil.MarkWorkflowAsFailed(opts.logger, opts.parentObject, pipeline.Name)
+			if err := opts.client.Status().Update(opts.ctx, opts.parentObject); err != nil {
+				opts.logger.Error(err, "failed to update parent object status")
+				return false, err
+			}
 			opts.logger.Info("Last Job for Pipeline has failed, exiting workflow", "failedJob", mostRecentJob.Name, "pipeline", pipeline.Name)
 			return true, nil
 		}
@@ -401,7 +406,7 @@ func setConfigureWorkflowCompletedConditionStatus(opts Opts, isTheFirstPipeline 
 		if isTheFirstPipeline || currentMessage == "" || currentMessage == "Resource requested" {
 			resourceutil.SetStatus(obj, opts.logger, "message", "Pending")
 		}
-		resourceutil.MarkPipelineAsRunning(opts.logger, obj)
+		resourceutil.MarkWorkflowAsRunning(opts.logger, obj)
 		err := opts.client.Status().Update(opts.ctx, obj)
 		if err != nil {
 			return false, err
