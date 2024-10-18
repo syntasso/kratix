@@ -355,7 +355,7 @@ func deleteConfigMap(opts Opts, pipeline v1alpha1.PipelineJobResources) error {
 }
 
 func createConfigurePipeline(opts Opts, pipelineIndex int, resources v1alpha1.PipelineJobResources) (abort bool, err error) {
-	updated, err := setPipelineCompletedConditionStatus(opts, pipelineIndex == 0, opts.parentObject)
+	updated, err := setConfigureWorkflowCompletedConditionStatus(opts, pipelineIndex == 0, opts.parentObject)
 	if err != nil || updated {
 		return updated, err
 	}
@@ -392,8 +392,8 @@ func removeManualReconciliationLabel(opts Opts) error {
 	return nil
 }
 
-func setPipelineCompletedConditionStatus(opts Opts, isTheFirstPipeline bool, obj *unstructured.Unstructured) (bool, error) {
-	switch resourceutil.GetPipelineCompletedConditionStatus(obj) {
+func setConfigureWorkflowCompletedConditionStatus(opts Opts, isTheFirstPipeline bool, obj *unstructured.Unstructured) (bool, error) {
+	switch resourceutil.GetConfigureWorkflowCompletedConditionStatus(obj) {
 	case v1.ConditionTrue:
 		fallthrough
 	case v1.ConditionUnknown:
