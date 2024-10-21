@@ -833,13 +833,13 @@ var _ = Describe("PromiseController", func() {
 				Expect(err).NotTo(HaveOccurred())
 
 				resourceutil.SetCondition(uPromise, &clusterv1.Condition{
-					Type:               resourceutil.PipelineCompletedCondition,
+					Type:               resourceutil.ConfigureWorkflowCompletedCondition,
 					Status:             v1.ConditionTrue,
-					Message:            "Pipeline completed",
-					Reason:             "PipelineExecutedSuccessfully",
+					Message:            "Pipelines completed",
+					Reason:             "PipelinesExecutedSuccessfully",
 					LastTransitionTime: metav1.NewTime(time.Now().Add(-controllers.DefaultReconciliationInterval)),
 				})
-				resourceutil.MarkPipelineAsCompleted(logr.Logger{}, uPromise)
+				markWorkflowAsCompleted(uPromise)
 				Expect(fakeK8sClient.Status().Update(ctx, uPromise)).To(Succeed())
 			})
 
@@ -856,7 +856,7 @@ var _ = Describe("PromiseController", func() {
 				Expect(fakeK8sClient.Get(ctx, promiseName, promise)).To(Succeed())
 				Expect(promise.Status.Status).To(Equal(v1alpha1.PromiseStatusUnavailable))
 
-				By("Adding the manual reconciliation label", func() {
+				By("adding the manual reconciliation label", func() {
 					result, err := reconciler.Reconcile(ctx, ctrl.Request{NamespacedName: types.NamespacedName{Name: promise.GetName(), Namespace: promise.GetNamespace()}})
 					Expect(err).NotTo(HaveOccurred())
 					Expect(result).To(Equal(ctrl.Result{}))
@@ -871,7 +871,7 @@ var _ = Describe("PromiseController", func() {
 					uPromise, err := promise.ToUnstructured()
 					Expect(err).NotTo(HaveOccurred())
 
-					resourceutil.MarkPipelineAsRunning(logr.Logger{}, uPromise)
+					resourceutil.MarkWorkflowAsRunning(logr.Logger{}, uPromise)
 					Expect(fakeK8sClient.Status().Update(ctx, uPromise)).To(Succeed())
 
 					result, err := reconciler.Reconcile(ctx, ctrl.Request{NamespacedName: types.NamespacedName{Name: promise.GetName(), Namespace: promise.GetNamespace()}})
@@ -886,13 +886,13 @@ var _ = Describe("PromiseController", func() {
 					Expect(err).NotTo(HaveOccurred())
 
 					resourceutil.SetCondition(uPromise, &clusterv1.Condition{
-						Type:               resourceutil.PipelineCompletedCondition,
+						Type:               resourceutil.ConfigureWorkflowCompletedCondition,
 						Status:             v1.ConditionTrue,
 						Message:            "Pipeline completed",
 						Reason:             "PipelineExecutedSuccessfully",
 						LastTransitionTime: metav1.NewTime(time.Now()),
 					})
-					resourceutil.MarkPipelineAsCompleted(logr.Logger{}, uPromise)
+					markWorkflowAsCompleted(uPromise)
 					Expect(fakeK8sClient.Status().Update(ctx, uPromise)).To(Succeed())
 
 					Expect(fakeK8sClient.Get(ctx, promiseName, promise)).To(Succeed())
@@ -1048,4 +1048,14 @@ func inCompressedContents(compressedContent string, content []byte) bool {
 	decompressedContent, err := compression.DecompressContent([]byte(compressedContent))
 	Expect(err).ToNot(HaveOccurred())
 	return bytes.Contains(decompressedContent, content)
+}
+
+func markWorkflowAsCompleted(obj *unstructured.Unstructured) {
+	resourceutil.SetCondition(obj, &clusterv1.Condition{
+		Type:               resourceutil.ConfigureWorkflowCompletedCondition,
+		Status:             v1.ConditionTrue,
+		Message:            "Pipelines completed",
+		Reason:             "PipelinesExecutedSuccessfully",
+		LastTransitionTime: metav1.NewTime(time.Now()),
+	})
 }

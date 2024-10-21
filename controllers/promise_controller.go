@@ -407,10 +407,10 @@ func (r *PromiseReconciler) reconcileDependenciesAndPromiseWorkflows(o opts, pro
 	}
 
 	o.logger.Info("Promise contains workflows.promise.configure, reconciling workflows")
-	pipelineCompletedCondition := promise.GetCondition(string(resourceutil.PipelineCompletedCondition))
-	forcePipelineRun := pipelineCompletedCondition != nil && pipelineCompletedCondition.Status == "True" && time.Since(pipelineCompletedCondition.LastTransitionTime.Time) > DefaultReconciliationInterval
+	ConfigureWorkflowCompletedCondition := promise.GetCondition(string(resourceutil.ConfigureWorkflowCompletedCondition))
+	forcePipelineRun := ConfigureWorkflowCompletedCondition != nil && ConfigureWorkflowCompletedCondition.Status == "True" && time.Since(ConfigureWorkflowCompletedCondition.LastTransitionTime.Time) > DefaultReconciliationInterval
 	if forcePipelineRun {
-		o.logger.Info("Pipeline completed too long ago... forcing the reconciliation", "lastTransitionTime", pipelineCompletedCondition.LastTransitionTime.Time.String())
+		o.logger.Info("Pipeline completed too long ago... forcing the reconciliation", "lastTransitionTime", ConfigureWorkflowCompletedCondition.LastTransitionTime.Time.String())
 		if promise.Labels == nil {
 			promise.Labels = make(map[string]string)
 		}
