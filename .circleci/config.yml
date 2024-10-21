@@ -485,13 +485,13 @@ workflows:
               image: [kratix, work-creator, samples]
       - generate-release-distribution:
           <<: *filter-for-tags
-          requires: [clone-kratix, clone-helm-charts]
+          requires: [build-and-push-images]
       - helm-release:
           <<: *filter-for-tags
-          requires: [build-and-push-images, generate-release-distribution]
+          requires: [generate-release-distribution]
       - gh-release:
           <<: *filter-for-tags
-          requires: [build-and-push-images, generate-release-distribution]
+          requires: [generate-release-distribution]
 
   update-demo:
     triggers:
