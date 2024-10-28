@@ -1,0 +1,56 @@
+---
+apiVersion: v1
+kind: Secret
+metadata:
+  name: gitea
+  namespace: argocd
+  labels:
+    argocd.argoproj.io/secret-type: repository
+stringData:
+  type: git
+  url: https://172.18.0.2:31333/gitea_admin/kratix
+  password: r8sA8CPHD9!bt6d
+  username: gitea_admin
+  insecure: "true"
+---
+apiVersion: argoproj.io/v1alpha1
+kind: Application
+metadata:
+  name: kratix-workload-dependencies
+  namespace: argocd
+spec:
+  project: default
+  source:
+    repoURL: https://172.18.0.2:31333/gitea_admin/kratix
+    targetRevision: HEAD
+    path: "worker/dependencies/"
+    directory:
+      recurse: true
+  destination:
+    server: https://kubernetes.default.svc # in-cluster reconcile
+    namespace: default # The namespace will only be set for namespace-scoped resources without a value for .metadata.namespace
+  syncPolicy:
+    automated:
+      selfHeal: true
+      prune: true
+---
+apiVersion: argoproj.io/v1alpha1
+kind: Application
+metadata:
+  name: kratix-workload-resources
+  namespace: argocd
+spec:
+  project: default
+  source:
+    repoURL: https://172.18.0.2:31333/gitea_admin/kratix
+    targetRevision: HEAD
+    path: "worker/resources/"
+    directory:
+      recurse: true
+  destination:
+    server: https://kubernetes.default.svc # in-cluster reconcile
+    namespace: default # The namespace will only be set for namespace-scoped resources without a value for .metadata.namespace
+  syncPolicy:
+    automated:
+      selfHeal: true
+      prune: true
