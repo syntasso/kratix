@@ -96,6 +96,8 @@ var (
 		dynamicControllerDependantResourcesCleanupFinalizer,
 		crdCleanupFinalizer,
 		dependenciesCleanupFinalizer,
+		removeAllWorkflowJobsFinalizer,
+		runDeleteWorkflowsFinalizer,
 	}
 
 	// fastRequeue can be used whenever we want to quickly requeue, and we don't expect
@@ -662,10 +664,12 @@ func (r *PromiseReconciler) updateStatus(promise *v1alpha1.Promise, kind, group,
 func (r *PromiseReconciler) deletePromise(o opts, promise *v1alpha1.Promise) (ctrl.Result, error) {
 	o.logger.Info("finalizers existing", "finalizers", promise.GetFinalizers())
 	if resourceutil.FinalizersAreDeleted(promise, promiseFinalizers) {
+		o.logger.Info("finalizers all deleted")
 		return ctrl.Result{}, nil
 	}
 
 	if controllerutil.ContainsFinalizer(promise, runDeleteWorkflowsFinalizer) {
+		o.logger.Info("running promise delete workflows")
 		unstructuredPromise, err := promise.ToUnstructured()
 		if err != nil {
 			return ctrl.Result{}, err
@@ -693,6 +697,7 @@ func (r *PromiseReconciler) deletePromise(o opts, promise *v1alpha1.Promise) (ct
 	}
 
 	if controllerutil.ContainsFinalizer(promise, removeAllWorkflowJobsFinalizer) {
+		o.logger.Info("deleting all workflow jobs associated with finalizer", "finalizer", removeAllWorkflowJobsFinalizer)
 		err := r.deletePromiseWorkflowJobs(o, promise, removeAllWorkflowJobsFinalizer)
 		if err != nil {
 			return ctrl.Result{}, err

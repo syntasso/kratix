@@ -133,8 +133,13 @@ var _ = Describe("Kratix", func() {
 		if CurrentSpecReport().State.Is(types.SpecStatePassed) {
 			platform.kubectl("label", "destination", worker.name, removeBashPromiseUniqueLabel)
 			platform.kubectl("label", "destination", platform.name, removeBashPromiseUniqueLabel)
-			platform.kubectl("delete", "clusterrole", bashPromiseName+"-default-resource-pipeline-credentials")
-			platform.kubectl("delete", "clusterrolebinding", bashPromiseName+"-default-resource-pipeline-credentials")
+			platform.eventuallyKubectlDelete("promisereleases", bashPromiseName)
+			platform.eventuallyKubectlDelete("promise", bashPromiseName)
+			platform.eventuallyKubectlDelete("namespace", imperativePlatformNamespace)
+			platform.eventuallyKubectlDelete("namespace", "imperative-"+bashPromiseName+"-test")
+			platform.eventuallyKubectlDelete("clusterrole", bashPromiseName+"-default-resource-pipeline-credentials")
+			platform.eventuallyKubectlDelete("clusterrolebinding", bashPromiseName+"-default-resource-pipeline-credentials")
+			platform.eventuallyKubectlDelete("serviceaccount", bashPromiseName+"-existing-custom-sa")
 		}
 	})
 
@@ -194,6 +199,7 @@ var _ = Describe("Kratix", func() {
 				worker.withExitCode(1).eventuallyKubectl("get", "namespace", declarativeWorkerNamespace)
 				worker.withExitCode(1).eventuallyKubectl("get", "configmap", secondPromiseConfigureWorkflowName+"-new")
 				platform.withExitCode(1).eventuallyKubectl("get", "namespace", declarativePlatformNamespace)
+				platform.withExitCode(1).eventuallyKubectl("get", "namespace", imperativePlatformNamespace)
 				platform.withExitCode(1).eventuallyKubectl("get", "promise", bashPromiseName)
 				platform.withExitCode(1).eventuallyKubectl("get", "crd", bashPromise.Name)
 			})
@@ -293,8 +299,8 @@ var _ = Describe("Kratix", func() {
 				oldRRImperativePlatformNamespace := "imperative-" + rrName + "-old"
 				oldRRDeclarativeConfigMap := fmt.Sprintf("%s-old", rrName)
 
-				firstPipelineName := "first"
-				secondPipelineName := "second"
+				firstPipelineName := "first-configure"
+				secondPipelineName := "second-configure"
 				firstPipelineLabels := fmt.Sprintf(
 					"kratix.io/promise-name=%s,kratix.io/resource-name=%s,kratix.io/pipeline-name=%s",
 					bashPromiseName,
@@ -474,22 +480,22 @@ var _ = Describe("Kratix", func() {
 				})
 
 				roleName := strings.Trim(platform.kubectl("get", "role", "-l",
-					userPermissionRoleLabels(bashPromiseName, "resource", "configure", "first"),
+					userPermissionRoleLabels(bashPromiseName, "resource", "configure", "first-configure"),
 					"-o=jsonpath='{.items[0].metadata.name}'"), "'")
 				roleCreationTimestamp := platform.kubectl("get", "role", roleName, "-o=jsonpath='{.metadata.creationTimestamp}'")
 
 				bindingName := strings.Trim(platform.kubectl("get", "rolebinding", "-l",
-					userPermissionRoleLabels(bashPromiseName, "resource", "configure", "first"),
+					userPermissionRoleLabels(bashPromiseName, "resource", "configure", "first-configure"),
 					"-o=jsonpath='{.items[0].metadata.name}'"), "'")
 				bindingCreationTimestamp := platform.kubectl("get", "rolebinding", bindingName, "-o=jsonpath='{.metadata.creationTimestamp}'")
 
 				specificNamespaceClusterRoleName := strings.Trim(platform.kubectl("get", "ClusterRole", "-l",
-					userPermissionClusterRoleLabels(bashPromiseName, "resource", "configure", "first", "pipeline-perms-ns"),
+					userPermissionClusterRoleLabels(bashPromiseName, "resource", "configure", "first-configure", "pipeline-perms-ns"),
 					"-o=jsonpath='{.items[0].metadata.name}'"), "'")
 				specificNamespaceClusterRoleCreationTimestamp := platform.kubectl("get", "ClusterRole", specificNamespaceClusterRoleName, "-o=jsonpath='{.metadata.creationTimestamp}'")
 
 				allNamespaceClusterRoleName := strings.Trim(platform.kubectl("get", "ClusterRole", "-l",
-					userPermissionClusterRoleLabels(bashPromiseName, "resource", "configure", "first", "kratix_all_namespaces"),
+					userPermissionClusterRoleLabels(bashPromiseName, "resource", "configure", "first-configure", "kratix_all_namespaces"),
 					"-o=jsonpath='{.items[0].metadata.name}'"), "'")
 				allNamespaceClusterRoleCreationTimestamp := platform.kubectl("get", "ClusterRole", allNamespaceClusterRoleName, "-o=jsonpath='{.metadata.creationTimestamp}'")
 
@@ -586,6 +592,7 @@ var _ = Describe("Kratix", func() {
 				}, timeout, interval).Should(Succeed())
 			})
 		})
+
 		When("a PromiseRelease source requires authorization", func() {
 			BeforeEach(func() {
 				var err error
@@ -595,9 +602,10 @@ var _ = Describe("Kratix", func() {
 				platform.eventuallyKubectl("apply", "-f", promiseReleaseForHttp(tmpDir, promiseReleasePath, bashPromiseName, authenticatedEndpoint))
 			})
 
-			It("it can fetch and apply the Promise", func() {
+			It("can fetch and apply the Promise", func() {
 				platform.eventuallyKubectl("get", "promiserelease", bashPromiseName)
 				platform.eventuallyKubectl("get", "promise", bashPromiseName)
+				platform.kubectlWait(120, "promise", bashPromiseName, "--for=condition=ConfigureWorkflowCompleted")
 			})
 		})
 	})
@@ -966,7 +974,7 @@ func (c destination) eventuallyKubectlDelete(kind, name string) string {
 		g.ExpectWithOffset(1, err).ShouldNot(HaveOccurred())
 		g.EventuallyWithOffset(1, session, time.Second*20).Should(gexec.Exit())
 		//If it doesn't exist, lets succeed
-		if strings.Contains(string(session.Out.Contents()), "not found") {
+		if strings.Contains(string(session.Err.Contents()), "not found") {
 			return
 		}
 
@@ -1012,6 +1020,19 @@ func (c destination) kubectl(args ...string) string {
 func (c destination) kubectlForce(args ...string) string {
 	c.ignoreExitCode = true
 	return c.kubectl(args...)
+}
+
+func (c destination) kubectlWait(waitTimeout int, args ...string) string {
+	args = append(args, "--context="+c.context)
+	commandArgs := append([]string{"wait", "--timeout", fmt.Sprintf("%ds", waitTimeout)}, args...)
+	command := exec.Command("kubectl", commandArgs...)
+	session, err := gexec.Start(command, GinkgoWriter, GinkgoWriter)
+	ExpectWithOffset(1, err).ToNot(HaveOccurred())
+
+	fmt.Fprintf(GinkgoWriter, "Running: kubectl %s\n", strings.Join(commandArgs, " "))
+	EventuallyWithOffset(1, session, time.Duration(waitTimeout)*time.Second, interval).Should(gexec.Exit(0))
+
+	return string(session.Out.Contents())
 }
 
 func (c destination) clone() destination {

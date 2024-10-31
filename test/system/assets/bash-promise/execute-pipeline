@@ -21,7 +21,7 @@ declarative_platform_namespace=${unique_id}-platform-declarative
 
 if [ "${workflow_action}" = "delete" ]; then
   echo "promise/delete: cleaning up"
-  kubectl delete namespace ${imperative_platform_namespace}
+  kubectl delete namespace ${imperative_platform_namespace} --ignore-not-found
   exit 0
 fi
 
