@@ -27,7 +27,7 @@ roleRef:
   name: REPLACEBASH-default-resource-pipeline-credentials
 subjects:
 - kind: ServiceAccount
-  name: REPLACEBASH-resource-configure-first
+  name: REPLACEBASH-resource-configure-first-configure
   namespace: default
 - kind: ServiceAccount
   name: REPLACEBASH-existing-custom-sa
@@ -36,5 +36,5 @@ subjects:
   name: REPLACEBASH-new-custom-sa
   namespace: kratix-platform-system
 - kind: ServiceAccount
-  name: REPLACEBASH-resource-delete-first
+  name: REPLACEBASH-resource-delete-delete
   namespace: default

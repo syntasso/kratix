@@ -73,7 +73,7 @@ spec:
         - apiVersion: platform.kratix.io/v1alpha1
           kind: Pipeline
           metadata:
-            name: first
+            name: first-configure
           spec:
             rbac:
               permissions:
@@ -110,7 +110,7 @@ spec:
         - apiVersion: platform.kratix.io/v1alpha1
           kind: Pipeline
           metadata:
-            name: second
+            name: second-configure
           spec:
             containers:
               - image: syntassodev/bash-promise:dev1
@@ -125,7 +125,7 @@ spec:
         - apiVersion: platform.kratix.io/v1alpha1
           kind: Pipeline
           metadata:
-            name: first
+            name: delete
           spec:
             containers:
               - image: syntassodev/bash-promise:dev1
@@ -138,7 +138,7 @@ spec:
         - apiVersion: platform.kratix.io/v1alpha1
           kind: Pipeline
           metadata:
-            name: first
+            name: first-configure
           spec:
             rbac:
               serviceAccount: REPLACEBASH-existing-custom-sa
@@ -152,7 +152,7 @@ spec:
         - apiVersion: platform.kratix.io/v1alpha1
           kind: Pipeline
           metadata:
-            name: first
+            name: delete
           spec:
             rbac:
               serviceAccount: REPLACEBASH-new-custom-sa
