@@ -566,6 +566,7 @@ var _ = Describe("Kratix", func() {
 
 		AfterEach(func() {
 			os.RemoveAll(tmpDir)
+			platform.eventuallyKubectlDelete("deployments", "-n", "kratix-platform-system", "kratix-promise-release-test-hoster")
 		})
 
 		When("a PromiseRelease is installed", func() {
@@ -966,10 +967,12 @@ func requestWithNameAndCommand(name string, containerCmds ...string) string {
 //   - By time kratix starts back up, it has already been deleted
 //
 // This means we need a more roboust approach for deleting Promises
-func (c destination) eventuallyKubectlDelete(kind, name string) string {
+func (c destination) eventuallyKubectlDelete(args ...string) string {
 	var content string
 	EventuallyWithOffset(1, func(g Gomega) {
-		command := exec.Command("kubectl", "get", "--context="+c.context, kind, name)
+		commandArgs := []string{"get", "--context=" + c.context}
+		commandArgs = append(commandArgs, args...)
+		command := exec.Command("kubectl", commandArgs...)
 		session, err := gexec.Start(command, GinkgoWriter, GinkgoWriter)
 		g.ExpectWithOffset(1, err).ShouldNot(HaveOccurred())
 		g.EventuallyWithOffset(1, session, time.Second*20).Should(gexec.Exit())
@@ -978,7 +981,9 @@ func (c destination) eventuallyKubectlDelete(kind, name string) string {
 			return
 		}
 
-		command = exec.Command("kubectl", "delete", "--context="+c.context, kind, name)
+		commandArgs = []string{"delete", "--context=" + c.context}
+		commandArgs = append(commandArgs, args...)
+		command = exec.Command("kubectl", commandArgs...)
 		session, err = gexec.Start(command, GinkgoWriter, GinkgoWriter)
 		g.ExpectWithOffset(1, err).ShouldNot(HaveOccurred())
 		g.EventuallyWithOffset(1, session, shortTimeout).Should(gexec.Exit(c.exitCode))
