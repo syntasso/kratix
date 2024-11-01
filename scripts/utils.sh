@@ -44,7 +44,7 @@ generate_gitea_credentials() {
         exit 1
     fi
     local context="${1:-kind-platform}"
-    $giteabin cert --host $(platform_destination_ip) --ca
+    $giteabin cert --host "$(platform_destination_ip)" --ca
 
     kubectl create namespace gitea --context ${context} || true
 
