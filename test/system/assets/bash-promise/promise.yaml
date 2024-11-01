@@ -93,6 +93,12 @@ spec:
           metadata:
             name: second-configure
           spec:
+            rbac:
+              permissions:
+                - apiGroups: [ "" ]
+                  resources: [ "configmaps" ]
+                  verbs: [ "list" ]
+                  resourceNamespace: "kratix-platform-system"
             containers:
               - image: syntassodev/bash-promise:dev1
                 name: bash-promise-test-c0
@@ -101,6 +107,8 @@ spec:
                   - -c
                 args:
                   - |
+                    set -ex
+                    kubectl -n kratix-platform-system get configmaps
                     kubectl create configmap $(yq '.metadata.name' /kratix/input/object.yaml)-$(yq '.spec.suffix' /kratix/input/object.yaml) --namespace default -o yaml --dry-run=client > /kratix/output/configmap.yaml
       delete:
         - apiVersion: platform.kratix.io/v1alpha1

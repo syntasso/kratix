@@ -5,6 +5,7 @@ import (
 	"context"
 	"encoding/base64"
 	"fmt"
+	"github.com/onsi/ginkgo/v2/types"
 	"os"
 	"os/exec"
 	"path/filepath"
@@ -12,8 +13,6 @@ import (
 	"time"
 
 	"k8s.io/apimachinery/pkg/util/yaml"
-
-	"github.com/onsi/ginkgo/v2/types"
 
 	"github.com/go-git/go-git/v5"
 	"github.com/go-git/go-git/v5/plumbing"
@@ -787,9 +786,9 @@ var _ = Describe("Kratix", func() {
 				platform.eventuallyKubectl("apply", "-f", cat(bashPromise))
 				platform.eventuallyKubectl("get", "crd", crd.Name)
 				rrNameOne := bashPromiseName + "terraform-1"
-				platform.kubectl("apply", "-f", terraformRequest(rrNameOne))
+				platform.kubectl("apply", "-f", terraformRequest(rrNameOne, "default"))
 				rrNameTwo := bashPromiseName + "terraform-2"
-				platform.kubectl("apply", "-f", terraformRequest(rrNameTwo))
+				platform.kubectl("apply", "-f", terraformRequest(rrNameTwo, "kratix-worker-system"))
 
 				By("writing output files to the root of stateStore")
 				promiseDestName := "filepathmode-none-git"
@@ -838,13 +837,14 @@ var _ = Describe("Kratix", func() {
 	})
 })
 
-func terraformRequest(name string) string {
+func terraformRequest(name, namespace string) string {
 	request := unstructured.Unstructured{
 		Object: map[string]interface{}{
 			"apiVersion": "test.kratix.io/v1alpha1",
 			"kind":       bashPromiseName,
 			"metadata": map[string]interface{}{
-				"name": name,
+				"name":      name,
+				"namespace": namespace,
 			},
 			"spec": map[string]interface{}{
 				"container0Cmd": fmt.Sprintf(`
