@@ -39,7 +39,7 @@ generate_gitea_credentials() {
     rmdir ${tmpdir}
 }
 
-info "Generating Gitea credentials and namespace..."
+echo "Generating Gitea credentials and namespace..."
 generate_gitea_credentials kind-platform
 
-success "Gitea credentials generated"
+echo "Gitea credentials generated"
