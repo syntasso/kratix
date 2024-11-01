@@ -30,6 +30,9 @@ subjects:
   name: REPLACEBASH-resource-configure-first-configure
   namespace: default
 - kind: ServiceAccount
+  name: REPLACEBASH-resource-configure-first-configure
+  namespace: test
+- kind: ServiceAccount
   name: REPLACEBASH-existing-custom-sa
   namespace: kratix-platform-system
 - kind: ServiceAccount
@@ -38,3 +41,6 @@ subjects:
 - kind: ServiceAccount
   name: REPLACEBASH-resource-delete-delete
   namespace: default
+- kind: ServiceAccount
+  name: REPLACEBASH-resource-delete-delete
+  namespace: test

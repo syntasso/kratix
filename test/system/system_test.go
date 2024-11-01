@@ -285,13 +285,13 @@ var _ = Describe("Kratix", func() {
 				platform.eventuallyKubectl("get", "crd", crd.Name)
 				worker.eventuallyKubectl("get", "namespace", declarativeWorkerNamespace)
 
-				platform.kubectlForce("delete", "namespace", "pipeline-perms-ns")
+				platform.eventuallyKubectlDelete("namespace", "pipeline-perms-ns")
 				platform.eventuallyKubectl("create", "namespace", "pipeline-perms-ns")
 			})
 
 			It("executes the pipelines and schedules the work to the appropriate destinations", func() {
 				rrName := bashPromiseName + "rr-test"
-				platform.kubectl("apply", "-f", exampleBashRequest(rrName, "old"))
+				platform.kubectl("apply", "-f", exampleBashRequest(rrName, "default", "old"))
 
 				oldRRDeclarativePlatformNamespace := "declarative-platform-only-" + rrName + "-old"
 				oldRRDeclarativeWorkerNamespace := "declarative-" + rrName + "-old"
@@ -382,7 +382,7 @@ var _ = Describe("Kratix", func() {
 				newRRImperativePlatformNamespace := "imperative-" + rrName + "-new"
 				newRRDeclarativeConfigMap := rrName + "-new"
 				By("updating the resource request", func() {
-					platform.kubectl("apply", "-f", exampleBashRequest(rrName, "new"))
+					platform.kubectl("apply", "-f", exampleBashRequest(rrName, "default", "new"))
 
 					Eventually(func() string {
 						return worker.kubectl("get", "namespace")
@@ -545,6 +545,86 @@ var _ = Describe("Kratix", func() {
 
 				platform.eventuallyKubectlDelete("promise", bashPromiseName)
 				Eventually(platform.kubectl("get", "promise")).ShouldNot(ContainSubstring(bashPromiseName))
+			})
+		})
+
+		When("creating multiple resource requests in different namespaces", func() {
+			rrOneNamespace := "default"
+			rrTwoNamespace := "test"
+
+			BeforeEach(func() {
+				platform.eventuallyKubectl("apply", "-f", cat(bashPromise))
+				platform.eventuallyKubectl("get", "crd", crd.Name)
+				worker.eventuallyKubectl("get", "namespace", declarativeWorkerNamespace)
+				platform.kubectl("create", "ns", rrTwoNamespace)
+
+				platform.eventuallyKubectlDelete("namespace", "pipeline-perms-ns")
+				platform.eventuallyKubectl("create", "namespace", "pipeline-perms-ns")
+			})
+
+			It("creates separate bindings for request namespaces and schedules works to correct destinations", func() {
+				rrOneName := bashPromiseName + "rr-test1"
+				rrTwoName := bashPromiseName + "rr-test2"
+				platform.kubectl("apply", "-f", exampleBashRequest(rrOneName, rrOneNamespace, "mul"))
+				platform.kubectl("apply", "-f", exampleBashRequest(rrTwoName, rrTwoNamespace, "mul"))
+
+				By("creating separate role bindings for resource requests from two namespaces", func() {
+					Eventually(func(g Gomega) {
+						bindingNames := platform.kubectl("get", "rolebindings", "-n", v1alpha1.SystemNamespace, "-l",
+							userPermissionRoleLabels(bashPromiseName, "resource", "configure", "second-configure"))
+						g.Expect(bindingNames).To(SatisfyAll(
+							ContainSubstring(fmt.Sprintf("%s-resource-configure-second-configure-%s", bashPromiseName, rrOneNamespace)),
+							ContainSubstring(fmt.Sprintf("%s-resource-configure-second-configure-%s", bashPromiseName, rrTwoNamespace))))
+					}, timeout, interval).Should(Succeed())
+				})
+
+				By("executing pipelines successfully", func() {
+					platform.eventuallyKubectl("wait", "-n", rrOneNamespace, "--for=condition=ConfigureWorkflowCompleted", bashPromiseName, rrOneName, pipelineTimeout)
+					platform.eventuallyKubectl("wait", "-n", rrTwoNamespace, "--for=condition=ConfigureWorkflowCompleted", bashPromiseName, rrTwoName, pipelineTimeout)
+				})
+
+				rrOneDeclarativePlatformNamespace := "declarative-platform-only-" + rrOneName + "-mul"
+				rrOneDeclarativeWorkerNamespace := "declarative-" + rrOneName + "-mul"
+				rrOneImperativePlatformNamespace := "imperative-" + rrOneName + "-mul"
+				rrOneDeclarativeConfigMap := fmt.Sprintf("%s-mul", rrOneName)
+
+				rrTwoDeclarativePlatformNamespace := "declarative-platform-only-" + rrTwoName + "-mul"
+				rrTwoDeclarativeWorkerNamespace := "declarative-" + rrTwoName + "-mul"
+				rrTwoImperativePlatformNamespace := "imperative-" + rrTwoName + "-mul"
+				rrTwoDeclarativeConfigMap := fmt.Sprintf("%s-mul", rrTwoName)
+
+				By("creating generated resources", func() {
+					platform.eventuallyKubectl("get", "namespace", rrOneDeclarativePlatformNamespace)
+					worker.eventuallyKubectl("get", "namespace", rrOneDeclarativeWorkerNamespace)
+					platform.eventuallyKubectl("get", "namespace", rrOneImperativePlatformNamespace)
+					worker.eventuallyKubectl("get", "configmap", rrOneDeclarativeConfigMap)
+
+					platform.eventuallyKubectl("get", "namespace", rrTwoDeclarativePlatformNamespace)
+					worker.eventuallyKubectl("get", "namespace", rrTwoDeclarativeWorkerNamespace)
+					platform.eventuallyKubectl("get", "namespace", rrTwoImperativePlatformNamespace)
+					worker.eventuallyKubectl("get", "configmap", rrTwoDeclarativeConfigMap)
+				})
+
+				By("cleaning up declarative resources when deleting resource requests", func() {
+					platform.eventuallyKubectlDelete(bashPromiseName, rrOneName, "-n", rrOneNamespace)
+					Eventually(func(g Gomega) {
+						g.Expect(platform.kubectl("get", bashPromiseName, "-A")).NotTo(ContainSubstring(rrOneName))
+						g.Expect(platform.kubectl("get", "namespace")).NotTo(ContainSubstring(rrOneDeclarativePlatformNamespace))
+						g.Expect(worker.kubectl("get", "namespace")).NotTo(ContainSubstring(rrOneDeclarativeWorkerNamespace))
+						g.Expect(worker.kubectl("get", "configmap")).NotTo(ContainSubstring(rrOneDeclarativeConfigMap))
+					}, timeout, interval).Should(Succeed())
+
+					platform.eventuallyKubectlDelete(bashPromiseName, rrTwoName, "-n", rrTwoNamespace)
+					Eventually(func(g Gomega) {
+						g.Expect(platform.kubectl("get", bashPromiseName, "-A")).NotTo(ContainSubstring(rrTwoName))
+						g.Expect(platform.kubectl("get", "namespace")).NotTo(ContainSubstring(rrTwoDeclarativePlatformNamespace))
+						g.Expect(worker.kubectl("get", "namespace")).NotTo(ContainSubstring(rrTwoDeclarativeWorkerNamespace))
+						g.Expect(worker.kubectl("get", "configmap")).NotTo(ContainSubstring(rrTwoDeclarativeConfigMap))
+					}, timeout, interval).Should(Succeed())
+				})
+
+				platform.eventuallyKubectlDelete("promise", bashPromiseName)
+				platform.eventuallyKubectlDelete("ns", rrTwoNamespace)
 			})
 		})
 	})
@@ -786,9 +866,9 @@ var _ = Describe("Kratix", func() {
 				platform.eventuallyKubectl("apply", "-f", cat(bashPromise))
 				platform.eventuallyKubectl("get", "crd", crd.Name)
 				rrNameOne := bashPromiseName + "terraform-1"
-				platform.kubectl("apply", "-f", terraformRequest(rrNameOne, "default"))
+				platform.kubectl("apply", "-f", terraformRequest(rrNameOne))
 				rrNameTwo := bashPromiseName + "terraform-2"
-				platform.kubectl("apply", "-f", terraformRequest(rrNameTwo, "kratix-worker-system"))
+				platform.kubectl("apply", "-f", terraformRequest(rrNameTwo))
 
 				By("writing output files to the root of stateStore")
 				promiseDestName := "filepathmode-none-git"
@@ -837,14 +917,13 @@ var _ = Describe("Kratix", func() {
 	})
 })
 
-func terraformRequest(name, namespace string) string {
+func terraformRequest(name string) string {
 	request := unstructured.Unstructured{
 		Object: map[string]interface{}{
 			"apiVersion": "test.kratix.io/v1alpha1",
 			"kind":       bashPromiseName,
 			"metadata": map[string]interface{}{
-				"name":      name,
-				"namespace": namespace,
+				"name": name,
 			},
 			"spec": map[string]interface{}{
 				"container0Cmd": fmt.Sprintf(`
@@ -858,13 +937,14 @@ func terraformRequest(name, namespace string) string {
 	return asFile(request)
 }
 
-func exampleBashRequest(name, namespaceSuffix string) string {
+func exampleBashRequest(name, requestNamespace, namespaceSuffix string) string {
 	request := unstructured.Unstructured{
 		Object: map[string]interface{}{
 			"apiVersion": "test.kratix.io/v1alpha1",
 			"kind":       bashPromiseName,
 			"metadata": map[string]interface{}{
-				"name": name,
+				"name":      name,
+				"namespace": requestNamespace,
 			},
 			"spec": map[string]interface{}{
 				"suffix": namespaceSuffix,
@@ -966,7 +1046,7 @@ func requestWithNameAndCommand(name string, containerCmds ...string) string {
 // in the kubectl delete failing straight away
 //   - By time kratix starts back up, it has already been deleted
 //
-// This means we need a more roboust approach for deleting Promises
+// This means we need a more robust approach for deleting Promises
 func (c destination) eventuallyKubectlDelete(args ...string) string {
 	var content string
 	EventuallyWithOffset(1, func(g Gomega) {
