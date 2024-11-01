@@ -7,7 +7,7 @@ platform_destination_ip() {
 generate_gitea_credentials() {
     giteabin=$(which gitea)
     if [ -z "$giteabin" ]; then
-        error "gitea cli not found; download here: https://docs.gitea.com/installation/install-from-binary"
+        echo "gitea cli not found; download here: https://docs.gitea.com/installation/install-from-binary" > /dev/stderr
         exit 1
     fi
     local context="${1:-kind-platform}"
