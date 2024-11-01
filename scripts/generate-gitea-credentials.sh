@@ -11,16 +11,15 @@ generate_gitea_credentials() {
         exit 1
     fi
     local context="${1:-kind-platform}"
+
     $giteabin cert --host "$(platform_destination_ip)" --ca
 
     kubectl create namespace gitea --context "${context}" || true
 
-    tmpdir=$(mktemp -d)
-
     kubectl create secret generic gitea-credentials \
         --context "${context}" \
-        --from-file=caFile="${tmpdir}/cert.pem" \
-        --from-file=privateKey=${tmpdir}/key.pem \
+        --from-file=caFile="./cert.pem" \
+        --from-file=privateKey="./key.pem" \
         --from-literal=username="gitea_admin" \
         --from-literal=password="r8sA8CPHD9!bt6d" \
         --namespace=gitea \
@@ -28,15 +27,14 @@ generate_gitea_credentials() {
 
     kubectl create secret generic gitea-credentials \
         --context "${context}" \
-        --from-file=caFile=${tmpdir}/cert.pem \
-        --from-file=privateKey=${tmpdir}/key.pem \
+        --from-file=caFile="./cert.pem" \
+        --from-file=privateKey="./key.pem" \
         --from-literal=username="gitea_admin" \
         --from-literal=password="r8sA8CPHD9!bt6d" \
         --namespace=default \
         --dry-run=client -o yaml | kubectl apply --context "${context}" -f -
 
-    rm ${tmpdir}/cert.pem ${tmpdir}/key.pem
-    rmdir ${tmpdir}
+    rm ./cert.pem ./key.pem
 }
 
 echo "Generating Gitea credentials and namespace..."
