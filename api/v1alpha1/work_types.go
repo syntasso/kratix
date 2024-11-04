@@ -31,6 +31,7 @@ const (
 	PromiseNameLabel                     = KratixPrefix + "promise-name"
 	ResourceNameLabel                    = KratixPrefix + "resource-name"
 	PipelineNameLabel                    = KratixPrefix + "pipeline-name"
+	PipelineNamespaceLabel               = KratixPrefix + "pipeline-namespace"
 	WorkTypeLabel                        = KratixPrefix + "work-type"
 	WorkActionLabel                      = KratixPrefix + "work-action"
 	UserPermissionResourceNamespaceLabel = KratixPrefix + "resource-namespace"

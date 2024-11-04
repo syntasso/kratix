@@ -836,7 +836,7 @@ var _ = Describe("Workflow Reconciler", func() {
 				Expect(initialClusterRoleBindings.Items).To(HaveLen(1))
 				clusterRoleBinding := &initialClusterRoleBindings.Items[0]
 
-				Expect(clusterRoleBinding.GetName()).To(MatchRegexp(`^redis-promise-configure-pipeline-1-\b\w{5}\b$`))
+				Expect(clusterRoleBinding.GetName()).To(MatchRegexp(`^redis-promise-configure-pipeline-1-kratix-platform-system-\b\w{5}\b$`))
 				Expect(clusterRoleBinding.RoleRef.Name).To(Equal(allNamespaceClusterRole.GetName()))
 				Expect(clusterRoleBinding.RoleRef.Kind).To(Equal("ClusterRole"))
 				Expect(clusterRoleBinding.Subjects).To(HaveLen(1))

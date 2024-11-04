@@ -955,7 +955,7 @@ var _ = Describe("Pipeline", func() {
 						}),
 						MatchFields(IgnoreExtras, Fields{
 							"ObjectMeta": MatchFields(IgnoreExtras, Fields{
-								"Name":      MatchRegexp(fmt.Sprintf(`^%s-%s-\b\w{5}\b$`, factory.ID, "specific-namespace")),
+								"Name":      MatchRegexp(fmt.Sprintf(`^%s-%s-\b\w{5}\b$`, factory.ID, resources.Shared.ServiceAccount.GetNamespace())),
 								"Namespace": Equal("specific-namespace"),
 							}),
 							"RoleRef": MatchFields(IgnoreExtras, Fields{
@@ -1021,7 +1021,7 @@ var _ = Describe("Pipeline", func() {
 					Expect(resources.Shared.ClusterRoleBindings).To(ConsistOf(
 						MatchFields(IgnoreExtras, Fields{
 							"ObjectMeta": MatchFields(IgnoreExtras, Fields{
-								"Name": MatchRegexp(fmt.Sprintf(`^%s-\b\w{5}\b$`, factory.ID)),
+								"Name": MatchRegexp(fmt.Sprintf(`^%s-%s-\b\w{5}\b$`, factory.ID, resources.Shared.ServiceAccount.GetNamespace())),
 							}),
 							"RoleRef": MatchFields(IgnoreExtras, Fields{
 								"Name":     MatchRegexp(fmt.Sprintf(`^%s-%s-\b\w{5}\b$`, factory.ID, "kratix-all-namespaces")),
@@ -1154,7 +1154,7 @@ var _ = Describe("Pipeline", func() {
 					}),
 					MatchFields(IgnoreExtras, Fields{
 						"ObjectMeta": MatchFields(IgnoreExtras, Fields{
-							"Name":      MatchRegexp(fmt.Sprintf(`^%s-%s-\b\w{5}\b$`, factory.ID, "specific-namespace")),
+							"Name":      MatchRegexp(fmt.Sprintf(`^%s-%s-\b\w{5}\b$`, factory.ID, resources.Shared.ServiceAccount.GetNamespace())),
 							"Namespace": Equal("specific-namespace"),
 						}),
 						"RoleRef": MatchFields(IgnoreExtras, Fields{
@@ -1194,8 +1194,9 @@ var _ = Describe("Pipeline", func() {
 								HaveKeyWithValue(v1alpha1.WorkTypeLabel, "fakeType"),
 								HaveKeyWithValue(v1alpha1.WorkActionLabel, "fakeAction"),
 								HaveKeyWithValue(v1alpha1.PipelineNameLabel, factory.Pipeline.Name),
+								HaveKeyWithValue(v1alpha1.PipelineNamespaceLabel, factory.Namespace),
 								HaveKeyWithValue(v1alpha1.UserPermissionResourceNamespaceLabel, "specific-namespace"),
-								HaveLen(5),
+								HaveLen(6),
 							),
 						}),
 						"Rules": ConsistOf(rbacv1.PolicyRule{
@@ -1213,8 +1214,9 @@ var _ = Describe("Pipeline", func() {
 								HaveKeyWithValue(v1alpha1.WorkTypeLabel, "fakeType"),
 								HaveKeyWithValue(v1alpha1.WorkActionLabel, "fakeAction"),
 								HaveKeyWithValue(v1alpha1.PipelineNameLabel, factory.Pipeline.Name),
+								HaveKeyWithValue(v1alpha1.PipelineNamespaceLabel, factory.Namespace),
 								HaveKeyWithValue(v1alpha1.UserPermissionResourceNamespaceLabel, "kratix_all_namespaces"),
-								HaveLen(5),
+								HaveLen(6),
 							),
 						}),
 						"Rules": ConsistOf(rbacv1.PolicyRule{
@@ -1230,13 +1232,14 @@ var _ = Describe("Pipeline", func() {
 				Expect(resources.Shared.ClusterRoleBindings).To(ConsistOf(
 					MatchFields(IgnoreExtras, Fields{
 						"ObjectMeta": MatchFields(IgnoreExtras, Fields{
-							"Name": MatchRegexp(fmt.Sprintf(`^%s-\b\w{5}\b$`, factory.ID)),
+							"Name": MatchRegexp(fmt.Sprintf(`^%s-%s-\b\w{5}\b$`, factory.ID, resources.Shared.ServiceAccount.GetNamespace())),
 							"Labels": SatisfyAll(
 								HaveKeyWithValue(v1alpha1.PromiseNameLabel, promise.GetName()),
 								HaveKeyWithValue(v1alpha1.WorkTypeLabel, "fakeType"),
 								HaveKeyWithValue(v1alpha1.WorkActionLabel, "fakeAction"),
 								HaveKeyWithValue(v1alpha1.PipelineNameLabel, factory.Pipeline.Name),
-								HaveLen(4),
+								HaveKeyWithValue(v1alpha1.PipelineNamespaceLabel, factory.Namespace),
+								HaveLen(5),
 							),
 						}),
 						"RoleRef": MatchFields(IgnoreExtras, Fields{
