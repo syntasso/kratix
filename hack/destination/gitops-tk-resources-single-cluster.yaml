@@ -1,5 +1,5 @@
 ---
-apiVersion: source.toolkit.fluxcd.io/v1beta1
+apiVersion: source.toolkit.fluxcd.io/v1beta2
 kind: Bucket
 metadata:
   name: kratix
@@ -23,7 +23,7 @@ data:
   accesskey: bWluaW9hZG1pbg==
   secretkey: bWluaW9hZG1pbg==
 ---
-apiVersion: kustomize.toolkit.fluxcd.io/v1beta1
+apiVersion: kustomize.toolkit.fluxcd.io/v1
 kind: Kustomization
 metadata:
   name: kratix-workload-resources
@@ -37,9 +37,8 @@ spec:
     kind: Bucket
     name: kratix
   path: ./worker-1/resources
-  validation: client
 ---
-apiVersion: kustomize.toolkit.fluxcd.io/v1beta1
+apiVersion: kustomize.toolkit.fluxcd.io/v1
 kind: Kustomization
 metadata:
   name: kratix-workload-dependencies
@@ -50,5 +49,4 @@ spec:
   sourceRef:
     kind: Bucket
     name: kratix
-  validation: client
   path: ./worker-1/dependencies
