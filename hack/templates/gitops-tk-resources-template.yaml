@@ -1,5 +1,5 @@
 ---
-apiVersion: source.toolkit.fluxcd.io/v1beta1
+apiVersion: source.toolkit.fluxcd.io/v1beta2
 kind: Bucket
 metadata:
   name: DESTINATION_NAME-workload-dependencies
@@ -13,7 +13,7 @@ spec:
   secretRef:
     name: minio-credentials
 ---
-apiVersion: source.toolkit.fluxcd.io/v1beta1
+apiVersion: source.toolkit.fluxcd.io/v1beta2
 kind: Bucket
 metadata:
   name: DESTINATION_NAME-workload-resources
@@ -37,7 +37,7 @@ data:
   accesskey: bWluaW9hZG1pbg==
   secretkey: bWluaW9hZG1pbg==
 ---
-apiVersion: kustomize.toolkit.fluxcd.io/v1beta1
+apiVersion: kustomize.toolkit.fluxcd.io/v1
 kind: Kustomization
 metadata:
   name: DESTINATION_NAME-workload-resources
@@ -50,10 +50,9 @@ spec:
   sourceRef:
     kind: Bucket
     name: DESTINATION_NAME-workload-resources
-  validation: client
   path: PATH
 ---
-apiVersion: kustomize.toolkit.fluxcd.io/v1beta1
+apiVersion: kustomize.toolkit.fluxcd.io/v1
 kind: Kustomization
 metadata:
   name: DESTINATION_NAME-workload-dependencies
@@ -64,5 +63,4 @@ spec:
   sourceRef:
     kind: Bucket
     name: DESTINATION_NAME-workload-dependencies
-  validation: client
   path: PATH
