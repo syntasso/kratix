@@ -216,6 +216,8 @@ jobs:
           name: System tests
           command: |
             DOCKER_BUILDKIT=1 ACK_GINKGO_RC=true make system-test
+      - notify-slack:
+          only_for_branches: "main"
 
   e2e-demo-test-helm-git:
     executor: machine-large
@@ -253,6 +255,8 @@ jobs:
           name: Verify Jenkins
           command: |
             ./scripts/install-jenkins.sh
+      - notify-slack:
+          only_for_branches: "main"
 
   e2e-demo-test-helm-bucket:
     executor: machine-large
@@ -283,6 +287,8 @@ jobs:
           name: Verify Jenkins
           command: |
             ./scripts/install-jenkins.sh
+      - notify-slack:
+          only_for_branches: "main"
 
   generate-demo-image-list:
     executor: machine-large
