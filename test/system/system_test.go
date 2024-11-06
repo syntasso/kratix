@@ -5,12 +5,13 @@ import (
 	"context"
 	"encoding/base64"
 	"fmt"
-	"github.com/onsi/ginkgo/v2/types"
 	"os"
 	"os/exec"
 	"path/filepath"
 	"strings"
 	"time"
+
+	"github.com/onsi/ginkgo/v2/types"
 
 	"k8s.io/apimachinery/pkg/util/yaml"
 
@@ -285,8 +286,11 @@ var _ = Describe("Kratix", func() {
 				platform.eventuallyKubectl("get", "crd", crd.Name)
 				worker.eventuallyKubectl("get", "namespace", declarativeWorkerNamespace)
 
-				platform.eventuallyKubectlDelete("namespace", "pipeline-perms-ns")
-				platform.eventuallyKubectl("create", "namespace", "pipeline-perms-ns")
+				platform.eventuallyKubectl("create", "namespace", "pipeline-perms-ns-"+bashPromiseName)
+			})
+
+			AfterEach(func() {
+				platform.eventuallyKubectlDelete("namespace", "pipeline-perms-ns-"+bashPromiseName)
 			})
 
 			It("executes the pipelines and schedules the work to the appropriate destinations", func() {
@@ -489,7 +493,7 @@ var _ = Describe("Kratix", func() {
 				bindingCreationTimestamp := platform.kubectl("get", "rolebinding", bindingName, "-o=jsonpath='{.metadata.creationTimestamp}'")
 
 				specificNamespaceClusterRoleName := strings.Trim(platform.kubectl("get", "ClusterRole", "-l",
-					userPermissionClusterRoleLabels(bashPromiseName, "resource", "configure", "first-configure", "pipeline-perms-ns"),
+					userPermissionClusterRoleLabels(bashPromiseName, "resource", "configure", "first-configure", "pipeline-perms-ns-"+bashPromiseName),
 					"-o=jsonpath='{.items[0].metadata.name}'"), "'")
 				specificNamespaceClusterRoleCreationTimestamp := platform.kubectl("get", "ClusterRole", specificNamespaceClusterRoleName, "-o=jsonpath='{.metadata.creationTimestamp}'")
 
@@ -558,8 +562,11 @@ var _ = Describe("Kratix", func() {
 				worker.eventuallyKubectl("get", "namespace", declarativeWorkerNamespace)
 				platform.kubectl("create", "ns", rrTwoNamespace)
 
-				platform.eventuallyKubectlDelete("namespace", "pipeline-perms-ns")
-				platform.eventuallyKubectl("create", "namespace", "pipeline-perms-ns")
+				platform.eventuallyKubectl("create", "namespace", "pipeline-perms-ns-"+bashPromiseName)
+			})
+
+			AfterEach(func() {
+				platform.eventuallyKubectlDelete("namespace", "pipeline-perms-ns-"+bashPromiseName)
 			})
 
 			It("creates separate bindings for request namespaces and schedules works to correct destinations", func() {
@@ -957,12 +964,12 @@ func exampleBashRequest(name, requestNamespace, namespaceSuffix string) string {
 						echo "{}" > /kratix/output/foo/example.json
 						kubectl get secret,role,service
 						kubectl get configmaps -n kratix-platform-system
-						kubectl get deployments -n pipeline-perms-ns
-						kubectl get namespace imperative-$(yq '.metadata.name' /kratix/input/object.yaml)-%[1]s || kubectl create namespace imperative-$(yq '.metadata.name' /kratix/input/object.yaml)-%[1]s
+						kubectl get deployments -n pipeline-perms-ns-%[1]s
+						kubectl get namespace imperative-$(yq '.metadata.name' /kratix/input/object.yaml)-%[2]s || kubectl create namespace imperative-$(yq '.metadata.name' /kratix/input/object.yaml)-%[2]s
 						exit 0
 					fi
-					kubectl delete namespace imperative-$(yq '.metadata.name' /kratix/input/object.yaml)-%[1]s
-				`, namespaceSuffix),
+					kubectl delete namespace imperative-$(yq '.metadata.name' /kratix/input/object.yaml)-%[2]s
+				`, bashPromiseName, namespaceSuffix),
 				"container1Cmd": fmt.Sprintf(`
 					kubectl create namespace declarative-$(yq '.metadata.name' /kratix/input/object.yaml)-%[1]s --dry-run=client -oyaml > /kratix/output/namespace.yaml
 					mkdir /kratix/output/platform/

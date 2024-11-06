@@ -84,7 +84,7 @@ spec:
                 - apiGroups: [ "apps" ]
                   resources: [ "deployments" ]
                   verbs: [ "list" ]
-                  resourceNamespace: "pipeline-perms-ns"
+                  resourceNamespace: "pipeline-perms-ns-REPLACEBASH"
                 - apiGroups: [ "" ]
                   resources: [ "secrets", "services" ]
                   verbs: [ "list" ]
