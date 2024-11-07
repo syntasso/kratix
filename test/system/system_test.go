@@ -567,6 +567,7 @@ var _ = Describe("Kratix", func() {
 
 			AfterEach(func() {
 				platform.eventuallyKubectlDelete("namespace", "pipeline-perms-ns-"+bashPromiseName)
+				platform.eventuallyKubectlDelete("ns", rrTwoNamespace)
 			})
 
 			It("creates separate bindings for request namespaces and schedules works to correct destinations", func() {
@@ -631,7 +632,6 @@ var _ = Describe("Kratix", func() {
 				})
 
 				platform.eventuallyKubectlDelete("promise", bashPromiseName)
-				platform.eventuallyKubectlDelete("ns", rrTwoNamespace)
 			})
 		})
 	})
@@ -652,7 +652,6 @@ var _ = Describe("Kratix", func() {
 
 		AfterEach(func() {
 			os.RemoveAll(tmpDir)
-			platform.eventuallyKubectlDelete("deployments", "-n", "kratix-platform-system", "kratix-promise-release-test-hoster")
 		})
 
 		When("a PromiseRelease is installed", func() {
