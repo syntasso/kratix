@@ -18,6 +18,7 @@ import (
 const (
 	ConfigureWorkflowCompletedCondition = clusterv1.ConditionType("ConfigureWorkflowCompleted")
 	ManualReconciliationLabel           = "kratix.io/manual-reconciliation"
+	ReconcileResourcesLabel             = "kratix.io/reconcile-resources"
 	promiseAvailableCondition           = clusterv1.ConditionType("PromiseAvailable")
 	promiseRequirementsNotMetReason     = "PromiseRequirementsNotInstalled"
 	promiseRequirementsNotMetMessage    = "Promise Requirements are not installed"

@@ -254,13 +254,16 @@ func (r *PromiseReconciler) Reconcile(ctx context.Context, req ctrl.Request) (ct
 
 		logger.Info("requirements are fulfilled", "requirementsStatus", promise.Status.RequiredPromises)
 
-		if promise.GetGeneration() != promise.Status.ObservedGeneration {
-			if promise.GetGeneration() != 1 {
-				logger.Info("reconciling all RRs")
-				if err := r.reconcileAllRRs(rrGVK); err != nil {
-					return ctrl.Result{}, err
-				}
+		if reconcilesResources(promise) {
+			logger.Info("reconciling all resource requests of promise", "promiseName", promise.Name)
+			if err = r.reconcileAllRRs(rrGVK); err != nil {
+				return ctrl.Result{}, err
 			}
+
+			if _, ok := promise.Labels[resourceutil.ReconcileResourcesLabel]; ok {
+				return ctrl.Result{}, r.removeReconcileResourcesLabel(ctx, promise)
+			}
+
 			logger.Info("updating observed generation", "from", promise.Status.ObservedGeneration, "to", promise.GetGeneration())
 			promise.Status.ObservedGeneration = promise.GetGeneration()
 			return r.updatePromiseStatus(ctx, promise)
@@ -302,6 +305,25 @@ func (r *PromiseReconciler) hasPromiseRequirementsChanged(ctx context.Context, p
 	conditionsFieldChanged := updateConditionOnPromise(promise, latestCondition)
 
 	return conditionsFieldChanged || requirementsFieldChanged
+}
+
+func reconcilesResources(promise *v1alpha1.Promise) bool {
+	if promise.Labels != nil && promise.Labels[resourceutil.ReconcileResourcesLabel] == "true" {
+		return true
+	}
+
+	if promise.GetGeneration() != promise.Status.ObservedGeneration && promise.GetGeneration() != 1 {
+		return true
+	}
+	return false
+}
+
+func (r *PromiseReconciler) removeReconcileResourcesLabel(ctx context.Context, promise *v1alpha1.Promise) error {
+	delete(promise.Labels, resourceutil.ReconcileResourcesLabel)
+	if err := r.Client.Update(ctx, promise); err != nil {
+		return err
+	}
+	return nil
 }
 
 func updateConditionOnPromise(promise *v1alpha1.Promise, latestCondition metav1.Condition) bool {
@@ -463,7 +485,7 @@ func (r *PromiseReconciler) reconcileAllRRs(rrGVK schema.GroupVersionKind) error
 		}
 		newLabels[resourceutil.ManualReconciliationLabel] = "true"
 		rr.SetLabels(newLabels)
-		if err := r.Client.Update(context.TODO(), &rr); err != nil {
+		if err := r.Client.Update(context.Background(), &rr); err != nil {
 			return err
 		}
 	}
