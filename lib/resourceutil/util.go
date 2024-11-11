@@ -16,14 +16,15 @@ import (
 )
 
 const (
-	ConfigureWorkflowCompletedCondition = clusterv1.ConditionType("ConfigureWorkflowCompleted")
-	ManualReconciliationLabel           = "kratix.io/manual-reconciliation"
-	ReconcileResourcesLabel             = "kratix.io/reconcile-resources"
-	promiseAvailableCondition           = clusterv1.ConditionType("PromiseAvailable")
-	promiseRequirementsNotMetReason     = "PromiseRequirementsNotInstalled"
-	promiseRequirementsNotMetMessage    = "Promise Requirements are not installed"
-	promiseRequirementsMetReason        = "PromiseAvailable"
-	promiseRequirementsMetMessage       = "Promise Requirements are met"
+	ConfigureWorkflowCompletedCondition    = clusterv1.ConditionType("ConfigureWorkflowCompleted")
+	ConfigureWorkflowCompletedFailedReason = "ConfigureWorkflowFailed"
+	ManualReconciliationLabel              = "kratix.io/manual-reconciliation"
+	ReconcileResourcesLabel                = "kratix.io/reconcile-resources"
+	promiseAvailableCondition              = clusterv1.ConditionType("PromiseAvailable")
+	promiseRequirementsNotMetReason        = "PromiseRequirementsNotInstalled"
+	promiseRequirementsNotMetMessage       = "Promise Requirements are not installed"
+	promiseRequirementsMetReason           = "PromiseAvailable"
+	promiseRequirementsMetMessage          = "Promise Requirements are met"
 )
 
 func GetConfigureWorkflowCompletedConditionStatus(obj *unstructured.Unstructured) v1.ConditionStatus {
@@ -50,10 +51,10 @@ func MarkWorkflowAsFailed(logger logr.Logger, obj *unstructured.Unstructured, fa
 		Type:               ConfigureWorkflowCompletedCondition,
 		Status:             v1.ConditionFalse,
 		Message:            fmt.Sprintf("A Pipeline has failed: %s", failedPipeline),
-		Reason:             "ConfigureWorkflowFailed",
+		Reason:             ConfigureWorkflowCompletedFailedReason,
 		LastTransitionTime: metav1.NewTime(time.Now()),
 	})
-	logger.Info("set conditions", "condition", ConfigureWorkflowCompletedCondition, "value", v1.ConditionFalse, "reason", "ConfigureWorkflowFailed")
+	logger.Info("set conditions", "condition", ConfigureWorkflowCompletedCondition, "value", v1.ConditionFalse, "reason", ConfigureWorkflowCompletedFailedReason)
 }
 
 func SortJobsByCreationDateTime(jobs []batchv1.Job, desc bool) []batchv1.Job {
