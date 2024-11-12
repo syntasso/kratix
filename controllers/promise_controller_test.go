@@ -4,6 +4,7 @@ import (
 	"bytes"
 	"context"
 	"encoding/json"
+	"k8s.io/apimachinery/pkg/runtime/schema"
 	"os"
 	"regexp"
 	"strings"
@@ -909,6 +910,61 @@ var _ = Describe("PromiseController", func() {
 					Expect(err).NotTo(HaveOccurred())
 					Expect(result).To(Equal(ctrl.Result{}))
 					Expect(reconciler.ScheduledReconciliation[promise.GetName()].Unix()).To(Equal(time.Now().Add(controllers.DefaultReconciliationInterval).Unix()))
+				})
+			})
+		})
+
+		When("promise labeled with ReconcileResources label", func() {
+			var resReq *unstructured.Unstructured
+
+			BeforeEach(func() {
+				promise = createPromise(promiseWithWorkflowPath)
+				setReconcileConfigureWorkflowToReturnFinished()
+				_, err := t.reconcileUntilCompletion(reconciler, promise, &opts{
+					funcs: []func(client.Object) error{autoMarkCRDAsEstablished},
+				})
+				Expect(err).NotTo(HaveOccurred())
+
+				resReqBytes, err := os.ReadFile(resourceRequestPath)
+				Expect(err).ToNot(HaveOccurred())
+
+				resReq = &unstructured.Unstructured{}
+				Expect(yaml.Unmarshal(resReqBytes, resReq)).To(Succeed())
+				Expect(fakeK8sClient.Create(ctx, resReq)).To(Succeed())
+
+				Expect(fakeK8sClient.Get(ctx, types.NamespacedName{
+					Name:      resReq.GetName(),
+					Namespace: resReq.GetNamespace(),
+				}, resReq)).To(Succeed())
+			})
+
+			It("re runs all resource configure workflows", func() {
+				Expect(fakeK8sClient.Get(ctx, promiseName, promise)).To(Succeed())
+				promise.Labels[resourceutil.ReconcileResourcesLabel] = "true"
+				Expect(fakeK8sClient.Update(context.TODO(), promise)).To(Succeed())
+
+				_, err := t.reconcileUntilCompletion(reconciler, promise, &opts{
+					funcs: []func(client.Object) error{autoMarkCRDAsEstablished},
+				})
+				Expect(err).NotTo(HaveOccurred())
+
+				By("labelling manual reconciliation on resources", func() {
+					updatedRR := &unstructured.Unstructured{}
+					updatedRR.SetGroupVersionKind(schema.GroupVersionKind{
+						Group:   "marketplace.kratix.io",
+						Version: "v1alpha1",
+						Kind:    "redis",
+					})
+					Expect(fakeK8sClient.Get(ctx, types.NamespacedName{
+						Name:      resReq.GetName(),
+						Namespace: resReq.GetNamespace(),
+					}, updatedRR)).To(Succeed())
+					Expect(updatedRR.GetLabels()).To(HaveKeyWithValue(resourceutil.ManualReconciliationLabel, "true"))
+				})
+
+				By("removing ReconcileResources label from promise", func() {
+					Expect(fakeK8sClient.Get(ctx, promiseName, promise)).To(Succeed())
+					Expect(promise.Labels).NotTo(HaveKey(resourceutil.ReconcileResourcesLabel))
 				})
 			})
 		})

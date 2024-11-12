@@ -60,10 +60,9 @@ var _ = Describe("DynamicResourceRequestController", func() {
 			CRD:                         rrCRD,
 			PromiseIdentifier:           promise.GetName(),
 			PromiseDestinationSelectors: promise.Spec.DestinationSelectors,
-			// promiseWorkflowSelectors:    work.GetDefaultScheduling("promise-workflow"),
-			Log:     l,
-			UID:     "1234abcd",
-			Enabled: &enabled,
+			Log:                         l,
+			UID:                         "1234abcd",
+			Enabled:                     &enabled,
 		}
 
 		yamlFile, err := os.ReadFile(resourceRequestPath)
@@ -221,7 +220,7 @@ var _ = Describe("DynamicResourceRequestController", func() {
 			))
 		})
 
-		It("re-reconciles until completetion", func() {
+		It("re-reconciles until completion", func() {
 			Expect(fakeK8sClient.Delete(ctx, resReq)).To(Succeed())
 			_, err := t.reconcileUntilCompletion(reconciler, resReq)
 
