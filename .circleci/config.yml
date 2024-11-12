@@ -459,13 +459,14 @@ workflows:
   run-ci:
     jobs:
       - clone-kratix
-      - clone-helm-charts
       - test:
-          requires: [clone-kratix, clone-helm-charts]
+          requires: [clone-kratix]
+      - clone-helm-charts:
+          requires: [test]
       - e2e-demo-test-helm-bucket:
-          requires: [clone-kratix, clone-helm-charts]
+          requires: [clone-helm-charts]
       - e2e-demo-test-helm-git:
-          requires: [clone-kratix, clone-helm-charts]
+          requires: [clone-helm-charts]
       ### ONLY MAIN
       - tag-new-version:
           requires:
