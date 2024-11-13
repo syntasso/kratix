@@ -276,14 +276,6 @@ func isRunning(job *batchv1.Job) bool {
 }
 
 func cleanup(opts Opts, namespace string) error {
-	if opts.source == "promise" {
-		for _, pipeline := range opts.Resources {
-			if err := deleteConfigMap(opts, pipeline); err != nil {
-				return err
-			}
-		}
-	}
-
 	pipelineNames := map[string]bool{}
 	for _, pipeline := range opts.Resources {
 		l := labelsForAllPipelineJobs(pipeline)
@@ -333,26 +325,6 @@ func cleanupJobs(opts Opts, pipelineJobsAtCurrentSpec []batchv1.Job) error {
 				opts.logger.Info("failed to delete job", "job", job.GetName(), "error", err)
 				return nil
 			}
-		}
-	}
-
-	return nil
-}
-
-func deleteConfigMap(opts Opts, pipeline v1alpha1.PipelineJobResources) error {
-	configMap := &v1.ConfigMap{}
-	for _, resource := range pipeline.GetObjects() {
-		if _, ok := resource.(*v1.ConfigMap); ok {
-			configMap = resource.(*v1.ConfigMap)
-			break
-		}
-	}
-
-	opts.logger.Info("Removing configmap", "name", configMap.GetName())
-	if err := opts.client.Delete(opts.ctx, configMap); err != nil {
-		if !errors.IsNotFound(err) {
-			opts.logger.Info("failed to delete configmap", "name", configMap.GetName(), "error", err)
-			return err
 		}
 	}
 

@@ -2,6 +2,9 @@ package v1alpha1
 
 import (
 	"fmt"
+	"os"
+	"strings"
+
 	"github.com/pkg/errors"
 	"github.com/syntasso/kratix/lib/hash"
 	"github.com/syntasso/kratix/lib/objectutil"
@@ -13,9 +16,7 @@ import (
 	"k8s.io/apimachinery/pkg/apis/meta/v1/unstructured"
 	"k8s.io/apimachinery/pkg/labels"
 	"k8s.io/client-go/kubernetes/scheme"
-	"os"
 	"sigs.k8s.io/controller-runtime/pkg/controller/controllerutil"
-	"strings"
 )
 
 type PipelineFactory struct {
