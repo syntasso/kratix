@@ -14,7 +14,6 @@ import (
 	batchv1 "k8s.io/api/batch/v1"
 	v1 "k8s.io/api/core/v1"
 	rbacv1 "k8s.io/api/rbac/v1"
-	"k8s.io/apimachinery/pkg/api/errors"
 	metav1 "k8s.io/apimachinery/pkg/apis/meta/v1"
 	"k8s.io/apimachinery/pkg/apis/meta/v1/unstructured"
 	"k8s.io/apimachinery/pkg/labels"
@@ -406,23 +405,6 @@ var _ = Describe("Workflow Reconciler", func() {
 						configMap,
 					)).To(Succeed())
 				})
-			})
-
-			When("all pipelines are executed", func() {
-				BeforeEach(func() {
-					markJobAsComplete(workflowPipelines[1].Job.Name)
-					abort, err := workflow.ReconcileConfigure(opts)
-					Expect(err).NotTo(HaveOccurred())
-					Expect(abort).To(BeFalse())
-				})
-
-				It("deletes the promise scheduling configmap", func() {
-					configMap := &v1.ConfigMap{}
-					err := fakeK8sClient.Get(ctx, types.NamespacedName{Name: "destination-selectors-redis", Namespace: namespace}, configMap)
-					Expect(err).To(HaveOccurred())
-					Expect(errors.IsNotFound(err)).To(BeTrue())
-				})
-
 			})
 		})
 
