@@ -284,7 +284,7 @@ var _ = Describe("DynamicResourceRequestController", func() {
 					Expect(status).To(BeEmpty())
 				})
 
-				It("is set to the time the workflow finished successfully", func() {
+				It("is set to the time the workflow finished with the right reason", func() {
 					lastTransitionTime := time.Now().Add(-time.Minute)
 					setConfigureWorkflowStatus(resReq, v1.ConditionTrue, lastTransitionTime)
 
@@ -314,6 +314,28 @@ var _ = Describe("DynamicResourceRequestController", func() {
 					Expect(before).NotTo(BeEmpty())
 
 					setConfigureWorkflowStatus(resReq, v1.ConditionFalse, time.Now())
+
+					result, err := t.reconcileUntilCompletion(reconciler, resReq)
+					Expect(err).NotTo(HaveOccurred())
+					Expect(result).To(Equal(ctrl.Result{}))
+
+					Expect(fakeK8sClient.Get(ctx, resReqNameNamespace, resReq)).To(Succeed())
+					after := resourceutil.GetStatus(resReq, "lastSuccessfulConfigureWorkflowTime")
+					Expect(after).NotTo(BeEmpty())
+					Expect(before).To(Equal(after))
+				})
+
+				It("remains the same when the condition is True but not for the right Reason", func() {
+					before := resourceutil.GetStatus(resReq, "lastSuccessfulConfigureWorkflowTime")
+					Expect(before).NotTo(BeEmpty())
+					resourceutil.SetCondition(resReq, &clusterv1.Condition{
+						Type:               resourceutil.ConfigureWorkflowCompletedCondition,
+						Status:             v1.ConditionTrue,
+						Reason:             "SomeOtherReason",
+						Message:            fmt.Sprintf("some-reason-%s", time.Now().Format(time.RFC3339)),
+						LastTransitionTime: metav1.NewTime(time.Now()),
+					})
+					Expect(fakeK8sClient.Status().Update(ctx, resReq)).To(Succeed())
 
 					result, err := t.reconcileUntilCompletion(reconciler, resReq)
 					Expect(err).NotTo(HaveOccurred())
@@ -360,8 +382,8 @@ func setConfigureWorkflowStatus(resReq *unstructured.Unstructured, status v1.Con
 	resourceutil.SetCondition(resReq, &clusterv1.Condition{
 		Type:               resourceutil.ConfigureWorkflowCompletedCondition,
 		Status:             status,
-		Message:            "some-message",
-		Reason:             fmt.Sprintf("some-reason-%s", t.Format(time.RFC3339)),
+		Reason:             resourceutil.PipelinesExecutedSuccessfully,
+		Message:            fmt.Sprintf("some-reason-%s", t.Format(time.RFC3339)),
 		LastTransitionTime: metav1.NewTime(t),
 	})
 	Expect(fakeK8sClient.Status().Update(ctx, resReq)).To(Succeed())

@@ -159,7 +159,7 @@ func (r *DynamicResourceRequestController) Reconcile(ctx context.Context, req ct
 	}
 
 	workflowCompletedCondition := resourceutil.GetCondition(rr, resourceutil.ConfigureWorkflowCompletedCondition)
-	if workflowCompletedCondition != nil && workflowCompletedCondition.Status == v1.ConditionTrue {
+	if workflowCompletedCondition != nil && workflowCompletedCondition.Status == v1.ConditionTrue && workflowCompletedCondition.Reason == resourceutil.PipelinesExecutedSuccessfully {
 		lastTransitionTime := workflowCompletedCondition.LastTransitionTime.Format(time.RFC3339)
 		lastSuccessfulTime := resourceutil.GetStatus(rr, "lastSuccessfulConfigureWorkflowTime")
 

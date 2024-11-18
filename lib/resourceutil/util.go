@@ -18,6 +18,7 @@ import (
 const (
 	ConfigureWorkflowCompletedCondition    = clusterv1.ConditionType("ConfigureWorkflowCompleted")
 	ConfigureWorkflowCompletedFailedReason = "ConfigureWorkflowFailed"
+	PipelinesExecutedSuccessfully          = "PipelinesExecutedSuccessfully"
 	ManualReconciliationLabel              = "kratix.io/manual-reconciliation"
 	ReconcileResourcesLabel                = "kratix.io/reconcile-resources"
 	promiseAvailableCondition              = clusterv1.ConditionType("PromiseAvailable")
