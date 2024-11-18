@@ -343,6 +343,11 @@ var _ = Describe("Kratix", func() {
 
 				By("setting the ConfigureWorkflowCompleted condition on the Resource Request", func() {
 					platform.eventuallyKubectl("wait", "--for=condition=ConfigureWorkflowCompleted", bashPromiseName, rrName, pipelineTimeout)
+					Eventually(func() bool {
+						transitionTime := platform.kubectl("get", bashPromiseName, rrName, `-o=jsonpath={.status.conditions[?(@.type=="ConfigureWorkflowCompleted")].lastTransitionTime}`)
+						lastSuccessful := platform.kubectl("get", bashPromiseName, rrName, `-o=jsonpath={.status.lastSuccessfulConfigureWorkflowTime}`)
+						return transitionTime == lastSuccessful
+					}, shortTimeout, interval).Should(BeTrue(), "lastTransitionTime should be equal to lastSuccessfulConfigureWorkflowTime")
 				})
 
 				By("deploying the generated resources to the destinations specified in the pipelines", func() {

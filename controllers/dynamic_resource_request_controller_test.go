@@ -2,24 +2,29 @@ package controllers_test
 
 import (
 	"context"
+	"fmt"
 	"os"
 	"regexp"
 	"strings"
+	"time"
 
 	. "github.com/onsi/ginkgo/v2"
 	. "github.com/onsi/gomega"
 	batchv1 "k8s.io/api/batch/v1"
 	v1 "k8s.io/api/core/v1"
 	rbacv1 "k8s.io/api/rbac/v1"
+	metav1 "k8s.io/apimachinery/pkg/apis/meta/v1"
 	"k8s.io/apimachinery/pkg/apis/meta/v1/unstructured"
 	"k8s.io/apimachinery/pkg/runtime/schema"
 	"k8s.io/apimachinery/pkg/types"
 	"k8s.io/apimachinery/pkg/util/yaml"
 	"k8s.io/client-go/kubernetes/scheme"
+	clusterv1 "sigs.k8s.io/cluster-api/api/v1beta1"
 	ctrl "sigs.k8s.io/controller-runtime"
 
 	"github.com/syntasso/kratix/api/v1alpha1"
 	"github.com/syntasso/kratix/controllers"
+	"github.com/syntasso/kratix/lib/resourceutil"
 )
 
 var _ = Describe("DynamicResourceRequestController", func() {
@@ -27,9 +32,11 @@ var _ = Describe("DynamicResourceRequestController", func() {
 		reconciler          *controllers.DynamicResourceRequestController
 		resReq              *unstructured.Unstructured
 		resReqNameNamespace types.NamespacedName
+		startTime           time.Time
 	)
 
 	BeforeEach(func() {
+		startTime = time.Now().Add(-time.Minute)
 		ctx = context.Background()
 		promise = promiseFromFile(promisePath)
 		promiseName = types.NamespacedName{
@@ -156,6 +163,7 @@ var _ = Describe("DynamicResourceRequestController", func() {
 			})
 
 			By("finishing the creation once the job is finished", func() {
+				setConfigureWorkflowStatus(resReq, v1.ConditionTrue)
 				setReconcileConfigureWorkflowToReturnFinished()
 				result, err := t.reconcileUntilCompletion(reconciler, resReq)
 
@@ -186,6 +194,16 @@ var _ = Describe("DynamicResourceRequestController", func() {
 				Expect(status).NotTo(BeNil())
 				statusMap := status.(map[string]interface{})
 				Expect(statusMap["observedGeneration"]).To(Equal(int64(1)))
+			})
+
+			By("setting the lastSuccessfulConfigureWorkflowTime in the resource status", func() {
+				Expect(fakeK8sClient.Get(ctx, resReqNameNamespace, resReq)).To(Succeed())
+				status := resReq.Object["status"]
+				Expect(status).NotTo(BeNil())
+				statusMap := status.(map[string]interface{})
+				lastSuccessfulConfigureWorkflowTime, err := time.Parse(time.RFC3339, statusMap["lastSuccessfulConfigureWorkflowTime"].(string))
+				Expect(err).NotTo(HaveOccurred())
+				Expect(lastSuccessfulConfigureWorkflowTime).To(BeTemporally(">", startTime))
 			})
 		})
 
@@ -242,4 +260,109 @@ var _ = Describe("DynamicResourceRequestController", func() {
 			Expect(jobs.Items).To(HaveLen(0))
 		})
 	})
+
+	Describe("Resource Request Status", func() {
+		BeforeEach(func() {
+			result, err := t.reconcileUntilCompletion(reconciler, resReq)
+			Expect(err).NotTo(HaveOccurred())
+			Expect(result).To(Equal(ctrl.Result{}))
+			Expect(fakeK8sClient.Get(ctx, resReqNameNamespace, resReq)).To(Succeed())
+			setReconcileConfigureWorkflowToReturnFinished()
+		})
+
+		Describe("lastSuccessfulConfigureWorkflowTime", func() {
+			When("it's empty", func() {
+				It("remains empty when the workflow fails", func() {
+					setConfigureWorkflowStatus(resReq, v1.ConditionFalse)
+
+					result, err := t.reconcileUntilCompletion(reconciler, resReq)
+					Expect(err).NotTo(HaveOccurred())
+					Expect(result).To(Equal(ctrl.Result{}))
+					Expect(fakeK8sClient.Get(ctx, resReqNameNamespace, resReq)).To(Succeed())
+
+					status := resourceutil.GetStatus(resReq, "lastSuccessfulConfigureWorkflowTime")
+					Expect(status).To(BeEmpty())
+				})
+
+				It("is set to the time the workflow finished successfully", func() {
+					lastTransitionTime := time.Now().Add(-time.Minute)
+					setConfigureWorkflowStatus(resReq, v1.ConditionTrue, lastTransitionTime)
+
+					result, err := t.reconcileUntilCompletion(reconciler, resReq)
+					Expect(err).NotTo(HaveOccurred())
+					Expect(result).To(Equal(ctrl.Result{}))
+					Expect(fakeK8sClient.Get(ctx, resReqNameNamespace, resReq)).To(Succeed())
+
+					lastSuccessfulConfigureWorkflowTime := resourceutil.GetStatus(resReq, "lastSuccessfulConfigureWorkflowTime")
+					Expect(lastSuccessfulConfigureWorkflowTime).To(Equal(lastTransitionTime.Format(time.RFC3339)))
+				})
+			})
+
+			When("it is set to a time", func() {
+				BeforeEach(func() {
+					lastTransitionTime := time.Now().Add(-time.Hour)
+					setConfigureWorkflowStatus(resReq, v1.ConditionTrue, lastTransitionTime)
+
+					result, err := t.reconcileUntilCompletion(reconciler, resReq)
+					Expect(err).NotTo(HaveOccurred())
+					Expect(result).To(Equal(ctrl.Result{}))
+					Expect(fakeK8sClient.Get(ctx, resReqNameNamespace, resReq)).To(Succeed())
+				})
+
+				It("remains the same when the workflow fails", func() {
+					before := resourceutil.GetStatus(resReq, "lastSuccessfulConfigureWorkflowTime")
+					Expect(before).NotTo(BeEmpty())
+
+					setConfigureWorkflowStatus(resReq, v1.ConditionFalse, time.Now())
+
+					result, err := t.reconcileUntilCompletion(reconciler, resReq)
+					Expect(err).NotTo(HaveOccurred())
+					Expect(result).To(Equal(ctrl.Result{}))
+
+					Expect(fakeK8sClient.Get(ctx, resReqNameNamespace, resReq)).To(Succeed())
+					after := resourceutil.GetStatus(resReq, "lastSuccessfulConfigureWorkflowTime")
+					Expect(after).NotTo(BeEmpty())
+					Expect(before).To(Equal(after))
+				})
+
+				It("is updated when the workflow finishes successfully at a later time", func() {
+					before := resourceutil.GetStatus(resReq, "lastSuccessfulConfigureWorkflowTime")
+					Expect(before).NotTo(BeEmpty())
+
+					expectedAfter := time.Now()
+					setConfigureWorkflowStatus(resReq, v1.ConditionTrue, expectedAfter)
+
+					result, err := t.reconcileUntilCompletion(reconciler, resReq)
+					Expect(err).NotTo(HaveOccurred())
+					Expect(result).To(Equal(ctrl.Result{}))
+					Expect(fakeK8sClient.Get(ctx, resReqNameNamespace, resReq)).To(Succeed())
+
+					actualAfter := resourceutil.GetStatus(resReq, "lastSuccessfulConfigureWorkflowTime")
+					Expect(actualAfter).NotTo(BeEmpty())
+					Expect(actualAfter).To(Equal(expectedAfter.Format(time.RFC3339)))
+				})
+			})
+		})
+	})
 })
+
+func setConfigureWorkflowStatus(resReq *unstructured.Unstructured, status v1.ConditionStatus, lastTransitionTime ...time.Time) {
+	var t time.Time
+	if len(lastTransitionTime) > 0 {
+		t = lastTransitionTime[0]
+	} else {
+		t = time.Now()
+	}
+
+	if resReq.Object["status"] == nil {
+		resReq.Object["status"] = map[string]interface{}{}
+	}
+	resourceutil.SetCondition(resReq, &clusterv1.Condition{
+		Type:               resourceutil.ConfigureWorkflowCompletedCondition,
+		Status:             status,
+		Message:            "some-message",
+		Reason:             fmt.Sprintf("some-reason-%s", t.Format(time.RFC3339)),
+		LastTransitionTime: metav1.NewTime(t),
+	})
+	Expect(fakeK8sClient.Status().Update(ctx, resReq)).To(Succeed())
+}

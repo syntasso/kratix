@@ -29,7 +29,10 @@ import (
 	"github.com/syntasso/kratix/lib/resourceutil"
 	"github.com/syntasso/kratix/lib/workflow"
 
+	"time"
+
 	batchv1 "k8s.io/api/batch/v1"
+	v1 "k8s.io/api/core/v1"
 
 	"k8s.io/apimachinery/pkg/api/errors"
 	"k8s.io/apimachinery/pkg/apis/meta/v1/unstructured"
@@ -153,6 +156,17 @@ func (r *DynamicResourceRequestController) Reconcile(ctx context.Context, req ct
 	if rr.GetGeneration() != resourceutil.GetObservedGeneration(rr) {
 		resourceutil.SetStatus(rr, logger, "observedGeneration", rr.GetGeneration())
 		return ctrl.Result{}, opts.client.Status().Update(opts.ctx, rr)
+	}
+
+	workflowCompletedCondition := resourceutil.GetCondition(rr, resourceutil.ConfigureWorkflowCompletedCondition)
+	if workflowCompletedCondition != nil && workflowCompletedCondition.Status == v1.ConditionTrue {
+		lastTransitionTime := workflowCompletedCondition.LastTransitionTime.Format(time.RFC3339)
+		lastSuccessfulTime := resourceutil.GetStatus(rr, "lastSuccessfulConfigureWorkflowTime")
+
+		if lastSuccessfulTime != lastTransitionTime {
+			resourceutil.SetStatus(rr, logger, "lastSuccessfulConfigureWorkflowTime", lastTransitionTime)
+			return ctrl.Result{}, opts.client.Status().Update(opts.ctx, rr)
+		}
 	}
 
 	return ctrl.Result{}, nil
