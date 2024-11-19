@@ -24,6 +24,7 @@ import (
 	"sync"
 	"time"
 
+	"github.com/syntasso/kratix/lib/migrations"
 	"github.com/syntasso/kratix/lib/objectutil"
 
 	"sigs.k8s.io/controller-runtime/pkg/controller/controllerutil"
@@ -150,6 +151,20 @@ func (r *PromiseReconciler) Reconcile(ctx context.Context, req ctrl.Request) (ct
 		return r.deletePromise(opts, promise)
 	}
 
+	usPromise, err := promise.ToUnstructured()
+	if err != nil {
+		return ctrl.Result{}, fmt.Errorf("Error converting Promise to Unstructured: %w", err)
+	}
+
+	requeue, err := migrations.RemoveDeprecatedConditions(ctx, r.Client, usPromise, logger)
+	if err != nil {
+		return ctrl.Result{}, err
+	}
+
+	if requeue != nil {
+		return *requeue, nil
+	}
+
 	if value, found := promise.Labels[v1alpha1.PromiseVersionLabel]; found {
 		if promise.Status.Version != value {
 			promise.Status.Version = value
@@ -173,7 +188,7 @@ func (r *PromiseReconciler) Reconcile(ctx context.Context, req ctrl.Request) (ct
 	}
 
 	//TODO handle removing finalizer
-	requeue, err := ensurePromiseDeleteWorkflowFinalizer(opts, promise, promise.HasPipeline(v1alpha1.WorkflowTypePromise, v1alpha1.WorkflowActionDelete))
+	requeue, err = ensurePromiseDeleteWorkflowFinalizer(opts, promise, promise.HasPipeline(v1alpha1.WorkflowTypePromise, v1alpha1.WorkflowActionDelete))
 	if err != nil {
 		return ctrl.Result{}, err
 	}
@@ -219,7 +234,7 @@ func (r *PromiseReconciler) Reconcile(ctx context.Context, req ctrl.Request) (ct
 		return addFinalizers(opts, promise, []string{dependenciesCleanupFinalizer})
 	}
 
-	ctrlResult, err := r.reconcileDependenciesAndPromiseWorkflows(opts, promise)
+	ctrlResult, err := r.reconcileDependenciesAndPromiseWorkflows(opts, promise, usPromise)
 	if err != nil {
 		return ctrl.Result{}, err
 	}
@@ -404,7 +419,7 @@ func (r *PromiseReconciler) generateStatusAndMarkRequirements(ctx context.Contex
 	return promiseCondition, requirements
 }
 
-func (r *PromiseReconciler) reconcileDependenciesAndPromiseWorkflows(o opts, promise *v1alpha1.Promise) (*ctrl.Result, error) {
+func (r *PromiseReconciler) reconcileDependenciesAndPromiseWorkflows(o opts, promise *v1alpha1.Promise, unstructuredPromise *unstructured.Unstructured) (*ctrl.Result, error) {
 	if len(promise.Spec.Dependencies) > 0 {
 		o.logger.Info("Applying static dependencies for Promise", "promise", promise.GetName())
 		if err := r.applyWorkForStaticDependencies(o, promise); err != nil {
@@ -442,11 +457,6 @@ func (r *PromiseReconciler) reconcileDependenciesAndPromiseWorkflows(o opts, pro
 		if err := r.Client.Update(o.ctx, promise); err != nil {
 			return &ctrl.Result{}, err
 		}
-	}
-
-	unstructuredPromise, err := promise.ToUnstructured()
-	if err != nil {
-		return nil, err
 	}
 
 	pipelineResources, err := promise.GeneratePromisePipelines(v1alpha1.WorkflowActionConfigure, o.logger)
