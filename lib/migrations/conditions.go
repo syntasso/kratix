@@ -24,13 +24,12 @@ func RemoveDeprecatedConditions(ctx context.Context, k8sClient client.Client, ob
 	}
 
 	logger.Info("Removing deprecated condition", "conditionType", deprecatedPipelineCompletedCondition)
-	if err := unstructured.SetNestedSlice(obj.Object, newConditions, "status", "conditions"); err != nil {
-		logger.Error(err, "failed to remove deprecated conditions on resource")
+	if err = unstructured.SetNestedSlice(obj.Object, newConditions, "status", "conditions"); err != nil {
+		logger.Error(err, "failed to remove deprecated conditions on object", "name", obj.GetName(), "kind", obj.GetKind())
 		return nil, err
 	}
 
-	// Update the status using the client
-	if err := k8sClient.Status().Update(ctx, obj); err != nil {
+	if err = k8sClient.Status().Update(ctx, obj); err != nil {
 		logger.Error(err, "failed to update resource to remove deprecated condition")
 		return nil, err
 	}
