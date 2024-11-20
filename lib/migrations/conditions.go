@@ -14,7 +14,7 @@ const deprecatedPipelineCompletedCondition = "PipelineCompleted"
 func RemoveDeprecatedConditions(ctx context.Context, k8sClient client.Client, obj *unstructured.Unstructured, logger logr.Logger) (*ctrl.Result, error) {
 	conditions, found, err := unstructured.NestedSlice(obj.Object, "status", "conditions")
 	if err != nil || !found {
-		logger.Info("No deprecated conditions found on resource", "resource", obj.GetName())
+		logger.Info("No deprecated conditions found on object", "name", obj.GetName(), "kind", obj.GetKind())
 		return nil, nil
 	}
 
@@ -40,12 +40,10 @@ func RemoveDeprecatedConditions(ctx context.Context, k8sClient client.Client, ob
 func filterOutCondition(conditions []interface{}, conditionType string) []interface{} {
 	var newConditions []interface{}
 	for _, cond := range conditions {
-		conditionMap, ok := cond.(map[string]interface{})
-		if !ok {
-			continue
-		}
-		if conditionMap["type"] != conditionType {
-			newConditions = append(newConditions, cond)
+		if conditionMap, ok := cond.(map[string]interface{}); ok {
+			if conditionMap["type"] != conditionType {
+				newConditions = append(newConditions, cond)
+			}
 		}
 	}
 	return newConditions
