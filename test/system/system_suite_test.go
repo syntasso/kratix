@@ -90,7 +90,7 @@ func getEnvOrDefault(envVar, defaultValue string) string {
 	return value
 }
 
-var _ = AfterSuite(func() {
+var _ = SynchronizedAfterSuite(func() {}, func() {
 	platform.eventuallyKubectlDelete("deployments", "-n", "kratix-platform-system", "kratix-promise-release-test-hoster")
 	os.RemoveAll(testTempDir)
 })
