@@ -108,7 +108,7 @@ func (r *WorkReconciler) deleteWork(ctx context.Context, work *v1alpha1.Work) (c
 	}
 
 	resourcesRemaining, err := deleteAllResourcesWithKindMatchingLabel(opts{client: r.Client, logger: r.Log, ctx: ctx},
-		workplacementGVK, map[string]string{workLabelKey: work.Name})
+		&workplacementGVK, map[string]string{workLabelKey: work.Name})
 	if err != nil {
 		return defaultRequeue, err
 	}

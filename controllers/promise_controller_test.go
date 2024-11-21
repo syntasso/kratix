@@ -4,11 +4,12 @@ import (
 	"bytes"
 	"context"
 	"encoding/json"
-	"k8s.io/apimachinery/pkg/runtime/schema"
 	"os"
 	"regexp"
 	"strings"
 	"time"
+
+	"k8s.io/apimachinery/pkg/runtime/schema"
 
 	"github.com/go-logr/logr"
 	. "github.com/onsi/ginkgo/v2"
@@ -996,7 +997,7 @@ var _ = Describe("PromiseController", func() {
 			It("uses the additional printer columns as defined", func() {
 				promise = createPromise(promisePath)
 
-				promiseCrd, err := promise.GetAPIAsCRD()
+				_, promiseCrd, err := promise.GetAPI()
 				Expect(err).ToNot(HaveOccurred())
 				promiseCrd.Spec.Versions[0].AdditionalPrinterColumns = []apiextensionsv1.CustomResourceColumnDefinition{
 					{

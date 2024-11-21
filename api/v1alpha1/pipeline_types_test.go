@@ -86,6 +86,9 @@ var _ = Describe("Pipeline", func() {
 					Singular: "promiseCrd",
 					Plural:   "promiseCrdPlural",
 				},
+				Versions: []apiextensionsv1.CustomResourceDefinitionVersion{
+					{Name: "v1"},
+				},
 			},
 		}
 

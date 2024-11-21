@@ -270,7 +270,7 @@ func (r *DynamicResourceRequestController) deleteWorkflows(o opts, resourceReque
 		v1alpha1.WorkTypeLabel:     v1alpha1.WorkTypeResource,
 	}
 
-	resourcesRemaining, err := deleteAllResourcesWithKindMatchingLabel(o, jobGVK, jobLabels)
+	resourcesRemaining, err := deleteAllResourcesWithKindMatchingLabel(o, &jobGVK, jobLabels)
 	if err != nil {
 		return err
 	}

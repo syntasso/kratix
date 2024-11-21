@@ -123,7 +123,7 @@ var _ = Describe("Kratix", func() {
 		declarativeWorkerNamespace = fmt.Sprintf(templateDeclarativeWorkerNamespace, bashPromiseName, "v1alpha1")
 		declarativeStaticWorkerNamespace = fmt.Sprintf(templateDeclarativeStaticWorkerNamespace, bashPromiseName, "v1alpha1")
 		var err error
-		crd, err = bashPromise.GetAPIAsCRD()
+		_, crd, err = bashPromise.GetAPI()
 		Expect(err).NotTo(HaveOccurred())
 
 		platform.kubectl("label", "destination", worker.name, bashPromiseUniqueLabel)
