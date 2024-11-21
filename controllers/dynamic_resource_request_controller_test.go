@@ -44,7 +44,7 @@ var _ = Describe("DynamicResourceRequestController", func() {
 			Namespace: promise.GetNamespace(),
 		}
 
-		rrCRD, err := promise.GetAPIAsCRD()
+		_, rrCRD, err := promise.GetAPI()
 		Expect(err).ToNot(HaveOccurred())
 		rrGVK := schema.GroupVersionKind{
 			Group:   rrCRD.Spec.Group,

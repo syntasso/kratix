@@ -199,7 +199,7 @@ func (r *PromiseReconciler) Reconcile(ctx context.Context, req ctrl.Request) (ct
 	//TODO add workflowFinalizer if deletes exist (currently we only add it if we have a configure pipeline)
 
 	var rrCRD *apiextensionsv1.CustomResourceDefinition
-	var rrGVK schema.GroupVersionKind
+	var rrGVK *schema.GroupVersionKind
 
 	if promise.ContainsAPI() {
 		rrCRD, rrGVK, err = generateCRDAndGVK(promise, logger)
@@ -478,12 +478,12 @@ func (r *PromiseReconciler) reconcileDependenciesAndPromiseWorkflows(o opts, pro
 	return nil, nil
 }
 
-func (r *PromiseReconciler) reconcileAllRRs(rrGVK schema.GroupVersionKind) error {
+func (r *PromiseReconciler) reconcileAllRRs(rrGVK *schema.GroupVersionKind) error {
 	//label all rr with manual reconciliation
 	rrs := &unstructured.UnstructuredList{}
 	rrListGVK := rrGVK
 	rrListGVK.Kind = rrListGVK.Kind + "List"
-	rrs.SetGroupVersionKind(rrListGVK)
+	rrs.SetGroupVersionKind(*rrListGVK)
 	err := r.Client.List(context.Background(), rrs)
 	if err != nil {
 		return err
@@ -502,14 +502,14 @@ func (r *PromiseReconciler) reconcileAllRRs(rrGVK schema.GroupVersionKind) error
 	return nil
 }
 
-func (r *PromiseReconciler) ensureDynamicControllerIsStarted(promise *v1alpha1.Promise, rrCRD *apiextensionsv1.CustomResourceDefinition, rrGVK schema.GroupVersionKind, canCreateResources *bool, logger logr.Logger) error {
+func (r *PromiseReconciler) ensureDynamicControllerIsStarted(promise *v1alpha1.Promise, rrCRD *apiextensionsv1.CustomResourceDefinition, rrGVK *schema.GroupVersionKind, canCreateResources *bool, logger logr.Logger) error {
 
 	// The Dynamic Controller needs to be started once and only once.
 	if r.dynamicControllerHasAlreadyStarted(promise) {
 		logger.Info("dynamic controller already started, ensuring it is up to date")
 
 		dynamicController := r.StartedDynamicControllers[string(promise.GetUID())]
-		dynamicController.GVK = &rrGVK
+		dynamicController.GVK = rrGVK
 		dynamicController.CRD = rrCRD
 
 		dynamicController.CanCreateResources = canCreateResources
@@ -526,7 +526,7 @@ func (r *PromiseReconciler) ensureDynamicControllerIsStarted(promise *v1alpha1.P
 	dynamicResourceRequestController := &DynamicResourceRequestController{
 		Client:                      r.Client,
 		Scheme:                      r.Scheme,
-		GVK:                         &rrGVK,
+		GVK:                         rrGVK,
 		CRD:                         rrCRD,
 		PromiseIdentifier:           promise.GetName(),
 		PromiseDestinationSelectors: promise.Spec.DestinationSelectors,
@@ -539,7 +539,7 @@ func (r *PromiseReconciler) ensureDynamicControllerIsStarted(promise *v1alpha1.P
 	r.StartedDynamicControllers[string(promise.GetUID())] = dynamicResourceRequestController
 
 	unstructuredCRD := &unstructured.Unstructured{}
-	unstructuredCRD.SetGroupVersionKind(rrGVK)
+	unstructuredCRD.SetGroupVersionKind(*rrGVK)
 
 	return ctrl.NewControllerManagedBy(r.Manager).
 		For(unstructuredCRD).
@@ -552,8 +552,12 @@ func (r *PromiseReconciler) dynamicControllerHasAlreadyStarted(promise *v1alpha1
 	return ok
 }
 
+// createResourcesForDynamicControllerIfTheyDontExist(ctx, promiseName, logger)
+// fetch promise # maybe redundant?
+// fetch the promises CRDS
+// do the rest as is
 func (r *PromiseReconciler) createResourcesForDynamicControllerIfTheyDontExist(ctx context.Context, promise *v1alpha1.Promise,
-	rrCRD *apiextensionsv1.CustomResourceDefinition, rrGVK schema.GroupVersionKind, logger logr.Logger) error {
+	rrCRD *apiextensionsv1.CustomResourceDefinition, rrGVK *schema.GroupVersionKind, logger logr.Logger) error {
 	cr := rbacv1.ClusterRole{
 		ObjectMeta: metav1.ObjectMeta{
 			Name: promise.GetControllerResourceName(),
@@ -562,23 +566,7 @@ func (r *PromiseReconciler) createResourcesForDynamicControllerIfTheyDontExist(c
 
 	logger.Info("creating/updating cluster role", "clusterRoleName", cr.GetName())
 	_, err := controllerutil.CreateOrUpdate(ctx, r.Client, &cr, func() error {
-		cr.Rules = []rbacv1.PolicyRule{
-			{
-				APIGroups: []string{rrGVK.Group},
-				Resources: []string{rrCRD.Spec.Names.Plural},
-				Verbs:     []string{rbacv1.VerbAll},
-			},
-			{
-				APIGroups: []string{rrGVK.Group},
-				Resources: []string{rrCRD.Spec.Names.Plural + "/finalizers"},
-				Verbs:     []string{"update"},
-			},
-			{
-				APIGroups: []string{rrGVK.Group},
-				Resources: []string{rrCRD.Spec.Names.Plural + "/status"},
-				Verbs:     []string{"get", "update", "patch"},
-			},
-		}
+		cr.Rules = promise.GenerateFullAccessForRR(rrGVK.Group, rrCRD.Spec.Names.Plural)
 		cr.Labels = labels.Merge(cr.Labels, promise.GenerateSharedLabels())
 		return nil
 	})
@@ -796,7 +784,7 @@ func (r *PromiseReconciler) deletePromiseWorkflowJobs(o opts, promise *v1alpha1.
 		v1alpha1.WorkTypeLabel:    v1alpha1.WorkTypePromise,
 	}
 
-	resourcesRemaining, err := deleteAllResourcesWithKindMatchingLabel(o, jobGVK, jobLabels)
+	resourcesRemaining, err := deleteAllResourcesWithKindMatchingLabel(o, &jobGVK, jobLabels)
 	if err != nil {
 		return err
 	}
@@ -824,7 +812,7 @@ func (r *PromiseReconciler) deleteDynamicControllerAndWorkflowResources(o opts, 
 				Version: gv.Version,
 				Kind:    resource,
 			}
-			resourcesRemaining, err := deleteAllResourcesWithKindMatchingLabel(o, gvk, promise.GenerateSharedLabels())
+			resourcesRemaining, err := deleteAllResourcesWithKindMatchingLabel(o, &gvk, promise.GenerateSharedLabels())
 			if err != nil {
 				return err
 			}
@@ -868,7 +856,7 @@ func (r *PromiseReconciler) deleteResourceRequests(o opts, promise *v1alpha1.Pro
 }
 
 func (r *PromiseReconciler) deleteCRDs(o opts, promise *v1alpha1.Promise) error {
-	rrCRD, err := promise.GetAPIAsCRD()
+	_, rrCRD, err := promise.GetAPI()
 	if err != nil {
 		o.logger.Error(err, "Failed unmarshalling CRD, skipping deletion")
 		controllerutil.RemoveFinalizer(promise, crdCleanupFinalizer)
@@ -897,7 +885,7 @@ func (r *PromiseReconciler) deleteWork(o opts, promise *v1alpha1.Promise) error 
 		Kind:    "Work",
 	}
 
-	resourcesRemaining, err := deleteAllResourcesWithKindMatchingLabel(o, workGVK, promise.GenerateSharedLabels())
+	resourcesRemaining, err := deleteAllResourcesWithKindMatchingLabel(o, &workGVK, promise.GenerateSharedLabels())
 	if err != nil {
 		return err
 	}
@@ -949,32 +937,15 @@ func ensurePromiseDeleteWorkflowFinalizer(o opts, promise *v1alpha1.Promise, pro
 	return nil, nil
 }
 
-func generateCRDAndGVK(promise *v1alpha1.Promise, logger logr.Logger) (*apiextensionsv1.CustomResourceDefinition, schema.GroupVersionKind, error) {
-	rrCRD := &apiextensionsv1.CustomResourceDefinition{}
-	rrGVK := schema.GroupVersionKind{}
-
-	rrCRD, err := promise.GetAPIAsCRD()
+func generateCRDAndGVK(promise *v1alpha1.Promise, logger logr.Logger) (*apiextensionsv1.CustomResourceDefinition, *schema.GroupVersionKind, error) {
+	rrGVK, rrCRD, err := promise.GetAPI()
 	if err != nil {
 		logger.Error(err, "Failed unmarshalling CRD")
-		return rrCRD, rrGVK, err
+		return nil, nil, err
 	}
 	rrCRD.Labels = labels.Merge(rrCRD.Labels, promise.GenerateSharedLabels())
 
 	setStatusFieldsOnCRD(rrCRD)
-
-	storedVersion := rrCRD.Spec.Versions[0]
-	for _, version := range rrCRD.Spec.Versions {
-		if version.Storage {
-			storedVersion = version
-			break
-		}
-	}
-
-	rrGVK = schema.GroupVersionKind{
-		Group:   rrCRD.Spec.Group,
-		Version: storedVersion.Name,
-		Kind:    rrCRD.Spec.Names.Kind,
-	}
 
 	return rrCRD, rrGVK, nil
 }

@@ -134,7 +134,7 @@ func (p *Promise) validatePipelines() error {
 }
 
 func (p *Promise) validateCRD() error {
-	newCrd, err := p.GetAPIAsCRD()
+	_, newCrd, err := p.GetAPI()
 	if err != nil {
 		if err == ErrNoAPI {
 			return nil
@@ -190,8 +190,8 @@ func (p *Promise) validateRequiredPromisesAreAvailable() admission.Warnings {
 }
 
 func (p *Promise) validateCRDChanges(oldPromise *Promise) error {
-	oldCrd, errOldCrd := oldPromise.GetAPIAsCRD()
-	newCrd, errNewCrd := p.GetAPIAsCRD()
+	_, oldCrd, errOldCrd := oldPromise.GetAPI()
+	_, newCrd, errNewCrd := p.GetAPI()
 	if errOldCrd == ErrNoAPI {
 		return nil
 	}

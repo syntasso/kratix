@@ -68,6 +68,11 @@ var _ = Describe("PromiseWebhook", func() {
 					Singular: "mycrd",
 					Kind:     "MyCRD",
 				},
+				Versions: []v1.CustomResourceDefinitionVersion{
+					{
+						Name: "v1",
+					},
+				},
 			},
 		}
 		oldPromise = &v1alpha1.Promise{
@@ -108,7 +113,7 @@ var _ = Describe("PromiseWebhook", func() {
 					Name: "mypromise",
 				},
 				Spec: v1alpha1.PromiseSpec{
-					API: RawExtension(nil),
+					API: nil,
 				},
 			}
 			warnings, err := promise.ValidateCreate()
@@ -243,7 +248,7 @@ var _ = Describe("PromiseWebhook", func() {
 						Name: "mypromise",
 					},
 					Spec: v1alpha1.PromiseSpec{
-						API: RawExtension(nil),
+						API: nil,
 						RequiredPromises: []v1alpha1.RequiredPromise{
 							{
 								Name:    "redis",
@@ -292,7 +297,7 @@ var _ = Describe("PromiseWebhook", func() {
 						Name: "mypromise",
 					},
 					Spec: v1alpha1.PromiseSpec{
-						API: RawExtension(nil),
+						API: nil,
 						RequiredPromises: []v1alpha1.RequiredPromise{
 							{
 								Name:    "kafka",

@@ -48,9 +48,9 @@ type opts struct {
 }
 
 // pass in nil resourceLabels to delete all resources of the GVK
-func deleteAllResourcesWithKindMatchingLabel(o opts, gvk schema.GroupVersionKind, resourceLabels map[string]string) (bool, error) {
+func deleteAllResourcesWithKindMatchingLabel(o opts, gvk *schema.GroupVersionKind, resourceLabels map[string]string) (bool, error) {
 	resourceList := &unstructured.UnstructuredList{}
-	resourceList.SetGroupVersionKind(gvk)
+	resourceList.SetGroupVersionKind(*gvk)
 	listOptions := client.ListOptions{LabelSelector: labels.SelectorFromSet(resourceLabels)}
 	err := o.client.List(o.ctx, resourceList, &listOptions)
 	if err != nil {

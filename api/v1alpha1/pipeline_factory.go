@@ -382,7 +382,7 @@ func (p *PipelineFactory) getObjAndHash() (*unstructured.Unstructured, string, e
 func (p *PipelineFactory) role() ([]rbacv1.Role, error) {
 	var roles []rbacv1.Role
 	if p.ResourceWorkflow {
-		crd, err := p.Promise.GetAPIAsCRD()
+		_, crd, err := p.Promise.GetAPI()
 		if err != nil {
 			return nil, err
 		}

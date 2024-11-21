@@ -26,11 +26,13 @@ import (
 	"github.com/go-logr/logr"
 	"gopkg.in/yaml.v2"
 	corev1 "k8s.io/api/core/v1"
+	rbacv1 "k8s.io/api/rbac/v1"
 	apiextensionsv1 "k8s.io/apiextensions-apiserver/pkg/apis/apiextensions/v1"
 	metav1 "k8s.io/apimachinery/pkg/apis/meta/v1"
 	"k8s.io/apimachinery/pkg/apis/meta/v1/unstructured"
 	"k8s.io/apimachinery/pkg/labels"
 	"k8s.io/apimachinery/pkg/runtime"
+	"k8s.io/apimachinery/pkg/runtime/schema"
 )
 
 const (
@@ -187,17 +189,31 @@ func (p *Promise) DoesNotContainAPI() bool {
 	return p.Spec.API == nil || p.Spec.API.Raw == nil
 }
 
-func (p *Promise) GetAPIAsCRD() (*apiextensionsv1.CustomResourceDefinition, error) {
+func (p *Promise) GetAPI() (*schema.GroupVersionKind, *apiextensionsv1.CustomResourceDefinition, error) {
 	if p.DoesNotContainAPI() {
-		return nil, ErrNoAPI
+		return nil, nil, ErrNoAPI
 	}
 
 	crd := apiextensionsv1.CustomResourceDefinition{}
 	if err := json.Unmarshal(p.Spec.API.Raw, &crd); err != nil {
-		return nil, fmt.Errorf("api is not a valid CRD: %w", err)
+		return nil, nil, fmt.Errorf("api is not a valid CRD: %w", err)
 	}
 
-	return &crd, nil
+	storedVersion := crd.Spec.Versions[0]
+	for _, version := range crd.Spec.Versions {
+		if version.Storage {
+			storedVersion = version
+			break
+		}
+	}
+
+	gvk := &schema.GroupVersionKind{
+		Group:   crd.Spec.Group,
+		Version: storedVersion.Name,
+		Kind:    crd.Spec.Names.Kind,
+	}
+
+	return gvk, &crd, nil
 }
 
 func (p *Promise) ContainsAPI() bool {
@@ -234,6 +250,26 @@ func (p *Promise) ToUnstructured() (*unstructured.Unstructured, error) {
 	unstructuredPromise := &unstructured.Unstructured{Object: objMap}
 
 	return unstructuredPromise, nil
+}
+
+func (p *Promise) GenerateFullAccessForRR(group, rrPluralName string) []rbacv1.PolicyRule {
+	return []rbacv1.PolicyRule{
+		{
+			APIGroups: []string{group},
+			Resources: []string{rrPluralName},
+			Verbs:     []string{rbacv1.VerbAll},
+		},
+		{
+			APIGroups: []string{group},
+			Resources: []string{rrPluralName + "/finalizers"},
+			Verbs:     []string{"update"},
+		},
+		{
+			APIGroups: []string{group},
+			Resources: []string{rrPluralName + "/status"},
+			Verbs:     []string{"get", "update", "patch"},
+		},
+	}
 }
 
 func (d Dependencies) Marshal() ([]byte, error) {
