@@ -18,7 +18,6 @@ package controllers
 
 import (
 	"context"
-	"fmt"
 	"path/filepath"
 
 	v1 "k8s.io/api/core/v1"
@@ -80,13 +79,14 @@ func (r *DestinationReconciler) Reconcile(ctx context.Context, req ctrl.Request)
 	//destination.Spec.Path is optional, may be empty
 	path := filepath.Join(destination.Spec.Path, destination.Name)
 	logger = logger.WithValues("path", path)
+	filePathMode := destination.GetFilepathMode()
 
-	if err := r.createDependenciesPathWithExample(writer); err != nil {
+	if err = r.createDependenciesPathWithExample(writer, filePathMode); err != nil {
 		logger.Error(err, "unable to write dependencies to state store")
 		return defaultRequeue, nil
 	}
 
-	if err := r.createResourcePathWithExample(writer); err != nil {
+	if err = r.createResourcePathWithExample(writer, filePathMode); err != nil {
 		logger.Error(err, "unable to write dependencies to state store")
 		return defaultRequeue, nil
 	}
@@ -94,7 +94,7 @@ func (r *DestinationReconciler) Reconcile(ctx context.Context, req ctrl.Request)
 	return ctrl.Result{}, nil
 }
 
-func (r *DestinationReconciler) createResourcePathWithExample(writer writers.StateStoreWriter) error {
+func (r *DestinationReconciler) createResourcePathWithExample(writer writers.StateStoreWriter, filePathMode string) error {
 	kratixConfigMap := &v1.ConfigMap{
 		TypeMeta: metav1.TypeMeta{
 			Kind:       "ConfigMap",
@@ -110,13 +110,18 @@ func (r *DestinationReconciler) createResourcePathWithExample(writer writers.Sta
 	}
 	nsBytes, _ := yaml.Marshal(kratixConfigMap)
 
+	filePath := "kratix-canary-configmap.yaml"
+	if filePathMode == v1alpha1.FilepathModeNestedByMetadata {
+		filePath = filepath.Join(resourcesDir, filePath)
+	}
+
 	_, err := writer.UpdateFiles("", canaryWorkload, []v1alpha1.Workload{{
-		Filepath: fmt.Sprintf("%s/kratix-canary-configmap.yaml", resourcesDir),
+		Filepath: filePath,
 		Content:  string(nsBytes)}}, nil)
 	return err
 }
 
-func (r *DestinationReconciler) createDependenciesPathWithExample(writer writers.StateStoreWriter) error {
+func (r *DestinationReconciler) createDependenciesPathWithExample(writer writers.StateStoreWriter, filePathMode string) error {
 	kratixNamespace := &v1.Namespace{
 		TypeMeta: metav1.TypeMeta{
 			Kind:       "Namespace",
@@ -126,8 +131,13 @@ func (r *DestinationReconciler) createDependenciesPathWithExample(writer writers
 	}
 	nsBytes, _ := yaml.Marshal(kratixNamespace)
 
+	filePath := "kratix-canary-namespace.yaml"
+	if filePathMode == v1alpha1.FilepathModeNestedByMetadata {
+		filePath = filepath.Join(dependenciesDir, filePath)
+	}
+
 	_, err := writer.UpdateFiles("", canaryWorkload, []v1alpha1.Workload{{
-		Filepath: fmt.Sprintf("%s/kratix-canary-namespace.yaml", dependenciesDir),
+		Filepath: filePath,
 		Content:  string(nsBytes)}}, nil)
 	return err
 }
