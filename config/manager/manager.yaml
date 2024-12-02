@@ -28,7 +28,8 @@ spec:
       - command:
         - /manager
         args:
-        - --leader-elect=false
+          - "--health-probe-bind-address=:8081"
+          - "--leader-elect"
         image: controller:latest
         name: manager
         securityContext:
