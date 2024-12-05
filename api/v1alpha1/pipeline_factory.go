@@ -89,7 +89,7 @@ func (p *PipelineFactory) serviceAccount() *corev1.ServiceAccount {
 }
 
 func (p *PipelineFactory) configMap(workloadGroupScheduling []WorkloadGroupScheduling) (*corev1.ConfigMap, error) {
-	if p.WorkflowAction != WorkflowActionConfigure {
+	if p.WorkflowAction == WorkflowActionDelete {
 		return nil, nil
 	}
 	schedulingYAML, err := yaml.Marshal(workloadGroupScheduling)
@@ -109,7 +109,7 @@ func (p *PipelineFactory) configMap(workloadGroupScheduling []WorkloadGroupSched
 }
 
 func (p *PipelineFactory) defaultVolumes(schedulingConfigMap *corev1.ConfigMap) []corev1.Volume {
-	if p.WorkflowAction != WorkflowActionConfigure {
+	if p.WorkflowAction == WorkflowActionDelete {
 		return []corev1.Volume{}
 	}
 	return []corev1.Volume{
@@ -172,6 +172,7 @@ func (p *PipelineFactory) readerContainer() corev1.Container {
 			{Name: "OBJECT_KIND", Value: strings.ToLower(kind)},
 			{Name: "OBJECT_GROUP", Value: group},
 			{Name: "OBJECT_NAME", Value: name},
+			{Name: "PROMISE_NAME", Value: p.Promise.GetName()},
 			{Name: "OBJECT_NAMESPACE", Value: p.Namespace},
 			{Name: "KRATIX_WORKFLOW_TYPE", Value: string(p.WorkflowType)},
 		},
@@ -208,6 +209,34 @@ func (p *PipelineFactory) workCreatorContainer() corev1.Container {
 			{MountPath: "/work-creator-files/input", Name: "shared-output"},
 			{MountPath: "/work-creator-files/metadata", Name: "shared-metadata"},
 			{MountPath: "/work-creator-files/kratix-system", Name: "promise-scheduling"}, // this volumemount is a configmap
+		},
+		SecurityContext: kratixSecurityContext,
+	}
+}
+
+func (p *PipelineFactory) healthDefinitionCreatorContainer() corev1.Container {
+	cmd := "health-creator"
+
+	args := []string{
+		"-promise-name", p.Promise.GetName(),
+		"-pipeline-name", p.Pipeline.GetName(),
+		"-namespace", p.Namespace,
+	}
+
+	if p.ResourceWorkflow {
+		args = append(args, "-resource-name", p.ResourceRequest.GetName())
+	}
+
+	cmd = fmt.Sprintf("%s %s", cmd, strings.Join(args, " "))
+
+	return corev1.Container{
+		Name:    "health-creator",
+		Image:   os.Getenv("WC_IMG"),
+		Command: []string{"sh", "-c", cmd},
+		VolumeMounts: []corev1.VolumeMount{
+			{MountPath: "/kratix/input", Name: "shared-input", ReadOnly: true},
+			{MountPath: "/kratix/output", Name: "shared-output"},
+			{MountPath: "/kratix/metadata", Name: "shared-metadata"},
 		},
 		SecurityContext: kratixSecurityContext,
 	}
@@ -264,6 +293,7 @@ func (p *PipelineFactory) pipelineJob(schedulingConfigMap *corev1.ConfigMap, ser
 	pipelineContainers, pipelineVolumes := p.pipelineContainers()
 	workCreatorContainer := p.workCreatorContainer()
 	statusWriterContainer := p.statusWriterContainer(obj, env)
+	healthDefinitionCreatorContainer := p.healthDefinitionCreatorContainer()
 
 	volumes := append(p.defaultVolumes(schedulingConfigMap), pipelineVolumes...)
 
@@ -271,13 +301,19 @@ func (p *PipelineFactory) pipelineJob(schedulingConfigMap *corev1.ConfigMap, ser
 	var containers []corev1.Container
 
 	initContainers = []corev1.Container{readerContainer}
-	if p.WorkflowAction == WorkflowActionDelete {
+	switch p.WorkflowAction {
+	case WorkflowActionDelete:
 		initContainers = append(initContainers, pipelineContainers[0:len(pipelineContainers)-1]...)
 		containers = []corev1.Container{pipelineContainers[len(pipelineContainers)-1]}
-	} else {
+	case WorkflowActionConfigure:
 		initContainers = append(initContainers, pipelineContainers...)
 		initContainers = append(initContainers, workCreatorContainer)
 		containers = []corev1.Container{statusWriterContainer}
+	case WorkflowActionHealthchecks:
+		readerContainer.Env = append(readerContainer.Env, corev1.EnvVar{Name: "HEALTHCHECK", Value: "true"})
+		initContainers = []corev1.Container{readerContainer}
+		initContainers = append(initContainers, healthDefinitionCreatorContainer)
+		containers = []corev1.Container{workCreatorContainer}
 	}
 
 	job := &batchv1.Job{
@@ -307,6 +343,7 @@ func (p *PipelineFactory) pipelineJob(schedulingConfigMap *corev1.ConfigMap, ser
 	if err = controllerutil.SetControllerReference(obj, job, scheme.Scheme); err != nil {
 		return nil, err
 	}
+
 	return job, nil
 }
 
@@ -501,7 +538,7 @@ func (p *PipelineFactory) roleBindings(roles []rbacv1.Role, clusterRoles []rbacv
 
 func (p *PipelineFactory) clusterRole() []rbacv1.ClusterRole {
 	var clusterRoles []rbacv1.ClusterRole
-	if !p.ResourceWorkflow {
+	if !p.ResourceWorkflow || p.WorkflowAction == WorkflowActionHealthchecks {
 		clusterRoles = append(clusterRoles, rbacv1.ClusterRole{
 			ObjectMeta: metav1.ObjectMeta{
 				Name:   p.ID,

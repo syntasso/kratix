@@ -55,6 +55,9 @@ type PromiseSpec struct {
 	// A list of pipelines to be executed at different stages of the Promise lifecycle.
 	Workflows Workflows `json:"workflows,omitempty"`
 
+	// A list of health checks to be executed at different stages of the Promise lifecycle.
+	HealthChecks *HealthCheck `json:"healthChecks,omitempty"`
+
 	// A list of Promises that are required by this Promise.
 	// All required Promises must be present and available for this promise to be made available.
 	RequiredPromises []RequiredPromise `json:"requiredPromises,omitempty"`
@@ -64,6 +67,17 @@ type PromiseSpec struct {
 
 	// A list of key and value pairs (labels) used for scheduling.
 	DestinationSelectors []PromiseScheduling `json:"destinationSelectors,omitempty"`
+}
+
+type HealthCheck struct {
+	Resource *ResourceHealthCheck `json:"resource,omitempty"`
+}
+
+type ResourceHealthCheck struct {
+	Schedule             string            `json:"schedule,omitempty"`
+	DestinationSelectors PromiseScheduling `json:"destinationSelectors,omitempty"`
+	// +kubebuilder:pruning:PreserveUnknownFields
+	Workflow unstructured.Unstructured `json:"workflow,omitempty"`
 }
 
 type RequiredPromise struct {
@@ -360,6 +374,10 @@ func (p *Promise) GenerateResourcePipelines(workflowAction Action, resourceReque
 	return p.generatePipelinesObjects(WorkflowTypeResource, workflowAction, resourceRequest, logger)
 }
 
+func (p *Promise) GenerateResourceHealthCheckPipelines(resourceRequest *unstructured.Unstructured, logger logr.Logger) ([]PipelineJobResources, error) {
+	return p.generatePipelinesObjects(WorkflowTypeResource, WorkflowActionHealthchecks, resourceRequest, logger)
+}
+
 func (p *Promise) HasPipeline(workflowType Type, workflowAction Action) bool {
 	switch workflowType {
 	case WorkflowTypeResource:
@@ -380,17 +398,26 @@ func (p *Promise) HasPipeline(workflowType Type, workflowAction Action) bool {
 	return false
 }
 
+func (p *Promise) GetResourceHealthChecks() []unstructured.Unstructured {
+	if p.Spec.HealthChecks == nil || p.Spec.HealthChecks.Resource == nil {
+		return nil
+	}
+	return []unstructured.Unstructured{p.Spec.HealthChecks.Resource.Workflow}
+}
+
 type pipelineMap map[Type]map[Action][]Pipeline
 
 func NewPipelinesMap(promise *Promise, logger logr.Logger) (pipelineMap, error) {
 	unstructuredMap := map[Type]map[Action][]unstructured.Unstructured{
 		WorkflowTypeResource: {
-			WorkflowActionConfigure: promise.Spec.Workflows.Resource.Configure,
-			WorkflowActionDelete:    promise.Spec.Workflows.Resource.Delete,
+			WorkflowActionConfigure:    promise.Spec.Workflows.Resource.Configure,
+			WorkflowActionDelete:       promise.Spec.Workflows.Resource.Delete,
+			WorkflowActionHealthchecks: promise.GetResourceHealthChecks(),
 		},
 		WorkflowTypePromise: {
-			WorkflowActionConfigure: promise.Spec.Workflows.Promise.Configure,
-			WorkflowActionDelete:    promise.Spec.Workflows.Promise.Delete,
+			WorkflowActionConfigure:    promise.Spec.Workflows.Promise.Configure,
+			WorkflowActionDelete:       promise.Spec.Workflows.Promise.Delete,
+			WorkflowActionHealthchecks: nil,
 		},
 	}
 
@@ -400,14 +427,16 @@ func NewPipelinesMap(promise *Promise, logger logr.Logger) (pipelineMap, error) 
 		if _, ok := pipelinesMap[t]; !ok {
 			pipelinesMap[t] = map[Action][]Pipeline{}
 		}
-		for _, a := range []Action{WorkflowActionConfigure, WorkflowActionDelete} {
+		for _, a := range []Action{WorkflowActionConfigure, WorkflowActionDelete, WorkflowActionHealthchecks} {
+			if len(unstructuredMap[t][a]) == 0 {
+				continue
+			}
 			pipelines, err := PipelinesFromUnstructured(unstructuredMap[t][a], logger)
 			if err != nil {
 				return nil, err
 			}
 			pipelinesMap[t][a] = pipelines
 		}
-
 	}
 
 	return pipelinesMap, nil

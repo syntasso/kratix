@@ -1,0 +1,38 @@
+#!/usr/bin/env sh
+
+INPUT_DIR="${INPUT_DIR:-/kratix/input}"
+OUTPUT_DIR="${OUTPUT_DIR:-/kratix/output}"
+
+resource_name=$(yq -r .metadata.name ${INPUT_DIR}/object.yaml)
+resource_namespace=$(yq -r .metadata.namespace ${INPUT_DIR}/object.yaml)
+promise_name=$(yq -r .metadata.name ${INPUT_DIR}/promise.yaml)
+
+if [ ! -f ${INPUT_DIR}/object.yaml ]; then
+    echo "Object file not found"
+    exit 1
+fi
+
+if [ ! -f ${INPUT_DIR}/promise.yaml ]; then
+    echo "Promise file not found"
+    exit 1
+fi
+
+cat <<EOF > ${OUTPUT_DIR}/healthdefinition.yaml
+apiVersion: platform.kratix.io/v1alpha1
+kind: HealthDefinition
+metadata:
+    name: default-${resource_name}-${promise_name}
+    namespace: default
+spec:
+    promiseRef:
+        name: $promise_name
+    resourceRef:
+        name: $resource_name
+        namespace: $resource_namespace
+    schedule: 1 hour
+EOF
+
+export resource_input=$(cat ${INPUT_DIR}/object.yaml)
+export workflow_input=$(yq -r .spec.healthChecks.resource.workflow ${INPUT_DIR}/promise.yaml)
+
+yq -i '.spec.input = strenv(resource_input) | .spec.workflow = strenv(workflow_input)' ${OUTPUT_DIR}/healthdefinition.yaml

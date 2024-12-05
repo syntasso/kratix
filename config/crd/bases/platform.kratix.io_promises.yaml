@@ -80,6 +80,26 @@ spec:
                       type: object
                   type: object
                 type: array
+              healthChecks:
+                description: A list of health checks to be executed at different stages
+                  of the Promise lifecycle.
+                properties:
+                  resource:
+                    properties:
+                      destinationSelectors:
+                        properties:
+                          matchLabels:
+                            additionalProperties:
+                              type: string
+                            type: object
+                        type: object
+                      schedule:
+                        type: string
+                      workflow:
+                        type: object
+                        x-kubernetes-preserve-unknown-fields: true
+                    type: object
+                type: object
               requiredPromises:
                 description: |-
                   A list of Promises that are required by this Promise.
