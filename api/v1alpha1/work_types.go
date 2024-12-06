@@ -18,7 +18,6 @@ package v1alpha1
 
 import (
 	"fmt"
-
 	"github.com/syntasso/kratix/lib/hash"
 	metav1 "k8s.io/apimachinery/pkg/apis/meta/v1"
 
@@ -26,8 +25,9 @@ import (
 )
 
 const (
-	DefaultWorkloadGroupDirectory = "."
-
+	DefaultWorkloadGroupDirectory        = "."
+	KratixPrefix                         = "kratix.io/"
+	PromiseVersionLabel                  = KratixPrefix + "promise-version"
 	PromiseNameLabel                     = KratixPrefix + "promise-name"
 	ResourceNameLabel                    = KratixPrefix + "resource-name"
 	PipelineNameLabel                    = KratixPrefix + "pipeline-name"

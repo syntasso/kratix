@@ -1096,7 +1096,6 @@ func createPromise(promisePath string) *v1alpha1.Promise {
 	Expect(fakeK8sClient.Get(ctx, promiseName, promise)).To(Succeed())
 	promise.UID = "1234abcd"
 	Expect(fakeK8sClient.Update(ctx, promise)).To(Succeed())
-
 	Expect(fakeK8sClient.Get(ctx, promiseName, promise)).To(Succeed())
 	return promise
 }

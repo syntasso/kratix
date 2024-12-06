@@ -21,6 +21,7 @@ import (
 	clientfake "sigs.k8s.io/controller-runtime/pkg/client/fake"
 
 	"github.com/syntasso/kratix/api/v1alpha1"
+	kratixWebhook "github.com/syntasso/kratix/internal/webhook/v1alpha1"
 )
 
 func RawExtension(a interface{}) *runtime.RawExtension {
@@ -33,7 +34,9 @@ var _ = Describe("PromiseWebhook", func() {
 	var baseCRD, newCRD *v1.CustomResourceDefinition
 	var oldPromise *v1alpha1.Promise
 	var fakeClient client.Client
+	var validator *kratixWebhook.PromiseCustomValidator
 
+	ctx := context.TODO()
 	newPromise := func() *v1alpha1.Promise {
 		return &v1alpha1.Promise{
 			ObjectMeta: metav1.ObjectMeta{
@@ -50,8 +53,9 @@ var _ = Describe("PromiseWebhook", func() {
 		err := v1alpha1.AddToScheme(scheme.Scheme)
 		Expect(err).NotTo(HaveOccurred())
 		fakeClient = clientfake.NewClientBuilder().WithScheme(scheme.Scheme).Build()
-		v1alpha1.SetClientSet(fakeClientSet)
-		v1alpha1.SetClient(fakeClient)
+		kratixWebhook.SetClientSet(fakeClientSet)
+		kratixWebhook.SetClient(fakeClient)
+		validator = &kratixWebhook.PromiseCustomValidator{}
 
 		baseCRD = &v1.CustomResourceDefinition{
 			TypeMeta: metav1.TypeMeta{
@@ -94,8 +98,9 @@ var _ = Describe("PromiseWebhook", func() {
 			newCRD.Kind = "NotACRD"
 			newCRD.APIVersion = "v2"
 			newCRD.Spec.Names.Kind = "NewKind"
+			newP := newPromise()
 
-			warnings, err := newPromise().ValidateUpdate(oldPromise)
+			warnings, err := validator.ValidateUpdate(ctx, newP, oldPromise)
 			Expect(warnings).To(BeEmpty())
 			Expect(err.Error()).To(SatisfyAll(
 				ContainSubstring("spec.api.metadata.name"),
@@ -116,16 +121,14 @@ var _ = Describe("PromiseWebhook", func() {
 					API: nil,
 				},
 			}
-			warnings, err := promise.ValidateCreate()
+			warnings, err := validator.ValidateCreate(ctx, promise)
 			Expect(warnings).To(BeEmpty())
 			Expect(err).NotTo(HaveOccurred())
 		})
 	})
 
 	Describe("Workflows", func() {
-		var (
-			promise *v1alpha1.Promise
-		)
+		var promise *v1alpha1.Promise
 
 		BeforeEach(func() {
 			promise = newPromise()
@@ -139,7 +142,7 @@ var _ = Describe("PromiseWebhook", func() {
 				unstructuredPipeline.SetAPIVersion("v1")
 				unstructuredPipeline.SetKind("ConfigMap")
 				promise.Spec.Workflows.Resource.Configure = []unstructured.Unstructured{*unstructuredPipeline}
-				_, err = promise.ValidateCreate()
+				_, err = validator.ValidateCreate(ctx, promise)
 				Expect(err).To(MatchError(`unsupported pipeline "test" with APIVersion "ConfigMap/v1"`))
 			})
 		})
@@ -158,7 +161,7 @@ var _ = Describe("PromiseWebhook", func() {
 				unstructuredPipeline.SetAPIVersion("platform.kratix.io/v1alpha1")
 				unstructuredPipeline.SetKind("Pipeline")
 				promise.Spec.Workflows.Resource.Configure = []unstructured.Unstructured{*unstructuredPipeline, *unstructuredPipeline}
-				_, err = promise.ValidateCreate()
+				_, err = validator.ValidateCreate(ctx, promise)
 				Expect(err).To(MatchError("duplicate pipeline name \"foo\" in workflow \"resource\" action \"configure\""))
 			})
 		})
@@ -184,7 +187,7 @@ var _ = Describe("PromiseWebhook", func() {
 				unstructuredPipeline.SetAPIVersion("platform.kratix.io/v1alpha1")
 				unstructuredPipeline.SetKind("Pipeline")
 				promise.Spec.Workflows.Resource.Configure = []unstructured.Unstructured{*unstructuredPipeline}
-				_, err = promise.ValidateCreate()
+				_, err = validator.ValidateCreate(ctx, promise)
 				Expect(err).To(MatchError("resource.configure pipeline with name \"" + pipeline.GetName() + "\" is too long. " +
 					"The name is used when generating resources for the pipeline,including the ServiceAccount which follows the format of " +
 					"\"mypromise-resource-configure-" + pipeline.GetName() + "\", which cannot be longer than 60 characters in total"))
@@ -202,7 +205,7 @@ var _ = Describe("PromiseWebhook", func() {
 				unstructuredPipeline.SetAPIVersion("platform.kratix.io/v1alpha1")
 				unstructuredPipeline.SetKind("Pipeline")
 				promise.Spec.Workflows.Resource.Configure = []unstructured.Unstructured{*unstructuredPipeline}
-				_, err = promise.ValidateCreate()
+				_, err = validator.ValidateCreate(ctx, promise)
 				Expect(err).NotTo(HaveOccurred())
 			})
 		})
@@ -217,7 +220,7 @@ var _ = Describe("PromiseWebhook", func() {
 				},
 			}
 			setPipeline(promise, pipeline)
-			warnings, err := promise.ValidateCreate()
+			warnings, err := validator.ValidateCreate(ctx, promise)
 			Expect(warnings).To(BeEmpty())
 			if error != "" {
 				Expect(err).To(MatchError(ContainSubstring(error)))
@@ -262,7 +265,7 @@ var _ = Describe("PromiseWebhook", func() {
 					},
 				}
 
-				warnings, err := promise.ValidateCreate()
+				warnings, err := validator.ValidateCreate(ctx, promise)
 				Expect(err).NotTo(HaveOccurred())
 				Expect(warnings).To(ConsistOf(
 					`Required Promise "redis" at version "v1.0.0" not installed`,
@@ -270,7 +273,7 @@ var _ = Describe("PromiseWebhook", func() {
 					`Promise will not be available until the above issue(s) is resolved`,
 				))
 
-				warnings, err = promise.ValidateUpdate(promise)
+				warnings, err = validator.ValidateCreate(ctx, promise)
 				Expect(err).NotTo(HaveOccurred())
 				Expect(warnings).To(ConsistOf(
 					`Required Promise "redis" at version "v1.0.0" not installed`,
@@ -307,11 +310,11 @@ var _ = Describe("PromiseWebhook", func() {
 					},
 				}
 
-				warnings, err := promise.ValidateCreate()
+				warnings, err := validator.ValidateCreate(ctx, promise)
 				Expect(err).NotTo(HaveOccurred())
 				Expect(warnings).To(BeEmpty())
 
-				warnings, err = promise.ValidateUpdate(promise)
+				warnings, err = validator.ValidateUpdate(ctx, promise, promise)
 				Expect(err).NotTo(HaveOccurred())
 				Expect(warnings).To(BeEmpty())
 			})
