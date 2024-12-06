@@ -19,7 +19,6 @@ package controllers
 import (
 	"context"
 	"fmt"
-
 	"k8s.io/apimachinery/pkg/api/errors"
 	"k8s.io/apimachinery/pkg/api/meta"
 	v1 "k8s.io/apimachinery/pkg/apis/meta/v1"
@@ -106,7 +105,7 @@ func (r *PromiseReleaseReconciler) Reconcile(ctx context.Context, req ctrl.Reque
 
 	var promise *v1alpha1.Promise
 
-	secretRefData, err := promiseRelease.FetchSecretFromReference()
+	secretRefData, err := promiseRelease.FetchSecretFromReference(r.Client)
 	if err != nil {
 		return ctrl.Result{}, fmt.Errorf("failed to fetch data from secretRef: %w", err)
 	}

@@ -71,10 +71,8 @@ type PromiseReconciler struct {
 	StartedDynamicControllers map[string]*DynamicResourceRequestController
 	RestartManager            func()
 	NumberOfJobsToKeep        int
-
-	ScheduledReconciliation map[string]metav1.Time
-
-	mutex sync.Mutex
+	ScheduledReconciliation   map[string]metav1.Time
+	mutex                     sync.Mutex
 }
 
 const (

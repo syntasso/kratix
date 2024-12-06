@@ -17,8 +17,9 @@ limitations under the License.
 package v1alpha1
 
 import (
+	"context"
 	"fmt"
-
+	"github.com/syntasso/kratix/api/v1alpha1"
 	"k8s.io/apimachinery/pkg/runtime"
 	ctrl "sigs.k8s.io/controller-runtime"
 	"sigs.k8s.io/controller-runtime/pkg/client"
@@ -27,34 +28,38 @@ import (
 	"sigs.k8s.io/controller-runtime/pkg/webhook/admission"
 )
 
-const (
-	KratixPrefix        = "kratix.io/"
-	PromiseVersionLabel = KratixPrefix + "promise-version"
-)
-
 var (
-	promiseFetcher    PromiseFetcher
+	promiseFetcher    v1alpha1.PromiseFetcher
 	promisereleaselog = logf.Log.WithName("promiserelease-resource")
 )
 
-func (r *PromiseRelease) SetupWebhookWithManager(mgr ctrl.Manager, c client.Client, pf PromiseFetcher) error {
+func SetupPromiseReleaseWebhookWithManager(mgr ctrl.Manager, c client.Client, pf v1alpha1.PromiseFetcher) error {
 	k8sClient = c
 	promiseFetcher = pf
-	return ctrl.NewWebhookManagedBy(mgr).
-		For(r).
+	return ctrl.NewWebhookManagedBy(mgr).For(&v1alpha1.PromiseRelease{}).
+		WithValidator(&PromiseReleaseCustomValidator{}).
 		Complete()
 }
 
 // +kubebuilder:webhook:path=/validate-platform-kratix-io-v1alpha1-promiserelease,mutating=false,failurePolicy=fail,sideEffects=None,groups=platform.kratix.io,resources=promisereleases,verbs=create;update,versions=v1alpha1,name=vpromiserelease.kb.io,admissionReviewVersions=v1
-var _ webhook.Validator = &PromiseRelease{}
 
-func (r *PromiseRelease) ValidateCreate() (admission.Warnings, error) {
+type PromiseReleaseCustomValidator struct{}
+
+var _ webhook.CustomValidator = &PromiseReleaseCustomValidator{}
+
+func (p PromiseReleaseCustomValidator) ValidateCreate(ctx context.Context, obj runtime.Object) (warnings admission.Warnings, err error) {
+	r, ok := obj.(*v1alpha1.PromiseRelease)
+	if !ok {
+		return nil, fmt.Errorf("expected a PromiseRelease object but got %T", obj)
+	}
+
 	promisereleaselog.Info("validate create", "name", r.Name)
-	if err := r.validate(); err != nil {
+
+	if err = validate(r); err != nil {
 		return nil, err
 	}
 
-	secretRefData, err := r.FetchSecretFromReference()
+	secretRefData, err := r.FetchSecretFromReference(k8sClient)
 	if err != nil {
 		return nil, fmt.Errorf("failed to fetch data from secretRef: %w", err)
 	}
@@ -69,9 +74,9 @@ func (r *PromiseRelease) ValidateCreate() (admission.Warnings, error) {
 		return nil, fmt.Errorf("failed to fetch promise: %w", err)
 	}
 
-	promiseVersion, found := promise.GetLabels()[PromiseVersionLabel]
+	promiseVersion, found := promise.GetLabels()[v1alpha1.PromiseVersionLabel]
 	if !found {
-		msg := fmt.Sprintf("Warning: version label (%s) not found on promise, installation will fail", PromiseVersionLabel)
+		msg := fmt.Sprintf("Warning: version label (%s) not found on promise, installation will fail", v1alpha1.PromiseVersionLabel)
 		return []string{msg}, nil
 	}
 
@@ -83,19 +88,26 @@ func (r *PromiseRelease) ValidateCreate() (admission.Warnings, error) {
 	return nil, nil
 }
 
-func (r *PromiseRelease) ValidateUpdate(old runtime.Object) (admission.Warnings, error) {
+func (p PromiseReleaseCustomValidator) ValidateUpdate(ctx context.Context, oldObj, newObj runtime.Object) (warnings admission.Warnings, err error) {
+	r, ok := newObj.(*v1alpha1.PromiseRelease)
+	if !ok {
+		return nil, fmt.Errorf("expected a PromiseRelease object but got %T", newObj)
+	}
+
 	promisereleaselog.Info("validate update", "name", r.Name)
-	if err := r.validate(); err != nil {
+
+	if err = validate(r); err != nil {
 		return nil, err
 	}
+
 	return nil, nil
 }
 
-func (r *PromiseRelease) ValidateDelete() (admission.Warnings, error) {
+func (p PromiseReleaseCustomValidator) ValidateDelete(ctx context.Context, obj runtime.Object) (warnings admission.Warnings, err error) {
 	return nil, nil
 }
 
-func (r *PromiseRelease) validate() error {
+func validate(r *v1alpha1.PromiseRelease) error {
 	if r.Spec.SourceRef.URL == "" {
 		return fmt.Errorf("sourceRef.url must be set")
 	}

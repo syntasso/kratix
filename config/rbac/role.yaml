@@ -77,109 +77,9 @@ rules:
   - platform.kratix.io
   resources:
   - destinations
-  verbs:
-  - create
-  - delete
-  - get
-  - list
-  - patch
-  - update
-  - watch
-- apiGroups:
-  - platform.kratix.io
-  resources:
-  - destinations/finalizers
-  verbs:
-  - update
-- apiGroups:
-  - platform.kratix.io
-  resources:
-  - destinations/status
-  verbs:
-  - get
-  - patch
-  - update
-- apiGroups:
-  - platform.kratix.io
-  resources:
   - promisereleases
-  verbs:
-  - create
-  - delete
-  - get
-  - list
-  - patch
-  - update
-  - watch
-- apiGroups:
-  - platform.kratix.io
-  resources:
-  - promisereleases/finalizers
-  verbs:
-  - update
-- apiGroups:
-  - platform.kratix.io
-  resources:
-  - promisereleases/status
-  verbs:
-  - get
-  - patch
-  - update
-- apiGroups:
-  - platform.kratix.io
-  resources:
   - promises
-  verbs:
-  - create
-  - delete
-  - get
-  - list
-  - patch
-  - update
-  - watch
-- apiGroups:
-  - platform.kratix.io
-  resources:
-  - promises/finalizers
-  verbs:
-  - update
-- apiGroups:
-  - platform.kratix.io
-  resources:
-  - promises/status
-  verbs:
-  - get
-  - patch
-  - update
-- apiGroups:
-  - platform.kratix.io
-  resources:
   - workplacements
-  verbs:
-  - create
-  - delete
-  - get
-  - list
-  - patch
-  - update
-  - watch
-- apiGroups:
-  - platform.kratix.io
-  resources:
-  - workplacements/finalizers
-  verbs:
-  - update
-- apiGroups:
-  - platform.kratix.io
-  resources:
-  - workplacements/status
-  verbs:
-  - get
-  - patch
-  - update
-- apiGroups:
-  - platform.kratix.io
-  resources:
   - works
   verbs:
   - create
@@ -192,12 +92,20 @@ rules:
 - apiGroups:
   - platform.kratix.io
   resources:
+  - destinations/finalizers
+  - promisereleases/finalizers
+  - promises/finalizers
+  - workplacements/finalizers
   - works/finalizers
   verbs:
   - update
 - apiGroups:
   - platform.kratix.io
   resources:
+  - destinations/status
+  - promisereleases/status
+  - promises/status
+  - workplacements/status
   - works/status
   verbs:
   - get
@@ -207,29 +115,6 @@ rules:
   - rbac.authorization.k8s.io
   resources:
   - clusterrolebindings
-  verbs:
-  - create
-  - delete
-  - get
-  - list
-  - update
-  - watch
-- apiGroups:
-  - rbac.authorization.k8s.io
-  resources:
-  - clusterroles
-  verbs:
-  - bind
-  - create
-  - delete
-  - escalate
-  - get
-  - list
-  - update
-  - watch
-- apiGroups:
-  - rbac.authorization.k8s.io
-  resources:
   - rolebindings
   verbs:
   - create
@@ -241,6 +126,7 @@ rules:
 - apiGroups:
   - rbac.authorization.k8s.io
   resources:
+  - clusterroles
   - roles
   verbs:
   - bind

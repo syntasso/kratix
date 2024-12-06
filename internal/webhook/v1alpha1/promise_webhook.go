@@ -19,6 +19,7 @@ package v1alpha1
 import (
 	"context"
 	"fmt"
+	"github.com/syntasso/kratix/api/v1alpha1"
 	"reflect"
 	"strings"
 
@@ -41,62 +42,83 @@ var (
 	k8sClient    client.Client
 )
 
-func (p *Promise) SetupWebhookWithManager(mgr ctrl.Manager, cs *clientset.Clientset, c client.Client) error {
+func SetupPromiseWebhookWithManager(mgr ctrl.Manager, cs *clientset.Clientset, c client.Client) error {
 	k8sClient = c
 	k8sClientSet = cs
-	return ctrl.NewWebhookManagedBy(mgr).
-		For(p).
+	return ctrl.NewWebhookManagedBy(mgr).For(&v1alpha1.Promise{}).
+		WithValidator(&PromiseCustomValidator{}).
+		WithDefaulter(&PromiseCustomDefaulter{}).
 		Complete()
 }
 
 // Don't delete- breaking change
-var _ webhook.Defaulter = &Promise{}
+// +kubebuilder:webhook:path=/mutate-platform-kratix-io-v1alpha1-promise,mutating=true,failurePolicy=fail,sideEffects=None,groups=platform.kratix.io,resources=promises,verbs=create;update,versions=v1alpha1,name=mpromise.kb.io,admissionReviewVersions=v1
 
-func (p *Promise) Default() {
-	promiselog.Info("default", "name", p.Name)
+type PromiseCustomDefaulter struct{}
+
+var _ webhook.CustomDefaulter = &PromiseCustomDefaulter{}
+
+func (p PromiseCustomDefaulter) Default(ctx context.Context, obj runtime.Object) error {
+	promiselog.Info("default")
+	return nil
 }
 
-func (p *Promise) ValidateCreate() (admission.Warnings, error) {
-	promiselog.Info("validating promise create", "name", p.Name)
-	return p.validate()
+// +kubebuilder:webhook:path=/validate-platform-kratix-io-v1alpha1-promise,mutating=false,failurePolicy=fail,sideEffects=None,groups=platform.kratix.io,resources=promises,verbs=create;update,versions=v1alpha1,name=vpromise.kb.io,admissionReviewVersions=v1
+
+type PromiseCustomValidator struct{}
+
+var _ webhook.CustomValidator = &PromiseCustomValidator{}
+
+func (v PromiseCustomValidator) ValidateCreate(ctx context.Context, obj runtime.Object) (warnings admission.Warnings, err error) {
+	promise, ok := obj.(*v1alpha1.Promise)
+	if !ok {
+		return nil, fmt.Errorf("expected a Promise object but got %T", obj)
+	}
+
+	promiselog.Info("validating promise create", "name", promise.Name)
+	return validatePromise(promise)
 }
 
-func (p *Promise) ValidateUpdate(old runtime.Object) (admission.Warnings, error) {
-	promiselog.Info("validating promise update", "name", p.Name)
-	oldPromise, _ := old.(*Promise)
+func (v PromiseCustomValidator) ValidateUpdate(ctx context.Context, oldObj, newObj runtime.Object) (warnings admission.Warnings, err error) {
+	promise, ok := newObj.(*v1alpha1.Promise)
+	if !ok {
+		return nil, fmt.Errorf("expected a Promise object but got %T", newObj)
+	}
 
-	warnings, err := p.validate()
+	oldPromise, ok := oldObj.(*v1alpha1.Promise)
+	if !ok {
+		return nil, fmt.Errorf("expected a Promise object but got %T", oldObj)
+	}
+
+	warnings, err = validatePromise(promise)
 	if err != nil {
 		return nil, err
 	}
 
-	if err := p.validateCRDChanges(oldPromise); err != nil {
+	if err = validateCRDChanges(promise, oldPromise); err != nil {
 		return nil, err
 	}
 
 	return warnings, nil
 }
 
-func (p *Promise) ValidateDelete() (admission.Warnings, error) {
+func (v PromiseCustomValidator) ValidateDelete(ctx context.Context, obj runtime.Object) (warnings admission.Warnings, err error) {
 	return nil, nil
 }
 
-// +kubebuilder:webhook:path=/validate-platform-kratix-io-v1alpha1-promise,mutating=false,failurePolicy=fail,sideEffects=None,groups=platform.kratix.io,resources=promises,verbs=create;update,versions=v1alpha1,name=vpromise.kb.io,admissionReviewVersions=v1
-var _ webhook.Validator = &Promise{}
-
-func (p *Promise) validate() ([]string, error) {
-	if err := p.validateCRD(); err != nil {
+func validatePromise(p *v1alpha1.Promise) ([]string, error) {
+	if err := validateCRD(p); err != nil {
 		return nil, err
 	}
 
-	if err := p.validatePipelines(); err != nil {
+	if err := validatePipelines(p); err != nil {
 		return nil, err
 	}
-	return p.validateRequiredPromisesAreAvailable(), nil
+	return validateRequiredPromisesAreAvailable(p), nil
 }
 
-func (p *Promise) validatePipelines() error {
-	promisePipelines, err := NewPipelinesMap(p, promiselog)
+func validatePipelines(p *v1alpha1.Promise) error {
+	promisePipelines, err := v1alpha1.NewPipelinesMap(p, promiselog)
 	if err != nil {
 		return err
 	}
@@ -114,11 +136,11 @@ func (p *Promise) validatePipelines() error {
 					return fmt.Errorf("duplicate pipeline name %q in workflow %q action %q", pipeline.GetName(), workflowType, workflowAction)
 				}
 				pipelineNamesMap[pipeline.GetName()] = true
-				var factory *PipelineFactory
+				var factory *v1alpha1.PipelineFactory
 				switch workflowType {
-				case WorkflowTypeResource:
+				case v1alpha1.WorkflowTypeResource:
 					factory = pipeline.ForResource(p, workflowAction, &unstructured.Unstructured{})
-				case WorkflowTypePromise:
+				case v1alpha1.WorkflowTypePromise:
 					factory = pipeline.ForPromise(p, workflowAction)
 				}
 
@@ -133,10 +155,10 @@ func (p *Promise) validatePipelines() error {
 	return nil
 }
 
-func (p *Promise) validateCRD() error {
+func validateCRD(p *v1alpha1.Promise) error {
 	_, newCrd, err := p.GetAPI()
 	if err != nil {
-		if err == ErrNoAPI {
+		if err == v1alpha1.ErrNoAPI {
 			return nil
 		}
 		return err
@@ -161,11 +183,11 @@ func (p *Promise) validateCRD() error {
 	return nil
 }
 
-func (p *Promise) validateRequiredPromisesAreAvailable() admission.Warnings {
+func validateRequiredPromisesAreAvailable(p *v1alpha1.Promise) admission.Warnings {
 	warnings := []string{}
 	for _, requirement := range p.Spec.RequiredPromises {
 		promiselog.Info("validating requirement", "name", p.Name, "requirement", requirement.Name, "version", requirement.Version)
-		promise := &Promise{}
+		promise := &v1alpha1.Promise{}
 		err := k8sClient.Get(context.TODO(), client.ObjectKey{
 			Namespace: p.Namespace,
 			Name:      requirement.Name,
@@ -189,13 +211,13 @@ func (p *Promise) validateRequiredPromisesAreAvailable() admission.Warnings {
 	return warnings
 }
 
-func (p *Promise) validateCRDChanges(oldPromise *Promise) error {
+func validateCRDChanges(p, oldPromise *v1alpha1.Promise) error {
 	_, oldCrd, errOldCrd := oldPromise.GetAPI()
 	_, newCrd, errNewCrd := p.GetAPI()
-	if errOldCrd == ErrNoAPI {
+	if errOldCrd == v1alpha1.ErrNoAPI {
 		return nil
 	}
-	if errNewCrd == ErrNoAPI {
+	if errNewCrd == v1alpha1.ErrNoAPI {
 		return fmt.Errorf("cannot remove API from existing promise")
 	}
 
@@ -228,7 +250,7 @@ func (p *Promise) validateCRDChanges(oldPromise *Promise) error {
 	return nil
 }
 
-func validatePipelineLabels(pipeline Pipeline, workflowType, workflowAction string) error {
+func validatePipelineLabels(pipeline v1alpha1.Pipeline, workflowType, workflowAction string) error {
 	for key, value := range pipeline.GetLabels() {
 		errors := validation.IsValidLabelValue(value)
 		if len(errors) > 0 {
