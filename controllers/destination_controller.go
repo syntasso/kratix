@@ -73,9 +73,11 @@ func (r *DestinationReconciler) Reconcile(ctx context.Context, req ctrl.Request)
 		logger: logger,
 	}
 
-	if destination.GetCleanup() == v1alpha1.DestinationCleanupAll &&
-		!controllerutil.ContainsFinalizer(destination, destinationCleanupFinalizer) {
-		return addFinalizers(opts, destination, []string{destinationCleanupFinalizer})
+	if r.needsFinalizerUpdate(destination) {
+		if err := r.Client.Update(ctx, destination); err != nil {
+			return ctrl.Result{}, err
+		}
+		return ctrl.Result{}, nil
 	}
 
 	writer, err := newWriter(opts, *destination)
@@ -106,6 +108,23 @@ func (r *DestinationReconciler) Reconcile(ctx context.Context, req ctrl.Request)
 	}
 
 	return ctrl.Result{}, nil
+}
+
+func (r *DestinationReconciler) needsFinalizerUpdate(destination *v1alpha1.Destination) bool {
+	hasFinalizer := controllerutil.ContainsFinalizer(destination, destinationCleanupFinalizer)
+	switch destination.GetCleanup() {
+	case v1alpha1.DestinationCleanupAll:
+		if !hasFinalizer {
+			controllerutil.AddFinalizer(destination, destinationCleanupFinalizer)
+			return true
+		}
+	case v1alpha1.DestinationCleanupNone:
+		if hasFinalizer {
+			controllerutil.RemoveFinalizer(destination, destinationCleanupFinalizer)
+			return true
+		}
+	}
+	return false
 }
 
 func (r *DestinationReconciler) createResourcePathWithExample(writer writers.StateStoreWriter, filePathMode string) error {
