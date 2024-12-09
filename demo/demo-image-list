@@ -1,7 +1,6 @@
 docker.io/kindest/kindnetd:v20230511-dc714da8
 docker.io/kindest/local-path-provisioner:v20230511-dc714da8
 docker.io/minio/minio:RELEASE.2022-06-30T20-58-09Z
-gcr.io/kubebuilder/kube-rbac-proxy:v0.8.0
 ghcr.io/fluxcd/helm-controller:v1.0.1
 ghcr.io/fluxcd/kustomize-controller:v1.3.0
 ghcr.io/fluxcd/notification-controller:v1.3.0
