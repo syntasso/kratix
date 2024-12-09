@@ -18,7 +18,7 @@ VERSION=${VERSION:-"$(cd $ROOT; git branch --show-current)"}
 DOCKER_BUILDKIT="${DOCKER_BUILDKIT:-1}"
 
 WAIT_TIMEOUT="180s"
-KIND_IMAGE="${KIND_IMAGE:-"kindest/node:v1.27.3"}"
+KIND_IMAGE="${KIND_IMAGE:-"kindest/node:v1.31.2"}"
 
 WITH_CERT_MANAGER=true
 CERT_MANAGER_DIST=https://github.com/cert-manager/cert-manager/releases/download/v1.15.0/cert-manager.yaml

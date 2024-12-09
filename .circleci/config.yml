@@ -81,7 +81,7 @@ commands:
           name: Install Kind
           command: |
             if [ ! -f ~/bin/kind ]; then
-              curl -L https://github.com/kubernetes-sigs/kind/releases/download/v0.20.0/kind-linux-amd64 -o ~/bin/kind
+              curl -L https://github.com/kubernetes-sigs/kind/releases/download/v0.25.0/kind-linux-amd64 -o ~/bin/kind
               chmod +x ~/bin/kind
             fi
       - run:
