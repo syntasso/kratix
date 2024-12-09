@@ -59,6 +59,13 @@ type DestinationSpec struct {
 	//The filepath mode to use when writing files to the destination.
 	// +kubebuilder:default:={mode: "nestedByMetadata"}
 	Filepath Filepath `json:"filepath,omitempty"`
+
+	// cleanup can be set to either:
+	// - none (default): no cleanup after removing the destination
+	// - all: workplacements and statestore contents will be removed after removing the destination
+	// +kubebuilder:validation:Enum:={none,all}
+	// +kubebuilder:default:="none"
+	Cleanup string `json:"cleanup,omitempty"`
 }
 
 const (
@@ -66,6 +73,8 @@ const (
 	// kubebuilder comment for setting the default and Enum values.
 	FilepathModeNone             = "none"
 	FilepathModeNestedByMetadata = "nestedByMetadata"
+	DestinationCleanupAll        = "all"
+	DestinationCleanupNone       = "none"
 )
 
 type Filepath struct {
@@ -85,6 +94,13 @@ func (d *Destination) GetFilepathMode() string {
 		return FilepathModeNestedByMetadata
 	}
 	return d.Spec.Filepath.Mode
+}
+
+func (d *Destination) GetCleanup() string {
+	if d.Spec.Cleanup == "" {
+		return DestinationCleanupNone
+	}
+	return d.Spec.Cleanup
 }
 
 // DestinationStatus defines the observed state of Destination
