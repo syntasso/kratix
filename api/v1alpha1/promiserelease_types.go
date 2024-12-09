@@ -18,7 +18,6 @@ package v1alpha1
 
 import (
 	"context"
-
 	corev1 "k8s.io/api/core/v1"
 	metav1 "k8s.io/apimachinery/pkg/apis/meta/v1"
 	"sigs.k8s.io/controller-runtime/pkg/client"
@@ -77,7 +76,7 @@ func init() {
 	SchemeBuilder.Register(&PromiseRelease{}, &PromiseReleaseList{})
 }
 
-func (pr *PromiseRelease) FetchSecretFromReference() (map[string][]byte, error) {
+func (pr *PromiseRelease) FetchSecretFromReference(k8sClient client.Client) (map[string][]byte, error) {
 	if pr.Spec.SourceRef.SecretRef == nil {
 		return nil, nil
 	}

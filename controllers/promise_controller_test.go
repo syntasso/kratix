@@ -4,8 +4,10 @@ import (
 	"bytes"
 	"context"
 	"encoding/json"
+	"k8s.io/utils/pointer"
 	"os"
 	"regexp"
+	controllerConfig "sigs.k8s.io/controller-runtime/pkg/config"
 	"strings"
 	"time"
 
@@ -58,11 +60,14 @@ var _ = Describe("PromiseController", func() {
 		ctx = context.Background()
 		managerRestarted = false
 		l = ctrl.Log.WithName("controllers").WithName("Promise")
+		m := &controllersfakes.FakeManager{}
+		m.GetControllerOptionsReturns(controllerConfig.Controller{
+			SkipNameValidation: pointer.Bool(true)})
 		reconciler = &controllers.PromiseReconciler{
 			Client:                  fakeK8sClient,
 			ApiextensionsClient:     fakeApiExtensionsClient,
 			Log:                     l,
-			Manager:                 &controllersfakes.FakeManager{},
+			Manager:                 m,
 			ScheduledReconciliation: map[string]metav1.Time{},
 			RestartManager: func() {
 				managerRestarted = true
@@ -1096,7 +1101,6 @@ func createPromise(promisePath string) *v1alpha1.Promise {
 	Expect(fakeK8sClient.Get(ctx, promiseName, promise)).To(Succeed())
 	promise.UID = "1234abcd"
 	Expect(fakeK8sClient.Update(ctx, promise)).To(Succeed())
-
 	Expect(fakeK8sClient.Get(ctx, promiseName, promise)).To(Succeed())
 	return promise
 }

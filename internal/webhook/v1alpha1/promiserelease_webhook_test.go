@@ -1,7 +1,9 @@
 package v1alpha1_test
 
 import (
+	"context"
 	"fmt"
+	kratixWebhook "github.com/syntasso/kratix/internal/webhook/v1alpha1"
 
 	. "github.com/onsi/ginkgo/v2"
 	. "github.com/onsi/gomega"
@@ -15,10 +17,15 @@ var _ = Describe("PromiseReleaseWebhook", func() {
 		p              *v1alpha1.Promise
 		pr             *v1alpha1.PromiseRelease
 		promiseFetcher v1alpha1fakes.FakePromiseFetcher
+		validator      *kratixWebhook.PromiseReleaseCustomValidator
 	)
+
+	ctx := context.TODO()
+
 	BeforeEach(func() {
 		promiseFetcher = v1alpha1fakes.FakePromiseFetcher{}
-		v1alpha1.SetPromiseFetcher(&promiseFetcher)
+		kratixWebhook.SetPromiseFetcher(&promiseFetcher)
+		validator = &kratixWebhook.PromiseReleaseCustomValidator{}
 
 		pr = &v1alpha1.PromiseRelease{
 			ObjectMeta: metav1.ObjectMeta{
@@ -47,11 +54,11 @@ var _ = Describe("PromiseReleaseWebhook", func() {
 	When("URL is empty", func() {
 		It("errors on create and update", func() {
 			pr.Spec.SourceRef.URL = ""
-			warnings, err := pr.ValidateCreate()
+			warnings, err := validator.ValidateCreate(ctx, pr)
 			Expect(warnings).To(BeEmpty())
 			Expect(err).To(MatchError("sourceRef.url must be set"))
 
-			warnings, err = pr.ValidateUpdate(pr)
+			warnings, err = validator.ValidateUpdate(ctx, pr, pr)
 			Expect(warnings).To(BeEmpty())
 			Expect(err).To(MatchError("sourceRef.url must be set"))
 		})
@@ -60,11 +67,11 @@ var _ = Describe("PromiseReleaseWebhook", func() {
 	When("fetching the URL fails", func() {
 		It("errors on create", func() {
 			promiseFetcher.FromURLReturns(p, fmt.Errorf("foo"))
-			warnings, err := pr.ValidateCreate()
+			warnings, err := validator.ValidateCreate(ctx, pr)
 			Expect(warnings).To(BeEmpty())
 			Expect(err).To(MatchError("failed to fetch promise: foo"))
 
-			warnings, err = pr.ValidateUpdate(pr)
+			warnings, err = validator.ValidateUpdate(ctx, pr, pr)
 			Expect(warnings).To(BeEmpty())
 			Expect(err).NotTo(HaveOccurred())
 		})
@@ -73,7 +80,7 @@ var _ = Describe("PromiseReleaseWebhook", func() {
 			//We only want to fetch it on create, its expensive to do this call
 			//frequently.
 			promiseFetcher.FromURLReturns(p, fmt.Errorf("foo"))
-			warnings, err := pr.ValidateUpdate(pr)
+			warnings, err := validator.ValidateUpdate(ctx, pr, pr)
 			Expect(warnings).To(BeEmpty())
 			Expect(err).NotTo(HaveOccurred())
 		})
@@ -83,7 +90,7 @@ var _ = Describe("PromiseReleaseWebhook", func() {
 		It("emits a warning", func() {
 			p.Labels = map[string]string{}
 			promiseFetcher.FromURLReturns(p, nil)
-			warnings, err := pr.ValidateCreate()
+			warnings, err := validator.ValidateCreate(ctx, pr)
 			Expect(err).NotTo(HaveOccurred())
 			Expect(warnings).To(ConsistOf("Warning: version label (kratix.io/promise-version) not found on promise, installation will fail"))
 		})
@@ -95,7 +102,7 @@ var _ = Describe("PromiseReleaseWebhook", func() {
 				"kratix.io/promise-version": "v0.2.0",
 			}
 			promiseFetcher.FromURLReturns(p, nil)
-			warnings, err := pr.ValidateCreate()
+			warnings, err := validator.ValidateCreate(ctx, pr)
 			Expect(err).NotTo(HaveOccurred())
 			Expect(warnings).To(ConsistOf("Warning: version labels do not match, found: v0.2.0, expected: v0.1.0, installation will fail"))
 		})
