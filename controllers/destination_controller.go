@@ -73,7 +73,7 @@ func (r *DestinationReconciler) Reconcile(ctx context.Context, req ctrl.Request)
 		logger: logger,
 	}
 
-	if destination.Spec.Cleanup == v1alpha1.DestinationCleanupAll &&
+	if destination.GetCleanup() == v1alpha1.DestinationCleanupAll &&
 		!controllerutil.ContainsFinalizer(destination, destinationCleanupFinalizer) {
 		return addFinalizers(opts, destination, []string{destinationCleanupFinalizer})
 	}
