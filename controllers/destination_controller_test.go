@@ -181,7 +181,6 @@ var _ = Describe("DestinationReconciler", func() {
 				_, err = t.reconcileUntilCompletion(reconciler, testDestination)
 				Expect(err).NotTo(HaveOccurred())
 
-				//Expect(fakeK8sClient.Delete(ctx, &workPlacement)).To(Succeed())
 				Expect(fakeK8sClient.Get(ctx, testDestinationName, destination)).To(MatchError(ContainSubstring("not found")))
 				Expect(fakeK8sClient.Get(ctx, types.NamespacedName{Name: "test-workplacement", Namespace: "default"},
 					&v1alpha1.WorkPlacement{})).To(MatchError(ContainSubstring("not found")))
