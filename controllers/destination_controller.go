@@ -162,7 +162,7 @@ func (r *DestinationReconciler) deleteDestination(o opts, destination *v1alpha1.
 			return defaultRequeue, nil
 		}
 
-		if err := r.deleteStateStore(o, writer); err != nil {
+		if err := r.deleteStateStoreContents(o, writer); err != nil {
 			return defaultRequeue, nil
 		}
 
@@ -174,7 +174,7 @@ func (r *DestinationReconciler) deleteDestination(o opts, destination *v1alpha1.
 	return ctrl.Result{}, nil
 }
 
-func (r *DestinationReconciler) deleteStateStore(o opts, writer writers.StateStoreWriter) error {
+func (r *DestinationReconciler) deleteStateStoreContents(o opts, writer writers.StateStoreWriter) error {
 	o.logger.Info("removing dependencies dir from repository")
 	if _, err := writer.UpdateFiles(dependenciesDir, canaryWorkload, nil, nil); err != nil {
 		o.logger.Error(err, "error removing dependencies dir from repository")
