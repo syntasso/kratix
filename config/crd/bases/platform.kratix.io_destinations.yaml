@@ -41,6 +41,16 @@ spec:
           spec:
             description: DestinationSpec defines the desired state of Destination
             properties:
+              cleanup:
+                default: none
+                description: |-
+                  cleanup can be set to either:
+                  - none (default): no cleanup after removing the destination
+                  - all: workplacements and statestore contents will be removed after removing the destination
+                enum:
+                - none
+                - all
+                type: string
               filepath:
                 default:
                   mode: nestedByMetadata

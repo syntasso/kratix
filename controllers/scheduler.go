@@ -19,9 +19,10 @@ import (
 )
 
 const (
-	workLabelKey       = v1alpha1.KratixPrefix + "work"
-	workloadGroupIDKey = v1alpha1.KratixPrefix + "workload-group-id"
-	misscheduledLabel  = v1alpha1.KratixPrefix + "misscheduled"
+	workLabelKey               = v1alpha1.KratixPrefix + "work"
+	workloadGroupIDKey         = v1alpha1.KratixPrefix + "workload-group-id"
+	misscheduledLabel          = v1alpha1.KratixPrefix + "misscheduled"
+	targetDestinationNameLabel = v1alpha1.KratixPrefix + "targetDestinationName"
 )
 
 type schedulingStatus string
@@ -298,8 +299,9 @@ func (s *Scheduler) applyWorkplacementsForTargetDestinations(workloadGroup v1alp
 		op, err := controllerutil.CreateOrUpdate(context.Background(), s.Client, workPlacement, func() error {
 			workPlacement.Spec.Workloads = workloadGroup.Workloads
 			workPlacement.Labels = map[string]string{
-				workLabelKey:       work.Name,
-				workloadGroupIDKey: workloadGroup.ID,
+				workLabelKey:               work.Name,
+				workloadGroupIDKey:         workloadGroup.ID,
+				targetDestinationNameLabel: targetDestinationName,
 			}
 			workPlacement.SetAnnotations(work.GetAnnotations())
 
@@ -418,13 +420,10 @@ func (s *Scheduler) getDestinationsForWorkloadGroup(destinationSelectors map[str
 		s.Log.Error(err, "Error listing available Destinations")
 	}
 
-	if len(destinationSelectors) > 0 {
-		return destinationList.Items
-	}
-
 	destinations := []v1alpha1.Destination{}
 	for _, destination := range destinationList.Items {
-		if destination.Spec.StrictMatchLabels && len(destination.GetLabels()) > 0 {
+		if !destination.DeletionTimestamp.IsZero() ||
+			(len(destinationSelectors) == 0 && (destination.Spec.StrictMatchLabels && len(destination.GetLabels()) > 0)) {
 			continue
 		}
 		destinations = append(destinations, destination)

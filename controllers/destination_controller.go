@@ -18,7 +18,9 @@ package controllers
 
 import (
 	"context"
+	"k8s.io/apimachinery/pkg/runtime/schema"
 	"path/filepath"
+	"sigs.k8s.io/controller-runtime/pkg/controller/controllerutil"
 
 	v1 "k8s.io/api/core/v1"
 	metav1 "k8s.io/apimachinery/pkg/apis/meta/v1"
@@ -33,7 +35,10 @@ import (
 	"sigs.k8s.io/controller-runtime/pkg/client"
 )
 
-const canaryWorkload = "kratix-canary"
+const (
+	canaryWorkload              = "kratix-canary"
+	destinationCleanupFinalizer = v1alpha1.KratixPrefix + "destination-cleanup"
+)
 
 // DestinationReconciler reconciles a Destination object
 type DestinationReconciler struct {
@@ -68,12 +73,21 @@ func (r *DestinationReconciler) Reconcile(ctx context.Context, req ctrl.Request)
 		logger: logger,
 	}
 
+	if destination.Spec.Cleanup == v1alpha1.DestinationCleanupAll &&
+		!controllerutil.ContainsFinalizer(destination, destinationCleanupFinalizer) {
+		return addFinalizers(opts, destination, []string{destinationCleanupFinalizer})
+	}
+
 	writer, err := newWriter(opts, *destination)
 	if err != nil {
 		if errors.IsNotFound(err) {
 			return defaultRequeue, nil
 		}
 		return ctrl.Result{}, err
+	}
+
+	if !destination.DeletionTimestamp.IsZero() {
+		return r.deleteDestination(opts, destination, writer)
 	}
 
 	//destination.Spec.Path is optional, may be empty
@@ -140,6 +154,63 @@ func (r *DestinationReconciler) createDependenciesPathWithExample(writer writers
 		Filepath: filePath,
 		Content:  string(nsBytes)}}, nil)
 	return err
+}
+
+func (r *DestinationReconciler) deleteDestination(o opts, destination *v1alpha1.Destination, writer writers.StateStoreWriter) (ctrl.Result, error) {
+	if controllerutil.ContainsFinalizer(destination, destinationCleanupFinalizer) {
+		if success, err := r.deleteDestinationWorkplacements(o, destination); !success || err != nil {
+			return defaultRequeue, nil
+		}
+
+		if err := r.deleteStateStore(o, writer); err != nil {
+			return defaultRequeue, nil
+		}
+
+		controllerutil.RemoveFinalizer(destination, destinationCleanupFinalizer)
+		if err := r.Client.Update(o.ctx, destination); err != nil {
+			return ctrl.Result{}, err
+		}
+	}
+	return ctrl.Result{}, nil
+}
+
+func (r *DestinationReconciler) deleteStateStore(o opts, writer writers.StateStoreWriter) error {
+	o.logger.Info("removing dependencies dir from repository")
+	if _, err := writer.UpdateFiles(dependenciesDir, canaryWorkload, nil, nil); err != nil {
+		o.logger.Error(err, "error removing dependencies dir from repository")
+		return err
+	}
+
+	o.logger.Info("removing resources dir from repository")
+	if _, err := writer.UpdateFiles(resourcesDir, canaryWorkload, nil, nil); err != nil {
+		o.logger.Error(err, "error removing resources dir from repository")
+		return err
+	}
+	return nil
+}
+
+func (r *DestinationReconciler) deleteDestinationWorkplacements(o opts, destination *v1alpha1.Destination) (bool, error) {
+	o.logger.Info("deleting destination workplacements")
+	workPlacementGVK := schema.GroupVersionKind{
+		Group:   v1alpha1.GroupVersion.Group,
+		Version: v1alpha1.GroupVersion.Version,
+		Kind:    "WorkPlacement",
+	}
+
+	labels := map[string]string{
+		targetDestinationNameLabel: destination.Name,
+	}
+	resourcesRemaining, err := deleteAllResourcesWithKindMatchingLabel(o, &workPlacementGVK, labels)
+	if err != nil {
+		o.logger.Error(err, "error deleting workplacements")
+		return false, err
+	}
+
+	if resourcesRemaining {
+		o.logger.Info("couldn't remove workplacements, will try again")
+		return false, nil
+	}
+	return true, nil
 }
 
 // SetupWithManager sets up the controller with the Manager.
