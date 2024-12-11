@@ -242,8 +242,8 @@ func (r *PromiseReconciler) Reconcile(ctx context.Context, req ctrl.Request) (ct
 		if r.dynamicControllerHasAlreadyStarted(promise) {
 			logger.Info("dynamic controller already started, marking it not to create resources")
 			dynamicController := r.StartedDynamicControllers[string(promise.GetUID())]
-			dynamicControllerCanCreateResources := false
-			dynamicController.CanCreateResources = &dynamicControllerCanCreateResources
+			canCreateResources := false
+			dynamicController.CanCreateResources = &canCreateResources
 		}
 		return *ctrlResult, nil
 	}
