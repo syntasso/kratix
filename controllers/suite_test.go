@@ -132,6 +132,13 @@ func setReconcileConfigureWorkflowToReturnFinished() {
 	})
 }
 
+func setReconcileConfigureWorkflowToReturnRunning() {
+	controllers.SetReconcileConfigureWorkflow(func(w workflow.Opts) (bool, error) {
+		reconcileConfigureOptsArg = w
+		return true, nil
+	})
+}
+
 func setReconcileDeleteWorkflowToReturnFinished(obj client.Object) {
 	controllers.SetReconcileDeleteWorkflow(func(w workflow.Opts) (bool, error) {
 		us := &unstructured.Unstructured{}

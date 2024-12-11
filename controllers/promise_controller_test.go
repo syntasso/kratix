@@ -740,38 +740,24 @@ var _ = Describe("PromiseController", func() {
 		})
 
 		When("the promise is being updated", func() {
-			BeforeEach(func() {
-				promise = promiseFromFile(promiseWithOnlyDepsPath)
-				promiseName = types.NamespacedName{
-					Name:      promise.GetName(),
-					Namespace: promise.GetNamespace(),
-				}
-				promiseCommonLabels = map[string]string{
-					"kratix.io/promise-name": promise.GetName(),
-				}
-				promiseResourcesName = types.NamespacedName{
-					Name:      promise.GetName() + "-promise-pipeline",
-					Namespace: "kratix-platform-system",
-				}
+			When("the promise has only deps", func() {
+				BeforeEach(func() {
+					promise = promiseFromFile(promiseWithOnlyDepsPath)
+					promiseName = types.NamespacedName{
+						Name:      promise.GetName(),
+						Namespace: promise.GetNamespace(),
+					}
+					promiseCommonLabels = map[string]string{
+						"kratix.io/promise-name": promise.GetName(),
+					}
+					promiseResourcesName = types.NamespacedName{
+						Name:      promise.GetName() + "-promise-pipeline",
+						Namespace: "kratix-platform-system",
+					}
 
-				Expect(fakeK8sClient.Create(ctx, promise)).To(Succeed())
-				Expect(fakeK8sClient.Get(ctx, promiseName, promise)).To(Succeed())
-				promise.UID = "1234abcd"
-				Expect(fakeK8sClient.Update(ctx, promise)).To(Succeed())
-
-				setReconcileConfigureWorkflowToReturnFinished()
-				result, err := t.reconcileUntilCompletion(reconciler, promise, &opts{
-					funcs: []func(client.Object) error{autoMarkCRDAsEstablished},
-				})
-				Expect(err).NotTo(HaveOccurred())
-				Expect(result).To(Equal(ctrl.Result{RequeueAfter: controllers.DefaultReconciliationInterval}))
-			})
-
-			When("it contains static dependencies", func() {
-				It("re-reconciles until completion", func() {
+					Expect(fakeK8sClient.Create(ctx, promise)).To(Succeed())
 					Expect(fakeK8sClient.Get(ctx, promiseName, promise)).To(Succeed())
-					updatedPromise := promiseFromFile(promiseWithOnlyDepsUpdatedPath)
-					promise.Spec = updatedPromise.Spec
+					promise.UID = "1234abcd"
 					Expect(fakeK8sClient.Update(ctx, promise)).To(Succeed())
 
 					setReconcileConfigureWorkflowToReturnFinished()
@@ -779,44 +765,108 @@ var _ = Describe("PromiseController", func() {
 						funcs: []func(client.Object) error{autoMarkCRDAsEstablished},
 					})
 					Expect(err).NotTo(HaveOccurred())
-					Expect(result).To(Equal(ctrl.Result{}))
+					Expect(result).To(Equal(ctrl.Result{RequeueAfter: controllers.DefaultReconciliationInterval}))
+				})
 
-					By("updating the work", func() {
-						works := &v1alpha1.WorkList{}
-						Expect(fakeK8sClient.List(ctx, works)).To(Succeed())
-						Expect(works.Items).To(HaveLen(1))
-						Expect(works.Items[0].Spec.WorkloadGroups[0].Workloads).To(HaveLen(1))
-						Expect(inCompressedContents(works.Items[0].Spec.WorkloadGroups[0].Workloads[0].Content, []byte("postgresoperator"))).To(BeTrue())
-						Expect(works.Items[0].Spec.WorkloadGroups[0].DestinationSelectors).To(HaveLen(1))
-						Expect(works.Items[0].Spec.WorkloadGroups[0].DestinationSelectors[0]).To(Equal(
-							v1alpha1.WorkloadGroupScheduling{
-								MatchLabels: map[string]string{
-									"environment": "prod",
+				When("it contains static dependencies", func() {
+					It("re-reconciles until completion", func() {
+						Expect(fakeK8sClient.Get(ctx, promiseName, promise)).To(Succeed())
+						updatedPromise := promiseFromFile(promiseWithOnlyDepsUpdatedPath)
+						promise.Spec = updatedPromise.Spec
+						Expect(fakeK8sClient.Update(ctx, promise)).To(Succeed())
+
+						setReconcileConfigureWorkflowToReturnFinished()
+						result, err := t.reconcileUntilCompletion(reconciler, promise, &opts{
+							funcs: []func(client.Object) error{autoMarkCRDAsEstablished},
+						})
+						Expect(err).NotTo(HaveOccurred())
+						Expect(result).To(Equal(ctrl.Result{}))
+
+						By("updating the work", func() {
+							works := &v1alpha1.WorkList{}
+							Expect(fakeK8sClient.List(ctx, works)).To(Succeed())
+							Expect(works.Items).To(HaveLen(1))
+							Expect(works.Items[0].Spec.WorkloadGroups[0].Workloads).To(HaveLen(1))
+							Expect(inCompressedContents(works.Items[0].Spec.WorkloadGroups[0].Workloads[0].Content, []byte("postgresoperator"))).To(BeTrue())
+							Expect(works.Items[0].Spec.WorkloadGroups[0].DestinationSelectors).To(HaveLen(1))
+							Expect(works.Items[0].Spec.WorkloadGroups[0].DestinationSelectors[0]).To(Equal(
+								v1alpha1.WorkloadGroupScheduling{
+									MatchLabels: map[string]string{
+										"environment": "prod",
+									},
+									Source: "promise",
 								},
-								Source: "promise",
-							},
-						))
+							))
+						})
+					})
+				})
+
+				When("the static dependencies are removed", func() {
+					It("re-reconciles until completion", func() {
+						Expect(fakeK8sClient.Get(ctx, promiseName, promise)).To(Succeed())
+						promise.Spec.Dependencies = nil
+						Expect(fakeK8sClient.Update(ctx, promise)).To(Succeed())
+
+						setReconcileConfigureWorkflowToReturnFinished()
+						result, err := t.reconcileUntilCompletion(reconciler, promise, &opts{
+							funcs: []func(client.Object) error{autoMarkCRDAsEstablished},
+						})
+						Expect(err).NotTo(HaveOccurred())
+						Expect(result).To(Equal(ctrl.Result{}))
+
+						By("deleting the work", func() {
+							works := &v1alpha1.WorkList{}
+							Expect(fakeK8sClient.List(ctx, works)).To(Succeed())
+							Expect(works.Items).To(HaveLen(0))
+						})
 					})
 				})
 			})
-
-			When("the static dependencies are removed", func() {
-				It("re-reconciles until completion", func() {
-					Expect(fakeK8sClient.Get(ctx, promiseName, promise)).To(Succeed())
-					promise.Spec.Dependencies = nil
-					Expect(fakeK8sClient.Update(ctx, promise)).To(Succeed())
-
+			When("the promise has workflows", func() {
+				var resReq *unstructured.Unstructured
+				BeforeEach(func() {
+					promise = createPromise(promiseWithWorkflowPath)
 					setReconcileConfigureWorkflowToReturnFinished()
-					result, err := t.reconcileUntilCompletion(reconciler, promise, &opts{
+					_, err := t.reconcileUntilCompletion(reconciler, promise, &opts{
 						funcs: []func(client.Object) error{autoMarkCRDAsEstablished},
 					})
 					Expect(err).NotTo(HaveOccurred())
-					Expect(result).To(Equal(ctrl.Result{}))
 
-					By("deleting the work", func() {
-						works := &v1alpha1.WorkList{}
-						Expect(fakeK8sClient.List(ctx, works)).To(Succeed())
-						Expect(works.Items).To(HaveLen(0))
+					resReqBytes, err := os.ReadFile(resourceRequestPath)
+					Expect(err).ToNot(HaveOccurred())
+
+					resReq = &unstructured.Unstructured{}
+					Expect(yaml.Unmarshal(resReqBytes, resReq)).To(Succeed())
+					Expect(fakeK8sClient.Create(ctx, resReq)).To(Succeed())
+
+					Expect(fakeK8sClient.Get(ctx, types.NamespacedName{
+						Name:      resReq.GetName(),
+						Namespace: resReq.GetNamespace(),
+					}, resReq)).To(Succeed())
+					Expect(fakeK8sClient.Get(ctx, promiseName, promise)).To(Succeed())
+					promise.UID = "1234abcd"
+					Expect(fakeK8sClient.Update(ctx, promise)).To(Succeed())
+					setReconcileConfigureWorkflowToReturnRunning()
+				})
+				It("re-reconciles until completion", func() {
+					result, err := t.reconcileUntilCompletion(reconciler, promise, &opts{
+						funcs: []func(client.Object) error{autoMarkCRDAsEstablished},
+					})
+
+					By("not requeueing while the job is in flight", func() {
+						By("not allowing to create resources", func() {
+							Expect(*reconciler.StartedDynamicControllers["1234abcd"].CanCreateResources).To(BeFalse())
+						})
+						Expect(result).To(Equal(ctrl.Result{}))
+						Expect(err).To(BeNil())
+					})
+
+					By("finishing the update once the job is finished", func() {
+						setReconcileConfigureWorkflowToReturnFinished()
+						result, err := t.reconcileUntilCompletion(reconciler, promise)
+
+						Expect(err).NotTo(HaveOccurred())
+						Expect(result).To(Equal(ctrl.Result{}))
 					})
 				})
 			})

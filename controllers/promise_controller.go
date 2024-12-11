@@ -239,6 +239,12 @@ func (r *PromiseReconciler) Reconcile(ctx context.Context, req ctrl.Request) (ct
 
 	if ctrlResult != nil {
 		logger.Info("stopping reconciliation while reconciling dependencies")
+		if r.dynamicControllerHasAlreadyStarted(promise) {
+			logger.Info("dynamic controller already started, marking it not to create resources")
+			dynamicController := r.StartedDynamicControllers[string(promise.GetUID())]
+			dynamicControllerCanCreateResources := false
+			dynamicController.CanCreateResources = &dynamicControllerCanCreateResources
+		}
 		return *ctrlResult, nil
 	}
 
