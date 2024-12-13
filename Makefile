@@ -154,7 +154,13 @@ undeploy: ## Undeploy controller from the K8s cluster specified in ~/.kube/confi
 
 CONTROLLER_GEN = $(shell pwd)/bin/controller-gen
 controller-gen: ## Download controller-gen locally if necessary.
-	$(call go-get-tool,$(CONTROLLER_GEN),sigs.k8s.io/controller-tools/cmd/controller-gen@v0.16.5)
+	$(eval CONTROLLER_GEN_VERSION := v0.16.5)
+	$(eval CURRENT_CONTROLLER_GEN_VERSION := $(shell $(CONTROLLER_GEN) --version 2>/dev/null | grep -oE 'v[0-9]+.[0-9]+.[0-9]+' || echo "none"))
+	@if [ "$(CURRENT_CONTROLLER_GEN_VERSION)" != "$(CONTROLLER_GEN_VERSION)" ]; then \
+		echo "Warning: Controller-gen version $(CURRENT_CONTROLLER_GEN_VERSION) does not match desired version $(CONTROLLER_GEN_VERSION)"; \
+		echo "Installing/updating to version $(CONTROLLER_GEN_VERSION)..."; \
+		GOBIN=$(shell pwd)/bin go install sigs.k8s.io/controller-tools/cmd/controller-gen@$(CONTROLLER_GEN_VERSION); \
+	fi
 
 KUSTOMIZE = $(shell pwd)/bin/kustomize
 kustomize: ## Download kustomize locally if necessary.
