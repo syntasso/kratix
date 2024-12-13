@@ -21,8 +21,9 @@ import (
 	"flag"
 	"fmt"
 	"os"
-	"sigs.k8s.io/controller-runtime/pkg/webhook"
 	"time"
+
+	"sigs.k8s.io/controller-runtime/pkg/webhook"
 
 	// Import all Kubernetes client auth plugins (e.g. Azure, GCP, OIDC, etc.)
 	// to ensure that exec-entrypoint and run can make use of them.
@@ -31,12 +32,14 @@ import (
 	apierrors "k8s.io/apimachinery/pkg/api/errors"
 	"k8s.io/apimachinery/pkg/util/yaml"
 	_ "k8s.io/client-go/plugin/pkg/client/auth"
+	"k8s.io/utils/ptr"
 	"sigs.k8s.io/controller-runtime/pkg/client"
 
 	kratixWebhook "github.com/syntasso/kratix/internal/webhook/v1alpha1"
 	utilruntime "k8s.io/apimachinery/pkg/util/runtime"
 	"k8s.io/client-go/kubernetes/scheme"
 	ctrl "sigs.k8s.io/controller-runtime"
+	controllercfg "sigs.k8s.io/controller-runtime/pkg/config"
 	"sigs.k8s.io/controller-runtime/pkg/healthz"
 	"sigs.k8s.io/controller-runtime/pkg/log/zap"
 	metricsserver "sigs.k8s.io/controller-runtime/pkg/metrics/server"
@@ -128,6 +131,9 @@ func main() {
 			PprofBindAddress:       pprofAddr,
 			LeaderElection:         enableLeaderElection,
 			LeaderElectionID:       "2743c979.kratix.io",
+			Controller: controllercfg.Controller{
+				SkipNameValidation: ptr.To(true),
+			},
 		})
 		if err != nil {
 			setupLog.Error(err, "unable to start manager")
