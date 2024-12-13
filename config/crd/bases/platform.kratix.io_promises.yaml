@@ -81,7 +81,7 @@ spec:
                   type: object
                 type: array
               healthChecks:
-                description: HealthCheck definition for the promise; optional
+                description: HealthChecks definition for the promise; optional
                 properties:
                   resource:
                     description: Resource is the Resource health check
@@ -97,6 +97,7 @@ spec:
                         x-kubernetes-preserve-unknown-fields: true
                     type: object
                 type: object
+                x-kubernetes-preserve-unknown-fields: true
               requiredPromises:
                 description: |-
                   A list of Promises that are required by this Promise.

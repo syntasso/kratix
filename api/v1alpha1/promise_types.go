@@ -65,14 +65,16 @@ type PromiseSpec struct {
 	// A list of key and value pairs (labels) used for scheduling.
 	DestinationSelectors []PromiseScheduling `json:"destinationSelectors,omitempty"`
 
-	// HealthCheck definition for the promise; optional
-	HealthChecks HealthChecks `json:"healthChecks,omitempty"`
+	// HealthChecks definition for the promise; optional
+	// +kubebuilder:pruning:PreserveUnknownFields
+	// +kubebuilder:validation:Optional
+	HealthChecks *HealthChecks `json:"healthChecks,omitempty"`
 }
 
 // HealthChecks defines the Resource and Promise health checks
 type HealthChecks struct {
 	// Resource is the Resource health check
-	Resource HealthCheckDefinition `json:"resource,omitempty"`
+	Resource *HealthCheckDefinition `json:"resource,omitempty"`
 }
 
 // HealthCheckDefinition defines a Health Check to be executed
@@ -82,7 +84,7 @@ type HealthCheckDefinition struct {
 
 	// Workflow specifies the workflow for the health check
 	// +kubebuilder:pruning:PreserveUnknownFields
-	Workflow unstructured.Unstructured `json:"workflow,omitempty"`
+	Workflow *unstructured.Unstructured `json:"workflow,omitempty"`
 }
 
 type RequiredPromise struct {
@@ -379,6 +381,10 @@ func (p *Promise) GenerateResourcePipelines(workflowAction Action, resourceReque
 	return p.generatePipelinesObjects(WorkflowTypeResource, workflowAction, resourceRequest, logger)
 }
 
+func (p *Promise) GenerateResourceHealthCheckPipelines(resourceRequest *unstructured.Unstructured, logger logr.Logger) ([]PipelineJobResources, error) {
+	return p.generatePipelinesObjects(WorkflowTypeResource, WorkflowActionHealthCheck, resourceRequest, logger)
+}
+
 func (p *Promise) HasPipeline(workflowType Type, workflowAction Action) bool {
 	switch workflowType {
 	case WorkflowTypeResource:
@@ -387,6 +393,8 @@ func (p *Promise) HasPipeline(workflowType Type, workflowAction Action) bool {
 			return len(p.Spec.Workflows.Resource.Configure) > 0
 		case WorkflowActionDelete:
 			return len(p.Spec.Workflows.Resource.Delete) > 0
+		case WorkflowActionHealthCheck:
+			return len(p.GetResourceHealthChecks()) > 0
 		}
 	case WorkflowTypePromise:
 		switch workflowAction {
@@ -399,32 +407,41 @@ func (p *Promise) HasPipeline(workflowType Type, workflowAction Action) bool {
 	return false
 }
 
+func (p *Promise) GetResourceHealthChecks() []unstructured.Unstructured {
+	if p.Spec.HealthChecks == nil || p.Spec.HealthChecks.Resource == nil {
+		return nil
+	}
+	return []unstructured.Unstructured{*p.Spec.HealthChecks.Resource.Workflow}
+}
+
 type pipelineMap map[Type]map[Action][]Pipeline
 
 func NewPipelinesMap(promise *Promise, logger logr.Logger) (pipelineMap, error) {
 	unstructuredMap := map[Type]map[Action][]unstructured.Unstructured{
 		WorkflowTypeResource: {
-			WorkflowActionConfigure: promise.Spec.Workflows.Resource.Configure,
-			WorkflowActionDelete:    promise.Spec.Workflows.Resource.Delete,
+			WorkflowActionConfigure:   promise.Spec.Workflows.Resource.Configure,
+			WorkflowActionDelete:      promise.Spec.Workflows.Resource.Delete,
+			WorkflowActionHealthCheck: promise.GetResourceHealthChecks(),
 		},
 		WorkflowTypePromise: {
-			WorkflowActionConfigure: promise.Spec.Workflows.Promise.Configure,
-			WorkflowActionDelete:    promise.Spec.Workflows.Promise.Delete,
+			WorkflowActionConfigure:   promise.Spec.Workflows.Promise.Configure,
+			WorkflowActionDelete:      promise.Spec.Workflows.Promise.Delete,
+			WorkflowActionHealthCheck: nil,
 		},
 	}
 
 	pipelinesMap := map[Type]map[Action][]Pipeline{}
 
-	for _, t := range []Type{WorkflowTypeResource, WorkflowTypePromise} {
-		if _, ok := pipelinesMap[t]; !ok {
-			pipelinesMap[t] = map[Action][]Pipeline{}
+	for typ, actions := range unstructuredMap {
+		if _, ok := pipelinesMap[typ]; !ok {
+			pipelinesMap[typ] = map[Action][]Pipeline{}
 		}
-		for _, a := range []Action{WorkflowActionConfigure, WorkflowActionDelete} {
-			pipelines, err := PipelinesFromUnstructured(unstructuredMap[t][a], logger)
+		for action, uPipeline := range actions {
+			pipelines, err := PipelinesFromUnstructured(uPipeline, logger)
 			if err != nil {
 				return nil, err
 			}
-			pipelinesMap[t][a] = pipelines
+			pipelinesMap[typ][action] = pipelines
 		}
 
 	}

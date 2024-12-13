@@ -18,6 +18,7 @@ package controllers
 
 import (
 	"context"
+
 	"github.com/go-logr/logr"
 	"github.com/syntasso/kratix/api/v1alpha1"
 	"k8s.io/apimachinery/pkg/api/errors"
@@ -39,7 +40,7 @@ type WorkReconciler struct {
 	Disabled  bool
 }
 
-//go:generate go run github.com/maxbrunsfeld/counterfeiter/v6 . WorkScheduler
+//counterfeiter:generate . WorkScheduler
 type WorkScheduler interface {
 	ReconcileWork(work *v1alpha1.Work) ([]string, error)
 }

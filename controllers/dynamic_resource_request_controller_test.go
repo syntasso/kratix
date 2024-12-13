@@ -15,12 +15,14 @@ import (
 	rbacv1 "k8s.io/api/rbac/v1"
 	metav1 "k8s.io/apimachinery/pkg/apis/meta/v1"
 	"k8s.io/apimachinery/pkg/apis/meta/v1/unstructured"
-	"k8s.io/apimachinery/pkg/runtime/schema"
+	"k8s.io/apimachinery/pkg/runtime"
 	"k8s.io/apimachinery/pkg/types"
 	"k8s.io/apimachinery/pkg/util/yaml"
 	"k8s.io/client-go/kubernetes/scheme"
+	"k8s.io/utils/ptr"
 	clusterv1 "sigs.k8s.io/cluster-api/api/v1beta1"
 	ctrl "sigs.k8s.io/controller-runtime"
+	"sigs.k8s.io/controller-runtime/pkg/client"
 
 	"github.com/syntasso/kratix/api/v1alpha1"
 	"github.com/syntasso/kratix/controllers"
@@ -38,55 +40,28 @@ var _ = Describe("DynamicResourceRequestController", func() {
 	BeforeEach(func() {
 		startTime = time.Now().Add(-time.Minute)
 		ctx = context.Background()
-		promise = promiseFromFile(promisePath)
-		promiseName = types.NamespacedName{
-			Name:      promise.GetName(),
-			Namespace: promise.GetNamespace(),
-		}
+		promise = createPromise(promisePath)
 
-		_, rrCRD, err := promise.GetAPI()
+		rrGVK, rrCRD, err := promise.GetAPI()
 		Expect(err).ToNot(HaveOccurred())
-		rrGVK := schema.GroupVersionKind{
-			Group:   rrCRD.Spec.Group,
-			Version: rrCRD.Spec.Versions[0].Name,
-			Kind:    rrCRD.Spec.Names.Kind,
-		}
 
-		Expect(fakeK8sClient.Create(ctx, promise)).To(Succeed())
-		Expect(fakeK8sClient.Get(ctx, promiseName, promise)).To(Succeed())
-		promise.UID = "1234abcd"
-		Expect(fakeK8sClient.Update(ctx, promise)).To(Succeed())
 		l = ctrl.Log.WithName("controllers").WithName("dynamic")
 
-		enabled := true
 		reconciler = &controllers.DynamicResourceRequestController{
-			CanCreateResources:          &enabled,
+			CanCreateResources:          ptr.To(true),
+			Enabled:                     ptr.To(true),
 			Client:                      fakeK8sClient,
 			Scheme:                      scheme.Scheme,
-			GVK:                         &rrGVK,
+			GVK:                         rrGVK,
 			CRD:                         rrCRD,
 			PromiseIdentifier:           promise.GetName(),
 			PromiseDestinationSelectors: promise.Spec.DestinationSelectors,
 			Log:                         l,
 			UID:                         "1234abcd",
-			Enabled:                     &enabled,
 		}
 
-		yamlFile, err := os.ReadFile(resourceRequestPath)
-		Expect(err).ToNot(HaveOccurred())
-
-		resReq = &unstructured.Unstructured{}
-		Expect(yaml.Unmarshal(yamlFile, resReq)).To(Succeed())
-		Expect(fakeK8sClient.Create(ctx, resReq)).To(Succeed())
-		resReqNameNamespace = types.NamespacedName{
-			Name:      resReq.GetName(),
-			Namespace: resReq.GetNamespace(),
-		}
-		Expect(fakeK8sClient.Get(ctx, resReqNameNamespace, resReq)).To(Succeed())
-		resReq.SetUID("1234abcd")
-		resReq.SetGeneration(1)
-		Expect(fakeK8sClient.Update(ctx, resReq)).To(Succeed())
-		Expect(fakeK8sClient.Get(ctx, resReqNameNamespace, resReq)).To(Succeed())
+		resReq = createResourceRequest(resourceRequestPath)
+		resReqNameNamespace = client.ObjectKeyFromObject(resReq)
 
 		promiseCommonLabels = map[string]string{
 			"kratix-promise-resource-request-id": promise.GetName() + "-" + resReq.GetName(),
@@ -94,7 +69,6 @@ var _ = Describe("DynamicResourceRequestController", func() {
 			"kratix.io/promise-name":             promise.GetName(),
 			"kratix.io/work-type":                "resource",
 		}
-
 	})
 
 	When("resource is being created", func() {
@@ -220,6 +194,65 @@ var _ = Describe("DynamicResourceRequestController", func() {
 				status := resReq.Object["status"]
 				statusMap := status.(map[string]interface{})
 				Expect(statusMap["message"].(string)).To(Equal("Pending"))
+			})
+		})
+
+		When("the promise includes resource healthchecks", func() {
+			BeforeEach(func() {
+				hcPipeline := &v1alpha1.Pipeline{
+					ObjectMeta: metav1.ObjectMeta{
+						Name:      "healthcheck",
+						Namespace: "default",
+					},
+					Spec: v1alpha1.PipelineSpec{
+						Containers: []v1alpha1.Container{
+							{Image: "busybox", Command: []string{"echo", "hello"}},
+						},
+					},
+				}
+
+				objMap, err := runtime.DefaultUnstructuredConverter.ToUnstructured(hcPipeline)
+				Expect(err).NotTo(HaveOccurred())
+
+				uPipeline := &unstructured.Unstructured{Object: objMap}
+				uPipeline.SetAPIVersion(v1alpha1.GroupVersion.String())
+				uPipeline.SetKind("Pipeline")
+
+				promise.Spec.HealthChecks = &v1alpha1.HealthChecks{
+					Resource: &v1alpha1.HealthCheckDefinition{
+						Schedule: "1 hour",
+						Workflow: uPipeline,
+					},
+				}
+				Expect(fakeK8sClient.Update(ctx, promise)).To(Succeed())
+			})
+
+			It("reconciles until completion", func() {
+				result, err := t.reconcileUntilCompletion(reconciler, resReq)
+				Expect(err).NotTo(HaveOccurred())
+				Expect(result).To(Equal(ctrl.Result{}))
+
+				Expect(fakeK8sClient.Get(ctx, resReqNameNamespace, resReq)).To(Succeed())
+
+				Expect(reconcileConfigureOptsArg.Resources).To(HaveLen(2))
+
+				By("creating the pipeline job for the resource workflow", func() {
+					configureWorkflowJob := reconcileConfigureOptsArg.Resources[0].Job
+					Expect(configureWorkflowJob).NotTo(BeNil())
+					Expect(configureWorkflowJob.GetLabels()).To(HaveKeyWithValue("kratix.io/work-action", "configure"))
+				})
+
+				By("creating the pipeline job for the healthcheck workflow", func() {
+					setConfigureWorkflowStatus(resReq, v1.ConditionTrue)
+					setReconcileConfigureWorkflowToReturnFinished()
+					result, err := t.reconcileUntilCompletion(reconciler, resReq)
+					Expect(err).NotTo(HaveOccurred())
+					Expect(result).To(Equal(ctrl.Result{}))
+
+					healthCheckWorkflowJob := reconcileConfigureOptsArg.Resources[1].Job
+					Expect(healthCheckWorkflowJob.GetLabels()).To(HaveKeyWithValue("kratix.io/work-action", "healthcheck"))
+				})
+
 			})
 		})
 	})
@@ -387,4 +420,23 @@ func setConfigureWorkflowStatus(resReq *unstructured.Unstructured, status v1.Con
 		LastTransitionTime: metav1.NewTime(t),
 	})
 	Expect(fakeK8sClient.Status().Update(ctx, resReq)).To(Succeed())
+}
+
+func createResourceRequest(resourceRequestPath string) *unstructured.Unstructured {
+	yamlFile, err := os.ReadFile(resourceRequestPath)
+	Expect(err).ToNot(HaveOccurred())
+
+	resReq := &unstructured.Unstructured{}
+	Expect(yaml.Unmarshal(yamlFile, resReq)).To(Succeed())
+
+	Expect(fakeK8sClient.Create(ctx, resReq)).To(Succeed())
+	resReqNameNamespace := client.ObjectKeyFromObject(resReq)
+
+	Expect(fakeK8sClient.Get(ctx, resReqNameNamespace, resReq)).To(Succeed())
+	resReq.SetUID("1234abcd")
+	resReq.SetGeneration(1)
+
+	Expect(fakeK8sClient.Update(ctx, resReq)).To(Succeed())
+	Expect(fakeK8sClient.Get(ctx, resReqNameNamespace, resReq)).To(Succeed())
+	return resReq
 }

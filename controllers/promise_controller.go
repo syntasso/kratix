@@ -56,7 +56,7 @@ import (
 var reconcileConfigure = workflow.ReconcileConfigure
 var reconcileDelete = workflow.ReconcileDelete
 
-//go:generate go run github.com/maxbrunsfeld/counterfeiter/v6 . Manager
+//counterfeiter:generate . Manager
 type Manager interface {
 	kmanager.Manager
 }

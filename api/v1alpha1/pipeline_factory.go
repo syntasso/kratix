@@ -215,6 +215,28 @@ func (p *PipelineFactory) workCreatorContainer() corev1.Container {
 	}
 }
 
+func (p *PipelineFactory) healthDefinitionCreatorContainer() corev1.Container {
+	cmd := "health-definition-creator"
+	args := []string{
+		"-promise-name", p.Promise.GetName(),
+	}
+	if p.ResourceWorkflow {
+		args = append(args, "-resource-name", p.ResourceRequest.GetName())
+	}
+	cmd = fmt.Sprintf("%s %s", cmd, strings.Join(args, " "))
+	return corev1.Container{
+		Name:    "health-definition-creator",
+		Image:   os.Getenv("WC_IMG"),
+		Command: []string{"sh", "-c", cmd},
+		VolumeMounts: []corev1.VolumeMount{
+			{MountPath: "/kratix/input", Name: "shared-input", ReadOnly: true},
+			{MountPath: "/kratix/output", Name: "shared-output"},
+			{MountPath: "/kratix/metadata", Name: "shared-metadata"},
+		},
+		SecurityContext: kratixSecurityContext,
+	}
+}
+
 func (p *PipelineFactory) pipelineContainers() ([]corev1.Container, []corev1.Volume) {
 	volumes, defaultVolumeMounts := p.defaultPipelineVolumes()
 	pipeline := p.Pipeline
@@ -267,19 +289,25 @@ func (p *PipelineFactory) pipelineJob(schedulingConfigMap *corev1.ConfigMap, ser
 	workCreatorContainer := p.workCreatorContainer()
 	statusWriterContainer := p.statusWriterContainer(obj, env)
 
+	healthDefinitionCreatorContainer := p.healthDefinitionCreatorContainer()
+
 	volumes := append(p.defaultVolumes(schedulingConfigMap), pipelineVolumes...)
 
 	var initContainers []corev1.Container
 	var containers []corev1.Container
 
 	initContainers = []corev1.Container{readerContainer}
-	if p.WorkflowAction == WorkflowActionDelete {
-		initContainers = append(initContainers, pipelineContainers[0:len(pipelineContainers)-1]...)
-		containers = []corev1.Container{pipelineContainers[len(pipelineContainers)-1]}
-	} else {
+	switch p.WorkflowAction {
+	case WorkflowActionConfigure:
 		initContainers = append(initContainers, pipelineContainers...)
 		initContainers = append(initContainers, workCreatorContainer)
 		containers = []corev1.Container{statusWriterContainer}
+	case WorkflowActionDelete:
+		initContainers = append(initContainers, pipelineContainers[0:len(pipelineContainers)-1]...)
+		containers = []corev1.Container{pipelineContainers[len(pipelineContainers)-1]}
+	case WorkflowActionHealthCheck:
+		initContainers = append(initContainers, healthDefinitionCreatorContainer)
+		containers = []corev1.Container{workCreatorContainer}
 	}
 
 	job := &batchv1.Job{
@@ -503,7 +531,7 @@ func (p *PipelineFactory) roleBindings(roles []rbacv1.Role, clusterRoles []rbacv
 
 func (p *PipelineFactory) clusterRole() []rbacv1.ClusterRole {
 	var clusterRoles []rbacv1.ClusterRole
-	if !p.ResourceWorkflow {
+	if !p.ResourceWorkflow || p.WorkflowAction == WorkflowActionHealthCheck {
 		clusterRoles = append(clusterRoles, rbacv1.ClusterRole{
 			ObjectMeta: metav1.ObjectMeta{
 				Name:   p.ID,
