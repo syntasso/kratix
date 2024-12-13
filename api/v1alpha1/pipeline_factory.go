@@ -89,7 +89,8 @@ func (p *PipelineFactory) serviceAccount() *corev1.ServiceAccount {
 }
 
 func (p *PipelineFactory) configMap(workloadGroupScheduling []WorkloadGroupScheduling) (*corev1.ConfigMap, error) {
-	if p.WorkflowAction != WorkflowActionConfigure {
+	// used to be p.WorkflowAction != WorkflowActionConfigure
+	if p.WorkflowAction != WorkflowActionConfigure && p.WorkflowAction != WorkflowActionHealthCheck {
 		return nil, nil
 	}
 	schedulingYAML, err := yaml.Marshal(workloadGroupScheduling)
@@ -109,7 +110,8 @@ func (p *PipelineFactory) configMap(workloadGroupScheduling []WorkloadGroupSched
 }
 
 func (p *PipelineFactory) defaultVolumes(schedulingConfigMap *corev1.ConfigMap) []corev1.Volume {
-	if p.WorkflowAction != WorkflowActionConfigure {
+	// used to be p.WorkflowAction != WorkflowActionConfigure
+	if p.WorkflowAction != WorkflowActionConfigure && p.WorkflowAction != WorkflowActionHealthCheck {
 		return []corev1.Volume{}
 	}
 	return []corev1.Volume{

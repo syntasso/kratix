@@ -64,6 +64,25 @@ type PromiseSpec struct {
 
 	// A list of key and value pairs (labels) used for scheduling.
 	DestinationSelectors []PromiseScheduling `json:"destinationSelectors,omitempty"`
+
+	// HealthCheck definition for the promise; optional
+	HealthChecks HealthChecks `json:"healthChecks,omitempty"`
+}
+
+// HealthChecks defines the Resource and Promise health checks
+type HealthChecks struct {
+	// Resource is the Resource health check
+	Resource HealthCheckDefinition `json:"resource,omitempty"`
+}
+
+// HealthCheckDefinition defines a Health Check to be executed
+type HealthCheckDefinition struct {
+	// Schedule specifies how often should the health check run
+	Schedule string `json:"schedule,omitempty"`
+
+	// Workflow specifies the workflow for the health check
+	// +kubebuilder:pruning:PreserveUnknownFields
+	Workflow unstructured.Unstructured `json:"workflow,omitempty"`
 }
 
 type RequiredPromise struct {
