@@ -17,7 +17,7 @@ commonLabels:
 configMapGenerator:
 - envs:
   - wc-img-config.properties
-  name: wc-img-config
+  name: config
 
 images:
 - name: controller

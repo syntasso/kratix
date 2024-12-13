@@ -64,7 +64,7 @@ spec:
           - name: WC_IMG
             valueFrom:
               configMapKeyRef:
-                name: wc-img-config
+                name: kratix-platform-config
                 key: WC_IMG
       serviceAccountName: controller-manager
       terminationGracePeriodSeconds: 10
