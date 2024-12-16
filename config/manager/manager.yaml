@@ -62,9 +62,6 @@ spec:
             memory: 100Mi
         env:
           - name: WC_IMG
-            valueFrom:
-              configMapKeyRef:
-                name: kratix-platform-config
-                key: WC_IMG
+            value: LATEST_WC_IMAGE
       serviceAccountName: controller-manager
       terminationGracePeriodSeconds: 10

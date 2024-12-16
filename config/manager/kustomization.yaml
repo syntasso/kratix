@@ -12,12 +12,8 @@ commonLabels:
   app.kubernetes.io/instance: kratix-platform
   app.kubernetes.io/part-of: kratix
 
-# The wc-img-config config map drives the WC_IMG env var, which is used by the promise
-# controller as the last container in the workflow Pipeline pod spec.
-configMapGenerator:
-- envs:
-  - wc-img-config.properties
-  name: config
+patchesStrategicMerge:
+- patches/wc_image_value.yaml
 
 images:
 - name: controller

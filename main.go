@@ -69,6 +69,7 @@ type KratixConfig struct {
 
 type Workflows struct {
 	DefaultContainerSecurityContext corev1.SecurityContext `json:"defaultContainerSecurityContext"`
+	PipelineAdapterImage            string                 `json:"pipelineAdapterImage"`
 }
 
 func main() {
@@ -99,18 +100,22 @@ func main() {
 		ctrl.Log = ctrl.Log.WithName(prefix)
 	}
 
+	setupLog.Info("creating client")
 	kClient, err := client.New(ctrl.GetConfigOrDie(), client.Options{})
 	if err != nil {
 		panic(err)
 	}
 
-	kratixConfig, err := readKratixConfig(ctrl.Log, kClient)
+	setupLog.Info("about to read kratix config")
+	kratixConfig, err := readKratixConfig(setupLog, kClient)
 	if err != nil {
 		panic(err)
 	}
 
 	if kratixConfig != nil {
+		// TODO: Check each field individually?
 		v1alpha1.DefaultUserProvidedContainersSecurityContext = &kratixConfig.Workflows.DefaultContainerSecurityContext
+		v1alpha1.PipelineAdapterImage = kratixConfig.Workflows.PipelineAdapterImage
 	}
 
 	for {

@@ -19,6 +19,7 @@ package v1alpha1
 import (
 	"encoding/json"
 	"fmt"
+
 	"sigs.k8s.io/controller-runtime/pkg/client"
 
 	"github.com/go-logr/logr"
@@ -57,6 +58,7 @@ var (
 		Privileged: ptr.To(false),
 	}
 
+	PipelineAdapterImage                         string
 	DefaultUserProvidedContainersSecurityContext *corev1.SecurityContext
 )
 

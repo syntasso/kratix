@@ -166,7 +166,7 @@ func (p *PipelineFactory) readerContainer() corev1.Container {
 
 	return corev1.Container{
 		Name:    "reader",
-		Image:   os.Getenv("WC_IMG"),
+		Image:   PipelineAdapterImage,
 		Command: []string{"sh", "-c", "reader"},
 		Env: []corev1.EnvVar{
 			{Name: "OBJECT_KIND", Value: strings.ToLower(kind)},
@@ -202,7 +202,7 @@ func (p *PipelineFactory) workCreatorContainer() corev1.Container {
 
 	return corev1.Container{
 		Name:    "work-writer",
-		Image:   os.Getenv("WC_IMG"),
+		Image:   PipelineAdapterImage,
 		Command: []string{"sh", "-c", workCreatorCommand},
 		VolumeMounts: []corev1.VolumeMount{
 			{MountPath: "/work-creator-files/input", Name: "shared-output"},
@@ -313,7 +313,7 @@ func (p *PipelineFactory) pipelineJob(schedulingConfigMap *corev1.ConfigMap, ser
 func (p *PipelineFactory) statusWriterContainer(obj *unstructured.Unstructured, env []corev1.EnvVar) corev1.Container {
 	return corev1.Container{
 		Name:    "status-writer",
-		Image:   os.Getenv("WC_IMG"),
+		Image:   PipelineAdapterImage,
 		Command: []string{"sh", "-c", "update-status"},
 		Env: append(env,
 			corev1.EnvVar{Name: "OBJECT_KIND", Value: strings.ToLower(obj.GetKind())},

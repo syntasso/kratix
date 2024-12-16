@@ -139,13 +139,15 @@ uninstall: manifests kustomize ## Uninstall CRDs from the K8s cluster specified 
 	$(KUSTOMIZE) build config/crd | kubectl delete -f -
 
 deploy: manifests kustomize ## Deploy controller to the K8s cluster specified in ~/.kube/config.
-	cd config/manager && $(KUSTOMIZE) edit set image controller=${IMG_TAG}
-	WC_IMG=${WC_IMG} $(KUSTOMIZE) build config/default | kubectl apply -f -
+	cd config/manager && $(KUSTOMIZE) edit set image controller=${IMG_TAG} \
+		&& sed 's#LATEST_WC_IMAGE#${WC_IMG}#g' patches/wc_image_value.yaml.template > patches/wc_image_value.yaml
+	$(KUSTOMIZE) build config/default | kubectl apply -f -
 
 distribution: manifests kustomize ## Create a deployment manifest in /distribution/kratix.yaml
-	cd config/manager && $(KUSTOMIZE) edit set image controller=${IMG_TAG}
+	cd config/manager && $(KUSTOMIZE) edit set image controller=${IMG_TAG} \
+		&& sed 's#LATEST_WC_IMAGE#${WC_IMG}#g' patches/wc_image_value.yaml.template > patches/wc_image_value.yaml
 	mkdir -p distribution
-	WC_IMG=${WC_IMG} $(KUSTOMIZE) build config/default --output distribution/kratix.yaml
+	$(KUSTOMIZE) build config/default --output distribution/kratix.yaml
 
 release: distribution docker-build-and-push build-and-push-work-creator ## Create a release. Set VERSION env var to "vX.Y.Z-n".
 
