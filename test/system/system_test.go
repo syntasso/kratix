@@ -5,6 +5,9 @@ import (
 	"context"
 	"encoding/base64"
 	"fmt"
+	"github.com/syntasso/kratix/lib/compression"
+	metav1 "k8s.io/apimachinery/pkg/apis/meta/v1"
+	"k8s.io/apimachinery/pkg/labels"
 	"os"
 	"os/exec"
 	"path/filepath"
@@ -923,6 +926,81 @@ var _ = Describe("Kratix", func() {
 					ContainSubstring(fmt.Sprintf("%s.yaml", rrNameOne)),
 					ContainSubstring(fmt.Sprintf("%s.yaml", rrNameTwo)),
 				))
+			}
+		})
+	})
+
+	Describe("Promise with HealthChecks", func() {
+		It("creates an addition health workflow at resource request", func() {
+			// skip this test by default because destinations do not know how to handle HealthDefinition
+			// scheduling HealthDefinition will break flux reconcile
+			if getEnvOrDefault("TEST_HEALTHCHECK", "false") == "true" {
+				bashPromise.Spec.Workflows = v1alpha1.Workflows{}
+
+				healthPipelineName := "bash-check"
+				healthPipeline := v1alpha1.Pipeline{
+					ObjectMeta: metav1.ObjectMeta{
+						Name: healthPipelineName,
+					},
+					Spec: v1alpha1.PipelineSpec{
+						Containers: []v1alpha1.Container{
+							{
+								Name:  "a-container-name",
+								Image: "test-image:latest",
+							},
+						},
+					},
+				}
+				healthObjMap, err := runtime.DefaultUnstructuredConverter.ToUnstructured(&healthPipeline)
+				Expect(err).NotTo(HaveOccurred())
+				unstructuredHealthPipeline := &unstructured.Unstructured{Object: healthObjMap}
+				unstructuredHealthPipeline.SetAPIVersion("platform.kratix.io/v1alpha1")
+				unstructuredHealthPipeline.SetKind("Pipeline")
+
+				bashPromise.Spec.HealthChecks = &v1alpha1.HealthChecks{
+					Resource: &v1alpha1.HealthCheckDefinition{
+						Schedule: "5m",
+						Workflow: unstructuredHealthPipeline,
+					},
+				}
+
+				platform.eventuallyKubectl("apply", "-f", cat(bashPromise))
+				platform.eventuallyKubectl("get", "crd", crd.Name)
+
+				rrName := bashPromiseName + "with-health"
+				platform.kubectl("apply", "-f", exampleBashRequest(rrName, "default", "health"))
+
+				healthPipelineLabels := fmt.Sprintf(
+					"kratix.io/promise-name=%s,kratix.io/resource-name=%s,kratix.io/pipeline-name=%s,kratix.io/work-type=%s",
+					bashPromiseName,
+					rrName,
+					healthPipelineName,
+					"resource",
+				)
+
+				By("executing the healthcheck workflow", func() {
+					Eventually(func() string {
+						return platform.eventuallyKubectl("get", "pods", "--selector", healthPipelineLabels)
+					}, timeout, interval).Should(ContainSubstring("Completed"))
+				})
+
+				By("creating work with health definition", func() {
+					parsedSelector, _ := labels.Parse(healthPipelineLabels)
+					var works v1alpha1.WorkList
+					k8sClient.List(context.TODO(), &works, &client.ListOptions{
+						LabelSelector: parsedSelector,
+					})
+					Expect(works.Items).To(HaveLen(1))
+					work := works.Items[0]
+					Expect(work.Spec.WorkloadGroups).To(HaveLen(1))
+					wGroup := work.Spec.WorkloadGroups[0]
+					Expect(wGroup.Workloads[0].Filepath).To(Equal("healthdefinition.yaml"))
+					Expect(compression.DecompressContent([]byte(wGroup.Workloads[0].Content))).To(SatisfyAll(
+						ContainSubstring("schedule: 5m"),
+						ContainSubstring("name: a-container-name"),
+						ContainSubstring("image: test-image:latest"),
+					))
+				})
 			}
 		})
 	})
