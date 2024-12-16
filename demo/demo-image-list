@@ -1,5 +1,5 @@
-docker.io/kindest/kindnetd:v20230511-dc714da8
-docker.io/kindest/local-path-provisioner:v20230511-dc714da8
+docker.io/kindest/kindnetd:v20241023-a345ebe4
+docker.io/kindest/local-path-provisioner:v20240813-c6f155d6
 docker.io/minio/minio:RELEASE.2022-06-30T20-58-09Z
 ghcr.io/fluxcd/helm-controller:v1.0.1
 ghcr.io/fluxcd/kustomize-controller:v1.3.0
@@ -15,12 +15,12 @@ quay.io/jetstack/cert-manager-controller:v1.15.0
 quay.io/jetstack/cert-manager-webhook:v1.15.0
 quay.io/spotahome/redis-operator:v1.2.4
 redis:6.2.6-alpine
-registry.k8s.io/coredns/coredns:v1.10.1
-registry.k8s.io/etcd:3.5.7-0
-registry.k8s.io/kube-apiserver:v1.27.3
-registry.k8s.io/kube-controller-manager:v1.27.3
-registry.k8s.io/kube-proxy:v1.27.3
-registry.k8s.io/kube-scheduler:v1.27.3
+registry.k8s.io/coredns/coredns:v1.11.3
+registry.k8s.io/etcd:3.5.15-0
+registry.k8s.io/kube-apiserver:v1.31.2
+registry.k8s.io/kube-controller-manager:v1.31.2
+registry.k8s.io/kube-proxy:v1.31.2
+registry.k8s.io/kube-scheduler:v1.31.2
 registry.opensource.zalan.do/acid/postgres-operator:v1.8.2-43-g3e148ea5
 registry.opensource.zalan.do/acid/spilo-14:2.1-p6
 syntasso/demo-app-as-a-service-configure-pipeline:v0.1.1
