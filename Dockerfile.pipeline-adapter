@@ -33,6 +33,7 @@ COPY --chown=nonroot:nonroot --from=bitnami/kubectl:1.31.1 /opt/bitnami/kubectl/
 COPY --chown=nonroot:nonroot --from=builder /workspace/work-creator/main /bin/work-creator
 COPY --chown=nonroot:nonroot --from=builder /workspace/work-creator/scripts/update-status /bin/update-status
 COPY --chown=nonroot:nonroot --from=builder /workspace/work-creator/scripts/reader /bin/reader
+COPY --chown=nonroot:nonroot --from=builder /workspace/work-creator/scripts/health-definition-creator /bin/health-definition-creator
 COPY --chown=nonroot:nonroot --from=builder /workspace/work-creator-files /work-creator-files
 
 USER 65532:65532

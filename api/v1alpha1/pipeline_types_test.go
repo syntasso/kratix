@@ -626,52 +626,52 @@ var _ = Describe("Pipeline", func() {
 				})
 			})
 
-			Describe("ReaderContainer", func() {
-				When("building the reader container for a promise pipeline", func() {
-					It("returns a the reader container with the promise information", func() {
-						container := resources.Job.Spec.Template.Spec.InitContainers[0]
-						Expect(container).ToNot(BeNil())
-						Expect(container.Name).To(Equal("reader"))
-						Expect(container.Command).To(Equal([]string{"sh", "-c", "reader"}))
-						Expect(container.Image).To(Equal(workCreatorImage))
-						Expect(container.Env).To(ConsistOf(
-							corev1.EnvVar{Name: "OBJECT_KIND", Value: promise.GroupVersionKind().Kind},
-							corev1.EnvVar{Name: "OBJECT_GROUP", Value: promise.GroupVersionKind().Group},
-							corev1.EnvVar{Name: "OBJECT_NAME", Value: promise.GetName()},
-							corev1.EnvVar{Name: "OBJECT_NAMESPACE", Value: factory.Namespace},
-							corev1.EnvVar{Name: "KRATIX_WORKFLOW_TYPE", Value: string(factory.WorkflowType)},
-						))
-						Expect(container.VolumeMounts).To(ConsistOf(
-							corev1.VolumeMount{Name: "shared-input", MountPath: "/kratix/input"},
-							corev1.VolumeMount{Name: "shared-output", MountPath: "/kratix/output"},
-						))
-					})
-				})
+			DescribeTable("ReaderContainer", func(isResourceWorkflow bool, act v1alpha1.Action, additionalEnvVars []corev1.EnvVar) {
+				factory.ResourceWorkflow = isResourceWorkflow
+				factory.WorkflowAction = act
 
-				When("building the reader container for a resource pipeline", func() {
-					It("returns a the reader container with the resource information", func() {
-						factory.ResourceWorkflow = true
-						var err error
-						resources, err = factory.Resources(nil)
-						Expect(err).ToNot(HaveOccurred())
-						container := resources.Job.Spec.Template.Spec.InitContainers[0]
-						Expect(container).ToNot(BeNil())
-						Expect(container.Name).To(Equal("reader"))
-						Expect(container.Image).To(Equal(workCreatorImage))
-						Expect(container.Env).To(ContainElements(
-							corev1.EnvVar{Name: "OBJECT_KIND", Value: resourceRequest.GroupVersionKind().Kind},
-							corev1.EnvVar{Name: "OBJECT_GROUP", Value: resourceRequest.GroupVersionKind().Group},
-							corev1.EnvVar{Name: "OBJECT_NAME", Value: resourceRequest.GetName()},
-							corev1.EnvVar{Name: "OBJECT_NAMESPACE", Value: factory.Namespace},
-							corev1.EnvVar{Name: "KRATIX_WORKFLOW_TYPE", Value: string(factory.WorkflowType)},
-						))
-						Expect(container.VolumeMounts).To(ContainElements(
-							corev1.VolumeMount{Name: "shared-input", MountPath: "/kratix/input"},
-							corev1.VolumeMount{Name: "shared-output", MountPath: "/kratix/output"},
-						))
-					})
-				})
-			})
+				var err error
+				resources, err = factory.Resources(nil)
+				Expect(err).ToNot(HaveOccurred())
+
+				container := resources.Job.Spec.Template.Spec.InitContainers[0]
+				Expect(container).ToNot(BeNil())
+				Expect(container.Name).To(Equal("reader"))
+				Expect(container.Command).To(Equal([]string{"sh", "-c", "reader"}))
+				Expect(container.Image).To(Equal(workCreatorImage))
+				Expect(container.VolumeMounts).To(ConsistOf([]corev1.VolumeMount{
+					{Name: "shared-input", MountPath: "/kratix/input"},
+					{Name: "shared-output", MountPath: "/kratix/output"},
+				}))
+
+				expectedEnvVars := []corev1.EnvVar{
+					{Name: "OBJECT_NAMESPACE", Value: factory.Namespace},
+					{Name: "KRATIX_WORKFLOW_TYPE", Value: string(factory.WorkflowType)},
+				}
+
+				if isResourceWorkflow {
+					expectedEnvVars = append(expectedEnvVars,
+						corev1.EnvVar{Name: "OBJECT_KIND", Value: resourceRequest.GroupVersionKind().Kind},
+						corev1.EnvVar{Name: "OBJECT_GROUP", Value: resourceRequest.GroupVersionKind().Group},
+						corev1.EnvVar{Name: "OBJECT_NAME", Value: resourceRequest.GetName()},
+					)
+				} else {
+					expectedEnvVars = append(expectedEnvVars,
+						corev1.EnvVar{Name: "OBJECT_KIND", Value: promise.GroupVersionKind().Kind},
+						corev1.EnvVar{Name: "OBJECT_GROUP", Value: promise.GroupVersionKind().Group},
+						corev1.EnvVar{Name: "OBJECT_NAME", Value: promise.GetName()},
+					)
+				}
+
+				Expect(container.Env).To(ConsistOf(append(expectedEnvVars, additionalEnvVars...)))
+			},
+				Entry("resource configure", true, v1alpha1.WorkflowActionConfigure, nil),
+				Entry("promise configure", false, v1alpha1.WorkflowActionConfigure, nil),
+				Entry("resource health check", true, v1alpha1.WorkflowActionHealthCheck, []corev1.EnvVar{
+					{Name: "HEALTHCHECK", Value: "true"},
+					{Name: "PROMISE_NAME", Value: "promiseName"},
+				}),
+			)
 
 			Describe("WorkCreatorContainer", func() {
 				When("building the work creator container for a promise pipeline", func() {

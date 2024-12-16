@@ -166,17 +166,25 @@ func (p *PipelineFactory) readerContainer() corev1.Container {
 		name = p.ResourceRequest.GetName()
 	}
 
+	envVars := []corev1.EnvVar{
+		{Name: "OBJECT_KIND", Value: strings.ToLower(kind)},
+		{Name: "OBJECT_GROUP", Value: group},
+		{Name: "OBJECT_NAME", Value: name},
+		{Name: "OBJECT_NAMESPACE", Value: p.Namespace},
+		{Name: "KRATIX_WORKFLOW_TYPE", Value: string(p.WorkflowType)},
+	}
+
+	if p.WorkflowAction == WorkflowActionHealthCheck {
+		envVars = append(envVars,
+			corev1.EnvVar{Name: "HEALTHCHECK", Value: "true"},
+			corev1.EnvVar{Name: "PROMISE_NAME", Value: p.Promise.GetName()})
+	}
+
 	return corev1.Container{
 		Name:    "reader",
 		Image:   os.Getenv("WC_IMG"),
 		Command: []string{"sh", "-c", "reader"},
-		Env: []corev1.EnvVar{
-			{Name: "OBJECT_KIND", Value: strings.ToLower(kind)},
-			{Name: "OBJECT_GROUP", Value: group},
-			{Name: "OBJECT_NAME", Value: name},
-			{Name: "OBJECT_NAMESPACE", Value: p.Namespace},
-			{Name: "KRATIX_WORKFLOW_TYPE", Value: string(p.WorkflowType)},
-		},
+		Env:     envVars,
 		VolumeMounts: []corev1.VolumeMount{
 			{MountPath: "/kratix/input", Name: "shared-input"},
 			{MountPath: "/kratix/output", Name: "shared-output"},
