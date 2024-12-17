@@ -77,7 +77,7 @@ load_options() {
     done
     shift $(expr $OPTIND - 1)
 
-    # we don't want to use the scarf iamges 
+    # we don't want to use the scarf iamges
     if [ ${KRATIX_DEVELOPER:-false} = true ]; then
         VERSION="dev"
     fi

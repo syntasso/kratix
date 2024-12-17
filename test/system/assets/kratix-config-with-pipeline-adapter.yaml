@@ -1,0 +1,12 @@
+apiVersion: v1
+kind: ConfigMap
+metadata:
+  name: kratix
+  namespace: kratix-platform-system
+data:
+  config: |
+    workflows:
+      defaultContainerSecurityContext:
+        windowsOptions:
+          runAsUserName: "setInKratixConfig"
+      pipelineAdapterImage: no-such-image:dev

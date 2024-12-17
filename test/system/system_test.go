@@ -926,6 +926,35 @@ var _ = Describe("Kratix", func() {
 			}
 		})
 	})
+
+	Describe("Kratix Config", Serial, func() {
+		AfterEach(func() {
+			platform.kubectl("apply", "-f", "./assets/kratix-config.yaml")
+			platform.kubectl("delete", "pod", "-l", "control-plane=controller-manager", "-n", "kratix-platform-system")
+			platform.kubectlWait(120, "pod", "-l", "control-plane=controller-manager", "-n", "kratix-platform-system", "--for=condition=Ready")
+		})
+
+		FWhen("a pipeline adapter image is specified", func() {
+			BeforeEach(func() {
+				platform.kubectl("apply", "-f", "./assets/kratix-config-with-pipeline-adapter.yaml")
+				platform.kubectl("delete", "pod", "-l", "control-plane=controller-manager", "-n", "kratix-platform-system")
+				platform.kubectlWait(120, "pod", "-l", "control-plane=controller-manager", "-n", "kratix-platform-system", "--for=condition=Ready")
+			})
+
+			AfterEach(func() {
+				platform.eventuallyKubectlDelete("promise", bashPromiseName)
+			})
+
+			It("uses the specified image", func() {
+				bashPromise.Spec.Workflows.Promise.Delete = nil
+				platform.eventuallyKubectl("apply", "-f", cat(bashPromise))
+				Eventually(func(g Gomega) {
+					g.Expect(platform.kubectl("get", "pod", "-n", "kratix-platform-system", "-l", fmt.Sprintf("kratix.io/promise-name=%s", bashPromiseName), "-ojsonpath='{.items}'")).To(ContainSubstring(bashPromiseName))
+					g.Expect(platform.kubectl("get", "pod", "-n", "kratix-platform-system", "-l", fmt.Sprintf("kratix.io/promise-name=%s", bashPromiseName), "-ojsonpath='{.items[0].spec.containers[0].image}'")).To(Equal("'no-such-image:dev'"))
+				}, timeout, interval).Should(Succeed())
+			})
+		})
+	})
 })
 
 func terraformRequest(name string) string {

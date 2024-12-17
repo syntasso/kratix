@@ -68,8 +68,8 @@ type KratixConfig struct {
 }
 
 type Workflows struct {
-	DefaultContainerSecurityContext corev1.SecurityContext `json:"defaultContainerSecurityContext"`
-	PipelineAdapterImage            string                 `json:"pipelineAdapterImage"`
+	DefaultContainerSecurityContext *corev1.SecurityContext `json:"defaultContainerSecurityContext"`
+	PipelineAdapterImage            string                  `json:"pipelineAdapterImage"`
 }
 
 func main() {
@@ -113,9 +113,15 @@ func main() {
 	}
 
 	if kratixConfig != nil {
-		// TODO: Check each field individually?
-		v1alpha1.DefaultUserProvidedContainersSecurityContext = &kratixConfig.Workflows.DefaultContainerSecurityContext
-		v1alpha1.PipelineAdapterImage = kratixConfig.Workflows.PipelineAdapterImage
+		if kratixConfig.Workflows.DefaultContainerSecurityContext != nil {
+			v1alpha1.DefaultUserProvidedContainersSecurityContext = kratixConfig.Workflows.DefaultContainerSecurityContext
+		}
+
+		if kratixConfig.Workflows.PipelineAdapterImage != "" {
+			v1alpha1.PipelineAdapterImage = kratixConfig.Workflows.PipelineAdapterImage
+		} else {
+			v1alpha1.PipelineAdapterImage = os.Getenv("DEFAULT_PIPELINE_ADAPTER_IMG")
+		}
 	}
 
 	for {
