@@ -206,6 +206,9 @@ var _ = Describe("Pipeline", func() {
 
 						Expect(configMap).ToNot(BeNil())
 						matchConfigureConfigmap(configMap, factory)
+
+						Expect(resources.WorkflowType).To(Equal(factory.WorkflowType))
+						Expect(resources.WorkflowAction).To(Equal(factory.WorkflowAction))
 					})
 				})
 
@@ -239,6 +242,9 @@ var _ = Describe("Pipeline", func() {
 
 						matchClusterRolesAndBindings(clusterRoles, clusterRoleBindings, factory, serviceAccount)
 						Expect(configMap).To(BeNil())
+
+						Expect(resources.WorkflowType).To(Equal(factory.WorkflowType))
+						Expect(resources.WorkflowAction).To(Equal(factory.WorkflowAction))
 					})
 				})
 			})
@@ -288,6 +294,9 @@ var _ = Describe("Pipeline", func() {
 					} else {
 						Expect(configMap).To(BeNil())
 					}
+
+					Expect(resources.WorkflowType).To(Equal(factory.WorkflowType))
+					Expect(resources.WorkflowAction).To(Equal(factory.WorkflowAction))
 				},
 					Entry("Configure", v1alpha1.WorkflowActionConfigure, 4, true, false),
 					Entry("Delete", v1alpha1.WorkflowActionDelete, 3, false, false),

@@ -56,9 +56,11 @@ func (p *PipelineFactory) Resources(jobEnv []corev1.EnvVar) (PipelineJobResource
 	roleBindings := p.roleBindings(roles, clusterRoles, sa)
 
 	return PipelineJobResources{
-		Name:       p.Pipeline.GetName(),
-		PipelineID: p.ID,
-		Job:        job,
+		Name:           p.Pipeline.GetName(),
+		PipelineID:     p.ID,
+		Job:            job,
+		WorkflowType:   p.WorkflowType,
+		WorkflowAction: p.WorkflowAction,
 		Shared: SharedPipelineResources{
 			ServiceAccount:      sa,
 			ConfigMap:           schedulingConfigMap,

@@ -103,10 +103,12 @@ type Pipeline struct {
 
 // +kubebuilder:object:generate=false
 type PipelineJobResources struct {
-	Name       string
-	PipelineID string
-	Job        *batchv1.Job
-	Shared     SharedPipelineResources
+	Name           string
+	PipelineID     string
+	Job            *batchv1.Job
+	Shared         SharedPipelineResources
+	WorkflowType   Type
+	WorkflowAction Action
 }
 
 type SharedPipelineResources struct {

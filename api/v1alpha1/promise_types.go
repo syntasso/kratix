@@ -370,6 +370,7 @@ func (p *Promise) generatePipelinesObjects(workflowType Type, workflowAction Act
 
 		allResources = append(allResources, resources)
 	}
+
 	return allResources, nil
 }
 

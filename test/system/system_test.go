@@ -5,14 +5,15 @@ import (
 	"context"
 	"encoding/base64"
 	"fmt"
-	"github.com/syntasso/kratix/lib/compression"
-	metav1 "k8s.io/apimachinery/pkg/apis/meta/v1"
-	"k8s.io/apimachinery/pkg/labels"
 	"os"
 	"os/exec"
 	"path/filepath"
 	"strings"
 	"time"
+
+	"github.com/syntasso/kratix/lib/compression"
+	metav1 "k8s.io/apimachinery/pkg/apis/meta/v1"
+	"k8s.io/apimachinery/pkg/labels"
 
 	"github.com/onsi/ginkgo/v2/types"
 
@@ -935,8 +936,6 @@ var _ = Describe("Kratix", func() {
 			// skip this test by default because destinations do not know how to handle HealthDefinition
 			// scheduling HealthDefinition will break flux reconcile
 			if getEnvOrDefault("TEST_HEALTHCHECK", "false") == "true" {
-				bashPromise.Spec.Workflows = v1alpha1.Workflows{}
-
 				healthPipelineName := "bash-check"
 				healthPipeline := v1alpha1.Pipeline{
 					ObjectMeta: metav1.ObjectMeta{
@@ -968,7 +967,7 @@ var _ = Describe("Kratix", func() {
 				platform.eventuallyKubectl("get", "crd", crd.Name)
 
 				rrName := bashPromiseName + "with-health"
-				platform.kubectl("apply", "-f", exampleBashRequest(rrName, "default", "health"))
+				platform.kubectl("apply", "-f", requestWithNameAndCommand(rrName, "echo 'hello world'"))
 
 				healthPipelineLabels := fmt.Sprintf(
 					"kratix.io/promise-name=%s,kratix.io/resource-name=%s,kratix.io/pipeline-name=%s,kratix.io/work-type=%s",
@@ -984,12 +983,18 @@ var _ = Describe("Kratix", func() {
 					}, timeout, interval).Should(ContainSubstring("Completed"))
 				})
 
+				By("ensuring the ConfigureWorkflow Condition is true", func() {
+					platform.eventuallyKubectl("wait", "--for=condition=ConfigureWorkflowCompleted", bashPromiseName, rrName, pipelineTimeout)
+				})
+
 				By("creating work with health definition", func() {
-					parsedSelector, _ := labels.Parse(healthPipelineLabels)
+					parsedSelector, err := labels.Parse(healthPipelineLabels)
+					Expect(err).NotTo(HaveOccurred())
 					var works v1alpha1.WorkList
-					k8sClient.List(context.TODO(), &works, &client.ListOptions{
+					err = k8sClient.List(context.TODO(), &works, &client.ListOptions{
 						LabelSelector: parsedSelector,
 					})
+					Expect(err).NotTo(HaveOccurred())
 					Expect(works.Items).To(HaveLen(1))
 					work := works.Items[0]
 					Expect(work.Spec.WorkloadGroups).To(HaveLen(1))
