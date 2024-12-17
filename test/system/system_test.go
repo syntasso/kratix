@@ -934,7 +934,7 @@ var _ = Describe("Kratix", func() {
 			platform.kubectlWait(120, "pod", "-l", "control-plane=controller-manager", "-n", "kratix-platform-system", "--for=condition=Ready")
 		})
 
-		FWhen("a pipeline adapter image is specified", func() {
+		When("a pipeline adapter image is specified", func() {
 			BeforeEach(func() {
 				platform.kubectl("apply", "-f", "./assets/kratix-config-with-pipeline-adapter.yaml")
 				platform.kubectl("delete", "pod", "-l", "control-plane=controller-manager", "-n", "kratix-platform-system")
