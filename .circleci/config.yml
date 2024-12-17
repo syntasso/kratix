@@ -102,7 +102,7 @@ commands:
       - run:
           name: Install Flux
           command: |
-            curl -s https://fluxcd.io/install.sh | sudo FLUX_VERSION=2.3.0 bash
+            curl -s https://fluxcd.io/install.sh | sudo FLUX_VERSION=2.4.0 bash
       - attach_workspace:
           at: .
       - run:
