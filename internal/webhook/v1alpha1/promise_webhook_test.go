@@ -166,6 +166,32 @@ var _ = Describe("PromiseWebhook", func() {
 			})
 		})
 
+		When("healthChecks are defined", func() {
+			When("healthChecks workflow share the same name within the workflow type", func() {
+				It("errors", func() {
+					promise := newPromise()
+					pipeline := v1alpha1.Pipeline{
+						ObjectMeta: metav1.ObjectMeta{
+							Name: "foo",
+						},
+					}
+					objMap, err := runtime.DefaultUnstructuredConverter.ToUnstructured(&pipeline)
+					Expect(err).NotTo(HaveOccurred())
+					unstructuredPipeline := &unstructured.Unstructured{Object: objMap}
+					unstructuredPipeline.SetAPIVersion("platform.kratix.io/v1alpha1")
+					unstructuredPipeline.SetKind("Pipeline")
+					promise.Spec.Workflows.Resource.Configure = []unstructured.Unstructured{*unstructuredPipeline}
+					promise.Spec.HealthChecks = &v1alpha1.HealthChecks{
+						Resource: &v1alpha1.HealthCheckDefinition{
+							Workflow: unstructuredPipeline,
+						},
+					}
+					_, err = validator.ValidateCreate(ctx, promise)
+					Expect(err).To(MatchError("duplicate pipeline name \"foo\" in workflow \"resource\" action \"configure\""))
+				})
+			})
+		})
+
 		Describe("pipeline name", func() {
 			var (
 				maxLimit int
@@ -232,6 +258,7 @@ var _ = Describe("PromiseWebhook", func() {
 			Entry("by erroring for non-conforming label values", "labelKey", "a bad label", `invalid label value "a bad label"`),
 			Entry("by erroring for non-conforming label keys", "invalid key", "valid-value", `invalid label key "invalid key"`),
 		)
+
 	})
 
 	When("Required Promises", func() {

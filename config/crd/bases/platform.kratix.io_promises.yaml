@@ -80,6 +80,24 @@ spec:
                       type: object
                   type: object
                 type: array
+              healthChecks:
+                description: HealthChecks definition for the promise; optional
+                properties:
+                  resource:
+                    description: Resource is the Resource health check
+                    properties:
+                      schedule:
+                        description: Schedule specifies how often should the health
+                          check run
+                        type: string
+                      workflow:
+                        description: Workflow specifies the workflow for the health
+                          check
+                        type: object
+                        x-kubernetes-preserve-unknown-fields: true
+                    type: object
+                type: object
+                x-kubernetes-preserve-unknown-fields: true
               requiredPromises:
                 description: |-
                   A list of Promises that are required by this Promise.

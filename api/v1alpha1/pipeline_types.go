@@ -19,6 +19,7 @@ package v1alpha1
 import (
 	"encoding/json"
 	"fmt"
+
 	"sigs.k8s.io/controller-runtime/pkg/client"
 
 	"github.com/go-logr/logr"
@@ -102,10 +103,12 @@ type Pipeline struct {
 
 // +kubebuilder:object:generate=false
 type PipelineJobResources struct {
-	Name       string
-	PipelineID string
-	Job        *batchv1.Job
-	Shared     SharedPipelineResources
+	Name           string
+	PipelineID     string
+	Job            *batchv1.Job
+	Shared         SharedPipelineResources
+	WorkflowType   Type
+	WorkflowAction Action
 }
 
 type SharedPipelineResources struct {

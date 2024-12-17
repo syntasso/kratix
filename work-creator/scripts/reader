@@ -5,3 +5,10 @@ set -euxo pipefail
 kubectl get $OBJECT_KIND.$OBJECT_GROUP/$OBJECT_NAME --namespace $OBJECT_NAMESPACE  -oyaml > /kratix/input/object.yaml
 echo "Object have been written to /kratix/input/object.yaml. Head is:"
 head -n 50 /kratix/input/object.yaml
+
+if [ "${HEALTHCHECK:-false}" = "true" ]; then
+    echo "running with HEALTHCHECK set to true; writing promise.yaml to /kratix/input/promise.yaml..."
+    kubectl get promise $PROMISE_NAME -oyaml > /kratix/input/promise.yaml
+    echo "Promise have been written to /kratix/input/promise.yaml. Head is:"
+    head -n 100 /kratix/input/promise.yaml
+fi

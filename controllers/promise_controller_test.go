@@ -4,14 +4,15 @@ import (
 	"bytes"
 	"context"
 	"encoding/json"
-	"k8s.io/utils/pointer"
 	"os"
 	"regexp"
-	controllerConfig "sigs.k8s.io/controller-runtime/pkg/config"
 	"strings"
 	"time"
 
+	controllerConfig "sigs.k8s.io/controller-runtime/pkg/config"
+
 	"k8s.io/apimachinery/pkg/runtime/schema"
+	"k8s.io/utils/ptr"
 
 	"github.com/go-logr/logr"
 	. "github.com/onsi/ginkgo/v2"
@@ -62,7 +63,7 @@ var _ = Describe("PromiseController", func() {
 		l = ctrl.Log.WithName("controllers").WithName("Promise")
 		m := &controllersfakes.FakeManager{}
 		m.GetControllerOptionsReturns(controllerConfig.Controller{
-			SkipNameValidation: pointer.Bool(true)})
+			SkipNameValidation: ptr.To(true)})
 		reconciler = &controllers.PromiseReconciler{
 			Client:                  fakeK8sClient,
 			ApiextensionsClient:     fakeApiExtensionsClient,
@@ -1088,10 +1089,7 @@ func getWork(namespace, promiseName, resourceName, pipelineName string) v1alpha1
 
 func createPromise(promisePath string) *v1alpha1.Promise {
 	promise := promiseFromFile(promisePath)
-	promiseName = types.NamespacedName{
-		Name:      promise.GetName(),
-		Namespace: promise.GetNamespace(),
-	}
+	promiseName = client.ObjectKeyFromObject(promise)
 
 	promiseCommonLabels = map[string]string{
 		"kratix.io/promise-name": promise.GetName(),

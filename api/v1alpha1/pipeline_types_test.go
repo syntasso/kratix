@@ -16,7 +16,6 @@ import (
 	metav1 "k8s.io/apimachinery/pkg/apis/meta/v1"
 	"k8s.io/apimachinery/pkg/apis/meta/v1/unstructured"
 	"k8s.io/apimachinery/pkg/runtime"
-	"k8s.io/utils/pointer"
 	"k8s.io/utils/ptr"
 )
 
@@ -65,7 +64,7 @@ var _ = Describe("Pipeline", func() {
 						VolumeMounts:    []corev1.VolumeMount{{Name: "customVolume", MountPath: "/mount/path"}},
 						ImagePullPolicy: "Always",
 						SecurityContext: &corev1.SecurityContext{
-							Privileged: pointer.Bool(true),
+							Privileged: ptr.To(true),
 						},
 					},
 					{Name: "container-1", Image: "container-1-image"},
@@ -76,7 +75,7 @@ var _ = Describe("Pipeline", func() {
 		}
 
 		globalDefaultSecurityContext = &corev1.SecurityContext{
-			Privileged: pointer.Bool(false),
+			Privileged: ptr.To(false),
 		}
 		v1alpha1.DefaultUserProvidedContainersSecurityContext = globalDefaultSecurityContext
 		promiseCrd = &apiextensionsv1.CustomResourceDefinition{
@@ -203,10 +202,13 @@ var _ = Describe("Pipeline", func() {
 						job.Name = resources.Job.Name
 						Expect(resources.Job).To(Equal(job))
 
-						matchPromiseClusterRolesAndBindings(clusterRoles, clusterRoleBindings, factory, serviceAccount)
+						matchClusterRolesAndBindings(clusterRoles, clusterRoleBindings, factory, serviceAccount)
 
 						Expect(configMap).ToNot(BeNil())
 						matchConfigureConfigmap(configMap, factory)
+
+						Expect(resources.WorkflowType).To(Equal(factory.WorkflowType))
+						Expect(resources.WorkflowAction).To(Equal(factory.WorkflowAction))
 					})
 				})
 
@@ -238,84 +240,68 @@ var _ = Describe("Pipeline", func() {
 						job.Name = resources.Job.Name
 						Expect(resources.Job).To(Equal(job))
 
-						matchPromiseClusterRolesAndBindings(clusterRoles, clusterRoleBindings, factory, serviceAccount)
+						matchClusterRolesAndBindings(clusterRoles, clusterRoleBindings, factory, serviceAccount)
 						Expect(configMap).To(BeNil())
+
+						Expect(resources.WorkflowType).To(Equal(factory.WorkflowType))
+						Expect(resources.WorkflowAction).To(Equal(factory.WorkflowAction))
 					})
 				})
 			})
 
-			When("resource", func() {
+			When("ResourceWorkflow=true", func() {
 				BeforeEach(func() {
 					factory.ResourceWorkflow = true
 				})
-				When("building for configure action", func() {
-					It("returns a list of resources", func() {
-						factory.WorkflowAction = v1alpha1.WorkflowActionConfigure
-						env := []corev1.EnvVar{{Name: "env1", Value: "value1"}}
-						resources, err := factory.Resources(env)
-						Expect(err).ToNot(HaveOccurred())
-						Expect(resources.Name).To(Equal(pipeline.GetName()))
 
-						roles := resources.Shared.Roles
-						bindings := resources.Shared.RoleBindings
-						clusterRoles := resources.Shared.ClusterRoles
-						clusterRoleBindings := resources.Shared.ClusterRoleBindings
-						serviceAccount := resources.Shared.ServiceAccount
-						configMap := resources.Shared.ConfigMap
-						job := resources.Job
+				DescribeTable("generates the appropriate resources for action", func(action v1alpha1.Action, expectedNumObjects int, expectedConfigMap bool, expectedClusterRoles bool) {
+					factory.WorkflowAction = action
+					env := []corev1.EnvVar{{Name: "env1", Value: "value1"}}
+					resources, err := factory.Resources(env)
+					Expect(err).ToNot(HaveOccurred())
+					Expect(resources.Name).To(Equal(pipeline.GetName()))
 
-						objs := resources.GetObjects()
-						Expect(objs).To(HaveLen(4))
+					roles := resources.Shared.Roles
+					bindings := resources.Shared.RoleBindings
+					clusterRoles := resources.Shared.ClusterRoles
+					clusterRoleBindings := resources.Shared.ClusterRoleBindings
+					serviceAccount := resources.Shared.ServiceAccount
+					configMap := resources.Shared.ConfigMap
+					job := resources.Job
+
+					objs := resources.GetObjects()
+					Expect(objs).To(HaveLen(expectedNumObjects))
+					Expect(objs).To(ContainElements(
+						serviceAccount, &roles[0], &bindings[0],
+					))
+					if expectedClusterRoles {
 						Expect(objs).To(ContainElements(
-							serviceAccount, &roles[0], &bindings[0], configMap,
+							&clusterRoles[0], &clusterRoleBindings[0],
 						))
+						matchClusterRolesAndBindings(clusterRoles, clusterRoleBindings, factory, serviceAccount)
+					} else {
 						Expect(clusterRoles).To(HaveLen(0))
 						Expect(clusterRoleBindings).To(HaveLen(0))
+					}
 
-						Expect(serviceAccount.GetName()).To(Equal("factoryID"))
-						Expect(resources.Job.Name).To(HavePrefix("kratix-%s-%s-%s", promise.GetName(), resourceRequest.GetName(), pipeline.GetName()))
+					Expect(resources.Job.Name).To(HavePrefix("kratix-%s-%s-%s", promise.GetName(), resourceRequest.GetName(), pipeline.GetName()))
+					job.Name = resources.Job.Name
+					Expect(resources.Job).To(Equal(job))
 
-						job.Name = resources.Job.Name
-						Expect(resources.Job).To(Equal(job))
-
-						matchResourceRolesAndBindings(roles, bindings, factory, serviceAccount, promiseCrd)
-						Expect(configMap).ToNot(BeNil())
+					matchResourceRolesAndBindings(roles, bindings, factory, serviceAccount, promiseCrd)
+					if expectedConfigMap {
 						matchConfigureConfigmap(configMap, factory)
-					})
-				})
-
-				When("building for delete action", func() {
-					It("should return a list of resources", func() {
-						factory.WorkflowAction = v1alpha1.WorkflowActionDelete
-						env := []corev1.EnvVar{{Name: "env1", Value: "value1"}}
-						resources, err := factory.Resources(env)
-						Expect(err).ToNot(HaveOccurred())
-						Expect(resources.Name).To(Equal(pipeline.GetName()))
-
-						roles := resources.Shared.Roles
-						bindings := resources.Shared.RoleBindings
-						clusterRoles := resources.Shared.ClusterRoles
-						clusterRoleBindings := resources.Shared.ClusterRoleBindings
-						serviceAccount := resources.Shared.ServiceAccount
-						configMap := resources.Shared.ConfigMap
-						job := resources.Job
-
-						objs := resources.GetObjects()
-						Expect(objs).To(HaveLen(3))
-						Expect(objs).To(ContainElements(
-							serviceAccount, &roles[0], &bindings[0],
-						))
-						Expect(clusterRoles).To(HaveLen(0))
-						Expect(clusterRoleBindings).To(HaveLen(0))
-
-						Expect(resources.Job.Name).To(HavePrefix("kratix-%s-%s-%s", promise.GetName(), resourceRequest.GetName(), pipeline.GetName()))
-						job.Name = resources.Job.Name
-						Expect(resources.Job).To(Equal(job))
-
-						matchResourceRolesAndBindings(roles, bindings, factory, serviceAccount, promiseCrd)
+					} else {
 						Expect(configMap).To(BeNil())
-					})
-				})
+					}
+
+					Expect(resources.WorkflowType).To(Equal(factory.WorkflowType))
+					Expect(resources.WorkflowAction).To(Equal(factory.WorkflowAction))
+				},
+					Entry("Configure", v1alpha1.WorkflowActionConfigure, 4, true, false),
+					Entry("Delete", v1alpha1.WorkflowActionDelete, 3, false, false),
+					Entry("HealthCheck", v1alpha1.WorkflowActionHealthCheck, 6, true, true),
+				)
 			})
 
 		})
@@ -532,6 +518,76 @@ var _ = Describe("Pipeline", func() {
 							Expect(podSpec.Containers[0].Image).To(Equal(pipeline.Spec.Containers[1].Image))
 						})
 					})
+
+					When("building a job for the healthcheck action", func() {
+						BeforeEach(func() {
+							factory.ResourceWorkflow = true
+							factory.WorkflowAction = v1alpha1.WorkflowActionHealthCheck
+							var err error
+							resources, err = factory.Resources(nil)
+							Expect(err).ToNot(HaveOccurred())
+						})
+
+						It("returns a job with the appropriate spec", func() {
+							job := resources.Job
+							Expect(job).ToNot(BeNil())
+
+							Expect(job.GetName()).To(HavePrefix("kratix-%s-%s-%s", promise.GetName(), resourceRequest.GetName(), pipeline.GetName()))
+							podTemplate := job.Spec.Template
+							Expect(job.GetNamespace()).To(Equal(factory.Namespace))
+							for _, definedLabels := range []map[string]string{job.GetLabels(), podTemplate.GetLabels()} {
+								Expect(definedLabels).To(SatisfyAll(
+									HaveKeyWithValue(v1alpha1.PromiseNameLabel, promise.GetName()),
+									HaveKeyWithValue(v1alpha1.WorkTypeLabel, string(factory.WorkflowType)),
+									HaveKeyWithValue(v1alpha1.WorkActionLabel, string(v1alpha1.WorkflowActionHealthCheck)),
+									HaveKeyWithValue(v1alpha1.PipelineNameLabel, pipeline.GetName()),
+									HaveKeyWithValue(v1alpha1.KratixResourceHashLabel, combinedHash(promiseHash(promise), resourceHash(resourceRequest))),
+									HaveKeyWithValue(v1alpha1.ResourceNameLabel, resourceRequest.GetName()),
+								))
+							}
+
+							By("injecting the pipeline labels and annotations into the templated pod", func() {
+								for key, val := range pipeline.GetLabels() {
+									Expect(podTemplate.GetLabels()).To(HaveKeyWithValue(key, val))
+								}
+								for key, val := range pipeline.GetAnnotations() {
+									Expect(podTemplate.GetAnnotations()).To(HaveKeyWithValue(key, val))
+								}
+							})
+
+							podSpec := podTemplate.Spec
+							Expect(podSpec.ServiceAccountName).To(Equal(serviceAccount.GetName()))
+							Expect(podSpec.ImagePullSecrets).To(ConsistOf(pipeline.Spec.ImagePullSecrets))
+
+							Expect(podSpec.InitContainers).To(HaveLen(2))
+							var initContainerNames []string
+							var initContainerImages []string
+							for _, container := range podSpec.InitContainers {
+								initContainerNames = append(initContainerNames, container.Name)
+								initContainerImages = append(initContainerImages, container.Image)
+							}
+
+							Expect(initContainerNames).To(Equal([]string{
+								"reader",
+								"health-definition-creator",
+							}))
+							Expect(initContainerImages).To(Equal([]string{workCreatorImage, workCreatorImage}))
+
+							Expect(podSpec.Containers).To(HaveLen(1))
+							Expect(podSpec.Containers[0].Name).To(Equal("work-writer"))
+							Expect(podSpec.RestartPolicy).To(Equal(corev1.RestartPolicyOnFailure))
+							Expect(podSpec.Volumes).To(HaveLen(5))
+							var volumeNames []string
+							for _, volume := range podSpec.Volumes {
+								volumeNames = append(volumeNames, volume.Name)
+							}
+							Expect(volumeNames).To(ConsistOf(
+								"promise-scheduling",
+								"shared-input", "shared-output", "shared-metadata",
+								pipeline.Spec.Volumes[0].Name,
+							))
+						})
+					})
 				})
 			})
 
@@ -579,52 +635,52 @@ var _ = Describe("Pipeline", func() {
 				})
 			})
 
-			Describe("ReaderContainer", func() {
-				When("building the reader container for a promise pipeline", func() {
-					It("returns a the reader container with the promise information", func() {
-						container := resources.Job.Spec.Template.Spec.InitContainers[0]
-						Expect(container).ToNot(BeNil())
-						Expect(container.Name).To(Equal("reader"))
-						Expect(container.Command).To(Equal([]string{"sh", "-c", "reader"}))
-						Expect(container.Image).To(Equal(workCreatorImage))
-						Expect(container.Env).To(ConsistOf(
-							corev1.EnvVar{Name: "OBJECT_KIND", Value: promise.GroupVersionKind().Kind},
-							corev1.EnvVar{Name: "OBJECT_GROUP", Value: promise.GroupVersionKind().Group},
-							corev1.EnvVar{Name: "OBJECT_NAME", Value: promise.GetName()},
-							corev1.EnvVar{Name: "OBJECT_NAMESPACE", Value: factory.Namespace},
-							corev1.EnvVar{Name: "KRATIX_WORKFLOW_TYPE", Value: string(factory.WorkflowType)},
-						))
-						Expect(container.VolumeMounts).To(ConsistOf(
-							corev1.VolumeMount{Name: "shared-input", MountPath: "/kratix/input"},
-							corev1.VolumeMount{Name: "shared-output", MountPath: "/kratix/output"},
-						))
-					})
-				})
+			DescribeTable("ReaderContainer", func(isResourceWorkflow bool, act v1alpha1.Action, additionalEnvVars []corev1.EnvVar) {
+				factory.ResourceWorkflow = isResourceWorkflow
+				factory.WorkflowAction = act
 
-				When("building the reader container for a resource pipeline", func() {
-					It("returns a the reader container with the resource information", func() {
-						factory.ResourceWorkflow = true
-						var err error
-						resources, err = factory.Resources(nil)
-						Expect(err).ToNot(HaveOccurred())
-						container := resources.Job.Spec.Template.Spec.InitContainers[0]
-						Expect(container).ToNot(BeNil())
-						Expect(container.Name).To(Equal("reader"))
-						Expect(container.Image).To(Equal(workCreatorImage))
-						Expect(container.Env).To(ContainElements(
-							corev1.EnvVar{Name: "OBJECT_KIND", Value: resourceRequest.GroupVersionKind().Kind},
-							corev1.EnvVar{Name: "OBJECT_GROUP", Value: resourceRequest.GroupVersionKind().Group},
-							corev1.EnvVar{Name: "OBJECT_NAME", Value: resourceRequest.GetName()},
-							corev1.EnvVar{Name: "OBJECT_NAMESPACE", Value: factory.Namespace},
-							corev1.EnvVar{Name: "KRATIX_WORKFLOW_TYPE", Value: string(factory.WorkflowType)},
-						))
-						Expect(container.VolumeMounts).To(ContainElements(
-							corev1.VolumeMount{Name: "shared-input", MountPath: "/kratix/input"},
-							corev1.VolumeMount{Name: "shared-output", MountPath: "/kratix/output"},
-						))
-					})
-				})
-			})
+				var err error
+				resources, err = factory.Resources(nil)
+				Expect(err).ToNot(HaveOccurred())
+
+				container := resources.Job.Spec.Template.Spec.InitContainers[0]
+				Expect(container).ToNot(BeNil())
+				Expect(container.Name).To(Equal("reader"))
+				Expect(container.Command).To(Equal([]string{"sh", "-c", "reader"}))
+				Expect(container.Image).To(Equal(workCreatorImage))
+				Expect(container.VolumeMounts).To(ConsistOf([]corev1.VolumeMount{
+					{Name: "shared-input", MountPath: "/kratix/input"},
+					{Name: "shared-output", MountPath: "/kratix/output"},
+				}))
+
+				expectedEnvVars := []corev1.EnvVar{
+					{Name: "OBJECT_NAMESPACE", Value: factory.Namespace},
+					{Name: "KRATIX_WORKFLOW_TYPE", Value: string(factory.WorkflowType)},
+				}
+
+				if isResourceWorkflow {
+					expectedEnvVars = append(expectedEnvVars,
+						corev1.EnvVar{Name: "OBJECT_KIND", Value: resourceRequest.GroupVersionKind().Kind},
+						corev1.EnvVar{Name: "OBJECT_GROUP", Value: resourceRequest.GroupVersionKind().Group},
+						corev1.EnvVar{Name: "OBJECT_NAME", Value: resourceRequest.GetName()},
+					)
+				} else {
+					expectedEnvVars = append(expectedEnvVars,
+						corev1.EnvVar{Name: "OBJECT_KIND", Value: promise.GroupVersionKind().Kind},
+						corev1.EnvVar{Name: "OBJECT_GROUP", Value: promise.GroupVersionKind().Group},
+						corev1.EnvVar{Name: "OBJECT_NAME", Value: promise.GetName()},
+					)
+				}
+
+				Expect(container.Env).To(ConsistOf(append(expectedEnvVars, additionalEnvVars...)))
+			},
+				Entry("resource configure", true, v1alpha1.WorkflowActionConfigure, nil),
+				Entry("promise configure", false, v1alpha1.WorkflowActionConfigure, nil),
+				Entry("resource health check", true, v1alpha1.WorkflowActionHealthCheck, []corev1.EnvVar{
+					{Name: "HEALTHCHECK", Value: "true"},
+					{Name: "PROMISE_NAME", Value: "promiseName"},
+				}),
+			)
 
 			Describe("WorkCreatorContainer", func() {
 				When("building the work creator container for a promise pipeline", func() {
@@ -755,6 +811,33 @@ var _ = Describe("Pipeline", func() {
 					))
 					Expect(container.VolumeMounts).To(ConsistOf(
 						corev1.VolumeMount{Name: "shared-metadata", MountPath: "/work-creator-files/metadata"},
+					))
+				})
+			})
+
+			Describe("HealthDefinition Creator container", func() {
+				BeforeEach(func() {
+					factory.ResourceWorkflow = true
+					factory.WorkflowAction = v1alpha1.WorkflowActionHealthCheck
+					var err error
+					resources, err = factory.Resources([]corev1.EnvVar{
+						{Name: "env1", Value: "value1"},
+						{Name: "env2", Value: "value2"},
+					})
+					Expect(err).ToNot(HaveOccurred())
+				})
+
+				It("returns the appropriate container", func() {
+					container := resources.Job.Spec.Template.Spec.InitContainers[1]
+					Expect(container).ToNot(BeNil())
+					Expect(container.Name).To(Equal("health-definition-creator"))
+					Expect(container.Image).To(Equal(workCreatorImage))
+					Expect(container.Command).To(Equal([]string{"sh", "-c", "health-definition-creator -promise-name promiseName -resource-name resourceName"}))
+					Expect(container.Env).To(BeEmpty())
+					Expect(container.VolumeMounts).To(ConsistOf(
+						corev1.VolumeMount{Name: "shared-output", MountPath: "/kratix/output"},
+						corev1.VolumeMount{Name: "shared-input", MountPath: "/kratix/input", ReadOnly: true},
+						corev1.VolumeMount{Name: "shared-metadata", MountPath: "/kratix/metadata"},
 					))
 				})
 			})
@@ -1291,7 +1374,7 @@ func matchUserPermissionsLabels(pipelineJobResources *v1alpha1.PipelineJobResour
 	))
 }
 
-func matchPromiseClusterRolesAndBindings(clusterRoles []rbacv1.ClusterRole, clusterRoleBindings []rbacv1.ClusterRoleBinding, factory *v1alpha1.PipelineFactory, sa *corev1.ServiceAccount) {
+func matchClusterRolesAndBindings(clusterRoles []rbacv1.ClusterRole, clusterRoleBindings []rbacv1.ClusterRoleBinding, factory *v1alpha1.PipelineFactory, sa *corev1.ServiceAccount) {
 	ExpectWithOffset(1, clusterRoles).To(HaveLen(1))
 	ExpectWithOffset(1, clusterRoles[0].GetName()).To(Equal(factory.ID))
 	ExpectWithOffset(1, clusterRoles[0].GetLabels()).To(HaveKeyWithValue(v1alpha1.PromiseNameLabel, factory.Promise.GetName()))

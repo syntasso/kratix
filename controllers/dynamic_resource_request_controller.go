@@ -18,6 +18,7 @@ package controllers
 
 import (
 	"context"
+
 	apiextensionsv1 "k8s.io/apiextensions-apiserver/pkg/apis/apiextensions/v1"
 	"sigs.k8s.io/controller-runtime/pkg/controller/controllerutil"
 
@@ -153,6 +154,14 @@ func (r *DynamicResourceRequestController) Reconcile(ctx context.Context, req ct
 	pipelineResources, err := promise.GenerateResourcePipelines(v1alpha1.WorkflowActionConfigure, rr, logger)
 	if err != nil {
 		return ctrl.Result{}, err
+	}
+
+	if promise.HasPipeline(v1alpha1.WorkflowTypeResource, v1alpha1.WorkflowActionHealthCheck) {
+		healthCheckPipelineResources, err := promise.GenerateResourceHealthCheckPipelines(rr, logger)
+		if err != nil {
+			return ctrl.Result{}, err
+		}
+		pipelineResources = append(pipelineResources, healthCheckPipelineResources...)
 	}
 
 	jobOpts := workflow.NewOpts(ctx, r.Client, logger, rr, pipelineResources, "resource", r.NumberOfJobsToKeep)

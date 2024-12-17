@@ -126,8 +126,12 @@ func validatePipelines(p *v1alpha1.Promise) error {
 	for workflowType, actionToPipelineMap := range promisePipelines {
 		for workflowAction, pipelines := range actionToPipelineMap {
 			pipelineNamesMap := map[string]bool{}
+			if workflowType == v1alpha1.WorkflowTypeResource && workflowAction == v1alpha1.WorkflowActionConfigure &&
+				len(p.GetResourceHealthChecks()) > 0 {
+				pipelineNamesMap[p.GetResourceHealthChecks()[0].GetName()] = true
+			}
 			for _, pipeline := range pipelines {
-				if err := validatePipelineLabels(pipeline, string(workflowType), string(workflowAction)); err != nil {
+				if err = validatePipelineLabels(pipeline, string(workflowType), string(workflowAction)); err != nil {
 					return err
 				}
 
@@ -136,6 +140,7 @@ func validatePipelines(p *v1alpha1.Promise) error {
 					return fmt.Errorf("duplicate pipeline name %q in workflow %q action %q", pipeline.GetName(), workflowType, workflowAction)
 				}
 				pipelineNamesMap[pipeline.GetName()] = true
+
 				var factory *v1alpha1.PipelineFactory
 				switch workflowType {
 				case v1alpha1.WorkflowTypeResource:

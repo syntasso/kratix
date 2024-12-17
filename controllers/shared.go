@@ -1,5 +1,7 @@
 package controllers
 
+//go:generate go run github.com/maxbrunsfeld/counterfeiter/v6 -generate
+
 import (
 	"context"
 	"fmt"
