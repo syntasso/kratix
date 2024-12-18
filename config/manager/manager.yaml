@@ -61,10 +61,10 @@ spec:
             cpu: 100m
             memory: 100Mi
         env:
-          - name: WC_IMG
+          - name: PIPELINE_ADAPTER_IMG
             valueFrom:
               configMapKeyRef:
-                name: wc-img-config
-                key: WC_IMG
+                name: pipeline-adapter-config
+                key: PIPELINE_ADAPTER_IMG
       serviceAccountName: controller-manager
       terminationGracePeriodSeconds: 10

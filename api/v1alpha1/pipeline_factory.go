@@ -182,7 +182,7 @@ func (p *PipelineFactory) readerContainer() corev1.Container {
 
 	return corev1.Container{
 		Name:    "reader",
-		Image:   os.Getenv("WC_IMG"),
+		Image:   os.Getenv("PIPELINE_ADAPTER_IMG"),
 		Command: []string{"sh", "-c", "reader"},
 		Env:     envVars,
 		VolumeMounts: []corev1.VolumeMount{
@@ -212,7 +212,7 @@ func (p *PipelineFactory) workCreatorContainer() corev1.Container {
 
 	return corev1.Container{
 		Name:    "work-writer",
-		Image:   os.Getenv("WC_IMG"),
+		Image:   os.Getenv("PIPELINE_ADAPTER_IMG"),
 		Command: []string{"sh", "-c", workCreatorCommand},
 		VolumeMounts: []corev1.VolumeMount{
 			{MountPath: "/work-creator-files/input", Name: "shared-output"},
@@ -234,7 +234,7 @@ func (p *PipelineFactory) healthDefinitionCreatorContainer() corev1.Container {
 	cmd = fmt.Sprintf("%s %s", cmd, strings.Join(args, " "))
 	return corev1.Container{
 		Name:    "health-definition-creator",
-		Image:   os.Getenv("WC_IMG"),
+		Image:   os.Getenv("PIPELINE_ADAPTER_IMG"),
 		Command: []string{"sh", "-c", cmd},
 		VolumeMounts: []corev1.VolumeMount{
 			{MountPath: "/kratix/input", Name: "shared-input", ReadOnly: true},
@@ -285,7 +285,7 @@ func (p *PipelineFactory) pipelineJob(schedulingConfigMap *corev1.ConfigMap, ser
 	}
 
 	var imagePullSecrets []corev1.LocalObjectReference
-	workCreatorPullSecrets := os.Getenv("WC_PULL_SECRET")
+	workCreatorPullSecrets := os.Getenv("PIPELINE_ADAPTER_PULL_SECRET")
 	if workCreatorPullSecrets != "" {
 		imagePullSecrets = append(imagePullSecrets, corev1.LocalObjectReference{Name: workCreatorPullSecrets})
 	}
@@ -351,7 +351,7 @@ func (p *PipelineFactory) pipelineJob(schedulingConfigMap *corev1.ConfigMap, ser
 func (p *PipelineFactory) statusWriterContainer(obj *unstructured.Unstructured, env []corev1.EnvVar) corev1.Container {
 	return corev1.Container{
 		Name:    "status-writer",
-		Image:   os.Getenv("WC_IMG"),
+		Image:   os.Getenv("PIPELINE_ADAPTER_IMG"),
 		Command: []string{"sh", "-c", "update-status"},
 		Env: append(env,
 			corev1.EnvVar{Name: "OBJECT_KIND", Value: strings.ToLower(obj.GetKind())},

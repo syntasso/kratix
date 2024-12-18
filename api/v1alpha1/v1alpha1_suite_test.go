@@ -27,11 +27,11 @@ import (
 // These tests use Ginkgo (BDD-style Go testing framework). Refer to
 // http://onsi.github.io/ginkgo/ to learn more about Ginkgo.
 
-var workCreatorImage = "work-creator:latest"
+var pipelineAdapterImage = "pipeline-adapter:latest"
 
 func TestAPIs(t *testing.T) {
 	RegisterFailHandler(Fail)
-	t.Setenv("WC_IMG", workCreatorImage)
+	t.Setenv("PIPELINE_ADAPTER_IMG", pipelineAdapterImage)
 
 	RunSpecs(t, "v1alpha1 API Suite")
 }
