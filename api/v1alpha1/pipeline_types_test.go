@@ -363,10 +363,10 @@ var _ = Describe("Pipeline", func() {
 							Expect(podSpec.InitContainers[len(podSpec.InitContainers)-1].SecurityContext).To(Equal(defaultKratixSecurityContext))
 							Expect(podSpec.Containers[0].SecurityContext).To(Equal(defaultKratixSecurityContext))
 							Expect(initContainerImages).To(Equal([]string{
-								workCreatorImage,
+								pipelineAdapterImage,
 								pipeline.Spec.Containers[0].Image,
 								pipeline.Spec.Containers[1].Image,
-								workCreatorImage,
+								pipelineAdapterImage,
 							}))
 							Expect(podSpec.Containers).To(HaveLen(1))
 							Expect(podSpec.Containers[0].Name).To(Equal("status-writer"))
@@ -463,10 +463,10 @@ var _ = Describe("Pipeline", func() {
 								"work-writer",
 							}))
 							Expect(initContainerImages).To(Equal([]string{
-								workCreatorImage,
+								pipelineAdapterImage,
 								pipeline.Spec.Containers[0].Image,
 								pipeline.Spec.Containers[1].Image,
-								workCreatorImage,
+								pipelineAdapterImage,
 							}))
 							Expect(podSpec.Containers).To(HaveLen(1))
 							Expect(podSpec.Containers[0].Name).To(Equal("status-writer"))
@@ -571,7 +571,7 @@ var _ = Describe("Pipeline", func() {
 								"reader",
 								"health-definition-creator",
 							}))
-							Expect(initContainerImages).To(Equal([]string{workCreatorImage, workCreatorImage}))
+							Expect(initContainerImages).To(Equal([]string{pipelineAdapterImage, pipelineAdapterImage}))
 
 							Expect(podSpec.Containers).To(HaveLen(1))
 							Expect(podSpec.Containers[0].Name).To(Equal("work-writer"))
@@ -647,7 +647,7 @@ var _ = Describe("Pipeline", func() {
 				Expect(container).ToNot(BeNil())
 				Expect(container.Name).To(Equal("reader"))
 				Expect(container.Command).To(Equal([]string{"sh", "-c", "reader"}))
-				Expect(container.Image).To(Equal(workCreatorImage))
+				Expect(container.Image).To(Equal(pipelineAdapterImage))
 				Expect(container.VolumeMounts).To(ConsistOf([]corev1.VolumeMount{
 					{Name: "shared-input", MountPath: "/kratix/input"},
 					{Name: "shared-output", MountPath: "/kratix/output"},
@@ -696,7 +696,7 @@ var _ = Describe("Pipeline", func() {
 						container := containers[len(containers)-1]
 						Expect(container).ToNot(BeNil())
 						Expect(container.Name).To(Equal("work-writer"))
-						Expect(container.Image).To(Equal(workCreatorImage))
+						Expect(container.Image).To(Equal(pipelineAdapterImage))
 						Expect(container.Command).To(Equal([]string{"sh", "-c", "work-creator " + expectedFlags}))
 						Expect(container.VolumeMounts).To(ConsistOf(
 							corev1.VolumeMount{Name: "shared-output", MountPath: "/work-creator-files/input"},
@@ -726,7 +726,7 @@ var _ = Describe("Pipeline", func() {
 
 						Expect(container).ToNot(BeNil())
 						Expect(container.Name).To(Equal("work-writer"))
-						Expect(container.Image).To(Equal(workCreatorImage))
+						Expect(container.Image).To(Equal(pipelineAdapterImage))
 						Expect(container.Command).To(Equal([]string{"sh", "-c", "work-creator " + expectedFlags}))
 						Expect(container.VolumeMounts).To(ConsistOf(
 							corev1.VolumeMount{Name: "shared-output", MountPath: "/work-creator-files/input"},
@@ -799,7 +799,7 @@ var _ = Describe("Pipeline", func() {
 					container := resources.Job.Spec.Template.Spec.Containers[0]
 					Expect(container).ToNot(BeNil())
 					Expect(container.Name).To(Equal("status-writer"))
-					Expect(container.Image).To(Equal(workCreatorImage))
+					Expect(container.Image).To(Equal(pipelineAdapterImage))
 					Expect(container.Command).To(Equal([]string{"sh", "-c", "update-status"}))
 					Expect(container.Env).To(ConsistOf(
 						corev1.EnvVar{Name: "OBJECT_KIND", Value: resourceRequest.GroupVersionKind().Kind},
@@ -831,7 +831,7 @@ var _ = Describe("Pipeline", func() {
 					container := resources.Job.Spec.Template.Spec.InitContainers[1]
 					Expect(container).ToNot(BeNil())
 					Expect(container.Name).To(Equal("health-definition-creator"))
-					Expect(container.Image).To(Equal(workCreatorImage))
+					Expect(container.Image).To(Equal(pipelineAdapterImage))
 					Expect(container.Command).To(Equal([]string{"sh", "-c", "health-definition-creator -promise-name promiseName -resource-name resourceName"}))
 					Expect(container.Env).To(BeEmpty())
 					Expect(container.VolumeMounts).To(ConsistOf(
