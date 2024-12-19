@@ -39,6 +39,7 @@ import (
 	clusterv1 "sigs.k8s.io/cluster-api/api/v1beta1"
 )
 
+// TODO: make this scoped to the test instead of to the entire suite
 var (
 	ctx                  context.Context
 	reconciler           *controllers.PromiseReconciler

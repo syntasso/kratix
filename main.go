@@ -35,7 +35,6 @@ import (
 	"k8s.io/utils/ptr"
 	"sigs.k8s.io/controller-runtime/pkg/client"
 
-	kratixWebhook "github.com/syntasso/kratix/internal/webhook/v1alpha1"
 	utilruntime "k8s.io/apimachinery/pkg/util/runtime"
 	"k8s.io/client-go/kubernetes/scheme"
 	ctrl "sigs.k8s.io/controller-runtime"
@@ -44,10 +43,13 @@ import (
 	"sigs.k8s.io/controller-runtime/pkg/log/zap"
 	metricsserver "sigs.k8s.io/controller-runtime/pkg/metrics/server"
 
+	kratixWebhook "github.com/syntasso/kratix/internal/webhook/v1alpha1"
+
 	corev1 "k8s.io/api/core/v1"
 	metav1 "k8s.io/apimachinery/pkg/apis/meta/v1"
 
 	"github.com/go-logr/logr"
+
 	"github.com/syntasso/kratix/api/v1alpha1"
 	platformv1alpha1 "github.com/syntasso/kratix/api/v1alpha1"
 	"github.com/syntasso/kratix/controllers"
@@ -215,6 +217,14 @@ func main() {
 		}
 		if err = kratixWebhook.SetupPromiseReleaseWebhookWithManager(mgr, mgr.GetClient(), &fetchers.URLFetcher{}); err != nil {
 			setupLog.Error(err, "unable to create webhook", "webhook", "PromiseRelease")
+			os.Exit(1)
+		}
+		if err = (&controllers.HealthRecordReconciler{
+			Client: mgr.GetClient(),
+			Scheme: mgr.GetScheme(),
+			Log:    ctrl.Log.WithName("controllers").WithName("HealthRecordController"),
+		}).SetupWithManager(mgr); err != nil {
+			setupLog.Error(err, "unable to create controller", "controller", "HealthRecord")
 			os.Exit(1)
 		}
 		//+kubebuilder:scaffold:builder

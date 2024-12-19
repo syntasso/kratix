@@ -86,4 +86,13 @@ resources:
   webhooks:
     validation: true
     webhookVersion: v1
+- api:
+    crdVersion: v1
+    namespaced: true
+  controller: true
+  domain: kratix.io
+  group: platform
+  kind: HealthRecord
+  path: github.com/syntasso/kratix/api/v1alpha1
+  version: v1alpha1
 version: "3"
