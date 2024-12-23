@@ -50,7 +50,6 @@ type HealthRecordData struct {
 
 	// +kubebuilder:pruning:PreserveUnknownFields
 	// +kubebuilder:validation:Optional
-	// +kubebuilder:validation:EmbeddedResource
 	Details *runtime.RawExtension `json:"details,omitempty"`
 }
 

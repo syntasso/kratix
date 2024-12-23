@@ -31,7 +31,6 @@ spec:
             properties:
               details:
                 type: object
-                x-kubernetes-embedded-resource: true
                 x-kubernetes-preserve-unknown-fields: true
               lastRun:
                 description: Timestamp of the last healthcheck run
