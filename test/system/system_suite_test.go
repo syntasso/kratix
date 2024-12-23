@@ -9,15 +9,9 @@ import (
 
 	. "github.com/onsi/ginkgo/v2"
 	. "github.com/onsi/gomega"
-	"github.com/syntasso/kratix/api/v1alpha1"
-	apiextensionsv1 "k8s.io/apiextensions-apiserver/pkg/apis/apiextensions/v1"
-	"k8s.io/client-go/kubernetes/scheme"
-	ctrl "sigs.k8s.io/controller-runtime"
-	"sigs.k8s.io/controller-runtime/pkg/client"
 )
 
 var (
-	k8sClient   client.Client
 	testTempDir string
 )
 
@@ -27,7 +21,6 @@ func TestSystem(t *testing.T) {
 }
 
 var _ = SynchronizedBeforeSuite(func() {
-
 	//this runs once for the whole suite
 	worker = &destination{
 		context: getEnvOrDefault("WORKER_CONTEXT", "kind-worker"),
@@ -44,7 +37,6 @@ var _ = SynchronizedBeforeSuite(func() {
 	var err error
 	testTempDir, err = os.MkdirTemp(os.TempDir(), "systest")
 	Expect(err).NotTo(HaveOccurred())
-	initK8sClient()
 	tmpDir, err := os.MkdirTemp(os.TempDir(), "systest")
 	Expect(err).NotTo(HaveOccurred())
 
@@ -65,7 +57,6 @@ var _ = SynchronizedBeforeSuite(func() {
 
 	//These variables get set in func above, but only for 1 of the nodes, so we set
 	//them again here to ensure all nodes have them
-	//it again here to ensure all nodes have it
 	worker = &destination{
 		context: getEnvOrDefault("WORKER_CONTEXT", "kind-worker"),
 		name:    getEnvOrDefault("WORKER_NAME", "worker-1"),
@@ -110,14 +101,4 @@ func catAndReplaceFluxResources(tmpDir, file string) string {
 	err = os.WriteFile(tmpFile, []byte(output), 0777)
 	Expect(err).NotTo(HaveOccurred())
 	return tmpFile
-}
-
-func initK8sClient() {
-	cfg := ctrl.GetConfigOrDie()
-
-	Expect(v1alpha1.AddToScheme(scheme.Scheme)).To(Succeed())
-	Expect(apiextensionsv1.AddToScheme(scheme.Scheme)).To(Succeed())
-	var err error
-	k8sClient, err = client.New(cfg, client.Options{Scheme: scheme.Scheme})
-	Expect(err).NotTo(HaveOccurred())
 }

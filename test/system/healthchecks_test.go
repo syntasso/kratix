@@ -1,11 +1,10 @@
 package system_test
 
 import (
-	"context"
+	"encoding/json"
 	"fmt"
 	"github.com/syntasso/kratix/lib/compression"
 	metav1 "k8s.io/apimachinery/pkg/apis/meta/v1"
-	"k8s.io/apimachinery/pkg/labels"
 	"time"
 
 	"github.com/onsi/ginkgo/v2/types"
@@ -15,7 +14,6 @@ import (
 	"github.com/syntasso/kratix/api/v1alpha1"
 	"k8s.io/apimachinery/pkg/apis/meta/v1/unstructured"
 	"k8s.io/apimachinery/pkg/runtime"
-	"sigs.k8s.io/controller-runtime/pkg/client"
 )
 
 var _ = Describe("Kratix Healthcheck", func() {
@@ -91,14 +89,15 @@ var _ = Describe("Kratix Healthcheck", func() {
 			})
 
 			By("creating work with health definition", func() {
-				parsedSelector, err := labels.Parse(healthPipelineLabels)
-				Expect(err).NotTo(HaveOccurred())
 				var works v1alpha1.WorkList
-				err = k8sClient.List(context.TODO(), &works, &client.ListOptions{
-					LabelSelector: parsedSelector,
-				})
-				Expect(err).NotTo(HaveOccurred())
-				Expect(works.Items).To(HaveLen(1))
+
+				Eventually(func(g Gomega) {
+					worksJson := platform.kubectl("get", "works", "-o", "json", "-A", "--selector", healthPipelineLabels)
+					err := json.Unmarshal([]byte(worksJson), &works)
+					g.Expect(err).NotTo(HaveOccurred())
+					g.Expect(works.Items).To(HaveLen(1))
+				}, timeout, interval).Should(Succeed())
+
 				work := works.Items[0]
 				Expect(work.Spec.WorkloadGroups).To(HaveLen(1))
 				wGroup := work.Spec.WorkloadGroups[0]
