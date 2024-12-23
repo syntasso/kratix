@@ -1,10 +1,10 @@
 docker.io/kindest/kindnetd:v20241023-a345ebe4
 docker.io/kindest/local-path-provisioner:v20240813-c6f155d6
 docker.io/minio/minio:RELEASE.2022-06-30T20-58-09Z
-ghcr.io/fluxcd/helm-controller:v1.0.1
-ghcr.io/fluxcd/kustomize-controller:v1.3.0
-ghcr.io/fluxcd/notification-controller:v1.3.0
-ghcr.io/fluxcd/source-controller:v1.3.0
+ghcr.io/fluxcd/helm-controller:v1.1.0
+ghcr.io/fluxcd/kustomize-controller:v1.4.0
+ghcr.io/fluxcd/notification-controller:v1.4.0
+ghcr.io/fluxcd/source-controller:v1.4.1
 ghcr.io/syntasso/kratix-marketplace/pipeline-destination-image:v0.1.0
 ghcr.io/syntasso/kratix-marketplace/redis-configure-pipeline:v0.1.0
 ghcr.io/syntasso/kratix-marketplace/slack-configure-pipeline:v0.1.0
