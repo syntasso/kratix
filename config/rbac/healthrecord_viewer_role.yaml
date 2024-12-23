@@ -1,0 +1,27 @@
+# permissions for end users to view healthrecords.
+apiVersion: rbac.authorization.k8s.io/v1
+kind: ClusterRole
+metadata:
+  labels:
+    app.kubernetes.io/name: clusterrole
+    app.kubernetes.io/instance: healthrecord-viewer-role
+    app.kubernetes.io/component: rbac
+    app.kubernetes.io/created-by: kratix
+    app.kubernetes.io/part-of: kratix
+    app.kubernetes.io/managed-by: kustomize
+  name: healthrecord-viewer-role
+rules:
+- apiGroups:
+  - platform.kratix.io
+  resources:
+  - healthrecords
+  verbs:
+  - get
+  - list
+  - watch
+- apiGroups:
+  - platform.kratix.io
+  resources:
+  - healthrecords/status
+  verbs:
+  - get

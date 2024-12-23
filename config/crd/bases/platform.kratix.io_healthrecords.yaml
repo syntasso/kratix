@@ -1,0 +1,87 @@
+---
+apiVersion: apiextensions.k8s.io/v1
+kind: CustomResourceDefinition
+metadata:
+  annotations:
+    controller-gen.kubebuilder.io/version: v0.16.5
+  name: healthrecords.platform.kratix.io
+spec:
+  group: platform.kratix.io
+  names:
+    kind: HealthRecord
+    listKind: HealthRecordList
+    plural: healthrecords
+    singular: healthrecord
+  scope: Namespaced
+  versions:
+  - name: v1alpha1
+    schema:
+      openAPIV3Schema:
+        description: HealthRecord is the Schema for the healthrecords API
+        properties:
+          apiVersion:
+            description: |-
+              APIVersion defines the versioned schema of this representation of an object.
+              Servers should convert recognized schemas to the latest internal value, and
+              may reject unrecognized values.
+              More info: https://git.k8s.io/community/contributors/devel/sig-architecture/api-conventions.md#resources
+            type: string
+          data:
+            description: HealthRecordData defines the desired state of HealthRecord
+            properties:
+              details:
+                type: object
+                x-kubernetes-preserve-unknown-fields: true
+              lastRun:
+                description: Timestamp of the last healthcheck run
+                type: string
+              promiseRef:
+                properties:
+                  name:
+                    type: string
+                required:
+                - name
+                type: object
+              resourceRef:
+                description: ResourceRef represents the resource request; required
+                  value if HealthRecord is for a resource request
+                properties:
+                  generation:
+                    description: Generation the generation of the resource
+                    type: integer
+                  name:
+                    description: Name the resource name
+                    type: string
+                  namespace:
+                    description: Namespace the resource namespace
+                    type: string
+                required:
+                - name
+                - namespace
+                type: object
+              state:
+                default: unknown
+                enum:
+                - unknown
+                - ready
+                - unhealthy
+                - healthy
+                - degraded
+                type: string
+            required:
+            - promiseRef
+            - state
+            type: object
+          kind:
+            description: |-
+              Kind is a string value representing the REST resource this object represents.
+              Servers may infer this from the endpoint the client submits requests to.
+              Cannot be updated.
+              In CamelCase.
+              More info: https://git.k8s.io/community/contributors/devel/sig-architecture/api-conventions.md#types-kinds
+            type: string
+          metadata:
+            type: object
+        type: object
+    served: true
+    storage: true

@@ -1,0 +1,12 @@
+apiVersion: platform.kratix.io/v1alpha1
+kind: HealthRecord
+metadata:
+  labels:
+    app.kubernetes.io/name: healthrecord
+    app.kubernetes.io/instance: healthrecord-sample
+    app.kubernetes.io/part-of: kratix
+    app.kubernetes.io/managed-by: kustomize
+    app.kubernetes.io/created-by: kratix
+  name: healthrecord-sample
+spec:
+  # TODO(user): Add fields here
