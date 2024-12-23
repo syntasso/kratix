@@ -4,6 +4,7 @@ import (
 	"fmt"
 	. "github.com/onsi/ginkgo/v2"
 	. "github.com/onsi/gomega"
+	"k8s.io/apimachinery/pkg/runtime"
 	ctrl "sigs.k8s.io/controller-runtime"
 
 	"github.com/syntasso/kratix/api/v1alpha1"
@@ -41,6 +42,9 @@ var _ = Describe("HealthRecordController", func() {
 	BeforeEach(func() {
 		promise = createPromise(promisePath)
 		resource = createResourceRequest(resourceRequestPath)
+
+		details := &runtime.RawExtension{Raw: []byte(`{"info":"message"}`)}
+
 		healthRecord = &v1alpha1.HealthRecord{
 			TypeMeta: metav1.TypeMeta{
 				APIVersion: v1alpha1.GroupVersion.String(),
@@ -52,7 +56,7 @@ var _ = Describe("HealthRecordController", func() {
 				ResourceRef: v1alpha1.ResourceRef{Name: resource.GetName(), Namespace: resource.GetNamespace()},
 				State:       "healthy",
 				LastRun:     fmt.Sprintf("%d", time.Now().Unix()),
-				Custom:      nil,
+				Details:     details,
 			},
 		}
 
@@ -70,8 +74,11 @@ var _ = Describe("HealthRecordController", func() {
 
 		status := getResourceStatus(updatedResource)
 
-		Expect(status).To(SatisfyAll(
-			HaveKeyWithValue("healthRecord", HaveKeyWithValue("state", healthRecord.Data.State)),
+		record, found := status["healthRecord"]
+		Expect(found).To(BeTrue(), "healthrecord key not found in status")
+		Expect(record).To(SatisfyAll(
+			HaveKeyWithValue("state", healthRecord.Data.State),
+			HaveKeyWithValue("details", HaveKeyWithValue("info", "message")),
 		))
 	})
 

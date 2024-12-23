@@ -29,7 +29,7 @@ spec:
           data:
             description: HealthRecordData defines the desired state of HealthRecord
             properties:
-              custom:
+              details:
                 type: object
                 x-kubernetes-embedded-resource: true
                 x-kubernetes-preserve-unknown-fields: true
@@ -61,6 +61,7 @@ spec:
                 - namespace
                 type: object
               state:
+                default: unknown
                 enum:
                 - unknown
                 - ready

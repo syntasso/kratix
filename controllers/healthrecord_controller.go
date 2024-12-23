@@ -18,6 +18,7 @@ package controllers
 
 import (
 	"context"
+	"encoding/json"
 	"github.com/go-logr/logr"
 	platformv1alpha1 "github.com/syntasso/kratix/api/v1alpha1"
 	"k8s.io/apimachinery/pkg/api/errors"
@@ -72,7 +73,11 @@ func (r *HealthRecordReconciler) Reconcile(ctx context.Context, req ctrl.Request
 		return defaultRequeue, nil
 	}
 
-	return ctrl.Result{}, r.updateResourceStatus(ctx, resReq, healthRecord)
+	if err := r.updateResourceStatus(ctx, resReq, healthRecord); err != nil {
+		return ctrl.Result{}, err
+	}
+
+	return ctrl.Result{}, nil
 }
 
 // SetupWithManager sets up the controller with the Manager.
@@ -91,6 +96,14 @@ func (r *HealthRecordReconciler) updateResourceStatus(ctx context.Context, resRe
 
 	healthData := map[string]interface{}{
 		"state": healthRecord.Data.State,
+	}
+
+	if healthRecord.Data.Details != nil {
+		var details interface{}
+		if err := json.Unmarshal(healthRecord.Data.Details.Raw, &details); err != nil {
+			return err
+		}
+		healthData["details"] = details
 	}
 
 	if err := unstructured.SetNestedMap(resReq.Object, healthData, "status", "healthRecord"); err != nil {

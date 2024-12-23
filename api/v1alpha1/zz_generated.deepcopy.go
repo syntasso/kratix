@@ -493,8 +493,8 @@ func (in *HealthRecordData) DeepCopyInto(out *HealthRecordData) {
 	*out = *in
 	out.PromiseRef = in.PromiseRef
 	out.ResourceRef = in.ResourceRef
-	if in.Custom != nil {
-		in, out := &in.Custom, &out.Custom
+	if in.Details != nil {
+		in, out := &in.Details, &out.Details
 		*out = new(runtime.RawExtension)
 		(*in).DeepCopyInto(*out)
 	}

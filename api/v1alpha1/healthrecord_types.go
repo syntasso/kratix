@@ -42,6 +42,7 @@ type HealthRecordData struct {
 	ResourceRef ResourceRef `json:"resourceRef,omitempty"`
 
 	// +kubebuilder:validation:Enum=unknown;ready;unhealthy;healthy;degraded
+	// +kubebuilder:default=unknown
 	State string `json:"state"`
 
 	// Timestamp of the last healthcheck run
@@ -50,7 +51,7 @@ type HealthRecordData struct {
 	// +kubebuilder:pruning:PreserveUnknownFields
 	// +kubebuilder:validation:Optional
 	// +kubebuilder:validation:EmbeddedResource
-	Custom *runtime.RawExtension `json:"custom,omitempty"`
+	Details *runtime.RawExtension `json:"details,omitempty"`
 }
 
 //+kubebuilder:object:root=true
