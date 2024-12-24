@@ -1059,23 +1059,23 @@ func requestWithNameAndCommand(name string, containerCmds ...string) string {
 //
 // This means we need a more robust approach for deleting Promises
 func (c destination) eventuallyKubectlDelete(args ...string) string {
+	commandArgs := []string{"get", "--context=" + c.context}
+	commandArgs = append(commandArgs, args...)
+	command := exec.Command("kubectl", commandArgs...)
+	session, err := gexec.Start(command, GinkgoWriter, GinkgoWriter)
+	ExpectWithOffset(1, err).ShouldNot(HaveOccurred())
+	EventuallyWithOffset(1, session, time.Second*20).Should(gexec.Exit())
+	//If it doesn't exist, lets succeed
+	if strings.Contains(string(session.Err.Contents()), "not found") {
+		return ""
+	}
+
 	var content string
 	EventuallyWithOffset(1, func(g Gomega) {
-		commandArgs := []string{"get", "--context=" + c.context}
+		commandArgs := []string{"delete", "--context=" + c.context}
 		commandArgs = append(commandArgs, args...)
 		command := exec.Command("kubectl", commandArgs...)
 		session, err := gexec.Start(command, GinkgoWriter, GinkgoWriter)
-		g.ExpectWithOffset(1, err).ShouldNot(HaveOccurred())
-		g.EventuallyWithOffset(1, session, time.Second*20).Should(gexec.Exit())
-		//If it doesn't exist, lets succeed
-		if strings.Contains(string(session.Err.Contents()), "not found") {
-			return
-		}
-
-		commandArgs = []string{"delete", "--context=" + c.context}
-		commandArgs = append(commandArgs, args...)
-		command = exec.Command("kubectl", commandArgs...)
-		session, err = gexec.Start(command, GinkgoWriter, GinkgoWriter)
 		g.ExpectWithOffset(1, err).ShouldNot(HaveOccurred())
 		g.EventuallyWithOffset(1, session, shortTimeout).Should(gexec.Exit(c.exitCode))
 		content = string(session.Out.Contents())

@@ -3,9 +3,10 @@ package system_test
 import (
 	"encoding/json"
 	"fmt"
+	"time"
+
 	"github.com/syntasso/kratix/lib/compression"
 	metav1 "k8s.io/apimachinery/pkg/apis/meta/v1"
-	"time"
 
 	"github.com/onsi/ginkgo/v2/types"
 
@@ -178,6 +179,7 @@ func createDestination(name string, labels map[string]string) {
 			Labels: labels,
 		},
 		Spec: v1alpha1.DestinationSpec{
+			StrictMatchLabels: true,
 			StateStoreRef: &v1alpha1.StateStoreReference{
 				Kind: "BucketStateStore", Name: "default",
 			},

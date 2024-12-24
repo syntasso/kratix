@@ -8,5 +8,7 @@ nodes:
   # for backstage demos
   - containerPort: 31340
     hostPort: 31340
+  - containerPort: 31341
+    hostPort: 31341
   - containerPort: 31333
     hostPort: 31333
