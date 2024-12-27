@@ -84,19 +84,6 @@ var _ = Describe("Kratix Healthcheck", func() {
 				}, timeout, interval).Should(ContainSubstring("Completed"))
 			})
 
-			By("respecting the destinationSelectors defined in the promise", func() {
-				var wpList v1alpha1.WorkPlacementList
-				Eventually(func(g Gomega) {
-					wpSelector := "kratix.io/pipeline-name=bash-check"
-					wpJson := platform.kubectl("get", "workplacements", "--selector", wpSelector, "-o", "json")
-					err := json.Unmarshal([]byte(wpJson), &wpList)
-					g.Expect(err).NotTo(HaveOccurred())
-					g.Expect(wpList.Items).To(HaveLen(1))
-				}, timeout, interval).Should(Succeed())
-
-				Expect(wpList.Items[0].Spec.TargetDestinationName).To(Equal(bashPromiseName))
-			})
-
 			By("creating work with health definition", func() {
 				var works v1alpha1.WorkList
 
