@@ -29,20 +29,15 @@ var _ = Describe("Kratix Healthcheck", func() {
 
 		bashPromise = generateUniquePromise(promisePath)
 		bashPromiseName = bashPromise.Name
-
+		dstLabels["promise"] = bashPromiseName
 		createDestination(bashPromiseName, dstLabels)
 
-		healthPipeline := v1alpha1.Pipeline{
+		uHealthPipeline := pipelineToUnstructured(v1alpha1.Pipeline{
 			ObjectMeta: metav1.ObjectMeta{Name: healthPipelineName},
 			Spec: v1alpha1.PipelineSpec{
 				Containers: []v1alpha1.Container{{Name: "a-container-name", Image: "test-image:latest"}},
 			},
-		}
-		healthObjMap, err := runtime.DefaultUnstructuredConverter.ToUnstructured(&healthPipeline)
-		Expect(err).NotTo(HaveOccurred())
-		unstructuredHealthPipeline := &unstructured.Unstructured{Object: healthObjMap}
-		unstructuredHealthPipeline.SetAPIVersion("platform.kratix.io/v1alpha1")
-		unstructuredHealthPipeline.SetKind("Pipeline")
+		})
 
 		bashPromise.Spec.DestinationSelectors = []v1alpha1.PromiseScheduling{
 			{MatchLabels: dstLabels},
@@ -50,7 +45,7 @@ var _ = Describe("Kratix Healthcheck", func() {
 		bashPromise.Spec.HealthChecks = &v1alpha1.HealthChecks{
 			Resource: &v1alpha1.HealthCheckDefinition{
 				Schedule: "5m",
-				Workflow: unstructuredHealthPipeline,
+				Workflow: uHealthPipeline,
 			},
 		}
 
@@ -73,7 +68,7 @@ var _ = Describe("Kratix Healthcheck", func() {
 		}
 	})
 
-	Describe("Promise with HealthChecks", func() {
+	Describe("Requesting a resource", func() {
 		It("creates an addition health workflow at resource request", func() {
 			healthPipelineLabels := fmt.Sprintf(
 				"kratix.io/promise-name=%s,kratix.io/resource-name=%s,kratix.io/pipeline-name=%s,kratix.io/work-type=%s",
@@ -87,6 +82,19 @@ var _ = Describe("Kratix Healthcheck", func() {
 				Eventually(func() string {
 					return platform.eventuallyKubectl("get", "pods", "--selector", healthPipelineLabels)
 				}, timeout, interval).Should(ContainSubstring("Completed"))
+			})
+
+			By("respecting the destinationSelectors defined in the promise", func() {
+				var wpList v1alpha1.WorkPlacementList
+				Eventually(func(g Gomega) {
+					wpSelector := "kratix.io/pipeline-name=bash-check"
+					wpJson := platform.kubectl("get", "workplacements", "--selector", wpSelector, "-o", "json")
+					err := json.Unmarshal([]byte(wpJson), &wpList)
+					g.Expect(err).NotTo(HaveOccurred())
+					g.Expect(wpList.Items).To(HaveLen(1))
+				}, timeout, interval).Should(Succeed())
+
+				Expect(wpList.Items[0].Spec.TargetDestinationName).To(Equal(bashPromiseName))
 			})
 
 			By("creating work with health definition", func() {
@@ -185,4 +193,13 @@ func createDestination(name string, labels map[string]string) {
 			},
 		},
 	}))
+}
+
+func pipelineToUnstructured(pipeline v1alpha1.Pipeline) *unstructured.Unstructured {
+	healthObjMap, err := runtime.DefaultUnstructuredConverter.ToUnstructured(&pipeline)
+	Expect(err).NotTo(HaveOccurred())
+	uPipeline := &unstructured.Unstructured{Object: healthObjMap}
+	uPipeline.SetAPIVersion("platform.kratix.io/v1alpha1")
+	uPipeline.SetKind("Pipeline")
+	return uPipeline
 }
