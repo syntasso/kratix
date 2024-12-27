@@ -133,6 +133,7 @@ var _ = Describe("Pipeline", func() {
 				Expect(f.Namespace).To(Equal(v1alpha1.SystemNamespace))
 				Expect(f.WorkflowAction).To(Equal(v1alpha1.WorkflowActionConfigure))
 				Expect(f.WorkflowType).To(Equal(v1alpha1.WorkflowTypePromise))
+				Expect(f.ClusterScoped).To(Equal(true))
 				Expect(f.ResourceWorkflow).To(BeFalse())
 			})
 		})
@@ -148,7 +149,18 @@ var _ = Describe("Pipeline", func() {
 				Expect(f.Namespace).To(Equal(resourceRequest.GetNamespace()))
 				Expect(f.WorkflowAction).To(Equal(v1alpha1.WorkflowActionConfigure))
 				Expect(f.WorkflowType).To(Equal(v1alpha1.WorkflowTypeResource))
+				Expect(f.ClusterScoped).To(Equal(false))
 				Expect(f.ResourceWorkflow).To(BeTrue())
+			})
+
+			It("sets ClusterScoped to true if the promise API is cluster scoped", func() {
+				promiseCrd.Spec.Scope = apiextensionsv1.ClusterScoped
+				rawCrd, err := json.Marshal(promiseCrd)
+				Expect(err).ToNot(HaveOccurred())
+				promise.Spec.API = &runtime.RawExtension{Raw: rawCrd}
+
+				f := pipeline.ForResource(promise, v1alpha1.WorkflowActionConfigure, resourceRequest)
+				Expect(f.ClusterScoped).To(Equal(true))
 			})
 		})
 	})
@@ -804,8 +816,11 @@ var _ = Describe("Pipeline", func() {
 					Expect(container.Env).To(ConsistOf(
 						corev1.EnvVar{Name: "OBJECT_KIND", Value: resourceRequest.GroupVersionKind().Kind},
 						corev1.EnvVar{Name: "OBJECT_GROUP", Value: resourceRequest.GroupVersionKind().Group},
+						corev1.EnvVar{Name: "OBJECT_VERSION", Value: resourceRequest.GroupVersionKind().Version},
+						corev1.EnvVar{Name: "CRD_PLURAL", Value: promiseCrd.Spec.Names.Plural},
 						corev1.EnvVar{Name: "OBJECT_NAME", Value: resourceRequest.GetName()},
 						corev1.EnvVar{Name: "OBJECT_NAMESPACE", Value: factory.Namespace},
+						corev1.EnvVar{Name: "CLUSTER_SCOPED", Value: "false"},
 						corev1.EnvVar{Name: "env1", Value: "value1"},
 						corev1.EnvVar{Name: "env2", Value: "value2"},
 					))
