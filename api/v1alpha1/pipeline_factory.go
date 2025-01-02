@@ -28,6 +28,7 @@ type PipelineFactory struct {
 	ResourceWorkflow bool
 	WorkflowAction   Action
 	WorkflowType     Type
+	ClusterScoped    bool
 }
 
 func (p *PipelineFactory) Resources(jobEnv []corev1.EnvVar) (PipelineJobResources, error) {
@@ -349,6 +350,15 @@ func (p *PipelineFactory) pipelineJob(schedulingConfigMap *corev1.ConfigMap, ser
 }
 
 func (p *PipelineFactory) statusWriterContainer(obj *unstructured.Unstructured, env []corev1.EnvVar) corev1.Container {
+	plural := "promises"
+	if p.ResourceWorkflow {
+		_, crd, err := p.Promise.GetAPI()
+		if err != nil {
+			return corev1.Container{}
+		}
+		plural = crd.Spec.Names.Plural
+	}
+
 	return corev1.Container{
 		Name:    "status-writer",
 		Image:   os.Getenv("PIPELINE_ADAPTER_IMG"),
@@ -356,8 +366,11 @@ func (p *PipelineFactory) statusWriterContainer(obj *unstructured.Unstructured, 
 		Env: append(env,
 			corev1.EnvVar{Name: "OBJECT_KIND", Value: strings.ToLower(obj.GetKind())},
 			corev1.EnvVar{Name: "OBJECT_GROUP", Value: obj.GroupVersionKind().Group},
+			corev1.EnvVar{Name: "OBJECT_VERSION", Value: obj.GroupVersionKind().Version},
 			corev1.EnvVar{Name: "OBJECT_NAME", Value: obj.GetName()},
 			corev1.EnvVar{Name: "OBJECT_NAMESPACE", Value: p.Namespace},
+			corev1.EnvVar{Name: "CRD_PLURAL", Value: plural},
+			corev1.EnvVar{Name: "CLUSTER_SCOPED", Value: fmt.Sprintf("%t", p.ClusterScoped)},
 		),
 		VolumeMounts: []corev1.VolumeMount{{
 			MountPath: "/work-creator-files/metadata",

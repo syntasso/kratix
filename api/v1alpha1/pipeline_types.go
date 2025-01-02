@@ -30,6 +30,8 @@ import (
 	"k8s.io/apimachinery/pkg/apis/meta/v1/unstructured"
 	"k8s.io/apimachinery/pkg/labels"
 	"k8s.io/utils/ptr"
+
+	apiextensionsv1 "k8s.io/apiextensions-apiserver/pkg/apis/apiextensions/v1"
 )
 
 const (
@@ -185,10 +187,16 @@ func (p *Pipeline) ForPromise(promise *Promise, action Action) *PipelineFactory 
 		Namespace:      SystemNamespace,
 		WorkflowType:   WorkflowTypePromise,
 		WorkflowAction: action,
+		ClusterScoped:  true,
 	}
 }
 
 func (p *Pipeline) ForResource(promise *Promise, action Action, resourceRequest *unstructured.Unstructured) *PipelineFactory {
+	_, crd, _ := promise.GetAPI()
+	var clusterScoped bool
+	if crd != nil && crd.Spec.Scope == apiextensionsv1.ClusterScoped {
+		clusterScoped = true
+	}
 	return &PipelineFactory{
 		ID:               promise.GetName() + "-resource-" + string(action) + "-" + p.GetName(),
 		Promise:          promise,
@@ -198,6 +206,7 @@ func (p *Pipeline) ForResource(promise *Promise, action Action, resourceRequest 
 		ResourceWorkflow: true,
 		WorkflowType:     WorkflowTypeResource,
 		WorkflowAction:   action,
+		ClusterScoped:    clusterScoped,
 	}
 }
 
