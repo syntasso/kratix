@@ -71,7 +71,6 @@ func (p *Parameters) GetObjectPath() string {
 	return filepath.Join(p.InputDir, "object.yaml")
 }
 
-// GetK8sClient creates a Kubernetes client with the given scheme
 func getK8sClient() (dynamic.Interface, error) {
 	// Try to load in-cluster config first
 	config, err := rest.InClusterConfig()
@@ -113,4 +112,16 @@ func PromiseGVR() schema.GroupVersionResource {
 		Version:  v1alpha1.GroupVersion.Version,
 		Resource: "promises",
 	}
+}
+
+// PrintFileHead prints the first n lines of a file
+func PrintFileHead(f *os.File, filename string, n int) error {
+	content, err := os.ReadFile(filename)
+	if err != nil {
+		return err
+	}
+
+	end := min(len(content), n)
+	fmt.Fprint(f, string(content[:end]))
+	return nil
 }

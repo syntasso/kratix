@@ -1,6 +1,7 @@
 package lib_test
 
 import (
+	"context"
 	"os"
 
 	. "github.com/onsi/ginkgo/v2"
@@ -21,14 +22,18 @@ var _ = Describe("Reader", func() {
 		tempDir    string
 		fakeClient dynamic.Interface
 
-		subject lib.Reader
-		params  *helpers.Parameters
+		subject   lib.Reader
+		params    *helpers.Parameters
+		ctx       context.Context
+		outputLog *os.File
 	)
 
 	BeforeEach(func() {
 		var err error
 		tempDir, err = os.MkdirTemp("", "health-state-test")
 		Expect(err).NotTo(HaveOccurred())
+
+		ctx = context.Background()
 
 		params = &helpers.Parameters{
 			InputDir:        tempDir,
@@ -74,15 +79,21 @@ var _ = Describe("Reader", func() {
 			&promise,
 		)
 
-		subject = lib.Reader{}
+		outputLog, err = os.CreateTemp(tempDir, "output")
+		Expect(err).NotTo(HaveOccurred())
+
+		subject = lib.Reader{
+			Out: outputLog,
+		}
 	})
 
 	AfterEach(func() {
+		outputLog.Close()
 		Expect(os.RemoveAll(tempDir)).To(Succeed())
 	})
 
 	It("should write the object to a file", func() {
-		Expect(subject.Run()).To(Succeed())
+		Expect(subject.Run(ctx)).To(Succeed())
 
 		_, err := os.Stat(params.GetObjectPath())
 		Expect(err).NotTo(HaveOccurred())
@@ -99,12 +110,19 @@ var _ = Describe("Reader", func() {
 		Expect(object["metadata"].(map[string]interface{})["name"]).To(Equal("name-foo"))
 		Expect(object["metadata"].(map[string]interface{})["namespace"]).To(Equal("ns-foo"))
 		Expect(object["spec"].(map[string]interface{})["test"]).To(Equal("bar"))
+
+		outputContents, err := os.ReadFile(outputLog.Name())
+		Expect(err).NotTo(HaveOccurred())
+		Expect(string(outputContents)).To(SatisfyAll(
+			ContainSubstring("Object file written to"),
+			ContainSubstring("apiVersion: group/version"),
+		))
 	})
 
 	It("should write the promise to a file if healthcheck is set to true", func() {
 		params.Healthcheck = true
 
-		Expect(subject.Run()).To(Succeed())
+		Expect(subject.Run(ctx)).To(Succeed())
 
 		_, err := os.Stat(params.GetObjectPath())
 		Expect(err).NotTo(HaveOccurred(), "object file should exist")
@@ -123,6 +141,16 @@ var _ = Describe("Reader", func() {
 		Expect(object["kind"]).To(Equal("Promise"))
 		Expect(object["metadata"].(map[string]interface{})["name"]).To(Equal("test-promise"))
 		Expect(object["metadata"].(map[string]interface{})["namespace"]).To(BeNil())
+
+		outputContents, err := os.ReadFile(outputLog.Name())
+		Expect(err).NotTo(HaveOccurred())
+		Expect(string(outputContents)).To(SatisfyAll(
+			ContainSubstring("Object file written to"),
+			ContainSubstring("apiVersion: group/version"),
+
+			ContainSubstring("Promise file written to"),
+			ContainSubstring("apiVersion: platform.kratix.io/v1alpha1"),
+		))
 	})
 })
 

@@ -14,12 +14,13 @@ import (
 )
 
 func main() {
-	if err := run(); err != nil {
+	ctx := context.Background()
+	if err := run(ctx); err != nil {
 		log.Fatalf("Error: %v", err)
 	}
 }
 
-func run() error {
+func run(ctx context.Context) error {
 	workspaceDir := "/work-creator-files"
 	statusFile := filepath.Join(workspaceDir, "metadata", "status.yaml")
 
@@ -32,7 +33,7 @@ func run() error {
 
 	objectClient := client.Resource(helpers.ObjectGVR(params)).Namespace(params.ObjectNamespace)
 
-	existingObj, err := objectClient.Get(context.TODO(), params.ObjectName, metav1.GetOptions{})
+	existingObj, err := objectClient.Get(ctx, params.ObjectName, metav1.GetOptions{})
 	if err != nil {
 		return fmt.Errorf("failed to get existing object: %v", err)
 	}
@@ -57,7 +58,7 @@ func run() error {
 	existingObj.Object["status"] = mergedStatus
 
 	// Update the object's status
-	if _, err = objectClient.UpdateStatus(context.TODO(), existingObj, metav1.UpdateOptions{}); err != nil {
+	if _, err = objectClient.UpdateStatus(ctx, existingObj, metav1.UpdateOptions{}); err != nil {
 		return fmt.Errorf("failed to update status: %v", err)
 	}
 
