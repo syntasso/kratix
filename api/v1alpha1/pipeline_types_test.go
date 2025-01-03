@@ -135,6 +135,7 @@ var _ = Describe("Pipeline", func() {
 				Expect(f.WorkflowType).To(Equal(v1alpha1.WorkflowTypePromise))
 				Expect(f.ClusterScoped).To(Equal(true))
 				Expect(f.ResourceWorkflow).To(BeFalse())
+				Expect(f.CRDPlural).To(Equal("promises"))
 			})
 		})
 
@@ -151,6 +152,7 @@ var _ = Describe("Pipeline", func() {
 				Expect(f.WorkflowType).To(Equal(v1alpha1.WorkflowTypeResource))
 				Expect(f.ClusterScoped).To(Equal(false))
 				Expect(f.ResourceWorkflow).To(BeTrue())
+				Expect(f.CRDPlural).To(Equal("promiseCrdPlural"))
 			})
 
 			It("sets ClusterScoped to true if the promise API is cluster scoped", func() {
@@ -184,6 +186,10 @@ var _ = Describe("Pipeline", func() {
 
 		Describe("Resources()", func() {
 			When("promise", func() {
+				BeforeEach(func() {
+					factory.CRDPlural = "promises"
+				})
+
 				When("building for configure action", func() {
 					It("returns a list of resources", func() {
 						factory.WorkflowAction = v1alpha1.WorkflowActionConfigure
@@ -264,6 +270,7 @@ var _ = Describe("Pipeline", func() {
 			When("ResourceWorkflow=true", func() {
 				BeforeEach(func() {
 					factory.ResourceWorkflow = true
+					factory.CRDPlural = "promiseCrdPlural"
 				})
 
 				DescribeTable("generates the appropriate resources for action", func(action v1alpha1.Action, expectedNumObjects int, expectedConfigMap bool, expectedClusterRoles bool) {
@@ -649,6 +656,13 @@ var _ = Describe("Pipeline", func() {
 
 			DescribeTable("ReaderContainer", func(isResourceWorkflow bool, act v1alpha1.Action, additionalEnvVars []corev1.EnvVar) {
 				factory.ResourceWorkflow = isResourceWorkflow
+				if isResourceWorkflow {
+					factory.ClusterScoped = false
+					factory.CRDPlural = "promiseCrdPlural"
+				} else {
+					factory.ClusterScoped = true
+					factory.CRDPlural = "promises"
+				}
 				factory.WorkflowAction = act
 
 				var err error
@@ -668,19 +682,21 @@ var _ = Describe("Pipeline", func() {
 				expectedEnvVars := []corev1.EnvVar{
 					{Name: "OBJECT_NAMESPACE", Value: factory.Namespace},
 					{Name: "KRATIX_WORKFLOW_TYPE", Value: string(factory.WorkflowType)},
+					{Name: "CLUSTER_SCOPED", Value: fmt.Sprintf("%t", factory.ClusterScoped)},
+					{Name: "CRD_PLURAL", Value: factory.CRDPlural},
 				}
 
 				if isResourceWorkflow {
 					expectedEnvVars = append(expectedEnvVars,
-						corev1.EnvVar{Name: "OBJECT_KIND", Value: resourceRequest.GroupVersionKind().Kind},
 						corev1.EnvVar{Name: "OBJECT_GROUP", Value: resourceRequest.GroupVersionKind().Group},
 						corev1.EnvVar{Name: "OBJECT_NAME", Value: resourceRequest.GetName()},
+						corev1.EnvVar{Name: "OBJECT_VERSION", Value: resourceRequest.GroupVersionKind().Version},
 					)
 				} else {
 					expectedEnvVars = append(expectedEnvVars,
-						corev1.EnvVar{Name: "OBJECT_KIND", Value: promise.GroupVersionKind().Kind},
 						corev1.EnvVar{Name: "OBJECT_GROUP", Value: promise.GroupVersionKind().Group},
 						corev1.EnvVar{Name: "OBJECT_NAME", Value: promise.GetName()},
+						corev1.EnvVar{Name: "OBJECT_VERSION", Value: promise.GroupVersionKind().Version},
 					)
 				}
 
@@ -799,6 +815,7 @@ var _ = Describe("Pipeline", func() {
 			Describe("StatusWriterContainer", func() {
 				BeforeEach(func() {
 					factory.ResourceWorkflow = true
+					factory.CRDPlural = "promiseCrdPlural"
 					var err error
 					resources, err = factory.Resources([]corev1.EnvVar{
 						{Name: "env1", Value: "value1"},

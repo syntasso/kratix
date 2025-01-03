@@ -188,14 +188,19 @@ func (p *Pipeline) ForPromise(promise *Promise, action Action) *PipelineFactory 
 		WorkflowType:   WorkflowTypePromise,
 		WorkflowAction: action,
 		ClusterScoped:  true,
+		CRDPlural:      "promises",
 	}
 }
 
 func (p *Pipeline) ForResource(promise *Promise, action Action, resourceRequest *unstructured.Unstructured) *PipelineFactory {
 	_, crd, _ := promise.GetAPI()
 	var clusterScoped bool
-	if crd != nil && crd.Spec.Scope == apiextensionsv1.ClusterScoped {
-		clusterScoped = true
+	var plural string
+	if crd != nil {
+		plural = crd.Spec.Names.Plural
+		if crd.Spec.Scope == apiextensionsv1.ClusterScoped {
+			clusterScoped = true
+		}
 	}
 	return &PipelineFactory{
 		ID:               promise.GetName() + "-resource-" + string(action) + "-" + p.GetName(),
@@ -207,6 +212,7 @@ func (p *Pipeline) ForResource(promise *Promise, action Action, resourceRequest 
 		WorkflowType:     WorkflowTypeResource,
 		WorkflowAction:   action,
 		ClusterScoped:    clusterScoped,
+		CRDPlural:        plural,
 	}
 }
 
