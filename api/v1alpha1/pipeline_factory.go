@@ -29,6 +29,7 @@ type PipelineFactory struct {
 	WorkflowAction   Action
 	WorkflowType     Type
 	ClusterScoped    bool
+	CRDPlural        string
 }
 
 func (p *PipelineFactory) Resources(jobEnv []corev1.EnvVar) (PipelineJobResources, error) {
@@ -157,22 +158,24 @@ func (p *PipelineFactory) defaultEnvVars() []corev1.EnvVar {
 }
 
 func (p *PipelineFactory) readerContainer() corev1.Container {
-	kind := p.Promise.GroupVersionKind().Kind
 	group := p.Promise.GroupVersionKind().Group
 	name := p.Promise.GetName()
+	version := p.Promise.GroupVersionKind().Version
 
 	if p.ResourceWorkflow {
-		kind = p.ResourceRequest.GetKind()
 		group = p.ResourceRequest.GroupVersionKind().Group
 		name = p.ResourceRequest.GetName()
+		version = p.ResourceRequest.GroupVersionKind().Version
 	}
 
 	envVars := []corev1.EnvVar{
-		{Name: "OBJECT_KIND", Value: strings.ToLower(kind)},
 		{Name: "OBJECT_GROUP", Value: group},
 		{Name: "OBJECT_NAME", Value: name},
+		{Name: "OBJECT_VERSION", Value: version},
 		{Name: "OBJECT_NAMESPACE", Value: p.Namespace},
 		{Name: "KRATIX_WORKFLOW_TYPE", Value: string(p.WorkflowType)},
+		{Name: "CRD_PLURAL", Value: p.CRDPlural},
+		{Name: "CLUSTER_SCOPED", Value: fmt.Sprintf("%t", p.ClusterScoped)},
 	}
 
 	if p.WorkflowAction == WorkflowActionHealthCheck {
@@ -350,15 +353,6 @@ func (p *PipelineFactory) pipelineJob(schedulingConfigMap *corev1.ConfigMap, ser
 }
 
 func (p *PipelineFactory) statusWriterContainer(obj *unstructured.Unstructured, env []corev1.EnvVar) corev1.Container {
-	plural := "promises"
-	if p.ResourceWorkflow {
-		_, crd, err := p.Promise.GetAPI()
-		if err != nil {
-			return corev1.Container{}
-		}
-		plural = crd.Spec.Names.Plural
-	}
-
 	return corev1.Container{
 		Name:    "status-writer",
 		Image:   os.Getenv("PIPELINE_ADAPTER_IMG"),
@@ -369,7 +363,7 @@ func (p *PipelineFactory) statusWriterContainer(obj *unstructured.Unstructured, 
 			corev1.EnvVar{Name: "OBJECT_VERSION", Value: obj.GroupVersionKind().Version},
 			corev1.EnvVar{Name: "OBJECT_NAME", Value: obj.GetName()},
 			corev1.EnvVar{Name: "OBJECT_NAMESPACE", Value: p.Namespace},
-			corev1.EnvVar{Name: "CRD_PLURAL", Value: plural},
+			corev1.EnvVar{Name: "CRD_PLURAL", Value: p.CRDPlural},
 			corev1.EnvVar{Name: "CLUSTER_SCOPED", Value: fmt.Sprintf("%t", p.ClusterScoped)},
 		),
 		VolumeMounts: []corev1.VolumeMount{{
@@ -437,7 +431,6 @@ func (p *PipelineFactory) role() ([]rbacv1.Role, error) {
 		if err != nil {
 			return nil, err
 		}
-		plural := crd.Spec.Names.Plural
 		roles = append(roles, rbacv1.Role{
 			ObjectMeta: metav1.ObjectMeta{
 				Name:      p.ID,
@@ -451,7 +444,7 @@ func (p *PipelineFactory) role() ([]rbacv1.Role, error) {
 			Rules: []rbacv1.PolicyRule{
 				{
 					APIGroups: []string{crd.Spec.Group},
-					Resources: []string{plural, plural + "/status"},
+					Resources: []string{p.CRDPlural, p.CRDPlural + "/status"},
 					Verbs:     []string{"get", "list", "update", "create", "patch"},
 				},
 				{

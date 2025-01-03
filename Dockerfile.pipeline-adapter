@@ -17,6 +17,7 @@ RUN go mod download
 RUN CGO_ENABLED=0 GOOS=${TARGETOS} GOARCH=${TARGETARCH} GO111MODULE=on go build -a -o bin/work-creator work-creator/pipeline/cmd/work-creator/main.go
 RUN CGO_ENABLED=0 GOOS=${TARGETOS} GOARCH=${TARGETARCH} GO111MODULE=on go build -a -o bin/update-status work-creator/pipeline/cmd/update-status/main.go
 RUN CGO_ENABLED=0 GOOS=${TARGETOS} GOARCH=${TARGETARCH} GO111MODULE=on go build -a -o bin/health-definition-creator work-creator/pipeline/cmd/health-definition-creator/main.go
+RUN CGO_ENABLED=0 GOOS=${TARGETOS} GOARCH=${TARGETARCH} GO111MODULE=on go build -a -o bin/reader work-creator/pipeline/cmd/reader/main.go
 
 RUN mkdir work-creator-files
 
@@ -26,15 +27,10 @@ FROM gcr.io/distroless/cc:nonroot
 
 COPY --chown=nonroot:nonroot --from=busybox /usr/bin/env /usr/bin/env
 COPY --chown=nonroot:nonroot --from=busybox /bin/sh /bin/sh
-COPY --chown=nonroot:nonroot --from=busybox /bin/cat /bin/cat
-COPY --chown=nonroot:nonroot --from=busybox /bin/date /bin/date
-COPY --chown=nonroot:nonroot --from=busybox /bin/head /bin/head
-COPY --chown=nonroot:nonroot --from=bitnami/kubectl:1.31.4 /opt/bitnami/kubectl/bin/kubectl /bin/kubectl
-
 COPY --chown=nonroot:nonroot --from=builder /workspace/bin/work-creator /bin/work-creator
 COPY --chown=nonroot:nonroot --from=builder /workspace/bin/update-status /bin/update-status
 COPY --chown=nonroot:nonroot --from=builder /workspace/bin/health-definition-creator /bin/health-definition-creator
-COPY --chown=nonroot:nonroot --from=builder /workspace/work-creator/scripts/reader /bin/reader
+COPY --chown=nonroot:nonroot --from=builder /workspace/bin/reader /bin/reader
 COPY --chown=nonroot:nonroot --from=builder /workspace/work-creator-files /work-creator-files
 
 USER 65532:65532
