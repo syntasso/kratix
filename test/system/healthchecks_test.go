@@ -118,7 +118,7 @@ var _ = Describe("Kratix Healthcheck", func() {
 					PromiseRef:  v1alpha1.PromiseRef{Name: bashPromiseName},
 					ResourceRef: v1alpha1.ResourceRef{Name: rrName, Namespace: "default", Generation: 1},
 					State:       "healthy",
-					LastRun:     fmt.Sprintf("%d", time.Now().Unix()),
+					LastRun:     time.Now().Unix(),
 					Details: &runtime.RawExtension{
 						Raw: []byte(`{"info":"message", "errors": [{"message": "error"}]}`),
 					},

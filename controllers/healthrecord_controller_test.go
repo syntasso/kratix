@@ -1,7 +1,6 @@
 package controllers_test
 
 import (
-	"fmt"
 	. "github.com/onsi/ginkgo/v2"
 	. "github.com/onsi/gomega"
 	"k8s.io/apimachinery/pkg/runtime"
@@ -55,7 +54,7 @@ var _ = Describe("HealthRecordController", func() {
 				PromiseRef:  v1alpha1.PromiseRef{Name: promise.GetName()},
 				ResourceRef: v1alpha1.ResourceRef{Name: resource.GetName(), Namespace: resource.GetNamespace()},
 				State:       "healthy",
-				LastRun:     fmt.Sprintf("%d", time.Now().Unix()),
+				LastRun:     time.Now().Unix(),
 				Details:     details,
 			},
 		}

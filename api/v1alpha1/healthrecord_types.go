@@ -46,7 +46,7 @@ type HealthRecordData struct {
 	State string `json:"state"`
 
 	// Timestamp of the last healthcheck run
-	LastRun string `json:"lastRun,omitempty"`
+	LastRun int64 `json:"lastRun,omitempty"`
 
 	// +kubebuilder:pruning:PreserveUnknownFields
 	// +kubebuilder:validation:Optional

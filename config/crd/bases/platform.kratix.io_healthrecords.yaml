@@ -34,7 +34,8 @@ spec:
                 x-kubernetes-preserve-unknown-fields: true
               lastRun:
                 description: Timestamp of the last healthcheck run
-                type: string
+                format: int64
+                type: integer
               promiseRef:
                 properties:
                   name:
