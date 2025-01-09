@@ -2,7 +2,7 @@
 apiVersion: source.toolkit.fluxcd.io/v1beta2
 kind: Bucket
 metadata:
-  name: kratix-bucket
+  name: kratix
   namespace: flux-system
 spec:
   interval: 10s
@@ -35,7 +35,7 @@ spec:
     - name: kratix-workload-dependencies
   sourceRef:
     kind: Bucket
-    name: kratix-bucket
+    name: kratix
   path: ./worker-1/resources
 ---
 apiVersion: kustomize.toolkit.fluxcd.io/v1
@@ -48,5 +48,5 @@ spec:
   prune: true
   sourceRef:
     kind: Bucket
-    name: kratix-bucket
+    name: kratix
   path: ./worker-1/dependencies
