@@ -295,7 +295,7 @@ wait_for_namespace() {
         if [ -z "${timeout_flag}" ] && (( loops > 20 )); then
             return 1
         fi
-        kubectl --context $context annotate --field-manager=flux-client-side-apply --overwrite  -n flux-system bucket/kratix-bucket reconcile.fluxcd.io/requestedAt="$(date +%s)" || true
+        kubectl --context $context annotate --field-manager=flux-client-side-apply --overwrite  -n flux-system bucket/kratix reconcile.fluxcd.io/requestedAt="$(date +%s)" || true
         kubectl --context $context annotate --field-manager=flux-client-side-apply --overwrite  -n flux-system gitrepository/kratix-source reconcile.fluxcd.io/requestedAt="$(date +%s)" || true
         sleep 2
         loops=$(( loops + 1 ))
