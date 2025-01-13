@@ -95,7 +95,8 @@ func (r *HealthRecordReconciler) updateResourceStatus(ctx context.Context, resRe
 	}
 
 	healthData := map[string]interface{}{
-		"state": healthRecord.Data.State,
+		"state":   healthRecord.Data.State,
+		"lastRun": healthRecord.Data.LastRun,
 	}
 
 	if healthRecord.Data.Details != nil {

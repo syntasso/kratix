@@ -17,6 +17,7 @@ import (
 
 var _ = Describe("HealthRecordController", func() {
 	var (
+		now          int64
 		healthRecord *v1alpha1.HealthRecord
 		promise      *v1alpha1.Promise
 		resource     *unstructured.Unstructured
@@ -44,6 +45,7 @@ var _ = Describe("HealthRecordController", func() {
 
 		details := &runtime.RawExtension{Raw: []byte(`{"info":"message"}`)}
 
+		now = time.Now().Unix()
 		healthRecord = &v1alpha1.HealthRecord{
 			TypeMeta: metav1.TypeMeta{
 				APIVersion: v1alpha1.GroupVersion.String(),
@@ -54,7 +56,7 @@ var _ = Describe("HealthRecordController", func() {
 				PromiseRef:  v1alpha1.PromiseRef{Name: promise.GetName()},
 				ResourceRef: v1alpha1.ResourceRef{Name: resource.GetName(), Namespace: resource.GetNamespace()},
 				State:       "healthy",
-				LastRun:     time.Now().Unix(),
+				LastRun:     now,
 				Details:     details,
 			},
 		}
@@ -78,6 +80,7 @@ var _ = Describe("HealthRecordController", func() {
 		Expect(record).To(SatisfyAll(
 			HaveKeyWithValue("state", healthRecord.Data.State),
 			HaveKeyWithValue("details", HaveKeyWithValue("info", "message")),
+			HaveKeyWithValue("lastRun", now),
 		))
 	})
 
@@ -102,6 +105,7 @@ var _ = Describe("HealthRecordController", func() {
 				HaveKeyWithValue("some", "status"),
 				HaveKeyWithValue("nested", HaveKeyWithValue("value", "data")),
 				HaveKeyWithValue("healthRecord", HaveKeyWithValue("state", healthRecord.Data.State)),
+				HaveKeyWithValue("healthRecord", HaveKeyWithValue("lastRun", now)),
 			))
 		})
 	})
