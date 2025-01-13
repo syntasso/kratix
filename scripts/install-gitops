@@ -82,6 +82,8 @@ patch_name() {
 }
 
 install_flux_gitops() {
+    CONTEXT="${CONTEXT:-$1}"
+    BUCKET_PATH="${BUCKET_PATH:-$2}"
     resource_file=${ROOT}/hack/destination/gitops-tk-resources.yaml
     if [ ${WORKER_STATESTORE_TYPE} = "GitStateStore" ]; then
         resource_file=${ROOT}/hack/destination/gitops-tk-resources-git.yaml;
