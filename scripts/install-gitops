@@ -9,6 +9,7 @@ cd $ROOT
 CONTEXT=""
 WORKER_STATESTORE_TYPE=${WORKER_STATESTORE_TYPE:-BucketStateStore}
 KUSTOMIZATION_NAME=""
+GITOPS_PROVIDER="flux"
 
 usage() {
     echo -e "Usage: ${BASH_SOURCE[0]} [--help] [--context=""] [--path=""] [--git]"
@@ -18,6 +19,7 @@ usage() {
     echo -e "\t--path='', -b,\t The Repository name, must match the name used when registering the destination. Defaults to context."
     echo -e "\t--git, -g,\t Reads from local Gitea installation (default: Read from local MinIO installation)"
     echo -e "\t--kustomization-name, -k,\t Name of the Flux Kustomizations"
+    echo -e "\t--gitops-provider, -p,\t Gitops provider, either flux or argo. Defauls to flux"
     exit "${1:-0}"
 }
 
@@ -29,13 +31,14 @@ load_options() {
         '--context')                    set -- "$@" '-c'   ;;
         '--path')                       set -- "$@" '-b'   ;;
         '--kustomization-name')         set -- "$@" '-k'   ;;
+        '--gitops-provider')            set -- "$@" '-p'   ;;
         '--git')                        set -- "$@" '-g'   ;;
         *)                              set -- "$@" "$arg" ;;
       esac
     done
 
     OPTIND=1
-    while getopts "hc:gb:k:" opt
+    while getopts "hc:gb:k:p:" opt
     do
       case "$opt" in
         'h') usage ;;
@@ -43,6 +46,7 @@ load_options() {
         'g') WORKER_STATESTORE_TYPE=GitStateStore ;;
         'b') BUCKET_PATH=$OPTARG ;;
         'k') KUSTOMIZATION_NAME=$OPTARG ;;
+        'p') GITOPS_PROVIDER=$OPTARG ;;
         *) usage 1 ;;
       esac
     done
@@ -66,7 +70,7 @@ patch_kind_networking() {
     fi
 }
 
-patch_flux_resources() {
+patch_name() {
     local name="$(echo "${CONTEXT}" | cut -d "-" -f 2)"
     if [[ ! $KUSTOMIZATION_NAME == "" ]]; then
         name=$KUSTOMIZATION_NAME
@@ -77,9 +81,7 @@ patch_flux_resources() {
         sed "s/kratix-workload-resources/kratix-${name}-resources/g"
 }
 
-install_gitops() {
-    CONTEXT="${CONTEXT:-$1}"
-    BUCKET_PATH="${BUCKET_PATH:-$2}"
+install_flux_gitops() {
     resource_file=${ROOT}/hack/destination/gitops-tk-resources.yaml
     if [ ${WORKER_STATESTORE_TYPE} = "GitStateStore" ]; then
         resource_file=${ROOT}/hack/destination/gitops-tk-resources-git.yaml;
@@ -89,12 +91,43 @@ install_gitops() {
     # install flux crds
     kubectl --context "${CONTEXT}" apply --filename ${ROOT}/hack/destination/gitops-tk-install.yaml
 
-    patch_kind_networking $resource_file | patch_flux_resources | kubectl --context "${CONTEXT}" apply --filename -
+    patch_kind_networking $resource_file | patch_name | kubectl --context "${CONTEXT}" apply --filename -
+}
+
+patch_argo_secret() {
+    local argo_password=$(kubectl --context kind-platform get secret  gitea-credentials -n gitea -o yaml | yq .data.password | base64 -d)
+    sed "s/PASSWORD/${argo_password}/g"
+}
+
+install_argocd_gitops() {
+    if [ ${WORKER_STATESTORE_TYPE} != "GitStateStore" ]; then
+        echo "only Git (--git) state store is supported for ArgoCD"
+        exit 1
+    fi
+
+    kubectl --context "${CONTEXT}" create namespace argocd
+    kubectl --namespace argocd --context "${CONTEXT}" apply --filename https://raw.githubusercontent.com/argoproj/argo-cd/refs/tags/v2.13.3/manifests/install.yaml
+
+    resource_file=${ROOT}/hack/destination/gitops-argo-resources-git.yaml
+    patch_kind_networking $resource_file | patch_name | patch_argo_secret | kubectl --context "${CONTEXT}" apply --filename -
 }
 
 main() {
     load_options $@
-    install_gitops
+    export CONTEXT="${CONTEXT:-$1}"
+    export BUCKET_PATH="${BUCKET_PATH:-$2}"
+    if [ ${GITOPS_PROVIDER} = "flux" ]; then
+        install_flux_gitops
+        exit 0
+    fi
+
+    if [ ${GITOPS_PROVIDER} = "argo" ]; then
+        install_argocd_gitops
+        exit 0
+    fi
+
+    echo "Unknown GitOps provider: ${GITOPS_PROVIDER}"
+    exit 1
 }
 
 if [ "$0" = "${BASH_SOURCE[0]}" ]; then

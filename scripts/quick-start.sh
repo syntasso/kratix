@@ -238,7 +238,7 @@ setup_worker_destination() {
         ${ROOT}/scripts/register-destination --name platform-cluster --context kind-platform $flags
     else
         cat "${ROOT}/config/samples/platform_v1alpha1_worker.yaml" | patch_statestore | kubectl --context kind-platform apply --filename -
-        install_gitops kind-worker worker-1
+        install_flux_gitops kind-worker worker-1
         if ! ${LABELS}; then
             kubectl --context kind-platform label destination worker-1 environment-
         fi
@@ -246,7 +246,7 @@ setup_worker_destination() {
 }
 
 setup_worker_2_destination() {
-    install_gitops kind-worker-2 worker-2
+    install_flux_gitops kind-worker-2 worker-2
 }
 
 wait_for_gitea() {
