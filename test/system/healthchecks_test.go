@@ -1,11 +1,8 @@
 package system_test
 
 import (
-	"encoding/json"
-	"fmt"
 	"time"
 
-	"github.com/syntasso/kratix/lib/compression"
 	metav1 "k8s.io/apimachinery/pkg/apis/meta/v1"
 
 	"github.com/onsi/ginkgo/v2/types"
@@ -18,7 +15,6 @@ import (
 )
 
 var _ = Describe("Kratix Healthcheck", func() {
-	const healthPipelineName = "bash-check"
 	var (
 		rrName    string
 		dstLabels = map[string]string{"env": "healthchecks-test"}
@@ -32,21 +28,8 @@ var _ = Describe("Kratix Healthcheck", func() {
 		dstLabels["promise"] = bashPromiseName
 		createDestination(bashPromiseName, dstLabels)
 
-		uHealthPipeline := pipelineToUnstructured(v1alpha1.Pipeline{
-			ObjectMeta: metav1.ObjectMeta{Name: healthPipelineName},
-			Spec: v1alpha1.PipelineSpec{
-				Containers: []v1alpha1.Container{{Name: "a-container-name", Image: "test-image:latest"}},
-			},
-		})
-
 		bashPromise.Spec.DestinationSelectors = []v1alpha1.PromiseScheduling{
 			{MatchLabels: dstLabels},
-		}
-		bashPromise.Spec.HealthChecks = &v1alpha1.HealthChecks{
-			Resource: &v1alpha1.HealthCheckDefinition{
-				Schedule: "5m",
-				Workflow: uHealthPipeline,
-			},
 		}
 
 		platform.eventuallyKubectl("apply", "-f", cat(bashPromise))
@@ -66,45 +49,6 @@ var _ = Describe("Kratix Healthcheck", func() {
 			platform.eventuallyKubectlDelete("promise", bashPromiseName)
 			platform.eventuallyKubectlDelete("destination", bashPromiseName)
 		}
-	})
-
-	Describe("Requesting a resource", func() {
-		It("creates an addition health workflow at resource request", func() {
-			healthPipelineLabels := fmt.Sprintf(
-				"kratix.io/promise-name=%s,kratix.io/resource-name=%s,kratix.io/pipeline-name=%s,kratix.io/work-type=%s",
-				bashPromiseName,
-				rrName,
-				healthPipelineName,
-				"resource",
-			)
-
-			By("executing the healthcheck workflow", func() {
-				Eventually(func() string {
-					return platform.eventuallyKubectl("get", "pods", "--selector", healthPipelineLabels)
-				}, timeout, interval).Should(ContainSubstring("Completed"))
-			})
-
-			By("creating work with health definition", func() {
-				var works v1alpha1.WorkList
-
-				Eventually(func(g Gomega) {
-					worksJson := platform.kubectl("get", "works", "-o", "json", "-A", "--selector", healthPipelineLabels)
-					err := json.Unmarshal([]byte(worksJson), &works)
-					g.Expect(err).NotTo(HaveOccurred())
-					g.Expect(works.Items).To(HaveLen(1))
-				}, timeout, interval).Should(Succeed())
-
-				work := works.Items[0]
-				Expect(work.Spec.WorkloadGroups).To(HaveLen(1))
-				wGroup := work.Spec.WorkloadGroups[0]
-				Expect(wGroup.Workloads[0].Filepath).To(Equal("healthdefinition.yaml"))
-				Expect(compression.DecompressContent([]byte(wGroup.Workloads[0].Content))).To(SatisfyAll(
-					ContainSubstring("schedule: 5m"),
-					ContainSubstring("name: a-container-name"),
-					ContainSubstring("image: test-image:latest"),
-				))
-			})
-		})
 	})
 
 	Describe("Resource with HealthRecord", func() {
@@ -180,13 +124,4 @@ func createDestination(name string, labels map[string]string) {
 			},
 		},
 	}))
-}
-
-func pipelineToUnstructured(pipeline v1alpha1.Pipeline) *unstructured.Unstructured {
-	healthObjMap, err := runtime.DefaultUnstructuredConverter.ToUnstructured(&pipeline)
-	Expect(err).NotTo(HaveOccurred())
-	uPipeline := &unstructured.Unstructured{Object: healthObjMap}
-	uPipeline.SetAPIVersion("platform.kratix.io/v1alpha1")
-	uPipeline.SetKind("Pipeline")
-	return uPipeline
 }

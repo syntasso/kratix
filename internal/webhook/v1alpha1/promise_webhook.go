@@ -19,9 +19,10 @@ package v1alpha1
 import (
 	"context"
 	"fmt"
-	"github.com/syntasso/kratix/api/v1alpha1"
 	"reflect"
 	"strings"
+
+	"github.com/syntasso/kratix/api/v1alpha1"
 
 	"k8s.io/apiextensions-apiserver/pkg/client/clientset/clientset"
 	"k8s.io/apimachinery/pkg/api/errors"
@@ -126,10 +127,6 @@ func validatePipelines(p *v1alpha1.Promise) error {
 	for workflowType, actionToPipelineMap := range promisePipelines {
 		for workflowAction, pipelines := range actionToPipelineMap {
 			pipelineNamesMap := map[string]bool{}
-			if workflowType == v1alpha1.WorkflowTypeResource && workflowAction == v1alpha1.WorkflowActionConfigure &&
-				len(p.GetResourceHealthChecks()) > 0 {
-				pipelineNamesMap[p.GetResourceHealthChecks()[0].GetName()] = true
-			}
 			for _, pipeline := range pipelines {
 				if err = validatePipelineLabels(pipeline, string(workflowType), string(workflowAction)); err != nil {
 					return err

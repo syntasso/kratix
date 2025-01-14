@@ -15,7 +15,6 @@ import (
 	rbacv1 "k8s.io/api/rbac/v1"
 	metav1 "k8s.io/apimachinery/pkg/apis/meta/v1"
 	"k8s.io/apimachinery/pkg/apis/meta/v1/unstructured"
-	"k8s.io/apimachinery/pkg/runtime"
 	"k8s.io/apimachinery/pkg/types"
 	"k8s.io/apimachinery/pkg/util/yaml"
 	"k8s.io/client-go/kubernetes/scheme"
@@ -194,65 +193,6 @@ var _ = Describe("DynamicResourceRequestController", func() {
 				status := resReq.Object["status"]
 				statusMap := status.(map[string]interface{})
 				Expect(statusMap["message"].(string)).To(Equal("Pending"))
-			})
-		})
-
-		When("the promise includes resource healthchecks", func() {
-			BeforeEach(func() {
-				hcPipeline := &v1alpha1.Pipeline{
-					ObjectMeta: metav1.ObjectMeta{
-						Name:      "healthcheck",
-						Namespace: "default",
-					},
-					Spec: v1alpha1.PipelineSpec{
-						Containers: []v1alpha1.Container{
-							{Image: "busybox", Command: []string{"echo", "hello"}},
-						},
-					},
-				}
-
-				objMap, err := runtime.DefaultUnstructuredConverter.ToUnstructured(hcPipeline)
-				Expect(err).NotTo(HaveOccurred())
-
-				uPipeline := &unstructured.Unstructured{Object: objMap}
-				uPipeline.SetAPIVersion(v1alpha1.GroupVersion.String())
-				uPipeline.SetKind("Pipeline")
-
-				promise.Spec.HealthChecks = &v1alpha1.HealthChecks{
-					Resource: &v1alpha1.HealthCheckDefinition{
-						Schedule: "1 hour",
-						Workflow: uPipeline,
-					},
-				}
-				Expect(fakeK8sClient.Update(ctx, promise)).To(Succeed())
-			})
-
-			It("reconciles until completion", func() {
-				result, err := t.reconcileUntilCompletion(reconciler, resReq)
-				Expect(err).NotTo(HaveOccurred())
-				Expect(result).To(Equal(ctrl.Result{}))
-
-				Expect(fakeK8sClient.Get(ctx, resReqNameNamespace, resReq)).To(Succeed())
-
-				Expect(reconcileConfigureOptsArg.Resources).To(HaveLen(2))
-
-				By("creating the pipeline job for the resource workflow", func() {
-					configureWorkflowJob := reconcileConfigureOptsArg.Resources[0].Job
-					Expect(configureWorkflowJob).NotTo(BeNil())
-					Expect(configureWorkflowJob.GetLabels()).To(HaveKeyWithValue("kratix.io/work-action", "configure"))
-				})
-
-				By("creating the pipeline job for the healthcheck workflow", func() {
-					setConfigureWorkflowStatus(resReq, v1.ConditionTrue)
-					setReconcileConfigureWorkflowToReturnFinished()
-					result, err := t.reconcileUntilCompletion(reconciler, resReq)
-					Expect(err).NotTo(HaveOccurred())
-					Expect(result).To(Equal(ctrl.Result{}))
-
-					healthCheckWorkflowJob := reconcileConfigureOptsArg.Resources[1].Job
-					Expect(healthCheckWorkflowJob.GetLabels()).To(HaveKeyWithValue("kratix.io/work-action", "healthcheck"))
-				})
-
 			})
 		})
 	})

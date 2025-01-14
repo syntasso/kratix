@@ -3,9 +3,8 @@ package v1alpha1
 const (
 	SystemNamespace = "kratix-platform-system"
 
-	WorkflowActionConfigure   Action = "configure"
-	WorkflowActionDelete      Action = "delete"
-	WorkflowActionHealthCheck Action = "healthcheck"
+	WorkflowActionConfigure Action = "configure"
+	WorkflowActionDelete    Action = "delete"
 
 	WorkflowTypeResource Type = "resource"
 	WorkflowTypePromise  Type = "promise"

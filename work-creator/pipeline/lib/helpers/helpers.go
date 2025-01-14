@@ -26,7 +26,6 @@ type Parameters struct {
 	CRDPlural      string
 	ClusterScoped  bool
 	IsLastPipeline bool
-	Healthcheck    bool
 
 	InputDir  string
 	OutputDir string
@@ -42,7 +41,6 @@ func getParametersFromEnv() *Parameters {
 		CRDPlural:       os.Getenv("CRD_PLURAL"),
 		ClusterScoped:   os.Getenv("CLUSTER_SCOPED") == "true",
 		IsLastPipeline:  os.Getenv("IS_LAST_PIPELINE") == "true",
-		Healthcheck:     os.Getenv("HEALTHCHECK") == "true",
 		InputDir:        os.Getenv("INPUT_DIR"),
 		OutputDir:       os.Getenv("OUTPUT_DIR"),
 	}
