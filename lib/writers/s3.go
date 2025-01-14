@@ -170,21 +170,14 @@ func (b *S3Writer) update(subDir string, workloadsToCreate []v1alpha1.Workload, 
 }
 
 func (b *S3Writer) deleteObjects(ctx context.Context, oldObjectsToDelete map[string]minio.ObjectInfo, logger logr.Logger) error {
-	objectsCh := make(chan minio.ObjectInfo)
-	go func() {
-		defer close(objectsCh)
-		for _, objectInfo := range oldObjectsToDelete {
-			objectsCh <- objectInfo
-		}
-	}()
-
-	errorCh := b.RepoClient.RemoveObjects(ctx, b.BucketName, objectsCh, minio.RemoveObjectsOptions{})
-
-	// Print errCount received from RemoveObjects API
 	var errCount int
-	for e := range errorCh {
-		logger.Error(e.Err, "Failed to remove object", "objectName", e.ObjectName)
-		errCount++
+
+	for objectName, objectInfo := range oldObjectsToDelete {
+		err := b.RepoClient.RemoveObject(ctx, b.BucketName, objectInfo.Key, minio.RemoveObjectOptions{})
+		if err != nil {
+			logger.Error(err, "Failed to remove object", "objectName", objectName)
+			errCount++
+		}
 	}
 
 	if errCount != 0 {
