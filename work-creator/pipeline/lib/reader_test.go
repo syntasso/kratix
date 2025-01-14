@@ -30,7 +30,7 @@ var _ = Describe("Reader", func() {
 
 	BeforeEach(func() {
 		var err error
-		tempDir, err = os.MkdirTemp("", "health-state-test")
+		tempDir, err = os.MkdirTemp("", "reader-test")
 		Expect(err).NotTo(HaveOccurred())
 
 		ctx = context.Background()
@@ -44,7 +44,6 @@ var _ = Describe("Reader", func() {
 			CRDPlural:       "thekinds",
 
 			PromiseName:   "test-promise",
-			Healthcheck:   false,
 			ClusterScoped: false,
 		}
 
@@ -116,40 +115,6 @@ var _ = Describe("Reader", func() {
 		Expect(string(outputContents)).To(SatisfyAll(
 			ContainSubstring("Object file written to"),
 			ContainSubstring("apiVersion: group/version"),
-		))
-	})
-
-	It("should write the promise to a file if healthcheck is set to true", func() {
-		params.Healthcheck = true
-
-		Expect(subject.Run(ctx)).To(Succeed())
-
-		_, err := os.Stat(params.GetObjectPath())
-		Expect(err).NotTo(HaveOccurred(), "object file should exist")
-
-		_, err = os.Stat(params.GetPromisePath())
-		Expect(err).NotTo(HaveOccurred())
-
-		fileContent, err := os.ReadFile(params.GetPromisePath())
-		Expect(err).NotTo(HaveOccurred())
-
-		var object map[string]interface{}
-		err = yaml.Unmarshal(fileContent, &object)
-		Expect(err).NotTo(HaveOccurred())
-
-		Expect(object["apiVersion"]).To(Equal("platform.kratix.io/v1alpha1"))
-		Expect(object["kind"]).To(Equal("Promise"))
-		Expect(object["metadata"].(map[string]interface{})["name"]).To(Equal("test-promise"))
-		Expect(object["metadata"].(map[string]interface{})["namespace"]).To(BeNil())
-
-		outputContents, err := os.ReadFile(outputLog.Name())
-		Expect(err).NotTo(HaveOccurred())
-		Expect(string(outputContents)).To(SatisfyAll(
-			ContainSubstring("Object file written to"),
-			ContainSubstring("apiVersion: group/version"),
-
-			ContainSubstring("Promise file written to"),
-			ContainSubstring("apiVersion: platform.kratix.io/v1alpha1"),
 		))
 	})
 })

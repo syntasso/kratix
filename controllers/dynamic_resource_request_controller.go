@@ -156,14 +156,6 @@ func (r *DynamicResourceRequestController) Reconcile(ctx context.Context, req ct
 		return ctrl.Result{}, err
 	}
 
-	if promise.HasPipeline(v1alpha1.WorkflowTypeResource, v1alpha1.WorkflowActionHealthCheck) {
-		healthCheckPipelineResources, err := promise.GenerateResourceHealthCheckPipelines(rr, logger)
-		if err != nil {
-			return ctrl.Result{}, err
-		}
-		pipelineResources = append(pipelineResources, healthCheckPipelineResources...)
-	}
-
 	jobOpts := workflow.NewOpts(ctx, r.Client, logger, rr, pipelineResources, "resource", r.NumberOfJobsToKeep)
 
 	abort, err := reconcileConfigure(jobOpts)

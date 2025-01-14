@@ -319,7 +319,6 @@ var _ = Describe("Pipeline", func() {
 				},
 					Entry("Configure", v1alpha1.WorkflowActionConfigure, 4, true, false),
 					Entry("Delete", v1alpha1.WorkflowActionDelete, 3, false, false),
-					Entry("HealthCheck", v1alpha1.WorkflowActionHealthCheck, 6, true, true),
 				)
 			})
 
@@ -537,76 +536,6 @@ var _ = Describe("Pipeline", func() {
 							Expect(podSpec.Containers[0].Image).To(Equal(pipeline.Spec.Containers[1].Image))
 						})
 					})
-
-					When("building a job for the healthcheck action", func() {
-						BeforeEach(func() {
-							factory.ResourceWorkflow = true
-							factory.WorkflowAction = v1alpha1.WorkflowActionHealthCheck
-							var err error
-							resources, err = factory.Resources(nil)
-							Expect(err).ToNot(HaveOccurred())
-						})
-
-						It("returns a job with the appropriate spec", func() {
-							job := resources.Job
-							Expect(job).ToNot(BeNil())
-
-							Expect(job.GetName()).To(HavePrefix("kratix-%s-%s-%s", promise.GetName(), resourceRequest.GetName(), pipeline.GetName()))
-							podTemplate := job.Spec.Template
-							Expect(job.GetNamespace()).To(Equal(factory.Namespace))
-							for _, definedLabels := range []map[string]string{job.GetLabels(), podTemplate.GetLabels()} {
-								Expect(definedLabels).To(SatisfyAll(
-									HaveKeyWithValue(v1alpha1.PromiseNameLabel, promise.GetName()),
-									HaveKeyWithValue(v1alpha1.WorkTypeLabel, string(factory.WorkflowType)),
-									HaveKeyWithValue(v1alpha1.WorkActionLabel, string(v1alpha1.WorkflowActionHealthCheck)),
-									HaveKeyWithValue(v1alpha1.PipelineNameLabel, pipeline.GetName()),
-									HaveKeyWithValue(v1alpha1.KratixResourceHashLabel, combinedHash(promiseHash(promise), resourceHash(resourceRequest))),
-									HaveKeyWithValue(v1alpha1.ResourceNameLabel, resourceRequest.GetName()),
-								))
-							}
-
-							By("injecting the pipeline labels and annotations into the templated pod", func() {
-								for key, val := range pipeline.GetLabels() {
-									Expect(podTemplate.GetLabels()).To(HaveKeyWithValue(key, val))
-								}
-								for key, val := range pipeline.GetAnnotations() {
-									Expect(podTemplate.GetAnnotations()).To(HaveKeyWithValue(key, val))
-								}
-							})
-
-							podSpec := podTemplate.Spec
-							Expect(podSpec.ServiceAccountName).To(Equal(serviceAccount.GetName()))
-							Expect(podSpec.ImagePullSecrets).To(ConsistOf(pipeline.Spec.ImagePullSecrets))
-
-							Expect(podSpec.InitContainers).To(HaveLen(2))
-							var initContainerNames []string
-							var initContainerImages []string
-							for _, container := range podSpec.InitContainers {
-								initContainerNames = append(initContainerNames, container.Name)
-								initContainerImages = append(initContainerImages, container.Image)
-							}
-
-							Expect(initContainerNames).To(Equal([]string{
-								"reader",
-								"health-definition-creator",
-							}))
-							Expect(initContainerImages).To(Equal([]string{pipelineAdapterImage, pipelineAdapterImage}))
-
-							Expect(podSpec.Containers).To(HaveLen(1))
-							Expect(podSpec.Containers[0].Name).To(Equal("work-writer"))
-							Expect(podSpec.RestartPolicy).To(Equal(corev1.RestartPolicyOnFailure))
-							Expect(podSpec.Volumes).To(HaveLen(5))
-							var volumeNames []string
-							for _, volume := range podSpec.Volumes {
-								volumeNames = append(volumeNames, volume.Name)
-							}
-							Expect(volumeNames).To(ConsistOf(
-								"promise-scheduling",
-								"shared-input", "shared-output", "shared-metadata",
-								pipeline.Spec.Volumes[0].Name,
-							))
-						})
-					})
 				})
 			})
 
@@ -704,10 +633,6 @@ var _ = Describe("Pipeline", func() {
 			},
 				Entry("resource configure", true, v1alpha1.WorkflowActionConfigure, nil),
 				Entry("promise configure", false, v1alpha1.WorkflowActionConfigure, nil),
-				Entry("resource health check", true, v1alpha1.WorkflowActionHealthCheck, []corev1.EnvVar{
-					{Name: "HEALTHCHECK", Value: "true"},
-					{Name: "PROMISE_NAME", Value: "promiseName"},
-				}),
 			)
 
 			Describe("WorkCreatorContainer", func() {
@@ -843,33 +768,6 @@ var _ = Describe("Pipeline", func() {
 					))
 					Expect(container.VolumeMounts).To(ConsistOf(
 						corev1.VolumeMount{Name: "shared-metadata", MountPath: "/work-creator-files/metadata"},
-					))
-				})
-			})
-
-			Describe("HealthDefinition Creator container", func() {
-				BeforeEach(func() {
-					factory.ResourceWorkflow = true
-					factory.WorkflowAction = v1alpha1.WorkflowActionHealthCheck
-					var err error
-					resources, err = factory.Resources([]corev1.EnvVar{
-						{Name: "env1", Value: "value1"},
-						{Name: "env2", Value: "value2"},
-					})
-					Expect(err).ToNot(HaveOccurred())
-				})
-
-				It("returns the appropriate container", func() {
-					container := resources.Job.Spec.Template.Spec.InitContainers[1]
-					Expect(container).ToNot(BeNil())
-					Expect(container.Name).To(Equal("health-definition-creator"))
-					Expect(container.Image).To(Equal(pipelineAdapterImage))
-					Expect(container.Command).To(Equal([]string{"sh", "-c", "health-definition-creator -promise-name promiseName -resource-name resourceName"}))
-					Expect(container.Env).To(BeEmpty())
-					Expect(container.VolumeMounts).To(ConsistOf(
-						corev1.VolumeMount{Name: "shared-output", MountPath: "/kratix/output"},
-						corev1.VolumeMount{Name: "shared-input", MountPath: "/kratix/input", ReadOnly: true},
-						corev1.VolumeMount{Name: "shared-metadata", MountPath: "/kratix/metadata"},
 					))
 				})
 			})

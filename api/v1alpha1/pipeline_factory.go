@@ -93,7 +93,7 @@ func (p *PipelineFactory) serviceAccount() *corev1.ServiceAccount {
 }
 
 func (p *PipelineFactory) configMap(workloadGroupScheduling []WorkloadGroupScheduling) (*corev1.ConfigMap, error) {
-	if p.WorkflowAction != WorkflowActionConfigure && p.WorkflowAction != WorkflowActionHealthCheck {
+	if p.WorkflowAction != WorkflowActionConfigure {
 		return nil, nil
 	}
 	schedulingYAML, err := yaml.Marshal(workloadGroupScheduling)
@@ -113,7 +113,7 @@ func (p *PipelineFactory) configMap(workloadGroupScheduling []WorkloadGroupSched
 }
 
 func (p *PipelineFactory) defaultVolumes(schedulingConfigMap *corev1.ConfigMap) []corev1.Volume {
-	if p.WorkflowAction != WorkflowActionConfigure && p.WorkflowAction != WorkflowActionHealthCheck {
+	if p.WorkflowAction != WorkflowActionConfigure {
 		return []corev1.Volume{}
 	}
 	return []corev1.Volume{
@@ -178,12 +178,6 @@ func (p *PipelineFactory) readerContainer() corev1.Container {
 		{Name: "CLUSTER_SCOPED", Value: fmt.Sprintf("%t", p.ClusterScoped)},
 	}
 
-	if p.WorkflowAction == WorkflowActionHealthCheck {
-		envVars = append(envVars,
-			corev1.EnvVar{Name: "HEALTHCHECK", Value: "true"},
-			corev1.EnvVar{Name: "PROMISE_NAME", Value: p.Promise.GetName()})
-	}
-
 	return corev1.Container{
 		Name:    "reader",
 		Image:   os.Getenv("PIPELINE_ADAPTER_IMG"),
@@ -222,28 +216,6 @@ func (p *PipelineFactory) workCreatorContainer() corev1.Container {
 			{MountPath: "/work-creator-files/input", Name: "shared-output"},
 			{MountPath: "/work-creator-files/metadata", Name: "shared-metadata"},
 			{MountPath: "/work-creator-files/kratix-system", Name: "promise-scheduling"}, // this volumemount is a configmap
-		},
-		SecurityContext: kratixSecurityContext,
-	}
-}
-
-func (p *PipelineFactory) healthDefinitionCreatorContainer() corev1.Container {
-	cmd := "health-definition-creator"
-	args := []string{
-		"-promise-name", p.Promise.GetName(),
-	}
-	if p.ResourceWorkflow {
-		args = append(args, "-resource-name", p.ResourceRequest.GetName())
-	}
-	cmd = fmt.Sprintf("%s %s", cmd, strings.Join(args, " "))
-	return corev1.Container{
-		Name:    "health-definition-creator",
-		Image:   os.Getenv("PIPELINE_ADAPTER_IMG"),
-		Command: []string{"sh", "-c", cmd},
-		VolumeMounts: []corev1.VolumeMount{
-			{MountPath: "/kratix/input", Name: "shared-input", ReadOnly: true},
-			{MountPath: "/kratix/output", Name: "shared-output"},
-			{MountPath: "/kratix/metadata", Name: "shared-metadata"},
 		},
 		SecurityContext: kratixSecurityContext,
 	}
@@ -301,8 +273,6 @@ func (p *PipelineFactory) pipelineJob(schedulingConfigMap *corev1.ConfigMap, ser
 	workCreatorContainer := p.workCreatorContainer()
 	statusWriterContainer := p.statusWriterContainer(obj, env)
 
-	healthDefinitionCreatorContainer := p.healthDefinitionCreatorContainer()
-
 	volumes := append(p.defaultVolumes(schedulingConfigMap), pipelineVolumes...)
 
 	var initContainers []corev1.Container
@@ -317,9 +287,6 @@ func (p *PipelineFactory) pipelineJob(schedulingConfigMap *corev1.ConfigMap, ser
 	case WorkflowActionDelete:
 		initContainers = append(initContainers, pipelineContainers[0:len(pipelineContainers)-1]...)
 		containers = []corev1.Container{pipelineContainers[len(pipelineContainers)-1]}
-	case WorkflowActionHealthCheck:
-		initContainers = append(initContainers, healthDefinitionCreatorContainer)
-		containers = []corev1.Container{workCreatorContainer}
 	}
 
 	job := &batchv1.Job{
@@ -545,7 +512,7 @@ func (p *PipelineFactory) roleBindings(roles []rbacv1.Role, clusterRoles []rbacv
 
 func (p *PipelineFactory) clusterRole() []rbacv1.ClusterRole {
 	var clusterRoles []rbacv1.ClusterRole
-	if !p.ResourceWorkflow || p.WorkflowAction == WorkflowActionHealthCheck {
+	if !p.ResourceWorkflow {
 		clusterRoles = append(clusterRoles, rbacv1.ClusterRole{
 			ObjectMeta: metav1.ObjectMeta{
 				Name:   p.ID,
