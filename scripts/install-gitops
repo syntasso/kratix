@@ -19,7 +19,7 @@ usage() {
     echo -e "\t--path='', -b,\t The Repository name, must match the name used when registering the destination. Defaults to context."
     echo -e "\t--git, -g,\t Reads from local Gitea installation (default: Read from local MinIO installation)"
     echo -e "\t--kustomization-name, -k,\t Name of the Flux Kustomizations"
-    echo -e "\t--gitops-provider, -p,\t Gitops provider, either flux or argo. Defauls to flux"
+    echo -e "\t--gitops-provider, -p,\t Gitops provider, either flux or argo. Defaults to flux"
     exit "${1:-0}"
 }
 
