@@ -9,7 +9,7 @@ cd $ROOT
 CONTEXT=""
 WORKER_STATESTORE_TYPE=${WORKER_STATESTORE_TYPE:-BucketStateStore}
 KUSTOMIZATION_NAME=""
-GITOPS_PROVIDER="flux"
+GITOPS_PROVIDER=${GITOPS_PROVIDER:-"flux"}
 
 usage() {
     echo -e "Usage: ${BASH_SOURCE[0]} [--help] [--context=""] [--path=""] [--git]"
