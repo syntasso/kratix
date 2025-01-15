@@ -120,6 +120,7 @@ func (b *S3Writer) update(subDir string, workloadsToCreate []v1alpha1.Workload, 
 					return "", err
 				}
 				logger.Info("Object does not exist yet")
+				continue
 			}
 			objectsToDeleteMap[objStat.Key] = objStat
 		}
