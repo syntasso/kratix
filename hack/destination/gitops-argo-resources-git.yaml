@@ -9,7 +9,7 @@ metadata:
 stringData:
   type: git
   url: https://172.18.0.2:31333/gitea_admin/kratix
-  password: r8sA8CPHD9!bt6d
+  password: PASSWORD
   username: gitea_admin
   insecure: "true"
 ---
@@ -23,7 +23,7 @@ spec:
   source:
     repoURL: https://172.18.0.2:31333/gitea_admin/kratix
     targetRevision: HEAD
-    path: "worker/dependencies/"
+    path: "worker-1/dependencies/"
     directory:
       recurse: true
   destination:
@@ -44,7 +44,7 @@ spec:
   source:
     repoURL: https://172.18.0.2:31333/gitea_admin/kratix
     targetRevision: HEAD
-    path: "worker/resources/"
+    path: "worker-1/resources/"
     directory:
       recurse: true
   destination:
