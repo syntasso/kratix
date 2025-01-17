@@ -108,8 +108,11 @@ install_argocd_gitops() {
     fi
 
     kubectl --context "${CONTEXT}" create namespace argocd
-    kubectl --namespace argocd --context "${CONTEXT}" apply --filename https://raw.githubusercontent.com/argoproj/argo-cd/refs/tags/v2.13.3/manifests/install.yaml
-    kubectl --context "${CONTEXT}" wait --namespace argocd --for=condition=ready --timeout=300s pods --all
+    kubectl --context "${CONTEXT}" -n argocd apply --filename https://raw.githubusercontent.com/argoproj/argo-cd/refs/tags/v2.13.3/manifests/install.yaml
+    kubectl --context "${CONTEXT}" -n argocd patch configmap argocd-cm --type=json -p='[{"op": "add", "path": "/data", "value": {"timeout.reconciliation": "10s"}}]'
+    kubectl --context "${CONTEXT}" -n argocd rollout restart deployment argocd-applicationset-controller
+    kubectl --context "${CONTEXT}" -n argocd rollout restart deployment argocd-repo-server
+    kubectl --context "${CONTEXT}" -n argocd wait --for=condition=available --timeout=300s deployments --all
 
     resource_file=${ROOT}/hack/destination/gitops-argo-resources-git.yaml
     patch_kind_networking $resource_file | patch_name | patch_argo_secret | kubectl --context "${CONTEXT}" apply --filename -
