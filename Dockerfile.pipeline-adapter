@@ -1,24 +1,20 @@
-FROM golang:1.23 AS builder
+FROM --platform=$BUILDPLATFORM golang:1.23 AS builder
 ARG TARGETARCH
 ARG TARGETOS
 
 WORKDIR /workspace
-# Copy the Go Modules manifests
-COPY go.mod go.mod
-COPY go.sum go.sum
-COPY api/ api/
-COPY lib/ lib/
-COPY work-creator/ work-creator/
-# cache deps before building and copying source so that we don't need to re-download as much
-# and so that source changes don't invalidate our downloaded layer
-RUN go mod download
 
-# Build work-creator binary
-RUN CGO_ENABLED=0 GOOS=${TARGETOS} GOARCH=${TARGETARCH} GO111MODULE=on go build -a -o bin/work-creator work-creator/pipeline/cmd/work-creator/main.go
-RUN CGO_ENABLED=0 GOOS=${TARGETOS} GOARCH=${TARGETARCH} GO111MODULE=on go build -a -o bin/update-status work-creator/pipeline/cmd/update-status/main.go
-RUN CGO_ENABLED=0 GOOS=${TARGETOS} GOARCH=${TARGETARCH} GO111MODULE=on go build -a -o bin/reader work-creator/pipeline/cmd/reader/main.go
+ENV GO111MODULE=on
+ENV CGO_ENABLED=0
+ENV GOOS=${TARGETOS}
+ENV GOARCH=${TARGETARCH}
 
-RUN mkdir work-creator-files
+RUN --mount=target=. \
+    --mount=type=cache,target=/root/.cache/go-build \
+    --mount=type=cache,target=/go/pkg \
+    go build -a -o /out/work-creator work-creator/pipeline/cmd/work-creator/main.go && \
+    go build -a -o /out/update-status work-creator/pipeline/cmd/update-status/main.go && \
+    go build -a -o /out/reader work-creator/pipeline/cmd/reader/main.go
 
 # Use distroless as minimal base image to package the manager binary
 # Refer to https://github.com/GoogleContainerTools/distroless for more details
@@ -26,10 +22,9 @@ FROM gcr.io/distroless/cc:nonroot
 
 COPY --chown=nonroot:nonroot --from=busybox /usr/bin/env /usr/bin/env
 COPY --chown=nonroot:nonroot --from=busybox /bin/sh /bin/sh
-COPY --chown=nonroot:nonroot --from=builder /workspace/bin/work-creator /bin/work-creator
-COPY --chown=nonroot:nonroot --from=builder /workspace/bin/update-status /bin/update-status
-COPY --chown=nonroot:nonroot --from=builder /workspace/bin/reader /bin/reader
-COPY --chown=nonroot:nonroot --from=builder /workspace/work-creator-files /work-creator-files
+COPY --chown=nonroot:nonroot --from=builder /out/work-creator /bin/work-creator
+COPY --chown=nonroot:nonroot --from=builder /out/update-status /bin/update-status
+COPY --chown=nonroot:nonroot --from=builder /out/reader /bin/reader
 
 USER 65532:65532
 ENTRYPOINT []
