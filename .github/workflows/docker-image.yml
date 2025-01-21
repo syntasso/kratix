@@ -1,0 +1,34 @@
+name: Update Kratix Releases
+
+on:
+  push:
+    branches:
+      - main
+
+jobs:
+  update-release-sha:
+    runs-on: ubuntu-latest
+    steps:
+      - name: Checkout current repository
+        uses: actions/checkout@v3
+      - name: Get latest commit SHA
+        run: echo "SHA=$(git rev-parse HEAD)" >> $GITHUB_ENV
+
+      - name: Checkout ci repository
+        uses: actions/checkout@v3
+        with:
+          repository: SaphMB/cicd-test  # Replace with the target repository name
+          token: ${{ secrets.GITHUB_ACTION_TOKEN }}
+
+      - name: Update release.json with new SHA
+        run: |
+          # Assuming release.json already exists in the root directory of the target repo
+          jq --arg sha "$SHA" '.sha = $sha' release.json > temp.json && mv temp.json release.json
+
+      - name: Commit and push changes
+        run: |
+          git config user.name "GitHub Action"
+          git config user.email "bot@github.com"
+          git add release.json
+          git commit -m "Update release.json with latest commit SHA"
+          git push
