@@ -8,7 +8,10 @@ jobs:
       - run:
           name: Clone current repo
           command : |
-            echo "Clone current repo"
+            git clone https://github.com/SaphMB/kratix-cicd.git
+            cd kratix-cicd
+            kratix_sha=$(jq -r .kratix_version release.json)
+            git checkout $kratix_sha
       - persist_to_workspace:
           root: .
           paths:
