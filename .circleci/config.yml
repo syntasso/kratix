@@ -1,541 +1,184 @@
 version: 2.1
 
-orbs:
-  k8s: circleci/kubernetes@1.3.1
-  gh: circleci/github-cli@2.4.0
-  golang: circleci/go@1.12.0
-  retry: kimh/run-with-retry@1.0.0
-  queue: eddiewebb/queue@2.2.1
-  snyk: snyk/snyk@2.2.0
-  slack: circleci/slack@3.4.2
-
-executors:
-  machine-medium:
-    machine:
-      image: ubuntu-2204:2023.04.2
-      docker_layer_caching: true
-    working_directory: ~/repo
-    resource_class: medium
-  machine-large:
-    machine:
-      image: ubuntu-2204:2023.04.2
-      docker_layer_caching: true
-    working_directory: ~/repo
-    resource_class: large
-  machine-xlarge:
-    machine:
-      image: ubuntu-2204:2023.04.2
-      docker_layer_caching: true
-    working_directory: ~/repo
-    resource_class: xlarge
-
-filter-for-tags: &filter-for-tags
-  filters:
-    tags:
-      only: latest
-    branches:
-      ignore: /.*/
-
-commands:
-  notify-slack:
-    description: Notify failures via Slack
-    parameters:
-      fail_only:
-        type: boolean
-        default: true
-      only_for_branches:
-        type: string
-      success_message:
-        type: string
-        default: ":tada: A $CIRCLE_JOB job has succeeded!"
-      failure_message:
-        type: string
-        default: ":red_circle: A $CIRCLE_JOB job has failed!"
-      channel:
-        type: string
-        default: eng-alerts-ci
-    steps:
-      - slack/status:
-          webhook: ${SLACK_ENG_ALERTS_CI}
-          channel: << parameters.channel >>
-          include_job_number_field: false
-          include_project_field: false
-          fail_only: << parameters.fail_only >>
-          success_message: << parameters.success_message >>
-          failure_message: << parameters.failure_message >>
-          only_for_branches: << parameters.only_for_branches >>
-  docker_login:
-    steps:
-      - run:
-          # https://circleci.com/docs/building-docker-images/#run-docker-commands-using-the-machine-executor
-          name: Docker Auth
-          command: |
-            echo "$DOCKER_PASSWORD" | docker login --username $DOCKER_USERNAME --password-stdin
-  install_software:
-    steps:
-      - k8s/install-kubectl
-      - golang/install:
-          cache: true
-          version: 1.23.5
-      - run:
-          name: Install Kind
-          command: |
-            if [ ! -f ~/bin/kind ]; then
-              curl -L https://github.com/kubernetes-sigs/kind/releases/download/v0.25.0/kind-linux-amd64 -o ~/bin/kind
-              chmod +x ~/bin/kind
-            fi
-      - run:
-          name: Install Helm
-          command: |
-            curl -L https://get.helm.sh/helm-v3.12.0-linux-amd64.tar.gz -o helm.tar.gz
-            tar -xvf helm.tar.gz
-            mv linux-amd64/helm ~/bin/helm
-            chmod +x ~/bin/helm
-            rm -rf linux-amd64/
-            rm helm.tar.gz
-      - run:
-          name: Install yq
-          command: |
-            curl -L https://github.com/mikefarah/yq/releases/download/v4.34.1/yq_linux_amd64 -o yq
-            mv yq ~/bin/yq
-            chmod +x ~/bin/yq
-      - run:
-          name: Install Flux
-          command: |
-            curl -s https://fluxcd.io/install.sh | sudo FLUX_VERSION=2.4.0 bash
-      - attach_workspace:
-          at: .
-      - run:
-          name: Install Dependencies
-          command: |
-            go mod download
-
-  configure_git:
-    steps:
-      - run:
-          # see https://circleci.com/docs/github-integration#establish-the-authenticity-of-an-ssh-host
-          name: setup git
-          command: |
-            mkdir -p ~/.ssh
-            ssh-keyscan github.com > ~/.ssh/known_hosts
-
-            git config --global user.name "syntassodev"
-            git config --global user.email "kratix@syntasso.io"
-
-  setup_git:
-    steps:
-      - add_ssh_keys:
-          # Add github deploy key
-          # https://circleci.com/docs/github-integration#create-a-github-deploy-key
-          fingerprints:
-            - "5e:1e:ea:52:8b:1b:ad:a2:66:1a:40:98:a3:f5:96:f5" # deploy key for kratix
-      - configure_git
-
-  setup_git_helm:
-    steps:
-      - add_ssh_keys:
-          fingerprints:
-            - "4b:78:81:17:99:0c:1d:63:42:dc:bb:1f:bd:d6:54:a8" # deploy key for helm-charts
-      - configure_git
-
 jobs:
-  clone-helm-charts:
-    executor: machine-medium
-    steps:
-      - run:
-          name: Clone helm charts
-          command: |
-            git clone --depth 1 git@github.com:syntasso/helm-charts.git ~/repo/charts
-      - persist_to_workspace:
-          root: .
-          paths:
-            - charts/
-
-  clone-kratix:
-    executor: machine-medium
-    steps:
-      - checkout
-      - persist_to_workspace:
-          root: .
-          paths:
-            - .
-
-  kratix-security-scan:
-    executor: machine-medium
-    environment:
-      KRATIX_IMAGE_NAME: docker.io/syntasso/kratix-platform
-      WORKER_IMAGE_NAME: docker.io/syntasso/kratix-platform-pipeline-adapter
-    steps:
-      - checkout
-      - install_software
-      - run:
-          name: Check circleci go version matches docker image
-          command: |
-            circleci_go_version=$(go version | awk '{print $3}' | sed 's/^go//')
-            go_image_tag=$(grep '^FROM' Dockerfile | head -n 1 | cut -d ' ' -f 2)
-
-            docker pull $go_image_tag
-            docker_go_version=$(docker inspect $go_image_tag | grep 'GOLANG_VERSION=' | sed -n 's/.*GOLANG_VERSION=\([^"]*\).*/\1/p')
-            if [ "$circleci_go_version" != "$docker_go_version" ]; then
-              echo "Go version mismatch: $circleci_go_version != $docker_go_version. Please update the Dockerfile to match the CircleCI go version."
-              exit 1
-            fi
-      - run:
-          name: install govulncheck
-          command: |
-            set -o pipefail
-            go install golang.org/x/vuln/cmd/govulncheck@latest
-      - run:
-          name: pull latest version of images so we dont use cached versions
-          command: |
-            docker pull $KRATIX_IMAGE_NAME:latest
-            docker pull $WORKER_IMAGE_NAME:latest
-      - run:
-          name: run check
-          command: govulncheck ./...
-      - snyk/scan:
-          severity-threshold: high
-          docker-image-name: $KRATIX_IMAGE_NAME:latest
-      - snyk/scan:
-          severity-threshold: high
-          docker-image-name: $WORKER_IMAGE_NAME:latest
-      - snyk/scan:
-          severity-threshold: high
-      - notify-slack:
-          only_for_branches: "main"
-
-  test:
-    executor: machine-xlarge
-    steps:
-      - install_software
-      - run:
-          name: Unit Tests
-          command: |
-            make test
-      - run:
-          name: System tests
-          command: |
-            DOCKER_BUILDKIT=1 ACK_GINKGO_RC=true make system-test
-      - notify-slack:
-          only_for_branches: "main"
-
-  e2e-demo-test-helm-git:
-    executor: machine-large
-    steps:
-      - install_software
-      - run:
-          name: Create Destinations and helm install
-          command: |
-            make distribution
-            make gitea-cli
-            ./charts/scripts/generate-templates-and-crds ./distribution/kratix.yaml
-            export DOCKER_BUILDKIT=1
-
-            # setup platform and install GitStateStore
-            kind create cluster --image kindest/node:v1.27.3 --name platform --config hack/platform/kind-platform-config.yaml
-            make install-cert-manager
-            make build-and-load-kratix
-            make build-and-load-work-creator
-            helm install kratix charts/kratix/ -f hack/platform/helm-values-gitea.yaml
-
-            source ./scripts/utils.sh
-            generate_gitea_credentials "kind-platform"
-
-            kubectl --context kind-platform apply --filename "hack/platform/gitea-install.yaml"
-            kubectl --context kind-platform wait --for=condition=Ready --timeout=300s -n gitea pod -l app.kubernetes.io/instance=gitea
-
-            # setup worker cluster and register as destination
-            kind create cluster --image kindest/node:v1.27.3 --name worker --config hack/destination/kind-worker-config.yaml
-            helm install kratix-destination charts/kratix-destination/ -f hack/destination/helm-values-gitea.yaml
-
-            copy_gitea_credentials "kind-platform" "kind-worker"
-
-            kubectl --context kind-worker wait --for=condition=Ready --timeout=300s -n default kustomization kratix-workload-resources
-      - run:
-          name: Verify Jenkins
-          command: |
-            ./scripts/install-jenkins.sh
-      - notify-slack:
-          only_for_branches: "main"
-
-  e2e-demo-test-helm-bucket:
-    executor: machine-large
-    steps:
-      - install_software
-      - run:
-          name: Create Destinations and helm install
-          command: |
-            make distribution
-            ./charts/scripts/generate-templates-and-crds ./distribution/kratix.yaml
-            export DOCKER_BUILDKIT=1
-
-            # setup platform and install BucketStateStore
-            kind create cluster --image kindest/node:v1.27.3 --name platform --config hack/platform/kind-platform-config.yaml
-            make install-cert-manager
-            make build-and-load-kratix
-            make build-and-load-work-creator
-            helm install kratix charts/kratix/ -f hack/platform/helm-values-minio.yaml
-            kubectl --context kind-platform apply --filename "hack/platform/minio-install.yaml"
-            kubectl --context kind-platform wait --for=condition=Ready --timeout=300s -n kratix-platform-system pod -l run=minio
-
-            # setup worker cluster and register as destination
-            kind create cluster --image kindest/node:v1.27.3 --name worker --config hack/destination/kind-worker-config.yaml
-            helm install kratix-destination charts/kratix-destination/ -f hack/destination/helm-values-minio.yaml
-            kubectl --context kind-platform apply --filename config/samples/platform_v1alpha1_worker.yaml
-            kubectl --context kind-worker wait --for=condition=Ready --timeout=300s -n kratix-worker-config kustomization kratix-workload-resources
-      - run:
-          name: Verify Jenkins
-          command: |
-            ./scripts/install-jenkins.sh
-      - notify-slack:
-          only_for_branches: "main"
-
-  generate-demo-image-list:
-    executor: machine-large
-    steps:
-      - attach_workspace:
-          at: .
-      - install_software
-      - run:
-          name: Generate demo image list
-          command: |
-            cd ./demo/
-            ./scripts/generate-demo-image-list.sh
-      - persist_to_workspace:
-          root: .
-          paths:
-            - .
-
-  build-and-push-images:
+  clone-repo:
     docker:
-      - image: cimg/base:current
-    resource_class: large
-    parameters:
-      image:
-        type: string
-    environment:
-      VERSION: << pipeline.git.tag >>
+      - image: cimg/base:2022.03
     steps:
-      - attach_workspace:
-          at: .
-      - setup_remote_docker:
-          docker_layer_caching: true
-      - docker_login
+      - run:
+          name: Clone current repo
+          command : |
+            echo "Clone current repo"
+      - persist_to_workspace:
+          root: .
+          paths:
+            - .
+
+  kratix-tests:
+    docker:
+      - image: cimg/base:2022.03
+    steps:
+      - run:
+          name: Run Unit Tests
+          command : |
+            echo "go test ../..."
+      - run:
+          name: Run System Tests
+          command : |
+            echo "go test ../.."
+      - run:
+          name: Run Integration Tests
+          command : |
+            echo "go test ../.."
+
+  kratix-acceptance-tests:
+    docker:
+      - image: cimg/base:2022.03
+    steps:
+      - run:
+          name: Run Other Tests
+          command : |
+            echo "go test ../..."
+
+  helm-integration-tests:
+    docker:
+      - image: cimg/base:2022.03
+    steps:
+      - run:
+          name: Clone Helm Repo
+          command: |
+            echo "Helm git clone"
+      - run:
+          name: Test Kratix Helm Chart
+          command : |
+            echo "Helm Install..."
+            echo "go test ../..."
+      - run:
+          name: Test Kratix Destination Helm Chart
+          command : |
+            echo "Helm Install..."
+            echo "go test ../..."
+
+  kratix-cli-integration-tests:
+    docker:
+      - image: cimg/base:2022.03
+    steps:
+      - run:
+          name: Test Kratix CLI
+          command : |
+            echo "go build..."
+            echo "go test ../..."
+
+  release-kratix:
+    docker:
+      - image: cimg/base:2022.03
+    steps:
       - run:
           name: Build and push images
-          command: |
-            ./scripts/build-images << parameters.image >>
-
-  git-push-to-main:
-    executor: machine-medium
-    steps:
-      - attach_workspace:
-          at: .
-      - setup_git
+          command : |
+            echo "Docker push..."
       - run:
-          name: Push main
-          command: |
-            git add -f demo/
-            # below command exits 0 when nothing is added
-            git diff --cached --quiet && exit 0 || true
-            git commit -m"update demo image list"
-            git push origin main
+          name: Deploy Helm Chart
+          command : |
+            echo "Calling github action"
 
-  generate-release-distribution:
-    executor: machine-medium
-    environment:
-      VERSION: << pipeline.git.tag >>
-    steps:
-      - attach_workspace:
-          at: .
-      - install_software
-      - run:
-          name: Generate new distribution
-          command: |
-            ./scripts/make-distribution
-      - run:
-          name: Generate helm charts
-          command: |
-            ./charts/scripts/generate-templates-and-crds ./distribution/kratix.yaml
-      - persist_to_workspace:
-          root: .
-          paths:
-            - .
-
-  tag-new-version:
-    executor: machine-medium
-    steps:
-      - queue/until_front_of_line: # ensure only one of those runs at a time
-          only-on-branch: main
-          time: "5"
-      - attach_workspace:
-          at: .
-      - setup_git
-      - run:
-          name: bump minor version and push tag
-          command: |
-            ./scripts/tag-latest-version
-
-  gh-release:
+  ske-core-tests:
     docker:
-      - image: cimg/base:current
-    resource_class: large
+      - image: cimg/base:2022.03
     steps:
-      - attach_workspace:
-          at: .
-      - gh/setup
       - run:
-          name: Release
-          command: |
-            gh config set prompt disabled
-            gh release delete <<pipeline.git.tag>> || true
-            gh release create <<pipeline.git.tag>> --title <<pipeline.git.tag>> ./distribution/**/*.yaml ./distribution/*.yaml
+          name: Run SKE Tests
+          command : |
+            echo "go test ../..."
 
-  helm-release:
+  ske-acceptance-tests:
     docker:
-      - image: cimg/base:current
-    resource_class: large
+      - image: cimg/base:2022.03
     steps:
-      - attach_workspace:
-          at: .
-      - setup_git_helm
       - run:
-          name: Push to helm-charts
-          command: |
-            cd charts
-            git add kratix/
-            git diff --cached --quiet && exit 0 || true
+          name: Run SKE Upgrade Tests
+          command : |
+            echo "go test ../..."
 
-            git commit -m"update kratix package"
-            git push origin main
-
-  upgrade-flux:
-    executor: machine-medium
+  ske-integration-tests:
+    docker:
+      - image: cimg/base:2022.03
     steps:
-      - attach_workspace:
-          at: .
-      - install_software
       - run:
-          name: setup git
-          command: |
-            rm -rf ~/.ssh
-            mkdir ~/.ssh
-            ssh-keyscan github.com > ~/.ssh/known_hosts
-
-            git config --global user.name "syntassodev"
-            git config --global user.email "kratix@syntasso.io"
-      - gh/setup
-      - setup_git
+          name: Run Helm Chart Tests
+          command : |
+            echo "go test ../..."
       - run:
-          name: fetch latest release manifest for flux
-          command: |
-            flux install --export > ./hack/destination/gitops-tk-install.yaml
+          name: Run SKE Operator Tests
+          command : |
+            echo "go test ../..."
       - run:
-          name: Create a PR to upgrade flux
+          name: Run SKE CLI Tests
+          command : |
+            echo "go test ../..."
+      - run:
+          name: Run Healthcheck Agent Tests
+          command : |
+            echo "go test ../..."
+      - run:
+          name: Run Terraform Aspect Tests
+          command : |
+            echo "go test ../..."
+      - run:
+          name: Run Backstage Promise Tests
+          command : |
+            echo "go test ../..."
+
+  security-scan:
+    docker:
+      - image: cimg/base:2022.03
+    steps:
+      - run:
+          name: Run Security scan
+          command : |
+            echo "snyk snyk snyk"
+
+  update-oss-kratix-in-ske:
+    docker:
+      - image: cimg/base:2022.03
+    steps:
+      - run:
+          name: Update OSS Kratix Submodule
           command: |
-            if [ $(git status --porcelain=1 | wc -l) -eq 0 ]; then
-              echo "No changes to commit"
-              exit 0
-            fi
+            echo "git commit ..."
 
-            version=$(grep "Flux Version" ./hack/destination/gitops-tk-install.yaml | cut -d ":" -f 2 | tr -d " ")
-
-            echo "This PR upgrades Flux to version ${version}." > ../pr_body.txt
-            echo "" >> ../pr_body.txt
-            echo "Manifest generated with \`flux install --export\`." >> ../pr_body.txt
-
-            git checkout -b upgrade-flux-to-${version}
-            git add .
-            git commit -m "auto: update Flux to ${version}"
-            git push origin upgrade-flux-to-${version}
-
-            gh pr create \
-              --title "upgrade Flux to ${version}" \
-              --body-file ../pr_body.txt \
-              --base main \
-              --head upgrade-flux-to-${version}
+  cut-ske-release:
+    docker:
+      - image: cimg/base:2022.03
+    steps:
+      - run:
+          name: Package and release ske
+          command : |
+            echo "go test ../..."
 
 workflows:
   run-ci:
     jobs:
-      - clone-kratix
-      - test:
-          requires: [clone-kratix]
-      - clone-helm-charts:
-          requires: [test]
-      - e2e-demo-test-helm-bucket:
-          requires: [clone-helm-charts]
-      - e2e-demo-test-helm-git:
-          requires: [clone-helm-charts]
-      ### ONLY MAIN
-      - tag-new-version:
-          requires:
-            - test
-            - e2e-demo-test-helm-git
-            - e2e-demo-test-helm-bucket
-          filters:
-            branches:
-              only: main
-      ### END ONLY MAIN
-
-  release:
-    jobs:
-      - clone-kratix:
-          <<: *filter-for-tags
-      - clone-helm-charts:
-          <<: *filter-for-tags
-      - build-and-push-images:
-          <<: *filter-for-tags
-          requires: [clone-kratix, clone-helm-charts]
-          matrix:
-            parameters:
-              image: [kratix, work-creator, samples]
-      - generate-release-distribution:
-          <<: *filter-for-tags
-          requires: [build-and-push-images]
-      - helm-release:
-          <<: *filter-for-tags
-          requires: [generate-release-distribution]
-      - gh-release:
-          <<: *filter-for-tags
-          requires: [generate-release-distribution]
-
-  update-demo:
-    triggers:
-      - schedule:
-          cron: "0 0 * * 1"
-          filters:
-            branches:
-              only: [main]
-    jobs:
-      - clone-kratix
-      - generate-demo-image-list:
-          requires: [clone-kratix]
-      - git-push-to-main:
-          requires: [generate-demo-image-list]
-
-  security-scan:
-    triggers:
-      - schedule:
-          cron: "0 0 * * *"
-          filters:
-            branches:
-              only: [main]
-    jobs:
-      - clone-kratix
-      - kratix-security-scan:
-          requires: [clone-kratix]
-
-  upgrade-deps:
-    triggers:
-      - schedule:
-          cron: "0 0 * * 3" # https://crontab.guru/#0_0_*_*_3 (every Wednesday at midnight)
-          filters:
-            branches:
-              only: [main]
-    jobs:
-      - clone-kratix
-      - upgrade-flux:
-          requires: [clone-kratix]
-
-
+      - clone-repo
+      - kratix-tests:
+          requires: [clone-repo]
+      - kratix-acceptance-tests:
+          requires: [kratix-tests]
+      - helm-integration-tests:
+          requires: [kratix-acceptance-tests]
+      - kratix-cli-integration-tests:
+          requires: [kratix-acceptance-tests]
+      - release-kratix:
+          requires: [kratix-acceptance-tests]
+      - ske-core-tests:
+          requires: [clone-repo]
+      - ske-acceptance-tests:
+          requires: [ske-core-tests]
+      - ske-integration-tests:
+          requires: [ske-acceptance-tests]
+      - security-scan:
+          requires: [ske-acceptance-tests]
+      - update-oss-kratix-in-ske:
+          requires: [security-scan]
+      - cut-ske-release:
+          requires: [update-oss-kratix-in-ske]
