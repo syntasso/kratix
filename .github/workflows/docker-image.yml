@@ -18,7 +18,7 @@ jobs:
         uses: actions/checkout@v3
         with:
           repository: SaphMB/cicd-test  # Replace with the target repository name
-          token: ${{ secrets.GITHUB_ACTION_TOKEN }}
+          token: ${{ secrets.ACTION_TOKEN }}
 
       - name: Update release.json with new SHA
         run: |
