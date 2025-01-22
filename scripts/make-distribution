@@ -13,10 +13,10 @@ docker pull syntasso/kratix-platform-pipeline-adapter
 
 docker pull syntasso/kratix-platform
 
-PIPELINE_ADAPTER_VERSION_MANIFEST_DIGEST=$(docker buildx imagetools inspect syntasso/kratix-platform-pipeline-adapter --raw | yq -r '.manifests[] | select(.platform.architecture=="amd64").digest')
+PIPELINE_ADAPTER_VERSION_MANIFEST_DIGEST=$(skopeo --override-os linux inspect docker://docker.io/syntasso/kratix-platform-pipeline-adapter:latest | jq -r .Digest)
 export PIPELINE_ADAPTER_VERSION_MANIFEST_DIGEST
 
-KRATIX_PLATFORM_MANIFEST_DIGEST=$(docker buildx imagetools inspect syntasso/kratix-platform --raw | yq -r '.manifests[] | select(.platform.architecture=="amd64").digest')
+KRATIX_PLATFORM_MANIFEST_DIGEST=$(skopeo --override-os linux inspect docker://docker.io/syntasso/kratix-platform:latest | jq -r .Digest)
 export KRATIX_PLATFORM_MANIFEST_DIGEST
 
 export PIPELINE_ADAPTER_IMG=syntasso.docker.scarf.sh/syntasso/kratix-platform-pipeline-adapter@${PIPELINE_ADAPTER_VERSION_MANIFEST_DIGEST}

@@ -78,6 +78,12 @@ commands:
           cache: true
           version: 1.23.5
       - run:
+          name: Install skopeo
+          command: |
+            sudo apt-get -y update
+            sudo apt-get -y install skopeo
+
+      - run:
           name: Install Kind
           command: |
             if [ ! -f ~/bin/kind ]; then
