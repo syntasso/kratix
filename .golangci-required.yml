@@ -1,0 +1,84 @@
+# .golangci-required.yml
+#
+# Configuration for golangci-lint with required settings.
+#
+# This is a must-have set of rules to be used in precommit hooks and in CI/CD pipelines.
+#
+# This configuration is intended to be used as a green starting point for a set of rules
+# that can be gradually tightened as the codebase matures.
+
+run:
+  timeout: 5m
+
+output:
+  print-issued-lines: true
+
+linters-settings:
+  cyclop:
+    max-complexity: 38  # Starting point for cyclomatic complexity
+  funlen:
+    lines: 175  # Starting point for function length
+    statements: 94  # Starting point for statement count
+  gocognit:
+    min-complexity: 57  # Starting point for cognitive complexity
+  ineffassign:
+    report-ineffassign: true
+  nakedret:
+    max-func-lines: 0
+  nestif:
+    min-complexity: 13  # Starting point for nested if complexity
+  nolintlint:
+    require-specific: true
+
+linters:
+  enable:
+  - bodyclose # checks whether HTTP response body is closed successfully
+  - copyloopvar # detects places where loop variables are copied (Go 1.22+)
+  - cyclop # checks function and package cyclomatic complexity
+  - durationcheck # checks for two durations multiplied together
+  - funlen # tool for detection of long functions
+  - gocognit # computes and checks the cognitive complexity of functions
+  - gosec # inspects source code for security problems
+  - govet # reports suspicious constructs, such as Printf calls whose arguments do not align with the format string
+  - iface # checks the incorrect use of interfaces, helping developers avoid interface pollution
+  - ineffassign # detects when assignments to existing variables are not used
+  - loggercheck # checks key value pairs for common logger libraries (kitlog,klog,logr,zap)
+  - nakedret # finds naked returns in functions greater than a specified function length
+  - nestif # reports deeply nested if statements
+  - nilnesserr # reports that it checks for err != nil, but it returns a different nil value error (powered by nilness and nilerr)
+  - nolintlint # reports ill-formed or insufficient nolint directives
+  - protogetter # reports direct reads from proto message fields when getters should be used
+  - recvcheck # checks for receiver type consistency
+  - staticcheck # is a go vet on steroids, applying a ton of static analysis checks
+  - testpackage # makes you use a separate _test package
+  - usetesting # reports uses of functions with replacement inside the testing package
+  - wastedassign # finds wasted assignment statements
+
+issues:
+  exclude-use-default: false
+  include:
+    - ".*"  # Include all issues for now
+  exclude:
+    - "comment on exported .* should be of the form .*"  # Commonly ignored style rule
+    - "context.Context should be the first parameter of a function"
+    # GoSec exclusions:
+    - 'G401: Use of weak cryptographic primitive'
+    - 'G501: Blocklisted import crypto/md5: weak cryptographic primitive'
+    - 'G306: Expect WriteFile permissions to be 0600 or less'
+    - 'G403: RSA keys should be at least 2048 bits'
+    - 'G115: integer overflow conversion int64 -> uint64'
+    - "G404: Use of weak random number generator \\(math/rand or math/rand/v2 instead of crypto/rand\\)"
+    - "G304: Potential file inclusion via variable"
+  exclude-rules:
+    # Relax rules for test files:
+    - linters:
+        - funlen
+        - gosec
+      path: '(.+)_test\.go'
+
+severity:
+  thresholds:
+    # Encourage fixing errors and warnings while leaving room for improvements on minor suggestions
+    error: 0
+    warning: 20
+    info: 50
