@@ -238,6 +238,30 @@ build-and-load-bash: # Build and load all test pipeline images
 build-and-push-bash:
 	docker buildx build --builder kratix-image-builder --push --platform linux/arm64,linux/amd64 --tag syntassodev/bash-promise:dev1 ./test/system/assets/bash-promise
 
+lint-strict-changed: # Lint changed files with strict config
+	@unstaged_files=$$(git diff --name-only --diff-filter=ACM | grep '\.go$$' || true); \
+	staged_files=$$(git diff --name-only --diff-filter=ACM --staged | grep '\.go$$' || true); \
+	if [ -n "$$unstaged_files" ]; then \
+		echo "Linting unstaged Go files with strict config"; \
+		golangci-lint run --config=.golangci-strict.yml $$unstaged_files; \
+	fi; \
+	if [ -n "$$staged_files" ]; then \
+		echo "Linting staged Go files with strict config"; \
+		golangci-lint run --config=.golangci-strict.yml $$staged_files; \
+	fi
+
+lint-changed: # Lint changed files
+	@unstaged_files=$$(git diff --name-only --diff-filter=ACM | grep '\.go$$' || true); \
+	staged_files=$$(git diff --name-only --diff-filter=ACM --staged | grep '\.go$$' || true); \
+	if [ -n "$$unstaged_files" ]; then \
+		echo "Linting unstaged Go files"; \
+		golangci-lint run $$unstaged_files; \
+	fi; \
+	if [ -n "$$staged_files" ]; then \
+		echo "Linting staged Go files"; \
+		golangci-lint run $$staged_files; \
+	fi
+
 ##@ Deprecated: will be deleted soon
 
 # build-and-reload-kratix is deprecated in favor of build-and-load-kratix
@@ -252,3 +276,4 @@ DEPRECATED:
 	@echo
 	read -p 'Press any key to continue...'
 	@echo
+
