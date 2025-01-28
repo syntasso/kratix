@@ -19,7 +19,7 @@ func (r *Reader) Run(ctx context.Context) error {
 
 	client, err := helpers.GetK8sClient()
 	if err != nil {
-		return fmt.Errorf("failed to create Kubernetes client: %v", err)
+		return fmt.Errorf("failed to create Kubernetes client: %w", err)
 	}
 
 	if err := r.writeObjectToFile(ctx, client, params); err != nil {
@@ -34,17 +34,17 @@ func (r *Reader) writeObjectToFile(ctx context.Context, client dynamic.Interface
 
 	obj, err := objectClient.Get(ctx, params.ObjectName, metav1.GetOptions{})
 	if err != nil {
-		return fmt.Errorf("failed to get object: %v", err)
+		return fmt.Errorf("failed to get object: %w", err)
 	}
 
 	objectFilePath := params.GetObjectPath()
 	if err := helpers.WriteToYaml(obj, objectFilePath); err != nil {
-		return fmt.Errorf("failed to write object to file: %v", err)
+		return fmt.Errorf("failed to write object to file: %w", err)
 	}
 
 	fmt.Fprintln(r.Out, "Object file written to:", objectFilePath, "head of file:")
 	if err := helpers.PrintFileHead(r.Out, objectFilePath, 500); err != nil {
-		return fmt.Errorf("failed to print file head: %v", err)
+		return fmt.Errorf("failed to print file head: %w", err)
 	}
 
 	return nil

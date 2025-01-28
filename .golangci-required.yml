@@ -36,6 +36,7 @@ linters:
   - copyloopvar # detects places where loop variables are copied (Go 1.22+)
   - cyclop # checks function and package cyclomatic complexity
   - durationcheck # checks for two durations multiplied together
+  - errorlint # finds code that will cause problems with the error wrapping scheme introduced in Go 1.13
   - funlen # tool for detection of long functions
   - ginkgolinter # enforces standards of using ginkgo and gomega
   - gocognit # computes and checks the cognitive complexity of functions

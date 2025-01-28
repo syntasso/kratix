@@ -204,7 +204,7 @@ func (r *WorkPlacementReconciler) writeWorkloadsToStateStore(writer writers.Stat
 	for _, workload := range workPlacement.Spec.Workloads {
 		decompressedContent, err := compression.DecompressContent([]byte(workload.Content))
 		if err != nil {
-			return "", fmt.Errorf("unable to decompress file content: %s", err)
+			return "", fmt.Errorf("unable to decompress file content: %w", err)
 		}
 
 		workload.Content = string(decompressedContent)
@@ -214,11 +214,11 @@ func (r *WorkPlacementReconciler) writeWorkloadsToStateStore(writer writers.Stat
 	if destination.GetFilepathMode() == v1alpha1.FilepathModeNone {
 		var kratixFile []byte
 		if kratixFile, err = writer.ReadFile(fmt.Sprintf(".kratix/%s-%s.yaml", workPlacement.Namespace, workPlacement.Name)); ignoreNotFound(err) != nil {
-			return "", fmt.Errorf("failed to read .kratix state file: %s", err)
+			return "", fmt.Errorf("failed to read .kratix state file: %w", err)
 		}
 		oldStateFile := StateFile{}
 		if err = yaml.Unmarshal(kratixFile, &oldStateFile); err != nil {
-			return "", fmt.Errorf("failed to unmarshal .kratix state file: %s", err)
+			return "", fmt.Errorf("failed to unmarshal .kratix state file: %w", err)
 		}
 
 		newStateFile := StateFile{
@@ -226,7 +226,7 @@ func (r *WorkPlacementReconciler) writeWorkloadsToStateStore(writer writers.Stat
 		}
 		stateFileContent, marshalErr := yaml.Marshal(newStateFile)
 		if marshalErr != nil {
-			return "", fmt.Errorf("failed to marshal new .kratix state file: %s", err)
+			return "", fmt.Errorf("failed to marshal new .kratix state file: %w", err)
 		}
 
 		stateFileWorkload := v1alpha1.Workload{

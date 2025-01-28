@@ -18,6 +18,7 @@ package v1alpha1
 
 import (
 	"context"
+	"errors"
 	"fmt"
 	"reflect"
 	"strings"
@@ -25,7 +26,7 @@ import (
 	"github.com/syntasso/kratix/api/v1alpha1"
 
 	"k8s.io/apiextensions-apiserver/pkg/client/clientset/clientset"
-	"k8s.io/apimachinery/pkg/api/errors"
+	apierrors "k8s.io/apimachinery/pkg/api/errors"
 	metav1 "k8s.io/apimachinery/pkg/apis/meta/v1"
 	"k8s.io/apimachinery/pkg/apis/meta/v1/unstructured"
 	"k8s.io/apimachinery/pkg/runtime"
@@ -160,14 +161,14 @@ func validatePipelines(p *v1alpha1.Promise) error {
 func validateCRD(p *v1alpha1.Promise) error {
 	_, newCrd, err := p.GetAPI()
 	if err != nil {
-		if err == v1alpha1.ErrNoAPI {
+		if errors.Is(err, v1alpha1.ErrNoAPI) {
 			return nil
 		}
 		return err
 	}
 	_, err = k8sClientSet.ApiextensionsV1().CustomResourceDefinitions().Create(context.TODO(), newCrd, metav1.CreateOptions{DryRun: []string{metav1.DryRunAll}})
 	if err != nil {
-		if errors.IsAlreadyExists(err) {
+		if apierrors.IsAlreadyExists(err) {
 			existingCrd, err := k8sClientSet.ApiextensionsV1().CustomResourceDefinitions().Get(context.TODO(), newCrd.Name, metav1.GetOptions{})
 			if err != nil {
 				return err
@@ -195,7 +196,7 @@ func validateRequiredPromisesAreAvailable(p *v1alpha1.Promise) admission.Warning
 			Name:      requirement.Name,
 		}, promise)
 		if err != nil {
-			if errors.IsNotFound(err) {
+			if apierrors.IsNotFound(err) {
 				warnings = append(warnings, fmt.Sprintf("Required Promise %q at version %q not installed", requirement.Name, requirement.Version))
 				continue
 			}
@@ -216,11 +217,11 @@ func validateRequiredPromisesAreAvailable(p *v1alpha1.Promise) admission.Warning
 func validateCRDChanges(p, oldPromise *v1alpha1.Promise) error {
 	_, oldCrd, errOldCrd := oldPromise.GetAPI()
 	_, newCrd, errNewCrd := p.GetAPI()
-	if errOldCrd == v1alpha1.ErrNoAPI {
+	if errors.Is(errOldCrd, v1alpha1.ErrNoAPI) {
 		return nil
 	}
-	if errNewCrd == v1alpha1.ErrNoAPI {
-		return fmt.Errorf("cannot remove API from existing promise")
+	if errors.Is(errNewCrd, v1alpha1.ErrNoAPI) {
+		return errors.New("cannot remove API from existing promise")
 	}
 
 	errors := []string{}
