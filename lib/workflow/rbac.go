@@ -46,6 +46,7 @@ func getObjectsToDelete(opts Opts, pipeline v1alpha1.PipelineJobResources) ([]cl
 	return toDelete, nil
 }
 
+//nolint:dupl
 func getRolesToDelete(opts Opts, desiredRoles []rbacv1.Role, listOptions client.ListOptions) ([]client.Object, error) {
 	rolesToDelete := []client.Object{}
 	existingRoles := rbacv1.RoleList{}
@@ -88,6 +89,7 @@ func rolesMatch(existingRole rbacv1.Role, desiredRole rbacv1.Role) bool {
 	return true
 }
 
+//nolint:dupl
 func getRoleBindingsToDelete(opts Opts, desiredRoleBindings []rbacv1.RoleBinding, listOptions client.ListOptions) ([]client.Object, error) {
 	roleBindingsToDelete := []client.Object{}
 	existingRoleBindings := rbacv1.RoleBindingList{}
@@ -130,6 +132,7 @@ func roleBindingsMatch(existingRoleBinding rbacv1.RoleBinding, desiredRoleBindin
 	return existingRoleBinding.RoleRef.String() == desiredRoleBinding.RoleRef.String()
 }
 
+//nolint:dupl
 func getClusterRolesToDelete(opts Opts, desiredClusterRoles []rbacv1.ClusterRole, listOptions client.ListOptions) ([]client.Object, error) {
 	clusterRolesToDelete := []client.Object{}
 	existingClusterRoles := rbacv1.ClusterRoleList{}

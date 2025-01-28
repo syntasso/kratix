@@ -16,6 +16,8 @@ output:
 linters-settings:
   cyclop:
     max-complexity: 38  # Starting point for cyclomatic complexity
+  dupl:
+    threshold: 100  # Token count for duplication detection
   funlen:
     lines: 175  # Starting point for function length
     statements: 94  # Starting point for statement count
@@ -35,6 +37,7 @@ linters:
   - bodyclose # checks whether HTTP response body is closed successfully
   - copyloopvar # detects places where loop variables are copied (Go 1.22+)
   - cyclop # checks function and package cyclomatic complexity
+  - dupl # tool for code clone detection
   - durationcheck # checks for two durations multiplied together
   - errorlint # finds code that will cause problems with the error wrapping scheme introduced in Go 1.13
   - funlen # tool for detection of long functions
@@ -78,6 +81,7 @@ issues:
   exclude-rules:
     # Relax rules for test files:
     - linters:
+        - dupl
         - funlen
         - gosec
       path: '(.+)_test\.go'
