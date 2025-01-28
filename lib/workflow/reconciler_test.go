@@ -1845,6 +1845,8 @@ func markJobAs(conditionType batchv1.JobConditionType, name string) {
 		job.Status.Succeeded = 1
 	case batchv1.JobFailed:
 		job.Status.Failed = 1
+	default:
+		Fail("unsupported condition type")
 	}
 
 	Expect(fakeK8sClient.Status().Update(ctx, job)).To(Succeed())

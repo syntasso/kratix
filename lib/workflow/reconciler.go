@@ -384,8 +384,9 @@ func setConfigureWorkflowCompletedConditionStatus(opts Opts, isTheFirstPipeline 
 			return false, err
 		}
 		return true, nil
+	default:
+		return false, nil
 	}
-	return false, nil
 }
 
 func getDeletePipeline(opts Opts, namespace string, pipeline v1alpha1.PipelineJobResources) (*batchv1.Job, error) {

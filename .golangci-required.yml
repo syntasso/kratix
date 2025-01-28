@@ -24,6 +24,11 @@ linters-settings:
       - fmt.Fprintf
       - fmt.Fprint
       - fmt.Fprintln
+  exhaustive:
+    check:
+      - switch
+      - map
+    default-signifies-exhaustive: true
   funlen:
     lines: 175  # Starting point for function length
     statements: 94  # Starting point for statement count
@@ -50,6 +55,7 @@ linters:
   - errcheck # checking for unchecked errors, these unchecked errors can be critical bugs in some cases
   - errname # checks that sentinel errors are prefixed with the Err and error types are suffixed with the Error
   - errorlint # finds code that will cause problems with the error wrapping scheme introduced in Go 1.13
+  - exhaustive # checks exhaustiveness of enum switch statements
   - funlen # tool for detection of long functions
   - ginkgolinter # enforces standards of using ginkgo and gomega
   - gocognit # computes and checks the cognitive complexity of functions
