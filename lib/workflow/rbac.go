@@ -54,15 +54,15 @@ func getRolesToDelete(opts Opts, desiredRoles []rbacv1.Role, listOptions client.
 
 	if err == nil {
 		for _, existingRole := range existingRoles.Items {
-			delete := true
+			shouldDelete := true
 			for _, desiredRole := range desiredRoles {
 				if rolesMatch(existingRole, desiredRole) {
-					delete = false
+					shouldDelete = false
 					break
 				}
 			}
 
-			if delete {
+			if shouldDelete {
 				rolesToDelete = append(rolesToDelete, &existingRole)
 			}
 		}
@@ -96,15 +96,15 @@ func getRoleBindingsToDelete(opts Opts, desiredRoleBindings []rbacv1.RoleBinding
 
 	if err == nil {
 		for _, existingRoleBinding := range existingRoleBindings.Items {
-			delete := true
+			shouldDelete := true
 			for _, desiredRoleBinding := range desiredRoleBindings {
 				if roleBindingsMatch(existingRoleBinding, desiredRoleBinding) {
-					delete = false
+					shouldDelete = false
 					break
 				}
 			}
 
-			if delete {
+			if shouldDelete {
 				roleBindingsToDelete = append(roleBindingsToDelete, &existingRoleBinding)
 			}
 		}
@@ -138,15 +138,15 @@ func getClusterRolesToDelete(opts Opts, desiredClusterRoles []rbacv1.ClusterRole
 
 	if err == nil {
 		for _, existingClusterRole := range existingClusterRoles.Items {
-			delete := true
+			shouldDelete := true
 			for _, desiredClusterRole := range desiredClusterRoles {
 				if clusterRolesMatch(existingClusterRole, desiredClusterRole) {
-					delete = false
+					shouldDelete = false
 					break
 				}
 			}
 
-			if delete {
+			if shouldDelete {
 				clusterRolesToDelete = append(clusterRolesToDelete, &existingClusterRole)
 			}
 		}
@@ -180,15 +180,15 @@ func getClusterRoleBindingsToDelete(opts Opts, desiredClusterRoleBindings []rbac
 
 	if err == nil {
 		for _, existingClusterRoleBinding := range existingClusterRoleBindings.Items {
-			delete := true
+			shouldDelete := true
 			for _, desiredClusterRoleBinding := range desiredClusterRoleBindings {
 				if clusterRoleBindingsMatch(existingClusterRoleBinding, desiredClusterRoleBinding) {
-					delete = false
+					shouldDelete = false
 					break
 				}
 			}
 
-			if delete {
+			if shouldDelete {
 				opts.logger.Info("No matching cluster role binding found, deleting", "clusterRoleBinding", existingClusterRoleBinding.Name)
 				clusterRoleBindingsToDelete = append(clusterRoleBindingsToDelete, &existingClusterRoleBinding)
 			}

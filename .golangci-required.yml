@@ -50,6 +50,7 @@ linters:
   - nestif # reports deeply nested if statements
   - nilnesserr # reports that it checks for err != nil, but it returns a different nil value error (powered by nilness and nilerr)
   - nolintlint # reports ill-formed or insufficient nolint directives
+  - predeclared # finds code that shadows one of Go's predeclared identifiers
   - protogetter # reports direct reads from proto message fields when getters should be used
   - recvcheck # checks for receiver type consistency
   - staticcheck # is a go vet on steroids, applying a ton of static analysis checks

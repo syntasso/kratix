@@ -267,13 +267,13 @@ func workloadsFilenames(works []v1alpha1.Workload) []string {
 	return result
 }
 
-func cleanupWorkloads(old []string, new []v1alpha1.Workload) []string {
+func cleanupWorkloads(oldWorkloads []string, newWorkloads []v1alpha1.Workload) []string {
 	works := make(map[string]bool)
-	for _, w := range new {
+	for _, w := range newWorkloads {
 		works[w.Filepath] = true
 	}
 	var result []string
-	for _, w := range old {
+	for _, w := range oldWorkloads {
 		if _, ok := works[w]; !ok {
 			result = append(result, w)
 		}

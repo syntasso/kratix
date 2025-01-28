@@ -210,7 +210,7 @@ var _ = Describe("PromiseWebhook", func() {
 			})
 		})
 
-		DescribeTable("validates the provided labels", func(key, val, error string) {
+		DescribeTable("validates the provided labels", func(key, val, expectedErr string) {
 			pipeline := v1alpha1.Pipeline{
 				ObjectMeta: metav1.ObjectMeta{
 					Name: "pipeline-name",
@@ -222,8 +222,8 @@ var _ = Describe("PromiseWebhook", func() {
 			setPipeline(promise, pipeline)
 			warnings, err := validator.ValidateCreate(ctx, promise)
 			Expect(warnings).To(BeEmpty())
-			if error != "" {
-				Expect(err).To(MatchError(ContainSubstring(error)))
+			if expectedErr != "" {
+				Expect(err).To(MatchError(ContainSubstring(expectedErr)))
 			} else {
 				Expect(err).NotTo(HaveOccurred())
 			}
