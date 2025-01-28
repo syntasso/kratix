@@ -41,6 +41,7 @@ linters:
   - ginkgolinter # enforces standards of using ginkgo and gomega
   - gocognit # computes and checks the cognitive complexity of functions
   - gosec # inspects source code for security problems
+  - gosimple # specializes in simplifying code
   - govet # reports suspicious constructs, such as Printf calls whose arguments do not align with the format string
   - iface # checks the incorrect use of interfaces, helping developers avoid interface pollution
   - ineffassign # detects when assignments to existing variables are not used
