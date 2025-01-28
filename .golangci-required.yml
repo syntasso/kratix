@@ -52,6 +52,7 @@ linters:
   - recvcheck # checks for receiver type consistency
   - staticcheck # is a go vet on steroids, applying a ton of static analysis checks
   - testpackage # makes you use a separate _test package
+  - unparam # reports unused function parameters
   - usetesting # reports uses of functions with replacement inside the testing package
   - wastedassign # finds wasted assignment statements
 

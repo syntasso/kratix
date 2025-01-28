@@ -1053,7 +1053,7 @@ func requestWithNameAndCommand(name string, containerCmds ...string) string {
 //   - By time kratix starts back up, it has already been deleted
 //
 // This means we need a more robust approach for deleting Promises
-func (c destination) eventuallyKubectlDelete(args ...string) string {
+func (c destination) eventuallyKubectlDelete(args ...string) string { //nolint:unparam
 	commandArgs := []string{"get", "--context=" + c.context}
 	commandArgs = append(commandArgs, args...)
 	command := exec.Command("kubectl", commandArgs...)
@@ -1134,7 +1134,7 @@ func (c destination) clone() destination {
 	}
 }
 
-func (c destination) withExitCode(code int) destination {
+func (c destination) withExitCode(code int) destination { //nolint:unparam
 	newDestination := c.clone()
 	newDestination.exitCode = code
 	return newDestination
