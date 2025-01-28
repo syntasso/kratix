@@ -228,7 +228,7 @@ func (g *GitWriter) ReadFile(filePath string) ([]byte, error) {
 
 	if _, err := worktree.Filesystem.Lstat(fullPath); err != nil {
 		logger.Info("could not stat file", "err", err)
-		return nil, FileNotFound
+		return nil, ErrFileNotFound
 	}
 
 	var content []byte

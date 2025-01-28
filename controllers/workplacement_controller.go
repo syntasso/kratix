@@ -253,7 +253,7 @@ func (r *WorkPlacementReconciler) writeWorkloadsToStateStore(writer writers.Stat
 }
 
 func ignoreNotFound(err error) error {
-	if errors.Is(err, writers.FileNotFound) {
+	if errors.Is(err, writers.ErrFileNotFound) {
 		return nil
 	}
 	return err

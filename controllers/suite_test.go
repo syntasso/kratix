@@ -50,7 +50,7 @@ var (
 	fakeApiExtensionsClient apiextensionsv1.CustomResourceDefinitionsGetter
 	t                       *testReconciler
 	interceptorsFuncs       interceptor.Funcs
-	subResourceUpdateError  error
+	errSubResourceUpdate    error
 )
 
 var _ = BeforeSuite(func(_ SpecContext) {
@@ -77,8 +77,8 @@ var _ = BeforeEach(func() {
 
 	interceptorsFuncs = interceptor.Funcs{}
 	interceptorsFuncs.SubResourceUpdate = func(ctx context.Context, client client.Client, subResourceName string, obj client.Object, opts ...client.SubResourceUpdateOption) error {
-		if subResourceUpdateError != nil {
-			return subResourceUpdateError
+		if errSubResourceUpdate != nil {
+			return errSubResourceUpdate
 		}
 		return client.Status().Update(ctx, obj, opts...)
 	}
