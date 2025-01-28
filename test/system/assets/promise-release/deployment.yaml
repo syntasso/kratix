@@ -36,12 +36,3 @@ spec:
     kratix-promise-release: pod
   sessionAffinity: None
   type: ClusterIP
----
-apiVersion: v1
-kind: Secret
-metadata:
-  name: kratix-promise-release-authorization-header
-  namespace: kratix-platform-system
-type: Opaque
-stringData:
-  authorizationHeader: "Bearer your-secret-token"
