@@ -7,15 +7,11 @@ import (
 
 	"net/http"
 
-	"encoding/base64"
-
 	"github.com/gorilla/mux"
 )
 
 func SecureHandler(w http.ResponseWriter, r *http.Request) {
-	vars := mux.Vars(r)
-	name := vars["name"]
-	fmt.Println("fetching promise: " + name)
+	fmt.Println("fetching secure promise")
 
 	authHeader := r.Header.Get("Authorization")
 	fmt.Println("Checking Authorization header:" + authHeader)
@@ -28,7 +24,7 @@ func SecureHandler(w http.ResponseWriter, r *http.Request) {
 		return
 	}
 
-	promiseContent, err := base64.StdEncoding.DecodeString(os.Getenv(name))
+	promiseContent, err := os.ReadFile("secure-promise.yaml")
 	if err != nil {
 		panic(err)
 	}
@@ -37,17 +33,18 @@ func SecureHandler(w http.ResponseWriter, r *http.Request) {
 
 func main() {
 	router := mux.NewRouter()
-	router.HandleFunc("/promise/{name}", func(w http.ResponseWriter, r *http.Request) {
-		vars := mux.Vars(r)
-		name := vars["name"]
-		fmt.Println("fetching promise: " + name)
-		promiseContent, err := base64.StdEncoding.DecodeString(os.Getenv(name))
+	router.HandleFunc("/promise", func(w http.ResponseWriter, r *http.Request) {
+		fmt.Println("fetching insecure promise")
+		promiseContent, err := os.ReadFile("insecure-promise.yaml")
+		if err != nil {
+			panic(err)
+		}
 		if err != nil {
 			panic(err)
 		}
 		w.Write(promiseContent)
 	}).Methods("GET")
-	router.HandleFunc("/secure/promise/{name}", SecureHandler).Methods("GET")
+	router.HandleFunc("/secure/promise", SecureHandler).Methods("GET")
 
 	srv := &http.Server{
 		Addr:    ":8080",

@@ -40,8 +40,6 @@ var _ = SynchronizedBeforeSuite(func() {
 	tmpDir, err := os.MkdirTemp(os.TempDir(), "systest")
 	Expect(err).NotTo(HaveOccurred())
 
-	platform.kubectl("apply", "-f", "./assets/bash-promise/deployment.yaml")
-
 	if getEnvOrDefault("PLATFORM_SKIP_SETUP", "false") == "true" {
 		// Useful when running tests against a non-kind cluster
 		// Files applied below are configured for local development

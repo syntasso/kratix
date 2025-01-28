@@ -1,11 +1,11 @@
 package core_test
 
 import (
+	"github.com/syntasso/kratix/test/kubeutils"
 	"time"
 
 	. "github.com/onsi/ginkgo/v2"
 	. "github.com/onsi/gomega"
-	"github.com/syntasso/kratix/test/core/kubeutils"
 )
 
 const (
@@ -174,14 +174,17 @@ var _ = Describe("System Tests", Ordered, func() {
 /*
 
 Later Stage
+existing:
 - health record test --> later stage
 - promise release --> later stage
 - filepathMode set to none --> later stage
 - requiredPromises --> later stage
 	the promise has requirements that are fulfilled, it can fulfil resource requests once requirements are met
-- rbac testing
+
+needs improving:
+- rbac testing (imperative testing)
 	creating multiple resource requests in different namespaces, it creates separate bindings for request namespaces and schedules works to correct destinations
-- imperative promise testing??
+new:
 - kratix config file
 - more detailed testing of promises and resources
 	- workflowcompleted status condition

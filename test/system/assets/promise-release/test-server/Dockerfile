@@ -18,5 +18,7 @@ WORKDIR /
 
 COPY --from=builder /workspace/main ./server
 
+COPY insecure-promise.yaml insecure-promise.yaml
+COPY secure-promise.yaml secure-promise.yaml
 
 ENTRYPOINT ["/server"]

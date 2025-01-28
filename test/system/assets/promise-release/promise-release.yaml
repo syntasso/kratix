@@ -1,0 +1,22 @@
+apiVersion: platform.kratix.io/v1alpha1
+kind: PromiseRelease
+metadata:
+  name: secure
+spec:
+  version: v1.0.0
+  sourceRef:
+    type: http
+    url: "http://kratix-promise-release-test-hoster.kratix-platform-system:8080/secure/promise/"
+    secretRef:
+      name: kratix-promise-release-authorization-header
+      namespace: kratix-platform-system
+---
+apiVersion: platform.kratix.io/v1alpha1
+kind: PromiseRelease
+metadata:
+  name: insecure
+spec:
+  version: v1.0.0
+  sourceRef:
+    type: http
+    url: "http://kratix-promise-release-test-hoster.kratix-platform-system:8080/promise/"
