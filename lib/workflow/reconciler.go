@@ -332,6 +332,11 @@ func cleanupJobs(opts Opts, pipelineJobsAtCurrentSpec []batchv1.Job) error {
 }
 
 func createConfigurePipeline(opts Opts, pipelineIndex int, resources v1alpha1.PipelineJobResources) (abort bool, err error) {
+	updated, err := setConfigureWorkflowCompletedConditionStatus(opts, pipelineIndex == 0, opts.parentObject)
+	if err != nil || updated {
+		return updated, err
+	}
+
 	opts.logger.Info("Triggering pipeline", "workflow action", resources.WorkflowAction)
 
 	var objectToDelete []client.Object
