@@ -246,6 +246,11 @@ setup_worker_destination() {
 }
 
 setup_worker_2_destination() {
+    local flags=""
+    if ${INSTALL_AND_CREATE_GITEA_REPO}; then
+      flags="--git"
+    fi
+    ${ROOT}/scripts/register-destination --name worker-2 --context kind-worker-2 $flags
     install_flux_gitops kind-worker-2 worker-2
 }
 

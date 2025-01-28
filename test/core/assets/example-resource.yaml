@@ -1,0 +1,9 @@
+apiVersion: test.kratix.io/v1alpha1
+kind: TestBundle
+metadata:
+  name: kratix-test
+  namespace: default
+spec:
+  configMapName: ksystest-cm
+  namespaceName: ksystest
+

@@ -2,10 +2,10 @@
 
 set -xe
 
-stage="$(yq ".status" /kratix/input/object.yaml)"
+stage="$(yq ".status.stage" /kratix/input/object.yaml)"
 
-if [ "$stage" != "0" ]; then
-  echo "unexpected status: $stage; expected 0"
+if [ "$stage" != "one" ]; then
+  echo "unexpected status: $stage; expected one"
   exit 1
 fi
 
@@ -13,7 +13,7 @@ namespaceName="$(yq ".spec.namespaceName" /kratix/input/object.yaml)"
 kubectl create namespace --dry-run=client --output=yaml "${namespaceName}" > /kratix/output/namespace.yaml
 
 cat <<EOF > /kratix/metadata/destination-selectors.yaml
-- matchLabels: {target: worker1}
+- matchLabels: {target: worker-1}
 EOF
 
 cat <<EOF > /kratix/metadata/status.yaml
