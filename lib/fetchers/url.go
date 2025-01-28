@@ -31,7 +31,7 @@ func (u *URLFetcher) FromURL(urlString, authHeader string) (*v1alpha1.Promise, e
 	if err != nil {
 		return nil, fmt.Errorf("failed to get url: %w", err)
 	}
-	defer resp.Body.Close()
+	defer resp.Body.Close() //nolint:errcheck
 
 	if resp.StatusCode != http.StatusOK {
 		return nil, fmt.Errorf("failed to get Promise from URL: status code %d", resp.StatusCode)

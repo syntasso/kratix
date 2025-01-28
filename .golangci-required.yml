@@ -18,6 +18,12 @@ linters-settings:
     max-complexity: 38  # Starting point for cyclomatic complexity
   dupl:
     threshold: 100  # Token count for duplication detection
+  errcheck:
+    exclude-functions:
+      # Exclude these functions for now
+      - fmt.Fprintf
+      - fmt.Fprint
+      - fmt.Fprintln
   funlen:
     lines: 175  # Starting point for function length
     statements: 94  # Starting point for statement count
@@ -39,6 +45,7 @@ linters:
   - cyclop # checks function and package cyclomatic complexity
   - dupl # tool for code clone detection
   - durationcheck # checks for two durations multiplied together
+  - errcheck # checking for unchecked errors, these unchecked errors can be critical bugs in some cases
   - errorlint # finds code that will cause problems with the error wrapping scheme introduced in Go 1.13
   - funlen # tool for detection of long functions
   - ginkgolinter # enforces standards of using ginkgo and gomega
@@ -82,6 +89,7 @@ issues:
     # Relax rules for test files:
     - linters:
         - dupl
+        - errcheck
         - funlen
         - gosec
       path: '(.+)_test\.go'

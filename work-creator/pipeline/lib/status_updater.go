@@ -45,6 +45,7 @@ func MarkAsCompleted(status map[string]any) map[string]any {
 func updateConditions(conditions []any, newCondition metav1.Condition) []any {
 	newCondBytes, _ := yaml.Marshal(newCondition)
 	var newCondMap map[string]any
+	//nolint:errcheck,gosec // Marshal/Unmarshal is safe here
 	yaml.Unmarshal(newCondBytes, &newCondMap)
 
 	if conditions == nil {

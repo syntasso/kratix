@@ -60,7 +60,11 @@ func NewGitWriter(logger logr.Logger, stateStoreSpec v1alpha1.GitStateStoreSpec,
 			return nil, fmt.Errorf("error creating knownHosts file: %w", err)
 		}
 
-		knownHostsFile.Write(knownHosts)
+		_, err = knownHostsFile.Write(knownHosts)
+		if err != nil {
+			return nil, fmt.Errorf("error writing knownHosts file: %w", err)
+		}
+
 		knownHostsCallback, err := ssh.NewKnownHostsCallback(knownHostsFile.Name())
 		if err != nil {
 			return nil, fmt.Errorf("error parsing known hosts: %w", err)
@@ -128,7 +132,7 @@ func (g *GitWriter) update(subDir, workPlacementName string, workloadsToCreate [
 	if err != nil {
 		return "", err
 	}
-	defer os.RemoveAll(filepath.Dir(localTmpDir))
+	defer os.RemoveAll(filepath.Dir(localTmpDir)) //nolint:errcheck
 
 	err = g.deleteExistingFiles(subDir != "", dirInGitRepo, workloadsToDelete, worktree, logger)
 	if err != nil {
@@ -220,7 +224,7 @@ func (g *GitWriter) ReadFile(filePath string) ([]byte, error) {
 	if err != nil {
 		return nil, err
 	}
-	defer os.RemoveAll(filepath.Dir(localTmpDir))
+	defer os.RemoveAll(filepath.Dir(localTmpDir)) //nolint:errcheck
 
 	if _, err := worktree.Filesystem.Lstat(fullPath); err != nil {
 		logger.Info("could not stat file", "err", err)

@@ -35,7 +35,8 @@ var _ = Describe("WorkCreator", func() {
 			workCreator = pipeline.WorkCreator{
 				K8sClient: k8sClient,
 			}
-			k8sClient.Create(context.Background(), &v1.Namespace{ObjectMeta: metav1.ObjectMeta{Name: "kratix-platform-system"}})
+			err := k8sClient.Create(context.Background(), &v1.Namespace{ObjectMeta: metav1.ObjectMeta{Name: "kratix-platform-system"}})
+			Expect(err).NotTo(HaveOccurred())
 		})
 
 		When("provided a complete set of inputs for a resource request", func() {
