@@ -278,7 +278,7 @@ var _ = Describe("Conditions", func() {
 
 	Describe("PipelinesToSuspend", func() {
 		It("returns empty if there are no jobs", func() {
-			Expect(resourceutil.SuspendablePipelines(logger, nil)).To(HaveLen(0))
+			Expect(resourceutil.SuspendablePipelines(logger, nil)).To(BeEmpty())
 		})
 
 		It("returns any jobs that aren't suspended and have no active pods", func() {

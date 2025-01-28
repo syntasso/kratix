@@ -133,7 +133,7 @@ var _ = Describe("Pipeline", func() {
 				Expect(f.Namespace).To(Equal(v1alpha1.SystemNamespace))
 				Expect(f.WorkflowAction).To(Equal(v1alpha1.WorkflowActionConfigure))
 				Expect(f.WorkflowType).To(Equal(v1alpha1.WorkflowTypePromise))
-				Expect(f.ClusterScoped).To(Equal(true))
+				Expect(f.ClusterScoped).To(BeTrue())
 				Expect(f.ResourceWorkflow).To(BeFalse())
 				Expect(f.CRDPlural).To(Equal("promises"))
 			})
@@ -150,7 +150,7 @@ var _ = Describe("Pipeline", func() {
 				Expect(f.Namespace).To(Equal(resourceRequest.GetNamespace()))
 				Expect(f.WorkflowAction).To(Equal(v1alpha1.WorkflowActionConfigure))
 				Expect(f.WorkflowType).To(Equal(v1alpha1.WorkflowTypeResource))
-				Expect(f.ClusterScoped).To(Equal(false))
+				Expect(f.ClusterScoped).To(BeFalse())
 				Expect(f.ResourceWorkflow).To(BeTrue())
 				Expect(f.CRDPlural).To(Equal("promiseCrdPlural"))
 			})
@@ -162,7 +162,7 @@ var _ = Describe("Pipeline", func() {
 				promise.Spec.API = &runtime.RawExtension{Raw: rawCrd}
 
 				f := pipeline.ForResource(promise, v1alpha1.WorkflowActionConfigure, resourceRequest)
-				Expect(f.ClusterScoped).To(Equal(true))
+				Expect(f.ClusterScoped).To(BeTrue())
 			})
 		})
 	})
@@ -211,8 +211,8 @@ var _ = Describe("Pipeline", func() {
 						Expect(objs).To(ContainElements(
 							serviceAccount, &clusterRoles[0], &clusterRoleBindings[0], configMap,
 						))
-						Expect(roles).To(HaveLen(0))
-						Expect(bindings).To(HaveLen(0))
+						Expect(roles).To(BeEmpty())
+						Expect(bindings).To(BeEmpty())
 
 						Expect(serviceAccount.GetName()).To(Equal("factoryID"))
 						Expect(resources.Job.Name).To(HavePrefix("kratix-%s-%s", promise.GetName(), pipeline.GetName()))
@@ -251,8 +251,8 @@ var _ = Describe("Pipeline", func() {
 						Expect(objs).To(ContainElements(
 							serviceAccount, &clusterRoles[0], &clusterRoleBindings[0],
 						))
-						Expect(roles).To(HaveLen(0))
-						Expect(bindings).To(HaveLen(0))
+						Expect(roles).To(BeEmpty())
+						Expect(bindings).To(BeEmpty())
 
 						Expect(resources.Job.Name).To(HavePrefix("kratix-%s-%s", promise.GetName(), pipeline.GetName()))
 						job.Name = resources.Job.Name
@@ -299,8 +299,8 @@ var _ = Describe("Pipeline", func() {
 						))
 						matchClusterRolesAndBindings(clusterRoles, clusterRoleBindings, factory, serviceAccount)
 					} else {
-						Expect(clusterRoles).To(HaveLen(0))
-						Expect(clusterRoleBindings).To(HaveLen(0))
+						Expect(clusterRoles).To(BeEmpty())
+						Expect(clusterRoleBindings).To(BeEmpty())
 					}
 
 					Expect(resources.Job.Name).To(HavePrefix("kratix-%s-%s-%s", promise.GetName(), resourceRequest.GetName(), pipeline.GetName()))
@@ -835,8 +835,8 @@ var _ = Describe("Pipeline", func() {
 
 					resources, err := factory.Resources(nil)
 					Expect(err).ToNot(HaveOccurred())
-					Expect(resources.Shared.ClusterRoles).To(HaveLen(0))
-					Expect(resources.Shared.ClusterRoleBindings).To(HaveLen(0))
+					Expect(resources.Shared.ClusterRoles).To(BeEmpty())
+					Expect(resources.Shared.ClusterRoleBindings).To(BeEmpty())
 					Expect(resources.Shared.Roles).To(ConsistOf(
 						MatchFields(IgnoreExtras, Fields{
 							"ObjectMeta": MatchFields(IgnoreExtras, Fields{
@@ -899,7 +899,7 @@ var _ = Describe("Pipeline", func() {
 					resources, err := factory.Resources(nil)
 					Expect(err).ToNot(HaveOccurred())
 					Expect(resources.Name).To(Equal(pipeline.GetName()))
-					Expect(resources.Shared.Roles).To(HaveLen(0))
+					Expect(resources.Shared.Roles).To(BeEmpty())
 					Expect(resources.Shared.ClusterRoleBindings).To(HaveLen(1))
 
 					Expect(resources.Shared.ClusterRoles).To(ConsistOf(
@@ -950,7 +950,7 @@ var _ = Describe("Pipeline", func() {
 					Expect(resources.Name).To(Equal(pipeline.GetName()))
 
 					Expect(resources.Shared.Roles).To(HaveLen(1))
-					Expect(resources.Shared.ClusterRoleBindings).To(HaveLen(0))
+					Expect(resources.Shared.ClusterRoleBindings).To(BeEmpty())
 
 					Expect(resources.Shared.ClusterRoles).To(HaveLen(1))
 					Expect(resources.Shared.ClusterRoles[0].Rules).To(ConsistOf(rbacv1.PolicyRule{
@@ -1004,8 +1004,8 @@ var _ = Describe("Pipeline", func() {
 					Expect(err).ToNot(HaveOccurred())
 					Expect(resources.Name).To(Equal(pipeline.GetName()))
 
-					Expect(resources.Shared.Roles).To(HaveLen(0))
-					Expect(resources.Shared.RoleBindings).To(HaveLen(0))
+					Expect(resources.Shared.Roles).To(BeEmpty())
+					Expect(resources.Shared.RoleBindings).To(BeEmpty())
 
 					Expect(resources.Shared.ClusterRoles).To(HaveLen(2))
 					Expect(resources.Shared.ClusterRoles[1].Rules).To(ConsistOf(rbacv1.PolicyRule{

@@ -445,7 +445,7 @@ var _ = Describe("Kratix", func() {
 
 				platform.eventuallyKubectlDelete("promise", bashPromiseName)
 				platform.kubectl("delete", "namespace", oldRRImperativePlatformNamespace)
-				Eventually(platform.kubectl("get", "promise")).ShouldNot(ContainSubstring(bashPromiseName))
+				Eventually(platform.kubectl).WithArguments("get", "promise").ShouldNot(ContainSubstring(bashPromiseName))
 			})
 		})
 
@@ -537,7 +537,6 @@ var _ = Describe("Kratix", func() {
 
 					Eventually(func(g Gomega) {
 						namespaces := worker.kubectl("get", "namespaces")
-						g.Expect(namespaces).NotTo(ContainSubstring(declarativeStaticWorkerNamespace))
 						g.Expect(namespaces).NotTo(ContainSubstring(declarativeWorkerNamespace))
 						g.Expect(namespaces).NotTo(ContainSubstring(declarativeStaticWorkerNamespace))
 					}, timeout, interval).Should(Succeed())
@@ -553,7 +552,7 @@ var _ = Describe("Kratix", func() {
 				})
 
 				platform.eventuallyKubectlDelete("promise", bashPromiseName)
-				Eventually(platform.kubectl("get", "promise")).ShouldNot(ContainSubstring(bashPromiseName))
+				Eventually(platform.kubectl).WithArguments("get", "promise").ShouldNot(ContainSubstring(bashPromiseName))
 			})
 		})
 
@@ -827,18 +826,13 @@ var _ = Describe("Kratix", func() {
 			platform.eventuallyKubectl("get", "crd", crd.Name)
 
 			platform.kubectl("label", "destination", platform.name, bashPromiseUniqueLabel, "security-")
+			platform.kubectl("label", "destination", worker.name, "security=high")
 
 			By("only the worker Destination getting the dependency initially", func() {
-				Consistently(func() {
-					worker.eventuallyKubectl("get", "namespace", declarativeStaticWorkerNamespace)
-				}, consistentlyTimeout, interval)
-
-				Eventually(func() string {
-					return platform.kubectl("get", "namespace")
-				}, timeout, interval).ShouldNot(ContainSubstring(declarativeStaticWorkerNamespace))
+				worker.eventuallyKubectl("get", "namespace", declarativeStaticWorkerNamespace)
 
 				Consistently(func() string {
-					return platform.kubectl("get", "namespace")
+					return platform.kubectl("get", "namespaces")
 				}, consistentlyTimeout, interval).ShouldNot(ContainSubstring(declarativeStaticWorkerNamespace))
 			})
 
@@ -851,12 +845,13 @@ var _ = Describe("Kratix", func() {
 			platform.eventuallyKubectl("apply", "-f", cat(bashPromise))
 
 			By("scheduling to the new destination and preserving the old orphaned destinations", func() {
-				Consistently(func() {
-					worker.eventuallyKubectl("get", "namespace", declarativeStaticWorkerNamespace)
-				}, consistentlyTimeout, interval)
-				Consistently(func() {
-					platform.eventuallyKubectl("get", "namespace", declarativeStaticWorkerNamespace)
-				}, consistentlyTimeout, interval)
+				Consistently(func() string {
+					return worker.eventuallyKubectl("get", "namespace", declarativeStaticWorkerNamespace)
+				}, consistentlyTimeout, interval).Should(ContainSubstring(declarativeStaticWorkerNamespace))
+
+				Consistently(func() string {
+					return platform.eventuallyKubectl("get", "namespace", declarativeStaticWorkerNamespace)
+				}, consistentlyTimeout, interval).Should(ContainSubstring(declarativeStaticWorkerNamespace))
 			})
 
 			platform.eventuallyKubectlDelete("promise", bashPromiseName)

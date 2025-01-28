@@ -37,6 +37,7 @@ linters:
   - cyclop # checks function and package cyclomatic complexity
   - durationcheck # checks for two durations multiplied together
   - funlen # tool for detection of long functions
+  - ginkgolinter # enforces standards of using ginkgo and gomega
   - gocognit # computes and checks the cognitive complexity of functions
   - gosec # inspects source code for security problems
   - govet # reports suspicious constructs, such as Printf calls whose arguments do not align with the format string

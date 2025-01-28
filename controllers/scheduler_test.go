@@ -90,7 +90,7 @@ var _ = Describe("Controllers/Scheduler", func() {
 				})
 
 				It("sets the scheduling conditions on the Work", func() {
-					Expect(fakeK8sClient.Get(context.Background(), client.ObjectKeyFromObject(&resourceWork), &resourceWork))
+					Expect(fakeK8sClient.Get(context.Background(), client.ObjectKeyFromObject(&resourceWork), &resourceWork)).To(Succeed())
 					Expect(resourceWork.Status.Conditions).To(HaveLen(2))
 
 					Expect(resourceWork.Status.Conditions[0].Type).To(Equal("Scheduled"))
@@ -160,7 +160,7 @@ var _ = Describe("Controllers/Scheduler", func() {
 					Expect(err).ToNot(HaveOccurred())
 
 					// update the Work's WorkloadGroup with an extra Workload
-					Expect(fakeK8sClient.Get(context.Background(), client.ObjectKeyFromObject(&resourceWork), &resourceWork))
+					Expect(fakeK8sClient.Get(context.Background(), client.ObjectKeyFromObject(&resourceWork), &resourceWork)).To(Succeed())
 					resourceWork.Spec.WorkloadGroups[0].Workloads = append(resourceWork.Spec.WorkloadGroups[0].Workloads, Workload{
 						Content: string(fakeCompressedContent),
 					})
@@ -212,7 +212,7 @@ var _ = Describe("Controllers/Scheduler", func() {
 
 					// the WorkPlacement should now be deleted
 					Expect(fakeK8sClient.List(context.Background(), &workPlacements)).To(Succeed())
-					Expect(workPlacements.Items).To(HaveLen(0))
+					Expect(workPlacements.Items).To(BeEmpty())
 				})
 			})
 
@@ -461,7 +461,7 @@ var _ = Describe("Controllers/Scheduler", func() {
 					preUpdateDestination = workPlacements.Items[0].Spec.TargetDestinationName
 
 					// change the scheduling on the resource work from devDestination to prodDestination
-					Expect(fakeK8sClient.Get(context.Background(), client.ObjectKeyFromObject(&resourceWork), &resourceWork))
+					Expect(fakeK8sClient.Get(context.Background(), client.ObjectKeyFromObject(&resourceWork), &resourceWork)).To(Succeed())
 					resourceWork.Spec.WorkloadGroups[0].DestinationSelectors[0] = schedulingFor(prodDestination)
 					_, err = scheduler.ReconcileWork(&resourceWork)
 					Expect(err).ToNot(HaveOccurred())
@@ -487,7 +487,7 @@ var _ = Describe("Controllers/Scheduler", func() {
 				})
 
 				It("labels the resource Work to indicate it's misscheduled", func() {
-					Expect(fakeK8sClient.Get(context.Background(), client.ObjectKeyFromObject(&resourceWork), &resourceWork))
+					Expect(fakeK8sClient.Get(context.Background(), client.ObjectKeyFromObject(&resourceWork), &resourceWork)).To(Succeed())
 					Expect(resourceWork.Status.Conditions).To(HaveLen(2))
 
 					Expect(resourceWork.Status.Conditions[0].Type).To(Equal("Scheduled"))
@@ -581,12 +581,12 @@ var _ = Describe("Controllers/Scheduler", func() {
 
 						// check that the WorkPlacement has been deleted
 						Expect(fakeK8sClient.List(context.Background(), &workPlacements)).To(Succeed())
-						Expect(workPlacements.Items).To(HaveLen(0))
+						Expect(workPlacements.Items).To(BeEmpty())
 					})
 
 					It("gets recreated on next reconciliation", func() {
 						// re-reconcile the Work
-						Expect(fakeK8sClient.Get(context.Background(), client.ObjectKeyFromObject(&dependencyWorkForProd), &dependencyWorkForProd))
+						Expect(fakeK8sClient.Get(context.Background(), client.ObjectKeyFromObject(&dependencyWorkForProd), &dependencyWorkForProd)).To(Succeed())
 						_, err := scheduler.ReconcileWork(&dependencyWorkForProd)
 						Expect(err).ToNot(HaveOccurred())
 
@@ -647,7 +647,7 @@ var _ = Describe("Controllers/Scheduler", func() {
 
 					It("gets recreated on next reconciliation", func() {
 						// re-reconcile the Work
-						Expect(fakeK8sClient.Get(context.Background(), client.ObjectKeyFromObject(&dependencyWorkForDev), &dependencyWorkForDev))
+						Expect(fakeK8sClient.Get(context.Background(), client.ObjectKeyFromObject(&dependencyWorkForDev), &dependencyWorkForDev)).To(Succeed())
 						_, err := scheduler.ReconcileWork(&dependencyWorkForDev)
 						Expect(err).ToNot(HaveOccurred())
 
@@ -687,7 +687,7 @@ var _ = Describe("Controllers/Scheduler", func() {
 					var err error
 					unschedulable, err = scheduler.ReconcileWork(&dependencyWork)
 					Expect(err).NotTo(HaveOccurred())
-					Expect(fakeK8sClient.Get(context.Background(), client.ObjectKeyFromObject(&dependencyWork), &dependencyWork))
+					Expect(fakeK8sClient.Get(context.Background(), client.ObjectKeyFromObject(&dependencyWork), &dependencyWork)).To(Succeed())
 				})
 
 				It("creates no workplacements", func() {
@@ -721,7 +721,7 @@ var _ = Describe("Controllers/Scheduler", func() {
 
 				It("creates WorkPlacements for all non-strict label matching registered Destinations", func() {
 					Expect(fakeK8sClient.List(context.Background(), &workPlacements)).To(Succeed())
-					Expect(len(workPlacements.Items)).To(Equal(4))
+					Expect(workPlacements.Items).To(HaveLen(4))
 					for _, workPlacement := range workPlacements.Items {
 						Expect(workPlacement.Spec.Workloads).To(ConsistOf(Workload{
 							Content: "key: value",
@@ -731,7 +731,7 @@ var _ = Describe("Controllers/Scheduler", func() {
 				})
 
 				It("updates WorkPlacements for all registered Destinations", func() {
-					Expect(fakeK8sClient.Get(context.Background(), client.ObjectKeyFromObject(&dependencyWork), &dependencyWork))
+					Expect(fakeK8sClient.Get(context.Background(), client.ObjectKeyFromObject(&dependencyWork), &dependencyWork)).To(Succeed())
 					dependencyWork.Spec.WorkloadGroups[0].Workloads = append(dependencyWork.Spec.WorkloadGroups[0].Workloads, Workload{
 						Content: "fake: new-content",
 					})
@@ -759,7 +759,7 @@ var _ = Describe("Controllers/Scheduler", func() {
 
 					// add scheduling for the devDestination, so that the WorkPlacements
 					// for prod and pci are now misscheduled
-					Expect(fakeK8sClient.Get(context.Background(), client.ObjectKeyFromObject(&dependencyWork), &dependencyWork))
+					Expect(fakeK8sClient.Get(context.Background(), client.ObjectKeyFromObject(&dependencyWork), &dependencyWork)).To(Succeed())
 					dependencyWork.Spec.WorkloadGroups[0].DestinationSelectors = []v1alpha1.WorkloadGroupScheduling{
 						schedulingFor(devDestination),
 					}
@@ -814,7 +814,7 @@ var _ = Describe("Controllers/Scheduler", func() {
 
 				It("keeps the misscheduled WorkPlacements updated", func() {
 					// update the Work's WorkloadGroup with an extra Workload
-					Expect(fakeK8sClient.Get(context.Background(), client.ObjectKeyFromObject(&dependencyWork), &dependencyWork))
+					Expect(fakeK8sClient.Get(context.Background(), client.ObjectKeyFromObject(&dependencyWork), &dependencyWork)).To(Succeed())
 					dependencyWork.Spec.WorkloadGroups[0].Workloads = append(dependencyWork.Spec.WorkloadGroups[0].Workloads, Workload{
 						Content: "fake: new-content",
 					})

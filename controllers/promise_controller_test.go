@@ -469,7 +469,7 @@ var _ = Describe("PromiseController", func() {
 
 					By("not requeueing while the job is in flight", func() {
 						Expect(result).To(Equal(ctrl.Result{}))
-						Expect(err).To(BeNil())
+						Expect(err).NotTo(HaveOccurred())
 					})
 
 					By("finishing the creation once the job is finished", func() {
@@ -483,7 +483,7 @@ var _ = Describe("PromiseController", func() {
 					By("not creating a Work for the empty static dependencies", func() {
 						works := &v1alpha1.WorkList{}
 						Expect(fakeK8sClient.List(ctx, works)).To(Succeed())
-						Expect(works.Items).To(HaveLen(0))
+						Expect(works.Items).To(BeEmpty())
 					})
 				})
 			})
@@ -516,7 +516,7 @@ var _ = Describe("PromiseController", func() {
 
 					crds, err := fakeApiExtensionsClient.CustomResourceDefinitions().List(ctx, metav1.ListOptions{})
 					Expect(err).NotTo(HaveOccurred())
-					Expect(crds.Items).To(HaveLen(0))
+					Expect(crds.Items).To(BeEmpty())
 					works := &v1alpha1.WorkList{}
 					Expect(fakeK8sClient.List(ctx, works)).To(Succeed())
 					Expect(works.Items).To(HaveLen(1))
@@ -593,9 +593,9 @@ var _ = Describe("PromiseController", func() {
 					Expect(fakeK8sClient.List(ctx, serviceAccounts)).To(Succeed())
 					Expect(clusterRoles.Items).To(HaveLen(1))
 					Expect(clusterRoleBindings.Items).To(HaveLen(1))
-					Expect(works.Items).To(HaveLen(0))
-					Expect(jobs.Items).To(HaveLen(0))
-					Expect(serviceAccounts.Items).To(HaveLen(0))
+					Expect(works.Items).To(BeEmpty())
+					Expect(jobs.Items).To(BeEmpty())
+					Expect(serviceAccounts.Items).To(BeEmpty())
 
 					//Delete
 					Expect(fakeK8sClient.Delete(ctx, promise)).To(Succeed())
@@ -606,22 +606,22 @@ var _ = Describe("PromiseController", func() {
 
 					//Check they are all gone
 					Expect(fakeK8sClient.List(ctx, jobs)).To(Succeed())
-					Expect(jobs.Items).To(HaveLen(0))
+					Expect(jobs.Items).To(BeEmpty())
 
 					crds, err = fakeApiExtensionsClient.CustomResourceDefinitions().List(ctx, metav1.ListOptions{})
 					Expect(err).NotTo(HaveOccurred())
-					Expect(crds.Items).To(HaveLen(0))
+					Expect(crds.Items).To(BeEmpty())
 					Expect(fakeK8sClient.Get(ctx, promiseName, promise)).To(MatchError(ContainSubstring("not found")))
 					Expect(fakeK8sClient.List(ctx, clusterRoles)).To(Succeed())
 					Expect(fakeK8sClient.List(ctx, clusterRoleBindings)).To(Succeed())
 					Expect(fakeK8sClient.List(ctx, works)).To(Succeed())
 					Expect(fakeK8sClient.List(ctx, configMaps)).To(Succeed())
 					Expect(fakeK8sClient.List(ctx, serviceAccounts)).To(Succeed())
-					Expect(clusterRoles.Items).To(HaveLen(0))
-					Expect(clusterRoleBindings.Items).To(HaveLen(0))
-					Expect(works.Items).To(HaveLen(0))
-					Expect(configMaps.Items).To(HaveLen(0))
-					Expect(serviceAccounts.Items).To(HaveLen(0))
+					Expect(clusterRoles.Items).To(BeEmpty())
+					Expect(clusterRoleBindings.Items).To(BeEmpty())
+					Expect(works.Items).To(BeEmpty())
+					Expect(configMaps.Items).To(BeEmpty())
+					Expect(serviceAccounts.Items).To(BeEmpty())
 				})
 
 				When("a resource request exists", func() {
@@ -818,7 +818,7 @@ var _ = Describe("PromiseController", func() {
 					By("deleting the work", func() {
 						works := &v1alpha1.WorkList{}
 						Expect(fakeK8sClient.List(ctx, works)).To(Succeed())
-						Expect(works.Items).To(HaveLen(0))
+						Expect(works.Items).To(BeEmpty())
 					})
 				})
 			})
