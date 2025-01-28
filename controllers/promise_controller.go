@@ -132,7 +132,7 @@ func (r *PromiseReconciler) Reconcile(ctx context.Context, req ctrl.Request) (ct
 	}
 	if client.IgnoreNotFound(err) != nil {
 		r.Log.Error(err, "Failed getting Promise", "namespacedName", req.NamespacedName)
-		return defaultRequeue, nil
+		return defaultRequeue, nil //nolint:nilerr // requeue rather than exponential backoff
 	}
 
 	originalStatus := promise.Status.Status
@@ -743,7 +743,7 @@ func (r *PromiseReconciler) deletePromise(o opts, promise *v1alpha1.Promise) (ct
 		o.logger.Info("deleting resources associated with finalizer", "finalizer", dynamicControllerDependantResourcesCleanupFinalizer)
 		err := r.deleteDynamicControllerAndWorkflowResources(o, promise)
 		if err != nil {
-			return defaultRequeue, nil
+			return defaultRequeue, nil //nolint:nilerr // requeue rather than exponential backoff
 		}
 		return fastRequeue, nil
 	}

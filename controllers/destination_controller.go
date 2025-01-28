@@ -179,11 +179,11 @@ func (r *DestinationReconciler) createDependenciesPathWithExample(writer writers
 func (r *DestinationReconciler) deleteDestination(o opts, destination *v1alpha1.Destination, writer writers.StateStoreWriter) (ctrl.Result, error) {
 	if controllerutil.ContainsFinalizer(destination, destinationCleanupFinalizer) {
 		if success, err := r.deleteDestinationWorkplacements(o, destination); !success || err != nil {
-			return defaultRequeue, nil
+			return defaultRequeue, nil //nolint:nilerr // requeue rather than exponential backoff
 		}
 
 		if err := r.deleteStateStoreContents(o, writer); err != nil {
-			return defaultRequeue, nil
+			return defaultRequeue, nil //nolint:nilerr // requeue rather than exponential backoff
 		}
 
 		controllerutil.RemoveFinalizer(destination, destinationCleanupFinalizer)

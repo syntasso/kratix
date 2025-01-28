@@ -69,6 +69,7 @@ linters:
   - misspell # finds common spelling mistakes
   - nakedret # finds naked returns in functions greater than a specified function length
   - nestif # reports deeply nested if statements
+  - nilerr # finds the code that returns nil even if it checks that the error is not nil
   - nilnesserr # reports that it checks for err != nil, but it returns a different nil value error (powered by nilness and nilerr)
   - nolintlint # reports ill-formed or insufficient nolint directives
   - predeclared # finds code that shadows one of Go's predeclared identifiers
