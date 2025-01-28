@@ -107,6 +107,10 @@ var _ = Describe("System Tests", Ordered, func() {
 			})
 
 			By("updating Promise", func() {
+				cmArgs := []string{"-n", "testbundle-ns", "get", "cm"}
+				originalTimeStampW1 := worker1.Kubectl(append(cmArgs, rrConfigMapName+"-1", "-o=jsonpath={.data.timestamp}")...)
+				originalTimeStampW2 := worker2.Kubectl(append(cmArgs, rrConfigMapName+"-2", "-o=jsonpath={.data.timestamp}")...)
+
 				Expect(platform.Kubectl("apply", "-f", "assets/promise-v2.yaml")).To(ContainSubstring("testbundle configured"))
 
 				By("updating the promise api", func() {
@@ -126,6 +130,14 @@ var _ = Describe("System Tests", Ordered, func() {
 
 						g.Expect(worker1.Kubectl(getCMEnvValue...)).To(ContainSubstring("second"))
 						g.Expect(worker2.Kubectl(getCMEnvValue...)).To(ContainSubstring("second"))
+					}, timeout, interval).Should(Succeed())
+				})
+
+				By("rerunning the resource configure pipeline", func() {
+					Eventually(func(g Gomega) {
+						g.Expect(worker1.Kubectl("get", "namespaces")).To(ContainSubstring(rrNsNameUpdated))
+						g.Expect(worker1.Kubectl(append(cmArgs, rrConfigMapName+"-1", "-o=jsonpath={.data.timestamp}")...)).ToNot(Equal(originalTimeStampW1))
+						g.Expect(worker2.Kubectl(append(cmArgs, rrConfigMapName+"-2", "-o=jsonpath={.data.timestamp}")...)).ToNot(Equal(originalTimeStampW2))
 					}, timeout, interval).Should(Succeed())
 				})
 			})
@@ -153,7 +165,7 @@ var _ = Describe("System Tests", Ordered, func() {
 					g.Expect(platform.Kubectl("-n", "kratix-platform-system", "get", "works")).NotTo(ContainSubstring("testbundle"))
 					g.Expect(worker1.Kubectl("get", "namespaces")).NotTo(ContainSubstring("testbundle-ns"))
 					g.Expect(worker2.Kubectl("get", "namespaces")).NotTo(ContainSubstring("testbundle-ns"))
-				})
+				}, timeout, interval).Should(Succeed())
 			})
 		})
 	})
