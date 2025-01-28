@@ -179,7 +179,7 @@ func (s *Scheduler) reconcileWorkloadGroup(workloadGroup v1alpha1.WorkloadGroup,
 		}
 	}
 
-	destinationSelectors := resolveDestinationSelectorsForWorkloadGroup(workloadGroup, work)
+	destinationSelectors := resolveDestinationSelectorsForWorkloadGroup(workloadGroup)
 	targetDestinationNames := s.getTargetDestinationNames(destinationSelectors, work)
 	targetDestinationMap := map[string]bool{}
 	for _, dest := range targetDestinationNames {
@@ -216,7 +216,7 @@ func (s *Scheduler) reconcileWorkloadGroup(workloadGroup v1alpha1.WorkloadGroup,
 
 func (s *Scheduler) updateWorkPlacement(workloadGroup v1alpha1.WorkloadGroup, work *v1alpha1.Work, workPlacement *v1alpha1.WorkPlacement) (bool, error) {
 	misscheduled := true
-	destinationSelectors := resolveDestinationSelectorsForWorkloadGroup(workloadGroup, work)
+	destinationSelectors := resolveDestinationSelectorsForWorkloadGroup(workloadGroup)
 	for _, dest := range s.getTargetDestinationNames(destinationSelectors, work) {
 		if dest == workPlacement.Spec.TargetDestinationName {
 			misscheduled = false
@@ -431,7 +431,7 @@ func (s *Scheduler) getDestinationsForWorkloadGroup(destinationSelectors map[str
 	return destinations
 }
 
-func resolveDestinationSelectorsForWorkloadGroup(workloadGroup v1alpha1.WorkloadGroup, work *v1alpha1.Work) map[string]string {
+func resolveDestinationSelectorsForWorkloadGroup(workloadGroup v1alpha1.WorkloadGroup) map[string]string {
 	sortedWorkloadGroupDestinations := sortWorkloadGroupDestinationsByLowestPriority(workloadGroup.DestinationSelectors)
 	destinationSelectors := map[string]string{}
 

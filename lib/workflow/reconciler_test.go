@@ -224,7 +224,7 @@ var _ = Describe("Workflow Reconciler", func() {
 
 				It("updates the Promise status", func() {
 					Expect(fakeK8sClient.Get(ctx, types.NamespacedName{Name: promise.Name}, &promise)).To(Succeed())
-					Expect(len(promise.Status.Conditions)).To(Equal(1))
+					Expect(promise.Status.Conditions).To(HaveLen(1))
 					Expect(promise.Status.Conditions[0].Type).To(Equal(string(resourceutil.ConfigureWorkflowCompletedCondition)))
 					Expect(promise.Status.Conditions[0].Message).To(Equal("A Pipeline has failed: pipeline-1"))
 					Expect(promise.Status.Conditions[0].Reason).To(Equal("ConfigureWorkflowFailed"))
@@ -341,7 +341,7 @@ var _ = Describe("Workflow Reconciler", func() {
 					abort, err := workflow.ReconcileConfigure(opts)
 					Expect(err).NotTo(HaveOccurred())
 					jobList := listJobs(namespace)
-					Expect(len(jobList)).To(Equal(1))
+					Expect(jobList).To(HaveLen(1))
 					Expect(abort).To(BeTrue())
 				})
 
@@ -433,7 +433,7 @@ var _ = Describe("Workflow Reconciler", func() {
 				Expect(err).NotTo(HaveOccurred())
 
 				jobList := listJobs(namespace)
-				Expect(len(jobList)).To(Equal(numberOfJobLimit * len(updatedWorkflowPipeline)))
+				Expect(jobList).To(HaveLen(numberOfJobLimit * len(updatedWorkflowPipeline)))
 			})
 		})
 
@@ -542,7 +542,7 @@ var _ = Describe("Workflow Reconciler", func() {
 						Expect(jobs[2].GetLabels()).To(HaveKeyWithValue("kratix.io/pipeline-name", workflowPipelines[0].Name))
 					})
 
-					By("removing the label from the parent after the first reconcilation", func() {
+					By("removing the label from the parent after the first reconciliation", func() {
 						promise := v1alpha1.Promise{}
 						Expect(fakeK8sClient.Get(ctx, types.NamespacedName{Name: "redis"}, &promise)).To(Succeed())
 						Expect(promise.GetLabels()).NotTo(HaveKey("kratix.io/manual-reconciliation"))
@@ -937,22 +937,22 @@ var _ = Describe("Workflow Reconciler", func() {
 				roles := &rbacv1.RoleList{}
 				Expect(fakeK8sClient.List(ctx, roles, userPermissionPipelineLabels(promise, pipelines[0]))).To(Succeed())
 
-				Expect(roles.Items).To(HaveLen(0))
+				Expect(roles.Items).To(BeEmpty())
 
 				clusterRoles := &rbacv1.ClusterRoleList{}
 				Expect(fakeK8sClient.List(ctx, clusterRoles, userPermissionPipelineLabels(promise, pipelines[0]))).To(Succeed())
 
-				Expect(clusterRoles.Items).To(HaveLen(0))
+				Expect(clusterRoles.Items).To(BeEmpty())
 
 				roleBindings := &rbacv1.RoleBindingList{}
 				Expect(fakeK8sClient.List(ctx, roleBindings, userPermissionPipelineLabels(promise, pipelines[0]))).To(Succeed())
 
-				Expect(roleBindings.Items).To(HaveLen(0))
+				Expect(roleBindings.Items).To(BeEmpty())
 
 				clusterRoleBindings := &rbacv1.ClusterRoleBindingList{}
 				Expect(fakeK8sClient.List(ctx, clusterRoleBindings, userPermissionPipelineLabels(promise, pipelines[0]))).To(Succeed())
 
-				Expect(clusterRoleBindings.Items).To(HaveLen(0))
+				Expect(clusterRoleBindings.Items).To(BeEmpty())
 			})
 		})
 
@@ -984,7 +984,7 @@ var _ = Describe("Workflow Reconciler", func() {
 				roles := &rbacv1.RoleList{}
 				Expect(fakeK8sClient.List(ctx, roles, userPermissionPipelineLabels(promise, pipelines[0]))).To(Succeed())
 
-				Expect(roles.Items).To(HaveLen(0))
+				Expect(roles.Items).To(BeEmpty())
 			})
 
 			It("removes the user provided pipeline scoped role binding and retains the role binding for the specific namespace", func() {
@@ -1481,7 +1481,7 @@ var _ = Describe("Workflow Reconciler", func() {
 				clusterBindings := &rbacv1.ClusterRoleBindingList{}
 				Expect(fakeK8sClient.List(ctx, clusterBindings, userPermissionPipelineLabels(promise, pipelines[0]))).To(Succeed())
 
-				Expect(clusterBindings.Items).To(HaveLen(0))
+				Expect(clusterBindings.Items).To(BeEmpty())
 
 				By("removing the all-namespace cluster role")
 				clusterRoles := &rbacv1.ClusterRoleList{}
@@ -1845,6 +1845,8 @@ func markJobAs(conditionType batchv1.JobConditionType, name string) {
 		job.Status.Succeeded = 1
 	case batchv1.JobFailed:
 		job.Status.Failed = 1
+	default:
+		Fail("unsupported condition type")
 	}
 
 	Expect(fakeK8sClient.Status().Update(ctx, job)).To(Succeed())

@@ -35,7 +35,7 @@ func DecompressContent(compressedBytes []byte) ([]byte, error) {
 	if err != nil {
 		return nil, err
 	}
-	defer zr.Close()
+	defer zr.Close() //nolint:errcheck
 
 	decompressed, err := io.ReadAll(zr)
 	if err != nil {
@@ -48,7 +48,7 @@ func DecompressContent(compressedBytes []byte) ([]byte, error) {
 func InCompressedContents(compressedContent string, content []byte) (bool, error) {
 	decompressedContent, err := DecompressContent([]byte(compressedContent))
 	if err != nil {
-		return false, fmt.Errorf("unable to decompress contents: %s", err)
+		return false, fmt.Errorf("unable to decompress contents: %w", err)
 	}
 	return bytes.Contains(decompressedContent, content), nil
 }

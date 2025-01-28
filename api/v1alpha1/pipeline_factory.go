@@ -94,6 +94,8 @@ func (p *PipelineFactory) serviceAccount() *corev1.ServiceAccount {
 
 func (p *PipelineFactory) configMap(workloadGroupScheduling []WorkloadGroupScheduling) (*corev1.ConfigMap, error) {
 	if p.WorkflowAction != WorkflowActionConfigure {
+		// TODO: Is this a bug? The returned nil configmap is used in the pipelineJob
+		//  function, which only doesn't panic because of the same if condition.
 		return nil, nil
 	}
 	schedulingYAML, err := yaml.Marshal(workloadGroupScheduling)

@@ -144,7 +144,7 @@ func ReconcileConfigure(opts Opts) (abort bool, err error) {
 
 		if isManualReconciliation {
 			opts.logger.Info("Pipeline running due to manual reconciliation", "pipeline", pipeline.Name, "parentLabels", opts.parentObject.GetLabels())
-			return createConfigurePipeline(opts, pipelineIndex, pipeline)
+			return createConfigurePipeline(opts, pipeline)
 		}
 
 		if isFailed(mostRecentJob) {
@@ -171,7 +171,7 @@ func ReconcileConfigure(opts Opts) (abort bool, err error) {
 
 	// TODO this will be very noisy - might want to slowRequeue?
 	opts.logger.Info("Reconciling pipeline", "pipeline", pipeline.Name)
-	return createConfigurePipeline(opts, pipelineIndex, pipeline)
+	return createConfigurePipeline(opts, pipeline)
 }
 
 func suspendJob(ctx context.Context, c client.Client, job *batchv1.Job) error {
@@ -331,7 +331,7 @@ func cleanupJobs(opts Opts, pipelineJobsAtCurrentSpec []batchv1.Job) error {
 	return nil
 }
 
-func createConfigurePipeline(opts Opts, pipelineIndex int, resources v1alpha1.PipelineJobResources) (abort bool, err error) {
+func createConfigurePipeline(opts Opts, resources v1alpha1.PipelineJobResources) (abort bool, err error) {
 	opts.logger.Info("Triggering pipeline", "workflow action", resources.WorkflowAction)
 
 	var objectToDelete []client.Object
@@ -362,25 +362,6 @@ func removeManualReconciliationLabel(opts Opts) error {
 		return err
 	}
 	return nil
-}
-
-func setConfigureWorkflowCompletedConditionStatus(opts Opts, isTheFirstPipeline bool, obj *unstructured.Unstructured) (bool, error) {
-	switch resourceutil.GetConfigureWorkflowCompletedConditionStatus(obj) {
-	case v1.ConditionTrue:
-		fallthrough
-	case v1.ConditionUnknown:
-		currentMessage := resourceutil.GetStatus(obj, "message")
-		if isTheFirstPipeline || currentMessage == "" || currentMessage == "Resource requested" {
-			resourceutil.SetStatus(obj, opts.logger, "message", "Pending")
-		}
-		resourceutil.MarkWorkflowAsRunning(opts.logger, obj)
-		err := opts.client.Status().Update(opts.ctx, obj)
-		if err != nil {
-			return false, err
-		}
-		return true, nil
-	}
-	return false, nil
 }
 
 func getDeletePipeline(opts Opts, namespace string, pipeline v1alpha1.PipelineJobResources) (*batchv1.Job, error) {

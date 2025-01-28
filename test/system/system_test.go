@@ -445,7 +445,7 @@ var _ = Describe("Kratix", func() {
 
 				platform.eventuallyKubectlDelete("promise", bashPromiseName)
 				platform.kubectl("delete", "namespace", oldRRImperativePlatformNamespace)
-				Eventually(platform.kubectl("get", "promise")).ShouldNot(ContainSubstring(bashPromiseName))
+				Eventually(platform.kubectl).WithArguments("get", "promise").ShouldNot(ContainSubstring(bashPromiseName))
 			})
 		})
 
@@ -553,7 +553,7 @@ var _ = Describe("Kratix", func() {
 				})
 
 				platform.eventuallyKubectlDelete("promise", bashPromiseName)
-				Eventually(platform.kubectl("get", "promise")).ShouldNot(ContainSubstring(bashPromiseName))
+				Eventually(platform.kubectl).WithArguments("get", "promise").ShouldNot(ContainSubstring(bashPromiseName))
 			})
 		})
 
@@ -768,7 +768,7 @@ var _ = Describe("Kratix", func() {
 					Expect(platform.kubectl("get", "namespace")).NotTo(ContainSubstring(depNamespaceName))
 				})
 
-				By("labeling the platform Destination, it gets the dependencies assigned", func() {
+				By("labelling the platform Destination, it gets the dependencies assigned", func() {
 					platform.kubectl("label", "destination", platform.name, "security=high", bashPromiseUniqueLabel)
 					platform.eventuallyKubectl("get", "namespace", depNamespaceName)
 					platform.eventuallyKubectl("get", "namespace", declarativeWorkerNamespace)
@@ -829,9 +829,9 @@ var _ = Describe("Kratix", func() {
 			platform.kubectl("label", "destination", platform.name, bashPromiseUniqueLabel, "security-")
 
 			By("only the worker Destination getting the dependency initially", func() {
-				Consistently(func() {
-					worker.eventuallyKubectl("get", "namespace", declarativeStaticWorkerNamespace)
-				}, consistentlyTimeout, interval)
+				Consistently(func() string {
+					return worker.eventuallyKubectl("get", "namespace", declarativeStaticWorkerNamespace)
+				}, consistentlyTimeout, interval).Should(ContainSubstring(declarativeStaticWorkerNamespace))
 
 				Eventually(func() string {
 					return platform.kubectl("get", "namespace")
@@ -851,12 +851,13 @@ var _ = Describe("Kratix", func() {
 			platform.eventuallyKubectl("apply", "-f", cat(bashPromise))
 
 			By("scheduling to the new destination and preserving the old orphaned destinations", func() {
-				Consistently(func() {
-					worker.eventuallyKubectl("get", "namespace", declarativeStaticWorkerNamespace)
-				}, consistentlyTimeout, interval)
-				Consistently(func() {
-					platform.eventuallyKubectl("get", "namespace", declarativeStaticWorkerNamespace)
-				}, consistentlyTimeout, interval)
+				Consistently(func() string {
+					return worker.eventuallyKubectl("get", "namespace", declarativeStaticWorkerNamespace)
+				}, consistentlyTimeout, interval).Should(ContainSubstring(declarativeStaticWorkerNamespace))
+
+				Consistently(func() string {
+					return platform.eventuallyKubectl("get", "namespace", declarativeStaticWorkerNamespace)
+				}, consistentlyTimeout, interval).Should(ContainSubstring(declarativeStaticWorkerNamespace))
 			})
 
 			platform.eventuallyKubectlDelete("promise", bashPromiseName)
@@ -1058,7 +1059,7 @@ func requestWithNameAndCommand(name string, containerCmds ...string) string {
 //   - By time kratix starts back up, it has already been deleted
 //
 // This means we need a more robust approach for deleting Promises
-func (c destination) eventuallyKubectlDelete(args ...string) string {
+func (c destination) eventuallyKubectlDelete(args ...string) string { //nolint:unparam
 	commandArgs := []string{"get", "--context=" + c.context}
 	commandArgs = append(commandArgs, args...)
 	command := exec.Command("kubectl", commandArgs...)
@@ -1139,7 +1140,7 @@ func (c destination) clone() destination {
 	}
 }
 
-func (c destination) withExitCode(code int) destination {
+func (c destination) withExitCode(code int) destination { //nolint:unparam
 	newDestination := c.clone()
 	newDestination.exitCode = code
 	return newDestination
@@ -1179,7 +1180,7 @@ func listFilesInGitStateStore(subDir string) []string {
 func listFilesInMinIOStateStore(path string) []string {
 	files := []string{}
 
-	// Initialize minio client object.
+	// Initialise minio client object.
 	minioClient, err := minio.New(endpoint, &minio.Options{
 		Creds:  credentials.NewStaticV4(accessKeyID, secretAccessKey, ""),
 		Secure: useSSL,

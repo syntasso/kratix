@@ -218,7 +218,7 @@ func (r *DynamicResourceRequestController) deleteResources(o opts, promise *v1al
 	}
 
 	if controllerutil.ContainsFinalizer(resourceRequest, removeAllWorkflowJobsFinalizer) {
-		err := r.deleteWorkflows(o, resourceRequest, resourceRequestIdentifier, removeAllWorkflowJobsFinalizer)
+		err := r.deleteWorkflows(o, resourceRequest, removeAllWorkflowJobsFinalizer)
 		if err != nil {
 			return ctrl.Result{}, err
 		}
@@ -257,7 +257,7 @@ func (r *DynamicResourceRequestController) deleteWork(o opts, resourceRequest *u
 	return nil
 }
 
-func (r *DynamicResourceRequestController) deleteWorkflows(o opts, resourceRequest *unstructured.Unstructured, resourceRequestIdentifier, finalizer string) error {
+func (r *DynamicResourceRequestController) deleteWorkflows(o opts, resourceRequest *unstructured.Unstructured, finalizer string) error {
 	jobGVK := schema.GroupVersionKind{
 		Group:   batchv1.SchemeGroupVersion.Group,
 		Version: batchv1.SchemeGroupVersion.Version,

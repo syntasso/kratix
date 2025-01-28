@@ -255,8 +255,7 @@ func (w *WorkCreator) getWorkflowScheduling(rootDirectory string) ([]v1alpha1.Wo
 
 func (w *WorkCreator) getPromiseScheduling(rootDirectory string) ([]v1alpha1.WorkloadGroupScheduling, error) {
 	kratixSystemDirectory := filepath.Join(rootDirectory, "kratix-system")
-	file := filepath.Join(kratixSystemDirectory, "promise-scheduling")
-	fileContents, err := os.ReadFile(file)
+	fileContents, err := os.ReadFile(filepath.Join(kratixSystemDirectory, "promise-scheduling"))
 	if err != nil {
 		if goerr.Is(err, os.ErrNotExist) {
 			return nil, nil

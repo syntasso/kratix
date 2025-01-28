@@ -18,9 +18,11 @@ package v1alpha1
 
 import (
 	"context"
+
+	"sigs.k8s.io/controller-runtime/pkg/client"
+
 	corev1 "k8s.io/api/core/v1"
 	metav1 "k8s.io/apimachinery/pkg/apis/meta/v1"
-	"sigs.k8s.io/controller-runtime/pkg/client"
 )
 
 const TypeHTTP = "http"
@@ -78,7 +80,7 @@ func init() {
 
 func (pr *PromiseRelease) FetchSecretFromReference(k8sClient client.Client) (map[string][]byte, error) {
 	if pr.Spec.SourceRef.SecretRef == nil {
-		return nil, nil
+		return nil, nil //nolint:nilnil
 	}
 
 	fetchSecret := &corev1.Secret{}

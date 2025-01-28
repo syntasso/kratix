@@ -501,7 +501,6 @@ func (r *PromiseReconciler) reconcileAllRRs(rrGVK *schema.GroupVersionKind) erro
 }
 
 func (r *PromiseReconciler) ensureDynamicControllerIsStarted(promise *v1alpha1.Promise, rrCRD *apiextensionsv1.CustomResourceDefinition, rrGVK *schema.GroupVersionKind, canCreateResources *bool, logger logr.Logger) error {
-
 	// The Dynamic Controller needs to be started once and only once.
 	if r.dynamicControllerHasAlreadyStarted(promise) {
 		logger.Info("dynamic controller already started, ensuring it is up to date")
