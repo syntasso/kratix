@@ -68,6 +68,7 @@ linters:
   - testpackage # makes you use a separate _test package
   - unparam # reports unused function parameters
   - unused # checks for unused constants, variables, functions and types
+  - usestdlibvars # detects the possibility to use variables/constants from the Go standard library
   - usetesting # reports uses of functions with replacement inside the testing package
   - wastedassign # finds wasted assignment statements
 

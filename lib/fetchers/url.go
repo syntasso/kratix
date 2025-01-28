@@ -15,7 +15,7 @@ type URLFetcher struct {
 }
 
 func (u *URLFetcher) FromURL(urlString, authHeader string) (*v1alpha1.Promise, error) {
-	req, err := http.NewRequest("GET", urlString, nil)
+	req, err := http.NewRequest(http.MethodGet, urlString, nil)
 	if err != nil {
 		return nil, err
 	}
