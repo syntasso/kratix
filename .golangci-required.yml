@@ -31,6 +31,8 @@ linters-settings:
     min-complexity: 57  # Starting point for cognitive complexity
   ineffassign:
     report-ineffassign: true
+  misspell:
+    locale: UK
   nakedret:
     max-func-lines: 0
   nestif:
@@ -58,6 +60,7 @@ linters:
   - iface # checks the incorrect use of interfaces, helping developers avoid interface pollution
   - ineffassign # detects when assignments to existing variables are not used
   - loggercheck # checks key value pairs for common logger libraries (kitlog,klog,logr,zap)
+  - misspell # finds common spelling mistakes
   - nakedret # finds naked returns in functions greater than a specified function length
   - nestif # reports deeply nested if statements
   - nilnesserr # reports that it checks for err != nil, but it returns a different nil value error (powered by nilness and nilerr)

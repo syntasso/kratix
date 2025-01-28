@@ -767,7 +767,7 @@ var _ = Describe("Kratix", func() {
 					Expect(platform.kubectl("get", "namespace")).NotTo(ContainSubstring(depNamespaceName))
 				})
 
-				By("labeling the platform Destination, it gets the dependencies assigned", func() {
+				By("labelling the platform Destination, it gets the dependencies assigned", func() {
 					platform.kubectl("label", "destination", platform.name, "security=high", bashPromiseUniqueLabel)
 					platform.eventuallyKubectl("get", "namespace", depNamespaceName)
 					platform.eventuallyKubectl("get", "namespace", declarativeWorkerNamespace)
@@ -1174,7 +1174,7 @@ func listFilesInGitStateStore(subDir string) []string {
 func listFilesInMinIOStateStore(path string) []string {
 	files := []string{}
 
-	// Initialize minio client object.
+	// Initialise minio client object.
 	minioClient, err := minio.New(endpoint, &minio.Options{
 		Creds:  credentials.NewStaticV4(accessKeyID, secretAccessKey, ""),
 		Secure: useSSL,

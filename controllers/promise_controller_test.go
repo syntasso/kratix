@@ -922,7 +922,7 @@ var _ = Describe("PromiseController", func() {
 			})
 		})
 
-		When("promise labeled with ReconcileResources label", func() {
+		When("promise labelled with ReconcileResources label", func() {
 			var resReq *unstructured.Unstructured
 
 			BeforeEach(func() {

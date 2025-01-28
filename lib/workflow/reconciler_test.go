@@ -542,7 +542,7 @@ var _ = Describe("Workflow Reconciler", func() {
 						Expect(jobs[2].GetLabels()).To(HaveKeyWithValue("kratix.io/pipeline-name", workflowPipelines[0].Name))
 					})
 
-					By("removing the label from the parent after the first reconcilation", func() {
+					By("removing the label from the parent after the first reconciliation", func() {
 						promise := v1alpha1.Promise{}
 						Expect(fakeK8sClient.Get(ctx, types.NamespacedName{Name: "redis"}, &promise)).To(Succeed())
 						Expect(promise.GetLabels()).NotTo(HaveKey("kratix.io/manual-reconciliation"))
