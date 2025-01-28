@@ -51,6 +51,7 @@ linters:
   - funlen # tool for detection of long functions
   - ginkgolinter # enforces standards of using ginkgo and gomega
   - gocognit # computes and checks the cognitive complexity of functions
+  - goimports # in addition to fixing imports, goimports also formats your code in the same style as gofmt
   - gosec # inspects source code for security problems
   - gosimple # specializes in simplifying code
   - govet # reports suspicious constructs, such as Printf calls whose arguments do not align with the format string
