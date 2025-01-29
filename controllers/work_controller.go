@@ -130,12 +130,12 @@ func (r *WorkReconciler) SetupWithManager(mgr ctrl.Manager) error {
 		Owns(&v1alpha1.WorkPlacement{}).
 		Watches(
 			&v1alpha1.Destination{},
-			handler.EnqueueRequestsFromMapFunc(r.requestReconcilationOfWorksOnDestination),
+			handler.EnqueueRequestsFromMapFunc(r.requestReconciliationOfWorksOnDestination),
 		).
 		Complete(r)
 }
 
-func (r *WorkReconciler) requestReconcilationOfWorksOnDestination(ctx context.Context, obj client.Object) []reconcile.Request {
+func (r *WorkReconciler) requestReconciliationOfWorksOnDestination(ctx context.Context, obj client.Object) []reconcile.Request {
 	dest := obj.(*v1alpha1.Destination)
 
 	if dest.GetDeletionTimestamp() != nil {
