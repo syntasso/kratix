@@ -1,6 +1,6 @@
 #!/usr/bin/env sh
 
-export IMG="syntassodev/kratix-promise-release-test-hoster:v0.0.3"
+export IMG="syntassodev/kratix-promise-release-test-hoster:v0.0.4"
 
 if ! docker buildx ls | grep -q "kratix-image-builder"; then \
 	docker buildx create --name kratix-image-builder; \
