@@ -1,0 +1,6 @@
+apiVersion: test.kratix.io/v1alpha1
+kind: rbacbundle
+metadata:
+  name: rbac-resource-request
+  namespace: default
+spec: {}

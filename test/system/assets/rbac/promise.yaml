@@ -1,0 +1,132 @@
+
+apiVersion: platform.kratix.io/v1alpha1
+kind: Promise
+metadata:
+  name: rbac-promise
+spec:
+  api:
+    apiVersion: apiextensions.k8s.io/v1
+    kind: CustomResourceDefinition
+    metadata:
+      name: rbacbundle.test.kratix.io
+    spec:
+      group: test.kratix.io
+      names:
+        kind: rbacbundle
+        plural: rbacbundle
+        singular: rbacbundle
+      scope: Namespaced
+      versions:
+        - name: v1alpha1
+          schema:
+            openAPIV3Schema:
+              properties:
+                spec:
+                  properties:
+                    name:
+                      type: string
+                  type: object
+              type: object
+          served: true
+          storage: true
+  workflows:
+    promise:
+      configure:
+        - apiVersion: platform.kratix.io/v1alpha1
+          kind: Pipeline
+          metadata:
+            name: rbac-pro
+          spec:
+            rbac:
+              permissions:
+                # one resource in the kratix-platform-system namespace
+                - apiGroups: [""]
+                  verbs: ["get", "list"]
+                  resources: ["configmaps"]
+                  resourceName: ["rbac-promise-cm"]
+
+                # one resource across namespaces
+                - apiGroups: [""]
+                  verbs: ["get", "list"]
+                  resources: ["configmaps"]
+                  resourceName: ["rbac-promise-default-cm"]
+                  resourceNamespace: "default"
+
+                # all secret across all namespaces
+                - apiGroups: [""]
+                  verbs: ["get", "list"]
+                  resources: ["secrets"]
+                  resourceNamespace: "*"
+
+            containers:
+              - name: do-commands
+                image: ghcr.io/syntasso/kratix-pipeline-utility:v0.0.1
+                command: ['sh']
+                args:
+                - -c
+                - |
+                  set -eux
+
+                  # validate rbac from within the promise workflow namespace
+                  kubectl get configmap rbac-promise-cm
+
+                  if kubectl get configmap rbac-promise-cant-see; then
+                    echo "configmap rbac-promise-cant-see was found"
+                    exit 1
+                  fi
+
+                  # validate access to a configmap across namespace
+                  kubectl get configmap -n default rbac-promise-default-cm
+
+                  # validate access to a secret across all namespaces
+                  kubectl get secret -n default rbac-promise-default-secret
+    resource:
+      configure:
+        - apiVersion: platform.kratix.io/v1alpha1
+          kind: Pipeline
+          metadata:
+            name: rbac-res
+          spec:
+            rbac:
+              permissions:
+                # can fetch a named secret from within the same namespace
+                - apiGroups: [""]
+                  verbs: ["get", "list", "create", "update", "patch"]
+                  resources: ["secrets"]
+                  resourceName: ["rbac-resource-secret"]
+
+                # can fetch a configmap across namespaces
+                - apiGroups: [""]
+                  verbs: ["get", "list"]
+                  resources: ["configmaps"]
+                  resourceName: ["rbac-promise-cm"]
+                  resourceNamespace: "kratix-platform-system"
+
+                # can fetch cluster-scoped resources
+                - apiGroups: ["platform.kratix.io"]
+                  verbs: ["get", "list"]
+                  resources: ["promises"]
+                  resourceNamespace: "*"
+            containers:
+              - name: do-commands
+                image: ghcr.io/syntasso/kratix-pipeline-utility:v0.0.1
+                command: ['sh']
+                args:
+                - -c
+                - |
+                  set -eux
+                  kubectl get secret rbac-resource-secret
+                  kubectl get promises
+                  kubectl get configmap -n kratix-platform-system rbac-promise-cm
+
+                  if kubectl get secret rbac-resource-secret -n kratix-platform-system; then
+                    echo "was able to read rbac-resource-secret in kratix-platform-system; expected to fail"
+                    exit 1
+                  fi
+
+                  if kubectl get configmap rbac-promise-default-cm; then
+                    echo "was able to read the configmap rbac-promise-default-cm in default; expected to fail"
+                    exit 1
+                  fi
+
+

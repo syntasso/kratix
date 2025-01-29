@@ -1,0 +1,47 @@
+apiVersion: v1
+kind: ConfigMap
+metadata:
+  name: rbac-promise-cm
+  namespace: kratix-platform-system
+data:
+  content: "hello from kratix-platform-system"
+---
+apiVersion: v1
+kind: ConfigMap
+metadata:
+  name: rbac-promise-cant-see
+  namespace: default
+data:
+  content: "this is not allowed"
+---
+apiVersion: v1
+kind: ConfigMap
+metadata:
+  name: rbac-promise-default-cm
+  namespace: default
+data:
+  content: "hello from default"
+---
+apiVersion: v1
+kind: Secret
+metadata:
+  name: rbac-promise-default-secret
+  namespace: default
+stringData:
+  secret: supersecret
+---
+apiVersion: v1
+kind: Secret
+metadata:
+  name: rbac-resource-secret
+  namespace: kratix-platform-system
+stringData:
+  secret: supersecret-cant-read
+---
+apiVersion: v1
+kind: Secret
+metadata:
+  name: rbac-resource-secret
+  namespace: default
+stringData:
+  secret: supersecret

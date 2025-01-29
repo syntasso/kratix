@@ -292,6 +292,7 @@ func (r *PromiseReconciler) Reconcile(ctx context.Context, req ctrl.Request) (ct
 	logger.Info("Promise status being set to Available")
 	promise.Status.Status = v1alpha1.PromiseStatusAvailable
 	promise.Status.LastAvailableTime = &metav1.Time{Time: time.Now()}
+
 	return r.updatePromiseStatus(ctx, promise)
 }
 
