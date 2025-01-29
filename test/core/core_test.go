@@ -12,7 +12,7 @@ const (
 	tenSeconds, timeout, interval = 10 * time.Second, 2 * time.Minute, 2 * time.Second
 )
 
-var _ = Describe("System Tests", Ordered, func() {
+var _ = Describe("Core Tests", Ordered, func() {
 	var platform *kubeutils.Cluster
 	var worker1 *kubeutils.Cluster
 	var worker2 *kubeutils.Cluster
@@ -80,6 +80,7 @@ var _ = Describe("System Tests", Ordered, func() {
 						return platform.Kubectl(append(rrArgs, "-o=jsonpath='{.status.stage}'")...)
 					}, tenSeconds).Should(ContainSubstring("one"))
 					Eventually(func(g Gomega) {
+						g.Expect(platform.Kubectl(append(rrArgs, `-o=jsonpath='{.status.conditions[?(@.type=="ConfigureWorkflowCompleted")].status}'`)...)).To(ContainSubstring("True"))
 						g.Expect(platform.Kubectl(append(rrArgs, "-o=jsonpath='{.status.stage}'")...)).To(ContainSubstring("two"))
 						g.Expect(platform.Kubectl(append(rrArgs, "-o=jsonpath='{.status.completed}'")...)).To(ContainSubstring("true"))
 						g.Expect(platform.Kubectl(append(rrArgs, `-o=jsonpath='{.status.observedGeneration}'`)...)).To(Equal(generation))
