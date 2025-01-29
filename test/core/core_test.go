@@ -267,3 +267,17 @@ state store:
 
 
 */
+
+// TO ADD
+//			By("updating the resource status", func() {
+//				Eventually(func() string {
+//					return platform.kubectl("get", bashPromiseName, rrName)
+//				}, timeout, interval).Should(ContainSubstring("My awesome status message"))
+//				Eventually(func() string {
+//					return platform.kubectl("get", bashPromiseName, rrName, "-o", "jsonpath='{.status.key}'")
+//				}, timeout, interval).Should(ContainSubstring("value"))
+//				generation := platform.kubectl("get", bashPromiseName, rrName, "-o", "jsonpath='{.metadata.generation}'")
+//				Eventually(func() string {
+//					return platform.kubectl("get", bashPromiseName, rrName, "-o", "jsonpath='{.status.observedGeneration}'")
+//				}, timeout, interval).Should(Equal(generation))
+//			})

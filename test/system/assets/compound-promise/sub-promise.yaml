@@ -1,0 +1,6 @@
+apiVersion: platform.kratix.io/v1alpha1
+kind: Promise
+metadata:
+  name: sub-promise
+  labels:
+    kratix.io/promise-version: "v1.0.0"

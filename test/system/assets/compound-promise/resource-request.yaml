@@ -1,0 +1,5 @@
+apiVersion: test.kratix.io/v1alpha1
+kind: compound
+metadata:
+  name: example-compound-rr
+spec: {}

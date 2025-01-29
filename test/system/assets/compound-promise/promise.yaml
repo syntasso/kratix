@@ -1,0 +1,46 @@
+apiVersion: platform.kratix.io/v1alpha1
+kind: Promise
+metadata:
+  name: compound-promise
+spec:
+  requiredPromises:
+  - name: sub-promise
+    version: "v1.0.0"
+  api:
+    apiVersion: apiextensions.k8s.io/v1
+    kind: CustomResourceDefinition
+    metadata:
+      name: compound.test.kratix.io
+    spec:
+      group: test.kratix.io
+      names:
+        kind: compound
+        plural: compound
+        singular: compound
+      scope: Namespaced
+      versions:
+        - name: v1alpha1
+          schema:
+            openAPIV3Schema:
+              properties:
+                spec:
+                  type: object
+              type: object
+          served: true
+          storage: true
+  workflows:
+    resource:
+      configure:
+        - apiVersion: platform.kratix.io/v1alpha1
+          kind: Pipeline
+          metadata:
+            name: do-nothing
+          spec:
+            containers:
+              - image: busybox
+                name: do-nothing-with-care
+                command:
+                  - /bin/sh
+                args:
+                  - -c
+                  - echo "I am doing nothing"

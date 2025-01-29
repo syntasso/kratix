@@ -33,6 +33,7 @@ var _ = SynchronizedBeforeSuite(func() {
 
 	platform.kubectl("apply", "-f", "./assets/kratix-config.yaml")
 	platform.kubectl("delete", "pod", "-l", "control-plane=controller-manager", "-n", "kratix-platform-system")
+	platform.kubectl("wait", "-n", "kratix-platform-system", "deployments", "-l", "control-plane=controller-manager", "--for=condition=Available")
 
 	var err error
 	testTempDir, err = os.MkdirTemp(os.TempDir(), "systest")
