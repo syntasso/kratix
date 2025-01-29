@@ -85,6 +85,12 @@ var _ = Describe("Core Tests", Ordered, func() {
 						g.Expect(platform.Kubectl(append(rrArgs, "-o=jsonpath='{.status.completed}'")...)).To(ContainSubstring("true"))
 						g.Expect(platform.Kubectl(append(rrArgs, `-o=jsonpath='{.status.observedGeneration}'`)...)).To(Equal(generation))
 					}, 2*tenSeconds).Should(Succeed())
+
+					Eventually(func() bool {
+						transitionTime := platform.Kubectl(append(rrArgs, `-o=jsonpath={.status.conditions[?(@.type=="ConfigureWorkflowCompleted")].lastTransitionTime}`)...)
+						lastSuccessful := platform.Kubectl(append(rrArgs, `-o=jsonpath={.status.lastSuccessfulConfigureWorkflowTime}`)...)
+						return transitionTime == lastSuccessful
+					}, tenSeconds).Should(BeTrue(), "lastTransitionTime should be equal to lastSuccessfulConfigureWorkflowTime")
 				})
 
 				cmArgs := []string{"-n", "testbundle-ns", "get", "cm"}
