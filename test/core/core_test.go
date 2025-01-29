@@ -75,12 +75,14 @@ var _ = Describe("System Tests", Ordered, func() {
 
 				By("updating resource status", func() {
 					rrArgs := []string{"-n", "default", "get", "testbundle", resourceRequestName}
+					generation := platform.Kubectl(append(rrArgs, `-o=jsonpath='{.metadata.generation}'`)...)
 					Eventually(func() string {
 						return platform.Kubectl(append(rrArgs, "-o=jsonpath='{.status.stage}'")...)
 					}, tenSeconds).Should(ContainSubstring("one"))
 					Eventually(func(g Gomega) {
 						g.Expect(platform.Kubectl(append(rrArgs, "-o=jsonpath='{.status.stage}'")...)).To(ContainSubstring("two"))
 						g.Expect(platform.Kubectl(append(rrArgs, "-o=jsonpath='{.status.completed}'")...)).To(ContainSubstring("true"))
+						g.Expect(platform.Kubectl(append(rrArgs, `-o=jsonpath='{.status.observedGeneration}'`)...)).To(Equal(generation))
 					}, 2*tenSeconds).Should(Succeed())
 				})
 
@@ -267,17 +269,3 @@ state store:
 
 
 */
-
-// TO ADD
-//			By("updating the resource status", func() {
-//				Eventually(func() string {
-//					return platform.kubectl("get", bashPromiseName, rrName)
-//				}, timeout, interval).Should(ContainSubstring("My awesome status message"))
-//				Eventually(func() string {
-//					return platform.kubectl("get", bashPromiseName, rrName, "-o", "jsonpath='{.status.key}'")
-//				}, timeout, interval).Should(ContainSubstring("value"))
-//				generation := platform.kubectl("get", bashPromiseName, rrName, "-o", "jsonpath='{.metadata.generation}'")
-//				Eventually(func() string {
-//					return platform.kubectl("get", bashPromiseName, rrName, "-o", "jsonpath='{.status.observedGeneration}'")
-//				}, timeout, interval).Should(Equal(generation))
-//			})
