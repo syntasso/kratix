@@ -6,7 +6,7 @@ import (
 	"time"
 )
 
-var _ = FDescribe("CompoundPromise", func() {
+var _ = Describe("Compound Promise", Label("compound-promise"), Serial, func() {
 	BeforeEach(func() {
 		SetDefaultEventuallyTimeout(30 * time.Second)
 		SetDefaultEventuallyPollingInterval(time.Second)
