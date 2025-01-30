@@ -238,20 +238,14 @@ build-and-load-bash: # Build and load all test pipeline images
 build-and-push-bash:
 	docker buildx build --builder kratix-image-builder --push --platform linux/arm64,linux/amd64 --tag syntassodev/bash-promise:dev1 ./test/system/assets/bash-promise
 
-lint-required: # Lint with required config relative to origin/main
+lint: # Lint relative to origin/main, with full config
+	golangci-lint run --new-from-rev=origin/main --config=.golangci.yml
+
+lint-required: # Lint relative to origin/main, with required config
 	golangci-lint run --new-from-rev=origin/main --config=.golangci-required.yml
 
-lint-changed: # Lint changed files only, with default config
-	@unstaged_files=$$(git diff --name-only --diff-filter=ACM | grep '\.go$$' || true); \
-	staged_files=$$(git diff --name-only --diff-filter=ACM --staged | grep '\.go$$' || true); \
-	if [ -n "$$unstaged_files" ]; then \
-		echo "Linting unstaged Go files"; \
-		golangci-lint run $$unstaged_files; \
-	fi; \
-	if [ -n "$$staged_files" ]; then \
-		echo "Linting staged Go files"; \
-		golangci-lint run $$staged_files; \
-	fi
+lint-all: # Lint all files, with full config
+	golangci-lint run --config=.golangci.yml
 
 ##@ Deprecated: will be deleted soon
 
