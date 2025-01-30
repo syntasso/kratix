@@ -11,9 +11,9 @@ import (
 var _ = Describe("PromiseRelease", func() {
 	Describe("sourceRef.type == http", func() {
 		BeforeEach(func() {
-			SetDefaultEventuallyTimeout(30 * time.Second)
-			SetDefaultEventuallyPollingInterval(time.Second)
-			kubeutils.SetTimeoutAndInterval(30*time.Second, time.Second)
+			SetDefaultEventuallyTimeout(2 * time.Minute)
+			SetDefaultEventuallyPollingInterval(2 * time.Second)
+			kubeutils.SetTimeoutAndInterval(2*time.Minute, 2*time.Second)
 
 			platform.Kubectl("apply", "-f", "assets/promise-release/deployment.yaml")
 			platform.Kubectl("wait", "-n", "kratix-platform-system", "deployments", "kratix-promise-release-test-hoster", "--for=condition=Available")

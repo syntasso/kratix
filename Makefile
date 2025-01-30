@@ -222,13 +222,13 @@ test: manifests generate fmt vet ## Run unit tests.
 	go run ${GINKGO} ${GINKGO_FLAGS} -r --coverprofile cover.out --skip-package=system,core
 
 core-test:
-	VERSION=dev DOCKER_BUILDKIT=1 ./scripts/quick-start.sh --recreate --third-cluster --local
+	VERSION=dev DOCKER_BUILDKIT=1 RECREATE=false ./scripts/quick-start.sh --local
 	cd test/core/assets/workflows/ && docker build -t syntasso/test-bundle-image:v0.1.0 .
 	kind load docker-image syntasso/test-bundle-image:v0.1.0 --name platform
 	go run ${GINKGO} ${GINKGO_FLAGS} test/core/
 
 .PHONY: run-system-test
-run-system-test: fmt vet build-and-load-bash
+run-system-test: fmt vet
 	PLATFORM_DESTINATION_IP=`docker inspect platform-control-plane | grep '"IPAddress": "172' | awk -F '"' '{print $$4}'` go run ${GINKGO} ${GINKGO_FLAGS} -p --output-interceptor-mode=none ./test/system/  --coverprofile cover.out
 
 fmt: ## Run go fmt against code.
@@ -236,13 +236,6 @@ fmt: ## Run go fmt against code.
 
 vet: ## Run go vet against code.
 	go vet ./...
-
-build-and-load-bash: # Build and load all test pipeline images
-	docker build --tag syntassodev/bash-promise:dev1 ./test/system/assets/bash-promise
-	kind load docker-image syntassodev/bash-promise:dev1 --name platform
-
-build-and-push-bash:
-	docker buildx build --builder kratix-image-builder --push --platform linux/arm64,linux/amd64 --tag syntassodev/bash-promise:dev1 ./test/system/assets/bash-promise
 
 lint: # Lint relative to origin/main, with full config
 	golangci-lint run --new-from-rev=origin/main --config=.golangci.yml

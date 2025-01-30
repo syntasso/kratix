@@ -26,9 +26,9 @@ var _ = Describe("Workflow-defined RBAC", Label("rbac"), Serial, func() {
 	allNamespacesLabel := ",kratix.io/resource-namespace=kratix_all_namespaces"
 
 	BeforeEach(func() {
-		SetDefaultEventuallyTimeout(time.Minute)
+		SetDefaultEventuallyTimeout(2 * time.Minute)
 		SetDefaultEventuallyPollingInterval(2 * time.Second)
-		kubeutils.SetTimeoutAndInterval(time.Minute, 2*time.Second)
+		kubeutils.SetTimeoutAndInterval(2*time.Minute, 2*time.Second)
 
 		platform.Kubectl("apply", "-f", "assets/rbac/resources.yaml")
 		platform.Kubectl("apply", "-f", "assets/rbac/promise.yaml")

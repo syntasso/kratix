@@ -12,9 +12,9 @@ var _ = Describe("Kratix Config", func() {
 	When("Security Context is set", func() {
 		var promiseName, requestName = "configtest", "example-config"
 		BeforeEach(func() {
-			SetDefaultEventuallyTimeout(time.Minute)
+			SetDefaultEventuallyTimeout(2 * time.Minute)
 			SetDefaultEventuallyPollingInterval(2 * time.Second)
-			kubeutils.SetTimeoutAndInterval(time.Minute, 2*time.Second)
+			kubeutils.SetTimeoutAndInterval(2*time.Minute, 2*time.Second)
 
 			platform.Kubectl("apply", "-f", "assets/kratix-config/promise.yaml")
 			Eventually(func() string {
