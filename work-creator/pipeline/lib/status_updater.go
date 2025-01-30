@@ -1,6 +1,8 @@
 package lib
 
 import (
+	"maps"
+	"slices"
 	"time"
 
 	metav1 "k8s.io/apimachinery/pkg/apis/meta/v1"
@@ -71,12 +73,7 @@ func updateConditions(conditions []any, newCondition metav1.Condition) []any {
 }
 
 func mergeRecursive(existing, incoming map[string]any) map[string]any {
-	result := make(map[string]any)
-
-	// First, copy all keys from base
-	for k, v := range existing {
-		result[k] = v
-	}
+	result := maps.Clone(existing)
 
 	// Then merge or overwrite with overlay
 	for k, v := range incoming {
@@ -119,11 +116,5 @@ func mergeConditions(existing, incoming []any) []any {
 		}
 	}
 
-	// Convert back to slice
-	result := make([]any, 0, len(merged))
-	for _, item := range merged {
-		result = append(result, item)
-	}
-
-	return result
+	return slices.Collect(maps.Values(merged))
 }
