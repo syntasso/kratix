@@ -49,7 +49,11 @@ func main() {
 	}
 
 	//Teach our client to speak v1alpha1.Work
-	v1alpha1.AddToScheme(scheme.Scheme)
+	err := v1alpha1.AddToScheme(scheme.Scheme)
+	if err != nil {
+		fmt.Println("Error adding v1alpha1 to scheme")
+		os.Exit(1)
+	}
 
 	k8sClient, err := getClient()
 	if err != nil {

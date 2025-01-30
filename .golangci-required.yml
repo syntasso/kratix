@@ -1,0 +1,115 @@
+# .golangci-required.yml
+#
+# Configuration for golangci-lint with required settings.
+#
+# This is a must-have set of rules to be used in precommit hooks and in CI/CD pipelines.
+#
+# This configuration is intended to be used as a green starting point for a set of rules
+# that can be gradually tightened as the codebase matures.
+
+run:
+  timeout: 5m
+
+output:
+  print-issued-lines: true
+
+linters-settings:
+  cyclop:
+    max-complexity: 38  # Starting point for cyclomatic complexity
+  dupl:
+    threshold: 100  # Token count for duplication detection
+  errcheck:
+    exclude-functions:
+      # Exclude these functions for now
+      - fmt.Fprintf
+      - fmt.Fprint
+      - fmt.Fprintln
+  exhaustive:
+    check:
+      - switch
+      - map
+    default-signifies-exhaustive: true
+  funlen:
+    lines: 175  # Starting point for function length
+    statements: 94  # Starting point for statement count
+  gocognit:
+    min-complexity: 57  # Starting point for cognitive complexity
+  ineffassign:
+    report-ineffassign: true
+  misspell:
+    locale: UK
+  nakedret:
+    max-func-lines: 0
+  nestif:
+    min-complexity: 13  # Starting point for nested if complexity
+  nolintlint:
+    require-specific: true
+
+linters:
+  enable:
+  - bodyclose # checks whether HTTP response body is closed successfully
+  - copyloopvar # detects places where loop variables are copied (Go 1.22+)
+  - cyclop # checks function and package cyclomatic complexity
+  - dupl # tool for code clone detection
+  - durationcheck # checks for two durations multiplied together
+  - errcheck # checking for unchecked errors, these unchecked errors can be critical bugs in some cases
+  - errname # checks that sentinel errors are prefixed with the Err and error types are suffixed with the Error
+  - errorlint # finds code that will cause problems with the error wrapping scheme introduced in Go 1.13
+  - exhaustive # checks exhaustiveness of enum switch statements
+  - funlen # tool for detection of long functions
+  - ginkgolinter # enforces standards of using ginkgo and gomega
+  - gocognit # computes and checks the cognitive complexity of functions
+  - goimports # in addition to fixing imports, goimports also formats your code in the same style as gofmt
+  - gosec # inspects source code for security problems
+  - gosimple # specializes in simplifying code
+  - govet # reports suspicious constructs, such as Printf calls whose arguments do not align with the format string
+  - iface # checks the incorrect use of interfaces, helping developers avoid interface pollution
+  - ineffassign # detects when assignments to existing variables are not used
+  - loggercheck # checks key value pairs for common logger libraries (kitlog,klog,logr,zap)
+  - misspell # finds common spelling mistakes
+  - nakedret # finds naked returns in functions greater than a specified function length
+  - nestif # reports deeply nested if statements
+  - nilerr # finds the code that returns nil even if it checks that the error is not nil
+  - nilnesserr # reports that it checks for err != nil, but it returns a different nil value error (powered by nilness and nilerr)
+  - nolintlint # reports ill-formed or insufficient nolint directives
+  - predeclared # finds code that shadows one of Go's predeclared identifiers
+  - protogetter # reports direct reads from proto message fields when getters should be used
+  - recvcheck # checks for receiver type consistency
+  - staticcheck # is a go vet on steroids, applying a ton of static analysis checks
+  - testpackage # makes you use a separate _test package
+  - unparam # reports unused function parameters
+  - unused # checks for unused constants, variables, functions and types
+  - usestdlibvars # detects the possibility to use variables/constants from the Go standard library
+  - usetesting # reports uses of functions with replacement inside the testing package
+  - wastedassign # finds wasted assignment statements
+
+issues:
+  exclude-use-default: false
+  include:
+    - ".*"  # Include all issues for now
+  exclude:
+    - "comment on exported .* should be of the form .*"  # Commonly ignored style rule
+    - "context.Context should be the first parameter of a function"
+    # GoSec exclusions:
+    - 'G401: Use of weak cryptographic primitive'
+    - 'G501: Blocklisted import crypto/md5: weak cryptographic primitive'
+    - 'G306: Expect WriteFile permissions to be 0600 or less'
+    - 'G403: RSA keys should be at least 2048 bits'
+    - 'G115: integer overflow conversion int64 -> uint64'
+    - "G404: Use of weak random number generator \\(math/rand or math/rand/v2 instead of crypto/rand\\)"
+    - "G304: Potential file inclusion via variable"
+  exclude-rules:
+    # Relax rules for test files:
+    - linters:
+        - dupl
+        - errcheck
+        - funlen
+        - gosec
+      path: '(.+)_test\.go'
+
+severity:
+  thresholds:
+    # Encourage fixing errors and warnings while leaving room for improvements on minor suggestions
+    error: 0
+    warning: 20
+    info: 50

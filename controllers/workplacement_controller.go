@@ -26,7 +26,6 @@ import (
 	"gopkg.in/yaml.v2"
 	k8sErrors "k8s.io/apimachinery/pkg/api/errors"
 	kerrors "k8s.io/apimachinery/pkg/api/errors"
-	"k8s.io/apimachinery/pkg/types"
 	ctrl "sigs.k8s.io/controller-runtime"
 	"sigs.k8s.io/controller-runtime/pkg/client"
 	"sigs.k8s.io/controller-runtime/pkg/controller/controllerutil"
@@ -205,7 +204,7 @@ func (r *WorkPlacementReconciler) writeWorkloadsToStateStore(writer writers.Stat
 	for _, workload := range workPlacement.Spec.Workloads {
 		decompressedContent, err := compression.DecompressContent([]byte(workload.Content))
 		if err != nil {
-			return "", fmt.Errorf("unable to decompress file content: %s", err)
+			return "", fmt.Errorf("unable to decompress file content: %w", err)
 		}
 
 		workload.Content = string(decompressedContent)
@@ -215,11 +214,11 @@ func (r *WorkPlacementReconciler) writeWorkloadsToStateStore(writer writers.Stat
 	if destination.GetFilepathMode() == v1alpha1.FilepathModeNone {
 		var kratixFile []byte
 		if kratixFile, err = writer.ReadFile(fmt.Sprintf(".kratix/%s-%s.yaml", workPlacement.Namespace, workPlacement.Name)); ignoreNotFound(err) != nil {
-			return "", fmt.Errorf("failed to read .kratix state file: %s", err)
+			return "", fmt.Errorf("failed to read .kratix state file: %w", err)
 		}
 		oldStateFile := StateFile{}
 		if err = yaml.Unmarshal(kratixFile, &oldStateFile); err != nil {
-			return "", fmt.Errorf("failed to unmarshal .kratix state file: %s", err)
+			return "", fmt.Errorf("failed to unmarshal .kratix state file: %w", err)
 		}
 
 		newStateFile := StateFile{
@@ -227,7 +226,7 @@ func (r *WorkPlacementReconciler) writeWorkloadsToStateStore(writer writers.Stat
 		}
 		stateFileContent, marshalErr := yaml.Marshal(newStateFile)
 		if marshalErr != nil {
-			return "", fmt.Errorf("failed to marshal new .kratix state file: %s", err)
+			return "", fmt.Errorf("failed to marshal new .kratix state file: %w", err)
 		}
 
 		stateFileWorkload := v1alpha1.Workload{
@@ -254,7 +253,7 @@ func (r *WorkPlacementReconciler) writeWorkloadsToStateStore(writer writers.Stat
 }
 
 func ignoreNotFound(err error) error {
-	if errors.Is(err, writers.FileNotFound) {
+	if errors.Is(err, writers.ErrFileNotFound) {
 		return nil
 	}
 	return err
@@ -268,13 +267,13 @@ func workloadsFilenames(works []v1alpha1.Workload) []string {
 	return result
 }
 
-func cleanupWorkloads(old []string, new []v1alpha1.Workload) []string {
+func cleanupWorkloads(oldWorkloads []string, newWorkloads []v1alpha1.Workload) []string {
 	works := make(map[string]bool)
-	for _, w := range new {
+	for _, w := range newWorkloads {
 		works[w.Filepath] = true
 	}
 	var result []string
-	for _, w := range old {
+	for _, w := range oldWorkloads {
 		if _, ok := works[w]; !ok {
 			result = append(result, w)
 		}
@@ -290,25 +289,6 @@ func getDir(workPlacement v1alpha1.WorkPlacement) string {
 		//resources/<rr-namespace>/<promise-name>/<rr-name>/<pipeline-name>/<dir-sha>/
 		return filepath.Join(resourcesDir, workPlacement.GetNamespace(), workPlacement.Spec.PromiseName, workPlacement.Spec.ResourceName, workPlacement.PipelineName(), shortID(workPlacement.Spec.ID))
 	}
-}
-
-func (r *WorkPlacementReconciler) getWork(workName, workNamespace string, logger logr.Logger) *v1alpha1.Work {
-	work := &v1alpha1.Work{}
-	namespaceName := types.NamespacedName{
-		Namespace: workNamespace,
-		Name:      workName,
-	}
-	r.Client.Get(context.Background(), namespaceName, work)
-	return work
-}
-
-func (r *WorkPlacementReconciler) addFinalizer(ctx context.Context, workPlacement *v1alpha1.WorkPlacement, logger logr.Logger) (ctrl.Result, error) {
-	controllerutil.AddFinalizer(workPlacement, repoCleanupWorkPlacementFinalizer)
-	if err := r.Client.Update(ctx, workPlacement); err != nil {
-		logger.Error(err, "failed to add finalizer to WorkPlacement")
-		return ctrl.Result{}, err
-	}
-	return ctrl.Result{}, nil
 }
 
 // SetupWithManager sets up the controller with the Manager.

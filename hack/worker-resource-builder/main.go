@@ -1,6 +1,7 @@
 package main
 
 import (
+	"errors"
 	"flag"
 	"fmt"
 	"io"
@@ -52,7 +53,7 @@ func main() {
 
 			if us == nil {
 				continue
-			} else if err == io.EOF {
+			} else if errors.Is(err, io.EOF) {
 				break
 			} else {
 				if us.GetNamespace() == "" && us.GetKind() != "Namespace" {

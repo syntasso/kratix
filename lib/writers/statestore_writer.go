@@ -14,4 +14,4 @@ type StateStoreWriter interface {
 	ReadFile(filename string) ([]byte, error)
 }
 
-var FileNotFound = fmt.Errorf("file not found")
+var ErrFileNotFound = fmt.Errorf("file not found")

@@ -87,11 +87,11 @@ func getK8sClient() (dynamic.Interface, error) {
 func WriteToYaml(obj interface{}, objectFilePath string) error {
 	objYAML, err := yaml.Marshal(obj)
 	if err != nil {
-		return fmt.Errorf("failed to marshal object: %v", err)
+		return fmt.Errorf("failed to marshal object: %w", err)
 	}
 
 	if err := os.WriteFile(objectFilePath, objYAML, 0644); err != nil {
-		return fmt.Errorf("failed to write object to file: %v", err)
+		return fmt.Errorf("failed to write object to file: %w", err)
 	}
 	return nil
 }

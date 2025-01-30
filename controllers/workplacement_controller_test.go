@@ -382,7 +382,7 @@ files:
 
 		When("updating the status fails", func() {
 			It("applies the Version ID on the next reconcile", func() {
-				subResourceUpdateError = fmt.Errorf("an-error")
+				errSubResourceUpdate = fmt.Errorf("an-error")
 
 				fakeWriter.UpdateFilesReturnsOnCall(0, "an-amazing-version-id", nil)
 
@@ -391,7 +391,7 @@ files:
 				Expect(result).To(Equal(ctrl.Result{}))
 				Expect(fakeWriter.UpdateFilesCallCount()).To(Equal(1))
 
-				subResourceUpdateError = nil
+				errSubResourceUpdate = nil
 
 				result, err = t.reconcileUntilCompletion(reconciler, &workPlacement)
 				Expect(err).ToNot(HaveOccurred())

@@ -131,7 +131,7 @@ var _ = Describe("DynamicResourceRequestController", func() {
 			})
 
 			By("not requeuing, since the controller is watching the job", func() {
-				Expect(err).To(BeNil())
+				Expect(err).NotTo(HaveOccurred())
 				Expect(result).To(Equal(ctrl.Result{}))
 			})
 
@@ -229,8 +229,8 @@ var _ = Describe("DynamicResourceRequestController", func() {
 			works := &v1alpha1.WorkList{}
 			Expect(fakeK8sClient.List(ctx, works)).To(Succeed())
 			Expect(fakeK8sClient.List(ctx, jobs)).To(Succeed())
-			Expect(works.Items).To(HaveLen(0))
-			Expect(jobs.Items).To(HaveLen(0))
+			Expect(works.Items).To(BeEmpty())
+			Expect(jobs.Items).To(BeEmpty())
 		})
 	})
 

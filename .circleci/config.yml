@@ -215,6 +215,11 @@ jobs:
     steps:
       - install_software
       - run:
+          name: Lint
+          command: |
+            curl -sSfL https://raw.githubusercontent.com/golangci/golangci-lint/master/install.sh | sh -s v1.63.4
+            ./bin/golangci-lint run --config=.golangci-required.yml
+      - run:
           name: Unit Tests
           command: |
             make test

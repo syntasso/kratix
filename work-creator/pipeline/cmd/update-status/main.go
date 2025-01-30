@@ -28,14 +28,14 @@ func run(ctx context.Context) error {
 
 	client, err := helpers.GetK8sClient()
 	if err != nil {
-		return fmt.Errorf("failed to create Kubernetes client: %v", err)
+		return fmt.Errorf("failed to create Kubernetes client: %w", err)
 	}
 
 	objectClient := client.Resource(helpers.ObjectGVR(params)).Namespace(params.ObjectNamespace)
 
 	existingObj, err := objectClient.Get(ctx, params.ObjectName, metav1.GetOptions{})
 	if err != nil {
-		return fmt.Errorf("failed to get existing object: %v", err)
+		return fmt.Errorf("failed to get existing object: %w", err)
 	}
 
 	existingStatus := map[string]any{}
@@ -46,7 +46,7 @@ func run(ctx context.Context) error {
 	// Load incoming status.yaml if exists
 	incomingStatus, err := readStatusFile(statusFile)
 	if err != nil {
-		return fmt.Errorf("failed to load incoming status: %v", err)
+		return fmt.Errorf("failed to load incoming status: %w", err)
 	}
 
 	mergedStatus := lib.MergeStatuses(existingStatus, incomingStatus)
@@ -59,7 +59,7 @@ func run(ctx context.Context) error {
 
 	// Update the object's status
 	if _, err = objectClient.UpdateStatus(ctx, existingObj, metav1.UpdateOptions{}); err != nil {
-		return fmt.Errorf("failed to update status: %v", err)
+		return fmt.Errorf("failed to update status: %w", err)
 	}
 
 	return nil
@@ -70,10 +70,10 @@ func readStatusFile(statusFile string) (map[string]any, error) {
 	if _, err := os.Stat(statusFile); err == nil {
 		incomingStatusBytes, err := os.ReadFile(statusFile)
 		if err != nil {
-			return nil, fmt.Errorf("failed to read status file: %v", err)
+			return nil, fmt.Errorf("failed to read status file: %w", err)
 		}
 		if err := yaml.Unmarshal(incomingStatusBytes, &incomingStatus); err != nil {
-			return nil, fmt.Errorf("failed to unmarshal incoming status: %v", err)
+			return nil, fmt.Errorf("failed to unmarshal incoming status: %w", err)
 		}
 	}
 	return incomingStatus, nil

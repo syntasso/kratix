@@ -29,7 +29,8 @@ var _ = Describe("#FromURL", func() {
 				w.WriteHeader(responseStatus)
 				return
 			}
-			w.Write(responseBody)
+			_, err := w.Write(responseBody)
+			Expect(err).ToNot(HaveOccurred())
 		})
 
 		fakeServer.AppendHandlers(

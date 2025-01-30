@@ -132,7 +132,7 @@ func (r *PromiseReconciler) Reconcile(ctx context.Context, req ctrl.Request) (ct
 	}
 	if client.IgnoreNotFound(err) != nil {
 		r.Log.Error(err, "Failed getting Promise", "namespacedName", req.NamespacedName)
-		return defaultRequeue, nil
+		return defaultRequeue, nil //nolint:nilerr // requeue rather than exponential backoff
 	}
 
 	originalStatus := promise.Status.Status
@@ -501,7 +501,6 @@ func (r *PromiseReconciler) reconcileAllRRs(rrGVK *schema.GroupVersionKind) erro
 }
 
 func (r *PromiseReconciler) ensureDynamicControllerIsStarted(promise *v1alpha1.Promise, rrCRD *apiextensionsv1.CustomResourceDefinition, rrGVK *schema.GroupVersionKind, canCreateResources *bool, logger logr.Logger) error {
-
 	// The Dynamic Controller needs to be started once and only once.
 	if r.dynamicControllerHasAlreadyStarted(promise) {
 		logger.Info("dynamic controller already started, ensuring it is up to date")
@@ -744,7 +743,7 @@ func (r *PromiseReconciler) deletePromise(o opts, promise *v1alpha1.Promise) (ct
 		o.logger.Info("deleting resources associated with finalizer", "finalizer", dynamicControllerDependantResourcesCleanupFinalizer)
 		err := r.deleteDynamicControllerAndWorkflowResources(o, promise)
 		if err != nil {
-			return defaultRequeue, nil
+			return defaultRequeue, nil //nolint:nilerr // requeue rather than exponential backoff
 		}
 		return fastRequeue, nil
 	}
