@@ -53,6 +53,7 @@ linters:
   - staticcheck # is a go vet on steroids, applying a ton of static analysis checks
   - testpackage # makes you use a separate _test package
   - unparam # reports unused function parameters
+  - unused # checks for unused constants, variables, functions and types
   - usetesting # reports uses of functions with replacement inside the testing package
   - wastedassign # finds wasted assignment statements
 

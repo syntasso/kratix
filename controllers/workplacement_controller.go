@@ -26,7 +26,6 @@ import (
 	"gopkg.in/yaml.v2"
 	k8sErrors "k8s.io/apimachinery/pkg/api/errors"
 	kerrors "k8s.io/apimachinery/pkg/api/errors"
-	"k8s.io/apimachinery/pkg/types"
 	ctrl "sigs.k8s.io/controller-runtime"
 	"sigs.k8s.io/controller-runtime/pkg/client"
 	"sigs.k8s.io/controller-runtime/pkg/controller/controllerutil"
@@ -290,25 +289,6 @@ func getDir(workPlacement v1alpha1.WorkPlacement) string {
 		//resources/<rr-namespace>/<promise-name>/<rr-name>/<pipeline-name>/<dir-sha>/
 		return filepath.Join(resourcesDir, workPlacement.GetNamespace(), workPlacement.Spec.PromiseName, workPlacement.Spec.ResourceName, workPlacement.PipelineName(), shortID(workPlacement.Spec.ID))
 	}
-}
-
-func (r *WorkPlacementReconciler) getWork(workName, workNamespace string, logger logr.Logger) *v1alpha1.Work {
-	work := &v1alpha1.Work{}
-	namespaceName := types.NamespacedName{
-		Namespace: workNamespace,
-		Name:      workName,
-	}
-	r.Client.Get(context.Background(), namespaceName, work)
-	return work
-}
-
-func (r *WorkPlacementReconciler) addFinalizer(ctx context.Context, workPlacement *v1alpha1.WorkPlacement, logger logr.Logger) (ctrl.Result, error) {
-	controllerutil.AddFinalizer(workPlacement, repoCleanupWorkPlacementFinalizer)
-	if err := r.Client.Update(ctx, workPlacement); err != nil {
-		logger.Error(err, "failed to add finalizer to WorkPlacement")
-		return ctrl.Result{}, err
-	}
-	return ctrl.Result{}, nil
 }
 
 // SetupWithManager sets up the controller with the Manager.

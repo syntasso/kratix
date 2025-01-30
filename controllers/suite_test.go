@@ -34,11 +34,9 @@ import (
 	"k8s.io/apimachinery/pkg/types"
 	"k8s.io/apimachinery/pkg/util/yaml"
 	"k8s.io/client-go/kubernetes/scheme"
-	ctrl "sigs.k8s.io/controller-runtime"
 	"sigs.k8s.io/controller-runtime/pkg/client"
 	"sigs.k8s.io/controller-runtime/pkg/client/fake"
 	"sigs.k8s.io/controller-runtime/pkg/client/interceptor"
-	"sigs.k8s.io/controller-runtime/pkg/envtest"
 	logf "sigs.k8s.io/controller-runtime/pkg/log"
 	"sigs.k8s.io/controller-runtime/pkg/log/zap"
 	//+kubebuilder:scaffold:imports
@@ -50,16 +48,9 @@ import (
 var (
 	fakeK8sClient           client.Client
 	fakeApiExtensionsClient apiextensionsv1.CustomResourceDefinitionsGetter
-	apiextensionClient      apiextensionsv1.CustomResourceDefinitionsGetter
-	testEnv                 *envtest.Environment
-	k8sManager              ctrl.Manager
 	t                       *testReconciler
 	interceptorsFuncs       interceptor.Funcs
 	subResourceUpdateError  error
-
-	timeout             = "30s"
-	consistentlyTimeout = "6s"
-	interval            = "3s"
 )
 
 var _ = BeforeSuite(func(_ SpecContext) {
@@ -76,7 +67,6 @@ var _ = AfterSuite(func() {
 
 var reconcileConfigureOptsArg workflow.Opts
 var reconcileDeleteOptsArg workflow.Opts
-var callCount int
 
 var _ = BeforeEach(func() {
 	yamlFile, err := os.ReadFile(resourceRequestPath)

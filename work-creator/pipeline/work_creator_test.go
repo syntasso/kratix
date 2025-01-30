@@ -337,6 +337,8 @@ func getWork(namespace, promiseName, resourceName, pipelineName string) v1alpha1
 
 	workSelectorLabel := labels.FormatLabels(l)
 	selector, err := labels.Parse(workSelectorLabel)
+	ExpectWithOffset(1, err).NotTo(HaveOccurred())
+
 	err = k8sClient.List(context.Background(), &works, &client.ListOptions{
 		LabelSelector: selector,
 		Namespace:     namespace,

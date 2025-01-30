@@ -32,8 +32,6 @@ import (
 	//+kubebuilder:scaffold:imports
 )
 
-var work *v1alpha1.Work
-
 var _ = Describe("WorkReconciler", func() {
 	var (
 		ctx              context.Context
