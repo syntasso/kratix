@@ -1,6 +1,6 @@
 apiVersion: test.kratix.io/v1alpha1
-kind: Configtest
+kind: Healthchecktest
 metadata:
-  name: example-config
+  name: example
   namespace: default
 spec: {}

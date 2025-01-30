@@ -4,6 +4,7 @@ import (
 	"fmt"
 	. "github.com/onsi/ginkgo/v2"
 	. "github.com/onsi/gomega"
+	"github.com/syntasso/kratix/test/kubeutils"
 	"time"
 )
 
@@ -11,22 +12,23 @@ var _ = Describe("Kratix Config", func() {
 	When("Security Context is set", func() {
 		var promiseName, requestName = "configtest", "example-config"
 		BeforeEach(func() {
-			SetDefaultEventuallyTimeout(30 * time.Second)
-			SetDefaultEventuallyPollingInterval(time.Second)
+			SetDefaultEventuallyTimeout(time.Minute)
+			SetDefaultEventuallyPollingInterval(2 * time.Second)
+			kubeutils.SetTimeoutAndInterval(time.Minute, 2*time.Second)
 
-			platform.kubectl("apply", "-f", "assets/kratix-config/promise.yaml")
+			platform.Kubectl("apply", "-f", "assets/kratix-config/promise.yaml")
 			Eventually(func() string {
-				return platform.kubectl("get", "promise", promiseName)
+				return platform.Kubectl("get", "promise", promiseName)
 			}).Should(ContainSubstring("Available"))
 		})
 
 		AfterEach(func() {
-			platform.kubectl("delete", "configtest", "example-config")
-			platform.kubectl("delete", "promise", "configtest")
+			platform.Kubectl("delete", "configtest", "example-config")
+			platform.Kubectl("delete", "promise", "configtest")
 		})
 
 		It("uses security context from kratix config as default but allows overrides", func() {
-			platform.kubectl("apply", "-f", "assets/kratix-config/resource-request.yaml")
+			platform.Kubectl("apply", "-f", "assets/kratix-config/resource-request.yaml")
 
 			firstPipelineLabels := fmt.Sprintf(
 				"kratix.io/promise-name=%s,kratix.io/resource-name=%s,kratix.io/pipeline-name=%s",
@@ -43,24 +45,24 @@ var _ = Describe("Kratix Config", func() {
 
 			By("executing the first pipeline pod", func() {
 				Eventually(func() string {
-					return platform.kubectl("get", "pods", "--selector", firstPipelineLabels)
+					return platform.Kubectl("get", "pods", "--selector", firstPipelineLabels)
 				}).Should(ContainSubstring("Completed"))
 			})
 
 			By("using the security context defined in the promise", func() {
-				podYaml := platform.eventuallyKubectl("get", "pods", "--selector", firstPipelineLabels, "-o=yaml")
+				podYaml := platform.EventuallyKubectl("get", "pods", "--selector", firstPipelineLabels, "-o=yaml")
 				Expect(podYaml).To(ContainSubstring("setInPromise"))
 				Expect(podYaml).NotTo(ContainSubstring("setInKratixConfig"))
 			})
 
 			By("executing the second pipeline pod", func() {
 				Eventually(func() string {
-					return platform.eventuallyKubectl("get", "pods", "--selector", secondPipelineLabels)
+					return platform.EventuallyKubectl("get", "pods", "--selector", secondPipelineLabels)
 				}).Should(ContainSubstring("Completed"))
 			})
 
 			By("using the security context defined in the kratix config", func() {
-				podYaml := platform.eventuallyKubectl("get", "pods", "--selector", secondPipelineLabels, "-o=yaml")
+				podYaml := platform.EventuallyKubectl("get", "pods", "--selector", secondPipelineLabels, "-o=yaml")
 				Expect(podYaml).To(ContainSubstring("setInKratixConfig"))
 				Expect(podYaml).NotTo(ContainSubstring("setInPromise"))
 			})
