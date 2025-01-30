@@ -2,17 +2,18 @@ package system_test
 
 import (
 	"os"
-	"path/filepath"
-	"runtime"
-	"strings"
 	"testing"
+	"time"
+
+	"github.com/syntasso/kratix/test/kubeutils"
 
 	. "github.com/onsi/ginkgo/v2"
 	. "github.com/onsi/gomega"
 )
 
 var (
-	testTempDir string
+	worker   *kubeutils.Cluster
+	platform *kubeutils.Cluster
 )
 
 func TestSystem(t *testing.T) {
@@ -22,55 +23,29 @@ func TestSystem(t *testing.T) {
 
 var _ = SynchronizedBeforeSuite(func() {
 	//this runs once for the whole suite
-	worker = &destination{
-		context: getEnvOrDefault("WORKER_CONTEXT", "kind-worker"),
-		name:    getEnvOrDefault("WORKER_NAME", "worker-1"),
-	}
-	platform = &destination{
-		context: getEnvOrDefault("PLATFORM_CONTEXT", "kind-platform"),
-		name:    getEnvOrDefault("PLATFORM_NAME", "platform-cluster"),
-	}
+	platform = &kubeutils.Cluster{
+		Context: getEnvOrDefault("PLATFORM_CONTEXT", "kind-platform"),
+		Name:    getEnvOrDefault("PLATFORM_NAME", "platform-cluster")}
+	worker = &kubeutils.Cluster{
+		Context: getEnvOrDefault("WORKER_CONTEXT", "kind-worker"),
+		Name:    getEnvOrDefault("WORKER_NAME", "worker-1")}
 
-	platform.kubectl("apply", "-f", "./assets/kratix-config.yaml")
-	platform.kubectl("delete", "pod", "-l", "control-plane=controller-manager", "-n", "kratix-platform-system")
+	kubeutils.SetTimeoutAndInterval(30*time.Second, 2*time.Second)
 
-	var err error
-	testTempDir, err = os.MkdirTemp(os.TempDir(), "systest")
-	Expect(err).NotTo(HaveOccurred())
-	tmpDir, err := os.MkdirTemp(os.TempDir(), "systest")
-	Expect(err).NotTo(HaveOccurred())
-
-	platform.kubectl("apply", "-f", "./assets/bash-promise/deployment.yaml")
-
-	if getEnvOrDefault("PLATFORM_SKIP_SETUP", "false") == "true" {
-		// Useful when running tests against a non-kind cluster
-		// Files applied below are configured for local development
-		return
-	}
-
-	platform.kubectl("apply", "-f", "../../hack/destination/gitops-tk-install.yaml")
-	platform.kubectl("apply", "-f", catAndReplaceFluxResources(tmpDir, "./assets/git/platform_gitops-tk-resources.yaml"))
-	platform.kubectl("apply", "-f", catAndReplaceFluxResources(tmpDir, "./assets/git/destinations.yaml"))
-	os.RemoveAll(tmpDir)
+	platform.Kubectl("apply", "-f", "./assets/kratix-config.yaml")
+	platform.Kubectl("delete", "pod", "-l", "control-plane=controller-manager", "-n", "kratix-platform-system")
+	platform.Kubectl("wait", "-n", "kratix-platform-system", "deployments", "-l", "control-plane=controller-manager", "--for=condition=Available")
 }, func() {
 	//this runs before each test
 
 	//These variables get set in func above, but only for 1 of the nodes, so we set
 	//them again here to ensure all nodes have them
-	worker = &destination{
-		context: getEnvOrDefault("WORKER_CONTEXT", "kind-worker"),
-		name:    getEnvOrDefault("WORKER_NAME", "worker-1"),
-	}
-	platform = &destination{
-		context: getEnvOrDefault("PLATFORM_CONTEXT", "kind-platform"),
-		name:    getEnvOrDefault("PLATFORM_NAME", "platform-cluster"),
-	}
-
-	endpoint = getEnvOrDefault("BUCKET_ENDPOINT", "localhost:31337")
-	secretAccessKey = getEnvOrDefault("BUCKET_SECRET_KEY", "minioadmin")
-	accessKeyID = getEnvOrDefault("BUCKET_ACCESS_KEY", "minioadmin")
-	useSSL = os.Getenv("BUCKET_SSL") == "true"
-	bucketName = getEnvOrDefault("BUCKET_NAME", "kratix")
+	platform = &kubeutils.Cluster{
+		Context: getEnvOrDefault("PLATFORM_CONTEXT", "kind-platform"),
+		Name:    getEnvOrDefault("PLATFORM_NAME", "platform-cluster")}
+	worker = &kubeutils.Cluster{
+		Context: getEnvOrDefault("WORKER_CONTEXT", "kind-worker"),
+		Name:    getEnvOrDefault("WORKER_NAME", "worker-1")}
 })
 
 func getEnvOrDefault(envVar, defaultValue string) string {
@@ -79,26 +54,4 @@ func getEnvOrDefault(envVar, defaultValue string) string {
 		return defaultValue
 	}
 	return value
-}
-
-var _ = SynchronizedAfterSuite(func() {}, func() {
-	platform.eventuallyKubectlDelete("deployments", "-n", "kratix-platform-system", "kratix-promise-release-test-hoster")
-	os.RemoveAll(testTempDir)
-})
-
-func catAndReplaceFluxResources(tmpDir, file string) string {
-	bytes, err := os.ReadFile(file)
-	Expect(err).NotTo(HaveOccurred())
-	//Set via the Makefile
-	ip := os.Getenv("PLATFORM_DESTINATION_IP")
-	hostIP := "host.docker.internal"
-	if runtime.GOOS == "linux" {
-		hostIP = "172.17.0.1"
-	}
-	output := strings.ReplaceAll(string(bytes), "PLACEHOLDER", ip)
-	output = strings.ReplaceAll(output, "LOCALHOST", hostIP)
-	tmpFile := filepath.Join(tmpDir, filepath.Base(file))
-	err = os.WriteFile(tmpFile, []byte(output), 0777)
-	Expect(err).NotTo(HaveOccurred())
-	return tmpFile
 }

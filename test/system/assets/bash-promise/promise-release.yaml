@@ -1,9 +1,0 @@
-apiVersion: platform.kratix.io/v1alpha1
-kind: PromiseRelease
-metadata:
-  name: REPLACEBASH
-spec:
-  version: v1.0.0
-  sourceRef:
-    type: http
-    url: REPLACEURL

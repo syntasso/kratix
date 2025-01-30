@@ -78,7 +78,7 @@ var _ = Describe("WorkplacementReconciler", func() {
 		decompressedWorkloads = []v1alpha1.Workload{
 			{
 				Filepath: "fruit.yaml",
-				Content:  string("{someApi: foo, someValue: bar}"),
+				Content:  "{someApi: foo, someValue: bar}",
 			},
 		}
 

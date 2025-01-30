@@ -1,0 +1,6 @@
+apiVersion: test.kratix.io/v1alpha1
+kind: Healthchecktest
+metadata:
+  name: example
+  namespace: default
+spec: {}

@@ -226,7 +226,7 @@ jobs:
       - run:
           name: System tests
           command: |
-            DOCKER_BUILDKIT=1 ACK_GINKGO_RC=true make system-test
+            DOCKER_BUILDKIT=1 ACK_GINKGO_RC=true make system-test core-test
       - notify-slack:
           only_for_branches: "main"
 

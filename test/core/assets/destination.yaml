@@ -1,0 +1,14 @@
+---
+apiVersion: platform.kratix.io/v1alpha1
+kind: Destination
+metadata:
+  labels:
+    environment: dev
+  name: worker-2
+spec:
+  cleanup: none
+  filepath:
+    mode: nestedByMetadata
+  stateStoreRef:
+    kind: BucketStateStore
+    name: default

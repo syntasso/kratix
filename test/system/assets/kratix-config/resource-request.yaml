@@ -1,0 +1,6 @@
+apiVersion: test.kratix.io/v1alpha1
+kind: Configtest
+metadata:
+  name: example-config
+  namespace: default
+spec: {}
