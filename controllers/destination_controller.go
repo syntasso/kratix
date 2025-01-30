@@ -18,16 +18,21 @@ package controllers
 
 import (
 	"context"
+	"fmt"
 	"path/filepath"
 
 	"k8s.io/apimachinery/pkg/runtime/schema"
+	"k8s.io/client-go/tools/record"
 	"sigs.k8s.io/controller-runtime/pkg/controller/controllerutil"
+	"sigs.k8s.io/controller-runtime/pkg/predicate"
 
 	v1 "k8s.io/api/core/v1"
 	metav1 "k8s.io/apimachinery/pkg/apis/meta/v1"
+
 	"sigs.k8s.io/yaml"
 
 	"k8s.io/apimachinery/pkg/api/errors"
+	"k8s.io/apimachinery/pkg/api/meta"
 
 	"github.com/go-logr/logr"
 	"github.com/syntasso/kratix/api/v1alpha1"
@@ -43,9 +48,10 @@ const (
 
 // DestinationReconciler reconciles a Destination object
 type DestinationReconciler struct {
-	Client    client.Client
-	Log       logr.Logger
-	Scheduler *Scheduler
+	Client        client.Client
+	Log           logr.Logger
+	Scheduler     *Scheduler
+	EventRecorder record.EventRecorder
 }
 
 //+kubebuilder:rbac:groups=platform.kratix.io,resources=destinations,verbs=get;list;watch;create;update;patch;delete
@@ -83,8 +89,8 @@ func (r *DestinationReconciler) Reconcile(ctx context.Context, req ctrl.Request)
 
 	writer, err := newWriter(opts, *destination)
 	if err != nil {
-		if errors.IsNotFound(err) {
-			return defaultRequeue, nil
+		if condErr := r.setDestinationReadyCondition(destination, err); condErr != nil {
+			return ctrl.Result{}, condErr
 		}
 		return ctrl.Result{}, err
 	}
@@ -98,17 +104,16 @@ func (r *DestinationReconciler) Reconcile(ctx context.Context, req ctrl.Request)
 	logger = logger.WithValues("path", path)
 	filePathMode := destination.GetFilepathMode()
 
-	if err = r.createDependenciesPathWithExample(writer, filePathMode); err != nil {
-		logger.Error(err, "unable to write dependencies to state store")
-		return defaultRequeue, nil
+	var writeErr error
+	if writeErr = r.writeTestFiles(writer, filePathMode); writeErr != nil {
+		logger.Error(writeErr, "unable to write dependencies to state store")
 	}
 
-	if err = r.createResourcePathWithExample(writer, filePathMode); err != nil {
-		logger.Error(err, "unable to write dependencies to state store")
-		return defaultRequeue, nil
+	if condErr := r.setDestinationReadyCondition(destination, writeErr); condErr != nil {
+		return ctrl.Result{}, condErr
 	}
 
-	return ctrl.Result{}, nil
+	return ctrl.Result{}, writeErr
 }
 
 func (r *DestinationReconciler) needsFinalizerUpdate(destination *v1alpha1.Destination) bool {
@@ -126,6 +131,17 @@ func (r *DestinationReconciler) needsFinalizerUpdate(destination *v1alpha1.Desti
 		}
 	}
 	return false
+}
+
+func (r *DestinationReconciler) writeTestFiles(writer writers.StateStoreWriter, filePathMode string) error {
+	if err := r.createDependenciesPathWithExample(writer, filePathMode); err != nil {
+		return err
+	}
+
+	if err := r.createResourcePathWithExample(writer, filePathMode); err != nil {
+		return err
+	}
+	return nil
 }
 
 func (r *DestinationReconciler) createResourcePathWithExample(writer writers.StateStoreWriter, filePathMode string) error {
@@ -233,9 +249,44 @@ func (r *DestinationReconciler) deleteDestinationWorkplacements(o opts, destinat
 	return true, nil
 }
 
+func (r *DestinationReconciler) setDestinationReadyCondition(destination *v1alpha1.Destination, err error) error {
+	eventType := v1.EventTypeNormal
+	eventReason := "Ready"
+	eventMessage := fmt.Sprintf("Destination %q is ready", destination.Name)
+
+	condition := metav1.Condition{
+		Type:               "Ready",
+		Status:             metav1.ConditionTrue,
+		Reason:             "TestDocumentsWritten",
+		Message:            "Test documents written to State Store",
+		LastTransitionTime: metav1.Now(),
+	}
+
+	if err != nil {
+		condition.Status = metav1.ConditionFalse
+		condition.Reason = "StateStoreWriteFailed"
+		condition.Message = "Unable to write test documents to State Store"
+
+		// Update event parameters for failure
+		eventType = v1.EventTypeWarning
+		eventReason = "DestinationNotReady"
+		eventMessage = fmt.Sprintf("Failed to write test documents to Destination %q: %s", destination.Name, err)
+	}
+
+	changed := meta.SetStatusCondition(&destination.Status.Conditions, condition)
+	if !changed {
+		return nil
+	}
+
+	r.EventRecorder.Eventf(destination, eventType, eventReason, eventMessage)
+
+	return r.Client.Status().Update(context.Background(), destination)
+}
+
 // SetupWithManager sets up the controller with the Manager.
 func (r *DestinationReconciler) SetupWithManager(mgr ctrl.Manager) error {
 	return ctrl.NewControllerManagedBy(mgr).
 		For(&v1alpha1.Destination{}).
+		WithEventFilter(predicate.GenerationChangedPredicate{}).
 		Complete(r)
 }

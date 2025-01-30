@@ -105,13 +105,13 @@ func (d *Destination) GetCleanup() string {
 
 // DestinationStatus defines the observed state of Destination
 type DestinationStatus struct {
-	// INSERT ADDITIONAL STATUS FIELD - define observed state of destination
-	// Important: Run "make" to regenerate code after modifying this file
+	Conditions []metav1.Condition `json:"conditions,omitempty"`
 }
 
-//+kubebuilder:object:root=true
-//+kubebuilder:subresource:status
-//+kubebuilder:resource:scope=Cluster,path=destinations,categories=kratix
+// +kubebuilder:object:root=true
+// +kubebuilder:subresource:status
+// +kubebuilder:resource:scope=Cluster,path=destinations,categories=kratix
+// +kubebuilder:printcolumn:name="Ready",type=string,JSONPath=`.status.conditions[?(@.type=="Ready")].status`,description="Indicates the destination is ready to use",default="False"
 
 // Destination is the Schema for the Destinations API
 type Destination struct {

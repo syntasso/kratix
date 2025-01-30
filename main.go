@@ -186,9 +186,10 @@ func main() {
 			os.Exit(1)
 		}
 		if err = (&controllers.DestinationReconciler{
-			Client:    mgr.GetClient(),
-			Scheduler: &scheduler,
-			Log:       ctrl.Log.WithName("controllers").WithName("DestinationController"),
+			Client:        mgr.GetClient(),
+			Scheduler:     &scheduler,
+			Log:           ctrl.Log.WithName("controllers").WithName("DestinationController"),
+			EventRecorder: mgr.GetEventRecorderFor("DestinationController"),
 		}).SetupWithManager(mgr); err != nil {
 			setupLog.Error(err, "unable to create controller", "controller", "Destination")
 			os.Exit(1)
