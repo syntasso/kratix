@@ -218,7 +218,7 @@ ifeq ($(shell uname -sm),Darwin arm64)
 endif
 
 .PHONY: test
-test: manifests generate fmt vet ## Run unit tests.
+test: manifests generate fmt vet lint-new ## Run unit tests.
 	go run ${GINKGO} ${GINKGO_FLAGS} -r --coverprofile cover.out --skip-package=system
 
 .PHONY: run-system-test
@@ -240,6 +240,9 @@ build-and-push-bash:
 
 lint-required: # Lint with required config
 	golangci-lint run --config=.golangci-required.yml
+
+lint-new: # Lint with required config relative to HEAD
+	golangci-lint run --new-from-rev=HEAD --config=.golangci-required.yml
 
 lint-changed: # Lint changed files only, with default config
 	@unstaged_files=$$(git diff --name-only --diff-filter=ACM | grep '\.go$$' || true); \
