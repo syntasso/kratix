@@ -241,8 +241,8 @@ build-and-push-bash:
 lint-required: # Lint with required config
 	golangci-lint run --config=.golangci-required.yml
 
-lint-new: # Lint with required config relative to HEAD
-	golangci-lint run --new-from-rev=HEAD --config=.golangci-required.yml
+lint-new: # Lint with required config relative to origin/main
+	golangci-lint run --new-from-rev=origin/main --config=.golangci-required.yml
 
 lint-changed: # Lint changed files only, with default config
 	@unstaged_files=$$(git diff --name-only --diff-filter=ACM | grep '\.go$$' || true); \
