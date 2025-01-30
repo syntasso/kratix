@@ -17,6 +17,7 @@ import (
 	metav1 "k8s.io/apimachinery/pkg/apis/meta/v1"
 	"k8s.io/apimachinery/pkg/apis/meta/v1/unstructured"
 	"k8s.io/apimachinery/pkg/labels"
+	"k8s.io/apimachinery/pkg/runtime/schema"
 	"k8s.io/apimachinery/pkg/types"
 	"sigs.k8s.io/controller-runtime/pkg/client"
 )
@@ -30,6 +31,7 @@ var _ = Describe("Workflow Reconciler", func() {
 	var pipelines []v1alpha1.Pipeline
 
 	BeforeEach(func() {
+
 		promise = v1alpha1.Promise{
 			ObjectMeta: metav1.ObjectMeta{
 				Name: "redis",
@@ -405,6 +407,50 @@ var _ = Describe("Workflow Reconciler", func() {
 						configMap,
 					)).To(Succeed())
 				})
+			})
+		})
+
+		Context("resource workflow", func() {
+			var resource *unstructured.Unstructured
+
+			BeforeEach(func() {
+				resource = &unstructured.Unstructured{}
+				resource.SetName("resource-2")
+				resource.SetNamespace(namespace)
+				resource.SetGroupVersionKind(schema.GroupVersionKind{
+					Group:   fakeCRD.Spec.Group,
+					Version: fakeCRD.Spec.Versions[0].Name,
+					Kind:    fakeCRD.Spec.Names.Kind,
+				})
+
+				Expect(fakeK8sClient.Create(ctx, resource)).To(Succeed())
+
+				opts := workflow.NewOpts(ctx, fakeK8sClient, logger, resource, workflowPipelines, "resource", 5)
+				abort, err := workflow.ReconcileConfigure(opts)
+				Expect(err).NotTo(HaveOccurred())
+				Expect(abort).To(BeTrue())
+			})
+
+			It("sets the status of the resource", func() {
+				updatedResource := &unstructured.Unstructured{}
+				updatedResource.SetGroupVersionKind(resource.GroupVersionKind())
+				Expect(fakeK8sClient.Get(ctx, client.ObjectKeyFromObject(resource), updatedResource)).To(Succeed())
+
+				Expect(updatedResource.Object["status"]).To(SatisfyAll(
+					HaveKeyWithValue("message", "Pending"),
+					HaveKeyWithValue("conditions", Not(BeNil())),
+				))
+
+				conditions, found, err := unstructured.NestedSlice(updatedResource.Object, "status", "conditions")
+				Expect(err).NotTo(HaveOccurred())
+				Expect(found).To(BeTrue())
+				Expect(conditions[0]).To(SatisfyAll(
+					HaveKeyWithValue("type", "ConfigureWorkflowCompleted"),
+					HaveKeyWithValue("status", "False"),
+					HaveKeyWithValue("message", "Pipelines are still in progress"),
+					HaveKeyWithValue("reason", "PipelinesInProgress"),
+					HaveKeyWithValue("lastTransitionTime", Not(BeEmpty())),
+				))
 			})
 		})
 
@@ -1378,23 +1424,23 @@ var _ = Describe("Workflow Reconciler", func() {
 				Expect(bindings.Items).To(HaveLen(2))
 				Expect(bindings.Items).To(ConsistOf(
 					MatchFields(IgnoreExtras, Fields{
-						"ObjectMeta": MatchFields(IgnoreExtras, Fields{
-							"Name":      Equal(pipelineNamespaceRoleBinding.GetName()),
-							"Namespace": Equal(namespace),
-						}),
 						"RoleRef": MatchFields(IgnoreExtras, Fields{
-							"Name": Equal(initialRole.GetName()),
-							"Kind": Equal("Role"),
+							"Name": Equal(specificNamespaceClusterRole.GetName()),
+							"Kind": Equal("ClusterRole"),
 						}),
-					}),
-					MatchFields(IgnoreExtras, Fields{
 						"ObjectMeta": MatchFields(IgnoreExtras, Fields{
 							"Name":      Equal(specificNamespaceRoleBinding.GetName()),
 							"Namespace": Equal("specific-namespace"),
 						}),
+					}),
+					MatchFields(IgnoreExtras, Fields{
 						"RoleRef": MatchFields(IgnoreExtras, Fields{
-							"Name": Equal(specificNamespaceClusterRole.GetName()),
-							"Kind": Equal("ClusterRole"),
+							"Name": Equal(initialRole.GetName()),
+							"Kind": Equal("Role"),
+						}),
+						"ObjectMeta": MatchFields(IgnoreExtras, Fields{
+							"Name":      Equal(pipelineNamespaceRoleBinding.GetName()),
+							"Namespace": Equal(namespace),
 						}),
 					}),
 				))
