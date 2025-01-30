@@ -53,6 +53,7 @@ func (c Cluster) EventuallyKubectl(args ...string) string {
 func (c Cluster) EventuallyKubectlDelete(args ...string) string {
 	commandArgs := []string{"get", "--context=" + c.Context}
 	commandArgs = append(commandArgs, args...)
+	// #nosec
 	command := exec.Command("kubectl", commandArgs...)
 	session, err := gexec.Start(command, GinkgoWriter, GinkgoWriter)
 	ExpectWithOffset(1, err).ShouldNot(HaveOccurred())
@@ -66,6 +67,7 @@ func (c Cluster) EventuallyKubectlDelete(args ...string) string {
 	EventuallyWithOffset(1, func(g Gomega) {
 		commandArgs = []string{"delete", "--context=" + c.Context}
 		commandArgs = append(commandArgs, args...)
+		// #nosec
 		cmd := exec.Command("kubectl", commandArgs...)
 		session, err = gexec.Start(cmd, GinkgoWriter, GinkgoWriter)
 		g.ExpectWithOffset(1, err).ShouldNot(HaveOccurred())

@@ -1,11 +1,12 @@
 package system_test
 
 import (
+	"strings"
+	"time"
+
 	. "github.com/onsi/ginkgo/v2"
 	. "github.com/onsi/gomega"
 	"github.com/syntasso/kratix/test/kubeutils"
-	"strings"
-	"time"
 )
 
 var _ = Describe("Workflow-defined RBAC", Label("rbac"), Serial, func() {
@@ -80,7 +81,7 @@ var _ = Describe("Workflow-defined RBAC", Label("rbac"), Serial, func() {
 		})
 
 		var resRoleName, resRoleBindingName, resNamespacedCRName, resAllNamespacesCRName string
-		By("sucessfully completing the resource workflows", func() {
+		By("successfully completing the resource workflows", func() {
 			platform.Kubectl("apply", "-f", "assets/rbac/resource-request.yaml")
 
 			Eventually(func() string {

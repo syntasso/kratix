@@ -1,8 +1,9 @@
 package system_test
 
 import (
-	"github.com/syntasso/kratix/test/kubeutils"
 	"time"
+
+	"github.com/syntasso/kratix/test/kubeutils"
 
 	. "github.com/onsi/ginkgo/v2"
 	. "github.com/onsi/gomega"

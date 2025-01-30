@@ -1,10 +1,11 @@
 package system_test
 
 import (
+	"time"
+
 	. "github.com/onsi/ginkgo/v2"
 	. "github.com/onsi/gomega"
 	"github.com/syntasso/kratix/test/kubeutils"
-	"time"
 )
 
 var _ = Describe("Compound Promise", Label("compound-promise"), Serial, func() {
