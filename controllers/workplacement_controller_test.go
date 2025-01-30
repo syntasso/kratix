@@ -20,6 +20,7 @@ import (
 	"context"
 	"fmt"
 
+	"k8s.io/apimachinery/pkg/api/errors"
 	"k8s.io/apimachinery/pkg/types"
 
 	"github.com/go-logr/logr"
@@ -242,6 +243,19 @@ files:
 					Expect(workloadsToCreate).To(BeNil())
 					Expect(workloadsToDelete).To(ConsistOf(kratixStateFile))
 					Expect(dir).To(Equal(""))
+				})
+
+				When("the Destination does not exists", func() {
+					It("removes the repo-cleanup and kratix-dot-files-cleanup finalizers", func() {
+						Expect(fakeK8sClient.Delete(ctx, &destination)).To(Succeed())
+						Expect(fakeK8sClient.Delete(ctx, &workPlacement)).To(Succeed())
+
+						_, err := reconciler.Reconcile(ctx, ctrl.Request{NamespacedName: types.NamespacedName{Name: workPlacement.GetName(), Namespace: workPlacement.GetNamespace()}})
+						Expect(err).ToNot(HaveOccurred())
+
+						err = fakeK8sClient.Get(ctx, types.NamespacedName{Name: workPlacement.GetName(), Namespace: "default"}, &workPlacement)
+						Expect(errors.IsNotFound(err)).To(BeTrue())
+					})
 				})
 			})
 

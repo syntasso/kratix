@@ -80,16 +80,46 @@ func (r *WorkPlacementReconciler) Reconcile(ctx context.Context, req ctrl.Reques
 	destinationName := client.ObjectKey{
 		Name: workPlacement.Spec.TargetDestinationName,
 	}
-	err = r.Client.Get(context.Background(), destinationName, destination)
-	if err != nil {
-		logger.Error(err, "Error listing available destinations")
-		return ctrl.Result{}, err
-	}
 
 	opts := opts{
 		client: r.Client,
 		ctx:    ctx,
 		logger: logger,
+	}
+
+	if !workPlacement.DeletionTimestamp.IsZero() {
+		var destinationExists = true
+		var filepathMode string
+		err = r.Client.Get(context.Background(), destinationName, destination)
+		if err != nil {
+			if k8sErrors.IsNotFound(err) {
+				logger.Info("Destination not found, skipping destination file cleanup", "destination", destinationName)
+				destinationExists = false
+			} else {
+				logger.Error(err, "Error getting destination", "destination", destinationName)
+				return ctrl.Result{}, err
+			}
+		}
+
+		var writer writers.StateStoreWriter
+		if destinationExists {
+			filepathMode = destination.GetFilepathMode()
+			writer, err = newWriter(opts, *destination)
+			if err != nil {
+				if k8sErrors.IsNotFound(err) {
+					return defaultRequeue, nil
+				}
+				return ctrl.Result{}, err
+			}
+		}
+
+		return r.deleteWorkPlacement(ctx, destinationExists, writer, workPlacement, filepathMode, logger)
+	}
+
+	err = r.Client.Get(context.Background(), destinationName, destination)
+	if err != nil {
+		logger.Error(err, "Error listing available destinations")
+		return ctrl.Result{}, err
 	}
 
 	//Mock this out
@@ -99,11 +129,6 @@ func (r *WorkPlacementReconciler) Reconcile(ctx context.Context, req ctrl.Reques
 			return defaultRequeue, nil
 		}
 		return ctrl.Result{}, err
-	}
-
-	filepathMode := destination.GetFilepathMode()
-	if !workPlacement.DeletionTimestamp.IsZero() {
-		return r.deleteWorkPlacement(ctx, writer, workPlacement, filepathMode, logger)
 	}
 
 	logger.Info("Updating files in statestore if required")
@@ -133,6 +158,7 @@ func (r *WorkPlacementReconciler) Reconcile(ctx context.Context, req ctrl.Reques
 		}
 	}
 
+	filepathMode := destination.GetFilepathMode()
 	if missingFinalizers := checkWorkPlacementFinalizers(workPlacement, filepathMode); len(missingFinalizers) > 0 {
 		return addFinalizers(opts, workPlacement, missingFinalizers)
 	}
@@ -141,7 +167,15 @@ func (r *WorkPlacementReconciler) Reconcile(ctx context.Context, req ctrl.Reques
 	return ctrl.Result{}, nil
 }
 
-func (r *WorkPlacementReconciler) deleteWorkPlacement(ctx context.Context, writer writers.StateStoreWriter, workPlacement *v1alpha1.WorkPlacement, filePathMode string, logger logr.Logger) (ctrl.Result, error) {
+func (r *WorkPlacementReconciler) deleteWorkPlacement(ctx context.Context, destinationExists bool, writer writers.StateStoreWriter, workPlacement *v1alpha1.WorkPlacement, filePathMode string, logger logr.Logger) (ctrl.Result, error) {
+	if !destinationExists {
+		logger.Info("cleaning up deletion finalizers")
+		cleanupDeletionFinalizers(workPlacement)
+		if err := r.Client.Update(ctx, workPlacement); err != nil {
+			return ctrl.Result{}, err
+		}
+	}
+
 	pendingRepoCleanup := controllerutil.ContainsFinalizer(workPlacement, repoCleanupWorkPlacementFinalizer)
 	pendingKratixFileCleanup := controllerutil.ContainsFinalizer(workPlacement, kratixFileCleanupWorkPlacementFinalizer)
 
@@ -307,4 +341,13 @@ func checkWorkPlacementFinalizers(workPlacement *v1alpha1.WorkPlacement, filepat
 		missingFinalizers = append(missingFinalizers, kratixFileCleanupWorkPlacementFinalizer)
 	}
 	return missingFinalizers
+}
+
+func cleanupDeletionFinalizers(workPlacement *v1alpha1.WorkPlacement) {
+	if controllerutil.ContainsFinalizer(workPlacement, repoCleanupWorkPlacementFinalizer) {
+		controllerutil.RemoveFinalizer(workPlacement, repoCleanupWorkPlacementFinalizer)
+	}
+	if controllerutil.ContainsFinalizer(workPlacement, kratixFileCleanupWorkPlacementFinalizer) {
+		controllerutil.RemoveFinalizer(workPlacement, kratixFileCleanupWorkPlacementFinalizer)
+	}
 }
