@@ -19,14 +19,13 @@ package controllers
 import (
 	"context"
 	"fmt"
-	"slices"
+	"reflect"
 	"strings"
 	"sync"
 	"time"
 
 	"github.com/syntasso/kratix/lib/migrations"
 	"github.com/syntasso/kratix/lib/objectutil"
-
 	"sigs.k8s.io/controller-runtime/pkg/controller/controllerutil"
 	"sigs.k8s.io/controller-runtime/pkg/handler"
 	"sigs.k8s.io/controller-runtime/pkg/reconcile"
@@ -355,17 +354,12 @@ func updateConditionOnPromise(promise *v1alpha1.Promise, latestCondition metav1.
 }
 
 func updateRequirementsStatusOnPromise(promise *v1alpha1.Promise, oldReqs, newReqs []v1alpha1.RequiredPromiseStatus) bool {
-	compareValue := slices.CompareFunc(oldReqs, newReqs, func(a, b v1alpha1.RequiredPromiseStatus) int {
-		if a.Name == b.Name && a.Version == b.Version && a.State == b.State {
-			return 0
-		}
-		return -1
-	})
-	if compareValue != 0 {
-		promise.Status.RequiredPromises = newReqs
-		return true
+	if len(oldReqs)+len(newReqs) == 0 || reflect.DeepEqual(oldReqs, newReqs) {
+		return false
 	}
-	return false
+
+	promise.Status.RequiredPromises = newReqs
+	return true
 }
 
 func (r *PromiseReconciler) generateStatusAndMarkRequirements(ctx context.Context, promise *v1alpha1.Promise) (metav1.Condition, []v1alpha1.RequiredPromiseStatus) {
