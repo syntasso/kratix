@@ -44,8 +44,10 @@ var _ = Describe("DestinationReconciler", func() {
 		testDestinationName client.ObjectKey
 		reconciler          *controllers.DestinationReconciler
 		fakeWriter          *writersfakes.FakeStateStoreWriter
-		bucketStateStore    v1alpha1.BucketStateStore
+		stateStoreSecret    *corev1.Secret
+		stateStore          client.Object
 		eventRecorder       *record.FakeRecorder
+		updatedDestination  *v1alpha1.Destination
 	)
 
 	BeforeEach(func() {
@@ -79,6 +81,7 @@ var _ = Describe("DestinationReconciler", func() {
 				StateStoreRef: &v1alpha1.StateStoreReference{},
 			},
 		}
+		updatedDestination = &v1alpha1.Destination{}
 	})
 
 	When("the destination does not exist", func() {
@@ -89,18 +92,259 @@ var _ = Describe("DestinationReconciler", func() {
 		})
 	})
 
-	Describe("destinations backed by a bucket state store", func() {
-		BeforeEach(func() {
-			Expect(fakeK8sClient.Create(ctx, &corev1.Secret{
+	Describe("destinations backed by", func() {
+		for stateStoreKind, setup := range stateStoreSetups {
+			Context(fmt.Sprintf("a %s", stateStoreKind), func() {
+				var reconcileErr error
+				var result ctrl.Result
+
+				BeforeEach(func() {
+					stateStoreSecret = setup.CreateSecret()
+					Expect(fakeK8sClient.Create(ctx, stateStoreSecret)).To(Succeed())
+
+					stateStore = setup.CreateStateStore()
+					Expect(fakeK8sClient.Create(ctx, stateStore)).To(Succeed())
+
+					setup.SetDestinationStateStoreRef(testDestination)
+					setup.SetWriter(fakeWriter, nil)
+
+					fakeWriter.UpdateFilesReturns("", nil)
+					Expect(fakeK8sClient.Create(ctx, testDestination)).To(Succeed())
+				})
+
+				JustBeforeEach(func() {
+					result, reconcileErr = t.reconcileUntilCompletion(reconciler, testDestination)
+					fakeK8sClient.Get(ctx, testDestinationName, updatedDestination)
+				})
+
+				When("writing the test resources to the destination succeeds", func() {
+					It("succeeds the reconciliation", func() {
+						Expect(reconcileErr).NotTo(HaveOccurred())
+						Expect(result).To(Equal(ctrl.Result{}))
+					})
+
+					It("updates the destination status condition", func() {
+						Expect(updatedDestination.Status.Conditions).To(ContainElement(SatisfyAll(
+							HaveField("Type", "Ready"),
+							HaveField("Message", "Test documents written to State Store"),
+							HaveField("Reason", "TestDocumentsWritten"),
+							HaveField("Status", metav1.ConditionTrue),
+						)))
+					})
+
+					It("publishes a success event", func() {
+						Expect(eventRecorder.Events).To(Receive(ContainSubstring(
+							"Destination %q is ready", testDestination.Name),
+						))
+					})
+				})
+
+				When("writing the test resources to the destination fails", func() {
+					BeforeEach(func() {
+						fakeWriter.UpdateFilesReturns("", errors.New("update file error"))
+						Expect(fakeK8sClient.Get(ctx, testDestinationName, updatedDestination)).To(Succeed())
+					})
+
+					It("fails the reconciliation", func() {
+						Expect(reconcileErr).To(MatchError(ContainSubstring("update file error")))
+						Expect(result).To(Equal(ctrl.Result{}))
+					})
+
+					It("updates the destination status condition", func() {
+						Expect(updatedDestination.Status.Conditions).To(ContainElement(SatisfyAll(
+							HaveField("Type", "Ready"),
+							HaveField("Message", "Unable to write test documents to State Store"),
+							HaveField("Reason", "StateStoreWriteFailed"),
+							HaveField("Status", metav1.ConditionFalse),
+						)))
+					})
+
+					It("publishes a failure event", func() {
+						Expect(eventRecorder.Events).To(Receive(ContainSubstring(
+							"Failed to write test documents to Destination %q: update file error", testDestination.Name),
+						))
+					})
+				})
+
+				When("the associated secret does not exist", func() {
+					BeforeEach(func() {
+						Expect(fakeK8sClient.Delete(ctx, stateStoreSecret)).To(Succeed())
+					})
+
+					It("fails the reconciliation", func() {
+						Expect(reconcileErr).To(MatchError(ContainSubstring("secrets %q not found", stateStoreSecret.GetName())))
+						Expect(result).To(Equal(ctrl.Result{}))
+					})
+
+					It("updates the destination status condition", func() {
+						Expect(updatedDestination.Status.Conditions).To(ContainElement(SatisfyAll(
+							HaveField("Type", "Ready"),
+							HaveField("Message", "Unable to write test documents to State Store"),
+							HaveField("Reason", "StateStoreWriteFailed"),
+							HaveField("Status", metav1.ConditionFalse),
+						)))
+					})
+
+					It("publishes a failure event", func() {
+						Expect(eventRecorder.Events).To(Receive(ContainSubstring(
+							"Failed to write test documents to Destination %q: secrets %q not found", testDestination.Name, stateStoreSecret.GetName(),
+						)))
+					})
+				})
+
+				When("instantiating a writer fails", func() {
+					BeforeEach(func() {
+						setup.SetWriter(fakeWriter, errors.New("writer error"))
+					})
+
+					It("raises an error on reconciliation", func() {
+						Expect(reconcileErr).To(MatchError(ContainSubstring("writer error")))
+						Expect(result).To(Equal(ctrl.Result{}))
+					})
+
+					It("updates the destination status condition", func() {
+						Expect(updatedDestination.Status.Conditions).To(ContainElement(SatisfyAll(
+							HaveField("Type", "Ready"),
+							HaveField("Message", "Unable to write test documents to State Store"),
+							HaveField("Reason", "StateStoreWriteFailed"),
+							HaveField("Status", metav1.ConditionFalse),
+						)))
+					})
+
+					It("publishes a failure event", func() {
+						Expect(eventRecorder.Events).To(Receive(ContainSubstring(
+							"Failed to write test documents to Destination %q: writer error", testDestination.Name,
+						)))
+					})
+				})
+
+				Describe("cleanup mode", func() {
+					var workPlacement v1alpha1.WorkPlacement
+					BeforeEach(func() {
+						workPlacement = v1alpha1.WorkPlacement{
+							ObjectMeta: v1.ObjectMeta{
+								Name:      "test-workplacement",
+								Namespace: "default",
+								Labels:    map[string]string{v1alpha1.KratixPrefix + "targetDestinationName": testDestination.Name},
+							},
+							Spec: v1alpha1.WorkPlacementSpec{TargetDestinationName: testDestination.Name},
+						}
+						Expect(fakeK8sClient.Create(ctx, &workPlacement)).To(Succeed())
+					})
+
+					When("it is set to all", func() {
+						BeforeEach(func() {
+							testDestination.Spec.Cleanup = v1alpha1.DestinationCleanupAll
+							Expect(fakeK8sClient.Update(ctx, testDestination)).To(Succeed())
+							result, reconcileErr = t.reconcileUntilCompletion(reconciler, testDestination)
+							Expect(reconcileErr).NotTo(HaveOccurred())
+							Expect(result).To(Equal(ctrl.Result{}))
+						})
+
+						It("sets the cleanup finalizer", func() {
+							Expect(updatedDestination.GetFinalizers()).To(ContainElement("kratix.io/destination-cleanup"))
+						})
+
+						When("the destination is deleted", func() {
+							BeforeEach(func() {
+								Expect(fakeK8sClient.Delete(ctx, testDestination)).To(Succeed())
+							})
+
+							It("should succeed the reconciliation", func() {
+								Expect(reconcileErr).NotTo(HaveOccurred())
+								Expect(result).To(Equal(ctrl.Result{}))
+							})
+
+							It("should remove the destination", func() {
+								Expect(fakeK8sClient.Get(ctx, testDestinationName, &v1alpha1.Destination{})).To(MatchError(ContainSubstring("not found")))
+							})
+
+							It("should delete the workplacement", func() {
+								Expect(fakeK8sClient.Get(ctx, client.ObjectKeyFromObject(&workPlacement), &v1alpha1.WorkPlacement{})).To(MatchError(ContainSubstring("not found")))
+							})
+
+							It("should clean up the statestore", func() {
+								Expect(fakeWriter.UpdateFilesCallCount()).To(Equal(6))
+								dir, workPlacementName, workloadsToCreate, workloadsToDelete := fakeWriter.UpdateFilesArgsForCall(4)
+								Expect(dir).To(Equal("dependencies"))
+								Expect(workPlacementName).To(Equal("kratix-canary"))
+								Expect(workloadsToCreate).To(BeNil())
+								Expect(workloadsToDelete).To(BeNil())
+
+								dir, workPlacementName, workloadsToCreate, workloadsToDelete = fakeWriter.UpdateFilesArgsForCall(5)
+								Expect(dir).To(Equal("resources"))
+								Expect(workPlacementName).To(Equal("kratix-canary"))
+								Expect(workloadsToCreate).To(BeNil())
+								Expect(workloadsToDelete).To(BeNil())
+							})
+						})
+					})
+
+					When("it is set to none", func() {
+						BeforeEach(func() {
+							testDestination.Spec.Cleanup = v1alpha1.DestinationCleanupNone
+							Expect(fakeK8sClient.Update(ctx, testDestination)).To(Succeed())
+							result, reconcileErr = t.reconcileUntilCompletion(reconciler, testDestination)
+							Expect(reconcileErr).NotTo(HaveOccurred())
+							Expect(result).To(Equal(ctrl.Result{}))
+						})
+
+						It("does not set the cleanup finalizer", func() {
+							Expect(updatedDestination.GetFinalizers()).NotTo(ContainElement("kratix.io/destination-cleanup"))
+						})
+
+						When("the destination is deleted", func() {
+							BeforeEach(func() {
+								Expect(fakeK8sClient.Delete(ctx, testDestination)).To(Succeed())
+							})
+
+							It("should succeed the reconciliation", func() {
+								Expect(reconcileErr).NotTo(HaveOccurred())
+								Expect(result).To(Equal(ctrl.Result{}))
+							})
+
+							It("should remove the destination", func() {
+								Expect(fakeK8sClient.Get(ctx, testDestinationName, &v1alpha1.Destination{})).To(MatchError(ContainSubstring("not found")))
+							})
+
+							It("should not delete the workplacement", func() {
+								Expect(fakeK8sClient.Get(ctx, client.ObjectKeyFromObject(&workPlacement), &v1alpha1.WorkPlacement{})).Should(Succeed())
+							})
+
+							It("should not clean up the statestore", func() {
+								Expect(fakeWriter.UpdateFilesCallCount()).To(Equal(4))
+							})
+						})
+
+					})
+				})
+
+			})
+		}
+	})
+})
+
+type StateStoreSetup struct {
+	CreateSecret                func() *corev1.Secret
+	CreateStateStore            func() client.Object
+	SetDestinationStateStoreRef func(destination *v1alpha1.Destination)
+	SetWriter                   func(writer writers.StateStoreWriter, err error)
+}
+
+var stateStoreSetups = map[string]StateStoreSetup{
+	"BucketStateStore": {
+		CreateSecret: func() *corev1.Secret {
+			return &corev1.Secret{
 				TypeMeta:   v1.TypeMeta{Kind: "Secret", APIVersion: "v1"},
 				ObjectMeta: v1.ObjectMeta{Name: "test-secret", Namespace: "default"},
 				Data: map[string][]byte{
 					"accessKeyID":     []byte("test-access"),
 					"secretAccessKey": []byte("test-secret"),
 				},
-			})).To(Succeed())
-
-			bucketStateStore = v1alpha1.BucketStateStore{
+			}
+		},
+		CreateStateStore: func() client.Object {
+			return &v1alpha1.BucketStateStore{
 				TypeMeta:   v1.TypeMeta{Kind: "BucketStateStore", APIVersion: "platform.kratix.io/v1alpha1"},
 				ObjectMeta: v1.ObjectMeta{Name: "test-state-store"},
 				Spec: v1alpha1.BucketStateStoreSpec{
@@ -111,209 +355,54 @@ var _ = Describe("DestinationReconciler", func() {
 					Endpoint: "localhost:9000",
 				},
 			}
-			Expect(fakeK8sClient.Create(ctx, &bucketStateStore)).To(Succeed())
-
-			testDestination.Spec.StateStoreRef.Kind = "BucketStateStore"
-			testDestination.Spec.StateStoreRef.Name = "test-state-store"
-
+		},
+		SetDestinationStateStoreRef: func(destination *v1alpha1.Destination) {
+			destination.Spec.StateStoreRef.Kind = "BucketStateStore"
+			destination.Spec.StateStoreRef.Name = "test-state-store"
+		},
+		SetWriter: func(writer writers.StateStoreWriter, err error) {
 			controllers.SetNewS3Writer(
 				func(l logr.Logger, s v1alpha1.BucketStateStoreSpec, d v1alpha1.Destination, c map[string][]byte) (writers.StateStoreWriter, error) {
-					return fakeWriter, nil
+					return writer, err
 				},
 			)
-
-			fakeWriter.UpdateFilesReturns("", nil)
-			Expect(fakeK8sClient.Create(ctx, testDestination)).To(Succeed())
-		})
-
-		When("writing the test resources to the destination succeeds", func() {
-			It("updates the destination status and publishes events", func() {
-				result, err := t.reconcileUntilCompletion(reconciler, testDestination)
-				Expect(err).NotTo(HaveOccurred())
-				Expect(result).To(Equal(ctrl.Result{}))
-
-				destination := &v1alpha1.Destination{}
-				Expect(fakeK8sClient.Get(ctx, testDestinationName, destination)).To(Succeed())
-
-				Expect(destination.Status.Conditions).To(ContainElement(SatisfyAll(
-					HaveField("Type", "Ready"),
-					HaveField("Message", "Test documents written to State Store"),
-					HaveField("Reason", "TestDocumentsWritten"),
-					HaveField("Status", metav1.ConditionTrue),
-				)))
-
-				Expect(eventRecorder.Events).To(Receive(ContainSubstring(
-					fmt.Sprintf("Destination %q is ready", testDestination.Name)),
-				))
-			})
-		})
-
-		When("writing the test resources to the destination fails", func() {
-			BeforeEach(func() {
-				fakeWriter.UpdateFilesReturns("", errors.New("writer error"))
-			})
-
-			It("updates the destination status and publishes events", func() {
-				result, err := t.reconcileUntilCompletion(reconciler, testDestination)
-				Expect(err).To(MatchError(ContainSubstring("writer error")))
-				Expect(result).To(Equal(ctrl.Result{}))
-
-				destination := &v1alpha1.Destination{}
-				Expect(fakeK8sClient.Get(ctx, testDestinationName, destination)).To(Succeed())
-
-				Expect(destination.Status.Conditions).To(ContainElement(SatisfyAll(
-					HaveField("Type", "Ready"),
-					HaveField("Message", "Unable to write test documents to State Store"),
-					HaveField("Reason", "StateStoreWriteFailed"),
-					HaveField("Status", metav1.ConditionFalse),
-				)))
-
-				Expect(eventRecorder.Events).To(Receive(ContainSubstring(
-					fmt.Sprintf("Failed to write test documents to Destination %q: writer error", testDestination.Name)),
-				))
-			})
-		})
-
-		When("the associated secret does not exist", func() {
-			BeforeEach(func() {
-				Expect(fakeK8sClient.Delete(ctx, &corev1.Secret{ObjectMeta: v1.ObjectMeta{Name: "test-secret", Namespace: "default"}})).To(Succeed())
-
-				result, err := t.reconcileUntilCompletion(reconciler, testDestination)
-				Expect(err).To(MatchError(ContainSubstring("not found")))
-				Expect(result).To(Equal(ctrl.Result{}))
-			})
-
-			It("sets the status condition", func() {
-				destination := &v1alpha1.Destination{}
-				Expect(fakeK8sClient.Get(ctx, testDestinationName, destination)).To(Succeed())
-				Expect(destination.Status.Conditions).To(ContainElement(SatisfyAll(
-					HaveField("Type", "Ready"),
-					HaveField("Message", "Unable to write test documents to State Store"),
-					HaveField("Reason", "StateStoreWriteFailed"),
-					HaveField("Status", metav1.ConditionFalse),
-				)))
-			})
-
-			It("publishes an event", func() {
-				Expect(eventRecorder.Events).To(Receive(ContainSubstring(
-					fmt.Sprintf("Failed to write test documents to Destination %q: secrets %q not found", testDestination.Name, "test-secret"),
-				)))
-			})
-
-		})
-	})
-
-	When("deleting a destination", func() {
-		BeforeEach(func() {
-			Expect(fakeK8sClient.Create(ctx, &corev1.Secret{
-				TypeMeta: v1.TypeMeta{Kind: "Secret", APIVersion: "v1"},
-				ObjectMeta: v1.ObjectMeta{
-					Name:      "test-secret",
-					Namespace: "default",
-				},
+		},
+	},
+	"GitStateStore": {
+		CreateSecret: func() *corev1.Secret {
+			return &corev1.Secret{
+				TypeMeta:   v1.TypeMeta{Kind: "Secret", APIVersion: "v1"},
+				ObjectMeta: v1.ObjectMeta{Name: "test-git-secret", Namespace: "default"},
 				Data: map[string][]byte{
-					"accessKeyID":     []byte("test-access"),
-					"secretAccessKey": []byte("test-secret"),
-				},
-			})).To(Succeed())
-
-			bucketStateStore = v1alpha1.BucketStateStore{
-				TypeMeta:   v1.TypeMeta{Kind: "BucketStateStore", APIVersion: "platform.kratix.io/v1alpha1"},
-				ObjectMeta: v1.ObjectMeta{Name: "test-state-store"},
-				Spec: v1alpha1.BucketStateStoreSpec{
-					BucketName: "test-bucket",
-					StateStoreCoreFields: v1alpha1.StateStoreCoreFields{
-						SecretRef: &corev1.SecretReference{Name: "test-secret", Namespace: "default"},
-					},
-					Endpoint: "localhost:9000",
+					"username": []byte("test-username"),
+					"password": []byte("test-password"),
 				},
 			}
-			Expect(fakeK8sClient.Create(ctx, &bucketStateStore)).To(Succeed())
-
-			testDestination.Spec.StateStoreRef.Kind = "BucketStateStore"
-			testDestination.Spec.StateStoreRef.Name = "test-state-store"
-
-			controllers.SetNewS3Writer(func(logger logr.Logger, stateStoreSpec v1alpha1.BucketStateStoreSpec, destination v1alpha1.Destination,
-				creds map[string][]byte) (writers.StateStoreWriter, error) {
-				return fakeWriter, nil
-			})
-		})
-
-		When("cleanup is not set", func() {
-			BeforeEach(func() {
-				Expect(fakeK8sClient.Create(ctx, testDestination)).To(Succeed())
-				Expect(fakeK8sClient.Get(ctx, testDestinationName, testDestination)).To(Succeed())
-			})
-			It("should not contain cleanup finalizer", func() {
-				result, err := t.reconcileUntilCompletion(reconciler, testDestination)
-				Expect(err).NotTo(HaveOccurred())
-				Expect(result).To(Equal(ctrl.Result{}))
-
-				destination := &v1alpha1.Destination{}
-				Expect(fakeK8sClient.Get(ctx, testDestinationName, destination)).
-					To(Succeed())
-				Expect(destination.GetFinalizers()).NotTo(ContainElement("kratix.io/destination-cleanup"))
-
-				Expect(fakeK8sClient.Delete(ctx, destination)).To(Succeed())
-				_, err = t.reconcileUntilCompletion(reconciler, destination)
-				Expect(err).NotTo(HaveOccurred())
-			})
-		})
-		When("cleanup is set to all", func() {
-			BeforeEach(func() {
-				testDestination.Spec.Cleanup = v1alpha1.DestinationCleanupAll
-				Expect(fakeK8sClient.Create(ctx, testDestination)).To(Succeed())
-				Expect(fakeK8sClient.Get(ctx, testDestinationName, testDestination)).To(Succeed())
-			})
-			It("should delete the workplacement and statestore contents", func() {
-				result, err := t.reconcileUntilCompletion(reconciler, testDestination)
-				Expect(err).NotTo(HaveOccurred())
-				Expect(result).To(Equal(ctrl.Result{}))
-
-				By("setting the finalizer on testDestination on creation")
-				destination := &v1alpha1.Destination{}
-				Expect(fakeK8sClient.Get(ctx, testDestinationName, destination)).
-					To(Succeed())
-				Expect(destination.GetFinalizers()).To(ContainElement("kratix.io/destination-cleanup"))
-
-				By("cleaning up workplacement with matching label on deletion")
-				workPlacement := v1alpha1.WorkPlacement{
-					ObjectMeta: v1.ObjectMeta{
-						Name:      "test-workplacement",
-						Namespace: "default",
-						Labels:    map[string]string{v1alpha1.KratixPrefix + "targetDestinationName": destination.Name},
+		},
+		CreateStateStore: func() client.Object {
+			return &v1alpha1.GitStateStore{
+				TypeMeta:   v1.TypeMeta{Kind: "GitStateStore", APIVersion: "platform.kratix.io/v1alpha1"},
+				ObjectMeta: v1.ObjectMeta{Name: "test-git-state-store"},
+				Spec: v1alpha1.GitStateStoreSpec{
+					URL:        "https://github.com/test/repo",
+					Branch:     "main",
+					AuthMethod: "basicAuth",
+					StateStoreCoreFields: v1alpha1.StateStoreCoreFields{
+						SecretRef: &corev1.SecretReference{Name: "test-git-secret", Namespace: "default"},
 					},
-					Spec: v1alpha1.WorkPlacementSpec{TargetDestinationName: destination.Name},
-				}
-				Expect(fakeK8sClient.Create(ctx, &workPlacement)).To(Succeed())
-				Expect(fakeK8sClient.Get(ctx, types.NamespacedName{Name: "test-workplacement", Namespace: "default"},
-					&v1alpha1.WorkPlacement{})).To(Succeed())
-
-				Expect(fakeK8sClient.Delete(ctx, testDestination)).To(Succeed())
-
-				fakeWriter = &writersfakes.FakeStateStoreWriter{} // recreate writer so the counter resets
-				_, err = t.reconcileUntilCompletion(reconciler, testDestination)
-				Expect(err).NotTo(HaveOccurred())
-
-				Expect(fakeK8sClient.Get(ctx, testDestinationName, destination)).To(MatchError(ContainSubstring("not found")))
-				Expect(fakeK8sClient.Get(ctx, types.NamespacedName{Name: "test-workplacement", Namespace: "default"},
-					&v1alpha1.WorkPlacement{})).To(MatchError(ContainSubstring("not found")))
-
-				By("cleaning up statestore contents")
-				Expect(fakeWriter.UpdateFilesCallCount()).To(Equal(2))
-				dir, workPlacementName, workloadsToCreate, workloadsToDelete := fakeWriter.UpdateFilesArgsForCall(0)
-				Expect(dir).To(Equal("dependencies"))
-				Expect(workPlacementName).To(Equal("kratix-canary"))
-				Expect(workloadsToCreate).To(BeNil())
-				Expect(workloadsToDelete).To(BeNil())
-
-				dir, workPlacementName, workloadsToCreate, workloadsToDelete = fakeWriter.UpdateFilesArgsForCall(1)
-				Expect(dir).To(Equal("resources"))
-				Expect(workPlacementName).To(Equal("kratix-canary"))
-				Expect(workloadsToCreate).To(BeNil())
-				Expect(workloadsToDelete).To(BeNil())
-			})
-		})
-	})
-
-})
+				},
+			}
+		},
+		SetDestinationStateStoreRef: func(destination *v1alpha1.Destination) {
+			destination.Spec.StateStoreRef.Kind = "GitStateStore"
+			destination.Spec.StateStoreRef.Name = "test-git-state-store"
+		},
+		SetWriter: func(writer writers.StateStoreWriter, err error) {
+			controllers.SetNewGitWriter(
+				func(l logr.Logger, s v1alpha1.GitStateStoreSpec, d v1alpha1.Destination, c map[string][]byte) (writers.StateStoreWriter, error) {
+					return writer, err
+				},
+			)
+		},
+	},
+}

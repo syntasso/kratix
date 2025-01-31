@@ -89,7 +89,7 @@ func (r *DestinationReconciler) Reconcile(ctx context.Context, req ctrl.Request)
 
 	writer, err := newWriter(opts, *destination)
 	if err != nil {
-		if condErr := r.setDestinationReadyCondition(destination, err); condErr != nil {
+		if condErr := r.updateReadyCondition(destination, err); condErr != nil {
 			return ctrl.Result{}, condErr
 		}
 		return ctrl.Result{}, err
@@ -109,7 +109,7 @@ func (r *DestinationReconciler) Reconcile(ctx context.Context, req ctrl.Request)
 		logger.Error(writeErr, "unable to write dependencies to state store")
 	}
 
-	if condErr := r.setDestinationReadyCondition(destination, writeErr); condErr != nil {
+	if condErr := r.updateReadyCondition(destination, writeErr); condErr != nil {
 		return ctrl.Result{}, condErr
 	}
 
@@ -249,7 +249,7 @@ func (r *DestinationReconciler) deleteDestinationWorkplacements(o opts, destinat
 	return true, nil
 }
 
-func (r *DestinationReconciler) setDestinationReadyCondition(destination *v1alpha1.Destination, err error) error {
+func (r *DestinationReconciler) updateReadyCondition(destination *v1alpha1.Destination, err error) error {
 	eventType := v1.EventTypeNormal
 	eventReason := "Ready"
 	eventMessage := fmt.Sprintf("Destination %q is ready", destination.Name)
