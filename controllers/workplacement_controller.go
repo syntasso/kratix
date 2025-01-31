@@ -84,7 +84,7 @@ func (r *WorkPlacementReconciler) Reconcile(ctx context.Context, req ctrl.Reques
 		logger: logger,
 	}
 
-	err = r.Client.Get(context.Background(), destinationName, destination)
+	err = r.Client.Get(ctx, destinationName, destination)
 
 	if !workPlacement.DeletionTimestamp.IsZero() {
 		var destinationExists = true
