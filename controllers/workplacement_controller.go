@@ -87,28 +87,7 @@ func (r *WorkPlacementReconciler) Reconcile(ctx context.Context, req ctrl.Reques
 	err = r.Client.Get(ctx, destinationName, destination)
 
 	if !workPlacement.DeletionTimestamp.IsZero() {
-		var destinationExists = true
-		var filepathMode string
-		if err != nil {
-			if k8sErrors.IsNotFound(err) {
-				logger.Info("Destination not found, skipping destination file cleanup", "destination", destinationName)
-				destinationExists = false
-			} else {
-				logger.Error(err, "Error getting destination", "destination", destinationName)
-				return ctrl.Result{}, err
-			}
-		}
-
-		var writer writers.StateStoreWriter
-		if destinationExists {
-			filepathMode = destination.GetFilepathMode()
-			writer, err = newWriter(opts, *destination)
-			if err != nil {
-				return requeueIfNotFound(err)
-			}
-		}
-
-		return r.deleteWorkPlacement(ctx, destinationExists, writer, workPlacement, filepathMode, logger)
+		return r.handleDeletion(ctx, workPlacement, destination, opts, err, logger)
 	}
 
 	if err != nil {
@@ -357,4 +336,39 @@ func requeueIfNotFound(err error) (ctrl.Result, error) {
 		return defaultRequeue, nil
 	}
 	return ctrl.Result{}, err
+}
+
+func (r *WorkPlacementReconciler) handleDeletion(
+	ctx context.Context,
+	workPlacement *v1alpha1.WorkPlacement,
+	destination *v1alpha1.Destination,
+	opts opts,
+	err error,
+	logger logr.Logger,
+) (ctrl.Result, error) {
+	var destinationExists = true
+	var filepathMode string
+	if err != nil {
+		if k8sErrors.IsNotFound(err) {
+			logger.Info(
+				"Destination not found, skipping destination file cleanup",
+				"destination",
+				workPlacement.Spec.TargetDestinationName,
+			)
+			destinationExists = false
+		} else {
+			logger.Error(err, "Error getting destination", "destination", workPlacement.Spec.TargetDestinationName)
+			return ctrl.Result{}, err
+		}
+	}
+
+	var writer writers.StateStoreWriter
+	if destinationExists {
+		filepathMode = destination.GetFilepathMode()
+		writer, err = newWriter(opts, *destination)
+		if err != nil {
+			return requeueIfNotFound(err)
+		}
+	}
+	return r.deleteWorkPlacement(ctx, destinationExists, writer, workPlacement, filepathMode, logger)
 }
