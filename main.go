@@ -73,12 +73,12 @@ type Workflows struct {
 	DefaultContainerSecurityContext corev1.SecurityContext `json:"defaultContainerSecurityContext"`
 }
 
-func main() {
-	var metricsAddr string
-	var probeAddr string
-	var pprofAddr string
-	var enableLeaderElection bool
+var metricsAddr string
+var probeAddr string
+var pprofAddr string
+var enableLeaderElection bool
 
+func main() {
 	flag.StringVar(&metricsAddr, "metrics-bind-address", ":8080", "The address the metric endpoint binds to.")
 	flag.StringVar(&probeAddr, "health-probe-bind-address", ":8081", "The address the probe endpoint binds to.")
 	flag.StringVar(&pprofAddr, "pprof-bind-address", ":8082", "The address the pprof endpoint binds to.")
@@ -186,9 +186,10 @@ func main() {
 			os.Exit(1)
 		}
 		if err = (&controllers.DestinationReconciler{
-			Client:    mgr.GetClient(),
-			Scheduler: &scheduler,
-			Log:       ctrl.Log.WithName("controllers").WithName("DestinationController"),
+			Client:        mgr.GetClient(),
+			Scheduler:     &scheduler,
+			Log:           ctrl.Log.WithName("controllers").WithName("DestinationController"),
+			EventRecorder: mgr.GetEventRecorderFor("DestinationController"),
 		}).SetupWithManager(mgr); err != nil {
 			setupLog.Error(err, "unable to create controller", "controller", "Destination")
 			os.Exit(1)

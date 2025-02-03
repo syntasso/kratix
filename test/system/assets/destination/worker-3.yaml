@@ -1,0 +1,23 @@
+apiVersion: platform.kratix.io/v1alpha1
+kind: BucketStateStore
+metadata:
+  name: destination-test-store
+spec:
+  authMethod: accessKey
+  bucketName: kratix
+  endpoint: minio.kratix-platform-system.svc.cluster.local
+  insecure: true
+  secretRef:
+    name: minio-credentials
+    namespace: default
+---
+apiVersion: platform.kratix.io/v1alpha1
+kind: Destination
+metadata:
+  name: worker-3
+  labels:
+    environment: dev
+spec:
+  stateStoreRef:
+    name: destination-test-store
+    kind: BucketStateStore
