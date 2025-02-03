@@ -1,16 +1,20 @@
-commonLabels:
-  app.kubernetes.io/instance: kratix-platform
-  app.kubernetes.io/component: kratix-manager
-  app.kubernetes.io/part-of: kratix
+labels:
+- includeSelectors: true
+  pairs:
+    app.kubernetes.io/component: kratix-manager
+    app.kubernetes.io/instance: kratix-platform
+    app.kubernetes.io/part-of: kratix
 
-resources:
 # All RBAC will be applied under this service account in
 # the deployment namespace. You may comment out this resource
 # if your manager will use a service account that exists at
 # runtime. Be sure to update RoleBinding and ClusterRoleBinding
 # subjects if changing service account names.
+resources:
 - service_account.yaml
 - role.yaml
 - role_binding.yaml
 - leader_election_role.yaml
 - leader_election_role_binding.yaml
+apiVersion: kustomize.config.k8s.io/v1beta1
+kind: Kustomization
