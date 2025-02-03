@@ -9,6 +9,7 @@ import (
 	. "github.com/onsi/ginkgo/v2"
 	. "github.com/onsi/gomega"
 	"github.com/onsi/gomega/gexec"
+	"sigs.k8s.io/yaml"
 )
 
 type Cluster struct {
@@ -75,4 +76,9 @@ func (c Cluster) EventuallyKubectlDelete(args ...string) string {
 		content = string(session.Out.Contents())
 	}, timeout, time.Millisecond).Should(Succeed())
 	return content
+}
+
+func ParseOutput(output string, v interface{}) {
+	err := yaml.Unmarshal([]byte(output), v)
+	ExpectWithOffset(1, err).ShouldNot(HaveOccurred())
 }
