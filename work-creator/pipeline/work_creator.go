@@ -287,10 +287,17 @@ func getSelectorsFromFile(file string) ([]v1alpha1.WorkflowDestinationSelectors,
 	err = yaml.Unmarshal(fileContents, &schedulingConfig)
 
 	if err != nil {
-		return nil, err
+		return nil, fmt.Errorf("invalid destination-selectors.yaml: %w", err)
 	}
+
 	for i := range schedulingConfig {
 		schedulingConfig[i].Directory = filepath.Clean(schedulingConfig[i].Directory)
+	}
+
+	for i := range schedulingConfig {
+		if len(schedulingConfig[i].MatchLabels) == 0 {
+			return nil, fmt.Errorf("invalid destination-selectors.yaml: entry with index %d has no selectors", i)
+		}
 	}
 
 	if containsDuplicateScheduling(schedulingConfig) {

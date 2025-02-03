@@ -174,35 +174,53 @@ var _ = Describe("WorkCreator", func() {
 			})
 		})
 
-		When("the destination-selectors contain multiple entries for the same directory", func() {
-			It("errors", func() {
-				mockPipelineDirectory := filepath.Join(getRootDirectory(), "duplicate-destination-selectors")
-				err := workCreator.Execute(mockPipelineDirectory, "promise-name", "default", "resource-name", "resource", pipelineName)
-				Expect(err).To(MatchError(ContainSubstring("duplicate entries in destination-selectors.yaml")))
+		Describe("destination selectors exist", func() {
+			When("no selectors can be parsed", func() {
+				It("should return the error", func() {
+					mockPipelineDirectory := filepath.Join(getRootDirectory(), "invalid-destination-selectors")
+					err := workCreator.Execute(mockPipelineDirectory, "promise-name", "default", "resource-name", "resource", pipelineName)
+					Expect(err).To(MatchError(ContainSubstring("invalid destination-selectors.yaml: error unmarshaling JSON")))
+				})
 			})
 
-			When("and the directory is empty string", func() {
+			When("there are entries with no labels", func() {
+				It("should return the error", func() {
+					mockPipelineDirectory := filepath.Join(getRootDirectory(), "missing-labels-destination-selectors")
+					err := workCreator.Execute(mockPipelineDirectory, "promise-name", "default", "resource-name", "resource", pipelineName)
+					Expect(err).To(MatchError(ContainSubstring("invalid destination-selectors.yaml: entry with index 1 has no selectors")))
+				})
+			})
+
+			When("the destination-selectors contain multiple entries for the same directory", func() {
 				It("errors", func() {
-					mockPipelineDirectory := filepath.Join(getRootDirectory(), "duplicate-destination-selectors-with-empty-directory")
+					mockPipelineDirectory := filepath.Join(getRootDirectory(), "duplicate-destination-selectors")
 					err := workCreator.Execute(mockPipelineDirectory, "promise-name", "default", "resource-name", "resource", pipelineName)
 					Expect(err).To(MatchError(ContainSubstring("duplicate entries in destination-selectors.yaml")))
 				})
-			})
-		})
 
-		When("the destination-selectors contain a non-root directory", func() {
-			It("errors", func() {
-				mockPipelineDirectory := filepath.Join(getRootDirectory(), "destination-selectors-with-non-root-directory")
-				err := workCreator.Execute(mockPipelineDirectory, "promise-name", "default", "resource-name", "resource", pipelineName)
-				Expect(err).To(MatchError(ContainSubstring("invalid directory in destination-selectors.yaml: foo/bar, directory must be top-level")))
+				When("and the directory is empty string", func() {
+					It("errors", func() {
+						mockPipelineDirectory := filepath.Join(getRootDirectory(), "duplicate-destination-selectors-with-empty-directory")
+						err := workCreator.Execute(mockPipelineDirectory, "promise-name", "default", "resource-name", "resource", pipelineName)
+						Expect(err).To(MatchError(ContainSubstring("duplicate entries in destination-selectors.yaml")))
+					})
+				})
 			})
-		})
 
-		When("the destination-selectors contain duplicate directories, one with a trailing slash and one without", func() {
-			It("errors as they are treated as the same value", func() {
-				mockPipelineDirectory := filepath.Join(getRootDirectory(), "destination-selectors-trailing-slash")
-				err := workCreator.Execute(mockPipelineDirectory, "promise-name", "default", "resource-name", "resource", pipelineName)
-				Expect(err).To(MatchError(ContainSubstring("duplicate entries in destination-selectors.yaml")))
+			When("the destination-selectors contain a non-root directory", func() {
+				It("errors", func() {
+					mockPipelineDirectory := filepath.Join(getRootDirectory(), "destination-selectors-with-non-root-directory")
+					err := workCreator.Execute(mockPipelineDirectory, "promise-name", "default", "resource-name", "resource", pipelineName)
+					Expect(err).To(MatchError(ContainSubstring("invalid directory in destination-selectors.yaml: foo/bar, directory must be top-level")))
+				})
+			})
+
+			When("the destination-selectors contain duplicate directories, one with a trailing slash and one without", func() {
+				It("errors as they are treated as the same value", func() {
+					mockPipelineDirectory := filepath.Join(getRootDirectory(), "destination-selectors-trailing-slash")
+					err := workCreator.Execute(mockPipelineDirectory, "promise-name", "default", "resource-name", "resource", pipelineName)
+					Expect(err).To(MatchError(ContainSubstring("duplicate entries in destination-selectors.yaml")))
+				})
 			})
 		})
 
