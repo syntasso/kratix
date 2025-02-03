@@ -20,6 +20,7 @@ import (
 	"context"
 	"fmt"
 
+	"k8s.io/apimachinery/pkg/api/errors"
 	"k8s.io/apimachinery/pkg/types"
 
 	"github.com/go-logr/logr"
@@ -37,7 +38,7 @@ import (
 	//+kubebuilder:scaffold:imports
 )
 
-var _ = Describe("WorkplacementReconciler", func() {
+var _ = Describe("WorkPlacementReconciler", func() {
 	var (
 		ctx                   context.Context
 		workloads             []v1alpha1.Workload
@@ -46,7 +47,7 @@ var _ = Describe("WorkplacementReconciler", func() {
 		gitStateStore         v1alpha1.GitStateStore
 		bucketStateStore      v1alpha1.BucketStateStore
 
-		workplacementName = "test-workplacement"
+		workPlacementName = "test-work-placement"
 		workPlacement     v1alpha1.WorkPlacement
 		reconciler        *controllers.WorkPlacementReconciler
 		fakeWriter        *writersfakes.FakeStateStoreWriter
@@ -88,7 +89,7 @@ var _ = Describe("WorkplacementReconciler", func() {
 				APIVersion: "platform.kratix.io/v1alpha1",
 			},
 			ObjectMeta: v1.ObjectMeta{
-				Name:      workplacementName,
+				Name:      workPlacementName,
 				Namespace: "default",
 			},
 			Spec: v1alpha1.WorkPlacementSpec{
@@ -163,8 +164,11 @@ var _ = Describe("WorkplacementReconciler", func() {
 				destination.Spec.StateStoreRef.Name = "test-state-store"
 				Expect(fakeK8sClient.Create(ctx, &destination)).To(Succeed())
 
-				controllers.SetNewS3Writer(func(logger logr.Logger, stateStoreSpec v1alpha1.BucketStateStoreSpec, destination v1alpha1.Destination,
-					creds map[string][]byte) (writers.StateStoreWriter, error) {
+				controllers.SetNewS3Writer(func(_ logr.Logger,
+					stateStoreSpec v1alpha1.BucketStateStoreSpec,
+					destination v1alpha1.Destination,
+					creds map[string][]byte,
+				) (writers.StateStoreWriter, error) {
 					argBucketStateStoreSpec = stateStoreSpec
 					argDestination = destination
 					argCreds = creds
@@ -201,16 +205,16 @@ var _ = Describe("WorkplacementReconciler", func() {
 				Expect(argBucketStateStoreSpec).To(Equal(bucketStateStore.Spec))
 
 				By("setting the finalizer")
-				workplacement := &v1alpha1.WorkPlacement{}
-				Expect(fakeK8sClient.Get(ctx, types.NamespacedName{Name: workplacementName, Namespace: "default"}, workplacement)).
+				workPlacement := &v1alpha1.WorkPlacement{}
+				Expect(fakeK8sClient.Get(ctx, types.NamespacedName{Name: workPlacementName, Namespace: "default"}, workPlacement)).
 					To(Succeed())
-				Expect(workplacement.GetFinalizers()).To(ConsistOf(
+				Expect(workPlacement.GetFinalizers()).To(ConsistOf(
 					"finalizers.workplacement.kratix.io/repo-cleanup",
 					"finalizers.workplacement.kratix.io/kratix-dot-files-cleanup",
 				))
 			})
 
-			When("deleting a workplacement", func() {
+			When("deleting a work placement", func() {
 				BeforeEach(func() {
 					result, err := t.reconcileUntilCompletion(reconciler, &workPlacement)
 					Expect(err).NotTo(HaveOccurred())
@@ -242,6 +246,28 @@ files:
 					Expect(workloadsToCreate).To(BeNil())
 					Expect(workloadsToDelete).To(ConsistOf(kratixStateFile))
 					Expect(dir).To(Equal(""))
+				})
+
+				When("the Destination does not exists", func() {
+					It("removes the repo-cleanup and kratix-dot-files-cleanup finalizers", func() {
+						Expect(fakeK8sClient.Delete(ctx, &destination)).To(Succeed())
+						Expect(fakeK8sClient.Delete(ctx, &workPlacement)).To(Succeed())
+
+						_, err := reconciler.Reconcile(ctx,
+							ctrl.Request{NamespacedName: types.NamespacedName{Name: workPlacement.GetName(),
+								Namespace: workPlacement.GetNamespace()}},
+						)
+						Expect(err).ToNot(HaveOccurred())
+
+						err = fakeK8sClient.Get(
+							ctx,
+							types.NamespacedName{
+								Name:      workPlacement.GetName(),
+								Namespace: "default",
+							},
+							&workPlacement)
+						Expect(errors.IsNotFound(err)).To(BeTrue())
+					})
 				})
 			})
 
@@ -280,8 +306,11 @@ files:
 		When("the destination has filepath mode of nestedByMetadata", func() {
 			BeforeEach(func() {
 				setupGitDestination(&gitStateStore, &destination)
-				controllers.SetNewGitWriter(func(logger logr.Logger, stateStoreSpec v1alpha1.GitStateStoreSpec, destination v1alpha1.Destination,
-					creds map[string][]byte) (writers.StateStoreWriter, error) {
+				controllers.SetNewGitWriter(func(_ logr.Logger,
+					stateStoreSpec v1alpha1.GitStateStoreSpec,
+					destination v1alpha1.Destination,
+					creds map[string][]byte,
+				) (writers.StateStoreWriter, error) {
 					argGitStateStoreSpec = stateStoreSpec
 					argDestination = destination
 					argCreds = creds
@@ -315,7 +344,7 @@ files:
 				Expect(argGitStateStoreSpec).To(Equal(gitStateStore.Spec))
 			})
 
-			When("the workplacement is for a promise", func() {
+			When("the work placement is for a promise", func() {
 				It("uses the promise directory structure", func() {
 					workPlacement.Spec.ResourceName = ""
 					Expect(fakeK8sClient.Update(ctx, &workPlacement)).To(Succeed())
@@ -337,8 +366,11 @@ files:
 	Describe("WorkPlacement Status", func() {
 		BeforeEach(func() {
 			setupGitDestination(&gitStateStore, &destination)
-			controllers.SetNewGitWriter(func(logger logr.Logger, stateStoreSpec v1alpha1.GitStateStoreSpec, destination v1alpha1.Destination,
-				creds map[string][]byte) (writers.StateStoreWriter, error) {
+			controllers.SetNewGitWriter(func(
+				_ logr.Logger, stateStoreSpec v1alpha1.GitStateStoreSpec,
+				destination v1alpha1.Destination,
+				creds map[string][]byte,
+			) (writers.StateStoreWriter, error) {
 				argGitStateStoreSpec = stateStoreSpec
 				argDestination = destination
 				argCreds = creds
@@ -353,12 +385,12 @@ files:
 			Expect(err).NotTo(HaveOccurred())
 			Expect(result).To(Equal(ctrl.Result{}))
 
-			updatedWorkplacement := v1alpha1.WorkPlacement{}
+			updatedWorkPlacement := v1alpha1.WorkPlacement{}
 			Expect(fakeK8sClient.Get(ctx, types.NamespacedName{
 				Name:      workPlacement.GetName(),
 				Namespace: workPlacement.GetNamespace(),
-			}, &updatedWorkplacement)).To(Succeed())
-			Expect(updatedWorkplacement.Status.VersionID).To(Equal("an-amazing-version-id"))
+			}, &updatedWorkPlacement)).To(Succeed())
+			Expect(updatedWorkPlacement.Status.VersionID).To(Equal("an-amazing-version-id"))
 		})
 
 		It("won't update the versionid when no new version is generated", func() {
@@ -371,13 +403,13 @@ files:
 			Expect(err).NotTo(HaveOccurred())
 			Expect(result).To(Equal(ctrl.Result{}))
 
-			updatedWorkplacement := v1alpha1.WorkPlacement{}
+			updatedWorkPlacement := v1alpha1.WorkPlacement{}
 			Expect(fakeK8sClient.Get(ctx, types.NamespacedName{
 				Name:      workPlacement.GetName(),
 				Namespace: workPlacement.GetNamespace(),
-			}, &updatedWorkplacement)).To(Succeed())
+			}, &updatedWorkPlacement)).To(Succeed())
 
-			Expect(updatedWorkplacement.Status.VersionID).To(Equal("an-amazing-version-id"))
+			Expect(updatedWorkPlacement.Status.VersionID).To(Equal("an-amazing-version-id"))
 		})
 
 		When("updating the status fails", func() {
