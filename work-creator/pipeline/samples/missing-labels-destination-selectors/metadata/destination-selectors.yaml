@@ -1,5 +1,0 @@
-- matchLabels:
-    env: dev
-  directory: "bar"
-- matchLabels:
-  env: prod

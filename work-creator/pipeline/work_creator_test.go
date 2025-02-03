@@ -174,56 +174,6 @@ var _ = Describe("WorkCreator", func() {
 			})
 		})
 
-		Describe("destination selectors exist", func() {
-			When("no selectors can be parsed", func() {
-				It("should return the error", func() {
-					mockPipelineDirectory := filepath.Join(getRootDirectory(), "invalid-destination-selectors")
-					err := workCreator.Execute(mockPipelineDirectory, "promise-name", "default", "resource-name", "resource", pipelineName)
-					Expect(err).To(MatchError(ContainSubstring("invalid destination-selectors.yaml: error unmarshaling JSON")))
-				})
-			})
-
-			When("there are entries with no labels", func() {
-				It("should return the error", func() {
-					mockPipelineDirectory := filepath.Join(getRootDirectory(), "missing-labels-destination-selectors")
-					err := workCreator.Execute(mockPipelineDirectory, "promise-name", "default", "resource-name", "resource", pipelineName)
-					Expect(err).To(MatchError(ContainSubstring("invalid destination-selectors.yaml: entry with index 1 has no selectors")))
-				})
-			})
-
-			When("the destination-selectors contain multiple entries for the same directory", func() {
-				It("errors", func() {
-					mockPipelineDirectory := filepath.Join(getRootDirectory(), "duplicate-destination-selectors")
-					err := workCreator.Execute(mockPipelineDirectory, "promise-name", "default", "resource-name", "resource", pipelineName)
-					Expect(err).To(MatchError(ContainSubstring("duplicate entries in destination-selectors.yaml")))
-				})
-
-				When("and the directory is empty string", func() {
-					It("errors", func() {
-						mockPipelineDirectory := filepath.Join(getRootDirectory(), "duplicate-destination-selectors-with-empty-directory")
-						err := workCreator.Execute(mockPipelineDirectory, "promise-name", "default", "resource-name", "resource", pipelineName)
-						Expect(err).To(MatchError(ContainSubstring("duplicate entries in destination-selectors.yaml")))
-					})
-				})
-			})
-
-			When("the destination-selectors contain a non-root directory", func() {
-				It("errors", func() {
-					mockPipelineDirectory := filepath.Join(getRootDirectory(), "destination-selectors-with-non-root-directory")
-					err := workCreator.Execute(mockPipelineDirectory, "promise-name", "default", "resource-name", "resource", pipelineName)
-					Expect(err).To(MatchError(ContainSubstring("invalid directory in destination-selectors.yaml: foo/bar, directory must be top-level")))
-				})
-			})
-
-			When("the destination-selectors contain duplicate directories, one with a trailing slash and one without", func() {
-				It("errors as they are treated as the same value", func() {
-					mockPipelineDirectory := filepath.Join(getRootDirectory(), "destination-selectors-trailing-slash")
-					err := workCreator.Execute(mockPipelineDirectory, "promise-name", "default", "resource-name", "resource", pipelineName)
-					Expect(err).To(MatchError(ContainSubstring("duplicate entries in destination-selectors.yaml")))
-				})
-			})
-		})
-
 		Context("with empty metadata directory", func() {
 			BeforeEach(func() {
 				err := workCreator.Execute(filepath.Join(getRootDirectory(), "empty-metadata"), "promise-name", "default", "resource-name", "resource", pipelineName)
@@ -334,6 +284,26 @@ var _ = Describe("WorkCreator", func() {
 				))
 			})
 		})
+	})
+
+	Describe("parse destination selectors", func() {
+		It("returns a valid destination selectors", func() {
+			selectors, err := pipeline.ParseDestinationSelectors([]byte(`[{"matchLabels":{"env": "dev"}}]`))
+			Expect(err).ToNot(HaveOccurred())
+			Expect(selectors).To(HaveLen(1))
+			Expect(selectors[0].MatchLabels["env"]).To(Equal("dev"))
+		})
+
+		DescribeTable("error cases", func(contents string, errMsg string) {
+			_, err := pipeline.ParseDestinationSelectors([]byte(contents))
+			Expect(err).To(MatchError(ContainSubstring(errMsg)))
+		},
+			Entry("no selectors can be parsed", "invalid-key: invalid-value", "invalid destination-selectors.yaml: error unmarshaling JSON"),
+			Entry("there are entries with no labels", "- matchLabels:\n    env: dev\n  directory: \"bar\"\n- matchLabels:\n  env: prod", "invalid destination-selectors.yaml: entry with index 1 has no selectors"),
+			Entry("multiple entries with the same directory", "- matchLabels:\n    environment: production\n    region: europe\n- matchLabels:\n    environment: staging\n  directory: baz/\n- matchLabels:\n    pci: true\n  directory: baz/\n", "duplicate entries in destination-selectors.yaml"),
+			Entry("multiple entries with the same directory, one with a trailing slash and one without", "- matchLabels:\n    environment: production\n    region: europe\n  directory: foo/\n- matchLabels:\n    environment: staging\n  directory: foo\n", "duplicate entries in destination-selectors.yaml"),
+			Entry("multiple entries with empty directory string", "- matchLabels:\n    environment: production\n    region: europe\n- matchLabels:\n    environment: staging\n", "duplicate entries in destination-selectors.yaml"),
+			Entry("entry with a sub-directory", "- matchLabels:\n    environment: production\n    region: europe\n- matchLabels:\n    environment: staging\n  directory: foo/bar\n", "invalid directory in destination-selectors.yaml: foo/bar, sub-directories are not allowed"))
 	})
 })
 

@@ -249,8 +249,15 @@ func (w *WorkCreator) getWorkloadsFromDir(prefixToTrimFromWorkloadFilepath, root
 }
 
 func (w *WorkCreator) getWorkflowScheduling(rootDirectory string) ([]v1alpha1.WorkflowDestinationSelectors, error) {
-	metadataDirectory := filepath.Join(rootDirectory, "metadata")
-	return getSelectorsFromFile(filepath.Join(metadataDirectory, "destination-selectors.yaml"))
+	destinationFile := filepath.Join(rootDirectory, "metadata", "destination-selectors.yaml")
+	fileContents, err := os.ReadFile(destinationFile)
+	if err != nil {
+		if goerr.Is(err, os.ErrNotExist) {
+			return nil, nil
+		}
+		return nil, err
+	}
+	return ParseDestinationSelectors(fileContents)
 }
 
 func (w *WorkCreator) getPromiseScheduling(rootDirectory string) ([]v1alpha1.WorkloadGroupScheduling, error) {
@@ -274,17 +281,10 @@ func (w *WorkCreator) getPromiseScheduling(rootDirectory string) ([]v1alpha1.Wor
 	return schedulingConfig, nil
 }
 
-func getSelectorsFromFile(file string) ([]v1alpha1.WorkflowDestinationSelectors, error) {
-	fileContents, err := os.ReadFile(file)
-	if err != nil {
-		if goerr.Is(err, os.ErrNotExist) {
-			return nil, nil
-		}
-		return nil, err
-	}
-
+// ParseDestinationSelectors receives a slice of byte and validates the parsed destination selectors
+func ParseDestinationSelectors(bytes []byte) ([]v1alpha1.WorkflowDestinationSelectors, error) {
 	var schedulingConfig []v1alpha1.WorkflowDestinationSelectors
-	err = yaml.Unmarshal(fileContents, &schedulingConfig)
+	err := yaml.Unmarshal(bytes, &schedulingConfig)
 
 	if err != nil {
 		return nil, fmt.Errorf("invalid destination-selectors.yaml: %w", err)
@@ -305,14 +305,14 @@ func getSelectorsFromFile(file string) ([]v1alpha1.WorkflowDestinationSelectors,
 		return nil, err
 	}
 
-	if path, found := containsNonRootDirectory(schedulingConfig); found {
-		return nil, fmt.Errorf("invalid directory in destination-selectors.yaml: %s, directory must be top-level", path)
+	if path, found := containsSubDirectory(schedulingConfig); found {
+		return nil, fmt.Errorf("invalid directory in destination-selectors.yaml: %s, sub-directories are not allowed", path)
 	}
 
 	return schedulingConfig, nil
 }
 
-func containsNonRootDirectory(schedulingConfig []v1alpha1.WorkflowDestinationSelectors) (string, bool) {
+func containsSubDirectory(schedulingConfig []v1alpha1.WorkflowDestinationSelectors) (string, bool) {
 	for _, selector := range schedulingConfig {
 		directory := selector.Directory
 		if filepath.Base(directory) != directory {
