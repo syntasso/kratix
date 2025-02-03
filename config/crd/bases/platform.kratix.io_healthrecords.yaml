@@ -14,7 +14,16 @@ spec:
     singular: healthrecord
   scope: Namespaced
   versions:
-  - name: v1alpha1
+  - additionalPrinterColumns:
+    - description: Shows the HealthRecord state
+      jsonPath: .data.state
+      name: Status
+      type: string
+    - description: When was the HealthRecord created
+      jsonPath: .metadata.creationTimestamp
+      name: Age
+      type: date
+    name: v1alpha1
     schema:
       openAPIV3Schema:
         description: HealthRecord is the Schema for the healthrecords API
@@ -86,3 +95,4 @@ spec:
         type: object
     served: true
     storage: true
+    subresources: {}

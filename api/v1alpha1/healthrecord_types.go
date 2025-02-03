@@ -53,7 +53,9 @@ type HealthRecordData struct {
 	Details *runtime.RawExtension `json:"details,omitempty"`
 }
 
-//+kubebuilder:object:root=true
+// +kubebuilder:object:root=true
+// +kubebuilder:printcolumn:name="Status",type=string,JSONPath=`.data.state`,description="Shows the HealthRecord state"
+// +kubebuilder:printcolumn:name="Age",type=date,JSONPath=`.metadata.creationTimestamp`,description="When was the HealthRecord created"
 
 // HealthRecord is the Schema for the healthrecords API
 type HealthRecord struct {
