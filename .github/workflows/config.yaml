@@ -17,7 +17,7 @@ on:
     - '.images'
 
 jobs:
-  run-tests:
+  unit-tests-and-lint:
     runs-on: ubuntu-latest
     steps: 
       - name: Check out code into the Go module directory
@@ -36,6 +36,7 @@ jobs:
           ./bin/golangci-lint run --config=.golangci-required.yml
   system-test:
     runs-on: ubuntu-latest
+    needs: [unit-tests-and-lint]
     steps:
       - name: Check out code into the Go module directory
         uses: actions/checkout@v4
