@@ -72,12 +72,18 @@ jobs:
           install_only: true
       - name: Install Helm
         uses: azure/setup-helm@v3
+      - name: e2e-demo-test-helm-bucket
+        run: |
+          STATE_STORE="bucket" ./scripts/helm-e2e-test.sh
+      - name: e2e-demo-test-helm-git
+        run: |
+          STATE_STORE="git" ./scripts/helm-e2e-test.sh
 
 
 
-# // run unit tests
-# // run system tests
-# // run integration tests
+# // run unit tests ✅
+# // run system tests ✅
+# // run integration tests ✅
 # //// Given all pass
 # // build and push
 # //// Work Creator
