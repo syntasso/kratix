@@ -1,0 +1,69 @@
+name: Test and Release Kratix
+
+on:
+  push:
+    branches:
+      - main
+      - ci-migration
+    paths-ignore:
+    - 'docs/**'
+    - '*.md'
+    - 'LICENSE.txt'
+    - 'PROJECT'
+    - '.gitignore'
+    - '.golangci-required.yml'
+    - '.golangci.yml'
+    - '.goreleaser.yaml'
+    - '.images'
+
+jobs:
+  run-tests:
+    runs-on: ubuntu-latest
+    steps: 
+      - name: Check out code into the Go module directory
+        uses: actions/checkout@v4
+      - name: Install Go
+        uses: actions/setup-go@v5
+        with:
+          go-version: 1.22
+          check-latest: true
+      - name: Unit Tests
+        run: |
+          make test
+      - name: Lint
+        run: |
+          curl -sSfL https://raw.githubusercontent.com/golangci/golangci-lint/master/install.sh | sh -s v1.63.4
+          ./bin/golangci-lint run --config=.golangci-required.yml
+  system-test:
+    runs-on: ubuntu-latest
+    steps:
+      - name: Check out code into the Go module directory
+        uses: actions/checkout@v4
+      - name: Install Go
+        uses: actions/setup-go@v5
+      - name: Install Kind
+        uses: helm/kind-action@v1
+        with:
+          install_only: true
+      - name: Setup Flux CLI
+        uses: fluxcd/flux2/action@main
+        with:
+          version: '2.4.0'
+      - name: System Tests
+        run: |
+          DOCKER_BUILDKIT=1 ACK_GINKGO_RC=true make system-test core-test
+
+
+# // run unit tests
+# // run system tests
+# // run integration tests
+# //// Given all pass
+# // build and push
+# //// Work Creator
+# //// Kratix Platform
+# // Create distribution
+# // Create Helm Charts
+
+# Other considerations
+# machine sizes
+# Slack notifictions
