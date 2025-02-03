@@ -34,7 +34,7 @@ filter-for-tags: &filter-for-tags
     tags:
       only: latest
     branches:
-      ignore: /.*/
+      ignore: ci-migration
 
 commands:
   notify-slack:
