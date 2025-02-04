@@ -40,12 +40,15 @@ type StateStoreCoreFields struct {
 type DestinationSpec struct {
 	// Path within StateStore to write documents, this will be appended to any
 	// specficed Spec.Path provided in the referenced StateStore.
-	// Kratix will then namespace any resources within the provided path.
-	// Path structure will be:
-	//   <StateStore.Spec.Path>/<Destination.Spec.Path>/<Destination.Metadata.Namespace>/<Destination.Metadata.Name>/
-	//+kubebuilder:validation:Optional
-	StateStoreCoreFields `json:",inline"`
-	StateStoreRef        *StateStoreReference `json:"stateStoreRef,omitempty"`
+	// The Path structure will be:
+	//   <StateStore.Spec.Path>/<Destination.Spec.Path>/
+	// Kratix may create other subdirectories, depending on the Filepath.mode you select.
+	// To write to the root of the StateStore.Spec.Path, set Path to "." or "/".
+	// +kubebuilder:validation:Required
+	// +kubebuilder:validation:XValidation:rule="self == oldSelf",message="Path is immutable"
+	Path string `json:"path,omitempty"`
+
+	StateStoreRef *StateStoreReference `json:"stateStoreRef,omitempty"`
 
 	// By default, Kratix will schedule works without labels to all destinations
 	// (for promise dependencies) or to a random destination (for resource

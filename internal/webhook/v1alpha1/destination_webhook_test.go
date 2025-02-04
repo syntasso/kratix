@@ -17,6 +17,7 @@ import (
 var _ = Describe("Destination Webhook", func() {
 	var (
 		defaulter   *kratixWebhook.DestinationCustomDefaulter
+		validator   *kratixWebhook.DestinationCustomValidator
 		destination *v1alpha1.Destination
 		fakeClient  client.Client
 	)
@@ -30,6 +31,7 @@ var _ = Describe("Destination Webhook", func() {
 		defaulter = &kratixWebhook.DestinationCustomDefaulter{
 			Client: fakeClient,
 		}
+		validator = &kratixWebhook.DestinationCustomValidator{}
 
 		destination = &v1alpha1.Destination{
 			ObjectMeta: metav1.ObjectMeta{
@@ -130,7 +132,47 @@ var _ = Describe("Destination Webhook", func() {
 				})
 			})
 		})
-
 	})
 
+	Describe("validating `path`", func() {
+		When("creating a new destination", func() {
+			When("path is set", func() {
+				It("succeeds", func() {
+					destination.Spec.Path = "valid-path"
+					warnings, err := validator.ValidateCreate(ctx, destination)
+					Expect(err).NotTo(HaveOccurred())
+					Expect(warnings).To(BeEmpty())
+				})
+			})
+
+			When("path is empty", func() {
+				It("fails with validation error", func() {
+					destination.Spec.Path = ""
+					warnings, err := validator.ValidateCreate(ctx, destination)
+					Expect(err).To(MatchError(ContainSubstring("path field is required")))
+					Expect(warnings).To(BeEmpty())
+				})
+			})
+		})
+
+		When("updating a destination", func() {
+			When("path is set", func() {
+				It("succeeds", func() {
+					destination.Spec.Path = "valid-path"
+					warnings, err := validator.ValidateUpdate(ctx, destination, destination)
+					Expect(err).NotTo(HaveOccurred())
+					Expect(warnings).To(BeEmpty())
+				})
+			})
+
+			When("path is empty", func() {
+				It("fails with validation error", func() {
+					destination.Spec.Path = ""
+					warnings, err := validator.ValidateUpdate(ctx, destination, destination)
+					Expect(err).To(MatchError(ContainSubstring("path field is required")))
+					Expect(warnings).To(BeEmpty())
+				})
+			})
+		})
+	})
 })

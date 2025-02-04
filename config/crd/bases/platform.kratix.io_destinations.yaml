@@ -77,25 +77,16 @@ spec:
                 type: object
               path:
                 description: |-
-                  Path within the StateStore to write documents. This path should be allocated
-                  to Kratix as it will create, update, and delete files within this path.
-                  Path structure begins with provided path and ends with namespaced destination name:
-                    <StateStore.Spec.Path>/<Destination.Spec.Path>/<Destination.Metadata.Namespace>/<Destination.Metadata.Name>/
+                  Path within StateStore to write documents, this will be appended to any
+                  specficed Spec.Path provided in the referenced StateStore.
+                  The Path structure will be:
+                    <StateStore.Spec.Path>/<Destination.Spec.Path>/
+                  Kratix may create other subdirectories, depending on the Filepath.mode you select.
+                  To write to the root of the StateStore.Spec.Path, set Path to "." or "/".
                 type: string
-              secretRef:
-                description: SecretRef specifies the Secret containing authentication
-                  credentials
-                properties:
-                  name:
-                    description: name is unique within a namespace to reference a
-                      secret resource.
-                    type: string
-                  namespace:
-                    description: namespace defines the space within which the secret
-                      name must be unique.
-                    type: string
-                type: object
-                x-kubernetes-map-type: atomic
+                x-kubernetes-validations:
+                - message: Path is immutable
+                  rule: self == oldSelf
               stateStoreRef:
                 description: StateStoreReference is a reference to a StateStore
                 properties:
@@ -119,6 +110,8 @@ spec:
                   destinationSelectors. An empty label set on the work won't be scheduled
                   to this destination, unless the destination label set is also empty
                 type: boolean
+            required:
+            - path
             type: object
           status:
             description: DestinationStatus defines the observed state of Destination
