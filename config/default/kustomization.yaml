@@ -125,16 +125,6 @@ replacements:
         version: v1
       fieldPaths:
       - spec.dnsNames.0
-      options:
-        delimiter: .
-        index: 1
-        create: true
-    - select:
-        kind: Certificate
-        group: cert-manager.io
-        name: serving-cert
-        version: v1
-      fieldPaths:
       - spec.dnsNames.1
       options:
         delimiter: .
@@ -153,16 +143,6 @@ replacements:
         version: v1
       fieldPaths:
       - spec.dnsNames.0
-      options:
-        delimiter: .
-        index: 0
-        create: true
-    - select:
-        kind: Certificate
-        group: cert-manager.io
-        name: serving-cert
-        version: v1
-      fieldPaths:
       - spec.dnsNames.1
       options:
         delimiter: .
