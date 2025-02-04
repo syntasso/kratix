@@ -1,10 +1,7 @@
-name: Test and Release Kratix
+name: Test Kratix
 
 on:
   push:
-    branches:
-      - main
-      - ci-migration
     paths-ignore:
     - 'docs/**'
     - '*.md'
@@ -55,7 +52,7 @@ jobs:
           DOCKER_BUILDKIT=1 ACK_GINKGO_RC=true make system-test core-test
   integration-test:
     runs-on: ubuntu-latest
-    needs: [system-test] 
+    needs: [unit-tests-and-lint] 
     steps:
       - name: Check out kratix
         uses: actions/checkout@v4
@@ -78,19 +75,3 @@ jobs:
       - name: e2e-demo-test-helm-git
         run: |
           STATE_STORE="git" ./scripts/helm-e2e-test.sh
-
-
-
-# // run unit tests ✅
-# // run system tests ✅
-# // run integration tests ✅
-# //// Given all pass
-# // build and push
-# //// Work Creator
-# //// Kratix Platform
-# // Create distribution
-# // Create Helm Charts
-
-# Other considerations
-# machine sizes
-# Slack notifictions
