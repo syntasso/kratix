@@ -45,3 +45,6 @@ platform-values.yaml
 .image-cache/
 cert.pem
 key.pem
+
+# Generated in `make distribution` and `make deploy`
+config/manager/pipeline-adapter-config.properties

@@ -140,12 +140,14 @@ uninstall: manifests kustomize ## Uninstall CRDs from the K8s cluster specified 
 
 deploy: manifests kustomize ## Deploy controller to the K8s cluster specified in ~/.kube/config.
 	cd config/manager && $(KUSTOMIZE) edit set image controller=${IMG_TAG}
-	PIPELINE_ADAPTER_IMG=${PIPELINE_ADAPTER_IMG} $(KUSTOMIZE) build config/default | kubectl apply -f -
+	echo "PIPELINE_ADAPTER_IMG=${PIPELINE_ADAPTER_IMG}" > config/manager/pipeline-adapter-config.properties
+	$(KUSTOMIZE) build config/default | kubectl apply -f -
 
 distribution: manifests kustomize ## Create a deployment manifest in /distribution/kratix.yaml
 	cd config/manager && $(KUSTOMIZE) edit set image controller=${IMG_TAG}
 	mkdir -p distribution
-	PIPELINE_ADAPTER_IMG=${PIPELINE_ADAPTER_IMG} $(KUSTOMIZE) build config/default --output distribution/kratix.yaml
+	echo "PIPELINE_ADAPTER_IMG=${PIPELINE_ADAPTER_IMG}" > config/manager/pipeline-adapter-config.properties
+	$(KUSTOMIZE) build config/default --output distribution/kratix.yaml
 
 release: distribution docker-build-and-push build-and-push-work-creator ## Create a release. Set VERSION env var to "vX.Y.Z-n".
 
@@ -164,7 +166,7 @@ controller-gen: ## Download controller-gen locally if necessary.
 
 KUSTOMIZE = $(shell pwd)/bin/kustomize
 kustomize: ## Download kustomize locally if necessary.
-	$(call go-get-tool,$(KUSTOMIZE),sigs.k8s.io/kustomize/kustomize/v4@v4.5.5)
+	$(call go-get-tool,$(KUSTOMIZE),sigs.k8s.io/kustomize/kustomize/v5@v5.6.0)
 
 # go-get-tool will 'go get' any package $2 and install it to $1.
 PROJECT_DIR := $(shell dirname $(abspath $(lastword $(MAKEFILE_LIST))))
