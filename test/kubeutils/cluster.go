@@ -78,6 +78,7 @@ func (c Cluster) EventuallyKubectlDelete(args ...string) string {
 	return content
 }
 
+// ParseOutput parses the output of a kubectl command into the given v.
 func ParseOutput(output string, v interface{}) {
 	err := yaml.Unmarshal([]byte(output), v)
 	ExpectWithOffset(1, err).ShouldNot(HaveOccurred())
