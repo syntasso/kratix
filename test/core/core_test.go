@@ -1,8 +1,10 @@
 package core_test
 
 import (
+	"fmt"
 	"time"
 
+	"github.com/syntasso/kratix/api/v1alpha1"
 	"github.com/syntasso/kratix/test/kubeutils"
 
 	. "github.com/onsi/ginkgo/v2"
@@ -11,6 +13,8 @@ import (
 
 const (
 	timeout, interval = 2 * time.Minute, 2 * time.Second
+	workerOne         = "worker-1"
+	workerTwo         = "worker-2"
 )
 
 var _ = Describe("Core Tests", Ordered, func() {
@@ -23,11 +27,17 @@ var _ = Describe("Core Tests", Ordered, func() {
 		kubeutils.SetTimeoutAndInterval(timeout, interval)
 
 		platform = &kubeutils.Cluster{Context: "kind-platform", Name: "platform-cluster"}
-		worker = &kubeutils.Cluster{Context: "kind-worker", Name: "worker-1"}
+		worker = &kubeutils.Cluster{Context: "kind-worker", Name: workerOne}
 		Expect(platform.Kubectl("apply", "-f", "assets/destination.yaml")).To(ContainSubstring("created"))
-		platform.Kubectl("label", "destination", "worker-1", "target=worker-1")
-		platform.Kubectl("label", "destination", "worker-2", "target=worker-2")
+		platform.Kubectl("label", "destination", workerOne, "target="+workerOne)
+		platform.Kubectl("label", "destination", workerTwo, "target="+workerTwo)
 		worker.Kubectl("apply", "-f", "assets/flux.yaml")
+	})
+
+	AfterAll(func() {
+		platform.Kubectl("delete", "-f", "assets/promise.yaml", "--ignore-not-found")
+		platform.Kubectl("delete", "-f", "assets/destination.yaml", "--ignore-not-found")
+		worker.Kubectl("delete", "-f", "assets/flux.yaml", "--ignore-not-found")
 	})
 
 	Context("Kratix Core Functionality", func() {
@@ -36,36 +46,64 @@ var _ = Describe("Core Tests", Ordered, func() {
 			rrConfigMapName     = "ksystest-cm"      // needs to match assets/example-resource.yaml
 			rrNsName            = "ksystest"         // needs to match assets/example-resource.yaml
 			rrNsNameUpdated     = "ksystest-updated" // needs to match assets/example-resource-v2.yaml
+
+			systemNamespaceFlag = "--namespace=kratix-platform-system"
+			asYaml              = "--output=yaml"
+
+			promiseLabel = "-l=kratix.io/promise-name=testbundle"
 		)
+
 		It("should deliver xaas to users", func() {
-			var originalPromiseConfigMapTimestamp1, originalPromiseConfigMapTimestamp2 string
+			var originalPromiseConfigMapTimestamp1 string
 			By("successfully installing a Promise", func() {
 				Expect(platform.Kubectl("apply", "-f", "assets/promise.yaml")).To(ContainSubstring("testbundle created"))
 
 				By("applying the promise api as a crd", func() {
 					Eventually(func() string {
 						return platform.Kubectl("get", "crd")
-					}, timeout, interval).Should(ContainSubstring("testbundles.test.kratix.io"))
+					}).Should(ContainSubstring("testbundles.test.kratix.io"))
 				})
 
 				By("running the promise configure pipeline", func() {
 					Eventually(func() string {
-						return platform.Kubectl("get", "pods", "-n", "kratix-platform-system")
+						return platform.Kubectl("get", "pods", systemNamespaceFlag)
 					}).Should(ContainSubstring("setup-deps"))
 				})
 
 				By("deploying the dependencies to the correct destinations", func() {
-					Eventually(func(g Gomega) {
-						g.Expect(worker.Kubectl("get", "namespaces")).To(ContainSubstring("testbundle-ns"))
-						g.Expect(worker.Kubectl("get", "namespaces")).To(ContainSubstring("testbundle-ns"))
+					By("creating the right works and workplacements", func() {
+						Eventually(func(g Gomega) {
+							var works v1alpha1.WorkList
+							kubeutils.ParseOutput(platform.Kubectl("get", "works", asYaml, systemNamespaceFlag, promiseLabel), &works)
+							g.Expect(works.Items).To(HaveLen(1))
 
-						g.Expect(worker.Kubectl("-n", "testbundle-ns", "get", "configmap")).To(ContainSubstring("testbundle-cm"))
-						g.Expect(worker.Kubectl("-n", "testbundle-ns", "get", "configmap")).To(ContainSubstring("testbundle-cm"))
-					}, timeout, interval).Should(Succeed())
+							workLabel := "-l=kratix.io/work=" + works.Items[0].Name
+							var workPlacements v1alpha1.WorkPlacementList
+							kubeutils.ParseOutput(
+								platform.Kubectl("get", "workplacements", asYaml, systemNamespaceFlag, workLabel),
+								&workPlacements,
+							)
+							g.Expect(workPlacements.Items).To(HaveLen(2))
+
+							g.Expect(workPlacements.Items).To(SatisfyAll(
+								ContainElement(SatisfyAll(
+									HaveField("Spec.TargetDestinationName", Equal(workerOne)),
+								)),
+								ContainElement(SatisfyAll(
+									HaveField("Spec.TargetDestinationName", Equal(workerTwo)),
+								)),
+							))
+						}).Should(Succeed())
+					})
+
+					By("applying the documents", func() {
+						Eventually(func(g Gomega) {
+							g.Expect(worker.Kubectl("get", "namespaces")).To(ContainSubstring("testbundle-ns"))
+							g.Expect(worker.Kubectl("-n", "testbundle-ns", "get", "configmap")).To(ContainSubstring("testbundle-cm"))
+						}).Should(Succeed())
+					})
 
 					originalPromiseConfigMapTimestamp1 = worker.Kubectl("-n", "testbundle-ns",
-						"get", "configmap", "testbundle-cm", "-o=jsonpath={.data.timestamp}")
-					originalPromiseConfigMapTimestamp2 = worker.Kubectl("-n", "testbundle-ns",
 						"get", "configmap", "testbundle-cm", "-o=jsonpath={.data.timestamp}")
 				})
 			})
@@ -81,18 +119,56 @@ var _ = Describe("Core Tests", Ordered, func() {
 					Eventually(func() string {
 						return platform.Kubectl(append(rrArgs, "-o=jsonpath='{.status.stage}'")...)
 					}).Should(ContainSubstring("one"))
+
+					workflowCompletedCondition := `.status.conditions[?(@.type=="ConfigureWorkflowCompleted")]`
 					Eventually(func(g Gomega) {
-						g.Expect(platform.Kubectl(append(rrArgs, `-o=jsonpath='{.status.conditions[?(@.type=="ConfigureWorkflowCompleted")].status}'`)...)).To(ContainSubstring("True"))
+						g.Expect(
+							platform.Kubectl(append(rrArgs, fmt.Sprintf(`-o=jsonpath='{%s.status}'`, workflowCompletedCondition))...),
+						).To(ContainSubstring("True"))
 						g.Expect(platform.Kubectl(append(rrArgs, "-o=jsonpath='{.status.stage}'")...)).To(ContainSubstring("two"))
 						g.Expect(platform.Kubectl(append(rrArgs, "-o=jsonpath='{.status.completed}'")...)).To(ContainSubstring("true"))
 						g.Expect(platform.Kubectl(append(rrArgs, `-o=jsonpath='{.status.observedGeneration}'`)...)).To(Equal(generation))
 					}).Should(Succeed())
 
 					Eventually(func() bool {
-						transitionTime := platform.Kubectl(append(rrArgs, `-o=jsonpath={.status.conditions[?(@.type=="ConfigureWorkflowCompleted")].lastTransitionTime}`)...)
+						transitionTime := platform.Kubectl(
+							append(rrArgs, fmt.Sprintf(`-o=jsonpath={%s.lastTransitionTime}`, workflowCompletedCondition))...,
+						)
 						lastSuccessful := platform.Kubectl(append(rrArgs, `-o=jsonpath={.status.lastSuccessfulConfigureWorkflowTime}`)...)
 						return transitionTime == lastSuccessful
 					}).Should(BeTrue(), "lastTransitionTime should be equal to lastSuccessfulConfigureWorkflowTime")
+				})
+
+				By("creating the right works and workplacements", func() {
+					Eventually(func(g Gomega) {
+						var works v1alpha1.WorkList
+						kubeutils.ParseOutput(platform.Kubectl("get", "works", asYaml, promiseLabel), &works)
+						g.Expect(works.Items).To(HaveLen(2))
+
+						singleDestinationWork := works.Items[0]
+						multiDestinationWork := works.Items[1]
+						if len(works.Items[0].Spec.WorkloadGroups) > 1 {
+							singleDestinationWork = works.Items[1]
+							multiDestinationWork = works.Items[0]
+						}
+
+						var singleDestinationWP v1alpha1.WorkPlacementList
+						kubeutils.ParseOutput(
+							platform.Kubectl("get", "workplacements", asYaml, "-l=kratix.io/work="+singleDestinationWork.Name),
+							&singleDestinationWP,
+						)
+						g.Expect(singleDestinationWP.Items).To(HaveLen(1))
+						g.Expect(singleDestinationWP.Items[0].Spec.TargetDestinationName).To(Equal(workerOne))
+
+						var multiDestinationWP v1alpha1.WorkPlacementList
+						kubeutils.ParseOutput(
+							platform.Kubectl("get", "workplacements", asYaml, "-l=kratix.io/work="+multiDestinationWork.Name),
+							&multiDestinationWP,
+						)
+						g.Expect(multiDestinationWP.Items).To(HaveLen(2))
+						g.Expect(multiDestinationWP.Items[0].Spec.TargetDestinationName).To(Equal(workerOne))
+						g.Expect(multiDestinationWP.Items[1].Spec.TargetDestinationName).To(Equal(workerTwo))
+					}).Should(Succeed())
 				})
 
 				cmArgs := []string{"-n", "testbundle-ns", "get", "cm"}
@@ -107,12 +183,18 @@ var _ = Describe("Core Tests", Ordered, func() {
 				By("rerunning pipelines when updating a resource request", func() {
 					originalTimeStampW1 := worker.Kubectl(append(cmArgs, rrConfigMapName+"-1", "-o=jsonpath={.data.timestamp}")...)
 					originalTimeStampW2 := worker.Kubectl(append(cmArgs, rrConfigMapName+"-2", "-o=jsonpath={.data.timestamp}")...)
-					Expect(platform.Kubectl("apply", "-f", "assets/example-resource-v2.yaml")).To(ContainSubstring("kratix-test configured"))
+					Expect(
+						platform.Kubectl("apply", "-f", "assets/example-resource-v2.yaml"),
+					).To(ContainSubstring("kratix-test configured"))
 
 					Eventually(func(g Gomega) {
 						g.Expect(worker.Kubectl("get", "namespaces")).To(ContainSubstring(rrNsNameUpdated))
-						g.Expect(worker.Kubectl(append(cmArgs, rrConfigMapName+"-1", "-o=jsonpath={.data.timestamp}")...)).ToNot(Equal(originalTimeStampW1))
-						g.Expect(worker.Kubectl(append(cmArgs, rrConfigMapName+"-2", "-o=jsonpath={.data.timestamp}")...)).ToNot(Equal(originalTimeStampW2))
+						g.Expect(
+							worker.Kubectl(append(cmArgs, rrConfigMapName+"-1", "-o=jsonpath={.data.timestamp}")...),
+						).ToNot(Equal(originalTimeStampW1))
+						g.Expect(
+							worker.Kubectl(append(cmArgs, rrConfigMapName+"-2", "-o=jsonpath={.data.timestamp}")...),
+						).ToNot(Equal(originalTimeStampW2))
 					}).Should(Succeed())
 				})
 			})
@@ -126,7 +208,7 @@ var _ = Describe("Core Tests", Ordered, func() {
 
 				By("updating the promise api", func() {
 					Eventually(func() string {
-						return platform.Kubectl("get", "crd", "testbundles.test.kratix.io", "-oyaml")
+						return platform.Kubectl("get", "crd", "testbundles.test.kratix.io", asYaml)
 					}).Should(ContainSubstring("newName"))
 				})
 
@@ -135,11 +217,9 @@ var _ = Describe("Core Tests", Ordered, func() {
 						"get", "configmap", "testbundle-cm", "-o=jsonpath={.data.timestamp}"}
 					getCMEnvValue := []string{"-n", "testbundle-ns",
 						"get", "configmap", "testbundle-cm", "-o=jsonpath={.data.promiseEnv}"}
+
 					Eventually(func(g Gomega) {
 						g.Expect(worker.Kubectl(getCMTimestamp...)).ToNot(Equal(originalPromiseConfigMapTimestamp1))
-						g.Expect(worker.Kubectl(getCMTimestamp...)).ToNot(Equal(originalPromiseConfigMapTimestamp2))
-
-						g.Expect(worker.Kubectl(getCMEnvValue...)).To(ContainSubstring("second"))
 						g.Expect(worker.Kubectl(getCMEnvValue...)).To(ContainSubstring("second"))
 					}).Should(Succeed())
 				})
@@ -160,7 +240,6 @@ var _ = Describe("Core Tests", Ordered, func() {
 					g.Expect(platform.Kubectl("-n", "default", "get", "works")).NotTo(ContainSubstring(resourceRequestName))
 					g.Expect(worker.Kubectl("get", "namespaces")).NotTo(ContainSubstring(rrNsNameUpdated))
 					g.Expect(worker.Kubectl("-n", "testbundle-ns", "get", "cm")).NotTo(ContainSubstring(rrConfigMapName))
-					g.Expect(worker.Kubectl("-n", "testbundle-ns", "get", "cm")).NotTo(ContainSubstring(rrConfigMapName))
 				}).Should(Succeed())
 			})
 
@@ -174,7 +253,6 @@ var _ = Describe("Core Tests", Ordered, func() {
 				Eventually(func(g Gomega) {
 					g.Expect(platform.Kubectl("-n", "kratix-platform-system", "get", "workplacements")).NotTo(ContainSubstring("testbundle"))
 					g.Expect(platform.Kubectl("-n", "kratix-platform-system", "get", "works")).NotTo(ContainSubstring("testbundle"))
-					g.Expect(worker.Kubectl("get", "namespaces")).NotTo(ContainSubstring("testbundle-ns"))
 					g.Expect(worker.Kubectl("get", "namespaces")).NotTo(ContainSubstring("testbundle-ns"))
 				}).Should(Succeed())
 			})
