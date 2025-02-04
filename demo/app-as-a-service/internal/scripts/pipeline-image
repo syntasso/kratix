@@ -1,0 +1,5 @@
+#!/usr/bin/env bash
+
+PWD="$( cd $(dirname $0)/.. && pwd)"
+
+source ${PWD}/../../scripts/pipeline-image

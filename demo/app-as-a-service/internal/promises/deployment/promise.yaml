@@ -1,0 +1,53 @@
+apiVersion: platform.kratix.io/v1alpha1
+kind: Promise
+metadata:
+  name: deployment
+  namespace: default
+spec:
+  api:
+    apiVersion: apiextensions.k8s.io/v1
+    kind: CustomResourceDefinition
+    metadata:
+      name: deployments.marketplace.kratix.io
+    spec:
+      group: marketplace.kratix.io
+      names:
+        kind: deployment
+        plural: deployments
+        singular: deployment
+      scope: Namespaced
+      versions:
+        - name: v1alpha1
+          schema:
+            openAPIV3Schema:
+              properties:
+                spec:
+                  properties:
+                    clusterSelectors:
+                      description: |
+                        List of key:value pairs to use as cluster selectors when scheduling
+                      type: object
+                      x-kubernetes-preserve-unknown-fields: true
+                    containsCreditCardData:
+                      default: false
+                      type: boolean
+                    image:
+                      type: string
+                  type: object
+              type: object
+          served: true
+          storage: true
+  workflows:
+    resource:
+      configure:
+        - apiVersion: platform.kratix.io/v1alpha1
+          kind: Pipeline
+          metadata:
+            name: instance-configure
+            namespace: default
+          spec:
+            containers:
+              - image: syntasso/demo-deployment-configure-pipeline:v0.1.1
+                name: demo-deployment-configure-pipeline
+              - image: ghcr.io/syntasso/kratix-marketplace/pipeline-destination-image:v0.1.0
+                name: add-destination

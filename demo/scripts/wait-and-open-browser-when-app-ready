@@ -1,0 +1,55 @@
+#!/usr/bin/env bash
+
+set -euo pipefail
+
+sleep_time=5
+
+# first argument is the message
+# rest of arguments are the command to run until successful
+# e.g. run "exmaple message" kubectl get pod foo
+
+function run() {
+  total_timeout=0
+
+  until ${@:2}
+  do
+    echo "$1"
+    sleep $sleep_time
+    total_timeout=$((total_timeout + sleep_time))
+    if [[ "$total_timeout" == "300"  ]]; then
+      echo "timedout after 300 seconds"
+      exit 1
+    fi
+  done
+}
+
+
+run "Waiting for AppAsAService to exist" \
+  kubectl --context kind-platform get apps.example.promise.syntasso.io -o jsonpath='{.items[0].spec.name}'
+
+export app="$(kubectl --context kind-platform get apps.example.promise.syntasso.io -o jsonpath='{.items[0].spec.name}')"
+
+run "Waiting for redis to be ready" \
+  kubectl --context kind-worker wait pod/rfr-${app}-0 --for=condition=ready
+
+run "Waiting for postgres to be ready" \
+  kubectl --context kind-worker wait pod/acid-${app}-postgresql-0 --for=condition=ready
+
+pod="$(kubectl --context kind-worker --namespace default get pods --selector=run=$app -o=jsonpath='{.items[0].metadata.name}')"
+
+run "Waiting for $app app to be ready" \
+  kubectl --context kind-worker  --namespace default wait pod/$pod --for=condition=ready
+
+if [[ "${SKIP_BROWSER:-}" == "yes"  ]]; then
+  exit 0
+fi
+
+printf "\n=====Opening Browser in 5 seconds=====\n"
+sleep 5
+
+if [[ "$OSTYPE" == "darwin"*  ]]; then
+  open -n http://${app}.local.gd:31338
+else
+  xdg-open http://${app}.local.gd:31338
+fi
+
