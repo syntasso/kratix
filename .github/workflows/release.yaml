@@ -94,8 +94,6 @@ jobs:
       - name: push-to-helm-charts
         run: |
           cd charts
-#          git config user.name "syntassodev"
-#          git config user.email "kratix@syntasso.io"
           git add kratix/
           git diff --cached --quiet && exit 0 || true
 
