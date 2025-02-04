@@ -94,8 +94,26 @@ jobs:
       - name: push-to-helm-charts
         run: |
           cd charts
+#          git config user.name "syntassodev"
+#          git config user.email "kratix@syntasso.io"
           git add kratix/
           git diff --cached --quiet && exit 0 || true
 
           git commit -m"update kratix package"
           git push origin main
+  on-failure:
+    runs-on: ubuntu-latest
+    needs:
+      - tag-new-version
+      - build-and-push-kratix-platform
+      - build-and-push-pipeline-adapter
+      - publish-release
+    if: ${{ always() && (needs.failing-job.result == 'failure' || needs.failing-job.result == 'timed_out') }}
+    steps:
+      - name: Slack Notification
+        uses: slackapi/slack-github-action@v2
+        with:
+          webhook: ${{ secrets.SLACK_WEBHOOK_URL }}
+          webhook-type: incoming-webhook
+          payload: |
+            text: "*GitHub Action failed!! Failed job: ${{ job.status  }} \n ${{ github.server_url }}/${{ github.repository }}/actions/runs/${{ github.run_id }}"
