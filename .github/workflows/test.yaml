@@ -12,8 +12,6 @@ on:
     - '.golangci.yml'
     - '.goreleaser.yaml'
     - '.images'
-    tags-ignore:
-    - 'latest'
 
 jobs:
   unit-tests-and-lint:
