@@ -145,17 +145,6 @@ commands:
       - configure_git
 
 jobs:
-  clone-helm-charts:
-    executor: machine-medium
-    steps:
-      - run:
-          name: Clone helm charts
-          command: |
-            git clone --depth 1 git@github.com:syntasso/helm-charts.git ~/repo/charts
-      - persist_to_workspace:
-          root: .
-          paths:
-            - charts/
 
   clone-kratix:
     executor: machine-medium
@@ -210,97 +199,6 @@ jobs:
       - notify-slack:
           only_for_branches: "main"
 
-  test:
-    executor: machine-xlarge
-    steps:
-      - install_software
-      - run:
-          name: Lint
-          command: |
-            curl -sSfL https://raw.githubusercontent.com/golangci/golangci-lint/master/install.sh | sh -s v1.63.4
-            ./bin/golangci-lint run --config=.golangci-required.yml
-      - run:
-          name: Unit Tests
-          command: |
-            make test
-      - run:
-          name: System tests
-          command: |
-            DOCKER_BUILDKIT=1 ACK_GINKGO_RC=true make system-test core-test
-      - notify-slack:
-          only_for_branches: "main"
-
-  e2e-demo-test-helm-git:
-    executor: machine-large
-    steps:
-      - install_software
-      - run:
-          name: Create Destinations and helm install
-          command: |
-            make distribution
-            make gitea-cli
-            ./charts/scripts/generate-templates-and-crds ./distribution/kratix.yaml
-            export DOCKER_BUILDKIT=1
-
-            # setup platform and install GitStateStore
-            kind create cluster --image kindest/node:v1.27.3 --name platform --config hack/platform/kind-platform-config.yaml
-            make install-cert-manager
-            make build-and-load-kratix
-            make build-and-load-work-creator
-            helm install kratix charts/kratix/ -f hack/platform/helm-values-gitea.yaml
-
-            source ./scripts/utils.sh
-            generate_gitea_credentials "kind-platform"
-
-            kubectl --context kind-platform apply --filename "hack/platform/gitea-install.yaml"
-            kubectl --context kind-platform wait --for=condition=Ready --timeout=300s -n gitea pod -l app.kubernetes.io/instance=gitea
-
-            # setup worker cluster and register as destination
-            kind create cluster --image kindest/node:v1.27.3 --name worker --config hack/destination/kind-worker-config.yaml
-            helm install kratix-destination charts/kratix-destination/ -f hack/destination/helm-values-gitea.yaml
-
-            copy_gitea_credentials "kind-platform" "kind-worker"
-
-            kubectl --context kind-worker wait --for=condition=Ready --timeout=300s -n default kustomization kratix-workload-resources
-      - run:
-          name: Verify Jenkins
-          command: |
-            ./scripts/install-jenkins.sh
-      - notify-slack:
-          only_for_branches: "main"
-
-  e2e-demo-test-helm-bucket:
-    executor: machine-large
-    steps:
-      - install_software
-      - run:
-          name: Create Destinations and helm install
-          command: |
-            make distribution
-            ./charts/scripts/generate-templates-and-crds ./distribution/kratix.yaml
-            export DOCKER_BUILDKIT=1
-
-            # setup platform and install BucketStateStore
-            kind create cluster --image kindest/node:v1.27.3 --name platform --config hack/platform/kind-platform-config.yaml
-            make install-cert-manager
-            make build-and-load-kratix
-            make build-and-load-work-creator
-            helm install kratix charts/kratix/ -f hack/platform/helm-values-minio.yaml
-            kubectl --context kind-platform apply --filename "hack/platform/minio-install.yaml"
-            kubectl --context kind-platform wait --for=condition=Ready --timeout=300s -n kratix-platform-system pod -l run=minio
-
-            # setup worker cluster and register as destination
-            kind create cluster --image kindest/node:v1.27.3 --name worker --config hack/destination/kind-worker-config.yaml
-            helm install kratix-destination charts/kratix-destination/ -f hack/destination/helm-values-minio.yaml
-            kubectl --context kind-platform apply --filename config/samples/platform_v1alpha1_worker.yaml
-            kubectl --context kind-worker wait --for=condition=Ready --timeout=300s -n kratix-worker-config kustomization kratix-workload-resources
-      - run:
-          name: Verify Jenkins
-          command: |
-            ./scripts/install-jenkins.sh
-      - notify-slack:
-          only_for_branches: "main"
-
   generate-demo-image-list:
     executor: machine-large
     steps:
@@ -317,26 +215,6 @@ jobs:
           paths:
             - .
 
-  build-and-push-images:
-    docker:
-      - image: cimg/base:current
-    resource_class: large
-    parameters:
-      image:
-        type: string
-    environment:
-      VERSION: << pipeline.git.tag >>
-    steps:
-      - attach_workspace:
-          at: .
-      - setup_remote_docker:
-          docker_layer_caching: true
-      - docker_login
-      - run:
-          name: Build and push images
-          command: |
-            ./scripts/build-images << parameters.image >>
-
   git-push-to-main:
     executor: machine-medium
     steps:
@@ -350,74 +228,6 @@ jobs:
             # below command exits 0 when nothing is added
             git diff --cached --quiet && exit 0 || true
             git commit -m"update demo image list"
-            git push origin main
-
-  generate-release-distribution:
-    executor: machine-medium
-    environment:
-      VERSION: << pipeline.git.tag >>
-    steps:
-      - attach_workspace:
-          at: .
-      - install_software
-      - run:
-          name: Generate new distribution
-          command: |
-            ./scripts/make-distribution
-      - run:
-          name: Generate helm charts
-          command: |
-            ./charts/scripts/generate-templates-and-crds ./distribution/kratix.yaml
-      - persist_to_workspace:
-          root: .
-          paths:
-            - .
-
-  tag-new-version:
-    executor: machine-medium
-    steps:
-      - queue/until_front_of_line: # ensure only one of those runs at a time
-          only-on-branch: main
-          time: "5"
-      - attach_workspace:
-          at: .
-      - setup_git
-      - run:
-          name: bump minor version and push tag
-          command: |
-            ./scripts/tag-latest-version
-
-  gh-release:
-    docker:
-      - image: cimg/base:current
-    resource_class: large
-    steps:
-      - attach_workspace:
-          at: .
-      - gh/setup
-      - run:
-          name: Release
-          command: |
-            gh config set prompt disabled
-            gh release delete <<pipeline.git.tag>> || true
-            gh release create <<pipeline.git.tag>> --title <<pipeline.git.tag>> ./distribution/**/*.yaml ./distribution/*.yaml
-
-  helm-release:
-    docker:
-      - image: cimg/base:current
-    resource_class: large
-    steps:
-      - attach_workspace:
-          at: .
-      - setup_git_helm
-      - run:
-          name: Push to helm-charts
-          command: |
-            cd charts
-            git add kratix/
-            git diff --cached --quiet && exit 0 || true
-
-            git commit -m"update kratix package"
             git push origin main
 
   upgrade-flux:
@@ -504,5 +314,3 @@ workflows:
       - clone-kratix
       - upgrade-flux:
           requires: [clone-kratix]
-
-

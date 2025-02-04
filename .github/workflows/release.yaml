@@ -1,11 +1,9 @@
 name: Release Kratix
 
 on:
-#  workflow_run:
-#    workflows: [Test Kratix]
-#    types: [completed]
-#    branches: [main]
-  push: # to get faster feedback; will revert back to what's above after the ci migration issue
+  workflow_run:
+    workflows: [Test Kratix]
+    types: [completed]
     branches: [main]
 
 jobs:
