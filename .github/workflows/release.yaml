@@ -1,0 +1,12 @@
+on:
+  workflow_run:
+    workflows: [Test Kratix]
+    types: [completed]
+    branches: [main]
+
+jobs:
+  build-and-push-images:
+  generate-release-distribution:
+  helm-release:
+  github-release:
+  
