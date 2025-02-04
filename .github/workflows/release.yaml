@@ -94,6 +94,8 @@ jobs:
       - name: push-to-helm-charts
         run: |
           cd charts
+          git config user.name “syntassodev”
+          git config user.email “kratix@syntasso.io”
           git add kratix/
           git diff --cached --quiet && exit 0 || true
 
@@ -106,7 +108,7 @@ jobs:
       - build-and-push-kratix-platform
       - build-and-push-pipeline-adapter
       - publish-release
-    if: ${{ always() && (needs.failing-job.result == 'failure' || needs.failing-job.result == 'timed_out') }}
+    if: ${{ always() && (needs.*.result == 'failure' || needs.*.result == 'timed_out') }}
     steps:
       - name: Slack Notification
         uses: slackapi/slack-github-action@v2

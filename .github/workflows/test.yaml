@@ -75,3 +75,19 @@ jobs:
       - name: e2e-demo-test-helm-git
         run: |
           STATE_STORE="git" ./scripts/helm-e2e-test.sh
+  on-failure:
+    runs-on: ubuntu-latest
+    needs:
+      - unit-tests-and-lint
+      - system-test
+      - integration-test
+    if: ${{ always() && (needs.*.result == 'failure' || needs.*.result == 'timed_out') }}
+    steps:
+      - name: Slack Notification
+        uses: slackapi/slack-github-action@v2
+        with:
+          webhook: ${{ secrets.SLACK_WEBHOOK_URL }}
+          webhook-type: incoming-webhook
+          payload: |
+            text: "*GitHub Action failed!! Failed job: ${{ job.status  }} \n ${{ github.server_url }}/${{ github.repository }}/actions/runs/${{ github.run_id }}"
+
