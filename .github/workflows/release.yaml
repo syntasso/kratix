@@ -17,6 +17,7 @@ jobs:
         uses: actions/checkout@v4
         with:
           fetch-depth: 0
+          ssh-key: ${{ secrets.ACTION_PUSH }}
       - name: Tag new version
         env:
           LAST_SHA: ${{ steps.checkout.outputs.commit }}
@@ -24,6 +25,8 @@ jobs:
           latest_tag="latest"
           current_commit=${LAST_SHA:-$(git rev-parse HEAD)}
           commit_list=$(git rev-list "$latest_tag".."$current_commit")
+          git config user.name "syntassodev"
+          git config user.email "kratix@syntasso.io"
           echo "checking if there are new commits from main compared to the latest tag"
           if [ -n "$commit_list" ]; then
               echo "Current commit is ahead of the previous tag; pushing a new tag"
