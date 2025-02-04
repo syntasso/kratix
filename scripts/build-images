@@ -21,14 +21,6 @@ case "$1" in
         # Work Creator image
         make build-and-push-work-creator
         ;;
-    samples)
-        # Build workshop images
-        docker build --platform linux/amd64 --tag syntasso/paved-path-demo-configure-pipeline \
-            --file samples/paved-path-demo/configure-pipeline/Dockerfile \
-            samples/paved-path-demo/configure-pipeline
-
-        docker push syntasso/paved-path-demo-configure-pipeline
-        ;;
     *)
         echo "unknown image: $1"
         exit 1
