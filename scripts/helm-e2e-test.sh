@@ -2,6 +2,8 @@
 
 set -eu
 
+kind delete clusters --all
+
 if [ "$STATE_STORE" == "git" ]; then
     destination_helm_values_path="hack/destination/helm-values-gitea.yaml"
     platform_helm_values_path="hack/platform/helm-values-gitea.yaml"
