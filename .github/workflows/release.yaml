@@ -1,3 +1,5 @@
+name: Release Kratix
+
 on:
   workflow_run:
     workflows: [Test Kratix]
@@ -31,3 +33,24 @@ jobs:
       - name: Build and push Pipeline
         run: |
           make build-and-push-work-creator
+  publish-release:
+    runs-on: ubuntu-latest
+    steps:
+      - name: Check out kratix
+        uses: actions/checkout@v4
+        id: checkout
+      - name: Create Kratix Distribution
+        run: |
+          ./scripts/make-distribution
+        env:
+          VERSION: ${{ steps.checkout.outputs.commit }}
+      - name: Create Helm Release
+        run: |
+          ./charts/scripts/generate-templates-and-crds ./distribution/kratix.yaml
+      - name: Create Github Release
+        run: |
+            gh config set prompt disabled
+            gh release delete <<pipeline.git.tag>> || true
+            gh release create <<pipeline.git.tag>> --title <<pipeline.git.tag>> ./distribution/**/*.yaml ./distribution/*.yaml
+        env:
+          GH_TOKEN: ${{ secrets.GITHUB_TOKEN }}
