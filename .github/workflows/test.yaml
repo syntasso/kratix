@@ -12,6 +12,8 @@ on:
     - '.golangci.yml'
     - '.goreleaser.yaml'
     - '.images'
+  pull_request:
+    branches: [ "main" ]
 
 jobs:
   unit-tests-and-lint:
