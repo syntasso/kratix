@@ -33,7 +33,7 @@ import (
 	"sigs.k8s.io/controller-runtime/pkg/webhook/admission"
 )
 
-// +kubebuilder:webhook:path=/mutate-platform-kratix-io-v1alpha1-destination,mutating=true,failurePolicy=fail,sideEffects=None,groups=platform.kratix.io,resources=destinations,verbs=create;update,versions=v1alpha1,name=vdestination.kb.io,admissionReviewVersions=v1
+//+kubebuilder:webhook:path=/mutate-platform-kratix-io-v1alpha1-destination,mutating=true,failurePolicy=fail,sideEffects=None,groups=platform.kratix.io,resources=destinations,verbs=create;update,versions=v1alpha1,name=mdestination.kb.io,admissionReviewVersions=v1
 
 // DestinationCustomDefaulter is a custom defaulter for Destination.
 // It ensures Destination resources created prior to #234 continue to work.
