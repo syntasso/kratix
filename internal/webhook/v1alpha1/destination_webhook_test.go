@@ -42,93 +42,31 @@ var _ = Describe("Destination Webhook", func() {
 	})
 
 	Describe("defaulting `path`", func() {
-		When("the destination does not exist", func() {
-			It("does not default the path", func() {
-				destination.Spec.Path = "."
-				err := defaulter.Default(ctx, destination)
-				Expect(err).NotTo(HaveOccurred())
-				Expect(destination.Spec.Path).To(Equal("."))
-			})
-
+		Describe("for new destinations", func() {
 			It("adds the skip annotation", func() {
 				err := defaulter.Default(ctx, destination)
 				Expect(err).NotTo(HaveOccurred())
-				Expect(destination.Annotations[kratixWebhook.SkipPathDefaultingAnnotation]).To(Equal("true"))
+				Expect(destination.Annotations[v1alpha1.SkipPathDefaultingAnnotation]).To(Equal("true"))
 			})
 		})
 
-		When("the destination exists", func() {
+		Describe("for existing destinations with the skip annotation", func() {
 			BeforeEach(func() {
-				destination.Status.Conditions = []metav1.Condition{{Type: "Ready", Status: metav1.ConditionTrue}}
+				destination.SetAnnotations(
+					map[string]string{v1alpha1.SkipPathDefaultingAnnotation: "true"},
+				)
 				Expect(fakeClient.Create(ctx, destination)).To(Succeed())
 			})
 
-			When("the annotation is not set", func() {
-				It("adds a path defaulted annotation", func() {
+			When("the annotation is removed", func() {
+				BeforeEach(func() {
+					destination.SetAnnotations(nil)
+				})
+
+				It("restores the annotation", func() {
 					err := defaulter.Default(ctx, destination)
 					Expect(err).NotTo(HaveOccurred())
-					Expect(destination.Annotations[kratixWebhook.SkipPathDefaultingAnnotation]).To(Equal("true"))
-				})
-
-				When("path is not set", func() {
-					It("sets it to the destination name", func() {
-						err := defaulter.Default(ctx, destination)
-						Expect(err).NotTo(HaveOccurred())
-						Expect(destination.Spec.Path).To(Equal("myDestination"))
-					})
-				})
-
-				When("path is set", func() {
-					It("prefixes it with the destination name", func() {
-						destination.Spec.Path = "subPath"
-						err := defaulter.Default(ctx, destination)
-						Expect(err).NotTo(HaveOccurred())
-						Expect(destination.Spec.Path).To(Equal("myDestination/subPath"))
-					})
-				})
-			})
-
-			When("the skip annotation is set", func() {
-				BeforeEach(func() {
-					destination.SetAnnotations(map[string]string{kratixWebhook.SkipPathDefaultingAnnotation: "true"})
-					Expect(fakeClient.Update(ctx, destination)).To(Succeed())
-				})
-
-				When("the path is set", func() {
-					It("does not change the path", func() {
-						destination.Spec.Path = "mydir"
-
-						err := defaulter.Default(ctx, destination)
-						Expect(err).NotTo(HaveOccurred())
-						Expect(destination.Spec.Path).To(Equal("mydir"))
-					})
-				})
-
-				When("the path is not set", func() {
-					It("does not change the path", func() {
-						err := defaulter.Default(ctx, destination)
-						Expect(err).NotTo(HaveOccurred())
-						Expect(destination.Spec.Path).To(BeEmpty())
-					})
-				})
-
-				When("the annotation is removed", func() {
-					BeforeEach(func() {
-						destination.SetAnnotations(nil)
-					})
-
-					It("does not change the path", func() {
-						destination.Spec.Path = "subdir"
-						err := defaulter.Default(ctx, destination)
-						Expect(err).NotTo(HaveOccurred())
-						Expect(destination.Spec.Path).To(Equal("subdir"))
-					})
-
-					It("restores the annotation", func() {
-						err := defaulter.Default(ctx, destination)
-						Expect(err).NotTo(HaveOccurred())
-						Expect(destination.Annotations[kratixWebhook.SkipPathDefaultingAnnotation]).To(Equal("true"))
-					})
+					Expect(destination.Annotations[v1alpha1.SkipPathDefaultingAnnotation]).To(Equal("true"))
 				})
 			})
 		})

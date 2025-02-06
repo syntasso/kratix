@@ -19,7 +19,6 @@ package v1alpha1
 import (
 	"context"
 	"fmt"
-	"path/filepath"
 
 	stderror "errors"
 
@@ -45,9 +44,6 @@ type DestinationCustomDefaulter struct {
 
 var _ webhook.CustomDefaulter = &DestinationCustomDefaulter{}
 
-// SkipPathDefaultingAnnotation defines whether the Destination was migrated to use the path field.
-const SkipPathDefaultingAnnotation = "kratix.io/skip-path-defaulting"
-
 // Default implements a Mutating Webhook for the Destination resource.
 func (d *DestinationCustomDefaulter) Default(ctx context.Context, obj runtime.Object) error {
 	destination, ok := obj.(*v1alpha1.Destination)
@@ -67,28 +63,16 @@ func (d *DestinationCustomDefaulter) Default(ctx context.Context, obj runtime.Ob
 			return err
 		}
 
-		// this is a new destination it should not have the destination name as
-		// a suffix, since destinations are solely relying on the `path` spec
-		// field
-		destination.Annotations[SkipPathDefaultingAnnotation] = "true"
+		// this is a new destination we should add the annotation so the
+		// controller doesn't try to append the destination name to the path on
+		// the next reconcile
+		destination.Annotations[v1alpha1.SkipPathDefaultingAnnotation] = "true"
 	}
 
-	// the destination exist, but the annotation was removed
-	// we should add it back to prevent defaulting when we shouldn't
-	if _, found := existingDestination.Annotations[SkipPathDefaultingAnnotation]; found {
-		destination.Annotations[SkipPathDefaultingAnnotation] = "true"
+	// this is here to prevent the annotation from being removed on already patched destinations
+	if _, found := existingDestination.Annotations[v1alpha1.SkipPathDefaultingAnnotation]; found {
+		destination.Annotations[v1alpha1.SkipPathDefaultingAnnotation] = "true"
 	}
-
-	// this destination has already been defaulted; skip it
-	if _, found := destination.Annotations[SkipPathDefaultingAnnotation]; found {
-		return nil
-	}
-
-	// this destination was created prior to the change of behaviour of `path`
-	// the `path` should be updated to include the destination name to ensure
-	// backwards compatibility
-	destination.Spec.Path = filepath.Join(destination.Name, destination.Spec.Path)
-	destination.Annotations[SkipPathDefaultingAnnotation] = "true"
 
 	return nil
 }

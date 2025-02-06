@@ -44,7 +44,7 @@ spec:
           metadata:
             type: object
           spec:
-            description: DestinationSpec defines the desired state of Destination
+            description: DestinationSpec defines the desired state of Destination.
             properties:
               cleanup:
                 default: none

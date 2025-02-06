@@ -36,7 +36,12 @@ type StateStoreCoreFields struct {
 // (i.e. kratix-platform-system) or if we want to allow users to specify a
 // namespace for each destination secret.
 
-// DestinationSpec defines the desired state of Destination
+// SkipPathDefaultingAnnotation defines whether the Destination controller
+// should prefix the `spec.path` with the Destination name. This should be
+// removed in later versions of Kratix.
+const SkipPathDefaultingAnnotation = "kratix.io/skip-path-defaulting"
+
+// DestinationSpec defines the desired state of Destination.
 type DestinationSpec struct {
 	// Path within StateStore to write documents, this will be appended to any
 	// specficed Spec.Path provided in the referenced StateStore.

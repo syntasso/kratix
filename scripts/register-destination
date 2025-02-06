@@ -82,7 +82,7 @@ prepare_destination() {
   fi
   $ROOT/scripts/install-gitops --context $DESTINATION_CONTEXT --path "$GITOPS_PATH" "$flags"
 
-  local yqOpts=".metadata.name = \"$NAME\" | .metadata.labels = {} | .spec.stateStoreRef.name = \"$STATE_STORE\" | .spec.stateStoreRef.kind = \"$state_store_type\" | .spec.strictMatchLabels = $STRICT_MATCH_LABELS"
+  local yqOpts=".metadata.name = \"$NAME\" | .metadata.labels = {} | .spec.stateStoreRef.name = \"$STATE_STORE\" | .spec.stateStoreRef.kind = \"$state_store_type\" | .spec.strictMatchLabels = $STRICT_MATCH_LABELS | .spec.path = \"$GITOPS_PATH\""
   yq "${yqOpts}" $ROOT/config/samples/platform_v1alpha1_worker.yaml |
     kubectl --context $PLATFORM_CONTEXT apply -f -
 

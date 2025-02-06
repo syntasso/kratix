@@ -19,6 +19,7 @@ package controllers
 import (
 	"context"
 	"fmt"
+	"path"
 	"path/filepath"
 
 	"k8s.io/apimachinery/pkg/runtime/schema"
@@ -78,6 +79,14 @@ func (r *DestinationReconciler) Reconcile(ctx context.Context, req ctrl.Request)
 		return ctrl.Result{}, err
 	}
 
+	if !metav1.HasAnnotation(destination.ObjectMeta, v1alpha1.SkipPathDefaultingAnnotation) {
+		// this destination was created prior to `spec.path` being required and
+		// the destination name being used as part of the path.
+		metav1.SetMetaDataAnnotation(&destination.ObjectMeta, v1alpha1.SkipPathDefaultingAnnotation, "true")
+		destination.Spec.Path = path.Join(destination.Name, destination.Spec.Path)
+		return ctrl.Result{}, r.Client.Update(ctx, destination)
+	}
+
 	opts := opts{
 		client: r.Client,
 		ctx:    ctx,
@@ -103,9 +112,7 @@ func (r *DestinationReconciler) Reconcile(ctx context.Context, req ctrl.Request)
 		return r.deleteDestination(opts, destination, writer)
 	}
 
-	//destination.Spec.Path is optional, may be empty
-	path := filepath.Join(destination.Spec.Path, destination.Name)
-	logger = logger.WithValues("path", path)
+	logger = logger.WithValues("path", destination.Spec.Path)
 	filePathMode := destination.GetFilepathMode()
 
 	var writeErr error

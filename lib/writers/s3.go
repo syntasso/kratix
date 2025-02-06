@@ -5,6 +5,7 @@ import (
 	"context"
 	"crypto/md5"
 	"crypto/sha256"
+	"errors"
 	"fmt"
 	"path/filepath"
 	"strings"
@@ -20,37 +21,50 @@ const (
 	AuthMethodAccessKey = "accessKey"
 )
 
+// S3Writer is a writer for S3.
 type S3Writer struct {
 	Log        logr.Logger
 	RepoClient *minio.Client
 	BucketName string
-	path       string
+	Path       string
 }
 
-func NewS3Writer(logger logr.Logger, stateStoreSpec v1alpha1.BucketStateStoreSpec, destination v1alpha1.Destination, creds map[string][]byte) (StateStoreWriter, error) {
+// NewS3Writer creates a new S3 writer.
+func NewS3Writer(
+	logger logr.Logger,
+	stateStoreSpec v1alpha1.BucketStateStoreSpec,
+	destination v1alpha1.Destination,
+	creds map[string][]byte,
+) (StateStoreWriter, error) {
 	endpoint := stateStoreSpec.Endpoint
 
 	opts := &minio.Options{
 		Secure: !stateStoreSpec.Insecure,
 	}
 
-	logger.Info("setting up s3 client", "authMethod", stateStoreSpec.AuthMethod, "endpoint", endpoint, "insecure", stateStoreSpec.Insecure)
+	logger.Info(
+		"setting up s3 client",
+		"authMethod", stateStoreSpec.AuthMethod,
+		"endpoint", endpoint,
+		"insecure", stateStoreSpec.Insecure,
+	)
+
 	switch stateStoreSpec.AuthMethod {
 	case AuthMethodIAM:
 		opts.Creds = credentials.NewIAM("")
 
-	case "", AuthMethodAccessKey: //used to be optional so lets handle empty as the default
+	case "", AuthMethodAccessKey: // used to be optional so lets handle empty as the default
 		if creds == nil {
-			return nil, fmt.Errorf("secret not provided")
+			return nil, errors.New("secret not provided")
 		}
 		accessKeyID, ok := creds["accessKeyID"]
 		if !ok {
-			return nil, fmt.Errorf("missing key accessKeyID")
+			return nil, errors.New("missing key accessKeyID")
 		}
 
 		secretAccessKey, ok := creds["secretAccessKey"]
 		if !ok {
-			return nil, fmt.Errorf("missing key secretAccessKey")
+			return nil, errors.New("missing key secretAccessKey")
 		}
 		opts.Creds = credentials.NewStaticV4(string(accessKeyID), string(secretAccessKey), "")
 
@@ -69,12 +83,12 @@ func NewS3Writer(logger logr.Logger, stateStoreSpec v1alpha1.BucketStateStoreSpe
 		Log:        logger,
 		RepoClient: minioClient,
 		BucketName: stateStoreSpec.BucketName,
-		path:       filepath.Join(stateStoreSpec.Path, destination.Spec.Path, destination.Name),
+		Path:       filepath.Join(stateStoreSpec.Path, destination.Spec.Path),
 	}, nil
 }
 
 func (b *S3Writer) ReadFile(filename string) ([]byte, error) {
-	_, err := b.RepoClient.StatObject(context.Background(), b.BucketName, filepath.Join(b.path, filename), minio.GetObjectOptions{})
+	_, err := b.RepoClient.StatObject(context.Background(), b.BucketName, filepath.Join(b.Path, filename), minio.GetObjectOptions{})
 	if err != nil {
 		if minio.ToErrorResponse(err).Code == "NoSuchKey" {
 			return nil, ErrFileNotFound
@@ -82,7 +96,7 @@ func (b *S3Writer) ReadFile(filename string) ([]byte, error) {
 		return nil, err
 	}
 
-	obj, err := b.RepoClient.GetObject(context.Background(), b.BucketName, filepath.Join(b.path, filename), minio.GetObjectOptions{})
+	obj, err := b.RepoClient.GetObject(context.Background(), b.BucketName, filepath.Join(b.Path, filename), minio.GetObjectOptions{})
 	if err != nil {
 		return nil, err
 	}
@@ -104,7 +118,7 @@ func (b *S3Writer) UpdateFiles(subDir string, _ string, workloadsToCreate []v1al
 
 func (b *S3Writer) update(subDir string, workloadsToCreate []v1alpha1.Workload, workloadsToDelete []string) (string, error) {
 	ctx := context.Background()
-	logger := b.Log.WithValues("bucketName", b.BucketName, "path", b.path)
+	logger := b.Log.WithValues("bucketName", b.BucketName, "path", b.Path)
 	objectsToDeleteMap := map[string]minio.ObjectInfo{}
 
 	//Get a list of all the old workload files, we delete any that aren't part of the new workload at the end of this function.
@@ -116,7 +130,7 @@ func (b *S3Writer) update(subDir string, workloadsToCreate []v1alpha1.Workload, 
 		}
 	} else {
 		for _, work := range workloadsToDelete {
-			objStat, err := b.RepoClient.StatObject(ctx, b.BucketName, filepath.Join(b.path, work), minio.GetObjectOptions{})
+			objStat, err := b.RepoClient.StatObject(ctx, b.BucketName, filepath.Join(b.Path, work), minio.GetObjectOptions{})
 			if err != nil {
 				if minio.ToErrorResponse(err).Code != "NoSuchKey" {
 					logger.Error(err, "Error fetching object")
@@ -139,7 +153,7 @@ func (b *S3Writer) update(subDir string, workloadsToCreate []v1alpha1.Workload, 
 	var versionID string
 
 	for _, work := range workloadsToCreate {
-		objectFullPath := filepath.Join(b.path, subDir, work.Filepath)
+		objectFullPath := filepath.Join(b.Path, subDir, work.Filepath)
 		delete(objectsToDeleteMap, objectFullPath)
 		log := logger.WithValues("objectName", objectFullPath)
 
@@ -196,7 +210,7 @@ func (b *S3Writer) getObjectsInDir(ctx context.Context, dir string, logger logr.
 	if !strings.HasSuffix(dir, "/") {
 		dir = dir + "/"
 	}
-	objectCh := b.RepoClient.ListObjects(ctx, b.BucketName, minio.ListObjectsOptions{Prefix: filepath.Join(b.path, dir), Recursive: true})
+	objectCh := b.RepoClient.ListObjects(ctx, b.BucketName, minio.ListObjectsOptions{Prefix: filepath.Join(b.Path, dir), Recursive: true})
 	for object := range objectCh {
 		if object.Err != nil {
 			logger.Error(object.Err, "Listing objects", "dir", dir)
@@ -211,7 +225,7 @@ func (b *S3Writer) getObjectsInDir(ctx context.Context, dir string, logger logr.
 func (b *S3Writer) RemoveObject(objectName string) error {
 	logger := b.Log.WithValues(
 		"bucketName", b.BucketName,
-		"path", b.path,
+		"path", b.Path,
 		"objectName", objectName,
 	)
 	logger.Info("Removing objects from bucket")
@@ -220,7 +234,7 @@ func (b *S3Writer) RemoveObject(objectName string) error {
 	if strings.HasSuffix(objectName, "/") {
 		var paths []string
 		//list files and delete all
-		objectCh := b.RepoClient.ListObjects(ctx, b.BucketName, minio.ListObjectsOptions{Prefix: filepath.Join(b.path, objectName), Recursive: true})
+		objectCh := b.RepoClient.ListObjects(ctx, b.BucketName, minio.ListObjectsOptions{Prefix: filepath.Join(b.Path, objectName), Recursive: true})
 		for object := range objectCh {
 			if object.Err != nil {
 				logger.Error(object.Err, "Listing objects", "dir", objectName)
@@ -245,7 +259,7 @@ func (b *S3Writer) RemoveObject(objectName string) error {
 		err := b.RepoClient.RemoveObject(
 			ctx,
 			b.BucketName,
-			filepath.Join(b.path, objectName),
+			filepath.Join(b.Path, objectName),
 			minio.RemoveObjectOptions{},
 		)
 		if err != nil {
