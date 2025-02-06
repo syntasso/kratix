@@ -1,0 +1,15 @@
+name: Trigger CI
+on:
+  workflow_dispatch:
+
+jobs:
+  update-release-sha:
+    runs-on: ubuntu-latest
+    steps:
+      - name: Checkout current repository
+        uses: actions/checkout@v3
+      - name: Trigger CI with latest commit details
+        run: |
+          gh workflow run --repo syntasso/ci "Kratix" -f sha=${{ github.event.head_commit.id }} -f message=${{ github.event.head_commit.message }}
+        env:
+          GH_TOKEN: ${{ secrets.GITHUB_TOKEN }}
