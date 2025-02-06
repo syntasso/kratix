@@ -1,6 +1,7 @@
 name: Trigger CI
 on:
   push:
+    branches: [ "main" ]
 
 jobs:
   update-release-sha:
