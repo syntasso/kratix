@@ -1,6 +1,6 @@
 name: Trigger CI
 on:
-  workflow_dispatch:
+  push:
 
 jobs:
   update-release-sha:

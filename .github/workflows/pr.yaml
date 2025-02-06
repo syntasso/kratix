@@ -1,17 +1,6 @@
 name: Test Kratix
 
 on:
-  push:
-    paths-ignore:
-    - 'docs/**'
-    - '*.md'
-    - 'LICENSE.txt'
-    - 'PROJECT'
-    - '.gitignore'
-    - '.golangci-required.yml'
-    - '.golangci.yml'
-    - '.goreleaser.yaml'
-    - '.images'
   pull_request:
     branches: [ "main" ]
 
