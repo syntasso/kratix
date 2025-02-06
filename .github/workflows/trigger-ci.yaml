@@ -10,6 +10,9 @@ jobs:
         uses: actions/checkout@v3
       - name: Trigger CI with latest commit details
         run: |
+          if [ -z "$GITHUB_SHA" ]; then
+            "GITHUB_SHA=$(git rev-parse HEAD)"
+          fi
           gh workflow run --repo syntasso/ci "Kratix" -f sha=$GITHUB_SHA -f message="${{ github.event.head_commit.message }}"
         env:
           GH_TOKEN: ${{ secrets.GH_ACTION_TRIGGER_TOKEN }}
