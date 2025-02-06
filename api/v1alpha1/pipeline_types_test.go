@@ -353,8 +353,8 @@ var _ = Describe("Pipeline", func() {
 							for _, definedLabels := range []map[string]string{job.GetLabels(), job.Spec.Template.GetLabels()} {
 								Expect(definedLabels).To(SatisfyAll(
 									HaveKeyWithValue(v1alpha1.PromiseNameLabel, promise.GetName()),
-									HaveKeyWithValue(v1alpha1.WorkTypeLabel, string(factory.WorkflowType)),
-									HaveKeyWithValue(v1alpha1.WorkActionLabel, string(factory.WorkflowAction)),
+									HaveKeyWithValue(v1alpha1.WorkflowTypeLabel, string(factory.WorkflowType)),
+									HaveKeyWithValue(v1alpha1.WorkflowActionLabel, string(factory.WorkflowAction)),
 									HaveKeyWithValue(v1alpha1.PipelineNameLabel, pipeline.GetName()),
 									HaveKeyWithValue(v1alpha1.KratixResourceHashLabel, promiseHash(promise)),
 									Not(HaveKey(v1alpha1.ResourceNameLabel)),
@@ -447,8 +447,8 @@ var _ = Describe("Pipeline", func() {
 							for _, definedLabels := range []map[string]string{job.GetLabels(), podTemplate.GetLabels()} {
 								Expect(definedLabels).To(SatisfyAll(
 									HaveKeyWithValue(v1alpha1.PromiseNameLabel, promise.GetName()),
-									HaveKeyWithValue(v1alpha1.WorkTypeLabel, string(factory.WorkflowType)),
-									HaveKeyWithValue(v1alpha1.WorkActionLabel, string(factory.WorkflowAction)),
+									HaveKeyWithValue(v1alpha1.WorkflowTypeLabel, string(factory.WorkflowType)),
+									HaveKeyWithValue(v1alpha1.WorkflowActionLabel, string(factory.WorkflowAction)),
 									HaveKeyWithValue(v1alpha1.PipelineNameLabel, pipeline.GetName()),
 									HaveKeyWithValue(v1alpha1.KratixResourceHashLabel, combinedHash(promiseHash(promise), resourceHash(resourceRequest))),
 									HaveKeyWithValue(v1alpha1.ResourceNameLabel, resourceRequest.GetName()),
@@ -1207,8 +1207,8 @@ var _ = Describe("Pipeline", func() {
 							"Name": MatchRegexp(fmt.Sprintf(`^%s-%s-\b\w{5}\b$`, factory.ID, "specific-namespace")),
 							"Labels": SatisfyAll(
 								HaveKeyWithValue(v1alpha1.PromiseNameLabel, promise.GetName()),
-								HaveKeyWithValue(v1alpha1.WorkTypeLabel, "fakeType"),
-								HaveKeyWithValue(v1alpha1.WorkActionLabel, "fakeAction"),
+								HaveKeyWithValue(v1alpha1.WorkflowTypeLabel, "fakeType"),
+								HaveKeyWithValue(v1alpha1.WorkflowActionLabel, "fakeAction"),
 								HaveKeyWithValue(v1alpha1.PipelineNameLabel, factory.Pipeline.Name),
 								HaveKeyWithValue(v1alpha1.PipelineNamespaceLabel, factory.Namespace),
 								HaveKeyWithValue(v1alpha1.UserPermissionResourceNamespaceLabel, "specific-namespace"),
@@ -1227,8 +1227,8 @@ var _ = Describe("Pipeline", func() {
 							"Name": MatchRegexp(fmt.Sprintf(`^%s-%s-\b\w{5}\b$`, factory.ID, "kratix-all-namespaces")),
 							"Labels": SatisfyAll(
 								HaveKeyWithValue(v1alpha1.PromiseNameLabel, promise.GetName()),
-								HaveKeyWithValue(v1alpha1.WorkTypeLabel, "fakeType"),
-								HaveKeyWithValue(v1alpha1.WorkActionLabel, "fakeAction"),
+								HaveKeyWithValue(v1alpha1.WorkflowTypeLabel, "fakeType"),
+								HaveKeyWithValue(v1alpha1.WorkflowActionLabel, "fakeAction"),
 								HaveKeyWithValue(v1alpha1.PipelineNameLabel, factory.Pipeline.Name),
 								HaveKeyWithValue(v1alpha1.PipelineNamespaceLabel, factory.Namespace),
 								HaveKeyWithValue(v1alpha1.UserPermissionResourceNamespaceLabel, "kratix_all_namespaces"),
@@ -1251,8 +1251,8 @@ var _ = Describe("Pipeline", func() {
 							"Name": MatchRegexp(fmt.Sprintf(`^%s-%s-\b\w{5}\b$`, factory.ID, resources.Shared.ServiceAccount.GetNamespace())),
 							"Labels": SatisfyAll(
 								HaveKeyWithValue(v1alpha1.PromiseNameLabel, promise.GetName()),
-								HaveKeyWithValue(v1alpha1.WorkTypeLabel, "fakeType"),
-								HaveKeyWithValue(v1alpha1.WorkActionLabel, "fakeAction"),
+								HaveKeyWithValue(v1alpha1.WorkflowTypeLabel, "fakeType"),
+								HaveKeyWithValue(v1alpha1.WorkflowActionLabel, "fakeAction"),
 								HaveKeyWithValue(v1alpha1.PipelineNameLabel, factory.Pipeline.Name),
 								HaveKeyWithValue(v1alpha1.PipelineNamespaceLabel, factory.Namespace),
 								HaveLen(5),
@@ -1299,8 +1299,8 @@ func matchUserPermissionsLabels(pipelineJobResources *v1alpha1.PipelineJobResour
 	Expect(labels).To(SatisfyAll(
 		HaveKeyWithValue(v1alpha1.PromiseNameLabel, jobLabels[v1alpha1.PromiseNameLabel]),
 		HaveKeyWithValue(v1alpha1.PipelineNameLabel, pipelineJobResources.Name),
-		HaveKeyWithValue(v1alpha1.WorkTypeLabel, jobLabels[v1alpha1.WorkTypeLabel]),
-		HaveKeyWithValue(v1alpha1.WorkActionLabel, jobLabels[v1alpha1.WorkActionLabel]),
+		HaveKeyWithValue(v1alpha1.WorkflowTypeLabel, jobLabels[v1alpha1.WorkflowTypeLabel]),
+		HaveKeyWithValue(v1alpha1.WorkflowActionLabel, jobLabels[v1alpha1.WorkflowActionLabel]),
 	))
 }
 

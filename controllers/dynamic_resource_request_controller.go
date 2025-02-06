@@ -267,7 +267,7 @@ func (r *DynamicResourceRequestController) deleteWorkflows(o opts, resourceReque
 	jobLabels := map[string]string{
 		v1alpha1.PromiseNameLabel:  r.PromiseIdentifier,
 		v1alpha1.ResourceNameLabel: resourceRequest.GetName(),
-		v1alpha1.WorkTypeLabel:     v1alpha1.WorkTypeResource,
+		v1alpha1.WorkflowTypeLabel: string(v1alpha1.WorkflowTypeResource),
 	}
 
 	resourcesRemaining, err := deleteAllResourcesWithKindMatchingLabel(o, &jobGVK, jobLabels)

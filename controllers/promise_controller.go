@@ -772,8 +772,8 @@ func (r *PromiseReconciler) deletePromiseWorkflowJobs(o opts, promise *v1alpha1.
 	}
 
 	jobLabels := map[string]string{
-		v1alpha1.PromiseNameLabel: promise.GetName(),
-		v1alpha1.WorkTypeLabel:    v1alpha1.WorkTypePromise,
+		v1alpha1.PromiseNameLabel:  promise.GetName(),
+		v1alpha1.WorkflowTypeLabel: string(v1alpha1.WorkflowTypePromise),
 	}
 
 	resourcesRemaining, err := deleteAllResourcesWithKindMatchingLabel(o, &jobGVK, jobLabels)

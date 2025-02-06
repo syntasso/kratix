@@ -61,13 +61,6 @@ var _ = Describe("DynamicResourceRequestController", func() {
 
 		resReq = createResourceRequest(resourceRequestPath)
 		resReqNameNamespace = client.ObjectKeyFromObject(resReq)
-
-		promiseCommonLabels = map[string]string{
-			"kratix-promise-resource-request-id": promise.GetName() + "-" + resReq.GetName(),
-			"kratix.io/resource-name":            resReq.GetName(),
-			"kratix.io/promise-name":             promise.GetName(),
-			"kratix.io/work-type":                "resource",
-		}
 	})
 
 	When("resource is being created", func() {

@@ -223,6 +223,6 @@ func getPipelineResourcesLabels(pipeline v1alpha1.PipelineJobResources) map[stri
 		pipeline.Job.GetLabels()[v1alpha1.PromiseNameLabel],
 		pipeline.Name,
 		pipeline.Job.Namespace,
-		pipeline.Job.GetLabels()[v1alpha1.WorkTypeLabel],
-		pipeline.Job.GetLabels()[v1alpha1.WorkActionLabel])
+		pipeline.Job.GetLabels()[v1alpha1.WorkflowTypeLabel],
+		pipeline.Job.GetLabels()[v1alpha1.WorkflowActionLabel])
 }

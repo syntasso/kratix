@@ -40,6 +40,9 @@ const (
 	kratixPromiseEnvVar      = "KRATIX_PROMISE_NAME"
 	kratixPipelineNameEnvVar = "KRATIX_PIPELINE_NAME"
 
+	WorkflowTypeLabel   = KratixPrefix + "workflow-type"
+	WorkflowActionLabel = KratixPrefix + "workflow-action"
+
 	// This is used to identify the * namespace case in user permissions. Kubernetes does
 	// not allow * as a label value, so we use this value instead.
 	// It contains underscores, which makes it an invalid namespace, so it won't conflict
@@ -234,7 +237,7 @@ func workflowLabels(workflowType, workflowAction, pipelineName string) map[strin
 
 	if workflowType != "" {
 		ls = labels.Merge(ls, map[string]string{
-			WorkTypeLabel: workflowType,
+			WorkflowTypeLabel: workflowType,
 		})
 	}
 
@@ -246,7 +249,7 @@ func workflowLabels(workflowType, workflowAction, pipelineName string) map[strin
 
 	if workflowAction != "" {
 		ls = labels.Merge(ls, map[string]string{
-			WorkActionLabel: workflowAction,
+			WorkflowActionLabel: workflowAction,
 		})
 	}
 	return ls

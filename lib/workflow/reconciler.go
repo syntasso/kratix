@@ -188,7 +188,7 @@ func getLabelsForPipelineJob(pipeline v1alpha1.PipelineJobResources) map[string]
 
 func labelsForJobs(opts Opts) map[string]string {
 	l := map[string]string{
-		v1alpha1.WorkTypeLabel: opts.source,
+		v1alpha1.WorkflowTypeLabel: opts.source,
 	}
 	promiseName := opts.parentObject.GetName()
 	if opts.source == string(v1alpha1.WorkflowTypeResource) {
