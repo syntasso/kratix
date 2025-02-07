@@ -255,6 +255,40 @@ func workflowLabels(workflowType, workflowAction, pipelineName string) map[strin
 	return ls
 }
 
+// TODO: this part will be deprecated when we stop using the legacy labels
+func UserPermissionPipelineResourcesLegacyLabels(promiseName, pipelineName, pipelineNamespace, workflowType, workflowAction string) map[string]string {
+	labels := labels.Merge(
+		promiseNameLabel(promiseName),
+		workflowLegacyLabels(workflowType, workflowAction, pipelineName),
+	)
+	labels[PipelineNamespaceLabel] = pipelineNamespace
+	return labels
+}
+
+// TODO: this part will be deprecated when we stop using the legacy labels
+func workflowLegacyLabels(workflowType, workflowAction, pipelineName string) map[string]string {
+	ls := map[string]string{}
+
+	if workflowType != "" {
+		ls = labels.Merge(ls, map[string]string{
+			WorkTypeLabel: workflowType,
+		})
+	}
+
+	if pipelineName != "" {
+		ls = labels.Merge(ls, map[string]string{
+			PipelineNameLabel: pipelineName,
+		})
+	}
+
+	if workflowAction != "" {
+		ls = labels.Merge(ls, map[string]string{
+			WorkActionLabel: workflowAction,
+		})
+	}
+	return ls
+}
+
 func promiseNameLabel(promiseName string) map[string]string {
 	return map[string]string{
 		PromiseNameLabel: promiseName,

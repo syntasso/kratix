@@ -59,6 +59,11 @@ func deleteAllResourcesWithKindMatchingLabel(o opts, gvk *schema.GroupVersionKin
 		return true, err
 	}
 
+	if len(resourceList.Items) == 0 {
+		o.logger.Info("no resources found for deletion", "gvk", resourceList.GroupVersionKind(), "withLabels", resourceLabels)
+		return false, nil
+	}
+
 	o.logger.Info("deleting resources", "gvk", resourceList.GroupVersionKind(), "withLabels", resourceLabels, "resources", resourceutil.GetResourceNames(resourceList.Items))
 
 	for _, resource := range resourceList.Items {

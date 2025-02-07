@@ -219,10 +219,25 @@ func clusterRoleBindingsMatch(existingClusterRoleBinding rbacv1.ClusterRoleBindi
 }
 
 func getPipelineResourcesLabels(pipeline v1alpha1.PipelineJobResources) map[string]string {
-	return v1alpha1.UserPermissionPipelineResourcesLabels(
+	// TODO: this part will be deprecated when we stop using the legacy labels
+	resourcesLegacyLabels := v1alpha1.UserPermissionPipelineResourcesLegacyLabels(
+		pipeline.Job.GetLabels()[v1alpha1.PromiseNameLabel],
+		pipeline.Name,
+		pipeline.Job.Namespace,
+		pipeline.Job.GetLabels()[v1alpha1.WorkTypeLabel],
+		pipeline.Job.GetLabels()[v1alpha1.WorkActionLabel])
+
+	if len(resourcesLegacyLabels) != 0 {
+		return resourcesLegacyLabels
+	}
+	// TODO end of legacy labels block
+
+	resourcesLabels := v1alpha1.UserPermissionPipelineResourcesLabels(
 		pipeline.Job.GetLabels()[v1alpha1.PromiseNameLabel],
 		pipeline.Name,
 		pipeline.Job.Namespace,
 		pipeline.Job.GetLabels()[v1alpha1.WorkflowTypeLabel],
 		pipeline.Job.GetLabels()[v1alpha1.WorkflowActionLabel])
+
+	return resourcesLabels
 }

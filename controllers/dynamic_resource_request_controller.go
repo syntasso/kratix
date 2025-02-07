@@ -275,7 +275,18 @@ func (r *DynamicResourceRequestController) deleteWorkflows(o opts, resourceReque
 		return err
 	}
 
-	if !resourcesRemaining {
+	// TODO: this part will be deprecated when we stop using the legacy labels
+	jobLegacyLabels := map[string]string{
+		v1alpha1.PromiseNameLabel:  r.PromiseIdentifier,
+		v1alpha1.ResourceNameLabel: resourceRequest.GetName(),
+		v1alpha1.WorkTypeLabel:     v1alpha1.WorkTypeResource,
+	}
+	legacyResourcesRemaining, err := deleteAllResourcesWithKindMatchingLabel(o, &jobGVK, jobLegacyLabels)
+	if err != nil {
+		return err
+	}
+
+	if !resourcesRemaining || !legacyResourcesRemaining {
 		controllerutil.RemoveFinalizer(resourceRequest, finalizer)
 		if err := r.Client.Update(o.ctx, resourceRequest); err != nil {
 			return err
