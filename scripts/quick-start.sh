@@ -239,8 +239,6 @@ setup_worker_destination() {
         ${ROOT}/scripts/register-destination --name platform-cluster --context kind-platform $flags
     else
         ${ROOT}/scripts/register-destination --name worker-1 --path worker-1 --context kind-worker $flags
-        # cat "${ROOT}/config/samples/platform_v1alpha1_worker.yaml" | patch_statestore | kubectl --context kind-platform apply --filename -
-        # install_flux_gitops kind-worker worker-1
         if ! ${LABELS}; then
             kubectl --context kind-platform label destination worker-1 environment-
         fi

@@ -48,7 +48,8 @@ import (
 const (
 	canaryWorkload              = "kratix-canary"
 	destinationCleanupFinalizer = v1alpha1.KratixPrefix + "destination-cleanup"
-	stateStoreRefNameField      = "spec.stateStoreRef.name"
+
+	stateStoreRef = "stateStoreRef"
 )
 
 // DestinationReconciler reconciles a Destination object
@@ -294,35 +295,42 @@ func (r *DestinationReconciler) updateReadyCondition(destination *v1alpha1.Desti
 	return r.Client.Status().Update(context.Background(), destination)
 }
 
-func (r *DestinationReconciler) findDestinationsForStateStore(ctx context.Context, stateStore client.Object) []reconcile.Request {
-	destinationList := &v1alpha1.DestinationList{}
-	if err := r.Client.List(ctx, destinationList, client.MatchingFields{
-		stateStoreRefNameField: stateStore.GetName(),
-	}); err != nil {
-		r.Log.Error(err, "error listing destinations for state store")
-		return nil
-	}
+func (r *DestinationReconciler) findDestinationsForStateStore(stateStoreType string) handler.MapFunc {
+	return func(ctx context.Context, stateStore client.Object) []reconcile.Request {
+		destinationList := &v1alpha1.DestinationList{}
+		if err := r.Client.List(ctx, destinationList, client.MatchingFields{
+			stateStoreRef: r.stateStoreRefKey(stateStoreType, stateStore.GetName()),
+		}); err != nil {
+			r.Log.Error(err, "error listing destinations for state store")
+			return nil
+		}
 
-	var requests []reconcile.Request
-	for _, destination := range destinationList.Items {
-		requests = append(requests, reconcile.Request{
-			NamespacedName: types.NamespacedName{
-				Namespace: destination.Namespace,
-				Name:      destination.Name,
-			},
-		})
+		var requests []reconcile.Request
+		for _, destination := range destinationList.Items {
+			requests = append(requests, reconcile.Request{
+				NamespacedName: types.NamespacedName{
+					Namespace: destination.Namespace,
+					Name:      destination.Name,
+				},
+			})
+		}
+		return requests
 	}
-	return requests
+}
+
+func (r *DestinationReconciler) stateStoreRefKey(stateStoreKind, stateStoreName string) string {
+	return fmt.Sprintf("%s.%s", stateStoreKind, stateStoreName)
 }
 
 // SetupWithManager sets up the controller with the Manager.
 func (r *DestinationReconciler) SetupWithManager(mgr ctrl.Manager) error {
 	// Create an index on the state store reference
-	err := mgr.GetFieldIndexer().IndexField(context.Background(), &v1alpha1.Destination{}, stateStoreRefNameField, func(rawObj client.Object) []string {
-		destination := rawObj.(*v1alpha1.Destination)
-		return []string{destination.Spec.StateStoreRef.Name}
-	})
-
+	err := mgr.GetFieldIndexer().IndexField(context.Background(), &v1alpha1.Destination{}, stateStoreRef,
+		func(rawObj client.Object) []string {
+			destination := rawObj.(*v1alpha1.Destination)
+			return []string{r.stateStoreRefKey(destination.Spec.StateStoreRef.Kind, destination.Spec.StateStoreRef.Name)}
+		},
+	)
 	if err != nil {
 		return err
 	}
@@ -331,11 +339,11 @@ func (r *DestinationReconciler) SetupWithManager(mgr ctrl.Manager) error {
 		For(&v1alpha1.Destination{}).
 		Watches(
 			&v1alpha1.BucketStateStore{},
-			handler.EnqueueRequestsFromMapFunc(r.findDestinationsForStateStore),
+			handler.EnqueueRequestsFromMapFunc(r.findDestinationsForStateStore("BucketStateStore")),
 		).
 		Watches(
 			&v1alpha1.GitStateStore{},
-			handler.EnqueueRequestsFromMapFunc(r.findDestinationsForStateStore),
+			handler.EnqueueRequestsFromMapFunc(r.findDestinationsForStateStore("GitStateStore")),
 		).
 		WithEventFilter(predicate.GenerationChangedPredicate{}).
 		Complete(r)

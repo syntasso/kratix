@@ -11,5 +11,5 @@ spec:
   filepath:
     mode: nestedByMetadata
   stateStoreRef:
-    kind: BucketStateStore
+    kind: GitStateStore
     name: default

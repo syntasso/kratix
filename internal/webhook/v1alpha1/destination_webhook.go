@@ -63,10 +63,14 @@ func (d *DestinationCustomDefaulter) Default(ctx context.Context, obj runtime.Ob
 			return err
 		}
 
-		// this is a new destination we should add the annotation so the
-		// controller doesn't try to append the destination name to the path on
-		// the next reconcile
+		// add the annotation so the controller doesn't try to append the
+		// destination name to the path on the next reconcile
 		destination.Annotations[v1alpha1.SkipPathDefaultingAnnotation] = "true"
+	}
+
+	// Defaults the destination path to the destination name if not set
+	if destination.Spec.Path == "" {
+		destination.Spec.Path = destination.Name
 	}
 
 	// this is here to prevent the annotation from being removed on already patched destinations
@@ -80,7 +84,9 @@ func (d *DestinationCustomDefaulter) Default(ctx context.Context, obj runtime.Ob
 // +kubebuilder:webhook:path=/validate-platform-kratix-io-v1alpha1-destination,mutating=false,failurePolicy=fail,sideEffects=None,groups=platform.kratix.io,resources=destinations,verbs=create;update,versions=v1alpha1,name=vdestination.kb.io,admissionReviewVersions=v1
 
 // DestinationCustomValidator is a custom validator for Destination.
-type DestinationCustomValidator struct{}
+type DestinationCustomValidator struct {
+	Client client.Client
+}
 
 var _ webhook.CustomValidator = &DestinationCustomValidator{}
 
@@ -93,6 +99,25 @@ func (v *DestinationCustomValidator) ValidateCreate(ctx context.Context, obj run
 
 	if destination.Spec.Path == "" {
 		return nil, stderror.New("path field is required")
+	}
+
+	// Check for path clashes with other destinations using the same state store
+	destinationList := &v1alpha1.DestinationList{}
+	err := v.Client.List(ctx, destinationList, client.MatchingFields{
+		"stateStoreRef": fmt.Sprintf("%s.%s", destination.Spec.StateStoreRef.Kind, destination.Spec.StateStoreRef.Name),
+	})
+	if err != nil {
+		return nil, fmt.Errorf("failed to list destinations: %w", err)
+	}
+
+	for _, existingDest := range destinationList.Items {
+		if existingDest.Name == destination.Name {
+			continue
+		}
+		if existingDest.Spec.Path == destination.Spec.Path {
+			return nil, fmt.Errorf("destination path '%s' already exists for state store '%s'",
+				destination.Spec.Path, destination.Spec.StateStoreRef.Name)
+		}
 	}
 
 	return nil, nil
@@ -112,6 +137,6 @@ func (v *DestinationCustomValidator) ValidateDelete(ctx context.Context, obj run
 func SetupDestinationWebhookWithManager(mgr ctrl.Manager, c client.Client) error {
 	return ctrl.NewWebhookManagedBy(mgr).For(&v1alpha1.Destination{}).
 		WithDefaulter(&DestinationCustomDefaulter{Client: c}).
-		WithValidator(&DestinationCustomValidator{}).
+		WithValidator(&DestinationCustomValidator{Client: c}).
 		Complete()
 }

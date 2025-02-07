@@ -49,8 +49,8 @@ type DestinationSpec struct {
 	//   <StateStore.Spec.Path>/<Destination.Spec.Path>/
 	// Kratix may create other subdirectories, depending on the Filepath.mode you select.
 	// To write to the root of the StateStore.Spec.Path, set Path to "." or "/".
-	// +kubebuilder:validation:Required
-	// +kubebuilder:validation:XValidation:rule="self == oldSelf",message="Path is immutable"
+	// Defaults to the Destination name
+	// +kubebuilder:validation:Optional
 	Path string `json:"path,omitempty"`
 
 	StateStoreRef *StateStoreReference `json:"stateStoreRef,omitempty"`
