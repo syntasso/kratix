@@ -59,3 +59,6 @@ kubectl --context kind-worker wait --for=condition=Ready --timeout=300s -n "$kus
 
 echo "helm e2e test setup completed; now verify Jenkins"
 ./scripts/install-jenkins.sh
+
+helm uninstall kratix-destination --wait
+helm uninstall kratix --wait
