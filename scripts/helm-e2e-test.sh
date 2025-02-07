@@ -28,7 +28,7 @@ make gitea-cli
 ./charts/scripts/generate-templates-and-crds ./distribution/kratix.yaml
 export DOCKER_BUILDKIT=1
 
-echo "setup platform and install GitStateStore"
+echo "setup platform and install StateStore"
 kind create cluster --image kindest/node:v1.27.3 --name platform --config hack/platform/kind-platform-config.yaml
 make install-cert-manager
 make build-and-load-kratix
@@ -59,6 +59,3 @@ kubectl --context kind-worker wait --for=condition=Ready --timeout=300s -n "$kus
 
 echo "helm e2e test setup completed; now verify Jenkins"
 ./scripts/install-jenkins.sh
-
-helm uninstall kratix-destination
-helm uninstall kratix
