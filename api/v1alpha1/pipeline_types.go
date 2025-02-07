@@ -43,6 +43,9 @@ const (
 	WorkflowTypeLabel   = KratixPrefix + "workflow-type"
 	WorkflowActionLabel = KratixPrefix + "workflow-action"
 
+	ManagedByLabel      = "app.kubernetes.io/managed-by"
+	ManagedByLabelValue = "Kratix"
+
 	// This is used to identify the * namespace case in user permissions. Kubernetes does
 	// not allow * as a label value, so we use this value instead.
 	// It contains underscores, which makes it an invalid namespace, so it won't conflict
@@ -298,5 +301,11 @@ func promiseNameLabel(promiseName string) map[string]string {
 func resourceNameLabel(rName string) map[string]string {
 	return map[string]string{
 		ResourceNameLabel: rName,
+	}
+}
+
+func managedByKratixLabel() map[string]string {
+	return map[string]string{
+		ManagedByLabel: ManagedByLabelValue,
 	}
 }
