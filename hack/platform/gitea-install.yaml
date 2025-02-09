@@ -1,4 +1,11 @@
 ---
+# Source: gitea/templates/gitea/extra-list.yaml
+apiVersion: v1
+kind: ServiceAccount
+metadata:
+  name: gitea-create-repository
+  namespace: gitea
+---
 # Source: gitea/templates/gitea/config.yaml
 apiVersion: v1
 kind: Secret
@@ -325,6 +332,36 @@ stringData:
 
     echo '==== END GITEA CONFIGURATION ===='
 ---
+# Source: gitea/templates/gitea/extra-list.yaml
+apiVersion: rbac.authorization.k8s.io/v1
+kind: Role
+metadata:
+  name: gitea-create-repository
+  namespace: gitea
+rules:
+  - apiGroups:
+      - ""
+    resources:
+      - pods
+    verbs:
+      - get
+      - list
+      - watch
+---
+# Source: gitea/templates/gitea/extra-list.yaml
+apiVersion: rbac.authorization.k8s.io/v1
+kind: RoleBinding
+metadata:
+  name: gitea-create-repository
+  namespace: gitea
+roleRef:
+  apiGroup: rbac.authorization.k8s.io
+  kind: Role
+  name: gitea-create-repository
+subjects:
+  - kind: ServiceAccount
+    name: gitea-create-repository
+---
 # Source: gitea/templates/gitea/http-svc.yaml
 apiVersion: v1
 kind: Service
@@ -598,6 +635,7 @@ spec:
         - name: data
           emptyDir: {}
 ---
+# Source: gitea/templates/gitea/extra-list.yaml
 apiVersion: batch/v1
 kind: Job
 metadata:
@@ -606,75 +644,10 @@ metadata:
 spec:
   template:
     spec:
-      serviceAccountName: gitea-create-repository
-      initContainers:
-        - name: wait-for-git
-          image: docker.io/bitnami/kubectl:1.28.6
-          command:
-            [
-              "sh",
-              "-c",
-              "kubectl wait --for=condition=Ready --timeout=120s --namespace gitea pod -l app.kubernetes.io/instance=gitea",
-            ]
-        - name: init
-          env:
-            - name: GIT_DISCOVERY_ACROSS_FILESYSTEM
-              value: "true"
-          image: docker.io/alpine/git:2.36.3
-          args:
-            - init
-            - --separate-git-dir=/repo/.git
-            - --initial-branch=main
-          volumeMounts:
-            - mountPath: /repo
-              name: repo
-        - name: commit
-          image: docker.io/alpine/git:2.36.3
-          env:
-            - name: GIT_DISCOVERY_ACROSS_FILESYSTEM
-              value: "true"
-          args:
-            - --git-dir=/repo/.git
-            - -c
-            - "user.name='kratix'"
-            - -c
-            - "user.email='kratix@kratix.io'"
-            - commit
-            - --allow-empty
-            - -m
-            - "Kratix verify demo repo exists"
-          volumeMounts:
-            - mountPath: /repo
-              name: repo
-        - name: pull-rebase
-          # Note: this makes us more resilient if the repo already exists.
-          image: ghcr.io/syntasso/kratix-pipeline-utility:v0.0.1
-          env:
-            - name: GIT_DISCOVERY_ACROSS_FILESYSTEM
-              value: "true"
-          command:
-            - "sh"
-            - "-c"
-            - |
-              exit_code=$(git -c http.sslVerify=false ls-remote https://gitea_admin:r8sA8CPHD9!bt6d@gitea-http.gitea.svc.cluster.local/gitea_admin/kratix.git > /dev/null 2>&1 && echo $?)
-              if [ $exit_code -eq 0 ]; then
-                touch /repo/.already-exists
-              else
-                echo "remote repo does not yet exist, continuing with push"
-              fi
-          volumeMounts:
-            - mountPath: /repo
-              name: repo
       containers:
-        - name: push
-          # Note: this makes us more resilient if the repo already exists.
-          image: ghcr.io/syntasso/kratix-pipeline-utility:v0.0.1
-          env:
-            - name: GIT_DISCOVERY_ACROSS_FILESYSTEM
-              value: "true"
-          command:
-            - "sh"
-            - "-c"
+        - command:
+            - sh
+            - -c
             - |
               if [ -f /repo/.already-exists ]; then
                 echo "remote repo already exists, skipping push"
@@ -682,44 +655,72 @@ spec:
               fi
               git --git-dir=/repo/.git -c http.sslVerify=false \
                 push https://gitea_admin:r8sA8CPHD9!bt6d@gitea-http.gitea.svc.cluster.local/gitea_admin/kratix.git --all
+          env:
+            - name: GIT_DISCOVERY_ACROSS_FILESYSTEM
+              value: "true"
+          image: ghcr.io/syntasso/kratix-pipeline-utility:v0.0.1
+          name: push
+          volumeMounts:
+            - mountPath: /repo
+              name: repo
+      initContainers:
+        - command:
+            - sh
+            - -c
+            - kubectl wait --for=condition=Ready --timeout=120s --namespace gitea pod
+              -l app.kubernetes.io/instance=gitea
+          image: docker.io/bitnami/kubectl:1.28.6
+          name: wait-for-git
+        - args:
+            - init
+            - --separate-git-dir=/repo/.git
+            - --initial-branch=main
+          env:
+            - name: GIT_DISCOVERY_ACROSS_FILESYSTEM
+              value: "true"
+          image: docker.io/alpine/git:2.36.3
+          name: init
+          volumeMounts:
+            - mountPath: /repo
+              name: repo
+        - args:
+            - --git-dir=/repo/.git
+            - -c
+            - user.name='kratix'
+            - -c
+            - user.email='kratix@kratix.io'
+            - commit
+            - --allow-empty
+            - -m
+            - Kratix verify demo repo exists
+          env:
+            - name: GIT_DISCOVERY_ACROSS_FILESYSTEM
+              value: "true"
+          image: docker.io/alpine/git:2.36.3
+          name: commit
+          volumeMounts:
+            - mountPath: /repo
+              name: repo
+        - command:
+            - sh
+            - -c
+            - |
+              exit_code=$(git -c http.sslVerify=false ls-remote https://gitea_admin:r8sA8CPHD9!bt6d@gitea-http.gitea.svc.cluster.local/gitea_admin/kratix.git > /dev/null 2>&1 && echo $?)
+              if [ $exit_code -eq 0 ]; then
+                touch /repo/.already-exists
+              else
+                echo "remote repo does not yet exist, continuing with push"
+              fi
+          env:
+            - name: GIT_DISCOVERY_ACROSS_FILESYSTEM
+              value: "true"
+          image: ghcr.io/syntasso/kratix-pipeline-utility:v0.0.1
+          name: pull-rebase
           volumeMounts:
             - mountPath: /repo
               name: repo
       restartPolicy: Never
+      serviceAccountName: gitea-create-repository
       volumes:
-        - name: repo
-          emptyDir: {}
----
-apiVersion: rbac.authorization.k8s.io/v1
-kind: Role
-metadata:
-  name: gitea-create-repository
-  namespace: gitea
-rules:
-  - apiGroups:
-      - ""
-    resources:
-      - pods
-    verbs:
-      - get
-      - list
-      - watch
----
-apiVersion: rbac.authorization.k8s.io/v1
-kind: RoleBinding
-metadata:
-  name: gitea-create-repository
-  namespace: gitea
-roleRef:
-  apiGroup: rbac.authorization.k8s.io
-  kind: Role
-  name: gitea-create-repository
-subjects:
-  - kind: ServiceAccount
-    name: gitea-create-repository
----
-apiVersion: v1
-kind: ServiceAccount
-metadata:
-  name: gitea-create-repository
-  namespace: gitea
+        - emptyDir: {}
+          name: repo
