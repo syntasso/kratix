@@ -23,6 +23,7 @@ metadata:
 type: Opaque
 stringData:
   _generals_: ""
+  actions: ENABLED=false
   cache: |-
     ADAPTER=memory
     HOST=
