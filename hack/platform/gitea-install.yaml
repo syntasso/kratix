@@ -257,15 +257,8 @@ stringData:
     [ ! -d /data/gitea/conf ] && mkdir -pv /data/gitea/conf
 
     # prepare temp directory structure
-    mkdir -p "${GITEA_TEMP}"
-    chmod ug+rwx "${GITEA_TEMP}"
-
-    # configure certs
-    cd $GITEA_CUSTOM
-    echo "$CERT_CONTENTS" > cert.pem
-    echo "$KEY_CONTENTS" > key.pem
-    chmod ug+rw *.pem
-    cd -
+    mkdir -pv "${GITEA_TEMP}"
+    chmod -v ug+rwx "${GITEA_TEMP}"
 
   configure_gitea.sh: |-
     #!/usr/bin/env bash
@@ -666,7 +659,12 @@ spec:
               mountPath: /tmp
             - name: data
               mountPath: /data
-
+            - mountPath: /data/gitea/key.pem
+              name: cert
+              subPath: privateKey
+            - mountPath: /data/gitea/cert.pem
+              name: cert
+              subPath: caFile
       volumes:
         - name: init
           secret:
@@ -676,6 +674,9 @@ spec:
           secret:
             secretName: gitea
             defaultMode: 110
+        - name: cert
+          secret:
+            secretName: gitea-credentials
         - name: inline-config-sources
           secret:
             secretName: gitea-inline-config
