@@ -640,7 +640,7 @@ spec:
                   name: gitea-credentials
           ports:
             - name: ssh
-              containerPort: 22
+              containerPort: 2222
             - name: http
               containerPort: 3000
           livenessProbe:
