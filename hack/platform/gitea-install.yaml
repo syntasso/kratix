@@ -6,12 +6,12 @@ metadata:
   name: gitea-inline-config
   namespace: gitea
   labels:
-    helm.sh/chart: gitea-10.1.4
+    helm.sh/chart: gitea-10.6.0
     app: gitea
     app.kubernetes.io/name: gitea
     app.kubernetes.io/instance: gitea
-    app.kubernetes.io/version: "1.21.11"
-    version: "1.21.11"
+    app.kubernetes.io/version: "1.22.3"
+    version: "1.22.3"
     app.kubernetes.io/managed-by: Helm
 type: Opaque
 stringData:
@@ -54,12 +54,12 @@ metadata:
   name: gitea
   namespace: gitea
   labels:
-    helm.sh/chart: gitea-10.1.4
+    helm.sh/chart: gitea-10.6.0
     app: gitea
     app.kubernetes.io/name: gitea
     app.kubernetes.io/instance: gitea
-    app.kubernetes.io/version: "1.21.11"
-    version: "1.21.11"
+    app.kubernetes.io/version: "1.22.3"
+    version: "1.22.3"
     app.kubernetes.io/managed-by: Helm
 type: Opaque
 stringData:
@@ -227,12 +227,12 @@ metadata:
   name: gitea-init
   namespace: gitea
   labels:
-    helm.sh/chart: gitea-10.1.4
+    helm.sh/chart: gitea-10.6.0
     app: gitea
     app.kubernetes.io/name: gitea
     app.kubernetes.io/instance: gitea
-    app.kubernetes.io/version: "1.21.11"
-    version: "1.21.11"
+    app.kubernetes.io/version: "1.22.3"
+    version: "1.22.3"
     app.kubernetes.io/managed-by: Helm
 type: Opaque
 stringData:
@@ -332,12 +332,12 @@ metadata:
   name: gitea-http
   namespace: gitea
   labels:
-    helm.sh/chart: gitea-10.1.4
+    helm.sh/chart: gitea-10.6.0
     app: gitea
     app.kubernetes.io/name: gitea
     app.kubernetes.io/instance: gitea
-    app.kubernetes.io/version: "1.21.11"
-    version: "1.21.11"
+    app.kubernetes.io/version: "1.22.3"
+    version: "1.22.3"
     app.kubernetes.io/managed-by: Helm
   annotations:
     {}
@@ -359,12 +359,12 @@ metadata:
   name: gitea-ssh
   namespace: gitea
   labels:
-    helm.sh/chart: gitea-10.1.4
+    helm.sh/chart: gitea-10.6.0
     app: gitea
     app.kubernetes.io/name: gitea
     app.kubernetes.io/instance: gitea
-    app.kubernetes.io/version: "1.21.11"
-    version: "1.21.11"
+    app.kubernetes.io/version: "1.22.3"
+    version: "1.22.3"
     app.kubernetes.io/managed-by: Helm
   annotations:
     {}
@@ -388,12 +388,12 @@ metadata:
   namespace: gitea
   annotations:
   labels:
-    helm.sh/chart: gitea-10.1.4
+    helm.sh/chart: gitea-10.6.0
     app: gitea
     app.kubernetes.io/name: gitea
     app.kubernetes.io/instance: gitea
-    app.kubernetes.io/version: "1.21.11"
-    version: "1.21.11"
+    app.kubernetes.io/version: "1.22.3"
+    version: "1.22.3"
     app.kubernetes.io/managed-by: Helm
 spec:
   replicas: 1
@@ -411,12 +411,12 @@ spec:
       annotations:
         checksum/config: f48ea30927258688dd47a1a0226bb8aa5dbccd89bd03217c7e82968a6914d76e
       labels:
-        helm.sh/chart: gitea-10.1.4
+        helm.sh/chart: gitea-10.6.0
         app: gitea
         app.kubernetes.io/name: gitea
         app.kubernetes.io/instance: gitea
-        app.kubernetes.io/version: "1.21.11"
-        version: "1.21.11"
+        app.kubernetes.io/version: "1.22.3"
+        version: "1.22.3"
         app.kubernetes.io/managed-by: Helm
     spec:
 
@@ -424,7 +424,7 @@ spec:
         fsGroup: 1000
       initContainers:
         - name: init-directories
-          image: "gitea/gitea:1.21.11-rootless"
+          image: "gitea/gitea:1.22.3-rootless"
           imagePullPolicy: IfNotPresent
           command: ["/usr/sbin/init_directory_structure.sh"]
           env:
@@ -462,7 +462,7 @@ spec:
               cpu: 100m
               memory: 128Mi
         - name: init-app-ini
-          image: "gitea/gitea:1.21.11-rootless"
+          image: "gitea/gitea:1.22.3-rootless"
           imagePullPolicy: IfNotPresent
           command: ["/usr/sbin/config_environment.sh"]
           env:
@@ -492,7 +492,7 @@ spec:
               cpu: 100m
               memory: 128Mi
         - name: configure-gitea
-          image: "gitea/gitea:1.21.11-rootless"
+          image: "gitea/gitea:1.22.3-rootless"
           command: ["/usr/sbin/configure_gitea.sh"]
           imagePullPolicy: IfNotPresent
           securityContext:
@@ -528,7 +528,7 @@ spec:
       terminationGracePeriodSeconds: 60
       containers:
         - name: gitea
-          image: "gitea/gitea:1.21.11-rootless"
+          image: "gitea/gitea:1.22.3-rootless"
           imagePullPolicy: IfNotPresent
           env:
             # SSH Port values have to be set here as well for openssh configuration
