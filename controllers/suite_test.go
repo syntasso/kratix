@@ -135,3 +135,17 @@ func setReconcileDeleteWorkflowToReturnFinished(obj client.Object) {
 		return false, nil
 	})
 }
+
+func setReconcileDeleteWorkflowToReturnError(obj client.Object) {
+	controllers.SetReconcileDeleteWorkflow(func(w workflow.Opts) (bool, error) {
+		us := &unstructured.Unstructured{}
+		us.SetGroupVersionKind(obj.GetObjectKind().GroupVersionKind())
+		Expect(fakeK8sClient.Get(ctx, types.NamespacedName{
+			Name:      obj.GetName(),
+			Namespace: obj.GetNamespace(),
+		}, us)).To(Succeed())
+
+		reconcileDeleteOptsArg = w
+		return false, workflow.ErrDeletePipelineFailed
+	})
+}
