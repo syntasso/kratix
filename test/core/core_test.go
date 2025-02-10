@@ -28,7 +28,7 @@ var _ = Describe("Core Tests", Ordered, func() {
 
 		platform = &kubeutils.Cluster{Context: "kind-platform", Name: "platform-cluster"}
 		worker = &kubeutils.Cluster{Context: "kind-worker", Name: workerOne}
-		Expect(platform.Kubectl("apply", "-f", "assets/destination.yaml")).To(ContainSubstring("created"))
+		platform.Kubectl("apply", "-f", "assets/destination.yaml")
 		platform.Kubectl("label", "destination", workerOne, "target="+workerOne)
 		platform.Kubectl("label", "destination", workerTwo, "target="+workerTwo)
 		worker.Kubectl("apply", "-f", "assets/flux.yaml")

@@ -29,6 +29,9 @@ var _ = Describe("NewGitWriter", func() {
 	BeforeEach(func() {
 		logger = ctrl.Log.WithName("setup")
 		stateStoreSpec = v1alpha1.GitStateStoreSpec{
+			StateStoreCoreFields: v1alpha1.StateStoreCoreFields{
+				Path: "state-store-path",
+			},
 			AuthMethod: "basicAuth",
 			URL:        "https://github.com/syntasso/kratix",
 			Branch:     "test",
@@ -43,7 +46,9 @@ var _ = Describe("NewGitWriter", func() {
 				Namespace: "default",
 				Name:      "test",
 			},
-			Spec: v1alpha1.DestinationSpec{},
+			Spec: v1alpha1.DestinationSpec{
+				Path: "dst-path/",
+			},
 		}
 
 	})
@@ -70,6 +75,7 @@ var _ = Describe("NewGitWriter", func() {
 		Expect(gitWriter.GitServer.Branch).To(Equal("test"))
 		Expect(gitWriter.Author.Email).To(Equal("test@example.com"))
 		Expect(gitWriter.Author.Name).To(Equal("a-user"))
+		Expect(gitWriter.Path).To(Equal("state-store-path/dst-path"))
 	})
 
 	It("removes leading slash from the Path", func() {

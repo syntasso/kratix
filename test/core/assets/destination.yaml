@@ -6,9 +6,10 @@ metadata:
     environment: dev
   name: worker-2
 spec:
+  path: worker-2
   cleanup: none
   filepath:
     mode: nestedByMetadata
   stateStoreRef:
-    kind: BucketStateStore
+    kind: GitStateStore
     name: default

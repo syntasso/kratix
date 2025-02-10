@@ -2,18 +2,29 @@ apiVersion: v1
 kind: Namespace
 metadata:
   labels:
+    app.kubernetes.io/component: kratix-manager
+    app.kubernetes.io/instance: kratix-platform
+    app.kubernetes.io/part-of: kratix
     control-plane: controller-manager
   name: kratix-platform-system
 ---
 apiVersion: v1
 kind: ServiceAccount
 metadata:
+  labels:
+    app.kubernetes.io/component: kratix-manager
+    app.kubernetes.io/instance: kratix-platform
+    app.kubernetes.io/part-of: kratix
   name: kratix-platform-controller-manager
   namespace: kratix-platform-system
 ---
 apiVersion: rbac.authorization.k8s.io/v1
 kind: Role
 metadata:
+  labels:
+    app.kubernetes.io/component: kratix-manager
+    app.kubernetes.io/instance: kratix-platform
+    app.kubernetes.io/part-of: kratix
   name: kratix-platform-leader-election-role
   namespace: kratix-platform-system
 rules:
@@ -52,6 +63,10 @@ rules:
 apiVersion: rbac.authorization.k8s.io/v1
 kind: ClusterRole
 metadata:
+  labels:
+    app.kubernetes.io/component: kratix-manager
+    app.kubernetes.io/instance: kratix-platform
+    app.kubernetes.io/part-of: kratix
   name: kratix-platform-manager-role
 rules:
   - apiGroups:
@@ -64,6 +79,13 @@ rules:
       - list
       - update
       - watch
+  - apiGroups:
+      - ""
+    resources:
+      - events
+    verbs:
+      - create
+      - patch
   - apiGroups:
       - ""
     resources:
@@ -120,109 +142,10 @@ rules:
       - platform.kratix.io
     resources:
       - destinations
-    verbs:
-      - create
-      - delete
-      - get
-      - list
-      - patch
-      - update
-      - watch
-  - apiGroups:
-      - platform.kratix.io
-    resources:
-      - destinations/finalizers
-    verbs:
-      - update
-  - apiGroups:
-      - platform.kratix.io
-    resources:
-      - destinations/status
-    verbs:
-      - get
-      - patch
-      - update
-  - apiGroups:
-      - platform.kratix.io
-    resources:
+      - healthrecords
       - promisereleases
-    verbs:
-      - create
-      - delete
-      - get
-      - list
-      - patch
-      - update
-      - watch
-  - apiGroups:
-      - platform.kratix.io
-    resources:
-      - promisereleases/finalizers
-    verbs:
-      - update
-  - apiGroups:
-      - platform.kratix.io
-    resources:
-      - promisereleases/status
-    verbs:
-      - get
-      - patch
-      - update
-  - apiGroups:
-      - platform.kratix.io
-    resources:
       - promises
-    verbs:
-      - create
-      - delete
-      - get
-      - list
-      - patch
-      - update
-      - watch
-  - apiGroups:
-      - platform.kratix.io
-    resources:
-      - promises/finalizers
-    verbs:
-      - update
-  - apiGroups:
-      - platform.kratix.io
-    resources:
-      - promises/status
-    verbs:
-      - get
-      - patch
-      - update
-  - apiGroups:
-      - platform.kratix.io
-    resources:
       - workplacements
-    verbs:
-      - create
-      - delete
-      - get
-      - list
-      - patch
-      - update
-      - watch
-  - apiGroups:
-      - platform.kratix.io
-    resources:
-      - workplacements/finalizers
-    verbs:
-      - update
-  - apiGroups:
-      - platform.kratix.io
-    resources:
-      - workplacements/status
-    verbs:
-      - get
-      - patch
-      - update
-  - apiGroups:
-      - platform.kratix.io
-    resources:
       - works
     verbs:
       - create
@@ -235,12 +158,22 @@ rules:
   - apiGroups:
       - platform.kratix.io
     resources:
+      - destinations/finalizers
+      - healthrecords/finalizers
+      - promisereleases/finalizers
+      - promises/finalizers
+      - workplacements/finalizers
       - works/finalizers
     verbs:
       - update
   - apiGroups:
       - platform.kratix.io
     resources:
+      - destinations/status
+      - healthrecords/status
+      - promisereleases/status
+      - promises/status
+      - workplacements/status
       - works/status
     verbs:
       - get
@@ -250,29 +183,6 @@ rules:
       - rbac.authorization.k8s.io
     resources:
       - clusterrolebindings
-    verbs:
-      - create
-      - delete
-      - get
-      - list
-      - update
-      - watch
-  - apiGroups:
-      - rbac.authorization.k8s.io
-    resources:
-      - clusterroles
-    verbs:
-      - bind
-      - create
-      - delete
-      - escalate
-      - get
-      - list
-      - update
-      - watch
-  - apiGroups:
-      - rbac.authorization.k8s.io
-    resources:
       - rolebindings
     verbs:
       - create
@@ -284,6 +194,7 @@ rules:
   - apiGroups:
       - rbac.authorization.k8s.io
     resources:
+      - clusterroles
       - roles
     verbs:
       - bind
@@ -296,36 +207,12 @@ rules:
       - watch
 ---
 apiVersion: rbac.authorization.k8s.io/v1
-kind: ClusterRole
-metadata:
-  name: kratix-platform-metrics-reader
-rules:
-  - nonResourceURLs:
-      - /metrics
-    verbs:
-      - get
----
-apiVersion: rbac.authorization.k8s.io/v1
-kind: ClusterRole
-metadata:
-  name: kratix-platform-proxy-role
-rules:
-  - apiGroups:
-      - authentication.k8s.io
-    resources:
-      - tokenreviews
-    verbs:
-      - create
-  - apiGroups:
-      - authorization.k8s.io
-    resources:
-      - subjectaccessreviews
-    verbs:
-      - create
----
-apiVersion: rbac.authorization.k8s.io/v1
 kind: RoleBinding
 metadata:
+  labels:
+    app.kubernetes.io/component: kratix-manager
+    app.kubernetes.io/instance: kratix-platform
+    app.kubernetes.io/part-of: kratix
   name: kratix-platform-leader-election-rolebinding
   namespace: kratix-platform-system
 roleRef:
@@ -340,6 +227,10 @@ subjects:
 apiVersion: rbac.authorization.k8s.io/v1
 kind: ClusterRoleBinding
 metadata:
+  labels:
+    app.kubernetes.io/component: kratix-manager
+    app.kubernetes.io/instance: kratix-platform
+    app.kubernetes.io/part-of: kratix
   name: kratix-platform-manager-rolebinding
 roleRef:
   apiGroup: rbac.authorization.k8s.io
@@ -350,41 +241,17 @@ subjects:
     name: kratix-platform-controller-manager
     namespace: kratix-platform-system
 ---
-apiVersion: rbac.authorization.k8s.io/v1
-kind: ClusterRoleBinding
-metadata:
-  name: kratix-platform-proxy-rolebinding
-roleRef:
-  apiGroup: rbac.authorization.k8s.io
-  kind: ClusterRole
-  name: kratix-platform-proxy-role
-subjects:
-  - kind: ServiceAccount
-    name: kratix-platform-controller-manager
-    namespace: kratix-platform-system
----
 apiVersion: v1
 data:
-  WC_IMG: syntasso/kratix-platform-pipeline-adapter:5a754f2bf1cda45374e2b786db845a1db14e61fc
+  PIPELINE_ADAPTER_IMG: docker.io/syntasso/kratix-platform-pipeline-adapter:dev
 kind: ConfigMap
 metadata:
-  name: kratix-platform-wc-img-config
-  namespace: kratix-platform-system
----
-apiVersion: v1
-kind: Service
-metadata:
   labels:
-    control-plane: controller-manager
-  name: kratix-platform-controller-manager-metrics-service
+    app.kubernetes.io/component: kratix-manager
+    app.kubernetes.io/instance: kratix-platform
+    app.kubernetes.io/part-of: kratix
+  name: kratix-platform-pipeline-adapter-config
   namespace: kratix-platform-system
-spec:
-  ports:
-    - name: https
-      port: 8443
-      targetPort: https
-  selector:
-    control-plane: controller-manager
 ---
 apiVersion: v1
 kind: Service
@@ -410,6 +277,9 @@ apiVersion: apps/v1
 kind: Deployment
 metadata:
   labels:
+    app.kubernetes.io/component: kratix-manager
+    app.kubernetes.io/instance: kratix-platform
+    app.kubernetes.io/part-of: kratix
     control-plane: controller-manager
   name: kratix-platform-controller-manager
   namespace: kratix-platform-system
@@ -417,26 +287,31 @@ spec:
   replicas: 1
   selector:
     matchLabels:
+      app.kubernetes.io/component: kratix-manager
+      app.kubernetes.io/instance: kratix-platform
+      app.kubernetes.io/part-of: kratix
       control-plane: controller-manager
   template:
     metadata:
       labels:
+        app.kubernetes.io/component: kratix-manager
+        app.kubernetes.io/instance: kratix-platform
+        app.kubernetes.io/part-of: kratix
         control-plane: controller-manager
     spec:
       containers:
         - args:
             - --health-probe-bind-address=:8081
-            - --metrics-bind-address=127.0.0.1:8080
             - --leader-elect
           command:
             - /manager
           env:
-            - name: WC_IMG
+            - name: PIPELINE_ADAPTER_IMG
               valueFrom:
                 configMapKeyRef:
-                  key: WC_IMG
-                  name: kratix-platform-wc-img-config
-          image: syntasso/kratix-platform:5a754f2bf1cda45374e2b786db845a1db14e61fc
+                  key: PIPELINE_ADAPTER_IMG
+                  name: kratix-platform-pipeline-adapter-config
+          image: docker.io/syntasso/kratix-platform:dev
           livenessProbe:
             httpGet:
               path: /healthz
@@ -463,20 +338,17 @@ spec:
               memory: 100Mi
           securityContext:
             allowPrivilegeEscalation: false
+            capabilities:
+              drop:
+                - ALL
+            privileged: false
+            runAsNonRoot: true
+            seccompProfile:
+              type: RuntimeDefault
           volumeMounts:
             - mountPath: /tmp/k8s-webhook-server/serving-certs
               name: cert
               readOnly: true
-        - args:
-            - --secure-listen-address=0.0.0.0:8443
-            - --upstream=http://127.0.0.1:8080/
-            - --logtostderr=true
-            - --v=10
-          image: gcr.io/kubebuilder/kube-rbac-proxy:v0.8.0
-          name: kube-rbac-proxy
-          ports:
-            - containerPort: 8443
-              name: https
       securityContext:
         runAsNonRoot: true
       serviceAccountName: kratix-platform-controller-manager
@@ -543,6 +415,26 @@ webhooks:
       service:
         name: kratix-platform-webhook-service
         namespace: kratix-platform-system
+        path: /mutate-platform-kratix-io-v1alpha1-destination
+    failurePolicy: Fail
+    name: mdestination.kb.io
+    rules:
+      - apiGroups:
+          - platform.kratix.io
+        apiVersions:
+          - v1alpha1
+        operations:
+          - CREATE
+          - UPDATE
+        resources:
+          - destinations
+    sideEffects: None
+  - admissionReviewVersions:
+      - v1
+    clientConfig:
+      service:
+        name: kratix-platform-webhook-service
+        namespace: kratix-platform-system
         path: /mutate-platform-kratix-io-v1alpha1-promise
     failurePolicy: Fail
     name: mpromise.kb.io
@@ -578,6 +470,26 @@ webhooks:
       service:
         name: kratix-platform-webhook-service
         namespace: kratix-platform-system
+        path: /validate-platform-kratix-io-v1alpha1-destination
+    failurePolicy: Fail
+    name: vdestination.kb.io
+    rules:
+      - apiGroups:
+          - platform.kratix.io
+        apiVersions:
+          - v1alpha1
+        operations:
+          - CREATE
+          - UPDATE
+        resources:
+          - destinations
+    sideEffects: None
+  - admissionReviewVersions:
+      - v1
+    clientConfig:
+      service:
+        name: kratix-platform-webhook-service
+        namespace: kratix-platform-system
         path: /validate-platform-kratix-io-v1alpha1-promise
     failurePolicy: Fail
     name: vpromise.kb.io
@@ -591,4 +503,24 @@ webhooks:
           - UPDATE
         resources:
           - promises
+    sideEffects: None
+  - admissionReviewVersions:
+      - v1
+    clientConfig:
+      service:
+        name: kratix-platform-webhook-service
+        namespace: kratix-platform-system
+        path: /validate-platform-kratix-io-v1alpha1-promiserelease
+    failurePolicy: Fail
+    name: vpromiserelease.kb.io
+    rules:
+      - apiGroups:
+          - platform.kratix.io
+        apiVersions:
+          - v1alpha1
+        operations:
+          - CREATE
+          - UPDATE
+        resources:
+          - promisereleases
     sideEffects: None

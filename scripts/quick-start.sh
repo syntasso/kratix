@@ -77,7 +77,7 @@ load_options() {
     done
     shift $(expr $OPTIND - 1)
 
-    # we don't want to use the scarf iamges 
+    # we don't want to use the scarf iamges
     if [ ${KRATIX_DEVELOPER:-false} = true ]; then
         VERSION="dev"
     fi
@@ -219,6 +219,7 @@ setup_platform_destination() {
     fi
 
     cat "${ROOT}/distribution/kratix.yaml" | patch_image | kubectl --context kind-platform apply --filename -
+    kubectl --context kind-platform wait --for=condition=available deployment kratix-platform-controller-manager --timeout 60s -n kratix-platform-system
 }
 
 setup_worker_destination() {
@@ -230,15 +231,14 @@ setup_worker_destination() {
        kubectl --context kind-platform apply --filename "${ROOT}/config/samples/platform_v1alpha1_bucketstatestore.yaml"
     fi
 
+    local flags=""
+    if ${INSTALL_AND_CREATE_GITEA_REPO}; then
+        flags="--git"
+    fi
     if ${SINGLE_DESTINATION}; then
-        local flags=""
-        if ${INSTALL_AND_CREATE_GITEA_REPO}; then
-          flags="--git"
-        fi
         ${ROOT}/scripts/register-destination --name platform-cluster --context kind-platform $flags
     else
-        cat "${ROOT}/config/samples/platform_v1alpha1_worker.yaml" | patch_statestore | kubectl --context kind-platform apply --filename -
-        install_flux_gitops kind-worker worker-1
+        ${ROOT}/scripts/register-destination --name worker-1 --path worker-1 --context kind-worker $flags
         if ! ${LABELS}; then
             kubectl --context kind-platform label destination worker-1 environment-
         fi

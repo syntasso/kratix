@@ -3,6 +3,7 @@ package writers
 import (
 	"fmt"
 	"os"
+	"path"
 	"path/filepath"
 	"strings"
 	"time"
@@ -105,10 +106,9 @@ func NewGitWriter(logger logr.Logger, stateStoreSpec v1alpha1.GitStateStoreSpec,
 			Email: stateStoreSpec.GitAuthor.Email,
 		},
 		Log: logger,
-		Path: strings.TrimPrefix(filepath.Join(
+		Path: strings.TrimPrefix(path.Join(
 			stateStoreSpec.Path,
 			destination.Spec.Path,
-			destination.Name,
 		), "/"),
 	}, nil
 }

@@ -228,6 +228,10 @@ func main() {
 			setupLog.Error(err, "unable to create controller", "controller", "HealthRecord")
 			os.Exit(1)
 		}
+		if err = kratixWebhook.SetupDestinationWebhookWithManager(mgr, mgr.GetClient()); err != nil {
+			setupLog.Error(err, "unable to create webhook", "webhook", "Destination")
+			os.Exit(1)
+		}
 		//+kubebuilder:scaffold:builder
 
 		if err := mgr.AddHealthzCheck("healthz", healthz.Ping); err != nil {

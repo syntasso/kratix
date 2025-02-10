@@ -3,6 +3,8 @@ kind: Destination
 metadata:
   name: worker-2
 spec:
+  cleanup: all
+  path: worker-2
   stateStoreRef:
     kind: BucketStateStore
     name: default

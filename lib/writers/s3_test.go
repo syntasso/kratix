@@ -23,7 +23,11 @@ var _ = Describe("S3", func() {
 			stateStoreSpec = v1alpha1.BucketStateStoreSpec{
 				Endpoint:   "example.com",
 				Insecure:   true,
-				AuthMethod: "secretAccessKey",
+				AuthMethod: writers.AuthMethodAccessKey,
+				BucketName: "test-bucket-name",
+				StateStoreCoreFields: v1alpha1.StateStoreCoreFields{
+					Path: "state-store-path",
+				},
 			}
 
 			dest = v1alpha1.Destination{
@@ -31,8 +35,30 @@ var _ = Describe("S3", func() {
 					Namespace: "default",
 					Name:      "test",
 				},
-				Spec: v1alpha1.DestinationSpec{},
+				Spec: v1alpha1.DestinationSpec{
+					Path: "dst-path/",
+				},
 			}
+
+		})
+
+		Describe("NewS3Writer", func() {
+			It("should return a valid S3Writer", func() {
+				creds := map[string][]byte{
+					"accessKeyID":     []byte("accessKeyID"),
+					"secretAccessKey": []byte("secretAccessKey"),
+				}
+				w, err := writers.NewS3Writer(logger, stateStoreSpec, dest, creds)
+				Expect(err).NotTo(HaveOccurred())
+				Expect(w).NotTo(BeNil())
+
+				Expect(w).To(BeAssignableToTypeOf(&writers.S3Writer{}))
+				s3Writer, ok := w.(*writers.S3Writer)
+				Expect(ok).To(BeTrue())
+
+				Expect(s3Writer.BucketName).To(Equal("test-bucket-name"))
+				Expect(s3Writer.Path).To(Equal("state-store-path/dst-path"))
+			})
 
 		})
 
