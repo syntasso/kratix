@@ -46,36 +46,39 @@ var _ webhook.CustomDefaulter = &DestinationCustomDefaulter{}
 
 // Default implements a Mutating Webhook for the Destination resource.
 func (d *DestinationCustomDefaulter) Default(ctx context.Context, obj runtime.Object) error {
-	destination, ok := obj.(*v1alpha1.Destination)
+	// The desired destination is the incoming change, as requested by the user
+	desiredDestination, ok := obj.(*v1alpha1.Destination)
 	if !ok {
 		return fmt.Errorf("expected Destination but got %T", obj)
 	}
 
-	d.Logger.Info("defaulting Destination", "name", destination.Name)
+	d.Logger.Info("defaulting Destination", "name", desiredDestination.Name)
 
-	if destination.Annotations == nil {
-		destination.Annotations = make(map[string]string)
+	if desiredDestination.Annotations == nil {
+		desiredDestination.Annotations = make(map[string]string)
 	}
 
-	existingDestination := &v1alpha1.Destination{}
-	if err := d.Client.Get(ctx, client.ObjectKey{Name: destination.Name}, existingDestination); err != nil {
+	// currentDestination is the destination as found in etcd at this moment, without the
+	// requested changes
+	currentDestination := &v1alpha1.Destination{}
+	if err := d.Client.Get(ctx, client.ObjectKey{Name: desiredDestination.Name}, currentDestination); err != nil {
 		if !errors.IsNotFound(err) {
 			return err
 		}
 
 		// add the annotation so the controller doesn't try to append the
 		// destination name to the path on the next reconcile
-		destination.Annotations[v1alpha1.SkipPathDefaultingAnnotation] = "true"
+		desiredDestination.Annotations[v1alpha1.SkipPathDefaultingAnnotation] = "true"
 	}
 
 	// Defaults the destination path to the destination name if not set
-	if destination.Spec.Path == "" {
-		destination.Spec.Path = destination.Name
+	if desiredDestination.Spec.Path == "" {
+		desiredDestination.Spec.Path = desiredDestination.Name
 	}
 
 	// this is here to prevent the annotation from being removed on already patched destinations
-	if _, found := existingDestination.Annotations[v1alpha1.SkipPathDefaultingAnnotation]; found {
-		destination.Annotations[v1alpha1.SkipPathDefaultingAnnotation] = "true"
+	if _, found := currentDestination.Annotations[v1alpha1.SkipPathDefaultingAnnotation]; found {
+		desiredDestination.Annotations[v1alpha1.SkipPathDefaultingAnnotation] = "true"
 	}
 
 	return nil

@@ -83,10 +83,8 @@ spec:
                     <StateStore.Spec.Path>/<Destination.Spec.Path>/
                   Kratix may create other subdirectories, depending on the Filepath.mode you select.
                   To write to the root of the StateStore.Spec.Path, set Path to "." or "/".
+                  Defaults to the Destination name
                 type: string
-                x-kubernetes-validations:
-                - message: Path is immutable
-                  rule: self == oldSelf
               stateStoreRef:
                 description: StateStoreReference is a reference to a StateStore
                 properties:
@@ -110,8 +108,6 @@ spec:
                   destinationSelectors. An empty label set on the work won't be scheduled
                   to this destination, unless the destination label set is also empty
                 type: boolean
-            required:
-            - path
             type: object
           status:
             description: DestinationStatus defines the observed state of Destination

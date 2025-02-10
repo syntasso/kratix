@@ -1,5 +1,5 @@
 config:
-  path: "destinations/dev/worker-1" # Path in StateStore. See https://kratix.io/docs/main/reference/destinations/intro
+  path: "destinations/dev" # Path in StateStore. See https://kratix.io/docs/main/reference/destinations/intro
   namespace: "default" # Namespace to create config
   secretRef:
     name: "gitea-credentials" # Name of secret
