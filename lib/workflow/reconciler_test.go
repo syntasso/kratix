@@ -1923,10 +1923,10 @@ func nextTimestamp() metav1.Time {
 
 func userPermissionPipelineLabels(promise v1alpha1.Promise, pipeline v1alpha1.Pipeline) client.MatchingLabels {
 	return client.MatchingLabels(labels.Set{
-		"kratix.io/promise-name":  promise.GetName(),
-		"kratix.io/pipeline-name": pipeline.Name,
-		"kratix.io/work-type":     "promise",
-		"kratix.io/work-action":   "configure",
+		"kratix.io/promise-name":    promise.GetName(),
+		"kratix.io/pipeline-name":   pipeline.Name,
+		"kratix.io/workflow-type":   "promise",
+		"kratix.io/workflow-action": "configure",
 	})
 }
 

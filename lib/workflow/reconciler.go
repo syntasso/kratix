@@ -98,6 +98,14 @@ func ReconcileConfigure(opts Opts) (abort bool, err error) {
 		return false, err
 	}
 
+	// TODO: this part will be deprecated when we stop using the legacy labels
+	allLegacyJobs, err := getJobsWithLabels(opts, legacyLabelsForJobs(opts), namespace)
+	if err != nil {
+		opts.logger.Error(err, "failed to list jobs")
+		return false, err
+	}
+	allJobs = append(allJobs, allLegacyJobs...)
+
 	if len(allJobs) != 0 {
 		opts.logger.Info("found existing jobs, checking to see which pipeline the most recent job is for")
 		resourceutil.SortJobsByCreationDateTime(allJobs, false)
@@ -188,10 +196,24 @@ func getLabelsForPipelineJob(pipeline v1alpha1.PipelineJobResources) map[string]
 
 func labelsForJobs(opts Opts) map[string]string {
 	l := map[string]string{
-		v1alpha1.WorkTypeLabel: opts.source,
+		v1alpha1.WorkflowTypeLabel: opts.source,
 	}
 	promiseName := opts.parentObject.GetName()
 	if opts.source == string(v1alpha1.WorkflowTypeResource) {
+		promiseName = opts.parentObject.GetLabels()[v1alpha1.PromiseNameLabel]
+		l[v1alpha1.ResourceNameLabel] = opts.parentObject.GetName()
+	}
+	l[v1alpha1.PromiseNameLabel] = promiseName
+	return l
+}
+
+// TODO: this part will be deprecated when we stop using the legacy labels
+func legacyLabelsForJobs(opts Opts) map[string]string {
+	l := map[string]string{
+		v1alpha1.WorkTypeLabel: opts.source,
+	}
+	promiseName := opts.parentObject.GetName()
+	if opts.source == string(v1alpha1.WorkTypeResource) {
 		promiseName = opts.parentObject.GetLabels()[v1alpha1.PromiseNameLabel]
 		l[v1alpha1.ResourceNameLabel] = opts.parentObject.GetName()
 	}

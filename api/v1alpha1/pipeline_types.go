@@ -40,6 +40,12 @@ const (
 	kratixPromiseEnvVar      = "KRATIX_PROMISE_NAME"
 	kratixPipelineNameEnvVar = "KRATIX_PIPELINE_NAME"
 
+	WorkflowTypeLabel   = KratixPrefix + "workflow-type"
+	WorkflowActionLabel = KratixPrefix + "workflow-action"
+
+	ManagedByLabel      = "app.kubernetes.io/managed-by"
+	ManagedByLabelValue = "Kratix"
+
 	// This is used to identify the * namespace case in user permissions. Kubernetes does
 	// not allow * as a label value, so we use this value instead.
 	// It contains underscores, which makes it an invalid namespace, so it won't conflict
@@ -234,6 +240,40 @@ func workflowLabels(workflowType, workflowAction, pipelineName string) map[strin
 
 	if workflowType != "" {
 		ls = labels.Merge(ls, map[string]string{
+			WorkflowTypeLabel: workflowType,
+		})
+	}
+
+	if pipelineName != "" {
+		ls = labels.Merge(ls, map[string]string{
+			PipelineNameLabel: pipelineName,
+		})
+	}
+
+	if workflowAction != "" {
+		ls = labels.Merge(ls, map[string]string{
+			WorkflowActionLabel: workflowAction,
+		})
+	}
+	return ls
+}
+
+// TODO: this part will be deprecated when we stop using the legacy labels
+func UserPermissionPipelineResourcesLegacyLabels(promiseName, pipelineName, pipelineNamespace, workflowType, workflowAction string) map[string]string {
+	labels := labels.Merge(
+		promiseNameLabel(promiseName),
+		workflowLegacyLabels(workflowType, workflowAction, pipelineName),
+	)
+	labels[PipelineNamespaceLabel] = pipelineNamespace
+	return labels
+}
+
+// TODO: this part will be deprecated when we stop using the legacy labels
+func workflowLegacyLabels(workflowType, workflowAction, pipelineName string) map[string]string {
+	ls := map[string]string{}
+
+	if workflowType != "" {
+		ls = labels.Merge(ls, map[string]string{
 			WorkTypeLabel: workflowType,
 		})
 	}
@@ -261,5 +301,11 @@ func promiseNameLabel(promiseName string) map[string]string {
 func resourceNameLabel(rName string) map[string]string {
 	return map[string]string{
 		ResourceNameLabel: rName,
+	}
+}
+
+func managedByKratixLabel() map[string]string {
+	return map[string]string{
+		ManagedByLabel: ManagedByLabelValue,
 	}
 }

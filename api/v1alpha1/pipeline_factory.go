@@ -358,6 +358,7 @@ func (p *PipelineFactory) pipelineJobLabels(requestSHA string) map[string]string
 		promiseNameLabel(p.Promise.GetName()),
 		workflowLabels(string(p.WorkflowType), string(p.WorkflowAction), p.Pipeline.GetName()),
 	)
+	ls = labels.Merge(ls, managedByKratixLabel())
 	if p.ResourceWorkflow {
 		ls = labels.Merge(ls, resourceNameLabel(p.ResourceRequest.GetName()))
 	}

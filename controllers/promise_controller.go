@@ -772,8 +772,8 @@ func (r *PromiseReconciler) deletePromiseWorkflowJobs(o opts, promise *v1alpha1.
 	}
 
 	jobLabels := map[string]string{
-		v1alpha1.PromiseNameLabel: promise.GetName(),
-		v1alpha1.WorkTypeLabel:    v1alpha1.WorkTypePromise,
+		v1alpha1.PromiseNameLabel:  promise.GetName(),
+		v1alpha1.WorkflowTypeLabel: string(v1alpha1.WorkflowTypePromise),
 	}
 
 	resourcesRemaining, err := deleteAllResourcesWithKindMatchingLabel(o, &jobGVK, jobLabels)
@@ -781,7 +781,17 @@ func (r *PromiseReconciler) deletePromiseWorkflowJobs(o opts, promise *v1alpha1.
 		return err
 	}
 
-	if !resourcesRemaining {
+	// TODO: this part will be deprecated when we stop using the legacy labels
+	jobLegacyLabels := map[string]string{
+		v1alpha1.PromiseNameLabel: promise.GetName(),
+		v1alpha1.WorkTypeLabel:    v1alpha1.WorkTypePromise,
+	}
+	legacyResourcesRemaining, err := deleteAllResourcesWithKindMatchingLabel(o, &jobGVK, jobLegacyLabels)
+	if err != nil {
+		return err
+	}
+
+	if !resourcesRemaining || !legacyResourcesRemaining {
 		controllerutil.RemoveFinalizer(promise, finalizer)
 		if err := r.Client.Update(o.ctx, promise); err != nil {
 			return err
