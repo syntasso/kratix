@@ -125,6 +125,13 @@ func validatePipelines(p *v1alpha1.Promise) error {
 		return err
 	}
 
+	unstructuredResourceRequest := unstructured.Unstructured{
+		Object: map[string]interface{}{
+			"kind":       p.GroupVersionKind().Kind,
+			"apiVersion": p.GroupVersionKind().Group + p.GroupVersionKind().Version,
+		},
+	}
+
 	for workflowType, actionToPipelineMap := range promisePipelines {
 		for workflowAction, pipelines := range actionToPipelineMap {
 			pipelineNamesMap := map[string]bool{}
@@ -140,9 +147,10 @@ func validatePipelines(p *v1alpha1.Promise) error {
 				pipelineNamesMap[pipeline.GetName()] = true
 
 				var factory *v1alpha1.PipelineFactory
+
 				switch workflowType {
 				case v1alpha1.WorkflowTypeResource:
-					factory = pipeline.ForResource(p, workflowAction, &unstructured.Unstructured{})
+					factory = pipeline.ForResource(p, workflowAction, &unstructuredResourceRequest)
 				case v1alpha1.WorkflowTypePromise:
 					factory = pipeline.ForPromise(p, workflowAction)
 				}

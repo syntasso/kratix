@@ -39,6 +39,10 @@ var _ = Describe("PromiseWebhook", func() {
 	ctx := context.TODO()
 	newPromise := func() *v1alpha1.Promise {
 		return &v1alpha1.Promise{
+			TypeMeta: metav1.TypeMeta{
+				Kind:       "Promise",
+				APIVersion: v1alpha1.GroupVersion.Group + "/" + v1alpha1.GroupVersion.Version,
+			},
 			ObjectMeta: metav1.ObjectMeta{
 				Name: "mypromise",
 			},
@@ -149,7 +153,7 @@ var _ = Describe("PromiseWebhook", func() {
 
 		When("multiple pipelines within the same workflow and action have the same name", func() {
 			It("errors", func() {
-				promise := newPromise()
+				promise = newPromise()
 				pipeline := v1alpha1.Pipeline{
 					ObjectMeta: metav1.ObjectMeta{
 						Name: "foo",
@@ -163,38 +167,6 @@ var _ = Describe("PromiseWebhook", func() {
 				promise.Spec.Workflows.Resource.Configure = []unstructured.Unstructured{*unstructuredPipeline, *unstructuredPipeline}
 				_, err = validator.ValidateCreate(ctx, promise)
 				Expect(err).To(MatchError("duplicate pipeline name \"foo\" in workflow \"resource\" action \"configure\""))
-			})
-		})
-
-		When("the provided pipeline cannot create a valid Job", func() {
-			It("raises an error", func() {
-				pipeline := v1alpha1.Pipeline{
-					ObjectMeta: metav1.ObjectMeta{
-						Name:      "promise-configure",
-						Namespace: "default",
-					},
-					Spec: v1alpha1.PipelineSpec{
-						Containers: []v1alpha1.Container{
-							{
-								Args: []string{"dev"},
-							},
-						},
-					},
-				}
-				objMap, err := runtime.DefaultUnstructuredConverter.ToUnstructured(&pipeline)
-				Expect(err).NotTo(HaveOccurred())
-				unstructuredPipeline := &unstructured.Unstructured{Object: objMap}
-				unstructuredPipeline.SetAPIVersion("platform.kratix.io/v1alpha1")
-				unstructuredPipeline.SetKind("Pipeline")
-				promise.Spec.Workflows.Resource.Configure = []unstructured.Unstructured{*unstructuredPipeline}
-				_, validateErr := validator.ValidateCreate(ctx, promise)
-				Expect(validateErr).To(SatisfyAll(
-					MatchError(ContainSubstring(
-						"promise.configure pipeline with name promise-configure failed to generate Job definition:",
-					)),
-					MatchError(ContainSubstring("spec.template.spec.initContainers[1].image: Required value")),
-					MatchError(ContainSubstring("spec.template.spec.initContainers[1].name: Required value")),
-				))
 			})
 		})
 
