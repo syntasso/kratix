@@ -232,9 +232,10 @@ setup_worker_destination() {
     fi
 
     local flags=""
-    if ${INSTALL_AND_CREATE_GITEA_REPO}; then
+    if [ "${WORKER_STATESTORE_TYPE}" = "GitStateStore" ]; then
         flags="--git"
     fi
+
     if ${SINGLE_DESTINATION}; then
         ${ROOT}/scripts/register-destination --name platform-cluster --context kind-platform $flags
     else

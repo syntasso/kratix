@@ -9,8 +9,8 @@ spec:
   path: ./worker-2/dependencies
   prune: true
   sourceRef:
-    kind: GitRepository
-    name: kratix-worker-dependencies
+    kind: Bucket
+    name: kratix
 ---
 apiVersion: kustomize.toolkit.fluxcd.io/v1
 kind: Kustomization
@@ -25,5 +25,5 @@ spec:
   path: ./worker-2/resources
   prune: true
   sourceRef:
-    kind: GitRepository
-    name: kratix-worker-resources
+    kind: Bucket
+    name: kratix
