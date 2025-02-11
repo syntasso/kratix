@@ -102,12 +102,12 @@ type Container struct {
 
 // Pipeline is the Schema for the pipelines API
 type Pipeline struct {
-	//Note: Removed TypeMeta in order to stop the CRD generation.
+	//Note: not using TypeMeta in order to stop the CRD generation.
 	//		This is only for internal Kratix use.
-	metav1.TypeMeta   `json:",inline"`
+	Kind              string `json:"kind,omitempty" protobuf:"bytes,1,opt,name=kind"`
+	APIVersion        string `json:"apiVersion,omitempty" protobuf:"bytes,2,opt,name=apiVersion"`
 	metav1.ObjectMeta `json:"metadata,omitempty"`
-
-	Spec PipelineSpec `json:"spec,omitempty"`
+	Spec              PipelineSpec `json:"spec,omitempty"`
 }
 
 // +kubebuilder:object:generate=false

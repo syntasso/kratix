@@ -1341,6 +1341,8 @@ var _ = Describe("Pipeline", func() {
 						Name:      "pipeline1",
 						Namespace: "default",
 					},
+					APIVersion: "platform.kratix.io/v1alpha1",
+					Kind:       "Pipeline",
 					Spec: v1alpha1.PipelineSpec{
 						Containers: []v1alpha1.Container{
 							{Name: "promise-configure", Image: "my-registry.io/configure"},
@@ -1352,6 +1354,8 @@ var _ = Describe("Pipeline", func() {
 						Name:      "pipeline2",
 						Namespace: "default",
 					},
+					APIVersion: "platform.kratix.io/v1alpha1",
+					Kind:       "Pipeline",
 					Spec: v1alpha1.PipelineSpec{
 						Containers: []v1alpha1.Container{
 							{Name: "promise-configure", Image: "my-registry.io/configure"},

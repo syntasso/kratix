@@ -23,12 +23,13 @@ import (
 	"reflect"
 	"strings"
 
+	"github.com/google/uuid"
 	"github.com/syntasso/kratix/api/v1alpha1"
+	"k8s.io/apimachinery/pkg/apis/meta/v1/unstructured"
 
 	"k8s.io/apiextensions-apiserver/pkg/client/clientset/clientset"
 	apierrors "k8s.io/apimachinery/pkg/api/errors"
 	metav1 "k8s.io/apimachinery/pkg/apis/meta/v1"
-	"k8s.io/apimachinery/pkg/apis/meta/v1/unstructured"
 	"k8s.io/apimachinery/pkg/runtime"
 	"k8s.io/apimachinery/pkg/util/validation"
 	ctrl "sigs.k8s.io/controller-runtime"
@@ -124,18 +125,7 @@ func validatePipelines(p *v1alpha1.Promise) error {
 	if err != nil {
 		return err
 	}
-
-	unstructuredResourceRequest := unstructured.Unstructured{
-		Object: map[string]interface{}{
-			"metadata": map[string]interface{}{
-				"name":      p.GroupVersionKind().Kind + "request",
-				"namespace": "default",
-			},
-		},
-	}
-
-	unstructuredResourceRequest.SetAPIVersion(p.GroupVersionKind().Group + "/" + p.GroupVersionKind().Version)
-	unstructuredResourceRequest.SetKind(p.GroupVersionKind().Kind)
+	unstructuredResourceRequest := exampleResourceRequest(p)
 
 	for workflowType, actionToPipelineMap := range promisePipelines {
 		for workflowAction, pipelines := range actionToPipelineMap {
@@ -155,7 +145,7 @@ func validatePipelines(p *v1alpha1.Promise) error {
 
 				switch workflowType {
 				case v1alpha1.WorkflowTypeResource:
-					factory = pipeline.ForResource(p, workflowAction, &unstructuredResourceRequest)
+					factory = pipeline.ForResource(p, workflowAction, unstructuredResourceRequest)
 				case v1alpha1.WorkflowTypePromise:
 					factory = pipeline.ForPromise(p, workflowAction)
 				}
@@ -175,16 +165,29 @@ func validatePipelines(p *v1alpha1.Promise) error {
 				if err != nil {
 					return fmt.Errorf(
 						"\n%s.%s pipeline with name %s failed to generate Job definition: \n%s",
-						workflowType,
-						workflowAction,
-						pipeline.GetName(),
-						err.Error(),
+						workflowType, workflowAction, pipeline.GetName(), err.Error(),
 					)
 				}
 			}
 		}
 	}
 	return nil
+}
+
+// exampleResourceRequest returns an unstructured resource request with name, namespace, gvk, and a fake UID.
+// This is necessary to build a valid pipeline factory that can be used to do dry run for validation.
+func exampleResourceRequest(p *v1alpha1.Promise) *unstructured.Unstructured {
+	unstructuredResourceRequest := unstructured.Unstructured{
+		Object: map[string]interface{}{
+			"metadata": map[string]interface{}{
+				"name":      "webhook-dry-run",
+				"namespace": "default",
+				"uid":       uuid.New().String(),
+			},
+		},
+	}
+	unstructuredResourceRequest.SetGroupVersionKind(p.GroupVersionKind())
+	return &unstructuredResourceRequest
 }
 
 func validateCRD(p *v1alpha1.Promise) error {
