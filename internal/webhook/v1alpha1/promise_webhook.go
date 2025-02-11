@@ -129,6 +129,10 @@ func validatePipelines(p *v1alpha1.Promise) error {
 		Object: map[string]interface{}{
 			"kind":       p.GroupVersionKind().Kind,
 			"apiVersion": p.GroupVersionKind().Group + p.GroupVersionKind().Version,
+			"metadata": map[string]interface{}{
+				"name":      p.GroupVersionKind().Kind + "request",
+				"namespace": "default",
+			},
 		},
 	}
 
