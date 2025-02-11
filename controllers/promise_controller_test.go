@@ -12,6 +12,7 @@ import (
 	controllerConfig "sigs.k8s.io/controller-runtime/pkg/config"
 
 	"k8s.io/apimachinery/pkg/runtime/schema"
+	"k8s.io/client-go/tools/record"
 	"k8s.io/utils/ptr"
 
 	"github.com/go-logr/logr"
@@ -53,6 +54,7 @@ var (
 	promiseCommonLabels map[string]string
 	managerRestarted    bool
 	l                   logr.Logger
+	eventRecorder       *record.FakeRecorder
 )
 
 var _ = Describe("PromiseController", func() {
@@ -65,6 +67,7 @@ var _ = Describe("PromiseController", func() {
 		m := &controllersfakes.FakeManager{}
 		m.GetControllerOptionsReturns(controllerConfig.Controller{
 			SkipNameValidation: ptr.To(true)})
+		eventRecorder = record.NewFakeRecorder(1024)
 		reconciler = &controllers.PromiseReconciler{
 			Client:                  fakeK8sClient,
 			ApiextensionsClient:     fakeApiExtensionsClient,
@@ -74,6 +77,7 @@ var _ = Describe("PromiseController", func() {
 			RestartManager: func() {
 				managerRestarted = true
 			},
+			EventRecorder: eventRecorder,
 		}
 	})
 
@@ -212,6 +216,8 @@ var _ = Describe("PromiseController", func() {
 			})
 
 			When("the promise has requirements", func() {
+				var promise *v1alpha1.Promise
+
 				BeforeEach(func() {
 					promise = promiseFromFile(promiseWithRequirements)
 					promiseName = types.NamespacedName{
@@ -228,12 +234,15 @@ var _ = Describe("PromiseController", func() {
 				})
 
 				When("the promise requirements are not installed", func() {
-					It("updates the status to indicate the dependencies are not installed and prevents RRs being reconciled", func() {
+					BeforeEach(func() {
 						_, err := t.reconcileUntilCompletion(reconciler, promise, &opts{
 							funcs: []func(client.Object) error{autoMarkCRDAsEstablished},
 						})
 						Expect(err).To(MatchError("reconcile loop detected"))
 						Expect(fakeK8sClient.Get(ctx, promiseName, promise)).To(Succeed())
+					})
+
+					It("updates the status to indicate the dependencies are not installed and the promise is unavailable", func() {
 						Expect(promise.Status.Conditions).To(HaveLen(1))
 						Expect(promise.Status.Conditions[0].Type).To(Equal("RequirementsFulfilled"))
 						Expect(promise.Status.Conditions[0].Status).To(Equal(metav1.ConditionFalse))
@@ -249,7 +258,9 @@ var _ = Describe("PromiseController", func() {
 							},
 						))
 						Expect(promise.Status.Status).To(Equal(v1alpha1.PromiseStatusUnavailable))
+					})
 
+					It("prevents RRs being reconciled", func() {
 						Expect(reconciler.StartedDynamicControllers).To(HaveLen(1))
 						Expect(*reconciler.StartedDynamicControllers["1234abcd"].CanCreateResources).To(BeFalse())
 					})
@@ -369,22 +380,102 @@ var _ = Describe("PromiseController", func() {
 							Expect(err).NotTo(HaveOccurred())
 							Expect(fakeK8sClient.Get(ctx, promiseName, promise)).To(Succeed())
 
-							Expect(promise.Status.Conditions).To(HaveLen(1))
-							Expect(promise.Status.Conditions[0].Type).To(Equal("RequirementsFulfilled"))
-							Expect(promise.Status.Conditions[0].Status).To(Equal(metav1.ConditionTrue))
+							By("updating the status to indicate the requirements are fulfilled", func() {
+								Expect(promise.Status.Conditions).To(HaveLen(1))
+								Expect(promise.Status.Conditions[0].Type).To(Equal("RequirementsFulfilled"))
+								Expect(promise.Status.Conditions[0].Status).To(Equal(metav1.ConditionTrue))
 
-							Expect(promise.Status.RequiredPromises).To(ConsistOf(
-								v1alpha1.RequiredPromiseStatus{
-									Name:    "kafka",
-									Version: "v1.2.0",
-									State:   "Requirement installed",
-								},
-							))
-							Expect(promise.Status.Status).To(Equal(v1alpha1.PromiseStatusAvailable))
+								Expect(promise.Status.RequiredPromises).To(ConsistOf(
+									v1alpha1.RequiredPromiseStatus{
+										Name:    "kafka",
+										Version: "v1.2.0",
+										State:   "Requirement installed",
+									},
+								))
+							})
 
-							Expect(reconciler.StartedDynamicControllers).To(HaveLen(1))
-							Expect(*reconciler.StartedDynamicControllers["1234abcd"].CanCreateResources).To(BeTrue())
+							By("updating the status to indicate the promise is available", func() {
+								Expect(promise.Status.Status).To(Equal(v1alpha1.PromiseStatusAvailable))
+							})
+
+							By("firing an event to indicate the promise is available", func() {
+								Eventually(eventRecorder.Events).Should(Receive(ContainSubstring(
+									"Normal Available Promise is available")))
+							})
+
+							By("starting the dynamic controller", func() {
+								Expect(reconciler.StartedDynamicControllers).To(HaveLen(1))
+								Expect(*reconciler.StartedDynamicControllers["1234abcd"].CanCreateResources).To(BeTrue())
+							})
 						})
+					})
+				})
+
+				When("the promise requirements are changed after being installed", func() {
+					BeforeEach(func() {
+						// Install the required Promise
+						requiredPromise := &v1alpha1.Promise{}
+						requiredPromiseName := types.NamespacedName{
+							Name: "kafka",
+						}
+						err := fakeK8sClient.Create(ctx, &v1alpha1.Promise{
+							ObjectMeta: metav1.ObjectMeta{
+								Name: "kafka",
+							},
+						})
+						Expect(err).ToNot(HaveOccurred())
+						Expect(fakeK8sClient.Get(ctx, requiredPromiseName, requiredPromise)).To(Succeed())
+						requiredPromise.Status.Status = "Available"
+						requiredPromise.Status.Version = "v1.2.0"
+						Expect(fakeK8sClient.Status().Update(ctx, requiredPromise)).To(Succeed())
+
+						// Reconcile
+						_, err = t.reconcileUntilCompletion(reconciler, promise, &opts{
+							funcs: []func(client.Object) error{autoMarkCRDAsEstablished},
+						})
+
+						Expect(err).NotTo(HaveOccurred())
+						Expect(fakeK8sClient.Get(ctx, promiseName, promise)).To(Succeed())
+						Expect(promise.Status.Status).To(Equal(v1alpha1.PromiseStatusAvailable))
+
+						// Make the required Promise unavailable
+						Expect(fakeK8sClient.Get(ctx, requiredPromiseName, requiredPromise)).To(Succeed())
+						requiredPromise.Status.Status = "Unavailable"
+						Expect(fakeK8sClient.Status().Update(ctx, requiredPromise)).To(Succeed())
+
+						// Reconcile
+						_, err = t.reconcileUntilCompletion(reconciler, promise, &opts{
+							funcs: []func(client.Object) error{autoMarkCRDAsEstablished},
+						})
+
+						Expect(err).To(MatchError("reconcile loop detected"))
+						Expect(fakeK8sClient.Get(ctx, promiseName, promise)).To(Succeed())
+					})
+
+					It("updates the status to indicate the requirements are no longer fulfilled", func() {
+						Expect(promise.Status.Conditions).To(HaveLen(1))
+						Expect(promise.Status.Conditions[0].Type).To(Equal("RequirementsFulfilled"))
+						Expect(promise.Status.Conditions[0].Status).To(Equal(metav1.ConditionFalse))
+
+						Expect(promise.Status.RequiredPromises).To(ConsistOf(
+							v1alpha1.RequiredPromiseStatus{
+								Name:    "kafka",
+								Version: "v1.2.0",
+								State:   "Requirement not installed at the specified version",
+							},
+						))
+
+						Expect(promise.Status.Status).To(Equal(v1alpha1.PromiseStatusUnavailable))
+					})
+
+					It("prevents RRs being reconciled", func() {
+						Expect(reconciler.StartedDynamicControllers).To(HaveLen(1))
+						Expect(*reconciler.StartedDynamicControllers["1234abcd"].CanCreateResources).To(BeFalse())
+					})
+
+					It("fires an event to indicate the promise is no longer available", func() {
+						Eventually(eventRecorder.Events).Should(Receive(ContainSubstring(
+							"Warning Unavailable Promise no longer available: Requirements have changed")))
 					})
 				})
 			})
@@ -863,7 +954,15 @@ var _ = Describe("PromiseController", func() {
 				Expect(result).To(Equal(ctrl.Result{}))
 
 				Expect(fakeK8sClient.Get(ctx, promiseName, promise)).To(Succeed())
-				Expect(promise.Status.Status).To(Equal(v1alpha1.PromiseStatusUnavailable))
+
+				By("setting the status to unavailable", func() {
+					Expect(promise.Status.Status).To(Equal(v1alpha1.PromiseStatusUnavailable))
+				})
+
+				By("firing an event to indicate the promise is no longer available", func() {
+					Eventually(eventRecorder.Events).Should(Receive(ContainSubstring(
+						"Warning Unavailable Promise no longer available: Scheduled reconciliation")))
+				})
 
 				By("adding the manual reconciliation label", func() {
 					result, err := reconciler.Reconcile(ctx, ctrl.Request{NamespacedName: types.NamespacedName{Name: promise.GetName(), Namespace: promise.GetNamespace()}})
@@ -906,6 +1005,11 @@ var _ = Describe("PromiseController", func() {
 
 					Expect(fakeK8sClient.Get(ctx, promiseName, promise)).To(Succeed())
 					Expect(promise.Status.Status).To(Equal(v1alpha1.PromiseStatusAvailable))
+				})
+
+				By("firing an event to indicate the promise is available", func() {
+					Eventually(eventRecorder.Events).Should(Receive(ContainSubstring(
+						"Normal Available Promise is available")))
 				})
 
 				By("setting up the next reconciliation loop", func() {

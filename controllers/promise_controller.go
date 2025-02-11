@@ -47,6 +47,7 @@ import (
 	"k8s.io/apimachinery/pkg/runtime"
 	"k8s.io/apimachinery/pkg/runtime/schema"
 	"k8s.io/apimachinery/pkg/types"
+	"k8s.io/client-go/tools/record"
 	ctrl "sigs.k8s.io/controller-runtime"
 	"sigs.k8s.io/controller-runtime/pkg/client"
 	kmanager "sigs.k8s.io/controller-runtime/pkg/manager"
@@ -71,6 +72,7 @@ type PromiseReconciler struct {
 	RestartManager            func()
 	NumberOfJobsToKeep        int
 	ScheduledReconciliation   map[string]metav1.Time
+	EventRecorder             record.EventRecorder
 	mutex                     sync.Mutex
 }
 
@@ -179,6 +181,9 @@ func (r *PromiseReconciler) Reconcile(ctx context.Context, req ctrl.Request) (ct
 		if result, statusUpdateErr := r.updatePromiseStatus(ctx, promise); statusUpdateErr != nil || !result.IsZero() {
 			return result, statusUpdateErr
 		}
+		r.EventRecorder.Eventf(
+			promise, "Warning", "Unavailable", "Promise no longer available: %s",
+			unavailableReason(requirementsChanged, scheduledReconciliation))
 
 		logger.Info("Requeueing: requirements changed or scheduled reconciliation")
 		return ctrl.Result{}, nil
@@ -292,7 +297,22 @@ func (r *PromiseReconciler) Reconcile(ctx context.Context, req ctrl.Request) (ct
 	promise.Status.Status = v1alpha1.PromiseStatusAvailable
 	promise.Status.LastAvailableTime = &metav1.Time{Time: time.Now()}
 
+	// TODO: Event for transition to Available
+	r.EventRecorder.Eventf(promise, "Normal", "Available", "Promise is available")
 	return r.updatePromiseStatus(ctx, promise)
+}
+
+func unavailableReason(requirementsChanged bool, scheduledReconciliation bool) string {
+	var reason string
+	switch {
+	case requirementsChanged:
+		reason = "Requirements have changed"
+	case scheduledReconciliation:
+		reason = "Scheduled reconciliation"
+	default:
+		reason = "Reason unknown"
+	}
+	return reason
 }
 
 func (r *PromiseReconciler) nextReconciliation(promise *v1alpha1.Promise, logger logr.Logger) (ctrl.Result, error) {

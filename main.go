@@ -157,6 +157,7 @@ func main() {
 			Scheme:                  mgr.GetScheme(),
 			NumberOfJobsToKeep:      getNumJobsToKeep(kratixConfig),
 			ScheduledReconciliation: map[string]metav1.Time{},
+			EventRecorder:           mgr.GetEventRecorderFor("promise-controller"),
 			RestartManager: func() {
 				// This function gets called multiple times
 				// First call: restartInProgress get set to true, sleeps starts
