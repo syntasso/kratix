@@ -152,6 +152,10 @@ func validatePipelines(p *v1alpha1.Promise) error {
 						"for the pipeline,including the ServiceAccount which follows the format of \"%s-%s-%s-%s\", which cannot be longer than 60 characters in total",
 						workflowType, workflowAction, pipeline.GetName(), p.GetName(), workflowType, workflowAction, pipeline.GetName())
 				}
+
+				if _, err = factory.Resources(nil); err != nil {
+					return fmt.Errorf("failed to generate pipeline resources %w", err)
+				}
 			}
 		}
 	}
