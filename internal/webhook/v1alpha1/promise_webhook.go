@@ -127,14 +127,15 @@ func validatePipelines(p *v1alpha1.Promise) error {
 
 	unstructuredResourceRequest := unstructured.Unstructured{
 		Object: map[string]interface{}{
-			"kind":       p.GroupVersionKind().Kind,
-			"apiVersion": p.GroupVersionKind().Group + p.GroupVersionKind().Version,
 			"metadata": map[string]interface{}{
 				"name":      p.GroupVersionKind().Kind + "request",
 				"namespace": "default",
 			},
 		},
 	}
+
+	unstructuredResourceRequest.SetAPIVersion(p.GroupVersionKind().Group + "/" + p.GroupVersionKind().Version)
+	unstructuredResourceRequest.SetKind(p.GroupVersionKind().Kind)
 
 	for workflowType, actionToPipelineMap := range promisePipelines {
 		for workflowAction, pipelines := range actionToPipelineMap {

@@ -17,6 +17,7 @@ limitations under the License.
 package v1alpha1
 
 import (
+	"bytes"
 	"encoding/json"
 	"fmt"
 
@@ -103,7 +104,7 @@ type Container struct {
 type Pipeline struct {
 	//Note: Removed TypeMeta in order to stop the CRD generation.
 	//		This is only for internal Kratix use.
-	//metav1.TypeMeta   `json:",inline"`
+	metav1.TypeMeta   `json:",inline"`
 	metav1.ObjectMeta `json:"metadata,omitempty"`
 
 	Spec PipelineSpec `json:"spec,omitempty"`
@@ -171,10 +172,11 @@ func PipelinesFromUnstructured(pipelines []unstructured.Unstructured, logger log
 				pipelineLogger.Error(err, "Failed marshalling pipeline to json")
 				return nil, err
 			}
+			decoder := json.NewDecoder(bytes.NewReader(jsonPipeline))
+			decoder.DisallowUnknownFields()
 
-			p := Pipeline{}
-			err = json.Unmarshal(jsonPipeline, &p)
-			if err != nil {
+			var p Pipeline
+			if err = decoder.Decode(&p); err != nil {
 				pipelineLogger.Error(err, "Failed unmarshalling pipeline")
 				return nil, err
 			}
