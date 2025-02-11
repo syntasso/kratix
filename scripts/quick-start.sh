@@ -238,7 +238,7 @@ setup_worker_destination() {
     if ${SINGLE_DESTINATION}; then
         ${ROOT}/scripts/register-destination --name platform-cluster --context kind-platform $flags
     else
-        ${ROOT}/scripts/register-destination --name worker-1 --path worker-1 --context kind-worker --with-label environment=dev $flags
+        ${ROOT}/scripts/register-destination --name worker-1 --context kind-worker --with-label environment=dev $flags
         if ! ${LABELS}; then
             kubectl --context kind-platform label destination worker-1 environment-
         fi
@@ -250,7 +250,7 @@ setup_worker_2_destination() {
     if ${INSTALL_AND_CREATE_GITEA_REPO}; then
       flags="--git"
     fi
-    ${ROOT}/scripts/register-destination --name worker-2 --context kind-worker-2 $flags --path worker-2
+    ${ROOT}/scripts/register-destination --name worker-2 --context kind-worker-2 $flags
 }
 
 wait_for_gitea() {
