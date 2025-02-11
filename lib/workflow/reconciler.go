@@ -33,6 +33,7 @@ type Opts struct {
 }
 
 var minimumPeriodBetweenCreatingPipelineResources = 1100 * time.Millisecond
+var ErrDeletePipelineFailed = fmt.Errorf("Delete Pipeline Failed")
 
 func NewOpts(ctx context.Context, client client.Client, logger logr.Logger, parentObj *unstructured.Unstructured, resources []v1alpha1.PipelineJobResources, source string, numberOfJobsToKeep int) Opts {
 	return Opts{
@@ -76,6 +77,10 @@ func ReconcileDelete(opts Opts) (bool, error) {
 	if existingDeletePipeline.Status.Succeeded > 0 {
 		opts.logger.Info("Delete Pipeline Completed")
 		return false, nil
+	}
+
+	if existingDeletePipeline.Status.Failed > 0 {
+		return false, ErrDeletePipelineFailed
 	}
 
 	opts.logger.Info("Delete Pipeline not finished", "status", existingDeletePipeline.Status)
@@ -156,7 +161,7 @@ func ReconcileConfigure(opts Opts) (abort bool, err error) {
 		}
 
 		if isFailed(mostRecentJob) {
-			resourceutil.MarkWorkflowAsFailed(opts.logger, opts.parentObject, pipeline.Name)
+			resourceutil.MarkConfigureWorkflowAsFailed(opts.logger, opts.parentObject, pipeline.Name)
 			if err := opts.client.Status().Update(opts.ctx, opts.parentObject); err != nil {
 				opts.logger.Error(err, "failed to update parent object status")
 				return false, err
@@ -400,7 +405,7 @@ func setConfigureWorkflowCompletedConditionStatus(opts Opts, isTheFirstPipeline 
 		if isTheFirstPipeline || currentMessage == "" || currentMessage == "Resource requested" {
 			resourceutil.SetStatus(obj, opts.logger, "message", "Pending")
 		}
-		resourceutil.MarkWorkflowAsRunning(opts.logger, obj)
+		resourceutil.MarkConfigureWorkflowAsRunning(opts.logger, obj)
 		err := opts.client.Status().Update(opts.ctx, obj)
 		if err != nil {
 			opts.logger.Error(err, "failed to update object status")

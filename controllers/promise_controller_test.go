@@ -880,7 +880,7 @@ var _ = Describe("PromiseController", func() {
 					uPromise, err := promise.ToUnstructured()
 					Expect(err).NotTo(HaveOccurred())
 
-					resourceutil.MarkWorkflowAsRunning(logr.Logger{}, uPromise)
+					resourceutil.MarkConfigureWorkflowAsRunning(logr.Logger{}, uPromise)
 					Expect(fakeK8sClient.Status().Update(ctx, uPromise)).To(Succeed())
 
 					result, err := reconciler.Reconcile(ctx, ctrl.Request{NamespacedName: types.NamespacedName{Name: promise.GetName(), Namespace: promise.GetNamespace()}})

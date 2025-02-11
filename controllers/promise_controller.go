@@ -527,6 +527,7 @@ func (r *PromiseReconciler) ensureDynamicControllerIsStarted(promise *v1alpha1.P
 		Enabled:                     &enabled,
 		CanCreateResources:          canCreateResources,
 		NumberOfJobsToKeep:          r.NumberOfJobsToKeep,
+		EventRecorder:               r.Manager.GetEventRecorderFor("ResourceRequestController"),
 	}
 	r.StartedDynamicControllers[string(promise.GetUID())] = dynamicResourceRequestController
 

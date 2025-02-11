@@ -18,6 +18,8 @@ import (
 const (
 	ConfigureWorkflowCompletedCondition    = clusterv1.ConditionType("ConfigureWorkflowCompleted")
 	ConfigureWorkflowCompletedFailedReason = "ConfigureWorkflowFailed"
+	DeleteWorkflowCompletedCondition       = clusterv1.ConditionType("DeleteWorkflowCompleted")
+	DeleteWorkflowCompletedFailedReason    = "DeleteWorkflowFailed"
 	PipelinesExecutedSuccessfully          = "PipelinesExecutedSuccessfully"
 	ManualReconciliationLabel              = "kratix.io/manual-reconciliation"
 	ReconcileResourcesLabel                = "kratix.io/reconcile-resources"
@@ -36,7 +38,7 @@ func GetConfigureWorkflowCompletedConditionStatus(obj *unstructured.Unstructured
 	return condition.Status
 }
 
-func MarkWorkflowAsRunning(logger logr.Logger, obj *unstructured.Unstructured) {
+func MarkConfigureWorkflowAsRunning(logger logr.Logger, obj *unstructured.Unstructured) {
 	SetCondition(obj, &clusterv1.Condition{
 		Type:               ConfigureWorkflowCompletedCondition,
 		Status:             v1.ConditionFalse,
@@ -47,15 +49,27 @@ func MarkWorkflowAsRunning(logger logr.Logger, obj *unstructured.Unstructured) {
 	logger.Info("set conditions", "condition", ConfigureWorkflowCompletedCondition, "value", v1.ConditionFalse, "reason", "PipelinesInProgress")
 }
 
-func MarkWorkflowAsFailed(logger logr.Logger, obj *unstructured.Unstructured, failedPipeline string) {
+func MarkConfigureWorkflowAsFailed(logger logr.Logger, obj *unstructured.Unstructured, failedPipeline string) {
 	SetCondition(obj, &clusterv1.Condition{
 		Type:               ConfigureWorkflowCompletedCondition,
 		Status:             v1.ConditionFalse,
-		Message:            fmt.Sprintf("A Pipeline has failed: %s", failedPipeline),
+		Message:            fmt.Sprintf("A Configure Pipeline has failed: %s", failedPipeline),
 		Reason:             ConfigureWorkflowCompletedFailedReason,
 		LastTransitionTime: metav1.NewTime(time.Now()),
 	})
 	logger.Info("set conditions", "condition", ConfigureWorkflowCompletedCondition, "value", v1.ConditionFalse, "reason", ConfigureWorkflowCompletedFailedReason)
+}
+
+func MarkDeleteWorkflowAsFailed(logger logr.Logger, obj *unstructured.Unstructured) {
+	condition := clusterv1.Condition{
+		Type:               DeleteWorkflowCompletedCondition,
+		Status:             v1.ConditionFalse,
+		Message:            "The Delete Pipeline has failed",
+		Reason:             DeleteWorkflowCompletedFailedReason,
+		LastTransitionTime: metav1.NewTime(time.Now()),
+	}
+	SetCondition(obj, &condition)
+	logger.Info("set conditions", "condition", condition.Type, "value", condition.Status, "reason", condition.Reason)
 }
 
 func SortJobsByCreationDateTime(jobs []batchv1.Job, desc bool) []batchv1.Job {
