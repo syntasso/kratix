@@ -277,6 +277,8 @@ func (r *PromiseReconciler) Reconcile(ctx context.Context, req ctrl.Request) (ct
 				return ctrl.Result{}, err
 			}
 
+			r.EventRecorder.Event(promise, "Normal", "ReconcilingResources", "Reconciling all resource requests")
+
 			if _, ok := promise.Labels[resourceutil.ReconcileResourcesLabel]; ok {
 				return ctrl.Result{}, r.removeReconcileResourcesLabel(ctx, promise)
 			}

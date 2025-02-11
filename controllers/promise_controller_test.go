@@ -1078,6 +1078,11 @@ var _ = Describe("PromiseController", func() {
 					Expect(fakeK8sClient.Get(ctx, promiseName, promise)).To(Succeed())
 					Expect(promise.Labels).NotTo(HaveKey(resourceutil.ReconcileResourcesLabel))
 				})
+
+				By("firing an event to indicate the resources are being reconciled", func() {
+					Eventually(eventRecorder.Events).Should(Receive(ContainSubstring(
+						"Normal ReconcilingResources Reconciling all resource requests")))
+				})
 			})
 		})
 	})
