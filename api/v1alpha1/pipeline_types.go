@@ -151,6 +151,8 @@ func (p *PipelineJobResources) GetObjects() []client.Object {
 	return objs
 }
 
+// PipelinesFromUnstructured converts a list of unstructured objects to Pipeline objects
+
 func PipelinesFromUnstructured(pipelines []unstructured.Unstructured, logger logr.Logger) ([]Pipeline, error) {
 	if len(pipelines) == 0 {
 		return nil, nil
