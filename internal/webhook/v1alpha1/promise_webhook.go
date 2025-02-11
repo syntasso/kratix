@@ -153,8 +153,20 @@ func validatePipelines(p *v1alpha1.Promise) error {
 						workflowType, workflowAction, pipeline.GetName(), p.GetName(), workflowType, workflowAction, pipeline.GetName())
 				}
 
-				if _, err = factory.Resources(nil); err != nil {
+				var jobResources v1alpha1.PipelineJobResources
+				if jobResources, err = factory.Resources(nil); err != nil {
 					return fmt.Errorf("failed to generate pipeline resources %w", err)
+				}
+
+				err = k8sClient.Create(context.TODO(), jobResources.Job, &client.CreateOptions{DryRun: []string{metav1.DryRunAll}})
+				if err != nil {
+					return fmt.Errorf(
+						"\n%s.%s pipeline with name %s failed to generate Job definition: \n%s",
+						workflowType,
+						workflowAction,
+						pipeline.GetName(),
+						err.Error(),
+					)
 				}
 			}
 		}
