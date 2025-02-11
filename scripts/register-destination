@@ -10,8 +10,8 @@ NAME=""
 DESTINATION_CONTEXT=""
 PLATFORM_CONTEXT="kind-platform"
 STATE_STORE="default"
-GITOPS_PATH="platform-cluster"
 STRICT_MATCH_LABELS=false
+GITOPS_PATH=""
 
 usage() {
     echo -e "Usage: register-destination [--help] [--git] [--with-label foo=bar] [--context k8s-context] [--name  some-name ] [--platform-context 'kind-platform'] [--path platform-cluster] [--strict-match-labels]"
@@ -69,6 +69,10 @@ load_options() {
     if [ -z "$DESTINATION_CONTEXT" ]; then
       echo "Context is required"
       usage 1
+    fi
+
+    if [ -z "$GITOPS_PATH" ]; then
+      GITOPS_PATH="$NAME"
     fi
 }
 
