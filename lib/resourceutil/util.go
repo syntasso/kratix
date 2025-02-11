@@ -46,7 +46,7 @@ func MarkConfigureWorkflowAsRunning(logger logr.Logger, obj *unstructured.Unstru
 		Reason:             "PipelinesInProgress",
 		LastTransitionTime: metav1.NewTime(time.Now()),
 	})
-	logger.Info("set conditions", "condition", ConfigureWorkflowCompletedCondition, "value", v1.ConditionFalse, "reason", "PipelinesInProgress")
+	logger.Info("marking configure workflow as running", "condition", ConfigureWorkflowCompletedCondition, "value", v1.ConditionFalse, "reason", "PipelinesInProgress")
 }
 
 func MarkConfigureWorkflowAsFailed(logger logr.Logger, obj *unstructured.Unstructured, failedPipeline string) {
@@ -57,7 +57,7 @@ func MarkConfigureWorkflowAsFailed(logger logr.Logger, obj *unstructured.Unstruc
 		Reason:             ConfigureWorkflowCompletedFailedReason,
 		LastTransitionTime: metav1.NewTime(time.Now()),
 	})
-	logger.Info("set conditions", "condition", ConfigureWorkflowCompletedCondition, "value", v1.ConditionFalse, "reason", ConfigureWorkflowCompletedFailedReason)
+	logger.Info("marking configure workflow as failed", "condition", ConfigureWorkflowCompletedCondition, "value", v1.ConditionFalse, "reason", ConfigureWorkflowCompletedFailedReason)
 }
 
 func MarkDeleteWorkflowAsFailed(logger logr.Logger, obj *unstructured.Unstructured) {
@@ -69,7 +69,7 @@ func MarkDeleteWorkflowAsFailed(logger logr.Logger, obj *unstructured.Unstructur
 		LastTransitionTime: metav1.NewTime(time.Now()),
 	}
 	SetCondition(obj, &condition)
-	logger.Info("set conditions", "condition", condition.Type, "value", condition.Status, "reason", condition.Reason)
+	logger.Info("marking delete workflow as failed", "condition", condition.Type, "value", condition.Status, "reason", condition.Reason)
 }
 
 func SortJobsByCreationDateTime(jobs []batchv1.Job, desc bool) []batchv1.Job {

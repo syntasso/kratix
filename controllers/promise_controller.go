@@ -299,7 +299,6 @@ func (r *PromiseReconciler) Reconcile(ctx context.Context, req ctrl.Request) (ct
 	promise.Status.Status = v1alpha1.PromiseStatusAvailable
 	promise.Status.LastAvailableTime = &metav1.Time{Time: time.Now()}
 
-	// TODO: Event for transition to Available
 	r.EventRecorder.Eventf(promise, "Normal", "Available", "Promise is available")
 	return r.updatePromiseStatus(ctx, promise)
 }
@@ -479,7 +478,7 @@ func (r *PromiseReconciler) reconcileDependenciesAndPromiseWorkflows(o opts, pro
 		return nil, err
 	}
 
-	jobOpts := workflow.NewOpts(o.ctx, o.client, o.logger, unstructuredPromise, pipelineResources, "promise", r.NumberOfJobsToKeep)
+	jobOpts := workflow.NewOpts(o.ctx, o.client, r.EventRecorder, o.logger, unstructuredPromise, pipelineResources, "promise", r.NumberOfJobsToKeep)
 
 	abort, err := reconcileConfigure(jobOpts)
 	if err != nil {
@@ -713,7 +712,7 @@ func (r *PromiseReconciler) deletePromise(o opts, promise *v1alpha1.Promise) (ct
 		if err != nil {
 			return ctrl.Result{}, err
 		}
-		jobOpts := workflow.NewOpts(o.ctx, o.client, o.logger, unstructuredPromise, pipelines, "promise", r.NumberOfJobsToKeep)
+		jobOpts := workflow.NewOpts(o.ctx, o.client, r.EventRecorder, o.logger, unstructuredPromise, pipelines, "promise", r.NumberOfJobsToKeep)
 
 		requeue, err := reconcileDelete(jobOpts)
 		if err != nil {
@@ -1114,6 +1113,7 @@ func (r *PromiseReconciler) markRequiredPromiseAsRequired(ctx context.Context, v
 }
 
 func (r *PromiseReconciler) updatePromiseStatus(ctx context.Context, promise *v1alpha1.Promise) (ctrl.Result, error) {
+	r.Log.Info("updating Promise status", "promise", promise.Name, "status", promise.Status.Status)
 	err := r.Client.Status().Update(ctx, promise)
 	if errors.IsConflict(err) {
 		r.Log.Info("failed to update Promise status due to update conflict, requeue...")

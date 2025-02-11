@@ -7,6 +7,7 @@ import (
 	"time"
 
 	rbacv1 "k8s.io/api/rbac/v1"
+	"k8s.io/client-go/tools/record"
 
 	"github.com/go-logr/logr"
 	"github.com/syntasso/kratix/api/v1alpha1"
@@ -30,12 +31,13 @@ type Opts struct {
 	Resources          []v1alpha1.PipelineJobResources
 	source             string
 	numberOfJobsToKeep int
+	eventRecorder      record.EventRecorder
 }
 
 var minimumPeriodBetweenCreatingPipelineResources = 1100 * time.Millisecond
 var ErrDeletePipelineFailed = fmt.Errorf("Delete Pipeline Failed")
 
-func NewOpts(ctx context.Context, client client.Client, logger logr.Logger, parentObj *unstructured.Unstructured, resources []v1alpha1.PipelineJobResources, source string, numberOfJobsToKeep int) Opts {
+func NewOpts(ctx context.Context, client client.Client, eventRecorder record.EventRecorder, logger logr.Logger, parentObj *unstructured.Unstructured, resources []v1alpha1.PipelineJobResources, source string, numberOfJobsToKeep int) Opts {
 	return Opts{
 		ctx:                ctx,
 		client:             client,
@@ -44,6 +46,7 @@ func NewOpts(ctx context.Context, client client.Client, logger logr.Logger, pare
 		source:             source,
 		numberOfJobsToKeep: numberOfJobsToKeep,
 		Resources:          resources,
+		eventRecorder:      eventRecorder,
 	}
 }
 
@@ -380,6 +383,8 @@ func createConfigurePipeline(opts Opts, pipelineIndex int, resources v1alpha1.Pi
 
 	deleteResources(opts, objectToDelete...)
 	applyResources(opts, append(resources.GetObjects(), resources.Job)...)
+
+	opts.eventRecorder.Eventf(opts.parentObject, "Normal", "PipelineStarted", "Configure Pipeline started: %s", resources.Name)
 
 	return true, nil
 }
