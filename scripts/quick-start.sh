@@ -25,6 +25,7 @@ CERT_MANAGER_DIST=https://github.com/cert-manager/cert-manager/releases/download
 ENABLE_WEBHOOKS=true
 
 LABELS=true
+USE_LOCAL_MANIFEST=${USE_LOCAL_MANIFEST:-false}
 
 usage() {
     echo -e "Usage: quick-start.sh [--help] [--recreate] [--local] [--git] [--git-and-minio] [--local-images <location>]"
@@ -126,7 +127,9 @@ verify_prerequisites() {
 
     if [ "${VERSION}" == "main" ]; then
         # we always want to fetch the latest from main
-        rm distribution/kratix.yaml || true
+        if ! $USE_LOCAL_MANIFEST; then
+            rm distribution/kratix.yaml || true
+        fi
     fi
 
     log -n "Looking for distribution/kratix.yaml... "
