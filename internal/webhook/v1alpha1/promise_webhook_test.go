@@ -39,6 +39,10 @@ var _ = Describe("PromiseWebhook", func() {
 	ctx := context.TODO()
 	newPromise := func() *v1alpha1.Promise {
 		return &v1alpha1.Promise{
+			TypeMeta: metav1.TypeMeta{
+				Kind:       "Promise",
+				APIVersion: v1alpha1.GroupVersion.Group + "/" + v1alpha1.GroupVersion.Version,
+			},
 			ObjectMeta: metav1.ObjectMeta{
 				Name: "mypromise",
 			},
@@ -127,14 +131,14 @@ var _ = Describe("PromiseWebhook", func() {
 		})
 	})
 
-	Describe("Workflows", func() {
+	Describe("Pipeline", func() {
 		var promise *v1alpha1.Promise
 
 		BeforeEach(func() {
 			promise = newPromise()
 		})
 
-		When("the pipeline is invalid", func() {
+		When("the pipeline is not of kind 'Pipeline' or apiGroup 'platform.kratix.io'", func() {
 			It("returns an error", func() {
 				objMap, err := runtime.DefaultUnstructuredConverter.ToUnstructured(&corev1.ConfigMap{ObjectMeta: metav1.ObjectMeta{Name: "test"}})
 				Expect(err).NotTo(HaveOccurred())
@@ -149,7 +153,7 @@ var _ = Describe("PromiseWebhook", func() {
 
 		When("multiple pipelines within the same workflow and action have the same name", func() {
 			It("errors", func() {
-				promise := newPromise()
+				promise = newPromise()
 				pipeline := v1alpha1.Pipeline{
 					ObjectMeta: metav1.ObjectMeta{
 						Name: "foo",
@@ -166,16 +170,13 @@ var _ = Describe("PromiseWebhook", func() {
 			})
 		})
 
-		Describe("pipeline name", func() {
-			var (
-				maxLimit int
-			)
-
+		Context("Name", func() {
+			var maxLimit int
 			BeforeEach(func() {
 				maxLimit = 60 - len(promise.Name+"-resource-configure-")
 			})
 
-			It("returns an error when too long", func() {
+			It("returns an error it is too long", func() {
 				pipeline := v1alpha1.Pipeline{
 					ObjectMeta: metav1.ObjectMeta{
 						Name: randomString(maxLimit + 1),
@@ -193,7 +194,7 @@ var _ = Describe("PromiseWebhook", func() {
 					"\"mypromise-resource-configure-" + pipeline.GetName() + "\", which cannot be longer than 60 characters in total"))
 			})
 
-			It("succeeds when within the character limit", func() {
+			It("succeeds when it is within the character limit", func() {
 				pipeline := v1alpha1.Pipeline{
 					ObjectMeta: metav1.ObjectMeta{
 						Name: randomString(maxLimit),

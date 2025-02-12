@@ -43,13 +43,13 @@ spec:
                 - apiGroups: [""]
                   verbs: ["get", "list"]
                   resources: ["configmaps"]
-                  resourceName: ["rbac-promise-cm"]
+                  resourceNames: ["rbac-promise-cm"]
 
                 # one resource across namespaces
                 - apiGroups: [""]
                   verbs: ["get", "list"]
                   resources: ["configmaps"]
-                  resourceName: ["rbac-promise-default-cm"]
+                  resourceNames: ["rbac-promise-default-cm"]
                   resourceNamespace: "default"
 
                 # all secret across all namespaces
@@ -93,13 +93,13 @@ spec:
                 - apiGroups: [""]
                   verbs: ["get", "list", "create", "update", "patch"]
                   resources: ["secrets"]
-                  resourceName: ["rbac-resource-secret"]
+                  resourceNames: ["rbac-resource-secret"]
 
                 # can fetch a configmap across namespaces
                 - apiGroups: [""]
                   verbs: ["get", "list"]
                   resources: ["configmaps"]
-                  resourceName: ["rbac-promise-cm"]
+                  resourceNames: ["rbac-promise-cm"]
                   resourceNamespace: "kratix-platform-system"
 
                 # can fetch cluster-scoped resources
