@@ -147,7 +147,7 @@ var _ = Describe("PromiseWebhook", func() {
 				unstructuredPipeline.SetKind("ConfigMap")
 				promise.Spec.Workflows.Resource.Configure = []unstructured.Unstructured{*unstructuredPipeline}
 				_, err = validator.ValidateCreate(ctx, promise)
-				Expect(err).To(MatchError(`unsupported pipeline "test" with APIVersion "ConfigMap/v1"`))
+				Expect(err).To(MatchError(ContainSubstring(`unsupported pipeline "test" with APIVersion "ConfigMap/v1"`)))
 			})
 		})
 
@@ -233,6 +233,35 @@ var _ = Describe("PromiseWebhook", func() {
 			Entry("by erroring for non-conforming label values", "labelKey", "a bad label", `invalid label value "a bad label"`),
 			Entry("by erroring for non-conforming label keys", "invalid key", "valid-value", `invalid label key "invalid key"`),
 		)
+
+		When("the pipeline has invalid fields", func() {
+			It("errors", func() {
+				promise = newPromise()
+				promise.Spec.Workflows.Resource.Configure = []unstructured.Unstructured{
+					{
+						Object: map[string]interface{}{
+							"apiVersion": "platform.kratix.io/v1alpha1",
+							"kind":       "Pipeline",
+							"metadata": map[string]interface{}{
+								"namespace": "default",
+								"name":      "pipeline1",
+							},
+							"spec": map[string]interface{}{
+								"containers": []map[string]interface{}{
+									{
+										"name":         "promise-configure",
+										"image":        "my-registry.io/configure",
+										"non-existing": true,
+									},
+								},
+							},
+						},
+					},
+				}
+				_, err := validator.ValidateCreate(ctx, promise)
+				Expect(err).To(MatchError("failed parsing resource.configure pipeline: failed unmarshalling pipeline pipeline1: json: unknown field \"non-existing\""))
+			})
+		})
 
 	})
 

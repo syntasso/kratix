@@ -404,7 +404,7 @@ func NewPipelinesMap(promise *Promise, logger logr.Logger) (pipelineMap, error) 
 		for action, uPipeline := range actions {
 			pipelines, err := PipelinesFromUnstructured(uPipeline, logger)
 			if err != nil {
-				return nil, err
+				return nil, fmt.Errorf("failed parsing %s.%s pipeline: %w", typ, action, err)
 			}
 			pipelinesMap[typ][action] = pipelines
 		}
