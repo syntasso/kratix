@@ -1369,7 +1369,7 @@ var _ = Describe("Pipeline", func() {
 			Expect(pipelines).To(Equal(expectedPipelines))
 		})
 
-		Context("if the object is not of kind Pipeline", func() {
+		When("the object is not of kind Pipeline", func() {
 			It("raises an error", func() {
 				unstructuredPipelines := []unstructured.Unstructured{
 					{
@@ -1400,7 +1400,7 @@ var _ = Describe("Pipeline", func() {
 			})
 		})
 
-		Context("if the object does not have the apiVersion platform.kratix.io/v1alpha1", func() {
+		When("the object does not have the apiVersion platform.kratix.io/v1alpha1", func() {
 			It("raises an error", func() {
 				unstructuredPipelines := []unstructured.Unstructured{
 					{
@@ -1426,8 +1426,38 @@ var _ = Describe("Pipeline", func() {
 				_, err := v1alpha1.PipelinesFromUnstructured(unstructuredPipelines, logr.Discard())
 				Expect(err).To(MatchError(
 					"unsupported pipeline \"pipeline1\" with APIVersion \"Pipeline/v1\"",
-				),
-				)
+				))
+			})
+		})
+
+		When("the given Pipeline unknown fields", func() {
+			It("returns an error", func() {
+				unstructuredPipelines := []unstructured.Unstructured{
+					{
+						Object: map[string]interface{}{
+							"apiVersion": "platform.kratix.io/v1alpha1",
+							"kind":       "Pipeline",
+							"metadata": map[string]interface{}{
+								"namespace": "default",
+								"name":      "pipeline1",
+							},
+							"rbac": map[string]interface{}{
+								"serviceAccount": "should-not-be-here",
+							},
+							"spec": map[string]interface{}{
+								"containers": []map[string]interface{}{
+									{
+										"name":  "promise-configure",
+										"image": "my-registry.io/configure",
+									},
+								},
+							},
+						},
+					},
+				}
+
+				_, err := v1alpha1.PipelinesFromUnstructured(unstructuredPipelines, logr.Discard())
+				Expect(err).To(MatchError(ContainSubstring("json: unknown field \"rbac\"")))
 			})
 		})
 	})
