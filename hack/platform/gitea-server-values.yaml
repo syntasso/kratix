@@ -1,0 +1,201 @@
+# Can be used to template ./gitea-install.yaml with:
+#    helm template gitea gitea-charts/gitea --version 10.6.0 --values gitea-server-values.yaml
+
+postgresql:
+  enabled: false
+postgresql-ha:
+  enabled: false
+redis-cluster:
+  enabled: false
+redis:
+  enabled: false
+test:
+  enabled: false
+
+clusterDomain: "localhost:31333"
+namespace: gitea
+
+gitea:
+  admin:
+    passwordMode: keepUpdated
+  config:
+    database:
+      DB_TYPE: sqlite3
+    session:
+      PROVIDER: memory
+    cache:
+      ADAPTER: memory
+    queue:
+      TYPE: level
+    server:
+      APP_DATA_PATH: /data
+      DOMAIN: localhost:31333
+      ENABLE_PPROF: false
+      HTTP_PORT: 3000
+      PROTOCOL: https
+      ROOT_URL: https://localhost:31333
+      SSH_DOMAIN: localhost
+      SSH_LISTEN_PORT: 2222
+      SSH_PORT: 22
+      START_SSH_SERVER: true
+      ENABLE_PUSH_CREATE_ORG: true
+      ENABLE_PUSH_CREATE_USER: true
+      CERT_FILE: cert.pem
+      KEY_FILE: key.pem
+
+deployment:
+  env:
+    - name: GITEA__repository__ENABLE_PUSH_CREATE_USER
+      value: "true"
+extraVolumes:
+  - name: cert
+    secret:
+      secretName: gitea-credentials
+
+extraContainerVolumeMounts:
+  - mountPath: /data/gitea/key.pem
+    name: cert
+    subPath: privateKey
+  - mountPath: /data/gitea/cert.pem
+    name: cert
+    subPath: caFile
+
+service:
+  http:
+    type: NodePort
+    nodePort: 31333
+    port: 443
+
+persistence:
+  enabled: false
+#  enabled: true
+
+actions:
+  enabled: false
+#  enabled: true
+#  provisioning:
+#    enabled: true
+
+extraDeploy:
+  - apiVersion: batch/v1
+    kind: Job
+    metadata:
+      name: gitea-create-repository
+      namespace: gitea
+    spec:
+      template:
+        spec:
+          serviceAccountName: gitea-create-repository
+          initContainers:
+            - name: wait-for-git
+              image: docker.io/bitnami/kubectl:1.28.6
+              command:
+                [
+                  "sh",
+                  "-c",
+                  "kubectl wait --for=condition=Ready --timeout=120s --namespace gitea pod -l app.kubernetes.io/instance=gitea",
+                ]
+            - name: init
+              env:
+                - name: GIT_DISCOVERY_ACROSS_FILESYSTEM
+                  value: "true"
+              image: docker.io/alpine/git:2.36.3
+              args:
+                - init
+                - --separate-git-dir=/repo/.git
+                - --initial-branch=main
+              volumeMounts:
+                - mountPath: /repo
+                  name: repo
+            - name: commit
+              image: docker.io/alpine/git:2.36.3
+              env:
+                - name: GIT_DISCOVERY_ACROSS_FILESYSTEM
+                  value: "true"
+              args:
+                - --git-dir=/repo/.git
+                - -c
+                - "user.name='kratix'"
+                - -c
+                - "user.email='kratix@kratix.io'"
+                - commit
+                - --allow-empty
+                - -m
+                - "Kratix verify demo repo exists"
+              volumeMounts:
+                - mountPath: /repo
+                  name: repo
+            - name: pull-rebase
+              # Note: this makes us more resilient if the repo already exists.
+              image: ghcr.io/syntasso/kratix-pipeline-utility:v0.0.1
+              env:
+                - name: GIT_DISCOVERY_ACROSS_FILESYSTEM
+                  value: "true"
+              command:
+                - "sh"
+                - "-c"
+                - |
+                  exit_code=$(git -c http.sslVerify=false ls-remote https://gitea_admin:r8sA8CPHD9!bt6d@gitea-http.gitea.svc.cluster.local/gitea_admin/kratix.git > /dev/null 2>&1 && echo $?)
+                  if [ $exit_code -eq 0 ]; then
+                    touch /repo/.already-exists
+                  else
+                    echo "remote repo does not yet exist, continuing with push"
+                  fi
+              volumeMounts:
+                - mountPath: /repo
+                  name: repo
+          containers:
+            - name: push
+              # Note: this makes us more resilient if the repo already exists.
+              image: ghcr.io/syntasso/kratix-pipeline-utility:v0.0.1
+              env:
+                - name: GIT_DISCOVERY_ACROSS_FILESYSTEM
+                  value: "true"
+              command:
+                - "sh"
+                - "-c"
+                - |
+                  if [ -f /repo/.already-exists ]; then
+                    echo "remote repo already exists, skipping push"
+                    exit 0
+                  fi
+                  git --git-dir=/repo/.git -c http.sslVerify=false \
+                    push https://gitea_admin:r8sA8CPHD9!bt6d@gitea-http.gitea.svc.cluster.local/gitea_admin/kratix.git --all
+              volumeMounts:
+                - mountPath: /repo
+                  name: repo
+          restartPolicy: Never
+          volumes:
+            - name: repo
+              emptyDir: {}
+  - apiVersion: rbac.authorization.k8s.io/v1
+    kind: Role
+    metadata:
+      name: gitea-create-repository
+      namespace: gitea
+    rules:
+      - apiGroups:
+          - ""
+        resources:
+          - pods
+        verbs:
+          - get
+          - list
+          - watch
+  - apiVersion: rbac.authorization.k8s.io/v1
+    kind: RoleBinding
+    metadata:
+      name: gitea-create-repository
+      namespace: gitea
+    roleRef:
+      apiGroup: rbac.authorization.k8s.io
+      kind: Role
+      name: gitea-create-repository
+    subjects:
+      - kind: ServiceAccount
+        name: gitea-create-repository
+  - apiVersion: v1
+    kind: ServiceAccount
+    metadata:
+      name: gitea-create-repository
+      namespace: gitea

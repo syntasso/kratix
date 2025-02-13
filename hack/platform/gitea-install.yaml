@@ -1,4 +1,11 @@
 ---
+# Source: gitea/templates/gitea/extra-list.yaml
+apiVersion: v1
+kind: ServiceAccount
+metadata:
+  name: gitea-create-repository
+  namespace: gitea
+---
 # Source: gitea/templates/gitea/config.yaml
 apiVersion: v1
 kind: Secret
@@ -6,16 +13,17 @@ metadata:
   name: gitea-inline-config
   namespace: gitea
   labels:
-    helm.sh/chart: gitea-10.1.4
+    helm.sh/chart: gitea-10.6.0
     app: gitea
     app.kubernetes.io/name: gitea
     app.kubernetes.io/instance: gitea
-    app.kubernetes.io/version: "1.21.11"
-    version: "1.21.11"
+    app.kubernetes.io/version: "1.22.3"
+    version: "1.22.3"
     app.kubernetes.io/managed-by: Helm
 type: Opaque
 stringData:
   _generals_: ""
+  actions: ENABLED=false
   cache: |-
     ADAPTER=memory
     HOST=
@@ -29,20 +37,19 @@ stringData:
   security: INSTALL_LOCK=true
   server: |-
     APP_DATA_PATH=/data
+    CERT_FILE=cert.pem
     DOMAIN=localhost:31333
     ENABLE_PPROF=false
+    ENABLE_PUSH_CREATE_ORG=true
+    ENABLE_PUSH_CREATE_USER=true
     HTTP_PORT=3000
+    KEY_FILE=key.pem
     PROTOCOL=https
     ROOT_URL=https://localhost:31333
     SSH_DOMAIN=localhost
     SSH_LISTEN_PORT=2222
     SSH_PORT=22
     START_SSH_SERVER=true
-    ENABLE_PUSH_CREATE_ORG=true
-    ENABLE_PUSH_CREATE_USER=true
-
-    CERT_FILE=cert.pem
-    KEY_FILE=key.pem
   session: |-
     PROVIDER=memory
     PROVIDER_CONFIG=
@@ -54,12 +61,12 @@ metadata:
   name: gitea
   namespace: gitea
   labels:
-    helm.sh/chart: gitea-10.1.4
+    helm.sh/chart: gitea-10.6.0
     app: gitea
     app.kubernetes.io/name: gitea
     app.kubernetes.io/instance: gitea
-    app.kubernetes.io/version: "1.21.11"
-    version: "1.21.11"
+    app.kubernetes.io/version: "1.22.3"
+    version: "1.22.3"
     app.kubernetes.io/managed-by: Helm
 type: Opaque
 stringData:
@@ -80,7 +87,7 @@ stringData:
         # skip empty line
         return
       fi
-
+      
       # 'xargs echo -n' trims all leading/trailing whitespaces and a trailing new line
       local setting="$(awk -F '=' '{print $1}' <<< "${line}" | xargs echo -n)"
 
@@ -227,12 +234,12 @@ metadata:
   name: gitea-init
   namespace: gitea
   labels:
-    helm.sh/chart: gitea-10.1.4
+    helm.sh/chart: gitea-10.6.0
     app: gitea
     app.kubernetes.io/name: gitea
     app.kubernetes.io/instance: gitea
-    app.kubernetes.io/version: "1.21.11"
-    version: "1.21.11"
+    app.kubernetes.io/version: "1.22.3"
+    version: "1.22.3"
     app.kubernetes.io/managed-by: Helm
 type: Opaque
 stringData:
@@ -245,22 +252,13 @@ stringData:
     #!/usr/bin/env bash
 
     set -euo pipefail
-
-    set -x
-    mkdir -p /data/git/.ssh
-    chmod -R 700 /data/git/.ssh
-    [ ! -d /data/gitea/conf ] && mkdir -p /data/gitea/conf
+    mkdir -pv /data/git/.ssh
+    chmod -Rv 700 /data/git/.ssh
+    [ ! -d /data/gitea/conf ] && mkdir -pv /data/gitea/conf
 
     # prepare temp directory structure
-    mkdir -p "${GITEA_TEMP}"
-    chmod ug+rwx "${GITEA_TEMP}"
-
-    # configure certs
-    cd $GITEA_CUSTOM
-    echo "$CERT_CONTENTS" > cert.pem
-    echo "$KEY_CONTENTS" > key.pem
-    chmod ug+rw *.pem
-    cd -
+    mkdir -pv "${GITEA_TEMP}"
+    chmod -v ug+rwx "${GITEA_TEMP}"
 
   configure_gitea.sh: |-
     #!/usr/bin/env bash
@@ -299,13 +297,33 @@ stringData:
 
       local ACCOUNT_ID=$(echo "${actual_user_table}" | grep -E "\s+${GITEA_ADMIN_USERNAME}\s+" | awk -F " " "{printf \$1}")
       if [[ -z "${ACCOUNT_ID}" ]]; then
+        local -a create_args
+        create_args=(--admin --username "${GITEA_ADMIN_USERNAME}" --password "${GITEA_ADMIN_PASSWORD}" --email "gitea@local.domain")
+        if [[ "${GITEA_ADMIN_PASSWORD_MODE}" = initialOnlyRequireReset ]]; then
+          create_args+=(--must-change-password=true)
+        else
+          create_args+=(--must-change-password=false)
+        fi
         echo "No admin user '${GITEA_ADMIN_USERNAME}' found. Creating now..."
-        gitea admin user create --admin --username "${GITEA_ADMIN_USERNAME}" --password "${GITEA_ADMIN_PASSWORD}" --email "gitea@local.domain" --must-change-password=false
+        gitea admin user create "${create_args[@]}"
         echo '...created.'
       else
-        echo "Admin account '${GITEA_ADMIN_USERNAME}' already exist. Running update to sync password..."
-        gitea admin user change-password --username "${GITEA_ADMIN_USERNAME}" --password "${GITEA_ADMIN_PASSWORD}"
-        echo '...password sync done.'
+        if [[ "${GITEA_ADMIN_PASSWORD_MODE}" = keepUpdated ]]; then
+          echo "Admin account '${GITEA_ADMIN_USERNAME}' already exist. Running update to sync password..."
+          # See https://gitea.com/gitea/helm-chart/issues/673
+          # --must-change-password argument was added to change-password, defaulting to true, counter to the previous behavior
+          #   which acted as if it were provided with =false. If the argument is present in this version of gitea, then we
+          #   should add it to prevent requiring frequent admin password resets.
+          local -a change_args
+          change_args=(--username "${GITEA_ADMIN_USERNAME}" --password "${GITEA_ADMIN_PASSWORD}")
+          if gitea admin user change-password --help | grep -qF -- '--must-change-password'; then
+            change_args+=(--must-change-password=false)
+          fi
+          gitea admin user change-password "${change_args[@]}"
+          echo '...password sync done.'
+        else
+          echo "Admin account '${GITEA_ADMIN_USERNAME}' already exist, but update mode is set to '${GITEA_ADMIN_PASSWORD_MODE}'. Skipping."
+        fi
       fi
     }
 
@@ -325,6 +343,36 @@ stringData:
 
     echo '==== END GITEA CONFIGURATION ===='
 ---
+# Source: gitea/templates/gitea/extra-list.yaml
+apiVersion: rbac.authorization.k8s.io/v1
+kind: Role
+metadata:
+  name: gitea-create-repository
+  namespace: gitea
+rules:
+  - apiGroups:
+      - ""
+    resources:
+      - pods
+    verbs:
+      - get
+      - list
+      - watch
+---
+# Source: gitea/templates/gitea/extra-list.yaml
+apiVersion: rbac.authorization.k8s.io/v1
+kind: RoleBinding
+metadata:
+  name: gitea-create-repository
+  namespace: gitea
+roleRef:
+  apiGroup: rbac.authorization.k8s.io
+  kind: Role
+  name: gitea-create-repository
+subjects:
+  - kind: ServiceAccount
+    name: gitea-create-repository
+---
 # Source: gitea/templates/gitea/http-svc.yaml
 apiVersion: v1
 kind: Service
@@ -332,22 +380,21 @@ metadata:
   name: gitea-http
   namespace: gitea
   labels:
-    helm.sh/chart: gitea-10.1.4
+    helm.sh/chart: gitea-10.6.0
     app: gitea
     app.kubernetes.io/name: gitea
     app.kubernetes.io/instance: gitea
-    app.kubernetes.io/version: "1.21.11"
-    version: "1.21.11"
+    app.kubernetes.io/version: "1.22.3"
+    version: "1.22.3"
     app.kubernetes.io/managed-by: Helm
-  annotations:
-    {}
+  annotations: {}
 spec:
   type: NodePort
   ports:
-  - port: 443
-    protocol: TCP
-    targetPort: 3000
-    nodePort: 31333
+    - name: http
+      port: 443
+      nodePort: 31333
+      targetPort: 3000
   selector:
     app.kubernetes.io/name: gitea
     app.kubernetes.io/instance: gitea
@@ -359,23 +406,22 @@ metadata:
   name: gitea-ssh
   namespace: gitea
   labels:
-    helm.sh/chart: gitea-10.1.4
+    helm.sh/chart: gitea-10.6.0
     app: gitea
     app.kubernetes.io/name: gitea
     app.kubernetes.io/instance: gitea
-    app.kubernetes.io/version: "1.21.11"
-    version: "1.21.11"
+    app.kubernetes.io/version: "1.22.3"
+    version: "1.22.3"
     app.kubernetes.io/managed-by: Helm
-  annotations:
-    {}
+  annotations: {}
 spec:
   type: ClusterIP
   clusterIP: None
   ports:
-  - name: ssh
-    port: 22
-    targetPort: 2222
-    protocol: TCP
+    - name: ssh
+      port: 22
+      targetPort: 2222
+      protocol: TCP
   selector:
     app.kubernetes.io/name: gitea
     app.kubernetes.io/instance: gitea
@@ -388,12 +434,12 @@ metadata:
   namespace: gitea
   annotations:
   labels:
-    helm.sh/chart: gitea-10.1.4
+    helm.sh/chart: gitea-10.6.0
     app: gitea
     app.kubernetes.io/name: gitea
     app.kubernetes.io/instance: gitea
-    app.kubernetes.io/version: "1.21.11"
-    version: "1.21.11"
+    app.kubernetes.io/version: "1.22.3"
+    version: "1.22.3"
     app.kubernetes.io/managed-by: Helm
 spec:
   replicas: 1
@@ -409,22 +455,21 @@ spec:
   template:
     metadata:
       annotations:
-        checksum/config: f48ea30927258688dd47a1a0226bb8aa5dbccd89bd03217c7e82968a6914d76e
+        checksum/config: 99ac6762165dc5f6fa152eb11417dc101d09397342de0b4409403b2d03f393b2
       labels:
-        helm.sh/chart: gitea-10.1.4
+        helm.sh/chart: gitea-10.6.0
         app: gitea
         app.kubernetes.io/name: gitea
         app.kubernetes.io/instance: gitea
-        app.kubernetes.io/version: "1.21.11"
-        version: "1.21.11"
+        app.kubernetes.io/version: "1.22.3"
+        version: "1.22.3"
         app.kubernetes.io/managed-by: Helm
     spec:
-
       securityContext:
         fsGroup: 1000
       initContainers:
         - name: init-directories
-          image: "gitea/gitea:1.21.11-rootless"
+          image: "gitea/gitea:1.22.3-rootless"
           imagePullPolicy: IfNotPresent
           command: ["/usr/sbin/init_directory_structure.sh"]
           env:
@@ -436,16 +481,18 @@ spec:
               value: /data
             - name: GITEA_TEMP
               value: /tmp/gitea
+            - name: GITEA__repository__ENABLE_PUSH_CREATE_USER
+              value: "true"
             - name: KEY_CONTENTS
               valueFrom:
                 secretKeyRef:
-                  name: gitea-credentials
                   key: privateKey
+                  name: gitea-credentials
             - name: CERT_CONTENTS
               valueFrom:
                 secretKeyRef:
-                  name: gitea-credentials
                   key: caFile
+                  name: gitea-credentials
           volumeMounts:
             - name: init
               mountPath: /usr/sbin
@@ -454,15 +501,14 @@ spec:
             - name: data
               mountPath: /data
 
-          securityContext:
-            {}
+          securityContext: {}
           resources:
             limits: {}
             requests:
               cpu: 100m
               memory: 128Mi
         - name: init-app-ini
-          image: "gitea/gitea:1.21.11-rootless"
+          image: "gitea/gitea:1.22.3-rootless"
           imagePullPolicy: IfNotPresent
           command: ["/usr/sbin/config_environment.sh"]
           env:
@@ -474,6 +520,18 @@ spec:
               value: /data
             - name: GITEA_TEMP
               value: /tmp/gitea
+            - name: GITEA__repository__ENABLE_PUSH_CREATE_USER
+              value: "true"
+            - name: KEY_CONTENTS
+              valueFrom:
+                secretKeyRef:
+                  key: privateKey
+                  name: gitea-credentials
+            - name: CERT_CONTENTS
+              valueFrom:
+                secretKeyRef:
+                  key: caFile
+                  name: gitea-credentials
           volumeMounts:
             - name: config
               mountPath: /usr/sbin
@@ -484,15 +542,14 @@ spec:
             - name: inline-config-sources
               mountPath: /env-to-ini-mounts/inlines/
 
-          securityContext:
-            {}
+          securityContext: {}
           resources:
             limits: {}
             requests:
               cpu: 100m
               memory: 128Mi
         - name: configure-gitea
-          image: "gitea/gitea:1.21.11-rootless"
+          image: "gitea/gitea:1.22.3-rootless"
           command: ["/usr/sbin/configure_gitea.sh"]
           imagePullPolicy: IfNotPresent
           securityContext:
@@ -512,6 +569,20 @@ spec:
               value: "gitea_admin"
             - name: GITEA_ADMIN_PASSWORD
               value: "r8sA8CPHD9!bt6d"
+            - name: GITEA_ADMIN_PASSWORD_MODE
+              value: keepUpdated
+            - name: GITEA__repository__ENABLE_PUSH_CREATE_USER
+              value: "true"
+            - name: KEY_CONTENTS
+              valueFrom:
+                secretKeyRef:
+                  key: privateKey
+                  name: gitea-credentials
+            - name: CERT_CONTENTS
+              valueFrom:
+                secretKeyRef:
+                  key: caFile
+                  name: gitea-credentials
           volumeMounts:
             - name: init
               mountPath: /usr/sbin
@@ -528,7 +599,7 @@ spec:
       terminationGracePeriodSeconds: 60
       containers:
         - name: gitea
-          image: "gitea/gitea:1.21.11-rootless"
+          image: "gitea/gitea:1.22.3-rootless"
           imagePullPolicy: IfNotPresent
           env:
             # SSH Port values have to be set here as well for openssh configuration
@@ -550,9 +621,19 @@ spec:
               value: /data/gitea/git
             - name: GITEA__repository__ENABLE_PUSH_CREATE_USER
               value: "true"
+            - name: KEY_CONTENTS
+              valueFrom:
+                secretKeyRef:
+                  key: privateKey
+                  name: gitea-credentials
+            - name: CERT_CONTENTS
+              valueFrom:
+                secretKeyRef:
+                  key: caFile
+                  name: gitea-credentials
           ports:
             - name: ssh
-              containerPort: 22
+              containerPort: 2222
             - name: http
               containerPort: 3000
           livenessProbe:
@@ -571,16 +652,19 @@ spec:
             tcpSocket:
               port: http
             timeoutSeconds: 1
-          resources:
-            {}
-          securityContext:
-            {}
+          resources: {}
+          securityContext: {}
           volumeMounts:
             - name: temp
               mountPath: /tmp
             - name: data
               mountPath: /data
-
+            - mountPath: /data/gitea/key.pem
+              name: cert
+              subPath: privateKey
+            - mountPath: /data/gitea/cert.pem
+              name: cert
+              subPath: caFile
       volumes:
         - name: init
           secret:
@@ -590,6 +674,9 @@ spec:
           secret:
             secretName: gitea
             defaultMode: 110
+        - name: cert
+          secret:
+            secretName: gitea-credentials
         - name: inline-config-sources
           secret:
             secretName: gitea-inline-config
@@ -598,6 +685,7 @@ spec:
         - name: data
           emptyDir: {}
 ---
+# Source: gitea/templates/gitea/extra-list.yaml
 apiVersion: batch/v1
 kind: Job
 metadata:
@@ -606,75 +694,10 @@ metadata:
 spec:
   template:
     spec:
-      serviceAccountName: gitea-create-repository
-      initContainers:
-        - name: wait-for-git
-          image: docker.io/bitnami/kubectl:1.28.6
-          command:
-            [
-              "sh",
-              "-c",
-              "kubectl wait --for=condition=Ready --timeout=120s --namespace gitea pod -l app.kubernetes.io/instance=gitea",
-            ]
-        - name: init
-          env:
-            - name: GIT_DISCOVERY_ACROSS_FILESYSTEM
-              value: "true"
-          image: docker.io/alpine/git:2.36.3
-          args:
-            - init
-            - --separate-git-dir=/repo/.git
-            - --initial-branch=main
-          volumeMounts:
-            - mountPath: /repo
-              name: repo
-        - name: commit
-          image: docker.io/alpine/git:2.36.3
-          env:
-            - name: GIT_DISCOVERY_ACROSS_FILESYSTEM
-              value: "true"
-          args:
-            - --git-dir=/repo/.git
-            - -c
-            - "user.name='kratix'"
-            - -c
-            - "user.email='kratix@kratix.io'"
-            - commit
-            - --allow-empty
-            - -m
-            - "Kratix verify demo repo exists"
-          volumeMounts:
-            - mountPath: /repo
-              name: repo
-        - name: pull-rebase
-          # Note: this makes us more resilient if the repo already exists.
-          image: ghcr.io/syntasso/kratix-pipeline-utility:v0.0.1
-          env:
-            - name: GIT_DISCOVERY_ACROSS_FILESYSTEM
-              value: "true"
-          command:
-            - "sh"
-            - "-c"
-            - |
-              exit_code=$(git -c http.sslVerify=false ls-remote https://gitea_admin:r8sA8CPHD9!bt6d@gitea-http.gitea.svc.cluster.local/gitea_admin/kratix.git > /dev/null 2>&1 && echo $?)
-              if [ $exit_code -eq 0 ]; then
-                touch /repo/.already-exists
-              else
-                echo "remote repo does not yet exist, continuing with push"
-              fi
-          volumeMounts:
-            - mountPath: /repo
-              name: repo
       containers:
-        - name: push
-          # Note: this makes us more resilient if the repo already exists.
-          image: ghcr.io/syntasso/kratix-pipeline-utility:v0.0.1
-          env:
-            - name: GIT_DISCOVERY_ACROSS_FILESYSTEM
-              value: "true"
-          command:
-            - "sh"
-            - "-c"
+        - command:
+            - sh
+            - -c
             - |
               if [ -f /repo/.already-exists ]; then
                 echo "remote repo already exists, skipping push"
@@ -682,44 +705,72 @@ spec:
               fi
               git --git-dir=/repo/.git -c http.sslVerify=false \
                 push https://gitea_admin:r8sA8CPHD9!bt6d@gitea-http.gitea.svc.cluster.local/gitea_admin/kratix.git --all
+          env:
+            - name: GIT_DISCOVERY_ACROSS_FILESYSTEM
+              value: "true"
+          image: ghcr.io/syntasso/kratix-pipeline-utility:v0.0.1
+          name: push
+          volumeMounts:
+            - mountPath: /repo
+              name: repo
+      initContainers:
+        - command:
+            - sh
+            - -c
+            - kubectl wait --for=condition=Ready --timeout=120s --namespace gitea pod
+              -l app.kubernetes.io/instance=gitea
+          image: docker.io/bitnami/kubectl:1.28.6
+          name: wait-for-git
+        - args:
+            - init
+            - --separate-git-dir=/repo/.git
+            - --initial-branch=main
+          env:
+            - name: GIT_DISCOVERY_ACROSS_FILESYSTEM
+              value: "true"
+          image: docker.io/alpine/git:2.36.3
+          name: init
+          volumeMounts:
+            - mountPath: /repo
+              name: repo
+        - args:
+            - --git-dir=/repo/.git
+            - -c
+            - user.name='kratix'
+            - -c
+            - user.email='kratix@kratix.io'
+            - commit
+            - --allow-empty
+            - -m
+            - Kratix verify demo repo exists
+          env:
+            - name: GIT_DISCOVERY_ACROSS_FILESYSTEM
+              value: "true"
+          image: docker.io/alpine/git:2.36.3
+          name: commit
+          volumeMounts:
+            - mountPath: /repo
+              name: repo
+        - command:
+            - sh
+            - -c
+            - |
+              exit_code=$(git -c http.sslVerify=false ls-remote https://gitea_admin:r8sA8CPHD9!bt6d@gitea-http.gitea.svc.cluster.local/gitea_admin/kratix.git > /dev/null 2>&1 && echo $?)
+              if [ $exit_code -eq 0 ]; then
+                touch /repo/.already-exists
+              else
+                echo "remote repo does not yet exist, continuing with push"
+              fi
+          env:
+            - name: GIT_DISCOVERY_ACROSS_FILESYSTEM
+              value: "true"
+          image: ghcr.io/syntasso/kratix-pipeline-utility:v0.0.1
+          name: pull-rebase
           volumeMounts:
             - mountPath: /repo
               name: repo
       restartPolicy: Never
+      serviceAccountName: gitea-create-repository
       volumes:
-        - name: repo
-          emptyDir: {}
----
-apiVersion: rbac.authorization.k8s.io/v1
-kind: Role
-metadata:
-  name: gitea-create-repository
-  namespace: gitea
-rules:
-  - apiGroups:
-      - ""
-    resources:
-      - pods
-    verbs:
-      - get
-      - list
-      - watch
----
-apiVersion: rbac.authorization.k8s.io/v1
-kind: RoleBinding
-metadata:
-  name: gitea-create-repository
-  namespace: gitea
-roleRef:
-  apiGroup: rbac.authorization.k8s.io
-  kind: Role
-  name: gitea-create-repository
-subjects:
-  - kind: ServiceAccount
-    name: gitea-create-repository
----
-apiVersion: v1
-kind: ServiceAccount
-metadata:
-  name: gitea-create-repository
-  namespace: gitea
+        - emptyDir: {}
+          name: repo
