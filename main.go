@@ -222,9 +222,10 @@ func main() {
 			os.Exit(1)
 		}
 		if err = (&controllers.HealthRecordReconciler{
-			Client: mgr.GetClient(),
-			Scheme: mgr.GetScheme(),
-			Log:    ctrl.Log.WithName("controllers").WithName("HealthRecordController"),
+			Client:        mgr.GetClient(),
+			Scheme:        mgr.GetScheme(),
+			Log:           ctrl.Log.WithName("controllers").WithName("HealthRecordController"),
+			EventRecorder: mgr.GetEventRecorderFor("HealthRecordController"),
 		}).SetupWithManager(mgr); err != nil {
 			setupLog.Error(err, "unable to create controller", "controller", "HealthRecord")
 			os.Exit(1)
