@@ -33,7 +33,7 @@ kind create cluster --image kindest/node:v1.27.3 --name platform --config hack/p
 make install-cert-manager
 make build-and-load-kratix
 make build-and-load-work-creator
-helm install kratix charts/kratix/ -f "$platform_helm_values_path"
+helm install kratix charts/kratix/ -f "$platform_helm_values_path" --wait
 
 if [ "$STATE_STORE" == "git" ]; then
     source ./scripts/utils.sh

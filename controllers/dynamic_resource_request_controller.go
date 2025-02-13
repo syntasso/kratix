@@ -18,6 +18,9 @@ package controllers
 
 import (
 	"context"
+	"errors"
+
+	"k8s.io/client-go/tools/record"
 
 	apiextensionsv1 "k8s.io/apiextensions-apiserver/pkg/apis/apiextensions/v1"
 	"sigs.k8s.io/controller-runtime/pkg/controller/controllerutil"
@@ -35,7 +38,7 @@ import (
 	batchv1 "k8s.io/api/batch/v1"
 	v1 "k8s.io/api/core/v1"
 
-	"k8s.io/apimachinery/pkg/api/errors"
+	apierrors "k8s.io/apimachinery/pkg/api/errors"
 	"k8s.io/apimachinery/pkg/apis/meta/v1/unstructured"
 	"k8s.io/apimachinery/pkg/runtime"
 	"k8s.io/apimachinery/pkg/runtime/schema"
@@ -61,6 +64,7 @@ type DynamicResourceRequestController struct {
 	PromiseDestinationSelectors []v1alpha1.PromiseScheduling
 	CanCreateResources          *bool
 	NumberOfJobsToKeep          int
+	EventRecorder               record.EventRecorder
 }
 
 //+kubebuilder:rbac:groups="batch",resources=jobs,verbs=get;list;watch;create;update;patch;delete
@@ -90,7 +94,7 @@ func (r *DynamicResourceRequestController) Reconcile(ctx context.Context, req ct
 	}
 
 	if err := r.Client.Get(ctx, req.NamespacedName, rr); err != nil {
-		if errors.IsNotFound(err) {
+		if apierrors.IsNotFound(err) {
 			return ctrl.Result{}, nil
 		}
 		logger.Error(err, "Failed getting Promise CRD")
@@ -196,6 +200,14 @@ func (r *DynamicResourceRequestController) deleteResources(o opts, promise *v1al
 		jobOpts := workflow.NewOpts(o.ctx, o.client, o.logger, resourceRequest, pipelineResources, "resource", r.NumberOfJobsToKeep)
 		requeue, err := reconcileDelete(jobOpts)
 		if err != nil {
+			if errors.Is(err, workflow.ErrDeletePipelineFailed) {
+				r.EventRecorder.Eventf(resourceRequest, "Warning", "Failed Pipeline", "The Delete Pipeline has failed")
+				resourceutil.MarkDeleteWorkflowAsFailed(o.logger, resourceRequest)
+				if err := r.Client.Status().Update(o.ctx, resourceRequest); err != nil {
+					o.logger.Error(err, "Failed to update resource request status", "promise", promise.GetName(),
+						"namespace", resourceRequest.GetNamespace(), "resource", resourceRequest.GetName())
+				}
+			}
 			return ctrl.Result{}, err
 		}
 		if requeue {
@@ -246,7 +258,7 @@ func (r *DynamicResourceRequestController) deleteWork(o opts, resourceRequest *u
 	for _, work := range works {
 		err = r.Client.Delete(o.ctx, &work)
 		if err != nil {
-			if !errors.IsNotFound(err) {
+			if !apierrors.IsNotFound(err) {
 				return err
 			}
 			o.logger.Error(err, "Error deleting Work %s, will try again", "workName", workName)

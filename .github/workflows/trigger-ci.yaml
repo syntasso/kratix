@@ -1,5 +1,6 @@
 name: Trigger CI
 on:
+  workflow_dispatch:
   push:
     branches: [ "main" ]
     paths-ignore:
@@ -24,7 +25,7 @@ jobs:
         uses: actions/checkout@v3
       - name: Trigger CI with latest commit details
         run: |
-          GITHUB_MESSAGE="${{ github.event.head_commit.message }}"
+          GITHUB_MESSAGE='${{ github.event.head_commit.message }}'
           if [ -z "$GITHUB_SHA" ]; then
             GITHUB_SHA=$(git rev-parse HEAD)
             GITHUB_MESSAGE=$(git log --format=%B -n 1 ${GITHUB_SHA})

@@ -228,7 +228,7 @@ var _ = Describe("Workflow Reconciler", func() {
 					Expect(fakeK8sClient.Get(ctx, types.NamespacedName{Name: promise.Name}, &promise)).To(Succeed())
 					Expect(promise.Status.Conditions).To(HaveLen(1))
 					Expect(promise.Status.Conditions[0].Type).To(Equal(string(resourceutil.ConfigureWorkflowCompletedCondition)))
-					Expect(promise.Status.Conditions[0].Message).To(Equal("A Pipeline has failed: pipeline-1"))
+					Expect(promise.Status.Conditions[0].Message).To(Equal("A Configure Pipeline has failed: pipeline-1"))
 					Expect(promise.Status.Conditions[0].Reason).To(Equal("ConfigureWorkflowFailed"))
 					Expect(string(promise.Status.Conditions[0].Status)).To(Equal("False"))
 				})
@@ -1794,6 +1794,20 @@ var _ = Describe("Workflow Reconciler", func() {
 					Expect(findByName(jobList, workflowPipelines[0].Job.Name)).To(BeTrue())
 				})
 			})
+
+			When("the pipeline fails", func() {
+				BeforeEach(func() {
+					Expect(fakeK8sClient.Create(ctx, workflowPipelines[0].Job)).To(Succeed())
+					markJobAsFailed(workflowPipelines[0].Job.Name)
+				})
+
+				It("returns an error", func() {
+					opts := workflow.NewOpts(ctx, fakeK8sClient, logger, uPromise, workflowPipelines, "promise", 5)
+					requeue, err := workflow.ReconcileDelete(opts)
+					Expect(err).To(MatchError(workflow.ErrDeletePipelineFailed))
+					Expect(requeue).To(BeFalse())
+				})
+			})
 		})
 	})
 })
@@ -1827,7 +1841,7 @@ func setupTest(promise v1alpha1.Promise, pipelines []v1alpha1.Pipeline) ([]v1alp
 	uPromise, err := p.ToUnstructured()
 	Expect(err).NotTo(HaveOccurred())
 
-	resourceutil.MarkWorkflowAsRunning(logger, uPromise)
+	resourceutil.MarkConfigureWorkflowAsRunning(logger, uPromise)
 	Expect(fakeK8sClient.Status().Update(ctx, uPromise)).To(Succeed())
 
 	var workflowPipelines []v1alpha1.PipelineJobResources

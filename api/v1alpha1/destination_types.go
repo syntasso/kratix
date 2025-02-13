@@ -36,16 +36,24 @@ type StateStoreCoreFields struct {
 // (i.e. kratix-platform-system) or if we want to allow users to specify a
 // namespace for each destination secret.
 
-// DestinationSpec defines the desired state of Destination
+// SkipPathDefaultingAnnotation defines whether the Destination controller
+// should prefix the `spec.path` with the Destination name. This should be
+// removed in later versions of Kratix.
+const SkipPathDefaultingAnnotation = "kratix.io/skip-path-defaulting"
+
+// DestinationSpec defines the desired state of Destination.
 type DestinationSpec struct {
 	// Path within StateStore to write documents, this will be appended to any
 	// specficed Spec.Path provided in the referenced StateStore.
-	// Kratix will then namespace any resources within the provided path.
-	// Path structure will be:
-	//   <StateStore.Spec.Path>/<Destination.Spec.Path>/<Destination.Metadata.Namespace>/<Destination.Metadata.Name>/
-	//+kubebuilder:validation:Optional
-	StateStoreCoreFields `json:",inline"`
-	StateStoreRef        *StateStoreReference `json:"stateStoreRef,omitempty"`
+	// The Path structure will be:
+	//   <StateStore.Spec.Path>/<Destination.Spec.Path>/
+	// Kratix may create other subdirectories, depending on the Filepath.mode you select.
+	// To write to the root of the StateStore.Spec.Path, set Path to "." or "/".
+	// Defaults to the Destination name
+	// +kubebuilder:validation:Optional
+	Path string `json:"path,omitempty"`
+
+	StateStoreRef *StateStoreReference `json:"stateStoreRef,omitempty"`
 
 	// By default, Kratix will schedule works without labels to all destinations
 	// (for promise dependencies) or to a random destination (for resource

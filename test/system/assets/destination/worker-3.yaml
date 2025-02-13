@@ -18,6 +18,7 @@ metadata:
   labels:
     environment: dev
 spec:
+  path: worker-3
   stateStoreRef:
     name: destination-test-store
     kind: BucketStateStore

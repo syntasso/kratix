@@ -17,6 +17,7 @@ limitations under the License.
 package v1alpha1
 
 import (
+	"bytes"
 	"encoding/json"
 	"fmt"
 
@@ -101,12 +102,12 @@ type Container struct {
 
 // Pipeline is the Schema for the pipelines API
 type Pipeline struct {
-	//Note: Removed TypeMeta in order to stop the CRD generation.
+	//Note: not using TypeMeta in order to stop the CRD generation.
 	//		This is only for internal Kratix use.
-	//metav1.TypeMeta   `json:",inline"`
+	Kind              string `json:"kind,omitempty" protobuf:"bytes,1,opt,name=kind"`
+	APIVersion        string `json:"apiVersion,omitempty" protobuf:"bytes,2,opt,name=apiVersion"`
 	metav1.ObjectMeta `json:"metadata,omitempty"`
-
-	Spec PipelineSpec `json:"spec,omitempty"`
+	Spec              PipelineSpec `json:"spec,omitempty"`
 }
 
 // +kubebuilder:object:generate=false
@@ -151,6 +152,8 @@ func (p *PipelineJobResources) GetObjects() []client.Object {
 	return objs
 }
 
+// PipelinesFromUnstructured converts a list of unstructured objects to Pipeline objects
+
 func PipelinesFromUnstructured(pipelines []unstructured.Unstructured, logger logr.Logger) ([]Pipeline, error) {
 	if len(pipelines) == 0 {
 		return nil, nil
@@ -169,10 +172,11 @@ func PipelinesFromUnstructured(pipelines []unstructured.Unstructured, logger log
 				pipelineLogger.Error(err, "Failed marshalling pipeline to json")
 				return nil, err
 			}
+			decoder := json.NewDecoder(bytes.NewReader(jsonPipeline))
+			decoder.DisallowUnknownFields()
 
-			p := Pipeline{}
-			err = json.Unmarshal(jsonPipeline, &p)
-			if err != nil {
+			var p Pipeline
+			if err = decoder.Decode(&p); err != nil {
 				pipelineLogger.Error(err, "Failed unmarshalling pipeline")
 				return nil, err
 			}

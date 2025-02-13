@@ -18,6 +18,7 @@ import (
 	"k8s.io/apimachinery/pkg/types"
 	"k8s.io/apimachinery/pkg/util/yaml"
 	"k8s.io/client-go/kubernetes/scheme"
+	"k8s.io/client-go/tools/record"
 	"k8s.io/utils/ptr"
 	clusterv1 "sigs.k8s.io/cluster-api/api/v1beta1"
 	ctrl "sigs.k8s.io/controller-runtime"
@@ -26,6 +27,7 @@ import (
 	"github.com/syntasso/kratix/api/v1alpha1"
 	"github.com/syntasso/kratix/controllers"
 	"github.com/syntasso/kratix/lib/resourceutil"
+	"github.com/syntasso/kratix/lib/workflow"
 )
 
 var _ = Describe("DynamicResourceRequestController", func() {
@@ -34,6 +36,7 @@ var _ = Describe("DynamicResourceRequestController", func() {
 		resReq              *unstructured.Unstructured
 		resReqNameNamespace types.NamespacedName
 		startTime           time.Time
+		eventRecorder       *record.FakeRecorder
 	)
 
 	BeforeEach(func() {
@@ -46,6 +49,8 @@ var _ = Describe("DynamicResourceRequestController", func() {
 
 		l = ctrl.Log.WithName("controllers").WithName("dynamic")
 
+		eventRecorder = record.NewFakeRecorder(1024)
+
 		reconciler = &controllers.DynamicResourceRequestController{
 			CanCreateResources:          ptr.To(true),
 			Enabled:                     ptr.To(true),
@@ -57,6 +62,7 @@ var _ = Describe("DynamicResourceRequestController", func() {
 			PromiseDestinationSelectors: promise.Spec.DestinationSelectors,
 			Log:                         l,
 			UID:                         "1234abcd",
+			EventRecorder:               eventRecorder,
 		}
 
 		resReq = createResourceRequest(resourceRequestPath)
@@ -202,16 +208,12 @@ var _ = Describe("DynamicResourceRequestController", func() {
 				"kratix.io/workflows-cleanup",
 				"kratix.io/delete-workflows",
 			))
+			Expect(fakeK8sClient.Delete(ctx, resReq)).To(Succeed())
+			_, err = t.reconcileUntilCompletion(reconciler, resReq)
+			Expect(err).To(MatchError("reconcile loop detected"))
 		})
 
 		It("re-reconciles until completion", func() {
-			Expect(fakeK8sClient.Delete(ctx, resReq)).To(Succeed())
-			_, err := t.reconcileUntilCompletion(reconciler, resReq)
-
-			By("requeuing forever until delete jobs finishes", func() {
-				Expect(err).To(MatchError("reconcile loop detected"))
-			})
-
 			setReconcileDeleteWorkflowToReturnFinished(resReq)
 			result, err := t.reconcileUntilCompletion(reconciler, resReq)
 			Expect(result).To(Equal(ctrl.Result{}))
@@ -224,6 +226,35 @@ var _ = Describe("DynamicResourceRequestController", func() {
 			Expect(fakeK8sClient.List(ctx, jobs)).To(Succeed())
 			Expect(works.Items).To(BeEmpty())
 			Expect(jobs.Items).To(BeEmpty())
+		})
+
+		When("the delete pipeline fails", func() {
+			BeforeEach(func() {
+				setReconcileDeleteWorkflowToReturnError(resReq)
+				Expect(fakeK8sClient.Delete(ctx, resReq)).To(Succeed())
+				result, err := t.reconcileUntilCompletion(reconciler, resReq)
+				Expect(result).To(Equal(ctrl.Result{}))
+				Expect(err).To(MatchError(workflow.ErrDeletePipelineFailed))
+			})
+
+			It("updates the resource request status", func() {
+				Expect(fakeK8sClient.Get(ctx, resReqNameNamespace, resReq)).To(Succeed())
+				status := resReq.Object["status"]
+				statusMap := status.(map[string]interface{})
+				conditions := statusMap["conditions"].([]interface{})
+				Expect(conditions).To(HaveLen(1))
+				condition := conditions[0].(map[string]interface{})
+				Expect(condition["type"]).To(Equal(string(resourceutil.DeleteWorkflowCompletedCondition)))
+				Expect(condition["status"]).To(Equal("False"))
+				Expect(condition["reason"]).To(Equal(resourceutil.DeleteWorkflowCompletedFailedReason))
+				Expect(condition["message"]).To(ContainSubstring("The Delete Pipeline has failed"))
+			})
+
+			It("records an event on the resource request", func() {
+				Expect(eventRecorder.Events).To(Receive(ContainSubstring(
+					"Warning Failed Pipeline The Delete Pipeline has failed",
+				)))
+			})
 		})
 	})
 

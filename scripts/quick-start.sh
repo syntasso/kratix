@@ -25,6 +25,7 @@ CERT_MANAGER_DIST=https://github.com/cert-manager/cert-manager/releases/download
 ENABLE_WEBHOOKS=true
 
 LABELS=true
+USE_LOCAL_MANIFEST=${USE_LOCAL_MANIFEST:-false}
 
 usage() {
     echo -e "Usage: quick-start.sh [--help] [--recreate] [--local] [--git] [--git-and-minio] [--local-images <location>]"
@@ -77,7 +78,7 @@ load_options() {
     done
     shift $(expr $OPTIND - 1)
 
-    # we don't want to use the scarf iamges 
+    # we don't want to use the scarf iamges
     if [ ${KRATIX_DEVELOPER:-false} = true ]; then
         VERSION="dev"
     fi
@@ -126,7 +127,9 @@ verify_prerequisites() {
 
     if [ "${VERSION}" == "main" ]; then
         # we always want to fetch the latest from main
-        rm distribution/kratix.yaml || true
+        if ! $USE_LOCAL_MANIFEST; then
+            rm distribution/kratix.yaml || true
+        fi
     fi
 
     log -n "Looking for distribution/kratix.yaml... "
@@ -219,6 +222,7 @@ setup_platform_destination() {
     fi
 
     cat "${ROOT}/distribution/kratix.yaml" | patch_image | kubectl --context kind-platform apply --filename -
+    kubectl --context kind-platform wait --for=condition=available deployment kratix-platform-controller-manager --timeout 60s -n kratix-platform-system
 }
 
 setup_worker_destination() {
@@ -230,15 +234,15 @@ setup_worker_destination() {
        kubectl --context kind-platform apply --filename "${ROOT}/config/samples/platform_v1alpha1_bucketstatestore.yaml"
     fi
 
+    local flags=""
+    if [ "${WORKER_STATESTORE_TYPE}" = "GitStateStore" ]; then
+        flags="--git"
+    fi
+
     if ${SINGLE_DESTINATION}; then
-        local flags=""
-        if ${INSTALL_AND_CREATE_GITEA_REPO}; then
-          flags="--git"
-        fi
         ${ROOT}/scripts/register-destination --name platform-cluster --context kind-platform $flags
     else
-        cat "${ROOT}/config/samples/platform_v1alpha1_worker.yaml" | patch_statestore | kubectl --context kind-platform apply --filename -
-        install_flux_gitops kind-worker worker-1
+        ${ROOT}/scripts/register-destination --name worker-1 --context kind-worker --with-label environment=dev $flags
         if ! ${LABELS}; then
             kubectl --context kind-platform label destination worker-1 environment-
         fi
@@ -251,7 +255,6 @@ setup_worker_2_destination() {
       flags="--git"
     fi
     ${ROOT}/scripts/register-destination --name worker-2 --context kind-worker-2 $flags
-    install_flux_gitops kind-worker-2 worker-2
 }
 
 wait_for_gitea() {

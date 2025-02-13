@@ -76,7 +76,7 @@ commands:
       - k8s/install-kubectl
       - golang/install:
           cache: true
-          version: 1.23.5
+          version: 1.23.6
       - run:
           name: Install skopeo
           command: |
