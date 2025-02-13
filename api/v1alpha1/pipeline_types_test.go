@@ -1457,7 +1457,7 @@ var _ = Describe("Pipeline", func() {
 				}
 
 				_, err := v1alpha1.PipelinesFromUnstructured(unstructuredPipelines, logr.Discard())
-				Expect(err).To(MatchError(ContainSubstring("json: unknown field \"rbac\"")))
+				Expect(err).To(MatchError(ContainSubstring("failed unmarshalling pipeline pipeline1: json: unknown field")))
 			})
 		})
 	})
