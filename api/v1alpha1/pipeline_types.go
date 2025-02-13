@@ -169,16 +169,18 @@ func PipelinesFromUnstructured(pipelines []unstructured.Unstructured, logger log
 		if pipeline.GetKind() == "Pipeline" && pipeline.GetAPIVersion() == "platform.kratix.io/v1alpha1" {
 			jsonPipeline, err := pipeline.MarshalJSON()
 			if err != nil {
-				pipelineLogger.Error(err, "Failed marshalling pipeline to json")
-				return nil, err
+				fmtErr := fmt.Errorf("failed marshalling pipeline %s to json: %w", pipeline.GetName(), err)
+				pipelineLogger.Error(fmtErr, "error parsing pipelines")
+				return nil, fmtErr
 			}
 			decoder := json.NewDecoder(bytes.NewReader(jsonPipeline))
 			decoder.DisallowUnknownFields()
 
 			var p Pipeline
 			if err = decoder.Decode(&p); err != nil {
-				pipelineLogger.Error(err, "Failed unmarshalling pipeline")
-				return nil, err
+				fmtErr := fmt.Errorf("failed unmarshalling pipeline %s: %w", pipeline.GetName(), err)
+				pipelineLogger.Error(fmtErr, "error parsing pipelines")
+				return nil, fmtErr
 			}
 			ps = append(ps, p)
 		} else {
