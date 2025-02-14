@@ -25,6 +25,14 @@ func SetTimeoutAndInterval(t, i time.Duration) {
 }
 
 func (c Cluster) Kubectl(args ...string) string {
+	return c.kubectlInternal(true, args...)
+}
+
+func (c Cluster) KubectlAllowFail(args ...string) string {
+	return c.kubectlInternal(false, args...)
+}
+
+func (c Cluster) kubectlInternal(checkExitCode bool, args ...string) string {
 	args = append(args, "--context="+c.Context)
 
 	command := exec.Command("kubectl", args...)
@@ -33,8 +41,14 @@ func (c Cluster) Kubectl(args ...string) string {
 	fmt.Fprintf(GinkgoWriter, "Running: kubectl %s\n", strings.Join(args, " "))
 
 	ExpectWithOffset(1, err).ShouldNot(HaveOccurred())
-	EventuallyWithOffset(1, session, timeout, interval).Should(gexec.Exit(0))
-	return string(session.Out.Contents())
+
+	if checkExitCode {
+		EventuallyWithOffset(1, session, timeout, interval).Should(gexec.Exit(0))
+	} else {
+		EventuallyWithOffset(1, session, timeout, interval).Should(gexec.Exit())
+	}
+
+	return string(session.Out.Contents()) + string(session.Err.Contents())
 }
 
 // run a command until it exits 0
