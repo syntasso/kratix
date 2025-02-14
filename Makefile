@@ -229,6 +229,18 @@ lint: # Lint with required config
 lint-all: # Lint with full config
 	golangci-lint run --config=.golangci.yml
 
+##@ act targets to run GH Action jobs locally
+
+ACT_JOB = act -j '$(1)' --rm -s GITHUB_TOKEN="$(gh auth token)"
+act-test-and-lint:
+	$(call ACT_JOB,unit-tests-and-lint)
+
+act-integration-test:
+	$(call ACT_JOB,integration-test)
+
+act-system-test:
+	$(call ACT_JOB,system-test)
+
 ##@ Deprecated: will be deleted soon
 
 # build-and-reload-kratix is deprecated in favor of build-and-load-kratix
