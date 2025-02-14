@@ -34,9 +34,9 @@ docker-build: ## Build docker image with work-creator binary
 	docker build -f ../Dockerfile.pipeline-adapter --tag ${PIPELINE_ADAPTER_IMG_TAG} --tag ${PIPELINE_ADAPTER_IMG_NAME}:latest ../
 	docker build -f ../Dockerfile.pipeline-adapter --tag ${PIPELINE_ADAPTER_IMG_MIRROR} ../
 
-docker-build-and-push: ## Push multi-arch docker image with the manager.
+docker-build-and-no-push: ## Push multi-arch docker image with the manager.
 	if ! docker buildx ls | grep -q "work-creator-image-builder"; then \
 		docker buildx create --name work-creator-image-builder; \
 	fi;
-	docker buildx build --builder work-creator-image-builder --push --platform linux/arm64,linux/amd64 --file ../Dockerfile.pipeline-adapter --tag ${PIPELINE_ADAPTER_IMG_TAG} --tag ${PIPELINE_ADAPTER_IMG_NAME}:latest ../
-	docker buildx build --builder work-creator-image-builder --push --platform linux/arm64,linux/amd64 --file ../Dockerfile.pipeline-adapter --tag ${PIPELINE_ADAPTER_IMG_MIRROR} ../
+	docker buildx build --builder work-creator-image-builder --platform linux/arm64,linux/amd64 --file ../Dockerfile.pipeline-adapter --tag ${PIPELINE_ADAPTER_IMG_TAG} --tag ${PIPELINE_ADAPTER_IMG_NAME}:latest ../
+	docker buildx build --builder work-creator-image-builder --platform linux/arm64,linux/amd64 --file ../Dockerfile.pipeline-adapter --tag ${PIPELINE_ADAPTER_IMG_MIRROR} ../

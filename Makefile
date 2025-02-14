@@ -124,7 +124,14 @@ docker-build-and-push: ## Push multi-arch docker image with the manager.
 	docker buildx build --builder kratix-image-builder --push --platform linux/arm64,linux/amd64 -t ${IMG_MIRROR} .
 
 build-and-push-work-creator: ## Build and push the Work Creator image
-	PIPELINE_ADAPTER_IMG_VERSION=${PIPELINE_ADAPTER_IMG_VERSION} PIPELINE_ADAPTER_IMG_MIRROR=${PIPELINE_ADAPTER_IMG_MIRROR} $(MAKE) -C work-creator docker-build-and-push
+	PIPELINE_ADAPTER_IMG_VERSION=${PIPELINE_ADAPTER_IMG_VERSION} PIPELINE_ADAPTER_IMG_MIRROR=${PIPELINE_ADAPTER_IMG_MIRROR} $(MAKE) -C work-creator docker-build-and-no-push
+
+docker-build-and-no-push: ## Push multi-arch docker image with the manager.
+	if ! docker buildx ls | grep -q "kratix-image-builder"; then \
+		docker buildx create --name kratix-image-builder; \
+	fi;
+	docker buildx build --builder kratix-image-builder --platform linux/arm64,linux/amd64 -t ${IMG_TAG} -t ${IMG_NAME}:latest .
+	docker buildx build --builder kratix-image-builder --platform linux/arm64,linux/amd64 -t ${IMG_MIRROR} .
 
 # If not installed, use: go install github.com/goreleaser/goreleaser@latest
 build-worker-resource-builder-binary: ## Uses the goreleaser config to generate binaries
