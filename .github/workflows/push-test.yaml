@@ -1,0 +1,80 @@
+name: Push Test
+
+on:
+  push:
+    branches:
+      - main
+  workflow_dispatch:
+
+jobs:
+  make-build-platform-image:
+    runs-on: ubuntu-latest
+    steps:
+      - name: Checkout current repository
+        uses: actions/checkout@v3
+      - name: Build with make target
+        run: make docker-build-and-no-push
+      - name: Checkout ci repository
+        uses: actions/checkout@v3
+
+  make-build-adapter-image:
+    runs-on: ubuntu-latest
+    steps:
+      - name: Checkout current repository
+        uses: actions/checkout@v3
+      - name: Build with make target
+        run: make docker-build-and-no-push
+      - name: Checkout ci repository
+        uses: actions/checkout@v3
+
+  template-build-platform-image:
+    runs-on: ubuntu-latest
+    steps:
+      - name: Set up QEMU
+        uses: docker/setup-qemu-action@v3
+      - name: Set up Docker Buildx
+        id: platform-builder
+        uses: docker/setup-buildx-action@v3
+      - name: Build and no push adapter
+        uses: docker/build-push-action@v6
+        with:
+          push: false
+          tags: syntasso/kratix-platform:latest
+          builder: ${{ steps.platform-builder.outputs.name }}
+          platforms: linux/arm64,linux/amd64
+          file: Dockerfile
+          cache-from: type=gha
+          cache-to: type=gha,mode=max
+
+  template-build-adapter-image:
+    runs-on: ubuntu-latest
+    steps:
+      - name: Set up QEMU
+        uses: docker/setup-qemu-action@v3
+      - name: Set up Docker Buildx
+        id: adapter-builder
+        uses: docker/setup-buildx-action@v3
+      - name: Build and no push platform
+        uses: docker/build-push-action@v6
+        with:
+          push: false
+          tags: syntasso/kratix-adapter:latest
+          builder: ${{ steps.adapter-builder.outputs.name }}
+          platforms: linux/arm64,linux/amd64
+          file: Dockerfile.pipeline-adapter
+          cache-from: type=gha
+          cache-to: type=gha,mode=max
+
+  golangci:
+    name: lint
+    runs-on: ubuntu-latest
+    steps:
+      - uses: actions/checkout@v4
+      - uses: actions/setup-go@v5
+        with:
+          go-version: stable
+      - name: golangci-lint
+        uses: golangci/golangci-lint-action@v6
+        with:
+          version: v1.60
+          args: --config=.golangci-required.yml
