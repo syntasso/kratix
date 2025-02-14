@@ -295,6 +295,26 @@ func (r *PromiseReconciler) Reconcile(ctx context.Context, req ctrl.Request) (ct
 		return r.nextReconciliation(promise, logger)
 	}
 
+	return r.setPromiseStatusToAvailable(ctx, promise, logger)
+}
+
+func (r *PromiseReconciler) nextReconciliation(promise *v1alpha1.Promise, logger logr.Logger) (ctrl.Result, error) {
+	r.mutex.Lock()
+	defer r.mutex.Unlock()
+
+	scheduled, found := r.ScheduledReconciliation[promise.GetName()]
+	if !found || time.Now().After(scheduled.Time) {
+		next := metav1.NewTime(time.Now().Add(DefaultReconciliationInterval))
+		r.ScheduledReconciliation[promise.GetName()] = next
+
+		logger.Info("Scheduling next reconciliation", "scheduledReconciliationTimestamp", next.Time.String())
+		return ctrl.Result{RequeueAfter: DefaultReconciliationInterval}, nil
+	}
+	logger.Info("Reconciliation already scheduled", "scheduledReconciliationTimestamp", scheduled.Time.String(), "labels", promise.Labels)
+	return ctrl.Result{}, nil
+}
+
+func (r *PromiseReconciler) setPromiseStatusToAvailable(ctx context.Context, promise *v1alpha1.Promise, logger logr.Logger) (ctrl.Result, error) {
 	logger.Info("Promise status being set to Available")
 	promise.Status.Status = v1alpha1.PromiseStatusAvailable
 	promise.Status.LastAvailableTime = &metav1.Time{Time: time.Now()}
@@ -314,22 +334,6 @@ func unavailableReason(requirementsChanged bool, scheduledReconciliation bool) s
 		reason = "Reason unknown"
 	}
 	return reason
-}
-
-func (r *PromiseReconciler) nextReconciliation(promise *v1alpha1.Promise, logger logr.Logger) (ctrl.Result, error) {
-	r.mutex.Lock()
-	defer r.mutex.Unlock()
-
-	scheduled, found := r.ScheduledReconciliation[promise.GetName()]
-	if !found || time.Now().After(scheduled.Time) {
-		next := metav1.NewTime(time.Now().Add(DefaultReconciliationInterval))
-		r.ScheduledReconciliation[promise.GetName()] = next
-
-		logger.Info("Scheduling next reconciliation", "scheduledReconciliationTimestamp", next.Time.String())
-		return ctrl.Result{RequeueAfter: DefaultReconciliationInterval}, nil
-	}
-	logger.Info("Reconciliation already scheduled", "scheduledReconciliationTimestamp", scheduled.Time.String(), "labels", promise.Labels)
-	return ctrl.Result{}, nil
 }
 
 func (r *PromiseReconciler) hasPromiseRequirementsChanged(ctx context.Context, promise *v1alpha1.Promise) bool {
