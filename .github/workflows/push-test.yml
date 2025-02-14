@@ -43,6 +43,8 @@ jobs:
           builder: ${{ steps.platform-builder.outputs.name }}
           platforms: linux/arm64,linux/amd64
           file: Dockerfile
+          cache-from: type=gha
+          cache-to: type=gha,mode=max
 
   template-build-adapter-image:
     runs-on: ubuntu-latest
@@ -60,3 +62,5 @@ jobs:
           builder: ${{ steps.adapter-builder.outputs.name }}
           platforms: linux/arm64,linux/amd64
           file: Dockerfile.pipeline-adapter
+          cache-from: type=gha
+          cache-to: type=gha,mode=max
