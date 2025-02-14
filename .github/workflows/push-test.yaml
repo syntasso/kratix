@@ -79,10 +79,6 @@ jobs:
           version: latest
           args: --config=.golangci-required.yml
 
-  comp_test:
-    runs-on: ubuntu-latest
-    name: Test
-    steps:
-      - uses: actions/checkout@v4
-      - id: composite
-        uses: SaphMB/composite@7367c95e280ad6aabd7ab311b005812eeffa14f7
+  reuse_test:
+    uses:
+      SaphMB/composite/.github/workflows/config.yaml@c22b645c66b392c6f6c2a3f1ba48f424e152e8f3
