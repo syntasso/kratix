@@ -27,15 +27,17 @@ import (
 	"k8s.io/apimachinery/pkg/runtime"
 	"k8s.io/apimachinery/pkg/runtime/schema"
 	"k8s.io/apimachinery/pkg/types"
+	"k8s.io/client-go/tools/record"
 	ctrl "sigs.k8s.io/controller-runtime"
 	"sigs.k8s.io/controller-runtime/pkg/client"
 )
 
-// HealthRecordReconciler reconciles a HealthRecord object
+// HealthRecordReconciler reconciles a HealthRecord object.
 type HealthRecordReconciler struct {
 	client.Client
-	Scheme *runtime.Scheme
-	Log    logr.Logger
+	Scheme        *runtime.Scheme
+	Log           logr.Logger
+	EventRecorder record.EventRecorder
 }
 
 //+kubebuilder:rbac:groups=platform.kratix.io,resources=healthrecords,verbs=get;list;watch;create;update;patch;delete
@@ -69,12 +71,12 @@ func (r *HealthRecordReconciler) Reconcile(ctx context.Context, req ctrl.Request
 	}
 
 	resReq := &unstructured.Unstructured{}
-	if err := r.getResourceRequest(ctx, promiseGVK, healthRecord, resReq); err != nil {
+	if err = r.getResourceRequest(ctx, promiseGVK, healthRecord, resReq); err != nil {
 		logger.Error(err, "Failed getting resource")
 		return defaultRequeue, nil
 	}
 
-	if err := r.updateResourceStatus(ctx, resReq, healthRecord); err != nil {
+	if err = r.updateResourceStatus(ctx, resReq, healthRecord); err != nil {
 		return ctrl.Result{}, err
 	}
 
@@ -88,12 +90,16 @@ func (r *HealthRecordReconciler) SetupWithManager(mgr ctrl.Manager) error {
 		Complete(r)
 }
 
-func (r *HealthRecordReconciler) updateResourceStatus(ctx context.Context, resReq *unstructured.Unstructured, healthRecord *platformv1alpha1.HealthRecord) error {
+func (r *HealthRecordReconciler) updateResourceStatus(
+	ctx context.Context, resReq *unstructured.Unstructured, healthRecord *platformv1alpha1.HealthRecord,
+) error {
 	if resReq.Object["status"] == nil {
 		if err := unstructured.SetNestedMap(resReq.Object, map[string]interface{}{}, "status"); err != nil {
 			return err
 		}
 	}
+
+	initialHealthRecordState := r.getInitialHealthRecordState(resReq)
 
 	healthData := map[string]interface{}{
 		"state":   healthRecord.Data.State,
@@ -112,6 +118,10 @@ func (r *HealthRecordReconciler) updateResourceStatus(ctx context.Context, resRe
 		return err
 	}
 
+	if initialHealthRecordState != healthRecord.Data.State {
+		r.fireEvent(healthRecord, resReq)
+	}
+
 	return r.Status().Update(ctx, resReq)
 }
 
@@ -123,11 +133,46 @@ func (r *HealthRecordReconciler) ignoreNotFound(logger logr.Logger, err error, m
 	return defaultRequeue, nil
 }
 
-func (r *HealthRecordReconciler) getResourceRequest(ctx context.Context, gvk *schema.GroupVersionKind, healthRecord *platformv1alpha1.HealthRecord, resReq *unstructured.Unstructured) error {
+func (r *HealthRecordReconciler) getResourceRequest(
+	ctx context.Context,
+	gvk *schema.GroupVersionKind,
+	healthRecord *platformv1alpha1.HealthRecord,
+	resReq *unstructured.Unstructured,
+) error {
 	resReq.SetGroupVersionKind(*gvk)
 	resRef := types.NamespacedName{
 		Name:      healthRecord.Data.ResourceRef.Name,
 		Namespace: healthRecord.Data.ResourceRef.Namespace,
 	}
 	return r.Get(ctx, resRef, resReq)
+}
+
+func (r *HealthRecordReconciler) fireEvent(
+	healthRecord *platformv1alpha1.HealthRecord,
+	resReq *unstructured.Unstructured,
+) {
+	if healthRecord.Data.State != "healthy" && healthRecord.Data.State != "ready" {
+		r.EventRecorder.Eventf(resReq, "Warning", "HealthRecord", "Health state is %s", healthRecord.Data.State)
+	} else {
+		r.EventRecorder.Eventf(resReq, "Normal", "HealthRecord", "Health state is %s", healthRecord.Data.State)
+	}
+}
+
+func (r *HealthRecordReconciler) getInitialHealthRecordState(resReq *unstructured.Unstructured) string {
+	status := resReq.Object["status"]
+	var initialHealthRecordState = ""
+
+	statusMap, ok := status.(map[string]interface{})
+	if !ok {
+		r.Log.Info(
+			"error getting status of resource request", "name", resReq.GetName(), "namespace", resReq.GetNamespace(),
+		)
+	}
+
+	initialHealthData, ok := statusMap["healthRecord"]
+	if ok {
+		initialHealthRecordState, _ = initialHealthData.(map[string]interface{})["state"].(string)
+	}
+
+	return initialHealthRecordState
 }

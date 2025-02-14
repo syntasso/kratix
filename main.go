@@ -78,6 +78,7 @@ var probeAddr string
 var pprofAddr string
 var enableLeaderElection bool
 
+//nolint:funlen
 func main() {
 	flag.StringVar(&metricsAddr, "metrics-bind-address", ":8080", "The address the metric endpoint binds to.")
 	flag.StringVar(&probeAddr, "health-probe-bind-address", ":8081", "The address the probe endpoint binds to.")
@@ -157,6 +158,7 @@ func main() {
 			Scheme:                  mgr.GetScheme(),
 			NumberOfJobsToKeep:      getNumJobsToKeep(kratixConfig),
 			ScheduledReconciliation: map[string]metav1.Time{},
+			EventRecorder:           mgr.GetEventRecorderFor("PromiseController"),
 			RestartManager: func() {
 				// This function gets called multiple times
 				// First call: restartInProgress get set to true, sleeps starts
@@ -221,9 +223,10 @@ func main() {
 			os.Exit(1)
 		}
 		if err = (&controllers.HealthRecordReconciler{
-			Client: mgr.GetClient(),
-			Scheme: mgr.GetScheme(),
-			Log:    ctrl.Log.WithName("controllers").WithName("HealthRecordController"),
+			Client:        mgr.GetClient(),
+			Scheme:        mgr.GetScheme(),
+			Log:           ctrl.Log.WithName("controllers").WithName("HealthRecordController"),
+			EventRecorder: mgr.GetEventRecorderFor("HealthRecordController"),
 		}).SetupWithManager(mgr); err != nil {
 			setupLog.Error(err, "unable to create controller", "controller", "HealthRecord")
 			os.Exit(1)

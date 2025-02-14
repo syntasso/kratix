@@ -160,7 +160,7 @@ func (r *DynamicResourceRequestController) Reconcile(ctx context.Context, req ct
 		return ctrl.Result{}, err
 	}
 
-	jobOpts := workflow.NewOpts(ctx, r.Client, logger, rr, pipelineResources, "resource", r.NumberOfJobsToKeep)
+	jobOpts := workflow.NewOpts(ctx, r.Client, r.EventRecorder, logger, rr, pipelineResources, "resource", r.NumberOfJobsToKeep)
 
 	abort, err := reconcileConfigure(jobOpts)
 	if err != nil || abort {
@@ -197,11 +197,11 @@ func (r *DynamicResourceRequestController) deleteResources(o opts, promise *v1al
 			return ctrl.Result{}, err
 		}
 
-		jobOpts := workflow.NewOpts(o.ctx, o.client, o.logger, resourceRequest, pipelineResources, "resource", r.NumberOfJobsToKeep)
+		jobOpts := workflow.NewOpts(o.ctx, o.client, r.EventRecorder, o.logger, resourceRequest, pipelineResources, "resource", r.NumberOfJobsToKeep)
 		requeue, err := reconcileDelete(jobOpts)
 		if err != nil {
 			if errors.Is(err, workflow.ErrDeletePipelineFailed) {
-				r.EventRecorder.Eventf(resourceRequest, "Warning", "Failed Pipeline", "The Delete Pipeline has failed")
+				r.EventRecorder.Event(resourceRequest, "Warning", "Failed Pipeline", "The Delete Pipeline has failed")
 				resourceutil.MarkDeleteWorkflowAsFailed(o.logger, resourceRequest)
 				if err := r.Client.Status().Update(o.ctx, resourceRequest); err != nil {
 					o.logger.Error(err, "Failed to update resource request status", "promise", promise.GetName(),

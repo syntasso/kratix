@@ -240,13 +240,10 @@ fmt: ## Run go fmt against code.
 vet: ## Run go vet against code.
 	go vet ./...
 
-lint: # Lint relative to origin/main, with full config
-	golangci-lint run --new-from-rev=origin/main --config=.golangci.yml
+lint: # Lint with required config
+	golangci-lint run --config=.golangci-required.yml
 
-lint-required: # Lint relative to origin/main, with required config
-	golangci-lint run --new-from-rev=origin/main --config=.golangci-required.yml
-
-lint-all: # Lint all files, with full config
+lint-all: # Lint with full config
 	golangci-lint run --config=.golangci.yml
 
 ##@ Deprecated: will be deleted soon

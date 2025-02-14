@@ -47,6 +47,7 @@ import (
 	"k8s.io/apimachinery/pkg/runtime"
 	"k8s.io/apimachinery/pkg/runtime/schema"
 	"k8s.io/apimachinery/pkg/types"
+	"k8s.io/client-go/tools/record"
 	ctrl "sigs.k8s.io/controller-runtime"
 	"sigs.k8s.io/controller-runtime/pkg/client"
 	kmanager "sigs.k8s.io/controller-runtime/pkg/manager"
@@ -71,6 +72,7 @@ type PromiseReconciler struct {
 	RestartManager            func()
 	NumberOfJobsToKeep        int
 	ScheduledReconciliation   map[string]metav1.Time
+	EventRecorder             record.EventRecorder
 	mutex                     sync.Mutex
 }
 
@@ -179,6 +181,9 @@ func (r *PromiseReconciler) Reconcile(ctx context.Context, req ctrl.Request) (ct
 		if result, statusUpdateErr := r.updatePromiseStatus(ctx, promise); statusUpdateErr != nil || !result.IsZero() {
 			return result, statusUpdateErr
 		}
+		r.EventRecorder.Eventf(
+			promise, "Warning", "Unavailable", "Promise no longer available: %s",
+			unavailableReason(requirementsChanged, scheduledReconciliation))
 
 		logger.Info("Requeueing: requirements changed or scheduled reconciliation")
 		return ctrl.Result{}, nil
@@ -272,6 +277,8 @@ func (r *PromiseReconciler) Reconcile(ctx context.Context, req ctrl.Request) (ct
 				return ctrl.Result{}, err
 			}
 
+			r.EventRecorder.Event(promise, "Normal", "ReconcilingResources", "Reconciling all resource requests")
+
 			if _, ok := promise.Labels[resourceutil.ReconcileResourcesLabel]; ok {
 				return ctrl.Result{}, r.removeReconcileResourcesLabel(ctx, promise)
 			}
@@ -288,11 +295,7 @@ func (r *PromiseReconciler) Reconcile(ctx context.Context, req ctrl.Request) (ct
 		return r.nextReconciliation(promise, logger)
 	}
 
-	logger.Info("Promise status being set to Available")
-	promise.Status.Status = v1alpha1.PromiseStatusAvailable
-	promise.Status.LastAvailableTime = &metav1.Time{Time: time.Now()}
-
-	return r.updatePromiseStatus(ctx, promise)
+	return r.setPromiseStatusToAvailable(ctx, promise, logger)
 }
 
 func (r *PromiseReconciler) nextReconciliation(promise *v1alpha1.Promise, logger logr.Logger) (ctrl.Result, error) {
@@ -309,6 +312,28 @@ func (r *PromiseReconciler) nextReconciliation(promise *v1alpha1.Promise, logger
 	}
 	logger.Info("Reconciliation already scheduled", "scheduledReconciliationTimestamp", scheduled.Time.String(), "labels", promise.Labels)
 	return ctrl.Result{}, nil
+}
+
+func (r *PromiseReconciler) setPromiseStatusToAvailable(ctx context.Context, promise *v1alpha1.Promise, logger logr.Logger) (ctrl.Result, error) {
+	logger.Info("Promise status being set to Available")
+	promise.Status.Status = v1alpha1.PromiseStatusAvailable
+	promise.Status.LastAvailableTime = &metav1.Time{Time: time.Now()}
+
+	r.EventRecorder.Eventf(promise, "Normal", "Available", "Promise is available")
+	return r.updatePromiseStatus(ctx, promise)
+}
+
+func unavailableReason(requirementsChanged bool, scheduledReconciliation bool) string {
+	var reason string
+	switch {
+	case requirementsChanged:
+		reason = "Requirements have changed"
+	case scheduledReconciliation:
+		reason = "Scheduled reconciliation"
+	default:
+		reason = "Reason unknown"
+	}
+	return reason
 }
 
 func (r *PromiseReconciler) hasPromiseRequirementsChanged(ctx context.Context, promise *v1alpha1.Promise) bool {
@@ -457,7 +482,7 @@ func (r *PromiseReconciler) reconcileDependenciesAndPromiseWorkflows(o opts, pro
 		return nil, err
 	}
 
-	jobOpts := workflow.NewOpts(o.ctx, o.client, o.logger, unstructuredPromise, pipelineResources, "promise", r.NumberOfJobsToKeep)
+	jobOpts := workflow.NewOpts(o.ctx, o.client, r.EventRecorder, o.logger, unstructuredPromise, pipelineResources, "promise", r.NumberOfJobsToKeep)
 
 	abort, err := reconcileConfigure(jobOpts)
 	if err != nil {
@@ -691,7 +716,7 @@ func (r *PromiseReconciler) deletePromise(o opts, promise *v1alpha1.Promise) (ct
 		if err != nil {
 			return ctrl.Result{}, err
 		}
-		jobOpts := workflow.NewOpts(o.ctx, o.client, o.logger, unstructuredPromise, pipelines, "promise", r.NumberOfJobsToKeep)
+		jobOpts := workflow.NewOpts(o.ctx, o.client, r.EventRecorder, o.logger, unstructuredPromise, pipelines, "promise", r.NumberOfJobsToKeep)
 
 		requeue, err := reconcileDelete(jobOpts)
 		if err != nil {
@@ -1092,6 +1117,7 @@ func (r *PromiseReconciler) markRequiredPromiseAsRequired(ctx context.Context, v
 }
 
 func (r *PromiseReconciler) updatePromiseStatus(ctx context.Context, promise *v1alpha1.Promise) (ctrl.Result, error) {
+	r.Log.Info("updating Promise status", "promise", promise.Name, "status", promise.Status.Status)
 	err := r.Client.Status().Update(ctx, promise)
 	if errors.IsConflict(err) {
 		r.Log.Info("failed to update Promise status due to update conflict, requeue...")
