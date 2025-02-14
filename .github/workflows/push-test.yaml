@@ -85,4 +85,4 @@ jobs:
     steps:
       - uses: actions/checkout@v4
       - id: composite
-        uses: SaphMB/composite@e352c914e5649b81ff0f1265f830740317bd5e2c
+        uses: SaphMB/composite@7367c95e280ad6aabd7ab311b005812eeffa14f7
