@@ -81,4 +81,4 @@ jobs:
 
   reuse_test:
     uses:
-      SaphMB/composite/.github/workflows/config.yaml@c22b645c66b392c6f6c2a3f1ba48f424e152e8f3
+      SaphMB/cicd-spike/.github/workflows/config.yaml@c22b645c66b392c6f6c2a3f1ba48f424e152e8f3
