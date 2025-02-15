@@ -130,7 +130,15 @@ func (r *DynamicResourceRequestController) Reconcile(ctx context.Context, req ct
 		logger: logger,
 	}
 
-	if !rr.GetDeletionTimestamp().IsZero() {
+    // Check if delete trigger label is present
+    triggerDelete := false
+    labels := rr.GetLabels()
+    if val, ok := labels[resourceutil.TriggerDeleteLabel]; ok && val == "true" {
+        triggerDelete = true
+        logger.Info("Trigger delete workflows label detected", "resource", rr.GetName())
+    }
+
+if !rr.GetDeletionTimestamp().IsZero() || triggerDelete {
 		return r.deleteResources(opts, promise, rr, resourceRequestIdentifier)
 	}
 
@@ -236,6 +244,18 @@ func (r *DynamicResourceRequestController) deleteResources(o opts, promise *v1al
 		}
 		return fastRequeue, nil
 	}
+
+    // Remove the trigger delete label after successful deletion
+    labels := resourceRequest.GetLabels()
+    if _, exists := labels[resourceutil.TriggerDeleteLabel]; exists {
+        delete(labels, resourceutil.TriggerDeleteLabel)
+        resourceRequest.SetLabels(labels)
+        if err := o.client.Update(o.ctx, resourceRequest); err != nil {
+            o.logger.Error(err, "Failed to remove trigger delete label")
+            return ctrl.Result{}, err
+        }
+        o.logger.Info("Removed trigger delete label after successful deletion workflow", "resource", resourceRequest.GetName())
+    }
 
 	return fastRequeue, nil
 }
