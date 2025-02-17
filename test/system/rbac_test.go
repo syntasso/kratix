@@ -1,6 +1,7 @@
 package system_test
 
 import (
+	"fmt"
 	"strings"
 	"time"
 
@@ -103,6 +104,14 @@ var _ = Describe("Workflow-defined RBAC", Label("rbac"), Serial, func() {
 			Expect(resRoleBindingName).To(ContainSubstring("rbac-promise-resource-configure-rbac-res"), "role binding not found")
 			Expect(resNamespacedCRName).To(ContainSubstring("rbac-promise-resource-configure-rbac-res-kratix-plat"), "namespaced clusterrole not found")
 			Expect(resAllNamespacesCRName).To(ContainSubstring("rbac-promise-resource-configure-rbac-res-kratix-all"), "all-namespaces clusterrole not found")
+		})
+
+		By("creating roles with 'resourceNames' specified correctly", func() {
+			saName := strings.Split(platform.Kubectl("get", "sa", "-l", "kratix.io/promise-name=rbac-promise", "-o=name"), "/")[1]
+			saArg := strings.TrimSpace(fmt.Sprintf("--as=system:serviceaccount:default:%s", saName))
+
+			Expect(platform.KubectlAllowFail("auth", "can-i", "get", "secrets", saArg)).To(ContainSubstring("no"))
+			Expect(platform.Kubectl("auth", "can-i", "get", "secrets/rbac-resource-secret", saArg)).To(ContainSubstring("yes"))
 		})
 
 		By("keeping the rbac objects for the resource workflow when the resource is deleted", func() {
