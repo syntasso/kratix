@@ -42,7 +42,8 @@ jobs:
           version: '2.4.0'
       - name: System Tests
         run: |
-          DOCKER_BUILDKIT=1 ACK_GINKGO_RC=true make system-test core-test
+          DOCKER_BUILDKIT=1 ACK_GINKGO_RC=true PLATFORM_CLUSTER_NAME=system-test-platform WORKER1_CLUSTER_NAME=system-test-worker \ 
+            PLATFORM_CONTEXT=kind-system-test-platform WORKER_CONTEXT=kind-system-test-worker make system-test core-test
   integration-test:
     runs-on: ubuntu-latest
     needs: [unit-tests-and-lint] 
@@ -70,19 +71,3 @@ jobs:
       - name: e2e-demo-test-helm-git
         run: |
           STATE_STORE="git" ./scripts/helm-e2e-test.sh
-  on-failure:
-    runs-on: ubuntu-latest
-    needs:
-      - unit-tests-and-lint
-      - system-test
-      - integration-test
-    if: ${{ always() && (needs.*.result == 'failure' || needs.*.result == 'timed_out') }}
-    steps:
-      - name: Slack Notification
-        uses: slackapi/slack-github-action@v2
-        with:
-          webhook: ${{ secrets.SLACK_WEBHOOK_URL }}
-          webhook-type: incoming-webhook
-          payload: |
-            text: "*GitHub Action failed!! Failed job: ${{ job.status  }} \n ${{ github.server_url }}/${{ github.repository }}/actions/runs/${{ github.run_id }}"
-

@@ -30,7 +30,8 @@ error() {
 }
 
 platform_destination_ip() {
-    docker inspect platform-control-plane | yq ".[0].NetworkSettings.Networks.kind.IPAddress"
+    local platform_cluster_name="${1:-platform}"
+    docker inspect ${platform_cluster_name}-control-plane | yq ".[0].NetworkSettings.Networks.kind.IPAddress"
 }
 
 generate_gitea_credentials() {
@@ -44,7 +45,8 @@ generate_gitea_credentials() {
         exit 1
     fi
     local context="${1:-kind-platform}"
-    $giteabin cert --host "$(platform_destination_ip)" --ca
+    platform_cluster_name=${context#*-}
+    $giteabin cert --host "$(platform_destination_ip ${platform_cluster_name})" --ca
 
     kubectl create namespace gitea --context ${context} || true
 

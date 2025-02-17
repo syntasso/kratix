@@ -9,12 +9,13 @@ LABELS=""
 NAME=""
 DESTINATION_CONTEXT=""
 PLATFORM_CONTEXT="kind-platform"
+PLATFORM_CLUSTER_NAME=""
 STATE_STORE="default"
 STRICT_MATCH_LABELS=false
 GITOPS_PATH=""
 
 usage() {
-    echo -e "Usage: register-destination [--help] [--git] [--with-label foo=bar] [--context k8s-context] [--name  some-name ] [--platform-context 'kind-platform'] [--path platform-cluster] [--strict-match-labels]"
+    echo -e "Usage: register-destination [--help] [--git] [--with-label foo=bar] [--context k8s-context] [--name some-name] [--platform-context 'kind-platform'] [--path platform-cluster] [--strict-match-labels]"
     echo -e "\t--context='', -c,\t The Kubernetes context where to install FluxCD onto"
     echo -e "\t--git, -g\t Use Gitea as local repository in place of default local MinIO"
     echo -e "\t--help, -h\t Prints this message"
@@ -74,6 +75,13 @@ load_options() {
     if [ -z "$GITOPS_PATH" ]; then
       GITOPS_PATH="$NAME"
     fi
+
+    if [[ "$PLATFORM_CONTEXT" =~ ^kind-(.*)$ ]]; then
+      PLATFORM_CLUSTER_NAME="${BASH_REMATCH[1]}"
+    else
+      echo "Error: Platform context must start with 'kind-'"
+      usage 1
+    fi
 }
 
 prepare_destination() {
@@ -84,7 +92,7 @@ prepare_destination() {
     flags="--git"
     state_store_type="GitStateStore"
   fi
-  $ROOT/scripts/install-gitops --context $DESTINATION_CONTEXT --path "$GITOPS_PATH" "$flags"
+  $ROOT/scripts/install-gitops --context $DESTINATION_CONTEXT --path "$GITOPS_PATH" --platform-cluster-name ${PLATFORM_CLUSTER_NAME} "$flags"
 
   local yqOpts=".metadata.name = \"$NAME\" | .metadata.labels = {} | .spec.stateStoreRef.name = \"$STATE_STORE\" | .spec.stateStoreRef.kind = \"$state_store_type\" | .spec.strictMatchLabels = $STRICT_MATCH_LABELS"
   yq "${yqOpts}" $ROOT/config/samples/platform_v1alpha1_worker.yaml |

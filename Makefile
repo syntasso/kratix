@@ -71,7 +71,7 @@ fast-quick-start: teardown ## Install Kratix without recreating the local cluste
 	RECREATE=false make quick-start
 
 quick-start: gitea-cli generate distribution ## Recreates the clusters and install Kratix
-	VERSION=dev DOCKER_BUILDKIT=1 ./scripts/quick-start.sh --local --git-and-minio
+	VERSION=dev DOCKER_BUILDKIT=1 ./scripts/quick-start.sh --recreate --local --git-and-minio
 
 prepare-platform-as-destination: ## Installs flux onto platform cluster and registers as a destination
 	./scripts/register-destination --with-label environment=platform --context kind-platform --name platform-cluster
@@ -208,14 +208,15 @@ endif
 test: manifests generate fmt vet ## Run unit tests.
 	go run ${GINKGO} ${GINKGO_FLAGS} -r --coverprofile cover.out --skip-package=system,core
 
+PLATFORM_CLUSTER_NAME ?= platform
 core-test:
 	cd test/core/assets/workflows/ && docker build -t syntasso/test-bundle-image:v0.1.0 .
-	kind load docker-image syntasso/test-bundle-image:v0.1.0 --name platform
+	kind load docker-image syntasso/test-bundle-image:v0.1.0 --name ${PLATFORM_CLUSTER_NAME}
 	go run ${GINKGO} ${GINKGO_FLAGS} test/core/
 
 .PHONY: run-system-test
 run-system-test: fmt vet
-	PLATFORM_DESTINATION_IP=`docker inspect platform-control-plane | grep '"IPAddress": "172' | awk -F '"' '{print $$4}'` go run ${GINKGO} ${GINKGO_FLAGS} -p --output-interceptor-mode=none ./test/system/  --coverprofile cover.out
+	PLATFORM_DESTINATION_IP=`docker inspect ${PLATFORM_CLUSTER_NAME}-control-plane | grep '"IPAddress": "172' | awk -F '"' '{print $$4}'` go run ${GINKGO} ${GINKGO_FLAGS} -p --output-interceptor-mode=none ./test/system/  --coverprofile cover.out
 
 fmt: ## Run go fmt against code.
 	go fmt ./...
