@@ -23,6 +23,7 @@ import (
 	"os"
 	"time"
 
+	"github.com/syntasso/kratix/internal/controller"
 	"sigs.k8s.io/controller-runtime/pkg/webhook"
 
 	// Import all Kubernetes client auth plugins (e.g. Azure, GCP, OIDC, etc.)
@@ -52,7 +53,6 @@ import (
 
 	"github.com/syntasso/kratix/api/v1alpha1"
 	platformv1alpha1 "github.com/syntasso/kratix/api/v1alpha1"
-	"github.com/syntasso/kratix/controllers"
 	"github.com/syntasso/kratix/lib/fetchers"
 	//+kubebuilder:scaffold:imports
 )
@@ -143,14 +143,14 @@ func main() {
 			os.Exit(1)
 		}
 
-		scheduler := controllers.Scheduler{
+		scheduler := controller.Scheduler{
 			Client: mgr.GetClient(),
 			Log:    ctrl.Log.WithName("controllers").WithName("Scheduler"),
 		}
 
 		restartManager := false
 		restartManagerInProgress := false
-		if err = (&controllers.PromiseReconciler{
+		if err = (&controller.PromiseReconciler{
 			ApiextensionsClient:     apiextensionsClient.ApiextensionsV1(),
 			Client:                  mgr.GetClient(),
 			Log:                     ctrl.Log.WithName("controllers").WithName("Promise"),
@@ -179,7 +179,7 @@ func main() {
 			setupLog.Error(err, "unable to create controller", "controller", "Promise")
 			os.Exit(1)
 		}
-		if err = (&controllers.WorkReconciler{
+		if err = (&controller.WorkReconciler{
 			Client:    mgr.GetClient(),
 			Log:       ctrl.Log.WithName("controllers").WithName("Work"),
 			Scheduler: &scheduler,
@@ -187,7 +187,7 @@ func main() {
 			setupLog.Error(err, "unable to create controller", "controller", "Work")
 			os.Exit(1)
 		}
-		if err = (&controllers.DestinationReconciler{
+		if err = (&controller.DestinationReconciler{
 			Client:        mgr.GetClient(),
 			Scheduler:     &scheduler,
 			Log:           ctrl.Log.WithName("controllers").WithName("DestinationController"),
@@ -196,7 +196,7 @@ func main() {
 			setupLog.Error(err, "unable to create controller", "controller", "Destination")
 			os.Exit(1)
 		}
-		if err = (&controllers.WorkPlacementReconciler{
+		if err = (&controller.WorkPlacementReconciler{
 			Client:       mgr.GetClient(),
 			Log:          ctrl.Log.WithName("controllers").WithName("WorkPlacementController"),
 			VersionCache: make(map[string]string),
@@ -208,7 +208,7 @@ func main() {
 			setupLog.Error(err, "unable to create webhook", "webhook", "Promise")
 			os.Exit(1)
 		}
-		if err = (&controllers.PromiseReleaseReconciler{
+		if err = (&controller.PromiseReleaseReconciler{
 			Log:            ctrl.Log.WithName("controllers").WithName("PromiseReleaseController"),
 			Client:         mgr.GetClient(),
 			Scheme:         mgr.GetScheme(),
@@ -222,7 +222,7 @@ func main() {
 			setupLog.Error(err, "unable to create webhook", "webhook", "PromiseRelease")
 			os.Exit(1)
 		}
-		if err = (&controllers.HealthRecordReconciler{
+		if err = (&controller.HealthRecordReconciler{
 			Client:        mgr.GetClient(),
 			Scheme:        mgr.GetScheme(),
 			Log:           ctrl.Log.WithName("controllers").WithName("HealthRecordController"),

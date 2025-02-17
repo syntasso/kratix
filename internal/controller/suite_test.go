@@ -14,7 +14,7 @@ See the License for the specific language governing permissions and
 limitations under the License.
 */
 
-package controllers_test
+package controller_test
 
 import (
 	"context"
@@ -25,7 +25,7 @@ import (
 	. "github.com/onsi/ginkgo/v2"
 	. "github.com/onsi/gomega"
 	"github.com/syntasso/kratix/api/v1alpha1"
-	"github.com/syntasso/kratix/controllers"
+	"github.com/syntasso/kratix/internal/controller"
 	"github.com/syntasso/kratix/lib/workflow"
 
 	fakeclientset "k8s.io/apiextensions-apiserver/pkg/client/clientset/clientset/fake"
@@ -98,12 +98,12 @@ var _ = BeforeEach(func() {
 	fakeApiExtensionsClient = fakeclientset.NewSimpleClientset().ApiextensionsV1()
 	t = &testReconciler{}
 
-	controllers.SetReconcileConfigureWorkflow(func(w workflow.Opts) (bool, error) {
+	controller.SetReconcileConfigureWorkflow(func(w workflow.Opts) (bool, error) {
 		reconcileConfigureOptsArg = w
 		return true, nil
 	})
 
-	controllers.SetReconcileDeleteWorkflow(func(w workflow.Opts) (bool, error) {
+	controller.SetReconcileDeleteWorkflow(func(w workflow.Opts) (bool, error) {
 		reconcileDeleteOptsArg = w
 		return true, nil
 	})
@@ -116,14 +116,14 @@ func TestControllers(t *testing.T) {
 }
 
 func setReconcileConfigureWorkflowToReturnFinished() {
-	controllers.SetReconcileConfigureWorkflow(func(w workflow.Opts) (bool, error) {
+	controller.SetReconcileConfigureWorkflow(func(w workflow.Opts) (bool, error) {
 		reconcileConfigureOptsArg = w
 		return false, nil
 	})
 }
 
 func setReconcileDeleteWorkflowToReturnFinished(obj client.Object) {
-	controllers.SetReconcileDeleteWorkflow(func(w workflow.Opts) (bool, error) {
+	controller.SetReconcileDeleteWorkflow(func(w workflow.Opts) (bool, error) {
 		us := &unstructured.Unstructured{}
 		us.SetGroupVersionKind(obj.GetObjectKind().GroupVersionKind())
 		Expect(fakeK8sClient.Get(ctx, types.NamespacedName{
@@ -137,7 +137,7 @@ func setReconcileDeleteWorkflowToReturnFinished(obj client.Object) {
 }
 
 func setReconcileDeleteWorkflowToReturnError(obj client.Object) {
-	controllers.SetReconcileDeleteWorkflow(func(w workflow.Opts) (bool, error) {
+	controller.SetReconcileDeleteWorkflow(func(w workflow.Opts) (bool, error) {
 		us := &unstructured.Unstructured{}
 		us.SetGroupVersionKind(obj.GetObjectKind().GroupVersionKind())
 		Expect(fakeK8sClient.Get(ctx, types.NamespacedName{

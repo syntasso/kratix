@@ -1,4 +1,4 @@
-package controllers_test
+package controller_test
 
 import (
 	"context"
@@ -8,7 +8,7 @@ import (
 	. "github.com/onsi/gomega"
 	"github.com/syntasso/kratix/api/v1alpha1"
 	"github.com/syntasso/kratix/api/v1alpha1/v1alpha1fakes"
-	"github.com/syntasso/kratix/controllers"
+	"github.com/syntasso/kratix/internal/controller"
 	"k8s.io/apimachinery/pkg/api/errors"
 	metav1 "k8s.io/apimachinery/pkg/apis/meta/v1"
 	"k8s.io/apimachinery/pkg/types"
@@ -23,7 +23,7 @@ var _ = Describe("PromiseReleaseController", func() {
 	var (
 		promiseRelease               v1alpha1.PromiseRelease
 		promiseReleaseNamespacedName types.NamespacedName
-		reconciler                   *controllers.PromiseReleaseReconciler
+		reconciler                   *controller.PromiseReleaseReconciler
 		fakeFetcher                  *v1alpha1fakes.FakePromiseFetcher
 		promise                      *v1alpha1.Promise
 		err                          error
@@ -34,7 +34,7 @@ var _ = Describe("PromiseReleaseController", func() {
 		fakeFetcher = &v1alpha1fakes.FakePromiseFetcher{}
 		fakeFetcher.FromURLReturns(promiseFromFile(promisePath), nil)
 
-		reconciler = &controllers.PromiseReleaseReconciler{
+		reconciler = &controller.PromiseReleaseReconciler{
 			Client:         fakeK8sClient,
 			Scheme:         scheme.Scheme,
 			PromiseFetcher: fakeFetcher,
@@ -295,7 +295,7 @@ var _ = Describe("PromiseReleaseController", func() {
 
 						eventRecorder = record.NewFakeRecorder(1024)
 
-						reconciler = &controllers.PromiseReleaseReconciler{
+						reconciler = &controller.PromiseReleaseReconciler{
 							Client:         fakeK8sClient,
 							Scheme:         scheme.Scheme,
 							PromiseFetcher: fakeFetcher,
@@ -480,7 +480,7 @@ var _ = Describe("PromiseReleaseController", func() {
 
 			eventRecorder = record.NewFakeRecorder(1024)
 
-			reconciler = &controllers.PromiseReleaseReconciler{
+			reconciler = &controller.PromiseReleaseReconciler{
 				Client:         fakeK8sClient,
 				Scheme:         scheme.Scheme,
 				PromiseFetcher: fakeFetcher,

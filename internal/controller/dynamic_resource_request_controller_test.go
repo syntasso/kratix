@@ -1,4 +1,4 @@
-package controllers_test
+package controller_test
 
 import (
 	"context"
@@ -10,6 +10,7 @@ import (
 
 	. "github.com/onsi/ginkgo/v2"
 	. "github.com/onsi/gomega"
+	"github.com/syntasso/kratix/internal/controller"
 	batchv1 "k8s.io/api/batch/v1"
 	v1 "k8s.io/api/core/v1"
 	rbacv1 "k8s.io/api/rbac/v1"
@@ -25,14 +26,13 @@ import (
 	"sigs.k8s.io/controller-runtime/pkg/client"
 
 	"github.com/syntasso/kratix/api/v1alpha1"
-	"github.com/syntasso/kratix/controllers"
 	"github.com/syntasso/kratix/lib/resourceutil"
 	"github.com/syntasso/kratix/lib/workflow"
 )
 
 var _ = Describe("DynamicResourceRequestController", func() {
 	var (
-		reconciler          *controllers.DynamicResourceRequestController
+		reconciler          *controller.DynamicResourceRequestController
 		resReq              *unstructured.Unstructured
 		resReqNameNamespace types.NamespacedName
 		startTime           time.Time
@@ -51,7 +51,7 @@ var _ = Describe("DynamicResourceRequestController", func() {
 
 		eventRecorder = record.NewFakeRecorder(1024)
 
-		reconciler = &controllers.DynamicResourceRequestController{
+		reconciler = &controller.DynamicResourceRequestController{
 			CanCreateResources:          ptr.To(true),
 			Enabled:                     ptr.To(true),
 			Client:                      fakeK8sClient,

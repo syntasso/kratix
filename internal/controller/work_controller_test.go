@@ -14,7 +14,7 @@ See the License for the specific language governing permissions and
 limitations under the License.
 */
 
-package controllers_test
+package controller_test
 
 import (
 	"context"
@@ -23,8 +23,8 @@ import (
 	. "github.com/onsi/ginkgo/v2"
 	. "github.com/onsi/gomega"
 	"github.com/syntasso/kratix/api/v1alpha1"
-	"github.com/syntasso/kratix/controllers"
-	"github.com/syntasso/kratix/controllers/controllersfakes"
+	"github.com/syntasso/kratix/internal/controller"
+	"github.com/syntasso/kratix/internal/controller/controllerfakes"
 	"github.com/syntasso/kratix/lib/hash"
 	v1 "k8s.io/apimachinery/pkg/apis/meta/v1"
 	"k8s.io/apimachinery/pkg/types"
@@ -35,8 +35,8 @@ import (
 var _ = Describe("WorkReconciler", func() {
 	var (
 		ctx              context.Context
-		reconciler       *controllers.WorkReconciler
-		fakeScheduler    *controllersfakes.FakeWorkScheduler
+		reconciler       *controller.WorkReconciler
+		fakeScheduler    *controllerfakes.FakeWorkScheduler
 		workName         types.NamespacedName
 		work             *v1alpha1.Work
 		workResourceName = "work-controller-test-resource-request"
@@ -45,8 +45,8 @@ var _ = Describe("WorkReconciler", func() {
 	BeforeEach(func() {
 		ctx = context.Background()
 		disabled := false
-		fakeScheduler = &controllersfakes.FakeWorkScheduler{}
-		reconciler = &controllers.WorkReconciler{
+		fakeScheduler = &controllerfakes.FakeWorkScheduler{}
+		reconciler = &controller.WorkReconciler{
 			Client:    fakeK8sClient,
 			Log:       ctrl.Log.WithName("controllers").WithName("Work"),
 			Scheduler: fakeScheduler,
