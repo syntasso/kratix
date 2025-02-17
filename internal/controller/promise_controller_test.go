@@ -1,4 +1,4 @@
-package controllers_test
+package controller_test
 
 import (
 	"bytes"
@@ -9,6 +9,8 @@ import (
 	"strings"
 	"time"
 
+	"github.com/syntasso/kratix/internal/controller"
+	"github.com/syntasso/kratix/internal/controller/controllerfakes"
 	controllerConfig "sigs.k8s.io/controller-runtime/pkg/config"
 
 	"k8s.io/apimachinery/pkg/runtime/schema"
@@ -32,8 +34,6 @@ import (
 	"sigs.k8s.io/controller-runtime/pkg/client"
 
 	"github.com/syntasso/kratix/api/v1alpha1"
-	"github.com/syntasso/kratix/controllers"
-	"github.com/syntasso/kratix/controllers/controllersfakes"
 	"github.com/syntasso/kratix/lib/compression"
 	"github.com/syntasso/kratix/lib/resourceutil"
 	"github.com/syntasso/kratix/lib/workflow"
@@ -43,7 +43,7 @@ import (
 // TODO: make this scoped to the test instead of to the entire suite
 var (
 	ctx                  context.Context
-	reconciler           *controllers.PromiseReconciler
+	reconciler           *controller.PromiseReconciler
 	promise              *v1alpha1.Promise
 	promiseName          types.NamespacedName
 	promiseResourcesName types.NamespacedName
@@ -64,11 +64,11 @@ var _ = Describe("PromiseController", func() {
 		ctx = context.Background()
 		managerRestarted = false
 		l = ctrl.Log.WithName("controllers").WithName("Promise")
-		m := &controllersfakes.FakeManager{}
+		m := &controllerfakes.FakeManager{}
 		m.GetControllerOptionsReturns(controllerConfig.Controller{
 			SkipNameValidation: ptr.To(true)})
 		eventRecorder = record.NewFakeRecorder(1024)
-		reconciler = &controllers.PromiseReconciler{
+		reconciler = &controller.PromiseReconciler{
 			Client:                  fakeK8sClient,
 			ApiextensionsClient:     fakeApiExtensionsClient,
 			Log:                     l,
@@ -94,7 +94,7 @@ var _ = Describe("PromiseController", func() {
 					})
 
 					Expect(err).NotTo(HaveOccurred())
-					Expect(result).To(Equal(ctrl.Result{RequeueAfter: controllers.DefaultReconciliationInterval}))
+					Expect(result).To(Equal(ctrl.Result{RequeueAfter: controller.DefaultReconciliationInterval}))
 
 					By("creating the CRD", func() {
 						crd, err := fakeApiExtensionsClient.CustomResourceDefinitions().Get(ctx, expectedCRDName, metav1.GetOptions{})
@@ -568,7 +568,7 @@ var _ = Describe("PromiseController", func() {
 						result, err := t.reconcileUntilCompletion(reconciler, promise)
 
 						Expect(err).NotTo(HaveOccurred())
-						Expect(result).To(Equal(ctrl.Result{RequeueAfter: controllers.DefaultReconciliationInterval}))
+						Expect(result).To(Equal(ctrl.Result{RequeueAfter: controller.DefaultReconciliationInterval}))
 					})
 
 					By("not creating a Work for the empty static dependencies", func() {
@@ -603,7 +603,7 @@ var _ = Describe("PromiseController", func() {
 				It("re-reconciles until completion", func() {
 					result, err := t.reconcileUntilCompletion(reconciler, promise)
 					Expect(err).NotTo(HaveOccurred())
-					Expect(result).To(Equal(ctrl.Result{RequeueAfter: controllers.DefaultReconciliationInterval}))
+					Expect(result).To(Equal(ctrl.Result{RequeueAfter: controller.DefaultReconciliationInterval}))
 
 					crds, err := fakeApiExtensionsClient.CustomResourceDefinitions().List(ctx, metav1.ListOptions{})
 					Expect(err).NotTo(HaveOccurred())
@@ -651,7 +651,7 @@ var _ = Describe("PromiseController", func() {
 					})
 
 					Expect(err).NotTo(HaveOccurred())
-					Expect(result).To(Equal(ctrl.Result{RequeueAfter: controllers.DefaultReconciliationInterval}))
+					Expect(result).To(Equal(ctrl.Result{RequeueAfter: controller.DefaultReconciliationInterval}))
 				})
 
 				It("sets the finalizers on the Promise", func() {
@@ -763,7 +763,7 @@ var _ = Describe("PromiseController", func() {
 					})
 
 					Expect(err).NotTo(HaveOccurred())
-					Expect(result).To(Equal(ctrl.Result{RequeueAfter: controllers.DefaultReconciliationInterval}))
+					Expect(result).To(Equal(ctrl.Result{RequeueAfter: controller.DefaultReconciliationInterval}))
 				})
 
 				It("sets the delete-workflows finalizer", func() {
@@ -780,7 +780,7 @@ var _ = Describe("PromiseController", func() {
 
 				It("requeues forever until the delete job finishes", func() {
 					Expect(fakeK8sClient.Delete(ctx, promise)).To(Succeed())
-					controllers.SetReconcileDeleteWorkflow(func(w workflow.Opts) (bool, error) {
+					controller.SetReconcileDeleteWorkflow(func(w workflow.Opts) (bool, error) {
 						reconcileDeleteOptsArg = w
 						return true, nil
 					})
@@ -792,7 +792,7 @@ var _ = Describe("PromiseController", func() {
 				It("finishes the deletion once the job is finished", func() {
 					Expect(fakeK8sClient.Delete(ctx, promise)).To(Succeed())
 					_, err = t.reconcileUntilCompletion(reconciler, promise)
-					controllers.SetReconcileDeleteWorkflow(func(w workflow.Opts) (bool, error) {
+					controller.SetReconcileDeleteWorkflow(func(w workflow.Opts) (bool, error) {
 						reconcileDeleteOptsArg = w
 						return false, nil
 					})
@@ -857,7 +857,7 @@ var _ = Describe("PromiseController", func() {
 					funcs: []func(client.Object) error{autoMarkCRDAsEstablished},
 				})
 				Expect(err).NotTo(HaveOccurred())
-				Expect(result).To(Equal(ctrl.Result{RequeueAfter: controllers.DefaultReconciliationInterval}))
+				Expect(result).To(Equal(ctrl.Result{RequeueAfter: controller.DefaultReconciliationInterval}))
 			})
 
 			When("it contains static dependencies", func() {
@@ -925,7 +925,7 @@ var _ = Describe("PromiseController", func() {
 				})
 
 				Expect(err).NotTo(HaveOccurred())
-				Expect(result).To(Equal(ctrl.Result{RequeueAfter: controllers.DefaultReconciliationInterval}))
+				Expect(result).To(Equal(ctrl.Result{RequeueAfter: controller.DefaultReconciliationInterval}))
 
 				Expect(fakeK8sClient.Get(ctx, types.NamespacedName{Name: promise.GetName()}, promise)).To(Succeed())
 
@@ -937,7 +937,7 @@ var _ = Describe("PromiseController", func() {
 					Status:             v1.ConditionTrue,
 					Message:            "Pipelines completed",
 					Reason:             "PipelinesExecutedSuccessfully",
-					LastTransitionTime: metav1.NewTime(time.Now().Add(-controllers.DefaultReconciliationInterval)),
+					LastTransitionTime: metav1.NewTime(time.Now().Add(-controller.DefaultReconciliationInterval)),
 				})
 				markWorkflowAsCompleted(uPromise)
 				Expect(fakeK8sClient.Status().Update(ctx, uPromise)).To(Succeed())
@@ -945,7 +945,7 @@ var _ = Describe("PromiseController", func() {
 
 			It("re-runs the promise.configure workflow and sets the next reconciliation timestamp", func() {
 				Expect(fakeK8sClient.Get(ctx, promiseName, promise)).To(Succeed())
-				tm := metav1.NewTime(time.Now().Add(-controllers.DefaultReconciliationInterval))
+				tm := metav1.NewTime(time.Now().Add(-controller.DefaultReconciliationInterval))
 				promise.Status.LastAvailableTime = &tm
 				Expect(fakeK8sClient.Status().Update(ctx, promise)).To(Succeed())
 
@@ -1021,7 +1021,7 @@ var _ = Describe("PromiseController", func() {
 
 					Expect(err).NotTo(HaveOccurred())
 					Expect(result).To(Equal(ctrl.Result{}))
-					Expect(reconciler.ScheduledReconciliation[promise.GetName()].Unix()).To(Equal(time.Now().Add(controllers.DefaultReconciliationInterval).Unix()))
+					Expect(reconciler.ScheduledReconciliation[promise.GetName()].Unix()).To(Equal(time.Now().Add(controller.DefaultReconciliationInterval).Unix()))
 				})
 			})
 		})
@@ -1096,7 +1096,7 @@ var _ = Describe("PromiseController", func() {
 					funcs: []func(client.Object) error{autoMarkCRDAsEstablished},
 				})
 				Expect(err).NotTo(HaveOccurred())
-				Expect(result).To(Equal(ctrl.Result{RequeueAfter: controllers.DefaultReconciliationInterval}))
+				Expect(result).To(Equal(ctrl.Result{RequeueAfter: controller.DefaultReconciliationInterval}))
 
 				crd, err := fakeApiExtensionsClient.CustomResourceDefinitions().Get(ctx, expectedCRDName, metav1.GetOptions{})
 				Expect(err).ToNot(HaveOccurred())
@@ -1133,7 +1133,7 @@ var _ = Describe("PromiseController", func() {
 				})
 
 				Expect(err).NotTo(HaveOccurred())
-				Expect(result).To(Equal(ctrl.Result{RequeueAfter: controllers.DefaultReconciliationInterval}))
+				Expect(result).To(Equal(ctrl.Result{RequeueAfter: controller.DefaultReconciliationInterval}))
 
 				crd, err := fakeApiExtensionsClient.CustomResourceDefinitions().Get(ctx, expectedCRDName, metav1.GetOptions{})
 				Expect(err).ToNot(HaveOccurred())

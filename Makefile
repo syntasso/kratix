@@ -28,10 +28,7 @@ else
 GOBIN=$(shell go env GOBIN)
 endif
 
-GINKGO = github.com/onsi/ginkgo/v2/ginkgo
-
 # Setting SHELL to bash allows bash commands to be executed by recipes.
-# This is a requirement for 'setup-envtest.sh' in the test target.
 # Options are set to exit when a recipe line exits non-zero or a piped command fails.
 SHELL = /usr/bin/env bash -o pipefail
 .SHELLFLAGS = -ec
@@ -106,10 +103,10 @@ build-and-load-work-creator: ## Build work-creator container image and reloads
 
 # Generate manifests for distributed installation
 build: generate fmt vet ## Build manager binary.
-	CGO_ENABLED=0 go build -o bin/manager main.go
+	CGO_ENABLED=0 go build -o bin/manager cmd/main.go
 
 run: manifests generate fmt vet ## Run a controller from your host.
-	go run ./main.go
+	go run ./cmd/main.go
 
 debug-run: manifests generate fmt vet ## Run a controller in debug mode from your host
 	dlv --listen=:2345 --headless=true --api-version=2 --accept-multiclient debug ./main.go
@@ -155,20 +152,6 @@ release: distribution docker-build-and-push build-and-push-work-creator ## Creat
 
 undeploy: ## Undeploy controller from the K8s cluster specified in ~/.kube/config.
 	$(KUSTOMIZE) build config/default | kubectl delete -f -
-
-CONTROLLER_GEN = $(shell pwd)/bin/controller-gen
-controller-gen: ## Download controller-gen locally if necessary.
-	$(eval CONTROLLER_GEN_VERSION := v0.16.5)
-	$(eval CURRENT_CONTROLLER_GEN_VERSION := $(shell $(CONTROLLER_GEN) --version 2>/dev/null | grep -oE 'v[0-9]+.[0-9]+.[0-9]+' || echo "none"))
-	@if [ "$(CURRENT_CONTROLLER_GEN_VERSION)" != "$(CONTROLLER_GEN_VERSION)" ]; then \
-		echo "Warning: Controller-gen version $(CURRENT_CONTROLLER_GEN_VERSION) does not match desired version $(CONTROLLER_GEN_VERSION)"; \
-		echo "Installing/updating to version $(CONTROLLER_GEN_VERSION)..."; \
-		GOBIN=$(shell pwd)/bin go install sigs.k8s.io/controller-tools/cmd/controller-gen@$(CONTROLLER_GEN_VERSION); \
-	fi
-
-KUSTOMIZE = $(shell pwd)/bin/kustomize
-kustomize: ## Download kustomize locally if necessary.
-	$(call go-get-tool,$(KUSTOMIZE),sigs.k8s.io/kustomize/kustomize/v5@v5.6.0)
 
 # go-get-tool will 'go get' any package $2 and install it to $1.
 PROJECT_DIR := $(shell dirname $(abspath $(lastword $(MAKEFILE_LIST))))
@@ -261,3 +244,48 @@ DEPRECATED:
 	read -p 'Press any key to continue...'
 	@echo
 
+
+##@ Dependencies
+
+## Location to install dependencies to
+LOCALBIN ?= $(shell pwd)/bin
+$(LOCALBIN):
+	mkdir -p $(LOCALBIN)
+
+## Tool Binaries
+KUBECTL ?= kubectl
+GINKGO = github.com/onsi/ginkgo/v2/ginkgo
+KUSTOMIZE ?= $(LOCALBIN)/kustomize
+CONTROLLER_GEN ?= $(LOCALBIN)/controller-gen
+ENVTEST ?= $(LOCALBIN)/setup-envtest
+
+## Tool Versions
+KUSTOMIZE_VERSION ?= v5.6.0
+CONTROLLER_TOOLS_VERSION ?= v0.16.5
+
+.PHONY: controller-gen
+controller-gen: $(CONTROLLER_GEN) ## Download controller-gen locally if necessary.
+$(CONTROLLER_GEN): $(LOCALBIN)
+	$(call go-install-tool,$(CONTROLLER_GEN),sigs.k8s.io/controller-tools/cmd/controller-gen,$(CONTROLLER_TOOLS_VERSION))
+
+
+.PHONY: kustomize
+kustomize: $(KUSTOMIZE) ## Download kustomize locally if necessary.
+$(KUSTOMIZE): $(LOCALBIN)
+	$(call go-install-tool,$(KUSTOMIZE),sigs.k8s.io/kustomize/kustomize/v5,$(KUSTOMIZE_VERSION))
+
+# go-install-tool will 'go install' any package with custom target and name of binary, if it doesn't exist
+# $1 - target path with name of binary
+# $2 - package url which can be installed
+# $3 - specific version of package
+define go-install-tool
+@[ -f "$(1)-$(3)" ] || { \
+set -e; \
+package=$(2)@$(3) ;\
+echo "Downloading $${package}" ;\
+rm -f $(1) || true ;\
+GOBIN=$(LOCALBIN) go install $${package} ;\
+mv $(1) $(1)-$(3) ;\
+} ;\
+ln -sf $(1)-$(3) $(1)
+endef

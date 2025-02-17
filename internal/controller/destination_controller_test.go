@@ -14,7 +14,7 @@ See the License for the specific language governing permissions and
 limitations under the License.
 */
 
-package controllers_test
+package controller_test
 
 import (
 	"context"
@@ -25,7 +25,7 @@ import (
 	. "github.com/onsi/ginkgo/v2"
 	. "github.com/onsi/gomega"
 	"github.com/syntasso/kratix/api/v1alpha1"
-	"github.com/syntasso/kratix/controllers"
+	"github.com/syntasso/kratix/internal/controller"
 	"github.com/syntasso/kratix/lib/writers"
 	"github.com/syntasso/kratix/lib/writers/writersfakes"
 	corev1 "k8s.io/api/core/v1"
@@ -42,7 +42,7 @@ var _ = Describe("DestinationReconciler", func() {
 		ctx                 context.Context
 		testDestination     *v1alpha1.Destination
 		testDestinationName client.ObjectKey
-		reconciler          *controllers.DestinationReconciler
+		reconciler          *controller.DestinationReconciler
 		fakeWriter          *writersfakes.FakeStateStoreWriter
 		stateStoreSecret    *corev1.Secret
 		stateStore          client.Object
@@ -55,7 +55,7 @@ var _ = Describe("DestinationReconciler", func() {
 		ctx = context.Background()
 
 		fakeWriter = &writersfakes.FakeStateStoreWriter{}
-		reconciler = &controllers.DestinationReconciler{
+		reconciler = &controller.DestinationReconciler{
 			Client:        fakeK8sClient,
 			EventRecorder: eventRecorder,
 			Log:           ctrl.Log.WithName("controllers").WithName("Destination"),
@@ -385,7 +385,7 @@ var stateStoreSetups = map[string]StateStoreSetup{
 			destination.Spec.StateStoreRef.Name = "test-state-store"
 		},
 		SetWriter: func(writer writers.StateStoreWriter, err error) {
-			controllers.SetNewS3Writer(
+			controller.SetNewS3Writer(
 				func(l logr.Logger, s v1alpha1.BucketStateStoreSpec, d v1alpha1.Destination, c map[string][]byte) (writers.StateStoreWriter, error) {
 					return writer, err
 				},
@@ -422,7 +422,7 @@ var stateStoreSetups = map[string]StateStoreSetup{
 			destination.Spec.StateStoreRef.Name = "test-git-state-store"
 		},
 		SetWriter: func(writer writers.StateStoreWriter, err error) {
-			controllers.SetNewGitWriter(
+			controller.SetNewGitWriter(
 				func(l logr.Logger, s v1alpha1.GitStateStoreSpec, d v1alpha1.Destination, c map[string][]byte) (writers.StateStoreWriter, error) {
 					return writer, err
 				},

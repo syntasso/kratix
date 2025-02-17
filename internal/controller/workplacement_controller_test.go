@@ -14,12 +14,13 @@ See the License for the specific language governing permissions and
 limitations under the License.
 */
 
-package controllers_test
+package controller_test
 
 import (
 	"context"
 	"fmt"
 
+	"github.com/syntasso/kratix/internal/controller"
 	"k8s.io/apimachinery/pkg/api/errors"
 	"k8s.io/apimachinery/pkg/types"
 
@@ -27,7 +28,6 @@ import (
 	. "github.com/onsi/ginkgo/v2"
 	. "github.com/onsi/gomega"
 	"github.com/syntasso/kratix/api/v1alpha1"
-	"github.com/syntasso/kratix/controllers"
 	"github.com/syntasso/kratix/lib/compression"
 	"github.com/syntasso/kratix/lib/hash"
 	"github.com/syntasso/kratix/lib/writers"
@@ -49,7 +49,7 @@ var _ = Describe("WorkPlacementReconciler", func() {
 
 		workPlacementName = "test-work-placement"
 		workPlacement     v1alpha1.WorkPlacement
-		reconciler        *controllers.WorkPlacementReconciler
+		reconciler        *controller.WorkPlacementReconciler
 		fakeWriter        *writersfakes.FakeStateStoreWriter
 
 		argBucketStateStoreSpec v1alpha1.BucketStateStoreSpec
@@ -60,7 +60,7 @@ var _ = Describe("WorkPlacementReconciler", func() {
 
 	BeforeEach(func() {
 		ctx = context.Background()
-		reconciler = &controllers.WorkPlacementReconciler{
+		reconciler = &controller.WorkPlacementReconciler{
 			Client:       fakeK8sClient,
 			Log:          ctrl.Log.WithName("controllers").WithName("Work"),
 			VersionCache: make(map[string]string),
@@ -164,7 +164,7 @@ var _ = Describe("WorkPlacementReconciler", func() {
 				destination.Spec.StateStoreRef.Name = "test-state-store"
 				Expect(fakeK8sClient.Create(ctx, &destination)).To(Succeed())
 
-				controllers.SetNewS3Writer(func(_ logr.Logger,
+				controller.SetNewS3Writer(func(_ logr.Logger,
 					stateStoreSpec v1alpha1.BucketStateStoreSpec,
 					destination v1alpha1.Destination,
 					creds map[string][]byte,
@@ -306,7 +306,7 @@ files:
 		When("the destination has filepath mode of nestedByMetadata", func() {
 			BeforeEach(func() {
 				setupGitDestination(&gitStateStore, &destination)
-				controllers.SetNewGitWriter(func(_ logr.Logger,
+				controller.SetNewGitWriter(func(_ logr.Logger,
 					stateStoreSpec v1alpha1.GitStateStoreSpec,
 					destination v1alpha1.Destination,
 					creds map[string][]byte,
@@ -366,7 +366,7 @@ files:
 	Describe("WorkPlacement Status", func() {
 		BeforeEach(func() {
 			setupGitDestination(&gitStateStore, &destination)
-			controllers.SetNewGitWriter(func(
+			controller.SetNewGitWriter(func(
 				_ logr.Logger, stateStoreSpec v1alpha1.GitStateStoreSpec,
 				destination v1alpha1.Destination,
 				creds map[string][]byte,

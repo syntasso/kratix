@@ -1,15 +1,15 @@
-package controllers_test
+package controller_test
 
 import (
 	. "github.com/onsi/ginkgo/v2"
 	. "github.com/onsi/gomega"
+	"github.com/syntasso/kratix/internal/controller"
 	"k8s.io/apimachinery/pkg/runtime"
 	ctrl "sigs.k8s.io/controller-runtime"
 
 	"time"
 
 	"github.com/syntasso/kratix/api/v1alpha1"
-	"github.com/syntasso/kratix/controllers"
 	metav1 "k8s.io/apimachinery/pkg/apis/meta/v1"
 	"k8s.io/apimachinery/pkg/apis/meta/v1/unstructured"
 	"k8s.io/client-go/kubernetes/scheme"
@@ -24,7 +24,7 @@ var _ = Describe("HealthRecordController", func() {
 		promise       *v1alpha1.Promise
 		resource      *unstructured.Unstructured
 		details       *runtime.RawExtension
-		reconciler    *controllers.HealthRecordReconciler
+		reconciler    *controller.HealthRecordReconciler
 		eventRecorder *record.FakeRecorder
 	)
 
@@ -67,7 +67,7 @@ var _ = Describe("HealthRecordController", func() {
 
 		eventRecorder = record.NewFakeRecorder(1024)
 
-		reconciler = &controllers.HealthRecordReconciler{
+		reconciler = &controller.HealthRecordReconciler{
 			Client:        fakeK8sClient,
 			Scheme:        scheme.Scheme,
 			Log:           GinkgoLogr,

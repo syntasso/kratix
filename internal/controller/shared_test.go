@@ -1,4 +1,4 @@
-package controllers_test
+package controller_test
 
 import (
 	"context"
@@ -8,7 +8,7 @@ import (
 	. "github.com/onsi/ginkgo/v2"
 	. "github.com/onsi/gomega"
 	"github.com/syntasso/kratix/api/v1alpha1"
-	"github.com/syntasso/kratix/controllers"
+	"github.com/syntasso/kratix/internal/controller"
 	"k8s.io/apimachinery/pkg/api/errors"
 	"k8s.io/apimachinery/pkg/apis/meta/v1/unstructured"
 	"k8s.io/apimachinery/pkg/types"
@@ -140,7 +140,7 @@ func (t *testReconciler) reconcileUntilCompletion(r kubebuilder.Reconciler, obj 
 		return ctrl.Result{}, err
 	}
 
-	if (int64(result.RequeueAfter) == 0 || result.RequeueAfter == controllers.DefaultReconciliationInterval) && k8sObj.GetResourceVersion() == newK8sObj.GetResourceVersion() {
+	if (int64(result.RequeueAfter) == 0 || result.RequeueAfter == controller.DefaultReconciliationInterval) && k8sObj.GetResourceVersion() == newK8sObj.GetResourceVersion() {
 		return result, nil
 	}
 
