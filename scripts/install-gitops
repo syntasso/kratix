@@ -10,6 +10,7 @@ CONTEXT=""
 WORKER_STATESTORE_TYPE=${WORKER_STATESTORE_TYPE:-BucketStateStore}
 KUSTOMIZATION_NAME=""
 GITOPS_PROVIDER=${GITOPS_PROVIDER:-"flux"}
+PLATFORM_CLUSTER_NAME="${PLATFORM_CLUSTER_NAME:-"platform"}"
 
 usage() {
     echo -e "Usage: ${BASH_SOURCE[0]} [--help] [--context=""] [--path=""] [--git]"
@@ -20,6 +21,7 @@ usage() {
     echo -e "\t--git, -g,\t Reads from local Gitea installation (default: Read from local MinIO installation)"
     echo -e "\t--kustomization-name, -k,\t Name of the Flux Kustomizations"
     echo -e "\t--gitops-provider, -p,\t Gitops provider, either flux or argo. Defaults to flux"
+    echo -e "\t--platform-cluster-name='', -t,\t The name of the Platform cluster"
     exit "${1:-0}"
 }
 
@@ -33,12 +35,13 @@ load_options() {
         '--kustomization-name')         set -- "$@" '-k'   ;;
         '--gitops-provider')            set -- "$@" '-p'   ;;
         '--git')                        set -- "$@" '-g'   ;;
+        '--platform-cluster-name')      set -- "$@" '-t'   ;;
         *)                              set -- "$@" "$arg" ;;
       esac
     done
 
     OPTIND=1
-    while getopts "hc:gb:k:p:" opt
+    while getopts "hc:gb:k:p:t:" opt
     do
       case "$opt" in
         'h') usage ;;
@@ -47,6 +50,7 @@ load_options() {
         'b') BUCKET_PATH=$OPTARG ;;
         'k') KUSTOMIZATION_NAME=$OPTARG ;;
         'p') GITOPS_PROVIDER=$OPTARG ;;
+        't') PLATFORM_CLUSTER_NAME="$OPTARG";;
         *) usage 1 ;;
       esac
     done
@@ -63,7 +67,7 @@ load_options() {
 patch_kind_networking() {
     local file_name=$1
     if [[ "${CONTEXT}" =~ ^kind-.* ]]; then
-        PLATFORM_DESTINATION_IP=$(docker inspect platform-control-plane | yq ".[0].NetworkSettings.Networks.kind.IPAddress")
+        PLATFORM_DESTINATION_IP=$(docker inspect ${PLATFORM_CLUSTER_NAME}-control-plane | yq ".[0].NetworkSettings.Networks.kind.IPAddress")
         sed "s/172.18.0.2/${PLATFORM_DESTINATION_IP}/g" ${file_name}
     else
         cat "${file_name}"
@@ -87,7 +91,7 @@ install_flux_gitops() {
     resource_file=${ROOT}/hack/destination/gitops-tk-resources.yaml
     if [ ${WORKER_STATESTORE_TYPE} = "GitStateStore" ]; then
         resource_file=${ROOT}/hack/destination/gitops-tk-resources-git.yaml;
-        copy_gitea_credentials kind-platform ${CONTEXT} flux-system
+        copy_gitea_credentials kind-${PLATFORM_CLUSTER_NAME} ${CONTEXT} flux-system
     fi
 
     # install flux crds
@@ -97,7 +101,7 @@ install_flux_gitops() {
 }
 
 patch_argo_secret() {
-    local argo_password=$(kubectl --context kind-platform get secret  gitea-credentials -n gitea -o yaml | yq .data.password | base64 -d)
+    local argo_password=$(kubectl --context kind-${PLATFORM_CLUSTER_NAME} get secret  gitea-credentials -n gitea -o yaml | yq .data.password | base64 -d)
     sed "s/PASSWORD/${argo_password}/g"
 }
 

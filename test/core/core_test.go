@@ -18,16 +18,11 @@ const (
 )
 
 var _ = Describe("Core Tests", Ordered, func() {
-	var platform *kubeutils.Cluster
-	var worker *kubeutils.Cluster
-
 	BeforeAll(func() {
 		SetDefaultEventuallyTimeout(timeout)
 		SetDefaultEventuallyPollingInterval(interval)
 		kubeutils.SetTimeoutAndInterval(timeout, interval)
 
-		platform = &kubeutils.Cluster{Context: "kind-platform", Name: "platform-cluster"}
-		worker = &kubeutils.Cluster{Context: "kind-worker", Name: workerOne}
 		platform.Kubectl("apply", "-f", "assets/destination.yaml")
 		platform.Kubectl("label", "destination", workerOne, "target="+workerOne)
 		platform.Kubectl("label", "destination", workerTwo, "target="+workerTwo)

@@ -27,6 +27,10 @@ ENABLE_WEBHOOKS=true
 LABELS=true
 USE_LOCAL_MANIFEST=${USE_LOCAL_MANIFEST:-false}
 
+PLATFORM_CLUSTER_NAME="${PLATFORM_CLUSTER_NAME:-"platform"}"
+WORKER1_CLUSTER_NAME="${WORKER1_CLUSTER_NAME:-"worker"}"
+WORKER2_CLUSTER_NAME="${WORKER2_CLUSTER_NAME:-"worker-2"}"
+
 usage() {
     echo -e "Usage: quick-start.sh [--help] [--recreate] [--local] [--git] [--git-and-minio] [--local-images <location>]"
     echo -e "\t--help, -h               Prints this message"
@@ -142,10 +146,10 @@ verify_prerequisites() {
 
     if ${RECREATE}; then
         log -n "Deleting pre-existing clusters..."
-        run kind delete clusters platform worker
+        run kind delete clusters ${PLATFORM_CLUSTER_NAME} ${WORKER1_CLUSTER_NAME}
         if ${THIRD_DESTINATION}; then
             log -n "Deleting third destination..."
-            run kind delete clusters worker-2
+            run kind delete clusters ${WORKER2_CLUSTER_NAME}
         fi
     fi
 }
@@ -156,7 +160,7 @@ _build_kratix_image() {
         docker_org=syntassodev
     fi
     docker build --tag $docker_org/kratix-platform:${VERSION} --quiet --file ${ROOT}/Dockerfile ${ROOT} &&
-    kind load docker-image $docker_org/kratix-platform:${VERSION} --name platform
+    kind load docker-image $docker_org/kratix-platform:${VERSION} --name ${PLATFORM_CLUSTER_NAME}
 }
 
 _build_work_creator_image() {
@@ -165,7 +169,7 @@ _build_work_creator_image() {
         docker_org=syntassodev
     fi
     docker build --tag $docker_org/kratix-platform-pipeline-adapter:${VERSION} --quiet --file ${ROOT}/Dockerfile.pipeline-adapter ${ROOT} &&
-    kind load docker-image $docker_org/kratix-platform-pipeline-adapter:${VERSION} --name platform
+    kind load docker-image $docker_org/kratix-platform-pipeline-adapter:${VERSION} --name ${PLATFORM_CLUSTER_NAME}
 }
 
 cluster_exists() {
@@ -205,33 +209,33 @@ patch_statestore() {
 
 setup_platform_destination() {
     if ${WITH_CERT_MANAGER}; then
-        kubectl --context kind-platform apply --filename ${CERT_MANAGER_DIST}
-        kubectl --context kind-platform wait --for condition=available -n cert-manager deployment/cert-manager --timeout 60s
-        kubectl --context kind-platform wait --for condition=available -n cert-manager deployment/cert-manager-cainjector --timeout 60s
-        kubectl --context kind-platform wait --for condition=available -n cert-manager deployment/cert-manager-webhook --timeout 60s
+        kubectl --context kind-${PLATFORM_CLUSTER_NAME} apply --filename ${CERT_MANAGER_DIST}
+        kubectl --context kind-${PLATFORM_CLUSTER_NAME} wait --for condition=available -n cert-manager deployment/cert-manager --timeout 60s
+        kubectl --context kind-${PLATFORM_CLUSTER_NAME} wait --for condition=available -n cert-manager deployment/cert-manager-cainjector --timeout 60s
+        kubectl --context kind-${PLATFORM_CLUSTER_NAME} wait --for condition=available -n cert-manager deployment/cert-manager-webhook --timeout 60s
     fi
 
     if ${INSTALL_AND_CREATE_GITEA_REPO}; then
         make gitea-cli
-        generate_gitea_credentials
-        kubectl --context kind-platform apply --filename "${ROOT}/hack/platform/gitea-install.yaml"
+        generate_gitea_credentials "kind-${PLATFORM_CLUSTER_NAME}"
+        kubectl --context kind-${PLATFORM_CLUSTER_NAME} apply --filename "${ROOT}/hack/platform/gitea-install.yaml"
     fi
 
     if ${INSTALL_AND_CREATE_MINIO_BUCKET}; then
-        kubectl --context kind-platform apply --filename "${ROOT}/hack/platform/minio-install.yaml"
+        kubectl --context kind-${PLATFORM_CLUSTER_NAME} apply --filename "${ROOT}/hack/platform/minio-install.yaml"
     fi
 
-    cat "${ROOT}/distribution/kratix.yaml" | patch_image | kubectl --context kind-platform apply --filename -
-    kubectl --context kind-platform wait --for=condition=available deployment kratix-platform-controller-manager --timeout 60s -n kratix-platform-system
+    cat "${ROOT}/distribution/kratix.yaml" | patch_image | kubectl --context kind-${PLATFORM_CLUSTER_NAME} apply --filename -
+    kubectl --context kind-${PLATFORM_CLUSTER_NAME} wait --for=condition=available deployment kratix-platform-controller-manager --timeout 60s -n kratix-platform-system
 }
 
 setup_worker_destination() {
     if ${INSTALL_AND_CREATE_GITEA_REPO}; then
-        cat "${ROOT}/config/samples/platform_v1alpha1_gitstatestore.yaml" | sed "s/172.18.0.2/$(platform_destination_ip)/g" | kubectl --context kind-platform apply -f -
+        cat "${ROOT}/config/samples/platform_v1alpha1_gitstatestore.yaml" | sed "s/172.18.0.2/$(platform_destination_ip)/g" | kubectl --context kind-${PLATFORM_CLUSTER_NAME} apply -f -
     fi
 
     if ${INSTALL_AND_CREATE_MINIO_BUCKET}; then
-       kubectl --context kind-platform apply --filename "${ROOT}/config/samples/platform_v1alpha1_bucketstatestore.yaml"
+       kubectl --context kind-${PLATFORM_CLUSTER_NAME} apply --filename "${ROOT}/config/samples/platform_v1alpha1_bucketstatestore.yaml"
     fi
 
     local flags=""
@@ -240,11 +244,11 @@ setup_worker_destination() {
     fi
 
     if ${SINGLE_DESTINATION}; then
-        ${ROOT}/scripts/register-destination --name platform-cluster --context kind-platform $flags
+        ${ROOT}/scripts/register-destination --name platform-cluster --context kind-${PLATFORM_CLUSTER_NAME} --platform-context kind-${PLATFORM_CLUSTER_NAME} $flags
     else
-        ${ROOT}/scripts/register-destination --name worker-1 --context kind-worker --with-label environment=dev $flags
+        ${ROOT}/scripts/register-destination --name worker-1 --context kind-${WORKER1_CLUSTER_NAME} --platform-context kind-${PLATFORM_CLUSTER_NAME} --with-label environment=dev $flags
         if ! ${LABELS}; then
-            kubectl --context kind-platform label destination worker-1 environment-
+            kubectl --context kind-${PLATFORM_CLUSTER_NAME} label destination worker-1 environment-
         fi
     fi
 }
@@ -254,26 +258,26 @@ setup_worker_2_destination() {
     if ${INSTALL_AND_CREATE_GITEA_REPO}; then
       flags="--git"
     fi
-    ${ROOT}/scripts/register-destination --name worker-2 --context kind-worker-2 $flags
+    ${ROOT}/scripts/register-destination --name worker-2 --context kind-${WORKER2_CLUSTER_NAME} --platform-context kind-${PLATFORM_CLUSTER_NAME} $flags
 }
 
 wait_for_gitea() {
     wait_opts=$1
-    kubectl wait pod --context kind-platform -n gitea --selector app=gitea --for=condition=ready ${wait_opts}
-    kubectl wait job --context kind-platform -n gitea gitea-create-repository --for condition=Complete ${wait_opts}
+    kubectl wait pod --context kind-${PLATFORM_CLUSTER_NAME} -n gitea --selector app=gitea --for=condition=ready ${wait_opts}
+    kubectl wait job --context kind-${PLATFORM_CLUSTER_NAME} -n gitea gitea-create-repository --for condition=Complete ${wait_opts}
 }
 
 wait_for_minio() {
     wait_opts=$1
-    while ! kubectl get pods --context kind-platform -n kratix-platform-system | grep minio; do
+    while ! kubectl get pods --context kind-${PLATFORM_CLUSTER_NAME} -n kratix-platform-system | grep minio; do
         sleep 1
     done
-    kubectl wait pod --context kind-platform -n kratix-platform-system --selector run=minio --for=condition=ready ${wait_opts}
+    kubectl wait pod --context kind-${PLATFORM_CLUSTER_NAME} -n kratix-platform-system --selector run=minio --for=condition=ready ${wait_opts}
 
-    while ! kubectl get job --context kind-platform -n default | grep minio-create-bucket; do
+    while ! kubectl get job --context kind-${PLATFORM_CLUSTER_NAME} -n default | grep minio-create-bucket; do
         sleep 1
     done
-    kubectl --context kind-platform wait job minio-create-bucket --for condition=Complete ${wait_opts}
+    kubectl --context kind-${PLATFORM_CLUSTER_NAME} wait job minio-create-bucket --for condition=Complete ${wait_opts}
 }
 
 wait_for_local_repository() {
@@ -295,9 +299,9 @@ wait_for_local_repository() {
 wait_for_namespace() {
     local timeout_flag="${1:-""}"
     loops=0
-    local context="kind-worker"
+    local context="kind-${WORKER1_CLUSTER_NAME}"
     if ${SINGLE_DESTINATION}; then
-        context="kind-platform"
+        context="kind-${PLATFORM_CLUSTER_NAME}"
     fi
     while ! kubectl --context $context get namespace kratix-worker-system >/dev/null 2>&1; do
         if [ -z "${timeout_flag}" ] && (( loops > 20 )); then
@@ -325,11 +329,11 @@ load_kind_image() {
 }
 
 pull_save_load_image() {
-    dests=("platform")
+    dests=("${PLATFORM_CLUSTER_NAME}")
     if ! $SINGLE_DESTINATION; then
-        dests=("platform" "worker")
+        dests=("${PLATFORM_CLUSTER_NAME}" "${WORKER1_CLUSTER_NAME}")
         if $THIRD_DESTINATION; then
-            dests=("platform" "worker" "worker-2")
+            dests=("${PLATFORM_CLUSTER_NAME}" "${WORKER1_CLUSTER_NAME}" "${WORKER2_CLUSTER_NAME}")
         fi
     fi
 
@@ -359,56 +363,56 @@ load_images() {
 }
 
 step_create_platform_cluster() {
-    if cluster_exists platform; then
-        log "Platform cluster already exists, skipping..."
+    if cluster_exists ${PLATFORM_CLUSTER_NAME}; then
+        log "${PLATFORM_CLUSTER_NAME} cluster already exists, skipping..."
         return
     fi
-    log "Creating platform destination..."
-    if ! run kind create cluster --name platform --image $KIND_IMAGE \
+    log "Creating ${PLATFORM_CLUSTER_NAME} destination..."
+    if ! run kind create cluster --name ${PLATFORM_CLUSTER_NAME} --image $KIND_IMAGE \
         --config ${ROOT}/hack/platform/kind-platform-config.yaml
     then
-        error "Could not create platform destination"
+        error "Could not create ${PLATFORM_CLUSTER_NAME} destination"
         exit 1
     fi
-    log -n "Finished creating platform destination" && success_mark
+    log -n "Finished creating ${PLATFORM_CLUSTER_NAME} destination" && success_mark
 }
 
 step_create_worker_cluster(){
     if ! $SINGLE_DESTINATION; then
-        if cluster_exists worker; then
-            log "Worker cluster already exists, skipping..."
+        if cluster_exists ${WORKER1_CLUSTER_NAME}; then
+            log "${WORKER1_CLUSTER_NAME} cluster already exists, skipping..."
             return
         fi
-        log "Creating worker destination..."
-        if ! run kind create cluster --name worker --image $KIND_IMAGE \
+        log "Creating ${WORKER1_CLUSTER_NAME} destination..."
+        if ! run kind create cluster --name ${WORKER1_CLUSTER_NAME} --image $KIND_IMAGE \
             --config ${ROOT}/hack/destination/kind-worker-config.yaml
         then
-            error "Could not create worker destination"
+            error "Could not create ${WORKER1_CLUSTER_NAME} destination"
             exit 1
         fi
-        log -n "Finished creating worker destination" && success_mark
+        log -n "Finished creating ${WORKER1_CLUSTER_NAME} destination" && success_mark
     fi
 
 }
 
 step_create_third_worker_cluster() {
     if $THIRD_DESTINATION; then
-        if cluster_exists worker-2; then
-            log "Worker cluster already exists, skipping..."
+        if cluster_exists ${WORKER2_CLUSTER_NAME}; then
+            log "${WORKER2_CLUSTER_NAME} cluster already exists, skipping..."
             return
         fi
-        log "Creating worker destination..."
-        if ! SUPRESS_OUTPUT=true run kind create cluster --name worker-2 --image $KIND_IMAGE \
+        log "Creating ${WORKER2_CLUSTER_NAME} destination..."
+        if ! SUPRESS_OUTPUT=true run kind create cluster --name ${WORKER2_CLUSTER_NAME} --image $KIND_IMAGE \
             --config ${ROOT}/config/samples/kind-worker-2-config.yaml
         then
-            error "Could not create worker destination 2"
+            error "Could not create ${WORKER2_CLUSTER_NAME} destination"
             exit 1
         fi
     fi
 }
 
 step_register_destinations() {
-    log -n "Setting up platform destination..."
+    log -n "Setting up ${PLATFORM_CLUSTER_NAME} destination..."
     if ! run setup_platform_destination; then
         error " failed"
         exit 1
@@ -417,16 +421,16 @@ step_register_destinations() {
 
 step_load_images() {
     if [ -d "${LOCAL_IMAGES_DIR}" ]; then
-        log -n "Loading images in platform destination..."
+        log -n "Loading images in ${PLATFORM_CLUSTER_NAME} destination..."
         if ! run load_images; then
-            error "Failed to load images in platform destination"
+            error "Failed to load images in ${PLATFORM_CLUSTER_NAME} destination"
             exit 1;
         fi
     fi
 }
 
 step_setup_worker_cluster() {
-    log -n "Setting up worker destination..."
+    log -n "Setting up ${WORKER1_CLUSTER_NAME} destination..."
     if ! run setup_worker_destination; then
         error " failed"
         exit 1
@@ -508,14 +512,14 @@ install_kratix() {
         success_mark
     fi
 
-    kubectl config use-context kind-platform >/dev/null
+    kubectl config use-context kind-${PLATFORM_CLUSTER_NAME} >/dev/null
 
     if ${INSTALL_AND_CREATE_MINIO_BUCKET}; then
-        kubectl delete job minio-create-bucket -n default --context kind-platform >/dev/null
+        kubectl delete job minio-create-bucket -n default --context kind-${PLATFORM_CLUSTER_NAME} >/dev/null
     fi
 
     if ${INSTALL_AND_CREATE_GITEA_REPO}; then
-        kubectl delete job gitea-create-repository -n gitea --context kind-platform >/dev/null
+        kubectl delete job gitea-create-repository -n gitea --context kind-${PLATFORM_CLUSTER_NAME} >/dev/null
     fi
 
     success "Kratix installation is complete!"
@@ -523,11 +527,11 @@ install_kratix() {
     if ! ${KRATIX_DEVELOPER:-false}; then
         echo ""
         echo "If you are following the docs available at kratix.io, make sure to set the following environment variables:"
-        echo "export PLATFORM=kind-platform"
+        echo "export PLATFORM=kind-${PLATFORM_CLUSTER_NAME}"
         if ${SINGLE_DESTINATION}; then
-            echo "export WORKER=kind-platform"
+            echo "export WORKER=kind-${PLATFORM_CLUSTER_NAME}"
         else
-            echo "export WORKER=kind-worker"
+            echo "export WORKER=kind-${WORKER1_CLUSTER_NAME}"
         fi
     fi
 
