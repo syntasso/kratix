@@ -42,8 +42,10 @@ jobs:
           version: '2.4.0'
       - name: System Tests
         run: |
-          DOCKER_BUILDKIT=1 ACK_GINKGO_RC=true PLATFORM_CLUSTER_NAME=system-test-platform WORKER1_CLUSTER_NAME=system-test-worker \ 
-            PLATFORM_CONTEXT=kind-system-test-platform WORKER_CONTEXT=kind-system-test-worker make system-test core-test
+          make system-test core-test
+        env:
+          DOCKER_BUILDKIT: 1
+          ACK_GINKGO_RC: true
   integration-test:
     runs-on: ubuntu-latest
     needs: [unit-tests-and-lint] 
@@ -67,7 +69,11 @@ jobs:
         uses: azure/setup-helm@v3
       - name: e2e-demo-test-helm-bucket
         run: |
-          STATE_STORE="bucket" ./scripts/helm-e2e-test.sh
+          ./scripts/helm-e2e-test.sh
+        env:
+          STATE_STORE: "bucket"
       - name: e2e-demo-test-helm-git
         run: |
-          STATE_STORE="git" ./scripts/helm-e2e-test.sh
+          ./scripts/helm-e2e-test.sh
+        env:
+          STATE_STORE: "git"

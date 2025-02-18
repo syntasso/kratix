@@ -232,7 +232,7 @@ lint-all: # Lint with full config
 
 ##@ act targets to run GH Action jobs locally
 
-ACT_JOB = act -j '$(1)' --rm -s GITHUB_TOKEN="$(gh auth token)"
+ACT_JOB = act -j '$(1)' --rm -s GITHUB_TOKEN="$(shell gh auth token)"
 act-test-and-lint:
 	$(call ACT_JOB,unit-tests-and-lint)
 
@@ -241,6 +241,8 @@ act-integration-test:
 
 act-system-test:
 	$(call ACT_JOB,system-test)
+
+act-run-all: act-system-test act-integration-test
 
 ##@ Deprecated: will be deleted soon
 
