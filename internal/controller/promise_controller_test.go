@@ -203,7 +203,7 @@ var _ = Describe("PromiseController", func() {
 
 					})
 
-					By("updating the status.obeservedGeneration", func() {
+					By("updating the status.observedGeneration", func() {
 						Expect(fakeK8sClient.Get(ctx, promiseName, promise)).To(Succeed())
 						Expect(promise.Status.ObservedGeneration).To(Equal(promise.Generation))
 					})

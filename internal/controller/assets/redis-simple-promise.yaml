@@ -2045,7 +2045,7 @@ spec:
                                         items:
                                           description:
                                             PersistentVolumeClaimCondition
-                                            contails details about state of pvc
+                                            contains details about state of pvc
                                           properties:
                                             lastProbeTime:
                                               description: Last time we probed the condition.
