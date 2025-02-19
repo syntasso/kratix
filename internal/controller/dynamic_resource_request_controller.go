@@ -130,9 +130,17 @@ func (r *DynamicResourceRequestController) Reconcile(ctx context.Context, req ct
 		logger: logger,
 	}
 
-	if !rr.GetDeletionTimestamp().IsZero() {
+    // Check if delete trigger label is present
+    triggerDelete := false
+    labels := rr.GetLabels()
+    if val, ok := labels[resourceutil.TriggerDeleteLabel]; ok && val == "true" {
+        triggerDelete = true
+        logger.Info("Trigger delete workflows label detected", "resource", rr.GetName())
+    }
+
+    if !rr.GetDeletionTimestamp().IsZero() || triggerDelete {
 		return r.deleteResources(opts, promise, rr, resourceRequestIdentifier)
-	}
+	}    
 
 	if !*r.CanCreateResources {
 		if !resourceutil.IsPromiseMarkedAsUnavailable(rr) {
