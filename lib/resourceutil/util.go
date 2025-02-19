@@ -23,7 +23,7 @@ const (
 	PipelinesExecutedSuccessfully          = "PipelinesExecutedSuccessfully"
 	ManualReconciliationLabel              = "kratix.io/manual-reconciliation"
 	ReconcileResourcesLabel                = "kratix.io/reconcile-resources"
-    TriggerDeleteLabel                     = "kratix.io/trigger-delete-workflows"
+	TriggerDeleteLabel                     = "kratix.io/trigger-delete-workflows"
 	promiseAvailableCondition              = clusterv1.ConditionType("PromiseAvailable")
 	promiseRequirementsNotMetReason        = "PromiseRequirementsNotInstalled"
 	promiseRequirementsNotMetMessage       = "Promise Requirements are not installed"

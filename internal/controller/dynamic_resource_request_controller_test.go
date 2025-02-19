@@ -196,6 +196,45 @@ var _ = Describe("DynamicResourceRequestController", func() {
 		})
 	})
 
+	When("resource triggers deletion via label", func() {
+		BeforeEach(func() {
+			// Ensure the resource is created and stable.
+			setReconcileConfigureWorkflowToReturnFinished()
+			result, err := t.reconcileUntilCompletion(reconciler, resReq)
+			Expect(err).NotTo(HaveOccurred())
+			Expect(result).To(Equal(ctrl.Result{}))
+			Expect(fakeK8sClient.Get(ctx, resReqNameNamespace, resReq)).To(Succeed())
+
+			// Ensure the resource has the expected finalizers before deletion trigger.
+			Expect(resReq.GetFinalizers()).To(ConsistOf(
+				"kratix.io/work-cleanup",
+				"kratix.io/workflows-cleanup",
+				"kratix.io/delete-workflows",
+			))
+
+			// Now add the trigger-delete label.
+			labels := resReq.GetLabels()
+			labels[resourceutil.TriggerDeleteLabel] = "true"
+			resReq.SetLabels(labels)
+			Expect(fakeK8sClient.Update(ctx, resReq)).To(Succeed()) // Ensure the update is persisted.
+
+			// Reconcile again, expecting it to detect the label and start deletion.
+			_, err = t.reconcileUntilCompletion(reconciler, resReq)
+			Expect(err).To(MatchError("reconcile loop detected"))
+		})
+
+		It("triggers delete workflows when the label is added", func() {
+			By("delete workflows triggered")
+
+			// Now let the delete workflow complete successfully.
+			setReconcileDeleteWorkflowToReturnFinished(resReq)
+			result, err := t.reconcileUntilCompletion(reconciler, resReq)
+			Expect(result).To(Equal(ctrl.Result{}))
+			Expect(err).NotTo(HaveOccurred())
+
+		})
+	})
+
 	When("resource is being deleted", func() {
 		BeforeEach(func() {
 			setReconcileConfigureWorkflowToReturnFinished()
