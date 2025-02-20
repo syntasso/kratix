@@ -61,7 +61,7 @@ type DestinationReconciler struct {
 }
 
 //+kubebuilder:rbac:groups=platform.kratix.io,resources=destinations,verbs=get;list;watch;create;update;patch;delete
-//+kubebuilder:rbac:groups=platform.kratix.io,resources=bucketstatestores;gitstatestores,verbs=get;list;watch
+//+kubebuilder:rbac:groups=platform.kratix.io,resources=bucketstatestores;gitstatestores,verbs=get;list;watch;create;update;patch;delete
 //+kubebuilder:rbac:groups="",resources=secrets,verbs=get;list;watch
 //+kubebuilder:rbac:groups=platform.kratix.io,resources=destinations/status,verbs=get;update;patch
 //+kubebuilder:rbac:groups=platform.kratix.io,resources=destinations/finalizers,verbs=update

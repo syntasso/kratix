@@ -68,15 +68,8 @@ rules:
   - platform.kratix.io
   resources:
   - bucketstatestores
-  - gitstatestores
-  verbs:
-  - get
-  - list
-  - watch
-- apiGroups:
-  - platform.kratix.io
-  resources:
   - destinations
+  - gitstatestores
   - healthrecords
   - promisereleases
   - promises
