@@ -10,15 +10,3 @@ spec:
   secretRef:
     name: minio-credentials
     namespace: default
----
-apiVersion: platform.kratix.io/v1alpha1
-kind: Destination
-metadata:
-  name: worker-3
-  labels:
-    environment: dev
-spec:
-  path: worker-3
-  stateStoreRef:
-    name: destination-test-store
-    kind: BucketStateStore
