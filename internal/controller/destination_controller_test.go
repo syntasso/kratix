@@ -105,7 +105,7 @@ var _ = Describe("DestinationReconciler", func() {
 		})
 
 		It("should patch the path with the destination name", func() {
-			Expect(updatedDestination.Spec.Path).To(Equal(updatedDestination.Name + "/foo/bar"))
+			Expect(updatedDestination.Spec.Path).To(Equal("foo/bar/" + updatedDestination.Name))
 		})
 
 		It("should add the skip annotation", func() {

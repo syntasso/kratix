@@ -84,7 +84,7 @@ func (r *DestinationReconciler) Reconcile(ctx context.Context, req ctrl.Request)
 		// this destination was created prior to `spec.path` being required and
 		// the destination name being used as part of the path.
 		metav1.SetMetaDataAnnotation(&destination.ObjectMeta, v1alpha1.SkipPathDefaultingAnnotation, "true")
-		destination.Spec.Path = path.Join(destination.Name, destination.Spec.Path)
+		destination.Spec.Path = path.Join(destination.Spec.Path, destination.Name)
 		return ctrl.Result{}, r.Client.Update(ctx, destination)
 	}
 
