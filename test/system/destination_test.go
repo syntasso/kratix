@@ -1,6 +1,7 @@
 package system_test
 
 import (
+	"os"
 	"strings"
 	"time"
 
@@ -20,11 +21,19 @@ var _ = Describe("Destinations", func() {
 			SetDefaultEventuallyPollingInterval(2 * time.Second)
 			kubeutils.SetTimeoutAndInterval(2*time.Minute, 2*time.Second)
 
-			platform.Kubectl("apply", "-f", "assets/destination/worker-3.yaml")
+			if os.Getenv("LRE") != "true" {
+				platform.Kubectl("apply", "-f", "assets/destination/destination-state-store.yaml")
+			}
+
+			platform.Kubectl("apply", "-f", "assets/destination/destination-worker-3.yaml")
 		})
 
 		AfterEach(func() {
-			platform.Kubectl("delete", "-f", "assets/destination/worker-3.yaml")
+			if os.Getenv("LRE") == "true" {
+				// update the underlying state store with the valid secret
+				platform.Kubectl("patch", "bucketstatestore", "destination-test-store", "--type=merge", "-p", `{"spec":{"secretRef":{"name":"aws-s3-credentials"}}}`)
+			}
+			platform.Kubectl("delete", "-f", "assets/destination/destination-worker-3.yaml")
 		})
 
 		It("properly set the conditions and events", func() {
@@ -58,7 +67,7 @@ var _ = Describe("Destinations", func() {
 			})
 
 			// restore the ready condition
-			platform.Kubectl("apply", "-f", "assets/destination/worker-3.yaml")
+			platform.Kubectl("apply", "-f", "assets/destination/destination-worker-3.yaml")
 
 			By("showing `Ready` as true", func() {
 				Eventually(func() string {
