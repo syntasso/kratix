@@ -22,7 +22,7 @@ var _ = Describe("Destinations", func() {
 			kubeutils.SetTimeoutAndInterval(2*time.Minute, 2*time.Second)
 
 			if os.Getenv("LRE") != "true" {
-				platform.Kubectl("apply", "-f", "assets/destination/destination-state-store.yaml")
+				platform.Kubectl("apply", "-f", "assets/destination/destination-test-store.yaml")
 			}
 
 			platform.Kubectl("apply", "-f", "assets/destination/destination-worker-3.yaml")
