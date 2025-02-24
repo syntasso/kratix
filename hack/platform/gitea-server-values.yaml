@@ -47,6 +47,16 @@ deployment:
   env:
     - name: GITEA__repository__ENABLE_PUSH_CREATE_USER
       value: "true"
+    - name: KEY_CONTENTS
+      valueFrom:
+        secretKeyRef:
+          key: privateKey
+          name: gitea-credentials
+    - name: CERT_CONTENTS
+      valueFrom:
+        secretKeyRef:
+          key: caFile
+          name: gitea-credentials
 extraVolumes:
   - name: cert
     secret:
