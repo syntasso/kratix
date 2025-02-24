@@ -40,6 +40,7 @@ type GitStateStoreReconciler struct {
 //+kubebuilder:rbac:groups=platform.kratix.io.kratix.io,resources=gitstatestores/status,verbs=get;update;patch
 //+kubebuilder:rbac:groups=platform.kratix.io.kratix.io,resources=gitstatestores/finalizers,verbs=update
 
+// Reconcile reconciles a GitStateStore object.
 func (r *GitStateStoreReconciler) Reconcile(ctx context.Context, req ctrl.Request) (ctrl.Result, error) {
 	logger := r.Log.WithValues(
 		"gitstatestore", req.NamespacedName,

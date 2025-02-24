@@ -17,69 +17,51 @@ limitations under the License.
 package controller_test
 
 import (
-	"context"
-
 	. "github.com/onsi/ginkgo/v2"
 	. "github.com/onsi/gomega"
-	"k8s.io/apimachinery/pkg/api/errors"
-	"k8s.io/apimachinery/pkg/types"
-	"sigs.k8s.io/controller-runtime/pkg/reconcile"
+	"k8s.io/client-go/kubernetes/scheme"
+	ctrl "sigs.k8s.io/controller-runtime"
 
 	metav1 "k8s.io/apimachinery/pkg/apis/meta/v1"
 
-	platformv1alpha1 "github.com/syntasso/kratix/api/v1alpha1"
+	v1alpha1 "github.com/syntasso/kratix/api/v1alpha1"
 	"github.com/syntasso/kratix/internal/controller"
 )
 
 var _ = Describe("BucketStateStore Controller", func() {
-	Context("When reconciling a resource", func() {
-		const resourceName = "test-resource"
+	var (
+		BucketStateStore *v1alpha1.BucketStateStore
+		reconciler       *controller.BucketStateStoreReconciler
+	)
 
-		ctx := context.Background()
-
-		typeNamespacedName := types.NamespacedName{
-			Name:      resourceName,
-			Namespace: "default", // TODO(user):Modify as needed
+	BeforeEach(func() {
+		reconciler = &controller.BucketStateStoreReconciler{
+			Client: fakeK8sClient,
+			Scheme: scheme.Scheme,
+			Log:    ctrl.Log.WithName("controllers").WithName("BucketStateStore"),
 		}
-		bucketstatestore := &platformv1alpha1.BucketStateStore{}
 
-		BeforeEach(func() {
-			By("creating the custom resource for the Kind BucketStateStore")
-			err := fakeK8sClient.Get(ctx, typeNamespacedName, bucketstatestore)
-			if err != nil && errors.IsNotFound(err) {
-				resource := &platformv1alpha1.BucketStateStore{
-					ObjectMeta: metav1.ObjectMeta{
-						Name:      resourceName,
-						Namespace: "default",
-					},
-					// TODO(user): Specify other spec details if needed.
-				}
-				Expect(fakeK8sClient.Create(ctx, resource)).To(Succeed())
-			}
-		})
+		BucketStateStore = &v1alpha1.BucketStateStore{
+			ObjectMeta: metav1.ObjectMeta{
+				Name: "default-store",
+			},
+			TypeMeta: metav1.TypeMeta{
+				Kind:       "BucketStateStore",
+				APIVersion: "platform.kratix.io/v1alpha1",
+			},
+			Spec: v1alpha1.BucketStateStoreSpec{
+				BucketName: "default-store",
+				AuthMethod: "BasicAuth",
+				Endpoint:   "localhost:3000",
+			},
+		}
+	})
 
-		AfterEach(func() {
-			// TODO(user): Cleanup logic after each test, like removing the resource instance.
-			resource := &platformv1alpha1.BucketStateStore{}
-			err := fakeK8sClient.Get(ctx, typeNamespacedName, resource)
+	When("the BucketStateStore does not exists", func() {
+		It("reconciles without error and does not requeue", func() {
+			result, err := t.reconcileUntilCompletion(reconciler, BucketStateStore)
 			Expect(err).NotTo(HaveOccurred())
-
-			By("Cleanup the specific resource instance BucketStateStore")
-			Expect(fakeK8sClient.Delete(ctx, resource)).To(Succeed())
-		})
-		It("should successfully reconcile the resource", func() {
-			By("Reconciling the created resource")
-			controllerReconciler := &controller.BucketStateStoreReconciler{
-				Client: fakeK8sClient,
-				Scheme: fakeK8sClient.Scheme(),
-			}
-
-			_, err := controllerReconciler.Reconcile(ctx, reconcile.Request{
-				NamespacedName: typeNamespacedName,
-			})
-			Expect(err).NotTo(HaveOccurred())
-			// TODO(user): Add more specific assertions depending on your controller's reconciliation logic.
-			// Example: If you expect a certain status condition after reconciliation, verify it here.
+			Expect(result).To(Equal(ctrl.Result{}))
 		})
 	})
 })
