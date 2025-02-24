@@ -23,8 +23,9 @@ import (
 	"os"
 	"time"
 
-	"github.com/syntasso/kratix/internal/controller"
 	"sigs.k8s.io/controller-runtime/pkg/webhook"
+
+	"github.com/syntasso/kratix/internal/controller"
 
 	// Import all Kubernetes client auth plugins (e.g. Azure, GCP, OIDC, etc.)
 	// to ensure that exec-entrypoint and run can make use of them.
@@ -233,6 +234,24 @@ func main() {
 		}
 		if err = kratixWebhook.SetupDestinationWebhookWithManager(mgr, mgr.GetClient()); err != nil {
 			setupLog.Error(err, "unable to create webhook", "webhook", "Destination")
+			os.Exit(1)
+		}
+		if err = (&controller.BucketStateStoreReconciler{
+			Client:        mgr.GetClient(),
+			Scheme:        mgr.GetScheme(),
+			Log:           ctrl.Log.WithName("controllers").WithName("BucketStateStoreController"),
+			EventRecorder: mgr.GetEventRecorderFor("BucketStateStoreController"),
+		}).SetupWithManager(mgr); err != nil {
+			setupLog.Error(err, "unable to create controller", "controller", "BucketStateStore")
+			os.Exit(1)
+		}
+		if err = (&controller.GitStateStoreReconciler{
+			Client:        mgr.GetClient(),
+			Scheme:        mgr.GetScheme(),
+			Log:           ctrl.Log.WithName("controllers").WithName("GitStateStoreController"),
+			EventRecorder: mgr.GetEventRecorderFor("GitStateStoreController"),
+		}).SetupWithManager(mgr); err != nil {
+			setupLog.Error(err, "unable to create controller", "controller", "GitStateStore")
 			os.Exit(1)
 		}
 		//+kubebuilder:scaffold:builder
