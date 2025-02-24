@@ -42,18 +42,18 @@ type GitStateStoreReconciler struct {
 
 // Reconcile reconciles a GitStateStore object.
 func (r *GitStateStoreReconciler) Reconcile(ctx context.Context, req ctrl.Request) (ctrl.Result, error) {
-	logger := r.Log.WithValues(
-		"gitstatestore", req.NamespacedName,
-	)
+	// logger := r.Log.WithValues(
+	// 	"gitstatestore", req.NamespacedName,
+	// )
 
-	gitstatestore := &v1alpha1.GitStateStore{}
-	logger.Info("Reconciling GitStateStore", "requestName", req.Name)
-	if err := r.Client.Get(ctx, client.ObjectKey{Name: req.Name}, gitstatestore); err != nil {
-		if errors.IsNotFound(err) {
-			return ctrl.Result{}, nil
-		}
-		return ctrl.Result{}, err
-	}
+	// gitstatestore := &v1alpha1.GitStateStore{}
+	// logger.Info("Reconciling GitStateStore", "requestName", req.Name)
+	// if err := r.Client.Get(ctx, client.ObjectKey{Name: req.Name}, gitstatestore); err != nil {
+	// 	if errors.IsNotFound(err) {
+	// 		return ctrl.Result{}, nil
+	// 	}
+	// 	return ctrl.Result{}, err
+	// }
 
 	return ctrl.Result{}, nil
 }
