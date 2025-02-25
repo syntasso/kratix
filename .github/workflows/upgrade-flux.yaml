@@ -13,13 +13,10 @@ jobs:
         uses: actions/checkout@v4
 
       - name: Install Flux CLI
-        run: |
-          curl -s https://fluxcd.io/install.sh | sudo FLUX_VERSION=2.4.0 bash
+        run: curl -s https://fluxcd.io/install.sh | sudo FLUX_VERSION=2.4.0 bash
 
       - name: Fetch latest Flux release manifest
-        run: |
-          flux install --export > ./hack/destination/gitops-tk-install.yaml
-          echo "# test comment" >> ./hack/destination/gitops-tk-install.yaml
+        run: flux install --export > ./hack/destination/gitops-tk-install.yaml
 
       - name: Create a PR to upgrade Flux
         run: |
