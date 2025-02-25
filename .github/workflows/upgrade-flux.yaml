@@ -1,0 +1,46 @@
+name: Upgrade Flux
+
+on:
+  schedule:
+    - cron: "0 0 * * 3" # Runs every Wednesday at midnight
+  workflow_dispatch:
+
+jobs:
+  upgrade-flux:
+    runs-on: ubuntu-latest
+    steps:
+      - name: Checkout repository
+        uses: actions/checkout@v4
+
+      - name: Install Flux CLI
+        run: |
+          curl -s https://fluxcd.io/install.sh | sudo FLUX_VERSION=2.4.0 bash
+
+      - name: Fetch latest Flux release manifest
+        run: |
+          flux install --export > ./hack/destination/gitops-tk-install.yaml
+          echo "# test comment" >> ./hack/destination/gitops-tk-install.yaml
+
+      - name: Create a PR to upgrade Flux
+        run: |
+          if [ $(git status --porcelain=1 | wc -l) -eq 0 ]; then
+            echo "No changes to commit"
+            exit 0
+          fi
+
+          version=$(grep "Flux Version" ./hack/destination/gitops-tk-install.yaml | cut -d ":" -f 2 | tr -d " ")
+
+          echo "This PR upgrades Flux to version ${version}." > pr_body.txt
+          echo "" >> pr_body.txt
+          echo "Manifest generated with \`flux install --export\`." >> pr_body.txt
+
+          git checkout -b upgrade-flux-to-${version}
+          git add .
+          git commit -m "auto: update Flux to ${version}"
+          git push origin upgrade-flux-to-${version}
+
+          gh pr create \
+            --title "upgrade Flux to ${version}" \
+            --body-file pr_body.txt \
+            --base main \
+            --head upgrade-flux-to-${version}"
