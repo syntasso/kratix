@@ -1,0 +1,31 @@
+name: Update demo images
+
+on:
+  schedule:
+    - cron: "0 0 * * 1" # Runs every Monday
+  workflow_dispatch:
+
+jobs:
+  upgrade-flux:
+    runs-on: ubuntu-latest
+    steps:
+      - name: Checkout kratix
+        uses: actions/checkout@v4
+      - name: Update demo images
+        run: |
+          pushd demo/
+          ./scripts/generate-demo-image-list.sh
+          popd
+          
+          git add -f demo/
+          # below command exits 0 when nothing is added
+          git diff --cached --quiet && exit 0 || true
+          
+          git config --global user.name "syntassodev"
+          git config --global user.email "kratix@syntasso.io"
+          
+          git commit -m"update demo image list"
+          git push origin main
+
+        env:
+          GITHUB_TOKEN: ${{ secrets.GITHUB_TOKEN }}
