@@ -6,17 +6,17 @@ on:
   workflow_dispatch:
 
 jobs:
-  upgrade-flux:
+  update-demo-images:
     runs-on: ubuntu-latest
     steps:
       - name: Checkout kratix
         uses: actions/checkout@v4
-      - name: Update demo images
+      - name: update demo images
         run: |
-          pushd demo/
+          cd demo/
           ./scripts/generate-demo-image-list.sh
-          popd
-          
+      - name: Commit and push
+        run: |
           git add -f demo/
           # below command exits 0 when nothing is added
           git diff --cached --quiet && exit 0 || true
@@ -26,6 +26,5 @@ jobs:
           
           git commit -m"update demo image list"
           git push origin main
-
         env:
           GITHUB_TOKEN: ${{ secrets.GITHUB_TOKEN }}
