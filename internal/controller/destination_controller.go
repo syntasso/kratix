@@ -152,17 +152,6 @@ func (r *DestinationReconciler) needsFinalizerUpdate(destination *v1alpha1.Desti
 	return false
 }
 
-func (r *DestinationReconciler) writeTestFiles(writer writers.StateStoreWriter, filePathMode string) error {
-	if err := r.createDependenciesPathWithExample(writer, filePathMode); err != nil {
-		return err
-	}
-
-	if err := r.createResourcePathWithExample(writer, filePathMode); err != nil {
-		return err
-	}
-	return nil
-}
-
 func (r *DestinationReconciler) createResourcePathWithExample(writer writers.StateStoreWriter, filePathMode string) error {
 	kratixConfigMap := &v1.ConfigMap{
 		TypeMeta: metav1.TypeMeta{

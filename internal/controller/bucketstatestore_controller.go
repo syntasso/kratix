@@ -23,6 +23,7 @@ import (
 	"github.com/go-logr/logr"
 	"github.com/syntasso/kratix/api/v1alpha1"
 	corev1 "k8s.io/api/core/v1"
+	"k8s.io/apimachinery/pkg/api/errors"
 	"k8s.io/apimachinery/pkg/runtime"
 	"k8s.io/apimachinery/pkg/types"
 	"k8s.io/client-go/tools/record"
@@ -33,7 +34,9 @@ import (
 )
 
 const (
-	secretRef = "secretRef"
+	secretRef      = "secretRef"
+	StatusNotReady = "NotReady"
+	StatusReady    = "Ready"
 )
 
 // BucketStateStoreReconciler reconciles a BucketStateStore object
@@ -49,18 +52,35 @@ type BucketStateStoreReconciler struct {
 //+kubebuilder:rbac:groups=platform.kratix.io.kratix.io,resources=bucketstatestores/finalizers,verbs=update
 
 func (r *BucketStateStoreReconciler) Reconcile(ctx context.Context, req ctrl.Request) (ctrl.Result, error) {
-	// logger := r.Log.WithValues(
-	// 	"bucketstatestore", req.NamespacedName,
-	// )
+	logger := r.Log.WithValues(
+		"bucketstatestore", req.NamespacedName,
+	)
 
-	// bucketstatestore := &v1alpha1.BucketStateStore{}
-	// logger.Info("Reconciling BucketStateStore", "requestName", req.Name)
-	// if err := r.Client.Get(ctx, client.ObjectKey{Name: req.Name}, bucketstatestore); err != nil {
-	// 	if errors.IsNotFound(err) {
-	// 		return ctrl.Result{}, nil
-	// 	}
-	// 	return ctrl.Result{}, err
-	// }
+	bucketstatestore := &v1alpha1.BucketStateStore{}
+	logger.Info("Reconciling BucketStateStore", "requestName", req.Name)
+	if err := r.Client.Get(ctx, client.ObjectKey{Name: req.Name}, bucketstatestore); err != nil {
+		if errors.IsNotFound(err) {
+			return ctrl.Result{}, nil
+		}
+		return ctrl.Result{}, err
+	}
+
+	secret := &corev1.Secret{}
+	objectKey := types.NamespacedName{
+		Name:      bucketstatestore.Spec.SecretRef.Name,
+		Namespace: bucketstatestore.Spec.SecretRef.Namespace,
+	}
+	if err := r.Client.Get(ctx, objectKey, secret); err != nil {
+		err = fmt.Errorf("error getting secret: %w", err)
+		logger.Error(err, "secretName", bucketstatestore.Spec.SecretRef.Name, "secretNamespace", bucketstatestore.Spec.SecretRef.Namespace)
+
+		bucketstatestore.Status.Status = StatusNotReady
+		if err := r.Client.Status().Update(ctx, bucketstatestore); err != nil {
+			logger.Error(err, "error updating state store status")
+		}
+
+		return ctrl.Result{}, err
+	}
 
 	return ctrl.Result{}, nil
 }

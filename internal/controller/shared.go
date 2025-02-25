@@ -123,6 +123,11 @@ func fetchObjectAndSecret(o opts, stateStoreRef client.ObjectKey, stateStore Sta
 	return secret, nil
 }
 
+// TODO: refactor to take in the following instead of a Destination:
+// stateStoreName
+// stateStoreKind
+// logger/client/ctx (opts)
+// That way, we can use it in the BucketStateStore and GitStateStore controllers
 func newWriter(o opts, destination v1alpha1.Destination) (writers.StateStoreWriter, error) {
 	stateStoreRef := client.ObjectKey{
 		Name: destination.Spec.StateStoreRef.Name,

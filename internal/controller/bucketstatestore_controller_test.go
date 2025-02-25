@@ -30,7 +30,7 @@ import (
 
 var _ = Describe("BucketStateStore Controller", func() {
 	var (
-		BucketStateStore *v1alpha1.BucketStateStore
+		bucketStateStore *v1alpha1.BucketStateStore
 		reconciler       *controller.BucketStateStoreReconciler
 	)
 
@@ -41,7 +41,7 @@ var _ = Describe("BucketStateStore Controller", func() {
 			Log:    ctrl.Log.WithName("controllers").WithName("BucketStateStore"),
 		}
 
-		BucketStateStore = &v1alpha1.BucketStateStore{
+		bucketStateStore = &v1alpha1.BucketStateStore{
 			ObjectMeta: metav1.ObjectMeta{
 				Name: "default-store",
 			},
@@ -59,7 +59,7 @@ var _ = Describe("BucketStateStore Controller", func() {
 
 	When("the BucketStateStore does not exists", func() {
 		It("reconciles without error and does not requeue", func() {
-			result, err := t.reconcileUntilCompletion(reconciler, BucketStateStore)
+			result, err := t.reconcileUntilCompletion(reconciler, bucketStateStore)
 			Expect(err).NotTo(HaveOccurred())
 			Expect(result).To(Equal(ctrl.Result{}))
 		})
