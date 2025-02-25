@@ -28,6 +28,9 @@ jobs:
             exit 0
           fi
 
+          git config --global user.name "syntassodev"
+          git config --global user.email "kratix@syntasso.io"
+
           version=$(grep "Flux Version" ./hack/destination/gitops-tk-install.yaml | cut -d ":" -f 2 | tr -d " ")
 
           echo "This PR upgrades Flux to version ${version}." > pr_body.txt
