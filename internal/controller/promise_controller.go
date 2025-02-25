@@ -172,20 +172,19 @@ func (r *PromiseReconciler) Reconcile(ctx context.Context, req ctrl.Request) (ct
 	}
 
 	//Set status to unavailable, at the end of this function we set it to
-	//available. If at anytime we return early, it persisted as unavailable
+	//available. If at any time we return early, it persisted as unavailable
 	promise.Status.Status = v1alpha1.PromiseStatusUnavailable
 	requirementsChanged := r.hasPromiseRequirementsChanged(ctx, promise)
 
-	scheduledReconciliation := promise.Status.LastAvailableTime != nil && time.Since(promise.Status.LastAvailableTime.Time) > DefaultReconciliationInterval
-	if (requirementsChanged || scheduledReconciliation) && originalStatus == v1alpha1.PromiseStatusAvailable {
+	if requirementsChanged && originalStatus == v1alpha1.PromiseStatusAvailable {
 		if result, statusUpdateErr := r.updatePromiseStatus(ctx, promise); statusUpdateErr != nil || !result.IsZero() {
 			return result, statusUpdateErr
 		}
 		r.EventRecorder.Eventf(
 			promise, "Warning", "Unavailable", "Promise no longer available: %s",
-			unavailableReason(requirementsChanged, scheduledReconciliation))
+			"Requirements have changed")
 
-		logger.Info("Requeueing: requirements changed or scheduled reconciliation")
+		logger.Info("Requeueing: requirements changed")
 		return ctrl.Result{}, nil
 	}
 
@@ -321,19 +320,6 @@ func (r *PromiseReconciler) setPromiseStatusToAvailable(ctx context.Context, pro
 
 	r.EventRecorder.Eventf(promise, "Normal", "Available", "Promise is available")
 	return r.updatePromiseStatus(ctx, promise)
-}
-
-func unavailableReason(requirementsChanged bool, scheduledReconciliation bool) string {
-	var reason string
-	switch {
-	case requirementsChanged:
-		reason = "Requirements have changed"
-	case scheduledReconciliation:
-		reason = "Scheduled reconciliation"
-	default:
-		reason = "Reason unknown"
-	}
-	return reason
 }
 
 func (r *PromiseReconciler) hasPromiseRequirementsChanged(ctx context.Context, promise *v1alpha1.Promise) bool {
