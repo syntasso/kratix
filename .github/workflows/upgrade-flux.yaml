@@ -46,4 +46,4 @@ jobs:
             --title "upgrade Flux to ${version}" \
             --body-file pr_body.txt \
             --base main \
-            --head upgrade-flux-to-${version}"
+            --head upgrade-flux-to-${version}
