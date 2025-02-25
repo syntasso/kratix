@@ -1,6 +1,8 @@
 module github.com/syntasso/kratix
 
-go 1.22.5
+go 1.23
+
+toolchain go1.23.6
 
 require (
 	github.com/go-git/go-git/v5 v5.13.1
