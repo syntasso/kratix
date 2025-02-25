@@ -17,8 +17,11 @@ limitations under the License.
 package controller_test
 
 import (
+	"context"
+
 	. "github.com/onsi/ginkgo/v2"
 	. "github.com/onsi/gomega"
+	corev1 "k8s.io/api/core/v1"
 	"k8s.io/client-go/kubernetes/scheme"
 	ctrl "sigs.k8s.io/controller-runtime"
 
@@ -32,6 +35,7 @@ var _ = Describe("BucketStateStore Controller", func() {
 	var (
 		bucketStateStore *v1alpha1.BucketStateStore
 		reconciler       *controller.BucketStateStoreReconciler
+		secret           *corev1.Secret
 	)
 
 	BeforeEach(func() {
@@ -55,6 +59,20 @@ var _ = Describe("BucketStateStore Controller", func() {
 				Endpoint:   "localhost:3000",
 			},
 		}
+
+		secret = &corev1.Secret{
+			ObjectMeta: metav1.ObjectMeta{
+				Name: "store-secret",
+			},
+			TypeMeta: metav1.TypeMeta{
+				Kind:       "Secret",
+				APIVersion: "v1",
+			},
+			Data: map[string][]byte{
+				"token": []byte("top-secret"),
+			},
+		}
+		Expect(fakeK8sClient.Create(context.TODO(), secret)).To(Succeed())
 	})
 
 	When("the BucketStateStore does not exists", func() {
@@ -62,6 +80,15 @@ var _ = Describe("BucketStateStore Controller", func() {
 			result, err := t.reconcileUntilCompletion(reconciler, bucketStateStore)
 			Expect(err).NotTo(HaveOccurred())
 			Expect(result).To(Equal(ctrl.Result{}))
+		})
+	})
+
+	When("the referenced secret does not exist", func() {
+		BeforeEach(func() {
+			Expect(fakeK8sClient.Delete(context.TODO(), secret)).To(Succeed())
+		})
+		It("raises an error", func() {
+
 		})
 	})
 })

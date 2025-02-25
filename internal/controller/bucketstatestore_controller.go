@@ -51,6 +51,7 @@ type BucketStateStoreReconciler struct {
 //+kubebuilder:rbac:groups=platform.kratix.io.kratix.io,resources=bucketstatestores/status,verbs=get;update;patch
 //+kubebuilder:rbac:groups=platform.kratix.io.kratix.io,resources=bucketstatestores/finalizers,verbs=update
 
+// Reconcile reconciles a BucketStateStore object.
 func (r *BucketStateStoreReconciler) Reconcile(ctx context.Context, req ctrl.Request) (ctrl.Result, error) {
 	logger := r.Log.WithValues(
 		"bucketstatestore", req.NamespacedName,
