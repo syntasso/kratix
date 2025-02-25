@@ -72,7 +72,7 @@ func (r *BucketStateStoreReconciler) Reconcile(ctx context.Context, req ctrl.Req
 	}
 	if err := r.Client.Get(ctx, objectKey, secret); err != nil {
 		err = fmt.Errorf("error getting secret: %w", err)
-		logger.Error(err, "secretName", bucketstatestore.Spec.SecretRef.Name, "secretNamespace", bucketstatestore.Spec.SecretRef.Namespace)
+		logger.Error(err, "error getting secret", "secretName", bucketstatestore.Spec.SecretRef.Name, "secretNamespace", bucketstatestore.Spec.SecretRef.Namespace)
 
 		bucketstatestore.Status.Status = StatusNotReady
 		if err := r.Client.Status().Update(ctx, bucketstatestore); err != nil {

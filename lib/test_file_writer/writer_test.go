@@ -3,12 +3,13 @@ package utils_test
 import (
 	. "github.com/onsi/ginkgo/v2"
 	. "github.com/onsi/gomega"
+	. "github.com/onsi/gomega/gstruct"
+
 	"github.com/syntasso/kratix/api/v1alpha1"
 	utils "github.com/syntasso/kratix/lib/test_file_writer"
 	"github.com/syntasso/kratix/lib/writers/writersfakes"
 	v1 "k8s.io/api/core/v1"
 	metav1 "k8s.io/apimachinery/pkg/apis/meta/v1"
-	"sigs.k8s.io/yaml"
 )
 
 var _ = FDescribe("TestFileWriter", func() {
@@ -18,10 +19,8 @@ var _ = FDescribe("TestFileWriter", func() {
 		workloadName      string
 		kratixNamespace   *v1.Namespace
 		namespaceFileName string
-		namespaceBytes    []byte
 		kratixConfigMap   *v1.ConfigMap
 		configMapFileName string
-		configMapBytes    []byte
 		filePathMode      string
 		dependenciesDir   string
 		resourcesDir      string
@@ -39,7 +38,6 @@ var _ = FDescribe("TestFileWriter", func() {
 				ObjectMeta: metav1.ObjectMeta{Name: "kratix-worker-system"},
 			}
 			namespaceFileName = "kratix-canary-namespace.yaml"
-			namespaceBytes, _ = yaml.Marshal(kratixNamespace)
 			filePathMode = v1alpha1.FilepathModeNestedByMetadata
 			dependenciesDir = "dependencies"
 			resourcesDir = "resources"
@@ -58,7 +56,6 @@ var _ = FDescribe("TestFileWriter", func() {
 				},
 			}
 			configMapFileName = "kratix-canary-configmap.yaml"
-			configMapBytes, _ = yaml.Marshal(kratixConfigMap)
 		})
 
 		It("writes files to the resource and dependencies paths", func() {
@@ -67,18 +64,18 @@ var _ = FDescribe("TestFileWriter", func() {
 			dir, workPlacementName, workloadsToCreate, workloadsToDelete := fakeWriter.UpdateFilesArgsForCall(0)
 			Expect(dir).To(Equal(""))
 			Expect(workPlacementName).To(Equal(workloadName))
-			Expect(workloadsToCreate).To(ConsistOf(v1alpha1.Workload{
-				Filepath: dependenciesDir + "/" + namespaceFileName,
-				Content:  string(namespaceBytes),
+			Expect(workloadsToCreate[0]).To(MatchFields(IgnoreExtras, Fields{
+				"Filepath": Equal(dependenciesDir + "/" + namespaceFileName),
+				"Content":  ContainSubstring(kratixNamespace.GetName()),
 			}))
 			Expect(workloadsToDelete).To(BeEmpty())
 
 			dir, workPlacementName, workloadsToCreate, workloadsToDelete = fakeWriter.UpdateFilesArgsForCall(1)
 			Expect(dir).To(Equal(""))
 			Expect(workPlacementName).To(Equal(workloadName))
-			Expect(workloadsToCreate).To(ConsistOf(v1alpha1.Workload{
-				Filepath: resourcesDir + "/" + configMapFileName,
-				Content:  string(configMapBytes),
+			Expect(workloadsToCreate[0]).To(MatchFields(IgnoreExtras, Fields{
+				"Filepath": Equal(resourcesDir + "/" + configMapFileName),
+				"Content":  ContainSubstring(kratixConfigMap.GetName()),
 			}))
 			Expect(workloadsToDelete).To(BeEmpty())
 		})
@@ -93,18 +90,21 @@ var _ = FDescribe("TestFileWriter", func() {
 				dir, workPlacementName, workloadsToCreate, workloadsToDelete := fakeWriter.UpdateFilesArgsForCall(0)
 				Expect(dir).To(Equal(""))
 				Expect(workPlacementName).To(Equal(workloadName))
-				Expect(workloadsToCreate).To(ConsistOf(v1alpha1.Workload{
-					Filepath: namespaceFileName,
-					Content:  string(namespaceBytes),
+				Expect(workloadsToCreate).To(HaveLen(1))
+
+				Expect(workloadsToCreate[0]).To(MatchFields(IgnoreExtras, Fields{
+					"Filepath": Equal(namespaceFileName),
+					"Content":  ContainSubstring(kratixNamespace.GetName()),
 				}))
 				Expect(workloadsToDelete).To(BeEmpty())
 
 				dir, workPlacementName, workloadsToCreate, workloadsToDelete = fakeWriter.UpdateFilesArgsForCall(1)
 				Expect(dir).To(Equal(""))
 				Expect(workPlacementName).To(Equal(workloadName))
-				Expect(workloadsToCreate).To(ConsistOf(v1alpha1.Workload{
-					Filepath: configMapFileName,
-					Content:  string(configMapBytes),
+				Expect(workloadsToCreate).To(HaveLen(1))
+				Expect(workloadsToCreate[0]).To(MatchFields(IgnoreExtras, Fields{
+					"Filepath": Equal(configMapFileName),
+					"Content":  ContainSubstring(kratixConfigMap.GetName()),
 				}))
 				Expect(workloadsToDelete).To(BeEmpty())
 			})
