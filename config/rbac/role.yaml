@@ -86,7 +86,9 @@ rules:
 - apiGroups:
   - platform.kratix.io
   resources:
+  - bucketstatestores/finalizers
   - destinations/finalizers
+  - gitstatestores/finalizers
   - healthrecords/finalizers
   - promisereleases/finalizers
   - promises/finalizers
@@ -97,41 +99,14 @@ rules:
 - apiGroups:
   - platform.kratix.io
   resources:
+  - bucketstatestores/status
   - destinations/status
+  - gitstatestores/status
   - healthrecords/status
   - promisereleases/status
   - promises/status
   - workplacements/status
   - works/status
-  verbs:
-  - get
-  - patch
-  - update
-- apiGroups:
-  - platform.kratix.io.kratix.io
-  resources:
-  - bucketstatestores
-  - gitstatestores
-  verbs:
-  - create
-  - delete
-  - get
-  - list
-  - patch
-  - update
-  - watch
-- apiGroups:
-  - platform.kratix.io.kratix.io
-  resources:
-  - bucketstatestores/finalizers
-  - gitstatestores/finalizers
-  verbs:
-  - update
-- apiGroups:
-  - platform.kratix.io.kratix.io
-  resources:
-  - bucketstatestores/status
-  - gitstatestores/status
   verbs:
   - get
   - patch

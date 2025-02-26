@@ -35,9 +35,9 @@ type GitStateStoreReconciler struct {
 	EventRecorder record.EventRecorder
 }
 
-//+kubebuilder:rbac:groups=platform.kratix.io.kratix.io,resources=gitstatestores,verbs=get;list;watch;create;update;patch;delete
-//+kubebuilder:rbac:groups=platform.kratix.io.kratix.io,resources=gitstatestores/status,verbs=get;update;patch
-//+kubebuilder:rbac:groups=platform.kratix.io.kratix.io,resources=gitstatestores/finalizers,verbs=update
+//+kubebuilder:rbac:groups=platform.kratix.io,resources=gitstatestores,verbs=get;list;watch;create;update;patch;delete
+//+kubebuilder:rbac:groups=platform.kratix.io,resources=gitstatestores/status,verbs=get;update;patch
+//+kubebuilder:rbac:groups=platform.kratix.io,resources=gitstatestores/finalizers,verbs=update
 
 // Reconcile reconciles a GitStateStore object.
 func (r *GitStateStoreReconciler) Reconcile(ctx context.Context, req ctrl.Request) (ctrl.Result, error) {

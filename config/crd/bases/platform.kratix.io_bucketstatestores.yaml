@@ -91,9 +91,6 @@ spec:
             description: BucketStateStoreStatus defines the observed state of BucketStateStore
             properties:
               status:
-                description: |-
-                  INSERT ADDITIONAL STATUS FIELD - define observed state of BucketStateStore
-                  Important: Run "make" to regenerate code after modifying this file
                 type: string
             required:
             - status
