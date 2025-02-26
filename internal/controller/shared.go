@@ -11,6 +11,7 @@ import (
 	"github.com/syntasso/kratix/api/v1alpha1"
 	"github.com/syntasso/kratix/lib/resourceutil"
 	"github.com/syntasso/kratix/lib/writers"
+	corev1 "k8s.io/api/core/v1"
 	v1 "k8s.io/api/core/v1"
 	"k8s.io/apimachinery/pkg/api/errors"
 	metav1 "k8s.io/apimachinery/pkg/apis/meta/v1"
@@ -24,10 +25,22 @@ import (
 )
 
 const (
-	promiseReleaseNameLabel        = v1alpha1.KratixPrefix + "promise-release-name"
-	removeAllWorkflowJobsFinalizer = v1alpha1.KratixPrefix + "workflows-cleanup"
-	runDeleteWorkflowsFinalizer    = v1alpha1.KratixPrefix + "delete-workflows"
-	DefaultReconciliationInterval  = time.Hour * 10
+	promiseReleaseNameLabel                          = v1alpha1.KratixPrefix + "promise-release-name"
+	removeAllWorkflowJobsFinalizer                   = v1alpha1.KratixPrefix + "workflows-cleanup"
+	runDeleteWorkflowsFinalizer                      = v1alpha1.KratixPrefix + "delete-workflows"
+	DefaultReconciliationInterval                    = time.Hour * 10
+	secretRefFieldName                               = "secretRef"
+	StatusNotReady                                   = "NotReady"
+	StatusReady                                      = "Ready"
+	StateStoreReadyConditionType                     = "Ready"
+	StateStoreReadyConditionReason                   = "StateStoreReady"
+	StateStoreReadyConditionMessage                  = "State store is ready"
+	StateStoreNotReadySecretNotFoundReason           = "SecretNotFound"
+	StateStoreNotReadySecretNotFoundMessage          = "Secret not found"
+	StateStoreNotReadyErrorInitialisingWriterReason  = "ErrorInitialisingWriter"
+	StateStoreNotReadyErrorInitialisingWriterMessage = "Error initialising writer"
+	StateStoreNotReadyErrorWritingTestFileReason     = "ErrorWritingTestFile"
+	StateStoreNotReadyErrorWritingTestFileMessage    = "Error writing test file"
 )
 
 var (
@@ -162,6 +175,60 @@ func newWriter(o opts, stateStoreName, stateStoreKind, destinationPath string) (
 	return writer, nil
 }
 
+func writeStateStoreTestFile(writer writers.StateStoreWriter) error {
+	content := fmt.Sprintf("This file tests that Kratix can write to this state store. Last write time: %s", time.Now().String())
+	_, err := writer.UpdateFiles("", "kratix-write-probe", []v1alpha1.Workload{
+		{
+			Filepath: "kratix-write-probe.txt",
+			Content:  content,
+		},
+	}, nil)
+
+	return err
+}
+
 func shortID(id string) string {
 	return id[0:5]
+}
+
+func secretRefIndexKey(secretName, secretNamespace string) string {
+	return fmt.Sprintf("%s.%s", secretNamespace, secretName)
+}
+
+// validateStateStoreCommon contains the common logic for state store reconciliation.
+func validateStateStoreCommon[T metav1.Object](
+	o opts,
+	stateStore T,
+	secretRef *corev1.SecretReference,
+	resourceType string,
+	updateStatus func(stateStore T, failureReason string, failureMessage string, err error) error,
+) (ctrl.Result, error) {
+	secret := &corev1.Secret{}
+	objectKey := types.NamespacedName{
+		Name:      secretRef.Name,
+		Namespace: secretRef.Namespace,
+	}
+	if err := o.client.Get(o.ctx, objectKey, secret); err != nil {
+		if err := updateStatus(stateStore, StateStoreNotReadySecretNotFoundReason, StateStoreNotReadySecretNotFoundMessage, err); err != nil {
+			o.logger.Error(err, "error updating state store status")
+		}
+		return ctrl.Result{}, err
+	}
+
+	writer, err := newWriter(o, stateStore.GetName(), resourceType, "")
+	if err != nil {
+		if err := updateStatus(stateStore, StateStoreNotReadyErrorInitialisingWriterReason, StateStoreNotReadyErrorInitialisingWriterMessage, err); err != nil {
+			o.logger.Error(err, "error updating state store status")
+		}
+		return ctrl.Result{}, err
+	}
+
+	if err := writeStateStoreTestFile(writer); err != nil {
+		if err := updateStatus(stateStore, StateStoreNotReadyErrorWritingTestFileReason, StateStoreNotReadyErrorWritingTestFileMessage, err); err != nil {
+			o.logger.Error(err, "error updating state store status")
+		}
+		return ctrl.Result{}, err
+	}
+
+	return ctrl.Result{}, updateStatus(stateStore, "", "", nil)
 }

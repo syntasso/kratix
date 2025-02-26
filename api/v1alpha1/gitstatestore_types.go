@@ -55,11 +55,14 @@ type GitAuthor struct {
 
 // GitStateStoreStatus defines the observed state of GitStateStore
 type GitStateStoreStatus struct {
+	Status     string             `json:"status"`
+	Conditions []metav1.Condition `json:"conditions,omitempty"`
 }
 
 // +kubebuilder:object:root=true
 // +kubebuilder:subresource:status
 // +kubebuilder:resource:scope=Cluster,path=gitstatestores,categories=kratix
+// +kubebuilder:printcolumn:name="Ready",type=string,JSONPath=`.status.conditions[?(@.type=="Ready")].status`,description="Indicates the state store is ready to use"
 
 // GitStateStore is the Schema for the gitstatestores API
 type GitStateStore struct {
