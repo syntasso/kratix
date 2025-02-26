@@ -32,18 +32,35 @@ var _ = Describe("Destinations", func() {
 			if os.Getenv("LRE") == "true" {
 				// update the underlying state store with the valid secret
 				platform.Kubectl("patch", "bucketstatestore", "destination-test-store", "--type=merge", "-p", `{"spec":{"secretRef":{"name":"aws-s3-credentials"}}}`)
+			} else {
+				// update the state store secret with the valid credentials when running in KinD
+				platform.Kubectl("patch", "secret", "minio-credentials", "--type=merge", "-p", `{"stringData":{"accessKeyID":"minioadmin"}}`)
 			}
 			platform.Kubectl("delete", "-f", "assets/destination/destination-worker-3.yaml")
+			platform.Kubectl("delete", "secret", "new-state-store-secret", "--ignore-not-found")
 		})
 
 		It("properly set the conditions and events", func() {
-			By("showing `Ready` as true", func() {
+			By("showing `Ready` as true in the State Store", func() {
+				Eventually(func() string {
+					return platform.Kubectl("get", "bucketstatestores", "destination-test-store")
+				}).Should(ContainSubstring("True"))
+			})
+
+			By("firing the success event to the State Store", func() {
+				Eventually(func() string {
+					describeOutput := strings.Split(platform.Kubectl("describe", "bucketstatestores", "destination-test-store"), "\n")
+					return describeOutput[len(describeOutput)-2]
+				}).Should(ContainSubstring("BucketStateStore \"destination-test-store\" is ready"))
+			})
+
+			By("showing `Ready` as true in the Destination", func() {
 				Eventually(func() string {
 					return platform.Kubectl("get", "destinations", destinationName)
 				}).Should(ContainSubstring("True"))
 			})
 
-			By("firing the success event", func() {
+			By("firing the success event to the Destination", func() {
 				Eventually(func() string {
 					describeOutput := strings.Split(platform.Kubectl("describe", "destinations", destinationName), "\n")
 					return describeOutput[len(describeOutput)-2]
@@ -53,13 +70,13 @@ var _ = Describe("Destinations", func() {
 			// set stateStoreRef to a non-existing one
 			platform.Kubectl("patch", "destinations", destinationName, "--type=merge", "-p", `{"spec":{"stateStoreRef":{"name":"non-existing"}}}`)
 
-			By("showing `Ready` as False when the State Store is wrong", func() {
+			By("showing `Ready` as False in the Destination when the State Store does not exist", func() {
 				Eventually(func() string {
 					return platform.Kubectl("get", "destinations", destinationName)
 				}).Should(ContainSubstring("False"))
 			})
 
-			By("firing a failure event", func() {
+			By("firing a failure event to the Destination", func() {
 				Eventually(func() string {
 					describeOutput := strings.Split(platform.Kubectl("describe", "destinations", destinationName), "\n")
 					return describeOutput[len(describeOutput)-2]
@@ -75,27 +92,100 @@ var _ = Describe("Destinations", func() {
 				}).Should(ContainSubstring("True"))
 			})
 
-			By("firing the success event", func() {
+			By("firing the success event to the Destination", func() {
 				Eventually(func() string {
 					describeOutput := strings.Split(platform.Kubectl("describe", "destinations", destinationName), "\n")
 					return describeOutput[len(describeOutput)-2]
 				}).Should(ContainSubstring(`Destination "worker-3" is ready`))
 			})
 
-			// update the underlying state store with an invalid secret
-			platform.Kubectl("patch", "bucketstatestore", "destination-test-store", "--type=merge", "-p", `{"spec":{"secretRef":{"name":"non-existing"}}}`)
-			By("showing `Ready` as False when the State Store is wrong", func() {
+			// update the underlying state store with a non-existent secret
+			platform.Kubectl("patch", "bucketstatestore", "destination-test-store", "--type=merge", "-p", `{"spec":{"secretRef":{"name":"non-existent-secret"}}}`)
+			By("showing `Ready` as False in the State Store when the State Store secret does not exist", func() {
+				Eventually(func() string {
+					return platform.Kubectl("get", "bucketstatestores", "destination-test-store")
+				}).Should(ContainSubstring("False"))
+			})
+
+			By("firing a failure event to the State Store", func() {
+				Eventually(func() string {
+					describeOutput := strings.Split(platform.Kubectl("describe", "bucketstatestores", "destination-test-store"), "\n")
+					return describeOutput[len(describeOutput)-2]
+				}).Should(ContainSubstring("Secret not found"))
+			})
+
+			By("showing `Ready` as False in the Destination when the State Store secret does not exist", func() {
 				Eventually(func() string {
 					return platform.Kubectl("get", "destinations", destinationName)
 				}).Should(ContainSubstring("False"))
 			})
 
-			By("firing a failure event", func() {
+			By("firing a failure event to the Destination", func() {
 				Eventually(func() string {
 					describeOutput := strings.Split(platform.Kubectl("describe", "destinations", destinationName), "\n")
 					return describeOutput[len(describeOutput)-2]
 				}).Should(ContainSubstring("Failed to write test documents"))
 			})
+
+			// restore the ready condition
+			platform.Kubectl("apply", "-f", "assets/destination/destination-test-store.yaml")
+
+			By("showing `Ready` as true in the State Store", func() {
+				Eventually(func() string {
+					return platform.Kubectl("get", "bucketstatestores", "destination-test-store")
+				}).Should(ContainSubstring("True"))
+			})
+
+			By("firing the success event to the State Store", func() {
+				Eventually(func() string {
+					describeOutput := strings.Split(platform.Kubectl("describe", "bucketstatestores", "destination-test-store"), "\n")
+					return describeOutput[len(describeOutput)-2]
+				}).Should(ContainSubstring("BucketStateStore \"destination-test-store\" is ready"))
+			})
+
+			By("showing `Ready` as true in the Destination", func() {
+				Eventually(func() string {
+					return platform.Kubectl("get", "destinations", destinationName)
+				}).Should(ContainSubstring("True"))
+			})
+
+			By("firing the success event to the Destination", func() {
+				Eventually(func() string {
+					describeOutput := strings.Split(platform.Kubectl("describe", "destinations", destinationName), "\n")
+					return describeOutput[len(describeOutput)-2]
+				}).Should(ContainSubstring(`Destination "worker-3" is ready`))
+			})
+
+			if os.Getenv("LRE") != "true" {
+				// update the underlying state store secret with invalid credentials (non-LRE only)
+				platform.Kubectl("patch", "secret", "minio-credentials", "--type=merge", "-p", `{"stringData":{"accessKeyID":"invalid"}}`)
+
+				By("showing `Ready` as False in the State Store", func() {
+					Eventually(func() string {
+						return platform.Kubectl("get", "bucketstatestores", "destination-test-store")
+					}, "30s").Should(ContainSubstring("False"))
+				})
+
+				By("firing a failure event to the State Store", func() {
+					Eventually(func() string {
+						describeOutput := strings.Split(platform.Kubectl("describe", "bucketstatestores", "destination-test-store"), "\n")
+						return describeOutput[len(describeOutput)-2]
+					}).Should(ContainSubstring("Error writing test file"))
+				})
+
+				By("showing `Ready` as False in the Destination", func() {
+					Eventually(func() string {
+						return platform.Kubectl("get", "destinations", destinationName)
+					}).Should(ContainSubstring("False"))
+				})
+
+				By("firing a failure event to the Destination", func() {
+					Eventually(func() string {
+						describeOutput := strings.Split(platform.Kubectl("describe", "destinations", destinationName), "\n")
+						return describeOutput[len(describeOutput)-2]
+					}).Should(ContainSubstring("Failed to write test documents"))
+				})
+			}
 		})
 	})
 })

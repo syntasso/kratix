@@ -86,7 +86,9 @@ rules:
 - apiGroups:
   - platform.kratix.io
   resources:
+  - bucketstatestores/finalizers
   - destinations/finalizers
+  - gitstatestores/finalizers
   - healthrecords/finalizers
   - promisereleases/finalizers
   - promises/finalizers

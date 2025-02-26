@@ -19,10 +19,16 @@ package controller
 import (
 	"context"
 	"fmt"
+	"time"
 
 	"github.com/go-logr/logr"
 	"github.com/syntasso/kratix/api/v1alpha1"
+	"github.com/syntasso/kratix/lib/writers"
 	corev1 "k8s.io/api/core/v1"
+	v1 "k8s.io/api/core/v1"
+	"k8s.io/apimachinery/pkg/api/errors"
+	"k8s.io/apimachinery/pkg/api/meta"
+	metav1 "k8s.io/apimachinery/pkg/apis/meta/v1"
 	"k8s.io/apimachinery/pkg/runtime"
 	"k8s.io/apimachinery/pkg/types"
 	"k8s.io/client-go/tools/record"
@@ -33,7 +39,18 @@ import (
 )
 
 const (
-	secretRef = "secretRef"
+	secretRef                                        = "secretRef"
+	StatusNotReady                                   = "NotReady"
+	StatusReady                                      = "Ready"
+	StateStoreReadyConditionType                     = "Ready"
+	StateStoreReadyConditionReason                   = "StateStoreReady"
+	StateStoreReadyConditionMessage                  = "State store is ready"
+	StateStoreNotReadySecretNotFoundReason           = "SecretNotFound"
+	StateStoreNotReadySecretNotFoundMessage          = "Secret not found"
+	StateStoreNotReadyErrorInitialisingWriterReason  = "ErrorInitialisingWriter"
+	StateStoreNotReadyErrorInitialisingWriterMessage = "Error initialising writer"
+	StateStoreNotReadyErrorWritingTestFileReason     = "ErrorWritingTestFile"
+	StateStoreNotReadyErrorWritingTestFileMessage    = "Error writing test file"
 )
 
 // BucketStateStoreReconciler reconciles a BucketStateStore object
@@ -48,21 +65,107 @@ type BucketStateStoreReconciler struct {
 //+kubebuilder:rbac:groups=platform.kratix.io,resources=bucketstatestores/status,verbs=get;update;patch
 //+kubebuilder:rbac:groups=platform.kratix.io,resources=bucketstatestores/finalizers,verbs=update
 
+// Reconcile reconciles a BucketStateStore object.
 func (r *BucketStateStoreReconciler) Reconcile(ctx context.Context, req ctrl.Request) (ctrl.Result, error) {
-	// logger := r.Log.WithValues(
-	// 	"bucketstatestore", req.NamespacedName,
-	// )
+	logger := r.Log.WithValues(
+		"bucketstatestore", req.NamespacedName,
+	)
 
-	// bucketstatestore := &v1alpha1.BucketStateStore{}
-	// logger.Info("Reconciling BucketStateStore", "requestName", req.Name)
-	// if err := r.Client.Get(ctx, client.ObjectKey{Name: req.Name}, bucketstatestore); err != nil {
-	// 	if errors.IsNotFound(err) {
-	// 		return ctrl.Result{}, nil
-	// 	}
-	// 	return ctrl.Result{}, err
-	// }
+	bucketStateStore := &v1alpha1.BucketStateStore{}
+	logger.Info("Reconciling BucketStateStore", "requestName", req.Name)
+	if err := r.Client.Get(ctx, client.ObjectKey{Name: req.Name}, bucketStateStore); err != nil {
+		if errors.IsNotFound(err) {
+			return ctrl.Result{}, nil
+		}
+		return ctrl.Result{}, err
+	}
 
-	return ctrl.Result{}, nil
+	secret := &corev1.Secret{}
+	objectKey := types.NamespacedName{
+		Name:      bucketStateStore.Spec.SecretRef.Name,
+		Namespace: bucketStateStore.Spec.SecretRef.Namespace,
+	}
+	if err := r.Client.Get(ctx, objectKey, secret); err != nil {
+		if err := r.updateReadyStatusAndCondition(bucketStateStore, StateStoreNotReadySecretNotFoundReason, StateStoreNotReadySecretNotFoundMessage, err); err != nil {
+			logger.Error(err, "error updating state store status")
+		}
+
+		return ctrl.Result{}, err
+	}
+
+	opts := opts{
+		client: r.Client,
+		ctx:    ctx,
+		logger: logger,
+	}
+
+	writer, err := newWriter(opts, bucketStateStore.GetName(), "BucketStateStore", "")
+	if err != nil {
+		if err := r.updateReadyStatusAndCondition(bucketStateStore, StateStoreNotReadyErrorInitialisingWriterReason, StateStoreNotReadyErrorInitialisingWriterMessage, err); err != nil {
+			logger.Error(err, "error updating state store status")
+		}
+
+		return ctrl.Result{}, err
+	}
+
+	if err := r.writeTestFile(writer); err != nil {
+		if err := r.updateReadyStatusAndCondition(bucketStateStore, StateStoreNotReadyErrorWritingTestFileReason, StateStoreNotReadyErrorWritingTestFileMessage, err); err != nil {
+			logger.Error(err, "error updating state store status")
+		}
+
+		return ctrl.Result{}, err
+	}
+
+	return ctrl.Result{}, r.updateReadyStatusAndCondition(bucketStateStore, "", "", nil)
+}
+
+func (r *BucketStateStoreReconciler) writeTestFile(writer writers.StateStoreWriter) error {
+	content := fmt.Sprintf("This file tests that Kratix can write to this state store. Last write time: %s", time.Now().String())
+	_, err := writer.UpdateFiles("", "kratix-write-probe", []v1alpha1.Workload{
+		{
+			Filepath: "kratix-write-probe.txt",
+			Content:  content,
+		},
+	}, nil)
+
+	return err
+}
+
+func (r *BucketStateStoreReconciler) updateReadyStatusAndCondition(bucketStateStore *v1alpha1.BucketStateStore, failureReason, failureMessage string, err error) error {
+	eventType := v1.EventTypeNormal
+	eventReason := "Ready"
+	eventMessage := fmt.Sprintf("BucketStateStore %q is ready", bucketStateStore.Name)
+
+	condition := metav1.Condition{
+		Type:    StateStoreReadyConditionType,
+		Reason:  StateStoreReadyConditionReason,
+		Message: StateStoreReadyConditionMessage,
+		Status:  metav1.ConditionTrue,
+	}
+
+	bucketStateStore.Status.Status = StatusReady
+
+	if failureReason != "" {
+		bucketStateStore.Status.Status = StatusNotReady
+
+		condition.Status = metav1.ConditionFalse
+		condition.Reason = failureReason
+		condition.Message = fmt.Sprintf("%s: %s", failureMessage, err)
+
+		// Update event parameters for failure
+		eventType = v1.EventTypeWarning
+		eventReason = "NotReady"
+		eventMessage = fmt.Sprintf("BucketStateStore %q is not ready: %s: %s", bucketStateStore.Name, failureMessage, err)
+	}
+
+	changed := meta.SetStatusCondition(&bucketStateStore.Status.Conditions, condition)
+	if !changed {
+		return nil
+	}
+
+	r.EventRecorder.Eventf(bucketStateStore, eventType, eventReason, eventMessage)
+
+	return r.Client.Status().Update(context.Background(), bucketStateStore)
 }
 
 func (r *BucketStateStoreReconciler) findStateStoresReferencingSecret() handler.MapFunc {

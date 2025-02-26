@@ -43,13 +43,14 @@ type BucketStateStoreSpec struct {
 
 // BucketStateStoreStatus defines the observed state of BucketStateStore
 type BucketStateStoreStatus struct {
-	// INSERT ADDITIONAL STATUS FIELD - define observed state of BucketStateStore
-	// Important: Run "make" to regenerate code after modifying this file
+	Status     string             `json:"status"`
+	Conditions []metav1.Condition `json:"conditions,omitempty"`
 }
 
 //+kubebuilder:object:root=true
 //+kubebuilder:subresource:status
 //+kubebuilder:resource:scope=Cluster,path=bucketstatestores,categories=kratix
+// +kubebuilder:printcolumn:name="Ready",type=string,JSONPath=`.status.conditions[?(@.type=="Ready")].status`,description="Indicates the state store is ready to use"
 
 // BucketStateStore is the Schema for the bucketstatestores API
 type BucketStateStore struct {

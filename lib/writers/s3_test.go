@@ -95,7 +95,7 @@ var _ = Describe("S3", func() {
 					}
 
 					_, err := writers.NewS3Writer(logger, stateStoreSpec, dest.Spec.Path, creds)
-					Expect(err).To(MatchError("missing key accessKeyID"))
+					Expect(err).To(MatchError("secret is missing key: accessKeyID"))
 				})
 			})
 
@@ -106,7 +106,7 @@ var _ = Describe("S3", func() {
 					}
 
 					_, err := writers.NewS3Writer(logger, stateStoreSpec, dest.Spec.Path, creds)
-					Expect(err).To(MatchError("missing key secretAccessKey"))
+					Expect(err).To(MatchError("secret is missing key: secretAccessKey"))
 				})
 			})
 
@@ -136,7 +136,7 @@ var _ = Describe("S3", func() {
 
 			It("should return a valid S3Writer", func() {
 				_, err := writers.NewS3Writer(logger, stateStoreSpec, dest.Spec.Path, nil)
-				Expect(err).To(MatchError("unknown authMethod foo"))
+				Expect(err).To(MatchError("unknown authMethod: foo"))
 			})
 		})
 
