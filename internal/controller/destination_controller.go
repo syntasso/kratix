@@ -25,6 +25,7 @@ import (
 	"k8s.io/apimachinery/pkg/runtime/schema"
 	"k8s.io/apimachinery/pkg/types"
 	"k8s.io/client-go/tools/record"
+	"sigs.k8s.io/controller-runtime/pkg/builder"
 	"sigs.k8s.io/controller-runtime/pkg/controller/controllerutil"
 	"sigs.k8s.io/controller-runtime/pkg/predicate"
 
@@ -72,7 +73,7 @@ func (r *DestinationReconciler) Reconcile(ctx context.Context, req ctrl.Request)
 	)
 
 	destination := &v1alpha1.Destination{}
-	logger.Info("Registering Destination", "requestName", req.Name)
+	logger.Info("Reconciling Destination", "requestName", req.Name)
 	if err := r.Client.Get(ctx, client.ObjectKey{Name: req.Name}, destination); err != nil {
 		if errors.IsNotFound(err) {
 			return ctrl.Result{}, nil
@@ -336,7 +337,7 @@ func (r *DestinationReconciler) SetupWithManager(mgr ctrl.Manager) error {
 	}
 
 	return ctrl.NewControllerManagedBy(mgr).
-		For(&v1alpha1.Destination{}).
+		For(&v1alpha1.Destination{}, builder.WithPredicates(predicate.GenerationChangedPredicate{})).
 		Watches(
 			&v1alpha1.BucketStateStore{},
 			handler.EnqueueRequestsFromMapFunc(r.findDestinationsForStateStore("BucketStateStore")),
@@ -345,6 +346,5 @@ func (r *DestinationReconciler) SetupWithManager(mgr ctrl.Manager) error {
 			&v1alpha1.GitStateStore{},
 			handler.EnqueueRequestsFromMapFunc(r.findDestinationsForStateStore("GitStateStore")),
 		).
-		WithEventFilter(predicate.GenerationChangedPredicate{}).
 		Complete(r)
 }
