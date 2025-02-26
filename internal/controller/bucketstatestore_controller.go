@@ -68,6 +68,10 @@ func (r *BucketStateStoreReconciler) Reconcile(ctx context.Context, req ctrl.Req
 		return ctrl.Result{}, err
 	}
 
+	logger.Info("Found BucketStateStore", "requestName", req.Name)
+
+	originalStatus := bucketStateStore.Status.Status
+
 	secret := &corev1.Secret{}
 	objectKey := types.NamespacedName{
 		Name:      bucketStateStore.Spec.SecretRef.Name,
@@ -75,7 +79,6 @@ func (r *BucketStateStoreReconciler) Reconcile(ctx context.Context, req ctrl.Req
 	}
 	if err := r.Client.Get(ctx, objectKey, secret); err != nil {
 		err = fmt.Errorf("error getting secret: %w", err)
-		logger.Error(err, "error getting secret", "secretName", bucketStateStore.Spec.SecretRef.Name, "secretNamespace", bucketStateStore.Spec.SecretRef.Namespace)
 
 		bucketStateStore.Status.Status = StatusNotReady
 		if err := r.Client.Status().Update(ctx, bucketStateStore); err != nil {
@@ -84,6 +87,8 @@ func (r *BucketStateStoreReconciler) Reconcile(ctx context.Context, req ctrl.Req
 
 		return ctrl.Result{}, err
 	}
+
+	logger.Info("Found Secret", "secretName", objectKey.Name, "secretNamespace", objectKey.Namespace)
 
 	opts := opts{
 		client: r.Client,
@@ -94,7 +99,6 @@ func (r *BucketStateStoreReconciler) Reconcile(ctx context.Context, req ctrl.Req
 	writer, err := newWriter(opts, bucketStateStore.GetName(), "BucketStateStore", "")
 	if err != nil {
 		err = fmt.Errorf("error initialising state store writer: %w", err)
-		logger.Error(err, "error initialising state store writer")
 
 		bucketStateStore.Status.Status = StatusNotReady
 		if err := r.Client.Status().Update(ctx, bucketStateStore); err != nil {
@@ -103,10 +107,11 @@ func (r *BucketStateStoreReconciler) Reconcile(ctx context.Context, req ctrl.Req
 
 		return ctrl.Result{}, err
 	}
+
+	logger.Info("Initialised state store writer")
 
 	if err := r.writeTestFile(writer); err != nil {
 		err = fmt.Errorf("error writing test file: %w", err)
-		logger.Error(err, "error writing test file")
 
 		bucketStateStore.Status.Status = StatusNotReady
 		if err := r.Client.Status().Update(ctx, bucketStateStore); err != nil {
@@ -116,7 +121,15 @@ func (r *BucketStateStoreReconciler) Reconcile(ctx context.Context, req ctrl.Req
 		return ctrl.Result{}, err
 	}
 
-	return ctrl.Result{}, nil
+	logger.Info("Wrote test file")
+
+	if originalStatus == StatusReady {
+		logger.Info("State store is already ready")
+		return ctrl.Result{}, nil
+	}
+
+	bucketStateStore.Status.Status = StatusReady
+	return ctrl.Result{}, r.Client.Status().Update(ctx, bucketStateStore)
 }
 
 func (r *BucketStateStoreReconciler) writeTestFile(writer writers.StateStoreWriter) error {
