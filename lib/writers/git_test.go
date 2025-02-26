@@ -62,7 +62,7 @@ var _ = Describe("NewGitWriter", func() {
 			Email: "test@example.com",
 			Name:  "a-user",
 		}
-		writer, err := writers.NewGitWriter(logger, stateStoreSpec, dest, creds)
+		writer, err := writers.NewGitWriter(logger, stateStoreSpec, dest.Spec.Path, creds)
 		Expect(err).NotTo(HaveOccurred())
 		Expect(writer).To(BeAssignableToTypeOf(&writers.GitWriter{}))
 		gitWriter, ok := writer.(*writers.GitWriter)
@@ -85,7 +85,7 @@ var _ = Describe("NewGitWriter", func() {
 		}
 		By("removing the leading slash when StateStore.Path is defined", func() {
 			stateStoreSpec.Path = "/test"
-			writer, err := writers.NewGitWriter(logger, stateStoreSpec, dest, creds)
+			writer, err := writers.NewGitWriter(logger, stateStoreSpec, dest.Spec.Path, creds)
 			Expect(err).NotTo(HaveOccurred())
 			Expect(writer).To(BeAssignableToTypeOf(&writers.GitWriter{}))
 			gitWriter, ok := writer.(*writers.GitWriter)
@@ -97,7 +97,7 @@ var _ = Describe("NewGitWriter", func() {
 
 		By("removing the leading slash when Destination.Path is defined", func() {
 			dest.Spec.Path = "/dst-test"
-			writer, err := writers.NewGitWriter(logger, stateStoreSpec, dest, creds)
+			writer, err := writers.NewGitWriter(logger, stateStoreSpec, dest.Spec.Path, creds)
 			Expect(err).NotTo(HaveOccurred())
 			Expect(writer).To(BeAssignableToTypeOf(&writers.GitWriter{}))
 			gitWriter, ok := writer.(*writers.GitWriter)
@@ -125,7 +125,7 @@ var _ = Describe("NewGitWriter", func() {
 				"knownHosts":    []byte("github.com ssh-ed25519 AAAAC3NzaC1lZDI1NTE5AAAAIOMqqnkVzrm0SdG6UOoqKLsabgH5C9okWi0dh2l9GKJl"),
 			}
 
-			writer, err := writers.NewGitWriter(logger, stateStoreSpec, dest, creds)
+			writer, err := writers.NewGitWriter(logger, stateStoreSpec, dest.Spec.Path, creds)
 			Expect(err).NotTo(HaveOccurred())
 			Expect(writer).To(BeAssignableToTypeOf(&writers.GitWriter{}))
 			gitWriter, ok := writer.(*writers.GitWriter)

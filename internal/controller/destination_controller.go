@@ -101,7 +101,7 @@ func (r *DestinationReconciler) Reconcile(ctx context.Context, req ctrl.Request)
 		return ctrl.Result{}, nil
 	}
 
-	writer, err := newWriter(opts, *destination)
+	writer, err := newWriter(opts, destination.Spec.StateStoreRef.Name, destination.Spec.StateStoreRef.Kind, destination.Spec.Path)
 	if err != nil {
 		if condErr := r.updateReadyCondition(destination, err); condErr != nil {
 			return ctrl.Result{}, condErr
