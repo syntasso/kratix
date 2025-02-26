@@ -38,6 +38,7 @@ import (
 
 	"github.com/go-logr/logr"
 	"github.com/syntasso/kratix/api/v1alpha1"
+	utils "github.com/syntasso/kratix/lib/test_file_writer"
 	"github.com/syntasso/kratix/lib/writers"
 	ctrl "sigs.k8s.io/controller-runtime"
 	"sigs.k8s.io/controller-runtime/pkg/client"
@@ -101,7 +102,7 @@ func (r *DestinationReconciler) Reconcile(ctx context.Context, req ctrl.Request)
 		return ctrl.Result{}, nil
 	}
 
-	writer, err := newWriter(opts, *destination)
+	writer, err := newWriter(opts, destination.Spec.StateStoreRef.Name, destination.Spec.StateStoreRef.Kind, destination.Spec.Path)
 	if err != nil {
 		if condErr := r.updateReadyCondition(destination, err); condErr != nil {
 			return ctrl.Result{}, condErr
@@ -117,7 +118,13 @@ func (r *DestinationReconciler) Reconcile(ctx context.Context, req ctrl.Request)
 	filePathMode := destination.GetFilepathMode()
 
 	var writeErr error
-	if writeErr = r.writeTestFiles(writer, filePathMode); writeErr != nil {
+	if writeErr = utils.WriteTestFiles(
+		writer,
+		filePathMode,
+		dependenciesDir,
+		resourcesDir,
+		canaryWorkload,
+	); writeErr != nil {
 		logger.Error(writeErr, "unable to write dependencies to state store")
 	}
 
@@ -143,17 +150,6 @@ func (r *DestinationReconciler) needsFinalizerUpdate(destination *v1alpha1.Desti
 		}
 	}
 	return false
-}
-
-func (r *DestinationReconciler) writeTestFiles(writer writers.StateStoreWriter, filePathMode string) error {
-	if err := r.createDependenciesPathWithExample(writer, filePathMode); err != nil {
-		return err
-	}
-
-	if err := r.createResourcePathWithExample(writer, filePathMode); err != nil {
-		return err
-	}
-	return nil
 }
 
 func (r *DestinationReconciler) createResourcePathWithExample(writer writers.StateStoreWriter, filePathMode string) error {

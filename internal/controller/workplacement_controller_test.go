@@ -166,7 +166,7 @@ var _ = Describe("WorkPlacementReconciler", func() {
 
 				controller.SetNewS3Writer(func(_ logr.Logger,
 					stateStoreSpec v1alpha1.BucketStateStoreSpec,
-					destination v1alpha1.Destination,
+					destinationPath string,
 					creds map[string][]byte,
 				) (writers.StateStoreWriter, error) {
 					argBucketStateStoreSpec = stateStoreSpec
@@ -308,7 +308,7 @@ files:
 				setupGitDestination(&gitStateStore, &destination)
 				controller.SetNewGitWriter(func(_ logr.Logger,
 					stateStoreSpec v1alpha1.GitStateStoreSpec,
-					destination v1alpha1.Destination,
+					destinationPath string,
 					creds map[string][]byte,
 				) (writers.StateStoreWriter, error) {
 					argGitStateStoreSpec = stateStoreSpec
@@ -368,7 +368,7 @@ files:
 			setupGitDestination(&gitStateStore, &destination)
 			controller.SetNewGitWriter(func(
 				_ logr.Logger, stateStoreSpec v1alpha1.GitStateStoreSpec,
-				destination v1alpha1.Destination,
+				destinationPath string,
 				creds map[string][]byte,
 			) (writers.StateStoreWriter, error) {
 				argGitStateStoreSpec = stateStoreSpec

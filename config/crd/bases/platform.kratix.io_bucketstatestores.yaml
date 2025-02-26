@@ -89,6 +89,11 @@ spec:
             type: object
           status:
             description: BucketStateStoreStatus defines the observed state of BucketStateStore
+            properties:
+              status:
+                type: string
+            required:
+            - status
             type: object
         type: object
     served: true

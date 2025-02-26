@@ -15,12 +15,12 @@ func SetReconcileDeleteWorkflow(f func(workflow.Opts) (bool, error)) {
 	reconcileDelete = f
 }
 
-func SetNewS3Writer(f func(logger logr.Logger, stateStoreSpec v1alpha1.BucketStateStoreSpec, destination v1alpha1.Destination,
+func SetNewS3Writer(f func(logger logr.Logger, stateStoreSpec v1alpha1.BucketStateStoreSpec, destinationPath string,
 	creds map[string][]byte) (writers.StateStoreWriter, error)) {
 	newS3Writer = f
 }
 
-func SetNewGitWriter(f func(logger logr.Logger, stateStoreSpec v1alpha1.GitStateStoreSpec, destination v1alpha1.Destination,
+func SetNewGitWriter(f func(logger logr.Logger, stateStoreSpec v1alpha1.GitStateStoreSpec, destinationPath string,
 	creds map[string][]byte) (writers.StateStoreWriter, error)) {
 	newGitWriter = f
 }
