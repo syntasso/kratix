@@ -36,10 +36,13 @@ import (
 )
 
 const (
-	PromiseStatusAvailable   = "Available"
-	PromiseStatusUnavailable = "Unavailable"
-	PromisePlural            = "promises"
-	KratixResourceHashLabel  = "kratix.io/hash"
+	PromiseStatusAvailable               = "Available"
+	PromiseStatusUnavailable             = "Unavailable"
+	PromisePlural                        = "promises"
+	KratixResourceHashLabel              = "kratix.io/hash"
+	PromiseAvailableConditionType        = "Available"
+	PromiseAvailableConditionTrueReason  = "PromiseAvailable"
+	PromiseAvailableConditionFalseReason = "PromiseUnavailable"
 )
 
 // PromiseSpec defines the desired state of Promise
