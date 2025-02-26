@@ -174,6 +174,7 @@ func (r *PromiseReconciler) Reconcile(ctx context.Context, req ctrl.Request) (ct
 	//Set status to unavailable, at the end of this function we set it to
 	//available. If at any time we return early, it persisted as unavailable
 	promise.Status.Status = v1alpha1.PromiseStatusUnavailable
+	updateConditionOnPromise(promise, promiseUnavailableStatusCondition(metav1.Time{Time: time.Now()}))
 	requirementsChanged := r.hasPromiseRequirementsChanged(ctx, promise)
 
 	if requirementsChanged && originalStatus == v1alpha1.PromiseStatusAvailable {
@@ -316,10 +317,32 @@ func (r *PromiseReconciler) nextReconciliation(promise *v1alpha1.Promise, logger
 func (r *PromiseReconciler) setPromiseStatusToAvailable(ctx context.Context, promise *v1alpha1.Promise, logger logr.Logger) (ctrl.Result, error) {
 	logger.Info("Promise status being set to Available")
 	promise.Status.Status = v1alpha1.PromiseStatusAvailable
-	promise.Status.LastAvailableTime = &metav1.Time{Time: time.Now()}
+	timestamp := metav1.Time{Time: time.Now()}
+	promise.Status.LastAvailableTime = &timestamp
+	updateConditionOnPromise(promise, promiseAvailableStatusCondition(timestamp))
 
 	r.EventRecorder.Eventf(promise, "Normal", "Available", "Promise is available")
 	return r.updatePromiseStatus(ctx, promise)
+}
+
+func promiseAvailableStatusCondition(lastTransitionTime metav1.Time) metav1.Condition {
+	return metav1.Condition{
+		Type:               v1alpha1.PromiseAvailableConditionType,
+		LastTransitionTime: lastTransitionTime,
+		Status:             metav1.ConditionTrue,
+		Message:            "Ready to fulfil resource requests",
+		Reason:             v1alpha1.PromiseAvailableConditionTrueReason,
+	}
+}
+
+func promiseUnavailableStatusCondition(lastTransitionTime metav1.Time) metav1.Condition {
+	return metav1.Condition{
+		Type:               v1alpha1.PromiseAvailableConditionType,
+		LastTransitionTime: lastTransitionTime,
+		Status:             metav1.ConditionFalse,
+		Message:            "Cannot fulfil resource requests",
+		Reason:             v1alpha1.PromiseAvailableConditionFalseReason,
+	}
 }
 
 func (r *PromiseReconciler) hasPromiseRequirementsChanged(ctx context.Context, promise *v1alpha1.Promise) bool {
