@@ -955,13 +955,8 @@ var _ = Describe("PromiseController", func() {
 
 				Expect(fakeK8sClient.Get(ctx, promiseName, promise)).To(Succeed())
 
-				By("setting the status to unavailable", func() {
-					Expect(promise.Status.Status).To(Equal(v1alpha1.PromiseStatusUnavailable))
-				})
-
-				By("firing an event to indicate the promise is no longer available", func() {
-					Eventually(eventRecorder.Events).Should(Receive(ContainSubstring(
-						"Warning Unavailable Promise no longer available: Scheduled reconciliation")))
+				By("keeping promise as 'Available'", func() {
+					Expect(promise.Status.Status).To(Equal(v1alpha1.PromiseStatusAvailable))
 				})
 
 				By("adding the manual reconciliation label", func() {
