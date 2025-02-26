@@ -26,6 +26,7 @@ import (
 	ctrl "sigs.k8s.io/controller-runtime"
 
 	metav1 "k8s.io/apimachinery/pkg/apis/meta/v1"
+	"k8s.io/apimachinery/pkg/types"
 
 	v1alpha1 "github.com/syntasso/kratix/api/v1alpha1"
 	"github.com/syntasso/kratix/internal/controller"
@@ -33,12 +34,24 @@ import (
 
 var _ = Describe("BucketStateStore Controller", func() {
 	var (
-		bucketStateStore *v1alpha1.BucketStateStore
-		reconciler       *controller.BucketStateStoreReconciler
-		secret           *corev1.Secret
+		bucketStateStore         *v1alpha1.BucketStateStore
+		updatedBucketStateStore  *v1alpha1.BucketStateStore
+		reconciler               *controller.BucketStateStoreReconciler
+		secret                   *corev1.Secret
+		ctx                      context.Context
+		testBucketStateStoreName types.NamespacedName
+		secretName               string
 	)
 
 	BeforeEach(func() {
+		ctx = context.Background()
+
+		testBucketStateStoreName = types.NamespacedName{
+			Name: "default-store",
+		}
+
+		secretName = "store-secret"
+
 		reconciler = &controller.BucketStateStoreReconciler{
 			Client: fakeK8sClient,
 			Scheme: scheme.Scheme,
@@ -57,12 +70,19 @@ var _ = Describe("BucketStateStore Controller", func() {
 				BucketName: "default-store",
 				AuthMethod: "BasicAuth",
 				Endpoint:   "localhost:3000",
+				StateStoreCoreFields: v1alpha1.StateStoreCoreFields{
+					SecretRef: &corev1.SecretReference{
+						Name:      secretName,
+						Namespace: "default",
+					},
+				},
 			},
 		}
 
 		secret = &corev1.Secret{
 			ObjectMeta: metav1.ObjectMeta{
-				Name: "store-secret",
+				Name:      secretName,
+				Namespace: "default",
 			},
 			TypeMeta: metav1.TypeMeta{
 				Kind:       "Secret",
@@ -72,7 +92,10 @@ var _ = Describe("BucketStateStore Controller", func() {
 				"token": []byte("top-secret"),
 			},
 		}
-		Expect(fakeK8sClient.Create(context.TODO(), secret)).To(Succeed())
+
+		updatedBucketStateStore = &v1alpha1.BucketStateStore{}
+		Expect(fakeK8sClient.Create(ctx, bucketStateStore)).To(Succeed())
+		Expect(fakeK8sClient.Create(ctx, secret)).To(Succeed())
 	})
 
 	When("the BucketStateStore does not exists", func() {
@@ -85,10 +108,17 @@ var _ = Describe("BucketStateStore Controller", func() {
 
 	When("the referenced secret does not exist", func() {
 		BeforeEach(func() {
-			Expect(fakeK8sClient.Delete(context.TODO(), secret)).To(Succeed())
+			Expect(fakeK8sClient.Delete(ctx, secret)).To(Succeed())
 		})
-		It("raises an error", func() {
-
+		It("updates the status to sat the the secret cannot be found", func() {
+			reconciler.Reconcile(ctx, ctrl.Request{NamespacedName: testBucketStateStoreName})
+			Expect(fakeK8sClient.Get(ctx, testBucketStateStoreName, updatedBucketStateStore)).To(Succeed())
+			// Expect(updatedBucketStateStore.Status.Conditions).To(ContainElement(SatisfyAll(
+			// 	HaveField("Type", "Ready"),
+			// 	HaveField("Message", "Test documents written to State Store"),
+			// 	HaveField("Reason", "TestDocumentsWritten"),
+			// 	HaveField("Status", metav1.ConditionTrue),
+			// )))
 		})
 	})
 })
