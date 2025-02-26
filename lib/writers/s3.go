@@ -33,7 +33,7 @@ type S3Writer struct {
 func NewS3Writer(
 	logger logr.Logger,
 	stateStoreSpec v1alpha1.BucketStateStoreSpec,
-	destination v1alpha1.Destination,
+	destinationPath string,
 	creds map[string][]byte,
 ) (StateStoreWriter, error) {
 	endpoint := stateStoreSpec.Endpoint
@@ -83,7 +83,7 @@ func NewS3Writer(
 		Log:        logger,
 		RepoClient: minioClient,
 		BucketName: stateStoreSpec.BucketName,
-		Path:       filepath.Join(stateStoreSpec.Path, destination.Spec.Path),
+		Path:       filepath.Join(stateStoreSpec.Path, destinationPath),
 	}, nil
 }
 

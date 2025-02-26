@@ -96,7 +96,7 @@ func (r *WorkPlacementReconciler) Reconcile(ctx context.Context, req ctrl.Reques
 	}
 
 	// Mock this out
-	writer, err := newWriter(opts, *destination)
+	writer, err := newWriter(opts, destination.Spec.StateStoreRef.Name, destination.Spec.StateStoreRef.Kind, destination.Spec.Path)
 	if err != nil {
 		if k8sErrors.IsNotFound(err) {
 			return defaultRequeue, nil
@@ -365,7 +365,7 @@ func (r *WorkPlacementReconciler) handleDeletion(
 	var writer writers.StateStoreWriter
 	if destinationExists {
 		filepathMode = destination.GetFilepathMode()
-		writer, err = newWriter(opts, *destination)
+		writer, err = newWriter(opts, destination.Spec.StateStoreRef.Name, destination.Spec.StateStoreRef.Kind, destination.Spec.Path)
 		if err != nil {
 			return requeueIfNotFound(err)
 		}

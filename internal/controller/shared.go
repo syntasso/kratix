@@ -31,10 +31,10 @@ const (
 )
 
 var (
-	newS3Writer func(logger logr.Logger, stateStoreSpec v1alpha1.BucketStateStoreSpec, destination v1alpha1.Destination,
+	newS3Writer func(logger logr.Logger, stateStoreSpec v1alpha1.BucketStateStoreSpec, destinationPath string,
 		creds map[string][]byte) (writers.StateStoreWriter, error) = writers.NewS3Writer
 
-	newGitWriter func(logger logr.Logger, stateStoreSpec v1alpha1.GitStateStoreSpec, destination v1alpha1.Destination,
+	newGitWriter func(logger logr.Logger, stateStoreSpec v1alpha1.GitStateStoreSpec, destinationPath string,
 		creds map[string][]byte) (writers.StateStoreWriter, error) = writers.NewGitWriter
 )
 
@@ -123,19 +123,14 @@ func fetchObjectAndSecret(o opts, stateStoreRef client.ObjectKey, stateStore Sta
 	return secret, nil
 }
 
-// TODO: refactor to take in the following instead of a Destination:
-// stateStoreName
-// stateStoreKind
-// logger/client/ctx (opts)
-// That way, we can use it in the BucketStateStore and GitStateStore controllers
-func newWriter(o opts, destination v1alpha1.Destination) (writers.StateStoreWriter, error) {
+func newWriter(o opts, stateStoreName, stateStoreKind, destinationPath string) (writers.StateStoreWriter, error) {
 	stateStoreRef := client.ObjectKey{
-		Name: destination.Spec.StateStoreRef.Name,
+		Name: stateStoreName,
 	}
 
 	var writer writers.StateStoreWriter
 	var err error
-	switch destination.Spec.StateStoreRef.Kind {
+	switch stateStoreKind {
 	case "BucketStateStore":
 		stateStore := &v1alpha1.BucketStateStore{}
 		secret, fetchErr := fetchObjectAndSecret(o, stateStoreRef, stateStore)
@@ -147,7 +142,7 @@ func newWriter(o opts, destination v1alpha1.Destination) (writers.StateStoreWrit
 			data = secret.Data
 		}
 
-		writer, err = newS3Writer(o.logger.WithName("writers").WithName("BucketStateStoreWriter"), stateStore.Spec, destination, data)
+		writer, err = newS3Writer(o.logger.WithName("writers").WithName("BucketStateStoreWriter"), stateStore.Spec, destinationPath, data)
 	case "GitStateStore":
 		stateStore := &v1alpha1.GitStateStore{}
 		secret, fetchErr := fetchObjectAndSecret(o, stateStoreRef, stateStore)
@@ -155,9 +150,9 @@ func newWriter(o opts, destination v1alpha1.Destination) (writers.StateStoreWrit
 			return nil, fetchErr
 		}
 
-		writer, err = newGitWriter(o.logger.WithName("writers").WithName("GitStateStoreWriter"), stateStore.Spec, destination, secret.Data)
+		writer, err = newGitWriter(o.logger.WithName("writers").WithName("GitStateStoreWriter"), stateStore.Spec, destinationPath, secret.Data)
 	default:
-		return nil, fmt.Errorf("unsupported kind %s", destination.Spec.StateStoreRef.Kind)
+		return nil, fmt.Errorf("unsupported kind %s", stateStoreKind)
 	}
 
 	if err != nil {

@@ -37,7 +37,7 @@ type gitAuthor struct {
 	Email string
 }
 
-func NewGitWriter(logger logr.Logger, stateStoreSpec v1alpha1.GitStateStoreSpec, destination v1alpha1.Destination, creds map[string][]byte) (StateStoreWriter, error) {
+func NewGitWriter(logger logr.Logger, stateStoreSpec v1alpha1.GitStateStoreSpec, destinationPath string, creds map[string][]byte) (StateStoreWriter, error) {
 	var authMethod transport.AuthMethod
 	switch stateStoreSpec.AuthMethod {
 	case v1alpha1.SSHAuthMethod:
@@ -108,7 +108,7 @@ func NewGitWriter(logger logr.Logger, stateStoreSpec v1alpha1.GitStateStoreSpec,
 		Log: logger,
 		Path: strings.TrimPrefix(path.Join(
 			stateStoreSpec.Path,
-			destination.Spec.Path,
+			destinationPath,
 		), "/"),
 	}, nil
 }
