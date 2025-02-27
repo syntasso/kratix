@@ -211,7 +211,7 @@ var _ = Describe("PromiseController", func() {
 
 					By("starting the dynamic controller", func() {
 						Expect(reconciler.StartedDynamicControllers).To(HaveLen(1))
-						Expect(*reconciler.StartedDynamicControllers["1234abcd"].CanCreateResources).To(BeTrue())
+						Expect(*reconciler.StartedDynamicControllers[promise.GetDynamicControllerName()].CanCreateResources).To(BeTrue())
 					})
 				})
 			})
@@ -268,7 +268,7 @@ var _ = Describe("PromiseController", func() {
 
 					It("prevents RRs being reconciled", func() {
 						Expect(reconciler.StartedDynamicControllers).To(HaveLen(1))
-						Expect(*reconciler.StartedDynamicControllers["1234abcd"].CanCreateResources).To(BeFalse())
+						Expect(*reconciler.StartedDynamicControllers[promise.GetDynamicControllerName()].CanCreateResources).To(BeFalse())
 					})
 				})
 
@@ -427,7 +427,7 @@ var _ = Describe("PromiseController", func() {
 
 							By("starting the dynamic controller", func() {
 								Expect(reconciler.StartedDynamicControllers).To(HaveLen(1))
-								Expect(*reconciler.StartedDynamicControllers["1234abcd"].CanCreateResources).To(BeTrue())
+								Expect(*reconciler.StartedDynamicControllers[promise.GetDynamicControllerName()].CanCreateResources).To(BeTrue())
 							})
 						})
 					})
@@ -501,7 +501,7 @@ var _ = Describe("PromiseController", func() {
 
 					It("prevents RRs being reconciled", func() {
 						Expect(reconciler.StartedDynamicControllers).To(HaveLen(1))
-						Expect(*reconciler.StartedDynamicControllers["1234abcd"].CanCreateResources).To(BeFalse())
+						Expect(*reconciler.StartedDynamicControllers[promise.GetDynamicControllerName()].CanCreateResources).To(BeFalse())
 					})
 
 					It("fires an event to indicate the promise is no longer available", func() {
