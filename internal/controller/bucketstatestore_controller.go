@@ -72,7 +72,7 @@ func (r *BucketStateStoreReconciler) Reconcile(ctx context.Context, req ctrl.Req
 		logger: logger,
 	}
 
-	return validateStateStoreCommon(
+	return reconcileStateStoreCommon(
 		o,
 		bucketStateStore,
 		bucketStateStore.Spec.SecretRef,

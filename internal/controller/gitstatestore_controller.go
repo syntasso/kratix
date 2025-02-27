@@ -73,7 +73,7 @@ func (r *GitStateStoreReconciler) Reconcile(ctx context.Context, req ctrl.Reques
 		logger: logger,
 	}
 
-	return validateStateStoreCommon(
+	return reconcileStateStoreCommon(
 		o,
 		gitStateStore,
 		gitStateStore.Spec.SecretRef,

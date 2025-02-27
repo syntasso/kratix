@@ -195,8 +195,8 @@ func secretRefIndexKey(secretName, secretNamespace string) string {
 	return fmt.Sprintf("%s.%s", secretNamespace, secretName)
 }
 
-// validateStateStoreCommon contains the common logic for state store reconciliation.
-func validateStateStoreCommon[T metav1.Object](
+// reconcileStateStoreCommon contains the common logic for state store reconciliation.
+func reconcileStateStoreCommon[T metav1.Object](
 	o opts,
 	stateStore T,
 	secretRef *corev1.SecretReference,
