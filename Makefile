@@ -209,7 +209,9 @@ test: manifests generate fmt vet ## Run unit tests.
 	go run ${GINKGO} ${GINKGO_FLAGS} -r --coverprofile cover.out --skip-package=system,core
 
 PLATFORM_CLUSTER_NAME ?= platform
-core-test:
+core-test: quick-start run-core-test
+
+run-core-test:
 	cd test/core/assets/workflows/ && docker build -t syntasso/test-bundle-image:v0.1.0 .
 	kind load docker-image syntasso/test-bundle-image:v0.1.0 --name ${PLATFORM_CLUSTER_NAME}
 	go run ${GINKGO} ${GINKGO_FLAGS} test/core/
