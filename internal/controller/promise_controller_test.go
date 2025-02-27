@@ -4,6 +4,7 @@ import (
 	"bytes"
 	"context"
 	"encoding/json"
+	"fmt"
 	"os"
 	"regexp"
 	"strings"
@@ -243,13 +244,15 @@ var _ = Describe("PromiseController", func() {
 					})
 
 					It("updates the status to indicate the dependencies are not installed and the promise is unavailable", func() {
-						Expect(promise.Status.Conditions).To(HaveLen(1))
-						Expect(promise.Status.Conditions[0].Type).To(Equal("RequirementsFulfilled"))
-						Expect(promise.Status.Conditions[0].Status).To(Equal(metav1.ConditionFalse))
-						Expect(promise.Status.Conditions[0].Message).To(Equal("Requirements not fulfilled"))
-						Expect(promise.Status.Conditions[0].Reason).To(Equal("RequirementsNotInstalled"))
-						Expect(promise.Status.Conditions[0].LastTransitionTime).ToNot(BeNil())
+						Expect(promise.Status.Conditions).To(HaveLen(2))
 
+						requirementsCond, condErr := getCondition(promise, "RequirementsFulfilled")
+						Expect(condErr).NotTo(HaveOccurred())
+						Expect(requirementsCond.Type).To(Equal("RequirementsFulfilled"))
+						Expect(requirementsCond.Status).To(Equal(metav1.ConditionFalse))
+						Expect(requirementsCond.Message).To(Equal("Requirements not fulfilled"))
+						Expect(requirementsCond.Reason).To(Equal("RequirementsNotInstalled"))
+						Expect(requirementsCond.LastTransitionTime).ToNot(BeNil())
 						Expect(promise.Status.RequiredPromises).To(ConsistOf(
 							v1alpha1.RequiredPromiseStatus{
 								Name:    "kafka",
@@ -258,6 +261,9 @@ var _ = Describe("PromiseController", func() {
 							},
 						))
 						Expect(promise.Status.Status).To(Equal(v1alpha1.PromiseStatusUnavailable))
+						cond, condErr := getCondition(promise, v1alpha1.PromiseAvailableConditionType)
+						Expect(condErr).NotTo(HaveOccurred())
+						assertPromiseUnavailableCondition(cond)
 					})
 
 					It("prevents RRs being reconciled", func() {
@@ -292,12 +298,15 @@ var _ = Describe("PromiseController", func() {
 						Expect(err).To(MatchError("reconcile loop detected"))
 						Expect(fakeK8sClient.Get(ctx, promiseName, promise)).To(Succeed())
 
-						Expect(promise.Status.Conditions).To(HaveLen(1))
-						Expect(promise.Status.Conditions[0].Type).To(Equal("RequirementsFulfilled"))
-						Expect(promise.Status.Conditions[0].Status).To(Equal(metav1.ConditionFalse))
-						Expect(promise.Status.Conditions[0].Message).To(Equal("Requirements not fulfilled"))
-						Expect(promise.Status.Conditions[0].Reason).To(Equal("RequirementsNotInstalled"))
-						Expect(promise.Status.Conditions[0].LastTransitionTime).ToNot(BeNil())
+						Expect(promise.Status.Conditions).To(HaveLen(2))
+
+						requirementsCond, condErr := getCondition(promise, "RequirementsFulfilled")
+						Expect(condErr).NotTo(HaveOccurred())
+						Expect(requirementsCond.Type).To(Equal("RequirementsFulfilled"))
+						Expect(requirementsCond.Status).To(Equal(metav1.ConditionFalse))
+						Expect(requirementsCond.Message).To(Equal("Requirements not fulfilled"))
+						Expect(requirementsCond.Reason).To(Equal("RequirementsNotInstalled"))
+						Expect(requirementsCond.LastTransitionTime).ToNot(BeNil())
 
 						Expect(promise.Status.RequiredPromises).To(ConsistOf(
 							v1alpha1.RequiredPromiseStatus{
@@ -308,6 +317,9 @@ var _ = Describe("PromiseController", func() {
 						))
 
 						Expect(promise.Status.Status).To(Equal(v1alpha1.PromiseStatusUnavailable))
+						cond, condErr := getCondition(promise, v1alpha1.PromiseAvailableConditionType)
+						Expect(condErr).NotTo(HaveOccurred())
+						assertPromiseUnavailableCondition(cond)
 					})
 				})
 
@@ -338,10 +350,11 @@ var _ = Describe("PromiseController", func() {
 							Expect(err).To(MatchError("reconcile loop detected"))
 							Expect(fakeK8sClient.Get(ctx, promiseName, promise)).To(Succeed())
 
-							Expect(promise.Status.Conditions).To(HaveLen(1))
-							Expect(promise.Status.Conditions[0].Type).To(Equal("RequirementsFulfilled"))
-							Expect(promise.Status.Conditions[0].Status).To(Equal(metav1.ConditionFalse))
-
+							Expect(promise.Status.Conditions).To(HaveLen(2))
+							requirementCond, condErr := getCondition(promise, "RequirementsFulfilled")
+							Expect(condErr).NotTo(HaveOccurred())
+							Expect(requirementCond.Type).To(Equal("RequirementsFulfilled"))
+							Expect(requirementCond.Status).To(Equal(metav1.ConditionFalse))
 							Expect(promise.Status.RequiredPromises).To(ConsistOf(
 								v1alpha1.RequiredPromiseStatus{
 									Name:    "kafka",
@@ -351,6 +364,9 @@ var _ = Describe("PromiseController", func() {
 							))
 
 							Expect(promise.Status.Status).To(Equal(v1alpha1.PromiseStatusUnavailable))
+							cond, condErr := getCondition(promise, v1alpha1.PromiseAvailableConditionType)
+							Expect(condErr).NotTo(HaveOccurred())
+							assertPromiseUnavailableCondition(cond)
 						})
 					})
 
@@ -381,9 +397,12 @@ var _ = Describe("PromiseController", func() {
 							Expect(fakeK8sClient.Get(ctx, promiseName, promise)).To(Succeed())
 
 							By("updating the status to indicate the requirements are fulfilled", func() {
-								Expect(promise.Status.Conditions).To(HaveLen(1))
-								Expect(promise.Status.Conditions[0].Type).To(Equal("RequirementsFulfilled"))
-								Expect(promise.Status.Conditions[0].Status).To(Equal(metav1.ConditionTrue))
+								Expect(promise.Status.Conditions).To(HaveLen(2))
+
+								requirementsCond, condErr := getCondition(promise, "RequirementsFulfilled")
+								Expect(condErr).NotTo(HaveOccurred())
+								Expect(requirementsCond.Type).To(Equal("RequirementsFulfilled"))
+								Expect(requirementsCond.Status).To(Equal(metav1.ConditionTrue))
 
 								Expect(promise.Status.RequiredPromises).To(ConsistOf(
 									v1alpha1.RequiredPromiseStatus{
@@ -396,6 +415,9 @@ var _ = Describe("PromiseController", func() {
 
 							By("updating the status to indicate the promise is available", func() {
 								Expect(promise.Status.Status).To(Equal(v1alpha1.PromiseStatusAvailable))
+								cond, condErr := getCondition(promise, v1alpha1.PromiseAvailableConditionType)
+								Expect(condErr).NotTo(HaveOccurred())
+								assertPromiseAvailableCondition(cond)
 							})
 
 							By("firing an event to indicate the promise is available", func() {
@@ -437,6 +459,9 @@ var _ = Describe("PromiseController", func() {
 						Expect(err).NotTo(HaveOccurred())
 						Expect(fakeK8sClient.Get(ctx, promiseName, promise)).To(Succeed())
 						Expect(promise.Status.Status).To(Equal(v1alpha1.PromiseStatusAvailable))
+						cond, condErr := getCondition(promise, v1alpha1.PromiseAvailableConditionType)
+						Expect(condErr).NotTo(HaveOccurred())
+						assertPromiseAvailableCondition(cond)
 
 						// Make the required Promise unavailable
 						Expect(fakeK8sClient.Get(ctx, requiredPromiseName, requiredPromise)).To(Succeed())
@@ -453,9 +478,12 @@ var _ = Describe("PromiseController", func() {
 					})
 
 					It("updates the status to indicate the requirements are no longer fulfilled", func() {
-						Expect(promise.Status.Conditions).To(HaveLen(1))
-						Expect(promise.Status.Conditions[0].Type).To(Equal("RequirementsFulfilled"))
-						Expect(promise.Status.Conditions[0].Status).To(Equal(metav1.ConditionFalse))
+						Expect(promise.Status.Conditions).To(HaveLen(2))
+
+						requirementsCond, condErr := getCondition(promise, "RequirementsFulfilled")
+						Expect(condErr).NotTo(HaveOccurred())
+						Expect(requirementsCond.Type).To(Equal("RequirementsFulfilled"))
+						Expect(requirementsCond.Status).To(Equal(metav1.ConditionFalse))
 
 						Expect(promise.Status.RequiredPromises).To(ConsistOf(
 							v1alpha1.RequiredPromiseStatus{
@@ -466,6 +494,9 @@ var _ = Describe("PromiseController", func() {
 						))
 
 						Expect(promise.Status.Status).To(Equal(v1alpha1.PromiseStatusUnavailable))
+						cond, condErr := getCondition(promise, v1alpha1.PromiseAvailableConditionType)
+						Expect(condErr).NotTo(HaveOccurred())
+						assertPromiseUnavailableCondition(cond)
 					})
 
 					It("prevents RRs being reconciled", func() {
@@ -957,6 +988,9 @@ var _ = Describe("PromiseController", func() {
 
 				By("keeping promise as 'Available'", func() {
 					Expect(promise.Status.Status).To(Equal(v1alpha1.PromiseStatusAvailable))
+					cond, condErr := getCondition(promise, v1alpha1.PromiseAvailableConditionType)
+					Expect(condErr).NotTo(HaveOccurred())
+					assertPromiseAvailableCondition(cond)
 				})
 
 				By("adding the manual reconciliation label", func() {
@@ -1000,6 +1034,9 @@ var _ = Describe("PromiseController", func() {
 
 					Expect(fakeK8sClient.Get(ctx, promiseName, promise)).To(Succeed())
 					Expect(promise.Status.Status).To(Equal(v1alpha1.PromiseStatusAvailable))
+					cond, condErr := getCondition(promise, v1alpha1.PromiseAvailableConditionType)
+					Expect(condErr).NotTo(HaveOccurred())
+					assertPromiseAvailableCondition(cond)
 				})
 
 				By("firing an event to indicate the promise is available", func() {
@@ -1222,4 +1259,29 @@ func markWorkflowAsCompleted(obj *unstructured.Unstructured) {
 		Reason:             "PipelinesExecutedSuccessfully",
 		LastTransitionTime: metav1.NewTime(time.Now()),
 	})
+}
+
+func getCondition(p *v1alpha1.Promise, condType string) (*metav1.Condition, error) {
+	for _, cond := range p.Status.Conditions {
+		if cond.Type == condType {
+			return &cond, nil
+		}
+	}
+	return nil, fmt.Errorf("cannot find condition of type %s", condType)
+}
+
+func assertPromiseAvailableCondition(cond *metav1.Condition) {
+	ExpectWithOffset(1, cond.Type).To(Equal(v1alpha1.PromiseAvailableConditionType))
+	ExpectWithOffset(1, cond.Status).To(Equal(metav1.ConditionTrue))
+	ExpectWithOffset(1, cond.Message).To(Equal("Ready to fulfil resource requests"))
+	ExpectWithOffset(1, cond.Reason).To(Equal(v1alpha1.PromiseAvailableConditionTrueReason))
+	ExpectWithOffset(1, cond.LastTransitionTime).ToNot(BeNil())
+}
+
+func assertPromiseUnavailableCondition(cond *metav1.Condition) {
+	ExpectWithOffset(1, cond.Type).To(Equal(v1alpha1.PromiseAvailableConditionType))
+	ExpectWithOffset(1, cond.Status).To(Equal(metav1.ConditionFalse))
+	ExpectWithOffset(1, cond.Message).To(Equal("Cannot fulfil resource requests"))
+	ExpectWithOffset(1, cond.Reason).To(Equal(v1alpha1.PromiseAvailableConditionFalseReason))
+	ExpectWithOffset(1, cond.LastTransitionTime).ToNot(BeNil())
 }
