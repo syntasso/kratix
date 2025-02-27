@@ -11,6 +11,7 @@ import (
 	"github.com/syntasso/kratix/api/v1alpha1"
 	"github.com/syntasso/kratix/lib/resourceutil"
 	"github.com/syntasso/kratix/lib/writers"
+	corev1 "k8s.io/api/core/v1"
 	v1 "k8s.io/api/core/v1"
 	"k8s.io/apimachinery/pkg/api/errors"
 	metav1 "k8s.io/apimachinery/pkg/apis/meta/v1"
@@ -24,17 +25,29 @@ import (
 )
 
 const (
-	promiseReleaseNameLabel        = v1alpha1.KratixPrefix + "promise-release-name"
-	removeAllWorkflowJobsFinalizer = v1alpha1.KratixPrefix + "workflows-cleanup"
-	runDeleteWorkflowsFinalizer    = v1alpha1.KratixPrefix + "delete-workflows"
-	DefaultReconciliationInterval  = time.Hour * 10
+	promiseReleaseNameLabel                          = v1alpha1.KratixPrefix + "promise-release-name"
+	removeAllWorkflowJobsFinalizer                   = v1alpha1.KratixPrefix + "workflows-cleanup"
+	runDeleteWorkflowsFinalizer                      = v1alpha1.KratixPrefix + "delete-workflows"
+	DefaultReconciliationInterval                    = time.Hour * 10
+	secretRefFieldName                               = "secretRef"
+	StatusNotReady                                   = "NotReady"
+	StatusReady                                      = "Ready"
+	StateStoreReadyConditionType                     = "Ready"
+	StateStoreReadyConditionReason                   = "StateStoreReady"
+	StateStoreReadyConditionMessage                  = "State store is ready"
+	StateStoreNotReadySecretNotFoundReason           = "SecretNotFound"
+	StateStoreNotReadySecretNotFoundMessage          = "Secret not found"
+	StateStoreNotReadyErrorInitialisingWriterReason  = "ErrorInitialisingWriter"
+	StateStoreNotReadyErrorInitialisingWriterMessage = "Error initialising writer"
+	StateStoreNotReadyErrorWritingTestFileReason     = "ErrorWritingTestFile"
+	StateStoreNotReadyErrorWritingTestFileMessage    = "Error writing test file"
 )
 
 var (
-	newS3Writer func(logger logr.Logger, stateStoreSpec v1alpha1.BucketStateStoreSpec, destination v1alpha1.Destination,
+	newS3Writer func(logger logr.Logger, stateStoreSpec v1alpha1.BucketStateStoreSpec, destinationPath string,
 		creds map[string][]byte) (writers.StateStoreWriter, error) = writers.NewS3Writer
 
-	newGitWriter func(logger logr.Logger, stateStoreSpec v1alpha1.GitStateStoreSpec, destination v1alpha1.Destination,
+	newGitWriter func(logger logr.Logger, stateStoreSpec v1alpha1.GitStateStoreSpec, destinationPath string,
 		creds map[string][]byte) (writers.StateStoreWriter, error) = writers.NewGitWriter
 )
 
@@ -123,14 +136,14 @@ func fetchObjectAndSecret(o opts, stateStoreRef client.ObjectKey, stateStore Sta
 	return secret, nil
 }
 
-func newWriter(o opts, destination v1alpha1.Destination) (writers.StateStoreWriter, error) {
+func newWriter(o opts, stateStoreName, stateStoreKind, destinationPath string) (writers.StateStoreWriter, error) {
 	stateStoreRef := client.ObjectKey{
-		Name: destination.Spec.StateStoreRef.Name,
+		Name: stateStoreName,
 	}
 
 	var writer writers.StateStoreWriter
 	var err error
-	switch destination.Spec.StateStoreRef.Kind {
+	switch stateStoreKind {
 	case "BucketStateStore":
 		stateStore := &v1alpha1.BucketStateStore{}
 		secret, fetchErr := fetchObjectAndSecret(o, stateStoreRef, stateStore)
@@ -142,7 +155,7 @@ func newWriter(o opts, destination v1alpha1.Destination) (writers.StateStoreWrit
 			data = secret.Data
 		}
 
-		writer, err = newS3Writer(o.logger.WithName("writers").WithName("BucketStateStoreWriter"), stateStore.Spec, destination, data)
+		writer, err = newS3Writer(o.logger.WithName("writers").WithName("BucketStateStoreWriter"), stateStore.Spec, destinationPath, data)
 	case "GitStateStore":
 		stateStore := &v1alpha1.GitStateStore{}
 		secret, fetchErr := fetchObjectAndSecret(o, stateStoreRef, stateStore)
@@ -150,9 +163,9 @@ func newWriter(o opts, destination v1alpha1.Destination) (writers.StateStoreWrit
 			return nil, fetchErr
 		}
 
-		writer, err = newGitWriter(o.logger.WithName("writers").WithName("GitStateStoreWriter"), stateStore.Spec, destination, secret.Data)
+		writer, err = newGitWriter(o.logger.WithName("writers").WithName("GitStateStoreWriter"), stateStore.Spec, destinationPath, secret.Data)
 	default:
-		return nil, fmt.Errorf("unsupported kind %s", destination.Spec.StateStoreRef.Kind)
+		return nil, fmt.Errorf("unsupported kind %s", stateStoreKind)
 	}
 
 	if err != nil {
@@ -162,6 +175,60 @@ func newWriter(o opts, destination v1alpha1.Destination) (writers.StateStoreWrit
 	return writer, nil
 }
 
+func writeStateStoreTestFile(writer writers.StateStoreWriter) error {
+	content := fmt.Sprintf("This file tests that Kratix can write to this state store. Last write time: %s", time.Now().String())
+	_, err := writer.UpdateFiles("", "kratix-write-probe", []v1alpha1.Workload{
+		{
+			Filepath: "kratix-write-probe.txt",
+			Content:  content,
+		},
+	}, nil)
+
+	return err
+}
+
 func shortID(id string) string {
 	return id[0:5]
+}
+
+func secretRefIndexKey(secretName, secretNamespace string) string {
+	return fmt.Sprintf("%s.%s", secretNamespace, secretName)
+}
+
+// reconcileStateStoreCommon contains the common logic for state store reconciliation.
+func reconcileStateStoreCommon[T metav1.Object](
+	o opts,
+	stateStore T,
+	secretRef *corev1.SecretReference,
+	resourceType string,
+	updateStatus func(stateStore T, failureReason string, failureMessage string, err error) error,
+) (ctrl.Result, error) {
+	secret := &corev1.Secret{}
+	objectKey := types.NamespacedName{
+		Name:      secretRef.Name,
+		Namespace: secretRef.Namespace,
+	}
+	if err := o.client.Get(o.ctx, objectKey, secret); err != nil {
+		if err := updateStatus(stateStore, StateStoreNotReadySecretNotFoundReason, StateStoreNotReadySecretNotFoundMessage, err); err != nil {
+			o.logger.Error(err, "error updating state store status")
+		}
+		return ctrl.Result{}, err
+	}
+
+	writer, err := newWriter(o, stateStore.GetName(), resourceType, "")
+	if err != nil {
+		if err := updateStatus(stateStore, StateStoreNotReadyErrorInitialisingWriterReason, StateStoreNotReadyErrorInitialisingWriterMessage, err); err != nil {
+			o.logger.Error(err, "error updating state store status")
+		}
+		return ctrl.Result{}, err
+	}
+
+	if err := writeStateStoreTestFile(writer); err != nil {
+		if err := updateStatus(stateStore, StateStoreNotReadyErrorWritingTestFileReason, StateStoreNotReadyErrorWritingTestFileMessage, err); err != nil {
+			o.logger.Error(err, "error updating state store status")
+		}
+		return ctrl.Result{}, err
+	}
+
+	return ctrl.Result{}, updateStatus(stateStore, "", "", nil)
 }

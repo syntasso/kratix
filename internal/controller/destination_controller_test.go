@@ -386,7 +386,7 @@ var stateStoreSetups = map[string]StateStoreSetup{
 		},
 		SetWriter: func(writer writers.StateStoreWriter, err error) {
 			controller.SetNewS3Writer(
-				func(l logr.Logger, s v1alpha1.BucketStateStoreSpec, d v1alpha1.Destination, c map[string][]byte) (writers.StateStoreWriter, error) {
+				func(l logr.Logger, s v1alpha1.BucketStateStoreSpec, d string, c map[string][]byte) (writers.StateStoreWriter, error) {
 					return writer, err
 				},
 			)
@@ -423,7 +423,7 @@ var stateStoreSetups = map[string]StateStoreSetup{
 		},
 		SetWriter: func(writer writers.StateStoreWriter, err error) {
 			controller.SetNewGitWriter(
-				func(l logr.Logger, s v1alpha1.GitStateStoreSpec, d v1alpha1.Destination, c map[string][]byte) (writers.StateStoreWriter, error) {
+				func(l logr.Logger, s v1alpha1.GitStateStoreSpec, d string, c map[string][]byte) (writers.StateStoreWriter, error) {
 					return writer, err
 				},
 			)

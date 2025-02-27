@@ -33,7 +33,7 @@ type S3Writer struct {
 func NewS3Writer(
 	logger logr.Logger,
 	stateStoreSpec v1alpha1.BucketStateStoreSpec,
-	destination v1alpha1.Destination,
+	destinationPath string,
 	creds map[string][]byte,
 ) (StateStoreWriter, error) {
 	endpoint := stateStoreSpec.Endpoint
@@ -59,23 +59,24 @@ func NewS3Writer(
 		}
 		accessKeyID, ok := creds["accessKeyID"]
 		if !ok {
-			return nil, errors.New("missing key accessKeyID")
+			return nil, errors.New("secret is missing key: accessKeyID")
 		}
 
 		secretAccessKey, ok := creds["secretAccessKey"]
 		if !ok {
-			return nil, errors.New("missing key secretAccessKey")
+			return nil, errors.New("secret is missing key: secretAccessKey")
 		}
 		opts.Creds = credentials.NewStaticV4(string(accessKeyID), string(secretAccessKey), "")
 
 	default:
-		return nil, fmt.Errorf("unknown authMethod %s", stateStoreSpec.AuthMethod)
+		return nil, fmt.Errorf("unknown authMethod: %s", stateStoreSpec.AuthMethod)
 	}
 
 	minioClient, err := minio.New(endpoint, opts)
 
 	if err != nil {
 		logger.Error(err, "Error initialising Minio client")
+		err = fmt.Errorf("error initialising S3 client: %w", err)
 		return nil, err
 	}
 
@@ -83,7 +84,7 @@ func NewS3Writer(
 		Log:        logger,
 		RepoClient: minioClient,
 		BucketName: stateStoreSpec.BucketName,
-		Path:       filepath.Join(stateStoreSpec.Path, destination.Spec.Path),
+		Path:       filepath.Join(stateStoreSpec.Path, destinationPath),
 	}, nil
 }
 

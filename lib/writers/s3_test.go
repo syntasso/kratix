@@ -48,7 +48,7 @@ var _ = Describe("S3", func() {
 					"accessKeyID":     []byte("accessKeyID"),
 					"secretAccessKey": []byte("secretAccessKey"),
 				}
-				w, err := writers.NewS3Writer(logger, stateStoreSpec, dest, creds)
+				w, err := writers.NewS3Writer(logger, stateStoreSpec, dest.Spec.Path, creds)
 				Expect(err).NotTo(HaveOccurred())
 				Expect(w).NotTo(BeNil())
 
@@ -72,7 +72,7 @@ var _ = Describe("S3", func() {
 					"accessKeyID":     []byte("accessKeyID"),
 					"secretAccessKey": []byte("secretAccessKey"),
 				}
-				_, err := writers.NewS3Writer(logger, stateStoreSpec, dest, creds)
+				_, err := writers.NewS3Writer(logger, stateStoreSpec, dest.Spec.Path, creds)
 				Expect(err).NotTo(HaveOccurred())
 			})
 
@@ -83,7 +83,7 @@ var _ = Describe("S3", func() {
 						"secretAccessKey": []byte("secretAccessKey"),
 					}
 					stateStoreSpec.AuthMethod = ""
-					_, err := writers.NewS3Writer(logger, stateStoreSpec, dest, creds)
+					_, err := writers.NewS3Writer(logger, stateStoreSpec, dest.Spec.Path, creds)
 					Expect(err).NotTo(HaveOccurred())
 				})
 			})
@@ -94,8 +94,8 @@ var _ = Describe("S3", func() {
 						"secretAccessKey": []byte("secretAccessKey"),
 					}
 
-					_, err := writers.NewS3Writer(logger, stateStoreSpec, dest, creds)
-					Expect(err).To(MatchError("missing key accessKeyID"))
+					_, err := writers.NewS3Writer(logger, stateStoreSpec, dest.Spec.Path, creds)
+					Expect(err).To(MatchError("secret is missing key: accessKeyID"))
 				})
 			})
 
@@ -105,14 +105,14 @@ var _ = Describe("S3", func() {
 						"accessKeyID": []byte("accessKeyID"),
 					}
 
-					_, err := writers.NewS3Writer(logger, stateStoreSpec, dest, creds)
-					Expect(err).To(MatchError("missing key secretAccessKey"))
+					_, err := writers.NewS3Writer(logger, stateStoreSpec, dest.Spec.Path, creds)
+					Expect(err).To(MatchError("secret is missing key: secretAccessKey"))
 				})
 			})
 
 			When("creds is missing", func() {
 				It("errors", func() {
-					_, err := writers.NewS3Writer(logger, stateStoreSpec, dest, nil)
+					_, err := writers.NewS3Writer(logger, stateStoreSpec, dest.Spec.Path, nil)
 					Expect(err).To(MatchError("secret not provided"))
 				})
 			})
@@ -124,7 +124,7 @@ var _ = Describe("S3", func() {
 			})
 
 			It("should return a valid S3Writer", func() {
-				_, err := writers.NewS3Writer(logger, stateStoreSpec, dest, nil)
+				_, err := writers.NewS3Writer(logger, stateStoreSpec, dest.Spec.Path, nil)
 				Expect(err).NotTo(HaveOccurred())
 			})
 		})
@@ -135,8 +135,8 @@ var _ = Describe("S3", func() {
 			})
 
 			It("should return a valid S3Writer", func() {
-				_, err := writers.NewS3Writer(logger, stateStoreSpec, dest, nil)
-				Expect(err).To(MatchError("unknown authMethod foo"))
+				_, err := writers.NewS3Writer(logger, stateStoreSpec, dest.Spec.Path, nil)
+				Expect(err).To(MatchError("unknown authMethod: foo"))
 			})
 		})
 
