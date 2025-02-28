@@ -163,6 +163,34 @@ var _ = Describe("GitStateStore Controller", func() {
 			})
 		})
 
+		When("the GitStateStore has no secretRef", func() {
+			BeforeEach(func() {
+				gitStateStore.Spec.SecretRef = nil
+				Expect(fakeK8sClient.Update(ctx, gitStateStore)).To(Succeed())
+
+				result, err = t.reconcileUntilCompletion(reconciler, gitStateStore)
+			})
+
+			It("updates the status to say the secretRef is empty", func() {
+				Expect(err).To(MatchError(ContainSubstring("secretRef is empty")))
+				Expect(result).To(Equal(ctrl.Result{}))
+
+				Expect(fakeK8sClient.Get(ctx, testGitStateStoreName, updatedGitStateStore)).To(Succeed())
+				Expect(updatedGitStateStore.Status.Status).To(Equal(controller.StatusNotReady))
+				Expect(updatedGitStateStore.Status.Conditions).To(ContainElement(SatisfyAll(
+					HaveField("Type", "Ready"),
+					HaveField("Message", "Could not fetch Secret: secretRef is empty"),
+					HaveField("Reason", "ErrorFetchingSecret"),
+					HaveField("Status", metav1.ConditionFalse),
+				)))
+			})
+
+			It("fires an event to indicate the secretRef is empty", func() {
+				Eventually(eventRecorder.Events).Should(Receive(ContainSubstring(
+					"Warning NotReady GitStateStore \"default-store\" is not ready: Could not fetch Secret: secretRef is empty")))
+			})
+		})
+
 		When("the referenced secret does not exist", func() {
 			BeforeEach(func() {
 				Expect(fakeK8sClient.Delete(ctx, secret)).To(Succeed())

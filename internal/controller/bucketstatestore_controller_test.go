@@ -164,6 +164,34 @@ var _ = Describe("BucketStateStore Controller", func() {
 			})
 		})
 
+		When("the BucketStateStore has no secretRef", func() {
+			BeforeEach(func() {
+				bucketStateStore.Spec.SecretRef = nil
+				Expect(fakeK8sClient.Update(ctx, bucketStateStore)).To(Succeed())
+
+				result, err = t.reconcileUntilCompletion(reconciler, bucketStateStore)
+			})
+
+			It("updates the status to say the secretRef is empty", func() {
+				Expect(err).To(MatchError(ContainSubstring("secretRef is empty")))
+				Expect(result).To(Equal(ctrl.Result{}))
+
+				Expect(fakeK8sClient.Get(ctx, testBucketStateStoreName, updatedBucketStateStore)).To(Succeed())
+				Expect(updatedBucketStateStore.Status.Status).To(Equal(controller.StatusNotReady))
+				Expect(updatedBucketStateStore.Status.Conditions).To(ContainElement(SatisfyAll(
+					HaveField("Type", "Ready"),
+					HaveField("Message", "Could not fetch Secret: secretRef is empty"),
+					HaveField("Reason", "ErrorFetchingSecret"),
+					HaveField("Status", metav1.ConditionFalse),
+				)))
+			})
+
+			It("fires an event to indicate the secretRef is empty", func() {
+				Eventually(eventRecorder.Events).Should(Receive(ContainSubstring(
+					"Warning NotReady BucketStateStore \"default-store\" is not ready: Could not fetch Secret: secretRef is empty")))
+			})
+		})
+
 		When("the referenced secret does not exist", func() {
 			BeforeEach(func() {
 				Expect(fakeK8sClient.Delete(ctx, secret)).To(Succeed())
