@@ -19,15 +19,11 @@ package controller
 
 import (
 	"context"
-	"fmt"
 
 	"github.com/go-logr/logr"
 	"github.com/syntasso/kratix/api/v1alpha1"
 	corev1 "k8s.io/api/core/v1"
-	v1 "k8s.io/api/core/v1"
 	"k8s.io/apimachinery/pkg/api/errors"
-	"k8s.io/apimachinery/pkg/api/meta"
-	metav1 "k8s.io/apimachinery/pkg/apis/meta/v1"
 	"k8s.io/apimachinery/pkg/runtime"
 	"k8s.io/apimachinery/pkg/types"
 	"k8s.io/client-go/tools/record"
@@ -77,45 +73,8 @@ func (r *GitStateStoreReconciler) Reconcile(ctx context.Context, req ctrl.Reques
 		o,
 		gitStateStore,
 		"GitStateStore",
-		r.updateReadyStatusAndCondition,
+		r.EventRecorder,
 	)
-}
-
-func (r *GitStateStoreReconciler) updateReadyStatusAndCondition(gitStateStore *v1alpha1.GitStateStore, failureReason, failureMessage string, err error) error {
-	eventType := v1.EventTypeNormal
-	eventReason := "Ready"
-	eventMessage := fmt.Sprintf("GitStateStore %q is ready", gitStateStore.Name)
-
-	condition := metav1.Condition{
-		Type:    StateStoreReadyConditionType,
-		Reason:  StateStoreReadyConditionReason,
-		Message: StateStoreReadyConditionMessage,
-		Status:  metav1.ConditionTrue,
-	}
-
-	gitStateStore.Status.Status = StatusReady
-
-	if failureReason != "" {
-		gitStateStore.Status.Status = StatusNotReady
-
-		condition.Status = metav1.ConditionFalse
-		condition.Reason = failureReason
-		condition.Message = fmt.Sprintf("%s: %s", failureMessage, err)
-
-		// Update event parameters for failure
-		eventType = v1.EventTypeWarning
-		eventReason = "NotReady"
-		eventMessage = fmt.Sprintf("GitStateStore %q is not ready: %s: %s", gitStateStore.Name, failureMessage, err)
-	}
-
-	changed := meta.SetStatusCondition(&gitStateStore.Status.Conditions, condition)
-	if !changed {
-		return nil
-	}
-
-	r.EventRecorder.Eventf(gitStateStore, eventType, eventReason, eventMessage)
-
-	return r.Client.Status().Update(context.Background(), gitStateStore)
 }
 
 func (r *GitStateStoreReconciler) findStateStoresReferencingSecret() handler.MapFunc {

@@ -13,11 +13,13 @@ import (
 	"github.com/syntasso/kratix/lib/writers"
 	v1 "k8s.io/api/core/v1"
 	"k8s.io/apimachinery/pkg/api/errors"
+	"k8s.io/apimachinery/pkg/api/meta"
 	metav1 "k8s.io/apimachinery/pkg/apis/meta/v1"
 	"k8s.io/apimachinery/pkg/apis/meta/v1/unstructured"
 	"k8s.io/apimachinery/pkg/labels"
 	"k8s.io/apimachinery/pkg/runtime/schema"
 	"k8s.io/apimachinery/pkg/types"
+	"k8s.io/client-go/tools/record"
 	ctrl "sigs.k8s.io/controller-runtime"
 	"sigs.k8s.io/controller-runtime/pkg/client"
 	"sigs.k8s.io/controller-runtime/pkg/controller/controllerutil"
@@ -50,6 +52,9 @@ var (
 
 type StateStore interface {
 	client.Object
+	GetName() string
+	GetStatus() *v1alpha1.StateStoreStatus
+	SetStatus(status v1alpha1.StateStoreStatus)
 	GetSecretRef() *v1.SecretReference
 }
 
@@ -196,26 +201,69 @@ func secretRefIndexKey(secretName, secretNamespace string) string {
 }
 
 // reconcileStateStoreCommon contains the common logic for state store reconciliation.
-func reconcileStateStoreCommon[T metav1.Object](
+func reconcileStateStoreCommon(
 	o opts,
-	stateStore T,
+	stateStore StateStore,
 	resourceType string,
-	updateStatus func(stateStore T, failureReason string, failureMessage string, err error) error,
+	eventRecorder record.EventRecorder,
 ) (ctrl.Result, error) {
 	writer, err := newWriter(o, stateStore.GetName(), resourceType, "")
 	if err != nil {
-		if err := updateStatus(stateStore, StateStoreNotReadyErrorInitialisingWriterReason, StateStoreNotReadyErrorInitialisingWriterMessage, err); err != nil {
+		if err := updateStateStoreReadyStatusAndCondition(o, eventRecorder, stateStore, StateStoreNotReadyErrorInitialisingWriterReason, StateStoreNotReadyErrorInitialisingWriterMessage, err); err != nil {
 			o.logger.Error(err, "error updating state store status")
 		}
 		return ctrl.Result{}, err
 	}
 
 	if err := writeStateStoreTestFile(writer); err != nil {
-		if err := updateStatus(stateStore, StateStoreNotReadyErrorWritingTestFileReason, StateStoreNotReadyErrorWritingTestFileMessage, err); err != nil {
+		if err := updateStateStoreReadyStatusAndCondition(o, eventRecorder, stateStore, StateStoreNotReadyErrorWritingTestFileReason, StateStoreNotReadyErrorWritingTestFileMessage, err); err != nil {
 			o.logger.Error(err, "error updating state store status")
 		}
 		return ctrl.Result{}, err
 	}
 
-	return ctrl.Result{}, updateStatus(stateStore, "", "", nil)
+	return ctrl.Result{}, updateStateStoreReadyStatusAndCondition(o, eventRecorder, stateStore, "", "", nil)
+}
+
+func updateStateStoreReadyStatusAndCondition(o opts, eventRecorder record.EventRecorder, stateStore StateStore, failureReason, failureMessage string, err error) error {
+	stateStoreKind := stateStore.GetObjectKind().GroupVersionKind().Kind
+
+	eventType := v1.EventTypeNormal
+	eventReason := "Ready"
+	eventMessage := fmt.Sprintf("%s %q is ready", stateStoreKind, stateStore.GetName())
+
+	condition := metav1.Condition{
+		Type:    StateStoreReadyConditionType,
+		Reason:  StateStoreReadyConditionReason,
+		Message: StateStoreReadyConditionMessage,
+		Status:  metav1.ConditionTrue,
+	}
+
+	originalStatus := stateStore.GetStatus()
+	stateStoreStatus := originalStatus.DeepCopy()
+	stateStoreStatus.Status = StatusReady
+
+	if failureReason != "" {
+		stateStoreStatus.Status = StatusNotReady
+
+		condition.Status = metav1.ConditionFalse
+		condition.Reason = failureReason
+		condition.Message = fmt.Sprintf("%s: %s", failureMessage, err)
+
+		// Update event parameters for failure
+		eventType = v1.EventTypeWarning
+		eventReason = "NotReady"
+		eventMessage = fmt.Sprintf("%s %q is not ready: %s: %s", stateStoreKind, stateStore.GetName(), failureMessage, err)
+	}
+
+	changed := meta.SetStatusCondition(&stateStoreStatus.Conditions, condition)
+	if !changed {
+		return nil
+	}
+
+	eventRecorder.Eventf(stateStore, eventType, eventReason, eventMessage)
+
+	stateStore.SetStatus(*stateStoreStatus)
+
+	return o.client.Status().Update(context.Background(), stateStore)
 }
