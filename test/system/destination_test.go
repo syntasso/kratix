@@ -41,6 +41,24 @@ var _ = Describe("Destinations", func() {
 		})
 
 		It("properly set the conditions and events", func() {
+			// The test uses the destination-test-store BucketStateStore for testing most
+			// of the logic, but we still need to check that the GitStateStore becomes
+			// ready in case there are git-specific issues with checking readiness.
+			By("showing `Ready` as true in the default GitStateStore", func() {
+				Eventually(func() string {
+					return platform.Kubectl("get", "gitstatestores", "default")
+				}).Should(ContainSubstring("True"))
+			})
+
+			By("firing the success event to the default GitStateStore", func() {
+				Eventually(func() string {
+					describeOutput := strings.Split(platform.Kubectl("describe", "gitstatestores", "default"), "\n")
+					return describeOutput[len(describeOutput)-2]
+				}).Should(ContainSubstring("GitStateStore \"default\" is ready"))
+			})
+
+			// The reconciliation logic is common to both types of state stores, so we
+			// can just test the BucketStateStore from now on.
 			By("showing `Ready` as true in the State Store", func() {
 				Eventually(func() string {
 					return platform.Kubectl("get", "bucketstatestores", "destination-test-store")
