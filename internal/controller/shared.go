@@ -11,7 +11,6 @@ import (
 	"github.com/syntasso/kratix/api/v1alpha1"
 	"github.com/syntasso/kratix/lib/resourceutil"
 	"github.com/syntasso/kratix/lib/writers"
-	corev1 "k8s.io/api/core/v1"
 	v1 "k8s.io/api/core/v1"
 	"k8s.io/apimachinery/pkg/api/errors"
 	metav1 "k8s.io/apimachinery/pkg/apis/meta/v1"
@@ -35,8 +34,6 @@ const (
 	StateStoreReadyConditionType                     = "Ready"
 	StateStoreReadyConditionReason                   = "StateStoreReady"
 	StateStoreReadyConditionMessage                  = "State store is ready"
-	StateStoreNotReadySecretErrorReason              = "ErrorFetchingSecret"
-	StateStoreNotReadySecretErrorMessage             = "Could not fetch Secret"
 	StateStoreNotReadyErrorInitialisingWriterReason  = "ErrorInitialisingWriter"
 	StateStoreNotReadyErrorInitialisingWriterMessage = "Error initialising writer"
 	StateStoreNotReadyErrorWritingTestFileReason     = "ErrorWritingTestFile"
@@ -130,6 +127,9 @@ func fetchObjectAndSecret(o opts, stateStoreRef client.ObjectKey, stateStore Sta
 
 	if err := o.client.Get(o.ctx, secretRef, secret); err != nil {
 		o.logger.Error(err, "unable to fetch resource", "resourceKind", stateStore.GetObjectKind(), "secretRef", secretRef)
+		if errors.IsNotFound(err) {
+			err = fmt.Errorf("secret %q not found in namespace %q", secretRef.Name, namespace)
+		}
 		return nil, err
 	}
 
@@ -199,39 +199,9 @@ func secretRefIndexKey(secretName, secretNamespace string) string {
 func reconcileStateStoreCommon[T metav1.Object](
 	o opts,
 	stateStore T,
-	secretRef *corev1.SecretReference,
 	resourceType string,
 	updateStatus func(stateStore T, failureReason string, failureMessage string, err error) error,
 ) (ctrl.Result, error) {
-	if secretRef == nil {
-		err := fmt.Errorf("secretRef is empty")
-		if err := updateStatus(stateStore, StateStoreNotReadySecretErrorReason, StateStoreNotReadySecretErrorMessage, err); err != nil {
-			o.logger.Error(err, "error updating state store status")
-		}
-		return ctrl.Result{}, err
-	}
-
-	namespace := secretRef.Namespace
-	if namespace == "" {
-		namespace = "default"
-	}
-
-	objectKey := types.NamespacedName{
-		Name:      secretRef.Name,
-		Namespace: namespace,
-	}
-
-	secret := &corev1.Secret{}
-	if err := o.client.Get(o.ctx, objectKey, secret); err != nil {
-		if errors.IsNotFound(err) {
-			err = fmt.Errorf("secret %q not found in namespace %q", secretRef.Name, namespace)
-		}
-		if err := updateStatus(stateStore, StateStoreNotReadySecretErrorReason, StateStoreNotReadySecretErrorMessage, err); err != nil {
-			o.logger.Error(err, "error updating state store status")
-		}
-		return ctrl.Result{}, err
-	}
-
 	writer, err := newWriter(o, stateStore.GetName(), resourceType, "")
 	if err != nil {
 		if err := updateStatus(stateStore, StateStoreNotReadyErrorInitialisingWriterReason, StateStoreNotReadyErrorInitialisingWriterMessage, err); err != nil {

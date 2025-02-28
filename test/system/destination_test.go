@@ -129,7 +129,7 @@ var _ = Describe("Destinations", func() {
 				Eventually(func() string {
 					describeOutput := strings.Split(platform.Kubectl("describe", "bucketstatestores", "destination-test-store"), "\n")
 					return describeOutput[len(describeOutput)-2]
-				}).Should(ContainSubstring("Could not fetch Secret"))
+				}).Should(ContainSubstring("Error initialising writer: secret \"non-existent-secret\" not found in namespace \"default\""))
 			})
 
 			By("showing `Ready` as False in the Destination when the State Store secret does not exist", func() {
