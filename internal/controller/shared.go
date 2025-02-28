@@ -119,7 +119,7 @@ func fetchObjectAndSecret(o opts, stateStoreRef client.ObjectKey, stateStore Sta
 
 	namespace := stateStore.GetSecretRef().Namespace
 	if namespace == "" {
-		namespace = v1alpha1.SystemNamespace
+		namespace = "default"
 	}
 
 	secret := &v1.Secret{}
