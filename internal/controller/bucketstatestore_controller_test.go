@@ -192,6 +192,23 @@ var _ = Describe("BucketStateStore Controller", func() {
 			})
 		})
 
+		When("the secretRef has no namespace", func() {
+			BeforeEach(func() {
+				bucketStateStore.Spec.SecretRef.Namespace = ""
+				Expect(fakeK8sClient.Update(ctx, bucketStateStore)).To(Succeed())
+
+				result, err = t.reconcileUntilCompletion(reconciler, bucketStateStore)
+			})
+
+			It("fetches the secret from the default namespace", func() {
+				Expect(err).NotTo(HaveOccurred())
+				Expect(result).To(Equal(ctrl.Result{}))
+
+				Expect(fakeK8sClient.Get(ctx, testBucketStateStoreName, updatedBucketStateStore)).To(Succeed())
+				Expect(updatedBucketStateStore.Status.Status).To(Equal(controller.StatusReady))
+			})
+		})
+
 		When("the referenced secret does not exist", func() {
 			BeforeEach(func() {
 				Expect(fakeK8sClient.Delete(ctx, secret)).To(Succeed())

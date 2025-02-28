@@ -211,15 +211,20 @@ func reconcileStateStoreCommon[T metav1.Object](
 		return ctrl.Result{}, err
 	}
 
+	namespace := secretRef.Namespace
+	if namespace == "" {
+		namespace = "default"
+	}
+
 	objectKey := types.NamespacedName{
 		Name:      secretRef.Name,
-		Namespace: secretRef.Namespace,
+		Namespace: namespace,
 	}
 
 	secret := &corev1.Secret{}
 	if err := o.client.Get(o.ctx, objectKey, secret); err != nil {
 		if errors.IsNotFound(err) {
-			err = fmt.Errorf("secret %q not found in namespace %q", secretRef.Name, secretRef.Namespace)
+			err = fmt.Errorf("secret %q not found in namespace %q", secretRef.Name, namespace)
 		}
 		if err := updateStatus(stateStore, StateStoreNotReadySecretErrorReason, StateStoreNotReadySecretErrorMessage, err); err != nil {
 			o.logger.Error(err, "error updating state store status")

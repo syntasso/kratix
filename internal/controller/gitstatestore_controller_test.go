@@ -191,6 +191,23 @@ var _ = Describe("GitStateStore Controller", func() {
 			})
 		})
 
+		When("the secretRef has no namespace", func() {
+			BeforeEach(func() {
+				gitStateStore.Spec.SecretRef.Namespace = ""
+				Expect(fakeK8sClient.Update(ctx, gitStateStore)).To(Succeed())
+
+				result, err = t.reconcileUntilCompletion(reconciler, gitStateStore)
+			})
+
+			It("fetches the secret from the default namespace", func() {
+				Expect(err).NotTo(HaveOccurred())
+				Expect(result).To(Equal(ctrl.Result{}))
+
+				Expect(fakeK8sClient.Get(ctx, testGitStateStoreName, updatedGitStateStore)).To(Succeed())
+				Expect(updatedGitStateStore.Status.Status).To(Equal(controller.StatusReady))
+			})
+		})
+
 		When("the referenced secret does not exist", func() {
 			BeforeEach(func() {
 				Expect(fakeK8sClient.Delete(ctx, secret)).To(Succeed())
