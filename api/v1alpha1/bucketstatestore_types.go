@@ -41,12 +41,6 @@ type BucketStateStoreSpec struct {
 	AuthMethod string `json:"authMethod,omitempty"`
 }
 
-// BucketStateStoreStatus defines the observed state of BucketStateStore
-type BucketStateStoreStatus struct {
-	Status     string             `json:"status"`
-	Conditions []metav1.Condition `json:"conditions,omitempty"`
-}
-
 //+kubebuilder:object:root=true
 //+kubebuilder:subresource:status
 //+kubebuilder:resource:scope=Cluster,path=bucketstatestores,categories=kratix
@@ -57,12 +51,20 @@ type BucketStateStore struct {
 	metav1.TypeMeta   `json:",inline"`
 	metav1.ObjectMeta `json:"metadata,omitempty"`
 
-	Spec   BucketStateStoreSpec   `json:"spec,omitempty"`
-	Status BucketStateStoreStatus `json:"status,omitempty"`
+	Spec   BucketStateStoreSpec `json:"spec,omitempty"`
+	Status StateStoreStatus     `json:"status,omitempty"`
 }
 
 func (b *BucketStateStore) GetSecretRef() *corev1.SecretReference {
 	return b.Spec.SecretRef
+}
+
+func (b *BucketStateStore) GetStatus() *StateStoreStatus {
+	return &b.Status
+}
+
+func (b *BucketStateStore) SetStatus(status StateStoreStatus) {
+	b.Status = status
 }
 
 //+kubebuilder:object:root=true
