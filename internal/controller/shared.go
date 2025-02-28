@@ -35,8 +35,8 @@ const (
 	StateStoreReadyConditionType                     = "Ready"
 	StateStoreReadyConditionReason                   = "StateStoreReady"
 	StateStoreReadyConditionMessage                  = "State store is ready"
-	StateStoreNotReadySecretNotFoundReason           = "SecretNotFound"
-	StateStoreNotReadySecretNotFoundMessage          = "Secret not found"
+	StateStoreNotReadySecretErrorReason              = "ErrorFetchingSecret"
+	StateStoreNotReadySecretErrorMessage             = "Could not fetch Secret"
 	StateStoreNotReadyErrorInitialisingWriterReason  = "ErrorInitialisingWriter"
 	StateStoreNotReadyErrorInitialisingWriterMessage = "Error initialising writer"
 	StateStoreNotReadyErrorWritingTestFileReason     = "ErrorWritingTestFile"
@@ -209,7 +209,10 @@ func reconcileStateStoreCommon[T metav1.Object](
 		Namespace: secretRef.Namespace,
 	}
 	if err := o.client.Get(o.ctx, objectKey, secret); err != nil {
-		if err := updateStatus(stateStore, StateStoreNotReadySecretNotFoundReason, StateStoreNotReadySecretNotFoundMessage, err); err != nil {
+		if errors.IsNotFound(err) {
+			err = fmt.Errorf("secret %q not found in namespace %q", secretRef.Name, secretRef.Namespace)
+		}
+		if err := updateStatus(stateStore, StateStoreNotReadySecretErrorReason, StateStoreNotReadySecretErrorMessage, err); err != nil {
 			o.logger.Error(err, "error updating state store status")
 		}
 		return ctrl.Result{}, err

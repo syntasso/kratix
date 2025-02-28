@@ -111,7 +111,7 @@ var _ = Describe("Destinations", func() {
 				Eventually(func() string {
 					describeOutput := strings.Split(platform.Kubectl("describe", "bucketstatestores", "destination-test-store"), "\n")
 					return describeOutput[len(describeOutput)-2]
-				}).Should(ContainSubstring("Secret not found"))
+				}).Should(ContainSubstring("Could not fetch Secret"))
 			})
 
 			By("showing `Ready` as False in the Destination when the State Store secret does not exist", func() {
