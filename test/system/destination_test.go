@@ -146,7 +146,11 @@ var _ = Describe("Destinations", func() {
 			})
 
 			// restore the ready condition
-			platform.Kubectl("apply", "-f", "assets/destination/destination-test-store.yaml")
+			if os.Getenv("LRE") == "true" {
+				platform.Kubectl("patch", "bucketstatestore", "destination-test-store", "--type=merge", "-p", `{"spec":{"secretRef":{"name":"aws-s3-credentials"}}}`)
+			} else {
+				platform.Kubectl("apply", "-f", "assets/destination/destination-test-store.yaml")
+			}
 
 			By("showing `Ready` as true in the State Store", func() {
 				Eventually(func() string {
