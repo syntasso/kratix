@@ -75,7 +75,6 @@ func (r *BucketStateStoreReconciler) Reconcile(ctx context.Context, req ctrl.Req
 	return reconcileStateStoreCommon(
 		o,
 		bucketStateStore,
-		bucketStateStore.Spec.SecretRef,
 		"BucketStateStore",
 		r.updateReadyStatusAndCondition,
 	)

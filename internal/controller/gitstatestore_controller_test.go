@@ -163,36 +163,6 @@ var _ = Describe("GitStateStore Controller", func() {
 			})
 		})
 
-		When("the referenced secret does not exist", func() {
-			BeforeEach(func() {
-				Expect(fakeK8sClient.Delete(ctx, secret)).To(Succeed())
-
-				gitStateStore.Status.Status = controller.StatusReady
-				Expect(fakeK8sClient.Status().Update(ctx, gitStateStore)).To(Succeed())
-
-				result, err = t.reconcileUntilCompletion(reconciler, gitStateStore)
-			})
-
-			It("updates the status to say the the secret cannot be found", func() {
-				Expect(err).To(MatchError(ContainSubstring("secrets \"store-secret\" not found")))
-				Expect(result).To(Equal(ctrl.Result{}))
-
-				Expect(fakeK8sClient.Get(ctx, testGitStateStoreName, updatedGitStateStore)).To(Succeed())
-				Expect(updatedGitStateStore.Status.Status).To(Equal(controller.StatusNotReady))
-				Expect(updatedGitStateStore.Status.Conditions).To(ContainElement(SatisfyAll(
-					HaveField("Type", "Ready"),
-					HaveField("Message", "Secret not found: secrets \"store-secret\" not found"),
-					HaveField("Reason", "SecretNotFound"),
-					HaveField("Status", metav1.ConditionFalse),
-				)))
-			})
-
-			It("fires an event to indicate the secret cannot be found", func() {
-				Eventually(eventRecorder.Events).Should(Receive(ContainSubstring(
-					"Warning NotReady GitStateStore \"default-store\" is not ready: Secret not found: secrets \"store-secret\" not found")))
-			})
-		})
-
 		When("the writer fails to initialise", func() {
 			BeforeEach(func() {
 				gitStateStore.Status.Status = controller.StatusReady

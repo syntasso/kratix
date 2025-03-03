@@ -196,7 +196,7 @@ var _ = Describe("DestinationReconciler", func() {
 					})
 
 					It("fails the reconciliation", func() {
-						Expect(reconcileErr).To(MatchError(ContainSubstring("secrets %q not found", stateStoreSecret.GetName())))
+						Expect(reconcileErr).To(MatchError(ContainSubstring("secret %q not found in namespace %q", stateStoreSecret.GetName(), stateStoreSecret.GetNamespace())))
 						Expect(result).To(Equal(ctrl.Result{}))
 					})
 
@@ -211,8 +211,8 @@ var _ = Describe("DestinationReconciler", func() {
 
 					It("publishes a failure event", func() {
 						Expect(eventRecorder.Events).To(Receive(ContainSubstring(
-							"Failed to write test documents to Destination %q: secrets %q not found", testDestination.Name, stateStoreSecret.GetName(),
-						)))
+							"Failed to write test documents to Destination %q: secret %q not found in namespace %q", testDestination.Name, stateStoreSecret.GetName(), stateStoreSecret.GetNamespace()),
+						))
 					})
 				})
 

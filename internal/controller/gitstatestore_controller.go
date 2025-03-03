@@ -76,7 +76,6 @@ func (r *GitStateStoreReconciler) Reconcile(ctx context.Context, req ctrl.Reques
 	return reconcileStateStoreCommon(
 		o,
 		gitStateStore,
-		gitStateStore.Spec.SecretRef,
 		"GitStateStore",
 		r.updateReadyStatusAndCondition,
 	)

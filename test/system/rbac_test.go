@@ -106,12 +106,22 @@ var _ = Describe("Workflow-defined RBAC", Label("rbac"), Serial, func() {
 			Expect(resAllNamespacesCRName).To(ContainSubstring("rbac-promise-resource-configure-rbac-res-kratix-all"), "all-namespaces clusterrole not found")
 		})
 
-		By("creating roles with 'resourceNames' specified correctly", func() {
-			saName := strings.Split(platform.Kubectl("get", "sa", "-l", "kratix.io/promise-name=rbac-promise", "-o=name"), "/")[1]
-			saArg := strings.TrimSpace(fmt.Sprintf("--as=system:serviceaccount:default:%s", saName))
+		By("creating roles with provided permissions", func() {
+			resourceSaName := strings.Split(platform.Kubectl("get", "sa", "-l", "kratix.io/promise-name=rbac-promise", "-o=name"), "/")[1]
+			resourceSaArgs := strings.TrimSpace(fmt.Sprintf("--as=system:serviceaccount:default:%s", resourceSaName))
+			Expect(platform.KubectlAllowFail("auth", "can-i", "get", "secrets", resourceSaArgs)).To(ContainSubstring("no"))
+			Expect(platform.KubectlAllowFail("auth", "can-i", "get", kratixSystemNs, "configmaps", resourceSaArgs)).To(ContainSubstring("no"))
+			Expect(platform.Kubectl("auth", "can-i", "get", "secrets/rbac-resource-secret", resourceSaArgs)).To(ContainSubstring("yes"))
+			Expect(platform.Kubectl("auth", "can-i", "get", kratixSystemNs, "configmaps/rbac-promise-cm", resourceSaArgs)).To(ContainSubstring("yes"))
+			Expect(platform.Kubectl("auth", "can-i", "get", "promises", resourceSaArgs)).To(ContainSubstring("yes"))
 
-			Expect(platform.KubectlAllowFail("auth", "can-i", "get", "secrets", saArg)).To(ContainSubstring("no"))
-			Expect(platform.Kubectl("auth", "can-i", "get", "secrets/rbac-resource-secret", saArg)).To(ContainSubstring("yes"))
+			promiseSaName := strings.Split(platform.Kubectl("get", kratixSystemNs, "sa", "-l", "kratix.io/promise-name=rbac-promise", "-o=name"), "/")[1]
+			promiseSaArgs := strings.TrimSpace(fmt.Sprintf("--as=system:serviceaccount:kratix-platform-system:%s", promiseSaName))
+			Expect(platform.KubectlAllowFail("auth", "can-i", "get", "configmaps", promiseSaArgs)).To(ContainSubstring("no"))
+			Expect(platform.KubectlAllowFail("auth", "can-i", "get", kratixSystemNs, "configmaps", promiseSaArgs)).To(ContainSubstring("no"))
+			Expect(platform.Kubectl("auth", "can-i", "get", "secrets", promiseSaArgs)).To(ContainSubstring("yes"))
+			Expect(platform.Kubectl("auth", "can-i", "get", kratixSystemNs, "configmaps/rbac-promise-cm", promiseSaArgs)).To(ContainSubstring("yes"))
+			Expect(platform.Kubectl("auth", "can-i", "-n=default", "get", "configmaps/rbac-promise-default-cm", promiseSaArgs)).To(ContainSubstring("yes"))
 		})
 
 		By("keeping the rbac objects for the resource workflow when the resource is deleted", func() {
