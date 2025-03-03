@@ -244,16 +244,16 @@ func (p *Promise) GetPipelineResourceName() string {
 func (p *Promise) GetPipelineResourceNamespace() string {
 	return "default"
 }
-func (p *Promise) GetDynamicControllerName() string {
-	name := p.GetName()
+func (p *Promise) GetDynamicControllerName(logger logr.Logger) string {
 	// We only start a dynamic controller if the promise contains an API
 	// so this **should** always be safe
-	if _, crd, err := p.GetAPI(); err == nil {
-		//using _ as a separator because its not a valid character in a k8s name
-		//therefore it should never cause a conflict with a CRD name or a promise name
-		name += "_" + crd.GetName()
+	_, crd, err := p.GetAPI()
+	if err != nil {
+		logger.Error(err, "Error generating dynamic controller name, failed to read API name")
+		//if somehow we can't get the API name, we'll just use the promise name.
+		return p.GetName()
 	}
-	return name
+	return p.GetName() + "_" + crd.GetName()
 }
 
 func (p *Promise) ToUnstructured() (*unstructured.Unstructured, error) {

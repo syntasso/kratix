@@ -531,10 +531,10 @@ func (r *PromiseReconciler) reconcileAllRRs(rrGVK *schema.GroupVersionKind) erro
 
 func (r *PromiseReconciler) ensureDynamicControllerIsStarted(promise *v1alpha1.Promise, rrCRD *apiextensionsv1.CustomResourceDefinition, rrGVK *schema.GroupVersionKind, canCreateResources *bool, logger logr.Logger) error {
 	// The Dynamic Controller needs to be started once and only once.
-	if r.dynamicControllerHasAlreadyStarted(promise) {
+	if r.dynamicControllerHasAlreadyStarted(promise, logger) {
 		logger.Info("dynamic controller already started, ensuring it is up to date")
 
-		dynamicController := r.StartedDynamicControllers[promise.GetDynamicControllerName()]
+		dynamicController := r.StartedDynamicControllers[promise.GetDynamicControllerName(logger)]
 		dynamicController.GVK = rrGVK
 		dynamicController.CRD = rrCRD
 
@@ -563,7 +563,7 @@ func (r *PromiseReconciler) ensureDynamicControllerIsStarted(promise *v1alpha1.P
 		NumberOfJobsToKeep:          r.NumberOfJobsToKeep,
 		EventRecorder:               r.Manager.GetEventRecorderFor("ResourceRequestController"),
 	}
-	r.StartedDynamicControllers[promise.GetDynamicControllerName()] = dynamicResourceRequestController
+	r.StartedDynamicControllers[promise.GetDynamicControllerName(logger)] = dynamicResourceRequestController
 
 	unstructuredCRD := &unstructured.Unstructured{}
 	unstructuredCRD.SetGroupVersionKind(*rrGVK)
@@ -574,8 +574,8 @@ func (r *PromiseReconciler) ensureDynamicControllerIsStarted(promise *v1alpha1.P
 		Complete(dynamicResourceRequestController)
 }
 
-func (r *PromiseReconciler) dynamicControllerHasAlreadyStarted(promise *v1alpha1.Promise) bool {
-	_, ok := r.StartedDynamicControllers[promise.GetDynamicControllerName()]
+func (r *PromiseReconciler) dynamicControllerHasAlreadyStarted(promise *v1alpha1.Promise, logger logr.Logger) bool {
+	_, ok := r.StartedDynamicControllers[promise.GetDynamicControllerName(logger)]
 	return ok
 }
 
@@ -763,7 +763,7 @@ func (r *PromiseReconciler) deletePromise(o opts, promise *v1alpha1.Promise) (ct
 
 	//temporary fix until https://github.com/kubernetes-sigs/controller-runtime/issues/1884 is resolved
 	//once resolved, delete dynamic controller rather than disable
-	if d, exists := r.StartedDynamicControllers[promise.GetDynamicControllerName()]; exists {
+	if d, exists := r.StartedDynamicControllers[promise.GetDynamicControllerName(o.logger)]; exists {
 		r.RestartManager()
 		enabled := false
 		d.Enabled = &enabled
