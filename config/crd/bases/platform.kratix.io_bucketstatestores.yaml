@@ -93,7 +93,7 @@ spec:
             - endpoint
             type: object
           status:
-            description: BucketStateStoreStatus defines the observed state of BucketStateStore
+            description: StateStoreStatus defines the observed state of a state store
             properties:
               conditions:
                 items:
