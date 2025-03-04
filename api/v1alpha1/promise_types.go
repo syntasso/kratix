@@ -244,6 +244,17 @@ func (p *Promise) GetPipelineResourceName() string {
 func (p *Promise) GetPipelineResourceNamespace() string {
 	return "default"
 }
+func (p *Promise) GetDynamicControllerName(logger logr.Logger) string {
+	// We only start a dynamic controller if the promise contains an API
+	// so this **should** always be safe
+	_, crd, err := p.GetAPI()
+	if err != nil {
+		logger.Error(err, "Error generating dynamic controller name, failed to read API name")
+		//if somehow we can't get the API name, we'll just use the promise name.
+		return p.GetName()
+	}
+	return p.GetName() + "_" + crd.GetName()
+}
 
 func (p *Promise) ToUnstructured() (*unstructured.Unstructured, error) {
 	objMap, err := runtime.DefaultUnstructuredConverter.ToUnstructured(p)
