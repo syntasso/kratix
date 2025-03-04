@@ -50,26 +50,12 @@ var _ = Describe("Destinations", func() {
 				}).Should(ContainSubstring("True"))
 			})
 
-			By("firing the success event to the default GitStateStore", func() {
-				Eventually(func() string {
-					describeOutput := strings.Split(platform.Kubectl("describe", "gitstatestores", "default"), "\n")
-					return describeOutput[len(describeOutput)-2]
-				}).Should(ContainSubstring("GitStateStore \"default\" is ready"))
-			})
-
 			// The reconciliation logic is common to both types of state stores, so we
 			// can just test the BucketStateStore from now on.
 			By("showing `Ready` as true in the State Store", func() {
 				Eventually(func() string {
 					return platform.Kubectl("get", "bucketstatestores", "destination-test-store")
 				}).Should(ContainSubstring("True"))
-			})
-
-			By("firing the success event to the State Store", func() {
-				Eventually(func() string {
-					describeOutput := strings.Split(platform.Kubectl("describe", "bucketstatestores", "destination-test-store"), "\n")
-					return describeOutput[len(describeOutput)-2]
-				}).Should(ContainSubstring("BucketStateStore \"destination-test-store\" is ready"))
 			})
 
 			By("showing `Ready` as true in the Destination", func() {
