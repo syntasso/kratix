@@ -62,16 +62,13 @@ func ReconcileDelete(opts Opts) (bool, error) {
 	}
 
 	pipeline := opts.Resources[0]
-	existingDeletePipeline, err := getDeletePipeline(opts, opts.parentObject.GetNamespace(), pipeline)
+	existingDeletePipeline, err := getMostRecentDeletePipeline(opts, opts.parentObject.GetNamespace(), pipeline)
 	if err != nil {
 		return false, err
 	}
 
 	if existingDeletePipeline == nil {
-		opts.logger.Info("Creating Delete Pipeline. The pipeline will now execute...")
-
-		//TODO retrieve error information from applyResources to return to the caller
-		applyResources(opts, append(pipeline.GetObjects(), pipeline.Job)...)
+		createDeletePipeline(opts, pipeline)
 
 		return true, nil
 	}
@@ -81,13 +78,28 @@ func ReconcileDelete(opts Opts) (bool, error) {
 		opts.logger.Info("Delete Pipeline Completed")
 		return false, nil
 	}
-
 	if existingDeletePipeline.Status.Failed > 0 {
+		if isManualRerunDelete(opts.parentObject.GetLabels()) {
+			opts.logger.Info("Manual re-run of delete workflow triggered")
+			createDeletePipeline(opts, pipeline)
+			if err := removeManualRerunDeleteLabel(opts); err != nil {
+				return false, err
+			}
+			return true, nil
+		}
+
 		return false, ErrDeletePipelineFailed
 	}
 
 	opts.logger.Info("Delete Pipeline not finished", "status", existingDeletePipeline.Status)
 	return true, nil
+}
+
+func createDeletePipeline(opts Opts, pipeline v1alpha1.PipelineJobResources) {
+	opts.logger.Info("Creating Delete Pipeline. The pipeline will now execute...")
+	//TODO retrieve error information from applyResources to return to the caller
+	applyResources(opts, append(pipeline.GetObjects(), pipeline.Job)...)
+	opts.eventRecorder.Eventf(opts.parentObject, "Normal", "PipelineStarted", "Delete Pipeline started: %s", opts.Resources[0].Name)
 }
 
 func ReconcileConfigure(opts Opts) (abort bool, err error) {
@@ -391,8 +403,17 @@ func createConfigurePipeline(opts Opts, pipelineIndex int, resources v1alpha1.Pi
 
 func removeManualReconciliationLabel(opts Opts) error {
 	opts.logger.Info("Manual reconciliation label detected; removing it")
+	return removeLabel(opts, resourceutil.ManualReconciliationLabel)
+}
+
+func removeManualRerunDeleteLabel(opts Opts) error {
+	opts.logger.Info("Manual re-run delete label detected; removing it")
+	return removeLabel(opts, resourceutil.ManualRerunDeleteLabel)
+}
+
+func removeLabel(opts Opts, labelKey string) error {
 	newLabels := opts.parentObject.GetLabels()
-	delete(newLabels, resourceutil.ManualReconciliationLabel)
+	delete(newLabels, labelKey)
 	opts.parentObject.SetLabels(newLabels)
 	if err := opts.client.Update(opts.ctx, opts.parentObject); err != nil {
 		opts.logger.Error(err, "couldn't remove the label...")
@@ -422,12 +443,13 @@ func setConfigureWorkflowCompletedConditionStatus(opts Opts, isTheFirstPipeline 
 	}
 }
 
-func getDeletePipeline(opts Opts, namespace string, pipeline v1alpha1.PipelineJobResources) (*batchv1.Job, error) {
+func getMostRecentDeletePipeline(opts Opts, namespace string, pipeline v1alpha1.PipelineJobResources) (*batchv1.Job, error) {
 	labels := getLabelsForPipelineJob(pipeline)
 	jobs, err := getJobsWithLabels(opts, labels, namespace)
 	if err != nil || len(jobs) == 0 {
 		return nil, err
 	}
+	resourceutil.SortJobsByCreationDateTime(jobs, false)
 	return &jobs[0], nil
 }
 
@@ -454,12 +476,22 @@ func getJobsWithLabels(opts Opts, jobLabels map[string]string, namespace string)
 }
 
 func isManualReconciliation(labels map[string]string) bool {
+	return isLabelSetToTrue(labels, resourceutil.ManualReconciliationLabel)
+}
+
+func isManualRerunDelete(labels map[string]string) bool {
+	return isLabelSetToTrue(labels,  resourceutil.ManualRerunDeleteLabel)
+}
+
+func isLabelSetToTrue(labels map[string]string, labelKey string) bool {
 	if labels == nil {
 		return false
 	}
-	val, exists := labels[resourceutil.ManualReconciliationLabel]
+	val, exists := labels[labelKey]
 	return exists && val == "true"
 }
+
+
 
 // TODO return error info (summary of errors from resources?) to the caller, instead of just logging
 func applyResources(opts Opts, resources ...client.Object) {
