@@ -1803,6 +1803,11 @@ var _ = Describe("Workflow Reconciler", func() {
 					Expect(err).NotTo(HaveOccurred())
 					Expect(requeue).To(BeTrue())
 				})
+
+				By("firing an event", func() {
+					Eventually(eventRecorder.Events).Should(Receive(ContainSubstring(
+						"Normal PipelineStarted Delete Pipeline started: pipeline-1")))
+				})
 			})
 
 			When("the first pipeline is completed", func() {
@@ -1834,6 +1839,44 @@ var _ = Describe("Workflow Reconciler", func() {
 					requeue, err := workflow.ReconcileDelete(opts)
 					Expect(err).To(MatchError(workflow.ErrDeletePipelineFailed))
 					Expect(requeue).To(BeFalse())
+				})
+
+				When("the manual re-run label exists", func() {
+					var (
+						newWorkflowPipelines []v1alpha1.PipelineJobResources
+						requeue              bool
+						err                  error
+					)
+
+					BeforeEach(func() {
+						labels := uPromise.GetLabels()
+						if labels == nil {
+							labels = make(map[string]string)
+						}
+						labels[resourceutil.ManualRerunDeleteLabel] = "true"
+						uPromise.SetLabels(labels)
+						Expect(fakeK8sClient.Update(ctx, uPromise)).To(Succeed())
+						newWorkflowPipelines, uPromise = setupTest(promise, pipelines)
+						opts := workflow.NewOpts(ctx, fakeK8sClient, eventRecorder, logger, uPromise, newWorkflowPipelines, "promise", 5)
+						requeue, err = workflow.ReconcileDelete(opts)
+					})
+					It("re-runs the job and requeues", func() {
+						Expect(err).NotTo(HaveOccurred())
+						Expect(requeue).To(BeTrue())
+						jobList := listJobs(namespace)
+						Expect(jobList).To(HaveLen(2))
+
+						Expect(findByName(jobList, workflowPipelines[0].Job.Name)).To(BeTrue())
+						Expect(findByName(jobList, newWorkflowPipelines[0].Job.Name)).To(BeTrue())
+					})
+					It("deletes the label", func() {
+						Expect(fakeK8sClient.Get(ctx, types.NamespacedName{Name: uPromise.GetName()}, uPromise)).To(Succeed())
+						Expect(uPromise.GetLabels()).NotTo(HaveKey(resourceutil.ManualRerunDeleteLabel))
+					})
+					It("fires an event", func() {
+						Eventually(eventRecorder.Events).Should(Receive(ContainSubstring(
+							"Normal PipelineStarted Delete Pipeline started: pipeline-1")))
+					})
 				})
 			})
 		})
