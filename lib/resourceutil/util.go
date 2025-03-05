@@ -22,7 +22,7 @@ const (
 	DeleteWorkflowCompletedFailedReason    = "DeleteWorkflowFailed"
 	PipelinesExecutedSuccessfully          = "PipelinesExecutedSuccessfully"
 	ManualReconciliationLabel              = "kratix.io/manual-reconciliation"
-	ManualRerunDeleteLabel              = "kratix.io/manual-rerun-delete"
+	ManualRerunDeleteLabel                 = "kratix.io/manual-rerun-delete"
 	ReconcileResourcesLabel                = "kratix.io/reconcile-resources"
 	promiseAvailableCondition              = clusterv1.ConditionType("PromiseAvailable")
 	promiseRequirementsNotMetReason        = "PromiseRequirementsNotInstalled"

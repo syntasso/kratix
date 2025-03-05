@@ -480,7 +480,7 @@ func isManualReconciliation(labels map[string]string) bool {
 }
 
 func isManualRerunDelete(labels map[string]string) bool {
-	return isLabelSetToTrue(labels,  resourceutil.ManualRerunDeleteLabel)
+	return isLabelSetToTrue(labels, resourceutil.ManualRerunDeleteLabel)
 }
 
 func isLabelSetToTrue(labels map[string]string, labelKey string) bool {
@@ -490,8 +490,6 @@ func isLabelSetToTrue(labels map[string]string, labelKey string) bool {
 	val, exists := labels[labelKey]
 	return exists && val == "true"
 }
-
-
 
 // TODO return error info (summary of errors from resources?) to the caller, instead of just logging
 func applyResources(opts Opts, resources ...client.Object) {

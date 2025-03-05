@@ -1844,8 +1844,8 @@ var _ = Describe("Workflow Reconciler", func() {
 				When("the manual re-run label exists", func() {
 					var (
 						newWorkflowPipelines []v1alpha1.PipelineJobResources
-						requeue bool
-						err error
+						requeue              bool
+						err                  error
 					)
 
 					BeforeEach(func() {
