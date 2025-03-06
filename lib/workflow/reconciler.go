@@ -62,44 +62,58 @@ func ReconcileDelete(opts Opts) (bool, error) {
 	}
 
 	pipeline := opts.Resources[0]
-	existingDeletePipeline, err := getMostRecentDeletePipeline(opts, opts.parentObject.GetNamespace(), pipeline)
+	isManualReconciliation := isManualReconciliation(opts.parentObject.GetLabels())
+	mostRecentJob, err := getMostRecentDeletePipelineJob(opts, opts.parentObject.GetNamespace(), pipeline)
 	if err != nil {
 		return false, err
 	}
 
-	if existingDeletePipeline == nil {
-		createDeletePipeline(opts, pipeline)
+	if isManualReconciliation {
+		opts.logger.Info("Manual reconciliation detected for delete pipeline", "pipeline", pipeline.Name)
+	}
 
+	if isRunning(mostRecentJob) {
+		if isManualReconciliation {
+			opts.logger.Info("Suspending job for manual reconciliation", "job", mostRecentJob.Name, "pipeline", pipeline.Name)
+			if err = suspendJob(opts.ctx, opts.client, mostRecentJob); err != nil {
+				opts.logger.Error(err, "failed to suspend Job", "job", mostRecentJob.GetName())
+			}
+			opts.eventRecorder.Eventf(opts.parentObject, "Normal", "PipelineSuspended", "Delete Pipeline suspended: %s", opts.Resources[0].Name)
+			return true, err
+		}
+
+		opts.logger.Info("Job already inflight for Pipeline, waiting for it to complete", "job", mostRecentJob.Name, "pipeline", pipeline.Name)
 		return true, nil
 	}
 
+	if mostRecentJob == nil || isManualReconciliation {
+		return createDeletePipeline(opts, pipeline)
+	}
+
 	opts.logger.Info("Checking status of Delete Pipeline")
-	if existingDeletePipeline.Status.Succeeded > 0 {
+	if mostRecentJob.Status.Succeeded > 0 {
 		opts.logger.Info("Delete Pipeline Completed")
 		return false, nil
 	}
-	if existingDeletePipeline.Status.Failed > 0 {
-		if isManualRerunDelete(opts.parentObject.GetLabels()) {
-			opts.logger.Info("Manual re-run of delete workflow triggered")
-			createDeletePipeline(opts, pipeline)
-			if err := removeManualRerunDeleteLabel(opts); err != nil {
-				return false, err
-			}
-			return true, nil
-		}
-
+	if mostRecentJob.Status.Failed > 0 {
 		return false, ErrDeletePipelineFailed
 	}
 
-	opts.logger.Info("Delete Pipeline not finished", "status", existingDeletePipeline.Status)
+	opts.logger.Info("Delete Pipeline not finished", "status", mostRecentJob.Status)
 	return true, nil
 }
 
-func createDeletePipeline(opts Opts, pipeline v1alpha1.PipelineJobResources) {
+func createDeletePipeline(opts Opts, pipeline v1alpha1.PipelineJobResources) (abort bool, err error) {
 	opts.logger.Info("Creating Delete Pipeline. The pipeline will now execute...")
+	if isManualReconciliation(opts.parentObject.GetLabels()) {
+		if err := removeManualReconciliationLabel(opts); err != nil {
+			return false, err
+		}
+	}
 	//TODO retrieve error information from applyResources to return to the caller
 	applyResources(opts, append(pipeline.GetObjects(), pipeline.Job)...)
 	opts.eventRecorder.Eventf(opts.parentObject, "Normal", "PipelineStarted", "Delete Pipeline started: %s", opts.Resources[0].Name)
+	return true, nil
 }
 
 func ReconcileConfigure(opts Opts) (abort bool, err error) {
@@ -406,11 +420,6 @@ func removeManualReconciliationLabel(opts Opts) error {
 	return removeLabel(opts, resourceutil.ManualReconciliationLabel)
 }
 
-func removeManualRerunDeleteLabel(opts Opts) error {
-	opts.logger.Info("Manual re-run delete label detected; removing it")
-	return removeLabel(opts, resourceutil.ManualRerunDeleteLabel)
-}
-
 func removeLabel(opts Opts, labelKey string) error {
 	newLabels := opts.parentObject.GetLabels()
 	delete(newLabels, labelKey)
@@ -443,7 +452,7 @@ func setConfigureWorkflowCompletedConditionStatus(opts Opts, isTheFirstPipeline 
 	}
 }
 
-func getMostRecentDeletePipeline(opts Opts, namespace string, pipeline v1alpha1.PipelineJobResources) (*batchv1.Job, error) {
+func getMostRecentDeletePipelineJob(opts Opts, namespace string, pipeline v1alpha1.PipelineJobResources) (*batchv1.Job, error) {
 	labels := getLabelsForPipelineJob(pipeline)
 	jobs, err := getJobsWithLabels(opts, labels, namespace)
 	if err != nil || len(jobs) == 0 {
@@ -477,10 +486,6 @@ func getJobsWithLabels(opts Opts, jobLabels map[string]string, namespace string)
 
 func isManualReconciliation(labels map[string]string) bool {
 	return isLabelSetToTrue(labels, resourceutil.ManualReconciliationLabel)
-}
-
-func isManualRerunDelete(labels map[string]string) bool {
-	return isLabelSetToTrue(labels, resourceutil.ManualRerunDeleteLabel)
 }
 
 func isLabelSetToTrue(labels map[string]string, labelKey string) bool {

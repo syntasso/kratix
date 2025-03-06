@@ -1810,6 +1810,40 @@ var _ = Describe("Workflow Reconciler", func() {
 				})
 			})
 
+			When("the job is in progress", func() {
+				var abort bool
+				BeforeEach(func() {
+					Expect(fakeK8sClient.Create(ctx, workflowPipelines[0].Job)).To(Succeed())
+					opts := workflow.NewOpts(ctx, fakeK8sClient, eventRecorder, logger, uPromise, workflowPipelines, "promise", 5)
+					var err error
+					abort, err = workflow.ReconcileDelete(opts)
+					Expect(err).NotTo(HaveOccurred())
+				})
+
+				It("doesn't create a new job", func() {
+					Expect(listJobs(namespace)).To(HaveLen(1))
+				})
+
+				It("returns true", func() {
+					Expect(abort).To(BeTrue())
+				})
+
+				When("a new manual reconciliation request is made", func() {
+					It("cancels the current job (allowing a new job to be queued up)", func() {
+						uPromise.SetLabels(map[string]string{
+							"kratix.io/manual-reconciliation": "true",
+						})
+						opts := workflow.NewOpts(ctx, fakeK8sClient, eventRecorder, logger, uPromise, workflowPipelines, "promise", 5)
+						abort, err := workflow.ReconcileDelete(opts)
+
+						Expect(err).NotTo(HaveOccurred())
+						Expect(abort).To(BeTrue())
+						Expect(listJobs(namespace)).To(HaveLen(1))
+						Expect(*listJobs(namespace)[0].Spec.Suspend).To(BeTrue())
+					})
+				})
+			})
+
 			When("the first pipeline is completed", func() {
 				BeforeEach(func() {
 					Expect(fakeK8sClient.Create(ctx, workflowPipelines[0].Job)).To(Succeed())
@@ -1841,38 +1875,34 @@ var _ = Describe("Workflow Reconciler", func() {
 					Expect(requeue).To(BeFalse())
 				})
 
-				When("the manual re-run label exists", func() {
+				When("the resource is later manually reconciled", func() {
 					var (
 						newWorkflowPipelines []v1alpha1.PipelineJobResources
-						requeue              bool
 						err                  error
 					)
 
 					BeforeEach(func() {
-						labels := uPromise.GetLabels()
-						if labels == nil {
-							labels = make(map[string]string)
-						}
-						labels[resourceutil.ManualRerunDeleteLabel] = "true"
-						uPromise.SetLabels(labels)
-						Expect(fakeK8sClient.Update(ctx, uPromise)).To(Succeed())
+						labelPromiseForManualReconciliation("redis")
 						newWorkflowPipelines, uPromise = setupTest(promise, pipelines)
 						opts := workflow.NewOpts(ctx, fakeK8sClient, eventRecorder, logger, uPromise, newWorkflowPipelines, "promise", 5)
-						requeue, err = workflow.ReconcileDelete(opts)
-					})
-					It("re-runs the job and requeues", func() {
+						abort, err := workflow.ReconcileDelete(opts)
+						Expect(abort).To(BeTrue())
 						Expect(err).NotTo(HaveOccurred())
-						Expect(requeue).To(BeTrue())
+					})
+
+					It("re-triggers the pipeline in the workflow", func() {
+						Expect(err).NotTo(HaveOccurred())
 						jobList := listJobs(namespace)
 						Expect(jobList).To(HaveLen(2))
-
 						Expect(findByName(jobList, workflowPipelines[0].Job.Name)).To(BeTrue())
-						Expect(findByName(jobList, newWorkflowPipelines[0].Job.Name)).To(BeTrue())
+						Expect(findByName(jobList, newWorkflowPipelines[0].Job.GetName())).To(BeTrue())
 					})
+
 					It("deletes the label", func() {
 						Expect(fakeK8sClient.Get(ctx, types.NamespacedName{Name: uPromise.GetName()}, uPromise)).To(Succeed())
-						Expect(uPromise.GetLabels()).NotTo(HaveKey(resourceutil.ManualRerunDeleteLabel))
+						Expect(uPromise.GetLabels()).NotTo(HaveKey(resourceutil.ManualReconciliationLabel))
 					})
+
 					It("fires an event", func() {
 						Eventually(eventRecorder.Events).Should(Receive(ContainSubstring(
 							"Normal PipelineStarted Delete Pipeline started: pipeline-1")))
