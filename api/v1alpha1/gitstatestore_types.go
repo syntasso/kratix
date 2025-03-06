@@ -53,8 +53,8 @@ type GitAuthor struct {
 	Email string `json:"email,omitempty"`
 }
 
-// GitStateStoreStatus defines the observed state of GitStateStore
-type GitStateStoreStatus struct {
+// StateStoreStatus defines the observed state of a state store
+type StateStoreStatus struct {
 	Status     string             `json:"status"`
 	Conditions []metav1.Condition `json:"conditions,omitempty"`
 }
@@ -69,12 +69,20 @@ type GitStateStore struct {
 	metav1.TypeMeta   `json:",inline"`
 	metav1.ObjectMeta `json:"metadata,omitempty"`
 
-	Spec   GitStateStoreSpec   `json:"spec,omitempty"`
-	Status GitStateStoreStatus `json:"status,omitempty"`
+	Spec   GitStateStoreSpec `json:"spec,omitempty"`
+	Status StateStoreStatus  `json:"status,omitempty"`
 }
 
 func (g *GitStateStore) GetSecretRef() *corev1.SecretReference {
 	return g.Spec.SecretRef
+}
+
+func (g *GitStateStore) GetStatus() *StateStoreStatus {
+	return &g.Status
+}
+
+func (g *GitStateStore) SetStatus(status StateStoreStatus) {
+	g.Status = status
 }
 
 // +kubebuilder:object:root=true

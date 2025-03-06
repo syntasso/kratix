@@ -19,17 +19,12 @@ package controller
 
 import (
 	"context"
-	"fmt"
 
 	"github.com/go-logr/logr"
 	"github.com/syntasso/kratix/api/v1alpha1"
 	corev1 "k8s.io/api/core/v1"
-	v1 "k8s.io/api/core/v1"
 	"k8s.io/apimachinery/pkg/api/errors"
-	"k8s.io/apimachinery/pkg/api/meta"
-	metav1 "k8s.io/apimachinery/pkg/apis/meta/v1"
 	"k8s.io/apimachinery/pkg/runtime"
-	"k8s.io/apimachinery/pkg/types"
 	"k8s.io/client-go/tools/record"
 	ctrl "sigs.k8s.io/controller-runtime"
 	"sigs.k8s.io/controller-runtime/pkg/builder"
@@ -76,67 +71,14 @@ func (r *BucketStateStoreReconciler) Reconcile(ctx context.Context, req ctrl.Req
 		o,
 		bucketStateStore,
 		"BucketStateStore",
-		r.updateReadyStatusAndCondition,
+		r.EventRecorder,
 	)
-}
-
-func (r *BucketStateStoreReconciler) updateReadyStatusAndCondition(bucketStateStore *v1alpha1.BucketStateStore, failureReason, failureMessage string, err error) error {
-	eventType := v1.EventTypeNormal
-	eventReason := "Ready"
-	eventMessage := fmt.Sprintf("BucketStateStore %q is ready", bucketStateStore.Name)
-
-	condition := metav1.Condition{
-		Type:    StateStoreReadyConditionType,
-		Reason:  StateStoreReadyConditionReason,
-		Message: StateStoreReadyConditionMessage,
-		Status:  metav1.ConditionTrue,
-	}
-
-	bucketStateStore.Status.Status = StatusReady
-
-	if failureReason != "" {
-		bucketStateStore.Status.Status = StatusNotReady
-
-		condition.Status = metav1.ConditionFalse
-		condition.Reason = failureReason
-		condition.Message = fmt.Sprintf("%s: %s", failureMessage, err)
-
-		// Update event parameters for failure
-		eventType = v1.EventTypeWarning
-		eventReason = "NotReady"
-		eventMessage = fmt.Sprintf("BucketStateStore %q is not ready: %s: %s", bucketStateStore.Name, failureMessage, err)
-	}
-
-	changed := meta.SetStatusCondition(&bucketStateStore.Status.Conditions, condition)
-	if !changed {
-		return nil
-	}
-
-	r.EventRecorder.Eventf(bucketStateStore, eventType, eventReason, eventMessage)
-
-	return r.Client.Status().Update(context.Background(), bucketStateStore)
 }
 
 func (r *BucketStateStoreReconciler) findStateStoresReferencingSecret() handler.MapFunc {
 	return func(ctx context.Context, secret client.Object) []reconcile.Request {
 		stateStoreList := &v1alpha1.BucketStateStoreList{}
-		if err := r.Client.List(ctx, stateStoreList, client.MatchingFields{
-			secretRefFieldName: secretRefIndexKey(secret.GetName(), secret.GetNamespace()),
-		}); err != nil {
-			r.Log.Error(err, "error listing bucket state stores for secret")
-			return nil
-		}
-
-		var requests []reconcile.Request
-		for _, stateStore := range stateStoreList.Items {
-			requests = append(requests, reconcile.Request{
-				NamespacedName: types.NamespacedName{
-					Namespace: stateStore.Namespace,
-					Name:      stateStore.Name,
-				},
-			})
-		}
-		return requests
+		return constructRequestsForStateStoresReferencingSecret(ctx, r.Client, r.Log, secret, stateStoreList)
 	}
 }
 

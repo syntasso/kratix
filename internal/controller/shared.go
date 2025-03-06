@@ -11,13 +11,11 @@ import (
 	"github.com/syntasso/kratix/api/v1alpha1"
 	"github.com/syntasso/kratix/lib/resourceutil"
 	"github.com/syntasso/kratix/lib/writers"
-	v1 "k8s.io/api/core/v1"
 	"k8s.io/apimachinery/pkg/api/errors"
 	metav1 "k8s.io/apimachinery/pkg/apis/meta/v1"
 	"k8s.io/apimachinery/pkg/apis/meta/v1/unstructured"
 	"k8s.io/apimachinery/pkg/labels"
 	"k8s.io/apimachinery/pkg/runtime/schema"
-	"k8s.io/apimachinery/pkg/types"
 	ctrl "sigs.k8s.io/controller-runtime"
 	"sigs.k8s.io/controller-runtime/pkg/client"
 	"sigs.k8s.io/controller-runtime/pkg/controller/controllerutil"
@@ -47,11 +45,6 @@ var (
 	newGitWriter func(logger logr.Logger, stateStoreSpec v1alpha1.GitStateStoreSpec, destinationPath string,
 		creds map[string][]byte) (writers.StateStoreWriter, error) = writers.NewGitWriter
 )
-
-type StateStore interface {
-	client.Object
-	GetSecretRef() *v1.SecretReference
-}
 
 type opts struct {
 	ctx    context.Context
@@ -104,38 +97,6 @@ func addFinalizers(o opts, resource client.Object, finalizers []string) (ctrl.Re
 	return ctrl.Result{}, nil
 }
 
-func fetchObjectAndSecret(o opts, stateStoreRef client.ObjectKey, stateStore StateStore) (*v1.Secret, error) {
-	if err := o.client.Get(o.ctx, stateStoreRef, stateStore); err != nil {
-		o.logger.Error(err, "unable to fetch resource", "resourceKind", stateStore.GetObjectKind(), "stateStoreRef", stateStoreRef)
-		return nil, err
-	}
-
-	if stateStore.GetSecretRef() == nil {
-		return nil, nil
-	}
-
-	namespace := stateStore.GetSecretRef().Namespace
-	if namespace == "" {
-		namespace = "default"
-	}
-
-	secret := &v1.Secret{}
-	secretRef := types.NamespacedName{
-		Name:      stateStore.GetSecretRef().Name,
-		Namespace: namespace,
-	}
-
-	if err := o.client.Get(o.ctx, secretRef, secret); err != nil {
-		o.logger.Error(err, "unable to fetch resource", "resourceKind", stateStore.GetObjectKind(), "secretRef", secretRef)
-		if errors.IsNotFound(err) {
-			err = fmt.Errorf("secret %q not found in namespace %q", secretRef.Name, namespace)
-		}
-		return nil, err
-	}
-
-	return secret, nil
-}
-
 func newWriter(o opts, stateStoreName, stateStoreKind, destinationPath string) (writers.StateStoreWriter, error) {
 	stateStoreRef := client.ObjectKey{
 		Name: stateStoreName,
@@ -175,47 +136,6 @@ func newWriter(o opts, stateStoreName, stateStoreKind, destinationPath string) (
 	return writer, nil
 }
 
-func writeStateStoreTestFile(writer writers.StateStoreWriter) error {
-	content := fmt.Sprintf("This file tests that Kratix can write to this state store. Last write time: %s", time.Now().String())
-	_, err := writer.UpdateFiles("", "kratix-write-probe", []v1alpha1.Workload{
-		{
-			Filepath: "kratix-write-probe.txt",
-			Content:  content,
-		},
-	}, nil)
-
-	return err
-}
-
 func shortID(id string) string {
 	return id[0:5]
-}
-
-func secretRefIndexKey(secretName, secretNamespace string) string {
-	return fmt.Sprintf("%s.%s", secretNamespace, secretName)
-}
-
-// reconcileStateStoreCommon contains the common logic for state store reconciliation.
-func reconcileStateStoreCommon[T metav1.Object](
-	o opts,
-	stateStore T,
-	resourceType string,
-	updateStatus func(stateStore T, failureReason string, failureMessage string, err error) error,
-) (ctrl.Result, error) {
-	writer, err := newWriter(o, stateStore.GetName(), resourceType, "")
-	if err != nil {
-		if err := updateStatus(stateStore, StateStoreNotReadyErrorInitialisingWriterReason, StateStoreNotReadyErrorInitialisingWriterMessage, err); err != nil {
-			o.logger.Error(err, "error updating state store status")
-		}
-		return ctrl.Result{}, err
-	}
-
-	if err := writeStateStoreTestFile(writer); err != nil {
-		if err := updateStatus(stateStore, StateStoreNotReadyErrorWritingTestFileReason, StateStoreNotReadyErrorWritingTestFileMessage, err); err != nil {
-			o.logger.Error(err, "error updating state store status")
-		}
-		return ctrl.Result{}, err
-	}
-
-	return ctrl.Result{}, updateStatus(stateStore, "", "", nil)
 }
