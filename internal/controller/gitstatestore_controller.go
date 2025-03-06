@@ -25,7 +25,6 @@ import (
 	corev1 "k8s.io/api/core/v1"
 	"k8s.io/apimachinery/pkg/api/errors"
 	"k8s.io/apimachinery/pkg/runtime"
-	"k8s.io/apimachinery/pkg/types"
 	"k8s.io/client-go/tools/record"
 	ctrl "sigs.k8s.io/controller-runtime"
 	"sigs.k8s.io/controller-runtime/pkg/builder"
@@ -80,23 +79,7 @@ func (r *GitStateStoreReconciler) Reconcile(ctx context.Context, req ctrl.Reques
 func (r *GitStateStoreReconciler) findStateStoresReferencingSecret() handler.MapFunc {
 	return func(ctx context.Context, secret client.Object) []reconcile.Request {
 		stateStoreList := &v1alpha1.GitStateStoreList{}
-		if err := r.Client.List(ctx, stateStoreList, client.MatchingFields{
-			secretRefFieldName: secretRefIndexKey(secret.GetName(), secret.GetNamespace()),
-		}); err != nil {
-			r.Log.Error(err, "error listing bucket state stores for secret")
-			return nil
-		}
-
-		var requests []reconcile.Request
-		for _, stateStore := range stateStoreList.Items {
-			requests = append(requests, reconcile.Request{
-				NamespacedName: types.NamespacedName{
-					Namespace: stateStore.Namespace,
-					Name:      stateStore.Name,
-				},
-			})
-		}
-		return requests
+		return constructRequestsForStateStoresReferencingSecret(ctx, r.Client, r.Log, secret, stateStoreList)
 	}
 }
 
