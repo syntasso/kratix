@@ -596,6 +596,7 @@ var _ = Describe("PromiseController", func() {
 
 					By("finishing the creation once the job is finished", func() {
 						setReconcileConfigureWorkflowToReturnFinished()
+						markPromiseWorkflowAsCompleted(fakeK8sClient, promise)
 						result, err := t.reconcileUntilCompletion(reconciler, promise)
 
 						Expect(err).NotTo(HaveOccurred())
@@ -675,6 +676,7 @@ var _ = Describe("PromiseController", func() {
 					Expect(fakeK8sClient.Update(ctx, promise)).To(Succeed())
 
 					setReconcileConfigureWorkflowToReturnFinished()
+					markPromiseWorkflowAsCompleted(fakeK8sClient, promise)
 					result, err := t.reconcileUntilCompletion(reconciler, promise, &opts{
 						funcs: []func(client.Object) error{
 							autoMarkCRDAsEstablished,
@@ -950,13 +952,14 @@ var _ = Describe("PromiseController", func() {
 			BeforeEach(func() {
 				promise = createPromise(promiseWithWorkflowPath)
 				setReconcileConfigureWorkflowToReturnFinished()
+				markPromiseWorkflowAsCompleted(fakeK8sClient, promise)
 
 				result, err := t.reconcileUntilCompletion(reconciler, promise, &opts{
 					funcs: []func(client.Object) error{autoMarkCRDAsEstablished},
 				})
 
 				Expect(err).NotTo(HaveOccurred())
-				Expect(result).To(Equal(ctrl.Result{RequeueAfter: controller.DefaultReconciliationInterval}))
+				Expect(result).To(Equal(ctrl.Result{}))
 
 				Expect(fakeK8sClient.Get(ctx, types.NamespacedName{Name: promise.GetName()}, promise)).To(Succeed())
 
@@ -1259,6 +1262,19 @@ func markWorkflowAsCompleted(obj *unstructured.Unstructured) {
 		Reason:             "PipelinesExecutedSuccessfully",
 		LastTransitionTime: metav1.NewTime(time.Now()),
 	})
+}
+
+func markPromiseWorkflowAsCompleted(client client.Client, p *v1alpha1.Promise) {
+	p.Status.Conditions = []metav1.Condition{
+		metav1.Condition{
+			Type:               string(resourceutil.ConfigureWorkflowCompletedCondition),
+			Status:             metav1.ConditionTrue,
+			Message:            "Pipelines completed",
+			Reason:             "PipelinesExecutedSuccessfully",
+			LastTransitionTime: metav1.NewTime(time.Now()),
+		},
+	}
+	Expect(client.Status().Update(ctx, p)).To(Succeed())
 }
 
 func getCondition(p *v1alpha1.Promise, condType string) (*metav1.Condition, error) {

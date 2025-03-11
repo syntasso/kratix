@@ -25,7 +25,7 @@ const (
 	promiseReleaseNameLabel                          = v1alpha1.KratixPrefix + "promise-release-name"
 	removeAllWorkflowJobsFinalizer                   = v1alpha1.KratixPrefix + "workflows-cleanup"
 	runDeleteWorkflowsFinalizer                      = v1alpha1.KratixPrefix + "delete-workflows"
-	DefaultReconciliationInterval                    = time.Hour * 10
+	DefaultReconciliationInterval                    = time.Second * 30
 	secretRefFieldName                               = "secretRef"
 	StatusNotReady                                   = "NotReady"
 	StatusReady                                      = "Ready"
