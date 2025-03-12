@@ -171,8 +171,8 @@ func (r *PromiseReconciler) Reconcile(ctx context.Context, req ctrl.Request) (ct
 		}
 	}
 
-	//Set status to unavailable, at the end of this function we set it to
-	//available. If at any time we return early, it persisted as unavailable
+	// Set status to unavailable, at the end of this function we set it to
+	// available. If at any time we return early, it persisted as unavailable
 	promise.Status.Status = v1alpha1.PromiseStatusUnavailable
 	updateConditionOnPromise(promise, promiseUnavailableStatusCondition(metav1.Time{Time: time.Now()}))
 	requirementsChanged := r.hasPromiseRequirementsChanged(ctx, promise)
@@ -255,8 +255,7 @@ func (r *PromiseReconciler) Reconcile(ctx context.Context, req ctrl.Request) (ct
 			}
 		}
 
-		err = r.ensureDynamicControllerIsStarted(promise, rrCRD, rrGVK, &dynamicControllerCanCreateResources, logger)
-		if err != nil {
+		if err = r.ensureDynamicControllerIsStarted(promise, rrCRD, rrGVK, &dynamicControllerCanCreateResources, logger); err != nil {
 			return ctrl.Result{}, err
 		}
 
@@ -271,31 +270,42 @@ func (r *PromiseReconciler) Reconcile(ctx context.Context, req ctrl.Request) (ct
 
 		logger.Info("requirements are fulfilled", "requirementsStatus", promise.Status.RequiredPromises)
 
-		if reconcilesResources(promise) {
-			logger.Info("reconciling all resource requests of promise", "promiseName", promise.Name)
-			if err = r.reconcileAllRRs(rrGVK); err != nil {
-				return ctrl.Result{}, err
-			}
-
-			r.EventRecorder.Event(promise, "Normal", "ReconcilingResources", "Reconciling all resource requests")
-
-			if _, ok := promise.Labels[resourceutil.ReconcileResourcesLabel]; ok {
-				return ctrl.Result{}, r.removeReconcileResourcesLabel(ctx, promise)
-			}
-
-			logger.Info("updating observed generation", "from", promise.Status.ObservedGeneration, "to", promise.GetGeneration())
-			promise.Status.ObservedGeneration = promise.GetGeneration()
-			return r.updatePromiseStatus(ctx, promise)
+		if shouldReconcileResources(promise) {
+			return r.reconcileResources(ctx, logger, promise, rrGVK)
 		}
 	} else {
 		logger.Info("Promise only contains dependencies, skipping creation of API and dynamic controller")
 	}
 
-	if originalStatus == v1alpha1.PromiseStatusAvailable {
+	if originalStatus != v1alpha1.PromiseStatusAvailable {
+		return r.setPromiseStatusToAvailable(ctx, promise, logger)
+	}
+
+	completedCond := promise.GetCondition(string(resourceutil.ConfigureWorkflowCompletedCondition))
+	if !promise.HasPipeline(v1alpha1.WorkflowTypePromise, v1alpha1.WorkflowActionConfigure) ||
+		(completedCond != nil && completedCond.Status == metav1.ConditionTrue) {
 		return r.nextReconciliation(promise, logger)
 	}
 
-	return r.setPromiseStatusToAvailable(ctx, promise, logger)
+	return ctrl.Result{}, nil
+}
+
+func (r *PromiseReconciler) reconcileResources(ctx context.Context, logger logr.Logger, promise *v1alpha1.Promise,
+	rrGVK *schema.GroupVersionKind) (ctrl.Result, error) {
+	logger.Info("reconciling all resource requests of promise", "promiseName", promise.Name)
+	if err := r.reconcileAllRRs(rrGVK); err != nil {
+		return ctrl.Result{}, err
+	}
+
+	r.EventRecorder.Event(promise, "Normal", "ReconcilingResources", "Reconciling all resource requests")
+
+	if _, ok := promise.Labels[resourceutil.ReconcileResourcesLabel]; ok {
+		return ctrl.Result{}, r.removeReconcileResourcesLabel(ctx, promise)
+	}
+
+	logger.Info("updating observed generation", "from", promise.Status.ObservedGeneration, "to", promise.GetGeneration())
+	promise.Status.ObservedGeneration = promise.GetGeneration()
+	return r.updatePromiseStatus(ctx, promise)
 }
 
 func (r *PromiseReconciler) nextReconciliation(promise *v1alpha1.Promise, logger logr.Logger) (ctrl.Result, error) {
@@ -354,7 +364,7 @@ func (r *PromiseReconciler) hasPromiseRequirementsChanged(ctx context.Context, p
 	return conditionsFieldChanged || requirementsFieldChanged
 }
 
-func reconcilesResources(promise *v1alpha1.Promise) bool {
+func shouldReconcileResources(promise *v1alpha1.Promise) bool {
 	if promise.Labels != nil && promise.Labels[resourceutil.ReconcileResourcesLabel] == "true" {
 		return true
 	}
@@ -471,19 +481,17 @@ func (r *PromiseReconciler) reconcileDependenciesAndPromiseWorkflows(o opts, pro
 		result, err := addFinalizers(o, promise, []string{removeAllWorkflowJobsFinalizer})
 		return &result, err
 	}
+	if promise.Labels == nil {
+		promise.Labels = make(map[string]string)
+	}
 
 	o.logger.Info("Promise contains workflows.promise.configure, reconciling workflows")
-	ConfigureWorkflowCompletedCondition := promise.GetCondition(string(resourceutil.ConfigureWorkflowCompletedCondition))
-	forcePipelineRun := ConfigureWorkflowCompletedCondition != nil && ConfigureWorkflowCompletedCondition.Status == "True" && time.Since(ConfigureWorkflowCompletedCondition.LastTransitionTime.Time) > DefaultReconciliationInterval
-	if forcePipelineRun {
-		o.logger.Info("Pipeline completed too long ago... forcing the reconciliation", "lastTransitionTime", ConfigureWorkflowCompletedCondition.LastTransitionTime.Time.String())
-		if promise.Labels == nil {
-			promise.Labels = make(map[string]string)
-		}
+	completedCond := promise.GetCondition(string(resourceutil.ConfigureWorkflowCompletedCondition))
+	forcePipelineRun := completedCond != nil && completedCond.Status == "True" && time.Since(completedCond.LastTransitionTime.Time) > DefaultReconciliationInterval
+	if forcePipelineRun && promise.Labels[resourceutil.ManualReconciliationLabel] != "true" {
+		o.logger.Info("Pipeline completed too long ago... forcing the reconciliation", "lastTransitionTime", completedCond.LastTransitionTime.Time.String())
 		promise.Labels[resourceutil.ManualReconciliationLabel] = "true"
-		if err := r.Client.Update(o.ctx, promise); err != nil {
-			return &ctrl.Result{}, err
-		}
+		return &ctrl.Result{}, r.Client.Update(o.ctx, promise)
 	}
 
 	pipelineResources, err := promise.GeneratePromisePipelines(v1alpha1.WorkflowActionConfigure, o.logger)
