@@ -71,6 +71,7 @@ var _ = Describe("PromiseWebhook", func() {
 			},
 			Spec: v1.CustomResourceDefinitionSpec{
 				Group: "group.example",
+				Scope: v1.NamespaceScoped,
 				Names: v1.CustomResourceDefinitionNames{
 					Plural:   "mycrds",
 					Singular: "mycrd",
@@ -95,39 +96,57 @@ var _ = Describe("PromiseWebhook", func() {
 		newCRD = &v1.CustomResourceDefinition{}
 		*newCRD = *baseCRD
 	})
+	Context("spec.api", func() {
+		When("updating Immutable fields", func() {
+			It("returns list of errors containing all changed fields", func() {
+				newCRD.Name = "mynewcrds.group.example"
+				newCRD.Kind = "NotACRD"
+				newCRD.APIVersion = "v2"
+				newCRD.Spec.Names.Kind = "NewKind"
+				newP := newPromise()
 
-	When("Updating Immutable fields", func() {
-		It("returns list of errors containing all changed fields", func() {
-			newCRD.Name = "mynewcrds.group.example"
-			newCRD.Kind = "NotACRD"
-			newCRD.APIVersion = "v2"
-			newCRD.Spec.Names.Kind = "NewKind"
-			newP := newPromise()
-
-			warnings, err := validator.ValidateUpdate(ctx, newP, oldPromise)
-			Expect(warnings).To(BeEmpty())
-			Expect(err.Error()).To(SatisfyAll(
-				ContainSubstring("spec.api.metadata.name"),
-				ContainSubstring("spec.api.kind"),
-				ContainSubstring("spec.api.apiVersion"),
-				ContainSubstring("spec.api.spec.names"),
-			))
+				warnings, err := validator.ValidateUpdate(ctx, newP, oldPromise)
+				Expect(warnings).To(BeEmpty())
+				Expect(err.Error()).To(SatisfyAll(
+					ContainSubstring("spec.api.metadata.name"),
+					ContainSubstring("spec.api.kind"),
+					ContainSubstring("spec.api.apiVersion"),
+					ContainSubstring("spec.api.spec.names"),
+				))
+			})
 		})
-	})
 
-	When("the promise has no API", func() {
-		It("returns no error", func() {
-			promise := &v1alpha1.Promise{
-				ObjectMeta: metav1.ObjectMeta{
-					Name: "mypromise",
-				},
-				Spec: v1alpha1.PromiseSpec{
-					API: nil,
-				},
-			}
-			warnings, err := validator.ValidateCreate(ctx, promise)
-			Expect(warnings).To(BeEmpty())
-			Expect(err).NotTo(HaveOccurred())
+		When("the promise has no API", func() {
+			It("returns no error", func() {
+				promise := &v1alpha1.Promise{
+					ObjectMeta: metav1.ObjectMeta{
+						Name: "mypromise",
+					},
+					Spec: v1alpha1.PromiseSpec{
+						API: nil,
+					},
+				}
+				warnings, err := validator.ValidateCreate(ctx, promise)
+				Expect(warnings).To(BeEmpty())
+				Expect(err).NotTo(HaveOccurred())
+			})
+		})
+
+		When("the scope is set to cluster scoped", func() {
+			It("returns an error saying kratix support namespaced CRD only", func() {
+				baseCRD.Spec.Scope = v1.ClusterScoped
+				promise := &v1alpha1.Promise{
+					ObjectMeta: metav1.ObjectMeta{
+						Name: "mypromise",
+					},
+					Spec: v1alpha1.PromiseSpec{
+						API: RawExtension(baseCRD),
+					},
+				}
+
+				_, err := validator.ValidateCreate(ctx, promise)
+				Expect(err).To(MatchError("promise api needs to be namespace scoped; spec.api.spec.scope cannot be: Cluster"))
+			})
 		})
 	})
 

@@ -25,6 +25,7 @@ import (
 
 	"github.com/google/uuid"
 	"github.com/syntasso/kratix/api/v1alpha1"
+	apiextensionsv1 "k8s.io/apiextensions-apiserver/pkg/apis/apiextensions/v1"
 	"k8s.io/apimachinery/pkg/apis/meta/v1/unstructured"
 
 	"k8s.io/apiextensions-apiserver/pkg/client/clientset/clientset"
@@ -214,6 +215,10 @@ func validateCRD(p *v1alpha1.Promise) error {
 			return nil
 		}
 		return fmt.Errorf("invalid CRD: %w", err)
+	}
+
+	if newCrd.Spec.Scope != apiextensionsv1.NamespaceScoped {
+		return fmt.Errorf("promise api needs to be namespace scoped; spec.api.spec.scope cannot be: %s", newCrd.Spec.Scope)
 	}
 	return nil
 }
