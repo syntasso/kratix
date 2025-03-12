@@ -69,10 +69,17 @@ var _ = Describe("WorkPlacementReconciler", func() {
 		compressedContent, err := compression.CompressContent([]byte("{someApi: foo, someValue: bar}"))
 		Expect(err).ToNot(HaveOccurred())
 
+		compressedContent2, err := compression.CompressContent([]byte("{someOtherApi: fooz, someOtherValue: barz}"))
+		Expect(err).ToNot(HaveOccurred())
+
 		workloads = []v1alpha1.Workload{
 			{
 				Filepath: "fruit.yaml",
 				Content:  string(compressedContent),
+			},
+			{
+				Filepath: "file2.yaml",
+				Content:  string(compressedContent2),
 			},
 		}
 
@@ -80,6 +87,10 @@ var _ = Describe("WorkPlacementReconciler", func() {
 			{
 				Filepath: "fruit.yaml",
 				Content:  "{someApi: foo, someValue: bar}",
+			},
+			{
+				Filepath: "file2.yaml",
+				Content:  "{someOtherApi: fooz, someOtherValue: barz}",
 			},
 		}
 
@@ -192,6 +203,7 @@ var _ = Describe("WorkPlacementReconciler", func() {
 					Filepath: fmt.Sprintf(".kratix/%s-%s.yaml", workPlacement.Namespace, workPlacement.Name),
 					Content: `files:
 - fruit.yaml
+- file2.yaml
 `,
 				})))
 				Expect(workloadsToDelete).To(BeNil())
@@ -293,6 +305,7 @@ files:
 						Filepath: fmt.Sprintf(".kratix/%s-%s.yaml", workPlacement.Namespace, workPlacement.Name),
 						Content: `files:
 - fruit.yaml
+- file2.yaml
 `,
 					})))
 					Expect(workloadsToDelete).To(ConsistOf("banana.yaml", "apple.yaml"))
@@ -305,6 +318,7 @@ files:
 	When("the destination statestore is git", func() {
 		When("the destination has filepath mode of nestedByMetadata", func() {
 			BeforeEach(func() {
+				destination.Spec.Filepath.Mode = v1alpha1.FilepathModeNestedByMetadata
 				setupGitDestination(&gitStateStore, &destination)
 				controller.SetNewGitWriter(func(_ logr.Logger,
 					stateStoreSpec v1alpha1.GitStateStoreSpec,
@@ -359,6 +373,46 @@ files:
 					Expect(workloadsToCreate).To(Equal(decompressedWorkloads))
 					Expect(workloadsToDelete).To(BeEmpty())
 				})
+			})
+		})
+
+		When("the destination has filepath mode of aggregatedYAML", func() {
+			BeforeEach(func() {
+				destination.Spec.Filepath.Mode = v1alpha1.FilepathModeAggregatedYAML
+				destination.Spec.Filepath.Filename = "workloads.yaml"
+
+				setupGitDestination(&gitStateStore, &destination)
+
+				controller.SetNewGitWriter(func(_ logr.Logger,
+					stateStoreSpec v1alpha1.GitStateStoreSpec,
+					destinationPath string,
+					creds map[string][]byte,
+				) (writers.StateStoreWriter, error) {
+					argGitStateStoreSpec = stateStoreSpec
+					argDestination = destination
+					argCreds = creds
+					return fakeWriter, nil
+				})
+			})
+
+			It("calls the writer with a single file at the root", func() {
+				result, err := t.reconcileUntilCompletion(reconciler, &workPlacement)
+				Expect(err).NotTo(HaveOccurred())
+				Expect(result).To(Equal(ctrl.Result{}))
+
+				mergedWorkloads := []v1alpha1.Workload{
+					{
+						Filepath: "workloads.yaml",
+						Content:  "{someApi: foo, someValue: bar}\n---\n{someOtherApi: fooz, someOtherValue: barz}",
+					},
+				}
+
+				Expect(fakeWriter.UpdateFilesCallCount()).To(Equal(2))
+				dir, workPlacementName, workloadsToCreate, workloadsToDelete := fakeWriter.UpdateFilesArgsForCall(0)
+				Expect(dir).To(Equal(""))
+				Expect(workPlacementName).To(Equal(workPlacement.Name))
+				Expect(workloadsToCreate).To(Equal(mergedWorkloads))
+				Expect(workloadsToDelete).To(BeEmpty())
 			})
 		})
 	})
@@ -478,9 +532,8 @@ func setupGitDestination(gitStateStore *v1alpha1.GitStateStore, destination *v1a
 		},
 	}
 	Expect(fakeK8sClient.Create(ctx, gitStateStore)).To(Succeed())
-
 	destination.Spec.StateStoreRef.Kind = "GitStateStore"
 	destination.Spec.StateStoreRef.Name = "test-state-store"
-	destination.Spec.Filepath.Mode = v1alpha1.FilepathModeNestedByMetadata
+
 	Expect(fakeK8sClient.Create(ctx, destination)).To(Succeed())
 }

@@ -21,6 +21,7 @@ import (
 	"errors"
 	"fmt"
 	"path/filepath"
+	"strings"
 
 	"github.com/go-logr/logr"
 	"gopkg.in/yaml.v2"
@@ -252,6 +253,14 @@ func (r *WorkPlacementReconciler) writeWorkloadsToStateStore(writer writers.Stat
 		workloadsToDelete = cleanupWorkloads(oldStateFile.Files, workPlacement.Spec.Workloads)
 	}
 
+	if destination.GetFilepathMode() == v1alpha1.FilepathModeAggregatedYAML {
+		dir = ""
+		workloadsToCreate = []v1alpha1.Workload{{
+			Filepath: destination.Spec.Filepath.Filename,
+			Content:  concatenateYAMLs(workloadsToCreate),
+		}}
+	}
+
 	versionID, err := writer.UpdateFiles(
 		dir,
 		workPlacement.Name,
@@ -371,4 +380,17 @@ func (r *WorkPlacementReconciler) handleDeletion(
 		}
 	}
 	return r.deleteWorkPlacement(ctx, destinationExists, writer, workPlacement, filepathMode, logger)
+}
+
+func concatenateYAMLs(workloads []v1alpha1.Workload) string {
+	var sb strings.Builder
+
+	for i, workload := range workloads {
+		if i > 0 {
+			sb.WriteString("\n---\n")
+		}
+		sb.WriteString(workload.Content)
+	}
+
+	return sb.String()
 }
