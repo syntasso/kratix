@@ -21,7 +21,6 @@ import (
 	"fmt"
 	"reflect"
 	"strings"
-	"sync"
 	"time"
 
 	"github.com/syntasso/kratix/lib/migrations"
@@ -71,9 +70,7 @@ type PromiseReconciler struct {
 	StartedDynamicControllers map[string]*DynamicResourceRequestController
 	RestartManager            func()
 	NumberOfJobsToKeep        int
-	ScheduledReconciliation   map[string]metav1.Time
 	EventRecorder             record.EventRecorder
-	mutex                     sync.Mutex
 }
 
 const (
@@ -284,7 +281,7 @@ func (r *PromiseReconciler) Reconcile(ctx context.Context, req ctrl.Request) (ct
 	completedCond := promise.GetCondition(string(resourceutil.ConfigureWorkflowCompletedCondition))
 	if !promise.HasPipeline(v1alpha1.WorkflowTypePromise, v1alpha1.WorkflowActionConfigure) ||
 		(completedCond != nil && completedCond.Status == metav1.ConditionTrue) {
-		return r.nextReconciliation(promise, logger)
+		return r.nextReconciliation(logger)
 	}
 
 	return ctrl.Result{}, nil
@@ -308,20 +305,9 @@ func (r *PromiseReconciler) reconcileResources(ctx context.Context, logger logr.
 	return r.updatePromiseStatus(ctx, promise)
 }
 
-func (r *PromiseReconciler) nextReconciliation(promise *v1alpha1.Promise, logger logr.Logger) (ctrl.Result, error) {
-	r.mutex.Lock()
-	defer r.mutex.Unlock()
-
-	scheduled, found := r.ScheduledReconciliation[promise.GetName()]
-	if !found || time.Now().After(scheduled.Time) {
-		next := metav1.NewTime(time.Now().Add(DefaultReconciliationInterval))
-		r.ScheduledReconciliation[promise.GetName()] = next
-
-		logger.Info("Scheduling next reconciliation", "scheduledReconciliationTimestamp", next.Time.String())
-		return ctrl.Result{RequeueAfter: DefaultReconciliationInterval}, nil
-	}
-	logger.Info("Reconciliation already scheduled", "scheduledReconciliationTimestamp", scheduled.Time.String(), "labels", promise.Labels)
-	return ctrl.Result{}, nil
+func (r *PromiseReconciler) nextReconciliation(logger logr.Logger) (ctrl.Result, error) {
+	logger.Info("Scheduling next reconciliation", "DefaultReconciliationInterval", DefaultReconciliationInterval)
+	return ctrl.Result{RequeueAfter: DefaultReconciliationInterval}, nil
 }
 
 func (r *PromiseReconciler) setPromiseStatusToAvailable(ctx context.Context, promise *v1alpha1.Promise, logger logr.Logger) (ctrl.Result, error) {
