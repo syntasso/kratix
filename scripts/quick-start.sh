@@ -82,7 +82,7 @@ load_options() {
     done
     shift $(expr $OPTIND - 1)
 
-    # we don't want to use the scarf iamges
+    # we don't want to use the scarf images
     if [ ${KRATIX_DEVELOPER:-false} = true ]; then
         VERSION="dev"
     fi
@@ -407,7 +407,7 @@ step_create_third_worker_cluster() {
             return
         fi
         log "Creating ${WORKER2_CLUSTER_NAME} destination..."
-        if ! SUPRESS_OUTPUT=true run kind create cluster --name ${WORKER2_CLUSTER_NAME} --image $KIND_IMAGE \
+        if ! SUPPRESS_OUTPUT=true run kind create cluster --name ${WORKER2_CLUSTER_NAME} --image $KIND_IMAGE \
             --config ${ROOT}/config/samples/kind-worker-2-config.yaml
         then
             error "Could not create ${WORKER2_CLUSTER_NAME} destination"
@@ -496,7 +496,7 @@ install_kratix() {
     step_setup_worker_cluster
 
     log -n "Waiting for local repository to be running..."
-    if ! SUPRESS_OUTPUT=true run wait_for_local_repository; then
+    if ! SUPPRESS_OUTPUT=true run wait_for_local_repository; then
         log "\n\nIt's taking longer than usual for the local repository to start."
         log "You can check the platform pods to ensure there are no errors."
         log "This script will continue to wait for the local repository to come up. You can kill it with $(info "CTRL+C.")"
@@ -507,7 +507,7 @@ install_kratix() {
     fi
 
     log -n "Waiting for system to reconcile... "
-    if ! SUPRESS_OUTPUT=true run wait_for_namespace; then
+    if ! SUPPRESS_OUTPUT=true run wait_for_namespace; then
         log "\n\nIt's taking longer than usual for the system to reconcile."
         log "You can check the pods on the platform and worker Destinations for debugging information."
         log "This script will continue to wait. You can kill it with $(info "CTRL+C.")"
