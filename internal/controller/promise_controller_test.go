@@ -70,11 +70,10 @@ var _ = Describe("PromiseController", func() {
 			SkipNameValidation: ptr.To(true)})
 		eventRecorder = record.NewFakeRecorder(1024)
 		reconciler = &controller.PromiseReconciler{
-			Client:                  fakeK8sClient,
-			ApiextensionsClient:     fakeApiExtensionsClient,
-			Log:                     l,
-			Manager:                 m,
-			ScheduledReconciliation: map[string]metav1.Time{},
+			Client:              fakeK8sClient,
+			ApiextensionsClient: fakeApiExtensionsClient,
+			Log:                 l,
+			Manager:             m,
 			RestartManager: func() {
 				managerRestarted = true
 			},
@@ -845,7 +844,7 @@ var _ = Describe("PromiseController", func() {
 						setReconcileDeleteWorkflowToReturnFinished(promise)
 						result, err := t.reconcileUntilCompletion(reconciler, promise)
 						Expect(err).NotTo(HaveOccurred())
-						Expect(result).To(Equal(ctrl.Result{}))
+						Expect(result).To(Equal(ctrl.Result{RequeueAfter: controller.DefaultReconciliationInterval}))
 					})
 
 					It("removes the delete-workflows finalizer", func() {
@@ -905,7 +904,7 @@ var _ = Describe("PromiseController", func() {
 						funcs: []func(client.Object) error{autoMarkCRDAsEstablished},
 					})
 					Expect(err).NotTo(HaveOccurred())
-					Expect(result).To(Equal(ctrl.Result{}))
+					Expect(result).To(Equal(ctrl.Result{RequeueAfter: controller.DefaultReconciliationInterval}))
 
 					By("updating the work", func() {
 						works := &v1alpha1.WorkList{}
@@ -937,7 +936,7 @@ var _ = Describe("PromiseController", func() {
 						funcs: []func(client.Object) error{autoMarkCRDAsEstablished},
 					})
 					Expect(err).NotTo(HaveOccurred())
-					Expect(result).To(Equal(ctrl.Result{}))
+					Expect(result).To(Equal(ctrl.Result{RequeueAfter: controller.DefaultReconciliationInterval}))
 
 					By("deleting the work", func() {
 						works := &v1alpha1.WorkList{}
@@ -970,24 +969,12 @@ var _ = Describe("PromiseController", func() {
 					Status:             v1.ConditionTrue,
 					Message:            "Pipelines completed",
 					Reason:             "PipelinesExecutedSuccessfully",
-					LastTransitionTime: metav1.NewTime(time.Now().Add(-controller.DefaultReconciliationInterval)),
+					LastTransitionTime: metav1.NewTime(time.Now().Add(-controller.DefaultReconciliationInterval).Add(-time.Minute)),
 				})
-				markWorkflowAsCompleted(uPromise)
 				Expect(fakeK8sClient.Status().Update(ctx, uPromise)).To(Succeed())
-				result, err = t.reconcileUntilCompletion(reconciler, promise, &opts{
-					funcs: []func(client.Object) error{autoMarkCRDAsEstablished},
-				})
-
-				Expect(err).NotTo(HaveOccurred())
-				Expect(result).To(Equal(ctrl.Result{RequeueAfter: controller.DefaultReconciliationInterval}))
 			})
 
 			It("re-runs the promise.configure workflow and sets the next reconciliation timestamp", func() {
-				Expect(fakeK8sClient.Get(ctx, promiseName, promise)).To(Succeed())
-				tm := metav1.NewTime(time.Now().Add(-controller.DefaultReconciliationInterval))
-				promise.Status.LastAvailableTime = &tm
-				Expect(fakeK8sClient.Status().Update(ctx, promise)).To(Succeed())
-
 				result, err := reconciler.Reconcile(ctx, ctrl.Request{NamespacedName: types.NamespacedName{Name: promise.GetName(), Namespace: promise.GetNamespace()}})
 				Expect(err).NotTo(HaveOccurred())
 				Expect(result).To(Equal(ctrl.Result{}))
@@ -1002,10 +989,6 @@ var _ = Describe("PromiseController", func() {
 				})
 
 				By("adding the manual reconciliation label", func() {
-					result, err := reconciler.Reconcile(ctx, ctrl.Request{NamespacedName: types.NamespacedName{Name: promise.GetName(), Namespace: promise.GetNamespace()}})
-					Expect(err).NotTo(HaveOccurred())
-					Expect(result).To(Equal(ctrl.Result{}))
-
 					Expect(fakeK8sClient.Get(ctx, promiseName, promise)).To(Succeed())
 					Expect(promise.Labels[resourceutil.ManualReconciliationLabel]).To(Equal("true"))
 				})
@@ -1060,8 +1043,7 @@ var _ = Describe("PromiseController", func() {
 					Expect(fakeK8sClient.Get(ctx, types.NamespacedName{Name: promise.GetName()}, promise)).To(Succeed())
 
 					Expect(err).NotTo(HaveOccurred())
-					Expect(result).To(Equal(ctrl.Result{}))
-					Expect(reconciler.ScheduledReconciliation[promise.GetName()].Unix()).To(Equal(time.Now().Add(controller.DefaultReconciliationInterval).Unix()))
+					Expect(result).To(Equal(ctrl.Result{RequeueAfter: controller.DefaultReconciliationInterval}))
 				})
 			})
 		})
