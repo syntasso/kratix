@@ -952,7 +952,6 @@ var _ = Describe("PromiseController", func() {
 			BeforeEach(func() {
 				promise = createPromise(promiseWithWorkflowPath)
 				setReconcileConfigureWorkflowToReturnFinished()
-				markPromiseWorkflowAsCompleted(fakeK8sClient, promise)
 
 				result, err := t.reconcileUntilCompletion(reconciler, promise, &opts{
 					funcs: []func(client.Object) error{autoMarkCRDAsEstablished},
@@ -975,6 +974,12 @@ var _ = Describe("PromiseController", func() {
 				})
 				markWorkflowAsCompleted(uPromise)
 				Expect(fakeK8sClient.Status().Update(ctx, uPromise)).To(Succeed())
+				result, err = t.reconcileUntilCompletion(reconciler, promise, &opts{
+					funcs: []func(client.Object) error{autoMarkCRDAsEstablished},
+				})
+
+				Expect(err).NotTo(HaveOccurred())
+				Expect(result).To(Equal(ctrl.Result{RequeueAfter: controller.DefaultReconciliationInterval}))
 			})
 
 			It("re-runs the promise.configure workflow and sets the next reconciliation timestamp", func() {
