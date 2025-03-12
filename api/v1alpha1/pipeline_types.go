@@ -68,6 +68,7 @@ var (
 	}
 
 	DefaultUserProvidedContainersSecurityContext *corev1.SecurityContext
+	DefaultImagePullPolicy                       corev1.PullPolicy
 )
 
 // PipelineSpec defines the desired state of Pipeline

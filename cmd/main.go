@@ -26,9 +26,6 @@ import (
 	"sigs.k8s.io/controller-runtime/pkg/webhook"
 
 	"github.com/syntasso/kratix/internal/controller"
-
-	// Import all Kubernetes client auth plugins (e.g. Azure, GCP, OIDC, etc.)
-	// to ensure that exec-entrypoint and run can make use of them.
 	"go.uber.org/zap/zapcore"
 	"k8s.io/apiextensions-apiserver/pkg/client/clientset/clientset"
 	apierrors "k8s.io/apimachinery/pkg/api/errors"
@@ -72,6 +69,7 @@ type KratixConfig struct {
 
 type Workflows struct {
 	DefaultContainerSecurityContext corev1.SecurityContext `json:"defaultContainerSecurityContext"`
+	DefaultImagePullPolicy          corev1.PullPolicy      `json:"defaultImagePullPolicy,omitempty"`
 }
 
 var metricsAddr string
@@ -115,6 +113,7 @@ func main() {
 
 	if kratixConfig != nil {
 		v1alpha1.DefaultUserProvidedContainersSecurityContext = &kratixConfig.Workflows.DefaultContainerSecurityContext
+		v1alpha1.DefaultImagePullPolicy = kratixConfig.Workflows.DefaultImagePullPolicy
 	}
 
 	for {
