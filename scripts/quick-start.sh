@@ -222,6 +222,7 @@ setup_platform_destination() {
     fi
 
     if ${INSTALL_AND_CREATE_MINIO_BUCKET}; then
+        make minio-cli
         kubectl --context kind-${PLATFORM_CLUSTER_NAME} apply --filename "${ROOT}/hack/platform/minio-install.yaml"
     fi
 
