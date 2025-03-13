@@ -61,14 +61,22 @@ spec:
                   mode: nestedByMetadata
                 description: The filepath mode to use when writing files to the destination.
                 properties:
+                  filename:
+                    description: |-
+                      If filepath.mode is set to aggregatedYAML, this field can be set to
+                      specify the filename of the aggregated YAML file.  Defaults to
+                      "aggregated.yaml"
+                    type: string
                   mode:
                     description: |-
                       filepath.mode can be set to either:
                       - nestedByMetadata (default): files from the pipeline will be placed in a nested directory structure
+                      - aggregatedYAML: all files from all pipeliens will be aggregated into a single YAML file
                       - none: file from the pipeline will be placed in a flat directory structure
                       filepath.mode is immutable
                     enum:
                     - nestedByMetadata
+                    - aggregatedYAML
                     - none
                     type: string
                     x-kubernetes-validations:

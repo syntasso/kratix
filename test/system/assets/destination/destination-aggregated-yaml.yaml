@@ -1,0 +1,14 @@
+apiVersion: platform.kratix.io/v1alpha1
+kind: Destination
+metadata:
+  name: aggregated-yaml
+  labels:
+    target: aggregated-yaml
+spec:
+  path: aggregated-yaml
+  stateStoreRef:
+    name: default
+    kind: BucketStateStore
+  filepath:
+    mode: aggregatedYAML
+    filename: "catalog.yaml"

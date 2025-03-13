@@ -247,7 +247,7 @@ func (r *DestinationReconciler) deleteDestinationWorkplacements(o opts, destinat
 	}
 
 	labels := map[string]string{
-		targetDestinationNameLabel: destination.Name,
+		TargetDestinationNameLabel: destination.Name,
 	}
 	resourcesRemaining, err := deleteAllResourcesWithKindMatchingLabel(o, &workPlacementGVK, labels)
 	if err != nil {

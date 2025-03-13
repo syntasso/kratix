@@ -1,0 +1,15 @@
+apiVersion: test.kratix.io/v1alpha1
+kind: Aggregate
+metadata:
+  name: req-1
+  namespace: default
+spec:
+  name: req-1
+---
+apiVersion: test.kratix.io/v1alpha1
+kind: Aggregate
+metadata:
+  name: req-2
+  namespace: default
+spec:
+  name: req-2

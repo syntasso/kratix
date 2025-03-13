@@ -81,18 +81,26 @@ const (
 	// kubebuilder comment for setting the default and Enum values.
 	FilepathModeNone             = "none"
 	FilepathModeNestedByMetadata = "nestedByMetadata"
+	FilepathModeAggregatedYAML   = "aggregatedYAML"
 	DestinationCleanupAll        = "all"
 	DestinationCleanupNone       = "none"
 )
 
 type Filepath struct {
-	// +kubebuilder:validation:Enum:={nestedByMetadata,none}
+	// +kubebuilder:validation:Enum:={nestedByMetadata,aggregatedYAML,none}
 	// +kubebuilder:validation:XValidation:rule="self == oldSelf",message="filepath.mode is immutable"
 	// filepath.mode can be set to either:
 	// - nestedByMetadata (default): files from the pipeline will be placed in a nested directory structure
+	// - aggregatedYAML: all files from all pipeliens will be aggregated into a single YAML file
 	// - none: file from the pipeline will be placed in a flat directory structure
 	// filepath.mode is immutable
 	Mode string `json:"mode,omitempty"`
+
+	// +kubebuilder:validation:Optional
+	// If filepath.mode is set to aggregatedYAML, this field can be set to
+	// specify the filename of the aggregated YAML file.  Defaults to
+	// "aggregated.yaml"
+	Filename string `json:"filename,omitempty"`
 }
 
 // it gets defaulted by the K8s API, but for unit testing it wont be defaulted

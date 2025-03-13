@@ -21,11 +21,13 @@ import (
 	"errors"
 	"fmt"
 	"path/filepath"
+	"strings"
 
 	"github.com/go-logr/logr"
 	"gopkg.in/yaml.v2"
 	k8sErrors "k8s.io/apimachinery/pkg/api/errors"
 	kerrors "k8s.io/apimachinery/pkg/api/errors"
+	"k8s.io/apimachinery/pkg/labels"
 	ctrl "sigs.k8s.io/controller-runtime"
 	"sigs.k8s.io/controller-runtime/pkg/client"
 	"sigs.k8s.io/controller-runtime/pkg/controller/controllerutil"
@@ -78,14 +80,9 @@ func (r *WorkPlacementReconciler) Reconcile(ctx context.Context, req ctrl.Reques
 		Name: workPlacement.Spec.TargetDestinationName,
 	}
 
-	opts := opts{
-		client: r.Client,
-		ctx:    ctx,
-		logger: logger,
-	}
+	opts := opts{client: r.Client, ctx: ctx, logger: logger}
 
 	err = r.Client.Get(ctx, destinationName, destination)
-
 	if !workPlacement.DeletionTimestamp.IsZero() {
 		return r.handleDeletion(ctx, workPlacement, destination, opts, err, logger)
 	}
@@ -105,7 +102,7 @@ func (r *WorkPlacementReconciler) Reconcile(ctx context.Context, req ctrl.Reques
 	}
 
 	logger.Info("Updating files in statestore if required")
-	versionID, err := r.writeWorkloadsToStateStore(writer, *workPlacement, *destination, logger)
+	versionID, err := r.writeWorkloadsToStateStore(opts, writer, *workPlacement, *destination)
 	if err != nil {
 		logger.Error(err, "Error writing to repository, will try again in 5 seconds")
 		return defaultRequeue, err
@@ -142,13 +139,14 @@ func (r *WorkPlacementReconciler) Reconcile(ctx context.Context, req ctrl.Reques
 
 func (r *WorkPlacementReconciler) deleteWorkPlacement(
 	ctx context.Context,
-	destinationExists bool,
+	destination *v1alpha1.Destination,
 	writer writers.StateStoreWriter,
 	workPlacement *v1alpha1.WorkPlacement,
 	filePathMode string,
 	logger logr.Logger,
 ) (ctrl.Result, error) {
-	if !destinationExists {
+	logger.Info("deleting some stuff")
+	if destination == nil {
 		logger.Info("cleaning up deletion finalizers")
 		cleanupDeletionFinalizers(workPlacement)
 		if err := r.Client.Update(ctx, workPlacement); err != nil {
@@ -163,6 +161,7 @@ func (r *WorkPlacementReconciler) deleteWorkPlacement(
 	kratixFilePath := fmt.Sprintf(".kratix/%s-%s.yaml", workPlacement.Namespace, workPlacement.Name)
 
 	var dir string
+
 	if filePathMode == v1alpha1.FilepathModeNestedByMetadata {
 		dir = getDir(*workPlacement) + "/"
 	}
@@ -184,6 +183,18 @@ func (r *WorkPlacementReconciler) deleteWorkPlacement(
 			workloadsToDelete = stateFile.Files
 		}
 
+		if filePathMode == v1alpha1.FilepathModeAggregatedYAML {
+			logger.Info("handling aggregated YAML file path mode")
+			_, requeue, err := r.handleAggregatedYAML(ctx, workPlacement, destination, dir, writer)
+			if err != nil {
+				return ctrl.Result{}, err
+			}
+			if requeue {
+				return fastRequeue, nil
+			}
+			workloadsToDelete = []string{destination.Spec.Filepath.Filename}
+		}
+
 		return r.delete(ctx, writer, dir, workPlacement, workloadsToDelete, repoCleanupWorkPlacementFinalizer, logger)
 	}
 
@@ -192,6 +203,43 @@ func (r *WorkPlacementReconciler) deleteWorkPlacement(
 		return r.delete(ctx, writer, "", workPlacement, []string{kratixFilePath}, kratixFileCleanupWorkPlacementFinalizer, logger)
 	}
 	return ctrl.Result{}, nil
+}
+
+func (r *WorkPlacementReconciler) handleAggregatedYAML(ctx context.Context, workPlacement *v1alpha1.WorkPlacement, destination *v1alpha1.Destination, dir string, writer writers.StateStoreWriter) (v1alpha1.Workload, bool, error) {
+	activeWorkplacements, err := r.getAllWorkplacementsForDestination(ctx, workPlacement.Spec.TargetDestinationName)
+	if err != nil {
+		return v1alpha1.Workload{}, false, err
+	}
+
+	if len(activeWorkplacements) == 0 {
+		return v1alpha1.Workload{}, false, nil
+	}
+
+	combinedWorkloads, err := r.combineWorkloads(activeWorkplacements)
+	if err != nil {
+		return v1alpha1.Workload{}, false, err
+	}
+
+	workload := v1alpha1.Workload{
+		Filepath: destination.Spec.Filepath.Filename,
+		Content:  concatenateYAMLs(combinedWorkloads),
+	}
+
+	// During deletion, we need to update the files and remove finalizer
+	if !workPlacement.DeletionTimestamp.IsZero() {
+		_, err = writer.UpdateFiles(dir, workPlacement.Name, []v1alpha1.Workload{workload}, nil)
+		if err != nil {
+			return v1alpha1.Workload{}, false, fmt.Errorf("error regenerating aggregated YAML: %w", err)
+		}
+
+		controllerutil.RemoveFinalizer(workPlacement, repoCleanupWorkPlacementFinalizer)
+		if err := r.Client.Update(ctx, workPlacement); err != nil {
+			return v1alpha1.Workload{}, false, err
+		}
+		return workload, true, nil
+	}
+
+	return workload, false, nil
 }
 
 func (r *WorkPlacementReconciler) delete(ctx context.Context, writer writers.StateStoreWriter, dir string, workPlacement *v1alpha1.WorkPlacement, workloadsToDelete []string, finalizerToRemove string, logger logr.Logger) (ctrl.Result, error) {
@@ -207,59 +255,45 @@ func (r *WorkPlacementReconciler) delete(ctx context.Context, writer writers.Sta
 	return fastRequeue, nil
 }
 
-func (r *WorkPlacementReconciler) writeWorkloadsToStateStore(writer writers.StateStoreWriter, workPlacement v1alpha1.WorkPlacement, destination v1alpha1.Destination, logger logr.Logger) (string, error) {
+func (r *WorkPlacementReconciler) writeWorkloadsToStateStore(o opts, writer writers.StateStoreWriter, workPlacement v1alpha1.WorkPlacement, destination v1alpha1.Destination) (string, error) {
 	var err error
 	var workloadsToDelete []string
 	var dir = getDir(workPlacement)
 	var workloadsToCreate []v1alpha1.Workload
 
-	// loop through workloads and decompress them so the works written to the State Store are decompressed
-	for _, workload := range workPlacement.Spec.Workloads {
-		decompressedContent, err := compression.DecompressContent([]byte(workload.Content))
-		if err != nil {
-			return "", fmt.Errorf("unable to decompress file content: %w", err)
-		}
-
-		workload.Content = string(decompressedContent)
-		workloadsToCreate = append(workloadsToCreate, workload)
-	}
-
-	if destination.GetFilepathMode() == v1alpha1.FilepathModeNone {
-		var kratixFile []byte
-		if kratixFile, err = writer.ReadFile(fmt.Sprintf(".kratix/%s-%s.yaml", workPlacement.Namespace, workPlacement.Name)); ignoreNotFound(err) != nil {
-			return "", fmt.Errorf("failed to read .kratix state file: %w", err)
-		}
-		oldStateFile := StateFile{}
-		if err = yaml.Unmarshal(kratixFile, &oldStateFile); err != nil {
-			return "", fmt.Errorf("failed to unmarshal .kratix state file: %w", err)
-		}
-
-		newStateFile := StateFile{
-			Files: workloadsFilenames(workPlacement.Spec.Workloads),
-		}
-		stateFileContent, marshalErr := yaml.Marshal(newStateFile)
-		if marshalErr != nil {
-			return "", fmt.Errorf("failed to marshal new .kratix state file: %w", err)
-		}
-
-		stateFileWorkload := v1alpha1.Workload{
-			Filepath: fmt.Sprintf(".kratix/%s-%s.yaml", workPlacement.Namespace, workPlacement.Name),
-			Content:  string(stateFileContent),
-		}
-
+	switch destination.GetFilepathMode() {
+	case v1alpha1.FilepathModeAggregatedYAML:
 		dir = ""
-		workloadsToCreate = append(workloadsToCreate, stateFileWorkload)
+		workload, _, err := r.handleAggregatedYAML(o.ctx, &workPlacement, &destination, dir, writer)
+		if err != nil {
+			return "", err
+		}
+		workloadsToCreate = []v1alpha1.Workload{workload}
+	case v1alpha1.FilepathModeNone:
+		dir = ""
+		newWorkload, oldStateFile, err := r.generateKratixStateFile(workPlacement, writer)
+		if err != nil {
+			return "", err
+		}
+		workloadsToCreate = append(workloadsToCreate, newWorkload)
 		workloadsToDelete = cleanupWorkloads(oldStateFile.Files, workPlacement.Spec.Workloads)
+		fallthrough
+	default:
+		// loop through workloads and decompress them so the works written to the State Store are decompressed
+		for _, workload := range workPlacement.Spec.Workloads {
+			decompressedContent, err := compression.DecompressContent([]byte(workload.Content))
+			if err != nil {
+				return "", fmt.Errorf("unable to decompress file content: %w", err)
+			}
+
+			workload.Content = string(decompressedContent)
+			workloadsToCreate = append(workloadsToCreate, workload)
+		}
 	}
 
-	versionID, err := writer.UpdateFiles(
-		dir,
-		workPlacement.Name,
-		workloadsToCreate,
-		workloadsToDelete,
-	)
+	versionID, err := writer.UpdateFiles(dir, workPlacement.Name, workloadsToCreate, workloadsToDelete)
 	if err != nil {
-		logger.Error(err, "Error writing resources to repository")
+		o.logger.Error(err, "Error writing resources to repository")
 		return "", err
 	}
 	return versionID, nil
@@ -348,6 +382,7 @@ func (r *WorkPlacementReconciler) handleDeletion(
 ) (ctrl.Result, error) {
 	var destinationExists = true
 	var filepathMode string
+
 	if err != nil {
 		if k8sErrors.IsNotFound(err) {
 			logger.Info(
@@ -356,6 +391,7 @@ func (r *WorkPlacementReconciler) handleDeletion(
 				workPlacement.Spec.TargetDestinationName,
 			)
 			destinationExists = false
+			destination = nil
 		} else {
 			logger.Error(err, "Error getting destination", "destination", workPlacement.Spec.TargetDestinationName)
 			return ctrl.Result{}, err
@@ -370,5 +406,86 @@ func (r *WorkPlacementReconciler) handleDeletion(
 			return requeueIfNotFound(err)
 		}
 	}
-	return r.deleteWorkPlacement(ctx, destinationExists, writer, workPlacement, filepathMode, logger)
+	return r.deleteWorkPlacement(ctx, destination, writer, workPlacement, filepathMode, logger)
+}
+
+func concatenateYAMLs(workloads []v1alpha1.Workload) string {
+	var sb strings.Builder
+
+	for i, workload := range workloads {
+		if i > 0 {
+			sb.WriteString("\n---\n")
+		}
+		sb.WriteString(workload.Content)
+	}
+
+	return sb.String()
+}
+
+func (r *WorkPlacementReconciler) getAllWorkplacementsForDestination(ctx context.Context, destinationName string) ([]v1alpha1.WorkPlacement, error) {
+	allWorkplacements := &v1alpha1.WorkPlacementList{}
+	opts := &client.ListOptions{
+		LabelSelector: labels.SelectorFromSet(labels.Set{
+			TargetDestinationNameLabel: destinationName,
+		}),
+	}
+
+	if err := r.Client.List(ctx, allWorkplacements, opts); err != nil {
+		return nil, fmt.Errorf("failed to list all WorkPlacements: %w", err)
+	}
+
+	active := func(wps []v1alpha1.WorkPlacement) []v1alpha1.WorkPlacement {
+		var activeWorkplacements []v1alpha1.WorkPlacement
+		for _, wp := range wps {
+			if wp.DeletionTimestamp.IsZero() {
+				activeWorkplacements = append(activeWorkplacements, wp)
+			}
+		}
+		return activeWorkplacements
+	}
+
+	return active(allWorkplacements.Items), nil
+}
+
+func (r *WorkPlacementReconciler) combineWorkloads(workPlacements []v1alpha1.WorkPlacement) ([]v1alpha1.Workload, error) {
+	combinedWorkloads := []v1alpha1.Workload{}
+	for _, wp := range workPlacements {
+		for _, workload := range wp.Spec.Workloads {
+			decompressedContent, err := compression.DecompressContent([]byte(workload.Content))
+			if err != nil {
+				return nil, fmt.Errorf("unable to decompress file content: %w", err)
+			}
+
+			workload.Content = string(decompressedContent)
+			combinedWorkloads = append(combinedWorkloads, workload)
+		}
+	}
+
+	return combinedWorkloads, nil
+}
+
+func (r *WorkPlacementReconciler) generateKratixStateFile(workPlacement v1alpha1.WorkPlacement, writer writers.StateStoreWriter) (v1alpha1.Workload, StateFile, error) {
+	var kratixFile []byte
+	var err error
+	if kratixFile, err = writer.ReadFile(fmt.Sprintf(".kratix/%s-%s.yaml", workPlacement.Namespace, workPlacement.Name)); ignoreNotFound(err) != nil {
+		return v1alpha1.Workload{}, StateFile{}, fmt.Errorf("failed to read .kratix state file: %w", err)
+	}
+	oldStateFile := StateFile{}
+	if err = yaml.Unmarshal(kratixFile, &oldStateFile); err != nil {
+		return v1alpha1.Workload{}, StateFile{}, fmt.Errorf("failed to unmarshal .kratix state file: %w", err)
+	}
+
+	newStateFile := StateFile{
+		Files: workloadsFilenames(workPlacement.Spec.Workloads),
+	}
+	stateFileContent, marshalErr := yaml.Marshal(newStateFile)
+	if marshalErr != nil {
+		return v1alpha1.Workload{}, StateFile{}, fmt.Errorf("failed to marshal new .kratix state file: %w", err)
+	}
+
+	stateFileWorkload := v1alpha1.Workload{
+		Filepath: fmt.Sprintf(".kratix/%s-%s.yaml", workPlacement.Namespace, workPlacement.Name),
+		Content:  string(stateFileContent),
+	}
+	return stateFileWorkload, oldStateFile, nil
 }
