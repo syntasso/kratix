@@ -74,6 +74,16 @@ type DestinationSpec struct {
 	// +kubebuilder:validation:Enum:={none,all}
 	// +kubebuilder:default:="none"
 	Cleanup string `json:"cleanup,omitempty"`
+
+	// +kubebuilder:validation:Optional
+	InitWorkloads InitWorkloads `json:"initWorkloads,omitempty"`
+}
+
+type InitWorkloads struct {
+	// +kubebuilder:validation:Optional
+	//defaults to true
+	// +kubebuilder:default:=true
+	Enabled bool `json:"disabled,omitempty"`
 }
 
 const (
