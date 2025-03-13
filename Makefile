@@ -33,6 +33,8 @@ endif
 SHELL = /usr/bin/env bash -o pipefail
 .SHELLFLAGS = -ec
 
+PROJECT_DIR := $(shell dirname $(abspath $(lastword $(MAKEFILE_LIST))))
+
 all: build
 
 ##@ General
@@ -70,7 +72,7 @@ teardown: ## Delete all Kratix resources from the Platform cluster
 fast-quick-start: teardown ## Install Kratix without recreating the local clusters
 	RECREATE=false make quick-start
 
-quick-start: gitea-cli generate distribution ## Recreates the clusters and install Kratix
+quick-start: gitea-cli minio-cli generate distribution ## Recreates the clusters and install Kratix
 	VERSION=dev DOCKER_BUILDKIT=1 ./scripts/quick-start.sh --recreate --local --git-and-minio
 
 prepare-platform-as-destination: ## Installs flux onto platform cluster and registers as a destination
@@ -154,7 +156,6 @@ undeploy: ## Undeploy controller from the K8s cluster specified in ~/.kube/confi
 	$(KUSTOMIZE) build config/default | kubectl delete -f -
 
 # go-get-tool will 'go get' any package $2 and install it to $1.
-PROJECT_DIR := $(shell dirname $(abspath $(lastword $(MAKEFILE_LIST))))
 define go-get-tool
 @[ -f $(1) ] || { \
 set -e ;\
@@ -167,12 +168,13 @@ rm -rf $$TMP_DIR ;\
 }
 endef
 
-GITEA_PLATFORM=$(shell uname -s | tr '[:upper:]' '[:lower:]')
+PLATFORM=$(shell uname -s | tr '[:upper:]' '[:lower:]')
+GITEA_PLATFORM=$(PLATFORM)
 ifeq ($(GITEA_PLATFORM),darwin)
 	GITEA_PLATFORM=darwin-10.12
 endif
 ARCH=$(shell uname -m)
-ifeq ($(GITEA_PLATFORM),linux)
+ifeq ($(PLATFORM),linux)
 	ARCH=$(shell dpkg --print-architecture)
 endif
 
@@ -185,6 +187,16 @@ endef
 gitea-cli:
 	mkdir -p bin
 	$(call get-gitea-cli)
+
+define get-mc-cli
+@[ -f $(PROJECT_DIR)/bin/mc ] || { \
+curl --silent --output $(PROJECT_DIR)/bin/mc https://dl.min.io/aistor/mc/release/$(PLATFORM)-$(ARCH)/mc; \
+chmod +x $(PROJECT_DIR)/bin/mc; \
+}
+endef
+minio-cli:
+	mkdir -p bin
+	$(call get-mc-cli)
 
 .PHONY: list
 list:
@@ -218,7 +230,7 @@ run-core-test:
 
 .PHONY: run-system-test
 run-system-test: fmt vet
-	PLATFORM_DESTINATION_IP=`docker inspect ${PLATFORM_CLUSTER_NAME}-control-plane | grep '"IPAddress": "172' | awk -F '"' '{print $$4}'` go run ${GINKGO} ${GINKGO_FLAGS} -p --output-interceptor-mode=none ./test/system/  --coverprofile cover.out
+	PATH="$(PROJECT_DIR)/bin:${PATH}" PLATFORM_DESTINATION_IP=`docker inspect ${PLATFORM_CLUSTER_NAME}-control-plane | grep '"IPAddress": "172' | awk -F '"' '{print $$4}'` go run ${GINKGO} ${GINKGO_FLAGS} -p --output-interceptor-mode=none ./test/system/  --coverprofile cover.out
 
 fmt: ## Run go fmt against code.
 	go fmt ./...

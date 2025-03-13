@@ -278,6 +278,10 @@ wait_for_minio() {
         sleep 1
     done
     kubectl --context kind-${PLATFORM_CLUSTER_NAME} wait job minio-create-bucket --for condition=Complete ${wait_opts}
+
+    minio_user=$(kubectl --context kind-${PLATFORM_CLUSTER_NAME} get secret minio-credentials -n default -o jsonpath="{.data.accessKeyID}" | base64 --decode)
+    minio_password=$(kubectl --context kind-${PLATFORM_CLUSTER_NAME} get secret minio-credentials -n default -o jsonpath="{.data.secretAccessKey}" | base64 --decode)
+    ${ROOT}/bin/mc alias set kind http://localhost:31337 ${minio_user} ${minio_password}
 }
 
 wait_for_local_repository() {
