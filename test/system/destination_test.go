@@ -1,30 +1,36 @@
 package system_test
 
 import (
+	"fmt"
 	"os"
+	"os/exec"
 	"strings"
 	"time"
 
 	"github.com/syntasso/kratix/test/kubeutils"
+	"k8s.io/apimachinery/pkg/apis/meta/v1/unstructured"
 
 	. "github.com/onsi/ginkgo/v2"
 	. "github.com/onsi/gomega"
+	"github.com/onsi/gomega/gexec"
+
+	yaml "sigs.k8s.io/yaml"
 )
 
 var _ = Describe("Destinations", func() {
+	BeforeEach(func() {
+		SetDefaultEventuallyTimeout(2 * time.Minute)
+		SetDefaultEventuallyPollingInterval(2 * time.Second)
+		kubeutils.SetTimeoutAndInterval(2*time.Minute, 2*time.Second)
+	})
+
 	Describe("status and events", func() {
 		var destinationName string
 		BeforeEach(func() {
 			destinationName = "worker-3"
-
-			SetDefaultEventuallyTimeout(2 * time.Minute)
-			SetDefaultEventuallyPollingInterval(2 * time.Second)
-			kubeutils.SetTimeoutAndInterval(2*time.Minute, 2*time.Second)
-
 			if os.Getenv("LRE") != "true" {
 				platform.Kubectl("apply", "-f", "assets/destination/destination-test-store.yaml")
 			}
-
 			platform.Kubectl("apply", "-f", "assets/destination/destination-worker-3.yaml")
 		})
 
@@ -196,4 +202,121 @@ var _ = Describe("Destinations", func() {
 			}
 		})
 	})
+
+	Describe("filepath modes", func() {
+		// We are changing the LRE environment
+		// Skipping this test on the LRE to avoid unnecessary work
+		if os.Getenv("LRE") != "true" {
+			Describe("aggregatedYAML", func() {
+				BeforeEach(func() {
+					platform.Kubectl("apply", "-f", "assets/destination/destination-aggregated-yaml.yaml")
+					platform.Kubectl("apply", "-f", "assets/destination/promise.yaml")
+
+					Eventually(func() string {
+						return platform.Kubectl("get", "crds")
+					}).Should(ContainSubstring("aggregates.test.kratix.io"))
+
+					platform.Kubectl("apply", "-f", "assets/destination/resources.yaml")
+				})
+
+				AfterEach(func() {
+					platform.Kubectl("delete", "promises", "aggregate-promise", "--ignore-not-found")
+					platform.Kubectl("delete", "-f", "assets/destination/destination-aggregated-yaml.yaml")
+				})
+
+				It("aggregates workplacements into a single file", func() {
+					By("bundling promise and resources into the same file", func() {
+						Eventually(func() []string {
+							return filenames(mc("ls", "-r", "kind/kratix/aggregated-yaml"))
+						}).Should(ConsistOf(
+							"catalog.yaml",
+							"kratix-canary-configmap.yaml",
+							"kratix-canary-namespace.yaml",
+						))
+
+						Eventually(func() []string {
+							contents := mc("cat", "kind/kratix/aggregated-yaml/catalog.yaml")
+							uContents := parseYAML(contents)
+							return kindAndName(uContents)
+						}).Should(
+							ConsistOf("Namespace:aggregate-test-ns", "ConfigMap:req-1", "ConfigMap:req-2"),
+						)
+					})
+
+					By("removing the part associated with a resource when the resource gets deleted", func() {
+						platform.EventuallyKubectlDelete("aggregates", "req-1")
+
+						Eventually(func() []string {
+							contents := mc("cat", "kind/kratix/aggregated-yaml/catalog.yaml")
+							uContents := parseYAML(contents)
+							return kindAndName(uContents)
+						}).Should(
+							ConsistOf("Namespace:aggregate-test-ns", "ConfigMap:req-2"),
+						)
+					})
+
+					By("removing the entire file when the promise gets deleted", func() {
+						platform.Kubectl("delete", "promises", "aggregate-promise")
+						Eventually(func() string {
+							return platform.Kubectl("get", "crds")
+						}).ShouldNot(ContainSubstring("aggregates.test.kratix.io"))
+
+						Eventually(func() []string {
+							return filenames(mc("ls", "-r", "kind/kratix/aggregated-yaml"))
+						}).Should(ConsistOf(
+							"kratix-canary-configmap.yaml",
+							"kratix-canary-namespace.yaml",
+						))
+					})
+				})
+			})
+		}
+	})
 })
+
+func kindAndName(objs []*unstructured.Unstructured) []string {
+	names := []string{}
+	for _, obj := range objs {
+		names = append(names, fmt.Sprintf("%s:%s", obj.GetKind(), obj.GetName()))
+	}
+	return names
+}
+
+func filenames(str string) []string {
+	lines := strings.Split(str, "\n")
+
+	filenames := []string{}
+	for _, line := range lines {
+		if line == "" {
+			continue
+		}
+		l := strings.Split(line, " ")
+		filenames = append(filenames, l[len(l)-1])
+	}
+
+	return filenames
+}
+
+func parseYAML(contents string) []*unstructured.Unstructured {
+	docs := strings.Split(contents, "---")
+	parsedContent := []*unstructured.Unstructured{}
+	for _, doc := range docs {
+		if doc == "" {
+			continue
+		}
+		u := &unstructured.Unstructured{}
+		err := yaml.Unmarshal([]byte(doc), &u)
+		Expect(err).ToNot(HaveOccurred())
+		parsedContent = append(parsedContent, u)
+	}
+	return parsedContent
+}
+
+func mc(args ...string) string {
+	command := exec.Command("mc", args...)
+	session, err := gexec.Start(command, GinkgoWriter, GinkgoWriter)
+	Expect(err).ToNot(HaveOccurred())
+	Eventually(session).Should(gexec.Exit(0))
+
+	return string(session.Out.Contents())
+}

@@ -81,6 +81,11 @@ func (d *DestinationCustomDefaulter) Default(ctx context.Context, obj runtime.Ob
 		desiredDestination.Annotations[v1alpha1.SkipPathDefaultingAnnotation] = "true"
 	}
 
+	if desiredDestination.Spec.Filepath.Mode == v1alpha1.FilepathModeAggregatedYAML &&
+		desiredDestination.Spec.Filepath.Filename == "" {
+		desiredDestination.Spec.Filepath.Filename = "aggregated.yaml"
+	}
+
 	return nil
 }
 

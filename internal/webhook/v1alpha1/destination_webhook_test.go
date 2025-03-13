@@ -187,4 +187,27 @@ var _ = Describe("Destination Webhook", func() {
 		})
 
 	})
+
+	Describe("defaulting filename", func() {
+		It("sets the filename when the filepath.mode requires it", func() {
+			destination.Spec.Filepath = v1alpha1.Filepath{
+				Mode: v1alpha1.FilepathModeAggregatedYAML,
+			}
+			err := defaulter.Default(ctx, destination)
+			Expect(err).NotTo(HaveOccurred())
+			Expect(destination.Spec.Filepath.Filename).To(Equal("aggregated.yaml"))
+		})
+
+		It("does not set a default filename when the filepath.mode doesn't require it", func() {
+			for _, mode := range []string{
+				v1alpha1.FilepathModeNestedByMetadata,
+				v1alpha1.FilepathModeNone,
+			} {
+				destination.Spec.Filepath = v1alpha1.Filepath{Mode: mode}
+				err := defaulter.Default(ctx, destination)
+				Expect(err).NotTo(HaveOccurred())
+				Expect(destination.Spec.Filepath.Filename).To(BeEmpty())
+			}
+		})
+	})
 })

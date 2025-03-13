@@ -35,6 +35,7 @@ import (
 	corev1 "k8s.io/api/core/v1"
 	v1 "k8s.io/apimachinery/pkg/apis/meta/v1"
 	ctrl "sigs.k8s.io/controller-runtime"
+	"sigs.k8s.io/controller-runtime/pkg/client"
 	//+kubebuilder:scaffold:imports
 )
 
@@ -94,23 +95,7 @@ var _ = Describe("WorkPlacementReconciler", func() {
 			},
 		}
 
-		workPlacement = v1alpha1.WorkPlacement{
-			TypeMeta: v1.TypeMeta{
-				Kind:       "WorkPlacement",
-				APIVersion: "platform.kratix.io/v1alpha1",
-			},
-			ObjectMeta: v1.ObjectMeta{
-				Name:      workPlacementName,
-				Namespace: "default",
-			},
-			Spec: v1alpha1.WorkPlacementSpec{
-				TargetDestinationName: "test-destination",
-				ID:                    hash.ComputeHash("."),
-				Workloads:             workloads,
-				PromiseName:           "test-promise",
-				ResourceName:          "test-resource",
-			},
-		}
+		workPlacement = createWorkPlacement(workPlacementName, workloads)
 
 		Expect(fakeK8sClient.Create(ctx, &workPlacement)).To(Succeed())
 		fakeWriter = &writersfakes.FakeStateStoreWriter{}
@@ -377,12 +362,13 @@ files:
 		})
 
 		When("the destination has filepath mode of aggregatedYAML", func() {
+			var secondWorkPlacement v1alpha1.WorkPlacement
+
 			BeforeEach(func() {
 				destination.Spec.Filepath.Mode = v1alpha1.FilepathModeAggregatedYAML
 				destination.Spec.Filepath.Filename = "workloads.yaml"
 
 				setupGitDestination(&gitStateStore, &destination)
-
 				controller.SetNewGitWriter(func(_ logr.Logger,
 					stateStoreSpec v1alpha1.GitStateStoreSpec,
 					destinationPath string,
@@ -393,17 +379,28 @@ files:
 					argCreds = creds
 					return fakeWriter, nil
 				})
-			})
 
-			It("calls the writer with a single file at the root", func() {
+				fileContent := `{kratix: is-good}`
+				compressedContent, err := compression.CompressContent([]byte(fileContent))
+				Expect(err).ToNot(HaveOccurred())
+
+				secondWorkPlacement = createWorkPlacement(workPlacementName+"-2", []v1alpha1.Workload{{
+					Filepath: "some-file.yaml",
+					Content:  string(compressedContent),
+				}})
+
+				Expect(fakeK8sClient.Create(ctx, &secondWorkPlacement)).To(Succeed())
+
 				result, err := t.reconcileUntilCompletion(reconciler, &workPlacement)
 				Expect(err).NotTo(HaveOccurred())
 				Expect(result).To(Equal(ctrl.Result{}))
+			})
 
+			It("concatenates the workloads of all workplacements into a single file", func() {
 				mergedWorkloads := []v1alpha1.Workload{
 					{
 						Filepath: "workloads.yaml",
-						Content:  "{someApi: foo, someValue: bar}\n---\n{someOtherApi: fooz, someOtherValue: barz}",
+						Content:  "{someApi: foo, someValue: bar}\n---\n{someOtherApi: fooz, someOtherValue: barz}\n---\n{kratix: is-good}",
 					},
 				}
 
@@ -413,6 +410,61 @@ files:
 				Expect(workPlacementName).To(Equal(workPlacement.Name))
 				Expect(workloadsToCreate).To(Equal(mergedWorkloads))
 				Expect(workloadsToDelete).To(BeEmpty())
+			})
+
+			When("one of the workplacements is deleted", func() {
+				BeforeEach(func() {
+					Expect(fakeK8sClient.Delete(ctx, &workPlacement)).To(Succeed())
+				})
+
+				It("removes the workloads of the deleted workplacement from the file", func() {
+					result, err := t.reconcileUntilCompletion(reconciler, &workPlacement)
+					Expect(err).NotTo(HaveOccurred())
+					Expect(result).To(Equal(ctrl.Result{}))
+
+					mergedWorkloads := []v1alpha1.Workload{
+						{
+							Filepath: "workloads.yaml",
+							Content:  "{kratix: is-good}",
+						},
+					}
+
+					Expect(fakeWriter.UpdateFilesCallCount()).To(Equal(3))
+					dir, workPlacementName, workloadsToCreate, workloadsToDelete := fakeWriter.UpdateFilesArgsForCall(2)
+					Expect(dir).To(Equal(""))
+					Expect(workPlacementName).To(Equal(workPlacement.Name))
+					Expect(workloadsToCreate).To(Equal(mergedWorkloads))
+					Expect(workloadsToDelete).To(BeEmpty())
+
+					Expect(fakeK8sClient.Get(ctx, client.ObjectKey{
+						Name:      workPlacement.GetName(),
+						Namespace: workPlacement.GetNamespace(),
+					}, &workPlacement)).To(HaveOccurred())
+
+					for i := range 3 {
+						_, _, _, workloadsToDelete := fakeWriter.UpdateFilesArgsForCall(i)
+						Expect(workloadsToDelete).To(BeEmpty())
+					}
+				})
+			})
+
+			When("all workplacements are deleted", func() {
+				BeforeEach(func() {
+					Expect(fakeK8sClient.Delete(ctx, &workPlacement)).To(Succeed())
+					Expect(fakeK8sClient.Delete(ctx, &secondWorkPlacement)).To(Succeed())
+					result, err := t.reconcileUntilCompletion(reconciler, &workPlacement)
+					Expect(err).NotTo(HaveOccurred())
+					Expect(result).To(Equal(ctrl.Result{}))
+				})
+
+				It("removes the workloads of the deleted workplacement from the file", func() {
+					Expect(fakeWriter.UpdateFilesCallCount()).To(Equal(3))
+					dir, workPlacementName, workloadsToCreate, workloadsToDelete := fakeWriter.UpdateFilesArgsForCall(2)
+					Expect(dir).To(Equal(""))
+					Expect(workPlacementName).To(Equal(workPlacement.Name))
+					Expect(workloadsToCreate).To(BeEmpty())
+					Expect(workloadsToDelete).To(ConsistOf("workloads.yaml"))
+				})
 			})
 		})
 	})
@@ -536,4 +588,27 @@ func setupGitDestination(gitStateStore *v1alpha1.GitStateStore, destination *v1a
 	destination.Spec.StateStoreRef.Name = "test-state-store"
 
 	Expect(fakeK8sClient.Create(ctx, destination)).To(Succeed())
+}
+
+func createWorkPlacement(name string, workload []v1alpha1.Workload) v1alpha1.WorkPlacement {
+	return v1alpha1.WorkPlacement{
+		TypeMeta: v1.TypeMeta{
+			Kind:       "WorkPlacement",
+			APIVersion: "platform.kratix.io/v1alpha1",
+		},
+		ObjectMeta: v1.ObjectMeta{
+			Name:      name,
+			Namespace: "default",
+			Labels: map[string]string{
+				controller.TargetDestinationNameLabel: "test-destination",
+			},
+		},
+		Spec: v1alpha1.WorkPlacementSpec{
+			TargetDestinationName: "test-destination",
+			ID:                    hash.ComputeHash("."),
+			Workloads:             workload,
+			PromiseName:           "test-promise",
+			ResourceName:          "test-resource",
+		},
+	}
 }
