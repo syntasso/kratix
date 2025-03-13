@@ -79,6 +79,7 @@ var _ = Describe("Pipeline", func() {
 			Privileged: ptr.To(false),
 		}
 		v1alpha1.DefaultUserProvidedContainersSecurityContext = globalDefaultSecurityContext
+		v1alpha1.DefaultImagePullPolicy = ""
 		promiseCrd = &apiextensionsv1.CustomResourceDefinition{
 			Spec: apiextensionsv1.CustomResourceDefinitionSpec{
 				Group: "promise.crd.group",
@@ -169,9 +170,7 @@ var _ = Describe("Pipeline", func() {
 	})
 
 	Describe("PipelineFactory", func() {
-		var (
-			factory *v1alpha1.PipelineFactory
-		)
+		var factory *v1alpha1.PipelineFactory
 
 		BeforeEach(func() {
 			factory = &v1alpha1.PipelineFactory{
@@ -604,6 +603,7 @@ var _ = Describe("Pipeline", func() {
 				Expect(container.Name).To(Equal("reader"))
 				Expect(container.Command).To(Equal([]string{"sh", "-c", "reader"}))
 				Expect(container.Image).To(Equal(pipelineAdapterImage))
+				Expect(container.ImagePullPolicy).To(BeEmpty())
 				Expect(container.VolumeMounts).To(ConsistOf([]corev1.VolumeMount{
 					{Name: "shared-input", MountPath: "/kratix/input"},
 					{Name: "shared-output", MountPath: "/kratix/output"},
@@ -636,6 +636,24 @@ var _ = Describe("Pipeline", func() {
 				Entry("promise configure", false, v1alpha1.WorkflowActionConfigure, nil),
 			)
 
+			Context("ReaderContainer image pull policy", func() {
+				When("default image pull policy is set ", func() {
+					BeforeEach(func() {
+						v1alpha1.DefaultImagePullPolicy = "Always"
+					})
+
+					It("set pull policy as the default", func() {
+						var err error
+						factory.WorkflowAction = "configure"
+						resources, err = factory.Resources(nil)
+						Expect(err).ToNot(HaveOccurred())
+
+						container := resources.Job.Spec.Template.Spec.InitContainers[0]
+						Expect(string(container.ImagePullPolicy)).To(Equal("Always"))
+					})
+				})
+			})
+
 			Describe("WorkCreatorContainer", func() {
 				When("building the work creator container for a promise pipeline", func() {
 					It("returns a the work creator container with the appropriate command", func() {
@@ -651,13 +669,31 @@ var _ = Describe("Pipeline", func() {
 						Expect(container).ToNot(BeNil())
 						Expect(container.Name).To(Equal("work-writer"))
 						Expect(container.Image).To(Equal(pipelineAdapterImage))
+						Expect(container.ImagePullPolicy).To(BeEmpty())
 						Expect(container.Command).To(Equal([]string{"sh", "-c", "work-creator " + expectedFlags}))
 						Expect(container.VolumeMounts).To(ConsistOf(
 							corev1.VolumeMount{Name: "shared-output", MountPath: "/work-creator-files/input"},
 							corev1.VolumeMount{Name: "shared-metadata", MountPath: "/work-creator-files/metadata"},
 							corev1.VolumeMount{Name: "promise-scheduling", MountPath: "/work-creator-files/kratix-system"},
 						))
+					})
 
+					When("default image pull policy is set ", func() {
+						BeforeEach(func() {
+							v1alpha1.DefaultImagePullPolicy = "Always"
+						})
+
+						It("set pull policy as the default", func() {
+							var err error
+							factory.ResourceWorkflow = false
+							factory.WorkflowAction = "configure"
+							resources, err = factory.Resources(nil)
+							Expect(err).ToNot(HaveOccurred())
+
+							containers := resources.Job.Spec.Template.Spec.InitContainers
+							container := containers[len(containers)-1]
+							Expect(string(container.ImagePullPolicy)).To(Equal("Always"))
+						})
 					})
 				})
 				When("building the work creator container for a resource pipeline", func() {
@@ -681,12 +717,30 @@ var _ = Describe("Pipeline", func() {
 						Expect(container).ToNot(BeNil())
 						Expect(container.Name).To(Equal("work-writer"))
 						Expect(container.Image).To(Equal(pipelineAdapterImage))
+						Expect(container.ImagePullPolicy).To(BeEmpty())
 						Expect(container.Command).To(Equal([]string{"sh", "-c", "work-creator " + expectedFlags}))
 						Expect(container.VolumeMounts).To(ConsistOf(
 							corev1.VolumeMount{Name: "shared-output", MountPath: "/work-creator-files/input"},
 							corev1.VolumeMount{Name: "shared-metadata", MountPath: "/work-creator-files/metadata"},
 							corev1.VolumeMount{Name: "promise-scheduling", MountPath: "/work-creator-files/kratix-system"},
 						))
+					})
+
+					When("default image pull policy is set ", func() {
+						BeforeEach(func() {
+							v1alpha1.DefaultImagePullPolicy = "Never"
+						})
+
+						It("set pull policy as the default", func() {
+							factory.ResourceWorkflow = true
+							var err error
+							resources, err = factory.Resources(nil)
+							Expect(err).ToNot(HaveOccurred())
+
+							containers := resources.Job.Spec.Template.Spec.InitContainers
+							container := containers[len(containers)-1]
+							Expect(string(container.ImagePullPolicy)).To(Equal("Never"))
+						})
 					})
 				})
 			})
@@ -736,6 +790,37 @@ var _ = Describe("Pipeline", func() {
 						Expect(containers[1].SecurityContext).To(BeNil())
 					})
 				})
+
+				When("default image pull policy is set ", func() {
+					When("pipeline container has no image pull policy", func() {
+						BeforeEach(func() {
+							v1alpha1.DefaultImagePullPolicy = "Never"
+							pipeline.Spec.Containers[0].ImagePullPolicy = ""
+						})
+
+						It("set pull policy as the default", func() {
+							resources, err := factory.Resources(nil)
+							Expect(err).ToNot(HaveOccurred())
+							containers := resources.Job.Spec.Template.Spec.InitContainers
+							Expect(string(containers[1].ImagePullPolicy)).To(Equal("Never"))
+						})
+					})
+
+					When("pipeline container has image pull policy", func() {
+						BeforeEach(func() {
+							v1alpha1.DefaultImagePullPolicy = "Never"
+							pipeline.Spec.Containers[0].ImagePullPolicy = "Always"
+						})
+
+						It("takes precedence over the default", func() {
+							resources, err := factory.Resources(nil)
+							Expect(err).ToNot(HaveOccurred())
+							containers := resources.Job.Spec.Template.Spec.InitContainers
+							Expect(string(containers[1].ImagePullPolicy)).To(Equal("Always"))
+						})
+					})
+
+				})
 			})
 
 			Describe("StatusWriterContainer", func() {
@@ -755,6 +840,7 @@ var _ = Describe("Pipeline", func() {
 					Expect(container).ToNot(BeNil())
 					Expect(container.Name).To(Equal("status-writer"))
 					Expect(container.Image).To(Equal(pipelineAdapterImage))
+					Expect(container.ImagePullPolicy).To(BeEmpty())
 					Expect(container.Command).To(Equal([]string{"sh", "-c", "update-status"}))
 					Expect(container.Env).To(ConsistOf(
 						corev1.EnvVar{Name: "OBJECT_KIND", Value: resourceRequest.GroupVersionKind().Kind},
@@ -770,6 +856,19 @@ var _ = Describe("Pipeline", func() {
 					Expect(container.VolumeMounts).To(ConsistOf(
 						corev1.VolumeMount{Name: "shared-metadata", MountPath: "/work-creator-files/metadata"},
 					))
+				})
+
+				When("default image pull policy is set ", func() {
+					BeforeEach(func() {
+						v1alpha1.DefaultImagePullPolicy = "Never"
+					})
+
+					It("set pull policy as the default", func() {
+						resources, err := factory.Resources(nil)
+						Expect(err).ToNot(HaveOccurred())
+						statusContainer := resources.Job.Spec.Template.Spec.Containers[0]
+						Expect(string(statusContainer.ImagePullPolicy)).To(Equal("Never"))
+					})
 				})
 			})
 		})

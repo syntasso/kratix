@@ -188,6 +188,7 @@ func (p *PipelineFactory) readerContainer() corev1.Container {
 			{MountPath: "/kratix/output", Name: "shared-output"},
 		},
 		SecurityContext: kratixSecurityContext,
+		ImagePullPolicy: DefaultImagePullPolicy,
 	}
 }
 
@@ -218,6 +219,7 @@ func (p *PipelineFactory) workCreatorContainer() corev1.Container {
 			{MountPath: "/work-creator-files/kratix-system", Name: "promise-scheduling"}, // this volumemount is a configmap
 		},
 		SecurityContext: kratixSecurityContext,
+		ImagePullPolicy: DefaultImagePullPolicy,
 	}
 }
 
@@ -236,6 +238,10 @@ func (p *PipelineFactory) pipelineContainers() ([]corev1.Container, []corev1.Vol
 
 		if c.SecurityContext == nil {
 			c.SecurityContext = DefaultUserProvidedContainersSecurityContext
+		}
+
+		if c.ImagePullPolicy == "" {
+			c.ImagePullPolicy = DefaultImagePullPolicy
 		}
 
 		containers = append(containers, corev1.Container{
@@ -338,6 +344,7 @@ func (p *PipelineFactory) statusWriterContainer(obj *unstructured.Unstructured, 
 			Name:      "shared-metadata",
 		}},
 		SecurityContext: kratixSecurityContext,
+		ImagePullPolicy: DefaultImagePullPolicy,
 	}
 }
 
