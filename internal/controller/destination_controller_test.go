@@ -159,7 +159,7 @@ var _ = Describe("DestinationReconciler", func() {
 						)))
 					})
 
-					It("creates the canary resources", func() {
+					It("creates the init workloads", func() {
 						Expect(fakeWriter.UpdateFilesCallCount()).To(Equal(4))
 						assertCanaryFilesWereCreated(fakeWriter)
 					})
@@ -171,7 +171,7 @@ var _ = Describe("DestinationReconciler", func() {
 					})
 				})
 
-				When("the canary resources are disabled", func() {
+				When("the init workloads are disabled", func() {
 					When("at the time of creation", func() {
 						BeforeEach(func() {
 							var dest v1alpha1.Destination
