@@ -187,7 +187,7 @@ var _ = Describe("DestinationReconciler", func() {
 						It("updates the destination status condition", func() {
 							Expect(updatedDestination.Status.Conditions).To(ContainElement(SatisfyAll(
 								HaveField("Type", "Ready"),
-								HaveField("Message", "Reconciled successfuly, no init workloads were written"),
+								HaveField("Message", "Reconciled successfully, no init workloads were written"),
 								HaveField("Reason", "ReconciledSuccessfully"),
 								HaveField("Status", metav1.ConditionTrue),
 							)))
@@ -241,7 +241,7 @@ var _ = Describe("DestinationReconciler", func() {
 						It("updates the destination status condition", func() {
 							Expect(updatedDestination.Status.Conditions).To(ContainElement(SatisfyAll(
 								HaveField("Type", "Ready"),
-								HaveField("Message", "Reconciled successfuly, no init workloads were written"),
+								HaveField("Message", "Reconciled successfully, no init workloads were written"),
 								HaveField("Reason", "ReconciledSuccessfully"),
 								HaveField("Status", metav1.ConditionTrue),
 							)))

@@ -318,7 +318,7 @@ func (r *DestinationReconciler) setConditionReadyInitWorkloads(destination *v1al
 		Type:               "Ready",
 		Status:             metav1.ConditionTrue,
 		Reason:             "ReconciledSuccessfully",
-		Message:            "Reconciled successfuly, no init workloads were written",
+		Message:            "Reconciled successfully, no init workloads were written",
 		LastTransitionTime: metav1.Now(),
 	}
 
