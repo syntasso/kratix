@@ -85,7 +85,7 @@ spec:
                 type: object
               initWorkloads:
                 properties:
-                  disabled:
+                  enabled:
                     default: true
                     description: defaults to true
                     type: boolean

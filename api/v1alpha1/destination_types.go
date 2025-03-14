@@ -83,7 +83,7 @@ type InitWorkloads struct {
 	// +kubebuilder:validation:Optional
 	//defaults to true
 	// +kubebuilder:default:=true
-	Enabled bool `json:"disabled,omitempty"`
+	Enabled bool `json:"enabled,omitempty"`
 }
 
 const (
