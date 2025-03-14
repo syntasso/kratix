@@ -120,14 +120,11 @@ func (r *DestinationReconciler) Reconcile(ctx context.Context, req ctrl.Request)
 	}
 
 	if !destination.Spec.InitWorkloads.Enabled {
-		//if it disabled, and the condition is set to false, remove the condition
-		//TODO lets rename this when we settle on the toplevelkey name
-
-		if err = r.deleteCanaryResources(writer); err != nil {
+		if err = r.deleteInitWorkloads(writer); err != nil {
 			return ctrl.Result{}, err
 		}
 
-		if err = r.setConditionReadyWithoutCanaryFiles(destination); err != nil {
+		if err = r.setConditionReadyInitWorkloads(destination); err != nil {
 			return ctrl.Result{}, err
 		}
 		return ctrl.Result{}, nil
@@ -136,7 +133,6 @@ func (r *DestinationReconciler) Reconcile(ctx context.Context, req ctrl.Request)
 	logger = logger.WithValues("path", destination.Spec.Path)
 	filePathMode := destination.GetFilepathMode()
 
-	logger.Info("Writing canary files", "requestName", req.Name)
 	var writeErr error
 	if writeErr = r.writeTestFiles(writer, filePathMode); writeErr != nil {
 		logger.Error(writeErr, "unable to write dependencies to state store")
@@ -225,7 +221,7 @@ func (r *DestinationReconciler) createDependenciesPathWithExample(writer writers
 	return err
 }
 
-func (r *DestinationReconciler) deleteCanaryResources(writer writers.StateStoreWriter) error {
+func (r *DestinationReconciler) deleteInitWorkloads(writer writers.StateStoreWriter) error {
 	filesToDelete := []string{canaryNamespacePath, canaryConfigMapPath}
 	if _, err := writer.UpdateFiles("", canaryWorkload, nil, filesToDelete); err != nil {
 		return fmt.Errorf("error deleting canary resources %v: %w", filesToDelete, err)
@@ -317,16 +313,16 @@ func (r *DestinationReconciler) updateReadyCondition(destination *v1alpha1.Desti
 	return r.updateStatus(destination, condition, eventType, eventReason, eventMessage)
 }
 
-func (r *DestinationReconciler) setConditionReadyWithoutCanaryFiles(destination *v1alpha1.Destination) error {
+func (r *DestinationReconciler) setConditionReadyInitWorkloads(destination *v1alpha1.Destination) error {
 	condition := metav1.Condition{
 		Type:               "Ready",
 		Status:             metav1.ConditionTrue,
 		Reason:             "ReconciledSuccessfully",
-		Message:            "Reconciled successfuly, no canary files were written",
+		Message:            "Reconciled successfuly, no init workloads were written",
 		LastTransitionTime: metav1.Now(),
 	}
 
-	return r.updateStatus(destination, condition, v1.EventTypeNormal, destinationReadyReason, fmt.Sprintf("Destination %q is ready, skipped writing of the canary files", destination.Name))
+	return r.updateStatus(destination, condition, v1.EventTypeNormal, destinationReadyReason, fmt.Sprintf("Destination %q is ready, skipped writing of the init workloads", destination.Name))
 }
 
 func (r *DestinationReconciler) updateStatus(destination *v1alpha1.Destination, condition metav1.Condition, eventType, eventReason, eventMessage string) error {

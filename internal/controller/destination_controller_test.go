@@ -187,7 +187,7 @@ var _ = Describe("DestinationReconciler", func() {
 						It("updates the destination status condition", func() {
 							Expect(updatedDestination.Status.Conditions).To(ContainElement(SatisfyAll(
 								HaveField("Type", "Ready"),
-								HaveField("Message", "Reconciled successfuly, no canary files were written"),
+								HaveField("Message", "Reconciled successfuly, no init workloads were written"),
 								HaveField("Reason", "ReconciledSuccessfully"),
 								HaveField("Status", metav1.ConditionTrue),
 							)))
@@ -204,7 +204,7 @@ var _ = Describe("DestinationReconciler", func() {
 
 						It("publishes a success event", func() {
 							Expect(eventRecorder.Events).To(Receive(ContainSubstring(
-								"Destination %q is ready, skipped writing of the canary files", testDestination.Name),
+								"Destination %q is ready, skipped writing of the init workloads", testDestination.Name),
 							))
 						})
 					})
@@ -241,7 +241,7 @@ var _ = Describe("DestinationReconciler", func() {
 						It("updates the destination status condition", func() {
 							Expect(updatedDestination.Status.Conditions).To(ContainElement(SatisfyAll(
 								HaveField("Type", "Ready"),
-								HaveField("Message", "Reconciled successfuly, no canary files were written"),
+								HaveField("Message", "Reconciled successfuly, no init workloads were written"),
 								HaveField("Reason", "ReconciledSuccessfully"),
 								HaveField("Status", metav1.ConditionTrue),
 							)))
