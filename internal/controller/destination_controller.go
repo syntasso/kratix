@@ -48,9 +48,13 @@ import (
 
 const (
 	canaryWorkload              = "kratix-canary"
+	canaryNamespacePath         = "kratix-canary-namespace.yaml"
+	canaryConfigMapPath         = "kratix-canary-configmap.yaml"
 	destinationCleanupFinalizer = v1alpha1.KratixPrefix + "destination-cleanup"
 
-	stateStoreRef = "stateStoreRef"
+	stateStoreRef             = "stateStoreRef"
+	destinationNotReadyReason = "DestinationNotReady"
+	destinationReadyReason    = "DestinationReady"
 )
 
 // DestinationReconciler reconciles a Destination object
@@ -96,6 +100,7 @@ func (r *DestinationReconciler) Reconcile(ctx context.Context, req ctrl.Request)
 	}
 
 	if r.needsFinalizerUpdate(destination) {
+		logger.Info("Updating Destination finalizers", "requestName", req.Name)
 		if err := r.Client.Update(ctx, destination); err != nil {
 			return ctrl.Result{}, err
 		}
@@ -112,6 +117,17 @@ func (r *DestinationReconciler) Reconcile(ctx context.Context, req ctrl.Request)
 
 	if !destination.DeletionTimestamp.IsZero() {
 		return r.deleteDestination(opts, destination, writer)
+	}
+
+	if !destination.Spec.InitWorkloads.Enabled {
+		if err = r.deleteInitWorkloads(writer); err != nil {
+			return ctrl.Result{}, err
+		}
+
+		if err = r.setConditionReadyInitWorkloads(destination); err != nil {
+			return ctrl.Result{}, err
+		}
+		return ctrl.Result{}, nil
 	}
 
 	logger = logger.WithValues("path", destination.Spec.Path)
@@ -173,7 +189,7 @@ func (r *DestinationReconciler) createResourcePathWithExample(writer writers.Sta
 	}
 	nsBytes, _ := yaml.Marshal(kratixConfigMap)
 
-	filePath := "kratix-canary-configmap.yaml"
+	filePath := canaryConfigMapPath
 	if filePathMode == v1alpha1.FilepathModeNestedByMetadata {
 		filePath = filepath.Join(resourcesDir, filePath)
 	}
@@ -194,7 +210,7 @@ func (r *DestinationReconciler) createDependenciesPathWithExample(writer writers
 	}
 	nsBytes, _ := yaml.Marshal(kratixNamespace)
 
-	filePath := "kratix-canary-namespace.yaml"
+	filePath := canaryNamespacePath
 	if filePathMode == v1alpha1.FilepathModeNestedByMetadata {
 		filePath = filepath.Join(dependenciesDir, filePath)
 	}
@@ -203,6 +219,14 @@ func (r *DestinationReconciler) createDependenciesPathWithExample(writer writers
 		Filepath: filePath,
 		Content:  string(nsBytes)}}, nil)
 	return err
+}
+
+func (r *DestinationReconciler) deleteInitWorkloads(writer writers.StateStoreWriter) error {
+	filesToDelete := []string{canaryNamespacePath, canaryConfigMapPath}
+	if _, err := writer.UpdateFiles("", canaryWorkload, nil, filesToDelete); err != nil {
+		return fmt.Errorf("error deleting canary resources %v: %w", filesToDelete, err)
+	}
+	return nil
 }
 
 func (r *DestinationReconciler) deleteDestination(o opts, destination *v1alpha1.Destination, writer writers.StateStoreWriter) (ctrl.Result, error) {
@@ -264,7 +288,7 @@ func (r *DestinationReconciler) deleteDestinationWorkplacements(o opts, destinat
 
 func (r *DestinationReconciler) updateReadyCondition(destination *v1alpha1.Destination, err error) error {
 	eventType := v1.EventTypeNormal
-	eventReason := "Ready"
+	eventReason := destinationReadyReason
 	eventMessage := fmt.Sprintf("Destination %q is ready", destination.Name)
 
 	condition := metav1.Condition{
@@ -282,10 +306,26 @@ func (r *DestinationReconciler) updateReadyCondition(destination *v1alpha1.Desti
 
 		// Update event parameters for failure
 		eventType = v1.EventTypeWarning
-		eventReason = "DestinationNotReady"
+		eventReason = destinationNotReadyReason
 		eventMessage = fmt.Sprintf("Failed to write test documents to Destination %q: %s", destination.Name, err)
 	}
 
+	return r.updateStatus(destination, condition, eventType, eventReason, eventMessage)
+}
+
+func (r *DestinationReconciler) setConditionReadyInitWorkloads(destination *v1alpha1.Destination) error {
+	condition := metav1.Condition{
+		Type:               "Ready",
+		Status:             metav1.ConditionTrue,
+		Reason:             "ReconciledSuccessfully",
+		Message:            "Reconciled successfully, no init workloads were written",
+		LastTransitionTime: metav1.Now(),
+	}
+
+	return r.updateStatus(destination, condition, v1.EventTypeNormal, destinationReadyReason, fmt.Sprintf("Destination %q is ready, skipped writing of the init workloads", destination.Name))
+}
+
+func (r *DestinationReconciler) updateStatus(destination *v1alpha1.Destination, condition metav1.Condition, eventType, eventReason, eventMessage string) error {
 	changed := meta.SetStatusCondition(&destination.Status.Conditions, condition)
 	if !changed {
 		return nil

@@ -83,6 +83,13 @@ spec:
                     - message: filepath.mode is immutable
                       rule: self == oldSelf
                 type: object
+              initWorkloads:
+                properties:
+                  enabled:
+                    default: true
+                    description: defaults to true
+                    type: boolean
+                type: object
               path:
                 description: |-
                   Path within StateStore to write documents, this will be appended to any

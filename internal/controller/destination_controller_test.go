@@ -79,6 +79,9 @@ var _ = Describe("DestinationReconciler", func() {
 					Mode: v1alpha1.FilepathModeNone,
 				},
 				StateStoreRef: &v1alpha1.StateStoreReference{},
+				InitWorkloads: v1alpha1.InitWorkloads{
+					Enabled: true,
+				},
 			},
 		}
 		updatedDestination = &v1alpha1.Destination{}
@@ -156,10 +159,93 @@ var _ = Describe("DestinationReconciler", func() {
 						)))
 					})
 
+					It("creates the init workloads", func() {
+						Expect(fakeWriter.UpdateFilesCallCount()).To(Equal(4))
+						assertCanaryFilesWereCreated(fakeWriter)
+					})
+
 					It("publishes a success event", func() {
 						Expect(eventRecorder.Events).To(Receive(ContainSubstring(
 							"Destination %q is ready", testDestination.Name),
 						))
+					})
+				})
+
+				When("the init workloads are disabled", func() {
+					When("at the time of creation", func() {
+						BeforeEach(func() {
+							var dest v1alpha1.Destination
+							Expect(fakeK8sClient.Get(ctx, testDestinationName, &dest)).To(Succeed())
+							dest.Spec.InitWorkloads.Enabled = false
+							Expect(fakeK8sClient.Update(ctx, &dest)).To(Succeed())
+						})
+						It("succeeds the reconciliation", func() {
+							Expect(reconcileErr).NotTo(HaveOccurred())
+							Expect(result).To(Equal(ctrl.Result{}))
+						})
+
+						It("updates the destination status condition", func() {
+							Expect(updatedDestination.Status.Conditions).To(ContainElement(SatisfyAll(
+								HaveField("Type", "Ready"),
+								HaveField("Message", "Reconciled successfully, no init workloads were written"),
+								HaveField("Reason", "ReconciledSuccessfully"),
+								HaveField("Status", metav1.ConditionTrue),
+							)))
+						})
+
+						It("does not create any test files", func() {
+							Expect(fakeWriter.UpdateFilesCallCount()).To(Equal(2))
+							dir, workPlacementName, workloadsToCreate, workloadsToDelete := fakeWriter.UpdateFilesArgsForCall(0)
+							Expect(dir).To(Equal(""))
+							Expect(workPlacementName).To(Equal("kratix-canary"))
+							Expect(workloadsToCreate).To(BeNil())
+							Expect(workloadsToDelete).To(ConsistOf("kratix-canary-namespace.yaml", "kratix-canary-configmap.yaml"))
+						})
+
+						It("publishes a success event", func() {
+							Expect(eventRecorder.Events).To(Receive(ContainSubstring(
+								"Destination %q is ready, skipped writing of the init workloads", testDestination.Name),
+							))
+						})
+					})
+
+					When("previously it had been enabled", func() {
+						BeforeEach(func() {
+							result, reconcileErr = t.reconcileUntilCompletion(reconciler, testDestination)
+							fakeK8sClient.Get(ctx, testDestinationName, updatedDestination)
+							Expect(fakeWriter.UpdateFilesCallCount()).To(Equal(4))
+							assertCanaryFilesWereCreated(fakeWriter)
+
+							var dest v1alpha1.Destination
+							Expect(fakeK8sClient.Get(ctx, testDestinationName, &dest)).To(Succeed())
+							dest.Spec.InitWorkloads.Enabled = false
+							Expect(fakeK8sClient.Update(ctx, &dest)).To(Succeed())
+						})
+
+						It("removes the condition and deletes the files", func() {
+							Expect(reconcileErr).NotTo(HaveOccurred())
+							Expect(fakeWriter.UpdateFilesCallCount()).To(Equal(6))
+							dir, workPlacementName, workloadsToCreate, workloadsToDelete := fakeWriter.UpdateFilesArgsForCall(4)
+							Expect(dir).To(Equal(""))
+							Expect(workPlacementName).To(Equal("kratix-canary"))
+							Expect(workloadsToCreate).To(BeNil())
+							Expect(workloadsToDelete).To(ConsistOf("kratix-canary-namespace.yaml", "kratix-canary-configmap.yaml"))
+
+							dir, workPlacementName, workloadsToCreate, workloadsToDelete = fakeWriter.UpdateFilesArgsForCall(5)
+							Expect(dir).To(Equal(""))
+							Expect(workPlacementName).To(Equal("kratix-canary"))
+							Expect(workloadsToCreate).To(BeNil())
+							Expect(workloadsToDelete).To(ConsistOf("kratix-canary-namespace.yaml", "kratix-canary-configmap.yaml"))
+						})
+
+						It("updates the destination status condition", func() {
+							Expect(updatedDestination.Status.Conditions).To(ContainElement(SatisfyAll(
+								HaveField("Type", "Ready"),
+								HaveField("Message", "Reconciled successfully, no init workloads were written"),
+								HaveField("Reason", "ReconciledSuccessfully"),
+								HaveField("Status", metav1.ConditionTrue),
+							)))
+						})
 					})
 				})
 
@@ -429,4 +515,24 @@ var stateStoreSetups = map[string]StateStoreSetup{
 			)
 		},
 	},
+}
+
+func assertCanaryFilesWereCreated(fakeWriter *writersfakes.FakeStateStoreWriter) {
+	dir, workPlacementName, workloadsToCreate, workloadsToDelete := fakeWriter.UpdateFilesArgsForCall(0)
+	ExpectWithOffset(1, dir).To(Equal(""))
+	ExpectWithOffset(1, workPlacementName).To(Equal("kratix-canary"))
+	ExpectWithOffset(1, workloadsToCreate).To(ConsistOf(v1alpha1.Workload{
+		Filepath: "kratix-canary-namespace.yaml",
+		Content:  "apiVersion: v1\nkind: Namespace\nmetadata:\n  creationTimestamp: null\n  name: kratix-worker-system\nspec: {}\nstatus: {}\n",
+	}))
+	ExpectWithOffset(1, workloadsToDelete).To(BeNil())
+
+	dir, workPlacementName, workloadsToCreate, workloadsToDelete = fakeWriter.UpdateFilesArgsForCall(1)
+	ExpectWithOffset(1, dir).To(Equal(""))
+	ExpectWithOffset(1, workPlacementName).To(Equal("kratix-canary"))
+	ExpectWithOffset(1, workloadsToCreate).To(ConsistOf(v1alpha1.Workload{
+		Filepath: "kratix-canary-configmap.yaml",
+		Content:  "apiVersion: v1\ndata:\n  canary: the confirms your infrastructure is reading from Kratix state stores\nkind: ConfigMap\nmetadata:\n  creationTimestamp: null\n  name: kratix-info\n  namespace: kratix-worker-system\n",
+	}))
+	ExpectWithOffset(1, workloadsToDelete).To(BeNil())
 }
