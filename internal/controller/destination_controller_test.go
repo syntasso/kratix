@@ -95,30 +95,6 @@ var _ = Describe("DestinationReconciler", func() {
 		})
 	})
 
-	When("the destination does not have the migration annotation", func() {
-		BeforeEach(func() {
-			testDestination.Spec.Path = "foo/bar"
-			Expect(fakeK8sClient.Create(ctx, testDestination)).To(Succeed())
-
-			result, err := reconciler.Reconcile(ctx, ctrl.Request{NamespacedName: testDestinationName})
-			Expect(err).NotTo(HaveOccurred())
-			Expect(result).To(Equal(ctrl.Result{}))
-
-			Expect(fakeK8sClient.Get(ctx, testDestinationName, updatedDestination)).To(Succeed())
-		})
-
-		It("should patch the path with the destination name", func() {
-			Expect(updatedDestination.Spec.Path).To(Equal("foo/bar/" + updatedDestination.Name))
-		})
-
-		It("should add the skip annotation", func() {
-			Expect(updatedDestination.Annotations).To(
-				HaveKeyWithValue(v1alpha1.SkipPathDefaultingAnnotation, "true"),
-			)
-		})
-
-	})
-
 	Describe("destinations backed by", func() {
 		for stateStoreKind, setup := range stateStoreSetups {
 			Context(fmt.Sprintf("a %s", stateStoreKind), func() {

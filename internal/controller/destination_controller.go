@@ -19,7 +19,6 @@ package controller
 import (
 	"context"
 	"fmt"
-	"path"
 	"path/filepath"
 
 	"k8s.io/apimachinery/pkg/runtime/schema"
@@ -83,14 +82,6 @@ func (r *DestinationReconciler) Reconcile(ctx context.Context, req ctrl.Request)
 			return ctrl.Result{}, nil
 		}
 		return ctrl.Result{}, err
-	}
-
-	if !metav1.HasAnnotation(destination.ObjectMeta, v1alpha1.SkipPathDefaultingAnnotation) {
-		// this destination was created prior to `spec.path` being required and
-		// the destination name being used as part of the path.
-		metav1.SetMetaDataAnnotation(&destination.ObjectMeta, v1alpha1.SkipPathDefaultingAnnotation, "true")
-		destination.Spec.Path = path.Join(destination.Spec.Path, destination.Name)
-		return ctrl.Result{}, r.Client.Update(ctx, destination)
 	}
 
 	opts := opts{

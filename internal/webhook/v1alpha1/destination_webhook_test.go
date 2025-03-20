@@ -57,55 +57,6 @@ var _ = Describe("Destination Webhook", func() {
 		}
 	})
 
-	Describe("defaulting `path`", func() {
-		Describe("for new destinations", func() {
-			It("adds the skip annotation", func() {
-				err := defaulter.Default(ctx, destination)
-				Expect(err).NotTo(HaveOccurred())
-				Expect(destination.Annotations[v1alpha1.SkipPathDefaultingAnnotation]).To(Equal("true"))
-			})
-
-			When("the path is empty", func() {
-				It("uses the destination name as the default path", func() {
-					destination.Spec.Path = ""
-					err := defaulter.Default(ctx, destination)
-					Expect(err).NotTo(HaveOccurred())
-					Expect(destination.Spec.Path).To(Equal(destination.Name))
-				})
-			})
-		})
-
-		Describe("for existing destinations with the skip annotation", func() {
-			BeforeEach(func() {
-				destination.SetAnnotations(
-					map[string]string{v1alpha1.SkipPathDefaultingAnnotation: "true"},
-				)
-				Expect(fakeClient.Create(ctx, destination)).To(Succeed())
-			})
-
-			When("the incoming path is empty", func() {
-				It("uses the destination name as the default path", func() {
-					destination.Spec.Path = ""
-					err := defaulter.Default(ctx, destination)
-					Expect(err).NotTo(HaveOccurred())
-					Expect(destination.Spec.Path).To(Equal(destination.Name))
-				})
-			})
-
-			When("the annotation is removed", func() {
-				BeforeEach(func() {
-					destination.SetAnnotations(nil)
-				})
-
-				It("restores the annotation", func() {
-					err := defaulter.Default(ctx, destination)
-					Expect(err).NotTo(HaveOccurred())
-					Expect(destination.Annotations[v1alpha1.SkipPathDefaultingAnnotation]).To(Equal("true"))
-				})
-			})
-		})
-	})
-
 	Describe("validating path uniqueness", func() {
 		var (
 			existingDestination *v1alpha1.Destination
