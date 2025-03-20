@@ -65,20 +65,6 @@ func (d *DestinationCustomDefaulter) Default(ctx context.Context, obj runtime.Ob
 		if !errors.IsNotFound(err) {
 			return err
 		}
-
-		// add the annotation so the controller doesn't try to append the
-		// destination name to the path on the next reconcile
-		desiredDestination.Annotations[v1alpha1.SkipPathDefaultingAnnotation] = "true"
-	}
-
-	// Defaults the destination path to the destination name if not set
-	if desiredDestination.Spec.Path == "" {
-		desiredDestination.Spec.Path = desiredDestination.Name
-	}
-
-	// this is here to prevent the annotation from being removed on already patched destinations
-	if _, found := currentDestination.Annotations[v1alpha1.SkipPathDefaultingAnnotation]; found {
-		desiredDestination.Annotations[v1alpha1.SkipPathDefaultingAnnotation] = "true"
 	}
 
 	if desiredDestination.Spec.Filepath.Mode == v1alpha1.FilepathModeAggregatedYAML &&

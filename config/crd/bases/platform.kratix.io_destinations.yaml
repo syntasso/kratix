@@ -123,6 +123,8 @@ spec:
                   destinationSelectors. An empty label set on the work won't be scheduled
                   to this destination, unless the destination label set is also empty
                 type: boolean
+            required:
+            - path
             type: object
           status:
             description: DestinationStatus defines the observed state of Destination

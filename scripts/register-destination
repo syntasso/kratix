@@ -94,7 +94,7 @@ prepare_destination() {
   fi
   $ROOT/scripts/install-gitops --context $DESTINATION_CONTEXT --path "$GITOPS_PATH" --platform-cluster-name ${PLATFORM_CLUSTER_NAME} "$flags"
 
-  local yqOpts=".metadata.name = \"$NAME\" | .metadata.labels = {} | .spec.stateStoreRef.name = \"$STATE_STORE\" | .spec.stateStoreRef.kind = \"$state_store_type\" | .spec.strictMatchLabels = $STRICT_MATCH_LABELS"
+  local yqOpts=".metadata.name = \"$NAME\" | .metadata.labels = {} | .spec.path = \"$NAME\" | .spec.stateStoreRef.name = \"$STATE_STORE\" | .spec.stateStoreRef.kind = \"$state_store_type\" | .spec.strictMatchLabels = $STRICT_MATCH_LABELS"
   yq "${yqOpts}" $ROOT/config/samples/platform_v1alpha1_worker.yaml |
     kubectl --context $PLATFORM_CONTEXT apply -f -
 
