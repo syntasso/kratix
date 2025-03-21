@@ -29,7 +29,6 @@ import (
 
 	"github.com/go-logr/logr"
 	"github.com/syntasso/kratix/api/v1alpha1"
-	"github.com/syntasso/kratix/lib/migrations"
 	"github.com/syntasso/kratix/lib/resourceutil"
 	"github.com/syntasso/kratix/lib/workflow"
 
@@ -99,15 +98,6 @@ func (r *DynamicResourceRequestController) Reconcile(ctx context.Context, req ct
 		}
 		logger.Error(err, "Failed getting Promise CRD")
 		return defaultRequeue, nil
-	}
-
-	requeue, err := migrations.RemoveDeprecatedConditions(ctx, r.Client, rr, logger)
-	if err != nil {
-		return ctrl.Result{}, err
-	}
-
-	if requeue != nil {
-		return *requeue, nil
 	}
 
 	resourceLabels := rr.GetLabels()
