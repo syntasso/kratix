@@ -1,0 +1,65 @@
+apiVersion: platform.kratix.io/v1alpha1
+kind: Promise
+metadata:
+  name: cleanup-all
+spec:
+  destinationSelectors:
+    - matchLabels:
+        target: cleanup-all
+  api:
+    apiVersion: apiextensions.k8s.io/v1
+    kind: CustomResourceDefinition
+    metadata:
+      name: cleanupalls.test.kratix.io
+    spec:
+      group: test.kratix.io
+      names:
+        kind: Cleanupall
+        plural: cleanupalls
+        singular: cleanupall
+      scope: Namespaced
+      versions:
+        - name: v1alpha1
+          schema:
+            openAPIV3Schema:
+              properties:
+                spec:
+                  type: object
+              type: object
+          served: true
+          storage: true
+  workflows:
+    promise:
+      configure:
+        - apiVersion: platform.kratix.io/v1alpha1
+          kind: Pipeline
+          metadata:
+            name: promise
+          spec:
+            containers:
+              - name: do-commands
+                image: ghcr.io/syntasso/kratix-pipeline-utility:v0.0.1
+                command: ["sh"]
+                args:
+                  - -c
+                  - |
+                    set -eux
+                    kubectl create namespace --dry-run=client --output=yaml cleanup-all-ns > /kratix/output/ns.yaml
+    resource:
+      configure:
+        - apiVersion: platform.kratix.io/v1alpha1
+          kind: Pipeline
+          metadata:
+            name: resource
+          spec:
+            containers:
+              - name: do-commands
+                image: ghcr.io/syntasso/kratix-pipeline-utility:v0.0.1
+                command: ["sh"]
+                args:
+                  - -c
+                  - |
+                    set -eux
+                    name=$(yq '.spec.name' /kratix/input/object.yaml)
+
+                    kubectl create configmap ${name} --namespace=cleanup-all-ns --dry-run=client --output=yaml --from-literal=key=${name} > /kratix/output/configmap.yaml

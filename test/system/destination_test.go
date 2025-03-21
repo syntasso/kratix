@@ -7,14 +7,14 @@ import (
 	"strings"
 	"time"
 
+	"github.com/syntasso/kratix/api/v1alpha1"
 	"github.com/syntasso/kratix/test/kubeutils"
 	"k8s.io/apimachinery/pkg/apis/meta/v1/unstructured"
 
 	. "github.com/onsi/ginkgo/v2"
 	. "github.com/onsi/gomega"
 	"github.com/onsi/gomega/gexec"
-
-	yaml "sigs.k8s.io/yaml"
+	"sigs.k8s.io/yaml"
 )
 
 var _ = Describe("Destinations", func() {
@@ -267,6 +267,59 @@ var _ = Describe("Destinations", func() {
 							"kratix-canary-configmap.yaml",
 							"kratix-canary-namespace.yaml",
 						))
+					})
+				})
+			})
+		}
+	})
+
+	Describe("cleanup all", func() {
+		if os.Getenv("LRE") != "true" {
+			When("destination cleanup strategy is set to 'all'", func() {
+				destinationName := "cleanup-all"
+				BeforeEach(func() {
+					platform.Kubectl("apply", "-f", "assets/destination/destination-cleanup-all.yaml")
+					platform.Kubectl("apply", "-f", "assets/destination/promise-cleanup-all.yaml")
+					Eventually(func() string {
+						return platform.Kubectl("get", "crds")
+					}).Should(ContainSubstring("cleanupalls.test.kratix.io"))
+					platform.Kubectl("apply", "-f", "assets/destination/resources-cleanup-all.yaml")
+				})
+
+				AfterEach(func() {
+					platform.EventuallyKubectlDelete("-f", "assets/destination/resources-cleanup-all.yaml")
+					platform.EventuallyKubectlDelete("-f", "assets/destination/promise-cleanup-all.yaml")
+				})
+
+				It("reconciles successfully and delete all workplacements on deletion", func() {
+					By("showing `Ready` as true when created", func() {
+						Eventually(func() string {
+							return platform.Kubectl("get", "destinations", destinationName)
+						}).Should(ContainSubstring("True"))
+					})
+
+					By("setting clean up finalizer correctly", func() {
+						Eventually(func() string {
+							return platform.Kubectl("get", "destinations", destinationName, "-ojsonpath='{.metadata.finalizers}'")
+						}).Should(ContainSubstring(v1alpha1.KratixPrefix + "destination-cleanup"))
+					})
+
+					By("allowing works to be scheduled to", func() {
+						Eventually(func() string {
+							return mc("ls", "-r", "kind/kratix/cleanup-all")
+						}).Should(SatisfyAll(
+							ContainSubstring("ns.yaml"),
+							ContainSubstring("/configmap.yaml"),
+							ContainSubstring("kratix-canary-namespace.yaml"),
+							ContainSubstring("kratix-canary-configmap.yaml"),
+						))
+					})
+
+					By("cleaning up all resources on deletion", func() {
+						platform.EventuallyKubectlDelete("destinations", destinationName)
+						Eventually(func() string {
+							return mc("ls", "kind/kratix/")
+						}).ShouldNot(ContainSubstring(destinationName))
 					})
 				})
 			})
