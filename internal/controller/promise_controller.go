@@ -23,7 +23,6 @@ import (
 	"strings"
 	"time"
 
-	"github.com/syntasso/kratix/lib/migrations"
 	"github.com/syntasso/kratix/lib/objectutil"
 	"sigs.k8s.io/controller-runtime/pkg/controller/controllerutil"
 	"sigs.k8s.io/controller-runtime/pkg/handler"
@@ -152,15 +151,6 @@ func (r *PromiseReconciler) Reconcile(ctx context.Context, req ctrl.Request) (ct
 		return ctrl.Result{}, fmt.Errorf("Error converting Promise to Unstructured: %w", err)
 	}
 
-	requeue, err := migrations.RemoveDeprecatedConditions(ctx, r.Client, usPromise, logger)
-	if err != nil {
-		return ctrl.Result{}, err
-	}
-
-	if requeue != nil {
-		return *requeue, nil
-	}
-
 	if value, found := promise.Labels[v1alpha1.PromiseVersionLabel]; found {
 		if promise.Status.Version != value {
 			promise.Status.Version = value
@@ -187,7 +177,7 @@ func (r *PromiseReconciler) Reconcile(ctx context.Context, req ctrl.Request) (ct
 	}
 
 	//TODO handle removing finalizer
-	requeue, err = ensurePromiseDeleteWorkflowFinalizer(opts, promise, promise.HasPipeline(v1alpha1.WorkflowTypePromise, v1alpha1.WorkflowActionDelete))
+	requeue, err := ensurePromiseDeleteWorkflowFinalizer(opts, promise, promise.HasPipeline(v1alpha1.WorkflowTypePromise, v1alpha1.WorkflowActionDelete))
 	if err != nil {
 		return ctrl.Result{}, err
 	}
