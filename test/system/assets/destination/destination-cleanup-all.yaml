@@ -1,0 +1,12 @@
+apiVersion: platform.kratix.io/v1alpha1
+kind: Destination
+metadata:
+  name: cleanup-all
+  labels:
+    target: cleanup-all
+spec:
+  cleanup: all
+  path: cleanup-all
+  stateStoreRef:
+    name: default
+    kind: BucketStateStore
