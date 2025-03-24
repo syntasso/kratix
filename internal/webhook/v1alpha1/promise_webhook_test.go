@@ -189,6 +189,65 @@ var _ = Describe("PromiseWebhook", func() {
 			})
 		})
 
+		When("a Pipeline container name has invalid characters", func() {
+			It("raises an error", func() {
+				promise = newPromise()
+				pipeline := v1alpha1.Pipeline{
+					ObjectMeta: metav1.ObjectMeta{
+						Name: "configure-resource",
+					},
+					Spec: v1alpha1.PipelineSpec{
+						Containers: []v1alpha1.Container{
+							{
+								Name:  "$pec!ial.cont@in£r",
+								Image: "my-container:latest",
+							},
+						},
+					},
+				}
+				objMap, err := runtime.DefaultUnstructuredConverter.ToUnstructured(&pipeline)
+				Expect(err).NotTo(HaveOccurred())
+				unstructuredPipeline := &unstructured.Unstructured{Object: objMap}
+				unstructuredPipeline.SetAPIVersion("platform.kratix.io/v1alpha1")
+				unstructuredPipeline.SetKind("Pipeline")
+				promise.Spec.Workflows.Resource.Configure = []unstructured.Unstructured{*unstructuredPipeline}
+				_, err = validator.ValidateCreate(ctx, promise)
+				Expect(err).To(MatchError(ContainSubstring(
+					"invalid container name \"$pec!ial.cont@in£r\" in pipeline \"configure-resource\"",
+				)))
+			})
+		})
+
+		When("a Pipeline container name exceeds 63 characters", func() {
+			It("raises an error", func() {
+				pipelineName := randomString(65)
+				promise = newPromise()
+				pipeline := v1alpha1.Pipeline{
+					ObjectMeta: metav1.ObjectMeta{
+						Name: "configure-resource",
+					},
+					Spec: v1alpha1.PipelineSpec{
+						Containers: []v1alpha1.Container{
+							{
+								Name:  pipelineName,
+								Image: "my-container:latest",
+							},
+						},
+					},
+				}
+				objMap, err := runtime.DefaultUnstructuredConverter.ToUnstructured(&pipeline)
+				Expect(err).NotTo(HaveOccurred())
+				unstructuredPipeline := &unstructured.Unstructured{Object: objMap}
+				unstructuredPipeline.SetAPIVersion("platform.kratix.io/v1alpha1")
+				unstructuredPipeline.SetKind("Pipeline")
+				promise.Spec.Workflows.Resource.Configure = []unstructured.Unstructured{*unstructuredPipeline}
+				_, err = validator.ValidateCreate(ctx, promise)
+				Expect(err).To(MatchError(ContainSubstring(
+					fmt.Sprintf("invalid container name %q in pipeline \"configure-resource\"", pipelineName),
+				)))
+			})
+		})
+
 		Context("Name", func() {
 			var maxLimit int
 			BeforeEach(func() {

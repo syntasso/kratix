@@ -157,6 +157,11 @@ func validatePipelines(p *v1alpha1.Promise) error {
 						workflowType, workflowAction, pipeline.GetName(), p.GetName(), workflowType, workflowAction, pipeline.GetName())
 				}
 
+				err = validateContainerNames(pipeline)
+				if err != nil {
+					return err
+				}
+
 				var jobResources v1alpha1.PipelineJobResources
 				if jobResources, err = factory.Resources(nil); err != nil {
 					return fmt.Errorf("failed to generate pipeline resources %w", err)
@@ -299,6 +304,17 @@ func validatePipelineLabels(pipeline v1alpha1.Pipeline, workflowType, workflowAc
 		errors = validation.IsQualifiedName(key)
 		if len(errors) > 0 {
 			return fmt.Errorf("invalid label key %q in workflow %q action %q: %s", key, workflowType, workflowAction, strings.Join(errors, ","))
+		}
+	}
+	return nil
+}
+
+func validateContainerNames(pipeline v1alpha1.Pipeline) error {
+	for _, container := range pipeline.Spec.Containers {
+		errors := validation.IsDNS1123Label(container.Name)
+		if len(errors) > 0 {
+			return fmt.Errorf(
+				"invalid container name %q in pipeline %q: %s", container.Name, pipeline.GetName(), strings.Join(errors, ","))
 		}
 	}
 	return nil
