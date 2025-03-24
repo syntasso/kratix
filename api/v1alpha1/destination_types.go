@@ -71,12 +71,12 @@ type DestinationSpec struct {
 	Cleanup string `json:"cleanup,omitempty"`
 
 	// +kubebuilder:validation:Optional
-	InitWorkloads InitWorkloads `json:"initWorkloads,omitempty"`
+	// +kubebuilder:default:={}
+	InitWorkloads InitWorkloads `json:"initWorkloads"`
 }
 
 type InitWorkloads struct {
 	// +kubebuilder:validation:Optional
-	//defaults to true
 	// +kubebuilder:default:=true
 	Enabled bool `json:"enabled,omitempty"`
 }
