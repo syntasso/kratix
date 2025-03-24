@@ -84,10 +84,10 @@ spec:
                       rule: self == oldSelf
                 type: object
               initWorkloads:
+                default: {}
                 properties:
                   enabled:
                     default: true
-                    description: defaults to true
                     type: boolean
                 type: object
               path:
