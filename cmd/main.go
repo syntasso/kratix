@@ -23,6 +23,7 @@ import (
 	"os"
 	"time"
 
+	metav1 "k8s.io/apimachinery/pkg/apis/meta/v1"
 	"sigs.k8s.io/controller-runtime/pkg/webhook"
 
 	"github.com/syntasso/kratix/internal/controller"
@@ -61,13 +62,22 @@ func init() {
 }
 
 type KratixConfig struct {
-	Workflows          Workflows `json:"workflows"`
-	NumberOfJobsToKeep int       `json:"numberOfJobsToKeep,omitempty"`
+	Workflows                Workflows             `json:"workflows"`
+	NumberOfJobsToKeep       int                   `json:"numberOfJobsToKeep,omitempty"`
+	ControllerLeaderElection *LeaderElectionConfig `json:"controllerLeaderElection,omitempty"`
 }
 
 type Workflows struct {
 	DefaultContainerSecurityContext corev1.SecurityContext `json:"defaultContainerSecurityContext"`
 	DefaultImagePullPolicy          corev1.PullPolicy      `json:"defaultImagePullPolicy,omitempty"`
+}
+
+// LeaderElectionConfig duration default can be found in:
+// https://github.com/kubernetes-sigs/controller-runtime/blob/561fa39c550f458eb6fb81bf70b9c02a190ec7bc/pkg/manager/manager.go#L210-L221
+type LeaderElectionConfig struct {
+	LeaseDuration *metav1.Duration `json:"leaseDuration,omitempty"`
+	RenewDeadline *metav1.Duration `json:"renewDeadline,omitempty"`
+	RetryPeriod   *metav1.Duration `json:"retryPeriod,omitempty"`
 }
 
 var metricsAddr string
@@ -124,7 +134,7 @@ func main() {
 			Port: 9443,
 		})
 
-		mgr, err := ctrl.NewManager(config, ctrl.Options{
+		mgrOptions := ctrl.Options{
 			Scheme:                 scheme.Scheme,
 			Metrics:                metricsServerOptions,
 			WebhookServer:          webhookServer,
@@ -135,7 +145,12 @@ func main() {
 			Controller: controllercfg.Controller{
 				SkipNameValidation: ptr.To(true),
 			},
-		})
+		}
+
+		if kratixConfig != nil && kratixConfig.ControllerLeaderElection != nil {
+			setLeaderElectConfig(&mgrOptions, kratixConfig)
+		}
+		mgr, err := ctrl.NewManager(config, mgrOptions)
 		if err != nil {
 			setupLog.Error(err, "unable to start manager")
 			os.Exit(1)
@@ -321,4 +336,19 @@ func getNumJobsToKeep(kratixConfig *KratixConfig) int {
 		return numJobsToKeepDefault
 	}
 	return kratixConfig.NumberOfJobsToKeep
+}
+
+func setLeaderElectConfig(mgrOptions *ctrl.Options, kConfig *KratixConfig) {
+	if kConfig.ControllerLeaderElection.LeaseDuration != nil {
+		mgrOptions.LeaseDuration = &kConfig.ControllerLeaderElection.LeaseDuration.Duration
+		setupLog.Info("controller leader election configured", "LeaseDuration", mgrOptions.LeaseDuration)
+	}
+	if kConfig.ControllerLeaderElection.RenewDeadline != nil {
+		mgrOptions.RenewDeadline = &kConfig.ControllerLeaderElection.RenewDeadline.Duration
+		setupLog.Info("controller leader election configured", "RenewDeadline", mgrOptions.RenewDeadline)
+	}
+	if kConfig.ControllerLeaderElection.RetryPeriod != nil {
+		mgrOptions.RetryPeriod = &kConfig.ControllerLeaderElection.RetryPeriod.Duration
+		setupLog.Info("controller leader election configured", "RetryPeriod", mgrOptions.RetryPeriod)
+	}
 }
