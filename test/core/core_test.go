@@ -17,6 +17,8 @@ const (
 	workerTwo         = "worker-2"
 )
 
+var destinationName = getEnvOrDefault("DESTINATION_NAME", "worker-1")
+
 var _ = Describe("Core Tests", Ordered, func() {
 	BeforeAll(func() {
 		SetDefaultEventuallyTimeout(timeout)
@@ -24,7 +26,7 @@ var _ = Describe("Core Tests", Ordered, func() {
 		kubeutils.SetTimeoutAndInterval(timeout, interval)
 
 		platform.Kubectl("apply", "-f", "assets/destination.yaml")
-		platform.Kubectl("label", "destination", workerOne, "target="+workerOne)
+		platform.Kubectl("label", "destination", destinationName, "target="+workerOne)
 		platform.Kubectl("label", "destination", workerTwo, "target="+workerTwo)
 		worker.Kubectl("apply", "-f", "assets/flux.yaml")
 	})
@@ -32,6 +34,7 @@ var _ = Describe("Core Tests", Ordered, func() {
 	AfterAll(func() {
 		platform.Kubectl("delete", "-f", "assets/promise.yaml", "--ignore-not-found")
 		platform.Kubectl("delete", "-f", "assets/destination.yaml", "--ignore-not-found")
+		platform.Kubectl("label", "destination", destinationName, "target-")
 		worker.Kubectl("delete", "-f", "assets/flux.yaml", "--ignore-not-found")
 	})
 
@@ -82,7 +85,7 @@ var _ = Describe("Core Tests", Ordered, func() {
 
 							g.Expect(workPlacements.Items).To(SatisfyAll(
 								ContainElement(SatisfyAll(
-									HaveField("Spec.TargetDestinationName", Equal(workerOne)),
+									HaveField("Spec.TargetDestinationName", Equal(destinationName)),
 								)),
 								ContainElement(SatisfyAll(
 									HaveField("Spec.TargetDestinationName", Equal(workerTwo)),
@@ -153,7 +156,7 @@ var _ = Describe("Core Tests", Ordered, func() {
 							&singleDestinationWP,
 						)
 						g.Expect(singleDestinationWP.Items).To(HaveLen(1))
-						g.Expect(singleDestinationWP.Items[0].Spec.TargetDestinationName).To(Equal(workerOne))
+						g.Expect(singleDestinationWP.Items[0].Spec.TargetDestinationName).To(Equal(destinationName))
 
 						var multiDestinationWP v1alpha1.WorkPlacementList
 						kubeutils.ParseOutput(
@@ -161,7 +164,7 @@ var _ = Describe("Core Tests", Ordered, func() {
 							&multiDestinationWP,
 						)
 						g.Expect(multiDestinationWP.Items).To(HaveLen(2))
-						g.Expect(multiDestinationWP.Items[0].Spec.TargetDestinationName).To(Equal(workerOne))
+						g.Expect(multiDestinationWP.Items[0].Spec.TargetDestinationName).To(Equal(destinationName))
 						g.Expect(multiDestinationWP.Items[1].Spec.TargetDestinationName).To(Equal(workerTwo))
 					}, timeout, interval).Should(Succeed())
 				})
