@@ -124,20 +124,22 @@ verify_prerequisites() {
         success_mark
     fi
 
-    if [ $(uname) == "Linux" ]; then
-        # Note: These limits are lower than KinD suggest limits as they are what works on our CI machines
+    if [ "$(uname)" = "Linux" ]; then
         log -n "Confirming Linux inotify limits are sufficient..."
-        [ $(sysctl -n fs.inotify.max_user_watches) -ge 246299 ]
-        max_user_watches=$?
-        [ $(sysctl -n fs.inotify.max_user_instances) -ge 128 ]
-        max_user_instances=$?
-        if ! [ $((max_user_watches + max_user_instances)) -eq 0 ]; then
+
+        watches=$(sysctl -n fs.inotify.max_user_watches)
+        instances=$(sysctl -n fs.inotify.max_user_instances)
+
+        if [ "$watches" -lt 246299 ] || [ "$instances" -lt 128 ]; then
             error "Kind requires higher limits, please see: https://kind.sigs.k8s.io/docs/user/known-issues/#pod-errors-due-to-too-many-open-files"
             exit_code=1
         else
             success_mark
         fi
+
+        log -n "Finished confirming"
     fi
+
 
     if [[ exit_code -gt 0 ]]; then
         log "\nPlease confirm you have the above prerequisites before re-running this script"
