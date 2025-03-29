@@ -24,6 +24,9 @@ import (
 	"time"
 
 	metav1 "k8s.io/apimachinery/pkg/apis/meta/v1"
+	"k8s.io/apimachinery/pkg/labels"
+	"k8s.io/apimachinery/pkg/selection"
+	"sigs.k8s.io/controller-runtime/pkg/cache"
 	"sigs.k8s.io/controller-runtime/pkg/webhook"
 
 	"github.com/syntasso/kratix/internal/controller"
@@ -65,6 +68,7 @@ type KratixConfig struct {
 	Workflows                Workflows             `json:"workflows"`
 	NumberOfJobsToKeep       int                   `json:"numberOfJobsToKeep,omitempty"`
 	ControllerLeaderElection *LeaderElectionConfig `json:"controllerLeaderElection,omitempty"`
+	SelectiveCache           bool                  `json:"selectiveCache,omitempty"`
 }
 
 type Workflows struct {
@@ -150,6 +154,20 @@ func main() {
 		if kratixConfig != nil && kratixConfig.ControllerLeaderElection != nil {
 			setLeaderElectConfig(&mgrOptions, kratixConfig)
 		}
+
+		if kratixConfig != nil && kratixConfig.SelectiveCache {
+			setupLog.Info("Building selective cache for Secrets to limit memory usage; Please ensure Secrets used by kratix are created with label: app.kubernetes.io/part-of=kratix.")
+			kratixLabel, labelErr := labels.NewRequirement("app.kubernetes.io/part-of", selection.Equals, []string{"kratix"})
+			if labelErr != nil {
+				setupLog.Error(labelErr, "unable to create a label filter")
+				os.Exit(1)
+			}
+			kratixSelector := labels.NewSelector().Add(*kratixLabel)
+			mgrOptions.Cache.ByObject = map[client.Object]cache.ByObject{
+				&corev1.Secret{}: {Label: kratixSelector},
+			}
+		}
+
 		mgr, err := ctrl.NewManager(config, mgrOptions)
 		if err != nil {
 			setupLog.Error(err, "unable to start manager")
