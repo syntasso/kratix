@@ -30,6 +30,8 @@ USE_LOCAL_MANIFEST=${USE_LOCAL_MANIFEST:-false}
 PLATFORM_CLUSTER_NAME="${PLATFORM_CLUSTER_NAME:-"platform"}"
 WORKER1_CLUSTER_NAME="${WORKER1_CLUSTER_NAME:-"worker"}"
 WORKER2_CLUSTER_NAME="${WORKER2_CLUSTER_NAME:-"worker-2"}"
+KIND_PLATFORM_CONFIG="${KIND_PLATFORM_CONFIG:-"${ROOT}/hack/platform/kind-platform-config.yaml"}"
+KIND_WORKER_CONFIG="${KIND_WORKER_CONFIG:-"${ROOT}/hack/destination/kind-worker-config.yaml"}"
 
 usage() {
     echo -e "Usage: quick-start.sh [--help] [--recreate] [--local] [--git] [--git-and-minio] [--local-images <location>]"
@@ -389,7 +391,7 @@ step_create_platform_cluster() {
     fi
     log "Creating ${PLATFORM_CLUSTER_NAME} destination..."
     if ! run kind create cluster --name ${PLATFORM_CLUSTER_NAME} --image $KIND_IMAGE \
-        --config ${ROOT}/hack/platform/kind-platform-config.yaml
+        --config ${KIND_PLATFORM_CONFIG}
     then
         error "Could not create ${PLATFORM_CLUSTER_NAME} destination"
         exit 1
@@ -405,7 +407,7 @@ step_create_worker_cluster(){
         fi
         log "Creating ${WORKER1_CLUSTER_NAME} destination..."
         if ! run kind create cluster --name ${WORKER1_CLUSTER_NAME} --image $KIND_IMAGE \
-            --config ${ROOT}/hack/destination/kind-worker-config.yaml
+            --config ${KIND_WORKER_CONFIG}
         then
             error "Could not create ${WORKER1_CLUSTER_NAME} destination"
             exit 1

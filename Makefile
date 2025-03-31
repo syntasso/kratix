@@ -228,6 +228,9 @@ run-core-test:
 	kind load docker-image syntasso/test-bundle-image:v0.1.0 --name ${PLATFORM_CLUSTER_NAME}
 	go run ${GINKGO} ${GINKGO_FLAGS} test/core/
 
+build-and-push-core-test-image: # for non-kind environment where images cannot be loaded
+	cd test/core/assets/workflows/ && docker buildx build --builder kratix-image-builder --push --platform linux/arm64,linux/amd64 -t syntasso/test-bundle-image:v0.1.0 -t syntasso/test-bundle-image:v0.1.0 .
+
 .PHONY: run-system-test
 run-system-test: fmt vet
 	PATH="$(PROJECT_DIR)/bin:${PATH}" PLATFORM_DESTINATION_IP=`docker inspect ${PLATFORM_CLUSTER_NAME}-control-plane | grep '"IPAddress": "172' | awk -F '"' '{print $$4}'` go run ${GINKGO} ${GINKGO_FLAGS} -p --output-interceptor-mode=none ./test/system/  --coverprofile cover.out

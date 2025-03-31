@@ -33,6 +33,7 @@ import (
 	"k8s.io/apimachinery/pkg/labels"
 	"k8s.io/apimachinery/pkg/runtime"
 	"k8s.io/apimachinery/pkg/runtime/schema"
+	"k8s.io/utils/ptr"
 )
 
 const (
@@ -43,6 +44,9 @@ const (
 	PromiseAvailableConditionType        = "Available"
 	PromiseAvailableConditionTrueReason  = "PromiseAvailable"
 	PromiseAvailableConditionFalseReason = "PromiseUnavailable"
+
+	// MaxResourceNameLength is the maximum length of a resource name
+	MaxResourceNameLength int64 = 63
 )
 
 // PromiseSpec defines the desired state of Promise
@@ -192,6 +196,8 @@ func (p *Promise) DoesNotContainAPI() bool {
 	return p.Spec.API == nil || p.Spec.API.Raw == nil
 }
 
+// GetAPI returns the GroupVersionKind and CustomResourceDefinition for the Promise's API
+// If the Promise does not contain an API, ErrNoAPI is returned
 func (p *Promise) GetAPI() (*schema.GroupVersionKind, *apiextensionsv1.CustomResourceDefinition, error) {
 	if p.DoesNotContainAPI() {
 		return nil, nil, ErrNoAPI
@@ -214,6 +220,10 @@ func (p *Promise) GetAPI() (*schema.GroupVersionKind, *apiextensionsv1.CustomRes
 		Group:   crd.Spec.Group,
 		Version: storedVersion.Name,
 		Kind:    crd.Spec.Names.Kind,
+	}
+
+	if storedVersion.Schema != nil && storedVersion.Schema.OpenAPIV3Schema != nil {
+		ensureMetadataSchema(storedVersion.Schema.OpenAPIV3Schema)
 	}
 
 	return gvk, &crd, nil
@@ -244,6 +254,7 @@ func (p *Promise) GetPipelineResourceName() string {
 func (p *Promise) GetPipelineResourceNamespace() string {
 	return "default"
 }
+
 func (p *Promise) GetDynamicControllerName(logger logr.Logger) string {
 	// We only start a dynamic controller if the promise contains an API
 	// so this **should** always be safe
@@ -426,4 +437,29 @@ func NewPipelinesMap(promise *Promise, logger logr.Logger) (pipelineMap, error) 
 	}
 
 	return pipelinesMap, nil
+}
+
+func ensureMetadataSchema(schema *apiextensionsv1.JSONSchemaProps) {
+	if schema.Properties == nil {
+		schema.Properties = make(map[string]apiextensionsv1.JSONSchemaProps)
+	}
+
+	if _, found := schema.Properties["metadata"]; !found {
+		schema.Properties["metadata"] = apiextensionsv1.JSONSchemaProps{
+			Type:       "object",
+			Properties: make(map[string]apiextensionsv1.JSONSchemaProps),
+		}
+	}
+
+	metadataSchema := schema.Properties["metadata"]
+	if metadataSchema.Properties == nil {
+		metadataSchema.Properties = make(map[string]apiextensionsv1.JSONSchemaProps)
+	}
+
+	nameProp := metadataSchema.Properties["name"]
+	if nameProp.Type == "" {
+		nameProp = apiextensionsv1.JSONSchemaProps{Type: "string"}
+	}
+	nameProp.MaxLength = ptr.To(MaxResourceNameLength)
+	metadataSchema.Properties["name"] = nameProp
 }
