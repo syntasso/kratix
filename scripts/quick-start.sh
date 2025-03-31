@@ -126,6 +126,21 @@ verify_prerequisites() {
         success_mark
     fi
 
+    if [ "$(uname)" = "Linux" ]; then
+        log -n "Confirming Linux inotify limits are sufficient..."
+
+        watches=$(sysctl -n fs.inotify.max_user_watches)
+        instances=$(sysctl -n fs.inotify.max_user_instances)
+
+        if [ "$watches" -lt 246299 ] || [ "$instances" -lt 128 ]; then
+            error "Kind requires higher limits, please see: https://kind.sigs.k8s.io/docs/user/known-issues/#pod-errors-due-to-too-many-open-files"
+            exit_code=1
+        else
+            success_mark
+        fi
+    fi
+
+
     if [[ exit_code -gt 0 ]]; then
         log "\nPlease confirm you have the above prerequisites before re-running this script"
         exit $((exit_code))
