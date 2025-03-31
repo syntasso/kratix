@@ -45,7 +45,7 @@ const (
 	PromiseAvailableConditionTrueReason  = "PromiseAvailable"
 	PromiseAvailableConditionFalseReason = "PromiseUnavailable"
 
-	// MaxResourceNameLength is the maximum length of a resource namec
+	// MaxResourceNameLength is the maximum length of a resource name
 	MaxResourceNameLength int64 = 63
 )
 
