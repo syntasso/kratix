@@ -128,7 +128,7 @@ verify_prerequisites() {
         success_mark
     fi
 
-    if [ "$(uname)" = "Linux" ] && ! ${CI} then
+    if [ "$(uname)" = "Linux" ] && ! ${CI}; then
         log -n "Confirming Linux inotify limits are sufficient..."
 
         watches=$(sysctl -n fs.inotify.max_user_watches)
