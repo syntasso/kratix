@@ -27,10 +27,18 @@ jobs:
         if: ${{ !env.ACT }}
         run: |
           GITHUB_MESSAGE='${{ github.event.head_commit.message }}'
+          author="${{ github.event.head_commit.author.username }}"
+          coauthor="${{ github.event.head_commit.committer.username }}"
+
+          if [ -n "${coauthor}" ] && [ "${author}" != "${coauthor}" ]; then
+            author="${author}/${coauthor}"
+          fi
+
           if [ -z "$GITHUB_SHA" ]; then
             GITHUB_SHA=$(git rev-parse HEAD)
             GITHUB_MESSAGE=$(git log --format=%B -n 1 ${GITHUB_SHA})
+            author=${{ github.actor }}
           fi
-          gh workflow run --repo syntasso/ci "Kratix" -f sha=$GITHUB_SHA -f message=$GITHUB_MESSAGE
+          gh workflow run --repo syntasso/ci "Kratix" -f sha=$GITHUB_SHA -f message=$GITHUB_MESSAGE -f author=${author}
         env:
           GH_TOKEN: ${{ secrets.GH_ACTION_TRIGGER_TOKEN }}
