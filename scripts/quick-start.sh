@@ -9,6 +9,8 @@ RECREATE=${RECREATE:-false}
 SINGLE_DESTINATION=false
 THIRD_DESTINATION=false
 
+CI=${CI:-false}
+
 INSTALL_AND_CREATE_MINIO_BUCKET=true
 INSTALL_AND_CREATE_GITEA_REPO=false
 WORKER_STATESTORE_TYPE=BucketStateStore
@@ -126,7 +128,7 @@ verify_prerequisites() {
         success_mark
     fi
 
-    if [ "$(uname)" = "Linux" ]; then
+    if [ "$(uname)" = "Linux" ] && ! ${CI} then
         log -n "Confirming Linux inotify limits are sufficient..."
 
         watches=$(sysctl -n fs.inotify.max_user_watches)
