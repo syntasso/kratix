@@ -70,10 +70,11 @@ type DynamicResourceRequestController struct {
 
 //+kubebuilder:rbac:groups="batch",resources=jobs,verbs=get;list;watch;create;update;patch;delete
 
+// Reconcile reconciles a Dynamically Generated Resource object.
 func (r *DynamicResourceRequestController) Reconcile(ctx context.Context, req ctrl.Request) (ctrl.Result, error) {
 	if !*r.Enabled {
-		//temporary fix until https://github.com/kubernetes-sigs/controller-runtime/issues/1884 is resolved
-		//once resolved, this won't be necessary since the dynamic controller will be deleted
+		// temporary fix until https://github.com/kubernetes-sigs/controller-runtime/issues/1884 is resolved
+		// once resolved, this won't be necessary since the dynamic controller will be deleted
 		return ctrl.Result{}, nil
 	}
 
@@ -102,63 +103,42 @@ func (r *DynamicResourceRequestController) Reconcile(ctx context.Context, req ct
 		return defaultRequeue, nil
 	}
 
-	resourceLabels := rr.GetLabels()
-	if resourceLabels == nil {
-		resourceLabels = map[string]string{}
-	}
+	resourceLabels := getResourceLabels(rr)
 	if resourceLabels[v1alpha1.PromiseNameLabel] != r.PromiseIdentifier {
-		resourceLabels[v1alpha1.PromiseNameLabel] = promise.GetName()
-		rr.SetLabels(resourceLabels)
-		if err := r.Client.Update(ctx, rr); err != nil {
-			logger.Error(err, "Failed updating resource request with Promise label")
-			return ctrl.Result{}, err
-		}
-		return ctrl.Result{}, nil
+		return r.setPromiseLabels(ctx, promise.GetName(), rr, resourceLabels, logger)
 	}
 
-	opts := opts{
-		client: r.Client,
-		ctx:    ctx,
-		logger: logger,
-	}
+	opts := opts{client: r.Client, ctx: ctx, logger: logger}
 
 	if !rr.GetDeletionTimestamp().IsZero() {
 		return r.deleteResources(opts, promise, rr, resourceRequestIdentifier)
 	}
 
 	if !*r.CanCreateResources {
-		if !resourceutil.IsPromiseMarkedAsUnavailable(rr) {
-			logger.Info("Cannot create resources; setting PromiseAvailable to false in resource status")
-			resourceutil.MarkPromiseConditionAsNotAvailable(rr, logger)
-
-			return ctrl.Result{}, r.Client.Status().Update(ctx, rr)
-		}
-
-		return slowRequeue, nil
+		return r.ensurePromiseIsUnavailable(ctx, rr, logger)
 	}
 
 	if resourceutil.IsPromiseMarkedAsUnavailable(rr) {
-		resourceutil.MarkPromiseConditionAsAvailable(rr, logger)
-		return ctrl.Result{}, r.Client.Status().Update(ctx, rr)
+		return r.ensurePromiseIsAvailable(ctx, rr, logger)
 	}
 
-	// Reconcile necessary finalizers
-	if resourceutil.FinalizersAreMissing(rr, []string{workFinalizer, removeAllWorkflowJobsFinalizer, runDeleteWorkflowsFinalizer}) {
+	if resourceutil.FinalizersAreMissing(
+		rr, []string{workFinalizer, removeAllWorkflowJobsFinalizer, runDeleteWorkflowsFinalizer},
+	) {
 		return addFinalizers(opts, rr, []string{workFinalizer, removeAllWorkflowJobsFinalizer, runDeleteWorkflowsFinalizer})
 	}
 
 	logger.Info("Resource contains configure workflow(s), reconciling workflows")
 	completedCond := resourceutil.GetCondition(rr, resourceutil.ConfigureWorkflowCompletedCondition)
-	forcePipelineRun := completedCond != nil && completedCond.Status == "True" && time.Since(completedCond.LastTransitionTime.Time) > DefaultReconciliationInterval
+	forcePipelineRun := shouldForcePipelineRun(completedCond)
 
 	if forcePipelineRun && r.manualReconciliationLabelSet(rr) {
-		logger.Info("Resource configure pipeline completed too long ago... forcing the reconciliation", "lastTransitionTime", completedCond.LastTransitionTime.Time.String())
-		r.addManualReconciliationLabel(rr)
-		if err := r.Client.Update(ctx, rr); err != nil {
-			logger.Error(err, "Failed updating resource request with Manual Reconciliation label")
-			return ctrl.Result{}, err
-		}
-		return ctrl.Result{}, r.Client.Update(opts.ctx, rr)
+		logger.Info(
+			"Resource configure pipeline completed too long ago... forcing the reconciliation",
+			"lastTransitionTime",
+			completedCond.LastTransitionTime.Time.String(),
+		)
+		return r.updateManualReconciliationLabel(opts.ctx, rr)
 	}
 
 	pipelineResources, err := promise.GenerateResourcePipelines(v1alpha1.WorkflowActionConfigure, rr, logger)
@@ -166,7 +146,16 @@ func (r *DynamicResourceRequestController) Reconcile(ctx context.Context, req ct
 		return ctrl.Result{}, err
 	}
 
-	jobOpts := workflow.NewOpts(ctx, r.Client, r.EventRecorder, logger, rr, pipelineResources, "resource", r.NumberOfJobsToKeep)
+	jobOpts := workflow.NewOpts(
+		ctx,
+		r.Client,
+		r.EventRecorder,
+		logger,
+		rr,
+		pipelineResources,
+		"resource",
+		r.NumberOfJobsToKeep,
+	)
 
 	abort, err := reconcileConfigure(jobOpts)
 	if err != nil || abort {
@@ -174,8 +163,7 @@ func (r *DynamicResourceRequestController) Reconcile(ctx context.Context, req ct
 	}
 
 	if rr.GetGeneration() != resourceutil.GetObservedGeneration(rr) {
-		resourceutil.SetStatus(rr, logger, "observedGeneration", rr.GetGeneration())
-		return ctrl.Result{}, opts.client.Status().Update(opts.ctx, rr)
+		return ctrl.Result{}, updateObservedGeneration(rr, opts, logger)
 	}
 
 	if !promise.HasPipeline(v1alpha1.WorkflowTypeResource, v1alpha1.WorkflowActionConfigure) {
@@ -184,12 +172,8 @@ func (r *DynamicResourceRequestController) Reconcile(ctx context.Context, req ct
 
 	workflowCompletedCondition := resourceutil.GetCondition(rr, resourceutil.ConfigureWorkflowCompletedCondition)
 	if workflowsCompletedSuccessfully(workflowCompletedCondition) {
-		lastTransitionTime := workflowCompletedCondition.LastTransitionTime.Format(time.RFC3339)
-		lastSuccessfulTime := resourceutil.GetStatus(rr, "lastSuccessfulConfigureWorkflowTime")
-
-		if lastSuccessfulTime != lastTransitionTime {
-			resourceutil.SetStatus(rr, logger, "lastSuccessfulConfigureWorkflowTime", lastTransitionTime)
-			return ctrl.Result{}, opts.client.Status().Update(opts.ctx, rr)
+		if shouldUpdateLastSuccessfulConfigureWorkflowTime(workflowCompletedCondition, rr) {
+			return updateLastSuccessfulConfigureWorkflowTime(workflowCompletedCondition, rr, opts, logger)
 		}
 		return r.nextReconciliation(logger)
 	}
@@ -226,7 +210,7 @@ func (r *DynamicResourceRequestController) deleteResources(o opts, promise *v1al
 		}
 
 		controllerutil.RemoveFinalizer(resourceRequest, runDeleteWorkflowsFinalizer)
-		if err := o.client.Update(o.ctx, resourceRequest); err != nil {
+		if err = o.client.Update(o.ctx, resourceRequest); err != nil {
 			return ctrl.Result{}, err
 		}
 		return ctrl.Result{}, nil
@@ -335,8 +319,77 @@ func (r *DynamicResourceRequestController) manualReconciliationLabelSet(rr *unst
 	return resourceLabels[resourceutil.ManualReconciliationLabel] == "true"
 }
 
-func (r *DynamicResourceRequestController) addManualReconciliationLabel(rr *unstructured.Unstructured) {
+func (r *DynamicResourceRequestController) updateManualReconciliationLabel(ctx context.Context, rr *unstructured.Unstructured) (ctrl.Result, error) {
 	resourceLabels := rr.GetLabels()
 	resourceLabels[resourceutil.ManualReconciliationLabel] = "true"
 	rr.SetLabels(resourceLabels)
+
+	return ctrl.Result{}, r.Client.Update(ctx, rr)
+}
+
+func (r *DynamicResourceRequestController) ensurePromiseIsUnavailable(ctx context.Context,
+	rr *unstructured.Unstructured,
+	logger logr.Logger,
+) (ctrl.Result, error) {
+	if !resourceutil.IsPromiseMarkedAsUnavailable(rr) {
+		logger.Info("Cannot create resources; setting PromiseAvailable to false in resource status")
+		resourceutil.MarkPromiseConditionAsNotAvailable(rr, logger)
+
+		return ctrl.Result{}, r.Client.Status().Update(ctx, rr)
+	}
+
+	return slowRequeue, nil
+}
+
+func (r *DynamicResourceRequestController) ensurePromiseIsAvailable(ctx context.Context,
+	rr *unstructured.Unstructured,
+	logger logr.Logger,
+) (ctrl.Result, error) {
+	resourceutil.MarkPromiseConditionAsAvailable(rr, logger)
+	return ctrl.Result{}, r.Client.Status().Update(ctx, rr)
+}
+
+func updateObservedGeneration(
+	rr *unstructured.Unstructured, opts opts, logger logr.Logger,
+) error {
+	resourceutil.SetStatus(rr, logger, "observedGeneration", rr.GetGeneration())
+	return opts.client.Status().Update(opts.ctx, rr)
+}
+
+func shouldForcePipelineRun(completedCond *clusterv1.Condition) bool {
+	return completedCond != nil &&
+		completedCond.Status == "True" &&
+		time.Since(completedCond.LastTransitionTime.Time) > DefaultReconciliationInterval
+}
+
+func (r *DynamicResourceRequestController) setPromiseLabels(ctx context.Context, promiseName string, rr *unstructured.Unstructured, resourceLabels map[string]string, logger logr.Logger) (ctrl.Result, error) {
+	resourceLabels[v1alpha1.PromiseNameLabel] = promiseName
+	rr.SetLabels(resourceLabels)
+	if err := r.Client.Update(ctx, rr); err != nil {
+		logger.Error(err, "Failed updating resource request with Promise label")
+		return ctrl.Result{}, err
+	}
+	return ctrl.Result{}, nil
+}
+
+func getResourceLabels(rr *unstructured.Unstructured) map[string]string {
+	labels := rr.GetLabels()
+	if labels == nil {
+		labels = map[string]string{}
+	}
+	return labels
+}
+
+func shouldUpdateLastSuccessfulConfigureWorkflowTime(
+	workflowCompletedCondition *clusterv1.Condition,
+	rr *unstructured.Unstructured,
+) bool {
+	lastTransitionTime := workflowCompletedCondition.LastTransitionTime.Format(time.RFC3339)
+	lastSuccessfulTime := resourceutil.GetStatus(rr, "lastSuccessfulConfigureWorkflowTime")
+	return lastTransitionTime != lastSuccessfulTime
+}
+
+func updateLastSuccessfulConfigureWorkflowTime(workflowCompletedCondition *clusterv1.Condition, rr *unstructured.Unstructured, opts opts, logger logr.Logger) (ctrl.Result, error) {
+	resourceutil.SetStatus(rr, logger, "lastSuccessfulConfigureWorkflowTime", workflowCompletedCondition.LastTransitionTime.Format(time.RFC3339))
+	return ctrl.Result{}, opts.client.Status().Update(opts.ctx, rr)
 }

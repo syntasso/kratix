@@ -14,6 +14,7 @@ See the License for the specific language governing permissions and
 limitations under the License.
 */
 
+// Package controller contains the controllers for all Kratix-managed CRDs.
 package controller
 
 import (
@@ -59,7 +60,7 @@ type Manager interface {
 	kmanager.Manager
 }
 
-// PromiseReconciler reconciles a Promise object
+// PromiseReconciler reconciles a Promise object.
 type PromiseReconciler struct {
 	Scheme                    *runtime.Scheme
 	Client                    client.Client
@@ -176,7 +177,7 @@ func (r *PromiseReconciler) Reconcile(ctx context.Context, req ctrl.Request) (ct
 		return ctrl.Result{}, nil
 	}
 
-	//TODO handle removing finalizer
+	// Add workflowFinalizer if delete pipelines exist
 	requeue, err := ensurePromiseDeleteWorkflowFinalizer(opts, promise, promise.HasPipeline(v1alpha1.WorkflowTypePromise, v1alpha1.WorkflowActionDelete))
 	if err != nil {
 		return ctrl.Result{}, err
@@ -184,8 +185,6 @@ func (r *PromiseReconciler) Reconcile(ctx context.Context, req ctrl.Request) (ct
 	if requeue != nil {
 		return *requeue, nil
 	}
-
-	//TODO add workflowFinalizer if deletes exist (currently we only add it if we have a configure pipeline)
 
 	var rrCRD *apiextensionsv1.CustomResourceDefinition
 	var rrGVK *schema.GroupVersionKind
