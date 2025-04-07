@@ -37,6 +37,8 @@ import (
 	batchv1 "k8s.io/api/batch/v1"
 	v1 "k8s.io/api/core/v1"
 
+	clusterv1 "sigs.k8s.io/cluster-api/api/v1beta1"
+
 	apierrors "k8s.io/apimachinery/pkg/api/errors"
 	"k8s.io/apimachinery/pkg/apis/meta/v1/unstructured"
 	"k8s.io/apimachinery/pkg/runtime"
@@ -145,6 +147,20 @@ func (r *DynamicResourceRequestController) Reconcile(ctx context.Context, req ct
 		return addFinalizers(opts, rr, []string{workFinalizer, removeAllWorkflowJobsFinalizer, runDeleteWorkflowsFinalizer})
 	}
 
+	logger.Info("Resource contains configure workflow(s), reconciling workflows")
+	completedCond := resourceutil.GetCondition(rr, resourceutil.ConfigureWorkflowCompletedCondition)
+	forcePipelineRun := completedCond != nil && completedCond.Status == "True" && time.Since(completedCond.LastTransitionTime.Time) > DefaultReconciliationInterval
+
+	if forcePipelineRun && r.manualReconciliationLabelSet(rr) {
+		logger.Info("Resource configure pipeline completed too long ago... forcing the reconciliation", "lastTransitionTime", completedCond.LastTransitionTime.Time.String())
+		r.addManualReconciliationLabel(rr)
+		if err := r.Client.Update(ctx, rr); err != nil {
+			logger.Error(err, "Failed updating resource request with Manual Reconciliation label")
+			return ctrl.Result{}, err
+		}
+		return ctrl.Result{}, r.Client.Update(opts.ctx, rr)
+	}
+
 	pipelineResources, err := promise.GenerateResourcePipelines(v1alpha1.WorkflowActionConfigure, rr, logger)
 	if err != nil {
 		return ctrl.Result{}, err
@@ -163,7 +179,7 @@ func (r *DynamicResourceRequestController) Reconcile(ctx context.Context, req ct
 	}
 
 	workflowCompletedCondition := resourceutil.GetCondition(rr, resourceutil.ConfigureWorkflowCompletedCondition)
-	if workflowCompletedCondition != nil && workflowCompletedCondition.Status == v1.ConditionTrue && workflowCompletedCondition.Reason == resourceutil.PipelinesExecutedSuccessfully {
+	if workflowsCompletedSuccessfully(workflowCompletedCondition) {
 		lastTransitionTime := workflowCompletedCondition.LastTransitionTime.Format(time.RFC3339)
 		lastSuccessfulTime := resourceutil.GetStatus(rr, "lastSuccessfulConfigureWorkflowTime")
 
@@ -171,6 +187,7 @@ func (r *DynamicResourceRequestController) Reconcile(ctx context.Context, req ct
 			resourceutil.SetStatus(rr, logger, "lastSuccessfulConfigureWorkflowTime", lastTransitionTime)
 			return ctrl.Result{}, opts.client.Status().Update(opts.ctx, rr)
 		}
+		return r.nextReconciliation(logger)
 	}
 
 	return ctrl.Result{}, nil
@@ -296,4 +313,26 @@ func (r *DynamicResourceRequestController) deleteWorkflows(o opts, resourceReque
 	}
 
 	return nil
+}
+
+func workflowsCompletedSuccessfully(workflowCompletedCondition *clusterv1.Condition) bool {
+	return workflowCompletedCondition != nil &&
+		workflowCompletedCondition.Status == v1.ConditionTrue &&
+		workflowCompletedCondition.Reason == resourceutil.PipelinesExecutedSuccessfully
+}
+
+func (r *DynamicResourceRequestController) nextReconciliation(logger logr.Logger) (ctrl.Result, error) {
+	logger.Info("Scheduling next reconciliation", "DefaultReconciliationInterval", DefaultReconciliationInterval)
+	return ctrl.Result{RequeueAfter: DefaultReconciliationInterval}, nil
+}
+
+func (r *DynamicResourceRequestController) manualReconciliationLabelSet(rr *unstructured.Unstructured) bool {
+	resourceLabels := rr.GetLabels()
+	return resourceLabels[resourceutil.ManualReconciliationLabel] == "true"
+}
+
+func (r *DynamicResourceRequestController) addManualReconciliationLabel(rr *unstructured.Unstructured) {
+	resourceLabels := rr.GetLabels()
+	resourceLabels[resourceutil.ManualReconciliationLabel] = "true"
+	rr.SetLabels(resourceLabels)
 }
