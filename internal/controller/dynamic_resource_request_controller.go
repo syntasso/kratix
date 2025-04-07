@@ -178,6 +178,10 @@ func (r *DynamicResourceRequestController) Reconcile(ctx context.Context, req ct
 		return ctrl.Result{}, opts.client.Status().Update(opts.ctx, rr)
 	}
 
+	if !promise.HasPipeline(v1alpha1.WorkflowTypeResource, v1alpha1.WorkflowActionConfigure) {
+		return ctrl.Result{RequeueAfter: DefaultReconciliationInterval}, nil
+	}
+
 	workflowCompletedCondition := resourceutil.GetCondition(rr, resourceutil.ConfigureWorkflowCompletedCondition)
 	if workflowsCompletedSuccessfully(workflowCompletedCondition) {
 		lastTransitionTime := workflowCompletedCondition.LastTransitionTime.Format(time.RFC3339)
