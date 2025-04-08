@@ -596,7 +596,7 @@ var _ = Describe("PromiseController", func() {
 					By("finishing the creation once the job is finished", func() {
 						setReconcileConfigureWorkflowToReturnFinished()
 						markPromiseWorkflowAsCompleted(fakeK8sClient, promise)
-						result, err := t.reconcileUntilCompletion(reconciler, promise)
+						result, err = t.reconcileUntilCompletion(reconciler, promise)
 
 						Expect(err).NotTo(HaveOccurred())
 						Expect(result).To(Equal(ctrl.Result{RequeueAfter: controller.DefaultReconciliationInterval}))
