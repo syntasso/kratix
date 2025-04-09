@@ -259,7 +259,7 @@ var _ = Describe("DynamicResourceRequestController", func() {
 	})
 
 	When("the DefaultReconciliationInterval is reached", func() {
-		request := ctrl.Request{NamespacedName: types.NamespacedName{Name: resReqNameNamespace.Name, Namespace: resReqNameNamespace.Namespace}}
+		var request ctrl.Request
 		BeforeEach(func() {
 			Expect(fakeK8sClient.Get(ctx, resReqNameNamespace, resReq)).To(Succeed())
 
@@ -267,6 +267,7 @@ var _ = Describe("DynamicResourceRequestController", func() {
 			setConfigureWorkflowStatus(resReq, v1.ConditionTrue, lastTransitionTime)
 			Expect(fakeK8sClient.Status().Update(ctx, resReq)).To(Succeed())
 
+			request = ctrl.Request{NamespacedName: types.NamespacedName{Name: resReqNameNamespace.Name, Namespace: resReqNameNamespace.Namespace}}
 			result, err := reconciler.Reconcile(ctx, request)
 			Expect(result).To(Equal(ctrl.Result{}))
 			Expect(err).NotTo(HaveOccurred())
