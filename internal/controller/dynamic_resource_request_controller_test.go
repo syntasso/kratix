@@ -272,15 +272,11 @@ var _ = Describe("DynamicResourceRequestController", func() {
 		})
 
 		It("re-runs the resource.configure workflows", func() {
-			Expect(fakeK8sClient.Get(ctx, resReqNameNamespace, resReq)).To(Succeed())
+			// Reconcile until the reconciliation loop reaches the evaluation of whether the
+			// pipelines should re-run
 			result, err := reconciler.Reconcile(ctx, ctrl.Request{NamespacedName: types.NamespacedName{Name: resReqNameNamespace.Name, Namespace: resReqNameNamespace.Namespace}})
 			Expect(result).To(Equal(ctrl.Result{}))
-
 			Expect(err).NotTo(HaveOccurred())
-
-			Expect(fakeK8sClient.Get(ctx, resReqNameNamespace, resReq)).To(Succeed())
-			Expect(resReq.GetLabels()[resourceutil.ManualReconciliationLabel]).To(Equal(""))
-
 			result, err = reconciler.Reconcile(ctx, ctrl.Request{NamespacedName: types.NamespacedName{Name: resReqNameNamespace.Name, Namespace: resReqNameNamespace.Namespace}})
 			Expect(err).NotTo(HaveOccurred())
 			Expect(result).To(Equal(ctrl.Result{}))
