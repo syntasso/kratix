@@ -22,9 +22,10 @@ import (
 )
 
 const (
-	promiseReleaseNameLabel                          = v1alpha1.KratixPrefix + "promise-release-name"
-	removeAllWorkflowJobsFinalizer                   = v1alpha1.KratixPrefix + "workflows-cleanup"
-	runDeleteWorkflowsFinalizer                      = v1alpha1.KratixPrefix + "delete-workflows"
+	promiseReleaseNameLabel        = v1alpha1.KratixPrefix + "promise-release-name"
+	removeAllWorkflowJobsFinalizer = v1alpha1.KratixPrefix + "workflows-cleanup"
+	runDeleteWorkflowsFinalizer    = v1alpha1.KratixPrefix + "delete-workflows"
+	// DefaultReconciliationInterval is the interval on which the workflows will be re-run.
 	DefaultReconciliationInterval                    = time.Hour * 10
 	secretRefFieldName                               = "secretRef"
 	StatusNotReady                                   = "NotReady"
