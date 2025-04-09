@@ -130,9 +130,7 @@ func (r *DynamicResourceRequestController) Reconcile(ctx context.Context, req ct
 
 	logger.Info("Resource contains configure workflow(s), reconciling workflows")
 	completedCond := resourceutil.GetCondition(rr, resourceutil.ConfigureWorkflowCompletedCondition)
-	forcePipelineRun := shouldForcePipelineRun(completedCond)
-
-	if forcePipelineRun && !r.manualReconciliationLabelSet(rr) {
+	if shouldForcePipelineRun(completedCond) && !r.manualReconciliationLabelSet(rr) {
 		logger.Info(
 			"Resource configure pipeline completed too long ago... forcing the reconciliation",
 			"lastTransitionTime",
@@ -167,7 +165,7 @@ func (r *DynamicResourceRequestController) Reconcile(ctx context.Context, req ct
 	}
 
 	if !promise.HasPipeline(v1alpha1.WorkflowTypeResource, v1alpha1.WorkflowActionConfigure) {
-		return ctrl.Result{RequeueAfter: DefaultReconciliationInterval}, nil
+		return r.nextReconciliation(logger)
 	}
 
 	workflowCompletedCondition := resourceutil.GetCondition(rr, resourceutil.ConfigureWorkflowCompletedCondition)

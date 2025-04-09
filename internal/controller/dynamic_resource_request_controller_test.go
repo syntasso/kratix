@@ -259,6 +259,7 @@ var _ = Describe("DynamicResourceRequestController", func() {
 	})
 
 	When("the DefaultReconciliationInterval is reached", func() {
+		request := ctrl.Request{NamespacedName: types.NamespacedName{Name: resReqNameNamespace.Name, Namespace: resReqNameNamespace.Namespace}}
 		BeforeEach(func() {
 			Expect(fakeK8sClient.Get(ctx, resReqNameNamespace, resReq)).To(Succeed())
 
@@ -266,7 +267,7 @@ var _ = Describe("DynamicResourceRequestController", func() {
 			setConfigureWorkflowStatus(resReq, v1.ConditionTrue, lastTransitionTime)
 			Expect(fakeK8sClient.Status().Update(ctx, resReq)).To(Succeed())
 
-			result, err := reconciler.Reconcile(ctx, ctrl.Request{NamespacedName: types.NamespacedName{Name: resReqNameNamespace.Name, Namespace: resReqNameNamespace.Namespace}})
+			result, err := reconciler.Reconcile(ctx, request)
 			Expect(result).To(Equal(ctrl.Result{}))
 			Expect(err).NotTo(HaveOccurred())
 		})
@@ -274,10 +275,10 @@ var _ = Describe("DynamicResourceRequestController", func() {
 		It("re-runs the resource.configure workflows", func() {
 			// Reconcile until the reconciliation loop reaches the evaluation of whether the
 			// pipelines should re-run
-			result, err := reconciler.Reconcile(ctx, ctrl.Request{NamespacedName: types.NamespacedName{Name: resReqNameNamespace.Name, Namespace: resReqNameNamespace.Namespace}})
+			result, err := reconciler.Reconcile(ctx, request)
 			Expect(result).To(Equal(ctrl.Result{}))
 			Expect(err).NotTo(HaveOccurred())
-			result, err = reconciler.Reconcile(ctx, ctrl.Request{NamespacedName: types.NamespacedName{Name: resReqNameNamespace.Name, Namespace: resReqNameNamespace.Namespace}})
+			result, err = reconciler.Reconcile(ctx, request)
 			Expect(err).NotTo(HaveOccurred())
 			Expect(result).To(Equal(ctrl.Result{}))
 
@@ -290,7 +291,7 @@ var _ = Describe("DynamicResourceRequestController", func() {
 				observedGeneration := resourceutil.GetObservedGeneration(resReq)
 				setConfigureWorkflowStatus(resReq, v1.ConditionTrue)
 				setReconcileConfigureWorkflowToReturnFinished()
-				result, err = reconciler.Reconcile(ctx, ctrl.Request{NamespacedName: types.NamespacedName{Name: resReqNameNamespace.Name, Namespace: resReqNameNamespace.Namespace}})
+				result, err = reconciler.Reconcile(ctx, request)
 				Expect(err).ToNot(HaveOccurred())
 				Expect(result).To(Equal(ctrl.Result{}))
 
@@ -299,13 +300,13 @@ var _ = Describe("DynamicResourceRequestController", func() {
 			})
 
 			By("running the configure workflows successfully", func() {
-				result, err = reconciler.Reconcile(ctx, ctrl.Request{NamespacedName: types.NamespacedName{Name: resReqNameNamespace.Name, Namespace: resReqNameNamespace.Namespace}})
+				result, err = reconciler.Reconcile(ctx, request)
 				Expect(err).ToNot(HaveOccurred())
 				Expect(result).To(Equal(ctrl.Result{}))
 			})
 
 			By("requeuing on the Default Reconciliation Schedule", func() {
-				result, err = reconciler.Reconcile(ctx, ctrl.Request{NamespacedName: types.NamespacedName{Name: resReqNameNamespace.Name, Namespace: resReqNameNamespace.Namespace}})
+				result, err = reconciler.Reconcile(ctx, request)
 				Expect(err).ToNot(HaveOccurred())
 				Expect(result).To(Equal(ctrl.Result{RequeueAfter: controller.DefaultReconciliationInterval}))
 			})
