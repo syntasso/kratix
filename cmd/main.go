@@ -69,6 +69,7 @@ type KratixConfig struct {
 	NumberOfJobsToKeep       int                   `json:"numberOfJobsToKeep,omitempty"`
 	ControllerLeaderElection *LeaderElectionConfig `json:"controllerLeaderElection,omitempty"`
 	SelectiveCache           bool                  `json:"selectiveCache,omitempty"`
+	ReconciliationInterval   *metav1.Duration      `json:"reconciliationInterval,omitempty"`
 }
 
 type Workflows struct {
@@ -182,13 +183,14 @@ func main() {
 		restartManager := false
 		restartManagerInProgress := false
 		if err = (&controller.PromiseReconciler{
-			ApiextensionsClient: apiextensionsClient.ApiextensionsV1(),
-			Client:              mgr.GetClient(),
-			Log:                 ctrl.Log.WithName("controllers").WithName("Promise"),
-			Manager:             mgr,
-			Scheme:              mgr.GetScheme(),
-			NumberOfJobsToKeep:  getNumJobsToKeep(kratixConfig),
-			EventRecorder:       mgr.GetEventRecorderFor("PromiseController"),
+			ApiextensionsClient:    apiextensionsClient.ApiextensionsV1(),
+			Client:                 mgr.GetClient(),
+			Log:                    ctrl.Log.WithName("controllers").WithName("Promise"),
+			Manager:                mgr,
+			Scheme:                 mgr.GetScheme(),
+			NumberOfJobsToKeep:     getNumJobsToKeep(kratixConfig),
+			ReconciliationInterval: getRegularReconciliationInterval(kratixConfig),
+			EventRecorder:          mgr.GetEventRecorderFor("PromiseController"),
 			RestartManager: func() {
 				// This function gets called multiple times
 				// First call: restartInProgress get set to true, sleeps starts
@@ -354,6 +356,15 @@ func getNumJobsToKeep(kratixConfig *KratixConfig) int {
 		return numJobsToKeepDefault
 	}
 	return kratixConfig.NumberOfJobsToKeep
+}
+
+func getRegularReconciliationInterval(kratixConfig *KratixConfig) time.Duration {
+	if kratixConfig == nil || kratixConfig.ReconciliationInterval == nil {
+		setupLog.Info("reconciliationInterval is nil; setting to the default value",
+			"defaultReconciliationInterval", controller.DefaultReconciliationInterval)
+		return controller.DefaultReconciliationInterval
+	}
+	return kratixConfig.ReconciliationInterval.Duration
 }
 
 func setLeaderElectConfig(mgrOptions *ctrl.Options, kConfig *KratixConfig) {

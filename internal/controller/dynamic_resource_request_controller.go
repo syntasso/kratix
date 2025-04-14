@@ -65,6 +65,7 @@ type DynamicResourceRequestController struct {
 	PromiseDestinationSelectors []v1alpha1.PromiseScheduling
 	CanCreateResources          *bool
 	NumberOfJobsToKeep          int
+	ReconciliationInterval      time.Duration
 	EventRecorder               record.EventRecorder
 }
 
@@ -130,7 +131,7 @@ func (r *DynamicResourceRequestController) Reconcile(ctx context.Context, req ct
 
 	logger.Info("Resource contains configure workflow(s), reconciling workflows")
 	completedCond := resourceutil.GetCondition(rr, resourceutil.ConfigureWorkflowCompletedCondition)
-	if shouldForcePipelineRun(completedCond) && !r.manualReconciliationLabelSet(rr) {
+	if shouldForcePipelineRun(completedCond, r.ReconciliationInterval) && !r.manualReconciliationLabelSet(rr) {
 		logger.Info(
 			"Resource configure pipeline completed too long ago... forcing the reconciliation",
 			"lastTransitionTime",
@@ -308,8 +309,8 @@ func workflowsCompletedSuccessfully(workflowCompletedCondition *clusterv1.Condit
 }
 
 func (r *DynamicResourceRequestController) nextReconciliation(logger logr.Logger) (ctrl.Result, error) {
-	logger.Info("Scheduling next reconciliation", "DefaultReconciliationInterval", DefaultReconciliationInterval)
-	return ctrl.Result{RequeueAfter: DefaultReconciliationInterval}, nil
+	logger.Info("Scheduling next reconciliation", "ReconciliationInterval", r.ReconciliationInterval)
+	return ctrl.Result{RequeueAfter: r.ReconciliationInterval}, nil
 }
 
 func (r *DynamicResourceRequestController) manualReconciliationLabelSet(rr *unstructured.Unstructured) bool {
@@ -354,10 +355,10 @@ func updateObservedGeneration(
 	return opts.client.Status().Update(opts.ctx, rr)
 }
 
-func shouldForcePipelineRun(completedCond *clusterv1.Condition) bool {
+func shouldForcePipelineRun(completedCond *clusterv1.Condition, reconciliationInterval time.Duration) bool {
 	return completedCond != nil &&
 		completedCond.Status == v1.ConditionTrue &&
-		time.Since(completedCond.LastTransitionTime.Time) > DefaultReconciliationInterval
+		time.Since(completedCond.LastTransitionTime.Time) > reconciliationInterval
 }
 
 func (r *DynamicResourceRequestController) setPromiseLabels(ctx context.Context, promiseName string, rr *unstructured.Unstructured, resourceLabels map[string]string, logger logr.Logger) (ctrl.Result, error) {

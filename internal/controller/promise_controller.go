@@ -70,6 +70,7 @@ type PromiseReconciler struct {
 	StartedDynamicControllers map[string]*DynamicResourceRequestController
 	RestartManager            func()
 	NumberOfJobsToKeep        int
+	ReconciliationInterval    time.Duration
 	EventRecorder             record.EventRecorder
 }
 
@@ -295,8 +296,8 @@ func (r *PromiseReconciler) reconcileResources(ctx context.Context, logger logr.
 }
 
 func (r *PromiseReconciler) nextReconciliation(logger logr.Logger) (ctrl.Result, error) {
-	logger.Info("Scheduling next reconciliation", "DefaultReconciliationInterval", DefaultReconciliationInterval)
-	return ctrl.Result{RequeueAfter: DefaultReconciliationInterval}, nil
+	logger.Info("Scheduling next reconciliation", "ReconciliationInterval", r.ReconciliationInterval)
+	return ctrl.Result{RequeueAfter: r.ReconciliationInterval}, nil
 }
 
 func (r *PromiseReconciler) setPromiseStatusToAvailable(ctx context.Context, promise *v1alpha1.Promise, logger logr.Logger) (ctrl.Result, error) {
@@ -462,7 +463,7 @@ func (r *PromiseReconciler) reconcileDependenciesAndPromiseWorkflows(o opts, pro
 
 	o.logger.Info("Promise contains workflows.promise.configure, reconciling workflows")
 	completedCond := promise.GetCondition(string(resourceutil.ConfigureWorkflowCompletedCondition))
-	forcePipelineRun := completedCond != nil && completedCond.Status == "True" && time.Since(completedCond.LastTransitionTime.Time) > DefaultReconciliationInterval
+	forcePipelineRun := completedCond != nil && completedCond.Status == "True" && time.Since(completedCond.LastTransitionTime.Time) > r.ReconciliationInterval
 	if forcePipelineRun && promise.Labels[resourceutil.ManualReconciliationLabel] != "true" {
 		o.logger.Info("Pipeline completed too long ago... forcing the reconciliation", "lastTransitionTime", completedCond.LastTransitionTime.Time.String())
 		promise.Labels[resourceutil.ManualReconciliationLabel] = "true"
@@ -544,6 +545,7 @@ func (r *PromiseReconciler) ensureDynamicControllerIsStarted(promise *v1alpha1.P
 		Enabled:                     &enabled,
 		CanCreateResources:          canCreateResources,
 		NumberOfJobsToKeep:          r.NumberOfJobsToKeep,
+		ReconciliationInterval:      r.ReconciliationInterval,
 		EventRecorder:               r.Manager.GetEventRecorderFor("ResourceRequestController"),
 	}
 	r.StartedDynamicControllers[promise.GetDynamicControllerName(logger)] = dynamicResourceRequestController
