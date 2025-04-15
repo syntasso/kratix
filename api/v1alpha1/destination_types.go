@@ -78,7 +78,7 @@ type DestinationSpec struct {
 type InitWorkloads struct {
 	// +kubebuilder:validation:Optional
 	// +kubebuilder:default:=true
-	Enabled bool `json:"enabled,omitempty"`
+	Enabled bool `json:"enabled"`
 }
 
 const (
