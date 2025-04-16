@@ -1,9 +1,0 @@
-apiVersion: monitoring.coreos.com/v1
-kind: Prometheus
-metadata:
-  name: kratix-op-prom
-spec:
-  serviceAccountName: kube-prom-kube-prometheus-prometheus
-  serviceMonitorSelector:
-    matchLabels:
-      control-plane: controller-manager
