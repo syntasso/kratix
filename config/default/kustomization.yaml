@@ -21,7 +21,7 @@ resources:
 # [NETWORK POLICY] Protect the /metrics endpoint and Webhook Server with NetworkPolicy.
 # Only Pod(s) running a namespace labeled with 'metrics: enabled' will be able to gather the metrics.
 # Only CR(s) which uses webhooks and applied on namespaces labeled 'webhooks: enabled' will be able to work properly.
-- ../network-policy
+#- ../network-policy
 
 # [WEBHOOK] To enable webhook, uncomment all the sections with [WEBHOOK] prefix including the one in
 # crd/kustomization.yaml
@@ -40,9 +40,9 @@ patches:
 - path: manager_metrics_patch.yaml
   target:
     kind: Deployment
-- path: cert_metrics_manager_patch.yaml
-  target:
-    kind: Deployment
+#- path: cert_metrics_manager_patch.yaml
+#  target:
+#    kind: Deployment
 
 # [CERTMANAGER] To enable cert-manager, uncomment all sections with 'CERTMANAGER'.
 # Uncomment 'CERTMANAGER' sections in crd/kustomization.yaml to enable the CA injection in the admission webhooks.
