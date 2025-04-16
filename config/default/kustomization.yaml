@@ -16,19 +16,33 @@ resources:
 - ../crd
 - ../rbac
 - ../manager
+# [METRICS] Expose the controller manager metrics service.
+- metrics_service.yaml
+# [NETWORK POLICY] Protect the /metrics endpoint and Webhook Server with NetworkPolicy.
+# Only Pod(s) running a namespace labeled with 'metrics: enabled' will be able to gather the metrics.
+# Only CR(s) which uses webhooks and applied on namespaces labeled 'webhooks: enabled' will be able to work properly.
+#- ../network-policy
 
 # [WEBHOOK] To enable webhook, uncomment all the sections with [WEBHOOK] prefix including the one in
 # crd/kustomization.yaml
 - ../webhook
 # [CERTMANAGER] To enable cert-manager, uncomment all sections with 'CERTMANAGER'. 'WEBHOOK' components are required.
 - ../certmanager
-# [PROMETHEUS] To enable prometheus monitor, uncomment all sections with 'PROMETHEUS'.
-# - ../prometheus
+## [PROMETHEUS] To enable prometheus monitor, uncomment all sections with 'PROMETHEUS'.
+#- ../prometheus
 
 patches:
 # [WEBHOOK] To enable webhook, uncomment all the sections with [WEBHOOK] prefix including the one in
 # crd/kustomization.yaml
 - path: manager_webhook_patch.yaml
+# [METRICS] The following patch will enable the metrics endpoint using HTTPS and the port :8443.
+# More info: https://book.kubebuilder.io/reference/metrics
+- path: manager_metrics_patch.yaml
+  target:
+    kind: Deployment
+- path: cert_metrics_manager_patch.yaml
+  target:
+    kind: Deployment
 
 # [CERTMANAGER] To enable cert-manager, uncomment all sections with 'CERTMANAGER'.
 # Uncomment 'CERTMANAGER' sections in crd/kustomization.yaml to enable the CA injection in the admission webhooks.
@@ -140,6 +154,42 @@ replacements:
         kind: Certificate
         group: cert-manager.io
         name: serving-cert
+        version: v1
+      fieldPaths:
+      - spec.dnsNames.0
+      - spec.dnsNames.1
+      options:
+        delimiter: .
+        index: 0
+        create: true
+  - source:
+      kind: Service
+      version: v1
+      name: kratix-platform-controller-manager-metrics-service
+      fieldPath: metadata.namespace
+    targets:
+    - select:
+        kind: Certificate
+        group: cert-manager.io
+        name: metrics-server-cert
+        version: v1
+      fieldPaths:
+      - spec.dnsNames.0
+      - spec.dnsNames.1
+      options:
+        delimiter: .
+        index: 1
+        create: true
+  - source:
+      kind: Service
+      version: v1
+      name: kratix-platform-controller-manager-metrics-service
+      fieldPath: metadata.name
+    targets:
+    - select:
+        kind: Certificate
+        group: cert-manager.io
+        name: metrics-server-cert
         version: v1
       fieldPaths:
       - spec.dnsNames.0
