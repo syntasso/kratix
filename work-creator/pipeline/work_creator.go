@@ -9,19 +9,20 @@ import (
 	"path/filepath"
 
 	"github.com/syntasso/kratix/lib/objectutil"
+	"go.uber.org/zap/zapcore"
 
 	goerr "errors"
 
 	"slices"
-
-	ctrl "sigs.k8s.io/controller-runtime"
 
 	"github.com/syntasso/kratix/api/v1alpha1"
 	"github.com/syntasso/kratix/lib/compression"
 	"github.com/syntasso/kratix/lib/hash"
 	"github.com/syntasso/kratix/lib/resourceutil"
 	"k8s.io/apimachinery/pkg/util/yaml"
+	ctrl "sigs.k8s.io/controller-runtime"
 	"sigs.k8s.io/controller-runtime/pkg/client"
+	"sigs.k8s.io/controller-runtime/pkg/log/zap"
 )
 
 type WorkCreator struct {
@@ -29,13 +30,20 @@ type WorkCreator struct {
 }
 
 func (w *WorkCreator) Execute(rootDirectory, promiseName, namespace, resourceName, workflowType, pipelineName string) error {
-	identifier := fmt.Sprintf("%s-%s", promiseName, resourceName)
+	identifier := fmt.Sprintf("%s-%s-%s", promiseName, resourceName, pipelineName)
 	if workflowType == string(v1alpha1.WorkflowTypePromise) {
-		identifier = promiseName
+		identifier = fmt.Sprintf("%s-%s", promiseName, pipelineName)
 	}
 	if namespace == "" {
 		namespace = "kratix-platform-system"
 	}
+
+	opts := zap.Options{
+		Development: true,
+	}
+	ctrl.SetLogger(zap.New(zap.UseFlagOptions(&opts), func(o *zap.Options) {
+		o.TimeEncoder = zapcore.TimeEncoderOfLayout("2006-01-02T15:04:05Z07:00")
+	}))
 
 	var logger = ctrl.Log.WithName("work-creator").
 		WithValues("identifier", identifier).
@@ -106,6 +114,7 @@ func (w *WorkCreator) Execute(rootDirectory, promiseName, namespace, resourceNam
 		if err != nil {
 			return err
 		}
+
 		if len(destinationSelectors) > 0 {
 			var p []v1alpha1.PromiseScheduling
 			var pw []v1alpha1.PromiseScheduling
@@ -151,13 +160,16 @@ func (w *WorkCreator) Execute(rootDirectory, promiseName, namespace, resourceNam
 	work.Spec.PromiseName = promiseName
 	work.Spec.ResourceName = resourceName
 	work.Labels = map[string]string{}
-	resourceutil.SetResourceWorkLabels(work.Labels, promiseName, resourceName, pipelineName)
+	resourceutil.SetResourceWorkLabels(work.Labels, promiseName, resourceName, pipelineName, workflowType)
 
-	if workflowType == string(v1alpha1.WorkflowTypePromise) {
+	logger.Info("setting work labels...")
+
+	if workflowType != string(v1alpha1.WorkflowTypeResource) {
+		logger.Info("setting promise work labels...")
 		work.Namespace = v1alpha1.SystemNamespace
 		work.Spec.ResourceName = ""
 		work.Labels = v1alpha1.GenerateSharedLabelsForPromise(promiseName)
-		resourceutil.SetPromiseWorkLabels(work.Labels, promiseName, pipelineName)
+		resourceutil.SetPromiseWorkLabels(work.Labels, promiseName, pipelineName, workflowType)
 	}
 
 	var currentWork *v1alpha1.Work

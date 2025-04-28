@@ -15,30 +15,31 @@ import (
 // labels[WorkPipelineNameLabel] = pipelineName
 // labels[WorkTypeLabel] = v1alpha1.WorkTypeResource
 
-func SetPromiseWorkLabels(l map[string]string, promiseName, pipelineName string) {
-	setWorkLabels(l, promiseName, "", pipelineName)
+func SetPromiseWorkLabels(l map[string]string, promiseName, pipelineName, workflowType string) {
+	setWorkLabels(l, promiseName, "", pipelineName, workflowType)
 }
 
-func SetResourceWorkLabels(l map[string]string, promiseName, resourceName, pipelineName string) {
-	setWorkLabels(l, promiseName, resourceName, pipelineName)
+func SetResourceWorkLabels(l map[string]string, promiseName, resourceName, pipelineName, workflowType string) {
+	setWorkLabels(l, promiseName, resourceName, pipelineName, string(v1alpha1.WorkTypeResource))
 }
 
 func SetStaticDependencyWorkLabels(l map[string]string, promiseName string) {
-	setWorkLabels(l, promiseName, "", "")
+	setWorkLabels(l, promiseName, "", "", string(v1alpha1.WorkTypeStaticDependency))
 }
 
-func setWorkLabels(l map[string]string, promiseName, resourceName, pipelineName string) {
+func setWorkLabels(l map[string]string, promiseName, resourceName, pipelineName, workflowType string) {
 	l[v1alpha1.PromiseNameLabel] = promiseName
-	l[v1alpha1.WorkTypeLabel] = v1alpha1.WorkTypeStaticDependency
+	l[v1alpha1.WorkTypeLabel] = workflowType
+	if workflowType == "" {
+		l[v1alpha1.WorkTypeLabel] = v1alpha1.WorkTypeStaticDependency
+	}
 
 	if pipelineName != "" {
 		l[v1alpha1.PipelineNameLabel] = pipelineName
-		l[v1alpha1.WorkTypeLabel] = v1alpha1.WorkTypePromise
 	}
 
 	if resourceName != "" {
 		l[v1alpha1.ResourceNameLabel] = resourceName
-		l[v1alpha1.WorkTypeLabel] = v1alpha1.WorkTypeResource
 	}
 }
 
@@ -48,10 +49,6 @@ func GetAllWorksForResource(k8sClient client.Client, namespace, promiseName, res
 		v1alpha1.ResourceNameLabel: resourceName,
 	}
 	return getExistingWorks(k8sClient, namespace, workLabels)
-}
-
-func GetWorkForStaticDependencies(k8sClient client.Client, namespace, promiseName string) (*v1alpha1.Work, error) {
-	return GetWorkForResourcePipeline(k8sClient, namespace, promiseName, "", "")
 }
 
 func GetWorksByType(k8sClient client.Client, workflowType v1alpha1.Type, obj *unstructured.Unstructured) ([]v1alpha1.Work, error) {
@@ -74,7 +71,18 @@ func GetWorksByType(k8sClient client.Client, workflowType v1alpha1.Type, obj *un
 
 func GetWorkForResourcePipeline(k8sClient client.Client, namespace, promiseName, resourceName, pipelineName string) (*v1alpha1.Work, error) {
 	workLabels := map[string]string{}
-	setWorkLabels(workLabels, promiseName, resourceName, pipelineName)
+
+	var workflowType string = v1alpha1.WorkTypeResource
+
+	if resourceName == "" {
+		workflowType = v1alpha1.WorkTypePromise
+
+		if pipelineName == "" {
+			workflowType = v1alpha1.WorkTypeStaticDependency
+		}
+	}
+
+	setWorkLabels(workLabels, promiseName, resourceName, pipelineName, workflowType)
 	works, err := getExistingWorks(k8sClient, namespace, workLabels)
 	if err != nil {
 		return nil, err
@@ -95,6 +103,10 @@ func GetWorkForResourcePipeline(k8sClient client.Client, namespace, promiseName,
 
 func GetWorkForPromisePipeline(k8sClient client.Client, namespace, promiseName, pipelineName string) (*v1alpha1.Work, error) {
 	return GetWorkForResourcePipeline(k8sClient, namespace, promiseName, "", pipelineName)
+}
+
+func GetWorkForStaticDependencies(k8sClient client.Client, namespace, promiseName string) (*v1alpha1.Work, error) {
+	return GetWorkForResourcePipeline(k8sClient, namespace, promiseName, "", "")
 }
 
 func getExistingWorks(k8sClient client.Client, namespace string, workLabels map[string]string) ([]v1alpha1.Work, error) {

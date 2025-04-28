@@ -106,18 +106,18 @@ var (
 	slowRequeue    = ctrl.Result{RequeueAfter: 60 * time.Second}
 )
 
-//+kubebuilder:rbac:groups=platform.kratix.io,resources=promises,verbs=get;list;watch;create;update;patch;delete
-//+kubebuilder:rbac:groups=platform.kratix.io,resources=promises/status,verbs=get;update;patch
-//+kubebuilder:rbac:groups=platform.kratix.io,resources=promises/finalizers,verbs=update
-//+kubebuilder:rbac:groups="",resources=configmaps,verbs=create;update;list;watch;delete
+// +kubebuilder:rbac:groups=platform.kratix.io,resources=promises,verbs=get;list;watch;create;update;patch;delete
+// +kubebuilder:rbac:groups=platform.kratix.io,resources=promises/status,verbs=get;update;patch
+// +kubebuilder:rbac:groups=platform.kratix.io,resources=promises/finalizers,verbs=update
+// +kubebuilder:rbac:groups="",resources=configmaps,verbs=create;update;list;watch;delete
 
-//+kubebuilder:rbac:groups=rbac.authorization.k8s.io,resources=clusterroles,verbs=create;update;escalate;bind;list;get;delete;watch
-//+kubebuilder:rbac:groups=rbac.authorization.k8s.io,resources=clusterrolebindings,verbs=create;update;list;get;delete;watch
-//+kubebuilder:rbac:groups=rbac.authorization.k8s.io,resources=roles,verbs=create;update;escalate;bind;list;get;delete;watch
-//+kubebuilder:rbac:groups=rbac.authorization.k8s.io,resources=rolebindings,verbs=create;update;list;get;delete;watch
-//+kubebuilder:rbac:groups="",resources=serviceaccounts,verbs=create;update;list;get;watch;delete
+// +kubebuilder:rbac:groups=rbac.authorization.k8s.io,resources=clusterroles,verbs=create;update;escalate;bind;list;get;delete;watch
+// +kubebuilder:rbac:groups=rbac.authorization.k8s.io,resources=clusterrolebindings,verbs=create;update;list;get;delete;watch
+// +kubebuilder:rbac:groups=rbac.authorization.k8s.io,resources=roles,verbs=create;update;escalate;bind;list;get;delete;watch
+// +kubebuilder:rbac:groups=rbac.authorization.k8s.io,resources=rolebindings,verbs=create;update;list;get;delete;watch
+// +kubebuilder:rbac:groups="",resources=serviceaccounts,verbs=create;update;list;get;watch;delete
 
-//+kubebuilder:rbac:groups=apiextensions.k8s.io,resources=customresourcedefinitions,verbs=get;list;watch;create;update;patch;delete
+// +kubebuilder:rbac:groups=apiextensions.k8s.io,resources=customresourcedefinitions,verbs=get;list;watch;create;update;patch;delete
 
 func (r *PromiseReconciler) Reconcile(ctx context.Context, req ctrl.Request) (ctrl.Result, error) {
 	if r.StartedDynamicControllers == nil {

@@ -65,7 +65,7 @@ var _ = Describe("WorkCreator", func() {
 			})
 
 			It("has the expected Work name", func() {
-				Expect(workResource.Name).To(MatchRegexp(`^promise-name-resource-name-\b\w{5}\b$`))
+				Expect(workResource.Name).To(MatchRegexp(`^promise-name-resource-name-configure-job-\b\w{5}\b$`))
 			})
 
 			It("has the expected workloads", func() {

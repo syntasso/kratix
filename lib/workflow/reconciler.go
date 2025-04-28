@@ -271,11 +271,22 @@ func jobIsForPipeline(pipeline v1alpha1.PipelineJobResources, job *batchv1.Job) 
 		return false
 	}
 
-	if job.GetLabels()[v1alpha1.KratixResourceHashLabel] != pipeline.Job.GetLabels()[v1alpha1.KratixResourceHashLabel] {
+	jobLabels := job.GetLabels()
+	pipelineLabels := pipeline.Job.GetLabels()
+
+	if jobLabels[v1alpha1.KratixResourceHashLabel] != pipelineLabels[v1alpha1.KratixResourceHashLabel] {
 		return false
 	}
 
-	return job.GetLabels()[v1alpha1.PipelineNameLabel] == pipeline.Job.GetLabels()[v1alpha1.PipelineNameLabel]
+	if jobLabels[v1alpha1.WorkflowTypeLabel] != pipelineLabels[v1alpha1.WorkflowTypeLabel] {
+		return false
+	}
+
+	if jobLabels[v1alpha1.WorkflowActionLabel] != pipelineLabels[v1alpha1.WorkflowActionLabel] {
+		return false
+	}
+
+	return jobLabels[v1alpha1.PipelineNameLabel] == pipelineLabels[v1alpha1.PipelineNameLabel]
 }
 
 func nextPipelineIndex(opts Opts, mostRecentJob *batchv1.Job) int {
