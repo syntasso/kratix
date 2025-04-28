@@ -152,11 +152,13 @@ func (p *PipelineFactory) defaultEnvVars() []corev1.EnvVar {
 	objGroup := p.Promise.GroupVersionKind().Group
 	objName := p.Promise.GetName()
 	objVersion := p.Promise.GroupVersionKind().Version
+	objNamespace := ""
 
 	if p.ResourceWorkflow {
 		objGroup = p.ResourceRequest.GroupVersionKind().Group
 		objName = p.ResourceRequest.GetName()
 		objVersion = p.ResourceRequest.GroupVersionKind().Version
+		objNamespace = p.ResourceRequest.GetNamespace()
 	}
 	return []corev1.EnvVar{
 		{Name: kratixActionEnvVar, Value: string(p.WorkflowAction)},
@@ -166,25 +168,12 @@ func (p *PipelineFactory) defaultEnvVars() []corev1.EnvVar {
 		{Name: KratixObjectGroupEnvVar, Value: objGroup},
 		{Name: KratixObjectNameEnvVar, Value: objName},
 		{Name: KratixObjectVersionEnvVar, Value: objVersion},
+		{Name: KratixObjectNamespaceEnvVar, Value: objNamespace},
 	}
 }
 
 func (p *PipelineFactory) readerContainer() corev1.Container {
-	group := p.Promise.GroupVersionKind().Group
-	name := p.Promise.GetName()
-	version := p.Promise.GroupVersionKind().Version
-
-	if p.ResourceWorkflow {
-		group = p.ResourceRequest.GroupVersionKind().Group
-		name = p.ResourceRequest.GetName()
-		version = p.ResourceRequest.GroupVersionKind().Version
-	}
-
 	envVars := []corev1.EnvVar{
-		{Name: KratixObjectGroupEnvVar, Value: group},
-		{Name: KratixObjectNameEnvVar, Value: name},
-		{Name: KratixObjectVersionEnvVar, Value: version},
-		{Name: KratixObjectNamespaceEnvVar, Value: p.Namespace},
 		{Name: KratixWorkflowType, Value: string(p.WorkflowType)},
 		{Name: KratixCrdPlural, Value: p.CRDPlural},
 		{Name: KratixClusterScoped, Value: fmt.Sprintf("%t", p.ClusterScoped)},
@@ -194,7 +183,7 @@ func (p *PipelineFactory) readerContainer() corev1.Container {
 		Name:    "reader",
 		Image:   os.Getenv("PIPELINE_ADAPTER_IMG"),
 		Command: []string{"sh", "-c", "reader"},
-		Env:     envVars,
+		Env:     append(p.defaultEnvVars(), envVars...),
 		VolumeMounts: []corev1.VolumeMount{
 			{MountPath: "/kratix/input", Name: "shared-input"},
 			{MountPath: "/kratix/output", Name: "shared-output"},

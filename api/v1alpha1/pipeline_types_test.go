@@ -573,7 +573,7 @@ var _ = Describe("Pipeline", func() {
 			Describe("DefaultEnvVars", func() {
 				It("should return a list of default environment variables", func() {
 					envVars := resources.Job.Spec.Template.Spec.InitContainers[1].Env
-					Expect(envVars).To(HaveLen(8))
+					Expect(envVars).To(HaveLen(9))
 					Expect(envVars).To(ContainElements(
 						corev1.EnvVar{Name: "KRATIX_WORKFLOW_ACTION", Value: "configure"},
 						corev1.EnvVar{Name: "KRATIX_WORKFLOW_TYPE", Value: "fakeType"},
@@ -586,6 +586,7 @@ var _ = Describe("Pipeline", func() {
 						corev1.EnvVar{Name: "KRATIX_OBJECT_GROUP", Value: promise.GroupVersionKind().Group},
 						corev1.EnvVar{Name: "KRATIX_OBJECT_NAME", Value: promise.GetName()},
 						corev1.EnvVar{Name: "KRATIX_OBJECT_VERSION", Value: promise.GroupVersionKind().Version},
+						corev1.EnvVar{Name: "KRATIX_OBJECT_NAMESPACE", Value: ""},
 					))
 				})
 			})
@@ -617,10 +618,13 @@ var _ = Describe("Pipeline", func() {
 				}))
 
 				expectedEnvVars := []corev1.EnvVar{
-					{Name: "KRATIX_OBJECT_NAMESPACE", Value: factory.Namespace},
 					{Name: "KRATIX_WORKFLOW_TYPE", Value: string(factory.WorkflowType)},
 					{Name: "KRATIX_CLUSTER_SCOPED", Value: fmt.Sprintf("%t", factory.ClusterScoped)},
 					{Name: "KRATIX_CRD_PLURAL", Value: factory.CRDPlural},
+					{Name: "KRATIX_WORKFLOW_ACTION", Value: "configure"},
+					{Name: "KRATIX_PROMISE_NAME", Value: "promiseName"},
+					{Name: "KRATIX_PIPELINE_NAME", Value: "pipelineName"},
+					{Name: "KRATIX_WORKFLOW_TYPE", Value: "fakeType"},
 				}
 
 				if isResourceWorkflow {
@@ -628,12 +632,14 @@ var _ = Describe("Pipeline", func() {
 						corev1.EnvVar{Name: "KRATIX_OBJECT_GROUP", Value: resourceRequest.GroupVersionKind().Group},
 						corev1.EnvVar{Name: "KRATIX_OBJECT_NAME", Value: resourceRequest.GetName()},
 						corev1.EnvVar{Name: "KRATIX_OBJECT_VERSION", Value: resourceRequest.GroupVersionKind().Version},
+						corev1.EnvVar{Name: "KRATIX_OBJECT_NAMESPACE", Value: resourceRequest.GetNamespace()},
 					)
 				} else {
 					expectedEnvVars = append(expectedEnvVars,
 						corev1.EnvVar{Name: "KRATIX_OBJECT_GROUP", Value: promise.GroupVersionKind().Group},
 						corev1.EnvVar{Name: "KRATIX_OBJECT_NAME", Value: promise.GetName()},
 						corev1.EnvVar{Name: "KRATIX_OBJECT_VERSION", Value: promise.GroupVersionKind().Version},
+						corev1.EnvVar{Name: "KRATIX_OBJECT_NAMESPACE", Value: ""},
 					)
 				}
 
