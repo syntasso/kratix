@@ -33,13 +33,13 @@ type Parameters struct {
 
 func getParametersFromEnv() *Parameters {
 	p := &Parameters{
-		ObjectGroup:     os.Getenv("OBJECT_GROUP"),
-		ObjectName:      os.Getenv("OBJECT_NAME"),
-		ObjectVersion:   os.Getenv("OBJECT_VERSION"),
-		ObjectNamespace: os.Getenv("OBJECT_NAMESPACE"),
-		PromiseName:     os.Getenv("PROMISE_NAME"),
-		CRDPlural:       os.Getenv("CRD_PLURAL"),
-		ClusterScoped:   os.Getenv("CLUSTER_SCOPED") == "true",
+		ObjectGroup:     os.Getenv(v1alpha1.KratixObjectGroupEnvVar),
+		ObjectVersion:   os.Getenv(v1alpha1.KratixObjectVersionEnvVar),
+		ObjectName:      os.Getenv(v1alpha1.KratixObjectNameEnvVar),
+		ObjectNamespace: os.Getenv(v1alpha1.KratixObjectNamespaceEnvVar),
+		CRDPlural:       os.Getenv(v1alpha1.KratixCrdPluralEnvVar),
+		ClusterScoped:   os.Getenv(v1alpha1.KratixClusterScopedEnvVar) == "true",
+		PromiseName:     os.Getenv(v1alpha1.KratixPromiseNameEnvVar),
 		IsLastPipeline:  os.Getenv("IS_LAST_PIPELINE") == "true",
 		InputDir:        os.Getenv("INPUT_DIR"),
 		OutputDir:       os.Getenv("OUTPUT_DIR"),

@@ -38,8 +38,20 @@ import (
 const (
 	kratixActionEnvVar       = "KRATIX_WORKFLOW_ACTION"
 	kratixTypeEnvVar         = "KRATIX_WORKFLOW_TYPE"
-	kratixPromiseEnvVar      = "KRATIX_PROMISE_NAME"
+	KratixPromiseNameEnvVar  = "KRATIX_PROMISE_NAME"
 	kratixPipelineNameEnvVar = "KRATIX_PIPELINE_NAME"
+
+	KratixObjectKindEnvVar      = "KRATIX_OBJECT_KIND"
+	KratixObjectGroupEnvVar     = "KRATIX_OBJECT_GROUP"
+	KratixObjectVersionEnvVar   = "KRATIX_OBJECT_VERSION"
+	KratixObjectNameEnvVar      = "KRATIX_OBJECT_NAME"
+	KratixObjectNamespaceEnvVar = "KRATIX_OBJECT_NAMESPACE"
+	KratixCrdPluralEnvVar       = "KRATIX_CRD_PLURAL"
+	KratixClusterScopedEnvVar   = "KRATIX_CLUSTER_SCOPED"
+
+	KratixWorkflowType  = "KRATIX_WORKFLOW_TYPE"
+	KratixCrdPlural     = "KRATIX_CRD_PLURAL"
+	KratixClusterScoped = "KRATIX_CLUSTER_SCOPED"
 
 	WorkflowTypeLabel   = KratixPrefix + "workflow-type"
 	WorkflowActionLabel = KratixPrefix + "workflow-action"
