@@ -164,9 +164,7 @@ func (w *WorkCreator) Execute(rootDirectory, promiseName, namespace, resourceNam
 	logger.Info("setting work labels...")
 
 	if workflowType != string(v1alpha1.WorkflowTypeResource) {
-		logger.Info("setting promise work labels...")
 		work.Namespace = v1alpha1.SystemNamespace
-		work.Spec.ResourceName = ""
 		work.Labels = v1alpha1.GenerateSharedLabelsForPromise(promiseName)
 	}
 
@@ -177,13 +175,7 @@ func (w *WorkCreator) Execute(rootDirectory, promiseName, namespace, resourceNam
 		),
 	)
 
-	var currentWork *v1alpha1.Work
-	if resourceName == "" {
-		currentWork, err = resourceutil.GetWorkForPromisePipeline(w.K8sClient, namespace, promiseName, pipelineName)
-	} else {
-		currentWork, err = resourceutil.GetWorkForResourcePipeline(w.K8sClient, namespace, promiseName, resourceName, pipelineName)
-	}
-
+	currentWork, err := resourceutil.GetWork(w.K8sClient, namespace, promiseName, resourceName, pipelineName)
 	if err != nil {
 		return err
 	}

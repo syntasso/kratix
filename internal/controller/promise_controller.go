@@ -1043,7 +1043,7 @@ func (r *PromiseReconciler) applyWorkForStaticDependencies(o opts, promise *v1al
 		),
 	)
 
-	existingWork, err := resourceutil.GetWorkForStaticDependencies(r.Client, v1alpha1.SystemNamespace, promise.GetName())
+	existingWork, err := resourceutil.GetWork(r.Client, v1alpha1.SystemNamespace, promise.GetName(), "", "")
 	if err != nil {
 		return err
 	}
@@ -1075,7 +1075,7 @@ func (r *PromiseReconciler) applyWorkForStaticDependencies(o opts, promise *v1al
 }
 
 func (r *PromiseReconciler) deleteWorkForStaticDependencies(o opts, promise *v1alpha1.Promise) error {
-	existingWork, err := resourceutil.GetWorkForStaticDependencies(r.Client, v1alpha1.SystemNamespace, promise.GetName())
+	existingWork, err := resourceutil.GetWork(r.Client, v1alpha1.SystemNamespace, promise.GetName(), "", "")
 	if err != nil {
 		return err
 	}

@@ -54,18 +54,19 @@ func GetWorksByType(k8sClient client.Client, workflowType v1alpha1.Type, obj *un
 	return getExistingWorks(k8sClient, namespace, l)
 }
 
-func GetWorkForResourcePipeline(k8sClient client.Client, namespace, promiseName, resourceName, pipelineName string) (*v1alpha1.Work, error) {
+// GetWork returns a Work object based on the provided inputs.
+func GetWork(k8sClient client.Client, namespace, promise, resource, pipeline string) (*v1alpha1.Work, error) {
 	var workType string = v1alpha1.WorkTypeResource
 
-	if resourceName == "" {
+	if resource == "" {
 		workType = v1alpha1.WorkTypePromise
 
-		if pipelineName == "" {
+		if pipeline == "" {
 			workType = v1alpha1.WorkTypeStaticDependency
 		}
 	}
 
-	workLabels := GetWorkLabels(promiseName, resourceName, pipelineName, workType)
+	workLabels := GetWorkLabels(promise, resource, pipeline, workType)
 	works, err := getExistingWorks(k8sClient, namespace, workLabels)
 	if err != nil {
 		return nil, err
@@ -74,7 +75,7 @@ func GetWorkForResourcePipeline(k8sClient client.Client, namespace, promiseName,
 	//TODO test
 	if len(works) > 1 {
 		return nil, fmt.Errorf("more than 1 work exist with the matching labels for Promise: %q, Resource: %q, Pipeline: %q. unable to update",
-			promiseName, resourceName, pipelineName)
+			promise, resource, pipeline)
 	}
 
 	if len(works) == 0 {
@@ -82,14 +83,6 @@ func GetWorkForResourcePipeline(k8sClient client.Client, namespace, promiseName,
 	}
 
 	return &works[0], nil
-}
-
-func GetWorkForPromisePipeline(k8sClient client.Client, namespace, promiseName, pipelineName string) (*v1alpha1.Work, error) {
-	return GetWorkForResourcePipeline(k8sClient, namespace, promiseName, "", pipelineName)
-}
-
-func GetWorkForStaticDependencies(k8sClient client.Client, namespace, promiseName string) (*v1alpha1.Work, error) {
-	return GetWorkForResourcePipeline(k8sClient, namespace, promiseName, "", "")
 }
 
 func getExistingWorks(k8sClient client.Client, namespace string, workLabels map[string]string) ([]v1alpha1.Work, error) {
