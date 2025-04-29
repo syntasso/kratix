@@ -10,29 +10,13 @@ import (
 	"sigs.k8s.io/controller-runtime/pkg/client"
 )
 
-// labels[WorkPromiseNameLabel] = promiseName
-// labels[WorkResourceNameLabel] = resourceName
-// labels[WorkPipelineNameLabel] = pipelineName
-// labels[WorkTypeLabel] = v1alpha1.WorkTypeResource
-
-func SetPromiseWorkLabels(l map[string]string, promiseName, pipelineName, workflowType string) {
-	setWorkLabels(l, promiseName, "", pipelineName, workflowType)
-}
-
-func SetResourceWorkLabels(l map[string]string, promiseName, resourceName, pipelineName, workflowType string) {
-	setWorkLabels(l, promiseName, resourceName, pipelineName, string(v1alpha1.WorkTypeResource))
-}
-
-func SetStaticDependencyWorkLabels(l map[string]string, promiseName string) {
-	setWorkLabels(l, promiseName, "", "", string(v1alpha1.WorkTypeStaticDependency))
-}
-
-func setWorkLabels(l map[string]string, promiseName, resourceName, pipelineName, workflowType string) {
+// GetWorkLabels returns the labels for a work object.
+// Those labels are set by Kratix in the Work Creator stage of the workflow.
+// It can be used to filter works belonging to a particular workflow.
+func GetWorkLabels(promiseName, resourceName, pipelineName, workType string) map[string]string {
+	l := map[string]string{}
 	l[v1alpha1.PromiseNameLabel] = promiseName
-	l[v1alpha1.WorkTypeLabel] = workflowType
-	if workflowType == "" {
-		l[v1alpha1.WorkTypeLabel] = v1alpha1.WorkTypeStaticDependency
-	}
+	l[v1alpha1.WorkTypeLabel] = workType
 
 	if pipelineName != "" {
 		l[v1alpha1.PipelineNameLabel] = pipelineName
@@ -41,6 +25,7 @@ func setWorkLabels(l map[string]string, promiseName, resourceName, pipelineName,
 	if resourceName != "" {
 		l[v1alpha1.ResourceNameLabel] = resourceName
 	}
+	return l
 }
 
 func GetAllWorksForResource(k8sClient client.Client, namespace, promiseName, resourceName string) ([]v1alpha1.Work, error) {
@@ -70,19 +55,17 @@ func GetWorksByType(k8sClient client.Client, workflowType v1alpha1.Type, obj *un
 }
 
 func GetWorkForResourcePipeline(k8sClient client.Client, namespace, promiseName, resourceName, pipelineName string) (*v1alpha1.Work, error) {
-	workLabels := map[string]string{}
-
-	var workflowType string = v1alpha1.WorkTypeResource
+	var workType string = v1alpha1.WorkTypeResource
 
 	if resourceName == "" {
-		workflowType = v1alpha1.WorkTypePromise
+		workType = v1alpha1.WorkTypePromise
 
 		if pipelineName == "" {
-			workflowType = v1alpha1.WorkTypeStaticDependency
+			workType = v1alpha1.WorkTypeStaticDependency
 		}
 	}
 
-	setWorkLabels(workLabels, promiseName, resourceName, pipelineName, workflowType)
+	workLabels := GetWorkLabels(promiseName, resourceName, pipelineName, workType)
 	works, err := getExistingWorks(k8sClient, namespace, workLabels)
 	if err != nil {
 		return nil, err

@@ -1919,8 +1919,7 @@ func createFakeWorks(pipelines []v1alpha1.Pipeline, promiseName string) {
 		work.Name = fmt.Sprintf("work-%s", uuid.New().String()[0:5])
 		work.Namespace = namespace
 		work.Spec.PromiseName = promiseName
-		work.Labels = map[string]string{}
-		resourceutil.SetPromiseWorkLabels(work.Labels, promiseName, pipeline.Name, string(v1alpha1.WorkTypePromise))
+		work.Labels = resourceutil.GetWorkLabels(promiseName, "", pipeline.Name, v1alpha1.WorkTypePromise)
 		Expect(fakeK8sClient.Create(ctx, &work)).To(Succeed())
 	}
 }
@@ -1930,8 +1929,7 @@ func createStaticDependencyWork(promiseName string) {
 	work.Name = fmt.Sprintf("static-deps-%s", uuid.New().String()[0:5])
 	work.Spec.PromiseName = promiseName
 	work.Namespace = namespace
-	work.Labels = map[string]string{}
-	resourceutil.SetPromiseWorkLabels(work.Labels, promiseName, "", string(v1alpha1.WorkTypeStaticDependency))
+	work.Labels = resourceutil.GetWorkLabels(promiseName, "", "", v1alpha1.WorkTypeStaticDependency)
 	Expect(fakeK8sClient.Create(ctx, &work)).To(Succeed())
 }
 

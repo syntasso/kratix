@@ -19,6 +19,7 @@ import (
 	"github.com/syntasso/kratix/lib/compression"
 	"github.com/syntasso/kratix/lib/hash"
 	"github.com/syntasso/kratix/lib/resourceutil"
+	"k8s.io/apimachinery/pkg/labels"
 	"k8s.io/apimachinery/pkg/util/yaml"
 	ctrl "sigs.k8s.io/controller-runtime"
 	"sigs.k8s.io/controller-runtime/pkg/client"
@@ -160,8 +161,6 @@ func (w *WorkCreator) Execute(rootDirectory, promiseName, namespace, resourceNam
 	work.Spec.PromiseName = promiseName
 	work.Spec.ResourceName = resourceName
 	work.Labels = map[string]string{}
-	resourceutil.SetResourceWorkLabels(work.Labels, promiseName, resourceName, pipelineName, workflowType)
-
 	logger.Info("setting work labels...")
 
 	if workflowType != string(v1alpha1.WorkflowTypeResource) {
@@ -169,8 +168,14 @@ func (w *WorkCreator) Execute(rootDirectory, promiseName, namespace, resourceNam
 		work.Namespace = v1alpha1.SystemNamespace
 		work.Spec.ResourceName = ""
 		work.Labels = v1alpha1.GenerateSharedLabelsForPromise(promiseName)
-		resourceutil.SetPromiseWorkLabels(work.Labels, promiseName, pipelineName, workflowType)
 	}
+
+	work.SetLabels(
+		labels.Merge(
+			work.GetLabels(),
+			resourceutil.GetWorkLabels(promiseName, resourceName, pipelineName, workflowType),
+		),
+	)
 
 	var currentWork *v1alpha1.Work
 	if resourceName == "" {

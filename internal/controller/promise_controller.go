@@ -1036,7 +1036,12 @@ func (r *PromiseReconciler) applyWorkForStaticDependencies(o opts, promise *v1al
 	if err != nil {
 		return err
 	}
-	resourceutil.SetStaticDependencyWorkLabels(work.Labels, promise.GetName())
+	work.SetLabels(
+		labels.Merge(
+			work.GetLabels(),
+			resourceutil.GetWorkLabels(promise.GetName(), "", "", v1alpha1.WorkTypeStaticDependency),
+		),
+	)
 
 	existingWork, err := resourceutil.GetWorkForStaticDependencies(r.Client, v1alpha1.SystemNamespace, promise.GetName())
 	if err != nil {
