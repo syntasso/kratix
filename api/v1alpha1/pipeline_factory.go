@@ -149,10 +149,10 @@ func (p *PipelineFactory) defaultPipelineVolumes() ([]corev1.Volume, []corev1.Vo
 }
 
 func (p *PipelineFactory) defaultEnvVars() []corev1.EnvVar {
+	var objNamespace string
 	objGroup := p.Promise.GroupVersionKind().Group
 	objName := p.Promise.GetName()
 	objVersion := p.Promise.GroupVersionKind().Version
-	objNamespace := ""
 
 	if p.ResourceWorkflow {
 		objGroup = p.ResourceRequest.GroupVersionKind().Group
