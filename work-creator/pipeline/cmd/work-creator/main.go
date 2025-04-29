@@ -28,6 +28,14 @@ func main() {
 	flag.StringVar(&workflowType, "workflow-type", "resource", "Create a Work for Promise or Resource type scheduling")
 	flag.Parse()
 
+	fmt.Println("executing work creator with flags:",
+		"input-directory", inputDirectory,
+		"promise-name", promiseName,
+		"pipeline-name", pipelineName,
+		"namespace", namespace,
+		"resource-name", resourceName,
+		"workflow-type", workflowType)
+
 	if inputDirectory == "" {
 		fmt.Println("Must provide -input-directory")
 		os.Exit(1)

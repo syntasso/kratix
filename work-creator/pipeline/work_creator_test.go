@@ -65,7 +65,7 @@ var _ = Describe("WorkCreator", func() {
 			})
 
 			It("has the expected Work name", func() {
-				Expect(workResource.Name).To(MatchRegexp(`^promise-name-resource-name-\b\w{5}\b$`))
+				Expect(workResource.Name).To(MatchRegexp(`^promise-name-resource-name-configure-job-\b\w{5}\b$`))
 			})
 
 			It("has the expected workloads", func() {
@@ -246,7 +246,7 @@ var _ = Describe("WorkCreator", func() {
 
 		When("given a complete set of inputs for a Promise", func() {
 			BeforeEach(func() {
-				err := workCreator.Execute(filepath.Join(getRootDirectory(), "complete-for-promise"), "promise-name", "", "resource-name", "promise", pipelineName)
+				err := workCreator.Execute(filepath.Join(getRootDirectory(), "complete-for-promise"), "promise-name", "", "", "promise", pipelineName)
 				Expect(err).NotTo(HaveOccurred())
 			})
 
