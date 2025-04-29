@@ -149,40 +149,41 @@ func (p *PipelineFactory) defaultPipelineVolumes() ([]corev1.Volume, []corev1.Vo
 }
 
 func (p *PipelineFactory) defaultEnvVars() []corev1.EnvVar {
+	var objNamespace string
+	objGroup := p.Promise.GroupVersionKind().Group
+	objName := p.Promise.GetName()
+	objVersion := p.Promise.GroupVersionKind().Version
+
+	if p.ResourceWorkflow {
+		objGroup = p.ResourceRequest.GroupVersionKind().Group
+		objName = p.ResourceRequest.GetName()
+		objVersion = p.ResourceRequest.GroupVersionKind().Version
+		objNamespace = p.ResourceRequest.GetNamespace()
+	}
 	return []corev1.EnvVar{
 		{Name: kratixActionEnvVar, Value: string(p.WorkflowAction)},
 		{Name: kratixTypeEnvVar, Value: string(p.WorkflowType)},
-		{Name: kratixPromiseEnvVar, Value: p.Promise.GetName()},
+		{Name: KratixPromiseNameEnvVar, Value: p.Promise.GetName()},
 		{Name: kratixPipelineNameEnvVar, Value: p.Pipeline.Name},
+		{Name: KratixObjectGroupEnvVar, Value: objGroup},
+		{Name: KratixObjectNameEnvVar, Value: objName},
+		{Name: KratixObjectVersionEnvVar, Value: objVersion},
+		{Name: KratixObjectNamespaceEnvVar, Value: objNamespace},
 	}
 }
 
 func (p *PipelineFactory) readerContainer() corev1.Container {
-	group := p.Promise.GroupVersionKind().Group
-	name := p.Promise.GetName()
-	version := p.Promise.GroupVersionKind().Version
-
-	if p.ResourceWorkflow {
-		group = p.ResourceRequest.GroupVersionKind().Group
-		name = p.ResourceRequest.GetName()
-		version = p.ResourceRequest.GroupVersionKind().Version
-	}
-
 	envVars := []corev1.EnvVar{
-		{Name: "OBJECT_GROUP", Value: group},
-		{Name: "OBJECT_NAME", Value: name},
-		{Name: "OBJECT_VERSION", Value: version},
-		{Name: "OBJECT_NAMESPACE", Value: p.Namespace},
-		{Name: "KRATIX_WORKFLOW_TYPE", Value: string(p.WorkflowType)},
-		{Name: "CRD_PLURAL", Value: p.CRDPlural},
-		{Name: "CLUSTER_SCOPED", Value: fmt.Sprintf("%t", p.ClusterScoped)},
+		{Name: KratixWorkflowType, Value: string(p.WorkflowType)},
+		{Name: KratixCrdPlural, Value: p.CRDPlural},
+		{Name: KratixClusterScoped, Value: fmt.Sprintf("%t", p.ClusterScoped)},
 	}
 
 	return corev1.Container{
 		Name:    "reader",
 		Image:   os.Getenv("PIPELINE_ADAPTER_IMG"),
 		Command: []string{"sh", "-c", "reader"},
-		Env:     envVars,
+		Env:     append(p.defaultEnvVars(), envVars...),
 		VolumeMounts: []corev1.VolumeMount{
 			{MountPath: "/kratix/input", Name: "shared-input"},
 			{MountPath: "/kratix/output", Name: "shared-output"},
@@ -331,13 +332,13 @@ func (p *PipelineFactory) statusWriterContainer(obj *unstructured.Unstructured, 
 		Image:   os.Getenv("PIPELINE_ADAPTER_IMG"),
 		Command: []string{"sh", "-c", "update-status"},
 		Env: append(env,
-			corev1.EnvVar{Name: "OBJECT_KIND", Value: strings.ToLower(obj.GetKind())},
-			corev1.EnvVar{Name: "OBJECT_GROUP", Value: obj.GroupVersionKind().Group},
-			corev1.EnvVar{Name: "OBJECT_VERSION", Value: obj.GroupVersionKind().Version},
-			corev1.EnvVar{Name: "OBJECT_NAME", Value: obj.GetName()},
-			corev1.EnvVar{Name: "OBJECT_NAMESPACE", Value: p.Namespace},
-			corev1.EnvVar{Name: "CRD_PLURAL", Value: p.CRDPlural},
-			corev1.EnvVar{Name: "CLUSTER_SCOPED", Value: fmt.Sprintf("%t", p.ClusterScoped)},
+			corev1.EnvVar{Name: KratixObjectKindEnvVar, Value: strings.ToLower(obj.GetKind())},
+			corev1.EnvVar{Name: KratixObjectGroupEnvVar, Value: obj.GroupVersionKind().Group},
+			corev1.EnvVar{Name: KratixObjectVersionEnvVar, Value: obj.GroupVersionKind().Version},
+			corev1.EnvVar{Name: KratixObjectNameEnvVar, Value: obj.GetName()},
+			corev1.EnvVar{Name: KratixObjectNamespaceEnvVar, Value: p.Namespace},
+			corev1.EnvVar{Name: KratixCrdPluralEnvVar, Value: p.CRDPlural},
+			corev1.EnvVar{Name: KratixClusterScopedEnvVar, Value: fmt.Sprintf("%t", p.ClusterScoped)},
 		),
 		VolumeMounts: []corev1.VolumeMount{{
 			MountPath: "/work-creator-files/metadata",

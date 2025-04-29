@@ -573,12 +573,20 @@ var _ = Describe("Pipeline", func() {
 			Describe("DefaultEnvVars", func() {
 				It("should return a list of default environment variables", func() {
 					envVars := resources.Job.Spec.Template.Spec.InitContainers[1].Env
-					Expect(envVars).To(HaveLen(5))
+					Expect(envVars).To(HaveLen(9))
 					Expect(envVars).To(ContainElements(
 						corev1.EnvVar{Name: "KRATIX_WORKFLOW_ACTION", Value: "configure"},
 						corev1.EnvVar{Name: "KRATIX_WORKFLOW_TYPE", Value: "fakeType"},
 						corev1.EnvVar{Name: "KRATIX_PROMISE_NAME", Value: promise.GetName()},
 						corev1.EnvVar{Name: "KRATIX_PIPELINE_NAME", Value: "pipelineName"},
+					))
+
+					// TODO: Expected because Promise is default, should test for RR
+					Expect(envVars).To(ContainElements(
+						corev1.EnvVar{Name: "KRATIX_OBJECT_GROUP", Value: promise.GroupVersionKind().Group},
+						corev1.EnvVar{Name: "KRATIX_OBJECT_NAME", Value: promise.GetName()},
+						corev1.EnvVar{Name: "KRATIX_OBJECT_VERSION", Value: promise.GroupVersionKind().Version},
+						corev1.EnvVar{Name: "KRATIX_OBJECT_NAMESPACE", Value: ""},
 					))
 				})
 			})
@@ -610,23 +618,28 @@ var _ = Describe("Pipeline", func() {
 				}))
 
 				expectedEnvVars := []corev1.EnvVar{
-					{Name: "OBJECT_NAMESPACE", Value: factory.Namespace},
 					{Name: "KRATIX_WORKFLOW_TYPE", Value: string(factory.WorkflowType)},
-					{Name: "CLUSTER_SCOPED", Value: fmt.Sprintf("%t", factory.ClusterScoped)},
-					{Name: "CRD_PLURAL", Value: factory.CRDPlural},
+					{Name: "KRATIX_CLUSTER_SCOPED", Value: fmt.Sprintf("%t", factory.ClusterScoped)},
+					{Name: "KRATIX_CRD_PLURAL", Value: factory.CRDPlural},
+					{Name: "KRATIX_WORKFLOW_ACTION", Value: "configure"},
+					{Name: "KRATIX_PROMISE_NAME", Value: "promiseName"},
+					{Name: "KRATIX_PIPELINE_NAME", Value: "pipelineName"},
+					{Name: "KRATIX_WORKFLOW_TYPE", Value: "fakeType"},
 				}
 
 				if isResourceWorkflow {
 					expectedEnvVars = append(expectedEnvVars,
-						corev1.EnvVar{Name: "OBJECT_GROUP", Value: resourceRequest.GroupVersionKind().Group},
-						corev1.EnvVar{Name: "OBJECT_NAME", Value: resourceRequest.GetName()},
-						corev1.EnvVar{Name: "OBJECT_VERSION", Value: resourceRequest.GroupVersionKind().Version},
+						corev1.EnvVar{Name: "KRATIX_OBJECT_GROUP", Value: resourceRequest.GroupVersionKind().Group},
+						corev1.EnvVar{Name: "KRATIX_OBJECT_NAME", Value: resourceRequest.GetName()},
+						corev1.EnvVar{Name: "KRATIX_OBJECT_VERSION", Value: resourceRequest.GroupVersionKind().Version},
+						corev1.EnvVar{Name: "KRATIX_OBJECT_NAMESPACE", Value: resourceRequest.GetNamespace()},
 					)
 				} else {
 					expectedEnvVars = append(expectedEnvVars,
-						corev1.EnvVar{Name: "OBJECT_GROUP", Value: promise.GroupVersionKind().Group},
-						corev1.EnvVar{Name: "OBJECT_NAME", Value: promise.GetName()},
-						corev1.EnvVar{Name: "OBJECT_VERSION", Value: promise.GroupVersionKind().Version},
+						corev1.EnvVar{Name: "KRATIX_OBJECT_GROUP", Value: promise.GroupVersionKind().Group},
+						corev1.EnvVar{Name: "KRATIX_OBJECT_NAME", Value: promise.GetName()},
+						corev1.EnvVar{Name: "KRATIX_OBJECT_VERSION", Value: promise.GroupVersionKind().Version},
+						corev1.EnvVar{Name: "KRATIX_OBJECT_NAMESPACE", Value: ""},
 					)
 				}
 
@@ -843,13 +856,13 @@ var _ = Describe("Pipeline", func() {
 					Expect(container.ImagePullPolicy).To(BeEmpty())
 					Expect(container.Command).To(Equal([]string{"sh", "-c", "update-status"}))
 					Expect(container.Env).To(ConsistOf(
-						corev1.EnvVar{Name: "OBJECT_KIND", Value: resourceRequest.GroupVersionKind().Kind},
-						corev1.EnvVar{Name: "OBJECT_GROUP", Value: resourceRequest.GroupVersionKind().Group},
-						corev1.EnvVar{Name: "OBJECT_VERSION", Value: resourceRequest.GroupVersionKind().Version},
-						corev1.EnvVar{Name: "CRD_PLURAL", Value: promiseCrd.Spec.Names.Plural},
-						corev1.EnvVar{Name: "OBJECT_NAME", Value: resourceRequest.GetName()},
-						corev1.EnvVar{Name: "OBJECT_NAMESPACE", Value: factory.Namespace},
-						corev1.EnvVar{Name: "CLUSTER_SCOPED", Value: "false"},
+						corev1.EnvVar{Name: "KRATIX_OBJECT_KIND", Value: resourceRequest.GroupVersionKind().Kind},
+						corev1.EnvVar{Name: "KRATIX_OBJECT_GROUP", Value: resourceRequest.GroupVersionKind().Group},
+						corev1.EnvVar{Name: "KRATIX_OBJECT_VERSION", Value: resourceRequest.GroupVersionKind().Version},
+						corev1.EnvVar{Name: "KRATIX_CRD_PLURAL", Value: promiseCrd.Spec.Names.Plural},
+						corev1.EnvVar{Name: "KRATIX_OBJECT_NAME", Value: resourceRequest.GetName()},
+						corev1.EnvVar{Name: "KRATIX_OBJECT_NAMESPACE", Value: factory.Namespace},
+						corev1.EnvVar{Name: "KRATIX_CLUSTER_SCOPED", Value: "false"},
 						corev1.EnvVar{Name: "env1", Value: "value1"},
 						corev1.EnvVar{Name: "env2", Value: "value2"},
 					))
