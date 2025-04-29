@@ -32,6 +32,8 @@ type Opts struct {
 	source             string
 	numberOfJobsToKeep int
 	eventRecorder      record.EventRecorder
+
+	SkipConditions bool
 }
 
 var minimumPeriodBetweenCreatingPipelineResources = 1100 * time.Millisecond
@@ -443,6 +445,9 @@ func removeLabel(opts Opts, labelKey string) error {
 }
 
 func setConfigureWorkflowCompletedConditionStatus(opts Opts, isTheFirstPipeline bool, obj *unstructured.Unstructured) (bool, error) {
+	if opts.SkipConditions {
+		return false, nil
+	}
 	switch resourceutil.GetConfigureWorkflowCompletedConditionStatus(obj) {
 	case v1.ConditionTrue:
 		fallthrough
