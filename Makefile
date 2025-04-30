@@ -2,7 +2,7 @@
 VERSION ?= dev
 # Image URL to use all building/pushing image targets
 IMG_NAME ?= docker.io/syntasso/kratix-platform
-QUICKSTART_TAG ?= docker.io/syntasso/kratix-quickstart:latest
+QUICKSTART_TAG ?= docker.io/syntasso/kratix-platform-quickstart:latest
 IMG_VERSION ?= ${VERSION}
 IMG_TAG ?= ${IMG_NAME}:${IMG_VERSION}
 IMG_MIRROR ?= syntassodev/kratix-platform:${VERSION}
@@ -115,8 +115,7 @@ debug-run: manifests generate fmt vet ## Run a controller in debug mode from you
 	dlv --listen=:2345 --headless=true --api-version=2 --accept-multiclient debug ./main.go
 
 docker-build: ## Build docker image with the manager.
-	docker build -t ${QUICKSTART_TAG} -t ${IMG_TAG} -t ${IMG_NAME}:latest .
-	docker tag ${IMG_TAG} ${IMG_MIRROR}
+	docker build -t ${QUICKSTART_TAG} -t ${IMG_MIRROR} -t ${IMG_TAG} -t ${IMG_NAME}:latest .
 
 docker-build-and-push: ## Push multi-arch docker image with the manager.
 	if ! docker buildx ls | grep -q "kratix-image-builder"; then \

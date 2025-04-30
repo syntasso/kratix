@@ -4,52 +4,81 @@ ROOT=$( cd -- "$( dirname -- "${BASH_SOURCE[0]}" )/.." &> /dev/null && pwd )
 
 set -euo pipefail
 
-cd $ROOT
+cd "$ROOT"
 source "$ROOT/scripts/utils.sh"
 
 export VERSION="${VERSION:-$(commit_sha)}"
 
-docker pull syntasso/kratix-platform-pipeline-adapter
+function pull_image() {
+  local image="$1"
+  docker pull "$image"
+}
 
-docker pull syntasso/kratix-platform
+function fetch_digest() {
+  local image="$1"
+  skopeo --override-os linux inspect "docker://docker.io/${image}:latest" | jq -r .Digest
+}
 
-PIPELINE_ADAPTER_VERSION_MANIFEST_DIGEST=$(skopeo --override-os linux inspect docker://docker.io/syntasso/kratix-platform-pipeline-adapter:latest | jq -r .Digest)
-export PIPELINE_ADAPTER_VERSION_MANIFEST_DIGEST
+function validate_digest() {
+  local name="$1"
+  local value="$2"
 
-KRATIX_PLATFORM_MANIFEST_DIGEST=$(skopeo --override-os linux inspect docker://docker.io/syntasso/kratix-platform:latest | jq -r .Digest)
-export KRATIX_PLATFORM_MANIFEST_DIGEST
-
-export PIPELINE_ADAPTER_IMG=syntasso.docker.scarf.sh/syntasso/kratix-platform-pipeline-adapter@${PIPELINE_ADAPTER_VERSION_MANIFEST_DIGEST}
-export IMG_TAG=syntasso.docker.scarf.sh/syntasso/kratix-platform@${KRATIX_PLATFORM_MANIFEST_DIGEST}
-
-if [ -z "${KRATIX_PLATFORM_MANIFEST_DIGEST}" ]; then
-    echo "Error: KRATIX_PLATFORM_MANIFEST_DIGEST is empty"
+  if [ -z "$value" ]; then
+    echo "Error: $name is empty"
     exit 1
-fi
+  fi
+}
 
-if [ -z "${PIPELINE_ADAPTER_VERSION_MANIFEST_DIGEST}" ]; then
-    echo "Error: PIPELINE_ADAPTER_VERSION_MANIFEST_DIGEST is empty"
-    exit 1
-fi
+function generate_distribution_manifests() {
+  pull_image syntasso/kratix-platform-pipeline-adapter
+  pull_image syntasso/kratix-platform
 
-make distribution
+  export PIPELINE_ADAPTER_VERSION_MANIFEST_DIGEST=$(fetch_digest syntasso/kratix-platform-pipeline-adapter)
+  export KRATIX_PLATFORM_MANIFEST_DIGEST=$(fetch_digest syntasso/kratix-platform)
 
-mkdir -p distribution/single-cluster
+  validate_digest "KRATIX_PLATFORM_MANIFEST_DIGEST" "$KRATIX_PLATFORM_MANIFEST_DIGEST"
+  validate_digest "PIPELINE_ADAPTER_VERSION_MANIFEST_DIGEST" "$PIPELINE_ADAPTER_VERSION_MANIFEST_DIGEST"
 
-cat distribution/kratix.yaml <(echo "---") \
-hack/destination/gitops-tk-install.yaml <(echo "---") \
-hack/platform/minio-install.yaml > distribution/single-cluster/install-all-in-one.yaml
+  export PIPELINE_ADAPTER_IMG="syntasso.docker.scarf.sh/syntasso/kratix-platform-pipeline-adapter@${PIPELINE_ADAPTER_VERSION_MANIFEST_DIGEST}"
+  export IMG_TAG="syntasso.docker.scarf.sh/syntasso/kratix-platform@${KRATIX_PLATFORM_MANIFEST_DIGEST}"
 
-KRATIX_QUICKSTART_MANIFEST_DIGEST=$(skopeo --override-os linux inspect docker://docker.io/syntasso/kratix-quickstart:latest | jq -r .Digest)
-export QUICKSTART_TAG=syntasso.docker.scarf.sh/syntasso/kratix-quickstart@${KRATIX_QUICKSTART_MANIFEST_DIGEST}
+  make distribution
+  mkdir -p distribution/single-cluster
 
-yq eval-all '
-  select(.kind == "Deployment" and .metadata.name == "kratix-platform-controller-manager")
-  |= (.spec.template.spec.containers[0].image = strenv(QUICKSTART_TAG))
-  // select(.kind != "Deployment" or .metadata.name != "kratix-platform-controller-manager")
-' distribution/single-cluster/install-all-in-one.yaml > distribution/single-cluster/install-all-in-one.new.yaml
-mv distribution/single-cluster/install-all-in-one.new.yaml distribution/single-cluster/install-all-in-one.yaml
+  cat config/samples/platform_v1alpha1_worker.yaml <(echo "---") \
+      config/samples/platform_v1alpha1_bucketstatestore.yaml <(echo "---") \
+      hack/destination/gitops-tk-resources-single-cluster.yaml > distribution/single-cluster/config-all-in-one.yaml
 
-cat config/samples/platform_v1alpha1_worker.yaml <(echo "---") \
-config/samples/platform_v1alpha1_bucketstatestore.yaml <(echo "---") \
-hack/destination/gitops-tk-resources-single-cluster.yaml > distribution/single-cluster/config-all-in-one.yaml
+  cat distribution/kratix.yaml <(echo "---") \
+      hack/destination/gitops-tk-install.yaml <(echo "---") \
+      hack/platform/minio-install.yaml > distribution/single-cluster/install-all-in-one.yaml
+}
+
+function patch_quickstart_images() {
+  local quickstart_digest
+  local adapter_quickstart_digest
+
+  quickstart_digest=$(fetch_digest syntasso/kratix-platform-quickstart)
+  validate_digest "KRATIX_QUICKSTART_MANIFEST_DIGEST" "$quickstart_digest"
+
+  adapter_quickstart_digest=$(fetch_digest syntasso/kratix-platform-pipeline-adapter-quickstart)
+  validate_digest "KRATIX_QUICKSTART_PIPELINE_ADAPTER_MANIFEST_DIGEST" "$adapter_quickstart_digest"
+
+  export QUICKSTART_TAG="syntasso.docker.scarf.sh/syntasso/kratix-platform-quickstart@${quickstart_digest}"
+  export QUICKSTART_PIPELINE_ADAPTER_TAG="syntasso.docker.scarf.sh/syntasso/kratix-platform-pipeline-adapter-quickstart@${adapter_quickstart_digest}"
+
+  yq eval '
+    select(.kind == "Deployment" and .metadata.name == "kratix-platform-controller-manager")
+    .spec.template.spec.containers[0].image = strenv(QUICKSTART_TAG)
+    // select(.kind != "Deployment" or .metadata.name != "kratix-platform-controller-manager")
+  ' distribution/single-cluster/install-all-in-one.yaml > tmp.yaml && mv tmp.yaml distribution/single-cluster/install-all-in-one.yaml
+
+  yq eval '
+    select(.kind == "ConfigMap" and .metadata.name == "kratix-platform-pipeline-adapter-config")
+    .data.PIPELINE_ADAPTER_IMG = strenv(QUICKSTART_PIPELINE_ADAPTER_TAG)
+    // select(.kind != "ConfigMap" or .metadata.name != "kratix-platform-pipeline-adapter-config")
+  ' distribution/single-cluster/install-all-in-one.yaml > tmp.yaml && mv tmp.yaml distribution/single-cluster/install-all-in-one.yaml
+}
+
+generate_distribution_manifests
+patch_quickstart_images
