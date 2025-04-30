@@ -2,7 +2,7 @@
 
 ROOT=$( cd -- "$( dirname -- "${BASH_SOURCE[0]}" )/.." &> /dev/null && pwd )
 
-set -eu
+set -euo pipefail
 
 cd $ROOT
 source "$ROOT/scripts/utils.sh"
@@ -39,6 +39,16 @@ mkdir -p distribution/single-cluster
 cat distribution/kratix.yaml <(echo "---") \
 hack/destination/gitops-tk-install.yaml <(echo "---") \
 hack/platform/minio-install.yaml > distribution/single-cluster/install-all-in-one.yaml
+
+KRATIX_QUICKSTART_MANIFEST_DIGEST=$(skopeo --override-os linux inspect docker://docker.io/syntasso/kratix-quickstart:latest | jq -r .Digest)
+export QUICKSTART_TAG=syntasso.docker.scarf.sh/syntasso/kratix-quickstart@${KRATIX_QUICKSTART_MANIFEST_DIGEST}
+
+yq eval-all '
+  select(.kind == "Deployment" and .metadata.name == "kratix-platform-controller-manager")
+  |= (.spec.template.spec.containers[0].image = strenv(QUICKSTART_TAG))
+  // select(.kind != "Deployment" or .metadata.name != "kratix-platform-controller-manager")
+' distribution/single-cluster/install-all-in-one.yaml > distribution/single-cluster/install-all-in-one.new.yaml
+mv distribution/single-cluster/install-all-in-one.new.yaml distribution/single-cluster/install-all-in-one.yaml
 
 cat config/samples/platform_v1alpha1_worker.yaml <(echo "---") \
 config/samples/platform_v1alpha1_bucketstatestore.yaml <(echo "---") \
