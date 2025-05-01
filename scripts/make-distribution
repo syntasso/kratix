@@ -35,9 +35,11 @@ function generate_all_manifests() {
 
 export IMG_TAG=$(fetch_digest "syntasso/kratix-platform-quickstart")
 export PIPELINE_ADAPTER_IMG=$(fetch_digest "syntasso/kratix-platform-pipeline-adapter-quickstart")
+# Generate kratix.yaml with the quickstat images, so we can generate the install-all-in-one.yaml with the quickstart images
 make distribution
 generate_all_manifests
 
 export IMG_TAG=$(fetch_digest "syntasso/kratix-platform")
 export PIPELINE_ADAPTER_IMG=$(fetch_digest "syntasso/kratix-platform-pipeline-adapter")
+# Regenerate kratix.yaml with the normal images
 make distribution
