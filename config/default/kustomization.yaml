@@ -49,6 +49,9 @@ patches:
 # 'CERTMANAGER' needs to be enabled to use ca injection
 - path: webhookcainjection_patch.yaml
 
+transformers:
+  - label-transformer.yaml
+
 replacements:
   - source:
       kind: Certificate

@@ -1,0 +1,18 @@
+apiVersion: builtin
+kind: LabelTransformer
+metadata:
+  name: add-control-plane-prefix
+labels:
+  control-plane: kratix-platform-controller-manager
+fieldSpecs:
+  - path: metadata/labels
+    create: true
+  - path: spec/selector/matchLabels
+    create: true
+    kind: Deployment
+  - path: spec/template/metadata/labels
+    create: true
+    kind: Deployment
+  - path: spec/selector
+    create: true
+    kind: Service
