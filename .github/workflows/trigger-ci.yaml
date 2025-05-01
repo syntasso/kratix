@@ -28,7 +28,9 @@ jobs:
         run: |
           set -x
 
-          GITHUB_MESSAGE='${{ github.event.head_commit.message }}'
+          GITHUB_MESSAGE=$(cat <<EOF
+          ${{ github.event.head_commit.message }}
+          EOF)
           author="${{ github.event.head_commit.author.username }}"
           coauthor="${{ github.event.head_commit.committer.username }}"
 
@@ -38,7 +40,7 @@ jobs:
 
           if [ -z "$GITHUB_SHA" ]; then
             GITHUB_SHA=$(git rev-parse HEAD)
-            GITHUB_MESSAGE=$(git log --format=%B -n 1 ${GITHUB_SHA})
+            GITHUB_MESSAGE="$(git log --format=%B -n 1 ${GITHUB_SHA})"
             author=${{ github.actor }}
           fi
 
