@@ -33,8 +33,8 @@ var _ = SynchronizedBeforeSuite(func() {
 	kubeutils.SetTimeoutAndInterval(30*time.Second, 2*time.Second)
 
 	platform.Kubectl("apply", "-f", "./assets/kratix-config.yaml")
-	platform.Kubectl("delete", "pod", "-l", "control-plane=kratix-platform-controller-manager", "-n", "kratix-platform-system")
-	platform.Kubectl("wait", "-n", "kratix-platform-system", "deployments", "-l", "control-plane=kratix-platform-controller-manager", "--for=condition=Available")
+	platform.Kubectl("delete", "pod", "-l", "control-plane=controller-manager", "-n", "kratix-platform-system")
+	platform.Kubectl("wait", "-n", "kratix-platform-system", "deployments", "-l", "control-plane=controller-manager", "--for=condition=Available")
 }, func() {
 	//this runs before each test
 
