@@ -3,6 +3,7 @@ PIPELINE_ADAPTER_IMG_NAME ?= docker.io/syntasso/kratix-platform-pipeline-adapter
 PIPELINE_ADAPTER_IMG_VERSION ?= dev
 PIPELINE_ADAPTER_IMG_TAG ?= ${PIPELINE_ADAPTER_IMG_NAME}:${PIPELINE_ADAPTER_IMG_VERSION}
 PIPELINE_ADAPTER_IMG_MIRROR ?= docker.io/syntassodev/kratix-platform-pipeline-adapter:dev
+PIPELINE_ADAPTER_QUICKSTART_TAG ?= docker.io/syntasso/kratix-platform-pipeline-adapter-quickstart:latest
 # Enable buildkit for docker
 DOCKER_BUILDKIT ?= 1
 
@@ -31,12 +32,10 @@ kind-load-image: docker-build ## Load locally built image into KinD, use export 
 ##@ Build
 
 docker-build: ## Build docker image with work-creator binary
-	docker build -f ../Dockerfile.pipeline-adapter --tag ${PIPELINE_ADAPTER_IMG_TAG} --tag ${PIPELINE_ADAPTER_IMG_NAME}:latest ../
-	docker build -f ../Dockerfile.pipeline-adapter --tag ${PIPELINE_ADAPTER_IMG_MIRROR} ../
+	docker build -f ../Dockerfile.pipeline-adapter -t ${PIPELINE_ADAPTER_QUICKSTART_TAG} -t ${PIPELINE_ADAPTER_IMG_TAG} -t ${PIPELINE_ADAPTER_IMG_MIRROR} -t ${PIPELINE_ADAPTER_IMG_NAME}:latest ../
 
 docker-build-and-push: ## Push multi-arch docker image with the manager.
 	if ! docker buildx ls | grep -q "work-creator-image-builder"; then \
 		docker buildx create --name work-creator-image-builder; \
 	fi;
-	docker buildx build --builder work-creator-image-builder --push --platform linux/arm64,linux/amd64 --file ../Dockerfile.pipeline-adapter --tag ${PIPELINE_ADAPTER_IMG_TAG} --tag ${PIPELINE_ADAPTER_IMG_NAME}:latest ../
-	docker buildx build --builder work-creator-image-builder --push --platform linux/arm64,linux/amd64 --file ../Dockerfile.pipeline-adapter --tag ${PIPELINE_ADAPTER_IMG_MIRROR} ../
+	docker buildx build --builder work-creator-image-builder --push --platform linux/arm64,linux/amd64 --file ../Dockerfile.pipeline-adapter -t ${PIPELINE_ADAPTER_QUICKSTART_TAG} -t ${PIPELINE_ADAPTER_IMG_TAG} -t ${PIPELINE_ADAPTER_IMG_MIRROR} -t ${PIPELINE_ADAPTER_IMG_NAME}:latest ../

@@ -1,45 +1,45 @@
 #!/usr/bin/env bash
 
 ROOT=$( cd -- "$( dirname -- "${BASH_SOURCE[0]}" )/.." &> /dev/null && pwd )
+set -euo pipefail
 
-set -eu
-
-cd $ROOT
+cd "$ROOT"
 source "$ROOT/scripts/utils.sh"
 
 export VERSION="${VERSION:-$(commit_sha)}"
 
-docker pull syntasso/kratix-platform-pipeline-adapter
+function fetch_digest() {
+  local image="$1"
+  local digest
 
-docker pull syntasso/kratix-platform
-
-PIPELINE_ADAPTER_VERSION_MANIFEST_DIGEST=$(skopeo --override-os linux inspect docker://docker.io/syntasso/kratix-platform-pipeline-adapter:latest | jq -r .Digest)
-export PIPELINE_ADAPTER_VERSION_MANIFEST_DIGEST
-
-KRATIX_PLATFORM_MANIFEST_DIGEST=$(skopeo --override-os linux inspect docker://docker.io/syntasso/kratix-platform:latest | jq -r .Digest)
-export KRATIX_PLATFORM_MANIFEST_DIGEST
-
-export PIPELINE_ADAPTER_IMG=syntasso.docker.scarf.sh/syntasso/kratix-platform-pipeline-adapter@${PIPELINE_ADAPTER_VERSION_MANIFEST_DIGEST}
-export IMG_TAG=syntasso.docker.scarf.sh/syntasso/kratix-platform@${KRATIX_PLATFORM_MANIFEST_DIGEST}
-
-if [ -z "${KRATIX_PLATFORM_MANIFEST_DIGEST}" ]; then
-    echo "Error: KRATIX_PLATFORM_MANIFEST_DIGEST is empty"
+  digest=$(skopeo --override-os linux inspect "docker://docker.io/${image}:latest" | jq -r .Digest)
+  if [ -z "$digest" ]; then
+    echo "Error: digest for image '$image' is empty"
     exit 1
-fi
+  fi
 
-if [ -z "${PIPELINE_ADAPTER_VERSION_MANIFEST_DIGEST}" ]; then
-    echo "Error: PIPELINE_ADAPTER_VERSION_MANIFEST_DIGEST is empty"
-    exit 1
-fi
+  echo "syntasso.docker.scarf.sh/${image}@${digest}"
+}
 
+function generate_all_manifests() {
+  mkdir -p distribution/single-cluster
+
+  cat distribution/kratix.yaml <(echo "---") \
+      hack/destination/gitops-tk-install.yaml <(echo "---") \
+      hack/platform/minio-install.yaml > distribution/single-cluster/install-all-in-one.yaml
+
+  cat config/samples/platform_v1alpha1_worker.yaml <(echo "---") \
+      config/samples/platform_v1alpha1_bucketstatestore.yaml <(echo "---") \
+      hack/destination/gitops-tk-resources-single-cluster.yaml > distribution/single-cluster/config-all-in-one.yaml
+}
+
+export IMG_TAG=$(fetch_digest "syntasso/kratix-platform-quickstart")
+export PIPELINE_ADAPTER_IMG=$(fetch_digest "syntasso/kratix-platform-pipeline-adapter-quickstart")
+# Generate kratix.yaml with the quickstat images, so we can generate the install-all-in-one.yaml with the quickstart images
 make distribution
+generate_all_manifests
 
-mkdir -p distribution/single-cluster
-
-cat distribution/kratix.yaml <(echo "---") \
-hack/destination/gitops-tk-install.yaml <(echo "---") \
-hack/platform/minio-install.yaml > distribution/single-cluster/install-all-in-one.yaml
-
-cat config/samples/platform_v1alpha1_worker.yaml <(echo "---") \
-config/samples/platform_v1alpha1_bucketstatestore.yaml <(echo "---") \
-hack/destination/gitops-tk-resources-single-cluster.yaml > distribution/single-cluster/config-all-in-one.yaml
+export IMG_TAG=$(fetch_digest "syntasso/kratix-platform")
+export PIPELINE_ADAPTER_IMG=$(fetch_digest "syntasso/kratix-platform-pipeline-adapter")
+# Regenerate kratix.yaml with the normal images
+make distribution
