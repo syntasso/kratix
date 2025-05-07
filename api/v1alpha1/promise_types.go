@@ -41,6 +41,7 @@ const (
 	PromiseStatusUnavailable             = "Unavailable"
 	PromisePlural                        = "promises"
 	KratixResourceHashLabel              = "kratix.io/hash"
+	KratixPipelineHashLabel              = "kratix.io/pipeline-hash"
 	PromiseAvailableConditionType        = "Available"
 	PromiseAvailableConditionTrueReason  = "PromiseAvailable"
 	PromiseAvailableConditionFalseReason = "PromiseUnavailable"
