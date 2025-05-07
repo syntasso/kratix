@@ -32,7 +32,7 @@ type WorkCreator struct {
 
 func (w *WorkCreator) Execute(rootDirectory, promiseName, namespace, resourceName, workflowType, pipelineName string) error {
 	identifier := fmt.Sprintf("%s-%s-%s", promiseName, resourceName, pipelineName)
-	if workflowType == string(v1alpha1.WorkflowTypePromise) {
+	if workflowType != string(v1alpha1.WorkflowTypeResource) {
 		identifier = fmt.Sprintf("%s-%s", promiseName, pipelineName)
 	}
 	if namespace == "" {
@@ -168,14 +168,16 @@ func (w *WorkCreator) Execute(rootDirectory, promiseName, namespace, resourceNam
 		work.Labels = v1alpha1.GenerateSharedLabelsForPromise(promiseName)
 	}
 
+	workLabels := resourceutil.GetWorkLabels(promiseName, resourceName, pipelineName, workflowType)
+
 	work.SetLabels(
 		labels.Merge(
 			work.GetLabels(),
-			resourceutil.GetWorkLabels(promiseName, resourceName, pipelineName, workflowType),
+			workLabels,
 		),
 	)
 
-	currentWork, err := resourceutil.GetWork(w.K8sClient, namespace, promiseName, resourceName, pipelineName)
+	currentWork, err := resourceutil.GetWork(w.K8sClient, namespace, work.GetLabels())
 	if err != nil {
 		return err
 	}

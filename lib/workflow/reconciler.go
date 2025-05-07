@@ -52,6 +52,7 @@ func NewOpts(ctx context.Context, client client.Client, eventRecorder record.Eve
 	}
 }
 
+// ReconcileDelete deletes Workflows.
 func ReconcileDelete(opts Opts) (bool, error) {
 	opts.logger.Info("Reconciling Delete Pipeline")
 
@@ -285,6 +286,10 @@ func jobIsForPipeline(pipeline v1alpha1.PipelineJobResources, job *batchv1.Job) 
 	}
 
 	if jobLabels[v1alpha1.WorkflowActionLabel] != pipelineLabels[v1alpha1.WorkflowActionLabel] {
+		return false
+	}
+
+	if jobLabels[v1alpha1.KratixPipelineHashLabel] != pipelineLabels[v1alpha1.KratixPipelineHashLabel] {
 		return false
 	}
 
