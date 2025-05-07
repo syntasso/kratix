@@ -52,6 +52,7 @@ func NewOpts(ctx context.Context, client client.Client, eventRecorder record.Eve
 	}
 }
 
+// ReconcileDelete deletes Workflows.
 func ReconcileDelete(opts Opts) (bool, error) {
 	opts.logger.Info("Reconciling Delete Pipeline")
 
