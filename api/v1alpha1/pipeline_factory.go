@@ -96,13 +96,17 @@ func (p *PipelineFactory) configMap(workloadGroupScheduling []WorkloadGroupSched
 	if p.WorkflowAction != WorkflowActionConfigure {
 		return nil, nil
 	}
+	cmName := "destination-selectors-" + p.Promise.GetName()
+	if p.WorkflowType != WorkflowTypePromise && p.WorkflowType != WorkflowTypeResource {
+		cmName = objectutil.GenerateDeterministicObjectName(fmt.Sprintf("%s-%s", cmName, string(p.WorkflowType)))
+	}
 	schedulingYAML, err := yaml.Marshal(workloadGroupScheduling)
 	if err != nil {
 		return nil, errors.Wrap(err, "error marshalling destinationSelectors to yaml")
 	}
 	return &corev1.ConfigMap{
 		ObjectMeta: metav1.ObjectMeta{
-			Name:      "destination-selectors-" + p.Promise.GetName(),
+			Name:      cmName,
 			Namespace: p.Namespace,
 			Labels:    promiseNameLabel(p.Promise.GetName()),
 		},
