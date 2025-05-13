@@ -188,6 +188,7 @@ var _ = Describe("Pipeline", func() {
 			When("promise", func() {
 				BeforeEach(func() {
 					factory.CRDPlural = "promises"
+					factory.WorkflowType = "promise"
 				})
 
 				When("building for configure action", func() {
@@ -270,6 +271,7 @@ var _ = Describe("Pipeline", func() {
 			When("ResourceWorkflow=true", func() {
 				BeforeEach(func() {
 					factory.ResourceWorkflow = true
+					factory.WorkflowType = "resource"
 					factory.CRDPlural = "promiseCrdPlural"
 				})
 
@@ -902,6 +904,18 @@ var _ = Describe("Pipeline", func() {
 			})
 		})
 
+		When("workflow type is neither 'promise' or 'resource'", func() {
+			It("should create scheduling configmap with a suffix", func() {
+				factory.WorkflowAction = v1alpha1.WorkflowActionConfigure
+				factory.WorkflowType = "new-type"
+				resources, err := factory.Resources(nil)
+				Expect(err).ToNot(HaveOccurred())
+				cm := resources.Shared.ConfigMap
+				Expect(cm).ToNot(BeNil())
+				Expect(cm.GetName()).To(Equal("destination-selectors-promiseName-new-type-773b6"))
+			})
+		})
+
 		When("user provided permissions within the Pipeline namespace", func() {
 			When("promise workflow", func() {
 				It("should create the user-provided permission role and role binding", func() {
@@ -1419,7 +1433,7 @@ var _ = Describe("Pipeline", func() {
 						},
 						"spec": map[string]interface{}{
 							"containers": []map[string]interface{}{
-								map[string]interface{}{
+								{
 									"name":  "promise-configure",
 									"image": "my-registry.io/configure",
 								},
