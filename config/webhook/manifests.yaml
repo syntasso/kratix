@@ -56,6 +56,26 @@ webhooks:
     service:
       name: webhook-service
       namespace: system
+      path: /validate-platform-kratix-io-v1alpha1-bucketstatestore
+  failurePolicy: Fail
+  name: vbucketstatestore-v1alpha1.kb.io
+  rules:
+  - apiGroups:
+    - platform.kratix.io
+    apiVersions:
+    - v1alpha1
+    operations:
+    - CREATE
+    - UPDATE
+    resources:
+    - bucketstatestores
+  sideEffects: None
+- admissionReviewVersions:
+  - v1
+  clientConfig:
+    service:
+      name: webhook-service
+      namespace: system
       path: /validate-platform-kratix-io-v1alpha1-destination
   failurePolicy: Fail
   name: vdestination.kb.io
