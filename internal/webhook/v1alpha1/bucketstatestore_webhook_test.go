@@ -88,7 +88,7 @@ var _ = Describe("BucketStateStore Webhook", func() {
 				Expect(err).To(MatchError("spec.secretRef must be set when using authentication method accessKey"))
 			})
 
-			It("denies creation if secretRef is missing 'name'", func() {
+			It("denies update if secretRef is missing 'name'", func() {
 				obj.Spec.SecretRef = &corev1.SecretReference{
 					Namespace: "set",
 					Name:      "",
@@ -97,7 +97,7 @@ var _ = Describe("BucketStateStore Webhook", func() {
 				Expect(err).To(MatchError("spec.secretRef must contain secret name"))
 			})
 
-			It("denies creation if secretRef is missing 'namespace'", func() {
+			It("denies update if secretRef is missing 'namespace'", func() {
 				obj.Spec.SecretRef = &corev1.SecretReference{
 					Namespace: "",
 					Name:      "set",
