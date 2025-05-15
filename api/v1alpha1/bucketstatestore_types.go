@@ -17,8 +17,15 @@ limitations under the License.
 package v1alpha1
 
 import (
+	"fmt"
+
 	corev1 "k8s.io/api/core/v1"
 	metav1 "k8s.io/apimachinery/pkg/apis/meta/v1"
+)
+
+const (
+	AuthMethodIAM       = "IAM"
+	AuthMethodAccessKey = "accessKey"
 )
 
 // BucketStateStoreSpec defines the desired state of BucketStateStore
@@ -57,6 +64,21 @@ type BucketStateStore struct {
 
 func (b *BucketStateStore) GetSecretRef() *corev1.SecretReference {
 	return b.Spec.SecretRef
+}
+
+func (b *BucketStateStore) ValidateSecretRef() error {
+	if b.Spec.AuthMethod == AuthMethodAccessKey {
+		if b.Spec.SecretRef == nil {
+			return fmt.Errorf("spec.secretRef must be set when using authentication method accessKey")
+		}
+		if b.Spec.SecretRef.Name == "" {
+			return fmt.Errorf("spec.secretRef must contain secret name")
+		}
+		if b.Spec.SecretRef.Namespace == "" {
+			return fmt.Errorf("spec.secretRef must contain secret namespace")
+		}
+	}
+	return nil
 }
 
 func (b *BucketStateStore) GetStatus() *StateStoreStatus {
