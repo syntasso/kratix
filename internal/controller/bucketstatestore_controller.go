@@ -88,7 +88,13 @@ func (r *BucketStateStoreReconciler) SetupWithManager(mgr ctrl.Manager) error {
 	err := mgr.GetFieldIndexer().IndexField(context.Background(), &v1alpha1.BucketStateStore{}, secretRefFieldName,
 		func(rawObj client.Object) []string {
 			stateStore := rawObj.(*v1alpha1.BucketStateStore)
-			return []string{secretRefIndexKey(stateStore.Spec.SecretRef.Name, stateStore.Spec.SecretRef.Namespace)}
+			if stateStore.Spec.AuthMethod == v1alpha1.AuthMethodAccessKey {
+				if validateErr := stateStore.ValidateSecretRef(); validateErr != nil {
+					return nil
+				}
+				return []string{secretRefIndexKey(stateStore.Spec.SecretRef.Name, stateStore.Spec.SecretRef.Namespace)}
+			}
+			return nil
 		},
 	)
 	if err != nil {

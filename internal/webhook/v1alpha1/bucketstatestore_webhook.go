@@ -20,7 +20,6 @@ import (
 	"context"
 	"fmt"
 
-	"github.com/syntasso/kratix/lib/writers"
 	"k8s.io/apimachinery/pkg/runtime"
 	ctrl "sigs.k8s.io/controller-runtime"
 	"sigs.k8s.io/controller-runtime/pkg/client"
@@ -28,16 +27,15 @@ import (
 	"sigs.k8s.io/controller-runtime/pkg/webhook"
 	"sigs.k8s.io/controller-runtime/pkg/webhook/admission"
 
-	platformv1alpha1 "github.com/syntasso/kratix/api/v1alpha1"
+	v1alpha1 "github.com/syntasso/kratix/api/v1alpha1"
 )
 
-// nolint:unused
 // log is for logging in this package.
 var bucketstatestorelog = logf.Log.WithName("bucketstatestore-resource")
 
 // SetupBucketStateStoreWebhookWithManager registers the webhook for BucketStateStore in the manager.
 func SetupBucketStateStoreWebhookWithManager(mgr ctrl.Manager) error {
-	return ctrl.NewWebhookManagedBy(mgr).For(&platformv1alpha1.BucketStateStore{}).
+	return ctrl.NewWebhookManagedBy(mgr).For(&v1alpha1.BucketStateStore{}).
 		WithValidator(&BucketStateStoreCustomValidator{}).
 		Complete()
 }
@@ -57,46 +55,29 @@ var _ webhook.CustomValidator = &BucketStateStoreCustomValidator{}
 
 // ValidateCreate implements webhook.CustomValidator so a webhook will be registered for the type BucketStateStore.
 func (v *BucketStateStoreCustomValidator) ValidateCreate(ctx context.Context, obj runtime.Object) (admission.Warnings, error) {
-	bucket, ok := obj.(*platformv1alpha1.BucketStateStore)
+	bucket, ok := obj.(*v1alpha1.BucketStateStore)
 	if !ok {
 		return nil, fmt.Errorf("expected a BucketStateStore object but got %T", obj)
 	}
 	bucketstatestorelog.Info("Validation for BucketStateStore upon creation", "name", bucket.GetName())
 
-	if bucket.Spec.AuthMethod == writers.AuthMethodAccessKey {
-		if err := validateSecretRef(bucket); err != nil {
-			return nil, err
-		}
+	if err := bucket.ValidateSecretRef(); err != nil {
+		return nil, err
 	}
 
 	return nil, nil
 }
 
-func validateSecretRef(bucket *platformv1alpha1.BucketStateStore) error {
-	if bucket.Spec.SecretRef == nil {
-		return fmt.Errorf("spec.secretRef must be set when using authentication method accessKey")
-	}
-	if bucket.Spec.SecretRef.Name == "" {
-		return fmt.Errorf("spec.secretRef must contain secret name")
-	}
-	if bucket.Spec.SecretRef.Namespace == "" {
-		return fmt.Errorf("spec.secretRef must contain secret namespace")
-	}
-	return nil
-}
-
 // ValidateUpdate implements webhook.CustomValidator so a webhook will be registered for the type BucketStateStore.
 func (v *BucketStateStoreCustomValidator) ValidateUpdate(ctx context.Context, oldObj, newObj runtime.Object) (admission.Warnings, error) {
-	bucket, ok := newObj.(*platformv1alpha1.BucketStateStore)
+	bucket, ok := newObj.(*v1alpha1.BucketStateStore)
 	if !ok {
 		return nil, fmt.Errorf("expected a BucketStateStore object for the newObj but got %T", newObj)
 	}
 	bucketstatestorelog.Info("Validation for BucketStateStore upon update", "name", bucket.GetName())
 
-	if bucket.Spec.AuthMethod == writers.AuthMethodAccessKey {
-		if err := validateSecretRef(bucket); err != nil {
-			return nil, err
-		}
+	if err := bucket.ValidateSecretRef(); err != nil {
+		return nil, err
 	}
 
 	return nil, nil

@@ -14,7 +14,7 @@ See the License for the specific language governing permissions and
 limitations under the License.
 */
 
-package v1alpha1
+package v1alpha1_test
 
 import (
 	"context"
@@ -24,22 +24,23 @@ import (
 	corev1 "k8s.io/api/core/v1"
 
 	v1alpha1 "github.com/syntasso/kratix/api/v1alpha1"
+	kratixWebhook "github.com/syntasso/kratix/internal/webhook/v1alpha1"
 )
 
 var _ = Describe("BucketStateStore Webhook", func() {
 	var (
 		obj       *v1alpha1.BucketStateStore
 		oldObj    *v1alpha1.BucketStateStore
-		validator BucketStateStoreCustomValidator
+		validator kratixWebhook.BucketStateStoreCustomValidator
 	)
 
 	BeforeEach(func() {
 		obj = &v1alpha1.BucketStateStore{}
 		oldObj = &v1alpha1.BucketStateStore{}
-		validator = BucketStateStoreCustomValidator{}
-		Expect(validator).NotTo(BeNil(), "Expected validator to be initialized")
-		Expect(oldObj).NotTo(BeNil(), "Expected oldObj to be initialized")
-		Expect(obj).NotTo(BeNil(), "Expected obj to be initialized")
+		validator = kratixWebhook.BucketStateStoreCustomValidator{}
+		Expect(validator).NotTo(BeNil())
+		Expect(oldObj).NotTo(BeNil())
+		Expect(obj).NotTo(BeNil())
 	})
 
 	Context("auth method is accessKey", func() {
