@@ -7,6 +7,7 @@ import (
 	"io"
 	"os"
 	"path/filepath"
+	"strings"
 
 	"github.com/syntasso/kratix/lib/objectutil"
 	"go.uber.org/zap/zapcore"
@@ -163,7 +164,7 @@ func (w *WorkCreator) Execute(rootDirectory, promiseName, namespace, resourceNam
 	work.Labels = map[string]string{}
 	logger.Info("setting work labels...")
 
-	if workflowType != string(v1alpha1.WorkflowTypeResource) {
+	if !strings.HasPrefix(workflowType, string(v1alpha1.WorkflowTypeResource)) {
 		work.Namespace = v1alpha1.SystemNamespace
 		work.Labels = v1alpha1.GenerateSharedLabelsForPromise(promiseName)
 	}
