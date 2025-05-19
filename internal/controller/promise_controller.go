@@ -165,14 +165,15 @@ func (r *PromiseReconciler) Reconcile(ctx context.Context, req ctrl.Request) (ct
 	promise.Status.Status = v1alpha1.PromiseStatusUnavailable
 	updateConditionOnPromise(promise, promiseUnavailableStatusCondition(metav1.Time{Time: time.Now()}))
 	requirementsChanged := r.hasPromiseRequirementsChanged(ctx, promise)
-
-	if requirementsChanged && originalStatus == v1alpha1.PromiseStatusAvailable {
+	if requirementsChanged {
 		if result, statusUpdateErr := r.updatePromiseStatus(ctx, promise); statusUpdateErr != nil || !result.IsZero() {
 			return result, statusUpdateErr
 		}
-		r.EventRecorder.Eventf(
-			promise, "Warning", "Unavailable", "Promise no longer available: %s",
-			"Requirements have changed")
+		if originalStatus == v1alpha1.PromiseStatusAvailable {
+			r.EventRecorder.Eventf(
+				promise, "Warning", "Unavailable", "Promise no longer available: %s",
+				"Requirements have changed")
+		}
 
 		logger.Info("Requeueing: requirements changed")
 		return ctrl.Result{}, nil
