@@ -4,6 +4,7 @@ import (
 	"context"
 	"fmt"
 	"reflect"
+	"strings"
 	"time"
 
 	rbacv1 "k8s.io/api/rbac/v1"
@@ -236,7 +237,7 @@ func labelsForJobs(opts Opts) map[string]string {
 		v1alpha1.WorkflowTypeLabel: opts.source,
 	}
 	promiseName := opts.parentObject.GetName()
-	if opts.source == string(v1alpha1.WorkflowTypeResource) {
+	if strings.HasPrefix(opts.source, string(v1alpha1.WorkflowTypeResource)) {
 		promiseName = opts.parentObject.GetLabels()[v1alpha1.PromiseNameLabel]
 		l[v1alpha1.ResourceNameLabel] = opts.parentObject.GetName()
 	}
