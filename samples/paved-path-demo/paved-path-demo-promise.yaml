@@ -1,7 +1,7 @@
 apiVersion: platform.kratix.io/v1alpha1
 kind: Promise
 metadata:
-  name: paved-path-demo-promise
+  name: paved-path-demo
   namespace: default
 spec:
   api:
@@ -183,3 +183,5 @@ spec:
             containers:
               - image: syntasso/paved-path-demo-configure-pipeline
                 name: paved-path-demo-configure-pipeline
+            Tolerations:
+            - operator: Exists
