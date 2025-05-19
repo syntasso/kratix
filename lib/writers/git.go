@@ -51,7 +51,12 @@ func NewGitWriter(logger logr.Logger, stateStoreSpec v1alpha1.GitStateStoreSpec,
 			return nil, fmt.Errorf("knownHosts not found in secret %s/%s", stateStoreSpec.SecretRef.Namespace, stateStoreSpec.SecretRef.Name)
 		}
 
-		sshKey, err := ssh.NewPublicKeys("git", sshPrivateKey, "")
+		sshUser, err := sshUsernameFromURL(stateStoreSpec.URL)
+		if err != nil {
+			return nil, fmt.Errorf("error parsing GitStateStore url: %w", err)
+		}
+
+		sshKey, err := ssh.NewPublicKeys(sshUser, sshPrivateKey, "")
 		if err != nil {
 			return nil, fmt.Errorf("error parsing sshKey: %w", err)
 		}
@@ -348,4 +353,15 @@ func createLocalDirectory(logger logr.Logger) (string, error) {
 	}
 
 	return dir, nil
+}
+
+func sshUsernameFromURL(url string) (string, error) {
+	ep, err := transport.NewEndpoint(url)
+	if err != nil {
+		return "", fmt.Errorf("failed to parse Git URL: %w", err)
+	}
+	if ep.User == "" {
+		return "git", nil
+	}
+	return ep.User, nil
 }

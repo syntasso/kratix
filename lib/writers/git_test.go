@@ -111,26 +111,14 @@ var _ = Describe("NewGitWriter", func() {
 			stateStoreSpec.AuthMethod = "ssh"
 			key, err := rsa.GenerateKey(rand.Reader, 1024)
 			Expect(err).NotTo(HaveOccurred())
-			privateKeyPEM := pem.Block{
-				Type:  "RSA PRIVATE KEY",
-				Bytes: x509.MarshalPKCS1PrivateKey(key),
-			}
-			var b bytes.Buffer
-			if err := pem.Encode(&b, &privateKeyPEM); err != nil {
-				log.Fatalf("Failed to write private key to buffer: %v", err)
-			}
 
-			creds := map[string][]byte{
-				"sshPrivateKey": b.Bytes(),
-				"knownHosts":    []byte("github.com ssh-ed25519 AAAAC3NzaC1lZDI1NTE5AAAAIOMqqnkVzrm0SdG6UOoqKLsabgH5C9okWi0dh2l9GKJl"),
-			}
-
-			writer, err := writers.NewGitWriter(logger, stateStoreSpec, dest.Spec.Path, creds)
+			writer, err := writers.NewGitWriter(logger, stateStoreSpec, dest.Spec.Path, generateSSHCreds(key))
 			Expect(err).NotTo(HaveOccurred())
 			Expect(writer).To(BeAssignableToTypeOf(&writers.GitWriter{}))
 			gitWriter, ok := writer.(*writers.GitWriter)
 			Expect(ok).To(BeTrue())
 			Expect(gitWriter.GitServer.URL).To(Equal("https://github.com/syntasso/kratix"))
+			Expect(gitWriter.GitServer.Auth.(*ssh.PublicKeys).User).To(Equal("git"))
 			publicKey, ok := gitWriter.GitServer.Auth.(*ssh.PublicKeys)
 			Expect(ok).To(BeTrue())
 			Expect(publicKey).NotTo(BeNil())
@@ -138,5 +126,39 @@ var _ = Describe("NewGitWriter", func() {
 			Expect(gitWriter.Author.Email).To(Equal("test@example.com"))
 			Expect(gitWriter.Author.Name).To(Equal("a-user"))
 		})
+
+		It("set ssh user according to the state store url", func() {
+			stateStoreSpec.URL = "test-user@test.ghe.com:test-org/test-state-store.git"
+			stateStoreSpec.AuthMethod = "ssh"
+			key, err := rsa.GenerateKey(rand.Reader, 1024)
+			Expect(err).NotTo(HaveOccurred())
+
+			writer, err := writers.NewGitWriter(logger, stateStoreSpec, dest.Spec.Path, generateSSHCreds(key))
+			Expect(err).NotTo(HaveOccurred())
+			Expect(writer).To(BeAssignableToTypeOf(&writers.GitWriter{}))
+			gitWriter, ok := writer.(*writers.GitWriter)
+			Expect(ok).To(BeTrue())
+			Expect(gitWriter.GitServer.URL).To(Equal("test-user@test.ghe.com:test-org/test-state-store.git"))
+			Expect(gitWriter.GitServer.Auth.(*ssh.PublicKeys).User).To(Equal("test-user"))
+			publicKey, ok := gitWriter.GitServer.Auth.(*ssh.PublicKeys)
+			Expect(ok).To(BeTrue())
+			Expect(publicKey).NotTo(BeNil())
+		})
 	})
 })
+
+func generateSSHCreds(key *rsa.PrivateKey) map[string][]byte {
+	privateKeyPEM := pem.Block{
+		Type:  "RSA PRIVATE KEY",
+		Bytes: x509.MarshalPKCS1PrivateKey(key),
+	}
+	var b bytes.Buffer
+	if err := pem.Encode(&b, &privateKeyPEM); err != nil {
+		log.Fatalf("Failed to write private key to buffer: %v", err)
+	}
+
+	return map[string][]byte{
+		"sshPrivateKey": b.Bytes(),
+		"knownHosts":    []byte("github.com ssh-ed25519 AAAAC3NzaC1lZDI1NTE5AAAAIOMqqnkVzrm0SdG6UOoqKLsabgH5C9okWi0dh2l9GKJl"),
+	}
+}
