@@ -4,11 +4,10 @@ import (
 	"context"
 	"encoding/json"
 	"fmt"
-	"time"
+	"math/rand/v2"
 
 	. "github.com/onsi/ginkgo/v2"
 	. "github.com/onsi/gomega"
-	"golang.org/x/exp/rand"
 	corev1 "k8s.io/api/core/v1"
 	v1 "k8s.io/apiextensions-apiserver/pkg/apis/apiextensions/v1"
 	"k8s.io/apiextensions-apiserver/pkg/client/clientset/clientset/fake"
@@ -198,7 +197,7 @@ var _ = Describe("PromiseWebhook", func() {
 			It("returns an error it is too long", func() {
 				pipeline := v1alpha1.Pipeline{
 					ObjectMeta: metav1.ObjectMeta{
-						Name: randomString(maxLimit + 1),
+						Name: randomishString(maxLimit + 1),
 					},
 				}
 				objMap, err := runtime.DefaultUnstructuredConverter.ToUnstructured(&pipeline)
@@ -216,7 +215,7 @@ var _ = Describe("PromiseWebhook", func() {
 			It("succeeds when it is within the character limit", func() {
 				pipeline := v1alpha1.Pipeline{
 					ObjectMeta: metav1.ObjectMeta{
-						Name: randomString(maxLimit),
+						Name: randomishString(maxLimit),
 					},
 				}
 				objMap, err := runtime.DefaultUnstructuredConverter.ToUnstructured(&pipeline)
@@ -372,11 +371,13 @@ var _ = Describe("PromiseWebhook", func() {
 	})
 })
 
-func randomString(length int) string {
-	rand.Seed(uint64(time.Now().UnixNano()))
-	b := make([]byte, length+2)
-	rand.Read(b)
-	return fmt.Sprintf("%x", b)[2 : length+2]
+func randomishString(length int) string {
+	bufLen := 1 + length>>1 // half of length plus 1
+	buf := make([]byte, bufLen)
+	for i := range bufLen {
+		buf[i] = byte(rand.IntN(255))
+	}
+	return fmt.Sprintf("%x", buf)[:length]
 }
 
 func setPipeline(promise *v1alpha1.Promise, pipeline v1alpha1.Pipeline) {
