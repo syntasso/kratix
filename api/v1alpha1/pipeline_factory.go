@@ -157,22 +157,27 @@ func (p *PipelineFactory) defaultEnvVars() []corev1.EnvVar {
 	objGroup := p.Promise.GroupVersionKind().Group
 	objName := p.Promise.GetName()
 	objVersion := p.Promise.GroupVersionKind().Version
+	objKind := p.Promise.GroupVersionKind().Kind
 
 	if p.ResourceWorkflow {
 		objGroup = p.ResourceRequest.GroupVersionKind().Group
 		objName = p.ResourceRequest.GetName()
 		objVersion = p.ResourceRequest.GroupVersionKind().Version
 		objNamespace = p.ResourceRequest.GetNamespace()
+		objKind = p.ResourceRequest.GroupVersionKind().Kind
 	}
 	return []corev1.EnvVar{
 		{Name: kratixActionEnvVar, Value: string(p.WorkflowAction)},
 		{Name: kratixTypeEnvVar, Value: string(p.WorkflowType)},
 		{Name: KratixPromiseNameEnvVar, Value: p.Promise.GetName()},
 		{Name: kratixPipelineNameEnvVar, Value: p.Pipeline.Name},
+		{Name: KratixObjectKindEnvVar, Value: objKind},
 		{Name: KratixObjectGroupEnvVar, Value: objGroup},
-		{Name: KratixObjectNameEnvVar, Value: objName},
 		{Name: KratixObjectVersionEnvVar, Value: objVersion},
+		{Name: KratixObjectNameEnvVar, Value: objName},
 		{Name: KratixObjectNamespaceEnvVar, Value: objNamespace},
+		{Name: KratixCrdPlural, Value: p.CRDPlural},
+		{Name: KratixClusterScoped, Value: fmt.Sprintf("%t", p.ClusterScoped)},
 	}
 }
 
