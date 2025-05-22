@@ -1,4 +1,4 @@
-package installer_test
+package system_test
 
 import (
 	"testing"
