@@ -1,0 +1,48 @@
+---
+apiVersion: batch/v1
+kind: Job
+metadata:
+  name: kratix-quick-start-installer
+  namespace: default
+spec:
+  backoffLimit: 0
+  template:
+    spec:
+      serviceAccountName: kratix-quick-start-installer
+      restartPolicy: Never
+      containers:
+        - name: install-kratix
+          image: syntasso/kratix-quick-start-installer:latest
+          imagePullPolicy: IfNotPresent
+
+---
+apiVersion: v1
+kind: ServiceAccount
+metadata:
+  name: kratix-quick-start-installer
+  namespace: default
+---
+apiVersion: rbac.authorization.k8s.io/v1
+kind: ClusterRole
+metadata:
+  name: kratix-quick-start-installer
+rules:
+  - apiGroups:
+    - "*"
+    resources:
+    - "*"
+    verbs: 
+    - "*"
+---
+apiVersion: rbac.authorization.k8s.io/v1
+kind: ClusterRoleBinding
+metadata:
+  name: kratix-quick-start-installer
+roleRef:
+  apiGroup: rbac.authorization.k8s.io
+  kind: ClusterRole
+  name: kratix-quick-start-installer
+subjects:
+  - kind: ServiceAccount
+    name: kratix-quick-start-installer
+    namespace: default
