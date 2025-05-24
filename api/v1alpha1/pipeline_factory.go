@@ -290,6 +290,8 @@ func (p *PipelineFactory) pipelineJob(schedulingConfigMap *corev1.ConfigMap, ser
 	statusWriterContainer := p.statusWriterContainer(obj, env)
 
 	volumes := append(p.defaultVolumes(schedulingConfigMap), pipelineVolumes...)
+	nodeSelector := p.Pipeline.Spec.NodeSelector
+	tolerations := p.Pipeline.Spec.Tolerations
 
 	var initContainers []corev1.Container
 	var containers []corev1.Container
@@ -324,6 +326,8 @@ func (p *PipelineFactory) pipelineJob(schedulingConfigMap *corev1.ConfigMap, ser
 					ImagePullSecrets:   imagePullSecrets,
 					InitContainers:     initContainers,
 					Volumes:            volumes,
+					NodeSelector:       nodeSelector,
+					Tolerations:        tolerations,
 				},
 			},
 		},

@@ -89,6 +89,8 @@ type PipelineSpec struct {
 	Volumes          []corev1.Volume               `json:"volumes,omitempty"`
 	ImagePullSecrets []corev1.LocalObjectReference `json:"imagePullSecrets,omitempty"`
 	RBAC             RBAC                          `json:"rbac,omitempty"`
+	NodeSelector     map[string]string             `json:"nodeSelector,omitempty"`
+	Tolerations      []corev1.Toleration           `json:"tolerations,omitempty"`
 }
 
 type RBAC struct {
