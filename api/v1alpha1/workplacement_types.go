@@ -49,6 +49,7 @@ type WorkPlacementStatus struct {
 //+kubebuilder:object:root=true
 //+kubebuilder:subresource:status
 //+kubebuilder:resource:categories=kratix
+// +kubebuilder:printcolumn:name="DESTINATION",type=string,JSONPath=`.spec.targetDestinationName`,description="Destination this Workplacement is scheduled to."
 
 // WorkPlacement is the Schema for the workplacements API
 type WorkPlacement struct {
