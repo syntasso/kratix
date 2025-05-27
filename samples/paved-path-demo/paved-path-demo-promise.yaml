@@ -183,5 +183,3 @@ spec:
             containers:
               - image: syntasso/paved-path-demo-configure-pipeline
                 name: paved-path-demo-configure-pipeline
-            Tolerations:
-            - operator: Exists
