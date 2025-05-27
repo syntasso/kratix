@@ -11,7 +11,7 @@ delete-platform:
 	kind delete cluster --name platform
 
 run-system-test:
-	ginkgo -r test/
+	go run github.com/onsi/ginkgo/v2/ginkgo -r test/
 
 system-test: create-platform build-and-load run-system-test delete-platform
 
