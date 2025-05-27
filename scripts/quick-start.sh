@@ -256,6 +256,7 @@ setup_worker_destination() {
 
     if ${INSTALL_AND_CREATE_MINIO_BUCKET}; then
        kubectl --context kind-${PLATFORM_CLUSTER_NAME} apply --filename "${ROOT}/config/samples/platform_v1alpha1_bucketstatestore.yaml"
+       kubectl wait bucketstatestore default --for=condition=Ready
     fi
 
     local flags=""
@@ -265,8 +266,10 @@ setup_worker_destination() {
 
     if ${SINGLE_DESTINATION}; then
         ${ROOT}/scripts/register-destination --name platform-cluster --context kind-${PLATFORM_CLUSTER_NAME} --platform-context kind-${PLATFORM_CLUSTER_NAME} $flags
+        kubectl wait destination platform-cluster --for=condition=Ready
     else
         ${ROOT}/scripts/register-destination --name worker-1 --context kind-${WORKER1_CLUSTER_NAME} --platform-context kind-${PLATFORM_CLUSTER_NAME} --with-label environment=dev $flags
+        kubectl wait destination worker-1 --for=condition=Ready
         if ! ${LABELS}; then
             kubectl --context kind-${PLATFORM_CLUSTER_NAME} label destination worker-1 environment-
         fi
@@ -279,6 +282,7 @@ setup_worker_2_destination() {
       flags="--git"
     fi
     ${ROOT}/scripts/register-destination --name worker-2 --context kind-${WORKER2_CLUSTER_NAME} --platform-context kind-${PLATFORM_CLUSTER_NAME} $flags
+    kubectl wait destination worker-2 --for=condition=Ready
 }
 
 wait_for_gitea() {
@@ -527,7 +531,8 @@ install_kratix() {
 
     log -n "Waiting for system to reconcile... "
     if ! SUPPRESS_OUTPUT=true run wait_for_namespace; then
-        log "\n\nIt's taking longer than usual for the system to reconcile."
+        log "\n\nIt's taking longer than usual for the system to reconcile, re-running worker destination setup."
+        step_setup_worker_cluster
         log "You can check the pods on the platform and worker Destinations for debugging information."
         log "This script will continue to wait. You can kill it with $(info "CTRL+C.")"
         log -n "\nWaiting for local repository to be running... "
