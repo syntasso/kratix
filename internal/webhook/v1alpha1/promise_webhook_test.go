@@ -382,8 +382,8 @@ func randomString(length int) string {
 func setPipeline(promise *v1alpha1.Promise, pipeline v1alpha1.Pipeline) {
 	objMap, err := runtime.DefaultUnstructuredConverter.ToUnstructured(&pipeline)
 	Expect(err).NotTo(HaveOccurred())
-	unstructuredPipeline := &unstructured.Unstructured{Object: objMap}
+	unstructuredPipeline := unstructured.Unstructured{Object: objMap}
 	unstructuredPipeline.SetAPIVersion("platform.kratix.io/v1alpha1")
 	unstructuredPipeline.SetKind("Pipeline")
-	promise.Spec.Workflows.Resource.Configure = []unstructured.Unstructured{*unstructuredPipeline}
+	promise.Spec.Workflows.Resource.Configure = []unstructured.Unstructured{unstructuredPipeline}
 }
