@@ -13,7 +13,7 @@ import (
 var _ = Describe("Kratix Quick Start Installer", func() {
 	const (
 		clusterName  = "kratix-test"
-		jobManifest  = "../manifests/kratix-quick-start-installer.yaml"
+		jobManifest  = "../../manifests/kratix-quick-start-installer.yaml"
 		promiseURL   = "https://raw.githubusercontent.com/syntasso/kratix-marketplace/refs/heads/main/namespace/promise.yaml"
 		requestURL   = "https://raw.githubusercontent.com/syntasso/kratix-marketplace/refs/heads/main/namespace/resource-request.yaml"
 		jobName      = "kratix-quick-start-installer"
