@@ -71,6 +71,8 @@ var _ = Describe("Pipeline", func() {
 					{Name: "container-1", Image: "container-1-image"},
 				},
 				Volumes:          []corev1.Volume{{Name: "customVolume", VolumeSource: corev1.VolumeSource{EmptyDir: &corev1.EmptyDirVolumeSource{}}}},
+				NodeSelector:     map[string]string{"customNodeSelector": "nodeValue"},
+				Tolerations:      []corev1.Toleration{{Key: "customToleration", Operator: "Equal", Value: "nodeValue", Effect: "NoSchedule"}},
 				ImagePullSecrets: []corev1.LocalObjectReference{{Name: "imagePullSecret"}},
 			},
 		}
@@ -402,6 +404,10 @@ var _ = Describe("Pipeline", func() {
 								"shared-input", "shared-output", "shared-metadata",
 								pipeline.Spec.Volumes[0].Name,
 							))
+							Expect(podSpec.NodeSelector).To(HaveLen(1))
+							Expect(podSpec.NodeSelector["customNodeSelector"]).To(Equal("nodeValue"))
+							Expect(podSpec.Tolerations).To(HaveLen(1))
+							Expect(podSpec.Tolerations[0].Key).To(Equal("customToleration"))
 						})
 					})
 
@@ -502,6 +508,10 @@ var _ = Describe("Pipeline", func() {
 								"shared-input", "shared-output", "shared-metadata",
 								pipeline.Spec.Volumes[0].Name,
 							))
+							Expect(podSpec.NodeSelector).To(HaveLen(1))
+							Expect(podSpec.NodeSelector["customNodeSelector"]).To(Equal("nodeValue"))
+							Expect(podSpec.Tolerations).To(HaveLen(1))
+							Expect(podSpec.Tolerations[0].Key).To(Equal("customToleration"))
 						})
 					})
 

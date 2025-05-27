@@ -1,7 +1,7 @@
 apiVersion: platform.kratix.io/v1alpha1
 kind: Promise
 metadata:
-  name: paved-path-demo-promise
+  name: paved-path-demo
   namespace: default
 spec:
   api:
