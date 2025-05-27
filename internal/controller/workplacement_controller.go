@@ -38,10 +38,13 @@ import (
 )
 
 const (
-	resourcesDir                            = "resources"
-	dependenciesDir                         = "dependencies"
-	repoCleanupWorkPlacementFinalizer       = "finalizers.workplacement.kratix.io/repo-cleanup"
-	kratixFileCleanupWorkPlacementFinalizer = "finalizers.workplacement.kratix.io/kratix-dot-files-cleanup"
+	resourcesDir                               = "resources"
+	dependenciesDir                            = "dependencies"
+	repoCleanupWorkPlacementFinalizer          = "finalizers.workplacement.kratix.io/repo-cleanup"
+	kratixFileCleanupWorkPlacementFinalizer    = "finalizers.workplacement.kratix.io/kratix-dot-files-cleanup"
+	missScheduledStatusConditionType           = "Misscheduled"
+	missScheduledStatusConditionMismatchReason = "DestinationSelectorMismatch"
+	writeSucceededStatusConditionType          = "WriteSucceeded"
 )
 
 type StateFile struct {

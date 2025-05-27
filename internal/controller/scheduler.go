@@ -344,17 +344,32 @@ func (s *Scheduler) updateStatus(workPlacement *v1alpha1.WorkPlacement, missched
 
 	var needsUpdate bool
 
-	if misscheduled && updatedWorkPlacement.Status.Conditions == nil {
-		updatedWorkPlacement.Status.Conditions = []v1.Condition{
-			{
-				Message:            "Target destination no longer matches destinationSelectors",
-				Reason:             "DestinationSelectorMismatch",
-				Type:               "Misscheduled",
-				Status:             "True",
-				LastTransitionTime: v1.NewTime(time.Now()),
-			},
+	// initialize conditions
+	// append condition
+	// update an existing one
+	// helper; this looks ugly
+	if misscheduled {
+		if updatedWorkPlacement.Status.Conditions == nil {
+			updatedWorkPlacement.Status.Conditions = []v1.Condition{
+				{
+					Message:            "Target destination no longer matches destinationSelectors",
+					Reason:             missScheduledStatusConditionMismatchReason,
+					Type:               missScheduledStatusConditionType,
+					Status:             "True",
+					LastTransitionTime: v1.NewTime(time.Now()),
+				},
+			}
+			needsUpdate = true
+		} else {
+			for _, cond := range updatedWorkPlacement.Status.Conditions {
+				if cond.Type == missScheduledStatusConditionType && cond.Status == "False" {
+					cond.Status = "True"
+					cond.LastTransitionTime = v1.NewTime(time.Now())
+					needsUpdate = true
+				}
+			}
 		}
-		needsUpdate = true
+
 	}
 
 	if !misscheduled && len(updatedWorkPlacement.Status.Conditions) > 0 {
