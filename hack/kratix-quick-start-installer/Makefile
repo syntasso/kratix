@@ -21,3 +21,6 @@ docker-build-and-push: ## Push multi-arch docker image with the manager.
 	fi;
 	docker buildx build --builder kratix-image-builder --push --platform linux/arm64,linux/amd64 -t ${IMG_TAG} .
 
+quick-start: create-platform build-and-load
+	kubectl apply -f manifests/kratix-quick-start-installer.yaml
+
