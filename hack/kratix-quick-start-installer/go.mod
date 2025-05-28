@@ -1,4 +1,4 @@
-module github.com/syntasso/quick-start-installer
+module github.com/syntasso/kratix/hack/quick-start-installer
 
 go 1.23.4
 

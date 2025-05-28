@@ -4,7 +4,7 @@ import (
 	"context"
 	"log"
 
-	"github.com/syntasso/quick-start-installer/lib"
+	"github.com/syntasso/kratix/hack/quick-start-installer/lib"
 )
 
 func main() {
