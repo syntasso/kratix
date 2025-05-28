@@ -10,12 +10,12 @@ import (
 )
 
 var (
-	CertManagerURL   = getEnv("CERT_MANAGER_URL", "https://github.com/cert-manager/cert-manager/releases/download/v1.15.0/cert-manager.yaml")
-	KratixInstallURL = getEnv("KRATIX_INSTALL_URL", "https://github.com/syntasso/kratix/releases/latest/download/install-all-in-one.yaml")
-	KratixConfigURL  = getEnv("KRATIX_CONFIG_URL", "https://github.com/syntasso/kratix/releases/latest/download/config-all-in-one.yaml")
+	CertManagerURL   = GetEnv("CERT_MANAGER_URL", "https://github.com/cert-manager/cert-manager/releases/download/v1.15.0/cert-manager.yaml")
+	KratixInstallURL = GetEnv("KRATIX_INSTALL_URL", "https://github.com/syntasso/kratix/releases/latest/download/install-all-in-one.yaml")
+	KratixConfigURL  = GetEnv("KRATIX_CONFIG_URL", "https://github.com/syntasso/kratix/releases/latest/download/config-all-in-one.yaml")
 )
 
-func getEnv(envKey, fallback string) string {
+func GetEnv(envKey, fallback string) string {
 	if val := os.Getenv(envKey); val != "" {
 		return val
 	}
@@ -23,8 +23,8 @@ func getEnv(envKey, fallback string) string {
 }
 
 // Step 1: Install cert-manager and wait for its pods to be ready
-func InstallCertManager(ctx context.Context) error {
-	fmt.Println("\n🔹 Step 1/4: Installing cert-manager")
+func InstallCertManager(ctx context.Context, step, totalSteps int) error {
+	fmt.Printf("\n🔹 Step %d/%d: Installing cert-manager\n", step, totalSteps)
 	if err := KubectlWithRetry(ctx, "apply", "--filename", CertManagerURL); err != nil {
 		return fmt.Errorf("applying cert-manager: %w", err)
 	}
@@ -40,8 +40,8 @@ func InstallCertManager(ctx context.Context) error {
 }
 
 // Step 2: Install Kratix platform core
-func InstallKratix(ctx context.Context) error {
-	fmt.Println("\n🔹 Step 2/4: Installing Kratix")
+func InstallKratix(ctx context.Context, step, totalSteps int) error {
+	fmt.Printf("\n🔹 Step %d/%d: Installing Kratix\n", step, totalSteps)
 	if err := KubectlWithRetry(ctx, "apply", "--filename", KratixInstallURL); err != nil {
 		return fmt.Errorf("applying kratix: %w", err)
 	}
@@ -51,8 +51,8 @@ func InstallKratix(ctx context.Context) error {
 }
 
 // Step 3: Configure Kratix with destinations, bucket, kustomizations
-func ConfigureKratix(ctx context.Context) error {
-	fmt.Println("\n🔹 Step 3/4: Configuring Kratix")
+func ConfigureKratix(ctx context.Context, step, totalSteps int) error {
+	fmt.Printf("\n🔹 Step %d/%d: Configuring Kratix\n", step, totalSteps)
 	if err := KubectlWithRetry(ctx, "apply", "--filename", KratixConfigURL); err != nil {
 		return fmt.Errorf("applying config: %w", err)
 	}
@@ -62,8 +62,8 @@ func ConfigureKratix(ctx context.Context) error {
 }
 
 // Step 4: Final confirmation
-func FinalizeInstall() {
-	fmt.Println("\n🔹 Step 4/4: Verifying install complete")
+func FinalizeInstall(totalSteps int) {
+	fmt.Printf("\n🔹 Step %d/%d: Verifying install complete\n", totalSteps, totalSteps)
 	fmt.Println("  └─ All systems are up!")
 	fmt.Println("✅ Kratix installation complete!")
 }
