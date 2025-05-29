@@ -21,6 +21,10 @@ spec:
       jsonPath: .spec.targetDestinationName
       name: DESTINATION
       type: string
+    - description: Status of this Workplacement
+      jsonPath: .status.conditions[?(@.type=="Ready")].message
+      name: STATUS
+      type: string
     name: v1alpha1
     schema:
       openAPIV3Schema:

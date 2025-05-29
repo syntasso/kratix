@@ -16,15 +16,19 @@ import (
 	"github.com/syntasso/kratix/lib/hash"
 	v1 "k8s.io/apimachinery/pkg/apis/meta/v1"
 	"k8s.io/apimachinery/pkg/types"
+	"k8s.io/client-go/tools/record"
 	ctrl "sigs.k8s.io/controller-runtime"
 	"sigs.k8s.io/controller-runtime/pkg/client"
 )
 
 var _ = Describe("Controllers/Scheduler", func() {
-	var devDestination, devDestination2, pciDestination, prodDestination, strictDestination Destination
-	var workPlacements WorkPlacementList
-	var scheduler *Scheduler
-	var fakeCompressedContent []byte
+	var (
+		scheduler                                                                           *Scheduler
+		schedulerRecorder                                                                   *record.FakeRecorder
+		workPlacements                                                                      WorkPlacementList
+		fakeCompressedContent                                                               []byte
+		devDestination, devDestination2, pciDestination, prodDestination, strictDestination Destination
+	)
 
 	BeforeEach(func() {
 		// create a set of destinations to be used throughout the tests
@@ -45,9 +49,11 @@ var _ = Describe("Controllers/Scheduler", func() {
 		fakeCompressedContent, err = compression.CompressContent([]byte(string("fake: content")))
 		Expect(err).ToNot(HaveOccurred())
 
+		schedulerRecorder = record.NewFakeRecorder(1024)
 		scheduler = &Scheduler{
-			Client: fakeK8sClient,
-			Log:    ctrl.Log.WithName("controllers").WithName("Scheduler"),
+			Client:        fakeK8sClient,
+			Log:           ctrl.Log.WithName("controllers").WithName("Scheduler"),
+			EventRecorder: schedulerRecorder,
 		}
 	})
 
@@ -486,10 +492,13 @@ var _ = Describe("Controllers/Scheduler", func() {
 							Status:  v1.ConditionTrue},
 						v1.Condition{
 							Message: "Misscheduled",
-							Reason:  "",
+							Reason:  "Misscheduled",
 							Type:    "Ready",
 							Status:  v1.ConditionFalse},
 					))
+					Eventually(schedulerRecorder.Events).Should(Receive(ContainSubstring(
+						fmt.Sprintf("labels for destination: %s no longer match the expected labels, "+
+							"marking this workplacement as misscheduled", preUpdateDestination))))
 				})
 
 				It("labels the resource Work to indicate it's misscheduled", func() {
@@ -846,7 +855,7 @@ func misscheduledWorkPlacementConditions() []v1.Condition {
 			Status:  v1.ConditionTrue},
 		{
 			Message: "Misscheduled",
-			Reason:  "",
+			Reason:  "Misscheduled",
 			Type:    "Ready",
 			Status:  v1.ConditionFalse},
 	}

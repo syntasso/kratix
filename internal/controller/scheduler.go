@@ -10,10 +10,12 @@ import (
 
 	"github.com/go-logr/logr"
 	"github.com/syntasso/kratix/api/v1alpha1"
+	corev1 "k8s.io/api/core/v1"
 	metav1 "k8s.io/apimachinery/pkg/apis/meta/v1"
 	v1 "k8s.io/apimachinery/pkg/apis/meta/v1"
 	"k8s.io/apimachinery/pkg/labels"
 	"k8s.io/client-go/kubernetes/scheme"
+	"k8s.io/client-go/tools/record"
 	"sigs.k8s.io/controller-runtime/pkg/client"
 	"sigs.k8s.io/controller-runtime/pkg/controller/controllerutil"
 )
@@ -34,8 +36,9 @@ const (
 )
 
 type Scheduler struct {
-	Client client.Client
-	Log    logr.Logger
+	Client        client.Client
+	Log           logr.Logger
+	EventRecorder record.EventRecorder
 }
 
 // Reconciles all WorkloadGroups in a Work by scheduling them to Destinations via
@@ -337,40 +340,42 @@ func (s *Scheduler) applyWorkplacementsForTargetDestinations(workloadGroup v1alp
 }
 
 func (s *Scheduler) updateStatus(workPlacement *v1alpha1.WorkPlacement, misscheduled bool) error {
-	updatedWorkPlacement := &v1alpha1.WorkPlacement{}
-	if err := s.Client.Get(context.Background(), client.ObjectKeyFromObject(workPlacement), updatedWorkPlacement); err != nil {
+	updatedwp := &v1alpha1.WorkPlacement{}
+	if err := s.Client.Get(context.Background(), client.ObjectKeyFromObject(workPlacement), updatedwp); err != nil {
 		return err
 	}
 
 	desiredStatusCondition := v1.Condition{
-		Message:            "Target destination no longer matches destinationSelectors",
-		Reason:             missScheduledStatusConditionMismatchReason,
-		Type:               missScheduledStatusConditionType,
+		Message:            misscheduledConditionMismatchMsg,
+		Reason:             misscheduledConditionMismatchReason,
+		Type:               misscheduledConditionType,
 		Status:             "True",
 		LastTransitionTime: v1.NewTime(time.Now()),
 	}
 	var updated bool
 	if misscheduled {
-		for _, cond := range updatedWorkPlacement.Status.Conditions {
-			if cond.Type == missScheduledStatusConditionType {
+		for _, cond := range updatedwp.Status.Conditions {
+			if cond.Type == misscheduledConditionType {
 				return nil
 			}
 		}
-		updatedWorkPlacement.Status.Conditions = append(updatedWorkPlacement.Status.Conditions, desiredStatusCondition)
-		setWorkplacementStatusCondition(updatedWorkPlacement, v1.ConditionFalse, "Ready", "", "Misscheduled")
+		updatedwp.Status.Conditions = append(updatedwp.Status.Conditions, desiredStatusCondition)
+		setWorkplacementStatusCondition(updatedwp, v1.ConditionFalse, "Ready", "Misscheduled", "Misscheduled")
+		s.EventRecorder.Eventf(updatedwp, corev1.EventTypeWarning, misscheduledConditionMismatchReason,
+			"labels for destination: %s no longer match the expected labels, marking this workplacement as misscheduled", updatedwp.Spec.TargetDestinationName)
 		updated = true
 	}
 
-	if !misscheduled && len(updatedWorkPlacement.Status.Conditions) > 0 {
+	if !misscheduled && len(updatedwp.Status.Conditions) > 0 {
 		misscheduledIndex := -1
-		for i, cond := range updatedWorkPlacement.Status.Conditions {
-			if cond.Type == missScheduledStatusConditionType {
+		for i, cond := range updatedwp.Status.Conditions {
+			if cond.Type == misscheduledConditionType {
 				misscheduledIndex = i
 			}
 		}
 		if misscheduledIndex != -1 {
-			updatedWorkPlacement.Status.Conditions = slices.Delete(updatedWorkPlacement.Status.Conditions, misscheduledIndex, misscheduledIndex+1)
-			setWorkplacementStatusCondition(updatedWorkPlacement, v1.ConditionFalse, "Ready", "", "Misscheduled")
+			updatedwp.Status.Conditions = slices.Delete(updatedwp.Status.Conditions, misscheduledIndex, misscheduledIndex+1)
+			setWorkplacementStatusCondition(updatedwp, v1.ConditionFalse, "Ready", "", "Misscheduled")
 			updated = true
 		}
 	}
@@ -379,7 +384,7 @@ func (s *Scheduler) updateStatus(workPlacement *v1alpha1.WorkPlacement, missched
 		return nil
 	}
 
-	return s.Client.Status().Update(context.Background(), updatedWorkPlacement)
+	return s.Client.Status().Update(context.Background(), updatedwp)
 }
 
 // Where Work is a Resource Request return one random Destination name, where Work is a

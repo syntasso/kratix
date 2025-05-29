@@ -589,6 +589,7 @@ files:
 
 			When("write to statestore has succeeded", func() {
 				It("sets WriteSucceeded to true and publishes the right event", func() {
+					fakeWriter.UpdateFilesReturns("an-id", nil)
 					result, err := t.reconcileUntilCompletion(reconciler, &workPlacement)
 					Expect(err).NotTo(HaveOccurred())
 					Expect(result).To(Equal(ctrl.Result{}))
@@ -614,7 +615,7 @@ files:
 							Message: "Ready"}))
 
 					Eventually(workplacementRecorder.Events).Should(Receive(ContainSubstring(
-						"WorkloadsWrittenToStateStore")))
+						"successfully written to Destination: test-destination with versionID: an-id")))
 				})
 			})
 
@@ -650,7 +651,7 @@ files:
 							Reason:  "",
 							Message: "Failing"}))
 					Eventually(workplacementRecorder.Events).Should(Receive(ContainSubstring(
-						"failed to write to Destination with error: whatever error; check kubectl get destination for more info")))
+						"failed writing to Destination: test-destination with error: whatever error; check kubectl get destination for more info")))
 				})
 			})
 		})
