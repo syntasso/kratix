@@ -81,70 +81,26 @@ func (r *WorkPlacementReconciler) Reconcile(ctx context.Context, req ctrl.Reques
 		logger.Error(err, "Error getting WorkPlacement", "workPlacement", req.Name)
 		return defaultRequeue, nil
 	}
-
 	logger.Info("Reconciling WorkPlacement")
 
-	destination := &v1alpha1.Destination{}
-	destinationName := client.ObjectKey{
-		Name: workPlacement.Spec.TargetDestinationName,
+	opts := opts{client: r.Client, ctx: ctx, logger: logger}
+	destination, err := r.getDestination(ctx, logger, workPlacement)
+	if err != nil && workPlacement.DeletionTimestamp.IsZero() {
+		logger.Error(err, "Error retrieving destination")
+		return ctrl.Result{}, err
 	}
 
-	opts := opts{client: r.Client, ctx: ctx, logger: logger}
-
-	err = r.Client.Get(ctx, destinationName, destination)
 	if !workPlacement.DeletionTimestamp.IsZero() {
 		return r.handleDeletion(ctx, workPlacement, destination, opts, err, logger)
 	}
 
-	if err != nil {
-		logger.Error(err, "Error listing available destinations")
-		return ctrl.Result{}, err
+	versionID, requeue, err := r.writeToStateStore(workPlacement, destination, opts)
+	if err != nil || requeue.RequeueAfter > 0 {
+		return requeue, err
 	}
 
-	// Mock this out
-	writer, err := newWriter(opts, destination.Spec.StateStoreRef.Name, destination.Spec.StateStoreRef.Kind, destination.Spec.Path)
-	if err != nil {
-		if k8sErrors.IsNotFound(err) {
-			return defaultRequeue, nil
-		}
-		return ctrl.Result{}, err
-	}
-
-	logger.Info("Updating files in statestore if required")
-	versionID, err := r.writeWorkloadsToStateStore(opts, writer, *workPlacement, *destination)
-	if err != nil {
-		logger.Error(err, "Error writing to repository, will try again in 5 seconds", "Destination", workPlacement.Spec.TargetDestinationName)
-		r.publishWriteEvent(workPlacement, "WorkloadsFailedWrite", versionID, err)
-		if statusUpdateErr := r.setWriteFailStatusConditions(ctx, workPlacement, err); statusUpdateErr != nil {
-			logger.Error(statusUpdateErr, "failed to update status condition")
-		}
-		return defaultRequeue, err
-	}
-	r.publishWriteEvent(workPlacement, "WorkloadsWrittenToStateStore", versionID, err)
-	if statusUpdateErr := r.updateStatusCondition(ctx, workPlacement,
-		metav1.ConditionTrue, writeSucceededConditionType, "WorkloadsWrittenToStateStore", ""); statusUpdateErr != nil {
-		logger.Error(statusUpdateErr, "failed to update status condition")
-		return defaultRequeue, statusUpdateErr
-	}
-
-	if versionID == "" && r.VersionCache[workPlacement.GetUniqueID()] != "" {
-		versionID = r.VersionCache[workPlacement.GetUniqueID()]
-		delete(r.VersionCache, workPlacement.GetUniqueID())
-	}
-
-	if versionID != "" && workPlacement.Status.VersionID != versionID {
-		workPlacement.Status.VersionID = versionID
-		logger.Info("Updating version status", "versionID", versionID)
-		err = r.Client.Status().Update(ctx, workPlacement)
-		if kerrors.IsConflict(err) {
-			r.VersionCache[workPlacement.GetUniqueID()] = versionID
-			r.Log.Info("failed to update WorkPlacement status due to update conflict, requeue...")
-			return fastRequeue, nil
-		} else if err != nil {
-			r.VersionCache[workPlacement.GetUniqueID()] = versionID
-			logger.Error(err, "Error updating WorkPlacement status")
-			return ctrl.Result{}, err
-		}
+	if statusRequeue, statusErr := r.updateStatus(ctx, logger, workPlacement, versionID); statusErr != nil || statusRequeue.RequeueAfter > 0 {
+		return statusRequeue, statusErr
 	}
 
 	filepathMode := destination.GetFilepathMode()
@@ -152,9 +108,48 @@ func (r *WorkPlacementReconciler) Reconcile(ctx context.Context, req ctrl.Reques
 		return addFinalizers(opts, workPlacement, missingFinalizers)
 	}
 
-	logger.Info("WorkPlacement successfully reconciled", "workPlacement", workPlacement.Name, "versionID", versionID)
+	logger.Info("WorkPlacement successfully reconciled", "versionID", versionID)
 
 	return ctrl.Result{}, r.setWorkplacementReady(ctx, workPlacement)
+}
+
+func (r *WorkPlacementReconciler) getDestination(ctx context.Context, logger logr.Logger, wp *v1alpha1.WorkPlacement) (*v1alpha1.Destination, error) {
+	dest := &v1alpha1.Destination{}
+	key := client.ObjectKey{Name: wp.Spec.TargetDestinationName}
+
+	if err := r.Client.Get(ctx, key, dest); err != nil {
+		if k8sErrors.IsNotFound(err) {
+			logger.Info("Destination not found", "name", wp.Spec.TargetDestinationName)
+		} else {
+			logger.Error(err, "Failed to retrieve Destination", "name", wp.Spec.TargetDestinationName)
+		}
+		return nil, err
+	}
+
+	return dest, nil
+}
+
+func (r *WorkPlacementReconciler) updateStatus(ctx context.Context, logger logr.Logger, wp *v1alpha1.WorkPlacement, versionID string) (ctrl.Result, error) {
+	if versionID == "" && r.VersionCache[wp.GetUniqueID()] != "" {
+		versionID = r.VersionCache[wp.GetUniqueID()]
+		delete(r.VersionCache, wp.GetUniqueID())
+	}
+
+	if versionID != "" && wp.Status.VersionID != versionID {
+		wp.Status.VersionID = versionID
+		logger.Info("Updating version status", "versionID", versionID)
+		err := r.Client.Status().Update(ctx, wp)
+		if kerrors.IsConflict(err) {
+			r.VersionCache[wp.GetUniqueID()] = versionID
+			r.Log.Info("failed to update WorkPlacement status due to update conflict, requeue...")
+			return fastRequeue, nil
+		} else if err != nil {
+			r.VersionCache[wp.GetUniqueID()] = versionID
+			logger.Error(err, "Error updating WorkPlacement status")
+			return ctrl.Result{}, err
+		}
+	}
+	return ctrl.Result{}, nil
 }
 
 func (r *WorkPlacementReconciler) setWriteFailStatusConditions(ctx context.Context, workPlacement *v1alpha1.WorkPlacement, err error) error {
@@ -326,6 +321,34 @@ func (r *WorkPlacementReconciler) delete(ctx context.Context, writer writers.Sta
 		return ctrl.Result{}, err
 	}
 	return fastRequeue, nil
+}
+
+func (r *WorkPlacementReconciler) writeToStateStore(wp *v1alpha1.WorkPlacement, destination *v1alpha1.Destination, opts opts) (string, ctrl.Result, error) {
+	writer, err := newWriter(opts, destination.Spec.StateStoreRef.Name, destination.Spec.StateStoreRef.Kind, destination.Spec.Path)
+	if err != nil {
+		if k8sErrors.IsNotFound(err) {
+			return "", defaultRequeue, nil
+		}
+		return "", ctrl.Result{}, err
+	}
+
+	opts.logger.Info("Updating files in statestore if required")
+	versionID, err := r.writeWorkloadsToStateStore(opts, writer, *wp, *destination)
+	if err != nil {
+		opts.logger.Error(err, "Error writing to repository, will try again in 5 seconds", "Destination", wp.Spec.TargetDestinationName)
+		r.publishWriteEvent(wp, "WorkloadsFailedWrite", versionID, err)
+		if statusUpdateErr := r.setWriteFailStatusConditions(opts.ctx, wp, err); statusUpdateErr != nil {
+			opts.logger.Error(statusUpdateErr, "failed to update status condition")
+		}
+		return "", defaultRequeue, err
+	}
+	r.publishWriteEvent(wp, "WorkloadsWrittenToStateStore", versionID, err)
+	if statusUpdateErr := r.updateStatusCondition(opts.ctx, wp,
+		metav1.ConditionTrue, writeSucceededConditionType, "WorkloadsWrittenToStateStore", ""); statusUpdateErr != nil {
+		opts.logger.Error(statusUpdateErr, "failed to update status condition")
+		return "", defaultRequeue, statusUpdateErr
+	}
+	return versionID, ctrl.Result{}, err
 }
 
 func (r *WorkPlacementReconciler) writeWorkloadsToStateStore(o opts, writer writers.StateStoreWriter, workPlacement v1alpha1.WorkPlacement, destination v1alpha1.Destination) (string, error) {
