@@ -46,10 +46,11 @@ type WorkPlacementStatus struct {
 	VersionID string `json:"versionID,omitempty"`
 }
 
-//+kubebuilder:object:root=true
-//+kubebuilder:subresource:status
-//+kubebuilder:resource:categories=kratix
-
+// +kubebuilder:object:root=true
+// +kubebuilder:subresource:status
+// +kubebuilder:resource:categories=kratix
+// +kubebuilder:printcolumn:name="DESTINATION",type=string,JSONPath=`.spec.targetDestinationName`,description="Destination this Workplacement is scheduled to."
+// +kubebuilder:printcolumn:name="STATUS",type=string,JSONPath=`.status.conditions[?(@.type=="Ready")].message`,description="Status of this Workplacement"
 // WorkPlacement is the Schema for the workplacements API
 type WorkPlacement struct {
 	metav1.TypeMeta   `json:",inline"`

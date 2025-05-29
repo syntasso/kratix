@@ -16,15 +16,19 @@ import (
 	"github.com/syntasso/kratix/lib/hash"
 	v1 "k8s.io/apimachinery/pkg/apis/meta/v1"
 	"k8s.io/apimachinery/pkg/types"
+	"k8s.io/client-go/tools/record"
 	ctrl "sigs.k8s.io/controller-runtime"
 	"sigs.k8s.io/controller-runtime/pkg/client"
 )
 
 var _ = Describe("Controllers/Scheduler", func() {
-	var devDestination, devDestination2, pciDestination, prodDestination, strictDestination Destination
-	var workPlacements WorkPlacementList
-	var scheduler *Scheduler
-	var fakeCompressedContent []byte
+	var (
+		scheduler                                                                           *Scheduler
+		schedulerRecorder                                                                   *record.FakeRecorder
+		workPlacements                                                                      WorkPlacementList
+		fakeCompressedContent                                                               []byte
+		devDestination, devDestination2, pciDestination, prodDestination, strictDestination Destination
+	)
 
 	BeforeEach(func() {
 		// create a set of destinations to be used throughout the tests
@@ -45,9 +49,11 @@ var _ = Describe("Controllers/Scheduler", func() {
 		fakeCompressedContent, err = compression.CompressContent([]byte(string("fake: content")))
 		Expect(err).ToNot(HaveOccurred())
 
+		schedulerRecorder = record.NewFakeRecorder(1024)
 		scheduler = &Scheduler{
-			Client: fakeK8sClient,
-			Log:    ctrl.Log.WithName("controllers").WithName("Scheduler"),
+			Client:        fakeK8sClient,
+			Log:           ctrl.Log.WithName("controllers").WithName("Scheduler"),
+			EventRecorder: schedulerRecorder,
 		}
 	})
 
@@ -474,15 +480,25 @@ var _ = Describe("Controllers/Scheduler", func() {
 					Expect(workPlacement.Spec.TargetDestinationName).To(Equal(preUpdateDestination))
 					Expect(workPlacement.GetLabels()).To(HaveKeyWithValue("kratix.io/misscheduled", "true"))
 					Expect(workPlacement.GetLabels()).To(HaveKeyWithValue("kratix.io/workload-group-id", hash.ComputeHash(".")))
-					Expect(workPlacement.Status.Conditions).To(HaveLen(1))
+					Expect(workPlacement.Status.Conditions).To(HaveLen(2))
 					//ignore time for assertion
 					workPlacement.Status.Conditions[0].LastTransitionTime = v1.Time{}
-					Expect(workPlacement.Status.Conditions).To(ConsistOf(v1.Condition{
-						Message: "Target destination no longer matches destinationSelectors",
-						Reason:  "DestinationSelectorMismatch",
-						Type:    "Misscheduled",
-						Status:  v1.ConditionTrue,
-					}))
+					workPlacement.Status.Conditions[1].LastTransitionTime = v1.Time{}
+					Expect(workPlacement.Status.Conditions).To(ConsistOf(
+						v1.Condition{
+							Message: "Target destination no longer matches destinationSelectors",
+							Reason:  "DestinationSelectorMismatch",
+							Type:    "Misscheduled",
+							Status:  v1.ConditionTrue},
+						v1.Condition{
+							Message: "Misscheduled",
+							Reason:  "Misscheduled",
+							Type:    "Ready",
+							Status:  v1.ConditionFalse},
+					))
+					Eventually(schedulerRecorder.Events).Should(Receive(ContainSubstring(
+						fmt.Sprintf("labels for destination: %s no longer match the expected labels, "+
+							"marking this workplacement as misscheduled", preUpdateDestination))))
 				})
 
 				It("labels the resource Work to indicate it's misscheduled", func() {
@@ -788,27 +804,19 @@ var _ = Describe("Controllers/Scheduler", func() {
 
 					Expect(workPlacements.Items[2].Spec.TargetDestinationName).To(Equal("pci"))
 					Expect(workPlacements.Items[2].GetLabels()).To(HaveKeyWithValue("kratix.io/misscheduled", "true"))
-					Expect(workPlacements.Items[2].Status.Conditions).To(HaveLen(1))
+					Expect(workPlacements.Items[2].Status.Conditions).To(HaveLen(2))
 					//ignore time for assertion
 					workPlacements.Items[2].Status.Conditions[0].LastTransitionTime = v1.Time{}
-					Expect(workPlacements.Items[2].Status.Conditions).To(ConsistOf(v1.Condition{
-						Message: "Target destination no longer matches destinationSelectors",
-						Reason:  "DestinationSelectorMismatch",
-						Type:    "Misscheduled",
-						Status:  v1.ConditionTrue,
-					}))
+					workPlacements.Items[2].Status.Conditions[1].LastTransitionTime = v1.Time{}
+					Expect(workPlacements.Items[2].Status.Conditions).To(ConsistOf(misscheduledWorkPlacementConditions()))
 
 					Expect(workPlacements.Items[3].Spec.TargetDestinationName).To(Equal("prod"))
 					Expect(workPlacements.Items[3].GetLabels()).To(HaveKeyWithValue("kratix.io/misscheduled", "true"))
-					Expect(workPlacements.Items[3].Status.Conditions).To(HaveLen(1))
+					Expect(workPlacements.Items[3].Status.Conditions).To(HaveLen(2))
 					//ignore time for assertion
 					workPlacements.Items[3].Status.Conditions[0].LastTransitionTime = v1.Time{}
-					Expect(workPlacements.Items[3].Status.Conditions).To(ConsistOf(v1.Condition{
-						Message: "Target destination no longer matches destinationSelectors",
-						Reason:  "DestinationSelectorMismatch",
-						Type:    "Misscheduled",
-						Status:  v1.ConditionTrue,
-					}))
+					workPlacements.Items[2].Status.Conditions[1].LastTransitionTime = v1.Time{}
+					Expect(workPlacements.Items[2].Status.Conditions).To(ConsistOf(misscheduledWorkPlacementConditions()))
 				})
 
 				It("keeps the misscheduled WorkPlacements updated", func() {
@@ -837,6 +845,21 @@ var _ = Describe("Controllers/Scheduler", func() {
 		})
 	})
 })
+
+func misscheduledWorkPlacementConditions() []v1.Condition {
+	return []v1.Condition{
+		{
+			Message: "Target destination no longer matches destinationSelectors",
+			Reason:  "DestinationSelectorMismatch",
+			Type:    "Misscheduled",
+			Status:  v1.ConditionTrue},
+		{
+			Message: "Misscheduled",
+			Reason:  "Misscheduled",
+			Type:    "Ready",
+			Status:  v1.ConditionFalse},
+	}
+}
 
 func newDestination(name string, labels map[string]string) Destination {
 	return Destination{
