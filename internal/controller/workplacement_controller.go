@@ -22,12 +22,16 @@ import (
 	"fmt"
 	"path/filepath"
 	"strings"
+	"time"
 
 	"github.com/go-logr/logr"
 	"gopkg.in/yaml.v2"
+	v1 "k8s.io/api/core/v1"
 	k8sErrors "k8s.io/apimachinery/pkg/api/errors"
 	kerrors "k8s.io/apimachinery/pkg/api/errors"
+	metav1 "k8s.io/apimachinery/pkg/apis/meta/v1"
 	"k8s.io/apimachinery/pkg/labels"
+	"k8s.io/client-go/tools/record"
 	ctrl "sigs.k8s.io/controller-runtime"
 	"sigs.k8s.io/controller-runtime/pkg/client"
 	"sigs.k8s.io/controller-runtime/pkg/controller/controllerutil"
@@ -53,10 +57,10 @@ type StateFile struct {
 
 // WorkPlacementReconciler reconciles a WorkPlacement object
 type WorkPlacementReconciler struct {
-	Client client.Client
-	Log    logr.Logger
-
-	VersionCache map[string]string
+	Client        client.Client
+	Log           logr.Logger
+	VersionCache  map[string]string
+	EventRecorder record.EventRecorder
 }
 
 //+kubebuilder:rbac:groups=platform.kratix.io,resources=workplacements,verbs=get;list;watch;create;update;patch;delete
@@ -108,7 +112,17 @@ func (r *WorkPlacementReconciler) Reconcile(ctx context.Context, req ctrl.Reques
 	versionID, err := r.writeWorkloadsToStateStore(opts, writer, *workPlacement, *destination)
 	if err != nil {
 		logger.Error(err, "Error writing to repository, will try again in 5 seconds")
+		r.publishWriteEvent(workPlacement, "WorkloadsFailedWrite", err)
+		if statusUpdateErr := r.setWriteFailStatusConditions(ctx, workPlacement, err); statusUpdateErr != nil {
+			logger.Info("failed to update status condition in write error", "err", statusUpdateErr)
+		}
 		return defaultRequeue, err
+	}
+	r.publishWriteEvent(workPlacement, "WorkloadsWrittenToStateStore", err)
+	if statusUpdateErr := r.updateStatusCondition(ctx, workPlacement,
+		metav1.ConditionTrue, writeSucceededStatusConditionType, "WorkloadsWrittenToStateStore", ""); statusUpdateErr != nil {
+		logger.Info("failed to update status condition in write success", "err", statusUpdateErr)
+		return defaultRequeue, statusUpdateErr
 	}
 
 	if versionID == "" && r.VersionCache[workPlacement.GetUniqueID()] != "" {
@@ -137,7 +151,50 @@ func (r *WorkPlacementReconciler) Reconcile(ctx context.Context, req ctrl.Reques
 	}
 
 	logger.Info("WorkPlacement successfully reconciled", "workPlacement", workPlacement.Name, "versionID", versionID)
-	return ctrl.Result{}, nil
+
+	return ctrl.Result{}, r.setWorkplacementReady(ctx, workPlacement)
+}
+
+func (r *WorkPlacementReconciler) setWriteFailStatusConditions(ctx context.Context, workPlacement *v1alpha1.WorkPlacement, err error) error {
+	writeSucceededUpdated := setWorkplacementStatusCondition(workPlacement, metav1.ConditionFalse, writeSucceededStatusConditionType, "WorkloadsFailedWrite", err.Error())
+	readyUpdated := setWorkplacementStatusCondition(workPlacement, metav1.ConditionFalse, "Ready", "", "Failing")
+	if writeSucceededUpdated || readyUpdated {
+		return r.Client.Status().Update(ctx, workPlacement)
+	}
+	return nil
+}
+
+func (r *WorkPlacementReconciler) setWorkplacementReady(ctx context.Context, workPlacement *v1alpha1.WorkPlacement) error {
+	var writeSucceeded, misscheduled bool
+	for _, cond := range workPlacement.Status.Conditions {
+		if cond.Type == missScheduledStatusConditionType {
+			misscheduled = true
+		}
+		if cond.Type == writeSucceededStatusConditionType && cond.Status == metav1.ConditionTrue {
+			writeSucceeded = true
+		}
+	}
+	if writeSucceeded && !misscheduled {
+		return r.updateStatusCondition(ctx, workPlacement,
+			metav1.ConditionTrue, "Ready", "WorkloadsWrittenToTargetDestination", "Ready")
+	}
+	return nil
+}
+
+func (r *WorkPlacementReconciler) updateStatusCondition(ctx context.Context, workPlacement *v1alpha1.WorkPlacement, status metav1.ConditionStatus, conditionType, reason, message string) error {
+	if setWorkplacementStatusCondition(workPlacement, status, conditionType, reason, message) {
+		return r.Client.Status().Update(ctx, workPlacement)
+	}
+	return nil
+}
+
+func (r *WorkPlacementReconciler) publishWriteEvent(workPlacement *v1alpha1.WorkPlacement, reason string, err error) {
+	if err == nil {
+		r.EventRecorder.Eventf(workPlacement, v1.EventTypeNormal, reason, "successfully written to target Destination")
+	} else {
+		r.EventRecorder.Eventf(workPlacement, v1.EventTypeWarning, reason,
+			fmt.Sprintf("failed to write to Destination with error: %s; check kubectl get destination for more info", err.Error()))
+	}
 }
 
 func (r *WorkPlacementReconciler) deleteWorkPlacement(
@@ -300,6 +357,35 @@ func (r *WorkPlacementReconciler) writeWorkloadsToStateStore(o opts, writer writ
 		return "", err
 	}
 	return versionID, nil
+}
+
+func setWorkplacementStatusCondition(wp *v1alpha1.WorkPlacement, status metav1.ConditionStatus, conditionType, reason, message string) bool {
+	desiredCondition := metav1.Condition{
+		Type:               conditionType,
+		Status:             status,
+		Reason:             reason,
+		Message:            message,
+		LastTransitionTime: metav1.Time{Time: time.Now()},
+	}
+
+	var updated bool
+	conditions := wp.Status.Conditions
+	for i, cond := range conditions {
+		if cond.Type == conditionType {
+			if cond.Status != status || cond.Reason != reason || cond.Message != message {
+				wp.Status.Conditions[i] = desiredCondition
+				updated = true
+			} else {
+				return false
+			}
+			break
+		}
+	}
+	if !updated {
+		wp.Status.Conditions = append(conditions, desiredCondition)
+		updated = true
+	}
+	return updated
 }
 
 func ignoreNotFound(err error) error {

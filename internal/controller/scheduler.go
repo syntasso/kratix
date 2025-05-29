@@ -4,16 +4,16 @@ import (
 	"context"
 	"fmt"
 	"math/rand"
+	"slices"
 	"sort"
 	"time"
 
-	metav1 "k8s.io/apimachinery/pkg/apis/meta/v1"
-	v1 "k8s.io/apimachinery/pkg/apis/meta/v1"
-	"k8s.io/client-go/kubernetes/scheme"
-
 	"github.com/go-logr/logr"
 	"github.com/syntasso/kratix/api/v1alpha1"
+	metav1 "k8s.io/apimachinery/pkg/apis/meta/v1"
+	v1 "k8s.io/apimachinery/pkg/apis/meta/v1"
 	"k8s.io/apimachinery/pkg/labels"
+	"k8s.io/client-go/kubernetes/scheme"
 	"sigs.k8s.io/controller-runtime/pkg/client"
 	"sigs.k8s.io/controller-runtime/pkg/controller/controllerutil"
 )
@@ -342,42 +342,40 @@ func (s *Scheduler) updateStatus(workPlacement *v1alpha1.WorkPlacement, missched
 		return err
 	}
 
-	var needsUpdate bool
-
-	// initialize conditions
-	// append condition
-	// update an existing one
-	// helper; this looks ugly
+	desiredStatusCondition := v1.Condition{
+		Message:            "Target destination no longer matches destinationSelectors",
+		Reason:             missScheduledStatusConditionMismatchReason,
+		Type:               missScheduledStatusConditionType,
+		Status:             "True",
+		LastTransitionTime: v1.NewTime(time.Now()),
+	}
+	var updated bool
 	if misscheduled {
-		if updatedWorkPlacement.Status.Conditions == nil {
-			updatedWorkPlacement.Status.Conditions = []v1.Condition{
-				{
-					Message:            "Target destination no longer matches destinationSelectors",
-					Reason:             missScheduledStatusConditionMismatchReason,
-					Type:               missScheduledStatusConditionType,
-					Status:             "True",
-					LastTransitionTime: v1.NewTime(time.Now()),
-				},
-			}
-			needsUpdate = true
-		} else {
-			for _, cond := range updatedWorkPlacement.Status.Conditions {
-				if cond.Type == missScheduledStatusConditionType && cond.Status == "False" {
-					cond.Status = "True"
-					cond.LastTransitionTime = v1.NewTime(time.Now())
-					needsUpdate = true
-				}
+		for _, cond := range updatedWorkPlacement.Status.Conditions {
+			if cond.Type == missScheduledStatusConditionType {
+				return nil
 			}
 		}
-
+		updatedWorkPlacement.Status.Conditions = append(updatedWorkPlacement.Status.Conditions, desiredStatusCondition)
+		setWorkplacementStatusCondition(updatedWorkPlacement, v1.ConditionFalse, "Ready", "", "Misscheduled")
+		updated = true
 	}
 
 	if !misscheduled && len(updatedWorkPlacement.Status.Conditions) > 0 {
-		updatedWorkPlacement.Status.Conditions = nil
-		needsUpdate = true
+		misscheduledIndex := -1
+		for i, cond := range updatedWorkPlacement.Status.Conditions {
+			if cond.Type == missScheduledStatusConditionType {
+				misscheduledIndex = i
+			}
+		}
+		if misscheduledIndex != -1 {
+			updatedWorkPlacement.Status.Conditions = slices.Delete(updatedWorkPlacement.Status.Conditions, misscheduledIndex, misscheduledIndex+1)
+			setWorkplacementStatusCondition(updatedWorkPlacement, v1.ConditionFalse, "Ready", "", "Misscheduled")
+			updated = true
+		}
 	}
 
-	if !needsUpdate {
+	if !updated {
 		return nil
 	}
 
