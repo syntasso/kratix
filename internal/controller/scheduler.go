@@ -5,12 +5,13 @@ import (
 	"fmt"
 	"math/rand"
 	"sort"
+	"strings"
 	"time"
 
 	"github.com/go-logr/logr"
 	"github.com/syntasso/kratix/api/v1alpha1"
 	corev1 "k8s.io/api/core/v1"
-	apiMeta "k8s.io/apimachinery/pkg/api/meta"
+	apimeta "k8s.io/apimachinery/pkg/api/meta"
 	metav1 "k8s.io/apimachinery/pkg/apis/meta/v1"
 	v1 "k8s.io/apimachinery/pkg/apis/meta/v1"
 	"k8s.io/apimachinery/pkg/labels"
@@ -61,33 +62,63 @@ func (s *Scheduler) ReconcileWork(work *v1alpha1.Work) ([]string, error) {
 		}
 	}
 
-	if err := s.updateWorkStatus(work, misplaced); err != nil {
-		return nil, err
+	if s.updateWorkStatus(work, unschedulable, misplaced) {
+		return unschedulable, s.Client.Status().Update(context.Background(), work)
 	}
 
 	return unschedulable, s.cleanupDanglingWorkplacements(work)
 }
 
-func (s *Scheduler) updateWorkStatus(work *v1alpha1.Work, misplacedWorkloadGroupIDs []string) error {
-	work = work.DeepCopy()
-	scheduleSucceededCond := metav1.Condition{
-		Type:               "ScheduleSucceeded",
-		LastTransitionTime: v1.NewTime(time.Now()),
-		Status:             v1.ConditionTrue,
-		Message:            "WorkGroups that have been scheduled are at the correct Destination(s)",
-		Reason:             "ScheduledToCorrectDestinations",
+func (s *Scheduler) updateWorkStatus(w *v1alpha1.Work, unscheduledWorkloadGroupIDs []string, _ []string) bool {
+	var updated bool
+	workPlacements := len(w.Spec.WorkloadGroups)
+	workPlacementsCreated := workPlacements - len(unscheduledWorkloadGroupIDs)
+	if workPlacements != w.Status.WorkPlacements || workPlacementsCreated != w.Status.WorkPlacementsCreated {
+		w.Status.WorkPlacements = workPlacements
+		w.Status.WorkPlacementsCreated = workPlacementsCreated
+		updated = true
 	}
 
-	if len(misplacedWorkloadGroupIDs) > 0 {
-		scheduleSucceededCond.Status = v1.ConditionFalse
-		scheduleSucceededCond.Message = fmt.Sprintf("WorkloadGroup(s) not scheduled to correct Destination(s): %v", misplacedWorkloadGroupIDs)
-		scheduleSucceededCond.Reason = "ScheduledToIncorrectDestinations"
-	}
+	if len(unscheduledWorkloadGroupIDs) > 0 {
+		readyCond := metav1.Condition{
+			Type:    "Ready",
+			Status:  metav1.ConditionFalse,
+			Reason:  "UnscheduledWorkloads",
+			Message: "Pending",
+		}
+		scheduleSucceededCond := metav1.Condition{
+			Type:   "ScheduleSucceeded",
+			Status: metav1.ConditionFalse,
+			Reason: "UnscheduledWorkloads",
+			Message: fmt.Sprintf(
+				"No matching destination found for workloadGroups: [%s]",
+				strings.Join(unscheduledWorkloadGroupIDs, ","),
+			),
+		}
 
-	if apiMeta.SetStatusCondition(&work.Status.Conditions, scheduleSucceededCond) {
-		return s.Client.Status().Update(context.Background(), work)
+		if apimeta.SetStatusCondition(&w.Status.Conditions, scheduleSucceededCond) {
+			apimeta.SetStatusCondition(&w.Status.Conditions, readyCond)
+			updated = true
+		}
+	} else {
+		readyCond := metav1.Condition{
+			Type:    "Ready",
+			Status:  metav1.ConditionTrue,
+			Reason:  "AllWorkplacementsScheduled",
+			Message: "Ready",
+		}
+		scheduleSucceededCond := metav1.Condition{
+			Type:    "ScheduleSucceeded",
+			Status:  metav1.ConditionTrue,
+			Reason:  "AllWorkplacementsScheduled",
+			Message: "All workplacements scheduled successfully",
+		}
+		if apimeta.SetStatusCondition(&w.Status.Conditions, scheduleSucceededCond) {
+			apimeta.SetStatusCondition(&w.Status.Conditions, readyCond)
+			updated = true
+		}
 	}
-	return nil
+	return updated
 }
 
 func (s *Scheduler) cleanupDanglingWorkplacements(work *v1alpha1.Work) error {
@@ -350,8 +381,8 @@ func (s *Scheduler) updateWorkPlacementStatus(workPlacement *v1alpha1.WorkPlacem
 		}
 	}
 
-	if apiMeta.SetStatusCondition(&updatedwp.Status.Conditions, desiredScheduleCond) {
-		apiMeta.SetStatusCondition(&updatedwp.Status.Conditions, desiredReadyCond)
+	if apimeta.SetStatusCondition(&updatedwp.Status.Conditions, desiredScheduleCond) {
+		apimeta.SetStatusCondition(&updatedwp.Status.Conditions, desiredReadyCond)
 		return s.Client.Status().Update(context.Background(), updatedwp)
 	}
 	return nil

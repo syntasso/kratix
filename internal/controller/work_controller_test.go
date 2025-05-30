@@ -44,13 +44,12 @@ var _ = Describe("WorkReconciler", func() {
 
 	BeforeEach(func() {
 		ctx = context.Background()
-		disabled := false
 		fakeScheduler = &controllerfakes.FakeWorkScheduler{}
+		fakeScheduler.ReconcileWorkReturns([]string{}, nil)
 		reconciler = &controller.WorkReconciler{
 			Client:    fakeK8sClient,
 			Log:       ctrl.Log.WithName("controllers").WithName("Work"),
 			Scheduler: fakeScheduler,
-			Disabled:  disabled,
 		}
 
 		workName = types.NamespacedName{
@@ -80,13 +79,27 @@ var _ = Describe("WorkReconciler", func() {
 							},
 						},
 					},
+					{
+						ID: hash.ComputeHash("somedir"),
+						Workloads: []v1alpha1.Workload{
+							{
+								Content: "{someApi: foo, someValue: bar}",
+							},
+							{
+								Content: "{someApi: baz, someValue: bat}",
+							},
+						},
+					},
 				},
 			},
 		}
+		Expect(fakeK8sClient.Create(ctx, work)).To(Succeed())
+		Expect(fakeK8sClient.Get(ctx, workName, work)).To(Succeed())
 	})
 
 	When("the resource does not exist", func() {
 		It("succeeds and does not requeue", func() {
+			work.ObjectMeta.Name = "non-existent-work"
 			result, err := t.reconcileUntilCompletion(reconciler, work)
 			Expect(err).NotTo(HaveOccurred())
 			Expect(result).To(Equal(ctrl.Result{}))
@@ -94,12 +107,6 @@ var _ = Describe("WorkReconciler", func() {
 	})
 
 	When("the scheduler is able to schedule the work successfully", func() {
-		BeforeEach(func() {
-			fakeScheduler.ReconcileWorkReturns([]string{}, nil)
-			Expect(fakeK8sClient.Create(ctx, work)).To(Succeed())
-			Expect(fakeK8sClient.Get(ctx, workName, work)).To(Succeed())
-		})
-
 		It("succeeds and does not requeue", func() {
 			result, err := t.reconcileUntilCompletion(reconciler, work)
 			Expect(err).NotTo(HaveOccurred())
@@ -112,8 +119,6 @@ var _ = Describe("WorkReconciler", func() {
 
 		BeforeEach(func() {
 			fakeScheduler.ReconcileWorkReturns([]string{}, errors.New(schedulingErrorString))
-			Expect(fakeK8sClient.Create(ctx, work)).To(Succeed())
-			Expect(fakeK8sClient.Get(ctx, workName, work)).To(Succeed())
 		})
 
 		It("errors", func() {
@@ -128,7 +133,7 @@ var _ = Describe("WorkReconciler", func() {
 				workloadGroupIds := []string{"5058f1af8388633f609cadb75a75dc9d"}
 				work.Spec.ResourceName = "resource-name"
 				fakeScheduler.ReconcileWorkReturns(workloadGroupIds, nil)
-				Expect(fakeK8sClient.Create(ctx, work)).To(Succeed())
+				Expect(fakeK8sClient.Update(ctx, work)).To(Succeed())
 				Expect(fakeK8sClient.Get(ctx, workName, work)).To(Succeed())
 			})
 
@@ -148,7 +153,7 @@ var _ = Describe("WorkReconciler", func() {
 				workloadGroupIds := []string{"5058f1af8388633f609cadb75a75dc9d"}
 				work.Spec.ResourceName = ""
 				fakeScheduler.ReconcileWorkReturns(workloadGroupIds, nil)
-				Expect(fakeK8sClient.Create(ctx, work)).To(Succeed())
+				Expect(fakeK8sClient.Update(ctx, work)).To(Succeed())
 				Expect(fakeK8sClient.Get(ctx, workName, work)).To(Succeed())
 
 			})
@@ -162,12 +167,6 @@ var _ = Describe("WorkReconciler", func() {
 	})
 
 	When("work is deleted", func() {
-		BeforeEach(func() {
-			fakeScheduler.ReconcileWorkReturns([]string{}, nil)
-			Expect(fakeK8sClient.Create(ctx, work)).To(Succeed())
-			Expect(fakeK8sClient.Get(ctx, workName, work)).To(Succeed())
-		})
-
 		It("succeeds", func() {
 			result, err := t.reconcileUntilCompletion(reconciler, work)
 			Expect(err).NotTo(HaveOccurred())

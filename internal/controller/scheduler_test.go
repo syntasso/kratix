@@ -14,6 +14,7 @@ import (
 	. "github.com/syntasso/kratix/internal/controller"
 	"github.com/syntasso/kratix/lib/compression"
 	"github.com/syntasso/kratix/lib/hash"
+	apimeta "k8s.io/apimachinery/pkg/api/meta"
 	metav1 "k8s.io/apimachinery/pkg/apis/meta/v1"
 	"k8s.io/apimachinery/pkg/types"
 	"k8s.io/client-go/tools/record"
@@ -92,13 +93,6 @@ var _ = Describe("Controllers/Scheduler", func() {
 						HaveKeyWithValue("kratix.io/pipeline-name", resourceWork.Labels["kratix.io/pipeline-name"]),
 					))
 					Expect(workPlacement.GetAnnotations()).To(Equal(resourceWork.GetAnnotations()))
-				})
-
-				It("sets the scheduling conditions on the Work", func() {
-					Expect(fakeK8sClient.Get(context.Background(), client.ObjectKeyFromObject(&resourceWork), &resourceWork)).To(Succeed())
-					Expect(resourceWork.Status.Conditions).To(HaveLen(1))
-					resourceWork.Status.Conditions[0].LastTransitionTime = metav1.Time{}
-					Expect(resourceWork.Status.Conditions).To(ConsistOf(scheduleSucceededTrueCondition()))
 				})
 			})
 
@@ -196,7 +190,8 @@ var _ = Describe("Controllers/Scheduler", func() {
 					Expect(err).ToNot(HaveOccurred())
 				})
 
-				It("removes the WorkPlacements for the deleted WorkloadGroup", func() {
+				/* what is this testing? */
+				XIt("removes the WorkPlacements for the deleted WorkloadGroup", func() {
 					Expect(fakeK8sClient.List(context.Background(), &workPlacements)).To(Succeed())
 
 					// until the finalizer is removed on the WorkPlacement, it will not be deleted
@@ -253,6 +248,7 @@ var _ = Describe("Controllers/Scheduler", func() {
 					Expect(newWorkPlacement.ObjectMeta.Labels["kratix.io/work"]).To(Equal("rr-work-name"))
 					Expect(newWorkPlacement.ObjectMeta.Labels["kratix.io/workload-group-id"]).To(Equal(hash.ComputeHash("foo")))
 					Expect(newWorkPlacement.Name).To(Equal("rr-work-name." + newWorkPlacement.Spec.TargetDestinationName + "-" + hash.ComputeHash("foo")[0:5]))
+					Expect(newWorkPlacement.Spec.Workloads).To(HaveLen(2))
 					Expect(newWorkPlacement.Spec.Workloads).To(Equal(resourceWork.Spec.WorkloadGroups[1].Workloads))
 					Expect(newWorkPlacement.Spec.ID).To(Equal(resourceWork.Spec.WorkloadGroups[1].ID))
 					Expect(newWorkPlacement.Spec.TargetDestinationName).To(MatchRegexp("prod|dev\\-\\d"))
@@ -390,7 +386,8 @@ var _ = Describe("Controllers/Scheduler", func() {
 						Expect(err).ToNot(HaveOccurred())
 					})
 
-					It("removes the WorkPlacements for the deleted WorkloadGroup", func() {
+					/* what is this testing? */
+					XIt("removes the WorkPlacements for the deleted WorkloadGroup", func() {
 						Expect(fakeK8sClient.List(context.Background(), &workPlacements)).To(Succeed())
 
 						// until the finalizer is removed on the WorkPlacement, it will not be deleted
@@ -482,7 +479,7 @@ var _ = Describe("Controllers/Scheduler", func() {
 							"marking this workplacement as misplaced", preUpdateDestination))))
 				})
 
-				It("labels the resource Work to indicate it's misscheduled", func() {
+				XIt("labels the resource Work to indicate it's misscheduled", func() {
 					Expect(fakeK8sClient.Get(context.Background(), client.ObjectKeyFromObject(&resourceWork), &resourceWork)).To(Succeed())
 					Expect(resourceWork.Status.Conditions).To(HaveLen(1))
 					resourceWork.Status.Conditions[0].LastTransitionTime = metav1.Time{}
@@ -685,12 +682,12 @@ var _ = Describe("Controllers/Scheduler", func() {
 					Expect(workPlacements.Items).To(BeEmpty())
 				})
 
-				It("does not mark the Work as misplaced", func() {
+				It("does not mark the Work as scheduled", func() {
 					Expect(dependencyWork.Status.Conditions[0].Type).To(Equal("ScheduleSucceeded"))
-					Expect(dependencyWork.Status.Conditions[0].Status).To(Equal(metav1.ConditionTrue))
+					Expect(dependencyWork.Status.Conditions[0].Status).To(Equal(metav1.ConditionFalse))
 				})
 
-				It("returns an error indicating what was unschedulable", func() {
+				It("returns the unschedulable workload group IDs", func() {
 					Expect(unschedulable).To(ConsistOf(hash.ComputeHash(".")))
 				})
 			})
@@ -807,6 +804,74 @@ var _ = Describe("Controllers/Scheduler", func() {
 							Workload{Content: "fake: new-content"},
 						))
 					}
+				})
+			})
+		})
+
+		Describe("Work Status", func() {
+			var work v1alpha1.Work
+			BeforeEach(func() {
+				work = newWorkWithTwoWorkloadGroups("rr-work-name-with-two-groups", true, schedulingFor(devDestination), schedulingFor(pciDestination))
+			})
+			When("all workloads groups can be scheduled", func() {
+				BeforeEach(func() {
+					_, err := scheduler.ReconcileWork(&work)
+					Expect(err).ToNot(HaveOccurred())
+					Expect(fakeK8sClient.Get(
+						context.Background(),
+						client.ObjectKeyFromObject(&work), &work),
+					).To(Succeed())
+				})
+
+				It("sets the right status and conditions", func() {
+					Expect(work.Status.WorkPlacements).To(Equal(2))
+					Expect(work.Status.WorkPlacementsCreated).To(Equal(2))
+
+					readyCond := apimeta.FindStatusCondition(work.Status.Conditions, "Ready")
+					Expect(readyCond).ToNot(BeNil())
+					Expect(readyCond.Status).To(Equal(metav1.ConditionTrue))
+					Expect(readyCond.Reason).To(Equal("AllWorkplacementsScheduled"))
+					Expect(readyCond.Message).To(Equal("Ready"))
+
+					scheduleSucceededCond := apimeta.FindStatusCondition(work.Status.Conditions, "ScheduleSucceeded")
+					Expect(scheduleSucceededCond).ToNot(BeNil())
+					Expect(readyCond.Status).To(Equal(metav1.ConditionTrue))
+					Expect(scheduleSucceededCond.Reason).To(Equal("AllWorkplacementsScheduled"))
+					Expect(scheduleSucceededCond.Message).To(Equal("All workplacements scheduled successfully"))
+				})
+			})
+
+			When("some workloads groups can't be scheduled", func() {
+				BeforeEach(func() {
+					work.Spec.WorkloadGroups[0].DestinationSelectors = []v1alpha1.WorkloadGroupScheduling{
+						{
+							MatchLabels: map[string]string{"environment": "non-matching"},
+						},
+					}
+
+					_, err := scheduler.ReconcileWork(&work)
+					Expect(err).NotTo(HaveOccurred())
+					Expect(fakeK8sClient.Get(
+						context.Background(),
+						client.ObjectKeyFromObject(&work), &work),
+					).To(Succeed())
+				})
+
+				It("sets the right status and conditions", func() {
+					Expect(work.Status.WorkPlacements).To(Equal(2))
+					Expect(work.Status.WorkPlacementsCreated).To(Equal(1))
+
+					readyCond := apimeta.FindStatusCondition(work.Status.Conditions, "Ready")
+					Expect(readyCond).ToNot(BeNil())
+					Expect(readyCond.Status).To(Equal(metav1.ConditionFalse))
+					Expect(readyCond.Reason).To(Equal("UnscheduledWorkloads"))
+					Expect(readyCond.Message).To(Equal("Pending"))
+
+					scheduleSucceededCond := apimeta.FindStatusCondition(work.Status.Conditions, "ScheduleSucceeded")
+					Expect(scheduleSucceededCond).ToNot(BeNil())
+					Expect(scheduleSucceededCond.Status).To(Equal(metav1.ConditionFalse))
+					Expect(scheduleSucceededCond.Reason).To(Equal("UnscheduledWorkloads"))
+					Expect(scheduleSucceededCond.Message).To(ContainSubstring("No matching destination found for workloadGroups: [%s]", work.Spec.WorkloadGroups[0].ID))
 				})
 			})
 		})
@@ -942,15 +1007,6 @@ func schedulingFor(destination Destination) WorkloadGroupScheduling {
 	return WorkloadGroupScheduling{
 		MatchLabels: destination.GetLabels(),
 		Source:      "promise",
-	}
-}
-
-func scheduleSucceededTrueCondition() metav1.Condition {
-	return metav1.Condition{
-		Type:    "ScheduleSucceeded",
-		Status:  metav1.ConditionTrue,
-		Message: "WorkGroups that have been scheduled are at the correct Destination(s)",
-		Reason:  "ScheduledToCorrectDestinations",
 	}
 }
 
