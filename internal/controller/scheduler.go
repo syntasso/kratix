@@ -208,7 +208,7 @@ func (s *Scheduler) updateWorkPlacement(workloadGroup v1alpha1.WorkloadGroup, wo
 		return false, err
 	}
 
-	if err := s.updateStatus(workPlacement, misscheduled); err != nil {
+	if err := s.updateWorkPlacementStatus(workPlacement, misscheduled); err != nil {
 		return false, err
 	}
 
@@ -302,7 +302,7 @@ func (s *Scheduler) applyWorkplacementsForTargetDestinations(workloadGroup v1alp
 		if err != nil {
 			return false, err
 		}
-		if err := s.updateStatus(workPlacement, misscheduled); err != nil {
+		if err := s.updateWorkPlacementStatus(workPlacement, misscheduled); err != nil {
 			return false, err
 		}
 		s.Log.Info("workplacement reconciled", "operation", op, "namespace", workPlacement.GetNamespace(), "workplacement", workPlacement.GetName(), "work", work.GetName(), "destination", targetDestinationName)
@@ -310,7 +310,7 @@ func (s *Scheduler) applyWorkplacementsForTargetDestinations(workloadGroup v1alp
 	return containsMischeduledWorkplacement, nil
 }
 
-func (s *Scheduler) updateStatus(workPlacement *v1alpha1.WorkPlacement, misplaced bool) error {
+func (s *Scheduler) updateWorkPlacementStatus(workPlacement *v1alpha1.WorkPlacement, misplaced bool) error {
 	updatedwp := &v1alpha1.WorkPlacement{}
 	if err := s.Client.Get(context.Background(), client.ObjectKeyFromObject(workPlacement), updatedwp); err != nil {
 		return err
@@ -350,8 +350,8 @@ func (s *Scheduler) updateStatus(workPlacement *v1alpha1.WorkPlacement, misplace
 		}
 	}
 
-	if apiMeta.SetStatusCondition(&updatedwp.Status.Conditions, desiredScheduleCond) ||
-		apiMeta.SetStatusCondition(&updatedwp.Status.Conditions, desiredReadyCond) {
+	if apiMeta.SetStatusCondition(&updatedwp.Status.Conditions, desiredScheduleCond) {
+		apiMeta.SetStatusCondition(&updatedwp.Status.Conditions, desiredReadyCond)
 		return s.Client.Status().Update(context.Background(), updatedwp)
 	}
 	return nil

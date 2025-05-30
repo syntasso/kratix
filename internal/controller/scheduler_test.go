@@ -479,21 +479,10 @@ var _ = Describe("Controllers/Scheduler", func() {
 					//ignore time for assertion
 					workPlacement.Status.Conditions[0].LastTransitionTime = v1.Time{}
 					workPlacement.Status.Conditions[1].LastTransitionTime = v1.Time{}
-					Expect(workPlacement.Status.Conditions).To(ConsistOf(
-						v1.Condition{
-							Message: "Target destination no longer matches destinationSelectors",
-							Reason:  "DestinationSelectorMismatch",
-							Type:    "Misscheduled",
-							Status:  v1.ConditionTrue},
-						v1.Condition{
-							Message: "Misscheduled",
-							Reason:  "Misscheduled",
-							Type:    "Ready",
-							Status:  v1.ConditionFalse},
-					))
+					Expect(workPlacement.Status.Conditions).To(ConsistOf(misplacedWorkPlacementConditions()))
 					Eventually(schedulerRecorder.Events).Should(Receive(ContainSubstring(
 						fmt.Sprintf("labels for destination: %s no longer match the expected labels, "+
-							"marking this workplacement as misscheduled", preUpdateDestination))))
+							"marking this workplacement as misplaced", preUpdateDestination))))
 				})
 
 				It("labels the resource Work to indicate it's misscheduled", func() {
@@ -792,7 +781,7 @@ var _ = Describe("Controllers/Scheduler", func() {
 					//ignore time for assertion
 					workPlacements.Items[2].Status.Conditions[0].LastTransitionTime = v1.Time{}
 					workPlacements.Items[2].Status.Conditions[1].LastTransitionTime = v1.Time{}
-					Expect(workPlacements.Items[2].Status.Conditions).To(ConsistOf(misscheduledWorkPlacementConditions()))
+					Expect(workPlacements.Items[2].Status.Conditions).To(ConsistOf(misplacedWorkPlacementConditions()))
 
 					Expect(workPlacements.Items[3].Spec.TargetDestinationName).To(Equal("prod"))
 					Expect(workPlacements.Items[3].GetLabels()).To(HaveKeyWithValue("kratix.io/misscheduled", "true"))
@@ -800,7 +789,7 @@ var _ = Describe("Controllers/Scheduler", func() {
 					//ignore time for assertion
 					workPlacements.Items[3].Status.Conditions[0].LastTransitionTime = v1.Time{}
 					workPlacements.Items[2].Status.Conditions[1].LastTransitionTime = v1.Time{}
-					Expect(workPlacements.Items[2].Status.Conditions).To(ConsistOf(misscheduledWorkPlacementConditions()))
+					Expect(workPlacements.Items[2].Status.Conditions).To(ConsistOf(misplacedWorkPlacementConditions()))
 				})
 
 				It("keeps the misscheduled WorkPlacements updated", func() {
@@ -830,16 +819,16 @@ var _ = Describe("Controllers/Scheduler", func() {
 	})
 })
 
-func misscheduledWorkPlacementConditions() []v1.Condition {
+func misplacedWorkPlacementConditions() []v1.Condition {
 	return []v1.Condition{
 		{
 			Message: "Target destination no longer matches destinationSelectors",
 			Reason:  "DestinationSelectorMismatch",
-			Type:    "Misscheduled",
-			Status:  v1.ConditionTrue},
+			Type:    "ScheduleSucceeded",
+			Status:  v1.ConditionFalse},
 		{
-			Message: "Misscheduled",
-			Reason:  "Misscheduled",
+			Message: "Misplaced",
+			Reason:  "Misplaced",
 			Type:    "Ready",
 			Status:  v1.ConditionFalse},
 	}
