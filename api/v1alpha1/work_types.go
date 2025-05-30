@@ -44,7 +44,9 @@ const (
 
 // WorkStatus defines the observed state of Work
 type WorkStatus struct {
-	Conditions []metav1.Condition `json:"conditions,omitempty"`
+	Conditions            []metav1.Condition `json:"conditions,omitempty"`
+	WorkPlacements        int                `json:"workPlacements,omitempty"`
+	WorkPlacementsCreated int                `json:"workPlacementsCreated,omitempty"`
 }
 
 //+kubebuilder:object:root=true

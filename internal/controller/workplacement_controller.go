@@ -39,18 +39,19 @@ import (
 	"github.com/syntasso/kratix/api/v1alpha1"
 	"github.com/syntasso/kratix/lib/compression"
 	"github.com/syntasso/kratix/lib/writers"
+	apiMeta "k8s.io/apimachinery/pkg/api/meta"
 )
 
 const (
-	resourcesDir                            = "resources"
-	dependenciesDir                         = "dependencies"
-	repoCleanupWorkPlacementFinalizer       = "finalizers.workplacement.kratix.io/repo-cleanup"
-	kratixFileCleanupWorkPlacementFinalizer = "finalizers.workplacement.kratix.io/kratix-dot-files-cleanup"
-	misscheduledConditionType               = "Misscheduled"
-	misscheduledConditionMismatchReason     = "DestinationSelectorMismatch"
-	misscheduledConditionMismatchMsg        = "Target destination no longer matches destinationSelectors"
-	writeSucceededConditionType             = "WriteSucceeded"
-	failedDeleteEventReason                 = "FailedDelete"
+	resourcesDir                             = "resources"
+	dependenciesDir                          = "dependencies"
+	repoCleanupWorkPlacementFinalizer        = "finalizers.workplacement.kratix.io/repo-cleanup"
+	kratixFileCleanupWorkPlacementFinalizer  = "finalizers.workplacement.kratix.io/kratix-dot-files-cleanup"
+	scheduleSucceededConditionType           = "ScheduleSucceeded"
+	scheduleSucceededConditionMismatchReason = "DestinationSelectorMismatch"
+	scheduleSucceededConditionMismatchMsg    = "Target destination no longer matches destinationSelectors"
+	writeSucceededConditionType              = "WriteSucceeded"
+	failedDeleteEventReason                  = "FailedDelete"
 )
 
 type StateFile struct {
@@ -71,7 +72,6 @@ type WorkPlacementReconciler struct {
 
 func (r *WorkPlacementReconciler) Reconcile(ctx context.Context, req ctrl.Request) (ctrl.Result, error) {
 	logger := r.Log.WithValues("work-placement-controller", req.NamespacedName)
-
 	workPlacement := &v1alpha1.WorkPlacement{}
 	err := r.Client.Get(context.Background(), req.NamespacedName, workPlacement)
 	if err != nil {
@@ -153,8 +153,18 @@ func (r *WorkPlacementReconciler) updateStatus(ctx context.Context, logger logr.
 }
 
 func (r *WorkPlacementReconciler) setWriteFailStatusConditions(ctx context.Context, workPlacement *v1alpha1.WorkPlacement, err error) error {
-	writeSucceededUpdated := setWorkplacementStatusCondition(workPlacement, metav1.ConditionFalse, writeSucceededConditionType, "WorkloadsFailedWrite", err.Error())
-	readyUpdated := setWorkplacementStatusCondition(workPlacement, metav1.ConditionFalse, "Ready", "", "Failing")
+	writeSucceededUpdated := apiMeta.SetStatusCondition(&workPlacement.Status.Conditions, metav1.Condition{
+		Type:    writeSucceededConditionType,
+		Status:  metav1.ConditionFalse,
+		Reason:  "WorkloadsFailedWrite",
+		Message: err.Error(),
+	})
+	readyUpdated := apiMeta.SetStatusCondition(&workPlacement.Status.Conditions, metav1.Condition{
+		Status:  metav1.ConditionFalse,
+		Type:    "Ready",
+		Reason:  "WorkloadsFailedWrite",
+		Message: "Failing",
+	})
 	if writeSucceededUpdated || readyUpdated {
 		return r.Client.Status().Update(ctx, workPlacement)
 	}
@@ -162,24 +172,36 @@ func (r *WorkPlacementReconciler) setWriteFailStatusConditions(ctx context.Conte
 }
 
 func (r *WorkPlacementReconciler) setWorkplacementReady(ctx context.Context, workPlacement *v1alpha1.WorkPlacement) error {
-	var writeSucceeded, misscheduled bool
+	var writeSucceeded, misplaced bool
 	for _, cond := range workPlacement.Status.Conditions {
-		if cond.Type == misscheduledConditionType {
-			misscheduled = true
+		if cond.Type == scheduleSucceededConditionType && cond.Status == metav1.ConditionFalse {
+			misplaced = true
 		}
 		if cond.Type == writeSucceededConditionType && cond.Status == metav1.ConditionTrue {
 			writeSucceeded = true
 		}
 	}
-	if writeSucceeded && !misscheduled {
-		return r.updateStatusCondition(ctx, workPlacement,
-			metav1.ConditionTrue, "Ready", "WorkloadsWrittenToTargetDestination", "Ready")
+	if writeSucceeded && !misplaced {
+		if apiMeta.SetStatusCondition(&workPlacement.Status.Conditions,
+			metav1.Condition{
+				Type:    "Ready",
+				Status:  metav1.ConditionTrue,
+				Reason:  "WorkloadsWrittenToTargetDestination",
+				Message: "Ready",
+			}) {
+			return r.Client.Status().Update(ctx, workPlacement)
+		}
 	}
 	return nil
 }
 
 func (r *WorkPlacementReconciler) updateStatusCondition(ctx context.Context, workPlacement *v1alpha1.WorkPlacement, status metav1.ConditionStatus, conditionType, reason, message string) error {
-	if setWorkplacementStatusCondition(workPlacement, status, conditionType, reason, message) {
+	if apiMeta.SetStatusCondition(&workPlacement.Status.Conditions, metav1.Condition{
+		Type:    conditionType,
+		Status:  status,
+		Reason:  reason,
+		Message: message,
+	}) {
 		return r.Client.Status().Update(ctx, workPlacement)
 	}
 	return nil
@@ -343,10 +365,19 @@ func (r *WorkPlacementReconciler) writeToStateStore(wp *v1alpha1.WorkPlacement, 
 		return "", defaultRequeue, err
 	}
 	r.publishWriteEvent(wp, "WorkloadsWrittenToStateStore", versionID, err)
-	if statusUpdateErr := r.updateStatusCondition(opts.ctx, wp,
-		metav1.ConditionTrue, writeSucceededConditionType, "WorkloadsWrittenToStateStore", ""); statusUpdateErr != nil {
-		opts.logger.Error(statusUpdateErr, "failed to update status condition")
-		return "", defaultRequeue, statusUpdateErr
+
+	cond := metav1.Condition{
+		Type:    writeSucceededConditionType,
+		Status:  metav1.ConditionTrue,
+		Reason:  "WorkloadsWrittenToStateStore",
+		Message: "",
+	}
+
+	if apiMeta.SetStatusCondition(&wp.Status.Conditions, cond) {
+		if statusUpdateErr := r.Client.Status().Update(opts.ctx, wp); statusUpdateErr != nil {
+			opts.logger.Error(statusUpdateErr, "failed to update status condition")
+			return "", defaultRequeue, statusUpdateErr
+		}
 	}
 	return versionID, ctrl.Result{}, err
 }

@@ -32,12 +32,11 @@ import (
 
 const workCleanUpFinalizer = v1alpha1.KratixPrefix + "work-cleanup"
 
-// WorkReconciler reconciles a Work object
+// WorkReconciler reconciles a Work object.
 type WorkReconciler struct {
 	Client    client.Client
 	Log       logr.Logger
 	Scheduler WorkScheduler
-	Disabled  bool
 }
 
 //counterfeiter:generate . WorkScheduler
@@ -50,12 +49,8 @@ type WorkScheduler interface {
 //+kubebuilder:rbac:groups=platform.kratix.io,resources=works/finalizers,verbs=update
 
 func (r *WorkReconciler) Reconcile(ctx context.Context, req ctrl.Request) (ctrl.Result, error) {
-	if r.Disabled {
-		//TODO tech debt. We want this controller running *for some unit tests*, not
-		//for all. So we do this to disable it
-		return ctrl.Result{}, nil
-	}
 	logger := r.Log.WithValues("work", req.NamespacedName)
+
 	logger.Info("Reconciling Work")
 
 	work := &v1alpha1.Work{}
@@ -65,7 +60,7 @@ func (r *WorkReconciler) Reconcile(ctx context.Context, req ctrl.Request) (ctrl.
 			return ctrl.Result{}, nil
 		}
 		logger.Error(err, "Error getting Work")
-		return ctrl.Result{Requeue: false}, err
+		return ctrl.Result{}, err
 	}
 
 	if !work.DeletionTimestamp.IsZero() {
@@ -80,15 +75,15 @@ func (r *WorkReconciler) Reconcile(ctx context.Context, req ctrl.Request) (ctrl.
 	}
 
 	logger.Info("Requesting scheduling for Work")
+
 	unscheduledWorkloadGroupIDs, err := r.Scheduler.ReconcileWork(work)
-	if errors.IsConflict(err) {
-		logger.Info("failed to schedule Work due to update conflict, requeue...")
-		return fastRequeue, nil
-	} else if err != nil {
-		//TODO remove this error checking
-		//temp fix until resolved: https://syntasso.slack.com/archives/C044T9ZFUMN/p1674058648965449
-		logger.Error(err, "Error scheduling Work, will retry...")
-		return defaultRequeue, err
+	if err != nil {
+		if errors.IsConflict(err) {
+			logger.Info("failed to schedule Work due to update conflict, requeue...")
+			return fastRequeue, nil
+		}
+		logger.Error(err, "error scheduling Work, will retry...")
+		return ctrl.Result{}, err
 	}
 
 	if work.IsResourceRequest() && len(unscheduledWorkloadGroupIDs) > 0 {
