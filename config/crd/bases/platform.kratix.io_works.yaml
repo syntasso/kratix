@@ -147,6 +147,10 @@ spec:
                   - type
                   type: object
                 type: array
+              workPlacements:
+                type: integer
+              workPlacementsCreated:
+                type: integer
             type: object
         type: object
     served: true

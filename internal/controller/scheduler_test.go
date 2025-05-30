@@ -14,7 +14,7 @@ import (
 	. "github.com/syntasso/kratix/internal/controller"
 	"github.com/syntasso/kratix/lib/compression"
 	"github.com/syntasso/kratix/lib/hash"
-	v1 "k8s.io/apimachinery/pkg/apis/meta/v1"
+	metav1 "k8s.io/apimachinery/pkg/apis/meta/v1"
 	"k8s.io/apimachinery/pkg/types"
 	"k8s.io/client-go/tools/record"
 	ctrl "sigs.k8s.io/controller-runtime"
@@ -97,11 +97,8 @@ var _ = Describe("Controllers/Scheduler", func() {
 				It("sets the scheduling conditions on the Work", func() {
 					Expect(fakeK8sClient.Get(context.Background(), client.ObjectKeyFromObject(&resourceWork), &resourceWork)).To(Succeed())
 					Expect(resourceWork.Status.Conditions).To(HaveLen(1))
-
-					Expect(resourceWork.Status.Conditions[0].Type).To(Equal("Misscheduled"))
-					Expect(resourceWork.Status.Conditions[0].Status).To(Equal(v1.ConditionFalse))
-					Expect(resourceWork.Status.Conditions[0].Message).To(Equal("WorkGroups that have been scheduled are at the correct Destination(s)"))
-					Expect(resourceWork.Status.Conditions[0].Reason).To(Equal("ScheduledToCorrectDestinations"))
+					resourceWork.Status.Conditions[0].LastTransitionTime = metav1.Time{}
+					Expect(resourceWork.Status.Conditions).To(ConsistOf(scheduleSucceededTrueCondition()))
 				})
 			})
 
@@ -477,8 +474,8 @@ var _ = Describe("Controllers/Scheduler", func() {
 					Expect(workPlacement.GetLabels()).To(HaveKeyWithValue("kratix.io/workload-group-id", hash.ComputeHash(".")))
 					Expect(workPlacement.Status.Conditions).To(HaveLen(2))
 					//ignore time for assertion
-					workPlacement.Status.Conditions[0].LastTransitionTime = v1.Time{}
-					workPlacement.Status.Conditions[1].LastTransitionTime = v1.Time{}
+					workPlacement.Status.Conditions[0].LastTransitionTime = metav1.Time{}
+					workPlacement.Status.Conditions[1].LastTransitionTime = metav1.Time{}
 					Expect(workPlacement.Status.Conditions).To(ConsistOf(misplacedWorkPlacementConditions()))
 					Eventually(schedulerRecorder.Events).Should(Receive(ContainSubstring(
 						fmt.Sprintf("labels for destination: %s no longer match the expected labels, "+
@@ -488,11 +485,8 @@ var _ = Describe("Controllers/Scheduler", func() {
 				It("labels the resource Work to indicate it's misscheduled", func() {
 					Expect(fakeK8sClient.Get(context.Background(), client.ObjectKeyFromObject(&resourceWork), &resourceWork)).To(Succeed())
 					Expect(resourceWork.Status.Conditions).To(HaveLen(1))
-
-					Expect(resourceWork.Status.Conditions[0].Type).To(Equal("Misscheduled"))
-					Expect(resourceWork.Status.Conditions[0].Status).To(Equal(v1.ConditionTrue))
-					Expect(resourceWork.Status.Conditions[0].Message).To(Equal("WorkloadGroup(s) not scheduled to correct Destination(s): [" + resourceWork.Spec.WorkloadGroups[0].ID + "]"))
-					Expect(resourceWork.Status.Conditions[0].Reason).To(Equal("ScheduledToIncorrectDestinations"))
+					resourceWork.Status.Conditions[0].LastTransitionTime = metav1.Time{}
+					Expect(resourceWork.Status.Conditions).To(ConsistOf(scheduleSucceededFalseCondition(resourceWork.Spec.WorkloadGroups[0].ID)))
 				})
 			})
 
@@ -691,9 +685,9 @@ var _ = Describe("Controllers/Scheduler", func() {
 					Expect(workPlacements.Items).To(BeEmpty())
 				})
 
-				It("does not mark the Work as misscheduled", func() {
-					Expect(dependencyWork.Status.Conditions[0].Type).To(Equal("Misscheduled"))
-					Expect(dependencyWork.Status.Conditions[0].Status).To(Equal(v1.ConditionFalse))
+				It("does not mark the Work as misplaced", func() {
+					Expect(dependencyWork.Status.Conditions[0].Type).To(Equal("ScheduleSucceeded"))
+					Expect(dependencyWork.Status.Conditions[0].Status).To(Equal(metav1.ConditionTrue))
 				})
 
 				It("returns an error indicating what was unschedulable", func() {
@@ -779,16 +773,16 @@ var _ = Describe("Controllers/Scheduler", func() {
 					Expect(workPlacements.Items[2].GetLabels()).To(HaveKeyWithValue("kratix.io/misscheduled", "true"))
 					Expect(workPlacements.Items[2].Status.Conditions).To(HaveLen(2))
 					//ignore time for assertion
-					workPlacements.Items[2].Status.Conditions[0].LastTransitionTime = v1.Time{}
-					workPlacements.Items[2].Status.Conditions[1].LastTransitionTime = v1.Time{}
+					workPlacements.Items[2].Status.Conditions[0].LastTransitionTime = metav1.Time{}
+					workPlacements.Items[2].Status.Conditions[1].LastTransitionTime = metav1.Time{}
 					Expect(workPlacements.Items[2].Status.Conditions).To(ConsistOf(misplacedWorkPlacementConditions()))
 
 					Expect(workPlacements.Items[3].Spec.TargetDestinationName).To(Equal("prod"))
 					Expect(workPlacements.Items[3].GetLabels()).To(HaveKeyWithValue("kratix.io/misscheduled", "true"))
 					Expect(workPlacements.Items[3].Status.Conditions).To(HaveLen(2))
 					//ignore time for assertion
-					workPlacements.Items[3].Status.Conditions[0].LastTransitionTime = v1.Time{}
-					workPlacements.Items[2].Status.Conditions[1].LastTransitionTime = v1.Time{}
+					workPlacements.Items[3].Status.Conditions[0].LastTransitionTime = metav1.Time{}
+					workPlacements.Items[2].Status.Conditions[1].LastTransitionTime = metav1.Time{}
 					Expect(workPlacements.Items[2].Status.Conditions).To(ConsistOf(misplacedWorkPlacementConditions()))
 				})
 
@@ -819,24 +813,24 @@ var _ = Describe("Controllers/Scheduler", func() {
 	})
 })
 
-func misplacedWorkPlacementConditions() []v1.Condition {
-	return []v1.Condition{
+func misplacedWorkPlacementConditions() []metav1.Condition {
+	return []metav1.Condition{
 		{
 			Message: "Target destination no longer matches destinationSelectors",
 			Reason:  "DestinationSelectorMismatch",
 			Type:    "ScheduleSucceeded",
-			Status:  v1.ConditionFalse},
+			Status:  metav1.ConditionFalse},
 		{
 			Message: "Misplaced",
 			Reason:  "Misplaced",
 			Type:    "Ready",
-			Status:  v1.ConditionFalse},
+			Status:  metav1.ConditionFalse},
 	}
 }
 
 func newDestination(name string, labels map[string]string) Destination {
 	return Destination{
-		ObjectMeta: v1.ObjectMeta{
+		ObjectMeta: metav1.ObjectMeta{
 			Name:   name,
 			Labels: labels,
 		},
@@ -849,7 +843,7 @@ func newWork(name string, isResource bool, scheduling ...WorkloadGroupScheduling
 		namespace = SystemNamespace
 	}
 	w := &Work{
-		ObjectMeta: v1.ObjectMeta{
+		ObjectMeta: metav1.ObjectMeta{
 			Name:      name,
 			Namespace: namespace,
 			UID:       types.UID(name),
@@ -900,7 +894,7 @@ func newWorkWithTwoWorkloadGroups(name string, isResource bool, promiseSchedulin
 	Expect(err).ToNot(HaveOccurred())
 
 	w := &Work{
-		ObjectMeta: v1.ObjectMeta{
+		ObjectMeta: metav1.ObjectMeta{
 			Name:      name,
 			Namespace: namespace,
 			Annotations: map[string]string{
@@ -948,5 +942,23 @@ func schedulingFor(destination Destination) WorkloadGroupScheduling {
 	return WorkloadGroupScheduling{
 		MatchLabels: destination.GetLabels(),
 		Source:      "promise",
+	}
+}
+
+func scheduleSucceededTrueCondition() metav1.Condition {
+	return metav1.Condition{
+		Type:    "ScheduleSucceeded",
+		Status:  metav1.ConditionTrue,
+		Message: "WorkGroups that have been scheduled are at the correct Destination(s)",
+		Reason:  "ScheduledToCorrectDestinations",
+	}
+}
+
+func scheduleSucceededFalseCondition(id string) metav1.Condition {
+	return metav1.Condition{
+		Type:    "ScheduleSucceeded",
+		Status:  metav1.ConditionFalse,
+		Message: fmt.Sprintf("WorkloadGroup(s) not scheduled to correct Destination(s): [%s]", id),
+		Reason:  "ScheduledToIncorrectDestinations",
 	}
 }

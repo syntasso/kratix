@@ -45,7 +45,7 @@ type Scheduler struct {
 // Workplacements.
 func (s *Scheduler) ReconcileWork(work *v1alpha1.Work) ([]string, error) {
 	unschedulable := []string{}
-	misscheduled := []string{}
+	misplaced := []string{}
 	for _, wg := range work.Spec.WorkloadGroups {
 		schedulingStatus, err := s.reconcileWorkloadGroup(wg, work)
 		if err != nil {
@@ -57,34 +57,34 @@ func (s *Scheduler) ReconcileWork(work *v1alpha1.Work) ([]string, error) {
 		}
 
 		if schedulingStatus == misscheduledStatus {
-			misscheduled = append(misscheduled, wg.ID)
+			misplaced = append(misplaced, wg.ID)
 		}
 	}
 
-	if err := s.updateWorkStatus(work, unschedulable, misscheduled); err != nil {
+	if err := s.updateWorkStatus(work, misplaced); err != nil {
 		return nil, err
 	}
 
 	return unschedulable, s.cleanupDanglingWorkplacements(work)
 }
 
-func (s *Scheduler) updateWorkStatus(work *v1alpha1.Work, unscheduledWorkloadGroupIDs, missscheduledWorkloadGroupIDs []string) error {
+func (s *Scheduler) updateWorkStatus(work *v1alpha1.Work, misplacedWorkloadGroupIDs []string) error {
 	work = work.DeepCopy()
-	misscheduledCond := metav1.Condition{
-		Type:               "Misscheduled",
+	scheduleSucceededCond := metav1.Condition{
+		Type:               "ScheduleSucceeded",
 		LastTransitionTime: v1.NewTime(time.Now()),
-		Status:             "False",
+		Status:             v1.ConditionTrue,
 		Message:            "WorkGroups that have been scheduled are at the correct Destination(s)",
 		Reason:             "ScheduledToCorrectDestinations",
 	}
 
-	if len(missscheduledWorkloadGroupIDs) > 0 {
-		misscheduledCond.Status = "True"
-		misscheduledCond.Message = fmt.Sprintf("WorkloadGroup(s) not scheduled to correct Destination(s): %v", missscheduledWorkloadGroupIDs)
-		misscheduledCond.Reason = "ScheduledToIncorrectDestinations"
+	if len(misplacedWorkloadGroupIDs) > 0 {
+		scheduleSucceededCond.Status = v1.ConditionFalse
+		scheduleSucceededCond.Message = fmt.Sprintf("WorkloadGroup(s) not scheduled to correct Destination(s): %v", misplacedWorkloadGroupIDs)
+		scheduleSucceededCond.Reason = "ScheduledToIncorrectDestinations"
 	}
 
-	if apiMeta.SetStatusCondition(&work.Status.Conditions, misscheduledCond) {
+	if apiMeta.SetStatusCondition(&work.Status.Conditions, scheduleSucceededCond) {
 		return s.Client.Status().Update(context.Background(), work)
 	}
 	return nil
@@ -135,12 +135,12 @@ func (s *Scheduler) reconcileWorkloadGroup(workloadGroup v1alpha1.WorkloadGroup,
 			var errored int
 			for _, existingWorkplacement := range existingWorkplacements {
 				s.Log.Info("found workplacement for work; will try an update")
-				misscheduled, err := s.updateWorkPlacement(workloadGroup, work, &existingWorkplacement)
+				misplaced, err := s.updateWorkPlacement(workloadGroup, work, &existingWorkplacement)
 				if err != nil {
 					s.Log.Error(err, "error updating workplacement for work", "workplacement", existingWorkplacement.Name, "work", work.Name, "workloadGroupID", workloadGroup.ID)
 					errored++
 				}
-				if misscheduled {
+				if misplaced {
 					status = misscheduledStatus
 				}
 			}
@@ -189,17 +189,17 @@ func (s *Scheduler) reconcileWorkloadGroup(workloadGroup v1alpha1.WorkloadGroup,
 }
 
 func (s *Scheduler) updateWorkPlacement(workloadGroup v1alpha1.WorkloadGroup, work *v1alpha1.Work, workPlacement *v1alpha1.WorkPlacement) (bool, error) {
-	misscheduled := true
+	misplaced := true
 	destinationSelectors := resolveDestinationSelectorsForWorkloadGroup(workloadGroup)
 	for _, dest := range s.getTargetDestinationNames(destinationSelectors, work) {
 		if dest == workPlacement.Spec.TargetDestinationName {
-			misscheduled = false
+			misplaced = false
 			break
 		}
 	}
 
-	if misscheduled {
-		s.labelWorkplacementAsMisscheduled(workPlacement)
+	if misplaced {
+		s.labelWorkplacementAsMisplaced(workPlacement)
 	}
 
 	workPlacement.Spec.Workloads = workloadGroup.Workloads
@@ -208,15 +208,15 @@ func (s *Scheduler) updateWorkPlacement(workloadGroup v1alpha1.WorkloadGroup, wo
 		return false, err
 	}
 
-	if err := s.updateWorkPlacementStatus(workPlacement, misscheduled); err != nil {
+	if err := s.updateWorkPlacementStatus(workPlacement, misplaced); err != nil {
 		return false, err
 	}
 
 	s.Log.Info("Successfully updated WorkPlacement workloads", "workplacement", workPlacement.Name)
-	return misscheduled, nil
+	return misplaced, nil
 }
 
-func (s *Scheduler) labelWorkplacementAsMisscheduled(workPlacement *v1alpha1.WorkPlacement) {
+func (s *Scheduler) labelWorkplacementAsMisplaced(workPlacement *v1alpha1.WorkPlacement) {
 	s.Log.Info("Warning: WorkPlacement scheduled to destination that doesn't fulfil scheduling requirements", "workplacement", workPlacement.Name, "namespace", workPlacement.Namespace)
 	newLabels := workPlacement.GetLabels()
 	if newLabels == nil {
@@ -282,7 +282,7 @@ func (s *Scheduler) applyWorkplacementsForTargetDestinations(workloadGroup v1alp
 			workPlacement.SetPipelineName(work)
 
 			if misscheduled {
-				s.labelWorkplacementAsMisscheduled(workPlacement)
+				s.labelWorkplacementAsMisplaced(workPlacement)
 				containsMischeduledWorkplacement = true
 			}
 
