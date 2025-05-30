@@ -96,17 +96,12 @@ var _ = Describe("Controllers/Scheduler", func() {
 
 				It("sets the scheduling conditions on the Work", func() {
 					Expect(fakeK8sClient.Get(context.Background(), client.ObjectKeyFromObject(&resourceWork), &resourceWork)).To(Succeed())
-					Expect(resourceWork.Status.Conditions).To(HaveLen(2))
+					Expect(resourceWork.Status.Conditions).To(HaveLen(1))
 
-					Expect(resourceWork.Status.Conditions[0].Type).To(Equal("Scheduled"))
-					Expect(resourceWork.Status.Conditions[0].Status).To(Equal(v1.ConditionTrue))
-					Expect(resourceWork.Status.Conditions[0].Message).To(Equal("All WorkloadGroups scheduled to Destination(s)"))
-					Expect(resourceWork.Status.Conditions[0].Reason).To(Equal("ScheduledToDestinations"))
-
-					Expect(resourceWork.Status.Conditions[1].Type).To(Equal("Misscheduled"))
-					Expect(resourceWork.Status.Conditions[1].Status).To(Equal(v1.ConditionFalse))
-					Expect(resourceWork.Status.Conditions[1].Message).To(Equal("WorkGroups that have been scheduled are at the correct Destination(s)"))
-					Expect(resourceWork.Status.Conditions[1].Reason).To(Equal("ScheduledToCorrectDestinations"))
+					Expect(resourceWork.Status.Conditions[0].Type).To(Equal("Misscheduled"))
+					Expect(resourceWork.Status.Conditions[0].Status).To(Equal(v1.ConditionFalse))
+					Expect(resourceWork.Status.Conditions[0].Message).To(Equal("WorkGroups that have been scheduled are at the correct Destination(s)"))
+					Expect(resourceWork.Status.Conditions[0].Reason).To(Equal("ScheduledToCorrectDestinations"))
 				})
 			})
 
@@ -503,15 +498,12 @@ var _ = Describe("Controllers/Scheduler", func() {
 
 				It("labels the resource Work to indicate it's misscheduled", func() {
 					Expect(fakeK8sClient.Get(context.Background(), client.ObjectKeyFromObject(&resourceWork), &resourceWork)).To(Succeed())
-					Expect(resourceWork.Status.Conditions).To(HaveLen(2))
+					Expect(resourceWork.Status.Conditions).To(HaveLen(1))
 
-					Expect(resourceWork.Status.Conditions[0].Type).To(Equal("Scheduled"))
+					Expect(resourceWork.Status.Conditions[0].Type).To(Equal("Misscheduled"))
 					Expect(resourceWork.Status.Conditions[0].Status).To(Equal(v1.ConditionTrue))
-
-					Expect(resourceWork.Status.Conditions[1].Type).To(Equal("Misscheduled"))
-					Expect(resourceWork.Status.Conditions[1].Status).To(Equal(v1.ConditionTrue))
-					Expect(resourceWork.Status.Conditions[1].Message).To(Equal("WorkloadGroup(s) not scheduled to correct Destination(s): [" + resourceWork.Spec.WorkloadGroups[0].ID + "]"))
-					Expect(resourceWork.Status.Conditions[1].Reason).To(Equal("ScheduledToIncorrectDestinations"))
+					Expect(resourceWork.Status.Conditions[0].Message).To(Equal("WorkloadGroup(s) not scheduled to correct Destination(s): [" + resourceWork.Spec.WorkloadGroups[0].ID + "]"))
+					Expect(resourceWork.Status.Conditions[0].Reason).To(Equal("ScheduledToIncorrectDestinations"))
 				})
 			})
 
@@ -710,17 +702,9 @@ var _ = Describe("Controllers/Scheduler", func() {
 					Expect(workPlacements.Items).To(BeEmpty())
 				})
 
-				It("marks the Work as unscheduled", func() {
-					Expect(dependencyWork.Status.Conditions).To(HaveLen(2))
-					Expect(dependencyWork.Status.Conditions[0].Type).To(Equal("Scheduled"))
-					Expect(dependencyWork.Status.Conditions[0].Status).To(Equal(v1.ConditionFalse))
-					Expect(dependencyWork.Status.Conditions[0].Message).To(Equal("No Destinations available work WorkloadGroups: [" + dependencyWork.Spec.WorkloadGroups[0].ID + "]"))
-					Expect(dependencyWork.Status.Conditions[0].Reason).To(Equal("UnscheduledWorkloadGroups"))
-				})
-
 				It("does not mark the Work as misscheduled", func() {
-					Expect(dependencyWork.Status.Conditions[1].Type).To(Equal("Misscheduled"))
-					Expect(dependencyWork.Status.Conditions[1].Status).To(Equal(v1.ConditionFalse))
+					Expect(dependencyWork.Status.Conditions[0].Type).To(Equal("Misscheduled"))
+					Expect(dependencyWork.Status.Conditions[0].Status).To(Equal(v1.ConditionFalse))
 				})
 
 				It("returns an error indicating what was unschedulable", func() {
