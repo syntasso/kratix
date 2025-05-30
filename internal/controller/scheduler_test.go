@@ -218,6 +218,7 @@ var _ = Describe("Controllers/Scheduler", func() {
 
 					// append a new WorkloadGroup to the Work and reconcile again
 					Expect(fakeK8sClient.Get(context.Background(), client.ObjectKeyFromObject(&resourceWork), &resourceWork)).To(Succeed())
+					Expect(resourceWork.Spec.WorkloadGroups).To(HaveLen(1))
 					resourceWork.Spec.WorkloadGroups = append(resourceWork.Spec.WorkloadGroups, WorkloadGroup{
 						Directory: "foo",
 						ID:        hash.ComputeHash("foo"),
@@ -228,7 +229,9 @@ var _ = Describe("Controllers/Scheduler", func() {
 						},
 						DestinationSelectors: []WorkloadGroupScheduling{schedulingFor(devDestination)},
 					})
+					Expect(fakeK8sClient.Update(context.Background(), &resourceWork)).To(Succeed())
 					_, err = scheduler.ReconcileWork(&resourceWork)
+					Expect(resourceWork.Spec.WorkloadGroups).To(HaveLen(2))
 					Expect(err).ToNot(HaveOccurred())
 				})
 
@@ -248,7 +251,7 @@ var _ = Describe("Controllers/Scheduler", func() {
 					Expect(newWorkPlacement.ObjectMeta.Labels["kratix.io/work"]).To(Equal("rr-work-name"))
 					Expect(newWorkPlacement.ObjectMeta.Labels["kratix.io/workload-group-id"]).To(Equal(hash.ComputeHash("foo")))
 					Expect(newWorkPlacement.Name).To(Equal("rr-work-name." + newWorkPlacement.Spec.TargetDestinationName + "-" + hash.ComputeHash("foo")[0:5]))
-					Expect(newWorkPlacement.Spec.Workloads).To(HaveLen(2))
+					Expect(resourceWork.Spec.WorkloadGroups).To(HaveLen(2))
 					Expect(newWorkPlacement.Spec.Workloads).To(Equal(resourceWork.Spec.WorkloadGroups[1].Workloads))
 					Expect(newWorkPlacement.Spec.ID).To(Equal(resourceWork.Spec.WorkloadGroups[1].ID))
 					Expect(newWorkPlacement.Spec.TargetDestinationName).To(MatchRegexp("prod|dev\\-\\d"))
@@ -939,12 +942,9 @@ func newWork(name string, isResource bool, scheduling ...WorkloadGroupScheduling
 	}
 
 	Expect(fakeK8sClient.Create(context.Background(), w)).To(Succeed())
+	Expect(fakeK8sClient.Get(context.Background(), client.ObjectKeyFromObject(w), w)).To(Succeed())
 
-	//sets the APIVersion, Kind, and ResourceVersion
-	workWithDefaultFields := &Work{}
-	Expect(fakeK8sClient.Get(context.Background(), client.ObjectKeyFromObject(w), workWithDefaultFields)).To(Succeed())
-
-	return *workWithDefaultFields
+	return *w
 }
 
 func newWorkWithTwoWorkloadGroups(name string, isResource bool, promiseScheduling, directoryOverrideScheduling WorkloadGroupScheduling) Work {
