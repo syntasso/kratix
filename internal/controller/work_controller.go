@@ -92,7 +92,6 @@ func (r *WorkReconciler) Reconcile(ctx context.Context, req ctrl.Request) (ctrl.
 	}
 
 	return ctrl.Result{}, nil
-
 }
 
 func (r *WorkReconciler) deleteWork(ctx context.Context, work *v1alpha1.Work) (ctrl.Result, error) {
