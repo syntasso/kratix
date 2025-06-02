@@ -22,7 +22,6 @@ import (
 	"fmt"
 	"path/filepath"
 	"strings"
-	"time"
 
 	"github.com/go-logr/logr"
 	"gopkg.in/yaml.v2"
@@ -191,18 +190,6 @@ func (r *WorkPlacementReconciler) setWorkplacementReady(ctx context.Context, wor
 			}) {
 			return r.Client.Status().Update(ctx, workPlacement)
 		}
-	}
-	return nil
-}
-
-func (r *WorkPlacementReconciler) updateStatusCondition(ctx context.Context, workPlacement *v1alpha1.WorkPlacement, status metav1.ConditionStatus, conditionType, reason, message string) error {
-	if apiMeta.SetStatusCondition(&workPlacement.Status.Conditions, metav1.Condition{
-		Type:    conditionType,
-		Status:  status,
-		Reason:  reason,
-		Message: message,
-	}) {
-		return r.Client.Status().Update(ctx, workPlacement)
 	}
 	return nil
 }
@@ -424,35 +411,6 @@ func (r *WorkPlacementReconciler) writeWorkloadsToStateStore(o opts, writer writ
 		return "", err
 	}
 	return versionID, nil
-}
-
-func setWorkplacementStatusCondition(wp *v1alpha1.WorkPlacement, status metav1.ConditionStatus, conditionType, reason, message string) bool {
-	desiredCondition := metav1.Condition{
-		Type:               conditionType,
-		Status:             status,
-		Reason:             reason,
-		Message:            message,
-		LastTransitionTime: metav1.Time{Time: time.Now()},
-	}
-
-	var updated bool
-	conditions := wp.Status.Conditions
-	for i, cond := range conditions {
-		if cond.Type == conditionType {
-			if cond.Status != status || cond.Reason != reason || cond.Message != message {
-				wp.Status.Conditions[i] = desiredCondition
-				updated = true
-			} else {
-				return false
-			}
-			break
-		}
-	}
-	if !updated {
-		wp.Status.Conditions = append(conditions, desiredCondition)
-		updated = true
-	}
-	return updated
 }
 
 func ignoreNotFound(err error) error {
