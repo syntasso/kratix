@@ -71,6 +71,7 @@ func (s *Scheduler) ReconcileWork(work *v1alpha1.Work) ([]string, error) {
 			unschedulable = append(unschedulable, wg.ID)
 		case misplacedStatus:
 			misplaced = append(misplaced, wg.ID)
+		case scheduledStatus:
 		}
 	}
 
