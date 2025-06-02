@@ -292,19 +292,19 @@ func (s *Scheduler) labelWorkplacementAsMisplaced(workPlacement *v1alpha1.WorkPl
 }
 
 func (s *Scheduler) getExistingWorkPlacementsForWorkloadGroup(namespace, workName string, workloadGroup v1alpha1.WorkloadGroup) ([]v1alpha1.WorkPlacement, error) {
-	return s.listWorkplacementWithLabels(namespace, map[string]string{
+	return listWorkplacementWithLabels(s.Client, s.Log, namespace, map[string]string{
 		workLabelKey:       workName,
 		workloadGroupIDKey: workloadGroup.ID,
 	})
 }
 
 func (s *Scheduler) getExistingWorkPlacementsForWork(namespace, workName string) ([]v1alpha1.WorkPlacement, error) {
-	return s.listWorkplacementWithLabels(namespace, map[string]string{
+	return listWorkplacementWithLabels(s.Client, s.Log, namespace, map[string]string{
 		workLabelKey: workName,
 	})
 }
 
-func (s *Scheduler) listWorkplacementWithLabels(namespace string, matchLabels map[string]string) ([]v1alpha1.WorkPlacement, error) {
+func listWorkplacementWithLabels(c client.Client, logger logr.Logger, namespace string, matchLabels map[string]string) ([]v1alpha1.WorkPlacement, error) {
 	workPlacementList := &v1alpha1.WorkPlacementList{}
 	workPlacementListOptions := &client.ListOptions{
 		Namespace: namespace,
@@ -314,14 +314,14 @@ func (s *Scheduler) listWorkplacementWithLabels(namespace string, matchLabels ma
 	selector, err := labels.Parse(workSelectorLabel)
 
 	if err != nil {
-		s.Log.Error(err, "error parsing scheduling")
+		logger.Error(err, "error parsing scheduling")
 	}
 	workPlacementListOptions.LabelSelector = selector
 
-	s.Log.Info("Listing Workplacements", "labels", workSelectorLabel)
-	err = s.Client.List(context.Background(), workPlacementList, workPlacementListOptions)
+	logger.Info("Listing Workplacements", "labels", workSelectorLabel)
+	err = c.List(context.Background(), workPlacementList, workPlacementListOptions)
 	if err != nil {
-		s.Log.Error(err, "Error getting WorkPlacements")
+		logger.Error(err, "Error getting WorkPlacements")
 		return nil, err
 	}
 

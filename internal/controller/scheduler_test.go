@@ -907,13 +907,6 @@ var _ = Describe("Controllers/Scheduler", func() {
 					Expect(work.Status.Conditions).To(ConsistOf(misplacedConditions(work.Spec.WorkloadGroups[0].ID)))
 				})
 			})
-
-			// TODO: not implemented yet, also should we?
-			XWhen("some workplacements have failed", func() {
-				It("sets the right status and conditions", func() {
-
-				})
-			})
 		})
 	})
 })

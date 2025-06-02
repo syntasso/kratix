@@ -26,9 +26,11 @@ import (
 	"github.com/syntasso/kratix/internal/controller"
 	"github.com/syntasso/kratix/internal/controller/controllerfakes"
 	"github.com/syntasso/kratix/lib/hash"
+	apimeta "k8s.io/apimachinery/pkg/api/meta"
 	v1 "k8s.io/apimachinery/pkg/apis/meta/v1"
 	"k8s.io/apimachinery/pkg/types"
 	ctrl "sigs.k8s.io/controller-runtime"
+	"sigs.k8s.io/controller-runtime/pkg/client"
 	//+kubebuilder:scaffold:imports
 )
 
@@ -111,6 +113,48 @@ var _ = Describe("WorkReconciler", func() {
 			result, err := t.reconcileUntilCompletion(reconciler, work)
 			Expect(err).NotTo(HaveOccurred())
 			Expect(result).To(Equal(ctrl.Result{}))
+		})
+
+		When("scheduled workplacements failed to write", func() {
+			It("sets the right status condition", func() {
+				wp := v1alpha1.WorkPlacement{
+					ObjectMeta: v1.ObjectMeta{
+						Name:      "test",
+						Namespace: work.Namespace,
+						Labels: map[string]string{
+							"kratix.io/work": work.Name,
+						},
+					},
+					Status: v1alpha1.WorkPlacementStatus{
+						Conditions: []v1.Condition{
+							{
+								Type:   "WriteSucceeded",
+								Status: v1.ConditionFalse,
+							},
+						},
+					},
+				}
+				Expect(fakeK8sClient.Create(context.TODO(), &wp)).To(Succeed())
+				Expect(fakeK8sClient.Status().Update(context.TODO(), &wp)).To(Succeed())
+
+				result, err := t.reconcileUntilCompletion(reconciler, work)
+				Expect(err).NotTo(HaveOccurred())
+				Expect(result).To(Equal(ctrl.Result{}))
+
+				Expect(fakeK8sClient.Get(context.TODO(), client.ObjectKeyFromObject(work), work)).To(Succeed())
+				Expect(work.Status.Conditions).To(HaveLen(2))
+				readyCond := apimeta.FindStatusCondition(work.Status.Conditions, "Ready")
+				Expect(readyCond).ToNot(BeNil())
+				Expect(readyCond.Status).To(Equal(v1.ConditionFalse))
+				Expect(readyCond.Reason).To(Equal("WorkplacementsFailing"))
+				Expect(readyCond.Message).To(Equal("Failing"))
+
+				scheduleSucceededCond := apimeta.FindStatusCondition(work.Status.Conditions, "ScheduleSucceeded")
+				Expect(scheduleSucceededCond).ToNot(BeNil())
+				Expect(scheduleSucceededCond.Status).To(Equal(v1.ConditionFalse))
+				Expect(scheduleSucceededCond.Reason).To(Equal("WorkplacementsFailing"))
+				Expect(scheduleSucceededCond.Message).To(ContainSubstring("Workplacements failed to write: [test]"))
+			})
 		})
 	})
 

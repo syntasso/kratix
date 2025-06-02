@@ -18,11 +18,15 @@ package controller
 
 import (
 	"context"
+	"fmt"
+	"strings"
 
 	"github.com/go-logr/logr"
 	"github.com/syntasso/kratix/api/v1alpha1"
 	v1 "k8s.io/api/core/v1"
 	"k8s.io/apimachinery/pkg/api/errors"
+	apiMeta "k8s.io/apimachinery/pkg/api/meta"
+	metav1 "k8s.io/apimachinery/pkg/apis/meta/v1"
 	"k8s.io/apimachinery/pkg/runtime/schema"
 	"k8s.io/client-go/tools/record"
 	ctrl "sigs.k8s.io/controller-runtime"
@@ -92,6 +96,43 @@ func (r *WorkReconciler) Reconcile(ctx context.Context, req ctrl.Request) (ctrl.
 	if work.IsResourceRequest() && len(unscheduledWorkloadGroupIDs) > 0 {
 		logger.Info("no available Destinations for some of the workload groups, trying again shortly", "workloadGroupIDs", unscheduledWorkloadGroupIDs)
 		return slowRequeue, nil
+	}
+
+	workplacements, err := listWorkplacementWithLabels(r.Client, logger, work.GetNamespace(), map[string]string{
+		workLabelKey: work.Name,
+	})
+	if err != nil {
+		logger.Info("failed to list associated WorkPlacements")
+		return ctrl.Result{}, err
+	}
+
+	var failedWorkPlacements []string
+	for _, wp := range workplacements {
+		if apiMeta.IsStatusConditionFalse(wp.Status.Conditions, writeSucceededConditionType) {
+			failedWorkPlacements = append(failedWorkPlacements, wp.GetName())
+		}
+	}
+
+	if len(failedWorkPlacements) > 0 {
+		readyCond := metav1.Condition{
+			Type:    "Ready",
+			Status:  metav1.ConditionFalse,
+			Message: "Failing",
+			Reason:  "WorkplacementsFailing",
+		}
+		scheduleCond := metav1.Condition{
+			Type:   scheduleSucceededConditionType,
+			Status: metav1.ConditionFalse,
+			Message: fmt.Sprintf(
+				"Workplacements failed to write: [%s]",
+				strings.Join(failedWorkPlacements, ","),
+			),
+			Reason: "WorkplacementsFailing",
+		}
+		if apiMeta.SetStatusCondition(&work.Status.Conditions, scheduleCond) {
+			apiMeta.SetStatusCondition(&work.Status.Conditions, readyCond)
+			return ctrl.Result{}, r.Client.Status().Update(ctx, work)
+		}
 	}
 
 	return ctrl.Result{}, nil

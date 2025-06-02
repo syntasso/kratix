@@ -109,6 +109,11 @@ var _ = Describe("Core Tests", Ordered, func() {
 								}
 								g.Expect(conditions).To(ConsistOf(
 									metav1.Condition{
+										Type:    "ScheduleSucceeded",
+										Status:  metav1.ConditionTrue,
+										Reason:  "ScheduledToDestination",
+										Message: "Scheduled to correct Destination"},
+									metav1.Condition{
 										Type:    "Ready",
 										Status:  metav1.ConditionTrue,
 										Reason:  "WorkloadsWrittenToTargetDestination",
