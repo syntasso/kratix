@@ -95,9 +95,20 @@ func (r *WorkReconciler) Reconcile(ctx context.Context, req ctrl.Request) (ctrl.
 
 	if work.IsResourceRequest() && len(unscheduledWorkloadGroupIDs) > 0 {
 		logger.Info("no available Destinations for some of the workload groups, trying again shortly", "workloadGroupIDs", unscheduledWorkloadGroupIDs)
+		r.EventRecorder.Eventf(
+			work,
+			v1.EventTypeNormal,
+			"WaitingDestination",
+			"waiting for destination for workload group: [%s]",
+			strings.Join(unscheduledWorkloadGroupIDs, ","),
+		)
 		return slowRequeue, nil
 	}
 
+	return r.updateWorkStatus(ctx, logger, work)
+}
+
+func (r *WorkReconciler) updateWorkStatus(ctx context.Context, logger logr.Logger, work *v1alpha1.Work) (ctrl.Result, error) {
 	workplacements, err := listWorkplacementWithLabels(r.Client, logger, work.GetNamespace(), map[string]string{
 		workLabelKey: work.Name,
 	})
@@ -131,6 +142,7 @@ func (r *WorkReconciler) Reconcile(ctx context.Context, req ctrl.Request) (ctrl.
 		}
 		if apiMeta.SetStatusCondition(&work.Status.Conditions, scheduleCond) {
 			apiMeta.SetStatusCondition(&work.Status.Conditions, readyCond)
+			r.EventRecorder.Eventf(work, v1.EventTypeWarning, "WorkplacementsFailing", "Workplacements failed to write: [%s]", strings.Join(failedWorkPlacements, ","))
 			return ctrl.Result{}, r.Client.Status().Update(ctx, work)
 		}
 	}

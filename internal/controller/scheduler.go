@@ -143,9 +143,6 @@ func (s *Scheduler) updateWorkStatus(w *v1alpha1.Work, unscheduledWorkloadGroupI
 		}
 	}
 
-	// todo: failing condition, this currently only covers unscheduled, misplaced, and ready
-	// is this the right place to check workplacements status?? work_controller feels more natural
-
 	if apimeta.SetStatusCondition(&w.Status.Conditions, scheduleSucceededCond) {
 		apimeta.SetStatusCondition(&w.Status.Conditions, readyCond)
 		updated = true

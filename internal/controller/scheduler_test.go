@@ -10,7 +10,6 @@ import (
 	. "github.com/onsi/ginkgo/v2"
 	. "github.com/onsi/gomega"
 	"github.com/syntasso/kratix/api/v1alpha1"
-	. "github.com/syntasso/kratix/api/v1alpha1"
 	. "github.com/syntasso/kratix/internal/controller"
 	"github.com/syntasso/kratix/lib/compression"
 	"github.com/syntasso/kratix/lib/hash"
@@ -26,9 +25,9 @@ var _ = Describe("Controllers/Scheduler", func() {
 	var (
 		scheduler                                                                           *Scheduler
 		schedulerRecorder                                                                   *record.FakeRecorder
-		workPlacements                                                                      WorkPlacementList
+		workPlacements                                                                      v1alpha1.WorkPlacementList
 		fakeCompressedContent                                                               []byte
-		devDestination, devDestination2, pciDestination, prodDestination, strictDestination Destination
+		devDestination, devDestination2, pciDestination, prodDestination, strictDestination v1alpha1.Destination
 	)
 
 	BeforeEach(func() {
@@ -60,7 +59,7 @@ var _ = Describe("Controllers/Scheduler", func() {
 
 	Describe("#ReconcileWork", func() {
 		Describe("Scheduling Resources", func() {
-			var resourceWork, resourceWorkWithMultipleGroups Work
+			var resourceWork, resourceWorkWithMultipleGroups v1alpha1.Work
 
 			BeforeEach(func() {
 				resourceWork = newWork("rr-work-name", true, schedulingFor(devDestination))
@@ -97,13 +96,13 @@ var _ = Describe("Controllers/Scheduler", func() {
 			})
 
 			When("a resource Work with scheduling is reconciled twice", func() {
-				var workPlacement WorkPlacement
+				var workPlacement v1alpha1.WorkPlacement
 
 				BeforeEach(func() {
 					_, err := scheduler.ReconcileWork(&resourceWork)
 					Expect(err).ToNot(HaveOccurred())
 
-					latestWork := &Work{}
+					latestWork := &v1alpha1.Work{}
 					Expect(fakeK8sClient.Get(context.Background(), client.ObjectKeyFromObject(&resourceWork), latestWork)).To(Succeed())
 
 					Expect(fakeK8sClient.List(context.Background(), &workPlacements)).To(Succeed())
@@ -152,7 +151,7 @@ var _ = Describe("Controllers/Scheduler", func() {
 
 					// update the Work's WorkloadGroup with an extra Workload
 					Expect(fakeK8sClient.Get(context.Background(), client.ObjectKeyFromObject(&resourceWork), &resourceWork)).To(Succeed())
-					resourceWork.Spec.WorkloadGroups[0].Workloads = append(resourceWork.Spec.WorkloadGroups[0].Workloads, Workload{
+					resourceWork.Spec.WorkloadGroups[0].Workloads = append(resourceWork.Spec.WorkloadGroups[0].Workloads, v1alpha1.Workload{
 						Content: string(fakeCompressedContent),
 					})
 
@@ -165,7 +164,7 @@ var _ = Describe("Controllers/Scheduler", func() {
 					// expect the new Workload to be added to the existing WorkPlacement
 					workPlacement = workPlacements.Items[0]
 					Expect(workPlacement.Spec.Workloads).To(HaveLen(2))
-					Expect(workPlacement.Spec.Workloads).To(ContainElement(Workload{
+					Expect(workPlacement.Spec.Workloads).To(ContainElement(v1alpha1.Workload{
 						Content: string(fakeCompressedContent),
 					}))
 
@@ -185,7 +184,7 @@ var _ = Describe("Controllers/Scheduler", func() {
 
 					// set WorkloadGroups to an empty list and reconcile again
 					Expect(fakeK8sClient.Get(context.Background(), client.ObjectKeyFromObject(&resourceWork), &resourceWork)).To(Succeed())
-					resourceWork.Spec.WorkloadGroups = []WorkloadGroup{}
+					resourceWork.Spec.WorkloadGroups = []v1alpha1.WorkloadGroup{}
 					Expect(fakeK8sClient.Update(context.Background(), &resourceWork)).To(Succeed())
 					_, err = scheduler.ReconcileWork(&resourceWork)
 					Expect(err).ToNot(HaveOccurred())
@@ -220,15 +219,15 @@ var _ = Describe("Controllers/Scheduler", func() {
 					// append a new WorkloadGroup to the Work and reconcile again
 					Expect(fakeK8sClient.Get(context.Background(), client.ObjectKeyFromObject(&resourceWork), &resourceWork)).To(Succeed())
 					Expect(resourceWork.Spec.WorkloadGroups).To(HaveLen(1))
-					resourceWork.Spec.WorkloadGroups = append(resourceWork.Spec.WorkloadGroups, WorkloadGroup{
+					resourceWork.Spec.WorkloadGroups = append(resourceWork.Spec.WorkloadGroups, v1alpha1.WorkloadGroup{
 						Directory: "foo",
 						ID:        hash.ComputeHash("foo"),
-						Workloads: []Workload{
+						Workloads: []v1alpha1.Workload{
 							{
 								Content: string(fakeCompressedContent),
 							},
 						},
-						DestinationSelectors: []WorkloadGroupScheduling{schedulingFor(devDestination)},
+						DestinationSelectors: []v1alpha1.WorkloadGroupScheduling{schedulingFor(devDestination)},
 					})
 					Expect(fakeK8sClient.Update(context.Background(), &resourceWork)).To(Succeed())
 					_, err = scheduler.ReconcileWork(&resourceWork)
@@ -242,7 +241,7 @@ var _ = Describe("Controllers/Scheduler", func() {
 					// expect the new WorkloadGroup to create a new WorkPlacement
 					Expect(workPlacements.Items).To(HaveLen(2))
 
-					var newWorkPlacement WorkPlacement
+					var newWorkPlacement v1alpha1.WorkPlacement
 					for _, wp := range workPlacements.Items {
 						if wp.Spec.ID == hash.ComputeHash("foo") {
 							newWorkPlacement = wp
@@ -273,11 +272,11 @@ var _ = Describe("Controllers/Scheduler", func() {
 
 					// replace the WorkloadGroup in the Work and reconcile again
 					Expect(fakeK8sClient.Get(context.Background(), client.ObjectKeyFromObject(&resourceWork), &resourceWork)).To(Succeed())
-					resourceWork.Spec.WorkloadGroups = []WorkloadGroup{
+					resourceWork.Spec.WorkloadGroups = []v1alpha1.WorkloadGroup{
 						{
 							Directory: "foo",
 							ID:        hash.ComputeHash("foo"),
-							Workloads: []Workload{
+							Workloads: []v1alpha1.Workload{
 								{
 									Content: string(fakeCompressedContent),
 								},
@@ -325,7 +324,7 @@ var _ = Describe("Controllers/Scheduler", func() {
 						Expect(fakeK8sClient.List(context.Background(), &workPlacements)).To(Succeed())
 						Expect(workPlacements.Items).To(HaveLen(2))
 
-						var pciWorkPlacement, devOrProdWorkPlacement WorkPlacement
+						var pciWorkPlacement, devOrProdWorkPlacement v1alpha1.WorkPlacement
 						for _, wp := range workPlacements.Items {
 							if wp.Spec.TargetDestinationName == "pci" {
 								pciWorkPlacement = wp
@@ -362,7 +361,7 @@ var _ = Describe("Controllers/Scheduler", func() {
 				})
 
 				When("an update to the resource Work deletes one of the WorkloadGroups", func() {
-					var pciWorkPlacement WorkPlacement
+					var pciWorkPlacement v1alpha1.WorkPlacement
 
 					BeforeEach(func() {
 						_, err := scheduler.ReconcileWork(&resourceWorkWithMultipleGroups)
@@ -494,7 +493,7 @@ var _ = Describe("Controllers/Scheduler", func() {
 
 			When("scheduling is defined in the Promise, Promise Workflow and Resource Workflow", func() {
 				BeforeEach(func() {
-					resourceWork.Spec.WorkloadGroups[0].DestinationSelectors = []WorkloadGroupScheduling{
+					resourceWork.Spec.WorkloadGroups[0].DestinationSelectors = []v1alpha1.WorkloadGroupScheduling{
 						{
 							MatchLabels: map[string]string{
 								"environment": "dev",
@@ -529,7 +528,7 @@ var _ = Describe("Controllers/Scheduler", func() {
 		})
 
 		Describe("Scheduling Dependencies", func() {
-			var dependencyWork, dependencyWorkForDev, dependencyWorkForProd Work
+			var dependencyWork, dependencyWorkForDev, dependencyWorkForProd v1alpha1.Work
 
 			BeforeEach(func() {
 				dependencyWork = newWork("work-name", false)
@@ -707,7 +706,7 @@ var _ = Describe("Controllers/Scheduler", func() {
 					Expect(fakeK8sClient.List(context.Background(), &workPlacements)).To(Succeed())
 					Expect(workPlacements.Items).To(HaveLen(4))
 					for _, workPlacement := range workPlacements.Items {
-						Expect(workPlacement.Spec.Workloads).To(ConsistOf(Workload{
+						Expect(workPlacement.Spec.Workloads).To(ConsistOf(v1alpha1.Workload{
 							Content: "key: value",
 						}))
 						Expect(workPlacement.Spec.TargetDestinationName).ToNot(Equal(strictDestination.Name))
@@ -716,7 +715,7 @@ var _ = Describe("Controllers/Scheduler", func() {
 
 				It("updates WorkPlacements for all registered Destinations", func() {
 					Expect(fakeK8sClient.Get(context.Background(), client.ObjectKeyFromObject(&dependencyWork), &dependencyWork)).To(Succeed())
-					dependencyWork.Spec.WorkloadGroups[0].Workloads = append(dependencyWork.Spec.WorkloadGroups[0].Workloads, Workload{
+					dependencyWork.Spec.WorkloadGroups[0].Workloads = append(dependencyWork.Spec.WorkloadGroups[0].Workloads, v1alpha1.Workload{
 						Content: "fake: new-content",
 					})
 
@@ -729,8 +728,8 @@ var _ = Describe("Controllers/Scheduler", func() {
 					Expect(workPlacements.Items).To(HaveLen(4))
 					for _, workPlacement := range workPlacements.Items {
 						Expect(workPlacement.Spec.Workloads).To(ConsistOf(
-							Workload{Content: "key: value"},
-							Workload{Content: "fake: new-content"},
+							v1alpha1.Workload{Content: "key: value"},
+							v1alpha1.Workload{Content: "fake: new-content"},
 						))
 					}
 				})
@@ -791,7 +790,7 @@ var _ = Describe("Controllers/Scheduler", func() {
 				It("keeps the misplaced WorkPlacements updated", func() {
 					// update the Work's WorkloadGroup with an extra Workload
 					Expect(fakeK8sClient.Get(context.Background(), client.ObjectKeyFromObject(&dependencyWork), &dependencyWork)).To(Succeed())
-					dependencyWork.Spec.WorkloadGroups[0].Workloads = append(dependencyWork.Spec.WorkloadGroups[0].Workloads, Workload{
+					dependencyWork.Spec.WorkloadGroups[0].Workloads = append(dependencyWork.Spec.WorkloadGroups[0].Workloads, v1alpha1.Workload{
 						Content: "fake: new-content",
 					})
 
@@ -805,8 +804,8 @@ var _ = Describe("Controllers/Scheduler", func() {
 					// misplaced ones
 					for _, workPlacement := range workPlacements.Items {
 						Expect(workPlacement.Spec.Workloads).To(ConsistOf(
-							Workload{Content: "key: value"},
-							Workload{Content: "fake: new-content"},
+							v1alpha1.Workload{Content: "key: value"},
+							v1alpha1.Workload{Content: "fake: new-content"},
 						))
 					}
 				})
@@ -818,6 +817,7 @@ var _ = Describe("Controllers/Scheduler", func() {
 			BeforeEach(func() {
 				work = newWorkWithTwoWorkloadGroups("rr-work-name-with-two-groups", true, schedulingFor(devDestination), schedulingFor(pciDestination))
 			})
+
 			When("all workloads groups can be scheduled", func() {
 				BeforeEach(func() {
 					_, err := scheduler.ReconcileWork(&work)
@@ -843,6 +843,18 @@ var _ = Describe("Controllers/Scheduler", func() {
 					Expect(readyCond.Status).To(Equal(metav1.ConditionTrue))
 					Expect(scheduleSucceededCond.Reason).To(Equal("AllWorkplacementsScheduled"))
 					Expect(scheduleSucceededCond.Message).To(Equal("All workplacements scheduled successfully"))
+				})
+
+				It("sends the right events", func() {
+					workplacements := &v1alpha1.WorkPlacementList{}
+					Expect(fakeK8sClient.List(context.Background(), workplacements)).To(Succeed())
+
+					Eventually(schedulerRecorder.Events).Should(Receive(
+						ContainSubstring(
+							"workplacement reconciled: %s, operation: created",
+							workplacements.Items[0].GetName(),
+						),
+					))
 				})
 			})
 
@@ -877,6 +889,15 @@ var _ = Describe("Controllers/Scheduler", func() {
 					Expect(scheduleSucceededCond.Status).To(Equal(metav1.ConditionFalse))
 					Expect(scheduleSucceededCond.Reason).To(Equal("UnscheduledWorkloads"))
 					Expect(scheduleSucceededCond.Message).To(ContainSubstring("No matching destination found for workloadGroups: [%s]", work.Spec.WorkloadGroups[0].ID))
+				})
+
+				It("sends the right events", func() {
+					Eventually(schedulerRecorder.Events).Should(Receive(
+						ContainSubstring(
+							"waiting for a destination with labels for workloadGroup: %s",
+							work.Spec.WorkloadGroups[0].ID,
+						),
+					))
 				})
 			})
 
@@ -926,8 +947,8 @@ func misplacedWorkPlacementConditions() []metav1.Condition {
 	}
 }
 
-func newDestination(name string, labels map[string]string) Destination {
-	return Destination{
+func newDestination(name string, labels map[string]string) v1alpha1.Destination {
+	return v1alpha1.Destination{
 		ObjectMeta: metav1.ObjectMeta{
 			Name:   name,
 			Labels: labels,
@@ -935,12 +956,12 @@ func newDestination(name string, labels map[string]string) Destination {
 	}
 }
 
-func newWork(name string, isResource bool, scheduling ...WorkloadGroupScheduling) Work {
+func newWork(name string, isResource bool, scheduling ...v1alpha1.WorkloadGroupScheduling) v1alpha1.Work {
 	namespace := "default"
 	if !isResource {
-		namespace = SystemNamespace
+		namespace = v1alpha1.SystemNamespace
 	}
-	w := &Work{
+	w := &v1alpha1.Work{
 		ObjectMeta: metav1.ObjectMeta{
 			Name:      name,
 			Namespace: namespace,
@@ -953,11 +974,11 @@ func newWork(name string, isResource bool, scheduling ...WorkloadGroupScheduling
 				"kratix.io/some-annotation": "some-value",
 			},
 		},
-		Spec: WorkSpec{
+		Spec: v1alpha1.WorkSpec{
 			PromiseName: "promise",
-			WorkloadGroups: []WorkloadGroup{
+			WorkloadGroups: []v1alpha1.WorkloadGroup{
 				{
-					Workloads: []Workload{
+					Workloads: []v1alpha1.Workload{
 						{Content: "key: value"},
 					},
 					Directory:            ".",
@@ -977,10 +998,10 @@ func newWork(name string, isResource bool, scheduling ...WorkloadGroupScheduling
 	return *w
 }
 
-func newWorkWithTwoWorkloadGroups(name string, isResource bool, promiseScheduling, directoryOverrideScheduling WorkloadGroupScheduling) Work {
+func newWorkWithTwoWorkloadGroups(name string, isResource bool, promiseScheduling, directoryOverrideScheduling v1alpha1.WorkloadGroupScheduling) v1alpha1.Work {
 	namespace := "default"
 	if !isResource {
-		namespace = SystemNamespace
+		namespace = v1alpha1.SystemNamespace
 	}
 
 	newFakeCompressedContent, err := compression.CompressContent([]byte(string("key: value")))
@@ -988,7 +1009,7 @@ func newWorkWithTwoWorkloadGroups(name string, isResource bool, promiseSchedulin
 	additionalFakeCompressedContent, err := compression.CompressContent([]byte(string("foo: bar")))
 	Expect(err).ToNot(HaveOccurred())
 
-	w := &Work{
+	w := &v1alpha1.Work{
 		ObjectMeta: metav1.ObjectMeta{
 			Name:      name,
 			Namespace: namespace,
@@ -996,22 +1017,22 @@ func newWorkWithTwoWorkloadGroups(name string, isResource bool, promiseSchedulin
 				"kratix.io/annotation-key": "annotation-value",
 			},
 		},
-		Spec: WorkSpec{
+		Spec: v1alpha1.WorkSpec{
 			PromiseName: "promise",
-			WorkloadGroups: []WorkloadGroup{
+			WorkloadGroups: []v1alpha1.WorkloadGroup{
 				{
-					Workloads: []Workload{
+					Workloads: []v1alpha1.Workload{
 						{Content: string(newFakeCompressedContent)},
 					},
 					Directory:            ".",
 					ID:                   hash.ComputeHash("."),
-					DestinationSelectors: []WorkloadGroupScheduling{promiseScheduling},
+					DestinationSelectors: []v1alpha1.WorkloadGroupScheduling{promiseScheduling},
 				},
 				{
-					Workloads: []Workload{
+					Workloads: []v1alpha1.Workload{
 						{Content: string(additionalFakeCompressedContent)},
 					},
-					DestinationSelectors: []WorkloadGroupScheduling{directoryOverrideScheduling},
+					DestinationSelectors: []v1alpha1.WorkloadGroupScheduling{directoryOverrideScheduling},
 					Directory:            "foo",
 					ID:                   hash.ComputeHash("foo"),
 				},
@@ -1024,17 +1045,17 @@ func newWorkWithTwoWorkloadGroups(name string, isResource bool, promiseSchedulin
 
 	Expect(fakeK8sClient.Create(context.Background(), w)).To(Succeed())
 
-	workWithDefaultFields := &Work{}
+	workWithDefaultFields := &v1alpha1.Work{}
 	Expect(fakeK8sClient.Get(context.Background(), client.ObjectKeyFromObject(w), workWithDefaultFields)).To(Succeed())
 
 	return *workWithDefaultFields
 }
 
-func schedulingFor(destination Destination) WorkloadGroupScheduling {
+func schedulingFor(destination v1alpha1.Destination) v1alpha1.WorkloadGroupScheduling {
 	if len(destination.GetLabels()) == 0 {
-		return WorkloadGroupScheduling{}
+		return v1alpha1.WorkloadGroupScheduling{}
 	}
-	return WorkloadGroupScheduling{
+	return v1alpha1.WorkloadGroupScheduling{
 		MatchLabels: destination.GetLabels(),
 		Source:      "promise",
 	}
