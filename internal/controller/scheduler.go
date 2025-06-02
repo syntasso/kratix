@@ -234,6 +234,8 @@ func (s *Scheduler) reconcileWorkloadGroup(workloadGroup v1alpha1.WorkloadGroup,
 
 	if len(targetDestinationMap) == 0 {
 		s.Log.Info("no Destinations can be selected for scheduling", "scheduling", destinationSelectors, "workloadGroupDirectory", workloadGroup.Directory, "workloadGroupID", workloadGroup.ID)
+		s.EventRecorder.Eventf(work, corev1.EventTypeNormal, "NoMatchingDestination",
+			"waiting for a destination with labels for workloadGroup: %s", workloadGroup.ID)
 		return unscheduledStatus, nil
 	}
 
@@ -368,6 +370,8 @@ func (s *Scheduler) applyWorkplacementsForTargetDestinations(workloadGroup v1alp
 			return false, err
 		}
 		s.Log.Info("workplacement reconciled", "operation", op, "namespace", workPlacement.GetNamespace(), "workplacement", workPlacement.GetName(), "work", work.GetName(), "destination", targetDestinationName)
+		s.EventRecorder.Eventf(work, corev1.EventTypeNormal, "WorkplacementReconciled",
+			"workplacement reconciled: %s, operation: %s", workPlacement.GetName(), op)
 	}
 	return containsMischeduledWorkplacement, nil
 }

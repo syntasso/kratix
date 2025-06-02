@@ -21,8 +21,10 @@ import (
 
 	"github.com/go-logr/logr"
 	"github.com/syntasso/kratix/api/v1alpha1"
+	v1 "k8s.io/api/core/v1"
 	"k8s.io/apimachinery/pkg/api/errors"
 	"k8s.io/apimachinery/pkg/runtime/schema"
+	"k8s.io/client-go/tools/record"
 	ctrl "sigs.k8s.io/controller-runtime"
 	"sigs.k8s.io/controller-runtime/pkg/client"
 	"sigs.k8s.io/controller-runtime/pkg/controller/controllerutil"
@@ -34,9 +36,10 @@ const workCleanUpFinalizer = v1alpha1.KratixPrefix + "work-cleanup"
 
 // WorkReconciler reconciles a Work object.
 type WorkReconciler struct {
-	Client    client.Client
-	Log       logr.Logger
-	Scheduler WorkScheduler
+	Client        client.Client
+	Log           logr.Logger
+	Scheduler     WorkScheduler
+	EventRecorder record.EventRecorder
 }
 
 //counterfeiter:generate . WorkScheduler
@@ -104,6 +107,8 @@ func (r *WorkReconciler) deleteWork(ctx context.Context, work *v1alpha1.Work) (c
 	resourcesRemaining, err := deleteAllResourcesWithKindMatchingLabel(opts{client: r.Client, logger: r.Log, ctx: ctx},
 		&workplacementGVK, map[string]string{workLabelKey: work.Name})
 	if err != nil {
+		r.EventRecorder.Eventf(work, v1.EventTypeWarning, "FailedDelete",
+			"deleting work failed: %s", err.Error())
 		return defaultRequeue, err
 	}
 
