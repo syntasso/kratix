@@ -648,7 +648,7 @@ files:
 						metav1.Condition{
 							Type:    "Ready",
 							Status:  metav1.ConditionFalse,
-							Reason:  "",
+							Reason:  "WorkloadsFailedWrite",
 							Message: "Failing"}))
 					Eventually(workplacementRecorder.Events).Should(Receive(ContainSubstring(
 						"failed writing to Destination: test-destination with error: whatever error; check kubectl get destination for more info")))
