@@ -415,10 +415,7 @@ func (s *Scheduler) updateWorkPlacementStatus(workPlacement *v1alpha1.WorkPlacem
 
 	if apimeta.SetStatusCondition(&updatedwp.Status.Conditions, desiredScheduleCond) {
 		apimeta.SetStatusCondition(&updatedwp.Status.Conditions, desiredReadyCond)
-		s.Log.Info("updating", "desiredScheduleCond.status", desiredScheduleCond.Status)
 		return s.Client.Status().Update(context.Background(), updatedwp)
-	} else {
-		s.Log.Info("not updated", "desiredScheduleCond.status", desiredScheduleCond.Status)
 	}
 	return nil
 }
