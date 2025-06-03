@@ -18,11 +18,17 @@ package controller
 
 import (
 	"context"
+	"fmt"
+	"strings"
 
 	"github.com/go-logr/logr"
 	"github.com/syntasso/kratix/api/v1alpha1"
+	v1 "k8s.io/api/core/v1"
 	"k8s.io/apimachinery/pkg/api/errors"
+	apiMeta "k8s.io/apimachinery/pkg/api/meta"
+	metav1 "k8s.io/apimachinery/pkg/apis/meta/v1"
 	"k8s.io/apimachinery/pkg/runtime/schema"
+	"k8s.io/client-go/tools/record"
 	ctrl "sigs.k8s.io/controller-runtime"
 	"sigs.k8s.io/controller-runtime/pkg/client"
 	"sigs.k8s.io/controller-runtime/pkg/controller/controllerutil"
@@ -32,12 +38,12 @@ import (
 
 const workCleanUpFinalizer = v1alpha1.KratixPrefix + "work-cleanup"
 
-// WorkReconciler reconciles a Work object
+// WorkReconciler reconciles a Work object.
 type WorkReconciler struct {
-	Client    client.Client
-	Log       logr.Logger
-	Scheduler WorkScheduler
-	Disabled  bool
+	Client        client.Client
+	Log           logr.Logger
+	Scheduler     WorkScheduler
+	EventRecorder record.EventRecorder
 }
 
 //counterfeiter:generate . WorkScheduler
@@ -50,12 +56,8 @@ type WorkScheduler interface {
 //+kubebuilder:rbac:groups=platform.kratix.io,resources=works/finalizers,verbs=update
 
 func (r *WorkReconciler) Reconcile(ctx context.Context, req ctrl.Request) (ctrl.Result, error) {
-	if r.Disabled {
-		//TODO tech debt. We want this controller running *for some unit tests*, not
-		//for all. So we do this to disable it
-		return ctrl.Result{}, nil
-	}
 	logger := r.Log.WithValues("work", req.NamespacedName)
+
 	logger.Info("Reconciling Work")
 
 	work := &v1alpha1.Work{}
@@ -65,7 +67,7 @@ func (r *WorkReconciler) Reconcile(ctx context.Context, req ctrl.Request) (ctrl.
 			return ctrl.Result{}, nil
 		}
 		logger.Error(err, "Error getting Work")
-		return ctrl.Result{Requeue: false}, err
+		return ctrl.Result{}, err
 	}
 
 	if !work.DeletionTimestamp.IsZero() {
@@ -80,24 +82,72 @@ func (r *WorkReconciler) Reconcile(ctx context.Context, req ctrl.Request) (ctrl.
 	}
 
 	logger.Info("Requesting scheduling for Work")
+
 	unscheduledWorkloadGroupIDs, err := r.Scheduler.ReconcileWork(work)
-	if errors.IsConflict(err) {
-		logger.Info("failed to schedule Work due to update conflict, requeue...")
-		return fastRequeue, nil
-	} else if err != nil {
-		//TODO remove this error checking
-		//temp fix until resolved: https://syntasso.slack.com/archives/C044T9ZFUMN/p1674058648965449
-		logger.Error(err, "Error scheduling Work, will retry...")
-		return defaultRequeue, err
+	if err != nil {
+		if errors.IsConflict(err) {
+			logger.Info("failed to schedule Work due to update conflict, requeue...")
+			return fastRequeue, nil
+		}
+		logger.Error(err, "error scheduling Work, will retry...")
+		return ctrl.Result{}, err
 	}
 
 	if work.IsResourceRequest() && len(unscheduledWorkloadGroupIDs) > 0 {
 		logger.Info("no available Destinations for some of the workload groups, trying again shortly", "workloadGroupIDs", unscheduledWorkloadGroupIDs)
+		r.EventRecorder.Eventf(
+			work,
+			v1.EventTypeNormal,
+			"WaitingDestination",
+			"waiting for destination for workload group: [%s]",
+			strings.Join(unscheduledWorkloadGroupIDs, ","),
+		)
 		return slowRequeue, nil
 	}
 
-	return ctrl.Result{}, nil
+	return r.updateWorkStatus(ctx, logger, work)
+}
 
+func (r *WorkReconciler) updateWorkStatus(ctx context.Context, logger logr.Logger, work *v1alpha1.Work) (ctrl.Result, error) {
+	workplacements, err := listWorkplacementWithLabels(r.Client, logger, work.GetNamespace(), map[string]string{
+		workLabelKey: work.Name,
+	})
+	if err != nil {
+		logger.Info("failed to list associated WorkPlacements")
+		return ctrl.Result{}, err
+	}
+
+	var failedWorkPlacements []string
+	for _, wp := range workplacements {
+		if apiMeta.IsStatusConditionFalse(wp.Status.Conditions, writeSucceededConditionType) {
+			failedWorkPlacements = append(failedWorkPlacements, wp.GetName())
+		}
+	}
+
+	if len(failedWorkPlacements) > 0 {
+		readyCond := metav1.Condition{
+			Type:    "Ready",
+			Status:  metav1.ConditionFalse,
+			Message: "Failing",
+			Reason:  "WorkplacementsFailing",
+		}
+		scheduleCond := metav1.Condition{
+			Type:   scheduleSucceededConditionType,
+			Status: metav1.ConditionFalse,
+			Message: fmt.Sprintf(
+				"Workplacements failed to write: [%s]",
+				strings.Join(failedWorkPlacements, ","),
+			),
+			Reason: "WorkplacementsFailing",
+		}
+		if apiMeta.SetStatusCondition(&work.Status.Conditions, scheduleCond) {
+			apiMeta.SetStatusCondition(&work.Status.Conditions, readyCond)
+			r.EventRecorder.Eventf(work, v1.EventTypeWarning, "WorkplacementsFailing", "Workplacements failed to write: [%s]", strings.Join(failedWorkPlacements, ","))
+			return ctrl.Result{}, r.Client.Status().Update(ctx, work)
+		}
+	}
+
+	return ctrl.Result{}, nil
 }
 
 func (r *WorkReconciler) deleteWork(ctx context.Context, work *v1alpha1.Work) (ctrl.Result, error) {
@@ -110,6 +160,8 @@ func (r *WorkReconciler) deleteWork(ctx context.Context, work *v1alpha1.Work) (c
 	resourcesRemaining, err := deleteAllResourcesWithKindMatchingLabel(opts{client: r.Client, logger: r.Log, ctx: ctx},
 		&workplacementGVK, map[string]string{workLabelKey: work.Name})
 	if err != nil {
+		r.EventRecorder.Eventf(work, v1.EventTypeWarning, "FailedDelete",
+			"deleting work failed: %s", err.Error())
 		return defaultRequeue, err
 	}
 

@@ -16,7 +16,12 @@ spec:
     singular: work
   scope: Namespaced
   versions:
-  - name: v1alpha1
+  - additionalPrinterColumns:
+    - description: Status of this Work.
+      jsonPath: .status.conditions[?(@.type=="Ready")].message
+      name: STATUS
+      type: string
+    name: v1alpha1
     schema:
       openAPIV3Schema:
         description: Work is the Schema for the works API
@@ -147,6 +152,10 @@ spec:
                   - type
                   type: object
                 type: array
+              workPlacements:
+                type: integer
+              workPlacementsCreated:
+                type: integer
             type: object
         type: object
     served: true

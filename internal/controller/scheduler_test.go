@@ -10,11 +10,11 @@ import (
 	. "github.com/onsi/ginkgo/v2"
 	. "github.com/onsi/gomega"
 	"github.com/syntasso/kratix/api/v1alpha1"
-	. "github.com/syntasso/kratix/api/v1alpha1"
 	. "github.com/syntasso/kratix/internal/controller"
 	"github.com/syntasso/kratix/lib/compression"
 	"github.com/syntasso/kratix/lib/hash"
-	v1 "k8s.io/apimachinery/pkg/apis/meta/v1"
+	apimeta "k8s.io/apimachinery/pkg/api/meta"
+	metav1 "k8s.io/apimachinery/pkg/apis/meta/v1"
 	"k8s.io/apimachinery/pkg/types"
 	"k8s.io/client-go/tools/record"
 	ctrl "sigs.k8s.io/controller-runtime"
@@ -25,9 +25,9 @@ var _ = Describe("Controllers/Scheduler", func() {
 	var (
 		scheduler                                                                           *Scheduler
 		schedulerRecorder                                                                   *record.FakeRecorder
-		workPlacements                                                                      WorkPlacementList
+		workPlacements                                                                      v1alpha1.WorkPlacementList
 		fakeCompressedContent                                                               []byte
-		devDestination, devDestination2, pciDestination, prodDestination, strictDestination Destination
+		devDestination, devDestination2, pciDestination, prodDestination, strictDestination v1alpha1.Destination
 	)
 
 	BeforeEach(func() {
@@ -59,7 +59,7 @@ var _ = Describe("Controllers/Scheduler", func() {
 
 	Describe("#ReconcileWork", func() {
 		Describe("Scheduling Resources", func() {
-			var resourceWork, resourceWorkWithMultipleGroups Work
+			var resourceWork, resourceWorkWithMultipleGroups v1alpha1.Work
 
 			BeforeEach(func() {
 				resourceWork = newWork("rr-work-name", true, schedulingFor(devDestination))
@@ -93,31 +93,16 @@ var _ = Describe("Controllers/Scheduler", func() {
 					))
 					Expect(workPlacement.GetAnnotations()).To(Equal(resourceWork.GetAnnotations()))
 				})
-
-				It("sets the scheduling conditions on the Work", func() {
-					Expect(fakeK8sClient.Get(context.Background(), client.ObjectKeyFromObject(&resourceWork), &resourceWork)).To(Succeed())
-					Expect(resourceWork.Status.Conditions).To(HaveLen(2))
-
-					Expect(resourceWork.Status.Conditions[0].Type).To(Equal("Scheduled"))
-					Expect(resourceWork.Status.Conditions[0].Status).To(Equal(v1.ConditionTrue))
-					Expect(resourceWork.Status.Conditions[0].Message).To(Equal("All WorkloadGroups scheduled to Destination(s)"))
-					Expect(resourceWork.Status.Conditions[0].Reason).To(Equal("ScheduledToDestinations"))
-
-					Expect(resourceWork.Status.Conditions[1].Type).To(Equal("Misscheduled"))
-					Expect(resourceWork.Status.Conditions[1].Status).To(Equal(v1.ConditionFalse))
-					Expect(resourceWork.Status.Conditions[1].Message).To(Equal("WorkGroups that have been scheduled are at the correct Destination(s)"))
-					Expect(resourceWork.Status.Conditions[1].Reason).To(Equal("ScheduledToCorrectDestinations"))
-				})
 			})
 
 			When("a resource Work with scheduling is reconciled twice", func() {
-				var workPlacement WorkPlacement
+				var workPlacement v1alpha1.WorkPlacement
 
 				BeforeEach(func() {
 					_, err := scheduler.ReconcileWork(&resourceWork)
 					Expect(err).ToNot(HaveOccurred())
 
-					latestWork := &Work{}
+					latestWork := &v1alpha1.Work{}
 					Expect(fakeK8sClient.Get(context.Background(), client.ObjectKeyFromObject(&resourceWork), latestWork)).To(Succeed())
 
 					Expect(fakeK8sClient.List(context.Background(), &workPlacements)).To(Succeed())
@@ -166,7 +151,7 @@ var _ = Describe("Controllers/Scheduler", func() {
 
 					// update the Work's WorkloadGroup with an extra Workload
 					Expect(fakeK8sClient.Get(context.Background(), client.ObjectKeyFromObject(&resourceWork), &resourceWork)).To(Succeed())
-					resourceWork.Spec.WorkloadGroups[0].Workloads = append(resourceWork.Spec.WorkloadGroups[0].Workloads, Workload{
+					resourceWork.Spec.WorkloadGroups[0].Workloads = append(resourceWork.Spec.WorkloadGroups[0].Workloads, v1alpha1.Workload{
 						Content: string(fakeCompressedContent),
 					})
 
@@ -179,7 +164,7 @@ var _ = Describe("Controllers/Scheduler", func() {
 					// expect the new Workload to be added to the existing WorkPlacement
 					workPlacement = workPlacements.Items[0]
 					Expect(workPlacement.Spec.Workloads).To(HaveLen(2))
-					Expect(workPlacement.Spec.Workloads).To(ContainElement(Workload{
+					Expect(workPlacement.Spec.Workloads).To(ContainElement(v1alpha1.Workload{
 						Content: string(fakeCompressedContent),
 					}))
 
@@ -199,11 +184,13 @@ var _ = Describe("Controllers/Scheduler", func() {
 
 					// set WorkloadGroups to an empty list and reconcile again
 					Expect(fakeK8sClient.Get(context.Background(), client.ObjectKeyFromObject(&resourceWork), &resourceWork)).To(Succeed())
-					resourceWork.Spec.WorkloadGroups = []WorkloadGroup{}
+					resourceWork.Spec.WorkloadGroups = []v1alpha1.WorkloadGroup{}
+					Expect(fakeK8sClient.Update(context.Background(), &resourceWork)).To(Succeed())
 					_, err = scheduler.ReconcileWork(&resourceWork)
 					Expect(err).ToNot(HaveOccurred())
 				})
 
+				/* what is this testing? */
 				It("removes the WorkPlacements for the deleted WorkloadGroup", func() {
 					Expect(fakeK8sClient.List(context.Background(), &workPlacements)).To(Succeed())
 
@@ -231,17 +218,20 @@ var _ = Describe("Controllers/Scheduler", func() {
 
 					// append a new WorkloadGroup to the Work and reconcile again
 					Expect(fakeK8sClient.Get(context.Background(), client.ObjectKeyFromObject(&resourceWork), &resourceWork)).To(Succeed())
-					resourceWork.Spec.WorkloadGroups = append(resourceWork.Spec.WorkloadGroups, WorkloadGroup{
+					Expect(resourceWork.Spec.WorkloadGroups).To(HaveLen(1))
+					resourceWork.Spec.WorkloadGroups = append(resourceWork.Spec.WorkloadGroups, v1alpha1.WorkloadGroup{
 						Directory: "foo",
 						ID:        hash.ComputeHash("foo"),
-						Workloads: []Workload{
+						Workloads: []v1alpha1.Workload{
 							{
 								Content: string(fakeCompressedContent),
 							},
 						},
-						DestinationSelectors: []WorkloadGroupScheduling{schedulingFor(devDestination)},
+						DestinationSelectors: []v1alpha1.WorkloadGroupScheduling{schedulingFor(devDestination)},
 					})
+					Expect(fakeK8sClient.Update(context.Background(), &resourceWork)).To(Succeed())
 					_, err = scheduler.ReconcileWork(&resourceWork)
+					Expect(resourceWork.Spec.WorkloadGroups).To(HaveLen(2))
 					Expect(err).ToNot(HaveOccurred())
 				})
 
@@ -251,7 +241,7 @@ var _ = Describe("Controllers/Scheduler", func() {
 					// expect the new WorkloadGroup to create a new WorkPlacement
 					Expect(workPlacements.Items).To(HaveLen(2))
 
-					var newWorkPlacement WorkPlacement
+					var newWorkPlacement v1alpha1.WorkPlacement
 					for _, wp := range workPlacements.Items {
 						if wp.Spec.ID == hash.ComputeHash("foo") {
 							newWorkPlacement = wp
@@ -261,6 +251,7 @@ var _ = Describe("Controllers/Scheduler", func() {
 					Expect(newWorkPlacement.ObjectMeta.Labels["kratix.io/work"]).To(Equal("rr-work-name"))
 					Expect(newWorkPlacement.ObjectMeta.Labels["kratix.io/workload-group-id"]).To(Equal(hash.ComputeHash("foo")))
 					Expect(newWorkPlacement.Name).To(Equal("rr-work-name." + newWorkPlacement.Spec.TargetDestinationName + "-" + hash.ComputeHash("foo")[0:5]))
+					Expect(resourceWork.Spec.WorkloadGroups).To(HaveLen(2))
 					Expect(newWorkPlacement.Spec.Workloads).To(Equal(resourceWork.Spec.WorkloadGroups[1].Workloads))
 					Expect(newWorkPlacement.Spec.ID).To(Equal(resourceWork.Spec.WorkloadGroups[1].ID))
 					Expect(newWorkPlacement.Spec.TargetDestinationName).To(MatchRegexp("prod|dev\\-\\d"))
@@ -281,11 +272,11 @@ var _ = Describe("Controllers/Scheduler", func() {
 
 					// replace the WorkloadGroup in the Work and reconcile again
 					Expect(fakeK8sClient.Get(context.Background(), client.ObjectKeyFromObject(&resourceWork), &resourceWork)).To(Succeed())
-					resourceWork.Spec.WorkloadGroups = []WorkloadGroup{
+					resourceWork.Spec.WorkloadGroups = []v1alpha1.WorkloadGroup{
 						{
 							Directory: "foo",
 							ID:        hash.ComputeHash("foo"),
-							Workloads: []Workload{
+							Workloads: []v1alpha1.Workload{
 								{
 									Content: string(fakeCompressedContent),
 								},
@@ -333,7 +324,7 @@ var _ = Describe("Controllers/Scheduler", func() {
 						Expect(fakeK8sClient.List(context.Background(), &workPlacements)).To(Succeed())
 						Expect(workPlacements.Items).To(HaveLen(2))
 
-						var pciWorkPlacement, devOrProdWorkPlacement WorkPlacement
+						var pciWorkPlacement, devOrProdWorkPlacement v1alpha1.WorkPlacement
 						for _, wp := range workPlacements.Items {
 							if wp.Spec.TargetDestinationName == "pci" {
 								pciWorkPlacement = wp
@@ -370,7 +361,7 @@ var _ = Describe("Controllers/Scheduler", func() {
 				})
 
 				When("an update to the resource Work deletes one of the WorkloadGroups", func() {
-					var pciWorkPlacement WorkPlacement
+					var pciWorkPlacement v1alpha1.WorkPlacement
 
 					BeforeEach(func() {
 						_, err := scheduler.ReconcileWork(&resourceWorkWithMultipleGroups)
@@ -394,6 +385,7 @@ var _ = Describe("Controllers/Scheduler", func() {
 							}
 						}
 
+						Expect(fakeK8sClient.Update(context.Background(), &resourceWorkWithMultipleGroups)).To(Succeed())
 						_, err = scheduler.ReconcileWork(&resourceWorkWithMultipleGroups)
 						Expect(err).ToNot(HaveOccurred())
 					})
@@ -478,46 +470,30 @@ var _ = Describe("Controllers/Scheduler", func() {
 
 					workPlacement := workPlacements.Items[0]
 					Expect(workPlacement.Spec.TargetDestinationName).To(Equal(preUpdateDestination))
-					Expect(workPlacement.GetLabels()).To(HaveKeyWithValue("kratix.io/misscheduled", "true"))
+					Expect(workPlacement.GetLabels()).To(HaveKeyWithValue("kratix.io/misplaced", "true"))
 					Expect(workPlacement.GetLabels()).To(HaveKeyWithValue("kratix.io/workload-group-id", hash.ComputeHash(".")))
 					Expect(workPlacement.Status.Conditions).To(HaveLen(2))
 					//ignore time for assertion
-					workPlacement.Status.Conditions[0].LastTransitionTime = v1.Time{}
-					workPlacement.Status.Conditions[1].LastTransitionTime = v1.Time{}
-					Expect(workPlacement.Status.Conditions).To(ConsistOf(
-						v1.Condition{
-							Message: "Target destination no longer matches destinationSelectors",
-							Reason:  "DestinationSelectorMismatch",
-							Type:    "Misscheduled",
-							Status:  v1.ConditionTrue},
-						v1.Condition{
-							Message: "Misscheduled",
-							Reason:  "Misscheduled",
-							Type:    "Ready",
-							Status:  v1.ConditionFalse},
-					))
+					workPlacement.Status.Conditions[0].LastTransitionTime = metav1.Time{}
+					workPlacement.Status.Conditions[1].LastTransitionTime = metav1.Time{}
+					Expect(workPlacement.Status.Conditions).To(ConsistOf(misplacedWorkPlacementConditions()))
 					Eventually(schedulerRecorder.Events).Should(Receive(ContainSubstring(
 						fmt.Sprintf("labels for destination: %s no longer match the expected labels, "+
-							"marking this workplacement as misscheduled", preUpdateDestination))))
+							"marking this workplacement as misplaced", preUpdateDestination))))
 				})
 
-				It("labels the resource Work to indicate it's misscheduled", func() {
+				It("sets correct status conditions on the resource Work to indicate it's misplaced", func() {
 					Expect(fakeK8sClient.Get(context.Background(), client.ObjectKeyFromObject(&resourceWork), &resourceWork)).To(Succeed())
 					Expect(resourceWork.Status.Conditions).To(HaveLen(2))
-
-					Expect(resourceWork.Status.Conditions[0].Type).To(Equal("Scheduled"))
-					Expect(resourceWork.Status.Conditions[0].Status).To(Equal(v1.ConditionTrue))
-
-					Expect(resourceWork.Status.Conditions[1].Type).To(Equal("Misscheduled"))
-					Expect(resourceWork.Status.Conditions[1].Status).To(Equal(v1.ConditionTrue))
-					Expect(resourceWork.Status.Conditions[1].Message).To(Equal("WorkloadGroup(s) not scheduled to correct Destination(s): [" + resourceWork.Spec.WorkloadGroups[0].ID + "]"))
-					Expect(resourceWork.Status.Conditions[1].Reason).To(Equal("ScheduledToIncorrectDestinations"))
+					resourceWork.Status.Conditions[0].LastTransitionTime = metav1.Time{}
+					resourceWork.Status.Conditions[1].LastTransitionTime = metav1.Time{}
+					Expect(resourceWork.Status.Conditions).To(ConsistOf(misplacedConditions(resourceWork.Spec.WorkloadGroups[0].ID)))
 				})
 			})
 
 			When("scheduling is defined in the Promise, Promise Workflow and Resource Workflow", func() {
 				BeforeEach(func() {
-					resourceWork.Spec.WorkloadGroups[0].DestinationSelectors = []WorkloadGroupScheduling{
+					resourceWork.Spec.WorkloadGroups[0].DestinationSelectors = []v1alpha1.WorkloadGroupScheduling{
 						{
 							MatchLabels: map[string]string{
 								"environment": "dev",
@@ -552,7 +528,7 @@ var _ = Describe("Controllers/Scheduler", func() {
 		})
 
 		Describe("Scheduling Dependencies", func() {
-			var dependencyWork, dependencyWorkForDev, dependencyWorkForProd Work
+			var dependencyWork, dependencyWorkForDev, dependencyWorkForProd v1alpha1.Work
 
 			BeforeEach(func() {
 				dependencyWork = newWork("work-name", false)
@@ -710,20 +686,12 @@ var _ = Describe("Controllers/Scheduler", func() {
 					Expect(workPlacements.Items).To(BeEmpty())
 				})
 
-				It("marks the Work as unscheduled", func() {
-					Expect(dependencyWork.Status.Conditions).To(HaveLen(2))
-					Expect(dependencyWork.Status.Conditions[0].Type).To(Equal("Scheduled"))
-					Expect(dependencyWork.Status.Conditions[0].Status).To(Equal(v1.ConditionFalse))
-					Expect(dependencyWork.Status.Conditions[0].Message).To(Equal("No Destinations available work WorkloadGroups: [" + dependencyWork.Spec.WorkloadGroups[0].ID + "]"))
-					Expect(dependencyWork.Status.Conditions[0].Reason).To(Equal("UnscheduledWorkloadGroups"))
+				It("does not mark the Work as scheduled", func() {
+					Expect(dependencyWork.Status.Conditions[0].Type).To(Equal("ScheduleSucceeded"))
+					Expect(dependencyWork.Status.Conditions[0].Status).To(Equal(metav1.ConditionFalse))
 				})
 
-				It("does not mark the Work as misscheduled", func() {
-					Expect(dependencyWork.Status.Conditions[1].Type).To(Equal("Misscheduled"))
-					Expect(dependencyWork.Status.Conditions[1].Status).To(Equal(v1.ConditionFalse))
-				})
-
-				It("returns an error indicating what was unschedulable", func() {
+				It("returns the unschedulable workload group IDs", func() {
 					Expect(unschedulable).To(ConsistOf(hash.ComputeHash(".")))
 				})
 			})
@@ -738,7 +706,7 @@ var _ = Describe("Controllers/Scheduler", func() {
 					Expect(fakeK8sClient.List(context.Background(), &workPlacements)).To(Succeed())
 					Expect(workPlacements.Items).To(HaveLen(4))
 					for _, workPlacement := range workPlacements.Items {
-						Expect(workPlacement.Spec.Workloads).To(ConsistOf(Workload{
+						Expect(workPlacement.Spec.Workloads).To(ConsistOf(v1alpha1.Workload{
 							Content: "key: value",
 						}))
 						Expect(workPlacement.Spec.TargetDestinationName).ToNot(Equal(strictDestination.Name))
@@ -747,7 +715,7 @@ var _ = Describe("Controllers/Scheduler", func() {
 
 				It("updates WorkPlacements for all registered Destinations", func() {
 					Expect(fakeK8sClient.Get(context.Background(), client.ObjectKeyFromObject(&dependencyWork), &dependencyWork)).To(Succeed())
-					dependencyWork.Spec.WorkloadGroups[0].Workloads = append(dependencyWork.Spec.WorkloadGroups[0].Workloads, Workload{
+					dependencyWork.Spec.WorkloadGroups[0].Workloads = append(dependencyWork.Spec.WorkloadGroups[0].Workloads, v1alpha1.Workload{
 						Content: "fake: new-content",
 					})
 
@@ -760,8 +728,8 @@ var _ = Describe("Controllers/Scheduler", func() {
 					Expect(workPlacements.Items).To(HaveLen(4))
 					for _, workPlacement := range workPlacements.Items {
 						Expect(workPlacement.Spec.Workloads).To(ConsistOf(
-							Workload{Content: "key: value"},
-							Workload{Content: "fake: new-content"},
+							v1alpha1.Workload{Content: "key: value"},
+							v1alpha1.Workload{Content: "fake: new-content"},
 						))
 					}
 				})
@@ -773,7 +741,7 @@ var _ = Describe("Controllers/Scheduler", func() {
 					Expect(err).ToNot(HaveOccurred())
 
 					// add scheduling for the devDestination, so that the WorkPlacements
-					// for prod and pci are now misscheduled
+					// for prod and pci are now misplaced
 					Expect(fakeK8sClient.Get(context.Background(), client.ObjectKeyFromObject(&dependencyWork), &dependencyWork)).To(Succeed())
 					dependencyWork.Spec.WorkloadGroups[0].DestinationSelectors = []v1alpha1.WorkloadGroupScheduling{
 						schedulingFor(devDestination),
@@ -792,37 +760,37 @@ var _ = Describe("Controllers/Scheduler", func() {
 					})
 				})
 
-				It("marks existing WorkPlacements which no longer match as misscheduled", func() {
-					// the two dev WorkPlacements should not be marked as misscheduled
+				It("marks existing WorkPlacements which no longer match as misplaced", func() {
+					// the two dev WorkPlacements should not be marked as misplaced
 					Expect(workPlacements.Items[0].Spec.TargetDestinationName).To(Equal("dev-1"))
-					Expect(workPlacements.Items[0].GetLabels()).NotTo(HaveKey("kratix.io/misscheduled"))
+					Expect(workPlacements.Items[0].GetLabels()).NotTo(HaveKey("kratix.io/misplaced"))
 
 					Expect(workPlacements.Items[1].Spec.TargetDestinationName).To(Equal("dev-2"))
-					Expect(workPlacements.Items[1].GetLabels()).NotTo(HaveKey("kratix.io/misscheduled"))
+					Expect(workPlacements.Items[1].GetLabels()).NotTo(HaveKey("kratix.io/misplaced"))
 
-					// the pci and prod WorkPlacements should be marked as misscheduled
+					// the pci and prod WorkPlacements should be marked as misplaced
 
 					Expect(workPlacements.Items[2].Spec.TargetDestinationName).To(Equal("pci"))
-					Expect(workPlacements.Items[2].GetLabels()).To(HaveKeyWithValue("kratix.io/misscheduled", "true"))
+					Expect(workPlacements.Items[2].GetLabels()).To(HaveKeyWithValue("kratix.io/misplaced", "true"))
 					Expect(workPlacements.Items[2].Status.Conditions).To(HaveLen(2))
 					//ignore time for assertion
-					workPlacements.Items[2].Status.Conditions[0].LastTransitionTime = v1.Time{}
-					workPlacements.Items[2].Status.Conditions[1].LastTransitionTime = v1.Time{}
-					Expect(workPlacements.Items[2].Status.Conditions).To(ConsistOf(misscheduledWorkPlacementConditions()))
+					workPlacements.Items[2].Status.Conditions[0].LastTransitionTime = metav1.Time{}
+					workPlacements.Items[2].Status.Conditions[1].LastTransitionTime = metav1.Time{}
+					Expect(workPlacements.Items[2].Status.Conditions).To(ConsistOf(misplacedWorkPlacementConditions()))
 
 					Expect(workPlacements.Items[3].Spec.TargetDestinationName).To(Equal("prod"))
-					Expect(workPlacements.Items[3].GetLabels()).To(HaveKeyWithValue("kratix.io/misscheduled", "true"))
+					Expect(workPlacements.Items[3].GetLabels()).To(HaveKeyWithValue("kratix.io/misplaced", "true"))
 					Expect(workPlacements.Items[3].Status.Conditions).To(HaveLen(2))
 					//ignore time for assertion
-					workPlacements.Items[3].Status.Conditions[0].LastTransitionTime = v1.Time{}
-					workPlacements.Items[2].Status.Conditions[1].LastTransitionTime = v1.Time{}
-					Expect(workPlacements.Items[2].Status.Conditions).To(ConsistOf(misscheduledWorkPlacementConditions()))
+					workPlacements.Items[3].Status.Conditions[0].LastTransitionTime = metav1.Time{}
+					workPlacements.Items[2].Status.Conditions[1].LastTransitionTime = metav1.Time{}
+					Expect(workPlacements.Items[2].Status.Conditions).To(ConsistOf(misplacedWorkPlacementConditions()))
 				})
 
-				It("keeps the misscheduled WorkPlacements updated", func() {
+				It("keeps the misplaced WorkPlacements updated", func() {
 					// update the Work's WorkloadGroup with an extra Workload
 					Expect(fakeK8sClient.Get(context.Background(), client.ObjectKeyFromObject(&dependencyWork), &dependencyWork)).To(Succeed())
-					dependencyWork.Spec.WorkloadGroups[0].Workloads = append(dependencyWork.Spec.WorkloadGroups[0].Workloads, Workload{
+					dependencyWork.Spec.WorkloadGroups[0].Workloads = append(dependencyWork.Spec.WorkloadGroups[0].Workloads, v1alpha1.Workload{
 						Content: "fake: new-content",
 					})
 
@@ -833,50 +801,168 @@ var _ = Describe("Controllers/Scheduler", func() {
 					Expect(workPlacements.Items).To(HaveLen(4))
 
 					// check that all WorkPlacements have been updated, including the two
-					// misscheduled ones
+					// misplaced ones
 					for _, workPlacement := range workPlacements.Items {
 						Expect(workPlacement.Spec.Workloads).To(ConsistOf(
-							Workload{Content: "key: value"},
-							Workload{Content: "fake: new-content"},
+							v1alpha1.Workload{Content: "key: value"},
+							v1alpha1.Workload{Content: "fake: new-content"},
 						))
 					}
+				})
+			})
+		})
+
+		Describe("Work Status", func() {
+			var work v1alpha1.Work
+			BeforeEach(func() {
+				work = newWorkWithTwoWorkloadGroups("rr-work-name-with-two-groups", true, schedulingFor(devDestination), schedulingFor(pciDestination))
+			})
+
+			When("all workloads groups can be scheduled", func() {
+				BeforeEach(func() {
+					_, err := scheduler.ReconcileWork(&work)
+					Expect(err).ToNot(HaveOccurred())
+					Expect(fakeK8sClient.Get(
+						context.Background(),
+						client.ObjectKeyFromObject(&work), &work),
+					).To(Succeed())
+				})
+
+				It("sets the right status and conditions", func() {
+					Expect(work.Status.WorkPlacements).To(Equal(2))
+					Expect(work.Status.WorkPlacementsCreated).To(Equal(2))
+
+					readyCond := apimeta.FindStatusCondition(work.Status.Conditions, "Ready")
+					Expect(readyCond).ToNot(BeNil())
+					Expect(readyCond.Status).To(Equal(metav1.ConditionTrue))
+					Expect(readyCond.Reason).To(Equal("AllWorkplacementsScheduled"))
+					Expect(readyCond.Message).To(Equal("Ready"))
+
+					scheduleSucceededCond := apimeta.FindStatusCondition(work.Status.Conditions, "ScheduleSucceeded")
+					Expect(scheduleSucceededCond).ToNot(BeNil())
+					Expect(readyCond.Status).To(Equal(metav1.ConditionTrue))
+					Expect(scheduleSucceededCond.Reason).To(Equal("AllWorkplacementsScheduled"))
+					Expect(scheduleSucceededCond.Message).To(Equal("All workplacements scheduled successfully"))
+				})
+
+				It("sends the right events", func() {
+					workplacements := &v1alpha1.WorkPlacementList{}
+					Expect(fakeK8sClient.List(context.Background(), workplacements)).To(Succeed())
+
+					Eventually(schedulerRecorder.Events).Should(Receive(
+						ContainSubstring(
+							"workplacement reconciled: %s, operation: created",
+							workplacements.Items[0].GetName(),
+						),
+					))
+				})
+			})
+
+			When("some workloads groups can't be scheduled", func() {
+				BeforeEach(func() {
+					work.Spec.WorkloadGroups[0].DestinationSelectors = []v1alpha1.WorkloadGroupScheduling{
+						{
+							MatchLabels: map[string]string{"environment": "non-matching"},
+						},
+					}
+
+					_, err := scheduler.ReconcileWork(&work)
+					Expect(err).NotTo(HaveOccurred())
+					Expect(fakeK8sClient.Get(
+						context.Background(),
+						client.ObjectKeyFromObject(&work), &work),
+					).To(Succeed())
+				})
+
+				It("sets the right status and conditions", func() {
+					Expect(work.Status.WorkPlacements).To(Equal(2))
+					Expect(work.Status.WorkPlacementsCreated).To(Equal(1))
+
+					readyCond := apimeta.FindStatusCondition(work.Status.Conditions, "Ready")
+					Expect(readyCond).ToNot(BeNil())
+					Expect(readyCond.Status).To(Equal(metav1.ConditionFalse))
+					Expect(readyCond.Reason).To(Equal("UnscheduledWorkloads"))
+					Expect(readyCond.Message).To(Equal("Pending"))
+
+					scheduleSucceededCond := apimeta.FindStatusCondition(work.Status.Conditions, "ScheduleSucceeded")
+					Expect(scheduleSucceededCond).ToNot(BeNil())
+					Expect(scheduleSucceededCond.Status).To(Equal(metav1.ConditionFalse))
+					Expect(scheduleSucceededCond.Reason).To(Equal("UnscheduledWorkloads"))
+					Expect(scheduleSucceededCond.Message).To(ContainSubstring("No matching destination found for workloadGroups: [%s]", work.Spec.WorkloadGroups[0].ID))
+				})
+
+				It("sends the right events", func() {
+					Eventually(schedulerRecorder.Events).Should(Receive(
+						ContainSubstring(
+							"waiting for a destination with labels for workloadGroup: %s",
+							work.Spec.WorkloadGroups[0].ID,
+						),
+					))
+				})
+			})
+
+			When("some workplacements are misplaced", func() {
+				BeforeEach(func() {
+					_, err := scheduler.ReconcileWork(&work)
+					Expect(err).ToNot(HaveOccurred())
+					Expect(fakeK8sClient.Get(
+						context.Background(),
+						client.ObjectKeyFromObject(&work), &work),
+					).To(Succeed())
+
+					Expect(fakeK8sClient.List(context.Background(), &workPlacements)).To(Succeed())
+					Expect(workPlacements.Items).To(HaveLen(2))
+
+					// change the scheduling on the resource work from devDestination to prodDestination
+					Expect(fakeK8sClient.Get(context.Background(), client.ObjectKeyFromObject(&work), &work)).To(Succeed())
+					work.Spec.WorkloadGroups[0].DestinationSelectors[0] = schedulingFor(prodDestination)
+					_, err = scheduler.ReconcileWork(&work)
+					Expect(err).ToNot(HaveOccurred())
+				})
+
+				It("sets the right status and conditions", func() {
+					Expect(fakeK8sClient.Get(context.Background(), client.ObjectKeyFromObject(&work), &work)).To(Succeed())
+					Expect(work.Status.Conditions).To(HaveLen(2))
+					work.Status.Conditions[0].LastTransitionTime = metav1.Time{}
+					work.Status.Conditions[1].LastTransitionTime = metav1.Time{}
+					Expect(work.Status.Conditions).To(ConsistOf(misplacedConditions(work.Spec.WorkloadGroups[0].ID)))
 				})
 			})
 		})
 	})
 })
 
-func misscheduledWorkPlacementConditions() []v1.Condition {
-	return []v1.Condition{
+func misplacedWorkPlacementConditions() []metav1.Condition {
+	return []metav1.Condition{
 		{
 			Message: "Target destination no longer matches destinationSelectors",
 			Reason:  "DestinationSelectorMismatch",
-			Type:    "Misscheduled",
-			Status:  v1.ConditionTrue},
+			Type:    "ScheduleSucceeded",
+			Status:  metav1.ConditionFalse},
 		{
-			Message: "Misscheduled",
-			Reason:  "Misscheduled",
+			Message: "Misplaced",
+			Reason:  "Misplaced",
 			Type:    "Ready",
-			Status:  v1.ConditionFalse},
+			Status:  metav1.ConditionFalse},
 	}
 }
 
-func newDestination(name string, labels map[string]string) Destination {
-	return Destination{
-		ObjectMeta: v1.ObjectMeta{
+func newDestination(name string, labels map[string]string) v1alpha1.Destination {
+	return v1alpha1.Destination{
+		ObjectMeta: metav1.ObjectMeta{
 			Name:   name,
 			Labels: labels,
 		},
 	}
 }
 
-func newWork(name string, isResource bool, scheduling ...WorkloadGroupScheduling) Work {
+func newWork(name string, isResource bool, scheduling ...v1alpha1.WorkloadGroupScheduling) v1alpha1.Work {
 	namespace := "default"
 	if !isResource {
-		namespace = SystemNamespace
+		namespace = v1alpha1.SystemNamespace
 	}
-	w := &Work{
-		ObjectMeta: v1.ObjectMeta{
+	w := &v1alpha1.Work{
+		ObjectMeta: metav1.ObjectMeta{
 			Name:      name,
 			Namespace: namespace,
 			UID:       types.UID(name),
@@ -888,11 +974,11 @@ func newWork(name string, isResource bool, scheduling ...WorkloadGroupScheduling
 				"kratix.io/some-annotation": "some-value",
 			},
 		},
-		Spec: WorkSpec{
+		Spec: v1alpha1.WorkSpec{
 			PromiseName: "promise",
-			WorkloadGroups: []WorkloadGroup{
+			WorkloadGroups: []v1alpha1.WorkloadGroup{
 				{
-					Workloads: []Workload{
+					Workloads: []v1alpha1.Workload{
 						{Content: "key: value"},
 					},
 					Directory:            ".",
@@ -907,18 +993,15 @@ func newWork(name string, isResource bool, scheduling ...WorkloadGroupScheduling
 	}
 
 	Expect(fakeK8sClient.Create(context.Background(), w)).To(Succeed())
+	Expect(fakeK8sClient.Get(context.Background(), client.ObjectKeyFromObject(w), w)).To(Succeed())
 
-	//sets the APIVersion, Kind, and ResourceVersion
-	workWithDefaultFields := &Work{}
-	Expect(fakeK8sClient.Get(context.Background(), client.ObjectKeyFromObject(w), workWithDefaultFields)).To(Succeed())
-
-	return *workWithDefaultFields
+	return *w
 }
 
-func newWorkWithTwoWorkloadGroups(name string, isResource bool, promiseScheduling, directoryOverrideScheduling WorkloadGroupScheduling) Work {
+func newWorkWithTwoWorkloadGroups(name string, isResource bool, promiseScheduling, directoryOverrideScheduling v1alpha1.WorkloadGroupScheduling) v1alpha1.Work {
 	namespace := "default"
 	if !isResource {
-		namespace = SystemNamespace
+		namespace = v1alpha1.SystemNamespace
 	}
 
 	newFakeCompressedContent, err := compression.CompressContent([]byte(string("key: value")))
@@ -926,30 +1009,30 @@ func newWorkWithTwoWorkloadGroups(name string, isResource bool, promiseSchedulin
 	additionalFakeCompressedContent, err := compression.CompressContent([]byte(string("foo: bar")))
 	Expect(err).ToNot(HaveOccurred())
 
-	w := &Work{
-		ObjectMeta: v1.ObjectMeta{
+	w := &v1alpha1.Work{
+		ObjectMeta: metav1.ObjectMeta{
 			Name:      name,
 			Namespace: namespace,
 			Annotations: map[string]string{
 				"kratix.io/annotation-key": "annotation-value",
 			},
 		},
-		Spec: WorkSpec{
+		Spec: v1alpha1.WorkSpec{
 			PromiseName: "promise",
-			WorkloadGroups: []WorkloadGroup{
+			WorkloadGroups: []v1alpha1.WorkloadGroup{
 				{
-					Workloads: []Workload{
+					Workloads: []v1alpha1.Workload{
 						{Content: string(newFakeCompressedContent)},
 					},
 					Directory:            ".",
 					ID:                   hash.ComputeHash("."),
-					DestinationSelectors: []WorkloadGroupScheduling{promiseScheduling},
+					DestinationSelectors: []v1alpha1.WorkloadGroupScheduling{promiseScheduling},
 				},
 				{
-					Workloads: []Workload{
+					Workloads: []v1alpha1.Workload{
 						{Content: string(additionalFakeCompressedContent)},
 					},
-					DestinationSelectors: []WorkloadGroupScheduling{directoryOverrideScheduling},
+					DestinationSelectors: []v1alpha1.WorkloadGroupScheduling{directoryOverrideScheduling},
 					Directory:            "foo",
 					ID:                   hash.ComputeHash("foo"),
 				},
@@ -962,18 +1045,35 @@ func newWorkWithTwoWorkloadGroups(name string, isResource bool, promiseSchedulin
 
 	Expect(fakeK8sClient.Create(context.Background(), w)).To(Succeed())
 
-	workWithDefaultFields := &Work{}
+	workWithDefaultFields := &v1alpha1.Work{}
 	Expect(fakeK8sClient.Get(context.Background(), client.ObjectKeyFromObject(w), workWithDefaultFields)).To(Succeed())
 
 	return *workWithDefaultFields
 }
 
-func schedulingFor(destination Destination) WorkloadGroupScheduling {
+func schedulingFor(destination v1alpha1.Destination) v1alpha1.WorkloadGroupScheduling {
 	if len(destination.GetLabels()) == 0 {
-		return WorkloadGroupScheduling{}
+		return v1alpha1.WorkloadGroupScheduling{}
 	}
-	return WorkloadGroupScheduling{
+	return v1alpha1.WorkloadGroupScheduling{
 		MatchLabels: destination.GetLabels(),
 		Source:      "promise",
+	}
+}
+
+func misplacedConditions(id string) []metav1.Condition {
+	return []metav1.Condition{
+		{
+			Type:    "ScheduleSucceeded",
+			Status:  metav1.ConditionFalse,
+			Message: fmt.Sprintf("Target destination no longer matches destinationSelectors for workloadGroups: [%s]", id),
+			Reason:  "DestinationSelectorMismatch",
+		},
+		{
+			Type:    "Ready",
+			Status:  metav1.ConditionFalse,
+			Message: "Misplaced",
+			Reason:  "Misplaced",
+		},
 	}
 }
