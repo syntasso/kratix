@@ -856,6 +856,40 @@ var _ = Describe("Controllers/Scheduler", func() {
 						),
 					))
 				})
+
+				When("multiple destination matches the scheduling rules", func() {
+					var devDestination3, devDestination4, devDestination5 v1alpha1.Destination
+					BeforeEach(func() {
+						devDestination3 = newDestination("dev-3", map[string]string{"environment": "dev"})
+						devDestination4 = newDestination("dev-4", map[string]string{"environment": "dev"})
+						devDestination5 = newDestination("dev-5", map[string]string{"environment": "dev"})
+						Expect(fakeK8sClient.Create(context.Background(), &devDestination3)).To(Succeed())
+						Expect(fakeK8sClient.Create(context.Background(), &devDestination4)).To(Succeed())
+						Expect(fakeK8sClient.Create(context.Background(), &devDestination5)).To(Succeed())
+					})
+
+					AfterEach(func() {
+						Expect(fakeK8sClient.Delete(context.Background(), &devDestination3)).To(Succeed())
+						Expect(fakeK8sClient.Delete(context.Background(), &devDestination4)).To(Succeed())
+						Expect(fakeK8sClient.Delete(context.Background(), &devDestination5)).To(Succeed())
+					})
+
+					It("does not falsely mark work and workplacements as misplaced", func() {
+						_, err := scheduler.ReconcileWork(&work)
+						Expect(err).ToNot(HaveOccurred())
+						Expect(work.Status.WorkPlacements).To(Equal(2))
+						Expect(work.Status.WorkPlacementsCreated).To(Equal(2))
+
+						readyCond := apimeta.FindStatusCondition(work.Status.Conditions, "Ready")
+						Expect(readyCond).ToNot(BeNil())
+						Expect(readyCond.Status).To(Equal(metav1.ConditionTrue))
+						Expect(readyCond.Message).To(Equal("Ready"))
+
+						scheduleSucceededCond := apimeta.FindStatusCondition(work.Status.Conditions, "ScheduleSucceeded")
+						Expect(scheduleSucceededCond).ToNot(BeNil())
+						Expect(readyCond.Status).To(Equal(metav1.ConditionTrue))
+					})
+				})
 			})
 
 			When("some workloads groups can't be scheduled", func() {

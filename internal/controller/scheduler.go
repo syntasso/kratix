@@ -195,7 +195,7 @@ func (s *Scheduler) reconcileWorkloadGroup(workloadGroup v1alpha1.WorkloadGroup,
 			var errored int
 			for _, existingWorkplacement := range existingWorkplacements {
 				s.Log.Info("found workplacement for work; will try an update")
-				misplaced, err := s.updateWorkPlacement(workloadGroup, work, &existingWorkplacement)
+				misplaced, err := s.updateWorkPlacement(workloadGroup, &existingWorkplacement)
 				if err != nil {
 					s.Log.Error(err, "error updating workplacement for work", "workplacement", existingWorkplacement.Name, "work", work.Name, "workloadGroupID", workloadGroup.ID)
 					errored++
@@ -250,11 +250,11 @@ func (s *Scheduler) reconcileWorkloadGroup(workloadGroup v1alpha1.WorkloadGroup,
 	return status, nil
 }
 
-func (s *Scheduler) updateWorkPlacement(workloadGroup v1alpha1.WorkloadGroup, work *v1alpha1.Work, workPlacement *v1alpha1.WorkPlacement) (bool, error) {
+func (s *Scheduler) updateWorkPlacement(workloadGroup v1alpha1.WorkloadGroup, workPlacement *v1alpha1.WorkPlacement) (bool, error) {
 	misplaced := true
 	destinationSelectors := resolveDestinationSelectorsForWorkloadGroup(workloadGroup)
-	for _, dest := range s.getTargetDestinationNames(destinationSelectors, work) {
-		if dest == workPlacement.Spec.TargetDestinationName {
+	for _, dest := range s.getDestinationsForWorkloadGroup(destinationSelectors) {
+		if dest.GetName() == workPlacement.Spec.TargetDestinationName {
 			misplaced = false
 			break
 		}
@@ -415,10 +415,7 @@ func (s *Scheduler) updateWorkPlacementStatus(workPlacement *v1alpha1.WorkPlacem
 
 	if apimeta.SetStatusCondition(&updatedwp.Status.Conditions, desiredScheduleCond) {
 		apimeta.SetStatusCondition(&updatedwp.Status.Conditions, desiredReadyCond)
-		s.Log.Info("updating", "desiredScheduleCond.status", desiredScheduleCond.Status)
 		return s.Client.Status().Update(context.Background(), updatedwp)
-	} else {
-		s.Log.Info("not updated", "desiredScheduleCond.status", desiredScheduleCond.Status)
 	}
 	return nil
 }
