@@ -558,7 +558,7 @@ var _ = Describe("PromiseController", func() {
 						Expect(configMap.Data).To(HaveKey("destinationSelectors"))
 						space := regexp.MustCompile(`\s+`)
 						destinationSelectors := space.ReplaceAllString(configMap.Data["destinationSelectors"], " ")
-						Expect(strings.TrimSpace(destinationSelectors)).To(Equal(`- matchlabels: environment: dev source: promise`))
+						Expect(strings.TrimSpace(destinationSelectors)).To(Equal(`- matchLabels: environment: dev source: promise`))
 					})
 
 					promiseResourcesName.Namespace = ""
