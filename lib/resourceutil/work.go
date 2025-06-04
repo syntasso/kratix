@@ -5,6 +5,7 @@ import (
 	"fmt"
 
 	"github.com/syntasso/kratix/api/v1alpha1"
+	metav1 "k8s.io/apimachinery/pkg/apis/meta/v1"
 	"k8s.io/apimachinery/pkg/apis/meta/v1/unstructured"
 	"k8s.io/apimachinery/pkg/labels"
 	"sigs.k8s.io/controller-runtime/pkg/client"
@@ -63,7 +64,6 @@ func GetWork(k8sClient client.Client, namespace string, labels map[string]string
 		return nil, err
 	}
 
-	//TODO test
 	if len(works) > 1 {
 		return nil, fmt.Errorf("more than 1 work exist with the matching labels: %q. Unable to update", labels)
 	}
@@ -91,4 +91,79 @@ func getExistingWorks(k8sClient client.Client, namespace string, workLabels map[
 	}
 
 	return works.Items, nil
+}
+
+// CalculateWorkflowStats returns the total number of works for a resource along
+// with how many of those works are ready and how many have failed.
+func CalculateWorkflowStats(k8sClient client.Client, namespace, promiseName, resourceName string) (int, int, int, error) {
+	works, err := GetAllWorksForResource(k8sClient, namespace, promiseName, resourceName)
+	if err != nil {
+		return 0, 0, 0, err
+	}
+
+	total := len(works)
+	succeeded := 0
+	failed := 0
+	for _, w := range works {
+		for _, cond := range w.Status.Conditions {
+			if cond.Type == "Ready" {
+				switch cond.Status {
+				case metav1.ConditionTrue:
+					succeeded++
+				case metav1.ConditionFalse:
+					failed++
+				}
+			}
+		}
+	}
+	return total, succeeded, failed, nil
+}
+
+// AggregateWorkStatus collects status information across all Works for a resource.
+// It returns the total number of works, how many succeeded, how many failed,
+// whether any work is misplaced, and the aggregated WorksSucceeded condition.
+func AggregateWorkStatus(k8sClient client.Client, namespace, promiseName, resourceName string) (int, int, int, bool, metav1.ConditionStatus, error) {
+	works, err := GetAllWorksForResource(k8sClient, namespace, promiseName, resourceName)
+	if err != nil {
+		return 0, 0, 0, false, metav1.ConditionUnknown, err
+	}
+
+	total := len(works)
+	succeeded := 0
+	failed := 0
+	misplaced := false
+	unknown := false
+	for _, w := range works {
+		readyCond := metav1.Condition{}
+		for _, cond := range w.Status.Conditions {
+			if cond.Type == "Ready" {
+				readyCond = cond
+				break
+			}
+		}
+		switch readyCond.Status {
+		case metav1.ConditionTrue:
+			succeeded++
+		case metav1.ConditionFalse:
+			failed++
+			if readyCond.Reason == "Misplaced" {
+				misplaced = true
+			}
+		default:
+			unknown = true
+		}
+	}
+
+	worksSucceeded := metav1.ConditionUnknown
+	if total > 0 {
+		if failed > 0 {
+			worksSucceeded = metav1.ConditionFalse
+		} else if !unknown && succeeded == total {
+			worksSucceeded = metav1.ConditionTrue
+		} else {
+			worksSucceeded = metav1.ConditionUnknown
+		}
+	}
+
+	return total, succeeded, failed, misplaced, worksSucceeded, nil
 }
