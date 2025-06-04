@@ -82,6 +82,7 @@ var _ = Describe("Pipeline", func() {
 		}
 		v1alpha1.DefaultUserProvidedContainersSecurityContext = globalDefaultSecurityContext
 		v1alpha1.DefaultImagePullPolicy = ""
+		v1alpha1.DefaultJobBackoffLimit = nil
 		promiseCrd = &apiextensionsv1.CustomResourceDefinition{
 			Spec: apiextensionsv1.CustomResourceDefinitionSpec{
 				Group: "promise.crd.group",
@@ -548,6 +549,52 @@ var _ = Describe("Pipeline", func() {
 							Expect(podSpec.Containers[0].Name).To(Equal(pipeline.Spec.Containers[1].Name))
 							Expect(podSpec.Containers[0].Image).To(Equal(pipeline.Spec.Containers[1].Image))
 						})
+					})
+				})
+			})
+
+			Describe("BackoffLimit", func() {
+				When("a global default backoff limit is set", func() {
+					BeforeEach(func() {
+						val := int32(4)
+						v1alpha1.DefaultJobBackoffLimit = &val
+					})
+
+					It("sets the job backoff limit to the global default", func() {
+						resources, err := factory.Resources(nil)
+						Expect(err).ToNot(HaveOccurred())
+						Expect(resources.Job.Spec.BackoffLimit).ToNot(BeNil())
+						Expect(*resources.Job.Spec.BackoffLimit).To(Equal(int32(4)))
+					})
+				})
+
+				When("the pipeline specifies a backoff limit", func() {
+					BeforeEach(func() {
+						val := int32(2)
+						pipeline.Spec.JobOptions.BackoffLimit = &val
+					})
+
+					It("uses the pipeline value", func() {
+						resources, err := factory.Resources(nil)
+						Expect(err).ToNot(HaveOccurred())
+						Expect(resources.Job.Spec.BackoffLimit).ToNot(BeNil())
+						Expect(*resources.Job.Spec.BackoffLimit).To(Equal(int32(2)))
+					})
+				})
+
+				When("both global and pipeline backoff limits are set", func() {
+					BeforeEach(func() {
+						global := int32(5)
+						v1alpha1.DefaultJobBackoffLimit = &global
+						pipelineVal := int32(1)
+						pipeline.Spec.JobOptions.BackoffLimit = &pipelineVal
+					})
+
+					It("gives precedence to the pipeline value", func() {
+						resources, err := factory.Resources(nil)
+						Expect(err).ToNot(HaveOccurred())
+						Expect(resources.Job.Spec.BackoffLimit).ToNot(BeNil())
+						Expect(*resources.Job.Spec.BackoffLimit).To(Equal(int32(1)))
 					})
 				})
 			})
