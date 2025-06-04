@@ -37,7 +37,9 @@ import (
 	batchv1 "k8s.io/api/batch/v1"
 	v1 "k8s.io/api/core/v1"
 
+	metav1 "k8s.io/apimachinery/pkg/apis/meta/v1"
 	clusterv1 "sigs.k8s.io/cluster-api/api/v1beta1"
+	conditions "sigs.k8s.io/cluster-api/util/conditions"
 
 	apierrors "k8s.io/apimachinery/pkg/api/errors"
 	"k8s.io/apimachinery/pkg/apis/meta/v1/unstructured"
@@ -161,6 +163,13 @@ func (r *DynamicResourceRequestController) Reconcile(ctx context.Context, req ct
 		return ctrl.Result{}, err
 	}
 
+	total, succeeded, failed, misplaced, worksSucceeded, statsErr := resourceutil.AggregateWorkStatus(r.Client, rr.GetNamespace(), r.PromiseIdentifier, rr.GetName())
+	if statsErr != nil {
+		logger.Error(statsErr, "failed to calculate workflow stats")
+	} else {
+		r.updateWorkStatus(ctx, rr, logger, total, succeeded, failed, misplaced, worksSucceeded)
+	}
+
 	if rr.GetGeneration() != resourceutil.GetObservedGeneration(rr) {
 		return ctrl.Result{}, updateObservedGeneration(rr, opts, logger)
 	}
@@ -197,6 +206,9 @@ func (r *DynamicResourceRequestController) deleteResources(o opts, promise *v1al
 			if errors.Is(err, workflow.ErrDeletePipelineFailed) {
 				r.EventRecorder.Event(resourceRequest, "Warning", "Failed Pipeline", "The Delete Pipeline has failed")
 				resourceutil.MarkDeleteWorkflowAsFailed(o.logger, resourceRequest)
+				conditions.Delete(conditions.UnstructuredSetter(resourceRequest), "WorksSucceeded")
+				conditions.Delete(conditions.UnstructuredSetter(resourceRequest), "Misplaced")
+				conditions.Delete(conditions.UnstructuredSetter(resourceRequest), "Ready")
 				if err := r.Client.Status().Update(o.ctx, resourceRequest); err != nil {
 					o.logger.Error(err, "Failed to update resource request status", "promise", promise.GetName(),
 						"namespace", resourceRequest.GetNamespace(), "resource", resourceRequest.GetName())
@@ -391,4 +403,124 @@ func shouldUpdateLastSuccessfulConfigureWorkflowTime(
 func updateLastSuccessfulConfigureWorkflowTime(workflowCompletedCondition *clusterv1.Condition, rr *unstructured.Unstructured, opts opts, logger logr.Logger) (ctrl.Result, error) {
 	resourceutil.SetStatus(rr, logger, "lastSuccessfulConfigureWorkflowTime", workflowCompletedCondition.LastTransitionTime.Format(time.RFC3339))
 	return ctrl.Result{}, opts.client.Status().Update(opts.ctx, rr)
+}
+
+func (r *DynamicResourceRequestController) updateWorkStatus(
+	ctx context.Context,
+	rr *unstructured.Unstructured,
+	logger logr.Logger,
+	total, succeeded, failed int,
+	misplaced bool,
+	worksSucceeded v1.ConditionStatus,
+) {
+	changed := false
+
+	// Check existing numeric status fields
+	if v, found, _ := unstructured.NestedFieldNoCopy(rr.Object, "status", "workflows"); !found || v != int64(total) {
+		changed = true
+	}
+	if v, found, _ := unstructured.NestedFieldNoCopy(rr.Object, "status", "workflowsSucceeded"); !found || v != int64(succeeded) {
+		changed = true
+	}
+	if v, found, _ := unstructured.NestedFieldNoCopy(rr.Object, "status", "workflowsFailed"); !found || v != int64(failed) {
+		changed = true
+	}
+
+	if changed {
+		resourceutil.SetStatus(rr, logger,
+			"workflows", int64(total),
+			"workflowsSucceeded", int64(succeeded),
+			"workflowsFailed", int64(failed),
+		)
+	}
+
+	worksSucceededCond := clusterv1.Condition{
+		Type:   "WorksSucceeded",
+		Status: v1.ConditionStatus(worksSucceeded),
+	}
+	switch worksSucceeded {
+	case v1.ConditionTrue:
+		worksSucceededCond.Reason = "AllWorksReady"
+		worksSucceededCond.Message = "All works ready"
+	case v1.ConditionFalse:
+		worksSucceededCond.Reason = "WorksFailing"
+		worksSucceededCond.Message = "Some works failing"
+	default:
+		worksSucceededCond.Reason = "WorksPending"
+		worksSucceededCond.Message = "Waiting for works"
+	}
+	existingWS := resourceutil.GetCondition(rr, "WorksSucceeded")
+	if existingWS == nil || existingWS.Status != worksSucceededCond.Status || existingWS.Reason != worksSucceededCond.Reason || existingWS.Message != worksSucceededCond.Message {
+		changed = true
+		worksSucceededCond.LastTransitionTime = metav1.Now()
+		resourceutil.SetCondition(rr, &worksSucceededCond)
+	}
+
+	misplacedCond := clusterv1.Condition{
+		Type:    "Misplaced",
+		Status:  v1.ConditionFalse,
+		Reason:  "AllPlaced",
+		Message: "All works placed",
+	}
+	if misplaced {
+		misplacedCond.Status = v1.ConditionTrue
+		misplacedCond.Reason = "Misplaced"
+		misplacedCond.Message = "Misplaced"
+	}
+	existingMP := resourceutil.GetCondition(rr, "Misplaced")
+	if existingMP == nil || existingMP.Status != misplacedCond.Status || existingMP.Reason != misplacedCond.Reason || existingMP.Message != misplacedCond.Message {
+		changed = true
+		misplacedCond.LastTransitionTime = metav1.Now()
+		resourceutil.SetCondition(rr, &misplacedCond)
+	}
+
+	readyCond := clusterv1.Condition{Type: "Ready"}
+	configureCond := resourceutil.GetCondition(rr, resourceutil.ConfigureWorkflowCompletedCondition)
+	switch {
+	case configureCond == nil || configureCond.Status != v1.ConditionTrue:
+		readyCond.Status = v1.ConditionFalse
+		readyCond.Reason = "Pending"
+		readyCond.Message = "Pending"
+	case failed > 0 || worksSucceeded == v1.ConditionFalse:
+		readyCond.Status = v1.ConditionFalse
+		readyCond.Reason = "Failing"
+		readyCond.Message = "Failing"
+	case misplaced:
+		readyCond.Status = v1.ConditionTrue
+		readyCond.Reason = "Misplaced"
+		readyCond.Message = "Misplaced"
+	case worksSucceeded == v1.ConditionTrue:
+		readyCond.Status = v1.ConditionTrue
+		readyCond.Reason = "Requested"
+		readyCond.Message = "Requested"
+	default:
+		readyCond.Status = v1.ConditionFalse
+		readyCond.Reason = "Pending"
+		readyCond.Message = "Pending"
+	}
+	existingReady := resourceutil.GetCondition(rr, "Ready")
+	if existingReady == nil || existingReady.Status != readyCond.Status || existingReady.Reason != readyCond.Reason || existingReady.Message != readyCond.Message {
+		changed = true
+		readyCond.LastTransitionTime = metav1.Now()
+		resourceutil.SetCondition(rr, &readyCond)
+	}
+
+	if changed {
+		if err := r.Client.Status().Update(ctx, rr); err != nil {
+			logger.Error(err, "failed updating workflow stats")
+		}
+	}
+
+	if worksSucceeded == v1.ConditionTrue && !misplaced {
+		r.EventRecorder.Event(rr, "Normal", "WorksReady", "All works ready")
+	} else if failed > 0 {
+		works, _ := resourceutil.GetAllWorksForResource(r.Client, rr.GetNamespace(), r.PromiseIdentifier, rr.GetName())
+		for _, w := range works {
+			for _, cond := range w.Status.Conditions {
+				if cond.Type == "Ready" && cond.Status == metav1.ConditionFalse {
+					r.EventRecorder.Eventf(rr, "Warning", "WorkFailed", "Work %s is in a failed state. Run k get work %s for details", w.Name, w.Name)
+				}
+			}
+		}
+	}
 }
