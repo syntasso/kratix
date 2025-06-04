@@ -6,6 +6,8 @@ metadata:
 data:
   config: |
     workflows:
+      jobOptions:
+        defaultBackoffLimit: 4
       defaultContainerSecurityContext:
         windowsOptions:
           runAsUserName: "setInKratixConfig"

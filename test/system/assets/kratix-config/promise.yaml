@@ -39,6 +39,8 @@ spec:
           metadata:
             name: resource-pipeline0
           spec:
+            jobOptions:
+              backoffLimit: 3
             containers:
               - image: busybox
                 name: do-nothing-with-care
