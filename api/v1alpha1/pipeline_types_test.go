@@ -17,6 +17,7 @@ import (
 	metav1 "k8s.io/apimachinery/pkg/apis/meta/v1"
 	"k8s.io/apimachinery/pkg/apis/meta/v1/unstructured"
 	"k8s.io/apimachinery/pkg/runtime"
+	"k8s.io/utils/pointer"
 	"k8s.io/utils/ptr"
 )
 
@@ -82,7 +83,6 @@ var _ = Describe("Pipeline", func() {
 		}
 		v1alpha1.DefaultUserProvidedContainersSecurityContext = globalDefaultSecurityContext
 		v1alpha1.DefaultImagePullPolicy = ""
-		v1alpha1.DefaultJobBackoffLimit = nil
 		promiseCrd = &apiextensionsv1.CustomResourceDefinition{
 			Spec: apiextensionsv1.CustomResourceDefinitionSpec{
 				Group: "promise.crd.group",
@@ -556,8 +556,7 @@ var _ = Describe("Pipeline", func() {
 			Describe("BackoffLimit", func() {
 				When("a global default backoff limit is set", func() {
 					BeforeEach(func() {
-						val := int32(4)
-						v1alpha1.DefaultJobBackoffLimit = &val
+						v1alpha1.DefaultJobBackoffLimit = pointer.Int32(4)
 					})
 
 					It("sets the job backoff limit to the global default", func() {
@@ -570,8 +569,7 @@ var _ = Describe("Pipeline", func() {
 
 				When("the pipeline specifies a backoff limit", func() {
 					BeforeEach(func() {
-						val := int32(2)
-						pipeline.Spec.JobOptions.BackoffLimit = &val
+						pipeline.Spec.JobOptions.BackoffLimit = pointer.Int32(2)
 					})
 
 					It("uses the pipeline value", func() {
@@ -584,10 +582,8 @@ var _ = Describe("Pipeline", func() {
 
 				When("both global and pipeline backoff limits are set", func() {
 					BeforeEach(func() {
-						global := int32(5)
-						v1alpha1.DefaultJobBackoffLimit = &global
-						pipelineVal := int32(1)
-						pipeline.Spec.JobOptions.BackoffLimit = &pipelineVal
+						v1alpha1.DefaultJobBackoffLimit = pointer.Int32(5)
+						pipeline.Spec.JobOptions.BackoffLimit = pointer.Int32(1)
 					})
 
 					It("gives precedence to the pipeline value", func() {
@@ -599,7 +595,12 @@ var _ = Describe("Pipeline", func() {
 				})
 
 				When("no backoff limit is specified", func() {
-					It("leaves the job backoff limit unset", func() {
+					BeforeEach(func() {
+						v1alpha1.DefaultJobBackoffLimit = nil
+						pipeline.Spec.JobOptions.BackoffLimit = nil
+					})
+
+					It("should not set the job backoff limit", func() {
 						resources, err := factory.Resources(nil)
 						Expect(err).ToNot(HaveOccurred())
 						Expect(resources.Job.Spec.BackoffLimit).To(BeNil())
