@@ -172,7 +172,7 @@ func (r *DestinationReconciler) createResourcePathWithExample(writer writers.Sta
 			Namespace: "kratix-worker-system",
 		},
 		Data: map[string]string{
-			"canary": "the confirms your infrastructure is reading from Kratix state stores",
+			"canary": "this confirms your infrastructure is reading from Kratix state stores",
 		},
 	}
 	nsBytes, _ := yaml.Marshal(kratixConfigMap)
