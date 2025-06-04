@@ -127,7 +127,7 @@ var _ = Describe("DynamicResourceRequestController", func() {
 				Expect(configMap.Data).To(HaveKey("destinationSelectors"))
 				space := regexp.MustCompile(`\s+`)
 				destinationSelectors := space.ReplaceAllString(configMap.Data["destinationSelectors"], " ")
-				Expect(strings.TrimSpace(destinationSelectors)).To(Equal(`- matchlabels: environment: dev source: promise`))
+				Expect(strings.TrimSpace(destinationSelectors)).To(Equal(`- matchLabels: environment: dev source: promise`))
 			})
 
 			By("not requeuing, since the controller is watching the job", func() {

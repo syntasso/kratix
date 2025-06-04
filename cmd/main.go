@@ -194,8 +194,9 @@ func main() {
 		}
 
 		scheduler := controller.Scheduler{
-			Client: mgr.GetClient(),
-			Log:    ctrl.Log.WithName("controllers").WithName("Scheduler"),
+			Client:        mgr.GetClient(),
+			Log:           ctrl.Log.WithName("controllers").WithName("Scheduler"),
+			EventRecorder: mgr.GetEventRecorderFor("Scheduler"),
 		}
 
 		restartManager := false
@@ -230,9 +231,10 @@ func main() {
 			os.Exit(1)
 		}
 		if err = (&controller.WorkReconciler{
-			Client:    mgr.GetClient(),
-			Log:       ctrl.Log.WithName("controllers").WithName("Work"),
-			Scheduler: &scheduler,
+			Client:        mgr.GetClient(),
+			Log:           ctrl.Log.WithName("controllers").WithName("Work"),
+			Scheduler:     &scheduler,
+			EventRecorder: mgr.GetEventRecorderFor("WorkController"),
 		}).SetupWithManager(mgr); err != nil {
 			setupLog.Error(err, "unable to create controller", "controller", "Work")
 			os.Exit(1)
@@ -247,9 +249,10 @@ func main() {
 			os.Exit(1)
 		}
 		if err = (&controller.WorkPlacementReconciler{
-			Client:       mgr.GetClient(),
-			Log:          ctrl.Log.WithName("controllers").WithName("WorkPlacementController"),
-			VersionCache: make(map[string]string),
+			Client:        mgr.GetClient(),
+			Log:           ctrl.Log.WithName("controllers").WithName("WorkPlacementController"),
+			VersionCache:  make(map[string]string),
+			EventRecorder: mgr.GetEventRecorderFor("WorkPlacementController"),
 		}).SetupWithManager(mgr); err != nil {
 			setupLog.Error(err, "unable to create controller", "controller", "WorkPlacement")
 			os.Exit(1)

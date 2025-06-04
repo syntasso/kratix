@@ -19,10 +19,9 @@ package v1alpha1
 import (
 	"fmt"
 
+	"github.com/syntasso/kratix/lib/compression"
 	"github.com/syntasso/kratix/lib/hash"
 	metav1 "k8s.io/apimachinery/pkg/apis/meta/v1"
-
-	"github.com/syntasso/kratix/lib/compression"
 )
 
 const (
@@ -44,12 +43,15 @@ const (
 
 // WorkStatus defines the observed state of Work
 type WorkStatus struct {
-	Conditions []metav1.Condition `json:"conditions,omitempty"`
+	Conditions            []metav1.Condition `json:"conditions,omitempty"`
+	WorkPlacements        int                `json:"workPlacements,omitempty"`
+	WorkPlacementsCreated int                `json:"workPlacementsCreated,omitempty"`
 }
 
 //+kubebuilder:object:root=true
 //+kubebuilder:subresource:status
 //+kubebuilder:resource:categories=kratix
+//+kubebuilder:printcolumn:name="STATUS",type=string,JSONPath=`.status.conditions[?(@.type=="Ready")].message`,description="Status of this Work."
 
 // Work is the Schema for the works API
 type Work struct {
