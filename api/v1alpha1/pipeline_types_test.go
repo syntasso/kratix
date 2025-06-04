@@ -17,7 +17,6 @@ import (
 	metav1 "k8s.io/apimachinery/pkg/apis/meta/v1"
 	"k8s.io/apimachinery/pkg/apis/meta/v1/unstructured"
 	"k8s.io/apimachinery/pkg/runtime"
-	"k8s.io/utils/pointer"
 	"k8s.io/utils/ptr"
 )
 
@@ -556,7 +555,7 @@ var _ = Describe("Pipeline", func() {
 			Describe("BackoffLimit", func() {
 				When("a global default backoff limit is set", func() {
 					BeforeEach(func() {
-						v1alpha1.DefaultJobBackoffLimit = pointer.Int32(4)
+						v1alpha1.DefaultJobBackoffLimit = ptr.To(int32(4))
 					})
 
 					It("sets the job backoff limit to the global default", func() {
@@ -569,7 +568,7 @@ var _ = Describe("Pipeline", func() {
 
 				When("the pipeline specifies a backoff limit", func() {
 					BeforeEach(func() {
-						pipeline.Spec.JobOptions.BackoffLimit = pointer.Int32(2)
+						pipeline.Spec.JobOptions.BackoffLimit = ptr.To(int32(2))
 					})
 
 					It("uses the pipeline value", func() {
@@ -582,8 +581,8 @@ var _ = Describe("Pipeline", func() {
 
 				When("both global and pipeline backoff limits are set", func() {
 					BeforeEach(func() {
-						v1alpha1.DefaultJobBackoffLimit = pointer.Int32(5)
-						pipeline.Spec.JobOptions.BackoffLimit = pointer.Int32(1)
+						v1alpha1.DefaultJobBackoffLimit = ptr.To(int32(5))
+						pipeline.Spec.JobOptions.BackoffLimit = ptr.To(int32(1))
 					})
 
 					It("gives precedence to the pipeline value", func() {
