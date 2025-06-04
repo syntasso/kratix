@@ -162,18 +162,77 @@ func (r *DynamicResourceRequestController) Reconcile(ctx context.Context, req ct
 		return ctrl.Result{}, err
 	}
 
-	total, succeeded, failed, statsErr := resourceutil.CalculateWorkflowStats(r.Client, rr.GetNamespace(), r.PromiseIdentifier, rr.GetName())
+	total, succeeded, failed, misplaced, worksSucceeded, statsErr := resourceutil.AggregateWorkStatus(r.Client, rr.GetNamespace(), r.PromiseIdentifier, rr.GetName())
 	if statsErr == nil {
 		resourceutil.SetStatus(rr, logger,
 			"workflows", total,
 			"workflowsSucceeded", succeeded,
 			"workflowsFailed", failed,
 		)
+
+		worksSucceededCond := clusterv1.Condition{
+			Type:               "WorksSucceeded",
+			Status:             worksSucceeded,
+			LastTransitionTime: metav1.Now(),
+		}
+		switch worksSucceeded {
+		case metav1.ConditionTrue:
+			worksSucceededCond.Reason = "AllWorksReady"
+			worksSucceededCond.Message = "All works ready"
+		case metav1.ConditionFalse:
+			worksSucceededCond.Reason = "WorksFailing"
+			worksSucceededCond.Message = "Some works failing"
+		default:
+			worksSucceededCond.Reason = "WorksPending"
+			worksSucceededCond.Message = "Waiting for works"
+		}
+		resourceutil.SetCondition(rr, &worksSucceededCond)
+
+		misplacedCond := metav1.Condition{
+			Type:               "Misplaced",
+			Status:             metav1.ConditionFalse,
+			Reason:             "AllPlaced",
+			Message:            "All works placed",
+			LastTransitionTime: metav1.Now(),
+		}
+		if misplaced {
+			misplacedCond.Status = metav1.ConditionTrue
+			misplacedCond.Reason = "Misplaced"
+			misplacedCond.Message = "Misplaced"
+		}
+		resourceutil.SetCondition(rr, &misplacedCond)
+
+		readyCond := metav1.Condition{Type: "Ready", LastTransitionTime: metav1.Now()}
+		configureCond := resourceutil.GetCondition(rr, resourceutil.ConfigureWorkflowCompletedCondition)
+		switch {
+		case configureCond == nil || configureCond.Status != metav1.ConditionTrue:
+			readyCond.Status = metav1.ConditionFalse
+			readyCond.Reason = "Pending"
+			readyCond.Message = "Pending"
+		case failed > 0 || worksSucceeded == metav1.ConditionFalse:
+			readyCond.Status = metav1.ConditionFalse
+			readyCond.Reason = "Failing"
+			readyCond.Message = "Failing"
+		case misplaced:
+			readyCond.Status = metav1.ConditionTrue
+			readyCond.Reason = "Misplaced"
+			readyCond.Message = "Misplaced"
+		case worksSucceeded == metav1.ConditionTrue:
+			readyCond.Status = metav1.ConditionTrue
+			readyCond.Reason = "Requested"
+			readyCond.Message = "Requested"
+		default:
+			readyCond.Status = metav1.ConditionFalse
+			readyCond.Reason = "Pending"
+			readyCond.Message = "Pending"
+		}
+		resourceutil.SetCondition(rr, &readyCond)
+
 		if updateErr := r.Client.Status().Update(ctx, rr); updateErr != nil {
 			logger.Error(updateErr, "failed updating workflow stats")
 		}
 
-		if total > 0 && succeeded == total && failed == 0 {
+		if worksSucceeded == metav1.ConditionTrue && !misplaced {
 			r.EventRecorder.Event(rr, "Normal", "WorksReady", "All works ready")
 		} else if failed > 0 {
 			works, _ := resourceutil.GetAllWorksForResource(r.Client, rr.GetNamespace(), r.PromiseIdentifier, rr.GetName())
