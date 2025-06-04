@@ -37,6 +37,7 @@ import (
 	batchv1 "k8s.io/api/batch/v1"
 	v1 "k8s.io/api/core/v1"
 
+	metav1 "k8s.io/apimachinery/pkg/apis/meta/v1"
 	clusterv1 "sigs.k8s.io/cluster-api/api/v1beta1"
 
 	apierrors "k8s.io/apimachinery/pkg/api/errors"
@@ -159,6 +160,35 @@ func (r *DynamicResourceRequestController) Reconcile(ctx context.Context, req ct
 	abort, err := reconcileConfigure(jobOpts)
 	if err != nil || abort {
 		return ctrl.Result{}, err
+	}
+
+	total, succeeded, failed, statsErr := resourceutil.CalculateWorkflowStats(r.Client, rr.GetNamespace(), r.PromiseIdentifier, rr.GetName())
+	if statsErr == nil {
+		resourceutil.SetStatus(rr, logger,
+			"workflows", total,
+			"workflowsSucceeded", succeeded,
+			"workflowsFailed", failed,
+		)
+		if updateErr := r.Client.Status().Update(ctx, rr); updateErr != nil {
+			logger.Error(updateErr, "failed updating workflow stats")
+		}
+
+		if total > 0 && succeeded == total && failed == 0 {
+			r.EventRecorder.Event(rr, "Normal", "WorksReady", "All works ready")
+		} else if failed > 0 {
+			works, _ := resourceutil.GetAllWorksForResource(r.Client, rr.GetNamespace(), r.PromiseIdentifier, rr.GetName())
+			for _, w := range works {
+				for _, cond := range w.Status.Conditions {
+					if cond.Type == "Ready" && cond.Status == metav1.ConditionFalse {
+						r.EventRecorder.Eventf(rr, "Warning", "WorkFailed", "Work %s is in a failed state. Run k get work %s for details", w.Name, w.Name)
+					}
+				}
+			}
+		} else {
+			r.EventRecorder.Event(rr, "Normal", "WaitingForWorks", "Waiting for works to be ready")
+		}
+	} else {
+		logger.Error(statsErr, "failed to calculate workflow stats")
 	}
 
 	if rr.GetGeneration() != resourceutil.GetObservedGeneration(rr) {

@@ -5,6 +5,7 @@ import (
 	"fmt"
 
 	"github.com/syntasso/kratix/api/v1alpha1"
+	metav1 "k8s.io/apimachinery/pkg/apis/meta/v1"
 	"k8s.io/apimachinery/pkg/apis/meta/v1/unstructured"
 	"k8s.io/apimachinery/pkg/labels"
 	"sigs.k8s.io/controller-runtime/pkg/client"
@@ -91,4 +92,30 @@ func getExistingWorks(k8sClient client.Client, namespace string, workLabels map[
 	}
 
 	return works.Items, nil
+}
+
+// CalculateWorkflowStats returns the total number of works for a resource along
+// with how many of those works are ready and how many have failed.
+func CalculateWorkflowStats(k8sClient client.Client, namespace, promiseName, resourceName string) (int, int, int, error) {
+	works, err := GetAllWorksForResource(k8sClient, namespace, promiseName, resourceName)
+	if err != nil {
+		return 0, 0, 0, err
+	}
+
+	total := len(works)
+	succeeded := 0
+	failed := 0
+	for _, w := range works {
+		for _, cond := range w.Status.Conditions {
+			if cond.Type == "Ready" {
+				switch cond.Status {
+				case metav1.ConditionTrue:
+					succeeded++
+				case metav1.ConditionFalse:
+					failed++
+				}
+			}
+		}
+	}
+	return total, succeeded, failed, nil
 }
