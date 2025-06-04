@@ -597,6 +597,14 @@ var _ = Describe("Pipeline", func() {
 						Expect(*resources.Job.Spec.BackoffLimit).To(Equal(int32(1)))
 					})
 				})
+
+				When("no backoff limit is specified", func() {
+					It("leaves the job backoff limit unset", func() {
+						resources, err := factory.Resources(nil)
+						Expect(err).ToNot(HaveOccurred())
+						Expect(resources.Job.Spec.BackoffLimit).To(BeNil())
+					})
+				})
 			})
 
 			Describe("Default Volumes", func() {
