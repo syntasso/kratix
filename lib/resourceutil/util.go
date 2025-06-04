@@ -3,6 +3,7 @@ package resourceutil
 import (
 	"fmt"
 	"sort"
+	"strings"
 	"time"
 
 	"github.com/go-logr/logr"
@@ -28,6 +29,8 @@ const (
 	promiseRequirementsNotMetMessage       = "Promise Requirements are not installed"
 	promiseRequirementsMetReason           = "PromiseAvailable"
 	promiseRequirementsMetMessage          = "Promise Requirements are met"
+	MisplacedCondition                     = clusterv1.ConditionType("Misplaced")
+	MisplacedConditionReason               = "WorksMisplaced"
 )
 
 func GetConfigureWorkflowCompletedConditionStatus(obj *unstructured.Unstructured) v1.ConditionStatus {
@@ -58,6 +61,17 @@ func MarkConfigureWorkflowAsFailed(logger logr.Logger, obj *unstructured.Unstruc
 		LastTransitionTime: metav1.NewTime(time.Now()),
 	})
 	logger.Info("marking configure workflow as failed", "condition", ConfigureWorkflowCompletedCondition, "value", v1.ConditionFalse, "reason", ConfigureWorkflowCompletedFailedReason)
+}
+
+func MarkResourceRequestAsMisplaced(logger logr.Logger, obj *unstructured.Unstructured, works []string) {
+	SetCondition(obj, &clusterv1.Condition{
+		Type:               MisplacedCondition,
+		Status:             v1.ConditionTrue,
+		Message:            fmt.Sprintf("Some works associated with this resource are misplaced: [%s]", strings.Join(works, ",")),
+		Reason:             MisplacedConditionReason,
+		LastTransitionTime: metav1.NewTime(time.Now()),
+	})
+	logger.Info("marking resource request as misplaced", "condition", MisplacedCondition, "value", v1.ConditionFalse, "reason", MisplacedConditionReason)
 }
 
 func MarkDeleteWorkflowAsFailed(logger logr.Logger, obj *unstructured.Unstructured) {

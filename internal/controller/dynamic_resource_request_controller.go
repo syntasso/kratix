@@ -19,13 +19,11 @@ package controller
 import (
 	"context"
 	"errors"
-
-	"k8s.io/client-go/tools/record"
-
-	apiextensionsv1 "k8s.io/apiextensions-apiserver/pkg/apis/apiextensions/v1"
-	"sigs.k8s.io/controller-runtime/pkg/controller/controllerutil"
-
 	"fmt"
+	apiextensionsv1 "k8s.io/apiextensions-apiserver/pkg/apis/apiextensions/v1"
+	"k8s.io/apimachinery/pkg/labels"
+	"k8s.io/client-go/tools/record"
+	"sigs.k8s.io/controller-runtime/pkg/controller/controllerutil"
 
 	"github.com/go-logr/logr"
 	"github.com/syntasso/kratix/api/v1alpha1"
@@ -40,6 +38,7 @@ import (
 	clusterv1 "sigs.k8s.io/cluster-api/api/v1beta1"
 
 	apierrors "k8s.io/apimachinery/pkg/api/errors"
+	apiMeta "k8s.io/apimachinery/pkg/api/meta"
 	"k8s.io/apimachinery/pkg/apis/meta/v1/unstructured"
 	"k8s.io/apimachinery/pkg/runtime"
 	"k8s.io/apimachinery/pkg/runtime/schema"
@@ -175,6 +174,39 @@ func (r *DynamicResourceRequestController) Reconcile(ctx context.Context, req ct
 			return updateLastSuccessfulConfigureWorkflowTime(workflowCompletedCondition, rr, opts, logger)
 		}
 		return r.nextReconciliation(logger)
+	}
+	workSelectorLabel := labels.FormatLabels(resourceutil.GetWorkLabels(r.PromiseIdentifier, rr.GetName(), "", string(v1alpha1.WorkflowActionConfigure)))
+	selector, err := labels.Parse(workSelectorLabel)
+	if err != nil {
+		r.Log.Info("Failed parsing Works selector label", "labels", workSelectorLabel)
+		return ctrl.Result{}, err
+	}
+
+	var works v1alpha1.WorkList
+	err = r.Client.List(ctx, &works, &client.ListOptions{
+		Namespace:     rr.GetNamespace(),
+		LabelSelector: selector,
+	})
+	if err != nil {
+		r.Log.Info("Failed listing works", "namespace", rr.GetNamespace(), "label selector", workSelectorLabel)
+		return ctrl.Result{}, err
+	}
+	var misplacedWorks []string
+	for _, work := range works.Items {
+		if apiMeta.IsStatusConditionTrue(work.Status.Conditions, "Misplaced") {
+			misplacedWorks = append(misplacedWorks, work.Name)
+		}
+	}
+	if len(misplacedWorks) > 0 {
+		var misplacedCondition = resourceutil.GetCondition(rr, resourceutil.MisplacedCondition)
+		if misplacedCondition == nil || misplacedCondition.Status == v1.ConditionFalse {
+			resourceutil.MarkResourceRequestAsMisplaced(r.Log, rr, misplacedWorks)
+			err = r.Client.Status().Update(ctx, rr)
+			if err != nil {
+				r.Log.Info("Failed updating status condition Misplaced to true")
+				return ctrl.Result{}, err
+			}
+		}
 	}
 
 	return ctrl.Result{}, nil
