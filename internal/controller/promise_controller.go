@@ -982,9 +982,19 @@ func setStatusFieldsOnCRD(rrCRD *apiextensionsv1.CustomResourceDefinition) {
 		if len(rrCRD.Spec.Versions[i].AdditionalPrinterColumns) == 0 {
 			rrCRD.Spec.Versions[i].AdditionalPrinterColumns = []apiextensionsv1.CustomResourceColumnDefinition{
 				{
-					Name:     "status",
+					Name:     "WORKFLOWS",
+					Type:     "string",
+					JSONPath: ".status.workflows",
+				},
+				{
+					Name:     "MESSAGE",
 					Type:     "string",
 					JSONPath: ".status.message",
+				},
+				{
+					Name:     "STATUS",
+					Type:     "string",
+					JSONPath: ".status.conditions[?(@.type==\"Ready\")].message",
 				},
 			}
 		}
@@ -997,6 +1007,18 @@ func setStatusFieldsOnCRD(rrCRD *apiextensionsv1.CustomResourceDefinition) {
 					Type: "string",
 				},
 				"observedGeneration": {
+					Type:   "integer",
+					Format: "int64",
+				},
+				"workflows": {
+					Type:   "integer",
+					Format: "int64",
+				},
+				"workflowsSucceeded": {
+					Type:   "integer",
+					Format: "int64",
+				},
+				"workflowsFailed": {
 					Type:   "integer",
 					Format: "int64",
 				},
