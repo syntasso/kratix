@@ -430,6 +430,20 @@ var _ = Describe("Conditions", func() {
 			})
 		})
 	})
+
+	Describe("MarkConfigureWorkflowAsFailed", func() {
+		It("increments workflowsFailed", func() {
+			obj := &unstructured.Unstructured{Object: map[string]interface{}{}}
+			resourceutil.MarkConfigureWorkflowAsFailed(logger, obj, "pipe")
+			val, found, err := unstructured.NestedInt64(obj.Object, "status", "workflowsFailed")
+			Expect(err).NotTo(HaveOccurred())
+			Expect(found).To(BeTrue())
+			Expect(val).To(Equal(int64(1)))
+			resourceutil.MarkConfigureWorkflowAsFailed(logger, obj, "pipe")
+			val, _, _ = unstructured.NestedInt64(obj.Object, "status", "workflowsFailed")
+			Expect(val).To(Equal(int64(2)))
+		})
+	})
 })
 
 func markWorkflowAsCompleted(obj *unstructured.Unstructured) {

@@ -153,6 +153,14 @@ func (r *PromiseReconciler) Reconcile(ctx context.Context, req ctrl.Request) (ct
 		return ctrl.Result{}, fmt.Errorf("Error converting Promise to Unstructured: %w", err)
 	}
 
+	expected := promise.TotalWorkflows()
+	if promise.Status.Workflows != expected {
+		promise.Status.Workflows = expected
+		if result, err := r.updatePromiseStatus(ctx, promise); err != nil || !result.IsZero() {
+			return result, err
+		}
+	}
+
 	if value, found := promise.Labels[v1alpha1.PromiseVersionLabel]; found {
 		if promise.Status.Version != value {
 			promise.Status.Version = value

@@ -147,5 +147,16 @@ var _ = Describe("StatusUpdater", func() {
 				))
 			})
 		})
+
+		It("increments workflowsSucceeded", func() {
+			status := map[string]any{"workflowsSucceeded": 2}
+			result := lib.MarkAsCompleted(status)
+			Expect(result).To(HaveKeyWithValue("workflowsSucceeded", BeEquivalentTo(3)))
+		})
+
+		It("initializes workflowsSucceeded if missing", func() {
+			result := lib.MarkAsCompleted(map[string]any{})
+			Expect(result).To(HaveKeyWithValue("workflowsSucceeded", BeEquivalentTo(1)))
+		})
 	})
 })

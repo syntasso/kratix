@@ -27,6 +27,7 @@ import (
 	corev1 "k8s.io/api/core/v1"
 	rbacv1 "k8s.io/api/rbac/v1"
 	apiextensionsv1 "k8s.io/apiextensions-apiserver/pkg/apis/apiextensions/v1"
+	apimeta "k8s.io/apimachinery/pkg/api/meta"
 	metav1 "k8s.io/apimachinery/pkg/apis/meta/v1"
 	"k8s.io/apimachinery/pkg/apis/meta/v1/unstructured"
 	"k8s.io/apimachinery/pkg/labels"
@@ -45,6 +46,12 @@ const (
 	PromiseAvailableConditionType        = "Available"
 	PromiseAvailableConditionTrueReason  = "PromiseAvailable"
 	PromiseAvailableConditionFalseReason = "PromiseUnavailable"
+	PromiseReadyConditionType            = "Ready"
+	PromiseWorksSucceededConditionType   = "WorksSucceeded"
+	PromiseRequirementsFulfilledType     = "RequirementsFulfilled"
+	PromiseConfigureWorkflowCompleted    = "ConfigureWorkflowCompleted"
+	PromiseDeleteWorkflowCompleted       = "DeleteWorkflowCompleted"
+	PromiseDeleteWorkflowFailedReason    = "DeleteWorkflowFailed"
 
 	// MaxResourceNameLength is the maximum length of a resource name
 	MaxResourceNameLength int64 = 63
@@ -122,6 +129,9 @@ type PromiseStatus struct {
 	Kind               string                  `json:"kind,omitempty"`
 	APIVersion         string                  `json:"apiVersion,omitempty"`
 	Status             string                  `json:"status,omitempty"`
+	Workflows          int64                   `json:"workflows,omitempty"`
+	WorkflowsSucceeded int64                   `json:"workflowsSucceeded,omitempty"`
+	WorkflowsFailed    int64                   `json:"workflowsFailed,omitempty"`
 	RequiredPromises   []RequiredPromiseStatus `json:"requiredPromises,omitempty"`
 	RequiredBy         []RequiredBy            `json:"requiredBy,omitempty"`
 	LastAvailableTime  *metav1.Time            `json:"lastAvailableTime,omitempty"`
@@ -146,7 +156,7 @@ type RequiredPromiseStatus struct {
 //+kubebuilder:object:root=true
 //+kubebuilder:subresource:status
 //+kubebuilder:resource:scope=Cluster,path=promises,categories=kratix
-//+kubebuilder:printcolumn:JSONPath=".status.status",name="Status",type=string
+//+kubebuilder:printcolumn:JSONPath=".status.conditions[?(@.type==\"Ready\")].message",name="Status",type=string
 //+kubebuilder:printcolumn:JSONPath=".status.kind",name=Kind,type=string
 //+kubebuilder:printcolumn:JSONPath=".status.apiVersion",name="API Version",type=string
 //+kubebuilder:printcolumn:JSONPath=".status.version",name="Version",type=string
@@ -322,6 +332,64 @@ func (p *Promise) GetCondition(conditionType string) *metav1.Condition {
 	return nil
 }
 
+func (p *Promise) ComputeReadyCondition() metav1.Condition {
+	cond := metav1.Condition{
+		Type:               PromiseReadyConditionType,
+		Status:             metav1.ConditionFalse,
+		Reason:             "Pending",
+		Message:            "Pending",
+		LastTransitionTime: metav1.Now(),
+	}
+
+	configureCond := apimeta.FindStatusCondition(p.Status.Conditions, PromiseConfigureWorkflowCompleted)
+	if configureCond == nil || configureCond.Status != metav1.ConditionTrue {
+		return cond
+	}
+
+	reqCond := apimeta.FindStatusCondition(p.Status.Conditions, PromiseRequirementsFulfilledType)
+	if reqCond == nil || reqCond.Status != metav1.ConditionTrue {
+		return cond
+	}
+
+	if p.Status.WorkflowsFailed > 0 {
+		cond.Reason = "WorkflowsFailed"
+		cond.Message = "Failing"
+		return cond
+	}
+
+	worksCond := apimeta.FindStatusCondition(p.Status.Conditions, PromiseWorksSucceededConditionType)
+	if worksCond == nil || worksCond.Status == metav1.ConditionUnknown {
+		return cond
+	}
+
+	if worksCond.Status == metav1.ConditionFalse {
+		cond.Reason = "WorksFailed"
+		cond.Message = "Failing"
+		return cond
+	}
+
+	deleteCond := apimeta.FindStatusCondition(p.Status.Conditions, PromiseDeleteWorkflowCompleted)
+	if deleteCond != nil && deleteCond.Status == metav1.ConditionFalse {
+		cond.Reason = PromiseDeleteWorkflowFailedReason
+		cond.Message = "Failing"
+		return cond
+	}
+
+	for _, c := range p.Status.Conditions {
+		if c.Reason == "Misplaced" || c.Message == "Misplaced" {
+			cond.Status = metav1.ConditionTrue
+			cond.Reason = "Misplaced"
+			cond.Message = "Misplaced"
+			return cond
+		}
+	}
+
+	cond.Status = metav1.ConditionTrue
+	cond.Reason = "Requested"
+	cond.Message = "Requested"
+	return cond
+}
+
 //+kubebuilder:object:root=true
 
 // PromiseList contains a list of Promise
@@ -345,6 +413,15 @@ func (p *Promise) GetWorkloadGroupScheduling() []WorkloadGroupScheduling {
 	}
 
 	return workloadGroupScheduling
+}
+
+// TotalWorkflows returns the total number of workflows defined on the Promise.
+func (p *Promise) TotalWorkflows() int64 {
+	total := len(p.Spec.Workflows.Resource.Configure) +
+		len(p.Spec.Workflows.Resource.Delete) +
+		len(p.Spec.Workflows.Promise.Configure) +
+		len(p.Spec.Workflows.Promise.Delete)
+	return int64(total)
 }
 
 func (p *Promise) generatePipelinesObjects(workflowType Type, workflowAction Action, resourceRequest *unstructured.Unstructured, logger logr.Logger) ([]PipelineJobResources, error) {
