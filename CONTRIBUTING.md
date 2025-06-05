@@ -1,10 +1,20 @@
 # Contributing to Kratix
 
-Thank you for considering contributing to Kratix! Before submitting code, please ensure your development environment is set up correctly and that you run `make test` and `make lint`.
+Thank you for considering contributing to Kratix! 
 
-## Running tests
+Before submitting code, please ensure your development environment is set up correctly and that you run `make test` and `make lint`.
 
-The `make test` command automatically downloads Go-based helper tools such as `controller-gen` and `kustomize` into the `bin/` directory. This requires network access the first time you run the tests. If your environment does not have network connectivity, ensure these binaries are preinstalled in `bin/` before invoking `make test`.
+## Development workflow
+
+Before submitting your changes, please:
+
+1. [Install Go](https://go.dev/doc/install) and ensure the toolchain is available in your `$PATH`.
+2. Install [`golangci-lint`](https://golangci-lint.run/usage/install/).
+3. Run `make test` to execute unit tests.
+4. Run `make lint` to run static analysis.
+5. Follow any instructions documented in an `AGENTS.md` file if present.
+
+Running the tests and linter locally helps catch issues early and ensures consistency across contributions.
 
 ## Linting
 
@@ -19,3 +29,7 @@ Make sure the installed binary is available on your `PATH` (typically `$(go env 
 ```bash
 make lint
 ```
+
+
+
+
