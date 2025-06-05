@@ -1,6 +1,10 @@
 # Contributing to Kratix
 
-Thank you for considering contributing to Kratix! Before submitting code, please ensure your development environment is set up correctly.
+Thank you for considering contributing to Kratix! Before submitting code, please ensure your development environment is set up correctly and that you run `make test` and `make lint`.
+
+## Running tests
+
+The `make test` command automatically downloads Go-based helper tools such as `controller-gen` and `kustomize` into the `bin/` directory. This requires network access the first time you run the tests. If your environment does not have network connectivity, ensure these binaries are preinstalled in `bin/` before invoking `make test`.
 
 ## Linting
 
