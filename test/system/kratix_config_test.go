@@ -28,7 +28,7 @@ var _ = Describe("Kratix Config", func() {
 			platform.Kubectl("delete", "promise", "configtest")
 		})
 
-		It("uses security context from kratix config as default but allows overrides", func() {
+		It("uses configurations from kratix config as default but allows overrides", func() {
 			platform.Kubectl("apply", "-f", "assets/kratix-config/resource-request.yaml")
 
 			firstPipelineLabels := fmt.Sprintf(
@@ -56,6 +56,12 @@ var _ = Describe("Kratix Config", func() {
 				Expect(podYaml).NotTo(ContainSubstring("setInKratixConfig"))
 			})
 
+			By("using the default backoff limit defined in the promise workflow", func() {
+				jobYaml := platform.EventuallyKubectl("get", "jobs", "--selector", firstPipelineLabels, "-o=yaml")
+				Expect(jobYaml).To(ContainSubstring("backoffLimit: 3"))
+				Expect(jobYaml).NotTo(ContainSubstring("backoffLimit: 6"))
+			})
+
 			By("executing the second pipeline pod", func() {
 				Eventually(func() string {
 					return platform.EventuallyKubectl("get", "pods", "--selector", secondPipelineLabels)
@@ -67,6 +73,13 @@ var _ = Describe("Kratix Config", func() {
 				Expect(podYaml).To(ContainSubstring("setInKratixConfig"))
 				Expect(podYaml).NotTo(ContainSubstring("setInPromise"))
 			})
+
+			By("using the default backoff limit defined in the kratix config", func() {
+				jobYaml := platform.EventuallyKubectl("get", "jobs", "--selector", secondPipelineLabels, "-o=yaml")
+				Expect(jobYaml).To(ContainSubstring("backoffLimit: 4"))
+				Expect(jobYaml).NotTo(ContainSubstring("backoffLimit: 6"))
+			})
 		})
 	})
+
 })

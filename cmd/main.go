@@ -77,6 +77,11 @@ type KratixConfig struct {
 type Workflows struct {
 	DefaultContainerSecurityContext corev1.SecurityContext `json:"defaultContainerSecurityContext"`
 	DefaultImagePullPolicy          corev1.PullPolicy      `json:"defaultImagePullPolicy,omitempty"`
+	JobOptions                      JobOptions             `json:"jobOptions,omitempty"`
+}
+
+type JobOptions struct {
+	DefaultBackoffLimit *int32 `json:"defaultBackoffLimit,omitempty"`
 }
 
 // LeaderElectionConfig duration default can be found in:
@@ -132,6 +137,9 @@ func main() {
 	if kratixConfig != nil {
 		v1alpha1.DefaultUserProvidedContainersSecurityContext = &kratixConfig.Workflows.DefaultContainerSecurityContext
 		v1alpha1.DefaultImagePullPolicy = kratixConfig.Workflows.DefaultImagePullPolicy
+		if kratixConfig.Workflows.JobOptions.DefaultBackoffLimit != nil {
+			v1alpha1.DefaultJobBackoffLimit = kratixConfig.Workflows.JobOptions.DefaultBackoffLimit
+		}
 	}
 
 	for {
