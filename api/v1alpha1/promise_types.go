@@ -24,6 +24,7 @@ import (
 	"strconv"
 
 	"github.com/go-logr/logr"
+	"gopkg.in/yaml.v2"
 	corev1 "k8s.io/api/core/v1"
 	rbacv1 "k8s.io/api/rbac/v1"
 	apiextensionsv1 "k8s.io/apiextensions-apiserver/pkg/apis/apiextensions/v1"
@@ -33,7 +34,6 @@ import (
 	"k8s.io/apimachinery/pkg/runtime"
 	"k8s.io/apimachinery/pkg/runtime/schema"
 	"k8s.io/utils/ptr"
-	"sigs.k8s.io/yaml"
 )
 
 const (
@@ -299,18 +299,16 @@ func (p *Promise) GenerateFullAccessForRR(group, rrPluralName string) []rbacv1.P
 }
 
 func (d Dependencies) Marshal() ([]byte, error) {
-	var buf bytes.Buffer
+	buf := new(bytes.Buffer)
+	encoder := yaml.NewEncoder(buf)
 	for _, workload := range d {
-		data, err := yaml.Marshal(workload.Object)
+		err := encoder.Encode(workload.Object)
 		if err != nil {
-			return nil, err
-		}
-		if _, err := buf.Write(data); err != nil {
 			return nil, err
 		}
 	}
 
-	return io.ReadAll(&buf)
+	return io.ReadAll(buf)
 }
 
 func (p *Promise) GetCondition(conditionType string) *metav1.Condition {
