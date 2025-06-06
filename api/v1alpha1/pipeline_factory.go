@@ -181,17 +181,12 @@ func (p *PipelineFactory) defaultEnvVars() []corev1.EnvVar {
 }
 
 func (p *PipelineFactory) readerContainer() corev1.Container {
-	envVars := []corev1.EnvVar{
-		{Name: KratixWorkflowType, Value: string(p.WorkflowType)},
-		{Name: KratixCrdPlural, Value: p.CRDPlural},
-		{Name: KratixClusterScoped, Value: fmt.Sprintf("%t", p.ClusterScoped)},
-	}
 
 	return corev1.Container{
 		Name:    "reader",
 		Image:   os.Getenv("PIPELINE_ADAPTER_IMG"),
 		Command: []string{"sh", "-c", "reader"},
-		Env:     append(p.defaultEnvVars(), envVars...),
+		Env:     p.defaultEnvVars(),
 		VolumeMounts: []corev1.VolumeMount{
 			{MountPath: "/kratix/input", Name: "shared-input"},
 			{MountPath: "/kratix/output", Name: "shared-output"},
