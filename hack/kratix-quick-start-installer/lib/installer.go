@@ -1,8 +1,10 @@
 package lib
 
 import (
+	"bytes"
 	"context"
 	"fmt"
+	"io"
 	"os"
 	"os/exec"
 	"strings"
@@ -69,21 +71,44 @@ func FinalizeInstall(totalSteps int) {
 }
 
 func KubectlWithRetry(ctx context.Context, args ...string) error {
+	_, err := kubectlWithRetry(ctx, true, args...)
+
+	return err
+}
+
+func KubectlWithRetryOutputOnly(ctx context.Context, args ...string) (string, error) {
+	return kubectlWithRetry(ctx, false, args...)
+}
+
+func kubectlWithRetry(ctx context.Context, outputToStd bool, args ...string) (string, error) {
 	const maxRetries = 5
+
+	var combinedOutput bytes.Buffer
+
 	for i := 1; i <= maxRetries; i++ {
 		cmd := exec.CommandContext(ctx, "kubectl", args...)
-		cmd.Stdout = os.Stdout
-		cmd.Stderr = os.Stderr
+
+		// Use a multiwriter to stream output to both the terminal and a buffer
+		if outputToStd {
+			stdoutWriter := io.MultiWriter(os.Stdout, &combinedOutput)
+			stderrWriter := io.MultiWriter(os.Stderr, &combinedOutput)
+			cmd.Stdout = stdoutWriter
+			cmd.Stderr = stderrWriter
+		} else {
+			cmd.Stdout = &combinedOutput
+			cmd.Stderr = &combinedOutput
+		}
 
 		err := cmd.Run()
 		if err == nil {
-			return nil
+			return combinedOutput.String(), nil
 		}
 
 		fmt.Printf("  ⚠️  kubectl failed (attempt %d/%d): %v\n", i, maxRetries, err)
 		time.Sleep(10 * time.Second)
 	}
-	return fmt.Errorf("command failed after %d retries: kubectl %s", maxRetries, strings.Join(args, " "))
+
+	return combinedOutput.String(), fmt.Errorf("command failed after %d retries: kubectl %s", maxRetries, strings.Join(args, " "))
 }
 
 func WaitForPod(ctx context.Context, namespace, labelSelector string) error {
