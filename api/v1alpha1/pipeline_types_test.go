@@ -1745,7 +1745,7 @@ func matchConfigureConfigmap(c *corev1.ConfigMap, factory *v1alpha1.PipelineFact
 	ExpectWithOffset(1, c.Data).To(
 		HaveKeyWithValue(
 			"destinationSelectors",
-			"- matchLabels:\n    label: value\n  source: promise\n- matchLabels:\n    another-label: another-value\n  source: promise\n"))
+			"- matchlabels:\n    label: value\n  source: promise\n- matchlabels:\n    another-label: another-value\n  source: promise\n"))
 }
 
 func promiseHash(promise *v1alpha1.Promise) string {
