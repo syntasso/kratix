@@ -702,7 +702,6 @@ var _ = Describe("Pipeline", func() {
 					{Name: "KRATIX_WORKFLOW_ACTION", Value: "configure"},
 					{Name: "KRATIX_PROMISE_NAME", Value: "promiseName"},
 					{Name: "KRATIX_PIPELINE_NAME", Value: "pipelineName"},
-					{Name: "KRATIX_WORKFLOW_TYPE", Value: "fakeType"},
 				}
 
 				if isResourceWorkflow {
@@ -712,8 +711,6 @@ var _ = Describe("Pipeline", func() {
 						corev1.EnvVar{Name: "KRATIX_OBJECT_VERSION", Value: resourceRequest.GroupVersionKind().Version},
 						corev1.EnvVar{Name: "KRATIX_OBJECT_NAMESPACE", Value: resourceRequest.GetNamespace()},
 						corev1.EnvVar{Name: "KRATIX_OBJECT_KIND", Value: "promisecrd"},
-						corev1.EnvVar{Name: "KRATIX_CRD_PLURAL", Value: "promiseCrdPlural"},
-						corev1.EnvVar{Name: "KRATIX_CLUSTER_SCOPED", Value: "false"},
 					)
 				} else {
 					expectedEnvVars = append(expectedEnvVars,
@@ -722,8 +719,6 @@ var _ = Describe("Pipeline", func() {
 						corev1.EnvVar{Name: "KRATIX_OBJECT_VERSION", Value: promise.GroupVersionKind().Version},
 						corev1.EnvVar{Name: "KRATIX_OBJECT_NAMESPACE", Value: ""},
 						corev1.EnvVar{Name: "KRATIX_OBJECT_KIND", Value: promise.GroupVersionKind().Kind},
-						corev1.EnvVar{Name: "KRATIX_CRD_PLURAL", Value: "promises"},
-						corev1.EnvVar{Name: "KRATIX_CLUSTER_SCOPED", Value: "true"},
 					)
 				}
 
