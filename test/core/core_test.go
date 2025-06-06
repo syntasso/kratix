@@ -6,6 +6,7 @@ import (
 
 	"github.com/syntasso/kratix/api/v1alpha1"
 	"github.com/syntasso/kratix/test/kubeutils"
+	metav1 "k8s.io/apimachinery/pkg/apis/meta/v1"
 
 	. "github.com/onsi/ginkgo/v2"
 	. "github.com/onsi/gomega"
@@ -69,20 +70,20 @@ var _ = Describe("Core Tests", Ordered, func() {
 				})
 
 				By("deploying the dependencies to the correct destinations", func() {
+					var workLabel string
 					By("creating the right works and workplacements", func() {
 						Eventually(func(g Gomega) {
 							var works v1alpha1.WorkList
 							kubeutils.ParseOutput(platform.Kubectl("get", "works", asYaml, systemNamespaceFlag, promiseLabel), &works)
 							g.Expect(works.Items).To(HaveLen(1))
 
-							workLabel := "-l=kratix.io/work=" + works.Items[0].Name
+							workLabel = "-l=kratix.io/work=" + works.Items[0].Name
 							var workPlacements v1alpha1.WorkPlacementList
 							kubeutils.ParseOutput(
 								platform.Kubectl("get", "workplacements", asYaml, systemNamespaceFlag, workLabel),
 								&workPlacements,
 							)
 							g.Expect(workPlacements.Items).To(HaveLen(2))
-
 							g.Expect(workPlacements.Items).To(SatisfyAll(
 								ContainElement(SatisfyAll(
 									HaveField("Spec.TargetDestinationName", Equal(destinationName)),
@@ -92,6 +93,64 @@ var _ = Describe("Core Tests", Ordered, func() {
 								)),
 							))
 						}, timeout, interval).Should(Succeed())
+					})
+
+					By("setting status.conditions in workplacements", func() {
+						Eventually(func(g Gomega) {
+							var workPlacements v1alpha1.WorkPlacementList
+							kubeutils.ParseOutput(
+								platform.Kubectl("get", "workplacements", asYaml, systemNamespaceFlag, workLabel),
+								&workPlacements,
+							)
+							for _, w := range workPlacements.Items {
+								conditions := w.Status.Conditions
+								for i := range conditions {
+									conditions[i].LastTransitionTime = metav1.Time{}
+								}
+								g.Expect(conditions).To(ConsistOf(
+									metav1.Condition{
+										Type:    "ScheduleSucceeded",
+										Status:  metav1.ConditionTrue,
+										Reason:  "ScheduledToDestination",
+										Message: "Scheduled to correct Destination"},
+									metav1.Condition{
+										Type:    "Ready",
+										Status:  metav1.ConditionTrue,
+										Reason:  "WorkloadsWrittenToTargetDestination",
+										Message: "Ready",
+									},
+									metav1.Condition{
+										Type:   "WriteSucceeded",
+										Status: metav1.ConditionTrue,
+										Reason: "WorkloadsWrittenToStateStore",
+									}))
+							}
+						}, 30*time.Second, interval).Should(Succeed())
+					})
+
+					By("setting status.conditions in works", func() {
+						Eventually(func(g Gomega) {
+							var works v1alpha1.WorkList
+							kubeutils.ParseOutput(platform.Kubectl("get", "works", asYaml, systemNamespaceFlag, promiseLabel), &works)
+							g.Expect(works.Items).To(HaveLen(1))
+							conditions := works.Items[0].Status.Conditions
+							for i := range conditions {
+								conditions[i].LastTransitionTime = metav1.Time{}
+							}
+							g.Expect(conditions).To(ConsistOf(
+								metav1.Condition{
+									Type:    "Ready",
+									Status:  metav1.ConditionTrue,
+									Reason:  "AllWorkplacementsScheduled",
+									Message: "Ready",
+								},
+								metav1.Condition{
+									Type:    "ScheduleSucceeded",
+									Status:  metav1.ConditionTrue,
+									Reason:  "AllWorkplacementsScheduled",
+									Message: "All workplacements scheduled successfully",
+								}))
+						}, 30*time.Second, interval).Should(Succeed())
 					})
 
 					By("applying the documents", func() {

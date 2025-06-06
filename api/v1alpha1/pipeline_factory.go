@@ -5,7 +5,6 @@ import (
 	"os"
 	"strings"
 
-	"github.com/pkg/errors"
 	"github.com/syntasso/kratix/lib/hash"
 	"github.com/syntasso/kratix/lib/objectutil"
 	"gopkg.in/yaml.v2"
@@ -102,7 +101,7 @@ func (p *PipelineFactory) configMap(workloadGroupScheduling []WorkloadGroupSched
 	}
 	schedulingYAML, err := yaml.Marshal(workloadGroupScheduling)
 	if err != nil {
-		return nil, errors.Wrap(err, "error marshalling destinationSelectors to yaml")
+		return nil, fmt.Errorf("error marshalling destinationSelectors to yaml: %w", err)
 	}
 	return &corev1.ConfigMap{
 		ObjectMeta: metav1.ObjectMeta{
@@ -293,6 +292,11 @@ func (p *PipelineFactory) pipelineJob(schedulingConfigMap *corev1.ConfigMap, ser
 	nodeSelector := p.Pipeline.Spec.NodeSelector
 	tolerations := p.Pipeline.Spec.Tolerations
 
+	backoffLimit := p.Pipeline.Spec.JobOptions.BackoffLimit
+	if backoffLimit == nil {
+		backoffLimit = DefaultJobBackoffLimit
+	}
+
 	var initContainers []corev1.Container
 	var containers []corev1.Container
 
@@ -314,6 +318,7 @@ func (p *PipelineFactory) pipelineJob(schedulingConfigMap *corev1.ConfigMap, ser
 			Labels:    p.pipelineJobLabels(objHash),
 		},
 		Spec: batchv1.JobSpec{
+			BackoffLimit: backoffLimit,
 			Template: corev1.PodTemplateSpec{
 				ObjectMeta: metav1.ObjectMeta{
 					Labels:      p.pipelineJobLabels(objHash),

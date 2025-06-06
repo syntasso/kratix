@@ -552,6 +552,61 @@ var _ = Describe("Pipeline", func() {
 				})
 			})
 
+			Describe("BackoffLimit", func() {
+				When("a global default backoff limit is set", func() {
+					BeforeEach(func() {
+						v1alpha1.DefaultJobBackoffLimit = ptr.To(int32(4))
+					})
+
+					It("sets the job backoff limit to the global default", func() {
+						resources, err := factory.Resources(nil)
+						Expect(err).ToNot(HaveOccurred())
+						Expect(resources.Job.Spec.BackoffLimit).ToNot(BeNil())
+						Expect(*resources.Job.Spec.BackoffLimit).To(Equal(int32(4)))
+					})
+				})
+
+				When("the pipeline specifies a backoff limit", func() {
+					BeforeEach(func() {
+						pipeline.Spec.JobOptions.BackoffLimit = ptr.To(int32(2))
+					})
+
+					It("uses the pipeline value", func() {
+						resources, err := factory.Resources(nil)
+						Expect(err).ToNot(HaveOccurred())
+						Expect(resources.Job.Spec.BackoffLimit).ToNot(BeNil())
+						Expect(*resources.Job.Spec.BackoffLimit).To(Equal(int32(2)))
+					})
+				})
+
+				When("both global and pipeline backoff limits are set", func() {
+					BeforeEach(func() {
+						v1alpha1.DefaultJobBackoffLimit = ptr.To(int32(5))
+						pipeline.Spec.JobOptions.BackoffLimit = ptr.To(int32(1))
+					})
+
+					It("gives precedence to the pipeline value", func() {
+						resources, err := factory.Resources(nil)
+						Expect(err).ToNot(HaveOccurred())
+						Expect(resources.Job.Spec.BackoffLimit).ToNot(BeNil())
+						Expect(*resources.Job.Spec.BackoffLimit).To(Equal(int32(1)))
+					})
+				})
+
+				When("no backoff limit is specified", func() {
+					BeforeEach(func() {
+						v1alpha1.DefaultJobBackoffLimit = nil
+						pipeline.Spec.JobOptions.BackoffLimit = nil
+					})
+
+					It("should not set the job backoff limit", func() {
+						resources, err := factory.Resources(nil)
+						Expect(err).ToNot(HaveOccurred())
+						Expect(resources.Job.Spec.BackoffLimit).To(BeNil())
+					})
+				})
+			})
+
 			Describe("Default Volumes", func() {
 				It("returns a list of volumes that contains default volumes", func() {
 					volumes := resources.Job.Spec.Template.Spec.Volumes

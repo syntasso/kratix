@@ -77,6 +77,11 @@ type KratixConfig struct {
 type Workflows struct {
 	DefaultContainerSecurityContext corev1.SecurityContext `json:"defaultContainerSecurityContext"`
 	DefaultImagePullPolicy          corev1.PullPolicy      `json:"defaultImagePullPolicy,omitempty"`
+	JobOptions                      JobOptions             `json:"jobOptions,omitempty"`
+}
+
+type JobOptions struct {
+	DefaultBackoffLimit *int32 `json:"defaultBackoffLimit,omitempty"`
 }
 
 // LeaderElectionConfig duration default can be found in:
@@ -132,6 +137,9 @@ func main() {
 	if kratixConfig != nil {
 		v1alpha1.DefaultUserProvidedContainersSecurityContext = &kratixConfig.Workflows.DefaultContainerSecurityContext
 		v1alpha1.DefaultImagePullPolicy = kratixConfig.Workflows.DefaultImagePullPolicy
+		if kratixConfig.Workflows.JobOptions.DefaultBackoffLimit != nil {
+			v1alpha1.DefaultJobBackoffLimit = kratixConfig.Workflows.JobOptions.DefaultBackoffLimit
+		}
 	}
 
 	for {
@@ -194,8 +202,9 @@ func main() {
 		}
 
 		scheduler := controller.Scheduler{
-			Client: mgr.GetClient(),
-			Log:    ctrl.Log.WithName("controllers").WithName("Scheduler"),
+			Client:        mgr.GetClient(),
+			Log:           ctrl.Log.WithName("controllers").WithName("Scheduler"),
+			EventRecorder: mgr.GetEventRecorderFor("Scheduler"),
 		}
 
 		restartManager := false
@@ -230,9 +239,10 @@ func main() {
 			os.Exit(1)
 		}
 		if err = (&controller.WorkReconciler{
-			Client:    mgr.GetClient(),
-			Log:       ctrl.Log.WithName("controllers").WithName("Work"),
-			Scheduler: &scheduler,
+			Client:        mgr.GetClient(),
+			Log:           ctrl.Log.WithName("controllers").WithName("Work"),
+			Scheduler:     &scheduler,
+			EventRecorder: mgr.GetEventRecorderFor("WorkController"),
 		}).SetupWithManager(mgr); err != nil {
 			setupLog.Error(err, "unable to create controller", "controller", "Work")
 			os.Exit(1)
@@ -247,9 +257,10 @@ func main() {
 			os.Exit(1)
 		}
 		if err = (&controller.WorkPlacementReconciler{
-			Client:       mgr.GetClient(),
-			Log:          ctrl.Log.WithName("controllers").WithName("WorkPlacementController"),
-			VersionCache: make(map[string]string),
+			Client:        mgr.GetClient(),
+			Log:           ctrl.Log.WithName("controllers").WithName("WorkPlacementController"),
+			VersionCache:  make(map[string]string),
+			EventRecorder: mgr.GetEventRecorderFor("WorkPlacementController"),
 		}).SetupWithManager(mgr); err != nil {
 			setupLog.Error(err, "unable to create controller", "controller", "WorkPlacement")
 			os.Exit(1)
