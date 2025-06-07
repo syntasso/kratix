@@ -39,6 +39,18 @@ func MarkAsCompleted(status map[string]any) map[string]any {
 	}
 
 	status["conditions"] = updateConditions(existingConditions, newCondition)
+
+	switch v := status["workflowsSucceeded"].(type) {
+	case int:
+		status["workflowsSucceeded"] = v + 1
+	case int64:
+		status["workflowsSucceeded"] = v + 1
+	case float64:
+		status["workflowsSucceeded"] = int(v) + 1
+	default:
+		status["workflowsSucceeded"] = 1
+	}
+
 	return status
 }
 

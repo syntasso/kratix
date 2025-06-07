@@ -50,6 +50,7 @@ func MarkConfigureWorkflowAsRunning(logger logr.Logger, obj *unstructured.Unstru
 }
 
 func MarkConfigureWorkflowAsFailed(logger logr.Logger, obj *unstructured.Unstructured, failedPipeline string) {
+	IncrementStatusInt(obj, "workflowsFailed")
 	SetCondition(obj, &clusterv1.Condition{
 		Type:               ConfigureWorkflowCompletedCondition,
 		Status:             v1.ConditionFalse,
@@ -61,6 +62,7 @@ func MarkConfigureWorkflowAsFailed(logger logr.Logger, obj *unstructured.Unstruc
 }
 
 func MarkDeleteWorkflowAsFailed(logger logr.Logger, obj *unstructured.Unstructured) {
+	IncrementStatusInt(obj, "workflowsFailed")
 	condition := clusterv1.Condition{
 		Type:               DeleteWorkflowCompletedCondition,
 		Status:             v1.ConditionFalse,
@@ -201,6 +203,15 @@ func SetStatus(rr *unstructured.Unstructured, logger logr.Logger, statuses ...in
 	if err != nil {
 		logger.Info("failed to set status; ignoring", "map", nestedMap)
 	}
+}
+
+// IncrementStatusInt increments the given integer status field by one.
+func IncrementStatusInt(obj *unstructured.Unstructured, key string) {
+	current, found, err := unstructured.NestedInt64(obj.Object, "status", key)
+	if err != nil || !found {
+		current = 0
+	}
+	unstructured.SetNestedField(obj.Object, current+1, "status", key)
 }
 
 func GetStatus(rr *unstructured.Unstructured, key string) string {
