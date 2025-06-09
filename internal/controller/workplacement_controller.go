@@ -349,7 +349,7 @@ func (r *WorkPlacementReconciler) writeToStateStore(wp *v1alpha1.WorkPlacement, 
 		if statusUpdateErr := r.setWriteFailStatusConditions(opts.ctx, wp, err); statusUpdateErr != nil {
 			opts.logger.Error(statusUpdateErr, "failed to update status condition")
 		}
-		return "", defaultRequeue, err
+		return "", defaultRequeue, nil
 	}
 	r.publishWriteEvent(wp, "WorkloadsWrittenToStateStore", versionID, err)
 
@@ -363,7 +363,7 @@ func (r *WorkPlacementReconciler) writeToStateStore(wp *v1alpha1.WorkPlacement, 
 	if apiMeta.SetStatusCondition(&wp.Status.Conditions, cond) {
 		if statusUpdateErr := r.Client.Status().Update(opts.ctx, wp); statusUpdateErr != nil {
 			opts.logger.Error(statusUpdateErr, "failed to update status condition")
-			return "", defaultRequeue, statusUpdateErr
+			return "", defaultRequeue, nil
 		}
 	}
 	return versionID, ctrl.Result{}, err
