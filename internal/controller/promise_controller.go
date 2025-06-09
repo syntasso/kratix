@@ -560,14 +560,12 @@ func (r *PromiseReconciler) ensureDynamicControllerIsStarted(promise *v1alpha1.P
 		Watches(
 			&v1alpha1.Work{},
 			handler.EnqueueRequestsFromMapFunc(func(ctx context.Context, obj client.Object) []reconcile.Request {
-				logger, _ := logr.FromContext(ctx)
-				logger.Info("entering watcher for works.")
 				work := obj.(*v1alpha1.Work)
 				rrName, labelExists := work.Labels[v1alpha1.ResourceNameLabel]
-				logger.Info("resource request name %s")
-				if work.Labels == nil || !labelExists || work.Labels[v1alpha1.PromiseNameLabel] != promise.GetName() {
+				if !labelExists || work.Labels[v1alpha1.PromiseNameLabel] != promise.GetName() {
 					return nil
 				}
+
 				return []reconcile.Request{{
 					NamespacedName: types.NamespacedName{
 						Namespace: work.Namespace,

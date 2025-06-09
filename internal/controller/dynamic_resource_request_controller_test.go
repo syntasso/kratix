@@ -243,12 +243,11 @@ var _ = Describe("DynamicResourceRequestController", func() {
 				status := resReq.Object["status"]
 				statusMap := status.(map[string]interface{})
 				conditions := statusMap["conditions"].([]interface{})
-				Expect(conditions).To(HaveLen(1))
-				condition := conditions[0].(map[string]interface{})
-				Expect(condition["type"]).To(Equal(string(resourceutil.DeleteWorkflowCompletedCondition)))
-				Expect(condition["status"]).To(Equal("False"))
-				Expect(condition["reason"]).To(Equal(resourceutil.DeleteWorkflowCompletedFailedReason))
-				Expect(condition["message"]).To(ContainSubstring("The Delete Pipeline has failed"))
+				Expect(conditions).To(HaveLen(2))
+				condition := resourceutil.GetCondition(resReq, resourceutil.DeleteWorkflowCompletedCondition)
+				Expect(string(condition.Status)).To(Equal("False"))
+				Expect(condition.Reason).To(Equal(resourceutil.DeleteWorkflowCompletedFailedReason))
+				Expect(condition.Message).To(ContainSubstring("The Delete Pipeline has failed"))
 			})
 
 			It("records an event on the resource request", func() {
@@ -266,6 +265,7 @@ var _ = Describe("DynamicResourceRequestController", func() {
 
 			lastTransitionTime := time.Now().Add(-reconciler.ReconciliationInterval).Add(-time.Hour * 1)
 			setConfigureWorkflowStatus(resReq, v1.ConditionTrue, lastTransitionTime)
+			setMisplacedFalse(resReq)
 			Expect(fakeK8sClient.Status().Update(ctx, resReq)).To(Succeed())
 
 			request = ctrl.Request{NamespacedName: types.NamespacedName{Name: resReqNameNamespace.Name, Namespace: resReqNameNamespace.Namespace}}
@@ -424,6 +424,74 @@ var _ = Describe("DynamicResourceRequestController", func() {
 				})
 			})
 		})
+
+		Describe("Conditions", func() {
+
+			Context("Misplaced", func() {
+				var work *v1alpha1.Work
+				BeforeEach(func() {
+					work = &v1alpha1.Work{
+						ObjectMeta: metav1.ObjectMeta{
+							Name:      "test",
+							Namespace: resReq.GetNamespace(),
+							Labels: map[string]string{
+								"kratix.io/promise-name":  promise.GetName(),
+								"kratix.io/resource-name": resReq.GetName(),
+								"kratix.io/work-type":     "resource",
+							},
+						},
+						Spec: v1alpha1.WorkSpec{},
+					}
+				})
+
+				It("set to true when works are misplaced", func() {
+					work.Status = v1alpha1.WorkStatus{
+						Conditions: []metav1.Condition{
+							{
+								Type:   "ScheduleSucceeded",
+								Status: metav1.ConditionFalse,
+							},
+						},
+					}
+					Expect(fakeK8sClient.Create(ctx, work)).To(Succeed())
+					Expect(fakeK8sClient.Status().Update(ctx, work)).To(Succeed())
+
+					result, err := t.reconcileUntilCompletion(reconciler, resReq)
+					Expect(err).NotTo(HaveOccurred())
+					Expect(result).To(Equal(ctrl.Result{}))
+					Expect(fakeK8sClient.Get(ctx, resReqNameNamespace, resReq)).To(Succeed())
+
+					condition := resourceutil.GetCondition(resReq, resourceutil.MisplacedCondition)
+					Expect(condition).NotTo(BeNil())
+					Expect(string(condition.Status)).To(Equal("True"))
+					Expect(condition.Reason).To(Equal("WorksMisplaced"))
+					Expect(condition.Message).To(ContainSubstring("Some works associated with this resource are misplaced: [test]"))
+				})
+
+				It("set to false when no works are misplaced", func() {
+					work.Status = v1alpha1.WorkStatus{
+						Conditions: []metav1.Condition{
+							{
+								Type:   "ScheduleSucceeded",
+								Status: metav1.ConditionTrue,
+							},
+						},
+					}
+					Expect(fakeK8sClient.Create(ctx, work)).To(Succeed())
+					Expect(fakeK8sClient.Status().Update(ctx, work)).To(Succeed())
+
+					result, err := t.reconcileUntilCompletion(reconciler, resReq)
+					Expect(err).NotTo(HaveOccurred())
+					Expect(result).To(Equal(ctrl.Result{}))
+					Expect(fakeK8sClient.Get(ctx, resReqNameNamespace, resReq)).To(Succeed())
+
+					resourceutil.GetCondition(resReq, resourceutil.MisplacedCondition)
+					condition := resourceutil.GetCondition(resReq, resourceutil.MisplacedCondition)
+					Expect(condition).NotTo(BeNil())
+					Expect(string(condition.Status)).To(Equal("False"))
+				})
+			})
+		})
 	})
 })
 
@@ -444,6 +512,18 @@ func setConfigureWorkflowStatus(resReq *unstructured.Unstructured, status v1.Con
 		Reason:             resourceutil.PipelinesExecutedSuccessfully,
 		Message:            fmt.Sprintf("some-reason-%s", t.Format(time.RFC3339)),
 		LastTransitionTime: metav1.NewTime(t),
+	})
+	Expect(fakeK8sClient.Status().Update(ctx, resReq)).To(Succeed())
+}
+
+func setMisplacedFalse(resReq *unstructured.Unstructured) {
+	if resReq.Object["status"] == nil {
+		resReq.Object["status"] = map[string]interface{}{}
+	}
+	resourceutil.SetCondition(resReq, &clusterv1.Condition{
+		Type:   "Misplaced",
+		Status: v1.ConditionFalse,
+		Reason: "NoWorkMisplaced",
 	})
 	Expect(fakeK8sClient.Status().Update(ctx, resReq)).To(Succeed())
 }

@@ -74,6 +74,15 @@ func MarkResourceRequestAsMisplaced(logger logr.Logger, obj *unstructured.Unstru
 	logger.Info("marking resource request as misplaced", "condition", MisplacedCondition, "value", v1.ConditionFalse, "reason", MisplacedConditionReason)
 }
 
+func MarkResourceRequestAsMisplacedFalse(obj *unstructured.Unstructured, works []string) {
+	SetCondition(obj, &clusterv1.Condition{
+		Type:               MisplacedCondition,
+		Status:             v1.ConditionFalse,
+		Reason:             "NoMisplacedWork",
+		LastTransitionTime: metav1.NewTime(time.Now()),
+	})
+}
+
 func MarkDeleteWorkflowAsFailed(logger logr.Logger, obj *unstructured.Unstructured) {
 	condition := clusterv1.Condition{
 		Type:               DeleteWorkflowCompletedCondition,
