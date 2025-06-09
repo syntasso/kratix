@@ -23,7 +23,6 @@ import (
 
 	apiextensionsv1 "k8s.io/apiextensions-apiserver/pkg/apis/apiextensions/v1"
 	apiMeta "k8s.io/apimachinery/pkg/api/meta"
-	metav1 "k8s.io/apimachinery/pkg/apis/meta/v1"
 	"k8s.io/apimachinery/pkg/labels"
 	"k8s.io/client-go/tools/record"
 	"sigs.k8s.io/controller-runtime/pkg/controller/controllerutil"
@@ -170,21 +169,13 @@ func (r *DynamicResourceRequestController) Reconcile(ctx context.Context, req ct
 		return r.nextReconciliation(logger)
 	}
 
-	misplacedWorks, err := r.findMisplacedWorks(ctx, rr)
+	statusUpdate, err := r.generateConditions(ctx, rr)
 	if err != nil {
 		return ctrl.Result{}, err
 	}
-	misplacedCondition := resourceutil.GetCondition(rr, resourceutil.MisplacedCondition)
-	if len(misplacedWorks) > 0 {
-		if misplacedCondition == nil || misplacedCondition.Status == v1.ConditionFalse {
-			resourceutil.MarkResourceRequestAsMisplaced(r.Log, rr, misplacedWorks)
-			return ctrl.Result{}, r.Client.Status().Update(ctx, rr)
-		}
-	} else {
-		if misplacedCondition == nil || misplacedCondition.Status == v1.ConditionTrue {
-			resourceutil.MarkResourceRequestAsMisplacedFalse(rr, misplacedWorks)
-			return ctrl.Result{}, r.Client.Status().Update(ctx, rr)
-		}
+
+	if statusUpdate {
+		return ctrl.Result{}, r.Client.Status().Update(ctx, rr)
 	}
 
 	workflowCompletedCondition := resourceutil.GetCondition(rr, resourceutil.ConfigureWorkflowCompletedCondition)
@@ -198,12 +189,57 @@ func (r *DynamicResourceRequestController) Reconcile(ctx context.Context, req ct
 	return ctrl.Result{}, nil
 }
 
-func (r *DynamicResourceRequestController) findMisplacedWorks(ctx context.Context, rr *unstructured.Unstructured) ([]string, error) {
+func (r *DynamicResourceRequestController) generateConditions(ctx context.Context, rr *unstructured.Unstructured) (bool, error) {
+	failed, misplaced, pending, ready, err := r.getWorksStatus(ctx, rr)
+	if err != nil {
+		return false, err
+	}
+	var statusUpdate bool
+	misplacedCondition := resourceutil.GetCondition(rr, resourceutil.MisplacedCondition)
+	if len(misplaced) > 0 {
+		if misplacedCondition == nil || misplacedCondition.Status == v1.ConditionFalse {
+			resourceutil.MarkResourceRequestAsMisplaced(r.Log, rr, misplaced)
+			statusUpdate = true
+		}
+	} else if len(misplaced) == 0 {
+		if misplacedCondition == nil || misplacedCondition.Status == v1.ConditionTrue {
+			resourceutil.MarkResourceRequestAsMisplacedFalse(rr, misplaced)
+			statusUpdate = true
+		}
+	}
+
+	statusUpdate = statusUpdate || updateWorksSucceededCondition(rr, failed, pending, ready, misplaced)
+	return statusUpdate, nil
+}
+
+func updateWorksSucceededCondition(rr *unstructured.Unstructured, failed, pending, ready, misplaced []string) bool {
+	cond := resourceutil.GetCondition(rr, resourceutil.WorksSucceededCondition)
+	switch {
+	case len(failed) > 0:
+		if cond == nil || cond.Status == v1.ConditionTrue {
+			resourceutil.MarkResourceRequestAsWorksFailed(rr, failed)
+			return true
+		}
+	case len(pending) > 0:
+		if cond == nil || cond.Status != v1.ConditionUnknown {
+			resourceutil.MarkResourceRequestAsWorksPending(rr, pending)
+			return true
+		}
+	case len(misplaced) == 0 && len(ready) > 0:
+		if cond == nil || cond.Status == v1.ConditionFalse {
+			resourceutil.MarkResourceRequestAsWorksSucceeded(rr)
+			return true
+		}
+	}
+	return false
+}
+
+func (r *DynamicResourceRequestController) getWorksStatus(ctx context.Context, rr *unstructured.Unstructured) ([]string, []string, []string, []string, error) {
 	workSelectorLabel := labels.FormatLabels(resourceutil.GetWorkLabels(r.PromiseIdentifier, rr.GetName(), "", v1alpha1.WorkTypeResource))
 	selector, err := labels.Parse(workSelectorLabel)
 	if err != nil {
 		r.Log.Info("Failed parsing Works selector label", "labels", workSelectorLabel)
-		return nil, err
+		return nil, nil, nil, nil, err
 	}
 
 	var works v1alpha1.WorkList
@@ -214,17 +250,24 @@ func (r *DynamicResourceRequestController) findMisplacedWorks(ctx context.Contex
 
 	if err != nil {
 		r.Log.Info("Failed listing works", "namespace", rr.GetNamespace(), "label selector", workSelectorLabel)
-		return nil, err
+		return nil, nil, nil, nil, err
 	}
 
-	var misplacedWorks []string
+	var failed, misplaced, ready, pending []string
 	for _, work := range works.Items {
-		cond := apiMeta.FindStatusCondition(work.Status.Conditions, "ScheduleSucceeded")
-		if cond.Status == metav1.ConditionFalse && cond.Reason == scheduleSucceededConditionMismatchReason {
-			misplacedWorks = append(misplacedWorks, work.Name)
+		readyCond := apiMeta.FindStatusCondition(work.Status.Conditions, "Ready")
+		switch readyCond.Message {
+		case "Failing":
+			failed = append(failed, work.Name)
+		case "Misplaced":
+			misplaced = append(misplaced, work.Name)
+		case "Pending":
+			pending = append(pending, work.Name)
+		case "Ready":
+			ready = append(ready, work.Name)
 		}
 	}
-	return misplacedWorks, nil
+	return failed, misplaced, pending, ready, nil
 }
 
 func (r *DynamicResourceRequestController) deleteResources(o opts, promise *v1alpha1.Promise, resourceRequest *unstructured.Unstructured, resourceRequestIdentifier string) (ctrl.Result, error) {

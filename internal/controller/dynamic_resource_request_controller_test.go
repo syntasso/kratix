@@ -426,30 +426,34 @@ var _ = Describe("DynamicResourceRequestController", func() {
 		})
 
 		Describe("Conditions", func() {
+			var work *v1alpha1.Work
+			BeforeEach(func() {
+				work = &v1alpha1.Work{
+					ObjectMeta: metav1.ObjectMeta{
+						Name:      "test",
+						Namespace: resReq.GetNamespace(),
+						Labels: map[string]string{
+							"kratix.io/promise-name":  promise.GetName(),
+							"kratix.io/resource-name": resReq.GetName(),
+							"kratix.io/work-type":     "resource",
+						},
+					},
+					Spec: v1alpha1.WorkSpec{},
+				}
+			})
 
 			Context("Misplaced", func() {
-				var work *v1alpha1.Work
-				BeforeEach(func() {
-					work = &v1alpha1.Work{
-						ObjectMeta: metav1.ObjectMeta{
-							Name:      "test",
-							Namespace: resReq.GetNamespace(),
-							Labels: map[string]string{
-								"kratix.io/promise-name":  promise.GetName(),
-								"kratix.io/resource-name": resReq.GetName(),
-								"kratix.io/work-type":     "resource",
-							},
-						},
-						Spec: v1alpha1.WorkSpec{},
-					}
-				})
-
 				It("set to true when works are misplaced", func() {
 					work.Status = v1alpha1.WorkStatus{
 						Conditions: []metav1.Condition{
 							{
 								Type:   "ScheduleSucceeded",
 								Status: metav1.ConditionFalse,
+							},
+							{
+								Type:    "Ready",
+								Status:  metav1.ConditionFalse,
+								Message: "Misplaced",
 							},
 						},
 					}
@@ -475,6 +479,11 @@ var _ = Describe("DynamicResourceRequestController", func() {
 								Type:   "ScheduleSucceeded",
 								Status: metav1.ConditionTrue,
 							},
+							{
+								Type:    "Ready",
+								Status:  metav1.ConditionTrue,
+								Message: "Ready",
+							},
 						},
 					}
 					Expect(fakeK8sClient.Create(ctx, work)).To(Succeed())
@@ -485,10 +494,36 @@ var _ = Describe("DynamicResourceRequestController", func() {
 					Expect(result).To(Equal(ctrl.Result{}))
 					Expect(fakeK8sClient.Get(ctx, resReqNameNamespace, resReq)).To(Succeed())
 
-					resourceutil.GetCondition(resReq, resourceutil.MisplacedCondition)
 					condition := resourceutil.GetCondition(resReq, resourceutil.MisplacedCondition)
 					Expect(condition).NotTo(BeNil())
 					Expect(string(condition.Status)).To(Equal("False"))
+				})
+			})
+
+			Context("WorksSucceeded", func() {
+				It("set to false when works failed", func() {
+					work.Status = v1alpha1.WorkStatus{
+						Conditions: []metav1.Condition{
+							{
+								Type:    "Ready",
+								Status:  metav1.ConditionFalse,
+								Message: "Failing",
+							},
+						},
+					}
+					Expect(fakeK8sClient.Create(ctx, work)).To(Succeed())
+					Expect(fakeK8sClient.Status().Update(ctx, work)).To(Succeed())
+
+					result, err := t.reconcileUntilCompletion(reconciler, resReq)
+					Expect(err).NotTo(HaveOccurred())
+					Expect(result).To(Equal(ctrl.Result{}))
+					Expect(fakeK8sClient.Get(ctx, resReqNameNamespace, resReq)).To(Succeed())
+
+					condition := resourceutil.GetCondition(resReq, resourceutil.WorksSucceededCondition)
+					Expect(condition).NotTo(BeNil())
+					Expect(string(condition.Status)).To(Equal("False"))
+					Expect(condition.Reason).To(Equal("WorksFailing"))
+					Expect(condition.Message).To(ContainSubstring("Some works associated with this resource failed: [test]"))
 				})
 			})
 		})

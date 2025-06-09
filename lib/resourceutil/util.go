@@ -31,6 +31,7 @@ const (
 	promiseRequirementsMetMessage          = "Promise Requirements are met"
 	MisplacedCondition                     = clusterv1.ConditionType("Misplaced")
 	MisplacedConditionReason               = "WorksMisplaced"
+	WorksSucceededCondition                = clusterv1.ConditionType("WorksSucceeded")
 )
 
 func GetConfigureWorkflowCompletedConditionStatus(obj *unstructured.Unstructured) v1.ConditionStatus {
@@ -79,6 +80,36 @@ func MarkResourceRequestAsMisplacedFalse(obj *unstructured.Unstructured, works [
 		Type:               MisplacedCondition,
 		Status:             v1.ConditionFalse,
 		Reason:             "NoMisplacedWork",
+		LastTransitionTime: metav1.NewTime(time.Now()),
+	})
+}
+
+func MarkResourceRequestAsWorksFailed(obj *unstructured.Unstructured, works []string) {
+	SetCondition(obj, &clusterv1.Condition{
+		Type:               WorksSucceededCondition,
+		Status:             v1.ConditionFalse,
+		Message:            fmt.Sprintf("Some works associated with this resource failed: [%s]", strings.Join(works, ",")),
+		Reason:             "WorksFailing",
+		LastTransitionTime: metav1.NewTime(time.Now()),
+	})
+}
+
+func MarkResourceRequestAsWorksPending(obj *unstructured.Unstructured, works []string) {
+	SetCondition(obj, &clusterv1.Condition{
+		Type:               WorksSucceededCondition,
+		Status:             v1.ConditionUnknown,
+		Message:            fmt.Sprintf("Some works associated with this resource are not ready: [%s]", strings.Join(works, ",")),
+		Reason:             "WorksPending",
+		LastTransitionTime: metav1.NewTime(time.Now()),
+	})
+}
+
+func MarkResourceRequestAsWorksSucceeded(obj *unstructured.Unstructured) {
+	SetCondition(obj, &clusterv1.Condition{
+		Type:               WorksSucceededCondition,
+		Status:             v1.ConditionTrue,
+		Message:            "All works associated with this resource are ready",
+		Reason:             "WorksSucceeded",
 		LastTransitionTime: metav1.NewTime(time.Now()),
 	})
 }
