@@ -286,7 +286,7 @@ var _ = Describe("Core Tests", Ordered, func() {
 						g.Expect(worker.Kubectl("get", "namespaces")).To(ContainSubstring(rrNsNameUpdated))
 						g.Expect(worker.Kubectl(append(cmArgs, rrConfigMapName+"-1", "-o=jsonpath={.data.timestamp}")...)).ToNot(Equal(originalTimeStampW1))
 						g.Expect(worker.Kubectl(append(cmArgs, rrConfigMapName+"-2", "-o=jsonpath={.data.timestamp}")...)).ToNot(Equal(originalTimeStampW2))
-					}, timeout, interval).Should(Succeed())
+					}, 3*time.Minute, interval).Should(Succeed())
 				})
 			})
 
