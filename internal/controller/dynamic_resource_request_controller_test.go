@@ -501,6 +501,31 @@ var _ = Describe("DynamicResourceRequestController", func() {
 			})
 
 			Context("WorksSucceeded", func() {
+				It("set to unknown when works are pending", func() {
+					work.Status = v1alpha1.WorkStatus{
+						Conditions: []metav1.Condition{
+							{
+								Type:    "Ready",
+								Status:  metav1.ConditionFalse,
+								Message: "Pending",
+							},
+						},
+					}
+					Expect(fakeK8sClient.Create(ctx, work)).To(Succeed())
+					Expect(fakeK8sClient.Status().Update(ctx, work)).To(Succeed())
+
+					result, err := t.reconcileUntilCompletion(reconciler, resReq)
+					Expect(err).NotTo(HaveOccurred())
+					Expect(result).To(Equal(ctrl.Result{}))
+					Expect(fakeK8sClient.Get(ctx, resReqNameNamespace, resReq)).To(Succeed())
+
+					condition := resourceutil.GetCondition(resReq, resourceutil.WorksSucceededCondition)
+					Expect(condition).NotTo(BeNil())
+					Expect(string(condition.Status)).To(Equal("Unknown"))
+					Expect(condition.Reason).To(Equal("WorksPending"))
+					Expect(condition.Message).To(ContainSubstring("Some works associated with this resource are not ready: [test]"))
+				})
+
 				It("set to false when works failed", func() {
 					work.Status = v1alpha1.WorkStatus{
 						Conditions: []metav1.Condition{
@@ -524,6 +549,31 @@ var _ = Describe("DynamicResourceRequestController", func() {
 					Expect(string(condition.Status)).To(Equal("False"))
 					Expect(condition.Reason).To(Equal("WorksFailing"))
 					Expect(condition.Message).To(ContainSubstring("Some works associated with this resource failed: [test]"))
+				})
+
+				It("set to true when works are ready", func() {
+					work.Status = v1alpha1.WorkStatus{
+						Conditions: []metav1.Condition{
+							{
+								Type:    "Ready",
+								Status:  metav1.ConditionFalse,
+								Message: "Ready",
+							},
+						},
+					}
+					Expect(fakeK8sClient.Create(ctx, work)).To(Succeed())
+					Expect(fakeK8sClient.Status().Update(ctx, work)).To(Succeed())
+
+					result, err := t.reconcileUntilCompletion(reconciler, resReq)
+					Expect(err).NotTo(HaveOccurred())
+					Expect(result).To(Equal(ctrl.Result{}))
+					Expect(fakeK8sClient.Get(ctx, resReqNameNamespace, resReq)).To(Succeed())
+
+					condition := resourceutil.GetCondition(resReq, resourceutil.WorksSucceededCondition)
+					Expect(condition).NotTo(BeNil())
+					Expect(string(condition.Status)).To(Equal("True"))
+					Expect(condition.Reason).To(Equal("WorksSucceeded"))
+					Expect(condition.Message).To(ContainSubstring("All works associated with this resource are ready"))
 				})
 			})
 		})
