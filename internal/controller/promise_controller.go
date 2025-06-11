@@ -1043,6 +1043,18 @@ func setStatusFieldsOnCRD(rrCRD *apiextensionsv1.CustomResourceDefinition) {
 						},
 					},
 				},
+				"workflows": {
+					Type:   "integer",
+					Format: "int",
+				},
+				"workflowsSucceeded": {
+					Type:   "integer",
+					Format: "int",
+				},
+				"workflowsFailed": {
+					Type:   "integer",
+					Format: "int",
+				},
 			},
 		}
 	}

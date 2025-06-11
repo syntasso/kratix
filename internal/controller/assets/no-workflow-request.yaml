@@ -1,0 +1,5 @@
+apiVersion: marketplace.kratix.io/v1alpha1
+kind: Noworkflow
+metadata:
+  name: example
+  namespace: default

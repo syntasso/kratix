@@ -20,6 +20,7 @@ import (
 	"context"
 	"errors"
 	"fmt"
+	"strconv"
 
 	apiextensionsv1 "k8s.io/apiextensions-apiserver/pkg/apis/apiextensions/v1"
 	apiMeta "k8s.io/apimachinery/pkg/api/meta"
@@ -139,6 +140,7 @@ func (r *DynamicResourceRequestController) Reconcile(ctx context.Context, req ct
 		)
 		return r.updateManualReconciliationLabel(opts.ctx, rr)
 	}
+	logger.Info("DEBUG: ", "BEFORE GenerateResourcePipelines", "TRUE")
 
 	pipelineResources, err := promise.GenerateResourcePipelines(v1alpha1.WorkflowActionConfigure, rr, logger)
 	if err != nil {
@@ -161,8 +163,19 @@ func (r *DynamicResourceRequestController) Reconcile(ctx context.Context, req ct
 		return ctrl.Result{}, err
 	}
 
+	logger.Info("DEBUG: ", "BEFORE updateObservedGeneration", "TRUE")
+
 	if rr.GetGeneration() != resourceutil.GetObservedGeneration(rr) {
 		return ctrl.Result{}, updateObservedGeneration(rr, opts, logger)
+	}
+
+	currentWorkflowCount := len(promise.Spec.Workflows.Resource.Configure)
+	logger.Info("DEBUG: ", "currentWorkflowCount", currentWorkflowCount)
+	if shouldUpdateWorkflowsStatus(currentWorkflowCount, "workflows", rr) {
+		logger.Info("DEBUG: ", "shouldUpdateWorkflowsStatus", "TRUE")
+		return updateWorkflowsStatus(currentWorkflowCount, rr, "workflows", opts, logger)
+	} else {
+		logger.Info("DEBUG: ", "shouldUpdateWorkflowsStatus", "false")
 	}
 
 	if !promise.HasPipeline(v1alpha1.WorkflowTypeResource, v1alpha1.WorkflowActionConfigure) {
@@ -480,5 +493,19 @@ func shouldUpdateLastSuccessfulConfigureWorkflowTime(
 
 func updateLastSuccessfulConfigureWorkflowTime(workflowCompletedCondition *clusterv1.Condition, rr *unstructured.Unstructured, opts opts, logger logr.Logger) (ctrl.Result, error) {
 	resourceutil.SetStatus(rr, logger, "lastSuccessfulConfigureWorkflowTime", workflowCompletedCondition.LastTransitionTime.Format(time.RFC3339))
+	return ctrl.Result{}, opts.client.Status().Update(opts.ctx, rr)
+}
+
+func shouldUpdateWorkflowsStatus(
+	desiredWorkflowsStatusCount int,
+	statusField string,
+	rr *unstructured.Unstructured,
+) bool {
+	lastWorkflowsCount := resourceutil.GetStatus(rr, statusField)
+	return lastWorkflowsCount != strconv.FormatInt(int64(desiredWorkflowsStatusCount), 10)
+}
+
+func updateWorkflowsStatus(workflowsStatusCount int, rr *unstructured.Unstructured, statusField string, opts opts, logger logr.Logger) (ctrl.Result, error) {
+	resourceutil.SetStatus(rr, logger, statusField, strconv.FormatInt(int64(workflowsStatusCount), 10))
 	return ctrl.Result{}, opts.client.Status().Update(opts.ctx, rr)
 }

@@ -575,6 +575,41 @@ var _ = Describe("DynamicResourceRequestController", func() {
 					Expect(condition.Reason).To(Equal("WorksSucceeded"))
 					Expect(condition.Message).To(ContainSubstring("All works associated with this resource are ready"))
 				})
+
+			})
+		})
+
+		Describe("workflows", func() {
+			When("all workflows have succeeded", func() {
+
+			})
+
+			When("some workflows failed", func() {
+
+			})
+
+			When("there are no workflows", func() {
+				It("sets all workflow status counters to 0", func() {
+					createPromise(promiseWithoutResourceWorkflow)
+					rr := createResourceRequest(noRRWorkflowRequest)
+
+					result, err := t.reconcileUntilCompletion(reconciler, rr)
+					Expect(err).NotTo(HaveOccurred())
+					Expect(result).To(Equal(ctrl.Result{}))
+					Expect(fakeK8sClient.Get(ctx, types.NamespacedName{
+						Name:      "example",
+						Namespace: "default",
+					}, rr)).To(Succeed())
+
+					workflowsStatus := resourceutil.GetStatus(rr, "workflows")
+					Expect(workflowsStatus).To(Equal("0"))
+
+					workflowsSucceeded := resourceutil.GetStatus(rr, "workflowsSucceeded")
+					Expect(workflowsSucceeded).To(Equal("0"))
+
+					workflowsFailed := resourceutil.GetStatus(rr, "workflowsFailed")
+					Expect(workflowsFailed).To(Equal("0"))
+				})
 			})
 		})
 	})

@@ -112,6 +112,26 @@ var _ = Describe("PromiseController", func() {
 						Expect(ok).To(BeTrue(), ".status.message did not exist. Spec %v", status)
 						Expect(message.Type).To(Equal("string"))
 
+						observedGeneration, ok := status.Properties["observedGeneration"]
+						Expect(ok).To(BeTrue(), ".status.observedGeneration did not exist. Spec %v", status)
+						Expect(observedGeneration.Type).To(Equal("integer"))
+						Expect(observedGeneration.Format).To(Equal("int64"))
+
+						workflows, ok := status.Properties["workflows"]
+						Expect(ok).To(BeTrue(), ".status.workflows did not exist. Spec %v", status)
+						Expect(workflows.Type).To(Equal("integer"))
+						Expect(workflows.Format).To(Equal("int"))
+
+						workflowsSucceeded, ok := status.Properties["workflows"]
+						Expect(ok).To(BeTrue(), ".status.workflowsSucceeded did not exist. Spec %v", status)
+						Expect(workflowsSucceeded.Type).To(Equal("integer"))
+						Expect(workflowsSucceeded.Format).To(Equal("int"))
+
+						workflowsFailed, ok := status.Properties["workflows"]
+						Expect(ok).To(BeTrue(), ".status.workflowsFailed did not exist. Spec %v", status)
+						Expect(workflowsFailed.Type).To(Equal("integer"))
+						Expect(workflowsFailed.Format).To(Equal("int"))
+
 						conditions, ok := status.Properties["conditions"]
 						Expect(ok).To(BeTrue())
 						Expect(conditions.Type).To(Equal("array"))
