@@ -44,11 +44,12 @@ jobs:
             author=${{ github.actor }}
           fi
 
+          escaped_message=$(echo "$GITHUB_MESSAGE" | sed ':a;N;$!ba;s/\n/\\n/g' | sed 's/"/\\"/g')
           gh workflow run \
             --repo syntasso/ci "Kratix" \
-            --field sha=$GITHUB_SHA \
-            --field message=$GITHUB_MESSAGE \
-            --field author=${author} \
-            --field shortSHA=${GITHUB_SHA:0:7}
+            --field sha="$GITHUB_SHA" \
+            --field message="$escaped_message" \
+            --field author="$author" \
+            --field shortSHA="${GITHUB_SHA:0:7}"
         env:
           GH_TOKEN: ${{ secrets.GH_ACTION_TRIGGER_TOKEN }}
