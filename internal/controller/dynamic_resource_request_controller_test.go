@@ -405,7 +405,7 @@ var _ = Describe("DynamicResourceRequestController", func() {
 			setReconcileConfigureWorkflowToReturnFinished()
 			result, err := t.reconcileUntilCompletion(reconciler, resReq)
 			Expect(err).NotTo(HaveOccurred())
-			Expect(result).To(Equal(ctrl.Result{RequeueAfter: reconciler.ReconciliationInterval}))
+			Expect(result).To(Equal(ctrl.Result{}))
 			Expect(resReq.GetFinalizers()).To(ConsistOf(
 				"kratix.io/work-cleanup",
 				"kratix.io/workflows-cleanup",
@@ -428,7 +428,7 @@ var _ = Describe("DynamicResourceRequestController", func() {
 			setReconcileConfigureWorkflowToReturnFinished()
 			result, err := t.reconcileUntilCompletion(reconciler, resReq)
 			Expect(err).NotTo(HaveOccurred())
-			Expect(result).To(Equal(ctrl.Result{RequeueAfter: reconciler.ReconciliationInterval}))
+			Expect(result).To(Equal(ctrl.Result{}))
 		})
 	})
 

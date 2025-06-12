@@ -144,12 +144,12 @@ func (r *PromiseReconciler) Reconcile(ctx context.Context, req ctrl.Request) (ct
 		logger: logger,
 	}
 
-	if promise.Labels != nil && promise.Labels[resourceutil.PausedLabel] == "true" {
+	paused := promise.Labels != nil && promise.Labels[resourceutil.PausedLabel] == "true"
+	if paused {
 		logger.Info("Promise reconciliation paused")
-		return ctrl.Result{}, nil
 	}
 
-	if !promise.DeletionTimestamp.IsZero() {
+	if !promise.DeletionTimestamp.IsZero() && !paused {
 		return r.deletePromise(opts, promise)
 	}
 
@@ -165,10 +165,12 @@ func (r *PromiseReconciler) Reconcile(ctx context.Context, req ctrl.Request) (ct
 		}
 	}
 
-	// Set status to unavailable, at the end of this function we set it to
-	// available. If at any time we return early, it persisted as unavailable
-	promise.Status.Status = v1alpha1.PromiseStatusUnavailable
-	updateConditionOnPromise(promise, promiseUnavailableStatusCondition(metav1.Time{Time: time.Now()}))
+	if !paused {
+		// Set status to unavailable, at the end of this function we set it to
+		// available. If at any time we return early, it persisted as unavailable
+		promise.Status.Status = v1alpha1.PromiseStatusUnavailable
+		updateConditionOnPromise(promise, promiseUnavailableStatusCondition(metav1.Time{Time: time.Now()}))
+	}
 	requirementsChanged := r.hasPromiseRequirementsChanged(ctx, promise)
 	if requirementsChanged {
 		if result, statusUpdateErr := r.updatePromiseStatus(ctx, promise); statusUpdateErr != nil || !result.IsZero() {
@@ -229,14 +231,17 @@ func (r *PromiseReconciler) Reconcile(ctx context.Context, req ctrl.Request) (ct
 		return addFinalizers(opts, promise, []string{dependenciesCleanupFinalizer})
 	}
 
-	ctrlResult, err := r.reconcileDependenciesAndPromiseWorkflows(opts, promise, usPromise)
-	if err != nil {
-		return ctrl.Result{}, err
-	}
+	var ctrlResult *ctrl.Result
+	if !paused {
+		ctrlResult, err = r.reconcileDependenciesAndPromiseWorkflows(opts, promise, usPromise)
+		if err != nil {
+			return ctrl.Result{}, err
+		}
 
-	if ctrlResult != nil {
-		logger.Info("stopping reconciliation while reconciling dependencies")
-		return *ctrlResult, nil
+		if ctrlResult != nil {
+			logger.Info("stopping reconciliation while reconciling dependencies")
+			return *ctrlResult, nil
+		}
 	}
 
 	if promise.ContainsAPI() {
@@ -270,14 +275,18 @@ func (r *PromiseReconciler) Reconcile(ctx context.Context, req ctrl.Request) (ct
 		logger.Info("Promise only contains dependencies, skipping creation of API and dynamic controller")
 	}
 
-	if originalStatus != v1alpha1.PromiseStatusAvailable {
-		return r.setPromiseStatusToAvailable(ctx, promise, logger)
-	}
+	if !paused {
+		if originalStatus != v1alpha1.PromiseStatusAvailable {
+			return r.setPromiseStatusToAvailable(ctx, promise, logger)
+		}
 
-	completedCond := promise.GetCondition(string(resourceutil.ConfigureWorkflowCompletedCondition))
-	if !promise.HasPipeline(v1alpha1.WorkflowTypePromise, v1alpha1.WorkflowActionConfigure) ||
-		(completedCond != nil && completedCond.Status == metav1.ConditionTrue) {
-		return r.nextReconciliation(logger)
+		completedCond := promise.GetCondition(string(resourceutil.ConfigureWorkflowCompletedCondition))
+		if !promise.HasPipeline(v1alpha1.WorkflowTypePromise, v1alpha1.WorkflowActionConfigure) ||
+			(completedCond != nil && completedCond.Status == metav1.ConditionTrue) {
+			return r.nextReconciliation(logger)
+		}
+
+		return ctrl.Result{}, nil
 	}
 
 	return ctrl.Result{}, nil

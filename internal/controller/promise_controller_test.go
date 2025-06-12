@@ -1123,12 +1123,19 @@ var _ = Describe("PromiseController", func() {
 		})
 
 		It("does not run workflows", func() {
-			result, err := reconciler.Reconcile(ctx, ctrl.Request{NamespacedName: promiseName})
+			result, err := t.reconcileUntilCompletion(reconciler, promise, &opts{
+				funcs: []func(client.Object) error{autoMarkCRDAsEstablished},
+			})
 			Expect(err).NotTo(HaveOccurred())
 			Expect(result).To(Equal(ctrl.Result{}))
 
 			Expect(fakeK8sClient.Get(ctx, promiseName, promise)).To(Succeed())
-			Expect(promise.GetFinalizers()).To(BeEmpty())
+			Expect(promise.GetFinalizers()).To(ConsistOf(
+				"kratix.io/dynamic-controller-dependant-resources-cleanup",
+				"kratix.io/dependencies-cleanup",
+				"kratix.io/resource-request-cleanup",
+				"kratix.io/api-crd-cleanup",
+			))
 			Expect(reconcileConfigureOptsArg.Resources).To(BeEmpty())
 		})
 	})
@@ -1156,7 +1163,9 @@ var _ = Describe("PromiseController", func() {
 		})
 
 		It("does not run delete workflows", func() {
-			result, err := reconciler.Reconcile(ctx, ctrl.Request{NamespacedName: promiseName})
+			result, err := t.reconcileUntilCompletion(reconciler, promise, &opts{
+				funcs: []func(client.Object) error{autoMarkCRDAsEstablished},
+			})
 			Expect(err).NotTo(HaveOccurred())
 			Expect(result).To(Equal(ctrl.Result{}))
 
