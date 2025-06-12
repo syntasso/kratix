@@ -94,6 +94,16 @@ func MarkResourceRequestAsWorksFailed(obj *unstructured.Unstructured, works []st
 	})
 }
 
+func MarkResourceRequestAsWorksMisplaced(obj *unstructured.Unstructured, works []string) {
+	SetCondition(obj, &clusterv1.Condition{
+		Type:               WorksSucceededCondition,
+		Status:             v1.ConditionFalse,
+		Message:            fmt.Sprintf("Some works associated with this resource are misplaced: [%s]", strings.Join(works, ",")),
+		Reason:             "WorksMisplaced",
+		LastTransitionTime: metav1.NewTime(time.Now()),
+	})
+}
+
 func MarkResourceRequestAsWorksPending(obj *unstructured.Unstructured, works []string) {
 	SetCondition(obj, &clusterv1.Condition{
 		Type:               WorksSucceededCondition,

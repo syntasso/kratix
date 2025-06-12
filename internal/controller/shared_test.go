@@ -25,10 +25,8 @@ const (
 	promiseWithOnlyDepsPath        = "assets/promise-with-deps-only.yaml"
 	promiseWithOnlyDepsUpdatedPath = "assets/promise-with-deps-only-updated.yaml"
 	promiseWithRequirements        = "assets/promise-with-requirements.yaml"
-	promiseWithoutResourceWorkflow = "assets/promise-without-resource-workflow.yaml"
 	resourceRequestPath            = "assets/redis-request.yaml"
 	updatedPromisePath             = "assets/redis-simple-promise-updated.yaml"
-	noRRWorkflowRequest            = "assets/no-workflow-request.yaml"
 )
 
 func promiseFromFile(path string) *v1alpha1.Promise {

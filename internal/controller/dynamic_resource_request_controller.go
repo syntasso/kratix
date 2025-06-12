@@ -140,7 +140,6 @@ func (r *DynamicResourceRequestController) Reconcile(ctx context.Context, req ct
 		)
 		return r.updateManualReconciliationLabel(opts.ctx, rr)
 	}
-	logger.Info("DEBUG: ", "BEFORE GenerateResourcePipelines", "TRUE")
 
 	pipelineResources, err := promise.GenerateResourcePipelines(v1alpha1.WorkflowActionConfigure, rr, logger)
 	if err != nil {
@@ -163,19 +162,13 @@ func (r *DynamicResourceRequestController) Reconcile(ctx context.Context, req ct
 		return ctrl.Result{}, err
 	}
 
-	logger.Info("DEBUG: ", "BEFORE updateObservedGeneration", "TRUE")
-
 	if rr.GetGeneration() != resourceutil.GetObservedGeneration(rr) {
 		return ctrl.Result{}, updateObservedGeneration(rr, opts, logger)
 	}
 
-	currentWorkflowCount := len(promise.Spec.Workflows.Resource.Configure)
-	logger.Info("DEBUG: ", "currentWorkflowCount", currentWorkflowCount)
-	if shouldUpdateWorkflowsStatus(currentWorkflowCount, "workflows", rr) {
-		logger.Info("DEBUG: ", "shouldUpdateWorkflowsStatus", "TRUE")
-		return updateWorkflowsStatus(currentWorkflowCount, rr, "workflows", opts, logger)
-	} else {
-		logger.Info("DEBUG: ", "shouldUpdateWorkflowsStatus", "false")
+	numberOfConfigurePipelines := len(promise.Spec.Workflows.Resource.Configure)
+	if shouldUpdateWorkflowsStatus(numberOfConfigurePipelines, numberOfConfigurePipelines, numberOfConfigurePipelines, rr) {
+		return updateWorkflowsStatus(numberOfConfigurePipelines, numberOfConfigurePipelines, numberOfConfigurePipelines, rr, opts, logger)
 	}
 
 	if !promise.HasPipeline(v1alpha1.WorkflowTypeResource, v1alpha1.WorkflowActionConfigure) {
@@ -207,22 +200,7 @@ func (r *DynamicResourceRequestController) generateConditions(ctx context.Contex
 	if err != nil {
 		return false, err
 	}
-	var statusUpdate bool
-	misplacedCondition := resourceutil.GetCondition(rr, resourceutil.MisplacedCondition)
-	if len(misplaced) > 0 {
-		if misplacedCondition == nil || misplacedCondition.Status == v1.ConditionFalse {
-			resourceutil.MarkResourceRequestAsMisplaced(r.Log, rr, misplaced)
-			statusUpdate = true
-		}
-	} else if len(misplaced) == 0 {
-		if misplacedCondition == nil || misplacedCondition.Status == v1.ConditionTrue {
-			resourceutil.MarkResourceRequestAsMisplacedFalse(rr, misplaced)
-			statusUpdate = true
-		}
-	}
-
-	statusUpdate = statusUpdate || updateWorksSucceededCondition(rr, failed, pending, ready, misplaced)
-	return statusUpdate, nil
+	return updateWorksSucceededCondition(rr, failed, pending, ready, misplaced), nil
 }
 
 func updateWorksSucceededCondition(rr *unstructured.Unstructured, failed, pending, ready, misplaced []string) bool {
@@ -238,8 +216,13 @@ func updateWorksSucceededCondition(rr *unstructured.Unstructured, failed, pendin
 			resourceutil.MarkResourceRequestAsWorksPending(rr, pending)
 			return true
 		}
-	case len(misplaced) == 0 && len(ready) > 0:
-		if cond == nil || cond.Status == v1.ConditionFalse {
+	case len(misplaced) > 0:
+		if cond == nil || cond.Status != v1.ConditionFalse || cond.Reason != "WorksMisplaced" {
+			resourceutil.MarkResourceRequestAsWorksMisplaced(rr, misplaced)
+			return true
+		}
+	default:
+		if cond == nil || cond.Status != v1.ConditionTrue {
 			resourceutil.MarkResourceRequestAsWorksSucceeded(rr)
 			return true
 		}
@@ -496,16 +479,18 @@ func updateLastSuccessfulConfigureWorkflowTime(workflowCompletedCondition *clust
 	return ctrl.Result{}, opts.client.Status().Update(opts.ctx, rr)
 }
 
-func shouldUpdateWorkflowsStatus(
-	desiredWorkflowsStatusCount int,
-	statusField string,
-	rr *unstructured.Unstructured,
-) bool {
-	lastWorkflowsCount := resourceutil.GetStatus(rr, statusField)
-	return lastWorkflowsCount != strconv.FormatInt(int64(desiredWorkflowsStatusCount), 10)
+func shouldUpdateWorkflowsStatus(numberOfPipelines, failedPipelines, succeededPipelines int, rr *unstructured.Unstructured) bool {
+	lastWorkflowsCount := resourceutil.GetStatus(rr, "workflows")
+	lastFailedWorkflowsCount := resourceutil.GetStatus(rr, "workflowsFailed")
+	lastSucceededWorkflowsCount := resourceutil.GetStatus(rr, "workflowsSucceeded")
+	return lastWorkflowsCount != strconv.FormatInt(int64(numberOfPipelines), 10) ||
+		lastFailedWorkflowsCount != strconv.FormatInt(int64(failedPipelines), 10) ||
+		lastSucceededWorkflowsCount != strconv.FormatInt(int64(succeededPipelines), 10)
 }
 
-func updateWorkflowsStatus(workflowsStatusCount int, rr *unstructured.Unstructured, statusField string, opts opts, logger logr.Logger) (ctrl.Result, error) {
-	resourceutil.SetStatus(rr, logger, statusField, strconv.FormatInt(int64(workflowsStatusCount), 10))
+func updateWorkflowsStatus(numberOfPipelines, failedPipelines, succeededPipelines int, rr *unstructured.Unstructured, opts opts, logger logr.Logger) (ctrl.Result, error) {
+	resourceutil.SetStatus(rr, logger, "workflows", strconv.FormatInt(int64(numberOfPipelines), 10))
+	resourceutil.SetStatus(rr, logger, "workflowsFailed", strconv.FormatInt(int64(failedPipelines), 10))
+	resourceutil.SetStatus(rr, logger, "workflowsSucceeded", strconv.FormatInt(int64(succeededPipelines), 10))
 	return ctrl.Result{}, opts.client.Status().Update(opts.ctx, rr)
 }

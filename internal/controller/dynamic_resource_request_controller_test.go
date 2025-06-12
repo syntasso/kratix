@@ -265,7 +265,8 @@ var _ = Describe("DynamicResourceRequestController", func() {
 
 			lastTransitionTime := time.Now().Add(-reconciler.ReconciliationInterval).Add(-time.Hour * 1)
 			setConfigureWorkflowStatus(resReq, v1.ConditionTrue, lastTransitionTime)
-			setMisplacedFalse(resReq)
+			setWorksSucceeded(resReq)
+			setWorkflowsStatus(resReq)
 			Expect(fakeK8sClient.Status().Update(ctx, resReq)).To(Succeed())
 
 			request = ctrl.Request{NamespacedName: types.NamespacedName{Name: resReqNameNamespace.Name, Namespace: resReqNameNamespace.Namespace}}
@@ -442,64 +443,6 @@ var _ = Describe("DynamicResourceRequestController", func() {
 				}
 			})
 
-			Context("Misplaced", func() {
-				It("set to true when works are misplaced", func() {
-					work.Status = v1alpha1.WorkStatus{
-						Conditions: []metav1.Condition{
-							{
-								Type:   "ScheduleSucceeded",
-								Status: metav1.ConditionFalse,
-							},
-							{
-								Type:    "Ready",
-								Status:  metav1.ConditionFalse,
-								Message: "Misplaced",
-							},
-						},
-					}
-					Expect(fakeK8sClient.Create(ctx, work)).To(Succeed())
-					Expect(fakeK8sClient.Status().Update(ctx, work)).To(Succeed())
-
-					result, err := t.reconcileUntilCompletion(reconciler, resReq)
-					Expect(err).NotTo(HaveOccurred())
-					Expect(result).To(Equal(ctrl.Result{}))
-					Expect(fakeK8sClient.Get(ctx, resReqNameNamespace, resReq)).To(Succeed())
-
-					condition := resourceutil.GetCondition(resReq, resourceutil.MisplacedCondition)
-					Expect(condition).NotTo(BeNil())
-					Expect(string(condition.Status)).To(Equal("True"))
-					Expect(condition.Reason).To(Equal("WorksMisplaced"))
-					Expect(condition.Message).To(ContainSubstring("Some works associated with this resource are misplaced: [test]"))
-				})
-
-				It("set to false when no works are misplaced", func() {
-					work.Status = v1alpha1.WorkStatus{
-						Conditions: []metav1.Condition{
-							{
-								Type:   "ScheduleSucceeded",
-								Status: metav1.ConditionTrue,
-							},
-							{
-								Type:    "Ready",
-								Status:  metav1.ConditionTrue,
-								Message: "Ready",
-							},
-						},
-					}
-					Expect(fakeK8sClient.Create(ctx, work)).To(Succeed())
-					Expect(fakeK8sClient.Status().Update(ctx, work)).To(Succeed())
-
-					result, err := t.reconcileUntilCompletion(reconciler, resReq)
-					Expect(err).NotTo(HaveOccurred())
-					Expect(result).To(Equal(ctrl.Result{}))
-					Expect(fakeK8sClient.Get(ctx, resReqNameNamespace, resReq)).To(Succeed())
-
-					condition := resourceutil.GetCondition(resReq, resourceutil.MisplacedCondition)
-					Expect(condition).NotTo(BeNil())
-					Expect(string(condition.Status)).To(Equal("False"))
-				})
-			})
-
 			Context("WorksSucceeded", func() {
 				It("set to unknown when works are pending", func() {
 					work.Status = v1alpha1.WorkStatus{
@@ -551,6 +494,35 @@ var _ = Describe("DynamicResourceRequestController", func() {
 					Expect(condition.Message).To(ContainSubstring("Some works associated with this resource failed: [test]"))
 				})
 
+				It("set to false when works are misplaced", func() {
+					work.Status = v1alpha1.WorkStatus{
+						Conditions: []metav1.Condition{
+							{
+								Type:   "ScheduleSucceeded",
+								Status: metav1.ConditionFalse,
+							},
+							{
+								Type:    "Ready",
+								Status:  metav1.ConditionFalse,
+								Message: "Misplaced",
+							},
+						},
+					}
+					Expect(fakeK8sClient.Create(ctx, work)).To(Succeed())
+					Expect(fakeK8sClient.Status().Update(ctx, work)).To(Succeed())
+
+					result, err := t.reconcileUntilCompletion(reconciler, resReq)
+					Expect(err).NotTo(HaveOccurred())
+					Expect(result).To(Equal(ctrl.Result{}))
+					Expect(fakeK8sClient.Get(ctx, resReqNameNamespace, resReq)).To(Succeed())
+
+					condition := resourceutil.GetCondition(resReq, resourceutil.WorksSucceededCondition)
+					Expect(condition).NotTo(BeNil())
+					Expect(string(condition.Status)).To(Equal("False"))
+					Expect(condition.Reason).To(Equal("WorksMisplaced"))
+					Expect(condition.Message).To(ContainSubstring("Some works associated with this resource are misplaced: [test]"))
+				})
+
 				It("set to true when works are ready", func() {
 					work.Status = v1alpha1.WorkStatus{
 						Conditions: []metav1.Condition{
@@ -577,37 +549,104 @@ var _ = Describe("DynamicResourceRequestController", func() {
 				})
 
 			})
+
+			Context("Reconciled", func() {
+				When("workflows and works are all passing", func() {
+					It("sets Reconciled to true with message Reconciled", func() {
+
+					})
+				})
+
+				When("there are failed workflows", func() {
+					It("sets Reconciled to false with message failing", func() {
+
+					})
+				})
+
+				When("there are failed works", func() {
+					It("sets Reconciled to false with message failing", func() {
+
+					})
+				})
+
+				When("workflows are running", func() {
+					It("sets Reconciled to false with message pending", func() {
+
+					})
+				})
+
+				When("works are pending", func() {
+					It("sets Reconciled to false with message pending", func() {
+
+					})
+				})
+			})
 		})
 
 		Describe("workflows", func() {
 			When("all workflows have succeeded", func() {
+				BeforeEach(func() {
+					setConfigureWorkflowStatus(resReq, v1.ConditionTrue)
+				})
 
+				It("sets workflows status correctly", func() {
+					_, err := t.reconcileUntilCompletion(reconciler, resReq)
+					Expect(err).NotTo(HaveOccurred())
+
+					Expect(fakeK8sClient.Get(ctx, resReqNameNamespace, resReq)).To(Succeed())
+
+					workflowsStatus := resourceutil.GetStatus(resReq, "workflows")
+					Expect(workflowsStatus).To(Equal("1"))
+
+					workflowsSucceeded := resourceutil.GetStatus(resReq, "workflowsSucceeded")
+					Expect(workflowsSucceeded).To(Equal("1"))
+
+					workflowsFailed := resourceutil.GetStatus(resReq, "workflowsFailed")
+					Expect(workflowsFailed).To(Equal("1"))
+				})
 			})
 
 			When("some workflows failed", func() {
+				BeforeEach(func() {
+					setConfigureWorkflowStatus(resReq, v1.ConditionFalse, time.Now())
+				})
+				
+				It("sets workflows status correctly", func() {
+					_, err := t.reconcileUntilCompletion(reconciler, resReq)
+					Expect(err).NotTo(HaveOccurred())
 
+					Expect(fakeK8sClient.Get(ctx, resReqNameNamespace, resReq)).To(Succeed())
+
+					workflowsStatus := resourceutil.GetStatus(resReq, "workflows")
+					Expect(workflowsStatus).To(Equal("1"))
+
+					workflowsSucceeded := resourceutil.GetStatus(resReq, "workflowsSucceeded")
+					Expect(workflowsSucceeded).To(Equal("0"))
+
+					workflowsFailed := resourceutil.GetStatus(resReq, "workflowsFailed")
+					Expect(workflowsFailed).To(Equal("1"))
+				})
 			})
 
 			When("there are no workflows", func() {
+				BeforeEach(func() {
+					promise.Spec.Workflows.Resource.Configure = []unstructured.Unstructured{}
+					Expect(fakeK8sClient.Update(ctx, promise)).To(Succeed())
+				})
+
 				It("sets all workflow status counters to 0", func() {
-					createPromise(promiseWithoutResourceWorkflow)
-					rr := createResourceRequest(noRRWorkflowRequest)
-
-					result, err := t.reconcileUntilCompletion(reconciler, rr)
+					_, err := t.reconcileUntilCompletion(reconciler, resReq)
 					Expect(err).NotTo(HaveOccurred())
-					Expect(result).To(Equal(ctrl.Result{}))
-					Expect(fakeK8sClient.Get(ctx, types.NamespacedName{
-						Name:      "example",
-						Namespace: "default",
-					}, rr)).To(Succeed())
 
-					workflowsStatus := resourceutil.GetStatus(rr, "workflows")
+					Expect(fakeK8sClient.Get(ctx, resReqNameNamespace, resReq)).To(Succeed())
+
+					workflowsStatus := resourceutil.GetStatus(resReq, "workflows")
 					Expect(workflowsStatus).To(Equal("0"))
 
-					workflowsSucceeded := resourceutil.GetStatus(rr, "workflowsSucceeded")
+					workflowsSucceeded := resourceutil.GetStatus(resReq, "workflowsSucceeded")
 					Expect(workflowsSucceeded).To(Equal("0"))
 
-					workflowsFailed := resourceutil.GetStatus(rr, "workflowsFailed")
+					workflowsFailed := resourceutil.GetStatus(resReq, "workflowsFailed")
 					Expect(workflowsFailed).To(Equal("0"))
 				})
 			})
@@ -636,16 +675,25 @@ func setConfigureWorkflowStatus(resReq *unstructured.Unstructured, status v1.Con
 	Expect(fakeK8sClient.Status().Update(ctx, resReq)).To(Succeed())
 }
 
-func setMisplacedFalse(resReq *unstructured.Unstructured) {
+func setWorksSucceeded(resReq *unstructured.Unstructured) {
 	if resReq.Object["status"] == nil {
 		resReq.Object["status"] = map[string]interface{}{}
 	}
 	resourceutil.SetCondition(resReq, &clusterv1.Condition{
-		Type:   "Misplaced",
-		Status: v1.ConditionFalse,
-		Reason: "NoWorkMisplaced",
+		Type:   "WorksSucceeded",
+		Status: v1.ConditionTrue,
+		Reason: "WorksSucceeded",
 	})
 	Expect(fakeK8sClient.Status().Update(ctx, resReq)).To(Succeed())
+}
+
+func setWorkflowsStatus(resReq *unstructured.Unstructured) {
+	if resReq.Object["status"] == nil {
+		resReq.Object["status"] = map[string]interface{}{}
+	}
+	resourceutil.SetStatus(resReq, l, "workflows", "1")
+	resourceutil.SetStatus(resReq, l, "workflowsSucceeded", "1")
+	resourceutil.SetStatus(resReq, l, "workflowsFailed", "1")
 }
 
 func createResourceRequest(resourceRequestPath string) *unstructured.Unstructured {
