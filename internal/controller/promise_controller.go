@@ -999,9 +999,14 @@ func setStatusFieldsOnCRD(rrCRD *apiextensionsv1.CustomResourceDefinition) {
 		if len(rrCRD.Spec.Versions[i].AdditionalPrinterColumns) == 0 {
 			rrCRD.Spec.Versions[i].AdditionalPrinterColumns = []apiextensionsv1.CustomResourceColumnDefinition{
 				{
-					Name:     "status",
+					Name:     "message",
 					Type:     "string",
 					JSONPath: ".status.message",
+				},
+				{
+					Name:     "status",
+					Type:     "string",
+					JSONPath: ".reconciled.message",
 				},
 			}
 		}

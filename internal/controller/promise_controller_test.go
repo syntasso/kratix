@@ -1145,10 +1145,13 @@ var _ = Describe("PromiseController", func() {
 				Expect(err).ToNot(HaveOccurred())
 				Expect(crd.Spec.Versions).To(HaveLen(1))
 
-				Expect(crd.Spec.Versions[0].AdditionalPrinterColumns).To(HaveLen(1))
-				Expect(crd.Spec.Versions[0].AdditionalPrinterColumns[0].Name).To(Equal("status"))
+				Expect(crd.Spec.Versions[0].AdditionalPrinterColumns).To(HaveLen(2))
+				Expect(crd.Spec.Versions[0].AdditionalPrinterColumns[0].Name).To(Equal("message"))
 				Expect(crd.Spec.Versions[0].AdditionalPrinterColumns[0].Type).To(Equal("string"))
 				Expect(crd.Spec.Versions[0].AdditionalPrinterColumns[0].JSONPath).To(Equal(".status.message"))
+				Expect(crd.Spec.Versions[0].AdditionalPrinterColumns[1].Name).To(Equal("status"))
+				Expect(crd.Spec.Versions[0].AdditionalPrinterColumns[1].Type).To(Equal("string"))
+				Expect(crd.Spec.Versions[0].AdditionalPrinterColumns[1].JSONPath).To(Equal(".reconciled.message"))
 			})
 		})
 
