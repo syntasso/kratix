@@ -259,6 +259,45 @@ var _ = Describe("DynamicResourceRequestController", func() {
 		})
 	})
 
+	When("the Promise is paused and the resource is being deleted", func() {
+		BeforeEach(func() {
+			setReconcileConfigureWorkflowToReturnFinished()
+			result, err := t.reconcileUntilCompletion(reconciler, resReq)
+			Expect(err).NotTo(HaveOccurred())
+			Expect(result).To(Equal(ctrl.Result{}))
+			Expect(fakeK8sClient.Get(ctx, resReqNameNamespace, resReq)).To(Succeed())
+			Expect(resReq.GetFinalizers()).To(ConsistOf(
+				"kratix.io/work-cleanup",
+				"kratix.io/workflows-cleanup",
+				"kratix.io/delete-workflows",
+			))
+
+			Expect(fakeK8sClient.Get(ctx, promiseName, promise)).To(Succeed())
+			if promise.Labels == nil {
+				promise.Labels = map[string]string{}
+			}
+			promise.Labels[resourceutil.PausedLabel] = "true"
+			Expect(fakeK8sClient.Update(ctx, promise)).To(Succeed())
+
+			Expect(fakeK8sClient.Delete(ctx, resReq)).To(Succeed())
+		})
+
+		It("schedules the next reconciliation without running delete workflows", func() {
+			request := ctrl.Request{NamespacedName: resReqNameNamespace}
+			result, err := reconciler.Reconcile(ctx, request)
+			Expect(err).NotTo(HaveOccurred())
+			Expect(result).To(Equal(ctrl.Result{RequeueAfter: reconciler.ReconciliationInterval}))
+
+			Expect(fakeK8sClient.Get(ctx, resReqNameNamespace, resReq)).To(Succeed())
+			Expect(resReq.GetFinalizers()).To(ConsistOf(
+				"kratix.io/work-cleanup",
+				"kratix.io/workflows-cleanup",
+				"kratix.io/delete-workflows",
+			))
+			Expect(reconcileDeleteOptsArg.Resources).To(BeEmpty())
+		})
+	})
+
 	When("the DefaultReconciliationInterval is reached", func() {
 		var request ctrl.Request
 		BeforeEach(func() {
@@ -317,6 +356,79 @@ var _ = Describe("DynamicResourceRequestController", func() {
 				Expect(fakeK8sClient.Get(ctx, resReqNameNamespace, resReq)).To(Succeed())
 				Expect(resourceutil.GetCondition(resReq, resourceutil.ConfigureWorkflowCompletedCondition).Status).To(Equal(v1.ConditionTrue))
 			})
+		})
+	})
+
+	When("the Promise is paused", func() {
+		BeforeEach(func() {
+			Expect(fakeK8sClient.Get(ctx, promiseName, promise)).To(Succeed())
+			if promise.Labels == nil {
+				promise.Labels = map[string]string{}
+			}
+			promise.Labels[resourceutil.PausedLabel] = "true"
+			Expect(fakeK8sClient.Update(ctx, promise)).To(Succeed())
+			reconcileConfigureOptsArg = workflow.Opts{}
+		})
+
+		It("schedules the next reconciliation without running workflows", func() {
+			request := ctrl.Request{NamespacedName: types.NamespacedName{Name: resReqNameNamespace.Name, Namespace: resReqNameNamespace.Namespace}}
+			result, err := reconciler.Reconcile(ctx, request)
+			Expect(err).NotTo(HaveOccurred())
+			Expect(result).To(Equal(ctrl.Result{RequeueAfter: reconciler.ReconciliationInterval}))
+
+			Expect(fakeK8sClient.Get(ctx, resReqNameNamespace, resReq)).To(Succeed())
+			Expect(resReq.GetFinalizers()).To(BeEmpty())
+			Expect(resReq.GetLabels()).To(Equal(map[string]string{"non-kratix-label": "true"}))
+			Expect(reconcileConfigureOptsArg.Resources).To(BeEmpty())
+		})
+	})
+
+	When("the Promise pause label is removed", func() {
+		BeforeEach(func() {
+			Expect(fakeK8sClient.Get(ctx, promiseName, promise)).To(Succeed())
+			if promise.Labels == nil {
+				promise.Labels = map[string]string{}
+			}
+			promise.Labels[resourceutil.PausedLabel] = "true"
+			Expect(fakeK8sClient.Update(ctx, promise)).To(Succeed())
+
+			request := ctrl.Request{NamespacedName: types.NamespacedName{Name: resReqNameNamespace.Name, Namespace: resReqNameNamespace.Namespace}}
+			_, err := reconciler.Reconcile(ctx, request)
+			Expect(err).NotTo(HaveOccurred())
+
+			Expect(fakeK8sClient.Get(ctx, promiseName, promise)).To(Succeed())
+			delete(promise.Labels, resourceutil.PausedLabel)
+			Expect(fakeK8sClient.Update(ctx, promise)).To(Succeed())
+		})
+
+		It("reconciles the resource request", func() {
+			setReconcileConfigureWorkflowToReturnFinished()
+			result, err := t.reconcileUntilCompletion(reconciler, resReq)
+			Expect(err).NotTo(HaveOccurred())
+			Expect(result).To(Equal(ctrl.Result{RequeueAfter: reconciler.ReconciliationInterval}))
+			Expect(resReq.GetFinalizers()).To(ConsistOf(
+				"kratix.io/work-cleanup",
+				"kratix.io/workflows-cleanup",
+				"kratix.io/delete-workflows",
+			))
+		})
+	})
+
+	When("the Promise pause label is not set to \"true\"", func() {
+		BeforeEach(func() {
+			Expect(fakeK8sClient.Get(ctx, promiseName, promise)).To(Succeed())
+			if promise.Labels == nil {
+				promise.Labels = map[string]string{}
+			}
+			promise.Labels[resourceutil.PausedLabel] = "false"
+			Expect(fakeK8sClient.Update(ctx, promise)).To(Succeed())
+		})
+
+		It("reconciles as normal", func() {
+			setReconcileConfigureWorkflowToReturnFinished()
+			result, err := t.reconcileUntilCompletion(reconciler, resReq)
+			Expect(err).NotTo(HaveOccurred())
+			Expect(result).To(Equal(ctrl.Result{RequeueAfter: reconciler.ReconciliationInterval}))
 		})
 	})
 

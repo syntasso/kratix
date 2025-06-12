@@ -23,6 +23,7 @@ const (
 	PipelinesExecutedSuccessfully          = "PipelinesExecutedSuccessfully"
 	ManualReconciliationLabel              = "kratix.io/manual-reconciliation"
 	ReconcileResourcesLabel                = "kratix.io/reconcile-resources"
+	PausedLabel                            = "kratix.io/paused"
 	promiseAvailableCondition              = clusterv1.ConditionType("PromiseAvailable")
 	promiseRequirementsNotMetReason        = "PromiseRequirementsNotInstalled"
 	promiseRequirementsNotMetMessage       = "Promise Requirements are not installed"

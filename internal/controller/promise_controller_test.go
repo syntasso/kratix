@@ -1110,6 +1110,170 @@ var _ = Describe("PromiseController", func() {
 		})
 	})
 
+	When("the Promise is paused", func() {
+		BeforeEach(func() {
+			promise = createPromise(promisePath)
+			Expect(fakeK8sClient.Get(ctx, promiseName, promise)).To(Succeed())
+			if promise.Labels == nil {
+				promise.Labels = map[string]string{}
+			}
+			promise.Labels[resourceutil.PausedLabel] = "true"
+			Expect(fakeK8sClient.Update(ctx, promise)).To(Succeed())
+			reconcileConfigureOptsArg = workflow.Opts{}
+		})
+
+		It("schedules the next reconciliation without running workflows", func() {
+			result, err := reconciler.Reconcile(ctx, ctrl.Request{NamespacedName: promiseName})
+			Expect(err).NotTo(HaveOccurred())
+			Expect(result).To(Equal(ctrl.Result{RequeueAfter: reconciler.ReconciliationInterval}))
+
+			Expect(fakeK8sClient.Get(ctx, promiseName, promise)).To(Succeed())
+			Expect(promise.GetFinalizers()).To(BeEmpty())
+			Expect(reconcileConfigureOptsArg.Resources).To(BeEmpty())
+		})
+	})
+
+	When("the Promise is paused and being deleted", func() {
+		BeforeEach(func() {
+			promise = createPromise(promiseWithWorkflowPath)
+
+			setReconcileConfigureWorkflowToReturnFinished()
+			markPromiseWorkflowAsCompleted(fakeK8sClient, promise)
+			result, err := t.reconcileUntilCompletion(reconciler, promise, &opts{
+				funcs: []func(client.Object) error{autoMarkCRDAsEstablished},
+			})
+			Expect(err).NotTo(HaveOccurred())
+			Expect(result).To(Equal(ctrl.Result{RequeueAfter: reconciler.ReconciliationInterval}))
+
+			Expect(fakeK8sClient.Get(ctx, promiseName, promise)).To(Succeed())
+			if promise.Labels == nil {
+				promise.Labels = map[string]string{}
+			}
+			promise.Labels[resourceutil.PausedLabel] = "true"
+			Expect(fakeK8sClient.Update(ctx, promise)).To(Succeed())
+
+			Expect(fakeK8sClient.Delete(ctx, promise)).To(Succeed())
+		})
+
+		It("schedules the next reconciliation without running delete workflows", func() {
+			result, err := reconciler.Reconcile(ctx, ctrl.Request{NamespacedName: promiseName})
+			Expect(err).NotTo(HaveOccurred())
+			Expect(result).To(Equal(ctrl.Result{RequeueAfter: reconciler.ReconciliationInterval}))
+
+			Expect(fakeK8sClient.Get(ctx, promiseName, promise)).To(Succeed())
+			Expect(promise.GetFinalizers()).To(ConsistOf(
+				"kratix.io/dynamic-controller-dependant-resources-cleanup",
+				"kratix.io/dependencies-cleanup",
+				"kratix.io/resource-request-cleanup",
+				"kratix.io/api-crd-cleanup",
+				"kratix.io/workflows-cleanup",
+			))
+			Expect(reconcileDeleteOptsArg.Resources).To(BeEmpty())
+		})
+
+		When("the Promise is paused and its static dependencies change", func() {
+			BeforeEach(func() {
+				promise = createPromise(promiseWithOnlyDepsPath)
+				setReconcileConfigureWorkflowToReturnFinished()
+				_, err := t.reconcileUntilCompletion(reconciler, promise, &opts{
+					funcs: []func(client.Object) error{autoMarkCRDAsEstablished},
+				})
+				Expect(err).NotTo(HaveOccurred())
+
+				Expect(fakeK8sClient.Get(ctx, promiseName, promise)).To(Succeed())
+				if promise.Labels == nil {
+					promise.Labels = map[string]string{}
+				}
+				promise.Labels[resourceutil.PausedLabel] = "true"
+				Expect(fakeK8sClient.Update(ctx, promise)).To(Succeed())
+
+				updatedPromise := promiseFromFile(promiseWithOnlyDepsUpdatedPath)
+				promise.Spec = updatedPromise.Spec
+				Expect(fakeK8sClient.Update(ctx, promise)).To(Succeed())
+
+				reconcileConfigureOptsArg = workflow.Opts{}
+			})
+
+			It("schedules the next reconciliation without updating the Work", func() {
+				result, err := reconciler.Reconcile(ctx, ctrl.Request{NamespacedName: promiseName})
+				Expect(err).NotTo(HaveOccurred())
+				Expect(result).To(Equal(ctrl.Result{RequeueAfter: reconciler.ReconciliationInterval}))
+
+				works := &v1alpha1.WorkList{}
+				Expect(fakeK8sClient.List(ctx, works)).To(Succeed())
+				Expect(works.Items).To(HaveLen(1))
+				Expect(inCompressedContents(works.Items[0].Spec.WorkloadGroups[0].Workloads[0].Content, []byte("redisoperator"))).To(BeTrue())
+				Expect(reconcileConfigureOptsArg.Resources).To(BeEmpty())
+			})
+		})
+
+		When("the Promise pause label is removed", func() {
+			BeforeEach(func() {
+				promise = createPromise(promiseWithOnlyDepsPath)
+				setReconcileConfigureWorkflowToReturnFinished()
+				_, err := t.reconcileUntilCompletion(reconciler, promise, &opts{
+					funcs: []func(client.Object) error{autoMarkCRDAsEstablished},
+				})
+				Expect(err).NotTo(HaveOccurred())
+
+				Expect(fakeK8sClient.Get(ctx, promiseName, promise)).To(Succeed())
+				if promise.Labels == nil {
+					promise.Labels = map[string]string{}
+				}
+				promise.Labels[resourceutil.PausedLabel] = "true"
+				Expect(fakeK8sClient.Update(ctx, promise)).To(Succeed())
+
+				updatedPromise := promiseFromFile(promiseWithOnlyDepsUpdatedPath)
+				promise.Spec = updatedPromise.Spec
+				Expect(fakeK8sClient.Update(ctx, promise)).To(Succeed())
+
+				Expect(fakeK8sClient.Get(ctx, promiseName, promise)).To(Succeed())
+				delete(promise.Labels, resourceutil.PausedLabel)
+				Expect(fakeK8sClient.Update(ctx, promise)).To(Succeed())
+
+				reconcileConfigureOptsArg = workflow.Opts{}
+			})
+
+			It("updates the Work and runs workflows", func() {
+				setReconcileConfigureWorkflowToReturnFinished()
+				result, err := t.reconcileUntilCompletion(reconciler, promise, &opts{
+					funcs: []func(client.Object) error{autoMarkCRDAsEstablished},
+				})
+				Expect(err).NotTo(HaveOccurred())
+				Expect(result).To(Equal(ctrl.Result{RequeueAfter: reconciler.ReconciliationInterval}))
+
+				works := &v1alpha1.WorkList{}
+				Expect(fakeK8sClient.List(ctx, works)).To(Succeed())
+				Expect(works.Items).To(HaveLen(1))
+				Expect(inCompressedContents(works.Items[0].Spec.WorkloadGroups[0].Workloads[0].Content, []byte("postgresoperator"))).To(BeTrue())
+			})
+		})
+
+		When("the Promise pause label is not set to \"true\"", func() {
+			BeforeEach(func() {
+				promise = createPromise(promisePath)
+				Expect(fakeK8sClient.Get(ctx, promiseName, promise)).To(Succeed())
+				if promise.Labels == nil {
+					promise.Labels = map[string]string{}
+				}
+				promise.Labels[resourceutil.PausedLabel] = "false"
+				Expect(fakeK8sClient.Update(ctx, promise)).To(Succeed())
+
+				reconcileConfigureOptsArg = workflow.Opts{}
+			})
+
+			It("reconciles as normal", func() {
+				setReconcileConfigureWorkflowToReturnFinished()
+				result, err := t.reconcileUntilCompletion(reconciler, promise, &opts{
+					funcs: []func(client.Object) error{autoMarkCRDAsEstablished},
+				})
+				Expect(err).NotTo(HaveOccurred())
+				Expect(result).To(Equal(ctrl.Result{RequeueAfter: reconciler.ReconciliationInterval}))
+				Expect(reconcileConfigureOptsArg.Resources).NotTo(BeEmpty())
+			})
+		})
+	})
+
 	Describe("Promise API", func() {
 		When("the crd does not define additional printer columns", func() {
 			It("uses the default printer columns", func() {

@@ -104,6 +104,11 @@ func (r *DynamicResourceRequestController) Reconcile(ctx context.Context, req ct
 		return defaultRequeue, nil
 	}
 
+	if promise.Labels != nil && promise.Labels[resourceutil.PausedLabel] == "true" {
+		logger.Info("Promise reconciliation paused")
+		return r.nextReconciliation(logger)
+	}
+
 	resourceLabels := getResourceLabels(rr)
 	if resourceLabels[v1alpha1.PromiseNameLabel] != r.PromiseIdentifier {
 		return r.setPromiseLabels(ctx, promise.GetName(), rr, resourceLabels, logger)
