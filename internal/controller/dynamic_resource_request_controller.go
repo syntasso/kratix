@@ -20,8 +20,6 @@ import (
 	"context"
 	"errors"
 	"fmt"
-	"strconv"
-
 	apiextensionsv1 "k8s.io/apiextensions-apiserver/pkg/apis/apiextensions/v1"
 	apiMeta "k8s.io/apimachinery/pkg/api/meta"
 	"k8s.io/apimachinery/pkg/labels"
@@ -166,11 +164,6 @@ func (r *DynamicResourceRequestController) Reconcile(ctx context.Context, req ct
 		return ctrl.Result{}, updateObservedGeneration(rr, opts, logger)
 	}
 
-	numberOfConfigurePipelines := len(promise.Spec.Workflows.Resource.Configure)
-	if shouldUpdateWorkflowsStatus(numberOfConfigurePipelines, numberOfConfigurePipelines, numberOfConfigurePipelines, rr) {
-		return updateWorkflowsStatus(numberOfConfigurePipelines, numberOfConfigurePipelines, numberOfConfigurePipelines, rr, opts, logger)
-	}
-
 	if !promise.HasPipeline(v1alpha1.WorkflowTypeResource, v1alpha1.WorkflowActionConfigure) {
 		return r.nextReconciliation(logger)
 	}
@@ -205,27 +198,31 @@ func (r *DynamicResourceRequestController) generateConditions(ctx context.Contex
 
 func updateWorksSucceededCondition(rr *unstructured.Unstructured, failed, pending, ready, misplaced []string) bool {
 	cond := resourceutil.GetCondition(rr, resourceutil.WorksSucceededCondition)
-	switch {
-	case len(failed) > 0:
+
+	if len(failed) > 0 {
 		if cond == nil || cond.Status == v1.ConditionTrue {
 			resourceutil.MarkResourceRequestAsWorksFailed(rr, failed)
 			return true
 		}
-	case len(pending) > 0:
+		return false
+	}
+	if len(pending) > 0 {
 		if cond == nil || cond.Status != v1.ConditionUnknown {
 			resourceutil.MarkResourceRequestAsWorksPending(rr, pending)
 			return true
 		}
-	case len(misplaced) > 0:
+		return false
+	}
+	if len(misplaced) > 0 {
 		if cond == nil || cond.Status != v1.ConditionFalse || cond.Reason != "WorksMisplaced" {
 			resourceutil.MarkResourceRequestAsWorksMisplaced(rr, misplaced)
 			return true
 		}
-	default:
-		if cond == nil || cond.Status != v1.ConditionTrue {
-			resourceutil.MarkResourceRequestAsWorksSucceeded(rr)
-			return true
-		}
+		return false
+	}
+	if cond == nil || cond.Status != v1.ConditionTrue {
+		resourceutil.MarkResourceRequestAsWorksSucceeded(rr)
+		return true
 	}
 	return false
 }
@@ -476,21 +473,5 @@ func shouldUpdateLastSuccessfulConfigureWorkflowTime(
 
 func updateLastSuccessfulConfigureWorkflowTime(workflowCompletedCondition *clusterv1.Condition, rr *unstructured.Unstructured, opts opts, logger logr.Logger) (ctrl.Result, error) {
 	resourceutil.SetStatus(rr, logger, "lastSuccessfulConfigureWorkflowTime", workflowCompletedCondition.LastTransitionTime.Format(time.RFC3339))
-	return ctrl.Result{}, opts.client.Status().Update(opts.ctx, rr)
-}
-
-func shouldUpdateWorkflowsStatus(numberOfPipelines, failedPipelines, succeededPipelines int, rr *unstructured.Unstructured) bool {
-	lastWorkflowsCount := resourceutil.GetStatus(rr, "workflows")
-	lastFailedWorkflowsCount := resourceutil.GetStatus(rr, "workflowsFailed")
-	lastSucceededWorkflowsCount := resourceutil.GetStatus(rr, "workflowsSucceeded")
-	return lastWorkflowsCount != strconv.FormatInt(int64(numberOfPipelines), 10) ||
-		lastFailedWorkflowsCount != strconv.FormatInt(int64(failedPipelines), 10) ||
-		lastSucceededWorkflowsCount != strconv.FormatInt(int64(succeededPipelines), 10)
-}
-
-func updateWorkflowsStatus(numberOfPipelines, failedPipelines, succeededPipelines int, rr *unstructured.Unstructured, opts opts, logger logr.Logger) (ctrl.Result, error) {
-	resourceutil.SetStatus(rr, logger, "workflows", strconv.FormatInt(int64(numberOfPipelines), 10))
-	resourceutil.SetStatus(rr, logger, "workflowsFailed", strconv.FormatInt(int64(failedPipelines), 10))
-	resourceutil.SetStatus(rr, logger, "workflowsSucceeded", strconv.FormatInt(int64(succeededPipelines), 10))
 	return ctrl.Result{}, opts.client.Status().Update(opts.ctx, rr)
 }
