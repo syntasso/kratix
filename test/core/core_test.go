@@ -13,9 +13,9 @@ import (
 )
 
 const (
-	timeout, interval = 2 * time.Minute, 2 * time.Second
-	workerOne         = "worker-1"
-	workerTwo         = "worker-2"
+	timeout, longerTimeout, interval = 2 * time.Minute, 3 * time.Minute, 2 * time.Second
+	workerOne                        = "worker-1"
+	workerTwo                        = "worker-2"
 )
 
 var destinationName = getEnvOrDefault("DESTINATION_NAME", "worker-1")
@@ -230,11 +230,12 @@ var _ = Describe("Core Tests", Ordered, func() {
 
 				cmArgs := []string{"-n", "testbundle-ns", "get", "cm"}
 				By("scheduling works to the right destination", func() {
+					// Increased timeout to prevent test failures caused by flux waits
 					Eventually(func(g Gomega) {
 						g.Expect(worker.Kubectl("get", "namespaces")).To(ContainSubstring(rrNsName))
 						g.Expect(worker.Kubectl(append(cmArgs, rrConfigMapName+"-1")...)).To(ContainSubstring(rrConfigMapName))
 						g.Expect(worker.Kubectl(append(cmArgs, rrConfigMapName+"-2")...)).To(ContainSubstring(rrConfigMapName))
-					}, timeout, interval).Should(Succeed())
+					}, longerTimeout, interval).Should(Succeed())
 				})
 
 				By("rerunning pipelines when updating a resource request", func() {
@@ -244,6 +245,7 @@ var _ = Describe("Core Tests", Ordered, func() {
 						platform.Kubectl("apply", "-f", "assets/example-resource-v2.yaml"),
 					).To(ContainSubstring("kratix-test configured"))
 
+					// Increased timeout to prevent test failures caused by flux waits
 					Eventually(func(g Gomega) {
 						g.Expect(worker.Kubectl("get", "namespaces")).To(ContainSubstring(rrNsNameUpdated))
 						g.Expect(
@@ -252,7 +254,7 @@ var _ = Describe("Core Tests", Ordered, func() {
 						g.Expect(
 							worker.Kubectl(append(cmArgs, rrConfigMapName+"-2", "-o=jsonpath={.data.timestamp}")...),
 						).ToNot(Equal(originalTimeStampW2))
-					}, timeout, interval).Should(Succeed())
+					}, longerTimeout, interval).Should(Succeed())
 				})
 			})
 
@@ -275,10 +277,11 @@ var _ = Describe("Core Tests", Ordered, func() {
 					getCMEnvValue := []string{"-n", "testbundle-ns",
 						"get", "configmap", "testbundle-cm", "-o=jsonpath={.data.promiseEnv}"}
 
+					// Increased timeout to prevent test failures caused by flux waits
 					Eventually(func(g Gomega) {
 						g.Expect(worker.Kubectl(getCMTimestamp...)).ToNot(Equal(originalPromiseConfigMapTimestamp1))
 						g.Expect(worker.Kubectl(getCMEnvValue...)).To(ContainSubstring("second"))
-					}, timeout, interval).Should(Succeed())
+					}, longerTimeout, interval).Should(Succeed())
 				})
 
 				By("rerunning the resource configure pipeline", func() {
@@ -287,7 +290,7 @@ var _ = Describe("Core Tests", Ordered, func() {
 						g.Expect(worker.Kubectl("get", "namespaces")).To(ContainSubstring(rrNsNameUpdated))
 						g.Expect(worker.Kubectl(append(cmArgs, rrConfigMapName+"-1", "-o=jsonpath={.data.timestamp}")...)).ToNot(Equal(originalTimeStampW1))
 						g.Expect(worker.Kubectl(append(cmArgs, rrConfigMapName+"-2", "-o=jsonpath={.data.timestamp}")...)).ToNot(Equal(originalTimeStampW2))
-					}, 3*time.Minute, interval).Should(Succeed())
+					}, longerTimeout, interval).Should(Succeed())
 				})
 			})
 
