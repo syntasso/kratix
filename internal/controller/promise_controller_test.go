@@ -1122,10 +1122,10 @@ var _ = Describe("PromiseController", func() {
 			reconcileConfigureOptsArg = workflow.Opts{}
 		})
 
-		It("schedules the next reconciliation without running workflows", func() {
+		It("does not run workflows", func() {
 			result, err := reconciler.Reconcile(ctx, ctrl.Request{NamespacedName: promiseName})
 			Expect(err).NotTo(HaveOccurred())
-			Expect(result).To(Equal(ctrl.Result{RequeueAfter: reconciler.ReconciliationInterval}))
+			Expect(result).To(Equal(ctrl.Result{}))
 
 			Expect(fakeK8sClient.Get(ctx, promiseName, promise)).To(Succeed())
 			Expect(promise.GetFinalizers()).To(BeEmpty())
@@ -1155,10 +1155,10 @@ var _ = Describe("PromiseController", func() {
 			Expect(fakeK8sClient.Delete(ctx, promise)).To(Succeed())
 		})
 
-		It("schedules the next reconciliation without running delete workflows", func() {
+		It("does not run delete workflows", func() {
 			result, err := reconciler.Reconcile(ctx, ctrl.Request{NamespacedName: promiseName})
 			Expect(err).NotTo(HaveOccurred())
-			Expect(result).To(Equal(ctrl.Result{RequeueAfter: reconciler.ReconciliationInterval}))
+			Expect(result).To(Equal(ctrl.Result{}))
 
 			Expect(fakeK8sClient.Get(ctx, promiseName, promise)).To(Succeed())
 			Expect(promise.GetFinalizers()).To(ConsistOf(
@@ -1194,10 +1194,10 @@ var _ = Describe("PromiseController", func() {
 				reconcileConfigureOptsArg = workflow.Opts{}
 			})
 
-			It("schedules the next reconciliation without updating the Work", func() {
+			It("does not update the Work", func() {
 				result, err := reconciler.Reconcile(ctx, ctrl.Request{NamespacedName: promiseName})
 				Expect(err).NotTo(HaveOccurred())
-				Expect(result).To(Equal(ctrl.Result{RequeueAfter: reconciler.ReconciliationInterval}))
+				Expect(result).To(Equal(ctrl.Result{}))
 
 				works := &v1alpha1.WorkList{}
 				Expect(fakeK8sClient.List(ctx, works)).To(Succeed())

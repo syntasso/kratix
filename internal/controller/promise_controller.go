@@ -146,7 +146,7 @@ func (r *PromiseReconciler) Reconcile(ctx context.Context, req ctrl.Request) (ct
 
 	if promise.Labels != nil && promise.Labels[resourceutil.PausedLabel] == "true" {
 		logger.Info("Promise reconciliation paused")
-		return r.nextReconciliation(logger)
+		return ctrl.Result{}, nil
 	}
 
 	if !promise.DeletionTimestamp.IsZero() {

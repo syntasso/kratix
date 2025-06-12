@@ -282,11 +282,11 @@ var _ = Describe("DynamicResourceRequestController", func() {
 			Expect(fakeK8sClient.Delete(ctx, resReq)).To(Succeed())
 		})
 
-		It("schedules the next reconciliation without running delete workflows", func() {
+		It("does not run delete workflows", func() {
 			request := ctrl.Request{NamespacedName: resReqNameNamespace}
 			result, err := reconciler.Reconcile(ctx, request)
 			Expect(err).NotTo(HaveOccurred())
-			Expect(result).To(Equal(ctrl.Result{RequeueAfter: reconciler.ReconciliationInterval}))
+			Expect(result).To(Equal(ctrl.Result{}))
 
 			Expect(fakeK8sClient.Get(ctx, resReqNameNamespace, resReq)).To(Succeed())
 			Expect(resReq.GetFinalizers()).To(ConsistOf(
@@ -370,11 +370,11 @@ var _ = Describe("DynamicResourceRequestController", func() {
 			reconcileConfigureOptsArg = workflow.Opts{}
 		})
 
-		It("schedules the next reconciliation without running workflows", func() {
+		It("does not run workflows", func() {
 			request := ctrl.Request{NamespacedName: types.NamespacedName{Name: resReqNameNamespace.Name, Namespace: resReqNameNamespace.Namespace}}
 			result, err := reconciler.Reconcile(ctx, request)
 			Expect(err).NotTo(HaveOccurred())
-			Expect(result).To(Equal(ctrl.Result{RequeueAfter: reconciler.ReconciliationInterval}))
+			Expect(result).To(Equal(ctrl.Result{}))
 
 			Expect(fakeK8sClient.Get(ctx, resReqNameNamespace, resReq)).To(Succeed())
 			Expect(resReq.GetFinalizers()).To(BeEmpty())
