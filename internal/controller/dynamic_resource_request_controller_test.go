@@ -178,6 +178,29 @@ var _ = Describe("DynamicResourceRequestController", func() {
 				Expect(err).NotTo(HaveOccurred())
 				Expect(lastSuccessfulConfigureWorkflowTime).To(BeTemporally(">", startTime))
 			})
+
+			By("setting the right status.conditions", func() {
+				worksCondition := resourceutil.GetCondition(resReq, resourceutil.WorksSucceededCondition)
+				Expect(worksCondition).NotTo(BeNil())
+				Expect(string(worksCondition.Status)).To(Equal("True"))
+				Expect(worksCondition.Reason).To(Equal("WorksSucceeded"))
+				Expect(worksCondition.Message).To(ContainSubstring("All works associated with this resource are ready"))
+
+				condition := resourceutil.GetCondition(resReq, resourceutil.ReconciledCondition)
+				Expect(condition).NotTo(BeNil())
+				Expect(string(condition.Status)).To(Equal("True"))
+				Expect(condition.Reason).To(Equal("Reconciled"))
+				Expect(condition.Message).To(ContainSubstring("Reconciled"))
+			})
+
+			By("publishing events", func() {
+				Expect(eventRecorder.Events).To(Receive(ContainSubstring(
+					"Normal WorksSucceeded All works associated with this resource are ready",
+				)))
+				Expect(eventRecorder.Events).To(Receive(ContainSubstring(
+					"Normal ReconcileSucceeded Successfully reconciled",
+				)))
+			})
 		})
 
 		When("CanCreateResources is set to false", func() {
@@ -495,6 +518,10 @@ var _ = Describe("DynamicResourceRequestController", func() {
 					Expect(string(condition.Status)).To(Equal("False"))
 					Expect(condition.Reason).To(Equal("WorksFailing"))
 					Expect(condition.Message).To(ContainSubstring("Some works associated with this resource failed: [test]"))
+
+					Expect(eventRecorder.Events).To(Receive(ContainSubstring(
+						"Warning WorksFailing Some works associated with this resource failed: [test]",
+					)))
 				})
 
 				It("set to false when works are misplaced", func() {
@@ -524,6 +551,10 @@ var _ = Describe("DynamicResourceRequestController", func() {
 					Expect(string(condition.Status)).To(Equal("False"))
 					Expect(condition.Reason).To(Equal("WorksMisplaced"))
 					Expect(condition.Message).To(ContainSubstring("Some works associated with this resource are misplaced: [test]"))
+
+					Expect(eventRecorder.Events).To(Receive(ContainSubstring(
+						"Warning WorksMisplaced Some works associated with this resource are misplaced: [test]",
+					)))
 				})
 
 				It("set to true when works are ready", func() {
@@ -550,7 +581,6 @@ var _ = Describe("DynamicResourceRequestController", func() {
 					Expect(condition.Reason).To(Equal("WorksSucceeded"))
 					Expect(condition.Message).To(ContainSubstring("All works associated with this resource are ready"))
 				})
-
 			})
 
 			Context("Reconciled", func() {
