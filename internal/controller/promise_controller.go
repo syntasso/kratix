@@ -557,6 +557,23 @@ func (r *PromiseReconciler) ensureDynamicControllerIsStarted(promise *v1alpha1.P
 	return ctrl.NewControllerManagedBy(r.Manager).
 		For(unstructuredCRD).
 		Owns(&batchv1.Job{}).
+		Watches(
+			&v1alpha1.Work{},
+			handler.EnqueueRequestsFromMapFunc(func(ctx context.Context, obj client.Object) []reconcile.Request {
+				work := obj.(*v1alpha1.Work)
+				rrName, labelExists := work.Labels[v1alpha1.ResourceNameLabel]
+				if !labelExists || work.Labels[v1alpha1.PromiseNameLabel] != promise.GetName() {
+					return nil
+				}
+
+				return []reconcile.Request{{
+					NamespacedName: types.NamespacedName{
+						Namespace: work.Namespace,
+						Name:      rrName,
+					},
+				}}
+			}),
+		).
 		Complete(dynamicResourceRequestController)
 }
 
@@ -982,9 +999,14 @@ func setStatusFieldsOnCRD(rrCRD *apiextensionsv1.CustomResourceDefinition) {
 		if len(rrCRD.Spec.Versions[i].AdditionalPrinterColumns) == 0 {
 			rrCRD.Spec.Versions[i].AdditionalPrinterColumns = []apiextensionsv1.CustomResourceColumnDefinition{
 				{
-					Name:     "status",
+					Name:     "message",
 					Type:     "string",
 					JSONPath: ".status.message",
+				},
+				{
+					Name:     "status",
+					Type:     "string",
+					JSONPath: ".status.conditions[?(@.type==\"Reconciled\")].message",
 				},
 			}
 		}

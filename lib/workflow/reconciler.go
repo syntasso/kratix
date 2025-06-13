@@ -463,6 +463,7 @@ func setConfigureWorkflowCompletedConditionStatus(opts Opts, isTheFirstPipeline 
 			resourceutil.SetStatus(obj, opts.logger, "message", "Pending")
 		}
 		resourceutil.MarkConfigureWorkflowAsRunning(opts.logger, obj)
+		resourceutil.MarkResourceRequestAsReconciledPending(obj, "WorkflowPending")
 		err := opts.client.Status().Update(opts.ctx, obj)
 		if err != nil {
 			opts.logger.Error(err, "failed to update object status")

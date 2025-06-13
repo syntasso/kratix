@@ -19,13 +19,13 @@ package controller
 import (
 	"context"
 	"errors"
-
-	"k8s.io/client-go/tools/record"
+	"fmt"
 
 	apiextensionsv1 "k8s.io/apiextensions-apiserver/pkg/apis/apiextensions/v1"
+	apiMeta "k8s.io/apimachinery/pkg/api/meta"
+	"k8s.io/apimachinery/pkg/labels"
+	"k8s.io/client-go/tools/record"
 	"sigs.k8s.io/controller-runtime/pkg/controller/controllerutil"
-
-	"fmt"
 
 	"github.com/go-logr/logr"
 	"github.com/syntasso/kratix/api/v1alpha1"
@@ -169,6 +169,15 @@ func (r *DynamicResourceRequestController) Reconcile(ctx context.Context, req ct
 		return r.nextReconciliation(logger)
 	}
 
+	statusUpdate, err := r.generateConditions(ctx, rr)
+	if err != nil {
+		return ctrl.Result{}, err
+	}
+
+	if statusUpdate {
+		return ctrl.Result{}, r.Client.Status().Update(ctx, rr)
+	}
+
 	workflowCompletedCondition := resourceutil.GetCondition(rr, resourceutil.ConfigureWorkflowCompletedCondition)
 	if workflowsCompletedSuccessfully(workflowCompletedCondition) {
 		if shouldUpdateLastSuccessfulConfigureWorkflowTime(workflowCompletedCondition, rr) {
@@ -178,6 +187,122 @@ func (r *DynamicResourceRequestController) Reconcile(ctx context.Context, req ct
 	}
 
 	return ctrl.Result{}, nil
+}
+
+func (r *DynamicResourceRequestController) generateConditions(ctx context.Context, rr *unstructured.Unstructured) (bool, error) {
+	failed, misplaced, pending, ready, err := r.getWorksStatus(ctx, rr)
+	if err != nil {
+		return false, err
+	}
+	worksSucceededUpdate := updateWorksSucceededCondition(rr, failed, pending, ready, misplaced)
+	reconciledUpdate := updateReconciledCondition(rr)
+
+	return worksSucceededUpdate || reconciledUpdate, nil
+}
+
+func updateReconciledCondition(rr *unstructured.Unstructured) bool {
+	worksSucceeded := resourceutil.GetCondition(rr, resourceutil.WorksSucceededCondition)
+	workflowCompleted := resourceutil.GetCondition(rr, resourceutil.ConfigureWorkflowCompletedCondition)
+	reconciled := resourceutil.GetCondition(rr, resourceutil.ReconciledCondition)
+
+	var updated bool
+	if workflowCompleted != nil &&
+		workflowCompleted.Status == v1.ConditionFalse && workflowCompleted.Reason == "PipelinesInProgress" {
+		if reconciled == nil || reconciled.Status != v1.ConditionUnknown {
+			resourceutil.MarkResourceRequestAsReconciledPending(rr, "WorkflowPending")
+			updated = true
+		}
+	} else if workflowCompleted != nil && workflowCompleted.Status == v1.ConditionFalse {
+		if reconciled == nil || reconciled.Status != v1.ConditionFalse ||
+			reconciled.Reason != resourceutil.ConfigureWorkflowCompletedFailedReason {
+			resourceutil.MarkResourceRequestAsReconciledFailing(rr, resourceutil.ConfigureWorkflowCompletedFailedReason)
+			updated = true
+		}
+	} else if worksSucceeded != nil && worksSucceeded.Status == v1.ConditionUnknown {
+		if reconciled == nil || reconciled.Status != v1.ConditionUnknown {
+			resourceutil.MarkResourceRequestAsReconciledPending(rr, "WorksPending")
+			updated = true
+		}
+	} else if worksSucceeded != nil && worksSucceeded.Status == v1.ConditionFalse {
+		if reconciled == nil || reconciled.Status != v1.ConditionFalse {
+			resourceutil.MarkResourceRequestAsReconciledFailing(rr, "WorksFailing")
+			updated = true
+		}
+	} else if workflowCompleted != nil && worksSucceeded != nil &&
+		workflowCompleted.Status == v1.ConditionTrue && worksSucceeded.Status == v1.ConditionTrue {
+		if reconciled == nil || reconciled.Status != v1.ConditionTrue {
+			resourceutil.MarkResourceRequestAsReconciled(rr)
+			updated = true
+		}
+	}
+	return updated
+}
+
+func updateWorksSucceededCondition(rr *unstructured.Unstructured, failed, pending, _, misplaced []string) bool {
+	cond := resourceutil.GetCondition(rr, resourceutil.WorksSucceededCondition)
+
+	if len(failed) > 0 {
+		if cond == nil || cond.Status == v1.ConditionTrue {
+			resourceutil.MarkResourceRequestAsWorksFailed(rr, failed)
+			return true
+		}
+		return false
+	}
+	if len(pending) > 0 {
+		if cond == nil || cond.Status != v1.ConditionUnknown {
+			resourceutil.MarkResourceRequestAsWorksPending(rr, pending)
+			return true
+		}
+		return false
+	}
+	if len(misplaced) > 0 {
+		if cond == nil || cond.Status != v1.ConditionFalse || cond.Reason != "WorksMisplaced" {
+			resourceutil.MarkResourceRequestAsWorksMisplaced(rr, misplaced)
+			return true
+		}
+		return false
+	}
+	if cond == nil || cond.Status != v1.ConditionTrue {
+		resourceutil.MarkResourceRequestAsWorksSucceeded(rr)
+		return true
+	}
+	return false
+}
+
+func (r *DynamicResourceRequestController) getWorksStatus(ctx context.Context, rr *unstructured.Unstructured) ([]string, []string, []string, []string, error) {
+	workSelectorLabel := labels.FormatLabels(resourceutil.GetWorkLabels(r.PromiseIdentifier, rr.GetName(), "", v1alpha1.WorkTypeResource))
+	selector, err := labels.Parse(workSelectorLabel)
+	if err != nil {
+		r.Log.Info("Failed parsing Works selector label", "labels", workSelectorLabel)
+		return nil, nil, nil, nil, err
+	}
+
+	var works v1alpha1.WorkList
+	err = r.Client.List(ctx, &works, &client.ListOptions{
+		Namespace:     rr.GetNamespace(),
+		LabelSelector: selector,
+	})
+
+	if err != nil {
+		r.Log.Info("Failed listing works", "namespace", rr.GetNamespace(), "label selector", workSelectorLabel)
+		return nil, nil, nil, nil, err
+	}
+
+	var failed, misplaced, ready, pending []string
+	for _, work := range works.Items {
+		readyCond := apiMeta.FindStatusCondition(work.Status.Conditions, "Ready")
+		switch readyCond.Message {
+		case "Failing":
+			failed = append(failed, work.Name)
+		case "Misplaced":
+			misplaced = append(misplaced, work.Name)
+		case "Pending":
+			pending = append(pending, work.Name)
+		case "Ready":
+			ready = append(ready, work.Name)
+		}
+	}
+	return failed, misplaced, pending, ready, nil
 }
 
 func (r *DynamicResourceRequestController) deleteResources(o opts, promise *v1alpha1.Promise, resourceRequest *unstructured.Unstructured, resourceRequestIdentifier string) (ctrl.Result, error) {

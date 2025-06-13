@@ -3,6 +3,7 @@ package resourceutil
 import (
 	"fmt"
 	"sort"
+	"strings"
 	"time"
 
 	"github.com/go-logr/logr"
@@ -28,6 +29,8 @@ const (
 	promiseRequirementsNotMetMessage       = "Promise Requirements are not installed"
 	promiseRequirementsMetReason           = "PromiseAvailable"
 	promiseRequirementsMetMessage          = "Promise Requirements are met"
+	WorksSucceededCondition                = clusterv1.ConditionType("WorksSucceeded")
+	ReconciledCondition                    = clusterv1.ConditionType("Reconciled")
 )
 
 func GetConfigureWorkflowCompletedConditionStatus(obj *unstructured.Unstructured) v1.ConditionStatus {
@@ -58,6 +61,76 @@ func MarkConfigureWorkflowAsFailed(logger logr.Logger, obj *unstructured.Unstruc
 		LastTransitionTime: metav1.NewTime(time.Now()),
 	})
 	logger.Info("marking configure workflow as failed", "condition", ConfigureWorkflowCompletedCondition, "value", v1.ConditionFalse, "reason", ConfigureWorkflowCompletedFailedReason)
+}
+
+func MarkResourceRequestAsWorksFailed(obj *unstructured.Unstructured, works []string) {
+	SetCondition(obj, &clusterv1.Condition{
+		Type:               WorksSucceededCondition,
+		Status:             v1.ConditionFalse,
+		Message:            fmt.Sprintf("Some works associated with this resource failed: [%s]", strings.Join(works, ",")),
+		Reason:             "WorksFailing",
+		LastTransitionTime: metav1.NewTime(time.Now()),
+	})
+}
+
+func MarkResourceRequestAsWorksMisplaced(obj *unstructured.Unstructured, works []string) {
+	SetCondition(obj, &clusterv1.Condition{
+		Type:               WorksSucceededCondition,
+		Status:             v1.ConditionFalse,
+		Message:            fmt.Sprintf("Some works associated with this resource are misplaced: [%s]", strings.Join(works, ",")),
+		Reason:             "WorksMisplaced",
+		LastTransitionTime: metav1.NewTime(time.Now()),
+	})
+}
+
+func MarkResourceRequestAsWorksPending(obj *unstructured.Unstructured, works []string) {
+	SetCondition(obj, &clusterv1.Condition{
+		Type:               WorksSucceededCondition,
+		Status:             v1.ConditionUnknown,
+		Message:            fmt.Sprintf("Some works associated with this resource are not ready: [%s]", strings.Join(works, ",")),
+		Reason:             "WorksPending",
+		LastTransitionTime: metav1.NewTime(time.Now()),
+	})
+}
+
+func MarkResourceRequestAsWorksSucceeded(obj *unstructured.Unstructured) {
+	SetCondition(obj, &clusterv1.Condition{
+		Type:               WorksSucceededCondition,
+		Status:             v1.ConditionTrue,
+		Message:            "All works associated with this resource are ready",
+		Reason:             "WorksSucceeded",
+		LastTransitionTime: metav1.NewTime(time.Now()),
+	})
+}
+
+func MarkResourceRequestAsReconciledPending(obj *unstructured.Unstructured, reason string) {
+	SetCondition(obj, &clusterv1.Condition{
+		Type:               ReconciledCondition,
+		Status:             v1.ConditionUnknown,
+		Message:            "Pending",
+		Reason:             reason,
+		LastTransitionTime: metav1.NewTime(time.Now()),
+	})
+}
+
+func MarkResourceRequestAsReconciledFailing(obj *unstructured.Unstructured, reason string) {
+	SetCondition(obj, &clusterv1.Condition{
+		Type:               ReconciledCondition,
+		Status:             v1.ConditionFalse,
+		Message:            "Failing",
+		Reason:             reason,
+		LastTransitionTime: metav1.NewTime(time.Now()),
+	})
+}
+
+func MarkResourceRequestAsReconciled(obj *unstructured.Unstructured) {
+	SetCondition(obj, &clusterv1.Condition{
+		Type:               ReconciledCondition,
+		Status:             v1.ConditionTrue,
+		Message:            "Reconciled",
+		Reason:             "Reconciled",
+		LastTransitionTime: metav1.NewTime(time.Now()),
+	})
 }
 
 func MarkDeleteWorkflowAsFailed(logger logr.Logger, obj *unstructured.Unstructured) {

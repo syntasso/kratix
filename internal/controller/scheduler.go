@@ -128,6 +128,8 @@ func (s *Scheduler) updateWorkStatus(w *v1alpha1.Work, unscheduledWorkloadGroupI
 			Reason:  "Misplaced",
 			Message: "Misplaced",
 		}
+		s.EventRecorder.Eventf(w, corev1.EventTypeWarning, scheduleSucceededConditionMismatchReason,
+			"Target destination no longer matches destinationSelectors for workloadGroups: [%s] ", strings.Join(unscheduledWorkloadGroupIDs, ","))
 	} else { // all works are scheduled and none is misplaced
 		readyCond = metav1.Condition{
 			Type:    "Ready",
