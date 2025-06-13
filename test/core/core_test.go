@@ -194,6 +194,17 @@ var _ = Describe("Core Tests", Ordered, func() {
 						lastSuccessful := platform.Kubectl(append(rrArgs, `-o=jsonpath={.status.lastSuccessfulConfigureWorkflowTime}`)...)
 						return transitionTime == lastSuccessful
 					}, timeout, interval).Should(BeTrue(), "lastTransitionTime should be equal to lastSuccessfulConfigureWorkflowTime")
+
+					worksSucceededCondition := `.status.conditions[?(@.type=="WorksSucceeded")]`
+					reconciledCondition := `.status.conditions[?(@.type=="Reconciled")]`
+					Eventually(func(g Gomega) {
+						g.Expect(
+							platform.Kubectl(append(rrArgs, fmt.Sprintf(`-o=jsonpath='{%s.status}'`, worksSucceededCondition))...),
+						).To(ContainSubstring("True"))
+						g.Expect(
+							platform.Kubectl(append(rrArgs, fmt.Sprintf(`-o=jsonpath='{%s.status}'`, reconciledCondition))...),
+						).To(ContainSubstring("True"))
+					}, timeout, interval).Should(Succeed())
 				})
 
 				By("creating the right works and workplacements", func() {
