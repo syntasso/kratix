@@ -272,3 +272,30 @@ func (b *S3Writer) RemoveObject(objectName string) error {
 
 	return nil
 }
+
+// ValidatePermissions checks if the S3Writer has the necessary permissions to write to the bucket
+// without actually writing meaningful data. It validates write permissions by initiating a multipart
+// upload and then aborting it, which verifies permissions without leaving any data in the bucket.
+func (b *S3Writer) ValidatePermissions() error {
+	ctx := context.Background()
+	logger := b.Log.WithValues("bucketName", b.BucketName, "path", b.Path)
+
+	testObjectPath := filepath.Join(b.Path, ".kratix-write-permission-check")
+
+	coreClient := minio.Core{Client: b.RepoClient}
+
+	// Step 1: Initiate a new multipart upload
+	uploadID, err := coreClient.NewMultipartUpload(ctx, b.BucketName, testObjectPath, minio.PutObjectOptions{})
+	if err != nil {
+		return fmt.Errorf("write permission validation failed: %w", err)
+	}
+
+	// Step 2: Abort the multipart upload to clean up
+	err = coreClient.AbortMultipartUpload(ctx, b.BucketName, testObjectPath, uploadID)
+	if err != nil {
+		logger.Info("Write permissions validated but failed to abort multipart upload", "error", err)
+	}
+
+	logger.Info("Successfully validated bucket write permissions via multipart upload")
+	return nil
+}

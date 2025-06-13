@@ -184,7 +184,7 @@ var _ = Describe("Destinations", func() {
 					Eventually(func() string {
 						describeOutput := strings.Split(platform.Kubectl("describe", "bucketstatestores", "destination-test-store"), "\n")
 						return describeOutput[len(describeOutput)-2]
-					}).Should(ContainSubstring("Error writing test file"))
+					}).Should(ContainSubstring("write permission validation failed"))
 				})
 
 				By("showing `Ready` as False in the Destination", func() {
@@ -368,8 +368,8 @@ func parseYAML(contents string) []*unstructured.Unstructured {
 func mc(args ...string) string {
 	command := exec.Command("mc", args...)
 	session, err := gexec.Start(command, GinkgoWriter, GinkgoWriter)
-	Expect(err).ToNot(HaveOccurred())
-	Eventually(session).Should(gexec.Exit(0))
+	ExpectWithOffset(1, err).ToNot(HaveOccurred())
+	EventuallyWithOffset(1, session).Should(gexec.Exit(0))
 
 	return string(session.Out.Contents())
 }

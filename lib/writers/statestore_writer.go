@@ -12,6 +12,7 @@ import (
 type StateStoreWriter interface {
 	UpdateFiles(subDir string, workPlacementName string, workloadsToCreate []v1alpha1.Workload, workloadsToDelete []string) (string, error)
 	ReadFile(filename string) ([]byte, error)
+	ValidatePermissions() error
 }
 
 var ErrFileNotFound = fmt.Errorf("file not found")

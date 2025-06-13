@@ -139,7 +139,5 @@ var _ = Describe("S3", func() {
 				Expect(err).To(MatchError("unknown authMethod: foo"))
 			})
 		})
-
 	})
-
 })
