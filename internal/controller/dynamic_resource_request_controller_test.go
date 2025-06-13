@@ -243,15 +243,17 @@ var _ = Describe("DynamicResourceRequestController", func() {
 				status := resReq.Object["status"]
 				statusMap := status.(map[string]interface{})
 				conditions := statusMap["conditions"].([]interface{})
-				Expect(conditions).To(HaveLen(1))
-				condition := conditions[0].(map[string]interface{})
-				Expect(condition["type"]).To(Equal(string(resourceutil.DeleteWorkflowCompletedCondition)))
-				Expect(condition["status"]).To(Equal("False"))
-				Expect(condition["reason"]).To(Equal(resourceutil.DeleteWorkflowCompletedFailedReason))
-				Expect(condition["message"]).To(ContainSubstring("The Delete Pipeline has failed"))
+				Expect(conditions).To(HaveLen(2))
+				condition := resourceutil.GetCondition(resReq, resourceutil.DeleteWorkflowCompletedCondition)
+				Expect(string(condition.Status)).To(Equal("False"))
+				Expect(condition.Reason).To(Equal(resourceutil.DeleteWorkflowCompletedFailedReason))
+				Expect(condition.Message).To(ContainSubstring("The Delete Pipeline has failed"))
 			})
 
 			It("records an event on the resource request", func() {
+				Expect(eventRecorder.Events).To(Receive(ContainSubstring(
+					"Normal WorksSucceeded All works associated with this resource are ready",
+				)))
 				Expect(eventRecorder.Events).To(Receive(ContainSubstring(
 					"Warning Failed Pipeline The Delete Pipeline has failed",
 				)))
@@ -266,6 +268,8 @@ var _ = Describe("DynamicResourceRequestController", func() {
 
 			lastTransitionTime := time.Now().Add(-reconciler.ReconciliationInterval).Add(-time.Hour * 1)
 			setConfigureWorkflowStatus(resReq, v1.ConditionTrue, lastTransitionTime)
+			setWorksSucceeded(resReq)
+			setReconciled(resReq)
 			Expect(fakeK8sClient.Status().Update(ctx, resReq)).To(Succeed())
 
 			request = ctrl.Request{NamespacedName: types.NamespacedName{Name: resReqNameNamespace.Name, Namespace: resReqNameNamespace.Namespace}}
@@ -424,6 +428,271 @@ var _ = Describe("DynamicResourceRequestController", func() {
 				})
 			})
 		})
+
+		Describe("Conditions", func() {
+			var work *v1alpha1.Work
+			BeforeEach(func() {
+				work = &v1alpha1.Work{
+					ObjectMeta: metav1.ObjectMeta{
+						Name:      "test",
+						Namespace: resReq.GetNamespace(),
+						Labels: map[string]string{
+							"kratix.io/promise-name":  promise.GetName(),
+							"kratix.io/resource-name": resReq.GetName(),
+							"kratix.io/work-type":     "resource",
+						},
+					},
+					Spec: v1alpha1.WorkSpec{},
+				}
+			})
+
+			Context("WorksSucceeded", func() {
+				It("set to unknown when works are pending", func() {
+					work.Status = v1alpha1.WorkStatus{
+						Conditions: []metav1.Condition{
+							{
+								Type:    "Ready",
+								Status:  metav1.ConditionFalse,
+								Message: "Pending",
+							},
+						},
+					}
+					Expect(fakeK8sClient.Create(ctx, work)).To(Succeed())
+					Expect(fakeK8sClient.Status().Update(ctx, work)).To(Succeed())
+
+					result, err := t.reconcileUntilCompletion(reconciler, resReq)
+					Expect(err).NotTo(HaveOccurred())
+					Expect(result).To(Equal(ctrl.Result{}))
+					Expect(fakeK8sClient.Get(ctx, resReqNameNamespace, resReq)).To(Succeed())
+
+					condition := resourceutil.GetCondition(resReq, resourceutil.WorksSucceededCondition)
+					Expect(condition).NotTo(BeNil())
+					Expect(string(condition.Status)).To(Equal("Unknown"))
+					Expect(condition.Reason).To(Equal("WorksPending"))
+					Expect(condition.Message).To(ContainSubstring("Some works associated with this resource are not ready: [test]"))
+				})
+
+				It("set to false when works failed", func() {
+					work.Status = v1alpha1.WorkStatus{
+						Conditions: []metav1.Condition{
+							{
+								Type:    "Ready",
+								Status:  metav1.ConditionFalse,
+								Message: "Failing",
+							},
+						},
+					}
+					Expect(fakeK8sClient.Create(ctx, work)).To(Succeed())
+					Expect(fakeK8sClient.Status().Update(ctx, work)).To(Succeed())
+
+					result, err := t.reconcileUntilCompletion(reconciler, resReq)
+					Expect(err).NotTo(HaveOccurred())
+					Expect(result).To(Equal(ctrl.Result{}))
+					Expect(fakeK8sClient.Get(ctx, resReqNameNamespace, resReq)).To(Succeed())
+
+					condition := resourceutil.GetCondition(resReq, resourceutil.WorksSucceededCondition)
+					Expect(condition).NotTo(BeNil())
+					Expect(string(condition.Status)).To(Equal("False"))
+					Expect(condition.Reason).To(Equal("WorksFailing"))
+					Expect(condition.Message).To(ContainSubstring("Some works associated with this resource failed: [test]"))
+				})
+
+				It("set to false when works are misplaced", func() {
+					work.Status = v1alpha1.WorkStatus{
+						Conditions: []metav1.Condition{
+							{
+								Type:   "ScheduleSucceeded",
+								Status: metav1.ConditionFalse,
+							},
+							{
+								Type:    "Ready",
+								Status:  metav1.ConditionFalse,
+								Message: "Misplaced",
+							},
+						},
+					}
+					Expect(fakeK8sClient.Create(ctx, work)).To(Succeed())
+					Expect(fakeK8sClient.Status().Update(ctx, work)).To(Succeed())
+
+					result, err := t.reconcileUntilCompletion(reconciler, resReq)
+					Expect(err).NotTo(HaveOccurred())
+					Expect(result).To(Equal(ctrl.Result{}))
+					Expect(fakeK8sClient.Get(ctx, resReqNameNamespace, resReq)).To(Succeed())
+
+					condition := resourceutil.GetCondition(resReq, resourceutil.WorksSucceededCondition)
+					Expect(condition).NotTo(BeNil())
+					Expect(string(condition.Status)).To(Equal("False"))
+					Expect(condition.Reason).To(Equal("WorksMisplaced"))
+					Expect(condition.Message).To(ContainSubstring("Some works associated with this resource are misplaced: [test]"))
+				})
+
+				It("set to true when works are ready", func() {
+					work.Status = v1alpha1.WorkStatus{
+						Conditions: []metav1.Condition{
+							{
+								Type:    "Ready",
+								Status:  metav1.ConditionFalse,
+								Message: "Ready",
+							},
+						},
+					}
+					Expect(fakeK8sClient.Create(ctx, work)).To(Succeed())
+					Expect(fakeK8sClient.Status().Update(ctx, work)).To(Succeed())
+
+					result, err := t.reconcileUntilCompletion(reconciler, resReq)
+					Expect(err).NotTo(HaveOccurred())
+					Expect(result).To(Equal(ctrl.Result{}))
+					Expect(fakeK8sClient.Get(ctx, resReqNameNamespace, resReq)).To(Succeed())
+
+					condition := resourceutil.GetCondition(resReq, resourceutil.WorksSucceededCondition)
+					Expect(condition).NotTo(BeNil())
+					Expect(string(condition.Status)).To(Equal("True"))
+					Expect(condition.Reason).To(Equal("WorksSucceeded"))
+					Expect(condition.Message).To(ContainSubstring("All works associated with this resource are ready"))
+				})
+
+			})
+
+			Context("Reconciled", func() {
+				When("workflows and works are all passing", func() {
+					BeforeEach(func() {
+						setConfigureWorkflowStatus(resReq, v1.ConditionTrue)
+						setReconcileConfigureWorkflowToReturnFinished()
+						work.Status = v1alpha1.WorkStatus{
+							Conditions: []metav1.Condition{
+								{
+									Type:    "Ready",
+									Status:  metav1.ConditionFalse,
+									Message: "Ready",
+								},
+							},
+						}
+						Expect(fakeK8sClient.Create(ctx, work)).To(Succeed())
+						Expect(fakeK8sClient.Status().Update(ctx, work)).To(Succeed())
+					})
+
+					It("sets Reconciled to true with message Reconciled", func() {
+						_, err := t.reconcileUntilCompletion(reconciler, resReq)
+						Expect(err).NotTo(HaveOccurred())
+						Expect(fakeK8sClient.Get(ctx, resReqNameNamespace, resReq)).To(Succeed())
+
+						condition := resourceutil.GetCondition(resReq, resourceutil.ReconciledCondition)
+						Expect(condition).NotTo(BeNil())
+						Expect(string(condition.Status)).To(Equal("True"))
+						Expect(condition.Reason).To(Equal("Reconciled"))
+						Expect(condition.Message).To(ContainSubstring("Reconciled"))
+					})
+				})
+
+				When("there are failed workflows", func() {
+					BeforeEach(func() {
+						setConfigureWorkflowStatus(resReq, v1.ConditionFalse)
+						work.Status = v1alpha1.WorkStatus{
+							Conditions: []metav1.Condition{
+								{
+									Type:    "Ready",
+									Status:  metav1.ConditionFalse,
+									Message: "Ready",
+								},
+							},
+						}
+						Expect(fakeK8sClient.Create(ctx, work)).To(Succeed())
+						Expect(fakeK8sClient.Status().Update(ctx, work)).To(Succeed())
+					})
+
+					It("sets Reconciled to false with message failing", func() {
+						_, err := t.reconcileUntilCompletion(reconciler, resReq)
+						Expect(err).NotTo(HaveOccurred())
+						Expect(fakeK8sClient.Get(ctx, resReqNameNamespace, resReq)).To(Succeed())
+
+						condition := resourceutil.GetCondition(resReq, resourceutil.ReconciledCondition)
+						Expect(condition).NotTo(BeNil())
+						Expect(string(condition.Status)).To(Equal("False"))
+						Expect(condition.Reason).To(Equal("ConfigureWorkflowFailed"))
+						Expect(condition.Message).To(ContainSubstring("Failing"))
+					})
+				})
+
+				When("there are failed works", func() {
+					BeforeEach(func() {
+						setConfigureWorkflowStatus(resReq, v1.ConditionTrue)
+					})
+
+					It("sets Reconciled to false with message failing", func() {
+						work.Status = v1alpha1.WorkStatus{
+							Conditions: []metav1.Condition{
+								{
+									Type:    "Ready",
+									Status:  metav1.ConditionFalse,
+									Message: "Failing",
+								},
+							},
+						}
+						Expect(fakeK8sClient.Create(ctx, work)).To(Succeed())
+						Expect(fakeK8sClient.Status().Update(ctx, work)).To(Succeed())
+
+						_, err := t.reconcileUntilCompletion(reconciler, resReq)
+						Expect(err).NotTo(HaveOccurred())
+						Expect(fakeK8sClient.Get(ctx, resReqNameNamespace, resReq)).To(Succeed())
+
+						condition := resourceutil.GetCondition(resReq, resourceutil.ReconciledCondition)
+						Expect(condition).NotTo(BeNil())
+						Expect(string(condition.Status)).To(Equal("False"))
+						Expect(condition.Reason).To(Equal("WorksFailing"))
+						Expect(condition.Message).To(ContainSubstring("Failing"))
+					})
+				})
+
+				When("workflows are running", func() {
+					BeforeEach(func() {
+						setConfigureWorkflowAsRunning(resReq)
+					})
+
+					It("sets Reconciled to false with message pending", func() {
+						result, err := t.reconcileUntilCompletion(reconciler, resReq)
+						Expect(err).NotTo(HaveOccurred())
+						Expect(result).To(Equal(ctrl.Result{}))
+						Expect(fakeK8sClient.Get(ctx, resReqNameNamespace, resReq)).To(Succeed())
+
+						condition := resourceutil.GetCondition(resReq, resourceutil.ReconciledCondition)
+						Expect(condition).NotTo(BeNil())
+						Expect(string(condition.Status)).To(Equal("Unknown"))
+						Expect(condition.Reason).To(Equal("WorkflowPending"))
+						Expect(condition.Message).To(ContainSubstring("Pending"))
+					})
+				})
+
+				When("works are pending", func() {
+					BeforeEach(func() {
+						work.Status = v1alpha1.WorkStatus{
+							Conditions: []metav1.Condition{
+								{
+									Type:    "Ready",
+									Status:  metav1.ConditionFalse,
+									Message: "Pending",
+								},
+							},
+						}
+						Expect(fakeK8sClient.Create(ctx, work)).To(Succeed())
+						Expect(fakeK8sClient.Status().Update(ctx, work)).To(Succeed())
+					})
+
+					It("sets Reconciled to false with message pending", func() {
+						result, err := t.reconcileUntilCompletion(reconciler, resReq)
+						Expect(err).NotTo(HaveOccurred())
+						Expect(result).To(Equal(ctrl.Result{}))
+						Expect(fakeK8sClient.Get(ctx, resReqNameNamespace, resReq)).To(Succeed())
+
+						condition := resourceutil.GetCondition(resReq, resourceutil.ReconciledCondition)
+						Expect(condition).NotTo(BeNil())
+						Expect(string(condition.Status)).To(Equal("Unknown"))
+						Expect(condition.Reason).To(Equal("WorksPending"))
+						Expect(condition.Message).To(ContainSubstring("Pending"))
+					})
+				})
+			})
+		})
+
 	})
 })
 
@@ -444,6 +713,45 @@ func setConfigureWorkflowStatus(resReq *unstructured.Unstructured, status v1.Con
 		Reason:             resourceutil.PipelinesExecutedSuccessfully,
 		Message:            fmt.Sprintf("some-reason-%s", t.Format(time.RFC3339)),
 		LastTransitionTime: metav1.NewTime(t),
+	})
+	Expect(fakeK8sClient.Status().Update(ctx, resReq)).To(Succeed())
+}
+
+func setConfigureWorkflowAsRunning(resReq *unstructured.Unstructured) {
+	if resReq.Object["status"] == nil {
+		resReq.Object["status"] = map[string]interface{}{}
+	}
+	resourceutil.SetCondition(resReq, &clusterv1.Condition{
+		Type:               resourceutil.ConfigureWorkflowCompletedCondition,
+		Status:             v1.ConditionFalse,
+		Message:            "Pipelines are still in progress",
+		Reason:             "PipelinesInProgress",
+		LastTransitionTime: metav1.NewTime(time.Now()),
+	})
+	Expect(fakeK8sClient.Status().Update(ctx, resReq)).To(Succeed())
+}
+
+func setWorksSucceeded(resReq *unstructured.Unstructured) {
+	if resReq.Object["status"] == nil {
+		resReq.Object["status"] = map[string]interface{}{}
+	}
+	resourceutil.SetCondition(resReq, &clusterv1.Condition{
+		Type:   "WorksSucceeded",
+		Status: v1.ConditionTrue,
+		Reason: "WorksSucceeded",
+	})
+	Expect(fakeK8sClient.Status().Update(ctx, resReq)).To(Succeed())
+}
+
+func setReconciled(resReq *unstructured.Unstructured) {
+	if resReq.Object["status"] == nil {
+		resReq.Object["status"] = map[string]interface{}{}
+	}
+	resourceutil.SetCondition(resReq, &clusterv1.Condition{
+		Type:    "Reconciled",
+		Status:  v1.ConditionTrue,
+		Reason:  "Reconciled",
+		Message: "Reconciled",
 	})
 	Expect(fakeK8sClient.Status().Update(ctx, resReq)).To(Succeed())
 }
