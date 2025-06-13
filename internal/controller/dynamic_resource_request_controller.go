@@ -263,7 +263,7 @@ func (r *DynamicResourceRequestController) updateWorksSucceededCondition(rr *uns
 		if cond == nil || cond.Status != v1.ConditionFalse || cond.Reason != "WorksMisplaced" {
 			resourceutil.MarkResourceRequestAsWorksMisplaced(rr, misplaced)
 			r.EventRecorder.Event(rr, v1.EventTypeWarning, "WorksMisplaced",
-				fmt.Sprintf("Some works associated with this resource are misplaced: [%s]", strings.Join(failed, ",")))
+				fmt.Sprintf("Some works associated with this resource are misplaced: [%s]", strings.Join(misplaced, ",")))
 			return true
 		}
 		return false
