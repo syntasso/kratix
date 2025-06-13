@@ -68,6 +68,7 @@ var _ = Describe("GitStateStore Controller", func() {
 			},
 		)
 		fakeWriter.UpdateFilesReturns("", nil)
+		fakeWriter.ValidatePermissionsReturns(nil)
 
 		reconciler = &controller.GitStateStoreReconciler{
 			Client:        fakeK8sClient,
@@ -135,15 +136,8 @@ var _ = Describe("GitStateStore Controller", func() {
 			Expect(err).NotTo(HaveOccurred())
 			Expect(result).To(Equal(ctrl.Result{}))
 
-			By("writing the test file", func() {
-				Expect(fakeWriter.UpdateFilesCallCount()).To(Equal(2))
-				subDir, workPlacementName, workloads, workloadsToDelete := fakeWriter.UpdateFilesArgsForCall(0)
-				Expect(subDir).To(Equal(""))
-				Expect(workPlacementName).To(Equal("kratix-write-probe"))
-				Expect(workloads).To(HaveLen(1))
-				Expect(workloads[0].Filepath).To(Equal("kratix-write-probe.txt"))
-				Expect(workloads[0].Content).To(ContainSubstring("This file tests that Kratix can write to this state store. Last write time:"))
-				Expect(workloadsToDelete).To(BeEmpty())
+			By("validating permissions on the state store", func() {
+				Expect(fakeWriter.ValidatePermissionsCallCount()).To(Equal(2))
 			})
 
 			By("updating the status to say the state store is ready", func() {
@@ -191,15 +185,15 @@ var _ = Describe("GitStateStore Controller", func() {
 				)))
 			})
 
-			It("fires an event to indicate the test file could not be written", func() {
+			It("fires an event to indicate writer initialization failed", func() {
 				Eventually(eventRecorder.Events).Should(Receive(ContainSubstring(
 					"Warning NotReady GitStateStore \"default-store\" is not ready: Error initialising writer: secret missing key: secretAccessKey")))
 			})
 		})
 
-		When("the writer fails to write the test file", func() {
+		When("the writer fails to validate permissions", func() {
 			BeforeEach(func() {
-				fakeWriter.UpdateFilesReturns("", errors.New("ARGH!"))
+				fakeWriter.ValidatePermissionsReturns(errors.New("ARGH!"))
 
 				gitStateStore.Status.Status = controller.StatusReady
 				Expect(fakeK8sClient.Status().Update(ctx, gitStateStore)).To(Succeed())
@@ -207,7 +201,7 @@ var _ = Describe("GitStateStore Controller", func() {
 				result, err = t.reconcileUntilCompletion(reconciler, gitStateStore)
 			})
 
-			It("updates the status to say the the test file could not be written", func() {
+			It("updates the status to say permissions validation failed", func() {
 				Expect(err).To(MatchError(ContainSubstring("ARGH!")))
 				Expect(result).To(Equal(ctrl.Result{}))
 
@@ -215,15 +209,15 @@ var _ = Describe("GitStateStore Controller", func() {
 				Expect(updatedGitStateStore.Status.Status).To(Equal(controller.StatusNotReady))
 				Expect(updatedGitStateStore.Status.Conditions).To(ContainElement(SatisfyAll(
 					HaveField("Type", "Ready"),
-					HaveField("Message", "Error writing test file: ARGH!"),
-					HaveField("Reason", "ErrorWritingTestFile"),
+					HaveField("Message", "Error validating state store permissions: ARGH!"),
+					HaveField("Reason", "ErrorValidatingPermissions"),
 					HaveField("Status", metav1.ConditionFalse),
 				)))
 			})
 
-			It("fires an event to indicate the test file could not be written", func() {
+			It("fires an event to indicate permissions validation failed", func() {
 				Eventually(eventRecorder.Events).Should(Receive(ContainSubstring(
-					"Warning NotReady GitStateStore \"default-store\" is not ready: Error writing test file: ARGH!")))
+					"Warning NotReady GitStateStore \"default-store\" is not ready: Error validating state store permissions: ARGH!")))
 			})
 		})
 	})

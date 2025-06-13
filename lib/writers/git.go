@@ -1,6 +1,7 @@
 package writers
 
 import (
+	"errors"
 	"fmt"
 	"os"
 	"path"
@@ -275,6 +276,46 @@ func (g *GitWriter) push(repo *git.Repository, logger logr.Logger) error {
 		logger.Error(err, "could not push to remote")
 		return err
 	}
+	return nil
+}
+
+// validatePush attempts to validate write permissions by pushing no changes to the remote
+// If the push errors with "NoErrAlreadyUpToDate", it means we can write.
+func (g *GitWriter) validatePush(repo *git.Repository, logger logr.Logger) error {
+	err := repo.Push(&git.PushOptions{
+		RemoteName:      "origin",
+		Auth:            g.GitServer.Auth,
+		InsecureSkipTLS: true,
+	})
+
+	// NoErrAlreadyUpToDate means we have write permissions
+	if errors.Is(err, git.NoErrAlreadyUpToDate) {
+		logger.Info("Push validation successful - repository is up-to-date")
+		return nil
+	}
+
+	if err != nil {
+		return fmt.Errorf("write permission validation failed: %w", err)
+	}
+
+	return nil
+}
+
+// ValidatePermissions checks if the GitWriter has the necessary permissions to write to the repository.
+// It performs a dry run validation to check authentication and branch existence without making changes.
+func (g *GitWriter) ValidatePermissions() error {
+	// Setup local directory with repo (this already checks if we can clone - read access)
+	localTmpDir, repo, _, err := g.setupLocalDirectoryWithRepo(g.Log)
+	if err != nil {
+		return fmt.Errorf("failed to set up local directory with repo: %w", err)
+	}
+	defer os.RemoveAll(localTmpDir) //nolint:errcheck
+
+	if err = g.validatePush(repo, g.Log); err != nil {
+		return err
+	}
+
+	g.Log.Info("Successfully validated git repository permissions")
 	return nil
 }
 
