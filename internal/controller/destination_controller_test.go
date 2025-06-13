@@ -169,7 +169,7 @@ var _ = Describe("DestinationReconciler", func() {
 							)))
 						})
 
-						It("does not create any test files", func() {
+						It("only creates canary files", func() {
 							Expect(fakeWriter.UpdateFilesCallCount()).To(Equal(2))
 							dir, workPlacementName, workloadsToCreate, workloadsToDelete := fakeWriter.UpdateFilesArgsForCall(0)
 							Expect(dir).To(Equal(""))

@@ -145,6 +145,44 @@ var _ = Describe("NewGitWriter", func() {
 			Expect(publicKey).NotTo(BeNil())
 		})
 	})
+
+	Describe("ValidatePermissions", func() {
+		var (
+			gitWriter *writers.GitWriter
+			creds     map[string][]byte
+		)
+
+		BeforeEach(func() {
+			creds = map[string][]byte{
+				"username": []byte("user1"),
+				"password": []byte("pw1"),
+			}
+
+			var err error
+			writer, err := writers.NewGitWriter(logger, stateStoreSpec, dest.Spec.Path, creds)
+			Expect(err).NotTo(HaveOccurred())
+			var ok bool
+			gitWriter, ok = writer.(*writers.GitWriter)
+			Expect(ok).To(BeTrue())
+		})
+
+		It("returns an error when authentication fails", func() {
+			// Set invalid credentials
+			gitWriter.GitServer.Auth = &http.BasicAuth{
+				Username: "invalid",
+				Password: "invalid",
+			}
+
+			err := gitWriter.ValidatePermissions()
+			Expect(err).To(HaveOccurred())
+			Expect(err.Error()).To(Or(
+				ContainSubstring("failed to set up local directory with repo"),
+				ContainSubstring("authentication"),
+				ContainSubstring("permission"),
+				ContainSubstring("authorization"),
+			))
+		})
+	})
 })
 
 func generateSSHCreds(key *rsa.PrivateKey) map[string][]byte {
@@ -152,13 +190,14 @@ func generateSSHCreds(key *rsa.PrivateKey) map[string][]byte {
 		Type:  "RSA PRIVATE KEY",
 		Bytes: x509.MarshalPKCS1PrivateKey(key),
 	}
-	var b bytes.Buffer
-	if err := pem.Encode(&b, &privateKeyPEM); err != nil {
-		log.Fatalf("Failed to write private key to buffer: %v", err)
+
+	var keyBuf bytes.Buffer
+	if err := pem.Encode(&keyBuf, &privateKeyPEM); err != nil {
+		log.Fatal(err)
 	}
 
 	return map[string][]byte{
-		"sshPrivateKey": b.Bytes(),
+		"sshPrivateKey": keyBuf.Bytes(),
 		"knownHosts":    []byte("github.com ssh-ed25519 AAAAC3NzaC1lZDI1NTE5AAAAIOMqqnkVzrm0SdG6UOoqKLsabgH5C9okWi0dh2l9GKJl"),
 	}
 }

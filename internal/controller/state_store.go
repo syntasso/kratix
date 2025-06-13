@@ -3,11 +3,9 @@ package controller
 import (
 	"context"
 	"fmt"
-	"time"
 
 	"github.com/go-logr/logr"
 	"github.com/syntasso/kratix/api/v1alpha1"
-	"github.com/syntasso/kratix/lib/writers"
 	v1 "k8s.io/api/core/v1"
 	"k8s.io/apimachinery/pkg/api/errors"
 	"k8s.io/apimachinery/pkg/api/meta"
@@ -78,8 +76,8 @@ func reconcileStateStoreCommon(
 		return ctrl.Result{}, err
 	}
 
-	if err := writeStateStoreTestFile(writer); err != nil {
-		if err := updateStateStoreReadyStatusAndCondition(o, eventRecorder, stateStore, StateStoreNotReadyErrorWritingTestFileReason, StateStoreNotReadyErrorWritingTestFileMessage, err); err != nil {
+	if err := writer.ValidatePermissions(); err != nil {
+		if err := updateStateStoreReadyStatusAndCondition(o, eventRecorder, stateStore, StateStoreNotReadyErrorValidatingPermissionsReason, StateStoreNotReadyErrorValidatingPermissionsMessage, err); err != nil {
 			o.logger.Error(err, "error updating state store status")
 		}
 		return ctrl.Result{}, err
@@ -156,16 +154,4 @@ func constructRequestsForStateStoresReferencingSecret(ctx context.Context, k8scl
 		})
 	}
 	return requests
-}
-
-func writeStateStoreTestFile(writer writers.StateStoreWriter) error {
-	content := fmt.Sprintf("This file tests that Kratix can write to this state store. Last write time: %s", time.Now().String())
-	_, err := writer.UpdateFiles("", "kratix-write-probe", []v1alpha1.Workload{
-		{
-			Filepath: "kratix-write-probe.txt",
-			Content:  content,
-		},
-	}, nil)
-
-	return err
 }

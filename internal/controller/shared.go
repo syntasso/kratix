@@ -26,17 +26,17 @@ const (
 	removeAllWorkflowJobsFinalizer = v1alpha1.KratixPrefix + "workflows-cleanup"
 	runDeleteWorkflowsFinalizer    = v1alpha1.KratixPrefix + "delete-workflows"
 	// DefaultReconciliationInterval is the interval on which the workflows will be re-run.
-	DefaultReconciliationInterval                    = time.Hour * 10
-	secretRefFieldName                               = "secretRef"
-	StatusNotReady                                   = "NotReady"
-	StatusReady                                      = "Ready"
-	StateStoreReadyConditionType                     = "Ready"
-	StateStoreReadyConditionReason                   = "StateStoreReady"
-	StateStoreReadyConditionMessage                  = "State store is ready"
-	StateStoreNotReadyErrorInitialisingWriterReason  = "ErrorInitialisingWriter"
-	StateStoreNotReadyErrorInitialisingWriterMessage = "Error initialising writer"
-	StateStoreNotReadyErrorWritingTestFileReason     = "ErrorWritingTestFile"
-	StateStoreNotReadyErrorWritingTestFileMessage    = "Error writing test file"
+	DefaultReconciliationInterval                       = time.Hour * 10
+	secretRefFieldName                                  = "secretRef"
+	StatusNotReady                                      = "NotReady"
+	StatusReady                                         = "Ready"
+	StateStoreReadyConditionType                        = "Ready"
+	StateStoreReadyConditionReason                      = "StateStoreReady"
+	StateStoreReadyConditionMessage                     = "State store is ready"
+	StateStoreNotReadyErrorInitialisingWriterReason     = "ErrorInitialisingWriter"
+	StateStoreNotReadyErrorInitialisingWriterMessage    = "Error initialising writer"
+	StateStoreNotReadyErrorValidatingPermissionsReason  = "ErrorValidatingPermissions"
+	StateStoreNotReadyErrorValidatingPermissionsMessage = "Error validating state store permissions"
 )
 
 var (
