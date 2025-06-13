@@ -1006,7 +1006,7 @@ func setStatusFieldsOnCRD(rrCRD *apiextensionsv1.CustomResourceDefinition) {
 				{
 					Name:     "status",
 					Type:     "string",
-					JSONPath: ".reconciled.message",
+					JSONPath: ".status.conditions[?(@.type==\"Reconciled\")].message",
 				},
 			}
 		}
@@ -1047,18 +1047,6 @@ func setStatusFieldsOnCRD(rrCRD *apiextensionsv1.CustomResourceDefinition) {
 							},
 						},
 					},
-				},
-				"workflows": {
-					Type:   "integer",
-					Format: "int",
-				},
-				"workflowsSucceeded": {
-					Type:   "integer",
-					Format: "int",
-				},
-				"workflowsFailed": {
-					Type:   "integer",
-					Format: "int",
 				},
 			},
 		}
