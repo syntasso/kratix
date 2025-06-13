@@ -29,12 +29,12 @@ import (
 	"sigs.k8s.io/controller-runtime/pkg/cache"
 	"sigs.k8s.io/controller-runtime/pkg/webhook"
 
+	"github.com/syntasso/kratix/internal/ptr"
 	"go.uber.org/zap/zapcore"
 	"k8s.io/apiextensions-apiserver/pkg/client/clientset/clientset"
 	apierrors "k8s.io/apimachinery/pkg/api/errors"
 	"k8s.io/apimachinery/pkg/util/yaml"
 	_ "k8s.io/client-go/plugin/pkg/client/auth"
-	"k8s.io/utils/ptr"
 	"sigs.k8s.io/controller-runtime/pkg/client"
 
 	"github.com/syntasso/kratix/internal/controller"
@@ -174,7 +174,7 @@ func main() {
 			LeaderElection:         enableLeaderElection,
 			LeaderElectionID:       "2743c979.kratix.io",
 			Controller: controllercfg.Controller{
-				SkipNameValidation: ptr.To(true),
+				SkipNameValidation: ptr.True(),
 			},
 		}
 

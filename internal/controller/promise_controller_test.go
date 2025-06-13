@@ -14,9 +14,9 @@ import (
 	"github.com/syntasso/kratix/internal/controller/controllerfakes"
 	controllerConfig "sigs.k8s.io/controller-runtime/pkg/config"
 
+	"github.com/syntasso/kratix/internal/ptr"
 	"k8s.io/apimachinery/pkg/runtime/schema"
 	"k8s.io/client-go/tools/record"
-	"k8s.io/utils/ptr"
 
 	"github.com/go-logr/logr"
 	. "github.com/onsi/ginkgo/v2"
@@ -67,7 +67,7 @@ var _ = Describe("PromiseController", func() {
 		l = ctrl.Log.WithName("controllers").WithName("Promise")
 		m := &controllerfakes.FakeManager{}
 		m.GetControllerOptionsReturns(controllerConfig.Controller{
-			SkipNameValidation: ptr.To(true)})
+			SkipNameValidation: ptr.True()})
 		eventRecorder = record.NewFakeRecorder(1024)
 		reconciler = &controller.PromiseReconciler{
 			Client:              fakeK8sClient,

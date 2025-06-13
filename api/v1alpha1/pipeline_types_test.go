@@ -10,6 +10,7 @@ import (
 	. "github.com/onsi/gomega"
 	. "github.com/onsi/gomega/gstruct"
 	"github.com/syntasso/kratix/api/v1alpha1"
+	"github.com/syntasso/kratix/internal/ptr"
 	"github.com/syntasso/kratix/lib/hash"
 	corev1 "k8s.io/api/core/v1"
 	rbacv1 "k8s.io/api/rbac/v1"
@@ -17,7 +18,6 @@ import (
 	metav1 "k8s.io/apimachinery/pkg/apis/meta/v1"
 	"k8s.io/apimachinery/pkg/apis/meta/v1/unstructured"
 	"k8s.io/apimachinery/pkg/runtime"
-	"k8s.io/utils/ptr"
 )
 
 var _ = Describe("Pipeline", func() {
@@ -28,9 +28,9 @@ var _ = Describe("Pipeline", func() {
 		resourceRequest              *unstructured.Unstructured
 		globalDefaultSecurityContext *corev1.SecurityContext
 		defaultKratixSecurityContext = &corev1.SecurityContext{
-			AllowPrivilegeEscalation: ptr.To(false),
-			RunAsNonRoot:             ptr.To(true),
-			Privileged:               ptr.To(false),
+			AllowPrivilegeEscalation: ptr.False(),
+			RunAsNonRoot:             ptr.True(),
+			Privileged:               ptr.False(),
 			Capabilities: &corev1.Capabilities{
 				Drop: []corev1.Capability{"ALL"},
 			},
