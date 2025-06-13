@@ -252,6 +252,9 @@ var _ = Describe("DynamicResourceRequestController", func() {
 
 			It("records an event on the resource request", func() {
 				Expect(eventRecorder.Events).To(Receive(ContainSubstring(
+					"Normal WorksSucceeded All works associated with this resource are ready",
+				)))
+				Expect(eventRecorder.Events).To(Receive(ContainSubstring(
 					"Warning Failed Pipeline The Delete Pipeline has failed",
 				)))
 			})

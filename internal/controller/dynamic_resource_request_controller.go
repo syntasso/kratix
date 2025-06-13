@@ -20,6 +20,7 @@ import (
 	"context"
 	"errors"
 	"fmt"
+	"strings"
 
 	apiextensionsv1 "k8s.io/apiextensions-apiserver/pkg/apis/apiextensions/v1"
 	apiMeta "k8s.io/apimachinery/pkg/api/meta"
@@ -194,13 +195,13 @@ func (r *DynamicResourceRequestController) generateConditions(ctx context.Contex
 	if err != nil {
 		return false, err
 	}
-	worksSucceededUpdate := updateWorksSucceededCondition(rr, failed, pending, ready, misplaced)
-	reconciledUpdate := updateReconciledCondition(rr)
+	worksSucceededUpdate := r.updateWorksSucceededCondition(rr, failed, pending, ready, misplaced)
+	reconciledUpdate := r.updateReconciledCondition(rr)
 
 	return worksSucceededUpdate || reconciledUpdate, nil
 }
 
-func updateReconciledCondition(rr *unstructured.Unstructured) bool {
+func (r *DynamicResourceRequestController) updateReconciledCondition(rr *unstructured.Unstructured) bool {
 	worksSucceeded := resourceutil.GetCondition(rr, resourceutil.WorksSucceededCondition)
 	workflowCompleted := resourceutil.GetCondition(rr, resourceutil.ConfigureWorkflowCompletedCondition)
 	reconciled := resourceutil.GetCondition(rr, resourceutil.ReconciledCondition)
@@ -233,17 +234,20 @@ func updateReconciledCondition(rr *unstructured.Unstructured) bool {
 		if reconciled == nil || reconciled.Status != v1.ConditionTrue {
 			resourceutil.MarkResourceRequestAsReconciled(rr)
 			updated = true
+			r.EventRecorder.Event(rr, v1.EventTypeNormal, "ReconcileSucceeded",
+				"Successfully reconciled")
 		}
 	}
 	return updated
 }
 
-func updateWorksSucceededCondition(rr *unstructured.Unstructured, failed, pending, _, misplaced []string) bool {
+func (r *DynamicResourceRequestController) updateWorksSucceededCondition(rr *unstructured.Unstructured, failed, pending, _, misplaced []string) bool {
 	cond := resourceutil.GetCondition(rr, resourceutil.WorksSucceededCondition)
-
 	if len(failed) > 0 {
 		if cond == nil || cond.Status == v1.ConditionTrue {
 			resourceutil.MarkResourceRequestAsWorksFailed(rr, failed)
+			r.EventRecorder.Event(rr, v1.EventTypeWarning, "WorksFailing",
+				fmt.Sprintf("Some works associated with this resource failed: [%s]", strings.Join(failed, ",")))
 			return true
 		}
 		return false
@@ -258,12 +262,16 @@ func updateWorksSucceededCondition(rr *unstructured.Unstructured, failed, pendin
 	if len(misplaced) > 0 {
 		if cond == nil || cond.Status != v1.ConditionFalse || cond.Reason != "WorksMisplaced" {
 			resourceutil.MarkResourceRequestAsWorksMisplaced(rr, misplaced)
+			r.EventRecorder.Event(rr, v1.EventTypeWarning, "WorksMisplaced",
+				fmt.Sprintf("Some works associated with this resource are misplaced: [%s]", strings.Join(failed, ",")))
 			return true
 		}
 		return false
 	}
 	if cond == nil || cond.Status != v1.ConditionTrue {
 		resourceutil.MarkResourceRequestAsWorksSucceeded(rr)
+		r.EventRecorder.Event(rr, v1.EventTypeNormal, "WorksSucceeded",
+			"All works associated with this resource are ready")
 		return true
 	}
 	return false
