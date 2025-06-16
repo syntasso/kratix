@@ -579,13 +579,20 @@ var _ = Describe("PromiseController", func() {
 						Expect(err).NotTo(HaveOccurred())
 					})
 
-					By("finishing the creation once the job is finished", func() {
+					By("finishing the creation once the job is finished and publishes event", func() {
 						setReconcileConfigureWorkflowToReturnFinished()
 						markPromiseWorkflowAsCompleted(fakeK8sClient, promise)
 						result, err = t.reconcileUntilCompletion(reconciler, promise)
 
 						Expect(err).NotTo(HaveOccurred())
 						Expect(result).To(Equal(ctrl.Result{RequeueAfter: reconciler.ReconciliationInterval}))
+
+						Expect(eventRecorder.Events).To(Receive(ContainSubstring(
+							"Normal Available Promise is available",
+						)))
+						Expect(eventRecorder.Events).To(Receive(ContainSubstring(
+							"Normal ConfigureWorkflowCompleted All workflows completed",
+						)))
 					})
 
 					By("not creating a Work for the empty static dependencies", func() {
