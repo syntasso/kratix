@@ -145,6 +145,44 @@ var _ = Describe("NewGitWriter", func() {
 			Expect(publicKey).NotTo(BeNil())
 		})
 	})
+
+	Describe("ValidatePermissions", func() {
+		var (
+			gitWriter *writers.GitWriter
+			creds     map[string][]byte
+		)
+
+		BeforeEach(func() {
+			creds = map[string][]byte{
+				"username": []byte("user1"),
+				"password": []byte("pw1"),
+			}
+
+			var err error
+			writer, err := writers.NewGitWriter(logger, stateStoreSpec, dest.Spec.Path, creds)
+			Expect(err).NotTo(HaveOccurred())
+			var ok bool
+			gitWriter, ok = writer.(*writers.GitWriter)
+			Expect(ok).To(BeTrue())
+		})
+
+		It("returns an error when authentication fails", func() {
+			// Set invalid credentials
+			gitWriter.GitServer.Auth = &http.BasicAuth{
+				Username: "invalid",
+				Password: "invalid",
+			}
+
+			err := gitWriter.ValidatePermissions()
+			Expect(err).To(HaveOccurred())
+			Expect(err.Error()).To(Or(
+				ContainSubstring("failed to set up local directory with repo"),
+				ContainSubstring("authentication"),
+				ContainSubstring("permission"),
+				ContainSubstring("authorization"),
+			))
+		})
+	})
 })
 
 func generateSSHCreds(key *rsa.PrivateKey) map[string][]byte {

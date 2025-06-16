@@ -38,6 +38,16 @@ type FakeStateStoreWriter struct {
 		result1 string
 		result2 error
 	}
+	ValidatePermissionsStub        func() error
+	validatePermissionsMutex       sync.RWMutex
+	validatePermissionsArgsForCall []struct {
+	}
+	validatePermissionsReturns struct {
+		result1 error
+	}
+	validatePermissionsReturnsOnCall map[int]struct {
+		result1 error
+	}
 	invocations      map[string][][]interface{}
 	invocationsMutex sync.RWMutex
 }
@@ -183,6 +193,59 @@ func (fake *FakeStateStoreWriter) UpdateFilesReturnsOnCall(i int, result1 string
 	}{result1, result2}
 }
 
+func (fake *FakeStateStoreWriter) ValidatePermissions() error {
+	fake.validatePermissionsMutex.Lock()
+	ret, specificReturn := fake.validatePermissionsReturnsOnCall[len(fake.validatePermissionsArgsForCall)]
+	fake.validatePermissionsArgsForCall = append(fake.validatePermissionsArgsForCall, struct {
+	}{})
+	stub := fake.ValidatePermissionsStub
+	fakeReturns := fake.validatePermissionsReturns
+	fake.recordInvocation("ValidatePermissions", []interface{}{})
+	fake.validatePermissionsMutex.Unlock()
+	if stub != nil {
+		return stub()
+	}
+	if specificReturn {
+		return ret.result1
+	}
+	return fakeReturns.result1
+}
+
+func (fake *FakeStateStoreWriter) ValidatePermissionsCallCount() int {
+	fake.validatePermissionsMutex.RLock()
+	defer fake.validatePermissionsMutex.RUnlock()
+	return len(fake.validatePermissionsArgsForCall)
+}
+
+func (fake *FakeStateStoreWriter) ValidatePermissionsCalls(stub func() error) {
+	fake.validatePermissionsMutex.Lock()
+	defer fake.validatePermissionsMutex.Unlock()
+	fake.ValidatePermissionsStub = stub
+}
+
+func (fake *FakeStateStoreWriter) ValidatePermissionsReturns(result1 error) {
+	fake.validatePermissionsMutex.Lock()
+	defer fake.validatePermissionsMutex.Unlock()
+	fake.ValidatePermissionsStub = nil
+	fake.validatePermissionsReturns = struct {
+		result1 error
+	}{result1}
+}
+
+func (fake *FakeStateStoreWriter) ValidatePermissionsReturnsOnCall(i int, result1 error) {
+	fake.validatePermissionsMutex.Lock()
+	defer fake.validatePermissionsMutex.Unlock()
+	fake.ValidatePermissionsStub = nil
+	if fake.validatePermissionsReturnsOnCall == nil {
+		fake.validatePermissionsReturnsOnCall = make(map[int]struct {
+			result1 error
+		})
+	}
+	fake.validatePermissionsReturnsOnCall[i] = struct {
+		result1 error
+	}{result1}
+}
+
 func (fake *FakeStateStoreWriter) Invocations() map[string][][]interface{} {
 	fake.invocationsMutex.RLock()
 	defer fake.invocationsMutex.RUnlock()
@@ -190,6 +253,8 @@ func (fake *FakeStateStoreWriter) Invocations() map[string][][]interface{} {
 	defer fake.readFileMutex.RUnlock()
 	fake.updateFilesMutex.RLock()
 	defer fake.updateFilesMutex.RUnlock()
+	fake.validatePermissionsMutex.RLock()
+	defer fake.validatePermissionsMutex.RUnlock()
 	copiedInvocations := map[string][][]interface{}{}
 	for key, value := range fake.invocations {
 		copiedInvocations[key] = value
