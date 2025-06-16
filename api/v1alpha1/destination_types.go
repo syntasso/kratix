@@ -82,7 +82,7 @@ type InitWorkloads struct {
 }
 
 const (
-	// if modifying these dont forget to edit below where they are written as a
+	// if modifying these don't forget to edit below where they are written as a
 	// kubebuilder comment for setting the default and Enum values.
 	FilepathModeNone             = "none"
 	FilepathModeNestedByMetadata = "nestedByMetadata"
@@ -96,7 +96,7 @@ type Filepath struct {
 	// +kubebuilder:validation:XValidation:rule="self == oldSelf",message="filepath.mode is immutable"
 	// filepath.mode can be set to either:
 	// - nestedByMetadata (default): files from the pipeline will be placed in a nested directory structure
-	// - aggregatedYAML: all files from all pipeliens will be aggregated into a single YAML file
+	// - aggregatedYAML: all files from all pipelines will be aggregated into a single YAML file
 	// - none: file from the pipeline will be placed in a flat directory structure
 	// filepath.mode is immutable
 	Mode string `json:"mode,omitempty"`
