@@ -190,14 +190,13 @@ func generateSSHCreds(key *rsa.PrivateKey) map[string][]byte {
 		Type:  "RSA PRIVATE KEY",
 		Bytes: x509.MarshalPKCS1PrivateKey(key),
 	}
-
-	var keyBuf bytes.Buffer
-	if err := pem.Encode(&keyBuf, &privateKeyPEM); err != nil {
-		log.Fatal(err)
+	var b bytes.Buffer
+	if err := pem.Encode(&b, &privateKeyPEM); err != nil {
+		log.Fatalf("Failed to write private key to buffer: %v", err)
 	}
 
 	return map[string][]byte{
-		"sshPrivateKey": keyBuf.Bytes(),
+		"sshPrivateKey": b.Bytes(),
 		"knownHosts":    []byte("github.com ssh-ed25519 AAAAC3NzaC1lZDI1NTE5AAAAIOMqqnkVzrm0SdG6UOoqKLsabgH5C9okWi0dh2l9GKJl"),
 	}
 }
