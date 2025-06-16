@@ -362,8 +362,8 @@ func (r *PromiseReconciler) updateWorksSucceededCondition(
 	if len(failed) > 0 {
 		if cond == nil || cond.Status == "True" {
 			updateConditionOnPromise(promise, promiseWorksSucceededFailedCondition(metav1.Time{Time: time.Now()}, failed))
-			r.EventRecorder.Event(promise, v1.EventTypeWarning, "WorksFailing",
-				fmt.Sprintf("Some works associated with this promise failed: [%s]", strings.Join(failed, ",")))
+			r.EventRecorder.Eventf(promise, v1.EventTypeWarning, "WorksFailing",
+				"Some works associated with this promise has failed: [%s]", strings.Join(failed, ","))
 			return true
 		}
 		return false
@@ -378,8 +378,8 @@ func (r *PromiseReconciler) updateWorksSucceededCondition(
 	if len(misplaced) > 0 {
 		if cond == nil || cond.Status != "False" || cond.Reason != "WorksMisplaced" {
 			updateConditionOnPromise(promise, promiseWorksSucceededMisplacedCondition(metav1.Time{Time: time.Now()}, misplaced))
-			r.EventRecorder.Event(promise, v1.EventTypeWarning, "WorksMisplaced",
-				fmt.Sprintf("Some works associated with this promise are misplaced: [%s]", strings.Join(misplaced, ",")))
+			r.EventRecorder.Eventf(promise, v1.EventTypeWarning, "WorksMisplaced",
+				"Some works associated with this promise are misplaced: [%s]", strings.Join(misplaced, ","))
 			return true
 		}
 		return false

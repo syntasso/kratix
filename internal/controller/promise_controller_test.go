@@ -668,10 +668,21 @@ var _ = Describe("PromiseController", func() {
 		Describe("Conditions", func() {
 			var work *v1alpha1.Work
 			BeforeEach(func() {
+				promise = createPromise(promisePath)
+				promiseResourcesName = types.NamespacedName{
+					Name:      promise.GetName(),
+					Namespace: promise.GetNamespace(),
+				}
+				setReconcileConfigureWorkflowToReturnFinished()
+				_, err := t.reconcileUntilCompletion(reconciler, promise, &opts{
+					funcs: []func(client.Object) error{autoMarkCRDAsEstablished},
+				})
+				Expect(err).ToNot(HaveOccurred())
+
 				work = &v1alpha1.Work{
 					ObjectMeta: metav1.ObjectMeta{
-						Name:      "test",
-						Namespace: promise.GetNamespace(),
+						Name:      "test-work",
+						Namespace: "kratix-plastform-system",
 						Labels: map[string]string{
 							"kratix.io/promise-name": "redis",
 							"kratix.io/work-type":    "promise",
@@ -680,22 +691,11 @@ var _ = Describe("PromiseController", func() {
 					Spec: v1alpha1.WorkSpec{},
 				}
 			})
+
 			Context("WorksSucceeded", func() {
-				When("works are Failing", func() {
+				When("works are failing", func() {
 					It("sets the condition to False", func() {
 						createAndUpdateWork(work, metav1.ConditionFalse, "Failing")
-
-						promise = createPromise(promisePath)
-						promiseResourcesName = types.NamespacedName{
-							Name:      promise.GetName(),
-							Namespace: promise.GetNamespace(),
-						}
-						setReconcileConfigureWorkflowToReturnFinished()
-
-						_, err := t.reconcileUntilCompletion(reconciler, promise, &opts{
-							funcs: []func(client.Object) error{autoMarkCRDAsEstablished},
-						})
-						Expect(err).ToNot(HaveOccurred())
 
 						result, err := t.reconcileUntilCompletion(reconciler, promise)
 						Expect(err).NotTo(HaveOccurred())
@@ -707,21 +707,10 @@ var _ = Describe("PromiseController", func() {
 						Expect(condition).NotTo(BeNil())
 						Expect(string(condition.Status)).To(Equal("False"))
 						Expect(condition.Reason).To(Equal("WorksFailing"))
-						Expect(condition.Message).To(ContainSubstring("Some works associated with this promise are not ready: [test]"))
+						Expect(condition.Message).To(ContainSubstring("Some works associated with this promise are not ready: [test-work]"))
 
-						Eventually(eventRecorder.Events).Should(
-							Receive(
-								ContainSubstring(
-									"Normal Available Promise is available",
-								),
-							))
-
-						Eventually(eventRecorder.Events).Should(
-							Receive(
-								ContainSubstring(
-									"Warning",
-								),
-							))
+						Expect(aggregateEvents(eventRecorder.Events)).To(
+							ContainSubstring("Warning WorksFailing Some works associated with this promise has failed: [test-work]"))
 					})
 				})
 
@@ -729,19 +718,7 @@ var _ = Describe("PromiseController", func() {
 					It("sets the condition to Unknown", func() {
 						createAndUpdateWork(work, metav1.ConditionFalse, "Pending")
 
-						promise = createPromise(promisePath)
-						promiseResourcesName = types.NamespacedName{
-							Name:      promise.GetName(),
-							Namespace: promise.GetNamespace(),
-						}
-						setReconcileConfigureWorkflowToReturnFinished()
-
-						result, err := t.reconcileUntilCompletion(reconciler, promise, &opts{
-							funcs: []func(client.Object) error{autoMarkCRDAsEstablished},
-						})
-						Expect(err).ToNot(HaveOccurred())
-
-						result, err = t.reconcileUntilCompletion(reconciler, promise)
+						result, err := t.reconcileUntilCompletion(reconciler, promise)
 						Expect(err).NotTo(HaveOccurred())
 						Expect(result).To(Equal(ctrl.Result{RequeueAfter: controller.DefaultReconciliationInterval}))
 						Expect(fakeK8sClient.Get(ctx, promiseResourcesName, promise)).To(Succeed())
@@ -751,26 +728,13 @@ var _ = Describe("PromiseController", func() {
 						Expect(condition).NotTo(BeNil())
 						Expect(string(condition.Status)).To(Equal("Unknown"))
 						Expect(condition.Reason).To(Equal("WorksPending"))
-						Expect(condition.Message).To(ContainSubstring("Some works associated with this promise are not ready: [test]"))
+						Expect(condition.Message).To(ContainSubstring("Some works associated with this promise are not ready: [test-work]"))
 					})
 				})
 
 				When("works are misplaced", func() {
 					It("sets the condition to False", func() {
 						createAndUpdateWork(work, metav1.ConditionFalse, "Misplaced")
-
-						promise = createPromise(promisePath)
-						promiseResourcesName = types.NamespacedName{
-							Name:      promise.GetName(),
-							Namespace: promise.GetNamespace(),
-						}
-						setReconcileConfigureWorkflowToReturnFinished()
-
-						_, err := t.reconcileUntilCompletion(reconciler, promise, &opts{
-							funcs: []func(client.Object) error{autoMarkCRDAsEstablished},
-						})
-						Expect(err).ToNot(HaveOccurred())
-
 						result, err := t.reconcileUntilCompletion(reconciler, promise)
 						Expect(err).NotTo(HaveOccurred())
 						Expect(result).To(Equal(ctrl.Result{RequeueAfter: controller.DefaultReconciliationInterval}))
@@ -781,26 +745,18 @@ var _ = Describe("PromiseController", func() {
 						Expect(condition).NotTo(BeNil())
 						Expect(string(condition.Status)).To(Equal("False"))
 						Expect(condition.Reason).To(Equal("WorksMisplaced"))
-						Expect(condition.Message).To(ContainSubstring("Some works associated with this promise are misplaced: [test]"))
+						Expect(condition.Message).To(ContainSubstring("Some works associated with this promise are misplaced: [test-work]"))
+
+						Expect(aggregateEvents(eventRecorder.Events)).To(
+							ContainSubstring("Warning WorksMisplaced Some works associated with this promise are misplaced: [test-work]"))
 					})
 				})
+
 				When("the works are ready", func() {
 					It("sets the condition to True", func() {
 						createAndUpdateWork(work, metav1.ConditionTrue, "Ready")
 
-						promise = createPromise(promisePath)
-						promiseResourcesName = types.NamespacedName{
-							Name:      promise.GetName(),
-							Namespace: promise.GetNamespace(),
-						}
-						setReconcileConfigureWorkflowToReturnFinished()
-
-						result, err := t.reconcileUntilCompletion(reconciler, promise, &opts{
-							funcs: []func(client.Object) error{autoMarkCRDAsEstablished},
-						})
-						Expect(err).ToNot(HaveOccurred())
-
-						result, err = t.reconcileUntilCompletion(reconciler, promise)
+						result, err := t.reconcileUntilCompletion(reconciler, promise)
 						Expect(err).NotTo(HaveOccurred())
 						Expect(result).To(Equal(ctrl.Result{RequeueAfter: controller.DefaultReconciliationInterval}))
 						Expect(fakeK8sClient.Get(ctx, promiseResourcesName, promise)).To(Succeed())
@@ -811,6 +767,9 @@ var _ = Describe("PromiseController", func() {
 						Expect(string(condition.Status)).To(Equal("True"))
 						Expect(condition.Reason).To(Equal("WorksSucceeded"))
 						Expect(condition.Message).To(ContainSubstring("All works associated with this promise are ready"))
+
+						Expect(aggregateEvents(eventRecorder.Events)).To(
+							ContainSubstring("Normal WorksSucceeded All works associated with this promise are ready"))
 					})
 				})
 			})
@@ -1415,7 +1374,7 @@ func markWorkflowAsCompleted(obj *unstructured.Unstructured) {
 
 func markPromiseWorkflowAsCompleted(client client.Client, p *v1alpha1.Promise) {
 	p.Status.Conditions = []metav1.Condition{
-		metav1.Condition{
+		{
 			Type:               string(resourceutil.ConfigureWorkflowCompletedCondition),
 			Status:             metav1.ConditionTrue,
 			Message:            "Pipelines completed",
@@ -1469,12 +1428,12 @@ func installRequiredPromise(name, version, status string) {
 	Expect(fakeK8sClient.Status().Update(ctx, requiredPromise)).To(Succeed())
 }
 
-func createAndUpdateWork(work *v1alpha1.Work, condition metav1.ConditionStatus, message string) {
+func createAndUpdateWork(work *v1alpha1.Work, status metav1.ConditionStatus, message string) {
 	work.Status = v1alpha1.WorkStatus{
 		Conditions: []metav1.Condition{
 			{
 				Type:    "Ready",
-				Status:  metav1.ConditionFalse,
+				Status:  status,
 				Message: message,
 			},
 		},
@@ -1482,4 +1441,24 @@ func createAndUpdateWork(work *v1alpha1.Work, condition metav1.ConditionStatus, 
 
 	Expect(fakeK8sClient.Create(ctx, work)).To(Succeed())
 	Expect(fakeK8sClient.Status().Update(ctx, work)).To(Succeed())
+}
+
+// aggregate events from the event recorder channel
+// increase event limits if we are sending more than 20
+func aggregateEvents(events <-chan string) string {
+	allEvents := []string{}
+	deadline := time.After(1 * time.Second)
+
+	for len(allEvents) < 20 {
+		select {
+		case e := <-events:
+			allEvents = append(allEvents, e)
+		case <-deadline:
+			return strings.Join(allEvents, "\n")
+		default:
+			time.Sleep(50 * time.Millisecond)
+		}
+	}
+
+	return strings.Join(allEvents, "\n")
 }
