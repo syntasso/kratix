@@ -38,3 +38,5 @@ spec:
   requiredPromises:
   - name: kafka
     version: v1.2.0
+  - name: telemetry
+    version: v1.1.0

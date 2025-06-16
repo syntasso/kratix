@@ -264,6 +264,11 @@ var _ = Describe("PromiseController", func() {
 								Version: "v1.2.0",
 								State:   "Requirement not installed",
 							},
+							v1alpha1.RequiredPromiseStatus{
+								Name:    "telemetry",
+								Version: "v1.1.0",
+								State:   "Requirement not installed",
+							},
 						))
 						Expect(promise.Status.Status).To(Equal(v1alpha1.PromiseStatusUnavailable))
 						cond, condErr := getCondition(promise, v1alpha1.PromiseAvailableConditionType)
@@ -277,22 +282,10 @@ var _ = Describe("PromiseController", func() {
 					})
 				})
 
-				When("the promise requirements are not installed at the specified version", func() {
+				When("the a required promise is not installed at the specified version", func() {
 					BeforeEach(func() {
-						requiredPromise := &v1alpha1.Promise{}
-						requiredPromiseName := types.NamespacedName{
-							Name: "kafka",
-						}
-						err := fakeK8sClient.Create(ctx, &v1alpha1.Promise{
-							ObjectMeta: metav1.ObjectMeta{
-								Name: "kafka",
-							},
-						})
-						Expect(err).ToNot(HaveOccurred())
-						Expect(fakeK8sClient.Get(ctx, requiredPromiseName, requiredPromise)).To(Succeed())
-						requiredPromise.Status.Status = "Available"
-						requiredPromise.Status.Version = "v1.0.0"
-						Expect(fakeK8sClient.Status().Update(ctx, requiredPromise)).To(Succeed())
+						installRequiredPromise("kafka", "v1.0.0", "Available")
+						installRequiredPromise("telemetry", "v1.1.0", "Available")
 					})
 
 					It("updates the status to indicate the dependencies are not installed at the specified version", func() {
@@ -319,6 +312,11 @@ var _ = Describe("PromiseController", func() {
 								Version: "v1.2.0",
 								State:   "Requirement not installed at the specified version",
 							},
+							v1alpha1.RequiredPromiseStatus{
+								Name:    "telemetry",
+								Version: "v1.1.0",
+								State:   "Requirement installed",
+							},
 						))
 
 						Expect(promise.Status.Status).To(Equal(v1alpha1.PromiseStatusUnavailable))
@@ -329,22 +327,10 @@ var _ = Describe("PromiseController", func() {
 				})
 
 				When("the promise requirements are installed at the specified version", func() {
-					When("the required promise is not available", func() {
+					When("a required promise is not available", func() {
 						BeforeEach(func() {
-							requiredPromise := &v1alpha1.Promise{}
-							requiredPromiseName := types.NamespacedName{
-								Name: "kafka",
-							}
-							err := fakeK8sClient.Create(ctx, &v1alpha1.Promise{
-								ObjectMeta: metav1.ObjectMeta{
-									Name: "kafka",
-								},
-							})
-							Expect(err).ToNot(HaveOccurred())
-							Expect(fakeK8sClient.Get(ctx, requiredPromiseName, requiredPromise)).To(Succeed())
-							requiredPromise.Status.Status = "Unavailable"
-							requiredPromise.Status.Version = "v1.2.0"
-							Expect(fakeK8sClient.Status().Update(ctx, requiredPromise)).To(Succeed())
+							installRequiredPromise("kafka", "v1.2.0", "Unavailable")
+							installRequiredPromise("telemetry", "v1.1.0", "Available")
 						})
 
 						It("returns false for the RequirementsFulfilled condition", func() {
@@ -366,6 +352,11 @@ var _ = Describe("PromiseController", func() {
 									Version: "v1.2.0",
 									State:   "Requirement not installed at the specified version",
 								},
+								v1alpha1.RequiredPromiseStatus{
+									Name:    "telemetry",
+									Version: "v1.1.0",
+									State:   "Requirement installed",
+								},
 							))
 
 							Expect(promise.Status.Status).To(Equal(v1alpha1.PromiseStatusUnavailable))
@@ -375,22 +366,10 @@ var _ = Describe("PromiseController", func() {
 						})
 					})
 
-					When("the required promise is available", func() {
+					When("the required promises are available", func() {
 						BeforeEach(func() {
-							requiredPromise := &v1alpha1.Promise{}
-							requiredPromiseName := types.NamespacedName{
-								Name: "kafka",
-							}
-							err := fakeK8sClient.Create(ctx, &v1alpha1.Promise{
-								ObjectMeta: metav1.ObjectMeta{
-									Name: "kafka",
-								},
-							})
-							Expect(err).ToNot(HaveOccurred())
-							Expect(fakeK8sClient.Get(ctx, requiredPromiseName, requiredPromise)).To(Succeed())
-							requiredPromise.Status.Status = "Available"
-							requiredPromise.Status.Version = "v1.2.0"
-							Expect(fakeK8sClient.Status().Update(ctx, requiredPromise)).To(Succeed())
+							installRequiredPromise("kafka", "v1.2.0", "Available")
+							installRequiredPromise("telemetry", "v1.1.0", "Available")
 						})
 
 						It("returns true for the RequirementsFulfilled condition", func() {
@@ -413,6 +392,11 @@ var _ = Describe("PromiseController", func() {
 									v1alpha1.RequiredPromiseStatus{
 										Name:    "kafka",
 										Version: "v1.2.0",
+										State:   "Requirement installed",
+									},
+									v1alpha1.RequiredPromiseStatus{
+										Name:    "telemetry",
+										Version: "v1.1.0",
 										State:   "Requirement installed",
 									},
 								))
@@ -440,24 +424,15 @@ var _ = Describe("PromiseController", func() {
 
 				When("the promise requirements are changed after being installed", func() {
 					BeforeEach(func() {
-						// Install the required Promise
-						requiredPromise := &v1alpha1.Promise{}
-						requiredPromiseName := types.NamespacedName{
+						installRequiredPromise("kafka", "v1.2.0", "Available")
+						installRequiredPromise("telemetry", "v1.1.0", "Available")
+						requiredKafkaPromise := &v1alpha1.Promise{}
+						requiredKafkaPromiseName := types.NamespacedName{
 							Name: "kafka",
 						}
-						err := fakeK8sClient.Create(ctx, &v1alpha1.Promise{
-							ObjectMeta: metav1.ObjectMeta{
-								Name: "kafka",
-							},
-						})
-						Expect(err).ToNot(HaveOccurred())
-						Expect(fakeK8sClient.Get(ctx, requiredPromiseName, requiredPromise)).To(Succeed())
-						requiredPromise.Status.Status = "Available"
-						requiredPromise.Status.Version = "v1.2.0"
-						Expect(fakeK8sClient.Status().Update(ctx, requiredPromise)).To(Succeed())
 
 						// Reconcile
-						_, err = t.reconcileUntilCompletion(reconciler, promise, &opts{
+						_, err := t.reconcileUntilCompletion(reconciler, promise, &opts{
 							funcs: []func(client.Object) error{autoMarkCRDAsEstablished},
 						})
 
@@ -469,9 +444,9 @@ var _ = Describe("PromiseController", func() {
 						assertPromiseAvailableCondition(cond)
 
 						// Make the required Promise unavailable
-						Expect(fakeK8sClient.Get(ctx, requiredPromiseName, requiredPromise)).To(Succeed())
-						requiredPromise.Status.Status = "Unavailable"
-						Expect(fakeK8sClient.Status().Update(ctx, requiredPromise)).To(Succeed())
+						Expect(fakeK8sClient.Get(ctx, requiredKafkaPromiseName, requiredKafkaPromise)).To(Succeed())
+						requiredKafkaPromise.Status.Status = "Unavailable"
+						Expect(fakeK8sClient.Status().Update(ctx, requiredKafkaPromise)).To(Succeed())
 
 						// Reconcile
 						_, err = t.reconcileUntilCompletion(reconciler, promise, &opts{
@@ -495,6 +470,11 @@ var _ = Describe("PromiseController", func() {
 								Name:    "kafka",
 								Version: "v1.2.0",
 								State:   "Requirement not installed at the specified version",
+							},
+							v1alpha1.RequiredPromiseStatus{
+								Name:    "telemetry",
+								Version: "v1.1.0",
+								State:   "Requirement installed",
 							},
 						))
 
@@ -1296,4 +1276,22 @@ func assertPromiseUnavailableCondition(cond *metav1.Condition) {
 	ExpectWithOffset(1, cond.Message).To(Equal("Cannot fulfil resource requests"))
 	ExpectWithOffset(1, cond.Reason).To(Equal(v1alpha1.PromiseAvailableConditionFalseReason))
 	ExpectWithOffset(1, cond.LastTransitionTime).ToNot(BeNil())
+}
+
+func installRequiredPromise(name, version, status string) {
+	requiredPromise := &v1alpha1.Promise{}
+	requiredPromiseName := types.NamespacedName{
+		Name: name,
+	}
+	err := fakeK8sClient.Create(ctx, &v1alpha1.Promise{
+		ObjectMeta: metav1.ObjectMeta{
+			Name: name,
+		},
+	})
+
+	Expect(err).ToNot(HaveOccurred())
+	Expect(fakeK8sClient.Get(ctx, requiredPromiseName, requiredPromise)).To(Succeed())
+	requiredPromise.Status.Status = status
+	requiredPromise.Status.Version = version
+	Expect(fakeK8sClient.Status().Update(ctx, requiredPromise)).To(Succeed())
 }
