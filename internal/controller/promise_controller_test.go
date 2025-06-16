@@ -274,6 +274,10 @@ var _ = Describe("PromiseController", func() {
 						cond, condErr := getCondition(promise, v1alpha1.PromiseAvailableConditionType)
 						Expect(condErr).NotTo(HaveOccurred())
 						assertPromiseUnavailableCondition(cond)
+
+						Eventually(eventRecorder.Events).Should(Receive(ContainSubstring(
+							"Normal RequirementsNotInstalled Required Promise kafka not installed or unknown state",
+						)))
 					})
 
 					It("prevents RRs being reconciled", func() {
@@ -323,6 +327,10 @@ var _ = Describe("PromiseController", func() {
 						cond, condErr := getCondition(promise, v1alpha1.PromiseAvailableConditionType)
 						Expect(condErr).NotTo(HaveOccurred())
 						assertPromiseUnavailableCondition(cond)
+
+						Eventually(eventRecorder.Events).Should(Receive(ContainSubstring(
+							"Normal RequirementsNotInstalled Waiting for required Promise kafka: Requirement not installed at the specified version",
+						)))
 					})
 				})
 
@@ -350,7 +358,7 @@ var _ = Describe("PromiseController", func() {
 								v1alpha1.RequiredPromiseStatus{
 									Name:    "kafka",
 									Version: "v1.2.0",
-									State:   "Requirement not installed at the specified version",
+									State:   "Requirement not available",
 								},
 								v1alpha1.RequiredPromiseStatus{
 									Name:    "telemetry",
@@ -363,6 +371,10 @@ var _ = Describe("PromiseController", func() {
 							cond, condErr := getCondition(promise, v1alpha1.PromiseAvailableConditionType)
 							Expect(condErr).NotTo(HaveOccurred())
 							assertPromiseUnavailableCondition(cond)
+
+							Eventually(eventRecorder.Events).Should(Receive(ContainSubstring(
+								"Normal RequirementsNotAvailable Waiting for required Promise kafka: Requirement not available",
+							)))
 						})
 					})
 
@@ -381,7 +393,7 @@ var _ = Describe("PromiseController", func() {
 							Expect(fakeK8sClient.Get(ctx, promiseName, promise)).To(Succeed())
 
 							By("updating the status to indicate the requirements are fulfilled", func() {
-								Expect(promise.Status.Conditions).To(HaveLen(2))
+								Expect(promise.Status.Conditions).To(HaveLen(3))
 
 								requirementsCond, condErr := getCondition(promise, "RequirementsFulfilled")
 								Expect(condErr).NotTo(HaveOccurred())
@@ -410,6 +422,9 @@ var _ = Describe("PromiseController", func() {
 							})
 
 							By("firing an event to indicate the promise is available", func() {
+								Eventually(eventRecorder.Events).Should(Receive(ContainSubstring(
+									"Normal RequirementsFulfilled All required promises are available",
+								)))
 								Eventually(eventRecorder.Events).Should(Receive(ContainSubstring(
 									"Normal Available Promise is available")))
 							})
@@ -458,7 +473,7 @@ var _ = Describe("PromiseController", func() {
 					})
 
 					It("updates the status to indicate the requirements are no longer fulfilled", func() {
-						Expect(promise.Status.Conditions).To(HaveLen(2))
+						Expect(promise.Status.Conditions).To(HaveLen(3))
 
 						requirementsCond, condErr := getCondition(promise, "RequirementsFulfilled")
 						Expect(condErr).NotTo(HaveOccurred())
@@ -469,7 +484,7 @@ var _ = Describe("PromiseController", func() {
 							v1alpha1.RequiredPromiseStatus{
 								Name:    "kafka",
 								Version: "v1.2.0",
-								State:   "Requirement not installed at the specified version",
+								State:   "Requirement not available",
 							},
 							v1alpha1.RequiredPromiseStatus{
 								Name:    "telemetry",
@@ -587,10 +602,10 @@ var _ = Describe("PromiseController", func() {
 						Expect(err).NotTo(HaveOccurred())
 						Expect(result).To(Equal(ctrl.Result{RequeueAfter: reconciler.ReconciliationInterval}))
 
-						Expect(eventRecorder.Events).To(Receive(ContainSubstring(
+						Eventually(eventRecorder.Events).Should(Receive(ContainSubstring(
 							"Normal Available Promise is available",
 						)))
-						Expect(eventRecorder.Events).To(Receive(ContainSubstring(
+						Eventually(eventRecorder.Events).Should(Receive(ContainSubstring(
 							"Normal ConfigureWorkflowCompleted All workflows completed",
 						)))
 					})
@@ -646,6 +661,157 @@ var _ = Describe("PromiseController", func() {
 							Source: "promise",
 						},
 					))
+				})
+			})
+		})
+
+		Describe("Conditions", func() {
+			var work *v1alpha1.Work
+			BeforeEach(func() {
+				work = &v1alpha1.Work{
+					ObjectMeta: metav1.ObjectMeta{
+						Name:      "test",
+						Namespace: promise.GetNamespace(),
+						Labels: map[string]string{
+							"kratix.io/promise-name": "redis",
+							"kratix.io/work-type":    "promise",
+						},
+					},
+					Spec: v1alpha1.WorkSpec{},
+				}
+			})
+			Context("WorksSucceeded", func() {
+				When("works are Failing", func() {
+					It("sets the condition to False", func() {
+						createAndUpdateWork(work, metav1.ConditionFalse, "Failing")
+
+						promise = createPromise(promisePath)
+						promiseResourcesName = types.NamespacedName{
+							Name:      promise.GetName(),
+							Namespace: promise.GetNamespace(),
+						}
+						setReconcileConfigureWorkflowToReturnFinished()
+
+						_, err := t.reconcileUntilCompletion(reconciler, promise, &opts{
+							funcs: []func(client.Object) error{autoMarkCRDAsEstablished},
+						})
+						Expect(err).ToNot(HaveOccurred())
+
+						result, err := t.reconcileUntilCompletion(reconciler, promise)
+						Expect(err).NotTo(HaveOccurred())
+						Expect(result).To(Equal(ctrl.Result{RequeueAfter: controller.DefaultReconciliationInterval}))
+						Expect(fakeK8sClient.Get(ctx, promiseResourcesName, promise)).To(Succeed())
+
+						condition, err := getCondition(promise, string(resourceutil.WorksSucceededCondition))
+						Expect(err).ToNot(HaveOccurred())
+						Expect(condition).NotTo(BeNil())
+						Expect(string(condition.Status)).To(Equal("False"))
+						Expect(condition.Reason).To(Equal("WorksFailing"))
+						Expect(condition.Message).To(ContainSubstring("Some works associated with this promise are not ready: [test]"))
+
+						Eventually(eventRecorder.Events).Should(
+							Receive(
+								ContainSubstring(
+									"Normal Available Promise is available",
+								),
+							))
+
+						Eventually(eventRecorder.Events).Should(
+							Receive(
+								ContainSubstring(
+									"Warning",
+								),
+							))
+					})
+				})
+
+				When("works are Pending", func() {
+					It("sets the condition to Unknown", func() {
+						createAndUpdateWork(work, metav1.ConditionFalse, "Pending")
+
+						promise = createPromise(promisePath)
+						promiseResourcesName = types.NamespacedName{
+							Name:      promise.GetName(),
+							Namespace: promise.GetNamespace(),
+						}
+						setReconcileConfigureWorkflowToReturnFinished()
+
+						result, err := t.reconcileUntilCompletion(reconciler, promise, &opts{
+							funcs: []func(client.Object) error{autoMarkCRDAsEstablished},
+						})
+						Expect(err).ToNot(HaveOccurred())
+
+						result, err = t.reconcileUntilCompletion(reconciler, promise)
+						Expect(err).NotTo(HaveOccurred())
+						Expect(result).To(Equal(ctrl.Result{RequeueAfter: controller.DefaultReconciliationInterval}))
+						Expect(fakeK8sClient.Get(ctx, promiseResourcesName, promise)).To(Succeed())
+
+						condition, err := getCondition(promise, string(resourceutil.WorksSucceededCondition))
+						Expect(err).ToNot(HaveOccurred())
+						Expect(condition).NotTo(BeNil())
+						Expect(string(condition.Status)).To(Equal("Unknown"))
+						Expect(condition.Reason).To(Equal("WorksPending"))
+						Expect(condition.Message).To(ContainSubstring("Some works associated with this promise are not ready: [test]"))
+					})
+				})
+
+				When("works are misplaced", func() {
+					It("sets the condition to False", func() {
+						createAndUpdateWork(work, metav1.ConditionFalse, "Misplaced")
+
+						promise = createPromise(promisePath)
+						promiseResourcesName = types.NamespacedName{
+							Name:      promise.GetName(),
+							Namespace: promise.GetNamespace(),
+						}
+						setReconcileConfigureWorkflowToReturnFinished()
+
+						_, err := t.reconcileUntilCompletion(reconciler, promise, &opts{
+							funcs: []func(client.Object) error{autoMarkCRDAsEstablished},
+						})
+						Expect(err).ToNot(HaveOccurred())
+
+						result, err := t.reconcileUntilCompletion(reconciler, promise)
+						Expect(err).NotTo(HaveOccurred())
+						Expect(result).To(Equal(ctrl.Result{RequeueAfter: controller.DefaultReconciliationInterval}))
+						Expect(fakeK8sClient.Get(ctx, promiseResourcesName, promise)).To(Succeed())
+
+						condition, err := getCondition(promise, string(resourceutil.WorksSucceededCondition))
+						Expect(err).ToNot(HaveOccurred())
+						Expect(condition).NotTo(BeNil())
+						Expect(string(condition.Status)).To(Equal("False"))
+						Expect(condition.Reason).To(Equal("WorksMisplaced"))
+						Expect(condition.Message).To(ContainSubstring("Some works associated with this promise are misplaced: [test]"))
+					})
+				})
+				When("the works are ready", func() {
+					It("sets the condition to True", func() {
+						createAndUpdateWork(work, metav1.ConditionTrue, "Ready")
+
+						promise = createPromise(promisePath)
+						promiseResourcesName = types.NamespacedName{
+							Name:      promise.GetName(),
+							Namespace: promise.GetNamespace(),
+						}
+						setReconcileConfigureWorkflowToReturnFinished()
+
+						result, err := t.reconcileUntilCompletion(reconciler, promise, &opts{
+							funcs: []func(client.Object) error{autoMarkCRDAsEstablished},
+						})
+						Expect(err).ToNot(HaveOccurred())
+
+						result, err = t.reconcileUntilCompletion(reconciler, promise)
+						Expect(err).NotTo(HaveOccurred())
+						Expect(result).To(Equal(ctrl.Result{RequeueAfter: controller.DefaultReconciliationInterval}))
+						Expect(fakeK8sClient.Get(ctx, promiseResourcesName, promise)).To(Succeed())
+
+						condition, err := getCondition(promise, string(resourceutil.WorksSucceededCondition))
+						Expect(err).ToNot(HaveOccurred())
+						Expect(condition).NotTo(BeNil())
+						Expect(string(condition.Status)).To(Equal("True"))
+						Expect(condition.Reason).To(Equal("WorksSucceeded"))
+						Expect(condition.Message).To(ContainSubstring("All works associated with this promise are ready"))
+					})
 				})
 			})
 		})
@@ -1301,4 +1467,19 @@ func installRequiredPromise(name, version, status string) {
 	requiredPromise.Status.Status = status
 	requiredPromise.Status.Version = version
 	Expect(fakeK8sClient.Status().Update(ctx, requiredPromise)).To(Succeed())
+}
+
+func createAndUpdateWork(work *v1alpha1.Work, condition metav1.ConditionStatus, message string) {
+	work.Status = v1alpha1.WorkStatus{
+		Conditions: []metav1.Condition{
+			{
+				Type:    "Ready",
+				Status:  metav1.ConditionFalse,
+				Message: message,
+			},
+		},
+	}
+
+	Expect(fakeK8sClient.Create(ctx, work)).To(Succeed())
+	Expect(fakeK8sClient.Status().Update(ctx, work)).To(Succeed())
 }
