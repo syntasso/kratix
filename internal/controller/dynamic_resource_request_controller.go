@@ -210,29 +210,29 @@ func (r *DynamicResourceRequestController) updateReconciledCondition(rr *unstruc
 	if workflowCompleted != nil &&
 		workflowCompleted.Status == v1.ConditionFalse && workflowCompleted.Reason == "PipelinesInProgress" {
 		if reconciled == nil || reconciled.Status != v1.ConditionUnknown {
-			resourceutil.MarkResourceRequestAsReconciledPending(rr, "WorkflowPending")
+			resourceutil.MarkReconciledPending(rr, "WorkflowPending")
 			updated = true
 		}
 	} else if workflowCompleted != nil && workflowCompleted.Status == v1.ConditionFalse {
 		if reconciled == nil || reconciled.Status != v1.ConditionFalse ||
 			reconciled.Reason != resourceutil.ConfigureWorkflowCompletedFailedReason {
-			resourceutil.MarkResourceRequestAsReconciledFailing(rr, resourceutil.ConfigureWorkflowCompletedFailedReason)
+			resourceutil.MarkReconciledFailing(rr, resourceutil.ConfigureWorkflowCompletedFailedReason)
 			updated = true
 		}
 	} else if worksSucceeded != nil && worksSucceeded.Status == v1.ConditionUnknown {
 		if reconciled == nil || reconciled.Status != v1.ConditionUnknown {
-			resourceutil.MarkResourceRequestAsReconciledPending(rr, "WorksPending")
+			resourceutil.MarkReconciledPending(rr, "WorksPending")
 			updated = true
 		}
 	} else if worksSucceeded != nil && worksSucceeded.Status == v1.ConditionFalse {
 		if reconciled == nil || reconciled.Status != v1.ConditionFalse {
-			resourceutil.MarkResourceRequestAsReconciledFailing(rr, "WorksFailing")
+			resourceutil.MarkReconciledFailing(rr, "WorksFailing")
 			updated = true
 		}
 	} else if workflowCompleted != nil && worksSucceeded != nil &&
 		workflowCompleted.Status == v1.ConditionTrue && worksSucceeded.Status == v1.ConditionTrue {
 		if reconciled == nil || reconciled.Status != v1.ConditionTrue {
-			resourceutil.MarkResourceRequestAsReconciled(rr)
+			resourceutil.MarkReconciledTrue(rr)
 			updated = true
 			r.EventRecorder.Event(rr, v1.EventTypeNormal, "ReconcileSucceeded",
 				"Successfully reconciled")
