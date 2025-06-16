@@ -33,7 +33,7 @@ type WorkCreator struct {
 
 func (w *WorkCreator) Execute(rootDirectory, promiseName, namespace, resourceName, workflowType, pipelineName string) error {
 	identifier := fmt.Sprintf("%s-%s-%s", promiseName, resourceName, pipelineName)
-	if workflowType != string(v1alpha1.WorkflowTypeResource) {
+	if !strings.HasPrefix(workflowType, string(v1alpha1.WorkflowTypeResource)) {
 		identifier = fmt.Sprintf("%s-%s", promiseName, pipelineName)
 	}
 	if namespace == "" {
