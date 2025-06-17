@@ -40,6 +40,7 @@ import (
 	apiextensionsv1 "k8s.io/apiextensions-apiserver/pkg/apis/apiextensions/v1"
 	apiextensionsv1cs "k8s.io/apiextensions-apiserver/pkg/client/clientset/clientset/typed/apiextensions/v1"
 	"k8s.io/apimachinery/pkg/api/errors"
+	apiMeta "k8s.io/apimachinery/pkg/api/meta"
 	metav1 "k8s.io/apimachinery/pkg/apis/meta/v1"
 	"k8s.io/apimachinery/pkg/apis/meta/v1/unstructured"
 	"k8s.io/apimachinery/pkg/labels"
@@ -85,6 +86,7 @@ const (
 	requirementStateInstalled                      = "Requirement installed"
 	requirementStateNotInstalled                   = "Requirement not installed"
 	requirementStateNotInstalledAtSpecifiedVersion = "Requirement not installed at the specified version"
+	requirementStateNotAvailable                   = "Requirement not available"
 	requirementUnknownInstallationState            = "Requirement state unknown"
 )
 
@@ -135,6 +137,7 @@ func (r *PromiseReconciler) Reconcile(ctx context.Context, req ctrl.Request) (ct
 	}
 
 	originalStatus := promise.Status.Status
+	originalAvailableCondition := promise.GetCondition(v1alpha1.PromiseAvailableConditionType)
 
 	logger := r.Log.WithValues("identifier", promise.GetName())
 
@@ -163,9 +166,13 @@ func (r *PromiseReconciler) Reconcile(ctx context.Context, req ctrl.Request) (ct
 	// Set status to unavailable, at the end of this function we set it to
 	// available. If at any time we return early, it persisted as unavailable
 	promise.Status.Status = v1alpha1.PromiseStatusUnavailable
-	updateConditionOnPromise(promise, promiseUnavailableStatusCondition(metav1.Time{Time: time.Now()}))
+	updateConditionOnPromise(promise, promiseUnavailableStatusCondition())
 	requirementsChanged := r.hasPromiseRequirementsChanged(ctx, promise)
 	if requirementsChanged {
+		if apiMeta.IsStatusConditionFalse(promise.Status.Conditions, "RequirementsFulfilled") {
+			updateConditionOnPromise(promise, promiseReconciledPendingCondition("RequirementsNotFulfilled"))
+		}
+
 		if result, statusUpdateErr := r.updatePromiseStatus(ctx, promise); statusUpdateErr != nil || !result.IsZero() {
 			return result, statusUpdateErr
 		}
@@ -210,7 +217,7 @@ func (r *PromiseReconciler) Reconcile(ctx context.Context, req ctrl.Request) (ct
 			return addFinalizers(opts, promise, []string{crdCleanupFinalizer})
 		}
 
-		if err := r.createResourcesForDynamicControllerIfTheyDontExist(ctx, promise, rrCRD, rrGVK, logger); err != nil {
+		if err = r.createResourcesForDynamicControllerIfTheyDontExist(ctx, promise, rrCRD, rrGVK, logger); err != nil {
 			// TODO add support for updates
 			return ctrl.Result{}, err
 		}
@@ -257,7 +264,6 @@ func (r *PromiseReconciler) Reconcile(ctx context.Context, req ctrl.Request) (ct
 		}
 
 		logger.Info("requirements are fulfilled", "requirementsStatus", promise.Status.RequiredPromises)
-
 		if shouldReconcileResources(promise) {
 			return r.reconcileResources(ctx, logger, promise, rrGVK)
 		}
@@ -268,14 +274,173 @@ func (r *PromiseReconciler) Reconcile(ctx context.Context, req ctrl.Request) (ct
 	if originalStatus != v1alpha1.PromiseStatusAvailable {
 		return r.setPromiseStatusToAvailable(ctx, promise, logger)
 	}
+	promise.Status.Status = originalStatus
+	timeStamp := metav1.Time{Time: time.Now()}
+	if originalAvailableCondition != nil {
+		timeStamp = originalAvailableCondition.LastTransitionTime
+	}
+	updateConditionOnPromise(promise, promiseAvailableStatusCondition(timeStamp))
+
+	statusUpdate, err := r.generateConditions(ctx, promise)
+	if err != nil {
+		return ctrl.Result{}, err
+	}
+
+	if statusUpdate {
+		return ctrl.Result{}, r.Client.Status().Update(ctx, promise)
+	}
 
 	completedCond := promise.GetCondition(string(resourceutil.ConfigureWorkflowCompletedCondition))
 	if !promise.HasPipeline(v1alpha1.WorkflowTypePromise, v1alpha1.WorkflowActionConfigure) ||
 		(completedCond != nil && completedCond.Status == metav1.ConditionTrue) {
+		if completedCond != nil {
+			r.EventRecorder.Eventf(promise, v1.EventTypeNormal, "ConfigureWorkflowCompleted", "All workflows completed")
+		}
 		return r.nextReconciliation(logger)
 	}
 
 	return ctrl.Result{}, nil
+}
+
+func (r *PromiseReconciler) generateConditions(ctx context.Context, promise *v1alpha1.Promise) (bool, error) {
+	failed, misplaced, pending, ready, err := r.getWorksStatus(ctx, promise)
+	if err != nil {
+		return false, err
+	}
+	worksSucceededUpdate := r.updateWorksSucceededCondition(promise, failed, pending, ready, misplaced)
+	reconciledUpdate := r.updateReconciledCondition(promise)
+
+	return worksSucceededUpdate || reconciledUpdate, nil
+}
+
+func (r *PromiseReconciler) updateReconciledCondition(promise *v1alpha1.Promise) bool {
+	worksSucceeded := promise.GetCondition(string(resourceutil.WorksSucceededCondition))
+	workflowCompleted := promise.GetCondition(string(resourceutil.ConfigureWorkflowCompletedCondition))
+	reconciled := promise.GetCondition(string(resourceutil.ReconciledCondition))
+
+	var updated bool
+	if workflowCompleted != nil &&
+		workflowCompleted.Status == "False" && workflowCompleted.Reason == "PipelinesInProgress" {
+		if reconciled == nil || reconciled.Status != "Unknown" {
+			updateConditionOnPromise(promise, promiseReconciledPendingCondition("WorkflowPending"))
+			updated = true
+		}
+	} else if workflowCompleted != nil && workflowCompleted.Status == metav1.ConditionFalse {
+		if reconciled == nil || reconciled.Status != metav1.ConditionFalse ||
+			reconciled.Reason != resourceutil.ConfigureWorkflowCompletedFailedReason {
+			updateConditionOnPromise(promise, promiseReconciledFailingCondition(resourceutil.ConfigureWorkflowCompletedFailedReason))
+			updated = true
+		}
+	} else if worksSucceeded != nil && worksSucceeded.Status == "Unknown" {
+		if reconciled == nil || reconciled.Status != "Unknown" {
+			updateConditionOnPromise(promise, promiseReconciledPendingCondition("WorksPending"))
+			updated = true
+		}
+	} else if worksSucceeded != nil && worksSucceeded.Status == metav1.ConditionFalse {
+		if reconciled == nil || reconciled.Status != metav1.ConditionFalse {
+			updateConditionOnPromise(promise, promiseReconciledFailingCondition("WorksFailing"))
+			updated = true
+		}
+	} else if workflowCompleted != nil && worksSucceeded != nil &&
+		workflowCompleted.Status == "True" && worksSucceeded.Status == "True" {
+
+		if reconciled == nil || reconciled.Status != "True" {
+			updateConditionOnPromise(promise, promiseReconciledCondition())
+			updated = true
+			r.EventRecorder.Event(promise, v1.EventTypeNormal, "ReconcileSucceeded",
+				"Successfully reconciled")
+		}
+	}
+	return updated
+}
+
+func (r *PromiseReconciler) getWorksStatus(ctx context.Context,
+	promise *v1alpha1.Promise) ([]string,
+	[]string,
+	[]string,
+	[]string,
+	error,
+) {
+	workSelectorLabel := labels.FormatLabels(
+		resourceutil.GetWorkLabels(promise.GetName(),
+			"",
+			"",
+			v1alpha1.WorkTypePromise),
+	)
+	selector, err := labels.Parse(workSelectorLabel)
+	if err != nil {
+		r.Log.Info("Failed parsing Works selector label", "labels", workSelectorLabel)
+		return nil, nil, nil, nil, err
+	}
+
+	var works v1alpha1.WorkList
+	err = r.Client.List(ctx, &works, &client.ListOptions{
+		Namespace:     promise.GetNamespace(),
+		LabelSelector: selector,
+	})
+
+	if err != nil {
+		r.Log.Info("Failed listing works", "namespace", promise.GetNamespace(), "label selector", workSelectorLabel)
+		return nil, nil, nil, nil, err
+	}
+
+	var failed, misplaced, ready, pending []string
+	for _, work := range works.Items {
+		readyCond := apiMeta.FindStatusCondition(work.Status.Conditions, "Ready")
+		switch readyCond.Message {
+		case "Failing":
+			failed = append(failed, work.Name)
+		case "Misplaced":
+			misplaced = append(misplaced, work.Name)
+		case "Pending":
+			pending = append(pending, work.Name)
+		case "Ready":
+			ready = append(ready, work.Name)
+		}
+	}
+	return failed, misplaced, pending, ready, nil
+}
+
+func (r *PromiseReconciler) updateWorksSucceededCondition(
+	promise *v1alpha1.Promise,
+	failed,
+	pending,
+	_,
+	misplaced []string,
+) bool {
+	cond := promise.GetCondition(string(resourceutil.WorksSucceededCondition))
+	if len(failed) > 0 {
+		if cond == nil || cond.Status == "True" {
+			updateConditionOnPromise(promise, promiseWorksSucceededFailedCondition(failed))
+			r.EventRecorder.Eventf(promise, v1.EventTypeWarning, "WorksFailing",
+				"Some works associated with this promise has failed: [%s]", strings.Join(failed, ","))
+			return true
+		}
+		return false
+	}
+	if len(pending) > 0 {
+		if cond == nil || cond.Status != "Unknown" {
+			updateConditionOnPromise(promise, promiseWorksSucceededUnknownCondition(pending))
+			return true
+		}
+		return false
+	}
+	if len(misplaced) > 0 {
+		if cond == nil || cond.Status != "False" || cond.Reason != "WorksMisplaced" {
+			updateConditionOnPromise(promise, promiseWorksSucceededMisplacedCondition(misplaced))
+			r.EventRecorder.Eventf(promise, v1.EventTypeWarning, "WorksMisplaced",
+				"Some works associated with this promise are misplaced: [%s]", strings.Join(misplaced, ","))
+			return true
+		}
+		return false
+	}
+	if cond == nil || cond.Status != "True" {
+		updateConditionOnPromise(promise, promiseWorksSucceededStatusCondition())
+		r.EventRecorder.Event(promise, v1.EventTypeNormal, "WorksSucceeded",
+			"All works associated with this promise are ready")
+		return true
+	}
+	return false
 }
 
 func (r *PromiseReconciler) reconcileResources(ctx context.Context, logger logr.Logger, promise *v1alpha1.Promise,
@@ -301,17 +466,6 @@ func (r *PromiseReconciler) nextReconciliation(logger logr.Logger) (ctrl.Result,
 	return ctrl.Result{RequeueAfter: r.ReconciliationInterval}, nil
 }
 
-func (r *PromiseReconciler) setPromiseStatusToAvailable(ctx context.Context, promise *v1alpha1.Promise, logger logr.Logger) (ctrl.Result, error) {
-	logger.Info("Promise status being set to Available")
-	promise.Status.Status = v1alpha1.PromiseStatusAvailable
-	timestamp := metav1.Time{Time: time.Now()}
-	promise.Status.LastAvailableTime = &timestamp
-	updateConditionOnPromise(promise, promiseAvailableStatusCondition(timestamp))
-
-	r.EventRecorder.Eventf(promise, "Normal", "Available", "Promise is available")
-	return r.updatePromiseStatus(ctx, promise)
-}
-
 func promiseAvailableStatusCondition(lastTransitionTime metav1.Time) metav1.Condition {
 	return metav1.Condition{
 		Type:               v1alpha1.PromiseAvailableConditionType,
@@ -322,13 +476,83 @@ func promiseAvailableStatusCondition(lastTransitionTime metav1.Time) metav1.Cond
 	}
 }
 
-func promiseUnavailableStatusCondition(lastTransitionTime metav1.Time) metav1.Condition {
+func promiseUnavailableStatusCondition() metav1.Condition {
 	return metav1.Condition{
 		Type:               v1alpha1.PromiseAvailableConditionType,
-		LastTransitionTime: lastTransitionTime,
+		LastTransitionTime: metav1.Time{Time: time.Now()},
 		Status:             metav1.ConditionFalse,
 		Message:            "Cannot fulfil resource requests",
 		Reason:             v1alpha1.PromiseAvailableConditionFalseReason,
+	}
+}
+
+func promiseWorksSucceededStatusCondition() metav1.Condition {
+	return metav1.Condition{
+		Type:               v1alpha1.PromiseWorksSucceededCondition,
+		LastTransitionTime: metav1.Time{Time: time.Now()},
+		Status:             metav1.ConditionTrue,
+		Message:            "All works associated with this promise are ready",
+		Reason:             "WorksSucceeded",
+	}
+}
+
+func promiseWorksSucceededUnknownCondition(pendingWorks []string) metav1.Condition {
+	return metav1.Condition{
+		Type:               v1alpha1.PromiseWorksSucceededCondition,
+		LastTransitionTime: metav1.Time{Time: time.Now()},
+		Status:             metav1.ConditionUnknown,
+		Message:            fmt.Sprintf("Some works associated with this promise are not ready: %s", pendingWorks),
+		Reason:             "WorksPending",
+	}
+}
+
+func promiseWorksSucceededFailedCondition(failedWorks []string) metav1.Condition {
+	return metav1.Condition{
+		Type:               v1alpha1.PromiseWorksSucceededCondition,
+		LastTransitionTime: metav1.Time{Time: time.Now()},
+		Status:             metav1.ConditionFalse,
+		Message:            fmt.Sprintf("Some works associated with this promise are not ready: %s", failedWorks),
+		Reason:             "WorksFailing",
+	}
+}
+
+func promiseWorksSucceededMisplacedCondition(misplacedWorks []string) metav1.Condition {
+	return metav1.Condition{
+		Type:               v1alpha1.PromiseWorksSucceededCondition,
+		LastTransitionTime: metav1.Time{Time: time.Now()},
+		Status:             metav1.ConditionFalse,
+		Message:            fmt.Sprintf("Some works associated with this promise are misplaced: %s", misplacedWorks),
+		Reason:             "WorksMisplaced",
+	}
+}
+
+func promiseReconciledFailingCondition(reason string) metav1.Condition {
+	return metav1.Condition{
+		Type:               v1alpha1.PromiseReconciledCondition,
+		LastTransitionTime: metav1.Time{Time: time.Now()},
+		Status:             metav1.ConditionFalse,
+		Message:            "Failing",
+		Reason:             reason,
+	}
+}
+
+func promiseReconciledPendingCondition(reason string) metav1.Condition {
+	return metav1.Condition{
+		Type:               v1alpha1.PromiseReconciledCondition,
+		LastTransitionTime: metav1.Time{Time: time.Now()},
+		Status:             metav1.ConditionUnknown,
+		Message:            "Pending",
+		Reason:             reason,
+	}
+}
+
+func promiseReconciledCondition() metav1.Condition {
+	return metav1.Condition{
+		Type:               v1alpha1.PromiseReconciledCondition,
+		LastTransitionTime: metav1.Time{Time: time.Now()},
+		Status:             metav1.ConditionTrue,
+		Message:            "Reconciled",
+		Reason:             "Reconciled",
 	}
 }
 
@@ -384,53 +608,74 @@ func updateRequirementsStatusOnPromise(promise *v1alpha1.Promise, oldReqs, newRe
 }
 
 func (r *PromiseReconciler) generateStatusAndMarkRequirements(ctx context.Context, promise *v1alpha1.Promise) (metav1.Condition, []v1alpha1.RequiredPromiseStatus) {
-	promiseCondition := metav1.Condition{
+	condition := metav1.Condition{
 		Type:               "RequirementsFulfilled",
-		LastTransitionTime: metav1.NewTime(time.Now()),
 		Status:             metav1.ConditionTrue,
-		Message:            "Requirements fulfilled",
 		Reason:             "RequirementsInstalled",
+		Message:            "Requirements fulfilled",
+		LastTransitionTime: metav1.NewTime(time.Now()),
 	}
 
-	requirements := []v1alpha1.RequiredPromiseStatus{}
+	var requirements []v1alpha1.RequiredPromiseStatus
+	for _, req := range promise.Spec.RequiredPromises {
+		requirements = append(requirements, r.evaluateRequirement(ctx, promise, req, &condition))
+	}
 
-	for _, requirement := range promise.Spec.RequiredPromises {
-		requirementState := requirementStateInstalled
-		requiredPromise := &v1alpha1.Promise{}
-		err := r.Client.Get(ctx, types.NamespacedName{Name: requirement.Name}, requiredPromise)
-		if err != nil {
-			promiseCondition.Reason = "RequirementsNotInstalled"
-			if errors.IsNotFound(err) && promiseCondition.Status != metav1.ConditionUnknown {
-				requirementState = requirementStateNotInstalled
-				promiseCondition.Status = metav1.ConditionFalse
-				promiseCondition.Message = "Requirements not fulfilled"
-			} else {
-				requirementState = requirementUnknownInstallationState
-				promiseCondition.Status = metav1.ConditionUnknown
-				promiseCondition.Message = "Unable to determine if requirements are fulfilled"
-			}
+	if condition.Status == metav1.ConditionTrue && len(promise.Spec.RequiredPromises) > 0 {
+		r.EventRecorder.Eventf(promise, v1.EventTypeNormal,
+			"RequirementsFulfilled", "All required promises are available")
+	}
+
+	return condition, requirements
+}
+
+func (r *PromiseReconciler) setPromiseStatusToAvailable(ctx context.Context, promise *v1alpha1.Promise, logger logr.Logger) (ctrl.Result, error) {
+	logger.Info("Promise status being set to Available")
+	promise.Status.Status = v1alpha1.PromiseStatusAvailable
+	timestamp := metav1.Time{Time: time.Now()}
+	promise.Status.LastAvailableTime = &timestamp
+	updateConditionOnPromise(promise, promiseAvailableStatusCondition(timestamp))
+
+	r.EventRecorder.Eventf(promise, "Normal", "Available", "Promise is available")
+	return r.updatePromiseStatus(ctx, promise)
+}
+
+func (r *PromiseReconciler) evaluateRequirement(ctx context.Context, promise *v1alpha1.Promise, req v1alpha1.RequiredPromise, condition *metav1.Condition) v1alpha1.RequiredPromiseStatus {
+	required := &v1alpha1.Promise{}
+	err := r.Client.Get(ctx, types.NamespacedName{Name: req.Name}, required)
+
+	var state string
+	switch {
+	case errors.IsNotFound(err):
+		state = requirementStateNotInstalled
+		updateConditionNotFulfilled(condition, "RequirementsNotInstalled", "Requirements not fulfilled")
+		r.EventRecorder.Eventf(promise, v1.EventTypeNormal,
+			"RequirementsNotInstalled", fmt.Sprintf("Required Promise %s not installed or unknown state", req.Name))
+
+	case err != nil:
+		state = requirementUnknownInstallationState
+		updateConditionNotFulfilled(condition, "RequirementsNotInstalled", "Unable to determine if requirements are fulfilled")
+		r.EventRecorder.Eventf(promise, v1.EventTypeNormal,
+			"RequirementsNotInstalled", fmt.Sprintf("Required Promise %s not installed or unknown state", required.Name))
+
+	default:
+		if required.Status.Version != req.Version || required.Status.Status != v1alpha1.PromiseStatusAvailable {
+			condition.Reason, state = generateRequirementState(required.Status.Version, req.Version, required.Status.Status)
+			updateConditionNotFulfilled(condition, condition.Reason, "Requirements not fulfilled")
+			r.EventRecorder.Eventf(promise, v1.EventTypeNormal,
+				condition.Reason, fmt.Sprintf("Waiting for required Promise %s: %s ", required.Name, state))
 		} else {
-			if requiredPromise.Status.Version != requirement.Version || requiredPromise.Status.Status != v1alpha1.PromiseStatusAvailable {
-				promiseCondition.Reason = "RequirementsNotInstalled"
-				requirementState = requirementStateNotInstalledAtSpecifiedVersion
-
-				if promiseCondition.Status != metav1.ConditionUnknown {
-					promiseCondition.Status = metav1.ConditionFalse
-					promiseCondition.Message = "Requirements not fulfilled"
-				}
-			}
-
-			r.markRequiredPromiseAsRequired(ctx, requirement.Version, promise, requiredPromise)
+			state = requirementStateInstalled
 		}
 
-		requirements = append(requirements, v1alpha1.RequiredPromiseStatus{
-			Name:    requirement.Name,
-			Version: requirement.Version,
-			State:   requirementState,
-		})
+		r.markRequiredPromiseAsRequired(ctx, req.Version, promise, required)
 	}
 
-	return promiseCondition, requirements
+	return v1alpha1.RequiredPromiseStatus{
+		Name:    req.Name,
+		Version: req.Version,
+		State:   state,
+	}
 }
 
 func (r *PromiseReconciler) reconcileDependenciesAndPromiseWorkflows(o opts, promise *v1alpha1.Promise, unstructuredPromise *unstructured.Unstructured) (*ctrl.Result, error) {
@@ -1148,4 +1393,22 @@ func (r *PromiseReconciler) updatePromiseStatus(ctx context.Context, promise *v1
 		return fastRequeue, nil
 	}
 	return ctrl.Result{}, err
+}
+
+func updateConditionNotFulfilled(condition *metav1.Condition, reason, message string) {
+	if condition.Status != metav1.ConditionUnknown {
+		condition.Status = metav1.ConditionFalse
+	}
+	condition.Reason = reason
+	condition.Message = message
+}
+
+func generateRequirementState(fetchedVersion, requiredVersion, availability string) (string, string) {
+	if fetchedVersion != requiredVersion {
+		return "RequirementsNotInstalled", requirementStateNotInstalledAtSpecifiedVersion
+	}
+	if availability != v1alpha1.PromiseStatusAvailable {
+		return "RequirementsNotAvailable", requirementStateNotAvailable
+	}
+	return "", ""
 }

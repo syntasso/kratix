@@ -71,7 +71,7 @@ spec:
                     description: |-
                       filepath.mode can be set to either:
                       - nestedByMetadata (default): files from the pipeline will be placed in a nested directory structure
-                      - aggregatedYAML: all files from all pipeliens will be aggregated into a single YAML file
+                      - aggregatedYAML: all files from all pipelines will be aggregated into a single YAML file
                       - none: file from the pipeline will be placed in a flat directory structure
                       filepath.mode is immutable
                     enum:

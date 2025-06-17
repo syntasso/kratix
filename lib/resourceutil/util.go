@@ -103,7 +103,7 @@ func MarkResourceRequestAsWorksSucceeded(obj *unstructured.Unstructured) {
 	})
 }
 
-func MarkResourceRequestAsReconciledPending(obj *unstructured.Unstructured, reason string) {
+func MarkReconciledPending(obj *unstructured.Unstructured, reason string) {
 	SetCondition(obj, &clusterv1.Condition{
 		Type:               ReconciledCondition,
 		Status:             v1.ConditionUnknown,
@@ -113,7 +113,7 @@ func MarkResourceRequestAsReconciledPending(obj *unstructured.Unstructured, reas
 	})
 }
 
-func MarkResourceRequestAsReconciledFailing(obj *unstructured.Unstructured, reason string) {
+func MarkReconciledFailing(obj *unstructured.Unstructured, reason string) {
 	SetCondition(obj, &clusterv1.Condition{
 		Type:               ReconciledCondition,
 		Status:             v1.ConditionFalse,
@@ -123,7 +123,7 @@ func MarkResourceRequestAsReconciledFailing(obj *unstructured.Unstructured, reas
 	})
 }
 
-func MarkResourceRequestAsReconciled(obj *unstructured.Unstructured) {
+func MarkReconciledTrue(obj *unstructured.Unstructured) {
 	SetCondition(obj, &clusterv1.Condition{
 		Type:               ReconciledCondition,
 		Status:             v1.ConditionTrue,
