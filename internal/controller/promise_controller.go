@@ -273,14 +273,13 @@ func (r *PromiseReconciler) Reconcile(ctx context.Context, req ctrl.Request) (ct
 
 	if originalStatus != v1alpha1.PromiseStatusAvailable {
 		return r.setPromiseStatusToAvailable(ctx, promise, logger)
-	} else {
-		promise.Status.Status = originalStatus
-		timeStamp := metav1.Time{Time: time.Now()}
-		if originalAvailableCondition != nil {
-			timeStamp = originalAvailableCondition.LastTransitionTime
-		}
-		updateConditionOnPromise(promise, promiseAvailableStatusCondition(timeStamp))
 	}
+	promise.Status.Status = originalStatus
+	timeStamp := metav1.Time{Time: time.Now()}
+	if originalAvailableCondition != nil {
+		timeStamp = originalAvailableCondition.LastTransitionTime
+	}
+	updateConditionOnPromise(promise, promiseAvailableStatusCondition(timeStamp))
 
 	statusUpdate, err := r.generateConditions(ctx, promise)
 	if err != nil {
@@ -622,7 +621,7 @@ func (r *PromiseReconciler) generateStatusAndMarkRequirements(ctx context.Contex
 		requirements = append(requirements, r.evaluateRequirement(ctx, promise, req, &condition))
 	}
 
-	if condition.Status == metav1.ConditionTrue {
+	if condition.Status == metav1.ConditionTrue && len(promise.Spec.RequiredPromises) > 0 {
 		r.EventRecorder.Eventf(promise, v1.EventTypeNormal,
 			"RequirementsFulfilled", "All required promises are available")
 	}

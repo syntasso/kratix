@@ -799,6 +799,10 @@ var _ = Describe("PromiseController", func() {
 						Expect(string(condition.Status)).To(Equal("True"))
 						Expect(condition.Reason).To(Equal("Reconciled"))
 						Expect(condition.Message).To(ContainSubstring("Reconciled"))
+						allEvents := aggregateEvents(eventRecorder.Events)
+						Expect(allEvents).To(ContainSubstring(
+							"Normal WorksSucceeded All works associated with this promise are ready"))
+						Expect(allEvents).NotTo(ContainSubstring("All required promises are available"))
 					})
 				})
 
