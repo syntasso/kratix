@@ -235,13 +235,16 @@ var _ = Describe("Workflow Reconciler", func() {
 					Expect(err).NotTo(HaveOccurred())
 				})
 
-				It("updates the Promise status", func() {
+				It("updates the Promise status and publishes events", func() {
 					Expect(fakeK8sClient.Get(ctx, types.NamespacedName{Name: promise.Name}, &promise)).To(Succeed())
 					Expect(promise.Status.Conditions).To(HaveLen(1))
 					Expect(promise.Status.Conditions[0].Type).To(Equal(string(resourceutil.ConfigureWorkflowCompletedCondition)))
 					Expect(promise.Status.Conditions[0].Message).To(Equal("A Configure Pipeline has failed: pipeline-1"))
 					Expect(promise.Status.Conditions[0].Reason).To(Equal("ConfigureWorkflowFailed"))
 					Expect(string(promise.Status.Conditions[0].Status)).To(Equal("False"))
+
+					Eventually(eventRecorder.Events).Should(Receive(ContainSubstring(
+						"Warning ConfigureWorkflowFailed A Configure Pipeline has failed: pipeline-1")))
 				})
 
 				When("the parent is later manually reconciled", func() {

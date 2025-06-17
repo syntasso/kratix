@@ -199,6 +199,8 @@ func ReconcileConfigure(opts Opts) (abort bool, err error) {
 				opts.logger.Error(err, "failed to update parent object status")
 				return false, err
 			}
+			opts.eventRecorder.Eventf(opts.parentObject, v1.EventTypeWarning,
+				resourceutil.ConfigureWorkflowCompletedFailedReason, "A Configure Pipeline has failed: %s", pipeline.Name)
 			opts.logger.Info("Last Job for Pipeline has failed, exiting workflow", "failedJob", mostRecentJob.Name, "pipeline", pipeline.Name)
 			return true, nil
 		}
