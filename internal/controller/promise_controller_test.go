@@ -249,7 +249,7 @@ var _ = Describe("PromiseController", func() {
 					})
 
 					It("updates the status to indicate the dependencies are not installed and the promise is unavailable", func() {
-						Expect(promise.Status.Conditions).To(HaveLen(2))
+						Expect(promise.Status.Conditions).To(HaveLen(3))
 
 						requirementsCond, condErr := getCondition(promise, "RequirementsFulfilled")
 						Expect(condErr).NotTo(HaveOccurred())
@@ -270,6 +270,13 @@ var _ = Describe("PromiseController", func() {
 								State:   "Requirement not installed",
 							},
 						))
+						reconciledCond, condErr := getCondition(promise, "Reconciled")
+						Expect(condErr).NotTo(HaveOccurred())
+						Expect(reconciledCond.Status).To(Equal(metav1.ConditionUnknown))
+						Expect(reconciledCond.Message).To(Equal("Pending"))
+						Expect(reconciledCond.Reason).To(Equal("RequirementsNotFulfilled"))
+						Expect(reconciledCond.LastTransitionTime).ToNot(BeNil())
+
 						Expect(promise.Status.Status).To(Equal(v1alpha1.PromiseStatusUnavailable))
 						cond, condErr := getCondition(promise, v1alpha1.PromiseAvailableConditionType)
 						Expect(condErr).NotTo(HaveOccurred())
@@ -300,7 +307,7 @@ var _ = Describe("PromiseController", func() {
 						Expect(err).To(MatchError("reconcile loop detected"))
 						Expect(fakeK8sClient.Get(ctx, promiseName, promise)).To(Succeed())
 
-						Expect(promise.Status.Conditions).To(HaveLen(2))
+						Expect(promise.Status.Conditions).To(HaveLen(3))
 
 						requirementsCond, condErr := getCondition(promise, "RequirementsFulfilled")
 						Expect(condErr).NotTo(HaveOccurred())
@@ -349,7 +356,7 @@ var _ = Describe("PromiseController", func() {
 							Expect(err).To(MatchError("reconcile loop detected"))
 							Expect(fakeK8sClient.Get(ctx, promiseName, promise)).To(Succeed())
 
-							Expect(promise.Status.Conditions).To(HaveLen(2))
+							Expect(promise.Status.Conditions).To(HaveLen(3))
 							requirementCond, condErr := getCondition(promise, "RequirementsFulfilled")
 							Expect(condErr).NotTo(HaveOccurred())
 							Expect(requirementCond.Type).To(Equal("RequirementsFulfilled"))
@@ -473,7 +480,7 @@ var _ = Describe("PromiseController", func() {
 					})
 
 					It("updates the status to indicate the requirements are no longer fulfilled", func() {
-						Expect(promise.Status.Conditions).To(HaveLen(3))
+						Expect(promise.Status.Conditions).To(HaveLen(4))
 
 						requirementsCond, condErr := getCondition(promise, "RequirementsFulfilled")
 						Expect(condErr).NotTo(HaveOccurred())
@@ -796,40 +803,79 @@ var _ = Describe("PromiseController", func() {
 				})
 
 				When("workflows are running", func() {
-					It("sets the condition to false", func() {
+					It("sets the condition to unknown", func() {
 						createAndUpdateWork(work, metav1.ConditionTrue, "Ready")
 						Expect(fakeK8sClient.Get(ctx, promiseResourcesName, promise)).To(Succeed())
 						markPromiseWorkflowAsRunning(fakeK8sClient, promise)
-						result, err := t.reconcileUntilCompletion(reconciler, promise)
+						_, err := t.reconcileUntilCompletion(reconciler, promise)
 						Expect(err).NotTo(HaveOccurred())
-						Expect(result).To(Equal(ctrl.Result{RequeueAfter: controller.DefaultReconciliationInterval}))
+						Expect(fakeK8sClient.Get(ctx, promiseResourcesName, promise)).To(Succeed())
+
+						condition, err := getCondition(promise, string(resourceutil.ReconciledCondition))
+						Expect(err).ToNot(HaveOccurred())
+						Expect(condition).NotTo(BeNil())
+						Expect(string(condition.Status)).To(Equal("Unknown"))
+						Expect(condition.Reason).To(Equal("WorkflowPending"))
+						Expect(condition.Message).To(ContainSubstring("Pending"))
+					})
+				})
+
+				When("workflows have failed", func() {
+					It("sets condition to false", func() {
+						createAndUpdateWork(work, metav1.ConditionTrue, "Ready")
+						Expect(fakeK8sClient.Get(ctx, promiseResourcesName, promise)).To(Succeed())
+						markPromiseWorkflowAsFailed(fakeK8sClient, promise)
+						_, err := t.reconcileUntilCompletion(reconciler, promise)
+						Expect(err).NotTo(HaveOccurred())
 						Expect(fakeK8sClient.Get(ctx, promiseResourcesName, promise)).To(Succeed())
 
 						condition, err := getCondition(promise, string(resourceutil.ReconciledCondition))
 						Expect(err).ToNot(HaveOccurred())
 						Expect(condition).NotTo(BeNil())
 						Expect(string(condition.Status)).To(Equal("False"))
-						Expect(condition.Reason).To(Equal("Pending"))
-						Expect(condition.Message).To(ContainSubstring("Pending"))
+						Expect(condition.Reason).To(Equal("ConfigureWorkflowFailed"))
+						Expect(condition.Message).To(ContainSubstring("Failing"))
 					})
-				})
 
-				When("workflows have failed", func() {
-
-				})
-
-				When("requirements have not been fulfilled", func() {
-					// Placeholder as a reminder to do this in the promise with requirements test above (maybe)
 				})
 
 				When("works are failing", func() {
+					It("sets condition to false", func() {
+						createAndUpdateWork(work, metav1.ConditionFalse, "Failing")
+						Expect(fakeK8sClient.Get(ctx, promiseResourcesName, promise)).To(Succeed())
+						markPromiseWorkflowAsCompleted(fakeK8sClient, promise)
 
+						_, err := t.reconcileUntilCompletion(reconciler, promise)
+						Expect(err).NotTo(HaveOccurred())
+						Expect(fakeK8sClient.Get(ctx, promiseResourcesName, promise)).To(Succeed())
+
+						condition, err := getCondition(promise, string(resourceutil.ReconciledCondition))
+						Expect(err).ToNot(HaveOccurred())
+						Expect(condition).NotTo(BeNil())
+						Expect(string(condition.Status)).To(Equal("False"))
+						Expect(condition.Reason).To(Equal("WorksFailing"))
+						Expect(condition.Message).To(ContainSubstring("Failing"))
+					})
 				})
 
 				When("works are pending", func() {
+					It("sets condition to unknown with message 'Pending'", func() {
+						createAndUpdateWork(work, metav1.ConditionFalse, "Pending")
+						Expect(fakeK8sClient.Get(ctx, promiseResourcesName, promise)).To(Succeed())
+						markPromiseWorkflowAsCompleted(fakeK8sClient, promise)
 
+						_, err := t.reconcileUntilCompletion(reconciler, promise)
+						Expect(err).NotTo(HaveOccurred())
+						Expect(fakeK8sClient.Get(ctx, promiseResourcesName, promise)).To(Succeed())
+
+						condition, err := getCondition(promise, string(resourceutil.ReconciledCondition))
+						Expect(err).ToNot(HaveOccurred())
+						Expect(condition).NotTo(BeNil())
+						Expect(string(condition.Status)).To(Equal("Unknown"))
+						Expect(condition.Reason).To(Equal("WorksPending"))
+						Expect(condition.Message).To(ContainSubstring("Pending"))
+					})
 				})
-
 			})
 		})
 
@@ -1451,6 +1497,19 @@ func markPromiseWorkflowAsRunning(client client.Client, p *v1alpha1.Promise) {
 			Status:             metav1.ConditionFalse,
 			Message:            "Pipelines are still in progress",
 			Reason:             "PipelinesInProgress",
+			LastTransitionTime: metav1.NewTime(time.Now()),
+		},
+	}
+	Expect(client.Status().Update(ctx, p)).To(Succeed())
+}
+
+func markPromiseWorkflowAsFailed(client client.Client, p *v1alpha1.Promise) {
+	p.Status.Conditions = []metav1.Condition{
+		{
+			Type:               string(resourceutil.ConfigureWorkflowCompletedCondition),
+			Status:             metav1.ConditionFalse,
+			Message:            "Pipelines failed",
+			Reason:             "Pipeline",
 			LastTransitionTime: metav1.NewTime(time.Now()),
 		},
 	}

@@ -169,6 +169,10 @@ func (r *PromiseReconciler) Reconcile(ctx context.Context, req ctrl.Request) (ct
 	updateConditionOnPromise(promise, promiseUnavailableStatusCondition())
 	requirementsChanged := r.hasPromiseRequirementsChanged(ctx, promise)
 	if requirementsChanged {
+		if apiMeta.IsStatusConditionFalse(promise.Status.Conditions, "RequirementsFulfilled") {
+			updateConditionOnPromise(promise, promiseReconciledPendingCondition("RequirementsNotFulfilled"))
+		}
+
 		if result, statusUpdateErr := r.updatePromiseStatus(ctx, promise); statusUpdateErr != nil || !result.IsZero() {
 			return result, statusUpdateErr
 		}
@@ -260,12 +264,22 @@ func (r *PromiseReconciler) Reconcile(ctx context.Context, req ctrl.Request) (ct
 		}
 
 		logger.Info("requirements are fulfilled", "requirementsStatus", promise.Status.RequiredPromises)
-		r.Log.Info("status", "promise.status.conditions", promise.Status.Conditions)
 		if shouldReconcileResources(promise) {
 			return r.reconcileResources(ctx, logger, promise, rrGVK)
 		}
 	} else {
 		logger.Info("Promise only contains dependencies, skipping creation of API and dynamic controller")
+	}
+
+	if originalStatus != v1alpha1.PromiseStatusAvailable {
+		return r.setPromiseStatusToAvailable(ctx, promise, logger)
+	} else {
+		promise.Status.Status = originalStatus
+		timeStamp := metav1.Time{Time: time.Now()}
+		if originalAvailableCondition != nil {
+			timeStamp = originalAvailableCondition.LastTransitionTime
+		}
+		updateConditionOnPromise(promise, promiseAvailableStatusCondition(timeStamp))
 	}
 
 	statusUpdate, err := r.generateConditions(ctx, promise)
@@ -275,13 +289,6 @@ func (r *PromiseReconciler) Reconcile(ctx context.Context, req ctrl.Request) (ct
 
 	if statusUpdate {
 		return ctrl.Result{}, r.Client.Status().Update(ctx, promise)
-	}
-
-	if originalStatus != v1alpha1.PromiseStatusAvailable {
-		return r.setPromiseStatusToAvailable(ctx, promise, logger)
-	} else {
-		promise.Status.Status = originalStatus
-		updateConditionOnPromise(promise, *originalAvailableCondition)
 	}
 
 	completedCond := promise.GetCondition(string(resourceutil.ConfigureWorkflowCompletedCondition))
@@ -316,30 +323,30 @@ func (r *PromiseReconciler) updateReconciledCondition(promise *v1alpha1.Promise)
 	if workflowCompleted != nil &&
 		workflowCompleted.Status == "False" && workflowCompleted.Reason == "PipelinesInProgress" {
 		if reconciled == nil || reconciled.Status != "Unknown" {
-			updateConditionOnPromise(promise, promiseReconciledCondition(metav1.Time{Time: time.Now()}))
+			updateConditionOnPromise(promise, promiseReconciledPendingCondition("WorkflowPending"))
 			updated = true
 		}
-		// } else if workflowCompleted != nil && workflowCompleted.Status == v1.ConditionFalse {
-		// 	if reconciled == nil || reconciled.Status != v1.ConditionFalse ||
-		// 		reconciled.Reason != resourceutil.ConfigureWorkflowCompletedFailedReason {
-		// 		resourceutil.MarkReconciledFailing(promise, resourceutil.ConfigureWorkflowCompletedFailedReason)
-		// 		updated = true
-		// 	}
-		// } else if worksSucceeded != nil && worksSucceeded.Status == "Unknown" {
-		// 	if reconciled == nil || reconciled.Status != "Unknown" {
-		// 		resourceutil.MarkReconciledPending(promise, "WorksPending")
-		// 		updated = true
-		// 	}
-		// } else if worksSucceeded != nil && worksSucceeded.Status == v1.ConditionFalse {
-		// 	if reconciled == nil || reconciled.Status != v1.ConditionFalse {
-		// 		resourceutil.MarkReconciledFailing(promise, "WorksFailing")
-		// 		updated = true
-		// 	}
+	} else if workflowCompleted != nil && workflowCompleted.Status == metav1.ConditionFalse {
+		if reconciled == nil || reconciled.Status != metav1.ConditionFalse ||
+			reconciled.Reason != resourceutil.ConfigureWorkflowCompletedFailedReason {
+			updateConditionOnPromise(promise, promiseReconciledFailingCondition(resourceutil.ConfigureWorkflowCompletedFailedReason))
+			updated = true
+		}
+	} else if worksSucceeded != nil && worksSucceeded.Status == "Unknown" {
+		if reconciled == nil || reconciled.Status != "Unknown" {
+			updateConditionOnPromise(promise, promiseReconciledPendingCondition("WorksPending"))
+			updated = true
+		}
+	} else if worksSucceeded != nil && worksSucceeded.Status == metav1.ConditionFalse {
+		if reconciled == nil || reconciled.Status != metav1.ConditionFalse {
+			updateConditionOnPromise(promise, promiseReconciledFailingCondition("WorksFailing"))
+			updated = true
+		}
 	} else if workflowCompleted != nil && worksSucceeded != nil &&
 		workflowCompleted.Status == "True" && worksSucceeded.Status == "True" {
 
 		if reconciled == nil || reconciled.Status != "True" {
-			updateConditionOnPromise(promise, promiseReconciledCondition(metav1.Time{Time: time.Now()}))
+			updateConditionOnPromise(promise, promiseReconciledCondition())
 			updated = true
 			r.EventRecorder.Event(promise, v1.EventTypeNormal, "ReconcileSucceeded",
 				"Successfully reconciled")
@@ -460,10 +467,10 @@ func (r *PromiseReconciler) nextReconciliation(logger logr.Logger) (ctrl.Result,
 	return ctrl.Result{RequeueAfter: r.ReconciliationInterval}, nil
 }
 
-func promiseAvailableStatusCondition() metav1.Condition {
+func promiseAvailableStatusCondition(lastTransitionTime metav1.Time) metav1.Condition {
 	return metav1.Condition{
 		Type:               v1alpha1.PromiseAvailableConditionType,
-		LastTransitionTime: metav1.Time{Time: time.Now()},
+		LastTransitionTime: lastTransitionTime,
 		Status:             metav1.ConditionTrue,
 		Message:            "Ready to fulfil resource requests",
 		Reason:             v1alpha1.PromiseAvailableConditionTrueReason,
@@ -520,20 +527,30 @@ func promiseWorksSucceededMisplacedCondition(misplacedWorks []string) metav1.Con
 	}
 }
 
-// func promiseReconciledPendingCondition(lastTransitionTime metav1.Time, reason string) metav1.Condition {
-// 	return metav1.Condition{
-// 		Type:               v1alpha1.PromiseReconciledCondition,
-// 		LastTransitionTime: lastTransitionTime,
-// 		Status:             metav1.ConditionFalse,
-// 		Message:            "Pending",
-// 		Reason:             "WorkflowPending",
-// 	}
-// }
-
-func promiseReconciledCondition(lastTransitionTime metav1.Time) metav1.Condition {
+func promiseReconciledFailingCondition(reason string) metav1.Condition {
 	return metav1.Condition{
 		Type:               v1alpha1.PromiseReconciledCondition,
-		LastTransitionTime: lastTransitionTime,
+		LastTransitionTime: metav1.Time{Time: time.Now()},
+		Status:             metav1.ConditionFalse,
+		Message:            "Failing",
+		Reason:             reason,
+	}
+}
+
+func promiseReconciledPendingCondition(reason string) metav1.Condition {
+	return metav1.Condition{
+		Type:               v1alpha1.PromiseReconciledCondition,
+		LastTransitionTime: metav1.Time{Time: time.Now()},
+		Status:             metav1.ConditionUnknown,
+		Message:            "Pending",
+		Reason:             reason,
+	}
+}
+
+func promiseReconciledCondition() metav1.Condition {
+	return metav1.Condition{
+		Type:               v1alpha1.PromiseReconciledCondition,
+		LastTransitionTime: metav1.Time{Time: time.Now()},
 		Status:             metav1.ConditionTrue,
 		Message:            "Reconciled",
 		Reason:             "Reconciled",
@@ -618,7 +635,7 @@ func (r *PromiseReconciler) setPromiseStatusToAvailable(ctx context.Context, pro
 	promise.Status.Status = v1alpha1.PromiseStatusAvailable
 	timestamp := metav1.Time{Time: time.Now()}
 	promise.Status.LastAvailableTime = &timestamp
-	updateConditionOnPromise(promise, promiseAvailableStatusCondition())
+	updateConditionOnPromise(promise, promiseAvailableStatusCondition(timestamp))
 
 	r.EventRecorder.Eventf(promise, "Normal", "Available", "Promise is available")
 	return r.updatePromiseStatus(ctx, promise)
