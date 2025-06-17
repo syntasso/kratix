@@ -160,6 +160,29 @@ var _ = Describe("Core Tests", Ordered, func() {
 						}, timeout, interval).Should(Succeed())
 					})
 
+					By("updating the promise status", func() {
+						promiseArgs := []string{"-n", "default", "get", "promise", "testbundle"}
+						workflowCompletedCondition := `.status.conditions[?(@.type=="ConfigureWorkflowCompleted")]`
+						reconciledCondition := `.status.conditions[?(@.type=="Reconciled")]`
+						worksSucceededCondition := `.status.conditions[?(@.type=="WorksSucceeded")]`
+						promiseStatus := ".status.status"
+
+						Eventually(func(g Gomega) {
+							g.Expect(
+								platform.Kubectl(append(promiseArgs, fmt.Sprintf(`-o=jsonpath='{%s}'`, promiseStatus))...),
+							).To(ContainSubstring("Available"))
+							g.Expect(
+								platform.Kubectl(append(promiseArgs, fmt.Sprintf(`-o=jsonpath='{%s.status}'`, workflowCompletedCondition))...),
+							).To(ContainSubstring("True"))
+							g.Expect(
+								platform.Kubectl(append(promiseArgs, fmt.Sprintf(`-o=jsonpath='{%s.status}'`, reconciledCondition))...),
+							).To(ContainSubstring("True"))
+							g.Expect(
+								platform.Kubectl(append(promiseArgs, fmt.Sprintf(`-o=jsonpath='{%s.status}'`, worksSucceededCondition))...),
+							).To(ContainSubstring("True"))
+						}, timeout, interval).Should(Succeed())
+					})
+
 					originalPromiseConfigMapTimestamp1 = worker.Kubectl("-n", "testbundle-ns",
 						"get", "configmap", "testbundle-cm", "-o=jsonpath={.data.timestamp}")
 				})
