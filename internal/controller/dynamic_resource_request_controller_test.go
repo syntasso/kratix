@@ -11,6 +11,7 @@ import (
 	. "github.com/onsi/ginkgo/v2"
 	. "github.com/onsi/gomega"
 	"github.com/syntasso/kratix/internal/controller"
+	"github.com/syntasso/kratix/internal/ptr"
 	batchv1 "k8s.io/api/batch/v1"
 	v1 "k8s.io/api/core/v1"
 	rbacv1 "k8s.io/api/rbac/v1"
@@ -20,7 +21,6 @@ import (
 	"k8s.io/apimachinery/pkg/util/yaml"
 	"k8s.io/client-go/kubernetes/scheme"
 	"k8s.io/client-go/tools/record"
-	"k8s.io/utils/ptr"
 	clusterv1 "sigs.k8s.io/cluster-api/api/v1beta1"
 	ctrl "sigs.k8s.io/controller-runtime"
 	"sigs.k8s.io/controller-runtime/pkg/client"
@@ -52,8 +52,8 @@ var _ = Describe("DynamicResourceRequestController", func() {
 		eventRecorder = record.NewFakeRecorder(1024)
 
 		reconciler = &controller.DynamicResourceRequestController{
-			CanCreateResources:          ptr.To(true),
-			Enabled:                     ptr.To(true),
+			CanCreateResources:          ptr.True(),
+			Enabled:                     ptr.True(),
 			Client:                      fakeK8sClient,
 			Scheme:                      scheme.Scheme,
 			GVK:                         rrGVK,
