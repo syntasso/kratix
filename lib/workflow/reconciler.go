@@ -195,6 +195,7 @@ func ReconcileConfigure(opts Opts) (abort bool, err error) {
 
 		if isFailed(mostRecentJob) {
 			resourceutil.MarkConfigureWorkflowAsFailed(opts.logger, opts.parentObject, pipeline.Name)
+			resourceutil.MarkReconciledFailing(opts.parentObject, resourceutil.ConfigureWorkflowCompletedFailedReason)
 			if err := opts.client.Status().Update(opts.ctx, opts.parentObject); err != nil {
 				opts.logger.Error(err, "failed to update parent object status")
 				return false, err

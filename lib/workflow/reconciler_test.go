@@ -14,6 +14,7 @@ import (
 	batchv1 "k8s.io/api/batch/v1"
 	v1 "k8s.io/api/core/v1"
 	rbacv1 "k8s.io/api/rbac/v1"
+	apimeta "k8s.io/apimachinery/pkg/api/meta"
 	metav1 "k8s.io/apimachinery/pkg/apis/meta/v1"
 	"k8s.io/apimachinery/pkg/apis/meta/v1/unstructured"
 	"k8s.io/apimachinery/pkg/labels"
@@ -237,11 +238,16 @@ var _ = Describe("Workflow Reconciler", func() {
 
 				It("updates the Promise status and publishes events", func() {
 					Expect(fakeK8sClient.Get(ctx, types.NamespacedName{Name: promise.Name}, &promise)).To(Succeed())
-					Expect(promise.Status.Conditions).To(HaveLen(1))
-					Expect(promise.Status.Conditions[0].Type).To(Equal(string(resourceutil.ConfigureWorkflowCompletedCondition)))
-					Expect(promise.Status.Conditions[0].Message).To(Equal("A Configure Pipeline has failed: pipeline-1"))
-					Expect(promise.Status.Conditions[0].Reason).To(Equal("ConfigureWorkflowFailed"))
-					Expect(string(promise.Status.Conditions[0].Status)).To(Equal("False"))
+					Expect(promise.Status.Conditions).To(HaveLen(2))
+					configureWorkflowCond := apimeta.FindStatusCondition(promise.Status.Conditions, string(resourceutil.ConfigureWorkflowCompletedCondition))
+					Expect(configureWorkflowCond.Message).To(Equal("A Configure Pipeline has failed: pipeline-1"))
+					Expect(configureWorkflowCond.Reason).To(Equal("ConfigureWorkflowFailed"))
+					Expect(string(configureWorkflowCond.Status)).To(Equal("False"))
+
+					reconciledCond := apimeta.FindStatusCondition(promise.Status.Conditions, "Reconciled")
+					Expect(reconciledCond.Message).To(Equal("Failing"))
+					Expect(reconciledCond.Reason).To(Equal("ConfigureWorkflowFailed"))
+					Expect(string(reconciledCond.Status)).To(Equal("False"))
 
 					Eventually(eventRecorder.Events).Should(Receive(ContainSubstring(
 						"Warning ConfigureWorkflowFailed A Configure Pipeline has failed: pipeline-1")))
