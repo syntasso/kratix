@@ -1367,19 +1367,9 @@ var _ = Describe("PromiseController", func() {
 			})
 
 			When("promise has configure workflow", func() {
-				BeforeEach(func() {
+				It("does not run the promise configure pipelines", func() {
 					promise = createPromise(promiseWithWorkflowPath)
-					setReconcileConfigureWorkflowToReturnFinished()
-					markPromiseWorkflowAsCompleted(fakeK8sClient, promise)
-					_, err := t.reconcileUntilCompletion(reconciler, promise, &opts{
-						funcs: []func(client.Object) error{autoMarkCRDAsEstablished},
-					})
-					Expect(err).NotTo(HaveOccurred())
-				})
-				It("not rerunning promise configure pipelines", func() {
 					Expect(fakeK8sClient.Get(ctx, promiseName, promise)).To(Succeed())
-					updatedPromise := promiseFromFile(promiseWithWorkflowUpdatedPath)
-					promise.Spec = updatedPromise.Spec
 					promise.Labels = map[string]string{
 						"kratix.io/paused": "true",
 					}
