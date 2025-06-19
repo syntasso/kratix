@@ -147,8 +147,7 @@ func (r *PromiseReconciler) Reconcile(ctx context.Context, req ctrl.Request) (ct
 		msg := fmt.Sprintf("'%s' label set to 'true' for promise; pausing reconciliation", pauseReconciliationLabel)
 		r.Log.Info(msg)
 		r.EventRecorder.Event(promise, v1.EventTypeWarning, pausedReconciliationReason, msg)
-		// set to unavailable and reconciled paused
-		return ctrl.Result{}, nil
+		return ctrl.Result{}, r.setPausedReconciliationStatusConditions(ctx, promise)
 	}
 
 	opts := opts{
@@ -310,6 +309,28 @@ func (r *PromiseReconciler) Reconcile(ctx context.Context, req ctrl.Request) (ct
 	}
 
 	return ctrl.Result{}, nil
+}
+
+func (r *PromiseReconciler) setPausedReconciliationStatusConditions(ctx context.Context, promise *v1alpha1.Promise) error {
+	var updated bool
+	available := promise.GetCondition(v1alpha1.PromiseStatusAvailable)
+	if available == nil || available.Status == "True" {
+		updateConditionOnPromise(promise, promiseAvailablePausedStatusCondition())
+		promise.Status.Status = v1alpha1.PromiseStatusUnavailable
+		updated = true
+	}
+
+	reconciled := promise.GetCondition("Reconciled")
+	if reconciled == nil || reconciled.Status != "Unknown" || reconciled.Message != "Paused" {
+		updateConditionOnPromise(promise, promiseReconciledPausedCondition())
+		updated = true
+	}
+
+	if updated {
+		return r.Client.Status().Update(ctx, promise)
+	}
+
+	return nil
 }
 
 func (r *PromiseReconciler) generateConditions(ctx context.Context, promise *v1alpha1.Promise) (bool, error) {
@@ -496,6 +517,16 @@ func promiseUnavailableStatusCondition() metav1.Condition {
 	}
 }
 
+func promiseAvailablePausedStatusCondition() metav1.Condition {
+	return metav1.Condition{
+		Type:               v1alpha1.PromiseAvailableConditionType,
+		LastTransitionTime: metav1.Time{Time: time.Now()},
+		Status:             metav1.ConditionFalse,
+		Message:            "Paused",
+		Reason:             pausedReconciliationReason,
+	}
+}
+
 func promiseWorksSucceededStatusCondition() metav1.Condition {
 	return metav1.Condition{
 		Type:               v1alpha1.PromiseWorksSucceededCondition,
@@ -553,6 +584,16 @@ func promiseReconciledPendingCondition(reason string) metav1.Condition {
 		Status:             metav1.ConditionUnknown,
 		Message:            "Pending",
 		Reason:             reason,
+	}
+}
+
+func promiseReconciledPausedCondition() metav1.Condition {
+	return metav1.Condition{
+		Type:               v1alpha1.PromiseReconciledCondition,
+		LastTransitionTime: metav1.Time{Time: time.Now()},
+		Status:             metav1.ConditionUnknown,
+		Message:            "Paused",
+		Reason:             pausedReconciliationReason,
 	}
 }
 

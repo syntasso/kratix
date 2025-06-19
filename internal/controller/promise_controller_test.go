@@ -12,6 +12,7 @@ import (
 
 	"github.com/syntasso/kratix/internal/controller"
 	"github.com/syntasso/kratix/internal/controller/controllerfakes"
+	apimeta "k8s.io/apimachinery/pkg/api/meta"
 	controllerConfig "sigs.k8s.io/controller-runtime/pkg/config"
 
 	"github.com/syntasso/kratix/internal/ptr"
@@ -1393,11 +1394,32 @@ var _ = Describe("PromiseController", func() {
 				Expect(aggregateEvents(eventRecorder.Events)).To(ContainSubstring(
 					"Warning PausedReconciliation 'kratix.io/paused' label set to 'true' for promise; pausing reconciliation"))
 
-				By("not rerunning promise configure workflow")
-
 				By("setting the promise to 'unavailable' and 'paused' for the reconciled status.condition")
+				Expect(fakeK8sClient.Get(ctx, promiseName, promise)).To(Succeed())
+				Expect(promise.Status.Status).To(Equal("Unavailable"))
+				availableCond := apimeta.FindStatusCondition(promise.Status.Conditions, "Available")
+				Expect(availableCond).NotTo(BeNil())
+				Expect(string(availableCond.Status)).To(Equal("False"))
+				Expect(availableCond.Reason).To(Equal("PausedReconciliation"))
+
+				reconcileCond := apimeta.FindStatusCondition(promise.Status.Conditions, "Reconciled")
+				Expect(reconcileCond).NotTo(BeNil())
+				Expect(string(reconcileCond.Status)).To(Equal("Unknown"))
+				Expect(reconcileCond.Reason).To(Equal("PausedReconciliation"))
+				Expect(reconcileCond.Message).To(Equal("Paused"))
 
 				By("accepting new resource requests")
+				yamlFile, err := os.ReadFile(resourceRequestPath)
+				Expect(err).ToNot(HaveOccurred())
+
+				requestedResource := &unstructured.Unstructured{}
+				Expect(yaml.Unmarshal(yamlFile, requestedResource)).To(Succeed())
+				Expect(fakeK8sClient.Create(ctx, requestedResource)).To(Succeed())
+				resNameNamespacedName := types.NamespacedName{
+					Name:      requestedResource.GetName(),
+					Namespace: requestedResource.GetNamespace(),
+				}
+				Expect(fakeK8sClient.Get(ctx, resNameNamespacedName, requestedResource)).To(Succeed())
 			})
 		})
 	})
