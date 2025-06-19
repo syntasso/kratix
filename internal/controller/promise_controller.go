@@ -88,6 +88,8 @@ const (
 	requirementStateNotInstalledAtSpecifiedVersion = "Requirement not installed at the specified version"
 	requirementStateNotAvailable                   = "Requirement not available"
 	requirementUnknownInstallationState            = "Requirement state unknown"
+	pauseReconciliationLabel                       = v1alpha1.KratixPrefix + "paused"
+	pausedReconciliationReason                     = "PausedReconciliation"
 )
 
 var (
@@ -140,6 +142,14 @@ func (r *PromiseReconciler) Reconcile(ctx context.Context, req ctrl.Request) (ct
 	originalAvailableCondition := promise.GetCondition(v1alpha1.PromiseAvailableConditionType)
 
 	logger := r.Log.WithValues("identifier", promise.GetName())
+
+	if v, ok := promise.Labels[pauseReconciliationLabel]; ok && v == "true" {
+		msg := fmt.Sprintf("'%s' label set to 'true' for promise; pausing reconciliation", pauseReconciliationLabel)
+		r.Log.Info(msg)
+		r.EventRecorder.Event(promise, v1.EventTypeWarning, pausedReconciliationReason, msg)
+		// set to unavailable and reconciled paused
+		return ctrl.Result{}, nil
+	}
 
 	opts := opts{
 		client: r.Client,

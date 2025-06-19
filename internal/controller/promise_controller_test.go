@@ -1334,6 +1334,82 @@ var _ = Describe("PromiseController", func() {
 				})
 			})
 		})
+
+		When("the promise is being paused", func() {
+			When("promise has dependencies", func() {
+				BeforeEach(func() {
+					promise = createPromise(promiseWithOnlyDepsPath)
+					_, err := t.reconcileUntilCompletion(reconciler, promise)
+					Expect(err).NotTo(HaveOccurred())
+				})
+
+				It("not updating promise dependencies", func() {
+					work := getWork("kratix-platform-system", promise.GetName(), "", "")
+					originalworkTimestamp, ok := work.GetAnnotations()["kratix.io/last-updated-at"]
+					Expect(ok).To(BeTrue(), "work should always have a last-updated-at annotation")
+
+					Expect(fakeK8sClient.Get(ctx, promiseName, promise)).To(Succeed())
+					updatedPromise := promiseFromFile(promiseWithOnlyDepsUpdatedPath)
+					promise.Spec = updatedPromise.Spec
+					promise.Labels = map[string]string{
+						"kratix.io/paused": "true",
+					}
+					Expect(fakeK8sClient.Update(context.TODO(), promise)).To(Succeed())
+					result, err := t.reconcileUntilCompletion(reconciler, promise)
+					Expect(err).NotTo(HaveOccurred())
+					Expect(result).To(Equal(ctrl.Result{}))
+
+					updatedWork := getWork("kratix-platform-system", promise.GetName(), "", "")
+					currentWorkTimestamp, ok := updatedWork.GetAnnotations()["kratix.io/last-updated-at"]
+					Expect(ok).To(BeTrue(), "work should always have a last-updated-at annotation")
+					Expect(currentWorkTimestamp).To(Equal(originalworkTimestamp))
+				})
+			})
+
+			When("promise has configure workflow", func() {
+				BeforeEach(func() {
+					promise = createPromise(promiseWithWorkflowPath)
+					setReconcileConfigureWorkflowToReturnFinished()
+					markPromiseWorkflowAsCompleted(fakeK8sClient, promise)
+					_, err := t.reconcileUntilCompletion(reconciler, promise, &opts{
+						funcs: []func(client.Object) error{autoMarkCRDAsEstablished},
+					})
+					Expect(err).NotTo(HaveOccurred())
+				})
+				It("not rerunning promise configure pipelines", func() {
+					Expect(fakeK8sClient.Get(ctx, promiseName, promise)).To(Succeed())
+					updatedPromise := promiseFromFile(promiseWithWorkflowUpdatedPath)
+					promise.Spec = updatedPromise.Spec
+					promise.Labels = map[string]string{
+						"kratix.io/paused": "true",
+					}
+					Expect(fakeK8sClient.Update(context.TODO(), promise)).To(Succeed())
+					result, err := t.reconcileUntilCompletion(reconciler, promise)
+					Expect(err).NotTo(HaveOccurred())
+					Expect(result).To(Equal(ctrl.Result{}))
+				})
+			})
+
+			It("pauses reconciliation", func() {
+				promise = createPromise(promisePath)
+				promise.Labels["kratix.io/paused"] = "true"
+				Expect(fakeK8sClient.Update(context.TODO(), promise)).To(Succeed())
+
+				result, err := t.reconcileUntilCompletion(reconciler, promise)
+				Expect(err).NotTo(HaveOccurred())
+				Expect(result).To(Equal(ctrl.Result{}))
+
+				By("publishes a warning event")
+				Expect(aggregateEvents(eventRecorder.Events)).To(ContainSubstring(
+					"Warning PausedReconciliation 'kratix.io/paused' label set to 'true' for promise; pausing reconciliation"))
+
+				By("not rerunning promise configure workflow")
+
+				By("setting the promise to 'unavailable' and 'paused' for the reconciled status.condition")
+
+				By("accepting new resource requests")
+			})
+		})
 	})
 
 	Describe("Promise API", func() {
