@@ -12,6 +12,7 @@ import (
 
 	"github.com/syntasso/kratix/internal/controller"
 	"github.com/syntasso/kratix/internal/controller/controllerfakes"
+	apimeta "k8s.io/apimachinery/pkg/api/meta"
 	controllerConfig "sigs.k8s.io/controller-runtime/pkg/config"
 
 	"github.com/syntasso/kratix/internal/ptr"
@@ -1332,6 +1333,93 @@ var _ = Describe("PromiseController", func() {
 					Eventually(eventRecorder.Events).Should(Receive(ContainSubstring(
 						"Normal ReconcilingResources Reconciling all resource requests")))
 				})
+			})
+		})
+
+		When("the promise is being paused", func() {
+			When("promise has dependencies", func() {
+				BeforeEach(func() {
+					promise = createPromise(promiseWithOnlyDepsPath)
+					_, err := t.reconcileUntilCompletion(reconciler, promise)
+					Expect(err).NotTo(HaveOccurred())
+				})
+
+				It("not updating promise dependencies", func() {
+					work := getWork("kratix-platform-system", promise.GetName(), "", "")
+					originalworkTimestamp, ok := work.GetAnnotations()["kratix.io/last-updated-at"]
+					Expect(ok).To(BeTrue(), "work should always have a last-updated-at annotation")
+
+					Expect(fakeK8sClient.Get(ctx, promiseName, promise)).To(Succeed())
+					updatedPromise := promiseFromFile(promiseWithOnlyDepsUpdatedPath)
+					promise.Spec = updatedPromise.Spec
+					promise.Labels = map[string]string{
+						"kratix.io/paused": "true",
+					}
+					Expect(fakeK8sClient.Update(context.TODO(), promise)).To(Succeed())
+					result, err := t.reconcileUntilCompletion(reconciler, promise)
+					Expect(err).NotTo(HaveOccurred())
+					Expect(result).To(Equal(ctrl.Result{}))
+
+					updatedWork := getWork("kratix-platform-system", promise.GetName(), "", "")
+					currentWorkTimestamp, ok := updatedWork.GetAnnotations()["kratix.io/last-updated-at"]
+					Expect(ok).To(BeTrue(), "work should always have a last-updated-at annotation")
+					Expect(currentWorkTimestamp).To(Equal(originalworkTimestamp))
+				})
+			})
+
+			When("promise has configure workflow", func() {
+				It("does not run the promise configure pipelines", func() {
+					promise = createPromise(promiseWithWorkflowPath)
+					Expect(fakeK8sClient.Get(ctx, promiseName, promise)).To(Succeed())
+					promise.Labels = map[string]string{
+						"kratix.io/paused": "true",
+					}
+					Expect(fakeK8sClient.Update(context.TODO(), promise)).To(Succeed())
+					result, err := t.reconcileUntilCompletion(reconciler, promise)
+					Expect(err).NotTo(HaveOccurred())
+					Expect(result).To(Equal(ctrl.Result{}))
+				})
+			})
+
+			It("pauses reconciliation", func() {
+				promise = createPromise(promisePath)
+				promise.Labels["kratix.io/paused"] = "true"
+				Expect(fakeK8sClient.Update(context.TODO(), promise)).To(Succeed())
+
+				result, err := t.reconcileUntilCompletion(reconciler, promise)
+				Expect(err).NotTo(HaveOccurred())
+				Expect(result).To(Equal(ctrl.Result{}))
+
+				By("publishes a warning event")
+				Expect(aggregateEvents(eventRecorder.Events)).To(ContainSubstring(
+					"Warning PausedReconciliation 'kratix.io/paused' label set to 'true' for promise; pausing reconciliation"))
+
+				By("setting the promise to 'unavailable' and 'paused' for the reconciled status.condition")
+				Expect(fakeK8sClient.Get(ctx, promiseName, promise)).To(Succeed())
+				Expect(promise.Status.Status).To(Equal("Unavailable"))
+				availableCond := apimeta.FindStatusCondition(promise.Status.Conditions, "Available")
+				Expect(availableCond).NotTo(BeNil())
+				Expect(string(availableCond.Status)).To(Equal("False"))
+				Expect(availableCond.Reason).To(Equal("PausedReconciliation"))
+
+				reconcileCond := apimeta.FindStatusCondition(promise.Status.Conditions, "Reconciled")
+				Expect(reconcileCond).NotTo(BeNil())
+				Expect(string(reconcileCond.Status)).To(Equal("Unknown"))
+				Expect(reconcileCond.Reason).To(Equal("PausedReconciliation"))
+				Expect(reconcileCond.Message).To(Equal("Paused"))
+
+				By("accepting new resource requests")
+				yamlFile, err := os.ReadFile(resourceRequestPath)
+				Expect(err).ToNot(HaveOccurred())
+
+				requestedResource := &unstructured.Unstructured{}
+				Expect(yaml.Unmarshal(yamlFile, requestedResource)).To(Succeed())
+				Expect(fakeK8sClient.Create(ctx, requestedResource)).To(Succeed())
+				resNameNamespacedName := types.NamespacedName{
+					Name:      requestedResource.GetName(),
+					Namespace: requestedResource.GetNamespace(),
+				}
+				Expect(fakeK8sClient.Get(ctx, resNameNamespacedName, requestedResource)).To(Succeed())
 			})
 		})
 	})
