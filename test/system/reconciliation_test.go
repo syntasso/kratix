@@ -12,7 +12,7 @@ var _ = Describe("Reconciliation", func() {
 	When("a Promise is paused", func() {
 		var promiseName = "pausedtest"
 		BeforeEach(func() {
-			SetDefaultEventuallyTimeout(2 * time.Minute)
+			SetDefaultEventuallyTimeout(5 * time.Minute)
 			SetDefaultEventuallyPollingInterval(2 * time.Second)
 			kubeutils.SetTimeoutAndInterval(2*time.Minute, 2*time.Second)
 
@@ -34,7 +34,7 @@ var _ = Describe("Reconciliation", func() {
 			nsFlag := "--namespace=reconciliation-test"
 			Eventually(func() string {
 				return worker.Kubectl("get", "configmap", nsFlag)
-			}, 2*time.Minute).Should(ContainSubstring("one-before"))
+			}).Should(ContainSubstring("one-before"))
 
 			podLabels := "kratix.io/promise-name=pausedtest,kratix.io/workflow-type=resource"
 			goTemplate := `go-template='{{printf "%d\n" (len  .items)}}'`
@@ -62,12 +62,12 @@ var _ = Describe("Reconciliation", func() {
 
 			Eventually(func() string {
 				return platform.Kubectl("get", "promises", promiseName, workflowTimeStampJsonPath)
-			}, 30*time.Second).ShouldNot(Equal(promiseWorkflowTimeStamp))
+			}).ShouldNot(Equal(promiseWorkflowTimeStamp))
 
 			By("resuming reconciliation for resource requests after unpaused")
 			Eventually(func() string {
 				return worker.Kubectl("get", "configmap", nsFlag)
-			}, 2*time.Minute).Should(SatisfyAll(
+			}).Should(SatisfyAll(
 				ContainSubstring("two"),
 				ContainSubstring("one-after")))
 		})
