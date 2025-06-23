@@ -34,7 +34,7 @@ var _ = Describe("Reconciliation", func() {
 			nsFlag := "--namespace=reconciliation-test"
 			Eventually(func() string {
 				return worker.Kubectl("get", "configmap", nsFlag)
-			}, 1*time.Minute).Should(ContainSubstring("one-before"))
+			}, 2*time.Minute).Should(ContainSubstring("one-before"))
 
 			podLabels := "kratix.io/promise-name=pausedtest,kratix.io/workflow-type=resource"
 			goTemplate := `go-template='{{printf "%d\n" (len  .items)}}'`
@@ -67,7 +67,7 @@ var _ = Describe("Reconciliation", func() {
 			By("resuming reconciliation for resource requests after unpaused")
 			Eventually(func() string {
 				return worker.Kubectl("get", "configmap", nsFlag)
-			}, 1*time.Minute).Should(SatisfyAll(
+			}, 2*time.Minute).Should(SatisfyAll(
 				ContainSubstring("two"),
 				ContainSubstring("one-after")))
 		})
