@@ -88,6 +88,8 @@ const (
 	requirementStateNotInstalledAtSpecifiedVersion = "Requirement not installed at the specified version"
 	requirementStateNotAvailable                   = "Requirement not available"
 	requirementUnknownInstallationState            = "Requirement state unknown"
+	pauseReconciliationLabel                       = v1alpha1.KratixPrefix + "paused"
+	pausedReconciliationReason                     = "PausedReconciliation"
 )
 
 var (
@@ -140,6 +142,13 @@ func (r *PromiseReconciler) Reconcile(ctx context.Context, req ctrl.Request) (ct
 	originalAvailableCondition := promise.GetCondition(v1alpha1.PromiseAvailableConditionType)
 
 	logger := r.Log.WithValues("identifier", promise.GetName())
+
+	if v, ok := promise.Labels[pauseReconciliationLabel]; ok && v == "true" {
+		msg := fmt.Sprintf("'%s' label set to 'true' for promise; pausing reconciliation", pauseReconciliationLabel)
+		r.Log.Info(msg)
+		r.EventRecorder.Event(promise, v1.EventTypeWarning, pausedReconciliationReason, msg)
+		return ctrl.Result{}, r.setPausedReconciliationStatusConditions(ctx, promise)
+	}
 
 	opts := opts{
 		client: r.Client,
@@ -300,6 +309,28 @@ func (r *PromiseReconciler) Reconcile(ctx context.Context, req ctrl.Request) (ct
 	}
 
 	return ctrl.Result{}, nil
+}
+
+func (r *PromiseReconciler) setPausedReconciliationStatusConditions(ctx context.Context, promise *v1alpha1.Promise) error {
+	var updated bool
+	available := promise.GetCondition(v1alpha1.PromiseStatusAvailable)
+	if available == nil || available.Status == "True" {
+		updateConditionOnPromise(promise, promiseAvailablePausedStatusCondition())
+		promise.Status.Status = v1alpha1.PromiseStatusUnavailable
+		updated = true
+	}
+
+	reconciled := promise.GetCondition("Reconciled")
+	if reconciled == nil || reconciled.Status != "Unknown" || reconciled.Message != "Paused" {
+		updateConditionOnPromise(promise, promiseReconciledPausedCondition())
+		updated = true
+	}
+
+	if updated {
+		return r.Client.Status().Update(ctx, promise)
+	}
+
+	return nil
 }
 
 func (r *PromiseReconciler) generateConditions(ctx context.Context, promise *v1alpha1.Promise) (bool, error) {
@@ -486,6 +517,16 @@ func promiseUnavailableStatusCondition() metav1.Condition {
 	}
 }
 
+func promiseAvailablePausedStatusCondition() metav1.Condition {
+	return metav1.Condition{
+		Type:               v1alpha1.PromiseAvailableConditionType,
+		LastTransitionTime: metav1.Time{Time: time.Now()},
+		Status:             metav1.ConditionFalse,
+		Message:            "Paused",
+		Reason:             pausedReconciliationReason,
+	}
+}
+
 func promiseWorksSucceededStatusCondition() metav1.Condition {
 	return metav1.Condition{
 		Type:               v1alpha1.PromiseWorksSucceededCondition,
@@ -543,6 +584,16 @@ func promiseReconciledPendingCondition(reason string) metav1.Condition {
 		Status:             metav1.ConditionUnknown,
 		Message:            "Pending",
 		Reason:             reason,
+	}
+}
+
+func promiseReconciledPausedCondition() metav1.Condition {
+	return metav1.Condition{
+		Type:               v1alpha1.PromiseReconciledCondition,
+		LastTransitionTime: metav1.Time{Time: time.Now()},
+		Status:             metav1.ConditionUnknown,
+		Message:            "Paused",
+		Reason:             pausedReconciliationReason,
 	}
 }
 
@@ -714,6 +765,13 @@ func (r *PromiseReconciler) reconcileDependenciesAndPromiseWorkflows(o opts, pro
 		o.logger.Info("Pipeline completed too long ago... forcing the reconciliation", "lastTransitionTime", completedCond.LastTransitionTime.Time.String())
 		promise.Labels[resourceutil.ManualReconciliationLabel] = "true"
 		return &ctrl.Result{}, r.Client.Update(o.ctx, promise)
+	}
+
+	reconciledCond := promise.GetCondition(string(resourceutil.ReconciledCondition))
+	if reconciledCond != nil && reconciledCond.Status == metav1.ConditionUnknown && reconciledCond.Reason == pausedReconciliationReason {
+		o.logger.Info("Promise unpaused... forcing the reconciliation")
+		promise.Labels[resourceutil.ManualReconciliationLabel] = "true"
+		promise.Labels[resourceutil.ReconcileResourcesLabel] = "true"
 	}
 
 	pipelineResources, err := promise.GeneratePromisePipelines(v1alpha1.WorkflowActionConfigure, o.logger)

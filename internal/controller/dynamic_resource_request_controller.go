@@ -105,6 +105,12 @@ func (r *DynamicResourceRequestController) Reconcile(ctx context.Context, req ct
 		return defaultRequeue, nil
 	}
 
+	if v, ok := promise.Labels[pauseReconciliationLabel]; ok && v == "true" {
+		r.Log.Info(fmt.Sprintf("'%s' label set to 'true' for promise; pausing reconciliation for this resource request",
+			pauseReconciliationLabel))
+		return ctrl.Result{}, r.setPausedReconciliationStatusConditions(ctx, rr)
+	}
+
 	resourceLabels := getResourceLabels(rr)
 	if resourceLabels[v1alpha1.PromiseNameLabel] != r.PromiseIdentifier {
 		return r.setPromiseLabels(ctx, promise.GetName(), rr, resourceLabels, logger)
@@ -275,6 +281,15 @@ func (r *DynamicResourceRequestController) updateWorksSucceededCondition(rr *uns
 		return true
 	}
 	return false
+}
+
+func (r *DynamicResourceRequestController) setPausedReconciliationStatusConditions(ctx context.Context, rr *unstructured.Unstructured) error {
+	reconciled := resourceutil.GetCondition(rr, resourceutil.ReconciledCondition)
+	if reconciled == nil || reconciled.Status != "Unknown" || reconciled.Message != "Paused" {
+		resourceutil.MarkReconciledPaused(rr)
+		return r.Client.Status().Update(ctx, rr)
+	}
+	return nil
 }
 
 func (r *DynamicResourceRequestController) getWorksStatus(ctx context.Context, rr *unstructured.Unstructured) ([]string, []string, []string, []string, error) {

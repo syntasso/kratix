@@ -17,7 +17,7 @@ import (
 	"sigs.k8s.io/yaml"
 )
 
-var _ = Describe("Destinations", func() {
+var _ = Describe("Destinations", Label("destination"), Serial, func() {
 	BeforeEach(func() {
 		SetDefaultEventuallyTimeout(2 * time.Minute)
 		SetDefaultEventuallyPollingInterval(2 * time.Second)

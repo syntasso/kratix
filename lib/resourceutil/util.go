@@ -31,6 +31,7 @@ const (
 	promiseRequirementsMetMessage          = "Promise Requirements are met"
 	WorksSucceededCondition                = clusterv1.ConditionType("WorksSucceeded")
 	ReconciledCondition                    = clusterv1.ConditionType("Reconciled")
+	pausedReconciliationReason             = "PausedReconciliation"
 )
 
 func GetConfigureWorkflowCompletedConditionStatus(obj *unstructured.Unstructured) v1.ConditionStatus {
@@ -129,6 +130,16 @@ func MarkReconciledTrue(obj *unstructured.Unstructured) {
 		Status:             v1.ConditionTrue,
 		Message:            "Reconciled",
 		Reason:             "Reconciled",
+		LastTransitionTime: metav1.NewTime(time.Now()),
+	})
+}
+
+func MarkReconciledPaused(obj *unstructured.Unstructured) {
+	SetCondition(obj, &clusterv1.Condition{
+		Type:               ReconciledCondition,
+		Status:             v1.ConditionUnknown,
+		Message:            "Paused",
+		Reason:             pausedReconciliationReason,
 		LastTransitionTime: metav1.NewTime(time.Now()),
 	})
 }

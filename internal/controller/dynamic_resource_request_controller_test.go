@@ -724,6 +724,70 @@ var _ = Describe("DynamicResourceRequestController", func() {
 		})
 
 	})
+
+	When("the promise is paused", func() {
+		BeforeEach(func() {
+			promise.Labels = map[string]string{
+				"kratix.io/paused": "true",
+			}
+			Expect(fakeK8sClient.Update(context.TODO(), promise)).To(Succeed())
+			reconcileConfigureOptsArg = workflow.Opts{}
+
+			yamlFile, err := os.ReadFile(resourceRequestPath)
+			Expect(err).ToNot(HaveOccurred())
+			resReq = &unstructured.Unstructured{}
+			Expect(yaml.Unmarshal(yamlFile, resReq)).To(Succeed())
+			resReq.SetName("paused-resource")
+			resReqNameNamespace = client.ObjectKeyFromObject(resReq)
+
+			Expect(fakeK8sClient.Create(ctx, resReq)).To(Succeed())
+		})
+		When("the resource is created", func() {
+			It("pauses the reconciliation for the resource", func() {
+				result, err := t.reconcileUntilCompletion(reconciler, resReq)
+				Expect(err).NotTo(HaveOccurred())
+				Expect(result).To(Equal(ctrl.Result{}))
+
+				By("not creating any workflow resource objects")
+				Expect(reconcileConfigureOptsArg.Resources).To(BeEmpty())
+
+				By("setting 'paused' for the reconciled status.condition")
+				Expect(fakeK8sClient.Get(ctx, resReqNameNamespace, resReq)).To(Succeed())
+				condition := resourceutil.GetCondition(resReq, resourceutil.ReconciledCondition)
+				Expect(condition).NotTo(BeNil())
+				Expect(string(condition.Status)).To(Equal("Unknown"))
+				Expect(condition.Reason).To(Equal("PausedReconciliation"))
+				Expect(condition.Message).To(ContainSubstring("Paused"))
+			})
+		})
+		When("the resource is updated", func() {
+			BeforeEach(func() {
+				result, err := t.reconcileUntilCompletion(reconciler, resReq)
+				Expect(err).NotTo(HaveOccurred())
+				Expect(result).To(Equal(ctrl.Result{}))
+
+				Expect(fakeK8sClient.Get(ctx, resReqNameNamespace, resReq)).To(Succeed())
+				resReq.SetGeneration(10)
+				Expect(fakeK8sClient.Update(ctx, resReq)).To(Succeed())
+			})
+			It("pauses the reconciliation for the resource", func() {
+				result, err := t.reconcileUntilCompletion(reconciler, resReq)
+				Expect(err).NotTo(HaveOccurred())
+				Expect(result).To(Equal(ctrl.Result{}))
+
+				By("not creating any workflow resource objects")
+				Expect(reconcileConfigureOptsArg.Resources).To(BeEmpty())
+
+				By("setting 'paused' for the reconciled status.condition")
+				Expect(fakeK8sClient.Get(ctx, resReqNameNamespace, resReq)).To(Succeed())
+				condition := resourceutil.GetCondition(resReq, resourceutil.ReconciledCondition)
+				Expect(condition).NotTo(BeNil())
+				Expect(string(condition.Status)).To(Equal("Unknown"))
+				Expect(condition.Reason).To(Equal("PausedReconciliation"))
+				Expect(condition.Message).To(ContainSubstring("Paused"))
+			})
+		})
+	})
 })
 
 func setConfigureWorkflowStatus(resReq *unstructured.Unstructured, status v1.ConditionStatus, lastTransitionTime ...time.Time) {
