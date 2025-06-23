@@ -36,22 +36,35 @@ var _ = Describe("Reconciliation", func() {
 				return worker.Kubectl("get", "configmap", nsFlag)
 			}, 1*time.Minute).Should(ContainSubstring("one-before"))
 
-			By("accepting create and update requests")
+			podLabels := "kratix.io/promise-name=pausedtest,kratix.io/workflow-type=resource"
+			goTemplate := `go-template='{{printf "%d\n" (len  .items)}}'`
+			numberOfTriggeredPods := platform.Kubectl("get", "pods", "-l", podLabels, "-o", goTemplate)
+
 			platform.Kubectl("label", "promise", promiseName, "kratix.io/paused=true")
+
+			By("accepting create/update requests while paused")
+			Eventually(func() string {
+				return platform.Kubectl("get", "promises", promiseName)
+			}).Should(ContainSubstring("Paused"))
 			platform.Kubectl("apply", "-f", "assets/reconciliation/rr-one-updated.yaml")
 			platform.Kubectl("apply", "-f", "assets/reconciliation/rr-two.yaml")
 			Eventually(func() string {
 				return platform.KubectlAllowFail("get", promiseName, "two")
 			}).Should(ContainSubstring("Paused"))
 
-			By("rerunning promise workflows after label was removed")
+			By("not running any workflow while paused")
+			Consistently(func() string {
+				return platform.Kubectl("get", "pods", "-l", podLabels, "-o", goTemplate)
+			}, 10*time.Second).Should(Equal(numberOfTriggeredPods))
+
+			By("rerunning promise workflows after unpaused")
 			platform.Kubectl("label", "promise", promiseName, "kratix.io/paused-")
 
 			Eventually(func() string {
 				return platform.Kubectl("get", "promises", promiseName, workflowTimeStampJsonPath)
 			}, 30*time.Second).ShouldNot(Equal(promiseWorkflowTimeStamp))
 
-			By("resuming reconciliation for resource requests")
+			By("resuming reconciliation for resource requests after unpaused")
 			Eventually(func() string {
 				return worker.Kubectl("get", "configmap", nsFlag)
 			}, 1*time.Minute).Should(SatisfyAll(
