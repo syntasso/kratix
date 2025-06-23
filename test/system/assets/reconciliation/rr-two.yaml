@@ -1,0 +1,7 @@
+apiVersion: test.kratix.io/v1alpha1
+kind: PausedTest
+metadata:
+  name: two
+  namespace: default
+spec:
+  name: two

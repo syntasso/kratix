@@ -767,6 +767,13 @@ func (r *PromiseReconciler) reconcileDependenciesAndPromiseWorkflows(o opts, pro
 		return &ctrl.Result{}, r.Client.Update(o.ctx, promise)
 	}
 
+	reconciledCond := promise.GetCondition(string(resourceutil.ReconciledCondition))
+	if reconciledCond != nil && reconciledCond.Status == metav1.ConditionUnknown && reconciledCond.Reason == pausedReconciliationReason {
+		o.logger.Info("Promise unpaused... forcing the reconciliation")
+		promise.Labels[resourceutil.ManualReconciliationLabel] = "true"
+		promise.Labels[resourceutil.ReconcileResourcesLabel] = "true"
+	}
+
 	pipelineResources, err := promise.GeneratePromisePipelines(v1alpha1.WorkflowActionConfigure, o.logger)
 	if err != nil {
 		return nil, err
