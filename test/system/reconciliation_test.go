@@ -12,7 +12,7 @@ var _ = Describe("Reconciliation", func() {
 	When("a Promise is paused", func() {
 		var promiseName = "pausedtest"
 		BeforeEach(func() {
-			SetDefaultEventuallyTimeout(5 * time.Minute)
+			SetDefaultEventuallyTimeout(3 * time.Minute)
 			SetDefaultEventuallyPollingInterval(2 * time.Second)
 			kubeutils.SetTimeoutAndInterval(2*time.Minute, 2*time.Second)
 
@@ -31,10 +31,9 @@ var _ = Describe("Reconciliation", func() {
 			workflowTimeStampJsonPath := `-o=jsonpath='{.status.conditions[?(@.type=="ConfigureWorkflowCompleted")].lastTransitionTime}'`
 			promiseWorkflowTimeStamp := platform.Kubectl("get", "promises", promiseName, workflowTimeStampJsonPath)
 
-			nsFlag := "--namespace=reconciliation-test"
 			Eventually(func() string {
-				return worker.Kubectl("get", "configmap", nsFlag)
-			}).Should(ContainSubstring("one-before"))
+				return platform.Kubectl("get", promiseName, "one")
+			}).Should(ContainSubstring("Reconciled"))
 
 			podLabels := "kratix.io/promise-name=pausedtest,kratix.io/workflow-type=resource"
 			goTemplate := `go-template='{{printf "%d\n" (len  .items)}}'`
@@ -49,7 +48,10 @@ var _ = Describe("Reconciliation", func() {
 			platform.Kubectl("apply", "-f", "assets/reconciliation/rr-one-updated.yaml")
 			platform.Kubectl("apply", "-f", "assets/reconciliation/rr-two.yaml")
 			Eventually(func() string {
-				return platform.KubectlAllowFail("get", promiseName, "two")
+				return platform.Kubectl("get", promiseName, "two")
+			}).Should(ContainSubstring("Paused"))
+			Eventually(func() string {
+				return platform.Kubectl("get", promiseName, "one")
 			}).Should(ContainSubstring("Paused"))
 
 			By("not running any workflow while paused")
@@ -66,10 +68,15 @@ var _ = Describe("Reconciliation", func() {
 
 			By("resuming reconciliation for resource requests after unpaused")
 			Eventually(func() string {
-				return worker.Kubectl("get", "configmap", nsFlag)
-			}).Should(SatisfyAll(
-				ContainSubstring("two"),
-				ContainSubstring("one-after")))
+				return platform.Kubectl("get", "pods", "-l", podLabels, "-o", goTemplate)
+			}, 10*time.Second).Should(ContainSubstring("3"))
+
+			Eventually(func() string {
+				return platform.Kubectl("get", promiseName, "one")
+			}).Should(ContainSubstring("Reconciled"))
+			Eventually(func() string {
+				return platform.Kubectl("get", promiseName, "two")
+			}).Should(ContainSubstring("Reconciled"))
 		})
 	})
 })
