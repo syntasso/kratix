@@ -796,9 +796,9 @@ func (r *PromiseReconciler) reconcileDependenciesAndPromiseWorkflows(o opts, pro
 func (r *PromiseReconciler) reconcileAllRRs(rrGVK *schema.GroupVersionKind) error {
 	//label all rr with manual reconciliation
 	rrs := &unstructured.UnstructuredList{}
-	rrListGVK := rrGVK
+	rrListGVK := *rrGVK
 	rrListGVK.Kind = rrListGVK.Kind + "List"
-	rrs.SetGroupVersionKind(*rrListGVK)
+	rrs.SetGroupVersionKind(rrListGVK)
 	err := r.Client.List(context.Background(), rrs)
 	if err != nil {
 		return err
