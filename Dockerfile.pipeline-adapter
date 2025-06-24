@@ -18,6 +18,9 @@ RUN --mount=target=. \
 
 # Use distroless as minimal base image to package the manager binary
 # Refer to https://github.com/GoogleContainerTools/distroless for more details
+
+FROM busybox AS busybox
+
 FROM gcr.io/distroless/cc:nonroot
 
 COPY --chown=nonroot:nonroot --from=busybox /usr/bin/env /usr/bin/env
