@@ -229,9 +229,9 @@ patch_statestore() {
 setup_platform_destination() {
     if ${WITH_CERT_MANAGER}; then
         kubectl --context kind-${PLATFORM_CLUSTER_NAME} apply --filename ${CERT_MANAGER_DIST}
-        kubectl --context kind-${PLATFORM_CLUSTER_NAME} wait --for condition=available -n cert-manager deployment/cert-manager --timeout 60s
-        kubectl --context kind-${PLATFORM_CLUSTER_NAME} wait --for condition=available -n cert-manager deployment/cert-manager-cainjector --timeout 60s
-        kubectl --context kind-${PLATFORM_CLUSTER_NAME} wait --for condition=available -n cert-manager deployment/cert-manager-webhook --timeout 60s
+        kubectl --context kind-${PLATFORM_CLUSTER_NAME} wait --for condition=available -n cert-manager deployment/cert-manager --timeout $WAIT_TIMEOUT
+        kubectl --context kind-${PLATFORM_CLUSTER_NAME} wait --for condition=available -n cert-manager deployment/cert-manager-cainjector --timeout $WAIT_TIMEOUT
+        kubectl --context kind-${PLATFORM_CLUSTER_NAME} wait --for condition=available -n cert-manager deployment/cert-manager-webhook --timeout $WAIT_TIMEOUT
     fi
 
     if ${INSTALL_AND_CREATE_GITEA_REPO}; then
@@ -246,7 +246,7 @@ setup_platform_destination() {
     fi
 
     cat "${ROOT}/distribution/kratix.yaml" | patch_image | kubectl --context kind-${PLATFORM_CLUSTER_NAME} apply --filename -
-    kubectl --context kind-${PLATFORM_CLUSTER_NAME} wait --for=condition=available deployment kratix-platform-controller-manager --timeout 60s -n kratix-platform-system
+    kubectl --context kind-${PLATFORM_CLUSTER_NAME} wait --for=condition=available deployment kratix-platform-controller-manager --timeout $WAIT_TIMEOUT -n kratix-platform-system
 }
 
 setup_worker_destination() {
