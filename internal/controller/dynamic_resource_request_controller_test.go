@@ -293,6 +293,7 @@ var _ = Describe("DynamicResourceRequestController", func() {
 			setConfigureWorkflowStatus(resReq, v1.ConditionTrue, lastTransitionTime)
 			setWorksSucceeded(resReq)
 			setReconciled(resReq)
+			setWorkflowsCounterStatus(resReq)
 			Expect(fakeK8sClient.Status().Update(ctx, resReq)).To(Succeed())
 
 			request = ctrl.Request{NamespacedName: types.NamespacedName{Name: resReqNameNamespace.Name, Namespace: resReqNameNamespace.Namespace}}
@@ -723,6 +724,32 @@ var _ = Describe("DynamicResourceRequestController", func() {
 			})
 		})
 
+		Describe("Workflows", func() {
+			When("there is no resource configure pipelines", func() {
+				It("sets all workflows counter status to 0", func() {
+					promise.Spec.Workflows.Resource.Configure = nil
+					Expect(fakeK8sClient.Update(ctx, promise)).To(Succeed())
+					_, err := t.reconcileUntilCompletion(reconciler, resReq)
+					Expect(err).NotTo(HaveOccurred())
+					Expect(fakeK8sClient.Get(ctx, resReqNameNamespace, resReq)).To(Succeed())
+					Expect(resourceutil.GetStatus(resReq, "workflows")).To(Equal("0"))
+					Expect(resourceutil.GetStatus(resReq, "workflowsSucceeded")).To(Equal("0"))
+					Expect(resourceutil.GetStatus(resReq, "workflowsFailed")).To(Equal("0"))
+				})
+			})
+
+			When("all configure pipelines are successful", func() {
+				It("sets workflowsFailed to 0 and workflows should match workflowsSucceeded", func() {
+					setConfigureWorkflowStatus(resReq, v1.ConditionTrue)
+					_, err := t.reconcileUntilCompletion(reconciler, resReq)
+					Expect(err).NotTo(HaveOccurred())
+					Expect(fakeK8sClient.Get(ctx, resReqNameNamespace, resReq)).To(Succeed())
+					Expect(resourceutil.GetStatus(resReq, "workflows")).To(Equal("1"))
+					Expect(resourceutil.GetStatus(resReq, "workflowsSucceeded")).To(Equal("1"))
+					Expect(resourceutil.GetStatus(resReq, "workflowsFailed")).To(Equal("0"))
+				})
+			})
+		})
 	})
 
 	When("the promise is paused", func() {
@@ -847,6 +874,15 @@ func setReconciled(resReq *unstructured.Unstructured) {
 		Reason:  "Reconciled",
 		Message: "Reconciled",
 	})
+	Expect(fakeK8sClient.Status().Update(ctx, resReq)).To(Succeed())
+}
+
+func setWorkflowsCounterStatus(resReq *unstructured.Unstructured) {
+	if resReq.Object["status"] == nil {
+		resReq.Object["status"] = map[string]interface{}{}
+	}
+	resourceutil.SetStatus(resReq, l, "workflows", "1",
+		"workflowsSucceeded", "1", "workflowsFailed", "0")
 	Expect(fakeK8sClient.Status().Update(ctx, resReq)).To(Succeed())
 }
 

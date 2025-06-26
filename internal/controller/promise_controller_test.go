@@ -113,6 +113,18 @@ var _ = Describe("PromiseController", func() {
 						Expect(ok).To(BeTrue(), ".status.message did not exist. Spec %v", status)
 						Expect(message.Type).To(Equal("string"))
 
+						workflows, ok := status.Properties["workflows"]
+						Expect(ok).To(BeTrue(), ".status.workflows did not exist. Spec %v", status)
+						Expect(workflows.Type).To(Equal("integer"))
+
+						workflowsSucceeded, ok := status.Properties["workflowsSucceeded"]
+						Expect(ok).To(BeTrue(), ".status.workflowsSucceeded did not exist. Spec %v", status)
+						Expect(workflowsSucceeded.Type).To(Equal("integer"))
+
+						workflowsFailed, ok := status.Properties["workflowsFailed"]
+						Expect(ok).To(BeTrue(), ".status.workflowsFailed did not exist. Spec %v", status)
+						Expect(workflowsFailed.Type).To(Equal("integer"))
+
 						observedGeneration, ok := status.Properties["observedGeneration"]
 						Expect(ok).To(BeTrue(), ".status.observedGeneration did not exist. Spec %v", status)
 						Expect(observedGeneration.Type).To(Equal("integer"))
