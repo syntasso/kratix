@@ -15,6 +15,7 @@ Follow our [quick start](https://docs.kratix.io/main/quick-start) to get up-and-
 
 ## Want to learn more?
 
+For documentation about how to use Kratix, visit [docs.kratix.io](https://docs.kratix.io/).
 For case studies, guides, and more checkout [syntasso.io](https://syntasso.io?utm_source=github&utm_medium=readme&utm_id=kratix).
 
 ## Community
