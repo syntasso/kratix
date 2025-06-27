@@ -151,6 +151,12 @@ func ReconcileConfigure(opts Opts) (abort bool, err error) {
 		pipelineIndex = nextPipelineIndex(opts, mostRecentJob)
 	}
 
+	resourceutil.UpdateWorkflowsSucceeded(opts.parentObject, opts.logger, pipelineIndex)
+	if err = opts.client.Status().Update(opts.ctx, opts.parentObject); err != nil {
+		opts.logger.Error(err, "failed to update parent object status")
+		return false, err
+	}
+
 	if pipelineIndex >= len(opts.Resources) {
 		pipelineIndex = len(opts.Resources) - 1
 	}
@@ -211,7 +217,7 @@ func ReconcileConfigure(opts Opts) (abort bool, err error) {
 
 	if isRunning(mostRecentJob) {
 		opts.logger.Info("Job already inflight for another workflow, suspending it", "job", mostRecentJob.Name)
-		err := suspendJob(opts.ctx, opts.client, mostRecentJob)
+		err = suspendJob(opts.ctx, opts.client, mostRecentJob)
 		if err != nil {
 			opts.logger.Error(err, "failed to suspend Job", "job", mostRecentJob.GetName())
 		}

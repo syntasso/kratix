@@ -144,6 +144,11 @@ func MarkReconciledPaused(obj *unstructured.Unstructured) {
 	})
 }
 
+// Updates the workflowsSucceeded status for the provided object.
+func UpdateWorkflowsSucceeded(obj *unstructured.Unstructured, logger logr.Logger, numberSucceeded int) {
+	SetStatus(obj, logger, "workflowsSucceeded", numberSucceeded)
+}
+
 func MarkDeleteWorkflowAsFailed(logger logr.Logger, obj *unstructured.Unstructured) {
 	condition := clusterv1.Condition{
 		Type:               DeleteWorkflowCompletedCondition,
@@ -298,6 +303,19 @@ func GetStatus(rr *unstructured.Unstructured, key string) string {
 	}
 
 	return nestedMap[key].(string)
+}
+
+func GetWorkflowsCounterStatus(rr *unstructured.Unstructured, key string) int64 {
+	if rr.Object["status"] == nil {
+		return -1
+	}
+
+	nestedMap := rr.Object["status"].(map[string]interface{})
+	if nestedMap[key] == nil {
+		return -1
+	}
+
+	return nestedMap[key].(int64)
 }
 
 // GetObservedGeneration returns 0 when either status or status.observedGeneration is nil

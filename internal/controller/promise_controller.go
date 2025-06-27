@@ -746,7 +746,7 @@ func (r *PromiseReconciler) reconcileDependenciesAndPromiseWorkflows(o opts, pro
 	}
 
 	if !promise.HasPipeline(v1alpha1.WorkflowTypePromise, v1alpha1.WorkflowActionConfigure) {
-		return nil, nil
+		return nil, r.updateWorkflowStatusCountersToZero(o.ctx, promise)
 	}
 
 	//TODO remove finalizer if we don't have any configure (or delete?)
@@ -1325,6 +1325,18 @@ func setStatusFieldsOnCRD(rrCRD *apiextensionsv1.CustomResourceDefinition) {
 					Type:   "integer",
 					Format: "int64",
 				},
+				"workflows": {
+					Type:   "integer",
+					Format: "int64",
+				},
+				"workflowsSucceeded": {
+					Type:   "integer",
+					Format: "int64",
+				},
+				"workflowsFailed": {
+					Type:   "integer",
+					Format: "int64",
+				},
 				"conditions": {
 					Type: "array",
 					Items: &apiextensionsv1.JSONSchemaPropsOrArray{
@@ -1451,6 +1463,15 @@ func (r *PromiseReconciler) updatePromiseStatus(ctx context.Context, promise *v1
 		return fastRequeue, nil
 	}
 	return ctrl.Result{}, err
+}
+
+func (r *PromiseReconciler) updateWorkflowStatusCountersToZero(ctx context.Context, p *v1alpha1.Promise) error {
+	if p.Status.Workflows != 0 || p.Status.WorkflowsSucceeded != 0 || p.Status.WorkflowsFailed != 0 {
+
+		p.Status.Workflows, p.Status.WorkflowsSucceeded, p.Status.WorkflowsFailed = int64(0), int64(0), int64(0)
+		return r.Client.Status().Update(ctx, p)
+	}
+	return nil
 }
 
 func updateConditionNotFulfilled(condition *metav1.Condition, reason, message string) {
