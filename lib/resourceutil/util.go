@@ -144,6 +144,11 @@ func MarkReconciledPaused(obj *unstructured.Unstructured) {
 	})
 }
 
+// Updates the workflowsSucceeded status for the provided object.
+func UpdateWorkflowsSucceeded(obj *unstructured.Unstructured, logger logr.Logger, numberSucceeded int) {
+	SetStatus(obj, logger, "workflowsSucceeded", numberSucceeded)
+}
+
 func MarkDeleteWorkflowAsFailed(logger logr.Logger, obj *unstructured.Unstructured) {
 	condition := clusterv1.Condition{
 		Type:               DeleteWorkflowCompletedCondition,

@@ -193,6 +193,8 @@ var _ = Describe("Workflow Reconciler", func() {
 					jobList := listJobs(namespace)
 					Expect(jobList).To(HaveLen(2))
 					Expect(findByName(jobList, workflowPipelines[1].Job.Name)).To(BeTrue())
+
+					// TODO: test that it Updates the status
 				})
 
 				When("there are no more pipelines to run", func() {
