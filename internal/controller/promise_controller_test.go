@@ -116,14 +116,17 @@ var _ = Describe("PromiseController", func() {
 						workflows, ok := status.Properties["workflows"]
 						Expect(ok).To(BeTrue(), ".status.workflows did not exist. Spec %v", status)
 						Expect(workflows.Type).To(Equal("integer"))
+						Expect(workflows.Format).To(Equal("int64"))
 
 						workflowsSucceeded, ok := status.Properties["workflowsSucceeded"]
 						Expect(ok).To(BeTrue(), ".status.workflowsSucceeded did not exist. Spec %v", status)
 						Expect(workflowsSucceeded.Type).To(Equal("integer"))
+						Expect(workflowsSucceeded.Format).To(Equal("int64"))
 
 						workflowsFailed, ok := status.Properties["workflowsFailed"]
 						Expect(ok).To(BeTrue(), ".status.workflowsFailed did not exist. Spec %v", status)
 						Expect(workflowsFailed.Type).To(Equal("integer"))
+						Expect(workflowsFailed.Format).To(Equal("int64"))
 
 						observedGeneration, ok := status.Properties["observedGeneration"]
 						Expect(ok).To(BeTrue(), ".status.observedGeneration did not exist. Spec %v", status)

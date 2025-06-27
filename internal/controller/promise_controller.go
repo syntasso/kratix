@@ -746,6 +746,7 @@ func (r *PromiseReconciler) reconcileDependenciesAndPromiseWorkflows(o opts, pro
 	}
 
 	if !promise.HasPipeline(v1alpha1.WorkflowTypePromise, v1alpha1.WorkflowActionConfigure) {
+		// Todo: set workflows, workflowsSucceeded and workflowsFailed to 0
 		return nil, nil
 	}
 
@@ -1326,13 +1327,16 @@ func setStatusFieldsOnCRD(rrCRD *apiextensionsv1.CustomResourceDefinition) {
 					Format: "int64",
 				},
 				"workflows": {
-					Type: "integer",
+					Type:   "integer",
+					Format: "int64",
 				},
 				"workflowsSucceeded": {
-					Type: "integer",
+					Type:   "integer",
+					Format: "int64",
 				},
 				"workflowsFailed": {
-					Type: "integer",
+					Type:   "integer",
+					Format: "int64",
 				},
 				"conditions": {
 					Type: "array",

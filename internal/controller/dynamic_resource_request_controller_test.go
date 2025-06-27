@@ -732,9 +732,9 @@ var _ = Describe("DynamicResourceRequestController", func() {
 					_, err := t.reconcileUntilCompletion(reconciler, resReq)
 					Expect(err).NotTo(HaveOccurred())
 					Expect(fakeK8sClient.Get(ctx, resReqNameNamespace, resReq)).To(Succeed())
-					Expect(resourceutil.GetStatus(resReq, "workflows")).To(Equal("0"))
-					Expect(resourceutil.GetStatus(resReq, "workflowsSucceeded")).To(Equal("0"))
-					Expect(resourceutil.GetStatus(resReq, "workflowsFailed")).To(Equal("0"))
+					Expect(resourceutil.GetWorkflowsCounterStatus(resReq, "workflows")).To(Equal(int64(0)))
+					Expect(resourceutil.GetWorkflowsCounterStatus(resReq, "workflowsSucceeded")).To(Equal(int64(0)))
+					Expect(resourceutil.GetWorkflowsCounterStatus(resReq, "workflowsFailed")).To(Equal(int64(0)))
 				})
 			})
 
@@ -744,9 +744,9 @@ var _ = Describe("DynamicResourceRequestController", func() {
 					_, err := t.reconcileUntilCompletion(reconciler, resReq)
 					Expect(err).NotTo(HaveOccurred())
 					Expect(fakeK8sClient.Get(ctx, resReqNameNamespace, resReq)).To(Succeed())
-					Expect(resourceutil.GetStatus(resReq, "workflows")).To(Equal("1"))
-					Expect(resourceutil.GetStatus(resReq, "workflowsSucceeded")).To(Equal("1"))
-					Expect(resourceutil.GetStatus(resReq, "workflowsFailed")).To(Equal("0"))
+					Expect(resourceutil.GetWorkflowsCounterStatus(resReq, "workflows")).To(Equal(int64(1)))
+					Expect(resourceutil.GetWorkflowsCounterStatus(resReq, "workflowsSucceeded")).To(Equal(int64(1)))
+					Expect(resourceutil.GetWorkflowsCounterStatus(resReq, "workflowsFailed")).To(Equal(int64(0)))
 				})
 			})
 		})
@@ -881,8 +881,8 @@ func setWorkflowsCounterStatus(resReq *unstructured.Unstructured) {
 	if resReq.Object["status"] == nil {
 		resReq.Object["status"] = map[string]interface{}{}
 	}
-	resourceutil.SetStatus(resReq, l, "workflows", "1",
-		"workflowsSucceeded", "1", "workflowsFailed", "0")
+	resourceutil.SetStatus(resReq, l, "workflows", int64(1),
+		"workflowsSucceeded", int64(1), "workflowsFailed", int64(0))
 	Expect(fakeK8sClient.Status().Update(ctx, resReq)).To(Succeed())
 }
 

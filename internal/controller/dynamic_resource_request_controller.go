@@ -20,7 +20,6 @@ import (
 	"context"
 	"errors"
 	"fmt"
-	"strconv"
 	"strings"
 
 	apiextensionsv1 "k8s.io/apiextensions-apiserver/pkg/apis/apiextensions/v1"
@@ -174,10 +173,10 @@ func (r *DynamicResourceRequestController) Reconcile(ctx context.Context, req ct
 	}
 
 	if !promise.HasPipeline(v1alpha1.WorkflowTypeResource, v1alpha1.WorkflowActionConfigure) {
-		return r.nextReconciliation(logger), r.updateStatusWorkflows(rr, ctx, "0", "0", "0")
+		return r.nextReconciliation(logger), r.updateWorkflowStatusCountersToZero(rr, ctx)
 	}
 
-	statusUpdate, err := r.generateResourceStatus(ctx, rr, strconv.Itoa(len(pipelineResources)))
+	statusUpdate, err := r.generateResourceStatus(ctx, rr, int64(len(pipelineResources)))
 	if err != nil {
 		return ctrl.Result{}, err
 	}
@@ -197,7 +196,7 @@ func (r *DynamicResourceRequestController) Reconcile(ctx context.Context, req ct
 	return ctrl.Result{}, nil
 }
 
-func (r *DynamicResourceRequestController) generateResourceStatus(ctx context.Context, rr *unstructured.Unstructured, numberOfPipelines string) (bool, error) {
+func (r *DynamicResourceRequestController) generateResourceStatus(ctx context.Context, rr *unstructured.Unstructured, numberOfPipelines int64) (bool, error) {
 	failed, misplaced, pending, ready, err := r.getWorksStatus(ctx, rr)
 	if err != nil {
 		return false, err
@@ -330,17 +329,17 @@ func (r *DynamicResourceRequestController) getWorksStatus(ctx context.Context, r
 	return failed, misplaced, pending, ready, nil
 }
 
-func (r *DynamicResourceRequestController) generateStatusWorkflows(rr *unstructured.Unstructured, numOfPipelines string) bool {
+func (r *DynamicResourceRequestController) generateStatusWorkflows(rr *unstructured.Unstructured, numOfPipelines int64) bool {
 	completedCond := resourceutil.GetCondition(rr, resourceutil.ConfigureWorkflowCompletedCondition)
-	var desiredWorkflows, desiredWorkflowsSucceeded, desiredWorkflowsFailed string
+	var desiredWorkflows, desiredWorkflowsSucceeded, desiredWorkflowsFailed int64
 	if completedCond == nil {
-		desiredWorkflows, desiredWorkflowsSucceeded, desiredWorkflowsFailed = "0", "0", "0"
+		desiredWorkflows, desiredWorkflowsSucceeded, desiredWorkflowsFailed = int64(0), int64(0), int64(0)
 	} else if completedCond.Status == v1.ConditionTrue {
-		desiredWorkflows, desiredWorkflowsSucceeded, desiredWorkflowsFailed = numOfPipelines, numOfPipelines, "0"
+		desiredWorkflows, desiredWorkflowsSucceeded, desiredWorkflowsFailed = numOfPipelines, numOfPipelines, int64(0)
 	}
-	if resourceutil.GetStatus(rr, "workflows") != desiredWorkflows ||
-		resourceutil.GetStatus(rr, "workflowsSucceeded") != desiredWorkflowsSucceeded ||
-		resourceutil.GetStatus(rr, "workflowsFailed") != desiredWorkflowsFailed {
+	if resourceutil.GetWorkflowsCounterStatus(rr, "workflows") != desiredWorkflows ||
+		resourceutil.GetWorkflowsCounterStatus(rr, "workflowsSucceeded") != desiredWorkflowsSucceeded ||
+		resourceutil.GetWorkflowsCounterStatus(rr, "workflowsFailed") != desiredWorkflowsFailed {
 
 		resourceutil.SetStatus(rr, r.Log, "workflows", desiredWorkflows,
 			"workflowsSucceeded", desiredWorkflowsSucceeded, "workflowsFailed", desiredWorkflowsFailed)
@@ -349,12 +348,12 @@ func (r *DynamicResourceRequestController) generateStatusWorkflows(rr *unstructu
 	return false
 }
 
-func (r *DynamicResourceRequestController) updateStatusWorkflows(rr *unstructured.Unstructured, ctx context.Context, workflows, workflowsSucceeded, workflowsFailed string) error {
-	if resourceutil.GetStatus(rr, "workflows") != workflows ||
-		resourceutil.GetStatus(rr, "workflowsSucceeded") != workflowsSucceeded ||
-		resourceutil.GetStatus(rr, "workflowsFailed") != workflowsFailed {
+func (r *DynamicResourceRequestController) updateWorkflowStatusCountersToZero(rr *unstructured.Unstructured, ctx context.Context) error {
+	if resourceutil.GetWorkflowsCounterStatus(rr, "workflows") != 0 ||
+		resourceutil.GetWorkflowsCounterStatus(rr, "workflowsSucceeded") != 0 ||
+		resourceutil.GetWorkflowsCounterStatus(rr, "workflowsFailed") != 0 {
 
-		resourceutil.SetStatus(rr, r.Log, "workflows", "0", "workflowsSucceeded", "0", "workflowsFailed", "0")
+		resourceutil.SetStatus(rr, r.Log, "workflows", int64(0), "workflowsSucceeded", int64(0), "workflowsFailed", int64(0))
 		return r.Client.Status().Update(ctx, rr)
 	}
 	return nil

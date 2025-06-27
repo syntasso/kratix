@@ -224,6 +224,15 @@ spec:
                 type: string
               version:
                 type: string
+              workflows:
+                format: int64
+                type: integer
+              workflowsFailed:
+                format: int64
+                type: integer
+              workflowsSucceeded:
+                format: int64
+                type: integer
             type: object
         type: object
     served: true
