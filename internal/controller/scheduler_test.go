@@ -488,6 +488,10 @@ var _ = Describe("Controllers/Scheduler", func() {
 					resourceWork.Status.Conditions[0].LastTransitionTime = metav1.Time{}
 					resourceWork.Status.Conditions[1].LastTransitionTime = metav1.Time{}
 					Expect(resourceWork.Status.Conditions).To(ConsistOf(misplacedConditions(resourceWork.Spec.WorkloadGroups[0].ID)))
+					Eventually(schedulerRecorder.Events).Should(Receive(ContainSubstring(
+						fmt.Sprintf(
+							"Target destination no longer matches destinationSelectors for workloadGroups: [%s]",
+							resourceWork.Spec.WorkloadGroups[0].ID))))
 				})
 			})
 
