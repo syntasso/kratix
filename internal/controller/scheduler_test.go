@@ -849,12 +849,11 @@ var _ = Describe("Controllers/Scheduler", func() {
 					workplacements := &v1alpha1.WorkPlacementList{}
 					Expect(fakeK8sClient.List(context.Background(), workplacements)).To(Succeed())
 
-					Eventually(schedulerRecorder.Events).Should(Receive(
+					Expect(aggregateEvents(schedulerRecorder.Events)).To(SatisfyAll(
 						ContainSubstring(
-							"workplacement reconciled: %s, operation: created",
-							workplacements.Items[0].GetName(),
-						),
-					))
+							"Normal WorkplacementReconciled workplacement reconciled: %s, operation: created",
+							workplacements.Items[0].GetName()),
+						ContainSubstring("Normal AllWorkplacementsScheduled All workplacements scheduled successfully")))
 				})
 
 				When("multiple destination matches the scheduling rules", func() {

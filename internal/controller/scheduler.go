@@ -143,6 +143,8 @@ func (s *Scheduler) updateWorkStatus(w *v1alpha1.Work, unscheduledWorkloadGroupI
 			Reason:  "AllWorkplacementsScheduled",
 			Message: "All workplacements scheduled successfully",
 		}
+		s.EventRecorder.Eventf(w, corev1.EventTypeNormal, "AllWorkplacementsScheduled",
+			"All workplacements scheduled successfully")
 	}
 
 	if apimeta.SetStatusCondition(&w.Status.Conditions, scheduleSucceededCond) {
