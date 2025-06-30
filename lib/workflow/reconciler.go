@@ -151,8 +151,18 @@ func ReconcileConfigure(opts Opts) (abort bool, err error) {
 		pipelineIndex = nextPipelineIndex(opts, mostRecentJob)
 	}
 
+	var updateStatus bool
+
+	if pipelineIndex == 0 {
+		workflowsFailed := resourceutil.GetWorkflowsCounterStatus(opts.parentObject, "workflowsFailed")
+		if workflowsFailed != 0 {
+			resourceutil.SetStatus(opts.parentObject, opts.logger, "workflowsFailed", int64(0))
+			updateStatus = true
+		}
+	}
+
 	workflowsSucceededCount := resourceutil.GetWorkflowsCounterStatus(opts.parentObject, "workflowsSucceeded")
-	if workflowsSucceededCount != int64(pipelineIndex) {
+	if updateStatus || workflowsSucceededCount != int64(pipelineIndex) {
 		resourceutil.SetStatus(opts.parentObject, opts.logger, "workflowsSucceeded", int64(pipelineIndex))
 		if err = opts.client.Status().Update(opts.ctx, opts.parentObject); err != nil {
 			opts.logger.Error(err, "failed to update parent object status")
@@ -205,6 +215,7 @@ func ReconcileConfigure(opts Opts) (abort bool, err error) {
 		if isFailed(mostRecentJob) {
 			resourceutil.MarkConfigureWorkflowAsFailed(opts.logger, opts.parentObject, pipeline.Name)
 			resourceutil.MarkReconciledFailing(opts.parentObject, resourceutil.ConfigureWorkflowCompletedFailedReason)
+			resourceutil.SetStatus(opts.parentObject, opts.logger, "workflowsFailed", int64(1))
 			if err := opts.client.Status().Update(opts.ctx, opts.parentObject); err != nil {
 				opts.logger.Error(err, "failed to update parent object status")
 				return false, err

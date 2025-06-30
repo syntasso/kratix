@@ -170,7 +170,7 @@ var _ = Describe("Workflow Reconciler", func() {
 							"kratix.io/manual-reconciliation": "true",
 						})
 
-						resourceutil.SetStatus(uPromise, logger, "workflowsSucceeded", int64(0))
+						resourceutil.SetStatus(uPromise, logger, "workflowsSucceeded", int64(0), "workflowsFailed", int64(0))
 						opts := workflow.NewOpts(ctx, fakeK8sClient, eventRecorder, logger, uPromise, workflowPipelines, "promise", 5)
 						abort, err := workflow.ReconcileConfigure(opts)
 
@@ -196,7 +196,9 @@ var _ = Describe("Workflow Reconciler", func() {
 					Expect(jobList).To(HaveLen(2))
 					Expect(findByName(jobList, workflowPipelines[1].Job.Name)).To(BeTrue())
 
-					// TODO: test that it Updates the status
+					Expect(fakeK8sClient.Get(ctx, types.NamespacedName{Name: promise.Name}, &promise)).To(Succeed())
+					Expect(promise.Status.WorkflowsSucceeded).To(Equal(int64(1)))
+					Expect(promise.Status.WorkflowsFailed).To(Equal(int64(0)))
 				})
 
 				When("there are no more pipelines to run", func() {
@@ -212,6 +214,9 @@ var _ = Describe("Workflow Reconciler", func() {
 						Expect(err).NotTo(HaveOccurred())
 						Expect(listJobs(namespace)).To(HaveLen(2))
 						Expect(abort).To(BeFalse())
+						Expect(fakeK8sClient.Get(ctx, types.NamespacedName{Name: promise.Name}, &promise)).To(Succeed())
+						Expect(promise.Status.WorkflowsSucceeded).To(Equal(int64(2)))
+						Expect(promise.Status.WorkflowsFailed).To(Equal(int64(0)))
 					})
 				})
 			})
@@ -253,6 +258,9 @@ var _ = Describe("Workflow Reconciler", func() {
 					Expect(reconciledCond.Reason).To(Equal("ConfigureWorkflowFailed"))
 					Expect(string(reconciledCond.Status)).To(Equal("False"))
 
+					Expect(promise.Status.WorkflowsFailed).To(Equal(int64(1)))
+					Expect(promise.Status.WorkflowsSucceeded).To(Equal(int64(0)))
+
 					Eventually(eventRecorder.Events).Should(Receive(ContainSubstring(
 						"Warning ConfigureWorkflowFailed A Configure Pipeline has failed: pipeline-1")))
 				})
@@ -274,6 +282,33 @@ var _ = Describe("Workflow Reconciler", func() {
 						jobList := listJobs(namespace)
 						Expect(jobList).To(HaveLen(2))
 						Expect(findByName(jobList, newWorkflowPipelines[0].Job.GetName())).To(BeTrue())
+					})
+				})
+
+				When("the reconciliation is triggered and the previously failing job succeeds", func() {
+					It("updates the promise status successfully", func() {
+						Expect(fakeK8sClient.Get(ctx, types.NamespacedName{Name: promise.Name}, &promise)).To(Succeed())
+						Expect(promise.Status.WorkflowsFailed).To(Equal(int64(1)))
+						Expect(promise.Status.WorkflowsSucceeded).To(Equal(int64(0)))
+
+						// Trigger the workflow via the manual reconciliation, running the pipeline from the start
+						labelPromiseForManualReconciliation("redis")
+						newWorkflowPipelines, uPromise := setupTest(promise, pipelines)
+						opts := workflow.NewOpts(ctx, fakeK8sClient, eventRecorder, logger, uPromise, newWorkflowPipelines, "promise", 5)
+						abort, err = workflow.ReconcileConfigure(opts)
+						Expect(abort).To(BeTrue())
+						Expect(err).NotTo(HaveOccurred())
+
+						Expect(fakeK8sClient.Get(ctx, types.NamespacedName{Name: promise.Name}, &promise)).To(Succeed())
+						Expect(promise.Status.WorkflowsFailed).To(Equal(int64(0)))
+
+						// Mark the job created by the first pipeline as complete
+						markJobAsComplete(newWorkflowPipelines[0].Job.Name)
+						abort, err = workflow.ReconcileConfigure(opts)
+						Expect(abort).To(BeTrue())
+						Expect(err).NotTo(HaveOccurred())
+						Expect(fakeK8sClient.Get(ctx, types.NamespacedName{Name: promise.Name}, &promise)).To(Succeed())
+						Expect(promise.Status.WorkflowsSucceeded).To(Equal(int64(1)))
 					})
 				})
 			})
@@ -476,6 +511,9 @@ var _ = Describe("Workflow Reconciler", func() {
 					HaveKeyWithValue("reason", "PipelinesInProgress"),
 					HaveKeyWithValue("lastTransitionTime", Not(BeEmpty())),
 				))
+
+				Expect(resourceutil.GetWorkflowsCounterStatus(updatedResource, "workflowsSucceeded")).To(Equal(int64((0))))
+				Expect(resourceutil.GetWorkflowsCounterStatus(updatedResource, "workflowsFailed")).To(Equal(int64(0)))
 			})
 
 			It("fires an event for the new pipeline", func() {
@@ -1963,6 +2001,7 @@ func setupTest(promise v1alpha1.Promise, pipelines []v1alpha1.Pipeline) ([]v1alp
 		generatedResources.Job.SetCreationTimestamp(nextTimestamp())
 		workflowPipelines = append(workflowPipelines, generatedResources)
 	}
+
 	return workflowPipelines, uPromise
 }
 

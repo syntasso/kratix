@@ -306,11 +306,19 @@ func GetWorkflowsCounterStatus(rr *unstructured.Unstructured, key string) int64 
 	}
 
 	nestedMap := rr.Object["status"].(map[string]interface{})
-	if nestedMap[key] == nil {
+	value := nestedMap[key]
+	if value == nil {
 		return -1
 	}
 
-	return nestedMap[key].(int64)
+	switch v := value.(type) {
+	case float64:
+		return int64(v)
+	case int64:
+		return v
+	}
+
+	return -1
 }
 
 // GetObservedGeneration returns 0 when either status or status.observedGeneration is nil

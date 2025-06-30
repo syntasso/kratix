@@ -160,11 +160,6 @@ func (r *PromiseReconciler) Reconcile(ctx context.Context, req ctrl.Request) (ct
 		return r.deletePromise(opts, promise)
 	}
 
-	usPromise, err := promise.ToUnstructured()
-	if err != nil {
-		return ctrl.Result{}, fmt.Errorf("Error converting Promise to Unstructured: %w", err)
-	}
-
 	if value, found := promise.Labels[v1alpha1.PromiseVersionLabel]; found {
 		if promise.Status.Version != value {
 			promise.Status.Version = value
@@ -238,6 +233,11 @@ func (r *PromiseReconciler) Reconcile(ctx context.Context, req ctrl.Request) (ct
 
 	if resourceutil.DoesNotContainFinalizer(promise, dependenciesCleanupFinalizer) {
 		return addFinalizers(opts, promise, []string{dependenciesCleanupFinalizer})
+	}
+
+	usPromise, err := promise.ToUnstructured()
+	if err != nil {
+		return ctrl.Result{}, fmt.Errorf("Error converting Promise to Unstructured: %w", err)
 	}
 
 	ctrlResult, err := r.reconcileDependenciesAndPromiseWorkflows(opts, promise, usPromise)
