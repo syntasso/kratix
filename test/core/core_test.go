@@ -166,6 +166,9 @@ var _ = Describe("Core Tests", Ordered, func() {
 						reconciledCondition := `.status.conditions[?(@.type=="Reconciled")]`
 						worksSucceededCondition := `.status.conditions[?(@.type=="WorksSucceeded")]`
 						promiseStatus := ".status.status"
+						promiseWorkflows := ".status.workflows"
+						promiseWorkflowsSucceeded := ".status.workflowsSucceeded"
+						promiseWorkflowsFailed := ".status.workflowsFailed"
 
 						Eventually(func(g Gomega) {
 							g.Expect(
@@ -180,6 +183,15 @@ var _ = Describe("Core Tests", Ordered, func() {
 							g.Expect(
 								platform.Kubectl(append(promiseArgs, fmt.Sprintf(`-o=jsonpath='{%s.status}'`, worksSucceededCondition))...),
 							).To(ContainSubstring("True"))
+							g.Expect(
+								platform.Kubectl(append(promiseArgs, fmt.Sprintf(`-o=jsonpath='{%s}'`, promiseWorkflows))...),
+							).To(ContainSubstring("1"))
+							g.Expect(
+								platform.Kubectl(append(promiseArgs, fmt.Sprintf(`-o=jsonpath='{%s}'`, promiseWorkflowsFailed))...),
+							).To(ContainSubstring("0"))
+							g.Expect(
+								platform.Kubectl(append(promiseArgs, fmt.Sprintf(`-o=jsonpath='{%s}'`, promiseWorkflowsSucceeded))...),
+							).To(ContainSubstring("1"))
 						}, timeout, interval).Should(Succeed())
 					})
 
@@ -208,6 +220,10 @@ var _ = Describe("Core Tests", Ordered, func() {
 						g.Expect(platform.Kubectl(append(rrArgs, "-o=jsonpath='{.status.stage}'")...)).To(ContainSubstring("two"))
 						g.Expect(platform.Kubectl(append(rrArgs, "-o=jsonpath='{.status.completed}'")...)).To(ContainSubstring("true"))
 						g.Expect(platform.Kubectl(append(rrArgs, `-o=jsonpath='{.status.observedGeneration}'`)...)).To(Equal(generation))
+
+						g.Expect(platform.Kubectl(append(rrArgs, "-o=jsonpath='{.status.workflows}'")...)).To(ContainSubstring("2"))
+						g.Expect(platform.Kubectl(append(rrArgs, "-o=jsonpath='{.status.workflowsSucceeded}'")...)).To(ContainSubstring("2"))
+						g.Expect(platform.Kubectl(append(rrArgs, "-o=jsonpath='{.status.workflowsFailed}'")...)).To(ContainSubstring("0"))
 					}, timeout, interval).Should(Succeed())
 
 					Eventually(func() bool {
