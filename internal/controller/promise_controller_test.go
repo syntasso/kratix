@@ -623,6 +623,14 @@ var _ = Describe("PromiseController", func() {
 						Expect(err).NotTo(HaveOccurred())
 					})
 
+					By("setting status.workflows to the number of configure pipelines", func() {
+						setReconcileConfigureWorkflowToReturnFinished()
+						_, err = t.reconcileUntilCompletion(reconciler, promise)
+						Expect(err).NotTo(HaveOccurred())
+						Expect(fakeK8sClient.Get(ctx, promiseName, promise)).To(Succeed())
+						Expect(promise.Status.Workflows).To(Equal(int64(1)))
+					})
+
 					By("finishing the creation once the job is finished and publishes event", func() {
 						setReconcileConfigureWorkflowToReturnFinished()
 						markPromiseWorkflowAsCompleted(fakeK8sClient, promise)
