@@ -146,7 +146,7 @@ func MarkReconciledPaused(obj *unstructured.Unstructured) {
 
 // Updates the workflowsSucceeded status for the provided object.
 func UpdateWorkflowsSucceeded(obj *unstructured.Unstructured, logger logr.Logger, numberSucceeded int) {
-	SetStatus(obj, logger, "workflowsSucceeded", numberSucceeded)
+	SetStatus(obj, logger, "workflowsSucceeded", int64(numberSucceeded))
 }
 
 func MarkDeleteWorkflowAsFailed(logger logr.Logger, obj *unstructured.Unstructured) {
