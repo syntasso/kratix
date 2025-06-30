@@ -135,6 +135,14 @@ var _ = Describe("DynamicResourceRequestController", func() {
 				Expect(result).To(Equal(ctrl.Result{}))
 			})
 
+			By("setting status.workflows to the number of configure pipelines", func() {
+				setReconcileConfigureWorkflowToReturnFinished()
+				_, err = t.reconcileUntilCompletion(reconciler, resReq)
+				Expect(err).NotTo(HaveOccurred())
+				Expect(fakeK8sClient.Get(ctx, resReqNameNamespace, resReq)).To(Succeed())
+				Expect(resourceutil.GetWorkflowsCounterStatus(resReq, "workflows")).To(Equal(int64(1)))
+			})
+
 			By("finishing the creation once the job is finished", func() {
 				setConfigureWorkflowStatus(resReq, v1.ConditionTrue)
 				setReconcileConfigureWorkflowToReturnFinished()

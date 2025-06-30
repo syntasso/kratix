@@ -169,7 +169,7 @@ var _ = Describe("PromiseController", func() {
 						Expect(promise.Status.Kind).To(Equal("redis"))
 					})
 
-					By("updating the status with workflow counters all set to zero", func() {
+					By("updating the status with workflow counters all to zero", func() {
 						Expect(promise.Status.Workflows).To(Equal(int64(0)))
 						Expect(promise.Status.WorkflowsSucceeded).To(Equal(int64(0)))
 						Expect(promise.Status.WorkflowsFailed).To(Equal(int64(0)))

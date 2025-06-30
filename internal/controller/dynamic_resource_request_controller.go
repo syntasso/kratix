@@ -203,7 +203,7 @@ func (r *DynamicResourceRequestController) generateResourceStatus(ctx context.Co
 	}
 	worksSucceededUpdate := r.updateWorksSucceededCondition(rr, failed, pending, ready, misplaced)
 	reconciledUpdate := r.updateReconciledCondition(rr)
-	workflowsCounterStatusUpdate := r.generateStatusWorkflows(rr, numberOfPipelines)
+	workflowsCounterStatusUpdate := r.generateWorkflowsCounterStatus(rr, numberOfPipelines)
 
 	return worksSucceededUpdate || reconciledUpdate || workflowsCounterStatusUpdate, nil
 }
@@ -329,13 +329,14 @@ func (r *DynamicResourceRequestController) getWorksStatus(ctx context.Context, r
 	return failed, misplaced, pending, ready, nil
 }
 
-func (r *DynamicResourceRequestController) generateStatusWorkflows(rr *unstructured.Unstructured, numOfPipelines int64) bool {
+func (r *DynamicResourceRequestController) generateWorkflowsCounterStatus(rr *unstructured.Unstructured, numOfPipelines int64) bool {
 	completedCond := resourceutil.GetCondition(rr, resourceutil.ConfigureWorkflowCompletedCondition)
 	var desiredWorkflows, desiredWorkflowsSucceeded, desiredWorkflowsFailed int64
+	desiredWorkflows = numOfPipelines
 	if completedCond == nil {
-		desiredWorkflows, desiredWorkflowsSucceeded, desiredWorkflowsFailed = int64(0), int64(0), int64(0)
+		desiredWorkflowsSucceeded, desiredWorkflowsFailed = int64(0), int64(0)
 	} else if completedCond.Status == v1.ConditionTrue {
-		desiredWorkflows, desiredWorkflowsSucceeded, desiredWorkflowsFailed = numOfPipelines, numOfPipelines, int64(0)
+		desiredWorkflowsSucceeded, desiredWorkflowsFailed = numOfPipelines, int64(0)
 	}
 	if resourceutil.GetWorkflowsCounterStatus(rr, "workflows") != desiredWorkflows ||
 		resourceutil.GetWorkflowsCounterStatus(rr, "workflowsSucceeded") != desiredWorkflowsSucceeded ||
