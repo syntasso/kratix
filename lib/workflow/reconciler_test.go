@@ -169,6 +169,8 @@ var _ = Describe("Workflow Reconciler", func() {
 						uPromise.SetLabels(map[string]string{
 							"kratix.io/manual-reconciliation": "true",
 						})
+
+						resourceutil.SetStatus(uPromise, logger, "workflowsSucceeded", int64(0))
 						opts := workflow.NewOpts(ctx, fakeK8sClient, eventRecorder, logger, uPromise, workflowPipelines, "promise", 5)
 						abort, err := workflow.ReconcileConfigure(opts)
 
