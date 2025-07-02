@@ -124,6 +124,9 @@ type PromiseStatus struct {
 	Kind               string                  `json:"kind,omitempty"`
 	APIVersion         string                  `json:"apiVersion,omitempty"`
 	Status             string                  `json:"status,omitempty"`
+	Workflows          int64                   `json:"workflows"`
+	WorkflowsSucceeded int64                   `json:"workflowsSucceeded"`
+	WorkflowsFailed    int64                   `json:"workflowsFailed"`
 	RequiredPromises   []RequiredPromiseStatus `json:"requiredPromises,omitempty"`
 	RequiredBy         []RequiredBy            `json:"requiredBy,omitempty"`
 	LastAvailableTime  *metav1.Time            `json:"lastAvailableTime,omitempty"`

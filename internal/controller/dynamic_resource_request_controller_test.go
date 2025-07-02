@@ -130,9 +130,22 @@ var _ = Describe("DynamicResourceRequestController", func() {
 				Expect(strings.TrimSpace(destinationSelectors)).To(Equal(`- matchlabels: environment: dev source: promise`))
 			})
 
+			By("setting the workflows counter to the number of pipelines", func() {
+				Expect(fakeK8sClient.Get(ctx, resReqNameNamespace, resReq)).To(Succeed())
+				Expect(resourceutil.GetWorkflowsCounterStatus(resReq, "workflows")).To(Equal(int64(1)))
+			})
+
 			By("not requeuing, since the controller is watching the job", func() {
 				Expect(err).NotTo(HaveOccurred())
 				Expect(result).To(Equal(ctrl.Result{}))
+			})
+
+			By("setting status.workflows to the number of configure pipelines", func() {
+				setReconcileConfigureWorkflowToReturnFinished()
+				_, err = t.reconcileUntilCompletion(reconciler, resReq)
+				Expect(err).NotTo(HaveOccurred())
+				Expect(fakeK8sClient.Get(ctx, resReqNameNamespace, resReq)).To(Succeed())
+				Expect(resourceutil.GetWorkflowsCounterStatus(resReq, "workflows")).To(Equal(int64(1)))
 			})
 
 			By("finishing the creation once the job is finished", func() {
@@ -293,6 +306,7 @@ var _ = Describe("DynamicResourceRequestController", func() {
 			setConfigureWorkflowStatus(resReq, v1.ConditionTrue, lastTransitionTime)
 			setWorksSucceeded(resReq)
 			setReconciled(resReq)
+			setWorkflowsCounterStatus(resReq)
 			Expect(fakeK8sClient.Status().Update(ctx, resReq)).To(Succeed())
 
 			request = ctrl.Request{NamespacedName: types.NamespacedName{Name: resReqNameNamespace.Name, Namespace: resReqNameNamespace.Namespace}}
@@ -723,6 +737,38 @@ var _ = Describe("DynamicResourceRequestController", func() {
 			})
 		})
 
+		Describe("Workflows", func() {
+			When("there are no resource configure pipelines", func() {
+				It("sets all workflows counter status to 0", func() {
+					promise.Spec.Workflows.Resource.Configure = nil
+					Expect(fakeK8sClient.Update(ctx, promise)).To(Succeed())
+					_, err := t.reconcileUntilCompletion(reconciler, resReq)
+					Expect(err).NotTo(HaveOccurred())
+					Expect(fakeK8sClient.Get(ctx, resReqNameNamespace, resReq)).To(Succeed())
+					Expect(resourceutil.GetWorkflowsCounterStatus(resReq, "workflows")).To(Equal(int64(0)))
+					Expect(resourceutil.GetWorkflowsCounterStatus(resReq, "workflowsSucceeded")).To(Equal(int64(0)))
+					Expect(resourceutil.GetWorkflowsCounterStatus(resReq, "workflowsFailed")).To(Equal(int64(0)))
+				})
+			})
+
+			When("all configure pipelines are successful", func() {
+				It("sets workflowsFailed to 0 and workflows should match workflowsSucceeded", func() {
+					resourceutil.SetStatus(resReq, l,
+						"workflows", int64(1),
+						"workflowsSucceeded", int64(0),
+						"workflowsFailed", int64(1),
+					)
+					Expect(fakeK8sClient.Status().Update(ctx, resReq)).To(Succeed())
+					setConfigureWorkflowStatus(resReq, v1.ConditionTrue)
+					_, err := t.reconcileUntilCompletion(reconciler, resReq)
+					Expect(err).NotTo(HaveOccurred())
+					Expect(fakeK8sClient.Get(ctx, resReqNameNamespace, resReq)).To(Succeed())
+					Expect(resourceutil.GetWorkflowsCounterStatus(resReq, "workflows")).To(Equal(int64(1)))
+					Expect(resourceutil.GetWorkflowsCounterStatus(resReq, "workflowsSucceeded")).To(Equal(int64(1)))
+					Expect(resourceutil.GetWorkflowsCounterStatus(resReq, "workflowsFailed")).To(Equal(int64(0)))
+				})
+			})
+		})
 	})
 
 	When("the promise is paused", func() {
@@ -847,6 +893,15 @@ func setReconciled(resReq *unstructured.Unstructured) {
 		Reason:  "Reconciled",
 		Message: "Reconciled",
 	})
+	Expect(fakeK8sClient.Status().Update(ctx, resReq)).To(Succeed())
+}
+
+func setWorkflowsCounterStatus(resReq *unstructured.Unstructured) {
+	if resReq.Object["status"] == nil {
+		resReq.Object["status"] = map[string]interface{}{}
+	}
+	resourceutil.SetStatus(resReq, l, "workflows", int64(1),
+		"workflowsSucceeded", int64(1), "workflowsFailed", int64(0))
 	Expect(fakeK8sClient.Status().Update(ctx, resReq)).To(Succeed())
 }
 

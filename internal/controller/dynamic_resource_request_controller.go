@@ -152,6 +152,11 @@ func (r *DynamicResourceRequestController) Reconcile(ctx context.Context, req ct
 		return ctrl.Result{}, err
 	}
 
+	if resourceutil.GetWorkflowsCounterStatus(rr, "workflows") != int64(len(pipelineResources)) {
+		resourceutil.SetStatus(rr, logger, "workflows", int64(len(pipelineResources)))
+		return ctrl.Result{}, r.Client.Status().Update(ctx, rr)
+	}
+
 	jobOpts := workflow.NewOpts(
 		ctx,
 		r.Client,
@@ -173,10 +178,10 @@ func (r *DynamicResourceRequestController) Reconcile(ctx context.Context, req ct
 	}
 
 	if !promise.HasPipeline(v1alpha1.WorkflowTypeResource, v1alpha1.WorkflowActionConfigure) {
-		return r.nextReconciliation(logger)
+		return r.nextReconciliation(logger), r.updateWorkflowStatusCountersToZero(rr, ctx)
 	}
 
-	statusUpdate, err := r.generateConditions(ctx, rr)
+	statusUpdate, err := r.generateResourceStatus(ctx, rr, int64(len(pipelineResources)))
 	if err != nil {
 		return ctrl.Result{}, err
 	}
@@ -190,21 +195,22 @@ func (r *DynamicResourceRequestController) Reconcile(ctx context.Context, req ct
 		if shouldUpdateLastSuccessfulConfigureWorkflowTime(workflowCompletedCondition, rr) {
 			return updateLastSuccessfulConfigureWorkflowTime(workflowCompletedCondition, rr, opts, logger)
 		}
-		return r.nextReconciliation(logger)
+		return r.nextReconciliation(logger), nil
 	}
 
 	return ctrl.Result{}, nil
 }
 
-func (r *DynamicResourceRequestController) generateConditions(ctx context.Context, rr *unstructured.Unstructured) (bool, error) {
+func (r *DynamicResourceRequestController) generateResourceStatus(ctx context.Context, rr *unstructured.Unstructured, numberOfPipelines int64) (bool, error) {
 	failed, misplaced, pending, ready, err := r.getWorksStatus(ctx, rr)
 	if err != nil {
 		return false, err
 	}
 	worksSucceededUpdate := r.updateWorksSucceededCondition(rr, failed, pending, ready, misplaced)
 	reconciledUpdate := r.updateReconciledCondition(rr)
+	workflowsCounterStatusUpdate := r.generateWorkflowsCounterStatus(rr, numberOfPipelines)
 
-	return worksSucceededUpdate || reconciledUpdate, nil
+	return worksSucceededUpdate || reconciledUpdate || workflowsCounterStatusUpdate, nil
 }
 
 func (r *DynamicResourceRequestController) updateReconciledCondition(rr *unstructured.Unstructured) bool {
@@ -326,6 +332,41 @@ func (r *DynamicResourceRequestController) getWorksStatus(ctx context.Context, r
 		}
 	}
 	return failed, misplaced, pending, ready, nil
+}
+
+func (r *DynamicResourceRequestController) generateWorkflowsCounterStatus(rr *unstructured.Unstructured, numOfPipelines int64) bool {
+	completedCond := resourceutil.GetCondition(rr, resourceutil.ConfigureWorkflowCompletedCondition)
+
+	desiredWorkflows := numOfPipelines
+	var desiredWorkflowsSucceeded int64
+
+	if completedCond != nil && completedCond.Status == v1.ConditionTrue {
+		desiredWorkflowsSucceeded = numOfPipelines
+	}
+
+	if resourceutil.GetWorkflowsCounterStatus(rr, "workflows") != desiredWorkflows ||
+		resourceutil.GetWorkflowsCounterStatus(rr, "workflowsSucceeded") != desiredWorkflowsSucceeded {
+
+		resourceutil.SetStatus(rr, r.Log,
+			"workflows", desiredWorkflows,
+			"workflowsSucceeded", desiredWorkflowsSucceeded,
+			"workflowsFailed", int64(0),
+		)
+
+		return true
+	}
+	return false
+}
+
+func (r *DynamicResourceRequestController) updateWorkflowStatusCountersToZero(rr *unstructured.Unstructured, ctx context.Context) error {
+	if resourceutil.GetWorkflowsCounterStatus(rr, "workflows") != 0 ||
+		resourceutil.GetWorkflowsCounterStatus(rr, "workflowsSucceeded") != 0 ||
+		resourceutil.GetWorkflowsCounterStatus(rr, "workflowsFailed") != 0 {
+
+		resourceutil.SetStatus(rr, r.Log, "workflows", int64(0), "workflowsSucceeded", int64(0), "workflowsFailed", int64(0))
+		return r.Client.Status().Update(ctx, rr)
+	}
+	return nil
 }
 
 func (r *DynamicResourceRequestController) deleteResources(o opts, promise *v1alpha1.Promise, resourceRequest *unstructured.Unstructured, resourceRequestIdentifier string) (ctrl.Result, error) {
@@ -456,9 +497,9 @@ func workflowsCompletedSuccessfully(workflowCompletedCondition *clusterv1.Condit
 		workflowCompletedCondition.Reason == resourceutil.PipelinesExecutedSuccessfully
 }
 
-func (r *DynamicResourceRequestController) nextReconciliation(logger logr.Logger) (ctrl.Result, error) {
+func (r *DynamicResourceRequestController) nextReconciliation(logger logr.Logger) ctrl.Result {
 	logger.Info("Scheduling next reconciliation", "ReconciliationInterval", r.ReconciliationInterval)
-	return ctrl.Result{RequeueAfter: r.ReconciliationInterval}, nil
+	return ctrl.Result{RequeueAfter: r.ReconciliationInterval}
 }
 
 func (r *DynamicResourceRequestController) manualReconciliationLabelSet(rr *unstructured.Unstructured) bool {

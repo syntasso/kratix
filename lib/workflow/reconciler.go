@@ -30,7 +30,7 @@ type Opts struct {
 	parentObject *unstructured.Unstructured
 	//TODO make this field private too? or everything public and no constructor func
 	Resources          []v1alpha1.PipelineJobResources
-	source             string
+	workflowType       string
 	numberOfJobsToKeep int
 	eventRecorder      record.EventRecorder
 
@@ -40,13 +40,13 @@ type Opts struct {
 var minimumPeriodBetweenCreatingPipelineResources = 1100 * time.Millisecond
 var ErrDeletePipelineFailed = fmt.Errorf("Delete Pipeline Failed")
 
-func NewOpts(ctx context.Context, client client.Client, eventRecorder record.EventRecorder, logger logr.Logger, parentObj *unstructured.Unstructured, resources []v1alpha1.PipelineJobResources, source string, numberOfJobsToKeep int) Opts {
+func NewOpts(ctx context.Context, client client.Client, eventRecorder record.EventRecorder, logger logr.Logger, parentObj *unstructured.Unstructured, resources []v1alpha1.PipelineJobResources, workflowType string, numberOfJobsToKeep int) Opts {
 	return Opts{
 		ctx:                ctx,
 		client:             client,
 		logger:             logger,
 		parentObject:       parentObj,
-		source:             source,
+		workflowType:       workflowType,
 		numberOfJobsToKeep: numberOfJobsToKeep,
 		Resources:          resources,
 		eventRecorder:      eventRecorder,
@@ -151,6 +151,25 @@ func ReconcileConfigure(opts Opts) (abort bool, err error) {
 		pipelineIndex = nextPipelineIndex(opts, mostRecentJob)
 	}
 
+	var updateStatus bool
+
+	if pipelineIndex == 0 {
+		workflowsFailed := resourceutil.GetWorkflowsCounterStatus(opts.parentObject, "workflowsFailed")
+		if workflowsFailed != 0 {
+			resourceutil.SetStatus(opts.parentObject, opts.logger, "workflowsFailed", int64(0))
+			updateStatus = true
+		}
+	}
+
+	workflowsSucceededCount := resourceutil.GetWorkflowsCounterStatus(opts.parentObject, "workflowsSucceeded")
+	if updateStatus || workflowsSucceededCount != int64(pipelineIndex) {
+		resourceutil.SetStatus(opts.parentObject, opts.logger, "workflowsSucceeded", int64(pipelineIndex))
+		if err = opts.client.Status().Update(opts.ctx, opts.parentObject); err != nil {
+			opts.logger.Error(err, "failed to update parent object status")
+			return false, err
+		}
+	}
+
 	if pipelineIndex >= len(opts.Resources) {
 		pipelineIndex = len(opts.Resources) - 1
 	}
@@ -196,6 +215,7 @@ func ReconcileConfigure(opts Opts) (abort bool, err error) {
 		if isFailed(mostRecentJob) {
 			resourceutil.MarkConfigureWorkflowAsFailed(opts.logger, opts.parentObject, pipeline.Name)
 			resourceutil.MarkReconciledFailing(opts.parentObject, resourceutil.ConfigureWorkflowCompletedFailedReason)
+			resourceutil.SetStatus(opts.parentObject, opts.logger, "workflowsFailed", int64(1))
 			if err := opts.client.Status().Update(opts.ctx, opts.parentObject); err != nil {
 				opts.logger.Error(err, "failed to update parent object status")
 				return false, err
@@ -211,7 +231,7 @@ func ReconcileConfigure(opts Opts) (abort bool, err error) {
 
 	if isRunning(mostRecentJob) {
 		opts.logger.Info("Job already inflight for another workflow, suspending it", "job", mostRecentJob.Name)
-		err := suspendJob(opts.ctx, opts.client, mostRecentJob)
+		err = suspendJob(opts.ctx, opts.client, mostRecentJob)
 		if err != nil {
 			opts.logger.Error(err, "failed to suspend Job", "job", mostRecentJob.GetName())
 		}
@@ -237,10 +257,10 @@ func getLabelsForPipelineJob(pipeline v1alpha1.PipelineJobResources) map[string]
 
 func labelsForJobs(opts Opts) map[string]string {
 	l := map[string]string{
-		v1alpha1.WorkflowTypeLabel: opts.source,
+		v1alpha1.WorkflowTypeLabel: opts.workflowType,
 	}
 	promiseName := opts.parentObject.GetName()
-	if strings.HasPrefix(opts.source, string(v1alpha1.WorkflowTypeResource)) {
+	if strings.HasPrefix(opts.workflowType, string(v1alpha1.WorkflowTypeResource)) {
 		promiseName = opts.parentObject.GetLabels()[v1alpha1.PromiseNameLabel]
 		l[v1alpha1.ResourceNameLabel] = opts.parentObject.GetName()
 	}
@@ -251,10 +271,10 @@ func labelsForJobs(opts Opts) map[string]string {
 // TODO: this part will be deprecated when we stop using the legacy labels
 func legacyLabelsForJobs(opts Opts) map[string]string {
 	l := map[string]string{
-		v1alpha1.WorkTypeLabel: opts.source,
+		v1alpha1.WorkTypeLabel: opts.workflowType,
 	}
 	promiseName := opts.parentObject.GetName()
-	if opts.source == string(v1alpha1.WorkTypeResource) {
+	if opts.workflowType == string(v1alpha1.WorkTypeResource) {
 		promiseName = opts.parentObject.GetLabels()[v1alpha1.PromiseNameLabel]
 		l[v1alpha1.ResourceNameLabel] = opts.parentObject.GetName()
 	}
@@ -366,7 +386,7 @@ func cleanup(opts Opts, namespace string) error {
 		}
 	}
 
-	allPipelineWorks, err := resourceutil.GetWorksByType(opts.client, v1alpha1.Type(opts.source), opts.parentObject)
+	allPipelineWorks, err := resourceutil.GetWorksByType(opts.client, v1alpha1.Type(opts.workflowType), opts.parentObject)
 	if err != nil {
 		opts.logger.Error(err, "failed to list works for Promise", "promise", opts.parentObject.GetName())
 		return err

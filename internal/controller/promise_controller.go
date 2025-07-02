@@ -160,11 +160,6 @@ func (r *PromiseReconciler) Reconcile(ctx context.Context, req ctrl.Request) (ct
 		return r.deletePromise(opts, promise)
 	}
 
-	usPromise, err := promise.ToUnstructured()
-	if err != nil {
-		return ctrl.Result{}, fmt.Errorf("Error converting Promise to Unstructured: %w", err)
-	}
-
 	if value, found := promise.Labels[v1alpha1.PromiseVersionLabel]; found {
 		if promise.Status.Version != value {
 			promise.Status.Version = value
@@ -240,6 +235,11 @@ func (r *PromiseReconciler) Reconcile(ctx context.Context, req ctrl.Request) (ct
 		return addFinalizers(opts, promise, []string{dependenciesCleanupFinalizer})
 	}
 
+	usPromise, err := promise.ToUnstructured()
+	if err != nil {
+		return ctrl.Result{}, fmt.Errorf("Error converting Promise to Unstructured: %w", err)
+	}
+
 	ctrlResult, err := r.reconcileDependenciesAndPromiseWorkflows(opts, promise, usPromise)
 	if err != nil {
 		return ctrl.Result{}, err
@@ -290,7 +290,7 @@ func (r *PromiseReconciler) Reconcile(ctx context.Context, req ctrl.Request) (ct
 	}
 	updateConditionOnPromise(promise, promiseAvailableStatusCondition(timeStamp))
 
-	statusUpdate, err := r.generateConditions(ctx, promise)
+	statusUpdate, err := r.generateConditions(ctx, promise, r.getWorkflowsCount(promise))
 	if err != nil {
 		return ctrl.Result{}, err
 	}
@@ -333,15 +333,34 @@ func (r *PromiseReconciler) setPausedReconciliationStatusConditions(ctx context.
 	return nil
 }
 
-func (r *PromiseReconciler) generateConditions(ctx context.Context, promise *v1alpha1.Promise) (bool, error) {
+func (r *PromiseReconciler) generateConditions(ctx context.Context, promise *v1alpha1.Promise, numberOfPipelines int64) (bool, error) {
 	failed, misplaced, pending, ready, err := r.getWorksStatus(ctx, promise)
 	if err != nil {
 		return false, err
 	}
 	worksSucceededUpdate := r.updateWorksSucceededCondition(promise, failed, pending, ready, misplaced)
 	reconciledUpdate := r.updateReconciledCondition(promise)
+	workflowsCounterStatusUpdate := r.generateWorkflowsCounterStatus(promise, numberOfPipelines)
 
-	return worksSucceededUpdate || reconciledUpdate, nil
+	return worksSucceededUpdate || reconciledUpdate || workflowsCounterStatusUpdate, nil
+}
+
+func (r *PromiseReconciler) generateWorkflowsCounterStatus(promise *v1alpha1.Promise, numOfPipelines int64) bool {
+	desiredWorkflows := numOfPipelines
+	var desiredWorkflowsSucceeded int64
+
+	completedCond := promise.GetCondition(string(resourceutil.ConfigureWorkflowCompletedCondition))
+	if completedCond != nil && completedCond.Status == metav1.ConditionTrue {
+		desiredWorkflowsSucceeded = numOfPipelines
+	}
+
+	if promise.Status.Workflows != desiredWorkflows || promise.Status.WorkflowsSucceeded != desiredWorkflowsSucceeded {
+		promise.Status.Workflows = desiredWorkflows
+		promise.Status.WorkflowsSucceeded = desiredWorkflowsSucceeded
+		promise.Status.WorkflowsFailed = 0
+		return true
+	}
+	return false
 }
 
 func (r *PromiseReconciler) updateReconciledCondition(promise *v1alpha1.Promise) bool {
@@ -745,8 +764,14 @@ func (r *PromiseReconciler) reconcileDependenciesAndPromiseWorkflows(o opts, pro
 		}
 	}
 
-	if !promise.HasPipeline(v1alpha1.WorkflowTypePromise, v1alpha1.WorkflowActionConfigure) {
-		return nil, nil
+	pipelineCount := r.getWorkflowsCount(promise)
+	if pipelineCount == 0 {
+		return nil, r.updateWorkflowStatusCountersToZero(o.ctx, promise)
+	}
+
+	if promise.Status.Workflows != pipelineCount {
+		promise.Status.Workflows = pipelineCount
+		return nil, r.Client.Update(o.ctx, promise)
 	}
 
 	//TODO remove finalizer if we don't have any configure (or delete?)
@@ -1325,6 +1350,18 @@ func setStatusFieldsOnCRD(rrCRD *apiextensionsv1.CustomResourceDefinition) {
 					Type:   "integer",
 					Format: "int64",
 				},
+				"workflows": {
+					Type:   "integer",
+					Format: "int64",
+				},
+				"workflowsSucceeded": {
+					Type:   "integer",
+					Format: "int64",
+				},
+				"workflowsFailed": {
+					Type:   "integer",
+					Format: "int64",
+				},
 				"conditions": {
 					Type: "array",
 					Items: &apiextensionsv1.JSONSchemaPropsOrArray{
@@ -1451,6 +1488,21 @@ func (r *PromiseReconciler) updatePromiseStatus(ctx context.Context, promise *v1
 		return fastRequeue, nil
 	}
 	return ctrl.Result{}, err
+}
+
+func (r *PromiseReconciler) updateWorkflowStatusCountersToZero(ctx context.Context, p *v1alpha1.Promise) error {
+	if p.Status.Workflows != 0 || p.Status.WorkflowsSucceeded != 0 || p.Status.WorkflowsFailed != 0 {
+		p.Status.Workflows, p.Status.WorkflowsSucceeded, p.Status.WorkflowsFailed = int64(0), int64(0), int64(0)
+		return r.Client.Status().Update(ctx, p)
+	}
+	return nil
+}
+
+func (r *PromiseReconciler) getWorkflowsCount(promise *v1alpha1.Promise) int64 {
+	if !promise.HasPipeline(v1alpha1.WorkflowTypePromise, v1alpha1.WorkflowActionConfigure) {
+		return int64(0)
+	}
+	return int64(len(promise.Spec.Workflows.Promise.Configure))
 }
 
 func updateConditionNotFulfilled(condition *metav1.Condition, reason, message string) {
