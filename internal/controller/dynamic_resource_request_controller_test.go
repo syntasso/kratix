@@ -130,6 +130,11 @@ var _ = Describe("DynamicResourceRequestController", func() {
 				Expect(strings.TrimSpace(destinationSelectors)).To(Equal(`- matchlabels: environment: dev source: promise`))
 			})
 
+			By("setting the workflows counter to the number of pipelines", func() {
+				Expect(fakeK8sClient.Get(ctx, resReqNameNamespace, resReq)).To(Succeed())
+				Expect(resourceutil.GetWorkflowsCounterStatus(resReq, "workflows")).To(Equal(int64(1)))
+			})
+
 			By("not requeuing, since the controller is watching the job", func() {
 				Expect(err).NotTo(HaveOccurred())
 				Expect(result).To(Equal(ctrl.Result{}))

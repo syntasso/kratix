@@ -152,6 +152,11 @@ func (r *DynamicResourceRequestController) Reconcile(ctx context.Context, req ct
 		return ctrl.Result{}, err
 	}
 
+	if resourceutil.GetWorkflowsCounterStatus(rr, "workflows") != int64(len(pipelineResources)) {
+		resourceutil.SetStatus(rr, logger, "workflows", int64(len(pipelineResources)))
+		return ctrl.Result{}, r.Client.Status().Update(ctx, rr)
+	}
+
 	jobOpts := workflow.NewOpts(
 		ctx,
 		r.Client,

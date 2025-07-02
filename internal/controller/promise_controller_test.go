@@ -605,6 +605,10 @@ var _ = Describe("PromiseController", func() {
 						Expect(role.GetLabels()).To(Equal(promiseCommonLabels))
 					})
 
+					By("setting the workflows counter to the number of pipelines", func() {
+						Expect(promise.Status.Workflows).To(Equal(int64(1)))
+					})
+
 					By("associates the new role with the new service account", func() {
 						Expect(resources[3]).To(BeAssignableToTypeOf(&rbacv1.ClusterRoleBinding{}))
 						binding := resources[3].(*rbacv1.ClusterRoleBinding)

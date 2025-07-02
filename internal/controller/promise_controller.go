@@ -764,8 +764,14 @@ func (r *PromiseReconciler) reconcileDependenciesAndPromiseWorkflows(o opts, pro
 		}
 	}
 
-	if !promise.HasPipeline(v1alpha1.WorkflowTypePromise, v1alpha1.WorkflowActionConfigure) {
+	pipelineCount := r.getWorkflowsCount(promise)
+	if pipelineCount == 0 {
 		return nil, r.updateWorkflowStatusCountersToZero(o.ctx, promise)
+	}
+
+	if promise.Status.Workflows != pipelineCount {
+		promise.Status.Workflows = pipelineCount
+		return nil, r.Client.Update(o.ctx, promise)
 	}
 
 	//TODO remove finalizer if we don't have any configure (or delete?)
