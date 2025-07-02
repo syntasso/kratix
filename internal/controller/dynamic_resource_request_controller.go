@@ -331,19 +331,23 @@ func (r *DynamicResourceRequestController) getWorksStatus(ctx context.Context, r
 
 func (r *DynamicResourceRequestController) generateWorkflowsCounterStatus(rr *unstructured.Unstructured, numOfPipelines int64) bool {
 	completedCond := resourceutil.GetCondition(rr, resourceutil.ConfigureWorkflowCompletedCondition)
-	var desiredWorkflows, desiredWorkflowsSucceeded, desiredWorkflowsFailed int64
-	desiredWorkflows = numOfPipelines
-	if completedCond == nil {
-		desiredWorkflowsSucceeded, desiredWorkflowsFailed = int64(0), int64(0)
-	} else if completedCond.Status == v1.ConditionTrue {
-		desiredWorkflowsSucceeded, desiredWorkflowsFailed = numOfPipelines, int64(0)
-	}
-	if resourceutil.GetWorkflowsCounterStatus(rr, "workflows") != desiredWorkflows ||
-		resourceutil.GetWorkflowsCounterStatus(rr, "workflowsSucceeded") != desiredWorkflowsSucceeded ||
-		resourceutil.GetWorkflowsCounterStatus(rr, "workflowsFailed") != desiredWorkflowsFailed {
 
-		resourceutil.SetStatus(rr, r.Log, "workflows", desiredWorkflows,
-			"workflowsSucceeded", desiredWorkflowsSucceeded, "workflowsFailed", desiredWorkflowsFailed)
+	desiredWorkflows := numOfPipelines
+	var desiredWorkflowsSucceeded int64
+
+	if completedCond != nil && completedCond.Status == v1.ConditionTrue {
+		desiredWorkflowsSucceeded = numOfPipelines
+	}
+
+	if resourceutil.GetWorkflowsCounterStatus(rr, "workflows") != desiredWorkflows ||
+		resourceutil.GetWorkflowsCounterStatus(rr, "workflowsSucceeded") != desiredWorkflowsSucceeded {
+
+		resourceutil.SetStatus(rr, r.Log,
+			"workflows", desiredWorkflows,
+			"workflowsSucceeded", desiredWorkflowsSucceeded,
+			"workflowsFailed", int64(0),
+		)
+
 		return true
 	}
 	return false

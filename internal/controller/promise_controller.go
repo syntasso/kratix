@@ -346,21 +346,18 @@ func (r *PromiseReconciler) generateConditions(ctx context.Context, promise *v1a
 }
 
 func (r *PromiseReconciler) generateWorkflowsCounterStatus(promise *v1alpha1.Promise, numOfPipelines int64) bool {
-	completedCond := promise.GetCondition(string(resourceutil.ConfigureWorkflowCompletedCondition))
-	var desiredWorkflows, desiredWorkflowsSucceeded, desiredWorkflowsFailed int64
-	desiredWorkflows = numOfPipelines
-	if completedCond == nil {
-		desiredWorkflowsSucceeded, desiredWorkflowsFailed = int64(0), int64(0)
-	} else if completedCond.Status == metav1.ConditionTrue {
-		desiredWorkflowsSucceeded, desiredWorkflowsFailed = numOfPipelines, int64(0)
-	}
-	if promise.Status.Workflows != desiredWorkflows ||
-		promise.Status.WorkflowsSucceeded != desiredWorkflowsSucceeded ||
-		promise.Status.WorkflowsFailed != desiredWorkflowsFailed {
+	desiredWorkflows := numOfPipelines
+	var desiredWorkflowsSucceeded int64
 
+	completedCond := promise.GetCondition(string(resourceutil.ConfigureWorkflowCompletedCondition))
+	if completedCond != nil && completedCond.Status == metav1.ConditionTrue {
+		desiredWorkflowsSucceeded = numOfPipelines
+	}
+
+	if promise.Status.Workflows != desiredWorkflows || promise.Status.WorkflowsSucceeded != desiredWorkflowsSucceeded {
 		promise.Status.Workflows = desiredWorkflows
 		promise.Status.WorkflowsSucceeded = desiredWorkflowsSucceeded
-		promise.Status.WorkflowsFailed = desiredWorkflowsFailed
+		promise.Status.WorkflowsFailed = 0
 		return true
 	}
 	return false

@@ -748,6 +748,12 @@ var _ = Describe("DynamicResourceRequestController", func() {
 
 			When("all configure pipelines are successful", func() {
 				It("sets workflowsFailed to 0 and workflows should match workflowsSucceeded", func() {
+					resourceutil.SetStatus(resReq, l,
+						"workflows", int64(1),
+						"workflowsSucceeded", int64(0),
+						"workflowsFailed", int64(1),
+					)
+					Expect(fakeK8sClient.Status().Update(ctx, resReq)).To(Succeed())
 					setConfigureWorkflowStatus(resReq, v1.ConditionTrue)
 					_, err := t.reconcileUntilCompletion(reconciler, resReq)
 					Expect(err).NotTo(HaveOccurred())
