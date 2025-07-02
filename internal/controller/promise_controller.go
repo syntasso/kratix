@@ -1489,7 +1489,6 @@ func (r *PromiseReconciler) updatePromiseStatus(ctx context.Context, promise *v1
 
 func (r *PromiseReconciler) updateWorkflowStatusCountersToZero(ctx context.Context, p *v1alpha1.Promise) error {
 	if p.Status.Workflows != 0 || p.Status.WorkflowsSucceeded != 0 || p.Status.WorkflowsFailed != 0 {
-
 		p.Status.Workflows, p.Status.WorkflowsSucceeded, p.Status.WorkflowsFailed = int64(0), int64(0), int64(0)
 		return r.Client.Status().Update(ctx, p)
 	}

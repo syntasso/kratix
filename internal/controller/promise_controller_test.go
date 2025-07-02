@@ -647,6 +647,14 @@ var _ = Describe("PromiseController", func() {
 						)))
 					})
 
+					By("updating the status of the promise workflow", func() {
+						Expect(fakeK8sClient.Get(ctx, promiseName, promise)).To(Succeed())
+
+						Expect(promise.Status.Workflows).To(Equal(int64(1)))
+						Expect(promise.Status.WorkflowsFailed).To(Equal(int64(0)))
+						Expect(promise.Status.WorkflowsSucceeded).To(Equal(int64(1)))
+					})
+
 					By("not creating a Work for the empty static dependencies", func() {
 						works := &v1alpha1.WorkList{}
 						Expect(fakeK8sClient.List(ctx, works)).To(Succeed())

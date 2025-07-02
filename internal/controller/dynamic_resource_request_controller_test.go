@@ -733,7 +733,7 @@ var _ = Describe("DynamicResourceRequestController", func() {
 		})
 
 		Describe("Workflows", func() {
-			When("there is no resource configure pipelines", func() {
+			When("there are no resource configure pipelines", func() {
 				It("sets all workflows counter status to 0", func() {
 					promise.Spec.Workflows.Resource.Configure = nil
 					Expect(fakeK8sClient.Update(ctx, promise)).To(Succeed())

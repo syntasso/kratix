@@ -233,6 +233,10 @@ spec:
               workflowsSucceeded:
                 format: int64
                 type: integer
+            required:
+            - workflows
+            - workflowsFailed
+            - workflowsSucceeded
             type: object
         type: object
     served: true
