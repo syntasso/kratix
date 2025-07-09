@@ -3,6 +3,7 @@ package v1alpha1
 import (
 	"fmt"
 	"os"
+	"strconv"
 	"strings"
 
 	"github.com/syntasso/kratix/lib/hash"
@@ -18,6 +19,7 @@ import (
 	"sigs.k8s.io/controller-runtime/pkg/controller/controllerutil"
 )
 
+// The PipelineFactory defines the properties of the Promise pipeline.
 type PipelineFactory struct {
 	ID               string
 	Promise          *Promise
@@ -31,6 +33,7 @@ type PipelineFactory struct {
 	CRDPlural        string
 }
 
+// Resources configures the job Resources for a pipeline.
 func (p *PipelineFactory) Resources(jobEnv []corev1.EnvVar) (PipelineJobResources, error) {
 	wgScheduling := p.Promise.GetWorkloadGroupScheduling()
 	schedulingConfigMap, err := p.configMap(wgScheduling)
@@ -176,12 +179,11 @@ func (p *PipelineFactory) defaultEnvVars() []corev1.EnvVar {
 		{Name: KratixObjectNameEnvVar, Value: objName},
 		{Name: KratixObjectNamespaceEnvVar, Value: objNamespace},
 		{Name: KratixCrdPlural, Value: p.CRDPlural},
-		{Name: KratixClusterScoped, Value: fmt.Sprintf("%t", p.ClusterScoped)},
+		{Name: KratixClusterScoped, Value: strconv.FormatBool(p.ClusterScoped)},
 	}
 }
 
 func (p *PipelineFactory) readerContainer() corev1.Container {
-
 	return corev1.Container{
 		Name:    "reader",
 		Image:   os.Getenv("PIPELINE_ADAPTER_IMG"),
@@ -269,7 +271,9 @@ func (p *PipelineFactory) pipelineContainers() ([]corev1.Container, []corev1.Vol
 	return containers, volumes
 }
 
-func (p *PipelineFactory) pipelineJob(schedulingConfigMap *corev1.ConfigMap, serviceAccount *corev1.ServiceAccount, env []corev1.EnvVar) (*batchv1.Job, error) {
+func (p *PipelineFactory) pipelineJob(
+	schedulingConfigMap *corev1.ConfigMap, serviceAccount *corev1.ServiceAccount, env []corev1.EnvVar,
+) (*batchv1.Job, error) {
 	obj, objHash, err := p.getObjAndHash()
 	if err != nil {
 		return nil, err
@@ -356,7 +360,7 @@ func (p *PipelineFactory) statusWriterContainer(obj *unstructured.Unstructured, 
 			corev1.EnvVar{Name: KratixObjectNameEnvVar, Value: obj.GetName()},
 			corev1.EnvVar{Name: KratixObjectNamespaceEnvVar, Value: p.Namespace},
 			corev1.EnvVar{Name: KratixCrdPluralEnvVar, Value: p.CRDPlural},
-			corev1.EnvVar{Name: KratixClusterScopedEnvVar, Value: fmt.Sprintf("%t", p.ClusterScoped)},
+			corev1.EnvVar{Name: KratixClusterScopedEnvVar, Value: strconv.FormatBool(p.ClusterScoped)},
 		),
 		VolumeMounts: []corev1.VolumeMount{{
 			MountPath: "/work-creator-files/metadata",
@@ -476,7 +480,9 @@ func (p *PipelineFactory) role() ([]rbacv1.Role, error) {
 	return roles, nil
 }
 
-func (p *PipelineFactory) roleBindings(roles []rbacv1.Role, clusterRoles []rbacv1.ClusterRole, serviceAccount *corev1.ServiceAccount) []rbacv1.RoleBinding {
+func (p *PipelineFactory) roleBindings(
+	roles []rbacv1.Role, clusterRoles []rbacv1.ClusterRole, serviceAccount *corev1.ServiceAccount,
+) []rbacv1.RoleBinding {
 	var bindings []rbacv1.RoleBinding
 
 	for _, role := range roles {
@@ -507,7 +513,8 @@ func (p *PipelineFactory) roleBindings(roles []rbacv1.Role, clusterRoles []rbacv
 
 	for _, clusterRole := range clusterRoles {
 		clusterRoleLabels := clusterRole.GetLabels()
-		if ns, ok := clusterRoleLabels[UserPermissionResourceNamespaceLabel]; ok && ns != userPermissionResourceNamespaceLabelAll {
+		ns, ok := clusterRoleLabels[UserPermissionResourceNamespaceLabel]
+		if ok && ns != userPermissionResourceNamespaceLabelAll {
 			bindings = append(bindings, rbacv1.RoleBinding{
 				ObjectMeta: metav1.ObjectMeta{
 					Name:      objectutil.GenerateDeterministicObjectName(p.ID + "-" + serviceAccount.GetNamespace()),
@@ -600,7 +607,9 @@ func (p *PipelineFactory) clusterRole() []rbacv1.ClusterRole {
 	return clusterRoles
 }
 
-func (p *PipelineFactory) clusterRoleBinding(clusterRoles []rbacv1.ClusterRole, serviceAccount *corev1.ServiceAccount) []rbacv1.ClusterRoleBinding {
+func (p *PipelineFactory) clusterRoleBinding(
+	clusterRoles []rbacv1.ClusterRole, serviceAccount *corev1.ServiceAccount,
+) []rbacv1.ClusterRoleBinding {
 	var clusterRoleBindings []rbacv1.ClusterRoleBinding
 	for _, r := range clusterRoles {
 		if ns, ok := r.GetLabels()[UserPermissionResourceNamespaceLabel]; !ok {
