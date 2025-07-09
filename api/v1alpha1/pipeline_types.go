@@ -79,6 +79,7 @@ var (
 		Privileged: ptr.False(),
 	}
 
+	DefaultResourceRequirements                  = &corev1.ResourceRequirements{}
 	DefaultUserProvidedContainersSecurityContext *corev1.SecurityContext
 	DefaultImagePullPolicy                       corev1.PullPolicy
 	DefaultJobBackoffLimit                       *int32
@@ -110,15 +111,16 @@ type JobOptions struct {
 }
 
 type Container struct {
-	Name            string                  `json:"name,omitempty"`
-	Image           string                  `json:"image,omitempty"`
-	Args            []string                `json:"args,omitempty"`
-	Command         []string                `json:"command,omitempty"`
-	Env             []corev1.EnvVar         `json:"env,omitempty"`
-	EnvFrom         []corev1.EnvFromSource  `json:"envFrom,omitempty"`
-	VolumeMounts    []corev1.VolumeMount    `json:"volumeMounts,omitempty"`
-	ImagePullPolicy corev1.PullPolicy       `json:"imagePullPolicy,omitempty"`
-	SecurityContext *corev1.SecurityContext `json:"securityContext,omitempty"`
+	Name            string                       `json:"name,omitempty"`
+	Image           string                       `json:"image,omitempty"`
+	Args            []string                     `json:"args,omitempty"`
+	Command         []string                     `json:"command,omitempty"`
+	Env             []corev1.EnvVar              `json:"env,omitempty"`
+	EnvFrom         []corev1.EnvFromSource       `json:"envFrom,omitempty"`
+	VolumeMounts    []corev1.VolumeMount         `json:"volumeMounts,omitempty"`
+	ImagePullPolicy corev1.PullPolicy            `json:"imagePullPolicy,omitempty"`
+	SecurityContext *corev1.SecurityContext      `json:"securityContext,omitempty"`
+	Resources       *corev1.ResourceRequirements `json:"resources,omitempty"`
 }
 
 // Pipeline is the Schema for the pipelines API

@@ -15,6 +15,7 @@ import (
 	corev1 "k8s.io/api/core/v1"
 	rbacv1 "k8s.io/api/rbac/v1"
 	apiextensionsv1 "k8s.io/apiextensions-apiserver/pkg/apis/apiextensions/v1"
+	"k8s.io/apimachinery/pkg/api/resource"
 	metav1 "k8s.io/apimachinery/pkg/apis/meta/v1"
 	"k8s.io/apimachinery/pkg/apis/meta/v1/unstructured"
 	"k8s.io/apimachinery/pkg/runtime"
@@ -913,6 +914,52 @@ var _ = Describe("Pipeline", func() {
 					})
 
 				})
+
+				When("no resources are configured for a pipeline container", func() {
+					It("sets the default resource requirements", func() {
+						resources, err := factory.Resources(nil)
+						Expect(err).ToNot(HaveOccurred())
+						containers := resources.Job.Spec.Template.Spec.InitContainers
+						Expect(containers[1].Resources).To(Equal(corev1.ResourceRequirements{}))
+					})
+				})
+
+				When("resources are configured for a pipeline container", func() {
+					BeforeEach(func() {
+						v1alpha1.DefaultImagePullPolicy = "Never"
+						resources := corev1.ResourceRequirements{
+							//nolint:exhaustive // ignored as the remaining map keys are not relevant
+							Limits: corev1.ResourceList{
+								corev1.ResourceMemory: resource.MustParse("64Mi"),
+								corev1.ResourceCPU:    resource.MustParse("250m"),
+							},
+							//nolint:exhaustive // ignored as the remaining map keys are not relevant
+							Requests: corev1.ResourceList{
+								corev1.ResourceMemory: resource.MustParse("128Mi"),
+								corev1.ResourceCPU:    resource.MustParse("500m"),
+							},
+							Claims: []corev1.ResourceClaim{
+								{
+									Name:    "pipeline-pod-claim",
+									Request: "pipeline-pod-request",
+								},
+							},
+						}
+						pipeline.Spec.Containers[0].Resources = &resources
+					})
+					It("sets the configured resource requirements", func() {
+						resources, err := factory.Resources(nil)
+						Expect(err).ToNot(HaveOccurred())
+						containers := resources.Job.Spec.Template.Spec.InitContainers
+						Expect(containers[1].Resources.Limits.Memory().String()).To(Equal("64Mi"))
+						Expect(containers[1].Resources.Limits.Cpu().String()).To(Equal("250m"))
+						Expect(containers[1].Resources.Requests.Memory().String()).To(Equal("128Mi"))
+						Expect(containers[1].Resources.Requests.Cpu().String()).To(Equal("500m"))
+						Expect(containers[1].Resources.Claims[0].Name).To(Equal("pipeline-pod-claim"))
+						Expect(containers[1].Resources.Claims[0].Request).To(Equal("pipeline-pod-request"))
+					})
+				})
+
 			})
 
 			Describe("StatusWriterContainer", func() {

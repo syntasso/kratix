@@ -248,6 +248,10 @@ func (p *PipelineFactory) pipelineContainers() ([]corev1.Container, []corev1.Vol
 			c.ImagePullPolicy = DefaultImagePullPolicy
 		}
 
+		if c.Resources == nil {
+			c.Resources = DefaultResourceRequirements
+		}
+
 		containers = append(containers, corev1.Container{
 			Name:            c.Name,
 			Image:           c.Image,
@@ -258,6 +262,7 @@ func (p *PipelineFactory) pipelineContainers() ([]corev1.Container, []corev1.Vol
 			EnvFrom:         c.EnvFrom,
 			ImagePullPolicy: c.ImagePullPolicy,
 			SecurityContext: c.SecurityContext,
+			Resources:       *c.Resources,
 		})
 	}
 
