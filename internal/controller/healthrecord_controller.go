@@ -101,9 +101,15 @@ func (r *HealthRecordReconciler) updateResourceStatus(
 
 	initialHealthRecordState := r.getInitialHealthRecordState(resReq)
 
-	healthData := map[string]interface{}{
-		"state":   healthRecord.Data.State,
-		"lastRun": healthRecord.Data.LastRun,
+	healthData := []any{
+		map[string]any{
+			"state":   healthRecord.Data.State,
+			"lastRun": healthRecord.Data.LastRun,
+			"source": map[string]any{
+				"name":      healthRecord.GetName(),
+				"namespace": healthRecord.GetNamespace(),
+			},
+		},
 	}
 
 	if healthRecord.Data.Details != nil {
@@ -111,10 +117,15 @@ func (r *HealthRecordReconciler) updateResourceStatus(
 		if err := json.Unmarshal(healthRecord.Data.Details.Raw, &details); err != nil {
 			return err
 		}
-		healthData["details"] = details
+		healthData[0].(map[string]any)["details"] = details
 	}
 
-	if err := unstructured.SetNestedMap(resReq.Object, healthData, "status", "healthRecord"); err != nil {
+	healthStatus := map[string]any{
+		"state":         healthRecord.Data.State,
+		"healthRecords": healthData,
+	}
+
+	if err := unstructured.SetNestedMap(resReq.Object, healthStatus, "status", "healthStatus"); err != nil {
 		return err
 	}
 
