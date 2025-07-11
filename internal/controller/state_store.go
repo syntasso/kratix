@@ -70,17 +70,19 @@ func reconcileStateStoreCommon(
 ) (ctrl.Result, error) {
 	writer, err := newWriter(o, stateStore.GetName(), resourceType, "")
 	if err != nil {
-		if err := updateStateStoreReadyStatusAndCondition(o, eventRecorder, stateStore, StateStoreNotReadyErrorInitialisingWriterReason, StateStoreNotReadyErrorInitialisingWriterMessage, err); err != nil {
-			o.logger.Error(err, "error updating state store status")
+		o.logger.Info("UNABLE TO CREATE WRITER")
+		if statusError := updateStateStoreReadyStatusAndCondition(o, eventRecorder, stateStore, StateStoreNotReadyErrorInitialisingWriterReason, StateStoreNotReadyErrorInitialisingWriterMessage, err); err != nil {
+			o.logger.Error(statusError, "error updating state store status")
 		}
 		return ctrl.Result{}, err
 	}
 
-	if err := writer.ValidatePermissions(); err != nil {
-		if err := updateStateStoreReadyStatusAndCondition(o, eventRecorder, stateStore, StateStoreNotReadyErrorValidatingPermissionsReason, StateStoreNotReadyErrorValidatingPermissionsMessage, err); err != nil {
+	if err = writer.ValidatePermissions(); err != nil {
+		o.logger.Error(err, "error validating state store permissions")
+		if err = updateStateStoreReadyStatusAndCondition(o, eventRecorder, stateStore, StateStoreNotReadyErrorValidatingPermissionsReason, StateStoreNotReadyErrorValidatingPermissionsMessage, err); err != nil {
 			o.logger.Error(err, "error updating state store status")
 		}
-		return ctrl.Result{}, err
+		return defaultRequeue, nil
 	}
 
 	return ctrl.Result{}, updateStateStoreReadyStatusAndCondition(o, eventRecorder, stateStore, "", "", nil)

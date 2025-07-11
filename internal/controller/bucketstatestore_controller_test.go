@@ -19,6 +19,7 @@ package controller_test
 import (
 	"context"
 	"errors"
+	"time"
 
 	"github.com/go-logr/logr"
 	. "github.com/onsi/ginkgo/v2"
@@ -203,8 +204,8 @@ var _ = Describe("BucketStateStore Controller", func() {
 			})
 
 			It("updates the status to say permissions validation failed", func() {
-				Expect(err).To(MatchError(ContainSubstring("ARGH!")))
-				Expect(result).To(Equal(ctrl.Result{}))
+				Expect(err).To(MatchError(ContainSubstring("reconcile loop detected")))
+				Expect(result).To(Equal(ctrl.Result{RequeueAfter: time.Second * 15}))
 
 				Expect(fakeK8sClient.Get(ctx, testBucketStateStoreName, updatedBucketStateStore)).To(Succeed())
 				Expect(updatedBucketStateStore.Status.Status).To(Equal(controller.StatusNotReady))

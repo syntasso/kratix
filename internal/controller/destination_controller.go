@@ -122,15 +122,17 @@ func (r *DestinationReconciler) Reconcile(ctx context.Context, req ctrl.Request)
 	filePathMode := destination.GetFilepathMode()
 
 	var writeErr error
+	var result ctrl.Result
 	if writeErr = r.writeTestFiles(writer, filePathMode); writeErr != nil {
+		result = defaultRequeue
 		logger.Error(writeErr, "unable to write dependencies to state store")
 	}
 
 	if condErr := r.updateReadyCondition(destination, writeErr); condErr != nil {
-		return ctrl.Result{}, condErr
+		return result, condErr
 	}
 
-	return ctrl.Result{}, writeErr
+	return result, nil
 }
 
 func (r *DestinationReconciler) needsFinalizerUpdate(destination *v1alpha1.Destination) bool {

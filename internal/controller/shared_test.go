@@ -126,7 +126,7 @@ func (t *testReconciler) reconcileUntilCompletion(r kubebuilder.Reconciler, obj 
 		//reset so func can be run again
 		t.reconcileCount = 0
 		t.errorCount = 0
-		return ctrl.Result{}, fmt.Errorf("reconcile loop detected")
+		return result, fmt.Errorf("reconcile loop detected")
 	}
 
 	newK8sObj := &unstructured.Unstructured{}

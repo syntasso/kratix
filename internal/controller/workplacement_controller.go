@@ -262,7 +262,8 @@ func (r *WorkPlacementReconciler) deleteWorkPlacement(
 			if err != nil {
 				r.EventRecorder.Eventf(workPlacement, v1.EventTypeWarning, failedDeleteEventReason,
 					"error removing work from Destination: %s with error: %s", workPlacement.Spec.TargetDestinationName, err.Error())
-				return ctrl.Result{}, err
+				logger.Error(err, "error removing work from destination")
+				return defaultRequeue, nil
 			}
 			if requeue {
 				return fastRequeue, nil
@@ -304,7 +305,7 @@ func (r *WorkPlacementReconciler) handleAggregatedYAML(ctx context.Context, work
 	if !workPlacement.DeletionTimestamp.IsZero() {
 		_, err = writer.UpdateFiles(dir, workPlacement.Name, []v1alpha1.Workload{workload}, nil)
 		if err != nil {
-			return v1alpha1.Workload{}, false, fmt.Errorf("error regenerating aggregated YAML: %w", err)
+			return v1alpha1.Workload{}, false, fmt.Errorf("error updating file: %w", err)
 		}
 
 		controllerutil.RemoveFinalizer(workPlacement, repoCleanupWorkPlacementFinalizer)
@@ -321,8 +322,8 @@ func (r *WorkPlacementReconciler) delete(ctx context.Context, writer writers.Sta
 	if _, err := writer.UpdateFiles(dir, workPlacement.Name, nil, workloadsToDelete); err != nil {
 		r.EventRecorder.Eventf(workPlacement, v1.EventTypeWarning, failedDeleteEventReason,
 			"error removing work from Destination: %s  with error: %s", workPlacement.Spec.TargetDestinationName, err.Error())
-		logger.Error(err, "error removing work from repository, will try again in 5 seconds", "Destination", workPlacement.Spec.TargetDestinationName)
-		return ctrl.Result{}, err
+		logger.Error(err, "error removing work from repository, will try again shortly", "Destination", workPlacement.Spec.TargetDestinationName)
+		return defaultRequeue, nil
 	}
 
 	controllerutil.RemoveFinalizer(workPlacement, finalizerToRemove)
@@ -344,7 +345,7 @@ func (r *WorkPlacementReconciler) writeToStateStore(wp *v1alpha1.WorkPlacement, 
 	opts.logger.Info("Updating files in statestore if required")
 	versionID, err := r.writeWorkloadsToStateStore(opts, writer, *wp, *destination)
 	if err != nil {
-		opts.logger.Error(err, "Error writing to repository, will try again in 5 seconds", "Destination", wp.Spec.TargetDestinationName)
+		opts.logger.Error(err, "Error writing to repository, will try again shortly", "Destination", wp.Spec.TargetDestinationName)
 		r.publishWriteEvent(wp, "WorkloadsFailedWrite", versionID, err)
 		if statusUpdateErr := r.setWriteFailStatusConditions(opts.ctx, wp, err); statusUpdateErr != nil {
 			opts.logger.Error(statusUpdateErr, "failed to update status condition")

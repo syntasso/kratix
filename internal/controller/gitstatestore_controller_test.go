@@ -19,6 +19,7 @@ package controller_test
 import (
 	"context"
 	"errors"
+	"time"
 
 	"github.com/go-logr/logr"
 	. "github.com/onsi/ginkgo/v2"
@@ -172,8 +173,8 @@ var _ = Describe("GitStateStore Controller", func() {
 			})
 
 			It("updates the status ", func() {
-				Expect(err).To(MatchError(ContainSubstring("secret missing key: secretAccessKey")))
 				Expect(result).To(Equal(ctrl.Result{}))
+				Expect(err).To(MatchError(ContainSubstring("secret missing key: secretAccessKey")))
 
 				Expect(fakeK8sClient.Get(ctx, testGitStateStoreName, updatedGitStateStore)).To(Succeed())
 				Expect(updatedGitStateStore.Status.Status).To(Equal(controller.StatusNotReady))
@@ -202,8 +203,8 @@ var _ = Describe("GitStateStore Controller", func() {
 			})
 
 			It("updates the status to say permissions validation failed", func() {
-				Expect(err).To(MatchError(ContainSubstring("ARGH!")))
-				Expect(result).To(Equal(ctrl.Result{}))
+				Expect(err).To(MatchError(ContainSubstring("reconcile loop detected")))
+				Expect(result).To(Equal(ctrl.Result{RequeueAfter: time.Second * 15}))
 
 				Expect(fakeK8sClient.Get(ctx, testGitStateStoreName, updatedGitStateStore)).To(Succeed())
 				Expect(updatedGitStateStore.Status.Status).To(Equal(controller.StatusNotReady))

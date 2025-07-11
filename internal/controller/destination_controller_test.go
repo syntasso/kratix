@@ -20,6 +20,7 @@ import (
 	"context"
 	"errors"
 	"fmt"
+	"time"
 
 	"github.com/go-logr/logr"
 	. "github.com/onsi/ginkgo/v2"
@@ -232,8 +233,8 @@ var _ = Describe("DestinationReconciler", func() {
 					})
 
 					It("fails the reconciliation", func() {
-						Expect(reconcileErr).To(MatchError(ContainSubstring("update file error")))
-						Expect(result).To(Equal(ctrl.Result{}))
+						Expect(reconcileErr).To(MatchError(ContainSubstring("reconcile loop detected")))
+						Expect(result).To(Equal(ctrl.Result{RequeueAfter: time.Second * 15}))
 					})
 
 					It("updates the destination status condition", func() {
