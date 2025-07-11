@@ -79,12 +79,13 @@ var (
 		Privileged: ptr.False(),
 	}
 
+	DefaultResourceRequirements                  = &corev1.ResourceRequirements{}
 	DefaultUserProvidedContainersSecurityContext *corev1.SecurityContext
 	DefaultImagePullPolicy                       corev1.PullPolicy
 	DefaultJobBackoffLimit                       *int32
 )
 
-// PipelineSpec defines the desired state of Pipeline
+// PipelineSpec defines the desired state of Pipeline.
 type PipelineSpec struct {
 	Containers       []Container                   `json:"containers,omitempty"`
 	Volumes          []corev1.Volume               `json:"volumes,omitempty"`
@@ -110,18 +111,19 @@ type JobOptions struct {
 }
 
 type Container struct {
-	Name            string                  `json:"name,omitempty"`
-	Image           string                  `json:"image,omitempty"`
-	Args            []string                `json:"args,omitempty"`
-	Command         []string                `json:"command,omitempty"`
-	Env             []corev1.EnvVar         `json:"env,omitempty"`
-	EnvFrom         []corev1.EnvFromSource  `json:"envFrom,omitempty"`
-	VolumeMounts    []corev1.VolumeMount    `json:"volumeMounts,omitempty"`
-	ImagePullPolicy corev1.PullPolicy       `json:"imagePullPolicy,omitempty"`
-	SecurityContext *corev1.SecurityContext `json:"securityContext,omitempty"`
+	Name            string                       `json:"name,omitempty"`
+	Image           string                       `json:"image,omitempty"`
+	Args            []string                     `json:"args,omitempty"`
+	Command         []string                     `json:"command,omitempty"`
+	Env             []corev1.EnvVar              `json:"env,omitempty"`
+	EnvFrom         []corev1.EnvFromSource       `json:"envFrom,omitempty"`
+	VolumeMounts    []corev1.VolumeMount         `json:"volumeMounts,omitempty"`
+	ImagePullPolicy corev1.PullPolicy            `json:"imagePullPolicy,omitempty"`
+	SecurityContext *corev1.SecurityContext      `json:"securityContext,omitempty"`
+	Resources       *corev1.ResourceRequirements `json:"resources,omitempty"`
 }
 
-// Pipeline is the Schema for the pipelines API
+// Pipeline is the Schema for the pipelines API.
 type Pipeline struct {
 	//Note: not using TypeMeta in order to stop the CRD generation.
 	//		This is only for internal Kratix use.
@@ -150,6 +152,7 @@ type SharedPipelineResources struct {
 	ClusterRoleBindings []rbacv1.ClusterRoleBinding
 }
 
+// GetObjects returns a list of the shared objects for the pipeline.
 func (p *PipelineJobResources) GetObjects() []client.Object {
 	var objs []client.Object
 	if p.Shared.ServiceAccount != nil {
@@ -173,8 +176,7 @@ func (p *PipelineJobResources) GetObjects() []client.Object {
 	return objs
 }
 
-// PipelinesFromUnstructured converts a list of unstructured objects to Pipeline objects
-
+// PipelinesFromUnstructured converts a list of unstructured objects to Pipeline objects.
 func PipelinesFromUnstructured(pipelines []unstructured.Unstructured, logger logr.Logger) ([]Pipeline, error) {
 	if len(pipelines) == 0 {
 		return nil, nil
@@ -212,6 +214,7 @@ func PipelinesFromUnstructured(pipelines []unstructured.Unstructured, logger log
 	return ps, nil
 }
 
+// ForPromise defines the PipelineFactory fields for a Promise.
 func (p *Pipeline) ForPromise(promise *Promise, action Action) *PipelineFactory {
 	return &PipelineFactory{
 		ID:             promise.GetName() + "-promise-" + string(action) + "-" + p.GetName(),
@@ -225,7 +228,10 @@ func (p *Pipeline) ForPromise(promise *Promise, action Action) *PipelineFactory 
 	}
 }
 
-func (p *Pipeline) ForResource(promise *Promise, action Action, resourceRequest *unstructured.Unstructured) *PipelineFactory {
+// ForResource defines the PipelineFactory fields for a Resource.
+func (p *Pipeline) ForResource(
+	promise *Promise, action Action, resourceRequest *unstructured.Unstructured,
+) *PipelineFactory {
 	_, crd, _ := promise.GetAPI()
 	var clusterScoped bool
 	var plural string
