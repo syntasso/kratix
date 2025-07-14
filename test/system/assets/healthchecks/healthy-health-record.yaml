@@ -2,7 +2,7 @@
 apiVersion: platform.kratix.io/v1alpha1
 kind: HealthRecord
 metadata:
-  name: example
+  name: healthy-example
   namespace: default
 data:
   promiseRef:
@@ -15,5 +15,3 @@ data:
   lastRun: 1738158772
   details:
     info: message
-    errors:
-      message: error

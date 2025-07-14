@@ -1,0 +1,18 @@
+---
+apiVersion: platform.kratix.io/v1alpha1
+kind: HealthRecord
+metadata:
+  name: unhealthy-example
+  namespace: default
+data:
+  promiseRef:
+    name: healthchecktest
+  resourceRef:
+    name: example
+    namespace: default
+    generation: 1
+  state: healthy
+  lastRun: 1738158772
+  details:
+    errors:
+      message: error

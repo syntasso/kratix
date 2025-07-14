@@ -76,7 +76,7 @@ func (r *HealthRecordReconciler) Reconcile(ctx context.Context, req ctrl.Request
 		return defaultRequeue, nil
 	}
 
-	if err = r.updateResourceStatus(ctx, resReq, healthRecord); err != nil {
+	if err = r.updateResourceStatus(ctx, resReq, healthRecord, logger); err != nil {
 		return ctrl.Result{}, err
 	}
 
@@ -91,37 +91,30 @@ func (r *HealthRecordReconciler) SetupWithManager(mgr ctrl.Manager) error {
 }
 
 func (r *HealthRecordReconciler) updateResourceStatus(
-	ctx context.Context, resReq *unstructured.Unstructured, healthRecord *platformv1alpha1.HealthRecord,
+	ctx context.Context, resReq *unstructured.Unstructured, healthRecord *platformv1alpha1.HealthRecord, logger logr.Logger,
 ) error {
 	if resReq.Object["status"] == nil {
 		if err := unstructured.SetNestedMap(resReq.Object, map[string]interface{}{}, "status"); err != nil {
 			return err
 		}
 	}
+	// Get all associated healthrecords
+	healthRecords := &platformv1alpha1.HealthRecordList{}
+	err := r.List(ctx, healthRecords)
+	if err != nil {
+		logger.Error(err, "error listing healthRecords")
+		return err
+	}
+
+	healthData, state, err := getHealthDataAndStates(healthRecords)
+	if err != nil {
+		return err
+	}
 
 	initialHealthStatusState := r.getInitialHealthStatusState(resReq)
 
-	healthData := []any{
-		map[string]any{
-			"state":   healthRecord.Data.State,
-			"lastRun": healthRecord.Data.LastRun,
-			"source": map[string]any{
-				"name":      healthRecord.GetName(),
-				"namespace": healthRecord.GetNamespace(),
-			},
-		},
-	}
-
-	if healthRecord.Data.Details != nil {
-		var details interface{}
-		if err := json.Unmarshal(healthRecord.Data.Details.Raw, &details); err != nil {
-			return err
-		}
-		healthData[0].(map[string]any)["details"] = details
-	}
-
 	healthStatus := map[string]any{
-		"state":         healthRecord.Data.State,
+		"state":         state,
 		"healthRecords": healthData,
 	}
 
@@ -186,4 +179,42 @@ func (r *HealthRecordReconciler) getInitialHealthStatusState(resReq *unstructure
 	}
 
 	return initialHealthStatusState
+}
+
+func getHealthDataAndStates(healthRecords *platformv1alpha1.HealthRecordList) ([]any, string, error) {
+
+	var healthData []any
+	var statePriority = map[string]int{
+		"unhealthy": 1,
+		"degraded":  2,
+		"unknown":   3,
+		"healthy":   4,
+	}
+
+	var state = "healthy"
+	for _, hr := range healthRecords.Items {
+		record := map[string]any{
+			"state":   hr.Data.State,
+			"lastRun": hr.Data.LastRun,
+			"source": map[string]any{
+				"name":      hr.GetName(),
+				"namespace": hr.GetNamespace(),
+			},
+		}
+		if hr.Data.Details != nil {
+			var details interface{}
+			if err := json.Unmarshal(hr.Data.Details.Raw, &details); err != nil {
+				return nil, "", err
+			}
+			record["details"] = details
+		}
+
+		if statePriority[hr.Data.State] < statePriority[state] {
+			state = hr.Data.State
+		}
+		healthData = append(healthData, record)
+	}
+
+	return healthData, state, nil
+
 }

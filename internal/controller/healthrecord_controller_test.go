@@ -98,7 +98,7 @@ var _ = Describe("HealthRecordController", func() {
 				Expect(records[0]).To(HaveKeyWithValue("source", HaveKeyWithValue("namespace", healthRecord.GetNamespace())))
 			})
 
-			DescribeTable("firing events detailing the healthRecord state",
+			DescribeTable("firing events detailing the healthStatus state",
 				func(state string, eventMessage string) {
 					Expect(fakeK8sClient.Delete(ctx, healthRecord)).To(Succeed())
 
