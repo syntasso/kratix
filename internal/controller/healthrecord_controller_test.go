@@ -87,13 +87,12 @@ var _ = Describe("HealthRecordController", func() {
 		It("updates the resource status.healthRecord with the HealthRecord data", func() {
 			status := getResourceStatus(updatedResource)
 
-			record, found := status["healthRecord"]
-			Expect(found).To(BeTrue(), "healthrecord key not found in status")
-			Expect(record).To(SatisfyAll(
-				HaveKeyWithValue("state", healthRecord.Data.State),
-				HaveKeyWithValue("details", HaveKeyWithValue("info", "message")),
-				HaveKeyWithValue("lastRun", now),
-			))
+			records := getHealthRecordsList(status)
+			Expect(records[0]).To(HaveKeyWithValue("lastRun", healthRecord.Data.LastRun))
+			Expect(records[0]).To(HaveKeyWithValue("state", healthRecord.Data.State))
+			Expect(records[0]).To(HaveKeyWithValue("details", HaveKeyWithValue("info", "message")))
+			Expect(records[0]).To(HaveKeyWithValue("source", HaveKeyWithValue("name", healthRecord.GetName())))
+			Expect(records[0]).To(HaveKeyWithValue("source", HaveKeyWithValue("namespace", healthRecord.GetNamespace())))
 		})
 
 		DescribeTable("firing events detailing the healthRecord state",
@@ -129,7 +128,7 @@ var _ = Describe("HealthRecordController", func() {
 		)
 	})
 
-	When("the resource request has fields other than the health field", func() {
+	When("the resource request status has fields other than the healthStatus field", func() {
 		BeforeEach(func() {
 			statusMap := map[string]interface{}{
 				"some": "status",
@@ -149,8 +148,7 @@ var _ = Describe("HealthRecordController", func() {
 			Expect(status).To(SatisfyAll(
 				HaveKeyWithValue("some", "status"),
 				HaveKeyWithValue("nested", HaveKeyWithValue("value", "data")),
-				HaveKeyWithValue("healthRecord", HaveKeyWithValue("state", healthRecord.Data.State)),
-				HaveKeyWithValue("healthRecord", HaveKeyWithValue("lastRun", now)),
+				HaveKeyWithValue("healthStatus", HaveKeyWithValue("state", healthRecord.Data.State)),
 			))
 		})
 	})
@@ -166,10 +164,10 @@ var _ = Describe("HealthRecordController", func() {
 		It("updates the run time of the existing HealthRecord", func() {
 			updatedResource := reconcile()
 			status := getResourceStatus(updatedResource)
-			record, found := status["healthRecord"]
-			Expect(found).To(BeTrue(), "healthRecord key not found in status")
 
-			Expect(record).To(SatisfyAll(
+			records := getHealthRecordsList(status)
+
+			Expect(records[0]).To(SatisfyAll(
 				HaveKeyWithValue("state", healthRecord.Data.State),
 				HaveKeyWithValue("details", HaveKeyWithValue("info", "message")),
 				HaveKeyWithValue("lastRun", now),
@@ -188,4 +186,16 @@ func getResourceStatus(r *unstructured.Unstructured) map[string]interface{} {
 	Expect(err).ToNot(HaveOccurred())
 	Expect(foundHealthRecord).To(BeTrue())
 	return status
+}
+
+func getHealthRecordsList(status map[string]interface{}) (healthRecords []any) {
+	healthStatus, found := status["healthStatus"]
+	Expect(found).To(BeTrue(), "healthStatus key not found in status")
+
+	status, ok := healthStatus.(map[string]interface{})
+	Expect(ok).To(BeTrue())
+	records, ok := status["healthRecords"].([]any)
+	Expect(ok).To(BeTrue())
+
+	return records
 }
