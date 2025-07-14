@@ -99,7 +99,7 @@ func (r *HealthRecordReconciler) updateResourceStatus(
 		}
 	}
 
-	initialHealthRecordState := r.getInitialHealthRecordState(resReq)
+	initialHealthStatusState := r.getInitialHealthStatusState(resReq)
 
 	healthData := []any{
 		map[string]any{
@@ -129,7 +129,7 @@ func (r *HealthRecordReconciler) updateResourceStatus(
 		return err
 	}
 
-	if initialHealthRecordState != healthRecord.Data.State {
+	if initialHealthStatusState != healthRecord.Data.State {
 		r.fireEvent(healthRecord, resReq)
 	}
 
@@ -169,9 +169,9 @@ func (r *HealthRecordReconciler) fireEvent(
 	}
 }
 
-func (r *HealthRecordReconciler) getInitialHealthRecordState(resReq *unstructured.Unstructured) string {
+func (r *HealthRecordReconciler) getInitialHealthStatusState(resReq *unstructured.Unstructured) string {
 	status := resReq.Object["status"]
-	var initialHealthRecordState = ""
+	var initialHealthStatusState = ""
 
 	statusMap, ok := status.(map[string]interface{})
 	if !ok {
@@ -180,10 +180,10 @@ func (r *HealthRecordReconciler) getInitialHealthRecordState(resReq *unstructure
 		)
 	}
 
-	initialHealthData, ok := statusMap["healthRecord"]
+	initialHealthData, ok := statusMap["healthStatus"]
 	if ok {
-		initialHealthRecordState, _ = initialHealthData.(map[string]interface{})["state"].(string)
+		initialHealthStatusState, _ = initialHealthData.(map[string]interface{})["state"].(string)
 	}
 
-	return initialHealthRecordState
+	return initialHealthStatusState
 }

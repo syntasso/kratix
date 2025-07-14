@@ -85,7 +85,7 @@ var _ = Describe("HealthRecordController", func() {
 				updatedResource = reconcile()
 			})
 
-			It("updates the resource status.healthRecord with the HealthRecord data", func() {
+			It("updates the resource status.healthStatus with the healthRecord data", func() {
 				status := getResourceStatus(updatedResource)
 				Expect(status).To(HaveKey("healthStatus"))
 				Expect(getHealthStatusState(status)).To(Equal("healthy"))
@@ -156,7 +156,7 @@ var _ = Describe("HealthRecordController", func() {
 			})
 		})
 
-		When("the resource request already has a HealthRecord with a matching state", func() {
+		When("the resource request HealthStatus already has a HealthRecord with a matching state", func() {
 			BeforeEach(func() {
 				now = time.Now().Unix()
 				healthRecord.Data.State = "healthy"
