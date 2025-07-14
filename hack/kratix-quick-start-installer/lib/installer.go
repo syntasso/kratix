@@ -12,19 +12,19 @@ import (
 
 	helmclient "github.com/mittwald/go-helm-client"
 	"github.com/mittwald/go-helm-client/values"
-	"helm.sh/helm/v3/pkg/action"
 	"helm.sh/helm/v3/pkg/repo"
 
 	"sigs.k8s.io/controller-runtime/pkg/client/config"
 )
 
 var (
-	chartName        = "cert-manager"
-	repoURL          = "https://charts.jetstack.io"
-	repoName         = "jetstack"
-	helmClient       helmclient.Client
-	KratixInstallURL = GetEnv("KRATIX_INSTALL_URL", "https://github.com/syntasso/kratix/releases/latest/download/install-all-in-one.yaml")
-	KratixConfigURL  = GetEnv("KRATIX_CONFIG_URL", "https://github.com/syntasso/kratix/releases/latest/download/config-all-in-one.yaml")
+	helmClient         helmclient.Client
+	ChartName          = GetEnv("CERT_MANAGER_CHART_NAME", "cert-manager")
+	RepoURL            = GetEnv("CERT_MANAGER_REPO_URL", "https://charts.jetstack.io")
+	RepoName           = GetEnv("CERT_MANAGER_REPO_NAME", "jetstack")
+	CertManagerVersion = GetEnv("CERT_MANAGER_VERSION", "v1.15.0")
+	KratixInstallURL   = GetEnv("KRATIX_INSTALL_URL", "https://github.com/syntasso/kratix/releases/latest/download/install-all-in-one.yaml")
+	KratixConfigURL    = GetEnv("KRATIX_CONFIG_URL", "https://github.com/syntasso/kratix/releases/latest/download/config-all-in-one.yaml")
 )
 
 func GetEnv(envKey, fallback string) string {
@@ -38,29 +38,24 @@ func GetEnv(envKey, fallback string) string {
 func InstallCertManager(ctx context.Context, step, totalSteps int) error {
 	fmt.Printf("\n🔹 Step %d/%d: Installing cert-manager\n", step, totalSteps)
 
-	hClient, err := getHelmClient()
+	hClient, err := newHelmClient()
 	if err != nil {
 		return fmt.Errorf("could not generate helm client: %w", err)
 	}
 
-	chart, _, err := hClient.GetChart(chartName, &action.ChartPathOptions{RepoURL: repoURL})
-	if err != nil {
-		return fmt.Errorf("could not get cert-manager helm chart %s from %s: %v", chartName, repoURL, err)
-	}
-
 	if err = hClient.AddOrUpdateChartRepo(repo.Entry{
-		Name: repoName,
-		URL:  repoURL,
+		Name: RepoName,
+		URL:  RepoURL,
 	}); err != nil {
-		return fmt.Errorf("could not add chart repo: %s with error: %v", repoURL, err)
+		return fmt.Errorf("could not add chart repo: %s with error: %v", RepoURL, err)
 	}
 
-	fmt.Println("JetStack helm chart registry '%s' added.\n", repoURL)
-	fmt.Println("Installing cert-manager helm chart\n")
+	fmt.Printf("JetStack helm chart registry '%s' added.\n", RepoURL)
+	fmt.Printf("Installing cert-manager helm chart\n")
 
 	spec := &helmclient.ChartSpec{
-		ReleaseName: chartName,
-		ChartName:   fmt.Sprintf("%s/%s", repoName, chartName),
+		ReleaseName: ChartName,
+		ChartName:   fmt.Sprintf("%s/%s", RepoName, ChartName),
 		Namespace:   "cert-manager",
 		ValuesOptions: values.Options{
 			Values: []string{
@@ -70,13 +65,13 @@ func InstallCertManager(ctx context.Context, step, totalSteps int) error {
 				"global.leaderElection.namespace=cert-manager",
 			},
 		},
-		Version:         chart.Metadata.Version,
+		Version:         CertManagerVersion,
 		CreateNamespace: true,
 		Wait:            true,
 		Timeout:         1 * time.Minute,
 	}
 
-	if _, err = hClient.InstallChart(context.Background(), spec, nil); err != nil {
+	if _, err = hClient.InstallOrUpgradeChart(ctx, spec, nil); err != nil {
 		return fmt.Errorf("could not install chart: %v", err)
 	}
 
@@ -178,7 +173,7 @@ func WaitForNamespace(ctx context.Context, ns string) error {
 	return fmt.Errorf("namespace '%s' did not appear in time", ns)
 }
 
-func getHelmClient() (helmclient.Client, error) {
+func newHelmClient() (helmclient.Client, error) {
 	if helmClient != nil {
 		return helmClient, nil
 	}
