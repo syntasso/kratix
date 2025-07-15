@@ -28,11 +28,11 @@ metadata:
   name: kratix-quick-start-installer
 rules:
   - apiGroups:
-    - "*"
+      - "*"
     resources:
-    - "*"
-    verbs: 
-    - "*"
+      - "*"
+    verbs:
+      - "*"
 ---
 apiVersion: rbac.authorization.k8s.io/v1
 kind: ClusterRoleBinding
