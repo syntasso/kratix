@@ -59,7 +59,7 @@ var _ = Describe("HealthRecordController", func() {
 			Data: v1alpha1.HealthRecordData{
 				PromiseRef:  v1alpha1.PromiseRef{Name: promise.GetName()},
 				ResourceRef: v1alpha1.ResourceRef{Name: resource.GetName(), Namespace: resource.GetNamespace()},
-				State:       "healthy",
+				State:       "ready",
 				LastRun:     now,
 				Details:     details,
 			},
@@ -88,7 +88,7 @@ var _ = Describe("HealthRecordController", func() {
 			It("updates the resource status.healthStatus with the healthRecord data", func() {
 				status := getResourceStatus(updatedResource)
 				Expect(status).To(HaveKey("healthStatus"))
-				Expect(getHealthStatusState(status)).To(Equal("healthy"))
+				Expect(getHealthStatusState(status)).To(Equal("ready"))
 
 				records := getHealthRecordsList(status)
 				Expect(records[0]).To(HaveKeyWithValue("lastRun", healthRecord.Data.LastRun))
@@ -217,6 +217,7 @@ var _ = Describe("HealthRecordController", func() {
 				Expect(statusState).To(Equal(expectedState))
 			},
 
+			Entry("it is healthy when one of the healthRecords is healthy", "healthy", "healthy"),
 			Entry("it is unhealthy when one of the healthRecords is unhealthy", "unhealthy", "unhealthy"),
 			Entry("it is degraded when one of the healthRecords is degraded", "degraded", "degraded"),
 			Entry("it is unknown when one of the healthRecords is unknown", "unknown", "unknown"),

@@ -189,9 +189,10 @@ func getHealthDataAndStates(healthRecords *platformv1alpha1.HealthRecordList) ([
 		"degraded":  2,
 		"unknown":   3,
 		"healthy":   4,
+		"ready":     5,
 	}
 
-	var state = "healthy"
+	var state = "ready"
 	for _, hr := range healthRecords.Items {
 		record := map[string]any{
 			"state":   hr.Data.State,
