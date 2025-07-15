@@ -5,6 +5,7 @@ import (
 	. "github.com/onsi/gomega"
 	"github.com/syntasso/kratix/internal/controller"
 	"k8s.io/apimachinery/pkg/runtime"
+	"k8s.io/apimachinery/pkg/types"
 	ctrl "sigs.k8s.io/controller-runtime"
 
 	"time"
@@ -101,6 +102,7 @@ var _ = Describe("HealthRecordController", func() {
 			DescribeTable("firing events detailing the healthStatus state",
 				func(state string, eventMessage string) {
 					Expect(fakeK8sClient.Delete(ctx, healthRecord)).To(Succeed())
+					updatedResource = reconcile()
 
 					healthRecord = &v1alpha1.HealthRecord{
 						TypeMeta: metav1.TypeMeta{
@@ -222,6 +224,40 @@ var _ = Describe("HealthRecordController", func() {
 			Entry("it is degraded when one of the healthRecords is degraded", "degraded", "degraded"),
 			Entry("it is unknown when one of the healthRecords is unknown", "unknown", "unknown"),
 		)
+	})
+
+	When("a healthRecord is deleted", func() {
+		var updatedResource *unstructured.Unstructured
+
+		BeforeEach(func() {
+			updatedResource = reconcile()
+		})
+
+		It("succeeds", func() {
+			healthRecordName := types.NamespacedName{
+				Name:      healthRecord.GetName(),
+				Namespace: healthRecord.GetNamespace(),
+			}
+
+			fakeK8sClient.Get(ctx, healthRecordName, healthRecord)
+
+			By("setting the finalizer on work on creation")
+			Expect(healthRecord.GetFinalizers()).To(ContainElement("kratix.io/health-record-cleanup"))
+
+			By("removing the healthRecord from the status of the associated resource")
+			Expect(fakeK8sClient.Delete(ctx, healthRecord)).To(Succeed())
+			_, err := t.reconcileUntilCompletion(reconciler, healthRecord)
+			Expect(err).NotTo(HaveOccurred())
+
+			record := &v1alpha1.HealthRecord{}
+			fakeK8sClient.Get(ctx, client.ObjectKeyFromObject(resource), updatedResource)
+			Expect(fakeK8sClient.Get(ctx, healthRecordName, record)).To(MatchError(ContainSubstring("not found")))
+			status, ok := updatedResource.Object["status"].(map[string]any)
+			Expect(ok).To(BeTrue())
+			healthStatus, ok := status["healthStatus"].(map[string]any)
+			Expect(ok).To(BeTrue())
+			Expect(healthStatus).To(HaveKeyWithValue("healthRecords", BeNil()))
+		})
 	})
 })
 

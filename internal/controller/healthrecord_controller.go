@@ -19,8 +19,10 @@ package controller
 import (
 	"context"
 	"encoding/json"
+	"fmt"
 
 	"github.com/go-logr/logr"
+	"github.com/syntasso/kratix/api/v1alpha1"
 	platformv1alpha1 "github.com/syntasso/kratix/api/v1alpha1"
 	"k8s.io/apimachinery/pkg/api/errors"
 	"k8s.io/apimachinery/pkg/apis/meta/v1/unstructured"
@@ -30,7 +32,10 @@ import (
 	"k8s.io/client-go/tools/record"
 	ctrl "sigs.k8s.io/controller-runtime"
 	"sigs.k8s.io/controller-runtime/pkg/client"
+	"sigs.k8s.io/controller-runtime/pkg/controller/controllerutil"
 )
+
+const healthRecordCleanupFinalizer = v1alpha1.KratixPrefix + "health-record-cleanup"
 
 // HealthRecordReconciler reconciles a HealthRecord object.
 type HealthRecordReconciler struct {
@@ -76,6 +81,18 @@ func (r *HealthRecordReconciler) Reconcile(ctx context.Context, req ctrl.Request
 		return defaultRequeue, nil
 	}
 
+	if !healthRecord.DeletionTimestamp.IsZero() {
+		return r.deleteHealthRecord(ctx, healthRecord, resReq)
+	}
+
+	if !controllerutil.ContainsFinalizer(healthRecord, healthRecordCleanupFinalizer) {
+		return addFinalizers(opts{
+			client: r.Client,
+			logger: logger,
+			ctx:    ctx,
+		}, healthRecord, []string{healthRecordCleanupFinalizer})
+	}
+
 	if err = r.updateResourceStatus(ctx, resReq, healthRecord, logger); err != nil {
 		return ctrl.Result{}, err
 	}
@@ -106,7 +123,7 @@ func (r *HealthRecordReconciler) updateResourceStatus(
 		return err
 	}
 
-	healthData, state, err := getHealthDataAndStates(healthRecords)
+	healthData, state, err := getHealthDataAndStates(healthRecords.Items)
 	if err != nil {
 		return err
 	}
@@ -181,8 +198,7 @@ func (r *HealthRecordReconciler) getInitialHealthStatusState(resReq *unstructure
 	return initialHealthStatusState
 }
 
-func getHealthDataAndStates(healthRecords *platformv1alpha1.HealthRecordList) ([]any, string, error) {
-
+func getHealthDataAndStates(healthRecords []platformv1alpha1.HealthRecord) ([]any, string, error) {
 	var healthData []any
 	var statePriority = map[string]int{
 		"unhealthy": 1,
@@ -193,7 +209,7 @@ func getHealthDataAndStates(healthRecords *platformv1alpha1.HealthRecordList) ([
 	}
 
 	var state = "ready"
-	for _, hr := range healthRecords.Items {
+	for _, hr := range healthRecords {
 		record := map[string]any{
 			"state":   hr.Data.State,
 			"lastRun": hr.Data.LastRun,
@@ -217,5 +233,104 @@ func getHealthDataAndStates(healthRecords *platformv1alpha1.HealthRecordList) ([
 	}
 
 	return healthData, state, nil
+}
 
+func (r *HealthRecordReconciler) deleteHealthRecord(ctx context.Context, healthRecord *platformv1alpha1.HealthRecord, resReq *unstructured.Unstructured) (ctrl.Result, error) {
+	resourceHealthRecords := r.getResourceHealthRecords(resReq)
+	var recordInResourceHealthRecords bool
+
+	for _, record := range resourceHealthRecords {
+		recordMap, ok := record.(map[string]any)
+		if !ok {
+			r.Log.Info(
+				"error parsing health record for resource request", "name", resReq.GetName(), "namespace", resReq.GetNamespace(),
+			)
+		}
+
+		r.Log.Info(fmt.Sprintf("checking recordMap: %+v", recordMap))
+		source, ok := recordMap["source"].(map[string]any)
+		if !ok {
+			r.Log.Info(
+				"error parsing source in health record for resource request", "name",
+				resReq.GetName(),
+				"namespace", resReq.GetNamespace(),
+			)
+		}
+
+		if source["name"] == healthRecord.GetName() {
+			recordInResourceHealthRecords = true
+		}
+	}
+
+	if !recordInResourceHealthRecords {
+		r.Log.Info("health record not found in resource state health records")
+
+		controllerutil.RemoveFinalizer(healthRecord, healthRecordCleanupFinalizer)
+		err := r.Client.Update(ctx, healthRecord)
+		if err != nil {
+			return defaultRequeue, err
+		}
+	}
+
+	var updatedHealthRecords []platformv1alpha1.HealthRecord
+	r.Log.Info("getting health records")
+
+	healthRecords := &platformv1alpha1.HealthRecordList{}
+	err := r.List(ctx, healthRecords)
+	if err != nil {
+		r.Log.Error(err, "error listing healthRecords")
+		return defaultRequeue, err
+	}
+
+	for _, record := range healthRecords.Items {
+		if record.GetName() != healthRecord.GetName() {
+			r.Log.Info("updating health records list", "item", record.GetName())
+
+			updatedHealthRecords = append(updatedHealthRecords, record)
+		}
+	}
+
+	healthData, state, err := getHealthDataAndStates(updatedHealthRecords)
+	if err != nil {
+		return defaultRequeue, err
+	}
+
+	healthStatus := map[string]any{
+		"state":         state,
+		"healthRecords": healthData,
+	}
+
+	if err := unstructured.SetNestedMap(resReq.Object, healthStatus, "status", "healthStatus"); err != nil {
+		return defaultRequeue, err
+	}
+
+	err = r.Status().Update(ctx, resReq)
+	if err != nil {
+		return defaultRequeue, err
+	}
+
+	return defaultRequeue, nil
+}
+
+func (r *HealthRecordReconciler) getResourceHealthRecords(resReq *unstructured.Unstructured) []any {
+	status := resReq.Object["status"]
+	statusMap, ok := status.(map[string]interface{})
+	if !ok {
+		r.Log.Info(
+			"error getting status of resource request", "name", resReq.GetName(), "namespace", resReq.GetNamespace(),
+		)
+	}
+	currentHealthStatus, ok := statusMap["healthStatus"].(map[string]any)
+	if !ok {
+		r.Log.Info(
+			"error getting health status of resource request", "name", resReq.GetName(), "namespace", resReq.GetNamespace(),
+		)
+	}
+	healthRecords, ok := currentHealthStatus["healthRecords"].([]any)
+	if !ok {
+		r.Log.Info(
+			"error getting health records in resource request status", "name", resReq.GetName(), "namespace", resReq.GetNamespace(),
+		)
+	}
+	return healthRecords
 }
