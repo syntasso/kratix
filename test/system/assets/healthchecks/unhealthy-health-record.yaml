@@ -11,7 +11,7 @@ data:
     name: example
     namespace: default
     generation: 1
-  state: healthy
+  state: unhealthy
   lastRun: 1738158772
   details:
     errors:
