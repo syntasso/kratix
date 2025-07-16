@@ -35,12 +35,14 @@ var _ = Describe("Kratix Healthcheck", func() {
 
 	Describe("Resource with HealthRecord", func() {
 		BeforeEach(func() {
-			platform.Kubectl("apply", "-f", "assets/healthchecks/health-record.yaml")
+			platform.Kubectl("apply", "-f", "assets/healthchecks/healthy-health-record.yaml")
+			platform.Kubectl("apply", "-f", "assets/healthchecks/unhealthy-health-record.yaml")
 		})
 
 		AfterEach(func() {
 			if CurrentSpecReport().State.Is(types.SpecStatePassed) {
-				platform.Kubectl("delete", "-f", "assets/healthchecks/health-record.yaml")
+				platform.Kubectl("delete", "-f", "assets/healthchecks/healthy-health-record.yaml")
+				platform.Kubectl("delete", "-f", "assets/healthchecks/unhealthy-health-record.yaml")
 				platform.EventuallyKubectlDelete(promiseName, resourcename)
 				platform.EventuallyKubectlDelete("promise", promiseName)
 			}
@@ -49,8 +51,12 @@ var _ = Describe("Kratix Healthcheck", func() {
 		It("updates the resource status healthRecord with the HealthRecord data", func() {
 			By("reporting the health state of the healthrecord", func() {
 				Eventually(func() string {
-					return platform.Kubectl("get", "healthrecords", "example")
+					return platform.Kubectl("get", "healthrecords", "healthy-example")
 				}).Should(ContainSubstring("healthy"))
+
+				Eventually(func() string {
+					return platform.Kubectl("get", "healthrecords", "unhealthy-example")
+				}).Should(ContainSubstring("unhealthy"))
 			})
 
 			By("updating the associated resource", func() {
@@ -62,18 +68,13 @@ var _ = Describe("Kratix Healthcheck", func() {
 					status, _, err := unstructured.NestedMap(rr.Object, "status")
 					g.Expect(err).NotTo(HaveOccurred(), "status not found")
 
-					actualRecord, _, err := unstructured.NestedMap(status, "healthRecord")
+					healthStatus, _, err := unstructured.NestedMap(status, "healthStatus")
 					g.Expect(err).NotTo(HaveOccurred(), "healthRecord not found")
 
-					// defined in assets/healthchecks/health-record.yaml
-					g.Expect(actualRecord).To(HaveKeyWithValue("state", "healthy"))
-					details, _, err := unstructured.NestedMap(actualRecord, "details")
-					g.Expect(err).NotTo(HaveOccurred(), "healthRecord.details not found")
-					g.Expect(details).To(HaveKeyWithValue("info", "message"))
-
-					errors, _, err := unstructured.NestedMap(details, "errors")
-					g.Expect(err).NotTo(HaveOccurred(), "healthRecord.details.errors not found")
-					g.Expect(errors).To(HaveKeyWithValue("message", "error"))
+					g.Expect(healthStatus).To(HaveKeyWithValue("state", "unhealthy"))
+					records, _, err := unstructured.NestedSlice(healthStatus, "healthRecords")
+					g.Expect(err).NotTo(HaveOccurred(), "healthRecord.healthRecords not found")
+					g.Expect(records).To(HaveLen(2))
 				}).Should(Succeed())
 			})
 		})

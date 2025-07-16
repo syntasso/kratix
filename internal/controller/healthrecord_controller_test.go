@@ -5,6 +5,7 @@ import (
 	. "github.com/onsi/gomega"
 	"github.com/syntasso/kratix/internal/controller"
 	"k8s.io/apimachinery/pkg/runtime"
+	"k8s.io/apimachinery/pkg/types"
 	ctrl "sigs.k8s.io/controller-runtime"
 
 	"time"
@@ -59,7 +60,7 @@ var _ = Describe("HealthRecordController", func() {
 			Data: v1alpha1.HealthRecordData{
 				PromiseRef:  v1alpha1.PromiseRef{Name: promise.GetName()},
 				ResourceRef: v1alpha1.ResourceRef{Name: resource.GetName(), Namespace: resource.GetNamespace()},
-				State:       "healthy",
+				State:       "ready",
 				LastRun:     now,
 				Details:     details,
 			},
@@ -77,35 +78,127 @@ var _ = Describe("HealthRecordController", func() {
 		Expect(fakeK8sClient.Create(ctx, healthRecord)).To(Succeed())
 	})
 
-	When("reconciling against a resource request", func() {
-		var updatedResource *unstructured.Unstructured
+	When("there is a single healthRecord", func() {
+		When("reconciling against a resource request", func() {
+			var updatedResource *unstructured.Unstructured
 
-		BeforeEach(func() {
-			updatedResource = reconcile()
+			BeforeEach(func() {
+				updatedResource = reconcile()
+			})
+
+			It("updates the resource status.healthStatus with the healthRecord data", func() {
+				status := getResourceStatus(updatedResource)
+				Expect(status).To(HaveKey("healthStatus"))
+				Expect(getHealthStatusState(status)).To(Equal("ready"))
+
+				records := getHealthRecordsList(status)
+				Expect(records[0]).To(HaveKeyWithValue("lastRun", healthRecord.Data.LastRun))
+				Expect(records[0]).To(HaveKeyWithValue("state", healthRecord.Data.State))
+				Expect(records[0]).To(HaveKeyWithValue("details", HaveKeyWithValue("info", "message")))
+				Expect(records[0]).To(HaveKeyWithValue("source", HaveKeyWithValue("name", healthRecord.GetName())))
+				Expect(records[0]).To(HaveKeyWithValue("source", HaveKeyWithValue("namespace", healthRecord.GetNamespace())))
+			})
+
+			DescribeTable("firing events detailing the healthStatus state",
+				func(state string, eventMessage string) {
+					Expect(fakeK8sClient.Delete(ctx, healthRecord)).To(Succeed())
+					updatedResource = reconcile()
+
+					healthRecord = &v1alpha1.HealthRecord{
+						TypeMeta: metav1.TypeMeta{
+							APIVersion: v1alpha1.GroupVersion.String(),
+							Kind:       "HealthRecord",
+						},
+						ObjectMeta: metav1.ObjectMeta{Name: "a-name", Namespace: "default"},
+						Data: v1alpha1.HealthRecordData{
+							PromiseRef:  v1alpha1.PromiseRef{Name: promise.GetName()},
+							ResourceRef: v1alpha1.ResourceRef{Name: resource.GetName(), Namespace: resource.GetNamespace()},
+							State:       state,
+							LastRun:     now,
+							Details:     details,
+						},
+					}
+
+					Expect(fakeK8sClient.Create(ctx, healthRecord)).To(Succeed())
+					updatedResource = reconcile()
+
+					Eventually(eventRecorder.Events).Should(Receive(ContainSubstring(
+						eventMessage)))
+				},
+				Entry("When the state is 'unknown'", "unknown", "Warning HealthRecord Health state is unknown"),
+				Entry("When the state is 'unhealthy'", "unhealthy", "Warning HealthRecord Health state is unhealthy"),
+				Entry("When the state is 'degraded'", "degraded", "Warning HealthRecord Health state is degraded"),
+				Entry("When the state is 'healthy'", "healthy", "Normal HealthRecord Health state is healthy"),
+				Entry("When the state is 'ready'", "ready", "Normal HealthRecord Health state is ready"),
+			)
 		})
 
-		It("updates the resource status.healthRecord with the HealthRecord data", func() {
-			status := getResourceStatus(updatedResource)
+		When("the resource request status has fields other than the healthStatus field", func() {
+			BeforeEach(func() {
+				statusMap := map[string]interface{}{
+					"some": "status",
+					"nested": map[string]interface{}{
+						"value": "data",
+					},
+				}
+				Expect(unstructured.SetNestedMap(resource.Object, statusMap, "status")).To(Succeed())
+				Expect(fakeK8sClient.Status().Update(ctx, resource)).To(Succeed())
+			})
 
-			record, found := status["healthRecord"]
-			Expect(found).To(BeTrue(), "healthrecord key not found in status")
-			Expect(record).To(SatisfyAll(
-				HaveKeyWithValue("state", healthRecord.Data.State),
-				HaveKeyWithValue("details", HaveKeyWithValue("info", "message")),
-				HaveKeyWithValue("lastRun", now),
-			))
+			It("doesn't overwrite the existing status keys", func() {
+				updatedResource := reconcile()
+
+				status := getResourceStatus(updatedResource)
+
+				Expect(status).To(SatisfyAll(
+					HaveKeyWithValue("some", "status"),
+					HaveKeyWithValue("nested", HaveKeyWithValue("value", "data")),
+					HaveKeyWithValue("healthStatus", HaveKeyWithValue("state", healthRecord.Data.State)),
+				))
+			})
 		})
 
-		DescribeTable("firing events detailing the healthRecord state",
-			func(state string, eventMessage string) {
-				Expect(fakeK8sClient.Delete(ctx, healthRecord)).To(Succeed())
+		When("the resource request HealthStatus already has a HealthRecord with a matching state", func() {
+			BeforeEach(func() {
+				now = time.Now().Unix()
+				healthRecord.Data.State = "healthy"
+				healthRecord.Data.LastRun = now
+				Expect(fakeK8sClient.Update(ctx, healthRecord)).To(Succeed())
+			})
 
+			It("updates the run time of the existing HealthRecord", func() {
+				updatedResource := reconcile()
+				status := getResourceStatus(updatedResource)
+
+				Expect(getHealthStatusState(status)).To(Equal("healthy"))
+				records := getHealthRecordsList(status)
+
+				Expect(records[0]).To(SatisfyAll(
+					HaveKeyWithValue("state", healthRecord.Data.State),
+					HaveKeyWithValue("details", HaveKeyWithValue("info", "message")),
+					HaveKeyWithValue("lastRun", now),
+				))
+			})
+
+			It("does not fire an event detailing the healthRecord state", func() {
+				Eventually(eventRecorder.Events).ShouldNot(Receive(ContainSubstring(
+					"Normal HealthRecord Health state is ready")))
+			})
+		})
+	})
+
+	When("there are multiple healthRecords for a single resource", func() {
+		DescribeTable("the state of the request healthStatus is calculated accordingly",
+			func(state string, expectedState string) {
+				details = &runtime.RawExtension{Raw: []byte(`{"furtherInfo":"present"}`)}
+
+				now = time.Now().Unix()
 				healthRecord = &v1alpha1.HealthRecord{
 					TypeMeta: metav1.TypeMeta{
 						APIVersion: v1alpha1.GroupVersion.String(),
 						Kind:       "HealthRecord",
 					},
-					ObjectMeta: metav1.ObjectMeta{Name: "a-name", Namespace: "default"},
+					ObjectMeta: metav1.ObjectMeta{Name: "b-name", Namespace: "default"},
 					Data: v1alpha1.HealthRecordData{
 						PromiseRef:  v1alpha1.PromiseRef{Name: promise.GetName()},
 						ResourceRef: v1alpha1.ResourceRef{Name: resource.GetName(), Namespace: resource.GetNamespace()},
@@ -116,69 +209,54 @@ var _ = Describe("HealthRecordController", func() {
 				}
 
 				Expect(fakeK8sClient.Create(ctx, healthRecord)).To(Succeed())
-				updatedResource = reconcile()
+				updatedResource := reconcile()
 
-				Eventually(eventRecorder.Events).Should(Receive(ContainSubstring(
-					eventMessage)))
+				status := getResourceStatus(updatedResource)
+				statusState := getHealthStatusState(status)
+				records := getHealthRecordsList(status)
+
+				Expect(records).To(HaveLen(2))
+				Expect(statusState).To(Equal(expectedState))
 			},
-			Entry("When the state is 'unknown'", "unknown", "Warning HealthRecord Health state is unknown"),
-			Entry("When the state is 'unhealthy'", "unhealthy", "Warning HealthRecord Health state is unhealthy"),
-			Entry("When the state is 'degraded'", "degraded", "Warning HealthRecord Health state is degraded"),
-			Entry("When the state is 'healthy'", "healthy", "Normal HealthRecord Health state is healthy"),
-			Entry("When the state is 'ready'", "ready", "Normal HealthRecord Health state is ready"),
+
+			Entry("it is healthy when one of the healthRecords is healthy", "healthy", "healthy"),
+			Entry("it is unhealthy when one of the healthRecords is unhealthy", "unhealthy", "unhealthy"),
+			Entry("it is degraded when one of the healthRecords is degraded", "degraded", "degraded"),
+			Entry("it is unknown when one of the healthRecords is unknown", "unknown", "unknown"),
 		)
 	})
 
-	When("the resource request has fields other than the health field", func() {
+	When("a healthRecord is deleted", func() {
+		var updatedResource *unstructured.Unstructured
+
 		BeforeEach(func() {
-			statusMap := map[string]interface{}{
-				"some": "status",
-				"nested": map[string]interface{}{
-					"value": "data",
-				},
+			updatedResource = reconcile()
+		})
+
+		It("succeeds", func() {
+			healthRecordName := types.NamespacedName{
+				Name:      healthRecord.GetName(),
+				Namespace: healthRecord.GetNamespace(),
 			}
-			Expect(unstructured.SetNestedMap(resource.Object, statusMap, "status")).To(Succeed())
-			Expect(fakeK8sClient.Status().Update(ctx, resource)).To(Succeed())
-		})
 
-		It("doesn't overwrite the existing status keys", func() {
-			updatedResource := reconcile()
+			fakeK8sClient.Get(ctx, healthRecordName, healthRecord)
 
-			status := getResourceStatus(updatedResource)
+			By("setting the finalizer on work on creation")
+			Expect(healthRecord.GetFinalizers()).To(ContainElement("kratix.io/health-record-cleanup"))
 
-			Expect(status).To(SatisfyAll(
-				HaveKeyWithValue("some", "status"),
-				HaveKeyWithValue("nested", HaveKeyWithValue("value", "data")),
-				HaveKeyWithValue("healthRecord", HaveKeyWithValue("state", healthRecord.Data.State)),
-				HaveKeyWithValue("healthRecord", HaveKeyWithValue("lastRun", now)),
-			))
-		})
-	})
+			By("removing the healthRecord from the status of the associated resource")
+			Expect(fakeK8sClient.Delete(ctx, healthRecord)).To(Succeed())
+			_, err := t.reconcileUntilCompletion(reconciler, healthRecord)
+			Expect(err).NotTo(HaveOccurred())
 
-	When("the resource request already has a HealthRecord with a matching state", func() {
-		BeforeEach(func() {
-			now = time.Now().Unix()
-			healthRecord.Data.State = "ready"
-			healthRecord.Data.LastRun = now
-			Expect(fakeK8sClient.Update(ctx, healthRecord)).To(Succeed())
-		})
-
-		It("updates the run time of the existing HealthRecord", func() {
-			updatedResource := reconcile()
-			status := getResourceStatus(updatedResource)
-			record, found := status["healthRecord"]
-			Expect(found).To(BeTrue(), "healthRecord key not found in status")
-
-			Expect(record).To(SatisfyAll(
-				HaveKeyWithValue("state", healthRecord.Data.State),
-				HaveKeyWithValue("details", HaveKeyWithValue("info", "message")),
-				HaveKeyWithValue("lastRun", now),
-			))
-		})
-
-		It("does not fire an event detailing the healthRecord state", func() {
-			Eventually(eventRecorder.Events).ShouldNot(Receive(ContainSubstring(
-				"Normal HealthRecord Health state is ready")))
+			record := &v1alpha1.HealthRecord{}
+			fakeK8sClient.Get(ctx, client.ObjectKeyFromObject(resource), updatedResource)
+			Expect(fakeK8sClient.Get(ctx, healthRecordName, record)).To(MatchError(ContainSubstring("not found")))
+			status, ok := updatedResource.Object["status"].(map[string]any)
+			Expect(ok).To(BeTrue())
+			healthStatus, ok := status["healthStatus"].(map[string]any)
+			Expect(ok).To(BeTrue())
+			Expect(healthStatus).To(HaveKeyWithValue("healthRecords", BeNil()))
 		})
 	})
 })
@@ -188,4 +266,30 @@ func getResourceStatus(r *unstructured.Unstructured) map[string]interface{} {
 	Expect(err).ToNot(HaveOccurred())
 	Expect(foundHealthRecord).To(BeTrue())
 	return status
+}
+
+func getHealthRecordsList(status map[string]interface{}) (healthRecords []any) {
+	healthStatus, found := status["healthStatus"]
+	Expect(found).To(BeTrue(), "healthStatus key not found in status")
+
+	status, ok := healthStatus.(map[string]interface{})
+	Expect(ok).To(BeTrue())
+	records, ok := status["healthRecords"].([]any)
+	Expect(ok).To(BeTrue())
+
+	return records
+}
+
+func getHealthStatusState(status map[string]interface{}) (state string) {
+	healthStatus, found := status["healthStatus"]
+	Expect(found).To(BeTrue(), "healthStatus key not found in status")
+
+	status, ok := healthStatus.(map[string]interface{})
+	Expect(ok).To(BeTrue())
+
+	stateString, ok := status["state"].(string)
+
+	Expect(ok).To(BeTrue())
+
+	return stateString
 }
