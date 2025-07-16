@@ -328,6 +328,10 @@ func main() {
 			setupLog.Error(err, "unable to set up ready check")
 			os.Exit(1)
 		}
+		if err := mgr.AddReadyzCheck("webhook", mgr.GetWebhookServer().StartedChecker()); err != nil {
+			setupLog.Error(err, "unable to set up webhook ready check")
+			os.Exit(1)
+		}
 
 		setupLog.Info("starting manager")
 		err = mgr.Start(ctx)
