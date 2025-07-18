@@ -1,4 +1,4 @@
-package pipeline_test
+package lib_test
 
 import (
 	"testing"

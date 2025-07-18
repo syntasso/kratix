@@ -4,7 +4,7 @@ import (
 	. "github.com/onsi/ginkgo/v2"
 	. "github.com/onsi/gomega"
 	"github.com/syntasso/kratix/lib/resourceutil"
-	"github.com/syntasso/kratix/work-creator/pipeline/lib"
+	"github.com/syntasso/kratix/work-creator/lib"
 )
 
 var _ = Describe("StatusUpdater", func() {

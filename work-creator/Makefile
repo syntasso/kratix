@@ -23,7 +23,7 @@ help: ## Display this help.
 ENVTEST_ASSETS_DIR=$(shell pwd)/../testbin
 .PHONY: test
 test: ## Run tests.
-	go run ${GINKGO} ./pipeline/ -r  --coverprofile cover.out
+	go run ${GINKGO} ./lib/ -r  --coverprofile cover.out
 
 kind-load-image: docker-build ## Load locally built image into KinD, use export PIPELINE_ADAPTER_IMG=syntasso/kratix-platform-pipeline-adapter:dev
 	kind load docker-image ${PIPELINE_ADAPTER_IMG_TAG} --name platform
