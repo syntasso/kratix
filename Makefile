@@ -100,8 +100,11 @@ build-and-load-kratix: kind-load-image ## Build kratix container image and reloa
 	kubectl rollout restart deployment -n kratix-platform-system -l control-plane=controller-manager
 
 build-and-load-work-creator: ## Build work-creator container image and reloads
-	PIPELINE_ADAPTER_IMG_VERSION=${PIPELINE_ADAPTER_IMG_VERSION} PIPELINE_ADAPTER_IMG_MIRROR=${PIPELINE_ADAPTER_IMG_MIRROR} make -C work-creator kind-load-image
-
+	@echo "[build-and-load-work-creator] Starting at $$(date)"
+	@start=$$(date +%s); \
+	PIPELINE_ADAPTER_IMG_VERSION=${PIPELINE_ADAPTER_IMG_VERSION} PIPELINE_ADAPTER_IMG_MIRROR=${PIPELINE_ADAPTER_IMG_MIRROR} make -C work-creator kind-load-image; \
+	end=$$(date +%s); \
+	echo "[build-and-load-work-creator] Finished in $$(($$end - $$start)) seconds"
 ##@ Build
 
 # Generate manifests for distributed installation
@@ -203,8 +206,12 @@ list:
 	@$(MAKE) -pRrq -f $(lastword $(MAKEFILE_LIST)) : 2>/dev/null | awk -v RS= -F: '/^# File/,/^# Finished Make data base/ {if ($$1 !~ "^[#.]") {print $$1}}' | sort | egrep -v -e '^[^[:alnum:]]' -e '^$@$$'
 
 ##@ Tests
-system-test: generate distribution build-and-load-work-creator build-and-load-kratix ## Recreate the clusters and run system tests
-	#make quick-start
+system-test: generate distribution build-and-load-work-creator
+	@echo "[build-and-load-kratix] Starting at $$(date)"
+	@start=$$(date +%s); \
+	make build-and-load-kratix; \
+	end=$$(date +%s); \
+	echo "[build-and-load-kratix] Finished in $$(($$end - $$start)) seconds"
 	make -j4 run-system-test
 
 fast-system-test: fast-quick-start ## Run the system tests without recreating the clusters
