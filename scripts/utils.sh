@@ -31,7 +31,7 @@ error() {
 
 platform_destination_ip() {
     local platform_cluster_name="${1:-platform}"
-    docker inspect ${platform_cluster_name}-control-plane | yq ".[0].NetworkSettings.Networks.kind.IPAddress"
+    docker inspect ${platform_cluster_name}-control-plane | yq ".[0].NetworkSettings.Networks.kind.IPAddress" | tr -d '"'
 }
 
 generate_gitea_credentials() {

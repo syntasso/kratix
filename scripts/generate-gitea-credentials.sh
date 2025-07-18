@@ -1,7 +1,7 @@
 #!/usr/bin/env bash
 
 platform_destination_ip() {
-    docker inspect platform-control-plane | yq ".[0].NetworkSettings.Networks.kind.IPAddress"
+    docker inspect platform-control-plane | yq ".[0].NetworkSettings.Networks.kind.IPAddress" | tr -d '"'
 }
 
 generate_gitea_credentials() {

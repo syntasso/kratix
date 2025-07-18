@@ -67,7 +67,7 @@ load_options() {
 patch_kind_networking() {
     local file_name=$1
     if [[ "${CONTEXT}" =~ ^kind-.* ]]; then
-        PLATFORM_DESTINATION_IP=$(docker inspect ${PLATFORM_CLUSTER_NAME}-control-plane | yq ".[0].NetworkSettings.Networks.kind.IPAddress")
+        PLATFORM_DESTINATION_IP=$(docker inspect ${PLATFORM_CLUSTER_NAME}-control-plane | yq ".[0].NetworkSettings.Networks.kind.IPAddress" | tr -d '"')
         sed "s/172.18.0.2/${PLATFORM_DESTINATION_IP}/g" ${file_name}
     else
         cat "${file_name}"
