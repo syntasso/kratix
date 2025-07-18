@@ -12,9 +12,7 @@ ENV GOARCH=${TARGETARCH}
 RUN --mount=target=. \
     --mount=type=cache,target=/root/.cache/go-build \
     --mount=type=cache,target=/go/pkg \
-    go build -a -o /out/work-creator work-creator/pipeline/cmd/work-creator/main.go && \
-    go build -a -o /out/update-status work-creator/pipeline/cmd/update-status/main.go && \
-    go build -a -o /out/reader work-creator/pipeline/cmd/reader/main.go
+    go build -a -o /out/pipeline-adapter work-creator/pipeline/cmd/main.go
 
 # Use distroless as minimal base image to package the manager binary
 # Refer to https://github.com/GoogleContainerTools/distroless for more details
@@ -25,9 +23,7 @@ FROM gcr.io/distroless/cc:nonroot
 
 COPY --chown=nonroot:nonroot --from=busybox /usr/bin/env /usr/bin/env
 COPY --chown=nonroot:nonroot --from=busybox /bin/sh /bin/sh
-COPY --chown=nonroot:nonroot --from=builder /out/work-creator /bin/work-creator
-COPY --chown=nonroot:nonroot --from=builder /out/update-status /bin/update-status
-COPY --chown=nonroot:nonroot --from=builder /out/reader /bin/reader
+COPY --chown=nonroot:nonroot --from=builder /out/pipeline-adapter /bin/pipeline-adapter
 
 USER 65532:65532
 ENTRYPOINT []

@@ -688,7 +688,8 @@ var _ = Describe("Pipeline", func() {
 				container := resources.Job.Spec.Template.Spec.InitContainers[0]
 				Expect(container).ToNot(BeNil())
 				Expect(container.Name).To(Equal("reader"))
-				Expect(container.Command).To(Equal([]string{"sh", "-c", "reader"}))
+				Expect(container.Command).To(Equal([]string{"/bin/pipeline-adapter"}))
+				Expect(container.Args).To(Equal([]string{"reader"}))
 				Expect(container.Image).To(Equal(pipelineAdapterImage))
 				Expect(container.ImagePullPolicy).To(BeEmpty())
 				Expect(container.VolumeMounts).To(ConsistOf([]corev1.VolumeMount{
@@ -750,20 +751,21 @@ var _ = Describe("Pipeline", func() {
 			Describe("WorkCreatorContainer", func() {
 				When("building the work creator container for a promise pipeline", func() {
 					It("returns a the work creator container with the appropriate command", func() {
-						expectedFlags := strings.Join([]string{
-							"-input-directory", "/work-creator-files",
-							"-promise-name", promise.GetName(),
-							"-pipeline-name", pipeline.GetName(),
-							"-namespace", factory.Namespace,
-							"-workflow-type", string(factory.WorkflowType),
-						}, " ")
 						containers := resources.Job.Spec.Template.Spec.InitContainers
 						container := containers[len(containers)-1]
 						Expect(container).ToNot(BeNil())
 						Expect(container.Name).To(Equal("work-writer"))
 						Expect(container.Image).To(Equal(pipelineAdapterImage))
 						Expect(container.ImagePullPolicy).To(BeEmpty())
-						Expect(container.Command).To(Equal([]string{"sh", "-c", "work-creator " + expectedFlags}))
+						Expect(container.Command).To(Equal([]string{"/bin/pipeline-adapter"}))
+						Expect(container.Args).To(Equal([]string{
+							"work-creator",
+							"--input-directory", "/work-creator-files",
+							"--promise-name", promise.GetName(),
+							"--pipeline-name", pipeline.GetName(),
+							"--namespace", factory.Namespace,
+							"--workflow-type", string(factory.WorkflowType),
+						}))
 						Expect(container.VolumeMounts).To(ConsistOf(
 							corev1.VolumeMount{Name: "shared-output", MountPath: "/work-creator-files/input"},
 							corev1.VolumeMount{Name: "shared-metadata", MountPath: "/work-creator-files/metadata"},
@@ -796,14 +798,6 @@ var _ = Describe("Pipeline", func() {
 						resources, err = factory.Resources(nil)
 						Expect(err).ToNot(HaveOccurred())
 
-						expectedFlags := strings.Join([]string{
-							"-input-directory", "/work-creator-files",
-							"-promise-name", promise.GetName(),
-							"-pipeline-name", pipeline.GetName(),
-							"-namespace", factory.Namespace,
-							"-workflow-type", string(factory.WorkflowType),
-							"-resource-name", resourceRequest.GetName(),
-						}, " ")
 						containers := resources.Job.Spec.Template.Spec.InitContainers
 						container := containers[len(containers)-1]
 
@@ -811,7 +805,16 @@ var _ = Describe("Pipeline", func() {
 						Expect(container.Name).To(Equal("work-writer"))
 						Expect(container.Image).To(Equal(pipelineAdapterImage))
 						Expect(container.ImagePullPolicy).To(BeEmpty())
-						Expect(container.Command).To(Equal([]string{"sh", "-c", "work-creator " + expectedFlags}))
+						Expect(container.Command).To(Equal([]string{"/bin/pipeline-adapter"}))
+						Expect(container.Args).To(Equal([]string{
+							"work-creator",
+							"--input-directory", "/work-creator-files",
+							"--promise-name", promise.GetName(),
+							"--pipeline-name", pipeline.GetName(),
+							"--namespace", factory.Namespace,
+							"--workflow-type", string(factory.WorkflowType),
+							"--resource-name", resourceRequest.GetName(),
+						}))
 						Expect(container.VolumeMounts).To(ConsistOf(
 							corev1.VolumeMount{Name: "shared-output", MountPath: "/work-creator-files/input"},
 							corev1.VolumeMount{Name: "shared-metadata", MountPath: "/work-creator-files/metadata"},
@@ -980,7 +983,8 @@ var _ = Describe("Pipeline", func() {
 					Expect(container.Name).To(Equal("status-writer"))
 					Expect(container.Image).To(Equal(pipelineAdapterImage))
 					Expect(container.ImagePullPolicy).To(BeEmpty())
-					Expect(container.Command).To(Equal([]string{"sh", "-c", "update-status"}))
+					Expect(container.Command).To(Equal([]string{"/bin/pipeline-adapter"}))
+					Expect(container.Args).To(Equal([]string{"update-status"}))
 					Expect(container.Env).To(ConsistOf(
 						corev1.EnvVar{Name: "KRATIX_OBJECT_KIND", Value: resourceRequest.GroupVersionKind().Kind},
 						corev1.EnvVar{Name: "KRATIX_OBJECT_GROUP", Value: resourceRequest.GroupVersionKind().Group},
