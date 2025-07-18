@@ -203,8 +203,8 @@ list:
 	@$(MAKE) -pRrq -f $(lastword $(MAKEFILE_LIST)) : 2>/dev/null | awk -v RS= -F: '/^# File/,/^# Finished Make data base/ {if ($$1 !~ "^[#.]") {print $$1}}' | sort | egrep -v -e '^[^[:alnum:]]' -e '^$@$$'
 
 ##@ Tests
-system-test: ## Recreate the clusters and run system tests
-	make quick-start
+system-test: generate distribution build-and-load-work-creator build-and-load-kratix ## Recreate the clusters and run system tests
+	#make quick-start
 	make -j4 run-system-test
 
 fast-system-test: fast-quick-start ## Run the system tests without recreating the clusters
