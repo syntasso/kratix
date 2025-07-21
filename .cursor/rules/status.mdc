@@ -1,0 +1,21 @@
+---
+description: rules for events and status and conditions
+globs:
+alwaysApply: false
+---
+
+- Follow API conventios from https://github.com/kubernetes/community/blob/master/contributors/devel/sig-architecture/api-conventions.md#spec-and-status as the general guide for all status and conditions.
+- All objects must include a condition under `status.conditions` that indicates whether the resource is "Ready" or not.  * This condition is often called "Ready", but it can also be called "Available", "Healthy", or similar, depending on the object.
+   - **Why**: this makes it the controller's responsibility to calculate whether the object is considered ready, instead of relying on the user to check multiple fields or conditions.
+- All objects must include "Status" (or equivalent) in their Printer Columns.  * The value of this field is pulled directly from the `status.conditions` defined above.
+   - **Why**: this makes `kubectl get <object>` more useful, quickly indicating whether the object is ready or not.
+- Objects that create subresources should include a `status.conditions` field that indicates the state of the reconciliation of the subresources.
+   - The condition's `message` should be used for debugging purposes.
+   - For example, a Promise should include a condition that indicates whether the Pipelines were executed, or whether the Works were created.
+   - **Why**: this makes it easier for users to understand the state of the object and its subresources, without having to dig into each subresource individually.
+- State changes in the object should emit a relevant event.
+   - This should include both positive and negative state changes.
+   - **Why**: this makes it possible for users to track the state changes of the object over time, and to understand the history of the object. It also gives them a clear view of where the object is in its lifecycle.
+- Events should include a pointer to the next relevant object to inspect.
+   - For example, if a Promise is not Ready because creating a WorkPlacement failed, by `describe`ing the Promise, users should see an event pointing to the Work, and `describe`ing the Work should show an event pointing to the WorkPlacement.
+   - **Why**: this makes it possible for users to dig deeper into the root cause of the issue, without needing deep knowledge of Kratix internals.

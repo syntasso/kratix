@@ -1,0 +1,38 @@
+---
+description: Kratix architecture principles
+globs:
+alwaysApply: true
+---
+
+Below are the Kratix team architecture principles:
+
+- **Small Batches, Fast Feedback:**
+    - Deliver the smallest unit of work that moves us towards the future, allow us to learn and iterate quickly
+        A lightweight framework to consider when applying this principle:
+        ***point A:** where we are today*
+        ***point B** is the vision we're trying to get to*
+        ***point C** is the first step towards that vision from which we can learn*
+    - Prioritise fast and inexpensive feedback loops.
+    - Embrace continuous delivery.
+    - Ensure the Kratix remains continuously upgradable. Avoid breaking changes. Implement migrations if needed.
+- **Focus on user experience:**
+    - Design and develop with the end-user in mind to ensure our platforms are intuitive, efficient, and satisfying to use.
+- **Foundational Principles:**
+    - Follow Test-Driven Development (TDD), Keep It Simple, Stupid (KISS), You Aren't Gonna Need It (YAGNI), and prioritise tested code.
+- **Provide UX Above Kubernetes:**
+    - Kratix is complementary to Kubernetes, avoiding resource overlap.
+    - Utilise Custom Resource Definitions (CRDs) and controllers with loose coupling and high cohesion.
+    - Emphasise declaration and convergence for efficient Kubernetes-native operations.
+- **User-Friendly for K8s Users and Linux Sysadmins:**
+    - Use k8s native patterns where possible (i,.e using labels and selectors for scheduling)
+    - Provide a seamless experience for Kubernetes users.
+    - Ensure intuitive usability, particularly for Linux sysadmins
+- **Resilient Architecture:**
+    - Externalise state using GitOps and etcd for improved resilience.
+    - Minimise mutable state to mitigate potential failures.
+    - Embrace anti-fragile software principles, focusing on failure recovery.
+- **Efficiency and Simplicity:**
+    - Leverage pre-existing, proven solutions rather than developing new ones from scratch.
+    - Prioritise delivering value with minimal maintenance overhead.
+    - Acknowledge the high cost of maintaining code and write only necessary software.
+    - Leverage off-the-shelf solutions wherever possible to streamline development efforts and reduce complexity.
