@@ -16,10 +16,10 @@ RUN --mount=target=. \
 
 # Use distroless as minimal base image to package the manager binary
 # Refer to https://github.com/GoogleContainerTools/distroless for more details
-FROM gcr.io/distroless/cc:nonroot
+FROM gcr.io/distroless/cc
 
 COPY --chown=nonroot:nonroot --from=builder /out/quick-start-installer /bin/quick-start-installer
 COPY --chown=nonroot:nonroot --from=bitnami/kubectl /opt/bitnami/kubectl/bin/kubectl /usr/local/bin/kubectl
 
-USER 65532:65532
+# Do not specify a user so OpenShift can assign a project-specific UID
 ENTRYPOINT ["/bin/quick-start-installer"]

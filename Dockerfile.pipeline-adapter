@@ -21,7 +21,7 @@ RUN --mount=target=. \
 
 FROM busybox AS busybox
 
-FROM gcr.io/distroless/cc:nonroot
+FROM gcr.io/distroless/cc
 
 COPY --chown=nonroot:nonroot --from=busybox /usr/bin/env /usr/bin/env
 COPY --chown=nonroot:nonroot --from=busybox /bin/sh /bin/sh
@@ -29,6 +29,6 @@ COPY --chown=nonroot:nonroot --from=builder /out/work-creator /bin/work-creator
 COPY --chown=nonroot:nonroot --from=builder /out/update-status /bin/update-status
 COPY --chown=nonroot:nonroot --from=builder /out/reader /bin/reader
 
-USER 65532:65532
+# Do not specify a user so OpenShift can assign a project-specific UID
 ENTRYPOINT []
 CMD []

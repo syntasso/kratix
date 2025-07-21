@@ -17,10 +17,12 @@ RUN --mount=target=. \
 
 # Use distroless as minimal base image to package the manager binary
 # Refer to https://github.com/GoogleContainerTools/distroless for more details
-FROM gcr.io/distroless/cc:nonroot
+# Use a distroless base image that supports arbitrary UIDs
+FROM gcr.io/distroless/cc
 WORKDIR /
 COPY --from=builder /out/manager .
 COPY --from=alpine/git /usr/bin/git /usr/bin/git
-USER 65532:65532
+
+# Do not specify a user so OpenShift can assign a project-specific UID
 
 ENTRYPOINT ["/manager"]

@@ -18,6 +18,12 @@ Follow our [quick start](https://docs.kratix.io/main/quick-start) to get up-and-
 For documentation about how to use Kratix, visit [docs.kratix.io](https://docs.kratix.io/).
 For case studies, guides, and more checkout [syntasso.io](https://syntasso.io?utm_source=github&utm_medium=readme&utm_id=kratix).
 
+## Running on OpenShift
+
+The container images built from this repository now use a base image that
+supports running with an arbitrary user ID. This allows Kratix to run on Red Hat
+OpenShift without requiring custom SecurityContextConstraints.
+
 ## Community
 
 Kratix is apache 2.0 licensed and open for both contribution and feedback.
