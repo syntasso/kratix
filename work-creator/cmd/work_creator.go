@@ -2,6 +2,7 @@ package cmd
 
 import (
 	"fmt"
+	"log"
 	"os"
 
 	"github.com/spf13/cobra"
@@ -79,9 +80,15 @@ func workCreatorCmd() *cobra.Command {
 	cmd.Flags().StringVar(&resourceName, "resource-name", "", "Name of the resource")
 	cmd.Flags().StringVar(&workflowType, "workflow-type", "resource", "Create a Work for Promise or Resource type scheduling")
 
-	cmd.MarkFlagRequired("input-directory")
-	cmd.MarkFlagRequired("promise-name")
-	cmd.MarkFlagRequired("pipeline-name")
+	if err := cmd.MarkFlagRequired("input-directory"); err != nil {
+		log.Fatalf("error marking input-directory as required: %s", err)
+	}
+	if err := cmd.MarkFlagRequired("promise-name"); err != nil {
+		log.Fatalf("error marking promise-name as required: %s", err)
+	}
+	if err := cmd.MarkFlagRequired("pipeline-name"); err != nil {
+		log.Fatalf("error marking pipeline-name as required: %s", err)
+	}
 
 	return cmd
 }
