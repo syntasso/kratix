@@ -1,4 +1,4 @@
-package pipeline_test
+package lib_test
 
 import (
 	"context"
@@ -9,7 +9,7 @@ import (
 	. "github.com/onsi/gomega"
 	"github.com/syntasso/kratix/api/v1alpha1"
 	"github.com/syntasso/kratix/lib/compression"
-	"github.com/syntasso/kratix/work-creator/pipeline"
+	"github.com/syntasso/kratix/work-creator/lib"
 	v1 "k8s.io/api/core/v1"
 	metav1 "k8s.io/apimachinery/pkg/apis/meta/v1"
 	"k8s.io/apimachinery/pkg/labels"
@@ -25,14 +25,14 @@ var _ = Describe("WorkCreator", func() {
 
 	When("WorkCreator Executes", func() {
 		var (
-			workCreator       pipeline.WorkCreator
+			workCreator       lib.WorkCreator
 			expectedNamespace string
 		)
 
 		BeforeEach(func() {
 			expectedNamespace = "default"
 
-			workCreator = pipeline.WorkCreator{
+			workCreator = lib.WorkCreator{
 				K8sClient: k8sClient,
 			}
 			err := k8sClient.Create(context.Background(), &v1.Namespace{ObjectMeta: metav1.ObjectMeta{Name: "kratix-platform-system"}})
@@ -288,14 +288,14 @@ var _ = Describe("WorkCreator", func() {
 
 	Describe("parse destination selectors", func() {
 		It("returns a valid destination selectors", func() {
-			selectors, err := pipeline.ParseDestinationSelectors([]byte(`[{"matchLabels":{"env": "dev"}}]`))
+			selectors, err := lib.ParseDestinationSelectors([]byte(`[{"matchLabels":{"env": "dev"}}]`))
 			Expect(err).ToNot(HaveOccurred())
 			Expect(selectors).To(HaveLen(1))
 			Expect(selectors[0].MatchLabels["env"]).To(Equal("dev"))
 		})
 
 		DescribeTable("error cases", func(contents string, errMsg string) {
-			_, err := pipeline.ParseDestinationSelectors([]byte(contents))
+			_, err := lib.ParseDestinationSelectors([]byte(contents))
 			Expect(err).To(MatchError(ContainSubstring(errMsg)))
 		},
 			Entry("no selectors can be parsed", "invalid-key: invalid-value", "invalid destination-selectors.yaml: error unmarshaling JSON"),
@@ -308,7 +308,7 @@ var _ = Describe("WorkCreator", func() {
 })
 
 func getRootDirectory() string {
-	d, _ := filepath.Abs("samples/")
+	d, _ := filepath.Abs("../samples/")
 	return d
 }
 

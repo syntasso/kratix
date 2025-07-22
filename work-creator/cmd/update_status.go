@@ -1,26 +1,32 @@
-package main
+package cmd
 
 import (
 	"context"
 	"fmt"
-	"log"
 	"os"
 	"path/filepath"
 
-	"github.com/syntasso/kratix/work-creator/pipeline/lib"
-	"github.com/syntasso/kratix/work-creator/pipeline/lib/helpers"
+	"github.com/spf13/cobra"
+	"github.com/syntasso/kratix/work-creator/lib"
+	"github.com/syntasso/kratix/work-creator/lib/helpers"
 	metav1 "k8s.io/apimachinery/pkg/apis/meta/v1"
 	"sigs.k8s.io/yaml"
 )
 
-func main() {
-	ctx := context.Background()
-	if err := run(ctx); err != nil {
-		log.Fatalf("Error: %v", err)
+func updateStatusCmd() *cobra.Command {
+	cmd := &cobra.Command{
+		Use:   "update-status",
+		Short: "Update status of Kubernetes resources",
+		RunE: func(cmd *cobra.Command, args []string) error {
+			ctx := context.Background()
+			return runUpdateStatus(ctx)
+		},
 	}
+
+	return cmd
 }
 
-func run(ctx context.Context) error {
+func runUpdateStatus(ctx context.Context) error {
 	workspaceDir := "/work-creator-files"
 	statusFile := filepath.Join(workspaceDir, "metadata", "status.yaml")
 

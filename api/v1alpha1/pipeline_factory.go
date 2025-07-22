@@ -187,7 +187,8 @@ func (p *PipelineFactory) readerContainer() corev1.Container {
 	return corev1.Container{
 		Name:    "reader",
 		Image:   os.Getenv("PIPELINE_ADAPTER_IMG"),
-		Command: []string{"sh", "-c", "reader"},
+		Command: []string{"/bin/pipeline-adapter"},
+		Args:    []string{"reader"},
 		Env:     p.defaultEnvVars(),
 		VolumeMounts: []corev1.VolumeMount{
 			{MountPath: "/kratix/input", Name: "shared-input"},
@@ -199,26 +200,24 @@ func (p *PipelineFactory) readerContainer() corev1.Container {
 }
 
 func (p *PipelineFactory) workCreatorContainer() corev1.Container {
-	workCreatorCommand := "work-creator"
-
 	args := []string{
-		"-input-directory", "/work-creator-files",
-		"-promise-name", p.Promise.GetName(),
-		"-pipeline-name", p.Pipeline.GetName(),
-		"-namespace", p.Namespace,
-		"-workflow-type", string(p.WorkflowType),
+		"work-creator",
+		"--input-directory", "/work-creator-files",
+		"--promise-name", p.Promise.GetName(),
+		"--pipeline-name", p.Pipeline.GetName(),
+		"--namespace", p.Namespace,
+		"--workflow-type", string(p.WorkflowType),
 	}
 
 	if p.ResourceWorkflow {
-		args = append(args, "-resource-name", p.ResourceRequest.GetName())
+		args = append(args, "--resource-name", p.ResourceRequest.GetName())
 	}
-
-	workCreatorCommand = fmt.Sprintf("%s %s", workCreatorCommand, strings.Join(args, " "))
 
 	return corev1.Container{
 		Name:    "work-writer",
 		Image:   os.Getenv("PIPELINE_ADAPTER_IMG"),
-		Command: []string{"sh", "-c", workCreatorCommand},
+		Command: []string{"/bin/pipeline-adapter"},
+		Args:    args,
 		VolumeMounts: []corev1.VolumeMount{
 			{MountPath: "/work-creator-files/input", Name: "shared-output"},
 			{MountPath: "/work-creator-files/metadata", Name: "shared-metadata"},
@@ -352,7 +351,8 @@ func (p *PipelineFactory) statusWriterContainer(obj *unstructured.Unstructured, 
 	return corev1.Container{
 		Name:    "status-writer",
 		Image:   os.Getenv("PIPELINE_ADAPTER_IMG"),
-		Command: []string{"sh", "-c", "update-status"},
+		Command: []string{"/bin/pipeline-adapter"},
+		Args:    []string{"update-status"},
 		Env: append(env,
 			corev1.EnvVar{Name: KratixObjectKindEnvVar, Value: strings.ToLower(obj.GetKind())},
 			corev1.EnvVar{Name: KratixObjectGroupEnvVar, Value: obj.GroupVersionKind().Group},

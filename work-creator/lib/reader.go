@@ -5,7 +5,7 @@ import (
 	"fmt"
 	"os"
 
-	"github.com/syntasso/kratix/work-creator/pipeline/lib/helpers"
+	"github.com/syntasso/kratix/work-creator/lib/helpers"
 	metav1 "k8s.io/apimachinery/pkg/apis/meta/v1"
 	"k8s.io/client-go/dynamic"
 )
