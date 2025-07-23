@@ -24,7 +24,9 @@ var _ = Describe("Reconciliation", func() {
 		})
 
 		AfterEach(func() {
-			platform.Kubectl("delete", "promise", promiseName)
+			platform.EventuallyKubectlDelete(promiseName, "one")
+			platform.EventuallyKubectlDelete(promiseName, "two")
+			platform.EventuallyKubectlDelete("promise", promiseName)
 		})
 
 		It("pauses reconciliation and resumes after label has been removed", func() {
