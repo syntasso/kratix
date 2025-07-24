@@ -285,6 +285,10 @@ setup_worker_2_destination() {
     kubectl wait destination worker-2 --for=condition=Ready
 }
 
+wait_for_kratix_deployment() {
+    kubectl wait deployment --context kind-${PLATFORM_CLUSTER_NAME} -n kratix-platform-system kratix-platform-controller-manager --for=condition=Available --timeout=300s
+}
+
 wait_for_gitea() {
     wait_opts=$1
     kubectl wait pod --context kind-${PLATFORM_CLUSTER_NAME} -n gitea --selector app=gitea --for=condition=ready ${wait_opts}
@@ -516,6 +520,13 @@ install_kratix() {
     fi
 
     step_register_destinations
+    log -n "Waiting for kratix deployment to be ready..."
+    if ! SUPPRESS_OUTPUT=true run wait_for_kratix_deployment; then
+        run wait_for_kratix_deployment
+    else
+        success_mark
+    fi
+
     step_setup_worker_cluster
 
     log -n "Waiting for local repository to be running..."
