@@ -51,6 +51,9 @@ import (
 	ctrl "sigs.k8s.io/controller-runtime"
 	"sigs.k8s.io/controller-runtime/pkg/client"
 	kmanager "sigs.k8s.io/controller-runtime/pkg/manager"
+
+	"go.opentelemetry.io/otel"
+	"go.opentelemetry.io/otel/attribute"
 )
 
 var reconcileConfigure = workflow.ReconcileConfigure
@@ -124,6 +127,14 @@ var (
 // +kubebuilder:rbac:groups=apiextensions.k8s.io,resources=customresourcedefinitions,verbs=get;list;watch;create;update;patch;delete
 
 func (r *PromiseReconciler) Reconcile(ctx context.Context, req ctrl.Request) (ctrl.Result, error) {
+	tracer := otel.Tracer("kratix")
+	ctx, span := tracer.Start(ctx, "Reconcile/Promise")
+	defer span.End()
+	span.SetAttributes(
+		attribute.String("req.name", req.Name),
+		attribute.String("req.namespace", req.Namespace),
+	)
+
 	if r.StartedDynamicControllers == nil {
 		r.StartedDynamicControllers = make(map[string]*DynamicResourceRequestController)
 	}
@@ -137,6 +148,7 @@ func (r *PromiseReconciler) Reconcile(ctx context.Context, req ctrl.Request) (ct
 		r.Log.Error(err, "Failed getting Promise", "namespacedName", req.NamespacedName)
 		return defaultRequeue, nil //nolint:nilerr // requeue rather than exponential backoff
 	}
+	span.AddEvent("fetched Promise")
 
 	originalStatus := promise.Status.Status
 	originalAvailableCondition := promise.GetCondition(v1alpha1.PromiseAvailableConditionType)
@@ -496,7 +508,7 @@ func (r *PromiseReconciler) updateWorksSucceededCondition(
 func (r *PromiseReconciler) reconcileResources(ctx context.Context, logger logr.Logger, promise *v1alpha1.Promise,
 	rrGVK *schema.GroupVersionKind) (ctrl.Result, error) {
 	logger.Info("reconciling all resource requests of promise", "promiseName", promise.Name)
-	if err := r.reconcileAllRRs(rrGVK); err != nil {
+	if err := r.reconcileAllRRs(ctx, rrGVK); err != nil {
 		return ctrl.Result{}, err
 	}
 
@@ -818,13 +830,13 @@ func (r *PromiseReconciler) reconcileDependenciesAndPromiseWorkflows(o opts, pro
 	return nil, nil
 }
 
-func (r *PromiseReconciler) reconcileAllRRs(rrGVK *schema.GroupVersionKind) error {
+func (r *PromiseReconciler) reconcileAllRRs(ctx context.Context, rrGVK *schema.GroupVersionKind) error {
 	//label all rr with manual reconciliation
 	rrs := &unstructured.UnstructuredList{}
 	rrListGVK := *rrGVK
 	rrListGVK.Kind = rrListGVK.Kind + "List"
 	rrs.SetGroupVersionKind(rrListGVK)
-	err := r.Client.List(context.Background(), rrs)
+	err := r.Client.List(ctx, rrs)
 	if err != nil {
 		return err
 	}
@@ -835,7 +847,7 @@ func (r *PromiseReconciler) reconcileAllRRs(rrGVK *schema.GroupVersionKind) erro
 		}
 		newLabels[resourceutil.ManualReconciliationLabel] = "true"
 		rr.SetLabels(newLabels)
-		if err := r.Client.Update(context.Background(), &rr); err != nil {
+		if err := r.Client.Update(ctx, &rr); err != nil {
 			return err
 		}
 	}
@@ -1002,7 +1014,7 @@ func (r *PromiseReconciler) ensureCRDExists(ctx context.Context, promise *v1alph
 		}
 	}
 
-	statusUpdated, err := r.updateStatus(promise, rrCRD.Spec.Names.Kind, rrCRD.Spec.Group, version)
+	statusUpdated, err := r.updateStatus(ctx, promise, rrCRD.Spec.Names.Kind, rrCRD.Spec.Group, version)
 	if err != nil {
 		return nil, err
 	}
@@ -1028,7 +1040,7 @@ func (r *PromiseReconciler) ensureCRDExists(ctx context.Context, promise *v1alph
 	return &fastRequeue, nil
 }
 
-func (r *PromiseReconciler) updateStatus(promise *v1alpha1.Promise, kind, group, version string) (bool, error) {
+func (r *PromiseReconciler) updateStatus(ctx context.Context, promise *v1alpha1.Promise, kind, group, version string) (bool, error) {
 	apiVersion := strings.ToLower(group + "/" + version)
 	if promise.Status.Kind == kind && promise.Status.APIVersion == apiVersion {
 		return false, nil
@@ -1036,7 +1048,7 @@ func (r *PromiseReconciler) updateStatus(promise *v1alpha1.Promise, kind, group,
 
 	promise.Status.Kind = kind
 	promise.Status.APIVersion = apiVersion
-	return true, r.Client.Status().Update(context.TODO(), promise)
+	return true, r.Client.Status().Update(ctx, promise)
 }
 
 func (r *PromiseReconciler) deletePromise(o opts, promise *v1alpha1.Promise) (ctrl.Result, error) {
@@ -1406,7 +1418,7 @@ func (r *PromiseReconciler) applyWorkForStaticDependencies(o opts, promise *v1al
 		),
 	)
 
-	existingWork, err := resourceutil.GetWork(r.Client, v1alpha1.SystemNamespace, work.GetLabels())
+	existingWork, err := resourceutil.GetWork(o.ctx, r.Client, v1alpha1.SystemNamespace, work.GetLabels())
 	if err != nil {
 		return err
 	}
@@ -1440,7 +1452,7 @@ func (r *PromiseReconciler) applyWorkForStaticDependencies(o opts, promise *v1al
 func (r *PromiseReconciler) deleteWorkForStaticDependencies(o opts, promise *v1alpha1.Promise) error {
 	labels := resourceutil.GetWorkLabels(promise.GetName(), "", "", v1alpha1.WorkTypeStaticDependency)
 
-	existingWork, err := resourceutil.GetWork(r.Client, v1alpha1.SystemNamespace, labels)
+	existingWork, err := resourceutil.GetWork(o.ctx, r.Client, v1alpha1.SystemNamespace, labels)
 	if err != nil {
 		return err
 	}

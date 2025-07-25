@@ -40,6 +40,9 @@ import (
 	"sigs.k8s.io/controller-runtime/pkg/client"
 	"sigs.k8s.io/controller-runtime/pkg/handler"
 	"sigs.k8s.io/controller-runtime/pkg/reconcile"
+
+	"go.opentelemetry.io/otel"
+	"go.opentelemetry.io/otel/attribute"
 )
 
 const (
@@ -68,6 +71,14 @@ type DestinationReconciler struct {
 //+kubebuilder:rbac:groups=platform.kratix.io,resources=destinations/finalizers,verbs=update
 
 func (r *DestinationReconciler) Reconcile(ctx context.Context, req ctrl.Request) (ctrl.Result, error) {
+	tracer := otel.Tracer("kratix")
+	ctx, span := tracer.Start(ctx, "Reconcile/Destination")
+	defer span.End()
+	span.SetAttributes(
+		attribute.String("req.name", req.Name),
+		attribute.String("req.namespace", req.Namespace),
+	)
+
 	logger := r.Log.WithValues(
 		"destination", req.NamespacedName,
 	)
@@ -80,6 +91,7 @@ func (r *DestinationReconciler) Reconcile(ctx context.Context, req ctrl.Request)
 		}
 		return ctrl.Result{}, err
 	}
+	span.AddEvent("fetched Destination")
 
 	opts := opts{
 		client: r.Client,
@@ -97,7 +109,7 @@ func (r *DestinationReconciler) Reconcile(ctx context.Context, req ctrl.Request)
 
 	writer, err := newWriter(opts, destination.Spec.StateStoreRef.Name, destination.Spec.StateStoreRef.Kind, destination.Spec.Path)
 	if err != nil {
-		if condErr := r.updateReadyCondition(destination, err); condErr != nil {
+		if condErr := r.updateReadyCondition(ctx, destination, err); condErr != nil {
 			return ctrl.Result{}, condErr
 		}
 		return ctrl.Result{}, err
@@ -112,7 +124,7 @@ func (r *DestinationReconciler) Reconcile(ctx context.Context, req ctrl.Request)
 			return ctrl.Result{}, err
 		}
 
-		if err = r.setConditionReadyInitWorkloads(destination); err != nil {
+		if err = r.setConditionReadyInitWorkloads(ctx, destination); err != nil {
 			return ctrl.Result{}, err
 		}
 		return ctrl.Result{}, nil
@@ -128,7 +140,7 @@ func (r *DestinationReconciler) Reconcile(ctx context.Context, req ctrl.Request)
 		logger.Error(writeErr, "unable to write dependencies to state store")
 	}
 
-	if condErr := r.updateReadyCondition(destination, writeErr); condErr != nil {
+	if condErr := r.updateReadyCondition(ctx, destination, writeErr); condErr != nil {
 		return result, condErr
 	}
 
@@ -276,7 +288,7 @@ func (r *DestinationReconciler) deleteDestinationWorkplacements(o opts, destinat
 	return true, nil
 }
 
-func (r *DestinationReconciler) updateReadyCondition(destination *v1alpha1.Destination, err error) error {
+func (r *DestinationReconciler) updateReadyCondition(ctx context.Context, destination *v1alpha1.Destination, err error) error {
 	eventType := v1.EventTypeNormal
 	eventReason := destinationReadyReason
 	eventMessage := fmt.Sprintf("Destination %q is ready", destination.Name)
@@ -300,10 +312,10 @@ func (r *DestinationReconciler) updateReadyCondition(destination *v1alpha1.Desti
 		eventMessage = fmt.Sprintf("Failed to write test documents to Destination %q: %s", destination.Name, err)
 	}
 
-	return r.updateStatus(destination, condition, eventType, eventReason, eventMessage)
+	return r.updateStatus(ctx, destination, condition, eventType, eventReason, eventMessage)
 }
 
-func (r *DestinationReconciler) setConditionReadyInitWorkloads(destination *v1alpha1.Destination) error {
+func (r *DestinationReconciler) setConditionReadyInitWorkloads(ctx context.Context, destination *v1alpha1.Destination) error {
 	condition := metav1.Condition{
 		Type:               "Ready",
 		Status:             metav1.ConditionTrue,
@@ -312,10 +324,10 @@ func (r *DestinationReconciler) setConditionReadyInitWorkloads(destination *v1al
 		LastTransitionTime: metav1.Now(),
 	}
 
-	return r.updateStatus(destination, condition, v1.EventTypeNormal, destinationReadyReason, fmt.Sprintf("Destination %q is ready, skipped writing of the init workloads", destination.Name))
+	return r.updateStatus(ctx, destination, condition, v1.EventTypeNormal, destinationReadyReason, fmt.Sprintf("Destination %q is ready, skipped writing of the init workloads", destination.Name))
 }
 
-func (r *DestinationReconciler) updateStatus(destination *v1alpha1.Destination, condition metav1.Condition, eventType, eventReason, eventMessage string) error {
+func (r *DestinationReconciler) updateStatus(ctx context.Context, destination *v1alpha1.Destination, condition metav1.Condition, eventType, eventReason, eventMessage string) error {
 	changed := meta.SetStatusCondition(&destination.Status.Conditions, condition)
 	if !changed {
 		return nil
@@ -323,7 +335,7 @@ func (r *DestinationReconciler) updateStatus(destination *v1alpha1.Destination, 
 
 	r.EventRecorder.Eventf(destination, eventType, eventReason, eventMessage)
 
-	return r.Client.Status().Update(context.Background(), destination)
+	return r.Client.Status().Update(ctx, destination)
 }
 
 func (r *DestinationReconciler) findDestinationsForStateStore(stateStoreType string) handler.MapFunc {
@@ -356,7 +368,8 @@ func (r *DestinationReconciler) stateStoreRefKey(stateStoreKind, stateStoreName 
 // SetupWithManager sets up the controller with the Manager.
 func (r *DestinationReconciler) SetupWithManager(mgr ctrl.Manager) error {
 	// Create an index on the state store reference
-	err := mgr.GetFieldIndexer().IndexField(context.Background(), &v1alpha1.Destination{}, stateStoreReference,
+	ctx := context.Background()
+	err := mgr.GetFieldIndexer().IndexField(ctx, &v1alpha1.Destination{}, stateStoreReference,
 		func(rawObj client.Object) []string {
 			destination := rawObj.(*v1alpha1.Destination)
 			return []string{r.stateStoreRefKey(destination.Spec.StateStoreRef.Kind, destination.Spec.StateStoreRef.Name)}

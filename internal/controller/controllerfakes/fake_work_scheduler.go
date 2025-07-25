@@ -2,6 +2,7 @@
 package controllerfakes
 
 import (
+	"context"
 	"sync"
 
 	"github.com/syntasso/kratix/api/v1alpha1"
@@ -9,10 +10,11 @@ import (
 )
 
 type FakeWorkScheduler struct {
-	ReconcileWorkStub        func(*v1alpha1.Work) ([]string, error)
+	ReconcileWorkStub        func(context.Context, *v1alpha1.Work) ([]string, error)
 	reconcileWorkMutex       sync.RWMutex
 	reconcileWorkArgsForCall []struct {
-		arg1 *v1alpha1.Work
+		arg1 context.Context
+		arg2 *v1alpha1.Work
 	}
 	reconcileWorkReturns struct {
 		result1 []string
@@ -26,18 +28,19 @@ type FakeWorkScheduler struct {
 	invocationsMutex sync.RWMutex
 }
 
-func (fake *FakeWorkScheduler) ReconcileWork(arg1 *v1alpha1.Work) ([]string, error) {
+func (fake *FakeWorkScheduler) ReconcileWork(arg1 context.Context, arg2 *v1alpha1.Work) ([]string, error) {
 	fake.reconcileWorkMutex.Lock()
 	ret, specificReturn := fake.reconcileWorkReturnsOnCall[len(fake.reconcileWorkArgsForCall)]
 	fake.reconcileWorkArgsForCall = append(fake.reconcileWorkArgsForCall, struct {
-		arg1 *v1alpha1.Work
-	}{arg1})
+		arg1 context.Context
+		arg2 *v1alpha1.Work
+	}{arg1, arg2})
 	stub := fake.ReconcileWorkStub
 	fakeReturns := fake.reconcileWorkReturns
-	fake.recordInvocation("ReconcileWork", []interface{}{arg1})
+	fake.recordInvocation("ReconcileWork", []interface{}{arg1, arg2})
 	fake.reconcileWorkMutex.Unlock()
 	if stub != nil {
-		return stub(arg1)
+		return stub(arg1, arg2)
 	}
 	if specificReturn {
 		return ret.result1, ret.result2
@@ -51,17 +54,17 @@ func (fake *FakeWorkScheduler) ReconcileWorkCallCount() int {
 	return len(fake.reconcileWorkArgsForCall)
 }
 
-func (fake *FakeWorkScheduler) ReconcileWorkCalls(stub func(*v1alpha1.Work) ([]string, error)) {
+func (fake *FakeWorkScheduler) ReconcileWorkCalls(stub func(context.Context, *v1alpha1.Work) ([]string, error)) {
 	fake.reconcileWorkMutex.Lock()
 	defer fake.reconcileWorkMutex.Unlock()
 	fake.ReconcileWorkStub = stub
 }
 
-func (fake *FakeWorkScheduler) ReconcileWorkArgsForCall(i int) *v1alpha1.Work {
+func (fake *FakeWorkScheduler) ReconcileWorkArgsForCall(i int) (context.Context, *v1alpha1.Work) {
 	fake.reconcileWorkMutex.RLock()
 	defer fake.reconcileWorkMutex.RUnlock()
 	argsForCall := fake.reconcileWorkArgsForCall[i]
-	return argsForCall.arg1
+	return argsForCall.arg1, argsForCall.arg2
 }
 
 func (fake *FakeWorkScheduler) ReconcileWorkReturns(result1 []string, result2 error) {

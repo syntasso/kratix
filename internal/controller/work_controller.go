@@ -34,6 +34,9 @@ import (
 	"sigs.k8s.io/controller-runtime/pkg/controller/controllerutil"
 	"sigs.k8s.io/controller-runtime/pkg/handler"
 	"sigs.k8s.io/controller-runtime/pkg/reconcile"
+
+	"go.opentelemetry.io/otel"
+	"go.opentelemetry.io/otel/attribute"
 )
 
 const workCleanUpFinalizer = v1alpha1.KratixPrefix + "work-cleanup"
@@ -48,7 +51,7 @@ type WorkReconciler struct {
 
 //counterfeiter:generate . WorkScheduler
 type WorkScheduler interface {
-	ReconcileWork(work *v1alpha1.Work) ([]string, error)
+	ReconcileWork(ctx context.Context, work *v1alpha1.Work) ([]string, error)
 }
 
 //+kubebuilder:rbac:groups=platform.kratix.io,resources=works,verbs=get;list;watch;create;update;patch;delete
@@ -56,12 +59,20 @@ type WorkScheduler interface {
 //+kubebuilder:rbac:groups=platform.kratix.io,resources=works/finalizers,verbs=update
 
 func (r *WorkReconciler) Reconcile(ctx context.Context, req ctrl.Request) (ctrl.Result, error) {
+	tracer := otel.Tracer("kratix")
+	ctx, span := tracer.Start(ctx, "Reconcile/Work")
+	defer span.End()
+	span.SetAttributes(
+		attribute.String("req.name", req.Name),
+		attribute.String("req.namespace", req.Namespace),
+	)
+
 	logger := r.Log.WithValues("work", req.NamespacedName)
 
 	logger.Info("Reconciling Work")
 
 	work := &v1alpha1.Work{}
-	err := r.Client.Get(context.Background(), req.NamespacedName, work)
+	err := r.Client.Get(ctx, req.NamespacedName, work)
 	if err != nil {
 		if errors.IsNotFound(err) {
 			return ctrl.Result{}, nil
@@ -69,6 +80,7 @@ func (r *WorkReconciler) Reconcile(ctx context.Context, req ctrl.Request) (ctrl.
 		logger.Error(err, "Error getting Work")
 		return ctrl.Result{}, err
 	}
+	span.AddEvent("fetched Work")
 
 	if !work.DeletionTimestamp.IsZero() {
 		return r.deleteWork(ctx, work)
@@ -83,7 +95,8 @@ func (r *WorkReconciler) Reconcile(ctx context.Context, req ctrl.Request) (ctrl.
 
 	logger.Info("Requesting scheduling for Work")
 
-	unscheduledWorkloadGroupIDs, err := r.Scheduler.ReconcileWork(work)
+	span.AddEvent("scheduling Work")
+	unscheduledWorkloadGroupIDs, err := r.Scheduler.ReconcileWork(ctx, work)
 	if err != nil {
 		if errors.IsConflict(err) {
 			logger.Info("failed to schedule Work due to update conflict, requeue...")
@@ -109,7 +122,7 @@ func (r *WorkReconciler) Reconcile(ctx context.Context, req ctrl.Request) (ctrl.
 }
 
 func (r *WorkReconciler) updateWorkStatus(ctx context.Context, logger logr.Logger, work *v1alpha1.Work) (ctrl.Result, error) {
-	workplacements, err := listWorkplacementWithLabels(r.Client, logger, work.GetNamespace(), map[string]string{
+	workplacements, err := listWorkplacementWithLabels(ctx, r.Client, logger, work.GetNamespace(), map[string]string{
 		workLabelKey: work.Name,
 	})
 	if err != nil {
