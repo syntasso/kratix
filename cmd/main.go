@@ -148,18 +148,9 @@ func main() {
 		panic(err)
 	}
 
-	kratixConfig, err := readKratixConfig(ctrl.Log, kClient)
-	if err != nil {
-		panic(err)
-	}
+	kratixConfig := readKratixConfigOrDie(ctrl.Log, kClient)
 
-	if kratixConfig != nil {
-		v1alpha1.DefaultUserProvidedContainersSecurityContext = &kratixConfig.Workflows.DefaultContainerSecurityContext
-		v1alpha1.DefaultImagePullPolicy = kratixConfig.Workflows.DefaultImagePullPolicy
-		if kratixConfig.Workflows.JobOptions.DefaultBackoffLimit != nil {
-			v1alpha1.DefaultJobBackoffLimit = kratixConfig.Workflows.JobOptions.DefaultBackoffLimit
-		}
-	}
+	updateDefaults(kratixConfig)
 
 	for {
 		config := ctrl.GetConfigOrDie()
@@ -373,32 +364,32 @@ func main() {
 
 const numJobsToKeepDefault = 5
 
-func readKratixConfig(logger logr.Logger, kClient client.Client) (*KratixConfig, error) {
+func readKratixConfigOrDie(logger logr.Logger, kClient client.Client) *KratixConfig {
 	cm := &corev1.ConfigMap{}
 	err := kClient.Get(context.Background(), client.ObjectKey{Namespace: "kratix-platform-system", Name: "kratix"}, cm)
 	if err != nil {
 		if apierrors.IsNotFound(err) {
 			logger.Info("kratix-platform-system/kratix ConfigMap not found, using default config")
-			return nil, nil
+			return &KratixConfig{}
 		}
-		return nil, fmt.Errorf("failed to get kratix-platform-system/kratix configmap: %w", err)
+		panic(fmt.Errorf("failed to get kratix-platform-system/kratix configmap: %w", err))
 	}
 
 	logger.Info("kratix-platform-system/kratix ConfigMap found")
 	config, exists := cm.Data["config"]
 	if !exists {
-		return nil, fmt.Errorf("configmap kratix-platform-system/kratix does not contain a 'config' key")
+		panic(fmt.Errorf("configmap kratix-platform-system/kratix does not contain a 'config' key"))
 	}
 
 	kratixConfig := &KratixConfig{}
 	err = yaml.Unmarshal([]byte(config), kratixConfig)
 	if err != nil {
-		return nil, fmt.Errorf("failed to unmarshal ConfigMap kratix-platform-system/kratix into Kratix config: %w", err)
+		panic(fmt.Errorf("failed to unmarshal ConfigMap kratix-platform-system/kratix into Kratix config: %w", err))
 	}
 
 	logger.Info("Kratix config loaded", "config", kratixConfig)
 
-	return kratixConfig, nil
+	return kratixConfig
 }
 
 func getNumJobsToKeep(kratixConfig *KratixConfig) int {
@@ -462,4 +453,14 @@ func initTracerProvider(ctx context.Context) (*sdktrace.TracerProvider, error) {
 
 	otel.SetTracerProvider(tp)
 	return tp, nil
+}
+
+func updateDefaults(kratixConfig *KratixConfig) {
+	if kratixConfig != nil {
+		v1alpha1.DefaultUserProvidedContainersSecurityContext = &kratixConfig.Workflows.DefaultContainerSecurityContext
+		v1alpha1.DefaultImagePullPolicy = kratixConfig.Workflows.DefaultImagePullPolicy
+		if kratixConfig.Workflows.JobOptions.DefaultBackoffLimit != nil {
+			v1alpha1.DefaultJobBackoffLimit = kratixConfig.Workflows.JobOptions.DefaultBackoffLimit
+		}
+	}
 }
