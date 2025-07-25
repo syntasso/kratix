@@ -386,7 +386,7 @@ func cleanup(opts Opts, namespace string) error {
 		}
 	}
 
-	allPipelineWorks, err := resourceutil.GetWorksByType(opts.client, v1alpha1.Type(opts.workflowType), opts.parentObject)
+	allPipelineWorks, err := resourceutil.GetWorksByType(opts.ctx, opts.client, v1alpha1.Type(opts.workflowType), opts.parentObject)
 	if err != nil {
 		opts.logger.Error(err, "failed to list works for Promise", "promise", opts.parentObject.GetName())
 		return err

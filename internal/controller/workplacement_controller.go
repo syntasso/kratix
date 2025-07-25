@@ -72,7 +72,7 @@ type WorkPlacementReconciler struct {
 func (r *WorkPlacementReconciler) Reconcile(ctx context.Context, req ctrl.Request) (ctrl.Result, error) {
 	logger := r.Log.WithValues("work-placement-controller", req.NamespacedName)
 	workPlacement := &v1alpha1.WorkPlacement{}
-	err := r.Client.Get(context.Background(), req.NamespacedName, workPlacement)
+	err := r.Client.Get(ctx, req.NamespacedName, workPlacement)
 	if err != nil {
 		if k8sErrors.IsNotFound(err) {
 			return ctrl.Result{}, nil

@@ -128,7 +128,7 @@ func updateStateStoreReadyStatusAndCondition(o opts, eventRecorder record.EventR
 
 	stateStore.SetStatus(*stateStoreStatus)
 
-	return o.client.Status().Update(context.Background(), stateStore)
+	return o.client.Status().Update(o.ctx, stateStore)
 }
 
 func constructRequestsForStateStoresReferencingSecret(ctx context.Context, k8sclient client.Client, logger logr.Logger, secret client.Object, stateStoreList client.ObjectList) []reconcile.Request {

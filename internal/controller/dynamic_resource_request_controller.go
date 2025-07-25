@@ -424,7 +424,7 @@ func (r *DynamicResourceRequestController) deleteResources(o opts, promise *v1al
 }
 
 func (r *DynamicResourceRequestController) deleteWork(o opts, resourceRequest *unstructured.Unstructured, workName string, finalizer string) error {
-	works, err := resourceutil.GetAllWorksForResource(r.Client, resourceRequest.GetNamespace(), r.PromiseIdentifier, resourceRequest.GetName())
+	works, err := resourceutil.GetAllWorksForResource(o.ctx, r.Client, resourceRequest.GetNamespace(), r.PromiseIdentifier, resourceRequest.GetName())
 	if err != nil {
 		return err
 	}

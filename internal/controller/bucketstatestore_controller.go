@@ -85,7 +85,8 @@ func (r *BucketStateStoreReconciler) findStateStoresReferencingSecret() handler.
 // SetupWithManager sets up the controller with the Manager.
 func (r *BucketStateStoreReconciler) SetupWithManager(mgr ctrl.Manager) error {
 	// Create an index on the secret reference if auth method is access key
-	err := mgr.GetFieldIndexer().IndexField(context.Background(), &v1alpha1.BucketStateStore{}, secretRefFieldName,
+	ctx := context.Background()
+	err := mgr.GetFieldIndexer().IndexField(ctx, &v1alpha1.BucketStateStore{}, secretRefFieldName,
 		func(rawObj client.Object) []string {
 			stateStore := rawObj.(*v1alpha1.BucketStateStore)
 			if stateStore.Spec.AuthMethod == v1alpha1.AuthMethodAccessKey {
