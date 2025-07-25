@@ -47,6 +47,9 @@ import (
 	"k8s.io/apimachinery/pkg/types"
 	ctrl "sigs.k8s.io/controller-runtime"
 	"sigs.k8s.io/controller-runtime/pkg/client"
+
+	"go.opentelemetry.io/otel"
+	"go.opentelemetry.io/otel/attribute"
 )
 
 const workFinalizer = v1alpha1.KratixPrefix + "work-cleanup"
@@ -74,6 +77,14 @@ type DynamicResourceRequestController struct {
 
 // Reconcile reconciles a Dynamically Generated Resource object.
 func (r *DynamicResourceRequestController) Reconcile(ctx context.Context, req ctrl.Request) (ctrl.Result, error) {
+	tracer := otel.Tracer("kratix")
+	ctx, span := tracer.Start(ctx, "Reconcile/DynamicResourceRequest")
+	defer span.End()
+	span.SetAttributes(
+		attribute.String("req.name", req.Name),
+		attribute.String("req.namespace", req.Namespace),
+	)
+
 	if !*r.Enabled {
 		// temporary fix until https://github.com/kubernetes-sigs/controller-runtime/issues/1884 is resolved
 		// once resolved, this won't be necessary since the dynamic controller will be deleted
@@ -96,6 +107,7 @@ func (r *DynamicResourceRequestController) Reconcile(ctx context.Context, req ct
 		logger.Error(err, "Failed getting Promise")
 		return ctrl.Result{}, err
 	}
+	span.AddEvent("fetched Promise")
 
 	if err := r.Client.Get(ctx, req.NamespacedName, rr); err != nil {
 		if apierrors.IsNotFound(err) {
@@ -104,6 +116,7 @@ func (r *DynamicResourceRequestController) Reconcile(ctx context.Context, req ct
 		logger.Error(err, "Failed getting Promise CRD")
 		return defaultRequeue, nil
 	}
+	span.AddEvent("fetched ResourceRequest")
 
 	if v, ok := promise.Labels[pauseReconciliationLabel]; ok && v == "true" {
 		r.Log.Info(fmt.Sprintf("'%s' label set to 'true' for promise; pausing reconciliation for this resource request",

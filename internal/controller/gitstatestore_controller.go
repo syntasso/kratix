@@ -32,6 +32,9 @@ import (
 	"sigs.k8s.io/controller-runtime/pkg/handler"
 	"sigs.k8s.io/controller-runtime/pkg/predicate"
 	"sigs.k8s.io/controller-runtime/pkg/reconcile"
+
+	"go.opentelemetry.io/otel"
+	"go.opentelemetry.io/otel/attribute"
 )
 
 // GitStateStoreReconciler reconciles a GitStateStore object
@@ -48,6 +51,14 @@ type GitStateStoreReconciler struct {
 
 // Reconcile reconciles a GitStateStore object.
 func (r *GitStateStoreReconciler) Reconcile(ctx context.Context, req ctrl.Request) (ctrl.Result, error) {
+	tracer := otel.Tracer("kratix")
+	ctx, span := tracer.Start(ctx, "Reconcile/GitStateStore")
+	defer span.End()
+	span.SetAttributes(
+		attribute.String("req.name", req.Name),
+		attribute.String("req.namespace", req.Namespace),
+	)
+
 	logger := r.Log.WithValues(
 		"gitStateStore", req.NamespacedName,
 	)
@@ -61,6 +72,7 @@ func (r *GitStateStoreReconciler) Reconcile(ctx context.Context, req ctrl.Reques
 		}
 		return ctrl.Result{}, err
 	}
+	span.AddEvent("fetched GitStateStore")
 
 	o := opts{
 		client: r.Client,

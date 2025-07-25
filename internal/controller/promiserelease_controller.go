@@ -35,6 +35,9 @@ import (
 	"github.com/go-logr/logr"
 	"github.com/syntasso/kratix/api/v1alpha1"
 	"github.com/syntasso/kratix/lib/resourceutil"
+
+	"go.opentelemetry.io/otel"
+	"go.opentelemetry.io/otel/attribute"
 )
 
 const (
@@ -62,6 +65,13 @@ const promiseCleanupFinalizer = v1alpha1.KratixPrefix + "promise-cleanup"
 //+kubebuilder:rbac:groups="",resources=events,verbs=create;patch
 
 func (r *PromiseReleaseReconciler) Reconcile(ctx context.Context, req ctrl.Request) (ctrl.Result, error) {
+	tracer := otel.Tracer("kratix")
+	ctx, span := tracer.Start(ctx, "Reconcile/PromiseRelease")
+	defer span.End()
+	span.SetAttributes(
+		attribute.String("req.name", req.Name),
+		attribute.String("req.namespace", req.Namespace),
+	)
 	_ = log.FromContext(ctx)
 
 	promiseRelease := &v1alpha1.PromiseRelease{}
@@ -73,6 +83,7 @@ func (r *PromiseReleaseReconciler) Reconcile(ctx context.Context, req ctrl.Reque
 		r.Log.Error(err, "Failed getting PromiseRelease", "namespacedName", req.NamespacedName)
 		return defaultRequeue, nil
 	}
+	span.AddEvent("fetched PromiseRelease")
 
 	logger := r.Log.WithValues("identifier", promiseRelease.GetName())
 	logger.Info("Reconciling PromiseRelease")

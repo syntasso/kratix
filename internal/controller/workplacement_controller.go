@@ -39,6 +39,9 @@ import (
 	"github.com/syntasso/kratix/lib/compression"
 	"github.com/syntasso/kratix/lib/writers"
 	apiMeta "k8s.io/apimachinery/pkg/api/meta"
+
+	"go.opentelemetry.io/otel"
+	"go.opentelemetry.io/otel/attribute"
 )
 
 const (
@@ -70,6 +73,14 @@ type WorkPlacementReconciler struct {
 //+kubebuilder:rbac:groups=platform.kratix.io,resources=workplacements/finalizers,verbs=update
 
 func (r *WorkPlacementReconciler) Reconcile(ctx context.Context, req ctrl.Request) (ctrl.Result, error) {
+	tracer := otel.Tracer("kratix")
+	ctx, span := tracer.Start(ctx, "Reconcile/WorkPlacement")
+	defer span.End()
+	span.SetAttributes(
+		attribute.String("req.name", req.Name),
+		attribute.String("req.namespace", req.Namespace),
+	)
+
 	logger := r.Log.WithValues("work-placement-controller", req.NamespacedName)
 	workPlacement := &v1alpha1.WorkPlacement{}
 	err := r.Client.Get(ctx, req.NamespacedName, workPlacement)
@@ -80,6 +91,7 @@ func (r *WorkPlacementReconciler) Reconcile(ctx context.Context, req ctrl.Reques
 		logger.Error(err, "Error getting WorkPlacement", "workPlacement", req.Name)
 		return defaultRequeue, nil
 	}
+	span.AddEvent("fetched WorkPlacement")
 	logger.Info("Reconciling WorkPlacement")
 
 	opts := opts{client: r.Client, ctx: ctx, logger: logger}
