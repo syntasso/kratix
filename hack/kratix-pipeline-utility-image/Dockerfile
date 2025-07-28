@@ -5,7 +5,7 @@ LABEL org.opencontainers.image.source=https://github.com/syntasso/kratix
 
 RUN [ "mkdir", "/tmp/transfer" ]
 RUN apk update && apk add --no-cache \
-	bash yq curl git \
+	bash yq jq curl git \
 	pwgen bash openssl wget bind-tools \
 	github-cli unzip fortune ruby file
 
