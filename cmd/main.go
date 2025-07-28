@@ -23,6 +23,7 @@ import (
 	"os"
 	"time"
 
+	"go.opentelemetry.io/otel/propagation"
 	metav1 "k8s.io/apimachinery/pkg/apis/meta/v1"
 	"k8s.io/apimachinery/pkg/labels"
 	"k8s.io/apimachinery/pkg/selection"
@@ -430,7 +431,8 @@ func setLeaderElectConfig(mgrOptions *ctrl.Options, kConfig *KratixConfig) {
 }
 
 func initTracerProvider(ctx context.Context) (*sdktrace.TracerProvider, error) {
-	exporter, err := otlptracegrpc.New(ctx)
+	exporter, err := otlptracegrpc.New(ctx, otlptracegrpc.WithEndpointURL("http://grafana-k8s-monitoring-alloy-receiver.default.svc.cluster.local:4317/v1/traces"))
+
 	if err != nil {
 		return nil, fmt.Errorf("create exporter: %w", err)
 	}
@@ -452,6 +454,7 @@ func initTracerProvider(ctx context.Context) (*sdktrace.TracerProvider, error) {
 	)
 
 	otel.SetTracerProvider(tp)
+	otel.SetTextMapPropagator(propagation.TraceContext{})
 	return tp, nil
 }
 

@@ -23,6 +23,7 @@ import (
 
 	"github.com/go-logr/logr"
 	"github.com/syntasso/kratix/api/v1alpha1"
+	"go.opentelemetry.io/otel/propagation"
 	v1 "k8s.io/api/core/v1"
 	"k8s.io/apimachinery/pkg/api/errors"
 	apiMeta "k8s.io/apimachinery/pkg/api/meta"
@@ -59,14 +60,6 @@ type WorkScheduler interface {
 //+kubebuilder:rbac:groups=platform.kratix.io,resources=works/finalizers,verbs=update
 
 func (r *WorkReconciler) Reconcile(ctx context.Context, req ctrl.Request) (ctrl.Result, error) {
-	tracer := otel.Tracer("kratix")
-	ctx, span := tracer.Start(ctx, "Reconcile/Work")
-	defer span.End()
-	span.SetAttributes(
-		attribute.String("req.name", req.Name),
-		attribute.String("req.namespace", req.Namespace),
-	)
-
 	logger := r.Log.WithValues("work", req.NamespacedName)
 
 	logger.Info("Reconciling Work")
@@ -80,7 +73,6 @@ func (r *WorkReconciler) Reconcile(ctx context.Context, req ctrl.Request) (ctrl.
 		logger.Error(err, "Error getting Work")
 		return ctrl.Result{}, err
 	}
-	span.AddEvent("fetched Work")
 
 	if !work.DeletionTimestamp.IsZero() {
 		return r.deleteWork(ctx, work)
@@ -94,6 +86,20 @@ func (r *WorkReconciler) Reconcile(ctx context.Context, req ctrl.Request) (ctrl.
 	}
 
 	logger.Info("Requesting scheduling for Work")
+
+	carrier := propagation.MapCarrier{
+		"traceparent": work.Annotations["trace-parent-id"],
+		"tracestate":  work.Annotations["trace-state"],
+	}
+
+	ctx = otel.GetTextMapPropagator().Extract(ctx, carrier)
+	tracer := otel.Tracer("kratix")
+	ctx, span := tracer.Start(ctx, "Reconcile/Work")
+	defer span.End()
+	span.SetAttributes(
+		attribute.String("req.name", req.Name),
+		attribute.String("req.namespace", req.Namespace),
+	)
 
 	span.AddEvent("scheduling Work")
 	unscheduledWorkloadGroupIDs, err := r.Scheduler.ReconcileWork(ctx, work)

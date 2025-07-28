@@ -25,6 +25,7 @@ import (
 	"time"
 
 	"github.com/syntasso/kratix/lib/objectutil"
+	"go.opentelemetry.io/otel/propagation"
 	"sigs.k8s.io/controller-runtime/pkg/controller/controllerutil"
 	"sigs.k8s.io/controller-runtime/pkg/handler"
 	"sigs.k8s.io/controller-runtime/pkg/reconcile"
@@ -135,6 +136,9 @@ func (r *PromiseReconciler) Reconcile(ctx context.Context, req ctrl.Request) (ct
 		attribute.String("req.namespace", req.Namespace),
 	)
 
+	carrier := propagation.MapCarrier{}
+	otel.GetTextMapPropagator().Inject(ctx, carrier)
+
 	if r.StartedDynamicControllers == nil {
 		r.StartedDynamicControllers = make(map[string]*DynamicResourceRequestController)
 	}
@@ -153,7 +157,10 @@ func (r *PromiseReconciler) Reconcile(ctx context.Context, req ctrl.Request) (ct
 	originalStatus := promise.Status.Status
 	originalAvailableCondition := promise.GetCondition(v1alpha1.PromiseAvailableConditionType)
 
-	logger := r.Log.WithValues("identifier", promise.GetName())
+	logger := ctrl.LoggerFrom(ctx)
+	//logger := r.Log.WithValues("identifier", promise.GetName(),
+	//	"trace_id", span.SpanContext().TraceID().String(),
+	//	"span_id", span.SpanContext().SpanID().String())
 
 	if v, ok := promise.Labels[pauseReconciliationLabel]; ok && v == "true" {
 		msg := fmt.Sprintf("'%s' label set to 'true' for promise; pausing reconciliation", pauseReconciliationLabel)
@@ -163,9 +170,11 @@ func (r *PromiseReconciler) Reconcile(ctx context.Context, req ctrl.Request) (ct
 	}
 
 	opts := opts{
-		client: r.Client,
-		ctx:    ctx,
-		logger: logger,
+		client:      r.Client,
+		ctx:         ctx,
+		logger:      logger,
+		traceParent: carrier["traceparent"],
+		traceState:  carrier["tracestate"],
 	}
 
 	if !promise.DeletionTimestamp.IsZero() {
@@ -814,6 +823,18 @@ func (r *PromiseReconciler) reconcileDependenciesAndPromiseWorkflows(o opts, pro
 	pipelineResources, err := promise.GeneratePromisePipelines(v1alpha1.WorkflowActionConfigure, o.logger)
 	if err != nil {
 		return nil, err
+	}
+
+	for _, pipeResources := range pipelineResources {
+		position := len(pipeResources.Job.Spec.Template.Spec.InitContainers) - 1
+		pipeResources.Job.Spec.Template.Spec.InitContainers[position].Env = append(pipeResources.Job.Spec.Template.Spec.InitContainers[position].Env, v1.EnvVar{
+			Name:  "TRACE_PARENT",
+			Value: o.traceParent,
+		})
+		pipeResources.Job.Spec.Template.Spec.InitContainers[position].Env = append(pipeResources.Job.Spec.Template.Spec.InitContainers[position].Env, v1.EnvVar{
+			Name:  "TRACE_STATE",
+			Value: o.traceState,
+		})
 	}
 
 	jobOpts := workflow.NewOpts(o.ctx, o.client, r.EventRecorder, o.logger, unstructuredPromise, pipelineResources, "promise", r.NumberOfJobsToKeep)

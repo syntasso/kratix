@@ -162,6 +162,9 @@ func (w *WorkCreator) Execute(rootDirectory, promiseName, namespace, resourceNam
 	work.Spec.WorkloadGroups = workloadGroups
 	work.Spec.PromiseName = promiseName
 	work.Spec.ResourceName = resourceName
+	work.Annotations = map[string]string{}
+	work.Annotations["trace-parent-id"] = os.Getenv("TRACE_PARENT")
+	work.Annotations["trace-state"] = os.Getenv("TRACE_STATE")
 	work.Labels = map[string]string{}
 	logger.Info("setting work labels...")
 

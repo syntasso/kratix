@@ -48,9 +48,11 @@ var (
 )
 
 type opts struct {
-	ctx    context.Context
-	client client.Client
-	logger logr.Logger
+	ctx         context.Context
+	client      client.Client
+	logger      logr.Logger
+	traceParent string
+	traceState  string
 }
 
 // pass in nil resourceLabels to delete all resources of the GVK
