@@ -29,16 +29,16 @@ func GetWorkLabels(promiseName, resourceName, pipelineName, workType string) map
 }
 
 // GetAllWorksForResource returns the works for the specified resource
-func GetAllWorksForResource(k8sClient client.Client, namespace, promiseName, resourceName string) ([]v1alpha1.Work, error) {
+func GetAllWorksForResource(ctx context.Context, k8sClient client.Client, namespace, promiseName, resourceName string) ([]v1alpha1.Work, error) {
 	workLabels := map[string]string{
 		v1alpha1.PromiseNameLabel:  promiseName,
 		v1alpha1.ResourceNameLabel: resourceName,
 	}
-	return getExistingWorks(k8sClient, namespace, workLabels)
+	return getExistingWorks(ctx, k8sClient, namespace, workLabels)
 }
 
 // GetWorksByType returns the works for the specified workflow type
-func GetWorksByType(k8sClient client.Client, workflowType v1alpha1.Type, obj *unstructured.Unstructured) ([]v1alpha1.Work, error) {
+func GetWorksByType(ctx context.Context, k8sClient client.Client, workflowType v1alpha1.Type, obj *unstructured.Unstructured) ([]v1alpha1.Work, error) {
 	namespace := obj.GetNamespace()
 	if namespace == "" {
 		namespace = v1alpha1.SystemNamespace
@@ -53,12 +53,12 @@ func GetWorksByType(k8sClient client.Client, workflowType v1alpha1.Type, obj *un
 		l[v1alpha1.ResourceNameLabel] = obj.GetName()
 	}
 	l[v1alpha1.PromiseNameLabel] = promiseName
-	return getExistingWorks(k8sClient, namespace, l)
+	return getExistingWorks(ctx, k8sClient, namespace, l)
 }
 
 // GetWork returns a Work object based on the provided inputs.
-func GetWork(k8sClient client.Client, namespace string, labels map[string]string) (*v1alpha1.Work, error) {
-	works, err := getExistingWorks(k8sClient, namespace, labels)
+func GetWork(ctx context.Context, k8sClient client.Client, namespace string, labels map[string]string) (*v1alpha1.Work, error) {
+	works, err := getExistingWorks(ctx, k8sClient, namespace, labels)
 	if err != nil {
 		return nil, err
 	}
@@ -75,14 +75,14 @@ func GetWork(k8sClient client.Client, namespace string, labels map[string]string
 	return &works[0], nil
 }
 
-func getExistingWorks(k8sClient client.Client, namespace string, workLabels map[string]string) ([]v1alpha1.Work, error) {
+func getExistingWorks(ctx context.Context, k8sClient client.Client, namespace string, workLabels map[string]string) ([]v1alpha1.Work, error) {
 	workSelectorLabel := labels.FormatLabels(workLabels)
 	selector, err := labels.Parse(workSelectorLabel)
 	if err != nil {
 		return nil, err
 	}
 	works := v1alpha1.WorkList{}
-	err = k8sClient.List(context.Background(), &works, &client.ListOptions{
+	err = k8sClient.List(ctx, &works, &client.ListOptions{
 		LabelSelector: selector,
 		Namespace:     namespace,
 	})
