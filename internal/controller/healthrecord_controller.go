@@ -19,7 +19,6 @@ package controller
 import (
 	"context"
 	"encoding/json"
-	"fmt"
 
 	"github.com/go-logr/logr"
 	"github.com/syntasso/kratix/api/v1alpha1"
@@ -117,13 +116,22 @@ func (r *HealthRecordReconciler) updateResourceStatus(
 	}
 	// Get all associated healthrecords
 	healthRecords := &platformv1alpha1.HealthRecordList{}
+
 	err := r.List(ctx, healthRecords)
 	if err != nil {
 		logger.Error(err, "error listing healthRecords")
 		return err
 	}
 
-	healthData, state, err := getHealthDataAndStates(healthRecords.Items)
+	var resourceHealthRecords []platformv1alpha1.HealthRecord
+	for _, record := range healthRecords.Items {
+		if record.Data.ResourceRef.Name == healthRecord.Data.ResourceRef.Name &&
+			record.Data.ResourceRef.Namespace == healthRecord.Data.ResourceRef.Namespace {
+			resourceHealthRecords = append(resourceHealthRecords, record)
+		}
+	}
+
+	healthData, state, err := getHealthDataAndStates(resourceHealthRecords)
 	if err != nil {
 		return err
 	}
@@ -135,7 +143,7 @@ func (r *HealthRecordReconciler) updateResourceStatus(
 		"healthRecords": healthData,
 	}
 
-	if err := unstructured.SetNestedMap(resReq.Object, healthStatus, "status", "healthStatus"); err != nil {
+	if err = unstructured.SetNestedMap(resReq.Object, healthStatus, "status", "healthStatus"); err != nil {
 		return err
 	}
 
@@ -235,7 +243,9 @@ func getHealthDataAndStates(healthRecords []platformv1alpha1.HealthRecord) ([]an
 	return healthData, state, nil
 }
 
-func (r *HealthRecordReconciler) deleteHealthRecord(ctx context.Context, healthRecord *platformv1alpha1.HealthRecord, resReq *unstructured.Unstructured) (ctrl.Result, error) {
+func (r *HealthRecordReconciler) deleteHealthRecord(
+	ctx context.Context, healthRecord *platformv1alpha1.HealthRecord, resReq *unstructured.Unstructured,
+) (ctrl.Result, error) {
 	resourceHealthRecords := r.getResourceHealthRecords(resReq)
 	var recordInResourceHealthRecords bool
 
@@ -247,7 +257,6 @@ func (r *HealthRecordReconciler) deleteHealthRecord(ctx context.Context, healthR
 			)
 		}
 
-		r.Log.Info(fmt.Sprintf("checking recordMap: %+v", recordMap))
 		source, ok := recordMap["source"].(map[string]any)
 		if !ok {
 			r.Log.Info(
@@ -273,7 +282,6 @@ func (r *HealthRecordReconciler) deleteHealthRecord(ctx context.Context, healthR
 	}
 
 	var updatedHealthRecords []platformv1alpha1.HealthRecord
-	r.Log.Info("getting health records")
 
 	healthRecords := &platformv1alpha1.HealthRecordList{}
 	err := r.List(ctx, healthRecords)
