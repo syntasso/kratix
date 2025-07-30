@@ -117,13 +117,22 @@ func (r *HealthRecordReconciler) updateResourceStatus(
 	}
 	// Get all associated healthrecords
 	healthRecords := &platformv1alpha1.HealthRecordList{}
+
 	err := r.List(ctx, healthRecords)
 	if err != nil {
 		logger.Error(err, "error listing healthRecords")
 		return err
 	}
 
-	healthData, state, err := getHealthDataAndStates(healthRecords.Items)
+	var resourceHealthRecords []platformv1alpha1.HealthRecord
+	for _, record := range healthRecords.Items {
+		if record.Data.ResourceRef.Name == healthRecord.Data.ResourceRef.Name &&
+			record.Data.ResourceRef.Namespace == healthRecord.Data.ResourceRef.Namespace {
+			resourceHealthRecords = append(resourceHealthRecords, record)
+		}
+	}
+
+	healthData, state, err := getHealthDataAndStates(resourceHealthRecords)
 	if err != nil {
 		return err
 	}
