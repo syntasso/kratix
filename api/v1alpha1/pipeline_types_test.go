@@ -923,7 +923,20 @@ var _ = Describe("Pipeline", func() {
 						resources, err := factory.Resources(nil)
 						Expect(err).ToNot(HaveOccurred())
 						containers := resources.Job.Spec.Template.Spec.InitContainers
-						Expect(containers[1].Resources).To(Equal(corev1.ResourceRequirements{}))
+						Expect(containers[1].Resources).To(Equal(corev1.ResourceRequirements{
+							//nolint:exhaustive
+							Requests: corev1.ResourceList{
+								corev1.ResourceCPU:              resource.MustParse("100m"),
+								corev1.ResourceMemory:           resource.MustParse("128Mi"),
+								corev1.ResourceEphemeralStorage: resource.MustParse("128Mi"),
+							},
+							//nolint:exhaustive
+							Limits: corev1.ResourceList{
+								corev1.ResourceCPU:              resource.MustParse("200m"),
+								corev1.ResourceMemory:           resource.MustParse("256Mi"),
+								corev1.ResourceEphemeralStorage: resource.MustParse("256Mi"),
+							},
+						}))
 					})
 				})
 
