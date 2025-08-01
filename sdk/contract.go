@@ -27,7 +27,7 @@ type SDK interface {
 	// PublishStatus updates the status of the provided resource with the provided status
 	PublishStatus(Resource, Status) error
 	// ReadStatus reads the /kratix/output/status.yaml
-	ReadStatus() error
+	ReadStatus() (Status, error)
 }
 
 type Promise interface{}
