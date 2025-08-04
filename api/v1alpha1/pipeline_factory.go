@@ -196,6 +196,7 @@ func (p *PipelineFactory) readerContainer() corev1.Container {
 		},
 		SecurityContext: kratixSecurityContext,
 		ImagePullPolicy: DefaultImagePullPolicy,
+		Resources:       *DefaultResourceRequirements,
 	}
 }
 
@@ -225,6 +226,7 @@ func (p *PipelineFactory) workCreatorContainer() corev1.Container {
 		},
 		SecurityContext: kratixSecurityContext,
 		ImagePullPolicy: DefaultImagePullPolicy,
+		Resources:       *DefaultResourceRequirements,
 	}
 }
 
@@ -368,6 +370,7 @@ func (p *PipelineFactory) statusWriterContainer(obj *unstructured.Unstructured, 
 		}},
 		SecurityContext: kratixSecurityContext,
 		ImagePullPolicy: DefaultImagePullPolicy,
+		Resources:       *DefaultResourceRequirements,
 	}
 }
 
