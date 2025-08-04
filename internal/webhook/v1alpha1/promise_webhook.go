@@ -182,7 +182,7 @@ func exampleResourceRequest(p *v1alpha1.Promise) *unstructured.Unstructured {
 		Object: map[string]interface{}{
 			"metadata": map[string]interface{}{
 				"name":      "webhook-dry-run",
-				"namespace": "default",
+				"namespace": "kratix-platform-system",
 				"uid":       uuid.New().String(),
 			},
 		},
