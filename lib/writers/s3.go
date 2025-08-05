@@ -89,7 +89,8 @@ func NewS3Writer(
 }
 
 func (b *S3Writer) ReadFile(filename string) ([]byte, error) {
-	_, err := b.RepoClient.StatObject(context.Background(), b.BucketName, filepath.Join(b.Path, filename), minio.GetObjectOptions{})
+	ctx := context.Background()
+	_, err := b.RepoClient.StatObject(ctx, b.BucketName, filepath.Join(b.Path, filename), minio.GetObjectOptions{})
 	if err != nil {
 		if minio.ToErrorResponse(err).Code == "NoSuchKey" {
 			return nil, ErrFileNotFound
@@ -97,7 +98,7 @@ func (b *S3Writer) ReadFile(filename string) ([]byte, error) {
 		return nil, err
 	}
 
-	obj, err := b.RepoClient.GetObject(context.Background(), b.BucketName, filepath.Join(b.Path, filename), minio.GetObjectOptions{})
+	obj, err := b.RepoClient.GetObject(ctx, b.BucketName, filepath.Join(b.Path, filename), minio.GetObjectOptions{})
 	if err != nil {
 		return nil, err
 	}

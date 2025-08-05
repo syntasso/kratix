@@ -23,6 +23,7 @@ import (
 	"os"
 	"time"
 
+	"go.opentelemetry.io/otel/propagation"
 	metav1 "k8s.io/apimachinery/pkg/apis/meta/v1"
 	"k8s.io/apimachinery/pkg/labels"
 	"k8s.io/apimachinery/pkg/selection"
@@ -56,6 +57,11 @@ import (
 	"github.com/syntasso/kratix/api/v1alpha1"
 	platformv1alpha1 "github.com/syntasso/kratix/api/v1alpha1"
 	"github.com/syntasso/kratix/lib/fetchers"
+	"go.opentelemetry.io/otel"
+	"go.opentelemetry.io/otel/attribute"
+	"go.opentelemetry.io/otel/exporters/otlp/otlptrace/otlptracegrpc"
+	"go.opentelemetry.io/otel/sdk/resource"
+	sdktrace "go.opentelemetry.io/otel/sdk/trace"
 	//+kubebuilder:scaffold:imports
 )
 
@@ -114,10 +120,24 @@ func main() {
 	opts.BindFlags(flag.CommandLine)
 	flag.Parse()
 
-	ctx, cancelManagerCtxFunc := context.WithCancel(context.Background())
+	ctx := context.Background()
 	ctrl.SetLogger(zap.New(zap.UseFlagOptions(&opts), func(o *zap.Options) {
 		o.TimeEncoder = zapcore.TimeEncoderOfLayout("2006-01-02T15:04:05Z07:00")
 	}))
+	setupLog = ctrl.Log.WithName("setup")
+
+	tp, err := initTracerProvider(ctx)
+	if err != nil {
+		setupLog.Error(err, "tracing disabled")
+	} else {
+		defer func() {
+			if err := tp.Shutdown(context.Background()); err != nil {
+				setupLog.Error(err, "tracer shutdown error")
+			}
+		}()
+	}
+
+	ctx, cancelManagerCtxFunc := context.WithCancel(ctx)
 
 	prefix := os.Getenv("KRATIX_LOGGER_PREFIX")
 	if prefix != "" {
@@ -129,18 +149,9 @@ func main() {
 		panic(err)
 	}
 
-	kratixConfig, err := readKratixConfig(ctrl.Log, kClient)
-	if err != nil {
-		panic(err)
-	}
+	kratixConfig := readKratixConfigOrDie(ctrl.Log, kClient)
 
-	if kratixConfig != nil {
-		v1alpha1.DefaultUserProvidedContainersSecurityContext = &kratixConfig.Workflows.DefaultContainerSecurityContext
-		v1alpha1.DefaultImagePullPolicy = kratixConfig.Workflows.DefaultImagePullPolicy
-		if kratixConfig.Workflows.JobOptions.DefaultBackoffLimit != nil {
-			v1alpha1.DefaultJobBackoffLimit = kratixConfig.Workflows.JobOptions.DefaultBackoffLimit
-		}
-	}
+	updateDefaults(kratixConfig)
 
 	for {
 		config := ctrl.GetConfigOrDie()
@@ -354,32 +365,32 @@ func main() {
 
 const numJobsToKeepDefault = 5
 
-func readKratixConfig(logger logr.Logger, kClient client.Client) (*KratixConfig, error) {
+func readKratixConfigOrDie(logger logr.Logger, kClient client.Client) *KratixConfig {
 	cm := &corev1.ConfigMap{}
 	err := kClient.Get(context.Background(), client.ObjectKey{Namespace: "kratix-platform-system", Name: "kratix"}, cm)
 	if err != nil {
 		if apierrors.IsNotFound(err) {
 			logger.Info("kratix-platform-system/kratix ConfigMap not found, using default config")
-			return nil, nil
+			return &KratixConfig{}
 		}
-		return nil, fmt.Errorf("failed to get kratix-platform-system/kratix configmap: %w", err)
+		panic(fmt.Errorf("failed to get kratix-platform-system/kratix configmap: %w", err))
 	}
 
 	logger.Info("kratix-platform-system/kratix ConfigMap found")
 	config, exists := cm.Data["config"]
 	if !exists {
-		return nil, fmt.Errorf("configmap kratix-platform-system/kratix does not contain a 'config' key")
+		panic(fmt.Errorf("configmap kratix-platform-system/kratix does not contain a 'config' key"))
 	}
 
 	kratixConfig := &KratixConfig{}
 	err = yaml.Unmarshal([]byte(config), kratixConfig)
 	if err != nil {
-		return nil, fmt.Errorf("failed to unmarshal ConfigMap kratix-platform-system/kratix into Kratix config: %w", err)
+		panic(fmt.Errorf("failed to unmarshal ConfigMap kratix-platform-system/kratix into Kratix config: %w", err))
 	}
 
 	logger.Info("Kratix config loaded", "config", kratixConfig)
 
-	return kratixConfig, nil
+	return kratixConfig
 }
 
 func getNumJobsToKeep(kratixConfig *KratixConfig) int {
@@ -416,5 +427,43 @@ func setLeaderElectConfig(mgrOptions *ctrl.Options, kConfig *KratixConfig) {
 	if kConfig.ControllerLeaderElection.RetryPeriod != nil {
 		mgrOptions.RetryPeriod = &kConfig.ControllerLeaderElection.RetryPeriod.Duration
 		setupLog.Info("controller leader election configured", "RetryPeriod", mgrOptions.RetryPeriod)
+	}
+}
+
+func initTracerProvider(ctx context.Context) (*sdktrace.TracerProvider, error) {
+	exporter, err := otlptracegrpc.New(ctx, otlptracegrpc.WithEndpointURL("http://grafana-k8s-monitoring-alloy-receiver.default.svc.cluster.local:4317/v1/traces"))
+
+	if err != nil {
+		return nil, fmt.Errorf("create exporter: %w", err)
+	}
+
+	res, err := resource.New(ctx,
+		resource.WithFromEnv(),
+		resource.WithTelemetrySDK(),
+		resource.WithAttributes(
+			attribute.String("service.name", "kratix"),
+		),
+	)
+	if err != nil {
+		return nil, fmt.Errorf("create resource: %w", err)
+	}
+
+	tp := sdktrace.NewTracerProvider(
+		sdktrace.WithBatcher(exporter),
+		sdktrace.WithResource(res),
+	)
+
+	otel.SetTracerProvider(tp)
+	otel.SetTextMapPropagator(propagation.TraceContext{})
+	return tp, nil
+}
+
+func updateDefaults(kratixConfig *KratixConfig) {
+	if kratixConfig != nil {
+		v1alpha1.DefaultUserProvidedContainersSecurityContext = &kratixConfig.Workflows.DefaultContainerSecurityContext
+		v1alpha1.DefaultImagePullPolicy = kratixConfig.Workflows.DefaultImagePullPolicy
+		if kratixConfig.Workflows.JobOptions.DefaultBackoffLimit != nil {
+			v1alpha1.DefaultJobBackoffLimit = kratixConfig.Workflows.JobOptions.DefaultBackoffLimit
+		}
 	}
 }
