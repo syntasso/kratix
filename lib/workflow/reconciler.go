@@ -151,22 +151,23 @@ func ReconcileConfigure(opts Opts) (abort bool, err error) {
 		pipelineIndex = nextPipelineIndex(opts, mostRecentJob)
 	}
 
-	var updateStatus bool
-
-	if pipelineIndex == 0 {
-		workflowsFailed := resourceutil.GetWorkflowsCounterStatus(opts.parentObject, "workflowsFailed")
-		if workflowsFailed != 0 {
-			resourceutil.SetStatus(opts.parentObject, opts.logger, "workflowsFailed", int64(0))
-			updateStatus = true
+	if !opts.SkipConditions {
+		var updateStatus bool
+		if pipelineIndex == 0 {
+			workflowsFailed := resourceutil.GetWorkflowsCounterStatus(opts.parentObject, "workflowsFailed")
+			if workflowsFailed != 0 {
+				resourceutil.SetStatus(opts.parentObject, opts.logger, "workflowsFailed", int64(0))
+				updateStatus = true
+			}
 		}
-	}
 
-	workflowsSucceededCount := resourceutil.GetWorkflowsCounterStatus(opts.parentObject, "workflowsSucceeded")
-	if updateStatus || workflowsSucceededCount != int64(pipelineIndex) {
-		resourceutil.SetStatus(opts.parentObject, opts.logger, "workflowsSucceeded", int64(pipelineIndex))
-		if err = opts.client.Status().Update(opts.ctx, opts.parentObject); err != nil {
-			opts.logger.Error(err, "failed to update parent object status")
-			return false, err
+		workflowsSucceededCount := resourceutil.GetWorkflowsCounterStatus(opts.parentObject, "workflowsSucceeded")
+		if updateStatus || workflowsSucceededCount != int64(pipelineIndex) {
+			resourceutil.SetStatus(opts.parentObject, opts.logger, "workflowsSucceeded", int64(pipelineIndex))
+			if err = opts.client.Status().Update(opts.ctx, opts.parentObject); err != nil {
+				opts.logger.Error(err, "failed to update parent object status")
+				return false, err
+			}
 		}
 	}
 
@@ -213,17 +214,7 @@ func ReconcileConfigure(opts Opts) (abort bool, err error) {
 		}
 
 		if isFailed(mostRecentJob) {
-			resourceutil.MarkConfigureWorkflowAsFailed(opts.logger, opts.parentObject, pipeline.Name)
-			resourceutil.MarkReconciledFailing(opts.parentObject, resourceutil.ConfigureWorkflowCompletedFailedReason)
-			resourceutil.SetStatus(opts.parentObject, opts.logger, "workflowsFailed", int64(1))
-			if err := opts.client.Status().Update(opts.ctx, opts.parentObject); err != nil {
-				opts.logger.Error(err, "failed to update parent object status")
-				return false, err
-			}
-			opts.eventRecorder.Eventf(opts.parentObject, v1.EventTypeWarning,
-				resourceutil.ConfigureWorkflowCompletedFailedReason, "A Configure Pipeline has failed: %s", pipeline.Name)
-			opts.logger.Info("Last Job for Pipeline has failed, exiting workflow", "failedJob", mostRecentJob.Name, "pipeline", pipeline.Name)
-			return true, nil
+			return setFailedConditionAndEvents(opts, mostRecentJob, pipeline)
 		}
 
 		return false, cleanup(opts, namespace)
@@ -241,6 +232,22 @@ func ReconcileConfigure(opts Opts) (abort bool, err error) {
 	// TODO this will be very noisy - might want to slowRequeue?
 	opts.logger.Info("Reconciling pipeline", "pipeline", pipeline.Name)
 	return createConfigurePipeline(opts, pipelineIndex, pipeline)
+}
+
+func setFailedConditionAndEvents(opts Opts, mostRecentJob *batchv1.Job, pipeline v1alpha1.PipelineJobResources) (bool, error) {
+	if !opts.SkipConditions {
+		resourceutil.MarkConfigureWorkflowAsFailed(opts.logger, opts.parentObject, pipeline.Name)
+		resourceutil.MarkReconciledFailing(opts.parentObject, resourceutil.ConfigureWorkflowCompletedFailedReason)
+		resourceutil.SetStatus(opts.parentObject, opts.logger, "workflowsFailed", int64(1))
+		if err := opts.client.Status().Update(opts.ctx, opts.parentObject); err != nil {
+			opts.logger.Error(err, "failed to update parent object status")
+			return false, err
+		}
+	}
+	opts.eventRecorder.Eventf(opts.parentObject, v1.EventTypeWarning,
+		resourceutil.ConfigureWorkflowCompletedFailedReason, "A %s/configure Pipeline has failed: %s", opts.workflowType, pipeline.Name)
+	opts.logger.Info("Last Job for Pipeline has failed, exiting workflow", "failedJob", mostRecentJob.Name, "pipeline", pipeline.Name)
+	return true, nil
 }
 
 func suspendJob(ctx context.Context, c client.Client, job *batchv1.Job) error {
