@@ -235,14 +235,12 @@ func ReconcileConfigure(opts Opts) (abort bool, err error) {
 }
 
 func setFailedConditionAndEvents(opts Opts, mostRecentJob *batchv1.Job, pipeline v1alpha1.PipelineJobResources) (bool, error) {
-	if !opts.SkipConditions {
-		resourceutil.MarkConfigureWorkflowAsFailed(opts.logger, opts.parentObject, pipeline.Name)
-		resourceutil.MarkReconciledFailing(opts.parentObject, resourceutil.ConfigureWorkflowCompletedFailedReason)
-		resourceutil.SetStatus(opts.parentObject, opts.logger, "workflowsFailed", int64(1))
-		if err := opts.client.Status().Update(opts.ctx, opts.parentObject); err != nil {
-			opts.logger.Error(err, "failed to update parent object status")
-			return false, err
-		}
+	resourceutil.MarkConfigureWorkflowAsFailed(opts.logger, opts.parentObject, pipeline.Name)
+	resourceutil.MarkReconciledFailing(opts.parentObject, resourceutil.ConfigureWorkflowCompletedFailedReason)
+	resourceutil.SetStatus(opts.parentObject, opts.logger, "workflowsFailed", int64(1))
+	if err := opts.client.Status().Update(opts.ctx, opts.parentObject); err != nil {
+		opts.logger.Error(err, "failed to update parent object status")
+		return false, err
 	}
 	opts.eventRecorder.Eventf(opts.parentObject, v1.EventTypeWarning,
 		resourceutil.ConfigureWorkflowCompletedFailedReason, "A %s/configure Pipeline has failed: %s", opts.workflowType, pipeline.Name)
