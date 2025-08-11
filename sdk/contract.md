@@ -102,7 +102,7 @@ Get queries the Status and retrieves the value at the specified path e.g. health
 
 Set updates the value at the specified path e.g. healthStatus.state
 
-**`Remove(string) bool`**
+**`Remove(string) error`**
 
 Set removes the value at the specified path e.g. healthStatus.state
 
