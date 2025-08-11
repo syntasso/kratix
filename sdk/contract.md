@@ -16,7 +16,7 @@ ReadPromiseInput reads the file in `/kratix/input/object.yaml` and returns a Res
 
 **`ReadDestinationSelectors() ([]DestinationSelector, error)`**
 
-ReadDestinationSelectors
+ReadDestinationSelectors reads from file `/kratix/metadata/destination_selectors.yaml` and returns a list of DestinationSelector
 
 **`WriteOutput(string, []byte) error`**
 
@@ -24,11 +24,11 @@ WriteOutput writes the content to the specifies file at the path /kratix/output/
 
 **`WriteStatus(Status) error`**
 
-WriteStatus writes the specified status to the `/kratix/output/status.yaml`
+WriteStatus writes the specified status to the `/kratix/metadata/status.yaml`
 
 **`WriteDestinationSelectors([]DestinationSelector) error`**
 
-WriteDestinationSelectors writes the specified Destination Selectors to the `/kratix/output/destination_selectors.yaml`
+WriteDestinationSelectors writes the specified Destination Selectors to the `/kratix/metadata/destination_selectors.yaml`
 
 **`WorkflowAction() string`**
 
@@ -52,7 +52,7 @@ PublishStatus updates the status of the provided resource with the provided stat
 
 **`ReadStatus() (Status, error)`**
 
-ReadStatus reads the /kratix/output/status.yaml
+ReadStatus reads the /kratix/metadata/status.yaml
 
 ## Promise Interface
 
