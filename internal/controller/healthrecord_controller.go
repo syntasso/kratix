@@ -32,6 +32,9 @@ import (
 	ctrl "sigs.k8s.io/controller-runtime"
 	"sigs.k8s.io/controller-runtime/pkg/client"
 	"sigs.k8s.io/controller-runtime/pkg/controller/controllerutil"
+
+	"go.opentelemetry.io/otel"
+	"go.opentelemetry.io/otel/attribute"
 )
 
 const healthRecordCleanupFinalizer = v1alpha1.KratixPrefix + "health-record-cleanup"
@@ -49,6 +52,14 @@ type HealthRecordReconciler struct {
 //+kubebuilder:rbac:groups=platform.kratix.io,resources=healthrecords/finalizers,verbs=update
 
 func (r *HealthRecordReconciler) Reconcile(ctx context.Context, req ctrl.Request) (ctrl.Result, error) {
+	tracer := otel.Tracer("kratix")
+	ctx, span := tracer.Start(ctx, "Reconcile/HealthRecord")
+	defer span.End()
+	span.SetAttributes(
+		attribute.String("req.name", req.Name),
+		attribute.String("req.namespace", req.Namespace),
+	)
+
 	logger := r.Log.WithValues("healthRecord", req.Name, "namespace", req.Namespace)
 	logger.Info("Reconciling HealthRecord")
 
@@ -56,6 +67,7 @@ func (r *HealthRecordReconciler) Reconcile(ctx context.Context, req ctrl.Request
 	if err := r.Get(ctx, req.NamespacedName, healthRecord); err != nil {
 		return r.ignoreNotFound(logger, err, "Failed getting healthRecord")
 	}
+	span.AddEvent("fetched HealthRecord")
 
 	logger = logger.WithValues(
 		"promiseRef", healthRecord.Data.PromiseRef,
@@ -67,6 +79,7 @@ func (r *HealthRecordReconciler) Reconcile(ctx context.Context, req ctrl.Request
 	if err := r.Get(ctx, promiseName, promise); err != nil {
 		return r.ignoreNotFound(logger, err, "Failed getting Promise")
 	}
+	span.AddEvent("fetched Promise")
 
 	promiseGVK, _, err := promise.GetAPI()
 	if err != nil {

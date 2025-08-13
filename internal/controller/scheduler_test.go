@@ -68,7 +68,7 @@ var _ = Describe("Controllers/Scheduler", func() {
 
 			When("a resource Work with scheduling is reconciled", func() {
 				BeforeEach(func() {
-					_, err := scheduler.ReconcileWork(&resourceWork)
+					_, err := scheduler.ReconcileWork(context.Background(), &resourceWork)
 					Expect(err).ToNot(HaveOccurred())
 				})
 
@@ -99,7 +99,7 @@ var _ = Describe("Controllers/Scheduler", func() {
 				var workPlacement v1alpha1.WorkPlacement
 
 				BeforeEach(func() {
-					_, err := scheduler.ReconcileWork(&resourceWork)
+					_, err := scheduler.ReconcileWork(context.Background(), &resourceWork)
 					Expect(err).ToNot(HaveOccurred())
 
 					latestWork := &v1alpha1.Work{}
@@ -109,7 +109,7 @@ var _ = Describe("Controllers/Scheduler", func() {
 					Expect(workPlacements.Items).To(HaveLen(1))
 					workPlacement = workPlacements.Items[0]
 
-					_, err = scheduler.ReconcileWork(latestWork)
+					_, err = scheduler.ReconcileWork(context.Background(), latestWork)
 					Expect(err).ToNot(HaveOccurred())
 				})
 
@@ -135,7 +135,7 @@ var _ = Describe("Controllers/Scheduler", func() {
 
 			When("a resource Work with scheduling is reconciled with an updated WorkloadGroup", func() {
 				BeforeEach(func() {
-					_, err := scheduler.ReconcileWork(&resourceWork)
+					_, err := scheduler.ReconcileWork(context.Background(), &resourceWork)
 					Expect(err).ToNot(HaveOccurred())
 				})
 
@@ -155,7 +155,7 @@ var _ = Describe("Controllers/Scheduler", func() {
 						Content: string(fakeCompressedContent),
 					})
 
-					_, err = scheduler.ReconcileWork(&resourceWork)
+					_, err = scheduler.ReconcileWork(context.Background(), &resourceWork)
 					Expect(err).ToNot(HaveOccurred())
 
 					Expect(fakeK8sClient.List(context.Background(), &workPlacements)).To(Succeed())
@@ -176,7 +176,7 @@ var _ = Describe("Controllers/Scheduler", func() {
 
 			When("an update to the resource Work deletes the only WorkloadGroup", func() {
 				BeforeEach(func() {
-					_, err := scheduler.ReconcileWork(&resourceWork)
+					_, err := scheduler.ReconcileWork(context.Background(), &resourceWork)
 					Expect(err).ToNot(HaveOccurred())
 
 					Expect(fakeK8sClient.List(context.Background(), &workPlacements)).To(Succeed())
@@ -186,7 +186,7 @@ var _ = Describe("Controllers/Scheduler", func() {
 					Expect(fakeK8sClient.Get(context.Background(), client.ObjectKeyFromObject(&resourceWork), &resourceWork)).To(Succeed())
 					resourceWork.Spec.WorkloadGroups = []v1alpha1.WorkloadGroup{}
 					Expect(fakeK8sClient.Update(context.Background(), &resourceWork)).To(Succeed())
-					_, err = scheduler.ReconcileWork(&resourceWork)
+					_, err = scheduler.ReconcileWork(context.Background(), &resourceWork)
 					Expect(err).ToNot(HaveOccurred())
 				})
 
@@ -210,7 +210,7 @@ var _ = Describe("Controllers/Scheduler", func() {
 
 			When("an update to the resource Work adds a new WorkloadGroup", func() {
 				BeforeEach(func() {
-					_, err := scheduler.ReconcileWork(&resourceWork)
+					_, err := scheduler.ReconcileWork(context.Background(), &resourceWork)
 					Expect(err).ToNot(HaveOccurred())
 
 					Expect(fakeK8sClient.List(context.Background(), &workPlacements)).To(Succeed())
@@ -230,7 +230,7 @@ var _ = Describe("Controllers/Scheduler", func() {
 						DestinationSelectors: []v1alpha1.WorkloadGroupScheduling{schedulingFor(devDestination)},
 					})
 					Expect(fakeK8sClient.Update(context.Background(), &resourceWork)).To(Succeed())
-					_, err = scheduler.ReconcileWork(&resourceWork)
+					_, err = scheduler.ReconcileWork(context.Background(), &resourceWork)
 					Expect(resourceWork.Spec.WorkloadGroups).To(HaveLen(2))
 					Expect(err).ToNot(HaveOccurred())
 				})
@@ -264,7 +264,7 @@ var _ = Describe("Controllers/Scheduler", func() {
 
 			When("an update to the resource Work replaces a WorkloadGroup with a new WorkloadGroup", func() {
 				BeforeEach(func() {
-					_, err := scheduler.ReconcileWork(&resourceWork)
+					_, err := scheduler.ReconcileWork(context.Background(), &resourceWork)
 					Expect(err).ToNot(HaveOccurred())
 
 					Expect(fakeK8sClient.List(context.Background(), &workPlacements)).To(Succeed())
@@ -283,7 +283,7 @@ var _ = Describe("Controllers/Scheduler", func() {
 							},
 						},
 					}
-					_, err = scheduler.ReconcileWork(&resourceWork)
+					_, err = scheduler.ReconcileWork(context.Background(), &resourceWork)
 					Expect(err).ToNot(HaveOccurred())
 				})
 
@@ -316,7 +316,7 @@ var _ = Describe("Controllers/Scheduler", func() {
 			When("the Work needs to schedule to multiple destinations", func() {
 				When("the Work is reconciled", func() {
 					BeforeEach(func() {
-						_, err := scheduler.ReconcileWork(&resourceWorkWithMultipleGroups)
+						_, err := scheduler.ReconcileWork(context.Background(), &resourceWorkWithMultipleGroups)
 						Expect(err).ToNot(HaveOccurred())
 					})
 
@@ -364,7 +364,7 @@ var _ = Describe("Controllers/Scheduler", func() {
 					var pciWorkPlacement v1alpha1.WorkPlacement
 
 					BeforeEach(func() {
-						_, err := scheduler.ReconcileWork(&resourceWorkWithMultipleGroups)
+						_, err := scheduler.ReconcileWork(context.Background(), &resourceWorkWithMultipleGroups)
 						Expect(err).ToNot(HaveOccurred())
 
 						Expect(fakeK8sClient.List(context.Background(), &workPlacements)).To(Succeed())
@@ -386,7 +386,7 @@ var _ = Describe("Controllers/Scheduler", func() {
 						}
 
 						Expect(fakeK8sClient.Update(context.Background(), &resourceWorkWithMultipleGroups)).To(Succeed())
-						_, err = scheduler.ReconcileWork(&resourceWorkWithMultipleGroups)
+						_, err = scheduler.ReconcileWork(context.Background(), &resourceWorkWithMultipleGroups)
 						Expect(err).ToNot(HaveOccurred())
 					})
 
@@ -417,7 +417,7 @@ var _ = Describe("Controllers/Scheduler", func() {
 						// set the dev/prod WorkloadGroup to be unschedulable (i.e. no matching Destinations)
 						resourceWorkWithMultipleGroups.Spec.WorkloadGroups[0].DestinationSelectors[0].MatchLabels = map[string]string{"not": "schedulable"}
 
-						unschedulable, err = scheduler.ReconcileWork(&resourceWorkWithMultipleGroups)
+						unschedulable, err = scheduler.ReconcileWork(context.Background(), &resourceWorkWithMultipleGroups)
 						Expect(err).NotTo(HaveOccurred())
 					})
 
@@ -449,7 +449,7 @@ var _ = Describe("Controllers/Scheduler", func() {
 				var preUpdateDestination string
 
 				BeforeEach(func() {
-					_, err := scheduler.ReconcileWork(&resourceWork)
+					_, err := scheduler.ReconcileWork(context.Background(), &resourceWork)
 					Expect(err).ToNot(HaveOccurred())
 
 					Expect(fakeK8sClient.List(context.Background(), &workPlacements)).To(Succeed())
@@ -460,7 +460,7 @@ var _ = Describe("Controllers/Scheduler", func() {
 					// change the scheduling on the resource work from devDestination to prodDestination
 					Expect(fakeK8sClient.Get(context.Background(), client.ObjectKeyFromObject(&resourceWork), &resourceWork)).To(Succeed())
 					resourceWork.Spec.WorkloadGroups[0].DestinationSelectors[0] = schedulingFor(prodDestination)
-					_, err = scheduler.ReconcileWork(&resourceWork)
+					_, err = scheduler.ReconcileWork(context.Background(), &resourceWork)
 					Expect(err).ToNot(HaveOccurred())
 				})
 
@@ -517,7 +517,7 @@ var _ = Describe("Controllers/Scheduler", func() {
 							Source: "resource-workflow",
 						},
 					}
-					_, err := scheduler.ReconcileWork(&resourceWork)
+					_, err := scheduler.ReconcileWork(context.Background(), &resourceWork)
 					Expect(err).ToNot(HaveOccurred())
 				})
 
@@ -543,7 +543,7 @@ var _ = Describe("Controllers/Scheduler", func() {
 			When("the Work matches a single Destination", func() {
 				When("the Work is reconciled", func() {
 					BeforeEach(func() {
-						_, err := scheduler.ReconcileWork(&dependencyWorkForProd)
+						_, err := scheduler.ReconcileWork(context.Background(), &dependencyWorkForProd)
 						Expect(err).ToNot(HaveOccurred())
 					})
 
@@ -561,7 +561,7 @@ var _ = Describe("Controllers/Scheduler", func() {
 
 				When("the WorkPlacement is deleted", func() {
 					BeforeEach(func() {
-						_, err := scheduler.ReconcileWork(&dependencyWorkForProd)
+						_, err := scheduler.ReconcileWork(context.Background(), &dependencyWorkForProd)
 						Expect(err).ToNot(HaveOccurred())
 						Expect(fakeK8sClient.List(context.Background(), &workPlacements)).To(Succeed())
 						Expect(workPlacements.Items).To(HaveLen(1))
@@ -582,7 +582,7 @@ var _ = Describe("Controllers/Scheduler", func() {
 					It("gets recreated on next reconciliation", func() {
 						// re-reconcile the Work
 						Expect(fakeK8sClient.Get(context.Background(), client.ObjectKeyFromObject(&dependencyWorkForProd), &dependencyWorkForProd)).To(Succeed())
-						_, err := scheduler.ReconcileWork(&dependencyWorkForProd)
+						_, err := scheduler.ReconcileWork(context.Background(), &dependencyWorkForProd)
 						Expect(err).ToNot(HaveOccurred())
 
 						Expect(fakeK8sClient.List(context.Background(), &workPlacements)).To(Succeed())
@@ -596,7 +596,7 @@ var _ = Describe("Controllers/Scheduler", func() {
 			When("the Work matches multiple Destinations", func() {
 				When("the Work is reconciled", func() {
 					BeforeEach(func() {
-						_, err := scheduler.ReconcileWork(&dependencyWorkForDev)
+						_, err := scheduler.ReconcileWork(context.Background(), &dependencyWorkForDev)
 						Expect(err).ToNot(HaveOccurred())
 					})
 
@@ -616,7 +616,7 @@ var _ = Describe("Controllers/Scheduler", func() {
 
 				When("a WorkPlacement is deleted", func() {
 					BeforeEach(func() {
-						_, err := scheduler.ReconcileWork(&dependencyWorkForDev)
+						_, err := scheduler.ReconcileWork(context.Background(), &dependencyWorkForDev)
 						Expect(err).ToNot(HaveOccurred())
 
 						Expect(fakeK8sClient.List(context.Background(), &workPlacements)).To(Succeed())
@@ -643,7 +643,7 @@ var _ = Describe("Controllers/Scheduler", func() {
 					It("gets recreated on next reconciliation", func() {
 						// re-reconcile the Work
 						Expect(fakeK8sClient.Get(context.Background(), client.ObjectKeyFromObject(&dependencyWorkForDev), &dependencyWorkForDev)).To(Succeed())
-						_, err := scheduler.ReconcileWork(&dependencyWorkForDev)
+						_, err := scheduler.ReconcileWork(context.Background(), &dependencyWorkForDev)
 						Expect(err).ToNot(HaveOccurred())
 
 						// check the devDestination WorkPlacement has been recreated
@@ -680,7 +680,7 @@ var _ = Describe("Controllers/Scheduler", func() {
 					}
 
 					var err error
-					unschedulable, err = scheduler.ReconcileWork(&dependencyWork)
+					unschedulable, err = scheduler.ReconcileWork(context.Background(), &dependencyWork)
 					Expect(err).NotTo(HaveOccurred())
 					Expect(fakeK8sClient.Get(context.Background(), client.ObjectKeyFromObject(&dependencyWork), &dependencyWork)).To(Succeed())
 				})
@@ -702,7 +702,7 @@ var _ = Describe("Controllers/Scheduler", func() {
 
 			When("the Work has no selector", func() {
 				BeforeEach(func() {
-					_, err := scheduler.ReconcileWork(&dependencyWork)
+					_, err := scheduler.ReconcileWork(context.Background(), &dependencyWork)
 					Expect(err).ToNot(HaveOccurred())
 				})
 
@@ -723,7 +723,7 @@ var _ = Describe("Controllers/Scheduler", func() {
 						Content: "fake: new-content",
 					})
 
-					_, err := scheduler.ReconcileWork(&dependencyWork)
+					_, err := scheduler.ReconcileWork(context.Background(), &dependencyWork)
 					Expect(err).ToNot(HaveOccurred())
 
 					Expect(fakeK8sClient.List(context.Background(), &workPlacements)).To(Succeed())
@@ -741,7 +741,7 @@ var _ = Describe("Controllers/Scheduler", func() {
 
 			When("the Work is updated to no longer match a previous Destination", func() {
 				BeforeEach(func() {
-					_, err := scheduler.ReconcileWork(&dependencyWork)
+					_, err := scheduler.ReconcileWork(context.Background(), &dependencyWork)
 					Expect(err).ToNot(HaveOccurred())
 
 					// add scheduling for the devDestination, so that the WorkPlacements
@@ -751,7 +751,7 @@ var _ = Describe("Controllers/Scheduler", func() {
 						schedulingFor(devDestination),
 					}
 
-					_, err = scheduler.ReconcileWork(&dependencyWork)
+					_, err = scheduler.ReconcileWork(context.Background(), &dependencyWork)
 					Expect(err).ToNot(HaveOccurred())
 
 					Expect(fakeK8sClient.List(context.Background(), &workPlacements)).To(Succeed())
@@ -798,7 +798,7 @@ var _ = Describe("Controllers/Scheduler", func() {
 						Content: "fake: new-content",
 					})
 
-					_, err := scheduler.ReconcileWork(&dependencyWork)
+					_, err := scheduler.ReconcileWork(context.Background(), &dependencyWork)
 					Expect(err).ToNot(HaveOccurred())
 
 					Expect(fakeK8sClient.List(context.Background(), &workPlacements)).To(Succeed())
@@ -824,7 +824,7 @@ var _ = Describe("Controllers/Scheduler", func() {
 
 			When("all workloads groups can be scheduled", func() {
 				BeforeEach(func() {
-					_, err := scheduler.ReconcileWork(&work)
+					_, err := scheduler.ReconcileWork(context.Background(), &work)
 					Expect(err).ToNot(HaveOccurred())
 					Expect(fakeK8sClient.Get(
 						context.Background(),
@@ -878,7 +878,7 @@ var _ = Describe("Controllers/Scheduler", func() {
 					})
 
 					It("does not falsely mark work and workplacements as misplaced", func() {
-						_, err := scheduler.ReconcileWork(&work)
+						_, err := scheduler.ReconcileWork(context.Background(), &work)
 						Expect(err).ToNot(HaveOccurred())
 						Expect(work.Status.WorkPlacements).To(Equal(2))
 						Expect(work.Status.WorkPlacementsCreated).To(Equal(2))
@@ -903,7 +903,7 @@ var _ = Describe("Controllers/Scheduler", func() {
 						},
 					}
 
-					_, err := scheduler.ReconcileWork(&work)
+					_, err := scheduler.ReconcileWork(context.Background(), &work)
 					Expect(err).NotTo(HaveOccurred())
 					Expect(fakeK8sClient.Get(
 						context.Background(),
@@ -940,7 +940,7 @@ var _ = Describe("Controllers/Scheduler", func() {
 
 			When("some workplacements are misplaced", func() {
 				BeforeEach(func() {
-					_, err := scheduler.ReconcileWork(&work)
+					_, err := scheduler.ReconcileWork(context.Background(), &work)
 					Expect(err).ToNot(HaveOccurred())
 					Expect(fakeK8sClient.Get(
 						context.Background(),
@@ -953,7 +953,7 @@ var _ = Describe("Controllers/Scheduler", func() {
 					// change the scheduling on the resource work from devDestination to prodDestination
 					Expect(fakeK8sClient.Get(context.Background(), client.ObjectKeyFromObject(&work), &work)).To(Succeed())
 					work.Spec.WorkloadGroups[0].DestinationSelectors[0] = schedulingFor(prodDestination)
-					_, err = scheduler.ReconcileWork(&work)
+					_, err = scheduler.ReconcileWork(context.Background(), &work)
 					Expect(err).ToNot(HaveOccurred())
 				})
 

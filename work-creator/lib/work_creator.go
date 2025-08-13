@@ -32,6 +32,7 @@ type WorkCreator struct {
 }
 
 func (w *WorkCreator) Execute(rootDirectory, promiseName, namespace, resourceName, workflowType, pipelineName string) error {
+	ctx := context.Background()
 	identifier := fmt.Sprintf("%s-%s-%s", promiseName, resourceName, pipelineName)
 	if !strings.HasPrefix(workflowType, string(v1alpha1.WorkflowTypeResource)) {
 		identifier = fmt.Sprintf("%s-%s", promiseName, pipelineName)
@@ -161,6 +162,9 @@ func (w *WorkCreator) Execute(rootDirectory, promiseName, namespace, resourceNam
 	work.Spec.WorkloadGroups = workloadGroups
 	work.Spec.PromiseName = promiseName
 	work.Spec.ResourceName = resourceName
+	work.Annotations = map[string]string{}
+	work.Annotations["trace-parent-id"] = os.Getenv("TRACE_PARENT")
+	work.Annotations["trace-state"] = os.Getenv("TRACE_STATE")
 	work.Labels = map[string]string{}
 	logger.Info("setting work labels...")
 
@@ -178,13 +182,13 @@ func (w *WorkCreator) Execute(rootDirectory, promiseName, namespace, resourceNam
 		),
 	)
 
-	currentWork, err := resourceutil.GetWork(w.K8sClient, namespace, work.GetLabels())
+	currentWork, err := resourceutil.GetWork(ctx, w.K8sClient, namespace, work.GetLabels())
 	if err != nil {
 		return err
 	}
 
 	if currentWork == nil {
-		err := w.K8sClient.Create(context.Background(), work)
+		err := w.K8sClient.Create(ctx, work)
 		if err != nil {
 			return err
 		}
@@ -194,7 +198,7 @@ func (w *WorkCreator) Execute(rootDirectory, promiseName, namespace, resourceNam
 
 	logger.Info("Work already exists, will update")
 	currentWork.Spec = work.Spec
-	err = w.K8sClient.Update(context.Background(), currentWork)
+	err = w.K8sClient.Update(ctx, currentWork)
 
 	if err != nil {
 		logger.Error(err, "Error updating Work")
