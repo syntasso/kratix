@@ -56,6 +56,11 @@ import (
 	"github.com/syntasso/kratix/api/v1alpha1"
 	platformv1alpha1 "github.com/syntasso/kratix/api/v1alpha1"
 	"github.com/syntasso/kratix/lib/fetchers"
+	"go.opentelemetry.io/otel"
+	"go.opentelemetry.io/otel/attribute"
+	"go.opentelemetry.io/otel/exporters/otlp/otlptrace/otlptracegrpc"
+	"go.opentelemetry.io/otel/sdk/resource"
+	sdktrace "go.opentelemetry.io/otel/sdk/trace"
 	//+kubebuilder:scaffold:imports
 )
 
@@ -114,10 +119,24 @@ func main() {
 	opts.BindFlags(flag.CommandLine)
 	flag.Parse()
 
-	ctx, cancelManagerCtxFunc := context.WithCancel(context.Background())
+	ctx := context.Background()
 	ctrl.SetLogger(zap.New(zap.UseFlagOptions(&opts), func(o *zap.Options) {
 		o.TimeEncoder = zapcore.TimeEncoderOfLayout("2006-01-02T15:04:05Z07:00")
 	}))
+	setupLog = ctrl.Log.WithName("setup")
+
+	tp, err := initTracerProvider(ctx)
+	if err != nil {
+		setupLog.Error(err, "tracing disabled")
+	} else {
+		defer func() {
+			if err := tp.Shutdown(context.Background()); err != nil {
+				setupLog.Error(err, "tracer shutdown error")
+			}
+		}()
+	}
+
+	ctx, cancelManagerCtxFunc := context.WithCancel(ctx)
 
 	prefix := os.Getenv("KRATIX_LOGGER_PREFIX")
 	if prefix != "" {
@@ -417,4 +436,30 @@ func setLeaderElectConfig(mgrOptions *ctrl.Options, kConfig *KratixConfig) {
 		mgrOptions.RetryPeriod = &kConfig.ControllerLeaderElection.RetryPeriod.Duration
 		setupLog.Info("controller leader election configured", "RetryPeriod", mgrOptions.RetryPeriod)
 	}
+}
+
+func initTracerProvider(ctx context.Context) (*sdktrace.TracerProvider, error) {
+	exporter, err := otlptracegrpc.New(ctx)
+	if err != nil {
+		return nil, fmt.Errorf("create exporter: %w", err)
+	}
+
+	res, err := resource.New(ctx,
+		resource.WithFromEnv(),
+		resource.WithTelemetrySDK(),
+		resource.WithAttributes(
+			attribute.String("service.name", "kratix"),
+		),
+	)
+	if err != nil {
+		return nil, fmt.Errorf("create resource: %w", err)
+	}
+
+	tp := sdktrace.NewTracerProvider(
+		sdktrace.WithBatcher(exporter),
+		sdktrace.WithResource(res),
+	)
+
+	otel.SetTracerProvider(tp)
+	return tp, nil
 }
