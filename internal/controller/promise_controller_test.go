@@ -781,6 +781,26 @@ var _ = Describe("PromiseController", func() {
 					})
 				})
 
+				When("works status condition is empty", func() {
+					It("sets the condition to Unknown", func() {
+						work.Status = v1alpha1.WorkStatus{}
+						Expect(fakeK8sClient.Create(ctx, work)).To(Succeed())
+						Expect(fakeK8sClient.Status().Update(ctx, work)).To(Succeed())
+
+						result, err := t.reconcileUntilCompletion(reconciler, promise)
+						Expect(err).NotTo(HaveOccurred())
+						Expect(result).To(Equal(ctrl.Result{RequeueAfter: controller.DefaultReconciliationInterval}))
+						Expect(fakeK8sClient.Get(ctx, promiseResourcesName, promise)).To(Succeed())
+
+						condition, err := getCondition(promise, string(resourceutil.WorksSucceededCondition))
+						Expect(err).ToNot(HaveOccurred())
+						Expect(condition).NotTo(BeNil())
+						Expect(string(condition.Status)).To(Equal("Unknown"))
+						Expect(condition.Reason).To(Equal("WorksPending"))
+						Expect(condition.Message).To(ContainSubstring("Some works associated with this promise are not ready: [test-work]"))
+					})
+				})
+
 				When("works are misplaced", func() {
 					It("sets the condition to False", func() {
 						createAndUpdateWork(work, metav1.ConditionFalse, "Misplaced")

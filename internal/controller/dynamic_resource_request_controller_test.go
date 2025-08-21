@@ -509,6 +509,25 @@ var _ = Describe("DynamicResourceRequestController", func() {
 					Expect(condition.Message).To(ContainSubstring("Some works associated with this resource are not ready: [test]"))
 				})
 
+				It("set to unknown when works condition is not set", func() {
+					work.Status = v1alpha1.WorkStatus{
+						Conditions: []metav1.Condition{},
+					}
+					Expect(fakeK8sClient.Create(ctx, work)).To(Succeed())
+					Expect(fakeK8sClient.Status().Update(ctx, work)).To(Succeed())
+
+					result, err := t.reconcileUntilCompletion(reconciler, resReq)
+					Expect(err).NotTo(HaveOccurred())
+					Expect(result).To(Equal(ctrl.Result{}))
+					Expect(fakeK8sClient.Get(ctx, resReqNameNamespace, resReq)).To(Succeed())
+
+					condition := resourceutil.GetCondition(resReq, resourceutil.WorksSucceededCondition)
+					Expect(condition).NotTo(BeNil())
+					Expect(string(condition.Status)).To(Equal("Unknown"))
+					Expect(condition.Reason).To(Equal("WorksPending"))
+					Expect(condition.Message).To(ContainSubstring("Some works associated with this resource are not ready: [test]"))
+				})
+
 				It("set to false when works failed", func() {
 					work.Status = v1alpha1.WorkStatus{
 						Conditions: []metav1.Condition{
