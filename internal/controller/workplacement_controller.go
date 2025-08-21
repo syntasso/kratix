@@ -613,7 +613,6 @@ func (r *WorkPlacementReconciler) setVersionID(workPlacement *v1alpha1.WorkPlace
 }
 
 func (r *WorkPlacementReconciler) getVersionID(workPlacement *v1alpha1.WorkPlacement, versionID string) string {
-
 	if versionID != "" {
 		return versionID
 	}
