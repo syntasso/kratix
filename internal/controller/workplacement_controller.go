@@ -129,25 +129,22 @@ func (r *WorkPlacementReconciler) getDestination(ctx context.Context, logger log
 }
 
 func (r *WorkPlacementReconciler) updateStatus(ctx context.Context, logger logr.Logger, wp *v1alpha1.WorkPlacement, versionID string) (ctrl.Result, error) {
-	if versionID == "" && r.VersionCache[wp.GetUniqueID()] != "" {
-		versionID = r.VersionCache[wp.GetUniqueID()]
-		delete(r.VersionCache, wp.GetUniqueID())
-	}
+	versionID = r.getVersionID(wp, versionID)
 
 	if versionID != "" && wp.Status.VersionID != versionID {
 		wp.Status.VersionID = versionID
 		logger.Info("Updating version status", "versionID", versionID)
 		err := r.Client.Status().Update(ctx, wp)
 		if kerrors.IsConflict(err) {
-			r.VersionCache[wp.GetUniqueID()] = versionID
 			r.Log.Info("failed to update WorkPlacement status due to update conflict, requeue...")
 			return fastRequeue, nil
 		} else if err != nil {
-			r.VersionCache[wp.GetUniqueID()] = versionID
 			logger.Error(err, "Error updating WorkPlacement status")
 			return ctrl.Result{}, err
 		}
 	}
+
+	r.removeVersionID(wp)
 	return ctrl.Result{}, nil
 }
 
@@ -352,6 +349,7 @@ func (r *WorkPlacementReconciler) writeToStateStore(wp *v1alpha1.WorkPlacement, 
 		}
 		return "", defaultRequeue, nil
 	}
+	r.setVersionID(wp, versionID)
 	r.publishWriteEvent(wp, "WorkloadsWrittenToStateStore", versionID, err)
 
 	cond := metav1.Condition{
@@ -364,7 +362,7 @@ func (r *WorkPlacementReconciler) writeToStateStore(wp *v1alpha1.WorkPlacement, 
 	if apiMeta.SetStatusCondition(&wp.Status.Conditions, cond) {
 		if statusUpdateErr := r.Client.Status().Update(opts.ctx, wp); statusUpdateErr != nil {
 			opts.logger.Error(statusUpdateErr, "failed to update status condition")
-			return "", defaultRequeue, nil
+			return versionID, defaultRequeue, nil
 		}
 	}
 	return versionID, ctrl.Result{}, err
@@ -605,4 +603,23 @@ func (r *WorkPlacementReconciler) generateKratixStateFile(workPlacement v1alpha1
 		Content:  string(stateFileContent),
 	}
 	return stateFileWorkload, oldStateFile, nil
+}
+
+func (r *WorkPlacementReconciler) setVersionID(workPlacement *v1alpha1.WorkPlacement, versionID string) {
+	if versionID == "" {
+		return
+	}
+	r.VersionCache[workPlacement.GetUniqueID()] = versionID
+}
+
+func (r *WorkPlacementReconciler) getVersionID(workPlacement *v1alpha1.WorkPlacement, versionID string) string {
+
+	if versionID != "" {
+		return versionID
+	}
+	return r.VersionCache[workPlacement.GetUniqueID()]
+}
+
+func (r *WorkPlacementReconciler) removeVersionID(workPlacement *v1alpha1.WorkPlacement) {
+	delete(r.VersionCache, workPlacement.GetUniqueID())
 }
