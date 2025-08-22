@@ -19,6 +19,7 @@ package controller_test
 import (
 	"context"
 	"fmt"
+	"time"
 
 	"github.com/syntasso/kratix/internal/controller"
 	"k8s.io/apimachinery/pkg/api/errors"
@@ -523,7 +524,7 @@ files:
 				Expect(updatedWorkPlacement.Status.VersionID).To(Equal("an-amazing-version-id"))
 			})
 
-			When("updating the status fails", func() {
+			When("updating the status fails on updating the versionID", func() {
 				It("applies the Version ID on the next reconcile", func() {
 					Expect(fakeK8sClient.Get(ctx, types.NamespacedName{
 						Name:      workPlacement.Name,
@@ -553,6 +554,31 @@ files:
 					Expect(err).ToNot(HaveOccurred())
 					Expect(result).To(Equal(ctrl.Result{}))
 					Expect(fakeWriter.UpdateFilesCallCount()).To(Equal(4))
+
+					latestWP := v1alpha1.WorkPlacement{}
+					Expect(fakeK8sClient.Get(ctx, types.NamespacedName{
+						Name:      workPlacement.GetName(),
+						Namespace: workPlacement.GetNamespace(),
+					}, &latestWP)).To(Succeed())
+
+					Expect(latestWP.Status.VersionID).To(Equal("an-amazing-version-id"))
+				})
+			})
+
+			When("updating the status fails on updating the conditions", func() {
+				It("applies the Version ID on the next reconcile", func() {
+					errSubResourceUpdate = fmt.Errorf("an-error")
+					fakeWriter.UpdateFilesReturnsOnCall(0, "an-amazing-version-id", nil)
+
+					result, err := t.reconcileUntilCompletion(reconciler, &workPlacement)
+					Expect(err).To(HaveOccurred())
+					Expect(result).To(Equal(ctrl.Result{RequeueAfter: 15 * time.Second}))
+
+					errSubResourceUpdate = nil
+
+					result, err = t.reconcileUntilCompletion(reconciler, &workPlacement)
+					Expect(err).ToNot(HaveOccurred())
+					Expect(result).To(Equal(ctrl.Result{}))
 
 					latestWP := v1alpha1.WorkPlacement{}
 					Expect(fakeK8sClient.Get(ctx, types.NamespacedName{

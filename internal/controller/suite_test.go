@@ -62,9 +62,6 @@ var _ = BeforeSuite(func(_ SpecContext) {
 
 }, NodeTimeout(time.Minute))
 
-var _ = AfterSuite(func() {
-})
-
 var reconcileConfigureOptsArg workflow.Opts
 var reconcileDeleteOptsArg workflow.Opts
 
@@ -107,6 +104,10 @@ var _ = BeforeEach(func() {
 		reconcileDeleteOptsArg = w
 		return true, nil
 	})
+})
+
+var _ = AfterEach(func() {
+	errSubResourceUpdate = nil
 })
 
 func TestControllers(t *testing.T) {
