@@ -320,7 +320,11 @@ func (r *DynamicResourceRequestController) getWorksStatus(ctx context.Context, r
 	var failed, misplaced, ready, pending []string
 	for _, work := range works.Items {
 		readyCond := apiMeta.FindStatusCondition(work.Status.Conditions, "Ready")
-		switch readyCond.Message {
+		message := "Pending"
+		if readyCond != nil && readyCond.Message != "" {
+			message = readyCond.Message
+		}
+		switch message {
 		case "Failing":
 			failed = append(failed, work.Name)
 		case "Misplaced":
