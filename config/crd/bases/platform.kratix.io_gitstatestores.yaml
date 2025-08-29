@@ -77,6 +77,10 @@ spec:
                   Path structure begins with provided path and ends with namespaced destination name:
                     <StateStore.Spec.Path>/<Destination.Spec.Path>/<Destination.Metadata.Namespace>/<Destination.Metadata.Name>/
                 type: string
+              pushToNewBranch:
+                description: When true, commits are pushed to a new branch created
+                  from the base branch.
+                type: boolean
               secretRef:
                 description: SecretRef specifies the Secret containing authentication
                   credentials

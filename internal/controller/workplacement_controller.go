@@ -331,6 +331,11 @@ func (r *WorkPlacementReconciler) delete(ctx context.Context, writer writers.Sta
 }
 
 func (r *WorkPlacementReconciler) writeToStateStore(wp *v1alpha1.WorkPlacement, destination *v1alpha1.Destination, opts opts) (string, ctrl.Result, error) {
+	if apiMeta.IsStatusConditionTrue(wp.Status.Conditions, writeSucceededConditionType) {
+		r.Log.Info("Workplacement already written; exiting") // SPIKE no like this 💩
+		return "", ctrl.Result{}, nil
+	}
+
 	writer, err := newWriter(opts, destination.Spec.StateStoreRef.Name, destination.Spec.StateStoreRef.Kind, destination.Spec.Path)
 	if err != nil {
 		if k8sErrors.IsNotFound(err) {

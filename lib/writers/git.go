@@ -10,6 +10,7 @@ import (
 	"time"
 
 	"github.com/go-git/go-git/v5"
+	"github.com/go-git/go-git/v5/config"
 	"github.com/go-git/go-git/v5/plumbing"
 	"github.com/go-git/go-git/v5/plumbing/object"
 	"github.com/go-git/go-git/v5/plumbing/protocol/packp/capability"
@@ -21,16 +22,18 @@ import (
 )
 
 type GitWriter struct {
-	GitServer gitServer
-	Author    gitAuthor
-	Path      string
-	Log       logr.Logger
+	GitServer       gitServer
+	Author          gitAuthor
+	Path            string
+	Log             logr.Logger
+	PushToNewBranch bool
 }
 
 type gitServer struct {
-	URL    string
-	Branch string
-	Auth   transport.AuthMethod
+	URL        string
+	Branch     string
+	BaseBranch string
+	Auth       transport.AuthMethod
 }
 
 type gitAuthor struct {
@@ -103,9 +106,10 @@ func NewGitWriter(logger logr.Logger, stateStoreSpec v1alpha1.GitStateStoreSpec,
 
 	return &GitWriter{
 		GitServer: gitServer{
-			URL:    stateStoreSpec.URL,
-			Branch: stateStoreSpec.Branch,
-			Auth:   authMethod,
+			URL:        stateStoreSpec.URL,
+			Branch:     stateStoreSpec.Branch,
+			BaseBranch: stateStoreSpec.Branch,
+			Auth:       authMethod,
 		},
 		Author: gitAuthor{
 			Name:  stateStoreSpec.GitAuthor.Name,
@@ -116,6 +120,7 @@ func NewGitWriter(logger logr.Logger, stateStoreSpec v1alpha1.GitStateStoreSpec,
 			stateStoreSpec.Path,
 			destinationPath,
 		), "/"),
+		PushToNewBranch: stateStoreSpec.PushToNewBranch,
 	}, nil
 }
 
@@ -131,13 +136,14 @@ func (g *GitWriter) update(subDir, workPlacementName string, workloadsToCreate [
 	dirInGitRepo := filepath.Join(g.Path, subDir)
 	logger := g.Log.WithValues(
 		"dir", dirInGitRepo,
-		"branch", g.GitServer.Branch,
 	)
 
-	localTmpDir, repo, worktree, err := g.setupLocalDirectoryWithRepo(logger)
+	localTmpDir, repo, worktree, err := g.setupLocalDirectoryWithRepo(logger, g.PushToNewBranch)
 	if err != nil {
 		return "", err
 	}
+
+	logger = logger.WithValues("branch", g.GitServer.Branch)
 	defer os.RemoveAll(filepath.Dir(localTmpDir)) //nolint:errcheck
 
 	err = g.deleteExistingFiles(subDir != "", dirInGitRepo, workloadsToDelete, worktree, logger)
@@ -226,7 +232,7 @@ func (g *GitWriter) ReadFile(filePath string) ([]byte, error) {
 		"branch", g.GitServer.Branch,
 	)
 
-	localTmpDir, _, worktree, err := g.setupLocalDirectoryWithRepo(logger)
+	localTmpDir, _, worktree, err := g.setupLocalDirectoryWithRepo(logger, false)
 	if err != nil {
 		return nil, err
 	}
@@ -245,7 +251,7 @@ func (g *GitWriter) ReadFile(filePath string) ([]byte, error) {
 	return content, nil
 }
 
-func (g *GitWriter) setupLocalDirectoryWithRepo(logger logr.Logger) (string, *git.Repository, *git.Worktree, error) {
+func (g *GitWriter) setupLocalDirectoryWithRepo(logger logr.Logger, createNewBranch bool) (string, *git.Repository, *git.Worktree, error) {
 	localTmpDir, err := createLocalDirectory(logger)
 	if err != nil {
 		logger.Error(err, "could not create temporary repository directory")
@@ -263,15 +269,37 @@ func (g *GitWriter) setupLocalDirectoryWithRepo(logger logr.Logger) (string, *gi
 		logger.Error(err, "could not access repo worktree")
 		return "", nil, nil, err
 	}
+
+	if createNewBranch {
+		newBranch := fmt.Sprintf("%s-%d", g.GitServer.BaseBranch, time.Now().UnixNano())
+		if err = worktree.Checkout(&git.CheckoutOptions{
+			Branch: plumbing.NewBranchReferenceName(newBranch),
+			Create: true,
+		}); err != nil {
+			logger.Error(err, fmt.Sprintf("could not checkout new branch, branch name: %s", newBranch))
+			return "", nil, nil, err
+		}
+		g.GitServer.Branch = newBranch
+	}
+
 	return localTmpDir, repo, worktree, nil
 }
 
 func (g *GitWriter) push(repo *git.Repository, logger logr.Logger) error {
-	err := repo.Push(&git.PushOptions{
+	pushOptions := &git.PushOptions{
 		RemoteName:      "origin",
 		Auth:            g.GitServer.Auth,
 		InsecureSkipTLS: true,
-	})
+	}
+
+	if g.PushToNewBranch {
+		ref := config.RefSpec(fmt.Sprintf("refs/heads/%s:refs/heads/%s", g.GitServer.Branch, g.GitServer.Branch))
+		g.Log.WithValues("SPIKE: push to new branch with ref", ref)
+		pushOptions.RefSpecs = []config.RefSpec{ref}
+	}
+
+	err := repo.Push(pushOptions)
+
 	if err != nil {
 		logger.Error(err, "could not push to remote")
 		return err
@@ -305,7 +333,7 @@ func (g *GitWriter) validatePush(repo *git.Repository, logger logr.Logger) error
 // It performs a dry run validation to check authentication and branch existence without making changes.
 func (g *GitWriter) ValidatePermissions() error {
 	// Setup local directory with repo (this already checks if we can clone - read access)
-	localTmpDir, repo, _, err := g.setupLocalDirectoryWithRepo(g.Log)
+	localTmpDir, repo, _, err := g.setupLocalDirectoryWithRepo(g.Log, false)
 	if err != nil {
 		return fmt.Errorf("failed to set up local directory with repo: %w", err)
 	}
@@ -337,7 +365,7 @@ func (g *GitWriter) cloneRepo(localRepoFilePath string, logger logr.Logger) (*gi
 	repo, err := git.PlainClone(localRepoFilePath, false, &git.CloneOptions{
 		Auth:            g.GitServer.Auth,
 		URL:             g.GitServer.URL,
-		ReferenceName:   plumbing.NewBranchReferenceName(g.GitServer.Branch),
+		ReferenceName:   plumbing.NewBranchReferenceName(g.GitServer.BaseBranch),
 		SingleBranch:    true,
 		Depth:           1,
 		NoCheckout:      false,

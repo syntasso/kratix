@@ -46,6 +46,10 @@ type GitStateStoreSpec struct {
 	// Git author name and email used to commit this git state store; name defaults to 'kratix'
 	// +kubebuilder:default:={name: "kratix"}
 	GitAuthor GitAuthor `json:"gitAuthor,omitempty"`
+
+	// When true, commits are pushed to a new branch created from the base branch.
+	// +kubebuilder:validation:Optional
+	PushToNewBranch bool `json:"pushToNewBranch,omitempty"`
 }
 
 type GitAuthor struct {

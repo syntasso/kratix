@@ -124,7 +124,6 @@ func newWriter(o opts, stateStoreName, stateStoreKind, destinationPath string) (
 		if fetchErr != nil {
 			return nil, fetchErr
 		}
-
 		writer, err = newGitWriter(o.logger.WithName("writers").WithName("GitStateStoreWriter"), stateStore.Spec, destinationPath, secret.Data)
 	default:
 		return nil, fmt.Errorf("unsupported kind %s", stateStoreKind)
