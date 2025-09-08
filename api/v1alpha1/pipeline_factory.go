@@ -48,7 +48,10 @@ func (p *PipelineFactory) Resources(jobEnv []corev1.EnvVar) (PipelineJobResource
 		return PipelineJobResources{}, err
 	}
 
-	clusterRoles := p.clusterRole()
+	clusterRoles, err := p.clusterRole()
+	if err != nil {
+		return PipelineJobResources{}, err
+	}
 
 	clusterRoleBindings := p.clusterRoleBinding(clusterRoles, sa)
 
@@ -433,7 +436,7 @@ func (p *PipelineFactory) getObjAndHash() (*unstructured.Unstructured, string, e
 func (p *PipelineFactory) role() ([]rbacv1.Role, error) {
 	var roles []rbacv1.Role
 	if p.ResourceWorkflow {
-		_, crd, err := p.Promise.GetAPI()
+		rules, err := p.readResourceRule()
 		if err != nil {
 			return nil, err
 		}
@@ -447,18 +450,11 @@ func (p *PipelineFactory) role() ([]rbacv1.Role, error) {
 				APIVersion: rbacv1.SchemeGroupVersion.String(),
 				Kind:       "Role",
 			},
-			Rules: []rbacv1.PolicyRule{
-				{
-					APIGroups: []string{crd.Spec.Group},
-					Resources: []string{p.CRDPlural, p.CRDPlural + "/status"},
-					Verbs:     []string{"get", "list", "update", "create", "patch"},
-				},
-				{
-					APIGroups: []string{GroupVersion.Group},
-					Resources: []string{"works"},
-					Verbs:     []string{"*"},
-				},
-			},
+			Rules: append(rules, rbacv1.PolicyRule{
+				APIGroups: []string{GroupVersion.Group},
+				Resources: []string{"works"},
+				Verbs:     []string{"*"},
+			}),
 		})
 	}
 
@@ -552,7 +548,7 @@ func (p *PipelineFactory) roleBindings(
 	return bindings
 }
 
-func (p *PipelineFactory) clusterRole() []rbacv1.ClusterRole {
+func (p *PipelineFactory) clusterRole() ([]rbacv1.ClusterRole, error) {
 	var clusterRoles []rbacv1.ClusterRole
 	if !p.ResourceWorkflow {
 		clusterRoles = append(clusterRoles, rbacv1.ClusterRole{
@@ -571,6 +567,24 @@ func (p *PipelineFactory) clusterRole() []rbacv1.ClusterRole {
 					Verbs:     []string{"get", "list", "update", "create", "patch"},
 				},
 			},
+		})
+	}
+
+	if p.ResourceWorkflow && p.Namespace != p.ResourceRequest.GetNamespace() {
+		rules, err := p.readResourceRule()
+		if err != nil {
+			return nil, err
+		}
+		clusterRoles = append(clusterRoles, rbacv1.ClusterRole{
+			ObjectMeta: metav1.ObjectMeta{
+				Name:   fmt.Sprintf("%s-%s", p.ID, p.ResourceRequest.GetNamespace()),
+				Labels: promiseNameLabel(p.Promise.GetName()),
+			},
+			TypeMeta: metav1.TypeMeta{
+				APIVersion: rbacv1.SchemeGroupVersion.String(),
+				Kind:       "ClusterRole",
+			},
+			Rules: rules,
 		})
 	}
 
@@ -612,7 +626,7 @@ func (p *PipelineFactory) clusterRole() []rbacv1.ClusterRole {
 		}
 	}
 
-	return clusterRoles
+	return clusterRoles, nil
 }
 
 func (p *PipelineFactory) clusterRoleBinding(
@@ -675,4 +689,18 @@ func (p *PipelineFactory) userPermissionPipelineLabels() map[string]string {
 	return UserPermissionPipelineResourcesLabels(
 		p.Promise.GetName(), p.Pipeline.GetName(), p.Namespace,
 		string(p.WorkflowType), string(p.WorkflowAction))
+}
+
+func (p *PipelineFactory) readResourceRule() ([]rbacv1.PolicyRule, error) {
+	_, crd, err := p.Promise.GetAPI()
+	if err != nil {
+		return nil, err
+	}
+	return []rbacv1.PolicyRule{
+		{
+			APIGroups: []string{crd.Spec.Group},
+			Resources: []string{p.CRDPlural, p.CRDPlural + "/status"},
+			Verbs:     []string{"get", "list", "update", "create", "patch"},
+		},
+	}, nil
 }

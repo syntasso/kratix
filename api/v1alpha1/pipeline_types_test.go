@@ -195,6 +195,7 @@ var _ = Describe("Pipeline", func() {
 		var factory *v1alpha1.PipelineFactory
 
 		BeforeEach(func() {
+			resourceRequest.SetNamespace("factoryNamespace")
 			factory = &v1alpha1.PipelineFactory{
 				ID:              "factoryID",
 				Namespace:       "factoryNamespace",
@@ -207,7 +208,7 @@ var _ = Describe("Pipeline", func() {
 		})
 
 		Describe("Resources()", func() {
-			When("promise", func() {
+			When("generating for promise workflows", func() {
 				BeforeEach(func() {
 					factory.CRDPlural = "promises"
 					factory.WorkflowType = "promise"
@@ -290,7 +291,7 @@ var _ = Describe("Pipeline", func() {
 				})
 			})
 
-			When("ResourceWorkflow=true", func() {
+			When("generating for resource workflows", func() {
 				BeforeEach(func() {
 					factory.ResourceWorkflow = true
 					factory.WorkflowType = "resource"
@@ -344,6 +345,26 @@ var _ = Describe("Pipeline", func() {
 					Entry("Configure", v1alpha1.WorkflowActionConfigure, 4, true, false),
 					Entry("Delete", v1alpha1.WorkflowActionDelete, 3, false, false),
 				)
+
+				When("the pipeline namespace is different from the resource namespace", func() {
+					It("should create a cluster role and role binding for the specific namespace", func() {
+						factory.Namespace = "specific-namespace"
+						factory.ResourceRequest.SetNamespace("resource-namespace")
+
+						resources, err := factory.Resources(nil)
+						Expect(err).ToNot(HaveOccurred())
+						Expect(resources.Name).To(Equal(pipeline.GetName()))
+
+						Expect(resources.Shared.ClusterRoles).To(HaveLen(1))
+						Expect(resources.Shared.ClusterRoles[0].Rules).To(ConsistOf(
+							rbacv1.PolicyRule{
+								Verbs:     []string{"get", "list", "update", "create", "patch"},
+								APIGroups: []string{"promise.crd.group"},
+								Resources: []string{"promiseCrdPlural", "promiseCrdPlural/status"},
+							},
+						))
+					})
+				})
 			})
 
 		})
