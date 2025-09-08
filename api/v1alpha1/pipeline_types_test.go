@@ -142,6 +142,16 @@ var _ = Describe("Pipeline", func() {
 				Expect(f.ResourceWorkflow).To(BeFalse())
 				Expect(f.CRDPlural).To(Equal("promises"))
 			})
+
+			When("promise workflow config pipelineNamespace is set", func() {
+				It("uses that namespace", func() {
+					promise.Spec.Workflows.Config.PipelineNamespace = "whale"
+					f := pipeline.ForPromise(promise, v1alpha1.WorkflowActionConfigure)
+					Expect(f).ToNot(BeNil())
+					Expect(f.Namespace).To(Equal("whale"))
+				})
+			})
+
 		})
 
 		Describe("ForResource", func() {
@@ -168,6 +178,15 @@ var _ = Describe("Pipeline", func() {
 
 				f := pipeline.ForResource(promise, v1alpha1.WorkflowActionConfigure, resourceRequest)
 				Expect(f.ClusterScoped).To(BeTrue())
+			})
+
+			When("promise workflow config pipelineNamespace is set", func() {
+				It("uses that namespace", func() {
+					promise.Spec.Workflows.Config.PipelineNamespace = "whale"
+					f := pipeline.ForResource(promise, v1alpha1.WorkflowActionConfigure, resourceRequest)
+					Expect(f).ToNot(BeNil())
+					Expect(f.Namespace).To(Equal("whale"))
+				})
 			})
 		})
 	})
