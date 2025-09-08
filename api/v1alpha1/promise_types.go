@@ -84,8 +84,14 @@ type RequiredPromise struct {
 }
 
 type Workflows struct {
+	Config   WorkflowConfig   `json:"config,omitempty"`
 	Resource WorkflowTriggers `json:"resource,omitempty"`
 	Promise  WorkflowTriggers `json:"promise,omitempty"`
+}
+
+type WorkflowConfig struct {
+	// Namespace for all workflow jobs (promise and resource) to run in; needs to be an existing namespace or else workflow won't start
+	PipelineNamespace string `json:"pipelineNamespace,omitempty"`
 }
 
 type WorkflowTriggers struct {
