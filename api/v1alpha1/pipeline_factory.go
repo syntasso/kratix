@@ -343,9 +343,14 @@ func (p *PipelineFactory) pipelineJob(
 		},
 	}
 
-	if err = controllerutil.SetControllerReference(obj, job, scheme.Scheme); err != nil {
-		return nil, err
+	// todo: needs to understand side effect of not setting it
+	// no reference means no auto garbage collection; are we cleaning up jobs by finalizers anyways????
+	if obj.GetNamespace() == job.GetNamespace() {
+		if err = controllerutil.SetControllerReference(obj, job, scheme.Scheme); err != nil {
+			return nil, err
+		}
 	}
+
 	return job, nil
 }
 
