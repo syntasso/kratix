@@ -349,7 +349,7 @@ func (p *PipelineFactory) pipelineJob(
 
 	// // todo: needs to understand side effect of not setting it
 	// // no reference means no auto garbage collection; are we cleaning up jobs by finalizers anyways????
-	if obj.GetKind() == "Promise" {
+	if !p.ResourceWorkflow {
 		if err = controllerutil.SetControllerReference(obj, job, scheme.Scheme); err != nil {
 			return nil, err
 		}
