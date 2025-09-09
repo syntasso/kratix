@@ -383,15 +383,15 @@ func (r *DynamicResourceRequestController) deleteResources(o opts, promise *v1al
 		return ctrl.Result{}, nil
 	}
 
+	namespace := resourceRequest.GetNamespace()
+	if promise.Spec.Workflows.Config.PipelineNamespace != "" {
+		namespace = promise.Spec.Workflows.Config.PipelineNamespace
+	}
+
 	if controllerutil.ContainsFinalizer(resourceRequest, runDeleteWorkflowsFinalizer) {
 		pipelineResources, err := promise.GenerateResourcePipelines(v1alpha1.WorkflowActionDelete, resourceRequest, o.logger)
 		if err != nil {
 			return ctrl.Result{}, err
-		}
-
-		namespace := resourceRequest.GetNamespace()
-		if promise.Spec.Workflows.Config.PipelineNamespace != "" {
-			namespace = promise.Spec.Workflows.Config.PipelineNamespace
 		}
 
 		jobOpts := workflow.NewOpts(o.ctx, o.client, r.EventRecorder, o.logger, resourceRequest, pipelineResources, "resource", r.NumberOfJobsToKeep, namespace)
@@ -419,7 +419,7 @@ func (r *DynamicResourceRequestController) deleteResources(o opts, promise *v1al
 	}
 
 	if controllerutil.ContainsFinalizer(resourceRequest, workFinalizer) {
-		err := r.deleteWork(o, resourceRequest, resourceRequestIdentifier, workFinalizer)
+		err := r.deleteWork(o, resourceRequest, resourceRequestIdentifier, workFinalizer, namespace)
 		if err != nil {
 			return ctrl.Result{}, err
 		}
@@ -437,8 +437,8 @@ func (r *DynamicResourceRequestController) deleteResources(o opts, promise *v1al
 	return fastRequeue, nil
 }
 
-func (r *DynamicResourceRequestController) deleteWork(o opts, resourceRequest *unstructured.Unstructured, workName string, finalizer string) error {
-	works, err := resourceutil.GetAllWorksForResource(r.Client, resourceRequest.GetNamespace(), r.PromiseIdentifier, resourceRequest.GetName())
+func (r *DynamicResourceRequestController) deleteWork(o opts, resourceRequest *unstructured.Unstructured, workName, finalizer, namespace string) error {
+	works, err := resourceutil.GetAllWorksForResource(r.Client, namespace, r.PromiseIdentifier, resourceRequest.GetName())
 	if err != nil {
 		return err
 	}
