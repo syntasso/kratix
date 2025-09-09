@@ -31,8 +31,12 @@ type WorkCreator struct {
 	K8sClient client.Client
 }
 
-func (w *WorkCreator) Execute(rootDirectory, promiseName, namespace, resourceName, workflowType, pipelineName string) error {
+func (w *WorkCreator) Execute(rootDirectory, promiseName, namespace, resourceName, resourceNamespace, workflowType, pipelineName string) error {
 	identifier := fmt.Sprintf("%s-%s-%s", promiseName, resourceName, pipelineName)
+	if resourceNamespace != namespace {
+		identifier = fmt.Sprintf("%s-%s-%s-%s", promiseName, resourceName, resourceNamespace, pipelineName)
+	}
+
 	if !strings.HasPrefix(workflowType, string(v1alpha1.WorkflowTypeResource)) {
 		identifier = fmt.Sprintf("%s-%s", promiseName, pipelineName)
 	}

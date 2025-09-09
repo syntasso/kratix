@@ -854,6 +854,7 @@ var _ = Describe("Pipeline", func() {
 							"--namespace", factory.Namespace,
 							"--workflow-type", string(factory.WorkflowType),
 							"--resource-name", resourceRequest.GetName(),
+							"--resource-namespace", resourceRequest.GetNamespace(),
 						}))
 						Expect(container.VolumeMounts).To(ConsistOf(
 							corev1.VolumeMount{Name: "shared-output", MountPath: "/work-creator-files/input"},
@@ -1599,6 +1600,46 @@ var _ = Describe("Pipeline", func() {
 				))
 			})
 		})
+
+		When("promise workflow config pipelineName is set", func() {
+			Context("resource configure workflow", func() {
+				var generatedResource v1alpha1.PipelineJobResources
+				BeforeEach(func() {
+					promise.Spec.Workflows.Config.PipelineNamespace = "test100"
+					f := pipeline.ForResource(promise, v1alpha1.WorkflowActionConfigure, resourceRequest)
+					Expect(f).ToNot(BeNil())
+					Expect(f.Namespace).To(Equal("test100"))
+
+					var err error
+					generatedResource, err = f.Resources(nil)
+					Expect(err).ToNot(HaveOccurred())
+				})
+
+				It("uses resource request namespace in job name", func() {
+					Expect(generatedResource.Job.Name).To(
+						ContainSubstring("kratix-promiseName-resourceName-factoryNamespace-pipe"))
+				})
+			})
+
+			Context("resource configure workflow", func() {
+				var generatedResource v1alpha1.PipelineJobResources
+				BeforeEach(func() {
+					promise.Spec.Workflows.Config.PipelineNamespace = "test200"
+					f := pipeline.ForResource(promise, v1alpha1.WorkflowActionDelete, resourceRequest)
+					Expect(f).ToNot(BeNil())
+					Expect(f.Namespace).To(Equal("test200"))
+
+					var err error
+					generatedResource, err = f.Resources(nil)
+					Expect(err).ToNot(HaveOccurred())
+				})
+
+				It("uses resource request namespace in the delete job name", func() {
+					Expect(generatedResource.Job.Name).To(
+						ContainSubstring("kratix-promiseName-resourceName-factoryNamespace-pipe"))
+				})
+			})
+		})
 	})
 
 	Describe("PipelinesFromUnstructured", func() {
@@ -1632,7 +1673,7 @@ var _ = Describe("Pipeline", func() {
 						},
 						"spec": map[string]interface{}{
 							"containers": []map[string]interface{}{
-								map[string]interface{}{
+								{
 									"name":  "promise-configure",
 									"image": "my-registry.io/configure",
 								},
@@ -1689,7 +1730,7 @@ var _ = Describe("Pipeline", func() {
 							},
 							"spec": map[string]interface{}{
 								"containers": []map[string]interface{}{
-									map[string]interface{}{
+									{
 										"name":  "promise-configure",
 										"image": "my-registry.io/configure",
 									},
@@ -1720,7 +1761,7 @@ var _ = Describe("Pipeline", func() {
 							},
 							"spec": map[string]interface{}{
 								"containers": []map[string]interface{}{
-									map[string]interface{}{
+									{
 										"name":  "promise-configure",
 										"image": "my-registry.io/configure",
 									},

@@ -215,6 +215,7 @@ func (p *PipelineFactory) workCreatorContainer() corev1.Container {
 
 	if p.ResourceWorkflow {
 		args = append(args, "--resource-name", p.ResourceRequest.GetName())
+		args = append(args, "--resource-namespace", p.ResourceRequest.GetNamespace())
 	}
 
 	return corev1.Container{
@@ -388,10 +389,12 @@ func (p *PipelineFactory) pipelineJobName() string {
 
 	if p.ResourceWorkflow {
 		name = fmt.Sprintf("%s-%s", name, p.ResourceRequest.GetName())
+		if p.Promise.Spec.Workflows.Config.PipelineNamespace != "" {
+			name = fmt.Sprintf("%s-%s", name, p.ResourceRequest.GetNamespace())
+		}
 	}
 
 	name = fmt.Sprintf("%s-%s", name, p.Pipeline.GetName())
-
 	return objectutil.GenerateObjectName(name)
 }
 

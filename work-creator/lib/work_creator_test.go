@@ -45,7 +45,7 @@ var _ = Describe("WorkCreator", func() {
 
 			BeforeEach(func() {
 				mockPipelineDirectory = filepath.Join(getRootDirectory(), "complete")
-				err := workCreator.Execute(mockPipelineDirectory, "promise-name", "default", "resource-name", "resource", pipelineName)
+				err := workCreator.Execute(mockPipelineDirectory, "promise-name", "default", "resource-name", "default", "resource", pipelineName)
 				Expect(err).ToNot(HaveOccurred())
 
 				workResource = getWork(expectedNamespace, promiseName, resourceName, pipelineName)
@@ -70,7 +70,7 @@ var _ = Describe("WorkCreator", func() {
 
 			It("has the expected workloads", func() {
 				mockPipelineDirectory = filepath.Join(getRootDirectory(), "complete")
-				err := workCreator.Execute(mockPipelineDirectory, "promise-name", "default", "resource-name", "resource", pipelineName)
+				err := workCreator.Execute(mockPipelineDirectory, "promise-name", "default", "resource-name", "default", "resource", pipelineName)
 				Expect(err).ToNot(HaveOccurred())
 
 				workResource = getWork(expectedNamespace, promiseName, resourceName, pipelineName)
@@ -93,7 +93,7 @@ var _ = Describe("WorkCreator", func() {
 			When("it runs for a second time", func() {
 				It("Should update the previously created work", func() {
 					mockPipelineDirectory = filepath.Join(getRootDirectory(), "complete-updated")
-					err := workCreator.Execute(mockPipelineDirectory, "promise-name", "default", "resource-name", "resource", pipelineName)
+					err := workCreator.Execute(mockPipelineDirectory, "promise-name", "default", "resource-name", "default", "resource", pipelineName)
 					Expect(err).ToNot(HaveOccurred())
 
 					newWorkResource := getWork(expectedNamespace, promiseName, resourceName, pipelineName)
@@ -172,11 +172,23 @@ var _ = Describe("WorkCreator", func() {
 					))
 				})
 			})
+
+			// todo: failing
+			When("workflow namespace and resource namespace are different", func() {
+				It("sets the right name for te work", func() {
+
+					err := workCreator.Execute(mockPipelineDirectory, "promise-name", "default", "resource-name", "my-a-team", "resource", pipelineName)
+					Expect(err).ToNot(HaveOccurred())
+
+					workResource = getWork(expectedNamespace, promiseName, resourceName, pipelineName)
+					Expect(workResource.Name).To(MatchRegexp(`^promise-name-resource-name-my-a-team-configure-job-\b\w{5}\b$`))
+				})
+			})
 		})
 
 		Context("with empty metadata directory", func() {
 			BeforeEach(func() {
-				err := workCreator.Execute(filepath.Join(getRootDirectory(), "empty-metadata"), "promise-name", "default", "resource-name", "resource", pipelineName)
+				err := workCreator.Execute(filepath.Join(getRootDirectory(), "empty-metadata"), "promise-name", "default", "resource-name", "default", "resource", pipelineName)
 				Expect(err).ToNot(HaveOccurred())
 			})
 
@@ -196,7 +208,7 @@ var _ = Describe("WorkCreator", func() {
 		Context("with empty namespace string", func() {
 			BeforeEach(func() {
 				expectedNamespace = "kratix-platform-system"
-				err := workCreator.Execute(filepath.Join(getRootDirectory(), "empty-metadata"), "promise-name", "", "resource-name", "resource", pipelineName)
+				err := workCreator.Execute(filepath.Join(getRootDirectory(), "empty-metadata"), "promise-name", "", "resource-name", "", "resource", pipelineName)
 				Expect(err).NotTo(HaveOccurred())
 			})
 
@@ -211,7 +223,7 @@ var _ = Describe("WorkCreator", func() {
 
 			BeforeEach(func() {
 				mockPipelineDirectory = filepath.Join(getRootDirectory(), "empty-default-workload-group")
-				err := workCreator.Execute(mockPipelineDirectory, "promise-name", "default", "resource-name", "resource", pipelineName)
+				err := workCreator.Execute(mockPipelineDirectory, "promise-name", "default", "resource-name", "default", "resource", pipelineName)
 				Expect(err).ToNot(HaveOccurred())
 
 				workResource = getWork(expectedNamespace, promiseName, resourceName, pipelineName)
@@ -246,7 +258,7 @@ var _ = Describe("WorkCreator", func() {
 
 		When("given a complete set of inputs for a Promise", func() {
 			BeforeEach(func() {
-				err := workCreator.Execute(filepath.Join(getRootDirectory(), "complete-for-promise"), "promise-name", "", "", "promise", pipelineName)
+				err := workCreator.Execute(filepath.Join(getRootDirectory(), "complete-for-promise"), "promise-name", "", "", "", "promise", pipelineName)
 				Expect(err).NotTo(HaveOccurred())
 			})
 
