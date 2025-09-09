@@ -10,7 +10,7 @@ import (
 	"github.com/syntasso/kratix/test/kubeutils"
 )
 
-var _ = FDescribe("Promise Features", Ordered, func() {
+var _ = Describe("Promise Features", Ordered, func() {
 	Describe("spec.workflows.config.pipelineNamespace", func() {
 		var (
 			kubePublicNs        = "kube-public"
@@ -26,9 +26,9 @@ var _ = FDescribe("Promise Features", Ordered, func() {
 			kubeutils.SetTimeoutAndInterval(2*time.Minute, 2*time.Second)
 		})
 
-		//AfterEach(func() {
-		//	platform.Kubectl("delete", "-f", promiseFile, "--ignore-not-found")
-		//})
+		AfterEach(func() {
+			platform.Kubectl("delete", "-f", promiseFile, "--ignore-not-found")
+		})
 
 		It("should run all workflows in the specified namespace", func() {
 			promisePipelineLabels := []string{
@@ -181,7 +181,7 @@ var _ = FDescribe("Promise Features", Ordered, func() {
 				})
 
 				By("cleaning up all resources at deletion", func() {
-					platform.Kubectl("delete", "-f", resourceRequestFile)
+					platform.EventuallyKubectlDelete("-f", resourceRequestFile)
 					Eventually(func() string {
 						return platform.Kubectl(
 							"get", "works",
