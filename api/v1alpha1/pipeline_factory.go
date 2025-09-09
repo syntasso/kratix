@@ -12,10 +12,10 @@ import (
 	batchv1 "k8s.io/api/batch/v1"
 	corev1 "k8s.io/api/core/v1"
 	rbacv1 "k8s.io/api/rbac/v1"
+	"k8s.io/apiextensions-apiserver/pkg/client/clientset/clientset/scheme"
 	metav1 "k8s.io/apimachinery/pkg/apis/meta/v1"
 	"k8s.io/apimachinery/pkg/apis/meta/v1/unstructured"
 	"k8s.io/apimachinery/pkg/labels"
-	"k8s.io/client-go/kubernetes/scheme"
 	"sigs.k8s.io/controller-runtime/pkg/controller/controllerutil"
 )
 
@@ -321,9 +321,10 @@ func (p *PipelineFactory) pipelineJob(
 
 	job := &batchv1.Job{
 		ObjectMeta: metav1.ObjectMeta{
-			Name:      p.pipelineJobName(),
-			Namespace: p.Namespace,
-			Labels:    p.pipelineJobLabels(objHash),
+			Name:        p.pipelineJobName(),
+			Namespace:   p.Namespace,
+			Labels:      p.pipelineJobLabels(objHash),
+			Annotations: p.pipelineJobAnnotations(obj),
 		},
 		Spec: batchv1.JobSpec{
 			BackoffLimit: backoffLimit,
@@ -346,9 +347,9 @@ func (p *PipelineFactory) pipelineJob(
 		},
 	}
 
-	// todo: needs to understand side effect of not setting it
-	// no reference means no auto garbage collection; are we cleaning up jobs by finalizers anyways????
-	if obj.GetNamespace() == job.GetNamespace() {
+	// // todo: needs to understand side effect of not setting it
+	// // no reference means no auto garbage collection; are we cleaning up jobs by finalizers anyways????
+	if obj.GetKind() == "Promise" {
 		if err = controllerutil.SetControllerReference(obj, job, scheme.Scheme); err != nil {
 			return nil, err
 		}
@@ -408,6 +409,19 @@ func (p *PipelineFactory) pipelineJobLabels(requestSHA string) map[string]string
 	}
 
 	return labels.Merge(ls, p.Pipeline.GetLabels())
+}
+
+func (p *PipelineFactory) pipelineJobAnnotations(obj *unstructured.Unstructured) map[string]string {
+	annotations := make(map[string]string)
+
+	if obj != nil {
+		annotations[JobResourceNamespaceAnnotation] = obj.GetNamespace()
+		annotations[JobResourceNameAnnotation] = obj.GetName()
+		annotations[JobResourceKindAnnotation] = obj.GetKind()
+		annotations[JobResourceAPIVersionAnnotation] = obj.GetAPIVersion()
+	}
+
+	return annotations
 }
 
 func (p *PipelineFactory) getObjAndHash() (*unstructured.Unstructured, string, error) {

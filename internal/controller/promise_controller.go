@@ -25,8 +25,10 @@ import (
 	"time"
 
 	"github.com/syntasso/kratix/lib/objectutil"
+	"sigs.k8s.io/controller-runtime/pkg/builder"
 	"sigs.k8s.io/controller-runtime/pkg/controller/controllerutil"
 	"sigs.k8s.io/controller-runtime/pkg/handler"
+	"sigs.k8s.io/controller-runtime/pkg/predicate"
 	"sigs.k8s.io/controller-runtime/pkg/reconcile"
 
 	"github.com/go-logr/logr"
@@ -893,7 +895,15 @@ func (r *PromiseReconciler) ensureDynamicControllerIsStarted(promise *v1alpha1.P
 
 	return ctrl.NewControllerManagedBy(r.Manager).
 		For(unstructuredCRD).
-		Owns(&batchv1.Job{}).
+		Watches(
+			&batchv1.Job{},
+			handler.EnqueueRequestsFromMapFunc(r.jobEventHandler(promise)),
+			builder.WithPredicates(predicate.NewPredicateFuncs(func(obj client.Object) bool {
+				// Only watch Jobs that are managed by Kratix
+				labels := obj.GetLabels()
+				return labels != nil && labels[v1alpha1.ManagedByLabel] == v1alpha1.ManagedByLabelValue
+			})),
+		).
 		Watches(
 			&v1alpha1.Work{},
 			handler.EnqueueRequestsFromMapFunc(func(ctx context.Context, obj client.Object) []reconcile.Request {
@@ -917,6 +927,45 @@ func (r *PromiseReconciler) ensureDynamicControllerIsStarted(promise *v1alpha1.P
 func (r *PromiseReconciler) dynamicControllerHasAlreadyStarted(promise *v1alpha1.Promise, logger logr.Logger) bool {
 	_, ok := r.StartedDynamicControllers[promise.GetDynamicControllerName(logger)]
 	return ok
+}
+
+// jobEventHandler creates a handler that processes Job events and triggers reconciliation
+// of the associated resource when Jobs change status or are deleted.
+func (r *PromiseReconciler) jobEventHandler(promise *v1alpha1.Promise) handler.MapFunc {
+	return func(ctx context.Context, obj client.Object) []reconcile.Request {
+		job := obj.(*batchv1.Job)
+
+		// Extract resource information from Job annotations
+		annotations := job.GetAnnotations()
+		resourceNamespace, hasNamespace := annotations[v1alpha1.JobResourceNamespaceAnnotation]
+		resourceName, hasName := annotations[v1alpha1.JobResourceNameAnnotation]
+		_, hasKind := annotations[v1alpha1.JobResourceKindAnnotation]
+		_, hasAPIVersion := annotations[v1alpha1.JobResourceAPIVersionAnnotation]
+
+		// Only process Jobs that have the required annotations
+		if !hasNamespace || !hasName || !hasKind || !hasAPIVersion {
+			return nil
+		}
+
+		// Check if this Job belongs to a resource managed by this promise
+		jobLabels := job.GetLabels()
+		if jobLabels == nil || jobLabels[v1alpha1.PromiseNameLabel] != promise.GetName() {
+			return nil
+		}
+
+		// Only process resource workflow Jobs (not promise workflow Jobs)
+		if jobLabels[v1alpha1.WorkflowTypeLabel] != string(v1alpha1.WorkflowTypeResource) {
+			return nil
+		}
+
+		// Create a reconcile request for the associated resource
+		return []reconcile.Request{{
+			NamespacedName: types.NamespacedName{
+				Namespace: resourceNamespace,
+				Name:      resourceName,
+			},
+		}}
+	}
 }
 
 // createResourcesForDynamicControllerIfTheyDontExist(ctx, promiseName, logger)

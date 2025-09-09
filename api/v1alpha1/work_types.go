@@ -36,6 +36,12 @@ const (
 	WorkActionLabel                      = KratixPrefix + "work-action"
 	UserPermissionResourceNamespaceLabel = KratixPrefix + "resource-namespace"
 
+	// Job annotations for cross-namespace resource identification
+	JobResourceNamespaceAnnotation  = KratixPrefix + "job-resource-namespace"
+	JobResourceNameAnnotation       = KratixPrefix + "job-resource-name"
+	JobResourceKindAnnotation       = KratixPrefix + "job-resource-kind"
+	JobResourceAPIVersionAnnotation = KratixPrefix + "job-resource-api-version"
+
 	WorkTypePromise          = "promise"
 	WorkTypeResource         = "resource"
 	WorkTypeStaticDependency = "static-dependency"
