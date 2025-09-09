@@ -165,7 +165,6 @@ func (w *WorkCreator) Execute(rootDirectory, promiseName, namespace, resourceNam
 	logger.Info("setting work labels...")
 
 	if !strings.HasPrefix(workflowType, string(v1alpha1.WorkflowTypeResource)) {
-		work.Namespace = v1alpha1.SystemNamespace
 		work.Labels = v1alpha1.GenerateSharedLabelsForPromise(promiseName)
 	}
 
