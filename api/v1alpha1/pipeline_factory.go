@@ -215,6 +215,9 @@ func (p *PipelineFactory) workCreatorContainer() corev1.Container {
 
 	if p.ResourceWorkflow {
 		args = append(args, "--resource-name", p.ResourceRequest.GetName())
+	}
+
+	if p.ResourceWorkflow && p.Promise.WorkflowPipelineNamespaceSet() {
 		args = append(args, "--resource-namespace", p.ResourceRequest.GetNamespace())
 	}
 
@@ -406,6 +409,9 @@ func (p *PipelineFactory) pipelineJobLabels(requestSHA string) map[string]string
 	ls = labels.Merge(ls, managedByKratixLabel())
 	if p.ResourceWorkflow {
 		ls = labels.Merge(ls, resourceNameLabel(p.ResourceRequest.GetName()))
+		if p.Promise.WorkflowPipelineNamespaceSet() {
+			ls = labels.Merge(ls, resourceNamespaceLabel(p.ResourceRequest.GetNamespace()))
+		}
 	}
 	if requestSHA != "" {
 		ls[KratixResourceHashLabel] = requestSHA

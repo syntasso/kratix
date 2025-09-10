@@ -266,6 +266,10 @@ func labelsForJobs(opts Opts) map[string]string {
 	if strings.HasPrefix(opts.workflowType, string(v1alpha1.WorkflowTypeResource)) {
 		promiseName = opts.parentObject.GetLabels()[v1alpha1.PromiseNameLabel]
 		l[v1alpha1.ResourceNameLabel] = opts.parentObject.GetName()
+		if opts.namespace != opts.parentObject.GetNamespace() {
+			// only set resource request namespace label when workflow running in different namespace from the resource requests
+			l[v1alpha1.ResourceNamespaceLabel] = opts.parentObject.GetNamespace()
+		}
 	}
 	l[v1alpha1.PromiseNameLabel] = promiseName
 	return l
@@ -292,6 +296,9 @@ func labelsForAllPipelineJobs(pipeline v1alpha1.PipelineJobResources) map[string
 	}
 	if pipelineLabels[v1alpha1.ResourceNameLabel] != "" {
 		labels[v1alpha1.ResourceNameLabel] = pipelineLabels[v1alpha1.ResourceNameLabel]
+	}
+	if pipelineLabels[v1alpha1.ResourceNamespaceLabel] != "" {
+		labels[v1alpha1.ResourceNamespaceLabel] = pipelineLabels[v1alpha1.ResourceNamespaceLabel]
 	}
 	return labels
 }

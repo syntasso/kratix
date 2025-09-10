@@ -474,9 +474,10 @@ var _ = Describe("DynamicResourceRequestController", func() {
 						Name:      "test",
 						Namespace: resReq.GetNamespace(),
 						Labels: map[string]string{
-							"kratix.io/promise-name":  promise.GetName(),
-							"kratix.io/resource-name": resReq.GetName(),
-							"kratix.io/work-type":     "resource",
+							"kratix.io/promise-name":       promise.GetName(),
+							"kratix.io/resource-name":      resReq.GetName(),
+							"kratix.io/resource-namespace": resReq.GetNamespace(),
+							"kratix.io/work-type":          "resource",
 						},
 					},
 					Spec: v1alpha1.WorkSpec{},

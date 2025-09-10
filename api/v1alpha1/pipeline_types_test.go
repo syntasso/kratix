@@ -120,7 +120,8 @@ var _ = Describe("Pipeline", func() {
 				"apiVersion": "promise.crd.group/v1",
 				"kind":       "promisecrd",
 				"metadata": map[string]interface{}{
-					"name": "resourceName",
+					"name":      "resourceName",
+					"namespace": "a-namespace",
 				},
 			},
 		}
@@ -404,6 +405,7 @@ var _ = Describe("Pipeline", func() {
 									HaveKeyWithValue(v1alpha1.PipelineNameLabel, pipeline.GetName()),
 									HaveKeyWithValue(v1alpha1.KratixResourceHashLabel, promiseHash(promise)),
 									Not(HaveKey(v1alpha1.ResourceNameLabel)),
+									Not(HaveKey(v1alpha1.ResourceNamespaceLabel)),
 								))
 							}
 							podSpec := job.Spec.Template.Spec
@@ -502,6 +504,7 @@ var _ = Describe("Pipeline", func() {
 									HaveKeyWithValue(v1alpha1.PipelineNameLabel, pipeline.GetName()),
 									HaveKeyWithValue(v1alpha1.KratixResourceHashLabel, combinedHash(promiseHash(promise), resourceHash(resourceRequest))),
 									HaveKeyWithValue(v1alpha1.ResourceNameLabel, resourceRequest.GetName()),
+									Not(HaveKey(v1alpha1.ResourceNamespaceLabel)),
 								))
 							}
 
@@ -854,7 +857,6 @@ var _ = Describe("Pipeline", func() {
 							"--namespace", factory.Namespace,
 							"--workflow-type", string(factory.WorkflowType),
 							"--resource-name", resourceRequest.GetName(),
-							"--resource-namespace", resourceRequest.GetNamespace(),
 						}))
 						Expect(container.VolumeMounts).To(ConsistOf(
 							corev1.VolumeMount{Name: "shared-output", MountPath: "/work-creator-files/input"},
@@ -1603,40 +1605,106 @@ var _ = Describe("Pipeline", func() {
 
 		When("promise workflow config pipelineName is set", func() {
 			Context("resource configure workflow", func() {
-				var generatedResource v1alpha1.PipelineJobResources
+				var (
+					generatedResource v1alpha1.PipelineJobResources
+					f                 *v1alpha1.PipelineFactory
+				)
+
 				BeforeEach(func() {
 					promise.Spec.Workflows.Config.PipelineNamespace = "test100"
-					f := pipeline.ForResource(promise, v1alpha1.WorkflowActionConfigure, resourceRequest)
+					f = pipeline.ForResource(promise, v1alpha1.WorkflowActionConfigure, resourceRequest)
 					Expect(f).ToNot(BeNil())
 					Expect(f.Namespace).To(Equal("test100"))
-
 					var err error
 					generatedResource, err = f.Resources(nil)
 					Expect(err).ToNot(HaveOccurred())
 				})
 
-				It("uses resource request namespace in job name", func() {
-					Expect(generatedResource.Job.Name).To(
+				It("uses resource request namespace in job name and labels", func() {
+					job := generatedResource.Job
+					Expect(job).ToNot(BeNil())
+					Expect(job.Name).To(
 						ContainSubstring("kratix-promiseName-resourceName-factoryNamespace-pipe"))
+
+					podTemplate := job.Spec.Template
+					Expect(job.GetNamespace()).To(Equal("test100"))
+					for _, definedLabels := range []map[string]string{job.GetLabels(), podTemplate.GetLabels()} {
+						Expect(definedLabels).To(SatisfyAll(
+							HaveKeyWithValue(v1alpha1.PromiseNameLabel, promise.GetName()),
+							HaveKeyWithValue(v1alpha1.WorkflowTypeLabel, string(f.WorkflowType)),
+							HaveKeyWithValue(v1alpha1.WorkflowActionLabel, string(f.WorkflowAction)),
+							HaveKeyWithValue(v1alpha1.PipelineNameLabel, pipeline.GetName()),
+							HaveKeyWithValue(v1alpha1.KratixResourceHashLabel, combinedHash(promiseHash(promise), resourceHash(resourceRequest))),
+							HaveKeyWithValue(v1alpha1.ResourceNameLabel, resourceRequest.GetName()),
+							HaveKeyWithValue(v1alpha1.ResourceNamespaceLabel, resourceRequest.GetNamespace()),
+						))
+					}
+				})
+
+				It("returns a the work creator container with the appropriate command", func() {
+					job := generatedResource.Job
+					Expect(job).ToNot(BeNil())
+
+					containers := job.Spec.Template.Spec.InitContainers
+					container := containers[len(containers)-1]
+
+					Expect(container).ToNot(BeNil())
+					Expect(container.Name).To(Equal("work-writer"))
+					Expect(container.Image).To(Equal(pipelineAdapterImage))
+					Expect(container.ImagePullPolicy).To(BeEmpty())
+					Expect(container.Command).To(Equal([]string{"/bin/pipeline-adapter"}))
+					Expect(container.Args).To(Equal([]string{
+						"work-creator",
+						"--input-directory", "/work-creator-files",
+						"--promise-name", promise.GetName(),
+						"--pipeline-name", pipeline.GetName(),
+						"--namespace", f.Namespace,
+						"--workflow-type", string(f.WorkflowType),
+						"--resource-name", resourceRequest.GetName(),
+						"--resource-namespace", resourceRequest.GetNamespace(),
+					}))
+					Expect(container.VolumeMounts).To(ConsistOf(
+						corev1.VolumeMount{Name: "shared-output", MountPath: "/work-creator-files/input"},
+						corev1.VolumeMount{Name: "shared-metadata", MountPath: "/work-creator-files/metadata"},
+						corev1.VolumeMount{Name: "promise-scheduling", MountPath: "/work-creator-files/kratix-system"},
+					))
 				})
 			})
 
-			Context("resource configure workflow", func() {
-				var generatedResource v1alpha1.PipelineJobResources
+			Context("resource delete workflow", func() {
+				var (
+					generatedResource v1alpha1.PipelineJobResources
+					f                 *v1alpha1.PipelineFactory
+				)
+
 				BeforeEach(func() {
 					promise.Spec.Workflows.Config.PipelineNamespace = "test200"
-					f := pipeline.ForResource(promise, v1alpha1.WorkflowActionDelete, resourceRequest)
+					f = pipeline.ForResource(promise, v1alpha1.WorkflowActionDelete, resourceRequest)
 					Expect(f).ToNot(BeNil())
 					Expect(f.Namespace).To(Equal("test200"))
+				})
 
+				It("uses resource request namespace in delete job name and labels", func() {
 					var err error
 					generatedResource, err = f.Resources(nil)
 					Expect(err).ToNot(HaveOccurred())
-				})
 
-				It("uses resource request namespace in the delete job name", func() {
-					Expect(generatedResource.Job.Name).To(
+					job := generatedResource.Job
+					Expect(job.Name).To(
 						ContainSubstring("kratix-promiseName-resourceName-factoryNamespace-pipe"))
+					podTemplate := job.Spec.Template
+					Expect(job.GetNamespace()).To(Equal("test200"))
+					for _, definedLabels := range []map[string]string{job.GetLabels(), podTemplate.GetLabels()} {
+						Expect(definedLabels).To(SatisfyAll(
+							HaveKeyWithValue(v1alpha1.PromiseNameLabel, promise.GetName()),
+							HaveKeyWithValue(v1alpha1.WorkflowTypeLabel, string(f.WorkflowType)),
+							HaveKeyWithValue(v1alpha1.WorkflowActionLabel, string(f.WorkflowAction)),
+							HaveKeyWithValue(v1alpha1.PipelineNameLabel, pipeline.GetName()),
+							HaveKeyWithValue(v1alpha1.KratixResourceHashLabel, combinedHash(promiseHash(promise), resourceHash(resourceRequest))),
+							HaveKeyWithValue(v1alpha1.ResourceNameLabel, resourceRequest.GetName()),
+							HaveKeyWithValue(v1alpha1.ResourceNamespaceLabel, resourceRequest.GetNamespace()),
+						))
+					}
 				})
 			})
 		})

@@ -360,6 +360,12 @@ func resourceNameLabel(rName string) map[string]string {
 	}
 }
 
+func resourceNamespaceLabel(rNamespace string) map[string]string {
+	return map[string]string{
+		ResourceNamespaceLabel: rNamespace,
+	}
+}
+
 func managedByKratixLabel() map[string]string {
 	return map[string]string{
 		ManagedByLabel: ManagedByLabelValue,

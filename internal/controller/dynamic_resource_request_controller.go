@@ -304,7 +304,7 @@ func (r *DynamicResourceRequestController) setPausedReconciliationStatusConditio
 }
 
 func (r *DynamicResourceRequestController) getWorksStatus(ctx context.Context, rr *unstructured.Unstructured) ([]string, []string, []string, []string, error) {
-	workSelectorLabel := labels.FormatLabels(resourceutil.GetWorkLabels(r.PromiseIdentifier, rr.GetName(), "", v1alpha1.WorkTypeResource))
+	workSelectorLabel := labels.FormatLabels(resourceutil.GetWorkLabels(r.PromiseIdentifier, rr.GetName(), rr.GetNamespace(), "", v1alpha1.WorkTypeResource))
 	selector, err := labels.Parse(workSelectorLabel)
 	if err != nil {
 		r.Log.Info("Failed parsing Works selector label", "labels", workSelectorLabel)

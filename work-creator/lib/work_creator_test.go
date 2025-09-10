@@ -45,7 +45,7 @@ var _ = Describe("WorkCreator", func() {
 
 			BeforeEach(func() {
 				mockPipelineDirectory = filepath.Join(getRootDirectory(), "complete")
-				err := workCreator.Execute(mockPipelineDirectory, "promise-name", "default", "resource-name", "default", "resource", pipelineName)
+				err := workCreator.Execute(mockPipelineDirectory, "promise-name", "default", "resource-name", "", "resource", pipelineName)
 				Expect(err).ToNot(HaveOccurred())
 
 				workResource = getWork(expectedNamespace, promiseName, resourceName, pipelineName)
@@ -70,7 +70,7 @@ var _ = Describe("WorkCreator", func() {
 
 			It("has the expected workloads", func() {
 				mockPipelineDirectory = filepath.Join(getRootDirectory(), "complete")
-				err := workCreator.Execute(mockPipelineDirectory, "promise-name", "default", "resource-name", "default", "resource", pipelineName)
+				err := workCreator.Execute(mockPipelineDirectory, "promise-name", "default", "resource-name", "", "resource", pipelineName)
 				Expect(err).ToNot(HaveOccurred())
 
 				workResource = getWork(expectedNamespace, promiseName, resourceName, pipelineName)
@@ -93,7 +93,7 @@ var _ = Describe("WorkCreator", func() {
 			When("it runs for a second time", func() {
 				It("Should update the previously created work", func() {
 					mockPipelineDirectory = filepath.Join(getRootDirectory(), "complete-updated")
-					err := workCreator.Execute(mockPipelineDirectory, "promise-name", "default", "resource-name", "default", "resource", pipelineName)
+					err := workCreator.Execute(mockPipelineDirectory, "promise-name", "default", "resource-name", "", "resource", pipelineName)
 					Expect(err).ToNot(HaveOccurred())
 
 					newWorkResource := getWork(expectedNamespace, promiseName, resourceName, pipelineName)
@@ -187,7 +187,7 @@ var _ = Describe("WorkCreator", func() {
 
 		Context("with empty metadata directory", func() {
 			BeforeEach(func() {
-				err := workCreator.Execute(filepath.Join(getRootDirectory(), "empty-metadata"), "promise-name", "default", "resource-name", "default", "resource", pipelineName)
+				err := workCreator.Execute(filepath.Join(getRootDirectory(), "empty-metadata"), "promise-name", "default", "resource-name", "", "resource", pipelineName)
 				Expect(err).ToNot(HaveOccurred())
 			})
 
@@ -222,7 +222,7 @@ var _ = Describe("WorkCreator", func() {
 
 			BeforeEach(func() {
 				mockPipelineDirectory = filepath.Join(getRootDirectory(), "empty-default-workload-group")
-				err := workCreator.Execute(mockPipelineDirectory, "promise-name", "default", "resource-name", "default", "resource", pipelineName)
+				err := workCreator.Execute(mockPipelineDirectory, "promise-name", "default", "resource-name", "", "resource", pipelineName)
 				Expect(err).ToNot(HaveOccurred())
 
 				workResource = getWork(expectedNamespace, promiseName, resourceName, pipelineName)

@@ -417,6 +417,7 @@ func (r *PromiseReconciler) getWorksStatus(ctx context.Context,
 		resourceutil.GetWorkLabels(promise.GetName(),
 			"",
 			"",
+			"",
 			v1alpha1.WorkTypePromise),
 	)
 	selector, err := labels.Parse(workSelectorLabel)
@@ -1465,7 +1466,7 @@ func (r *PromiseReconciler) applyWorkForStaticDependencies(o opts, promise *v1al
 	work.SetLabels(
 		labels.Merge(
 			work.GetLabels(),
-			resourceutil.GetWorkLabels(promise.GetName(), "", "", v1alpha1.WorkTypeStaticDependency),
+			resourceutil.GetWorkLabels(promise.GetName(), "", "", "", v1alpha1.WorkTypeStaticDependency),
 		),
 	)
 
@@ -1501,7 +1502,7 @@ func (r *PromiseReconciler) applyWorkForStaticDependencies(o opts, promise *v1al
 }
 
 func (r *PromiseReconciler) deleteWorkForStaticDependencies(o opts, promise *v1alpha1.Promise) error {
-	labels := resourceutil.GetWorkLabels(promise.GetName(), "", "", v1alpha1.WorkTypeStaticDependency)
+	labels := resourceutil.GetWorkLabels(promise.GetName(), "", "", "", v1alpha1.WorkTypeStaticDependency)
 
 	existingWork, err := resourceutil.GetWork(r.Client, v1alpha1.SystemNamespace, labels)
 	if err != nil {

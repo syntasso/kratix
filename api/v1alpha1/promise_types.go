@@ -255,6 +255,14 @@ func GenerateSharedLabelsForPromise(promiseName string) map[string]string {
 	}
 }
 
+func (p *Promise) WorkflowPipelineNamespace() string {
+	return p.Spec.Workflows.Config.PipelineNamespace
+}
+
+func (p *Promise) WorkflowPipelineNamespaceSet() bool {
+	return p.Spec.Workflows.Config.PipelineNamespace != ""
+}
+
 func (p *Promise) GetControllerResourceName() string {
 	return p.GetName() + "-promise-controller"
 }

@@ -33,7 +33,7 @@ type WorkCreator struct {
 
 func (w *WorkCreator) Execute(rootDirectory, promiseName, namespace, resourceName, resourceNamespace, workflowType, pipelineName string) error {
 	identifier := fmt.Sprintf("%s-%s-%s", promiseName, resourceName, pipelineName)
-	if resourceNamespace != namespace {
+	if resourceNamespace != "" {
 		identifier = fmt.Sprintf("%s-%s-%s-%s", promiseName, resourceName, resourceNamespace, pipelineName)
 	}
 
@@ -172,7 +172,7 @@ func (w *WorkCreator) Execute(rootDirectory, promiseName, namespace, resourceNam
 		work.Labels = v1alpha1.GenerateSharedLabelsForPromise(promiseName)
 	}
 
-	workLabels := resourceutil.GetWorkLabels(promiseName, resourceName, pipelineName, workflowType)
+	workLabels := resourceutil.GetWorkLabels(promiseName, resourceName, resourceNamespace, pipelineName, workflowType)
 
 	work.SetLabels(
 		labels.Merge(
