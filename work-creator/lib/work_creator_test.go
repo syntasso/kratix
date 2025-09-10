@@ -172,17 +172,16 @@ var _ = Describe("WorkCreator", func() {
 					))
 				})
 			})
+		})
 
-			// todo: failing
-			When("workflow namespace and resource namespace are different", func() {
-				It("sets the right name for te work", func() {
+		When("workflow namespace and resource namespace are different", func() {
+			It("includes resource namespace when generating name for work", func() {
+				mockPipelineDirectory := filepath.Join(getRootDirectory(), "complete")
+				err := workCreator.Execute(mockPipelineDirectory, "promise-name", "default", "resource-name", "my-a-team", "resource", pipelineName)
+				Expect(err).ToNot(HaveOccurred())
 
-					err := workCreator.Execute(mockPipelineDirectory, "promise-name", "default", "resource-name", "my-a-team", "resource", pipelineName)
-					Expect(err).ToNot(HaveOccurred())
-
-					workResource = getWork(expectedNamespace, promiseName, resourceName, pipelineName)
-					Expect(workResource.Name).To(MatchRegexp(`^promise-name-resource-name-my-a-team-configure-job-\b\w{5}\b$`))
-				})
+				workResource := getWork(expectedNamespace, promiseName, resourceName, pipelineName)
+				Expect(workResource.Name).To(MatchRegexp(`^promise-name-resource-name-my-a-team-configure-job-\b\w{5}\b$`))
 			})
 		})
 
