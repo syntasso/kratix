@@ -1,0 +1,126 @@
+apiVersion: platform.kratix.io/v1alpha1
+kind: Promise
+metadata:
+  name: namespaced-promise
+spec:
+  api:
+    apiVersion: apiextensions.k8s.io/v1
+    kind: CustomResourceDefinition
+    metadata:
+      name: namespacepromises.test.kratix.io
+    spec:
+      group: test.kratix.io
+      names:
+        kind: NamespacePromise
+        plural: namespacepromises
+        singular: namespacepromise
+      scope: Namespaced
+      versions:
+        - name: v1alpha1
+          schema:
+            openAPIV3Schema:
+              properties:
+                spec:
+                  properties:
+                    configMapName:
+                      type: string
+                    namespaceName:
+                      type: string
+                  type: object
+              type: object
+          served: true
+          storage: true
+  workflows:
+    config:
+      pipelineNamespace: kube-public
+    promise:
+      configure:
+        - apiVersion: platform.kratix.io/v1alpha1
+          kind: Pipeline
+          metadata:
+            name: promise-configure
+          spec:
+            jobOptions:
+              backoffLimit: 3
+            containers:
+              - image: ghcr.io/syntasso/kratix-pipeline-utility:v0.0.1
+                name: gen-configmap
+                command:
+                  - /bin/sh
+                args:
+                  - -c
+                  - |
+                    cat <<EOF > /kratix/output/namespace-config.yaml
+                    apiVersion: v1
+                    kind: ConfigMap
+                    metadata:
+                      name: namespaced-promise-cm
+                      namespace: default
+                    data:
+                      key: value
+                    EOF
+    resource:
+      configure:
+        - apiVersion: platform.kratix.io/v1alpha1
+          kind: Pipeline
+          metadata:
+            name: resource-configure
+          spec:
+            rbac:
+              permissions:
+                - apiGroups: [ "" ]
+                  verbs: [ "create", "get", "patch", "update" ]
+                  resourceNamespace: "kube-public"
+                  resources: [ "secrets" ]
+            jobOptions:
+              backoffLimit: 3
+            containers:
+              - image: ghcr.io/syntasso/kratix-pipeline-utility:v0.0.1
+                name: gen-configmap
+                command:
+                  - /bin/sh
+                args:
+                  - -c
+                  - |
+                    set -eux
+                    configMapName=$(yq '.metadata.name' /kratix/input/object.yaml)
+                    
+                    cat <<EOF > /kratix/output/namespace-resource.yaml
+                    apiVersion: v1
+                    kind: ConfigMap
+                    metadata:
+                      name: namespace-promise-${configMapName}
+                      namespace: default
+                    data:
+                      key: value
+                    EOF
+                    kubectl -n kube-public create secret generic promise-test --dry-run=client -o yaml | kubectl apply -f -
+      delete:
+        - apiVersion: platform.kratix.io/v1alpha1
+          kind: Pipeline
+          metadata:
+            name: resource-configure
+          spec:
+            rbac:
+              permissions:
+                - apiGroups: [ "" ]
+                  verbs: [ "delete", "get", "patch", "update" ]
+                  resources: [ "secrets" ]
+            jobOptions:
+              backoffLimit: 3
+            containers:
+              - image: ghcr.io/syntasso/kratix-pipeline-utility:v0.0.1
+                name: gen-configmap
+                env:
+                  - name: POD_NAMESPACE
+                    valueFrom:
+                      fieldRef:
+                        fieldPath: metadata.namespace
+                command:
+                  - /bin/sh
+                args:
+                  - -c
+                  - |
+                    set -eux
+                    kubectl -n $POD_NAMESPACE get secret promise-test
+                    kubectl -n $POD_NAMESPACE delete secret promise-test

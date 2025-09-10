@@ -157,6 +157,10 @@ func (r *DynamicResourceRequestController) Reconcile(ctx context.Context, req ct
 		return ctrl.Result{}, r.Client.Status().Update(ctx, rr)
 	}
 
+	namespace := rr.GetNamespace()
+	if promise.WorkflowPipelineNamespaceSet() {
+		namespace = promise.Spec.Workflows.Config.PipelineNamespace
+	}
 	jobOpts := workflow.NewOpts(
 		ctx,
 		r.Client,
@@ -166,6 +170,7 @@ func (r *DynamicResourceRequestController) Reconcile(ctx context.Context, req ct
 		pipelineResources,
 		"resource",
 		r.NumberOfJobsToKeep,
+		namespace,
 	)
 
 	abort, err := reconcileConfigure(jobOpts)
@@ -181,7 +186,13 @@ func (r *DynamicResourceRequestController) Reconcile(ctx context.Context, req ct
 		return r.nextReconciliation(logger), r.updateWorkflowStatusCountersToZero(rr, ctx)
 	}
 
-	statusUpdate, err := r.generateResourceStatus(ctx, rr, int64(len(pipelineResources)))
+	rrNamespace := ""
+	if promise.WorkflowPipelineNamespaceSet() {
+		rrNamespace = rr.GetNamespace()
+	}
+	workLabels := resourceutil.GetWorkLabels(r.PromiseIdentifier, rr.GetName(), rrNamespace, "", v1alpha1.WorkTypeResource)
+
+	statusUpdate, err := r.generateResourceStatus(ctx, rr, int64(len(pipelineResources)), workLabels)
 	if err != nil {
 		return ctrl.Result{}, err
 	}
@@ -201,8 +212,8 @@ func (r *DynamicResourceRequestController) Reconcile(ctx context.Context, req ct
 	return ctrl.Result{}, nil
 }
 
-func (r *DynamicResourceRequestController) generateResourceStatus(ctx context.Context, rr *unstructured.Unstructured, numberOfPipelines int64) (bool, error) {
-	failed, misplaced, pending, ready, err := r.getWorksStatus(ctx, rr)
+func (r *DynamicResourceRequestController) generateResourceStatus(ctx context.Context, rr *unstructured.Unstructured, numberOfPipelines int64, workLabels map[string]string) (bool, error) {
+	failed, misplaced, pending, ready, err := r.getWorksStatus(ctx, rr, workLabels)
 	if err != nil {
 		return false, err
 	}
@@ -298,8 +309,8 @@ func (r *DynamicResourceRequestController) setPausedReconciliationStatusConditio
 	return nil
 }
 
-func (r *DynamicResourceRequestController) getWorksStatus(ctx context.Context, rr *unstructured.Unstructured) ([]string, []string, []string, []string, error) {
-	workSelectorLabel := labels.FormatLabels(resourceutil.GetWorkLabels(r.PromiseIdentifier, rr.GetName(), "", v1alpha1.WorkTypeResource))
+func (r *DynamicResourceRequestController) getWorksStatus(ctx context.Context, rr *unstructured.Unstructured, workLabels map[string]string) ([]string, []string, []string, []string, error) {
+	workSelectorLabel := labels.FormatLabels(workLabels)
 	selector, err := labels.Parse(workSelectorLabel)
 	if err != nil {
 		r.Log.Info("Failed parsing Works selector label", "labels", workSelectorLabel)
@@ -378,13 +389,18 @@ func (r *DynamicResourceRequestController) deleteResources(o opts, promise *v1al
 		return ctrl.Result{}, nil
 	}
 
+	namespace := resourceRequest.GetNamespace()
+	if promise.WorkflowPipelineNamespaceSet() {
+		namespace = promise.Spec.Workflows.Config.PipelineNamespace
+	}
+
 	if controllerutil.ContainsFinalizer(resourceRequest, runDeleteWorkflowsFinalizer) {
 		pipelineResources, err := promise.GenerateResourcePipelines(v1alpha1.WorkflowActionDelete, resourceRequest, o.logger)
 		if err != nil {
 			return ctrl.Result{}, err
 		}
 
-		jobOpts := workflow.NewOpts(o.ctx, o.client, r.EventRecorder, o.logger, resourceRequest, pipelineResources, "resource", r.NumberOfJobsToKeep)
+		jobOpts := workflow.NewOpts(o.ctx, o.client, r.EventRecorder, o.logger, resourceRequest, pipelineResources, "resource", r.NumberOfJobsToKeep, namespace)
 		requeue, err := reconcileDelete(jobOpts)
 		if err != nil {
 			if errors.Is(err, workflow.ErrDeletePipelineFailed) {
@@ -409,7 +425,7 @@ func (r *DynamicResourceRequestController) deleteResources(o opts, promise *v1al
 	}
 
 	if controllerutil.ContainsFinalizer(resourceRequest, workFinalizer) {
-		err := r.deleteWork(o, resourceRequest, resourceRequestIdentifier, workFinalizer)
+		err := r.deleteWork(o, resourceRequest, resourceRequestIdentifier, workFinalizer, namespace)
 		if err != nil {
 			return ctrl.Result{}, err
 		}
@@ -427,8 +443,8 @@ func (r *DynamicResourceRequestController) deleteResources(o opts, promise *v1al
 	return fastRequeue, nil
 }
 
-func (r *DynamicResourceRequestController) deleteWork(o opts, resourceRequest *unstructured.Unstructured, workName string, finalizer string) error {
-	works, err := resourceutil.GetAllWorksForResource(r.Client, resourceRequest.GetNamespace(), r.PromiseIdentifier, resourceRequest.GetName())
+func (r *DynamicResourceRequestController) deleteWork(o opts, resourceRequest *unstructured.Unstructured, workName, finalizer, namespace string) error {
+	works, err := resourceutil.GetAllWorksForResource(r.Client, namespace, r.PromiseIdentifier, resourceRequest.GetName())
 	if err != nil {
 		return err
 	}

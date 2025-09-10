@@ -48,7 +48,10 @@ func (p *PipelineFactory) Resources(jobEnv []corev1.EnvVar) (PipelineJobResource
 		return PipelineJobResources{}, err
 	}
 
-	clusterRoles := p.clusterRole()
+	clusterRoles, err := p.clusterRole()
+	if err != nil {
+		return PipelineJobResources{}, err
+	}
 
 	clusterRoleBindings := p.clusterRoleBinding(clusterRoles, sa)
 
@@ -214,6 +217,10 @@ func (p *PipelineFactory) workCreatorContainer() corev1.Container {
 		args = append(args, "--resource-name", p.ResourceRequest.GetName())
 	}
 
+	if p.ResourceWorkflow && p.Promise.WorkflowPipelineNamespaceSet() {
+		args = append(args, "--resource-namespace", p.ResourceRequest.GetNamespace())
+	}
+
 	return corev1.Container{
 		Name:    "work-writer",
 		Image:   os.Getenv("PIPELINE_ADAPTER_IMG"),
@@ -318,9 +325,10 @@ func (p *PipelineFactory) pipelineJob(
 
 	job := &batchv1.Job{
 		ObjectMeta: metav1.ObjectMeta{
-			Name:      p.pipelineJobName(),
-			Namespace: p.Namespace,
-			Labels:    p.pipelineJobLabels(objHash),
+			Name:        p.pipelineJobName(),
+			Namespace:   p.Namespace,
+			Labels:      p.pipelineJobLabels(objHash),
+			Annotations: p.pipelineJobAnnotations(obj),
 		},
 		Spec: batchv1.JobSpec{
 			BackoffLimit: backoffLimit,
@@ -343,9 +351,12 @@ func (p *PipelineFactory) pipelineJob(
 		},
 	}
 
-	if err = controllerutil.SetControllerReference(obj, job, scheme.Scheme); err != nil {
-		return nil, err
+	if !p.ResourceWorkflow {
+		if err = controllerutil.SetControllerReference(obj, job, scheme.Scheme); err != nil {
+			return nil, err
+		}
 	}
+
 	return job, nil
 }
 
@@ -360,7 +371,7 @@ func (p *PipelineFactory) statusWriterContainer(obj *unstructured.Unstructured, 
 			corev1.EnvVar{Name: KratixObjectGroupEnvVar, Value: obj.GroupVersionKind().Group},
 			corev1.EnvVar{Name: KratixObjectVersionEnvVar, Value: obj.GroupVersionKind().Version},
 			corev1.EnvVar{Name: KratixObjectNameEnvVar, Value: obj.GetName()},
-			corev1.EnvVar{Name: KratixObjectNamespaceEnvVar, Value: p.Namespace},
+			corev1.EnvVar{Name: KratixObjectNamespaceEnvVar, Value: obj.GetNamespace()},
 			corev1.EnvVar{Name: KratixCrdPluralEnvVar, Value: p.CRDPlural},
 			corev1.EnvVar{Name: KratixClusterScopedEnvVar, Value: strconv.FormatBool(p.ClusterScoped)},
 		),
@@ -379,10 +390,12 @@ func (p *PipelineFactory) pipelineJobName() string {
 
 	if p.ResourceWorkflow {
 		name = fmt.Sprintf("%s-%s", name, p.ResourceRequest.GetName())
+		if p.Promise.WorkflowPipelineNamespaceSet() {
+			name = fmt.Sprintf("%s-%s", name, p.ResourceRequest.GetNamespace())
+		}
 	}
 
 	name = fmt.Sprintf("%s-%s", name, p.Pipeline.GetName())
-
 	return objectutil.GenerateObjectName(name)
 }
 
@@ -394,12 +407,28 @@ func (p *PipelineFactory) pipelineJobLabels(requestSHA string) map[string]string
 	ls = labels.Merge(ls, managedByKratixLabel())
 	if p.ResourceWorkflow {
 		ls = labels.Merge(ls, resourceNameLabel(p.ResourceRequest.GetName()))
+		if p.Promise.WorkflowPipelineNamespaceSet() {
+			ls = labels.Merge(ls, resourceNamespaceLabel(p.ResourceRequest.GetNamespace()))
+		}
 	}
 	if requestSHA != "" {
 		ls[KratixResourceHashLabel] = requestSHA
 	}
 
 	return labels.Merge(ls, p.Pipeline.GetLabels())
+}
+
+func (p *PipelineFactory) pipelineJobAnnotations(obj *unstructured.Unstructured) map[string]string {
+	annotations := make(map[string]string)
+
+	if obj != nil {
+		annotations[JobResourceNamespaceAnnotation] = obj.GetNamespace()
+		annotations[JobResourceNameAnnotation] = obj.GetName()
+		annotations[JobResourceKindAnnotation] = obj.GetKind()
+		annotations[JobResourceAPIVersionAnnotation] = obj.GetAPIVersion()
+	}
+
+	return annotations
 }
 
 func (p *PipelineFactory) getObjAndHash() (*unstructured.Unstructured, string, error) {
@@ -428,7 +457,7 @@ func (p *PipelineFactory) getObjAndHash() (*unstructured.Unstructured, string, e
 func (p *PipelineFactory) role() ([]rbacv1.Role, error) {
 	var roles []rbacv1.Role
 	if p.ResourceWorkflow {
-		_, crd, err := p.Promise.GetAPI()
+		rules, err := p.resourcePolicyRule()
 		if err != nil {
 			return nil, err
 		}
@@ -442,18 +471,11 @@ func (p *PipelineFactory) role() ([]rbacv1.Role, error) {
 				APIVersion: rbacv1.SchemeGroupVersion.String(),
 				Kind:       "Role",
 			},
-			Rules: []rbacv1.PolicyRule{
-				{
-					APIGroups: []string{crd.Spec.Group},
-					Resources: []string{p.CRDPlural, p.CRDPlural + "/status"},
-					Verbs:     []string{"get", "list", "update", "create", "patch"},
-				},
-				{
-					APIGroups: []string{GroupVersion.Group},
-					Resources: []string{"works"},
-					Verbs:     []string{"*"},
-				},
-			},
+			Rules: append(rules, rbacv1.PolicyRule{
+				APIGroups: []string{GroupVersion.Group},
+				Resources: []string{"works"},
+				Verbs:     []string{"*"},
+			}),
 		})
 	}
 
@@ -547,7 +569,7 @@ func (p *PipelineFactory) roleBindings(
 	return bindings
 }
 
-func (p *PipelineFactory) clusterRole() []rbacv1.ClusterRole {
+func (p *PipelineFactory) clusterRole() ([]rbacv1.ClusterRole, error) {
 	var clusterRoles []rbacv1.ClusterRole
 	if !p.ResourceWorkflow {
 		clusterRoles = append(clusterRoles, rbacv1.ClusterRole{
@@ -566,6 +588,24 @@ func (p *PipelineFactory) clusterRole() []rbacv1.ClusterRole {
 					Verbs:     []string{"get", "list", "update", "create", "patch"},
 				},
 			},
+		})
+	}
+
+	if p.ResourceWorkflow && p.Namespace != p.ResourceRequest.GetNamespace() {
+		rules, err := p.resourcePolicyRule()
+		if err != nil {
+			return nil, err
+		}
+		clusterRoles = append(clusterRoles, rbacv1.ClusterRole{
+			ObjectMeta: metav1.ObjectMeta{
+				Name:   fmt.Sprintf("%s-%s", p.ID, p.ResourceRequest.GetNamespace()),
+				Labels: promiseNameLabel(p.Promise.GetName()),
+			},
+			TypeMeta: metav1.TypeMeta{
+				APIVersion: rbacv1.SchemeGroupVersion.String(),
+				Kind:       "ClusterRole",
+			},
+			Rules: rules,
 		})
 	}
 
@@ -607,7 +647,7 @@ func (p *PipelineFactory) clusterRole() []rbacv1.ClusterRole {
 		}
 	}
 
-	return clusterRoles
+	return clusterRoles, nil
 }
 
 func (p *PipelineFactory) clusterRoleBinding(
@@ -670,4 +710,18 @@ func (p *PipelineFactory) userPermissionPipelineLabels() map[string]string {
 	return UserPermissionPipelineResourcesLabels(
 		p.Promise.GetName(), p.Pipeline.GetName(), p.Namespace,
 		string(p.WorkflowType), string(p.WorkflowAction))
+}
+
+func (p *PipelineFactory) resourcePolicyRule() ([]rbacv1.PolicyRule, error) {
+	_, crd, err := p.Promise.GetAPI()
+	if err != nil {
+		return nil, err
+	}
+	return []rbacv1.PolicyRule{
+		{
+			APIGroups: []string{crd.Spec.Group},
+			Resources: []string{p.CRDPlural, p.CRDPlural + "/status"},
+			Verbs:     []string{"get", "list", "update", "create", "patch"},
+		},
+	}, nil
 }

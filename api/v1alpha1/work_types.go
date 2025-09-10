@@ -30,11 +30,18 @@ const (
 	PromiseVersionLabel                  = KratixPrefix + "promise-version"
 	PromiseNameLabel                     = KratixPrefix + "promise-name"
 	ResourceNameLabel                    = KratixPrefix + "resource-name"
+	ResourceNamespaceLabel               = KratixPrefix + "resource-namespace"
 	PipelineNameLabel                    = KratixPrefix + "pipeline-name"
 	PipelineNamespaceLabel               = KratixPrefix + "pipeline-namespace"
 	WorkTypeLabel                        = KratixPrefix + "work-type"
 	WorkActionLabel                      = KratixPrefix + "work-action"
 	UserPermissionResourceNamespaceLabel = KratixPrefix + "resource-namespace"
+
+	// Job annotations for cross-namespace resource identification
+	JobResourceNamespaceAnnotation  = KratixPrefix + "job-resource-namespace"
+	JobResourceNameAnnotation       = KratixPrefix + "job-resource-name"
+	JobResourceKindAnnotation       = KratixPrefix + "job-resource-kind"
+	JobResourceAPIVersionAnnotation = KratixPrefix + "job-resource-api-version"
 
 	WorkTypePromise          = "promise"
 	WorkTypeResource         = "resource"

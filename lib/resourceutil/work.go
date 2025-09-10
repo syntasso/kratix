@@ -13,7 +13,7 @@ import (
 // GetWorkLabels returns the labels for a work object.
 // Those labels are set by Kratix in the Work Creator stage of the workflow.
 // It can be used to filter works belonging to a particular workflow.
-func GetWorkLabels(promiseName, resourceName, pipelineName, workType string) map[string]string {
+func GetWorkLabels(promiseName, resourceName, resourceNamespace, pipelineName, workType string) map[string]string {
 	l := map[string]string{}
 	l[v1alpha1.PromiseNameLabel] = promiseName
 	l[v1alpha1.WorkTypeLabel] = workType
@@ -24,6 +24,10 @@ func GetWorkLabels(promiseName, resourceName, pipelineName, workType string) map
 
 	if resourceName != "" {
 		l[v1alpha1.ResourceNameLabel] = resourceName
+	}
+
+	if resourceNamespace != "" {
+		l[v1alpha1.ResourceNamespaceLabel] = resourceNamespace
 	}
 	return l
 }

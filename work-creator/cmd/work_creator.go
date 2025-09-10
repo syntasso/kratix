@@ -18,6 +18,7 @@ func workCreatorCmd() *cobra.Command {
 	var pipelineName string
 	var namespace string
 	var resourceName string
+	var resourceNamespace string
 	var workflowType string
 
 	cmd := &cobra.Command{
@@ -30,6 +31,7 @@ func workCreatorCmd() *cobra.Command {
 				"pipeline-name", pipelineName,
 				"namespace", namespace,
 				"resource-name", resourceName,
+				"resource-namespace", resourceNamespace,
 				"workflow-type", workflowType)
 
 			if inputDirectory == "" {
@@ -64,7 +66,7 @@ func workCreatorCmd() *cobra.Command {
 				K8sClient: k8sClient,
 			}
 
-			err = workCreator.Execute(inputDirectory, promiseName, namespace, resourceName, workflowType, pipelineName)
+			err = workCreator.Execute(inputDirectory, promiseName, namespace, resourceName, resourceNamespace, workflowType, pipelineName)
 			if err != nil {
 				return fmt.Errorf("work creator execution failed: %w", err)
 			}
@@ -76,8 +78,9 @@ func workCreatorCmd() *cobra.Command {
 	cmd.Flags().StringVar(&inputDirectory, "input-directory", "", "Absolute path to directory containing yaml documents required to build Work")
 	cmd.Flags().StringVar(&promiseName, "promise-name", "", "Name of the promise")
 	cmd.Flags().StringVar(&pipelineName, "pipeline-name", "", "Name of the Pipeline in the Workflow")
-	cmd.Flags().StringVar(&namespace, "namespace", v1alpha1.SystemNamespace, "Namespace")
+	cmd.Flags().StringVar(&namespace, "namespace", v1alpha1.SystemNamespace, "Namespace of the workflow")
 	cmd.Flags().StringVar(&resourceName, "resource-name", "", "Name of the resource")
+	cmd.Flags().StringVar(&resourceNamespace, "resource-namespace", "", "Namespace of the resource")
 	cmd.Flags().StringVar(&workflowType, "workflow-type", "resource", "Create a Work for Promise or Resource type scheduling")
 
 	if err := cmd.MarkFlagRequired("input-directory"); err != nil {

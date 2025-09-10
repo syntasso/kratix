@@ -31,8 +31,12 @@ type WorkCreator struct {
 	K8sClient client.Client
 }
 
-func (w *WorkCreator) Execute(rootDirectory, promiseName, namespace, resourceName, workflowType, pipelineName string) error {
+func (w *WorkCreator) Execute(rootDirectory, promiseName, namespace, resourceName, resourceNamespace, workflowType, pipelineName string) error {
 	identifier := fmt.Sprintf("%s-%s-%s", promiseName, resourceName, pipelineName)
+	if resourceNamespace != "" {
+		identifier = fmt.Sprintf("%s-%s-%s-%s", promiseName, resourceName, resourceNamespace, pipelineName)
+	}
+
 	if !strings.HasPrefix(workflowType, string(v1alpha1.WorkflowTypeResource)) {
 		identifier = fmt.Sprintf("%s-%s", promiseName, pipelineName)
 	}
@@ -165,11 +169,10 @@ func (w *WorkCreator) Execute(rootDirectory, promiseName, namespace, resourceNam
 	logger.Info("setting work labels...")
 
 	if !strings.HasPrefix(workflowType, string(v1alpha1.WorkflowTypeResource)) {
-		work.Namespace = v1alpha1.SystemNamespace
 		work.Labels = v1alpha1.GenerateSharedLabelsForPromise(promiseName)
 	}
 
-	workLabels := resourceutil.GetWorkLabels(promiseName, resourceName, pipelineName, workflowType)
+	workLabels := resourceutil.GetWorkLabels(promiseName, resourceName, resourceNamespace, pipelineName, workflowType)
 
 	work.SetLabels(
 		labels.Merge(

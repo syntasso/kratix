@@ -1,0 +1,6 @@
+apiVersion: test.kratix.io/v1alpha1
+kind: NamespacePromise
+metadata:
+  name: test-request
+  namespace: default
+spec: {}

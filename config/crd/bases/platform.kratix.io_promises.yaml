@@ -98,6 +98,14 @@ spec:
                 description: A list of pipelines to be executed at different stages
                   of the Promise lifecycle.
                 properties:
+                  config:
+                    properties:
+                      pipelineNamespace:
+                        description: Namespace for all workflow jobs (promise and
+                          resource) to run in; needs to be an existing namespace or
+                          else workflow won't start
+                        type: string
+                    type: object
                   promise:
                     properties:
                       configure:

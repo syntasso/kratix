@@ -33,14 +33,14 @@ type Opts struct {
 	workflowType       string
 	numberOfJobsToKeep int
 	eventRecorder      record.EventRecorder
-
-	SkipConditions bool
+	namespace          string
+	SkipConditions     bool
 }
 
 var minimumPeriodBetweenCreatingPipelineResources = 1100 * time.Millisecond
 var ErrDeletePipelineFailed = fmt.Errorf("Delete Pipeline Failed")
 
-func NewOpts(ctx context.Context, client client.Client, eventRecorder record.EventRecorder, logger logr.Logger, parentObj *unstructured.Unstructured, resources []v1alpha1.PipelineJobResources, workflowType string, numberOfJobsToKeep int) Opts {
+func NewOpts(ctx context.Context, client client.Client, eventRecorder record.EventRecorder, logger logr.Logger, parentObj *unstructured.Unstructured, resources []v1alpha1.PipelineJobResources, workflowType string, numberOfJobsToKeep int, namespace string) Opts {
 	return Opts{
 		ctx:                ctx,
 		client:             client,
@@ -50,6 +50,7 @@ func NewOpts(ctx context.Context, client client.Client, eventRecorder record.Eve
 		numberOfJobsToKeep: numberOfJobsToKeep,
 		Resources:          resources,
 		eventRecorder:      eventRecorder,
+		namespace:          namespace,
 	}
 }
 
@@ -67,7 +68,7 @@ func ReconcileDelete(opts Opts) (bool, error) {
 
 	pipeline := opts.Resources[0]
 	isManualReconciliation := isManualReconciliation(opts.parentObject.GetLabels())
-	mostRecentJob, err := getMostRecentDeletePipelineJob(opts, opts.parentObject.GetNamespace(), pipeline)
+	mostRecentJob, err := getMostRecentDeletePipelineJob(opts, opts.namespace, pipeline)
 	if err != nil {
 		return false, err
 	}
@@ -125,19 +126,14 @@ func ReconcileConfigure(opts Opts) (abort bool, err error) {
 	var mostRecentJob *batchv1.Job
 
 	originalLogger := opts.logger
-	namespace := opts.parentObject.GetNamespace()
-	if namespace == "" {
-		namespace = v1alpha1.SystemNamespace
-	}
-
-	allJobs, err := getJobsWithLabels(opts, labelsForJobs(opts), namespace)
+	allJobs, err := getJobsWithLabels(opts, labelsForJobs(opts), opts.namespace)
 	if err != nil {
 		opts.logger.Error(err, "failed to list jobs")
 		return false, err
 	}
 
 	// TODO: this part will be deprecated when we stop using the legacy labels
-	allLegacyJobs, err := getJobsWithLabels(opts, legacyLabelsForJobs(opts), namespace)
+	allLegacyJobs, err := getJobsWithLabels(opts, legacyLabelsForJobs(opts), opts.namespace)
 	if err != nil {
 		opts.logger.Error(err, "failed to list jobs")
 		return false, err
@@ -217,7 +213,7 @@ func ReconcileConfigure(opts Opts) (abort bool, err error) {
 			return setFailedConditionAndEvents(opts, mostRecentJob, pipeline)
 		}
 
-		return false, cleanup(opts, namespace)
+		return false, cleanup(opts, opts.namespace)
 	}
 
 	if isRunning(mostRecentJob) {
@@ -270,6 +266,10 @@ func labelsForJobs(opts Opts) map[string]string {
 	if strings.HasPrefix(opts.workflowType, string(v1alpha1.WorkflowTypeResource)) {
 		promiseName = opts.parentObject.GetLabels()[v1alpha1.PromiseNameLabel]
 		l[v1alpha1.ResourceNameLabel] = opts.parentObject.GetName()
+		if opts.namespace != opts.parentObject.GetNamespace() {
+			// only set resource request namespace label when workflow running in different namespace from the resource requests
+			l[v1alpha1.ResourceNamespaceLabel] = opts.parentObject.GetNamespace()
+		}
 	}
 	l[v1alpha1.PromiseNameLabel] = promiseName
 	return l
@@ -296,6 +296,9 @@ func labelsForAllPipelineJobs(pipeline v1alpha1.PipelineJobResources) map[string
 	}
 	if pipelineLabels[v1alpha1.ResourceNameLabel] != "" {
 		labels[v1alpha1.ResourceNameLabel] = pipelineLabels[v1alpha1.ResourceNameLabel]
+	}
+	if pipelineLabels[v1alpha1.ResourceNamespaceLabel] != "" {
+		labels[v1alpha1.ResourceNamespaceLabel] = pipelineLabels[v1alpha1.ResourceNamespaceLabel]
 	}
 	return labels
 }

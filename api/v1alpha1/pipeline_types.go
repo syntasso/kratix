@@ -229,11 +229,15 @@ func PipelinesFromUnstructured(pipelines []unstructured.Unstructured, logger log
 
 // ForPromise defines the PipelineFactory fields for a Promise.
 func (p *Pipeline) ForPromise(promise *Promise, action Action) *PipelineFactory {
+	namespace := SystemNamespace
+	if promise.WorkflowPipelineNamespaceSet() {
+		namespace = promise.Spec.Workflows.Config.PipelineNamespace
+	}
 	return &PipelineFactory{
 		ID:             promise.GetName() + "-promise-" + string(action) + "-" + p.GetName(),
 		Promise:        promise,
 		Pipeline:       p,
-		Namespace:      SystemNamespace,
+		Namespace:      namespace,
 		WorkflowType:   WorkflowTypePromise,
 		WorkflowAction: action,
 		ClusterScoped:  true,
@@ -254,12 +258,18 @@ func (p *Pipeline) ForResource(
 			clusterScoped = true
 		}
 	}
+
+	namespace := resourceRequest.GetNamespace()
+	if promise.WorkflowPipelineNamespaceSet() {
+		namespace = promise.Spec.Workflows.Config.PipelineNamespace
+	}
+
 	return &PipelineFactory{
 		ID:               promise.GetName() + "-resource-" + string(action) + "-" + p.GetName(),
 		Promise:          promise,
 		Pipeline:         p,
 		ResourceRequest:  resourceRequest,
-		Namespace:        resourceRequest.GetNamespace(),
+		Namespace:        namespace,
 		ResourceWorkflow: true,
 		WorkflowType:     WorkflowTypeResource,
 		WorkflowAction:   action,
@@ -347,6 +357,12 @@ func promiseNameLabel(promiseName string) map[string]string {
 func resourceNameLabel(rName string) map[string]string {
 	return map[string]string{
 		ResourceNameLabel: rName,
+	}
+}
+
+func resourceNamespaceLabel(rNamespace string) map[string]string {
+	return map[string]string{
+		ResourceNamespaceLabel: rNamespace,
 	}
 }
 
