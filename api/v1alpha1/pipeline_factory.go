@@ -351,8 +351,6 @@ func (p *PipelineFactory) pipelineJob(
 		},
 	}
 
-	// // todo: needs to understand side effect of not setting it
-	// // no reference means no auto garbage collection; are we cleaning up jobs by finalizers anyways????
 	if !p.ResourceWorkflow {
 		if err = controllerutil.SetControllerReference(obj, job, scheme.Scheme); err != nil {
 			return nil, err
@@ -392,7 +390,7 @@ func (p *PipelineFactory) pipelineJobName() string {
 
 	if p.ResourceWorkflow {
 		name = fmt.Sprintf("%s-%s", name, p.ResourceRequest.GetName())
-		if p.Promise.Spec.Workflows.Config.PipelineNamespace != "" {
+		if p.Promise.WorkflowPipelineNamespaceSet() {
 			name = fmt.Sprintf("%s-%s", name, p.ResourceRequest.GetNamespace())
 		}
 	}
@@ -459,7 +457,7 @@ func (p *PipelineFactory) getObjAndHash() (*unstructured.Unstructured, string, e
 func (p *PipelineFactory) role() ([]rbacv1.Role, error) {
 	var roles []rbacv1.Role
 	if p.ResourceWorkflow {
-		rules, err := p.readResourceRule()
+		rules, err := p.resourcePolicyRule()
 		if err != nil {
 			return nil, err
 		}
@@ -594,7 +592,7 @@ func (p *PipelineFactory) clusterRole() ([]rbacv1.ClusterRole, error) {
 	}
 
 	if p.ResourceWorkflow && p.Namespace != p.ResourceRequest.GetNamespace() {
-		rules, err := p.readResourceRule()
+		rules, err := p.resourcePolicyRule()
 		if err != nil {
 			return nil, err
 		}
@@ -714,7 +712,7 @@ func (p *PipelineFactory) userPermissionPipelineLabels() map[string]string {
 		string(p.WorkflowType), string(p.WorkflowAction))
 }
 
-func (p *PipelineFactory) readResourceRule() ([]rbacv1.PolicyRule, error) {
+func (p *PipelineFactory) resourcePolicyRule() ([]rbacv1.PolicyRule, error) {
 	_, crd, err := p.Promise.GetAPI()
 	if err != nil {
 		return nil, err

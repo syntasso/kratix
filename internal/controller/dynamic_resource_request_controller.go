@@ -158,7 +158,7 @@ func (r *DynamicResourceRequestController) Reconcile(ctx context.Context, req ct
 	}
 
 	namespace := rr.GetNamespace()
-	if promise.Spec.Workflows.Config.PipelineNamespace != "" {
+	if promise.WorkflowPipelineNamespaceSet() {
 		namespace = promise.Spec.Workflows.Config.PipelineNamespace
 	}
 	jobOpts := workflow.NewOpts(
@@ -186,7 +186,13 @@ func (r *DynamicResourceRequestController) Reconcile(ctx context.Context, req ct
 		return r.nextReconciliation(logger), r.updateWorkflowStatusCountersToZero(rr, ctx)
 	}
 
-	statusUpdate, err := r.generateResourceStatus(ctx, rr, int64(len(pipelineResources)))
+	rrNamespace := ""
+	if promise.WorkflowPipelineNamespaceSet() {
+		rrNamespace = rr.GetNamespace()
+	}
+	workLabels := resourceutil.GetWorkLabels(r.PromiseIdentifier, rr.GetName(), rrNamespace, "", v1alpha1.WorkTypeResource)
+
+	statusUpdate, err := r.generateResourceStatus(ctx, rr, int64(len(pipelineResources)), workLabels)
 	if err != nil {
 		return ctrl.Result{}, err
 	}
@@ -206,8 +212,8 @@ func (r *DynamicResourceRequestController) Reconcile(ctx context.Context, req ct
 	return ctrl.Result{}, nil
 }
 
-func (r *DynamicResourceRequestController) generateResourceStatus(ctx context.Context, rr *unstructured.Unstructured, numberOfPipelines int64) (bool, error) {
-	failed, misplaced, pending, ready, err := r.getWorksStatus(ctx, rr)
+func (r *DynamicResourceRequestController) generateResourceStatus(ctx context.Context, rr *unstructured.Unstructured, numberOfPipelines int64, workLabels map[string]string) (bool, error) {
+	failed, misplaced, pending, ready, err := r.getWorksStatus(ctx, rr, workLabels)
 	if err != nil {
 		return false, err
 	}
@@ -303,8 +309,8 @@ func (r *DynamicResourceRequestController) setPausedReconciliationStatusConditio
 	return nil
 }
 
-func (r *DynamicResourceRequestController) getWorksStatus(ctx context.Context, rr *unstructured.Unstructured) ([]string, []string, []string, []string, error) {
-	workSelectorLabel := labels.FormatLabels(resourceutil.GetWorkLabels(r.PromiseIdentifier, rr.GetName(), rr.GetNamespace(), "", v1alpha1.WorkTypeResource))
+func (r *DynamicResourceRequestController) getWorksStatus(ctx context.Context, rr *unstructured.Unstructured, workLabels map[string]string) ([]string, []string, []string, []string, error) {
+	workSelectorLabel := labels.FormatLabels(workLabels)
 	selector, err := labels.Parse(workSelectorLabel)
 	if err != nil {
 		r.Log.Info("Failed parsing Works selector label", "labels", workSelectorLabel)
@@ -384,7 +390,7 @@ func (r *DynamicResourceRequestController) deleteResources(o opts, promise *v1al
 	}
 
 	namespace := resourceRequest.GetNamespace()
-	if promise.Spec.Workflows.Config.PipelineNamespace != "" {
+	if promise.WorkflowPipelineNamespaceSet() {
 		namespace = promise.Spec.Workflows.Config.PipelineNamespace
 	}
 

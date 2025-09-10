@@ -230,7 +230,7 @@ func PipelinesFromUnstructured(pipelines []unstructured.Unstructured, logger log
 // ForPromise defines the PipelineFactory fields for a Promise.
 func (p *Pipeline) ForPromise(promise *Promise, action Action) *PipelineFactory {
 	namespace := SystemNamespace
-	if promise.Spec.Workflows.Config.PipelineNamespace != "" {
+	if promise.WorkflowPipelineNamespaceSet() {
 		namespace = promise.Spec.Workflows.Config.PipelineNamespace
 	}
 	return &PipelineFactory{
@@ -260,7 +260,7 @@ func (p *Pipeline) ForResource(
 	}
 
 	namespace := resourceRequest.GetNamespace()
-	if promise.Spec.Workflows.Config.PipelineNamespace != "" {
+	if promise.WorkflowPipelineNamespaceSet() {
 		namespace = promise.Spec.Workflows.Config.PipelineNamespace
 	}
 
