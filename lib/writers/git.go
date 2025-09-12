@@ -138,7 +138,17 @@ func (g *GitWriter) update(subDir, workPlacementName string, workloadsToCreate [
 		"dir", dirInGitRepo,
 	)
 
-	localTmpDir, repo, worktree, err := g.setupLocalDirectoryWithRepo(logger, g.PushToNewBranch)
+	if g.PushToNewBranch {
+		upToDate, err := g.repoUpToDate(subDir, dirInGitRepo, workloadsToCreate, workloadsToDelete, logger)
+		if err != nil {
+			return "", err
+		}
+		if upToDate {
+			return "", nil
+		}
+	}
+
+	localTmpDir, repo, worktree, err := g.setupLocalDirectoryWithRepo(logger, g.PushToNewBranch, workPlacementName)
 	if err != nil {
 		return "", err
 	}
@@ -146,9 +156,37 @@ func (g *GitWriter) update(subDir, workPlacementName string, workloadsToCreate [
 	logger = logger.WithValues("branch", g.GitServer.Branch)
 	defer os.RemoveAll(filepath.Dir(localTmpDir)) //nolint:errcheck
 
-	err = g.deleteExistingFiles(subDir != "", dirInGitRepo, workloadsToDelete, worktree, logger)
-	if err != nil {
+	if err := g.applyChanges(localTmpDir, dirInGitRepo, workloadsToCreate, workloadsToDelete, worktree, logger, subDir != ""); err != nil {
 		return "", err
+	}
+	action := "Delete"
+	if len(workloadsToCreate) > 0 {
+		action = "Update"
+	}
+	return g.commitAndPush(repo, worktree, action, workPlacementName, logger)
+}
+
+func (g *GitWriter) repoUpToDate(subDir, dirInGitRepo string, workloadsToCreate []v1alpha1.Workload, workloadsToDelete []string, logger logr.Logger) (bool, error) {
+	localTmpDir, _, worktree, err := g.setupLocalDirectoryWithRepo(logger, false, "")
+	if err != nil {
+		return false, err
+	}
+	defer os.RemoveAll(filepath.Dir(localTmpDir)) //nolint:errcheck
+
+	if err := g.applyChanges(localTmpDir, dirInGitRepo, workloadsToCreate, workloadsToDelete, worktree, logger, subDir != ""); err != nil {
+		return false, err
+	}
+
+	status, err := worktree.Status()
+	if err != nil {
+		return false, err
+	}
+	return status.IsClean(), nil
+}
+
+func (g *GitWriter) applyChanges(localTmpDir, dirInGitRepo string, workloadsToCreate []v1alpha1.Workload, workloadsToDelete []string, worktree *git.Worktree, logger logr.Logger, removeDirectory bool) error {
+	if err := g.deleteExistingFiles(removeDirectory, dirInGitRepo, workloadsToDelete, worktree, logger); err != nil {
+		return err
 	}
 
 	for _, file := range workloadsToCreate {
@@ -168,30 +206,26 @@ func (g *GitWriter) update(subDir, workPlacementName string, workloadsToCreate [
 		// Note: This means `../` can still be used, but only if the end result is still contained within the git repository
 		if !strings.HasPrefix(absoluteFilePath, localTmpDir) {
 			log.Error(nil, "path of file to write is not located within the git repository", "absolutePath", absoluteFilePath, "tmpDir", localTmpDir)
-			return "", nil //We don't want to retry as this isn't a recoverable error. Log error and return nil.
+			return nil
 		}
 
 		if err := os.MkdirAll(filepath.Dir(absoluteFilePath), 0700); err != nil {
 			log.Error(err, "could not generate local directories")
-			return "", err
+			return err
 		}
 
 		if err := os.WriteFile(absoluteFilePath, []byte(file.Content), 0644); err != nil {
 			log.Error(err, "could not write to file")
-			return "", err
+			return err
 		}
 
 		if _, err := worktree.Add(worktreeFilePath); err != nil {
 			log.Error(err, "could not add file to worktree")
-			return "", err
+			return err
 		}
 	}
 
-	action := "Delete"
-	if len(workloadsToCreate) > 0 {
-		action = "Update"
-	}
-	return g.commitAndPush(repo, worktree, action, workPlacementName, logger)
+	return nil
 }
 
 // deleteExistingFiles removes all files in dir when removeDirectory is set to true
@@ -232,7 +266,7 @@ func (g *GitWriter) ReadFile(filePath string) ([]byte, error) {
 		"branch", g.GitServer.Branch,
 	)
 
-	localTmpDir, _, worktree, err := g.setupLocalDirectoryWithRepo(logger, false)
+	localTmpDir, _, worktree, err := g.setupLocalDirectoryWithRepo(logger, false, "")
 	if err != nil {
 		return nil, err
 	}
@@ -251,7 +285,7 @@ func (g *GitWriter) ReadFile(filePath string) ([]byte, error) {
 	return content, nil
 }
 
-func (g *GitWriter) setupLocalDirectoryWithRepo(logger logr.Logger, createNewBranch bool) (string, *git.Repository, *git.Worktree, error) {
+func (g *GitWriter) setupLocalDirectoryWithRepo(logger logr.Logger, createNewBranch bool, branchName string) (string, *git.Repository, *git.Worktree, error) {
 	localTmpDir, err := createLocalDirectory(logger)
 	if err != nil {
 		logger.Error(err, "could not create temporary repository directory")
@@ -271,15 +305,14 @@ func (g *GitWriter) setupLocalDirectoryWithRepo(logger logr.Logger, createNewBra
 	}
 
 	if createNewBranch {
-		newBranch := fmt.Sprintf("%s-%d", g.GitServer.BaseBranch, time.Now().UnixNano())
 		if err = worktree.Checkout(&git.CheckoutOptions{
-			Branch: plumbing.NewBranchReferenceName(newBranch),
+			Branch: plumbing.NewBranchReferenceName(branchName),
 			Create: true,
 		}); err != nil {
-			logger.Error(err, fmt.Sprintf("could not checkout new branch, branch name: %s", newBranch))
+			logger.Error(err, fmt.Sprintf("could not checkout new branch, branch name: %s", branchName))
 			return "", nil, nil, err
 		}
-		g.GitServer.Branch = newBranch
+		g.GitServer.Branch = branchName
 	}
 
 	return localTmpDir, repo, worktree, nil
@@ -333,7 +366,7 @@ func (g *GitWriter) validatePush(repo *git.Repository, logger logr.Logger) error
 // It performs a dry run validation to check authentication and branch existence without making changes.
 func (g *GitWriter) ValidatePermissions() error {
 	// Setup local directory with repo (this already checks if we can clone - read access)
-	localTmpDir, repo, _, err := g.setupLocalDirectoryWithRepo(g.Log, false)
+	localTmpDir, repo, _, err := g.setupLocalDirectoryWithRepo(g.Log, false, "")
 	if err != nil {
 		return fmt.Errorf("failed to set up local directory with repo: %w", err)
 	}
@@ -411,6 +444,7 @@ func (g *GitWriter) commitAndPush(repo *git.Repository, worktree *git.Worktree, 
 		logger.Error(err, "could not push changes")
 		return "", err
 	}
+
 	return sha, nil
 }
 
