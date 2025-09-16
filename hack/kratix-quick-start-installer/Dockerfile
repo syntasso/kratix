@@ -19,7 +19,7 @@ RUN --mount=target=. \
 FROM gcr.io/distroless/cc:nonroot
 
 COPY --chown=nonroot:nonroot --from=builder /out/quick-start-installer /bin/quick-start-installer
-COPY --chown=nonroot:nonroot --from=bitnami/kubectl /opt/bitnami/kubectl/bin/kubectl /usr/local/bin/kubectl
+COPY --chown=nonroot:nonroot --from=ghcr.io/syntasso/kratix-pipeline-utility:v0.0.1 /bin/kubectl-cli /usr/local/bin/kubectl
 
 USER 65532:65532
 ENTRYPOINT ["/bin/quick-start-installer"]
