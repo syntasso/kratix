@@ -25,7 +25,7 @@ make gitea-cli
 export DOCKER_BUILDKIT=1
 
 echo "setup platform and install StateStore"
-kind create cluster --image kindest/node:v1.27.3 --name platform --config hack/platform/kind-platform-config.yaml
+kind create cluster --image kindest/node:v1.33.1 --name platform --config hack/platform/kind-platform-config.yaml
 make install-cert-manager
 make build-and-load-kratix
 make build-and-load-work-creator
@@ -41,7 +41,7 @@ kubectl --context kind-platform apply --filename "$state_store_install_path"
 kubectl --context kind-platform wait --for=condition=Ready --timeout=300s -n $job_pod_namespace pod -l $job_pod_labels
 
 echo "create worker cluster"
-kind create cluster --image kindest/node:v1.27.3 --name worker --config hack/destination/kind-worker-config.yaml
+kind create cluster --image kindest/node:v1.33.1 --name worker --config hack/destination/kind-worker-config.yaml
 echo "helm install kratix-destination"
 
 extra_args="--path worker-1"
