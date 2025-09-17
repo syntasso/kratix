@@ -28,9 +28,6 @@ images=(
   "docker.io/syntassodev/kratix-platform:${kratix_version}"
   "docker.io/syntassodev/kratix-platform-pipeline-adapter:${kratix_version}"
 
-  # Dynamic controller "reader" image
-  "docker.io/bitnami/kubectl:1.28.6"
-
   # Extra
   "docker.io/minio/minio:RELEASE.2022-06-30T20-58-09Z"
   "ghcr.io/fluxcd/helm-controller:v0.27.0"
