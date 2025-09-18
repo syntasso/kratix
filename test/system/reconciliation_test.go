@@ -24,6 +24,7 @@ var _ = Describe("Reconciliation", func() {
 		})
 
 		AfterEach(func() {
+			platform.KubectlAllowFail("label", "promise", promiseName, "kratix.io/paused-")
 			platform.EventuallyKubectlDelete(promiseName, "one")
 			platform.EventuallyKubectlDelete(promiseName, "two")
 			platform.EventuallyKubectlDelete("promise", promiseName)
