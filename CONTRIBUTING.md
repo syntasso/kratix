@@ -12,7 +12,8 @@ Before submitting your changes, please:
 2. Install [`golangci-lint`](https://golangci-lint.run/usage/install/).
 3. Run `make test` to execute unit tests.
 4. Run `make lint` to run static analysis.
-5. Follow any instructions documented in an `AGENTS.md` file if present.
+5. Run `make system-test` to run the system tests.
+6. Follow any instructions documented in an `AGENTS.md` file if present.
 
 Running the tests and linter locally helps catch issues early and ensures consistency across contributions.
 
