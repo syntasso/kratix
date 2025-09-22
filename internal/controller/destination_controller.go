@@ -290,14 +290,15 @@ func (r *DestinationReconciler) updateReadyCondition(destination *v1alpha1.Desti
 	}
 
 	if err != nil {
+		msg := fmt.Sprintf("Failed to write test documents to State Store: %s", err)
 		condition.Status = metav1.ConditionFalse
 		condition.Reason = "StateStoreWriteFailed"
-		condition.Message = "Unable to write test documents to State Store"
+		condition.Message = msg
 
 		// Update event parameters for failure
 		eventType = v1.EventTypeWarning
 		eventReason = destinationNotReadyReason
-		eventMessage = fmt.Sprintf("Failed to write test documents to Destination %q: %s", destination.Name, err)
+		eventMessage = msg
 	}
 
 	return r.updateStatus(destination, condition, eventType, eventReason, eventMessage)
