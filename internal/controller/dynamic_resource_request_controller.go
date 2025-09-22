@@ -106,9 +106,17 @@ func (r *DynamicResourceRequestController) Reconcile(ctx context.Context, req ct
 	}
 
 	if v, ok := promise.Labels[pauseReconciliationLabel]; ok && v == "true" {
-		r.Log.Info(fmt.Sprintf("'%s' label set to 'true' for promise; pausing reconciliation for this resource request",
-			pauseReconciliationLabel))
-		return ctrl.Result{}, r.setPausedReconciliationStatusConditions(ctx, rr)
+		msg := fmt.Sprintf("'%s' label set to 'true' for promise; pausing reconciliation for this resource request",
+			pauseReconciliationLabel)
+		r.Log.Info(msg)
+		return ctrl.Result{}, r.setPausedReconciliationStatusConditions(ctx, rr, msg)
+	}
+
+	if v, ok := rr.GetLabels()[pauseReconciliationLabel]; ok && v == "true" {
+		msg := fmt.Sprintf("'%s' label set to 'true' for this resource request; pausing reconciliation",
+			pauseReconciliationLabel)
+		r.Log.Info(msg)
+		return ctrl.Result{}, r.setPausedReconciliationStatusConditions(ctx, rr, msg)
 	}
 
 	resourceLabels := getResourceLabels(rr)
@@ -300,10 +308,11 @@ func (r *DynamicResourceRequestController) updateWorksSucceededCondition(rr *uns
 	return false
 }
 
-func (r *DynamicResourceRequestController) setPausedReconciliationStatusConditions(ctx context.Context, rr *unstructured.Unstructured) error {
+func (r *DynamicResourceRequestController) setPausedReconciliationStatusConditions(ctx context.Context, rr *unstructured.Unstructured, eventMsg string) error {
 	reconciled := resourceutil.GetCondition(rr, resourceutil.ReconciledCondition)
 	if reconciled == nil || reconciled.Status != "Unknown" || reconciled.Message != "Paused" {
 		resourceutil.MarkReconciledPaused(rr)
+		r.EventRecorder.Event(rr, v1.EventTypeWarning, pausedReconciliationReason, eventMsg)
 		return r.Client.Status().Update(ctx, rr)
 	}
 	return nil
