@@ -1,0 +1,69 @@
+apiVersion: platform.kratix.io/v1alpha1
+kind: Promise
+metadata:
+  name: pausedtest-rr
+spec:
+  destinationSelectors:
+    - matchLabels:
+        environment: dev
+  api:
+    apiVersion: apiextensions.k8s.io/v1
+    kind: CustomResourceDefinition
+    metadata:
+      creationTimestamp: null
+      name: pausedtestrr.test.kratix.io
+    spec:
+      group: test.kratix.io
+      names:
+        kind: PausedTestRR
+        plural: pausedtestrr
+        singular: pausedtestrr
+      scope: Namespaced
+      versions:
+        - name: v1alpha1
+          schema:
+            openAPIV3Schema:
+              properties:
+                spec:
+                  properties:
+                    name:
+                      type: string
+                  type: object
+              type: object
+          served: true
+          storage: true
+  workflows:
+    promise:
+      configure:
+        - apiVersion: platform.kratix.io/v1alpha1
+          kind: Pipeline
+          metadata:
+            name: promise
+          spec:
+            containers:
+              - name: do-commands
+                image: ghcr.io/syntasso/kratix-pipeline-utility:v0.0.1
+                command: ["sh"]
+                args:
+                  - -c
+                  - |
+                    set -eux
+                    kubectl create ns --dry-run=client --output=yaml pausedtestrr > /kratix/output/configmap.yaml
+    resource:
+      configure:
+        - apiVersion: platform.kratix.io/v1alpha1
+          kind: Pipeline
+          metadata:
+            name: resource
+          spec:
+            containers:
+              - name: do-commands
+                image: ghcr.io/syntasso/kratix-pipeline-utility:v0.0.1
+                command: ["sh"]
+                args:
+                  - -c
+                  - |
+                    set -eux
+                    name=$(yq '.spec.name' /kratix/input/object.yaml)
+
+                    kubectl create configmap ${name} --namespace=pausedtestrr --dry-run=client --output=yaml --from-literal=key=${name} --from-literal=key1=config1 > /kratix/output/configmap.yaml
