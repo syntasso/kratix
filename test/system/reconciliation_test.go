@@ -9,18 +9,20 @@ import (
 )
 
 var _ = Describe("Reconciliation", func() {
+	BeforeEach(func() {
+		SetDefaultEventuallyTimeout(3 * time.Minute)
+		SetDefaultEventuallyPollingInterval(2 * time.Second)
+		kubeutils.SetTimeoutAndInterval(2*time.Minute, 2*time.Second)
+	})
+
 	When("a Promise is paused", func() {
 		var promiseName = "pausedtest"
 		BeforeEach(func() {
-			SetDefaultEventuallyTimeout(3 * time.Minute)
-			SetDefaultEventuallyPollingInterval(2 * time.Second)
-			kubeutils.SetTimeoutAndInterval(2*time.Minute, 2*time.Second)
-
-			platform.Kubectl("apply", "-f", "assets/reconciliation/promise.yaml")
+			platform.Kubectl("apply", "-f", "assets/reconciliation/pause-promise.yaml")
 			Eventually(func() string {
 				return platform.Kubectl("get", "promise", promiseName)
 			}).Should(ContainSubstring("Available"))
-			platform.Kubectl("apply", "-f", "assets/reconciliation/rr-one.yaml")
+			platform.Kubectl("apply", "-f", "assets/reconciliation/pause-promise-rr-one.yaml")
 		})
 
 		AfterEach(func() {
@@ -48,8 +50,8 @@ var _ = Describe("Reconciliation", func() {
 			Eventually(func() string {
 				return platform.Kubectl("get", "promises", promiseName)
 			}).Should(ContainSubstring("Paused"))
-			platform.Kubectl("apply", "-f", "assets/reconciliation/rr-one-updated.yaml")
-			platform.Kubectl("apply", "-f", "assets/reconciliation/rr-two.yaml")
+			platform.Kubectl("apply", "-f", "assets/reconciliation/pause-promise-rr-one-updated.yaml")
+			platform.Kubectl("apply", "-f", "assets/reconciliation/pause-promise-rr-two.yaml")
 			Eventually(func() string {
 				return platform.Kubectl("get", promiseName, "two")
 			}).Should(ContainSubstring("Paused"))
