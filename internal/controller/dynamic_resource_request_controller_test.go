@@ -807,6 +807,7 @@ var _ = Describe("DynamicResourceRequestController", func() {
 
 			Expect(fakeK8sClient.Create(ctx, resReq)).To(Succeed())
 		})
+
 		When("the resource is created", func() {
 			It("pauses the reconciliation for the resource", func() {
 				result, err := t.reconcileUntilCompletion(reconciler, resReq)
@@ -817,14 +818,15 @@ var _ = Describe("DynamicResourceRequestController", func() {
 				Expect(reconcileConfigureOptsArg.Resources).To(BeEmpty())
 
 				By("setting 'paused' for the reconciled status.condition")
-				Expect(fakeK8sClient.Get(ctx, resReqNameNamespace, resReq)).To(Succeed())
-				condition := resourceutil.GetCondition(resReq, resourceutil.ReconciledCondition)
-				Expect(condition).NotTo(BeNil())
-				Expect(string(condition.Status)).To(Equal("Unknown"))
-				Expect(condition.Reason).To(Equal("PausedReconciliation"))
-				Expect(condition.Message).To(ContainSubstring("Paused"))
+				verifyPauseReconciliationStatus(resReq, resReqNameNamespace)
+
+				By("publishing event")
+				Expect(eventRecorder.Events).To(Receive(ContainSubstring(
+					"Warning PausedReconciliation 'kratix.io/paused' label set to 'true' for promise; pausing reconciliation for this resource request",
+				)))
 			})
 		})
+
 		When("the resource is updated", func() {
 			BeforeEach(func() {
 				result, err := t.reconcileUntilCompletion(reconciler, resReq)
@@ -844,12 +846,86 @@ var _ = Describe("DynamicResourceRequestController", func() {
 				Expect(reconcileConfigureOptsArg.Resources).To(BeEmpty())
 
 				By("setting 'paused' for the reconciled status.condition")
+				verifyPauseReconciliationStatus(resReq, resReqNameNamespace)
+
+				By("publishing event")
+				Expect(eventRecorder.Events).To(Receive(ContainSubstring(
+					"Warning PausedReconciliation 'kratix.io/paused' label set to 'true' for promise; pausing reconciliation for this resource request",
+				)))
+			})
+		})
+	})
+
+	When("the resource request is paused", func() {
+		BeforeEach(func() {
+			Expect(fakeK8sClient.Update(context.TODO(), promise)).To(Succeed())
+			reconcileConfigureOptsArg = workflow.Opts{}
+
+			yamlFile, err := os.ReadFile(resourceRequestPath)
+			Expect(err).ToNot(HaveOccurred())
+			resReq = &unstructured.Unstructured{}
+			Expect(yaml.Unmarshal(yamlFile, resReq)).To(Succeed())
+			resReq.SetName("paused-resource-test")
+			resReq.SetLabels(map[string]string{"kratix.io/paused": "true"})
+			resReqNameNamespace = client.ObjectKeyFromObject(resReq)
+
+			Expect(fakeK8sClient.Create(ctx, resReq)).To(Succeed())
+		})
+
+		When("the resource is updated", func() {
+			BeforeEach(func() {
+				result, err := t.reconcileUntilCompletion(reconciler, resReq)
+				Expect(err).NotTo(HaveOccurred())
+				Expect(result).To(Equal(ctrl.Result{}))
+
 				Expect(fakeK8sClient.Get(ctx, resReqNameNamespace, resReq)).To(Succeed())
-				condition := resourceutil.GetCondition(resReq, resourceutil.ReconciledCondition)
-				Expect(condition).NotTo(BeNil())
-				Expect(string(condition.Status)).To(Equal("Unknown"))
-				Expect(condition.Reason).To(Equal("PausedReconciliation"))
-				Expect(condition.Message).To(ContainSubstring("Paused"))
+				resReq.SetGeneration(10)
+				Expect(fakeK8sClient.Update(ctx, resReq)).To(Succeed())
+			})
+
+			It("pauses the reconciliation for the resource", func() {
+				result, err := t.reconcileUntilCompletion(reconciler, resReq)
+				Expect(err).NotTo(HaveOccurred())
+				Expect(result).To(Equal(ctrl.Result{}))
+
+				By("not creating any workflow resource objects")
+				Expect(reconcileConfigureOptsArg.Resources).To(BeEmpty())
+
+				By("setting 'paused' for the reconciled status.condition")
+				verifyPauseReconciliationStatus(resReq, resReqNameNamespace)
+
+				By("publishing event")
+				Expect(eventRecorder.Events).To(Receive(ContainSubstring(
+					"Warning PausedReconciliation 'kratix.io/paused' label set to 'true' for this resource request; pausing reconciliation",
+				)))
+			})
+		})
+
+		When("the promise is updated", func() {
+			BeforeEach(func() {
+				result, err := t.reconcileUntilCompletion(reconciler, resReq)
+				Expect(err).NotTo(HaveOccurred())
+				Expect(result).To(Equal(ctrl.Result{}))
+
+				promise.Spec.Workflows.Promise.Configure = []unstructured.Unstructured{}
+				Expect(fakeK8sClient.Update(context.TODO(), promise)).To(Succeed())
+			})
+
+			It("pauses the reconciliation for the resource", func() {
+				result, err := t.reconcileUntilCompletion(reconciler, resReq)
+				Expect(err).NotTo(HaveOccurred())
+				Expect(result).To(Equal(ctrl.Result{}))
+
+				By("not creating any workflow resource objects")
+				Expect(reconcileConfigureOptsArg.Resources).To(BeEmpty())
+
+				By("setting 'paused' for the reconciled status.condition")
+				verifyPauseReconciliationStatus(resReq, resReqNameNamespace)
+
+				By("publishing event")
+				Expect(eventRecorder.Events).To(Receive(ContainSubstring(
+					"Warning PausedReconciliation 'kratix.io/paused' label set to 'true' for this resource request; pausing reconciliation",
+				)))
 			})
 		})
 	})
@@ -941,4 +1017,13 @@ func createResourceRequest(resourceRequestPath string) *unstructured.Unstructure
 	Expect(fakeK8sClient.Update(ctx, resReq)).To(Succeed())
 	Expect(fakeK8sClient.Get(ctx, resReqNameNamespace, resReq)).To(Succeed())
 	return resReq
+}
+
+func verifyPauseReconciliationStatus(rr *unstructured.Unstructured, rrNameNamespace client.ObjectKey) {
+	ExpectWithOffset(1, fakeK8sClient.Get(ctx, rrNameNamespace, rr)).To(Succeed())
+	condition := resourceutil.GetCondition(rr, resourceutil.ReconciledCondition)
+	ExpectWithOffset(1, condition).NotTo(BeNil())
+	ExpectWithOffset(1, string(condition.Status)).To(Equal("Unknown"))
+	ExpectWithOffset(1, condition.Reason).To(Equal("PausedReconciliation"))
+	ExpectWithOffset(1, condition.Message).To(ContainSubstring("Paused"))
 }
