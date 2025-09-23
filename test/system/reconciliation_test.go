@@ -88,9 +88,9 @@ var _ = Describe("Reconciliation", func() {
 
 	When("a Resource Request is paused", func() {
 		var (
-			promiseName = "pausedtest-rr"
+			promiseName         = "pausedtest-rr"
 			resourceRequestName = "one"
-			kindName = "pausedtestrr"
+			kindName            = "pausedtestrr"
 		)
 
 		BeforeEach(func() {
@@ -129,7 +129,7 @@ var _ = Describe("Reconciliation", func() {
 
 			Eventually(func() string {
 				return worker.Kubectl("get", "configmap", "one-after", "-n", "pausedtestrr", "-o=jsonpath='{.data.key1}'")
-			}, 30*time.Second).Should(ContainSubstring("config1"))
+			}).Should(ContainSubstring("config1"))
 		})
 
 		AfterEach(func() {
