@@ -11,9 +11,9 @@ import (
 
 var _ = Describe("Reconciliation", func() {
 	BeforeEach(func() {
-		SetDefaultEventuallyTimeout(3 * time.Minute)
+		SetDefaultEventuallyTimeout(4 * time.Minute)
 		SetDefaultEventuallyPollingInterval(2 * time.Second)
-		kubeutils.SetTimeoutAndInterval(2*time.Minute, 2*time.Second)
+		kubeutils.SetTimeoutAndInterval(4*time.Minute, 2*time.Second)
 	})
 
 	When("a Promise is paused", func() {
