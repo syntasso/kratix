@@ -240,7 +240,7 @@ var _ = Describe("DestinationReconciler", func() {
 					It("updates the destination status condition", func() {
 						Expect(updatedDestination.Status.Conditions).To(ContainElement(SatisfyAll(
 							HaveField("Type", "Ready"),
-							HaveField("Message", "Unable to write test documents to State Store"),
+							HaveField("Message", "Failed to write test documents to State Store: update file error"),
 							HaveField("Reason", "StateStoreWriteFailed"),
 							HaveField("Status", metav1.ConditionFalse),
 						)))
@@ -248,7 +248,7 @@ var _ = Describe("DestinationReconciler", func() {
 
 					It("publishes a failure event", func() {
 						Expect(eventRecorder.Events).To(Receive(ContainSubstring(
-							"Failed to write test documents to Destination %q: update file error", testDestination.Name),
+							"Failed to write test documents to State Store: update file error"),
 						))
 					})
 				})
@@ -266,7 +266,7 @@ var _ = Describe("DestinationReconciler", func() {
 					It("updates the destination status condition", func() {
 						Expect(updatedDestination.Status.Conditions).To(ContainElement(SatisfyAll(
 							HaveField("Type", "Ready"),
-							HaveField("Message", "Unable to write test documents to State Store"),
+							HaveField("Message", fmt.Sprintf("Failed to write test documents to State Store: secret %q not found in namespace %q", stateStoreSecret.GetName(), stateStoreSecret.GetNamespace())),
 							HaveField("Reason", "StateStoreWriteFailed"),
 							HaveField("Status", metav1.ConditionFalse),
 						)))
@@ -274,7 +274,7 @@ var _ = Describe("DestinationReconciler", func() {
 
 					It("publishes a failure event", func() {
 						Expect(eventRecorder.Events).To(Receive(ContainSubstring(
-							"Failed to write test documents to Destination %q: secret %q not found in namespace %q", testDestination.Name, stateStoreSecret.GetName(), stateStoreSecret.GetNamespace()),
+							"Failed to write test documents to State Store: secret %q not found in namespace %q", stateStoreSecret.GetName(), stateStoreSecret.GetNamespace()),
 						))
 					})
 				})
@@ -292,7 +292,7 @@ var _ = Describe("DestinationReconciler", func() {
 					It("updates the destination status condition", func() {
 						Expect(updatedDestination.Status.Conditions).To(ContainElement(SatisfyAll(
 							HaveField("Type", "Ready"),
-							HaveField("Message", "Unable to write test documents to State Store"),
+							HaveField("Message", "Failed to write test documents to State Store: writer error"),
 							HaveField("Reason", "StateStoreWriteFailed"),
 							HaveField("Status", metav1.ConditionFalse),
 						)))
@@ -300,8 +300,7 @@ var _ = Describe("DestinationReconciler", func() {
 
 					It("publishes a failure event", func() {
 						Expect(eventRecorder.Events).To(Receive(ContainSubstring(
-							"Failed to write test documents to Destination %q: writer error", testDestination.Name,
-						)))
+							"Failed to write test documents to State Store: writer error")))
 					})
 				})
 
