@@ -128,7 +128,7 @@ var _ = Describe("Reconciliation", func() {
 			}).Should(ContainSubstring("Reconciled"))
 
 			Eventually(func() string {
-				return worker.Kubectl("get", "configmap", "one-after", "-n", "pausedtestrr", "-o=jsonpath='{.data.key1}'")
+				return worker.KubectlAllowFail("get", "configmap", "one-after", "-n", "pausedtestrr", "-o=jsonpath='{.data.key1}'")
 			}).Should(ContainSubstring("config1"))
 		})
 
