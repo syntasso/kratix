@@ -33,12 +33,9 @@ import (
 
 	"github.com/go-logr/logr"
 	"github.com/syntasso/kratix/api/v1alpha1"
-	"github.com/syntasso/kratix/internal/telemetry"
 	"github.com/syntasso/kratix/lib/resourceutil"
 	"github.com/syntasso/kratix/lib/workflow"
-	"go.opentelemetry.io/otel"
 	"go.opentelemetry.io/otel/attribute"
-	"go.opentelemetry.io/otel/trace"
 	batchv1 "k8s.io/api/batch/v1"
 	v1 "k8s.io/api/core/v1"
 	rbacv1 "k8s.io/api/rbac/v1"
@@ -144,43 +141,30 @@ func (r *PromiseReconciler) Reconcile(ctx context.Context, req ctrl.Request) (re
 		return defaultRequeue, nil //nolint:nilerr // requeue rather than exponential backoff
 	}
 
-	tracer := otel.Tracer("github.com/syntasso/kratix/internal/controller/promise")
-	original := promise.DeepCopy()
-	tracedCtx, span, mutated, traceErr := telemetry.StartSpanForObject(ctx, tracer, promise, promise.Name+"-PromiseReconcile", trace.WithSpanKind(trace.SpanKindServer))
-	if traceErr != nil {
-		tracedCtx, span = tracer.Start(ctx, promise.Name+"-PromiseReconcile", trace.WithSpanKind(trace.SpanKindServer))
-		telemetry.RecordError(span, traceErr)
-		r.Log.Error(traceErr, "failed to initialise trace context", "namespacedName", req.NamespacedName)
-	}
-	ctx = tracedCtx
+	baseLogger := r.Log.WithValues("identifier", promise.GetName(), "request", req.NamespacedName.String())
+	spanName := fmt.Sprintf("%s/PromiseReconcile", promise.GetName())
+	traceCtx := newReconcileTrace(ctx, "promise-controller", spanName, promise, baseLogger)
+	ctx = traceCtx.Context()
+	logger := traceCtx.Logger()
 	defer func() {
-		if span != nil {
-			if retErr != nil {
-				telemetry.RecordError(span, retErr)
-			}
-			span.End()
-		}
+		traceCtx.End(retErr)
 	}()
 
-	logger := telemetry.LoggerWithTrace(r.Log.WithValues("identifier", promise.GetName()), span)
-	if mutated {
-		if patchErr := r.Client.Patch(ctx, promise, client.MergeFrom(original)); patchErr != nil {
-			telemetry.RecordError(span, patchErr)
-			if errors.IsConflict(patchErr) {
-				logger.Info("conflict persisting trace annotations, requeueing")
-				return fastRequeue, nil
-			}
-			logger.Error(patchErr, "failed to persist trace annotations")
-			return defaultRequeue, patchErr
-		}
-	}
-
-	telemetry.SetCommonAttributes(span,
+	traceCtx.AddAttributes(
 		attribute.String("kratix.promise.name", promise.GetName()),
 		attribute.String("kratix.promise.namespace", promise.GetNamespace()),
 		attribute.String("kratix.promise.request", req.NamespacedName.String()),
 		attribute.Int64("kratix.promise.generation", promise.GetGeneration()),
 	)
+
+	if conflict, patchErr := traceCtx.PersistAnnotations(r.Client); patchErr != nil {
+		if conflict {
+			logger.Info("conflict persisting trace annotations, requeueing")
+			return fastRequeue, nil
+		}
+		logger.Error(patchErr, "failed to persist trace annotations")
+		return defaultRequeue, patchErr
+	}
 
 	originalStatus := promise.Status.Status
 	originalAvailableCondition := promise.GetCondition(v1alpha1.PromiseAvailableConditionType)

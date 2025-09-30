@@ -25,7 +25,6 @@ import (
 
 	"github.com/go-logr/logr"
 	"github.com/syntasso/kratix/api/v1alpha1"
-	"github.com/syntasso/kratix/internal/telemetry"
 	"github.com/syntasso/kratix/lib/compression"
 	"github.com/syntasso/kratix/lib/writers"
 	"gopkg.in/yaml.v2"
@@ -40,9 +39,7 @@ import (
 	"sigs.k8s.io/controller-runtime/pkg/client"
 	"sigs.k8s.io/controller-runtime/pkg/controller/controllerutil"
 
-	"go.opentelemetry.io/otel"
 	"go.opentelemetry.io/otel/attribute"
-	"go.opentelemetry.io/otel/trace"
 )
 
 const (
@@ -84,41 +81,37 @@ func (r *WorkPlacementReconciler) Reconcile(ctx context.Context, req ctrl.Reques
 		return defaultRequeue, nil
 	}
 
-	tracer := otel.Tracer("github.com/syntasso/kratix/internal/controller/workplacement")
-	original := workPlacement.DeepCopy()
-	tracedCtx, span, mutated, traceErr := telemetry.StartSpanForObject(ctx, tracer, workPlacement, "WorkPlacementReconcile", trace.WithSpanKind(trace.SpanKindServer))
-	if traceErr != nil {
-		tracedCtx, span = tracer.Start(ctx, "WorkPlacementReconcile", trace.WithSpanKind(trace.SpanKindServer))
-		telemetry.RecordError(span, traceErr)
-		r.Log.Error(traceErr, "failed to initialise trace context", "workPlacement", req.NamespacedName)
+	promiseName := workPlacement.Spec.PromiseName
+	if promiseName == "" {
+		promiseName = workPlacement.GetLabels()[v1alpha1.PromiseNameLabel]
 	}
-	ctx = tracedCtx
+	if promiseName == "" {
+		promiseName = workPlacement.GetName()
+	}
+	baseLogger := r.Log.WithValues("workPlacement", req.NamespacedName, "promise", promiseName)
+	spanName := fmt.Sprintf("%s/WorkPlacementReconcile", promiseName)
+	traceCtx := newReconcileTrace(ctx, "workplacement-controller", spanName, workPlacement, baseLogger)
+	ctx = traceCtx.Context()
+	logger := traceCtx.Logger()
 	defer func() {
-		if span != nil {
-			if retErr != nil {
-				telemetry.RecordError(span, retErr)
-			}
-			span.End()
-		}
+		traceCtx.End(retErr)
 	}()
 
-	logger := telemetry.LoggerWithTrace(r.Log.WithValues("work-placement-controller", req.NamespacedName), span)
-	if mutated {
-		if patchErr := r.Client.Patch(ctx, workPlacement, client.MergeFrom(original)); patchErr != nil {
-			if k8sErrors.IsConflict(patchErr) {
-				logger.Info("conflict persisting trace annotations, requeueing")
-				return fastRequeue, nil
-			}
-			logger.Error(patchErr, "failed to persist trace annotations")
-			return defaultRequeue, patchErr
-		}
-	}
-
-	telemetry.SetCommonAttributes(span,
+	traceCtx.AddAttributes(
+		attribute.String("kratix.promise.name", promiseName),
 		attribute.String("kratix.workplacement.name", workPlacement.GetName()),
 		attribute.String("kratix.workplacement.namespace", workPlacement.GetNamespace()),
 		attribute.String("kratix.workplacement.target_destination", workPlacement.Spec.TargetDestinationName),
 	)
+
+	if conflict, patchErr := traceCtx.PersistAnnotations(r.Client); patchErr != nil {
+		if conflict {
+			logger.Info("conflict persisting trace annotations, requeueing")
+			return fastRequeue, nil
+		}
+		logger.Error(patchErr, "failed to persist trace annotations")
+		return defaultRequeue, patchErr
+	}
 
 	logger.Info("Reconciling WorkPlacement")
 
