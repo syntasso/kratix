@@ -77,7 +77,18 @@ func (r *HealthRecordReconciler) Reconcile(ctx context.Context, req ctrl.Request
 	resReq := &unstructured.Unstructured{}
 	if err = r.getResourceRequest(ctx, promiseGVK, healthRecord, resReq); err != nil {
 		logger.Error(err, "Failed getting resource")
+		if errors.IsNotFound(err) && !healthRecord.DeletionTimestamp.IsZero() {
+			r.Log.Info("resource not found and health record is being deleted, removing the finalizer")
+			if result, err := r.removeFinalizer(ctx, healthRecord); err != nil {
+				return result, err
+			}
+			return ctrl.Result{}, nil
+		}
 		return defaultRequeue, nil
+	}
+
+	if err := r.ensureOwnerReference(ctx, healthRecord, resReq, logger); err != nil {
+		return ctrl.Result{}, err
 	}
 
 	if !healthRecord.DeletionTimestamp.IsZero() {
@@ -243,6 +254,25 @@ func getHealthDataAndStates(healthRecords []platformv1alpha1.HealthRecord) ([]an
 	return healthData, state, nil
 }
 
+func (r *HealthRecordReconciler) ensureOwnerReference(
+	ctx context.Context, healthRecord *platformv1alpha1.HealthRecord, resReq *unstructured.Unstructured, logger logr.Logger,
+) error {
+	for _, owner := range healthRecord.GetOwnerReferences() {
+		if owner.UID == resReq.GetUID() {
+			return nil
+		}
+	}
+	if err := controllerutil.SetControllerReference(resReq, healthRecord, r.Scheme); err != nil {
+		logger.Error(err, "Failed setting resource as owner of HealthRecord")
+		return err
+	}
+	if err := r.Update(ctx, healthRecord); err != nil {
+		logger.Error(err, "Failed updating HealthRecord with owner reference")
+		return err
+	}
+	return nil
+}
+
 func (r *HealthRecordReconciler) deleteHealthRecord(
 	ctx context.Context, healthRecord *platformv1alpha1.HealthRecord, resReq *unstructured.Unstructured,
 ) (ctrl.Result, error) {
@@ -274,10 +304,8 @@ func (r *HealthRecordReconciler) deleteHealthRecord(
 	if !recordInResourceHealthRecords {
 		r.Log.Info("health record not found in resource state health records")
 
-		controllerutil.RemoveFinalizer(healthRecord, healthRecordCleanupFinalizer)
-		err := r.Client.Update(ctx, healthRecord)
-		if err != nil {
-			return defaultRequeue, err
+		if result, err := r.removeFinalizer(ctx, healthRecord); err != nil {
+			return result, err
 		}
 	}
 
@@ -318,6 +346,15 @@ func (r *HealthRecordReconciler) deleteHealthRecord(
 	}
 
 	return defaultRequeue, nil
+}
+
+func (r *HealthRecordReconciler) removeFinalizer(ctx context.Context, healthRecord *platformv1alpha1.HealthRecord) (ctrl.Result, error) {
+	controllerutil.RemoveFinalizer(healthRecord, healthRecordCleanupFinalizer)
+	err := r.Client.Update(ctx, healthRecord)
+	if err != nil {
+		return defaultRequeue, err
+	}
+	return ctrl.Result{}, nil
 }
 
 func (r *HealthRecordReconciler) getResourceHealthRecords(resReq *unstructured.Unstructured) []any {
