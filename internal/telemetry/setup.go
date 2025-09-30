@@ -22,7 +22,8 @@ const otlpProtocolGRPC = "grpc"
 // If no OTLP endpoint is configured, tracing metadata is still generated locally so
 // downstream resources can participate in traces, but spans will not be exported.
 func SetupTracerProvider(ctx context.Context, logger logr.Logger, serviceName string) (func(context.Context) error, error) {
-	endpoint := strings.TrimSpace(os.Getenv("OTEL_EXPORTER_OTLP_ENDPOINT"))
+	// endpoint := strings.TrimSpace(os.Getenv("OTEL_EXPORTER_OTLP_ENDPOINT"))
+	endpoint := "grafana-k8s-monitoring-alloy-receiver.default.svc.cluster.local:4317"
 
 	var (
 		exporter *otlptrace.Exporter
@@ -38,7 +39,7 @@ func SetupTracerProvider(ctx context.Context, logger logr.Logger, serviceName st
 		switch protocol {
 		case otlpProtocolGRPC:
 			clientOpts := []otlptracegrpc.Option{otlptracegrpc.WithEndpoint(endpoint)}
-			if strings.EqualFold(os.Getenv("OTEL_EXPORTER_OTLP_INSECURE"), "true") {
+			if shouldUseInsecure(endpoint) {
 				clientOpts = append(clientOpts, otlptracegrpc.WithInsecure())
 			}
 			if headers := parseHeaders(os.Getenv("OTEL_EXPORTER_OTLP_HEADERS")); len(headers) > 0 {
@@ -79,6 +80,26 @@ func SetupTracerProvider(ctx context.Context, logger logr.Logger, serviceName st
 	}
 
 	return provider.Shutdown, nil
+}
+
+func shouldUseInsecure(endpoint string) bool {
+	if strings.EqualFold(os.Getenv("OTEL_EXPORTER_OTLP_INSECURE"), "true") {
+		return true
+	}
+	if strings.EqualFold(os.Getenv("OTEL_EXPORTER_OTLP_INSECURE"), "false") {
+		return false
+	}
+	if endpoint == "" {
+		return false
+	}
+	// Default to plaintext when the endpoint looks like an in-cluster DNS name or lacks a scheme.
+	if strings.Contains(endpoint, ".svc") || !strings.Contains(endpoint, "://") {
+		return true
+	}
+	if strings.HasPrefix(endpoint, "http://") {
+		return true
+	}
+	return false
 }
 
 func buildResource(ctx context.Context, serviceName string) (*resource.Resource, error) {
