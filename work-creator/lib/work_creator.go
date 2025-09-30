@@ -9,6 +9,7 @@ import (
 	"path/filepath"
 	"strings"
 
+	"github.com/syntasso/kratix/internal/telemetry"
 	"github.com/syntasso/kratix/lib/objectutil"
 	"go.uber.org/zap/zapcore"
 
@@ -20,6 +21,9 @@ import (
 	"github.com/syntasso/kratix/lib/compression"
 	"github.com/syntasso/kratix/lib/hash"
 	"github.com/syntasso/kratix/lib/resourceutil"
+	"go.opentelemetry.io/otel"
+	"go.opentelemetry.io/otel/attribute"
+	"go.opentelemetry.io/otel/trace"
 	"k8s.io/apimachinery/pkg/labels"
 	"k8s.io/apimachinery/pkg/util/yaml"
 	ctrl "sigs.k8s.io/controller-runtime"
@@ -31,7 +35,24 @@ type WorkCreator struct {
 	K8sClient client.Client
 }
 
-func (w *WorkCreator) Execute(rootDirectory, promiseName, namespace, resourceName, resourceNamespace, workflowType, pipelineName string) error {
+func (w *WorkCreator) Execute(rootDirectory, promiseName, namespace, resourceName, resourceNamespace, workflowType, pipelineName string) (retErr error) {
+	ctx := context.Background()
+	traceParent, traceState := telemetry.TraceParentFromEnv()
+	extractedCtx, ok := telemetry.ContextWithTraceparent(ctx, traceParent, traceState)
+	tracer := otel.Tracer("github.com/syntasso/kratix/work-creator")
+	spanOpts := []trace.SpanStartOption{trace.WithSpanKind(trace.SpanKindServer)}
+	if !ok {
+		spanOpts = append(spanOpts, trace.WithNewRoot())
+	}
+	extractedCtx, span := tracer.Start(extractedCtx, "WorkCreator.Execute", spanOpts...)
+	defer func() {
+		if retErr != nil {
+			telemetry.RecordError(span, retErr)
+		}
+		span.End()
+	}()
+	ctx = extractedCtx
+
 	identifier := fmt.Sprintf("%s-%s-%s", promiseName, resourceName, pipelineName)
 	if resourceNamespace != "" {
 		identifier = fmt.Sprintf("%s-%s-%s-%s", promiseName, resourceName, resourceNamespace, pipelineName)
@@ -58,6 +79,15 @@ func (w *WorkCreator) Execute(rootDirectory, promiseName, namespace, resourceNam
 		WithValues("resourceName", resourceName).
 		WithValues("promiseName", promiseName).
 		WithValues("pipelineName", pipelineName)
+
+	logger = telemetry.LoggerWithTrace(logger, span)
+	telemetry.SetCommonAttributes(span,
+		attribute.String("kratix.work.identifier", identifier),
+		attribute.String("kratix.promise.name", promiseName),
+		attribute.String("kratix.pipeline.name", pipelineName),
+		attribute.String("kratix.workflow.type", workflowType),
+		attribute.String("kratix.namespace", namespace),
+	)
 
 	workflowScheduling, err := w.getWorkflowScheduling(rootDirectory)
 	if err != nil {
@@ -165,6 +195,7 @@ func (w *WorkCreator) Execute(rootDirectory, promiseName, namespace, resourceNam
 	work.Spec.WorkloadGroups = workloadGroups
 	work.Spec.PromiseName = promiseName
 	work.Spec.ResourceName = resourceName
+	work.SetAnnotations(telemetry.ApplyTraceAnnotations(work.GetAnnotations(), traceParent, traceState))
 	work.Labels = map[string]string{}
 	logger.Info("setting work labels...")
 
@@ -187,8 +218,7 @@ func (w *WorkCreator) Execute(rootDirectory, promiseName, namespace, resourceNam
 	}
 
 	if currentWork == nil {
-		err := w.K8sClient.Create(context.Background(), work)
-		if err != nil {
+		if err := w.K8sClient.Create(ctx, work); err != nil {
 			return err
 		}
 		logger.Info("Work created", "workName", work.Name)
@@ -197,7 +227,8 @@ func (w *WorkCreator) Execute(rootDirectory, promiseName, namespace, resourceNam
 
 	logger.Info("Work already exists, will update")
 	currentWork.Spec = work.Spec
-	err = w.K8sClient.Update(context.Background(), currentWork)
+	currentWork.SetAnnotations(telemetry.ApplyTraceAnnotations(currentWork.GetAnnotations(), traceParent, traceState))
+	err = w.K8sClient.Update(ctx, currentWork)
 
 	if err != nil {
 		logger.Error(err, "Error updating Work")
