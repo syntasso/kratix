@@ -146,9 +146,9 @@ func (r *PromiseReconciler) Reconcile(ctx context.Context, req ctrl.Request) (re
 
 	tracer := otel.Tracer("github.com/syntasso/kratix/internal/controller/promise")
 	original := promise.DeepCopy()
-	tracedCtx, span, mutated, traceErr := telemetry.StartSpanForObject(ctx, tracer, promise, "PromiseReconcile", trace.WithSpanKind(trace.SpanKindServer))
+	tracedCtx, span, mutated, traceErr := telemetry.StartSpanForObject(ctx, tracer, promise, promise.Name+"-PromiseReconcile", trace.WithSpanKind(trace.SpanKindServer))
 	if traceErr != nil {
-		tracedCtx, span = tracer.Start(ctx, "PromiseReconcile", trace.WithSpanKind(trace.SpanKindServer))
+		tracedCtx, span = tracer.Start(ctx, promise.Name+"-PromiseReconcile", trace.WithSpanKind(trace.SpanKindServer))
 		telemetry.RecordError(span, traceErr)
 		r.Log.Error(traceErr, "failed to initialise trace context", "namespacedName", req.NamespacedName)
 	}
