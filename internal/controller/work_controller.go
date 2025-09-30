@@ -36,9 +36,7 @@ import (
 	"sigs.k8s.io/controller-runtime/pkg/handler"
 	"sigs.k8s.io/controller-runtime/pkg/reconcile"
 
-	"go.opentelemetry.io/otel"
 	"go.opentelemetry.io/otel/attribute"
-	"go.opentelemetry.io/otel/trace"
 )
 
 const workCleanUpFinalizer = v1alpha1.KratixPrefix + "work-cleanup"
@@ -71,41 +69,37 @@ func (r *WorkReconciler) Reconcile(ctx context.Context, req ctrl.Request) (resul
 		return ctrl.Result{}, err
 	}
 
-	tracer := otel.Tracer("github.com/syntasso/kratix/internal/controller/work")
-	original := work.DeepCopy()
-	tracedCtx, span, mutated, traceErr := telemetry.StartSpanForObject(ctx, tracer, work, "WorkReconcile", trace.WithSpanKind(trace.SpanKindServer))
-	if traceErr != nil {
-		tracedCtx, span = tracer.Start(ctx, "WorkReconcile", trace.WithSpanKind(trace.SpanKindServer))
-		telemetry.RecordError(span, traceErr)
-		r.Log.Error(traceErr, "failed to initialise trace context", "work", req.NamespacedName)
+	promiseName := work.Spec.PromiseName
+	if promiseName == "" {
+		promiseName = work.GetLabels()[v1alpha1.PromiseNameLabel]
 	}
-	ctx = tracedCtx
+	if promiseName == "" {
+		promiseName = work.GetName()
+	}
+	baseLogger := r.Log.WithValues("work", req.NamespacedName, "promise", promiseName)
+	spanName := fmt.Sprintf("%s/WorkReconcile", promiseName)
+	traceCtx := newReconcileTrace(ctx, "work-controller", spanName, work, baseLogger)
+	ctx = traceCtx.Context()
+	logger := traceCtx.Logger()
 	defer func() {
-		if span != nil {
-			if retErr != nil {
-				telemetry.RecordError(span, retErr)
-			}
-			span.End()
-		}
+		traceCtx.End(retErr)
 	}()
 
-	logger := telemetry.LoggerWithTrace(r.Log.WithValues("work", req.NamespacedName), span)
-	if mutated {
-		if patchErr := r.Client.Patch(ctx, work, client.MergeFrom(original)); patchErr != nil {
-			if errors.IsConflict(patchErr) {
-				logger.Info("conflict persisting trace annotations, requeueing")
-				return fastRequeue, nil
-			}
-			logger.Error(patchErr, "failed to persist trace annotations")
-			return ctrl.Result{}, patchErr
-		}
-	}
-
-	telemetry.SetCommonAttributes(span,
+	traceCtx.AddAttributes(
+		attribute.String("kratix.promise.name", promiseName),
 		attribute.String("kratix.work.name", work.GetName()),
 		attribute.String("kratix.work.namespace", work.GetNamespace()),
 		attribute.Bool("kratix.work.resource_request", work.IsResourceRequest()),
 	)
+
+	if conflict, patchErr := traceCtx.PersistAnnotations(r.Client); patchErr != nil {
+		if conflict {
+			logger.Info("conflict persisting trace annotations, requeueing")
+			return fastRequeue, nil
+		}
+		logger.Error(patchErr, "failed to persist trace annotations")
+		return ctrl.Result{}, patchErr
+	}
 
 	logger.Info("Reconciling Work")
 
@@ -121,9 +115,9 @@ func (r *WorkReconciler) Reconcile(ctx context.Context, req ctrl.Request) (resul
 	}
 
 	originalAnnotations := cloneStringMap(work.GetAnnotations())
-	if span != nil {
+	if traceCtx.Span() != nil {
 		enriched := cloneStringMap(work.GetAnnotations())
-		enriched = telemetry.AnnotateWithSpanContext(enriched, span)
+		enriched = telemetry.AnnotateWithSpanContext(enriched, traceCtx.Span())
 		work.SetAnnotations(enriched)
 		defer work.SetAnnotations(originalAnnotations)
 	}

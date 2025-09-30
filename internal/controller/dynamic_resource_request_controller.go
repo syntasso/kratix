@@ -30,7 +30,6 @@ import (
 
 	"github.com/go-logr/logr"
 	"github.com/syntasso/kratix/api/v1alpha1"
-	"github.com/syntasso/kratix/internal/telemetry"
 	"github.com/syntasso/kratix/lib/resourceutil"
 	"github.com/syntasso/kratix/lib/workflow"
 
@@ -49,9 +48,7 @@ import (
 	ctrl "sigs.k8s.io/controller-runtime"
 	"sigs.k8s.io/controller-runtime/pkg/client"
 
-	"go.opentelemetry.io/otel"
 	"go.opentelemetry.io/otel/attribute"
-	"go.opentelemetry.io/otel/trace"
 )
 
 const workFinalizer = v1alpha1.KratixPrefix + "work-cleanup"
@@ -110,41 +107,28 @@ func (r *DynamicResourceRequestController) Reconcile(ctx context.Context, req ct
 		return defaultRequeue, nil
 	}
 
-	tracer := otel.Tracer("github.com/syntasso/kratix/internal/controller/dynamic_resource_request")
-	original := rr.DeepCopy()
-	tracedCtx, span, mutated, traceErr := telemetry.StartSpanForObject(ctx, tracer, rr, "DynamicResourceRequestReconcile", trace.WithSpanKind(trace.SpanKindServer))
-	if traceErr != nil {
-		tracedCtx, span = tracer.Start(ctx, "DynamicResourceRequestReconcile", trace.WithSpanKind(trace.SpanKindServer))
-		telemetry.RecordError(span, traceErr)
-		baseLogger.Error(traceErr, "failed to initialise trace context")
-	}
-	ctx = tracedCtx
+	spanName := fmt.Sprintf("%s/DynamicResourceRequestReconcile", r.PromiseIdentifier)
+	traceCtx := newReconcileTrace(ctx, "dynamic-resource-request-controller", spanName, rr, baseLogger)
+	ctx = traceCtx.Context()
+	logger := traceCtx.Logger()
 	defer func() {
-		if span != nil {
-			if retErr != nil {
-				telemetry.RecordError(span, retErr)
-			}
-			span.End()
-		}
+		traceCtx.End(retErr)
 	}()
 
-	logger := telemetry.LoggerWithTrace(baseLogger, span)
-	if mutated {
-		if patchErr := r.Client.Patch(ctx, rr, client.MergeFrom(original)); patchErr != nil {
-			if apierrors.IsConflict(patchErr) {
-				logger.Info("conflict persisting trace annotations, requeueing")
-				return fastRequeue, nil
-			}
-			logger.Error(patchErr, "failed to persist trace annotations")
-			return ctrl.Result{}, patchErr
-		}
-	}
-
-	telemetry.SetCommonAttributes(span,
+	traceCtx.AddAttributes(
+		attribute.String("kratix.promise.name", promise.GetName()),
 		attribute.String("kratix.resource_request.name", rr.GetName()),
 		attribute.String("kratix.resource_request.namespace", rr.GetNamespace()),
-		attribute.String("kratix.promise.name", promise.GetName()),
 	)
+
+	if conflict, patchErr := traceCtx.PersistAnnotations(r.Client); patchErr != nil {
+		if conflict {
+			logger.Info("conflict persisting trace annotations, requeueing")
+			return fastRequeue, nil
+		}
+		logger.Error(patchErr, "failed to persist trace annotations")
+		return ctrl.Result{}, patchErr
+	}
 
 	if v, ok := promise.Labels[pauseReconciliationLabel]; ok && v == "true" {
 		msg := fmt.Sprintf("'%s' label set to 'true' for promise; pausing reconciliation for this resource request",
