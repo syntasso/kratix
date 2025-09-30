@@ -23,6 +23,7 @@ import (
 
 	"github.com/go-logr/logr"
 	"github.com/syntasso/kratix/api/v1alpha1"
+	"github.com/syntasso/kratix/internal/telemetry"
 	v1 "k8s.io/api/core/v1"
 	"k8s.io/apimachinery/pkg/api/errors"
 	apiMeta "k8s.io/apimachinery/pkg/api/meta"
@@ -34,6 +35,10 @@ import (
 	"sigs.k8s.io/controller-runtime/pkg/controller/controllerutil"
 	"sigs.k8s.io/controller-runtime/pkg/handler"
 	"sigs.k8s.io/controller-runtime/pkg/reconcile"
+
+	"go.opentelemetry.io/otel"
+	"go.opentelemetry.io/otel/attribute"
+	"go.opentelemetry.io/otel/trace"
 )
 
 const workCleanUpFinalizer = v1alpha1.KratixPrefix + "work-cleanup"
@@ -55,20 +60,54 @@ type WorkScheduler interface {
 //+kubebuilder:rbac:groups=platform.kratix.io,resources=works/status,verbs=get;update;patch
 //+kubebuilder:rbac:groups=platform.kratix.io,resources=works/finalizers,verbs=update
 
-func (r *WorkReconciler) Reconcile(ctx context.Context, req ctrl.Request) (ctrl.Result, error) {
-	logger := r.Log.WithValues("work", req.NamespacedName)
-
-	logger.Info("Reconciling Work")
-
+func (r *WorkReconciler) Reconcile(ctx context.Context, req ctrl.Request) (result ctrl.Result, retErr error) {
 	work := &v1alpha1.Work{}
-	err := r.Client.Get(context.Background(), req.NamespacedName, work)
+	err := r.Client.Get(ctx, req.NamespacedName, work)
 	if err != nil {
 		if errors.IsNotFound(err) {
 			return ctrl.Result{}, nil
 		}
-		logger.Error(err, "Error getting Work")
+		r.Log.WithValues("work", req.NamespacedName).Error(err, "Error getting Work")
 		return ctrl.Result{}, err
 	}
+
+	tracer := otel.Tracer("github.com/syntasso/kratix/internal/controller/work")
+	original := work.DeepCopy()
+	tracedCtx, span, mutated, traceErr := telemetry.StartSpanForObject(ctx, tracer, work, "WorkReconcile", trace.WithSpanKind(trace.SpanKindServer))
+	if traceErr != nil {
+		tracedCtx, span = tracer.Start(ctx, "WorkReconcile", trace.WithSpanKind(trace.SpanKindServer))
+		telemetry.RecordError(span, traceErr)
+		r.Log.Error(traceErr, "failed to initialise trace context", "work", req.NamespacedName)
+	}
+	ctx = tracedCtx
+	defer func() {
+		if span != nil {
+			if retErr != nil {
+				telemetry.RecordError(span, retErr)
+			}
+			span.End()
+		}
+	}()
+
+	logger := telemetry.LoggerWithTrace(r.Log.WithValues("work", req.NamespacedName), span)
+	if mutated {
+		if patchErr := r.Client.Patch(ctx, work, client.MergeFrom(original)); patchErr != nil {
+			if errors.IsConflict(patchErr) {
+				logger.Info("conflict persisting trace annotations, requeueing")
+				return fastRequeue, nil
+			}
+			logger.Error(patchErr, "failed to persist trace annotations")
+			return ctrl.Result{}, patchErr
+		}
+	}
+
+	telemetry.SetCommonAttributes(span,
+		attribute.String("kratix.work.name", work.GetName()),
+		attribute.String("kratix.work.namespace", work.GetNamespace()),
+		attribute.Bool("kratix.work.resource_request", work.IsResourceRequest()),
+	)
+
+	logger.Info("Reconciling Work")
 
 	if !work.DeletionTimestamp.IsZero() {
 		return r.deleteWork(ctx, work)
@@ -77,7 +116,7 @@ func (r *WorkReconciler) Reconcile(ctx context.Context, req ctrl.Request) (ctrl.
 	if !controllerutil.ContainsFinalizer(work, workCleanUpFinalizer) {
 		return addFinalizers(opts{
 			client: r.Client,
-			logger: r.Log,
+			logger: logger,
 			ctx:    ctx}, work, []string{workFinalizer})
 	}
 

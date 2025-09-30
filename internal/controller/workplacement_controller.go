@@ -24,10 +24,15 @@ import (
 	"strings"
 
 	"github.com/go-logr/logr"
+	"github.com/syntasso/kratix/api/v1alpha1"
+	"github.com/syntasso/kratix/internal/telemetry"
+	"github.com/syntasso/kratix/lib/compression"
+	"github.com/syntasso/kratix/lib/writers"
 	"gopkg.in/yaml.v2"
 	v1 "k8s.io/api/core/v1"
 	k8sErrors "k8s.io/apimachinery/pkg/api/errors"
 	kerrors "k8s.io/apimachinery/pkg/api/errors"
+	apiMeta "k8s.io/apimachinery/pkg/api/meta"
 	metav1 "k8s.io/apimachinery/pkg/apis/meta/v1"
 	"k8s.io/apimachinery/pkg/labels"
 	"k8s.io/client-go/tools/record"
@@ -35,10 +40,9 @@ import (
 	"sigs.k8s.io/controller-runtime/pkg/client"
 	"sigs.k8s.io/controller-runtime/pkg/controller/controllerutil"
 
-	"github.com/syntasso/kratix/api/v1alpha1"
-	"github.com/syntasso/kratix/lib/compression"
-	"github.com/syntasso/kratix/lib/writers"
-	apiMeta "k8s.io/apimachinery/pkg/api/meta"
+	"go.opentelemetry.io/otel"
+	"go.opentelemetry.io/otel/attribute"
+	"go.opentelemetry.io/otel/trace"
 )
 
 const (
@@ -69,17 +73,53 @@ type WorkPlacementReconciler struct {
 //+kubebuilder:rbac:groups=platform.kratix.io,resources=workplacements/status,verbs=get;update;patch
 //+kubebuilder:rbac:groups=platform.kratix.io,resources=workplacements/finalizers,verbs=update
 
-func (r *WorkPlacementReconciler) Reconcile(ctx context.Context, req ctrl.Request) (ctrl.Result, error) {
-	logger := r.Log.WithValues("work-placement-controller", req.NamespacedName)
+func (r *WorkPlacementReconciler) Reconcile(ctx context.Context, req ctrl.Request) (result ctrl.Result, retErr error) {
 	workPlacement := &v1alpha1.WorkPlacement{}
-	err := r.Client.Get(context.Background(), req.NamespacedName, workPlacement)
+	err := r.Client.Get(ctx, req.NamespacedName, workPlacement)
 	if err != nil {
 		if k8sErrors.IsNotFound(err) {
 			return ctrl.Result{}, nil
 		}
-		logger.Error(err, "Error getting WorkPlacement", "workPlacement", req.Name)
+		r.Log.WithValues("work-placement-controller", req.NamespacedName).Error(err, "Error getting WorkPlacement", "workPlacement", req.Name)
 		return defaultRequeue, nil
 	}
+
+	tracer := otel.Tracer("github.com/syntasso/kratix/internal/controller/workplacement")
+	original := workPlacement.DeepCopy()
+	tracedCtx, span, mutated, traceErr := telemetry.StartSpanForObject(ctx, tracer, workPlacement, "WorkPlacementReconcile", trace.WithSpanKind(trace.SpanKindServer))
+	if traceErr != nil {
+		tracedCtx, span = tracer.Start(ctx, "WorkPlacementReconcile", trace.WithSpanKind(trace.SpanKindServer))
+		telemetry.RecordError(span, traceErr)
+		r.Log.Error(traceErr, "failed to initialise trace context", "workPlacement", req.NamespacedName)
+	}
+	ctx = tracedCtx
+	defer func() {
+		if span != nil {
+			if retErr != nil {
+				telemetry.RecordError(span, retErr)
+			}
+			span.End()
+		}
+	}()
+
+	logger := telemetry.LoggerWithTrace(r.Log.WithValues("work-placement-controller", req.NamespacedName), span)
+	if mutated {
+		if patchErr := r.Client.Patch(ctx, workPlacement, client.MergeFrom(original)); patchErr != nil {
+			if k8sErrors.IsConflict(patchErr) {
+				logger.Info("conflict persisting trace annotations, requeueing")
+				return fastRequeue, nil
+			}
+			logger.Error(patchErr, "failed to persist trace annotations")
+			return defaultRequeue, patchErr
+		}
+	}
+
+	telemetry.SetCommonAttributes(span,
+		attribute.String("kratix.workplacement.name", workPlacement.GetName()),
+		attribute.String("kratix.workplacement.namespace", workPlacement.GetNamespace()),
+		attribute.String("kratix.workplacement.target_destination", workPlacement.Spec.TargetDestinationName),
+	)
+
 	logger.Info("Reconciling WorkPlacement")
 
 	opts := opts{client: r.Client, ctx: ctx, logger: logger}

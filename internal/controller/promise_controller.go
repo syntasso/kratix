@@ -33,8 +33,12 @@ import (
 
 	"github.com/go-logr/logr"
 	"github.com/syntasso/kratix/api/v1alpha1"
+	"github.com/syntasso/kratix/internal/telemetry"
 	"github.com/syntasso/kratix/lib/resourceutil"
 	"github.com/syntasso/kratix/lib/workflow"
+	"go.opentelemetry.io/otel"
+	"go.opentelemetry.io/otel/attribute"
+	"go.opentelemetry.io/otel/trace"
 	batchv1 "k8s.io/api/batch/v1"
 	v1 "k8s.io/api/core/v1"
 	rbacv1 "k8s.io/api/rbac/v1"
@@ -125,7 +129,7 @@ var (
 
 // +kubebuilder:rbac:groups=apiextensions.k8s.io,resources=customresourcedefinitions,verbs=get;list;watch;create;update;patch;delete
 
-func (r *PromiseReconciler) Reconcile(ctx context.Context, req ctrl.Request) (ctrl.Result, error) {
+func (r *PromiseReconciler) Reconcile(ctx context.Context, req ctrl.Request) (result ctrl.Result, retErr error) {
 	if r.StartedDynamicControllers == nil {
 		r.StartedDynamicControllers = make(map[string]*DynamicResourceRequestController)
 	}
@@ -140,10 +144,46 @@ func (r *PromiseReconciler) Reconcile(ctx context.Context, req ctrl.Request) (ct
 		return defaultRequeue, nil //nolint:nilerr // requeue rather than exponential backoff
 	}
 
+	tracer := otel.Tracer("github.com/syntasso/kratix/internal/controller/promise")
+	original := promise.DeepCopy()
+	tracedCtx, span, mutated, traceErr := telemetry.StartSpanForObject(ctx, tracer, promise, "PromiseReconcile", trace.WithSpanKind(trace.SpanKindServer))
+	if traceErr != nil {
+		tracedCtx, span = tracer.Start(ctx, "PromiseReconcile", trace.WithSpanKind(trace.SpanKindServer))
+		telemetry.RecordError(span, traceErr)
+		r.Log.Error(traceErr, "failed to initialise trace context", "namespacedName", req.NamespacedName)
+	}
+	ctx = tracedCtx
+	defer func() {
+		if span != nil {
+			if retErr != nil {
+				telemetry.RecordError(span, retErr)
+			}
+			span.End()
+		}
+	}()
+
+	logger := telemetry.LoggerWithTrace(r.Log.WithValues("identifier", promise.GetName()), span)
+	if mutated {
+		if patchErr := r.Client.Patch(ctx, promise, client.MergeFrom(original)); patchErr != nil {
+			telemetry.RecordError(span, patchErr)
+			if errors.IsConflict(patchErr) {
+				logger.Info("conflict persisting trace annotations, requeueing")
+				return fastRequeue, nil
+			}
+			logger.Error(patchErr, "failed to persist trace annotations")
+			return defaultRequeue, patchErr
+		}
+	}
+
+	telemetry.SetCommonAttributes(span,
+		attribute.String("kratix.promise.name", promise.GetName()),
+		attribute.String("kratix.promise.namespace", promise.GetNamespace()),
+		attribute.String("kratix.promise.request", req.NamespacedName.String()),
+		attribute.Int64("kratix.promise.generation", promise.GetGeneration()),
+	)
+
 	originalStatus := promise.Status.Status
 	originalAvailableCondition := promise.GetCondition(v1alpha1.PromiseAvailableConditionType)
-
-	logger := r.Log.WithValues("identifier", promise.GetName())
 
 	if v, ok := promise.Labels[pauseReconciliationLabel]; ok && v == "true" {
 		msg := fmt.Sprintf("'%s' label set to 'true' for promise; pausing reconciliation", pauseReconciliationLabel)
@@ -503,7 +543,7 @@ func (r *PromiseReconciler) updateWorksSucceededCondition(
 func (r *PromiseReconciler) reconcileResources(ctx context.Context, logger logr.Logger, promise *v1alpha1.Promise,
 	rrGVK *schema.GroupVersionKind) (ctrl.Result, error) {
 	logger.Info("reconciling all resource requests of promise", "promiseName", promise.Name)
-	if err := r.reconcileAllRRs(rrGVK); err != nil {
+	if err := r.reconcileAllRRs(ctx, rrGVK); err != nil {
 		return ctrl.Result{}, err
 	}
 
@@ -830,13 +870,13 @@ func (r *PromiseReconciler) reconcileDependenciesAndPromiseWorkflows(o opts, pro
 	return nil, nil
 }
 
-func (r *PromiseReconciler) reconcileAllRRs(rrGVK *schema.GroupVersionKind) error {
+func (r *PromiseReconciler) reconcileAllRRs(ctx context.Context, rrGVK *schema.GroupVersionKind) error {
 	//label all rr with manual reconciliation
 	rrs := &unstructured.UnstructuredList{}
 	rrListGVK := *rrGVK
 	rrListGVK.Kind = rrListGVK.Kind + "List"
 	rrs.SetGroupVersionKind(rrListGVK)
-	err := r.Client.List(context.Background(), rrs)
+	err := r.Client.List(ctx, rrs)
 	if err != nil {
 		return err
 	}
@@ -847,7 +887,7 @@ func (r *PromiseReconciler) reconcileAllRRs(rrGVK *schema.GroupVersionKind) erro
 		}
 		newLabels[resourceutil.ManualReconciliationLabel] = "true"
 		rr.SetLabels(newLabels)
-		if err := r.Client.Update(context.Background(), &rr); err != nil {
+		if err := r.Client.Update(ctx, &rr); err != nil {
 			return err
 		}
 	}
