@@ -271,3 +271,15 @@ func TraceInfoString(annotations map[string]string) string {
 	}
 	return fmt.Sprintf("traceparent=%s tracestate=%s", annotations[TraceParentAnnotation], annotations[TraceStateAnnotation])
 }
+
+// AnnotateWithSpanContext injects span context values into a map of annotations.
+func AnnotateWithSpanContext(annotations map[string]string, span trace.Span) map[string]string {
+	if !span.SpanContext().IsValid() {
+		return annotations
+	}
+	if annotations == nil {
+		annotations = map[string]string{}
+	}
+	storeSpanContext(annotations, span.SpanContext())
+	return annotations
+}

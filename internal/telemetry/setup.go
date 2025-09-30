@@ -16,64 +16,67 @@ import (
 	semconv "go.opentelemetry.io/otel/semconv/v1.26.0"
 )
 
-const (
-	otlpProtocolGRPC         = "grpc"
-	otlpProtocolHTTPProtobuf = "http/protobuf"
-)
+const otlpProtocolGRPC = "grpc"
 
 // SetupTracerProvider configures and installs a global OpenTelemetry tracer provider.
-// If no OTLP endpoint is configured, tracing remains disabled and a no-op shutdown
-// function is returned.
+// If no OTLP endpoint is configured, tracing metadata is still generated locally so
+// downstream resources can participate in traces, but spans will not be exported.
 func SetupTracerProvider(ctx context.Context, logger logr.Logger, serviceName string) (func(context.Context) error, error) {
 	endpoint := strings.TrimSpace(os.Getenv("OTEL_EXPORTER_OTLP_ENDPOINT"))
-	if endpoint == "" {
-		logger.Info("OTEL_EXPORTER_OTLP_ENDPOINT not set, tracing disabled")
-		return func(context.Context) error { return nil }, nil
-	}
-
-	protocol := strings.TrimSpace(strings.ToLower(os.Getenv("OTEL_EXPORTER_OTLP_PROTOCOL")))
-	if protocol == "" {
-		protocol = otlpProtocolGRPC
-	}
 
 	var (
 		exporter *otlptrace.Exporter
 		err      error
 	)
 
-	switch protocol {
-	case otlpProtocolGRPC:
-		clientOpts := []otlptracegrpc.Option{otlptracegrpc.WithEndpoint(endpoint)}
-		if strings.EqualFold(os.Getenv("OTEL_EXPORTER_OTLP_INSECURE"), "true") {
-			clientOpts = append(clientOpts, otlptracegrpc.WithInsecure())
+	if endpoint != "" {
+		protocol := strings.TrimSpace(strings.ToLower(os.Getenv("OTEL_EXPORTER_OTLP_PROTOCOL")))
+		if protocol == "" {
+			protocol = otlpProtocolGRPC
 		}
-		if headers := parseHeaders(os.Getenv("OTEL_EXPORTER_OTLP_HEADERS")); len(headers) > 0 {
-			clientOpts = append(clientOpts, otlptracegrpc.WithHeaders(headers))
+
+		switch protocol {
+		case otlpProtocolGRPC:
+			clientOpts := []otlptracegrpc.Option{otlptracegrpc.WithEndpoint(endpoint)}
+			if strings.EqualFold(os.Getenv("OTEL_EXPORTER_OTLP_INSECURE"), "true") {
+				clientOpts = append(clientOpts, otlptracegrpc.WithInsecure())
+			}
+			if headers := parseHeaders(os.Getenv("OTEL_EXPORTER_OTLP_HEADERS")); len(headers) > 0 {
+				clientOpts = append(clientOpts, otlptracegrpc.WithHeaders(headers))
+			}
+			exporter, err = otlptracegrpc.New(ctx, clientOpts...)
+		default:
+			err = fmt.Errorf("unsupported OTLP protocol %q", protocol)
 		}
-		exporter, err = otlptracegrpc.New(ctx, clientOpts...)
-	case otlpProtocolHTTPProtobuf:
-		err = fmt.Errorf("unsupported OTLP protocol %q", protocol)
-	default:
-		err = fmt.Errorf("unknown OTLP protocol %q", protocol)
+
+		if err != nil {
+			logger.Error(err, "creating OTLP trace exporter failed; falling back to local-only tracing")
+			exporter = nil
+		}
+	} else {
+		logger.Info("OTEL_EXPORTER_OTLP_ENDPOINT not set; tracing spans will not be exported")
 	}
 
-	if err != nil {
-		return nil, fmt.Errorf("creating OTLP exporter: %w", err)
+	res, resErr := buildResource(ctx, serviceName)
+	if resErr != nil {
+		return nil, resErr
 	}
 
-	res, err := buildResource(ctx, serviceName)
-	if err != nil {
-		return nil, err
+	providerOpts := []sdktrace.TracerProviderOption{sdktrace.WithResource(res)}
+	if exporter != nil {
+		providerOpts = append(providerOpts, sdktrace.WithBatcher(exporter))
 	}
 
-	provider := sdktrace.NewTracerProvider(
-		sdktrace.WithBatcher(exporter),
-		sdktrace.WithResource(res),
-	)
+	provider := sdktrace.NewTracerProvider(providerOpts...)
 
 	otel.SetTracerProvider(provider)
 	otel.SetTextMapPropagator(propagation.NewCompositeTextMapPropagator(propagation.TraceContext{}, propagation.Baggage{}))
-	logger.Info("OpenTelemetry tracing enabled", "endpoint", endpoint, "protocol", protocol)
+
+	if exporter != nil {
+		logger.Info("OpenTelemetry tracing enabled", "endpoint", endpoint)
+	} else {
+		logger.Info("OpenTelemetry tracing configured without exporter")
+	}
 
 	return provider.Shutdown, nil
 }
