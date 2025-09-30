@@ -88,3 +88,15 @@ func TestContextWithTraceparent(t *testing.T) {
 	g.Expect(ok).To(gomega.BeTrue())
 	g.Expect(trace.SpanContextFromContext(ctx).IsValid()).To(gomega.BeTrue())
 }
+
+func TestStartSpanForObjectWithNoTracerProvider(t *testing.T) {
+	g := gomega.NewWithT(t)
+	tracer := trace.NewNoopTracerProvider().Tracer("noop")
+
+	promise := &v1alpha1.Promise{ObjectMeta: metav1.ObjectMeta{Name: "noop"}}
+	_, span, mutated, err := telemetry.StartSpanForObject(context.Background(), tracer, promise, "promise-flow")
+	g.Expect(err).NotTo(gomega.HaveOccurred())
+	g.Expect(mutated).To(gomega.BeFalse())
+	g.Expect(promise.GetAnnotations()).To(gomega.BeNil())
+	span.End()
+}
