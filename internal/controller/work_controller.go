@@ -120,6 +120,14 @@ func (r *WorkReconciler) Reconcile(ctx context.Context, req ctrl.Request) (resul
 			ctx:    ctx}, work, []string{workFinalizer})
 	}
 
+	originalAnnotations := cloneStringMap(work.GetAnnotations())
+	if span != nil {
+		enriched := cloneStringMap(work.GetAnnotations())
+		enriched = telemetry.AnnotateWithSpanContext(enriched, span)
+		work.SetAnnotations(enriched)
+		defer work.SetAnnotations(originalAnnotations)
+	}
+
 	logger.Info("Requesting scheduling for Work")
 
 	unscheduledWorkloadGroupIDs, err := r.Scheduler.ReconcileWork(work)
@@ -212,6 +220,17 @@ func (r *WorkReconciler) deleteWork(ctx context.Context, work *v1alpha1.Work) (c
 		}
 	}
 	return defaultRequeue, nil
+}
+
+func cloneStringMap(src map[string]string) map[string]string {
+	if src == nil {
+		return nil
+	}
+	dst := make(map[string]string, len(src))
+	for k, v := range src {
+		dst[k] = v
+	}
+	return dst
 }
 
 // SetupWithManager sets up the controller with the Manager.

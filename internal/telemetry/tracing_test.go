@@ -100,3 +100,18 @@ func TestStartSpanForObjectWithNoTracerProvider(t *testing.T) {
 	g.Expect(promise.GetAnnotations()).To(gomega.BeNil())
 	span.End()
 }
+
+func TestAnnotateWithSpanContext(t *testing.T) {
+	g := gomega.NewWithT(t)
+	tracer := newTestTracer(t)
+
+	ctx, span := tracer.Start(context.Background(), "test-span")
+	defer span.End()
+
+	annotations := telemetry.AnnotateWithSpanContext(nil, span)
+	g.Expect(annotations[telemetry.TraceParentAnnotation]).NotTo(gomega.BeEmpty())
+	g.Expect(annotations[telemetry.TraceStateAnnotation]).To(gomega.BeEmpty())
+
+	span.End()
+	g.Expect(trace.SpanContextFromContext(ctx).IsValid()).To(gomega.BeTrue())
+}
