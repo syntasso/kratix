@@ -51,6 +51,9 @@ func StartSpanForObject(ctx context.Context, tracer trace.Tracer, obj metav1.Obj
 	if needNewTrace {
 		startOpts := append([]trace.SpanStartOption{trace.WithNewRoot()}, opts...)
 		ctx, span := tracer.Start(ctx, spanName, startOpts...)
+		if !span.SpanContext().IsValid() {
+			return ctx, span, false, nil
+		}
 		storeSpanContext(annotations, span.SpanContext())
 		annotations[TraceTimestampAnnotation] = nowFunc().UTC().Format(time.RFC3339Nano)
 		if gen := obj.GetGeneration(); gen > 0 {
@@ -74,6 +77,9 @@ func StartSpanForObject(ctx context.Context, tracer trace.Tracer, obj metav1.Obj
 	if !spanCtx.IsValid() {
 		startOpts := append([]trace.SpanStartOption{trace.WithNewRoot()}, opts...)
 		ctx, span := tracer.Start(ctx, spanName, startOpts...)
+		if !span.SpanContext().IsValid() {
+			return ctx, span, false, nil
+		}
 		storeSpanContext(annotations, span.SpanContext())
 		annotations[TraceTimestampAnnotation] = nowFunc().UTC().Format(time.RFC3339Nano)
 		if gen := obj.GetGeneration(); gen > 0 {
@@ -86,6 +92,9 @@ func StartSpanForObject(ctx context.Context, tracer trace.Tracer, obj metav1.Obj
 	}
 
 	ctx, span := tracer.Start(extracted, spanName, opts...)
+	if !span.SpanContext().IsValid() {
+		return ctx, span, false, nil
+	}
 	mutated := false
 	if annotations[TraceTimestampAnnotation] == "" {
 		annotations[TraceTimestampAnnotation] = nowFunc().UTC().Format(time.RFC3339Nano)

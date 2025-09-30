@@ -38,6 +38,7 @@ import (
 	"sigs.k8s.io/controller-runtime/pkg/client"
 
 	"github.com/syntasso/kratix/internal/controller"
+	"github.com/syntasso/kratix/internal/telemetry"
 
 	utilruntime "k8s.io/apimachinery/pkg/util/runtime"
 	"k8s.io/client-go/kubernetes/scheme"
@@ -122,6 +123,21 @@ func main() {
 	prefix := os.Getenv("KRATIX_LOGGER_PREFIX")
 	if prefix != "" {
 		ctrl.Log = ctrl.Log.WithName(prefix)
+	}
+	setupLog = ctrl.Log.WithName("setup")
+
+	telemetryShutdown := func(context.Context) error { return nil }
+	if shutdown, err := telemetry.SetupTracerProvider(context.Background(), ctrl.Log.WithName("telemetry"), "kratix-controller-manager"); err != nil {
+		setupLog.Error(err, "failed to configure OpenTelemetry tracing")
+	} else {
+		telemetryShutdown = shutdown
+		defer func() {
+			shutdownCtx, cancel := context.WithTimeout(context.Background(), 5*time.Second)
+			defer cancel()
+			if err := telemetryShutdown(shutdownCtx); err != nil {
+				setupLog.Error(err, "failed to shutdown OpenTelemetry tracing")
+			}
+		}()
 	}
 
 	kClient, err := client.New(ctrl.GetConfigOrDie(), client.Options{})
