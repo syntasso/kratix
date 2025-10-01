@@ -6,10 +6,6 @@ QUICKSTART_TAG ?= docker.io/syntasso/kratix-platform-quickstart:latest
 IMG_VERSION ?= ${VERSION}
 IMG_TAG ?= ${IMG_NAME}:${IMG_VERSION}
 IMG_MIRROR ?= syntassodev/kratix-platform:${VERSION}
-# Image URL to use for work creator image in promise_controller.go
-PIPELINE_ADAPTER_IMG_VERSION ?= ${VERSION}
-PIPELINE_ADAPTER_IMG ?= docker.io/syntasso/kratix-platform-pipeline-adapter:${PIPELINE_ADAPTER_IMG_VERSION}
-PIPELINE_ADAPTER_IMG_MIRROR ?= syntassodev/kratix-platform-pipeline-adapter:${VERSION}
 # Version of the worker-resource-builder binary to build and release
 WRB_VERSION ?= 0.0.0
 # Produce CRDs that work back to Kubernetes 1.11 (no version conversion)
