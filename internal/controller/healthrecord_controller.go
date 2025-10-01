@@ -87,10 +87,6 @@ func (r *HealthRecordReconciler) Reconcile(ctx context.Context, req ctrl.Request
 		return defaultRequeue, nil
 	}
 
-	if err := r.ensureOwnerReference(ctx, healthRecord, resReq, logger); err != nil {
-		return ctrl.Result{}, err
-	}
-
 	if !healthRecord.DeletionTimestamp.IsZero() {
 		return r.deleteHealthRecord(ctx, healthRecord, resReq)
 	}
@@ -252,25 +248,6 @@ func getHealthDataAndStates(healthRecords []platformv1alpha1.HealthRecord) ([]an
 	}
 
 	return healthData, state, nil
-}
-
-func (r *HealthRecordReconciler) ensureOwnerReference(
-	ctx context.Context, healthRecord *platformv1alpha1.HealthRecord, resReq *unstructured.Unstructured, logger logr.Logger,
-) error {
-	for _, owner := range healthRecord.GetOwnerReferences() {
-		if owner.UID == resReq.GetUID() {
-			return nil
-		}
-	}
-	if err := controllerutil.SetControllerReference(resReq, healthRecord, r.Scheme); err != nil {
-		logger.Error(err, "Failed setting resource as owner of HealthRecord")
-		return err
-	}
-	if err := r.Update(ctx, healthRecord); err != nil {
-		logger.Error(err, "Failed updating HealthRecord with owner reference")
-		return err
-	}
-	return nil
 }
 
 func (r *HealthRecordReconciler) deleteHealthRecord(

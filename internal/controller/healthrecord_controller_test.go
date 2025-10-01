@@ -87,18 +87,6 @@ var _ = Describe("HealthRecordController", func() {
 			})
 
 			It("updates the resource status.healthStatus with the healthRecord data", func() {
-				By("setting the ResourceRequest as the owner of the HealthRecord", func() {
-					fetched := &v1alpha1.HealthRecord{}
-					err := fakeK8sClient.Get(ctx, client.ObjectKeyFromObject(healthRecord), fetched)
-					Expect(err).NotTo(HaveOccurred())
-
-					owners := fetched.GetOwnerReferences()
-					Expect(owners).To(HaveLen(1))
-					Expect(owners[0].Kind).To(Equal(resource.GetKind()))
-					Expect(owners[0].Name).To(Equal(resource.GetName()))
-					Expect(owners[0].UID).To(Equal(resource.GetUID()))
-				})
-
 				status := getResourceStatus(updatedResource)
 				Expect(status).To(HaveKey("healthStatus"))
 				Expect(getHealthStatusState(status)).To(Equal("ready"))
