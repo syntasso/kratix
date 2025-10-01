@@ -28,7 +28,6 @@ echo "setup platform and install StateStore"
 kind create cluster --image kindest/node:v1.33.1 --name platform --config hack/platform/kind-platform-config.yaml
 make install-cert-manager
 make build-and-load-kratix
-make build-and-load-work-creator
 helm install kratix charts/kratix/ -f "$platform_helm_values_path" --wait
 
 if [ "$STATE_STORE" == "git" ]; then
