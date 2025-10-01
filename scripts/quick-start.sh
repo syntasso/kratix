@@ -182,15 +182,6 @@ _build_kratix_image() {
     kind load docker-image $docker_org/kratix-platform:${VERSION} --name ${PLATFORM_CLUSTER_NAME}
 }
 
-_build_work_creator_image() {
-    docker_org=syntasso
-    if ${KRATIX_DEVELOPER:-false}; then
-        docker_org=syntassodev
-    fi
-    docker build --tag $docker_org/kratix-platform-pipeline-adapter:${VERSION} --quiet --file ${ROOT}/Dockerfile.pipeline-adapter ${ROOT} &&
-    kind load docker-image $docker_org/kratix-platform-pipeline-adapter:${VERSION} --name ${PLATFORM_CLUSTER_NAME}
-}
-
 cluster_exists() {
     local cluster_name="$1"
     kind get clusters | grep -q "$cluster_name"
@@ -201,15 +192,6 @@ step_build_and_load_kratix() {
     log -n "Building and loading Kratix image locally..."
     if ! run _build_kratix_image; then
         error "Failed to build Kratix image"
-        exit 1;
-    fi
-}
-
-step_build_and_load_kratix_work_creator() {
-    export DOCKER_BUILDKIT
-    log -n "Building and loading Work Creator image locally..."
-    if ! run _build_work_creator_image; then
-        error "Failed to build Work Creator image"
         exit 1;
     fi
 }
@@ -516,7 +498,6 @@ install_kratix() {
     step_load_images
     if ${BUILD_KRATIX_IMAGES}; then
         step_build_and_load_kratix
-        step_build_and_load_kratix_work_creator
     fi
 
     step_register_destinations
