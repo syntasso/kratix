@@ -19,5 +19,5 @@ images:
   newName: docker.io/syntasso/kratix-platform
   newTag: dev
 
-patchesStrategicMerge:
-- pipeline-image-patch.yaml
+patches:
+- path: pipeline-image-patch.yaml

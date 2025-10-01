@@ -9,5 +9,5 @@ spec:
       containers:
         - name: manager
           env:
-            - name: CONTROLLER_IMAGE
-              value: controller:latest
+            - name: PIPELINE_ADAPTER_IMG
+              value: docker.io/syntasso/kratix-platform:dev
