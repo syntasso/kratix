@@ -14,14 +14,10 @@ labels:
     app.kubernetes.io/instance: kratix-platform
     app.kubernetes.io/part-of: kratix
 
-# The pipeline-adapter-config config map drives the PIPELINE_ADAPTER_IMG env var, which is used by the promise
-# controller as the last container in the workflow Pipeline pod spec.
-configMapGenerator:
-- envs:
-  - pipeline-adapter-config.properties
-  name: pipeline-adapter-config
-
 images:
 - name: controller
   newName: docker.io/syntasso/kratix-platform
   newTag: dev
+
+patchesStrategicMerge:
+- pipeline-image-patch.yaml

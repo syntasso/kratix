@@ -61,10 +61,7 @@ spec:
             cpu: 100m
             memory: 256Mi
         env:
-          - name: PIPELINE_ADAPTER_IMG
-            valueFrom:
-              configMapKeyRef:
-                name: pipeline-adapter-config
-                key: PIPELINE_ADAPTER_IMG
+          - name: CONTROLLER_IMAGE
+            value: controller:latest
       serviceAccountName: controller-manager
       terminationGracePeriodSeconds: 10
