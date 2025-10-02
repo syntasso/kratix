@@ -131,13 +131,13 @@ uninstall: manifests kustomize ## Uninstall CRDs from the K8s cluster specified 
 
 deploy: manifests kustomize ## Deploy controller to the K8s cluster specified in ~/.kube/config.
 	cd config/manager && $(KUSTOMIZE) edit set image controller=${IMG_TAG}
-	yq -i '(.spec.template.spec.containers[] | select(.name == "manager") | .env[] | select(.name == "PIPELINE_ADAPTER_IMG")).value = "$(IMG_TAG)"' config/manager/pipeline-image-patch.yaml
+	echo "PIPELINE_ADAPTER_IMG=${IMG_TAG}" > config/manager/pipeline-adapter-config.properties
 	$(KUSTOMIZE) build config/default | kubectl apply -f -
 
 distribution: manifests kustomize ## Create a deployment manifest in /distribution/kratix.yaml
 	cd config/manager && $(KUSTOMIZE) edit set image controller=${IMG_TAG}
 	mkdir -p distribution
-	yq -i '(.spec.template.spec.containers[] | select(.name == "manager") | .env[] | select(.name == "PIPELINE_ADAPTER_IMG")).value = "$(IMG_TAG)"' config/manager/pipeline-image-patch.yaml
+	echo "PIPELINE_ADAPTER_IMG=${IMG_TAG}" > config/manager/pipeline-adapter-config.properties
 	$(KUSTOMIZE) build config/default --output distribution/kratix.yaml
 
 release: distribution docker-build-and-push ## Create a release. Set VERSION env var to "vX.Y.Z-n".
