@@ -23,7 +23,6 @@ import (
 
 	"github.com/go-logr/logr"
 	"github.com/syntasso/kratix/api/v1alpha1"
-	"github.com/syntasso/kratix/internal/telemetry"
 	v1 "k8s.io/api/core/v1"
 	"k8s.io/apimachinery/pkg/api/errors"
 	apiMeta "k8s.io/apimachinery/pkg/api/meta"
@@ -115,9 +114,9 @@ func (r *WorkReconciler) Reconcile(ctx context.Context, req ctrl.Request) (resul
 	}
 
 	originalAnnotations := cloneStringMap(work.GetAnnotations())
-	if traceCtx.Span() != nil {
+	if traceCtx.HasTrace() {
 		enriched := cloneStringMap(work.GetAnnotations())
-		enriched = telemetry.AnnotateWithSpanContext(enriched, traceCtx.Span())
+		enriched = traceCtx.InjectTrace(enriched)
 		work.SetAnnotations(enriched)
 		defer work.SetAnnotations(originalAnnotations)
 	}
