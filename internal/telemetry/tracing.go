@@ -5,6 +5,7 @@ import (
 	"fmt"
 	"os"
 	"strconv"
+	"strings"
 	"time"
 
 	"github.com/go-logr/logr"
@@ -91,10 +92,6 @@ func StartSpanForObject(ctx context.Context, tracer trace.Tracer, obj metav1.Obj
 		return ctx, span, true, nil
 	}
 
-	ctx, span := tracer.Start(extracted, spanName, opts...)
-	if !span.SpanContext().IsValid() {
-		return ctx, span, false, nil
-	}
 	mutated := false
 	if annotations[TraceTimestampAnnotation] == "" {
 		annotations[TraceTimestampAnnotation] = nowFunc().UTC().Format(time.RFC3339Nano)
@@ -109,7 +106,7 @@ func StartSpanForObject(ctx context.Context, tracer trace.Tracer, obj metav1.Obj
 	if mutated {
 		obj.SetAnnotations(annotations)
 	}
-	return ctx, span, mutated, nil
+	return extracted, nil, mutated, nil
 }
 
 func needsNewTrace(obj metav1.Object, annotations map[string]string) (bool, error) {
@@ -282,4 +279,20 @@ func AnnotateWithSpanContext(annotations map[string]string, span trace.Span) map
 	}
 	storeSpanContext(annotations, span.SpanContext())
 	return annotations
+}
+
+// TraceIDFromTraceParent extracts the trace ID from a W3C traceparent string.
+func TraceIDFromTraceParent(traceParent string) string {
+	if traceParent == "" {
+		return ""
+	}
+	parts := strings.Split(traceParent, "-")
+	if len(parts) < 2 {
+		return ""
+	}
+	traceID := parts[1]
+	if len(traceID) != 32 {
+		return ""
+	}
+	return traceID
 }

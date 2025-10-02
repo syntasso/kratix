@@ -39,11 +39,12 @@ func TestStartSpanForObjectCreatesAnnotations(t *testing.T) {
 	span.End()
 
 	// Reuse the existing trace.
-	_, span2, mutatedSecond, err := telemetry.StartSpanForObject(ctx, tracer, promise, "promise-flow")
+	ctx2, span2, mutatedSecond, err := telemetry.StartSpanForObject(ctx, tracer, promise, "promise-flow")
 	g.Expect(err).NotTo(gomega.HaveOccurred())
 	g.Expect(mutatedSecond).To(gomega.BeFalse())
+	g.Expect(span2).To(gomega.BeNil())
+	g.Expect(trace.SpanContextFromContext(ctx2).IsValid()).To(gomega.BeTrue())
 	g.Expect(promise.GetAnnotations()[telemetry.TraceParentAnnotation]).To(gomega.Equal(annotations[telemetry.TraceParentAnnotation]))
-	span2.End()
 }
 
 func TestStartSpanForObjectDetectsExpiredTrace(t *testing.T) {

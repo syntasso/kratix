@@ -15,12 +15,19 @@ import (
 // reconcileTrace centralises per-controller span lifecycle management so each
 // reconciler stays focused on business logic instead of trace boilerplate.
 type reconcileTrace struct {
-	ctx      context.Context
-	span     trace.Span
-	logger   logr.Logger
-	object   client.Object
-	original client.Object
-	mutated  bool
+	ctx          context.Context
+	tracer       trace.Tracer
+	span         trace.Span
+	spanName     string
+	spanOpts     []trace.SpanStartOption
+	baseLogger   logr.Logger
+	logger       logr.Logger
+	object       client.Object
+	original     client.Object
+	mutated      bool
+	traceParent  string
+	traceState   string
+	pendingAttrs []attribute.KeyValue
 }
 
 func newReconcileTrace(
@@ -31,26 +38,42 @@ func newReconcileTrace(
 	logger logr.Logger,
 ) *reconcileTrace {
 	tracer := otel.Tracer(tracerName)
+	spanOpts := []trace.SpanStartOption{trace.WithSpanKind(trace.SpanKindServer)}
 	original := obj.DeepCopyObject().(client.Object)
 	tracedCtx, span, mutated, traceErr := telemetry.StartSpanForObject(
-		ctx, tracer, obj, spanName, trace.WithSpanKind(trace.SpanKindServer),
+		ctx, tracer, obj, spanName, spanOpts...,
 	)
+	rt := &reconcileTrace{
+		ctx:        tracedCtx,
+		tracer:     tracer,
+		span:       span,
+		spanName:   spanName,
+		spanOpts:   spanOpts,
+		baseLogger: logger,
+		logger:     logger,
+		object:     obj,
+		original:   original,
+		mutated:    mutated,
+	}
 	if traceErr != nil {
-		tracedCtx, span = tracer.Start(ctx, spanName, trace.WithSpanKind(trace.SpanKindServer))
-		telemetry.RecordError(span, traceErr)
+		rt.ctx, rt.span = tracer.Start(ctx, spanName, spanOpts...)
+		telemetry.RecordError(rt.span, traceErr)
 		logger.Error(traceErr, "failed to initialise trace context")
 	}
 
-	reconcileLogger := telemetry.LoggerWithTrace(logger, span)
-
-	return &reconcileTrace{
-		ctx:      tracedCtx,
-		span:     span,
-		logger:   reconcileLogger,
-		object:   obj,
-		original: original,
-		mutated:  mutated,
+	annotations := obj.GetAnnotations()
+	if annotations != nil {
+		rt.traceParent = annotations[telemetry.TraceParentAnnotation]
+		rt.traceState = annotations[telemetry.TraceStateAnnotation]
 	}
+
+	if rt.span != nil && rt.span.SpanContext().IsValid() {
+		rt.logger = telemetry.LoggerWithTrace(logger, rt.span)
+	} else if traceID := telemetry.TraceIDFromTraceParent(rt.traceParent); traceID != "" {
+		rt.logger = logger.WithValues("trace_id", traceID)
+	}
+
+	return rt
 }
 
 func (rt *reconcileTrace) Context() context.Context {
@@ -61,12 +84,14 @@ func (rt *reconcileTrace) Logger() logr.Logger {
 	return rt.logger
 }
 
-func (rt *reconcileTrace) Span() trace.Span {
-	return rt.span
-}
-
 func (rt *reconcileTrace) AddAttributes(attrs ...attribute.KeyValue) {
-	telemetry.SetCommonAttributes(rt.span, attrs...)
+	if len(attrs) == 0 {
+		return
+	}
+	rt.pendingAttrs = append(rt.pendingAttrs, attrs...)
+	if rt.span != nil && rt.span.SpanContext().IsValid() {
+		telemetry.SetCommonAttributes(rt.span, attrs...)
+	}
 }
 
 func (rt *reconcileTrace) PersistAnnotations(c client.Client) (bool, error) {
@@ -74,7 +99,9 @@ func (rt *reconcileTrace) PersistAnnotations(c client.Client) (bool, error) {
 		return false, nil
 	}
 	if err := c.Patch(rt.ctx, rt.object, client.MergeFrom(rt.original)); err != nil {
-		telemetry.RecordError(rt.span, err)
+		if rt.span != nil {
+			telemetry.RecordError(rt.span, err)
+		}
 		return errors.IsConflict(err), err
 	}
 	rt.mutated = false
@@ -89,4 +116,45 @@ func (rt *reconcileTrace) End(err error) {
 		telemetry.RecordError(rt.span, err)
 	}
 	rt.span.End()
+}
+
+func (rt *reconcileTrace) EnsureSpan() trace.Span {
+	if rt.span != nil && rt.span.SpanContext().IsValid() {
+		return rt.span
+	}
+	if rt.tracer == nil {
+		return nil
+	}
+	ctx, span := rt.tracer.Start(rt.ctx, rt.spanName, rt.spanOpts...)
+	if !span.SpanContext().IsValid() {
+		rt.ctx = ctx
+		rt.span = span
+		return nil
+	}
+	rt.ctx = ctx
+	rt.span = span
+	if len(rt.pendingAttrs) > 0 {
+		telemetry.SetCommonAttributes(rt.span, rt.pendingAttrs...)
+	}
+	rt.logger = telemetry.LoggerWithTrace(rt.baseLogger, rt.span)
+	annotations := telemetry.AnnotateWithSpanContext(rt.object.GetAnnotations(), rt.span)
+	rt.object.SetAnnotations(annotations)
+	rt.traceParent = annotations[telemetry.TraceParentAnnotation]
+	rt.traceState = annotations[telemetry.TraceStateAnnotation]
+	rt.mutated = true
+	return rt.span
+}
+
+func (rt *reconcileTrace) HasTrace() bool {
+	return rt.traceParent != ""
+}
+
+func (rt *reconcileTrace) InjectTrace(annotations map[string]string) map[string]string {
+	if !rt.HasTrace() {
+		return annotations
+	}
+	if rt.span != nil && rt.span.SpanContext().IsValid() {
+		return telemetry.AnnotateWithSpanContext(annotations, rt.span)
+	}
+	return telemetry.ApplyTraceAnnotations(annotations, rt.traceParent, rt.traceState)
 }
