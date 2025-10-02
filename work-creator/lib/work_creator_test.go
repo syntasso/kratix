@@ -8,6 +8,7 @@ import (
 	. "github.com/onsi/ginkgo/v2"
 	. "github.com/onsi/gomega"
 	"github.com/syntasso/kratix/api/v1alpha1"
+	"github.com/syntasso/kratix/internal/telemetry"
 	"github.com/syntasso/kratix/lib/compression"
 	"github.com/syntasso/kratix/work-creator/lib"
 	v1 "k8s.io/api/core/v1"
@@ -27,16 +28,26 @@ var _ = Describe("WorkCreator", func() {
 		var (
 			workCreator       lib.WorkCreator
 			expectedNamespace string
+			traceParent       string
+			traceState        string
 		)
 
 		BeforeEach(func() {
 			expectedNamespace = "default"
+			traceParent = "00-4bf92f3577b34da6a3ce929d0e0e4736-00f067aa0ba902b7-01"
+			traceState = "example=trace"
 
 			workCreator = lib.WorkCreator{
 				K8sClient: k8sClient,
 			}
 			err := k8sClient.Create(context.Background(), &v1.Namespace{ObjectMeta: metav1.ObjectMeta{Name: "kratix-platform-system"}})
 			Expect(err).NotTo(HaveOccurred())
+			Expect(os.Setenv(telemetry.TraceParentEnvVar, traceParent)).To(Succeed())
+			Expect(os.Setenv(telemetry.TraceStateEnvVar, traceState)).To(Succeed())
+			DeferCleanup(func() {
+				Expect(os.Unsetenv(telemetry.TraceParentEnvVar)).To(Succeed())
+				Expect(os.Unsetenv(telemetry.TraceStateEnvVar)).To(Succeed())
+			})
 		})
 
 		When("provided a complete set of inputs for a resource request", func() {
@@ -66,6 +77,11 @@ var _ = Describe("WorkCreator", func() {
 
 			It("has the expected Work name", func() {
 				Expect(workResource.Name).To(MatchRegexp(`^promise-name-resource-name-configure-job-\b\w{5}\b$`))
+			})
+
+			It("propagates trace annotations to the Work", func() {
+				Expect(workResource.Annotations).To(HaveKeyWithValue(telemetry.TraceParentAnnotation, traceParent))
+				Expect(workResource.Annotations).To(HaveKeyWithValue(telemetry.TraceStateAnnotation, traceState))
 			})
 
 			It("has the expected workloads", func() {

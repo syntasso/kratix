@@ -47,6 +47,8 @@ import (
 	"k8s.io/apimachinery/pkg/types"
 	ctrl "sigs.k8s.io/controller-runtime"
 	"sigs.k8s.io/controller-runtime/pkg/client"
+
+	"go.opentelemetry.io/otel/attribute"
 )
 
 const workFinalizer = v1alpha1.KratixPrefix + "work-cleanup"
@@ -73,7 +75,7 @@ type DynamicResourceRequestController struct {
 //+kubebuilder:rbac:groups="batch",resources=jobs,verbs=get;list;watch;create;update;patch;delete
 
 // Reconcile reconciles a Dynamically Generated Resource object.
-func (r *DynamicResourceRequestController) Reconcile(ctx context.Context, req ctrl.Request) (ctrl.Result, error) {
+func (r *DynamicResourceRequestController) Reconcile(ctx context.Context, req ctrl.Request) (result ctrl.Result, retErr error) {
 	if !*r.Enabled {
 		// temporary fix until https://github.com/kubernetes-sigs/controller-runtime/issues/1884 is resolved
 		// once resolved, this won't be necessary since the dynamic controller will be deleted
@@ -81,7 +83,7 @@ func (r *DynamicResourceRequestController) Reconcile(ctx context.Context, req ct
 	}
 
 	resourceRequestIdentifier := fmt.Sprintf("%s-%s", r.PromiseIdentifier, req.Name)
-	logger := r.Log.WithValues(
+	baseLogger := r.Log.WithValues(
 		"uid", r.UID,
 		"promiseID", r.PromiseIdentifier,
 		"namespace", req.NamespacedName,
@@ -93,7 +95,7 @@ func (r *DynamicResourceRequestController) Reconcile(ctx context.Context, req ct
 
 	promise := &v1alpha1.Promise{}
 	if err := r.Client.Get(ctx, types.NamespacedName{Name: r.PromiseIdentifier}, promise); err != nil {
-		logger.Error(err, "Failed getting Promise")
+		baseLogger.Error(err, "Failed getting Promise")
 		return ctrl.Result{}, err
 	}
 
@@ -101,21 +103,44 @@ func (r *DynamicResourceRequestController) Reconcile(ctx context.Context, req ct
 		if apierrors.IsNotFound(err) {
 			return ctrl.Result{}, nil
 		}
-		logger.Error(err, "Failed getting Promise CRD")
+		baseLogger.Error(err, "Failed getting Promise CRD")
 		return defaultRequeue, nil
+	}
+
+	spanName := fmt.Sprintf("%s/DynamicResourceRequestReconcile", r.PromiseIdentifier)
+	traceCtx := newReconcileTrace(ctx, "dynamic-resource-request-controller", spanName, rr, baseLogger)
+	ctx = traceCtx.Context()
+	logger := traceCtx.Logger()
+	defer func() {
+		traceCtx.End(retErr)
+	}()
+
+	traceCtx.AddAttributes(
+		attribute.String("kratix.promise.name", promise.GetName()),
+		attribute.String("kratix.resource_request.name", rr.GetName()),
+		attribute.String("kratix.resource_request.namespace", rr.GetNamespace()),
+	)
+
+	if conflict, patchErr := traceCtx.PersistAnnotations(r.Client); patchErr != nil {
+		if conflict {
+			logger.Info("conflict persisting trace annotations, requeueing")
+			return fastRequeue, nil
+		}
+		logger.Error(patchErr, "failed to persist trace annotations")
+		return ctrl.Result{}, patchErr
 	}
 
 	if v, ok := promise.Labels[pauseReconciliationLabel]; ok && v == "true" {
 		msg := fmt.Sprintf("'%s' label set to 'true' for promise; pausing reconciliation for this resource request",
 			pauseReconciliationLabel)
-		r.Log.Info(msg)
+		logger.Info(msg)
 		return ctrl.Result{}, r.setPausedReconciliationStatusConditions(ctx, rr, msg)
 	}
 
 	if v, ok := rr.GetLabels()[pauseReconciliationLabel]; ok && v == "true" {
 		msg := fmt.Sprintf("'%s' label set to 'true' for this resource request; pausing reconciliation",
 			pauseReconciliationLabel)
-		r.Log.Info(msg)
+		logger.Info(msg)
 		return ctrl.Result{}, r.setPausedReconciliationStatusConditions(ctx, rr, msg)
 	}
 

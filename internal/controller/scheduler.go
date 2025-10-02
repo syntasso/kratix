@@ -10,6 +10,7 @@ import (
 
 	"github.com/go-logr/logr"
 	"github.com/syntasso/kratix/api/v1alpha1"
+	"github.com/syntasso/kratix/internal/telemetry"
 	corev1 "k8s.io/api/core/v1"
 	apimeta "k8s.io/apimachinery/pkg/api/meta"
 	metav1 "k8s.io/apimachinery/pkg/apis/meta/v1"
@@ -344,7 +345,7 @@ func (s *Scheduler) applyWorkplacementsForTargetDestinations(workloadGroup v1alp
 				workloadGroupIDKey:         workloadGroup.ID,
 				TargetDestinationNameLabel: targetDestinationName,
 			}
-			workPlacement.SetAnnotations(work.GetAnnotations())
+			workPlacement.SetAnnotations(applyWorkTraceAnnotations(workPlacement.GetAnnotations(), work.GetAnnotations()))
 
 			workPlacement.SetPipelineName(work)
 
@@ -377,6 +378,48 @@ func (s *Scheduler) applyWorkplacementsForTargetDestinations(workloadGroup v1alp
 			"workplacement reconciled: %s, operation: %s", workPlacement.GetName(), op)
 	}
 	return containsMischeduledWorkplacement, nil
+}
+
+func applyWorkTraceAnnotations(dest, workAnnotations map[string]string) map[string]string {
+	if dest != nil {
+		dest = cloneAnnotationMap(dest)
+	}
+	if val := dest[telemetry.TraceParentAnnotation]; val != "" {
+		return dest
+	}
+	if workAnnotations == nil {
+		return dest
+	}
+	parent := workAnnotations[telemetry.TraceParentAnnotation]
+	state := workAnnotations[telemetry.TraceStateAnnotation]
+	if parent == "" {
+		if dest != nil {
+			delete(dest, telemetry.TraceParentAnnotation)
+			delete(dest, telemetry.TraceStateAnnotation)
+		}
+		return dest
+	}
+	if dest == nil {
+		dest = map[string]string{}
+	}
+	dest[telemetry.TraceParentAnnotation] = parent
+	if state != "" {
+		dest[telemetry.TraceStateAnnotation] = state
+	} else {
+		delete(dest, telemetry.TraceStateAnnotation)
+	}
+	return dest
+}
+
+func cloneAnnotationMap(src map[string]string) map[string]string {
+	if src == nil {
+		return nil
+	}
+	clone := make(map[string]string, len(src))
+	for k, v := range src {
+		clone[k] = v
+	}
+	return clone
 }
 
 func (s *Scheduler) updateWorkPlacementStatus(workPlacement *v1alpha1.WorkPlacement, misplaced bool) error {

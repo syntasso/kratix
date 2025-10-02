@@ -6,6 +6,7 @@ import (
 	"strconv"
 	"strings"
 
+	"github.com/syntasso/kratix/internal/telemetry"
 	"github.com/syntasso/kratix/lib/hash"
 	"github.com/syntasso/kratix/lib/objectutil"
 	"gopkg.in/yaml.v2"
@@ -226,6 +227,24 @@ func (p *PipelineFactory) workCreatorContainer() corev1.Container {
 		Image:   os.Getenv("PIPELINE_ADAPTER_IMG"),
 		Command: []string{"/bin/pipeline-adapter"},
 		Args:    args,
+		Env: []corev1.EnvVar{
+			{
+				Name: telemetry.TraceParentEnvVar,
+				ValueFrom: &corev1.EnvVarSource{
+					FieldRef: &corev1.ObjectFieldSelector{
+						FieldPath: fmt.Sprintf("metadata.annotations['%s']", telemetry.TraceParentAnnotation),
+					},
+				},
+			},
+			{
+				Name: telemetry.TraceStateEnvVar,
+				ValueFrom: &corev1.EnvVarSource{
+					FieldRef: &corev1.ObjectFieldSelector{
+						FieldPath: fmt.Sprintf("metadata.annotations['%s']", telemetry.TraceStateAnnotation),
+					},
+				},
+			},
+		},
 		VolumeMounts: []corev1.VolumeMount{
 			{MountPath: "/work-creator-files/input", Name: "shared-output"},
 			{MountPath: "/work-creator-files/metadata", Name: "shared-metadata"},
@@ -323,19 +342,28 @@ func (p *PipelineFactory) pipelineJob(
 		containers = []corev1.Container{pipelineContainers[len(pipelineContainers)-1]}
 	}
 
+	jobAnnotations := p.pipelineJobAnnotations(obj)
+	podAnnotations := make(map[string]string)
+	if existing := p.Pipeline.GetAnnotations(); existing != nil {
+		for key, value := range existing {
+			podAnnotations[key] = value
+		}
+	}
+	podAnnotations = telemetry.CopyTraceAnnotations(podAnnotations, jobAnnotations)
+
 	job := &batchv1.Job{
 		ObjectMeta: metav1.ObjectMeta{
 			Name:        p.pipelineJobName(),
 			Namespace:   p.Namespace,
 			Labels:      p.pipelineJobLabels(objHash),
-			Annotations: p.pipelineJobAnnotations(obj),
+			Annotations: jobAnnotations,
 		},
 		Spec: batchv1.JobSpec{
 			BackoffLimit: backoffLimit,
 			Template: corev1.PodTemplateSpec{
 				ObjectMeta: metav1.ObjectMeta{
 					Labels:      p.pipelineJobLabels(objHash),
-					Annotations: p.Pipeline.GetAnnotations(),
+					Annotations: podAnnotations,
 				},
 				Spec: corev1.PodSpec{
 					RestartPolicy:      corev1.RestartPolicyOnFailure,
@@ -426,6 +454,7 @@ func (p *PipelineFactory) pipelineJobAnnotations(obj *unstructured.Unstructured)
 		annotations[JobResourceNameAnnotation] = obj.GetName()
 		annotations[JobResourceKindAnnotation] = obj.GetKind()
 		annotations[JobResourceAPIVersionAnnotation] = obj.GetAPIVersion()
+		annotations = telemetry.CopyTraceAnnotations(annotations, obj.GetAnnotations())
 	}
 
 	return annotations

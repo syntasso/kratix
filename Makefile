@@ -102,6 +102,8 @@ build-and-load-kratix: kind-load-image ## Build kratix container image and reloa
 build-and-load-work-creator: ## Build work-creator container image and reloads
 	PIPELINE_ADAPTER_IMG_VERSION=${PIPELINE_ADAPTER_IMG_VERSION} PIPELINE_ADAPTER_IMG_MIRROR=${PIPELINE_ADAPTER_IMG_MIRROR} make -C work-creator kind-load-image
 
+build-and-load: build-and-load-kratix build-and-load-work-creator
+
 ##@ Build
 
 # Generate manifests for distributed installation

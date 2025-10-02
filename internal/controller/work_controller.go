@@ -34,6 +34,8 @@ import (
 	"sigs.k8s.io/controller-runtime/pkg/controller/controllerutil"
 	"sigs.k8s.io/controller-runtime/pkg/handler"
 	"sigs.k8s.io/controller-runtime/pkg/reconcile"
+
+	"go.opentelemetry.io/otel/attribute"
 )
 
 const workCleanUpFinalizer = v1alpha1.KratixPrefix + "work-cleanup"
@@ -55,20 +57,50 @@ type WorkScheduler interface {
 //+kubebuilder:rbac:groups=platform.kratix.io,resources=works/status,verbs=get;update;patch
 //+kubebuilder:rbac:groups=platform.kratix.io,resources=works/finalizers,verbs=update
 
-func (r *WorkReconciler) Reconcile(ctx context.Context, req ctrl.Request) (ctrl.Result, error) {
-	logger := r.Log.WithValues("work", req.NamespacedName)
-
-	logger.Info("Reconciling Work")
-
+func (r *WorkReconciler) Reconcile(ctx context.Context, req ctrl.Request) (result ctrl.Result, retErr error) {
 	work := &v1alpha1.Work{}
-	err := r.Client.Get(context.Background(), req.NamespacedName, work)
+	err := r.Client.Get(ctx, req.NamespacedName, work)
 	if err != nil {
 		if errors.IsNotFound(err) {
 			return ctrl.Result{}, nil
 		}
-		logger.Error(err, "Error getting Work")
+		r.Log.WithValues("work", req.NamespacedName).Error(err, "Error getting Work")
 		return ctrl.Result{}, err
 	}
+
+	promiseName := work.Spec.PromiseName
+	if promiseName == "" {
+		promiseName = work.GetLabels()[v1alpha1.PromiseNameLabel]
+	}
+	if promiseName == "" {
+		promiseName = work.GetName()
+	}
+	baseLogger := r.Log.WithValues("work", req.NamespacedName, "promise", promiseName)
+	spanName := fmt.Sprintf("%s/WorkReconcile", promiseName)
+	traceCtx := newReconcileTrace(ctx, "work-controller", spanName, work, baseLogger)
+	ctx = traceCtx.Context()
+	logger := traceCtx.Logger()
+	defer func() {
+		traceCtx.End(retErr)
+	}()
+
+	traceCtx.AddAttributes(
+		attribute.String("kratix.promise.name", promiseName),
+		attribute.String("kratix.work.name", work.GetName()),
+		attribute.String("kratix.work.namespace", work.GetNamespace()),
+		attribute.Bool("kratix.work.resource_request", work.IsResourceRequest()),
+	)
+
+	if conflict, patchErr := traceCtx.PersistAnnotations(r.Client); patchErr != nil {
+		if conflict {
+			logger.Info("conflict persisting trace annotations, requeueing")
+			return fastRequeue, nil
+		}
+		logger.Error(patchErr, "failed to persist trace annotations")
+		return ctrl.Result{}, patchErr
+	}
+
+	logger.Info("Reconciling Work")
 
 	if !work.DeletionTimestamp.IsZero() {
 		return r.deleteWork(ctx, work)
@@ -77,8 +109,16 @@ func (r *WorkReconciler) Reconcile(ctx context.Context, req ctrl.Request) (ctrl.
 	if !controllerutil.ContainsFinalizer(work, workCleanUpFinalizer) {
 		return addFinalizers(opts{
 			client: r.Client,
-			logger: r.Log,
+			logger: logger,
 			ctx:    ctx}, work, []string{workFinalizer})
+	}
+
+	originalAnnotations := cloneStringMap(work.GetAnnotations())
+	if traceCtx.HasTrace() {
+		enriched := cloneStringMap(work.GetAnnotations())
+		enriched = traceCtx.InjectTrace(enriched)
+		work.SetAnnotations(enriched)
+		defer work.SetAnnotations(originalAnnotations)
 	}
 
 	logger.Info("Requesting scheduling for Work")
@@ -173,6 +213,17 @@ func (r *WorkReconciler) deleteWork(ctx context.Context, work *v1alpha1.Work) (c
 		}
 	}
 	return defaultRequeue, nil
+}
+
+func cloneStringMap(src map[string]string) map[string]string {
+	if src == nil {
+		return nil
+	}
+	dst := make(map[string]string, len(src))
+	for k, v := range src {
+		dst[k] = v
+	}
+	return dst
 }
 
 // SetupWithManager sets up the controller with the Manager.

@@ -35,6 +35,7 @@ import (
 	"github.com/syntasso/kratix/api/v1alpha1"
 	"github.com/syntasso/kratix/lib/resourceutil"
 	"github.com/syntasso/kratix/lib/workflow"
+	"go.opentelemetry.io/otel/attribute"
 	batchv1 "k8s.io/api/batch/v1"
 	v1 "k8s.io/api/core/v1"
 	rbacv1 "k8s.io/api/rbac/v1"
@@ -125,7 +126,7 @@ var (
 
 // +kubebuilder:rbac:groups=apiextensions.k8s.io,resources=customresourcedefinitions,verbs=get;list;watch;create;update;patch;delete
 
-func (r *PromiseReconciler) Reconcile(ctx context.Context, req ctrl.Request) (ctrl.Result, error) {
+func (r *PromiseReconciler) Reconcile(ctx context.Context, req ctrl.Request) (result ctrl.Result, retErr error) {
 	if r.StartedDynamicControllers == nil {
 		r.StartedDynamicControllers = make(map[string]*DynamicResourceRequestController)
 	}
@@ -140,10 +141,33 @@ func (r *PromiseReconciler) Reconcile(ctx context.Context, req ctrl.Request) (ct
 		return defaultRequeue, nil //nolint:nilerr // requeue rather than exponential backoff
 	}
 
+	baseLogger := r.Log.WithValues("identifier", promise.GetName(), "request", req.NamespacedName.String())
+	spanName := fmt.Sprintf("%s/PromiseReconcile", promise.GetName())
+	traceCtx := newReconcileTrace(ctx, "promise-controller", spanName, promise, baseLogger)
+	ctx = traceCtx.Context()
+	logger := traceCtx.Logger()
+	defer func() {
+		traceCtx.End(retErr)
+	}()
+
+	traceCtx.AddAttributes(
+		attribute.String("kratix.promise.name", promise.GetName()),
+		attribute.String("kratix.promise.namespace", promise.GetNamespace()),
+		attribute.String("kratix.promise.request", req.NamespacedName.String()),
+		attribute.Int64("kratix.promise.generation", promise.GetGeneration()),
+	)
+
+	if conflict, patchErr := traceCtx.PersistAnnotations(r.Client); patchErr != nil {
+		if conflict {
+			logger.Info("conflict persisting trace annotations, requeueing")
+			return fastRequeue, nil
+		}
+		logger.Error(patchErr, "failed to persist trace annotations")
+		return defaultRequeue, patchErr
+	}
+
 	originalStatus := promise.Status.Status
 	originalAvailableCondition := promise.GetCondition(v1alpha1.PromiseAvailableConditionType)
-
-	logger := r.Log.WithValues("identifier", promise.GetName())
 
 	if v, ok := promise.Labels[pauseReconciliationLabel]; ok && v == "true" {
 		msg := fmt.Sprintf("'%s' label set to 'true' for promise; pausing reconciliation", pauseReconciliationLabel)
@@ -503,7 +527,7 @@ func (r *PromiseReconciler) updateWorksSucceededCondition(
 func (r *PromiseReconciler) reconcileResources(ctx context.Context, logger logr.Logger, promise *v1alpha1.Promise,
 	rrGVK *schema.GroupVersionKind) (ctrl.Result, error) {
 	logger.Info("reconciling all resource requests of promise", "promiseName", promise.Name)
-	if err := r.reconcileAllRRs(rrGVK); err != nil {
+	if err := r.reconcileAllRRs(ctx, rrGVK); err != nil {
 		return ctrl.Result{}, err
 	}
 
@@ -830,13 +854,13 @@ func (r *PromiseReconciler) reconcileDependenciesAndPromiseWorkflows(o opts, pro
 	return nil, nil
 }
 
-func (r *PromiseReconciler) reconcileAllRRs(rrGVK *schema.GroupVersionKind) error {
+func (r *PromiseReconciler) reconcileAllRRs(ctx context.Context, rrGVK *schema.GroupVersionKind) error {
 	//label all rr with manual reconciliation
 	rrs := &unstructured.UnstructuredList{}
 	rrListGVK := *rrGVK
 	rrListGVK.Kind = rrListGVK.Kind + "List"
 	rrs.SetGroupVersionKind(rrListGVK)
-	err := r.Client.List(context.Background(), rrs)
+	err := r.Client.List(ctx, rrs)
 	if err != nil {
 		return err
 	}
@@ -847,7 +871,7 @@ func (r *PromiseReconciler) reconcileAllRRs(rrGVK *schema.GroupVersionKind) erro
 		}
 		newLabels[resourceutil.ManualReconciliationLabel] = "true"
 		rr.SetLabels(newLabels)
-		if err := r.Client.Update(context.Background(), &rr); err != nil {
+		if err := r.Client.Update(ctx, &rr); err != nil {
 			return err
 		}
 	}
