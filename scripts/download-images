@@ -24,9 +24,7 @@ images=(
 
   # Kratix Distribution Images
   "docker.io/syntasso/kratix-platform:${kratix_version}"
-  "docker.io/syntasso/kratix-platform-pipeline-adapter:${kratix_version}"
   "docker.io/syntassodev/kratix-platform:${kratix_version}"
-  "docker.io/syntassodev/kratix-platform-pipeline-adapter:${kratix_version}"
 
   # Extra
   "docker.io/minio/minio:RELEASE.2022-06-30T20-58-09Z"

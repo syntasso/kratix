@@ -6,10 +6,6 @@ QUICKSTART_TAG ?= docker.io/syntasso/kratix-platform-quickstart:latest
 IMG_VERSION ?= ${VERSION}
 IMG_TAG ?= ${IMG_NAME}:${IMG_VERSION}
 IMG_MIRROR ?= syntassodev/kratix-platform:${VERSION}
-# Image URL to use for work creator image in promise_controller.go
-PIPELINE_ADAPTER_IMG_VERSION ?= ${VERSION}
-PIPELINE_ADAPTER_IMG ?= docker.io/syntasso/kratix-platform-pipeline-adapter:${PIPELINE_ADAPTER_IMG_VERSION}
-PIPELINE_ADAPTER_IMG_MIRROR ?= syntassodev/kratix-platform-pipeline-adapter:${VERSION}
 # Version of the worker-resource-builder binary to build and release
 WRB_VERSION ?= 0.0.0
 # Produce CRDs that work back to Kubernetes 1.11 (no version conversion)
@@ -99,9 +95,6 @@ kind-load-image: docker-build ## Load locally built image into KinD
 build-and-load-kratix: kind-load-image ## Build kratix container image and reloads
 	kubectl rollout restart deployment -n kratix-platform-system -l control-plane=controller-manager
 
-build-and-load-work-creator: ## Build work-creator container image and reloads
-	PIPELINE_ADAPTER_IMG_VERSION=${PIPELINE_ADAPTER_IMG_VERSION} PIPELINE_ADAPTER_IMG_MIRROR=${PIPELINE_ADAPTER_IMG_MIRROR} make -C work-creator kind-load-image
-
 ##@ Build
 
 # Generate manifests for distributed installation
@@ -124,9 +117,6 @@ docker-build-and-push: ## Push multi-arch docker image with the manager.
 	docker buildx build --builder kratix-image-builder --push --platform linux/arm64,linux/amd64 -t ${QUICKSTART_TAG} -t ${IMG_TAG} -t ${IMG_NAME}:latest .
 	docker buildx build --builder kratix-image-builder --push --platform linux/arm64,linux/amd64 -t ${IMG_MIRROR} .
 
-build-and-push-work-creator: ## Build and push the Work Creator image
-	PIPELINE_ADAPTER_IMG_VERSION=${PIPELINE_ADAPTER_IMG_VERSION} PIPELINE_ADAPTER_IMG_MIRROR=${PIPELINE_ADAPTER_IMG_MIRROR} $(MAKE) -C work-creator docker-build-and-push
-
 # If not installed, use: go install github.com/goreleaser/goreleaser@latest
 build-worker-resource-builder-binary: ## Uses the goreleaser config to generate binaries
 	WRB_VERSION=${WRB_VERSION} WRB_ON_BRANCH=${WRB_ON_BRANCH} ./scripts/release-worker-resource-builder
@@ -141,16 +131,16 @@ uninstall: manifests kustomize ## Uninstall CRDs from the K8s cluster specified 
 
 deploy: manifests kustomize ## Deploy controller to the K8s cluster specified in ~/.kube/config.
 	cd config/manager && $(KUSTOMIZE) edit set image controller=${IMG_TAG}
-	echo "PIPELINE_ADAPTER_IMG=${PIPELINE_ADAPTER_IMG}" > config/manager/pipeline-adapter-config.properties
+	echo "PIPELINE_ADAPTER_IMG=${IMG_TAG}" > config/manager/pipeline-adapter-config.properties
 	$(KUSTOMIZE) build config/default | kubectl apply -f -
 
 distribution: manifests kustomize ## Create a deployment manifest in /distribution/kratix.yaml
 	cd config/manager && $(KUSTOMIZE) edit set image controller=${IMG_TAG}
 	mkdir -p distribution
-	echo "PIPELINE_ADAPTER_IMG=${PIPELINE_ADAPTER_IMG}" > config/manager/pipeline-adapter-config.properties
+	echo "PIPELINE_ADAPTER_IMG=${IMG_TAG}" > config/manager/pipeline-adapter-config.properties
 	$(KUSTOMIZE) build config/default --output distribution/kratix.yaml
 
-release: distribution docker-build-and-push build-and-push-work-creator ## Create a release. Set VERSION env var to "vX.Y.Z-n".
+release: distribution docker-build-and-push ## Create a release. Set VERSION env var to "vX.Y.Z-n".
 
 undeploy: ## Undeploy controller from the K8s cluster specified in ~/.kube/config.
 	$(KUSTOMIZE) build config/default | kubectl delete -f -
