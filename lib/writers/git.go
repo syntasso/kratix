@@ -518,8 +518,8 @@ func generateGitHubAppJWT(appID string, privateKey string) (string, error) {
 
 	now := time.Now()
 	claims := jwt.MapClaims{
-		"iat": now.Unix() - 60,                  // issued at (backdated 60s to avoid clock skew)
-		"exp": now.Add(10 * time.Minute).Unix(), // expires in 10m
+		"iat": now.Unix() - 60,
+		"exp": now.Add(10 * time.Minute).Unix(),
 		"iss": appID,
 	}
 
