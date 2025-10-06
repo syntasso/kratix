@@ -50,10 +50,11 @@ spec:
                 default: basicAuth
                 description: |-
                   Authentication method used to access the StateStore.
-                  Default to basicAuth; options are basicAuth and ssh.
+                  Default to basicAuth; options are basicAuth, ssh, and githubApp.
                 enum:
                 - basicAuth
                 - ssh
+                - githubApp
                 type: string
               branch:
                 default: main

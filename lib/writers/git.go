@@ -1,8 +1,14 @@
 package writers
 
 import (
+	"context"
+	"crypto/rsa"
+	"crypto/x509"
+	"encoding/json"
+	"encoding/pem"
 	"errors"
 	"fmt"
+	"net/http"
 	"os"
 	"path"
 	"path/filepath"
@@ -14,9 +20,10 @@ import (
 	"github.com/go-git/go-git/v5/plumbing/object"
 	"github.com/go-git/go-git/v5/plumbing/protocol/packp/capability"
 	"github.com/go-git/go-git/v5/plumbing/transport"
-	"github.com/go-git/go-git/v5/plumbing/transport/http"
+	githttp "github.com/go-git/go-git/v5/plumbing/transport/http"
 	"github.com/go-git/go-git/v5/plumbing/transport/ssh"
 	"github.com/go-logr/logr"
+	"github.com/golang-jwt/jwt/v5"
 	"github.com/syntasso/kratix/api/v1alpha1"
 )
 
@@ -95,9 +102,37 @@ func NewGitWriter(logger logr.Logger, stateStoreSpec v1alpha1.GitStateStoreSpec,
 			return nil, fmt.Errorf("password not found in secret %s/%s", stateStoreSpec.SecretRef.Namespace, stateStoreSpec.SecretRef.Name)
 		}
 
-		authMethod = &http.BasicAuth{
+		authMethod = &githttp.BasicAuth{
 			Username: string(username),
 			Password: string(password),
+		}
+	case v1alpha1.GitHubAppAuthMethod:
+		appID, ok := creds["appID"]
+		if !ok {
+			return nil, fmt.Errorf("appID not found in secret %s/%s", stateStoreSpec.SecretRef.Namespace, stateStoreSpec.SecretRef.Name)
+		}
+		installationID, ok := creds["installationID"]
+		if !ok {
+			return nil, fmt.Errorf("installationID not found in secret %s/%s", stateStoreSpec.SecretRef.Namespace, stateStoreSpec.SecretRef.Name)
+		}
+		privateKey, ok := creds["privateKey"]
+		if !ok {
+			return nil, fmt.Errorf("privateKey not found in secret %s/%s", stateStoreSpec.SecretRef.Namespace, stateStoreSpec.SecretRef.Name)
+		}
+
+		jwt, err := generateGitHubAppJWT(string(appID), string(privateKey))
+		if err != nil {
+			return nil, fmt.Errorf("failed to generate GitHub App JWT: %w", err)
+		}
+
+		token, err := getGitHubInstallationToken(string(installationID), jwt)
+		if err != nil {
+			return nil, fmt.Errorf("failed to get GitHub installation token: %w", err)
+		}
+
+		authMethod = &githttp.BasicAuth{
+			Username: "x-access-token",
+			Password: token,
 		}
 	}
 
@@ -405,4 +440,79 @@ func sshUsernameFromURL(url string) (string, error) {
 		return "git", nil
 	}
 	return ep.User, nil
+}
+
+// generateGitHubAppJWT creates a signed JWT for GitHub App authentication
+func generateGitHubAppJWT(appID string, privateKey string) (string, error) {
+	block, _ := pem.Decode([]byte(privateKey))
+	if block == nil {
+		return "", errors.New("invalid private key: failed to parse PEM block")
+	}
+
+	var parsedKey any
+	var err error
+
+	if key, err := x509.ParsePKCS1PrivateKey(block.Bytes); err == nil {
+		parsedKey = key
+	} else if key, err := x509.ParsePKCS8PrivateKey(block.Bytes); err == nil {
+		if rsaKey, ok := key.(*rsa.PrivateKey); ok {
+			parsedKey = rsaKey
+		} else {
+			return "", errors.New("private key is not RSA")
+		}
+	} else {
+		return "", fmt.Errorf("failed to parse private key: %w", err)
+	}
+
+	now := time.Now()
+	claims := jwt.MapClaims{
+		"iat": now.Unix() - 60,                  // issued at (backdated 60s to avoid clock skew)
+		"exp": now.Add(10 * time.Minute).Unix(), // expires in 10m
+		"iss": appID,
+	}
+
+	token := jwt.NewWithClaims(jwt.SigningMethodRS256, claims)
+	signed, err := token.SignedString(parsedKey)
+	if err != nil {
+		return "", fmt.Errorf("failed to sign JWT: %w", err)
+	}
+	return signed, nil
+}
+
+// getGitHubInstallationToken exchanges a JWT for a GitHub installation access token
+func getGitHubInstallationToken(installationID, jwtToken string) (string, error) {
+	url := fmt.Sprintf("https://api.github.com/app/installations/%s/access_tokens", installationID)
+
+	req, err := http.NewRequestWithContext(context.Background(), http.MethodPost, url, nil)
+	if err != nil {
+		return "", fmt.Errorf("failed to create request: %w", err)
+	}
+	req.Header.Set("Authorization", "Bearer "+jwtToken)
+	req.Header.Set("Accept", "application/vnd.github+json")
+
+	client := &http.Client{Timeout: 10 * time.Second}
+	resp, err := client.Do(req)
+	if err != nil {
+		return "", fmt.Errorf("GitHub API request failed: %w", err)
+	}
+	defer resp.Body.Close() //nolint:errcheck
+
+	if resp.StatusCode != http.StatusCreated {
+		var body struct {
+			Message string `json:"message"`
+		}
+		_ = json.NewDecoder(resp.Body).Decode(&body)
+		return "", fmt.Errorf("GitHub API error: status=%d, message=%s", resp.StatusCode, body.Message)
+	}
+
+	var result struct {
+		Token string `json:"token"`
+	}
+	if err := json.NewDecoder(resp.Body).Decode(&result); err != nil {
+		return "", fmt.Errorf("failed to decode response: %w", err)
+	}
+	if result.Token == "" {
+		return "", errors.New("empty installation token received")
+	}
+	return result.Token, nil
 }
