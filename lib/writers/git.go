@@ -120,12 +120,12 @@ func NewGitWriter(logger logr.Logger, stateStoreSpec v1alpha1.GitStateStoreSpec,
 			return nil, fmt.Errorf("privateKey not found in secret %s/%s", stateStoreSpec.SecretRef.Namespace, stateStoreSpec.SecretRef.Name)
 		}
 
-		j, err := generateGitHubAppJWT(string(appID), string(privateKey))
+		j, err := GenerateGitHubAppJWT(string(appID), string(privateKey))
 		if err != nil {
 			return nil, fmt.Errorf("failed to generate GitHub App JWT: %w", err)
 		}
 
-		token, exp, err := getGitHubInstallationTokenWithExpiry(string(installationID), j)
+		token, exp, err := GetGitHubInstallationTokenWithExpiry(string(installationID), j)
 		if err != nil {
 			return nil, fmt.Errorf("failed to get GitHub installation token: %w", err)
 		}
@@ -135,7 +135,7 @@ func NewGitWriter(logger logr.Logger, stateStoreSpec v1alpha1.GitStateStoreSpec,
 			Password: token,
 		}
 		authMethod = ba
-		startGitHubTokenAutoRefresh(logger, ba, string(appID), string(installationID), string(privateKey), exp)
+		StartGitHubTokenAutoRefresh(logger, ba, string(appID), string(installationID), string(privateKey), exp)
 	}
 
 	return &GitWriter{
@@ -444,6 +444,13 @@ func sshUsernameFromURL(url string) (string, error) {
 	return ep.User, nil
 }
 
+// for unit tests
+
+var GenerateGitHubAppJWT = generateGitHubAppJWT
+var GetGitHubInstallationTokenWithExpiry = getGitHubInstallationTokenWithExpiry
+var StartGitHubTokenAutoRefresh = startGitHubTokenAutoRefresh
+
+// startGitHubTokenAutoRefresh starts a goroutine that refreshes the GitHub installation token
 func startGitHubTokenAutoRefresh(
 	logger logr.Logger,
 	ba *githttp.BasicAuth,
@@ -465,14 +472,14 @@ func startGitHubTokenAutoRefresh(
 			timer := time.NewTimer(wait)
 			<-timer.C
 
-			j, err := generateGitHubAppJWT(appID, privateKey)
+			j, err := GenerateGitHubAppJWT(appID, privateKey)
 			if err != nil {
 				logger.Error(err, "github app auth: failed to generate JWT, retrying")
 				time.Sleep(retryBackoff)
 				continue
 			}
 
-			tok, exp, err := getGitHubInstallationTokenWithExpiry(installationID, j)
+			tok, exp, err := GetGitHubInstallationTokenWithExpiry(installationID, j)
 			if err != nil {
 				logger.Error(err, "github app auth: failed to fetch installation token, retrying")
 				time.Sleep(retryBackoff)

@@ -7,6 +7,7 @@ import (
 	"crypto/x509"
 	"encoding/pem"
 	"log"
+	"time"
 
 	"github.com/go-git/go-git/v5/plumbing/transport/http"
 	"github.com/go-git/go-git/v5/plumbing/transport/ssh"
@@ -143,6 +144,46 @@ var _ = Describe("NewGitWriter", func() {
 			publicKey, ok := gitWriter.GitServer.Auth.(*ssh.PublicKeys)
 			Expect(ok).To(BeTrue())
 			Expect(publicKey).NotTo(BeNil())
+		})
+	})
+
+	Context("authenticate with GitHub App", func() {
+		var (
+			jwtCalled, tokenCalled, autoRefreshCalled bool
+		)
+		BeforeEach(func() {
+			jwtCalled = false
+			tokenCalled = false
+			autoRefreshCalled = false
+			writers.GenerateGitHubAppJWT = func(appID, pk string) (string, error) {
+				jwtCalled = true
+				return "jwt", nil
+			}
+			writers.GetGitHubInstallationTokenWithExpiry = func(installationID, jwt string) (string, time.Time, error) {
+				tokenCalled = true
+				return "token", time.Now().Add(time.Hour), nil
+			}
+			writers.StartGitHubTokenAutoRefresh = func(log logr.Logger, ba *http.BasicAuth, appID, installationID, pk string, exp time.Time) {
+				autoRefreshCalled = true
+			}
+		})
+
+		It("returns a valid GitWriter", func() {
+			stateStoreSpec.AuthMethod = "githubApp"
+			creds := map[string][]byte{
+				"appID":          []byte("123"),
+				"installationID": []byte("456"),
+				"privateKey":     []byte("dummy"),
+			}
+			writer, err := writers.NewGitWriter(logger, stateStoreSpec, dest.Spec.Path, creds)
+			Expect(err).NotTo(HaveOccurred())
+			Expect(writer).To(BeAssignableToTypeOf(&writers.GitWriter{}))
+			gitWriter := writer.(*writers.GitWriter)
+			Expect(gitWriter.GitServer.Auth.(*http.BasicAuth).Username).To(Equal("x-access-token"))
+			Expect(gitWriter.GitServer.Auth.(*http.BasicAuth).Password).To(Equal("token"))
+			Expect(jwtCalled).To(BeTrue())
+			Expect(tokenCalled).To(BeTrue())
+			Expect(autoRefreshCalled).To(BeTrue())
 		})
 	})
 

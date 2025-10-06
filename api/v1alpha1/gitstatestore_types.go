@@ -22,8 +22,8 @@ import (
 )
 
 const (
-	BasicAuthMethod = "basicAuth"
-	SSHAuthMethod   = "ssh"
+	BasicAuthMethod     = "basicAuth"
+	SSHAuthMethod       = "ssh"
 	GitHubAppAuthMethod = "githubApp"
 )
 
