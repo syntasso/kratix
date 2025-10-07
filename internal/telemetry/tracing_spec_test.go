@@ -11,6 +11,7 @@ import (
 	"github.com/syntasso/kratix/internal/telemetry"
 	sdktrace "go.opentelemetry.io/otel/sdk/trace"
 	"go.opentelemetry.io/otel/trace"
+	"go.opentelemetry.io/otel/trace/noop"
 	metav1 "k8s.io/apimachinery/pkg/apis/meta/v1"
 )
 
@@ -108,7 +109,7 @@ var _ = Describe("Tracing helpers", func() {
 
 	Describe("StartSpanForObject with noop provider", func() {
 		It("leaves annotations untouched when the tracer is noop", func() {
-			noopTracer := trace.NewNoopTracerProvider().Tracer("noop")
+			noopTracer := noop.NewTracerProvider().Tracer("noop")
 
 			promise := &v1alpha1.Promise{ObjectMeta: metav1.ObjectMeta{Name: "noop"}}
 			_, span, mutated, err := telemetry.StartSpanForObject(context.Background(), noopTracer, promise, "promise-flow")

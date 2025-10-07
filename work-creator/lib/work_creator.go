@@ -35,6 +35,16 @@ type WorkCreator struct {
 	K8sClient client.Client
 }
 
+func buildWorkIdentifier(promiseName, resourceName, resourceNamespace, pipelineName, workflowType string) string {
+	if !strings.HasPrefix(workflowType, string(v1alpha1.WorkflowTypeResource)) {
+		return fmt.Sprintf("%s-%s", promiseName, pipelineName)
+	}
+	if resourceNamespace != "" {
+		return fmt.Sprintf("%s-%s-%s-%s", promiseName, resourceName, resourceNamespace, pipelineName)
+	}
+	return fmt.Sprintf("%s-%s-%s", promiseName, resourceName, pipelineName)
+}
+
 func (w *WorkCreator) Execute(rootDirectory, promiseName, namespace, resourceName, resourceNamespace, workflowType, pipelineName string) (retErr error) {
 	ctx := context.Background()
 	traceParent, traceState := telemetry.TraceParentFromEnv()
@@ -53,14 +63,7 @@ func (w *WorkCreator) Execute(rootDirectory, promiseName, namespace, resourceNam
 	}()
 	ctx = extractedCtx
 
-	identifier := fmt.Sprintf("%s-%s-%s", promiseName, resourceName, pipelineName)
-	if resourceNamespace != "" {
-		identifier = fmt.Sprintf("%s-%s-%s-%s", promiseName, resourceName, resourceNamespace, pipelineName)
-	}
-
-	if !strings.HasPrefix(workflowType, string(v1alpha1.WorkflowTypeResource)) {
-		identifier = fmt.Sprintf("%s-%s", promiseName, pipelineName)
-	}
+	identifier := buildWorkIdentifier(promiseName, resourceName, resourceNamespace, pipelineName, workflowType)
 	if namespace == "" {
 		namespace = "kratix-platform-system"
 	}

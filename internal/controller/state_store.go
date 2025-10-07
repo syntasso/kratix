@@ -71,7 +71,7 @@ func reconcileStateStoreCommon(
 	writer, err := newWriter(o, stateStore.GetName(), resourceType, "")
 	if err != nil {
 		o.logger.Info("UNABLE TO CREATE WRITER")
-		if statusError := updateStateStoreReadyStatusAndCondition(o, eventRecorder, stateStore, StateStoreNotReadyErrorInitialisingWriterReason, StateStoreNotReadyErrorInitialisingWriterMessage, err); err != nil {
+		if statusError := updateStateStoreReadyStatusAndCondition(o, eventRecorder, stateStore, StateStoreNotReadyErrorInitialisingWriterReason, StateStoreNotReadyErrorInitialisingWriterMessage, err); statusError != nil {
 			o.logger.Error(statusError, "error updating state store status")
 		}
 		return ctrl.Result{}, err

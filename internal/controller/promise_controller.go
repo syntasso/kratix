@@ -126,6 +126,7 @@ var (
 
 // +kubebuilder:rbac:groups=apiextensions.k8s.io,resources=customresourcedefinitions,verbs=get;list;watch;create;update;patch;delete
 
+//nolint:funlen,gocognit // Reconcile orchestrates many promise concerns; splitting would hide the control flow.
 func (r *PromiseReconciler) Reconcile(ctx context.Context, req ctrl.Request) (result ctrl.Result, retErr error) {
 	if r.StartedDynamicControllers == nil {
 		r.StartedDynamicControllers = make(map[string]*DynamicResourceRequestController)
@@ -138,7 +139,7 @@ func (r *PromiseReconciler) Reconcile(ctx context.Context, req ctrl.Request) (re
 	}
 	if client.IgnoreNotFound(err) != nil {
 		r.Log.Error(err, "Failed getting Promise", "namespacedName", req.NamespacedName)
-		return defaultRequeue, nil //nolint:nilerr // requeue rather than exponential backoff
+		return defaultRequeue, nil
 	}
 
 	baseLogger := r.Log.WithValues("identifier", promise.GetName(), "request", req.NamespacedName.String())
@@ -331,7 +332,7 @@ func (r *PromiseReconciler) Reconcile(ctx context.Context, req ctrl.Request) (re
 		if completedCond != nil {
 			r.EventRecorder.Eventf(promise, v1.EventTypeNormal, "ConfigureWorkflowCompleted", "All workflows completed")
 		}
-		return r.nextReconciliation(logger)
+		return r.nextReconciliation(logger), nil
 	}
 
 	return ctrl.Result{}, nil
@@ -542,9 +543,9 @@ func (r *PromiseReconciler) reconcileResources(ctx context.Context, logger logr.
 	return r.updatePromiseStatus(ctx, promise)
 }
 
-func (r *PromiseReconciler) nextReconciliation(logger logr.Logger) (ctrl.Result, error) {
+func (r *PromiseReconciler) nextReconciliation(logger logr.Logger) ctrl.Result {
 	logger.Info("Scheduling next reconciliation", "ReconciliationInterval", r.ReconciliationInterval)
-	return ctrl.Result{RequeueAfter: r.ReconciliationInterval}, nil
+	return ctrl.Result{RequeueAfter: r.ReconciliationInterval}
 }
 
 func promiseAvailableStatusCondition(lastTransitionTime metav1.Time) metav1.Condition {

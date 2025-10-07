@@ -19,10 +19,12 @@ package controller
 import (
 	"context"
 	"fmt"
+	"maps"
 	"strings"
 
 	"github.com/go-logr/logr"
 	"github.com/syntasso/kratix/api/v1alpha1"
+	"github.com/syntasso/kratix/internal/telemetry"
 	v1 "k8s.io/api/core/v1"
 	"k8s.io/apimachinery/pkg/api/errors"
 	apiMeta "k8s.io/apimachinery/pkg/api/meta"
@@ -145,16 +147,19 @@ func (r *WorkReconciler) Reconcile(ctx context.Context, req ctrl.Request) (resul
 		return slowRequeue, nil
 	}
 
-	return r.updateWorkStatus(ctx, logger, work)
+	if err := r.updateWorkStatus(ctx, logger, work); err != nil {
+		return ctrl.Result{}, err
+	}
+	return ctrl.Result{}, nil
 }
 
-func (r *WorkReconciler) updateWorkStatus(ctx context.Context, logger logr.Logger, work *v1alpha1.Work) (ctrl.Result, error) {
+func (r *WorkReconciler) updateWorkStatus(ctx context.Context, logger logr.Logger, work *v1alpha1.Work) error {
 	workplacements, err := listWorkplacementWithLabels(r.Client, logger, work.GetNamespace(), map[string]string{
 		workLabelKey: work.Name,
 	})
 	if err != nil {
 		logger.Info("failed to list associated WorkPlacements")
-		return ctrl.Result{}, err
+		return err
 	}
 
 	var failedWorkPlacements []string
@@ -183,11 +188,11 @@ func (r *WorkReconciler) updateWorkStatus(ctx context.Context, logger logr.Logge
 		if apiMeta.SetStatusCondition(&work.Status.Conditions, scheduleCond) {
 			apiMeta.SetStatusCondition(&work.Status.Conditions, readyCond)
 			r.EventRecorder.Eventf(work, v1.EventTypeWarning, "WorkplacementsFailing", "Workplacements failed to write: [%s]", strings.Join(failedWorkPlacements, ","))
-			return ctrl.Result{}, r.Client.Status().Update(ctx, work)
+			return r.Client.Status().Update(ctx, work)
 		}
 	}
 
-	return ctrl.Result{}, nil
+	return nil
 }
 
 func (r *WorkReconciler) deleteWork(ctx context.Context, work *v1alpha1.Work) (ctrl.Result, error) {
@@ -213,17 +218,6 @@ func (r *WorkReconciler) deleteWork(ctx context.Context, work *v1alpha1.Work) (c
 		}
 	}
 	return defaultRequeue, nil
-}
-
-func cloneStringMap(src map[string]string) map[string]string {
-	if src == nil {
-		return nil
-	}
-	dst := make(map[string]string, len(src))
-	for k, v := range src {
-		dst[k] = v
-	}
-	return dst
 }
 
 // SetupWithManager sets up the controller with the Manager.
@@ -257,4 +251,44 @@ func (r *WorkReconciler) requestReconciliationOfWorksOnDestination(ctx context.C
 		requests = append(requests, reconcile.Request{NamespacedName: client.ObjectKeyFromObject(&work)})
 	}
 	return requests
+}
+
+// cloneStringMap returns a shallow copy of the provided map so that callers can
+// safely mutate the clone without altering the original annotations.
+func cloneStringMap(src map[string]string) map[string]string {
+	if src == nil {
+		return nil
+	}
+	dst := make(map[string]string, len(src))
+	maps.Copy(dst, src)
+	return dst
+}
+
+// buildWorkPlacementAnnotations merges the Work's annotations with any existing
+// WorkPlacement-specific trace metadata. Work annotations remain the source of
+// truth, while WorkPlacement trace state (which is derived during its own
+// reconciliation) is preserved so scheduler updates do not break trace chains.
+func buildWorkPlacementAnnotations(existing, work map[string]string) map[string]string {
+	desired := cloneStringMap(work)
+
+	if existing != nil {
+		for _, key := range []string{
+			telemetry.TraceParentAnnotation,
+			telemetry.TraceStateAnnotation,
+			telemetry.TraceTimestampAnnotation,
+			telemetry.TraceGenerationAnnotation,
+		} {
+			if val := existing[key]; val != "" {
+				if desired == nil {
+					desired = map[string]string{}
+				}
+				desired[key] = val
+			}
+		}
+	}
+
+	if len(desired) == 0 {
+		return nil
+	}
+	return desired
 }

@@ -146,7 +146,10 @@ func (r *DynamicResourceRequestController) Reconcile(ctx context.Context, req ct
 
 	resourceLabels := getResourceLabels(rr)
 	if resourceLabels[v1alpha1.PromiseNameLabel] != r.PromiseIdentifier {
-		return r.setPromiseLabels(ctx, promise.GetName(), rr, resourceLabels, logger)
+		if err := r.setPromiseLabels(ctx, promise.GetName(), rr, resourceLabels, logger); err != nil {
+			return ctrl.Result{}, err
+		}
+		return ctrl.Result{}, nil
 	}
 
 	opts := opts{client: r.Client, ctx: ctx, logger: logger}
@@ -160,7 +163,10 @@ func (r *DynamicResourceRequestController) Reconcile(ctx context.Context, req ct
 	}
 
 	if resourceutil.IsPromiseMarkedAsUnavailable(rr) {
-		return r.ensurePromiseIsAvailable(ctx, rr, logger)
+		if err := r.ensurePromiseIsAvailable(ctx, rr, logger); err != nil {
+			return ctrl.Result{}, err
+		}
+		return ctrl.Result{}, nil
 	}
 
 	if resourceutil.FinalizersAreMissing(
@@ -177,7 +183,10 @@ func (r *DynamicResourceRequestController) Reconcile(ctx context.Context, req ct
 			"lastTransitionTime",
 			completedCond.LastTransitionTime.Time.String(),
 		)
-		return r.updateManualReconciliationLabel(opts.ctx, rr)
+		if err := r.updateManualReconciliationLabel(opts.ctx, rr); err != nil {
+			return ctrl.Result{}, err
+		}
+		return ctrl.Result{}, nil
 	}
 
 	pipelineResources, err := promise.GenerateResourcePipelines(v1alpha1.WorkflowActionConfigure, rr, logger)
@@ -237,7 +246,10 @@ func (r *DynamicResourceRequestController) Reconcile(ctx context.Context, req ct
 	workflowCompletedCondition := resourceutil.GetCondition(rr, resourceutil.ConfigureWorkflowCompletedCondition)
 	if workflowsCompletedSuccessfully(workflowCompletedCondition) {
 		if shouldUpdateLastSuccessfulConfigureWorkflowTime(workflowCompletedCondition, rr) {
-			return updateLastSuccessfulConfigureWorkflowTime(workflowCompletedCondition, rr, opts, logger)
+			if err := updateLastSuccessfulConfigureWorkflowTime(workflowCompletedCondition, rr, opts, logger); err != nil {
+				return ctrl.Result{}, err
+			}
+			return ctrl.Result{}, nil
 		}
 		return r.nextReconciliation(logger), nil
 	}
@@ -561,12 +573,12 @@ func (r *DynamicResourceRequestController) manualReconciliationLabelSet(rr *unst
 	return resourceLabels[resourceutil.ManualReconciliationLabel] == "true"
 }
 
-func (r *DynamicResourceRequestController) updateManualReconciliationLabel(ctx context.Context, rr *unstructured.Unstructured) (ctrl.Result, error) {
+func (r *DynamicResourceRequestController) updateManualReconciliationLabel(ctx context.Context, rr *unstructured.Unstructured) error {
 	resourceLabels := rr.GetLabels()
 	resourceLabels[resourceutil.ManualReconciliationLabel] = "true"
 	rr.SetLabels(resourceLabels)
 
-	return ctrl.Result{}, r.Client.Update(ctx, rr)
+	return r.Client.Update(ctx, rr)
 }
 
 func (r *DynamicResourceRequestController) ensurePromiseIsUnavailable(ctx context.Context,
@@ -586,9 +598,9 @@ func (r *DynamicResourceRequestController) ensurePromiseIsUnavailable(ctx contex
 func (r *DynamicResourceRequestController) ensurePromiseIsAvailable(ctx context.Context,
 	rr *unstructured.Unstructured,
 	logger logr.Logger,
-) (ctrl.Result, error) {
+) error {
 	resourceutil.MarkPromiseConditionAsAvailable(rr, logger)
-	return ctrl.Result{}, r.Client.Status().Update(ctx, rr)
+	return r.Client.Status().Update(ctx, rr)
 }
 
 func updateObservedGeneration(
@@ -604,14 +616,14 @@ func shouldForcePipelineRun(completedCond *clusterv1.Condition, reconciliationIn
 		time.Since(completedCond.LastTransitionTime.Time) > reconciliationInterval
 }
 
-func (r *DynamicResourceRequestController) setPromiseLabels(ctx context.Context, promiseName string, rr *unstructured.Unstructured, resourceLabels map[string]string, logger logr.Logger) (ctrl.Result, error) {
+func (r *DynamicResourceRequestController) setPromiseLabels(ctx context.Context, promiseName string, rr *unstructured.Unstructured, resourceLabels map[string]string, logger logr.Logger) error {
 	resourceLabels[v1alpha1.PromiseNameLabel] = promiseName
 	rr.SetLabels(resourceLabels)
 	if err := r.Client.Update(ctx, rr); err != nil {
 		logger.Error(err, "Failed updating resource request with Promise label")
-		return ctrl.Result{}, err
+		return err
 	}
-	return ctrl.Result{}, nil
+	return nil
 }
 
 func getResourceLabels(rr *unstructured.Unstructured) map[string]string {
@@ -631,7 +643,7 @@ func shouldUpdateLastSuccessfulConfigureWorkflowTime(
 	return lastTransitionTime != lastSuccessfulTime
 }
 
-func updateLastSuccessfulConfigureWorkflowTime(workflowCompletedCondition *clusterv1.Condition, rr *unstructured.Unstructured, opts opts, logger logr.Logger) (ctrl.Result, error) {
+func updateLastSuccessfulConfigureWorkflowTime(workflowCompletedCondition *clusterv1.Condition, rr *unstructured.Unstructured, opts opts, logger logr.Logger) error {
 	resourceutil.SetStatus(rr, logger, "lastSuccessfulConfigureWorkflowTime", workflowCompletedCondition.LastTransitionTime.Format(time.RFC3339))
-	return ctrl.Result{}, opts.client.Status().Update(opts.ctx, rr)
+	return opts.client.Status().Update(opts.ctx, rr)
 }
