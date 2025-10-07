@@ -56,6 +56,8 @@ type basicAuthCreds struct {
 	Password string
 }
 
+var GITHUB_API_URL = "https://api.github.com"
+
 type githubAppCreds struct {
 	AppID          string
 	InstallationID string
@@ -541,7 +543,7 @@ func generateGitHubAppJWT(appID string, privateKey string) (string, error) {
 
 // getGitHubInstallationToken exchanges a JWT for a GitHub installation access token
 func getGitHubInstallationToken(installationID, jwtToken string) (string, error) {
-	url := fmt.Sprintf("https://api.github.com/app/installations/%s/access_tokens", installationID)
+	url := fmt.Sprintf("%s/app/installations/%s/access_tokens", GITHUB_API_URL, installationID)
 
 	req, err := http.NewRequestWithContext(context.Background(), http.MethodPost, url, nil)
 	if err != nil {

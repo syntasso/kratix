@@ -5,10 +5,13 @@ import (
 	"crypto/rand"
 	"crypto/rsa"
 	"crypto/x509"
+	"encoding/json"
 	"encoding/pem"
 	"log"
+	"net/http"
+	"net/http/httptest"
 
-	"github.com/go-git/go-git/v5/plumbing/transport/http"
+	transporthttp "github.com/go-git/go-git/v5/plumbing/transport/http"
 	"github.com/go-git/go-git/v5/plumbing/transport/ssh"
 	"github.com/go-logr/logr"
 	. "github.com/onsi/ginkgo/v2"
@@ -73,7 +76,7 @@ var _ = Describe("NewGitWriter", func() {
 		gitWriter, ok := writer.(*writers.GitWriter)
 		Expect(ok).To(BeTrue())
 		Expect(gitWriter.GitServer.URL).To(Equal("https://github.com/syntasso/kratix"))
-		Expect(gitWriter.GitServer.Auth).To(Equal(&http.BasicAuth{
+		Expect(gitWriter.GitServer.Auth).To(Equal(&transporthttp.BasicAuth{
 			Username: "user1",
 			Password: "pw1",
 		}))
@@ -153,11 +156,15 @@ var _ = Describe("NewGitWriter", func() {
 
 	Context("authenticate with GitHub App", func() {
 		var (
-			jwtCalled, tokenCalled bool
+			jwtCalled, tokenCalled         bool
+			origGenerateGitHubAppJWT       func(string, string) (string, error)
+			origGetGitHubInstallationToken func(string, string) (string, error)
 		)
 		BeforeEach(func() {
 			jwtCalled = false
 			tokenCalled = false
+			origGenerateGitHubAppJWT = writers.GenerateGitHubAppJWT
+			origGetGitHubInstallationToken = writers.GetGitHubInstallationToken
 			writers.GenerateGitHubAppJWT = func(appID, pk string) (string, error) {
 				jwtCalled = true
 				return "jwt", nil
@@ -167,7 +174,10 @@ var _ = Describe("NewGitWriter", func() {
 				return "token", nil
 			}
 		})
-
+		AfterEach(func() {
+			writers.GenerateGitHubAppJWT = origGenerateGitHubAppJWT
+			writers.GetGitHubInstallationToken = origGetGitHubInstallationToken
+		})
 		It("returns a valid GitWriter", func() {
 			stateStoreSpec.AuthMethod = "githubApp"
 			creds := map[string][]byte{
@@ -179,8 +189,8 @@ var _ = Describe("NewGitWriter", func() {
 			Expect(err).NotTo(HaveOccurred())
 			Expect(writer).To(BeAssignableToTypeOf(&writers.GitWriter{}))
 			gitWriter := writer.(*writers.GitWriter)
-			Expect(gitWriter.GitServer.Auth.(*http.BasicAuth).Username).To(Equal("x-access-token"))
-			Expect(gitWriter.GitServer.Auth.(*http.BasicAuth).Password).To(Equal("token"))
+			Expect(gitWriter.GitServer.Auth.(*transporthttp.BasicAuth).Username).To(Equal("x-access-token"))
+			Expect(gitWriter.GitServer.Auth.(*transporthttp.BasicAuth).Password).To(Equal("token"))
 			Expect(jwtCalled).To(BeTrue())
 			Expect(tokenCalled).To(BeTrue())
 		})
@@ -208,7 +218,7 @@ var _ = Describe("NewGitWriter", func() {
 
 		It("returns an error when authentication fails", func() {
 			// Set invalid credentials
-			gitWriter.GitServer.Auth = &http.BasicAuth{
+			gitWriter.GitServer.Auth = &transporthttp.BasicAuth{
 				Username: "invalid",
 				Password: "invalid",
 			}
@@ -221,6 +231,81 @@ var _ = Describe("NewGitWriter", func() {
 				ContainSubstring("permission"),
 				ContainSubstring("authorization"),
 			))
+		})
+	})
+
+	Describe("generateGitHubAppJWT", func() {
+		It("returns a signed JWT with valid RSA key and appID", func() {
+			key, err := rsa.GenerateKey(rand.Reader, 2048)
+			Expect(err).NotTo(HaveOccurred())
+			privDER := x509.MarshalPKCS1PrivateKey(key)
+			privBlock := pem.Block{Type: "RSA PRIVATE KEY", Bytes: privDER}
+			pemBytes := pem.EncodeToMemory(&privBlock)
+			jwt, err := writers.GenerateGitHubAppJWT("12345", string(pemBytes))
+			Expect(err).NotTo(HaveOccurred())
+			Expect(jwt).NotTo(BeEmpty())
+		})
+
+		It("returns error for invalid PEM", func() {
+			jwt, err := writers.GenerateGitHubAppJWT("12345", "not-a-pem")
+			Expect(err).To(HaveOccurred())
+			Expect(jwt).To(BeEmpty())
+		})
+
+		It("returns error for non-RSA PEM", func() {
+			block := pem.Block{Type: "EC PRIVATE KEY", Bytes: []byte("bad")}
+			pemBytes := pem.EncodeToMemory(&block)
+			jwt, err := writers.GenerateGitHubAppJWT("12345", string(pemBytes))
+			Expect(err).To(HaveOccurred())
+			Expect(jwt).To(BeEmpty())
+		})
+	})
+
+	Describe("getGitHubInstallationToken", func() {
+		var server *httptest.Server
+
+		AfterEach(func() {
+			if server != nil {
+				server.Close()
+			}
+		})
+
+		It("returns token on 201 response", func() {
+			server = setupGitHubTestServer(func(w http.ResponseWriter, r *http.Request) {
+				Expect(r.Method).To(Equal(http.MethodPost))
+				Expect(r.Header.Get("Authorization")).To(Equal("Bearer jwt"))
+				Expect(r.Header.Get("Accept")).To(Equal("application/vnd.github+json"))
+
+				w.WriteHeader(http.StatusCreated)
+				_ = json.NewEncoder(w).Encode(map[string]string{"token": "abc123"})
+			})
+
+			tok, err := writers.GetGitHubInstallationToken("123", "jwt")
+			Expect(err).NotTo(HaveOccurred())
+			Expect(tok).To(Equal("abc123"))
+		})
+
+		It("returns error on non-201 response", func() {
+			server = setupGitHubTestServer(func(w http.ResponseWriter, r *http.Request) {
+				w.WriteHeader(http.StatusUnauthorized)
+				_ = json.NewEncoder(w).Encode(map[string]string{"message": "bad creds"})
+			})
+
+			tok, err := writers.GetGitHubInstallationToken("123", "jwt")
+			Expect(err).To(HaveOccurred())
+			Expect(tok).To(BeEmpty())
+			Expect(err.Error()).To(ContainSubstring("bad creds"))
+		})
+
+		It("returns error if token is empty", func() {
+			server = setupGitHubTestServer(func(w http.ResponseWriter, r *http.Request) {
+				w.WriteHeader(http.StatusCreated)
+				_ = json.NewEncoder(w).Encode(map[string]string{"token": ""})
+			})
+
+			tok, err := writers.GetGitHubInstallationToken("123", "jwt")
+			Expect(err).To(HaveOccurred())
+			Expect(tok).To(BeEmpty())
 		})
 	})
 })
@@ -239,4 +324,10 @@ func generateSSHCreds(key *rsa.PrivateKey) map[string][]byte {
 		"sshPrivateKey": b.Bytes(),
 		"knownHosts":    []byte("github.com ssh-ed25519 AAAAC3NzaC1lZDI1NTE5AAAAIOMqqnkVzrm0SdG6UOoqKLsabgH5C9okWi0dh2l9GKJl"),
 	}
+}
+
+func setupGitHubTestServer(handler http.HandlerFunc) *httptest.Server {
+	server := httptest.NewServer(handler)
+	writers.GITHUB_API_URL = server.URL
+	return server
 }
