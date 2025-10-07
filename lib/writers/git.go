@@ -125,17 +125,15 @@ func NewGitWriter(logger logr.Logger, stateStoreSpec v1alpha1.GitStateStoreSpec,
 			return nil, fmt.Errorf("failed to generate GitHub App JWT: %w", err)
 		}
 
-		token, exp, err := GetGitHubInstallationTokenWithExpiry(string(installationID), j)
+		token, err := GetGitHubInstallationToken(string(installationID), j)
 		if err != nil {
 			return nil, fmt.Errorf("failed to get GitHub installation token: %w", err)
 		}
 
-		ba := &githttp.BasicAuth{
+		authMethod = &githttp.BasicAuth{
 			Username: "x-access-token",
 			Password: token,
 		}
-		authMethod = ba
-		StartGitHubTokenAutoRefresh(logger, ba, string(appID), string(installationID), string(privateKey), exp)
 	}
 
 	return &GitWriter{
@@ -447,52 +445,7 @@ func sshUsernameFromURL(url string) (string, error) {
 // for unit tests
 
 var GenerateGitHubAppJWT = generateGitHubAppJWT
-var GetGitHubInstallationTokenWithExpiry = getGitHubInstallationTokenWithExpiry
-var StartGitHubTokenAutoRefresh = startGitHubTokenAutoRefresh
-
-// startGitHubTokenAutoRefresh starts a goroutine that refreshes the GitHub installation token
-func startGitHubTokenAutoRefresh(
-	logger logr.Logger,
-	ba *githttp.BasicAuth,
-	appID, installationID, privateKey string,
-	initialExpiry time.Time,
-) {
-	const skew = 5 * time.Minute
-	const minSleep = 30 * time.Second
-	const retryBackoff = 30 * time.Second
-
-	go func() {
-		expiry := initialExpiry.UTC()
-
-		for {
-			wait := time.Until(expiry.Add(-skew))
-			if wait < minSleep {
-				wait = minSleep
-			}
-			timer := time.NewTimer(wait)
-			<-timer.C
-
-			j, err := GenerateGitHubAppJWT(appID, privateKey)
-			if err != nil {
-				logger.Error(err, "github app auth: failed to generate JWT, retrying")
-				time.Sleep(retryBackoff)
-				continue
-			}
-
-			tok, exp, err := GetGitHubInstallationTokenWithExpiry(installationID, j)
-			if err != nil {
-				logger.Error(err, "github app auth: failed to fetch installation token, retrying")
-				time.Sleep(retryBackoff)
-				continue
-			}
-
-			ba.Password = tok
-			expiry = exp.UTC()
-
-			logger.Info("github app auth: refreshed installation token", "expiresAt", expiry.Format(time.RFC3339))
-		}
-	}()
-}
+var GetGitHubInstallationToken = getGitHubInstallationToken
 
 // generateGitHubAppJWT creates a signed JWT for GitHub App authentication
 func generateGitHubAppJWT(appID string, privateKey string) (string, error) {
@@ -531,13 +484,13 @@ func generateGitHubAppJWT(appID string, privateKey string) (string, error) {
 	return signed, nil
 }
 
-// getGitHubInstallationTokenWithExpiry exchanges a JWT for a GitHub installation access token and returns the expiry.
-func getGitHubInstallationTokenWithExpiry(installationID, jwtToken string) (string, time.Time, error) {
+// getGitHubInstallationToken exchanges a JWT for a GitHub installation access token
+func getGitHubInstallationToken(installationID, jwtToken string) (string, error) {
 	url := fmt.Sprintf("https://api.github.com/app/installations/%s/access_tokens", installationID)
 
 	req, err := http.NewRequestWithContext(context.Background(), http.MethodPost, url, nil)
 	if err != nil {
-		return "", time.Time{}, fmt.Errorf("failed to create request: %w", err)
+		return "", fmt.Errorf("failed to create request: %w", err)
 	}
 	req.Header.Set("Authorization", "Bearer "+jwtToken)
 	req.Header.Set("Accept", "application/vnd.github+json")
@@ -545,7 +498,7 @@ func getGitHubInstallationTokenWithExpiry(installationID, jwtToken string) (stri
 	client := &http.Client{Timeout: 10 * time.Second}
 	resp, err := client.Do(req)
 	if err != nil {
-		return "", time.Time{}, fmt.Errorf("GitHub API request failed: %w", err)
+		return "", fmt.Errorf("GitHub API request failed: %w", err)
 	}
 	defer resp.Body.Close() //nolint:errcheck
 
@@ -554,18 +507,17 @@ func getGitHubInstallationTokenWithExpiry(installationID, jwtToken string) (stri
 			Message string `json:"message"`
 		}
 		_ = json.NewDecoder(resp.Body).Decode(&body)
-		return "", time.Time{}, fmt.Errorf("GitHub API error: status=%d, message=%s", resp.StatusCode, body.Message)
+		return "", fmt.Errorf("GitHub API error: status=%d, message=%s", resp.StatusCode, body.Message)
 	}
 
 	var result struct {
-		Token     string    `json:"token"`
-		ExpiresAt time.Time `json:"expires_at"`
+		Token string `json:"token"`
 	}
 	if err := json.NewDecoder(resp.Body).Decode(&result); err != nil {
-		return "", time.Time{}, fmt.Errorf("failed to decode response: %w", err)
+		return "", fmt.Errorf("failed to decode response: %w", err)
 	}
 	if result.Token == "" {
-		return "", time.Time{}, errors.New("empty installation token received")
+		return "", errors.New("empty installation token received")
 	}
-	return result.Token, result.ExpiresAt, nil
+	return result.Token, nil
 }

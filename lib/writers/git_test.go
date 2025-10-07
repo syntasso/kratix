@@ -7,7 +7,6 @@ import (
 	"crypto/x509"
 	"encoding/pem"
 	"log"
-	"time"
 
 	"github.com/go-git/go-git/v5/plumbing/transport/http"
 	"github.com/go-git/go-git/v5/plumbing/transport/ssh"
@@ -149,22 +148,18 @@ var _ = Describe("NewGitWriter", func() {
 
 	Context("authenticate with GitHub App", func() {
 		var (
-			jwtCalled, tokenCalled, autoRefreshCalled bool
+			jwtCalled, tokenCalled bool
 		)
 		BeforeEach(func() {
 			jwtCalled = false
 			tokenCalled = false
-			autoRefreshCalled = false
 			writers.GenerateGitHubAppJWT = func(appID, pk string) (string, error) {
 				jwtCalled = true
 				return "jwt", nil
 			}
-			writers.GetGitHubInstallationTokenWithExpiry = func(installationID, jwt string) (string, time.Time, error) {
+			writers.GetGitHubInstallationToken = func(installationID, jwt string) (string, error) {
 				tokenCalled = true
-				return "token", time.Now().Add(time.Hour), nil
-			}
-			writers.StartGitHubTokenAutoRefresh = func(log logr.Logger, ba *http.BasicAuth, appID, installationID, pk string, exp time.Time) {
-				autoRefreshCalled = true
+				return "token", nil
 			}
 		})
 
@@ -183,7 +178,6 @@ var _ = Describe("NewGitWriter", func() {
 			Expect(gitWriter.GitServer.Auth.(*http.BasicAuth).Password).To(Equal("token"))
 			Expect(jwtCalled).To(BeTrue())
 			Expect(tokenCalled).To(BeTrue())
-			Expect(autoRefreshCalled).To(BeTrue())
 		})
 	})
 
