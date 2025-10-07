@@ -20,6 +20,7 @@ import (
 	"context"
 	"flag"
 	"fmt"
+	"maps"
 	"os"
 	"time"
 
@@ -73,6 +74,7 @@ type KratixConfig struct {
 	ControllerLeaderElection *LeaderElectionConfig `json:"controllerLeaderElection,omitempty"`
 	SelectiveCache           bool                  `json:"selectiveCache,omitempty"`
 	ReconciliationInterval   *metav1.Duration      `json:"reconciliationInterval,omitempty"`
+	Telemetry                *telemetry.Config     `json:"telemetry,omitempty"`
 }
 
 type Workflows struct {
@@ -126,20 +128,6 @@ func main() {
 	}
 	setupLog = ctrl.Log.WithName("setup")
 
-	telemetryShutdown := func(context.Context) error { return nil }
-	if shutdown, err := telemetry.SetupTracerProvider(context.Background(), ctrl.Log.WithName("telemetry"), "kratix-controller-manager"); err != nil {
-		setupLog.Error(err, "failed to configure OpenTelemetry tracing")
-	} else {
-		telemetryShutdown = shutdown
-		defer func() {
-			shutdownCtx, cancel := context.WithTimeout(context.Background(), 5*time.Second)
-			defer cancel()
-			if err := telemetryShutdown(shutdownCtx); err != nil {
-				setupLog.Error(err, "failed to shutdown OpenTelemetry tracing")
-			}
-		}()
-	}
-
 	kClient, err := client.New(ctrl.GetConfigOrDie(), client.Options{})
 	if err != nil {
 		panic(err)
@@ -156,6 +144,20 @@ func main() {
 		if kratixConfig.Workflows.JobOptions.DefaultBackoffLimit != nil {
 			v1alpha1.DefaultJobBackoffLimit = kratixConfig.Workflows.JobOptions.DefaultBackoffLimit
 		}
+	}
+
+	telemetryShutdown := func(context.Context) error { return nil }
+	if shutdown, err := telemetry.SetupTracerProvider(context.Background(), ctrl.Log.WithName("telemetry"), "kratix-controller-manager", telemetryConfigFromKratixConfig(kratixConfig)); err != nil {
+		setupLog.Error(err, "failed to configure OpenTelemetry tracing")
+	} else {
+		telemetryShutdown = shutdown
+		defer func() {
+			shutdownCtx, cancel := context.WithTimeout(context.Background(), 5*time.Second)
+			defer cancel()
+			if err := telemetryShutdown(shutdownCtx); err != nil {
+				setupLog.Error(err, "failed to shutdown OpenTelemetry tracing")
+			}
+		}()
 	}
 
 	for {
@@ -418,6 +420,33 @@ func getRegularReconciliationInterval(kratixConfig *KratixConfig) time.Duration 
 		return controller.DefaultReconciliationInterval
 	}
 	return kratixConfig.ReconciliationInterval.Duration
+}
+
+func telemetryConfigFromKratixConfig(cfg *KratixConfig) *telemetry.Config {
+	if cfg == nil || cfg.Telemetry == nil {
+		return nil
+	}
+
+	tc := &telemetry.Config{
+		Endpoint: cfg.Telemetry.Endpoint,
+		Protocol: cfg.Telemetry.Protocol,
+	}
+
+	if cfg.Telemetry.Enabled != nil {
+		enabled := *cfg.Telemetry.Enabled
+		tc.Enabled = &enabled
+	}
+
+	if cfg.Telemetry.Insecure != nil {
+		insecure := *cfg.Telemetry.Insecure
+		tc.Insecure = &insecure
+	}
+
+	if len(cfg.Telemetry.Headers) > 0 {
+		tc.Headers = maps.Clone(cfg.Telemetry.Headers)
+	}
+
+	return tc
 }
 
 func setLeaderElectConfig(mgrOptions *ctrl.Options, kConfig *KratixConfig) {

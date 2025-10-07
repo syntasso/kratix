@@ -48,7 +48,10 @@ var _ = Describe("Tracing helpers", func() {
 			Expect(mutatedSecond).To(BeFalse())
 			Expect(span2).NotTo(BeNil())
 			Expect(trace.SpanContextFromContext(ctx2).IsValid()).To(BeTrue())
-			Expect(promise.GetAnnotations()[telemetry.TraceParentAnnotation]).To(Equal(annotations[telemetry.TraceParentAnnotation]))
+			Expect(promise.GetAnnotations()).To(HaveKeyWithValue(
+				telemetry.TraceParentAnnotation,
+				annotations[telemetry.TraceParentAnnotation],
+			))
 			span2.End()
 		})
 

@@ -55,7 +55,7 @@ func workCreatorCmd() *cobra.Command {
 			}
 
 			otelLogger := ctrl.Log.WithName("telemetry")
-			if shutdown, err := telemetry.SetupTracerProvider(cmd.Context(), otelLogger, "kratix-work-creator"); err != nil {
+			if shutdown, err := telemetry.SetupTracerProvider(cmd.Context(), otelLogger, "kratix-work-creator", nil); err != nil {
 				otelLogger.Error(err, "failed to configure OpenTelemetry tracing")
 			} else {
 				defer func() {

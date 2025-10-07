@@ -3,7 +3,6 @@ package telemetry
 import (
 	"context"
 	"fmt"
-	"os"
 	"strings"
 
 	"github.com/go-logr/logr"
@@ -14,35 +13,65 @@ import (
 	"go.opentelemetry.io/otel/sdk/resource"
 	sdktrace "go.opentelemetry.io/otel/sdk/trace"
 	semconv "go.opentelemetry.io/otel/semconv/v1.26.0"
+	"go.opentelemetry.io/otel/trace/noop"
 )
 
-const otlpProtocolGRPC = "grpc"
+const (
+	otlpProtocolGRPC = "grpc"
+)
+
+// Config captures OpenTelemetry exporter configuration loaded from the Kratix ConfigMap.
+type Config struct {
+	Enabled  *bool             `json:"enabled,omitempty"`
+	Endpoint string            `json:"endpoint,omitempty"`
+	Protocol string            `json:"protocol,omitempty"`
+	Insecure *bool             `json:"insecure,omitempty"`
+	Headers  map[string]string `json:"headers,omitempty"`
+}
 
 // SetupTracerProvider configures and installs a global OpenTelemetry tracer provider.
 // If no OTLP endpoint is configured, tracing metadata is still generated locally so
 // downstream resources can participate in traces, but spans will not be exported.
-func SetupTracerProvider(ctx context.Context, logger logr.Logger, serviceName string) (func(context.Context) error, error) {
-	// endpoint := strings.TrimSpace(os.Getenv("OTEL_EXPORTER_OTLP_ENDPOINT"))
-	endpoint := "grafana-k8s-monitoring-alloy-receiver.default.svc.cluster.local:4317"
+func SetupTracerProvider(ctx context.Context, logger logr.Logger, serviceName string, cfg *Config) (func(context.Context) error, error) {
+	if cfg == nil || (cfg.Enabled != nil && !*cfg.Enabled) {
+		logger.Info("OpenTelemetry tracing disabled via configuration")
+		otel.SetTracerProvider(noop.NewTracerProvider())
+		otel.SetTextMapPropagator(
+			propagation.NewCompositeTextMapPropagator(
+				propagation.TraceContext{},
+				propagation.Baggage{},
+			),
+		)
+		return func(context.Context) error { return nil }, nil
+	}
 
 	var (
 		exporter *otlptrace.Exporter
 		err      error
 	)
 
-	if endpoint != "" {
-		protocol := strings.TrimSpace(strings.ToLower(os.Getenv("OTEL_EXPORTER_OTLP_PROTOCOL")))
-		if protocol == "" {
-			protocol = otlpProtocolGRPC
-		}
+	protocol := strings.ToLower(strings.TrimSpace(cfg.Protocol))
+	if protocol == "" {
+		protocol = otlpProtocolGRPC
+	}
 
+	var headers map[string]string
+	if len(cfg.Headers) > 0 {
+		headers = make(map[string]string, len(cfg.Headers))
+		for k, v := range cfg.Headers {
+			headers[strings.TrimSpace(k)] = strings.TrimSpace(v)
+		}
+	}
+
+	endpoint := strings.TrimSpace(cfg.Endpoint)
+	if endpoint != "" {
 		switch protocol {
 		case otlpProtocolGRPC:
 			clientOpts := []otlptracegrpc.Option{otlptracegrpc.WithEndpoint(endpoint)}
-			if shouldUseInsecure(endpoint) {
+			if *cfg.Insecure {
 				clientOpts = append(clientOpts, otlptracegrpc.WithInsecure())
 			}
-			if headers := parseHeaders(os.Getenv("OTEL_EXPORTER_OTLP_HEADERS")); len(headers) > 0 {
+			if len(headers) > 0 {
 				clientOpts = append(clientOpts, otlptracegrpc.WithHeaders(headers))
 			}
 			exporter, err = otlptracegrpc.New(ctx, clientOpts...)
@@ -54,8 +83,6 @@ func SetupTracerProvider(ctx context.Context, logger logr.Logger, serviceName st
 			logger.Error(err, "creating OTLP trace exporter failed; falling back to local-only tracing")
 			exporter = nil
 		}
-	} else {
-		logger.Info("OTEL_EXPORTER_OTLP_ENDPOINT not set; tracing spans will not be exported")
 	}
 
 	res, resErr := buildResource(ctx, serviceName)
@@ -71,7 +98,12 @@ func SetupTracerProvider(ctx context.Context, logger logr.Logger, serviceName st
 	provider := sdktrace.NewTracerProvider(providerOpts...)
 
 	otel.SetTracerProvider(provider)
-	otel.SetTextMapPropagator(propagation.NewCompositeTextMapPropagator(propagation.TraceContext{}, propagation.Baggage{}))
+	otel.SetTextMapPropagator(
+		propagation.NewCompositeTextMapPropagator(
+			propagation.TraceContext{},
+			propagation.Baggage{},
+		),
+	)
 
 	if exporter != nil {
 		logger.Info("OpenTelemetry tracing enabled", "endpoint", endpoint)
@@ -80,26 +112,6 @@ func SetupTracerProvider(ctx context.Context, logger logr.Logger, serviceName st
 	}
 
 	return provider.Shutdown, nil
-}
-
-func shouldUseInsecure(endpoint string) bool {
-	if strings.EqualFold(os.Getenv("OTEL_EXPORTER_OTLP_INSECURE"), "true") {
-		return true
-	}
-	if strings.EqualFold(os.Getenv("OTEL_EXPORTER_OTLP_INSECURE"), "false") {
-		return false
-	}
-	if endpoint == "" {
-		return false
-	}
-	// Default to plaintext when the endpoint looks like an in-cluster DNS name or lacks a scheme.
-	if strings.Contains(endpoint, ".svc") || !strings.Contains(endpoint, "://") {
-		return true
-	}
-	if strings.HasPrefix(endpoint, "http://") {
-		return true
-	}
-	return false
 }
 
 func buildResource(ctx context.Context, serviceName string) (*resource.Resource, error) {
@@ -141,29 +153,4 @@ func hasServiceName(res *resource.Resource) bool {
 		}
 	}
 	return false
-}
-
-func parseHeaders(raw string) map[string]string {
-	raw = strings.TrimSpace(raw)
-	if raw == "" {
-		return nil
-	}
-	headers := map[string]string{}
-	for _, pair := range strings.Split(raw, ",") {
-		pair = strings.TrimSpace(pair)
-		if pair == "" {
-			continue
-		}
-		parts := strings.SplitN(pair, "=", 2)
-		if len(parts) != 2 {
-			continue
-		}
-		key := strings.TrimSpace(parts[0])
-		value := strings.TrimSpace(parts[1])
-		if key == "" {
-			continue
-		}
-		headers[key] = value
-	}
-	return headers
 }
