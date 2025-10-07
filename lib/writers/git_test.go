@@ -15,6 +15,7 @@ import (
 	. "github.com/onsi/gomega"
 	"github.com/syntasso/kratix/api/v1alpha1"
 	"github.com/syntasso/kratix/lib/writers"
+	corev1 "k8s.io/api/core/v1"
 	metav1 "k8s.io/apimachinery/pkg/apis/meta/v1"
 	ctrl "sigs.k8s.io/controller-runtime"
 )
@@ -31,6 +32,10 @@ var _ = Describe("NewGitWriter", func() {
 		stateStoreSpec = v1alpha1.GitStateStoreSpec{
 			StateStoreCoreFields: v1alpha1.StateStoreCoreFields{
 				Path: "state-store-path",
+				SecretRef: &corev1.SecretReference{
+					Namespace: "default",
+					Name:      "dummy-secret",
+				},
 			},
 			AuthMethod: "basicAuth",
 			URL:        "https://github.com/syntasso/kratix",
