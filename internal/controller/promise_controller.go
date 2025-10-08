@@ -126,7 +126,7 @@ var (
 
 // +kubebuilder:rbac:groups=apiextensions.k8s.io,resources=customresourcedefinitions,verbs=get;list;watch;create;update;patch;delete
 
-//nolint:funlen,gocognit // Reconcile orchestrates many promise concerns; splitting would hide the control flow.
+//nolint:gocognit // Reconcile orchestrates many promise concerns; splitting would hide the control flow.
 func (r *PromiseReconciler) Reconcile(ctx context.Context, req ctrl.Request) (result ctrl.Result, retErr error) {
 	if r.StartedDynamicControllers == nil {
 		r.StartedDynamicControllers = make(map[string]*DynamicResourceRequestController)
@@ -144,12 +144,8 @@ func (r *PromiseReconciler) Reconcile(ctx context.Context, req ctrl.Request) (re
 
 	baseLogger := r.Log.WithValues("identifier", promise.GetName(), "request", req.NamespacedName.String())
 	spanName := fmt.Sprintf("%s/PromiseReconcile", promise.GetName())
-	traceCtx := newReconcileTrace(ctx, "promise-controller", spanName, promise, baseLogger)
-	ctx = traceCtx.Context()
-	logger := traceCtx.Logger()
-	defer func() {
-		traceCtx.End(retErr)
-	}()
+	ctx, logger, traceCtx := setupReconcileTrace(ctx, "promise-controller", spanName, promise, baseLogger)
+	defer finishReconcileTrace(traceCtx, &retErr)()
 
 	traceCtx.AddAttributes(
 		attribute.String("kratix.promise.name", promise.GetName()),
@@ -158,13 +154,9 @@ func (r *PromiseReconciler) Reconcile(ctx context.Context, req ctrl.Request) (re
 		attribute.Int64("kratix.promise.generation", promise.GetGeneration()),
 	)
 
-	if conflict, patchErr := traceCtx.PersistAnnotations(r.Client); patchErr != nil {
-		if conflict {
-			logger.Info("conflict persisting trace annotations, requeueing")
-			return fastRequeue, nil
-		}
-		logger.Error(patchErr, "failed to persist trace annotations")
-		return defaultRequeue, patchErr
+	if err := persistReconcileTrace(traceCtx, r.Client, logger); err != nil {
+		logger.Error(err, "failed to persist trace annotations")
+		return ctrl.Result{}, err
 	}
 
 	originalStatus := promise.Status.Status

@@ -158,3 +158,40 @@ func (rt *reconcileTrace) InjectTrace(annotations map[string]string) map[string]
 	}
 	return telemetry.ApplyTraceAnnotations(annotations, rt.traceParent, rt.traceState)
 }
+
+func setupReconcileTrace(
+	ctx context.Context,
+	tracerName string,
+	spanName string,
+	obj client.Object,
+	baseLogger logr.Logger,
+) (context.Context, logr.Logger, *reconcileTrace) {
+	traceCtx := newReconcileTrace(ctx, tracerName, spanName, obj, baseLogger)
+	return traceCtx.Context(), traceCtx.Logger(), traceCtx
+}
+
+func finishReconcileTrace(traceCtx *reconcileTrace, retErr *error) func() {
+	return func() {
+		if traceCtx == nil {
+			return
+		}
+		var err error
+		if retErr != nil {
+			err = *retErr
+		}
+		traceCtx.End(err)
+	}
+}
+
+func persistReconcileTrace(traceCtx *reconcileTrace, c client.Client, logger logr.Logger,
+) error {
+	conflict, err := traceCtx.PersistAnnotations(c)
+	if err != nil {
+		if conflict {
+			logger.Info("conflict persisting trace annotations, requeueing")
+			return err
+		}
+		return err
+	}
+	return nil
+}

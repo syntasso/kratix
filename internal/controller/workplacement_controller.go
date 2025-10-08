@@ -90,12 +90,8 @@ func (r *WorkPlacementReconciler) Reconcile(ctx context.Context, req ctrl.Reques
 	}
 	baseLogger := r.Log.WithValues("workPlacement", req.NamespacedName, "promise", promiseName)
 	spanName := fmt.Sprintf("%s/WorkPlacementReconcile", promiseName)
-	traceCtx := newReconcileTrace(ctx, "workplacement-controller", spanName, workPlacement, baseLogger)
-	ctx = traceCtx.Context()
-	logger := traceCtx.Logger()
-	defer func() {
-		traceCtx.End(retErr)
-	}()
+	ctx, logger, traceCtx := setupReconcileTrace(ctx, "workplacement-controller", spanName, workPlacement, baseLogger)
+	defer finishReconcileTrace(traceCtx, &retErr)()
 
 	traceCtx.AddAttributes(
 		attribute.String("kratix.promise.name", promiseName),
@@ -104,13 +100,9 @@ func (r *WorkPlacementReconciler) Reconcile(ctx context.Context, req ctrl.Reques
 		attribute.String("kratix.workplacement.target_destination", workPlacement.Spec.TargetDestinationName),
 	)
 
-	if conflict, patchErr := traceCtx.PersistAnnotations(r.Client); patchErr != nil {
-		if conflict {
-			logger.Info("conflict persisting trace annotations, requeueing")
-			return fastRequeue, nil
-		}
-		logger.Error(patchErr, "failed to persist trace annotations")
-		return defaultRequeue, patchErr
+	if err := persistReconcileTrace(traceCtx, r.Client, logger); err != nil {
+		logger.Error(err, "failed to persist trace annotations")
+		return ctrl.Result{}, err
 	}
 
 	logger.Info("Reconciling WorkPlacement")

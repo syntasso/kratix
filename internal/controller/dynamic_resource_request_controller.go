@@ -108,12 +108,8 @@ func (r *DynamicResourceRequestController) Reconcile(ctx context.Context, req ct
 	}
 
 	spanName := fmt.Sprintf("%s/DynamicResourceRequestReconcile", r.PromiseIdentifier)
-	traceCtx := newReconcileTrace(ctx, "dynamic-resource-request-controller", spanName, rr, baseLogger)
-	ctx = traceCtx.Context()
-	logger := traceCtx.Logger()
-	defer func() {
-		traceCtx.End(retErr)
-	}()
+	ctx, logger, traceCtx := setupReconcileTrace(ctx, "dynamic-resource-request-controller", spanName, rr, baseLogger)
+	defer finishReconcileTrace(traceCtx, &retErr)()
 
 	traceCtx.AddAttributes(
 		attribute.String("kratix.promise.name", promise.GetName()),
@@ -121,13 +117,9 @@ func (r *DynamicResourceRequestController) Reconcile(ctx context.Context, req ct
 		attribute.String("kratix.resource_request.namespace", rr.GetNamespace()),
 	)
 
-	if conflict, patchErr := traceCtx.PersistAnnotations(r.Client); patchErr != nil {
-		if conflict {
-			logger.Info("conflict persisting trace annotations, requeueing")
-			return fastRequeue, nil
-		}
-		logger.Error(patchErr, "failed to persist trace annotations")
-		return ctrl.Result{}, patchErr
+	if err := persistReconcileTrace(traceCtx, r.Client, logger); err != nil {
+		logger.Error(err, "failed to persist trace annotations")
+		return ctrl.Result{}, err
 	}
 
 	if v, ok := promise.Labels[pauseReconciliationLabel]; ok && v == "true" {
