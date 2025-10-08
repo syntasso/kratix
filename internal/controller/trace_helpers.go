@@ -70,7 +70,7 @@ func newReconcileTrace(
 	if rt.span != nil && rt.span.SpanContext().IsValid() {
 		rt.logger = telemetry.LoggerWithTrace(logger, rt.span)
 	} else if traceID := telemetry.TraceIDFromTraceParent(rt.traceParent); traceID != "" {
-		rt.logger = logger.WithValues("trace_id", traceID)
+		rt.logger = telemetry.LoggerWithTraceID(logger, traceID)
 	}
 
 	return rt

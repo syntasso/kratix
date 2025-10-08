@@ -12,3 +12,5 @@ data:
       insecure: true
       headers:
         authorization: "Bearer <grafana-api-token>"
+    logging:
+      structured: true

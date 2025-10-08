@@ -224,7 +224,7 @@ func LoggerWithTrace(logger logr.Logger, span trace.Span) logr.Logger {
 	if !sc.IsValid() {
 		return logger
 	}
-	return logger.WithValues("trace_id", sc.TraceID().String())
+	return LoggerWithTraceID(logger, sc.TraceID().String())
 }
 
 // RecordError annotates the span status with the provided error if non-nil.
@@ -282,6 +282,14 @@ func AnnotateWithSpanContext(annotations map[string]string, span trace.Span) map
 	}
 	storeSpanContext(annotations, span.SpanContext())
 	return annotations
+}
+
+// LoggerWithTraceID enriches the logger with the provided trace ID when available.
+func LoggerWithTraceID(logger logr.Logger, traceID string) logr.Logger {
+	if traceID == "" {
+		return logger
+	}
+	return logger.WithValues("trace_id", traceID)
 }
 
 // TraceIDFromTraceParent extracts the trace ID from a W3C traceparent string.

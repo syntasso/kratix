@@ -75,6 +75,11 @@ type KratixConfig struct {
 	SelectiveCache           bool                  `json:"selectiveCache,omitempty"`
 	ReconciliationInterval   *metav1.Duration      `json:"reconciliationInterval,omitempty"`
 	Telemetry                *telemetry.Config     `json:"telemetry,omitempty"`
+	Logging                  *LoggingConfig        `json:"logging,omitempty"`
+}
+
+type LoggingConfig struct {
+	Structured *bool `json:"structured,omitempty"`
 }
 
 type Workflows struct {
@@ -111,9 +116,7 @@ func main() {
 	flag.BoolVar(&enableLeaderElection, "leader-elect", false,
 		"Enable leader election for controller manager. "+
 			"Enabling this will ensure there is only one active controller manager.")
-	opts := zap.Options{
-		Development: true,
-	}
+	opts := zap.Options{}
 	opts.BindFlags(flag.CommandLine)
 	flag.Parse()
 
@@ -137,6 +140,21 @@ func main() {
 	if err != nil {
 		panic(err)
 	}
+
+	// Reconfigure logging based on the Kratix config.
+	configuredOpts := opts
+	if isStructuredLoggingEnabled(kratixConfig) {
+		configuredOpts.Development = false
+	} else {
+		configuredOpts.Development = true
+	}
+	ctrl.SetLogger(zap.New(zap.UseFlagOptions(&configuredOpts), func(o *zap.Options) {
+		o.TimeEncoder = zapcore.TimeEncoderOfLayout("2006-01-02T15:04:05Z07:00")
+	}))
+	if prefix != "" {
+		ctrl.Log = ctrl.Log.WithName(prefix)
+	}
+	setupLog = ctrl.Log.WithName("setup")
 
 	if kratixConfig != nil {
 		v1alpha1.DefaultUserProvidedContainersSecurityContext = &kratixConfig.Workflows.DefaultContainerSecurityContext
@@ -447,6 +465,13 @@ func telemetryConfigFromKratixConfig(cfg *KratixConfig) *telemetry.Config {
 	}
 
 	return tc
+}
+
+func isStructuredLoggingEnabled(cfg *KratixConfig) bool {
+	if cfg == nil || cfg.Logging == nil || cfg.Logging.Structured == nil {
+		return true
+	}
+	return *cfg.Logging.Structured
 }
 
 func setLeaderElectConfig(mgrOptions *ctrl.Options, kConfig *KratixConfig) {
