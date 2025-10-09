@@ -1,8 +1,14 @@
 package writers
 
 import (
+	"context"
+	"crypto/rsa"
+	"crypto/x509"
+	"encoding/json"
+	"encoding/pem"
 	"errors"
 	"fmt"
+	"net/http"
 	"os"
 	"path"
 	"path/filepath"
@@ -14,9 +20,10 @@ import (
 	"github.com/go-git/go-git/v5/plumbing/object"
 	"github.com/go-git/go-git/v5/plumbing/protocol/packp/capability"
 	"github.com/go-git/go-git/v5/plumbing/transport"
-	"github.com/go-git/go-git/v5/plumbing/transport/http"
+	githttp "github.com/go-git/go-git/v5/plumbing/transport/http"
 	"github.com/go-git/go-git/v5/plumbing/transport/ssh"
 	"github.com/go-logr/logr"
+	"github.com/golang-jwt/jwt/v5"
 	"github.com/syntasso/kratix/api/v1alpha1"
 )
 
@@ -38,26 +45,34 @@ type gitAuthor struct {
 	Email string
 }
 
+type sshAuthCreds struct {
+	SSHPrivateKey []byte
+	KnownHosts    []byte
+	SSHUser       string
+}
+
+type basicAuthCreds struct {
+	Username string
+	Password string
+}
+
+type githubAppCreds struct {
+	AppID          string
+	InstallationID string
+	PrivateKey     string
+	ApiUrl         string
+}
+
 func NewGitWriter(logger logr.Logger, stateStoreSpec v1alpha1.GitStateStoreSpec, destinationPath string, creds map[string][]byte) (StateStoreWriter, error) {
 	var authMethod transport.AuthMethod
 	switch stateStoreSpec.AuthMethod {
 	case v1alpha1.SSHAuthMethod:
-		sshPrivateKey, ok := creds["sshPrivateKey"]
-		if !ok {
-			return nil, fmt.Errorf("sshKey not found in secret %s/%s", stateStoreSpec.SecretRef.Namespace, stateStoreSpec.SecretRef.Name)
-		}
-
-		knownHosts, ok := creds["knownHosts"]
-		if !ok {
-			return nil, fmt.Errorf("knownHosts not found in secret %s/%s", stateStoreSpec.SecretRef.Namespace, stateStoreSpec.SecretRef.Name)
-		}
-
-		sshUser, err := sshUsernameFromURL(stateStoreSpec.URL)
+		sshCreds, err := newSSHAuthCreds(stateStoreSpec, creds)
 		if err != nil {
-			return nil, fmt.Errorf("error parsing GitStateStore url: %w", err)
+			return nil, err
 		}
 
-		sshKey, err := ssh.NewPublicKeys(sshUser, sshPrivateKey, "")
+		sshKey, err := ssh.NewPublicKeys(sshCreds.SSHUser, sshCreds.SSHPrivateKey, "")
 		if err != nil {
 			return nil, fmt.Errorf("error parsing sshKey: %w", err)
 		}
@@ -67,7 +82,7 @@ func NewGitWriter(logger logr.Logger, stateStoreSpec v1alpha1.GitStateStoreSpec,
 			return nil, fmt.Errorf("error creating knownHosts file: %w", err)
 		}
 
-		_, err = knownHostsFile.Write(knownHosts)
+		_, err = knownHostsFile.Write(sshCreds.KnownHosts)
 		if err != nil {
 			return nil, fmt.Errorf("error writing knownHosts file: %w", err)
 		}
@@ -85,19 +100,34 @@ func NewGitWriter(logger logr.Logger, stateStoreSpec v1alpha1.GitStateStoreSpec,
 
 		authMethod = sshKey
 	case v1alpha1.BasicAuthMethod:
-		username, ok := creds["username"]
-		if !ok {
-			return nil, fmt.Errorf("username not found in secret %s/%s", stateStoreSpec.SecretRef.Namespace, stateStoreSpec.SecretRef.Name)
+		basicCreds, err := newBasicAuthCreds(stateStoreSpec, creds)
+		if err != nil {
+			return nil, err
 		}
 
-		password, ok := creds["password"]
-		if !ok {
-			return nil, fmt.Errorf("password not found in secret %s/%s", stateStoreSpec.SecretRef.Namespace, stateStoreSpec.SecretRef.Name)
+		authMethod = &githttp.BasicAuth{
+			Username: basicCreds.Username,
+			Password: basicCreds.Password,
+		}
+	case v1alpha1.GitHubAppAuthMethod:
+		appCreds, err := newGithubAppCreds(stateStoreSpec, creds)
+		if err != nil {
+			return nil, err
 		}
 
-		authMethod = &http.BasicAuth{
-			Username: string(username),
-			Password: string(password),
+		j, err := GenerateGitHubAppJWT(appCreds.AppID, appCreds.PrivateKey)
+		if err != nil {
+			return nil, fmt.Errorf("failed to generate GitHub App JWT: %w", err)
+		}
+
+		token, err := GetGitHubInstallationToken(appCreds.ApiUrl, appCreds.InstallationID, j)
+		if err != nil {
+			return nil, fmt.Errorf("failed to get GitHub installation token: %w", err)
+		}
+
+		authMethod = &githttp.BasicAuth{
+			Username: "x-access-token",
+			Password: token,
 		}
 	}
 
@@ -116,6 +146,68 @@ func NewGitWriter(logger logr.Logger, stateStoreSpec v1alpha1.GitStateStoreSpec,
 			stateStoreSpec.Path,
 			destinationPath,
 		), "/"),
+	}, nil
+}
+
+func newSSHAuthCreds(stateStoreSpec v1alpha1.GitStateStoreSpec, creds map[string][]byte) (*sshAuthCreds, error) {
+	sshPrivateKey, ok := creds["sshPrivateKey"]
+	namespace := stateStoreSpec.SecretRef.Namespace
+	name := stateStoreSpec.SecretRef.Name
+	if !ok {
+		return nil, fmt.Errorf("sshKey not found in secret %s/%s", namespace, name)
+	}
+	knownHosts, ok := creds["knownHosts"]
+	if !ok {
+		return nil, fmt.Errorf("knownHosts not found in secret %s/%s", namespace, name)
+	}
+	sshUser, err := sshUsernameFromURL(stateStoreSpec.URL)
+	if err != nil {
+		return nil, fmt.Errorf("error parsing GitStateStore url: %w", err)
+	}
+	return &sshAuthCreds{
+		SSHPrivateKey: sshPrivateKey,
+		KnownHosts:    knownHosts,
+		SSHUser:       sshUser,
+	}, nil
+}
+
+func newBasicAuthCreds(stateStoreSpec v1alpha1.GitStateStoreSpec, creds map[string][]byte) (*basicAuthCreds, error) {
+	namespace := stateStoreSpec.SecretRef.Namespace
+	name := stateStoreSpec.SecretRef.Name
+	username, ok := creds["username"]
+	if !ok {
+		return nil, fmt.Errorf("username not found in secret %s/%s", namespace, name)
+	}
+	password, ok := creds["password"]
+	if !ok {
+		return nil, fmt.Errorf("password not found in secret %s/%s", namespace, name)
+	}
+	return &basicAuthCreds{
+		Username: string(username),
+		Password: string(password),
+	}, nil
+}
+
+func newGithubAppCreds(stateStoreSpec v1alpha1.GitStateStoreSpec, creds map[string][]byte) (*githubAppCreds, error) {
+	namespace := stateStoreSpec.SecretRef.Namespace
+	name := stateStoreSpec.SecretRef.Name
+	appID, ok := creds["appID"]
+	if !ok {
+		return nil, fmt.Errorf("appID not found in secret %s/%s", namespace, name)
+	}
+	installationID, ok := creds["installationID"]
+	if !ok {
+		return nil, fmt.Errorf("installationID not found in secret %s/%s", namespace, name)
+	}
+	privateKey, ok := creds["privateKey"]
+	if !ok {
+		return nil, fmt.Errorf("privateKey not found in secret %s/%s", namespace, name)
+	}
+	return &githubAppCreds{
+		AppID:          string(appID),
+		InstallationID: string(installationID),
+		PrivateKey:     string(privateKey),
+		ApiUrl:         "https://api.github.com",
 	}, nil
 }
 
@@ -405,4 +497,89 @@ func sshUsernameFromURL(url string) (string, error) {
 		return "git", nil
 	}
 	return ep.User, nil
+}
+
+// for unit tests
+
+var GenerateGitHubAppJWT = generateGitHubAppJWT
+var GetGitHubInstallationToken = getGitHubInstallationToken
+
+// generateGitHubAppJWT creates a signed JWT for GitHub App authentication
+func generateGitHubAppJWT(appID string, privateKey string) (string, error) {
+	block, _ := pem.Decode([]byte(privateKey))
+	if block == nil {
+		return "", errors.New("invalid private key: failed to parse PEM block")
+	}
+
+	parsedKey, err := parseRSAPrivateKeyFromPEM(block)
+	if err != nil {
+		return "", err
+	}
+
+	now := time.Now()
+	claims := jwt.MapClaims{
+		"iat": now.Unix() - 60,
+		"exp": now.Add(10 * time.Minute).Unix(),
+		"iss": appID,
+	}
+
+	token := jwt.NewWithClaims(jwt.SigningMethodRS256, claims)
+	signed, err := token.SignedString(parsedKey)
+	if err != nil {
+		return "", fmt.Errorf("failed to sign JWT: %w", err)
+	}
+	return signed, nil
+}
+
+func parseRSAPrivateKeyFromPEM(block *pem.Block) (*rsa.PrivateKey, error) {
+	if k, err := x509.ParsePKCS1PrivateKey(block.Bytes); err == nil {
+		return k, nil
+	}
+
+	k, err := x509.ParsePKCS8PrivateKey(block.Bytes)
+	if err != nil {
+		return nil, errors.New("failed to parse RSA private key")
+	}
+	if rsaKey, ok := k.(*rsa.PrivateKey); ok {
+		return rsaKey, nil
+	}
+	return nil, errors.New("private key is not RSA")
+}
+
+// getGitHubInstallationToken exchanges a JWT for a GitHub installation access token
+func getGitHubInstallationToken(apiURL, installationID, jwtToken string) (string, error) {
+	url := fmt.Sprintf("%s/app/installations/%s/access_tokens", apiURL, installationID)
+
+	req, err := http.NewRequestWithContext(context.Background(), http.MethodPost, url, nil)
+	if err != nil {
+		return "", fmt.Errorf("failed to create request: %w", err)
+	}
+	req.Header.Set("Authorization", "Bearer "+jwtToken)
+	req.Header.Set("Accept", "application/vnd.github+json")
+
+	client := &http.Client{Timeout: 10 * time.Second}
+	resp, err := client.Do(req)
+	if err != nil {
+		return "", fmt.Errorf("GitHub API request failed: %w", err)
+	}
+	defer resp.Body.Close() //nolint:errcheck
+
+	if resp.StatusCode != http.StatusCreated {
+		var body struct {
+			Message string `json:"message"`
+		}
+		_ = json.NewDecoder(resp.Body).Decode(&body)
+		return "", fmt.Errorf("GitHub API error: status=%d, message=%s", resp.StatusCode, body.Message)
+	}
+
+	var result struct {
+		Token string `json:"token"`
+	}
+	if err := json.NewDecoder(resp.Body).Decode(&result); err != nil {
+		return "", fmt.Errorf("failed to decode response: %w", err)
+	}
+	if result.Token == "" {
+		return "", errors.New("empty installation token received")
+	}
+	return result.Token, nil
 }
