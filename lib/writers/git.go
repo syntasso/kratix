@@ -56,12 +56,11 @@ type basicAuthCreds struct {
 	Password string
 }
 
-var GITHUB_API_URL = "https://api.github.com"
-
 type githubAppCreds struct {
 	AppID          string
 	InstallationID string
 	PrivateKey     string
+	ApiUrl         string
 }
 
 func NewGitWriter(logger logr.Logger, stateStoreSpec v1alpha1.GitStateStoreSpec, destinationPath string, creds map[string][]byte) (StateStoreWriter, error) {
@@ -121,7 +120,7 @@ func NewGitWriter(logger logr.Logger, stateStoreSpec v1alpha1.GitStateStoreSpec,
 			return nil, fmt.Errorf("failed to generate GitHub App JWT: %w", err)
 		}
 
-		token, err := GetGitHubInstallationToken(appCreds.InstallationID, j)
+		token, err := GetGitHubInstallationToken(appCreds.ApiUrl, appCreds.InstallationID, j)
 		if err != nil {
 			return nil, fmt.Errorf("failed to get GitHub installation token: %w", err)
 		}
@@ -208,6 +207,7 @@ func newGithubAppCreds(stateStoreSpec v1alpha1.GitStateStoreSpec, creds map[stri
 		AppID:          string(appID),
 		InstallationID: string(installationID),
 		PrivateKey:     string(privateKey),
+		ApiUrl:         "https://api.github.com",
 	}, nil
 }
 
@@ -542,8 +542,8 @@ func generateGitHubAppJWT(appID string, privateKey string) (string, error) {
 }
 
 // getGitHubInstallationToken exchanges a JWT for a GitHub installation access token
-func getGitHubInstallationToken(installationID, jwtToken string) (string, error) {
-	url := fmt.Sprintf("%s/app/installations/%s/access_tokens", GITHUB_API_URL, installationID)
+func getGitHubInstallationToken(apiURL, installationID, jwtToken string) (string, error) {
+	url := fmt.Sprintf("%s/app/installations/%s/access_tokens", apiURL, installationID)
 
 	req, err := http.NewRequestWithContext(context.Background(), http.MethodPost, url, nil)
 	if err != nil {

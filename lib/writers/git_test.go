@@ -158,7 +158,7 @@ var _ = Describe("NewGitWriter", func() {
 		var (
 			jwtCalled, tokenCalled         bool
 			origGenerateGitHubAppJWT       func(string, string) (string, error)
-			origGetGitHubInstallationToken func(string, string) (string, error)
+			origGetGitHubInstallationToken func(string, string, string) (string, error)
 		)
 		BeforeEach(func() {
 			jwtCalled = false
@@ -169,7 +169,7 @@ var _ = Describe("NewGitWriter", func() {
 				jwtCalled = true
 				return "jwt", nil
 			}
-			writers.GetGitHubInstallationToken = func(installationID, jwt string) (string, error) {
+			writers.GetGitHubInstallationToken = func(apiURL, installationID, jwt string) (string, error) {
 				tokenCalled = true
 				return "token", nil
 			}
@@ -271,39 +271,39 @@ var _ = Describe("NewGitWriter", func() {
 		})
 
 		It("returns token on 201 response", func() {
-			server = setupGitHubTestServer(func(w http.ResponseWriter, r *http.Request) {
+			server = httptest.NewServer(http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
 				Expect(r.Method).To(Equal(http.MethodPost))
 				Expect(r.Header.Get("Authorization")).To(Equal("Bearer jwt"))
 				Expect(r.Header.Get("Accept")).To(Equal("application/vnd.github+json"))
 
 				w.WriteHeader(http.StatusCreated)
 				_ = json.NewEncoder(w).Encode(map[string]string{"token": "abc123"})
-			})
+			}))
 
-			tok, err := writers.GetGitHubInstallationToken("123", "jwt")
+			tok, err := writers.GetGitHubInstallationToken(server.URL, "123", "jwt")
 			Expect(err).NotTo(HaveOccurred())
 			Expect(tok).To(Equal("abc123"))
 		})
 
 		It("returns error on non-201 response", func() {
-			server = setupGitHubTestServer(func(w http.ResponseWriter, r *http.Request) {
+			server = httptest.NewServer(http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
 				w.WriteHeader(http.StatusUnauthorized)
 				_ = json.NewEncoder(w).Encode(map[string]string{"message": "bad creds"})
-			})
+			}))
 
-			tok, err := writers.GetGitHubInstallationToken("123", "jwt")
+			tok, err := writers.GetGitHubInstallationToken(server.URL, "123", "jwt")
 			Expect(err).To(HaveOccurred())
 			Expect(tok).To(BeEmpty())
 			Expect(err.Error()).To(ContainSubstring("bad creds"))
 		})
 
 		It("returns error if token is empty", func() {
-			server = setupGitHubTestServer(func(w http.ResponseWriter, r *http.Request) {
+			server = httptest.NewServer(http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
 				w.WriteHeader(http.StatusCreated)
 				_ = json.NewEncoder(w).Encode(map[string]string{"token": ""})
-			})
+			}))
 
-			tok, err := writers.GetGitHubInstallationToken("123", "jwt")
+			tok, err := writers.GetGitHubInstallationToken(server.URL, "123", "jwt")
 			Expect(err).To(HaveOccurred())
 			Expect(tok).To(BeEmpty())
 		})
@@ -324,10 +324,4 @@ func generateSSHCreds(key *rsa.PrivateKey) map[string][]byte {
 		"sshPrivateKey": b.Bytes(),
 		"knownHosts":    []byte("github.com ssh-ed25519 AAAAC3NzaC1lZDI1NTE5AAAAIOMqqnkVzrm0SdG6UOoqKLsabgH5C9okWi0dh2l9GKJl"),
 	}
-}
-
-func setupGitHubTestServer(handler http.HandlerFunc) *httptest.Server {
-	server := httptest.NewServer(handler)
-	writers.GITHUB_API_URL = server.URL
-	return server
 }
