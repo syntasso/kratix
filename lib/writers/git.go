@@ -511,19 +511,9 @@ func generateGitHubAppJWT(appID string, privateKey string) (string, error) {
 		return "", errors.New("invalid private key: failed to parse PEM block")
 	}
 
-	var parsedKey any
-	var err error
-
-	if key, err := x509.ParsePKCS1PrivateKey(block.Bytes); err == nil {
-		parsedKey = key
-	} else if key, err := x509.ParsePKCS8PrivateKey(block.Bytes); err == nil {
-		if rsaKey, ok := key.(*rsa.PrivateKey); ok {
-			parsedKey = rsaKey
-		} else {
-			return "", errors.New("private key is not RSA")
-		}
-	} else {
-		return "", fmt.Errorf("failed to parse private key: %w", err)
+	parsedKey, err := parseRSAPrivateKeyFromPEM(block)
+	if err != nil {
+		return "", err
 	}
 
 	now := time.Now()
@@ -539,6 +529,21 @@ func generateGitHubAppJWT(appID string, privateKey string) (string, error) {
 		return "", fmt.Errorf("failed to sign JWT: %w", err)
 	}
 	return signed, nil
+}
+
+func parseRSAPrivateKeyFromPEM(block *pem.Block) (*rsa.PrivateKey, error) {
+	if k, err := x509.ParsePKCS1PrivateKey(block.Bytes); err == nil {
+		return k, nil
+	}
+
+	k, err := x509.ParsePKCS8PrivateKey(block.Bytes)
+	if err != nil {
+		return nil, errors.New("failed to parse RSA private key")
+	}
+	if rsaKey, ok := k.(*rsa.PrivateKey); ok {
+		return rsaKey, nil
+	}
+	return nil, errors.New("private key is not RSA")
 }
 
 // getGitHubInstallationToken exchanges a JWT for a GitHub installation access token

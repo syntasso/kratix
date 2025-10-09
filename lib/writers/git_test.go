@@ -2,6 +2,8 @@ package writers_test
 
 import (
 	"bytes"
+	"crypto/ecdsa"
+	"crypto/elliptic"
 	"crypto/rand"
 	"crypto/rsa"
 	"crypto/x509"
@@ -236,12 +238,15 @@ var _ = Describe("NewGitWriter", func() {
 
 	Describe("generateGitHubAppJWT", func() {
 		It("returns a signed JWT with valid RSA key and appID", func() {
-			key, err := rsa.GenerateKey(rand.Reader, 2048)
+			pemStr := generatePEMFromPKCS1RSAKey()
+			jwt, err := writers.GenerateGitHubAppJWT("12345", pemStr)
 			Expect(err).NotTo(HaveOccurred())
-			privDER := x509.MarshalPKCS1PrivateKey(key)
-			privBlock := pem.Block{Type: "RSA PRIVATE KEY", Bytes: privDER}
-			pemBytes := pem.EncodeToMemory(&privBlock)
-			jwt, err := writers.GenerateGitHubAppJWT("12345", string(pemBytes))
+			Expect(jwt).NotTo(BeEmpty())
+		})
+
+		It("parses RSA private key in PKCS#8 format", func() {
+			pemStr := generatePEMFromPKCS8RSAKey()
+			jwt, err := writers.GenerateGitHubAppJWT("12345", pemStr)
 			Expect(err).NotTo(HaveOccurred())
 			Expect(jwt).NotTo(BeEmpty())
 		})
@@ -256,6 +261,13 @@ var _ = Describe("NewGitWriter", func() {
 			block := pem.Block{Type: "EC PRIVATE KEY", Bytes: []byte("bad")}
 			pemBytes := pem.EncodeToMemory(&block)
 			jwt, err := writers.GenerateGitHubAppJWT("12345", string(pemBytes))
+			Expect(err).To(HaveOccurred())
+			Expect(jwt).To(BeEmpty())
+		})
+
+		It("returns error for non-RSA PKCS#8 key", func() {
+			pemStr := generatePEMFromPKCS8ECKey()
+			jwt, err := writers.GenerateGitHubAppJWT("12345", pemStr)
 			Expect(err).To(HaveOccurred())
 			Expect(jwt).To(BeEmpty())
 		})
@@ -324,4 +336,25 @@ func generateSSHCreds(key *rsa.PrivateKey) map[string][]byte {
 		"sshPrivateKey": b.Bytes(),
 		"knownHosts":    []byte("github.com ssh-ed25519 AAAAC3NzaC1lZDI1NTE5AAAAIOMqqnkVzrm0SdG6UOoqKLsabgH5C9okWi0dh2l9GKJl"),
 	}
+}
+
+func generatePEMFromPKCS1RSAKey() string {
+	key, _ := rsa.GenerateKey(rand.Reader, 2048)
+	privDER := x509.MarshalPKCS1PrivateKey(key)
+	block := pem.Block{Type: "RSA PRIVATE KEY", Bytes: privDER}
+	return string(pem.EncodeToMemory(&block))
+}
+
+func generatePEMFromPKCS8RSAKey() string {
+	key, _ := rsa.GenerateKey(rand.Reader, 2048)
+	privDER, _ := x509.MarshalPKCS8PrivateKey(key)
+	block := pem.Block{Type: "PRIVATE KEY", Bytes: privDER}
+	return string(pem.EncodeToMemory(&block))
+}
+
+func generatePEMFromPKCS8ECKey() string {
+	ecKey, _ := ecdsa.GenerateKey(elliptic.P256(), rand.Reader)
+	privDER, _ := x509.MarshalPKCS8PrivateKey(ecKey)
+	block := pem.Block{Type: "PRIVATE KEY", Bytes: privDER}
+	return string(pem.EncodeToMemory(&block))
 }
