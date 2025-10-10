@@ -22,8 +22,9 @@ import (
 )
 
 const (
-	BasicAuthMethod = "basicAuth"
-	SSHAuthMethod   = "ssh"
+	BasicAuthMethod     = "basicAuth"
+	SSHAuthMethod       = "ssh"
+	GitHubAppAuthMethod = "githubApp"
 )
 
 // GitStateStoreSpec defines the desired state of GitStateStore
@@ -39,8 +40,8 @@ type GitStateStoreSpec struct {
 	Branch string `json:"branch,omitempty"`
 
 	// Authentication method used to access the StateStore.
-	// Default to basicAuth; options are basicAuth and ssh.
-	// +kubebuilder:validation:Enum=basicAuth;ssh
+	// Default to basicAuth; options are basicAuth, ssh, and githubApp.
+	// +kubebuilder:validation:Enum=basicAuth;ssh;githubApp
 	// +kubebuilder:default:=basicAuth
 	AuthMethod string `json:"authMethod,omitempty"`
 	// Git author name and email used to commit this git state store; name defaults to 'kratix'
