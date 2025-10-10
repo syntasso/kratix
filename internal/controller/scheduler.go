@@ -344,7 +344,12 @@ func (s *Scheduler) applyWorkplacementsForTargetDestinations(workloadGroup v1alp
 				workloadGroupIDKey:         workloadGroup.ID,
 				TargetDestinationNameLabel: targetDestinationName,
 			}
-			workPlacement.SetAnnotations(buildWorkPlacementAnnotations(workPlacement.GetAnnotations(), work.GetAnnotations()))
+			workPlacement.SetAnnotations(
+				buildWorkPlacementAnnotations(
+					workPlacement.GetAnnotations(),
+					work.GetAnnotations(),
+				),
+			)
 
 			workPlacement.SetPipelineName(work)
 

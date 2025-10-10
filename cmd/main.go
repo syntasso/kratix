@@ -136,25 +136,16 @@ func main() {
 		panic(err)
 	}
 
-	kratixConfig, err := readKratixConfig(ctrl.Log, kClient)
+	kratixConfig, err := readKratixConfig(setupLog, kClient)
 	if err != nil {
 		panic(err)
 	}
 
 	// Reconfigure logging based on the Kratix config.
-	configuredOpts := opts
-	if isStructuredLoggingEnabled(kratixConfig) {
-		configuredOpts.Development = false
-	} else {
-		configuredOpts.Development = true
-	}
-	ctrl.SetLogger(zap.New(zap.UseFlagOptions(&configuredOpts), func(o *zap.Options) {
+	opts.Development = isStructuredLoggingEnabled(kratixConfig)
+	ctrl.SetLogger(zap.New(zap.UseFlagOptions(&opts), func(o *zap.Options) {
 		o.TimeEncoder = zapcore.TimeEncoderOfLayout("2006-01-02T15:04:05Z07:00")
 	}))
-	if prefix != "" {
-		ctrl.Log = ctrl.Log.WithName(prefix)
-	}
-	setupLog = ctrl.Log.WithName("setup")
 
 	if kratixConfig != nil {
 		v1alpha1.DefaultUserProvidedContainersSecurityContext = &kratixConfig.Workflows.DefaultContainerSecurityContext
@@ -451,13 +442,11 @@ func telemetryConfigFromKratixConfig(cfg *KratixConfig) *telemetry.Config {
 	}
 
 	if cfg.Telemetry.Enabled != nil {
-		enabled := *cfg.Telemetry.Enabled
-		tc.Enabled = &enabled
+		tc.Enabled = ptr.To(*cfg.Telemetry.Enabled)
 	}
 
 	if cfg.Telemetry.Insecure != nil {
-		insecure := *cfg.Telemetry.Insecure
-		tc.Insecure = &insecure
+		tc.Insecure = ptr.To(*cfg.Telemetry.Insecure)
 	}
 
 	if len(cfg.Telemetry.Headers) > 0 {

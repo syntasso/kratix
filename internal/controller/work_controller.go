@@ -71,12 +71,6 @@ func (r *WorkReconciler) Reconcile(ctx context.Context, req ctrl.Request) (resul
 	}
 
 	promiseName := work.Spec.PromiseName
-	if promiseName == "" {
-		promiseName = work.GetLabels()[v1alpha1.PromiseNameLabel]
-	}
-	if promiseName == "" {
-		promiseName = work.GetName()
-	}
 	baseLogger := r.Log.WithValues("work", req.NamespacedName, "promise", promiseName)
 	spanName := fmt.Sprintf("%s/WorkReconcile", promiseName)
 	ctx, logger, traceCtx := setupReconcileTrace(ctx, "work-controller", spanName, work, baseLogger)
@@ -245,8 +239,6 @@ func (r *WorkReconciler) requestReconciliationOfWorksOnDestination(ctx context.C
 	return requests
 }
 
-// cloneStringMap returns a shallow copy of the provided map so that callers can
-// safely mutate the clone without altering the original annotations.
 func cloneStringMap(src map[string]string) map[string]string {
 	if src == nil {
 		return nil
@@ -256,12 +248,12 @@ func cloneStringMap(src map[string]string) map[string]string {
 	return dst
 }
 
-// buildWorkPlacementAnnotations merges the Work's annotations with any existing
-// WorkPlacement-specific trace metadata. Work annotations remain the source of
-// truth, while WorkPlacement trace state (which is derived during its own
-// reconciliation) is preserved so scheduler updates do not break trace chains.
+// buildWorkPlacementAnnotations merges the Work's Telemetry annotations with any existing WorkPlacement-specific trace metadata.
 func buildWorkPlacementAnnotations(existing, work map[string]string) map[string]string {
 	desired := cloneStringMap(work)
+	if desired == nil {
+		desired = map[string]string{}
+	}
 
 	if existing != nil {
 		for _, key := range []string{
@@ -271,9 +263,6 @@ func buildWorkPlacementAnnotations(existing, work map[string]string) map[string]
 			telemetry.TraceGenerationAnnotation,
 		} {
 			if val := existing[key]; val != "" {
-				if desired == nil {
-					desired = map[string]string{}
-				}
 				desired[key] = val
 			}
 		}

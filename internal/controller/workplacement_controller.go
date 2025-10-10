@@ -72,8 +72,7 @@ type WorkPlacementReconciler struct {
 
 func (r *WorkPlacementReconciler) Reconcile(ctx context.Context, req ctrl.Request) (result ctrl.Result, retErr error) {
 	workPlacement := &v1alpha1.WorkPlacement{}
-	err := r.Client.Get(ctx, req.NamespacedName, workPlacement)
-	if err != nil {
+	if err := r.Client.Get(ctx, req.NamespacedName, workPlacement); err != nil {
 		if k8sErrors.IsNotFound(err) {
 			return ctrl.Result{}, nil
 		}
@@ -82,14 +81,12 @@ func (r *WorkPlacementReconciler) Reconcile(ctx context.Context, req ctrl.Reques
 	}
 
 	promiseName := workPlacement.Spec.PromiseName
-	if promiseName == "" {
-		promiseName = workPlacement.GetLabels()[v1alpha1.PromiseNameLabel]
-	}
-	if promiseName == "" {
-		promiseName = workPlacement.GetName()
-	}
+	resourceName := workPlacement.Spec.ResourceName
 	baseLogger := r.Log.WithValues("workPlacement", req.NamespacedName, "promise", promiseName)
 	spanName := fmt.Sprintf("%s/WorkPlacementReconcile", promiseName)
+	if resourceName != "" {
+		spanName = fmt.Sprintf("%s/%s", resourceName, spanName)
+	}
 	ctx, logger, traceCtx := setupReconcileTrace(ctx, "workplacement-controller", spanName, workPlacement, baseLogger)
 	defer finishReconcileTrace(traceCtx, &retErr)()
 
