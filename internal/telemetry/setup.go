@@ -68,7 +68,11 @@ func SetupTracerProvider(ctx context.Context, logger logr.Logger, serviceName st
 		switch protocol {
 		case otlpProtocolGRPC:
 			clientOpts := []otlptracegrpc.Option{otlptracegrpc.WithEndpoint(endpoint)}
-			if *cfg.Insecure {
+			insecure := false
+			if cfg.Insecure != nil {
+				insecure = *cfg.Insecure
+			}
+			if insecure {
 				clientOpts = append(clientOpts, otlptracegrpc.WithInsecure())
 			}
 			if len(headers) > 0 {
