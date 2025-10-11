@@ -141,8 +141,7 @@ func main() {
 		panic(err)
 	}
 
-	// Reconfigure logging based on the Kratix config.
-	opts.Development = isStructuredLoggingEnabled(kratixConfig)
+	opts.Development = !isStructuredLoggingEnabled(kratixConfig)
 	ctrl.SetLogger(zap.New(zap.UseFlagOptions(&opts), func(o *zap.Options) {
 		o.TimeEncoder = zapcore.TimeEncoderOfLayout("2006-01-02T15:04:05Z07:00")
 	}))
