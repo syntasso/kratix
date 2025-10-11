@@ -24,10 +24,14 @@ import (
 	"strings"
 
 	"github.com/go-logr/logr"
+	"github.com/syntasso/kratix/api/v1alpha1"
+	"github.com/syntasso/kratix/lib/compression"
+	"github.com/syntasso/kratix/lib/writers"
 	"gopkg.in/yaml.v2"
 	v1 "k8s.io/api/core/v1"
 	k8sErrors "k8s.io/apimachinery/pkg/api/errors"
 	kerrors "k8s.io/apimachinery/pkg/api/errors"
+	apiMeta "k8s.io/apimachinery/pkg/api/meta"
 	metav1 "k8s.io/apimachinery/pkg/apis/meta/v1"
 	"k8s.io/apimachinery/pkg/labels"
 	"k8s.io/client-go/tools/record"
@@ -35,10 +39,7 @@ import (
 	"sigs.k8s.io/controller-runtime/pkg/client"
 	"sigs.k8s.io/controller-runtime/pkg/controller/controllerutil"
 
-	"github.com/syntasso/kratix/api/v1alpha1"
-	"github.com/syntasso/kratix/lib/compression"
-	"github.com/syntasso/kratix/lib/writers"
-	apiMeta "k8s.io/apimachinery/pkg/api/meta"
+	"go.opentelemetry.io/otel/attribute"
 )
 
 const (
@@ -69,17 +70,38 @@ type WorkPlacementReconciler struct {
 //+kubebuilder:rbac:groups=platform.kratix.io,resources=workplacements/status,verbs=get;update;patch
 //+kubebuilder:rbac:groups=platform.kratix.io,resources=workplacements/finalizers,verbs=update
 
-func (r *WorkPlacementReconciler) Reconcile(ctx context.Context, req ctrl.Request) (ctrl.Result, error) {
-	logger := r.Log.WithValues("work-placement-controller", req.NamespacedName)
+func (r *WorkPlacementReconciler) Reconcile(ctx context.Context, req ctrl.Request) (result ctrl.Result, retErr error) {
 	workPlacement := &v1alpha1.WorkPlacement{}
-	err := r.Client.Get(context.Background(), req.NamespacedName, workPlacement)
-	if err != nil {
+	if err := r.Client.Get(ctx, req.NamespacedName, workPlacement); err != nil {
 		if k8sErrors.IsNotFound(err) {
 			return ctrl.Result{}, nil
 		}
-		logger.Error(err, "Error getting WorkPlacement", "workPlacement", req.Name)
+		r.Log.WithValues("work-placement-controller", req.NamespacedName).Error(err, "Error getting WorkPlacement", "workPlacement", req.Name)
 		return defaultRequeue, nil
 	}
+
+	promiseName := workPlacement.Spec.PromiseName
+	resourceName := workPlacement.Spec.ResourceName
+	baseLogger := r.Log.WithValues("workPlacement", req.NamespacedName, "promise", promiseName)
+	spanName := fmt.Sprintf("%s/WorkPlacementReconcile", promiseName)
+	if resourceName != "" {
+		spanName = fmt.Sprintf("%s/%s", resourceName, spanName)
+	}
+	ctx, logger, traceCtx := setupReconcileTrace(ctx, "workplacement-controller", spanName, workPlacement, baseLogger)
+	defer finishReconcileTrace(traceCtx, &retErr)()
+
+	traceCtx.AddAttributes(
+		attribute.String("kratix.promise.name", promiseName),
+		attribute.String("kratix.workplacement.name", workPlacement.GetName()),
+		attribute.String("kratix.workplacement.namespace", workPlacement.GetNamespace()),
+		attribute.String("kratix.workplacement.target_destination", workPlacement.Spec.TargetDestinationName),
+	)
+
+	if err := persistReconcileTrace(traceCtx, r.Client, logger); err != nil {
+		logger.Error(err, "failed to persist trace annotations")
+		return ctrl.Result{}, err
+	}
+
 	logger.Info("Reconciling WorkPlacement")
 
 	opts := opts{client: r.Client, ctx: ctx, logger: logger}

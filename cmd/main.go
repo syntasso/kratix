@@ -20,6 +20,7 @@ import (
 	"context"
 	"flag"
 	"fmt"
+	"maps"
 	"os"
 	"time"
 
@@ -38,6 +39,7 @@ import (
 	"sigs.k8s.io/controller-runtime/pkg/client"
 
 	"github.com/syntasso/kratix/internal/controller"
+	"github.com/syntasso/kratix/internal/telemetry"
 
 	utilruntime "k8s.io/apimachinery/pkg/util/runtime"
 	"k8s.io/client-go/kubernetes/scheme"
@@ -72,6 +74,12 @@ type KratixConfig struct {
 	ControllerLeaderElection *LeaderElectionConfig `json:"controllerLeaderElection,omitempty"`
 	SelectiveCache           bool                  `json:"selectiveCache,omitempty"`
 	ReconciliationInterval   *metav1.Duration      `json:"reconciliationInterval,omitempty"`
+	Telemetry                *telemetry.Config     `json:"telemetry,omitempty"`
+	Logging                  *LoggingConfig        `json:"logging,omitempty"`
+}
+
+type LoggingConfig struct {
+	Structured *bool `json:"structured,omitempty"`
 }
 
 type Workflows struct {
@@ -98,7 +106,7 @@ var secureMetrics bool
 var pprofAddr string
 var enableLeaderElection bool
 
-//nolint:funlen
+//nolint:funlen,gocognit // main wires controllers and webhooks; splitting would obscure the startup flow.
 func main() {
 	flag.StringVar(&metricsAddr, "metrics-bind-address", ":8080", "The address the metric endpoint binds to.")
 	flag.StringVar(&probeAddr, "health-probe-bind-address", ":8081", "The address the probe endpoint binds to.")
@@ -108,9 +116,7 @@ func main() {
 	flag.BoolVar(&enableLeaderElection, "leader-elect", false,
 		"Enable leader election for controller manager. "+
 			"Enabling this will ensure there is only one active controller manager.")
-	opts := zap.Options{
-		Development: true,
-	}
+	opts := zap.Options{}
 	opts.BindFlags(flag.CommandLine)
 	flag.Parse()
 
@@ -123,16 +129,22 @@ func main() {
 	if prefix != "" {
 		ctrl.Log = ctrl.Log.WithName(prefix)
 	}
+	setupLog = ctrl.Log.WithName("setup")
 
 	kClient, err := client.New(ctrl.GetConfigOrDie(), client.Options{})
 	if err != nil {
 		panic(err)
 	}
 
-	kratixConfig, err := readKratixConfig(ctrl.Log, kClient)
+	kratixConfig, err := readKratixConfig(setupLog, kClient)
 	if err != nil {
 		panic(err)
 	}
+
+	opts.Development = !isStructuredLoggingEnabled(kratixConfig)
+	ctrl.SetLogger(zap.New(zap.UseFlagOptions(&opts), func(o *zap.Options) {
+		o.TimeEncoder = zapcore.TimeEncoderOfLayout("2006-01-02T15:04:05Z07:00")
+	}))
 
 	if kratixConfig != nil {
 		v1alpha1.DefaultUserProvidedContainersSecurityContext = &kratixConfig.Workflows.DefaultContainerSecurityContext
@@ -140,6 +152,20 @@ func main() {
 		if kratixConfig.Workflows.JobOptions.DefaultBackoffLimit != nil {
 			v1alpha1.DefaultJobBackoffLimit = kratixConfig.Workflows.JobOptions.DefaultBackoffLimit
 		}
+	}
+
+	telemetryShutdown := func(context.Context) error { return nil }
+	if shutdown, err := telemetry.SetupTracerProvider(context.Background(), ctrl.Log.WithName("telemetry"), "kratix-controller-manager", telemetryConfigFromKratixConfig(kratixConfig)); err != nil {
+		setupLog.Error(err, "failed to configure OpenTelemetry tracing")
+	} else {
+		telemetryShutdown = shutdown
+		defer func() {
+			shutdownCtx, cancel := context.WithTimeout(context.Background(), 5*time.Second)
+			defer cancel()
+			if err := telemetryShutdown(shutdownCtx); err != nil {
+				setupLog.Error(err, "failed to shutdown OpenTelemetry tracing")
+			}
+		}()
 	}
 
 	for {
@@ -402,6 +428,38 @@ func getRegularReconciliationInterval(kratixConfig *KratixConfig) time.Duration 
 		return controller.DefaultReconciliationInterval
 	}
 	return kratixConfig.ReconciliationInterval.Duration
+}
+
+func telemetryConfigFromKratixConfig(cfg *KratixConfig) *telemetry.Config {
+	if cfg == nil || cfg.Telemetry == nil {
+		return nil
+	}
+
+	tc := &telemetry.Config{
+		Endpoint: cfg.Telemetry.Endpoint,
+		Protocol: cfg.Telemetry.Protocol,
+	}
+
+	if cfg.Telemetry.Enabled != nil {
+		tc.Enabled = ptr.To(*cfg.Telemetry.Enabled)
+	}
+
+	if cfg.Telemetry.Insecure != nil {
+		tc.Insecure = ptr.To(*cfg.Telemetry.Insecure)
+	}
+
+	if len(cfg.Telemetry.Headers) > 0 {
+		tc.Headers = maps.Clone(cfg.Telemetry.Headers)
+	}
+
+	return tc
+}
+
+func isStructuredLoggingEnabled(cfg *KratixConfig) bool {
+	if cfg == nil || cfg.Logging == nil || cfg.Logging.Structured == nil {
+		return true
+	}
+	return *cfg.Logging.Structured
 }
 
 func setLeaderElectConfig(mgrOptions *ctrl.Options, kConfig *KratixConfig) {
