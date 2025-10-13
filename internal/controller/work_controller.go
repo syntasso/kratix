@@ -73,6 +73,10 @@ func (r *WorkReconciler) Reconcile(ctx context.Context, req ctrl.Request) (resul
 	promiseName := work.Spec.PromiseName
 	baseLogger := r.Log.WithValues("work", req.NamespacedName, "promise", promiseName)
 	spanName := fmt.Sprintf("%s/WorkReconcile", promiseName)
+	resourceName := work.Spec.ResourceName
+	if resourceName != "" {
+		spanName = fmt.Sprintf("%s/%s", resourceName, spanName)
+	}
 	ctx, logger, traceCtx := setupReconcileTrace(ctx, "work-controller", spanName, work, baseLogger)
 	defer finishReconcileTrace(traceCtx, &retErr)()
 

@@ -142,7 +142,7 @@ func (r *PromiseReconciler) Reconcile(ctx context.Context, req ctrl.Request) (re
 		return defaultRequeue, nil
 	}
 
-	baseLogger := r.Log.WithValues("identifier", promise.GetName(), "request", req.NamespacedName.String())
+	baseLogger := r.Log.WithValues("identifier", promise.GetName())
 	spanName := fmt.Sprintf("%s/PromiseReconcile", promise.GetName())
 	ctx, logger, traceCtx := setupReconcileTrace(ctx, "promise-controller", spanName, promise, baseLogger)
 	defer finishReconcileTrace(traceCtx, &retErr)()
