@@ -1,0 +1,16 @@
+apiVersion: v1
+kind: ConfigMap
+metadata:
+  name: kratix
+  namespace: kratix-platform-system
+data:
+  config: |
+    telemetry:
+      enabled: true
+      endpoint: grafana-k8s-monitoring-alloy-receiver.default.svc.cluster.local:4317
+      protocol: grpc
+      insecure: true
+      headers:
+        authorization: "Bearer <grafana-api-token>"
+    logging:
+      structured: true

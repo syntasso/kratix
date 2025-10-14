@@ -11,6 +11,7 @@ import (
 	. "github.com/onsi/gomega/gstruct"
 	"github.com/syntasso/kratix/api/v1alpha1"
 	"github.com/syntasso/kratix/internal/ptr"
+	"github.com/syntasso/kratix/internal/telemetry"
 	"github.com/syntasso/kratix/lib/hash"
 	corev1 "k8s.io/api/core/v1"
 	rbacv1 "k8s.io/api/rbac/v1"
@@ -814,6 +815,20 @@ var _ = Describe("Pipeline", func() {
 							corev1.VolumeMount{Name: "shared-metadata", MountPath: "/work-creator-files/metadata"},
 							corev1.VolumeMount{Name: "promise-scheduling", MountPath: "/work-creator-files/kratix-system"},
 						))
+						Expect(container.Env).To(ConsistOf(
+							corev1.EnvVar{
+								Name: telemetry.TraceParentEnvVar,
+								ValueFrom: &corev1.EnvVarSource{
+									FieldRef: &corev1.ObjectFieldSelector{FieldPath: fmt.Sprintf("metadata.annotations['%s']", telemetry.TraceParentAnnotation)},
+								},
+							},
+							corev1.EnvVar{
+								Name: telemetry.TraceStateEnvVar,
+								ValueFrom: &corev1.EnvVarSource{
+									FieldRef: &corev1.ObjectFieldSelector{FieldPath: fmt.Sprintf("metadata.annotations['%s']", telemetry.TraceStateAnnotation)},
+								},
+							},
+						))
 					})
 
 					When("default image pull policy is set ", func() {
@@ -862,6 +877,20 @@ var _ = Describe("Pipeline", func() {
 							corev1.VolumeMount{Name: "shared-output", MountPath: "/work-creator-files/input"},
 							corev1.VolumeMount{Name: "shared-metadata", MountPath: "/work-creator-files/metadata"},
 							corev1.VolumeMount{Name: "promise-scheduling", MountPath: "/work-creator-files/kratix-system"},
+						))
+						Expect(container.Env).To(ConsistOf(
+							corev1.EnvVar{
+								Name: telemetry.TraceParentEnvVar,
+								ValueFrom: &corev1.EnvVarSource{
+									FieldRef: &corev1.ObjectFieldSelector{FieldPath: fmt.Sprintf("metadata.annotations['%s']", telemetry.TraceParentAnnotation)},
+								},
+							},
+							corev1.EnvVar{
+								Name: telemetry.TraceStateEnvVar,
+								ValueFrom: &corev1.EnvVarSource{
+									FieldRef: &corev1.ObjectFieldSelector{FieldPath: fmt.Sprintf("metadata.annotations['%s']", telemetry.TraceStateAnnotation)},
+								},
+							},
 						))
 					})
 

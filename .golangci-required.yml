@@ -85,6 +85,8 @@ linters:
 
 issues:
   exclude-use-default: false
+  exclude-dirs:
+    - tools
   include:
     - ".*"  # Include all issues for now
   exclude:

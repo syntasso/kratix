@@ -47,6 +47,8 @@ import (
 	"k8s.io/apimachinery/pkg/types"
 	ctrl "sigs.k8s.io/controller-runtime"
 	"sigs.k8s.io/controller-runtime/pkg/client"
+
+	"go.opentelemetry.io/otel/attribute"
 )
 
 const workFinalizer = v1alpha1.KratixPrefix + "work-cleanup"
@@ -73,7 +75,7 @@ type DynamicResourceRequestController struct {
 //+kubebuilder:rbac:groups="batch",resources=jobs,verbs=get;list;watch;create;update;patch;delete
 
 // Reconcile reconciles a Dynamically Generated Resource object.
-func (r *DynamicResourceRequestController) Reconcile(ctx context.Context, req ctrl.Request) (ctrl.Result, error) {
+func (r *DynamicResourceRequestController) Reconcile(ctx context.Context, req ctrl.Request) (result ctrl.Result, retErr error) {
 	if !*r.Enabled {
 		// temporary fix until https://github.com/kubernetes-sigs/controller-runtime/issues/1884 is resolved
 		// once resolved, this won't be necessary since the dynamic controller will be deleted
@@ -81,7 +83,7 @@ func (r *DynamicResourceRequestController) Reconcile(ctx context.Context, req ct
 	}
 
 	resourceRequestIdentifier := fmt.Sprintf("%s-%s", r.PromiseIdentifier, req.Name)
-	logger := r.Log.WithValues(
+	baseLogger := r.Log.WithValues(
 		"uid", r.UID,
 		"promiseID", r.PromiseIdentifier,
 		"namespace", req.NamespacedName,
@@ -93,7 +95,7 @@ func (r *DynamicResourceRequestController) Reconcile(ctx context.Context, req ct
 
 	promise := &v1alpha1.Promise{}
 	if err := r.Client.Get(ctx, types.NamespacedName{Name: r.PromiseIdentifier}, promise); err != nil {
-		logger.Error(err, "Failed getting Promise")
+		baseLogger.Error(err, "Failed getting Promise")
 		return ctrl.Result{}, err
 	}
 
@@ -101,27 +103,45 @@ func (r *DynamicResourceRequestController) Reconcile(ctx context.Context, req ct
 		if apierrors.IsNotFound(err) {
 			return ctrl.Result{}, nil
 		}
-		logger.Error(err, "Failed getting Promise CRD")
+		baseLogger.Error(err, "Failed getting Promise CRD")
 		return defaultRequeue, nil
+	}
+
+	spanName := fmt.Sprintf("%s/DynamicResourceRequestReconcile", r.PromiseIdentifier)
+	ctx, logger, traceCtx := setupReconcileTrace(ctx, "dynamic-resource-request-controller", spanName, rr, baseLogger)
+	defer finishReconcileTrace(traceCtx, &retErr)()
+
+	traceCtx.AddAttributes(
+		attribute.String("kratix.promise.name", promise.GetName()),
+		attribute.String("kratix.resource_request.name", rr.GetName()),
+		attribute.String("kratix.resource_request.namespace", rr.GetNamespace()),
+	)
+
+	if err := persistReconcileTrace(traceCtx, r.Client, logger); err != nil {
+		logger.Error(err, "failed to persist trace annotations")
+		return ctrl.Result{}, err
 	}
 
 	if v, ok := promise.Labels[pauseReconciliationLabel]; ok && v == "true" {
 		msg := fmt.Sprintf("'%s' label set to 'true' for promise; pausing reconciliation for this resource request",
 			pauseReconciliationLabel)
-		r.Log.Info(msg)
+		logger.Info(msg)
 		return ctrl.Result{}, r.setPausedReconciliationStatusConditions(ctx, rr, msg)
 	}
 
 	if v, ok := rr.GetLabels()[pauseReconciliationLabel]; ok && v == "true" {
 		msg := fmt.Sprintf("'%s' label set to 'true' for this resource request; pausing reconciliation",
 			pauseReconciliationLabel)
-		r.Log.Info(msg)
+		logger.Info(msg)
 		return ctrl.Result{}, r.setPausedReconciliationStatusConditions(ctx, rr, msg)
 	}
 
 	resourceLabels := getResourceLabels(rr)
 	if resourceLabels[v1alpha1.PromiseNameLabel] != r.PromiseIdentifier {
-		return r.setPromiseLabels(ctx, promise.GetName(), rr, resourceLabels, logger)
+		if err := r.setPromiseLabels(ctx, promise.GetName(), rr, resourceLabels, logger); err != nil {
+			return ctrl.Result{}, err
+		}
+		return ctrl.Result{}, nil
 	}
 
 	opts := opts{client: r.Client, ctx: ctx, logger: logger}
@@ -135,7 +155,10 @@ func (r *DynamicResourceRequestController) Reconcile(ctx context.Context, req ct
 	}
 
 	if resourceutil.IsPromiseMarkedAsUnavailable(rr) {
-		return r.ensurePromiseIsAvailable(ctx, rr, logger)
+		if err := r.ensurePromiseIsAvailable(ctx, rr, logger); err != nil {
+			return ctrl.Result{}, err
+		}
+		return ctrl.Result{}, nil
 	}
 
 	if resourceutil.FinalizersAreMissing(
@@ -152,7 +175,10 @@ func (r *DynamicResourceRequestController) Reconcile(ctx context.Context, req ct
 			"lastTransitionTime",
 			completedCond.LastTransitionTime.Time.String(),
 		)
-		return r.updateManualReconciliationLabel(opts.ctx, rr)
+		if err := r.updateManualReconciliationLabel(opts.ctx, rr); err != nil {
+			return ctrl.Result{}, err
+		}
+		return ctrl.Result{}, nil
 	}
 
 	pipelineResources, err := promise.GenerateResourcePipelines(v1alpha1.WorkflowActionConfigure, rr, logger)
@@ -212,7 +238,10 @@ func (r *DynamicResourceRequestController) Reconcile(ctx context.Context, req ct
 	workflowCompletedCondition := resourceutil.GetCondition(rr, resourceutil.ConfigureWorkflowCompletedCondition)
 	if workflowsCompletedSuccessfully(workflowCompletedCondition) {
 		if shouldUpdateLastSuccessfulConfigureWorkflowTime(workflowCompletedCondition, rr) {
-			return updateLastSuccessfulConfigureWorkflowTime(workflowCompletedCondition, rr, opts, logger)
+			if err := updateLastSuccessfulConfigureWorkflowTime(workflowCompletedCondition, rr, opts, logger); err != nil {
+				return ctrl.Result{}, err
+			}
+			return ctrl.Result{}, nil
 		}
 		return r.nextReconciliation(logger), nil
 	}
@@ -536,12 +565,12 @@ func (r *DynamicResourceRequestController) manualReconciliationLabelSet(rr *unst
 	return resourceLabels[resourceutil.ManualReconciliationLabel] == "true"
 }
 
-func (r *DynamicResourceRequestController) updateManualReconciliationLabel(ctx context.Context, rr *unstructured.Unstructured) (ctrl.Result, error) {
+func (r *DynamicResourceRequestController) updateManualReconciliationLabel(ctx context.Context, rr *unstructured.Unstructured) error {
 	resourceLabels := rr.GetLabels()
 	resourceLabels[resourceutil.ManualReconciliationLabel] = "true"
 	rr.SetLabels(resourceLabels)
 
-	return ctrl.Result{}, r.Client.Update(ctx, rr)
+	return r.Client.Update(ctx, rr)
 }
 
 func (r *DynamicResourceRequestController) ensurePromiseIsUnavailable(ctx context.Context,
@@ -561,9 +590,9 @@ func (r *DynamicResourceRequestController) ensurePromiseIsUnavailable(ctx contex
 func (r *DynamicResourceRequestController) ensurePromiseIsAvailable(ctx context.Context,
 	rr *unstructured.Unstructured,
 	logger logr.Logger,
-) (ctrl.Result, error) {
+) error {
 	resourceutil.MarkPromiseConditionAsAvailable(rr, logger)
-	return ctrl.Result{}, r.Client.Status().Update(ctx, rr)
+	return r.Client.Status().Update(ctx, rr)
 }
 
 func updateObservedGeneration(
@@ -579,14 +608,14 @@ func shouldForcePipelineRun(completedCond *clusterv1.Condition, reconciliationIn
 		time.Since(completedCond.LastTransitionTime.Time) > reconciliationInterval
 }
 
-func (r *DynamicResourceRequestController) setPromiseLabels(ctx context.Context, promiseName string, rr *unstructured.Unstructured, resourceLabels map[string]string, logger logr.Logger) (ctrl.Result, error) {
+func (r *DynamicResourceRequestController) setPromiseLabels(ctx context.Context, promiseName string, rr *unstructured.Unstructured, resourceLabels map[string]string, logger logr.Logger) error {
 	resourceLabels[v1alpha1.PromiseNameLabel] = promiseName
 	rr.SetLabels(resourceLabels)
 	if err := r.Client.Update(ctx, rr); err != nil {
 		logger.Error(err, "Failed updating resource request with Promise label")
-		return ctrl.Result{}, err
+		return err
 	}
-	return ctrl.Result{}, nil
+	return nil
 }
 
 func getResourceLabels(rr *unstructured.Unstructured) map[string]string {
@@ -606,7 +635,7 @@ func shouldUpdateLastSuccessfulConfigureWorkflowTime(
 	return lastTransitionTime != lastSuccessfulTime
 }
 
-func updateLastSuccessfulConfigureWorkflowTime(workflowCompletedCondition *clusterv1.Condition, rr *unstructured.Unstructured, opts opts, logger logr.Logger) (ctrl.Result, error) {
+func updateLastSuccessfulConfigureWorkflowTime(workflowCompletedCondition *clusterv1.Condition, rr *unstructured.Unstructured, opts opts, logger logr.Logger) error {
 	resourceutil.SetStatus(rr, logger, "lastSuccessfulConfigureWorkflowTime", workflowCompletedCondition.LastTransitionTime.Format(time.RFC3339))
-	return ctrl.Result{}, opts.client.Status().Update(opts.ctx, rr)
+	return opts.client.Status().Update(opts.ctx, rr)
 }

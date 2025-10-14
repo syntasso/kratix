@@ -35,6 +35,7 @@ import (
 	"github.com/syntasso/kratix/api/v1alpha1"
 	"github.com/syntasso/kratix/lib/resourceutil"
 	"github.com/syntasso/kratix/lib/workflow"
+	"go.opentelemetry.io/otel/attribute"
 	batchv1 "k8s.io/api/batch/v1"
 	v1 "k8s.io/api/core/v1"
 	rbacv1 "k8s.io/api/rbac/v1"
@@ -125,7 +126,8 @@ var (
 
 // +kubebuilder:rbac:groups=apiextensions.k8s.io,resources=customresourcedefinitions,verbs=get;list;watch;create;update;patch;delete
 
-func (r *PromiseReconciler) Reconcile(ctx context.Context, req ctrl.Request) (ctrl.Result, error) {
+//nolint:gocognit // Reconcile orchestrates many promise concerns; splitting would hide the control flow.
+func (r *PromiseReconciler) Reconcile(ctx context.Context, req ctrl.Request) (result ctrl.Result, retErr error) {
 	if r.StartedDynamicControllers == nil {
 		r.StartedDynamicControllers = make(map[string]*DynamicResourceRequestController)
 	}
@@ -137,13 +139,28 @@ func (r *PromiseReconciler) Reconcile(ctx context.Context, req ctrl.Request) (ct
 	}
 	if client.IgnoreNotFound(err) != nil {
 		r.Log.Error(err, "Failed getting Promise", "namespacedName", req.NamespacedName)
-		return defaultRequeue, nil //nolint:nilerr // requeue rather than exponential backoff
+		return defaultRequeue, nil
+	}
+
+	baseLogger := r.Log.WithValues("identifier", promise.GetName())
+	spanName := fmt.Sprintf("%s/PromiseReconcile", promise.GetName())
+	ctx, logger, traceCtx := setupReconcileTrace(ctx, "promise-controller", spanName, promise, baseLogger)
+	defer finishReconcileTrace(traceCtx, &retErr)()
+
+	traceCtx.AddAttributes(
+		attribute.String("kratix.promise.name", promise.GetName()),
+		attribute.String("kratix.promise.namespace", promise.GetNamespace()),
+		attribute.String("kratix.promise.request", req.NamespacedName.String()),
+		attribute.Int64("kratix.promise.generation", promise.GetGeneration()),
+	)
+
+	if err := persistReconcileTrace(traceCtx, r.Client, logger); err != nil {
+		logger.Error(err, "failed to persist trace annotations")
+		return ctrl.Result{}, err
 	}
 
 	originalStatus := promise.Status.Status
 	originalAvailableCondition := promise.GetCondition(v1alpha1.PromiseAvailableConditionType)
-
-	logger := r.Log.WithValues("identifier", promise.GetName())
 
 	if v, ok := promise.Labels[pauseReconciliationLabel]; ok && v == "true" {
 		msg := fmt.Sprintf("'%s' label set to 'true' for promise; pausing reconciliation", pauseReconciliationLabel)
@@ -307,7 +324,7 @@ func (r *PromiseReconciler) Reconcile(ctx context.Context, req ctrl.Request) (ct
 		if completedCond != nil {
 			r.EventRecorder.Eventf(promise, v1.EventTypeNormal, "ConfigureWorkflowCompleted", "All workflows completed")
 		}
-		return r.nextReconciliation(logger)
+		return r.nextReconciliation(logger), nil
 	}
 
 	return ctrl.Result{}, nil
@@ -503,7 +520,7 @@ func (r *PromiseReconciler) updateWorksSucceededCondition(
 func (r *PromiseReconciler) reconcileResources(ctx context.Context, logger logr.Logger, promise *v1alpha1.Promise,
 	rrGVK *schema.GroupVersionKind) (ctrl.Result, error) {
 	logger.Info("reconciling all resource requests of promise", "promiseName", promise.Name)
-	if err := r.reconcileAllRRs(rrGVK); err != nil {
+	if err := r.reconcileAllRRs(ctx, rrGVK); err != nil {
 		return ctrl.Result{}, err
 	}
 
@@ -518,9 +535,9 @@ func (r *PromiseReconciler) reconcileResources(ctx context.Context, logger logr.
 	return r.updatePromiseStatus(ctx, promise)
 }
 
-func (r *PromiseReconciler) nextReconciliation(logger logr.Logger) (ctrl.Result, error) {
+func (r *PromiseReconciler) nextReconciliation(logger logr.Logger) ctrl.Result {
 	logger.Info("Scheduling next reconciliation", "ReconciliationInterval", r.ReconciliationInterval)
-	return ctrl.Result{RequeueAfter: r.ReconciliationInterval}, nil
+	return ctrl.Result{RequeueAfter: r.ReconciliationInterval}
 }
 
 func promiseAvailableStatusCondition(lastTransitionTime metav1.Time) metav1.Condition {
@@ -830,13 +847,13 @@ func (r *PromiseReconciler) reconcileDependenciesAndPromiseWorkflows(o opts, pro
 	return nil, nil
 }
 
-func (r *PromiseReconciler) reconcileAllRRs(rrGVK *schema.GroupVersionKind) error {
+func (r *PromiseReconciler) reconcileAllRRs(ctx context.Context, rrGVK *schema.GroupVersionKind) error {
 	//label all rr with manual reconciliation
 	rrs := &unstructured.UnstructuredList{}
 	rrListGVK := *rrGVK
 	rrListGVK.Kind = rrListGVK.Kind + "List"
 	rrs.SetGroupVersionKind(rrListGVK)
-	err := r.Client.List(context.Background(), rrs)
+	err := r.Client.List(ctx, rrs)
 	if err != nil {
 		return err
 	}
@@ -847,7 +864,7 @@ func (r *PromiseReconciler) reconcileAllRRs(rrGVK *schema.GroupVersionKind) erro
 		}
 		newLabels[resourceutil.ManualReconciliationLabel] = "true"
 		rr.SetLabels(newLabels)
-		if err := r.Client.Update(context.Background(), &rr); err != nil {
+		if err := r.Client.Update(ctx, &rr); err != nil {
 			return err
 		}
 	}

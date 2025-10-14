@@ -19,10 +19,12 @@ package controller
 import (
 	"context"
 	"fmt"
+	"maps"
 	"strings"
 
 	"github.com/go-logr/logr"
 	"github.com/syntasso/kratix/api/v1alpha1"
+	"github.com/syntasso/kratix/internal/telemetry"
 	v1 "k8s.io/api/core/v1"
 	"k8s.io/apimachinery/pkg/api/errors"
 	apiMeta "k8s.io/apimachinery/pkg/api/meta"
@@ -34,6 +36,8 @@ import (
 	"sigs.k8s.io/controller-runtime/pkg/controller/controllerutil"
 	"sigs.k8s.io/controller-runtime/pkg/handler"
 	"sigs.k8s.io/controller-runtime/pkg/reconcile"
+
+	"go.opentelemetry.io/otel/attribute"
 )
 
 const workCleanUpFinalizer = v1alpha1.KratixPrefix + "work-cleanup"
@@ -55,20 +59,40 @@ type WorkScheduler interface {
 //+kubebuilder:rbac:groups=platform.kratix.io,resources=works/status,verbs=get;update;patch
 //+kubebuilder:rbac:groups=platform.kratix.io,resources=works/finalizers,verbs=update
 
-func (r *WorkReconciler) Reconcile(ctx context.Context, req ctrl.Request) (ctrl.Result, error) {
-	logger := r.Log.WithValues("work", req.NamespacedName)
-
-	logger.Info("Reconciling Work")
-
+func (r *WorkReconciler) Reconcile(ctx context.Context, req ctrl.Request) (result ctrl.Result, retErr error) {
 	work := &v1alpha1.Work{}
-	err := r.Client.Get(context.Background(), req.NamespacedName, work)
+	err := r.Client.Get(ctx, req.NamespacedName, work)
 	if err != nil {
 		if errors.IsNotFound(err) {
 			return ctrl.Result{}, nil
 		}
-		logger.Error(err, "Error getting Work")
+		r.Log.WithValues("work", req.NamespacedName).Error(err, "Error getting Work")
 		return ctrl.Result{}, err
 	}
+
+	promiseName := work.Spec.PromiseName
+	baseLogger := r.Log.WithValues("work", req.NamespacedName, "promise", promiseName)
+	spanName := fmt.Sprintf("%s/WorkReconcile", promiseName)
+	resourceName := work.Spec.ResourceName
+	if resourceName != "" {
+		spanName = fmt.Sprintf("%s/%s", resourceName, spanName)
+	}
+	ctx, logger, traceCtx := setupReconcileTrace(ctx, "work-controller", spanName, work, baseLogger)
+	defer finishReconcileTrace(traceCtx, &retErr)()
+
+	traceCtx.AddAttributes(
+		attribute.String("kratix.promise.name", promiseName),
+		attribute.String("kratix.work.name", work.GetName()),
+		attribute.String("kratix.work.namespace", work.GetNamespace()),
+		attribute.Bool("kratix.work.resource_request", work.IsResourceRequest()),
+	)
+
+	if err := persistReconcileTrace(traceCtx, r.Client, logger); err != nil {
+		logger.Error(err, "failed to persist trace annotations")
+		return ctrl.Result{}, err
+	}
+
+	logger.Info("Reconciling Work")
 
 	if !work.DeletionTimestamp.IsZero() {
 		return r.deleteWork(ctx, work)
@@ -77,8 +101,16 @@ func (r *WorkReconciler) Reconcile(ctx context.Context, req ctrl.Request) (ctrl.
 	if !controllerutil.ContainsFinalizer(work, workCleanUpFinalizer) {
 		return addFinalizers(opts{
 			client: r.Client,
-			logger: r.Log,
+			logger: logger,
 			ctx:    ctx}, work, []string{workFinalizer})
+	}
+
+	originalAnnotations := cloneStringMap(work.GetAnnotations())
+	if traceCtx.HasTrace() {
+		enriched := cloneStringMap(work.GetAnnotations())
+		enriched = traceCtx.InjectTrace(enriched)
+		work.SetAnnotations(enriched)
+		defer work.SetAnnotations(originalAnnotations)
 	}
 
 	logger.Info("Requesting scheduling for Work")
@@ -105,16 +137,19 @@ func (r *WorkReconciler) Reconcile(ctx context.Context, req ctrl.Request) (ctrl.
 		return slowRequeue, nil
 	}
 
-	return r.updateWorkStatus(ctx, logger, work)
+	if err := r.updateWorkStatus(ctx, logger, work); err != nil {
+		return ctrl.Result{}, err
+	}
+	return ctrl.Result{}, nil
 }
 
-func (r *WorkReconciler) updateWorkStatus(ctx context.Context, logger logr.Logger, work *v1alpha1.Work) (ctrl.Result, error) {
+func (r *WorkReconciler) updateWorkStatus(ctx context.Context, logger logr.Logger, work *v1alpha1.Work) error {
 	workplacements, err := listWorkplacementWithLabels(r.Client, logger, work.GetNamespace(), map[string]string{
 		workLabelKey: work.Name,
 	})
 	if err != nil {
 		logger.Info("failed to list associated WorkPlacements")
-		return ctrl.Result{}, err
+		return err
 	}
 
 	var failedWorkPlacements []string
@@ -143,11 +178,11 @@ func (r *WorkReconciler) updateWorkStatus(ctx context.Context, logger logr.Logge
 		if apiMeta.SetStatusCondition(&work.Status.Conditions, scheduleCond) {
 			apiMeta.SetStatusCondition(&work.Status.Conditions, readyCond)
 			r.EventRecorder.Eventf(work, v1.EventTypeWarning, "WorkplacementsFailing", "Workplacements failed to write: [%s]", strings.Join(failedWorkPlacements, ","))
-			return ctrl.Result{}, r.Client.Status().Update(ctx, work)
+			return r.Client.Status().Update(ctx, work)
 		}
 	}
 
-	return ctrl.Result{}, nil
+	return nil
 }
 
 func (r *WorkReconciler) deleteWork(ctx context.Context, work *v1alpha1.Work) (ctrl.Result, error) {
@@ -206,4 +241,39 @@ func (r *WorkReconciler) requestReconciliationOfWorksOnDestination(ctx context.C
 		requests = append(requests, reconcile.Request{NamespacedName: client.ObjectKeyFromObject(&work)})
 	}
 	return requests
+}
+
+func cloneStringMap(src map[string]string) map[string]string {
+	if src == nil {
+		return nil
+	}
+	dst := make(map[string]string, len(src))
+	maps.Copy(dst, src)
+	return dst
+}
+
+// buildWorkPlacementAnnotations merges the Work's Telemetry annotations with any existing WorkPlacement-specific trace metadata.
+func buildWorkPlacementAnnotations(existing, work map[string]string) map[string]string {
+	desired := cloneStringMap(work)
+	if desired == nil {
+		desired = map[string]string{}
+	}
+
+	if existing != nil {
+		for _, key := range []string{
+			telemetry.TraceParentAnnotation,
+			telemetry.TraceStateAnnotation,
+			telemetry.TraceTimestampAnnotation,
+			telemetry.TraceGenerationAnnotation,
+		} {
+			if val := existing[key]; val != "" {
+				desired[key] = val
+			}
+		}
+	}
+
+	if len(desired) == 0 {
+		return nil
+	}
+	return desired
 }

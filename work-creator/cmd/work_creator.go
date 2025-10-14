@@ -1,12 +1,15 @@
 package cmd
 
 import (
+	"context"
 	"fmt"
 	"log"
 	"os"
+	"time"
 
 	"github.com/spf13/cobra"
 	"github.com/syntasso/kratix/api/v1alpha1"
+	"github.com/syntasso/kratix/internal/telemetry"
 	"github.com/syntasso/kratix/work-creator/lib"
 	"k8s.io/client-go/kubernetes/scheme"
 	ctrl "sigs.k8s.io/controller-runtime"
@@ -49,6 +52,19 @@ func workCreatorCmd() *cobra.Command {
 			prefix := os.Getenv("KRATIX_LOGGER_PREFIX")
 			if prefix != "" {
 				ctrl.Log = ctrl.Log.WithName(prefix)
+			}
+
+			otelLogger := ctrl.Log.WithName("telemetry")
+			if shutdown, err := telemetry.SetupTracerProvider(cmd.Context(), otelLogger, "kratix-work-creator", nil); err != nil {
+				otelLogger.Error(err, "failed to configure OpenTelemetry tracing")
+			} else {
+				defer func() {
+					shutdownCtx, cancel := context.WithTimeout(context.Background(), 5*time.Second)
+					defer cancel()
+					if err := shutdown(shutdownCtx); err != nil {
+						otelLogger.Error(err, "failed to shutdown OpenTelemetry tracing")
+					}
+				}()
 			}
 
 			//Teach our client to speak v1alpha1.Work
