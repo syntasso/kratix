@@ -9,6 +9,7 @@ import (
 
 	"github.com/go-logr/logr"
 	"github.com/syntasso/kratix/api/v1alpha1"
+	"github.com/syntasso/kratix/internal/telemetry"
 	"github.com/syntasso/kratix/lib/resourceutil"
 	"github.com/syntasso/kratix/lib/writers"
 	"k8s.io/apimachinery/pkg/api/errors"
@@ -81,6 +82,30 @@ func deleteAllResourcesWithKindMatchingLabel(o opts, gvk *schema.GroupVersionKin
 	}
 
 	return len(resourceList.Items) != 0, nil
+}
+
+func ensureTraceAnnotations(ctx context.Context, c client.Client, obj client.Object, parentAnnotations map[string]string) error {
+	if parentAnnotations == nil {
+		return nil
+	}
+	parentTrace := parentAnnotations[telemetry.TraceParentAnnotation]
+	if parentTrace == "" {
+		return nil
+	}
+	annotations := obj.GetAnnotations()
+	if annotations != nil && annotations[telemetry.TraceParentAnnotation] != "" {
+		return nil
+	}
+
+	original := obj.DeepCopyObject()
+	obj.SetAnnotations(telemetry.CopyTraceAnnotations(annotations, parentAnnotations))
+	if err := c.Patch(ctx, obj, client.MergeFrom(original.(client.Object))); err != nil {
+		if errors.IsNotFound(err) {
+			return nil
+		}
+		return err
+	}
+	return nil
 }
 
 // finalizers must be less than 64 characters

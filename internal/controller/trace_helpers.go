@@ -28,6 +28,7 @@ type reconcileTrace struct {
 	traceParent  string
 	traceState   string
 	pendingAttrs []attribute.KeyValue
+	action       string
 }
 
 func newReconcileTrace(
@@ -40,9 +41,17 @@ func newReconcileTrace(
 	tracer := otel.Tracer(tracerName)
 	spanOpts := []trace.SpanStartOption{trace.WithSpanKind(trace.SpanKindServer)}
 	original := obj.DeepCopyObject().(client.Object)
+	existingAnnotations := obj.GetAnnotations()
+	hadTrace := existingAnnotations != nil && existingAnnotations[telemetry.TraceParentAnnotation] != ""
 	tracedCtx, span, mutated, traceErr := telemetry.StartSpanForObject(
 		ctx, tracer, obj, spanName, spanOpts...,
 	)
+	action := "update"
+	if !obj.GetDeletionTimestamp().IsZero() {
+		action = "delete"
+	} else if !hadTrace {
+		action = "create"
+	}
 	rt := &reconcileTrace{
 		ctx:        tracedCtx,
 		tracer:     tracer,
@@ -54,6 +63,7 @@ func newReconcileTrace(
 		object:     obj,
 		original:   original,
 		mutated:    mutated,
+		action:     action,
 	}
 	if traceErr != nil {
 		rt.ctx, rt.span = tracer.Start(ctx, spanName, spanOpts...)
@@ -157,6 +167,13 @@ func (rt *reconcileTrace) InjectTrace(annotations map[string]string) map[string]
 		return telemetry.AnnotateWithSpanContext(annotations, rt.span)
 	}
 	return telemetry.ApplyTraceAnnotations(annotations, rt.traceParent, rt.traceState)
+}
+
+func (rt *reconcileTrace) Action() string {
+	if rt == nil || rt.action == "" {
+		return "update"
+	}
+	return rt.action
 }
 
 func setupReconcileTrace(

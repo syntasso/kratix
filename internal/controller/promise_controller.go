@@ -153,6 +153,7 @@ func (r *PromiseReconciler) Reconcile(ctx context.Context, req ctrl.Request) (re
 		attribute.String("kratix.promise.request", req.NamespacedName.String()),
 		attribute.Int64("kratix.promise.generation", promise.GetGeneration()),
 	)
+	traceCtx.AddAttributes(attribute.String("kratix.action", traceCtx.Action()))
 
 	if err := persistReconcileTrace(traceCtx, r.Client, logger); err != nil {
 		logger.Error(err, "failed to persist trace annotations")
@@ -1282,23 +1283,32 @@ func (r *PromiseReconciler) deleteResourceRequests(o opts, promise *v1alpha1.Pro
 		return err
 	}
 
-	// No need to pass labels since all resource requests are of Kind
-	resourcesRemaining, err := deleteAllResourcesWithKindMatchingLabel(o, rrGVK, nil)
-	if err != nil {
+	requestList := &unstructured.UnstructuredList{}
+	requestList.SetGroupVersionKind(*rrGVK)
+	if err := o.client.List(o.ctx, requestList); err != nil {
 		return err
+	}
+
+	if len(requestList.Items) == 0 {
+		controllerutil.RemoveFinalizer(promise, resourceRequestCleanupFinalizer)
+		return r.Client.Update(o.ctx, promise)
+	}
+
+	parentAnnotations := promise.GetAnnotations()
+	for i := range requestList.Items {
+		rr := &requestList.Items[i]
+		if err := ensureTraceAnnotations(o.ctx, o.client, rr, parentAnnotations); err != nil {
+			return err
+		}
+		if err := o.client.Delete(o.ctx, rr, client.PropagationPolicy(metav1.DeletePropagationBackground)); err != nil && !errors.IsNotFound(err) {
+			return err
+		}
 	}
 
 	var canCreateResources bool
 	err = r.ensureDynamicControllerIsStarted(promise, rrCRD, rrGVK, &canCreateResources, o.logger)
 	if err != nil {
 		return err
-	}
-
-	if !resourcesRemaining {
-		controllerutil.RemoveFinalizer(promise, resourceRequestCleanupFinalizer)
-		if err := r.Client.Update(o.ctx, promise); err != nil {
-			return err
-		}
 	}
 
 	return nil
@@ -1334,14 +1344,25 @@ func (r *PromiseReconciler) deleteWork(o opts, promise *v1alpha1.Promise) error 
 		Kind:    "Work",
 	}
 
-	resourcesRemaining, err := deleteAllResourcesWithKindMatchingLabel(o, &workGVK, promise.GenerateSharedLabels())
-	if err != nil {
+	workList := &unstructured.UnstructuredList{}
+	workList.SetGroupVersionKind(workGVK)
+	selector := labels.SelectorFromSet(promise.GenerateSharedLabels())
+	if err := o.client.List(o.ctx, workList, &client.ListOptions{LabelSelector: selector}); err != nil {
 		return err
 	}
 
-	if !resourcesRemaining {
+	if len(workList.Items) == 0 {
 		controllerutil.RemoveFinalizer(promise, dependenciesCleanupFinalizer)
-		if err := r.Client.Update(o.ctx, promise); err != nil {
+		return r.Client.Update(o.ctx, promise)
+	}
+
+	parentAnnotations := promise.GetAnnotations()
+	for i := range workList.Items {
+		work := &workList.Items[i]
+		if err := ensureTraceAnnotations(o.ctx, o.client, work, parentAnnotations); err != nil {
+			return err
+		}
+		if err := o.client.Delete(o.ctx, work, client.PropagationPolicy(metav1.DeletePropagationBackground)); err != nil && !errors.IsNotFound(err) {
 			return err
 		}
 	}
