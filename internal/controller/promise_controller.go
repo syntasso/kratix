@@ -181,6 +181,11 @@ func (r *PromiseReconciler) Reconcile(ctx context.Context, req ctrl.Request) (re
 		return r.deletePromise(opts, promise)
 	}
 
+	desiredFinalizers := r.promisedFinalizers(promise)
+	if len(desiredFinalizers) > 0 && resourceutil.FinalizersAreMissing(promise, desiredFinalizers) {
+		return addFinalizers(opts, promise, desiredFinalizers)
+	}
+
 	if value, found := promise.Labels[v1alpha1.PromiseVersionLabel]; found {
 		if promise.Status.Version != value {
 			promise.Status.Version = value
@@ -238,22 +243,10 @@ func (r *PromiseReconciler) Reconcile(ctx context.Context, req ctrl.Request) (re
 			return *requeue, nil
 		}
 
-		if resourceutil.DoesNotContainFinalizer(promise, crdCleanupFinalizer) {
-			return addFinalizers(opts, promise, []string{crdCleanupFinalizer})
-		}
-
 		if err = r.createResourcesForDynamicControllerIfTheyDontExist(ctx, promise, rrCRD, rrGVK, logger); err != nil {
 			// TODO add support for updates
 			return ctrl.Result{}, err
 		}
-
-		if resourceutil.DoesNotContainFinalizer(promise, dynamicControllerDependantResourcesCleanupFinalizer) {
-			return addFinalizers(opts, promise, []string{dynamicControllerDependantResourcesCleanupFinalizer})
-		}
-	}
-
-	if resourceutil.DoesNotContainFinalizer(promise, dependenciesCleanupFinalizer) {
-		return addFinalizers(opts, promise, []string{dependenciesCleanupFinalizer})
 	}
 
 	usPromise, err := promise.ToUnstructured()
@@ -282,10 +275,6 @@ func (r *PromiseReconciler) Reconcile(ctx context.Context, req ctrl.Request) (re
 
 		if err = r.ensureDynamicControllerIsStarted(promise, rrCRD, rrGVK, &dynamicControllerCanCreateResources, logger); err != nil {
 			return ctrl.Result{}, err
-		}
-
-		if resourceutil.DoesNotContainFinalizer(promise, resourceRequestCleanupFinalizer) {
-			return addFinalizers(opts, promise, []string{resourceRequestCleanupFinalizer})
 		}
 
 		if !dynamicControllerCanCreateResources {
@@ -795,11 +784,6 @@ func (r *PromiseReconciler) reconcileDependenciesAndPromiseWorkflows(o opts, pro
 		return nil, r.Client.Update(o.ctx, promise)
 	}
 
-	//TODO remove finalizer if we don't have any configure (or delete?)
-	if resourceutil.DoesNotContainFinalizer(promise, removeAllWorkflowJobsFinalizer) {
-		result, err := addFinalizers(o, promise, []string{removeAllWorkflowJobsFinalizer})
-		return &result, err
-	}
 	if promise.Labels == nil {
 		promise.Labels = make(map[string]string)
 	}
@@ -1386,21 +1370,49 @@ func (r *PromiseReconciler) SetupWithManager(mgr ctrl.Manager) error {
 }
 
 func ensurePromiseDeleteWorkflowFinalizer(o opts, promise *v1alpha1.Promise, promiseDeletePipelineExists bool) (*ctrl.Result, error) {
-	promiseContainsDeleteWorkflowsFinalizer := controllerutil.ContainsFinalizer(promise, runDeleteWorkflowsFinalizer)
-	promiseContainsRemoveAllWorkflowJobsFinalizer := controllerutil.ContainsFinalizer(promise, removeAllWorkflowJobsFinalizer)
-
-	if promiseDeletePipelineExists &&
-		(!promiseContainsDeleteWorkflowsFinalizer || !promiseContainsRemoveAllWorkflowJobsFinalizer) {
-		result, err := addFinalizers(o, promise, []string{runDeleteWorkflowsFinalizer, removeAllWorkflowJobsFinalizer})
-		return &result, err
+	if promiseDeletePipelineExists {
+		return nil, nil
 	}
 
-	if !promiseDeletePipelineExists && promiseContainsDeleteWorkflowsFinalizer {
+	if controllerutil.ContainsFinalizer(promise, runDeleteWorkflowsFinalizer) {
 		controllerutil.RemoveFinalizer(promise, runDeleteWorkflowsFinalizer)
 		return &ctrl.Result{}, o.client.Update(o.ctx, promise)
 	}
 
 	return nil, nil
+}
+
+func (r *PromiseReconciler) promisedFinalizers(promise *v1alpha1.Promise) []string {
+	if promise == nil {
+		return nil
+	}
+
+	desired := make(map[string]struct{}, len(promiseFinalizers))
+
+	desired[dependenciesCleanupFinalizer] = struct{}{}
+
+	if promise.ContainsAPI() {
+		desired[resourceRequestCleanupFinalizer] = struct{}{}
+		desired[dynamicControllerDependantResourcesCleanupFinalizer] = struct{}{}
+		desired[crdCleanupFinalizer] = struct{}{}
+	}
+
+	if r.getWorkflowsCount(promise) > 0 {
+		desired[removeAllWorkflowJobsFinalizer] = struct{}{}
+	}
+
+	if promise.HasPipeline(v1alpha1.WorkflowTypePromise, v1alpha1.WorkflowActionDelete) {
+		desired[runDeleteWorkflowsFinalizer] = struct{}{}
+		desired[removeAllWorkflowJobsFinalizer] = struct{}{}
+	}
+
+	finalizers := make([]string, 0, len(desired))
+	for _, name := range promiseFinalizers {
+		if _, ok := desired[name]; ok {
+			finalizers = append(finalizers, name)
+		}
+	}
+	return finalizers
 }
 
 func generateCRDAndGVK(promise *v1alpha1.Promise, logger logr.Logger) (*apiextensionsv1.CustomResourceDefinition, *schema.GroupVersionKind, error) {
