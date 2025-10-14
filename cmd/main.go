@@ -22,6 +22,7 @@ import (
 	"fmt"
 	"maps"
 	"os"
+	"strings"
 	"time"
 
 	metav1 "k8s.io/apimachinery/pkg/apis/meta/v1"
@@ -31,15 +32,13 @@ import (
 	"sigs.k8s.io/controller-runtime/pkg/webhook"
 
 	"github.com/syntasso/kratix/internal/ptr"
+	uberzap "go.uber.org/zap"
 	"go.uber.org/zap/zapcore"
 	"k8s.io/apiextensions-apiserver/pkg/client/clientset/clientset"
 	apierrors "k8s.io/apimachinery/pkg/api/errors"
 	"k8s.io/apimachinery/pkg/util/yaml"
 	_ "k8s.io/client-go/plugin/pkg/client/auth"
 	"sigs.k8s.io/controller-runtime/pkg/client"
-
-	"github.com/syntasso/kratix/internal/controller"
-	"github.com/syntasso/kratix/internal/telemetry"
 
 	utilruntime "k8s.io/apimachinery/pkg/util/runtime"
 	"k8s.io/client-go/kubernetes/scheme"
@@ -57,6 +56,8 @@ import (
 
 	"github.com/syntasso/kratix/api/v1alpha1"
 	platformv1alpha1 "github.com/syntasso/kratix/api/v1alpha1"
+	"github.com/syntasso/kratix/internal/controller"
+	"github.com/syntasso/kratix/internal/telemetry"
 	"github.com/syntasso/kratix/lib/fetchers"
 	//+kubebuilder:scaffold:imports
 )
@@ -79,7 +80,8 @@ type KratixConfig struct {
 }
 
 type LoggingConfig struct {
-	Structured *bool `json:"structured,omitempty"`
+	Structured *bool   `json:"structured,omitempty"`
+	Level      *string `json:"level,omitempty"`
 }
 
 type Workflows struct {
@@ -121,9 +123,6 @@ func main() {
 	flag.Parse()
 
 	ctx, cancelManagerCtxFunc := context.WithCancel(context.Background())
-	ctrl.SetLogger(zap.New(zap.UseFlagOptions(&opts), func(o *zap.Options) {
-		o.TimeEncoder = zapcore.TimeEncoderOfLayout("2006-01-02T15:04:05Z07:00")
-	}))
 
 	prefix := os.Getenv("KRATIX_LOGGER_PREFIX")
 	if prefix != "" {
@@ -141,10 +140,16 @@ func main() {
 		panic(err)
 	}
 
-	opts.Development = !isStructuredLoggingEnabled(kratixConfig)
+	// Reconfigure logging based on the Kratix config.
+	configureLoggerFromConfig(&opts, kratixConfig, setupLog)
 	ctrl.SetLogger(zap.New(zap.UseFlagOptions(&opts), func(o *zap.Options) {
 		o.TimeEncoder = zapcore.TimeEncoderOfLayout("2006-01-02T15:04:05Z07:00")
 	}))
+	if prefix != "" {
+		ctrl.Log = ctrl.Log.WithName(prefix)
+	}
+	setupLog = ctrl.Log.WithName("setup")
+	setupLog.Info("logging configured from Kratix config", "structured", !opts.Development, "developmentMode", opts.Development, "level", opts.Level)
 
 	if kratixConfig != nil {
 		v1alpha1.DefaultUserProvidedContainersSecurityContext = &kratixConfig.Workflows.DefaultContainerSecurityContext
@@ -460,6 +465,59 @@ func isStructuredLoggingEnabled(cfg *KratixConfig) bool {
 		return true
 	}
 	return *cfg.Logging.Structured
+}
+
+func logLevelFromKratixConfig(cfg *KratixConfig) (zapcore.LevelEnabler, string, error) {
+	if cfg == nil || cfg.Logging == nil || cfg.Logging.Level == nil {
+		return nil, "", nil
+	}
+
+	levelValue := strings.ToLower(strings.TrimSpace(*cfg.Logging.Level))
+	if levelValue == "" {
+		return nil, "", nil
+	}
+
+	var minLevel zapcore.Level
+	switch levelValue {
+	case "trace":
+		minLevel = zapcore.Level(-2)
+	case "debug":
+		minLevel = zapcore.DebugLevel
+	case "info":
+		minLevel = zapcore.InfoLevel
+	case "warn", "warning":
+		minLevel = zapcore.WarnLevel
+		levelValue = "warn"
+	case "error":
+		minLevel = zapcore.ErrorLevel
+	default:
+		return nil, "", fmt.Errorf("unsupported logging.level %q", levelValue)
+	}
+
+	levelEnabler := uberzap.NewAtomicLevelAt(minLevel)
+	return levelEnabler, levelValue, nil
+}
+
+func configureLoggerFromConfig(opts *zap.Options, cfg *KratixConfig, logger logr.Logger) bool {
+	if opts == nil {
+		return true
+	}
+
+	structured := isStructuredLoggingEnabled(cfg)
+	opts.Development = !structured
+
+	// Ensure the Structured flag in the config overrides any CLI encoder selections.
+	opts.Encoder = nil
+	opts.NewEncoder = nil
+
+	if levelEnabler, levelName, err := logLevelFromKratixConfig(cfg); err != nil {
+		logger.Error(err, "unable to configure logging level from Kratix config; using default log level")
+	} else if levelEnabler != nil {
+		opts.Level = levelEnabler
+		logger.Info("configured log level from Kratix config", "level", levelName)
+	}
+
+	return structured
 }
 
 func setLeaderElectConfig(mgrOptions *ctrl.Options, kConfig *KratixConfig) {

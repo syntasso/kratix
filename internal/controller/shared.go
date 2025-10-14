@@ -9,6 +9,7 @@ import (
 
 	"github.com/go-logr/logr"
 	"github.com/syntasso/kratix/api/v1alpha1"
+	"github.com/syntasso/kratix/internal/logging"
 	"github.com/syntasso/kratix/internal/telemetry"
 	"github.com/syntasso/kratix/lib/resourceutil"
 	"github.com/syntasso/kratix/lib/writers"
@@ -65,21 +66,23 @@ func deleteAllResourcesWithKindMatchingLabel(o opts, gvk *schema.GroupVersionKin
 	}
 
 	if len(resourceList.Items) == 0 {
-		o.logger.Info("no resources found for deletion", "gvk", resourceList.GroupVersionKind(), "withLabels", resourceLabels)
+		logging.Debug(o.logger, "no resources found for deletion", "gvk", resourceList.GroupVersionKind(), "withLabels", resourceLabels)
 		return false, nil
 	}
 
-	o.logger.Info("deleting resources", "gvk", resourceList.GroupVersionKind(), "withLabels", resourceLabels, "resources", resourceutil.GetResourceNames(resourceList.Items))
+	logging.Debug(o.logger, "deleting resources", "gvk", resourceList.GroupVersionKind(), "withLabels", resourceLabels, "resources", resourceutil.GetResourceNames(resourceList.Items))
 
 	for _, resource := range resourceList.Items {
-		err = o.client.Delete(o.ctx, &resource, client.PropagationPolicy(metav1.DeletePropagationBackground))
-		o.logger.Info("deleting resource", "res", resource.GetName(), "gvk", resource.GroupVersionKind().String())
-		if err != nil && !errors.IsNotFound(err) {
-			o.logger.Error(err, "Error deleting resource, will try again in 5 seconds", "name", resource.GetName(), "kind", resource.GetKind())
-			return true, err
+		deleteErr := o.client.Delete(o.ctx, &resource, client.PropagationPolicy(metav1.DeletePropagationBackground))
+		logging.Trace(o.logger, "deleting resource", "resource", resource.GetName(), "gvk", resource.GroupVersionKind().String())
+		if deleteErr != nil && !errors.IsNotFound(deleteErr) {
+			logging.Warn(o.logger, "resource deletion will be retried", "name", resource.GetName(), "kind", resource.GetKind(), "error", deleteErr)
+			return true, deleteErr
 		}
-		o.logger.Info("successfully triggered deletion of resource", "name", resource.GetName(), "kind", resource.GetKind())
+		logging.Trace(o.logger, "deletion triggered", "name", resource.GetName(), "kind", resource.GetKind())
 	}
+
+	logging.Info(o.logger, "requested deletion for resources", "gvk", resourceList.GroupVersionKind(), "withLabels", resourceLabels, "count", len(resourceList.Items))
 
 	return len(resourceList.Items) != 0, nil
 }
@@ -110,7 +113,7 @@ func ensureTraceAnnotations(ctx context.Context, c client.Client, obj client.Obj
 
 // finalizers must be less than 64 characters
 func addFinalizers(o opts, resource client.Object, finalizers []string) (ctrl.Result, error) {
-	o.logger.Info("Adding missing finalizers",
+	logging.Info(o.logger, "adding missing finalizers",
 		"expectedFinalizers", finalizers,
 		"existingFinalizers", resource.GetFinalizers(),
 	)
@@ -156,7 +159,7 @@ func newWriter(o opts, stateStoreName, stateStoreKind, destinationPath string) (
 	}
 
 	if err != nil {
-		o.logger.Error(err, "unable to create StateStoreWriter")
+		logging.Error(o.logger, err, "unable to create StateStoreWriter")
 		return nil, err
 	}
 	return writer, nil
@@ -164,4 +167,22 @@ func newWriter(o opts, stateStoreName, stateStoreKind, destinationPath string) (
 
 func shortID(id string) string {
 	return id[0:5]
+}
+
+func logReconcileDuration(logger logr.Logger, start time.Time, result ctrl.Result, retErr error) func() {
+	return func() {
+		duration := time.Since(start)
+		fields := []any{"duration", duration}
+		if result.Requeue {
+			fields = append(fields, "requeue", true)
+		}
+		if result.RequeueAfter > 0 {
+			fields = append(fields, "requeueAfter", result.RequeueAfter)
+		}
+		if retErr != nil {
+			logging.Error(logger, retErr, "reconciliation failed", fields...)
+			return
+		}
+		logging.Info(logger, "reconciliation finished", fields...)
+	}
 }

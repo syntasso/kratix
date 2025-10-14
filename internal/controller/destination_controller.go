@@ -20,6 +20,7 @@ import (
 	"context"
 	"fmt"
 	"path/filepath"
+	"time"
 
 	v1 "k8s.io/api/core/v1"
 	metav1 "k8s.io/apimachinery/pkg/apis/meta/v1"
@@ -35,6 +36,7 @@ import (
 
 	"github.com/go-logr/logr"
 	"github.com/syntasso/kratix/api/v1alpha1"
+	"github.com/syntasso/kratix/internal/logging"
 	"github.com/syntasso/kratix/lib/writers"
 	ctrl "sigs.k8s.io/controller-runtime"
 	"sigs.k8s.io/controller-runtime/pkg/client"
@@ -67,19 +69,21 @@ type DestinationReconciler struct {
 //+kubebuilder:rbac:groups=platform.kratix.io,resources=destinations/status,verbs=get;update;patch
 //+kubebuilder:rbac:groups=platform.kratix.io,resources=destinations/finalizers,verbs=update
 
-func (r *DestinationReconciler) Reconcile(ctx context.Context, req ctrl.Request) (ctrl.Result, error) {
-	logger := r.Log.WithValues(
-		"destination", req.NamespacedName,
-	)
-
+func (r *DestinationReconciler) Reconcile(ctx context.Context, req ctrl.Request) (result ctrl.Result, retErr error) {
 	destination := &v1alpha1.Destination{}
-	logger.Info("Reconciling Destination", "requestName", req.Name)
 	if err := r.Client.Get(ctx, client.ObjectKey{Name: req.Name}, destination); err != nil {
 		if errors.IsNotFound(err) {
 			return ctrl.Result{}, nil
 		}
 		return ctrl.Result{}, err
 	}
+	logger := r.Log.WithValues(
+		"controller", "destination",
+		"name", req.Name,
+		"generation", destination.GetGeneration(),
+	)
+	logging.Info(logger, "reconciliation started")
+	defer logReconcileDuration(logger, time.Now(), result, retErr)()
 
 	opts := opts{
 		client: r.Client,
@@ -88,7 +92,7 @@ func (r *DestinationReconciler) Reconcile(ctx context.Context, req ctrl.Request)
 	}
 
 	if r.needsFinalizerUpdate(destination) {
-		logger.Info("Updating Destination finalizers", "requestName", req.Name)
+		logging.Debug(logger, "updating destination finalizers", "requestName", req.Name)
 		if err := r.Client.Update(ctx, destination); err != nil {
 			return ctrl.Result{}, err
 		}
@@ -122,10 +126,9 @@ func (r *DestinationReconciler) Reconcile(ctx context.Context, req ctrl.Request)
 	filePathMode := destination.GetFilepathMode()
 
 	var writeErr error
-	var result ctrl.Result
 	if writeErr = r.writeTestFiles(writer, filePathMode); writeErr != nil {
 		result = defaultRequeue
-		logger.Error(writeErr, "unable to write dependencies to state store")
+		logging.Error(logger, writeErr, "unable to write dependencies to state store")
 	}
 
 	if condErr := r.updateReadyCondition(destination, writeErr); condErr != nil {
@@ -238,22 +241,22 @@ func (r *DestinationReconciler) deleteDestination(o opts, destination *v1alpha1.
 }
 
 func (r *DestinationReconciler) deleteStateStoreContents(o opts, writer writers.StateStoreWriter) error {
-	o.logger.Info("removing dependencies dir from repository")
+	logging.Debug(o.logger, "removing dependencies dir from repository")
 	if _, err := writer.UpdateFiles(dependenciesDir, canaryWorkload, nil, nil); err != nil {
-		o.logger.Error(err, "error removing dependencies dir from repository")
+		logging.Error(o.logger, err, "error removing dependencies dir from repository")
 		return err
 	}
 
-	o.logger.Info("removing resources dir from repository")
+	logging.Debug(o.logger, "removing resources dir from repository")
 	if _, err := writer.UpdateFiles(resourcesDir, canaryWorkload, nil, nil); err != nil {
-		o.logger.Error(err, "error removing resources dir from repository")
+		logging.Error(o.logger, err, "error removing resources dir from repository")
 		return err
 	}
 	return nil
 }
 
 func (r *DestinationReconciler) deleteDestinationWorkplacements(o opts, destination *v1alpha1.Destination) (bool, error) {
-	o.logger.Info("deleting destination workplacements")
+	logging.Debug(o.logger, "deleting destination workplacements")
 	workPlacementGVK := schema.GroupVersionKind{
 		Group:   v1alpha1.GroupVersion.Group,
 		Version: v1alpha1.GroupVersion.Version,
@@ -265,12 +268,12 @@ func (r *DestinationReconciler) deleteDestinationWorkplacements(o opts, destinat
 	}
 	resourcesRemaining, err := deleteAllResourcesWithKindMatchingLabel(o, &workPlacementGVK, labels)
 	if err != nil {
-		o.logger.Error(err, "error deleting workplacements")
+		logging.Error(o.logger, err, "error deleting workplacements")
 		return false, err
 	}
 
 	if resourcesRemaining {
-		o.logger.Info("couldn't remove workplacements, will try again")
+		logging.Warn(o.logger, "couldn't remove workplacements, will try again")
 		return false, nil
 	}
 	return true, nil
@@ -333,7 +336,7 @@ func (r *DestinationReconciler) findDestinationsForStateStore(stateStoreType str
 		if err := r.Client.List(ctx, destinationList, client.MatchingFields{
 			stateStoreReference: r.stateStoreRefKey(stateStoreType, stateStore.GetName()),
 		}); err != nil {
-			r.Log.Error(err, "error listing destinations for state store")
+			logging.Error(r.Log, err, "error listing destinations for state store")
 			return nil
 		}
 

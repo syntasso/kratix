@@ -8,6 +8,7 @@ import (
 
 	"github.com/go-logr/logr"
 	"github.com/syntasso/kratix/api/v1alpha1"
+	"github.com/syntasso/kratix/internal/logging"
 	"github.com/syntasso/kratix/lib/hash"
 	batchv1 "k8s.io/api/batch/v1"
 	v1 "k8s.io/api/core/v1"
@@ -50,7 +51,7 @@ func MarkConfigureWorkflowAsRunning(logger logr.Logger, obj *unstructured.Unstru
 		Reason:             "PipelinesInProgress",
 		LastTransitionTime: metav1.NewTime(time.Now()),
 	})
-	logger.Info("marking configure workflow as running", "condition", ConfigureWorkflowCompletedCondition, "value", v1.ConditionFalse, "reason", "PipelinesInProgress")
+	logging.Info(logger, "marking configure workflow as running", "condition", ConfigureWorkflowCompletedCondition, "value", v1.ConditionFalse, "reason", "PipelinesInProgress")
 }
 
 func MarkConfigureWorkflowAsFailed(logger logr.Logger, obj *unstructured.Unstructured, failedPipeline string) {
@@ -61,7 +62,7 @@ func MarkConfigureWorkflowAsFailed(logger logr.Logger, obj *unstructured.Unstruc
 		Reason:             ConfigureWorkflowCompletedFailedReason,
 		LastTransitionTime: metav1.NewTime(time.Now()),
 	})
-	logger.Info("marking configure workflow as failed", "condition", ConfigureWorkflowCompletedCondition, "value", v1.ConditionFalse, "reason", ConfigureWorkflowCompletedFailedReason)
+	logging.Warn(logger, "marking configure workflow as failed", "condition", ConfigureWorkflowCompletedCondition, "value", v1.ConditionFalse, "reason", ConfigureWorkflowCompletedFailedReason)
 }
 
 func MarkResourceRequestAsWorksFailed(obj *unstructured.Unstructured, works []string) {
@@ -153,7 +154,7 @@ func MarkDeleteWorkflowAsFailed(logger logr.Logger, obj *unstructured.Unstructur
 		LastTransitionTime: metav1.NewTime(time.Now()),
 	}
 	SetCondition(obj, &condition)
-	logger.Info("marking delete workflow as failed", "condition", condition.Type, "value", condition.Status, "reason", condition.Reason)
+	logging.Warn(logger, "marking delete workflow as failed", "condition", condition.Type, "value", condition.Status, "reason", condition.Reason)
 }
 
 func SortJobsByCreationDateTime(jobs []batchv1.Job, desc bool) []batchv1.Job {
@@ -179,7 +180,7 @@ func PipelineWithDesiredSpecExists(logger logr.Logger, obj *unstructured.Unstruc
 	mostRecentHash := mostRecentJob.GetLabels()[v1alpha1.KratixResourceHashLabel]
 	currentRequestHash, err := hash.ComputeHashForResource(obj)
 	if err != nil {
-		logger.Info("Cannot determine if the request is an update. Requeueing", "reason", err.Error())
+		logging.Warn(logger, "cannot determine if the request is an update; requeueing", "reason", err.Error())
 		return nil, err
 	}
 
@@ -253,7 +254,7 @@ func SetStatus(rr *unstructured.Unstructured, logger logr.Logger, statuses ...in
 	}
 
 	if len(statuses)%2 != 0 {
-		logger.Info("invalid status; expecting key:value pair", "status", statuses)
+		logging.Warn(logger, "invalid status; expecting key:value pair", "status", statuses)
 		return
 	}
 
@@ -267,7 +268,7 @@ func SetStatus(rr *unstructured.Unstructured, logger logr.Logger, statuses ...in
 		// convert key to string
 		keyStr, ok := key.(string)
 		if !ok {
-			logger.Info("invalid status key; expecting string", "key", key)
+			logging.Warn(logger, "invalid status key; expecting string", "key", key)
 			continue
 		}
 		value := statuses[i+1]
@@ -283,7 +284,7 @@ func SetStatus(rr *unstructured.Unstructured, logger logr.Logger, statuses ...in
 	err := unstructured.SetNestedMap(rr.Object, nestedMap, "status")
 
 	if err != nil {
-		logger.Info("failed to set status; ignoring", "map", nestedMap)
+		logging.Warn(logger, "failed to set status; ignoring", "map", nestedMap)
 	}
 }
 

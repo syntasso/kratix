@@ -19,6 +19,7 @@ package controller
 import (
 	"context"
 	"fmt"
+	"time"
 
 	"k8s.io/apimachinery/pkg/api/errors"
 	"k8s.io/apimachinery/pkg/api/meta"
@@ -34,6 +35,7 @@ import (
 
 	"github.com/go-logr/logr"
 	"github.com/syntasso/kratix/api/v1alpha1"
+	"github.com/syntasso/kratix/internal/logging"
 	"github.com/syntasso/kratix/lib/resourceutil"
 )
 
@@ -61,8 +63,11 @@ const promiseCleanupFinalizer = v1alpha1.KratixPrefix + "promise-cleanup"
 //+kubebuilder:rbac:groups=platform.kratix.io,resources=promisereleases/finalizers,verbs=update
 //+kubebuilder:rbac:groups="",resources=events,verbs=create;patch
 
-func (r *PromiseReleaseReconciler) Reconcile(ctx context.Context, req ctrl.Request) (ctrl.Result, error) {
-	_ = log.FromContext(ctx)
+func (r *PromiseReleaseReconciler) Reconcile(ctx context.Context, req ctrl.Request) (result ctrl.Result, retErr error) {
+	logger := log.FromContext(ctx).WithValues(
+		"controller", "promiseRelease",
+		"name", req.Name,
+	)
 
 	promiseRelease := &v1alpha1.PromiseRelease{}
 	err := r.Get(ctx, req.NamespacedName, promiseRelease)
@@ -70,12 +75,16 @@ func (r *PromiseReleaseReconciler) Reconcile(ctx context.Context, req ctrl.Reque
 		if errors.IsNotFound(err) {
 			return ctrl.Result{}, nil
 		}
-		r.Log.Error(err, "Failed getting PromiseRelease", "namespacedName", req.NamespacedName)
+		logging.Error(logger, err, "failed getting PromiseRelease", "namespacedName", req.NamespacedName)
 		return defaultRequeue, nil
 	}
 
-	logger := r.Log.WithValues("identifier", promiseRelease.GetName())
-	logger.Info("Reconciling PromiseRelease")
+	logger = logger.WithValues(
+		"generation", promiseRelease.GetGeneration(),
+	)
+
+	logging.Info(logger, "reconciliation started")
+	defer logReconcileDuration(logger, time.Now(), result, retErr)()
 
 	opts := opts{
 		client: r.Client,
@@ -97,12 +106,12 @@ func (r *PromiseReleaseReconciler) Reconcile(ctx context.Context, req ctrl.Reque
 	}
 
 	if exists {
-		logger.Info("Promise exists, skipping install")
+		logging.Info(logger, "promise exists, skipping install")
 		r.updateStatusAndConditions(opts, promiseRelease, statusInstalled, conditionMessageInstalled, conditionReasonInstalled)
 		return ctrl.Result{}, nil
 	}
 
-	logger.Info("Promise does not exist, installing")
+	logging.Info(logger, "promise does not exist; installing")
 
 	var promise *v1alpha1.Promise
 
@@ -128,7 +137,7 @@ func (r *PromiseReleaseReconciler) Reconcile(ctx context.Context, req ctrl.Reque
 			return ctrl.Result{}, err
 		}
 	default:
-		logger.Error(fmt.Errorf("unknown sourceRef type: %s", sourceRefType), "not requeueing")
+		logging.Error(logger, fmt.Errorf("unknown sourceRef type: %s", sourceRefType), "unknown sourceRef type; not requeueing")
 		return ctrl.Result{}, nil
 	}
 
@@ -187,7 +196,7 @@ func (r *PromiseReleaseReconciler) installPromise(o opts, promiseRelease *v1alph
 		return err
 	}
 
-	o.logger.Info("Promise reconciled during PromiseRelease reconciliation",
+	logging.Info(o.logger, "promise reconciled during PromiseRelease reconciliation",
 		"operation", op,
 		"promiseName", promise.GetName(),
 		"promiseReleaseName", promiseRelease.GetName(),
@@ -219,7 +228,7 @@ func (r *PromiseReleaseReconciler) delete(o opts, promiseRelease *v1alpha1.Promi
 	}
 
 	for _, promise := range promises.Items {
-		r.Log.Info("Deleting Promise", "promiseName", promise.GetName())
+		logging.Info(r.Log, "deleting promise", "promiseName", promise.GetName())
 		if promise.GetDeletionTimestamp().IsZero() {
 			err = o.client.Delete(o.ctx, &promise)
 			if err != nil {
@@ -278,7 +287,7 @@ func (r *PromiseReleaseReconciler) updateStatusAndConditions(o opts, pr *v1alpha
 
 	err := o.client.Status().Update(o.ctx, pr)
 	if err != nil {
-		o.logger.Error(err, "Failed to update PromiseRelease status", "promiseReleaseName", pr.GetName(), "status", status, "condition", condition)
+		logging.Error(o.logger, err, "failed to update PromiseRelease status", "promiseReleaseName", pr.GetName(), "status", status, "condition", condition)
 	}
 }
 

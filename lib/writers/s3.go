@@ -14,6 +14,7 @@ import (
 	"github.com/minio/minio-go/v7"
 	"github.com/minio/minio-go/v7/pkg/credentials"
 	"github.com/syntasso/kratix/api/v1alpha1"
+	"github.com/syntasso/kratix/internal/logging"
 )
 
 const (
@@ -42,7 +43,8 @@ func NewS3Writer(
 		Secure: !stateStoreSpec.Insecure,
 	}
 
-	logger.Info(
+	logging.Debug(
+		logger,
 		"setting up s3 client",
 		"authMethod", stateStoreSpec.AuthMethod,
 		"endpoint", endpoint,
@@ -75,7 +77,7 @@ func NewS3Writer(
 	minioClient, err := minio.New(endpoint, opts)
 
 	if err != nil {
-		logger.Error(err, "Error initialising Minio client")
+		logging.Error(logger, err, "error initialising Minio client")
 		err = fmt.Errorf("error initialising S3 client: %w", err)
 		return nil, err
 	}
@@ -134,10 +136,10 @@ func (b *S3Writer) update(subDir string, workloadsToCreate []v1alpha1.Workload, 
 			objStat, err := b.RepoClient.StatObject(ctx, b.BucketName, filepath.Join(b.Path, work), minio.GetObjectOptions{})
 			if err != nil {
 				if minio.ToErrorResponse(err).Code != "NoSuchKey" {
-					logger.Error(err, "Error fetching object")
+					logging.Error(logger, err, "error fetching object")
 					return "", err
 				}
-				logger.Info("Object does not exist yet")
+				logging.Debug(logger, "object does not exist yet")
 				continue
 			}
 			objectsToDeleteMap[objStat.Key] = objStat
@@ -146,9 +148,9 @@ func (b *S3Writer) update(subDir string, workloadsToCreate []v1alpha1.Workload, 
 
 	exists, errBucketExists := b.RepoClient.BucketExists(ctx, b.BucketName)
 	if errBucketExists != nil {
-		logger.Error(errBucketExists, "Could not verify bucket existence with provider")
+		logging.Error(logger, errBucketExists, "could not verify bucket existence with provider")
 	} else if !exists {
-		logger.Info("Bucket provided does not exist (or the provided keys don't have permissions)")
+		logging.Warn(logger, "bucket does not exist or provided keys are missing permissions")
 	}
 
 	var versionID string
@@ -162,27 +164,27 @@ func (b *S3Writer) update(subDir string, workloadsToCreate []v1alpha1.Workload, 
 		objStat, err := b.RepoClient.StatObject(ctx, b.BucketName, objectFullPath, minio.GetObjectOptions{})
 		if err != nil {
 			if minio.ToErrorResponse(err).Code != "NoSuchKey" {
-				log.Error(err, "Error fetching object")
+				logging.Error(log, err, "error fetching object")
 				return "", err
 			}
-			log.Info("Object does not exist yet")
+			logging.Debug(log, "object does not exist yet")
 		} else {
 			contentMd5 := fmt.Sprintf("%x", md5.Sum([]byte(work.Content)))
 			if objStat.ETag == contentMd5 {
-				log.Info("Content has not changed, will not re-write to bucket")
+				logging.Debug(log, "content unchanged; skipping write")
 				continue
 			}
 		}
 
-		log.Info("Writing object to bucket")
+		logging.Debug(log, "writing object to bucket")
 		uploadInfo, err := b.RepoClient.PutObject(ctx, b.BucketName, objectFullPath, reader, reader.Size(), minio.PutObjectOptions{})
 		if err != nil {
-			log.Error(err, "Error writing object to bucket")
+			logging.Error(log, err, "error writing object to bucket")
 			return "", err
 		}
 
 		versionID = fmt.Sprintf("%x", sha256.Sum256([]byte(versionID+uploadInfo.VersionID)))
-		log.Info("Object written to bucket")
+		logging.Debug(log, "object written to bucket")
 	}
 
 	return versionID, b.deleteObjects(ctx, objectsToDeleteMap, logger)
@@ -194,7 +196,7 @@ func (b *S3Writer) deleteObjects(ctx context.Context, oldObjectsToDelete map[str
 	for objectName, objectInfo := range oldObjectsToDelete {
 		err := b.RepoClient.RemoveObject(ctx, b.BucketName, objectInfo.Key, minio.RemoveObjectOptions{})
 		if err != nil {
-			logger.Error(err, "Failed to remove object", "objectName", objectName)
+			logging.Error(logger, err, "failed to remove object", "objectName", objectName)
 			errCount++
 		}
 	}
@@ -214,7 +216,7 @@ func (b *S3Writer) getObjectsInDir(ctx context.Context, dir string, logger logr.
 	objectCh := b.RepoClient.ListObjects(ctx, b.BucketName, minio.ListObjectsOptions{Prefix: filepath.Join(b.Path, dir), Recursive: true})
 	for object := range objectCh {
 		if object.Err != nil {
-			logger.Error(object.Err, "Listing objects", "dir", dir)
+			logging.Error(logger, object.Err, "listing objects failed", "dir", dir)
 			return nil, object.Err
 		}
 		pathsToDelete[object.Key] = object
@@ -229,7 +231,7 @@ func (b *S3Writer) RemoveObject(objectName string) error {
 		"path", b.Path,
 		"objectName", objectName,
 	)
-	logger.Info("Removing objects from bucket")
+	logging.Debug(logger, "removing objects from bucket")
 	ctx := context.Background()
 
 	if strings.HasSuffix(objectName, "/") {
@@ -238,7 +240,7 @@ func (b *S3Writer) RemoveObject(objectName string) error {
 		objectCh := b.RepoClient.ListObjects(ctx, b.BucketName, minio.ListObjectsOptions{Prefix: filepath.Join(b.Path, objectName), Recursive: true})
 		for object := range objectCh {
 			if object.Err != nil {
-				logger.Error(object.Err, "Listing objects", "dir", objectName)
+				logging.Error(logger, object.Err, "listing objects", "dir", objectName)
 				return object.Err
 			}
 
@@ -249,13 +251,13 @@ func (b *S3Writer) RemoveObject(objectName string) error {
 				minio.RemoveObjectOptions{},
 			)
 			if err != nil {
-				b.Log.Error(err, "could not delete object", "bucketName", b.BucketName, "dir", objectName, "path", object.Key)
+				logging.Error(b.Log, err, "could not delete object", "bucketName", b.BucketName, "dir", objectName, "path", object.Key)
 				return err
 			}
 			paths = append(paths, object.Key)
 		}
 
-		logger.Info("Object removed", "paths", paths)
+		logging.Debug(logger, "objects removed", "paths", paths)
 	} else {
 		err := b.RepoClient.RemoveObject(
 			ctx,
@@ -264,10 +266,10 @@ func (b *S3Writer) RemoveObject(objectName string) error {
 			minio.RemoveObjectOptions{},
 		)
 		if err != nil {
-			b.Log.Error(err, "could not delete object", "bucketName", b.BucketName, "objectName", objectName)
+			logging.Error(b.Log, err, "could not delete object", "bucketName", b.BucketName, "objectName", objectName)
 			return err
 		}
-		logger.Info("Objects removed")
+		logging.Debug(logger, "objects removed")
 	}
 
 	return nil
@@ -293,9 +295,9 @@ func (b *S3Writer) ValidatePermissions() error {
 	// Step 2: Abort the multipart upload to clean up
 	err = coreClient.AbortMultipartUpload(ctx, b.BucketName, testObjectPath, uploadID)
 	if err != nil {
-		logger.Info("Write permissions validated but failed to abort multipart upload", "error", err)
+		logging.Warn(logger, "write permissions validated but failed to abort multipart upload", "error", err)
 	}
 
-	logger.Info("Successfully validated bucket write permissions via multipart upload")
+	logging.Info(logger, "successfully validated bucket write permissions via multipart upload")
 	return nil
 }

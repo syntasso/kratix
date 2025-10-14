@@ -19,10 +19,12 @@ package controller
 import (
 	"context"
 	"encoding/json"
+	"time"
 
 	"github.com/go-logr/logr"
 	"github.com/syntasso/kratix/api/v1alpha1"
 	platformv1alpha1 "github.com/syntasso/kratix/api/v1alpha1"
+	"github.com/syntasso/kratix/internal/logging"
 	"k8s.io/apimachinery/pkg/api/errors"
 	"k8s.io/apimachinery/pkg/apis/meta/v1/unstructured"
 	"k8s.io/apimachinery/pkg/runtime"
@@ -48,37 +50,44 @@ type HealthRecordReconciler struct {
 //+kubebuilder:rbac:groups=platform.kratix.io,resources=healthrecords/status,verbs=get;update;patch
 //+kubebuilder:rbac:groups=platform.kratix.io,resources=healthrecords/finalizers,verbs=update
 
-func (r *HealthRecordReconciler) Reconcile(ctx context.Context, req ctrl.Request) (ctrl.Result, error) {
-	logger := r.Log.WithValues("healthRecord", req.Name, "namespace", req.Namespace)
-	logger.Info("Reconciling HealthRecord")
+func (r *HealthRecordReconciler) Reconcile(ctx context.Context, req ctrl.Request) (result ctrl.Result, retErr error) {
+	logger := r.Log.WithValues(
+		"controller", "healthRecord",
+		"name", req.Name,
+		"namespace", req.Namespace,
+	)
 
 	healthRecord := &platformv1alpha1.HealthRecord{}
 	if err := r.Get(ctx, req.NamespacedName, healthRecord); err != nil {
-		return r.ignoreNotFound(logger, err, "Failed getting healthRecord")
+		return r.ignoreNotFound(logger, err, "failed getting health record")
 	}
 
 	logger = logger.WithValues(
 		"promiseRef", healthRecord.Data.PromiseRef,
 		"resourceRef", healthRecord.Data.ResourceRef,
+		"generation", healthRecord.GetGeneration(),
 	)
+	start := time.Now()
+	logging.Info(logger, "reconciliation started")
+	defer logReconcileDuration(logger, start, result, retErr)()
 
 	promise := &platformv1alpha1.Promise{}
 	promiseName := client.ObjectKey{Name: healthRecord.Data.PromiseRef.Name}
 	if err := r.Get(ctx, promiseName, promise); err != nil {
-		return r.ignoreNotFound(logger, err, "Failed getting Promise")
+		return r.ignoreNotFound(logger, err, "failed getting promise")
 	}
 
 	promiseGVK, _, err := promise.GetAPI()
 	if err != nil {
-		logger.Error(err, "Failed getting promise gvk")
+		logging.Error(logger, err, "failed getting promise gvk")
 		return defaultRequeue, nil
 	}
 
 	resReq := &unstructured.Unstructured{}
 	if err = r.getResourceRequest(ctx, promiseGVK, healthRecord, resReq); err != nil {
-		logger.Error(err, "Failed getting resource")
+		logging.Error(logger, err, "failed getting resource")
 		if errors.IsNotFound(err) && !healthRecord.DeletionTimestamp.IsZero() {
-			r.Log.Info("resource not found and health record is being deleted, removing the finalizer")
+			logging.Debug(r.Log, "resource not found during deletion; removing finalizer", "healthRecord", req.Name)
 			if result, err := r.removeFinalizer(ctx, healthRecord); err != nil {
 				return result, err
 			}
@@ -126,7 +135,7 @@ func (r *HealthRecordReconciler) updateResourceStatus(
 
 	err := r.List(ctx, healthRecords)
 	if err != nil {
-		logger.Error(err, "error listing healthRecords")
+		logging.Error(logger, err, "error listing health records")
 		return err
 	}
 
@@ -165,7 +174,7 @@ func (r *HealthRecordReconciler) ignoreNotFound(logger logr.Logger, err error, m
 	if errors.IsNotFound(err) {
 		return ctrl.Result{}, nil
 	}
-	logger.Error(err, msg)
+	logging.Error(logger, err, msg)
 	return defaultRequeue, nil
 }
 
@@ -200,9 +209,7 @@ func (r *HealthRecordReconciler) getInitialHealthStatusState(resReq *unstructure
 
 	statusMap, ok := status.(map[string]interface{})
 	if !ok {
-		r.Log.Info(
-			"error getting status of resource request", "name", resReq.GetName(), "namespace", resReq.GetNamespace(),
-		)
+		logging.Warn(r.Log, "error getting status of resource request", "name", resReq.GetName(), "namespace", resReq.GetNamespace())
 	}
 
 	initialHealthData, ok := statusMap["healthStatus"]
@@ -259,18 +266,12 @@ func (r *HealthRecordReconciler) deleteHealthRecord(
 	for _, record := range resourceHealthRecords {
 		recordMap, ok := record.(map[string]any)
 		if !ok {
-			r.Log.Info(
-				"error parsing health record for resource request", "name", resReq.GetName(), "namespace", resReq.GetNamespace(),
-			)
+			logging.Warn(r.Log, "error parsing health record for resource request", "name", resReq.GetName(), "namespace", resReq.GetNamespace())
 		}
 
 		source, ok := recordMap["source"].(map[string]any)
 		if !ok {
-			r.Log.Info(
-				"error parsing source in health record for resource request", "name",
-				resReq.GetName(),
-				"namespace", resReq.GetNamespace(),
-			)
+			logging.Warn(r.Log, "error parsing source in health record for resource request", "name", resReq.GetName(), "namespace", resReq.GetNamespace())
 		}
 
 		if source["name"] == healthRecord.GetName() {
@@ -279,7 +280,7 @@ func (r *HealthRecordReconciler) deleteHealthRecord(
 	}
 
 	if !recordInResourceHealthRecords {
-		r.Log.Info("health record not found in resource state health records")
+		logging.Warn(r.Log, "health record not found in resource state health records", "healthRecord", healthRecord.GetName())
 
 		if result, err := r.removeFinalizer(ctx, healthRecord); err != nil {
 			return result, err
@@ -291,13 +292,13 @@ func (r *HealthRecordReconciler) deleteHealthRecord(
 	healthRecords := &platformv1alpha1.HealthRecordList{}
 	err := r.List(ctx, healthRecords)
 	if err != nil {
-		r.Log.Error(err, "error listing healthRecords")
+		logging.Error(r.Log, err, "error listing health records")
 		return defaultRequeue, err
 	}
 
 	for _, record := range healthRecords.Items {
 		if record.GetName() != healthRecord.GetName() {
-			r.Log.Info("updating health records list", "item", record.GetName())
+			logging.Debug(r.Log, "updating health records list", "item", record.GetName())
 
 			updatedHealthRecords = append(updatedHealthRecords, record)
 		}
@@ -338,21 +339,15 @@ func (r *HealthRecordReconciler) getResourceHealthRecords(resReq *unstructured.U
 	status := resReq.Object["status"]
 	statusMap, ok := status.(map[string]interface{})
 	if !ok {
-		r.Log.Info(
-			"error getting status of resource request", "name", resReq.GetName(), "namespace", resReq.GetNamespace(),
-		)
+		logging.Warn(r.Log, "error getting status of resource request", "name", resReq.GetName(), "namespace", resReq.GetNamespace())
 	}
 	currentHealthStatus, ok := statusMap["healthStatus"].(map[string]any)
 	if !ok {
-		r.Log.Info(
-			"error getting health status of resource request", "name", resReq.GetName(), "namespace", resReq.GetNamespace(),
-		)
+		logging.Warn(r.Log, "error getting health status of resource request", "name", resReq.GetName(), "namespace", resReq.GetNamespace())
 	}
 	healthRecords, ok := currentHealthStatus["healthRecords"].([]any)
 	if !ok {
-		r.Log.Info(
-			"error getting health records in resource request status", "name", resReq.GetName(), "namespace", resReq.GetNamespace(),
-		)
+		logging.Warn(r.Log, "error getting health records in resource request status", "name", resReq.GetName(), "namespace", resReq.GetNamespace())
 	}
 	return healthRecords
 }

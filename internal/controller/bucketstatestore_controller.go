@@ -19,9 +19,11 @@ package controller
 
 import (
 	"context"
+	"time"
 
 	"github.com/go-logr/logr"
 	"github.com/syntasso/kratix/api/v1alpha1"
+	"github.com/syntasso/kratix/internal/logging"
 	corev1 "k8s.io/api/core/v1"
 	"k8s.io/apimachinery/pkg/api/errors"
 	"k8s.io/apimachinery/pkg/runtime"
@@ -47,19 +49,21 @@ type BucketStateStoreReconciler struct {
 //+kubebuilder:rbac:groups=platform.kratix.io,resources=bucketstatestores/finalizers,verbs=update
 
 // Reconcile reconciles a BucketStateStore object.
-func (r *BucketStateStoreReconciler) Reconcile(ctx context.Context, req ctrl.Request) (ctrl.Result, error) {
-	logger := r.Log.WithValues(
-		"bucketStateStore", req.NamespacedName,
-	)
-
+func (r *BucketStateStoreReconciler) Reconcile(ctx context.Context, req ctrl.Request) (result ctrl.Result, retErr error) {
 	bucketStateStore := &v1alpha1.BucketStateStore{}
-	logger.Info("Reconciling BucketStateStore", "requestName", req.Name)
 	if err := r.Client.Get(ctx, client.ObjectKey{Name: req.Name}, bucketStateStore); err != nil {
 		if errors.IsNotFound(err) {
 			return ctrl.Result{}, nil
 		}
 		return ctrl.Result{}, err
 	}
+	logger := r.Log.WithValues(
+		"controller", "bucketStateStore",
+		"name", req.Name,
+		"generation", bucketStateStore.GetGeneration(),
+	)
+	logging.Info(logger, "reconciliation started")
+	defer logReconcileDuration(logger, time.Now(), result, retErr)()
 
 	o := opts{
 		client: r.Client,

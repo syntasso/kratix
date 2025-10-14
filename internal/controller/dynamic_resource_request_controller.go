@@ -30,6 +30,7 @@ import (
 
 	"github.com/go-logr/logr"
 	"github.com/syntasso/kratix/api/v1alpha1"
+	"github.com/syntasso/kratix/internal/logging"
 	"github.com/syntasso/kratix/lib/resourceutil"
 	"github.com/syntasso/kratix/lib/workflow"
 
@@ -82,20 +83,19 @@ func (r *DynamicResourceRequestController) Reconcile(ctx context.Context, req ct
 		return ctrl.Result{}, nil
 	}
 
-	resourceRequestIdentifier := fmt.Sprintf("%s-%s", r.PromiseIdentifier, req.Name)
 	baseLogger := r.Log.WithValues(
+		"controller", "dynamicResourceRequest",
 		"uid", r.UID,
-		"promiseID", r.PromiseIdentifier,
-		"namespace", req.NamespacedName,
-		"resourceRequest", resourceRequestIdentifier,
+		"promise", r.PromiseIdentifier,
+		"name", req.Name,
+		"namespace", req.Namespace,
 	)
 
 	rr := &unstructured.Unstructured{}
 	rr.SetGroupVersionKind(*r.GVK)
-
 	promise := &v1alpha1.Promise{}
 	if err := r.Client.Get(ctx, types.NamespacedName{Name: r.PromiseIdentifier}, promise); err != nil {
-		baseLogger.Error(err, "Failed getting Promise")
+		logging.Error(baseLogger, err, "failed to get promise")
 		return ctrl.Result{}, err
 	}
 
@@ -103,37 +103,39 @@ func (r *DynamicResourceRequestController) Reconcile(ctx context.Context, req ct
 		if apierrors.IsNotFound(err) {
 			return ctrl.Result{}, nil
 		}
-		baseLogger.Error(err, "Failed getting Promise CRD")
+		logging.Error(baseLogger, err, "failed to get promise crd")
 		return defaultRequeue, nil
 	}
+
+	baseLogger = baseLogger.WithValues(
+		"generation", rr.GetGeneration(),
+	)
 
 	spanName := fmt.Sprintf("%s/DynamicResourceRequestReconcile", r.PromiseIdentifier)
 	ctx, logger, traceCtx := setupReconcileTrace(ctx, "dynamic-resource-request-controller", spanName, rr, baseLogger)
 	defer finishReconcileTrace(traceCtx, &retErr)()
 
-	traceCtx.AddAttributes(
-		attribute.String("kratix.promise.name", promise.GetName()),
-		attribute.String("kratix.resource_request.name", rr.GetName()),
-		attribute.String("kratix.resource_request.namespace", rr.GetNamespace()),
-	)
-	traceCtx.AddAttributes(attribute.String("kratix.action", traceCtx.Action()))
+	logging.Info(logger, "reconciliation started")
+	defer logReconcileDuration(logger, time.Now(), result, retErr)()
+
+	addDynamicResourceRequestSpanAttributes(traceCtx, promise, rr)
 
 	if err := persistReconcileTrace(traceCtx, r.Client, logger); err != nil {
-		logger.Error(err, "failed to persist trace annotations")
+		logging.Error(logger, err, "failed to persist trace annotations")
 		return ctrl.Result{}, err
 	}
 
 	if v, ok := promise.Labels[pauseReconciliationLabel]; ok && v == "true" {
 		msg := fmt.Sprintf("'%s' label set to 'true' for promise; pausing reconciliation for this resource request",
 			pauseReconciliationLabel)
-		logger.Info(msg)
+		logging.Info(logger, msg)
 		return ctrl.Result{}, r.setPausedReconciliationStatusConditions(ctx, rr, msg)
 	}
 
 	if v, ok := rr.GetLabels()[pauseReconciliationLabel]; ok && v == "true" {
 		msg := fmt.Sprintf("'%s' label set to 'true' for this resource request; pausing reconciliation",
 			pauseReconciliationLabel)
-		logger.Info(msg)
+		logging.Info(logger, msg)
 		return ctrl.Result{}, r.setPausedReconciliationStatusConditions(ctx, rr, msg)
 	}
 
@@ -148,6 +150,7 @@ func (r *DynamicResourceRequestController) Reconcile(ctx context.Context, req ct
 	opts := opts{client: r.Client, ctx: ctx, logger: logger}
 
 	if !rr.GetDeletionTimestamp().IsZero() {
+		logging.Info(logger, "deleting resource request")
 		return r.deleteResources(opts, promise, rr)
 	}
 
@@ -168,11 +171,12 @@ func (r *DynamicResourceRequestController) Reconcile(ctx context.Context, req ct
 		return addFinalizers(opts, rr, []string{workFinalizer, removeAllWorkflowJobsFinalizer, runDeleteWorkflowsFinalizer})
 	}
 
-	logger.Info("Resource contains configure workflow(s), reconciling workflows")
+	logging.Info(logger, "resource contains configure workflow(s); reconciling workflows")
 	completedCond := resourceutil.GetCondition(rr, resourceutil.ConfigureWorkflowCompletedCondition)
 	if shouldForcePipelineRun(completedCond, r.ReconciliationInterval) && !r.manualReconciliationLabelSet(rr) {
-		logger.Info(
-			"Resource configure pipeline completed too long ago... forcing the reconciliation",
+		logging.Warn(
+			logger,
+			"resource configure pipeline completed too long ago; forcing reconciliation",
 			"lastTransitionTime",
 			completedCond.LastTransitionTime.Time.String(),
 		)
@@ -352,7 +356,7 @@ func (r *DynamicResourceRequestController) getWorksStatus(ctx context.Context, r
 	workSelectorLabel := labels.FormatLabels(workLabels)
 	selector, err := labels.Parse(workSelectorLabel)
 	if err != nil {
-		r.Log.Info("Failed parsing Works selector label", "labels", workSelectorLabel)
+		logging.Warn(r.Log, "failed parsing works selector label", "labels", workSelectorLabel)
 		return nil, nil, nil, nil, err
 	}
 
@@ -363,7 +367,7 @@ func (r *DynamicResourceRequestController) getWorksStatus(ctx context.Context, r
 	})
 
 	if err != nil {
-		r.Log.Info("Failed listing works", "namespace", rr.GetNamespace(), "label selector", workSelectorLabel)
+		logging.Warn(r.Log, "failed listing works", "namespace", rr.GetNamespace(), "labelSelector", workSelectorLabel, "error", err)
 		return nil, nil, nil, nil, err
 	}
 
@@ -446,7 +450,7 @@ func (r *DynamicResourceRequestController) deleteResources(o opts, promise *v1al
 				r.EventRecorder.Event(resourceRequest, "Warning", "Failed Pipeline", "The Delete Pipeline has failed")
 				resourceutil.MarkDeleteWorkflowAsFailed(o.logger, resourceRequest)
 				if err := r.Client.Status().Update(o.ctx, resourceRequest); err != nil {
-					o.logger.Error(err, "Failed to update resource request status", "promise", promise.GetName(),
+					logging.Error(o.logger, err, "failed to update resource request status", "promise", promise.GetName(),
 						"namespace", resourceRequest.GetNamespace(), "resource", resourceRequest.GetName())
 				}
 			}
@@ -507,6 +511,7 @@ func (r *DynamicResourceRequestController) deleteWork(o opts, resourceRequest *u
 			if apierrors.IsNotFound(err) {
 				continue
 			}
+			logging.Warn(o.logger, "error deleting work; will retry", "workName", work.GetName(), "error", err)
 			return err
 		}
 	}
@@ -560,7 +565,7 @@ func workflowsCompletedSuccessfully(workflowCompletedCondition *clusterv1.Condit
 }
 
 func (r *DynamicResourceRequestController) nextReconciliation(logger logr.Logger) ctrl.Result {
-	logger.Info("Scheduling next reconciliation", "ReconciliationInterval", r.ReconciliationInterval)
+	logging.Info(logger, "scheduling next reconciliation", "reconciliationInterval", r.ReconciliationInterval)
 	return ctrl.Result{RequeueAfter: r.ReconciliationInterval}
 }
 
@@ -582,7 +587,7 @@ func (r *DynamicResourceRequestController) ensurePromiseIsUnavailable(ctx contex
 	logger logr.Logger,
 ) (ctrl.Result, error) {
 	if !resourceutil.IsPromiseMarkedAsUnavailable(rr) {
-		logger.Info("Cannot create resources; setting PromiseAvailable to false in resource status")
+		logging.Warn(logger, "cannot create resources; setting PromiseAvailable to false in resource status")
 		resourceutil.MarkPromiseConditionAsNotAvailable(rr, logger)
 
 		return ctrl.Result{}, r.Client.Status().Update(ctx, rr)
@@ -616,7 +621,7 @@ func (r *DynamicResourceRequestController) setPromiseLabels(ctx context.Context,
 	resourceLabels[v1alpha1.PromiseNameLabel] = promiseName
 	rr.SetLabels(resourceLabels)
 	if err := r.Client.Update(ctx, rr); err != nil {
-		logger.Error(err, "Failed updating resource request with Promise label")
+		logging.Error(logger, err, "failed updating resource request with promise label")
 		return err
 	}
 	return nil
@@ -642,4 +647,13 @@ func shouldUpdateLastSuccessfulConfigureWorkflowTime(
 func updateLastSuccessfulConfigureWorkflowTime(workflowCompletedCondition *clusterv1.Condition, rr *unstructured.Unstructured, opts opts, logger logr.Logger) error {
 	resourceutil.SetStatus(rr, logger, "lastSuccessfulConfigureWorkflowTime", workflowCompletedCondition.LastTransitionTime.Format(time.RFC3339))
 	return opts.client.Status().Update(opts.ctx, rr)
+}
+
+func addDynamicResourceRequestSpanAttributes(traceCtx *reconcileTrace, promise *v1alpha1.Promise, rr *unstructured.Unstructured) {
+	traceCtx.AddAttributes(
+		attribute.String("kratix.promise.name", promise.GetName()),
+		attribute.String("kratix.resource_request.name", rr.GetName()),
+		attribute.String("kratix.resource_request.namespace", rr.GetNamespace()),
+		attribute.String("kratix.action", traceCtx.Action()),
+	)
 }

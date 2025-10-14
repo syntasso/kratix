@@ -10,6 +10,7 @@ import (
 
 	"github.com/go-logr/logr"
 	"github.com/syntasso/kratix/api/v1alpha1"
+	"github.com/syntasso/kratix/internal/logging"
 	corev1 "k8s.io/api/core/v1"
 	apimeta "k8s.io/apimachinery/pkg/api/meta"
 	metav1 "k8s.io/apimachinery/pkg/apis/meta/v1"
@@ -174,7 +175,7 @@ func (s *Scheduler) cleanupDanglingWorkplacements(work *v1alpha1.Work) error {
 
 	for _, wp := range allWorkplacementsForWork {
 		if _, exists := workplacementsThatShouldExist[wp.Name]; !exists {
-			s.Log.Info("deleting workplacement that no longer references a workloadGroup", "workName", work.Name, "workPlacementName", wp.Name, "namespace", work.Namespace)
+			logging.Debug(s.Log, "deleting workplacement that no longer references a workloadGroup", "workName", work.Name, "workPlacementName", wp.Name, "namespace", work.Namespace)
 			err := s.Client.Delete(context.TODO(), &wp)
 			if err != nil {
 				return err
@@ -199,10 +200,10 @@ func (s *Scheduler) reconcileWorkloadGroup(workloadGroup v1alpha1.WorkloadGroup,
 		if len(existingWorkplacements) > 0 {
 			var errored int
 			for _, existingWorkplacement := range existingWorkplacements {
-				s.Log.Info("found workplacement for work; will try an update")
+				logging.Debug(s.Log, "found existing workplacement; will update")
 				misplaced, err := s.updateWorkPlacement(workloadGroup, &existingWorkplacement)
 				if err != nil {
-					s.Log.Error(err, "error updating workplacement for work", "workplacement", existingWorkplacement.Name, "work", work.Name, "workloadGroupID", workloadGroup.ID)
+					logging.Error(s.Log, err, "error updating workplacement for work", "workplacement", existingWorkplacement.Name, "work", work.Name, "workloadGroupID", workloadGroup.ID)
 					errored++
 				}
 				if misplaced {
@@ -236,13 +237,13 @@ func (s *Scheduler) reconcileWorkloadGroup(workloadGroup v1alpha1.WorkloadGroup,
 	}
 
 	if len(targetDestinationMap) == 0 {
-		s.Log.Info("no Destinations can be selected for scheduling", "scheduling", destinationSelectors, "workloadGroupDirectory", workloadGroup.Directory, "workloadGroupID", workloadGroup.ID)
+		logging.Warn(s.Log, "no destinations can be selected for scheduling", "scheduling", destinationSelectors, "workloadGroupDirectory", workloadGroup.Directory, "workloadGroupID", workloadGroup.ID)
 		s.EventRecorder.Eventf(work, corev1.EventTypeNormal, "NoMatchingDestination",
 			"waiting for a destination with labels for workloadGroup: %s", workloadGroup.ID)
 		return unscheduledStatus, nil
 	}
 
-	s.Log.Info("found available target Destinations", "work", work.GetName(), "destinations", targetDestinationNames)
+	logging.Debug(s.Log, "found available target destinations", "work", work.GetName(), "destinations", targetDestinationNames)
 	misplaced, err := s.applyWorkplacementsForTargetDestinations(workloadGroup, work, targetDestinationMap)
 	if err != nil {
 		return "", err
@@ -271,7 +272,7 @@ func (s *Scheduler) updateWorkPlacement(workloadGroup v1alpha1.WorkloadGroup, wo
 
 	workPlacement.Spec.Workloads = workloadGroup.Workloads
 	if err := s.Client.Update(context.Background(), workPlacement); err != nil {
-		s.Log.Error(err, "Error updating WorkPlacement", "workplacement", workPlacement.Name)
+		logging.Error(s.Log, err, "error updating WorkPlacement", "workplacement", workPlacement.Name)
 		return false, err
 	}
 
@@ -279,12 +280,12 @@ func (s *Scheduler) updateWorkPlacement(workloadGroup v1alpha1.WorkloadGroup, wo
 		return false, err
 	}
 
-	s.Log.Info("Successfully updated WorkPlacement workloads", "workplacement", workPlacement.Name)
+	logging.Info(s.Log, "successfully updated WorkPlacement workloads", "workplacement", workPlacement.Name)
 	return misplaced, nil
 }
 
 func (s *Scheduler) labelWorkplacementAsMisplaced(workPlacement *v1alpha1.WorkPlacement) {
-	s.Log.Info("Warning: WorkPlacement scheduled to destination that doesn't fulfil scheduling requirements", "workplacement", workPlacement.Name, "namespace", workPlacement.Namespace)
+	logging.Warn(s.Log, "workplacement scheduled to destination that doesn't fulfil scheduling requirements", "workplacement", workPlacement.Name, "namespace", workPlacement.Namespace)
 	newLabels := workPlacement.GetLabels()
 	if newLabels == nil {
 		newLabels = make(map[string]string)
@@ -316,14 +317,14 @@ func listWorkplacementWithLabels(c client.Client, logger logr.Logger, namespace 
 	selector, err := labels.Parse(workSelectorLabel)
 
 	if err != nil {
-		logger.Error(err, "error parsing scheduling")
+		logging.Warn(logger, "error parsing scheduling", "error", err)
 	}
 	workPlacementListOptions.LabelSelector = selector
 
-	logger.Info("Listing Workplacements", "labels", workSelectorLabel)
+	logging.Trace(logger, "listing workplacements", "labels", workSelectorLabel)
 	err = c.List(context.Background(), workPlacementList, workPlacementListOptions)
 	if err != nil {
-		logger.Error(err, "Error getting WorkPlacements")
+		logging.Error(logger, err, "error getting WorkPlacements")
 		return nil, err
 	}
 
@@ -365,7 +366,7 @@ func (s *Scheduler) applyWorkplacementsForTargetDestinations(workloadGroup v1alp
 			controllerutil.AddFinalizer(workPlacement, repoCleanupWorkPlacementFinalizer)
 
 			if err := controllerutil.SetControllerReference(work, workPlacement, scheme.Scheme); err != nil {
-				s.Log.Error(err, "Error setting ownership")
+				logging.Error(s.Log, err, "error setting ownership")
 				return err
 			}
 			return nil
@@ -377,7 +378,7 @@ func (s *Scheduler) applyWorkplacementsForTargetDestinations(workloadGroup v1alp
 		if err := s.updateWorkPlacementStatus(workPlacement, misscheduled); err != nil {
 			return false, err
 		}
-		s.Log.Info("workplacement reconciled", "operation", op, "namespace", workPlacement.GetNamespace(), "workplacement", workPlacement.GetName(), "work", work.GetName(), "destination", targetDestinationName)
+		logging.Info(s.Log, "workplacement reconciled", "operation", op, "namespace", workPlacement.GetNamespace(), "workplacement", workPlacement.GetName(), "work", work.GetName(), "destination", targetDestinationName)
 		s.EventRecorder.Eventf(work, corev1.EventTypeNormal, "WorkplacementReconciled",
 			"workplacement reconciled: %s, operation: %s", workPlacement.GetName(), op)
 	}
@@ -440,22 +441,22 @@ func (s *Scheduler) getTargetDestinationNames(destinationSelectors map[string]st
 	}
 
 	if work.IsResourceRequest() {
-		s.Log.Info("Getting Destination names for Resource Request")
+		logging.Trace(s.Log, "getting destination names for resource request")
 		var targetDestinationNames = make([]string, 1)
 		randomDestinationIndex := rand.Intn(len(destinations))
 		targetDestinationNames[0] = destinations[randomDestinationIndex].Name
-		s.Log.Info("Adding Destination: " + targetDestinationNames[0])
+		logging.Trace(s.Log, "adding destination", "destination", targetDestinationNames[0])
 		return targetDestinationNames
 	} else if work.IsDependency() {
-		s.Log.Info("Getting Destination names for dependencies")
+		logging.Trace(s.Log, "getting destination names for dependencies")
 		var targetDestinationNames = make([]string, len(destinations))
 		for i := 0; i < len(destinations); i++ {
 			targetDestinationNames[i] = destinations[i].Name
-			s.Log.Info("Adding Destination: " + targetDestinationNames[i])
+			logging.Trace(s.Log, "adding destination", "destination", targetDestinationNames[i])
 		}
 		return targetDestinationNames
 	} else {
-		s.Log.Info("Work is neither resource request nor dependency")
+		logging.Trace(s.Log, "work is neither resource request nor dependency")
 		return make([]string, 0)
 	}
 }
@@ -471,14 +472,14 @@ func (s *Scheduler) getDestinationsForWorkloadGroup(destinationSelectors map[str
 		selector, err := labels.Parse(workloadGroupSelectorLabel)
 
 		if err != nil {
-			s.Log.Error(err, "error parsing scheduling")
+			logging.Warn(s.Log, "error parsing scheduling", "error", err)
 		}
 		lo.LabelSelector = selector
 	}
 
 	err := s.Client.List(context.Background(), destinationList, lo)
 	if err != nil {
-		s.Log.Error(err, "Error listing available Destinations")
+		logging.Error(s.Log, err, "error listing available destinations")
 	}
 
 	destinations := []v1alpha1.Destination{}

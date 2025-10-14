@@ -2,6 +2,7 @@ package workflow
 
 import (
 	"github.com/syntasso/kratix/api/v1alpha1"
+	"github.com/syntasso/kratix/internal/logging"
 	rbacv1 "k8s.io/api/rbac/v1"
 	"k8s.io/apimachinery/pkg/api/errors"
 	"k8s.io/apimachinery/pkg/labels"
@@ -68,7 +69,7 @@ func getRolesToDelete(opts Opts, desiredRoles []rbacv1.Role, listOptions client.
 			}
 		}
 	} else if !errors.IsNotFound(err) {
-		opts.logger.Error(err, "failed to list user provided permission roles")
+		logging.Error(opts.logger, err, "failed to list user provided permission roles")
 		return nil, err
 	}
 
@@ -111,7 +112,7 @@ func getRoleBindingsToDelete(opts Opts, desiredRoleBindings []rbacv1.RoleBinding
 			}
 		}
 	} else if !errors.IsNotFound(err) {
-		opts.logger.Error(err, "failed to list user provided permission role bindings")
+		logging.Error(opts.logger, err, "failed to list user provided permission role bindings")
 		return nil, err
 	}
 
@@ -154,7 +155,7 @@ func getClusterRolesToDelete(opts Opts, desiredClusterRoles []rbacv1.ClusterRole
 			}
 		}
 	} else if !errors.IsNotFound(err) {
-		opts.logger.Error(err, "failed to list user provided permission cluster roles")
+		logging.Error(opts.logger, err, "failed to list user provided permission cluster roles")
 		return nil, err
 	}
 
@@ -192,12 +193,12 @@ func getClusterRoleBindingsToDelete(opts Opts, desiredClusterRoleBindings []rbac
 			}
 
 			if shouldDelete {
-				opts.logger.Info("No matching cluster role binding found, deleting", "clusterRoleBinding", existingClusterRoleBinding.Name)
+				logging.Debug(opts.logger, "no matching cluster role binding found; deleting", "clusterRoleBinding", existingClusterRoleBinding.Name)
 				clusterRoleBindingsToDelete = append(clusterRoleBindingsToDelete, &existingClusterRoleBinding)
 			}
 		}
 	} else if !errors.IsNotFound(err) {
-		opts.logger.Error(err, "failed to list user provided permission cluster role bindings")
+		logging.Error(opts.logger, err, "failed to list user provided permission cluster role bindings")
 		return nil, err
 	}
 

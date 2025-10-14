@@ -25,6 +25,7 @@ import (
 	"github.com/go-logr/logr"
 	"github.com/golang-jwt/jwt/v5"
 	"github.com/syntasso/kratix/api/v1alpha1"
+	"github.com/syntasso/kratix/internal/logging"
 )
 
 type GitWriter struct {
@@ -253,22 +254,22 @@ func (g *GitWriter) update(subDir, workPlacementName string, workloadsToCreate [
 		//returned by `filepath.Join` is still contained with the git repository:
 		// Note: This means `../` can still be used, but only if the end result is still contained within the git repository
 		if !strings.HasPrefix(absoluteFilePath, localTmpDir) {
-			log.Error(nil, "path of file to write is not located within the git repository", "absolutePath", absoluteFilePath, "tmpDir", localTmpDir)
+			logging.Warn(log, "path of file to write is not located within the git repository", "absolutePath", absoluteFilePath, "tmpDir", localTmpDir)
 			return "", nil //We don't want to retry as this isn't a recoverable error. Log error and return nil.
 		}
 
 		if err := os.MkdirAll(filepath.Dir(absoluteFilePath), 0700); err != nil {
-			log.Error(err, "could not generate local directories")
+			logging.Error(log, err, "could not generate local directories")
 			return "", err
 		}
 
 		if err := os.WriteFile(absoluteFilePath, []byte(file.Content), 0644); err != nil {
-			log.Error(err, "could not write to file")
+			logging.Error(log, err, "could not write to file")
 			return "", err
 		}
 
 		if _, err := worktree.Add(worktreeFilePath); err != nil {
-			log.Error(err, "could not add file to worktree")
+			logging.Error(log, err, "could not add file to worktree")
 			return "", err
 		}
 	}
@@ -285,9 +286,9 @@ func (g *GitWriter) update(subDir, workPlacementName string, workloadsToCreate [
 func (g *GitWriter) deleteExistingFiles(removeDirectory bool, dir string, workloadsToDelete []string, worktree *git.Worktree, logger logr.Logger) error {
 	if removeDirectory {
 		if _, err := worktree.Filesystem.Lstat(dir); err == nil {
-			logger.Info("deleting existing content")
+			logging.Info(logger, "deleting existing content")
 			if _, err := worktree.Remove(dir); err != nil {
-				logger.Error(err, "could not add directory deletion to worktree", "dir", dir)
+				logging.Error(logger, err, "could not add directory deletion to worktree", "dir", dir)
 				return err
 			}
 		}
@@ -298,14 +299,14 @@ func (g *GitWriter) deleteExistingFiles(removeDirectory bool, dir string, worklo
 				"filepath", worktreeFilePath,
 			)
 			if _, err := worktree.Filesystem.Lstat(worktreeFilePath); err != nil {
-				log.Info("file requested to be deleted from worktree but does not exist")
+				logging.Debug(log, "file requested to be deleted from worktree but does not exist")
 				continue
 			}
 			if _, err := worktree.Remove(worktreeFilePath); err != nil {
-				logger.Error(err, "could not remove file from worktree")
+				logging.Error(logger, err, "could not remove file from worktree")
 				return err
 			}
-			logger.Info("successfully deleted file from worktree")
+			logging.Debug(logger, "successfully deleted file from worktree")
 		}
 	}
 	return nil
@@ -325,13 +326,13 @@ func (g *GitWriter) ReadFile(filePath string) ([]byte, error) {
 	defer os.RemoveAll(filepath.Dir(localTmpDir)) //nolint:errcheck
 
 	if _, err := worktree.Filesystem.Lstat(fullPath); err != nil {
-		logger.Info("could not stat file", "err", err)
+		logging.Debug(logger, "could not stat file", "error", err)
 		return nil, ErrFileNotFound
 	}
 
 	var content []byte
 	if content, err = os.ReadFile(filepath.Join(localTmpDir, fullPath)); err != nil {
-		logger.Error(err, "could not read file")
+		logging.Error(logger, err, "could not read file")
 		return nil, err
 	}
 	return content, nil
@@ -340,19 +341,19 @@ func (g *GitWriter) ReadFile(filePath string) ([]byte, error) {
 func (g *GitWriter) setupLocalDirectoryWithRepo(logger logr.Logger) (string, *git.Repository, *git.Worktree, error) {
 	localTmpDir, err := createLocalDirectory(logger)
 	if err != nil {
-		logger.Error(err, "could not create temporary repository directory")
+		logging.Error(logger, err, "could not create temporary repository directory")
 		return "", nil, nil, err
 	}
 
 	repo, err := g.cloneRepo(localTmpDir, logger)
 	if err != nil {
-		logger.Error(err, "could not clone repository")
+		logging.Error(logger, err, "could not clone repository")
 		return "", nil, nil, err
 	}
 
 	worktree, err := repo.Worktree()
 	if err != nil {
-		logger.Error(err, "could not access repo worktree")
+		logging.Error(logger, err, "could not access repo worktree")
 		return "", nil, nil, err
 	}
 	return localTmpDir, repo, worktree, nil
@@ -365,7 +366,7 @@ func (g *GitWriter) push(repo *git.Repository, logger logr.Logger) error {
 		InsecureSkipTLS: true,
 	})
 	if err != nil {
-		logger.Error(err, "could not push to remote")
+		logging.Error(logger, err, "could not push to remote")
 		return err
 	}
 	return nil
@@ -382,7 +383,7 @@ func (g *GitWriter) validatePush(repo *git.Repository, logger logr.Logger) error
 
 	// NoErrAlreadyUpToDate means we have write permissions
 	if errors.Is(err, git.NoErrAlreadyUpToDate) {
-		logger.Info("Push validation successful - repository is up-to-date")
+		logging.Info(logger, "push validation successful - repository is up-to-date")
 		return nil
 	}
 
@@ -407,7 +408,7 @@ func (g *GitWriter) ValidatePermissions() error {
 		return err
 	}
 
-	g.Log.Info("Successfully validated git repository permissions")
+	logging.Info(g.Log, "successfully validated git repository permissions")
 	return nil
 }
 
@@ -425,7 +426,7 @@ func (g *GitWriter) cloneRepo(localRepoFilePath string, logger logr.Logger) (*gi
 		}
 	}
 
-	logger.Info("cloning repo")
+	logging.Debug(logger, "cloning repo")
 	repo, err := git.PlainClone(localRepoFilePath, false, &git.CloneOptions{
 		Auth:            g.GitServer.Auth,
 		URL:             g.GitServer.URL,
@@ -443,12 +444,12 @@ func (g *GitWriter) cloneRepo(localRepoFilePath string, logger logr.Logger) (*gi
 func (g *GitWriter) commitAndPush(repo *git.Repository, worktree *git.Worktree, action, workPlacementName string, logger logr.Logger) (string, error) {
 	status, err := worktree.Status()
 	if err != nil {
-		logger.Error(err, "could not get worktree status")
+		logging.Error(logger, err, "could not get worktree status")
 		return "", err
 	}
 
 	if status.IsClean() {
-		logger.Info("no changes to be committed")
+		logging.Info(logger, "no changes to be committed")
 		return "", nil
 	}
 
@@ -466,20 +467,20 @@ func (g *GitWriter) commitAndPush(repo *git.Repository, worktree *git.Worktree, 
 	}
 
 	if err != nil {
-		logger.Error(err, "could not commit file to worktree")
+		logging.Error(logger, err, "could not commit file to worktree")
 		return "", err
 	}
 
-	logger.Info("pushing changes")
+	logging.Info(logger, "pushing changes")
 	if err := g.push(repo, logger); err != nil {
-		logger.Error(err, "could not push changes")
+		logging.Error(logger, err, "could not push changes")
 		return "", err
 	}
 	return sha, nil
 }
 
 func createLocalDirectory(logger logr.Logger) (string, error) {
-	logger.Info("creating local directory")
+	logging.Debug(logger, "creating local directory")
 	dir, err := os.MkdirTemp("", "kratix-repo")
 	if err != nil {
 		return "", err

@@ -4,6 +4,7 @@ import (
 	"context"
 
 	"github.com/go-logr/logr"
+	"github.com/syntasso/kratix/internal/logging"
 	"github.com/syntasso/kratix/internal/telemetry"
 	"go.opentelemetry.io/otel"
 	"go.opentelemetry.io/otel/attribute"
@@ -68,7 +69,7 @@ func newReconcileTrace(
 	if traceErr != nil {
 		rt.ctx, rt.span = tracer.Start(ctx, spanName, spanOpts...)
 		telemetry.RecordError(rt.span, traceErr)
-		logger.Error(traceErr, "failed to initialise trace context")
+		logging.Error(logger, traceErr, "failed to initialise trace context")
 	}
 
 	annotations := obj.GetAnnotations()
@@ -205,7 +206,7 @@ func persistReconcileTrace(traceCtx *reconcileTrace, c client.Client, logger log
 	conflict, err := traceCtx.PersistAnnotations(c)
 	if err != nil {
 		if conflict {
-			logger.Info("conflict persisting trace annotations, requeueing")
+			logging.Debug(logger, "conflict persisting trace annotations; requeueing")
 			return err
 		}
 		return err

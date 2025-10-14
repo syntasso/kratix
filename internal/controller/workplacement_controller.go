@@ -22,9 +22,11 @@ import (
 	"fmt"
 	"path/filepath"
 	"strings"
+	"time"
 
 	"github.com/go-logr/logr"
 	"github.com/syntasso/kratix/api/v1alpha1"
+	"github.com/syntasso/kratix/internal/logging"
 	"github.com/syntasso/kratix/lib/compression"
 	"github.com/syntasso/kratix/lib/writers"
 	"gopkg.in/yaml.v2"
@@ -71,18 +73,26 @@ type WorkPlacementReconciler struct {
 //+kubebuilder:rbac:groups=platform.kratix.io,resources=workplacements/finalizers,verbs=update
 
 func (r *WorkPlacementReconciler) Reconcile(ctx context.Context, req ctrl.Request) (result ctrl.Result, retErr error) {
+	logger := r.Log.WithValues(
+		"controller", "workPlacement",
+		"name", req.Name,
+		"namespace", req.Namespace,
+	)
 	workPlacement := &v1alpha1.WorkPlacement{}
 	if err := r.Client.Get(ctx, req.NamespacedName, workPlacement); err != nil {
 		if k8sErrors.IsNotFound(err) {
 			return ctrl.Result{}, nil
 		}
-		r.Log.WithValues("work-placement-controller", req.NamespacedName).Error(err, "Error getting WorkPlacement", "workPlacement", req.Name)
+		logging.Error(logger, err, "Error getting WorkPlacement")
 		return defaultRequeue, nil
 	}
 
 	promiseName := workPlacement.Spec.PromiseName
 	resourceName := workPlacement.Spec.ResourceName
-	baseLogger := r.Log.WithValues("workPlacement", req.NamespacedName, "promise", promiseName)
+	baseLogger := logger.WithValues(
+		"promise", promiseName,
+		"generation", workPlacement.GetGeneration(),
+	)
 	spanName := fmt.Sprintf("%s/WorkPlacementReconcile", promiseName)
 	if resourceName != "" {
 		spanName = fmt.Sprintf("%s/%s", resourceName, spanName)
@@ -90,25 +100,20 @@ func (r *WorkPlacementReconciler) Reconcile(ctx context.Context, req ctrl.Reques
 	ctx, logger, traceCtx := setupReconcileTrace(ctx, "workplacement-controller", spanName, workPlacement, baseLogger)
 	defer finishReconcileTrace(traceCtx, &retErr)()
 
-	traceCtx.AddAttributes(
-		attribute.String("kratix.promise.name", promiseName),
-		attribute.String("kratix.workplacement.name", workPlacement.GetName()),
-		attribute.String("kratix.workplacement.namespace", workPlacement.GetNamespace()),
-		attribute.String("kratix.workplacement.target_destination", workPlacement.Spec.TargetDestinationName),
-	)
-	traceCtx.AddAttributes(attribute.String("kratix.action", traceCtx.Action()))
+	logging.Info(logger, "reconciliation started")
+	defer logReconcileDuration(logger, time.Now(), result, retErr)()
+
+	addWorkplacementSpanAttributes(traceCtx, promiseName, workPlacement)
 
 	if err := persistReconcileTrace(traceCtx, r.Client, logger); err != nil {
-		logger.Error(err, "failed to persist trace annotations")
+		logging.Error(logger, err, "failed to persist trace annotations")
 		return ctrl.Result{}, err
 	}
-
-	logger.Info("Reconciling WorkPlacement")
 
 	opts := opts{client: r.Client, ctx: ctx, logger: logger}
 	destination, err := r.getDestination(ctx, logger, workPlacement)
 	if err != nil && workPlacement.DeletionTimestamp.IsZero() {
-		logger.Error(err, "Error retrieving destination")
+		logging.Error(logger, err, "error retrieving destination")
 		return ctrl.Result{}, err
 	}
 
@@ -130,7 +135,7 @@ func (r *WorkPlacementReconciler) Reconcile(ctx context.Context, req ctrl.Reques
 		return addFinalizers(opts, workPlacement, missingFinalizers)
 	}
 
-	logger.Info("WorkPlacement successfully reconciled", "versionID", versionID)
+	logging.Info(logger, "workplacement successfully reconciled", "versionID", versionID)
 
 	return ctrl.Result{}, r.setWorkplacementReady(ctx, workPlacement)
 }
@@ -141,9 +146,9 @@ func (r *WorkPlacementReconciler) getDestination(ctx context.Context, logger log
 
 	if err := r.Client.Get(ctx, key, dest); err != nil {
 		if k8sErrors.IsNotFound(err) {
-			logger.Info("Destination not found", "name", wp.Spec.TargetDestinationName)
+			logging.Warn(logger, "destination not found", "name", wp.Spec.TargetDestinationName)
 		} else {
-			logger.Error(err, "Failed to retrieve Destination", "name", wp.Spec.TargetDestinationName)
+			logging.Error(logger, err, "failed to retrieve Destination", "name", wp.Spec.TargetDestinationName)
 		}
 		return nil, err
 	}
@@ -156,13 +161,13 @@ func (r *WorkPlacementReconciler) updateStatus(ctx context.Context, logger logr.
 
 	if versionID != "" && wp.Status.VersionID != versionID {
 		wp.Status.VersionID = versionID
-		logger.Info("Updating version status", "versionID", versionID)
+		logging.Info(logger, "updating version status", "versionID", versionID)
 		err := r.Client.Status().Update(ctx, wp)
 		if kerrors.IsConflict(err) {
-			r.Log.Info("failed to update WorkPlacement status due to update conflict, requeue...")
+			logging.Debug(r.Log, "failed to update WorkPlacement status due to update conflict; requeueing")
 			return fastRequeue, nil
 		} else if err != nil {
-			logger.Error(err, "Error updating WorkPlacement status")
+			logging.Error(logger, err, "error updating WorkPlacement status")
 			return ctrl.Result{}, err
 		}
 	}
@@ -236,7 +241,7 @@ func (r *WorkPlacementReconciler) deleteWorkPlacement(
 	logger logr.Logger,
 ) (ctrl.Result, error) {
 	if destination == nil {
-		logger.Info("cleaning up deletion finalizers")
+		logging.Debug(logger, "cleaning up deletion finalizers")
 		cleanupDeletionFinalizers(workPlacement)
 		if err := r.Client.Update(ctx, workPlacement); err != nil {
 			return ctrl.Result{}, err
@@ -256,19 +261,19 @@ func (r *WorkPlacementReconciler) deleteWorkPlacement(
 	}
 
 	if pendingRepoCleanup {
-		logger.Info("cleaning up work on repository", "workplacement", workPlacement.Name)
+		logging.Debug(logger, "cleaning up work on repository", "workplacement", workPlacement.Name)
 		var workloadsToDelete []string
 		if filePathMode == v1alpha1.FilepathModeNone {
 			var kratixFile []byte
 			if kratixFile, err = writer.ReadFile(kratixFilePath); err != nil {
-				logger.Error(err, "failed to read .kratix state file", "file path", kratixFilePath)
+				logging.Error(logger, err, "failed to read .kratix state file", "filePath", kratixFilePath)
 				r.EventRecorder.Eventf(workPlacement, v1.EventTypeWarning,
 					failedDeleteEventReason, "failed to read .kratix state file: %s", err.Error())
 				return ctrl.Result{}, err
 			}
 			stateFile := StateFile{}
 			if err = yaml.Unmarshal(kratixFile, &stateFile); err != nil {
-				logger.Error(err, "failed to unmarshal .kratix state file")
+				logging.Error(logger, err, "failed to unmarshal .kratix state file")
 				r.EventRecorder.Eventf(workPlacement, v1.EventTypeWarning,
 					failedDeleteEventReason, "failed to unmarshal .kratix state file: %s", err.Error())
 				return defaultRequeue, err
@@ -277,12 +282,12 @@ func (r *WorkPlacementReconciler) deleteWorkPlacement(
 		}
 
 		if filePathMode == v1alpha1.FilepathModeAggregatedYAML {
-			logger.Info("handling aggregated YAML file path mode")
+			logging.Trace(logger, "handling aggregated YAML file path mode")
 			_, requeue, err := r.handleAggregatedYAML(ctx, workPlacement, destination, dir, writer)
 			if err != nil {
 				r.EventRecorder.Eventf(workPlacement, v1.EventTypeWarning, failedDeleteEventReason,
 					"error removing work from Destination: %s with error: %s", workPlacement.Spec.TargetDestinationName, err.Error())
-				logger.Error(err, "error removing work from destination")
+				logging.Error(logger, err, "error removing work from destination")
 				return defaultRequeue, nil
 			}
 			if requeue {
@@ -295,7 +300,7 @@ func (r *WorkPlacementReconciler) deleteWorkPlacement(
 	}
 
 	if pendingKratixFileCleanup {
-		logger.Info("cleaning up .kratix state file", "workplacement", workPlacement.Name)
+		logging.Debug(logger, "cleaning up .kratix state file", "workplacement", workPlacement.Name)
 		return r.delete(ctx, writer, "", workPlacement, []string{kratixFilePath}, kratixFileCleanupWorkPlacementFinalizer, logger)
 	}
 	return ctrl.Result{}, nil
@@ -342,7 +347,7 @@ func (r *WorkPlacementReconciler) delete(ctx context.Context, writer writers.Sta
 	if _, err := writer.UpdateFiles(dir, workPlacement.Name, nil, workloadsToDelete); err != nil {
 		r.EventRecorder.Eventf(workPlacement, v1.EventTypeWarning, failedDeleteEventReason,
 			"error removing work from Destination: %s  with error: %s", workPlacement.Spec.TargetDestinationName, err.Error())
-		logger.Error(err, "error removing work from repository, will try again shortly", "Destination", workPlacement.Spec.TargetDestinationName)
+		logging.Error(logger, err, "error removing work from repository; will retry", "destination", workPlacement.Spec.TargetDestinationName)
 		return defaultRequeue, nil
 	}
 
@@ -362,13 +367,13 @@ func (r *WorkPlacementReconciler) writeToStateStore(wp *v1alpha1.WorkPlacement, 
 		return "", ctrl.Result{}, err
 	}
 
-	opts.logger.Info("Updating files in statestore if required")
+	logging.Debug(opts.logger, "updating files in statestore if required")
 	versionID, err := r.writeWorkloadsToStateStore(opts, writer, *wp, *destination)
 	if err != nil {
-		opts.logger.Error(err, "Error writing to repository, will try again shortly", "Destination", wp.Spec.TargetDestinationName)
+		logging.Error(opts.logger, err, "error writing to repository; will retry", "destination", wp.Spec.TargetDestinationName)
 		r.publishWriteEvent(wp, "WorkloadsFailedWrite", versionID, err)
 		if statusUpdateErr := r.setWriteFailStatusConditions(opts.ctx, wp, err); statusUpdateErr != nil {
-			opts.logger.Error(statusUpdateErr, "failed to update status condition")
+			logging.Error(opts.logger, statusUpdateErr, "failed to update status condition")
 		}
 		return "", defaultRequeue, nil
 	}
@@ -384,7 +389,7 @@ func (r *WorkPlacementReconciler) writeToStateStore(wp *v1alpha1.WorkPlacement, 
 
 	if apiMeta.SetStatusCondition(&wp.Status.Conditions, cond) {
 		if statusUpdateErr := r.Client.Status().Update(opts.ctx, wp); statusUpdateErr != nil {
-			opts.logger.Error(statusUpdateErr, "failed to update status condition")
+			logging.Error(opts.logger, statusUpdateErr, "failed to update status condition")
 			return versionID, defaultRequeue, nil
 		}
 	}
@@ -429,7 +434,7 @@ func (r *WorkPlacementReconciler) writeWorkloadsToStateStore(o opts, writer writ
 
 	versionID, err := writer.UpdateFiles(dir, workPlacement.Name, workloadsToCreate, workloadsToDelete)
 	if err != nil {
-		o.logger.Error(err, "Error writing resources to repository")
+		logging.Error(o.logger, err, "error writing resources to repository")
 		return "", err
 	}
 	return versionID, nil
@@ -521,15 +526,16 @@ func (r *WorkPlacementReconciler) handleDeletion(
 
 	if err != nil {
 		if k8sErrors.IsNotFound(err) {
-			logger.Info(
-				"Destination not found, skipping destination file cleanup",
+			logging.Debug(
+				logger,
+				"destination not found; skipping destination file cleanup",
 				"destination",
 				workPlacement.Spec.TargetDestinationName,
 			)
 			destinationExists = false
 			destination = nil
 		} else {
-			logger.Error(err, "Error getting destination", "destination", workPlacement.Spec.TargetDestinationName)
+			logging.Error(logger, err, "error getting destination", "destination", workPlacement.Spec.TargetDestinationName)
 			return ctrl.Result{}, err
 		}
 	}
@@ -644,4 +650,14 @@ func (r *WorkPlacementReconciler) getVersionID(workPlacement *v1alpha1.WorkPlace
 
 func (r *WorkPlacementReconciler) removeVersionID(workPlacement *v1alpha1.WorkPlacement) {
 	delete(r.VersionCache, workPlacement.GetUniqueID())
+}
+
+func addWorkplacementSpanAttributes(traceCtx *reconcileTrace, promiseName string, workPlacement *v1alpha1.WorkPlacement) {
+	traceCtx.AddAttributes(
+		attribute.String("kratix.promise.name", promiseName),
+		attribute.String("kratix.workplacement.name", workPlacement.GetName()),
+		attribute.String("kratix.workplacement.namespace", workPlacement.GetNamespace()),
+		attribute.String("kratix.workplacement.target_destination", workPlacement.Spec.TargetDestinationName),
+		attribute.String("kratix.action", traceCtx.Action()),
+	)
 }

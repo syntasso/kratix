@@ -12,6 +12,7 @@ import (
 
 	"github.com/go-logr/logr"
 	"github.com/syntasso/kratix/api/v1alpha1"
+	"github.com/syntasso/kratix/internal/logging"
 	"github.com/syntasso/kratix/lib/resourceutil"
 	"gopkg.in/yaml.v2"
 	batchv1 "k8s.io/api/batch/v1"
@@ -56,14 +57,14 @@ func NewOpts(ctx context.Context, client client.Client, eventRecorder record.Eve
 
 // ReconcileDelete deletes Workflows.
 func ReconcileDelete(opts Opts) (bool, error) {
-	opts.logger.Info("Reconciling Delete Pipeline")
+	logging.Debug(opts.logger, "reconciling delete pipeline")
 
 	if len(opts.Resources) == 0 {
 		return false, nil
 	}
 
 	if len(opts.Resources) > 1 {
-		opts.logger.Info("Multiple delete pipeline found but only one delete pipeline is currently supported. Ignoring all but the first")
+		logging.Warn(opts.logger, "multiple delete pipelines found; only the first will be used")
 	}
 
 	pipeline := opts.Resources[0]
@@ -74,20 +75,20 @@ func ReconcileDelete(opts Opts) (bool, error) {
 	}
 
 	if isManualReconciliation {
-		opts.logger.Info("Manual reconciliation detected for delete pipeline", "pipeline", pipeline.Name)
+		logging.Info(opts.logger, "manual reconciliation detected for delete pipeline", "pipeline", pipeline.Name)
 	}
 
 	if isRunning(mostRecentJob) {
 		if isManualReconciliation {
-			opts.logger.Info("Suspending job for manual reconciliation", "job", mostRecentJob.Name, "pipeline", pipeline.Name)
+			logging.Info(opts.logger, "suspending job for manual reconciliation", "job", mostRecentJob.Name, "pipeline", pipeline.Name)
 			if err = suspendJob(opts.ctx, opts.client, mostRecentJob); err != nil {
-				opts.logger.Error(err, "failed to suspend Job", "job", mostRecentJob.GetName())
+				logging.Error(opts.logger, err, "failed to suspend job", "job", mostRecentJob.GetName())
 			}
 			opts.eventRecorder.Eventf(opts.parentObject, "Normal", "PipelineSuspended", "Delete Pipeline suspended: %s", opts.Resources[0].Name)
 			return true, err
 		}
 
-		opts.logger.Info("Job already inflight for Pipeline, waiting for it to complete", "job", mostRecentJob.Name, "pipeline", pipeline.Name)
+		logging.Debug(opts.logger, "job already inflight for pipeline; waiting for completion", "job", mostRecentJob.Name, "pipeline", pipeline.Name)
 		return true, nil
 	}
 
@@ -95,21 +96,21 @@ func ReconcileDelete(opts Opts) (bool, error) {
 		return createDeletePipeline(opts, pipeline)
 	}
 
-	opts.logger.Info("Checking status of Delete Pipeline")
+	logging.Debug(opts.logger, "checking status of delete pipeline")
 	if mostRecentJob.Status.Succeeded > 0 {
-		opts.logger.Info("Delete Pipeline Completed")
+		logging.Info(opts.logger, "delete pipeline completed")
 		return false, nil
 	}
 	if mostRecentJob.Status.Failed > 0 {
 		return false, ErrDeletePipelineFailed
 	}
 
-	opts.logger.Info("Delete Pipeline not finished", "status", mostRecentJob.Status)
+	logging.Debug(opts.logger, "delete pipeline still running", "status", mostRecentJob.Status)
 	return true, nil
 }
 
 func createDeletePipeline(opts Opts, pipeline v1alpha1.PipelineJobResources) (abort bool, err error) {
-	opts.logger.Info("Creating Delete Pipeline. The pipeline will now execute...")
+	logging.Info(opts.logger, "creating delete pipeline; execution will commence")
 	if isManualReconciliation(opts.parentObject.GetLabels()) {
 		if err := removeManualReconciliationLabel(opts); err != nil {
 			return false, err
@@ -128,20 +129,20 @@ func ReconcileConfigure(opts Opts) (abort bool, err error) {
 	originalLogger := opts.logger
 	allJobs, err := getJobsWithLabels(opts, labelsForJobs(opts), opts.namespace)
 	if err != nil {
-		opts.logger.Error(err, "failed to list jobs")
+		logging.Error(opts.logger, err, "failed to list jobs")
 		return false, err
 	}
 
 	// TODO: this part will be deprecated when we stop using the legacy labels
 	allLegacyJobs, err := getJobsWithLabels(opts, legacyLabelsForJobs(opts), opts.namespace)
 	if err != nil {
-		opts.logger.Error(err, "failed to list jobs")
+		logging.Error(opts.logger, err, "failed to list jobs")
 		return false, err
 	}
 	allJobs = append(allJobs, allLegacyJobs...)
 
 	if len(allJobs) != 0 {
-		opts.logger.Info("found existing jobs, checking to see which pipeline the most recent job is for")
+		logging.Debug(opts.logger, "found existing jobs; checking pipeline match for most recent job")
 		resourceutil.SortJobsByCreationDateTime(allJobs, false)
 		mostRecentJob = &allJobs[0]
 		pipelineIndex = nextPipelineIndex(opts, mostRecentJob)
@@ -161,7 +162,7 @@ func ReconcileConfigure(opts Opts) (abort bool, err error) {
 		if updateStatus || workflowsSucceededCount != int64(pipelineIndex) {
 			resourceutil.SetStatus(opts.parentObject, opts.logger, "workflowsSucceeded", int64(pipelineIndex))
 			if err = opts.client.Status().Update(opts.ctx, opts.parentObject); err != nil {
-				opts.logger.Error(err, "failed to update parent object status")
+				logging.Error(opts.logger, err, "failed to update parent object status")
 				return false, err
 			}
 		}
@@ -171,10 +172,10 @@ func ReconcileConfigure(opts Opts) (abort bool, err error) {
 		pipelineIndex = len(opts.Resources) - 1
 	}
 
-	opts.logger.Info("pipeline index", "index", pipelineIndex)
+	logging.Trace(opts.logger, "calculated pipeline index", "index", pipelineIndex)
 
 	if pipelineIndex < 0 {
-		opts.logger.Info("No pipeline to reconcile")
+		logging.Debug(opts.logger, "no pipeline to reconcile")
 		return false, nil
 	}
 
@@ -183,29 +184,29 @@ func ReconcileConfigure(opts Opts) (abort bool, err error) {
 		mostRecentJobName = mostRecentJob.Name
 	}
 
-	opts.logger.Info("Reconciling Configure workflow", "pipelineIndex", pipelineIndex, "mostRecentJob", mostRecentJobName)
+	logging.Info(opts.logger, "reconciling configure workflow", "pipelineIndex", pipelineIndex, "mostRecentJob", mostRecentJobName)
 
 	pipeline := opts.Resources[pipelineIndex]
 	isManualReconciliation := isManualReconciliation(opts.parentObject.GetLabels())
 	opts.logger = originalLogger.WithName(pipeline.Name).WithValues("isManualReconciliation", isManualReconciliation)
 
 	if jobIsForPipeline(pipeline, mostRecentJob) {
-		opts.logger.Info("checking if job is for pipeline", "job", mostRecentJob.Name, "pipeline", pipeline.Name)
+		logging.Trace(opts.logger, "checking if job is for pipeline", "job", mostRecentJob.Name, "pipeline", pipeline.Name)
 		if isRunning(mostRecentJob) {
 			if isManualReconciliation {
-				opts.logger.Info("Suspending job for manual reconciliation", "job", mostRecentJob.Name, "pipeline", pipeline.Name)
+				logging.Info(opts.logger, "suspending job for manual reconciliation", "job", mostRecentJob.Name, "pipeline", pipeline.Name)
 				if err = suspendJob(opts.ctx, opts.client, mostRecentJob); err != nil {
-					opts.logger.Error(err, "failed to suspend Job", "job", mostRecentJob.GetName())
+					logging.Error(opts.logger, err, "failed to suspend job", "job", mostRecentJob.GetName())
 				}
 				return true, err
 			}
 
-			opts.logger.Info("Job already inflight for Pipeline, waiting for it to complete", "job", mostRecentJob.Name, "pipeline", pipeline.Name)
+			logging.Debug(opts.logger, "job already inflight for pipeline; waiting for completion", "job", mostRecentJob.Name, "pipeline", pipeline.Name)
 			return true, nil
 		}
 
 		if isManualReconciliation {
-			opts.logger.Info("Pipeline running due to manual reconciliation", "pipeline", pipeline.Name, "parentLabels", opts.parentObject.GetLabels())
+			logging.Info(opts.logger, "pipeline running due to manual reconciliation", "pipeline", pipeline.Name, "parentLabels", opts.parentObject.GetLabels())
 			return createConfigurePipeline(opts, pipelineIndex, pipeline)
 		}
 
@@ -217,16 +218,16 @@ func ReconcileConfigure(opts Opts) (abort bool, err error) {
 	}
 
 	if isRunning(mostRecentJob) {
-		opts.logger.Info("Job already inflight for another workflow, suspending it", "job", mostRecentJob.Name)
+		logging.Info(opts.logger, "job already inflight for another workflow; suspending it", "job", mostRecentJob.Name)
 		err = suspendJob(opts.ctx, opts.client, mostRecentJob)
 		if err != nil {
-			opts.logger.Error(err, "failed to suspend Job", "job", mostRecentJob.GetName())
+			logging.Error(opts.logger, err, "failed to suspend job", "job", mostRecentJob.GetName())
 		}
 		return true, nil
 	}
 
 	// TODO this will be very noisy - might want to slowRequeue?
-	opts.logger.Info("Reconciling pipeline", "pipeline", pipeline.Name)
+	logging.Info(opts.logger, "reconciling pipeline", "pipeline", pipeline.Name)
 	return createConfigurePipeline(opts, pipelineIndex, pipeline)
 }
 
@@ -236,13 +237,13 @@ func setFailedConditionAndEvents(opts Opts, mostRecentJob *batchv1.Job, pipeline
 		resourceutil.MarkReconciledFailing(opts.parentObject, resourceutil.ConfigureWorkflowCompletedFailedReason)
 		resourceutil.SetStatus(opts.parentObject, opts.logger, "workflowsFailed", int64(1))
 		if err := opts.client.Status().Update(opts.ctx, opts.parentObject); err != nil {
-			opts.logger.Error(err, "failed to update parent object status")
+			logging.Error(opts.logger, err, "failed to update parent object status")
 			return false, err
 		}
 	}
 	opts.eventRecorder.Eventf(opts.parentObject, v1.EventTypeWarning,
 		resourceutil.ConfigureWorkflowCompletedFailedReason, "A %s/configure Pipeline has failed: %s", opts.workflowType, pipeline.Name)
-	opts.logger.Info("Last Job for Pipeline has failed, exiting workflow", "failedJob", mostRecentJob.Name, "pipeline", pipeline.Name)
+	logging.Warn(opts.logger, "pipeline job failed; exiting workflow", "failedJob", mostRecentJob.Name, "pipeline", pipeline.Name)
 	return true, nil
 }
 
@@ -341,7 +342,7 @@ func nextPipelineIndex(opts Opts, mostRecentJob *batchv1.Job) int {
 	i := len(opts.Resources) - 1
 	for i >= 0 {
 		if jobIsForPipeline(opts.Resources[i], mostRecentJob) {
-			opts.logger.Info("Found job for pipeline", "pipeline", opts.Resources[i].Name, "job", mostRecentJob.Name, "status", mostRecentJob.Status, "index", i)
+			logging.Trace(opts.logger, "found job for pipeline", "pipeline", opts.Resources[i].Name, "job", mostRecentJob.Name, "status", mostRecentJob.Status, "index", i)
 			if isFailed(mostRecentJob) || isRunning(mostRecentJob) {
 				return i
 			}
@@ -391,22 +392,22 @@ func cleanup(opts Opts, namespace string) error {
 		pipelineNames[pipeline.Name] = true
 		jobsForPipeline, _ := getJobsWithLabels(opts, l, namespace)
 		if err := cleanupJobs(opts, jobsForPipeline); err != nil {
-			opts.logger.Error(err, "failed to delete old jobs")
+			logging.Error(opts.logger, err, "failed to delete old jobs")
 			return err
 		}
 	}
 
 	allPipelineWorks, err := resourceutil.GetWorksByType(opts.client, v1alpha1.Type(opts.workflowType), opts.parentObject)
 	if err != nil {
-		opts.logger.Error(err, "failed to list works for Promise", "promise", opts.parentObject.GetName())
+		logging.Error(opts.logger, err, "failed to list works for Promise", "promise", opts.parentObject.GetName())
 		return err
 	}
 	for _, work := range allPipelineWorks {
 		workPipelineName := work.GetLabels()[v1alpha1.PipelineNameLabel]
 		if !pipelineNames[workPipelineName] {
-			opts.logger.Info("Deleting old work", "work", work.GetName(), "objectName", opts.parentObject.GetName(), "workType", work.Labels[v1alpha1.WorkTypeLabel])
+			logging.Debug(opts.logger, "deleting old work", "work", work.GetName(), "objectName", opts.parentObject.GetName(), "workType", work.Labels[v1alpha1.WorkTypeLabel])
 			if err := opts.client.Delete(opts.ctx, &work); err != nil {
-				opts.logger.Error(err, "failed to delete old work", "work", work.GetName())
+				logging.Error(opts.logger, err, "failed to delete old work", "work", work.GetName())
 				return err
 			}
 
@@ -427,10 +428,10 @@ func cleanupJobs(opts Opts, pipelineJobsAtCurrentSpec []batchv1.Job) error {
 	// Delete all but the last n jobs; n defaults to 5 and can be configured by env var for the operator
 	for i := 0; i < len(pipelineJobsAtCurrentSpec)-opts.numberOfJobsToKeep; i++ {
 		job := pipelineJobsAtCurrentSpec[i]
-		opts.logger.Info("Deleting old job", "job", job.GetName())
+		logging.Debug(opts.logger, "deleting old job", "job", job.GetName())
 		if err := opts.client.Delete(opts.ctx, &job, client.PropagationPolicy(metav1.DeletePropagationBackground)); err != nil {
 			if !errors.IsNotFound(err) {
-				opts.logger.Info("failed to delete job", "job", job.GetName(), "error", err)
+				logging.Warn(opts.logger, "failed to delete job; will retry", "job", job.GetName(), "error", err)
 				return nil
 			}
 		}
@@ -445,14 +446,14 @@ func createConfigurePipeline(opts Opts, pipelineIndex int, resources v1alpha1.Pi
 		return updated, err
 	}
 
-	opts.logger.Info("Triggering pipeline", "workflow action", resources.WorkflowAction)
+	logging.Info(opts.logger, "triggering pipeline", "workflowAction", resources.WorkflowAction)
 
 	var objectToDelete []client.Object
 	if objectToDelete, err = getObjectsToDelete(opts, resources); err != nil {
 		return false, err
 	}
 
-	opts.logger.Info("Parent object:", "parent", opts.parentObject.GetName())
+	logging.Trace(opts.logger, "reconciling for parent object", "parent", opts.parentObject.GetName())
 	if isManualReconciliation(opts.parentObject.GetLabels()) {
 		if err := removeManualReconciliationLabel(opts); err != nil {
 			return false, err
@@ -468,7 +469,7 @@ func createConfigurePipeline(opts Opts, pipelineIndex int, resources v1alpha1.Pi
 }
 
 func removeManualReconciliationLabel(opts Opts) error {
-	opts.logger.Info("Manual reconciliation label detected; removing it")
+	logging.Info(opts.logger, "manual reconciliation label detected; removing it")
 	return removeLabel(opts, resourceutil.ManualReconciliationLabel)
 }
 
@@ -477,7 +478,7 @@ func removeLabel(opts Opts, labelKey string) error {
 	delete(newLabels, labelKey)
 	opts.parentObject.SetLabels(newLabels)
 	if err := opts.client.Update(opts.ctx, opts.parentObject); err != nil {
-		opts.logger.Error(err, "couldn't remove the label...")
+		logging.Error(opts.logger, err, "failed to remove manual reconciliation label")
 		return err
 	}
 	return nil
@@ -499,7 +500,7 @@ func setConfigureWorkflowCompletedConditionStatus(opts Opts, isTheFirstPipeline 
 		resourceutil.MarkReconciledPending(obj, "WorkflowPending")
 		err := opts.client.Status().Update(opts.ctx, obj)
 		if err != nil {
-			opts.logger.Error(err, "failed to update object status")
+			logging.Error(opts.logger, err, "failed to update object status")
 			return false, err
 		}
 		return true, nil
@@ -534,7 +535,7 @@ func getJobsWithLabels(opts Opts, jobLabels map[string]string, namespace string)
 	jobs := &batchv1.JobList{}
 	err = opts.client.List(opts.ctx, jobs, listOps)
 	if err != nil {
-		opts.logger.Error(err, "error listing jobs", "selectors", selector.String())
+		logging.Error(opts.logger, err, "error listing jobs", "selectors", selector.String())
 		return nil, err
 	}
 	return jobs.Items, nil
@@ -554,38 +555,38 @@ func isLabelSetToTrue(labels map[string]string, labelKey string) bool {
 
 // TODO return error info (summary of errors from resources?) to the caller, instead of just logging
 func applyResources(opts Opts, resources ...client.Object) {
-	opts.logger.Info("Reconciling pipeline resources")
+	logging.Info(opts.logger, "reconciling pipeline resources")
 
 	for _, resource := range resources {
 		logger := opts.logger.WithValues("type", reflect.TypeOf(resource), "gvk", resource.GetObjectKind().GroupVersionKind().String(), "name", resource.GetName(), "namespace", resource.GetNamespace(), "labels", resource.GetLabels())
 
-		logger.Info("Reconciling resource")
+		logging.Debug(logger, "reconciling resource")
 		if err := opts.client.Create(opts.ctx, resource); err != nil {
 			if errors.IsAlreadyExists(err) {
 				if resource.GetObjectKind().GroupVersionKind().Kind == rbacv1.ServiceAccountKind {
 					serviceAccount := &v1.ServiceAccount{}
 					if err := opts.client.Get(opts.ctx, client.ObjectKey{Namespace: resource.GetNamespace(), Name: resource.GetName()}, serviceAccount); err != nil {
-						logger.Error(err, "Error getting service account")
+						logging.Error(logger, err, "error getting service account")
 						continue
 					}
 
 					if _, ok := serviceAccount.Labels[v1alpha1.PromiseNameLabel]; !ok {
-						opts.logger.Info("Service Account already exists but was not originally created by Kratix, skipping update", "name", serviceAccount.GetName(), "namespace", serviceAccount.GetNamespace(), "labels", serviceAccount.GetLabels())
+						logging.Debug(opts.logger, "service account exists but was not created by kratix; skipping update", "name", serviceAccount.GetName(), "namespace", serviceAccount.GetNamespace(), "labels", serviceAccount.GetLabels())
 						continue
 					}
 
 				}
-				logger.Info("Resource already exists, will update")
+				logging.Debug(logger, "resource already exists; updating")
 				if err = opts.client.Update(opts.ctx, resource); err == nil {
 					continue
 				}
 			}
 
-			logger.Error(err, "Error reconciling on resource")
+			logging.Error(logger, err, "error reconciling resource")
 			y, _ := yaml.Marshal(&resource)
-			logger.Error(err, string(y))
+			logging.Error(logger, err, string(y))
 		} else {
-			logger.Info("Resource created")
+			logging.Info(logger, "resource created")
 		}
 	}
 
@@ -595,17 +596,17 @@ func applyResources(opts Opts, resources ...client.Object) {
 func deleteResources(opts Opts, resources ...client.Object) {
 	for _, resource := range resources {
 		logger := opts.logger.WithValues("type", reflect.TypeOf(resource), "gvk", resource.GetObjectKind().GroupVersionKind().String(), "name", resource.GetName(), "namespace", resource.GetNamespace(), "labels", resource.GetLabels())
-		logger.Info("Deleting resource")
+		logging.Debug(logger, "deleting resource")
 		if err := opts.client.Delete(opts.ctx, resource); err != nil {
 			if errors.IsNotFound(err) {
-				logger.Info("Resource already deleted")
+				logging.Debug(logger, "resource already deleted")
 				continue
 			}
-			logger.Error(err, "Error deleting a resource")
+			logging.Error(logger, err, "error deleting resource")
 			y, _ := yaml.Marshal(&resource)
-			logger.Error(err, string(y))
+			logging.Error(logger, err, string(y))
 		} else {
-			logger.Info("Resource deleted")
+			logging.Info(logger, "resource deleted")
 		}
 	}
 }

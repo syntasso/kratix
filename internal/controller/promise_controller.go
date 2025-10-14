@@ -33,6 +33,7 @@ import (
 
 	"github.com/go-logr/logr"
 	"github.com/syntasso/kratix/api/v1alpha1"
+	"github.com/syntasso/kratix/internal/logging"
 	"github.com/syntasso/kratix/lib/resourceutil"
 	"github.com/syntasso/kratix/lib/workflow"
 	"go.opentelemetry.io/otel/attribute"
@@ -43,6 +44,7 @@ import (
 	apiextensionsv1 "k8s.io/apiextensions-apiserver/pkg/apis/apiextensions/v1"
 	apiextensionsv1cs "k8s.io/apiextensions-apiserver/pkg/client/clientset/clientset/typed/apiextensions/v1"
 	"k8s.io/apimachinery/pkg/api/errors"
+	"k8s.io/apimachinery/pkg/api/meta"
 	apiMeta "k8s.io/apimachinery/pkg/api/meta"
 	metav1 "k8s.io/apimachinery/pkg/apis/meta/v1"
 	"k8s.io/apimachinery/pkg/apis/meta/v1/unstructured"
@@ -128,35 +130,38 @@ var (
 
 //nolint:gocognit // Reconcile orchestrates many promise concerns; splitting would hide the control flow.
 func (r *PromiseReconciler) Reconcile(ctx context.Context, req ctrl.Request) (result ctrl.Result, retErr error) {
+	logger := r.Log.WithValues(
+		"controller", "promise",
+		"name", req.Name,
+	)
 	if r.StartedDynamicControllers == nil {
 		r.StartedDynamicControllers = make(map[string]*DynamicResourceRequestController)
 	}
 	promise := &v1alpha1.Promise{}
-	err := r.Client.Get(ctx, req.NamespacedName, promise)
-
-	if errors.IsNotFound(err) {
-		return ctrl.Result{}, nil
+	if err := r.Client.Get(ctx, req.NamespacedName, promise); err != nil {
+		if errors.IsNotFound(err) {
+			return ctrl.Result{}, nil
+		}
+		if client.IgnoreNotFound(err) != nil {
+			logging.Warn(logger, "failed to get Promise; requeueing", "promise", req.NamespacedName.Name, "error", err)
+			return defaultRequeue, nil
+		}
 	}
-	if client.IgnoreNotFound(err) != nil {
-		r.Log.Error(err, "Failed getting Promise", "namespacedName", req.NamespacedName)
-		return defaultRequeue, nil
-	}
 
-	baseLogger := r.Log.WithValues("identifier", promise.GetName())
+	baseLogger := logger.WithValues(
+		"generation", promise.GetGeneration(),
+	)
 	spanName := fmt.Sprintf("%s/PromiseReconcile", promise.GetName())
 	ctx, logger, traceCtx := setupReconcileTrace(ctx, "promise-controller", spanName, promise, baseLogger)
 	defer finishReconcileTrace(traceCtx, &retErr)()
 
-	traceCtx.AddAttributes(
-		attribute.String("kratix.promise.name", promise.GetName()),
-		attribute.String("kratix.promise.namespace", promise.GetNamespace()),
-		attribute.String("kratix.promise.request", req.NamespacedName.String()),
-		attribute.Int64("kratix.promise.generation", promise.GetGeneration()),
-	)
-	traceCtx.AddAttributes(attribute.String("kratix.action", traceCtx.Action()))
+	addPromiseSpanAttributes(traceCtx, promise)
+
+	logging.Info(logger, "reconciliation started")
+	defer logReconcileDuration(logger, time.Now(), result, retErr)()
 
 	if err := persistReconcileTrace(traceCtx, r.Client, logger); err != nil {
-		logger.Error(err, "failed to persist trace annotations")
+		logging.Error(logger, err, "failed to persist trace annotations")
 		return ctrl.Result{}, err
 	}
 
@@ -165,16 +170,12 @@ func (r *PromiseReconciler) Reconcile(ctx context.Context, req ctrl.Request) (re
 
 	if v, ok := promise.Labels[pauseReconciliationLabel]; ok && v == "true" {
 		msg := fmt.Sprintf("'%s' label set to 'true' for promise; pausing reconciliation", pauseReconciliationLabel)
-		r.Log.Info(msg)
+		logging.Info(r.Log, msg)
 		r.EventRecorder.Event(promise, v1.EventTypeWarning, pausedReconciliationReason, msg)
 		return ctrl.Result{}, r.setPausedReconciliationStatusConditions(ctx, promise)
 	}
 
-	opts := opts{
-		client: r.Client,
-		ctx:    ctx,
-		logger: logger,
-	}
+	opts := opts{client: r.Client, ctx: ctx, logger: logger}
 
 	if !promise.DeletionTimestamp.IsZero() {
 		return r.deletePromise(opts, promise)
@@ -206,7 +207,7 @@ func (r *PromiseReconciler) Reconcile(ctx context.Context, req ctrl.Request) (re
 				"Requirements have changed")
 		}
 
-		logger.Info("Requeueing: requirements changed")
+		logging.Warn(logger, "promise requirements changed; requeueing")
 		return ctrl.Result{}, nil
 	}
 
@@ -266,7 +267,7 @@ func (r *PromiseReconciler) Reconcile(ctx context.Context, req ctrl.Request) (re
 	}
 
 	if ctrlResult != nil {
-		logger.Info("stopping reconciliation while reconciling dependencies")
+		logging.Debug(logger, "reconciliation paused while dependencies reconcile")
 		return *ctrlResult, nil
 	}
 
@@ -274,7 +275,7 @@ func (r *PromiseReconciler) Reconcile(ctx context.Context, req ctrl.Request) (re
 		dynamicControllerCanCreateResources := true
 		for _, req := range promise.Status.RequiredPromises {
 			if req.State != requirementStateInstalled {
-				logger.Info("requirement not installed, disabling dynamic controller", "requirement", req)
+				logging.Warn(logger, "requirement not installed; disabling dynamic controller", "requirement", req)
 				dynamicControllerCanCreateResources = false
 			}
 		}
@@ -288,16 +289,16 @@ func (r *PromiseReconciler) Reconcile(ctx context.Context, req ctrl.Request) (re
 		}
 
 		if !dynamicControllerCanCreateResources {
-			logger.Info("requirements not fulfilled, disabled dynamic controller and requeuing", "requirementsStatus", promise.Status.RequiredPromises)
+			logging.Warn(logger, "requirements not fulfilled; dynamic controller disabled", "requirementsStatus", promise.Status.RequiredPromises)
 			return slowRequeue, nil
 		}
 
-		logger.Info("requirements are fulfilled", "requirementsStatus", promise.Status.RequiredPromises)
+		logging.Info(logger, "requirements fulfilled", "requirementsStatus", promise.Status.RequiredPromises)
 		if shouldReconcileResources(promise) {
 			return r.reconcileResources(ctx, logger, promise, rrGVK)
 		}
 	} else {
-		logger.Info("Promise only contains dependencies, skipping creation of API and dynamic controller")
+		logging.Debug(logger, "Promise only contains dependencies; skipping API and dynamic controller creation")
 	}
 
 	if originalStatus != v1alpha1.PromiseStatusAvailable {
@@ -440,7 +441,7 @@ func (r *PromiseReconciler) getWorksStatus(ctx context.Context,
 	)
 	selector, err := labels.Parse(workSelectorLabel)
 	if err != nil {
-		r.Log.Info("Failed parsing Works selector label", "labels", workSelectorLabel)
+		logging.Warn(r.Log, "failed parsing Works selector label", "labels", workSelectorLabel)
 		return nil, nil, nil, nil, err
 	}
 
@@ -451,7 +452,7 @@ func (r *PromiseReconciler) getWorksStatus(ctx context.Context,
 	})
 
 	if err != nil {
-		r.Log.Info("Failed listing works", "namespace", promise.GetNamespace(), "label selector", workSelectorLabel)
+		logging.Warn(r.Log, "failed listing works", "namespace", promise.GetNamespace(), "labelSelector", workSelectorLabel, "error", err)
 		return nil, nil, nil, nil, err
 	}
 
@@ -520,7 +521,7 @@ func (r *PromiseReconciler) updateWorksSucceededCondition(
 
 func (r *PromiseReconciler) reconcileResources(ctx context.Context, logger logr.Logger, promise *v1alpha1.Promise,
 	rrGVK *schema.GroupVersionKind) (ctrl.Result, error) {
-	logger.Info("reconciling all resource requests of promise", "promiseName", promise.Name)
+	logging.Debug(logger, "reconciling resource requests", "promiseName", promise.Name)
 	if err := r.reconcileAllRRs(ctx, rrGVK); err != nil {
 		return ctrl.Result{}, err
 	}
@@ -531,13 +532,13 @@ func (r *PromiseReconciler) reconcileResources(ctx context.Context, logger logr.
 		return ctrl.Result{}, r.removeReconcileResourcesLabel(ctx, promise)
 	}
 
-	logger.Info("updating observed generation", "from", promise.Status.ObservedGeneration, "to", promise.GetGeneration())
+	logging.Debug(logger, "updating observed generation", "from", promise.Status.ObservedGeneration, "to", promise.GetGeneration())
 	promise.Status.ObservedGeneration = promise.GetGeneration()
 	return r.updatePromiseStatus(ctx, promise)
 }
 
 func (r *PromiseReconciler) nextReconciliation(logger logr.Logger) ctrl.Result {
-	logger.Info("Scheduling next reconciliation", "ReconciliationInterval", r.ReconciliationInterval)
+	logging.Info(logger, "scheduling next reconciliation", "reconciliationInterval", r.ReconciliationInterval)
 	return ctrl.Result{RequeueAfter: r.ReconciliationInterval}
 }
 
@@ -652,6 +653,11 @@ func promiseReconciledCondition() metav1.Condition {
 }
 
 func (r *PromiseReconciler) hasPromiseRequirementsChanged(ctx context.Context, promise *v1alpha1.Promise) bool {
+	previousRequiredPromises := promise.Status.RequiredPromises
+	if len(promise.Spec.RequiredPromises) == 0 && len(previousRequiredPromises) == 0 {
+		return false
+	}
+
 	latestCondition, latestRequirements := r.generateStatusAndMarkRequirements(ctx, promise)
 
 	requirementsFieldChanged := updateRequirementsStatusOnPromise(promise, promise.Status.RequiredPromises, latestRequirements)
@@ -680,17 +686,7 @@ func (r *PromiseReconciler) removeReconcileResourcesLabel(ctx context.Context, p
 }
 
 func updateConditionOnPromise(promise *v1alpha1.Promise, latestCondition metav1.Condition) bool {
-	for i, condition := range promise.Status.Conditions {
-		if condition.Type == latestCondition.Type {
-			if condition.Status != latestCondition.Status {
-				promise.Status.Conditions[i] = latestCondition
-				return true
-			}
-			return false
-		}
-	}
-	promise.Status.Conditions = append(promise.Status.Conditions, latestCondition)
-	return true
+	return meta.SetStatusCondition(&promise.Status.Conditions, latestCondition)
 }
 
 func updateRequirementsStatusOnPromise(promise *v1alpha1.Promise, oldReqs, newReqs []v1alpha1.RequiredPromiseStatus) bool {
@@ -725,7 +721,7 @@ func (r *PromiseReconciler) generateStatusAndMarkRequirements(ctx context.Contex
 }
 
 func (r *PromiseReconciler) setPromiseStatusToAvailable(ctx context.Context, promise *v1alpha1.Promise, logger logr.Logger) (ctrl.Result, error) {
-	logger.Info("Promise status being set to Available")
+	logging.Info(logger, "promise status set to Available")
 	promise.Status.Status = v1alpha1.PromiseStatusAvailable
 	timestamp := metav1.Time{Time: time.Now()}
 	promise.Status.LastAvailableTime = &timestamp
@@ -775,9 +771,9 @@ func (r *PromiseReconciler) evaluateRequirement(ctx context.Context, promise *v1
 
 func (r *PromiseReconciler) reconcileDependenciesAndPromiseWorkflows(o opts, promise *v1alpha1.Promise, unstructuredPromise *unstructured.Unstructured) (*ctrl.Result, error) {
 	if len(promise.Spec.Dependencies) > 0 {
-		o.logger.Info("Applying static dependencies for Promise", "promise", promise.GetName())
+		logging.Debug(o.logger, "applying static dependencies", "promise", promise.GetName())
 		if err := r.applyWorkForStaticDependencies(o, promise); err != nil {
-			o.logger.Error(err, "Error creating Works")
+			logging.Error(o.logger, err, "error creating Works")
 			return nil, err
 		}
 	}
@@ -808,18 +804,18 @@ func (r *PromiseReconciler) reconcileDependenciesAndPromiseWorkflows(o opts, pro
 		promise.Labels = make(map[string]string)
 	}
 
-	o.logger.Info("Promise contains workflows.promise.configure, reconciling workflows")
+	logging.Debug(o.logger, "Promise contains workflows.promise.configure; reconciling workflows")
 	completedCond := promise.GetCondition(string(resourceutil.ConfigureWorkflowCompletedCondition))
 	forcePipelineRun := completedCond != nil && completedCond.Status == "True" && time.Since(completedCond.LastTransitionTime.Time) > r.ReconciliationInterval
 	if forcePipelineRun && promise.Labels[resourceutil.ManualReconciliationLabel] != "true" {
-		o.logger.Info("Pipeline completed too long ago... forcing the reconciliation", "lastTransitionTime", completedCond.LastTransitionTime.Time.String())
+		logging.Warn(o.logger, "pipeline completed too long ago; forcing reconciliation", "lastTransitionTime", completedCond.LastTransitionTime.Time.String())
 		promise.Labels[resourceutil.ManualReconciliationLabel] = "true"
 		return &ctrl.Result{}, r.Client.Update(o.ctx, promise)
 	}
 
 	reconciledCond := promise.GetCondition(string(resourceutil.ReconciledCondition))
 	if reconciledCond != nil && reconciledCond.Status == metav1.ConditionUnknown && reconciledCond.Reason == pausedReconciliationReason {
-		o.logger.Info("Promise unpaused... forcing the reconciliation")
+		logging.Info(o.logger, "Promise unpaused; forcing reconciliation")
 		promise.Labels[resourceutil.ManualReconciliationLabel] = "true"
 		promise.Labels[resourceutil.ReconcileResourcesLabel] = "true"
 	}
@@ -875,7 +871,7 @@ func (r *PromiseReconciler) reconcileAllRRs(ctx context.Context, rrGVK *schema.G
 func (r *PromiseReconciler) ensureDynamicControllerIsStarted(promise *v1alpha1.Promise, rrCRD *apiextensionsv1.CustomResourceDefinition, rrGVK *schema.GroupVersionKind, canCreateResources *bool, logger logr.Logger) error {
 	// The Dynamic Controller needs to be started once and only once.
 	if r.dynamicControllerHasAlreadyStarted(promise, logger) {
-		logger.Info("dynamic controller already started, ensuring it is up to date")
+		logging.Debug(logger, "dynamic controller already started; ensuring configuration is current")
 
 		dynamicController := r.StartedDynamicControllers[promise.GetDynamicControllerName(logger)]
 		dynamicController.GVK = rrGVK
@@ -887,7 +883,7 @@ func (r *PromiseReconciler) ensureDynamicControllerIsStarted(promise *v1alpha1.P
 
 		return nil
 	}
-	logger.Info("starting dynamic controller")
+	logging.Info(logger, "starting dynamic controller")
 
 	//temporary fix until https://github.com/kubernetes-sigs/controller-runtime/issues/1884 is resolved
 	//once resolved, delete dynamic controller rather than disable
@@ -999,7 +995,7 @@ func (r *PromiseReconciler) createResourcesForDynamicControllerIfTheyDontExist(c
 		},
 	}
 
-	logger.Info("creating/updating cluster role", "clusterRoleName", cr.GetName())
+	logging.Debug(logger, "creating/updating cluster role", "clusterRoleName", cr.GetName())
 	_, err := controllerutil.CreateOrUpdate(ctx, r.Client, &cr, func() error {
 		cr.Rules = promise.GenerateFullAccessForRR(rrGVK.Group, rrCRD.Spec.Names.Plural)
 		cr.Labels = labels.Merge(cr.Labels, promise.GenerateSharedLabels())
@@ -1016,7 +1012,7 @@ func (r *PromiseReconciler) createResourcesForDynamicControllerIfTheyDontExist(c
 		},
 	}
 
-	logger.Info("creating/update cluster role binding", "clusterRoleBinding", crb.GetName())
+	logging.Debug(logger, "creating/updating cluster role binding", "clusterRoleBinding", crb.GetName())
 	_, err = controllerutil.CreateOrUpdate(ctx, r.Client, crb, func() error {
 		crb.RoleRef = rbacv1.RoleRef{
 			Kind:     "ClusterRole",
@@ -1038,7 +1034,7 @@ func (r *PromiseReconciler) createResourcesForDynamicControllerIfTheyDontExist(c
 		return fmt.Errorf("Error creating/updating cluster role binding: %w", err)
 	}
 
-	logger.Info("finished creating resources for dynamic controller")
+	logging.Info(logger, "finished creating resources for dynamic controller")
 	return nil
 }
 
@@ -1056,7 +1052,7 @@ func (r *PromiseReconciler) ensureCRDExists(ctx context.Context, promise *v1alph
 		return nil, fmt.Errorf("Error creating crd: %w", err)
 	}
 
-	logger.Info("CRD already exists", "crdName", rrCRD.Name)
+	logging.Debug(logger, "CRD already exists", "crdName", rrCRD.Name)
 	existingCRD, err := r.ApiextensionsClient.CustomResourceDefinitions().Get(ctx, rrCRD.GetName(), metav1.GetOptions{})
 	if err != nil {
 		return nil, err
@@ -1095,12 +1091,12 @@ func (r *PromiseReconciler) ensureCRDExists(ctx context.Context, promise *v1alph
 
 	for _, cond := range updatedCRD.Status.Conditions {
 		if string(cond.Type) == string(apiextensions.Established) && cond.Status == apiextensionsv1.ConditionTrue {
-			logger.Info("CRD established", "crdName", rrCRD.Name)
+			logging.Info(logger, "CRD established", "crdName", rrCRD.Name)
 			return nil, nil
 		}
 	}
 
-	logger.Info("CRD not yet established", "crdName", rrCRD.Name, "statusConditions", updatedCRD.Status.Conditions)
+	logging.Warn(logger, "CRD not yet established", "crdName", rrCRD.Name, "statusConditions", updatedCRD.Status.Conditions)
 
 	return &fastRequeue, nil
 }
@@ -1117,14 +1113,14 @@ func (r *PromiseReconciler) updateStatus(promise *v1alpha1.Promise, kind, group,
 }
 
 func (r *PromiseReconciler) deletePromise(o opts, promise *v1alpha1.Promise) (ctrl.Result, error) {
-	o.logger.Info("finalizers existing", "finalizers", promise.GetFinalizers())
+	logging.Debug(o.logger, "finalizers existing", "finalizers", promise.GetFinalizers())
 	if resourceutil.FinalizersAreDeleted(promise, promiseFinalizers) {
-		o.logger.Info("finalizers all deleted")
+		logging.Info(o.logger, "finalizers all deleted")
 		return ctrl.Result{}, nil
 	}
 
 	if controllerutil.ContainsFinalizer(promise, runDeleteWorkflowsFinalizer) {
-		o.logger.Info("running promise delete workflows")
+		logging.Info(o.logger, "running promise delete workflows")
 		unstructuredPromise, err := promise.ToUnstructured()
 		if err != nil {
 			return ctrl.Result{}, err
@@ -1157,7 +1153,7 @@ func (r *PromiseReconciler) deletePromise(o opts, promise *v1alpha1.Promise) (ct
 	}
 
 	if controllerutil.ContainsFinalizer(promise, removeAllWorkflowJobsFinalizer) {
-		o.logger.Info("deleting all workflow jobs associated with finalizer", "finalizer", removeAllWorkflowJobsFinalizer)
+		logging.Debug(o.logger, "deleting workflow jobs for finalizer", "finalizer", removeAllWorkflowJobsFinalizer)
 		err := r.deletePromiseWorkflowJobs(o, promise, removeAllWorkflowJobsFinalizer)
 		if err != nil {
 			return ctrl.Result{}, err
@@ -1166,7 +1162,7 @@ func (r *PromiseReconciler) deletePromise(o opts, promise *v1alpha1.Promise) (ct
 	}
 
 	if controllerutil.ContainsFinalizer(promise, resourceRequestCleanupFinalizer) {
-		o.logger.Info("deleting resources associated with finalizer", "finalizer", resourceRequestCleanupFinalizer)
+		logging.Debug(o.logger, "deleting resources for finalizer", "finalizer", resourceRequestCleanupFinalizer)
 		err := r.deleteResourceRequests(o, promise)
 		if err != nil {
 			return ctrl.Result{}, err
@@ -1183,7 +1179,7 @@ func (r *PromiseReconciler) deletePromise(o opts, promise *v1alpha1.Promise) (ct
 	}
 
 	if controllerutil.ContainsFinalizer(promise, dynamicControllerDependantResourcesCleanupFinalizer) {
-		o.logger.Info("deleting resources associated with finalizer", "finalizer", dynamicControllerDependantResourcesCleanupFinalizer)
+		logging.Debug(o.logger, "deleting dependent resources for finalizer", "finalizer", dynamicControllerDependantResourcesCleanupFinalizer)
 		err := r.deleteDynamicControllerAndWorkflowResources(o, promise)
 		if err != nil {
 			return defaultRequeue, nil //nolint:nilerr // requeue rather than exponential backoff
@@ -1192,7 +1188,7 @@ func (r *PromiseReconciler) deletePromise(o opts, promise *v1alpha1.Promise) (ct
 	}
 
 	if controllerutil.ContainsFinalizer(promise, dependenciesCleanupFinalizer) {
-		o.logger.Info("deleting Work associated with finalizer", "finalizer", dependenciesCleanupFinalizer)
+		logging.Debug(o.logger, "deleting work for finalizer", "finalizer", dependenciesCleanupFinalizer)
 		err := r.deleteWork(o, promise)
 		if err != nil {
 			return ctrl.Result{}, err
@@ -1201,7 +1197,7 @@ func (r *PromiseReconciler) deletePromise(o opts, promise *v1alpha1.Promise) (ct
 	}
 
 	if controllerutil.ContainsFinalizer(promise, crdCleanupFinalizer) {
-		o.logger.Info("deleting CRDs associated with finalizer", "finalizer", crdCleanupFinalizer)
+		logging.Debug(o.logger, "deleting CRDs for finalizer", "finalizer", crdCleanupFinalizer)
 		err := r.deleteCRDs(o, promise)
 		if err != nil {
 			return ctrl.Result{}, err
@@ -1317,7 +1313,7 @@ func (r *PromiseReconciler) deleteResourceRequests(o opts, promise *v1alpha1.Pro
 func (r *PromiseReconciler) deleteCRDs(o opts, promise *v1alpha1.Promise) error {
 	_, rrCRD, err := promise.GetAPI()
 	if err != nil {
-		o.logger.Error(err, "Failed unmarshalling CRD, skipping deletion")
+		logging.Error(o.logger, err, "Failed unmarshalling CRD, skipping deletion")
 		controllerutil.RemoveFinalizer(promise, crdCleanupFinalizer)
 		if err := r.Client.Update(o.ctx, promise); err != nil {
 			return err
@@ -1410,7 +1406,7 @@ func ensurePromiseDeleteWorkflowFinalizer(o opts, promise *v1alpha1.Promise, pro
 func generateCRDAndGVK(promise *v1alpha1.Promise, logger logr.Logger) (*apiextensionsv1.CustomResourceDefinition, *schema.GroupVersionKind, error) {
 	rrGVK, rrCRD, err := promise.GetAPI()
 	if err != nil {
-		logger.Error(err, "Failed unmarshalling CRD")
+		logging.Error(logger, err, "Failed unmarshalling CRD")
 		return nil, nil, err
 	}
 	rrCRD.Labels = labels.Merge(rrCRD.Labels, promise.GenerateSharedLabels())
@@ -1535,7 +1531,7 @@ func (r *PromiseReconciler) applyWorkForStaticDependencies(o opts, promise *v1al
 		return err
 	}
 
-	o.logger.Info("resource reconciled", "operation", op, "namespace", work.GetNamespace(), "name", work.GetName(), "gvk", work.GroupVersionKind().String())
+	logging.Debug(o.logger, "resource reconciled", "operation", op, "namespace", work.GetNamespace(), "name", work.GetName(), "gvk", work.GroupVersionKind().String())
 	return nil
 }
 
@@ -1551,7 +1547,7 @@ func (r *PromiseReconciler) deleteWorkForStaticDependencies(o opts, promise *v1a
 		return nil
 	}
 
-	o.logger.Info("deleting work for static dependencies", "namespace", existingWork.GetNamespace(), "name", existingWork.GetName())
+	logging.Debug(o.logger, "deleting work for static dependencies", "namespace", existingWork.GetNamespace(), "name", existingWork.GetName())
 	return r.Client.Delete(o.ctx, existingWork)
 }
 
@@ -1578,15 +1574,15 @@ func (r *PromiseReconciler) markRequiredPromiseAsRequired(ctx context.Context, v
 
 	err := r.Client.Status().Update(ctx, requiredPromise)
 	if err != nil {
-		r.Log.Error(err, "error updating promise required by promise", "promise", promise.GetName(), "required promise", requiredPromise.GetName())
+		logging.Error(r.Log, err, "error updating promise required by promise", "promise", promise.GetName(), "requiredPromise", requiredPromise.GetName())
 	}
 }
 
 func (r *PromiseReconciler) updatePromiseStatus(ctx context.Context, promise *v1alpha1.Promise) (ctrl.Result, error) {
-	r.Log.Info("updating Promise status", "promise", promise.Name, "status", promise.Status.Status)
+	logging.Info(r.Log, "updating Promise status", "promise", promise.Name, "status", promise.Status.Status)
 	err := r.Client.Status().Update(ctx, promise)
 	if errors.IsConflict(err) {
-		r.Log.Info("failed to update Promise status due to update conflict, requeue...")
+		logging.Debug(r.Log, "failed to update Promise status due to update conflict; requeueing")
 		return fastRequeue, nil
 	}
 	return ctrl.Result{}, err
@@ -1623,4 +1619,12 @@ func generateRequirementState(fetchedVersion, requiredVersion, availability stri
 		return "RequirementsNotAvailable", requirementStateNotAvailable
 	}
 	return "", ""
+}
+
+func addPromiseSpanAttributes(traceCtx *reconcileTrace, promise *v1alpha1.Promise) {
+	traceCtx.AddAttributes(
+		attribute.String("kratix.promise.name", promise.GetName()),
+		attribute.Int64("kratix.promise.generation", promise.GetGeneration()),
+		attribute.String("kratix.action", traceCtx.Action()),
+	)
 }

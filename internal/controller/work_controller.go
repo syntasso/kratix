@@ -21,9 +21,11 @@ import (
 	"fmt"
 	"maps"
 	"strings"
+	"time"
 
 	"github.com/go-logr/logr"
 	"github.com/syntasso/kratix/api/v1alpha1"
+	"github.com/syntasso/kratix/internal/logging"
 	"github.com/syntasso/kratix/internal/telemetry"
 	v1 "k8s.io/api/core/v1"
 	"k8s.io/apimachinery/pkg/api/errors"
@@ -62,18 +64,26 @@ type WorkScheduler interface {
 //+kubebuilder:rbac:groups=platform.kratix.io,resources=works/finalizers,verbs=update
 
 func (r *WorkReconciler) Reconcile(ctx context.Context, req ctrl.Request) (result ctrl.Result, retErr error) {
+	logger := r.Log.WithValues(
+		"controller", "work",
+		"name", req.Name,
+		"namespace", req.Namespace,
+	)
 	work := &v1alpha1.Work{}
 	err := r.Client.Get(ctx, req.NamespacedName, work)
 	if err != nil {
 		if errors.IsNotFound(err) {
 			return ctrl.Result{}, nil
 		}
-		r.Log.WithValues("work", req.NamespacedName).Error(err, "Error getting Work")
+		logging.Error(logger, err, "error getting Work")
 		return ctrl.Result{}, err
 	}
 
 	promiseName := work.Spec.PromiseName
-	baseLogger := r.Log.WithValues("work", req.NamespacedName, "promise", promiseName)
+	baseLogger := logger.WithValues(
+		"promise", promiseName,
+		"generation", work.GetGeneration(),
+	)
 	spanName := fmt.Sprintf("%s/WorkReconcile", promiseName)
 	resourceName := work.Spec.ResourceName
 	if resourceName != "" {
@@ -82,20 +92,15 @@ func (r *WorkReconciler) Reconcile(ctx context.Context, req ctrl.Request) (resul
 	ctx, logger, traceCtx := setupReconcileTrace(ctx, "work-controller", spanName, work, baseLogger)
 	defer finishReconcileTrace(traceCtx, &retErr)()
 
-	traceCtx.AddAttributes(
-		attribute.String("kratix.promise.name", promiseName),
-		attribute.String("kratix.work.name", work.GetName()),
-		attribute.String("kratix.work.namespace", work.GetNamespace()),
-		attribute.Bool("kratix.work.resource_request", work.IsResourceRequest()),
-	)
-	traceCtx.AddAttributes(attribute.String("kratix.action", traceCtx.Action()))
+	logging.Info(logger, "reconciliation started")
+	defer logReconcileDuration(logger, time.Now(), result, retErr)()
+
+	addWorkSpanAttributes(traceCtx, promiseName, work)
 
 	if err := persistReconcileTrace(traceCtx, r.Client, logger); err != nil {
-		logger.Error(err, "failed to persist trace annotations")
+		logging.Error(logger, err, "failed to persist trace annotations")
 		return ctrl.Result{}, err
 	}
-
-	logger.Info("Reconciling Work")
 
 	if !work.DeletionTimestamp.IsZero() {
 		if err := r.deleteWork(ctx, work); err != nil {
@@ -119,20 +124,20 @@ func (r *WorkReconciler) Reconcile(ctx context.Context, req ctrl.Request) (resul
 		defer work.SetAnnotations(originalAnnotations)
 	}
 
-	logger.Info("Requesting scheduling for Work")
+	logging.Info(logger, "requesting scheduling for Work")
 
 	unscheduledWorkloadGroupIDs, err := r.Scheduler.ReconcileWork(work)
 	if err != nil {
 		if errors.IsConflict(err) {
-			logger.Info("failed to schedule Work due to update conflict, requeue...")
+			logging.Debug(logger, "failed to schedule Work due to update conflict; requeueing")
 			return fastRequeue, nil
 		}
-		logger.Error(err, "error scheduling Work, will retry...")
+		logging.Error(logger, err, "error scheduling Work; will retry")
 		return ctrl.Result{}, err
 	}
 
 	if work.IsResourceRequest() && len(unscheduledWorkloadGroupIDs) > 0 {
-		logger.Info("no available Destinations for some of the workload groups, trying again shortly", "workloadGroupIDs", unscheduledWorkloadGroupIDs)
+		logging.Warn(logger, "no available destinations for some workload groups; trying again shortly", "workloadGroupIDs", unscheduledWorkloadGroupIDs)
 		r.EventRecorder.Eventf(
 			work,
 			v1.EventTypeNormal,
@@ -154,7 +159,7 @@ func (r *WorkReconciler) updateWorkStatus(ctx context.Context, logger logr.Logge
 		workLabelKey: work.Name,
 	})
 	if err != nil {
-		logger.Info("failed to list associated WorkPlacements")
+		logging.Warn(logger, "failed to list associated WorkPlacements")
 		return err
 	}
 
@@ -303,4 +308,18 @@ func buildWorkPlacementAnnotations(existing, work map[string]string) map[string]
 		return nil
 	}
 	return desired
+}
+
+func addWorkSpanAttributes(traceCtx *reconcileTrace, promiseName string, work *v1alpha1.Work) {
+	traceCtx.AddAttributes(
+		attribute.String("kratix.promise.name", promiseName),
+		attribute.String("kratix.work.name", work.GetName()),
+		attribute.String("kratix.work.namespace", work.GetNamespace()),
+		attribute.Bool("kratix.work.resource_request", work.IsResourceRequest()),
+		attribute.String("kratix.action", traceCtx.Action()),
+	)
+
+	if work.IsResourceRequest() {
+		traceCtx.AddAttributes(attribute.String("kratix.work.resource_request.name", work.Spec.ResourceName))
+	}
 }

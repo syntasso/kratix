@@ -6,6 +6,7 @@ import (
 
 	"github.com/go-logr/logr"
 	"github.com/syntasso/kratix/api/v1alpha1"
+	"github.com/syntasso/kratix/internal/logging"
 	v1 "k8s.io/api/core/v1"
 	"k8s.io/apimachinery/pkg/api/errors"
 	"k8s.io/apimachinery/pkg/api/meta"
@@ -27,7 +28,7 @@ type StateStore interface {
 
 func fetchObjectAndSecret(o opts, stateStoreRef client.ObjectKey, stateStore StateStore) (*v1.Secret, error) {
 	if err := o.client.Get(o.ctx, stateStoreRef, stateStore); err != nil {
-		o.logger.Error(err, "unable to fetch resource", "resourceKind", stateStore.GetObjectKind(), "stateStoreRef", stateStoreRef)
+		logging.Error(o.logger, err, "unable to fetch resource", "resourceKind", stateStore.GetObjectKind(), "stateStoreRef", stateStoreRef)
 		return nil, err
 	}
 
@@ -47,7 +48,7 @@ func fetchObjectAndSecret(o opts, stateStoreRef client.ObjectKey, stateStore Sta
 	}
 
 	if err := o.client.Get(o.ctx, secretRef, secret); err != nil {
-		o.logger.Error(err, "unable to fetch resource", "resourceKind", stateStore.GetObjectKind(), "secretRef", secretRef)
+		logging.Error(o.logger, err, "unable to fetch resource", "resourceKind", stateStore.GetObjectKind(), "secretRef", secretRef)
 		if errors.IsNotFound(err) {
 			err = fmt.Errorf("secret %q not found in namespace %q", secretRef.Name, namespace)
 		}
@@ -70,17 +71,17 @@ func reconcileStateStoreCommon(
 ) (ctrl.Result, error) {
 	writer, err := newWriter(o, stateStore.GetName(), resourceType, "")
 	if err != nil {
-		o.logger.Info("Unable to create writer", "error", err)
+		logging.Error(o.logger, err, "unable to create writer")
 		if statusError := updateStateStoreReadyStatusAndCondition(o, eventRecorder, stateStore, StateStoreNotReadyErrorInitialisingWriterReason, StateStoreNotReadyErrorInitialisingWriterMessage, err); statusError != nil {
-			o.logger.Error(statusError, "error updating state store status")
+			logging.Error(o.logger, statusError, "error updating state store status")
 		}
 		return ctrl.Result{}, err
 	}
 
 	if err = writer.ValidatePermissions(); err != nil {
-		o.logger.Error(err, "error validating state store permissions")
+		logging.Warn(o.logger, "error validating state store permissions", "error", err)
 		if err = updateStateStoreReadyStatusAndCondition(o, eventRecorder, stateStore, StateStoreNotReadyErrorValidatingPermissionsReason, StateStoreNotReadyErrorValidatingPermissionsMessage, err); err != nil {
-			o.logger.Error(err, "error updating state store status")
+			logging.Error(o.logger, err, "error updating state store status")
 		}
 		return defaultRequeue, nil
 	}
@@ -135,13 +136,13 @@ func constructRequestsForStateStoresReferencingSecret(ctx context.Context, k8scl
 	if err := k8sclient.List(ctx, stateStoreList, client.MatchingFields{
 		secretRefFieldName: secretRefIndexKey(secret.GetName(), secret.GetNamespace()),
 	}); err != nil {
-		logger.Error(err, "error listing bucket state stores for secret")
+		logging.Error(logger, err, "error listing bucket state stores for secret")
 		return nil
 	}
 
 	items, err := meta.ExtractList(stateStoreList)
 	if err != nil {
-		logger.Error(err, "error extracting list items")
+		logging.Error(logger, err, "error extracting list items")
 		return nil
 	}
 
