@@ -1075,7 +1075,7 @@ func (r *PromiseReconciler) ensureCRDExists(ctx context.Context, promise *v1alph
 
 	for _, cond := range updatedCRD.Status.Conditions {
 		if string(cond.Type) == string(apiextensions.Established) && cond.Status == apiextensionsv1.ConditionTrue {
-			logging.Info(logger, "CRD established", "crdName", rrCRD.Name)
+			logging.Debug(logger, "CRD established", "crdName", rrCRD.Name)
 			return nil, nil
 		}
 	}
@@ -1099,7 +1099,7 @@ func (r *PromiseReconciler) updateStatus(promise *v1alpha1.Promise, kind, group,
 func (r *PromiseReconciler) deletePromise(o opts, promise *v1alpha1.Promise) (ctrl.Result, error) {
 	logging.Debug(o.logger, "finalizers existing", "finalizers", promise.GetFinalizers())
 	if resourceutil.FinalizersAreDeleted(promise, promiseFinalizers) {
-		logging.Info(o.logger, "finalizers all deleted")
+		logging.Debug(o.logger, "finalizers all deleted")
 		return ctrl.Result{}, nil
 	}
 
@@ -1591,7 +1591,7 @@ func (r *PromiseReconciler) markRequiredPromiseAsRequired(ctx context.Context, v
 }
 
 func (r *PromiseReconciler) updatePromiseStatus(ctx context.Context, promise *v1alpha1.Promise) (ctrl.Result, error) {
-	logging.Info(r.Log, "updating Promise status", "promise", promise.Name, "status", promise.Status.Status)
+	logging.Debug(r.Log, "updating Promise status", "promise", promise.Name, "status", promise.Status.Status)
 	err := r.Client.Status().Update(ctx, promise)
 	if errors.IsConflict(err) {
 		logging.Debug(r.Log, "failed to update Promise status due to update conflict; requeueing")

@@ -110,7 +110,7 @@ func ReconcileDelete(opts Opts) (bool, error) {
 }
 
 func createDeletePipeline(opts Opts, pipeline v1alpha1.PipelineJobResources) (abort bool, err error) {
-	logging.Info(opts.logger, "creating delete pipeline; execution will commence")
+	logging.Debug(opts.logger, "creating delete pipeline; execution will commence")
 	if isManualReconciliation(opts.parentObject.GetLabels()) {
 		if err := removeManualReconciliationLabel(opts); err != nil {
 			return false, err
@@ -226,8 +226,6 @@ func ReconcileConfigure(opts Opts) (abort bool, err error) {
 		return true, nil
 	}
 
-	// TODO this will be very noisy - might want to slowRequeue?
-	logging.Info(opts.logger, "reconciling pipeline", "pipeline", pipeline.Name)
 	return createConfigurePipeline(opts, pipelineIndex, pipeline)
 }
 
@@ -469,7 +467,7 @@ func createConfigurePipeline(opts Opts, pipelineIndex int, resources v1alpha1.Pi
 }
 
 func removeManualReconciliationLabel(opts Opts) error {
-	logging.Info(opts.logger, "manual reconciliation label detected; removing it")
+	logging.Debug(opts.logger, "manual reconciliation label detected; removing it")
 	return removeLabel(opts, resourceutil.ManualReconciliationLabel)
 }
 
@@ -555,7 +553,7 @@ func isLabelSetToTrue(labels map[string]string, labelKey string) bool {
 
 // TODO return error info (summary of errors from resources?) to the caller, instead of just logging
 func applyResources(opts Opts, resources ...client.Object) {
-	logging.Info(opts.logger, "reconciling pipeline resources")
+	logging.Debug(opts.logger, "reconciling pipeline resources")
 
 	for _, resource := range resources {
 		logger := opts.logger.WithValues("type", reflect.TypeOf(resource), "gvk", resource.GetObjectKind().GroupVersionKind().String(), "name", resource.GetName(), "namespace", resource.GetNamespace(), "labels", resource.GetLabels())
@@ -586,7 +584,7 @@ func applyResources(opts Opts, resources ...client.Object) {
 			y, _ := yaml.Marshal(&resource)
 			logging.Error(logger, err, string(y))
 		} else {
-			logging.Info(logger, "resource created")
+			logging.Debug(logger, "resource created")
 		}
 	}
 
@@ -606,7 +604,7 @@ func deleteResources(opts Opts, resources ...client.Object) {
 			y, _ := yaml.Marshal(&resource)
 			logging.Error(logger, err, string(y))
 		} else {
-			logging.Info(logger, "resource deleted")
+			logging.Debug(logger, "resource deleted")
 		}
 	}
 }
