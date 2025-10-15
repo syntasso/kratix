@@ -248,7 +248,7 @@ setup_worker_destination() {
 
     if ${SINGLE_DESTINATION}; then
         ${ROOT}/scripts/register-destination --name platform-cluster --context kind-${PLATFORM_CLUSTER_NAME} --platform-context kind-${PLATFORM_CLUSTER_NAME} $flags
-        kubectl wait destination platform-cluster --for=condition=Ready
+        kubectl wait destination platform-cluster --for=condition=Ready --timeout=300s
     else
         ${ROOT}/scripts/register-destination --name worker-1 --context kind-${WORKER1_CLUSTER_NAME} --platform-context kind-${PLATFORM_CLUSTER_NAME} --with-label environment=dev $flags
         kubectl wait destination worker-1 --for=condition=Ready
