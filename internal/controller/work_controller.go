@@ -36,9 +36,12 @@ import (
 	"k8s.io/apimachinery/pkg/runtime/schema"
 	"k8s.io/client-go/tools/record"
 	ctrl "sigs.k8s.io/controller-runtime"
+	"sigs.k8s.io/controller-runtime/pkg/builder"
 	"sigs.k8s.io/controller-runtime/pkg/client"
 	"sigs.k8s.io/controller-runtime/pkg/controller/controllerutil"
+	"sigs.k8s.io/controller-runtime/pkg/event"
 	"sigs.k8s.io/controller-runtime/pkg/handler"
+	"sigs.k8s.io/controller-runtime/pkg/predicate"
 	"sigs.k8s.io/controller-runtime/pkg/reconcile"
 
 	"go.opentelemetry.io/otel/attribute"
@@ -250,7 +253,7 @@ func (r *WorkReconciler) deleteWork(ctx context.Context, work *v1alpha1.Work) er
 func (r *WorkReconciler) SetupWithManager(mgr ctrl.Manager) error {
 	return ctrl.NewControllerManagedBy(mgr).
 		For(&v1alpha1.Work{}).
-		Owns(&v1alpha1.WorkPlacement{}).
+		Owns(&v1alpha1.WorkPlacement{}, builder.WithPredicates(workPlacementStatusUpdatePredicate())).
 		Watches(
 			&v1alpha1.Destination{},
 			handler.EnqueueRequestsFromMapFunc(r.requestReconciliationOfWorksOnDestination),
@@ -312,6 +315,71 @@ func buildWorkPlacementAnnotations(existing, work map[string]string) map[string]
 		return nil
 	}
 	return desired
+}
+
+func workPlacementStatusUpdatePredicate() predicate.Funcs {
+	return predicate.Funcs{
+		CreateFunc: func(event.CreateEvent) bool {
+			return true
+		},
+		DeleteFunc: func(event.DeleteEvent) bool {
+			return true
+		},
+		GenericFunc: func(event.GenericEvent) bool {
+			return true
+		},
+		UpdateFunc: func(e event.UpdateEvent) bool {
+			oldWP, oldOK := e.ObjectOld.(*v1alpha1.WorkPlacement)
+			newWP, newOK := e.ObjectNew.(*v1alpha1.WorkPlacement)
+			if !oldOK || !newOK {
+				return true
+			}
+
+			if oldWP.GetDeletionTimestamp().IsZero() != newWP.GetDeletionTimestamp().IsZero() {
+				return true
+			}
+
+			return summarizeWorkPlacementConditions(oldWP) != summarizeWorkPlacementConditions(newWP)
+		},
+	}
+}
+
+type workPlacementConditionSnapshot struct {
+	readyStatus    metav1.ConditionStatus
+	readyReason    string
+	writeStatus    metav1.ConditionStatus
+	writeReason    string
+	scheduleStatus metav1.ConditionStatus
+	scheduleReason string
+}
+
+func summarizeWorkPlacementConditions(wp *v1alpha1.WorkPlacement) workPlacementConditionSnapshot {
+	ready := apiMeta.FindStatusCondition(wp.Status.Conditions, "Ready")
+	write := apiMeta.FindStatusCondition(wp.Status.Conditions, writeSucceededConditionType)
+	schedule := apiMeta.FindStatusCondition(wp.Status.Conditions, scheduleSucceededConditionType)
+
+	return workPlacementConditionSnapshot{
+		readyStatus:    conditionStatus(ready),
+		readyReason:    conditionSummary(ready),
+		writeStatus:    conditionStatus(write),
+		writeReason:    conditionSummary(write),
+		scheduleStatus: conditionStatus(schedule),
+		scheduleReason: conditionSummary(schedule),
+	}
+}
+
+func conditionStatus(cond *metav1.Condition) metav1.ConditionStatus {
+	if cond == nil {
+		return metav1.ConditionUnknown
+	}
+	return cond.Status
+}
+
+func conditionSummary(cond *metav1.Condition) string {
+	if cond == nil {
+		return ""
+	}
+	return cond.Reason + "|" + cond.Message
 }
 
 func addWorkSpanAttributes(traceCtx *reconcileTrace, promiseName string, work *v1alpha1.Work) {

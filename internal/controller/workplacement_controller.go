@@ -132,10 +132,23 @@ func (r *WorkPlacementReconciler) Reconcile(ctx context.Context, req ctrl.Reques
 
 	filepathMode := destination.GetFilepathMode()
 	if missingFinalizers := checkWorkPlacementFinalizers(workPlacement, filepathMode); len(missingFinalizers) > 0 {
-		return addFinalizers(opts, workPlacement, missingFinalizers)
+		_, err := addFinalizers(opts, workPlacement, missingFinalizers)
+		if err != nil {
+			if kerrors.IsConflict(err) {
+				return fastRequeue, nil
+			}
+		}
+		return ctrl.Result{}, err
 	}
 
-	return ctrl.Result{}, r.setWorkplacementReady(ctx, workPlacement)
+	var readyErr error
+	if readyErr = r.setWorkplacementReady(ctx, workPlacement); readyErr != nil {
+		if kerrors.IsConflict(readyErr) {
+			return fastRequeue, nil
+		}
+	}
+
+	return ctrl.Result{}, readyErr
 }
 
 func (r *WorkPlacementReconciler) getDestination(ctx context.Context, logger logr.Logger, wp *v1alpha1.WorkPlacement) (*v1alpha1.Destination, error) {
