@@ -29,6 +29,7 @@ import (
 	"github.com/syntasso/kratix/internal/telemetry"
 	v1 "k8s.io/api/core/v1"
 	"k8s.io/apimachinery/pkg/api/errors"
+	kerrors "k8s.io/apimachinery/pkg/api/errors"
 	apiMeta "k8s.io/apimachinery/pkg/api/meta"
 	metav1 "k8s.io/apimachinery/pkg/apis/meta/v1"
 	"k8s.io/apimachinery/pkg/apis/meta/v1/unstructured"
@@ -113,10 +114,14 @@ func (r *WorkReconciler) Reconcile(ctx context.Context, req ctrl.Request) (resul
 	}
 
 	if !controllerutil.ContainsFinalizer(work, workCleanUpFinalizer) {
-		return addFinalizers(opts{
-			client: r.Client,
-			logger: logger,
-			ctx:    ctx}, work, []string{workFinalizer})
+		o := opts{client: r.Client, logger: logger, ctx: ctx}
+		if err := addFinalizers(o, work, []string{workFinalizer}); err != nil {
+			if kerrors.IsConflict(err) {
+				return fastRequeue, nil
+			}
+			return ctrl.Result{}, err
+		}
+		return ctrl.Result{}, nil
 	}
 
 	originalAnnotations := cloneStringMap(work.GetAnnotations())

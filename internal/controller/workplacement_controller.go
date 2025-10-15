@@ -132,7 +132,7 @@ func (r *WorkPlacementReconciler) Reconcile(ctx context.Context, req ctrl.Reques
 
 	filepathMode := destination.GetFilepathMode()
 	if missingFinalizers := checkWorkPlacementFinalizers(workPlacement, filepathMode); len(missingFinalizers) > 0 {
-		_, err := addFinalizers(opts, workPlacement, missingFinalizers)
+		err := addFinalizers(opts, workPlacement, missingFinalizers)
 		if err != nil {
 			if kerrors.IsConflict(err) {
 				return fastRequeue, nil

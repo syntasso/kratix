@@ -112,7 +112,7 @@ func ensureTraceAnnotations(ctx context.Context, c client.Client, obj client.Obj
 }
 
 // finalizers must be less than 64 characters
-func addFinalizers(o opts, resource client.Object, finalizers []string) (ctrl.Result, error) {
+func addFinalizers(o opts, resource client.Object, finalizers []string) error {
 	logging.Info(o.logger, "adding missing finalizers",
 		"expectedFinalizers", finalizers,
 		"existingFinalizers", resource.GetFinalizers(),
@@ -120,10 +120,7 @@ func addFinalizers(o opts, resource client.Object, finalizers []string) (ctrl.Re
 	for _, finalizer := range finalizers {
 		controllerutil.AddFinalizer(resource, finalizer)
 	}
-	if err := o.client.Update(o.ctx, resource); err != nil {
-		return ctrl.Result{}, err
-	}
-	return ctrl.Result{}, nil
+	return o.client.Update(o.ctx, resource)
 }
 
 func newWriter(o opts, stateStoreName, stateStoreKind, destinationPath string) (writers.StateStoreWriter, error) {

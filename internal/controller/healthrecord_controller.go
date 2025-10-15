@@ -26,6 +26,7 @@ import (
 	platformv1alpha1 "github.com/syntasso/kratix/api/v1alpha1"
 	"github.com/syntasso/kratix/internal/logging"
 	"k8s.io/apimachinery/pkg/api/errors"
+	kerrors "k8s.io/apimachinery/pkg/api/errors"
 	"k8s.io/apimachinery/pkg/apis/meta/v1/unstructured"
 	"k8s.io/apimachinery/pkg/runtime"
 	"k8s.io/apimachinery/pkg/runtime/schema"
@@ -59,7 +60,7 @@ func (r *HealthRecordReconciler) Reconcile(ctx context.Context, req ctrl.Request
 
 	healthRecord := &platformv1alpha1.HealthRecord{}
 	if err := r.Get(ctx, req.NamespacedName, healthRecord); err != nil {
-		return r.ignoreNotFound(logger, err, "failed getting health record")
+		return r.ignoreNotFound(logger, err, "failed getting health record"), nil
 	}
 
 	logger = logger.WithValues(
@@ -74,7 +75,7 @@ func (r *HealthRecordReconciler) Reconcile(ctx context.Context, req ctrl.Request
 	promise := &platformv1alpha1.Promise{}
 	promiseName := client.ObjectKey{Name: healthRecord.Data.PromiseRef.Name}
 	if err := r.Get(ctx, promiseName, promise); err != nil {
-		return r.ignoreNotFound(logger, err, "failed getting promise")
+		return r.ignoreNotFound(logger, err, "failed getting promise"), nil
 	}
 
 	promiseGVK, _, err := promise.GetAPI()
@@ -101,11 +102,13 @@ func (r *HealthRecordReconciler) Reconcile(ctx context.Context, req ctrl.Request
 	}
 
 	if !controllerutil.ContainsFinalizer(healthRecord, healthRecordCleanupFinalizer) {
-		return addFinalizers(opts{
-			client: r.Client,
-			logger: logger,
-			ctx:    ctx,
-		}, healthRecord, []string{healthRecordCleanupFinalizer})
+		o := opts{client: r.Client, logger: logger, ctx: ctx}
+		if err := addFinalizers(o, healthRecord, []string{healthRecordCleanupFinalizer}); err != nil {
+			if kerrors.IsConflict(err) {
+				return fastRequeue, nil
+			}
+			return ctrl.Result{}, err
+		}
 	}
 
 	if err = r.updateResourceStatus(ctx, resReq, healthRecord, logger); err != nil {
@@ -170,12 +173,12 @@ func (r *HealthRecordReconciler) updateResourceStatus(
 	return r.Status().Update(ctx, resReq)
 }
 
-func (r *HealthRecordReconciler) ignoreNotFound(logger logr.Logger, err error, msg string) (ctrl.Result, error) {
+func (r *HealthRecordReconciler) ignoreNotFound(logger logr.Logger, err error, msg string) ctrl.Result {
 	if errors.IsNotFound(err) {
-		return ctrl.Result{}, nil
+		return ctrl.Result{}
 	}
 	logging.Error(logger, err, msg)
-	return defaultRequeue, nil
+	return defaultRequeue
 }
 
 func (r *HealthRecordReconciler) getResourceRequest(

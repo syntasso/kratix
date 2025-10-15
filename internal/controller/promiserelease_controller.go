@@ -22,6 +22,7 @@ import (
 	"time"
 
 	"k8s.io/apimachinery/pkg/api/errors"
+	kerrors "k8s.io/apimachinery/pkg/api/errors"
 	"k8s.io/apimachinery/pkg/api/meta"
 	v1 "k8s.io/apimachinery/pkg/apis/meta/v1"
 	"k8s.io/apimachinery/pkg/labels"
@@ -97,7 +98,13 @@ func (r *PromiseReleaseReconciler) Reconcile(ctx context.Context, req ctrl.Reque
 	}
 
 	if resourceutil.DoesNotContainFinalizer(promiseRelease, promiseCleanupFinalizer) {
-		return addFinalizers(opts, promiseRelease, []string{promiseCleanupFinalizer})
+		if err := addFinalizers(opts, promiseRelease, []string{promiseCleanupFinalizer}); err != nil {
+			if kerrors.IsConflict(err) {
+				return fastRequeue, nil
+			}
+			return ctrl.Result{}, err
+		}
+		return ctrl.Result{}, nil
 	}
 
 	exists, err := r.promiseExistsAtDesiredVersion(opts, promiseRelease)
