@@ -29,6 +29,8 @@ import (
 	"k8s.io/apimachinery/pkg/api/errors"
 	apiMeta "k8s.io/apimachinery/pkg/api/meta"
 	metav1 "k8s.io/apimachinery/pkg/apis/meta/v1"
+	"k8s.io/apimachinery/pkg/apis/meta/v1/unstructured"
+	"k8s.io/apimachinery/pkg/labels"
 	"k8s.io/apimachinery/pkg/runtime/schema"
 	"k8s.io/client-go/tools/record"
 	ctrl "sigs.k8s.io/controller-runtime"
@@ -86,6 +88,7 @@ func (r *WorkReconciler) Reconcile(ctx context.Context, req ctrl.Request) (resul
 		attribute.String("kratix.work.namespace", work.GetNamespace()),
 		attribute.Bool("kratix.work.resource_request", work.IsResourceRequest()),
 	)
+	traceCtx.AddAttributes(attribute.String("kratix.action", traceCtx.Action()))
 
 	if err := persistReconcileTrace(traceCtx, r.Client, logger); err != nil {
 		logger.Error(err, "failed to persist trace annotations")
@@ -95,7 +98,10 @@ func (r *WorkReconciler) Reconcile(ctx context.Context, req ctrl.Request) (resul
 	logger.Info("Reconciling Work")
 
 	if !work.DeletionTimestamp.IsZero() {
-		return r.deleteWork(ctx, work)
+		if err := r.deleteWork(ctx, work); err != nil {
+			return ctrl.Result{}, err
+		}
+		return ctrl.Result{}, nil
 	}
 
 	if !controllerutil.ContainsFinalizer(work, workCleanUpFinalizer) {
@@ -185,29 +191,50 @@ func (r *WorkReconciler) updateWorkStatus(ctx context.Context, logger logr.Logge
 	return nil
 }
 
-func (r *WorkReconciler) deleteWork(ctx context.Context, work *v1alpha1.Work) (ctrl.Result, error) {
+func (r *WorkReconciler) deleteWork(ctx context.Context, work *v1alpha1.Work) error {
 	workplacementGVK := schema.GroupVersionKind{
 		Group:   v1alpha1.GroupVersion.Group,
 		Version: v1alpha1.GroupVersion.Version,
 		Kind:    "WorkPlacement",
 	}
 
-	resourcesRemaining, err := deleteAllResourcesWithKindMatchingLabel(opts{client: r.Client, logger: r.Log, ctx: ctx},
-		&workplacementGVK, map[string]string{workLabelKey: work.Name})
-	if err != nil {
+	wpList := &unstructured.UnstructuredList{}
+	wpList.SetGroupVersionKind(workplacementGVK)
+	selector := labels.SelectorFromSet(map[string]string{workLabelKey: work.Name})
+	if err := r.Client.List(ctx, wpList, &client.ListOptions{LabelSelector: selector}); err != nil {
 		r.EventRecorder.Eventf(work, v1.EventTypeWarning, "FailedDelete",
 			"deleting work failed: %s", err.Error())
-		return defaultRequeue, err
+		return err
 	}
 
-	if !resourcesRemaining {
-		controllerutil.RemoveFinalizer(work, workCleanUpFinalizer)
-		err = r.Client.Update(ctx, work)
-		if err != nil {
-			return defaultRequeue, err
+	parentAnnotations := work.GetAnnotations()
+	deleteErrors := []string{}
+	for i := range wpList.Items {
+		wp := &wpList.Items[i]
+		if err := ensureTraceAnnotations(ctx, r.Client, wp, parentAnnotations); err != nil {
+			r.Log.Info("Failed to ensure trace annotations are propagated, ignoring the error...", "error", err)
+		}
+		if err := r.Client.Delete(ctx, wp, client.PropagationPolicy(metav1.DeletePropagationBackground)); err != nil {
+			if errors.IsNotFound(err) {
+				continue
+			}
+			deleteErrors = append(deleteErrors, err.Error())
+			r.EventRecorder.Eventf(work, v1.EventTypeWarning, "FailedDelete",
+				"deleting associated workplacement failed: %s", err.Error())
 		}
 	}
-	return defaultRequeue, nil
+
+	if len(deleteErrors) > 0 {
+		return fmt.Errorf("failed to delete workplacements: %s", strings.Join(deleteErrors, ","))
+	}
+
+	if controllerutil.RemoveFinalizer(work, workCleanUpFinalizer) {
+		if err := r.Client.Update(ctx, work); err != nil {
+			r.Log.Info("Failed to remove finalizer, requeuing...", "error", err)
+			return err
+		}
+	}
+	return nil
 }
 
 // SetupWithManager sets up the controller with the Manager.

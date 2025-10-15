@@ -116,6 +116,7 @@ func (r *DynamicResourceRequestController) Reconcile(ctx context.Context, req ct
 		attribute.String("kratix.resource_request.name", rr.GetName()),
 		attribute.String("kratix.resource_request.namespace", rr.GetNamespace()),
 	)
+	traceCtx.AddAttributes(attribute.String("kratix.action", traceCtx.Action()))
 
 	if err := persistReconcileTrace(traceCtx, r.Client, logger); err != nil {
 		logger.Error(err, "failed to persist trace annotations")
@@ -147,7 +148,7 @@ func (r *DynamicResourceRequestController) Reconcile(ctx context.Context, req ct
 	opts := opts{client: r.Client, ctx: ctx, logger: logger}
 
 	if !rr.GetDeletionTimestamp().IsZero() {
-		return r.deleteResources(opts, promise, rr, resourceRequestIdentifier)
+		return r.deleteResources(opts, promise, rr)
 	}
 
 	if !*r.CanCreateResources {
@@ -422,7 +423,7 @@ func (r *DynamicResourceRequestController) updateWorkflowStatusCountersToZero(rr
 	return nil
 }
 
-func (r *DynamicResourceRequestController) deleteResources(o opts, promise *v1alpha1.Promise, resourceRequest *unstructured.Unstructured, resourceRequestIdentifier string) (ctrl.Result, error) {
+func (r *DynamicResourceRequestController) deleteResources(o opts, promise *v1alpha1.Promise, resourceRequest *unstructured.Unstructured) (ctrl.Result, error) {
 	if resourceutil.FinalizersAreDeleted(resourceRequest, rrFinalizers) {
 		return ctrl.Result{}, nil
 	}
@@ -463,7 +464,7 @@ func (r *DynamicResourceRequestController) deleteResources(o opts, promise *v1al
 	}
 
 	if controllerutil.ContainsFinalizer(resourceRequest, workFinalizer) {
-		err := r.deleteWork(o, resourceRequest, resourceRequestIdentifier, workFinalizer, namespace)
+		err := r.deleteWork(o, resourceRequest, workFinalizer, namespace)
 		if err != nil {
 			return ctrl.Result{}, err
 		}
@@ -481,7 +482,7 @@ func (r *DynamicResourceRequestController) deleteResources(o opts, promise *v1al
 	return fastRequeue, nil
 }
 
-func (r *DynamicResourceRequestController) deleteWork(o opts, resourceRequest *unstructured.Unstructured, workName, finalizer, namespace string) error {
+func (r *DynamicResourceRequestController) deleteWork(o opts, resourceRequest *unstructured.Unstructured, finalizer, namespace string) error {
 	works, err := resourceutil.GetAllWorksForResource(r.Client, namespace, r.PromiseIdentifier, resourceRequest.GetName())
 	if err != nil {
 		return err
@@ -496,13 +497,16 @@ func (r *DynamicResourceRequestController) deleteWork(o opts, resourceRequest *u
 		return nil
 	}
 
-	for _, work := range works {
-		err = r.Client.Delete(o.ctx, &work)
-		if err != nil {
-			if !apierrors.IsNotFound(err) {
-				return err
+	parentAnnotations := resourceRequest.GetAnnotations()
+	for i := range works {
+		work := &works[i]
+		if err := ensureTraceAnnotations(o.ctx, r.Client, work, parentAnnotations); err != nil {
+			return err
+		}
+		if err := r.Client.Delete(o.ctx, work); err != nil {
+			if apierrors.IsNotFound(err) {
+				continue
 			}
-			o.logger.Error(err, "Error deleting Work %s, will try again", "workName", workName)
 			return err
 		}
 	}

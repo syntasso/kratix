@@ -96,6 +96,7 @@ func (r *WorkPlacementReconciler) Reconcile(ctx context.Context, req ctrl.Reques
 		attribute.String("kratix.workplacement.namespace", workPlacement.GetNamespace()),
 		attribute.String("kratix.workplacement.target_destination", workPlacement.Spec.TargetDestinationName),
 	)
+	traceCtx.AddAttributes(attribute.String("kratix.action", traceCtx.Action()))
 
 	if err := persistReconcileTrace(traceCtx, r.Client, logger); err != nil {
 		logger.Error(err, "failed to persist trace annotations")
