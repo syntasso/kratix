@@ -137,6 +137,33 @@ var _ = Describe("Promise", func() {
 			})
 		})
 
+		When("promise has no api", func() {
+			When("the promise api is nil or invalid", func() {
+				It("errors", func() {
+					promise.Spec.API.Raw = nil
+					_, _, err := promise.GetAPI()
+					Expect(err).To(MatchError(platformv1alpha1.ErrNoAPI))
+				})
+
+				It("errors", func() {
+					promise.Spec.API = nil
+					_, _, err := promise.GetAPI()
+					Expect(err).To(MatchError(platformv1alpha1.ErrNoAPI))
+				})
+
+				It("errors", func() {
+					promise.Spec.API.Raw = []byte("{}")
+					_, _, err := promise.GetAPI()
+					Expect(err).To(MatchError(platformv1alpha1.ErrNoAPI))
+				})
+
+				It("errors", func() {
+					setPromiseAPI(promise, nil)
+					_, _, err := promise.GetAPI()
+					Expect(err).To(MatchError(platformv1alpha1.ErrNoAPI))
+				})
+			})
+		})
 	})
 })
 
