@@ -103,7 +103,7 @@ func (r *WorkPlacementReconciler) Reconcile(ctx context.Context, req ctrl.Reques
 	logging.Info(logger, "reconciliation started")
 	defer logReconcileDuration(logger, time.Now(), result, retErr)()
 
-	addWorkplacementSpanAttributes(traceCtx, promiseName, workPlacement)
+	addWorkPlacementSpanAttributes(traceCtx, promiseName, workPlacement)
 
 	if err := persistReconcileTrace(traceCtx, r.Client, logger); err != nil {
 		logging.Error(logger, err, "failed to persist trace annotations")
@@ -134,8 +134,6 @@ func (r *WorkPlacementReconciler) Reconcile(ctx context.Context, req ctrl.Reques
 	if missingFinalizers := checkWorkPlacementFinalizers(workPlacement, filepathMode); len(missingFinalizers) > 0 {
 		return addFinalizers(opts, workPlacement, missingFinalizers)
 	}
-
-	logging.Info(logger, "workplacement successfully reconciled", "versionID", versionID)
 
 	return ctrl.Result{}, r.setWorkplacementReady(ctx, workPlacement)
 }
@@ -389,7 +387,9 @@ func (r *WorkPlacementReconciler) writeToStateStore(wp *v1alpha1.WorkPlacement, 
 
 	if apiMeta.SetStatusCondition(&wp.Status.Conditions, cond) {
 		if statusUpdateErr := r.Client.Status().Update(opts.ctx, wp); statusUpdateErr != nil {
-			logging.Error(opts.logger, statusUpdateErr, "failed to update status condition")
+			if !kerrors.IsConflict(statusUpdateErr) {
+				logging.Error(opts.logger, statusUpdateErr, "failed to update status condition")
+			}
 			return versionID, defaultRequeue, nil
 		}
 	}
@@ -652,7 +652,7 @@ func (r *WorkPlacementReconciler) removeVersionID(workPlacement *v1alpha1.WorkPl
 	delete(r.VersionCache, workPlacement.GetUniqueID())
 }
 
-func addWorkplacementSpanAttributes(traceCtx *reconcileTrace, promiseName string, workPlacement *v1alpha1.WorkPlacement) {
+func addWorkPlacementSpanAttributes(traceCtx *reconcileTrace, promiseName string, workPlacement *v1alpha1.WorkPlacement) {
 	traceCtx.AddAttributes(
 		attribute.String("kratix.promise.name", promiseName),
 		attribute.String("kratix.workplacement.name", workPlacement.GetName()),

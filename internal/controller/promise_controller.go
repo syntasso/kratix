@@ -142,10 +142,8 @@ func (r *PromiseReconciler) Reconcile(ctx context.Context, req ctrl.Request) (re
 		if errors.IsNotFound(err) {
 			return ctrl.Result{}, nil
 		}
-		if client.IgnoreNotFound(err) != nil {
-			logging.Warn(logger, "failed to get Promise; requeueing", "promise", req.NamespacedName.Name, "error", err)
-			return defaultRequeue, nil
-		}
+		logging.Warn(logger, "failed to get Promise; requeueing", "promise", req.NamespacedName.Name, "error", err)
+		return defaultRequeue, nil
 	}
 
 	baseLogger := logger.WithValues(

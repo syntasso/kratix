@@ -124,7 +124,7 @@ func (r *WorkReconciler) Reconcile(ctx context.Context, req ctrl.Request) (resul
 		defer work.SetAnnotations(originalAnnotations)
 	}
 
-	logging.Info(logger, "requesting scheduling for Work")
+	logging.Info(logger, "scheduling work")
 
 	unscheduledWorkloadGroupIDs, err := r.Scheduler.ReconcileWork(work)
 	if err != nil {
@@ -203,12 +203,14 @@ func (r *WorkReconciler) deleteWork(ctx context.Context, work *v1alpha1.Work) er
 		Kind:    "WorkPlacement",
 	}
 
+	logging.Debug(r.Log, "deleting workplacements")
+
 	wpList := &unstructured.UnstructuredList{}
 	wpList.SetGroupVersionKind(workplacementGVK)
 	selector := labels.SelectorFromSet(map[string]string{workLabelKey: work.Name})
 	if err := r.Client.List(ctx, wpList, &client.ListOptions{LabelSelector: selector}); err != nil {
 		r.EventRecorder.Eventf(work, v1.EventTypeWarning, "FailedDelete",
-			"deleting work failed: %s", err.Error())
+			"failed to list associated workplacements: %s", err.Error())
 		return err
 	}
 
@@ -217,7 +219,7 @@ func (r *WorkReconciler) deleteWork(ctx context.Context, work *v1alpha1.Work) er
 	for i := range wpList.Items {
 		wp := &wpList.Items[i]
 		if err := ensureTraceAnnotations(ctx, r.Client, wp, parentAnnotations); err != nil {
-			r.Log.Info("Failed to ensure trace annotations are propagated, ignoring the error...", "error", err)
+			logging.Debug(r.Log, "Failed to ensure trace annotations are propagated, ignoring the error...", "error", err)
 		}
 		if err := r.Client.Delete(ctx, wp, client.PropagationPolicy(metav1.DeletePropagationBackground)); err != nil {
 			if errors.IsNotFound(err) {
@@ -235,10 +237,12 @@ func (r *WorkReconciler) deleteWork(ctx context.Context, work *v1alpha1.Work) er
 
 	if controllerutil.RemoveFinalizer(work, workCleanUpFinalizer) {
 		if err := r.Client.Update(ctx, work); err != nil {
-			r.Log.Info("Failed to remove finalizer, requeuing...", "error", err)
+			logging.Debug(r.Log, "Failed to remove finalizer, requeuing...", "error", err)
 			return err
 		}
 	}
+
+	logging.Debug(r.Log, "workplacements deleted")
 	return nil
 }
 
