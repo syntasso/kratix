@@ -207,31 +207,33 @@ func (r *WorkReconciler) deleteWork(ctx context.Context, work *v1alpha1.Work) er
 		return err
 	}
 
-	if len(wpList.Items) == 0 {
-		controllerutil.RemoveFinalizer(work, workCleanUpFinalizer)
-		if err := r.Client.Update(ctx, work); err != nil {
-			r.Log.Info("Failed to remove finalizer, requeuing...", "error", err)
-			return err
-		}
-		return nil
-	}
-
 	parentAnnotations := work.GetAnnotations()
+	deleteErrors := []string{}
 	for i := range wpList.Items {
 		wp := &wpList.Items[i]
 		if err := ensureTraceAnnotations(ctx, r.Client, wp, parentAnnotations); err != nil {
-			r.Log.Info("Failed to ensure trace annotations is propagated, ignoring it...", "error", err)
+			r.Log.Info("Failed to ensure trace annotations are propagated, ignoring the error...", "error", err)
 		}
 		if err := r.Client.Delete(ctx, wp, client.PropagationPolicy(metav1.DeletePropagationBackground)); err != nil {
 			if errors.IsNotFound(err) {
 				continue
 			}
+			deleteErrors = append(deleteErrors, err.Error())
 			r.EventRecorder.Eventf(work, v1.EventTypeWarning, "FailedDelete",
-				"deleting work failed: %s", err.Error())
-			return err
+				"deleting associated workplacement failed: %s", err.Error())
 		}
 	}
 
+	if len(deleteErrors) > 0 {
+		return fmt.Errorf("failed to delete workplacements: %s", strings.Join(deleteErrors, ","))
+	}
+
+	if controllerutil.RemoveFinalizer(work, workCleanUpFinalizer) {
+		if err := r.Client.Update(ctx, work); err != nil {
+			r.Log.Info("Failed to remove finalizer, requeuing...", "error", err)
+			return err
+		}
+	}
 	return nil
 }
 
