@@ -340,6 +340,10 @@ func workPlacementStatusUpdatePredicate() predicate.Funcs {
 				return true
 			}
 
+			if oldWP.GetGeneration() != newWP.GetGeneration() {
+				return true
+			}
+
 			if oldWP.GetDeletionTimestamp().IsZero() != newWP.GetDeletionTimestamp().IsZero() {
 				return true
 			}
