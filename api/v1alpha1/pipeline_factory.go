@@ -173,10 +173,10 @@ func (p *PipelineFactory) defaultEnvVars() []corev1.EnvVar {
 		objKind = p.ResourceRequest.GroupVersionKind().Kind
 	}
 	return []corev1.EnvVar{
-		{Name: kratixActionEnvVar, Value: string(p.WorkflowAction)},
-		{Name: kratixTypeEnvVar, Value: string(p.WorkflowType)},
+		{Name: KratixActionEnvVar, Value: string(p.WorkflowAction)},
+		{Name: KratixTypeEnvVar, Value: string(p.WorkflowType)},
 		{Name: KratixPromiseNameEnvVar, Value: p.Promise.GetName()},
-		{Name: kratixPipelineNameEnvVar, Value: p.Pipeline.Name},
+		{Name: KratixPipelineNameEnvVar, Value: p.Pipeline.Name},
 		{Name: KratixObjectKindEnvVar, Value: objKind},
 		{Name: KratixObjectGroupEnvVar, Value: objGroup},
 		{Name: KratixObjectVersionEnvVar, Value: objVersion},
