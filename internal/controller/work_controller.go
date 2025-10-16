@@ -167,7 +167,7 @@ func (r *WorkReconciler) updateWorkStatus(ctx context.Context, logger logr.Logge
 		workLabelKey: work.Name,
 	})
 	if err != nil {
-		logging.Warn(logger, "failed to list associated WorkPlacements")
+		logging.Error(logger, err, "failed to list associated WorkPlacements")
 		return err
 	}
 

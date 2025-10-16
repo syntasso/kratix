@@ -81,8 +81,11 @@ func reconcileStateStoreCommon(
 	}
 
 	if err = writer.ValidatePermissions(); err != nil && !errors.Is(err, writers.ErrAuthSucceededAfterTrim) {
-		logging.Warn(o.logger, "error validating state store permissions", "error", err)
+		logging.Error(o.logger, err, "error validating state store permissions")
 		if err = updateStateStoreReadyStatusAndCondition(o, eventRecorder, stateStore, StateStoreNotReadyErrorValidatingPermissionsReason, StateStoreNotReadyErrorValidatingPermissionsMessage, err); err != nil {
+			if kerrors.IsConflict(err) {
+				return fastRequeue, nil
+			}
 			logging.Error(o.logger, err, "error updating state store status")
 		}
 		return defaultRequeue, nil

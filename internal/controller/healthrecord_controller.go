@@ -64,8 +64,9 @@ func (r *HealthRecordReconciler) Reconcile(ctx context.Context, req ctrl.Request
 	}
 
 	logger = logger.WithValues(
-		"promiseRef", healthRecord.Data.PromiseRef,
-		"resourceRef", healthRecord.Data.ResourceRef,
+		"promise", healthRecord.Data.PromiseRef.Name,
+		"resourceName", healthRecord.Data.ResourceRef.Name,
+		"resourceNamespace", healthRecord.Data.ResourceRef.Namespace,
 		"generation", healthRecord.GetGeneration(),
 	)
 	start := time.Now()
@@ -210,14 +211,11 @@ func (r *HealthRecordReconciler) getInitialHealthStatusState(resReq *unstructure
 	status := resReq.Object["status"]
 	var initialHealthStatusState = ""
 
-	statusMap, ok := status.(map[string]interface{})
-	if !ok {
-		logging.Warn(r.Log, "error getting status of resource request", "name", resReq.GetName(), "namespace", resReq.GetNamespace())
-	}
+	statusMap := status.(map[string]any)
 
 	initialHealthData, ok := statusMap["healthStatus"]
 	if ok {
-		initialHealthStatusState, _ = initialHealthData.(map[string]interface{})["state"].(string)
+		initialHealthStatusState, _ = initialHealthData.(map[string]any)["state"].(string)
 	}
 
 	return initialHealthStatusState
@@ -267,24 +265,18 @@ func (r *HealthRecordReconciler) deleteHealthRecord(
 	var recordInResourceHealthRecords bool
 
 	for _, record := range resourceHealthRecords {
-		recordMap, ok := record.(map[string]any)
-		if !ok {
-			logging.Warn(r.Log, "error parsing health record for resource request", "name", resReq.GetName(), "namespace", resReq.GetNamespace())
+		recordMap, hasRecordMap := record.(map[string]any)
+		if !hasRecordMap {
+			continue
 		}
 
-		source, ok := recordMap["source"].(map[string]any)
-		if !ok {
-			logging.Warn(r.Log, "error parsing source in health record for resource request", "name", resReq.GetName(), "namespace", resReq.GetNamespace())
-		}
-
-		if source["name"] == healthRecord.GetName() {
+		source, hasSource := recordMap["source"].(map[string]any)
+		if hasSource && source["name"] == healthRecord.GetName() {
 			recordInResourceHealthRecords = true
 		}
 	}
 
 	if !recordInResourceHealthRecords {
-		logging.Warn(r.Log, "health record not found in resource state health records", "healthRecord", healthRecord.GetName())
-
 		if result, err := r.removeFinalizer(ctx, healthRecord); err != nil {
 			return result, err
 		}
@@ -340,17 +332,19 @@ func (r *HealthRecordReconciler) removeFinalizer(ctx context.Context, healthReco
 
 func (r *HealthRecordReconciler) getResourceHealthRecords(resReq *unstructured.Unstructured) []any {
 	status := resReq.Object["status"]
-	statusMap, ok := status.(map[string]interface{})
-	if !ok {
-		logging.Warn(r.Log, "error getting status of resource request", "name", resReq.GetName(), "namespace", resReq.GetNamespace())
+	if status == nil {
+		return nil
 	}
-	currentHealthStatus, ok := statusMap["healthStatus"].(map[string]any)
-	if !ok {
-		logging.Warn(r.Log, "error getting health status of resource request", "name", resReq.GetName(), "namespace", resReq.GetNamespace())
+
+	statusMap := status.(map[string]any)
+	currentHealthStatus, hasHealthStatus := statusMap["healthStatus"].(map[string]any)
+	if !hasHealthStatus {
+		return nil
 	}
-	healthRecords, ok := currentHealthStatus["healthRecords"].([]any)
-	if !ok {
-		logging.Warn(r.Log, "error getting health records in resource request status", "name", resReq.GetName(), "namespace", resReq.GetNamespace())
+
+	healthRecords, hasHealthRecords := currentHealthStatus["healthRecords"].([]any)
+	if !hasHealthRecords {
+		return nil
 	}
 	return healthRecords
 }
