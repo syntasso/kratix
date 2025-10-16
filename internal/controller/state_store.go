@@ -9,6 +9,7 @@ import (
 	"github.com/syntasso/kratix/internal/logging"
 	v1 "k8s.io/api/core/v1"
 	"k8s.io/apimachinery/pkg/api/errors"
+	kerrors "k8s.io/apimachinery/pkg/api/errors"
 	"k8s.io/apimachinery/pkg/api/meta"
 	metav1 "k8s.io/apimachinery/pkg/apis/meta/v1"
 	"k8s.io/apimachinery/pkg/types"
@@ -79,8 +80,11 @@ func reconcileStateStoreCommon(
 	}
 
 	if err = writer.ValidatePermissions(); err != nil {
-		logging.Warn(o.logger, "error validating state store permissions", "error", err)
+		logging.Error(o.logger, err, "error validating state store permissions")
 		if err = updateStateStoreReadyStatusAndCondition(o, eventRecorder, stateStore, StateStoreNotReadyErrorValidatingPermissionsReason, StateStoreNotReadyErrorValidatingPermissionsMessage, err); err != nil {
+			if kerrors.IsConflict(err) {
+				return fastRequeue, nil
+			}
 			logging.Error(o.logger, err, "error updating state store status")
 		}
 		return defaultRequeue, nil

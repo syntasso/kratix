@@ -45,30 +45,18 @@ func logWarn(logger logr.Logger, msg string, keysAndValues ...any) bool {
 		return false
 	}
 
-	fields, ok := zapFields(keysAndValues)
+	baseZap := underlier.GetUnderlying()
+	if baseZap.Check(zap.WarnLevel, msg) == nil {
+		return true
+	}
+
+	loggerWithFields := withSeverity.WithValues(keysAndValues...)
+	fieldSink := loggerWithFields.GetSink()
+	fieldUnderlier, ok := fieldSink.(zapr.Underlier)
 	if !ok {
 		return false
 	}
 
-	underlier.GetUnderlying().WithOptions(zap.AddCallerSkip(1)).Warn(msg, fields...)
+	fieldUnderlier.GetUnderlying().WithOptions(zap.AddCallerSkip(1)).Warn(msg)
 	return true
-}
-
-func zapFields(keysAndValues []any) ([]zap.Field, bool) {
-	if len(keysAndValues) == 0 {
-		return nil, true
-	}
-	if len(keysAndValues)%2 != 0 {
-		return nil, false
-	}
-
-	fields := make([]zap.Field, 0, len(keysAndValues)/2)
-	for i := 0; i < len(keysAndValues); i += 2 {
-		key, ok := keysAndValues[i].(string)
-		if !ok {
-			return nil, false
-		}
-		fields = append(fields, zap.Any(key, keysAndValues[i+1]))
-	}
-	return fields, true
 }

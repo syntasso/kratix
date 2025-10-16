@@ -220,7 +220,10 @@ func (s *Scheduler) reconcileWorkloadGroup(workloadGroup v1alpha1.WorkloadGroup,
 	}
 
 	destinationSelectors := resolveDestinationSelectorsForWorkloadGroup(workloadGroup)
-	targetDestinationNames := s.getTargetDestinationNames(destinationSelectors, work)
+	targetDestinationNames, err := s.getTargetDestinationNames(destinationSelectors, work)
+	if err != nil {
+		return "", err
+	}
 	targetDestinationMap := map[string]bool{}
 	for _, dest := range targetDestinationNames {
 		//false == not misscheduled
@@ -259,7 +262,11 @@ func (s *Scheduler) reconcileWorkloadGroup(workloadGroup v1alpha1.WorkloadGroup,
 func (s *Scheduler) updateWorkPlacement(workloadGroup v1alpha1.WorkloadGroup, workPlacement *v1alpha1.WorkPlacement) (bool, error) {
 	misplaced := true
 	destinationSelectors := resolveDestinationSelectorsForWorkloadGroup(workloadGroup)
-	for _, dest := range s.getDestinationsForWorkloadGroup(destinationSelectors) {
+	destinations, err := s.getDestinationsForWorkloadGroup(destinationSelectors)
+	if err != nil {
+		return false, err
+	}
+	for _, dest := range destinations {
 		if dest.GetName() == workPlacement.Spec.TargetDestinationName {
 			misplaced = false
 			break
@@ -285,7 +292,7 @@ func (s *Scheduler) updateWorkPlacement(workloadGroup v1alpha1.WorkloadGroup, wo
 }
 
 func (s *Scheduler) labelWorkplacementAsMisplaced(workPlacement *v1alpha1.WorkPlacement) {
-	logging.Warn(s.Log, "workplacement scheduled to destination that doesn't fulfil scheduling requirements", "workplacement", workPlacement.Name, "namespace", workPlacement.Namespace)
+	logging.Warn(s.Log, "workplacement scheduled to destination that doesn't fulfil scheduling requirements")
 	newLabels := workPlacement.GetLabels()
 	if newLabels == nil {
 		newLabels = make(map[string]string)
@@ -315,9 +322,9 @@ func listWorkplacementWithLabels(c client.Client, logger logr.Logger, namespace 
 	workSelectorLabel := labels.FormatLabels(matchLabels)
 	//<none> is valid output from above
 	selector, err := labels.Parse(workSelectorLabel)
-
 	if err != nil {
-		logging.Warn(logger, "error parsing scheduling", "error", err)
+		logging.Error(logger, err, "error parsing scheduling")
+		return nil, err
 	}
 	workPlacementListOptions.LabelSelector = selector
 
@@ -433,11 +440,14 @@ func (s *Scheduler) updateWorkPlacementStatus(workPlacement *v1alpha1.WorkPlacem
 
 // Where Work is a Resource Request return one random Destination name, where Work is a
 // DestinationWorkerResource return all Destination names
-func (s *Scheduler) getTargetDestinationNames(destinationSelectors map[string]string, work *v1alpha1.Work) []string {
-	destinations := s.getDestinationsForWorkloadGroup(destinationSelectors)
+func (s *Scheduler) getTargetDestinationNames(destinationSelectors map[string]string, work *v1alpha1.Work) ([]string, error) {
+	destinations, err := s.getDestinationsForWorkloadGroup(destinationSelectors)
+	if err != nil {
+		return nil, err
+	}
 
 	if len(destinations) == 0 {
-		return make([]string, 0)
+		return make([]string, 0), nil
 	}
 
 	if work.IsResourceRequest() {
@@ -446,7 +456,7 @@ func (s *Scheduler) getTargetDestinationNames(destinationSelectors map[string]st
 		randomDestinationIndex := rand.Intn(len(destinations))
 		targetDestinationNames[0] = destinations[randomDestinationIndex].Name
 		logging.Trace(s.Log, "adding destination", "destination", targetDestinationNames[0])
-		return targetDestinationNames
+		return targetDestinationNames, nil
 	} else if work.IsDependency() {
 		logging.Trace(s.Log, "getting destination names for dependencies")
 		var targetDestinationNames = make([]string, len(destinations))
@@ -454,15 +464,15 @@ func (s *Scheduler) getTargetDestinationNames(destinationSelectors map[string]st
 			targetDestinationNames[i] = destinations[i].Name
 			logging.Trace(s.Log, "adding destination", "destination", targetDestinationNames[i])
 		}
-		return targetDestinationNames
+		return targetDestinationNames, nil
 	} else {
 		logging.Trace(s.Log, "work is neither resource request nor dependency")
-		return make([]string, 0)
+		return make([]string, 0), nil
 	}
 }
 
 // By default, all destinations are returned. However, if scheduling is provided, only matching destinations will be returned.
-func (s *Scheduler) getDestinationsForWorkloadGroup(destinationSelectors map[string]string) []v1alpha1.Destination {
+func (s *Scheduler) getDestinationsForWorkloadGroup(destinationSelectors map[string]string) ([]v1alpha1.Destination, error) {
 	destinationList := &v1alpha1.DestinationList{}
 	lo := &client.ListOptions{}
 
@@ -470,9 +480,9 @@ func (s *Scheduler) getDestinationsForWorkloadGroup(destinationSelectors map[str
 		workloadGroupSelectorLabel := labels.FormatLabels(destinationSelectors)
 		//<none> is valid output from above
 		selector, err := labels.Parse(workloadGroupSelectorLabel)
-
 		if err != nil {
-			logging.Warn(s.Log, "error parsing scheduling", "error", err)
+			logging.Error(s.Log, err, "error parsing scheduling")
+			return nil, err
 		}
 		lo.LabelSelector = selector
 	}
@@ -480,6 +490,7 @@ func (s *Scheduler) getDestinationsForWorkloadGroup(destinationSelectors map[str
 	err := s.Client.List(context.Background(), destinationList, lo)
 	if err != nil {
 		logging.Error(s.Log, err, "error listing available destinations")
+		return nil, err
 	}
 
 	destinations := []v1alpha1.Destination{}
@@ -490,7 +501,7 @@ func (s *Scheduler) getDestinationsForWorkloadGroup(destinationSelectors map[str
 		}
 		destinations = append(destinations, destination)
 	}
-	return destinations
+	return destinations, nil
 }
 
 func resolveDestinationSelectorsForWorkloadGroup(workloadGroup v1alpha1.WorkloadGroup) map[string]string {

@@ -143,7 +143,7 @@ func (r *PromiseReconciler) Reconcile(ctx context.Context, req ctrl.Request) (re
 		if errors.IsNotFound(err) {
 			return ctrl.Result{}, nil
 		}
-		logging.Warn(logger, "failed to get Promise; requeueing", "promise", req.NamespacedName.Name, "error", err)
+		logging.Warn(logger, "failed to get Promise; requeueing")
 		return defaultRequeue, nil
 	}
 
@@ -435,7 +435,7 @@ func (r *PromiseReconciler) getWorksStatus(ctx context.Context,
 	)
 	selector, err := labels.Parse(workSelectorLabel)
 	if err != nil {
-		logging.Warn(r.Log, "failed parsing Works selector label", "labels", workSelectorLabel)
+		logging.Error(r.Log, err, "failed parsing Works selector label", "labels", workSelectorLabel)
 		return nil, nil, nil, nil, err
 	}
 
@@ -444,9 +444,8 @@ func (r *PromiseReconciler) getWorksStatus(ctx context.Context,
 		Namespace:     promise.GetNamespace(),
 		LabelSelector: selector,
 	})
-
 	if err != nil {
-		logging.Warn(r.Log, "failed listing works", "namespace", promise.GetNamespace(), "labelSelector", workSelectorLabel, "error", err)
+		logging.Error(r.Log, err, "failed listing works", "labelSelector", workSelectorLabel)
 		return nil, nil, nil, nil, err
 	}
 
@@ -797,7 +796,7 @@ func (r *PromiseReconciler) reconcileDependenciesAndPromiseWorkflows(o opts, pro
 	completedCond := promise.GetCondition(string(resourceutil.ConfigureWorkflowCompletedCondition))
 	forcePipelineRun := completedCond != nil && completedCond.Status == "True" && time.Since(completedCond.LastTransitionTime.Time) > r.ReconciliationInterval
 	if forcePipelineRun && promise.Labels[resourceutil.ManualReconciliationLabel] != "true" {
-		logging.Warn(o.logger, "pipeline completed too long ago; forcing reconciliation", "lastTransitionTime", completedCond.LastTransitionTime.Time.String())
+		logging.Trace(o.logger, "pipeline completed too long ago; forcing reconciliation", "lastTransitionTime", completedCond.LastTransitionTime.Time.String())
 		promise.Labels[resourceutil.ManualReconciliationLabel] = "true"
 		return &ctrl.Result{}, r.Client.Update(o.ctx, promise)
 	}
@@ -1085,7 +1084,7 @@ func (r *PromiseReconciler) ensureCRDExists(ctx context.Context, promise *v1alph
 		}
 	}
 
-	logging.Warn(logger, "CRD not yet established", "crdName", rrCRD.Name, "statusConditions", updatedCRD.Status.Conditions)
+	logging.Debug(logger, "CRD not yet established", "crdName", rrCRD.Name, "statusConditions", updatedCRD.Status.Conditions)
 
 	return &fastRequeue, nil
 }
