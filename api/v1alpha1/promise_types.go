@@ -203,9 +203,11 @@ func generateLabelSelectorsFromScheduling(scheduling []PromiseScheduling) map[st
 }
 
 func (p *Promise) DoesNotContainAPI() bool {
-	// if a workflow is set but there is not an API the workflow is ignored
-	// TODO how can we prevent this scenario from happening
-	return p.Spec.API == nil || p.Spec.API.Raw == nil
+	return p.Spec.API == nil ||
+		p.Spec.API.Raw == nil ||
+		len(p.Spec.API.Raw) == 0 ||
+		bytes.Equal(bytes.TrimSpace(p.Spec.API.Raw), []byte("{}")) ||
+		bytes.Equal(bytes.TrimSpace(p.Spec.API.Raw), []byte("null"))
 }
 
 // GetAPI returns the GroupVersionKind and CustomResourceDefinition for the Promise's API
