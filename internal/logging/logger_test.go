@@ -78,6 +78,51 @@ var _ = Describe("Severity helpers", func() {
 	})
 })
 
+var _ = Describe("Warn log level gating", func() {
+	It("emits warnings even when Info level is disabled", func() {
+		core, recorded := observer.New(zapcore.WarnLevel)
+		zapLogger := zap.New(core)
+		logger := zapr.NewLogger(zapLogger)
+
+		logging.Info(logger, "info suppressed")
+		Expect(recorded.Len()).To(Equal(0))
+
+		logging.Warn(logger, "warn-message")
+		entries := recorded.All()
+		Expect(entries).To(HaveLen(1))
+		Expect(entries[0].Entry.Level).To(Equal(zapcore.WarnLevel))
+		Expect(severityFromFields(entries[0].Context)).To(Equal("warning"))
+	})
+
+	It("preserves lazy evaluation semantics", func() {
+		core, recorded := observer.New(zapcore.WarnLevel)
+		zapLogger := zap.New(core)
+		logger := zapr.NewLogger(zapLogger)
+
+		called := false
+		value := marshaler{called: &called}
+
+		logging.Warn(logger, "warn-message", "lazy", value)
+		entries := recorded.All()
+		Expect(called).To(BeTrue())
+		Expect(entries).To(HaveLen(1))
+	})
+
+	It("avoids evaluating lazy values when warn level is disabled", func() {
+		core, recorded := observer.New(zapcore.ErrorLevel)
+		zapLogger := zap.New(core)
+		logger := zapr.NewLogger(zapLogger)
+
+		called := false
+		value := marshaler{called: &called}
+
+		logging.Warn(logger, "warn-message", "lazy", value)
+		entries := recorded.All()
+		Expect(called).To(BeFalse())
+		Expect(entries).To(BeEmpty())
+	})
+})
+
 func severityFromFields(fields []zapcore.Field) string {
 	for _, field := range fields {
 		if field.Key == logging.SeverityKey && field.Type == zapcore.StringType {
@@ -85,4 +130,13 @@ func severityFromFields(fields []zapcore.Field) string {
 		}
 	}
 	return ""
+}
+
+type marshaler struct {
+	called *bool
+}
+
+func (m marshaler) MarshalLog() any {
+	*m.called = true
+	return "lazy"
 }

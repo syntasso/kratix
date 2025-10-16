@@ -181,7 +181,7 @@ func (r *DynamicResourceRequestController) Reconcile(ctx context.Context, req ct
 	logging.Info(logger, "resource contains configure workflow(s); reconciling workflows")
 	completedCond := resourceutil.GetCondition(rr, resourceutil.ConfigureWorkflowCompletedCondition)
 	if shouldForcePipelineRun(completedCond, r.ReconciliationInterval) && !r.manualReconciliationLabelSet(rr) {
-		logging.Warn(
+		logging.Debug(
 			logger,
 			"resource configure pipeline completed too long ago; forcing reconciliation",
 			"lastTransitionTime",
@@ -363,7 +363,7 @@ func (r *DynamicResourceRequestController) getWorksStatus(ctx context.Context, r
 	workSelectorLabel := labels.FormatLabels(workLabels)
 	selector, err := labels.Parse(workSelectorLabel)
 	if err != nil {
-		logging.Warn(r.Log, "failed parsing works selector label", "labels", workSelectorLabel)
+		logging.Debug(r.Log, "failed parsing works selector label", "labels", workSelectorLabel)
 		return nil, nil, nil, nil, err
 	}
 
@@ -374,7 +374,7 @@ func (r *DynamicResourceRequestController) getWorksStatus(ctx context.Context, r
 	})
 
 	if err != nil {
-		logging.Warn(r.Log, "failed listing works", "namespace", rr.GetNamespace(), "labelSelector", workSelectorLabel, "error", err)
+		logging.Error(r.Log, err, "failed listing works", "namespace", rr.GetNamespace(), "labelSelector", workSelectorLabel)
 		return nil, nil, nil, nil, err
 	}
 
@@ -518,7 +518,7 @@ func (r *DynamicResourceRequestController) deleteWork(o opts, resourceRequest *u
 			if apierrors.IsNotFound(err) {
 				continue
 			}
-			logging.Warn(o.logger, "error deleting work; will retry", "workName", work.GetName(), "error", err)
+			logging.Warn(o.logger, "could not delete work; retrying", "reason", err.Error())
 			return err
 		}
 	}
@@ -594,7 +594,7 @@ func (r *DynamicResourceRequestController) ensurePromiseIsUnavailable(ctx contex
 	logger logr.Logger,
 ) (ctrl.Result, error) {
 	if !resourceutil.IsPromiseMarkedAsUnavailable(rr) {
-		logging.Warn(logger, "cannot create resources; setting PromiseAvailable to false in resource status")
+		logging.Trace(logger, "cannot create resources; setting PromiseAvailable to false in resource status")
 		resourceutil.MarkPromiseConditionAsNotAvailable(rr, logger)
 
 		return ctrl.Result{}, r.Client.Status().Update(ctx, rr)

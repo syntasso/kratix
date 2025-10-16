@@ -111,10 +111,15 @@ func (r *WorkPlacementReconciler) Reconcile(ctx context.Context, req ctrl.Reques
 	}
 
 	opts := opts{client: r.Client, ctx: ctx, logger: logger}
-	destination, err := r.getDestination(ctx, logger, workPlacement)
+	destination, err := r.getDestination(ctx, workPlacement)
 	if err != nil && workPlacement.DeletionTimestamp.IsZero() {
-		logging.Error(logger, err, "error retrieving destination")
-		return ctrl.Result{}, err
+		if k8sErrors.IsNotFound(err) {
+			logging.Warn(logger, "destination not found", "workPlacement", workPlacement.Spec.TargetDestinationName)
+			return ctrl.Result{}, nil
+		} else {
+			logging.Error(logger, err, "failed to retrieve Destination", "workPlacement", workPlacement.Spec.TargetDestinationName)
+			return ctrl.Result{}, err
+		}
 	}
 
 	if !workPlacement.DeletionTimestamp.IsZero() {
@@ -151,16 +156,11 @@ func (r *WorkPlacementReconciler) Reconcile(ctx context.Context, req ctrl.Reques
 	return ctrl.Result{}, readyErr
 }
 
-func (r *WorkPlacementReconciler) getDestination(ctx context.Context, logger logr.Logger, wp *v1alpha1.WorkPlacement) (*v1alpha1.Destination, error) {
+func (r *WorkPlacementReconciler) getDestination(ctx context.Context, wp *v1alpha1.WorkPlacement) (*v1alpha1.Destination, error) {
 	dest := &v1alpha1.Destination{}
 	key := client.ObjectKey{Name: wp.Spec.TargetDestinationName}
 
 	if err := r.Client.Get(ctx, key, dest); err != nil {
-		if k8sErrors.IsNotFound(err) {
-			logging.Warn(logger, "destination not found", "name", wp.Spec.TargetDestinationName)
-		} else {
-			logging.Error(logger, err, "failed to retrieve Destination", "name", wp.Spec.TargetDestinationName)
-		}
 		return nil, err
 	}
 
