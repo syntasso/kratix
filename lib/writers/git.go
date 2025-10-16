@@ -14,6 +14,7 @@ import (
 	"path/filepath"
 	"strings"
 	"time"
+	"unicode"
 
 	"github.com/go-git/go-git/v5"
 	"github.com/go-git/go-git/v5/plumbing"
@@ -33,6 +34,7 @@ type GitWriter struct {
 	Author    gitAuthor
 	Path      string
 	Log       logr.Logger
+	BasicAuth bool
 }
 
 type gitServer struct {
@@ -147,6 +149,7 @@ func NewGitWriter(logger logr.Logger, stateStoreSpec v1alpha1.GitStateStoreSpec,
 			stateStoreSpec.Path,
 			destinationPath,
 		), "/"),
+		BasicAuth: stateStoreSpec.AuthMethod == v1alpha1.BasicAuthMethod,
 	}, nil
 }
 
@@ -345,10 +348,14 @@ func (g *GitWriter) setupLocalDirectoryWithRepo(logger logr.Logger) (string, *gi
 		return "", nil, nil, err
 	}
 
-	repo, err := g.cloneRepo(localTmpDir, logger)
-	if err != nil {
-		logging.Error(logger, err, "could not clone repository")
-		return "", nil, nil, err
+	repo, cloneErr := g.cloneRepo(localTmpDir, logger)
+	if cloneErr != nil && !errors.Is(cloneErr, ErrAuthSucceededAfterTrim) {
+		logging.Error(logger, cloneErr, "could not clone repository")
+		return "", nil, nil, cloneErr
+	}
+
+	if repo == nil {
+		return "", nil, nil, fmt.Errorf("clone returned nil repository")
 	}
 
 	worktree, err := repo.Worktree()
@@ -356,7 +363,7 @@ func (g *GitWriter) setupLocalDirectoryWithRepo(logger logr.Logger) (string, *gi
 		logging.Error(logger, err, "could not access repo worktree")
 		return "", nil, nil, err
 	}
-	return localTmpDir, repo, worktree, nil
+	return localTmpDir, repo, worktree, cloneErr
 }
 
 func (g *GitWriter) push(repo *git.Repository, logger logr.Logger) error {
@@ -398,18 +405,18 @@ func (g *GitWriter) validatePush(repo *git.Repository, logger logr.Logger) error
 // It performs a dry run validation to check authentication and branch existence without making changes.
 func (g *GitWriter) ValidatePermissions() error {
 	// Setup local directory with repo (this already checks if we can clone - read access)
-	localTmpDir, repo, _, err := g.setupLocalDirectoryWithRepo(g.Log)
-	if err != nil {
-		return fmt.Errorf("failed to set up local directory with repo: %w", err)
+	localTmpDir, repo, _, cloneErr := g.setupLocalDirectoryWithRepo(g.Log)
+	if cloneErr != nil && !errors.Is(cloneErr, ErrAuthSucceededAfterTrim) {
+		return fmt.Errorf("failed to set up local directory with repo: %w", cloneErr)
 	}
 	defer os.RemoveAll(localTmpDir) //nolint:errcheck
 
-	if err = g.validatePush(repo, g.Log); err != nil {
+	if err := g.validatePush(repo, g.Log); err != nil {
 		return err
 	}
 
 	logging.Info(g.Log, "successfully validated git repository permissions")
-	return nil
+	return cloneErr
 }
 
 func (g *GitWriter) cloneRepo(localRepoFilePath string, logger logr.Logger) (*git.Repository, error) {
@@ -425,9 +432,10 @@ func (g *GitWriter) cloneRepo(localRepoFilePath string, logger logr.Logger) (*gi
 			capability.ThinPack,
 		}
 	}
+	defer func() { transport.UnsupportedCapabilities = oldUnsupportedCaps }()
 
 	logging.Debug(logger, "cloning repo")
-	repo, err := git.PlainClone(localRepoFilePath, false, &git.CloneOptions{
+	cloneOpts := &git.CloneOptions{
 		Auth:            g.GitServer.Auth,
 		URL:             g.GitServer.URL,
 		ReferenceName:   plumbing.NewBranchReferenceName(g.GitServer.Branch),
@@ -435,9 +443,24 @@ func (g *GitWriter) cloneRepo(localRepoFilePath string, logger logr.Logger) (*gi
 		Depth:           1,
 		NoCheckout:      false,
 		InsecureSkipTLS: true,
-	})
+	}
+	repo, err := git.PlainClone(localRepoFilePath, false, cloneOpts)
 
-	transport.UnsupportedCapabilities = oldUnsupportedCaps
+	if err != nil && isAuthError(err) {
+		if g.BasicAuth {
+			if trimmed, changed := trimmedBasicAuthCopy(g.GitServer.Auth); changed {
+				logging.Info(logger, "auth failed there are trailing spaces in credentials; will retry again with trimmed credentials")
+				cloneOpts.Auth = &trimmed
+				_ = os.RemoveAll(localRepoFilePath)
+				if retryRepo, retryErr := git.PlainClone(localRepoFilePath, false, cloneOpts); retryErr == nil {
+					logging.Warn(logger, "authentication succeeded after trimming trailing whitespace; please fix your GitStateStore Secret")
+					g.GitServer.Auth = &trimmed
+					return retryRepo, ErrAuthSucceededAfterTrim
+				}
+			}
+		}
+	}
+
 	return repo, err
 }
 
@@ -583,4 +606,36 @@ func getGitHubInstallationToken(apiURL, installationID, jwtToken string) (string
 		return "", errors.New("empty installation token received")
 	}
 	return result.Token, nil
+}
+
+func isAuthError(err error) bool {
+	if err == nil {
+		return false
+	}
+	if errors.Is(err, transport.ErrAuthenticationRequired) || errors.Is(err, transport.ErrAuthorizationFailed) {
+		return true
+	}
+	s := strings.ToLower(err.Error())
+	return strings.Contains(s, "authentication required") ||
+		strings.Contains(s, "authorization failed") ||
+		strings.Contains(s, "401") || strings.Contains(s, "403")
+}
+
+func trimmedBasicAuthCopy(auth transport.AuthMethod) (githttp.BasicAuth, bool) {
+	basicAuth, ok := auth.(*githttp.BasicAuth)
+	if !ok {
+		return githttp.BasicAuth{}, false
+	}
+
+	u, uChanged := trimRightWhitespace(basicAuth.Username)
+	p, pChanged := trimRightWhitespace(basicAuth.Password)
+	if !uChanged && !pChanged {
+		return githttp.BasicAuth{}, false
+	}
+	return githttp.BasicAuth{Username: u, Password: p}, true
+}
+
+func trimRightWhitespace(s string) (string, bool) {
+	trimmed := strings.TrimRightFunc(s, unicode.IsSpace)
+	return trimmed, trimmed != s
 }
