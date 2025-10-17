@@ -22,6 +22,7 @@ import (
 	"time"
 
 	"github.com/syntasso/kratix/internal/controller"
+	"github.com/syntasso/kratix/internal/telemetry"
 	"k8s.io/apimachinery/pkg/api/errors"
 	"k8s.io/apimachinery/pkg/types"
 	"k8s.io/client-go/tools/record"
@@ -34,6 +35,10 @@ import (
 	"github.com/syntasso/kratix/lib/hash"
 	"github.com/syntasso/kratix/lib/writers"
 	"github.com/syntasso/kratix/lib/writers/writersfakes"
+	"go.opentelemetry.io/otel"
+	"go.opentelemetry.io/otel/attribute"
+	sdkmetric "go.opentelemetry.io/otel/sdk/metric"
+	"go.opentelemetry.io/otel/sdk/metric/metricdata"
 	corev1 "k8s.io/api/core/v1"
 	metav1 "k8s.io/apimachinery/pkg/apis/meta/v1"
 	ctrl "sigs.k8s.io/controller-runtime"
@@ -60,7 +65,23 @@ var _ = Describe("WorkPlacementReconciler", func() {
 		argGitStateStoreSpec    v1alpha1.GitStateStoreSpec
 		argDestination          v1alpha1.Destination
 		argCreds                map[string][]byte
+
+		metricsReader        *sdkmetric.ManualReader
+		restoreMeterProvider func()
 	)
+
+	BeforeEach(func() {
+		telemetry.ResetWorkPlacementMetricsForTest()
+		var restore func()
+		metricsReader, restore = setupTestMeterProvider()
+		restoreMeterProvider = restore
+	})
+
+	AfterEach(func() {
+		if restoreMeterProvider != nil {
+			restoreMeterProvider()
+		}
+	})
 
 	BeforeEach(func() {
 		ctx = context.Background()
@@ -214,6 +235,28 @@ var _ = Describe("WorkPlacementReconciler", func() {
 					"finalizers.workplacement.kratix.io/repo-cleanup",
 					"finalizers.workplacement.kratix.io/kratix-dot-files-cleanup",
 				))
+
+				counts := collectWorkPlacementWriteMetrics(ctx, metricsReader)
+				Expect(counts).To(HaveKeyWithValue(telemetry.WorkPlacementWriteResultSuccess, int64(fakeWriter.UpdateFilesCallCount())))
+				Expect(counts).NotTo(HaveKey(telemetry.WorkPlacementWriteResultFailure))
+			})
+
+			It("records a failure metric when the state store write fails", func() {
+				fakeWriter.UpdateFilesReturns("", fmt.Errorf("boom"))
+
+				result, err := reconciler.Reconcile(ctx, ctrl.Request{
+					NamespacedName: types.NamespacedName{
+						Name:      workPlacement.Name,
+						Namespace: workPlacement.Namespace,
+					},
+				})
+				Expect(err).NotTo(HaveOccurred())
+				Expect(result.RequeueAfter).To(Equal(15 * time.Second))
+				Expect(fakeWriter.UpdateFilesCallCount()).To(Equal(1))
+
+				counts := collectWorkPlacementWriteMetrics(ctx, metricsReader)
+				Expect(counts).To(HaveKeyWithValue(telemetry.WorkPlacementWriteResultFailure, int64(1)))
+				Expect(counts).NotTo(HaveKey(telemetry.WorkPlacementWriteResultSuccess))
 			})
 
 			When("deleting a work placement", func() {
@@ -748,4 +791,39 @@ func createWorkPlacement(name string, workload []v1alpha1.Workload) v1alpha1.Wor
 			ResourceName:          "test-resource",
 		},
 	}
+}
+
+func setupTestMeterProvider() (*sdkmetric.ManualReader, func()) {
+	reader := sdkmetric.NewManualReader()
+	original := otel.GetMeterProvider()
+	otel.SetMeterProvider(sdkmetric.NewMeterProvider(sdkmetric.WithReader(reader)))
+
+	return reader, func() {
+		otel.SetMeterProvider(original)
+	}
+}
+
+func collectWorkPlacementWriteMetrics(ctx context.Context, reader *sdkmetric.ManualReader) map[string]int64 {
+	var rm metricdata.ResourceMetrics
+	Expect(reader.Collect(ctx, &rm)).To(Succeed())
+
+	counts := make(map[string]int64)
+	for _, scopeMetrics := range rm.ScopeMetrics {
+		for _, metricData := range scopeMetrics.Metrics {
+			if metricData.Name != telemetry.WorkPlacementWritesMetric {
+				continue
+			}
+
+			gauge, ok := metricData.Data.(metricdata.Gauge[int64])
+			Expect(ok).To(BeTrue(), "expected WorkPlacement write metric to be an int64 Gauge")
+
+			for _, dataPoint := range gauge.DataPoints {
+				resultAttr, ok := dataPoint.Attributes.Value(attribute.Key("result"))
+				Expect(ok).To(BeTrue(), "expected WorkPlacement write metric to include result attribute")
+				counts[resultAttr.AsString()] = dataPoint.Value
+			}
+		}
+	}
+
+	return counts
 }

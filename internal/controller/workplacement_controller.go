@@ -27,6 +27,7 @@ import (
 	"github.com/go-logr/logr"
 	"github.com/syntasso/kratix/api/v1alpha1"
 	"github.com/syntasso/kratix/internal/logging"
+	"github.com/syntasso/kratix/internal/telemetry"
 	"github.com/syntasso/kratix/lib/compression"
 	"github.com/syntasso/kratix/lib/writers"
 	"gopkg.in/yaml.v2"
@@ -370,8 +371,16 @@ func (r *WorkPlacementReconciler) delete(ctx context.Context, writer writers.Sta
 }
 
 func (r *WorkPlacementReconciler) writeToStateStore(wp *v1alpha1.WorkPlacement, destination *v1alpha1.Destination, opts opts) (string, ctrl.Result, error) {
+	metricAttrs := telemetry.WorkPlacementWriteAttributes(
+		wp.Spec.PromiseName,
+		wp.Spec.ResourceName,
+		wp.Spec.TargetDestinationName,
+		wp.PipelineName(),
+	)
+
 	writer, err := newWriter(opts, destination.Spec.StateStoreRef.Name, destination.Spec.StateStoreRef.Kind, destination.Spec.Path)
 	if err != nil {
+		telemetry.RecordWorkPlacementWrite(opts.ctx, telemetry.WorkPlacementWriteResultFailure, metricAttrs...)
 		if k8sErrors.IsNotFound(err) {
 			return "", defaultRequeue, nil
 		}
@@ -381,6 +390,7 @@ func (r *WorkPlacementReconciler) writeToStateStore(wp *v1alpha1.WorkPlacement, 
 	logging.Debug(opts.logger, "updating files in statestore if required")
 	versionID, err := r.writeWorkloadsToStateStore(opts, writer, *wp, *destination)
 	if err != nil {
+		telemetry.RecordWorkPlacementWrite(opts.ctx, telemetry.WorkPlacementWriteResultFailure, metricAttrs...)
 		logging.Error(opts.logger, err, "error writing to repository; will retry", "destination", wp.Spec.TargetDestinationName)
 		r.publishWriteEvent(wp, "WorkloadsFailedWrite", versionID, err)
 		if statusUpdateErr := r.setWriteFailStatusConditions(opts.ctx, wp, err); statusUpdateErr != nil {
@@ -388,6 +398,7 @@ func (r *WorkPlacementReconciler) writeToStateStore(wp *v1alpha1.WorkPlacement, 
 		}
 		return "", defaultRequeue, nil
 	}
+	telemetry.RecordWorkPlacementWrite(opts.ctx, telemetry.WorkPlacementWriteResultSuccess, metricAttrs...)
 	r.setVersionID(wp, versionID)
 	r.publishWriteEvent(wp, "WorkloadsWrittenToStateStore", versionID, err)
 
