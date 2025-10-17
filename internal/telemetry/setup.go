@@ -2,18 +2,23 @@ package telemetry
 
 import (
 	"context"
+	"errors"
 	"fmt"
 	"strings"
 
 	"github.com/go-logr/logr"
+	"github.com/syntasso/kratix/internal/logging"
 	"go.opentelemetry.io/otel"
+	"go.opentelemetry.io/otel/exporters/otlp/otlpmetric/otlpmetricgrpc"
 	"go.opentelemetry.io/otel/exporters/otlp/otlptrace"
 	"go.opentelemetry.io/otel/exporters/otlp/otlptrace/otlptracegrpc"
+	metricnoop "go.opentelemetry.io/otel/metric/noop"
 	"go.opentelemetry.io/otel/propagation"
+	sdkmetric "go.opentelemetry.io/otel/sdk/metric"
 	"go.opentelemetry.io/otel/sdk/resource"
 	sdktrace "go.opentelemetry.io/otel/sdk/trace"
 	semconv "go.opentelemetry.io/otel/semconv/v1.26.0"
-	"go.opentelemetry.io/otel/trace/noop"
+	tracenoop "go.opentelemetry.io/otel/trace/noop"
 )
 
 const (
@@ -29,13 +34,14 @@ type Config struct {
 	Headers  map[string]string `json:"headers,omitempty"`
 }
 
-// SetupTracerProvider configures and installs a global OpenTelemetry tracer provider.
-// If no OTLP endpoint is configured, tracing metadata is still generated locally so
-// downstream resources can participate in traces, but spans will not be exported.
+// SetupTracerProvider configures and installs global OpenTelemetry providers for traces and metrics.
+// If no OTLP endpoint is configured, telemetry is still generated locally so downstream resources can
+// participate in traces and metrics, but data will not be exported.
 func SetupTracerProvider(ctx context.Context, logger logr.Logger, serviceName string, cfg *Config) (func(context.Context) error, error) {
 	if cfg == nil || (cfg.Enabled != nil && !*cfg.Enabled) {
-		logger.Info("OpenTelemetry tracing disabled via configuration")
-		otel.SetTracerProvider(noop.NewTracerProvider())
+		logging.Info(logger, "OpenTelemetry telemetry disabled via configuration")
+		otel.SetTracerProvider(tracenoop.NewTracerProvider())
+		otel.SetMeterProvider(metricnoop.NewMeterProvider())
 		otel.SetTextMapPropagator(
 			propagation.NewCompositeTextMapPropagator(
 				propagation.TraceContext{},
@@ -46,8 +52,9 @@ func SetupTracerProvider(ctx context.Context, logger logr.Logger, serviceName st
 	}
 
 	var (
-		exporter *otlptrace.Exporter
-		err      error
+		traceExporter  *otlptrace.Exporter
+		metricExporter *otlpmetricgrpc.Exporter
+		err            error
 	)
 
 	protocol := strings.ToLower(strings.TrimSpace(cfg.Protocol))
@@ -68,24 +75,32 @@ func SetupTracerProvider(ctx context.Context, logger logr.Logger, serviceName st
 		switch protocol {
 		case otlpProtocolGRPC:
 			clientOpts := []otlptracegrpc.Option{otlptracegrpc.WithEndpoint(endpoint)}
+			metricClientOpts := []otlpmetricgrpc.Option{otlpmetricgrpc.WithEndpoint(endpoint)}
 			insecure := false
 			if cfg.Insecure != nil {
 				insecure = *cfg.Insecure
 			}
 			if insecure {
 				clientOpts = append(clientOpts, otlptracegrpc.WithInsecure())
+				metricClientOpts = append(metricClientOpts, otlpmetricgrpc.WithInsecure())
 			}
 			if len(headers) > 0 {
 				clientOpts = append(clientOpts, otlptracegrpc.WithHeaders(headers))
+				metricClientOpts = append(metricClientOpts, otlpmetricgrpc.WithHeaders(headers))
 			}
-			exporter, err = otlptracegrpc.New(ctx, clientOpts...)
+			traceExporter, err = otlptracegrpc.New(ctx, clientOpts...)
+			if err != nil {
+				logging.Error(logger, err, "creating OTLP trace exporter failed; falling back to local-only tracing")
+				traceExporter = nil
+			}
+			metricExporter, err = otlpmetricgrpc.New(ctx, metricClientOpts...)
+			if err != nil {
+				logging.Error(logger, err, "creating OTLP metric exporter failed; metrics will not be exported")
+				metricExporter = nil
+			}
 		default:
 			err = fmt.Errorf("unsupported OTLP protocol %q", protocol)
-		}
-
-		if err != nil {
-			logger.Error(err, "creating OTLP trace exporter failed; falling back to local-only tracing")
-			exporter = nil
+			logging.Error(logger, err, "unable to create OTLP exporters")
 		}
 	}
 
@@ -95,8 +110,8 @@ func SetupTracerProvider(ctx context.Context, logger logr.Logger, serviceName st
 	}
 
 	providerOpts := []sdktrace.TracerProviderOption{sdktrace.WithResource(res)}
-	if exporter != nil {
-		providerOpts = append(providerOpts, sdktrace.WithBatcher(exporter))
+	if traceExporter != nil {
+		providerOpts = append(providerOpts, sdktrace.WithBatcher(traceExporter))
 	}
 
 	provider := sdktrace.NewTracerProvider(providerOpts...)
@@ -109,13 +124,38 @@ func SetupTracerProvider(ctx context.Context, logger logr.Logger, serviceName st
 		),
 	)
 
-	if exporter != nil {
-		logger.Info("OpenTelemetry tracing enabled", "endpoint", endpoint)
+	if traceExporter != nil {
+		logging.Info(logger, "OpenTelemetry tracing enabled", "endpoint", endpoint)
 	} else {
-		logger.Info("OpenTelemetry tracing configured without exporter")
+		logging.Info(logger, "OpenTelemetry tracing configured without exporter")
 	}
 
-	return provider.Shutdown, nil
+	meterOpts := []sdkmetric.Option{sdkmetric.WithResource(res)}
+	if metricExporter != nil {
+		meterOpts = append(meterOpts, sdkmetric.WithReader(sdkmetric.NewPeriodicReader(metricExporter)))
+	}
+	meterProvider := sdkmetric.NewMeterProvider(meterOpts...)
+	otel.SetMeterProvider(meterProvider)
+
+	if metricExporter != nil {
+		logging.Info(logger, "OpenTelemetry metrics enabled", "endpoint", endpoint)
+	} else {
+		logging.Info(logger, "OpenTelemetry metrics configured without exporter")
+	}
+
+	var shutdownFns []func(context.Context) error
+	shutdownFns = append(shutdownFns, provider.Shutdown)
+	shutdownFns = append(shutdownFns, meterProvider.Shutdown)
+
+	return func(ctx context.Context) error {
+		var errs []error
+		for _, fn := range shutdownFns {
+			if err := fn(ctx); err != nil {
+				errs = append(errs, err)
+			}
+		}
+		return errors.Join(errs...)
+	}, nil
 }
 
 func buildResource(ctx context.Context, serviceName string) (*resource.Resource, error) {
@@ -137,7 +177,12 @@ func buildResource(ctx context.Context, serviceName string) (*resource.Resource,
 		return base, nil
 	}
 
-	serviceRes := resource.NewWithAttributes(semconv.SchemaURL, semconv.ServiceName(serviceName))
+	schemaURL := base.SchemaURL()
+	if schemaURL == "" {
+		schemaURL = semconv.SchemaURL
+	}
+
+	serviceRes := resource.NewWithAttributes(schemaURL, semconv.ServiceNameKey.String(serviceName))
 	merged, err := resource.Merge(base, serviceRes)
 	if err != nil {
 		return nil, fmt.Errorf("merging OpenTelemetry resources: %w", err)

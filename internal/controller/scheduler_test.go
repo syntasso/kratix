@@ -11,8 +11,13 @@ import (
 	. "github.com/onsi/gomega"
 	"github.com/syntasso/kratix/api/v1alpha1"
 	. "github.com/syntasso/kratix/internal/controller"
+	"github.com/syntasso/kratix/internal/telemetry"
 	"github.com/syntasso/kratix/lib/compression"
 	"github.com/syntasso/kratix/lib/hash"
+	"go.opentelemetry.io/otel"
+	"go.opentelemetry.io/otel/attribute"
+	sdkmetric "go.opentelemetry.io/otel/sdk/metric"
+	"go.opentelemetry.io/otel/sdk/metric/metricdata"
 	apimeta "k8s.io/apimachinery/pkg/api/meta"
 	metav1 "k8s.io/apimachinery/pkg/apis/meta/v1"
 	"k8s.io/apimachinery/pkg/types"
@@ -28,9 +33,14 @@ var _ = Describe("Controllers/Scheduler", func() {
 		workPlacements                                                                      v1alpha1.WorkPlacementList
 		fakeCompressedContent                                                               []byte
 		devDestination, devDestination2, pciDestination, prodDestination, strictDestination v1alpha1.Destination
+		schedulerMetricsReader                                                              *sdkmetric.ManualReader
+		restoreSchedulerMeter                                                               func()
 	)
 
 	BeforeEach(func() {
+		telemetry.ResetWorkPlacementMetricsForTest()
+		schedulerMetricsReader, restoreSchedulerMeter = setupSchedulerMeterProvider()
+
 		// create a set of destinations to be used throughout the tests
 		devDestination = newDestination("dev-1", map[string]string{"environment": "dev"})
 		devDestination2 = newDestination("dev-2", map[string]string{"environment": "dev"})
@@ -55,6 +65,13 @@ var _ = Describe("Controllers/Scheduler", func() {
 			Log:           ctrl.Log.WithName("controllers").WithName("Scheduler"),
 			EventRecorder: schedulerRecorder,
 		}
+	})
+
+	AfterEach(func() {
+		if restoreSchedulerMeter != nil {
+			restoreSchedulerMeter()
+		}
+		telemetry.ResetWorkPlacementMetricsForTest()
 	})
 
 	Describe("#ReconcileWork", func() {
@@ -92,6 +109,81 @@ var _ = Describe("Controllers/Scheduler", func() {
 						HaveKeyWithValue("kratix.io/pipeline-name", resourceWork.Labels["kratix.io/pipeline-name"]),
 					))
 					Expect(workPlacement.GetAnnotations()).To(Equal(resourceWork.GetAnnotations()))
+				})
+
+				It("records a scheduled outcome metric", func() {
+					counts := collectWorkPlacementOutcomeMetrics(context.Background(), schedulerMetricsReader)
+					Expect(counts).To(HaveKey(telemetry.WorkPlacementOutcomeScheduled))
+					point := counts[telemetry.WorkPlacementOutcomeScheduled]
+					Expect(point.Value).To(Equal(int64(1)))
+					Expect(outcomeAttributeValue(point.Attributes, "promise")).To(Equal(resourceWork.Spec.PromiseName))
+					Expect(outcomeAttributeValue(point.Attributes, "resource")).To(Equal(resourceWork.Spec.ResourceName))
+					Expect(outcomeAttributeValue(point.Attributes, "namespace")).To(Equal(resourceWork.Namespace))
+					Expect(outcomeAttributeValue(point.Attributes, "destination")).NotTo(BeEmpty())
+				})
+			})
+
+			When("no destinations match the workload group selectors", func() {
+				var unscheduledWork v1alpha1.Work
+
+				BeforeEach(func() {
+					unscheduledWork = newWork("rr-work-unscheduled", true, v1alpha1.WorkloadGroupScheduling{
+						MatchLabels: map[string]string{"environment": "staging"},
+					})
+					_, err := scheduler.ReconcileWork(&unscheduledWork)
+					Expect(err).ToNot(HaveOccurred())
+				})
+
+				It("records an unscheduled outcome metric", func() {
+					counts := collectWorkPlacementOutcomeMetrics(context.Background(), schedulerMetricsReader)
+					Expect(counts).To(HaveKey(telemetry.WorkPlacementOutcomeUnscheduled))
+					point := counts[telemetry.WorkPlacementOutcomeUnscheduled]
+					Expect(point.Value).To(Equal(int64(1)))
+					Expect(outcomeAttributeValue(point.Attributes, "destination")).To(BeEmpty())
+					Expect(outcomeAttributeValue(point.Attributes, "promise")).To(Equal("promise"))
+					Expect(outcomeAttributeValue(point.Attributes, "namespace")).To(Equal(unscheduledWork.Namespace))
+				})
+			})
+
+			When("an existing workplacement becomes misplaced", func() {
+				var misplacedWork v1alpha1.Work
+
+				BeforeEach(func() {
+					misplacedWork = newWork("rr-work-misplaced", true, schedulingFor(prodDestination))
+					workloadGroup := misplacedWork.Spec.WorkloadGroups[0]
+					workPlacementName := fmt.Sprintf("%s.%s-%s", misplacedWork.Name, devDestination.Name, workloadGroup.ID[:5])
+					workPlacement := &v1alpha1.WorkPlacement{
+						ObjectMeta: metav1.ObjectMeta{
+							Name:      workPlacementName,
+							Namespace: misplacedWork.Namespace,
+							Labels: map[string]string{
+								v1alpha1.KratixPrefix + "work":              misplacedWork.Name,
+								v1alpha1.KratixPrefix + "workload-group-id": workloadGroup.ID,
+							},
+						},
+						Spec: v1alpha1.WorkPlacementSpec{
+							ID:                    workloadGroup.ID,
+							PromiseName:           misplacedWork.Spec.PromiseName,
+							ResourceName:          misplacedWork.Spec.ResourceName,
+							TargetDestinationName: devDestination.Name,
+							Workloads:             workloadGroup.Workloads,
+						},
+					}
+					workPlacement.SetPipelineName(&misplacedWork)
+					Expect(fakeK8sClient.Create(context.Background(), workPlacement)).To(Succeed())
+
+					_, err := scheduler.ReconcileWork(&misplacedWork)
+					Expect(err).ToNot(HaveOccurred())
+				})
+
+				It("records a misplaced outcome metric", func() {
+					counts := collectWorkPlacementOutcomeMetrics(context.Background(), schedulerMetricsReader)
+					Expect(counts).NotTo(HaveKey(telemetry.WorkPlacementOutcomeScheduled))
+					Expect(counts).To(HaveKey(telemetry.WorkPlacementOutcomeMisplaced))
+
+					misplacedPoint := counts[telemetry.WorkPlacementOutcomeMisplaced]
+					Expect(misplacedPoint.Value).To(Equal(int64(1)))
+					Expect(outcomeAttributeValue(misplacedPoint.Attributes, "destination")).To(Equal(devDestination.Name))
 				})
 			})
 
@@ -1096,6 +1188,44 @@ func schedulingFor(destination v1alpha1.Destination) v1alpha1.WorkloadGroupSched
 		MatchLabels: destination.GetLabels(),
 		Source:      "promise",
 	}
+}
+
+func setupSchedulerMeterProvider() (*sdkmetric.ManualReader, func()) {
+	reader := sdkmetric.NewManualReader()
+	original := otel.GetMeterProvider()
+	otel.SetMeterProvider(sdkmetric.NewMeterProvider(sdkmetric.WithReader(reader)))
+	return reader, func() {
+		otel.SetMeterProvider(original)
+	}
+}
+
+func collectWorkPlacementOutcomeMetrics(ctx context.Context, reader *sdkmetric.ManualReader) map[string]metricdata.DataPoint[int64] {
+	var rm metricdata.ResourceMetrics
+	Expect(reader.Collect(ctx, &rm)).To(Succeed())
+
+	collected := map[string]metricdata.DataPoint[int64]{}
+	for _, scopeMetrics := range rm.ScopeMetrics {
+		for _, metric := range scopeMetrics.Metrics {
+			if metric.Name != telemetry.WorkPlacementOutcomesMetric {
+				continue
+			}
+			gauge, ok := metric.Data.(metricdata.Gauge[int64])
+			Expect(ok).To(BeTrue(), "expected an int64 Gauge aggregation for outcomes")
+			for _, dp := range gauge.DataPoints {
+				resultAttr, ok := dp.Attributes.Value(attribute.Key("result"))
+				Expect(ok).To(BeTrue(), "expected result attribute on outcome metric")
+				collected[resultAttr.AsString()] = dp
+			}
+		}
+	}
+	return collected
+}
+
+func outcomeAttributeValue(set attribute.Set, key string) string {
+	if val, ok := set.Value(attribute.Key(key)); ok {
+		return val.AsString()
+	}
+	return ""
 }
 
 func misplacedConditions(id string) []metav1.Condition {
