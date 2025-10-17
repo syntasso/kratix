@@ -46,10 +46,10 @@ type Scheduler struct {
 
 // Reconciles all WorkloadGroups in a Work by scheduling them to Destinations via
 // Workplacements.
-func (s *Scheduler) ReconcileWork(work *v1alpha1.Work) ([]string, error) {
+func (s *Scheduler) ReconcileWork(ctx context.Context, work *v1alpha1.Work) ([]string, error) {
 	var unschedulable, misplaced []string
 	for _, wg := range work.Spec.WorkloadGroups {
-		workloadGroupScheduleStatus, err := s.reconcileWorkloadGroup(wg, work)
+		workloadGroupScheduleStatus, err := s.reconcileWorkloadGroup(ctx, wg, work)
 		if err != nil {
 			readyCond := metav1.Condition{
 				Type:    "Ready",
@@ -65,7 +65,7 @@ func (s *Scheduler) ReconcileWork(work *v1alpha1.Work) ([]string, error) {
 			}
 			apimeta.SetStatusCondition(&work.Status.Conditions, scheduleSucceededCond)
 			apimeta.SetStatusCondition(&work.Status.Conditions, readyCond)
-			return nil, s.Client.Status().Update(context.Background(), work)
+			return nil, s.Client.Status().Update(ctx, work)
 		}
 
 		switch workloadGroupScheduleStatus {
@@ -78,12 +78,12 @@ func (s *Scheduler) ReconcileWork(work *v1alpha1.Work) ([]string, error) {
 	}
 
 	if s.updateWorkStatus(work, unschedulable, misplaced) {
-		if err := s.Client.Status().Update(context.Background(), work); err != nil {
+		if err := s.Client.Status().Update(ctx, work); err != nil {
 			return nil, err
 		}
 	}
 
-	return unschedulable, s.cleanupDanglingWorkplacements(work)
+	return unschedulable, s.cleanupDanglingWorkplacements(ctx, work)
 }
 
 func (s *Scheduler) updateWorkStatus(w *v1alpha1.Work, unscheduledWorkloadGroupIDs, misplacedWorkloadGroupIDs []string) bool {
@@ -157,7 +157,7 @@ func (s *Scheduler) updateWorkStatus(w *v1alpha1.Work, unscheduledWorkloadGroupI
 	return updated
 }
 
-func (s *Scheduler) cleanupDanglingWorkplacements(work *v1alpha1.Work) error {
+func (s *Scheduler) cleanupDanglingWorkplacements(ctx context.Context, work *v1alpha1.Work) error {
 	workplacementsThatShouldExist := map[string]interface{}{}
 	for _, wg := range work.Spec.WorkloadGroups {
 		workPlacements, err := s.getExistingWorkPlacementsForWorkloadGroup(work.Namespace, work.Name, wg)
@@ -177,7 +177,7 @@ func (s *Scheduler) cleanupDanglingWorkplacements(work *v1alpha1.Work) error {
 	for _, wp := range allWorkplacementsForWork {
 		if _, exists := workplacementsThatShouldExist[wp.Name]; !exists {
 			logging.Debug(s.Log, "deleting workplacement that no longer references a workloadGroup", "workName", work.Name, "workPlacementName", wp.Name, "namespace", work.Namespace)
-			err := s.Client.Delete(context.TODO(), &wp)
+			err := s.Client.Delete(ctx, &wp)
 			if err != nil {
 				return err
 			}
@@ -188,7 +188,7 @@ func (s *Scheduler) cleanupDanglingWorkplacements(work *v1alpha1.Work) error {
 }
 
 // Reconciles a WorkloadGroup by scheduling it to a Destination via a Workplacement.
-func (s *Scheduler) reconcileWorkloadGroup(workloadGroup v1alpha1.WorkloadGroup, work *v1alpha1.Work) (schedulingStatus, error) {
+func (s *Scheduler) reconcileWorkloadGroup(ctx context.Context, workloadGroup v1alpha1.WorkloadGroup, work *v1alpha1.Work) (schedulingStatus, error) {
 	existingWorkplacements, err := s.getExistingWorkPlacementsForWorkloadGroup(work.Namespace, work.Name, workloadGroup)
 	if err != nil {
 		return "", err
@@ -255,7 +255,7 @@ func (s *Scheduler) reconcileWorkloadGroup(workloadGroup v1alpha1.WorkloadGroup,
 			"waiting for a destination with labels for workloadGroup: %s", workloadGroup.ID)
 
 		telemetry.RecordWorkPlacementOutcome(
-			context.Background(),
+			ctx,
 			telemetry.WorkPlacementOutcomeUnscheduled,
 			telemetry.WorkPlacementOutcomeAttributes(
 				work.Spec.PromiseName,

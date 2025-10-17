@@ -60,7 +60,7 @@ type WorkReconciler struct {
 
 //counterfeiter:generate . WorkScheduler
 type WorkScheduler interface {
-	ReconcileWork(work *v1alpha1.Work) ([]string, error)
+	ReconcileWork(ctx context.Context, work *v1alpha1.Work) ([]string, error)
 }
 
 //+kubebuilder:rbac:groups=platform.kratix.io,resources=works,verbs=get;list;watch;create;update;patch;delete
@@ -134,7 +134,7 @@ func (r *WorkReconciler) Reconcile(ctx context.Context, req ctrl.Request) (resul
 
 	logging.Info(logger, "scheduling work")
 
-	unscheduledWorkloadGroupIDs, err := r.Scheduler.ReconcileWork(work)
+	unscheduledWorkloadGroupIDs, err := r.Scheduler.ReconcileWork(ctx, work)
 	if err != nil {
 		if errors.IsConflict(err) {
 			logging.Debug(logger, "failed to schedule Work due to update conflict; requeueing")
