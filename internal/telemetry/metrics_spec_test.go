@@ -120,10 +120,10 @@ func collectMetricDataPoints(ctx context.Context, reader *sdkmetric.ManualReader
 			if metric.Name != metricName {
 				continue
 			}
-			gauge, ok := metric.Data.(metricdata.Gauge[int64])
-			Expect(ok).To(BeTrue(), "expected an int64 Gauge aggregation")
+			sum, ok := metric.Data.(metricdata.Sum[int64])
+			Expect(ok).To(BeTrue(), "expected an int64 Sum aggregation")
 
-			for _, dp := range gauge.DataPoints {
+			for _, dp := range sum.DataPoints {
 				val, ok := dp.Attributes.Value(attribute.Key("result"))
 				Expect(ok).To(BeTrue(), "expected result attribute")
 				collected[val.AsString()] = dp

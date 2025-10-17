@@ -814,10 +814,10 @@ func collectWorkPlacementWriteMetrics(ctx context.Context, reader *sdkmetric.Man
 				continue
 			}
 
-			gauge, ok := metricData.Data.(metricdata.Gauge[int64])
-			Expect(ok).To(BeTrue(), "expected WorkPlacement write metric to be an int64 Gauge")
+			sum, ok := metricData.Data.(metricdata.Sum[int64])
+			Expect(ok).To(BeTrue(), "expected WorkPlacement write metric to be an int64 Sum")
 
-			for _, dataPoint := range gauge.DataPoints {
+			for _, dataPoint := range sum.DataPoints {
 				resultAttr, ok := dataPoint.Attributes.Value(attribute.Key("result"))
 				Expect(ok).To(BeTrue(), "expected WorkPlacement write metric to include result attribute")
 				counts[resultAttr.AsString()] = dataPoint.Value
