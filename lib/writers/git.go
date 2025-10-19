@@ -449,7 +449,7 @@ func (g *GitWriter) cloneRepo(localRepoFilePath string, logger logr.Logger) (*gi
 	if err != nil && isAuthError(err) {
 		if g.BasicAuth {
 			if trimmed, changed := trimmedBasicAuthCopy(g.GitServer.Auth); changed {
-				logging.Info(logger, "auth failed there are trailing spaces in credentials; will retry again with trimmed credentials")
+				logging.Debug(logger, "auth failed there are trailing spaces in credentials; will retry again with trimmed credentials")
 				cloneOpts.Auth = &trimmed
 				_ = os.RemoveAll(localRepoFilePath)
 				if retryRepo, retryErr := git.PlainClone(localRepoFilePath, false, cloneOpts); retryErr == nil {
