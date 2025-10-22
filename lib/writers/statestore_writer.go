@@ -16,3 +16,4 @@ type StateStoreWriter interface {
 }
 
 var ErrFileNotFound = fmt.Errorf("file not found")
+var ErrAuthSucceededAfterTrim = fmt.Errorf("trailing whitespace in secret")
