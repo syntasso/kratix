@@ -13,6 +13,9 @@ spec:
     kind: Destination
     listKind: DestinationList
     plural: destinations
+    shortNames:
+    - dest
+    - dests
     singular: destination
   scope: Cluster
   versions:
