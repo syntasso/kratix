@@ -13,6 +13,9 @@ spec:
     kind: WorkPlacement
     listKind: WorkPlacementList
     plural: workplacements
+    shortNames:
+    - wp
+    - wps
     singular: workplacement
   scope: Namespaced
   versions:

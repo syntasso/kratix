@@ -48,7 +48,7 @@ type WorkPlacementStatus struct {
 
 // +kubebuilder:object:root=true
 // +kubebuilder:subresource:status
-// +kubebuilder:resource:categories=kratix
+// +kubebuilder:resource:categories=kratix,shortName=wp;wps
 // +kubebuilder:printcolumn:name="DESTINATION",type=string,JSONPath=`.spec.targetDestinationName`,description="Destination this Workplacement is scheduled to."
 // +kubebuilder:printcolumn:name="STATUS",type=string,JSONPath=`.status.conditions[?(@.type=="Ready")].message`,description="Status of this Workplacement"
 // WorkPlacement is the Schema for the workplacements API
