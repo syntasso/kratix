@@ -2,13 +2,14 @@ package controller
 
 import (
 	"context"
+	"errors"
 	"fmt"
 
 	"github.com/go-logr/logr"
 	"github.com/syntasso/kratix/api/v1alpha1"
 	"github.com/syntasso/kratix/internal/logging"
+	"github.com/syntasso/kratix/lib/writers"
 	v1 "k8s.io/api/core/v1"
-	"k8s.io/apimachinery/pkg/api/errors"
 	kerrors "k8s.io/apimachinery/pkg/api/errors"
 	"k8s.io/apimachinery/pkg/api/meta"
 	metav1 "k8s.io/apimachinery/pkg/apis/meta/v1"
@@ -50,7 +51,7 @@ func fetchObjectAndSecret(o opts, stateStoreRef client.ObjectKey, stateStore Sta
 
 	if err := o.client.Get(o.ctx, secretRef, secret); err != nil {
 		logging.Error(o.logger, err, "unable to fetch resource", "resourceKind", stateStore.GetObjectKind(), "secretRef", secretRef)
-		if errors.IsNotFound(err) {
+		if kerrors.IsNotFound(err) {
 			err = fmt.Errorf("secret %q not found in namespace %q", secretRef.Name, namespace)
 		}
 		return nil, err
@@ -79,7 +80,7 @@ func reconcileStateStoreCommon(
 		return ctrl.Result{}, err
 	}
 
-	if err = writer.ValidatePermissions(); err != nil {
+	if err = writer.ValidatePermissions(); err != nil && !errors.Is(err, writers.ErrAuthSucceededAfterTrim) {
 		logging.Error(o.logger, err, "error validating state store permissions")
 		if err = updateStateStoreReadyStatusAndCondition(o, eventRecorder, stateStore, StateStoreNotReadyErrorValidatingPermissionsReason, StateStoreNotReadyErrorValidatingPermissionsMessage, err); err != nil {
 			if kerrors.IsConflict(err) {
@@ -88,6 +89,10 @@ func reconcileStateStoreCommon(
 			logging.Error(o.logger, err, "error updating state store status")
 		}
 		return defaultRequeue, nil
+	} else if errors.Is(err, writers.ErrAuthSucceededAfterTrim) {
+		eventRecorder.Eventf(stateStore, v1.EventTypeWarning, "InvalidCredentials",
+			"authentication to GitStateStore succeeded after trimming trailing whitespace; "+
+				"please fix your GitStateStore Secret")
 	}
 
 	return ctrl.Result{}, updateStateStoreReadyStatusAndCondition(o, eventRecorder, stateStore, "", "", nil)
