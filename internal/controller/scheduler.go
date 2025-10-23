@@ -160,7 +160,7 @@ func (s *Scheduler) updateWorkStatus(w *v1alpha1.Work, unscheduledWorkloadGroupI
 func (s *Scheduler) cleanupDanglingWorkplacements(ctx context.Context, work *v1alpha1.Work) error {
 	workplacementsThatShouldExist := map[string]interface{}{}
 	for _, wg := range work.Spec.WorkloadGroups {
-		workPlacements, err := s.getExistingWorkPlacementsForWorkloadGroup(work.Namespace, work.Name, wg)
+		workPlacements, err := s.getExistingWorkPlacementsForWorkloadGroup(ctx, work.Namespace, work.Name, wg)
 		if err != nil {
 			return err
 		}
@@ -169,7 +169,7 @@ func (s *Scheduler) cleanupDanglingWorkplacements(ctx context.Context, work *v1a
 		}
 	}
 
-	allWorkplacementsForWork, err := s.getExistingWorkPlacementsForWork(work.Namespace, work.Name)
+	allWorkplacementsForWork, err := s.getExistingWorkPlacementsForWork(ctx, work.Namespace, work.Name)
 	if err != nil {
 		return err
 	}
@@ -189,7 +189,7 @@ func (s *Scheduler) cleanupDanglingWorkplacements(ctx context.Context, work *v1a
 
 // Reconciles a WorkloadGroup by scheduling it to a Destination via a Workplacement.
 func (s *Scheduler) reconcileWorkloadGroup(ctx context.Context, workloadGroup v1alpha1.WorkloadGroup, work *v1alpha1.Work) (schedulingStatus, error) {
-	existingWorkplacements, err := s.getExistingWorkPlacementsForWorkloadGroup(work.Namespace, work.Name, workloadGroup)
+	existingWorkplacements, err := s.getExistingWorkPlacementsForWorkloadGroup(ctx, work.Namespace, work.Name, workloadGroup)
 	if err != nil {
 		return "", err
 	}
@@ -203,7 +203,7 @@ func (s *Scheduler) reconcileWorkloadGroup(ctx context.Context, workloadGroup v1
 			var errored int
 			for _, existingWorkplacement := range existingWorkplacements {
 				logging.Debug(s.Log, "found existing workplacement; will update")
-				misplaced, err := s.updateWorkPlacement(workloadGroup, &existingWorkplacement)
+				misplaced, err := s.updateWorkPlacement(ctx, workloadGroup, &existingWorkplacement)
 				if err != nil {
 					logging.Error(s.Log, err, "error updating workplacement for work", "workplacement", existingWorkplacement.Name, "work", work.Name, "workloadGroupID", workloadGroup.ID)
 					errored++
@@ -218,7 +218,7 @@ func (s *Scheduler) reconcileWorkloadGroup(ctx context.Context, workloadGroup v1
 					status = misplacedStatus
 					outcome = telemetry.WorkPlacementOutcomeMisplaced
 				}
-				telemetry.RecordWorkPlacementOutcome(context.Background(), outcome, outcomeAttrs...)
+				telemetry.RecordWorkPlacementOutcome(ctx, outcome, outcomeAttrs...)
 			}
 
 			if errored > 0 {
@@ -230,7 +230,7 @@ func (s *Scheduler) reconcileWorkloadGroup(ctx context.Context, workloadGroup v1
 	}
 
 	destinationSelectors := resolveDestinationSelectorsForWorkloadGroup(workloadGroup)
-	targetDestinationNames, err := s.getTargetDestinationNames(destinationSelectors, work)
+	targetDestinationNames, err := s.getTargetDestinationNames(ctx, destinationSelectors, work)
 	if err != nil {
 		return "", err
 	}
@@ -268,7 +268,7 @@ func (s *Scheduler) reconcileWorkloadGroup(ctx context.Context, workloadGroup v1
 	}
 
 	logging.Debug(s.Log, "found available target destinations", "work", work.GetName(), "destinations", targetDestinationNames)
-	misplaced, err := s.applyWorkplacementsForTargetDestinations(workloadGroup, work, targetDestinationMap)
+	misplaced, err := s.applyWorkplacementsForTargetDestinations(ctx, workloadGroup, work, targetDestinationMap)
 	if err != nil {
 		return "", err
 	}
@@ -280,10 +280,10 @@ func (s *Scheduler) reconcileWorkloadGroup(ctx context.Context, workloadGroup v1
 	return status, nil
 }
 
-func (s *Scheduler) updateWorkPlacement(workloadGroup v1alpha1.WorkloadGroup, workPlacement *v1alpha1.WorkPlacement) (bool, error) {
+func (s *Scheduler) updateWorkPlacement(ctx context.Context, workloadGroup v1alpha1.WorkloadGroup, workPlacement *v1alpha1.WorkPlacement) (bool, error) {
 	misplaced := true
 	destinationSelectors := resolveDestinationSelectorsForWorkloadGroup(workloadGroup)
-	destinations, err := s.getDestinationsForWorkloadGroup(destinationSelectors)
+	destinations, err := s.getDestinationsForWorkloadGroup(ctx, destinationSelectors)
 	if err != nil {
 		return false, err
 	}
@@ -299,12 +299,12 @@ func (s *Scheduler) updateWorkPlacement(workloadGroup v1alpha1.WorkloadGroup, wo
 	}
 
 	workPlacement.Spec.Workloads = workloadGroup.Workloads
-	if err := s.Client.Update(context.Background(), workPlacement); err != nil {
+	if err := s.Client.Update(ctx, workPlacement); err != nil {
 		logging.Error(s.Log, err, "error updating WorkPlacement", "workplacement", workPlacement.Name)
 		return false, err
 	}
 
-	if err := s.updateWorkPlacementStatus(workPlacement, misplaced); err != nil {
+	if err := s.updateWorkPlacementStatus(ctx, workPlacement, misplaced); err != nil {
 		return false, err
 	}
 
@@ -322,20 +322,20 @@ func (s *Scheduler) labelWorkplacementAsMisplaced(workPlacement *v1alpha1.WorkPl
 	workPlacement.SetLabels(newLabels)
 }
 
-func (s *Scheduler) getExistingWorkPlacementsForWorkloadGroup(namespace, workName string, workloadGroup v1alpha1.WorkloadGroup) ([]v1alpha1.WorkPlacement, error) {
-	return listWorkplacementWithLabels(s.Client, s.Log, namespace, map[string]string{
+func (s *Scheduler) getExistingWorkPlacementsForWorkloadGroup(ctx context.Context, namespace, workName string, workloadGroup v1alpha1.WorkloadGroup) ([]v1alpha1.WorkPlacement, error) {
+	return listWorkplacementWithLabels(ctx, s.Client, s.Log, namespace, map[string]string{
 		workLabelKey:       workName,
 		workloadGroupIDKey: workloadGroup.ID,
 	})
 }
 
-func (s *Scheduler) getExistingWorkPlacementsForWork(namespace, workName string) ([]v1alpha1.WorkPlacement, error) {
-	return listWorkplacementWithLabels(s.Client, s.Log, namespace, map[string]string{
+func (s *Scheduler) getExistingWorkPlacementsForWork(ctx context.Context, namespace, workName string) ([]v1alpha1.WorkPlacement, error) {
+	return listWorkplacementWithLabels(ctx, s.Client, s.Log, namespace, map[string]string{
 		workLabelKey: workName,
 	})
 }
 
-func listWorkplacementWithLabels(c client.Client, logger logr.Logger, namespace string, matchLabels map[string]string) ([]v1alpha1.WorkPlacement, error) {
+func listWorkplacementWithLabels(ctx context.Context, c client.Client, logger logr.Logger, namespace string, matchLabels map[string]string) ([]v1alpha1.WorkPlacement, error) {
 	workPlacementList := &v1alpha1.WorkPlacementList{}
 	workPlacementListOptions := &client.ListOptions{
 		Namespace: namespace,
@@ -350,7 +350,7 @@ func listWorkplacementWithLabels(c client.Client, logger logr.Logger, namespace 
 	workPlacementListOptions.LabelSelector = selector
 
 	logging.Trace(logger, "listing workplacements", "labels", workSelectorLabel)
-	err = c.List(context.Background(), workPlacementList, workPlacementListOptions)
+	err = c.List(ctx, workPlacementList, workPlacementListOptions)
 	if err != nil {
 		logging.Error(logger, err, "error getting WorkPlacements")
 		return nil, err
@@ -359,14 +359,14 @@ func listWorkplacementWithLabels(c client.Client, logger logr.Logger, namespace 
 	return workPlacementList.Items, nil
 }
 
-func (s *Scheduler) applyWorkplacementsForTargetDestinations(workloadGroup v1alpha1.WorkloadGroup, work *v1alpha1.Work, targetDestinationNames map[string]bool) (bool, error) {
+func (s *Scheduler) applyWorkplacementsForTargetDestinations(ctx context.Context, workloadGroup v1alpha1.WorkloadGroup, work *v1alpha1.Work, targetDestinationNames map[string]bool) (bool, error) {
 	containsMischeduledWorkplacement := false
 	for targetDestinationName, misscheduled := range targetDestinationNames {
 		workPlacement := &v1alpha1.WorkPlacement{}
 		workPlacement.Namespace = work.GetNamespace()
 		workPlacement.Name = work.Name + "." + targetDestinationName + "-" + shortID(workloadGroup.ID)
 
-		op, err := controllerutil.CreateOrUpdate(context.Background(), s.Client, workPlacement, func() error {
+		op, err := controllerutil.CreateOrUpdate(ctx, s.Client, workPlacement, func() error {
 			workPlacement.Spec.Workloads = workloadGroup.Workloads
 			workPlacement.Labels = map[string]string{
 				workLabelKey:               work.Name,
@@ -403,7 +403,7 @@ func (s *Scheduler) applyWorkplacementsForTargetDestinations(workloadGroup v1alp
 		if err != nil {
 			return false, err
 		}
-		if err := s.updateWorkPlacementStatus(workPlacement, misscheduled); err != nil {
+		if err := s.updateWorkPlacementStatus(ctx, workPlacement, misscheduled); err != nil {
 			return false, err
 		}
 		logging.Info(s.Log, "workplacement reconciled", "operation", op, "namespace", workPlacement.GetNamespace(), "workplacement", workPlacement.GetName(), "work", work.GetName(), "destination", targetDestinationName)
@@ -415,7 +415,7 @@ func (s *Scheduler) applyWorkplacementsForTargetDestinations(workloadGroup v1alp
 			outcome = telemetry.WorkPlacementOutcomeMisplaced
 		}
 		telemetry.RecordWorkPlacementOutcome(
-			context.Background(),
+			ctx,
 			outcome,
 			telemetry.WorkPlacementOutcomeAttributes(work.Spec.PromiseName, work.Spec.ResourceName, work.GetNamespace(), targetDestinationName)...,
 		)
@@ -423,9 +423,9 @@ func (s *Scheduler) applyWorkplacementsForTargetDestinations(workloadGroup v1alp
 	return containsMischeduledWorkplacement, nil
 }
 
-func (s *Scheduler) updateWorkPlacementStatus(workPlacement *v1alpha1.WorkPlacement, misplaced bool) error {
+func (s *Scheduler) updateWorkPlacementStatus(ctx context.Context, workPlacement *v1alpha1.WorkPlacement, misplaced bool) error {
 	updatedwp := &v1alpha1.WorkPlacement{}
-	if err := s.Client.Get(context.Background(), client.ObjectKeyFromObject(workPlacement), updatedwp); err != nil {
+	if err := s.Client.Get(ctx, client.ObjectKeyFromObject(workPlacement), updatedwp); err != nil {
 		return err
 	}
 
@@ -464,15 +464,15 @@ func (s *Scheduler) updateWorkPlacementStatus(workPlacement *v1alpha1.WorkPlacem
 
 	if apimeta.SetStatusCondition(&updatedwp.Status.Conditions, desiredScheduleCond) {
 		apimeta.SetStatusCondition(&updatedwp.Status.Conditions, desiredReadyCond)
-		return s.Client.Status().Update(context.Background(), updatedwp)
+		return s.Client.Status().Update(ctx, updatedwp)
 	}
 	return nil
 }
 
 // Where Work is a Resource Request return one random Destination name, where Work is a
 // DestinationWorkerResource return all Destination names
-func (s *Scheduler) getTargetDestinationNames(destinationSelectors map[string]string, work *v1alpha1.Work) ([]string, error) {
-	destinations, err := s.getDestinationsForWorkloadGroup(destinationSelectors)
+func (s *Scheduler) getTargetDestinationNames(ctx context.Context, destinationSelectors map[string]string, work *v1alpha1.Work) ([]string, error) {
+	destinations, err := s.getDestinationsForWorkloadGroup(ctx, destinationSelectors)
 	if err != nil {
 		return nil, err
 	}
@@ -503,7 +503,7 @@ func (s *Scheduler) getTargetDestinationNames(destinationSelectors map[string]st
 }
 
 // By default, all destinations are returned. However, if scheduling is provided, only matching destinations will be returned.
-func (s *Scheduler) getDestinationsForWorkloadGroup(destinationSelectors map[string]string) ([]v1alpha1.Destination, error) {
+func (s *Scheduler) getDestinationsForWorkloadGroup(ctx context.Context, destinationSelectors map[string]string) ([]v1alpha1.Destination, error) {
 	destinationList := &v1alpha1.DestinationList{}
 	lo := &client.ListOptions{}
 
@@ -518,7 +518,7 @@ func (s *Scheduler) getDestinationsForWorkloadGroup(destinationSelectors map[str
 		lo.LabelSelector = selector
 	}
 
-	err := s.Client.List(context.Background(), destinationList, lo)
+	err := s.Client.List(ctx, destinationList, lo)
 	if err != nil {
 		logging.Error(s.Log, err, "error listing available destinations")
 		return nil, err

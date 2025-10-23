@@ -21,6 +21,7 @@ import (
 	"flag"
 	"fmt"
 	"maps"
+	"net/http"
 	"os"
 	"strings"
 	"time"
@@ -32,12 +33,14 @@ import (
 	"sigs.k8s.io/controller-runtime/pkg/webhook"
 
 	"github.com/syntasso/kratix/internal/ptr"
+	"go.opentelemetry.io/contrib/instrumentation/net/http/otelhttp"
 	uberzap "go.uber.org/zap"
 	"go.uber.org/zap/zapcore"
 	"k8s.io/apiextensions-apiserver/pkg/client/clientset/clientset"
 	apierrors "k8s.io/apimachinery/pkg/api/errors"
 	"k8s.io/apimachinery/pkg/util/yaml"
 	_ "k8s.io/client-go/plugin/pkg/client/auth"
+	"k8s.io/client-go/rest"
 	"sigs.k8s.io/controller-runtime/pkg/client"
 
 	utilruntime "k8s.io/apimachinery/pkg/util/runtime"
@@ -108,6 +111,19 @@ var secureMetrics bool
 var pprofAddr string
 var enableLeaderElection bool
 
+// wrapConfigWithOTel wraps the Kubernetes REST config's HTTP transport with OpenTelemetry
+// instrumentation to automatically trace all Kubernetes API calls.
+func wrapConfigWithOTel(config *rest.Config) *rest.Config {
+	config.Wrap(func(rt http.RoundTripper) http.RoundTripper {
+		return otelhttp.NewTransport(rt,
+			otelhttp.WithSpanNameFormatter(func(operation string, r *http.Request) string {
+				return fmt.Sprintf("k8s %s %s", r.Method, r.URL.Path)
+			}),
+		)
+	})
+	return config
+}
+
 //nolint:funlen,gocognit // main wires controllers and webhooks; splitting would obscure the startup flow.
 func main() {
 	flag.StringVar(&metricsAddr, "metrics-bind-address", ":8080", "The address the metric endpoint binds to.")
@@ -130,7 +146,8 @@ func main() {
 	}
 	setupLog = ctrl.Log.WithName("setup")
 
-	kClient, err := client.New(ctrl.GetConfigOrDie(), client.Options{})
+	kClientConfig := wrapConfigWithOTel(ctrl.GetConfigOrDie())
+	kClient, err := client.New(kClientConfig, client.Options{})
 	if err != nil {
 		panic(err)
 	}
@@ -174,7 +191,7 @@ func main() {
 	}
 
 	for {
-		config := ctrl.GetConfigOrDie()
+		config := wrapConfigWithOTel(ctrl.GetConfigOrDie())
 		apiextensionsClient := clientset.NewForConfigOrDie(config)
 		metricsServerOptions := metricsserver.Options{
 			BindAddress:   metricsAddr,

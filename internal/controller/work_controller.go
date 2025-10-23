@@ -163,7 +163,7 @@ func (r *WorkReconciler) Reconcile(ctx context.Context, req ctrl.Request) (resul
 }
 
 func (r *WorkReconciler) updateWorkStatus(ctx context.Context, logger logr.Logger, work *v1alpha1.Work) error {
-	workplacements, err := listWorkplacementWithLabels(r.Client, logger, work.GetNamespace(), map[string]string{
+	workplacements, err := listWorkplacementWithLabels(ctx, r.Client, logger, work.GetNamespace(), map[string]string{
 		workLabelKey: work.Name,
 	})
 	if err != nil {

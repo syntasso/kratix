@@ -5,13 +5,17 @@ metadata:
   namespace: kratix-platform-system
 data:
   config: |
-    # telemetry:
-    #   enabled: true
-    #   endpoint: grafana-k8s-monitoring-alloy-receiver.default.svc.cluster.local:4317
-    #   protocol: grpc
-    #   insecure: true
-    #   headers:
-    #     authorization: "Bearer <grafana-api-token>"
+    workflows:
+      jobOptions:
+        defaultBackoffLimit: 4
+      defaultContainerSecurityContext:
+        windowsOptions:
+          runAsUserName: "setInKratixConfig"
+    telemetry:
+      enabled: true
+      endpoint: grafana-k8s-monitoring-alloy-receiver.default.svc.cluster.local:4317
+      protocol: grpc
+      insecure: true
     logging:
       structured: true
-      level: trace
+      level: info
