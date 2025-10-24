@@ -12,10 +12,10 @@ data:
         windowsOptions:
           runAsUserName: "setInKratixConfig"
     telemetry:
-      enabled: true
+      enabled: false
       endpoint: grafana-k8s-monitoring-alloy-receiver.default.svc.cluster.local:4317
       protocol: grpc
       insecure: true
     logging:
-      structured: true
-      level: info
+      structured: false
+      level: trace

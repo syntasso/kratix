@@ -108,6 +108,52 @@ func (r *DynamicResourceRequestController) Reconcile(ctx context.Context, req ct
 		return defaultRequeue, nil
 	}
 
+	resourceMetadata := &v1alpha1.ResourceMetadata{}
+	resourceRevision := resourceutil.GetStatus(rr, "revision")
+	versionedPromise := promise.Status.Version != ""
+	if versionedPromise || resourceRevision != "" {
+		resourceLocator := types.NamespacedName{
+			Name:      fmt.Sprintf("%s-%s", promise.GetName(), rr.GetName()),
+			Namespace: rr.GetNamespace(),
+		}
+
+		if err := r.Client.Get(ctx, resourceLocator, resourceMetadata); err != nil {
+			if !apierrors.IsNotFound(err) {
+				return ctrl.Result{}, err
+			}
+			resourceMetadata.Name = resourceLocator.Name
+			resourceMetadata.Namespace = resourceLocator.Namespace
+			resourceMetadata.Spec.Version = promise.Status.Version
+			resourceMetadata.Spec.GVK = v1alpha1.GroupVersionKind{
+				Group:   r.GVK.Group,
+				Version: r.GVK.Version,
+				Kind:    r.GVK.Kind,
+			}
+			resourceMetadata.Spec.ResourceRef = &v1alpha1.ResourceRef{
+				Name:      rr.GetName(),
+				Namespace: rr.GetNamespace(),
+			}
+			resourceMetadata.Spec.PromiseRef = &v1alpha1.PromiseRef{
+				Name: promise.GetName(),
+			}
+			if err := controllerutil.SetControllerReference(rr, resourceMetadata, r.Scheme); err != nil {
+				return ctrl.Result{}, err
+			}
+			if err := r.Client.Create(ctx, resourceMetadata); err != nil {
+				return ctrl.Result{}, err
+			}
+		}
+
+		promiseRevisionName := types.NamespacedName{
+			Name: fmt.Sprintf("%s-%s", resourceMetadata.Spec.PromiseRef.Name, resourceMetadata.Spec.Version),
+		}
+		promiserevision := &v1alpha1.PromiseRevision{}
+		if err := r.Client.Get(ctx, promiseRevisionName, promiserevision); err != nil {
+			return ctrl.Result{}, err
+		}
+		promise.Spec = promiserevision.Spec.PromiseSpec
+	}
+
 	baseLogger = baseLogger.WithValues(
 		"generation", rr.GetGeneration(),
 	)
@@ -254,6 +300,10 @@ func (r *DynamicResourceRequestController) Reconcile(ctx context.Context, req ct
 				return ctrl.Result{}, err
 			}
 			return ctrl.Result{}, nil
+		}
+		if versionedPromise && resourceRevision != resourceMetadata.Spec.Version {
+			resourceutil.SetStatus(rr, logger, "revision", resourceMetadata.Spec.Version)
+			return ctrl.Result{}, r.Client.Status().Update(ctx, rr)
 		}
 		return r.nextReconciliation(logger), nil
 	}

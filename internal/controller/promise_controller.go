@@ -191,11 +191,20 @@ func (r *PromiseReconciler) Reconcile(ctx context.Context, req ctrl.Request) (re
 		return ctrl.Result{}, nil
 	}
 
-	if value, found := promise.Labels[v1alpha1.PromiseVersionLabel]; found {
-		if promise.Status.Version != value {
-			promise.Status.Version = value
+	if declaredVersion, found := promise.Labels[v1alpha1.PromiseVersionLabel]; found {
+		if promise.Status.Version != declaredVersion {
+			promise.Status.Version = declaredVersion
+			if err := r.createPromiseRevision(ctx, declaredVersion, promise); err != nil {
+				return ctrl.Result{}, err
+			}
 			return r.updatePromiseStatus(ctx, promise)
 		}
+
+		revision := &v1alpha1.PromiseRevision{}
+		if err := r.Client.Get(ctx, types.NamespacedName{Name: fmt.Sprintf("%s-%s", promise.GetName(), declaredVersion)}, revision); err != nil {
+			return ctrl.Result{}, err
+		}
+		promise.Spec = revision.Spec.PromiseSpec
 	}
 
 	// Set status to unavailable, at the end of this function we set it to
@@ -1643,4 +1652,19 @@ func addPromiseSpanAttributes(traceCtx *reconcileTrace, promise *v1alpha1.Promis
 		attribute.Int64("kratix.promise.generation", promise.GetGeneration()),
 		attribute.String("kratix.action", traceCtx.Action()),
 	)
+}
+
+func (r *PromiseReconciler) createPromiseRevision(ctx context.Context, declaredVersion string, promise *v1alpha1.Promise) error {
+	revision := &v1alpha1.PromiseRevision{
+		ObjectMeta: metav1.ObjectMeta{
+			Name: fmt.Sprintf("%s-%s", promise.GetName(), declaredVersion),
+		},
+	}
+	logging.Trace(r.Log, "creating promise revision", "revision", revision.GetName())
+	_, err := controllerutil.CreateOrUpdate(ctx, r.Client, revision, func() error {
+		revision.Spec.Version = declaredVersion
+		revision.Spec.PromiseSpec = promise.Spec
+		return controllerutil.SetControllerReference(promise, revision, r.Scheme)
+	})
+	return err
 }

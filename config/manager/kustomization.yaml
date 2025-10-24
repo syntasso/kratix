@@ -22,6 +22,6 @@ configMapGenerator:
   name: pipeline-adapter-config
 
 images:
-- digest: sha256:730c631f3d3e5099681a4c8a78c33feee091280b2b759d076aaa076deb6d2acc
-  name: controller
-  newName: syntasso-community.docker.reo.dev/syntasso/kratix-platform
+- name: controller
+  newName: docker.io/syntasso/kratix-platform
+  newTag: dev

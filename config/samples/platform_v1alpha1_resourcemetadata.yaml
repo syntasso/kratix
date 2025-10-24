@@ -1,0 +1,9 @@
+apiVersion: platform.kratix.io/v1alpha1
+kind: ResourceMetadata
+metadata:
+  labels:
+    app.kubernetes.io/name: kratix
+    app.kubernetes.io/managed-by: kustomize
+  name: resourcemetadata-sample
+spec:
+  # TODO(user): Add fields here
