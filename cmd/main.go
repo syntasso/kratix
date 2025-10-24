@@ -119,6 +119,10 @@ func wrapConfigWithOTel(config *rest.Config) *rest.Config {
 			otelhttp.WithSpanNameFormatter(func(operation string, r *http.Request) string {
 				return fmt.Sprintf("k8s %s %s", r.Method, r.URL.Path)
 			}),
+			otelhttp.WithFilter(func(r *http.Request) bool {
+				// Only trace Kratix API calls - filter out all other Kubernetes API operations
+				return strings.Contains(r.URL.Path, "/apis/platform.kratix.io/")
+			}),
 		)
 	})
 	return config
