@@ -86,19 +86,19 @@ func (r *HealthRecordReconciler) Reconcile(ctx context.Context, req ctrl.Request
 	}
 
 	resReq := &unstructured.Unstructured{}
+
+	healthRecordIsBeingDeleted := !healthRecord.DeletionTimestamp.IsZero()
+
 	if err = r.getResourceRequest(ctx, promiseGVK, healthRecord, resReq); err != nil {
-		logging.Error(logger, err, "failed getting resource")
-		if errors.IsNotFound(err) && !healthRecord.DeletionTimestamp.IsZero() {
+		if errors.IsNotFound(err) && healthRecordIsBeingDeleted {
 			logging.Debug(r.Log, "resource not found during deletion; removing finalizer", "healthRecord", req.Name)
-			if result, err := r.removeFinalizer(ctx, healthRecord); err != nil {
-				return result, err
-			}
-			return ctrl.Result{}, nil
+			return ctrl.Result{}, r.removeFinalizer(ctx, healthRecord)
 		}
+		logging.Error(logger, err, "failed getting resource")
 		return defaultRequeue, nil
 	}
 
-	if !healthRecord.DeletionTimestamp.IsZero() {
+	if healthRecordIsBeingDeleted {
 		return r.deleteHealthRecord(ctx, healthRecord, resReq)
 	}
 
@@ -277,9 +277,7 @@ func (r *HealthRecordReconciler) deleteHealthRecord(
 	}
 
 	if !recordInResourceHealthRecords {
-		if result, err := r.removeFinalizer(ctx, healthRecord); err != nil {
-			return result, err
-		}
+		return ctrl.Result{}, r.removeFinalizer(ctx, healthRecord)
 	}
 
 	var updatedHealthRecords []platformv1alpha1.HealthRecord
@@ -321,13 +319,9 @@ func (r *HealthRecordReconciler) deleteHealthRecord(
 	return defaultRequeue, nil
 }
 
-func (r *HealthRecordReconciler) removeFinalizer(ctx context.Context, healthRecord *platformv1alpha1.HealthRecord) (ctrl.Result, error) {
+func (r *HealthRecordReconciler) removeFinalizer(ctx context.Context, healthRecord *platformv1alpha1.HealthRecord) error {
 	controllerutil.RemoveFinalizer(healthRecord, healthRecordCleanupFinalizer)
-	err := r.Client.Update(ctx, healthRecord)
-	if err != nil {
-		return defaultRequeue, err
-	}
-	return ctrl.Result{}, nil
+	return r.Client.Update(ctx, healthRecord)
 }
 
 func (r *HealthRecordReconciler) getResourceHealthRecords(resReq *unstructured.Unstructured) []any {
