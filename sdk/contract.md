@@ -42,6 +42,22 @@ WorkflowType returns the value of KRATIX_WORKFLOW_TYPE environment variable
 
 PromiseName returns the value of the KRATIX_PROMISE_NAME environment variable
 
+**`IsPromiseWorkflow() bool`**
+
+IsPromiseWorkflow returns true if the KRATIX_WORKFLOW_TYPE environment variable is set to "promise"
+
+**`IsResourceWorkflow() bool`**
+
+IsResourceWorkflow returns true if the KRATIX_WORKFLOW_TYPE environment variable is set to "resource"
+
+**`IsConfigureAction() bool`**
+
+IsConfigureAction returns true if the KRATIX_WORKFLOW_ACTION environment variable is set to "configure"
+
+**`IsDeleteAction() bool`**
+
+IsDeleteAction returns true if the KRATIX_WORKFLOW_ACTION environment variable is set to "delete"
+
 **`PipelineName() string`**
 
 PipelineName returns the value of the KRATIX_PIPELINE_NAME environment variable
