@@ -33,7 +33,7 @@ import (
 	. "github.com/onsi/gomega"
 )
 
-var _ = FDescribe("PromiseRevisionController", func() {
+var _ = Describe("PromiseRevisionController", func() {
 	var reconciler *controller.PromiseRevisionReconciler
 	var l logr.Logger
 	var eventRecorder *record.FakeRecorder

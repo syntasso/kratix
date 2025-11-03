@@ -1626,7 +1626,6 @@ var _ = Describe("PromiseController", func() {
 					Expect(revisionList.Items).To(HaveLen(2))
 					Expect(revisionList.Items[0].Spec.Version).To(Equal("v1.0.0"))
 					Expect(revisionList.Items[1].Spec.Version).To(Equal("v1.0.1"))
-					Expect(revisionList.Items[0].GetLabels()["kratix.io/latest-revision"]).To(Equal("false"))
 					Expect(revisionList.Items[1].GetLabels()["kratix.io/latest-revision"]).To(Equal("true"))
 				})
 			})

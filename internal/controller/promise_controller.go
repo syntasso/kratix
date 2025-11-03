@@ -204,7 +204,7 @@ func (r *PromiseReconciler) Reconcile(ctx context.Context, req ctrl.Request) (re
 
 	revision := &v1alpha1.PromiseRevision{
 		ObjectMeta: metav1.ObjectMeta{
-			Name: fmt.Sprintf("%s-v1.0.0", promise.GetName()),
+			Name: fmt.Sprintf("%s-%s", promise.GetName(), promiseVersion),
 			Labels: labels.Merge(promise.GenerateSharedLabels(), map[string]string{
 				"kratix.io/latest-revision": "true",
 			}),
