@@ -1,5 +1,5 @@
 /*
-Copyright 2021 Syntasso.
+Copyright 2025 Syntasso.
 
 Licensed under the Apache License, Version 2.0 (the "License");
 you may not use this file except in compliance with the License.
@@ -127,6 +127,9 @@ var _ = FDescribe("PromiseRevisionController", func() {
 					},
 					ObjectMeta: metav1.ObjectMeta{
 						Name: "non-latest-revision",
+						Labels: map[string]string{
+							platformv1alpha1.PromiseNameLabel: "non-latest-revision",
+						},
 					},
 					Spec: v1alpha1.PromiseRevisionSpec{
 						Version: "v0.8.0",

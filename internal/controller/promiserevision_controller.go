@@ -1,5 +1,5 @@
 /*
-Copyright 2021 Syntasso.
+Copyright 2025 Syntasso.
 
 Licensed under the Apache License, Version 2.0 (the "License");
 you may not use this file except in compliance with the License.
@@ -102,8 +102,13 @@ func (r *PromiseRevisionReconciler) Reconcile(ctx context.Context, req ctrl.Requ
 
 	isLatest := revision.GetLabels()["kratix.io/latest-revision"] == "true"
 	if !isLatest {
-		revision.Status.Latest = false
-		return ctrl.Result{}, r.Status().Update(ctx, revision)
+		if revision.Status.Latest {
+			revision.Status.Latest = false
+			return ctrl.Result{}, r.Status().Update(ctx, revision)
+		} else {
+			// If we already updated the Status, there's nothing else to do here.
+			return ctrl.Result{}, nil
+		}
 	}
 
 	if revision.Status.Latest {
