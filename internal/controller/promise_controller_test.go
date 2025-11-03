@@ -1581,6 +1581,12 @@ var _ = Describe("PromiseController", func() {
 				Expect(revision.GetLabels()["kratix.io/latest-revision"]).To(Equal("true"))
 			})
 
+			It("emits an event", func() {
+				Eventually(eventRecorder.Events).Should(Receive(ContainSubstring(
+					"Revision %s created", revisionRef.Name,
+				)))
+			})
+
 			It("updates the existing revision on updates", func() {
 				promise.Spec.DestinationSelectors = []v1alpha1.PromiseScheduling{{
 					MatchLabels: map[string]string{"label-new": "label-value"},
@@ -1632,11 +1638,66 @@ var _ = Describe("PromiseController", func() {
 		})
 
 		When("the Promise does not have a version label", func() {
-			It("creates a versionless revision", func() {})
+			It("creates a versionless revision", func() {
+				promise = createPromise(promisePath)
+				delete(promise.Labels, v1alpha1.PromiseVersionLabel)
+				Expect(fakeK8sClient.Update(context.TODO(), promise)).To(Succeed())
+
+				result, err := t.reconcileUntilCompletion(reconciler, promise, &opts{
+					funcs: []func(client.Object) error{autoMarkCRDAsEstablished},
+				})
+				Expect(err).NotTo(HaveOccurred())
+				Expect(result).To(Equal(ctrl.Result{RequeueAfter: reconciler.ReconciliationInterval}))
+
+				revisionList := &v1alpha1.PromiseRevisionList{}
+				Expect(fakeK8sClient.List(ctx, revisionList, &client.ListOptions{
+					LabelSelector: labels.SelectorFromSet(promise.GenerateSharedLabels()),
+				})).To(Succeed())
+				Expect(revisionList.Items).To(HaveLen(1))
+				Expect(revisionList.Items[0].Spec.Version).To(Equal("not-set"))
+				Expect(revisionList.Items[0].GetLabels()["kratix.io/latest-revision"]).To(Equal("true"))
+			})
 		})
 
-		When("there are multiple revisions", func() {
-			It("marks the latest applied as the active revision", func() {})
+		When("the revision exists but it is not the latest", func() {
+			It("applies the latest label when the promise is reapplied", func() {
+				promise = createPromise(promisePath)
+				Expect(fakeK8sClient.Update(context.TODO(), promise)).To(Succeed())
+
+				promiseVersion := promise.GetLabels()[v1alpha1.PromiseVersionLabel]
+
+				revision := &v1alpha1.PromiseRevision{
+					TypeMeta: metav1.TypeMeta{
+						Kind:       "PromiseRevision",
+						APIVersion: "platform.kratix.io/v1alpha1",
+					},
+					ObjectMeta: metav1.ObjectMeta{
+						Labels: promise.GenerateSharedLabels(),
+						Name:   fmt.Sprintf("%s-%s", promise.GetName(), promiseVersion),
+					},
+					Spec: v1alpha1.PromiseRevisionSpec{
+						Version: promiseVersion,
+						PromiseRef: v1alpha1.PromiseRef{
+							Name: promise.GetName(),
+						},
+					},
+				}
+				Expect(fakeK8sClient.Create(ctx, revision)).To(Succeed())
+
+				result, err := t.reconcileUntilCompletion(reconciler, promise, &opts{
+					funcs: []func(client.Object) error{autoMarkCRDAsEstablished},
+				})
+				Expect(err).NotTo(HaveOccurred())
+				Expect(result).To(Equal(ctrl.Result{RequeueAfter: reconciler.ReconciliationInterval}))
+
+				revisionList := &v1alpha1.PromiseRevisionList{}
+				Expect(fakeK8sClient.List(ctx, revisionList, &client.ListOptions{
+					LabelSelector: labels.SelectorFromSet(promise.GenerateSharedLabels()),
+				})).To(Succeed())
+				Expect(revisionList.Items).To(HaveLen(1))
+				Expect(revisionList.Items[0].Spec.Version).To(Equal(promiseVersion))
+				Expect(revisionList.Items[0].GetLabels()["kratix.io/latest-revision"]).To(Equal("true"))
+			})
 		})
 	})
 })

@@ -24,7 +24,6 @@ import (
 	platformv1alpha1 "github.com/syntasso/kratix/api/v1alpha1"
 	"github.com/syntasso/kratix/internal/controller"
 	metav1 "k8s.io/apimachinery/pkg/apis/meta/v1"
-	v1 "k8s.io/apimachinery/pkg/apis/meta/v1"
 	"k8s.io/apimachinery/pkg/types"
 	"k8s.io/client-go/tools/record"
 	ctrl "sigs.k8s.io/controller-runtime"
@@ -55,7 +54,7 @@ var _ = Describe("PromiseRevisionController", func() {
 
 		BeforeEach(func() {
 			revision = &v1alpha1.PromiseRevision{
-				TypeMeta: v1.TypeMeta{
+				TypeMeta: metav1.TypeMeta{
 					Kind:       "PromiseRevision",
 					APIVersion: "platform.kratix.io/v1alpha1",
 				},
@@ -75,7 +74,7 @@ var _ = Describe("PromiseRevisionController", func() {
 			Expect(fakeK8sClient.Create(ctx, revision)).To(Succeed())
 
 			previousRevision = &v1alpha1.PromiseRevision{
-				TypeMeta: v1.TypeMeta{
+				TypeMeta: metav1.TypeMeta{
 					Kind:       "PromiseRevision",
 					APIVersion: "platform.kratix.io/v1alpha1",
 				},
@@ -121,7 +120,7 @@ var _ = Describe("PromiseRevisionController", func() {
 		When("the revision does not have the latest label", func() {
 			It("ensures the revision status is not latest", func() {
 				nonLatestRevision := &v1alpha1.PromiseRevision{
-					TypeMeta: v1.TypeMeta{
+					TypeMeta: metav1.TypeMeta{
 						Kind:       "PromiseRevision",
 						APIVersion: "platform.kratix.io/v1alpha1",
 					},
