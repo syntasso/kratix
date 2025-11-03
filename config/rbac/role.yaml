@@ -72,6 +72,7 @@ rules:
   - gitstatestores
   - healthrecords
   - promisereleases
+  - promiserevisions
   - promises
   - workplacements
   - works
@@ -91,6 +92,7 @@ rules:
   - gitstatestores/finalizers
   - healthrecords/finalizers
   - promisereleases/finalizers
+  - promiserevisions/finalizers
   - promises/finalizers
   - workplacements/finalizers
   - works/finalizers
@@ -104,6 +106,7 @@ rules:
   - gitstatestores/status
   - healthrecords/status
   - promisereleases/status
+  - promiserevisions/status
   - promises/status
   - workplacements/status
   - works/status

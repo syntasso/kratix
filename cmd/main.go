@@ -32,7 +32,6 @@ import (
 	"sigs.k8s.io/controller-runtime/pkg/cache"
 	"sigs.k8s.io/controller-runtime/pkg/webhook"
 
-	"github.com/syntasso/kratix/internal/ptr"
 	"go.opentelemetry.io/contrib/instrumentation/net/http/otelhttp"
 	uberzap "go.uber.org/zap"
 	"go.uber.org/zap/zapcore"
@@ -42,6 +41,8 @@ import (
 	_ "k8s.io/client-go/plugin/pkg/client/auth"
 	"k8s.io/client-go/rest"
 	"sigs.k8s.io/controller-runtime/pkg/client"
+
+	"github.com/syntasso/kratix/internal/ptr"
 
 	utilruntime "k8s.io/apimachinery/pkg/util/runtime"
 	"k8s.io/client-go/kubernetes/scheme"
@@ -368,6 +369,13 @@ func main() {
 		}
 		if err = kratixWebhook.SetupBucketStateStoreWebhookWithManager(mgr); err != nil {
 			setupLog.Error(err, "unable to create webhook", "webhook", "BucketStateStore")
+			os.Exit(1)
+		}
+		if err := (&controller.PromiseRevisionReconciler{
+			Client: mgr.GetClient(),
+			Scheme: mgr.GetScheme(),
+		}).SetupWithManager(mgr); err != nil {
+			setupLog.Error(err, "unable to create controller", "controller", "PromiseRevision")
 			os.Exit(1)
 		}
 		//+kubebuilder:scaffold:builder

@@ -92,6 +92,7 @@ func (t *testReconciler) reconcileUntilCompletion(r kubebuilder.Reconciler, obj 
 		Name:      obj.GetName(),
 		Namespace: obj.GetNamespace(),
 	}
+	GinkgoWriter.Write([]byte(fmt.Sprintf("k8sObj: %v", k8sObj)))
 
 	err := fakeK8sClient.Get(context.Background(), namespacedName, k8sObj)
 	if err != nil {

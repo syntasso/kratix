@@ -24,6 +24,7 @@ import (
 
 	. "github.com/onsi/ginkgo/v2"
 	. "github.com/onsi/gomega"
+
 	"github.com/syntasso/kratix/api/v1alpha1"
 	"github.com/syntasso/kratix/internal/controller"
 	"github.com/syntasso/kratix/lib/workflow"
@@ -88,6 +89,7 @@ var _ = BeforeEach(func() {
 		&v1alpha1.Destination{},
 		&v1alpha1.GitStateStore{},
 		&v1alpha1.BucketStateStore{},
+		&v1alpha1.PromiseRevision{},
 		//Add redis.marketplace.kratix.io/v1alpha1 so we can update its status
 		resReq,
 	).Build()

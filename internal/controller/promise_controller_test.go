@@ -85,7 +85,7 @@ var _ = Describe("PromiseController", func() {
 
 	Describe("Promise Reconciliation", func() {
 		When("the promise is being created", func() {
-			When("it contains everything apart from promise workflows", func() {
+			When("it contains everything except for promise workflows", func() {
 				BeforeEach(func() {
 					promise = createPromise(promisePath)
 				})
@@ -216,6 +216,7 @@ var _ = Describe("PromiseController", func() {
 					By("setting the finalizers", func() {
 						Expect(fakeK8sClient.Get(ctx, promiseName, promise)).To(Succeed())
 						Expect(promise.Finalizers).To(ConsistOf(
+							"kratix.io/revision-cleanup",
 							"kratix.io/dynamic-controller-dependant-resources-cleanup",
 							"kratix.io/dependencies-cleanup",
 							"kratix.io/resource-request-cleanup",
@@ -982,6 +983,7 @@ var _ = Describe("PromiseController", func() {
 						"kratix.io/resource-request-cleanup",
 						"kratix.io/api-crd-cleanup",
 						"kratix.io/workflows-cleanup",
+						"kratix.io/revision-cleanup",
 					))
 				})
 
@@ -1095,6 +1097,7 @@ var _ = Describe("PromiseController", func() {
 						"kratix.io/api-crd-cleanup",
 						"kratix.io/workflows-cleanup",
 						"kratix.io/delete-workflows",
+						"kratix.io/revision-cleanup",
 					))
 				})
 
@@ -1143,6 +1146,7 @@ var _ = Describe("PromiseController", func() {
 							"kratix.io/resource-request-cleanup",
 							"kratix.io/api-crd-cleanup",
 							"kratix.io/workflows-cleanup",
+							"kratix.io/revision-cleanup",
 						))
 					})
 				})
@@ -1544,6 +1548,96 @@ var _ = Describe("PromiseController", func() {
 				Expect(crd.Spec.Versions[0].AdditionalPrinterColumns[0].Type).To(Equal("string"))
 				Expect(crd.Spec.Versions[0].AdditionalPrinterColumns[0].JSONPath).To(Equal(".status.myfield"))
 			})
+		})
+	})
+
+	Describe("Promise Revisions", func() {
+		When("the Promise has a version label", func() {
+			var revision *v1alpha1.PromiseRevision
+			var revisionRef types.NamespacedName
+
+			BeforeEach(func() {
+				promise = createPromise(promisePath)
+				promise.Labels[v1alpha1.PromiseVersionLabel] = "v1.0.0"
+				Expect(fakeK8sClient.Update(context.TODO(), promise)).To(Succeed())
+
+				result, err := t.reconcileUntilCompletion(reconciler, promise, &opts{
+					funcs: []func(client.Object) error{autoMarkCRDAsEstablished},
+				})
+				Expect(err).NotTo(HaveOccurred())
+				Expect(result).To(Equal(ctrl.Result{RequeueAfter: reconciler.ReconciliationInterval}))
+				revision = &v1alpha1.PromiseRevision{}
+				revisionRef = types.NamespacedName{
+					Name: fmt.Sprintf("%s-v1.0.0", promise.GetName()),
+				}
+
+				Expect(fakeK8sClient.Get(ctx, promiseName, promise)).To(Succeed())
+			})
+
+			It("creates a revision on install", func() {
+				Expect(fakeK8sClient.Get(ctx, revisionRef, revision)).To(Succeed())
+				Expect(revision.Spec.Version).To(Equal("v1.0.0"))
+				Expect(revision.Spec.PromiseSpec).To(Equal(promise.Spec))
+				Expect(revision.GetLabels()["kratix.io/latest-revision"]).To(Equal("true"))
+			})
+
+			It("updates the existing revision on updates", func() {
+				promise.Spec.DestinationSelectors = []v1alpha1.PromiseScheduling{{
+					MatchLabels: map[string]string{"label-new": "label-value"},
+				}}
+				Expect(fakeK8sClient.Update(context.TODO(), promise)).To(Succeed())
+
+				result, err := t.reconcileUntilCompletion(reconciler, promise, &opts{
+					funcs: []func(client.Object) error{autoMarkCRDAsEstablished},
+				})
+				Expect(err).NotTo(HaveOccurred())
+				Expect(result).To(Equal(ctrl.Result{RequeueAfter: reconciler.ReconciliationInterval}))
+
+				Expect(fakeK8sClient.Get(ctx, revisionRef, revision)).To(Succeed())
+				Expect(revision.Spec.PromiseSpec.DestinationSelectors).To(Equal(promise.Spec.DestinationSelectors))
+			})
+
+			It("deletes the revision on uninstall", func() {
+				Expect(fakeK8sClient.Delete(ctx, promise)).To(Succeed())
+				result, err := t.reconcileUntilCompletion(reconciler, promise, &opts{
+					funcs: []func(client.Object) error{autoMarkCRDAsEstablished},
+				})
+				Expect(err).NotTo(HaveOccurred())
+				Expect(result).To(Equal(ctrl.Result{}))
+
+				Expect(fakeK8sClient.Get(ctx, revisionRef, revision)).To(MatchError(ContainSubstring("not found")))
+			})
+
+			When("the Promise version changes", func() {
+				It("creates a new revision", func() {
+					promise.Labels[v1alpha1.PromiseVersionLabel] = "v1.0.1"
+					Expect(fakeK8sClient.Update(ctx, promise)).To(Succeed())
+
+					result, err := t.reconcileUntilCompletion(reconciler, promise, &opts{
+						funcs: []func(client.Object) error{autoMarkCRDAsEstablished},
+					})
+					Expect(err).NotTo(HaveOccurred())
+					Expect(result).To(Equal(ctrl.Result{RequeueAfter: reconciler.ReconciliationInterval}))
+
+					revisionList := &v1alpha1.PromiseRevisionList{}
+					Expect(fakeK8sClient.List(ctx, revisionList, &client.ListOptions{
+						LabelSelector: labels.SelectorFromSet(promise.GenerateSharedLabels()),
+					})).To(Succeed())
+					Expect(revisionList.Items).To(HaveLen(2))
+					Expect(revisionList.Items[0].Spec.Version).To(Equal("v1.0.0"))
+					Expect(revisionList.Items[1].Spec.Version).To(Equal("v1.0.1"))
+					Expect(revisionList.Items[0].GetLabels()["kratix.io/latest-revision"]).To(Equal("false"))
+					Expect(revisionList.Items[1].GetLabels()["kratix.io/latest-revision"]).To(Equal("true"))
+				})
+			})
+		})
+
+		When("the Promise does not have a version label", func() {
+			It("creates a versionless revision", func() {})
+		})
+
+		When("there are multiple revisions", func() {
+			It("marks the latest applied as the active revision", func() {})
 		})
 	})
 })
