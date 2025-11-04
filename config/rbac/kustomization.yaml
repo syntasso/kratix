@@ -22,10 +22,3 @@ resources:
 
 apiVersion: kustomize.config.k8s.io/v1beta1
 kind: Kustomization
-# For each CRD, "Admin", "Editor" and "Viewer" roles are scaffolded by
-# default, aiding admins in cluster management. Those roles are
-# not used by the kratix itself. You can comment the following lines
-# if you do not want those helpers be installed with your Project.
-- promiserevision_admin_role.yaml
-- promiserevision_editor_role.yaml
-- promiserevision_viewer_role.yaml

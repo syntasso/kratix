@@ -21,6 +21,9 @@ import (
 	"fmt"
 	"time"
 
+	"github.com/go-logr/logr"
+	platformv1alpha1 "github.com/syntasso/kratix/api/v1alpha1"
+	"github.com/syntasso/kratix/internal/logging"
 	"go.opentelemetry.io/otel/attribute"
 	"k8s.io/apimachinery/pkg/api/errors"
 	"k8s.io/apimachinery/pkg/labels"
@@ -28,10 +31,6 @@ import (
 	"k8s.io/client-go/tools/record"
 	ctrl "sigs.k8s.io/controller-runtime"
 	"sigs.k8s.io/controller-runtime/pkg/client"
-
-	"github.com/go-logr/logr"
-	platformv1alpha1 "github.com/syntasso/kratix/api/v1alpha1"
-	"github.com/syntasso/kratix/internal/logging"
 )
 
 // PromiseRevisionReconciler reconciles a PromiseRevision object
@@ -47,15 +46,6 @@ type PromiseRevisionReconciler struct {
 // +kubebuilder:rbac:groups=platform.kratix.io,resources=promiserevisions/status,verbs=get;update;patch
 // +kubebuilder:rbac:groups=platform.kratix.io,resources=promiserevisions/finalizers,verbs=update
 
-// Reconcile is part of the main kubernetes reconciliation loop which aims to
-// move the current state of the cluster closer to the desired state.
-// TODO(user): Modify the Reconcile function to compare the state specified by
-// the PromiseRevision object against the actual cluster state, and then
-// perform operations to make the cluster state reflect the state specified by
-// the user.
-//
-// For more details, check Reconcile and its Result here:
-// - https://pkg.go.dev/sigs.k8s.io/controller-runtime@v0.22.1/pkg/reconcile
 func (r *PromiseRevisionReconciler) Reconcile(ctx context.Context, req ctrl.Request) (result ctrl.Result, retErr error) {
 	logger := r.Log.WithValues(
 		"controller", "promiseRevision",
@@ -117,14 +107,12 @@ func (r *PromiseRevisionReconciler) Reconcile(ctx context.Context, req ctrl.Requ
 	}
 
 	revision.Status.Latest = true
-
 	if err := r.UnsetPreviousLatestRevision(ctx, logger, promiseName, revision); err != nil {
 		logging.Error(logger, err, "failed to unset previous latest revision")
 		return ctrl.Result{}, err
 	}
 
 	return ctrl.Result{}, r.Status().Update(ctx, revision)
-
 }
 
 // SetupWithManager sets up the controller with the Manager.

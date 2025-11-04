@@ -1584,10 +1584,11 @@ var _ = Describe("PromiseController", func() {
 				))
 			})
 
-			It("creates a revision on install", func() {
+			It("creates a revision with the correct spec on install", func() {
 				Expect(fakeK8sClient.Get(ctx, revisionRef, revision)).To(Succeed())
 				Expect(revision.Spec.Version).To(Equal("v1.0.0"))
 				Expect(revision.Spec.PromiseSpec).To(Equal(promise.Spec))
+				Expect(revision.Spec.PromiseRef.Name).To(Equal(promise.GetName()))
 				Expect(revision.GetLabels()["kratix.io/latest-revision"]).To(Equal("true"))
 			})
 

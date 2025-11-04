@@ -351,6 +351,7 @@ func (r *PromiseReconciler) handlePromiseRevision(ctx context.Context, promise *
 	}
 
 	op, err := controllerutil.CreateOrUpdate(ctx, r.Client, revision, func() error {
+		revision.Spec.PromiseRef = v1alpha1.PromiseRef{Name: promise.Name}
 		revision.Spec.PromiseSpec = promise.Spec
 		revision.Spec.Version = promiseVersion
 		l := revision.GetLabels()
@@ -1194,18 +1195,18 @@ func (r *PromiseReconciler) deletePromise(o opts, promise *v1alpha1.Promise) (ct
 		return fastRequeue, nil
 	}
 
-	if controllerutil.ContainsFinalizer(promise, revisionCleanupFinalizer) {
-		logging.Debug(o.logger, "deleting revision for finalizer", "finalizer", revisionCleanupFinalizer)
-		err := r.deleteRevisions(o, promise)
+	if controllerutil.ContainsFinalizer(promise, resourceRequestCleanupFinalizer) {
+		logging.Debug(o.logger, "deleting resources for finalizer", "finalizer", resourceRequestCleanupFinalizer)
+		err := r.deleteResourceRequests(o, promise)
 		if err != nil {
 			return ctrl.Result{}, err
 		}
 		return fastRequeue, nil
 	}
 
-	if controllerutil.ContainsFinalizer(promise, resourceRequestCleanupFinalizer) {
-		logging.Debug(o.logger, "deleting resources for finalizer", "finalizer", resourceRequestCleanupFinalizer)
-		err := r.deleteResourceRequests(o, promise)
+	if controllerutil.ContainsFinalizer(promise, revisionCleanupFinalizer) {
+		logging.Debug(o.logger, "deleting revision for finalizer", "finalizer", revisionCleanupFinalizer)
+		err := r.deleteRevisions(o, promise)
 		if err != nil {
 			return ctrl.Result{}, err
 		}

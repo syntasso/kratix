@@ -16,7 +16,12 @@ spec:
     singular: promiserevision
   scope: Cluster
   versions:
-  - name: v1alpha1
+  - additionalPrinterColumns:
+    - description: Indicates the destination is ready to use
+      jsonPath: .status.latest
+      name: Latest
+      type: boolean
+    name: v1alpha1
     schema:
       openAPIV3Schema:
         description: PromiseRevision is the Schema for the promiserevisions API

@@ -47,6 +47,7 @@ type PromiseRevisionStatus struct {
 // +kubebuilder:object:root=true
 // +kubebuilder:resource:scope=Cluster,path=promiserevisions,categories=kratix
 // +kubebuilder:subresource:status
+// +kubebuilder:printcolumn:name="Latest",type=boolean,JSONPath=`.status.latest`,description="Indicates the destination is ready to use"
 
 // PromiseRevision is the Schema for the promiserevisions API
 type PromiseRevision struct {
@@ -62,7 +63,7 @@ type PromiseRevision struct {
 
 	// status defines the observed state of PromiseRevision
 	// +optional
-	Status PromiseRevisionStatus `json:"status,omitempty,omitzero"`
+	Status PromiseRevisionStatus `json:"status,omitempty"`
 }
 
 // +kubebuilder:object:root=true

@@ -572,7 +572,9 @@ func setLeaderElectConfig(mgrOptions *ctrl.Options, kConfig *KratixConfig) {
 }
 
 func promiseUpgradeEnabled(kConfig *KratixConfig) bool {
-	if kConfig.FeatureFlags != nil && kConfig.FeatureFlags.PromiseUpgrade != nil {
+	if kConfig != nil &&
+		kConfig.FeatureFlags != nil &&
+		kConfig.FeatureFlags.PromiseUpgrade != nil {
 		return *kConfig.FeatureFlags.PromiseUpgrade
 	}
 	return false
