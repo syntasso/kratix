@@ -37,9 +37,10 @@ import (
 // PromiseRevisionReconciler reconciles a PromiseRevision object
 type PromiseRevisionReconciler struct {
 	client.Client
-	Scheme        *runtime.Scheme
-	Log           logr.Logger
-	EventRecorder record.EventRecorder
+	Scheme         *runtime.Scheme
+	Log            logr.Logger
+	EventRecorder  record.EventRecorder
+	PromiseUpgrade bool
 }
 
 // +kubebuilder:rbac:groups=platform.kratix.io,resources=promiserevisions,verbs=get;list;watch;create;update;patch;delete

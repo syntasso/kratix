@@ -216,7 +216,6 @@ var _ = Describe("PromiseController", func() {
 					By("setting the finalizers", func() {
 						Expect(fakeK8sClient.Get(ctx, promiseName, promise)).To(Succeed())
 						Expect(promise.Finalizers).To(ConsistOf(
-							"kratix.io/revision-cleanup",
 							"kratix.io/dynamic-controller-dependant-resources-cleanup",
 							"kratix.io/dependencies-cleanup",
 							"kratix.io/resource-request-cleanup",
@@ -983,7 +982,6 @@ var _ = Describe("PromiseController", func() {
 						"kratix.io/resource-request-cleanup",
 						"kratix.io/api-crd-cleanup",
 						"kratix.io/workflows-cleanup",
-						"kratix.io/revision-cleanup",
 					))
 				})
 
@@ -1097,7 +1095,6 @@ var _ = Describe("PromiseController", func() {
 						"kratix.io/api-crd-cleanup",
 						"kratix.io/workflows-cleanup",
 						"kratix.io/delete-workflows",
-						"kratix.io/revision-cleanup",
 					))
 				})
 
@@ -1146,7 +1143,6 @@ var _ = Describe("PromiseController", func() {
 							"kratix.io/resource-request-cleanup",
 							"kratix.io/api-crd-cleanup",
 							"kratix.io/workflows-cleanup",
-							"kratix.io/revision-cleanup",
 						))
 					})
 				})
@@ -1552,6 +1548,9 @@ var _ = Describe("PromiseController", func() {
 	})
 
 	Describe("Promise Revisions", func() {
+		BeforeEach(func() {
+			reconciler.PromiseUpgrade = true
+		})
 		When("the Promise has a version label", func() {
 			var revision *v1alpha1.PromiseRevision
 			var revisionRef types.NamespacedName
@@ -1572,6 +1571,17 @@ var _ = Describe("PromiseController", func() {
 				}
 
 				Expect(fakeK8sClient.Get(ctx, promiseName, promise)).To(Succeed())
+			})
+
+			It("sets the revision finalizer on the promise", func() {
+				Expect(fakeK8sClient.Get(ctx, promiseName, promise)).To(Succeed())
+				Expect(promise.Finalizers).To(ConsistOf(
+					"kratix.io/dynamic-controller-dependant-resources-cleanup",
+					"kratix.io/dependencies-cleanup",
+					"kratix.io/resource-request-cleanup",
+					"kratix.io/api-crd-cleanup",
+					"kratix.io/revision-cleanup",
+				))
 			})
 
 			It("creates a revision on install", func() {

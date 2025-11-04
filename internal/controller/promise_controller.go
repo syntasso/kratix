@@ -80,6 +80,7 @@ type PromiseReconciler struct {
 	NumberOfJobsToKeep        int
 	ReconciliationInterval    time.Duration
 	EventRecorder             record.EventRecorder
+	PromiseUpgrade            bool
 }
 
 const (
@@ -193,40 +194,9 @@ func (r *PromiseReconciler) Reconcile(ctx context.Context, req ctrl.Request) (re
 		return ctrl.Result{}, nil
 	}
 
-	var promiseVersion string
-	var foundVersion bool
-	if promiseVersion, foundVersion = promise.Labels[v1alpha1.PromiseVersionLabel]; foundVersion {
-		if promise.Status.Version != promiseVersion {
-			promise.Status.Version = promiseVersion
-			return r.updatePromiseStatus(ctx, promise)
-		}
-	}
-	if promiseVersion == "" {
-		promiseVersion = "not-set"
-	}
-
-	revision := &v1alpha1.PromiseRevision{
-		ObjectMeta: metav1.ObjectMeta{
-			Name: fmt.Sprintf("%s-%s", promise.GetName(), promiseVersion),
-		},
-	}
-
-	op, err := controllerutil.CreateOrUpdate(ctx, r.Client, revision, func() error {
-		revision.Spec.PromiseSpec = promise.Spec
-		revision.Spec.Version = promiseVersion
-		l := revision.GetLabels()
-		revision.SetLabels(labels.Merge(l, labels.Merge(promise.GenerateSharedLabels(), map[string]string{
-			"kratix.io/latest-revision": "true",
-		})))
-
-		return controllerutil.SetControllerReference(promise, revision, scheme.Scheme)
-	})
-	if err != nil {
-		return ctrl.Result{}, err
-	}
-
-	if op == controllerutil.OperationResultCreated {
-		r.EventRecorder.Eventf(promise, v1.EventTypeNormal, "RevisionCreated", fmt.Sprintf("Revision %s created", revision.GetName()))
+	result, err := r.handlePromiseRevision(ctx, promise)
+	if err != nil || !result.IsZero() {
+		return result, err
 	}
 
 	// Set status to unavailable, at the end of this function we set it to
@@ -354,6 +324,49 @@ func (r *PromiseReconciler) Reconcile(ctx context.Context, req ctrl.Request) (re
 		return r.nextReconciliation(logger), nil
 	}
 
+	return ctrl.Result{}, nil
+}
+
+func (r *PromiseReconciler) handlePromiseRevision(ctx context.Context, promise *v1alpha1.Promise) (ctrl.Result, error) {
+	if r.PromiseUpgrade != true {
+		return ctrl.Result{}, nil
+	}
+
+	var promiseVersion string
+	var foundVersion bool
+	if promiseVersion, foundVersion = promise.Labels[v1alpha1.PromiseVersionLabel]; foundVersion {
+		if promise.Status.Version != promiseVersion {
+			promise.Status.Version = promiseVersion
+			return r.updatePromiseStatus(ctx, promise)
+		}
+	}
+	if promiseVersion == "" {
+		promiseVersion = "not-set"
+	}
+
+	revision := &v1alpha1.PromiseRevision{
+		ObjectMeta: metav1.ObjectMeta{
+			Name: fmt.Sprintf("%s-%s", promise.GetName(), promiseVersion),
+		},
+	}
+
+	op, err := controllerutil.CreateOrUpdate(ctx, r.Client, revision, func() error {
+		revision.Spec.PromiseSpec = promise.Spec
+		revision.Spec.Version = promiseVersion
+		l := revision.GetLabels()
+		revision.SetLabels(labels.Merge(l, labels.Merge(promise.GenerateSharedLabels(), map[string]string{
+			"kratix.io/latest-revision": "true",
+		})))
+
+		return controllerutil.SetControllerReference(promise, revision, scheme.Scheme)
+	})
+	if err != nil {
+		return ctrl.Result{}, err
+	}
+
+	if op == controllerutil.OperationResultCreated {
+		r.EventRecorder.Eventf(promise, v1.EventTypeNormal, "RevisionCreated", fmt.Sprintf("Revision %s created", revision.GetName()))
+	}
 	return ctrl.Result{}, nil
 }
 
@@ -921,6 +934,7 @@ func (r *PromiseReconciler) ensureDynamicControllerIsStarted(promise *v1alpha1.P
 		NumberOfJobsToKeep:          r.NumberOfJobsToKeep,
 		ReconciliationInterval:      r.ReconciliationInterval,
 		EventRecorder:               r.Manager.GetEventRecorderFor("ResourceRequestController"),
+		PromiseUpgrade:              r.PromiseUpgrade,
 	}
 	r.StartedDynamicControllers[promise.GetDynamicControllerName(logger)] = dynamicResourceRequestController
 
@@ -1453,7 +1467,9 @@ func (r *PromiseReconciler) promiseFinalizers(promise *v1alpha1.Promise) []strin
 	desired := make(map[string]struct{}, len(promiseFinalizers))
 
 	desired[dependenciesCleanupFinalizer] = struct{}{}
-	desired[revisionCleanupFinalizer] = struct{}{}
+	if r.PromiseUpgrade {
+		desired[revisionCleanupFinalizer] = struct{}{}
+	}
 
 	if promise.ContainsAPI() {
 		desired[resourceRequestCleanupFinalizer] = struct{}{}
