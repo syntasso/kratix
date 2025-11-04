@@ -328,7 +328,7 @@ func (r *PromiseReconciler) Reconcile(ctx context.Context, req ctrl.Request) (re
 }
 
 func (r *PromiseReconciler) handlePromiseRevision(ctx context.Context, promise *v1alpha1.Promise) (ctrl.Result, error) {
-	if r.PromiseUpgrade != true {
+	if !r.PromiseUpgrade {
 		return ctrl.Result{}, nil
 	}
 
