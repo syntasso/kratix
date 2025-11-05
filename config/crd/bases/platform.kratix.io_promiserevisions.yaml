@@ -17,7 +17,7 @@ spec:
   scope: Cluster
   versions:
   - additionalPrinterColumns:
-    - description: Indicates the destination is ready to use
+    - description: Indicates whether the PromiseRevision is the latest
       jsonPath: .status.latest
       name: Latest
       type: boolean
