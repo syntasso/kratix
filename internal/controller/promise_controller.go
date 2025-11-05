@@ -194,7 +194,7 @@ func (r *PromiseReconciler) Reconcile(ctx context.Context, req ctrl.Request) (re
 		return ctrl.Result{}, nil
 	}
 
-	result, err := r.handlePromiseRevision(ctx, promise)
+	result, err := r.handlePromiseVersion(ctx, promise)
 	if err != nil || !result.IsZero() {
 		return result, err
 	}
@@ -327,8 +327,14 @@ func (r *PromiseReconciler) Reconcile(ctx context.Context, req ctrl.Request) (re
 	return ctrl.Result{}, nil
 }
 
-func (r *PromiseReconciler) handlePromiseRevision(ctx context.Context, promise *v1alpha1.Promise) (ctrl.Result, error) {
+func (r *PromiseReconciler) handlePromiseVersion(ctx context.Context, promise *v1alpha1.Promise) (ctrl.Result, error) {
 	if !r.PromiseUpgrade {
+		if value, found := promise.Labels[v1alpha1.PromiseVersionLabel]; found {
+			if promise.Status.Version != value {
+				promise.Status.Version = value
+				return r.updatePromiseStatus(ctx, promise)
+			}
+		}
 		return ctrl.Result{}, nil
 	}
 
