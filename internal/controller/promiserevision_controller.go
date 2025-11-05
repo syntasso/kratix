@@ -96,10 +96,9 @@ func (r *PromiseRevisionReconciler) Reconcile(ctx context.Context, req ctrl.Requ
 		if revision.Status.Latest {
 			revision.Status.Latest = false
 			return ctrl.Result{}, r.Status().Update(ctx, revision)
-		} else {
-			// If we already updated the Status, there's nothing else to do here.
-			return ctrl.Result{}, nil
 		}
+		// If we already updated the Status, there's nothing else to do here.
+		return ctrl.Result{}, nil
 	}
 
 	if revision.Status.Latest {

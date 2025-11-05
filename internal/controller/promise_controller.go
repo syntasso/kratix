@@ -328,24 +328,19 @@ func (r *PromiseReconciler) Reconcile(ctx context.Context, req ctrl.Request) (re
 }
 
 func (r *PromiseReconciler) handlePromiseVersion(ctx context.Context, promise *v1alpha1.Promise) (ctrl.Result, error) {
-	if !r.PromiseUpgrade {
-		if value, found := promise.Labels[v1alpha1.PromiseVersionLabel]; found {
-			if promise.Status.Version != value {
-				promise.Status.Version = value
-				return r.updatePromiseStatus(ctx, promise)
-			}
-		}
-		return ctrl.Result{}, nil
-	}
-
 	var promiseVersion string
-	var foundVersion bool
-	if promiseVersion, foundVersion = promise.Labels[v1alpha1.PromiseVersionLabel]; foundVersion {
+	var found bool
+	if promiseVersion, found = promise.Labels[v1alpha1.PromiseVersionLabel]; found {
 		if promise.Status.Version != promiseVersion {
 			promise.Status.Version = promiseVersion
 			return r.updatePromiseStatus(ctx, promise)
 		}
 	}
+
+	if !r.PromiseUpgrade {
+		return ctrl.Result{}, nil
+	}
+
 	if promiseVersion == "" {
 		promiseVersion = "not-set"
 	}
