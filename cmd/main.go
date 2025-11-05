@@ -70,6 +70,7 @@ var setupLog = ctrl.Log.WithName("setup")
 
 func init() {
 	utilruntime.Must(platformv1alpha1.AddToScheme(scheme.Scheme))
+	utilruntime.Must(platformv1alpha1.AddToScheme(scheme))
 	//+kubebuilder:scaffold:scheme
 }
 
@@ -383,6 +384,13 @@ func main() {
 			PromiseUpgrade: promiseUpgradeEnabled(kratixConfig),
 		}).SetupWithManager(mgr); err != nil {
 			setupLog.Error(err, "unable to create controller", "controller", "PromiseRevision")
+			os.Exit(1)
+		}
+		if err := (&controller.ResourceBindingReconciler{
+			Client: mgr.GetClient(),
+			Scheme: mgr.GetScheme(),
+		}).SetupWithManager(mgr); err != nil {
+			setupLog.Error(err, "unable to create controller", "controller", "ResourceBinding")
 			os.Exit(1)
 		}
 		//+kubebuilder:scaffold:builder
