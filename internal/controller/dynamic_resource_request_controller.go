@@ -72,6 +72,7 @@ type DynamicResourceRequestController struct {
 	NumberOfJobsToKeep          int
 	ReconciliationInterval      time.Duration
 	EventRecorder               record.EventRecorder
+	PromiseUpgrade              bool
 }
 
 //+kubebuilder:rbac:groups="batch",resources=jobs,verbs=get;list;watch;create;update;patch;delete
@@ -94,17 +95,32 @@ func (r *DynamicResourceRequestController) Reconcile(ctx context.Context, req ct
 
 	rr := &unstructured.Unstructured{}
 	rr.SetGroupVersionKind(*r.GVK)
+
 	promise := &v1alpha1.Promise{}
 	if err := r.Client.Get(ctx, types.NamespacedName{Name: r.PromiseIdentifier}, promise); err != nil {
 		logging.Error(baseLogger, err, "failed to get promise")
 		return ctrl.Result{}, err
 	}
 
+	if r.PromiseUpgrade {
+		logging.Trace(baseLogger,
+			"PromiseUpgrade feature flag set to true; will try to fetch latest PromiseRevision")
+		var latest *v1alpha1.PromiseRevision
+		var err error
+		if latest, err = latestRevision(ctx, r.Client, promise); err != nil {
+			logging.Error(baseLogger, err, "failed to get latest PromiseRevision")
+			return ctrl.Result{}, err
+		}
+		promise.Spec = latest.Spec.PromiseSpec
+		logging.Debug(baseLogger,
+			"Found latest PromiseRevision", "revision name", latest.Name)
+	}
+
 	if err := r.Client.Get(ctx, req.NamespacedName, rr); err != nil {
 		if apierrors.IsNotFound(err) {
 			return ctrl.Result{}, nil
 		}
-		logging.Error(baseLogger, err, "failed to get promise crd")
+		logging.Error(baseLogger, err, "failed to get resource request")
 		return defaultRequeue, nil
 	}
 
@@ -609,6 +625,25 @@ func (r *DynamicResourceRequestController) ensurePromiseIsAvailable(ctx context.
 ) error {
 	resourceutil.MarkPromiseConditionAsAvailable(rr, logger)
 	return r.Client.Status().Update(ctx, rr)
+}
+
+func latestRevision(ctx context.Context, c client.Client, promise *v1alpha1.Promise) (*v1alpha1.PromiseRevision, error) {
+	revisionList := &v1alpha1.PromiseRevisionList{}
+	if err := c.List(ctx, revisionList, &client.ListOptions{
+		LabelSelector: labels.SelectorFromSet(promise.GenerateSharedLabels()),
+	}); err != nil {
+		return nil, err
+	}
+
+	for i := range revisionList.Items {
+		revision := &revisionList.Items[i]
+		if revision.Status.Latest {
+			return revision, nil
+		}
+	}
+
+	return nil, fmt.Errorf("cannot find any PromiseRevision for Promise %s with status.latest set to true",
+		promise.GetName())
 }
 
 func updateObservedGeneration(

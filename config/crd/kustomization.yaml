@@ -10,6 +10,7 @@ resources:
 - bases/platform.kratix.io_gitstatestores.yaml
 - bases/platform.kratix.io_promisereleases.yaml
 - bases/platform.kratix.io_healthrecords.yaml
+- bases/platform.kratix.io_promiserevisions.yaml
 #+kubebuilder:scaffold:crdkustomizeresource
 
 labels:

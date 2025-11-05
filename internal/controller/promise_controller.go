@@ -53,6 +53,7 @@ import (
 	"k8s.io/apimachinery/pkg/runtime"
 	"k8s.io/apimachinery/pkg/runtime/schema"
 	"k8s.io/apimachinery/pkg/types"
+	"k8s.io/client-go/kubernetes/scheme"
 	"k8s.io/client-go/tools/record"
 	ctrl "sigs.k8s.io/controller-runtime"
 	"sigs.k8s.io/controller-runtime/pkg/client"
@@ -79,6 +80,7 @@ type PromiseReconciler struct {
 	NumberOfJobsToKeep        int
 	ReconciliationInterval    time.Duration
 	EventRecorder             record.EventRecorder
+	PromiseUpgrade            bool
 }
 
 const (
@@ -87,6 +89,7 @@ const (
 	dynamicControllerDependantResourcesCleanupFinalizer = v1alpha1.KratixPrefix + "dynamic-controller-dependant-resources-cleanup"
 	crdCleanupFinalizer                                 = v1alpha1.KratixPrefix + "api-crd-cleanup"
 	dependenciesCleanupFinalizer                        = v1alpha1.KratixPrefix + "dependencies-cleanup"
+	revisionCleanupFinalizer                            = v1alpha1.KratixPrefix + "revision-cleanup"
 	lastUpdatedAtAnnotation                             = v1alpha1.KratixPrefix + "last-updated-at"
 
 	requirementStateInstalled                      = "Requirement installed"
@@ -106,6 +109,7 @@ var (
 		dependenciesCleanupFinalizer,
 		removeAllWorkflowJobsFinalizer,
 		runDeleteWorkflowsFinalizer,
+		revisionCleanupFinalizer,
 	}
 
 	// fastRequeue can be used whenever we want to quickly requeue, and we don't expect
@@ -179,8 +183,7 @@ func (r *PromiseReconciler) Reconcile(ctx context.Context, req ctrl.Request) (re
 	if !promise.DeletionTimestamp.IsZero() {
 		return r.deletePromise(opts, promise)
 	}
-
-	desiredFinalizers := r.promisedFinalizers(promise)
+	desiredFinalizers := r.promiseFinalizers(promise)
 	if len(desiredFinalizers) > 0 && resourceutil.FinalizersAreMissing(promise, desiredFinalizers) {
 		if err := addFinalizers(opts, promise, desiredFinalizers); err != nil {
 			if kerrors.IsConflict(err) {
@@ -191,11 +194,9 @@ func (r *PromiseReconciler) Reconcile(ctx context.Context, req ctrl.Request) (re
 		return ctrl.Result{}, nil
 	}
 
-	if value, found := promise.Labels[v1alpha1.PromiseVersionLabel]; found {
-		if promise.Status.Version != value {
-			promise.Status.Version = value
-			return r.updatePromiseStatus(ctx, promise)
-		}
+	result, err := r.handlePromiseVersion(ctx, promise)
+	if err != nil || !result.IsZero() {
+		return result, err
 	}
 
 	// Set status to unavailable, at the end of this function we set it to
@@ -323,6 +324,56 @@ func (r *PromiseReconciler) Reconcile(ctx context.Context, req ctrl.Request) (re
 		return r.nextReconciliation(logger), nil
 	}
 
+	return ctrl.Result{}, nil
+}
+
+func (r *PromiseReconciler) handlePromiseVersion(ctx context.Context, promise *v1alpha1.Promise) (ctrl.Result, error) {
+	if !r.PromiseUpgrade {
+		if value, found := promise.Labels[v1alpha1.PromiseVersionLabel]; found {
+			if promise.Status.Version != value {
+				promise.Status.Version = value
+				return r.updatePromiseStatus(ctx, promise)
+			}
+		}
+		return ctrl.Result{}, nil
+	}
+
+	var promiseVersion string
+	var foundVersion bool
+	if promiseVersion, foundVersion = promise.Labels[v1alpha1.PromiseVersionLabel]; foundVersion {
+		if promise.Status.Version != promiseVersion {
+			promise.Status.Version = promiseVersion
+			return r.updatePromiseStatus(ctx, promise)
+		}
+	}
+	if promiseVersion == "" {
+		promiseVersion = "not-set"
+	}
+
+	revision := &v1alpha1.PromiseRevision{
+		ObjectMeta: metav1.ObjectMeta{
+			Name: fmt.Sprintf("%s-%s", promise.GetName(), promiseVersion),
+		},
+	}
+
+	op, err := controllerutil.CreateOrUpdate(ctx, r.Client, revision, func() error {
+		revision.Spec.PromiseRef = v1alpha1.PromiseRef{Name: promise.Name}
+		revision.Spec.PromiseSpec = promise.Spec
+		revision.Spec.Version = promiseVersion
+		l := revision.GetLabels()
+		revision.SetLabels(labels.Merge(l, labels.Merge(promise.GenerateSharedLabels(), map[string]string{
+			"kratix.io/latest-revision": "true",
+		})))
+
+		return controllerutil.SetControllerReference(promise, revision, scheme.Scheme)
+	})
+	if err != nil {
+		return ctrl.Result{}, err
+	}
+
+	if op == controllerutil.OperationResultCreated {
+		r.EventRecorder.Eventf(promise, v1.EventTypeNormal, "RevisionCreated", fmt.Sprintf("Revision %s created", revision.GetName()))
+	}
 	return ctrl.Result{}, nil
 }
 
@@ -890,6 +941,7 @@ func (r *PromiseReconciler) ensureDynamicControllerIsStarted(promise *v1alpha1.P
 		NumberOfJobsToKeep:          r.NumberOfJobsToKeep,
 		ReconciliationInterval:      r.ReconciliationInterval,
 		EventRecorder:               r.Manager.GetEventRecorderFor("ResourceRequestController"),
+		PromiseUpgrade:              r.PromiseUpgrade,
 	}
 	r.StartedDynamicControllers[promise.GetDynamicControllerName(logger)] = dynamicResourceRequestController
 
@@ -1158,6 +1210,15 @@ func (r *PromiseReconciler) deletePromise(o opts, promise *v1alpha1.Promise) (ct
 		return fastRequeue, nil
 	}
 
+	if controllerutil.ContainsFinalizer(promise, revisionCleanupFinalizer) {
+		logging.Debug(o.logger, "deleting revision for finalizer", "finalizer", revisionCleanupFinalizer)
+		err := r.deleteRevisions(o, promise)
+		if err != nil {
+			return ctrl.Result{}, err
+		}
+		return fastRequeue, nil
+	}
+
 	//temporary fix until https://github.com/kubernetes-sigs/controller-runtime/issues/1884 is resolved
 	//once resolved, delete dynamic controller rather than disable
 	if d, exists := r.StartedDynamicControllers[promise.GetDynamicControllerName(o.logger)]; exists {
@@ -1321,6 +1382,25 @@ func (r *PromiseReconciler) deleteCRDs(o opts, promise *v1alpha1.Promise) error 
 		Delete(o.ctx, rrCRD.GetName(), metav1.DeleteOptions{})
 }
 
+func (r *PromiseReconciler) deleteRevisions(o opts, promise *v1alpha1.Promise) error {
+	revisionList := &v1alpha1.PromiseRevisionList{}
+	if err := o.client.List(o.ctx, revisionList, &client.ListOptions{
+		LabelSelector: labels.SelectorFromSet(promise.GenerateSharedLabels()),
+	}); err != nil {
+		return err
+	}
+
+	for i := range revisionList.Items {
+		revision := &revisionList.Items[i]
+		if err := o.client.Delete(o.ctx, revision, client.PropagationPolicy(metav1.DeletePropagationBackground)); err != nil && !errors.IsNotFound(err) {
+			return err
+		}
+	}
+
+	controllerutil.RemoveFinalizer(promise, revisionCleanupFinalizer)
+	return r.Client.Update(o.ctx, promise)
+}
+
 func (r *PromiseReconciler) deleteWork(o opts, promise *v1alpha1.Promise) error {
 	workGVK := schema.GroupVersionKind{
 		Group:   v1alpha1.GroupVersion.Group,
@@ -1386,7 +1466,7 @@ func ensurePromiseDeleteWorkflowFinalizer(o opts, promise *v1alpha1.Promise, pro
 	return nil, nil
 }
 
-func (r *PromiseReconciler) promisedFinalizers(promise *v1alpha1.Promise) []string {
+func (r *PromiseReconciler) promiseFinalizers(promise *v1alpha1.Promise) []string {
 	if promise == nil {
 		return nil
 	}
@@ -1394,6 +1474,9 @@ func (r *PromiseReconciler) promisedFinalizers(promise *v1alpha1.Promise) []stri
 	desired := make(map[string]struct{}, len(promiseFinalizers))
 
 	desired[dependenciesCleanupFinalizer] = struct{}{}
+	if r.PromiseUpgrade {
+		desired[revisionCleanupFinalizer] = struct{}{}
+	}
 
 	if promise.ContainsAPI() {
 		desired[resourceRequestCleanupFinalizer] = struct{}{}

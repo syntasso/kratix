@@ -132,7 +132,7 @@ type DestinationStatus struct {
 // +kubebuilder:object:root=true
 // +kubebuilder:subresource:status
 // +kubebuilder:resource:scope=Cluster,path=destinations,categories=kratix,shortName=dest;dests
-// +kubebuilder:printcolumn:name="Ready",type=string,JSONPath=`.status.conditions[?(@.type=="Ready")].status`,description="Indicates the destination is ready to use"
+// +kubebuilder:printcolumn:name="Ready",type=string,JSONPath=`.status.conditions[?(@.type=="Ready")].status`,description="Indicates if this PromiseRevision is the latest."
 
 // Destination is the Schema for the Destinations API
 type Destination struct {

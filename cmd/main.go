@@ -32,7 +32,6 @@ import (
 	"sigs.k8s.io/controller-runtime/pkg/cache"
 	"sigs.k8s.io/controller-runtime/pkg/webhook"
 
-	"github.com/syntasso/kratix/internal/ptr"
 	"go.opentelemetry.io/contrib/instrumentation/net/http/otelhttp"
 	uberzap "go.uber.org/zap"
 	"go.uber.org/zap/zapcore"
@@ -42,6 +41,8 @@ import (
 	_ "k8s.io/client-go/plugin/pkg/client/auth"
 	"k8s.io/client-go/rest"
 	"sigs.k8s.io/controller-runtime/pkg/client"
+
+	"github.com/syntasso/kratix/internal/ptr"
 
 	utilruntime "k8s.io/apimachinery/pkg/util/runtime"
 	"k8s.io/client-go/kubernetes/scheme"
@@ -80,6 +81,11 @@ type KratixConfig struct {
 	ReconciliationInterval   *metav1.Duration      `json:"reconciliationInterval,omitempty"`
 	Telemetry                *telemetry.Config     `json:"telemetry,omitempty"`
 	Logging                  *LoggingConfig        `json:"logging,omitempty"`
+	FeatureFlags             *FeatureFlags         `json:"featureFlags,omitempty"`
+}
+
+type FeatureFlags struct {
+	PromiseUpgrade *bool `json:"promiseUpgrade,omitempty"`
 }
 
 type LoggingConfig struct {
@@ -270,6 +276,7 @@ func main() {
 			NumberOfJobsToKeep:     getNumJobsToKeep(kratixConfig),
 			ReconciliationInterval: getRegularReconciliationInterval(kratixConfig),
 			EventRecorder:          mgr.GetEventRecorderFor("PromiseController"),
+			PromiseUpgrade:         promiseUpgradeEnabled(kratixConfig),
 			RestartManager: func() {
 				// This function gets called multiple times
 				// First call: restartInProgress get set to true, sleeps starts
@@ -368,6 +375,14 @@ func main() {
 		}
 		if err = kratixWebhook.SetupBucketStateStoreWebhookWithManager(mgr); err != nil {
 			setupLog.Error(err, "unable to create webhook", "webhook", "BucketStateStore")
+			os.Exit(1)
+		}
+		if err := (&controller.PromiseRevisionReconciler{
+			Client:         mgr.GetClient(),
+			Scheme:         mgr.GetScheme(),
+			PromiseUpgrade: promiseUpgradeEnabled(kratixConfig),
+		}).SetupWithManager(mgr); err != nil {
+			setupLog.Error(err, "unable to create controller", "controller", "PromiseRevision")
 			os.Exit(1)
 		}
 		//+kubebuilder:scaffold:builder
@@ -554,4 +569,13 @@ func setLeaderElectConfig(mgrOptions *ctrl.Options, kConfig *KratixConfig) {
 		mgrOptions.RetryPeriod = &kConfig.ControllerLeaderElection.RetryPeriod.Duration
 		setupLog.Info("controller leader election configured", "RetryPeriod", mgrOptions.RetryPeriod)
 	}
+}
+
+func promiseUpgradeEnabled(kConfig *KratixConfig) bool {
+	if kConfig != nil &&
+		kConfig.FeatureFlags != nil &&
+		kConfig.FeatureFlags.PromiseUpgrade != nil {
+		return *kConfig.FeatureFlags.PromiseUpgrade
+	}
+	return false
 }

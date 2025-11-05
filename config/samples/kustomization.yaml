@@ -1,0 +1,4 @@
+## Append samples of your project ##
+resources:
+- platform_v1alpha1_promiserevision.yaml
+# +kubebuilder:scaffold:manifestskustomizesamples
