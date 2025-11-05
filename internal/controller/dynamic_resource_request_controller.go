@@ -27,6 +27,7 @@ import (
 	apiMeta "k8s.io/apimachinery/pkg/api/meta"
 	metav1 "k8s.io/apimachinery/pkg/apis/meta/v1"
 	"k8s.io/apimachinery/pkg/labels"
+	"k8s.io/client-go/kubernetes/scheme"
 	"k8s.io/client-go/tools/record"
 	"sigs.k8s.io/controller-runtime/pkg/controller/controllerutil"
 
@@ -222,6 +223,7 @@ func (r *DynamicResourceRequestController) Reconcile(ctx context.Context, req ct
 				Name:      rr.GetName(),
 				Namespace: rr.GetNamespace(),
 			}
+
 			// TODO: should we set an ownerRef between a resourceRef and the rr? What does it mean for delete?
 			return nil
 		})
