@@ -27,7 +27,6 @@ import (
 	apiMeta "k8s.io/apimachinery/pkg/api/meta"
 	metav1 "k8s.io/apimachinery/pkg/apis/meta/v1"
 	"k8s.io/apimachinery/pkg/labels"
-	"k8s.io/client-go/kubernetes/scheme"
 	"k8s.io/client-go/tools/record"
 	"sigs.k8s.io/controller-runtime/pkg/controller/controllerutil"
 
@@ -107,6 +106,18 @@ func (r *DynamicResourceRequestController) Reconcile(ctx context.Context, req ct
 
 	var latestPromiseRevision *v1alpha1.PromiseRevision
 	if r.PromiseUpgrade {
+		// WIP: 1st time reconciling the rr
+		//	-> reconcile with the latest version of the promise
+		//	-> create a ResourceBinding between this rr and the latest version of the promise
+		//	-> also update the Status of the rr with the version of the promise
+
+		// WIP: x-time reconciling the rr
+		//	-> check if the promise version if available in the rr status
+		// 	-> fetch the ResourceBinding
+		// 	-> get the PromiseVersion defined in the ResourceBinding
+		//  -> use this Promise to reconcile this rr
+		//  -> around the time we're generating the workflows we update the rr status to reflect the version of the promise it's reconciled with
+
 		logging.Trace(baseLogger,
 			"PromiseUpgrade feature flag set to true; will try to fetch latest PromiseRevision")
 		var err error
@@ -211,8 +222,8 @@ func (r *DynamicResourceRequestController) Reconcile(ctx context.Context, req ct
 				Name:      rr.GetName(),
 				Namespace: rr.GetNamespace(),
 			}
-
-			return controllerutil.SetControllerReference(promise, resourceBinding, scheme.Scheme)
+			// TODO: should we set an ownerRef between a resourceRef and the rr? What does it mean for delete?
+			return nil
 		})
 		if err != nil {
 			return ctrl.Result{}, err
