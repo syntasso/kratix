@@ -25,13 +25,16 @@ import (
 	apiextensionsv1 "k8s.io/apiextensions-apiserver/pkg/apis/apiextensions/v1"
 	kerrors "k8s.io/apimachinery/pkg/api/errors"
 	apiMeta "k8s.io/apimachinery/pkg/api/meta"
+	metav1 "k8s.io/apimachinery/pkg/apis/meta/v1"
 	"k8s.io/apimachinery/pkg/labels"
+	"k8s.io/client-go/kubernetes/scheme"
 	"k8s.io/client-go/tools/record"
 	"sigs.k8s.io/controller-runtime/pkg/controller/controllerutil"
 
 	"github.com/go-logr/logr"
 	"github.com/syntasso/kratix/api/v1alpha1"
 	"github.com/syntasso/kratix/internal/logging"
+	"github.com/syntasso/kratix/lib/objectutil"
 	"github.com/syntasso/kratix/lib/resourceutil"
 	"github.com/syntasso/kratix/lib/workflow"
 
@@ -102,18 +105,18 @@ func (r *DynamicResourceRequestController) Reconcile(ctx context.Context, req ct
 		return ctrl.Result{}, err
 	}
 
+	var latestPromiseRevision *v1alpha1.PromiseRevision
 	if r.PromiseUpgrade {
 		logging.Trace(baseLogger,
 			"PromiseUpgrade feature flag set to true; will try to fetch latest PromiseRevision")
-		var latest *v1alpha1.PromiseRevision
 		var err error
-		if latest, err = latestRevision(ctx, r.Client, promise); err != nil {
+		if latestPromiseRevision, err = latestRevision(ctx, r.Client, promise); err != nil {
 			logging.Error(baseLogger, err, "failed to get latest PromiseRevision")
 			return ctrl.Result{}, err
 		}
-		promise.Spec = latest.Spec.PromiseSpec
+		promise.Spec = latestPromiseRevision.Spec.PromiseSpec
 		logging.Debug(baseLogger,
-			"Found latest PromiseRevision", "revision name", latest.Name)
+			"Found latest PromiseRevision", "revision name", latestPromiseRevision.Name)
 	}
 
 	if err := r.Client.Get(ctx, req.NamespacedName, rr); err != nil {
@@ -192,6 +195,36 @@ func (r *DynamicResourceRequestController) Reconcile(ctx context.Context, req ct
 			return ctrl.Result{}, err
 		}
 		return ctrl.Result{}, nil
+	}
+
+	if r.PromiseUpgrade {
+		resourceBinding := &v1alpha1.ResourceBinding{
+			ObjectMeta: metav1.ObjectMeta{
+				Name:      objectutil.GenerateDeterministicObjectName(fmt.Sprintf("%s-%s", rr.GetName(), promise.GetName())),
+				Namespace: rr.GetNamespace(),
+			},
+		}
+		op, err := controllerutil.CreateOrUpdate(ctx, r.Client, resourceBinding, func() error {
+			resourceBinding.Spec.Version = latestPromiseRevision.Spec.Version
+			resourceBinding.Spec.PromiseRef = v1alpha1.PromiseRef{Name: promise.GetName()}
+			resourceBinding.Spec.ResourceRef = v1alpha1.ResourceRef{
+				Name:      rr.GetName(),
+				Namespace: rr.GetNamespace(),
+			}
+
+			return controllerutil.SetControllerReference(promise, resourceBinding, scheme.Scheme)
+		})
+		if err != nil {
+			return ctrl.Result{}, err
+		}
+
+		logging.Debug(logger, "ResourceBinding reconciled",
+			"operation", op,
+			"promiseName", resourceBinding.Spec.PromiseRef.Name,
+			"promiseVersion", resourceBinding.Spec.Version,
+			"resourceName", resourceBinding.Spec.ResourceRef.Name,
+			"resourceNamespace", resourceBinding.Spec.ResourceRef.Namespace,
+		)
 	}
 
 	logging.Info(logger, "resource contains configure workflow(s); reconciling workflows")

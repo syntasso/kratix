@@ -18,17 +18,17 @@ package v1alpha1
 
 import (
 	metav1 "k8s.io/apimachinery/pkg/apis/meta/v1"
-	"k8s.io/apimachinery/pkg/apis/meta/v1/unstructured"
 )
 
 // ResourceBindingSpec defines the desired state of ResourceBinding
 type ResourceBindingSpec struct {
-	// PromiseRevision is the reference to the latest PromiseRevision of a given Promise.
+	// Version is the version of the Promise that this ResourceRequest was last reconciled with.
 	// +required
-	PromiseRevision PromiseRevision `json:"promiseRevision"`
-	// ResourceRequest is the reference to the ResourceRequest for a given Promise.
+	Version string `json:"version"`
 	// +required
-	ResourceRequest *unstructured.Unstructured `json:"resourceRequest"`
+	PromiseRef PromiseRef `json:"promiseRef"`
+	// +required
+	ResourceRef ResourceRef `json:"resourceRef"`
 }
 
 // ResourceBindingStatus defines the observed state of ResourceBinding.
