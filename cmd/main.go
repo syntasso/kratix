@@ -488,8 +488,18 @@ func telemetryConfigFromKratixConfig(cfg *KratixConfig) *telemetry.Config {
 		Protocol: cfg.Telemetry.Protocol,
 	}
 
-	if cfg.Telemetry.Enabled != nil {
-		tc.Enabled = ptr.To(*cfg.Telemetry.Enabled)
+	if cfg.Telemetry.Traces != nil {
+		tc.Traces = &telemetry.SignalConfig{}
+		if cfg.Telemetry.Traces.Enabled != nil {
+			tc.Traces.Enabled = ptr.To(*cfg.Telemetry.Traces.Enabled)
+		}
+	}
+
+	if cfg.Telemetry.Metrics != nil {
+		tc.Metrics = &telemetry.SignalConfig{}
+		if cfg.Telemetry.Metrics.Enabled != nil {
+			tc.Metrics.Enabled = ptr.To(*cfg.Telemetry.Metrics.Enabled)
+		}
 	}
 
 	if cfg.Telemetry.Insecure != nil {
