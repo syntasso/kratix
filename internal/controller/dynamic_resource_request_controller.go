@@ -27,7 +27,6 @@ import (
 	apiMeta "k8s.io/apimachinery/pkg/api/meta"
 	metav1 "k8s.io/apimachinery/pkg/apis/meta/v1"
 	"k8s.io/apimachinery/pkg/labels"
-	"k8s.io/client-go/kubernetes/scheme"
 	"k8s.io/client-go/tools/record"
 	"sigs.k8s.io/controller-runtime/pkg/controller/controllerutil"
 
@@ -216,6 +215,7 @@ func (r *DynamicResourceRequestController) Reconcile(ctx context.Context, req ct
 				Namespace: rr.GetNamespace(),
 			},
 		}
+		// TODO: should we check if the ResourceBinding already exists before trying to overwrite what is there?
 		op, err := controllerutil.CreateOrUpdate(ctx, r.Client, resourceBinding, func() error {
 			resourceBinding.Spec.Version = latestPromiseRevision.Spec.Version
 			resourceBinding.Spec.PromiseRef = v1alpha1.PromiseRef{Name: promise.GetName()}
