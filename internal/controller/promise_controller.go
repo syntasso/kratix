@@ -864,15 +864,15 @@ func (r *PromiseReconciler) reconcileDependenciesAndPromiseWorkflows(o opts, pro
 		namespace = promise.Spec.Workflows.Config.PipelineNamespace
 	}
 
-	jobOpts := workflow.NewOpts(o.ctx, o.client, r.EventRecorder, o.logger, unstructuredPromise, pipelineResources, "promise", r.NumberOfJobsToKeep, namespace)
+	workflowParams := workflow.NewWorkflowParams(o.ctx, o.client, r.EventRecorder, o.logger, unstructuredPromise, pipelineResources, "promise", r.NumberOfJobsToKeep, namespace)
 
-	abort, err := reconcileConfigure(jobOpts)
+	requeue, err := reconcileConfigure(workflowParams)
 	if err != nil {
 		return nil, err
 	}
 
-	if abort {
-		return &ctrl.Result{}, nil
+	if requeue {
+		return &ctrl.Result{Requeue: true}, nil
 	}
 
 	return nil, nil
@@ -1169,9 +1169,9 @@ func (r *PromiseReconciler) deletePromise(o opts, promise *v1alpha1.Promise) (ct
 		if promise.Spec.Workflows.Config.PipelineNamespace != "" {
 			namespace = promise.Spec.Workflows.Config.PipelineNamespace
 		}
-		jobOpts := workflow.NewOpts(o.ctx, o.client, r.EventRecorder, o.logger, unstructuredPromise, pipelines, "promise", r.NumberOfJobsToKeep, namespace)
+		workflowParams := workflow.NewWorkflowParams(o.ctx, o.client, r.EventRecorder, o.logger, unstructuredPromise, pipelines, "promise", r.NumberOfJobsToKeep, namespace)
 
-		requeue, err := reconcileDelete(jobOpts)
+		requeue, err := reconcileDelete(workflowParams)
 		if err != nil {
 			return ctrl.Result{}, err
 		}

@@ -79,7 +79,7 @@ var _ = Describe("DynamicResourceRequestController", func() {
 				"kratix.io/promise-name": promise.GetName(),
 			}
 
-			resources := reconcileConfigureOptsArg.Resources[0].GetObjects()
+			resources := reconcileConfigureOptsArg.PipelineResources()[0].GetObjects()
 			By("creating a service account for pipeline", func() {
 				Expect(resources[0]).To(BeAssignableToTypeOf(&v1.ServiceAccount{}))
 				sa := resources[0].(*v1.ServiceAccount)
@@ -271,7 +271,7 @@ var _ = Describe("DynamicResourceRequestController", func() {
 				Expect(fakeK8sClient.Delete(ctx, resReq)).To(Succeed())
 				result, err := t.reconcileUntilCompletion(reconciler, resReq)
 				Expect(result).To(Equal(ctrl.Result{}))
-				Expect(err).To(MatchError(workflow.ErrDeletePipelineFailed))
+				Expect(err).To(MatchError("Delete Pipeline Failed"))
 			})
 
 			It("updates the resource request status", func() {
@@ -796,7 +796,7 @@ var _ = Describe("DynamicResourceRequestController", func() {
 				"kratix.io/paused": "true",
 			}
 			Expect(fakeK8sClient.Update(context.TODO(), promise)).To(Succeed())
-			reconcileConfigureOptsArg = workflow.Opts{}
+			reconcileConfigureOptsArg = workflow.WorkflowParams{}
 
 			yamlFile, err := os.ReadFile(resourceRequestPath)
 			Expect(err).ToNot(HaveOccurred())
@@ -815,7 +815,7 @@ var _ = Describe("DynamicResourceRequestController", func() {
 				Expect(result).To(Equal(ctrl.Result{}))
 
 				By("not creating any workflow resource objects")
-				Expect(reconcileConfigureOptsArg.Resources).To(BeEmpty())
+				Expect(reconcileConfigureOptsArg.PipelineResources()).To(BeEmpty())
 
 				By("setting 'paused' for the reconciled status.condition")
 				verifyPauseReconciliationStatus(resReq, resReqNameNamespace)
@@ -843,7 +843,7 @@ var _ = Describe("DynamicResourceRequestController", func() {
 				Expect(result).To(Equal(ctrl.Result{}))
 
 				By("not creating any workflow resource objects")
-				Expect(reconcileConfigureOptsArg.Resources).To(BeEmpty())
+				Expect(reconcileConfigureOptsArg.PipelineResources()).To(BeEmpty())
 
 				By("setting 'paused' for the reconciled status.condition")
 				verifyPauseReconciliationStatus(resReq, resReqNameNamespace)
@@ -859,7 +859,7 @@ var _ = Describe("DynamicResourceRequestController", func() {
 	When("the resource request is paused", func() {
 		BeforeEach(func() {
 			Expect(fakeK8sClient.Update(context.TODO(), promise)).To(Succeed())
-			reconcileConfigureOptsArg = workflow.Opts{}
+			reconcileConfigureOptsArg = workflow.WorkflowParams{}
 
 			yamlFile, err := os.ReadFile(resourceRequestPath)
 			Expect(err).ToNot(HaveOccurred())
@@ -889,7 +889,7 @@ var _ = Describe("DynamicResourceRequestController", func() {
 				Expect(result).To(Equal(ctrl.Result{}))
 
 				By("not creating any workflow resource objects")
-				Expect(reconcileConfigureOptsArg.Resources).To(BeEmpty())
+				Expect(reconcileConfigureOptsArg.PipelineResources()).To(BeEmpty())
 
 				By("setting 'paused' for the reconciled status.condition")
 				verifyPauseReconciliationStatus(resReq, resReqNameNamespace)
@@ -917,7 +917,7 @@ var _ = Describe("DynamicResourceRequestController", func() {
 				Expect(result).To(Equal(ctrl.Result{}))
 
 				By("not creating any workflow resource objects")
-				Expect(reconcileConfigureOptsArg.Resources).To(BeEmpty())
+				Expect(reconcileConfigureOptsArg.PipelineResources()).To(BeEmpty())
 
 				By("setting 'paused' for the reconciled status.condition")
 				verifyPauseReconciliationStatus(resReq, resReqNameNamespace)

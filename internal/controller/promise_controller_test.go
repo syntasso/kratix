@@ -571,7 +571,7 @@ var _ = Describe("PromiseController", func() {
 						Expect(promise.Finalizers).To(ContainElement("kratix.io/workflows-cleanup"))
 					})
 
-					resources := reconcileConfigureOptsArg.Resources[0].GetObjects()
+					resources := reconcileConfigureOptsArg.PipelineResources()[0].GetObjects()
 					By("creates a service account for pipeline", func() {
 						Expect(resources[0]).To(BeAssignableToTypeOf(&v1.ServiceAccount{}))
 						sa := resources[0].(*v1.ServiceAccount)
@@ -1100,7 +1100,7 @@ var _ = Describe("PromiseController", func() {
 
 				It("requeues forever until the delete job finishes", func() {
 					Expect(fakeK8sClient.Delete(ctx, promise)).To(Succeed())
-					controller.SetReconcileDeleteWorkflow(func(w workflow.Opts) (bool, error) {
+					controller.SetReconcileDeleteWorkflow(func(w workflow.WorkflowParams) (bool, error) {
 						reconcileDeleteOptsArg = w
 						return true, nil
 					})
@@ -1112,7 +1112,7 @@ var _ = Describe("PromiseController", func() {
 				It("finishes the deletion once the job is finished", func() {
 					Expect(fakeK8sClient.Delete(ctx, promise)).To(Succeed())
 					_, err = t.reconcileUntilCompletion(reconciler, promise)
-					controller.SetReconcileDeleteWorkflow(func(w workflow.Opts) (bool, error) {
+					controller.SetReconcileDeleteWorkflow(func(w workflow.WorkflowParams) (bool, error) {
 						reconcileDeleteOptsArg = w
 						return false, nil
 					})

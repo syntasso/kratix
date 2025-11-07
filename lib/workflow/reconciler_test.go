@@ -76,8 +76,8 @@ var _ = Describe("Workflow Reconciler", func() {
 
 		When("no pipeline for the workflow was executed", func() {
 			BeforeEach(func() {
-				opts := workflow.NewOpts(ctx, fakeK8sClient, eventRecorder, logger, uPromise, workflowPipelines, "promise", 5, namespace)
-				abort, err := workflow.ReconcileConfigure(opts)
+				wp := workflow.NewWorkflowParams(ctx, fakeK8sClient, eventRecorder, logger, uPromise, workflowPipelines, "promise", 5, namespace)
+				abort, err := workflow.ReconcileConfigure(wp)
 				Expect(err).NotTo(HaveOccurred())
 				Expect(abort).To(BeTrue())
 			})
@@ -104,8 +104,8 @@ var _ = Describe("Workflow Reconciler", func() {
 						},
 					})).NotTo(HaveOccurred())
 
-					opts := workflow.NewOpts(ctx, fakeK8sClient, eventRecorder, logger, uPromise, workflowPipelines, "promise", 5, namespace)
-					_, err := workflow.ReconcileConfigure(opts)
+					wp := workflow.NewWorkflowParams(ctx, fakeK8sClient, eventRecorder, logger, uPromise, workflowPipelines, "promise", 5, namespace)
+					_, err := workflow.ReconcileConfigure(wp)
 					Expect(err).NotTo(HaveOccurred())
 					sa := &v1.ServiceAccount{}
 					Expect(fakeK8sClient.Get(ctx, types.NamespacedName{Name: "redis-promise-configure-pipeline-1", Namespace: namespace}, sa)).To(Succeed())
@@ -130,8 +130,8 @@ var _ = Describe("Workflow Reconciler", func() {
 						"kratix.io/promise-name": "redis",
 						"new-labels":             "new-labels",
 					})
-					opts := workflow.NewOpts(ctx, fakeK8sClient, eventRecorder, logger, uPromise, workflowPipelines, "promise", 5, namespace)
-					_, err := workflow.ReconcileConfigure(opts)
+					wp := workflow.NewWorkflowParams(ctx, fakeK8sClient, eventRecorder, logger, uPromise, workflowPipelines, "promise", 5, namespace)
+					_, err := workflow.ReconcileConfigure(wp)
 					Expect(err).NotTo(HaveOccurred())
 					sa := &v1.ServiceAccount{}
 					Expect(fakeK8sClient.Get(ctx, types.NamespacedName{Name: "redis-promise-configure-pipeline-1", Namespace: namespace}, sa)).To(Succeed())
@@ -150,9 +150,9 @@ var _ = Describe("Workflow Reconciler", func() {
 				var abort bool
 
 				BeforeEach(func() {
-					opts := workflow.NewOpts(ctx, fakeK8sClient, eventRecorder, logger, uPromise, workflowPipelines, "promise", 5, namespace)
+					wp := workflow.NewWorkflowParams(ctx, fakeK8sClient, eventRecorder, logger, uPromise, workflowPipelines, "promise", 5, namespace)
 					var err error
-					abort, err = workflow.ReconcileConfigure(opts)
+					abort, err = workflow.ReconcileConfigure(wp)
 					Expect(err).NotTo(HaveOccurred())
 				})
 
@@ -171,8 +171,8 @@ var _ = Describe("Workflow Reconciler", func() {
 						})
 
 						resourceutil.SetStatus(uPromise, logger, "workflowsSucceeded", int64(0), "workflowsFailed", int64(0))
-						opts := workflow.NewOpts(ctx, fakeK8sClient, eventRecorder, logger, uPromise, workflowPipelines, "promise", 5, namespace)
-						abort, err := workflow.ReconcileConfigure(opts)
+						wp := workflow.NewWorkflowParams(ctx, fakeK8sClient, eventRecorder, logger, uPromise, workflowPipelines, "promise", 5, namespace)
+						abort, err := workflow.ReconcileConfigure(wp)
 
 						Expect(err).NotTo(HaveOccurred())
 						Expect(abort).To(BeTrue())
@@ -188,8 +188,8 @@ var _ = Describe("Workflow Reconciler", func() {
 				})
 
 				It("triggers the next pipeline in the workflow", func() {
-					opts := workflow.NewOpts(ctx, fakeK8sClient, eventRecorder, logger, uPromise, workflowPipelines, "promise", 5, namespace)
-					abort, err := workflow.ReconcileConfigure(opts)
+					wp := workflow.NewWorkflowParams(ctx, fakeK8sClient, eventRecorder, logger, uPromise, workflowPipelines, "promise", 5, namespace)
+					abort, err := workflow.ReconcileConfigure(wp)
 					Expect(abort).To(BeTrue())
 					Expect(err).NotTo(HaveOccurred())
 					jobList := listJobs(namespace)
@@ -209,8 +209,8 @@ var _ = Describe("Workflow Reconciler", func() {
 					})
 
 					It("returns true (representing all pipelines completed)", func() {
-						opts := workflow.NewOpts(ctx, fakeK8sClient, eventRecorder, logger, uPromise, workflowPipelines, "promise", 5, namespace)
-						abort, err := workflow.ReconcileConfigure(opts)
+						wp := workflow.NewWorkflowParams(ctx, fakeK8sClient, eventRecorder, logger, uPromise, workflowPipelines, "promise", 5, namespace)
+						abort, err := workflow.ReconcileConfigure(wp)
 						Expect(err).NotTo(HaveOccurred())
 						Expect(listJobs(namespace)).To(HaveLen(2))
 						Expect(abort).To(BeFalse())
@@ -229,8 +229,8 @@ var _ = Describe("Workflow Reconciler", func() {
 					BeforeEach(func() {
 						markJobAsFailed(workflowPipelines[0].Job.Name)
 						newWorkflowPipelines, uPromise := setupTest(promise, pipelines)
-						opts := workflow.NewOpts(ctx, fakeK8sClient, eventRecorder, logger, uPromise, newWorkflowPipelines, "promise", 5, namespace)
-						abort, err = workflow.ReconcileConfigure(opts)
+						wp := workflow.NewWorkflowParams(ctx, fakeK8sClient, eventRecorder, logger, uPromise, newWorkflowPipelines, "promise", 5, namespace)
+						abort, err = workflow.ReconcileConfigure(wp)
 					})
 
 					It("does not create any new Jobs on the next reconciliation", func() {
@@ -274,8 +274,8 @@ var _ = Describe("Workflow Reconciler", func() {
 						BeforeEach(func() {
 							labelPromiseForManualReconciliation("redis")
 							newWorkflowPipelines, uPromise = setupTest(promise, pipelines)
-							opts := workflow.NewOpts(ctx, fakeK8sClient, eventRecorder, logger, uPromise, newWorkflowPipelines, "promise", 5, namespace)
-							abort, err = workflow.ReconcileConfigure(opts)
+							wp := workflow.NewWorkflowParams(ctx, fakeK8sClient, eventRecorder, logger, uPromise, newWorkflowPipelines, "promise", 5, namespace)
+							abort, err = workflow.ReconcileConfigure(wp)
 							Expect(abort).To(BeTrue())
 							Expect(err).NotTo(HaveOccurred())
 						})
@@ -297,8 +297,8 @@ var _ = Describe("Workflow Reconciler", func() {
 							// Trigger the workflow via the manual reconciliation, running the pipeline from the start
 							labelPromiseForManualReconciliation("redis")
 							newWorkflowPipelines, uPromise := setupTest(promise, pipelines)
-							opts := workflow.NewOpts(ctx, fakeK8sClient, eventRecorder, logger, uPromise, newWorkflowPipelines, "promise", 5, namespace)
-							abort, err = workflow.ReconcileConfigure(opts)
+							wp := workflow.NewWorkflowParams(ctx, fakeK8sClient, eventRecorder, logger, uPromise, newWorkflowPipelines, "promise", 5, namespace)
+							abort, err = workflow.ReconcileConfigure(wp)
 							Expect(abort).To(BeTrue())
 							Expect(err).NotTo(HaveOccurred())
 
@@ -307,7 +307,7 @@ var _ = Describe("Workflow Reconciler", func() {
 
 							// Mark the job created by the first pipeline as complete
 							markJobAsComplete(newWorkflowPipelines[0].Job.Name)
-							abort, err = workflow.ReconcileConfigure(opts)
+							abort, err = workflow.ReconcileConfigure(wp)
 							Expect(abort).To(BeTrue())
 							Expect(err).NotTo(HaveOccurred())
 							Expect(fakeK8sClient.Get(ctx, types.NamespacedName{Name: promise.Name}, &promise)).To(Succeed())
@@ -325,9 +325,9 @@ var _ = Describe("Workflow Reconciler", func() {
 						Expect(fakeK8sClient.Get(ctx, types.NamespacedName{Name: promise.Name}, &promise)).To(Succeed())
 						existingConditions = promise.Status.Conditions
 
-						opts := workflow.NewOpts(ctx, fakeK8sClient, eventRecorder, logger, uPromise, newWorkflowPipelines, "promise", 5, namespace)
-						opts.SkipConditions = true
-						abort, err = workflow.ReconcileConfigure(opts)
+						wp := workflow.NewWorkflowParams(ctx, fakeK8sClient, eventRecorder, logger, uPromise, newWorkflowPipelines, "promise", 5, namespace)
+						wp.SetSkipConditions(true)
+						abort, err = workflow.ReconcileConfigure(wp)
 					})
 
 					It("does not update the Promise status", func() {
@@ -356,8 +356,8 @@ var _ = Describe("Workflow Reconciler", func() {
 
 			When("there are no jobs for the promise at this spec", func() {
 				It("triggers the first pipeline in the workflow", func() {
-					opts := workflow.NewOpts(ctx, fakeK8sClient, eventRecorder, logger, uPromise, updatedWorkflowPipeline, "promise", 5, namespace)
-					abort, err := workflow.ReconcileConfigure(opts)
+					wp := workflow.NewWorkflowParams(ctx, fakeK8sClient, eventRecorder, logger, uPromise, updatedWorkflowPipeline, "promise", 5, namespace)
+					abort, err := workflow.ReconcileConfigure(wp)
 					Expect(err).NotTo(HaveOccurred())
 					jobList := listJobs(namespace)
 					Expect(jobList).To(HaveLen(1))
@@ -395,8 +395,8 @@ var _ = Describe("Workflow Reconciler", func() {
 				Context("but they are not the most recent", func() {
 					It("re-runs all pipelines in the workflow", func() {
 						// Reconcile with the *original* pipelines and promise spec
-						opts := workflow.NewOpts(ctx, fakeK8sClient, eventRecorder, logger, uPromise, originalWorkflowPipelines, "promise", 5, namespace)
-						abort, err := workflow.ReconcileConfigure(opts)
+						wp := workflow.NewWorkflowParams(ctx, fakeK8sClient, eventRecorder, logger, uPromise, originalWorkflowPipelines, "promise", 5, namespace)
+						abort, err := workflow.ReconcileConfigure(wp)
 						Expect(err).NotTo(HaveOccurred())
 						Expect(abort).To(BeTrue())
 
@@ -407,7 +407,7 @@ var _ = Describe("Workflow Reconciler", func() {
 
 						markJobAsComplete(originalWorkflowPipelines[0].Job.Name)
 
-						abort, err = workflow.ReconcileConfigure(opts)
+						abort, err = workflow.ReconcileConfigure(wp)
 						Expect(err).NotTo(HaveOccurred())
 						Expect(abort).To(BeTrue())
 						jobList = listJobs(namespace)
@@ -422,8 +422,8 @@ var _ = Describe("Workflow Reconciler", func() {
 				})
 
 				It("does not create a new job", func() {
-					opts := workflow.NewOpts(ctx, fakeK8sClient, eventRecorder, logger, uPromise, updatedWorkflowPipeline, "promise", 5, namespace)
-					abort, err := workflow.ReconcileConfigure(opts)
+					wp := workflow.NewWorkflowParams(ctx, fakeK8sClient, eventRecorder, logger, uPromise, updatedWorkflowPipeline, "promise", 5, namespace)
+					abort, err := workflow.ReconcileConfigure(wp)
 					Expect(err).NotTo(HaveOccurred())
 					jobList := listJobs(namespace)
 					Expect(jobList).To(HaveLen(1))
@@ -431,8 +431,8 @@ var _ = Describe("Workflow Reconciler", func() {
 				})
 
 				It("suspends the previous job", func() {
-					opts := workflow.NewOpts(ctx, fakeK8sClient, eventRecorder, logger, uPromise, updatedWorkflowPipeline, "promise", 5, namespace)
-					_, err := workflow.ReconcileConfigure(opts)
+					wp := workflow.NewWorkflowParams(ctx, fakeK8sClient, eventRecorder, logger, uPromise, updatedWorkflowPipeline, "promise", 5, namespace)
+					_, err := workflow.ReconcileConfigure(wp)
 					Expect(err).NotTo(HaveOccurred())
 
 					job := &batchv1.Job{}
@@ -447,8 +447,8 @@ var _ = Describe("Workflow Reconciler", func() {
 
 					BeforeEach(func() {
 						markJobAsComplete(workflowPipelines[0].Job.Name)
-						opts := workflow.NewOpts(ctx, fakeK8sClient, eventRecorder, logger, uPromise, updatedWorkflowPipeline, "promise", 5, namespace)
-						abort, err := workflow.ReconcileConfigure(opts)
+						wp := workflow.NewWorkflowParams(ctx, fakeK8sClient, eventRecorder, logger, uPromise, updatedWorkflowPipeline, "promise", 5, namespace)
+						abort, err := workflow.ReconcileConfigure(wp)
 						Expect(err).NotTo(HaveOccurred())
 						jobList = listJobs(namespace)
 						Expect(abort).To(BeTrue())
@@ -467,17 +467,17 @@ var _ = Describe("Workflow Reconciler", func() {
 		})
 
 		Context("promise workflows", func() {
-			var opts workflow.Opts
+			var wp workflow.WorkflowParams
 			BeforeEach(func() {
-				opts = workflow.NewOpts(ctx, fakeK8sClient, eventRecorder, logger, uPromise, workflowPipelines, "promise", 5, namespace)
+				wp = workflow.NewWorkflowParams(ctx, fakeK8sClient, eventRecorder, logger, uPromise, workflowPipelines, "promise", 5, namespace)
 
-				abort, err := workflow.ReconcileConfigure(opts)
+				abort, err := workflow.ReconcileConfigure(wp)
 				Expect(err).NotTo(HaveOccurred())
 				Expect(abort).To(BeTrue())
 
 				markJobAsComplete(workflowPipelines[0].Job.Name)
 
-				abort, err = workflow.ReconcileConfigure(opts)
+				abort, err = workflow.ReconcileConfigure(wp)
 				Expect(err).NotTo(HaveOccurred())
 				Expect(abort).To(BeTrue())
 			})
@@ -495,7 +495,7 @@ var _ = Describe("Workflow Reconciler", func() {
 
 		Context("resource workflow", func() {
 			var resource *unstructured.Unstructured
-			var opts workflow.Opts
+			var wp workflow.WorkflowParams
 
 			BeforeEach(func() {
 				resource = &unstructured.Unstructured{}
@@ -509,8 +509,8 @@ var _ = Describe("Workflow Reconciler", func() {
 
 				Expect(fakeK8sClient.Create(ctx, resource)).To(Succeed())
 
-				opts = workflow.NewOpts(ctx, fakeK8sClient, eventRecorder, logger, resource, workflowPipelines, "resource", 5, namespace)
-				abort, err := workflow.ReconcileConfigure(opts)
+				wp = workflow.NewWorkflowParams(ctx, fakeK8sClient, eventRecorder, logger, resource, workflowPipelines, "resource", 5, namespace)
+				abort, err := workflow.ReconcileConfigure(wp)
 				Expect(err).NotTo(HaveOccurred())
 				Expect(abort).To(BeTrue())
 			})
@@ -543,7 +543,7 @@ var _ = Describe("Workflow Reconciler", func() {
 			It("fires an event for the new pipeline", func() {
 				// The status update will trigger a reconciliation in a real cluster.
 				// Simulate that here by calling ReconcileConfigure again.
-				abort, err := workflow.ReconcileConfigure(opts)
+				abort, err := workflow.ReconcileConfigure(wp)
 				Expect(err).NotTo(HaveOccurred())
 				Expect(abort).To(BeTrue())
 
@@ -564,16 +564,16 @@ var _ = Describe("Workflow Reconciler", func() {
 					Expect(fakeK8sClient.Update(ctx, &updatedPromise)).To(Succeed())
 
 					updatedWorkflowPipeline, uPromise := setupTest(updatedPromise, pipelines)
-					opts := workflow.NewOpts(ctx, fakeK8sClient, eventRecorder, logger, uPromise, updatedWorkflowPipeline, "promise", numberOfJobLimit, namespace)
+					wp := workflow.NewWorkflowParams(ctx, fakeK8sClient, eventRecorder, logger, uPromise, updatedWorkflowPipeline, "promise", numberOfJobLimit, namespace)
 					for j := range 2 {
-						_, err := workflow.ReconcileConfigure(opts)
+						_, err := workflow.ReconcileConfigure(wp)
 						Expect(err).NotTo(HaveOccurred())
 						markJobAsComplete(updatedWorkflowPipeline[j].Job.Name)
 					}
 				}
 				updatedWorkflowPipeline, uPromise := setupTest(updatedPromise, pipelines)
-				opts := workflow.NewOpts(ctx, fakeK8sClient, eventRecorder, logger, uPromise, updatedWorkflowPipeline, "promise", numberOfJobLimit, namespace)
-				_, err := workflow.ReconcileConfigure(opts)
+				wp := workflow.NewWorkflowParams(ctx, fakeK8sClient, eventRecorder, logger, uPromise, updatedWorkflowPipeline, "promise", numberOfJobLimit, namespace)
+				_, err := workflow.ReconcileConfigure(wp)
 				Expect(err).NotTo(HaveOccurred())
 
 				jobList := listJobs(namespace)
@@ -592,8 +592,8 @@ var _ = Describe("Workflow Reconciler", func() {
 
 				createFakeWorks(pipelines, promise.Name)
 
-				opts := workflow.NewOpts(ctx, fakeK8sClient, eventRecorder, logger, uPromise, workflowPipelines, "promise", 5, namespace)
-				abort, err := workflow.ReconcileConfigure(opts)
+				wp := workflow.NewWorkflowParams(ctx, fakeK8sClient, eventRecorder, logger, uPromise, workflowPipelines, "promise", 5, namespace)
+				abort, err := workflow.ReconcileConfigure(wp)
 				Expect(err).NotTo(HaveOccurred())
 				Expect(abort).To(BeFalse())
 
@@ -612,8 +612,8 @@ var _ = Describe("Workflow Reconciler", func() {
 				Expect(fakeK8sClient.Create(ctx, updatedWorkflows[0].Job)).To(Succeed())
 				markJobAsComplete(updatedWorkflows[0].Job.Name)
 
-				opts = workflow.NewOpts(ctx, fakeK8sClient, eventRecorder, logger, uPromise, updatedWorkflows, "promise", 5, namespace)
-				abort, err = workflow.ReconcileConfigure(opts)
+				wp = workflow.NewWorkflowParams(ctx, fakeK8sClient, eventRecorder, logger, uPromise, updatedWorkflows, "promise", 5, namespace)
+				abort, err = workflow.ReconcileConfigure(wp)
 				Expect(err).NotTo(HaveOccurred())
 				Expect(abort).To(BeFalse())
 
@@ -623,8 +623,8 @@ var _ = Describe("Workflow Reconciler", func() {
 			})
 
 			It("cleans up any leftover works from previous runs", func() {
-				opts := workflow.NewOpts(ctx, fakeK8sClient, eventRecorder, logger, uPromise, updatedWorkflows, "promise", 5, namespace)
-				abort, err := workflow.ReconcileConfigure(opts)
+				wp := workflow.NewWorkflowParams(ctx, fakeK8sClient, eventRecorder, logger, uPromise, updatedWorkflows, "promise", 5, namespace)
+				abort, err := workflow.ReconcileConfigure(wp)
 				Expect(err).NotTo(HaveOccurred())
 				Expect(abort).To(BeFalse())
 
@@ -659,8 +659,8 @@ var _ = Describe("Workflow Reconciler", func() {
 					markJobAsComplete(workflowPipelines[0].Job.Name)
 					markJobAsComplete(workflowPipelines[1].Job.Name)
 
-					opts := workflow.NewOpts(ctx, fakeK8sClient, eventRecorder, logger, uPromise, workflowPipelines, "promise", 5, namespace)
-					abort, err := workflow.ReconcileConfigure(opts)
+					wp := workflow.NewWorkflowParams(ctx, fakeK8sClient, eventRecorder, logger, uPromise, workflowPipelines, "promise", 5, namespace)
+					abort, err := workflow.ReconcileConfigure(wp)
 					Expect(err).NotTo(HaveOccurred())
 					Expect(abort).To(BeFalse())
 
@@ -673,9 +673,9 @@ var _ = Describe("Workflow Reconciler", func() {
 
 				It("re-triggers all the pipelines in the workflow", func() {
 					var jobs []batchv1.Job
-					opts := workflow.NewOpts(ctx, fakeK8sClient, eventRecorder, logger, uPromise, workflowPipelines, "promise", 5, namespace)
+					wp := workflow.NewWorkflowParams(ctx, fakeK8sClient, eventRecorder, logger, uPromise, workflowPipelines, "promise", 5, namespace)
 					By("re-triggering the first pipeline on the next reconciliation", func() {
-						abort, err := workflow.ReconcileConfigure(opts)
+						abort, err := workflow.ReconcileConfigure(wp)
 						Expect(err).NotTo(HaveOccurred())
 						Expect(abort).To(BeTrue())
 
@@ -701,11 +701,11 @@ var _ = Describe("Workflow Reconciler", func() {
 						labelPromiseForManualReconciliation("redis")
 
 						workflowPipelines, uPromise = setupTest(promise, pipelines)
-						opts = workflow.NewOpts(ctx, fakeK8sClient, eventRecorder, logger, uPromise, workflowPipelines, "promise", 5, namespace)
+						wp = workflow.NewWorkflowParams(ctx, fakeK8sClient, eventRecorder, logger, uPromise, workflowPipelines, "promise", 5, namespace)
 					})
 
 					By("waiting for the first pipeline to complete", func() {
-						abort, err := workflow.ReconcileConfigure(opts)
+						abort, err := workflow.ReconcileConfigure(wp)
 						Expect(err).NotTo(HaveOccurred())
 						Expect(abort).To(BeTrue())
 
@@ -716,7 +716,7 @@ var _ = Describe("Workflow Reconciler", func() {
 					markJobAsComplete(jobs[2].Name)
 
 					By("removing the manual reconciliation label again", func() {
-						abort, err := workflow.ReconcileConfigure(opts)
+						abort, err := workflow.ReconcileConfigure(wp)
 						Expect(err).NotTo(HaveOccurred())
 						Expect(abort).To(BeTrue())
 
@@ -726,7 +726,7 @@ var _ = Describe("Workflow Reconciler", func() {
 					})
 
 					By("restarting from pipeline 0, respecting the label added mid-flight", func() {
-						abort, err := workflow.ReconcileConfigure(opts)
+						abort, err := workflow.ReconcileConfigure(wp)
 						Expect(err).NotTo(HaveOccurred())
 						Expect(abort).To(BeTrue())
 
@@ -736,7 +736,7 @@ var _ = Describe("Workflow Reconciler", func() {
 					})
 
 					By("waiting for the first pipeline to complete again", func() {
-						abort, err := workflow.ReconcileConfigure(opts)
+						abort, err := workflow.ReconcileConfigure(wp)
 						Expect(err).NotTo(HaveOccurred())
 						Expect(abort).To(BeTrue())
 
@@ -746,7 +746,7 @@ var _ = Describe("Workflow Reconciler", func() {
 
 					markJobAsComplete(jobs[3].Name)
 					By("triggering the second pipeline when the previous completes", func() {
-						abort, err := workflow.ReconcileConfigure(opts)
+						abort, err := workflow.ReconcileConfigure(wp)
 						Expect(err).NotTo(HaveOccurred())
 						Expect(abort).To(BeTrue())
 
@@ -756,7 +756,7 @@ var _ = Describe("Workflow Reconciler", func() {
 					})
 
 					By("waiting for the second pipeline to complete", func() {
-						abort, err := workflow.ReconcileConfigure(opts)
+						abort, err := workflow.ReconcileConfigure(wp)
 						Expect(err).NotTo(HaveOccurred())
 						Expect(abort).To(BeTrue())
 
@@ -766,7 +766,7 @@ var _ = Describe("Workflow Reconciler", func() {
 
 					By("marking it all as completed once the last pipeline completes", func() {
 						markJobAsComplete(jobs[4].Name)
-						abort, err := workflow.ReconcileConfigure(opts)
+						abort, err := workflow.ReconcileConfigure(wp)
 						Expect(err).NotTo(HaveOccurred())
 						Expect(abort).To(BeFalse())
 
@@ -794,9 +794,9 @@ var _ = Describe("Workflow Reconciler", func() {
 
 					workflowPipelines, uPromise = setupTest(promise, pipelines)
 
-					opts := workflow.NewOpts(ctx, fakeK8sClient, eventRecorder, logger, uPromise, workflowPipelines, "promise", 5, namespace)
+					wp := workflow.NewWorkflowParams(ctx, fakeK8sClient, eventRecorder, logger, uPromise, workflowPipelines, "promise", 5, namespace)
 
-					abort, err = workflow.ReconcileConfigure(opts)
+					abort, err = workflow.ReconcileConfigure(wp)
 					Expect(err).NotTo(HaveOccurred())
 				})
 
@@ -1855,8 +1855,8 @@ var _ = Describe("Workflow Reconciler", func() {
 
 		When("there are no pipelines to reconcile", func() {
 			It("considers the workflow as completed", func() {
-				opts := workflow.NewOpts(ctx, fakeK8sClient, eventRecorder, logger, nil, []v1alpha1.PipelineJobResources{}, "promise", 5, namespace)
-				requeue, err := workflow.ReconcileDelete(opts)
+				wp := workflow.NewWorkflowParams(ctx, fakeK8sClient, eventRecorder, logger, nil, []v1alpha1.PipelineJobResources{}, "promise", 5, namespace)
+				requeue, err := workflow.ReconcileDelete(wp)
 				Expect(err).NotTo(HaveOccurred())
 				Expect(requeue).To(BeFalse())
 			})
@@ -1864,8 +1864,8 @@ var _ = Describe("Workflow Reconciler", func() {
 
 		When("there are pipelines to reconcile", func() {
 			It("reconciles the first pipeline", func() {
-				opts := workflow.NewOpts(ctx, fakeK8sClient, eventRecorder, logger, uPromise, workflowPipelines, "promise", 5, namespace)
-				requeue, err := workflow.ReconcileDelete(opts)
+				wp := workflow.NewWorkflowParams(ctx, fakeK8sClient, eventRecorder, logger, uPromise, workflowPipelines, "promise", 5, namespace)
+				requeue, err := workflow.ReconcileDelete(wp)
 				Expect(err).NotTo(HaveOccurred())
 				Expect(requeue).To(BeTrue())
 				jobList := listJobs(namespace)
@@ -1874,7 +1874,7 @@ var _ = Describe("Workflow Reconciler", func() {
 				Expect(findByName(jobList, workflowPipelines[0].Job.Name)).To(BeTrue())
 
 				By("not returning completed until the job is marked as completed", func() {
-					requeue, err := workflow.ReconcileDelete(opts)
+					requeue, err := workflow.ReconcileDelete(wp)
 					Expect(err).NotTo(HaveOccurred())
 					Expect(requeue).To(BeTrue())
 				})
@@ -1889,9 +1889,9 @@ var _ = Describe("Workflow Reconciler", func() {
 				var abort bool
 				BeforeEach(func() {
 					Expect(fakeK8sClient.Create(ctx, workflowPipelines[0].Job)).To(Succeed())
-					opts := workflow.NewOpts(ctx, fakeK8sClient, eventRecorder, logger, uPromise, workflowPipelines, "promise", 5, namespace)
+					wp := workflow.NewWorkflowParams(ctx, fakeK8sClient, eventRecorder, logger, uPromise, workflowPipelines, "promise", 5, namespace)
 					var err error
-					abort, err = workflow.ReconcileDelete(opts)
+					abort, err = workflow.ReconcileDelete(wp)
 					Expect(err).NotTo(HaveOccurred())
 				})
 
@@ -1908,8 +1908,8 @@ var _ = Describe("Workflow Reconciler", func() {
 						uPromise.SetLabels(map[string]string{
 							"kratix.io/manual-reconciliation": "true",
 						})
-						opts := workflow.NewOpts(ctx, fakeK8sClient, eventRecorder, logger, uPromise, workflowPipelines, "promise", 5, namespace)
-						abort, err := workflow.ReconcileDelete(opts)
+						wp := workflow.NewWorkflowParams(ctx, fakeK8sClient, eventRecorder, logger, uPromise, workflowPipelines, "promise", 5, namespace)
+						abort, err := workflow.ReconcileDelete(wp)
 
 						Expect(err).NotTo(HaveOccurred())
 						Expect(abort).To(BeTrue())
@@ -1926,8 +1926,8 @@ var _ = Describe("Workflow Reconciler", func() {
 				})
 
 				It("considers the workflow as completed", func() {
-					opts := workflow.NewOpts(ctx, fakeK8sClient, eventRecorder, logger, uPromise, workflowPipelines, "promise", 5, namespace)
-					requeue, err := workflow.ReconcileDelete(opts)
+					wp := workflow.NewWorkflowParams(ctx, fakeK8sClient, eventRecorder, logger, uPromise, workflowPipelines, "promise", 5, namespace)
+					requeue, err := workflow.ReconcileDelete(wp)
 					Expect(err).NotTo(HaveOccurred())
 					Expect(requeue).To(BeFalse())
 					jobList := listJobs(namespace)
@@ -1944,9 +1944,9 @@ var _ = Describe("Workflow Reconciler", func() {
 				})
 
 				It("returns an error", func() {
-					opts := workflow.NewOpts(ctx, fakeK8sClient, eventRecorder, logger, uPromise, workflowPipelines, "promise", 5, namespace)
-					requeue, err := workflow.ReconcileDelete(opts)
-					Expect(err).To(MatchError(workflow.ErrDeletePipelineFailed))
+					wp := workflow.NewWorkflowParams(ctx, fakeK8sClient, eventRecorder, logger, uPromise, workflowPipelines, "promise", 5, namespace)
+					requeue, err := workflow.ReconcileDelete(wp)
+					Expect(err).To(MatchError("Delete Pipeline Failed"))
 					Expect(requeue).To(BeFalse())
 				})
 
@@ -1959,8 +1959,8 @@ var _ = Describe("Workflow Reconciler", func() {
 					BeforeEach(func() {
 						labelPromiseForManualReconciliation("redis")
 						newWorkflowPipelines, uPromise = setupTest(promise, pipelines)
-						opts := workflow.NewOpts(ctx, fakeK8sClient, eventRecorder, logger, uPromise, newWorkflowPipelines, "promise", 5, namespace)
-						abort, err := workflow.ReconcileDelete(opts)
+						wp := workflow.NewWorkflowParams(ctx, fakeK8sClient, eventRecorder, logger, uPromise, newWorkflowPipelines, "promise", 5, namespace)
+						abort, err := workflow.ReconcileDelete(wp)
 						Expect(abort).To(BeTrue())
 						Expect(err).NotTo(HaveOccurred())
 					})
@@ -2031,12 +2031,12 @@ func setupTest(promise v1alpha1.Promise, pipelines []v1alpha1.Pipeline) ([]v1alp
 
 func setupAndReconcileUntilPipelinesCompleted(promise v1alpha1.Promise, pipelines []v1alpha1.Pipeline, eventRecorder record.EventRecorder) ([]v1alpha1.PipelineJobResources, *unstructured.Unstructured) {
 	updatedWorkflowPipeline, uPromise := setupTest(promise, pipelines)
-	opts := workflow.NewOpts(ctx, fakeK8sClient, eventRecorder, logger, uPromise, updatedWorkflowPipeline, "promise", 5, namespace)
-	_, err := workflow.ReconcileConfigure(opts)
+	wp := workflow.NewWorkflowParams(ctx, fakeK8sClient, eventRecorder, logger, uPromise, updatedWorkflowPipeline, "promise", 5, namespace)
+	_, err := workflow.ReconcileConfigure(wp)
 	Expect(err).NotTo(HaveOccurred())
 
 	markJobAsComplete(updatedWorkflowPipeline[0].Job.Name)
-	_, err = workflow.ReconcileConfigure(opts)
+	_, err = workflow.ReconcileConfigure(wp)
 	Expect(err).NotTo(HaveOccurred())
 
 	markJobAsComplete(updatedWorkflowPipeline[1].Job.Name)
@@ -2122,7 +2122,7 @@ func userPermissionPipelineLabels(promise v1alpha1.Promise, pipeline v1alpha1.Pi
 func forceManualReconciliation(promise v1alpha1.Promise, pipelines []v1alpha1.Pipeline, eventRecorder record.EventRecorder) {
 	labelPromiseForManualReconciliation(promise.GetName())
 	resources, uPromise := setupTest(promise, pipelines)
-	opts := workflow.NewOpts(ctx, fakeK8sClient, eventRecorder, logger, uPromise, resources, "promise", 5, namespace)
-	_, err := workflow.ReconcileConfigure(opts)
+	wp := workflow.NewWorkflowParams(ctx, fakeK8sClient, eventRecorder, logger, uPromise, resources, "promise", 5, namespace)
+	_, err := workflow.ReconcileConfigure(wp)
 	Expect(err).NotTo(HaveOccurred())
 }

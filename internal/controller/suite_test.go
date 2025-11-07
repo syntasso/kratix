@@ -18,6 +18,7 @@ package controller_test
 
 import (
 	"context"
+	"fmt"
 	"os"
 	"testing"
 	"time"
@@ -63,8 +64,8 @@ var _ = BeforeSuite(func(_ SpecContext) {
 
 }, NodeTimeout(time.Minute))
 
-var reconcileConfigureOptsArg workflow.Opts
-var reconcileDeleteOptsArg workflow.Opts
+var reconcileConfigureOptsArg workflow.WorkflowParams
+var reconcileDeleteOptsArg workflow.WorkflowParams
 
 var _ = BeforeEach(func() {
 	yamlFile, err := os.ReadFile(resourceRequestPath)
@@ -97,12 +98,12 @@ var _ = BeforeEach(func() {
 	fakeApiExtensionsClient = fakeclientset.NewSimpleClientset().ApiextensionsV1()
 	t = &testReconciler{}
 
-	controller.SetReconcileConfigureWorkflow(func(w workflow.Opts) (bool, error) {
+	controller.SetReconcileConfigureWorkflow(func(w workflow.WorkflowParams) (bool, error) {
 		reconcileConfigureOptsArg = w
 		return true, nil
 	})
 
-	controller.SetReconcileDeleteWorkflow(func(w workflow.Opts) (bool, error) {
+	controller.SetReconcileDeleteWorkflow(func(w workflow.WorkflowParams) (bool, error) {
 		reconcileDeleteOptsArg = w
 		return true, nil
 	})
@@ -119,14 +120,14 @@ func TestControllers(t *testing.T) {
 }
 
 func setReconcileConfigureWorkflowToReturnFinished() {
-	controller.SetReconcileConfigureWorkflow(func(w workflow.Opts) (bool, error) {
+	controller.SetReconcileConfigureWorkflow(func(w workflow.WorkflowParams) (bool, error) {
 		reconcileConfigureOptsArg = w
 		return false, nil
 	})
 }
 
 func setReconcileDeleteWorkflowToReturnFinished(obj client.Object) {
-	controller.SetReconcileDeleteWorkflow(func(w workflow.Opts) (bool, error) {
+	controller.SetReconcileDeleteWorkflow(func(w workflow.WorkflowParams) (bool, error) {
 		us := &unstructured.Unstructured{}
 		us.SetGroupVersionKind(obj.GetObjectKind().GroupVersionKind())
 		Expect(fakeK8sClient.Get(ctx, types.NamespacedName{
@@ -140,7 +141,7 @@ func setReconcileDeleteWorkflowToReturnFinished(obj client.Object) {
 }
 
 func setReconcileDeleteWorkflowToReturnError(obj client.Object) {
-	controller.SetReconcileDeleteWorkflow(func(w workflow.Opts) (bool, error) {
+	controller.SetReconcileDeleteWorkflow(func(w workflow.WorkflowParams) (bool, error) {
 		us := &unstructured.Unstructured{}
 		us.SetGroupVersionKind(obj.GetObjectKind().GroupVersionKind())
 		Expect(fakeK8sClient.Get(ctx, types.NamespacedName{
@@ -149,6 +150,6 @@ func setReconcileDeleteWorkflowToReturnError(obj client.Object) {
 		}, us)).To(Succeed())
 
 		reconcileDeleteOptsArg = w
-		return false, workflow.ErrDeletePipelineFailed
+		return false, fmt.Errorf("Delete Pipeline Failed")
 	})
 }

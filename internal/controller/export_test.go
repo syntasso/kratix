@@ -7,11 +7,11 @@ import (
 	"github.com/syntasso/kratix/lib/writers"
 )
 
-func SetReconcileConfigureWorkflow(f func(workflow.Opts) (bool, error)) {
+func SetReconcileConfigureWorkflow(f func(workflow.WorkflowParams) (bool, error)) {
 	reconcileConfigure = f
 }
 
-func SetReconcileDeleteWorkflow(f func(workflow.Opts) (bool, error)) {
+func SetReconcileDeleteWorkflow(f func(workflow.WorkflowParams) (bool, error)) {
 	reconcileDelete = f
 }
 
