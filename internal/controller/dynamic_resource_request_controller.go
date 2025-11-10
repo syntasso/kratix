@@ -178,9 +178,9 @@ func (r *DynamicResourceRequestController) Reconcile(ctx context.Context, req ct
 				"PromiseVersion found in Resource status. Fetching the corresponding ResourceBinding.",
 				".status.PromiseVersion", statusPromiseVersion)
 			resourceBinding, err := r.fetchResourceBinding(ctx, rr, promise)
-			if errors.Is(err, resourceBindingNotFound) {
+			if errors.Is(err, errResourceBindingNotFound) {
 				useLatestRevision = true
-			} else if err != nil && !errors.Is(err, resourceBindingNotFound) {
+			} else if err != nil && !errors.Is(err, errResourceBindingNotFound) {
 				baseLogger.Error(err, "failed to fetch ResourceBinding for ResourceRequest")
 				return ctrl.Result{}, err
 			}
@@ -712,7 +712,7 @@ func (r *DynamicResourceRequestController) ensurePromiseIsAvailable(ctx context.
 	return r.Client.Status().Update(ctx, rr)
 }
 
-var resourceBindingNotFound = fmt.Errorf("cannot find any ResourceBinding for Resource")
+var errResourceBindingNotFound = fmt.Errorf("cannot find any ResourceBinding for Resource")
 
 func (r *DynamicResourceRequestController) fetchResourceBinding(
 	ctx context.Context,
@@ -730,7 +730,7 @@ func (r *DynamicResourceRequestController) fetchResourceBinding(
 		return nil, fmt.Errorf("found multiple ResourceBindings for Resource %s in namespace %s;"+
 			"there should be one ResourceBinding per Resource", rr.GetName(), rr.GetNamespace())
 	} else if len(bindings.Items) == 0 {
-		return nil, resourceBindingNotFound
+		return nil, errResourceBindingNotFound
 	}
 
 	return &bindings.Items[0], nil
