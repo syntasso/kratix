@@ -56,9 +56,9 @@ import (
 )
 
 const (
-	workFinalizer                  = v1alpha1.KratixPrefix + "work-cleanup"
-	resourcePromiseVersionStatus   = "promiseVersion"
-	promiseRevisionLookupFailedMsg = "FailedPromiseRevisionLookup"
+	workFinalizer                     = v1alpha1.KratixPrefix + "work-cleanup"
+	resourcePromiseVersionStatus      = "promiseVersion"
+	promiseRevisionLookupFailedReason = "FailedPromiseRevisionLookup"
 )
 
 var rrFinalizers = []string{workFinalizer, removeAllWorkflowJobsFinalizer, runDeleteWorkflowsFinalizer}
@@ -159,18 +159,6 @@ func (r *DynamicResourceRequestController) Reconcile(ctx context.Context, req ct
 	var promiseRevisionUsed *v1alpha1.PromiseRevision
 	var useLatestRevision bool
 	if r.PromiseUpgrade {
-		// WIP: 1st time reconciling the rr
-		//	-> reconcile with the latest version of the promise
-		//	-> create a ResourceBinding between this rr and the latest version of the promise
-		//	-> also update the Status of the rr with the version of the promise
-
-		// WIP: x-time reconciling the rr
-		//	-> check if the promise version if available in the rr status
-		// 	-> fetch the ResourceBinding
-		// 	-> get the PromiseVersion defined in the ResourceBinding
-		//  -> use this Promise to reconcile this rr
-		//  -> around the time we're generating the workflows we update the rr status to reflect the version of the promise it's reconciled with
-
 		logging.Trace(baseLogger,
 			"PromiseUpgrade feature flag set to true; will reconcile with a PromiseRevision.")
 
@@ -182,7 +170,7 @@ func (r *DynamicResourceRequestController) Reconcile(ctx context.Context, req ct
 			if promiseRevisionUsed, err = latestRevision(ctx, r.Client, promise); err != nil {
 				msg := fmt.Sprintf("cannot find the latest PromiseRevision for Promise %s", promise.GetName())
 				logging.Error(baseLogger, err, msg)
-				r.EventRecorder.Eventf(rr, v1.EventTypeWarning, promiseRevisionLookupFailedMsg, msg)
+				r.EventRecorder.Eventf(rr, v1.EventTypeWarning, promiseRevisionLookupFailedReason, msg)
 				return ctrl.Result{}, err
 			}
 		} else {
@@ -200,6 +188,7 @@ func (r *DynamicResourceRequestController) Reconcile(ctx context.Context, req ct
 			promiseRevisionUsed, err = fetchRevision(ctx, r.Client, promise, resourceBinding, useLatestRevision)
 			if err != nil {
 				baseLogger.Error(err, "failed to fetch PromiseRevision for ResourceRequest")
+				r.EventRecorder.Eventf(rr, v1.EventTypeWarning, promiseRevisionLookupFailedReason, err.Error())
 				return ctrl.Result{}, err
 			}
 		}
@@ -772,7 +761,8 @@ func latestRevision(ctx context.Context, c client.Client, promise *v1alpha1.Prom
 		promise.GetName())
 }
 
-func fetchRevision(ctx context.Context, c client.Client, promise *v1alpha1.Promise, binding *v1alpha1.ResourceBinding, useLatestRevision bool) (*v1alpha1.PromiseRevision, error) {
+func fetchRevision(ctx context.Context, c client.Client, promise *v1alpha1.Promise,
+	binding *v1alpha1.ResourceBinding, useLatestRevision bool) (*v1alpha1.PromiseRevision, error) {
 	if useLatestRevision {
 		return latestRevision(ctx, c, promise)
 	}
@@ -791,7 +781,7 @@ func fetchRevision(ctx context.Context, c client.Client, promise *v1alpha1.Promi
 		}
 	}
 
-	return nil, fmt.Errorf("cannot find any PromiseRevision for Promise %s with version %s",
+	return nil, fmt.Errorf("cannot find a PromiseRevision for Promise %s with version %s",
 		promise.GetName(), binding.Spec.Version)
 }
 

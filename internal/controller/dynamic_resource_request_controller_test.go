@@ -940,7 +940,7 @@ var _ = Describe("DynamicResourceRequestController", func() {
 			resReqNameNamespace = client.ObjectKeyFromObject(resReq)
 		})
 
-		Context("create", func() {
+		When("there's no ResourceBinding created for the Resource yet", func() {
 			When("the latest PromiseRevision exists", func() {
 				It("reconciles", func() {
 					promiseVersion := "v1.1.0"
@@ -1004,16 +1004,18 @@ var _ = Describe("DynamicResourceRequestController", func() {
 					promiseVersion := "v1.1.0"
 					createPromiseRevision(fakeK8sClient, promise, promiseVersion)
 
-					inexistingPromiseRevisionVersion := "v1.2.0"
-					// it's necessary to update the rr to refer to the inexisting promise
-					resourceutil.SetStatus(resReq, l, "promiseVersion", inexistingPromiseRevisionVersion)
+					inexistentPromiseRevisionVersion := "v1.2.0"
+
+					resourceutil.SetStatus(resReq, l, "promiseVersion", inexistentPromiseRevisionVersion)
 					Expect(fakeK8sClient.Status().Update(ctx, resReq)).To(Succeed())
 
-					// create a resource binding, and refer to promise of version v1.2.0
-					createResourceBinding(fakeK8sClient, promise, resReq, inexistingPromiseRevisionVersion)
+					createResourceBinding(fakeK8sClient, promise, resReq, inexistentPromiseRevisionVersion)
 
 					_, err := t.reconcileUntilCompletion(reconciler, resReq)
-					Expect(err).To(HaveOccurred())
+					Expect(err).To(MatchError(ContainSubstring("cannot find a PromiseRevision for Promise redis with version v1.2.0")))
+					Expect(eventRecorder.Events).To(Receive(ContainSubstring(
+						"Warning FailedPromiseRevisionLookup cannot find a PromiseRevision for Promise redis with version v1.2.0",
+					)))
 				})
 			})
 		})
