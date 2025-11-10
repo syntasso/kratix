@@ -17,6 +17,7 @@ import (
 	rbacv1 "k8s.io/api/rbac/v1"
 	metav1 "k8s.io/apimachinery/pkg/apis/meta/v1"
 	"k8s.io/apimachinery/pkg/apis/meta/v1/unstructured"
+	"k8s.io/apimachinery/pkg/labels"
 	"k8s.io/apimachinery/pkg/types"
 	"k8s.io/apimachinery/pkg/util/yaml"
 	"k8s.io/client-go/kubernetes/scheme"
@@ -929,7 +930,111 @@ var _ = Describe("DynamicResourceRequestController", func() {
 			})
 		})
 	})
+
+	When("promise upgrade feature is on", func() {
+		BeforeEach(func() {
+			Expect(fakeK8sClient.Delete(ctx, resReq)).To(Succeed())
+			reconciler.PromiseUpgrade = true
+			resReq = createResourceRequest(resourceRequestPath)
+			resReqNameNamespace = client.ObjectKeyFromObject(resReq)
+		})
+
+		Context("create", func() {
+			When("the latest PromiseRevision exists", func() {
+				It("reconciles", func() {
+					promiseVersion := "v1.1.0"
+					createPromiseRevision(fakeK8sClient, promise, promiseVersion)
+
+					result, err := t.reconcileUntilCompletion(reconciler, resReq)
+					Expect(err).NotTo(HaveOccurred())
+					Expect(result).To(Equal(ctrl.Result{}))
+
+					By("creating a resource binding for this resource request", func() {
+						bindingLabels := map[string]string{
+							"kratix.io/promise-name":  promise.GetName(),
+							"kratix.io/resource-name": resReqNameNamespace.Name,
+						}
+						var bindingList v1alpha1.ResourceBindingList
+						fakeK8sClient.List(ctx, &bindingList, &client.ListOptions{
+							Namespace:     resReqNameNamespace.Namespace,
+							LabelSelector: labels.SelectorFromSet(bindingLabels),
+						})
+
+						Expect(bindingList.Items).To(HaveLen(1))
+						binding := bindingList.Items[0]
+						Expect(binding.Spec.PromiseRef.Name).To(Equal(promise.GetName()))
+						Expect(binding.Spec.ResourceRef.Name).To(Equal(resReqNameNamespace.Name))
+						Expect(binding.Spec.ResourceRef.Namespace).To(Equal(resReqNameNamespace.Namespace))
+						Expect(binding.Spec.Version).To(Equal(promiseVersion))
+					})
+
+					Expect(fakeK8sClient.Get(ctx, resReqNameNamespace, resReq)).To(Succeed())
+
+					By("setting the promise version in the resource status", func() {
+						Expect(fakeK8sClient.Get(ctx, resReqNameNamespace, resReq)).To(Succeed())
+						status := resReq.Object["status"]
+						Expect(status).NotTo(BeNil())
+						statusMap := status.(map[string]interface{})
+						Expect(statusMap["promiseVersion"]).To(Equal(promiseVersion))
+					})
+
+					By("publishing events", func() {
+						Expect(eventRecorder.Events).To(Receive(ContainSubstring(
+							"Normal PromiseRevisionFound reconciling Resource Request with PromiseRevision redis-v1.1.0",
+						)))
+					})
+				})
+			})
+
+			When("the latest PromiseRevision doesn't exist", func() {
+				It("returns a reconciliation error", func() {
+					_, err := t.reconcileUntilCompletion(reconciler, resReq)
+					Expect(err).To(MatchError(ContainSubstring("cannot find any PromiseRevision for Promise redis with status.latest set to true")))
+					Expect(eventRecorder.Events).To(Receive(ContainSubstring(
+						"Warning FailedPromiseRevisionLookup cannot find the latest PromiseRevision for Promise redis",
+					)))
+				})
+			})
+		})
+
+		When("ResourceBinding for the Resource exists", func() {
+			When("cannot find the corresponding PromiseRevision in the ResourceBinding", func() {
+				It("returns a reconciliation error", func() {
+					promiseVersion := "v1.1.0"
+					createPromiseRevision(fakeK8sClient, promise, promiseVersion)
+
+					// create a resource binding, and refer to promise of version v1.2.0
+					_, err := t.reconcileUntilCompletion(reconciler, resReq)
+					Expect(err).To(HaveOccurred())
+				})
+			})
+		})
+
+	})
 })
+
+func createPromiseRevision(client client.Client, promise *v1alpha1.Promise, version string) {
+	promiseRevision := &v1alpha1.PromiseRevision{
+		ObjectMeta: metav1.ObjectMeta{
+			Name: fmt.Sprintf("%s-%s", promise.GetName(), version),
+			Labels: map[string]string{
+				"kratix.io/promise-name":    promise.GetName(),
+				"kratix.io/latest-revision": "true",
+			},
+		},
+		Spec: v1alpha1.PromiseRevisionSpec{
+			PromiseRef: v1alpha1.PromiseRef{
+				Name: promise.GetName(),
+			},
+			PromiseSpec: promise.Spec,
+			Version:     version,
+		},
+		Status: v1alpha1.PromiseRevisionStatus{
+			Latest: true,
+		},
+	}
+	ExpectWithOffset(1, client.Create(ctx, promiseRevision)).To(Succeed())
+}
 
 func setConfigureWorkflowStatus(resReq *unstructured.Unstructured, status v1.ConditionStatus, lastTransitionTime ...time.Time) {
 	var t time.Time

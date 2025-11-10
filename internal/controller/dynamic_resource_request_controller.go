@@ -55,7 +55,11 @@ import (
 	"go.opentelemetry.io/otel/attribute"
 )
 
-const workFinalizer = v1alpha1.KratixPrefix + "work-cleanup"
+const (
+	workFinalizer                  = v1alpha1.KratixPrefix + "work-cleanup"
+	resourcePromiseVersionStatus   = "promiseVersion"
+	promiseRevisionLookupFailedMsg = "FailedPromiseRevisionLookup"
+)
 
 var rrFinalizers = []string{workFinalizer, removeAllWorkflowJobsFinalizer, runDeleteWorkflowsFinalizer}
 
@@ -153,7 +157,7 @@ func (r *DynamicResourceRequestController) Reconcile(ctx context.Context, req ct
 	}
 
 	var promiseRevisionUsed *v1alpha1.PromiseRevision
-	var shouldCreateResourceBinding bool
+	var useLatestRevision bool
 	if r.PromiseUpgrade {
 		// WIP: 1st time reconciling the rr
 		//	-> reconcile with the latest version of the promise
@@ -170,38 +174,41 @@ func (r *DynamicResourceRequestController) Reconcile(ctx context.Context, req ct
 		logging.Trace(baseLogger,
 			"PromiseUpgrade feature flag set to true; will reconcile with a PromiseRevision.")
 
-		statusPromiseVersion := resourceutil.GetStatus(rr, "PromiseVersion")
+		statusPromiseVersion := resourceutil.GetStatus(rr, resourcePromiseVersionStatus)
 		if statusPromiseVersion == "" {
 			logging.Trace(baseLogger,
 				"No PromiseVersion set in resource request status, will reconcile with the latest PromiseVersion")
 			var err error
 			if promiseRevisionUsed, err = latestRevision(ctx, r.Client, promise); err != nil {
-				logging.Error(baseLogger, err, "failed to get latest PromiseRevision")
+				msg := fmt.Sprintf("cannot find the latest PromiseRevision for Promise %s", promise.GetName())
+				logging.Error(baseLogger, err, msg)
+				r.EventRecorder.Eventf(rr, v1.EventTypeWarning, promiseRevisionLookupFailedMsg, msg)
 				return ctrl.Result{}, err
 			}
-			promise.Spec = promiseRevisionUsed.Spec.PromiseSpec
-			logging.Debug(baseLogger,
-				"Found latest PromiseRevision", "revision name", promiseRevisionUsed.Name)
-			// create ResourceBinding linking this rr to the latest promise revision
 		} else {
 			logging.Trace(baseLogger,
 				"PromiseVersion found in Resource status. Fetching the corresponding ResourceBinding.",
 				".status.PromiseVersion", statusPromiseVersion)
 			resourceBinding, err := r.fetchResourceBinding(ctx, rr, promise)
 			if errors.Is(err, resourceBindingNotFound) {
-				shouldCreateResourceBinding = true
+				useLatestRevision = true
 			} else if err != nil && !errors.Is(err, resourceBindingNotFound) {
 				baseLogger.Error(err, "failed to fetch ResourceBinding for ResourceRequest")
 				return ctrl.Result{}, err
 			}
-			
-			promiseRevisionUsed, err = fetchRevision(ctx, r.Client, promise, resourceBinding.Spec.Version)
+
+			promiseRevisionUsed, err = fetchRevision(ctx, r.Client, promise, resourceBinding, useLatestRevision)
 			if err != nil {
 				baseLogger.Error(err, "failed to fetch PromiseRevision for ResourceRequest")
 				return ctrl.Result{}, err
 			}
-			promise.Spec = promiseRevisionUsed.Spec.PromiseSpec
 		}
+
+		promise.Spec = promiseRevisionUsed.Spec.PromiseSpec
+		logging.Debug(baseLogger,
+			"Found latest PromiseRevision", "revision name", promiseRevisionUsed.Name)
+		r.EventRecorder.Eventf(rr, v1.EventTypeNormal, "PromiseRevisionFound",
+			fmt.Sprintf("reconciling Resource Request with PromiseRevision %s", promiseRevisionUsed.Name))
 	}
 
 	opts := opts{client: r.Client, ctx: ctx, logger: logger}
@@ -235,10 +242,6 @@ func (r *DynamicResourceRequestController) Reconcile(ctx context.Context, req ct
 	}
 
 	if r.PromiseUpgrade {
-		if shouldCreateResourceBinding {
-			logging.Trace(logger, "creating ResourceBinding for Resource")
-		}
-
 		resourceBinding := &v1alpha1.ResourceBinding{
 			ObjectMeta: metav1.ObjectMeta{
 				Name:      objectutil.GenerateDeterministicObjectName(fmt.Sprintf("%s-%s", rr.GetName(), promise.GetName())),
@@ -246,6 +249,7 @@ func (r *DynamicResourceRequestController) Reconcile(ctx context.Context, req ct
 			},
 		}
 		op, err := controllerutil.CreateOrUpdate(ctx, r.Client, resourceBinding, func() error {
+			resourceBinding.ObjectMeta.Labels = resourceBindingLabels(rr, promise)
 			resourceBinding.Spec.Version = promiseRevisionUsed.Spec.Version
 			resourceBinding.Spec.PromiseRef = v1alpha1.PromiseRef{Name: promise.GetName()}
 			resourceBinding.Spec.ResourceRef = v1alpha1.ResourceRef{
@@ -266,6 +270,10 @@ func (r *DynamicResourceRequestController) Reconcile(ctx context.Context, req ct
 			"resourceName", resourceBinding.Spec.ResourceRef.Name,
 			"resourceNamespace", resourceBinding.Spec.ResourceRef.Namespace,
 		)
+
+		if r.updatePromiseVersionStatus(rr, promiseRevisionUsed) {
+			return ctrl.Result{}, r.Client.Status().Update(ctx, rr)
+		}
 	}
 
 	logging.Info(logger, "resource contains configure workflow(s); reconciling workflows")
@@ -445,9 +453,9 @@ func (r *DynamicResourceRequestController) updatePromiseVersionStatus(rr *unstru
 	if !r.PromiseUpgrade || promiseRevision == nil {
 		return false
 	}
-	currentVersion := resourceutil.GetStatus(rr, "PromiseVersion")
+	currentVersion := resourceutil.GetStatus(rr, resourcePromiseVersionStatus)
 	if currentVersion != promiseRevision.Spec.Version {
-		resourceutil.SetStatus(rr, r.Log, "PromiseVersion", promiseRevision.Spec.Version)
+		resourceutil.SetStatus(rr, r.Log, resourcePromiseVersionStatus, promiseRevision.Spec.Version)
 		return true
 	}
 	return false
@@ -764,7 +772,11 @@ func latestRevision(ctx context.Context, c client.Client, promise *v1alpha1.Prom
 		promise.GetName())
 }
 
-func fetchRevision(ctx context.Context, c client.Client, promise *v1alpha1.Promise, promiseVersion string) (*v1alpha1.PromiseRevision, error) {
+func fetchRevision(ctx context.Context, c client.Client, promise *v1alpha1.Promise, binding *v1alpha1.ResourceBinding, useLatestRevision bool) (*v1alpha1.PromiseRevision, error) {
+	if useLatestRevision {
+		return latestRevision(ctx, c, promise)
+	}
+
 	revisionList := &v1alpha1.PromiseRevisionList{}
 	if err := c.List(ctx, revisionList, &client.ListOptions{
 		LabelSelector: labels.SelectorFromSet(promise.GenerateSharedLabels()),
@@ -774,13 +786,13 @@ func fetchRevision(ctx context.Context, c client.Client, promise *v1alpha1.Promi
 
 	for i := range revisionList.Items {
 		revision := &revisionList.Items[i]
-		if revision.Spec.Version == promiseVersion {
+		if revision.Spec.Version == binding.Spec.Version {
 			return revision, nil
 		}
 	}
 
 	return nil, fmt.Errorf("cannot find any PromiseRevision for Promise %s with version %s",
-		promise.GetName(), promiseVersion)
+		promise.GetName(), binding.Spec.Version)
 }
 
 func updateObservedGeneration(
