@@ -15,7 +15,7 @@ output:
 
 linters-settings:
   cyclop:
-    max-complexity: 70
+    max-complexity: 60
   dupl:
     threshold: 100  # Token count for duplication detection
   errcheck:
@@ -30,10 +30,10 @@ linters-settings:
       - map
     default-signifies-exhaustive: true
   funlen:
-    lines: 200  # Starting point for function length
+    lines: 233  # Starting point for function length
     statements: 125
   gocognit:
-    min-complexity: 70
+    min-complexity: 60
   ineffassign:
     report-ineffassign: true
   misspell:

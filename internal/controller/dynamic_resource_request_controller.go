@@ -157,40 +157,14 @@ func (r *DynamicResourceRequestController) Reconcile(ctx context.Context, req ct
 	}
 
 	var promiseRevisionUsed *v1alpha1.PromiseRevision
-	var useLatestRevision bool
+	var err error
 	if r.PromiseUpgrade {
 		logging.Trace(baseLogger,
 			"PromiseUpgrade feature flag set to true; will reconcile with a PromiseRevision.")
 
-		statusPromiseVersion := resourceutil.GetStatus(rr, resourcePromiseVersionStatus)
-		if statusPromiseVersion == "" {
-			logging.Trace(baseLogger,
-				"No PromiseVersion set in resource request status, will reconcile with the latest PromiseVersion")
-			var err error
-			if promiseRevisionUsed, err = latestRevision(ctx, r.Client, promise); err != nil {
-				msg := fmt.Sprintf("cannot find the latest PromiseRevision for Promise %s", promise.GetName())
-				logging.Error(baseLogger, err, msg)
-				r.EventRecorder.Eventf(rr, v1.EventTypeWarning, promiseRevisionLookupFailedReason, msg)
-				return ctrl.Result{}, err
-			}
-		} else {
-			logging.Trace(baseLogger,
-				"PromiseVersion found in Resource status. Fetching the corresponding ResourceBinding.",
-				".status.PromiseVersion", statusPromiseVersion)
-			resourceBinding, err := r.fetchResourceBinding(ctx, rr, promise)
-			if errors.Is(err, errResourceBindingNotFound) {
-				useLatestRevision = true
-			} else if err != nil && !errors.Is(err, errResourceBindingNotFound) {
-				baseLogger.Error(err, "failed to fetch ResourceBinding for ResourceRequest")
-				return ctrl.Result{}, err
-			}
-
-			promiseRevisionUsed, err = fetchRevision(ctx, r.Client, promise, resourceBinding, useLatestRevision)
-			if err != nil {
-				baseLogger.Error(err, "failed to fetch PromiseRevision for ResourceRequest")
-				r.EventRecorder.Eventf(rr, v1.EventTypeWarning, promiseRevisionLookupFailedReason, err.Error())
-				return ctrl.Result{}, err
-			}
+		promiseRevisionUsed, err = getPromiseFromRevision(ctx, rr, baseLogger, r, promise)
+		if err != nil {
+			return ctrl.Result{}, err
 		}
 
 		promise.Spec = promiseRevisionUsed.Spec.PromiseSpec
@@ -346,6 +320,43 @@ func (r *DynamicResourceRequestController) Reconcile(ctx context.Context, req ct
 	}
 
 	return ctrl.Result{}, nil
+}
+
+func getPromiseFromRevision(ctx context.Context, rr *unstructured.Unstructured, baseLogger logr.Logger, r *DynamicResourceRequestController, promise *v1alpha1.Promise) (*v1alpha1.PromiseRevision, error) {
+	var shouldUseLatestRevision bool
+	var promiseRevisionUsed *v1alpha1.PromiseRevision
+
+	statusPromiseVersion := resourceutil.GetStatus(rr, resourcePromiseVersionStatus)
+	if statusPromiseVersion == "" {
+		logging.Trace(baseLogger,
+			"No PromiseVersion set in ResourceRequest status, will reconcile with the latest PromiseVersion")
+		var err error
+		if promiseRevisionUsed, err = latestRevision(ctx, r.Client, promise); err != nil {
+			msg := fmt.Sprintf("cannot find the latest PromiseRevision for Promise %s", promise.GetName())
+			logging.Error(baseLogger, err, msg)
+			r.EventRecorder.Eventf(rr, v1.EventTypeWarning, promiseRevisionLookupFailedReason, msg)
+			return nil, err
+		}
+	} else {
+		logging.Trace(baseLogger,
+			"PromiseVersion found in Resource status. Fetching the corresponding ResourceBinding.",
+			".status.PromiseVersion", statusPromiseVersion)
+		resourceBinding, err := r.fetchResourceBinding(ctx, rr, promise)
+		if errors.Is(err, errResourceBindingNotFound) {
+			shouldUseLatestRevision = true
+		} else if err != nil && !errors.Is(err, errResourceBindingNotFound) {
+			baseLogger.Error(err, "failed to fetch ResourceBinding for ResourceRequest")
+			return nil, err
+		}
+
+		promiseRevisionUsed, err = fetchRevision(ctx, r.Client, promise, resourceBinding, shouldUseLatestRevision)
+		if err != nil {
+			baseLogger.Error(err, "failed to fetch PromiseRevision for ResourceRequest")
+			r.EventRecorder.Eventf(rr, v1.EventTypeWarning, promiseRevisionLookupFailedReason, err.Error())
+			return nil, err
+		}
+	}
+	return promiseRevisionUsed, nil
 }
 
 func (r *DynamicResourceRequestController) generateResourceStatus(ctx context.Context, rr *unstructured.Unstructured,
