@@ -12,6 +12,7 @@ import (
 	. "github.com/onsi/gomega"
 	"github.com/syntasso/kratix/internal/controller"
 	"github.com/syntasso/kratix/internal/ptr"
+	"github.com/syntasso/kratix/lib/objectutil"
 	batchv1 "k8s.io/api/batch/v1"
 	v1 "k8s.io/api/core/v1"
 	rbacv1 "k8s.io/api/rbac/v1"
@@ -997,13 +998,20 @@ var _ = Describe("DynamicResourceRequestController", func() {
 			})
 		})
 
-		When("ResourceBinding for the Resource exists", func() {
-			When("cannot find the corresponding PromiseRevision in the ResourceBinding", func() {
+		When("the ResourceBinding for the Resource exists", func() {
+			When("the corresponding PromiseRevision does not exist", func() {
 				It("returns a reconciliation error", func() {
 					promiseVersion := "v1.1.0"
 					createPromiseRevision(fakeK8sClient, promise, promiseVersion)
 
+					inexistingPromiseRevisionVersion := "v1.2.0"
+					// it's necessary to update the rr to refer to the inexisting promise
+					resourceutil.SetStatus(resReq, l, "promiseVersion", inexistingPromiseRevisionVersion)
+					Expect(fakeK8sClient.Status().Update(ctx, resReq)).To(Succeed())
+
 					// create a resource binding, and refer to promise of version v1.2.0
+					createResourceBinding(fakeK8sClient, promise, resReq, inexistingPromiseRevisionVersion)
+
 					_, err := t.reconcileUntilCompletion(reconciler, resReq)
 					Expect(err).To(HaveOccurred())
 				})
@@ -1034,6 +1042,30 @@ func createPromiseRevision(client client.Client, promise *v1alpha1.Promise, vers
 		},
 	}
 	ExpectWithOffset(1, client.Create(ctx, promiseRevision)).To(Succeed())
+}
+
+func createResourceBinding(client client.Client, promise *v1alpha1.Promise, rr *unstructured.Unstructured, version string) {
+	resourceBinding := &v1alpha1.ResourceBinding{
+		ObjectMeta: metav1.ObjectMeta{
+			Name:      objectutil.GenerateDeterministicObjectName(fmt.Sprintf("%s-%s", rr.GetName(), promise.GetName())),
+			Namespace: rr.GetNamespace(),
+			Labels: map[string]string{
+				"kratix.io/promise-name":  promise.GetName(),
+				"kratix.io/resource-name": rr.GetName(),
+			},
+		},
+		Spec: v1alpha1.ResourceBindingSpec{
+			PromiseRef: v1alpha1.PromiseRef{
+				Name: promise.GetName(),
+			},
+			ResourceRef: v1alpha1.ResourceRef{
+				Name:      rr.GetName(),
+				Namespace: rr.GetNamespace(),
+			},
+			Version: version,
+		},
+	}
+	ExpectWithOffset(1, client.Create(ctx, resourceBinding)).To(Succeed())
 }
 
 func setConfigureWorkflowStatus(resReq *unstructured.Unstructured, status v1.ConditionStatus, lastTransitionTime ...time.Time) {
