@@ -940,7 +940,8 @@ var _ = Describe("DynamicResourceRequestController", func() {
 			resReqNameNamespace = client.ObjectKeyFromObject(resReq)
 		})
 
-		When("there's no ResourceBinding created for the Resource and resource status has no promise version set", func() {
+		When("there's no ResourceBinding created for the Resource"+
+			"and resource status has no promise version set", func() {
 			When("the latest PromiseRevision exists", func() {
 				It("reconciles", func() {
 					promiseVersion := "v1.1.0"

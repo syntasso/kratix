@@ -169,7 +169,7 @@ func (r *DynamicResourceRequestController) Reconcile(ctx context.Context, req ct
 
 		promise.Spec = promiseRevisionUsed.Spec.PromiseSpec
 		logging.Debug(baseLogger,
-			"Found latest PromiseRevision", "revision name", promiseRevisionUsed.Name)
+			"Found PromiseRevision", "revision name", promiseRevisionUsed.Name)
 		r.EventRecorder.Eventf(rr, v1.EventTypeNormal, "PromiseRevisionFound",
 			fmt.Sprintf("reconciling Resource Request with PromiseRevision %s", promiseRevisionUsed.Name))
 	}
