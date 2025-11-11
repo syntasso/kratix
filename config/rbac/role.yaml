@@ -74,6 +74,7 @@ rules:
   - promisereleases
   - promiserevisions
   - promises
+  - resourcebindings
   - workplacements
   - works
   verbs:
@@ -94,6 +95,7 @@ rules:
   - promisereleases/finalizers
   - promiserevisions/finalizers
   - promises/finalizers
+  - resourcebindings/finalizers
   - workplacements/finalizers
   - works/finalizers
   verbs:
@@ -108,6 +110,7 @@ rules:
   - promisereleases/status
   - promiserevisions/status
   - promises/status
+  - resourcebindings/status
   - workplacements/status
   - works/status
   verbs:

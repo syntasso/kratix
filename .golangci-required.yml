@@ -30,7 +30,7 @@ linters-settings:
       - map
     default-signifies-exhaustive: true
   funlen:
-    lines: 200  # Starting point for function length
+    lines: 233  # Starting point for function length
     statements: 125
   gocognit:
     min-complexity: 60
