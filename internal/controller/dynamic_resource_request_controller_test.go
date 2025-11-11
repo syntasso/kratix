@@ -940,7 +940,7 @@ var _ = Describe("DynamicResourceRequestController", func() {
 			resReqNameNamespace = client.ObjectKeyFromObject(resReq)
 		})
 
-		When("there's no ResourceBinding created for the Resource yet", func() {
+		When("there's no ResourceBinding created for the Resource and resource status has no promise version set", func() {
 			When("the latest PromiseRevision exists", func() {
 				It("reconciles", func() {
 					promiseVersion := "v1.1.0"
@@ -993,6 +993,81 @@ var _ = Describe("DynamicResourceRequestController", func() {
 					Expect(err).To(MatchError(ContainSubstring("cannot find any PromiseRevision for Promise redis with status.latest set to true")))
 					Expect(eventRecorder.Events).To(Receive(ContainSubstring(
 						"Warning FailedPromiseRevisionLookup cannot find the latest PromiseRevision for Promise redis",
+					)))
+				})
+			})
+		})
+
+		When("there's no ResourceBinding found but resource .status.promiseVersion is set", func() {
+			When("the PromiseRevision from resource status exists", func() {
+				It("reconciles", func() {
+					promiseVersion := "v0.0.1"
+					createPromiseRevision(fakeK8sClient, promise, promiseVersion)
+					createPromiseRevision(fakeK8sClient, promise, "v1.1.0")
+
+					Expect(fakeK8sClient.Get(ctx, resReqNameNamespace, resReq)).To(Succeed())
+					if resReq.Object["status"] == nil {
+						resReq.Object["status"] = map[string]interface{}{}
+					}
+					resourceutil.SetStatus(resReq, l, "promiseVersion", promiseVersion)
+					Expect(fakeK8sClient.Status().Update(ctx, resReq)).To(Succeed())
+
+					result, err := t.reconcileUntilCompletion(reconciler, resReq)
+					Expect(err).NotTo(HaveOccurred())
+					Expect(result).To(Equal(ctrl.Result{}))
+
+					By("creating a resource binding using promise version from the resource request", func() {
+						bindingLabels := map[string]string{
+							"kratix.io/promise-name":  promise.GetName(),
+							"kratix.io/resource-name": resReqNameNamespace.Name,
+						}
+						var bindingList v1alpha1.ResourceBindingList
+						fakeK8sClient.List(ctx, &bindingList, &client.ListOptions{
+							Namespace:     resReqNameNamespace.Namespace,
+							LabelSelector: labels.SelectorFromSet(bindingLabels),
+						})
+
+						Expect(bindingList.Items).To(HaveLen(1))
+						binding := bindingList.Items[0]
+						Expect(binding.Spec.PromiseRef.Name).To(Equal(promise.GetName()))
+						Expect(binding.Spec.ResourceRef.Name).To(Equal(resReqNameNamespace.Name))
+						Expect(binding.Spec.ResourceRef.Namespace).To(Equal(resReqNameNamespace.Namespace))
+						Expect(binding.Spec.Version).To(Equal(promiseVersion))
+					})
+
+					Expect(fakeK8sClient.Get(ctx, resReqNameNamespace, resReq)).To(Succeed())
+
+					By("not changing the promise version in the resource status", func() {
+						Expect(fakeK8sClient.Get(ctx, resReqNameNamespace, resReq)).To(Succeed())
+						status := resReq.Object["status"]
+						Expect(status).NotTo(BeNil())
+						statusMap := status.(map[string]interface{})
+						Expect(statusMap["promiseVersion"]).To(Equal(promiseVersion))
+					})
+
+					By("publishing events", func() {
+						Expect(eventRecorder.Events).To(Receive(ContainSubstring(
+							"Normal PromiseRevisionFound reconciling Resource Request with PromiseRevision redis-v0.0.1",
+						)))
+					})
+				})
+			})
+
+			When("the PromiseRevision from resource status doesn't exist", func() {
+				It("returns a reconciliation error", func() {
+					createPromiseRevision(fakeK8sClient, promise, "v1.0.0")
+
+					Expect(fakeK8sClient.Get(ctx, resReqNameNamespace, resReq)).To(Succeed())
+					if resReq.Object["status"] == nil {
+						resReq.Object["status"] = map[string]interface{}{}
+					}
+					resourceutil.SetStatus(resReq, l, "promiseVersion", "v2.0.0")
+					Expect(fakeK8sClient.Status().Update(ctx, resReq)).To(Succeed())
+
+					_, err := t.reconcileUntilCompletion(reconciler, resReq)
+					Expect(err).To(MatchError(ContainSubstring("cannot find a PromiseRevision for Promise redis with version v2.0.0")))
+					Expect(eventRecorder.Events).To(Receive(ContainSubstring(
+						"Warning FailedPromiseRevisionLookup cannot find a PromiseRevision for Promise redis with version v2.0.0",
 					)))
 				})
 			})
