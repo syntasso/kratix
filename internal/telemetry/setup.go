@@ -27,19 +27,28 @@ const (
 
 // Config captures OpenTelemetry exporter configuration loaded from the Kratix ConfigMap.
 type Config struct {
-	Enabled  *bool             `json:"enabled,omitempty"`
 	Endpoint string            `json:"endpoint,omitempty"`
 	Protocol string            `json:"protocol,omitempty"`
 	Insecure *bool             `json:"insecure,omitempty"`
 	Headers  map[string]string `json:"headers,omitempty"`
+	Traces   *SignalConfig     `json:"traces,omitempty"`
+	Metrics  *SignalConfig     `json:"metrics,omitempty"`
+}
+
+// SignalConfig toggles a telemetry signal.
+type SignalConfig struct {
+	Enabled *bool `json:"enabled,omitempty"`
 }
 
 // SetupTracerProvider configures and installs global OpenTelemetry providers for traces and metrics.
 // If no OTLP endpoint is configured, telemetry is still generated locally so downstream resources can
 // participate in traces and metrics, but data will not be exported.
 func SetupTracerProvider(ctx context.Context, logger logr.Logger, serviceName string, cfg *Config) (func(context.Context) error, error) {
-	if cfg == nil || (cfg.Enabled != nil && !*cfg.Enabled) {
-		logging.Info(logger, "OpenTelemetry telemetry disabled via configuration")
+	tracesEnabled := isTracingEnabled(cfg)
+	metricsEnabled := isMetricsEnabled(cfg)
+
+	if !tracesEnabled && !metricsEnabled {
+		logging.Info(logger, "OpenTelemetry tracing and metrics disabled via configuration")
 		otel.SetTracerProvider(tracenoop.NewTracerProvider())
 		otel.SetMeterProvider(metricnoop.NewMeterProvider())
 		otel.SetTextMapPropagator(
@@ -74,29 +83,13 @@ func SetupTracerProvider(ctx context.Context, logger logr.Logger, serviceName st
 	if endpoint != "" {
 		switch protocol {
 		case otlpProtocolGRPC:
-			clientOpts := []otlptracegrpc.Option{otlptracegrpc.WithEndpoint(endpoint)}
-			metricClientOpts := []otlpmetricgrpc.Option{otlpmetricgrpc.WithEndpoint(endpoint)}
-			insecure := false
-			if cfg.Insecure != nil {
-				insecure = *cfg.Insecure
+			insecure := cfg.Insecure != nil && *cfg.Insecure
+
+			if tracesEnabled {
+				traceExporter = createTraceExporter(ctx, logger, endpoint, insecure, headers)
 			}
-			if insecure {
-				clientOpts = append(clientOpts, otlptracegrpc.WithInsecure())
-				metricClientOpts = append(metricClientOpts, otlpmetricgrpc.WithInsecure())
-			}
-			if len(headers) > 0 {
-				clientOpts = append(clientOpts, otlptracegrpc.WithHeaders(headers))
-				metricClientOpts = append(metricClientOpts, otlpmetricgrpc.WithHeaders(headers))
-			}
-			traceExporter, err = otlptracegrpc.New(ctx, clientOpts...)
-			if err != nil {
-				logging.Error(logger, err, "creating OTLP trace exporter failed; falling back to local-only tracing")
-				traceExporter = nil
-			}
-			metricExporter, err = otlpmetricgrpc.New(ctx, metricClientOpts...)
-			if err != nil {
-				logging.Error(logger, err, "creating OTLP metric exporter failed; metrics will not be exported")
-				metricExporter = nil
+			if metricsEnabled {
+				metricExporter = createMetricExporter(ctx, logger, endpoint, insecure, headers)
 			}
 		default:
 			err = fmt.Errorf("unsupported OTLP protocol %q", protocol)
@@ -104,19 +97,65 @@ func SetupTracerProvider(ctx context.Context, logger logr.Logger, serviceName st
 		}
 	}
 
-	res, resErr := buildResource(ctx, serviceName)
-	if resErr != nil {
-		return nil, resErr
+	var (
+		res         *resource.Resource
+		resErr      error
+		shutdownFns []func(context.Context) error
+	)
+
+	if tracesEnabled || metricsEnabled {
+		res, resErr = buildResource(ctx, serviceName)
+		if resErr != nil {
+			return nil, resErr
+		}
 	}
 
-	providerOpts := []sdktrace.TracerProviderOption{sdktrace.WithResource(res)}
-	if traceExporter != nil {
-		providerOpts = append(providerOpts, sdktrace.WithBatcher(traceExporter))
+	if tracesEnabled {
+		providerOpts := []sdktrace.TracerProviderOption{}
+		if res != nil {
+			providerOpts = append(providerOpts, sdktrace.WithResource(res))
+		}
+		if traceExporter != nil {
+			providerOpts = append(providerOpts, sdktrace.WithBatcher(traceExporter))
+		}
+
+		provider := sdktrace.NewTracerProvider(providerOpts...)
+		otel.SetTracerProvider(provider)
+		shutdownFns = append(shutdownFns, provider.Shutdown)
+
+		if traceExporter != nil {
+			logging.Info(logger, "OpenTelemetry tracing enabled", "endpoint", endpoint)
+		} else {
+			logging.Info(logger, "OpenTelemetry tracing configured without exporter")
+		}
+	} else {
+		otel.SetTracerProvider(tracenoop.NewTracerProvider())
+		logging.Info(logger, "OpenTelemetry tracing disabled via configuration")
 	}
 
-	provider := sdktrace.NewTracerProvider(providerOpts...)
+	if metricsEnabled {
+		meterOpts := []sdkmetric.Option{}
+		if res != nil {
+			meterOpts = append(meterOpts, sdkmetric.WithResource(res))
+		}
+		if metricExporter != nil {
+			meterOpts = append(meterOpts, sdkmetric.WithReader(sdkmetric.NewPeriodicReader(metricExporter)))
+		}
 
-	otel.SetTracerProvider(provider)
+		meterProvider := sdkmetric.NewMeterProvider(meterOpts...)
+		otel.SetMeterProvider(meterProvider)
+		shutdownFns = append(shutdownFns, meterProvider.Shutdown)
+
+		if metricExporter != nil {
+			logging.Info(logger, "OpenTelemetry metrics enabled", "endpoint", endpoint)
+		} else {
+			logging.Info(logger, "OpenTelemetry metrics configured without exporter")
+		}
+	} else {
+		otel.SetMeterProvider(metricnoop.NewMeterProvider())
+		logging.Info(logger, "OpenTelemetry metrics disabled via configuration")
+	}
+
 	otel.SetTextMapPropagator(
 		propagation.NewCompositeTextMapPropagator(
 			propagation.TraceContext{},
@@ -124,29 +163,9 @@ func SetupTracerProvider(ctx context.Context, logger logr.Logger, serviceName st
 		),
 	)
 
-	if traceExporter != nil {
-		logging.Info(logger, "OpenTelemetry tracing enabled", "endpoint", endpoint)
-	} else {
-		logging.Info(logger, "OpenTelemetry tracing configured without exporter")
+	if len(shutdownFns) == 0 {
+		return func(context.Context) error { return nil }, nil
 	}
-
-	meterOpts := []sdkmetric.Option{sdkmetric.WithResource(res)}
-	if metricExporter != nil {
-		meterOpts = append(meterOpts, sdkmetric.WithReader(sdkmetric.NewPeriodicReader(metricExporter)))
-	}
-	meterProvider := sdkmetric.NewMeterProvider(meterOpts...)
-	otel.SetMeterProvider(meterProvider)
-
-	if metricExporter != nil {
-		logging.Info(logger, "OpenTelemetry metrics enabled", "endpoint", endpoint)
-	} else {
-		logging.Info(logger, "OpenTelemetry metrics configured without exporter")
-	}
-
-	var shutdownFns []func(context.Context) error
-	shutdownFns = append(shutdownFns, provider.Shutdown)
-	shutdownFns = append(shutdownFns, meterProvider.Shutdown)
-
 	return func(ctx context.Context) error {
 		var errs []error
 		for _, fn := range shutdownFns {
@@ -202,4 +221,64 @@ func hasServiceName(res *resource.Resource) bool {
 		}
 	}
 	return false
+}
+
+func isTracingEnabled(cfg *Config) bool {
+	if cfg == nil {
+		return false
+	}
+	if cfg.Traces != nil && cfg.Traces.Enabled != nil {
+		return *cfg.Traces.Enabled
+	}
+	return true
+}
+
+func isMetricsEnabled(cfg *Config) bool {
+	if cfg == nil {
+		return false
+	}
+	if cfg.Metrics != nil && cfg.Metrics.Enabled != nil {
+		return *cfg.Metrics.Enabled
+	}
+	return true
+}
+
+func createTraceExporter(ctx context.Context, logger logr.Logger, endpoint string, insecure bool, headers map[string]string) *otlptrace.Exporter {
+	opts := []otlptracegrpc.Option{
+		otlptracegrpc.WithEndpoint(endpoint),
+	}
+
+	if insecure {
+		opts = append(opts, otlptracegrpc.WithInsecure())
+	}
+	if len(headers) > 0 {
+		opts = append(opts, otlptracegrpc.WithHeaders(headers))
+	}
+
+	exporter, err := otlptracegrpc.New(ctx, opts...)
+	if err != nil {
+		logging.Error(logger, err, "creating OTLP trace exporter failed; falling back to local-only tracing")
+		return nil
+	}
+	return exporter
+}
+
+func createMetricExporter(ctx context.Context, logger logr.Logger, endpoint string, insecure bool, headers map[string]string) *otlpmetricgrpc.Exporter {
+	opts := []otlpmetricgrpc.Option{
+		otlpmetricgrpc.WithEndpoint(endpoint),
+	}
+
+	if insecure {
+		opts = append(opts, otlpmetricgrpc.WithInsecure())
+	}
+	if len(headers) > 0 {
+		opts = append(opts, otlpmetricgrpc.WithHeaders(headers))
+	}
+
+	exporter, err := otlpmetricgrpc.New(ctx, opts...)
+	if err != nil {
+		logging.Error(logger, err, "creating OTLP metric exporter failed; metrics will not be exported")
+		return nil
+	}
+	return exporter
 }

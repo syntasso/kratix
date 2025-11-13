@@ -63,7 +63,10 @@ data:
         windowsOptions:
           runAsUserName: "setInKratixConfig"
     telemetry:
-      enabled: true
+      traces:
+        enabled: true
+      metrics:
+        enabled: true
       endpoint: jaeger-inmemory-instance-collector.default.svc.cluster.local:4317
       protocol: grpc
       insecure: true
