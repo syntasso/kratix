@@ -1075,11 +1075,13 @@ var _ = Describe("DynamicResourceRequestController", func() {
 		})
 
 		When("the ResourceBinding for the Resource exists", func() {
+			BeforeEach(func() {
+				promiseVersion := "v1.1.0"
+				createPromiseRevision(fakeK8sClient, promise, promiseVersion)
+			})
+
 			When("the corresponding PromiseRevision does not exist", func() {
 				It("returns a reconciliation error", func() {
-					promiseVersion := "v1.1.0"
-					createPromiseRevision(fakeK8sClient, promise, promiseVersion)
-
 					inexistentPromiseRevisionVersion := "v1.2.0"
 
 					resourceutil.SetStatus(resReq, l, "promiseVersion", inexistentPromiseRevisionVersion)
@@ -1092,6 +1094,41 @@ var _ = Describe("DynamicResourceRequestController", func() {
 					Expect(eventRecorder.Events).To(Receive(ContainSubstring(
 						"Warning FailedPromiseRevisionLookup cannot find a PromiseRevision for Promise redis with version v1.2.0",
 					)))
+				})
+			})
+
+			When("the PromiseVersion is updated in the ResourceBinding", func() {
+				It("reconciles the resource with the new desired version", func() {
+					promiseVersion := "v1.1.0"
+					resBinding := createResourceBinding(fakeK8sClient, promise, resReq, promiseVersion)
+					resourceutil.SetStatus(resReq, l, "promiseVersion", promiseVersion)
+					Expect(fakeK8sClient.Status().Update(ctx, resReq)).To(Succeed())
+
+					upgradedPromiseVersion := "v1.2.0"
+					createPromiseRevision(fakeK8sClient, promise, upgradedPromiseVersion)
+
+					resBinding.Spec.Version = upgradedPromiseVersion
+					Expect(fakeK8sClient.Update(ctx, resBinding)).To(Succeed())
+
+					status, _ := t.reconcileUntilCompletion(reconciler, resReq)
+
+					By("executing the Resource workflows?", func() {
+						// TODO: is there a way to test this?
+						Expect(status).NotTo(BeNil())
+					})
+
+					By("updating the Resource Status in the new revision version", func() {
+						status := resReq.Object["status"]
+						Expect(status).NotTo(BeNil())
+						statusMap := status.(map[string]interface{})
+						Expect(statusMap["promiseVersion"]).To(Equal(upgradedPromiseVersion))
+					})
+
+					By("issuing an event informing about the upgrade", func() {
+						eventMsg := fmt.Sprintf("Info UpgradedResourceBinding ResourceBinding for Resource %s redis was upgraded to %s from %s",
+							resReq.GetName(), upgradedPromiseVersion, promiseVersion)
+						Expect(eventRecorder.Events).To(Receive(ContainSubstring(eventMsg)))
+					})
 				})
 			})
 		})
@@ -1122,7 +1159,7 @@ func createPromiseRevision(client client.Client, promise *v1alpha1.Promise, vers
 	ExpectWithOffset(1, client.Create(ctx, promiseRevision)).To(Succeed())
 }
 
-func createResourceBinding(client client.Client, promise *v1alpha1.Promise, rr *unstructured.Unstructured, version string) {
+func createResourceBinding(client client.Client, promise *v1alpha1.Promise, rr *unstructured.Unstructured, version string) *v1alpha1.ResourceBinding {
 	resourceBinding := &v1alpha1.ResourceBinding{
 		ObjectMeta: metav1.ObjectMeta{
 			Name:      objectutil.GenerateDeterministicObjectName(fmt.Sprintf("%s-%s", rr.GetName(), promise.GetName())),
@@ -1144,6 +1181,7 @@ func createResourceBinding(client client.Client, promise *v1alpha1.Promise, rr *
 		},
 	}
 	ExpectWithOffset(1, client.Create(ctx, resourceBinding)).To(Succeed())
+	return resourceBinding
 }
 
 func setConfigureWorkflowStatus(resReq *unstructured.Unstructured, status v1.ConditionStatus, lastTransitionTime ...time.Time) {

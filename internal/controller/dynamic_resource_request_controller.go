@@ -210,6 +210,7 @@ func (r *DynamicResourceRequestController) Reconcile(ctx context.Context, req ct
 		}
 
 		if r.updatePromiseVersionStatus(rr, promiseRevisionUsed) {
+			// TODO: we should do something here that will trigger a reconciliation after a promise version upgrade, but what?
 			return ctrl.Result{}, r.Client.Status().Update(ctx, rr)
 		}
 	}
@@ -326,6 +327,7 @@ func (r *DynamicResourceRequestController) updateResourceBinding(ctx context.Con
 		"resourceName", resourceBinding.Spec.ResourceRef.Name,
 		"resourceNamespace", resourceBinding.Spec.ResourceRef.Namespace,
 	)
+
 	return nil
 }
 
