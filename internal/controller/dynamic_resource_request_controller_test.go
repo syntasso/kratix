@@ -1099,22 +1099,36 @@ var _ = Describe("DynamicResourceRequestController", func() {
 
 			When("the PromiseVersion is updated in the ResourceBinding", func() {
 				It("reconciles the resource with the new desired version", func() {
-					promiseVersion := "v1.1.0"
-					resBinding := createResourceBinding(fakeK8sClient, promise, resReq, promiseVersion)
-					resourceutil.SetStatus(resReq, l, "promiseVersion", promiseVersion)
-					Expect(fakeK8sClient.Status().Update(ctx, resReq)).To(Succeed())
+					// initial reconciliation
+					result, err := t.reconcileUntilCompletion(reconciler, resReq)
+					Expect(err).NotTo(HaveOccurred())
+					Expect(result).To(Equal(ctrl.Result{}))
 
+					//promiseVersion := "v1.1.0"
+					//resBinding := createResourceBinding(fakeK8sClient, promise, resReq, promiseVersion)
+					//resourceutil.SetStatus(resReq, l, "promiseVersion", promiseVersion)
+					//Expect(fakeK8sClient.Status().Update(ctx, resReq)).To(Succeed())
+
+					// creating new upgraded promise in the system
 					upgradedPromiseVersion := "v1.2.0"
+					promiseLabels := promise.GetLabels()
+					promiseLabels[v1alpha1.PromiseVersionLabel] = upgradedPromiseVersion
+					promise.SetLabels(promiseLabels)
+					Expect(fakeK8sClient.Update(ctx, promise)).To(Succeed())
 					createPromiseRevision(fakeK8sClient, promise, upgradedPromiseVersion)
+
+					var resBinding *v1alpha1.ResourceBinding
+					Expect(fakeK8sClient.Get(ctx, resReqNameNamespace, resBinding)).To(Succeed())
 
 					resBinding.Spec.Version = upgradedPromiseVersion
 					Expect(fakeK8sClient.Update(ctx, resBinding)).To(Succeed())
 
 					status, _ := t.reconcileUntilCompletion(reconciler, resReq)
+					Expect(status).NotTo(BeNil())
 
-					By("executing the Resource workflows?", func() {
-						// TODO: is there a way to test this?
-						Expect(status).NotTo(BeNil())
+					By("setting the manual reconciliation label", func() {
+						resourceLabels := resReq.GetLabels()
+						Expect(resourceLabels).To(HaveKeyWithValue(resourceutil.ManualReconciliationLabel, "true"))
 					})
 
 					By("updating the Resource Status in the new revision version", func() {
