@@ -162,14 +162,14 @@ func (r *DynamicResourceRequestController) Reconcile(ctx context.Context, req ct
 			"PromiseUpgrade feature flag set to true; will reconcile with a PromiseRevision.")
 
 		var err error
-		promiseRevisionUsed, err = getPromiseFromRevision(ctx, rr, baseLogger, r, promise)
+		promiseRevisionUsed, err = getPromiseRevisionToUse(ctx, rr, baseLogger, r, promise)
 		if err != nil {
 			return ctrl.Result{}, err
 		}
 
 		promise.Spec = promiseRevisionUsed.Spec.PromiseSpec
 		logging.Debug(baseLogger,
-			"Found PromiseRevision", "revision name", promiseRevisionUsed.Name)
+			"Found PromiseRevision from ResourceRequest", "revision name", promiseRevisionUsed.Name)
 		r.EventRecorder.Eventf(rr, v1.EventTypeNormal, "PromiseRevisionFound",
 			fmt.Sprintf("reconciling Resource Request with PromiseRevision %s", promiseRevisionUsed.Name))
 	}
@@ -426,9 +426,12 @@ func (r *DynamicResourceRequestController) updateWorksSucceededCondition(rr *uns
 func (r *DynamicResourceRequestController) updatePromiseVersionStatus(rr *unstructured.Unstructured, promiseRevision *v1alpha1.PromiseRevision) bool {
 	logging.Debug(r.Log, "Checking if we need to update the promise version in the status")
 	if !r.PromiseUpgrade || promiseRevision == nil {
+		logging.Debug(r.Log, "Feature flag disabled or no PromiseRevision: we don't")
 		return false
 	}
 	currentVersion := resourceutil.GetStatus(rr, resourcePromiseVersionStatus)
+	logging.Debug(r.Log, fmt.Sprintf("Promise version from Resource status: %s", currentVersion))
+	logging.Debug(r.Log, fmt.Sprintf("Promise version from current: %s", currentVersion))
 	if currentVersion != promiseRevision.Spec.Version {
 		resourceutil.SetStatus(rr, r.Log, resourcePromiseVersionStatus, promiseRevision.Spec.Version)
 		return true
@@ -722,13 +725,13 @@ func (r *DynamicResourceRequestController) fetchResourceBinding(
 	return &bindings.Items[0], nil
 }
 
-func getPromiseFromRevision(ctx context.Context, rr *unstructured.Unstructured, baseLogger logr.Logger, r *DynamicResourceRequestController, promise *v1alpha1.Promise) (*v1alpha1.PromiseRevision, error) {
+func getPromiseRevisionToUse(ctx context.Context, rr *unstructured.Unstructured, baseLogger logr.Logger, r *DynamicResourceRequestController, promise *v1alpha1.Promise) (*v1alpha1.PromiseRevision, error) {
 	var promiseVersionFromRRStatus string
 	var promiseRevisionToUse *v1alpha1.PromiseRevision
 
 	statusPromiseVersion := resourceutil.GetStatus(rr, resourcePromiseVersionStatus)
 	if statusPromiseVersion == "" {
-		logging.Trace(baseLogger,
+		logging.Debug(baseLogger,
 			"No PromiseVersion set in ResourceRequest status, will reconcile with the latest PromiseVersion")
 		var err error
 		if promiseRevisionToUse, err = latestRevision(ctx, r.Client, promise); err != nil {
@@ -738,8 +741,8 @@ func getPromiseFromRevision(ctx context.Context, rr *unstructured.Unstructured, 
 			return nil, err
 		}
 	} else {
-		logging.Trace(baseLogger,
-			"PromiseVersion found in Resource status. Fetching the corresponding ResourceBinding",
+		logging.Debug(baseLogger,
+			"PromiseVersion found in ResourceRequest status. Fetching the corresponding ResourceBinding",
 			".status.PromiseVersion", statusPromiseVersion)
 		resourceBinding, err := r.fetchResourceBinding(ctx, rr, promise)
 		if errors.Is(err, errResourceBindingNotFound) {
@@ -755,7 +758,12 @@ func getPromiseFromRevision(ctx context.Context, rr *unstructured.Unstructured, 
 			r.EventRecorder.Eventf(rr, v1.EventTypeWarning, promiseRevisionLookupFailedReason, err.Error())
 			return nil, err
 		}
+		logging.Debug(baseLogger, fmt.Sprintf("PromiseRevision fetched from ResourceBinding: %s",
+			promiseRevisionToUse.Spec.Version))
 	}
+	logging.Debug(baseLogger, fmt.Sprintf("PromiseRevision to use: %s",
+		promiseRevisionToUse.Spec.Version))
+
 	return promiseRevisionToUse, nil
 }
 
