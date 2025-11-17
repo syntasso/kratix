@@ -205,15 +205,9 @@ func (r *DynamicResourceRequestController) Reconcile(ctx context.Context, req ct
 	}
 
 	if r.PromiseUpgrade {
-		if err := r.updateResourceBinding(ctx, logger, rr, promise, promiseRevisionUsed); err != nil {
+		err := r.updateResourceBinding(ctx, logger, rr, promise, promiseRevisionUsed)
+		if err != nil {
 			return ctrl.Result{}, err
-		}
-
-		if r.updatePromiseVersionStatus(rr, promiseRevisionUsed) {
-			if err := r.updateManualReconciliationLabel(opts.ctx, rr); err != nil {
-				return ctrl.Result{}, err
-			}
-			return ctrl.Result{}, r.Client.Status().Update(ctx, rr)
 		}
 	}
 
@@ -295,6 +289,12 @@ func (r *DynamicResourceRequestController) Reconcile(ctx context.Context, req ct
 			return ctrl.Result{}, nil
 		}
 		return r.nextReconciliation(logger), nil
+	}
+
+	if r.PromiseUpgrade {
+		if r.updatePromiseVersionStatus(rr, promiseRevisionUsed) {
+			return ctrl.Result{}, r.Client.Status().Update(ctx, rr)
+		}
 	}
 
 	return ctrl.Result{}, nil
@@ -424,6 +424,7 @@ func (r *DynamicResourceRequestController) updateWorksSucceededCondition(rr *uns
 }
 
 func (r *DynamicResourceRequestController) updatePromiseVersionStatus(rr *unstructured.Unstructured, promiseRevision *v1alpha1.PromiseRevision) bool {
+	logging.Debug(r.Log, "Checking if we need to update the promise version in the status")
 	if !r.PromiseUpgrade || promiseRevision == nil {
 		return false
 	}
