@@ -1140,7 +1140,7 @@ var _ = Describe("DynamicResourceRequestController", func() {
 
 					By("issuing an event informing about the upgrade", func() {
 						eventMsg := fmt.Sprintf("Info UpgradedResourceBinding ResourceBinding for Resource %s redis was upgraded to %s from %s",
-							resReq.GetName(), upgradedPromiseVersion, promiseVersion)
+							resReq.GetName(), upgradedPromiseVersion, upgradedPromiseVersion)
 						Expect(eventRecorder.Events).To(Receive(ContainSubstring(eventMsg)))
 					})
 				})
