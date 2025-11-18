@@ -844,16 +844,19 @@ var _ = Describe("DynamicResourceRequestController", func() {
 				Expect(err).NotTo(HaveOccurred())
 				Expect(result).To(Equal(ctrl.Result{}))
 
-				By("not creating any workflow resource objects")
-				Expect(reconcileConfigureOptsArg.Resources).To(BeEmpty())
+				By("not creating any workflow resource objects", func() {
+					Expect(reconcileConfigureOptsArg.Resources).To(BeEmpty())
+				})
 
-				By("setting 'paused' for the reconciled status.condition")
-				verifyPauseReconciliationStatus(resReq, resReqNameNamespace)
+				By("setting 'paused' for the reconciled status.condition", func() {
+					verifyPauseReconciliationStatus(resReq, resReqNameNamespace)
+				})
 
-				By("publishing event")
-				Expect(eventRecorder.Events).To(Receive(ContainSubstring(
-					"Warning PausedReconciliation 'kratix.io/paused' label set to 'true' for promise; pausing reconciliation for this resource request",
-				)))
+				By("publishing event", func() {
+					Expect(eventRecorder.Events).To(Receive(ContainSubstring(
+						"Warning PausedReconciliation 'kratix.io/paused' label set to 'true' for promise; pausing reconciliation for this resource request",
+					)))
+				})
 			})
 		})
 	})
@@ -890,16 +893,19 @@ var _ = Describe("DynamicResourceRequestController", func() {
 				Expect(err).NotTo(HaveOccurred())
 				Expect(result).To(Equal(ctrl.Result{}))
 
-				By("not creating any workflow resource objects")
-				Expect(reconcileConfigureOptsArg.Resources).To(BeEmpty())
+				By("not creating any workflow resource objects", func() {
+					Expect(reconcileConfigureOptsArg.Resources).To(BeEmpty())
+				})
 
-				By("setting 'paused' for the reconciled status.condition")
-				verifyPauseReconciliationStatus(resReq, resReqNameNamespace)
+				By("setting 'paused' for the reconciled status.condition", func() {
+					verifyPauseReconciliationStatus(resReq, resReqNameNamespace)
+				})
 
-				By("publishing event")
-				Expect(eventRecorder.Events).To(Receive(ContainSubstring(
-					"Warning PausedReconciliation 'kratix.io/paused' label set to 'true' for this resource request; pausing reconciliation",
-				)))
+				By("publishing event", func() {
+					Expect(eventRecorder.Events).To(Receive(ContainSubstring(
+						"Warning PausedReconciliation 'kratix.io/paused' label set to 'true' for this resource request; pausing reconciliation",
+					)))
+				})
 			})
 		})
 
@@ -918,16 +924,19 @@ var _ = Describe("DynamicResourceRequestController", func() {
 				Expect(err).NotTo(HaveOccurred())
 				Expect(result).To(Equal(ctrl.Result{}))
 
-				By("not creating any workflow resource objects")
-				Expect(reconcileConfigureOptsArg.Resources).To(BeEmpty())
+				By("not creating any workflow resource objects", func() {
+					Expect(reconcileConfigureOptsArg.Resources).To(BeEmpty())
+				})
 
-				By("setting 'paused' for the reconciled status.condition")
-				verifyPauseReconciliationStatus(resReq, resReqNameNamespace)
+				By("setting 'paused' for the reconciled status.condition", func() {
+					verifyPauseReconciliationStatus(resReq, resReqNameNamespace)
+				})
 
-				By("publishing event")
-				Expect(eventRecorder.Events).To(Receive(ContainSubstring(
-					"Warning PausedReconciliation 'kratix.io/paused' label set to 'true' for this resource request; pausing reconciliation",
-				)))
+				By("publishing event", func() {
+					Expect(eventRecorder.Events).To(Receive(ContainSubstring(
+						"Warning PausedReconciliation 'kratix.io/paused' label set to 'true' for this resource request; pausing reconciliation",
+					)))
+				})
 			})
 		})
 	})
