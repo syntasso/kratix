@@ -1115,91 +1115,82 @@ var _ = Describe("DynamicResourceRequestController", func() {
 
 			When("the PromiseVersion is updated in the ResourceBinding", func() {
 				It("reconciles the resource with the new desired version", func() {
-					//		By("creating the initial ResourceBinding for v1.1.0", func() {
-					//			result, err := t.reconcileUntilCompletion(reconciler, resReq)
-					//			Expect(err).NotTo(HaveOccurred())
-					//			Expect(result).To(Equal(ctrl.Result{}))
-					//			var resBinding v1alpha1.ResourceBinding
-					//			bindingLabels := map[string]string{
-					//				"kratix.io/promise-name":  promise.GetName(),
-					//				"kratix.io/resource-name": resReqNameNamespace.Name,
-					//			}
-					//			var bindingList v1alpha1.ResourceBindingList
-					//			fakeK8sClient.List(ctx, &bindingList, &client.ListOptions{
-					//				Namespace:     resReqNameNamespace.Namespace,
-					//				LabelSelector: labels.SelectorFromSet(bindingLabels),
-					//			})
-					//			Expect(bindingList.Items).To(HaveLen(1))
-					//			resBinding = bindingList.Items[0]
-					//			Expect(resBinding.Spec.PromiseRef.Name).To(Equal(promise.GetName()))
-					//			Expect(resBinding.Spec.Version).To(Equal("v1.1.0"))
-					//		})
-					//
 					By("reconciling successfully with version v1.1.0", func() {
 						setReconcileConfigureWorkflowToReturnFinished()
 						result, err := t.reconcileUntilCompletion(reconciler, resReq)
 						Expect(err).NotTo(HaveOccurred())
 						Expect(result).To(Equal(ctrl.Result{}))
-						// TODO: How to get the status from the resource request?
+
+						Expect(fakeK8sClient.Get(ctx, resReqNameNamespace, resReq)).To(Succeed())
 						status := resReq.Object["status"]
 						Expect(status).NotTo(BeNil())
 						statusMap := status.(map[string]interface{})
 						Expect(statusMap["promiseVersion"]).To(Equal("v1.1.0"))
 					})
-					//
-					//		//
-					//		//upgradedPromiseVersion := "v1.2.0"
-					//		//By("registering an upgraded PromiseVersion", func() {
-					//		//	promiseLabels := promise.GetLabels()
-					//		//	promiseLabels[v1alpha1.PromiseVersionLabel] = upgradedPromiseVersion
-					//		//	promise.SetLabels(promiseLabels)
-					//		//	Expect(fakeK8sClient.Update(ctx, promise)).To(Succeed())
-					//		//	createPromiseRevision(fakeK8sClient, promise, upgradedPromiseVersion)
-					//		//})
-					//		//
-					//		//By("setting the upgraded version in the ResourceBinding", func() {
-					//		//	var resBinding v1alpha1.ResourceBinding
-					//		//	bindingLabels := map[string]string{
-					//		//		"kratix.io/promise-name":  promise.GetName(),
-					//		//		"kratix.io/resource-name": resReqNameNamespace.Name,
-					//		//	}
-					//		//	var bindingList v1alpha1.ResourceBindingList
-					//		//	fakeK8sClient.List(ctx, &bindingList, &client.ListOptions{
-					//		//		Namespace:     resReqNameNamespace.Namespace,
-					//		//		LabelSelector: labels.SelectorFromSet(bindingLabels),
-					//		//	})
-					//		//	Expect(bindingList.Items).To(HaveLen(1))
-					//		//	resBinding = bindingList.Items[0]
-					//		//
-					//		//	resBinding.Spec.Version = upgradedPromiseVersion
-					//		//	Expect(fakeK8sClient.Update(ctx, &resBinding)).To(Succeed())
-					//		//	Expect(resBinding.Spec.Version).To(Equal(upgradedPromiseVersion))
-					//		//})
-					//		//
-					//		//By("reconciling the ResourceRequest against the upgraded Promise", func() {
-					//		//	setReconcileConfigureWorkflowToReturnFinished()
-					//		//	result, err := t.reconcileUntilCompletion(reconciler, resReq)
-					//		//	Expect(err).NotTo(HaveOccurred())
-					//		//	Expect(result).To(Equal(ctrl.Result{}))
-					//		//})
-					//		//
-					//		//By("setting the manual reconciliation label", func() {
-					//		//	resourceLabels := resReq.GetLabels()
-					//		//	Expect(resourceLabels).To(HaveKeyWithValue(resourceutil.ManualReconciliationLabel, "true"))
-					//		//})
-					//		//
-					//		//By("updating the Resource Status in the new revision version", func() {
-					//		//	status := resReq.Object["status"]
-					//		//	Expect(status).NotTo(BeNil())
-					//		//	statusMap := status.(map[string]interface{})
-					//		//	Expect(statusMap["promiseVersion"]).To(Equal(upgradedPromiseVersion))
-					//		//})
-					//		//
-					//		//By("issuing an event informing about the upgrade", func() {
-					//		//	eventMsg := fmt.Sprintf("Info UpgradedResourceBinding ResourceBinding for Resource %s redis was upgraded to %s from %s",
-					//		//		resReq.GetName(), upgradedPromiseVersion, upgradedPromiseVersion)
-					//		//	Expect(eventRecorder.Events).To(Receive(ContainSubstring(eventMsg)))
-					//		//})
+
+					upgradedPromiseVersion := "v1.2.0"
+					By("registering an upgraded PromiseVersion", func() {
+						promiseLabels := promise.GetLabels()
+						promiseLabels[v1alpha1.PromiseVersionLabel] = upgradedPromiseVersion
+						promise.SetLabels(promiseLabels)
+						Expect(fakeK8sClient.Update(ctx, promise)).To(Succeed())
+						createPromiseRevision(fakeK8sClient, promise, upgradedPromiseVersion)
+					})
+
+					By("setting the upgraded version in the ResourceBinding to trigger the upgrade", func() {
+						var resBinding v1alpha1.ResourceBinding
+						bindingLabels := map[string]string{
+							"kratix.io/promise-name":  promise.GetName(),
+							"kratix.io/resource-name": resReqNameNamespace.Name,
+						}
+						var bindingList v1alpha1.ResourceBindingList
+						fakeK8sClient.List(ctx, &bindingList, &client.ListOptions{
+							Namespace:     resReqNameNamespace.Namespace,
+							LabelSelector: labels.SelectorFromSet(bindingLabels),
+						})
+						Expect(bindingList.Items).To(HaveLen(1))
+						resBinding = bindingList.Items[0]
+
+						resBinding.Spec.Version = upgradedPromiseVersion
+						Expect(fakeK8sClient.Update(ctx, &resBinding)).To(Succeed())
+						Expect(resBinding.Spec.Version).To(Equal(upgradedPromiseVersion))
+
+						Expect(fakeK8sClient.Get(ctx, resReqNameNamespace, resReq)).To(Succeed())
+						status := resReq.Object["status"]
+						Expect(status).NotTo(BeNil())
+						statusMap := status.(map[string]interface{})
+						Expect(statusMap["promiseVersion"]).To(Equal("v1.1.0"))
+					})
+
+					By("forcing a reconciliation against the upgraded Promise ", func() {
+						result, err := t.reconcileUntilCompletion(reconciler, resReq)
+						Expect(err).NotTo(HaveOccurred())
+						Expect(result).To(Equal(ctrl.Result{}))
+
+						Expect(fakeK8sClient.Get(ctx, resReqNameNamespace, resReq)).To(Succeed())
+						Expect(resReq.GetLabels()[resourceutil.ManualReconciliationLabel]).To(Equal("true"))
+					})
+
+					By("reconciling the ResourceRequest against the upgraded Promise", func() {
+						setReconcileConfigureWorkflowToReturnFinished()
+						result, err := t.reconcileUntilCompletion(reconciler, resReq)
+						Expect(err).NotTo(HaveOccurred())
+						Expect(result).To(Equal(ctrl.Result{}))
+					})
+
+					By("updating the Resource Status in the new revision version", func() {
+						Expect(fakeK8sClient.Get(ctx, resReqNameNamespace, resReq)).To(Succeed())
+						status := resReq.Object["status"]
+						Expect(status).NotTo(BeNil())
+						statusMap := status.(map[string]interface{})
+						Expect(statusMap["promiseVersion"]).To(Equal(upgradedPromiseVersion))
+					})
+
+					By("publishing promise revision upgrade events", func() {
+						eventMsgs := aggregateEvents(eventRecorder.Events)
+						eventMsg := "Normal PromiseRevisionUpgraded Promise redis upgraded to version v1.2.0"
+						Expect(eventMsgs).To(ContainSubstring(eventMsg))
+					})
 				})
 			})
 		})
