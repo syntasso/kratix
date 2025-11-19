@@ -218,7 +218,7 @@ func (r *DynamicResourceRequestController) Reconcile(ctx context.Context, req ct
 			return ctrl.Result{}, err
 		}
 
-		if promiseRevisionUpgrade(logger, rr, resBinding) {
+		if promiseRevisionUpgrade(logger, rr, resBinding) && !r.manualReconciliationLabelSet(rr) {
 			logging.Debug(logger, fmt.Sprintf("ResourceBinding updated to version %s, forcing workflows to re-run",
 				resBinding.Spec.Version))
 			if err := r.updateManualReconciliationLabel(ctx, rr); err != nil {
