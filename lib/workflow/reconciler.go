@@ -24,7 +24,7 @@ import (
 	"sigs.k8s.io/controller-runtime/pkg/client"
 )
 
-type WorkflowParams struct {
+type WorkflowRunner struct {
 	ctx                context.Context
 	client             client.Client
 	logger             logr.Logger
@@ -37,15 +37,15 @@ type WorkflowParams struct {
 	skipConditions     bool
 }
 
-func (o *WorkflowParams) SetSkipConditions(skip bool) {
+func (o *WorkflowRunner) SetSkipConditions(skip bool) {
 	o.skipConditions = skip
 }
 
-func (o *WorkflowParams) SkipConditions() bool {
+func (o *WorkflowRunner) SkipConditions() bool {
 	return o.skipConditions
 }
 
-func (o *WorkflowParams) PipelineResources() []v1alpha1.PipelineJobResources {
+func (o *WorkflowRunner) PipelineResources() []v1alpha1.PipelineJobResources {
 	return o.pipelineResources
 }
 
@@ -55,8 +55,8 @@ var (
 	ErrDeletePipelineFailed = fmt.Errorf("Delete Pipeline Failed")
 )
 
-func NewWorkflowParams(ctx context.Context, client client.Client, eventRecorder record.EventRecorder, logger logr.Logger, parentObj *unstructured.Unstructured, resources []v1alpha1.PipelineJobResources, workflowType string, numberOfJobsToKeep int, namespace string) WorkflowParams {
-	return WorkflowParams{
+func NewWorkflowRunner(ctx context.Context, client client.Client, eventRecorder record.EventRecorder, logger logr.Logger, parentObj *unstructured.Unstructured, resources []v1alpha1.PipelineJobResources, workflowType string, numberOfJobsToKeep int, namespace string) WorkflowRunner {
+	return WorkflowRunner{
 		ctx:                ctx,
 		client:             client,
 		logger:             logger,
@@ -69,8 +69,16 @@ func NewWorkflowParams(ctx context.Context, client client.Client, eventRecorder 
 	}
 }
 
+func ReconcileDelete(wp WorkflowRunner) (bool, error) {
+	return wp.reconcileDelete()
+}
+
+func ReconcileConfigure(wp WorkflowRunner) (bool, error) {
+	return wp.reconcileConfigure()
+}
+
 // ReconcileDelete deletes Workflows.
-func ReconcileDelete(wp WorkflowParams) (bool, error) {
+func (wp WorkflowRunner) reconcileDelete() (bool, error) {
 	logging.Debug(wp.logger, "reconciling delete pipeline")
 
 	if len(wp.pipelineResources) == 0 {
@@ -123,7 +131,7 @@ func ReconcileDelete(wp WorkflowParams) (bool, error) {
 	return true, nil
 }
 
-func createDeletePipeline(wp WorkflowParams, pipeline v1alpha1.PipelineJobResources) (abort bool, err error) {
+func createDeletePipeline(wp WorkflowRunner, pipeline v1alpha1.PipelineJobResources) (abort bool, err error) {
 	logging.Debug(wp.logger, "creating delete pipeline; execution will commence")
 	if isManualReconciliation(wp.parentObject.GetLabels()) {
 		if err := removeManualReconciliationLabel(wp); err != nil {
@@ -136,7 +144,7 @@ func createDeletePipeline(wp WorkflowParams, pipeline v1alpha1.PipelineJobResour
 	return true, nil
 }
 
-func ReconcileConfigure(wp WorkflowParams) (requeue bool, err error) {
+func (wp WorkflowRunner) reconcileConfigure() (requeue bool, err error) {
 	mostRecentJob, pipelineIndex, err := determinePipelineIndex(wp)
 	if err != nil {
 		return false, err
@@ -215,7 +223,7 @@ func mostRecentJobName(mostRecentJob *batchv1.Job) string {
 	return mostRecentJob.Name
 }
 
-func determinePipelineIndex(wp WorkflowParams) (*batchv1.Job, int, error) {
+func determinePipelineIndex(wp WorkflowRunner) (*batchv1.Job, int, error) {
 	allJobs, err := getAllAssociatedJobs(wp)
 	if err != nil {
 		return nil, -1, err
@@ -233,7 +241,7 @@ func determinePipelineIndex(wp WorkflowParams) (*batchv1.Job, int, error) {
 	return mostRecentJob, pipelineIndex, nil
 }
 
-func initialiseWorkflowStatusCounts(wp WorkflowParams, pipelineIndex int) error {
+func initialiseWorkflowStatusCounts(wp WorkflowRunner, pipelineIndex int) error {
 	if wp.skipConditions {
 		return nil
 	}
@@ -258,7 +266,7 @@ func initialiseWorkflowStatusCounts(wp WorkflowParams, pipelineIndex int) error 
 	return nil
 }
 
-func getAllAssociatedJobs(wp WorkflowParams) ([]batchv1.Job, error) {
+func getAllAssociatedJobs(wp WorkflowRunner) ([]batchv1.Job, error) {
 	allJobs, err := getJobsWithLabels(wp, labelsForJobs(wp), wp.namespace)
 	if err != nil {
 		logging.Error(wp.logger, err, "failed to list jobs")
@@ -275,7 +283,7 @@ func getAllAssociatedJobs(wp WorkflowParams) ([]batchv1.Job, error) {
 	return allJobs, nil
 }
 
-func setFailedConditionAndEvents(wp WorkflowParams, mostRecentJob *batchv1.Job, pipeline v1alpha1.PipelineJobResources) (bool, error) {
+func setFailedConditionAndEvents(wp WorkflowRunner, mostRecentJob *batchv1.Job, pipeline v1alpha1.PipelineJobResources) (bool, error) {
 	if !wp.skipConditions {
 		resourceutil.MarkConfigureWorkflowAsFailed(wp.logger, wp.parentObject, pipeline.Name)
 		resourceutil.MarkReconciledFailing(wp.parentObject, resourceutil.ConfigureWorkflowCompletedFailedReason)
@@ -303,7 +311,7 @@ func getLabelsForPipelineJob(pipeline v1alpha1.PipelineJobResources) map[string]
 	return labels
 }
 
-func labelsForJobs(wp WorkflowParams) map[string]string {
+func labelsForJobs(wp WorkflowRunner) map[string]string {
 	l := map[string]string{
 		v1alpha1.WorkflowTypeLabel: wp.workflowType,
 	}
@@ -321,7 +329,7 @@ func labelsForJobs(wp WorkflowParams) map[string]string {
 }
 
 // TODO: this part will be deprecated when we stop using the legacy labels
-func legacyLabelsForJobs(wp WorkflowParams) map[string]string {
+func legacyLabelsForJobs(wp WorkflowRunner) map[string]string {
 	l := map[string]string{
 		v1alpha1.WorkTypeLabel: wp.workflowType,
 	}
@@ -379,7 +387,7 @@ func pipelineIsAlreadyDeployed(pipeline v1alpha1.PipelineJobResources, job *batc
 	return jobLabels[v1alpha1.PipelineNameLabel] == pipelineLabels[v1alpha1.PipelineNameLabel]
 }
 
-func nextPipelineIndex(wp WorkflowParams, mostRecentJob *batchv1.Job) int {
+func nextPipelineIndex(wp WorkflowRunner, mostRecentJob *batchv1.Job) int {
 	if mostRecentJob == nil || isManualReconciliation(wp.parentObject.GetLabels()) {
 		return 0
 	}
@@ -436,7 +444,7 @@ func jobIsInflight(job *batchv1.Job) bool {
 	return true
 }
 
-func cleanup(wp WorkflowParams, namespace string) error {
+func cleanup(wp WorkflowRunner, namespace string) error {
 	pipelineNames := map[string]bool{}
 	for _, pipeline := range wp.pipelineResources {
 		l := labelsForAllPipelineJobs(pipeline)
@@ -469,7 +477,7 @@ func cleanup(wp WorkflowParams, namespace string) error {
 	return nil
 }
 
-func cleanupJobs(wp WorkflowParams, pipelineJobsAtCurrentSpec []batchv1.Job) error {
+func cleanupJobs(wp WorkflowRunner, pipelineJobsAtCurrentSpec []batchv1.Job) error {
 	if len(pipelineJobsAtCurrentSpec) <= wp.numberOfJobsToKeep {
 		return nil
 	}
@@ -492,7 +500,7 @@ func cleanupJobs(wp WorkflowParams, pipelineJobsAtCurrentSpec []batchv1.Job) err
 	return nil
 }
 
-func createConfigurePipeline(wp WorkflowParams, pipelineIndex int, resources v1alpha1.PipelineJobResources) (abort bool, err error) {
+func createConfigurePipeline(wp WorkflowRunner, pipelineIndex int, resources v1alpha1.PipelineJobResources) (abort bool, err error) {
 	updated, err := setConfigureWorkflowCompletedConditionStatus(wp, pipelineIndex == 0, wp.parentObject)
 	if err != nil || updated {
 		return updated, err
@@ -520,12 +528,12 @@ func createConfigurePipeline(wp WorkflowParams, pipelineIndex int, resources v1a
 	return true, nil
 }
 
-func removeManualReconciliationLabel(wp WorkflowParams) error {
+func removeManualReconciliationLabel(wp WorkflowRunner) error {
 	logging.Debug(wp.logger, "manual reconciliation label detected; removing it")
 	return removeLabel(wp, resourceutil.ManualReconciliationLabel)
 }
 
-func removeLabel(wp WorkflowParams, labelKey string) error {
+func removeLabel(wp WorkflowRunner, labelKey string) error {
 	newLabels := wp.parentObject.GetLabels()
 	delete(newLabels, labelKey)
 	wp.parentObject.SetLabels(newLabels)
@@ -536,7 +544,7 @@ func removeLabel(wp WorkflowParams, labelKey string) error {
 	return nil
 }
 
-func setConfigureWorkflowCompletedConditionStatus(wp WorkflowParams, isTheFirstPipeline bool, obj *unstructured.Unstructured) (bool, error) {
+func setConfigureWorkflowCompletedConditionStatus(wp WorkflowRunner, isTheFirstPipeline bool, obj *unstructured.Unstructured) (bool, error) {
 	if wp.skipConditions {
 		return false, nil
 	}
@@ -561,7 +569,7 @@ func setConfigureWorkflowCompletedConditionStatus(wp WorkflowParams, isTheFirstP
 	}
 }
 
-func getMostRecentDeletePipelineJob(wp WorkflowParams, namespace string, pipeline v1alpha1.PipelineJobResources) (*batchv1.Job, error) {
+func getMostRecentDeletePipelineJob(wp WorkflowRunner, namespace string, pipeline v1alpha1.PipelineJobResources) (*batchv1.Job, error) {
 	labels := getLabelsForPipelineJob(pipeline)
 	jobs, err := getJobsWithLabels(wp, labels, namespace)
 	if err != nil || len(jobs) == 0 {
@@ -571,7 +579,7 @@ func getMostRecentDeletePipelineJob(wp WorkflowParams, namespace string, pipelin
 	return &jobs[0], nil
 }
 
-func getJobsWithLabels(wp WorkflowParams, jobLabels map[string]string, namespace string) ([]batchv1.Job, error) {
+func getJobsWithLabels(wp WorkflowRunner, jobLabels map[string]string, namespace string) ([]batchv1.Job, error) {
 	selectorLabels := labels.FormatLabels(jobLabels)
 	selector, err := labels.Parse(selectorLabels)
 
@@ -606,7 +614,7 @@ func isLabelSetToTrue(labels map[string]string, labelKey string) bool {
 }
 
 // TODO return error info (summary of errors from resources?) to the caller, instead of just logging
-func applyResources(wp WorkflowParams, resources ...client.Object) {
+func applyResources(wp WorkflowRunner, resources ...client.Object) {
 	logging.Debug(wp.logger, "reconciling pipeline resources")
 
 	for _, resource := range resources {
@@ -645,7 +653,7 @@ func applyResources(wp WorkflowParams, resources ...client.Object) {
 	time.Sleep(minimumPeriodBetweenCreatingPipelineResources)
 }
 
-func deleteResources(wp WorkflowParams, resources ...client.Object) {
+func deleteResources(wp WorkflowRunner, resources ...client.Object) {
 	for _, resource := range resources {
 		logger := wp.logger.WithValues("type", reflect.TypeOf(resource), "gvk", resource.GetObjectKind().GroupVersionKind().String(), "name", resource.GetName(), "namespace", resource.GetNamespace(), "labels", resource.GetLabels())
 		logging.Debug(logger, "deleting resource")

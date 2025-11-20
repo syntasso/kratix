@@ -1100,7 +1100,7 @@ var _ = Describe("PromiseController", func() {
 
 				It("requeues forever until the delete job finishes", func() {
 					Expect(fakeK8sClient.Delete(ctx, promise)).To(Succeed())
-					controller.SetReconcileDeleteWorkflow(func(w workflow.WorkflowParams) (bool, error) {
+					controller.SetReconcileDeleteWorkflow(func(w workflow.WorkflowRunner) (bool, error) {
 						reconcileDeleteOptsArg = w
 						return true, nil
 					})
@@ -1112,7 +1112,7 @@ var _ = Describe("PromiseController", func() {
 				It("finishes the deletion once the job is finished", func() {
 					Expect(fakeK8sClient.Delete(ctx, promise)).To(Succeed())
 					_, err = t.reconcileUntilCompletion(reconciler, promise)
-					controller.SetReconcileDeleteWorkflow(func(w workflow.WorkflowParams) (bool, error) {
+					controller.SetReconcileDeleteWorkflow(func(w workflow.WorkflowRunner) (bool, error) {
 						reconcileDeleteOptsArg = w
 						return false, nil
 					})

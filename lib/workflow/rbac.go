@@ -9,7 +9,7 @@ import (
 	"sigs.k8s.io/controller-runtime/pkg/client"
 )
 
-func getObjectsToDelete(opts WorkflowParams, pipeline v1alpha1.PipelineJobResources) ([]client.Object, error) {
+func getObjectsToDelete(opts WorkflowRunner, pipeline v1alpha1.PipelineJobResources) ([]client.Object, error) {
 	var toDelete []client.Object
 	var err error
 
@@ -48,7 +48,7 @@ func getObjectsToDelete(opts WorkflowParams, pipeline v1alpha1.PipelineJobResour
 }
 
 //nolint:dupl
-func getRolesToDelete(opts WorkflowParams, desiredRoles []rbacv1.Role, listOptions client.ListOptions) ([]client.Object, error) {
+func getRolesToDelete(opts WorkflowRunner, desiredRoles []rbacv1.Role, listOptions client.ListOptions) ([]client.Object, error) {
 	rolesToDelete := []client.Object{}
 	existingRoles := rbacv1.RoleList{}
 
@@ -91,7 +91,7 @@ func rolesMatch(existingRole rbacv1.Role, desiredRole rbacv1.Role) bool {
 }
 
 //nolint:dupl
-func getRoleBindingsToDelete(opts WorkflowParams, desiredRoleBindings []rbacv1.RoleBinding, listOptions client.ListOptions) ([]client.Object, error) {
+func getRoleBindingsToDelete(opts WorkflowRunner, desiredRoleBindings []rbacv1.RoleBinding, listOptions client.ListOptions) ([]client.Object, error) {
 	roleBindingsToDelete := []client.Object{}
 	existingRoleBindings := rbacv1.RoleBindingList{}
 
@@ -134,7 +134,7 @@ func roleBindingsMatch(existingRoleBinding rbacv1.RoleBinding, desiredRoleBindin
 }
 
 //nolint:dupl
-func getClusterRolesToDelete(opts WorkflowParams, desiredClusterRoles []rbacv1.ClusterRole, listOptions client.ListOptions) ([]client.Object, error) {
+func getClusterRolesToDelete(opts WorkflowRunner, desiredClusterRoles []rbacv1.ClusterRole, listOptions client.ListOptions) ([]client.Object, error) {
 	clusterRolesToDelete := []client.Object{}
 	existingClusterRoles := rbacv1.ClusterRoleList{}
 
@@ -176,7 +176,7 @@ func clusterRolesMatch(existingClusterRole rbacv1.ClusterRole, desiredClusterRol
 	return true
 }
 
-func getClusterRoleBindingsToDelete(opts WorkflowParams, desiredClusterRoleBindings []rbacv1.ClusterRoleBinding, listOptions client.ListOptions) ([]client.Object, error) {
+func getClusterRoleBindingsToDelete(opts WorkflowRunner, desiredClusterRoleBindings []rbacv1.ClusterRoleBinding, listOptions client.ListOptions) ([]client.Object, error) {
 	clusterRoleBindingsToDelete := []client.Object{}
 	existingClusterRoleBindings := rbacv1.ClusterRoleBindingList{}
 

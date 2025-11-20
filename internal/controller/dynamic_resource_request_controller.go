@@ -223,7 +223,7 @@ func (r *DynamicResourceRequestController) Reconcile(ctx context.Context, req ct
 	if promise.WorkflowPipelineNamespaceSet() {
 		namespace = promise.Spec.Workflows.Config.PipelineNamespace
 	}
-	workflowParams := workflow.NewWorkflowParams(
+	workflowParams := workflow.NewWorkflowRunner(
 		ctx,
 		r.Client,
 		r.EventRecorder,
@@ -466,7 +466,7 @@ func (r *DynamicResourceRequestController) deleteResources(o opts, promise *v1al
 			return ctrl.Result{}, err
 		}
 
-		workflowParams := workflow.NewWorkflowParams(o.ctx, o.client, r.EventRecorder, o.logger, resourceRequest, pipelineResources, "resource", r.NumberOfJobsToKeep, namespace)
+		workflowParams := workflow.NewWorkflowRunner(o.ctx, o.client, r.EventRecorder, o.logger, resourceRequest, pipelineResources, "resource", r.NumberOfJobsToKeep, namespace)
 		requeue, err := reconcileDelete(workflowParams)
 		if err != nil {
 			if errors.Is(err, workflow.ErrDeletePipelineFailed) {

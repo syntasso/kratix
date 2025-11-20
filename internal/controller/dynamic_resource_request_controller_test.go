@@ -796,7 +796,7 @@ var _ = Describe("DynamicResourceRequestController", func() {
 				"kratix.io/paused": "true",
 			}
 			Expect(fakeK8sClient.Update(context.TODO(), promise)).To(Succeed())
-			reconcileConfigureOptsArg = workflow.WorkflowParams{}
+			reconcileConfigureOptsArg = workflow.WorkflowRunner{}
 
 			yamlFile, err := os.ReadFile(resourceRequestPath)
 			Expect(err).ToNot(HaveOccurred())
@@ -859,7 +859,7 @@ var _ = Describe("DynamicResourceRequestController", func() {
 	When("the resource request is paused", func() {
 		BeforeEach(func() {
 			Expect(fakeK8sClient.Update(context.TODO(), promise)).To(Succeed())
-			reconcileConfigureOptsArg = workflow.WorkflowParams{}
+			reconcileConfigureOptsArg = workflow.WorkflowRunner{}
 
 			yamlFile, err := os.ReadFile(resourceRequestPath)
 			Expect(err).ToNot(HaveOccurred())
