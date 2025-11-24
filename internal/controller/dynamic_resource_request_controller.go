@@ -212,20 +212,6 @@ func (r *DynamicResourceRequestController) Reconcile(ctx context.Context, req ct
 		if err != nil {
 			return ctrl.Result{}, err
 		}
-
-		resBinding, err := getResourceBinding(ctx, r.Client, rr, promise)
-		if err != nil {
-			return ctrl.Result{}, err
-		}
-
-		if promiseRevisionUpgrade(logger, rr, resBinding) && !r.manualReconciliationLabelSet(rr) {
-			logging.Debug(logger, fmt.Sprintf("ResourceBinding updated to version %s, forcing workflows to re-run",
-				resBinding.Spec.Version))
-			if err := r.updateManualReconciliationLabel(ctx, rr); err != nil {
-				return ctrl.Result{}, err
-			}
-			logging.Debug(logger, "Manual reconciliation label applied")
-		}
 	}
 
 	logging.Info(logger, "resource contains configure workflow(s); reconciling workflows")
@@ -350,24 +336,6 @@ func (r *DynamicResourceRequestController) updateResourceBinding(ctx context.Con
 	return nil
 }
 
-func getResourceBinding(ctx context.Context, c client.Client, rr *unstructured.Unstructured, promise *v1alpha1.Promise) (*v1alpha1.ResourceBinding, error) {
-	var bindingList v1alpha1.ResourceBindingList
-	bindingLabels := map[string]string{
-		v1alpha1.PromiseNameLabel:  promise.GetName(),
-		v1alpha1.ResourceNameLabel: rr.GetName(),
-	}
-	err := c.List(ctx, &bindingList, &client.ListOptions{
-		LabelSelector: labels.SelectorFromSet(bindingLabels),
-	})
-	if err != nil {
-		return nil, fmt.Errorf("cannot find any ResourceBinding for Resource %s", rr.GetName())
-	}
-	if len(bindingList.Items) > 1 {
-		return nil, fmt.Errorf("more than one ResourceBinding found for Resource %s", rr.GetName())
-	}
-	return &bindingList.Items[0], nil
-}
-
 func (r *DynamicResourceRequestController) generateResourceStatus(ctx context.Context, rr *unstructured.Unstructured,
 	numberOfPipelines int64, workLabels map[string]string, promiseRevision *v1alpha1.PromiseRevision) (bool, error) {
 	failed, misplaced, pending, ready, err := r.getWorksStatus(ctx, rr, workLabels)
@@ -380,13 +348,6 @@ func (r *DynamicResourceRequestController) generateResourceStatus(ctx context.Co
 	promiseVersionUpdate := r.updatePromiseVersionStatus(rr, promiseRevision)
 
 	return worksSucceededUpdate || reconciledUpdate || workflowsCounterStatusUpdate || promiseVersionUpdate, nil
-}
-
-func promiseRevisionUpgrade(logger logr.Logger, rr *unstructured.Unstructured, binding *v1alpha1.ResourceBinding) bool {
-	currentVersion := resourceutil.GetStatus(rr, resourcePromiseVersionStatus)
-	logging.Debug(logger, fmt.Sprintf("Current version of promise is %s", currentVersion))
-	logging.Debug(logger, fmt.Sprintf("Binding version of promise is %s", binding.Spec.Version))
-	return binding.Spec.Version != currentVersion
 }
 
 func (r *DynamicResourceRequestController) updateReconciledCondition(rr *unstructured.Unstructured) bool {

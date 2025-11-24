@@ -18,19 +18,26 @@ package controller
 
 import (
 	"context"
+	"fmt"
 
+	"k8s.io/apimachinery/pkg/api/errors"
+	"k8s.io/apimachinery/pkg/apis/meta/v1/unstructured"
 	"k8s.io/apimachinery/pkg/runtime"
+	"k8s.io/apimachinery/pkg/types"
 	ctrl "sigs.k8s.io/controller-runtime"
 	"sigs.k8s.io/controller-runtime/pkg/client"
-	logf "sigs.k8s.io/controller-runtime/pkg/log"
 
+	"github.com/go-logr/logr"
+	"github.com/syntasso/kratix/api/v1alpha1"
 	platformv1alpha1 "github.com/syntasso/kratix/api/v1alpha1"
+	"github.com/syntasso/kratix/internal/logging"
 )
 
 // ResourceBindingReconciler reconciles a ResourceBinding object
 type ResourceBindingReconciler struct {
-	client.Client
+	Client client.Client
 	Scheme *runtime.Scheme
+	Log    logr.Logger
 }
 
 // +kubebuilder:rbac:groups=platform.kratix.io,resources=resourcebindings,verbs=get;list;watch;create;update;patch;delete
@@ -38,9 +45,58 @@ type ResourceBindingReconciler struct {
 // +kubebuilder:rbac:groups=platform.kratix.io,resources=resourcebindings/finalizers,verbs=update
 
 func (r *ResourceBindingReconciler) Reconcile(ctx context.Context, req ctrl.Request) (ctrl.Result, error) {
-	_ = logf.FromContext(ctx)
+	logger := r.Log.WithValues(
+		"controller", "resourceBinding",
+		"name", req.Name,
+	)
 
-	// TODO(user): your logic here
+	resourceBinding := &v1alpha1.ResourceBinding{}
+
+	if err := r.Client.Get(ctx, req.NamespacedName, resourceBinding); err != nil {
+		if errors.IsNotFound(err) {
+			return ctrl.Result{}, nil
+		}
+		logging.Warn(logger, "failed to get resourceBinding; requeueing")
+		return defaultRequeue, nil
+	}
+
+	promiseNamespacedName := types.NamespacedName{
+		Name: resourceBinding.Spec.PromiseRef.Name,
+	}
+	promise := &v1alpha1.Promise{}
+
+	if err := r.Client.Get(ctx, promiseNamespacedName, promise); err != nil {
+		if errors.IsNotFound(err) {
+			return ctrl.Result{}, fmt.Errorf("failed to get promise %s", promiseNamespacedName.Name)
+		}
+		logging.Warn(logger, "failed to get promise; requeueing")
+		return defaultRequeue, nil
+	}
+
+	rr := &unstructured.Unstructured{}
+	rr.SetGroupVersionKind(promise.GroupVersionKind())
+
+	rrNamespacedName := types.NamespacedName{
+		Name:      resourceBinding.Spec.ResourceRef.Name,
+		Namespace: resourceBinding.Spec.ResourceRef.Namespace,
+	}
+	if err := r.Client.Get(ctx, rrNamespacedName, rr); err != nil {
+		if errors.IsNotFound(err) {
+			return ctrl.Result{}, fmt.Errorf("failed to get resource request %s", rrNamespacedName.Name)
+		}
+		logging.Warn(logger, "failed to get resource request; requeueing")
+		return defaultRequeue, nil
+	}
+
+	// labels := map[string]string{
+	// 	"a-label": "a-value",
+	// }
+
+	// resourceBinding.SetLabels(labels)
+	// err := r.Client.Update(ctx, resourceBinding)
+	// if err != nil {
+	// 	return ctrl.Result{}, err
+	// }
 
 	return ctrl.Result{}, nil
 }
