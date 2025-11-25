@@ -971,6 +971,22 @@ func (r *PromiseReconciler) ensureDynamicControllerIsStarted(promise *v1alpha1.P
 				}}
 			}),
 		).
+		Watches(
+			&v1alpha1.ResourceBinding{},
+			handler.EnqueueRequestsFromMapFunc(func(ctx context.Context, obj client.Object) []reconcile.Request {
+				resourceBinding := obj.(*v1alpha1.ResourceBinding)
+				rrName, labelExists := resourceBinding.Labels[v1alpha1.ResourceNameLabel]
+				if !labelExists || resourceBinding.Labels[v1alpha1.PromiseNameLabel] != promise.GetName() {
+					return nil
+				}
+
+				return []reconcile.Request{{
+					NamespacedName: types.NamespacedName{
+						Namespace: resourceBinding.Namespace,
+						Name:      rrName,
+					},
+				}}
+			})).
 		Complete(dynamicResourceRequestController)
 }
 
