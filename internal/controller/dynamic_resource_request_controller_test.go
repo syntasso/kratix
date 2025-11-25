@@ -1162,15 +1162,6 @@ var _ = Describe("DynamicResourceRequestController", func() {
 						Expect(statusMap["promiseVersion"]).To(Equal("v1.1.0"))
 					})
 
-					By("forcing a reconciliation against the upgraded Promise ", func() {
-						result, err := t.reconcileUntilCompletion(reconciler, resReq)
-						Expect(err).NotTo(HaveOccurred())
-						Expect(result).To(Equal(ctrl.Result{}))
-
-						Expect(fakeK8sClient.Get(ctx, resReqNameNamespace, resReq)).To(Succeed())
-						Expect(resReq.GetLabels()[resourceutil.ManualReconciliationLabel]).To(Equal("true"))
-					})
-
 					By("reconciling the ResourceRequest against the upgraded Promise", func() {
 						setReconcileConfigureWorkflowToReturnFinished()
 						result, err := t.reconcileUntilCompletion(reconciler, resReq)

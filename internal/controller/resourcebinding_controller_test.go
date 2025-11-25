@@ -36,7 +36,7 @@ import (
 )
 
 var _ = Describe("ResourceBinding Controller", func() {
-	FDescribe("Reconciling a ResourceBinding", func() {
+	Describe("Reconciling a ResourceBinding", func() {
 		var (
 			reconciler *controller.ResourceBindingReconciler
 			// eventRecorder            *record.FakeRecorder
