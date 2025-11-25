@@ -57,11 +57,10 @@ import (
 
 const (
 	workFinalizer                     = v1alpha1.KratixPrefix + "work-cleanup"
+	resourceBindingFinalizer          = v1alpha1.KratixPrefix + "resource-binding-cleanup"
 	resourcePromiseVersionStatus      = "promiseVersion"
 	promiseRevisionLookupFailedReason = "FailedPromiseRevisionLookup"
 )
-
-var rrFinalizers = []string{workFinalizer, removeAllWorkflowJobsFinalizer, runDeleteWorkflowsFinalizer}
 
 type DynamicResourceRequestController struct {
 	//use same naming conventions as other controllers
@@ -159,6 +158,13 @@ func (r *DynamicResourceRequestController) Reconcile(ctx context.Context, req ct
 		return ctrl.Result{}, nil
 	}
 
+	opts := opts{client: r.Client, ctx: ctx, logger: logger}
+
+	if !rr.GetDeletionTimestamp().IsZero() {
+		logging.Info(logger, "deleting resource request")
+		return r.deleteResources(opts, promise, rr)
+	}
+
 	var promiseRevisionUsed *v1alpha1.PromiseRevision
 	if r.PromiseUpgrade {
 		logging.Trace(baseLogger,
@@ -177,13 +183,6 @@ func (r *DynamicResourceRequestController) Reconcile(ctx context.Context, req ct
 			fmt.Sprintf("reconciling Resource Request with PromiseRevision %s", promiseRevisionUsed.Name))
 	}
 
-	opts := opts{client: r.Client, ctx: ctx, logger: logger}
-
-	if !rr.GetDeletionTimestamp().IsZero() {
-		logging.Info(logger, "deleting resource request")
-		return r.deleteResources(opts, promise, rr)
-	}
-
 	if !*r.CanCreateResources {
 		return r.ensurePromiseIsUnavailable(ctx, rr, logger)
 	}
@@ -198,7 +197,7 @@ func (r *DynamicResourceRequestController) Reconcile(ctx context.Context, req ct
 	if resourceutil.FinalizersAreMissing(
 		rr, []string{workFinalizer, removeAllWorkflowJobsFinalizer, runDeleteWorkflowsFinalizer},
 	) {
-		if err := addFinalizers(opts, rr, []string{workFinalizer, removeAllWorkflowJobsFinalizer, runDeleteWorkflowsFinalizer}); err != nil {
+		if err := addFinalizers(opts, rr, r.getRRFinalizers()); err != nil {
 			if kerrors.IsConflict(err) {
 				return fastRequeue, nil
 			}
@@ -532,7 +531,7 @@ func (r *DynamicResourceRequestController) updateWorkflowStatusCountersToZero(rr
 }
 
 func (r *DynamicResourceRequestController) deleteResources(o opts, promise *v1alpha1.Promise, resourceRequest *unstructured.Unstructured) (ctrl.Result, error) {
-	if resourceutil.FinalizersAreDeleted(resourceRequest, rrFinalizers) {
+	if resourceutil.FinalizersAreDeleted(resourceRequest, r.getRRFinalizers()) {
 		return ctrl.Result{}, nil
 	}
 
@@ -587,7 +586,47 @@ func (r *DynamicResourceRequestController) deleteResources(o opts, promise *v1al
 		return fastRequeue, nil
 	}
 
+	if r.PromiseUpgrade {
+		if controllerutil.ContainsFinalizer(resourceRequest, resourceBindingFinalizer) {
+			err := r.deleteResourceBinding(o, resourceRequest, promise, resourceBindingFinalizer)
+			if err != nil {
+				return ctrl.Result{}, err
+			}
+			return fastRequeue, nil
+		}
+	}
+
 	return fastRequeue, nil
+}
+
+func (r *DynamicResourceRequestController) deleteResourceBinding(o opts, rr *unstructured.Unstructured, promise *v1alpha1.Promise, finalizer string) error {
+	resourceBinding := &v1alpha1.ResourceBinding{
+		ObjectMeta: metav1.ObjectMeta{
+			Name:      objectutil.GenerateDeterministicObjectName(fmt.Sprintf("%s-%s", rr.GetName(), promise.GetName())),
+			Namespace: rr.GetNamespace(),
+		},
+	}
+
+	namespacedName := types.NamespacedName{
+		Name:      resourceBinding.GetName(),
+		Namespace: resourceBinding.GetNamespace(),
+	}
+	err := r.Client.Get(o.ctx, namespacedName, resourceBinding)
+	if err != nil {
+		if apierrors.IsNotFound(err) {
+			controllerutil.RemoveFinalizer(rr, finalizer)
+		}
+	}
+
+	err = r.Client.Delete(o.ctx, resourceBinding)
+	if err != nil {
+		if !apierrors.IsNotFound(err) {
+			logging.Warn(o.logger, "could not delete ResourceBinding; retrying", "reason", err.Error())
+			return err
+		}
+	}
+
+	return nil
 }
 
 func (r *DynamicResourceRequestController) deleteWork(o opts, resourceRequest *unstructured.Unstructured, finalizer, namespace string) error {
@@ -845,6 +884,14 @@ func (r *DynamicResourceRequestController) setPromiseLabels(ctx context.Context,
 		return err
 	}
 	return nil
+}
+
+func (r *DynamicResourceRequestController) getRRFinalizers() []string {
+	rrFinalizers := []string{workFinalizer, removeAllWorkflowJobsFinalizer, runDeleteWorkflowsFinalizer}
+	if r.PromiseUpgrade {
+		rrFinalizers = append(rrFinalizers, resourceBindingFinalizer)
+	}
+	return rrFinalizers
 }
 
 func getResourceLabels(rr *unstructured.Unstructured) map[string]string {

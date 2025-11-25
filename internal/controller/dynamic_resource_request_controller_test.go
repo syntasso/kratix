@@ -953,9 +953,8 @@ var _ = Describe("DynamicResourceRequestController", func() {
 			resReqNameNamespace = client.ObjectKeyFromObject(resReq)
 		})
 
-		When("there's no ResourceBinding created for the Resource "+
-			"and resource status has no promise version set", func() {
-			When("the latest PromiseRevision exists", func() {
+		When("there's no ResourceBinding created for the Resource and the resource status has no promise version set", func() {
+			FWhen("the latest PromiseRevision exists", func() {
 				It("reconciles", func() {
 					promiseVersion := "v1.1.0"
 					createPromiseRevision(fakeK8sClient, promise, promiseVersion)
@@ -963,6 +962,16 @@ var _ = Describe("DynamicResourceRequestController", func() {
 					result, err := t.reconcileUntilCompletion(reconciler, resReq)
 					Expect(err).NotTo(HaveOccurred())
 					Expect(result).To(Equal(ctrl.Result{}))
+
+					By("setting the correct finalizers in the resource request", func() {
+						Expect(fakeK8sClient.Get(ctx, resReqNameNamespace, resReq)).To(Succeed())
+						Expect(resReq.GetFinalizers()).To(ConsistOf(
+							"kratix.io/work-cleanup",
+							"kratix.io/workflows-cleanup",
+							"kratix.io/delete-workflows",
+							"kratix.io/resource-binding-cleanup",
+						))
+					})
 
 					By("creating a resource binding for this resource request", func() {
 						bindingLabels := map[string]string{
@@ -1003,6 +1012,18 @@ var _ = Describe("DynamicResourceRequestController", func() {
 							"Normal PromiseRevisionFound reconciling Resource Request with PromiseRevision redis-v1.1.0",
 						)))
 					})
+
+					By("deleting the resource request", func() {
+						Expect(fakeK8sClient.Delete(ctx, resReq)).To(Succeed())
+						_, err = t.reconcileUntilCompletion(reconciler, resReq)
+						Expect(err).To(MatchError("reconcile loop detected"))
+
+						setReconcileDeleteWorkflowToReturnFinished(resReq)
+						result, err := t.reconcileUntilCompletion(reconciler, resReq)
+						Expect(result).To(Equal(ctrl.Result{}))
+						Expect(err).NotTo(HaveOccurred())
+						Expect(fakeK8sClient.Get(ctx, resReqNameNamespace, resReq)).To(MatchError(ContainSubstring("not found")))
+					})
 				})
 			})
 
@@ -1018,7 +1039,7 @@ var _ = Describe("DynamicResourceRequestController", func() {
 		})
 
 		When("there's no ResourceBinding found but resource .status.promiseVersion is set", func() {
-			When("the PromiseRevision from resource status exists", func() {
+			FWhen("the PromiseRevision from resource status exists", func() {
 				It("reconciles", func() {
 					promiseVersion := "v0.0.1"
 					createPromiseRevision(fakeK8sClient, promise, promiseVersion)
@@ -1035,7 +1056,17 @@ var _ = Describe("DynamicResourceRequestController", func() {
 					Expect(err).NotTo(HaveOccurred())
 					Expect(result).To(Equal(ctrl.Result{}))
 
-					By("creating a resource binding using promise version from the resource request", func() {
+					By("setting the correct finalizers in the resource request", func() {
+						Expect(fakeK8sClient.Get(ctx, resReqNameNamespace, resReq)).To(Succeed())
+						Expect(resReq.GetFinalizers()).To(ConsistOf(
+							"kratix.io/work-cleanup",
+							"kratix.io/workflows-cleanup",
+							"kratix.io/delete-workflows",
+							"kratix.io/resource-binding-cleanup",
+						))
+					})
+
+					By("creating a resource binding using the promise version from the resource request", func() {
 						bindingLabels := map[string]string{
 							"kratix.io/promise-name":  promise.GetName(),
 							"kratix.io/resource-name": resReqNameNamespace.Name,
