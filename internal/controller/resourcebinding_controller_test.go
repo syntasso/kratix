@@ -79,12 +79,6 @@ var _ = Describe("ResourceBinding Controller", func() {
 			promisePath = "assets/redis-simple-promise.yaml"
 			promise = createPromise(promisePath)
 
-			status := map[string]interface{}{
-				"promiseVersion": "v0.0.1",
-			}
-
-			resourceutil.SetStatus(rr, logr.Discard(), status)
-
 			err := fakeK8sClient.Create(ctx, &resourceBinding)
 			Expect(err).ToNot(HaveOccurred())
 		})
@@ -99,6 +93,64 @@ var _ = Describe("ResourceBinding Controller", func() {
 		})
 
 		When("the resource request has a version that does not match the spec.Version", func() {
+			BeforeEach(func() {
+				yamlFile, err := os.ReadFile(resourceRequestPath)
+				Expect(err).ToNot(HaveOccurred())
+
+				rr = &unstructured.Unstructured{}
+				Expect(yaml.Unmarshal(yamlFile, rr)).To(Succeed())
+				Expect(fakeK8sClient.Create(ctx, rr)).To(Succeed())
+				resNameNamespacedName := types.NamespacedName{
+					Name:      rr.GetName(),
+					Namespace: rr.GetNamespace(),
+				}
+
+				resourceutil.SetStatus(rr, logr.Discard(), "promiseVersion", "v0.0.1")
+
+				Expect(fakeK8sClient.Status().Update(ctx, rr)).To(Succeed())
+
+				Expect(fakeK8sClient.Get(ctx, resNameNamespacedName, rr)).To(Succeed())
+				Expect(resourceutil.GetStatus(rr, "promiseVersion")).To(Equal("v0.0.1"))
+			})
+
+			It("applies the manual reconciliation label to the resource request", func() {
+				request := ctrl.Request{NamespacedName: types.NamespacedName{Name: resourceBindingName, Namespace: resourceBindingNamespace}}
+
+				result, err := reconciler.Reconcile(ctx, request)
+				Expect(err).ToNot(HaveOccurred())
+				Expect(result).To(Equal(ctrl.Result{}))
+
+				fakeK8sClient.Get(ctx,
+					types.NamespacedName{Name: rr.GetName(), Namespace: rr.GetNamespace()},
+					rr,
+				)
+				Expect(rr.GetLabels()[resourceutil.ManualReconciliationLabel]).To(Equal("true"))
+			})
+
+			It("does not apply the manual reconciliation label when the versions match", func() {
+				fakeK8sClient.Get(ctx,
+					types.NamespacedName{Name: rr.GetName(), Namespace: rr.GetNamespace()},
+					rr,
+				)
+
+				resourceutil.SetStatus(rr, logr.Discard(), "promiseVersion", "v0.0.2")
+				Expect(fakeK8sClient.Status().Update(ctx, rr)).To(Succeed())
+
+				request := ctrl.Request{NamespacedName: types.NamespacedName{Name: resourceBindingName, Namespace: resourceBindingNamespace}}
+
+				result, err := reconciler.Reconcile(ctx, request)
+				Expect(err).ToNot(HaveOccurred())
+				Expect(result).To(Equal(ctrl.Result{}))
+
+				fakeK8sClient.Get(ctx,
+					types.NamespacedName{Name: rr.GetName(), Namespace: rr.GetNamespace()},
+					rr,
+				)
+				Expect(rr.GetLabels()[resourceutil.ManualReconciliationLabel]).To(Equal(""))
+			})
+		})
+
+		When("the resource request has a version that matches the spec.Version", func() {
 			BeforeEach(func() {
 				yamlFile, err := os.ReadFile(resourceRequestPath)
 				Expect(err).ToNot(HaveOccurred())
@@ -126,10 +178,6 @@ var _ = Describe("ResourceBinding Controller", func() {
 				)
 				Expect(rr.GetLabels()[resourceutil.ManualReconciliationLabel]).To(Equal("true"))
 			})
-		})
-
-		When("the resource request has a version that matches the spec.Version", func() {
-
 		})
 	})
 })

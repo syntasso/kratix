@@ -94,6 +94,11 @@ func (r *ResourceBindingReconciler) Reconcile(ctx context.Context, req ctrl.Requ
 		return defaultRequeue, nil
 	}
 
+	rrPromiseVersion := resourceutil.GetStatus(rr, "promiseVersion")
+	if rrPromiseVersion == "" || rrPromiseVersion == resourceBinding.Spec.Version {
+		return ctrl.Result{}, nil
+	}
+
 	labels := rr.GetLabels()
 	if labels == nil {
 		labels = make(map[string]string)
