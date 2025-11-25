@@ -18,6 +18,7 @@ package controller_test
 
 import (
 	"context"
+	"os"
 
 	"github.com/go-logr/logr"
 	. "github.com/onsi/ginkgo/v2"
@@ -28,8 +29,8 @@ import (
 	"github.com/syntasso/kratix/lib/resourceutil"
 	metav1 "k8s.io/apimachinery/pkg/apis/meta/v1"
 	"k8s.io/apimachinery/pkg/apis/meta/v1/unstructured"
-	"k8s.io/apimachinery/pkg/runtime/schema"
 	"k8s.io/apimachinery/pkg/types"
+	"k8s.io/apimachinery/pkg/util/yaml"
 	"k8s.io/client-go/kubernetes/scheme"
 	ctrl "sigs.k8s.io/controller-runtime"
 )
@@ -43,9 +44,6 @@ var _ = Describe("ResourceBinding Controller", func() {
 			resourceBinding          v1alpha1.ResourceBinding
 			resourceBindingNamespace string
 			resourceBindingName      string
-			resourceName             string
-			rrGVK                    schema.GroupVersionKind
-			promise                  *v1alpha1.Promise
 			promisePath              string
 			rr                       *unstructured.Unstructured
 		)
@@ -57,8 +55,6 @@ var _ = Describe("ResourceBinding Controller", func() {
 				Scheme: scheme.Scheme,
 				Log:    ctrl.Log.WithName("controllers").WithName("ResourceBindings"),
 			}
-
-			resourceName = "example"
 
 			resourceBindingNamespace = "default"
 			resourceBindingName = "example-redis-1s324"
@@ -83,12 +79,6 @@ var _ = Describe("ResourceBinding Controller", func() {
 			promisePath = "assets/redis-simple-promise.yaml"
 			promise = createPromise(promisePath)
 
-			rrGVK = promise.GroupVersionKind()
-
-			rr = &unstructured.Unstructured{}
-			rr.SetGroupVersionKind(rrGVK)
-			rr.SetName(resourceName)
-
 			status := map[string]interface{}{
 				"promiseVersion": "v0.0.1",
 			}
@@ -110,8 +100,17 @@ var _ = Describe("ResourceBinding Controller", func() {
 
 		When("the resource request has a version that does not match the spec.Version", func() {
 			BeforeEach(func() {
-				err := fakeK8sClient.Create(ctx, rr)
+				yamlFile, err := os.ReadFile(resourceRequestPath)
 				Expect(err).ToNot(HaveOccurred())
+
+				rr = &unstructured.Unstructured{}
+				Expect(yaml.Unmarshal(yamlFile, rr)).To(Succeed())
+				Expect(fakeK8sClient.Create(ctx, rr)).To(Succeed())
+				resNameNamespacedName := types.NamespacedName{
+					Name:      rr.GetName(),
+					Namespace: rr.GetNamespace(),
+				}
+				Expect(fakeK8sClient.Get(ctx, resNameNamespacedName, rr)).To(Succeed())
 			})
 
 			It("applies the manual reconciliation label to the resource request", func() {
@@ -122,7 +121,7 @@ var _ = Describe("ResourceBinding Controller", func() {
 				Expect(result).To(Equal(ctrl.Result{}))
 
 				fakeK8sClient.Get(ctx,
-					types.NamespacedName{Namespace: resourceName},
+					types.NamespacedName{Name: rr.GetName(), Namespace: rr.GetNamespace()},
 					rr,
 				)
 				Expect(rr.GetLabels()[resourceutil.ManualReconciliationLabel]).To(Equal("true"))

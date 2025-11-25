@@ -31,6 +31,7 @@ import (
 	"github.com/syntasso/kratix/api/v1alpha1"
 	platformv1alpha1 "github.com/syntasso/kratix/api/v1alpha1"
 	"github.com/syntasso/kratix/internal/logging"
+	"github.com/syntasso/kratix/lib/resourceutil"
 )
 
 // ResourceBindingReconciler reconciles a ResourceBinding object
@@ -74,12 +75,17 @@ func (r *ResourceBindingReconciler) Reconcile(ctx context.Context, req ctrl.Requ
 	}
 
 	rr := &unstructured.Unstructured{}
-	rr.SetGroupVersionKind(promise.GroupVersionKind())
+	_, gvk, err := generateCRDAndGVK(promise, logger)
+	if err != nil {
+		return ctrl.Result{}, fmt.Errorf("failed to get gvk for promise %s", promiseNamespacedName.Name)
+	}
+	rr.SetGroupVersionKind(*gvk)
 
 	rrNamespacedName := types.NamespacedName{
 		Name:      resourceBinding.Spec.ResourceRef.Name,
 		Namespace: resourceBinding.Spec.ResourceRef.Namespace,
 	}
+
 	if err := r.Client.Get(ctx, rrNamespacedName, rr); err != nil {
 		if errors.IsNotFound(err) {
 			return ctrl.Result{}, fmt.Errorf("failed to get resource request %s", rrNamespacedName.Name)
@@ -88,15 +94,15 @@ func (r *ResourceBindingReconciler) Reconcile(ctx context.Context, req ctrl.Requ
 		return defaultRequeue, nil
 	}
 
-	// labels := map[string]string{
-	// 	"a-label": "a-value",
-	// }
-
-	// resourceBinding.SetLabels(labels)
-	// err := r.Client.Update(ctx, resourceBinding)
-	// if err != nil {
-	// 	return ctrl.Result{}, err
-	// }
+	labels := rr.GetLabels()
+	if labels == nil {
+		labels = make(map[string]string)
+	}
+	labels[resourceutil.ManualReconciliationLabel] = "true"
+	rr.SetLabels(labels)
+	if err := r.Client.Update(ctx, rr); err != nil {
+		return ctrl.Result{}, err
+	}
 
 	return ctrl.Result{}, nil
 }
