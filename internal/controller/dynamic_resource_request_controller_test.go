@@ -954,7 +954,7 @@ var _ = Describe("DynamicResourceRequestController", func() {
 		})
 
 		When("there's no ResourceBinding created for the Resource and the resource status has no promise version set", func() {
-			FWhen("the latest PromiseRevision exists", func() {
+			When("the latest PromiseRevision exists", func() {
 				It("reconciles", func() {
 					promiseVersion := "v1.1.0"
 					createPromiseRevision(fakeK8sClient, promise, promiseVersion)
@@ -1039,7 +1039,7 @@ var _ = Describe("DynamicResourceRequestController", func() {
 		})
 
 		When("there's no ResourceBinding found but resource .status.promiseVersion is set", func() {
-			FWhen("the PromiseRevision from resource status exists", func() {
+			When("the PromiseRevision from resource status exists", func() {
 				It("reconciles", func() {
 					promiseVersion := "v0.0.1"
 					createPromiseRevision(fakeK8sClient, promise, promiseVersion)

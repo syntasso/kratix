@@ -18,13 +18,16 @@ package controller_test
 
 import (
 	"context"
+	"os"
 
 	"github.com/go-logr/logr"
 	"github.com/syntasso/kratix/api/v1alpha1"
 	platformv1alpha1 "github.com/syntasso/kratix/api/v1alpha1"
 	"github.com/syntasso/kratix/internal/controller"
 	metav1 "k8s.io/apimachinery/pkg/apis/meta/v1"
+	"k8s.io/apimachinery/pkg/apis/meta/v1/unstructured"
 	"k8s.io/apimachinery/pkg/types"
+	"k8s.io/apimachinery/pkg/util/yaml"
 	"k8s.io/client-go/tools/record"
 	ctrl "sigs.k8s.io/controller-runtime"
 
@@ -51,8 +54,10 @@ var _ = Describe("PromiseRevisionController", func() {
 	Describe("Reconcile", func() {
 		var revision *v1alpha1.PromiseRevision
 		var previousRevision *v1alpha1.PromiseRevision
+		var promiseVersion string
 
 		BeforeEach(func() {
+			promiseVersion = "v1.0.0"
 			revision = &v1alpha1.PromiseRevision{
 				TypeMeta: metav1.TypeMeta{
 					Kind:       "PromiseRevision",
@@ -65,9 +70,9 @@ var _ = Describe("PromiseRevisionController", func() {
 					},
 				},
 				Spec: v1alpha1.PromiseRevisionSpec{
-					Version: "v1.0.0",
+					Version: promiseVersion,
 					PromiseRef: v1alpha1.PromiseRef{
-						Name: "test-promise",
+						Name: "redis",
 					},
 				},
 			}
@@ -82,13 +87,13 @@ var _ = Describe("PromiseRevisionController", func() {
 					Name: "previous-latest-revision",
 					Labels: map[string]string{
 						"kratix.io/latest-revision":       "true",
-						platformv1alpha1.PromiseNameLabel: "test-promise",
+						platformv1alpha1.PromiseNameLabel: "redis",
 					},
 				},
 				Spec: v1alpha1.PromiseRevisionSpec{
 					Version: "v0.9.0",
 					PromiseRef: v1alpha1.PromiseRef{
-						Name: "test-promise",
+						Name: "redis",
 					},
 				},
 			}
@@ -105,6 +110,9 @@ var _ = Describe("PromiseRevisionController", func() {
 				Expect(fakeK8sClient.Get(ctx, types.NamespacedName{Name: revision.Name}, revision)).To(Succeed())
 				Expect(revision.GetLabels()["kratix.io/latest-revision"]).To(Equal("true"))
 				Expect(revision.Status.Latest).To(BeTrue())
+				By("setting the expected finalizers", func() {
+					Expect(revision.Finalizers).To(ConsistOf("kratix.io/resource-request-cleanup"))
+				})
 			})
 
 			It("removes the latest label from the previous latest revision", func() {
@@ -150,6 +158,81 @@ var _ = Describe("PromiseRevisionController", func() {
 				Expect(fakeK8sClient.Get(ctx, types.NamespacedName{Name: nonLatestRevision.Name}, nonLatestRevision)).To(Succeed())
 				Expect(nonLatestRevision.GetLabels()).ToNot(HaveKey("kratix.io/latest-revision"))
 				Expect(nonLatestRevision.Status.Latest).To(BeFalse())
+			})
+		})
+
+		When("deleting a revision with an associated resource request", func() {
+			var rr *unstructured.Unstructured
+			var resourceBinding *v1alpha1.ResourceBinding
+
+			BeforeEach(func() {
+				rr = &unstructured.Unstructured{}
+				promise := createPromise(promisePath)
+				yamlFile, err := os.ReadFile(resourceRequestPath)
+				Expect(err).ToNot(HaveOccurred())
+
+				Expect(yaml.Unmarshal(yamlFile, rr)).To(Succeed())
+				Expect(fakeK8sClient.Create(ctx, rr)).To(Succeed())
+
+				resourceBinding = &v1alpha1.ResourceBinding{
+					ObjectMeta: metav1.ObjectMeta{
+						Name:      "example-redis-1s324",
+						Namespace: "default",
+						Labels: map[string]string{
+							v1alpha1.PromiseNameLabel: promise.GetName(),
+						},
+					},
+					Spec: v1alpha1.ResourceBindingSpec{
+						Version: promiseVersion,
+						PromiseRef: v1alpha1.PromiseRef{
+							Name: "redis",
+						},
+						ResourceRef: v1alpha1.ResourceRef{
+							Name:      "example",
+							Namespace: "default",
+						},
+					},
+				}
+				Expect(fakeK8sClient.Create(ctx, resourceBinding)).To(Succeed())
+
+				result, err := t.reconcileUntilCompletion(reconciler, revision)
+				Expect(err).NotTo(HaveOccurred())
+				Expect(result).To(Equal(ctrl.Result{}))
+			})
+
+			It("deletes the request alongside the revision", func() {
+				Expect(fakeK8sClient.Delete(ctx, revision)).To(Succeed())
+				result, err := t.reconcileUntilCompletion(reconciler, revision)
+				Expect(err).ToNot(HaveOccurred())
+				Expect(result).To(Equal(ctrl.Result{}))
+
+				By("deleting the resource request", func() {
+					err = fakeK8sClient.Get(
+						ctx,
+						types.NamespacedName{
+							Name:      rr.GetName(),
+							Namespace: rr.GetNamespace(),
+						},
+						rr,
+					)
+					Expect(err).To(MatchError(ContainSubstring("not found")))
+				})
+
+				By("removing the resourceBinding", func() {
+					Expect(fakeK8sClient.Delete(ctx, resourceBinding)).To(Succeed())
+					_, err := t.reconcileUntilCompletion(reconciler, revision)
+					Expect(err).ToNot(HaveOccurred())
+				})
+
+				err = fakeK8sClient.Get(
+					ctx,
+					types.NamespacedName{
+						Name:      revision.GetName(),
+						Namespace: revision.GetNamespace(),
+					},
+					revision,
+				)
+				Expect(err).To(MatchError(ContainSubstring("not found")))
 			})
 		})
 	})
