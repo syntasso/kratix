@@ -600,21 +600,22 @@ func (r *DynamicResourceRequestController) deleteResources(o opts, promise *v1al
 }
 
 func (r *DynamicResourceRequestController) deleteResourceBinding(o opts, rr *unstructured.Unstructured, promise *v1alpha1.Promise, finalizer string) error {
-	resourceBinding := &v1alpha1.ResourceBinding{
-		ObjectMeta: metav1.ObjectMeta{
-			Name:      objectutil.GenerateDeterministicObjectName(fmt.Sprintf("%s-%s", rr.GetName(), promise.GetName())),
-			Namespace: rr.GetNamespace(),
-		},
-	}
+	resourceBinding := &v1alpha1.ResourceBinding{}
 
 	namespacedName := types.NamespacedName{
-		Name:      resourceBinding.GetName(),
+		Name:      objectutil.GenerateDeterministicObjectName(fmt.Sprintf("%s-%s", rr.GetName(), promise.GetName())),
 		Namespace: resourceBinding.GetNamespace(),
 	}
+
 	err := r.Client.Get(o.ctx, namespacedName, resourceBinding)
 	if err != nil {
 		if apierrors.IsNotFound(err) {
 			controllerutil.RemoveFinalizer(rr, finalizer)
+			if err := r.Client.Update(o.ctx, rr); err != nil {
+				r.Log.Info(err.Error())
+				return err
+			}
+			return nil
 		}
 	}
 
