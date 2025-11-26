@@ -42,6 +42,7 @@ type ResourceBindingStatus struct {
 
 // +kubebuilder:object:root=true
 // +kubebuilder:subresource:status
+// +kubebuilder:selectablefield:JSONPath=".spec.version"
 
 // ResourceBinding is the Schema for the resourcebindings API
 type ResourceBinding struct {
