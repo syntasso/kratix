@@ -115,9 +115,6 @@ func (r *DynamicResourceRequestController) Reconcile(ctx context.Context, req ct
 		return defaultRequeue, nil
 	}
 
-	// FIXME: Remove this before committing #635
-	logging.Debug(baseLogger, "RR labels", "labels", rr.GetLabels())
-
 	baseLogger = baseLogger.WithValues(
 		"generation", rr.GetGeneration(),
 	)
