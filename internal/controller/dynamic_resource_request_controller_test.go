@@ -1008,9 +1008,13 @@ var _ = Describe("DynamicResourceRequestController", func() {
 					})
 
 					By("publishing events", func() {
-						Expect(eventRecorder.Events).To(Receive(ContainSubstring(
+						events := aggregateEvents(eventRecorder.Events)
+						Expect(events).To(ContainSubstring(
 							"Normal PromiseRevisionFound reconciling Resource Request with PromiseRevision redis-v1.1.0",
-						)))
+						))
+						Expect(events).To(ContainSubstring(
+							"Normal BindingCreated Binding example-redis-e7f90 created for promise version v1.1.0",
+						))
 					})
 
 					By("deleting the resource request", func() {

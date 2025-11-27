@@ -329,6 +329,11 @@ func (r *DynamicResourceRequestController) updateResourceBinding(ctx context.Con
 		"resourceNamespace", resourceBinding.Spec.ResourceRef.Namespace,
 	)
 
+	if op == "created" {
+		r.EventRecorder.Event(rr, v1.EventTypeNormal, "BindingCreated",
+			fmt.Sprintf("Binding %s created for promise version %s", resourceBinding.GetName(), resourceBinding.Spec.Version))
+	}
+
 	return nil
 }
 

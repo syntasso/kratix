@@ -43,6 +43,9 @@ type ResourceBindingStatus struct {
 // +kubebuilder:object:root=true
 // +kubebuilder:subresource:status
 // +kubebuilder:selectablefield:JSONPath=".spec.version"
+// +kubebuilder:printcolumn:name="Resource",type=string,JSONPath=".spec.resourceRef.name",description="Resource using a Promise"
+// +kubebuilder:printcolumn:name="Promise",type=string,JSONPath=".spec.promiseRef.name",description="Promise being used by the Resource"
+// +kubebuilder:printcolumn:name="Version",type=string,JSONPath=".spec.version",description="Promise version used by the Resource"
 
 // ResourceBinding is the Schema for the resourcebindings API
 type ResourceBinding struct {
