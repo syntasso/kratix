@@ -157,11 +157,6 @@ func (r *DynamicResourceRequestController) Reconcile(ctx context.Context, req ct
 
 	opts := opts{client: r.Client, ctx: ctx, logger: logger}
 
-	if !rr.GetDeletionTimestamp().IsZero() {
-		logging.Info(logger, "deleting resource request")
-		return r.deleteResources(opts, promise, rr)
-	}
-
 	var promiseRevisionUsed *v1alpha1.PromiseRevision
 	if r.PromiseUpgrade {
 		logging.Trace(baseLogger,
@@ -178,6 +173,11 @@ func (r *DynamicResourceRequestController) Reconcile(ctx context.Context, req ct
 			"Found PromiseRevision from ResourceRequest", "revision name", promiseRevisionUsed.Name)
 		r.EventRecorder.Eventf(rr, v1.EventTypeNormal, "PromiseRevisionFound",
 			fmt.Sprintf("reconciling Resource Request with PromiseRevision %s", promiseRevisionUsed.Name))
+	}
+
+	if !rr.GetDeletionTimestamp().IsZero() {
+		logging.Info(logger, "deleting resource request")
+		return r.deleteResources(opts, promise, rr)
 	}
 
 	if !*r.CanCreateResources {
