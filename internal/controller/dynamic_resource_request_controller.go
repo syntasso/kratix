@@ -601,7 +601,7 @@ func (r *DynamicResourceRequestController) deleteResourceBinding(o opts, rr *uns
 
 	namespacedName := types.NamespacedName{
 		Name:      objectutil.GenerateDeterministicObjectName(fmt.Sprintf("%s-%s", rr.GetName(), promise.GetName())),
-		Namespace: resourceBinding.GetNamespace(),
+		Namespace: rr.GetNamespace(),
 	}
 
 	err := r.Client.Get(o.ctx, namespacedName, resourceBinding)
