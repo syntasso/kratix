@@ -171,8 +171,8 @@ func (r *DynamicResourceRequestController) Reconcile(ctx context.Context, req ct
 		promise.Spec = promiseRevisionUsed.Spec.PromiseSpec
 		logging.Debug(baseLogger,
 			"Found PromiseRevision from ResourceRequest", "revision name", promiseRevisionUsed.Name)
-		r.EventRecorder.Eventf(rr, v1.EventTypeNormal, "PromiseRevisionFound",
-			fmt.Sprintf("reconciling Resource Request with PromiseRevision %s", promiseRevisionUsed.Name))
+		r.EventRecorder.Eventf(rr, v1.EventTypeNormal, "ReconcileStarted",
+			fmt.Sprintf("reconciling resource request with promise revision %s", promiseRevisionUsed.Name))
 	}
 
 	if !rr.GetDeletionTimestamp().IsZero() {
@@ -331,7 +331,10 @@ func (r *DynamicResourceRequestController) updateResourceBinding(ctx context.Con
 
 	if op == "created" {
 		r.EventRecorder.Event(rr, v1.EventTypeNormal, "BindingCreated",
-			fmt.Sprintf("Binding %s created for promise version %s", resourceBinding.GetName(), resourceBinding.Spec.Version))
+			fmt.Sprintf("Binding %s created for promise %s version %s",
+				resourceBinding.GetName(),
+				promise.GetName(),
+				resourceBinding.Spec.Version))
 	}
 
 	return nil
@@ -384,7 +387,7 @@ func (r *DynamicResourceRequestController) updateReconciledCondition(rr *unstruc
 		if reconciled == nil || reconciled.Status != v1.ConditionTrue {
 			resourceutil.MarkReconciledTrue(rr)
 			updated = true
-			r.EventRecorder.Event(rr, v1.EventTypeNormal, "ReconcileSucceeded",
+			r.EventRecorder.Event(rr, v1.EventTypeNormal, "WorkflowSucceeded",
 				"Successfully reconciled")
 		}
 	}
@@ -438,8 +441,8 @@ func (r *DynamicResourceRequestController) updatePromiseVersionStatus(rr *unstru
 	logging.Debug(r.Log, fmt.Sprintf("Promise version from current: %s", currentVersion))
 	if currentVersion != promiseRevision.Spec.Version {
 		resourceutil.SetStatus(rr, r.Log, resourcePromiseVersionStatus, promiseRevision.Spec.Version)
-		r.EventRecorder.Eventf(rr, v1.EventTypeNormal, "PromiseRevisionUpgraded",
-			fmt.Sprintf("Promise %s upgraded to version %s",
+		r.EventRecorder.Eventf(rr, v1.EventTypeNormal, "ReconcileSucceeded",
+			fmt.Sprintf("Resource request reconciled with promise %s version %s",
 				promiseRevision.Spec.PromiseRef.Name,
 				promiseRevision.Spec.Version))
 		return true

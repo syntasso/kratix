@@ -213,7 +213,7 @@ var _ = Describe("DynamicResourceRequestController", func() {
 					"Normal WorksSucceeded All works associated with this resource are ready",
 				)))
 				Expect(eventRecorder.Events).To(Receive(ContainSubstring(
-					"Normal ReconcileSucceeded Successfully reconciled",
+					"Normal WorkflowSucceeded Successfully reconciled",
 				)))
 			})
 		})
@@ -1010,10 +1010,10 @@ var _ = Describe("DynamicResourceRequestController", func() {
 					By("publishing events", func() {
 						events := aggregateEvents(eventRecorder.Events)
 						Expect(events).To(ContainSubstring(
-							"Normal PromiseRevisionFound reconciling Resource Request with PromiseRevision redis-v1.1.0",
+							"Normal ReconcileStarted reconciling resource request with promise revision redis-v1.1.0",
 						))
 						Expect(events).To(ContainSubstring(
-							"Normal BindingCreated Binding example-redis-e7f90 created for promise version v1.1.0",
+							"Normal BindingCreated Binding example-redis-e7f90 created for promise redis version v1.1.0",
 						))
 					})
 
@@ -1099,7 +1099,7 @@ var _ = Describe("DynamicResourceRequestController", func() {
 
 					By("publishing events", func() {
 						Expect(eventRecorder.Events).To(Receive(ContainSubstring(
-							"Normal PromiseRevisionFound reconciling Resource Request with PromiseRevision redis-v0.0.1",
+							"Normal ReconcileStarted reconciling resource request with promise revision redis-v0.0.1",
 						)))
 					})
 				})
@@ -1212,9 +1212,9 @@ var _ = Describe("DynamicResourceRequestController", func() {
 						Expect(statusMap["promiseVersion"]).To(Equal(upgradedPromiseVersion))
 					})
 
-					By("publishing promise revision upgrade events", func() {
+					By("publishing reconciliation events with the new promise revision", func() {
 						eventMsgs := aggregateEvents(eventRecorder.Events)
-						eventMsg := "Normal PromiseRevisionUpgraded Promise redis upgraded to version v1.2.0"
+						eventMsg := "Normal ReconcileSucceeded Resource request reconciled with promise redis version v1.2.0"
 						Expect(eventMsgs).To(ContainSubstring(eventMsg))
 					})
 				})
