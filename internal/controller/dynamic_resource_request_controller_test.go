@@ -213,7 +213,7 @@ var _ = Describe("DynamicResourceRequestController", func() {
 					"Normal WorksSucceeded All works associated with this resource are ready",
 				)))
 				Expect(eventRecorder.Events).To(Receive(ContainSubstring(
-					"Normal WorkflowSucceeded Successfully reconciled",
+					"Normal ReconcileSuccessful Successfully reconciled",
 				)))
 			})
 		})

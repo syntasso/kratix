@@ -387,7 +387,7 @@ func (r *DynamicResourceRequestController) updateReconciledCondition(rr *unstruc
 		if reconciled == nil || reconciled.Status != v1.ConditionTrue {
 			resourceutil.MarkReconciledTrue(rr)
 			updated = true
-			r.EventRecorder.Event(rr, v1.EventTypeNormal, "WorkflowSucceeded",
+			r.EventRecorder.Event(rr, v1.EventTypeNormal, "ReconcileSuccessful",
 				"Successfully reconciled")
 		}
 	}
