@@ -123,10 +123,6 @@ var _ = Describe("PromiseRevisionController", func() {
 				Expect(fakeK8sClient.Get(ctx, types.NamespacedName{Name: previousRevision.Name}, previousRevision)).To(Succeed())
 				Expect(previousRevision.GetLabels()).ToNot(HaveKey("kratix.io/latest-revision"))
 			})
-
-			By("issuing an event against the previous latest revision informing that the label was removed", func() {
-
-			})
 		})
 
 		When("the revision does not have the latest label", func() {
@@ -237,19 +233,6 @@ var _ = Describe("PromiseRevisionController", func() {
 					revision,
 				)
 				Expect(err).To(MatchError(ContainSubstring("not found")))
-			})
-		})
-
-		When("deleting a latest revision", func() {
-
-			It("ensures the most recently created promise is marked as latest", func() {
-				By("applying the latest label to the most recent promise", func() {
-
-				})
-
-				By("issuing an event informing that the label was applied", func() {
-
-				})
 			})
 		})
 	})
