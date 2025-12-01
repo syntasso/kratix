@@ -22,15 +22,23 @@ import (
 	"time"
 
 	"github.com/go-logr/logr"
+	"github.com/syntasso/kratix/api/v1alpha1"
 	platformv1alpha1 "github.com/syntasso/kratix/api/v1alpha1"
 	"github.com/syntasso/kratix/internal/logging"
+	"github.com/syntasso/kratix/lib/resourceutil"
 	"go.opentelemetry.io/otel/attribute"
 	"k8s.io/apimachinery/pkg/api/errors"
+	apierrors "k8s.io/apimachinery/pkg/api/errors"
+	kerrors "k8s.io/apimachinery/pkg/api/errors"
+	"k8s.io/apimachinery/pkg/apis/meta/v1/unstructured"
 	"k8s.io/apimachinery/pkg/labels"
 	"k8s.io/apimachinery/pkg/runtime"
+	"k8s.io/apimachinery/pkg/runtime/schema"
+	"k8s.io/apimachinery/pkg/types"
 	"k8s.io/client-go/tools/record"
 	ctrl "sigs.k8s.io/controller-runtime"
 	"sigs.k8s.io/controller-runtime/pkg/client"
+	"sigs.k8s.io/controller-runtime/pkg/controller/controllerutil"
 )
 
 // PromiseRevisionReconciler reconciles a PromiseRevision object
@@ -63,6 +71,20 @@ func (r *PromiseRevisionReconciler) Reconcile(ctx context.Context, req ctrl.Requ
 		}
 		logging.Warn(logger, "failed to get PromiseRevision; requeueing")
 		return defaultRequeue, nil
+	}
+
+	if !revision.DeletionTimestamp.IsZero() {
+		return r.deleteResourceRequests(ctx, *revision)
+	}
+
+	if resourceutil.FinalizersAreMissing(revision, []string{resourceRequestCleanupFinalizer}) {
+		controllerutil.AddFinalizer(revision, resourceRequestCleanupFinalizer)
+		if err := r.Client.Update(ctx, revision); err != nil {
+			if kerrors.IsConflict(err) {
+				return fastRequeue, nil
+			}
+			return ctrl.Result{}, err
+		}
 	}
 
 	var promiseName string
@@ -157,4 +179,107 @@ func (r *PromiseRevisionReconciler) UnsetPreviousLatestRevision(
 		}
 	}
 	return nil
+}
+
+func (r *PromiseRevisionReconciler) deleteResourceRequests(ctx context.Context, revision v1alpha1.PromiseRevision) (ctrl.Result, error) {
+	promise := &v1alpha1.Promise{}
+	if err := r.Client.Get(
+		ctx,
+		types.NamespacedName{
+			Name: revision.Spec.PromiseRef.Name,
+		},
+		promise,
+	); err != nil {
+		return ctrl.Result{}, err
+	}
+	_, gvk, err := generateCRDAndGVK(promise, r.Log)
+	if err != nil {
+		return ctrl.Result{}, fmt.Errorf("failed to get gvk for promise %s", promise.Name)
+	}
+
+	bindingsForPromise, err := r.getResourceBindings(ctx, revision.Spec.PromiseRef.Name)
+	if err != nil {
+		return ctrl.Result{}, err
+	}
+
+	requeue, err := r.ensureResourceRequestsAreDeleted(ctx, bindingsForPromise, revision, gvk)
+	if err != nil {
+		return ctrl.Result{}, err
+	}
+
+	if requeue {
+		return fastRequeue, nil
+	}
+
+	if len(bindingsForPromise) == 0 {
+		controllerutil.RemoveFinalizer(&revision, resourceRequestCleanupFinalizer)
+
+		if err := r.Client.Update(ctx, &revision); err != nil {
+			return ctrl.Result{}, err
+		}
+		return ctrl.Result{}, nil
+	}
+
+	return ctrl.Result{}, nil
+}
+
+func (r *PromiseRevisionReconciler) ensureResourceRequestsAreDeleted(ctx context.Context, bindingsForPromise []v1alpha1.ResourceBinding, revision platformv1alpha1.PromiseRevision, gvk *schema.GroupVersionKind) (requeue bool, err error) {
+	var fastRequeue bool
+	for _, binding := range bindingsForPromise {
+		if binding.Spec.Version == revision.Spec.Version {
+			rr := &unstructured.Unstructured{}
+			rr.SetGroupVersionKind(*gvk)
+
+			if err := r.Client.Get(ctx,
+				types.NamespacedName{
+					Name:      binding.Spec.ResourceRef.Name,
+					Namespace: binding.Spec.ResourceRef.Namespace,
+				},
+				rr,
+			); err != nil {
+				r.Log.Info("error getting resource request", "error", err.Error())
+				if apierrors.IsNotFound(err) {
+					continue
+				}
+
+				return fastRequeue, err
+			}
+
+			if err := r.Client.Delete(ctx, rr); err != nil {
+				r.Log.Info("error deleting resource request", "error", err.Error())
+
+				return fastRequeue, err
+			}
+			fastRequeue = true
+		}
+	}
+
+	if fastRequeue {
+		return fastRequeue, nil
+	}
+
+	return false, nil
+}
+
+func (r *PromiseRevisionReconciler) getResourceBindings(ctx context.Context, promiseName string) ([]v1alpha1.ResourceBinding, error) {
+	bindingsForPromise := &v1alpha1.ResourceBindingList{}
+	resourceBindingLabels := map[string]string{
+		v1alpha1.PromiseNameLabel: promiseName,
+	}
+
+	bindingSelectorLabel := labels.FormatLabels(resourceBindingLabels)
+	selector, err := labels.Parse(bindingSelectorLabel)
+	if err != nil {
+		return bindingsForPromise.Items, err
+	}
+
+	err = r.Client.List(ctx, bindingsForPromise, &client.ListOptions{
+		LabelSelector: selector,
+	})
+
+	if err != nil {
+		return bindingsForPromise.Items, err
+	}
+
+	return bindingsForPromise.Items, nil
 }

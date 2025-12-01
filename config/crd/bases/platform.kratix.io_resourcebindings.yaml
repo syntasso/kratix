@@ -14,7 +14,20 @@ spec:
     singular: resourcebinding
   scope: Namespaced
   versions:
-  - name: v1alpha1
+  - additionalPrinterColumns:
+    - description: Resource using a Promise
+      jsonPath: .spec.resourceRef.name
+      name: Resource
+      type: string
+    - description: Promise being used by the Resource
+      jsonPath: .spec.promiseRef.name
+      name: Promise
+      type: string
+    - description: Promise version used by the Resource
+      jsonPath: .spec.version
+      name: Version
+      type: string
+    name: v1alpha1
     schema:
       openAPIV3Schema:
         description: ResourceBinding is the Schema for the resourcebindings API
@@ -138,6 +151,8 @@ spec:
         required:
         - spec
         type: object
+    selectableFields:
+    - jsonPath: .spec.version
     served: true
     storage: true
     subresources:

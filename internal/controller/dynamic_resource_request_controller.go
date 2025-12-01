@@ -57,11 +57,10 @@ import (
 
 const (
 	workFinalizer                     = v1alpha1.KratixPrefix + "work-cleanup"
+	resourceBindingFinalizer          = v1alpha1.KratixPrefix + "resource-binding-cleanup"
 	resourcePromiseVersionStatus      = "promiseVersion"
 	promiseRevisionLookupFailedReason = "FailedPromiseRevisionLookup"
 )
-
-var rrFinalizers = []string{workFinalizer, removeAllWorkflowJobsFinalizer, runDeleteWorkflowsFinalizer}
 
 type DynamicResourceRequestController struct {
 	//use same naming conventions as other controllers
@@ -156,25 +155,25 @@ func (r *DynamicResourceRequestController) Reconcile(ctx context.Context, req ct
 		return ctrl.Result{}, nil
 	}
 
+	opts := opts{client: r.Client, ctx: ctx, logger: logger}
+
 	var promiseRevisionUsed *v1alpha1.PromiseRevision
 	if r.PromiseUpgrade {
 		logging.Trace(baseLogger,
 			"PromiseUpgrade feature flag set to true; will reconcile with a PromiseRevision.")
 
 		var err error
-		promiseRevisionUsed, err = getPromiseFromRevision(ctx, rr, baseLogger, r, promise)
+		promiseRevisionUsed, err = getPromiseRevisionToUse(ctx, rr, baseLogger, r, promise)
 		if err != nil {
 			return ctrl.Result{}, err
 		}
 
 		promise.Spec = promiseRevisionUsed.Spec.PromiseSpec
 		logging.Debug(baseLogger,
-			"Found PromiseRevision", "revision name", promiseRevisionUsed.Name)
-		r.EventRecorder.Eventf(rr, v1.EventTypeNormal, "PromiseRevisionFound",
-			fmt.Sprintf("reconciling Resource Request with PromiseRevision %s", promiseRevisionUsed.Name))
+			"Found PromiseRevision from ResourceRequest", "revision name", promiseRevisionUsed.Name)
+		r.EventRecorder.Eventf(rr, v1.EventTypeNormal, "ReconcileStarted",
+			fmt.Sprintf("reconciling resource request with promise revision %s", promiseRevisionUsed.Name))
 	}
-
-	opts := opts{client: r.Client, ctx: ctx, logger: logger}
 
 	if !rr.GetDeletionTimestamp().IsZero() {
 		logging.Info(logger, "deleting resource request")
@@ -195,7 +194,7 @@ func (r *DynamicResourceRequestController) Reconcile(ctx context.Context, req ct
 	if resourceutil.FinalizersAreMissing(
 		rr, []string{workFinalizer, removeAllWorkflowJobsFinalizer, runDeleteWorkflowsFinalizer},
 	) {
-		if err := addFinalizers(opts, rr, []string{workFinalizer, removeAllWorkflowJobsFinalizer, runDeleteWorkflowsFinalizer}); err != nil {
+		if err := addFinalizers(opts, rr, r.getRRFinalizers()); err != nil {
 			if kerrors.IsConflict(err) {
 				return fastRequeue, nil
 			}
@@ -205,12 +204,9 @@ func (r *DynamicResourceRequestController) Reconcile(ctx context.Context, req ct
 	}
 
 	if r.PromiseUpgrade {
-		if err := r.updateResourceBinding(ctx, logger, rr, promise, promiseRevisionUsed); err != nil {
+		err := r.updateResourceBinding(ctx, logger, rr, promise, promiseRevisionUsed)
+		if err != nil {
 			return ctrl.Result{}, err
-		}
-
-		if r.updatePromiseVersionStatus(rr, promiseRevisionUsed) {
-			return ctrl.Result{}, r.Client.Status().Update(ctx, rr)
 		}
 	}
 
@@ -294,6 +290,12 @@ func (r *DynamicResourceRequestController) Reconcile(ctx context.Context, req ct
 		return r.nextReconciliation(logger), nil
 	}
 
+	if r.PromiseUpgrade {
+		if r.updatePromiseVersionStatus(rr, promiseRevisionUsed) {
+			return ctrl.Result{}, r.Client.Status().Update(ctx, rr)
+		}
+	}
+
 	return ctrl.Result{}, nil
 }
 
@@ -326,6 +328,15 @@ func (r *DynamicResourceRequestController) updateResourceBinding(ctx context.Con
 		"resourceName", resourceBinding.Spec.ResourceRef.Name,
 		"resourceNamespace", resourceBinding.Spec.ResourceRef.Namespace,
 	)
+
+	if op == "created" {
+		r.EventRecorder.Event(rr, v1.EventTypeNormal, "BindingCreated",
+			fmt.Sprintf("Binding %s created for promise %s version %s",
+				resourceBinding.GetName(),
+				promise.GetName(),
+				resourceBinding.Spec.Version))
+	}
+
 	return nil
 }
 
@@ -420,12 +431,20 @@ func (r *DynamicResourceRequestController) updateWorksSucceededCondition(rr *uns
 }
 
 func (r *DynamicResourceRequestController) updatePromiseVersionStatus(rr *unstructured.Unstructured, promiseRevision *v1alpha1.PromiseRevision) bool {
+	logging.Debug(r.Log, "Checking if we need to update the promise version in the status")
 	if !r.PromiseUpgrade || promiseRevision == nil {
+		logging.Debug(r.Log, "Feature flag disabled or no PromiseRevision: we don't")
 		return false
 	}
 	currentVersion := resourceutil.GetStatus(rr, resourcePromiseVersionStatus)
+	logging.Debug(r.Log, fmt.Sprintf("Promise version from Resource status: %s", currentVersion))
+	logging.Debug(r.Log, fmt.Sprintf("Promise version from current: %s", currentVersion))
 	if currentVersion != promiseRevision.Spec.Version {
 		resourceutil.SetStatus(rr, r.Log, resourcePromiseVersionStatus, promiseRevision.Spec.Version)
+		r.EventRecorder.Eventf(rr, v1.EventTypeNormal, "ReconcileSucceeded",
+			fmt.Sprintf("Resource request reconciled with promise %s version %s",
+				promiseRevision.Spec.PromiseRef.Name,
+				promiseRevision.Spec.Version))
 		return true
 	}
 	return false
@@ -517,7 +536,7 @@ func (r *DynamicResourceRequestController) updateWorkflowStatusCountersToZero(rr
 }
 
 func (r *DynamicResourceRequestController) deleteResources(o opts, promise *v1alpha1.Promise, resourceRequest *unstructured.Unstructured) (ctrl.Result, error) {
-	if resourceutil.FinalizersAreDeleted(resourceRequest, rrFinalizers) {
+	if resourceutil.FinalizersAreDeleted(resourceRequest, r.getRRFinalizers()) {
 		return ctrl.Result{}, nil
 	}
 
@@ -572,7 +591,48 @@ func (r *DynamicResourceRequestController) deleteResources(o opts, promise *v1al
 		return fastRequeue, nil
 	}
 
+	if r.PromiseUpgrade {
+		if controllerutil.ContainsFinalizer(resourceRequest, resourceBindingFinalizer) {
+			err := r.deleteResourceBinding(o, resourceRequest, promise, resourceBindingFinalizer)
+			if err != nil {
+				return ctrl.Result{}, err
+			}
+			return fastRequeue, nil
+		}
+	}
+
 	return fastRequeue, nil
+}
+
+func (r *DynamicResourceRequestController) deleteResourceBinding(o opts, rr *unstructured.Unstructured, promise *v1alpha1.Promise, finalizer string) error {
+	resourceBinding := &v1alpha1.ResourceBinding{}
+
+	namespacedName := types.NamespacedName{
+		Name:      objectutil.GenerateDeterministicObjectName(fmt.Sprintf("%s-%s", rr.GetName(), promise.GetName())),
+		Namespace: rr.GetNamespace(),
+	}
+
+	err := r.Client.Get(o.ctx, namespacedName, resourceBinding)
+	if err != nil {
+		if apierrors.IsNotFound(err) {
+			controllerutil.RemoveFinalizer(rr, finalizer)
+			if err := r.Client.Update(o.ctx, rr); err != nil {
+				r.Log.Info(err.Error())
+				return err
+			}
+			return nil
+		}
+	}
+
+	err = r.Client.Delete(o.ctx, resourceBinding)
+	if err != nil {
+		if !apierrors.IsNotFound(err) {
+			logging.Warn(o.logger, "could not delete ResourceBinding; retrying", "reason", err.Error())
+			return err
+		}
+	}
+
+	return nil
 }
 
 func (r *DynamicResourceRequestController) deleteWork(o opts, resourceRequest *unstructured.Unstructured, finalizer, namespace string) error {
@@ -717,13 +777,13 @@ func (r *DynamicResourceRequestController) fetchResourceBinding(
 	return &bindings.Items[0], nil
 }
 
-func getPromiseFromRevision(ctx context.Context, rr *unstructured.Unstructured, baseLogger logr.Logger, r *DynamicResourceRequestController, promise *v1alpha1.Promise) (*v1alpha1.PromiseRevision, error) {
+func getPromiseRevisionToUse(ctx context.Context, rr *unstructured.Unstructured, baseLogger logr.Logger, r *DynamicResourceRequestController, promise *v1alpha1.Promise) (*v1alpha1.PromiseRevision, error) {
 	var promiseVersionFromRRStatus string
 	var promiseRevisionToUse *v1alpha1.PromiseRevision
 
 	statusPromiseVersion := resourceutil.GetStatus(rr, resourcePromiseVersionStatus)
 	if statusPromiseVersion == "" {
-		logging.Trace(baseLogger,
+		logging.Debug(baseLogger,
 			"No PromiseVersion set in ResourceRequest status, will reconcile with the latest PromiseVersion")
 		var err error
 		if promiseRevisionToUse, err = latestRevision(ctx, r.Client, promise); err != nil {
@@ -733,8 +793,8 @@ func getPromiseFromRevision(ctx context.Context, rr *unstructured.Unstructured, 
 			return nil, err
 		}
 	} else {
-		logging.Trace(baseLogger,
-			"PromiseVersion found in Resource status. Fetching the corresponding ResourceBinding",
+		logging.Debug(baseLogger,
+			"PromiseVersion found in ResourceRequest status. Fetching the corresponding ResourceBinding",
 			".status.PromiseVersion", statusPromiseVersion)
 		resourceBinding, err := r.fetchResourceBinding(ctx, rr, promise)
 		if errors.Is(err, errResourceBindingNotFound) {
@@ -750,7 +810,12 @@ func getPromiseFromRevision(ctx context.Context, rr *unstructured.Unstructured, 
 			r.EventRecorder.Eventf(rr, v1.EventTypeWarning, promiseRevisionLookupFailedReason, err.Error())
 			return nil, err
 		}
+		logging.Debug(baseLogger, fmt.Sprintf("PromiseRevision fetched from ResourceBinding: %s",
+			promiseRevisionToUse.Spec.Version))
 	}
+	logging.Debug(baseLogger, fmt.Sprintf("PromiseRevision to use: %s",
+		promiseRevisionToUse.Spec.Version))
+
 	return promiseRevisionToUse, nil
 }
 
@@ -825,6 +890,14 @@ func (r *DynamicResourceRequestController) setPromiseLabels(ctx context.Context,
 		return err
 	}
 	return nil
+}
+
+func (r *DynamicResourceRequestController) getRRFinalizers() []string {
+	rrFinalizers := []string{workFinalizer, removeAllWorkflowJobsFinalizer, runDeleteWorkflowsFinalizer}
+	if r.PromiseUpgrade {
+		rrFinalizers = append(rrFinalizers, resourceBindingFinalizer)
+	}
+	return rrFinalizers
 }
 
 func getResourceLabels(rr *unstructured.Unstructured) map[string]string {

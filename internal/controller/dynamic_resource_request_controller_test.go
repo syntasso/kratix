@@ -816,16 +816,19 @@ var _ = Describe("DynamicResourceRequestController", func() {
 				Expect(err).NotTo(HaveOccurred())
 				Expect(result).To(Equal(ctrl.Result{}))
 
-				By("not creating any workflow resource objects")
-				Expect(reconcileConfigureOptsArg.Resources).To(BeEmpty())
+				By("not creating any workflow resource objects", func() {
+					Expect(reconcileConfigureOptsArg.Resources).To(BeEmpty())
+				})
 
-				By("setting 'paused' for the reconciled status.condition")
-				verifyPauseReconciliationStatus(resReq, resReqNameNamespace)
+				By("setting 'paused' for the reconciled status.condition", func() {
+					verifyPauseReconciliationStatus(resReq, resReqNameNamespace)
+				})
 
-				By("publishing event")
-				Expect(eventRecorder.Events).To(Receive(ContainSubstring(
-					"Warning PausedReconciliation 'kratix.io/paused' label set to 'true' for promise; pausing reconciliation for this resource request",
-				)))
+				By("publishing event", func() {
+					Expect(eventRecorder.Events).To(Receive(ContainSubstring(
+						"Warning PausedReconciliation 'kratix.io/paused' label set to 'true' for promise; pausing reconciliation for this resource request",
+					)))
+				})
 			})
 		})
 
@@ -839,21 +842,25 @@ var _ = Describe("DynamicResourceRequestController", func() {
 				resReq.SetGeneration(10)
 				Expect(fakeK8sClient.Update(ctx, resReq)).To(Succeed())
 			})
+
 			It("pauses the reconciliation for the resource", func() {
 				result, err := t.reconcileUntilCompletion(reconciler, resReq)
 				Expect(err).NotTo(HaveOccurred())
 				Expect(result).To(Equal(ctrl.Result{}))
 
-				By("not creating any workflow resource objects")
-				Expect(reconcileConfigureOptsArg.Resources).To(BeEmpty())
+				By("not creating any workflow resource objects", func() {
+					Expect(reconcileConfigureOptsArg.Resources).To(BeEmpty())
+				})
 
-				By("setting 'paused' for the reconciled status.condition")
-				verifyPauseReconciliationStatus(resReq, resReqNameNamespace)
+				By("setting 'paused' for the reconciled status.condition", func() {
+					verifyPauseReconciliationStatus(resReq, resReqNameNamespace)
+				})
 
-				By("publishing event")
-				Expect(eventRecorder.Events).To(Receive(ContainSubstring(
-					"Warning PausedReconciliation 'kratix.io/paused' label set to 'true' for promise; pausing reconciliation for this resource request",
-				)))
+				By("publishing event", func() {
+					Expect(eventRecorder.Events).To(Receive(ContainSubstring(
+						"Warning PausedReconciliation 'kratix.io/paused' label set to 'true' for promise; pausing reconciliation for this resource request",
+					)))
+				})
 			})
 		})
 	})
@@ -890,16 +897,19 @@ var _ = Describe("DynamicResourceRequestController", func() {
 				Expect(err).NotTo(HaveOccurred())
 				Expect(result).To(Equal(ctrl.Result{}))
 
-				By("not creating any workflow resource objects")
-				Expect(reconcileConfigureOptsArg.Resources).To(BeEmpty())
+				By("not creating any workflow resource objects", func() {
+					Expect(reconcileConfigureOptsArg.Resources).To(BeEmpty())
+				})
 
-				By("setting 'paused' for the reconciled status.condition")
-				verifyPauseReconciliationStatus(resReq, resReqNameNamespace)
+				By("setting 'paused' for the reconciled status.condition", func() {
+					verifyPauseReconciliationStatus(resReq, resReqNameNamespace)
+				})
 
-				By("publishing event")
-				Expect(eventRecorder.Events).To(Receive(ContainSubstring(
-					"Warning PausedReconciliation 'kratix.io/paused' label set to 'true' for this resource request; pausing reconciliation",
-				)))
+				By("publishing event", func() {
+					Expect(eventRecorder.Events).To(Receive(ContainSubstring(
+						"Warning PausedReconciliation 'kratix.io/paused' label set to 'true' for this resource request; pausing reconciliation",
+					)))
+				})
 			})
 		})
 
@@ -918,16 +928,19 @@ var _ = Describe("DynamicResourceRequestController", func() {
 				Expect(err).NotTo(HaveOccurred())
 				Expect(result).To(Equal(ctrl.Result{}))
 
-				By("not creating any workflow resource objects")
-				Expect(reconcileConfigureOptsArg.Resources).To(BeEmpty())
+				By("not creating any workflow resource objects", func() {
+					Expect(reconcileConfigureOptsArg.Resources).To(BeEmpty())
+				})
 
-				By("setting 'paused' for the reconciled status.condition")
-				verifyPauseReconciliationStatus(resReq, resReqNameNamespace)
+				By("setting 'paused' for the reconciled status.condition", func() {
+					verifyPauseReconciliationStatus(resReq, resReqNameNamespace)
+				})
 
-				By("publishing event")
-				Expect(eventRecorder.Events).To(Receive(ContainSubstring(
-					"Warning PausedReconciliation 'kratix.io/paused' label set to 'true' for this resource request; pausing reconciliation",
-				)))
+				By("publishing event", func() {
+					Expect(eventRecorder.Events).To(Receive(ContainSubstring(
+						"Warning PausedReconciliation 'kratix.io/paused' label set to 'true' for this resource request; pausing reconciliation",
+					)))
+				})
 			})
 		})
 	})
@@ -940,8 +953,7 @@ var _ = Describe("DynamicResourceRequestController", func() {
 			resReqNameNamespace = client.ObjectKeyFromObject(resReq)
 		})
 
-		When("there's no ResourceBinding created for the Resource"+
-			"and resource status has no promise version set", func() {
+		When("there's no ResourceBinding created for the Resource and the resource status has no promise version set", func() {
 			When("the latest PromiseRevision exists", func() {
 				It("reconciles", func() {
 					promiseVersion := "v1.1.0"
@@ -950,6 +962,16 @@ var _ = Describe("DynamicResourceRequestController", func() {
 					result, err := t.reconcileUntilCompletion(reconciler, resReq)
 					Expect(err).NotTo(HaveOccurred())
 					Expect(result).To(Equal(ctrl.Result{}))
+
+					By("setting the correct finalizers in the resource request", func() {
+						Expect(fakeK8sClient.Get(ctx, resReqNameNamespace, resReq)).To(Succeed())
+						Expect(resReq.GetFinalizers()).To(ConsistOf(
+							"kratix.io/work-cleanup",
+							"kratix.io/workflows-cleanup",
+							"kratix.io/delete-workflows",
+							"kratix.io/resource-binding-cleanup",
+						))
+					})
 
 					By("creating a resource binding for this resource request", func() {
 						bindingLabels := map[string]string{
@@ -970,7 +992,12 @@ var _ = Describe("DynamicResourceRequestController", func() {
 						Expect(binding.Spec.Version).To(Equal(promiseVersion))
 					})
 
-					Expect(fakeK8sClient.Get(ctx, resReqNameNamespace, resReq)).To(Succeed())
+					By("running the promise workflows successfully", func() {
+						setReconcileConfigureWorkflowToReturnFinished()
+						result, err := t.reconcileUntilCompletion(reconciler, resReq)
+						Expect(err).NotTo(HaveOccurred())
+						Expect(result).To(Equal(ctrl.Result{}))
+					})
 
 					By("setting the promise version in the resource status", func() {
 						Expect(fakeK8sClient.Get(ctx, resReqNameNamespace, resReq)).To(Succeed())
@@ -981,9 +1008,25 @@ var _ = Describe("DynamicResourceRequestController", func() {
 					})
 
 					By("publishing events", func() {
-						Expect(eventRecorder.Events).To(Receive(ContainSubstring(
-							"Normal PromiseRevisionFound reconciling Resource Request with PromiseRevision redis-v1.1.0",
-						)))
+						events := aggregateEvents(eventRecorder.Events)
+						Expect(events).To(ContainSubstring(
+							"Normal ReconcileStarted reconciling resource request with promise revision redis-v1.1.0",
+						))
+						Expect(events).To(ContainSubstring(
+							"Normal BindingCreated Binding example-redis-e7f90 created for promise redis version v1.1.0",
+						))
+					})
+
+					By("deleting the resource request", func() {
+						Expect(fakeK8sClient.Delete(ctx, resReq)).To(Succeed())
+						_, err = t.reconcileUntilCompletion(reconciler, resReq)
+						Expect(err).To(MatchError("reconcile loop detected"))
+
+						setReconcileDeleteWorkflowToReturnFinished(resReq)
+						result, err := t.reconcileUntilCompletion(reconciler, resReq)
+						Expect(result).To(Equal(ctrl.Result{}))
+						Expect(err).NotTo(HaveOccurred())
+						Expect(fakeK8sClient.Get(ctx, resReqNameNamespace, resReq)).To(MatchError(ContainSubstring("not found")))
 					})
 				})
 			})
@@ -1017,7 +1060,17 @@ var _ = Describe("DynamicResourceRequestController", func() {
 					Expect(err).NotTo(HaveOccurred())
 					Expect(result).To(Equal(ctrl.Result{}))
 
-					By("creating a resource binding using promise version from the resource request", func() {
+					By("setting the correct finalizers in the resource request", func() {
+						Expect(fakeK8sClient.Get(ctx, resReqNameNamespace, resReq)).To(Succeed())
+						Expect(resReq.GetFinalizers()).To(ConsistOf(
+							"kratix.io/work-cleanup",
+							"kratix.io/workflows-cleanup",
+							"kratix.io/delete-workflows",
+							"kratix.io/resource-binding-cleanup",
+						))
+					})
+
+					By("creating a resource binding using the promise version from the resource request", func() {
 						bindingLabels := map[string]string{
 							"kratix.io/promise-name":  promise.GetName(),
 							"kratix.io/resource-name": resReqNameNamespace.Name,
@@ -1036,8 +1089,6 @@ var _ = Describe("DynamicResourceRequestController", func() {
 						Expect(binding.Spec.Version).To(Equal(promiseVersion))
 					})
 
-					Expect(fakeK8sClient.Get(ctx, resReqNameNamespace, resReq)).To(Succeed())
-
 					By("not changing the promise version in the resource status", func() {
 						Expect(fakeK8sClient.Get(ctx, resReqNameNamespace, resReq)).To(Succeed())
 						status := resReq.Object["status"]
@@ -1048,7 +1099,7 @@ var _ = Describe("DynamicResourceRequestController", func() {
 
 					By("publishing events", func() {
 						Expect(eventRecorder.Events).To(Receive(ContainSubstring(
-							"Normal PromiseRevisionFound reconciling Resource Request with PromiseRevision redis-v0.0.1",
+							"Normal ReconcileStarted reconciling resource request with promise revision redis-v0.0.1",
 						)))
 					})
 				})
@@ -1075,11 +1126,13 @@ var _ = Describe("DynamicResourceRequestController", func() {
 		})
 
 		When("the ResourceBinding for the Resource exists", func() {
+			BeforeEach(func() {
+				promiseVersion := "v1.1.0"
+				createPromiseRevision(fakeK8sClient, promise, promiseVersion)
+			})
+
 			When("the corresponding PromiseRevision does not exist", func() {
 				It("returns a reconciliation error", func() {
-					promiseVersion := "v1.1.0"
-					createPromiseRevision(fakeK8sClient, promise, promiseVersion)
-
 					inexistentPromiseRevisionVersion := "v1.2.0"
 
 					resourceutil.SetStatus(resReq, l, "promiseVersion", inexistentPromiseRevisionVersion)
@@ -1092,6 +1145,78 @@ var _ = Describe("DynamicResourceRequestController", func() {
 					Expect(eventRecorder.Events).To(Receive(ContainSubstring(
 						"Warning FailedPromiseRevisionLookup cannot find a PromiseRevision for Promise redis with version v1.2.0",
 					)))
+				})
+			})
+
+			When("the PromiseVersion is updated in the ResourceBinding", func() {
+				It("reconciles the resource with the new desired version", func() {
+					By("reconciling successfully with version v1.1.0", func() {
+						setReconcileConfigureWorkflowToReturnFinished()
+						result, err := t.reconcileUntilCompletion(reconciler, resReq)
+						Expect(err).NotTo(HaveOccurred())
+						Expect(result).To(Equal(ctrl.Result{}))
+
+						Expect(fakeK8sClient.Get(ctx, resReqNameNamespace, resReq)).To(Succeed())
+						status := resReq.Object["status"]
+						Expect(status).NotTo(BeNil())
+						statusMap := status.(map[string]interface{})
+						Expect(statusMap["promiseVersion"]).To(Equal("v1.1.0"))
+					})
+
+					upgradedPromiseVersion := "v1.2.0"
+					By("registering an upgraded PromiseVersion", func() {
+						promiseLabels := promise.GetLabels()
+						promiseLabels[v1alpha1.PromiseVersionLabel] = upgradedPromiseVersion
+						promise.SetLabels(promiseLabels)
+						Expect(fakeK8sClient.Update(ctx, promise)).To(Succeed())
+						createPromiseRevision(fakeK8sClient, promise, upgradedPromiseVersion)
+					})
+
+					By("setting the upgraded version in the ResourceBinding to trigger the upgrade", func() {
+						var resBinding v1alpha1.ResourceBinding
+						bindingLabels := map[string]string{
+							"kratix.io/promise-name":  promise.GetName(),
+							"kratix.io/resource-name": resReqNameNamespace.Name,
+						}
+						var bindingList v1alpha1.ResourceBindingList
+						fakeK8sClient.List(ctx, &bindingList, &client.ListOptions{
+							Namespace:     resReqNameNamespace.Namespace,
+							LabelSelector: labels.SelectorFromSet(bindingLabels),
+						})
+						Expect(bindingList.Items).To(HaveLen(1))
+						resBinding = bindingList.Items[0]
+
+						resBinding.Spec.Version = upgradedPromiseVersion
+						Expect(fakeK8sClient.Update(ctx, &resBinding)).To(Succeed())
+						Expect(resBinding.Spec.Version).To(Equal(upgradedPromiseVersion))
+
+						Expect(fakeK8sClient.Get(ctx, resReqNameNamespace, resReq)).To(Succeed())
+						status := resReq.Object["status"]
+						Expect(status).NotTo(BeNil())
+						statusMap := status.(map[string]interface{})
+						Expect(statusMap["promiseVersion"]).To(Equal("v1.1.0"))
+					})
+
+					By("reconciling the ResourceRequest against the upgraded Promise", func() {
+						setReconcileConfigureWorkflowToReturnFinished()
+						result, err := t.reconcileUntilCompletion(reconciler, resReq)
+						Expect(err).NotTo(HaveOccurred())
+						Expect(result).To(Equal(ctrl.Result{}))
+					})
+
+					By("updating the Resource Status in the new revision version", func() {
+						Expect(fakeK8sClient.Get(ctx, resReqNameNamespace, resReq)).To(Succeed())
+						status := resReq.Object["status"]
+						Expect(status).NotTo(BeNil())
+						statusMap := status.(map[string]interface{})
+						Expect(statusMap["promiseVersion"]).To(Equal(upgradedPromiseVersion))
+					})
+
+					By("publishing reconciliation events with the new promise revision", func() {
+						eventMsgs := aggregateEvents(eventRecorder.Events)
+						eventMsg := "Normal ReconcileSucceeded Resource request reconciled with promise redis version v1.2.0"
+						Expect(eventMsgs).To(ContainSubstring(eventMsg))
+					})
 				})
 			})
 		})
@@ -1122,7 +1247,7 @@ func createPromiseRevision(client client.Client, promise *v1alpha1.Promise, vers
 	ExpectWithOffset(1, client.Create(ctx, promiseRevision)).To(Succeed())
 }
 
-func createResourceBinding(client client.Client, promise *v1alpha1.Promise, rr *unstructured.Unstructured, version string) {
+func createResourceBinding(client client.Client, promise *v1alpha1.Promise, rr *unstructured.Unstructured, version string) *v1alpha1.ResourceBinding {
 	resourceBinding := &v1alpha1.ResourceBinding{
 		ObjectMeta: metav1.ObjectMeta{
 			Name:      objectutil.GenerateDeterministicObjectName(fmt.Sprintf("%s-%s", rr.GetName(), promise.GetName())),
@@ -1144,6 +1269,7 @@ func createResourceBinding(client client.Client, promise *v1alpha1.Promise, rr *
 		},
 	}
 	ExpectWithOffset(1, client.Create(ctx, resourceBinding)).To(Succeed())
+	return resourceBinding
 }
 
 func setConfigureWorkflowStatus(resReq *unstructured.Unstructured, status v1.ConditionStatus, lastTransitionTime ...time.Time) {
