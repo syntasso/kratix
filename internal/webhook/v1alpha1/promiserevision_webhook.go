@@ -19,6 +19,7 @@ package v1alpha1
 import (
 	"context"
 	"fmt"
+	"strings"
 
 	"k8s.io/apimachinery/pkg/runtime"
 	ctrl "sigs.k8s.io/controller-runtime"
@@ -27,6 +28,7 @@ import (
 	"sigs.k8s.io/controller-runtime/pkg/webhook/admission"
 
 	platformv1alpha1 "github.com/syntasso/kratix/api/v1alpha1"
+	authenticationv1 "k8s.io/api/authentication/v1"
 )
 
 // nolint:unused
@@ -71,9 +73,28 @@ func (v *PromiseRevisionCustomValidator) ValidateDelete(ctx context.Context, obj
 	}
 	promiserevisionlog.Info("Validation for PromiseRevision upon deletion", "name", revision.GetName())
 
-	if revision.Status.Latest {
+	req, err := admission.RequestFromContext(ctx)
+	if err != nil {
+		promiserevisionlog.Error(err, "could not get admission request from context")
+		return nil, nil
+	}
+
+	user := req.UserInfo
+	if revision.Status.Latest && !isKratixController(user) {
 		promiserevisionlog.Info("This PromiseRevision is marked as latest; it cannot be deleted", "name", revision.GetName())
 		return nil, fmt.Errorf("can not delete the latest PromiseRevision")
 	}
 	return nil, nil
+}
+
+// isKratixController is a helper that checks if the request comes from
+// a service account from the kratix-platform-system namespace or system garbage collector
+func isKratixController(user authenticationv1.UserInfo) bool {
+	if strings.HasPrefix(user.Username, "system:serviceaccount:kratix-platform-system") {
+		return true
+	}
+	if user.Username == "system:serviceaccount:kube-system:generic-garbage-collector" {
+		return true
+	}
+	return false
 }
