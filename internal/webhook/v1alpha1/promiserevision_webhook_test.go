@@ -14,13 +14,14 @@ See the License for the specific language governing permissions and
 limitations under the License.
 */
 
-package v1alpha1
+package v1alpha1_test
 
 import (
 	"context"
 
 	. "github.com/onsi/ginkgo/v2"
 	. "github.com/onsi/gomega"
+	kratixWebhook "github.com/syntasso/kratix/internal/webhook/v1alpha1"
 	admissionv1 "k8s.io/api/admission/v1"
 	authv1 "k8s.io/api/authentication/v1"
 	"sigs.k8s.io/controller-runtime/pkg/webhook/admission"
@@ -31,14 +32,14 @@ import (
 var _ = Describe("PromiseRevision Webhook", func() {
 	var (
 		obj       *platformv1alpha1.PromiseRevision
-		validator PromiseRevisionCustomValidator
+		validator *kratixWebhook.PromiseRevisionCustomValidator
 	)
 
 	BeforeEach(func() {
 		obj = &platformv1alpha1.PromiseRevision{}
-		validator = PromiseRevisionCustomValidator{}
-		Expect(validator).NotTo(BeNil(), "Expected validator to be initialized")
-		Expect(obj).NotTo(BeNil(), "Expected obj to be initialized")
+		validator = &kratixWebhook.PromiseRevisionCustomValidator{}
+		Expect(validator).NotTo(BeNil())
+		Expect(obj).NotTo(BeNil())
 	})
 
 	Context("request comes from a regular user", func() {

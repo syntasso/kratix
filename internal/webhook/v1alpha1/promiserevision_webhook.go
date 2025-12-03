@@ -31,7 +31,6 @@ import (
 	authenticationv1 "k8s.io/api/authentication/v1"
 )
 
-// nolint:unused
 // log is for logging in this package.
 var promiserevisionlog = logf.Log.WithName("promiserevision-resource")
 
