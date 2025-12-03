@@ -130,3 +130,24 @@ webhooks:
     resources:
     - promisereleases
   sideEffects: None
+- admissionReviewVersions:
+  - v1
+  clientConfig:
+    service:
+      name: webhook-service
+      namespace: system
+      path: /validate-platform-kratix-io-v1alpha1-promiserevision
+  failurePolicy: Fail
+  name: vpromiserevision-v1alpha1.kb.io
+  rules:
+  - apiGroups:
+    - platform.kratix.io
+    apiVersions:
+    - v1alpha1
+    operations:
+    - CREATE
+    - UPDATE
+    - DELETE
+    resources:
+    - promiserevisions
+  sideEffects: None

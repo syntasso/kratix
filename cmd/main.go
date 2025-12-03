@@ -62,6 +62,7 @@ import (
 	platformv1alpha1 "github.com/syntasso/kratix/api/v1alpha1"
 	"github.com/syntasso/kratix/internal/controller"
 	"github.com/syntasso/kratix/internal/telemetry"
+	webhookv1alpha1 "github.com/syntasso/kratix/internal/webhook/v1alpha1"
 	"github.com/syntasso/kratix/lib/fetchers"
 	//+kubebuilder:scaffold:imports
 )
@@ -392,6 +393,11 @@ func main() {
 			setupLog.Error(err, "unable to create controller", "controller", "ResourceBinding")
 			os.Exit(1)
 		}
+		if err := webhookv1alpha1.SetupPromiseRevisionWebhookWithManager(mgr); err != nil {
+			setupLog.Error(err, "unable to create webhook", "webhook", "PromiseRevision")
+			os.Exit(1)
+		}
+
 		//+kubebuilder:scaffold:builder
 
 		if err := mgr.AddHealthzCheck("healthz", healthz.Ping); err != nil {
