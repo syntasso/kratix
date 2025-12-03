@@ -61,8 +61,8 @@ var _ = Describe("PromiseRevision Webhook", func() {
 		When("deleting PromiseRevision under Validating Webhook", func() {
 			It("allows deletion even if revision .status.latest is true", func() {
 				obj.Status.Latest = true
-				ctx := newCtxWithUserInfo("unit-test-user")
-				Expect(validator.ValidateDelete(ctx, obj)).Error().To(HaveOccurred())
+				ctx := newCtxWithUserInfo("system:serviceaccount:kratix-platform-system:kratix-platform-controller-manager")
+				Expect(validator.ValidateDelete(ctx, obj)).Error().NotTo(HaveOccurred())
 			})
 		})
 	})
