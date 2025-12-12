@@ -1,6 +1,7 @@
 package system_test
 
 import (
+	"encoding/json"
 	"fmt"
 	"strings"
 	"time"
@@ -10,8 +11,10 @@ import (
 	"github.com/syntasso/kratix/test/kubeutils"
 )
 
-var _ = FDescribe("Upgrade", func() {
+var _ = Describe("Upgrade", func() {
 	promiseName := "upgrade"
+	rrName := "upgrade-rr"
+	rrTwoName := "upgrade-rr-two"
 
 	BeforeEach(func() {
 		SetDefaultEventuallyTimeout(4 * time.Minute)
@@ -20,6 +23,7 @@ var _ = FDescribe("Upgrade", func() {
 	})
 
 	AfterEach(func() {
+		platform.EventuallyKubectlDelete("upgrades", rrTwoName)
 		platform.EventuallyKubectlDelete("promise", promiseName)
 	})
 
@@ -30,11 +34,10 @@ var _ = FDescribe("Upgrade", func() {
 
 		initialPromiseVersion := "v0.1.0"
 		updatedPromiseVersion := "v0.2.0"
-		rrName := "upgrade-rr"
-		rrTwoName := "upgrade-rr-two"
+
 		initialCMName := "upgrade-banana"
-		//updatedCMName := "upgrade-banana-updated"
-		twoCMName := "upgrade-apple-updated"
+		updatedCMName := "banana-updated"
+		twoCMName := "apple-updated"
 
 		By("creating a promise revision at promise installation")
 		platform.Kubectl("apply", "-f", "assets/upgrades/promise.yaml")
@@ -104,6 +107,41 @@ var _ = FDescribe("Upgrade", func() {
 		}).Should(ContainSubstring(twoCMName))
 
 		By("being able to upgrade the resource request when updating the resource binding")
+		bindingName := strings.TrimSpace(platform.Kubectl("get", "--namespace=default",
+			"resourcebindings", "-l", resourceBindingLabels, "-o=name"))
 
+		patch := []map[string]any{
+			{
+				"op":    "replace",
+				"path":  "/spec/version",
+				"value": "v0.2.0",
+			},
+		}
+
+		b, marshalErr := json.Marshal(patch)
+		Expect(marshalErr).NotTo(HaveOccurred())
+		platform.Kubectl("patch", bindingName, "--type=json", "-p", string(b))
+		Eventually(func() string {
+			return platform.Kubectl("get", "upgrades", rrName, "-ojsonpath='{.status.promiseVersion}'")
+		}).Should(ContainSubstring(updatedPromiseVersion))
+
+		Eventually(func() string {
+			return worker.Kubectl("get", "configmap")
+		}).Should(SatisfyAll(
+			ContainSubstring(updatedCMName),
+			Not(ContainSubstring(initialCMName))))
+
+		By("cleaning up the right resource binding when a request is deleted")
+		platform.EventuallyKubectlDelete("upgrades", rrName)
+
+		twoResourceBindingLabels := strings.Join([]string{
+			fmt.Sprintf("kratix.io/resource-name=%s", rrTwoName),
+			fmt.Sprintf("kratix.io/promise-name=%s", promiseName),
+		}, ",")
+
+		Eventually(func() string {
+			return platform.Kubectl("get", "--namespace=default",
+				"resourcebindings", "-l", twoResourceBindingLabels, "-o=name")
+		}).Should(ContainSubstring(fmt.Sprintf("%s-%s", rrTwoName, promiseName)))
 	})
 })
