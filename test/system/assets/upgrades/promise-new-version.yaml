@@ -1,0 +1,60 @@
+apiVersion: platform.kratix.io/v1alpha1
+kind: Promise
+metadata:
+  name: upgrade
+  labels:
+    kratix.io/promise-version: v0.2.0
+spec:
+  api:
+    apiVersion: apiextensions.k8s.io/v1
+    kind: CustomResourceDefinition
+    metadata:
+      name: upgrades.test.kratix.io
+    spec:
+      group: test.kratix.io
+      names:
+        kind: Upgrade
+        plural: upgrades
+        singular: upgrade
+      scope: Namespaced
+      versions:
+        - name: v1alpha1
+          schema:
+            openAPIV3Schema:
+              properties:
+                spec:
+                  properties:
+                    configMapName:
+                      type: string
+                  type: object
+              type: object
+          served: true
+          storage: true
+  workflows:
+    resource:
+      configure:
+        - apiVersion: platform.kratix.io/v1alpha1
+          kind: Pipeline
+          metadata:
+            name: resource-configure
+          spec:
+            containers:
+              - image: ghcr.io/syntasso/kratix-pipeline-utility:v0.0.1
+                name: gen-configmap
+                command:
+                  - /bin/sh
+                args:
+                  - -c
+                  - |
+                    set -eux
+                    configMapName=$(yq '.spec.configMapName' /kratix/input/object.yaml)
+                    
+                    cat <<EOF > /kratix/output/configmap.yaml
+                    apiVersion: v1
+                    kind: ConfigMap
+                    metadata:
+                      name: ${configMapName}-updated
+                      namespace: default
+                    data:
+                      key: value
+                    EOF

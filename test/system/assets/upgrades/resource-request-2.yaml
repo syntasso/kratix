@@ -1,0 +1,7 @@
+apiVersion: test.kratix.io/v1alpha1
+kind: Upgrade
+metadata:
+  name: upgrade-rr-two
+  namespace: default
+spec:
+  configMapName: apple

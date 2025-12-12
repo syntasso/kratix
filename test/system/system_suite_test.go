@@ -12,8 +12,9 @@ import (
 )
 
 var (
-	worker   *kubeutils.Cluster
-	platform *kubeutils.Cluster
+	worker           *kubeutils.Cluster
+	platform         *kubeutils.Cluster
+	kratixConfigPath string
 )
 
 func TestSystem(t *testing.T) {
@@ -31,8 +32,12 @@ var _ = SynchronizedBeforeSuite(func() {
 		Name:    getEnvOrDefault("WORKER_NAME", "worker-1")}
 
 	kubeutils.SetTimeoutAndInterval(30*time.Second, 2*time.Second)
+	kratixConfigPath = "./assets/kratix-config.yaml"
+	if getEnvOrDefault("UPGRADE_ENABLED", "false") == "true" {
+		kratixConfigPath = "./assets/kratix-config-upgrade.yaml"
+	}
 
-	platform.Kubectl("apply", "-f", "./assets/kratix-config.yaml")
+	platform.Kubectl("apply", "-f", kratixConfigPath)
 	platform.Kubectl("delete", "pod", "-l", "control-plane=controller-manager", "-n", "kratix-platform-system")
 	platform.Kubectl("wait", "-n", "kratix-platform-system", "deployments", "-l", "control-plane=controller-manager", "--for=condition=Available")
 }, func() {
