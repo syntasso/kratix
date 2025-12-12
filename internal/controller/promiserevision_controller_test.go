@@ -55,9 +55,11 @@ var _ = Describe("PromiseRevisionController", func() {
 		var revision *v1alpha1.PromiseRevision
 		var previousRevision *v1alpha1.PromiseRevision
 		var promiseVersion string
+		var previousPromiseVersion string
 
 		BeforeEach(func() {
 			promiseVersion = "v1.0.0"
+			previousPromiseVersion = "v0.9.0"
 			revision = &v1alpha1.PromiseRevision{
 				TypeMeta: metav1.TypeMeta{
 					Kind:       "PromiseRevision",
@@ -91,7 +93,7 @@ var _ = Describe("PromiseRevisionController", func() {
 					},
 				},
 				Spec: v1alpha1.PromiseRevisionSpec{
-					Version: "v0.9.0",
+					Version: previousPromiseVersion,
 					PromiseRef: v1alpha1.PromiseRef{
 						Name: "redis",
 					},
@@ -163,16 +165,26 @@ var _ = Describe("PromiseRevisionController", func() {
 
 		When("deleting a revision with an associated resource request", func() {
 			var rr *unstructured.Unstructured
+			var rro *unstructured.Unstructured
 			var resourceBinding *v1alpha1.ResourceBinding
+			var previousVersionResourceBinding *v1alpha1.ResourceBinding
 
 			BeforeEach(func() {
 				rr = &unstructured.Unstructured{}
+				rro = &unstructured.Unstructured{}
 				promise := createPromise(promisePath)
+
+				// redis-request
 				yamlFile, err := os.ReadFile(resourceRequestPath)
 				Expect(err).ToNot(HaveOccurred())
-
 				Expect(yaml.Unmarshal(yamlFile, rr)).To(Succeed())
 				Expect(fakeK8sClient.Create(ctx, rr)).To(Succeed())
+
+				// redis-request-other
+				yamlFile, err = os.ReadFile(resourceRequestOtherPath)
+				Expect(err).ToNot(HaveOccurred())
+				Expect(yaml.Unmarshal(yamlFile, rro)).To(Succeed())
+				Expect(fakeK8sClient.Create(ctx, rro)).To(Succeed())
 
 				resourceBinding = &v1alpha1.ResourceBinding{
 					ObjectMeta: metav1.ObjectMeta{
@@ -194,6 +206,27 @@ var _ = Describe("PromiseRevisionController", func() {
 					},
 				}
 				Expect(fakeK8sClient.Create(ctx, resourceBinding)).To(Succeed())
+
+				previousVersionResourceBinding = &v1alpha1.ResourceBinding{
+					ObjectMeta: metav1.ObjectMeta{
+						Name:      "example-redis-0s000",
+						Namespace: "default",
+						Labels: map[string]string{
+							v1alpha1.PromiseNameLabel: promise.GetName(),
+						},
+					},
+					Spec: v1alpha1.ResourceBindingSpec{
+						Version: previousPromiseVersion,
+						PromiseRef: v1alpha1.PromiseRef{
+							Name: "redis",
+						},
+						ResourceRef: v1alpha1.ResourceRef{
+							Name:      "example-other",
+							Namespace: "default",
+						},
+					},
+				}
+				Expect(fakeK8sClient.Create(ctx, previousVersionResourceBinding)).To(Succeed())
 
 				result, err := t.reconcileUntilCompletion(reconciler, revision)
 				Expect(err).NotTo(HaveOccurred())
@@ -233,6 +266,21 @@ var _ = Describe("PromiseRevisionController", func() {
 					revision,
 				)
 				Expect(err).To(MatchError(ContainSubstring("not found")))
+			})
+
+			It("does not delete the other versions resource bindings or request", func() {
+				Expect(fakeK8sClient.Delete(ctx, revision)).To(Succeed())
+				result, err := t.reconcileUntilCompletion(reconciler, revision)
+				Expect(err).ToNot(HaveOccurred())
+				Expect(result).To(Equal(ctrl.Result{}))
+
+				By("not deleting the other versions resource bindings", func() {
+					Expect(fakeK8sClient.Get(ctx, types.NamespacedName{Name: previousVersionResourceBinding.Name, Namespace: previousVersionResourceBinding.Namespace}, previousVersionResourceBinding)).To(Succeed())
+				})
+
+				By("not deleting the other request", func() {
+					Expect(fakeK8sClient.Get(ctx, types.NamespacedName{Name: rro.GetName(), Namespace: rro.GetNamespace()}, rro)).To(Succeed())
+				})
 			})
 		})
 	})

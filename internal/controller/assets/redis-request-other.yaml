@@ -1,0 +1,9 @@
+apiVersion: marketplace.kratix.io/v1alpha1
+kind: redis
+metadata:
+  name: example-other
+  namespace: default
+  labels:
+    non-kratix-label: "true"
+spec:
+  size: small

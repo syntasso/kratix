@@ -27,6 +27,7 @@ const (
 	promiseWithOnlyDepsUpdatedPath = "assets/promise-with-deps-only-updated.yaml"
 	promiseWithRequirements        = "assets/promise-with-requirements.yaml"
 	resourceRequestPath            = "assets/redis-request.yaml"
+	resourceRequestOtherPath       = "assets/redis-request-other.yaml"
 	updatedPromisePath             = "assets/redis-simple-promise-updated.yaml"
 )
 
