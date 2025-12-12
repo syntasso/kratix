@@ -11,14 +11,23 @@ import (
 )
 
 var _ = FDescribe("Upgrade", func() {
+	promiseName := "upgrade"
+
 	BeforeEach(func() {
 		SetDefaultEventuallyTimeout(4 * time.Minute)
 		SetDefaultEventuallyPollingInterval(2 * time.Second)
 		kubeutils.SetTimeoutAndInterval(4*time.Minute, 2*time.Second)
 	})
 
+	AfterEach(func() {
+		platform.EventuallyKubectlDelete("promise", promiseName)
+	})
+
 	It("works", func() {
-		promiseName := "upgrade"
+		if getEnvOrDefault("UPGRADE_ENABLED", "false") != "true" {
+			Skip("skipping upgrade test suite because UPGRADE_ENABLED is not set to true")
+		}
+
 		initialPromiseVersion := "v0.1.0"
 		updatedPromiseVersion := "v0.2.0"
 		rrName := "upgrade-rr"
@@ -62,13 +71,6 @@ var _ = FDescribe("Upgrade", func() {
 		}).Should(ContainSubstring(initialCMName))
 
 		By("creating a new promise revision when a new promise version is installed")
-		Eventually(func() string {
-			return platform.Kubectl("get", "promiserevisions")
-		}).Should(SatisfyAll(
-			ContainSubstring(fmt.Sprintf("%s-%s", promiseName, initialPromiseVersion)),
-			ContainSubstring(fmt.Sprintf("%s-%s", promiseName, updatedPromiseVersion))))
-
-		By("not updating the existing resource request")
 		platform.Kubectl("apply", "-f", "assets/upgrades/promise-new-version.yaml")
 		Eventually(func() string {
 			return platform.Kubectl("get", "promise", promiseName)
@@ -76,6 +78,13 @@ var _ = FDescribe("Upgrade", func() {
 			ContainSubstring("Available"),
 			ContainSubstring(updatedPromiseVersion)))
 
+		Eventually(func() string {
+			return platform.Kubectl("get", "promiserevisions")
+		}).Should(SatisfyAll(
+			ContainSubstring(fmt.Sprintf("%s-%s", promiseName, initialPromiseVersion)),
+			ContainSubstring(fmt.Sprintf("%s-%s", promiseName, updatedPromiseVersion))))
+
+		By("not updating the existing resource request")
 		Consistently(func() string {
 			return platform.Kubectl("get", "upgrades", rrName, "-ojsonpath='{.status.promiseVersion}'")
 		}, time.Second*5).Should(ContainSubstring(initialPromiseVersion))
