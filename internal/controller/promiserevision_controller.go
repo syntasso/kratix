@@ -202,7 +202,7 @@ func (r *PromiseRevisionReconciler) deleteResourceRequests(ctx context.Context, 
 		return ctrl.Result{}, err
 	}
 
-	requeue, err := r.ensureResourceRequestsAreDeleted(ctx, bindingsForPromise, revision, gvk)
+	versionBindingsExist, requeue, err := r.ensureResourceRequestsAreDeleted(ctx, bindingsForPromise, revision, gvk)
 	if err != nil {
 		return ctrl.Result{}, err
 	}
@@ -211,7 +211,7 @@ func (r *PromiseRevisionReconciler) deleteResourceRequests(ctx context.Context, 
 		return fastRequeue, nil
 	}
 
-	if len(bindingsForPromise) == 0 {
+	if !versionBindingsExist {
 		controllerutil.RemoveFinalizer(&revision, resourceRequestCleanupFinalizer)
 
 		if err := r.Client.Update(ctx, &revision); err != nil {
@@ -223,10 +223,11 @@ func (r *PromiseRevisionReconciler) deleteResourceRequests(ctx context.Context, 
 	return ctrl.Result{}, nil
 }
 
-func (r *PromiseRevisionReconciler) ensureResourceRequestsAreDeleted(ctx context.Context, bindingsForPromise []v1alpha1.ResourceBinding, revision platformv1alpha1.PromiseRevision, gvk *schema.GroupVersionKind) (requeue bool, err error) {
+func (r *PromiseRevisionReconciler) ensureResourceRequestsAreDeleted(ctx context.Context, bindingsForPromise []v1alpha1.ResourceBinding, revision platformv1alpha1.PromiseRevision, gvk *schema.GroupVersionKind) (versionBindingsExist bool, requeue bool, err error) {
 	var fastRequeue bool
 	for _, binding := range bindingsForPromise {
 		if binding.Spec.Version == revision.Spec.Version {
+			versionBindingsExist = true
 			rr := &unstructured.Unstructured{}
 			rr.SetGroupVersionKind(*gvk)
 
@@ -242,23 +243,23 @@ func (r *PromiseRevisionReconciler) ensureResourceRequestsAreDeleted(ctx context
 					continue
 				}
 
-				return fastRequeue, err
+				return versionBindingsExist, fastRequeue, err
 			}
 
 			if err := r.Client.Delete(ctx, rr); err != nil {
 				r.Log.Info("error deleting resource request", "error", err.Error())
 
-				return fastRequeue, err
+				return versionBindingsExist, fastRequeue, err
 			}
 			fastRequeue = true
 		}
 	}
 
 	if fastRequeue {
-		return fastRequeue, nil
+		return versionBindingsExist, fastRequeue, nil
 	}
 
-	return false, nil
+	return versionBindingsExist, false, nil
 }
 
 func (r *PromiseRevisionReconciler) getResourceBindings(ctx context.Context, promiseName string) ([]v1alpha1.ResourceBinding, error) {
