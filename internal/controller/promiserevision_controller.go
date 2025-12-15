@@ -138,6 +138,20 @@ func (r *PromiseRevisionReconciler) Reconcile(ctx context.Context, req ctrl.Requ
 
 // SetupWithManager sets up the controller with the Manager.
 func (r *PromiseRevisionReconciler) SetupWithManager(mgr ctrl.Manager) error {
+	// Index the version field for Resource Bindings to facilitate lookups
+	err := mgr.GetFieldIndexer().IndexField(context.Background(), &v1alpha1.ResourceBinding{}, "spec.version",
+		func(rawObj client.Object) []string {
+			rb := rawObj.(*v1alpha1.ResourceBinding)
+			if rb.Spec.Version == "" {
+				return nil
+			}
+			return []string{rb.Spec.Version}
+		},
+	)
+	if err != nil {
+		return err
+	}
+
 	return ctrl.NewControllerManagedBy(mgr).
 		For(&platformv1alpha1.PromiseRevision{}).
 		Named("promiserevision").
@@ -197,12 +211,12 @@ func (r *PromiseRevisionReconciler) deleteResourceRequests(ctx context.Context, 
 		return ctrl.Result{}, fmt.Errorf("failed to get gvk for promise %s", promise.Name)
 	}
 
-	bindingsForPromise, err := r.getResourceBindings(ctx, revision.Spec.PromiseRef.Name)
+	bindingsForPromiseRevision, err := r.getResourceBindings(ctx, revision)
 	if err != nil {
 		return ctrl.Result{}, err
 	}
 
-	versionBindingsExist, requeue, err := r.ensureResourceRequestsAreDeleted(ctx, bindingsForPromise, revision, gvk)
+	requeue, err := r.ensureResourceRequestsAreDeleted(ctx, bindingsForPromiseRevision, gvk)
 	if err != nil {
 		return ctrl.Result{}, err
 	}
@@ -211,7 +225,7 @@ func (r *PromiseRevisionReconciler) deleteResourceRequests(ctx context.Context, 
 		return fastRequeue, nil
 	}
 
-	if !versionBindingsExist {
+	if len(bindingsForPromiseRevision) == 0 {
 		controllerutil.RemoveFinalizer(&revision, resourceRequestCleanupFinalizer)
 
 		if err := r.Client.Update(ctx, &revision); err != nil {
@@ -223,60 +237,49 @@ func (r *PromiseRevisionReconciler) deleteResourceRequests(ctx context.Context, 
 	return ctrl.Result{}, nil
 }
 
-func (r *PromiseRevisionReconciler) ensureResourceRequestsAreDeleted(ctx context.Context, bindingsForPromise []v1alpha1.ResourceBinding, revision platformv1alpha1.PromiseRevision, gvk *schema.GroupVersionKind) (versionBindingsExist bool, requeue bool, err error) {
+func (r *PromiseRevisionReconciler) ensureResourceRequestsAreDeleted(ctx context.Context, bindingsForPromise []v1alpha1.ResourceBinding, gvk *schema.GroupVersionKind) (requeue bool, err error) {
 	var fastRequeue bool
 	for _, binding := range bindingsForPromise {
-		if binding.Spec.Version == revision.Spec.Version {
-			versionBindingsExist = true
-			rr := &unstructured.Unstructured{}
-			rr.SetGroupVersionKind(*gvk)
+		rr := &unstructured.Unstructured{}
+		rr.SetGroupVersionKind(*gvk)
 
-			if err := r.Client.Get(ctx,
-				types.NamespacedName{
-					Name:      binding.Spec.ResourceRef.Name,
-					Namespace: binding.Spec.ResourceRef.Namespace,
-				},
-				rr,
-			); err != nil {
-				r.Log.Info("error getting resource request", "error", err.Error())
-				if apierrors.IsNotFound(err) {
-					continue
-				}
-
-				return versionBindingsExist, fastRequeue, err
+		if err := r.Client.Get(ctx,
+			types.NamespacedName{
+				Name:      binding.Spec.ResourceRef.Name,
+				Namespace: binding.Spec.ResourceRef.Namespace,
+			},
+			rr,
+		); err != nil {
+			r.Log.Info("error getting resource request", "error", err.Error())
+			if apierrors.IsNotFound(err) {
+				continue
 			}
 
-			if err := r.Client.Delete(ctx, rr); err != nil {
-				r.Log.Info("error deleting resource request", "error", err.Error())
-
-				return versionBindingsExist, fastRequeue, err
-			}
-			fastRequeue = true
+			return fastRequeue, err
 		}
+
+		if err := r.Client.Delete(ctx, rr); err != nil {
+			r.Log.Info("error deleting resource request", "error", err.Error())
+
+			return fastRequeue, err
+		}
+		fastRequeue = true
 	}
 
 	if fastRequeue {
-		return versionBindingsExist, fastRequeue, nil
+		return fastRequeue, nil
 	}
 
-	return versionBindingsExist, false, nil
+	return false, nil
 }
 
-func (r *PromiseRevisionReconciler) getResourceBindings(ctx context.Context, promiseName string) ([]v1alpha1.ResourceBinding, error) {
+func (r *PromiseRevisionReconciler) getResourceBindings(ctx context.Context, promiseRevision v1alpha1.PromiseRevision) ([]v1alpha1.ResourceBinding, error) {
 	bindingsForPromise := &v1alpha1.ResourceBindingList{}
-	resourceBindingLabels := map[string]string{
-		v1alpha1.PromiseNameLabel: promiseName,
-	}
 
-	bindingSelectorLabel := labels.FormatLabels(resourceBindingLabels)
-	selector, err := labels.Parse(bindingSelectorLabel)
-	if err != nil {
-		return bindingsForPromise.Items, err
-	}
-
-	err = r.Client.List(ctx, bindingsForPromise, &client.ListOptions{
-		LabelSelector: selector,
-	})
+	err := r.Client.List(ctx, bindingsForPromise,
+		client.MatchingLabels{v1alpha1.PromiseNameLabel: promiseRevision.Spec.PromiseRef.Name},
+		client.MatchingFields{"spec.version": promiseRevision.Spec.Version},
+	)
 
 	if err != nil {
 		return bindingsForPromise.Items, err
