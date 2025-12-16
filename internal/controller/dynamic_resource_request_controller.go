@@ -308,7 +308,14 @@ func (r *DynamicResourceRequestController) updateResourceBinding(ctx context.Con
 	}
 	op, err := controllerutil.CreateOrUpdate(ctx, r.Client, resourceBinding, func() error {
 		resourceBinding.ObjectMeta.Labels = resourceBindingLabels(rr, promise)
-		resourceBinding.Spec.Version = promiseRevisionUsed.Spec.Version
+		if resourceBinding.Spec.Version == "" {
+			resourceBinding.Spec.Version = "latest"
+			existingPromiseVersion := resourceutil.GetStatus(rr, "promiseVersion")
+			if existingPromiseVersion != "" {
+				resourceBinding.Spec.Version = existingPromiseVersion
+			}
+		}
+
 		resourceBinding.Spec.PromiseRef = v1alpha1.PromiseRef{Name: promise.GetName()}
 		resourceBinding.Spec.ResourceRef = v1alpha1.ResourceRef{
 			Name:      rr.GetName(),
@@ -778,43 +785,24 @@ func (r *DynamicResourceRequestController) fetchResourceBinding(
 }
 
 func getPromiseRevisionToUse(ctx context.Context, rr *unstructured.Unstructured, baseLogger logr.Logger, r *DynamicResourceRequestController, promise *v1alpha1.Promise) (*v1alpha1.PromiseRevision, error) {
-	var promiseVersionFromRRStatus string
 	var promiseRevisionToUse *v1alpha1.PromiseRevision
 
 	statusPromiseVersion := resourceutil.GetStatus(rr, resourcePromiseVersionStatus)
-	if statusPromiseVersion == "" {
-		logging.Debug(baseLogger,
-			"No PromiseVersion set in ResourceRequest status, will reconcile with the latest PromiseVersion")
-		var err error
-		if promiseRevisionToUse, err = latestRevision(ctx, r.Client, promise); err != nil {
-			msg := fmt.Sprintf("cannot find the latest PromiseRevision for Promise %s", promise.GetName())
-			logging.Error(baseLogger, err, msg)
-			r.EventRecorder.Eventf(rr, v1.EventTypeWarning, promiseRevisionLookupFailedReason, msg)
-			return nil, err
-		}
-	} else {
-		logging.Debug(baseLogger,
-			"PromiseVersion found in ResourceRequest status. Fetching the corresponding ResourceBinding",
-			".status.PromiseVersion", statusPromiseVersion)
-		resourceBinding, err := r.fetchResourceBinding(ctx, rr, promise)
-		if errors.Is(err, errResourceBindingNotFound) {
-			promiseVersionFromRRStatus = statusPromiseVersion
-		} else if err != nil && !errors.Is(err, errResourceBindingNotFound) {
-			baseLogger.Error(err, "failed to fetch ResourceBinding for ResourceRequest")
-			return nil, err
-		}
-
-		promiseRevisionToUse, err = fetchRevision(ctx, r.Client, promise, resourceBinding, promiseVersionFromRRStatus)
-		if err != nil {
-			baseLogger.Error(err, "failed to fetch PromiseRevision for ResourceRequest")
-			r.EventRecorder.Eventf(rr, v1.EventTypeWarning, promiseRevisionLookupFailedReason, err.Error())
-			return nil, err
-		}
-		logging.Debug(baseLogger, fmt.Sprintf("PromiseRevision fetched from ResourceBinding: %s",
-			promiseRevisionToUse.Spec.Version))
+	resourceBinding, err := r.fetchResourceBinding(ctx, rr, promise)
+	if err != nil && !errors.Is(err, errResourceBindingNotFound) {
+		baseLogger.Error(err, "failed to fetch ResourceBinding for ResourceRequest")
+		return nil, err
 	}
-	logging.Debug(baseLogger, fmt.Sprintf("PromiseRevision to use: %s",
-		promiseRevisionToUse.Spec.Version))
+
+	if resourceBinding != nil {
+		logging.Debug(baseLogger, "fetched ResourceBinding for ResourceRequest", "resourceBinding", resourceBinding.Spec.Version)
+	}
+	promiseRevisionToUse, err = fetchRevision(ctx, r.Client, promise, resourceBinding, statusPromiseVersion)
+	if err != nil {
+		baseLogger.Error(err, "failed to fetch PromiseRevision for ResourceRequest")
+		r.EventRecorder.Eventf(rr, v1.EventTypeWarning, promiseRevisionLookupFailedReason, err.Error())
+		return nil, err
+	}
 
 	return promiseRevisionToUse, nil
 }
@@ -846,9 +834,19 @@ func latestRevision(ctx context.Context, c client.Client, promise *v1alpha1.Prom
 
 func fetchRevision(ctx context.Context, c client.Client, promise *v1alpha1.Promise,
 	binding *v1alpha1.ResourceBinding, promiseVersionFromRRStatus string) (*v1alpha1.PromiseRevision, error) {
+
 	desiredVersion := promiseVersionFromRRStatus
+
 	if binding != nil {
+		if binding.Spec.Version == "latest" {
+			return latestRevision(ctx, c, promise)
+		}
 		desiredVersion = binding.Spec.Version
+	}
+
+	// this is a brand new request
+	if desiredVersion == "" {
+		return latestRevision(ctx, c, promise)
 	}
 
 	revisionList := &v1alpha1.PromiseRevisionList{}
