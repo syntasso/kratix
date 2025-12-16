@@ -1,7 +1,7 @@
 apiVersion: test.kratix.io/v1alpha1
 kind: Upgrade
 metadata:
-  name: upgrade-rr
+  name: upgrade-rr-one
   namespace: default
 spec:
   configMapName: banana

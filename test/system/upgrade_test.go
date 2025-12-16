@@ -11,9 +11,9 @@ import (
 	"github.com/syntasso/kratix/test/kubeutils"
 )
 
-var _ = FDescribe("Upgrade", func() {
+var _ = Describe("Upgrade", func() {
 	promiseName := "upgrade"
-	rrOneName := "upgrade-rr"
+	rrOneName := "upgrade-rr-one"
 	rrTwoName := "upgrade-rr-two"
 
 	BeforeEach(func() {
@@ -23,8 +23,8 @@ var _ = FDescribe("Upgrade", func() {
 	})
 
 	AfterEach(func() {
-		//platform.EventuallyKubectlDelete("upgrades", rrTwoName)
-		//platform.EventuallyKubectlDelete("promise", promiseName)
+		platform.EventuallyKubectlDelete("upgrades", rrTwoName)
+		platform.EventuallyKubectlDelete("promise", promiseName)
 	})
 
 	It("works", func() {
@@ -70,28 +70,16 @@ var _ = FDescribe("Upgrade", func() {
 
 		By("creating a resource binding when making a request", func() {
 			for _, resourceName := range []string{rrOneName, rrTwoName} {
-				resourceBindingLabels := strings.Join([]string{
-					fmt.Sprintf("kratix.io/resource-name=%s", resourceName),
-					fmt.Sprintf("kratix.io/promise-name=%s", promiseName),
-				}, ",")
-
 				Eventually(func(g Gomega) {
-					g.Expect(platform.Kubectl("get", "--namespace=default",
-						"resourcebindings", "-l", resourceBindingLabels, "-o=name")).To(ContainSubstring(fmt.Sprintf("%s-%s", resourceName, promiseName)))
-					g.Expect(platform.Kubectl("get", "--namespace=default",
-						"resourcebindings", "-l", resourceBindingLabels, "-o=jsonpath='{.spec.version}'")).To(ContainSubstring("latest"))
+					name := getBindingName(promiseName, resourceName)
+					g.Expect(name).To(ContainSubstring(fmt.Sprintf("%s-%s", resourceName, promiseName)))
+					g.Expect(platform.Kubectl("get", "--namespace=default", name, "-o=jsonpath='{.spec.version}'")).To(ContainSubstring("latest"))
 				}).Should(Succeed())
 			}
 		})
 
 		By("pinning resource two to the current version", func() {
-			resourceBindingLabels := strings.Join([]string{
-				fmt.Sprintf("kratix.io/resource-name=%s", rrTwoName),
-				fmt.Sprintf("kratix.io/promise-name=%s", promiseName),
-			}, ",")
-
-			bindingName := strings.TrimSpace(platform.Kubectl("get", "--namespace=default",
-				"resourcebindings", "-l", resourceBindingLabels, "-o=name"))
+			bindingName := getBindingName(promiseName, rrTwoName)
 
 			patch := []map[string]any{
 				{
@@ -106,7 +94,7 @@ var _ = FDescribe("Upgrade", func() {
 			platform.Kubectl("patch", bindingName, "--type=json", "-p", string(b))
 			Eventually(func() string {
 				return platform.Kubectl("get", "upgrades", rrOneName, "-ojsonpath='{.status.promiseVersion}'")
-			}).Should(ContainSubstring(updatedPromiseVersion))
+			}).Should(ContainSubstring(initialPromiseVersion))
 		})
 
 		By("verifying the generated config maps", func() {
@@ -142,7 +130,7 @@ var _ = FDescribe("Upgrade", func() {
 
 			Eventually(func() string {
 				return worker.Kubectl("get", "configmap")
-			}, time.Second*5).Should(ContainSubstring(rrOneAfterUpgradeCMName))
+			}).Should(ContainSubstring(rrOneAfterUpgradeCMName))
 		})
 
 		By("not updating the resource request pinned to a specific version", func() {
@@ -156,12 +144,7 @@ var _ = FDescribe("Upgrade", func() {
 		})
 
 		By("updating the v0.1.0 resource binding to v0.2.0", func() {
-			resourceBindingLabels := strings.Join([]string{
-				fmt.Sprintf("kratix.io/resource-name=%s", rrTwoName),
-				fmt.Sprintf("kratix.io/promise-name=%s", promiseName),
-			}, ",")
-			bindingName := strings.TrimSpace(platform.Kubectl("get", "--namespace=default",
-				"resourcebindings", "-l", resourceBindingLabels, "-o=name"))
+			bindingName := getBindingName(promiseName, rrTwoName)
 
 			patch := []map[string]any{
 				{
@@ -174,18 +157,29 @@ var _ = FDescribe("Upgrade", func() {
 			b, marshalErr := json.Marshal(patch)
 			Expect(marshalErr).NotTo(HaveOccurred())
 			platform.Kubectl("patch", bindingName, "--type=json", "-p", string(b))
-		})
-
-		By("upgrading the resource to v0.2.0", func() {
 			Eventually(func() string {
 				return platform.Kubectl("get", "upgrades", rrTwoName, "-ojsonpath='{.status.promiseVersion}'")
 			}).Should(ContainSubstring(updatedPromiseVersion))
+		})
 
+		By("upgrading the resource to v0.2.0", func() {
 			Eventually(func() string {
 				return worker.Kubectl("get", "configmap")
 			}).Should(SatisfyAll(
 				ContainSubstring(rrTwoAfterUpgradeCMName),
 				Not(ContainSubstring(rrTwoBeforeUpgradeCMName))))
+		})
+
+		By("restoring the bindings correctly when they are deleted", func() {
+			platform.EventuallyKubectlDelete("resourcebindings", "--all")
+
+			Eventually(func(g Gomega) {
+				resourceOneBindingName := getBindingName(promiseName, rrOneName)
+				resourceTwoBindingName := getBindingName(promiseName, rrTwoName)
+
+				g.Expect(platform.Kubectl("get", "--namespace=default", resourceOneBindingName, "-o=jsonpath='{.spec.version}'")).To(ContainSubstring("latest"))
+				g.Expect(platform.Kubectl("get", "--namespace=default", resourceTwoBindingName, "-o=jsonpath='{.spec.version}'")).To(ContainSubstring("v0.2.0"))
+			}).Should(Succeed())
 		})
 
 		By("cleaning up the right resource binding when a request is deleted", func() {
@@ -205,3 +199,13 @@ var _ = FDescribe("Upgrade", func() {
 		})
 	})
 })
+
+func getBindingName(promiseName, resourceName string) string {
+	resourceBindingLabels := strings.Join([]string{
+		fmt.Sprintf("kratix.io/resource-name=%s", resourceName),
+		fmt.Sprintf("kratix.io/promise-name=%s", promiseName),
+	}, ",")
+	return strings.TrimSpace(
+		platform.Kubectl("get", "--namespace=default", "resourcebindings", "-l", resourceBindingLabels, "-o=name"),
+	)
+}

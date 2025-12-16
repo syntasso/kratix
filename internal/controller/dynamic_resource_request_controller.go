@@ -59,6 +59,7 @@ const (
 	workFinalizer                     = v1alpha1.KratixPrefix + "work-cleanup"
 	resourceBindingFinalizer          = v1alpha1.KratixPrefix + "resource-binding-cleanup"
 	resourcePromiseVersionStatus      = "promiseVersion"
+	resourceBindingVersionStatus      = "resourceBindingVersion"
 	promiseRevisionLookupFailedReason = "FailedPromiseRevisionLookup"
 )
 
@@ -158,12 +159,13 @@ func (r *DynamicResourceRequestController) Reconcile(ctx context.Context, req ct
 	opts := opts{client: r.Client, ctx: ctx, logger: logger}
 
 	var promiseRevisionUsed *v1alpha1.PromiseRevision
+	var bindingVersion string
 	if r.PromiseUpgrade {
 		logging.Trace(baseLogger,
 			"PromiseUpgrade feature flag set to true; will reconcile with a PromiseRevision.")
 
 		var err error
-		promiseRevisionUsed, err = getPromiseRevisionToUse(ctx, rr, baseLogger, r, promise)
+		promiseRevisionUsed, bindingVersion, err = getPromiseRevisionToUse(ctx, rr, baseLogger, r, promise)
 		if err != nil {
 			return ctrl.Result{}, err
 		}
@@ -204,7 +206,7 @@ func (r *DynamicResourceRequestController) Reconcile(ctx context.Context, req ct
 	}
 
 	if r.PromiseUpgrade {
-		err := r.updateResourceBinding(ctx, logger, rr, promise, promiseRevisionUsed)
+		err := r.updateResourceBinding(ctx, logger, rr, promise)
 		if err != nil {
 			return ctrl.Result{}, err
 		}
@@ -270,7 +272,7 @@ func (r *DynamicResourceRequestController) Reconcile(ctx context.Context, req ct
 	}
 	workLabels := resourceutil.GetWorkLabels(r.PromiseIdentifier, rr.GetName(), rrNamespace, "", v1alpha1.WorkTypeResource)
 
-	statusUpdate, err := r.generateResourceStatus(ctx, rr, int64(len(pipelineResources)), workLabels, promiseRevisionUsed)
+	statusUpdate, err := r.generateResourceStatus(ctx, rr, int64(len(pipelineResources)), workLabels, bindingVersion, promiseRevisionUsed)
 	if err != nil {
 		return ctrl.Result{}, err
 	}
@@ -291,7 +293,7 @@ func (r *DynamicResourceRequestController) Reconcile(ctx context.Context, req ct
 	}
 
 	if r.PromiseUpgrade {
-		if r.updatePromiseVersionStatus(rr, promiseRevisionUsed) {
+		if r.updatePromiseVersionStatus(rr, bindingVersion, promiseRevisionUsed) {
 			return ctrl.Result{}, r.Client.Status().Update(ctx, rr)
 		}
 	}
@@ -299,7 +301,7 @@ func (r *DynamicResourceRequestController) Reconcile(ctx context.Context, req ct
 	return ctrl.Result{}, nil
 }
 
-func (r *DynamicResourceRequestController) updateResourceBinding(ctx context.Context, logger logr.Logger, rr *unstructured.Unstructured, promise *v1alpha1.Promise, promiseRevisionUsed *v1alpha1.PromiseRevision) error {
+func (r *DynamicResourceRequestController) updateResourceBinding(ctx context.Context, logger logr.Logger, rr *unstructured.Unstructured, promise *v1alpha1.Promise) error {
 	resourceBinding := &v1alpha1.ResourceBinding{
 		ObjectMeta: metav1.ObjectMeta{
 			Name:      objectutil.GenerateDeterministicObjectName(fmt.Sprintf("%s-%s", rr.GetName(), promise.GetName())),
@@ -310,7 +312,7 @@ func (r *DynamicResourceRequestController) updateResourceBinding(ctx context.Con
 		resourceBinding.ObjectMeta.Labels = resourceBindingLabels(rr, promise)
 		if resourceBinding.Spec.Version == "" {
 			resourceBinding.Spec.Version = "latest"
-			existingPromiseVersion := resourceutil.GetStatus(rr, "promiseVersion")
+			existingPromiseVersion := resourceutil.GetStatus(rr, resourceBindingVersionStatus)
 			if existingPromiseVersion != "" {
 				resourceBinding.Spec.Version = existingPromiseVersion
 			}
@@ -348,7 +350,7 @@ func (r *DynamicResourceRequestController) updateResourceBinding(ctx context.Con
 }
 
 func (r *DynamicResourceRequestController) generateResourceStatus(ctx context.Context, rr *unstructured.Unstructured,
-	numberOfPipelines int64, workLabels map[string]string, promiseRevision *v1alpha1.PromiseRevision) (bool, error) {
+	numberOfPipelines int64, workLabels map[string]string, bindingVersion string, promiseRevision *v1alpha1.PromiseRevision) (bool, error) {
 	failed, misplaced, pending, ready, err := r.getWorksStatus(ctx, rr, workLabels)
 	if err != nil {
 		return false, err
@@ -356,7 +358,7 @@ func (r *DynamicResourceRequestController) generateResourceStatus(ctx context.Co
 	worksSucceededUpdate := r.updateWorksSucceededCondition(rr, failed, pending, ready, misplaced)
 	reconciledUpdate := r.updateReconciledCondition(rr)
 	workflowsCounterStatusUpdate := r.generateWorkflowsCounterStatus(rr, numberOfPipelines)
-	promiseVersionUpdate := r.updatePromiseVersionStatus(rr, promiseRevision)
+	promiseVersionUpdate := r.updatePromiseVersionStatus(rr, bindingVersion, promiseRevision)
 
 	return worksSucceededUpdate || reconciledUpdate || workflowsCounterStatusUpdate || promiseVersionUpdate, nil
 }
@@ -437,24 +439,33 @@ func (r *DynamicResourceRequestController) updateWorksSucceededCondition(rr *uns
 	return false
 }
 
-func (r *DynamicResourceRequestController) updatePromiseVersionStatus(rr *unstructured.Unstructured, promiseRevision *v1alpha1.PromiseRevision) bool {
-	logging.Debug(r.Log, "Checking if we need to update the promise version in the status")
+func (r *DynamicResourceRequestController) updatePromiseVersionStatus(rr *unstructured.Unstructured, bindingVersion string, promiseRevision *v1alpha1.PromiseRevision) bool {
+	logging.Trace(r.Log, "Checking if we need to update the promise version in the status")
 	if !r.PromiseUpgrade || promiseRevision == nil {
-		logging.Debug(r.Log, "Feature flag disabled or no PromiseRevision: we don't")
+		logging.Trace(r.Log, "Feature flag disabled or no PromiseRevision: we don't")
 		return false
 	}
+
+	versionUpdated := false
 	currentVersion := resourceutil.GetStatus(rr, resourcePromiseVersionStatus)
-	logging.Debug(r.Log, fmt.Sprintf("Promise version from Resource status: %s", currentVersion))
-	logging.Debug(r.Log, fmt.Sprintf("Promise version from current: %s", currentVersion))
 	if currentVersion != promiseRevision.Spec.Version {
 		resourceutil.SetStatus(rr, r.Log, resourcePromiseVersionStatus, promiseRevision.Spec.Version)
 		r.EventRecorder.Eventf(rr, v1.EventTypeNormal, "ReconcileSucceeded",
-			fmt.Sprintf("Resource request reconciled with promise %s version %s",
-				promiseRevision.Spec.PromiseRef.Name,
-				promiseRevision.Spec.Version))
-		return true
+			"Resource request reconciled with promise %s version %s",
+			promiseRevision.Spec.PromiseRef.Name,
+			promiseRevision.Spec.Version)
+		versionUpdated = true
 	}
-	return false
+
+	currentBindingVersion := resourceutil.GetStatus(rr, resourceBindingVersionStatus)
+	if currentBindingVersion != bindingVersion {
+		resourceutil.SetStatus(rr, r.Log, resourceBindingVersionStatus, bindingVersion)
+		r.EventRecorder.Eventf(rr, v1.EventTypeNormal, "ResourceBindingVersionUpdated",
+			"Resource binding version updated to %s", bindingVersion)
+		versionUpdated = true
+	}
+
+	return versionUpdated
 }
 
 func (r *DynamicResourceRequestController) setPausedReconciliationStatusConditions(ctx context.Context, rr *unstructured.Unstructured, eventMsg string) error {
@@ -784,27 +795,29 @@ func (r *DynamicResourceRequestController) fetchResourceBinding(
 	return &bindings.Items[0], nil
 }
 
-func getPromiseRevisionToUse(ctx context.Context, rr *unstructured.Unstructured, baseLogger logr.Logger, r *DynamicResourceRequestController, promise *v1alpha1.Promise) (*v1alpha1.PromiseRevision, error) {
+func getPromiseRevisionToUse(ctx context.Context, rr *unstructured.Unstructured, baseLogger logr.Logger, r *DynamicResourceRequestController, promise *v1alpha1.Promise) (*v1alpha1.PromiseRevision, string, error) {
 	var promiseRevisionToUse *v1alpha1.PromiseRevision
 
 	statusPromiseVersion := resourceutil.GetStatus(rr, resourcePromiseVersionStatus)
 	resourceBinding, err := r.fetchResourceBinding(ctx, rr, promise)
 	if err != nil && !errors.Is(err, errResourceBindingNotFound) {
 		baseLogger.Error(err, "failed to fetch ResourceBinding for ResourceRequest")
-		return nil, err
+		return nil, "", err
 	}
 
+	bindingVersion := "latest"
 	if resourceBinding != nil {
 		logging.Debug(baseLogger, "fetched ResourceBinding for ResourceRequest", "resourceBinding", resourceBinding.Spec.Version)
+		bindingVersion = resourceBinding.Spec.Version
 	}
 	promiseRevisionToUse, err = fetchRevision(ctx, r.Client, promise, resourceBinding, statusPromiseVersion)
 	if err != nil {
 		baseLogger.Error(err, "failed to fetch PromiseRevision for ResourceRequest")
 		r.EventRecorder.Eventf(rr, v1.EventTypeWarning, promiseRevisionLookupFailedReason, err.Error())
-		return nil, err
+		return nil, "", err
 	}
 
-	return promiseRevisionToUse, nil
+	return promiseRevisionToUse, bindingVersion, nil
 }
 
 func resourceBindingLabels(rr *unstructured.Unstructured, promise *v1alpha1.Promise) map[string]string {
