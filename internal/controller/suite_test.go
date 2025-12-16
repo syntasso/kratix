@@ -81,18 +81,29 @@ var _ = BeforeEach(func() {
 		return client.Status().Update(ctx, obj, opts...)
 	}
 
-	fakeK8sClient = fake.NewClientBuilder().WithInterceptorFuncs(interceptorsFuncs).WithScheme(scheme.Scheme).WithStatusSubresource(
-		&v1alpha1.PromiseRelease{},
-		&v1alpha1.Promise{},
-		&v1alpha1.Work{},
-		&v1alpha1.WorkPlacement{},
-		&v1alpha1.Destination{},
-		&v1alpha1.GitStateStore{},
-		&v1alpha1.BucketStateStore{},
-		&v1alpha1.PromiseRevision{},
-		//Add redis.marketplace.kratix.io/v1alpha1 so we can update its status
-		resReq,
-	).Build()
+	fakeK8sClient = fake.NewClientBuilder().
+		WithInterceptorFuncs(interceptorsFuncs).
+		WithScheme(scheme.Scheme).
+		WithStatusSubresource(
+			&v1alpha1.PromiseRelease{},
+			&v1alpha1.Promise{},
+			&v1alpha1.Work{},
+			&v1alpha1.WorkPlacement{},
+			&v1alpha1.Destination{},
+			&v1alpha1.GitStateStore{},
+			&v1alpha1.BucketStateStore{},
+			&v1alpha1.PromiseRevision{},
+			//Add redis.marketplace.kratix.io/v1alpha1 so we can update its status
+			resReq,
+		).
+		WithIndex(&v1alpha1.ResourceBinding{}, "spec.version", func(rawObj client.Object) []string {
+			rb := rawObj.(*v1alpha1.ResourceBinding)
+			if rb.Spec.Version == "" {
+				return nil
+			}
+			return []string{rb.Spec.Version}
+		}).
+		Build()
 
 	fakeApiExtensionsClient = fakeclientset.NewSimpleClientset().ApiextensionsV1()
 	t = &testReconciler{}
