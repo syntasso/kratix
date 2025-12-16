@@ -953,9 +953,10 @@ var _ = Describe("DynamicResourceRequestController", func() {
 			resReqNameNamespace = client.ObjectKeyFromObject(resReq)
 		})
 
-		When("there's no ResourceBinding created for the Resource and the resource status has no promise version set", func() {
-			When("the latest PromiseRevision exists", func() {
+		When("creating a new resource", func() {
+			When("there is a promise revision marked as latest", func() {
 				It("reconciles", func() {
+					defaultBindingVersion := "latest"
 					promiseVersion := "v1.1.0"
 					createPromiseRevision(fakeK8sClient, promise, promiseVersion)
 
@@ -973,23 +974,12 @@ var _ = Describe("DynamicResourceRequestController", func() {
 						))
 					})
 
-					By("creating a resource binding for this resource request", func() {
-						bindingLabels := map[string]string{
-							"kratix.io/promise-name":  promise.GetName(),
-							"kratix.io/resource-name": resReqNameNamespace.Name,
-						}
-						var bindingList v1alpha1.ResourceBindingList
-						fakeK8sClient.List(ctx, &bindingList, &client.ListOptions{
-							Namespace:     resReqNameNamespace.Namespace,
-							LabelSelector: labels.SelectorFromSet(bindingLabels),
-						})
-
-						Expect(bindingList.Items).To(HaveLen(1))
-						binding := bindingList.Items[0]
+					By("creating a resource binding for this resource request pinned to latest", func() {
+						binding := getResourceBinding(promise.GetName(), resReqNameNamespace)
 						Expect(binding.Spec.PromiseRef.Name).To(Equal(promise.GetName()))
 						Expect(binding.Spec.ResourceRef.Name).To(Equal(resReqNameNamespace.Name))
 						Expect(binding.Spec.ResourceRef.Namespace).To(Equal(resReqNameNamespace.Namespace))
-						Expect(binding.Spec.Version).To(Equal(promiseVersion))
+						Expect(binding.Spec.Version).To(Equal(defaultBindingVersion))
 					})
 
 					By("running the promise workflows successfully", func() {
@@ -999,21 +989,24 @@ var _ = Describe("DynamicResourceRequestController", func() {
 						Expect(result).To(Equal(ctrl.Result{}))
 					})
 
-					By("setting the promise version in the resource status", func() {
+					By("setting the promise and binding version in the resource status", func() {
 						Expect(fakeK8sClient.Get(ctx, resReqNameNamespace, resReq)).To(Succeed())
-						status := resReq.Object["status"]
-						Expect(status).NotTo(BeNil())
-						statusMap := status.(map[string]interface{})
-						Expect(statusMap["promiseVersion"]).To(Equal(promiseVersion))
+						Expect(resourceutil.GetStatus(resReq, "promiseVersion")).To(Equal(promiseVersion))
+						Expect(resourceutil.GetStatus(resReq, "resourceBindingVersion")).To(Equal(defaultBindingVersion))
 					})
 
 					By("publishing events", func() {
 						events := aggregateEvents(eventRecorder.Events)
-						Expect(events).To(ContainSubstring(
-							"Normal ReconcileStarted reconciling resource request with promise revision redis-v1.1.0",
-						))
-						Expect(events).To(ContainSubstring(
-							"Normal BindingCreated Binding example-redis-e7f90 created for promise redis version v1.1.0",
+						Expect(events).To(SatisfyAll(
+							ContainSubstring(
+								"Normal ReconcileStarted reconciling resource request with promise revision redis-v1.1.0",
+							),
+							ContainSubstring(
+								"Normal BindingCreated Binding example-redis-e7f90 created for promise redis version latest",
+							),
+							ContainSubstring(
+								"Normal ResourceBindingVersionUpdated Resource binding version updated to latest",
+							),
 						))
 					})
 
@@ -1031,77 +1024,57 @@ var _ = Describe("DynamicResourceRequestController", func() {
 				})
 			})
 
-			When("the latest PromiseRevision doesn't exist", func() {
+			When("there is no promise revision marked as latest", func() {
 				It("returns a reconciliation error", func() {
 					_, err := t.reconcileUntilCompletion(reconciler, resReq)
 					Expect(err).To(MatchError(ContainSubstring("cannot find any PromiseRevision for Promise redis with status.latest set to true")))
 					Expect(eventRecorder.Events).To(Receive(ContainSubstring(
-						"Warning FailedPromiseRevisionLookup cannot find the latest PromiseRevision for Promise redis",
+						"Warning FailedPromiseRevisionLookup cannot find any PromiseRevision for Promise redis with status.latest set to true",
 					)))
 				})
 			})
 		})
 
-		When("there's no ResourceBinding found but resource .status.promiseVersion is set", func() {
-			When("the PromiseRevision from resource status exists", func() {
-				It("reconciles", func() {
-					promiseVersion := "v0.0.1"
+		When("the resource was created from a revision but the resource binding doesn't exist", func() {
+			When("the resource is reconciled", func() {
+				const promiseVersion = "v0.0.1"
+
+				BeforeEach(func() {
 					createPromiseRevision(fakeK8sClient, promise, promiseVersion)
 					createPromiseRevision(fakeK8sClient, promise, "v1.1.0")
 
 					Expect(fakeK8sClient.Get(ctx, resReqNameNamespace, resReq)).To(Succeed())
-					if resReq.Object["status"] == nil {
-						resReq.Object["status"] = map[string]interface{}{}
-					}
 					resourceutil.SetStatus(resReq, l, "promiseVersion", promiseVersion)
+				})
+
+				It("recreates the resource binding using `latest` if the previous binding was `latest`", func() {
+					resourceutil.SetStatus(resReq, l, "resourceBindingVersion", "latest")
 					Expect(fakeK8sClient.Status().Update(ctx, resReq)).To(Succeed())
 
 					result, err := t.reconcileUntilCompletion(reconciler, resReq)
 					Expect(err).NotTo(HaveOccurred())
 					Expect(result).To(Equal(ctrl.Result{}))
 
-					By("setting the correct finalizers in the resource request", func() {
-						Expect(fakeK8sClient.Get(ctx, resReqNameNamespace, resReq)).To(Succeed())
-						Expect(resReq.GetFinalizers()).To(ConsistOf(
-							"kratix.io/work-cleanup",
-							"kratix.io/workflows-cleanup",
-							"kratix.io/delete-workflows",
-							"kratix.io/resource-binding-cleanup",
-						))
-					})
+					binding := getResourceBinding(promise.GetName(), resReqNameNamespace)
+					Expect(binding.Spec.PromiseRef.Name).To(Equal(promise.GetName()))
+					Expect(binding.Spec.ResourceRef.Name).To(Equal(resReqNameNamespace.Name))
+					Expect(binding.Spec.ResourceRef.Namespace).To(Equal(resReqNameNamespace.Namespace))
+					Expect(binding.Spec.Version).To(Equal("latest"))
+				})
 
-					By("creating a resource binding using the promise version from the resource request", func() {
-						bindingLabels := map[string]string{
-							"kratix.io/promise-name":  promise.GetName(),
-							"kratix.io/resource-name": resReqNameNamespace.Name,
-						}
-						var bindingList v1alpha1.ResourceBindingList
-						fakeK8sClient.List(ctx, &bindingList, &client.ListOptions{
-							Namespace:     resReqNameNamespace.Namespace,
-							LabelSelector: labels.SelectorFromSet(bindingLabels),
-						})
+				It("recreates the resource binding using the version if the previous binding was versioned", func() {
+					resourceutil.SetStatus(resReq, l, "resourceBindingVersion", promiseVersion)
+					Expect(fakeK8sClient.Status().Update(ctx, resReq)).To(Succeed())
 
-						Expect(bindingList.Items).To(HaveLen(1))
-						binding := bindingList.Items[0]
-						Expect(binding.Spec.PromiseRef.Name).To(Equal(promise.GetName()))
-						Expect(binding.Spec.ResourceRef.Name).To(Equal(resReqNameNamespace.Name))
-						Expect(binding.Spec.ResourceRef.Namespace).To(Equal(resReqNameNamespace.Namespace))
-						Expect(binding.Spec.Version).To(Equal(promiseVersion))
-					})
+					result, err := t.reconcileUntilCompletion(reconciler, resReq)
+					Expect(err).NotTo(HaveOccurred())
+					Expect(result).To(Equal(ctrl.Result{}))
 
-					By("not changing the promise version in the resource status", func() {
-						Expect(fakeK8sClient.Get(ctx, resReqNameNamespace, resReq)).To(Succeed())
-						status := resReq.Object["status"]
-						Expect(status).NotTo(BeNil())
-						statusMap := status.(map[string]interface{})
-						Expect(statusMap["promiseVersion"]).To(Equal(promiseVersion))
-					})
-
-					By("publishing events", func() {
-						Expect(eventRecorder.Events).To(Receive(ContainSubstring(
-							"Normal ReconcileStarted reconciling resource request with promise revision redis-v0.0.1",
-						)))
-					})
+					binding := getResourceBinding(promise.GetName(), resReqNameNamespace)
+					Expect(binding.Spec.PromiseRef.Name).To(Equal(promise.GetName()))
+					Expect(binding.Spec.ResourceRef.Name).To(Equal(resReqNameNamespace.Name))
+					Expect(binding.Spec.ResourceRef.Namespace).To(Equal(resReqNameNamespace.Namespace))
+					Expect(binding.Spec.Version).To(Equal(promiseVersion))
 				})
 			})
 
@@ -1110,9 +1083,6 @@ var _ = Describe("DynamicResourceRequestController", func() {
 					createPromiseRevision(fakeK8sClient, promise, "v1.0.0")
 
 					Expect(fakeK8sClient.Get(ctx, resReqNameNamespace, resReq)).To(Succeed())
-					if resReq.Object["status"] == nil {
-						resReq.Object["status"] = map[string]interface{}{}
-					}
 					resourceutil.SetStatus(resReq, l, "promiseVersion", "v2.0.0")
 					Expect(fakeK8sClient.Status().Update(ctx, resReq)).To(Succeed())
 
@@ -1125,7 +1095,7 @@ var _ = Describe("DynamicResourceRequestController", func() {
 			})
 		})
 
-		When("the ResourceBinding for the Resource exists", func() {
+		When("updating an existing resource", func() {
 			BeforeEach(func() {
 				promiseVersion := "v1.1.0"
 				createPromiseRevision(fakeK8sClient, promise, promiseVersion)
@@ -1148,7 +1118,7 @@ var _ = Describe("DynamicResourceRequestController", func() {
 				})
 			})
 
-			When("the PromiseVersion is updated in the ResourceBinding", func() {
+			When("the PromiseVersion is updated in the ResourceBinding for a pinned resource", func() {
 				It("reconciles the resource with the new desired version", func() {
 					By("reconciling successfully with version v1.1.0", func() {
 						setReconcileConfigureWorkflowToReturnFinished()
@@ -1157,10 +1127,7 @@ var _ = Describe("DynamicResourceRequestController", func() {
 						Expect(result).To(Equal(ctrl.Result{}))
 
 						Expect(fakeK8sClient.Get(ctx, resReqNameNamespace, resReq)).To(Succeed())
-						status := resReq.Object["status"]
-						Expect(status).NotTo(BeNil())
-						statusMap := status.(map[string]interface{})
-						Expect(statusMap["promiseVersion"]).To(Equal("v1.1.0"))
+						Expect(resourceutil.GetStatus(resReq, "promiseVersion")).To(Equal("v1.1.0"))
 					})
 
 					upgradedPromiseVersion := "v1.2.0"
@@ -1173,28 +1140,13 @@ var _ = Describe("DynamicResourceRequestController", func() {
 					})
 
 					By("setting the upgraded version in the ResourceBinding to trigger the upgrade", func() {
-						var resBinding v1alpha1.ResourceBinding
-						bindingLabels := map[string]string{
-							"kratix.io/promise-name":  promise.GetName(),
-							"kratix.io/resource-name": resReqNameNamespace.Name,
-						}
-						var bindingList v1alpha1.ResourceBindingList
-						fakeK8sClient.List(ctx, &bindingList, &client.ListOptions{
-							Namespace:     resReqNameNamespace.Namespace,
-							LabelSelector: labels.SelectorFromSet(bindingLabels),
-						})
-						Expect(bindingList.Items).To(HaveLen(1))
-						resBinding = bindingList.Items[0]
-
+						resBinding := getResourceBinding(promise.GetName(), resReqNameNamespace)
 						resBinding.Spec.Version = upgradedPromiseVersion
-						Expect(fakeK8sClient.Update(ctx, &resBinding)).To(Succeed())
+						Expect(fakeK8sClient.Update(ctx, resBinding)).To(Succeed())
 						Expect(resBinding.Spec.Version).To(Equal(upgradedPromiseVersion))
 
 						Expect(fakeK8sClient.Get(ctx, resReqNameNamespace, resReq)).To(Succeed())
-						status := resReq.Object["status"]
-						Expect(status).NotTo(BeNil())
-						statusMap := status.(map[string]interface{})
-						Expect(statusMap["promiseVersion"]).To(Equal("v1.1.0"))
+						Expect(resourceutil.GetStatus(resReq, "promiseVersion")).To(Equal("v1.1.0"))
 					})
 
 					By("reconciling the ResourceRequest against the upgraded Promise", func() {
@@ -1206,10 +1158,7 @@ var _ = Describe("DynamicResourceRequestController", func() {
 
 					By("updating the Resource Status in the new revision version", func() {
 						Expect(fakeK8sClient.Get(ctx, resReqNameNamespace, resReq)).To(Succeed())
-						status := resReq.Object["status"]
-						Expect(status).NotTo(BeNil())
-						statusMap := status.(map[string]interface{})
-						Expect(statusMap["promiseVersion"]).To(Equal(upgradedPromiseVersion))
+						Expect(resourceutil.GetStatus(resReq, "promiseVersion")).To(Equal(upgradedPromiseVersion))
 					})
 
 					By("publishing reconciliation events with the new promise revision", func() {
@@ -1219,12 +1168,83 @@ var _ = Describe("DynamicResourceRequestController", func() {
 					})
 				})
 			})
+
+			When("the PromiseVersion is updated in the ResourceBinding for a resource using the latest PromiseVersion", func() {
+				It("reconciles the resource with the current latest version", func() {
+					By("reconciling successfully with version v1.1.0", func() {
+						setReconcileConfigureWorkflowToReturnFinished()
+						result, err := t.reconcileUntilCompletion(reconciler, resReq)
+						Expect(err).NotTo(HaveOccurred())
+						Expect(result).To(Equal(ctrl.Result{}))
+
+						Expect(fakeK8sClient.Get(ctx, resReqNameNamespace, resReq)).To(Succeed())
+						Expect(resourceutil.GetStatus(resReq, "promiseVersion")).To(Equal("v1.1.0"))
+					})
+
+					By("setting the upgraded version in the ResourceBinding to latest", func() {
+						resBinding := getResourceBinding(promise.GetName(), resReqNameNamespace)
+						resBinding.Spec.Version = "latest"
+						Expect(fakeK8sClient.Update(ctx, resBinding)).To(Succeed())
+
+						Expect(fakeK8sClient.Get(ctx, resReqNameNamespace, resReq)).To(Succeed())
+						Expect(resourceutil.GetStatus(resReq, "promiseVersion")).To(Equal("v1.1.0"))
+					})
+
+					upgradedPromiseVersion := "v1.2.0"
+					By("registering an upgraded PromiseVersion", func() {
+						promiseLabels := promise.GetLabels()
+						promiseLabels[v1alpha1.PromiseVersionLabel] = upgradedPromiseVersion
+						promise.SetLabels(promiseLabels)
+						Expect(fakeK8sClient.Update(ctx, promise)).To(Succeed())
+						createPromiseRevision(fakeK8sClient, promise, upgradedPromiseVersion)
+					})
+
+					By("reconciling the ResourceRequest against the latest Promise version", func() {
+						setReconcileConfigureWorkflowToReturnFinished()
+						result, err := t.reconcileUntilCompletion(reconciler, resReq)
+						Expect(err).NotTo(HaveOccurred())
+						Expect(result).To(Equal(ctrl.Result{}))
+					})
+
+					By("updating the Resource Status to the new revision version", func() {
+						Expect(fakeK8sClient.Get(ctx, resReqNameNamespace, resReq)).To(Succeed())
+						Expect(resourceutil.GetStatus(resReq, "promiseVersion")).To(Equal(upgradedPromiseVersion))
+					})
+
+					By("publishing reconciliation events with the new promise revision", func() {
+						eventMsgs := aggregateEvents(eventRecorder.Events)
+						eventMsg := "Normal ReconcileSucceeded Resource request reconciled with promise redis version v1.2.0"
+						Expect(eventMsgs).To(ContainSubstring(eventMsg))
+					})
+				})
+
+			})
 		})
 
 	})
 })
 
-func createPromiseRevision(client client.Client, promise *v1alpha1.Promise, version string) {
+func createPromiseRevision(fakeK8sClient client.Client, promise *v1alpha1.Promise, version string) {
+	GinkgoHelper()
+
+	revisionList := v1alpha1.PromiseRevisionList{}
+	Expect(fakeK8sClient.List(ctx, &revisionList, &client.ListOptions{
+		LabelSelector: labels.SelectorFromSet(map[string]string{
+			"kratix.io/promise-name":    promise.GetName(),
+			"kratix.io/latest-revision": "true",
+		}),
+	})).To(Succeed())
+
+	for _, revision := range revisionList.Items {
+		revisionLabels := revision.GetLabels()
+		delete(revisionLabels, "kratix.io/latest-revision")
+		revision.SetLabels(revisionLabels)
+		Expect(fakeK8sClient.Update(ctx, &revision)).To(Succeed())
+
+		revision.Status.Latest = false
+		Expect(fakeK8sClient.Status().Update(ctx, &revision)).To(Succeed())
+	}
+
 	promiseRevision := &v1alpha1.PromiseRevision{
 		ObjectMeta: metav1.ObjectMeta{
 			Name: fmt.Sprintf("%s-%s", promise.GetName(), version),
@@ -1244,7 +1264,8 @@ func createPromiseRevision(client client.Client, promise *v1alpha1.Promise, vers
 			Latest: true,
 		},
 	}
-	ExpectWithOffset(1, client.Create(ctx, promiseRevision)).To(Succeed())
+	Expect(fakeK8sClient.Create(ctx, promiseRevision)).To(Succeed())
+	Expect(fakeK8sClient.Status().Update(ctx, promiseRevision)).To(Succeed())
 }
 
 func createResourceBinding(client client.Client, promise *v1alpha1.Promise, rr *unstructured.Unstructured, version string) *v1alpha1.ResourceBinding {
@@ -1367,4 +1388,20 @@ func verifyPauseReconciliationStatus(rr *unstructured.Unstructured, rrNameNamesp
 	ExpectWithOffset(1, string(condition.Status)).To(Equal("Unknown"))
 	ExpectWithOffset(1, condition.Reason).To(Equal("PausedReconciliation"))
 	ExpectWithOffset(1, condition.Message).To(ContainSubstring("Paused"))
+}
+
+func getResourceBinding(promiseName string, resource types.NamespacedName) *v1alpha1.ResourceBinding {
+	GinkgoHelper()
+	bindingLabels := map[string]string{
+		"kratix.io/promise-name":  promiseName,
+		"kratix.io/resource-name": resource.Name,
+	}
+	var bindingList v1alpha1.ResourceBindingList
+	fakeK8sClient.List(ctx, &bindingList, &client.ListOptions{
+		Namespace:     resource.Namespace,
+		LabelSelector: labels.SelectorFromSet(bindingLabels),
+	})
+
+	Expect(bindingList.Items).To(HaveLen(1), "found multiple resource bindings, expecting one")
+	return &bindingList.Items[0]
 }

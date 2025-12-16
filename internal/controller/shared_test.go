@@ -21,7 +21,6 @@ import (
 const (
 	promisePath                    = "assets/redis-simple-promise.yaml"
 	promiseWithWorkflowPath        = "assets/promise-with-workflow.yaml"
-	promiseWithWorkflowUpdatedPath = "assets/promise-with-workflow-updated.yaml"
 	promiseWithDeleteWorkflowPath  = "assets/promise-with-delete-workflow.yaml"
 	promiseWithOnlyDepsPath        = "assets/promise-with-deps-only.yaml"
 	promiseWithOnlyDepsUpdatedPath = "assets/promise-with-deps-only-updated.yaml"

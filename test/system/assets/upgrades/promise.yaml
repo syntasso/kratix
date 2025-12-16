@@ -53,7 +53,7 @@ spec:
                     apiVersion: v1
                     kind: ConfigMap
                     metadata:
-                      name: upgrade-${configMapName}
+                      name: before-upgrade-${configMapName}
                       namespace: default
                     data:
                       key: value
