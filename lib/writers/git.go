@@ -16,6 +16,7 @@ import (
 	"time"
 	"unicode"
 
+	"github.com/cenkalti/backoff/v5"
 	"github.com/go-git/go-git/v5"
 	"github.com/go-git/go-git/v5/plumbing"
 	"github.com/go-git/go-git/v5/plumbing/object"
@@ -234,7 +235,7 @@ func (g *GitWriter) update(subDir, workPlacementName string, workloadsToCreate [
 	if err != nil {
 		return "", err
 	}
-	defer os.RemoveAll(filepath.Dir(localTmpDir)) //nolint:errcheck
+	defer os.RemoveAll(localTmpDir) //nolint:errcheck
 
 	err = g.deleteExistingFiles(subDir != "", dirInGitRepo, workloadsToDelete, worktree, logger)
 	if err != nil {
@@ -326,7 +327,7 @@ func (g *GitWriter) ReadFile(filePath string) ([]byte, error) {
 	if err != nil {
 		return nil, err
 	}
-	defer os.RemoveAll(filepath.Dir(localTmpDir)) //nolint:errcheck
+	defer os.RemoveAll(localTmpDir) //nolint:errcheck
 
 	if _, err := worktree.Filesystem.Lstat(fullPath); err != nil {
 		logging.Debug(logger, "could not stat file", "error", err)
@@ -342,41 +343,100 @@ func (g *GitWriter) ReadFile(filePath string) ([]byte, error) {
 }
 
 func (g *GitWriter) setupLocalDirectoryWithRepo(logger logr.Logger) (string, *git.Repository, *git.Worktree, error) {
-	localTmpDir, err := createLocalDirectory(logger)
-	if err != nil {
-		logging.Error(logger, err, "could not create temporary repository directory")
+	var (
+		localTmpDir string
+		repo        *git.Repository
+		worktree    *git.Worktree
+		cloneErr    error
+	)
+
+	operation := func() error {
+		if localTmpDir != "" {
+			_ = os.RemoveAll(localTmpDir)
+		}
+
+		var err error
+		localTmpDir, err = createLocalDirectory(logger)
+		if err != nil {
+			logging.Error(logger, err, "could not create temporary repository directory")
+			return backoff.Permanent(err)
+		}
+
+		repo, cloneErr = g.cloneRepo(localTmpDir, logger)
+		if cloneErr != nil && !errors.Is(cloneErr, ErrAuthSucceededAfterTrim) {
+			return cloneErr
+		}
+
+		if repo == nil {
+			return fmt.Errorf("clone returned nil repository")
+		}
+
+		worktree, err = repo.Worktree()
+		if err != nil {
+			return err
+		}
+
+		return nil
+	}
+
+	if err := retryGitOperation(logger, "clone", operation); err != nil {
+		if localTmpDir != "" {
+			_ = os.RemoveAll(localTmpDir)
+		}
+		logging.Error(logger, err, "could not set up temporary repository directory")
 		return "", nil, nil, err
 	}
 
-	repo, cloneErr := g.cloneRepo(localTmpDir, logger)
-	if cloneErr != nil && !errors.Is(cloneErr, ErrAuthSucceededAfterTrim) {
-		logging.Error(logger, cloneErr, "could not clone repository")
-		return "", nil, nil, cloneErr
-	}
-
-	if repo == nil {
-		return "", nil, nil, fmt.Errorf("clone returned nil repository")
-	}
-
-	worktree, err := repo.Worktree()
-	if err != nil {
-		logging.Error(logger, err, "could not access repo worktree")
-		return "", nil, nil, err
-	}
 	return localTmpDir, repo, worktree, cloneErr
 }
 
 func (g *GitWriter) push(repo *git.Repository, logger logr.Logger) error {
-	err := repo.Push(&git.PushOptions{
-		RemoteName:      "origin",
-		Auth:            g.GitServer.Auth,
-		InsecureSkipTLS: true,
-	})
-	if err != nil {
+	operation := func() error {
+		err := repo.Push(&git.PushOptions{
+			RemoteName:      "origin",
+			Auth:            g.GitServer.Auth,
+			InsecureSkipTLS: true,
+		})
+		if errors.Is(err, git.NoErrAlreadyUpToDate) {
+			return nil
+		}
+		if isAuthError(err) {
+			return backoff.Permanent(err)
+		}
+		return err
+	}
+
+	if err := retryGitOperation(logger, "push", operation); err != nil {
 		logging.Error(logger, err, "could not push to remote")
 		return err
 	}
+
 	return nil
+}
+
+func retryGitOperation(logger logr.Logger, operation string, fn func() error) error {
+	backOff := backoff.NewExponentialBackOff()
+	backOff.InitialInterval = 500 * time.Millisecond
+	backOff.MaxInterval = 3 * time.Second
+
+	notify := func(err error, wait time.Duration) {
+		if err == nil {
+			return
+		}
+		logging.Warn(logger, fmt.Sprintf("git %s failed; will retry", operation), "error", err, "retryIn", wait)
+	}
+
+	_, err := backoff.Retry(
+		context.Background(),
+		func() (struct{}, error) {
+			return struct{}{}, fn()
+		},
+		backoff.WithBackOff(backOff),
+		backoff.WithMaxElapsedTime(20*time.Second),
+		backoff.WithNotify(notify),
+	)
+
+	return err
 }
 
 // validatePush attempts to validate write permissions by pushing no changes to the remote
