@@ -430,6 +430,43 @@ var _ = Describe("Conditions", func() {
 			})
 		})
 	})
+
+	Describe("RetryAfterRemaining", func() {
+		var lastSuccessful time.Time
+
+		BeforeEach(func() {
+			lastSuccessful = time.Now().Add(-time.Minute)
+			resourceutil.SetStatus(rr, logger, "lastSuccessfulConfigureWorkflowTime", lastSuccessful.Format(time.RFC3339))
+		})
+
+		It("returns false when retryAfter is not set", func() {
+			remaining, configured := resourceutil.RetryAfterRemaining(rr, logger)
+			Expect(configured).To(BeFalse())
+			Expect(remaining).To(Equal(time.Duration(0)))
+		})
+
+		It("calculates the remaining duration when retryAfter is configured", func() {
+			resourceutil.SetStatus(rr, logger, "retryAfter", "2h")
+			remaining, configured := resourceutil.RetryAfterRemaining(rr, logger)
+
+			Expect(configured).To(BeTrue())
+			Expect(remaining).To(BeNumerically("~", time.Hour+59*time.Minute, time.Minute))
+		})
+
+		It("uses the configure workflow condition when no last successful time exists", func() {
+			rr.Object["status"] = map[string]interface{}{"retryAfter": "10m"}
+			conditionTime := time.Now().Add(-5 * time.Minute)
+			resourceutil.SetCondition(rr, &clusterv1.Condition{
+				Type:               resourceutil.ConfigureWorkflowCompletedCondition,
+				Status:             v1.ConditionTrue,
+				LastTransitionTime: metav1.NewTime(conditionTime),
+			})
+
+			remaining, configured := resourceutil.RetryAfterRemaining(rr, logger)
+			Expect(configured).To(BeTrue())
+			Expect(remaining).To(BeNumerically("~", 5*time.Minute, time.Minute))
+		})
+	})
 })
 
 func markWorkflowAsCompleted(obj *unstructured.Unstructured) {

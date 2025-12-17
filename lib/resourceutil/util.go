@@ -384,3 +384,47 @@ func IsPromiseMarkedAsUnavailable(obj *unstructured.Unstructured) bool {
 
 	return condition.Status == v1.ConditionFalse
 }
+
+func RetryAfterRemaining(obj *unstructured.Unstructured, logger logr.Logger) (time.Duration, bool) {
+	retryAfter := GetStatus(obj, "retryAfter")
+	if retryAfter == "" {
+		return 0, false
+	}
+
+	duration, err := time.ParseDuration(retryAfter)
+	if err != nil {
+		logging.Warn(logger, "failed to parse retryAfter status; ignoring", "value", retryAfter)
+		return 0, false
+	}
+
+	lastSuccessfulTime := getLastSuccessfulConfigureWorkflowTime(obj, logger)
+	if lastSuccessfulTime.IsZero() {
+		return 0, true
+	}
+
+	remaining := time.Until(lastSuccessfulTime.Add(duration))
+	if remaining < 0 {
+		return 0, true
+	}
+
+	return remaining, true
+}
+
+func getLastSuccessfulConfigureWorkflowTime(obj *unstructured.Unstructured, logger logr.Logger) time.Time {
+	lastSuccessfulConfigureWorkflowTime := GetStatus(obj, "lastSuccessfulConfigureWorkflowTime")
+	if lastSuccessfulConfigureWorkflowTime != "" {
+		parsed, err := time.Parse(time.RFC3339, lastSuccessfulConfigureWorkflowTime)
+		if err != nil {
+			logging.Warn(logger, "failed to parse lastSuccessfulConfigureWorkflowTime", "value", lastSuccessfulConfigureWorkflowTime)
+			return time.Time{}
+		}
+		return parsed
+	}
+
+	completedCondition := GetCondition(obj, ConfigureWorkflowCompletedCondition)
+	if completedCondition != nil && completedCondition.Status == v1.ConditionTrue {
+		return completedCondition.LastTransitionTime.Time
+	}
+
+	return time.Time{}
+}

@@ -30,12 +30,14 @@ type Opts struct {
 	logger       logr.Logger
 	parentObject *unstructured.Unstructured
 	//TODO make this field private too? or everything public and no constructor func
-	Resources          []v1alpha1.PipelineJobResources
-	workflowType       string
-	numberOfJobsToKeep int
-	eventRecorder      record.EventRecorder
-	namespace          string
-	SkipConditions     bool
+	Resources            []v1alpha1.PipelineJobResources
+	workflowType         string
+	numberOfJobsToKeep   int
+	eventRecorder        record.EventRecorder
+	namespace            string
+	SkipConditions       bool
+	retryAfterConfigured bool
+	retryAfterRemaining  time.Duration
 }
 
 var minimumPeriodBetweenCreatingPipelineResources = 1100 * time.Millisecond
@@ -53,6 +55,12 @@ func NewOpts(ctx context.Context, client client.Client, eventRecorder record.Eve
 		eventRecorder:      eventRecorder,
 		namespace:          namespace,
 	}
+}
+
+func (o Opts) WithRetryAfter(configured bool, remaining time.Duration) Opts {
+	o.retryAfterConfigured = configured
+	o.retryAfterRemaining = remaining
+	return o
 }
 
 // ReconcileDelete deletes Workflows.
@@ -148,6 +156,9 @@ func ReconcileConfigure(opts Opts) (abort bool, err error) {
 		pipelineIndex = nextPipelineIndex(opts, mostRecentJob)
 	}
 
+	retryAfterConfigured := opts.retryAfterConfigured
+	retryAfterRemaining := opts.retryAfterRemaining
+
 	if !opts.SkipConditions {
 		var updateStatus bool
 		if pipelineIndex == 0 {
@@ -203,6 +214,16 @@ func ReconcileConfigure(opts Opts) (abort bool, err error) {
 
 			logging.Debug(opts.logger, "job already inflight for pipeline; waiting for completion", "job", mostRecentJob.Name, "pipeline", pipeline.Name)
 			return true, nil
+		}
+
+		if retryAfterConfigured {
+			if retryAfterRemaining > 0 {
+				logging.Info(opts.logger, "retryAfter set; requeuing pipeline execution", "remaining", retryAfterRemaining.String(), "pipeline", pipeline.Name)
+				return true, nil
+			}
+
+			logging.Info(opts.logger, "retryAfter elapsed; rerunning pipeline", "pipeline", pipeline.Name)
+			return createConfigurePipeline(opts, pipelineIndex, pipeline)
 		}
 
 		if isManualReconciliation {

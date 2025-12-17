@@ -212,6 +212,12 @@ func (r *DynamicResourceRequestController) Reconcile(ctx context.Context, req ct
 		}
 	}
 
+	retryAfterRemaining, retryAfterConfigured := resourceutil.RetryAfterRemaining(rr, logger)
+	if retryAfterConfigured && retryAfterRemaining > 0 {
+		logging.Info(logger, "retryAfter configured on resource; delaying configure pipeline execution", "requeueAfter", retryAfterRemaining.String())
+		return ctrl.Result{RequeueAfter: retryAfterRemaining}, nil
+	}
+
 	logging.Info(logger, "resource contains configure workflow(s); reconciling workflows")
 	completedCond := resourceutil.GetCondition(rr, resourceutil.ConfigureWorkflowCompletedCondition)
 	if shouldForcePipelineRun(completedCond, r.ReconciliationInterval) && !r.manualReconciliationLabelSet(rr) {
@@ -252,6 +258,7 @@ func (r *DynamicResourceRequestController) Reconcile(ctx context.Context, req ct
 		r.NumberOfJobsToKeep,
 		namespace,
 	)
+	jobOpts = jobOpts.WithRetryAfter(retryAfterConfigured, retryAfterRemaining)
 
 	abort, err := reconcileConfigure(jobOpts)
 	if err != nil || abort {

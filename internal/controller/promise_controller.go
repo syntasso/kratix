@@ -838,6 +838,12 @@ func (r *PromiseReconciler) reconcileDependenciesAndPromiseWorkflows(o opts, pro
 		promise.Labels = make(map[string]string)
 	}
 
+	retryAfterRemaining, retryAfterConfigured := resourceutil.RetryAfterRemaining(unstructuredPromise, o.logger)
+	if retryAfterConfigured && retryAfterRemaining > 0 {
+		logging.Info(o.logger, "retryAfter configured on Promise; delaying workflow execution", "requeueAfter", retryAfterRemaining.String())
+		return &ctrl.Result{RequeueAfter: retryAfterRemaining}, nil
+	}
+
 	logging.Debug(o.logger, "Promise contains workflows.promise.configure; reconciling workflows")
 	completedCond := promise.GetCondition(string(resourceutil.ConfigureWorkflowCompletedCondition))
 	forcePipelineRun := completedCond != nil && completedCond.Status == "True" && time.Since(completedCond.LastTransitionTime.Time) > r.ReconciliationInterval
@@ -865,6 +871,7 @@ func (r *PromiseReconciler) reconcileDependenciesAndPromiseWorkflows(o opts, pro
 	}
 
 	jobOpts := workflow.NewOpts(o.ctx, o.client, r.EventRecorder, o.logger, unstructuredPromise, pipelineResources, "promise", r.NumberOfJobsToKeep, namespace)
+	jobOpts = jobOpts.WithRetryAfter(retryAfterConfigured, retryAfterRemaining)
 
 	abort, err := reconcileConfigure(jobOpts)
 	if err != nil {
