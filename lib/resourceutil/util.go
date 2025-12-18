@@ -402,7 +402,7 @@ func RetryAfterRemaining(obj *unstructured.Unstructured, logger logr.Logger) (ti
 		return 0, false
 	}
 
-	lastSuccessfulTime := getLastSuccessfulConfigureWorkflowTime(obj, logger)
+	lastSuccessfulTime := getLastPipelineRunTime(obj, logger)
 	if lastSuccessfulTime.IsZero() {
 		return 0, true
 	}
@@ -413,6 +413,25 @@ func RetryAfterRemaining(obj *unstructured.Unstructured, logger logr.Logger) (ti
 	}
 
 	return remaining, true
+}
+
+func getLastPipelineRunTime(obj *unstructured.Unstructured, logger logr.Logger) time.Time {
+	lastPipelineRun, found, err := unstructured.NestedString(obj.Object, "status", "pipelines", "lastPipelineRun")
+	if err != nil {
+		logging.Warn(logger, "failed to fetch lastPipelineRun from status", "error", err)
+		return time.Time{}
+	}
+
+	if found && lastPipelineRun != "" {
+		parsed, err := time.Parse(time.RFC3339, lastPipelineRun)
+		if err != nil {
+			logging.Warn(logger, "failed to parse lastPipelineRun", "value", lastPipelineRun)
+			return time.Time{}
+		}
+		return parsed
+	}
+
+	return getLastSuccessfulConfigureWorkflowTime(obj, logger)
 }
 
 func getLastSuccessfulConfigureWorkflowTime(obj *unstructured.Unstructured, logger logr.Logger) time.Time {

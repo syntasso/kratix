@@ -241,6 +241,14 @@ spec:
               workflowsSucceeded:
                 format: int64
                 type: integer
+              pipelines:
+                properties:
+                  lastPipelineRun:
+                    format: date-time
+                    type: string
+                  retryAfter:
+                    type: string
+                type: object
             required:
             - workflows
             - workflowsFailed

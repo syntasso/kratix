@@ -136,6 +136,12 @@ type PromiseStatus struct {
 	RequiredPromises   []RequiredPromiseStatus `json:"requiredPromises,omitempty"`
 	RequiredBy         []RequiredBy            `json:"requiredBy,omitempty"`
 	LastAvailableTime  *metav1.Time            `json:"lastAvailableTime,omitempty"`
+	Pipelines          *PipelineStatus         `json:"pipelines,omitempty"`
+}
+
+type PipelineStatus struct {
+	RetryAfter      string `json:"retryAfter,omitempty"`
+	LastPipelineRun string `json:"lastPipelineRun,omitempty"`
 }
 
 type PromiseSummary struct {

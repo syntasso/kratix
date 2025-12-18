@@ -216,6 +216,26 @@ var _ = Describe("Workflow Reconciler", func() {
 					Expect(promise.Status.WorkflowsFailed).To(Equal(int64(0)))
 				})
 
+				It("records the completion time in status for retry handling", func() {
+					opts := workflow.NewOpts(ctx, fakeK8sClient, eventRecorder, logger, uPromise, workflowPipelines, "promise", 5, namespace)
+
+					abort, err := workflow.ReconcileConfigure(opts)
+					Expect(abort).To(BeTrue())
+					Expect(err).NotTo(HaveOccurred())
+
+					updatedPromise := &unstructured.Unstructured{}
+					updatedPromise.SetGroupVersionKind(uPromise.GroupVersionKind())
+					Expect(fakeK8sClient.Get(ctx, types.NamespacedName{Name: uPromise.GetName()}, updatedPromise)).To(Succeed())
+
+					lastPipelineRun, found, err := unstructured.NestedString(updatedPromise.Object, "status", "pipelines", "lastPipelineRun")
+					Expect(err).NotTo(HaveOccurred())
+					Expect(found).To(BeTrue())
+
+					job := &batchv1.Job{}
+					Expect(fakeK8sClient.Get(ctx, types.NamespacedName{Name: workflowPipelines[0].Job.Name, Namespace: namespace}, job)).To(Succeed())
+					Expect(lastPipelineRun).To(Equal(job.Status.CompletionTime.Format(time.RFC3339)))
+				})
+
 				When("there are no more pipelines to run", func() {
 					BeforeEach(func() {
 						j := workflowPipelines[1].Job
@@ -2083,16 +2103,19 @@ func markJobAs(conditionType batchv1.JobConditionType, name string) {
 		Namespace: namespace,
 	}, job)).To(Succeed())
 
+	now := metav1.NewTime(time.Now())
 	job.Status.Conditions = []batchv1.JobCondition{
 		{
-			Type:   conditionType,
-			Status: v1.ConditionTrue,
+			Type:               conditionType,
+			Status:             v1.ConditionTrue,
+			LastTransitionTime: now,
 		},
 	}
 
 	switch conditionType {
 	case batchv1.JobComplete:
 		job.Status.Succeeded = 1
+		job.Status.CompletionTime = &now
 	case batchv1.JobFailed:
 		job.Status.Failed = 1
 	default:

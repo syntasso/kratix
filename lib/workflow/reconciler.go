@@ -156,6 +156,12 @@ func ReconcileConfigure(opts Opts) (abort bool, err error) {
 		pipelineIndex = nextPipelineIndex(opts, mostRecentJob)
 	}
 
+	if mostRecentJob != nil && mostRecentJob.Status.Succeeded > 0 {
+		if err := updateLastPipelineRunStatus(opts, mostRecentJob); err != nil {
+			return false, err
+		}
+	}
+
 	retryAfterConfigured := opts.retryAfterConfigured
 	retryAfterRemaining := opts.retryAfterRemaining
 
@@ -506,6 +512,55 @@ func createConfigurePipeline(opts Opts, pipelineIndex int, resources v1alpha1.Pi
 	opts.eventRecorder.Eventf(opts.parentObject, "Normal", "PipelineStarted", "Configure Pipeline started: %s", resources.Name)
 
 	return true, nil
+}
+
+func updateLastPipelineRunStatus(opts Opts, job *batchv1.Job) error {
+	completedAt := getJobCompletionTime(job)
+	if completedAt.IsZero() {
+		return nil
+	}
+
+	existing, found, err := unstructured.NestedString(opts.parentObject.Object, "status", "pipelines", "lastPipelineRun")
+	if err != nil {
+		logging.Warn(opts.logger, "failed to fetch lastPipelineRun from status", "error", err)
+		return nil
+	}
+
+	formatted := completedAt.Format(time.RFC3339)
+	if found && existing == formatted {
+		return nil
+	}
+
+	if err := unstructured.SetNestedField(opts.parentObject.Object, formatted, "status", "pipelines", "lastPipelineRun"); err != nil {
+		return err
+	}
+
+	logging.Trace(opts.logger, "recording pipeline completion", "completedAt", formatted)
+
+	if err := opts.client.Status().Update(opts.ctx, opts.parentObject); err != nil {
+		logging.Error(opts.logger, err, "failed to persist lastPipelineRun")
+		return err
+	}
+
+	return nil
+}
+
+func getJobCompletionTime(job *batchv1.Job) time.Time {
+	if job == nil {
+		return time.Time{}
+	}
+
+	if job.Status.CompletionTime != nil {
+		return job.Status.CompletionTime.Time
+	}
+
+	for _, cond := range job.Status.Conditions {
+		if cond.Type == batchv1.JobComplete {
+			return cond.LastTransitionTime.Time
+		}
+	}
+
+	return time.Time{}
 }
 
 func removeManualReconciliationLabel(opts Opts) error {

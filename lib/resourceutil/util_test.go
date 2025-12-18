@@ -432,11 +432,12 @@ var _ = Describe("Conditions", func() {
 	})
 
 	Describe("RetryAfterRemaining", func() {
-		var lastSuccessful time.Time
+		var lastPipelineRun time.Time
 
 		BeforeEach(func() {
-			lastSuccessful = time.Now().Add(-time.Minute)
-			resourceutil.SetStatus(rr, logger, "lastSuccessfulConfigureWorkflowTime", lastSuccessful.Format(time.RFC3339))
+			lastPipelineRun = time.Now().Add(-time.Minute)
+			err := unstructured.SetNestedField(rr.Object, lastPipelineRun.Format(time.RFC3339), "status", "pipelines", "lastPipelineRun")
+			Expect(err).NotTo(HaveOccurred())
 		})
 
 		It("returns false when retryAfter is not set", func() {
@@ -453,7 +454,7 @@ var _ = Describe("Conditions", func() {
 			Expect(remaining).To(BeNumerically("~", time.Hour+59*time.Minute, time.Minute))
 		})
 
-		It("uses the configure workflow condition when no last successful time exists", func() {
+		It("uses the configure workflow condition when no last pipeline run exists", func() {
 			rr.Object["status"] = map[string]interface{}{"pipelines": map[string]interface{}{"retryAfter": "10m"}}
 			conditionTime := time.Now().Add(-5 * time.Minute)
 			resourceutil.SetCondition(rr, &clusterv1.Condition{
