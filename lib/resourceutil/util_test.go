@@ -466,6 +466,15 @@ var _ = Describe("Conditions", func() {
 			Expect(configured).To(BeTrue())
 			Expect(remaining).To(BeNumerically("~", 5*time.Minute, time.Minute))
 		})
+
+		It("ignores non-string retryAfter values", func() {
+			rr.Object["status"] = map[string]interface{}{"retryAfter": 10}
+
+			remaining, configured := resourceutil.RetryAfterRemaining(rr, logger)
+
+			Expect(configured).To(BeFalse())
+			Expect(remaining).To(Equal(time.Duration(0)))
+		})
 	})
 })
 
