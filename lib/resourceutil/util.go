@@ -386,7 +386,7 @@ func IsPromiseMarkedAsUnavailable(obj *unstructured.Unstructured) bool {
 }
 
 func RetryAfterRemaining(obj *unstructured.Unstructured, logger logr.Logger) (time.Duration, bool) {
-	retryAfter, found, err := unstructured.NestedString(obj.Object, "status", "retryAfter")
+	retryAfter, found, err := unstructured.NestedString(obj.Object, "status", "pipelines", "retryAfter")
 	if err != nil {
 		logging.Warn(logger, "failed to fetch retryAfter status; ignoring", "error", err)
 		return 0, false

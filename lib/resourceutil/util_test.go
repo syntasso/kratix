@@ -446,7 +446,7 @@ var _ = Describe("Conditions", func() {
 		})
 
 		It("calculates the remaining duration when retryAfter is configured", func() {
-			resourceutil.SetStatus(rr, logger, "retryAfter", "2h")
+			unstructured.SetNestedField(rr.Object, "2h", "status", "pipelines", "retryAfter")
 			remaining, configured := resourceutil.RetryAfterRemaining(rr, logger)
 
 			Expect(configured).To(BeTrue())
@@ -454,7 +454,7 @@ var _ = Describe("Conditions", func() {
 		})
 
 		It("uses the configure workflow condition when no last successful time exists", func() {
-			rr.Object["status"] = map[string]interface{}{"retryAfter": "10m"}
+			rr.Object["status"] = map[string]interface{}{"pipelines": map[string]interface{}{"retryAfter": "10m"}}
 			conditionTime := time.Now().Add(-5 * time.Minute)
 			resourceutil.SetCondition(rr, &clusterv1.Condition{
 				Type:               resourceutil.ConfigureWorkflowCompletedCondition,
@@ -468,7 +468,7 @@ var _ = Describe("Conditions", func() {
 		})
 
 		It("ignores non-string retryAfter values", func() {
-			rr.Object["status"] = map[string]interface{}{"retryAfter": 10}
+			rr.Object["status"] = map[string]interface{}{"pipelines": map[string]interface{}{"retryAfter": 10}}
 
 			remaining, configured := resourceutil.RetryAfterRemaining(rr, logger)
 
