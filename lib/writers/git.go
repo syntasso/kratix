@@ -234,7 +234,7 @@ func (g *GitWriter) update(subDir, workPlacementName string, workloadsToCreate [
 	if err != nil {
 		return "", err
 	}
-	defer os.RemoveAll(localTmpDir) //nolint:errcheck
+	defer os.RemoveAll(filepath.Dir(localTmpDir)) //nolint:errcheck
 
 	err = g.deleteExistingFiles(subDir != "", dirInGitRepo, workloadsToDelete, worktree, logger)
 	if err != nil {
@@ -326,7 +326,7 @@ func (g *GitWriter) ReadFile(filePath string) ([]byte, error) {
 	if err != nil {
 		return nil, err
 	}
-	defer os.RemoveAll(localTmpDir) //nolint:errcheck
+	defer os.RemoveAll(filepath.Dir(localTmpDir)) //nolint:errcheck
 
 	if _, err := worktree.Filesystem.Lstat(fullPath); err != nil {
 		logging.Debug(logger, "could not stat file", "error", err)
@@ -350,29 +350,25 @@ func (g *GitWriter) setupLocalDirectoryWithRepo(logger logr.Logger) (string, *gi
 	)
 
 	operation := func() (error, bool) {
-		if localTmpDir != "" {
-			_ = os.RemoveAll(localTmpDir)
-		}
-
 		var err error
 		localTmpDir, err = createLocalDirectory(logger)
 		if err != nil {
 			logging.Error(logger, err, "could not create temporary repository directory")
-			return err, true
+			return err, false
 		}
 
 		repo, cloneErr = g.cloneRepo(localTmpDir, logger)
 		if cloneErr != nil && !errors.Is(cloneErr, ErrAuthSucceededAfterTrim) {
-			return cloneErr, false
+			return cloneErr, true
 		}
 
 		if repo == nil {
-			return fmt.Errorf("clone returned nil repository"), false
+			return fmt.Errorf("clone returned nil repository"), true
 		}
 
 		worktree, err = repo.Worktree()
 		if err != nil {
-			return err, false
+			return err, true
 		}
 
 		return nil, false
@@ -400,9 +396,9 @@ func (g *GitWriter) push(repo *git.Repository, logger logr.Logger) error {
 			return nil, false
 		}
 		if isAuthError(err) {
-			return err, true
+			return err, false
 		}
-		return err, false
+		return err, true
 	}
 
 	if err := retryGitOperation(logger, "push", operation); err != nil {
@@ -414,20 +410,20 @@ func (g *GitWriter) push(repo *git.Repository, logger logr.Logger) error {
 }
 
 func retryGitOperation(logger logr.Logger, operation string, fn func() (error, bool)) error {
-	err, permanent := fn()
+	err, retry := fn()
 	if err == nil {
 		return nil
 	}
 
-	if permanent {
+	if !retry {
 		return err
 	}
 
 	logging.Error(logger, err, fmt.Sprintf("git %s failed; retrying once", operation))
-	time.Sleep(500 * time.Millisecond)
+	time.Sleep(1 * time.Second)
 
-	if err, _ := fn(); err != nil {
-		return err
+	if retryErr, _ := fn(); retryErr != nil {
+		return retryErr
 	}
 
 	logging.Info(logger, fmt.Sprintf("git %s succeeded on retry", operation))
