@@ -514,31 +514,38 @@ func (g *GitWriter) cloneRepo(localRepoFilePath string, logger logr.Logger) (*gi
 }
 
 func (g *GitWriter) commitAndPush(repo *git.Repository, worktree *git.Worktree, action, workPlacementName string, logger logr.Logger) (string, error) {
-	status, err := worktree.Status()
-	if err != nil {
-		logging.Error(logger, err, "could not get worktree status")
-		return "", err
-	}
-
-	if status.IsClean() {
-		logging.Info(logger, "no changes to be committed")
-		return "", nil
-	}
-
-	commitHash, err := worktree.Commit(fmt.Sprintf("%s from: %s", action, workPlacementName), &git.CommitOptions{
-		Author: &object.Signature{
-			Name:  g.Author.Name,
-			Email: g.Author.Email,
-			When:  time.Now(),
-		},
-	})
-
 	var sha string
-	if !commitHash.IsZero() {
-		sha = commitHash.String()
+	operation := func() (error, bool) {
+		status, err := worktree.Status()
+		if err != nil {
+			logging.Error(logger, err, "could not get worktree status")
+			return err, true
+		}
+
+		if status.IsClean() {
+			logging.Info(logger, "no changes to be committed")
+			return nil, false
+		}
+
+		commitHash, err := worktree.Commit(fmt.Sprintf("%s from: %s", action, workPlacementName), &git.CommitOptions{
+			Author: &object.Signature{
+				Name:  g.Author.Name,
+				Email: g.Author.Email,
+				When:  time.Now(),
+			},
+		})
+
+		if !commitHash.IsZero() {
+			sha = commitHash.String()
+		}
+
+		if err != nil {
+			return err, true
+		}
+		return nil, false
 	}
 
-	if err != nil {
+	if err := retryGitOperation(logger, "commit", operation); err != nil {
 		logging.Error(logger, err, "could not commit file to worktree")
 		return "", err
 	}
