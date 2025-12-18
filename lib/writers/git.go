@@ -349,7 +349,7 @@ func (g *GitWriter) setupLocalDirectoryWithRepo(logger logr.Logger) (string, *gi
 		cloneErr    error
 	)
 
-	operation := func() error {
+	operation := func() (error, bool) {
 		if localTmpDir != "" {
 			_ = os.RemoveAll(localTmpDir)
 		}
@@ -358,24 +358,24 @@ func (g *GitWriter) setupLocalDirectoryWithRepo(logger logr.Logger) (string, *gi
 		localTmpDir, err = createLocalDirectory(logger)
 		if err != nil {
 			logging.Error(logger, err, "could not create temporary repository directory")
-			return permanentError(err)
+			return err, true
 		}
 
 		repo, cloneErr = g.cloneRepo(localTmpDir, logger)
 		if cloneErr != nil && !errors.Is(cloneErr, ErrAuthSucceededAfterTrim) {
-			return cloneErr
+			return cloneErr, false
 		}
 
 		if repo == nil {
-			return fmt.Errorf("clone returned nil repository")
+			return fmt.Errorf("clone returned nil repository"), false
 		}
 
 		worktree, err = repo.Worktree()
 		if err != nil {
-			return err
+			return err, false
 		}
 
-		return nil
+		return nil, false
 	}
 
 	if err := retryGitOperation(logger, "clone", operation); err != nil {
@@ -390,19 +390,19 @@ func (g *GitWriter) setupLocalDirectoryWithRepo(logger logr.Logger) (string, *gi
 }
 
 func (g *GitWriter) push(repo *git.Repository, logger logr.Logger) error {
-	operation := func() error {
+	operation := func() (error, bool) {
 		err := repo.Push(&git.PushOptions{
 			RemoteName:      "origin",
 			Auth:            g.GitServer.Auth,
 			InsecureSkipTLS: true,
 		})
 		if errors.Is(err, git.NoErrAlreadyUpToDate) {
-			return nil
+			return nil, false
 		}
 		if isAuthError(err) {
-			return permanentError(err)
+			return err, true
 		}
-		return err
+		return err, false
 	}
 
 	if err := retryGitOperation(logger, "push", operation); err != nil {
@@ -413,42 +413,25 @@ func (g *GitWriter) push(repo *git.Repository, logger logr.Logger) error {
 	return nil
 }
 
-func retryGitOperation(logger logr.Logger, operation string, fn func() error) error {
-	err := fn()
+func retryGitOperation(logger logr.Logger, operation string, fn func() (error, bool)) error {
+	err, permanent := fn()
 	if err == nil {
 		return nil
 	}
 
-	var permanent *permanentErr
-	if errors.As(err, &permanent) {
-		return permanent.Unwrap()
+	if permanent {
+		return err
 	}
 
 	logging.Error(logger, err, fmt.Sprintf("git %s failed; retrying once", operation))
 	time.Sleep(500 * time.Millisecond)
 
-	if err := fn(); err != nil {
+	if err, _ := fn(); err != nil {
 		return err
 	}
 
 	logging.Info(logger, fmt.Sprintf("git %s succeeded on retry", operation))
 	return nil
-}
-
-func permanentError(err error) error {
-	return &permanentErr{err: err}
-}
-
-type permanentErr struct {
-	err error
-}
-
-func (p *permanentErr) Error() string {
-	return p.err.Error()
-}
-
-func (p *permanentErr) Unwrap() error {
-	return p.err
 }
 
 // validatePush attempts to validate write permissions by pushing no changes to the remote
