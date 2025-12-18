@@ -16,7 +16,6 @@ import (
 	"time"
 	"unicode"
 
-	"github.com/cenkalti/backoff/v5"
 	"github.com/go-git/go-git/v5"
 	"github.com/go-git/go-git/v5/plumbing"
 	"github.com/go-git/go-git/v5/plumbing/object"
@@ -359,7 +358,7 @@ func (g *GitWriter) setupLocalDirectoryWithRepo(logger logr.Logger) (string, *gi
 		localTmpDir, err = createLocalDirectory(logger)
 		if err != nil {
 			logging.Error(logger, err, "could not create temporary repository directory")
-			return backoff.Permanent(err)
+			return permanentError(err)
 		}
 
 		repo, cloneErr = g.cloneRepo(localTmpDir, logger)
@@ -401,7 +400,7 @@ func (g *GitWriter) push(repo *git.Repository, logger logr.Logger) error {
 			return nil
 		}
 		if isAuthError(err) {
-			return backoff.Permanent(err)
+			return permanentError(err)
 		}
 		return err
 	}
@@ -420,9 +419,9 @@ func retryGitOperation(logger logr.Logger, operation string, fn func() error) er
 		return nil
 	}
 
-	var permanent *backoff.PermanentError
+	var permanent *permanentErr
 	if errors.As(err, &permanent) {
-		return permanent.Err
+		return permanent.Unwrap()
 	}
 
 	logging.Error(logger, err, fmt.Sprintf("git %s failed; retrying once", operation))
@@ -434,6 +433,22 @@ func retryGitOperation(logger logr.Logger, operation string, fn func() error) er
 
 	logging.Info(logger, fmt.Sprintf("git %s succeeded on retry", operation))
 	return nil
+}
+
+func permanentError(err error) error {
+	return &permanentErr{err: err}
+}
+
+type permanentErr struct {
+	err error
+}
+
+func (p *permanentErr) Error() string {
+	return p.err.Error()
+}
+
+func (p *permanentErr) Unwrap() error {
+	return p.err
 }
 
 // validatePush attempts to validate write permissions by pushing no changes to the remote
