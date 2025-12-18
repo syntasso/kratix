@@ -342,40 +342,91 @@ func (g *GitWriter) ReadFile(filePath string) ([]byte, error) {
 }
 
 func (g *GitWriter) setupLocalDirectoryWithRepo(logger logr.Logger) (string, *git.Repository, *git.Worktree, error) {
-	localTmpDir, err := createLocalDirectory(logger)
-	if err != nil {
-		logging.Error(logger, err, "could not create temporary repository directory")
+	var (
+		localTmpDir string
+		repo        *git.Repository
+		worktree    *git.Worktree
+		cloneErr    error
+	)
+
+	operation := func() (error, bool) {
+		var err error
+		localTmpDir, err = createLocalDirectory(logger)
+		if err != nil {
+			logging.Error(logger, err, "could not create temporary repository directory")
+			return err, false
+		}
+
+		repo, cloneErr = g.cloneRepo(localTmpDir, logger)
+		if cloneErr != nil && !errors.Is(cloneErr, ErrAuthSucceededAfterTrim) {
+			return cloneErr, true
+		}
+
+		if repo == nil {
+			return fmt.Errorf("clone returned nil repository"), true
+		}
+
+		worktree, err = repo.Worktree()
+		if err != nil {
+			return err, true
+		}
+
+		return nil, false
+	}
+
+	if err := retryGitOperation(logger, "clone", operation); err != nil {
+		if localTmpDir != "" {
+			_ = os.RemoveAll(localTmpDir)
+		}
+		logging.Error(logger, err, "could not set up temporary repository directory")
 		return "", nil, nil, err
 	}
 
-	repo, cloneErr := g.cloneRepo(localTmpDir, logger)
-	if cloneErr != nil && !errors.Is(cloneErr, ErrAuthSucceededAfterTrim) {
-		logging.Error(logger, cloneErr, "could not clone repository")
-		return "", nil, nil, cloneErr
-	}
-
-	if repo == nil {
-		return "", nil, nil, fmt.Errorf("clone returned nil repository")
-	}
-
-	worktree, err := repo.Worktree()
-	if err != nil {
-		logging.Error(logger, err, "could not access repo worktree")
-		return "", nil, nil, err
-	}
 	return localTmpDir, repo, worktree, cloneErr
 }
 
 func (g *GitWriter) push(repo *git.Repository, logger logr.Logger) error {
-	err := repo.Push(&git.PushOptions{
-		RemoteName:      "origin",
-		Auth:            g.GitServer.Auth,
-		InsecureSkipTLS: true,
-	})
-	if err != nil {
+	operation := func() (error, bool) {
+		err := repo.Push(&git.PushOptions{
+			RemoteName:      "origin",
+			Auth:            g.GitServer.Auth,
+			InsecureSkipTLS: true,
+		})
+		if errors.Is(err, git.NoErrAlreadyUpToDate) {
+			return nil, false
+		}
+		if isAuthError(err) {
+			return err, false
+		}
+		return err, true
+	}
+
+	if err := retryGitOperation(logger, "push", operation); err != nil {
 		logging.Error(logger, err, "could not push to remote")
 		return err
 	}
+
+	return nil
+}
+
+func retryGitOperation(logger logr.Logger, operation string, fn func() (error, bool)) error {
+	err, retry := fn()
+	if err == nil {
+		return nil
+	}
+
+	if !retry {
+		return err
+	}
+
+	logging.Error(logger, err, fmt.Sprintf("git %s failed; retrying once", operation))
+	time.Sleep(1 * time.Second)
+
+	if retryErr, _ := fn(); retryErr != nil {
+		return retryErr
+	}
+
+	logging.Info(logger, fmt.Sprintf("git %s succeeded on retry", operation))
 	return nil
 }
 
@@ -463,31 +514,38 @@ func (g *GitWriter) cloneRepo(localRepoFilePath string, logger logr.Logger) (*gi
 }
 
 func (g *GitWriter) commitAndPush(repo *git.Repository, worktree *git.Worktree, action, workPlacementName string, logger logr.Logger) (string, error) {
-	status, err := worktree.Status()
-	if err != nil {
-		logging.Error(logger, err, "could not get worktree status")
-		return "", err
-	}
-
-	if status.IsClean() {
-		logging.Info(logger, "no changes to be committed")
-		return "", nil
-	}
-
-	commitHash, err := worktree.Commit(fmt.Sprintf("%s from: %s", action, workPlacementName), &git.CommitOptions{
-		Author: &object.Signature{
-			Name:  g.Author.Name,
-			Email: g.Author.Email,
-			When:  time.Now(),
-		},
-	})
-
 	var sha string
-	if !commitHash.IsZero() {
-		sha = commitHash.String()
+	operation := func() (error, bool) {
+		status, err := worktree.Status()
+		if err != nil {
+			logging.Error(logger, err, "could not get worktree status")
+			return err, true
+		}
+
+		if status.IsClean() {
+			logging.Info(logger, "no changes to be committed")
+			return nil, false
+		}
+
+		commitHash, err := worktree.Commit(fmt.Sprintf("%s from: %s", action, workPlacementName), &git.CommitOptions{
+			Author: &object.Signature{
+				Name:  g.Author.Name,
+				Email: g.Author.Email,
+				When:  time.Now(),
+			},
+		})
+
+		if !commitHash.IsZero() {
+			sha = commitHash.String()
+		}
+
+		if err != nil {
+			return err, true
+		}
+		return nil, false
 	}
 
-	if err != nil {
+	if err := retryGitOperation(logger, "commit", operation); err != nil {
 		logging.Error(logger, err, "could not commit file to worktree")
 		return "", err
 	}
