@@ -415,28 +415,25 @@ func (g *GitWriter) push(repo *git.Repository, logger logr.Logger) error {
 }
 
 func retryGitOperation(logger logr.Logger, operation string, fn func() error) error {
-	backOff := backoff.NewExponentialBackOff()
-	backOff.InitialInterval = 500 * time.Millisecond
-	backOff.MaxInterval = 3 * time.Second
-
-	notify := func(err error, wait time.Duration) {
-		if err == nil {
-			return
-		}
-		logging.Warn(logger, fmt.Sprintf("git %s failed; will retry", operation), "error", err, "retryIn", wait)
+	err := fn()
+	if err == nil {
+		return nil
 	}
 
-	_, err := backoff.Retry(
-		context.Background(),
-		func() (struct{}, error) {
-			return struct{}{}, fn()
-		},
-		backoff.WithBackOff(backOff),
-		backoff.WithMaxElapsedTime(20*time.Second),
-		backoff.WithNotify(notify),
-	)
+	var permanent *backoff.PermanentError
+	if errors.As(err, &permanent) {
+		return permanent.Err
+	}
 
-	return err
+	logging.Error(logger, err, fmt.Sprintf("git %s failed; retrying once", operation))
+	time.Sleep(500 * time.Millisecond)
+
+	if err := fn(); err != nil {
+		return err
+	}
+
+	logging.Info(logger, fmt.Sprintf("git %s succeeded on retry", operation))
+	return nil
 }
 
 // validatePush attempts to validate write permissions by pushing no changes to the remote
