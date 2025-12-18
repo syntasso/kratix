@@ -159,6 +159,13 @@ func ReconcileConfigure(opts Opts) (abort bool, err error) {
 	retryAfterConfigured := opts.retryAfterConfigured
 	retryAfterRemaining := opts.retryAfterRemaining
 
+	if retryAfterConfigured {
+		if index := pipelineIndexForJob(opts.Resources, mostRecentJob); index >= 0 {
+			logging.Trace(opts.logger, "retryAfter configured; reusing pipeline index", "index", index)
+			pipelineIndex = index
+		}
+	}
+
 	if !opts.SkipConditions {
 		var updateStatus bool
 		if pipelineIndex == 0 {
@@ -371,6 +378,20 @@ func nextPipelineIndex(opts Opts, mostRecentJob *batchv1.Job) int {
 	}
 
 	return i + 1
+}
+
+func pipelineIndexForJob(pipelines []v1alpha1.PipelineJobResources, job *batchv1.Job) int {
+	if job == nil {
+		return -1
+	}
+
+	for i := len(pipelines) - 1; i >= 0; i-- {
+		if jobIsForPipeline(pipelines[i], job) {
+			return i
+		}
+	}
+
+	return -1
 }
 
 func isFailed(job *batchv1.Job) bool {

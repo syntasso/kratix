@@ -187,6 +187,21 @@ var _ = Describe("Workflow Reconciler", func() {
 					markJobAsComplete(workflowPipelines[0].Job.Name)
 				})
 
+				Context("and retryAfter is configured", func() {
+					It("requeues the same pipeline instead of advancing", func() {
+						opts := workflow.NewOpts(ctx, fakeK8sClient, eventRecorder, logger, uPromise, workflowPipelines, "promise", 5, namespace)
+						opts = opts.WithRetryAfter(true, time.Minute)
+
+						abort, err := workflow.ReconcileConfigure(opts)
+						Expect(err).NotTo(HaveOccurred())
+						Expect(abort).To(BeTrue())
+
+						jobList := listJobs(namespace)
+						Expect(jobList).To(HaveLen(1))
+						Expect(findByName(jobList, workflowPipelines[0].Job.Name)).To(BeTrue())
+					})
+				})
+
 				It("triggers the next pipeline in the workflow", func() {
 					opts := workflow.NewOpts(ctx, fakeK8sClient, eventRecorder, logger, uPromise, workflowPipelines, "promise", 5, namespace)
 					abort, err := workflow.ReconcileConfigure(opts)
