@@ -347,7 +347,8 @@ func (r *PromiseReconciler) handlePromiseVersion(ctx context.Context, promise *v
 
 	revision := &v1alpha1.PromiseRevision{
 		ObjectMeta: metav1.ObjectMeta{
-			Name: fmt.Sprintf("%s-%s", promise.GetName(), promiseVersion),
+			Name:      fmt.Sprintf("%s-%s", promise.GetName(), promiseVersion),
+			Namespace: promise.GetNamespace(),
 		},
 	}
 
@@ -359,8 +360,12 @@ func (r *PromiseReconciler) handlePromiseVersion(ctx context.Context, promise *v
 		revision.SetLabels(labels.Merge(l, labels.Merge(promise.GenerateSharedLabels(), map[string]string{
 			"kratix.io/latest-revision": "true",
 		})))
-
-		return controllerutil.SetControllerReference(promise, revision, scheme.Scheme)
+		owner := promise
+		if promise.GetNamespace() != "" {
+			owner = promise.DeepCopy()
+			owner.SetNamespace("")
+		}
+		return controllerutil.SetControllerReference(owner, revision, scheme.Scheme)
 	})
 	if err != nil {
 		return ctrl.Result{}, err
@@ -1614,7 +1619,7 @@ func (r *PromiseReconciler) applyWorkForStaticDependencies(o opts, promise *v1al
 		),
 	)
 
-	existingWork, err := resourceutil.GetWork(r.Client, v1alpha1.SystemNamespace, work.GetLabels())
+	existingWork, err := resourceutil.GetWorkWithContext(o.ctx, r.Client, v1alpha1.SystemNamespace, work.GetLabels())
 	if err != nil {
 		return err
 	}
@@ -1648,7 +1653,7 @@ func (r *PromiseReconciler) applyWorkForStaticDependencies(o opts, promise *v1al
 func (r *PromiseReconciler) deleteWorkForStaticDependencies(o opts, promise *v1alpha1.Promise) error {
 	labels := resourceutil.GetWorkLabels(promise.GetName(), "", "", "", v1alpha1.WorkTypeStaticDependency)
 
-	existingWork, err := resourceutil.GetWork(r.Client, v1alpha1.SystemNamespace, labels)
+	existingWork, err := resourceutil.GetWorkWithContext(o.ctx, r.Client, v1alpha1.SystemNamespace, labels)
 	if err != nil {
 		return err
 	}

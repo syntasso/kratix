@@ -49,6 +49,20 @@ var (
 		creds map[string][]byte) (writers.StateStoreWriter, error) = writers.NewGitWriter
 )
 
+// SetStateStoreWriterFactories overrides the state store writer constructors for tests/examples.
+// Pass nil to leave the existing constructor unchanged.
+func SetStateStoreWriterFactories(
+	s3 func(logr.Logger, v1alpha1.BucketStateStoreSpec, string, map[string][]byte) (writers.StateStoreWriter, error),
+	git func(logr.Logger, v1alpha1.GitStateStoreSpec, string, map[string][]byte) (writers.StateStoreWriter, error),
+) {
+	if s3 != nil {
+		newS3Writer = s3
+	}
+	if git != nil {
+		newGitWriter = git
+	}
+}
+
 type opts struct {
 	ctx    context.Context
 	client client.Client
