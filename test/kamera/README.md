@@ -31,6 +31,19 @@ go run works.go -interactive=false
 go run promises.go -interactive=false
 ```
 
+To inspect results later, dump an inspector JSON snapshot:
+
+```bash
+go run works.go -dump-output=works_dump.json
+go run promises.go -dump-output=promises_dump.json
+```
+
+You can open the dump later with Kamera's inspector:
+
+```bash
+go run github.com/tgoodwin/kamera/cmd/inspect --dump works_dump.json
+```
+
 Makefile shortcuts:
 
 ```bash

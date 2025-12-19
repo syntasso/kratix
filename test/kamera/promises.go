@@ -9,6 +9,7 @@ import (
 	kratix "github.com/syntasso/kratix/api/v1alpha1"
 	"github.com/syntasso/kratix/internal/controller"
 	"github.com/tgoodwin/kamera/pkg/explore"
+	"github.com/tgoodwin/kamera/pkg/interactive"
 	"github.com/tgoodwin/kamera/pkg/tag"
 	"github.com/tgoodwin/kamera/pkg/tracecheck"
 	metav1 "k8s.io/apimachinery/pkg/apis/meta/v1"
@@ -155,6 +156,20 @@ func main() {
 	runner, err := explore.NewRunner(eb)
 	if err != nil {
 		panic(fmt.Sprintf("create runner: %v", err))
+	}
+	if explore.DumpPath() != "" {
+		explorer, err := eb.Build("standalone")
+		if err != nil {
+			panic(fmt.Sprintf("build explorer: %v", err))
+		}
+		result := explorer.Explore(context.Background(), initialState)
+		states := append([]tracecheck.ResultState{}, result.ConvergedStates...)
+		states = append(states, result.AbortedStates...)
+		if err := interactive.SaveInspectorDump(states, explorer.VersionManager(), explore.DumpPath()); err != nil {
+			panic(fmt.Sprintf("dump results: %v", err))
+		}
+		fmt.Printf("wrote results to %s\n", explore.DumpPath())
+		return
 	}
 	if err := runner.Run(context.Background(), initialState); err != nil {
 		panic(fmt.Sprintf("run explorer: %v", err))
