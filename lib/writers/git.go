@@ -491,7 +491,7 @@ func (g *GitWriter) cloneRepo(localRepoFilePath string, logger logr.Logger) (*gi
 		URL:             g.GitServer.URL,
 		ReferenceName:   plumbing.NewBranchReferenceName(g.GitServer.Branch),
 		SingleBranch:    true,
-		Depth:           1,
+		Depth:           0,
 		NoCheckout:      false,
 		InsecureSkipTLS: true,
 	}
