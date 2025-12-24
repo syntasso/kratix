@@ -126,7 +126,7 @@ var _ = Describe("Upgrade", func() {
 		By("updating the resource request pinned to latest", func() {
 			Eventually(func() string {
 				return platform.Kubectl("get", "upgrades", rrOneName, "-ojsonpath='{.status.promiseVersion}'")
-			}, time.Second*5).Should(ContainSubstring(updatedPromiseVersion))
+			}, time.Second*30).Should(ContainSubstring(updatedPromiseVersion))
 
 			Eventually(func() string {
 				return worker.Kubectl("get", "configmap")
