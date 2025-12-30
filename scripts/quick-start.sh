@@ -178,8 +178,16 @@ _build_kratix_image() {
     if ${KRATIX_DEVELOPER:-false}; then
         docker_org=syntassodev
     fi
-    docker build --tag $docker_org/kratix-platform:${VERSION} --quiet --file ${ROOT}/Dockerfile ${ROOT} &&
-    kind load docker-image $docker_org/kratix-platform:${VERSION} --name ${PLATFORM_CLUSTER_NAME}
+    local kratix_image="$docker_org/kratix-platform:${VERSION}"
+    if ${CI}; then
+        docker buildx build --tag "${kratix_image}" --quiet --file "${ROOT}/Dockerfile" "${ROOT}" \
+            --load \
+            --cache-from=type=gha \
+            --cache-to=type=gha,mode=max
+    else
+        docker build --tag "${kratix_image}" --quiet --file "${ROOT}/Dockerfile" "${ROOT}"
+    fi &&
+    kind load docker-image "${kratix_image}" --name ${PLATFORM_CLUSTER_NAME}
 }
 
 cluster_exists() {
