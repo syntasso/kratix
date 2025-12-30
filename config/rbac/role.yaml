@@ -17,6 +17,21 @@ rules:
 - apiGroups:
   - ""
   resources:
+  - endpoints
+  - persistentvolumeclaims
+  - persistentvolumes
+  - pods
+  verbs:
+  - create
+  - delete
+  - get
+  - list
+  - patch
+  - update
+  - watch
+- apiGroups:
+  - ""
+  resources:
   - events
   verbs:
   - create
@@ -24,7 +39,22 @@ rules:
 - apiGroups:
   - ""
   resources:
+  - persistentvolumeclaims/finalizers
+  verbs:
+  - update
+- apiGroups:
+  - ""
+  resources:
+  - persistentvolumeclaims/status
+  verbs:
+  - get
+  - patch
+  - update
+- apiGroups:
+  - ""
+  resources:
   - secrets
+  - services
   verbs:
   - get
   - list
@@ -53,6 +83,67 @@ rules:
   - update
   - watch
 - apiGroups:
+  - apps
+  resources:
+  - deployments
+  - replicasets
+  - statefulsets
+  verbs:
+  - create
+  - delete
+  - get
+  - list
+  - patch
+  - update
+  - watch
+- apiGroups:
+  - apps
+  resources:
+  - deployments/finalizers
+  - replicasets/finalizers
+  - statefulsets/finalizers
+  verbs:
+  - update
+- apiGroups:
+  - apps
+  resources:
+  - deployments/status
+  - replicasets/status
+  - statefulsets/status
+  verbs:
+  - get
+  - patch
+  - update
+- apiGroups:
+  - apps.discrete.events
+  resources:
+  - routeconfigs
+  - rpods
+  verbs:
+  - create
+  - delete
+  - get
+  - list
+  - patch
+  - update
+  - watch
+- apiGroups:
+  - apps.discrete.events
+  resources:
+  - routeconfigs/finalizers
+  - rpods/finalizers
+  verbs:
+  - update
+- apiGroups:
+  - apps.discrete.events
+  resources:
+  - routeconfigs/status
+  - rpods/status
+  verbs:
+  - get
+  - patch
+  - update
+- apiGroups:
   - batch
   resources:
   - jobs
@@ -64,6 +155,32 @@ rules:
   - patch
   - update
   - watch
+- apiGroups:
+  - my.domain
+  resources:
+  - services
+  verbs:
+  - create
+  - delete
+  - get
+  - list
+  - patch
+  - update
+  - watch
+- apiGroups:
+  - my.domain
+  resources:
+  - services/finalizers
+  verbs:
+  - update
+- apiGroups:
+  - my.domain
+  resources:
+  - services/status
+  verbs:
+  - get
+  - patch
+  - update
 - apiGroups:
   - platform.kratix.io
   resources:
@@ -143,3 +260,29 @@ rules:
   - list
   - update
   - watch
+- apiGroups:
+  - webapp.discrete.events
+  resources:
+  - foos
+  verbs:
+  - create
+  - delete
+  - get
+  - list
+  - patch
+  - update
+  - watch
+- apiGroups:
+  - webapp.discrete.events
+  resources:
+  - foos/finalizers
+  verbs:
+  - update
+- apiGroups:
+  - webapp.discrete.events
+  resources:
+  - foos/status
+  verbs:
+  - get
+  - patch
+  - update

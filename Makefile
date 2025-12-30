@@ -14,7 +14,7 @@ CRD_OPTIONS ?= "crd:ignoreUnexportedFields=true"
 DOCKER_BUILDKIT ?= 1
 export DOCKER_BUILDKIT
 
-# Docker build command (use buildx with pre-defined cache location under CI)
+# Docker build command (use buildx with pre-defined cache location when under CI)
 ifeq ($(CI),true)
 ifeq ($(GITHUB_ACTIONS),true)
 DOCKER_BUILD := docker buildx build --load --cache-from=type=local,src=$${BUILDKIT_CACHE_DIR:-cache-mount} --cache-to=type=local,dest=$${BUILDKIT_CACHE_DIR:-cache-mount},mode=max
