@@ -5,6 +5,7 @@ source "${ROOT}/scripts/utils.sh"
 source "${ROOT}/scripts/install-gitops"
 
 BUILD_KRATIX_IMAGES=false
+BUILD_IMAGE_ONLY=false
 RECREATE=${RECREATE:-false}
 SINGLE_DESTINATION=false
 THIRD_DESTINATION=false
@@ -40,6 +41,7 @@ usage() {
     echo -e "\t--help, -h               Prints this message"
     echo -e "\t--recreate, -r           Deletes pre-existing KinD clusters"
     echo -e "\t--local, -l              Build and load Kratix images to KinD cache"
+    echo -e "\t--build-image, -b        Build the Kratix image only"
     echo -e "\t--local-images, -i       Load container images from a local directory into the KinD clusters"
     echo -e "\t--git, -g                Use Gitea as local repository in place of default local MinIO"
     echo -e "\t--single-cluster, -s     Deploy Kratix on a Single cluster setup"
@@ -57,6 +59,7 @@ load_options() {
         '--help')              set -- "$@" '-h'   ;;
         '--recreate')          set -- "$@" '-r'   ;;
         '--local')             set -- "$@" '-l'   ;;
+        '--build-image')       set -- "$@" '-b'   ;;
         '--git')               set -- "$@" '-g'   ;;
         '--git-and-minio')     set -- "$@" '-d'   ;;
         '--local-images')      set -- "$@" '-i'   ;;
@@ -69,7 +72,7 @@ load_options() {
     done
 
     OPTIND=1
-    while getopts "hrlgtdi:sn" opt
+    while getopts "hrlbgtdi:sn" opt
     do
       case "$opt" in
         'r') RECREATE=true ;;
@@ -77,6 +80,7 @@ load_options() {
         't') THIRD_DESTINATION=true ;;
         'h') usage ;;
         'l') BUILD_KRATIX_IMAGES=true ;;
+        'b') BUILD_IMAGE_ONLY=true ;;
         'n') LABELS=false ;;
         'i') LOCAL_IMAGES_DIR=${OPTARG} ;;
         'd') INSTALL_AND_CREATE_GITEA_REPO=true INSTALL_AND_CREATE_MINIO_BUCKET=true WORKER_STATESTORE_TYPE=BucketStateStore ;;
@@ -178,13 +182,6 @@ _build_kratix_image() {
     if ${KRATIX_DEVELOPER:-false}; then
         docker_org=syntassodev
     fi
-    if [ -z "${VERSION}" ]; then
-        if git rev-parse --short HEAD >/dev/null 2>&1; then
-            VERSION="$(git rev-parse --short HEAD)"
-        else
-            VERSION="dev"
-        fi
-    fi
     local kratix_image="$docker_org/kratix-platform:${VERSION}"
     local build_args=()
     if command -v go >/dev/null 2>&1; then
@@ -208,8 +205,14 @@ _build_kratix_image() {
     else
         docker build --tag "${kratix_image}" --quiet --file "${ROOT}/Dockerfile" "${ROOT}" \
             "${build_args[@]}"
-    fi &&
-    kind load docker-image "${kratix_image}" --name ${PLATFORM_CLUSTER_NAME}
+    fi
+    if [ "${SKIP_KIND_LOAD:-false}" = "false" ]; then
+        kind load docker-image "${kratix_image}" --name ${PLATFORM_CLUSTER_NAME}
+    fi
+}
+
+_build_kratix_image_only() {
+    SKIP_KIND_LOAD=true _build_kratix_image
 }
 
 cluster_exists() {
@@ -590,9 +593,12 @@ install_kratix() {
 
 main() {
     load_options $@
+    if ${BUILD_IMAGE_ONLY}; then
+        _build_kratix_image_only
+        return
+    fi
     install_kratix
 }
-
 
 if [ "$0" = "${BASH_SOURCE[0]}" ]; then
     set -euo pipefail
