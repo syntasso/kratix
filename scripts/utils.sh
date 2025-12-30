@@ -94,6 +94,11 @@ copy_gitea_credentials() {
 
 run() {
     SUPRESS_OUTPUT=${SUPRESS_OUTPUT:-false}
+    if ${VERBOSE:-false}; then
+        echo "+ $*"
+        "$@"
+        return $?
+    fi
     stdout="$(mktemp)"
     stderr="$(mktemp)"
     trap "rm $stdout $stderr" EXIT
