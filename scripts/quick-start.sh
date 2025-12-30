@@ -189,7 +189,12 @@ _build_kratix_image() {
     local kratix_image="$docker_org/kratix-platform:${VERSION}"
     local build_quiet_flag="--quiet"
     local buildx_progress_flag=""
+    local buildx_metadata_file=""
     if ${VERBOSE}; then
+        build_quiet_flag=""
+        buildx_progress_flag="--progress=plain"
+        buildx_metadata_file="/tmp/kratix-build-metadata.json"
+    elif ${CI}; then
         build_quiet_flag=""
         buildx_progress_flag="--progress=plain"
     fi
@@ -199,9 +204,14 @@ _build_kratix_image() {
         fi
         docker buildx build --tag "${kratix_image}" ${build_quiet_flag} --file "${ROOT}/Dockerfile" "${ROOT}" \
             ${buildx_progress_flag} \
+            ${buildx_metadata_file:+--metadata-file "${buildx_metadata_file}"} \
             --load \
             --cache-from=type=gha \
             --cache-to=type=gha,mode=max
+        if ${VERBOSE} && [ -n "${buildx_metadata_file}" ] && [ -f "${buildx_metadata_file}" ]; then
+            echo "Buildx metadata:"
+            cat "${buildx_metadata_file}"
+        fi
     else
         if ${VERBOSE}; then
             echo "docker build --tag \"${kratix_image}\" ${build_quiet_flag} --file \"${ROOT}/Dockerfile\" \"${ROOT}\""
