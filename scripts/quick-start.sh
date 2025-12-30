@@ -178,6 +178,13 @@ _build_kratix_image() {
     if ${KRATIX_DEVELOPER:-false}; then
         docker_org=syntassodev
     fi
+    if [ -z "${VERSION}" ]; then
+        if git rev-parse --short HEAD >/dev/null 2>&1; then
+            VERSION="$(git rev-parse --short HEAD)"
+        else
+            VERSION="dev"
+        fi
+    fi
     local kratix_image="$docker_org/kratix-platform:${VERSION}"
     local build_args=()
     if command -v go >/dev/null 2>&1; then
