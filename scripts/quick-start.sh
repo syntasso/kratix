@@ -198,7 +198,7 @@ _build_kratix_image() {
     fi
     if ${CI}; then
         if ${VERBOSE}; then
-            echo "docker buildx build --tag \"${kratix_image}\" ${build_quiet_flag} --file \"${ROOT}/Dockerfile\" \"${ROOT}\" ${buildx_progress_flag} --load --cache-from=type=gha --cache-to=type=gha,mode=max"
+            echo "docker buildx build --tag \"${kratix_image}\" ${build_quiet_flag} --file \"${ROOT}/Dockerfile\" \"${ROOT}\" ${buildx_progress_flag} --load --cache-from=type=local,src=${BUILDKIT_CACHE_DIR:-cache-mount} --cache-to=type=local,dest=${BUILDKIT_CACHE_DIR:-cache-mount},mode=max"
         fi
         docker buildx build --tag "${kratix_image}" ${build_quiet_flag} --file "${ROOT}/Dockerfile" "${ROOT}" \
             ${buildx_progress_flag} \
