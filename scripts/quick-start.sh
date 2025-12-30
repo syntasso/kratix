@@ -193,29 +193,14 @@ _build_kratix_image() {
         build_quiet_flag=""
         buildx_progress_flag="--progress=plain"
     fi
-    local build_args=()
-    if command -v go >/dev/null 2>&1; then
-        local gomodcache
-        local gocache
-        gomodcache="$(go env GOMODCACHE)"
-        gocache="$(go env GOCACHE)"
-        if [ -n "${gomodcache}" ]; then
-            build_args+=(--build-arg "GOMODCACHE=${gomodcache}")
-        fi
-        if [ -n "${gocache}" ]; then
-            build_args+=(--build-arg "GOCACHE=${gocache}")
-        fi
-    fi
     if ${CI}; then
         docker buildx build --tag "${kratix_image}" ${build_quiet_flag} --file "${ROOT}/Dockerfile" "${ROOT}" \
-            "${build_args[@]}" \
             ${buildx_progress_flag} \
             --load \
             --cache-from=type=gha \
             --cache-to=type=gha,mode=max
     else
-        docker build --tag "${kratix_image}" ${build_quiet_flag} --file "${ROOT}/Dockerfile" "${ROOT}" \
-            "${build_args[@]}"
+        docker build --tag "${kratix_image}" ${build_quiet_flag} --file "${ROOT}/Dockerfile" "${ROOT}"
     fi
     if [ "${SKIP_KIND_LOAD:-false}" = "false" ]; then
         kind load docker-image "${kratix_image}" --name ${PLATFORM_CLUSTER_NAME}
