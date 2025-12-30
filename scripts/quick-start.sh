@@ -194,12 +194,18 @@ _build_kratix_image() {
         buildx_progress_flag="--progress=plain"
     fi
     if ${CI}; then
+        if ${VERBOSE}; then
+            echo "docker buildx build --tag \"${kratix_image}\" ${build_quiet_flag} --file \"${ROOT}/Dockerfile\" \"${ROOT}\" ${buildx_progress_flag} --load --cache-from=type=gha --cache-to=type=gha,mode=max"
+        fi
         docker buildx build --tag "${kratix_image}" ${build_quiet_flag} --file "${ROOT}/Dockerfile" "${ROOT}" \
             ${buildx_progress_flag} \
             --load \
             --cache-from=type=gha \
             --cache-to=type=gha,mode=max
     else
+        if ${VERBOSE}; then
+            echo "docker build --tag \"${kratix_image}\" ${build_quiet_flag} --file \"${ROOT}/Dockerfile\" \"${ROOT}\""
+        fi
         docker build --tag "${kratix_image}" ${build_quiet_flag} --file "${ROOT}/Dockerfile" "${ROOT}"
     fi
     if [ "${SKIP_KIND_LOAD:-false}" = "false" ]; then
