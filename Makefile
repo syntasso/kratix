@@ -14,6 +14,17 @@ CRD_OPTIONS ?= "crd:ignoreUnexportedFields=true"
 DOCKER_BUILDKIT ?= 1
 export DOCKER_BUILDKIT
 
+# Docker build command (use buildx with GHA cache under CI)
+ifeq ($(CI),true)
+ifeq ($(GITHUB_ACTIONS),true)
+DOCKER_BUILD := docker buildx build --load --cache-from=type=gha --cache-to=type=gha,mode=max
+else
+DOCKER_BUILD := docker build
+endif
+else
+DOCKER_BUILD := docker build
+endif
+
 # Recreate Kind Clusters by default
 RECREATE ?= true
 export RECREATE
@@ -108,12 +119,7 @@ debug-run: manifests generate fmt vet ## Run a controller in debug mode from you
 	dlv --listen=:2345 --headless=true --api-version=2 --accept-multiclient debug ./main.go
 
 docker-build: ## Build docker image with the manager.
-	if [ "${CI:-false}" = "true" ] && [ "${GITHUB_ACTIONS:-false}" = "true" ] && docker buildx version >/dev/null 2>&1; then \
-		docker buildx build --load --cache-from=type=gha --cache-to=type=gha,mode=max \
-			-t ${QUICKSTART_TAG} -t ${IMG_MIRROR} -t ${IMG_TAG} -t ${IMG_NAME}:latest . ; \
-	else \
-		docker build -t ${QUICKSTART_TAG} -t ${IMG_MIRROR} -t ${IMG_TAG} -t ${IMG_NAME}:latest . ; \
-	fi
+	$(DOCKER_BUILD) -t ${QUICKSTART_TAG} -t ${IMG_MIRROR} -t ${IMG_TAG} -t ${IMG_NAME}:latest .
 
 docker-build-and-push: ## Push multi-arch docker image with the manager.
 	if ! docker buildx ls | grep -q "kratix-image-builder"; then \

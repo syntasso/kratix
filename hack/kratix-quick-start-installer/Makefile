@@ -1,11 +1,17 @@
 IMG_TAG ?= docker.io/syntasso/kratix-quick-start-installer:latest
 
+ifeq ($(CI),true)
+ifeq ($(GITHUB_ACTIONS),true)
+DOCKER_BUILD := docker buildx build --load --cache-from=type=gha --cache-to=type=gha,mode=max
+else
+DOCKER_BUILD := docker build
+endif
+else
+DOCKER_BUILD := docker build
+endif
+
 build-and-load:
-	if [ "${CI:-false}" = "true" ] && [ "${GITHUB_ACTIONS:-false}" = "true" ] && docker buildx version >/dev/null 2>&1; then \
-		docker buildx build --load --cache-from=type=gha --cache-to=type=gha,mode=max -t $(IMG_TAG) . ; \
-	else \
-		docker build -t $(IMG_TAG) . ; \
-	fi
+	$(DOCKER_BUILD) -t $(IMG_TAG) .
 	kind load docker-image $(IMG_TAG) --name platform
 
 create-platform:
