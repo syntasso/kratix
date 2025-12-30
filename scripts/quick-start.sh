@@ -6,6 +6,7 @@ source "${ROOT}/scripts/install-gitops"
 
 BUILD_KRATIX_IMAGES=false
 BUILD_IMAGE_ONLY=false
+VERBOSE=false
 RECREATE=${RECREATE:-false}
 SINGLE_DESTINATION=false
 THIRD_DESTINATION=false
@@ -42,6 +43,7 @@ usage() {
     echo -e "\t--recreate, -r           Deletes pre-existing KinD clusters"
     echo -e "\t--local, -l              Build and load Kratix images to KinD cache"
     echo -e "\t--build-image, -b        Build the Kratix image only"
+    echo -e "\t--verbose, -v            Show build commands and progress"
     echo -e "\t--local-images, -i       Load container images from a local directory into the KinD clusters"
     echo -e "\t--git, -g                Use Gitea as local repository in place of default local MinIO"
     echo -e "\t--single-cluster, -s     Deploy Kratix on a Single cluster setup"
@@ -60,6 +62,7 @@ load_options() {
         '--recreate')          set -- "$@" '-r'   ;;
         '--local')             set -- "$@" '-l'   ;;
         '--build-image')       set -- "$@" '-b'   ;;
+        '--verbose')           set -- "$@" '-v'   ;;
         '--git')               set -- "$@" '-g'   ;;
         '--git-and-minio')     set -- "$@" '-d'   ;;
         '--local-images')      set -- "$@" '-i'   ;;
@@ -72,7 +75,7 @@ load_options() {
     done
 
     OPTIND=1
-    while getopts "hrlbgtdi:sn" opt
+    while getopts "hrlbgtdi:snv" opt
     do
       case "$opt" in
         'r') RECREATE=true ;;
@@ -81,6 +84,7 @@ load_options() {
         'h') usage ;;
         'l') BUILD_KRATIX_IMAGES=true ;;
         'b') BUILD_IMAGE_ONLY=true ;;
+        'v') VERBOSE=true ;;
         'n') LABELS=false ;;
         'i') LOCAL_IMAGES_DIR=${OPTARG} ;;
         'd') INSTALL_AND_CREATE_GITEA_REPO=true INSTALL_AND_CREATE_MINIO_BUCKET=true WORKER_STATESTORE_TYPE=BucketStateStore ;;
@@ -183,6 +187,12 @@ _build_kratix_image() {
         docker_org=syntassodev
     fi
     local kratix_image="$docker_org/kratix-platform:${VERSION}"
+    local build_quiet_flag="--quiet"
+    local buildx_progress_flag=""
+    if ${VERBOSE}; then
+        build_quiet_flag=""
+        buildx_progress_flag="--progress=plain"
+    fi
     local build_args=()
     if command -v go >/dev/null 2>&1; then
         local gomodcache
@@ -197,13 +207,14 @@ _build_kratix_image() {
         fi
     fi
     if ${CI}; then
-        docker buildx build --tag "${kratix_image}" --quiet --file "${ROOT}/Dockerfile" "${ROOT}" \
+        docker buildx build --tag "${kratix_image}" ${build_quiet_flag} --file "${ROOT}/Dockerfile" "${ROOT}" \
             "${build_args[@]}" \
+            ${buildx_progress_flag} \
             --load \
             --cache-from=type=gha \
             --cache-to=type=gha,mode=max
     else
-        docker build --tag "${kratix_image}" --quiet --file "${ROOT}/Dockerfile" "${ROOT}" \
+        docker build --tag "${kratix_image}" ${build_quiet_flag} --file "${ROOT}/Dockerfile" "${ROOT}" \
             "${build_args[@]}"
     fi
     if [ "${SKIP_KIND_LOAD:-false}" = "false" ]; then
