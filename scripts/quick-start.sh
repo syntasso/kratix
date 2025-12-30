@@ -179,13 +179,28 @@ _build_kratix_image() {
         docker_org=syntassodev
     fi
     local kratix_image="$docker_org/kratix-platform:${VERSION}"
+    local build_args=()
+    if command -v go >/dev/null 2>&1; then
+        local gomodcache
+        local gocache
+        gomodcache="$(go env GOMODCACHE)"
+        gocache="$(go env GOCACHE)"
+        if [ -n "${gomodcache}" ]; then
+            build_args+=(--build-arg "GOMODCACHE=${gomodcache}")
+        fi
+        if [ -n "${gocache}" ]; then
+            build_args+=(--build-arg "GOCACHE=${gocache}")
+        fi
+    fi
     if ${CI}; then
         docker buildx build --tag "${kratix_image}" --quiet --file "${ROOT}/Dockerfile" "${ROOT}" \
+            "${build_args[@]}" \
             --load \
             --cache-from=type=gha \
             --cache-to=type=gha,mode=max
     else
-        docker build --tag "${kratix_image}" --quiet --file "${ROOT}/Dockerfile" "${ROOT}"
+        docker build --tag "${kratix_image}" --quiet --file "${ROOT}/Dockerfile" "${ROOT}" \
+            "${build_args[@]}"
     fi &&
     kind load docker-image "${kratix_image}" --name ${PLATFORM_CLUSTER_NAME}
 }

@@ -1,6 +1,8 @@
 FROM --platform=$BUILDPLATFORM golang:1.24 AS builder
 ARG TARGETARCH
 ARG TARGETOS
+ARG GOMODCACHE=/go/pkg/mod
+ARG GOCACHE=/root/.cache/go-build
 
 WORKDIR /workspace
 
@@ -8,16 +10,18 @@ ENV GO111MODULE=on
 ENV CGO_ENABLED=0
 ENV GOOS=${TARGETOS}
 ENV GOARCH=${TARGETARCH}
+ENV GOMODCACHE=${GOMODCACHE}
+ENV GOCACHE=${GOCACHE}
 
 # Build
 RUN --mount=target=. \
-    --mount=type=cache,target=/root/.cache/go-build \
-    --mount=type=cache,target=/go/pkg \
+    --mount=type=cache,target=${GOCACHE} \
+    --mount=type=cache,target=${GOMODCACHE} \
     go build -a -o /out/manager cmd/main.go
 
 RUN --mount=target=. \
-    --mount=type=cache,target=/root/.cache/go-build \
-    --mount=type=cache,target=/go/pkg \
+    --mount=type=cache,target=${GOCACHE} \
+    --mount=type=cache,target=${GOMODCACHE} \
     go build -a -o /out/pipeline-adapter work-creator/*.go
 
 FROM busybox AS busybox
