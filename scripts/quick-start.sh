@@ -206,8 +206,8 @@ _build_kratix_image() {
             ${buildx_progress_flag} \
             ${buildx_metadata_file:+--metadata-file "${buildx_metadata_file}"} \
             --load \
-            --cache-from=type=gha \
-            --cache-to=type=gha,mode=max
+            --cache-from=type=local,src=${BUILDKIT_CACHE_DIR:-cache-mount} \
+            --cache-to=type=local,dest=${BUILDKIT_CACHE_DIR:-cache-mount},mode=max
         if ${VERBOSE} && [ -n "${buildx_metadata_file}" ] && [ -f "${buildx_metadata_file}" ]; then
             echo "Buildx metadata:"
             cat "${buildx_metadata_file}"

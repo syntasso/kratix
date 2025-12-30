@@ -2,7 +2,7 @@ IMG_TAG ?= docker.io/syntasso/kratix-quick-start-installer:latest
 
 ifeq ($(CI),true)
 ifeq ($(GITHUB_ACTIONS),true)
-DOCKER_BUILD := docker buildx build --load --cache-from=type=gha --cache-to=type=gha,mode=max
+DOCKER_BUILD := docker buildx build --load --cache-from=type=local,src=$${BUILDKIT_CACHE_DIR:-cache-mount} --cache-to=type=local,dest=$${BUILDKIT_CACHE_DIR:-cache-mount},mode=max
 else
 DOCKER_BUILD := docker build
 endif

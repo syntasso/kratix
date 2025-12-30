@@ -8,7 +8,7 @@ postgres_pipeline="syntasso/demo-postgresql-configure-pipeline:v0.1.1"
 root="$( cd $(dirname $0)/.. && pwd)"
 build_cmd="docker build"
 if [ "${CI:-false}" = "true" ] && [ "${GITHUB_ACTIONS:-false}" = "true" ] && docker buildx version >/dev/null 2>&1; then
-  build_cmd="docker buildx build --load --cache-from=type=gha --cache-to=type=gha,mode=max"
+  build_cmd="docker buildx build --load --cache-from=type=local,src=${BUILDKIT_CACHE_DIR:-cache-mount} --cache-to=type=local,dest=${BUILDKIT_CACHE_DIR:-cache-mount},mode=max"
 fi
 
 while [ $# -gt 0 ]; do
