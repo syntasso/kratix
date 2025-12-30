@@ -108,7 +108,12 @@ debug-run: manifests generate fmt vet ## Run a controller in debug mode from you
 	dlv --listen=:2345 --headless=true --api-version=2 --accept-multiclient debug ./main.go
 
 docker-build: ## Build docker image with the manager.
-	docker build -t ${QUICKSTART_TAG} -t ${IMG_MIRROR} -t ${IMG_TAG} -t ${IMG_NAME}:latest .
+	if [ "${CI:-false}" = "true" ] && [ "${GITHUB_ACTIONS:-false}" = "true" ] && docker buildx version >/dev/null 2>&1; then \
+		docker buildx build --load --cache-from=type=gha --cache-to=type=gha,mode=max \
+			-t ${QUICKSTART_TAG} -t ${IMG_MIRROR} -t ${IMG_TAG} -t ${IMG_NAME}:latest . ; \
+	else \
+		docker build -t ${QUICKSTART_TAG} -t ${IMG_MIRROR} -t ${IMG_TAG} -t ${IMG_NAME}:latest . ; \
+	fi
 
 docker-build-and-push: ## Push multi-arch docker image with the manager.
 	if ! docker buildx ls | grep -q "kratix-image-builder"; then \

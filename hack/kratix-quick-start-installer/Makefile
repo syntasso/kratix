@@ -1,7 +1,11 @@
 IMG_TAG ?= docker.io/syntasso/kratix-quick-start-installer:latest
 
 build-and-load:
-	docker build  -t $(IMG_TAG) .
+	if [ "${CI:-false}" = "true" ] && [ "${GITHUB_ACTIONS:-false}" = "true" ] && docker buildx version >/dev/null 2>&1; then \
+		docker buildx build --load --cache-from=type=gha --cache-to=type=gha,mode=max -t $(IMG_TAG) . ; \
+	else \
+		docker build -t $(IMG_TAG) . ; \
+	fi
 	kind load docker-image $(IMG_TAG) --name platform
 
 create-platform:
@@ -23,4 +27,3 @@ docker-build-and-push: ## Push multi-arch docker image with the manager.
 
 quick-start: create-platform build-and-load
 	kubectl apply -f manifests/kratix-quick-start-installer.yaml
-
