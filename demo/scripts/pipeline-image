@@ -4,11 +4,15 @@ set -e
 
 promise_name="$(basename "$(dirname "${PWD}")")"
 pipeline_image="syntasso/demo-${promise_name}-configure-pipeline:v0.1.1"
+build_cmd="docker build"
+if [ "${CI:-false}" = "true" ]; then
+  build_cmd="docker buildx build --load --cache-from=type=gha --cache-to=type=gha,mode=max"
+fi
 
 while [ $# -gt 0 ]; do
   case "$1" in
     build)
-      docker build \
+      ${build_cmd} \
         --tag "${pipeline_image}" \
         --platform linux/amd64 \
         "${PWD}/configure-pipeline" ;;
