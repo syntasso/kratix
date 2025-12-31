@@ -1,19 +1,19 @@
 IMG_TAG ?= docker.io/syntasso/kratix-quick-start-installer:latest
 
 build-image:
-	if [ "$${CI:-false}" = "true" ] && [ "$${FORCE_QUICKSTART_BUILD:-false}" != "true" ] && docker image inspect $(IMG_TAG) >/dev/null 2>&1; then \
-		echo "CI: quick-start installer image already loaded in the runner, skipping build"; \
+	@if [ "$${CI:-false}" = "true" ] && [ "$${FORCE_QUICKSTART_BUILD:-false}" != "true" ] && docker image inspect $(IMG_TAG) >/dev/null 2>&1; then \
+		echo "CI: quick-start installer image already loaded in the runner, skipping build" 1>&2; \
 	else \
 		docker build -t $(IMG_TAG) . ; \
 	fi
 
 export-image: build-image
-	QUICKSTART_EXPORT_PATH="$${QUICKSTART_EXPORT_PATH:-$$(mktemp -t kratix-quick-start-installer-XXXXXX.tar)}"; \
+	@QUICKSTART_EXPORT_PATH="$${QUICKSTART_EXPORT_PATH:-$$(mktemp -t kratix-quick-start-installer-XXXXXX.tar)}"; \
 	docker save $(IMG_TAG) -o "$${QUICKSTART_EXPORT_PATH}"; \
 	echo "$${QUICKSTART_EXPORT_PATH}"
 
 build-and-load: build-image
-	kind load docker-image $(IMG_TAG) --name platform
+	@kind load docker-image $(IMG_TAG) --name platform
 
 create-platform:
 	kind create cluster --name platform --config ../platform/kind-platform-config.yaml
