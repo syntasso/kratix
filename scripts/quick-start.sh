@@ -186,31 +186,7 @@ _build_kratix_image() {
     if ${KRATIX_DEVELOPER:-false}; then
         docker_org=syntassodev
     fi
-    local kratix_image="$docker_org/kratix-platform:${VERSION}"
-    local build_quiet_flag="--quiet"
-    local buildx_progress_flag=""
-    if ${VERBOSE}; then
-        build_quiet_flag=""
-        buildx_progress_flag="--progress=plain"
-    elif ${CI}; then
-        build_quiet_flag=""
-        buildx_progress_flag="--progress=plain"
-    fi
-    if ${CI}; then
-        if ${VERBOSE}; then
-            echo "docker buildx build --tag \"${kratix_image}\" ${build_quiet_flag} --file \"${ROOT}/Dockerfile\" \"${ROOT}\" ${buildx_progress_flag} --load --cache-from=type=local,src=${BUILDKIT_CACHE_DIR:-cache-mount} --cache-to=type=local,dest=${BUILDKIT_CACHE_DIR:-cache-mount},mode=max"
-        fi
-        docker buildx build --tag "${kratix_image}" ${build_quiet_flag} --file "${ROOT}/Dockerfile" "${ROOT}" \
-            ${buildx_progress_flag} \
-            --load \
-            --cache-from=type=local,src=${BUILDKIT_CACHE_DIR:-cache-mount} \
-            --cache-to=type=local,dest=${BUILDKIT_CACHE_DIR:-cache-mount},mode=max
-    else
-        if ${VERBOSE}; then
-            echo "docker build --tag \"${kratix_image}\" ${build_quiet_flag} --file \"${ROOT}/Dockerfile\" \"${ROOT}\""
-        fi
-        docker build --tag "${kratix_image}" ${build_quiet_flag} --file "${ROOT}/Dockerfile" "${ROOT}"
-    fi
+    docker build --tag $docker_org/kratix-platform:${VERSION} --quiet --file ${ROOT}/Dockerfile ${ROOT}
     if [ "${SKIP_KIND_LOAD:-false}" = "false" ]; then
         kind load docker-image "${kratix_image}" --name ${PLATFORM_CLUSTER_NAME}
     fi
