@@ -7,6 +7,7 @@ source "${ROOT}/scripts/install-gitops"
 BUILD_KRATIX_IMAGES=false
 BUILD_IMAGE_ONLY=false
 VERBOSE=false
+EXPORT_IMAGE=false
 RECREATE=${RECREATE:-false}
 SINGLE_DESTINATION=false
 THIRD_DESTINATION=false
@@ -44,6 +45,7 @@ usage() {
     echo -e "\t--local, -l              Build and load Kratix images to KinD cache"
     echo -e "\t--build-image, -b        Build the Kratix image only"
     echo -e "\t--verbose, -v            Show build commands and progress"
+    echo -e "\t--export-image, -e       Export the built image to a temporary tar file"
     echo -e "\t--local-images, -i       Load container images from a local directory into the KinD clusters"
     echo -e "\t--git, -g                Use Gitea as local repository in place of default local MinIO"
     echo -e "\t--single-cluster, -s     Deploy Kratix on a Single cluster setup"
@@ -63,6 +65,7 @@ load_options() {
         '--local')             set -- "$@" '-l'   ;;
         '--build-image')       set -- "$@" '-b'   ;;
         '--verbose')           set -- "$@" '-v'   ;;
+        '--export-image')      set -- "$@" '-e'   ;;
         '--git')               set -- "$@" '-g'   ;;
         '--git-and-minio')     set -- "$@" '-d'   ;;
         '--local-images')      set -- "$@" '-i'   ;;
@@ -75,7 +78,7 @@ load_options() {
     done
 
     OPTIND=1
-    while getopts "hrlbgtdi:snv" opt
+    while getopts "hrlbgtdi:snve" opt
     do
       case "$opt" in
         'r') RECREATE=true ;;
@@ -85,6 +88,7 @@ load_options() {
         'l') BUILD_KRATIX_IMAGES=true ;;
         'b') BUILD_IMAGE_ONLY=true ;;
         'v') VERBOSE=true ;;
+        'e') EXPORT_IMAGE=true ;;
         'n') LABELS=false ;;
         'i') LOCAL_IMAGES_DIR=${OPTARG} ;;
         'd') INSTALL_AND_CREATE_GITEA_REPO=true INSTALL_AND_CREATE_MINIO_BUCKET=true WORKER_STATESTORE_TYPE=BucketStateStore ;;
@@ -186,7 +190,24 @@ _build_kratix_image() {
     if ${KRATIX_DEVELOPER:-false}; then
         docker_org=syntassodev
     fi
-    docker build --tag $docker_org/kratix-platform:${VERSION} --quiet --file ${ROOT}/Dockerfile ${ROOT}
+    local kratix_image="$docker_org/kratix-platform:${VERSION}"
+    if ${CI} && docker image inspect "${kratix_image}" >/dev/null 2>&1; then
+        log "CI: image already loaded in the runner, skipping building it"
+    else
+        docker build --tag "${kratix_image}" --quiet --file ${ROOT}/Dockerfile ${ROOT}
+    fi
+    if ${EXPORT_IMAGE}; then
+        local export_path
+        export_path="$(mktemp -t kratix-image-XXXXXX.tar)"
+        docker save "${kratix_image}" -o "${export_path}"
+        log "Exported image to ${export_path}"
+        if ${CI} && [ -n "${GITHUB_ENV:-}" ]; then
+            echo "EXPORT_IMAGE_TAR=${export_path}" >> "${GITHUB_ENV}"
+        fi
+    fi
+    if ${CI} && [ -n "${GITHUB_ENV:-}" ]; then
+        echo "EXPORT_IMAGE_NAME=${kratix_image}" >> "${GITHUB_ENV}"
+    fi
     if [ "${SKIP_KIND_LOAD:-false}" = "false" ]; then
         kind load docker-image "${kratix_image}" --name ${PLATFORM_CLUSTER_NAME}
     fi
