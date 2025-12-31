@@ -1,15 +1,17 @@
 IMG_TAG ?= docker.io/syntasso/kratix-quick-start-installer:latest
+IMG_TAG_NO_REG := $(patsubst docker.io/%,%,$(IMG_TAG))
 
 build-image:
-	@if [ "$${CI:-false}" = "true" ] && [ "$${FORCE_QUICKSTART_BUILD:-false}" != "true" ] && docker image inspect $(IMG_TAG) >/dev/null 2>&1; then \
+	@if [ "$${CI:-false}" = "true" ] && [ "$${FORCE_QUICKSTART_BUILD:-false}" != "true" ] && \
+		docker image inspect $(IMG_TAG_NO_REG) >/dev/null 2>&1; then \
 		echo "CI: quick-start installer image already loaded in the runner, skipping build" 1>&2; \
 	else \
-		docker build -t $(IMG_TAG) . ; \
+		docker build -t $(IMG_TAG) -t $(IMG_TAG_NO_REG) . ; \
 	fi
 
 export-image: build-image
 	@QUICKSTART_EXPORT_PATH="$${QUICKSTART_EXPORT_PATH:-$$(mktemp -t kratix-quick-start-installer-XXXXXX.tar)}"; \
-	docker save $(IMG_TAG) -o "$${QUICKSTART_EXPORT_PATH}"; \
+	docker save $(IMG_TAG) $(IMG_TAG_NO_REG) -o "$${QUICKSTART_EXPORT_PATH}"; \
 	echo "$${QUICKSTART_EXPORT_PATH}"
 
 build-and-load: build-image

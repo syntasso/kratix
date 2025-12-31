@@ -191,25 +191,29 @@ _build_kratix_image() {
         docker_org=syntassodev
     fi
     local kratix_image="$docker_org/kratix-platform:${VERSION}"
+    local kratix_image_full="docker.io/${kratix_image}"
     if ${CI} && docker image inspect "${kratix_image}" >/dev/null 2>&1; then
         log "CI: image already loaded in the runner, skipping building it"
     else
-        docker build --tag "${kratix_image}" --quiet --file ${ROOT}/Dockerfile ${ROOT}
+        docker build --tag "${kratix_image}" --tag "${kratix_image_full}" --quiet --file ${ROOT}/Dockerfile ${ROOT}
     fi
     if ${EXPORT_IMAGE}; then
-        local export_path
-        export_path="$(mktemp -t kratix-image-XXXXXX.tar)"
-        docker save "${kratix_image}" -o "${export_path}"
-        log "Exported image to ${export_path}"
-        if ${CI} && [ -n "${GITHUB_ENV:-}" ]; then
-            echo "EXPORT_IMAGE_TAR=${export_path}" >> "${GITHUB_ENV}"
-        fi
-    fi
-    if ${CI} && [ -n "${GITHUB_ENV:-}" ]; then
-        echo "EXPORT_IMAGE_NAME=${kratix_image}" >> "${GITHUB_ENV}"
+        _export_kratix_image "${kratix_image}" "${kratix_image_full}"
     fi
     if [ "${SKIP_KIND_LOAD:-false}" = "false" ]; then
         kind load docker-image "${kratix_image}" --name ${PLATFORM_CLUSTER_NAME}
+    fi
+}
+
+_export_kratix_image() {
+    local image_name="$1"
+    local image_full_name="$2"
+    local export_path
+    export_path="$(mktemp -t kratix-image-XXXXXX.tar)"
+    docker save "${image_name}" "${image_full_name}" -o "${export_path}"
+    log "Exported image to ${export_path}"
+    if ${CI} && [ -n "${GITHUB_ENV:-}" ]; then
+        echo "EXPORT_IMAGE_TAR=${export_path}" >> "${GITHUB_ENV}"
     fi
 }
 
