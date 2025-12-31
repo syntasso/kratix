@@ -515,7 +515,7 @@ wait_for_pids() {
 }
 
 install_kratix() {
-    trap "trap - SIGTERM && kill -- -$$" SIGINT SIGTERM EXIT
+    trap "trap - SIGTERM && kill -0 -- -$$ 2>/dev/null && kill -- -$$ || true" SIGINT SIGTERM EXIT
     verify_prerequisites
 
     if ${KRATIX_DEVELOPER:-false}; then
