@@ -6,7 +6,6 @@ QUICKSTART_TAG ?= docker.io/syntasso/kratix-platform-quickstart:latest
 IMG_VERSION ?= ${VERSION}
 IMG_TAG ?= ${IMG_NAME}:${IMG_VERSION}
 IMG_MIRROR ?= syntassodev/kratix-platform:${VERSION}
-IMG_NAME_NO_REG ?= $(patsubst docker.io/%,%,$(IMG_NAME))
 # Version of the worker-resource-builder binary to build and release
 WRB_VERSION ?= 0.0.0
 # Produce CRDs that work back to Kubernetes 1.11 (no version conversion)
@@ -109,18 +108,7 @@ debug-run: manifests generate fmt vet ## Run a controller in debug mode from you
 	dlv --listen=:2345 --headless=true --api-version=2 --accept-multiclient debug ./main.go
 
 docker-build: ## Build docker image with the manager.
-	@if [ "$${CI:-false}" = "true" ] && (docker image inspect ${IMG_TAG} >/dev/null 2>&1 || docker image inspect ${IMG_NAME_NO_REG}:${IMG_VERSION} >/dev/null 2>&1); then \
-		echo "CI: image already loaded in the runner, re-tagging and skipping build"; \
-		IMAGE_SOURCE=${IMG_TAG}; \
-		if ! docker image inspect $${IMAGE_SOURCE} >/dev/null 2>&1; then \
-			IMAGE_SOURCE=${IMG_NAME_NO_REG}:${IMG_VERSION}; \
-		fi; \
-		docker tag $${IMAGE_SOURCE} ${QUICKSTART_TAG}; \
-		docker tag $${IMAGE_SOURCE} ${IMG_MIRROR}; \
-		docker tag $${IMAGE_SOURCE} ${IMG_NAME}:latest; \
-	else \
-		docker build -t ${QUICKSTART_TAG} -t ${IMG_MIRROR} -t ${IMG_TAG} -t ${IMG_NAME}:latest . ; \
-	fi
+	docker build -t ${QUICKSTART_TAG} -t ${IMG_MIRROR} -t ${IMG_TAG} -t ${IMG_NAME}:latest .
 
 docker-build-and-push: ## Push multi-arch docker image with the manager.
 	if ! docker buildx ls | grep -q "kratix-image-builder"; then \
@@ -320,7 +308,7 @@ $(GOLANGCI_LINT): $(LOCALBIN)
 # $2 - package url which can be installed
 # $3 - specific version of package
 define go-install-tool
-@[ -x "$(1)-$(3)" ] || { \
+@[ -f "$(1)-$(3)" ] || { \
 set -e; \
 package=$(2)@$(3) ;\
 echo "Downloading $${package}" ;\
