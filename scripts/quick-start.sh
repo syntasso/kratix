@@ -195,6 +195,9 @@ _build_kratix_image() {
     if ${CI} && docker image inspect "${kratix_image}" >/dev/null 2>&1; then
         log "CI: image already loaded in the runner, skipping building it"
     else
+        if ${CI}; then
+            log "CI: building Kratix image"
+        fi
         docker build --tag "${kratix_image}" --tag "${kratix_image_full}" --quiet --file ${ROOT}/Dockerfile ${ROOT}
     fi
     if ${EXPORT_IMAGE}; then

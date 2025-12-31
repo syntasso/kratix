@@ -94,7 +94,7 @@ copy_gitea_credentials() {
 
 run() {
     SUPRESS_OUTPUT=${SUPRESS_OUTPUT:-false}
-    if ${VERBOSE:-false}; then
+    if ${VERBOSE:-false} || ${CI:-false}; then
         echo "+ $*"
         "$@"
         return $?
