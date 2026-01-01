@@ -19,6 +19,7 @@ package controller
 
 import (
 	"context"
+	stderrors "errors"
 	"fmt"
 	"reflect"
 	"strings"
@@ -1189,6 +1190,20 @@ func (r *PromiseReconciler) deletePromise(o opts, promise *v1alpha1.Promise) (ct
 
 		requeue, err := reconcileDelete(jobOpts)
 		if err != nil {
+			if stderrors.Is(err, workflow.ErrDeletePipelineFailed) {
+				r.EventRecorder.Event(promise, "Warning", "Failed Pipeline", "The Delete Pipeline has failed")
+				condition := metav1.Condition{
+					Type:               string(resourceutil.DeleteWorkflowCompletedCondition),
+					Status:             metav1.ConditionFalse,
+					Message:            "The Delete Pipeline has failed",
+					Reason:             resourceutil.DeleteWorkflowCompletedFailedReason,
+					LastTransitionTime: metav1.NewTime(time.Now()),
+				}
+				updateConditionOnPromise(promise, condition)
+				if err := r.Client.Status().Update(o.ctx, promise); err != nil {
+					logging.Error(o.logger, err, "failed to update promise status", "promise", promise.GetName())
+				}
+			}
 			return ctrl.Result{}, err
 		}
 

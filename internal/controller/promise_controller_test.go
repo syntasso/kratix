@@ -1123,6 +1123,38 @@ var _ = Describe("PromiseController", func() {
 					Expect(result).To(Equal(ctrl.Result{}))
 				})
 
+				When("the delete pipeline fails", func() {
+					BeforeEach(func() {
+						setReconcileDeleteWorkflowToReturnError(promise)
+						Expect(fakeK8sClient.Delete(ctx, promise)).To(Succeed())
+						result, err := t.reconcileUntilCompletion(reconciler, promise)
+						Expect(result).To(Equal(ctrl.Result{}))
+						Expect(err).To(MatchError(workflow.ErrDeletePipelineFailed))
+					})
+
+					It("sets the DeleteWorkflowCompleted condition to Failed", func() {
+						Expect(fakeK8sClient.Get(ctx, promiseName, promise)).To(Succeed())
+						condition := apimeta.FindStatusCondition(promise.Status.Conditions, string(resourceutil.DeleteWorkflowCompletedCondition))
+						Expect(condition).NotTo(BeNil())
+						Expect(condition.Status).To(Equal(metav1.ConditionFalse))
+						Expect(condition.Reason).To(Equal(resourceutil.DeleteWorkflowCompletedFailedReason))
+						Expect(condition.Message).To(ContainSubstring("The Delete Pipeline has failed"))
+					})
+
+					It("records an event on the promise", func() {
+						Eventually(func() string {
+							var event string
+							for len(eventRecorder.Events) > 0 {
+								event = <-eventRecorder.Events
+								if strings.Contains(event, "Warning Failed Pipeline The Delete Pipeline has failed") {
+									return event
+								}
+							}
+							return ""
+						}).Should(ContainSubstring("Warning Failed Pipeline The Delete Pipeline has failed"))
+					})
+				})
+
 				When("the Promise is updated to no longer have a delete workflow", func() {
 					BeforeEach(func() {
 						Expect(fakeK8sClient.Get(ctx, promiseName, promise)).To(Succeed())
