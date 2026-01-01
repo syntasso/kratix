@@ -9,6 +9,53 @@ import (
 
 var _ = Describe("StatusUpdater", func() {
 
+	Describe("MergeLabels", func() {
+		It("merges the two maps", func() {
+			existing := map[string]string{
+				"existing-key": "existing-value",
+				"shared-key":   "old-value",
+			}
+			incoming := map[string]string{
+				"incoming-key": "incoming-value",
+				"shared-key":   "new-value",
+			}
+			result := lib.MergeLabels(existing, incoming)
+			Expect(result).To(SatisfyAll(
+				HaveKeyWithValue("existing-key", "existing-value"),
+				HaveKeyWithValue("incoming-key", "incoming-value"),
+				HaveKeyWithValue("shared-key", "new-value"),
+			))
+			Expect(result).To(HaveLen(3))
+		})
+
+		It("returns incoming labels when existing is empty", func() {
+			existing := map[string]string{}
+			incoming := map[string]string{
+				"key1": "value1",
+				"key2": "value2",
+			}
+			result := lib.MergeLabels(existing, incoming)
+			Expect(result).To(Equal(incoming))
+		})
+
+		It("returns existing labels when incoming is empty", func() {
+			existing := map[string]string{
+				"key1": "value1",
+				"key2": "value2",
+			}
+			incoming := map[string]string{}
+			result := lib.MergeLabels(existing, incoming)
+			Expect(result).To(Equal(existing))
+		})
+
+		It("returns empty map when both are empty", func() {
+			existing := map[string]string{}
+			incoming := map[string]string{}
+			result := lib.MergeLabels(existing, incoming)
+			Expect(result).To(BeEmpty())
+		})
+	})
+
 	Describe("MergeStatuses", func() {
 		It("merges the two maps", func() {
 			existing := map[string]any{

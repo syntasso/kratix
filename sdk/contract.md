@@ -26,6 +26,10 @@ WriteOutput writes the content to the specifies file at the path /kratix/output/
 
 WriteStatus writes the specified status to the `/kratix/metadata/status.yaml`
 
+**`WriteLabels(map[string]string) error`**
+
+WriteLabels writes the specified labels to the `/kratix/metadata/labels.yaml`. These labels will be merged with the existing resource labels after the pipeline completes.
+
 **`WriteDestinationSelectors([]DestinationSelector) error`**
 
 WriteDestinationSelectors writes the specified Destination Selectors to the `/kratix/metadata/destination_selectors.yaml`
@@ -69,6 +73,10 @@ PublishStatus updates the status of the provided resource with the provided stat
 **`ReadStatus() (Status, error)`**
 
 ReadStatus reads the /kratix/metadata/status.yaml
+
+**`ReadLabels() (map[string]string, error)`**
+
+ReadLabels reads the /kratix/metadata/labels.yaml
 
 ## Promise Interface
 

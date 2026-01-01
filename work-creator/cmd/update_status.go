@@ -16,7 +16,7 @@ import (
 func updateStatusCmd() *cobra.Command {
 	cmd := &cobra.Command{
 		Use:   "update-status",
-		Short: "Update status of Kubernetes resources",
+		Short: "Update status and labels of Kubernetes resources",
 		RunE: func(cmd *cobra.Command, args []string) error {
 			ctx := context.Background()
 			return runUpdateStatus(ctx)
@@ -29,6 +29,7 @@ func updateStatusCmd() *cobra.Command {
 func runUpdateStatus(ctx context.Context) error {
 	workspaceDir := "/work-creator-files"
 	statusFile := filepath.Join(workspaceDir, "metadata", "status.yaml")
+	labelsFile := filepath.Join(workspaceDir, "metadata", "labels.yaml")
 
 	params := helpers.GetParametersFromEnv()
 
@@ -44,6 +45,32 @@ func runUpdateStatus(ctx context.Context) error {
 		return fmt.Errorf("failed to get existing object: %w", err)
 	}
 
+	// Handle labels update
+	incomingLabels, err := readLabelsFile(labelsFile)
+	if err != nil {
+		return fmt.Errorf("failed to load incoming labels: %w", err)
+	}
+
+	if len(incomingLabels) > 0 {
+		existingLabels := existingObj.GetLabels()
+		if existingLabels == nil {
+			existingLabels = map[string]string{}
+		}
+		mergedLabels := lib.MergeLabels(existingLabels, incomingLabels)
+		existingObj.SetLabels(mergedLabels)
+
+		if _, err = objectClient.Update(ctx, existingObj, metav1.UpdateOptions{}); err != nil {
+			return fmt.Errorf("failed to update labels: %w", err)
+		}
+
+		// Re-fetch the object after labels update to get the latest resourceVersion
+		existingObj, err = objectClient.Get(ctx, params.ObjectName, metav1.GetOptions{})
+		if err != nil {
+			return fmt.Errorf("failed to get existing object after labels update: %w", err)
+		}
+	}
+
+	// Handle status update
 	existingStatus := map[string]any{}
 	if existingObj.Object["status"] != nil {
 		existingStatus = existingObj.Object["status"].(map[string]any)
@@ -83,4 +110,18 @@ func readStatusFile(statusFile string) (map[string]any, error) {
 		}
 	}
 	return incomingStatus, nil
+}
+
+func readLabelsFile(labelsFile string) (map[string]string, error) {
+	incomingLabels := map[string]string{}
+	if _, err := os.Stat(labelsFile); err == nil {
+		incomingLabelsBytes, err := os.ReadFile(labelsFile)
+		if err != nil {
+			return nil, fmt.Errorf("failed to read labels file: %w", err)
+		}
+		if err := yaml.Unmarshal(incomingLabelsBytes, &incomingLabels); err != nil {
+			return nil, fmt.Errorf("failed to unmarshal incoming labels: %w", err)
+		}
+	}
+	return incomingLabels, nil
 }

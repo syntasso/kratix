@@ -19,6 +19,25 @@ func MergeStatuses(existing map[string]any, incoming map[string]any) map[string]
 	return mergeRecursive(existing, incoming)
 }
 
+// MergeLabels takes two label maps and returns a new label map that is a
+// merge of the two. If a key exists in both maps, the value from the incoming
+// map will be used.
+func MergeLabels(existing map[string]string, incoming map[string]string) map[string]string {
+	result := make(map[string]string)
+
+	// First, copy all keys from existing
+	for k, v := range existing {
+		result[k] = v
+	}
+
+	// Then merge or overwrite with incoming
+	for k, v := range incoming {
+		result[k] = v
+	}
+
+	return result
+}
+
 // MarkAsCompleted takes a status map and returns a new status map with the
 // "ConfigureWorkflowCompleted" condition set to true. It will also update the
 // "message" field to "Resource requested" if the message is currently
