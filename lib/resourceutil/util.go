@@ -43,6 +43,14 @@ func GetConfigureWorkflowCompletedConditionStatus(obj *unstructured.Unstructured
 	return condition.Status
 }
 
+func GetDeleteWorkflowCompletedConditionStatus(obj *unstructured.Unstructured) v1.ConditionStatus {
+	condition := GetCondition(obj, DeleteWorkflowCompletedCondition)
+	if condition == nil {
+		return v1.ConditionUnknown
+	}
+	return condition.Status
+}
+
 func MarkConfigureWorkflowAsRunning(logger logr.Logger, obj *unstructured.Unstructured) {
 	SetCondition(obj, &clusterv1.Condition{
 		Type:               ConfigureWorkflowCompletedCondition,
@@ -63,6 +71,17 @@ func MarkConfigureWorkflowAsFailed(logger logr.Logger, obj *unstructured.Unstruc
 		LastTransitionTime: metav1.NewTime(time.Now()),
 	})
 	logging.Warn(logger, "marking configure workflow as failed", "condition", ConfigureWorkflowCompletedCondition, "value", v1.ConditionFalse, "reason", ConfigureWorkflowCompletedFailedReason)
+}
+
+func MarkDeleteWorkflowAsRunning(logger logr.Logger, obj *unstructured.Unstructured) {
+	SetCondition(obj, &clusterv1.Condition{
+		Type:               DeleteWorkflowCompletedCondition,
+		Status:             v1.ConditionFalse,
+		Message:            "Pipelines are still in progress",
+		Reason:             "PipelinesInProgress",
+		LastTransitionTime: metav1.NewTime(time.Now()),
+	})
+	logging.Info(logger, "marking delete workflow as running", "condition", DeleteWorkflowCompletedCondition, "value", v1.ConditionFalse, "reason", "PipelinesInProgress")
 }
 
 func MarkResourceRequestAsWorksFailed(obj *unstructured.Unstructured, works []string) {

@@ -110,6 +110,11 @@ func ReconcileDelete(opts Opts) (bool, error) {
 }
 
 func createDeletePipeline(opts Opts, pipeline v1alpha1.PipelineJobResources) (abort bool, err error) {
+	updated, err := setDeleteWorkflowCompletedConditionStatus(opts, opts.parentObject)
+	if err != nil || updated {
+		return updated, err
+	}
+
 	logging.Debug(opts.logger, "creating delete pipeline; execution will commence")
 	if isManualReconciliation(opts.parentObject.GetLabels()) {
 		if err := removeManualReconciliationLabel(opts); err != nil {
@@ -496,6 +501,26 @@ func setConfigureWorkflowCompletedConditionStatus(opts Opts, isTheFirstPipeline 
 		}
 		resourceutil.MarkConfigureWorkflowAsRunning(opts.logger, obj)
 		resourceutil.MarkReconciledPending(obj, "WorkflowPending")
+		err := opts.client.Status().Update(opts.ctx, obj)
+		if err != nil {
+			logging.Error(opts.logger, err, "failed to update object status")
+			return false, err
+		}
+		return true, nil
+	default:
+		return false, nil
+	}
+}
+
+func setDeleteWorkflowCompletedConditionStatus(opts Opts, obj *unstructured.Unstructured) (bool, error) {
+	if opts.SkipConditions {
+		return false, nil
+	}
+	switch resourceutil.GetDeleteWorkflowCompletedConditionStatus(obj) {
+	case v1.ConditionTrue:
+		fallthrough
+	case v1.ConditionUnknown:
+		resourceutil.MarkDeleteWorkflowAsRunning(opts.logger, obj)
 		err := opts.client.Status().Update(opts.ctx, obj)
 		if err != nil {
 			logging.Error(opts.logger, err, "failed to update object status")
