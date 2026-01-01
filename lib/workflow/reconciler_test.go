@@ -1863,15 +1863,38 @@ var _ = Describe("Workflow Reconciler", func() {
 		})
 
 		When("there are pipelines to reconcile", func() {
-			It("reconciles the first pipeline", func() {
+			It("updates the DeleteWorkflowCompleted condition to indicate pipelines are in progress", func() {
 				opts := workflow.NewOpts(ctx, fakeK8sClient, eventRecorder, logger, uPromise, workflowPipelines, "promise", 5, namespace)
 				requeue, err := workflow.ReconcileDelete(opts)
 				Expect(err).NotTo(HaveOccurred())
 				Expect(requeue).To(BeTrue())
-				jobList := listJobs(namespace)
-				Expect(jobList).To(HaveLen(1))
 
-				Expect(findByName(jobList, workflowPipelines[0].Job.Name)).To(BeTrue())
+				Expect(fakeK8sClient.Get(ctx, types.NamespacedName{Name: promise.Name}, &promise)).To(Succeed())
+				deleteWorkflowCond := apimeta.FindStatusCondition(promise.Status.Conditions, string(resourceutil.DeleteWorkflowCompletedCondition))
+				Expect(deleteWorkflowCond).NotTo(BeNil())
+				Expect(deleteWorkflowCond.Message).To(Equal("Pipelines are still in progress"))
+				Expect(deleteWorkflowCond.Reason).To(Equal("PipelinesInProgress"))
+				Expect(string(deleteWorkflowCond.Status)).To(Equal("False"))
+			})
+
+			It("reconciles the first pipeline", func() {
+				opts := workflow.NewOpts(ctx, fakeK8sClient, eventRecorder, logger, uPromise, workflowPipelines, "promise", 5, namespace)
+
+				By("first updating the delete workflow condition", func() {
+					requeue, err := workflow.ReconcileDelete(opts)
+					Expect(err).NotTo(HaveOccurred())
+					Expect(requeue).To(BeTrue())
+				})
+
+				By("then creating the job on subsequent reconcile", func() {
+					requeue, err := workflow.ReconcileDelete(opts)
+					Expect(err).NotTo(HaveOccurred())
+					Expect(requeue).To(BeTrue())
+					jobList := listJobs(namespace)
+					Expect(jobList).To(HaveLen(1))
+
+					Expect(findByName(jobList, workflowPipelines[0].Job.Name)).To(BeTrue())
+				})
 
 				By("not returning completed until the job is marked as completed", func() {
 					requeue, err := workflow.ReconcileDelete(opts)
@@ -1960,7 +1983,12 @@ var _ = Describe("Workflow Reconciler", func() {
 						labelPromiseForManualReconciliation("redis")
 						newWorkflowPipelines, uPromise = setupTest(promise, pipelines)
 						opts := workflow.NewOpts(ctx, fakeK8sClient, eventRecorder, logger, uPromise, newWorkflowPipelines, "promise", 5, namespace)
+						// First call updates the delete workflow condition
 						abort, err := workflow.ReconcileDelete(opts)
+						Expect(abort).To(BeTrue())
+						Expect(err).NotTo(HaveOccurred())
+						// Second call creates the job
+						abort, err = workflow.ReconcileDelete(opts)
 						Expect(abort).To(BeTrue())
 						Expect(err).NotTo(HaveOccurred())
 					})
