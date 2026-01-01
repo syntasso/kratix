@@ -90,8 +90,8 @@ func (r *HealthRecordReconciler) Reconcile(ctx context.Context, req ctrl.Request
 	healthRecordIsBeingDeleted := !healthRecord.DeletionTimestamp.IsZero()
 
 	if err = r.getResourceRequest(ctx, promiseGVK, healthRecord, resReq); err != nil {
-		if errors.IsNotFound(err) && healthRecordIsBeingDeleted {
-			logging.Debug(r.Log, "resource not found during deletion; removing finalizer", "healthRecord", req.Name)
+		if healthRecordIsBeingDeleted && (errors.IsNotFound(err) || errors.IsForbidden(err)) {
+			logging.Debug(r.Log, "resource not found or inaccessible during deletion; removing finalizer", "healthRecord", req.Name)
 			return ctrl.Result{}, r.removeFinalizer(ctx, healthRecord)
 		}
 		logging.Error(logger, err, "failed getting resource")

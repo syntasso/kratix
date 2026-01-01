@@ -1,21 +1,26 @@
 package controller_test
 
 import (
-	. "github.com/onsi/ginkgo/v2"
-	. "github.com/onsi/gomega"
-	"github.com/syntasso/kratix/internal/controller"
-	"k8s.io/apimachinery/pkg/runtime"
-	"k8s.io/apimachinery/pkg/types"
-	ctrl "sigs.k8s.io/controller-runtime"
-
+	"context"
+	"fmt"
 	"time"
 
+	. "github.com/onsi/ginkgo/v2"
+	. "github.com/onsi/gomega"
 	"github.com/syntasso/kratix/api/v1alpha1"
+	"github.com/syntasso/kratix/internal/controller"
+	apierrors "k8s.io/apimachinery/pkg/api/errors"
 	metav1 "k8s.io/apimachinery/pkg/apis/meta/v1"
 	"k8s.io/apimachinery/pkg/apis/meta/v1/unstructured"
+	"k8s.io/apimachinery/pkg/runtime"
+	"k8s.io/apimachinery/pkg/runtime/schema"
+	"k8s.io/apimachinery/pkg/types"
 	"k8s.io/client-go/kubernetes/scheme"
 	"k8s.io/client-go/tools/record"
+	ctrl "sigs.k8s.io/controller-runtime"
 	"sigs.k8s.io/controller-runtime/pkg/client"
+	"sigs.k8s.io/controller-runtime/pkg/client/fake"
+	"sigs.k8s.io/controller-runtime/pkg/client/interceptor"
 )
 
 var _ = Describe("HealthRecordController", func() {
@@ -313,6 +318,67 @@ var _ = Describe("HealthRecordController", func() {
 
 			record := &v1alpha1.HealthRecord{}
 			err = fakeK8sClient.Get(ctx, healthRecordName, record)
+			Expect(err).To(HaveOccurred())
+			Expect(err.Error()).To(ContainSubstring("not found"))
+		})
+	})
+
+	When("the service account cannot read the resource request", func() {
+		var healthRecordName types.NamespacedName
+		var forbiddenClient client.Client
+		var forbiddenReconciler *controller.HealthRecordReconciler
+
+		BeforeEach(func() {
+			_ = reconcile()
+
+			healthRecordName = types.NamespacedName{
+				Name:      healthRecord.GetName(),
+				Namespace: healthRecord.GetNamespace(),
+			}
+
+			forbiddenInterceptor := interceptor.Funcs{
+				Get: func(ctx context.Context, client client.WithWatch, key client.ObjectKey, obj client.Object, opts ...client.GetOption) error {
+					if _, ok := obj.(*unstructured.Unstructured); ok {
+						u := obj.(*unstructured.Unstructured)
+						if u.GetKind() == resource.GetKind() && u.GetAPIVersion() == resource.GetAPIVersion() {
+							return apierrors.NewForbidden(
+								schema.GroupResource{Group: "marketplace.kratix.io", Resource: "redis"},
+								key.Name,
+								fmt.Errorf("service account cannot read resource"),
+							)
+						}
+					}
+					return client.Get(ctx, key, obj, opts...)
+				},
+				SubResourceUpdate: func(ctx context.Context, client client.Client, subResourceName string, obj client.Object, opts ...client.SubResourceUpdateOption) error {
+					return client.Status().Update(ctx, obj, opts...)
+				},
+			}
+
+			forbiddenClient = fake.NewClientBuilder().
+				WithInterceptorFuncs(forbiddenInterceptor).
+				WithScheme(scheme.Scheme).
+				WithObjects(promise, healthRecord).
+				WithStatusSubresource(resource).
+				Build()
+
+			forbiddenReconciler = &controller.HealthRecordReconciler{
+				Client:        forbiddenClient,
+				Scheme:        scheme.Scheme,
+				Log:           GinkgoLogr,
+				EventRecorder: eventRecorder,
+			}
+
+			Expect(forbiddenClient.Get(ctx, healthRecordName, healthRecord)).To(Succeed())
+			Expect(forbiddenClient.Delete(ctx, healthRecord)).To(Succeed())
+		})
+
+		It("removes the finalizer since the resource is inaccessible", func() {
+			_, err := t.reconcileUntilCompletion(forbiddenReconciler, healthRecord)
+			Expect(err).NotTo(HaveOccurred())
+
+			record := &v1alpha1.HealthRecord{}
+			err = forbiddenClient.Get(ctx, healthRecordName, record)
 			Expect(err).To(HaveOccurred())
 			Expect(err.Error()).To(ContainSubstring("not found"))
 		})
