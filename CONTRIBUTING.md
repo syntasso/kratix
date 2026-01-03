@@ -9,7 +9,7 @@ Before submitting code, please ensure your development environment is set up cor
 Before submitting your changes, please:
 
 1. [Install Go](https://go.dev/doc/install) and ensure the toolchain is available in your `$PATH`.
-2. Install [`golangci-lint`](https://golangci-lint.run/usage/install/).
+2. Install [`golangci-lint`](https://golangci-lint.run/docs/welcome/install/).
 3. Run `make test` to execute unit tests.
 4. Run `make lint` to run static analysis.
 5. Run `make system-test` to run the system tests.
