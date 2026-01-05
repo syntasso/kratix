@@ -12,13 +12,13 @@ ENV GOARCH=${TARGETARCH}
 # Build
 RUN --mount=target=. \
     --mount=type=cache,target=/root/.cache/go-build \
-    --mount=type=cache,target=/go/pkg \
-    go build -a -o /out/manager cmd/main.go
+    --mount=type=cache,target=/go/pkg/mod \
+    go build -o /out/manager cmd/main.go
 
 RUN --mount=target=. \
     --mount=type=cache,target=/root/.cache/go-build \
-    --mount=type=cache,target=/go/pkg \
-    go build -a -o /out/pipeline-adapter work-creator/*.go
+    --mount=type=cache,target=/go/pkg/mod \
+    go build -o /out/pipeline-adapter work-creator/*.go
 
 FROM busybox AS busybox
 
