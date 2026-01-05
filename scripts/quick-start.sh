@@ -183,7 +183,7 @@ _build_kratix_image() {
         log "CI: image already loaded in the runner, skipping building it"
     else
         log "Building kratix image"
-        docker build --tag "${kratix_image}" --quiet --file ${ROOT}/Dockerfile ${ROOT} &&
+        docker build --tag "${kratix_image}" --quiet --file ${ROOT}/Dockerfile ${ROOT}
     fi
     kind load docker-image "${kratix_image}" --name ${PLATFORM_CLUSTER_NAME}
 }
