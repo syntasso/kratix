@@ -79,24 +79,24 @@ func NewGitWriter(logger logr.Logger, stateStoreSpec v1alpha1.GitStateStoreSpec,
 		if err != nil {
 			return nil, err
 		}
-
 		writerCreds = gitCredentials{
 			AuthMethod:    stateStoreSpec.AuthMethod,
 			SSHPrivateKey: sshCreds.SSHPrivateKey,
 			KnownHosts:    sshCreds.KnownHosts,
 			SSHUser:       sshCreds.SSHUser,
 		}
+
 	case v1alpha1.BasicAuthMethod:
 		basicCreds, err := newBasicAuthCreds(stateStoreSpec, creds)
 		if err != nil {
 			return nil, err
 		}
-
 		writerCreds = gitCredentials{
 			AuthMethod: stateStoreSpec.AuthMethod,
 			Username:   basicCreds.Username,
 			Password:   basicCreds.Password,
 		}
+
 	case v1alpha1.GitHubAppAuthMethod:
 		appCreds, err := newGithubAppCreds(stateStoreSpec, creds)
 		if err != nil {
@@ -118,6 +118,9 @@ func NewGitWriter(logger logr.Logger, stateStoreSpec v1alpha1.GitStateStoreSpec,
 			Username:   "x-access-token",
 			Password:   token,
 		}
+
+	default:
+		return nil, fmt.Errorf("unsupported auth method %q", stateStoreSpec.AuthMethod)
 	}
 
 	return &GitWriter{
@@ -140,9 +143,10 @@ func NewGitWriter(logger logr.Logger, stateStoreSpec v1alpha1.GitStateStoreSpec,
 }
 
 func newSSHAuthCreds(stateStoreSpec v1alpha1.GitStateStoreSpec, creds map[string][]byte) (*sshAuthCreds, error) {
-	sshPrivateKey, ok := creds["sshPrivateKey"]
 	namespace := stateStoreSpec.SecretRef.Namespace
 	name := stateStoreSpec.SecretRef.Name
+
+	sshPrivateKey, ok := creds["sshPrivateKey"]
 	if !ok {
 		return nil, fmt.Errorf("sshKey not found in secret %s/%s", namespace, name)
 	}
@@ -164,6 +168,7 @@ func newSSHAuthCreds(stateStoreSpec v1alpha1.GitStateStoreSpec, creds map[string
 func newBasicAuthCreds(stateStoreSpec v1alpha1.GitStateStoreSpec, creds map[string][]byte) (*basicAuthCreds, error) {
 	namespace := stateStoreSpec.SecretRef.Namespace
 	name := stateStoreSpec.SecretRef.Name
+
 	username, ok := creds["username"]
 	if !ok {
 		return nil, fmt.Errorf("username not found in secret %s/%s", namespace, name)
@@ -181,6 +186,7 @@ func newBasicAuthCreds(stateStoreSpec v1alpha1.GitStateStoreSpec, creds map[stri
 func newGithubAppCreds(stateStoreSpec v1alpha1.GitStateStoreSpec, creds map[string][]byte) (*githubAppCreds, error) {
 	namespace := stateStoreSpec.SecretRef.Namespace
 	name := stateStoreSpec.SecretRef.Name
+
 	appID, ok := creds["appID"]
 	if !ok {
 		return nil, fmt.Errorf("appID not found in secret %s/%s", namespace, name)
@@ -222,32 +228,19 @@ func (g *GitWriter) update(subDir, workPlacementName string, workloadsToCreate [
 	}
 	defer repoCtx.cleanup() //nolint:errcheck
 
-	if repoCtx.warning != nil {
-		return "", repoCtx.warning
-	}
-
 	if err := g.deleteExistingFiles(subDir != "", dirInGitRepo, workloadsToDelete, repoCtx.dir, logger); err != nil {
 		return "", err
 	}
 
 	for _, file := range workloadsToCreate {
-		//worker-cluster/resources/<rr-namespace>/<promise-name>/<rr-name>/foo/bar/baz.yaml
 		worktreeFilePath := filepath.Join(dirInGitRepo, file.Filepath)
-		log := logger.WithValues(
-			"filepath", worktreeFilePath,
-		)
+		log := logger.WithValues("filepath", worktreeFilePath)
 
-		///tmp/git-dir/worker-cluster/resources/<rr-namespace>/<promise-name>/<rr-name>/foo/bar/baz.yaml
 		absoluteFilePath := filepath.Join(repoCtx.dir, worktreeFilePath)
 
-		//We need to protect against paths containing `..`
-		//filepath.Join expands any '../' in the Path to the actual, e.g. /tmp/foo/../ resolves to /tmp/
-		//To ensure they can't write to files on disk outside the tmp git repository we check the absolute Path
-		//returned by `filepath.Join` is still contained with the git repository:
-		// Note: This means `../` can still be used, but only if the end result is still contained within the git repository
 		if !strings.HasPrefix(absoluteFilePath, repoCtx.dir) {
 			logging.Warn(log, "path of file to write is not located within the git repository", "absolutePath", absoluteFilePath, "tmpDir", repoCtx.dir)
-			return "", nil //We don't want to retry as this isn't a recoverable error. Log error and return nil.
+			return "", nil
 		}
 
 		if err := os.MkdirAll(filepath.Dir(absoluteFilePath), 0700); err != nil {
@@ -259,7 +252,6 @@ func (g *GitWriter) update(subDir, workPlacementName string, workloadsToCreate [
 			logging.Error(log, err, "could not write to file")
 			return "", err
 		}
-
 	}
 
 	if err := g.stageChanges(repoCtx, logger); err != nil {
@@ -271,36 +263,6 @@ func (g *GitWriter) update(subDir, workPlacementName string, workloadsToCreate [
 		action = "Update"
 	}
 	return g.commitAndPush(repoCtx, action, workPlacementName, logger)
-}
-
-// deleteExistingFiles removes all files in dir when removeDirectory is set to true
-// else it removes files listed in workloadsToDelete
-func (g *GitWriter) deleteExistingFiles(removeDirectory bool, dir string, workloadsToDelete []string, repoPath string, logger logr.Logger) error {
-	if removeDirectory {
-		target := filepath.Join(repoPath, dir)
-		if _, err := os.Lstat(target); err == nil {
-			logging.Info(logger, "deleting existing content")
-			return os.RemoveAll(target)
-		}
-	} else {
-		for _, file := range workloadsToDelete {
-			worktreeFilePath := filepath.Join(dir, file)
-			log := logger.WithValues(
-				"filepath", worktreeFilePath,
-			)
-			target := filepath.Join(repoPath, worktreeFilePath)
-			if _, err := os.Lstat(target); err != nil {
-				logging.Debug(log, "file requested to be deleted from worktree but does not exist")
-				continue
-			}
-			if err := os.RemoveAll(target); err != nil {
-				logging.Error(logger, err, "could not remove file from worktree")
-				return err
-			}
-			logging.Debug(logger, "successfully deleted file from worktree")
-		}
-	}
-	return nil
 }
 
 func (g *GitWriter) ReadFile(filePath string) ([]byte, error) {
@@ -316,21 +278,18 @@ func (g *GitWriter) ReadFile(filePath string) ([]byte, error) {
 	}
 	defer repoCtx.cleanup() //nolint:errcheck
 
-	if repoCtx.warning != nil {
-		return nil, repoCtx.warning
-	}
-
 	targetPath := filepath.Join(repoCtx.dir, fullPath)
 	if _, err := os.Lstat(targetPath); err != nil {
 		logging.Debug(logger, "could not stat file", "error", err)
 		return nil, ErrFileNotFound
 	}
 
-	var content []byte
-	if content, err = os.ReadFile(targetPath); err != nil {
+	content, err := os.ReadFile(targetPath)
+	if err != nil {
 		logging.Error(logger, err, "could not read file")
 		return nil, err
 	}
+
 	return content, nil
 }
 
@@ -338,107 +297,67 @@ type gitRepoContext struct {
 	dir     string
 	env     []string
 	cleanup func()
-	warning error
 }
 
 func (g *GitWriter) setupLocalDirectoryWithRepo(logger logr.Logger) (gitRepoContext, error) {
-	repoCtx := gitRepoContext{
-		cleanup: func() {},
-	}
-
-	operation := func() (error, bool) {
-		dir, err := createLocalDirectory(logger)
-		if err != nil {
-			logging.Error(logger, err, "could not create temporary repository directory")
-			return err, false
-		}
-		repoCtx.dir = dir
-
-		env, authCleanup, envErr := g.gitEnv(dir)
-		if envErr != nil {
-			return envErr, false
-		}
-		repoCtx.env = env
-		repoCtx.cleanup = func() {
-			authCleanup()
-			_ = os.RemoveAll(dir)
-		}
-
-		cloneErr := g.cloneRepo(repoCtx.dir, repoCtx.env, logger)
-		if cloneErr != nil && !errors.Is(cloneErr, ErrAuthSucceededAfterTrim) {
-			return cloneErr, true
-		}
-
-		repoCtx.warning = cloneErr
-		return nil, false
-	}
-
-	if err := retryGitOperation(logger, "clone", operation); err != nil {
-		repoCtx.cleanup()
-		logging.Error(logger, err, "could not set up temporary repository directory")
+	repoDir, err := os.MkdirTemp("", "kratix-repo")
+	if err != nil {
+		logging.Error(logger, err, "could not create temporary repository directory")
 		return gitRepoContext{}, err
+	}
+
+	// IMPORTANT: keep repoDir empty for `git clone` by creating auth artifacts elsewhere.
+	authDir, err := os.MkdirTemp("", "kratix-git-auth")
+	if err != nil {
+		_ = os.RemoveAll(repoDir)
+		return gitRepoContext{}, err
+	}
+
+	env, authCleanup, envErr := g.gitEnv(authDir)
+	if envErr != nil {
+		_ = os.RemoveAll(repoDir)
+		_ = os.RemoveAll(authDir)
+		return gitRepoContext{}, envErr
+	}
+
+	repoCtx := gitRepoContext{
+		dir: repoDir,
+		env: env,
+		cleanup: func() {
+			authCleanup()
+			_ = os.RemoveAll(repoDir)
+			_ = os.RemoveAll(authDir)
+		},
+	}
+
+	if cloneErr := g.cloneRepo(repoCtx.dir, repoCtx.env, logger); cloneErr != nil {
+		repoCtx.cleanup()
+		logging.Error(logger, cloneErr, "could not clone repository")
+		return gitRepoContext{}, cloneErr
 	}
 
 	return repoCtx, nil
 }
 
 func (g *GitWriter) push(repoCtx gitRepoContext, logger logr.Logger) error {
-	operation := func() (error, bool) {
-		_, err := GitCommand(repoCtx.dir, repoCtx.env, "push", "origin", g.GitServer.Branch)
-		if err == nil {
-			return nil, false
-		}
-		if isAuthError(err) {
-			return err, false
-		}
-		return err, true
-	}
-
-	if err := retryGitOperation(logger, "push", operation); err != nil {
+	_, err := GitCommand(repoCtx.dir, repoCtx.env, "push", "origin", g.GitServer.Branch)
+	if err != nil {
 		logging.Error(logger, err, "could not push to remote")
 		return err
 	}
-
 	return nil
 }
 
-func retryGitOperation(logger logr.Logger, operation string, fn func() (error, bool)) error {
-	err, retry := fn()
-	if err == nil {
-		return nil
-	}
-
-	if !retry {
-		return err
-	}
-
-	logging.Error(logger, err, fmt.Sprintf("git %s failed; retrying once", operation))
-	time.Sleep(1 * time.Second)
-
-	if retryErr, _ := fn(); retryErr != nil {
-		return retryErr
-	}
-
-	logging.Info(logger, fmt.Sprintf("git %s succeeded on retry", operation))
-	return nil
-}
-
-// validatePush attempts to validate write permissions by pushing no changes to the remote
-// If the push errors with "up to date", it means we can write.
 func (g *GitWriter) validatePush(repoCtx gitRepoContext, logger logr.Logger) error {
 	output, err := GitCommand(repoCtx.dir, repoCtx.env, "push", "--dry-run", "origin", g.GitServer.Branch)
 	if err != nil {
 		return fmt.Errorf("write permission validation failed: %w", err)
 	}
-
-	logging.Info(logger, "push validation successful - repository is up-to-date", "output", string(output))
+	logging.Info(logger, "push validation successful", "output", strings.TrimSpace(string(output)))
 	return nil
 }
 
-// ValidatePermissions checks if the GitWriter has the necessary permissions to write to the repository.
-// It performs a dry run validation to check authentication and branch existence without making changes.
 func (g *GitWriter) ValidatePermissions() error {
-	// Setup local directory with repo (this already checks if we can clone - read access)
 	repoCtx, err := g.setupLocalDirectoryWithRepo(g.Log)
 	if err != nil {
 		return fmt.Errorf("failed to set up local directory with repo: %w", err)
@@ -450,45 +369,213 @@ func (g *GitWriter) ValidatePermissions() error {
 	}
 
 	logging.Info(g.Log, "successfully validated git repository permissions")
-	return repoCtx.warning
+	return nil
 }
 
-func createLocalDirectory(logger logr.Logger) (string, error) {
-	logging.Debug(logger, "creating local directory")
-	dir, err := os.MkdirTemp("", "kratix-repo")
+func (g *GitWriter) deleteExistingFiles(removeDirectory bool, dir string, workloadsToDelete []string, repoPath string, logger logr.Logger) error {
+	if removeDirectory {
+		target := filepath.Join(repoPath, dir)
+		if _, err := os.Lstat(target); err == nil {
+			logging.Info(logger, "deleting existing content")
+			return os.RemoveAll(target)
+		}
+		return nil
+	}
+
+	for _, file := range workloadsToDelete {
+		worktreeFilePath := filepath.Join(dir, file)
+		log := logger.WithValues("filepath", worktreeFilePath)
+
+		target := filepath.Join(repoPath, worktreeFilePath)
+		if _, err := os.Lstat(target); err != nil {
+			logging.Debug(log, "file requested to be deleted from worktree but does not exist")
+			continue
+		}
+		if err := os.RemoveAll(target); err != nil {
+			logging.Error(log, err, "could not remove file from worktree")
+			return err
+		}
+		logging.Debug(log, "successfully deleted file from worktree")
+	}
+
+	return nil
+}
+
+func (g *GitWriter) cloneRepo(localRepoFilePath string, env []string, logger logr.Logger) error {
+	logging.Debug(logger, "cloning repo")
+
+	cloneURL := g.GitServer.URL
+	var err error
+	if g.Creds.AuthMethod == v1alpha1.BasicAuthMethod || g.Creds.AuthMethod == v1alpha1.GitHubAppAuthMethod {
+		cloneURL, err = buildAuthenticatedURL(g.Creds.Username, g.Creds.Password, g.GitServer.URL)
+		if err != nil {
+			return err
+		}
+	}
+
+	parent := filepath.Dir(localRepoFilePath)
+
+	_, err = GitCommand(parent, env,
+		"clone",
+		"--depth", "1",
+		"--single-branch",
+		"--branch", g.GitServer.Branch,
+		cloneURL,
+		localRepoFilePath,
+	)
+	return err
+}
+
+func buildAuthenticatedURL(username, password, rawURL string) (string, error) {
+	parsed, err := urlpkg.Parse(rawURL)
+	if err != nil {
+		return "", fmt.Errorf("failed to parse git url: %w", err)
+	}
+	parsed.User = urlpkg.UserPassword(username, password)
+	return parsed.String(), nil
+}
+
+func (g *GitWriter) gitStatusIsClean(repoCtx gitRepoContext, logger logr.Logger) (bool, error) {
+	output, err := GitCommand(repoCtx.dir, repoCtx.env, "status", "--porcelain")
+	if err != nil {
+		logging.Error(logger, err, "could not get worktree status")
+		return false, err
+	}
+	return strings.TrimSpace(string(output)) == "", nil
+}
+
+func (g *GitWriter) stageChanges(repoCtx gitRepoContext, logger logr.Logger) error {
+	if _, err := GitCommand(repoCtx.dir, repoCtx.env, "add", "-A"); err != nil {
+		logging.Error(logger, err, "could not stage changes")
+		return err
+	}
+	return nil
+}
+
+func (g *GitWriter) commitAndPush(repoCtx gitRepoContext, action, workPlacementName string, logger logr.Logger) (string, error) {
+	clean, err := g.gitStatusIsClean(repoCtx, logger)
 	if err != nil {
 		return "", err
 	}
+	if clean {
+		logging.Info(logger, "no changes to be committed")
+		return "", nil
+	}
 
-	return dir, nil
+	commitMessage := fmt.Sprintf("%s from: %s", action, workPlacementName)
+
+	_, err = GitCommand(repoCtx.dir, repoCtx.env,
+		"-c", fmt.Sprintf("user.name=%s", g.Author.Name),
+		"-c", fmt.Sprintf("user.email=%s", g.Author.Email),
+		"commit",
+		"--author", fmt.Sprintf("%s <%s>", g.Author.Name, g.Author.Email),
+		"-m", commitMessage,
+	)
+	if err != nil {
+		logging.Error(logger, err, "could not commit file to worktree")
+		return "", err
+	}
+
+	sha := ""
+	if output, revErr := GitCommand(repoCtx.dir, repoCtx.env, "rev-parse", "HEAD"); revErr == nil {
+		sha = strings.TrimSpace(string(output))
+	}
+
+	logging.Info(logger, "pushing changes")
+	if err := g.push(repoCtx, logger); err != nil {
+		logging.Error(logger, err, "could not push changes")
+		return "", err
+	}
+
+	return sha, nil
 }
 
-func sshUsernameFromURL(url string) (string, error) {
-	parsed, err := urlpkg.Parse(url)
+func runGitCommand(dir string, env []string, args ...string) ([]byte, error) {
+	if dir == "" {
+		return nil, fmt.Errorf("git %s: working directory must not be empty", strings.Join(args, " "))
+	}
+	cmd := exec.Command("git", args...)
+	cmd.Dir = dir
+	cmd.Env = append(os.Environ(), env...)
+	output, err := cmd.CombinedOutput()
+	if err != nil {
+		return output, fmt.Errorf("git %s: %w: %s", strings.Join(args, " "), err, strings.TrimSpace(string(output)))
+	}
+	return output, nil
+}
+
+var GitCommand = runGitCommand
+
+func (g *GitWriter) gitEnv(authDir string) ([]string, func(), error) {
+	cleanup := func() {}
+	env := []string{"GIT_TERMINAL_PROMPT=0"}
+
+	if g.Creds.AuthMethod != v1alpha1.SSHAuthMethod {
+		return env, cleanup, nil
+	}
+
+	keyFile, err := os.CreateTemp(authDir, "ssh-key-*")
+	if err != nil {
+		return nil, cleanup, err
+	}
+	if err := os.Chmod(keyFile.Name(), 0600); err != nil {
+		_ = keyFile.Close()
+		return nil, cleanup, err
+	}
+	if _, err := keyFile.Write(g.Creds.SSHPrivateKey); err != nil {
+		_ = keyFile.Close()
+		return nil, cleanup, err
+	}
+	_ = keyFile.Close()
+
+	knownHostsFile, err := os.CreateTemp(authDir, "known-hosts-*")
+	if err != nil {
+		_ = os.Remove(keyFile.Name())
+		return nil, cleanup, err
+	}
+	if _, err := knownHostsFile.Write(g.Creds.KnownHosts); err != nil {
+		_ = knownHostsFile.Close()
+		_ = os.Remove(keyFile.Name())
+		_ = os.Remove(knownHostsFile.Name())
+		return nil, cleanup, err
+	}
+	_ = knownHostsFile.Close()
+
+	sshCmd := fmt.Sprintf(
+		"ssh -i %s -o UserKnownHostsFile=%s -o StrictHostKeyChecking=yes -o IdentitiesOnly=yes",
+		keyFile.Name(),
+		knownHostsFile.Name(),
+	)
+	env = append(env, fmt.Sprintf("GIT_SSH_COMMAND=%s", sshCmd))
+
+	cleanup = func() {
+		_ = os.Remove(keyFile.Name())
+		_ = os.Remove(knownHostsFile.Name())
+	}
+	return env, cleanup, nil
+}
+
+func sshUsernameFromURL(raw string) (string, error) {
+	parsed, err := urlpkg.Parse(raw)
 	if err == nil && parsed != nil {
 		if parsed.User != nil && parsed.User.Username() != "" {
 			return parsed.User.Username(), nil
 		}
 		return "git", nil
 	}
-
-	// handle scp-like syntax: user@host:repo
-	if at := strings.Index(url, "@"); at != -1 {
-		user := url[:at]
+	if at := strings.Index(raw, "@"); at != -1 {
+		user := raw[:at]
 		if user != "" {
 			return user, nil
 		}
 	}
-
 	return "git", nil
 }
 
-// for unit tests
-
+// --- GitHub App helpers (unchanged) ---
 var GenerateGitHubAppJWT = generateGitHubAppJWT
 var GetGitHubInstallationToken = getGitHubInstallationToken
 
-// generateGitHubAppJWT creates a signed JWT for GitHub App authentication
 func generateGitHubAppJWT(appID string, privateKey string) (string, error) {
 	block, _ := pem.Decode([]byte(privateKey))
 	if block == nil {
@@ -530,7 +617,6 @@ func parseRSAPrivateKeyFromPEM(block *pem.Block) (*rsa.PrivateKey, error) {
 	return nil, errors.New("private key is not RSA")
 }
 
-// getGitHubInstallationToken exchanges a JWT for a GitHub installation access token
 func getGitHubInstallationToken(apiURL, installationID, jwtToken string) (string, error) {
 	url := fmt.Sprintf("%s/app/installations/%s/access_tokens", apiURL, installationID)
 
@@ -580,165 +666,7 @@ func isAuthError(err error) bool {
 		strings.Contains(s, "401") || strings.Contains(s, "403")
 }
 
-func trimmedBasicAuthCopy(username, password string) (string, string, bool) {
-	u, uChanged := trimRightWhitespace(username)
-	p, pChanged := trimRightWhitespace(password)
-	if !uChanged && !pChanged {
-		return "", "", false
-	}
-	return u, p, true
-}
-
 func trimRightWhitespace(s string) (string, bool) {
 	trimmed := strings.TrimRightFunc(s, unicode.IsSpace)
 	return trimmed, trimmed != s
-}
-
-func runGitCommand(dir string, env []string, args ...string) ([]byte, error) {
-	cmd := exec.Command("git", args...)
-	cmd.Dir = dir
-	cmd.Env = append(os.Environ(), env...)
-	output, err := cmd.CombinedOutput()
-	if err != nil {
-		return output, fmt.Errorf("git %s: %w: %s", strings.Join(args, " "), err, strings.TrimSpace(string(output)))
-	}
-	return output, nil
-}
-
-var GitCommand = runGitCommand
-
-func (g *GitWriter) gitEnv(baseDir string) ([]string, func(), error) {
-	cleanup := func() {}
-	env := []string{"GIT_TERMINAL_PROMPT=0"}
-
-	if g.Creds.AuthMethod == v1alpha1.SSHAuthMethod {
-		keyFile, err := os.CreateTemp(baseDir, "ssh-key-*")
-		if err != nil {
-			return nil, cleanup, err
-		}
-		if err := os.Chmod(keyFile.Name(), 0600); err != nil {
-			return nil, cleanup, err
-		}
-		if _, err := keyFile.Write(g.Creds.SSHPrivateKey); err != nil {
-			return nil, cleanup, err
-		}
-
-		knownHostsFile, err := os.CreateTemp(baseDir, "known-hosts-*")
-		if err != nil {
-			return nil, cleanup, err
-		}
-		if _, err := knownHostsFile.Write(g.Creds.KnownHosts); err != nil {
-			return nil, cleanup, err
-		}
-
-		sshCmd := fmt.Sprintf("ssh -i %s -o UserKnownHostsFile=%s -o StrictHostKeyChecking=yes -o IdentitiesOnly=yes", keyFile.Name(), knownHostsFile.Name())
-		env = append(env, fmt.Sprintf("GIT_SSH_COMMAND=%s", sshCmd))
-		cleanup = func() {
-			_ = os.Remove(keyFile.Name())
-			_ = os.Remove(knownHostsFile.Name())
-		}
-	}
-
-	return env, cleanup, nil
-}
-
-func (g *GitWriter) cloneRepo(localRepoFilePath string, env []string, logger logr.Logger) error {
-	logging.Debug(logger, "cloning repo")
-	cloneURL := g.GitServer.URL
-	var err error
-
-	if g.Creds.AuthMethod == v1alpha1.BasicAuthMethod || g.Creds.AuthMethod == v1alpha1.GitHubAppAuthMethod {
-		cloneURL, err = buildAuthenticatedURL(g.Creds.Username, g.Creds.Password, g.GitServer.URL)
-		if err != nil {
-			return err
-		}
-	}
-
-	_, err = GitCommand("", env, "clone", "--depth", "1", "--branch", g.GitServer.Branch, cloneURL, localRepoFilePath)
-	if err != nil && g.BasicAuth {
-		if u, p, changed := trimmedBasicAuthCopy(g.Creds.Username, g.Creds.Password); changed {
-			if retryURL, urlErr := buildAuthenticatedURL(u, p, g.GitServer.URL); urlErr == nil {
-				_ = os.RemoveAll(localRepoFilePath)
-				if _, retryErr := GitCommand("", env, "clone", "--depth", "1", "--branch", g.GitServer.Branch, retryURL, localRepoFilePath); retryErr == nil {
-					logging.Warn(logger, "authentication succeeded after trimming trailing whitespace; please fix your GitStateStore Secret")
-					g.Creds.Username = u
-					g.Creds.Password = p
-					return ErrAuthSucceededAfterTrim
-				}
-			}
-		}
-	}
-
-	return err
-}
-
-func buildAuthenticatedURL(username, password, rawURL string) (string, error) {
-	parsed, err := urlpkg.Parse(rawURL)
-	if err != nil {
-		return "", fmt.Errorf("failed to parse git url: %w", err)
-	}
-	parsed.User = urlpkg.UserPassword(username, password)
-	return parsed.String(), nil
-}
-
-func (g *GitWriter) gitStatusIsClean(repoCtx gitRepoContext, logger logr.Logger) (bool, error) {
-	output, err := GitCommand(repoCtx.dir, repoCtx.env, "status", "--porcelain")
-	if err != nil {
-		logging.Error(logger, err, "could not get worktree status")
-		return false, err
-	}
-	return strings.TrimSpace(string(output)) == "", nil
-}
-
-func (g *GitWriter) stageChanges(repoCtx gitRepoContext, logger logr.Logger) error {
-	if _, err := GitCommand(repoCtx.dir, repoCtx.env, "add", "-A"); err != nil {
-		logging.Error(logger, err, "could not stage changes")
-		return err
-	}
-	return nil
-}
-
-func (g *GitWriter) commitAndPush(repoCtx gitRepoContext, action, workPlacementName string, logger logr.Logger) (string, error) {
-	var sha string
-	operation := func() (error, bool) {
-		clean, err := g.gitStatusIsClean(repoCtx, logger)
-		if err != nil {
-			return err, true
-		}
-
-		if clean {
-			logging.Info(logger, "no changes to be committed")
-			return nil, false
-		}
-
-		commitMessage := fmt.Sprintf("%s from: %s", action, workPlacementName)
-		_, err = GitCommand(repoCtx.dir, repoCtx.env,
-			"-c", fmt.Sprintf("user.name=%s", g.Author.Name),
-			"-c", fmt.Sprintf("user.email=%s", g.Author.Email),
-			"commit",
-			"--author", fmt.Sprintf("%s <%s>", g.Author.Name, g.Author.Email),
-			"-m", commitMessage,
-		)
-		if err != nil {
-			return err, true
-		}
-
-		if output, revErr := GitCommand(repoCtx.dir, repoCtx.env, "rev-parse", "HEAD"); revErr == nil {
-			sha = strings.TrimSpace(string(output))
-		}
-
-		return nil, false
-	}
-
-	if err := retryGitOperation(logger, "commit", operation); err != nil {
-		logging.Error(logger, err, "could not commit file to worktree")
-		return "", err
-	}
-
-	logging.Info(logger, "pushing changes")
-	if err := g.push(repoCtx, logger); err != nil {
-		logging.Error(logger, err, "could not push changes")
-		return "", err
-	}
-	return sha, nil
 }
