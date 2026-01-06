@@ -9,12 +9,11 @@ import (
 	"crypto/x509"
 	"encoding/json"
 	"encoding/pem"
+	"fmt"
 	"log"
 	"net/http"
 	"net/http/httptest"
 
-	transporthttp "github.com/go-git/go-git/v5/plumbing/transport/http"
-	"github.com/go-git/go-git/v5/plumbing/transport/ssh"
 	"github.com/go-logr/logr"
 	. "github.com/onsi/ginkgo/v2"
 	. "github.com/onsi/gomega"
@@ -78,10 +77,9 @@ var _ = Describe("NewGitWriter", func() {
 		gitWriter, ok := writer.(*writers.GitWriter)
 		Expect(ok).To(BeTrue())
 		Expect(gitWriter.GitServer.URL).To(Equal("https://github.com/syntasso/kratix"))
-		Expect(gitWriter.GitServer.Auth).To(Equal(&transporthttp.BasicAuth{
-			Username: "user1",
-			Password: "pw1",
-		}))
+		Expect(gitWriter.Creds.Username).To(Equal("user1"))
+		Expect(gitWriter.Creds.Password).To(Equal("pw1"))
+		Expect(gitWriter.Creds.AuthMethod).To(Equal(v1alpha1.BasicAuthMethod))
 		Expect(gitWriter.GitServer.Branch).To(Equal("test"))
 		Expect(gitWriter.Author.Email).To(Equal("test@example.com"))
 		Expect(gitWriter.Author.Name).To(Equal("a-user"))
@@ -128,10 +126,9 @@ var _ = Describe("NewGitWriter", func() {
 			gitWriter, ok := writer.(*writers.GitWriter)
 			Expect(ok).To(BeTrue())
 			Expect(gitWriter.GitServer.URL).To(Equal("https://github.com/syntasso/kratix"))
-			Expect(gitWriter.GitServer.Auth.(*ssh.PublicKeys).User).To(Equal("git"))
-			publicKey, ok := gitWriter.GitServer.Auth.(*ssh.PublicKeys)
-			Expect(ok).To(BeTrue())
-			Expect(publicKey).NotTo(BeNil())
+			Expect(gitWriter.Creds.SSHUser).To(Equal("git"))
+			Expect(gitWriter.Creds.SSHPrivateKey).NotTo(BeEmpty())
+			Expect(gitWriter.Creds.KnownHosts).NotTo(BeEmpty())
 			Expect(gitWriter.GitServer.Branch).To(Equal("test"))
 			Expect(gitWriter.Author.Email).To(Equal("test@example.com"))
 			Expect(gitWriter.Author.Name).To(Equal("a-user"))
@@ -149,10 +146,8 @@ var _ = Describe("NewGitWriter", func() {
 			gitWriter, ok := writer.(*writers.GitWriter)
 			Expect(ok).To(BeTrue())
 			Expect(gitWriter.GitServer.URL).To(Equal("test-user@test.ghe.com:test-org/test-state-store.git"))
-			Expect(gitWriter.GitServer.Auth.(*ssh.PublicKeys).User).To(Equal("test-user"))
-			publicKey, ok := gitWriter.GitServer.Auth.(*ssh.PublicKeys)
-			Expect(ok).To(BeTrue())
-			Expect(publicKey).NotTo(BeNil())
+			Expect(gitWriter.Creds.SSHUser).To(Equal("test-user"))
+			Expect(gitWriter.Creds.SSHPrivateKey).NotTo(BeEmpty())
 		})
 	})
 
@@ -191,8 +186,8 @@ var _ = Describe("NewGitWriter", func() {
 			Expect(err).NotTo(HaveOccurred())
 			Expect(writer).To(BeAssignableToTypeOf(&writers.GitWriter{}))
 			gitWriter := writer.(*writers.GitWriter)
-			Expect(gitWriter.GitServer.Auth.(*transporthttp.BasicAuth).Username).To(Equal("x-access-token"))
-			Expect(gitWriter.GitServer.Auth.(*transporthttp.BasicAuth).Password).To(Equal("token"))
+			Expect(gitWriter.Creds.Username).To(Equal("x-access-token"))
+			Expect(gitWriter.Creds.Password).To(Equal("token"))
 			Expect(jwtCalled).To(BeTrue())
 			Expect(tokenCalled).To(BeTrue())
 		})
@@ -220,10 +215,16 @@ var _ = Describe("NewGitWriter", func() {
 
 		It("returns an error when authentication fails", func() {
 			// Set invalid credentials
-			gitWriter.GitServer.Auth = &transporthttp.BasicAuth{
-				Username: "invalid",
-				Password: "invalid",
+			gitWriter.Creds.Username = "invalid"
+			gitWriter.Creds.Password = "invalid"
+			gitWriter.GitServer.URL = "https://127.0.0.1:65535/invalid.git"
+			gitWriter.GitServer.Branch = "main"
+
+			originalGitCommand := writers.GitCommand
+			writers.GitCommand = func(string, []string, ...string) ([]byte, error) {
+				return nil, fmt.Errorf("forced failure")
 			}
+			defer func() { writers.GitCommand = originalGitCommand }()
 
 			err := gitWriter.ValidatePermissions()
 			Expect(err).To(HaveOccurred())
