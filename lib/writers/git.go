@@ -400,9 +400,16 @@ func (g *GitWriter) push(repo *git.Repository, logger logr.Logger) error {
 		}
 		return err, true
 	}
+	/*
+		client, err := NewClientExt("https://github.com/argoproj/argo-cd.git", dir, NopCreds{}, false, false, "", "")
+			require.NoError(t, err)
+
+			err = client.Init()
+			require.NoError(t, err)
+	*/
 
 	if err := retryGitOperation(logger, "push", operation); err != nil {
-		logging.Error(logger, err, "could not push to remote")
+		logging.Error(logger, err, "could not push to remotexxxxxxxxxxxxxxxxxxxx")
 		return err
 	}
 
@@ -551,8 +558,18 @@ func (g *GitWriter) commitAndPush(repo *git.Repository, worktree *git.Worktree, 
 	}
 
 	logging.Info(logger, "pushing changes")
+	/*
+		iface.Push() {
+			if enabled:
+			  use new client from argo
+			else:
+			  use old one:
+			  g.push
+		}
+	*/
+
 	if err := g.push(repo, logger); err != nil {
-		logging.Error(logger, err, "could not push changes")
+		logging.Error(logger, err, "could not push changesyyyyyyyyyyyyyyyyyyyyyyyy")
 		return "", err
 	}
 	return sha, nil

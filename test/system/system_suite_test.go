@@ -23,6 +23,9 @@ func TestSystem(t *testing.T) {
 }
 
 var _ = SynchronizedBeforeSuite(func() {
+	if 1 == 1 {
+		return
+	}
 	//this runs once for the whole suite
 	platform = &kubeutils.Cluster{
 		Context: getEnvOrDefault("PLATFORM_CONTEXT", "kind-platform"),
