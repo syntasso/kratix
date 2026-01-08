@@ -83,11 +83,11 @@ func initTimeout() {
 // GitClient is a generic git client interface
 type GitClient interface {
 	// CommitAndPush commits and pushes changes to the target branch.
-	Clone() (string, error)
+	Clone() (*git.Repository, error)
 	Checkout(revision string) (string, error)
 	CommitAndPush(branch, message string) (string, error)
 	Fetch(revision string, depth int64) error
-	Init() error
+	Init() (*git.Repository, error)
 	Root() string
 }
 
@@ -630,32 +630,43 @@ func (m *nativeGitClient) Root() string {
 }
 
 // Init initializes a local git repository and sets the remote origin
-func (m *nativeGitClient) Init() error {
-	_, err := git.PlainOpen(m.root)
+func (m *nativeGitClient) Init() (*git.Repository, error) {
+
+	var err error
+	m.root, err = createLocalDirectory(m.log)
+	if err != nil {
+		logging.Error(m.log, err, "could not create temporary repository directory")
+		return nil, err
+	}
+
+	repo, err := git.PlainOpen(m.root)
+	// repo already exists
 	if err == nil {
-		return nil
+		return repo, nil
 	}
 	if !errors.Is(err, git.ErrRepositoryNotExists) {
-		return err
+		return nil, err
 	}
-	log.Infof("Initializing %s to %s", m.repoURL, m.root)
+
+	// create repo locally
+	logging.Debug(m.log, "initialising repo %s to %s", m.repoURL, m.root)
 	err = os.RemoveAll(m.root)
 	if err != nil {
-		return fmt.Errorf("unable to clean repo at %s: %w", m.root, err)
+		return nil, fmt.Errorf("unable to clean repo at %s: %w", m.root, err)
 	}
 	err = os.MkdirAll(m.root, 0o755)
 	if err != nil {
-		return err
+		return nil, err
 	}
-	repo, err := git.PlainInit(m.root, false)
+	repo, err = git.PlainInit(m.root, false)
 	if err != nil {
-		return err
+		return nil, err
 	}
 	_, err = repo.CreateRemote(&config.RemoteConfig{
 		Name: git.DefaultRemoteName,
 		URLs: []string{m.repoURL},
 	})
-	return err
+	return repo, err
 }
 
 func (m *nativeGitClient) fetch(ctx context.Context, revision string, depth int64) error {
@@ -751,25 +762,25 @@ func (m *nativeGitClient) Checkout(revision string) (string, error) {
 //	--depth N: Create shallow clone with only N commits of history
 //	--branch: Clone specific branch instead of default
 //	--single-branch: Only clone one branch
-func (m *nativeGitClient) Clone() error {
+func (m *nativeGitClient) Clone() (*git.Repository, error) {
 
 	logging.Debug(m.log, "cloning repo")
 
-	err := m.Init()
+	repo, err := m.Init()
 	if err != nil {
-		return err
+		return nil, err
 	}
 	err = m.Fetch("main", 0)
 	if err != nil {
-		return err
+		return nil, err
 	}
 	out, err := m.Checkout("main")
 	if err != nil {
 		logging.Error(m.log, err, "could not clone repo: %v", out)
-		return err
+		return nil, err
 	}
 
-	return nil
+	return repo, nil
 }
 
 func getGitTags(refs []*plumbing.Reference) []string {

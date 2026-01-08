@@ -11,9 +11,7 @@ import (
 	"unicode"
 
 	"github.com/go-git/go-git/v5"
-	"github.com/go-git/go-git/v5/plumbing"
 	"github.com/go-git/go-git/v5/plumbing/object"
-	"github.com/go-git/go-git/v5/plumbing/protocol/packp/capability"
 	"github.com/go-git/go-git/v5/plumbing/transport"
 	"github.com/go-logr/logr"
 	"github.com/syntasso/kratix/api/v1alpha1"
@@ -38,6 +36,12 @@ type gitServer struct {
 type gitAuthor struct {
 	Name  string
 	Email string
+}
+
+type GitRepo struct {
+	LocalTmpDir string
+	Repo        *git.Repository
+	Worktree    *git.Worktree
 }
 
 func NewGitWriter(logger logr.Logger, stateStoreSpec v1alpha1.GitStateStoreSpec, destinationPath string, creds map[string][]byte) (StateStoreWriter, error) {
@@ -91,13 +95,13 @@ func (g *GitWriter) update(subDir, workPlacementName string, workloadsToCreate [
 		"branch", g.GitServer.Branch,
 	)
 
-	localTmpDir, repo, worktree, err := g.setupLocalDirectoryWithRepo(logger)
+	gr, err := g.setupLocalDirectoryWithRepo(logger)
 	if err != nil {
 		return "", err
 	}
-	defer os.RemoveAll(filepath.Dir(localTmpDir)) //nolint:errcheck
+	defer os.RemoveAll(filepath.Dir(gr.LocalTmpDir)) //nolint:errcheck
 
-	err = g.deleteExistingFiles(subDir != "", dirInGitRepo, workloadsToDelete, worktree, logger)
+	err = g.deleteExistingFiles(subDir != "", dirInGitRepo, workloadsToDelete, gr.Worktree, logger)
 	if err != nil {
 		return "", err
 	}
@@ -110,15 +114,15 @@ func (g *GitWriter) update(subDir, workPlacementName string, workloadsToCreate [
 		)
 
 		///tmp/git-dir/worker-cluster/resources/<rr-namespace>/<promise-name>/<rr-name>/foo/bar/baz.yaml
-		absoluteFilePath := filepath.Join(localTmpDir, worktreeFilePath)
+		absoluteFilePath := filepath.Join(gr.LocalTmpDir, worktreeFilePath)
 
 		//We need to protect against paths containing `..`
 		//filepath.Join expands any '../' in the Path to the actual, e.g. /tmp/foo/../ resolves to /tmp/
 		//To ensure they can't write to files on disk outside the tmp git repository we check the absolute Path
 		//returned by `filepath.Join` is still contained with the git repository:
 		// Note: This means `../` can still be used, but only if the end result is still contained within the git repository
-		if !strings.HasPrefix(absoluteFilePath, localTmpDir) {
-			logging.Warn(log, "path of file to write is not located within the git repository", "absolutePath", absoluteFilePath, "tmpDir", localTmpDir)
+		if !strings.HasPrefix(absoluteFilePath, gr.LocalTmpDir) {
+			logging.Warn(log, "path of file to write is not located within the git repository", "absolutePath", absoluteFilePath, "tmpDir", gr.LocalTmpDir)
 			return "", nil //We don't want to retry as this isn't a recoverable error. Log error and return nil.
 		}
 
@@ -132,7 +136,7 @@ func (g *GitWriter) update(subDir, workPlacementName string, workloadsToCreate [
 			return "", err
 		}
 
-		if _, err := worktree.Add(worktreeFilePath); err != nil {
+		if _, err := gr.Worktree.Add(worktreeFilePath); err != nil {
 			logging.Error(log, err, "could not add file to worktree")
 			return "", err
 		}
@@ -142,7 +146,7 @@ func (g *GitWriter) update(subDir, workPlacementName string, workloadsToCreate [
 	if len(workloadsToCreate) > 0 {
 		action = "Update"
 	}
-	return g.commitAndPush(repo, worktree, action, workPlacementName, logger)
+	return g.commitAndPush(gr.Repo, gr.Worktree, action, workPlacementName, logger)
 }
 
 // deleteExistingFiles removes all files in dir when removeDirectory is set to true
@@ -183,71 +187,45 @@ func (g *GitWriter) ReadFile(filePath string) ([]byte, error) {
 		"branch", g.GitServer.Branch,
 	)
 
-	localTmpDir, _, worktree, err := g.setupLocalDirectoryWithRepo(logger)
+	gr, err := g.setupLocalDirectoryWithRepo(logger)
 	if err != nil {
 		return nil, err
 	}
-	defer os.RemoveAll(filepath.Dir(localTmpDir)) //nolint:errcheck
+	defer os.RemoveAll(filepath.Dir(gr.LocalTmpDir)) //nolint:errcheck
 
-	if _, err := worktree.Filesystem.Lstat(fullPath); err != nil {
+	if _, err := gr.Worktree.Filesystem.Lstat(fullPath); err != nil {
 		logging.Debug(logger, "could not stat file", "error", err)
 		return nil, ErrFileNotFound
 	}
 
 	var content []byte
-	if content, err = os.ReadFile(filepath.Join(localTmpDir, fullPath)); err != nil {
+	if content, err = os.ReadFile(filepath.Join(gr.LocalTmpDir, fullPath)); err != nil {
 		logging.Error(logger, err, "could not read file")
 		return nil, err
 	}
 	return content, nil
 }
 
-func (g *GitWriter) setupLocalDirectoryWithRepo(logger logr.Logger) (string, *git.Repository, *git.Worktree, error) {
-	var (
-		localTmpDir string
-		repo        *git.Repository
-		worktree    *git.Worktree
-		cloneErr    error
-	)
+func (g *GitWriter) setupLocalDirectoryWithRepo(logger logr.Logger) (*GitRepo, error) {
 
-	operation := func() (error, bool) {
-		var err error
-		localTmpDir, err = createLocalDirectory(logger)
-		if err != nil {
-			logging.Error(logger, err, "could not create temporary repository directory")
-			return err, false
-		}
+	var err error
+	gr := &GitRepo{}
 
-		//repo, cloneErr = g.cloneRepo(localTmpDir, logger)
-
-		// TODO: how to set the repo dir????????
-		repo, cloneErr = g.client.Clone(localTmpDir)
-
-		if cloneErr != nil && !errors.Is(cloneErr, ErrAuthSucceededAfterTrim) {
-			return cloneErr, true
-		}
-
-		if repo == nil {
-			return fmt.Errorf("clone returned nil repository"), true
-		}
-
-		worktree, err = repo.Worktree()
-		if err != nil {
-			return err, true
-		}
-
-		return nil, false
+	gr.Repo, err = g.client.Clone()
+	if err != nil && !errors.Is(err, ErrAuthSucceededAfterTrim) {
+		return nil, fmt.Errorf("could not clone: %w", err)
+	}
+	if gr.Repo == nil {
+		return nil, fmt.Errorf("clone returned nil repository")
 	}
 
-	if err := retryGitOperation(logger, "clone", operation); err != nil {
-		if localTmpDir != "" {
-			_ = os.RemoveAll(localTmpDir)
-		}
-		logging.Error(logger, err, "could not set up temporary repository directory")
-		return "", nil, nil, err
+	gr.Worktree, err = gr.Repo.Worktree()
+	if err != nil {
+		return nil, fmt.Errorf("could not create worktree: %w", err)
 	}
+	gr.LocalTmpDir = g.client.Root()
 
-	return localTmpDir, repo, worktree, cloneErr
+	return gr, nil
 }
 
 func (g *GitWriter) push(repo *git.Repository, logger logr.Logger) error {
@@ -328,13 +306,13 @@ func (g *GitWriter) validatePush(repo *git.Repository, logger logr.Logger) error
 // It performs a dry run validation to check authentication and branch existence without making changes.
 func (g *GitWriter) ValidatePermissions() error {
 	// Setup local directory with repo (this already checks if we can clone - read access)
-	localTmpDir, repo, _, cloneErr := g.setupLocalDirectoryWithRepo(g.Log)
+	gr, cloneErr := g.setupLocalDirectoryWithRepo(g.Log)
 	if cloneErr != nil && !errors.Is(cloneErr, ErrAuthSucceededAfterTrim) {
 		return fmt.Errorf("failed to set up local directory with repo: %w", cloneErr)
 	}
-	defer os.RemoveAll(localTmpDir) //nolint:errcheck
+	defer os.RemoveAll(gr.LocalTmpDir) //nolint:errcheck
 
-	if err := g.validatePush(repo, g.Log); err != nil {
+	if err := g.validatePush(gr.Repo, g.Log); err != nil {
 		return err
 	}
 
@@ -343,21 +321,9 @@ func (g *GitWriter) ValidatePermissions() error {
 }
 
 func (g *GitWriter) cloneRepo(localRepoFilePath string, logger logr.Logger) (*git.Repository, error) {
-	// Azure DevOps requires multi_ack and multi_ack_detailed capabilities, which go-git doesn't
-	// implement. But: it's possible to do a full clone by saying it's _not_ _un_supported, in which
-	// case the library happily functions so long as it doesn't _actually_ get a multi_ack packet. See
-	// https://github.com/go-git/go-git/blob/v5.5.1/_examples/azure_devops/main.go.
-	oldUnsupportedCaps := transport.UnsupportedCapabilities
-
-	// This check is crude, but avoids having another dependency to parse the git URL.
-	if strings.Contains(g.GitServer.URL, "dev.azure.com") {
-		transport.UnsupportedCapabilities = []capability.Capability{
-			capability.ThinPack,
-		}
-	}
-	defer func() { transport.UnsupportedCapabilities = oldUnsupportedCaps }()
 
 	logging.Debug(logger, "cloning repo")
+	/* TODO: make sure we have the same settings in the new client
 	cloneOpts := &git.CloneOptions{
 		Auth:            g.GitServer.Auth,
 		URL:             g.GitServer.URL,
@@ -367,9 +333,14 @@ func (g *GitWriter) cloneRepo(localRepoFilePath string, logger logr.Logger) (*gi
 		NoCheckout:      false,
 		InsecureSkipTLS: true,
 	}
-	repo, err := git.PlainClone(localRepoFilePath, false, cloneOpts)
+	*/
+
+	//	repo, err := git.PlainClone(, false, cloneOpts)
+
+	repo, err := git.PlainOpen(localRepoFilePath)
 
 	if isAuthError(err) && g.BasicAuth {
+		/* TODO: convert this
 		if trimmed, changed := trimmedBasicAuthCopy(g.GitServer.Auth); changed {
 			logging.Info(logger, "auth failed there are trailing spaces in credentials; will retry again with trimmed credentials")
 			cloneOpts.Auth = &trimmed
@@ -380,6 +351,7 @@ func (g *GitWriter) cloneRepo(localRepoFilePath string, logger logr.Logger) (*gi
 				return retryRepo, ErrAuthSucceededAfterTrim
 			}
 		}
+		*/
 	}
 
 	return repo, err
