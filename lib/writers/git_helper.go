@@ -17,7 +17,6 @@ import (
 	"net/url"
 	"os"
 	"os/exec"
-	"path/filepath"
 	"regexp"
 	"strconv"
 	"strings"
@@ -26,7 +25,9 @@ import (
 	"unicode"
 	"unicode/utf8"
 
+	"github.com/go-logr/logr"
 	"github.com/sirupsen/logrus"
+	"github.com/syntasso/kratix/internal/logging"
 
 	"github.com/go-git/go-git/v5"
 	"github.com/go-git/go-git/v5/config"
@@ -62,6 +63,7 @@ type ExecRunOpts struct {
 	CaptureStderr bool
 }
 
+// TODO: remove init
 func init() {
 	initTimeout()
 }
@@ -78,6 +80,34 @@ func initTimeout() {
 	}
 }
 
+// GitClient is a generic git client interface
+type GitClient interface {
+	// CommitAndPush commits and pushes changes to the target branch.
+	Clone() (string, error)
+	Checkout(revision string) (string, error)
+	CommitAndPush(branch, message string) (string, error)
+	Fetch(revision string, depth int64) error
+	Init() error
+	Root() string
+}
+
+func NewGitClient(rawRepoURL string, root string, creds Creds, insecure bool, proxy string, noProxy string, opts ...ClientOpts) (GitClient, error) {
+
+	client := &nativeGitClient{
+		repoURL:      rawRepoURL,
+		root:         root,
+		creds:        creds,
+		insecure:     insecure,
+		proxy:        proxy,
+		noProxy:      noProxy,
+		gitConfigEnv: BuiltinGitConfigEnv,
+	}
+	for i := range opts {
+		opts[i](client)
+	}
+	return client, nil
+}
+
 func Run(cmd *exec.Cmd) (string, error) {
 	return RunWithRedactor(cmd, nil)
 }
@@ -88,7 +118,13 @@ func RunWithRedactor(cmd *exec.Cmd, redactor func(text string) string) (string, 
 }
 
 func RunWithExecRunOpts(cmd *exec.Cmd, opts ExecRunOpts) (string, error) {
-	cmdOpts := CmdOpts{Timeout: timeout, FatalTimeout: fatalTimeout, Redactor: opts.Redactor, TimeoutBehavior: opts.TimeoutBehavior, SkipErrorLogging: opts.SkipErrorLogging, CaptureStderr: opts.CaptureStderr}
+	cmdOpts := CmdOpts{
+		Timeout:          timeout,
+		FatalTimeout:     fatalTimeout,
+		Redactor:         opts.Redactor,
+		TimeoutBehavior:  opts.TimeoutBehavior,
+		SkipErrorLogging: opts.SkipErrorLogging,
+		CaptureStderr:    opts.CaptureStderr}
 	return RunCommandExt(cmd, cmdOpts)
 }
 
@@ -363,20 +399,6 @@ type RevisionReference struct {
 	Commit *CommitMetadata
 }
 
-type RevisionMetadata struct {
-	// Author is the author of the commit. Corresponds to the output of `git log -n 1 --pretty='format:%an <%ae>'`.
-	Author string
-	// Date is the date of the commit. Corresponds to the output of `git log -n 1 --pretty='format:%ad'`.
-	Date time.Time
-	Tags []string
-	// Message is the commit message.
-	Message string
-	// References contains metadata about information that is related in some way to this commit. This data comes from
-	// git commit trailers starting with "Argocd-reference-". We currently only support a single reference to a commit,
-	// but we return an array to allow for future expansion.
-	References []RevisionReference
-}
-
 // this should match reposerver/repository/repository.proto/RefsList
 type Refs struct {
 	Branches []string
@@ -390,17 +412,6 @@ type gitRefCache interface {
 	UnlockGitReferences(repo string, lockId string) error
 }
 
-// Client is a generic git client interface
-type Client interface {
-	Root() string
-	Init() error
-	Fetch(revision string, depth int64) error
-	Checkout(revision string, submoduleEnabled bool) (string, error)
-	RevisionMetadata(revision string) (*RevisionMetadata, error)
-	// CommitAndPush commits and pushes changes to the target branch.
-	CommitAndPush(branch, message string) (string, error)
-}
-
 type EventHandlers struct {
 	OnLsRemote func(repo string) func()
 	OnFetch    func(repo string) func()
@@ -410,6 +421,7 @@ type EventHandlers struct {
 // nativeGitClient implements Client interface using git CLI
 type nativeGitClient struct {
 	EventHandlers
+	log logr.Logger
 
 	// URL of the repository
 	repoURL string
@@ -419,8 +431,6 @@ type nativeGitClient struct {
 	creds Creds
 	// Whether to connect insecurely to repository, e.g. don't verify certificate
 	insecure bool
-	// Whether the repository is LFS enabled
-	enableLfs bool
 	// gitRefCache knows how to cache git refs
 	gitRefCache gitRefCache
 	// indicates if client allowed to load refs from cache
@@ -445,6 +455,7 @@ var (
 	factor           int64
 )
 
+// TODO: move it to constructor
 func init() {
 	if countStr := os.Getenv(EnvGitAttemptsCount); countStr != "" {
 		cnt, err := strconv.Atoi(countStr)
@@ -492,36 +503,6 @@ func WithEventHandlers(handlers EventHandlers) ClientOpts {
 	return func(c *nativeGitClient) {
 		c.EventHandlers = handlers
 	}
-}
-
-func NewClient(rawRepoURL string, creds Creds, insecure bool, enableLfs bool, proxy string, noProxy string, opts ...ClientOpts) (Client, error) {
-	r := regexp.MustCompile(`([/:])`)
-	normalizedGitURL := NormalizeGitURL(rawRepoURL)
-	if normalizedGitURL == "" {
-		return nil, fmt.Errorf("repository %q cannot be initialized: %w", rawRepoURL, ErrInvalidRepoURL)
-	}
-	root := filepath.Join(os.TempDir(), r.ReplaceAllString(normalizedGitURL, "_"))
-	if root == os.TempDir() {
-		return nil, fmt.Errorf("repository %q cannot be initialized, because its root would be system temp at %s", rawRepoURL, root)
-	}
-	return NewClientExt(rawRepoURL, root, creds, insecure, enableLfs, proxy, noProxy, opts...)
-}
-
-func NewClientExt(rawRepoURL string, root string, creds Creds, insecure bool, enableLfs bool, proxy string, noProxy string, opts ...ClientOpts) (Client, error) {
-	client := &nativeGitClient{
-		repoURL:      rawRepoURL,
-		root:         root,
-		creds:        creds,
-		insecure:     insecure,
-		enableLfs:    enableLfs,
-		proxy:        proxy,
-		noProxy:      noProxy,
-		gitConfigEnv: BuiltinGitConfigEnv,
-	}
-	for i := range opts {
-		opts[i](client)
-	}
-	return client, nil
 }
 
 var gitClientTimeout = env.ParseDurationFromEnv("ARGOCD_GIT_REQUEST_TIMEOUT", 15*time.Second, 0, math.MaxInt64)
@@ -677,11 +658,6 @@ func (m *nativeGitClient) Init() error {
 	return err
 }
 
-// IsLFSEnabled returns true if the repository is LFS enabled
-func (m *nativeGitClient) IsLFSEnabled() bool {
-	return m.enableLfs
-}
-
 func (m *nativeGitClient) fetch(ctx context.Context, revision string, depth int64) error {
 	args := []string{"fetch", "origin"}
 	if revision != "" {
@@ -697,7 +673,20 @@ func (m *nativeGitClient) fetch(ctx context.Context, revision string, depth int6
 	return m.runCredentialedCmd(ctx, args...)
 }
 
-// Fetch fetches latest updates from origin
+// Fetch downloads commits, branches, and tags from the remote repository
+// without modifying the working directory or current branch. Updates remote-tracking
+// branches (e.g., origin/main) to reflect the current state of the remote.
+//
+// Parameters:
+//
+//	revision: Specific branch/tag/commit to fetch (empty string fetches all)
+//	depth: Number of commits to fetch (0 for full history)
+//
+// Flags used:
+//
+//	--force: Allow non-fast-forward updates (handles force pushes)
+//	--prune: Remove remote-tracking branches that no longer exist on remote
+//	--tags: Fetch all tags (only when depth == 0, as tags don't work well with shallow clones)
 func (m *nativeGitClient) Fetch(revision string, depth int64) error {
 	if m.OnFetch != nil {
 		done := m.OnFetch(m.repoURL)
@@ -713,17 +702,27 @@ func (m *nativeGitClient) Fetch(revision string, depth int64) error {
 	return err
 }
 
-// Submodule embed other repositories into this repository
-func (m *nativeGitClient) Submodule() error {
-	ctx := context.Background()
-	if err := m.runCredentialedCmd(ctx, "submodule", "sync", "--recursive"); err != nil {
-		return err
-	}
-	return m.runCredentialedCmd(ctx, "submodule", "update", "--init", "--recursive")
-}
-
-// Checkout checks out the specified revision
-func (m *nativeGitClient) Checkout(revision string, submoduleEnabled bool) (string, error) {
+// Checkout switches the working directory to the specified revision (branch, tag, or commit),
+// updating all files to match that revision's state. Changes the current branch (updates
+// .git/HEAD) and modifies working directory files. After checkout, performs aggressive
+// cleanup to remove all untracked files, directories, and nested repositories.
+//
+// Parameters:
+//
+//	revision: Branch, tag, or commit to checkout (empty string or "HEAD" defaults to "origin/HEAD")
+//
+// Behavior:
+//   - Uses --force flag to discard any local modifications
+//   - Runs git clean -ffdx after checkout to remove:
+//   - Untracked files and directories (first "f")
+//   - Untracked nested Git repositories like submodules (second "f")
+//   - Ignored files from .gitignore ("x")
+//   - All untracked directories ("d")
+//
+// Returns:
+//   - Empty string on success
+//   - Command output on error, along with the error itself
+func (m *nativeGitClient) Checkout(revision string) (string, error) {
 	if revision == "" || revision == "HEAD" {
 		revision = "origin/HEAD"
 	}
@@ -742,6 +741,37 @@ func (m *nativeGitClient) Checkout(revision string, submoduleEnabled bool) (stri
 	return "", nil
 }
 
+// Clone creates a new Git repository by downloading the entire repository
+// from a remote URL. Creates the .git directory, downloads all commits, branches,
+// and tags, sets up remote tracking, and checks out the default branch. This is
+// a one-time setup operation for getting a repository for the first time.
+//
+// Common flags:
+//
+//	--depth N: Create shallow clone with only N commits of history
+//	--branch: Clone specific branch instead of default
+//	--single-branch: Only clone one branch
+func (m *nativeGitClient) Clone() error {
+
+	logging.Debug(m.log, "cloning repo")
+
+	err := m.Init()
+	if err != nil {
+		return err
+	}
+	err = m.Fetch("main", 0)
+	if err != nil {
+		return err
+	}
+	out, err := m.Checkout("main")
+	if err != nil {
+		logging.Error(m.log, err, "could not clone repo: %v", out)
+		return err
+	}
+
+	return nil
+}
+
 func getGitTags(refs []*plumbing.Reference) []string {
 	var tags []string
 	for _, ref := range refs {
@@ -750,44 +780,6 @@ func getGitTags(refs []*plumbing.Reference) []string {
 		}
 	}
 	return tags
-}
-
-// RevisionMetadata returns the meta-data for the commit
-func (m *nativeGitClient) RevisionMetadata(revision string) (*RevisionMetadata, error) {
-	ctx := context.Background()
-	out, err := m.runCmd(ctx, "show", "-s", "--format=%an <%ae>%n%at%n%B", revision)
-	if err != nil {
-		return nil, err
-	}
-	segments := strings.SplitN(out, "\n", 3)
-	if len(segments) != 3 {
-		return nil, fmt.Errorf("expected 3 segments, got %v", segments)
-	}
-	author := segments[0]
-	authorDateUnixTimestamp, _ := strconv.ParseInt(segments[1], 10, 64)
-	message := strings.TrimSpace(segments[2])
-
-	cmd := exec.CommandContext(ctx, "git", "interpret-trailers", "--parse")
-	cmd.Stdin = strings.NewReader(message)
-	out, err = m.runCmdOutput(cmd, runOpts{})
-	if err != nil {
-		return nil, fmt.Errorf("failed to interpret trailers for revision %q in repo %q: %w", revision, m.repoURL, err)
-	}
-	relatedCommits, _ := GetReferences(log.WithFields(log.Fields{"repo": m.repoURL, "revision": revision}), out)
-
-	out, err = m.runCmd(ctx, "tag", "--points-at", revision)
-	if err != nil {
-		return nil, err
-	}
-	tags := strings.Fields(out)
-
-	return &RevisionMetadata{
-		Author:     author,
-		Date:       time.Unix(authorDateUnixTimestamp, 0),
-		Tags:       tags,
-		Message:    message,
-		References: relatedCommits,
-	}, nil
 }
 
 func truncate(str string) string {
@@ -1015,8 +1007,6 @@ const (
 	EnvGitRetryDuration = "ARGOCD_GIT_RETRY_DURATION"
 	// EnvGitRetryFactor specifies factor of git remote operation retry
 	EnvGitRetryFactor = "ARGOCD_GIT_RETRY_FACTOR"
-	// EnvGitSubmoduleEnabled overrides git submodule support, true by default
-	EnvGitSubmoduleEnabled = "ARGOCD_GIT_MODULES_ENABLED"
 	// EnvGnuPGHome is the path to ArgoCD's GnuPG keyring for signature verification
 	EnvGnuPGHome = "ARGOCD_GNUPGHOME"
 	// EnvWatchAPIBufferSize is the buffer size used to transfer K8S watch events to watch API consumer

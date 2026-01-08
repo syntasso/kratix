@@ -27,18 +27,42 @@ var _ = FDescribe("Git writer with native client", func() {
 
 		})
 
-		It("checks out an open git repository", func() {
+		/*
+			It("checks out an open git repository but it does not pull the branches nor the code", func() {
+				dir, err := os.MkdirTemp("", "test-prefix-*")
+				//	defer os.RemoveAll(dir)
+				Expect(err).ToNot(HaveOccurred())
+				fmt.Printf("temp dir: %v\n", dir)
+				client, err := writers.NewGitClient(
+					"https://github.com/syntasso/helm-charts.git",
+					dir, writers.NopCreds{},  false, "", "")
+				Expect(err).ToNot(HaveOccurred())
 
-			dir := os.TempDir()
+				err = client.Init()
+				Expect(err).ToNot(HaveOccurred())
+			})
+		*/
+
+		It("checks out an open git repository and fetches the branches", func() {
+			dir, err := os.MkdirTemp("", "test-prefix-*")
+			//	defer os.RemoveAll(dir)
+			Expect(err).ToNot(HaveOccurred())
 			fmt.Printf("temp dir: %v\n", dir)
 
-			client, err := writers.NewClientExt(
+			client, err := writers.NewGitClient(
 				"https://github.com/syntasso/helm-charts.git",
-				dir, writers.NopCreds{}, false, false, "", "")
+				dir, writers.NopCreds{}, false, "", "")
 			Expect(err).ToNot(HaveOccurred())
 
 			err = client.Init()
 			Expect(err).ToNot(HaveOccurred())
+
+			err = client.Fetch("main", 0)
+			Expect(err).ToNot(HaveOccurred())
+
+			out, err := client.Checkout("main")
+			Expect(err).ToNot(HaveOccurred())
+			Expect(out).To(BeEmpty())
 		})
 	})
 })
