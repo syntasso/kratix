@@ -299,6 +299,7 @@ func (f authFilePaths) Close() error {
 }
 
 func (c SSHCreds) Environ() (io.Closer, []string, error) {
+	fmt.Println("111111111111!!")
 	// use the SHM temp dir from util, more secure
 	file, err := os.CreateTemp(argoio.TempDir, "")
 	if err != nil {
@@ -329,6 +330,7 @@ func (c SSHCreds) Environ() (io.Closer, []string, error) {
 	}
 
 	knownHostsFile := GetSSHKnownHostsDataPath()
+	fmt.Printf("FFFFFFFF: %v\n", knownHostsFile)
 	args = append(args, "-o", "StrictHostKeyChecking=yes", "-o", "UserKnownHostsFile="+knownHostsFile)
 
 	// Handle SSH socks5 proxy settings

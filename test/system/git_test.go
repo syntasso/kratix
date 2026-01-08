@@ -27,67 +27,65 @@ var _ = FDescribe("Git writer with native client", func() {
 
 		})
 
-		/*
-			It("checks out an open git repository but it does not pull the branches nor the code", func() {
-				dir, err := os.MkdirTemp("", "test-prefix-*")
-				//	defer os.RemoveAll(dir)
-				Expect(err).ToNot(HaveOccurred())
-				fmt.Printf("temp dir: %v\n", dir)
-				client, err := writers.NewGitClient(
-					"https://github.com/syntasso/testing-git-writer-public.git",
-					dir, writers.NopCreds{}, false, "", "")
-				Expect(err).ToNot(HaveOccurred())
+		It("checks out an open git repository but it does not pull the branches nor the code", func() {
+			dir, err := os.MkdirTemp("", "test-prefix-*")
+			//	defer os.RemoveAll(dir)
+			Expect(err).ToNot(HaveOccurred())
+			fmt.Printf("temp dir: %v\n", dir)
+			client, err := writers.NewGitClient(
+				"https://github.com/syntasso/testing-git-writer-public.git",
+				dir, writers.NopCreds{}, false, "", "")
+			Expect(err).ToNot(HaveOccurred())
 
-				repo, err := client.Init()
-				Expect(err).ToNot(HaveOccurred())
-				Expect(repo).ToNot(BeNil())
-			})
+			repo, err := client.Init()
+			Expect(err).ToNot(HaveOccurred())
+			Expect(repo).ToNot(BeNil())
+		})
 
-			It("checks out an open git repository and fetches the branches", func() {
-				dir, err := os.MkdirTemp("", "test-prefix-*")
-				//	defer os.RemoveAll(dir)
-				Expect(err).ToNot(HaveOccurred())
-				fmt.Printf("temp dir: %v\n", dir)
+		It("checks out an open git repository and fetches the branches", func() {
+			dir, err := os.MkdirTemp("", "test-prefix-*")
+			//	defer os.RemoveAll(dir)
+			Expect(err).ToNot(HaveOccurred())
+			fmt.Printf("temp dir: %v\n", dir)
 
-				client, err := writers.NewGitClient(
-					"https://github.com/syntasso/testing-git-writer-public.git",
-					dir, writers.NopCreds{}, false, "", "")
-				Expect(err).ToNot(HaveOccurred())
+			client, err := writers.NewGitClient(
+				"https://github.com/syntasso/testing-git-writer-public.git",
+				dir, writers.NopCreds{}, false, "", "")
+			Expect(err).ToNot(HaveOccurred())
 
-				repo, err := client.Init()
-				Expect(err).ToNot(HaveOccurred())
-				Expect(repo).ToNot(BeNil())
+			repo, err := client.Init()
+			Expect(err).ToNot(HaveOccurred())
+			Expect(repo).ToNot(BeNil())
 
-				err = client.Fetch("main", 0)
-				Expect(err).ToNot(HaveOccurred())
+			err = client.Fetch("main", 0)
+			Expect(err).ToNot(HaveOccurred())
 
-				out, err := client.Checkout("main")
-				Expect(err).ToNot(HaveOccurred())
-				Expect(out).To(BeEmpty())
-			})
+			out, err := client.Checkout("main")
+			Expect(err).ToNot(HaveOccurred())
+			Expect(out).To(BeEmpty())
+		})
 
-			It("fails to check out a protected git repository due to no credentials provided", func() {
-				dir, err := os.MkdirTemp("", "test-prefix-*")
-				//	defer os.RemoveAll(dir)
-				Expect(err).ToNot(HaveOccurred())
-				fmt.Printf("temp dir: %v\n", dir)
+		It("fails to check out a protected git repository due to no credentials provided", func() {
+			dir, err := os.MkdirTemp("", "test-prefix-*")
+			//	defer os.RemoveAll(dir)
+			Expect(err).ToNot(HaveOccurred())
+			fmt.Printf("temp dir: %v\n", dir)
 
-				client, err := writers.NewGitClient(
-					"https://github.com/syntasso/testing-git-writer-private.git",
-					dir, writers.NopCreds{}, false, "", "")
+			client, err := writers.NewGitClient(
+				"https://github.com/syntasso/testing-git-writer-private.git",
+				dir, writers.NopCreds{}, false, "", "")
 
-				Expect(err).ToNot(HaveOccurred())
+			Expect(err).ToNot(HaveOccurred())
 
-				repo, err := client.Init()
-				Expect(err).ToNot(HaveOccurred())
-				Expect(repo).ToNot(BeNil())
+			repo, err := client.Init()
+			Expect(err).ToNot(HaveOccurred())
+			Expect(repo).ToNot(BeNil())
 
-				err = client.Fetch("main", 0)
-				Expect(err).To(HaveOccurred())
-			})
-		*/
+			err = client.Fetch("main", 0)
+			Expect(err).To(HaveOccurred())
+		})
 
-		// TODO: not stric host checking
+		// TODO: remove tmp dirs
 		It("checks out a protected git repository and fetches the branches", func() {
 
 			sshKeyPath := os.Getenv("TEST_SSH_KEY_PATH")

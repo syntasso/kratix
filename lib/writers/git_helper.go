@@ -1007,7 +1007,7 @@ const (
 	// EnvVarRBACDebug is an environment variable to enable additional RBAC debugging in the API server
 	EnvVarRBACDebug = "ARGOCD_RBAC_DEBUG"
 	// EnvVarSSHDataPath overrides the location where SSH known hosts for repo access data is stored
-	EnvVarSSHDataPath = "ARGOCD_SSH_DATA_PATH"
+	EnvVarSSHDataPath = "KRATIX_SSH_DATA_PATH"
 	// EnvVarTLSDataPath overrides the location where TLS certificate for repo access data is stored
 	EnvVarTLSDataPath = "ARGOCD_TLS_DATA_PATH"
 	// EnvGitAttemptsCount specifies number of git remote operations attempts count
