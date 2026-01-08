@@ -23,6 +23,7 @@ import (
 	"time"
 
 	giturls "github.com/chainguard-dev/git-urls"
+	"github.com/davecgh/go-spew/spew"
 	"github.com/go-git/go-git/v5/plumbing/transport"
 	githttp "github.com/go-git/go-git/v5/plumbing/transport/http"
 	"github.com/go-git/go-git/v5/plumbing/transport/ssh"
@@ -235,8 +236,11 @@ func (creds HTTPSCreds) Environ() (io.Closer, []string, error) {
 		// If bearer token is set, we will set ARGOCD_BEARER_AUTH_HEADER to	hold the HTTP authorization header
 		env = append(env, fmt.Sprintf("%s=%s", bearerAuthHeaderEnv, creds.BearerAuthHeader()))
 	}
-	nonce := creds.store.Add(text.FirstNonEmpty(creds.username, githubAccessTokenUsername), creds.password)
+	nonce := creds.store.Add(
+		text.FirstNonEmpty(creds.username, githubAccessTokenUsername), creds.password)
 	env = append(env, creds.store.Environ(nonce)...)
+
+	fmt.Printf("eeeeeeenvvvvvvvv: %v\n", spew.Sdump(env))
 	return utilio.NewCloser(func() error {
 		creds.store.Remove(nonce)
 		return httpCloser.Close()

@@ -44,6 +44,8 @@ type GitRepo struct {
 	Worktree    *git.Worktree
 }
 
+// TODO: destinationPath might not be needed, as repos are cloned using the
+// same prefix in tmp dirs
 func NewGitWriter(logger logr.Logger, stateStoreSpec v1alpha1.GitStateStoreSpec, destinationPath string, creds map[string][]byte) (StateStoreWriter, error) {
 
 	repoPath := strings.TrimPrefix(path.Join(
