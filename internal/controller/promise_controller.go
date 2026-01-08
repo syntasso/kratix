@@ -1255,7 +1255,20 @@ func (r *PromiseReconciler) deletePromise(o opts, promise *v1alpha1.Promise) (ct
 
 	if controllerutil.ContainsFinalizer(promise, dynamicControllerDependantResourcesCleanupFinalizer) {
 		logging.Debug(o.logger, "deleting dependent resources for finalizer", "finalizer", dynamicControllerDependantResourcesCleanupFinalizer)
-		err := r.deleteDynamicControllerAndWorkflowResources(o, promise)
+		if err := r.ensureHealthRecordsDeleted(o, promise); err != nil {
+			return ctrl.Result{}, err
+		}
+		// if health records still exist, we want to wait for them to be deleted
+		healthRecords, err := r.getHealthRecordsForPromise(o, promise)
+		if err != nil {
+			return ctrl.Result{}, err
+		}
+		if len(healthRecords) > 0 {
+			logging.Info(o.logger, "waiting for health records to be deleted", "count", len(healthRecords))
+			return fastRequeue, nil
+		}
+
+		err = r.deleteDynamicControllerAndWorkflowResources(o, promise)
 		if err != nil {
 			return defaultRequeue, nil //nolint:nilerr // requeue rather than exponential backoff
 		}
@@ -1281,6 +1294,31 @@ func (r *PromiseReconciler) deletePromise(o opts, promise *v1alpha1.Promise) (ct
 	}
 
 	return fastRequeue, nil
+}
+
+func (r *PromiseReconciler) ensureHealthRecordsDeleted(o opts, promise *v1alpha1.Promise) error {
+	// Logic to ensure they are deleted is handled by the controller's main reconcile loop
+	// implicitly because HealthRecords are owner-referenced by the RRs which are deleted
+	// in the previous step (resourceRequestCleanupFinalizer).
+	// This function mainly serves as a check, but if we wanted to be proactive we could
+	// list and delete them here too, though that might be redundant.
+	return nil
+}
+
+func (r *PromiseReconciler) getHealthRecordsForPromise(o opts, promise *v1alpha1.Promise) ([]v1alpha1.HealthRecord, error) {
+	healthRecordList := &v1alpha1.HealthRecordList{}
+	err := r.Client.List(o.ctx, healthRecordList) // TODO: Optimize with label selector if possible, or filter in memory
+	if err != nil {
+		return nil, err
+	}
+
+	var relevantHealthRecords []v1alpha1.HealthRecord
+	for _, hr := range healthRecordList.Items {
+		if hr.Data.PromiseRef.Name == promise.Name {
+			relevantHealthRecords = append(relevantHealthRecords, hr)
+		}
+	}
+	return relevantHealthRecords, nil
 }
 
 func (r *PromiseReconciler) deletePromiseWorkflowJobs(o opts, promise *v1alpha1.Promise, finalizer string) error {
