@@ -10,6 +10,7 @@ import (
 	"time"
 	"unicode"
 
+	"github.com/davecgh/go-spew/spew"
 	"github.com/go-git/go-git/v5"
 	"github.com/go-git/go-git/v5/plumbing/object"
 	"github.com/go-git/go-git/v5/plumbing/transport"
@@ -44,6 +45,11 @@ type GitRepo struct {
 	Worktree    *git.Worktree
 }
 
+type authx struct {
+	transport.AuthMethod
+	Creds
+}
+
 // TODO: destinationPath might not be needed, as repos are cloned using the
 // same prefix in tmp dirs
 func NewGitWriter(logger logr.Logger, stateStoreSpec v1alpha1.GitStateStoreSpec, destinationPath string, creds map[string][]byte) (StateStoreWriter, error) {
@@ -53,14 +59,24 @@ func NewGitWriter(logger logr.Logger, stateStoreSpec v1alpha1.GitStateStoreSpec,
 		destinationPath,
 	), "/")
 
-	// set auth!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!
-	nativeGitClient, err := NewGitClient(
-		stateStoreSpec.URL, repoPath, NopCreds{}, false, "", "")
-
 	authMethod, err := setAuth(stateStoreSpec, destinationPath, creds)
 	if err != nil {
 		return nil, fmt.Errorf("could not create auth method: %w", err)
 	}
+
+	//func NewSSHCreds(sshPrivateKey string, caPath string, insecureIgnoreHostKey bool, proxy string) SSHCreds {
+
+	// set auth!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!
+	nativeGitClient, err := NewGitClient(
+		GitClientRequest{
+			RawRepoURL: stateStoreSpec.URL,
+			Root:       repoPath,
+			Creds:      authMethod,
+			// TODO: use the env var already configured
+			Insecure: false,
+			Proxy:    "",
+			NoProxy:  "",
+		})
 
 	return &GitWriter{
 		client:    nativeGitClient,
@@ -285,21 +301,23 @@ func retryGitOperation(logger logr.Logger, operation string, fn func() (error, b
 // validatePush attempts to validate write permissions by pushing no changes to the remote
 // If the push errors with "NoErrAlreadyUpToDate", it means we can write.
 func (g *GitWriter) validatePush(repo *git.Repository, logger logr.Logger) error {
-	err := repo.Push(&git.PushOptions{
-		RemoteName:      "origin",
-		Auth:            g.GitServer.Auth,
-		InsecureSkipTLS: true,
-	})
 
-	// NoErrAlreadyUpToDate means we have write permissions
-	if errors.Is(err, git.NoErrAlreadyUpToDate) {
-		logging.Info(logger, "push validation successful - repository is up-to-date")
-		return nil
-	}
+	_, err := g.client.Push(g.GitServer.Branch)
+	/*
+		err := repo.Push(&git.PushOptions{
+			RemoteName: "origin",
+			Auth:            g.GitServer.Auth,
+			InsecureSkipTLS: true,
+		})
+	*/
+	fmt.Printf("auth::: %s\n", spew.Sdump(g.GitServer))
+	fmt.Printf("---auth::: %s\n", spew.Sdump(g.GitServer.Auth))
+	fmt.Printf("eeeeeeeeeeeeerrrrrRRR::: %v\n", err)
 
 	if err != nil {
 		return fmt.Errorf("write permission validation failed: %w", err)
 	}
+	logging.Info(logger, "push validation successful - repository is up-to-date")
 
 	return nil
 }

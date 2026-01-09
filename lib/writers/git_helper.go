@@ -32,12 +32,9 @@ import (
 	"github.com/go-git/go-git/v5"
 	"github.com/go-git/go-git/v5/config"
 	"github.com/go-git/go-git/v5/plumbing"
-	"github.com/go-git/go-git/v5/plumbing/transport"
-	githttp "github.com/go-git/go-git/v5/plumbing/transport/http"
 	gitssh "github.com/go-git/go-git/v5/plumbing/transport/ssh"
 	log "github.com/sirupsen/logrus"
 	"golang.org/x/crypto/ssh"
-	"golang.org/x/crypto/ssh/knownhosts"
 
 	///////////////////////////////////////////////////////////
 	certutil "github.com/argoproj/argo-cd/v3/util/cert"
@@ -86,24 +83,35 @@ type GitClient interface {
 	Clone() (*git.Repository, error)
 	Checkout(revision string) (string, error)
 	CommitAndPush(branch, message string) (string, error)
+	Push(branch string) (string, error)
 	Fetch(revision string, depth int64) error
 	Init() (*git.Repository, error)
 	Root() string
 }
 
-func NewGitClient(rawRepoURL string, root string, creds Creds, insecure bool, proxy string, noProxy string, opts ...ClientOpts) (GitClient, error) {
+type GitClientRequest struct {
+	RawRepoURL string
+	Root       string
+	Creds      Creds
+	Insecure   bool
+	Proxy      string
+	NoProxy    string
+	Opts       []ClientOpts
+}
+
+func NewGitClient(req GitClientRequest) (GitClient, error) {
 
 	client := &nativeGitClient{
-		repoURL:      rawRepoURL,
-		root:         root,
-		creds:        creds,
-		insecure:     insecure,
-		proxy:        proxy,
-		noProxy:      noProxy,
+		repoURL:      req.RawRepoURL,
+		root:         req.Root,
+		creds:        req.Creds,
+		insecure:     req.Insecure,
+		proxy:        req.Proxy,
+		noProxy:      req.NoProxy,
 		gitConfigEnv: BuiltinGitConfigEnv,
 	}
-	for i := range opts {
-		opts[i](client)
+	for i := range req.Opts {
+		req.Opts[i](client)
 	}
 	return client, nil
 }
@@ -579,52 +587,6 @@ func GetRepoHTTPClient(repoURL string, insecure bool, creds Creds, proxyURL stri
 	return customHTTPClient
 }
 
-func newAuth(repoURL string, creds Creds) (transport.AuthMethod, error) {
-	switch creds := creds.(type) {
-	case SSHCreds:
-		var sshUser string
-		if isSSH, user := IsSSHURL(repoURL); isSSH {
-			sshUser = user
-		}
-		signer, err := ssh.ParsePrivateKey([]byte(creds.sshPrivateKey))
-		if err != nil {
-			return nil, err
-		}
-		auth := &PublicKeysWithOptions{}
-		auth.User = sshUser
-		auth.Signer = signer
-		if creds.insecure {
-			auth.HostKeyCallback = ssh.InsecureIgnoreHostKey()
-		} else {
-			// Set up validation of SSH known hosts for using our ssh_known_hosts
-			// file.
-			auth.HostKeyCallback, err = knownhosts.New(certutil.GetSSHKnownHostsDataPath())
-			if err != nil {
-				log.Errorf("Could not set-up SSH known hosts callback: %v", err)
-			}
-		}
-		return auth, nil
-	case HTTPSCreds:
-		if creds.bearerToken != "" {
-			return &githttp.TokenAuth{Token: creds.bearerToken}, nil
-		}
-		auth := githttp.BasicAuth{Username: creds.username, Password: creds.password}
-		if auth.Username == "" {
-			auth.Username = "x-access-token"
-		}
-		return &auth, nil
-	case GitHubAppCreds:
-		token, err := creds.getAccessToken()
-		if err != nil {
-			return nil, err
-		}
-		auth := githttp.BasicAuth{Username: "x-access-token", Password: token}
-		return &auth, nil
-	}
-
-	return nil, nil
-}
-
 func (m *nativeGitClient) Root() string {
 	return m.root
 }
@@ -746,9 +708,9 @@ func (m *nativeGitClient) Checkout(revision string) (string, error) {
 	// `git clean` to delete untracked files and directories, and the second “f”
 	// tells it to clean untracked nested Git repositories (for example a
 	// submodule which has since been removed).
-	if out, err := m.runCmd(ctx, "clean", "-ffdx"); err != nil {
-		return out, fmt.Errorf("failed to clean: %w", err)
-	}
+	//	if out, err := m.runCmd(ctx, "clean", "-ffdx"); err != nil {
+	//		return out, fmt.Errorf("failed to clean: %w", err)
+	//	}
 	return "", nil
 }
 
@@ -897,6 +859,23 @@ func (m *nativeGitClient) config(ctx context.Context, args ...string) (string, e
 	return out, nil
 }
 
+// Push pushes changes to the target branch.
+func (m *nativeGitClient) Push(branch string) (string, error) {
+	ctx := context.Background()
+
+	if m.OnPush != nil {
+		done := m.OnPush(m.repoURL)
+		defer done()
+	}
+
+	err := m.runCredentialedCmd(ctx, "push", "origin", branch)
+	if err != nil {
+		return "", fmt.Errorf("failed to push: %w", err)
+	}
+
+	return "", nil
+}
+
 // CommitAndPush commits and pushes changes to the target branch.
 func (m *nativeGitClient) CommitAndPush(branch, message string) (string, error) {
 	ctx := context.Background()
@@ -1002,6 +981,8 @@ func (m *nativeGitClient) runCmdOutput(cmd *exec.Cmd, ropts runOpts) (string, er
 }
 
 const (
+	EnvVarGitSshInsecure = "KRATIX_GIT_SSH_INSECURE"
+
 	// EnvVarSSODebug is an environment variable to enable additional OAuth debugging in the API server
 	EnvVarSSODebug = "ARGOCD_SSO_DEBUG"
 	// EnvVarRBACDebug is an environment variable to enable additional RBAC debugging in the API server

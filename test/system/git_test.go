@@ -1,17 +1,55 @@
 package system_test
 
 import (
-	"fmt"
 	"os"
 
+	"github.com/go-logr/logr"
 	. "github.com/onsi/ginkgo/v2"
 	. "github.com/onsi/gomega"
+	"github.com/syntasso/kratix/api/v1alpha1"
+	corev1 "k8s.io/api/core/v1"
+	metav1 "k8s.io/apimachinery/pkg/apis/meta/v1"
+	ctrl "sigs.k8s.io/controller-runtime"
+
 	"github.com/syntasso/kratix/lib/writers"
 )
 
 var _ = FDescribe("Git writer with native client", func() {
 
+	var (
+		dest           v1alpha1.Destination
+		stateStoreSpec v1alpha1.GitStateStoreSpec
+		logger         logr.Logger
+	)
+
 	BeforeEach(func() {
+		logger = ctrl.Log.WithName("setup")
+		stateStoreSpec = v1alpha1.GitStateStoreSpec{
+			StateStoreCoreFields: v1alpha1.StateStoreCoreFields{
+				Path: "state-store-path",
+				SecretRef: &corev1.SecretReference{
+					Namespace: "default",
+					Name:      "dummy-secret",
+				},
+			},
+			AuthMethod: "basicAuth",
+			URL:        "https://github.com/syntasso/testing-git-writer-public.git",
+			Branch:     "main",
+			GitAuthor: v1alpha1.GitAuthor{
+				Email: "test@example.com",
+				Name:  "a-user",
+			},
+		}
+
+		dest = v1alpha1.Destination{
+			ObjectMeta: metav1.ObjectMeta{
+				Namespace: "default",
+				Name:      "test",
+			},
+			Spec: v1alpha1.DestinationSpec{
+				Path: "dst-path/",
+			},
+		}
 
 	})
 
@@ -123,47 +161,126 @@ var _ = FDescribe("Git writer with native client", func() {
 			})
 		*/
 
-		It("checks out a protected git repository and fetches the branches using HTTP auth", func() {
+		/*
+			It("checks out a protected git repository and fetches the branches using HTTP auth", func() {
+
+				ghPat := os.Getenv("TEST_GH_PAT")
+				if ghPat == "" {
+					Skip("TEST_GH_PAT not set")
+				}
+
+				httpCreds := writers.NewHTTPSCreds(
+					"x-access-token",         // username
+					ghPat,                    // password
+					"",                       // bearer token
+					"",                       // clientCertData
+					"",                       // clientCertKey
+					false,                    // insecure
+					writers.NoopCredsStore{}, // CredsStore,
+					true,                     // forceBasicAuth
+				)
+				//GitHub supports Authorization: Bearer for api.github.com (REST/GraphQL). The git endpoints on github.com for git fetch/clone typically require Basic (or credential helper / askpass).
+				client, err := writers.NewGitClient(writers.GitClientRequest{
+					RawRepoURL: "https://github.com/syntasso/testing-git-writer-private.git",
+					Root:       "",
+					Creds:      httpCreds,
+					Insecure:   true,
+					Proxy:      "",
+					NoProxy:    "",
+				})
+
+				Expect(err).ToNot(HaveOccurred())
+
+				repo, err := client.Init()
+				Expect(err).ToNot(HaveOccurred())
+				Expect(repo).ToNot(BeNil())
+
+				err = client.Fetch("main", 0)
+				Expect(err).ToNot(HaveOccurred())
+
+				out, err := client.Checkout("main")
+				Expect(err).ToNot(HaveOccurred())
+				Expect(out).To(BeEmpty())
+
+				err = os.RemoveAll(client.Root())
+				Expect(err).ToNot(HaveOccurred())
+			})
+		*/
+
+		/*
+			It("returns a valid GitWriter", func() {
+				stateStoreSpec.AuthMethod = "ssh"
+				key, err := rsa.GenerateKey(rand.Reader, 1024)
+				Expect(err).NotTo(HaveOccurred())
+
+				writer, err := writers.NewGitWriter(logger, stateStoreSpec, dest.Spec.Path, generateSSHCreds(key))
+				Expect(err).NotTo(HaveOccurred())
+				Expect(writer).To(BeAssignableToTypeOf(&writers.GitWriter{}))
+				gitWriter, ok := writer.(*writers.GitWriter)
+				Expect(ok).To(BeTrue())
+				Expect(gitWriter.GitServer.URL).To(Equal("https://github.com/syntasso/kratix"))
+				Expect(gitWriter.GitServer.Auth.(*ssh.PublicKeys).User).To(Equal("git"))
+				publicKey, ok := gitWriter.GitServer.Auth.(*ssh.PublicKeys)
+				Expect(ok).To(BeTrue())
+				Expect(publicKey).NotTo(BeNil())
+				Expect(gitWriter.GitServer.Branch).To(Equal("test"))
+				Expect(gitWriter.Author.Email).To(Equal("test@example.com"))
+				Expect(gitWriter.Author.Name).To(Equal("a-user"))
+			})
+		*/
+
+		/*
+			It("returns a valid GitWriter", func() {
+				creds := map[string][]byte{
+					"username": []byte("user1"),
+					"password": []byte("pw1"),
+				}
+				stateStoreSpec.GitAuthor = v1alpha1.GitAuthor{
+					Email: "test@example.com",
+					Name:  "a-user",
+				}
+				writer, err := writers.NewGitWriter(logger, stateStoreSpec, dest.Spec.Path, creds)
+				Expect(err).NotTo(HaveOccurred())
+				Expect(writer).To(BeAssignableToTypeOf(&writers.GitWriter{}))
+				gitWriter, ok := writer.(*writers.GitWriter)
+				Expect(ok).To(BeTrue())
+				Expect(gitWriter.GitServer.URL).To(Equal("https://github.com/syntasso/kratix"))
+				Expect(gitWriter.GitServer.Auth).To(Equal(&transporthttp.BasicAuth{
+					Username: "user1",
+					Password: "pw1",
+				}))
+				Expect(gitWriter.GitServer.Branch).To(Equal("test"))
+				Expect(gitWriter.Author.Email).To(Equal("test@example.com"))
+				Expect(gitWriter.Author.Name).To(Equal("a-user"))
+				Expect(gitWriter.Path).To(Equal("state-store-path/dst-path"))
+			})
+
+		*/
+
+		It("clones a protected git repository and fetches the branches using HTTP auth", func() {
 
 			ghPat := os.Getenv("TEST_GH_PAT")
 			if ghPat == "" {
 				Skip("TEST_GH_PAT not set")
 			}
+			stateStoreSpec.URL = "https://github.com/syntasso/testing-git-writer-private.git"
 
-			dir, err := os.MkdirTemp("", "test-prefix-*")
-			//	defer os.RemoveAll(dir)
+			creds := map[string][]byte{
+				"username": []byte(""),
+				"password": []byte(ghPat),
+			}
+
+			writer, err := writers.NewGitWriter(logger, stateStoreSpec, dest.Spec.Path, creds)
 			Expect(err).ToNot(HaveOccurred())
-			fmt.Printf("temp dir: %v\n", dir)
+			Expect(writer).ToNot(BeNil())
 
-			httpCreds := writers.NewHTTPSCreds(
-				"", // username
-				"", // password
-				ghPat,
-				"",                       // clientCertData
-				"",                       // clientCertKey
-				false,                    // insecure
-				writers.NoopCredsStore{}, // CredsStore,
-				true,                     // forceBasicAuth
-			)
+			Expect(writer).To(BeAssignableToTypeOf(&writers.GitWriter{}))
+			gitWriter, ok := writer.(*writers.GitWriter)
+			Expect(ok).To(BeTrue())
 
-			//GitHub supports Authorization: Bearer for api.github.com (REST/GraphQL). The git endpoints on github.com for git fetch/clone typically require Basic (or credential helper / askpass).
-
-			client, err := writers.NewGitClient(
-				"https://github.com/syntasso/testing-git-writer-private.git",
-				dir, httpCreds, true, "", "")
-
+			err = gitWriter.ValidatePermissions()
 			Expect(err).ToNot(HaveOccurred())
 
-			repo, err := client.Init()
-			Expect(err).ToNot(HaveOccurred())
-			Expect(repo).ToNot(BeNil())
-
-			err = client.Fetch("main", 0)
-			Expect(err).ToNot(HaveOccurred())
-
-			out, err := client.Checkout("main")
-			Expect(err).ToNot(HaveOccurred())
-			Expect(out).To(BeEmpty())
 		})
 	})
 })

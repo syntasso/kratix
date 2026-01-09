@@ -26,10 +26,12 @@ import (
 	"github.com/davecgh/go-spew/spew"
 	"github.com/go-git/go-git/v5/plumbing/transport"
 	githttp "github.com/go-git/go-git/v5/plumbing/transport/http"
-	"github.com/go-git/go-git/v5/plumbing/transport/ssh"
+
+	tx_ssh "github.com/go-git/go-git/v5/plumbing/transport/ssh"
 	"github.com/golang-jwt/jwt"
 	"github.com/google/go-github/v69/github"
 	"github.com/syntasso/kratix/api/v1alpha1"
+	"golang.org/x/crypto/ssh"
 
 	gocache "github.com/patrickmn/go-cache"
 
@@ -269,6 +271,7 @@ type SSHCreds struct {
 	proxy         string
 }
 
+// //////////////////////////////////////
 func NewSSHCreds(sshPrivateKey string, caPath string, insecureIgnoreHostKey bool, proxy string) SSHCreds {
 	return SSHCreds{sshPrivateKey, caPath, insecureIgnoreHostKey, proxy}
 }
@@ -809,43 +812,115 @@ type githubAppCreds struct {
 	ApiUrl         string
 }
 
-func setAuth(stateStoreSpec v1alpha1.GitStateStoreSpec, destinationPath string, creds map[string][]byte) (transport.AuthMethod, error) {
+/*
+// COPIED FROM ARGOCD: merge with existing function
+func newAuth(repoURL string, creds Creds) (transport.AuthMethod, error) {
+	switch creds := creds.(type) {
+	case SSHCreds:
+		var sshUser string
+		if isSSH, user := IsSSHURL(repoURL); isSSH {
+			sshUser = user
+		}
+		signer, err := ssh.ParsePrivateKey([]byte(creds.sshPrivateKey))
+		if err != nil {
+			return nil, err
+		}
+		auth := &PublicKeysWithOptions{}
+		auth.User = sshUser
+		auth.Signer = signer
+		if creds.insecure {
+			auth.HostKeyCallback = ssh.InsecureIgnoreHostKey()
+		} else {
+			// Set up validation of SSH known hosts for using our ssh_known_hosts
+			// file.
+			auth.HostKeyCallback, err = knownhosts.New(certutil.GetSSHKnownHostsDataPath())
+			if err != nil {
+				log.Errorf("Could not set-up SSH known hosts callback: %v", err)
+			}
+		}
+		return auth, nil
+	case HTTPSCreds:
+		if creds.bearerToken != "" {
+			return &githttp.TokenAuth{Token: creds.bearerToken}, nil
+		}
+		auth := githttp.BasicAuth{Username: creds.username, Password: creds.password}
+		if auth.Username == "" {
+			auth.Username = "x-access-token"
+		}
+		return &auth, nil
+	case GitHubAppCreds:
+		token, err := creds.getAccessToken()
+		if err != nil {
+			return nil, err
+		}
+		auth := githttp.BasicAuth{Username: "x-access-token", Password: token}
+		return &auth, nil
+	}
 
-	var authMethod transport.AuthMethod
+	return nil, nil
+}
+
+*/
+
+///////////////////////////////////////////////
+
+// TODO: reuse this
+// func setAuth(stateStoreSpec v1alpha1.GitStateStoreSpec, destinationPath string, creds map[string][]byte) (transport.AuthMethod, error) {
+func setAuth(stateStoreSpec v1alpha1.GitStateStoreSpec, destinationPath string, creds map[string][]byte) (*authx, error) {
+
+	var (
+		credsX     Creds
+		authMethod transport.AuthMethod
+	)
 
 	switch stateStoreSpec.AuthMethod {
 
 	case v1alpha1.SSHAuthMethod:
+
+		//////////////////////////////////////////////////
+
 		sshCreds, err := newSSHAuthCreds(stateStoreSpec, creds)
 		if err != nil {
 			return nil, err
 		}
 
-		sshKey, err := ssh.NewPublicKeys(sshCreds.SSHUser, sshCreds.SSHPrivateKey, "")
+		//func NewSSHCreds(sshPrivateKey string, caPath string, insecureIgnoreHostKey bool, proxy string) SSHCreds {
+		credsX = NewSSHCreds(string(sshCreds.SSHPrivateKey), "", false, "")
+
+		sshKey, err := tx_ssh.NewPublicKeys(sshCreds.SSHUser, sshCreds.SSHPrivateKey, "")
 		if err != nil {
 			return nil, fmt.Errorf("error parsing sshKey: %w", err)
 		}
 
-		knownHostsFile, err := os.CreateTemp("", "knownHosts")
-		if err != nil {
-			return nil, fmt.Errorf("error creating knownHosts file: %w", err)
+		if gitSshInsecure := os.Getenv(EnvVarGitSshInsecure); gitSshInsecure == "true" {
+
+			sshKey.HostKeyCallback = ssh.InsecureIgnoreHostKey()
+
+		} else {
+			// Set up validation of SSH known hosts for using our ssh_known_hosts
+			// file.
+			knownHostsFile, err := os.CreateTemp("", "knownHosts")
+			if err != nil {
+				return nil, fmt.Errorf("error creating knownHosts file: %w", err)
+			}
+
+			_, err = knownHostsFile.Write(sshCreds.KnownHosts)
+			if err != nil {
+				return nil, fmt.Errorf("error writing knownHosts file: %w", err)
+			}
+
+			knownHostsCallback, err := tx_ssh.NewKnownHostsCallback(knownHostsFile.Name())
+			if err != nil {
+				return nil, fmt.Errorf("error parsing known hosts: %w", err)
+			}
+
+			sshKey.HostKeyCallback = knownHostsCallback
+			err = os.Remove(knownHostsFile.Name())
+			if err != nil {
+				return nil, fmt.Errorf("error removing knownHosts file: %w", err)
+			}
 		}
 
-		_, err = knownHostsFile.Write(sshCreds.KnownHosts)
-		if err != nil {
-			return nil, fmt.Errorf("error writing knownHosts file: %w", err)
-		}
-
-		knownHostsCallback, err := ssh.NewKnownHostsCallback(knownHostsFile.Name())
-		if err != nil {
-			return nil, fmt.Errorf("error parsing known hosts: %w", err)
-		}
-
-		sshKey.HostKeyCallback = knownHostsCallback
-		err = os.Remove(knownHostsFile.Name())
-		if err != nil {
-			return nil, fmt.Errorf("error removing knownHosts file: %w", err)
-		}
 		authMethod = sshKey
 
 	case v1alpha1.BasicAuthMethod:
@@ -858,6 +933,17 @@ func setAuth(stateStoreSpec v1alpha1.GitStateStoreSpec, destinationPath string, 
 			Username: basicCreds.Username,
 			Password: basicCreds.Password,
 		}
+
+		credsX = NewHTTPSCreds(
+			"x-access-token",         // username
+			os.Getenv("TEST_GH_PAT"), // password
+			"",                       // bearer token
+			"",                       // clientCertData
+			"",                       // clientCertKey
+			false,                    // insecure
+			NoopCredsStore{},         // CredsStore,
+			true,                     // forceBasicAuth
+		)
 
 	case v1alpha1.GitHubAppAuthMethod:
 		appCreds, err := newGithubAppCreds(stateStoreSpec, creds)
@@ -881,7 +967,10 @@ func setAuth(stateStoreSpec v1alpha1.GitStateStoreSpec, destinationPath string, 
 		}
 	}
 
-	return authMethod, nil
+	return &authx{
+		authMethod,
+		credsX,
+	}, nil
 }
 
 func newSSHAuthCreds(stateStoreSpec v1alpha1.GitStateStoreSpec, creds map[string][]byte) (*sshAuthCreds, error) {
