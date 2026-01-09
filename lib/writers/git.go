@@ -59,6 +59,8 @@ func NewGitWriter(logger logr.Logger, stateStoreSpec v1alpha1.GitStateStoreSpec,
 		destinationPath,
 	), "/")
 
+	fmt.Printf("creds: %v\n", spew.Sdump(creds))
+
 	authMethod, err := setAuth(stateStoreSpec, destinationPath, creds)
 	if err != nil {
 		return nil, fmt.Errorf("could not create auth method: %w", err)

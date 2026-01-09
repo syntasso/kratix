@@ -6,9 +6,12 @@ import (
 	"context"
 	"crypto/fips140"
 	"crypto/rand"
+	"crypto/rsa"
 	"crypto/tls"
+	"crypto/x509"
 	"encoding/hex"
 	"encoding/json"
+	"encoding/pem"
 	"errors"
 	"fmt"
 	"math"
@@ -1187,4 +1190,20 @@ func getDefaultSSHKeyExchangeAlgorithms() []string {
 		return SupportedFIPSCompliantSSHKeyExchangeAlgorithms
 	}
 	return SupportedSSHKeyExchangeAlgorithms
+}
+
+func GenerateSSHCreds(key *rsa.PrivateKey) map[string][]byte {
+	privateKeyPEM := pem.Block{
+		Type:  "RSA PRIVATE KEY",
+		Bytes: x509.MarshalPKCS1PrivateKey(key),
+	}
+	var b bytes.Buffer
+	if err := pem.Encode(&b, &privateKeyPEM); err != nil {
+		log.Fatalf("Failed to write private key to buffer: %v", err)
+	}
+
+	return map[string][]byte{
+		"sshPrivateKey": b.Bytes(),
+		"knownHosts":    []byte("github.com ssh-ed25519 AAAAC3NzaC1lZDI1NTE5AAAAIOMqqnkVzrm0SdG6UOoqKLsabgH5C9okWi0dh2l9GKJl"),
+	}
 }

@@ -1,7 +1,6 @@
 package writers_test
 
 import (
-	"bytes"
 	"crypto/ecdsa"
 	"crypto/elliptic"
 	"crypto/rand"
@@ -9,7 +8,6 @@ import (
 	"crypto/x509"
 	"encoding/json"
 	"encoding/pem"
-	"log"
 	"net/http"
 	"net/http/httptest"
 
@@ -122,7 +120,7 @@ var _ = Describe("NewGitWriter", func() {
 			key, err := rsa.GenerateKey(rand.Reader, 1024)
 			Expect(err).NotTo(HaveOccurred())
 
-			writer, err := writers.NewGitWriter(logger, stateStoreSpec, dest.Spec.Path, generateSSHCreds(key))
+			writer, err := writers.NewGitWriter(logger, stateStoreSpec, dest.Spec.Path, GenerateSSHCreds(key))
 			Expect(err).NotTo(HaveOccurred())
 			Expect(writer).To(BeAssignableToTypeOf(&writers.GitWriter{}))
 			gitWriter, ok := writer.(*writers.GitWriter)
@@ -143,7 +141,7 @@ var _ = Describe("NewGitWriter", func() {
 			key, err := rsa.GenerateKey(rand.Reader, 1024)
 			Expect(err).NotTo(HaveOccurred())
 
-			writer, err := writers.NewGitWriter(logger, stateStoreSpec, dest.Spec.Path, generateSSHCreds(key))
+			writer, err := writers.NewGitWriter(logger, stateStoreSpec, dest.Spec.Path, GenerateSSHCreds(key))
 			Expect(err).NotTo(HaveOccurred())
 			Expect(writer).To(BeAssignableToTypeOf(&writers.GitWriter{}))
 			gitWriter, ok := writer.(*writers.GitWriter)
@@ -321,22 +319,6 @@ var _ = Describe("NewGitWriter", func() {
 		})
 	})
 })
-
-func generateSSHCreds(key *rsa.PrivateKey) map[string][]byte {
-	privateKeyPEM := pem.Block{
-		Type:  "RSA PRIVATE KEY",
-		Bytes: x509.MarshalPKCS1PrivateKey(key),
-	}
-	var b bytes.Buffer
-	if err := pem.Encode(&b, &privateKeyPEM); err != nil {
-		log.Fatalf("Failed to write private key to buffer: %v", err)
-	}
-
-	return map[string][]byte{
-		"sshPrivateKey": b.Bytes(),
-		"knownHosts":    []byte("github.com ssh-ed25519 AAAAC3NzaC1lZDI1NTE5AAAAIOMqqnkVzrm0SdG6UOoqKLsabgH5C9okWi0dh2l9GKJl"),
-	}
-}
 
 func generatePEMFromPKCS1RSAKey() string {
 	key, _ := rsa.GenerateKey(rand.Reader, 2048)

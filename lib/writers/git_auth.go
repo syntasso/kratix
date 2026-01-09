@@ -877,14 +877,11 @@ func setAuth(stateStoreSpec v1alpha1.GitStateStoreSpec, destinationPath string, 
 
 	case v1alpha1.SSHAuthMethod:
 
-		//////////////////////////////////////////////////
-
 		sshCreds, err := newSSHAuthCreds(stateStoreSpec, creds)
 		if err != nil {
 			return nil, err
 		}
 
-		//func NewSSHCreds(sshPrivateKey string, caPath string, insecureIgnoreHostKey bool, proxy string) SSHCreds {
 		credsX = NewSSHCreds(string(sshCreds.SSHPrivateKey), "", false, "")
 
 		sshKey, err := tx_ssh.NewPublicKeys(sshCreds.SSHUser, sshCreds.SSHPrivateKey, "")
@@ -935,14 +932,14 @@ func setAuth(stateStoreSpec v1alpha1.GitStateStoreSpec, destinationPath string, 
 		}
 
 		credsX = NewHTTPSCreds(
-			"x-access-token",         // username
-			os.Getenv("TEST_GH_PAT"), // password
-			"",                       // bearer token
-			"",                       // clientCertData
-			"",                       // clientCertKey
-			false,                    // insecure
-			NoopCredsStore{},         // CredsStore,
-			true,                     // forceBasicAuth
+			basicCreds.Username, // username
+			basicCreds.Password, // password
+			"",                  // bearer token
+			"",                  // clientCertData
+			"",                  // clientCertKey
+			false,               // insecure
+			NoopCredsStore{},    // CredsStore,
+			true,                // forceBasicAuth
 		)
 
 	case v1alpha1.GitHubAppAuthMethod:
@@ -999,8 +996,11 @@ func newBasicAuthCreds(stateStoreSpec v1alpha1.GitStateStoreSpec, creds map[stri
 	namespace := stateStoreSpec.SecretRef.Namespace
 	name := stateStoreSpec.SecretRef.Name
 	username, ok := creds["username"]
-	if !ok {
-		return nil, fmt.Errorf("username not found in secret %s/%s", namespace, name)
+	// when using a GihHub PAT token with Git cli, username is ignored,
+	// but it cannot be empty as Git cli uses basic auth:
+	// e.g.: username:password
+	if !ok || string(username) == "" {
+		username = []byte("x-access-token")
 	}
 	password, ok := creds["password"]
 	if !ok {

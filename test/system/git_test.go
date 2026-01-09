@@ -1,6 +1,9 @@
 package system_test
 
 import (
+	"crypto/rand"
+	"crypto/rsa"
+	"fmt"
 	"os"
 
 	"github.com/go-logr/logr"
@@ -40,7 +43,6 @@ var _ = FDescribe("Git writer with native client", func() {
 				Name:  "a-user",
 			},
 		}
-
 		dest = v1alpha1.Destination{
 			ObjectMeta: metav1.ObjectMeta{
 				Namespace: "default",
@@ -50,7 +52,6 @@ var _ = FDescribe("Git writer with native client", func() {
 				Path: "dst-path/",
 			},
 		}
-
 	})
 
 	AfterEach(func() {
@@ -257,17 +258,67 @@ var _ = FDescribe("Git writer with native client", func() {
 
 		*/
 
-		It("clones a protected git repository and fetches the branches using HTTP auth", func() {
+		/*
+			It("clones a protected git repository and fetches the branches using HTTP auth", func() {
 
-			ghPat := os.Getenv("TEST_GH_PAT")
-			if ghPat == "" {
-				Skip("TEST_GH_PAT not set")
+				ghPat := os.Getenv("TEST_GH_PAT")
+				if ghPat == "" {
+					Skip("TEST_GH_PAT not set")
+				}
+				stateStoreSpec.URL = "https://github.com/syntasso/testing-git-writer-private.git"
+
+				creds := map[string][]byte{
+					"username": []byte("x-access-token"),
+					"password": []byte(ghPat),
+				}
+
+				writer, err := writers.NewGitWriter(logger, stateStoreSpec, dest.Spec.Path, creds)
+				Expect(err).ToNot(HaveOccurred())
+				Expect(writer).ToNot(BeNil())
+
+				Expect(writer).To(BeAssignableToTypeOf(&writers.GitWriter{}))
+				gitWriter, ok := writer.(*writers.GitWriter)
+				Expect(ok).To(BeTrue())
+
+				err = gitWriter.ValidatePermissions()
+				Expect(err).ToNot(HaveOccurred())
+			})
+
+			It("does not clone a protected git repository due to wrong basic auth creds", func() {
+				stateStoreSpec.URL = "https://github.com/syntasso/testing-git-writer-private.git"
+				creds := map[string][]byte{
+					"username": []byte(""),
+					"password": []byte("invalid"),
+				}
+
+				writer, err := writers.NewGitWriter(logger, stateStoreSpec, dest.Spec.Path, creds)
+				Expect(err).ToNot(HaveOccurred())
+				Expect(writer).ToNot(BeNil())
+
+				Expect(writer).To(BeAssignableToTypeOf(&writers.GitWriter{}))
+				gitWriter, ok := writer.(*writers.GitWriter)
+				Expect(ok).To(BeTrue())
+
+				err = gitWriter.ValidatePermissions()
+				Expect(err).To(HaveOccurred())
+			})
+		*/
+		It("clones a protected git repository and fetches the branches using SSH auth", func() {
+
+			stateStoreSpec.AuthMethod = "ssh"
+			stateStoreSpec.URL = "ssh://git@github.com/syntasso/testing-git-writer-private.git"
+
+			sshDataPath := os.Getenv("KRATIX_SSH_DATA_PATH")
+			if sshDataPath == "" {
+				Skip("KRATIX_SSH_DATA_PATH not set")
 			}
-			stateStoreSpec.URL = "https://github.com/syntasso/testing-git-writer-private.git"
+
+			datax, err := os.ReadFile(fmt.Sprintf("%s/private.key", sshDataPath))
+			Expect(err).ToNot(HaveOccurred())
 
 			creds := map[string][]byte{
-				"username": []byte(""),
-				"password": []byte(ghPat),
+				"sshPrivateKey": datax,
+				"knownHosts":    []byte("github.com ssh-ed25519 AAAAC3NzaC1lZDI1NTE5AAAAIOMqqnkVzrm0SdG6UOoqKLsabgH5C9okWi0dh2l9GKJl"),
 			}
 
 			writer, err := writers.NewGitWriter(logger, stateStoreSpec, dest.Spec.Path, creds)
@@ -280,7 +331,27 @@ var _ = FDescribe("Git writer with native client", func() {
 
 			err = gitWriter.ValidatePermissions()
 			Expect(err).ToNot(HaveOccurred())
+		})
 
+		It("does not clone a protected git repository and fetches the branches using SSH auth", func() {
+
+			stateStoreSpec.AuthMethod = "ssh"
+			stateStoreSpec.URL = "ssh://git@github.com/syntasso/testing-git-writer-private.git"
+
+			key, err := rsa.GenerateKey(rand.Reader, 1024)
+			Expect(err).NotTo(HaveOccurred())
+			creds := writers.GenerateSSHCreds(key)
+
+			writer, err := writers.NewGitWriter(logger, stateStoreSpec, dest.Spec.Path, creds)
+			Expect(err).ToNot(HaveOccurred())
+			Expect(writer).ToNot(BeNil())
+
+			Expect(writer).To(BeAssignableToTypeOf(&writers.GitWriter{}))
+			gitWriter, ok := writer.(*writers.GitWriter)
+			Expect(ok).To(BeTrue())
+
+			err = gitWriter.ValidatePermissions()
+			Expect(err).ToNot(HaveOccurred())
 		})
 	})
 })
