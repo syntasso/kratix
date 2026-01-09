@@ -12,7 +12,7 @@ ENV GOARCH=${TARGETARCH}
 RUN --mount=target=. \
     --mount=type=cache,target=/root/.cache/go-build \
     --mount=type=cache,target=/go/pkg \
-    go build -a -o /out/quick-start-installer main.go
+    go build -o /out/quick-start-installer main.go
 
 # Use distroless as minimal base image to package the manager binary
 # Refer to https://github.com/GoogleContainerTools/distroless for more details
