@@ -45,13 +45,12 @@ type GitRepo struct {
 	Worktree    *git.Worktree
 }
 
+// TODO: rename
 type authx struct {
 	transport.AuthMethod
 	Creds
 }
 
-// TODO: destinationPath might not be needed, as repos are cloned using the
-// same prefix in tmp dirs
 func NewGitWriter(logger logr.Logger, stateStoreSpec v1alpha1.GitStateStoreSpec, destinationPath string, creds map[string][]byte) (StateStoreWriter, error) {
 
 	repoPath := strings.TrimPrefix(path.Join(
@@ -59,29 +58,25 @@ func NewGitWriter(logger logr.Logger, stateStoreSpec v1alpha1.GitStateStoreSpec,
 		destinationPath,
 	), "/")
 
-	fmt.Printf("creds: %v\n", spew.Sdump(creds))
-
 	authMethod, err := setAuth(stateStoreSpec, destinationPath, creds)
 	if err != nil {
 		return nil, fmt.Errorf("could not create auth method: %w", err)
 	}
 
-	//func NewSSHCreds(sshPrivateKey string, caPath string, insecureIgnoreHostKey bool, proxy string) SSHCreds {
-
-	// set auth!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!
 	nativeGitClient, err := NewGitClient(
 		GitClientRequest{
 			RawRepoURL: stateStoreSpec.URL,
 			Root:       repoPath,
 			Creds:      authMethod,
-			// TODO: use the env var already configured
+			// NOTE: intentionally not allowing insecure connections
 			Insecure: false,
 			Proxy:    "",
 			NoProxy:  "",
 		})
 
 	return &GitWriter{
-		client:    nativeGitClient,
+		client: nativeGitClient,
+		// TODO: use this value for forceBasicAuth in git native client
 		BasicAuth: stateStoreSpec.AuthMethod == v1alpha1.BasicAuthMethod,
 		GitServer: gitServer{
 			URL:    stateStoreSpec.URL,

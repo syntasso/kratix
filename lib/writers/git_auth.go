@@ -409,6 +409,7 @@ func NewGitHubAppCreds(appID int64, appInstallId int64, privateKey string, baseU
 }
 
 func (g GitHubAppCreds) Environ() (io.Closer, []string, error) {
+	fmt.Println("eeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeEE")
 	token, err := g.getAccessToken()
 	if err != nil {
 		return NopCloser{}, nil, err
@@ -467,6 +468,7 @@ func (g GitHubAppCreds) Environ() (io.Closer, []string, error) {
 	}
 	nonce := g.store.Add(githubAccessTokenUsername, token)
 	env = append(env, g.store.Environ(nonce)...)
+	fmt.Printf("EEEEEEEEEEEEEEENNNNNNNNVVVVVVVVVV: %s\n", spew.Sdump(env))
 	return utilio.NewCloser(func() error {
 		g.store.Remove(nonce)
 		return httpCloser.Close()
@@ -553,6 +555,9 @@ func (g GitHubAppCreds) getInstallationTransport() (*ghinstallation.Transport, e
 	key := hex.EncodeToString(h.Sum(nil))
 
 	// Check cache for GitHub transport which helps fetch an API token
+	if githubAppTokenCache == nil {
+		fmt.Println("vvvvvvvvvvvvvvvvvvvvvvvvvv")
+	}
 	t, found := githubAppTokenCache.Get(key)
 	if found {
 		itr := t.(*ghinstallation.Transport)
@@ -814,40 +819,6 @@ type githubAppCreds struct {
 
 /*
 // COPIED FROM ARGOCD: merge with existing function
-func newAuth(repoURL string, creds Creds) (transport.AuthMethod, error) {
-	switch creds := creds.(type) {
-	case SSHCreds:
-		var sshUser string
-		if isSSH, user := IsSSHURL(repoURL); isSSH {
-			sshUser = user
-		}
-		signer, err := ssh.ParsePrivateKey([]byte(creds.sshPrivateKey))
-		if err != nil {
-			return nil, err
-		}
-		auth := &PublicKeysWithOptions{}
-		auth.User = sshUser
-		auth.Signer = signer
-		if creds.insecure {
-			auth.HostKeyCallback = ssh.InsecureIgnoreHostKey()
-		} else {
-			// Set up validation of SSH known hosts for using our ssh_known_hosts
-			// file.
-			auth.HostKeyCallback, err = knownhosts.New(certutil.GetSSHKnownHostsDataPath())
-			if err != nil {
-				log.Errorf("Could not set-up SSH known hosts callback: %v", err)
-			}
-		}
-		return auth, nil
-	case HTTPSCreds:
-		if creds.bearerToken != "" {
-			return &githttp.TokenAuth{Token: creds.bearerToken}, nil
-		}
-		auth := githttp.BasicAuth{Username: creds.username, Password: creds.password}
-		if auth.Username == "" {
-			auth.Username = "x-access-token"
-		}
-		return &auth, nil
 	case GitHubAppCreds:
 		token, err := creds.getAccessToken()
 		if err != nil {
@@ -859,13 +830,8 @@ func newAuth(repoURL string, creds Creds) (transport.AuthMethod, error) {
 
 	return nil, nil
 }
-
 */
 
-///////////////////////////////////////////////
-
-// TODO: reuse this
-// func setAuth(stateStoreSpec v1alpha1.GitStateStoreSpec, destinationPath string, creds map[string][]byte) (transport.AuthMethod, error) {
 func setAuth(stateStoreSpec v1alpha1.GitStateStoreSpec, destinationPath string, creds map[string][]byte) (*authx, error) {
 
 	var (
@@ -947,6 +913,7 @@ func setAuth(stateStoreSpec v1alpha1.GitStateStoreSpec, destinationPath string, 
 		if err != nil {
 			return nil, err
 		}
+		fmt.Printf("CCCCCCCCCCCC: %v\n", spew.Sdump(appCreds))
 
 		j, err := GenerateGitHubAppJWT(appCreds.AppID, appCreds.PrivateKey)
 		if err != nil {
@@ -958,10 +925,31 @@ func setAuth(stateStoreSpec v1alpha1.GitStateStoreSpec, destinationPath string, 
 			return nil, fmt.Errorf("failed to get GitHub installation token: %w", err)
 		}
 
-		authMethod = &githttp.BasicAuth{
-			Username: "x-access-token",
-			Password: token,
+		authMethod = &githttp.TokenAuth{
+			Token: token,
 		}
+
+		appID, err := strconv.Atoi(appCreds.AppID)
+		if err != nil {
+			return nil, fmt.Errorf("could not convert installation ID to int: %w", err)
+		}
+
+		installationID, err := strconv.Atoi(appCreds.InstallationID)
+		if err != nil {
+			return nil, fmt.Errorf("could not convert installation ID to int: %w", err)
+		}
+
+		credsX = NewGitHubAppCreds(
+			int64(appID),
+			int64(installationID),
+			appCreds.PrivateKey,
+			"https://api.github.com", // baseURL
+			"",                       // clientCertData
+			"",                       // clientCertKey
+			false,                    // insecure
+			"",                       // proxy
+			"",                       // noProxy
+			NoopCredsStore{})
 	}
 
 	return &authx{
@@ -1097,6 +1085,8 @@ func parseRSAPrivateKeyFromPEM(block *pem.Block) (*rsa.PrivateKey, error) {
 func getGitHubInstallationToken(apiURL, installationID, jwtToken string) (string, error) {
 	url := fmt.Sprintf("%s/app/installations/%s/access_tokens", apiURL, installationID)
 
+	fmt.Printf("url::::::::::::::: %s\n", url)
+	fmt.Printf("token::::::::::::::: %s\n", jwtToken)
 	req, err := http.NewRequestWithContext(context.Background(), http.MethodPost, url, nil)
 	if err != nil {
 		return "", fmt.Errorf("failed to create request: %w", err)
@@ -1104,7 +1094,12 @@ func getGitHubInstallationToken(apiURL, installationID, jwtToken string) (string
 	req.Header.Set("Authorization", "Bearer "+jwtToken)
 	req.Header.Set("Accept", "application/vnd.github+json")
 
-	client := &http.Client{Timeout: 10 * time.Second}
+	client := &http.Client{
+		Timeout: 10 * time.Second,
+		Transport: &http.Transport{
+			Proxy: http.ProxyFromEnvironment,
+		},
+	}
 	resp, err := client.Do(req)
 	if err != nil {
 		return "", fmt.Errorf("GitHub API request failed: %w", err)
@@ -1128,6 +1123,7 @@ func getGitHubInstallationToken(apiURL, installationID, jwtToken string) (string
 	if result.Token == "" {
 		return "", errors.New("empty installation token received")
 	}
+	fmt.Println("dddddddddddddddddddddddDD---------------------------")
 	return result.Token, nil
 }
 

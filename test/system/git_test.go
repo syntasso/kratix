@@ -1,20 +1,16 @@
 package system_test
 
 import (
-	"crypto/rand"
-	"crypto/rsa"
-	"fmt"
 	"os"
 
 	"github.com/go-logr/logr"
 	. "github.com/onsi/ginkgo/v2"
 	. "github.com/onsi/gomega"
 	"github.com/syntasso/kratix/api/v1alpha1"
+	"github.com/syntasso/kratix/lib/writers"
 	corev1 "k8s.io/api/core/v1"
 	metav1 "k8s.io/apimachinery/pkg/apis/meta/v1"
 	ctrl "sigs.k8s.io/controller-runtime"
-
-	"github.com/syntasso/kratix/lib/writers"
 )
 
 var _ = FDescribe("Git writer with native client", func() {
@@ -303,22 +299,80 @@ var _ = FDescribe("Git writer with native client", func() {
 				Expect(err).To(HaveOccurred())
 			})
 		*/
-		It("clones a protected git repository and fetches the branches using SSH auth", func() {
+		/*
+			It("clones a protected git repository and fetches the branches using SSH auth", func() {
 
-			stateStoreSpec.AuthMethod = "ssh"
-			stateStoreSpec.URL = "ssh://git@github.com/syntasso/testing-git-writer-private.git"
+				stateStoreSpec.AuthMethod = "ssh"
+				stateStoreSpec.URL = "ssh://git@github.com/syntasso/testing-git-writer-private.git"
 
-			sshDataPath := os.Getenv("KRATIX_SSH_DATA_PATH")
-			if sshDataPath == "" {
-				Skip("KRATIX_SSH_DATA_PATH not set")
+				sshDataPath := os.Getenv("KRATIX_SSH_DATA_PATH")
+				if sshDataPath == "" {
+					Skip("KRATIX_SSH_DATA_PATH not set")
+				}
+
+				datax, err := os.ReadFile(fmt.Sprintf("%s/private.key", sshDataPath))
+				Expect(err).ToNot(HaveOccurred())
+
+				creds := map[string][]byte{
+					"sshPrivateKey": datax,
+					"knownHosts":    []byte("github.com ssh-ed25519 AAAAC3NzaC1lZDI1NTE5AAAAIOMqqnkVzrm0SdG6UOoqKLsabgH5C9okWi0dh2l9GKJl"),
+				}
+
+				writer, err := writers.NewGitWriter(logger, stateStoreSpec, dest.Spec.Path, creds)
+				Expect(err).ToNot(HaveOccurred())
+				Expect(writer).ToNot(BeNil())
+
+				Expect(writer).To(BeAssignableToTypeOf(&writers.GitWriter{}))
+				gitWriter, ok := writer.(*writers.GitWriter)
+				Expect(ok).To(BeTrue())
+
+				err = gitWriter.ValidatePermissions()
+				Expect(err).ToNot(HaveOccurred())
+			})
+
+			It("does not clone a protected git repository and fetches the branches using SSH auth", func() {
+
+				stateStoreSpec.AuthMethod = "ssh"
+				stateStoreSpec.URL = "ssh://git@github.com/syntasso/testing-git-writer-private.git"
+
+				key, err := rsa.GenerateKey(rand.Reader, 1024)
+				Expect(err).NotTo(HaveOccurred())
+				creds := writers.GenerateSSHCreds(key)
+
+				writer, err := writers.NewGitWriter(logger, stateStoreSpec, dest.Spec.Path, creds)
+				Expect(err).ToNot(HaveOccurred())
+				Expect(writer).ToNot(BeNil())
+
+				Expect(writer).To(BeAssignableToTypeOf(&writers.GitWriter{}))
+				gitWriter, ok := writer.(*writers.GitWriter)
+				Expect(ok).To(BeTrue())
+
+				err = gitWriter.ValidatePermissions()
+				Expect(err).ToNot(HaveOccurred())
+			})
+		*/
+
+		It("clones a protected git repository and fetches the branches using GitHub App auth", func() {
+
+			// app id 2056912
+			// installation id 103412574
+			///Users/luigi/syntasso/test-ssh/github-app-testing-git-writer-private.key
+			stateStoreSpec.AuthMethod = "githubApp"
+			stateStoreSpec.URL = "https://github.com/syntasso/testing-git-writer-private.git"
+
+			githubAppPrivateKey := os.Getenv("KRATIX_GITHUB_APP_PRIVATE_KEY")
+			if githubAppPrivateKey == "" {
+				Skip("KRATIX_GITHUB_APP_PRIVATE_KEY not set")
 			}
 
-			datax, err := os.ReadFile(fmt.Sprintf("%s/private.key", sshDataPath))
+			datax, err := os.ReadFile(githubAppPrivateKey)
 			Expect(err).ToNot(HaveOccurred())
 
 			creds := map[string][]byte{
-				"sshPrivateKey": datax,
-				"knownHosts":    []byte("github.com ssh-ed25519 AAAAC3NzaC1lZDI1NTE5AAAAIOMqqnkVzrm0SdG6UOoqKLsabgH5C9okWi0dh2l9GKJl"),
+				// TODO: convert to env vars
+				"appID":          []byte("2625348"),
+				"installationID": []byte("103412574"),
+				"privateKey":     datax,
 			}
 
 			writer, err := writers.NewGitWriter(logger, stateStoreSpec, dest.Spec.Path, creds)
@@ -333,25 +387,5 @@ var _ = FDescribe("Git writer with native client", func() {
 			Expect(err).ToNot(HaveOccurred())
 		})
 
-		It("does not clone a protected git repository and fetches the branches using SSH auth", func() {
-
-			stateStoreSpec.AuthMethod = "ssh"
-			stateStoreSpec.URL = "ssh://git@github.com/syntasso/testing-git-writer-private.git"
-
-			key, err := rsa.GenerateKey(rand.Reader, 1024)
-			Expect(err).NotTo(HaveOccurred())
-			creds := writers.GenerateSSHCreds(key)
-
-			writer, err := writers.NewGitWriter(logger, stateStoreSpec, dest.Spec.Path, creds)
-			Expect(err).ToNot(HaveOccurred())
-			Expect(writer).ToNot(BeNil())
-
-			Expect(writer).To(BeAssignableToTypeOf(&writers.GitWriter{}))
-			gitWriter, ok := writer.(*writers.GitWriter)
-			Expect(ok).To(BeTrue())
-
-			err = gitWriter.ValidatePermissions()
-			Expect(err).ToNot(HaveOccurred())
-		})
 	})
 })

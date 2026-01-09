@@ -28,18 +28,19 @@ import (
 	"unicode"
 	"unicode/utf8"
 
-	"github.com/go-logr/logr"
-	"github.com/sirupsen/logrus"
-	"github.com/syntasso/kratix/internal/logging"
-
 	"github.com/go-git/go-git/v5"
 	"github.com/go-git/go-git/v5/config"
 	"github.com/go-git/go-git/v5/plumbing"
 	gitssh "github.com/go-git/go-git/v5/plumbing/transport/ssh"
+	"github.com/go-logr/logr"
+	gocache "github.com/patrickmn/go-cache"
+	"github.com/sirupsen/logrus"
 	log "github.com/sirupsen/logrus"
+	"github.com/syntasso/kratix/internal/logging"
 	"golang.org/x/crypto/ssh"
 
 	///////////////////////////////////////////////////////////
+	"github.com/argoproj/argo-cd/v3/common"
 	certutil "github.com/argoproj/argo-cd/v3/util/cert"
 	"github.com/argoproj/argo-cd/v3/util/env"
 	executil "github.com/argoproj/argo-cd/v3/util/exec"
@@ -66,6 +67,18 @@ type ExecRunOpts struct {
 // TODO: remove init
 func init() {
 	initTimeout()
+
+	githubAppCredsExp := common.GithubAppCredsExpirationDuration
+	if exp := os.Getenv(common.EnvGithubAppCredsExpirationDuration); exp != "" {
+		if qps, err := strconv.Atoi(exp); err != nil {
+			githubAppCredsExp = time.Duration(qps) * time.Minute
+		}
+	}
+
+	githubAppTokenCache = gocache.New(githubAppCredsExp, 1*time.Minute)
+	// TODO: inspect whether this is needed for Azure
+	//azureTokenCache = gocache.New(gocache.NoExpiration, 0)
+	githubInstallationIdCache = gocache.New(60*time.Minute, 60*time.Minute)
 }
 
 func initTimeout() {
