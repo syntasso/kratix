@@ -28,6 +28,7 @@ import (
 	"unicode"
 	"unicode/utf8"
 
+	"github.com/davecgh/go-spew/spew"
 	"github.com/go-git/go-git/v5"
 	"github.com/go-git/go-git/v5/config"
 	"github.com/go-git/go-git/v5/plumbing"
@@ -95,7 +96,6 @@ func initTimeout() {
 
 // GitClient is a generic git client interface
 type GitClient interface {
-	// CommitAndPush commits and pushes changes to the target branch.
 	Clone() (*git.Repository, error)
 	Checkout(revision string) (string, error)
 	CommitAndPush(branch, message string) (string, error)
@@ -115,7 +115,32 @@ type GitClientRequest struct {
 	Opts       []ClientOpts
 }
 
-func NewGitClient(req GitClientRequest) (GitClient, error) {
+var (
+	commitSHARegex = regexp.MustCompile("^[0-9A-Fa-f]{40}$")
+	sshURLRegex    = regexp.MustCompile("^(ssh://)?([^/:]*?)@[^@]+$")
+	httpsURLRegex  = regexp.MustCompile("^(https://).*")
+	httpURLRegex   = regexp.MustCompile("^(http://).*")
+)
+
+// IsSSHURL returns true if supplied URL is SSH URL
+func IsSSHURL(url string) (bool, string) {
+	matches := sshURLRegex.FindStringSubmatch(url)
+	if len(matches) > 2 {
+		return true, matches[2]
+	}
+	return false, ""
+}
+
+// func NewGitClient(req GitClientRequest) (GitClient, error) {
+func NewGitClient(req GitClientRequest) (*nativeGitClient, error) {
+
+	fmt.Printf("DDDDDDDDDDDDD: %v\n", spew.Sdump(req.Creds))
+	if _, ok := req.Creds.(SSHCreds); ok {
+		fmt.Println("gGGGGGGGGGGGGGGGGGGGGGGGGGGGGGGKKKKKKKKKKKKK")
+		if ok, _ := IsSSHURL(req.RawRepoURL); !ok {
+			return nil, fmt.Errorf("invalid URL for SSH auth method: %s", req.RawRepoURL)
+		}
+	}
 
 	client := &nativeGitClient{
 		repoURL:      req.RawRepoURL,
@@ -642,7 +667,7 @@ func (m *nativeGitClient) Init() (*git.Repository, error) {
 	}
 	_, err = repo.CreateRemote(&config.RemoteConfig{
 		Name: git.DefaultRemoteName,
-		URLs: []string{m.repoURL},
+		URLs: []string{m.repoURL}, ////////////////////// SET here token
 	})
 	return repo, err
 }
@@ -660,105 +685,6 @@ func (m *nativeGitClient) fetch(ctx context.Context, revision string, depth int6
 	}
 	args = append(args, "--force", "--prune")
 	return m.runCredentialedCmd(ctx, args...)
-}
-
-// Fetch downloads commits, branches, and tags from the remote repository
-// without modifying the working directory or current branch. Updates remote-tracking
-// branches (e.g., origin/main) to reflect the current state of the remote.
-//
-// Parameters:
-//
-//	revision: Specific branch/tag/commit to fetch (empty string fetches all)
-//	depth: Number of commits to fetch (0 for full history)
-//
-// Flags used:
-//
-//	--force: Allow non-fast-forward updates (handles force pushes)
-//	--prune: Remove remote-tracking branches that no longer exist on remote
-//	--tags: Fetch all tags (only when depth == 0, as tags don't work well with shallow clones)
-func (m *nativeGitClient) Fetch(revision string, depth int64) error {
-	if m.OnFetch != nil {
-		done := m.OnFetch(m.repoURL)
-		defer done()
-	}
-	ctx := context.Background()
-
-	err := m.fetch(ctx, revision, depth)
-	if err != nil {
-		return err
-	}
-
-	return err
-}
-
-// Checkout switches the working directory to the specified revision (branch, tag, or commit),
-// updating all files to match that revision's state. Changes the current branch (updates
-// .git/HEAD) and modifies working directory files. After checkout, performs aggressive
-// cleanup to remove all untracked files, directories, and nested repositories.
-//
-// Parameters:
-//
-//	revision: Branch, tag, or commit to checkout (empty string or "HEAD" defaults to "origin/HEAD")
-//
-// Behavior:
-//   - Uses --force flag to discard any local modifications
-//   - Runs git clean -ffdx after checkout to remove:
-//   - Untracked files and directories (first "f")
-//   - Untracked nested Git repositories like submodules (second "f")
-//   - Ignored files from .gitignore ("x")
-//   - All untracked directories ("d")
-//
-// Returns:
-//   - Empty string on success
-//   - Command output on error, along with the error itself
-func (m *nativeGitClient) Checkout(revision string) (string, error) {
-	if revision == "" || revision == "HEAD" {
-		revision = "origin/HEAD"
-	}
-	ctx := context.Background()
-	if out, err := m.runCmd(ctx, "checkout", "--force", revision); err != nil {
-		return out, fmt.Errorf("failed to checkout %s: %w", revision, err)
-	}
-	// NOTE
-	// The double “f” in the arguments is not a typo: the first “f” tells
-	// `git clean` to delete untracked files and directories, and the second “f”
-	// tells it to clean untracked nested Git repositories (for example a
-	// submodule which has since been removed).
-	//	if out, err := m.runCmd(ctx, "clean", "-ffdx"); err != nil {
-	//		return out, fmt.Errorf("failed to clean: %w", err)
-	//	}
-	return "", nil
-}
-
-// Clone creates a new Git repository by downloading the entire repository
-// from a remote URL. Creates the .git directory, downloads all commits, branches,
-// and tags, sets up remote tracking, and checks out the default branch. This is
-// a one-time setup operation for getting a repository for the first time.
-//
-// Common flags:
-//
-//	--depth N: Create shallow clone with only N commits of history
-//	--branch: Clone specific branch instead of default
-//	--single-branch: Only clone one branch
-func (m *nativeGitClient) Clone() (*git.Repository, error) {
-
-	logging.Debug(m.log, "cloning repo")
-
-	repo, err := m.Init()
-	if err != nil {
-		return nil, err
-	}
-	err = m.Fetch("main", 0)
-	if err != nil {
-		return nil, err
-	}
-	out, err := m.Checkout("main")
-	if err != nil {
-		logging.Error(m.log, err, "could not clone repo: %v", out)
-		return nil, err
-	}
-
-	return repo, nil
 }
 
 func getGitTags(refs []*plumbing.Reference) []string {
@@ -931,6 +857,7 @@ func (m *nativeGitClient) runCmd(ctx context.Context, args ...string) (string, e
 func (m *nativeGitClient) runCredentialedCmd(ctx context.Context, args ...string) error {
 	closer, environ, err := m.creds.Environ()
 	if err != nil {
+		fmt.Printf("aaaaaaaaaaaaaaaaaaaaaa: %v\n", err)
 		return err
 	}
 	defer func() { _ = closer.Close() }()
@@ -948,6 +875,7 @@ func (m *nativeGitClient) runCredentialedCmd(ctx context.Context, args ...string
 	cmd := exec.CommandContext(ctx, "git", args...)
 	cmd.Env = append(cmd.Env, environ...)
 	_, err = m.runCmdOutput(cmd, runOpts{})
+	fmt.Println("aaaaaaaaaaaaaaaaaaaaaa.....")
 	return err
 }
 
@@ -969,17 +897,22 @@ func (m *nativeGitClient) runCmdOutput(cmd *exec.Cmd, ropts runOpts) (string, er
 	// as custom CA bundles from the cert database.
 	if IsHTTPSURL(m.repoURL) {
 		if m.insecure {
+			fmt.Println("IIIIIIIIIIIIIIIIIIIIIIIIIIIIIIIIIIIIIIIIIIIIII")
 			cmd.Env = append(cmd.Env, "GIT_SSL_NO_VERIFY=true")
 		} else {
+			fmt.Println("IIIIIIIIIIIIIIIIIIIIIIIIIIIIIIIIIIIIIIIIIIIIII-----------")
 			parsedURL, err := url.Parse(m.repoURL)
 			// We don't fail if we cannot parse the URL, but log a warning in that
 			// case. And we execute the command in a verbatim way.
 			if err != nil {
+				fmt.Println("IIIIIIIIIIIIIIIIIIIIIIIIIIIIIIIIIIIIIIIIIIIIII.................")
 				log.Warnf("runCmdOutput: Could not parse repo URL '%s'", m.repoURL)
 			} else {
+				fmt.Println("IIIIIIIIIIIIIIIIIIIIIIIIIIIIIIIIIIIIIIIIIIIIII????????????????????????????????")
 				caPath, err := certutil.GetCertBundlePathForRepository(parsedURL.Host)
 				if err == nil && caPath != "" {
 					cmd.Env = append(cmd.Env, "GIT_SSL_CAINFO="+caPath)
+					fmt.Printf("CCCCCCCCCCAAAAAAAAAA EEEEEEEENN: %v\n", spew.Sdump(cmd))
 				}
 			}
 		}
@@ -991,7 +924,8 @@ func (m *nativeGitClient) runCmdOutput(cmd *exec.Cmd, ropts runOpts) (string, er
 			ShouldWait: true,
 		},
 		SkipErrorLogging: ropts.SkipErrorLogging,
-		CaptureStderr:    ropts.CaptureStderr,
+		//CaptureStderr:    ropts.CaptureStderr,
+		CaptureStderr: true,
 	}
 	return executil.RunWithExecRunOpts(cmd, opts)
 }
@@ -1113,22 +1047,6 @@ func NormalizeGitURL(repo string) string {
 	}
 	normalized := repoURL.String()
 	return strings.TrimPrefix(normalized, "ssh://")
-}
-
-var (
-	commitSHARegex = regexp.MustCompile("^[0-9A-Fa-f]{40}$")
-	sshURLRegex    = regexp.MustCompile("^(ssh://)?([^/:]*?)@[^@]+$")
-	httpsURLRegex  = regexp.MustCompile("^(https://).*")
-	httpURLRegex   = regexp.MustCompile("^(http://).*")
-)
-
-// IsSSHURL returns true if supplied URL is SSH URL
-func IsSSHURL(url string) (bool, string) {
-	matches := sshURLRegex.FindStringSubmatch(url)
-	if len(matches) > 2 {
-		return true, matches[2]
-	}
-	return false, ""
 }
 
 // IsHTTPSURL returns true if supplied URL is HTTPS URL

@@ -23,9 +23,6 @@ func TestSystem(t *testing.T) {
 }
 
 var _ = SynchronizedBeforeSuite(func() {
-	if 1 == 1 {
-		return
-	}
 	//this runs once for the whole suite
 	platform = &kubeutils.Cluster{
 		Context: getEnvOrDefault("PLATFORM_CONTEXT", "kind-platform"),
@@ -43,6 +40,9 @@ var _ = SynchronizedBeforeSuite(func() {
 	platform.Kubectl("apply", "-f", kratixConfigPath)
 	platform.Kubectl("delete", "pod", "-l", "control-plane=controller-manager", "-n", "kratix-platform-system")
 	platform.Kubectl("wait", "-n", "kratix-platform-system", "deployments", "-l", "control-plane=controller-manager", "--for=condition=Available")
+
+	setGitTestsEnv()
+
 }, func() {
 	//this runs before each test
 

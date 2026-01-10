@@ -1,6 +1,7 @@
 package writers
 
 import (
+	"context"
 	"errors"
 	"fmt"
 	"os"
@@ -25,7 +26,7 @@ type GitWriter struct {
 	Path      string
 	Log       logr.Logger
 	BasicAuth bool
-	client    GitClient
+	*nativeGitClient
 }
 
 type gitServer struct {
@@ -46,7 +47,7 @@ type GitRepo struct {
 }
 
 // TODO: rename
-type authx struct {
+type Authx struct {
 	transport.AuthMethod
 	Creds
 }
@@ -74,14 +75,17 @@ func NewGitWriter(logger logr.Logger, stateStoreSpec v1alpha1.GitStateStoreSpec,
 			NoProxy:  "",
 		})
 
+	//TRY TO SPLIT THE AUTHX STRUCT USING THE OLD CREDS/AUTH METHOD THAT MAKES THE TEST PASS
+	//THEN ADD AUTH DIFFERENTLY TO GITWRITER
+
 	return &GitWriter{
-		client: nativeGitClient,
 		// TODO: use this value for forceBasicAuth in git native client
 		BasicAuth: stateStoreSpec.AuthMethod == v1alpha1.BasicAuthMethod,
 		GitServer: gitServer{
 			URL:    stateStoreSpec.URL,
 			Branch: stateStoreSpec.Branch,
-			Auth:   authMethod,
+			/////////////////////////////////////////////////////////
+			Auth: authMethod.AuthMethod,
 		},
 		Author: gitAuthor{
 			Name:  stateStoreSpec.GitAuthor.Name,
@@ -91,7 +95,8 @@ func NewGitWriter(logger logr.Logger, stateStoreSpec v1alpha1.GitStateStoreSpec,
 			"repo", stateStoreSpec.URL,
 			"branch", stateStoreSpec.Branch,
 		),
-		Path: repoPath,
+		Path:            repoPath,
+		nativeGitClient: nativeGitClient,
 	}, nil
 }
 
@@ -226,7 +231,7 @@ func (g *GitWriter) setupLocalDirectoryWithRepo(logger logr.Logger) (*GitRepo, e
 	var err error
 	gr := &GitRepo{}
 
-	gr.Repo, err = g.client.Clone()
+	gr.Repo, err = g.Clone()
 	if err != nil && !errors.Is(err, ErrAuthSucceededAfterTrim) {
 		return nil, fmt.Errorf("could not clone: %w", err)
 	}
@@ -238,7 +243,7 @@ func (g *GitWriter) setupLocalDirectoryWithRepo(logger logr.Logger) (*GitRepo, e
 	if err != nil {
 		return nil, fmt.Errorf("could not create worktree: %w", err)
 	}
-	gr.LocalTmpDir = g.client.Root()
+	gr.LocalTmpDir = g.Root()
 
 	return gr, nil
 }
@@ -299,7 +304,7 @@ func retryGitOperation(logger logr.Logger, operation string, fn func() (error, b
 // If the push errors with "NoErrAlreadyUpToDate", it means we can write.
 func (g *GitWriter) validatePush(repo *git.Repository, logger logr.Logger) error {
 
-	_, err := g.client.Push(g.GitServer.Branch)
+	_, err := g.Push(g.GitServer.Branch)
 	/*
 		err := repo.Push(&git.PushOptions{
 			RemoteName: "origin",
@@ -442,4 +447,107 @@ func createLocalDirectory(logger logr.Logger) (string, error) {
 func trimRightWhitespace(s string) (string, bool) {
 	trimmed := strings.TrimRightFunc(s, unicode.IsSpace)
 	return trimmed, trimmed != s
+}
+
+// Fetch downloads commits, branches, and tags from the remote repository
+// without modifying the working directory or current branch. Updates remote-tracking
+// branches (e.g., origin/main) to reflect the current state of the remote.
+//
+// Parameters:
+//
+//	revision: Specific branch/tag/commit to fetch (empty string fetches all)
+//	depth: Number of commits to fetch (0 for full history)
+//
+// Flags used:
+//
+//	--force: Allow non-fast-forward updates (handles force pushes)
+//	--prune: Remove remote-tracking branches that no longer exist on remote
+//	--tags: Fetch all tags (only when depth == 0, as tags don't work well with shallow clones)
+func (m *nativeGitClient) Fetch(revision string, depth int64) error {
+	if m.OnFetch != nil {
+		done := m.OnFetch(m.repoURL)
+		defer done()
+	}
+	ctx := context.Background()
+
+	err := m.fetch(ctx, revision, depth)
+	if err != nil {
+		fmt.Printf("ssssssssssssssqqqqqqqqqqqeeeeeeeeee: %v\n", err)
+		return err
+	}
+
+	return err
+}
+
+// Checkout switches the working directory to the specified revision (branch, tag, or commit),
+// updating all files to match that revision's state. Changes the current branch (updates
+// .git/HEAD) and modifies working directory files. After checkout, performs aggressive
+// cleanup to remove all untracked files, directories, and nested repositories.
+//
+// Parameters:
+//
+//	revision: Branch, tag, or commit to checkout (empty string or "HEAD" defaults to "origin/HEAD")
+//
+// Behavior:
+//   - Uses --force flag to discard any local modifications
+//   - Runs git clean -ffdx after checkout to remove:
+//   - Untracked files and directories (first "f")
+//   - Untracked nested Git repositories like submodules (second "f")
+//   - Ignored files from .gitignore ("x")
+//   - All untracked directories ("d")
+//
+// Returns:
+//   - Empty string on success
+//   - Command output on error, along with the error itself
+func (m *nativeGitClient) Checkout(revision string) (string, error) {
+	if revision == "" || revision == "HEAD" {
+		revision = "origin/HEAD"
+	}
+	ctx := context.Background()
+	if out, err := m.runCmd(ctx, "checkout", "--force", revision); err != nil {
+		return out, fmt.Errorf("failed to checkout %s: %w", revision, err)
+	}
+	// NOTE
+	// The double “f” in the arguments is not a typo: the first “f” tells
+	// `git clean` to delete untracked files and directories, and the second “f”
+	// tells it to clean untracked nested Git repositories (for example a
+	// submodule which has since been removed).
+	//	if out, err := m.runCmd(ctx, "clean", "-ffdx"); err != nil {
+	//		return out, fmt.Errorf("failed to clean: %w", err)
+	//	}
+	return "", nil
+}
+
+// Clone creates a new Git repository by downloading the entire repository
+// from a remote URL. Creates the .git directory, downloads all commits, branches,
+// and tags, sets up remote tracking, and checks out the default branch. This is
+// a one-time setup operation for getting a repository for the first time.
+//
+// Common flags:
+//
+//	--depth N: Create shallow clone with only N commits of history
+//	--branch: Clone specific branch instead of default
+//	--single-branch: Only clone one branch
+func (m *nativeGitClient) Clone() (*git.Repository, error) {
+
+	logging.Debug(m.log, "cloning repo")
+
+	fmt.Printf("NNNNNNNNNNNNNNNNNN::::::: %v\n", spew.Sdump(m))
+	fmt.Printf("NNNNNNNNNNNNNNNNNN::::::: %v\n", spew.Sdump(m.creds))
+
+	repo, err := m.Init()
+	if err != nil {
+		return nil, fmt.Errorf("could not run init: %w", err)
+	}
+	err = m.Fetch("main", 0)
+	if err != nil {
+		return nil, fmt.Errorf("could not run fetch: %w", err)
+	}
+	out, err := m.Checkout("main")
+	if err != nil {
+		logging.Error(m.log, err, "could not clone repo: %v", out)
+		return nil, fmt.Errorf("could not run checkout: %w", err)
+	}
+
+	return repo, nil
 }

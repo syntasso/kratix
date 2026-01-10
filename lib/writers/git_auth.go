@@ -4,6 +4,7 @@ import (
 	"context"
 	"crypto/rsa"
 	"crypto/sha256"
+	"crypto/tls"
 	"crypto/x509"
 	"encoding/base64"
 	"encoding/hex"
@@ -409,9 +410,10 @@ func NewGitHubAppCreds(appID int64, appInstallId int64, privateKey string, baseU
 }
 
 func (g GitHubAppCreds) Environ() (io.Closer, []string, error) {
-	fmt.Println("eeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeEE")
+	fmt.Printf("eeeeeeeeeeeeeeeeeEEnnnnnnnvvvvvvvvvvvirrrrrrrooooooonnnn: %s\n", spew.Sdump(g))
 	token, err := g.getAccessToken()
 	if err != nil {
+		fmt.Printf("xxxxxeeeeeeeeeeeeeeeeeeeeeeeeeennnnnnnvvvvvvvvvvv: %v\n", err.Error())
 		return NopCloser{}, nil, err
 	}
 	var env []string
@@ -420,6 +422,7 @@ func (g GitHubAppCreds) Environ() (io.Closer, []string, error) {
 	// GIT_SSL_NO_VERIFY is used to tell git not to validate the server's cert at
 	// all.
 	if g.insecure {
+		fmt.Println("NNNNNNNNNOOOOOOOOOO VERRRRRRRRIIIIIIIIIIIFFFFFFF")
 		env = append(env, "GIT_SSL_NO_VERIFY=true")
 	}
 
@@ -427,6 +430,7 @@ func (g GitHubAppCreds) Environ() (io.Closer, []string, error) {
 	// sure git client will use it. The certificate's key must not be password
 	// protected.
 	if g.HasClientCert() {
+		fmt.Println("HAAAAAAAASSSSSSSSSS CLLLLLLLLIIII CEEEEEERTTTTTTTTT")
 		var certFile, keyFile *os.File
 
 		// We need to actually create two temp files, one for storing cert data and
@@ -466,6 +470,17 @@ func (g GitHubAppCreds) Environ() (io.Closer, []string, error) {
 		// GIT_SSL_KEY is the full path to a client certificate's key to be used
 		env = append(env, "GIT_SSL_KEY="+keyFile.Name())
 	}
+
+	/*
+		if creds.password != "" && creds.forceBasicAuth {
+			env = append(env, fmt.Sprintf("%s=%s", forceBasicAuthHeaderEnv, creds.BasicAuthHeader()))
+		} else if creds.bearerToken != "" {
+			// If bearer token is set, we will set ARGOCD_BEARER_AUTH_HEADER to	hold the HTTP authorization header
+			env = append(env, fmt.Sprintf("%s=%s", bearerAuthHeaderEnv, creds.BearerAuthHeader()))
+		}
+		sed "s|https://|https://x-access-token:${token}
+	*/
+
 	nonce := g.store.Add(githubAccessTokenUsername, token)
 	env = append(env, g.store.Environ(nonce)...)
 	fmt.Printf("EEEEEEEEEEEEEEENNNNNNNNVVVVVVVVVV: %s\n", spew.Sdump(env))
@@ -515,6 +530,7 @@ func (g GitHubAppCreds) getAccessToken() (string, error) {
 
 	itr, err := g.getInstallationTransport()
 	if err != nil {
+		fmt.Printf("AAAAAAAAAAAAAAAA TTTTTTTTTTTTTTT EEEEEEE: %v\n", err)
 		return "", fmt.Errorf("failed to create GitHub app installation transport: %w", err)
 	}
 
@@ -586,6 +602,8 @@ func (g GitHubAppCreds) getInstallationTransport() (*ghinstallation.Transport, e
 
 	// Add transport to cache
 	githubAppTokenCache.Set(key, itr, time.Minute*60)
+
+	fmt.Println("	getInstallationTransport dddddddooonnnnnne")
 
 	return itr, nil
 }
@@ -832,7 +850,7 @@ type githubAppCreds struct {
 }
 */
 
-func setAuth(stateStoreSpec v1alpha1.GitStateStoreSpec, destinationPath string, creds map[string][]byte) (*authx, error) {
+func setAuth(stateStoreSpec v1alpha1.GitStateStoreSpec, destinationPath string, creds map[string][]byte) (*Authx, error) {
 
 	var (
 		credsX     Creds
@@ -928,6 +946,12 @@ func setAuth(stateStoreSpec v1alpha1.GitStateStoreSpec, destinationPath string, 
 		authMethod = &githttp.TokenAuth{
 			Token: token,
 		}
+		/*
+			authMethod = &githttp.BasicAuth{
+				Username: "x-access-token",
+				Password: token,
+			}
+		*/
 
 		appID, err := strconv.Atoi(appCreds.AppID)
 		if err != nil {
@@ -952,9 +976,9 @@ func setAuth(stateStoreSpec v1alpha1.GitStateStoreSpec, destinationPath string, 
 			NoopCredsStore{})
 	}
 
-	return &authx{
-		authMethod,
-		credsX,
+	return &Authx{
+		AuthMethod: authMethod,
+		Creds:      credsX,
 	}, nil
 }
 
@@ -1098,6 +1122,8 @@ func getGitHubInstallationToken(apiURL, installationID, jwtToken string) (string
 		Timeout: 10 * time.Second,
 		Transport: &http.Transport{
 			Proxy: http.ProxyFromEnvironment,
+			// TODO: set it via env var
+			TLSClientConfig: &tls.Config{InsecureSkipVerify: true},
 		},
 	}
 	resp, err := client.Do(req)
