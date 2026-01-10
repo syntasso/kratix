@@ -1307,7 +1307,7 @@ func (r *PromiseReconciler) ensureHealthRecordsDeleted(o opts, promise *v1alpha1
 
 func (r *PromiseReconciler) getHealthRecordsForPromise(o opts, promise *v1alpha1.Promise) ([]v1alpha1.HealthRecord, error) {
 	healthRecordList := &v1alpha1.HealthRecordList{}
-	err := r.Client.List(o.ctx, healthRecordList) // TODO: Optimize with label selector if possible, or filter in memory
+	err := r.Client.List(o.ctx, healthRecordList) // TODO: Optimise with label selector if possible, or filter in memory
 	if err != nil {
 		return nil, err
 	}
