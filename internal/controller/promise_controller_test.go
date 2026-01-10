@@ -12,6 +12,7 @@ import (
 
 	"github.com/syntasso/kratix/internal/controller"
 	"github.com/syntasso/kratix/internal/controller/controllerfakes"
+	"k8s.io/apimachinery/pkg/api/errors"
 	apimeta "k8s.io/apimachinery/pkg/api/meta"
 	controllerConfig "sigs.k8s.io/controller-runtime/pkg/config"
 
@@ -1740,6 +1741,72 @@ var _ = Describe("PromiseController", func() {
 				Expect(revisionList.Items).To(HaveLen(1))
 				Expect(revisionList.Items[0].Spec.Version).To(Equal(promiseVersion))
 				Expect(revisionList.Items[0].GetLabels()["kratix.io/latest-revision"]).To(Equal("true"))
+			})
+		})
+	})
+	When("the promise is being deleted", func() {
+		When("it has active health records", func() {
+			var healthRecord *v1alpha1.HealthRecord
+
+			BeforeEach(func() {
+				promise = createPromise(promisePath)
+				result, err := t.reconcileUntilCompletion(reconciler, promise, &opts{
+					funcs: []func(client.Object) error{autoMarkCRDAsEstablished},
+				})
+				Expect(err).NotTo(HaveOccurred())
+				Expect(result).To(Equal(ctrl.Result{RequeueAfter: reconciler.ReconciliationInterval}))
+
+				healthRecord = &v1alpha1.HealthRecord{
+					ObjectMeta: metav1.ObjectMeta{
+						Name:      "test-health-record",
+						Namespace: v1alpha1.SystemNamespace,
+					},
+					Data: v1alpha1.HealthRecordData{
+						PromiseRef: v1alpha1.PromiseRef{
+							Name: promise.GetName(),
+						},
+						State: "active",
+					},
+				}
+				Expect(fakeK8sClient.Create(ctx, healthRecord)).To(Succeed())
+
+				Expect(fakeK8sClient.Delete(ctx, promise)).To(Succeed())
+				Expect(fakeK8sClient.Get(ctx, promiseName, promise)).To(Succeed())
+				Expect(promise.DeletionTimestamp.IsZero()).To(BeFalse())
+			})
+
+			It("does not delete the dependencies until health records are gone", func() {
+				// Reconcile multiple times to ensure we are stuck waiting
+				for i := 0; i < 5; i++ {
+					result, err := reconciler.Reconcile(ctx, ctrl.Request{NamespacedName: promiseName})
+					Expect(err).NotTo(HaveOccurred())
+					Expect(result).To(Equal(ctrl.Result{RequeueAfter: 5 * time.Second}))
+				}
+
+				// Check dependencies still exist
+				controllerResourceName := types.NamespacedName{
+					Name: promise.GetControllerResourceName(),
+				}
+				clusterrole := &rbacv1.ClusterRole{}
+				Expect(fakeK8sClient.Get(ctx, controllerResourceName, clusterrole)).To(Succeed())
+
+				// Now delete the health record
+				Expect(fakeK8sClient.Delete(ctx, healthRecord)).To(Succeed())
+
+				// Reconcile again, should proceed
+				// Depending on how the fake client handles deletion, we might need to ensure it's actually gone from the list
+				// implied by subsequent reconciles.
+				// In a real env, GC would delete it. Here we just deleted it.
+
+				result, err := t.reconcileUntilCompletion(reconciler, promise, &opts{
+					funcs: []func(client.Object) error{autoMarkCRDAsEstablished},
+				})
+				Expect(err).NotTo(HaveOccurred())
+				// Should eventually return empty result (or NotFound if fully deleted)
+				Expect(result).To(Equal(ctrl.Result{})) // Assuming completion returns zero result if successfully deleted
+
+				err = fakeK8sClient.Get(ctx, promiseName, promise)
+				Expect(errors.IsNotFound(err)).To(BeTrue())
 			})
 		})
 	})
