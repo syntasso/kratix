@@ -32,6 +32,7 @@ import (
 	"github.com/go-git/go-git/v5"
 	"github.com/go-git/go-git/v5/config"
 	"github.com/go-git/go-git/v5/plumbing"
+	githttp "github.com/go-git/go-git/v5/plumbing/transport/http"
 	gitssh "github.com/go-git/go-git/v5/plumbing/transport/ssh"
 	"github.com/go-logr/logr"
 	gocache "github.com/patrickmn/go-cache"
@@ -108,7 +109,7 @@ type GitClient interface {
 type GitClientRequest struct {
 	RawRepoURL string
 	Root       string
-	Creds      Creds
+	Auth       *Authx
 	Insecure   bool
 	Proxy      string
 	NoProxy    string
@@ -131,21 +132,66 @@ func IsSSHURL(url string) (bool, string) {
 	return false, ""
 }
 
+// injectGitHubAppCredentials adds username and token to a Git URL's authority section.
+// Example: https://github.com/user/repo.git -> https://x-access-token:token@github.com/user/repo.git
+func injectGitHubAppCredentials(gitURL, token string) (string, error) {
+	u, err := url.Parse(gitURL)
+	if err != nil {
+		return "", fmt.Errorf("failed to parse URL: %w", err)
+	}
+
+	u.User = url.UserPassword("x-access-token", token)
+
+	return u.String(), nil
+}
+
 // func NewGitClient(req GitClientRequest) (GitClient, error) {
 func NewGitClient(req GitClientRequest) (*nativeGitClient, error) {
 
-	fmt.Printf("DDDDDDDDDDDDD: %v\n", spew.Sdump(req.Creds))
-	if _, ok := req.Creds.(SSHCreds); ok {
+	fmt.Printf("DDDDDDDDDDDDD: %v\n", spew.Sdump(req.Auth))
+
+	var (
+		//	err         error
+		accessToken string
+	)
+
+	switch req.Auth.Creds.(type) {
+	case SSHCreds:
 		fmt.Println("gGGGGGGGGGGGGGGGGGGGGGGGGGGGGGGKKKKKKKKKKKKK")
 		if ok, _ := IsSSHURL(req.RawRepoURL); !ok {
 			return nil, fmt.Errorf("invalid URL for SSH auth method: %s", req.RawRepoURL)
 		}
+
+	case GitHubAppCreds:
+		tokenAuth, ok := req.Auth.AuthMethod.(*githttp.TokenAuth)
+		if !ok {
+			return nil, fmt.Errorf("GitHub app auth method is not *githttp.TokenAuth")
+		}
+		if tokenAuth == nil {
+			return nil, fmt.Errorf("auth token not set")
+		}
+		accessToken = tokenAuth.Token
+		/*
+			// THIS makes the last githubapp auth test pass
+			// but we need to not store the token on a local file,
+			// let's try to fix change the url temporarily or use extra auth
+			// headers
+			// i've tried using insteadOf in git cli, but it's not running fine in
+			// go, while it works when run manually, maybe a difference in the
+			// env???? try to check the git env vars and their differences between
+			// the two methods
+				req.RawRepoURL, err = injectCredentials(req.RawRepoURL, "x-access-token", tokenAuth.Token)
+				if !ok {
+					return nil, fmt.Errorf("failed to inject credentials into repository URL: %w", err)
+				}
+		*/
 	}
 
 	client := &nativeGitClient{
+		accessToken:  accessToken,
 		repoURL:      req.RawRepoURL,
 		root:         req.Root,
-		creds:        req.Creds,
+		creds:        req.Auth.Creds,
 		insecure:     req.Insecure,
 		proxy:        req.Proxy,
 		noProxy:      req.NoProxy,
@@ -490,6 +536,8 @@ type nativeGitClient struct {
 	noProxy string
 	// git configuration environment variables
 	gitConfigEnv []string
+	// access token or installation access token
+	accessToken string
 }
 
 type runOpts struct {
@@ -872,6 +920,16 @@ func (m *nativeGitClient) runCredentialedCmd(ctx context.Context, args ...string
 		}
 	}
 
+	if m.accessToken != "" {
+		urlWithCreds, err := injectGitHubAppCredentials(m.repoURL, m.accessToken)
+		if err != nil {
+
+		}
+		time.Sleep(10 * time.Second)
+		fmt.Println("vvvvvvvvvvvvvvvvvvvvvvvvvzzzzzzzzzzzzzzzzzz")
+		args = append([]string{"-c", fmt.Sprintf("url.'%s'.insteadOf='%s'", urlWithCreds, m.repoURL)}, args...)
+	}
+
 	cmd := exec.CommandContext(ctx, "git", args...)
 	cmd.Env = append(cmd.Env, environ...)
 	_, err = m.runCmdOutput(cmd, runOpts{})
@@ -892,6 +950,14 @@ func (m *nativeGitClient) runCmdOutput(cmd *exec.Cmd, ropts runOpts) (string, er
 	cmd.Env = append(cmd.Env, "GIT_TERMINAL_PROMPT=false")
 	// Add Git configuration options that are essential for ArgoCD operation
 	cmd.Env = append(cmd.Env, m.gitConfigEnv...)
+
+	cmd.Env = append(cmd.Env,
+		"GIT_TERMINAL_PROMPT=0", // Disable terminal prompts
+		"GIT_ASKPASS=true",      // Disable password prompts
+		"GIT_CONFIG_COUNT=1",    // Number of config settings
+		"GIT_CONFIG_KEY_0=credential.helper",
+		"GIT_CONFIG_VALUE_0=", // Disable credential helper
+	)
 
 	// For HTTPS repositories, we need to consider insecure repositories as well
 	// as custom CA bundles from the cert database.

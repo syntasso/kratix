@@ -55,7 +55,10 @@ var (
 )
 
 const (
-	// githubAccessTokenUsername is a username that is used to with the github access token
+	// The x-access-token username is actually just a convention - it's not validated by GitHub.
+	// GitHub ignores the username field entirely when a valid token is in the password field.
+	// You could use any string (or even empty string) as the username, but x-access-token
+	// is recommended for clarity.
 	githubAccessTokenUsername = "x-access-token"
 	forceBasicAuthHeaderEnv   = "ARGOCD_GIT_AUTH_HEADER"
 	bearerAuthHeaderEnv       = "ARGOCD_GIT_BEARER_AUTH_HEADER"
@@ -179,6 +182,7 @@ func (creds HTTPSCreds) BearerAuthHeader() string {
 func (creds HTTPSCreds) Environ() (io.Closer, []string, error) {
 	var env []string
 
+	fmt.Println("HHHHHHHHHHHHHHHHHHHH CCCCCCCCCCCCCCCCCCCCCCCCC")
 	httpCloser := authFilePaths(make([]string, 0))
 
 	// GIT_SSL_NO_VERIFY is used to tell git not to validate the server's cert at
@@ -307,7 +311,7 @@ func (f authFilePaths) Close() error {
 }
 
 func (c SSHCreds) Environ() (io.Closer, []string, error) {
-	fmt.Println("111111111111!!")
+	fmt.Println("SSSSSSSSSSSSSSSSSSSSSSSSSSSSSSSSSSSSSS CCCCCCCCCCCCCCCCCCCCCCCCC")
 	// use the SHM temp dir from util, more secure
 	file, err := os.CreateTemp(argoio.TempDir, "")
 	if err != nil {
@@ -946,6 +950,7 @@ func setAuth(stateStoreSpec v1alpha1.GitStateStoreSpec, destinationPath string, 
 		authMethod = &githttp.TokenAuth{
 			Token: token,
 		}
+		fmt.Printf("GGGGGGGGGGG HHHHHHHHHHHH     APPPPPPPPPPP TTTTTTTTTTTTT: %s\n", token)
 		/*
 			authMethod = &githttp.BasicAuth{
 				Username: "x-access-token",
@@ -1012,7 +1017,7 @@ func newBasicAuthCreds(stateStoreSpec v1alpha1.GitStateStoreSpec, creds map[stri
 	// but it cannot be empty as Git cli uses basic auth:
 	// e.g.: username:password
 	if !ok || string(username) == "" {
-		username = []byte("x-access-token")
+		username = []byte(githubAccessTokenUsername)
 	}
 	password, ok := creds["password"]
 	if !ok {
@@ -1110,7 +1115,7 @@ func getGitHubInstallationToken(apiURL, installationID, jwtToken string) (string
 	url := fmt.Sprintf("%s/app/installations/%s/access_tokens", apiURL, installationID)
 
 	fmt.Printf("url::::::::::::::: %s\n", url)
-	fmt.Printf("token::::::::::::::: %s\n", jwtToken)
+	fmt.Printf("token::::::::::::::::::::::::::::::::::::::::::::::::::: %s\n", jwtToken)
 	req, err := http.NewRequestWithContext(context.Background(), http.MethodPost, url, nil)
 	if err != nil {
 		return "", fmt.Errorf("failed to create request: %w", err)
@@ -1149,7 +1154,7 @@ func getGitHubInstallationToken(apiURL, installationID, jwtToken string) (string
 	if result.Token == "" {
 		return "", errors.New("empty installation token received")
 	}
-	fmt.Println("dddddddddddddddddddddddDD---------------------------")
+	fmt.Printf("dddddddddddddddddddddddDD---------------------------::::::: %v\n", result.Token)
 	return result.Token, nil
 }
 

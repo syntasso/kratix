@@ -59,7 +59,7 @@ func NewGitWriter(logger logr.Logger, stateStoreSpec v1alpha1.GitStateStoreSpec,
 		destinationPath,
 	), "/")
 
-	authMethod, err := setAuth(stateStoreSpec, destinationPath, creds)
+	auth, err := setAuth(stateStoreSpec, destinationPath, creds)
 	if err != nil {
 		return nil, fmt.Errorf("could not create auth method: %w", err)
 	}
@@ -68,7 +68,7 @@ func NewGitWriter(logger logr.Logger, stateStoreSpec v1alpha1.GitStateStoreSpec,
 		GitClientRequest{
 			RawRepoURL: stateStoreSpec.URL,
 			Root:       repoPath,
-			Creds:      authMethod,
+			Auth:       auth,
 			// NOTE: intentionally not allowing insecure connections
 			Insecure: false,
 			Proxy:    "",
@@ -85,7 +85,7 @@ func NewGitWriter(logger logr.Logger, stateStoreSpec v1alpha1.GitStateStoreSpec,
 			URL:    stateStoreSpec.URL,
 			Branch: stateStoreSpec.Branch,
 			/////////////////////////////////////////////////////////
-			Auth: authMethod.AuthMethod,
+			Auth: auth.AuthMethod,
 		},
 		Author: gitAuthor{
 			Name:  stateStoreSpec.GitAuthor.Name,
@@ -332,7 +332,7 @@ func (g *GitWriter) ValidatePermissions() error {
 	if cloneErr != nil && !errors.Is(cloneErr, ErrAuthSucceededAfterTrim) {
 		return fmt.Errorf("failed to set up local directory with repo: %w", cloneErr)
 	}
-	defer os.RemoveAll(gr.LocalTmpDir) //nolint:errcheck
+	//	defer os.RemoveAll(gr.LocalTmpDir) //nolint:errcheck
 
 	if err := g.validatePush(gr.Repo, g.Log); err != nil {
 		return err

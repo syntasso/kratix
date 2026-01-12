@@ -4,16 +4,17 @@ import (
 	"fmt"
 	"os"
 
-	transporthttp "github.com/go-git/go-git/v5/plumbing/transport/http"
-	"github.com/go-git/go-git/v5/plumbing/transport/ssh"
+	gogit_http "github.com/go-git/go-git/v5/plumbing/transport/http"
+	gogit_ssh "github.com/go-git/go-git/v5/plumbing/transport/ssh"
 	"github.com/go-logr/logr"
 	. "github.com/onsi/ginkgo/v2"
 	. "github.com/onsi/gomega"
-	"github.com/syntasso/kratix/api/v1alpha1"
-	"github.com/syntasso/kratix/lib/writers"
 	corev1 "k8s.io/api/core/v1"
 	metav1 "k8s.io/apimachinery/pkg/apis/meta/v1"
 	ctrl "sigs.k8s.io/controller-runtime"
+
+	"github.com/syntasso/kratix/api/v1alpha1"
+	"github.com/syntasso/kratix/lib/writers"
 )
 
 //GitHub supports Authorization: Bearer for api.github.com (REST/GraphQL). The git endpoints on github.com for git fetch/clone typically require Basic (or credential helper / askpass).
@@ -31,6 +32,9 @@ var (
 )
 
 func setGitTestsEnv() {
+
+	os.Setenv("GIT_TERMINAL_PROMPT", "0")
+	os.Setenv("GIT_ASKPASS", "echo")
 
 	sshDataPath := os.Getenv("KRATIX_SSH_DATA_PATH")
 	if sshDataPath != "" {
@@ -104,7 +108,7 @@ var _ = FDescribe("Git writer with native client", func() {
 				writers.GitClientRequest{
 					RawRepoURL: "https://github.com/syntasso/testing-git-writer-public.git",
 					Root:       dir,
-					Creds:      writers.NopCreds{},
+					Auth:       &writers.Authx{Creds: writers.NopCreds{}},
 					Insecure:   false,
 				})
 			Expect(err).ToNot(HaveOccurred())
@@ -124,7 +128,7 @@ var _ = FDescribe("Git writer with native client", func() {
 				writers.GitClientRequest{
 					RawRepoURL: "https://github.com/syntasso/testing-git-writer-public.git",
 					Root:       dir,
-					Creds:      writers.NopCreds{},
+					Auth:       &writers.Authx{Creds: writers.NopCreds{}},
 					Insecure:   false,
 				})
 			Expect(err).ToNot(HaveOccurred())
@@ -151,7 +155,7 @@ var _ = FDescribe("Git writer with native client", func() {
 				writers.GitClientRequest{
 					RawRepoURL: "https://github.com/syntasso/testing-git-writer-private.git",
 					Root:       dir,
-					Creds:      writers.NopCreds{},
+					Auth:       &writers.Authx{Creds: writers.NopCreds{}},
 					Insecure:   false,
 				})
 			Expect(err).ToNot(HaveOccurred())
@@ -182,7 +186,7 @@ var _ = FDescribe("Git writer with native client", func() {
 			client, err := writers.NewGitClient(writers.GitClientRequest{
 				RawRepoURL: "ssh://git@github.com/syntasso/testing-git-writer-private.git",
 				Root:       dir,
-				Creds:      sshCreds,
+				Auth:       &writers.Authx{Creds: sshCreds},
 				Insecure:   false,
 				Proxy:      "",
 				NoProxy:    "",
@@ -208,7 +212,6 @@ var _ = FDescribe("Git writer with native client", func() {
 				Skip("HTTP basic auth tests not enabled")
 			}
 
-			fmt.Printf("GGGGGGGGGGGGHHHHHHHHHHH PPPPPPPPP: %v\n", ghPat)
 			httpCreds := writers.NewHTTPSCreds(
 				"x-access-token",         // username
 				ghPat,                    // password
@@ -222,7 +225,7 @@ var _ = FDescribe("Git writer with native client", func() {
 			client, err := writers.NewGitClient(writers.GitClientRequest{
 				RawRepoURL: "https://github.com/syntasso/testing-git-writer-private.git",
 				Root:       "",
-				Creds:      httpCreds,
+				Auth:       &writers.Authx{Creds: httpCreds},
 				Insecure:   true,
 				Proxy:      "",
 				NoProxy:    "",
@@ -244,7 +247,6 @@ var _ = FDescribe("Git writer with native client", func() {
 			Expect(err).ToNot(HaveOccurred())
 		})
 
-		//////////////////////////
 		It("returns a valid GitWriter using SSH auth", func() {
 			stateStoreSpec.AuthMethod = "ssh"
 
@@ -254,8 +256,8 @@ var _ = FDescribe("Git writer with native client", func() {
 			gitWriter, ok := writer.(*writers.GitWriter)
 			Expect(ok).To(BeTrue())
 			Expect(gitWriter.GitServer.URL).To(Equal("https://github.com/syntasso/testing-git-writer-public.git"))
-			Expect(gitWriter.GitServer.Auth.(*ssh.PublicKeys).User).To(Equal("git"))
-			publicKey, ok := gitWriter.GitServer.Auth.(*ssh.PublicKeys)
+			Expect(gitWriter.GitServer.Auth.(*gogit_ssh.PublicKeys).User).To(Equal("git"))
+			publicKey, ok := gitWriter.GitServer.Auth.(*gogit_ssh.PublicKeys)
 			Expect(ok).To(BeTrue())
 			Expect(publicKey).NotTo(BeNil())
 			Expect(gitWriter.GitServer.Branch).To(Equal("main"))
@@ -278,7 +280,7 @@ var _ = FDescribe("Git writer with native client", func() {
 			gitWriter, ok := writer.(*writers.GitWriter)
 			Expect(ok).To(BeTrue())
 			Expect(gitWriter.GitServer.URL).To(Equal("https://github.com/syntasso/testing-git-writer-public.git"))
-			Expect(gitWriter.GitServer.Auth).To(Equal(&transporthttp.BasicAuth{
+			Expect(gitWriter.GitServer.Auth).To(Equal(&gogit_http.BasicAuth{
 				Username: "user1",
 				Password: "pw1",
 			}))
@@ -326,6 +328,7 @@ var _ = FDescribe("Git writer with native client", func() {
 			err = gitWriter.ValidatePermissions()
 			Expect(err).To(HaveOccurred())
 		})
+
 		It("clones a protected git repository and fetches the branches using SSH auth", func() {
 
 			if !runSshTests {
@@ -367,42 +370,40 @@ var _ = FDescribe("Git writer with native client", func() {
 			Expect(err).ToNot(HaveOccurred())
 		})
 
-		/*
-			It("clones a protected git repository and fetches the branches using GitHub App auth", func() {
+		It("clones a protected git repository and fetches the branches using GitHub App auth", func() {
 
-				// app id 2056912
-				// installation id 103412574
-				///Users/luigi/syntasso/test-ssh/github-app-testing-git-writer-private.key
-				stateStoreSpec.AuthMethod = "githubApp"
-				stateStoreSpec.URL = "https://github.com/syntasso/testing-git-writer-private.git"
+			// app id 2056912
+			// installation id 103412574
+			///Users/luigi/syntasso/test-ssh/github-app-testing-git-writer-private.key
+			stateStoreSpec.AuthMethod = "githubApp"
+			stateStoreSpec.URL = "https://github.com/syntasso/testing-git-writer-private"
 
-				githubAppPrivateKey := os.Getenv("KRATIX_GITHUB_APP_PRIVATE_KEY")
-				if githubAppPrivateKey == "" {
-					Skip("KRATIX_GITHUB_APP_PRIVATE_KEY not set")
-				}
+			githubAppPrivateKey := os.Getenv("KRATIX_GITHUB_APP_PRIVATE_KEY")
+			if githubAppPrivateKey == "" {
+				Skip("KRATIX_GITHUB_APP_PRIVATE_KEY not set")
+			}
 
-				datax, err := os.ReadFile(githubAppPrivateKey)
-				Expect(err).ToNot(HaveOccurred())
+			datax, err := os.ReadFile(githubAppPrivateKey)
+			Expect(err).ToNot(HaveOccurred())
 
-				creds := map[string][]byte{
-					// TODO: convert to env vars
-					"appID":          []byte("2625348"),
-					"installationID": []byte("103412574"),
-					"privateKey":     datax,
-				}
+			creds := map[string][]byte{
+				// TODO: convert to env vars
+				"appID":          []byte("2625348"),
+				"installationID": []byte("103412574"),
+				"privateKey":     datax,
+			}
 
-				writer, err := writers.NewGitWriter(logger, stateStoreSpec, dest.Spec.Path, creds)
-				Expect(err).ToNot(HaveOccurred())
-				Expect(writer).ToNot(BeNil())
+			writer, err := writers.NewGitWriter(logger, stateStoreSpec, dest.Spec.Path, creds)
+			Expect(err).ToNot(HaveOccurred())
+			Expect(writer).ToNot(BeNil())
 
-				Expect(writer).To(BeAssignableToTypeOf(&writers.GitWriter{}))
-				gitWriter, ok := writer.(*writers.GitWriter)
-				Expect(ok).To(BeTrue())
+			Expect(writer).To(BeAssignableToTypeOf(&writers.GitWriter{}))
+			gitWriter, ok := writer.(*writers.GitWriter)
+			Expect(ok).To(BeTrue())
 
-				err = gitWriter.ValidatePermissions()
-				Expect(err).ToNot(HaveOccurred())
-			})
-		*/
+			err = gitWriter.ValidatePermissions()
+			Expect(err).ToNot(HaveOccurred())
+		})
 
 	})
 })
