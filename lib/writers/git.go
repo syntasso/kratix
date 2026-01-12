@@ -79,21 +79,13 @@ func NewGitWriter(logger logr.Logger, stateStoreSpec v1alpha1.GitStateStoreSpec,
 		return nil, fmt.Errorf("could not create git native client: %w", err)
 	}
 
-	//TRY TO SPLIT THE AUTHX STRUCT USING THE OLD CREDS/AUTH METHOD THAT MAKES THE TEST PASS
-	//THEN ADD AUTH DIFFERENTLY TO GITWRITER
-
-	if nativeGitClient == nil {
-		fmt.Println("zzzzzzzzzzzzzzzzzzzz ddddddddddddddddddddd")
-	}
-
 	m := &GitWriter{
 		// TODO: use this value for forceBasicAuth in git native client
 		BasicAuth: stateStoreSpec.AuthMethod == v1alpha1.BasicAuthMethod,
 		GitServer: gitServer{
 			URL:    stateStoreSpec.URL,
 			Branch: stateStoreSpec.Branch,
-			/////////////////////////////////////////////////////////
-			Auth: auth.AuthMethod,
+			Auth:   auth.AuthMethod,
 		},
 		Author: gitAuthor{
 			Name:  stateStoreSpec.GitAuthor.Name,

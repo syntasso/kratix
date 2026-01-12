@@ -20,15 +20,18 @@ import (
 //GitHub supports Authorization: Bearer for api.github.com (REST/GraphQL). The git endpoints on github.com for git fetch/clone typically require Basic (or credential helper / askpass).
 
 var (
-	dest                  v1alpha1.Destination
-	stateStoreSpec        v1alpha1.GitStateStoreSpec
-	logger                logr.Logger
-	runSshTests           bool
-	sshCreds              map[string][]byte
-	sshPrivateKey         []byte
-	ghPat                 string
-	runHttpBasicAuthTests bool
-	httpCreds             map[string][]byte
+	dest                    v1alpha1.Destination
+	ghPat                   string
+	githubAppPrivateKey     string
+	githubAppPrivateKeyData []byte
+	httpCreds               map[string][]byte
+	logger                  logr.Logger
+	runGitHubAppAuthTests   bool
+	runHttpBasicAuthTests   bool
+	runSshTests             bool
+	sshCreds                map[string][]byte
+	sshPrivateKey           []byte
+	stateStoreSpec          v1alpha1.GitStateStoreSpec
 )
 
 func setGitTestsEnv() {
@@ -58,6 +61,13 @@ func setGitTestsEnv() {
 	sshCreds = map[string][]byte{
 		"sshPrivateKey": sshPrivateKey,
 		"knownHosts":    []byte("github.com ssh-ed25519 AAAAC3NzaC1lZDI1NTE5AAAAIOMqqnkVzrm0SdG6UOoqKLsabgH5C9okWi0dh2l9GKJl"),
+	}
+
+	githubAppPrivateKey = os.Getenv("KRATIX_GITHUB_APP_PRIVATE_KEY")
+	githubAppPrivateKeyData, err = os.ReadFile(githubAppPrivateKey)
+	Expect(err).ToNot(HaveOccurred())
+	if githubAppPrivateKey != "" {
+		runGitHubAppAuthTests = true
 	}
 
 	stateStoreSpec = v1alpha1.GitStateStoreSpec{
@@ -375,49 +385,50 @@ var _ = FDescribe("Git writer with native client", func() {
 		})
 
 		It("clones a protected git repository and fetches the branches using GitHub App auth", func() {
-
-			// app id 2056912
-			// installation id 103412574
-			///Users/luigi/syntasso/test-ssh/github-app-testing-git-writer-private.key
-			stateStoreSpec.AuthMethod = "githubApp"
-			stateStoreSpec.URL = "https://github.com/syntasso/testing-git-writer-private"
-
-			githubAppPrivateKey := os.Getenv("KRATIX_GITHUB_APP_PRIVATE_KEY")
-			if githubAppPrivateKey == "" {
-				Skip("KRATIX_GITHUB_APP_PRIVATE_KEY not set")
+			if !runGitHubAppAuthTests {
+				Skip("GitHub App auth tests not enabled")
 			}
 
-			datax, err := os.ReadFile(githubAppPrivateKey)
-			Expect(err).ToNot(HaveOccurred())
+			stateStoreSpec.AuthMethod = "githubApp"
+			stateStoreSpec.URL = "https://github.com/syntasso/testing-git-writer-private"
 
 			creds := map[string][]byte{
 				// TODO: convert to env vars
 				"appID":          []byte("2625348"),
 				"installationID": []byte("103412574"),
-				"privateKey":     datax,
+				"privateKey":     githubAppPrivateKeyData,
 			}
 
 			writer, err := writers.NewGitWriter(logger, stateStoreSpec, dest.Spec.Path, creds)
-			if writer == nil {
-				fmt.Println("xxxxxxxxxxxxxxxxxxxxxxxxxxxxvvvvvvvvvvvvvvvvvvvvvvvvvvvvvvVVV111111111111111111")
-			}
 			Expect(err).ToNot(HaveOccurred())
 			Expect(writer).ToNot(BeNil())
-			/*
-				Expect(writer).To(BeAssignableToTypeOf(&writers.GitWriter{}))
-				if writer == nil {
-					fmt.Println("xxxxxxxxxxxxxxxxxxxxxxxxxxxxvvvvvvvvvvvvvvvvvvvvvvvvvvvvvvVVV111111111111111111.........")
-				}
-				gitWriter, ok := writer.(*writers.GitWriter)
-				if gitWriter == nil {
-					fmt.Println("xxxxxxxxxxxxxxxxxxxxxxxxxxxxvvvvvvvvvvvvvvvvvvvvvvvvvvvvvvVVV111111111111111111--------")
-				}
-				Expect(ok).To(BeTrue())
-			*/
 
-			//err = gitWriter.ValidatePermissions()
-			err = writer.ValidatePermissions()
+			Expect(writer).To(BeAssignableToTypeOf(&writers.GitWriter{}))
+			gitWriter, ok := writer.(*writers.GitWriter)
+			Expect(ok).To(BeTrue())
+
+			err = gitWriter.ValidatePermissions()
 			Expect(err).ToNot(HaveOccurred())
+		})
+
+		It("does not clone a protected git repository using GitHub App auth due to invalid app ID", func() {
+			if !runGitHubAppAuthTests {
+				Skip("GitHub App auth tests not enabled")
+			}
+
+			stateStoreSpec.AuthMethod = "githubApp"
+			stateStoreSpec.URL = "https://github.com/syntasso/testing-git-writer-private"
+
+			creds := map[string][]byte{
+				// TODO: convert to env vars
+				"appID":          []byte("1111111"),
+				"installationID": []byte("103412574"),
+				"privateKey":     githubAppPrivateKeyData,
+			}
+
+			writer, err := writers.NewGitWriter(logger, stateStoreSpec, dest.Spec.Path, creds)
+			Expect(err).To(HaveOccurred())
+			Expect(writer).To(BeNil())
 		})
 
 	})
