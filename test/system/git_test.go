@@ -106,7 +106,6 @@ func setGitTestsEnv() {
 }
 
 var _ = FDescribe("Git writer with native client", func() {
-
 	BeforeEach(func() {
 	})
 
@@ -114,12 +113,12 @@ var _ = FDescribe("Git writer with native client", func() {
 	})
 
 	When("checking out a public repository", func() {
-		dir, err := os.MkdirTemp("", "test-prefix-*")
+		tempDir, err := os.MkdirTemp("", "test-prefix-*")
 		// TODO: enable cleanup
-		//	defer os.RemoveAll(dir)
+		//	defer os.RemoveAll(tempDir)
 		Expect(err).ToNot(HaveOccurred())
 		// TODO: replace by log if needed
-		fmt.Printf("temp dir: %v\n", dir)
+		fmt.Printf("temp tempDir: %v\n", tempDir)
 		var client writers.GitClient
 
 		It("checks out the repository", func() {
@@ -127,7 +126,7 @@ var _ = FDescribe("Git writer with native client", func() {
 				client, err = writers.NewGitClient(
 					writers.GitClientRequest{
 						RawRepoURL: "https://github.com/syntasso/testing-git-writer-public.git",
-						Root:       dir,
+						Root:       tempDir,
 						Auth:       &writers.Auth{Creds: writers.NopCreds{}},
 						Insecure:   false,
 					})
