@@ -20,6 +20,14 @@ spec:
   scope: Cluster
   versions:
   - additionalPrinterColumns:
+    - description: State store kind.
+      jsonPath: .spec.stateStoreRef.kind
+      name: StateStoreKind
+      type: string
+    - description: State store name.
+      jsonPath: .spec.stateStoreRef.name
+      name: StateStoreName
+      type: string
     - description: Indicates the destination is ready to use.
       jsonPath: .status.conditions[?(@.type=="Ready")].status
       name: Ready
