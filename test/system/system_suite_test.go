@@ -24,7 +24,7 @@ func TestSystem(t *testing.T) {
 
 var _ = SynchronizedBeforeSuite(func() {
 	skipK8sSetup := os.Getenv("TEST_SKIP_K8S_SETUP")
-	if skipK8sSetup == "true" {
+	if skipK8sSetup != "true" {
 		//this runs once for the whole suite
 		platform = &kubeutils.Cluster{
 			Context: getEnvOrDefault("PLATFORM_CONTEXT", "kind-platform"),
@@ -44,6 +44,7 @@ var _ = SynchronizedBeforeSuite(func() {
 		platform.Kubectl("wait", "-n", "kratix-platform-system", "deployments", "-l", "control-plane=controller-manager", "--for=condition=Available")
 
 	}
+
 	setGitTestsEnv()
 
 }, func() {

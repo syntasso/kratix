@@ -376,6 +376,7 @@ const (
 	// DefaultPathSSHConfig is the default path where SSH known hosts are stored
 	DefaultPathSSHConfig = "/app/config/ssh"
 	// DefaultSSHKnownHostsName is the Default name for the SSH known hosts file
+	// TODO: do we really need this?
 	DefaultSSHKnownHostsName = "ssh_known_hosts"
 	// DefaultGnuPgHomePath is the Default path to GnuPG home directory
 	DefaultGnuPgHomePath = "/app/config/gpg/keys"
