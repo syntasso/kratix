@@ -32,7 +32,6 @@ import (
 	"github.com/go-git/go-git/v5"
 	"github.com/go-git/go-git/v5/config"
 	"github.com/go-git/go-git/v5/plumbing"
-	githttp "github.com/go-git/go-git/v5/plumbing/transport/http"
 	gitssh "github.com/go-git/go-git/v5/plumbing/transport/ssh"
 	"github.com/go-logr/logr"
 	gocache "github.com/patrickmn/go-cache"
@@ -114,6 +113,7 @@ type GitClientRequest struct {
 	Proxy      string
 	NoProxy    string
 	Opts       []ClientOpts
+	log        logr.Logger
 }
 
 var (
@@ -163,14 +163,16 @@ func NewGitClient(req GitClientRequest) (*nativeGitClient, error) {
 		}
 
 	case GitHubAppCreds:
-		tokenAuth, ok := req.Auth.AuthMethod.(*githttp.TokenAuth)
-		if !ok {
-			return nil, fmt.Errorf("GitHub app auth method is not *githttp.TokenAuth")
-		}
-		if tokenAuth == nil {
-			return nil, fmt.Errorf("auth token not set")
-		}
-		accessToken = tokenAuth.Token
+		/*
+			tokenAuth, ok := req.Auth.AuthMethod.(*githttp.TokenAuth)
+			if !ok {
+				return nil, fmt.Errorf("GitHub app auth method is not *githttp.TokenAuth")
+			}
+			if tokenAuth == nil {
+				return nil, fmt.Errorf("auth token not set")
+			}
+			accessToken = tokenAuth.Token
+		*/
 		/*
 			// THIS makes the last githubapp auth test pass
 			// but we need to not store the token on a local file,
@@ -196,10 +198,16 @@ func NewGitClient(req GitClientRequest) (*nativeGitClient, error) {
 		proxy:        req.Proxy,
 		noProxy:      req.NoProxy,
 		gitConfigEnv: BuiltinGitConfigEnv,
+		log:          req.log,
 	}
 	for i := range req.Opts {
 		req.Opts[i](client)
 	}
+
+	if client == nil {
+		fmt.Println("ccccccccccccccccc nnnnnnnnnnnnnnnnnnnn")
+	}
+
 	return client, nil
 }
 

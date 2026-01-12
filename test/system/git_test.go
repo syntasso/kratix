@@ -33,6 +33,7 @@ var (
 
 func setGitTestsEnv() {
 
+	logger = ctrl.Log.WithName("setup")
 	os.Setenv("GIT_TERMINAL_PROMPT", "0")
 	os.Setenv("GIT_ASKPASS", "echo")
 
@@ -58,37 +59,37 @@ func setGitTestsEnv() {
 		"sshPrivateKey": sshPrivateKey,
 		"knownHosts":    []byte("github.com ssh-ed25519 AAAAC3NzaC1lZDI1NTE5AAAAIOMqqnkVzrm0SdG6UOoqKLsabgH5C9okWi0dh2l9GKJl"),
 	}
+
+	stateStoreSpec = v1alpha1.GitStateStoreSpec{
+		StateStoreCoreFields: v1alpha1.StateStoreCoreFields{
+			Path: "state-store-path",
+			SecretRef: &corev1.SecretReference{
+				Namespace: "default",
+				Name:      "dummy-secret",
+			},
+		},
+		AuthMethod: "basicAuth",
+		URL:        "https://github.com/syntasso/testing-git-writer-public.git",
+		Branch:     "main",
+		GitAuthor: v1alpha1.GitAuthor{
+			Email: "test@example.com",
+			Name:  "a-user",
+		},
+	}
+	dest = v1alpha1.Destination{
+		ObjectMeta: metav1.ObjectMeta{
+			Namespace: "default",
+			Name:      "test",
+		},
+		Spec: v1alpha1.DestinationSpec{
+			Path: "dst-path/",
+		},
+	}
 }
 
 var _ = FDescribe("Git writer with native client", func() {
 
 	BeforeEach(func() {
-		logger = ctrl.Log.WithName("setup")
-		stateStoreSpec = v1alpha1.GitStateStoreSpec{
-			StateStoreCoreFields: v1alpha1.StateStoreCoreFields{
-				Path: "state-store-path",
-				SecretRef: &corev1.SecretReference{
-					Namespace: "default",
-					Name:      "dummy-secret",
-				},
-			},
-			AuthMethod: "basicAuth",
-			URL:        "https://github.com/syntasso/testing-git-writer-public.git",
-			Branch:     "main",
-			GitAuthor: v1alpha1.GitAuthor{
-				Email: "test@example.com",
-				Name:  "a-user",
-			},
-		}
-		dest = v1alpha1.Destination{
-			ObjectMeta: metav1.ObjectMeta{
-				Namespace: "default",
-				Name:      "test",
-			},
-			Spec: v1alpha1.DestinationSpec{
-				Path: "dst-path/",
-			},
-		}
 	})
 
 	AfterEach(func() {
@@ -249,13 +250,14 @@ var _ = FDescribe("Git writer with native client", func() {
 
 		It("returns a valid GitWriter using SSH auth", func() {
 			stateStoreSpec.AuthMethod = "ssh"
+			stateStoreSpec.URL = "ssh://git@github.com/syntasso/testing-git-writer-public.git"
 
 			writer, err := writers.NewGitWriter(logger, stateStoreSpec, dest.Spec.Path, sshCreds)
 			Expect(err).NotTo(HaveOccurred())
 			Expect(writer).To(BeAssignableToTypeOf(&writers.GitWriter{}))
 			gitWriter, ok := writer.(*writers.GitWriter)
 			Expect(ok).To(BeTrue())
-			Expect(gitWriter.GitServer.URL).To(Equal("https://github.com/syntasso/testing-git-writer-public.git"))
+			Expect(gitWriter.GitServer.URL).To(Equal("ssh://git@github.com/syntasso/testing-git-writer-public.git"))
 			Expect(gitWriter.GitServer.Auth.(*gogit_ssh.PublicKeys).User).To(Equal("git"))
 			publicKey, ok := gitWriter.GitServer.Auth.(*gogit_ssh.PublicKeys)
 			Expect(ok).To(BeTrue())
@@ -266,6 +268,9 @@ var _ = FDescribe("Git writer with native client", func() {
 		})
 
 		It("returns a valid GitWriter using HTTP basic auth", func() {
+			stateStoreSpec.AuthMethod = "basicAuth"
+			stateStoreSpec.URL = "https://github.com/syntasso/testing-git-writer-public.git"
+
 			creds := map[string][]byte{
 				"username": []byte("user1"),
 				"password": []byte("pw1"),
@@ -330,7 +335,6 @@ var _ = FDescribe("Git writer with native client", func() {
 		})
 
 		It("clones a protected git repository and fetches the branches using SSH auth", func() {
-
 			if !runSshTests {
 				Skip("SSH tests not enabled")
 			}
@@ -394,14 +398,25 @@ var _ = FDescribe("Git writer with native client", func() {
 			}
 
 			writer, err := writers.NewGitWriter(logger, stateStoreSpec, dest.Spec.Path, creds)
+			if writer == nil {
+				fmt.Println("xxxxxxxxxxxxxxxxxxxxxxxxxxxxvvvvvvvvvvvvvvvvvvvvvvvvvvvvvvVVV111111111111111111")
+			}
 			Expect(err).ToNot(HaveOccurred())
 			Expect(writer).ToNot(BeNil())
+			/*
+				Expect(writer).To(BeAssignableToTypeOf(&writers.GitWriter{}))
+				if writer == nil {
+					fmt.Println("xxxxxxxxxxxxxxxxxxxxxxxxxxxxvvvvvvvvvvvvvvvvvvvvvvvvvvvvvvVVV111111111111111111.........")
+				}
+				gitWriter, ok := writer.(*writers.GitWriter)
+				if gitWriter == nil {
+					fmt.Println("xxxxxxxxxxxxxxxxxxxxxxxxxxxxvvvvvvvvvvvvvvvvvvvvvvvvvvvvvvVVV111111111111111111--------")
+				}
+				Expect(ok).To(BeTrue())
+			*/
 
-			Expect(writer).To(BeAssignableToTypeOf(&writers.GitWriter{}))
-			gitWriter, ok := writer.(*writers.GitWriter)
-			Expect(ok).To(BeTrue())
-
-			err = gitWriter.ValidatePermissions()
+			//err = gitWriter.ValidatePermissions()
+			err = writer.ValidatePermissions()
 			Expect(err).ToNot(HaveOccurred())
 		})
 

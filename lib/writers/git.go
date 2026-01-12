@@ -73,12 +73,20 @@ func NewGitWriter(logger logr.Logger, stateStoreSpec v1alpha1.GitStateStoreSpec,
 			Insecure: false,
 			Proxy:    "",
 			NoProxy:  "",
+			log:      logger,
 		})
+	if err != nil {
+		return nil, fmt.Errorf("could not create git native client: %w", err)
+	}
 
 	//TRY TO SPLIT THE AUTHX STRUCT USING THE OLD CREDS/AUTH METHOD THAT MAKES THE TEST PASS
 	//THEN ADD AUTH DIFFERENTLY TO GITWRITER
 
-	return &GitWriter{
+	if nativeGitClient == nil {
+		fmt.Println("zzzzzzzzzzzzzzzzzzzz ddddddddddddddddddddd")
+	}
+
+	m := &GitWriter{
 		// TODO: use this value for forceBasicAuth in git native client
 		BasicAuth: stateStoreSpec.AuthMethod == v1alpha1.BasicAuthMethod,
 		GitServer: gitServer{
@@ -97,7 +105,13 @@ func NewGitWriter(logger logr.Logger, stateStoreSpec v1alpha1.GitStateStoreSpec,
 		),
 		Path:            repoPath,
 		nativeGitClient: nativeGitClient,
-	}, nil
+	}
+
+	if m.nativeGitClient == nil {
+		fmt.Println("zzzzzzzzzzzzzzzzzzzz bbbbbbbbbbbbbbb")
+	}
+
+	return m, nil
 }
 
 func (g *GitWriter) UpdateFiles(subDir string, workPlacementName string, workloadsToCreate []v1alpha1.Workload, workloadsToDelete []string) (string, error) {
@@ -231,6 +245,14 @@ func (g *GitWriter) setupLocalDirectoryWithRepo(logger logr.Logger) (*GitRepo, e
 	var err error
 	gr := &GitRepo{}
 
+	if g == nil {
+		fmt.Println("ZZZZZZZZZZZZZZZZZZZZZZZZZiiiiiiiiiiiiiiiiiiiiiiiiiii 111111111111111111")
+	}
+
+	if g.nativeGitClient == nil {
+		fmt.Println("ZZZZZZZZZZZZZZZZZZZZZZZZZiiiiiiiiiiiiiiiiiiiiiiiiiii 111111111111111111 nnnnn")
+	}
+
 	gr.Repo, err = g.Clone()
 	if err != nil && !errors.Is(err, ErrAuthSucceededAfterTrim) {
 		return nil, fmt.Errorf("could not clone: %w", err)
@@ -328,6 +350,9 @@ func (g *GitWriter) validatePush(repo *git.Repository, logger logr.Logger) error
 // It performs a dry run validation to check authentication and branch existence without making changes.
 func (g *GitWriter) ValidatePermissions() error {
 	// Setup local directory with repo (this already checks if we can clone - read access)
+	if g.nativeGitClient == nil {
+		fmt.Println("zzzzzzzzzzzzzzzzzzzz aaaaaaaaaaaaaa")
+	}
 	gr, cloneErr := g.setupLocalDirectoryWithRepo(g.Log)
 	if cloneErr != nil && !errors.Is(cloneErr, ErrAuthSucceededAfterTrim) {
 		return fmt.Errorf("failed to set up local directory with repo: %w", cloneErr)
@@ -530,10 +555,10 @@ func (m *nativeGitClient) Checkout(revision string) (string, error) {
 //	--single-branch: Only clone one branch
 func (m *nativeGitClient) Clone() (*git.Repository, error) {
 
-	logging.Debug(m.log, "cloning repo")
-
-	fmt.Printf("NNNNNNNNNNNNNNNNNN::::::: %v\n", spew.Sdump(m))
-	fmt.Printf("NNNNNNNNNNNNNNNNNN::::::: %v\n", spew.Sdump(m.creds))
+	//	logging.Debug(m.log, "cloning repo")
+	if m == nil {
+		fmt.Println("ZZZZZZZZZZZZZZZZZZZZZZZZZiiiiiiiiiiiiiiiiiiiiiiiiiii")
+	}
 
 	repo, err := m.Init()
 	if err != nil {

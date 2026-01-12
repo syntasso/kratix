@@ -475,15 +475,7 @@ func (g GitHubAppCreds) Environ() (io.Closer, []string, error) {
 		env = append(env, "GIT_SSL_KEY="+keyFile.Name())
 	}
 
-	/*
-		if creds.password != "" && creds.forceBasicAuth {
-			env = append(env, fmt.Sprintf("%s=%s", forceBasicAuthHeaderEnv, creds.BasicAuthHeader()))
-		} else if creds.bearerToken != "" {
-			// If bearer token is set, we will set ARGOCD_BEARER_AUTH_HEADER to	hold the HTTP authorization header
-			env = append(env, fmt.Sprintf("%s=%s", bearerAuthHeaderEnv, creds.BearerAuthHeader()))
-		}
-		sed "s|https://|https://x-access-token:${token}
-	*/
+	env = append(env, fmt.Sprintf("%s=%s", forceBasicAuthHeaderEnv, g.BasicAuthHeader(token)))
 
 	nonce := g.store.Add(githubAccessTokenUsername, token)
 	env = append(env, g.store.Environ(nonce)...)
@@ -492,6 +484,13 @@ func (g GitHubAppCreds) Environ() (io.Closer, []string, error) {
 		g.store.Remove(nonce)
 		return httpCloser.Close()
 	}), env, nil
+}
+
+func (g GitHubAppCreds) BasicAuthHeader(token string) string {
+	h := "Authorization: Basic "
+	t := githubAccessTokenUsername + ":" + token
+	h += base64.StdEncoding.EncodeToString([]byte(t))
+	return h
 }
 
 // GetUserInfo returns the username and email address for the credentials, if they're available.
@@ -947,8 +946,15 @@ func setAuth(stateStoreSpec v1alpha1.GitStateStoreSpec, destinationPath string, 
 			return nil, fmt.Errorf("failed to get GitHub installation token: %w", err)
 		}
 
-		authMethod = &githttp.TokenAuth{
-			Token: token,
+		/*
+			authMethod = &githttp.TokenAuth{
+				Token: token,
+			}
+		*/
+
+		authMethod = &githttp.BasicAuth{
+			Username: githubAccessTokenUsername,
+			Password: token,
 		}
 		fmt.Printf("GGGGGGGGGGG HHHHHHHHHHHH     APPPPPPPPPPP TTTTTTTTTTTTT: %s\n", token)
 		/*
