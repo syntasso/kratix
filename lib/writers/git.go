@@ -120,7 +120,7 @@ func (g *GitWriter) update(subDir, workPlacementName string, workloadsToCreate [
 		return "", err
 	}
 	fmt.Println("RRRRRRRRRRRRRRRRRRRRRRRRRRRRRRRRRRRR")
-	//defer os.RemoveAll(filepath.Dir(gr.LocalTmpDir)) //nolint:errcheck
+	defer os.RemoveAll(filepath.Dir(gr.LocalTmpDir)) //nolint:errcheck
 
 	err = g.deleteExistingFiles(subDir != "", dirInGitRepo, workloadsToDelete, gr.Worktree, logger)
 	if err != nil {
@@ -290,8 +290,7 @@ func (g *GitWriter) ValidatePermissions() error {
 	if cloneErr != nil && !errors.Is(cloneErr, ErrAuthSucceededAfterTrim) {
 		return fmt.Errorf("failed to set up local directory with repo: %w", cloneErr)
 	}
-	// TODO: restore
-	//	defer os.RemoveAll(gr.LocalTmpDir) //nolint:errcheck
+	defer os.RemoveAll(gr.LocalTmpDir) //nolint:errcheck
 
 	if err := g.validatePush(gr.Repo, g.Log); err != nil {
 		return err

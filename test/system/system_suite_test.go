@@ -45,8 +45,6 @@ var _ = SynchronizedBeforeSuite(func() {
 
 	}
 
-	setGitTestsEnv()
-
 }, func() {
 	//this runs before each test
 

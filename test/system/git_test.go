@@ -6,8 +6,6 @@ import (
 	"os"
 	"path/filepath"
 
-	gogit_http "github.com/go-git/go-git/v5/plumbing/transport/http"
-	gogit_ssh "github.com/go-git/go-git/v5/plumbing/transport/ssh"
 	"github.com/go-logr/logr"
 	. "github.com/onsi/ginkgo/v2"
 	. "github.com/onsi/gomega"
@@ -23,8 +21,15 @@ import (
 
 //GitHub supports Authorization: Bearer for api.github.com (REST/GraphQL). The git endpoints on github.com for git fetch/clone typically require Basic (or credential helper / askpass).
 
+const (
+	httpPublicRepo  = "https://github.com/syntasso/testing-git-writer-public.git"
+	httpPrivateRepo = "https://github.com/syntasso/testing-git-writer-private.git"
+
+	sshPublicRepo  = "ssh://git@github.com/syntasso/testing-git-writer-public.git"
+	sshPrivateRepo = "ssh://git@github.com/syntasso/testing-git-writer-private.git"
+)
+
 var (
-	dest                    v1alpha1.Destination
 	ghPat                   string
 	githubAppPrivateKey     string
 	githubAppPrivateKeyData []byte
@@ -35,11 +40,11 @@ var (
 	runSshTests             bool
 	sshCreds                map[string][]byte
 	sshPrivateKey           []byte
-	stateStoreSpec          v1alpha1.GitStateStoreSpec
 
 	canaryWorkload      = "kratix-canary"
 	resourcesDir        = "resources"
 	canaryConfigMapPath = "kratix-canary-configmap.yaml"
+	githubAppCreds      map[string][]byte
 )
 
 func setGitTestsEnv() {
@@ -78,426 +83,413 @@ func setGitTestsEnv() {
 		runGitHubAppAuthTests = true
 	}
 
-	stateStoreSpec = v1alpha1.GitStateStoreSpec{
-		StateStoreCoreFields: v1alpha1.StateStoreCoreFields{
-			Path: "state-store-path",
-			SecretRef: &corev1.SecretReference{
-				Namespace: "default",
-				Name:      "dummy-secret",
-			},
-		},
-		AuthMethod: "basicAuth",
-		URL:        "https://github.com/syntasso/testing-git-writer-public.git",
-		Branch:     "main",
-		GitAuthor: v1alpha1.GitAuthor{
-			Email: "test@example.com",
-			Name:  "a-user",
-		},
-	}
-	dest = v1alpha1.Destination{
-		ObjectMeta: metav1.ObjectMeta{
-			Namespace: "default",
-			Name:      "test",
-		},
-		Spec: v1alpha1.DestinationSpec{
-			Path: "dst-path/",
-		},
+	githubAppCreds = map[string][]byte{
+		// TODO: convert to env vars
+		"appID":          []byte("2625348"),
+		"installationID": []byte("103412574"),
+		"privateKey":     githubAppPrivateKeyData,
 	}
 }
 
-var _ = FDescribe("Git writer with native client", func() {
-	BeforeEach(func() {
-	})
+func newStateStoreAndDest(authType, repo string) (*v1alpha1.GitStateStoreSpec, *v1alpha1.Destination) {
 
-	AfterEach(func() {
-	})
-
-	When("targeting a public repository", func() {
-		tempDir, err := os.MkdirTemp("", "test-prefix-*")
-		// TODO: enable cleanup
-		//	defer os.RemoveAll(tempDir)
-		Expect(err).ToNot(HaveOccurred())
-		// TODO: replace by log if needed
-		fmt.Printf("temp tempDir: %v\n", tempDir)
-		var client writers.GitClient
-
-		It("checks out the repository", func() {
-			By("initialising a new client", func() {
-				client, err = writers.NewGitClient(
-					writers.GitClientRequest{
-						RawRepoURL: "https://github.com/syntasso/testing-git-writer-public.git",
-						Root:       tempDir,
-						Auth:       &writers.Auth{Creds: writers.NopCreds{}},
-						Insecure:   false,
-					})
-				Expect(err).ToNot(HaveOccurred())
-
-				repo, err := client.Init()
-				Expect(err).ToNot(HaveOccurred())
-				Expect(repo).ToNot(BeNil())
-			})
-
-			By("fetching branches", func() {
-				err = client.Fetch("main", 0)
-				Expect(err).ToNot(HaveOccurred())
-
-				out, err := client.Checkout("main")
-				Expect(err).ToNot(HaveOccurred())
-				Expect(out).To(BeEmpty())
-			})
-
-			By("checking out the code", func() {
-				out, err := client.Checkout("main")
-				Expect(err).ToNot(HaveOccurred())
-				Expect(out).To(BeEmpty())
-			})
-		})
-	})
-
-	Describe("Repository check-out", func() {
-		BeforeEach(func() {})
-
-		AfterEach(func() {})
-
-		It("fails to check out a protected git repository due to no credentials provided", func() {
-			dir, err := os.MkdirTemp("", "test-prefix-*")
-			//	defer os.RemoveAll(dir)
-			Expect(err).ToNot(HaveOccurred())
-			fmt.Printf("temp dir: %v\n", dir)
-
-			client, err := writers.NewGitClient(
-				writers.GitClientRequest{
-					RawRepoURL: "https://github.com/syntasso/testing-git-writer-private.git",
-					Root:       dir,
-					Auth:       &writers.Auth{Creds: writers.NopCreds{}},
-					Insecure:   false,
-				})
-			Expect(err).ToNot(HaveOccurred())
-			Expect(client).ToNot(BeNil())
-
-			repo, err := client.Init()
-			Expect(err).ToNot(HaveOccurred())
-			Expect(repo).ToNot(BeNil())
-
-			err = client.Fetch("main", 0)
-			Expect(err).To(HaveOccurred())
-		})
-
-		// TODO: remove tmp dirs
-		It("checks out a protected git repository and fetches the branches using SSH", func() {
-
-			if !runSshTests {
-				Skip("SSH tests not enabled")
-			}
-
-			dir, err := os.MkdirTemp("", "test-prefix-*")
-			//	defer os.RemoveAll(dir)
-			Expect(err).ToNot(HaveOccurred())
-			fmt.Printf("temp dir: %v\n", dir)
-
-			sshCreds := writers.NewSSHCreds(string(sshPrivateKey), "", false, "")
-
-			client, err := writers.NewGitClient(writers.GitClientRequest{
-				RawRepoURL: "ssh://git@github.com/syntasso/testing-git-writer-private.git",
-				Root:       dir,
-				Auth:       &writers.Auth{Creds: sshCreds},
-				Insecure:   false,
-				Proxy:      "",
-				NoProxy:    "",
-			})
-			Expect(err).ToNot(HaveOccurred())
-			Expect(client).ToNot(BeNil())
-
-			repo, err := client.Init()
-			Expect(err).ToNot(HaveOccurred())
-			Expect(repo).ToNot(BeNil())
-
-			err = client.Fetch("main", 0)
-			Expect(err).ToNot(HaveOccurred())
-
-			out, err := client.Checkout("main")
-			Expect(err).ToNot(HaveOccurred())
-			Expect(out).To(BeEmpty())
-		})
-
-		It("checks out a protected git repository and fetches the branches using HTTP auth", func() {
-
-			if !runHttpBasicAuthTests {
-				Skip("HTTP basic auth tests not enabled")
-			}
-
-			httpCreds := writers.NewHTTPSCreds(
-				"x-access-token",         // username
-				ghPat,                    // password
-				"",                       // bearer token
-				"",                       // clientCertData
-				"",                       // clientCertKey
-				false,                    // insecure
-				writers.NoopCredsStore{}, // CredsStore,
-				true,                     // forceBasicAuth
-			)
-			client, err := writers.NewGitClient(writers.GitClientRequest{
-				RawRepoURL: "https://github.com/syntasso/testing-git-writer-private.git",
-				Root:       "",
-				Auth:       &writers.Auth{Creds: httpCreds},
-				Insecure:   true,
-				Proxy:      "",
-				NoProxy:    "",
-			})
-			Expect(err).ToNot(HaveOccurred())
-			Expect(client).ToNot(BeNil())
-			repo, err := client.Init()
-			Expect(err).ToNot(HaveOccurred())
-			Expect(repo).ToNot(BeNil())
-
-			err = client.Fetch("main", 0)
-			Expect(err).ToNot(HaveOccurred())
-
-			out, err := client.Checkout("main")
-			Expect(err).ToNot(HaveOccurred())
-			Expect(out).To(BeEmpty())
-
-			err = os.RemoveAll(client.Root())
-			Expect(err).ToNot(HaveOccurred())
-		})
-
-		It("returns a valid GitWriter using SSH auth", func() {
-			stateStoreSpec.AuthMethod = "ssh"
-			stateStoreSpec.URL = "ssh://git@github.com/syntasso/testing-git-writer-public.git"
-
-			writer, err := writers.NewGitWriter(logger, stateStoreSpec, dest.Spec.Path, sshCreds)
-			Expect(err).NotTo(HaveOccurred())
-			Expect(writer).To(BeAssignableToTypeOf(&writers.GitWriter{}))
-			gitWriter, ok := writer.(*writers.GitWriter)
-			Expect(ok).To(BeTrue())
-			Expect(gitWriter.GitServer.URL).To(Equal("ssh://git@github.com/syntasso/testing-git-writer-public.git"))
-			Expect(gitWriter.GitServer.Auth.(*gogit_ssh.PublicKeys).User).To(Equal("git"))
-			publicKey, ok := gitWriter.GitServer.Auth.(*gogit_ssh.PublicKeys)
-			Expect(ok).To(BeTrue())
-			Expect(publicKey).NotTo(BeNil())
-			Expect(gitWriter.GitServer.Branch).To(Equal("main"))
-			Expect(gitWriter.Author.Email).To(Equal("test@example.com"))
-			Expect(gitWriter.Author.Name).To(Equal("a-user"))
-		})
-
-		It("returns a valid GitWriter using HTTP basic auth", func() {
-			stateStoreSpec.AuthMethod = "basicAuth"
-			stateStoreSpec.URL = "https://github.com/syntasso/testing-git-writer-public.git"
-
-			creds := map[string][]byte{
-				"username": []byte("user1"),
-				"password": []byte("pw1"),
-			}
-			stateStoreSpec.GitAuthor = v1alpha1.GitAuthor{
+	return &v1alpha1.GitStateStoreSpec{
+			StateStoreCoreFields: v1alpha1.StateStoreCoreFields{
+				Path: "state-store-path",
+				SecretRef: &corev1.SecretReference{
+					Namespace: "default",
+					Name:      "dummy-secret",
+				},
+			},
+			AuthMethod: authType,
+			URL:        repo,
+			Branch:     "main",
+			GitAuthor: v1alpha1.GitAuthor{
 				Email: "test@example.com",
 				Name:  "a-user",
-			}
-			writer, err := writers.NewGitWriter(logger, stateStoreSpec, dest.Spec.Path, creds)
-			Expect(err).NotTo(HaveOccurred())
-			Expect(writer).To(BeAssignableToTypeOf(&writers.GitWriter{}))
-			gitWriter, ok := writer.(*writers.GitWriter)
-			Expect(ok).To(BeTrue())
-			Expect(gitWriter.GitServer.URL).To(Equal("https://github.com/syntasso/testing-git-writer-public.git"))
-			Expect(gitWriter.GitServer.Auth).To(Equal(&gogit_http.BasicAuth{
-				Username: "user1",
-				Password: "pw1",
-			}))
-			Expect(gitWriter.GitServer.Branch).To(Equal("main"))
-			Expect(gitWriter.Author.Email).To(Equal("test@example.com"))
-			Expect(gitWriter.Author.Name).To(Equal("a-user"))
-			Expect(gitWriter.Path).To(Equal("state-store-path/dst-path"))
+			},
+		}, &v1alpha1.Destination{
+			ObjectMeta: metav1.ObjectMeta{
+				Namespace: "default",
+				Name:      "test",
+			},
+			Spec: v1alpha1.DestinationSpec{
+				Path: fmt.Sprintf("%s-dst-path/", authType),
+			},
+		}
+}
+
+// TODO: add test for root, when it's defined
+
+var _ = FDescribe("Git tests", func() {
+
+	setGitTestsEnv()
+
+	Describe("Git native client tests", func() {
+
+		When("targeting a public repository", func() {
+
+			When("using no auth", func() {
+				var (
+					client writers.GitClient
+					err    error
+				)
+
+				It("checks out the repository", func() {
+					By("initialising a new client", func() {
+
+						client, err = writers.NewGitClient(
+							writers.GitClientRequest{
+								RawRepoURL: httpPublicRepo,
+								Auth:       &writers.Auth{Creds: writers.NopCreds{}},
+								Insecure:   false,
+							})
+						Expect(err).ToNot(HaveOccurred())
+
+						repo, err := client.Init()
+						Expect(err).ToNot(HaveOccurred())
+						Expect(repo).ToNot(BeNil())
+					})
+
+					By("fetching branches", func() {
+						err = client.Fetch("main", 0)
+						Expect(err).ToNot(HaveOccurred())
+
+						out, err := client.Checkout("main")
+						Expect(err).ToNot(HaveOccurred())
+						Expect(out).To(BeEmpty())
+					})
+
+					By("checking out the code", func() {
+						out, err := client.Checkout("main")
+						Expect(err).ToNot(HaveOccurred())
+						Expect(out).To(BeEmpty())
+					})
+				})
+			})
 		})
 
-		It("clones a protected git repository and fetches the branches using HTTP basic auth", func() {
+		When("targeting a private repository", func() {
 
-			if !runHttpBasicAuthTests {
-				Skip("HTTP basic auth tests not enabled")
-			}
+			When("using HTTP basic auth", func() {
 
-			stateStoreSpec.URL = "https://github.com/syntasso/testing-git-writer-private.git"
+				var (
+					client    writers.GitClient
+					err       error
+					httpCreds writers.GenericHTTPSCreds
+				)
 
-			writer, err := writers.NewGitWriter(logger, stateStoreSpec, dest.Spec.Path, httpCreds)
-			Expect(err).ToNot(HaveOccurred())
-			Expect(writer).ToNot(BeNil())
+				It("sets up authentication", func() {
+					httpCreds = writers.NewHTTPSCreds(
+						"x-access-token",         // username
+						ghPat,                    // password
+						"",                       // bearer token
+						"",                       // clientCertData
+						"",                       // clientCertKey
+						false,                    // insecure
+						writers.NoopCredsStore{}, // CredsStore,
+						true,                     // forceBasicAuth
+					)
+				})
 
-			Expect(writer).To(BeAssignableToTypeOf(&writers.GitWriter{}))
-			gitWriter, ok := writer.(*writers.GitWriter)
-			Expect(ok).To(BeTrue())
+				It("successfully clones a repository", func() {
 
-			err = gitWriter.ValidatePermissions()
-			Expect(err).ToNot(HaveOccurred())
+					if !runHttpBasicAuthTests {
+						Skip("HTTP basic auth tests not enabled")
+					}
+
+					client, err = writers.NewGitClient(writers.GitClientRequest{
+						RawRepoURL: httpPrivateRepo,
+						Root:       "",
+						Auth:       &writers.Auth{Creds: httpCreds},
+						Insecure:   true,
+						Proxy:      "",
+						NoProxy:    "",
+					})
+					Expect(err).ToNot(HaveOccurred())
+
+					repo, err := client.Init()
+					Expect(err).ToNot(HaveOccurred())
+					Expect(repo).ToNot(BeNil())
+
+					err = client.Fetch("main", 0)
+					Expect(err).ToNot(HaveOccurred())
+
+					out, err := client.Checkout("main")
+					Expect(err).ToNot(HaveOccurred())
+					Expect(out).To(BeEmpty())
+
+					out, err = client.Checkout("main")
+					Expect(err).ToNot(HaveOccurred())
+					Expect(out).To(BeEmpty())
+				})
+
+				When("no HTTP credentials provided", func() {
+
+					var (
+						client writers.GitClient
+						err    error
+					)
+					It("initialises a new client", func() {
+
+						client, err = writers.NewGitClient(writers.GitClientRequest{
+							RawRepoURL: httpPrivateRepo,
+							Root:       "",
+							Auth:       &writers.Auth{Creds: writers.NopCreds{}},
+							Insecure:   true,
+							Proxy:      "",
+							NoProxy:    "",
+						})
+						Expect(err).ToNot(HaveOccurred())
+						Expect(client).ToNot(BeNil())
+
+						repo, err := client.Init()
+						Expect(err).ToNot(HaveOccurred())
+						Expect(repo).ToNot(BeNil())
+
+						err = client.Fetch("main", 0)
+						Expect(err).To(HaveOccurred())
+					})
+				})
+
+				When("wrong HTTP credentials are provided", func() {
+
+					var (
+						client writers.GitClient
+						err    error
+					)
+					It("does not clone a repository", func() {
+
+						wrongHttpCreds := writers.NewHTTPSCreds(
+							"x-access-token",         // username
+							"invalid",                // password
+							"",                       // bearer token
+							"",                       // clientCertData
+							"",                       // clientCertKey
+							false,                    // insecure
+							writers.NoopCredsStore{}, // CredsStore,
+							true,                     // forceBasicAuth
+						)
+						client, err = writers.NewGitClient(writers.GitClientRequest{
+							RawRepoURL: httpPrivateRepo,
+							Root:       "",
+							Auth:       &writers.Auth{Creds: wrongHttpCreds},
+							Insecure:   true,
+							Proxy:      "",
+							NoProxy:    "",
+						})
+						Expect(err).ToNot(HaveOccurred())
+						Expect(client).ToNot(BeNil())
+
+						repo, err := client.Init()
+						Expect(err).ToNot(HaveOccurred())
+						Expect(repo).ToNot(BeNil())
+
+						err = client.Fetch("main", 0)
+						Expect(err).To(HaveOccurred())
+					})
+				})
+			})
+
+			When("using SSH auth", func() {
+				var (
+					client   writers.GitClient
+					err      error
+					sshCreds writers.SSHCreds
+				)
+
+				It("sets up authentication", func() {
+					sshCreds = writers.NewSSHCreds(string(sshPrivateKey), "", false, "")
+				})
+
+				It("successfully clones a repository", func() {
+
+					if !runSshTests {
+						Skip("SSH tests not enabled")
+					}
+
+					client, err = writers.NewGitClient(writers.GitClientRequest{
+						RawRepoURL: sshPrivateRepo,
+						Auth:       &writers.Auth{Creds: sshCreds},
+						Insecure:   false,
+						Proxy:      "",
+						NoProxy:    "",
+					})
+					Expect(err).ToNot(HaveOccurred())
+
+					repo, err := client.Init()
+					Expect(err).ToNot(HaveOccurred())
+					Expect(repo).ToNot(BeNil())
+
+					err = client.Fetch("main", 0)
+					Expect(err).ToNot(HaveOccurred())
+
+					out, err := client.Checkout("main")
+					Expect(err).ToNot(HaveOccurred())
+					Expect(out).To(BeEmpty())
+
+					out, err = client.Checkout("main")
+					Expect(err).ToNot(HaveOccurred())
+					Expect(out).To(BeEmpty())
+				})
+
+			})
+
+		})
+	})
+
+	////////////////////////////////////////////////////////
+	Describe("Git writer tests", func() {
+
+		Describe("using SSH auth", func() {
+
+			stateStoreSpec, dest := newStateStoreAndDest("ssh", sshPrivateRepo)
+
+			It("clones a protected git repository and fetches the branches", func() {
+				if !runSshTests {
+					Skip("SSH tests not enabled")
+				}
+
+				sshCreds := map[string][]byte{
+					"sshPrivateKey": sshPrivateKey,
+					"knownHosts":    []byte("github.com ssh-ed25519 AAAAC3NzaC1lZDI1NTE5AAAAIOMqqnkVzrm0SdG6UOoqKLsabgH5C9okWi0dh2l9GKJl"),
+				}
+
+				writer, err := writers.NewGitWriter(logger, *stateStoreSpec, dest.Spec.Path, sshCreds)
+				Expect(err).ToNot(HaveOccurred())
+				Expect(writer).ToNot(BeNil())
+
+				Expect(writer).To(BeAssignableToTypeOf(&writers.GitWriter{}))
+				gitWriter, ok := writer.(*writers.GitWriter)
+				Expect(ok).To(BeTrue())
+
+				err = gitWriter.ValidatePermissions()
+				Expect(err).ToNot(HaveOccurred())
+			})
+
+			It("does not clone a protected git repository and fetches the branches using SSH auth", func() {
+
+				if !runSshTests {
+					Skip("SSH tests not enabled")
+				}
+
+				writer, err := writers.NewGitWriter(logger, *stateStoreSpec, dest.Spec.Path, sshCreds)
+				Expect(err).ToNot(HaveOccurred())
+				Expect(writer).ToNot(BeNil())
+
+				Expect(writer).To(BeAssignableToTypeOf(&writers.GitWriter{}))
+				gitWriter, ok := writer.(*writers.GitWriter)
+				Expect(ok).To(BeTrue())
+
+				err = gitWriter.ValidatePermissions()
+				Expect(err).ToNot(HaveOccurred())
+			})
 		})
 
-		It("does not clone a protected git repository due to wrong HTTP basic auth creds", func() {
-			stateStoreSpec.URL = "https://github.com/syntasso/testing-git-writer-private.git"
-			creds := map[string][]byte{
-				"username": []byte(""),
-				"password": []byte("invalid"),
-			}
+		Describe("using GitHub App auth", func() {
 
-			writer, err := writers.NewGitWriter(logger, stateStoreSpec, dest.Spec.Path, creds)
-			Expect(err).ToNot(HaveOccurred())
-			Expect(writer).ToNot(BeNil())
+			stateStoreSpec, dest := newStateStoreAndDest("githubApp", httpPrivateRepo)
 
-			Expect(writer).To(BeAssignableToTypeOf(&writers.GitWriter{}))
-			gitWriter, ok := writer.(*writers.GitWriter)
-			Expect(ok).To(BeTrue())
+			It("clones a protected git repository and fetches the branches", func() {
+				if !runGitHubAppAuthTests {
+					Skip("GitHub App auth tests not enabled")
+				}
 
-			err = gitWriter.ValidatePermissions()
-			Expect(err).To(HaveOccurred())
+				writer, err := writers.NewGitWriter(logger, *stateStoreSpec, dest.Spec.Path, githubAppCreds)
+				Expect(err).ToNot(HaveOccurred())
+				Expect(writer).ToNot(BeNil())
+
+				Expect(writer).To(BeAssignableToTypeOf(&writers.GitWriter{}))
+				gitWriter, ok := writer.(*writers.GitWriter)
+				Expect(ok).To(BeTrue())
+
+				err = gitWriter.ValidatePermissions()
+				Expect(err).ToNot(HaveOccurred())
+			})
+
+			It("does not clone a protected git repository due to invalid app ID", func() {
+				if !runGitHubAppAuthTests {
+					Skip("GitHub App auth tests not enabled")
+				}
+
+				stateStoreSpec, dest := newStateStoreAndDest("githubApp", httpPrivateRepo)
+
+				creds := githubAppCreds
+				creds["appID"] = []byte("1111111")
+
+				writer, err := writers.NewGitWriter(logger, *stateStoreSpec, dest.Spec.Path, githubAppCreds)
+				Expect(err).To(HaveOccurred())
+				Expect(writer).To(BeNil())
+			})
 		})
 
-		It("clones a protected git repository and fetches the branches using SSH auth", func() {
-			if !runSshTests {
-				Skip("SSH tests not enabled")
-			}
-			stateStoreSpec.AuthMethod = "ssh"
-			stateStoreSpec.URL = "ssh://git@github.com/syntasso/testing-git-writer-private.git"
+		Describe("using HTTP basic auth", func() {
+			It("pushes a file to a protected git repository and fetches the branches using HTTP basic auth", func() {
+				if !runHttpBasicAuthTests {
+					Skip("HTTP basic auth tests not enabled")
+				}
+				stateStoreSpec, dest := newStateStoreAndDest("basicAuth", httpPrivateRepo)
 
-			writer, err := writers.NewGitWriter(logger, stateStoreSpec, dest.Spec.Path, sshCreds)
-			Expect(err).ToNot(HaveOccurred())
-			Expect(writer).ToNot(BeNil())
+				writer, err := writers.NewGitWriter(logger, *stateStoreSpec, dest.Spec.Path, httpCreds)
+				Expect(err).ToNot(HaveOccurred())
+				Expect(writer).ToNot(BeNil())
 
-			Expect(writer).To(BeAssignableToTypeOf(&writers.GitWriter{}))
-			gitWriter, ok := writer.(*writers.GitWriter)
-			Expect(ok).To(BeTrue())
+				Expect(writer).To(BeAssignableToTypeOf(&writers.GitWriter{}))
+				gitWriter, ok := writer.(*writers.GitWriter)
+				Expect(ok).To(BeTrue())
 
-			err = gitWriter.ValidatePermissions()
-			Expect(err).ToNot(HaveOccurred())
+				resource, err := getResourcePathWithExample(gitWriter, "")
+				Expect(err).ToNot(HaveOccurred())
+
+				_, err = writer.UpdateFiles("", canaryWorkload, []v1alpha1.Workload{resource}, nil)
+				Expect(err).ToNot(HaveOccurred())
+
+				_, err = writer.ReadFile(resource.Filepath)
+				Expect(err).ToNot(HaveOccurred())
+			})
+
+			It("does not push a file that has already been modified and pushed to a protected git repository and fetches the branches using HTTP basic auth", func() {
+				if !runHttpBasicAuthTests {
+					Skip("HTTP basic auth tests not enabled")
+				}
+				stateStoreSpec, dest := newStateStoreAndDest("basicAuth", httpPrivateRepo)
+
+				writer, err := writers.NewGitWriter(logger, *stateStoreSpec, dest.Spec.Path, httpCreds)
+				Expect(err).ToNot(HaveOccurred())
+				Expect(writer).ToNot(BeNil())
+
+				Expect(writer).To(BeAssignableToTypeOf(&writers.GitWriter{}))
+				gitWriter, ok := writer.(*writers.GitWriter)
+				Expect(ok).To(BeTrue())
+
+				err = gitWriter.ValidatePermissions()
+				Expect(err).ToNot(HaveOccurred())
+
+				desc := fmt.Sprintf("test %d", rand.Int())
+				resource, err := getResourcePathWithExample(gitWriter, desc)
+				Expect(err).ToNot(HaveOccurred())
+				_, err = writer.UpdateFiles("", canaryWorkload, []v1alpha1.Workload{resource}, nil)
+				Expect(err).ToNot(HaveOccurred())
+
+				resource, err = getResourcePathWithExample(gitWriter, desc)
+				Expect(err).ToNot(HaveOccurred())
+				fmt.Println("kkkkkkkkkkkkkkkkkkkkkkkkkkkkkkkkk")
+				out, err := writer.UpdateFiles("", canaryWorkload, []v1alpha1.Workload{resource}, nil)
+				fmt.Printf("OOOOOOOOOOOOOUUUUUUU: %v\n", out)
+				Expect(err).To(HaveOccurred())
+
+				// restore
+				resource, err = getResourcePathWithExample(gitWriter, "")
+				Expect(err).ToNot(HaveOccurred())
+				_, err = writer.UpdateFiles("", canaryWorkload, []v1alpha1.Workload{resource}, nil)
+				Expect(err).ToNot(HaveOccurred())
+			})
 		})
 
-		It("does not clone a protected git repository and fetches the branches using SSH auth", func() {
-
-			if !runSshTests {
-				Skip("SSH tests not enabled")
-			}
-
-			stateStoreSpec.AuthMethod = "ssh"
-			stateStoreSpec.URL = "ssh://git@github.com/syntasso/testing-git-writer-private.git"
-
-			writer, err := writers.NewGitWriter(logger, stateStoreSpec, dest.Spec.Path, sshCreds)
-			Expect(err).ToNot(HaveOccurred())
-			Expect(writer).ToNot(BeNil())
-
-			Expect(writer).To(BeAssignableToTypeOf(&writers.GitWriter{}))
-			gitWriter, ok := writer.(*writers.GitWriter)
-			Expect(ok).To(BeTrue())
-
-			err = gitWriter.ValidatePermissions()
-			Expect(err).ToNot(HaveOccurred())
-		})
-
-		It("clones a protected git repository and fetches the branches using GitHub App auth", func() {
-			if !runGitHubAppAuthTests {
-				Skip("GitHub App auth tests not enabled")
-			}
-
-			stateStoreSpec.AuthMethod = "githubApp"
-			stateStoreSpec.URL = "https://github.com/syntasso/testing-git-writer-private"
-
-			creds := map[string][]byte{
-				// TODO: convert to env vars
-				"appID":          []byte("2625348"),
-				"installationID": []byte("103412574"),
-				"privateKey":     githubAppPrivateKeyData,
-			}
-
-			writer, err := writers.NewGitWriter(logger, stateStoreSpec, dest.Spec.Path, creds)
-			Expect(err).ToNot(HaveOccurred())
-			Expect(writer).ToNot(BeNil())
-
-			Expect(writer).To(BeAssignableToTypeOf(&writers.GitWriter{}))
-			gitWriter, ok := writer.(*writers.GitWriter)
-			Expect(ok).To(BeTrue())
-
-			err = gitWriter.ValidatePermissions()
-			Expect(err).ToNot(HaveOccurred())
-		})
-
-		It("does not clone a protected git repository using GitHub App auth due to invalid app ID", func() {
-			if !runGitHubAppAuthTests {
-				Skip("GitHub App auth tests not enabled")
-			}
-
-			stateStoreSpec.AuthMethod = "githubApp"
-			stateStoreSpec.URL = "https://github.com/syntasso/testing-git-writer-private"
-
-			creds := map[string][]byte{
-				// TODO: convert to env vars
-				"appID":          []byte("1111111"),
-				"installationID": []byte("103412574"),
-				"privateKey":     githubAppPrivateKeyData,
-			}
-
-			writer, err := writers.NewGitWriter(logger, stateStoreSpec, dest.Spec.Path, creds)
-			Expect(err).To(HaveOccurred())
-			Expect(writer).To(BeNil())
-		})
-
-		It("pushes a file to a protected git repository and fetches the branches using HTTP basic auth", func() {
-			if !runHttpBasicAuthTests {
-				Skip("HTTP basic auth tests not enabled")
-			}
-			stateStoreSpec.URL = "https://github.com/syntasso/testing-git-writer-private.git"
-
-			writer, err := writers.NewGitWriter(logger, stateStoreSpec, dest.Spec.Path, httpCreds)
-			Expect(err).ToNot(HaveOccurred())
-			Expect(writer).ToNot(BeNil())
-
-			Expect(writer).To(BeAssignableToTypeOf(&writers.GitWriter{}))
-			gitWriter, ok := writer.(*writers.GitWriter)
-			Expect(ok).To(BeTrue())
-
-			err = gitWriter.ValidatePermissions()
-			Expect(err).ToNot(HaveOccurred())
-
-			resource, err := createResourcePathWithExample(gitWriter, "")
-			Expect(err).ToNot(HaveOccurred())
-
-			_, err = writer.UpdateFiles("", canaryWorkload, []v1alpha1.Workload{resource}, nil)
-			Expect(err).ToNot(HaveOccurred())
-		})
-
-		It("does not push a file that has already been modified and pushed to a protected git repository and fetches the branches using HTTP basic auth", func() {
-			if !runHttpBasicAuthTests {
-				Skip("HTTP basic auth tests not enabled")
-			}
-			stateStoreSpec.URL = "https://github.com/syntasso/testing-git-writer-private.git"
-
-			writer, err := writers.NewGitWriter(logger, stateStoreSpec, dest.Spec.Path, httpCreds)
-			Expect(err).ToNot(HaveOccurred())
-			Expect(writer).ToNot(BeNil())
-
-			Expect(writer).To(BeAssignableToTypeOf(&writers.GitWriter{}))
-			gitWriter, ok := writer.(*writers.GitWriter)
-			Expect(ok).To(BeTrue())
-
-			err = gitWriter.ValidatePermissions()
-			Expect(err).ToNot(HaveOccurred())
-
-			desc := fmt.Sprintf("test %d", rand.Int())
-			resource, err := createResourcePathWithExample(gitWriter, desc)
-			Expect(err).ToNot(HaveOccurred())
-			_, err = writer.UpdateFiles("", canaryWorkload, []v1alpha1.Workload{resource}, nil)
-			Expect(err).ToNot(HaveOccurred())
-
-			resource, err = createResourcePathWithExample(gitWriter, desc)
-			Expect(err).ToNot(HaveOccurred())
-			fmt.Println("kkkkkkkkkkkkkkkkkkkkkkkkkkkkkkkkk")
-			out, err := writer.UpdateFiles("", canaryWorkload, []v1alpha1.Workload{resource}, nil)
-			fmt.Printf("OOOOOOOOOOOOOUUUUUUU: %v\n", out)
-			Expect(err).To(HaveOccurred())
-
-			// restore
-			resource, err = createResourcePathWithExample(gitWriter, "")
-			Expect(err).ToNot(HaveOccurred())
-			_, err = writer.UpdateFiles("", canaryWorkload, []v1alpha1.Workload{resource}, nil)
-			Expect(err).ToNot(HaveOccurred())
-		})
 	})
 })
 
-func createResourcePathWithExample(writer writers.StateStoreWriter, content string) (v1alpha1.Workload, error) {
+func getResourcePathWithExample(writer writers.StateStoreWriter, content string) (v1alpha1.Workload, error) {
 
 	if content == "" {
 		content = fmt.Sprintf("this confirms your infrastructure is reading from Kratix state stores (%d)", rand.Int())
