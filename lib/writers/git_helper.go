@@ -28,7 +28,6 @@ import (
 	"unicode"
 	"unicode/utf8"
 
-	"github.com/davecgh/go-spew/spew"
 	"github.com/go-git/go-git/v5"
 	"github.com/go-git/go-git/v5/config"
 	"github.com/go-git/go-git/v5/plumbing"
@@ -46,6 +45,12 @@ import (
 	"github.com/argoproj/argo-cd/v3/util/env"
 	executil "github.com/argoproj/argo-cd/v3/util/exec"
 	"github.com/argoproj/argo-cd/v3/util/proxy"
+)
+
+type GitClientError error
+
+var (
+	ErrNothingToCommit GitClientError = errors.New("nothing to commit, working tree clean")
 )
 
 var (
@@ -108,7 +113,7 @@ type GitClient interface {
 type GitClientRequest struct {
 	RawRepoURL string
 	Root       string
-	Auth       *Authx
+	Auth       *Auth
 	Insecure   bool
 	Proxy      string
 	NoProxy    string
@@ -148,16 +153,10 @@ func injectGitHubAppCredentials(gitURL, token string) (string, error) {
 // func NewGitClient(req GitClientRequest) (GitClient, error) {
 func NewGitClient(req GitClientRequest) (*nativeGitClient, error) {
 
-	fmt.Printf("DDDDDDDDDDDDD: %v\n", spew.Sdump(req.Auth))
-
-	var (
-		//	err         error
-		accessToken string
-	)
+	var accessToken string
 
 	switch req.Auth.Creds.(type) {
 	case SSHCreds:
-		fmt.Println("gGGGGGGGGGGGGGGGGGGGGGGGGGGGGGGKKKKKKKKKKKKK")
 		if ok, _ := IsSSHURL(req.RawRepoURL); !ok {
 			return nil, fmt.Errorf("invalid URL for SSH auth method: %s", req.RawRepoURL)
 		}
@@ -202,10 +201,6 @@ func NewGitClient(req GitClientRequest) (*nativeGitClient, error) {
 	}
 	for i := range req.Opts {
 		req.Opts[i](client)
-	}
-
-	if client == nil {
-		fmt.Println("ccccccccccccccccc nnnnnnnnnnnnnnnnnnnn")
 	}
 
 	return client, nil
@@ -879,27 +874,35 @@ func (m *nativeGitClient) CommitAndPush(branch, message string) (string, error) 
 	ctx := context.Background()
 	out, err := m.runCmd(ctx, "add", ".")
 	if err != nil {
+		fmt.Println("tttttttttttttttttttttttttttttttttttttttttttttttT 11111111111111")
 		return out, fmt.Errorf("failed to add files: %w", err)
 	}
 
 	out, err = m.runCmd(ctx, "commit", "-m", message)
 	if err != nil {
-		if strings.Contains(out, "nothing to commit, working tree clean") {
-			return out, nil
+		fmt.Println("tttttttttttttttttttttttttttttttttttttttttttttttT 2222222222222222222")
+		if strings.Contains(out, ErrNothingToCommit.Error()) {
+			fmt.Println("tttttttttttttttttttttttttttttttttttttttttttttttT 33333333333333333333333")
+			return out, ErrNothingToCommit
 		}
+		fmt.Println("tttttttttttttttttttttttttttttttttttttttttttttttT 4444444444444444444444444")
 		return out, fmt.Errorf("failed to commit: %w", err)
 	}
 
 	if m.OnPush != nil {
+		fmt.Println("tttttttttttttttttttttttttttttttttttttttttttttttT 55555555555555555555")
 		done := m.OnPush(m.repoURL)
 		defer done()
 	}
 
+	fmt.Println("tttttttttttttttttttttttttttttttttttttttttttttttT 55555555555555555555 xxxxxxxxxx")
 	err = m.runCredentialedCmd(ctx, "push", "origin", branch)
 	if err != nil {
+		fmt.Println("tttttttttttttttttttttttttttttttttttttttttttttttT 6666666666666666")
 		return "", fmt.Errorf("failed to push: %w", err)
 	}
 
+	fmt.Println("tttttttttttttttttttttttttttttttttttttttttttttttT")
 	return "", nil
 }
 
@@ -913,7 +916,6 @@ func (m *nativeGitClient) runCmd(ctx context.Context, args ...string) (string, e
 func (m *nativeGitClient) runCredentialedCmd(ctx context.Context, args ...string) error {
 	closer, environ, err := m.creds.Environ()
 	if err != nil {
-		fmt.Printf("aaaaaaaaaaaaaaaaaaaaaa: %v\n", err)
 		return err
 	}
 	defer func() { _ = closer.Close() }()
@@ -933,15 +935,12 @@ func (m *nativeGitClient) runCredentialedCmd(ctx context.Context, args ...string
 		if err != nil {
 
 		}
-		time.Sleep(10 * time.Second)
-		fmt.Println("vvvvvvvvvvvvvvvvvvvvvvvvvzzzzzzzzzzzzzzzzzz")
 		args = append([]string{"-c", fmt.Sprintf("url.'%s'.insteadOf='%s'", urlWithCreds, m.repoURL)}, args...)
 	}
 
 	cmd := exec.CommandContext(ctx, "git", args...)
 	cmd.Env = append(cmd.Env, environ...)
 	_, err = m.runCmdOutput(cmd, runOpts{})
-	fmt.Println("aaaaaaaaaaaaaaaaaaaaaa.....")
 	return err
 }
 
@@ -971,22 +970,17 @@ func (m *nativeGitClient) runCmdOutput(cmd *exec.Cmd, ropts runOpts) (string, er
 	// as custom CA bundles from the cert database.
 	if IsHTTPSURL(m.repoURL) {
 		if m.insecure {
-			fmt.Println("IIIIIIIIIIIIIIIIIIIIIIIIIIIIIIIIIIIIIIIIIIIIII")
 			cmd.Env = append(cmd.Env, "GIT_SSL_NO_VERIFY=true")
 		} else {
-			fmt.Println("IIIIIIIIIIIIIIIIIIIIIIIIIIIIIIIIIIIIIIIIIIIIII-----------")
 			parsedURL, err := url.Parse(m.repoURL)
 			// We don't fail if we cannot parse the URL, but log a warning in that
 			// case. And we execute the command in a verbatim way.
 			if err != nil {
-				fmt.Println("IIIIIIIIIIIIIIIIIIIIIIIIIIIIIIIIIIIIIIIIIIIIII.................")
 				log.Warnf("runCmdOutput: Could not parse repo URL '%s'", m.repoURL)
 			} else {
-				fmt.Println("IIIIIIIIIIIIIIIIIIIIIIIIIIIIIIIIIIIIIIIIIIIIII????????????????????????????????")
 				caPath, err := certutil.GetCertBundlePathForRepository(parsedURL.Host)
 				if err == nil && caPath != "" {
 					cmd.Env = append(cmd.Env, "GIT_SSL_CAINFO="+caPath)
-					fmt.Printf("CCCCCCCCCCAAAAAAAAAA EEEEEEEENN: %v\n", spew.Sdump(cmd))
 				}
 			}
 		}
@@ -999,6 +993,7 @@ func (m *nativeGitClient) runCmdOutput(cmd *exec.Cmd, ropts runOpts) (string, er
 		},
 		SkipErrorLogging: ropts.SkipErrorLogging,
 		//CaptureStderr:    ropts.CaptureStderr,
+		// TODO: restore to above
 		CaptureStderr: true,
 	}
 	return executil.RunWithExecRunOpts(cmd, opts)
@@ -1211,4 +1206,38 @@ func GenerateSSHCreds(key *rsa.PrivateKey) map[string][]byte {
 		"sshPrivateKey": b.Bytes(),
 		"knownHosts":    []byte("github.com ssh-ed25519 AAAAC3NzaC1lZDI1NTE5AAAAIOMqqnkVzrm0SdG6UOoqKLsabgH5C9okWi0dh2l9GKJl"),
 	}
+}
+
+// HasFileChanged returns the outout of git diff considering whether it is tracked or un-tracked
+func (m *nativeGitClient) HasFileChanged(filePath string) (bool, error) {
+	// Step 1: Is it UNTRACKED? (file is new to git)
+	_, err := m.runCmd(context.Background(), "ls-files", "--error-unmatch", filePath)
+	if err != nil {
+		// File is NOT tracked by git → means it's new/unadded
+		fmt.Printf("EEEEEEEEEEEEEEEEEEEEE: %v\n", err)
+		return true, nil
+	}
+
+	cmd := exec.CommandContext(context.TODO(), "pwd")
+	out, err := m.runCmdOutput(cmd, runOpts{})
+	if err != nil {
+		fmt.Printf("aaaaaaaaaaaaaaaaaaaaaaaaaaaaaa: %w\n", err)
+		return false, nil // No changes
+	}
+	fmt.Printf("aaaaaaaaaaaaaaaaaaaaaaaaaaaaaa oooooooooooooo: %w\n", string(out))
+
+	// use git diff --quiet and check exit code .. --cached is to consider files staged for deletion
+	_, err = m.runCmd(context.Background(), "diff", "--quiet", "--", filePath)
+	if err == nil {
+		fmt.Println("aaaaaaaaaaaaaaaaaaaaaaaaaaaaaa")
+		return false, nil // No changes
+	}
+	fmt.Printf("EEEEEEEEEEEEEEEEEEEEE 111111111: %v\n", err)
+	// Exit code 1 indicates: changes found
+	if strings.Contains(err.Error(), "exit status 1") {
+		fmt.Println("aaaaaaaaaaaaaaaaaaaaaaaaaaaaaa---------------")
+		return true, nil
+	}
+	// always return the actual wrapped error
+	return false, fmt.Errorf("git diff failed: %w", err)
 }

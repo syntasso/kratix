@@ -24,7 +24,6 @@ import (
 	"time"
 
 	giturls "github.com/chainguard-dev/git-urls"
-	"github.com/davecgh/go-spew/spew"
 	"github.com/go-git/go-git/v5/plumbing/transport"
 	githttp "github.com/go-git/go-git/v5/plumbing/transport/http"
 
@@ -182,7 +181,6 @@ func (creds HTTPSCreds) BearerAuthHeader() string {
 func (creds HTTPSCreds) Environ() (io.Closer, []string, error) {
 	var env []string
 
-	fmt.Println("HHHHHHHHHHHHHHHHHHHH CCCCCCCCCCCCCCCCCCCCCCCCC")
 	httpCloser := authFilePaths(make([]string, 0))
 
 	// GIT_SSL_NO_VERIFY is used to tell git not to validate the server's cert at
@@ -247,7 +245,6 @@ func (creds HTTPSCreds) Environ() (io.Closer, []string, error) {
 		text.FirstNonEmpty(creds.username, githubAccessTokenUsername), creds.password)
 	env = append(env, creds.store.Environ(nonce)...)
 
-	fmt.Printf("eeeeeeenvvvvvvvv: %v\n", spew.Sdump(env))
 	return utilio.NewCloser(func() error {
 		creds.store.Remove(nonce)
 		return httpCloser.Close()
@@ -311,7 +308,6 @@ func (f authFilePaths) Close() error {
 }
 
 func (c SSHCreds) Environ() (io.Closer, []string, error) {
-	fmt.Println("SSSSSSSSSSSSSSSSSSSSSSSSSSSSSSSSSSSSSS CCCCCCCCCCCCCCCCCCCCCCCCC")
 	// use the SHM temp dir from util, more secure
 	file, err := os.CreateTemp(argoio.TempDir, "")
 	if err != nil {
@@ -342,7 +338,6 @@ func (c SSHCreds) Environ() (io.Closer, []string, error) {
 	}
 
 	knownHostsFile := GetSSHKnownHostsDataPath()
-	fmt.Printf("FFFFFFFF: %v\n", knownHostsFile)
 	args = append(args, "-o", "StrictHostKeyChecking=yes", "-o", "UserKnownHostsFile="+knownHostsFile)
 
 	// Handle SSH socks5 proxy settings
@@ -414,10 +409,8 @@ func NewGitHubAppCreds(appID int64, appInstallId int64, privateKey string, baseU
 }
 
 func (g GitHubAppCreds) Environ() (io.Closer, []string, error) {
-	fmt.Printf("eeeeeeeeeeeeeeeeeEEnnnnnnnvvvvvvvvvvvirrrrrrrooooooonnnn: %s\n", spew.Sdump(g))
 	token, err := g.getAccessToken()
 	if err != nil {
-		fmt.Printf("xxxxxeeeeeeeeeeeeeeeeeeeeeeeeeennnnnnnvvvvvvvvvvv: %v\n", err.Error())
 		return NopCloser{}, nil, err
 	}
 	var env []string
@@ -426,7 +419,6 @@ func (g GitHubAppCreds) Environ() (io.Closer, []string, error) {
 	// GIT_SSL_NO_VERIFY is used to tell git not to validate the server's cert at
 	// all.
 	if g.insecure {
-		fmt.Println("NNNNNNNNNOOOOOOOOOO VERRRRRRRRIIIIIIIIIIIFFFFFFF")
 		env = append(env, "GIT_SSL_NO_VERIFY=true")
 	}
 
@@ -434,7 +426,6 @@ func (g GitHubAppCreds) Environ() (io.Closer, []string, error) {
 	// sure git client will use it. The certificate's key must not be password
 	// protected.
 	if g.HasClientCert() {
-		fmt.Println("HAAAAAAAASSSSSSSSSS CLLLLLLLLIIII CEEEEEERTTTTTTTTT")
 		var certFile, keyFile *os.File
 
 		// We need to actually create two temp files, one for storing cert data and
@@ -479,7 +470,6 @@ func (g GitHubAppCreds) Environ() (io.Closer, []string, error) {
 
 	nonce := g.store.Add(githubAccessTokenUsername, token)
 	env = append(env, g.store.Environ(nonce)...)
-	fmt.Printf("EEEEEEEEEEEEEEENNNNNNNNVVVVVVVVVV: %s\n", spew.Sdump(env))
 	return utilio.NewCloser(func() error {
 		g.store.Remove(nonce)
 		return httpCloser.Close()
@@ -533,7 +523,6 @@ func (g GitHubAppCreds) getAccessToken() (string, error) {
 
 	itr, err := g.getInstallationTransport()
 	if err != nil {
-		fmt.Printf("AAAAAAAAAAAAAAAA TTTTTTTTTTTTTTT EEEEEEE: %v\n", err)
 		return "", fmt.Errorf("failed to create GitHub app installation transport: %w", err)
 	}
 
@@ -574,9 +563,6 @@ func (g GitHubAppCreds) getInstallationTransport() (*ghinstallation.Transport, e
 	key := hex.EncodeToString(h.Sum(nil))
 
 	// Check cache for GitHub transport which helps fetch an API token
-	if githubAppTokenCache == nil {
-		fmt.Println("vvvvvvvvvvvvvvvvvvvvvvvvvv")
-	}
 	t, found := githubAppTokenCache.Get(key)
 	if found {
 		itr := t.(*ghinstallation.Transport)
@@ -605,8 +591,6 @@ func (g GitHubAppCreds) getInstallationTransport() (*ghinstallation.Transport, e
 
 	// Add transport to cache
 	githubAppTokenCache.Set(key, itr, time.Minute*60)
-
-	fmt.Println("	getInstallationTransport dddddddooonnnnnne")
 
 	return itr, nil
 }
@@ -853,7 +837,7 @@ type githubAppCreds struct {
 }
 */
 
-func setAuth(stateStoreSpec v1alpha1.GitStateStoreSpec, destinationPath string, creds map[string][]byte) (*Authx, error) {
+func setAuth(stateStoreSpec v1alpha1.GitStateStoreSpec, destinationPath string, creds map[string][]byte) (*Auth, error) {
 
 	var (
 		credsX     Creds
@@ -934,7 +918,6 @@ func setAuth(stateStoreSpec v1alpha1.GitStateStoreSpec, destinationPath string, 
 		if err != nil {
 			return nil, err
 		}
-		fmt.Printf("CCCCCCCCCCCC: %v\n", spew.Sdump(appCreds))
 
 		j, err := GenerateGitHubAppJWT(appCreds.AppID, appCreds.PrivateKey)
 		if err != nil {
@@ -946,23 +929,13 @@ func setAuth(stateStoreSpec v1alpha1.GitStateStoreSpec, destinationPath string, 
 			return nil, fmt.Errorf("failed to get GitHub installation token: %w", err)
 		}
 
-		/*
-			authMethod = &githttp.TokenAuth{
-				Token: token,
-			}
-		*/
-
+		// Git DOES automatically extract the credentials from the URL and
+		// convert them to Authorization: Basic header. But in this scenario
+		// we need to force basic auth, as Git credentials helpers are disabled
 		authMethod = &githttp.BasicAuth{
 			Username: githubAccessTokenUsername,
 			Password: token,
 		}
-		fmt.Printf("GGGGGGGGGGG HHHHHHHHHHHH     APPPPPPPPPPP TTTTTTTTTTTTT: %s\n", token)
-		/*
-			authMethod = &githttp.BasicAuth{
-				Username: "x-access-token",
-				Password: token,
-			}
-		*/
 
 		appID, err := strconv.Atoi(appCreds.AppID)
 		if err != nil {
@@ -987,7 +960,7 @@ func setAuth(stateStoreSpec v1alpha1.GitStateStoreSpec, destinationPath string, 
 			NoopCredsStore{})
 	}
 
-	return &Authx{
+	return &Auth{
 		AuthMethod: authMethod,
 		Creds:      credsX,
 	}, nil
@@ -1054,7 +1027,8 @@ func newGithubAppCreds(stateStoreSpec v1alpha1.GitStateStoreSpec, creds map[stri
 		AppID:          string(appID),
 		InstallationID: string(installationID),
 		PrivateKey:     string(privateKey),
-		ApiUrl:         "https://api.github.com",
+		// Currently only the standard API URL is supported
+		ApiUrl: "https://api.github.com",
 	}, nil
 }
 
@@ -1120,8 +1094,6 @@ func parseRSAPrivateKeyFromPEM(block *pem.Block) (*rsa.PrivateKey, error) {
 func getGitHubInstallationToken(apiURL, installationID, jwtToken string) (string, error) {
 	url := fmt.Sprintf("%s/app/installations/%s/access_tokens", apiURL, installationID)
 
-	fmt.Printf("url::::::::::::::: %s\n", url)
-	fmt.Printf("token::::::::::::::::::::::::::::::::::::::::::::::::::: %s\n", jwtToken)
 	req, err := http.NewRequestWithContext(context.Background(), http.MethodPost, url, nil)
 	if err != nil {
 		return "", fmt.Errorf("failed to create request: %w", err)
@@ -1160,7 +1132,6 @@ func getGitHubInstallationToken(apiURL, installationID, jwtToken string) (string
 	if result.Token == "" {
 		return "", errors.New("empty installation token received")
 	}
-	fmt.Printf("dddddddddddddddddddddddDD---------------------------::::::: %v\n", result.Token)
 	return result.Token, nil
 }
 

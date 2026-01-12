@@ -2,14 +2,18 @@ package system_test
 
 import (
 	"fmt"
+	"math/rand"
 	"os"
+	"path/filepath"
 
 	gogit_http "github.com/go-git/go-git/v5/plumbing/transport/http"
 	gogit_ssh "github.com/go-git/go-git/v5/plumbing/transport/ssh"
 	"github.com/go-logr/logr"
 	. "github.com/onsi/ginkgo/v2"
 	. "github.com/onsi/gomega"
+	"gopkg.in/yaml.v2"
 	corev1 "k8s.io/api/core/v1"
+	v1 "k8s.io/api/core/v1"
 	metav1 "k8s.io/apimachinery/pkg/apis/meta/v1"
 	ctrl "sigs.k8s.io/controller-runtime"
 
@@ -32,6 +36,10 @@ var (
 	sshCreds                map[string][]byte
 	sshPrivateKey           []byte
 	stateStoreSpec          v1alpha1.GitStateStoreSpec
+
+	canaryWorkload      = "kratix-canary"
+	resourcesDir        = "resources"
+	canaryConfigMapPath = "kratix-canary-configmap.yaml"
 )
 
 func setGitTestsEnv() {
@@ -119,7 +127,7 @@ var _ = FDescribe("Git writer with native client", func() {
 				writers.GitClientRequest{
 					RawRepoURL: "https://github.com/syntasso/testing-git-writer-public.git",
 					Root:       dir,
-					Auth:       &writers.Authx{Creds: writers.NopCreds{}},
+					Auth:       &writers.Auth{Creds: writers.NopCreds{}},
 					Insecure:   false,
 				})
 			Expect(err).ToNot(HaveOccurred())
@@ -139,7 +147,7 @@ var _ = FDescribe("Git writer with native client", func() {
 				writers.GitClientRequest{
 					RawRepoURL: "https://github.com/syntasso/testing-git-writer-public.git",
 					Root:       dir,
-					Auth:       &writers.Authx{Creds: writers.NopCreds{}},
+					Auth:       &writers.Auth{Creds: writers.NopCreds{}},
 					Insecure:   false,
 				})
 			Expect(err).ToNot(HaveOccurred())
@@ -166,7 +174,7 @@ var _ = FDescribe("Git writer with native client", func() {
 				writers.GitClientRequest{
 					RawRepoURL: "https://github.com/syntasso/testing-git-writer-private.git",
 					Root:       dir,
-					Auth:       &writers.Authx{Creds: writers.NopCreds{}},
+					Auth:       &writers.Auth{Creds: writers.NopCreds{}},
 					Insecure:   false,
 				})
 			Expect(err).ToNot(HaveOccurred())
@@ -197,7 +205,7 @@ var _ = FDescribe("Git writer with native client", func() {
 			client, err := writers.NewGitClient(writers.GitClientRequest{
 				RawRepoURL: "ssh://git@github.com/syntasso/testing-git-writer-private.git",
 				Root:       dir,
-				Auth:       &writers.Authx{Creds: sshCreds},
+				Auth:       &writers.Auth{Creds: sshCreds},
 				Insecure:   false,
 				Proxy:      "",
 				NoProxy:    "",
@@ -236,7 +244,7 @@ var _ = FDescribe("Git writer with native client", func() {
 			client, err := writers.NewGitClient(writers.GitClientRequest{
 				RawRepoURL: "https://github.com/syntasso/testing-git-writer-private.git",
 				Root:       "",
-				Auth:       &writers.Authx{Creds: httpCreds},
+				Auth:       &writers.Auth{Creds: httpCreds},
 				Insecure:   true,
 				Proxy:      "",
 				NoProxy:    "",
@@ -431,5 +439,94 @@ var _ = FDescribe("Git writer with native client", func() {
 			Expect(writer).To(BeNil())
 		})
 
+		It("pushes a file to a protected git repository and fetches the branches using HTTP basic auth", func() {
+			if !runHttpBasicAuthTests {
+				Skip("HTTP basic auth tests not enabled")
+			}
+			stateStoreSpec.URL = "https://github.com/syntasso/testing-git-writer-private.git"
+
+			writer, err := writers.NewGitWriter(logger, stateStoreSpec, dest.Spec.Path, httpCreds)
+			Expect(err).ToNot(HaveOccurred())
+			Expect(writer).ToNot(BeNil())
+
+			Expect(writer).To(BeAssignableToTypeOf(&writers.GitWriter{}))
+			gitWriter, ok := writer.(*writers.GitWriter)
+			Expect(ok).To(BeTrue())
+
+			err = gitWriter.ValidatePermissions()
+			Expect(err).ToNot(HaveOccurred())
+
+			resource, err := createResourcePathWithExample(gitWriter, "")
+			Expect(err).ToNot(HaveOccurred())
+
+			_, err = writer.UpdateFiles("", canaryWorkload, []v1alpha1.Workload{resource}, nil)
+			Expect(err).ToNot(HaveOccurred())
+		})
+
+		It("does not push a file that has already been modified and pushed to a protected git repository and fetches the branches using HTTP basic auth", func() {
+			if !runHttpBasicAuthTests {
+				Skip("HTTP basic auth tests not enabled")
+			}
+			stateStoreSpec.URL = "https://github.com/syntasso/testing-git-writer-private.git"
+
+			writer, err := writers.NewGitWriter(logger, stateStoreSpec, dest.Spec.Path, httpCreds)
+			Expect(err).ToNot(HaveOccurred())
+			Expect(writer).ToNot(BeNil())
+
+			Expect(writer).To(BeAssignableToTypeOf(&writers.GitWriter{}))
+			gitWriter, ok := writer.(*writers.GitWriter)
+			Expect(ok).To(BeTrue())
+
+			err = gitWriter.ValidatePermissions()
+			Expect(err).ToNot(HaveOccurred())
+
+			desc := fmt.Sprintf("test %d", rand.Int())
+			resource, err := createResourcePathWithExample(gitWriter, desc)
+			Expect(err).ToNot(HaveOccurred())
+			_, err = writer.UpdateFiles("", canaryWorkload, []v1alpha1.Workload{resource}, nil)
+			Expect(err).ToNot(HaveOccurred())
+
+			resource, err = createResourcePathWithExample(gitWriter, desc)
+			Expect(err).ToNot(HaveOccurred())
+			fmt.Println("kkkkkkkkkkkkkkkkkkkkkkkkkkkkkkkkk")
+			out, err := writer.UpdateFiles("", canaryWorkload, []v1alpha1.Workload{resource}, nil)
+			fmt.Printf("OOOOOOOOOOOOOUUUUUUU: %v\n", out)
+			Expect(err).To(HaveOccurred())
+
+			// restore
+			resource, err = createResourcePathWithExample(gitWriter, "")
+			Expect(err).ToNot(HaveOccurred())
+			_, err = writer.UpdateFiles("", canaryWorkload, []v1alpha1.Workload{resource}, nil)
+			Expect(err).ToNot(HaveOccurred())
+		})
 	})
 })
+
+func createResourcePathWithExample(writer writers.StateStoreWriter, content string) (v1alpha1.Workload, error) {
+
+	if content == "" {
+		content = fmt.Sprintf("this confirms your infrastructure is reading from Kratix state stores (%d)", rand.Int())
+	}
+	kratixConfigMap := &v1.ConfigMap{
+		TypeMeta: metav1.TypeMeta{
+			Kind:       "ConfigMap",
+			APIVersion: "v1",
+		},
+		ObjectMeta: metav1.ObjectMeta{
+			Name:      "kratix-info",
+			Namespace: "kratix-worker-system",
+		},
+		Data: map[string]string{
+			"test": content,
+		},
+	}
+	nsBytes, err := yaml.Marshal(kratixConfigMap)
+	Expect(err).ToNot(HaveOccurred())
+
+	resource := v1alpha1.Workload{
+		Filepath: filepath.Join(resourcesDir, canaryConfigMapPath),
+		Content:  string(nsBytes),
+	}
+
+	return resource, err
+}

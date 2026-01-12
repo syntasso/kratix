@@ -5,15 +5,13 @@ import (
 	"errors"
 	"fmt"
 	"os"
+	"os/exec"
 	"path"
 	"path/filepath"
 	"strings"
-	"time"
 	"unicode"
 
-	"github.com/davecgh/go-spew/spew"
 	"github.com/go-git/go-git/v5"
-	"github.com/go-git/go-git/v5/plumbing/object"
 	"github.com/go-git/go-git/v5/plumbing/transport"
 	"github.com/go-logr/logr"
 	"github.com/syntasso/kratix/api/v1alpha1"
@@ -47,7 +45,7 @@ type GitRepo struct {
 }
 
 // TODO: rename
-type Authx struct {
+type Auth struct {
 	transport.AuthMethod
 	Creds
 }
@@ -99,10 +97,6 @@ func NewGitWriter(logger logr.Logger, stateStoreSpec v1alpha1.GitStateStoreSpec,
 		nativeGitClient: nativeGitClient,
 	}
 
-	if m.nativeGitClient == nil {
-		fmt.Println("zzzzzzzzzzzzzzzzzzzz bbbbbbbbbbbbbbb")
-	}
-
 	return m, nil
 }
 
@@ -125,7 +119,8 @@ func (g *GitWriter) update(subDir, workPlacementName string, workloadsToCreate [
 	if err != nil {
 		return "", err
 	}
-	defer os.RemoveAll(filepath.Dir(gr.LocalTmpDir)) //nolint:errcheck
+	fmt.Println("RRRRRRRRRRRRRRRRRRRRRRRRRRRRRRRRRRRR")
+	//defer os.RemoveAll(filepath.Dir(gr.LocalTmpDir)) //nolint:errcheck
 
 	err = g.deleteExistingFiles(subDir != "", dirInGitRepo, workloadsToDelete, gr.Worktree, logger)
 	if err != nil {
@@ -162,17 +157,26 @@ func (g *GitWriter) update(subDir, workPlacementName string, workloadsToCreate [
 			return "", err
 		}
 
-		if _, err := gr.Worktree.Add(worktreeFilePath); err != nil {
+		// REPLACE
+		fmt.Printf("WWWWWWWWWWWWWWWW  PPPPPPPPPP AAAAAAAAAAAAAA: %s\n", worktreeFilePath)
+		if _, err := g.Add(worktreeFilePath); err != nil {
 			logging.Error(log, err, "could not add file to worktree")
 			return "", err
 		}
+		/*
+			if _, err := gr.Worktree.Add(worktreeFilePath); err != nil {
+				logging.Error(log, err, "could not add file to worktree")
+				return "", err
+			}
+		*/
 	}
 
 	action := "Delete"
 	if len(workloadsToCreate) > 0 {
 		action = "Update"
 	}
-	return g.commitAndPush(gr.Repo, gr.Worktree, action, workPlacementName, logger)
+	fmt.Println("CCCCCCCCCCCCCCCCCCCCCC PPPPPPPPPPPPPPPPPPPPP")
+	return g.commitAndPush(gr.Repo, action, workPlacementName, logger)
 }
 
 // deleteExistingFiles removes all files in dir when removeDirectory is set to true
@@ -196,6 +200,7 @@ func (g *GitWriter) deleteExistingFiles(removeDirectory bool, dir string, worklo
 				logging.Debug(log, "file requested to be deleted from worktree but does not exist")
 				continue
 			}
+			///////////////////////////////////////////// REPLACE
 			if _, err := worktree.Remove(worktreeFilePath); err != nil {
 				logging.Error(logger, err, "could not remove file from worktree")
 				return err
@@ -237,14 +242,6 @@ func (g *GitWriter) setupLocalDirectoryWithRepo(logger logr.Logger) (*GitRepo, e
 	var err error
 	gr := &GitRepo{}
 
-	if g == nil {
-		fmt.Println("ZZZZZZZZZZZZZZZZZZZZZZZZZiiiiiiiiiiiiiiiiiiiiiiiiiii 111111111111111111")
-	}
-
-	if g.nativeGitClient == nil {
-		fmt.Println("ZZZZZZZZZZZZZZZZZZZZZZZZZiiiiiiiiiiiiiiiiiiiiiiiiiii 111111111111111111 nnnnn")
-	}
-
 	gr.Repo, err = g.Clone()
 	if err != nil && !errors.Is(err, ErrAuthSucceededAfterTrim) {
 		return nil, fmt.Errorf("could not clone: %w", err)
@@ -263,54 +260,12 @@ func (g *GitWriter) setupLocalDirectoryWithRepo(logger logr.Logger) (*GitRepo, e
 }
 
 func (g *GitWriter) push(repo *git.Repository, logger logr.Logger) error {
-	operation := func() (error, bool) {
-		err := repo.Push(&git.PushOptions{
-			RemoteName:      "origin",
-			Auth:            g.GitServer.Auth,
-			InsecureSkipTLS: true,
-		})
-		if errors.Is(err, git.NoErrAlreadyUpToDate) {
-			return nil, false
-		}
-		if isAuthError(err) {
-			return err, false
-		}
-		return err, true
-	}
-	/*
-		client, err := NewClientExt("https://github.com/argoproj/argo-cd.git", dir, NopCreds{}, false, false, "", "")
-			require.NoError(t, err)
 
-			err = client.Init()
-			require.NoError(t, err)
-	*/
-
-	if err := retryGitOperation(logger, "push", operation); err != nil {
-		logging.Error(logger, err, "could not push to remotexxxxxxxxxxxxxxxxxxxx")
-		return err
+	_, err := g.Push("main")
+	if err != nil {
+		return fmt.Errorf("could not push changes: %w", err)
 	}
 
-	return nil
-}
-
-func retryGitOperation(logger logr.Logger, operation string, fn func() (error, bool)) error {
-	err, retry := fn()
-	if err == nil {
-		return nil
-	}
-
-	if !retry {
-		return err
-	}
-
-	logging.Error(logger, err, fmt.Sprintf("git %s failed; retrying once", operation))
-	time.Sleep(1 * time.Second)
-
-	if retryErr, _ := fn(); retryErr != nil {
-		return retryErr
-	}
-
-	logging.Info(logger, fmt.Sprintf("git %s succeeded on retry", operation))
 	return nil
 }
 
@@ -319,17 +274,6 @@ func retryGitOperation(logger logr.Logger, operation string, fn func() (error, b
 func (g *GitWriter) validatePush(repo *git.Repository, logger logr.Logger) error {
 
 	_, err := g.Push(g.GitServer.Branch)
-	/*
-		err := repo.Push(&git.PushOptions{
-			RemoteName: "origin",
-			Auth:            g.GitServer.Auth,
-			InsecureSkipTLS: true,
-		})
-	*/
-	fmt.Printf("auth::: %s\n", spew.Sdump(g.GitServer))
-	fmt.Printf("---auth::: %s\n", spew.Sdump(g.GitServer.Auth))
-	fmt.Printf("eeeeeeeeeeeeerrrrrRRR::: %v\n", err)
-
 	if err != nil {
 		return fmt.Errorf("write permission validation failed: %w", err)
 	}
@@ -342,13 +286,11 @@ func (g *GitWriter) validatePush(repo *git.Repository, logger logr.Logger) error
 // It performs a dry run validation to check authentication and branch existence without making changes.
 func (g *GitWriter) ValidatePermissions() error {
 	// Setup local directory with repo (this already checks if we can clone - read access)
-	if g.nativeGitClient == nil {
-		fmt.Println("zzzzzzzzzzzzzzzzzzzz aaaaaaaaaaaaaa")
-	}
 	gr, cloneErr := g.setupLocalDirectoryWithRepo(g.Log)
 	if cloneErr != nil && !errors.Is(cloneErr, ErrAuthSucceededAfterTrim) {
 		return fmt.Errorf("failed to set up local directory with repo: %w", cloneErr)
 	}
+	// TODO: restore
 	//	defer os.RemoveAll(gr.LocalTmpDir) //nolint:errcheck
 
 	if err := g.validatePush(gr.Repo, g.Log); err != nil {
@@ -374,8 +316,6 @@ func (g *GitWriter) cloneRepo(localRepoFilePath string, logger logr.Logger) (*gi
 	}
 	*/
 
-	//	repo, err := git.PlainClone(, false, cloneOpts)
-
 	repo, err := git.PlainOpen(localRepoFilePath)
 
 	if isAuthError(err) && g.BasicAuth {
@@ -396,58 +336,99 @@ func (g *GitWriter) cloneRepo(localRepoFilePath string, logger logr.Logger) (*gi
 	return repo, err
 }
 
-func (g *GitWriter) commitAndPush(repo *git.Repository, worktree *git.Worktree, action, workPlacementName string, logger logr.Logger) (string, error) {
+// GetStatus returns a list of files changed
+func (m *nativeGitClient) GetStatus() ([]string, error) {
+
+	out, err := m.runCmd(context.Background(), "status")
+	if err != nil {
+		return nil, fmt.Errorf("failed to diff: %w", err)
+	}
+	if out == "" {
+		return []string{}, nil
+	}
+
+	files := strings.Split(out, "\n")
+	return files, nil
+}
+
+func (g *GitWriter) commitAndPush(repo *git.Repository, action, workPlacementName string, logger logr.Logger) (string, error) {
 	var sha string
-	operation := func() (error, bool) {
+	fmt.Println("WWWWWWWWWWWWWWWWWWWWWW CCCCCCCCCCCCCCCCCCCCCC 1111111111111111")
+
+	//	fmt.Println("SSSSSSSSSSSSSSSSSSSSSSSS: " + worktree.Filesystem.Root())
+
+	//func (m *nativeGitClient) ChangedFiles(revision string, targetRevision string) ([]string, error) {
+	hasChanged, err := g.nativeGitClient.GetStatus()
+	if err != nil {
+		logging.Error(logger, err, "could not get check local changes")
+		return "", err
+	}
+	fmt.Printf("SSSSSSSSSSSSSSSSSSSSSSSS CCCCCCCCCC::::::::: %v\n", hasChanged)
+
+	/*
 		status, err := worktree.Status()
 		if err != nil {
+			fmt.Println("WWWWWWWWWWWWWWWWWWWWWW CCCCCCCCCCCCCCCCCCCCCC 6666666666666666")
 			logging.Error(logger, err, "could not get worktree status")
-			return err, true
+			return "", err
 		}
+		_ = status
+	*/
 
+	cmd := exec.CommandContext(context.TODO(), "tree")
+	out, err := g.runCmdOutput(cmd, runOpts{})
+	if err != nil {
+		fmt.Printf("aaaaaaaaaaaaaaaaaaaaaaaaaaaaaa: %w\n", err)
+		return "", err // No changes
+	}
+	fmt.Printf("aaaaaaaaaaaaaaaaaaaaaaaaaaaaaa oooooooooooooo: %w\n", string(out))
+
+	/*
 		if status.IsClean() {
+			fmt.Println("WWWWWWWWWWWWWWWWWWWWWW CCCCCCCCCCCCCCCCCCCCCC 777777777777")
 			logging.Info(logger, "no changes to be committed")
-			return nil, false
+			return "", err
 		}
+	*/
 
-		commitHash, err := worktree.Commit(fmt.Sprintf("%s from: %s", action, workPlacementName), &git.CommitOptions{
+	///////////////////////////// REPLACE
+	/*
+		commitHash, err := worktree.Commit(fmt.Sprintf("%s from:::::::: %s", action, workPlacementName), &git.CommitOptions{
 			Author: &object.Signature{
 				Name:  g.Author.Name,
 				Email: g.Author.Email,
 				When:  time.Now(),
 			},
 		})
-
+		if err != nil {
+			fmt.Printf("WWWWWWWWWWWWWWWWWWWWWW CCCCCCCCCCCCCCCCCCCCCC 777777777777777: %v\n", err)
+			return "", err
+		}
 		if !commitHash.IsZero() {
 			sha = commitHash.String()
 		}
+	*/
 
-		if err != nil {
-			return err, true
-		}
-		return nil, false
-	}
+	fmt.Println("WWWWWWWWWWWWWWWWWWWWWW CCCCCCCCCCCCCCCCCCCCCC 888888888888")
 
-	if err := retryGitOperation(logger, "commit", operation); err != nil {
-		logging.Error(logger, err, "could not commit file to worktree")
+	logging.Info(logger, "pushing changes")
+
+	_, err = g.CommitAndPush("main", "test")
+	if err != nil {
+		fmt.Println("WWWWWWWWWWWWWWWWWWWWWW CCCCCCCCCCCCCCCCCCCCCC 444444444444444")
+		logging.Error(logger, err, "could not push changes")
 		return "", err
 	}
 
-	logging.Info(logger, "pushing changes")
 	/*
-		iface.Push() {
-			if enabled:
-			  use new client from argo
-			else:
-			  use old one:
-			  g.push
+		if err := g.push(repo, logger); err != nil {
+			fmt.Println("WWWWWWWWWWWWWWWWWWWWWW CCCCCCCCCCCCCCCCCCCCCC 444444444444444")
+			logging.Error(logger, err, "could not push changes")
+			return "", err
 		}
 	*/
 
-	if err := g.push(repo, logger); err != nil {
-		logging.Error(logger, err, "could not push changesyyyyyyyyyyyyyyyyyyyyyyyy")
-		return "", err
-	}
+	fmt.Println("WWWWWWWWWWWWWWWWWWWWWW CCCCCCCCCCCCCCCCCCCCCC 55555555555555")
 	return sha, nil
 }
 
@@ -489,7 +470,6 @@ func (m *nativeGitClient) Fetch(revision string, depth int64) error {
 
 	err := m.fetch(ctx, revision, depth)
 	if err != nil {
-		fmt.Printf("ssssssssssssssqqqqqqqqqqqeeeeeeeeee: %v\n", err)
 		return err
 	}
 
@@ -547,10 +527,7 @@ func (m *nativeGitClient) Checkout(revision string) (string, error) {
 //	--single-branch: Only clone one branch
 func (m *nativeGitClient) Clone() (*git.Repository, error) {
 
-	//	logging.Debug(m.log, "cloning repo")
-	if m == nil {
-		fmt.Println("ZZZZZZZZZZZZZZZZZZZZZZZZZiiiiiiiiiiiiiiiiiiiiiiiiiii")
-	}
+	logging.Debug(m.log, "cloning repo")
 
 	repo, err := m.Init()
 	if err != nil {
@@ -567,4 +544,15 @@ func (m *nativeGitClient) Clone() (*git.Repository, error) {
 	}
 
 	return repo, nil
+}
+
+// Add...
+func (m *nativeGitClient) Add(files ...string) (string, error) {
+	ctx := context.Background()
+	args := append([]string{"add"}, files...)
+	out, err := m.runCmd(ctx, args...)
+	if err != nil {
+		return out, fmt.Errorf("failed to add files: %w", err)
+	}
+	return out, nil
 }
