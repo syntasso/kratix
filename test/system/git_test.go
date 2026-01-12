@@ -113,56 +113,52 @@ var _ = FDescribe("Git writer with native client", func() {
 	AfterEach(func() {
 	})
 
+	When("checking out a public repository", func() {
+		dir, err := os.MkdirTemp("", "test-prefix-*")
+		// TODO: enable cleanup
+		//	defer os.RemoveAll(dir)
+		Expect(err).ToNot(HaveOccurred())
+		// TODO: replace by log if needed
+		fmt.Printf("temp dir: %v\n", dir)
+		var client writers.GitClient
+
+		It("checks out the repository", func() {
+			By("initialising a new client", func() {
+				client, err = writers.NewGitClient(
+					writers.GitClientRequest{
+						RawRepoURL: "https://github.com/syntasso/testing-git-writer-public.git",
+						Root:       dir,
+						Auth:       &writers.Auth{Creds: writers.NopCreds{}},
+						Insecure:   false,
+					})
+				Expect(err).ToNot(HaveOccurred())
+
+				repo, err := client.Init()
+				Expect(err).ToNot(HaveOccurred())
+				Expect(repo).ToNot(BeNil())
+			})
+
+			By("fetching branches", func() {
+				err = client.Fetch("main", 0)
+				Expect(err).ToNot(HaveOccurred())
+
+				out, err := client.Checkout("main")
+				Expect(err).ToNot(HaveOccurred())
+				Expect(out).To(BeEmpty())
+			})
+
+			By("checking out the code", func() {
+				out, err := client.Checkout("main")
+				Expect(err).ToNot(HaveOccurred())
+				Expect(out).To(BeEmpty())
+			})
+		})
+	})
+
 	Describe("Repository check-out", func() {
 		BeforeEach(func() {})
 
 		AfterEach(func() {})
-
-		It("checks out an open git repository but it does not pull the branches nor the code", func() {
-			dir, err := os.MkdirTemp("", "test-prefix-*")
-			//	defer os.RemoveAll(dir)
-			Expect(err).ToNot(HaveOccurred())
-			fmt.Printf("temp dir: %v\n", dir)
-			client, err := writers.NewGitClient(
-				writers.GitClientRequest{
-					RawRepoURL: "https://github.com/syntasso/testing-git-writer-public.git",
-					Root:       dir,
-					Auth:       &writers.Auth{Creds: writers.NopCreds{}},
-					Insecure:   false,
-				})
-			Expect(err).ToNot(HaveOccurred())
-
-			repo, err := client.Init()
-			Expect(err).ToNot(HaveOccurred())
-			Expect(repo).ToNot(BeNil())
-		})
-
-		It("checks out an open git repository and fetches the branches", func() {
-			dir, err := os.MkdirTemp("", "test-prefix-*")
-			//	defer os.RemoveAll(dir)
-			Expect(err).ToNot(HaveOccurred())
-			fmt.Printf("temp dir: %v\n", dir)
-
-			client, err := writers.NewGitClient(
-				writers.GitClientRequest{
-					RawRepoURL: "https://github.com/syntasso/testing-git-writer-public.git",
-					Root:       dir,
-					Auth:       &writers.Auth{Creds: writers.NopCreds{}},
-					Insecure:   false,
-				})
-			Expect(err).ToNot(HaveOccurred())
-			Expect(client).ToNot(BeNil())
-			repo, err := client.Init()
-			Expect(err).ToNot(HaveOccurred())
-			Expect(repo).ToNot(BeNil())
-
-			err = client.Fetch("main", 0)
-			Expect(err).ToNot(HaveOccurred())
-
-			out, err := client.Checkout("main")
-			Expect(err).ToNot(HaveOccurred())
-			Expect(out).To(BeEmpty())
-		})
 
 		It("fails to check out a protected git repository due to no credentials provided", func() {
 			dir, err := os.MkdirTemp("", "test-prefix-*")
