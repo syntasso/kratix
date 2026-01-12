@@ -112,7 +112,7 @@ var _ = FDescribe("Git writer with native client", func() {
 	AfterEach(func() {
 	})
 
-	When("checking out a public repository", func() {
+	When("targeting a public repository", func() {
 		tempDir, err := os.MkdirTemp("", "test-prefix-*")
 		// TODO: enable cleanup
 		//	defer os.RemoveAll(tempDir)
