@@ -362,9 +362,7 @@ var _ = FDescribe("Git tests", func() {
 				Expect(err).ToNot(HaveOccurred())
 			})
 
-			// TODO: it looks like the test above
 			It("does not clone a protected git repository if the credentials are incorrect", func() {
-
 				if !runSshTests {
 					Skip("SSH tests not enabled")
 				}
@@ -379,7 +377,7 @@ var _ = FDescribe("Git tests", func() {
 				Expect(ok).To(BeTrue())
 
 				err = gitWriter.ValidatePermissions()
-				Expect(err).ToNot(HaveOccurred())
+				Expect(err).To(HaveOccurred())
 			})
 		})
 
@@ -421,7 +419,7 @@ var _ = FDescribe("Git tests", func() {
 			})
 		})
 
-		FDescribe("using HTTP basic auth", func() {
+		Describe("using HTTP basic auth", func() {
 			It("successfully adds a new file to a private Git repository", func() {
 				if !runHttpBasicAuthTests {
 					Skip("HTTP basic auth tests not enabled")
