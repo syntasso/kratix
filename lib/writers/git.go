@@ -12,6 +12,7 @@ import (
 	"unicode"
 
 	"github.com/go-git/go-git/v5"
+	"github.com/go-git/go-git/v5/plumbing/object"
 	"github.com/go-git/go-git/v5/plumbing/transport"
 	"github.com/go-logr/logr"
 	"github.com/syntasso/kratix/api/v1alpha1"
@@ -115,14 +116,14 @@ func (g *GitWriter) update(subDir, workPlacementName string, workloadsToCreate [
 		"branch", g.GitServer.Branch,
 	)
 
-	gr, err := g.setupLocalDirectoryWithRepo(logger)
+	localDir, err := g.setupLocalDirectoryWithRepo()
 	if err != nil {
 		return "", err
 	}
 
-	defer os.RemoveAll(filepath.Dir(gr.LocalTmpDir)) //nolint:errcheck
+	defer os.RemoveAll(filepath.Dir(localDir)) //nolint:errcheck
 
-	err = g.deleteExistingFiles(subDir != "", dirInGitRepo, workloadsToDelete, gr.Worktree, logger)
+	err = g.deleteExistingFiles(subDir != "", dirInGitRepo, workloadsToDelete, logger)
 	if err != nil {
 		return "", err
 	}
@@ -135,15 +136,18 @@ func (g *GitWriter) update(subDir, workPlacementName string, workloadsToCreate [
 		)
 
 		///tmp/git-dir/worker-cluster/resources/<rr-namespace>/<promise-name>/<rr-name>/foo/bar/baz.yaml
-		absoluteFilePath := filepath.Join(gr.LocalTmpDir, worktreeFilePath)
+		absoluteFilePath := filepath.Join(localDir, worktreeFilePath)
 
 		//We need to protect against paths containing `..`
 		//filepath.Join expands any '../' in the Path to the actual, e.g. /tmp/foo/../ resolves to /tmp/
 		//To ensure they can't write to files on disk outside the tmp git repository we check the absolute Path
 		//returned by `filepath.Join` is still contained with the git repository:
 		// Note: This means `../` can still be used, but only if the end result is still contained within the git repository
-		if !strings.HasPrefix(absoluteFilePath, gr.LocalTmpDir) {
-			logging.Warn(log, "path of file to write is not located within the git repository", "absolutePath", absoluteFilePath, "tmpDir", gr.LocalTmpDir)
+		if !strings.HasPrefix(absoluteFilePath, localDir) {
+			logging.Warn(log,
+				"path of file to write is not located within the git repository",
+				"absolutePath",
+				absoluteFilePath, "tmpDir", localDir)
 			return "", nil //We don't want to retry as this isn't a recoverable error. Log error and return nil.
 		}
 
@@ -161,44 +165,37 @@ func (g *GitWriter) update(subDir, workPlacementName string, workloadsToCreate [
 			logging.Error(log, err, "could not add file to worktree")
 			return "", err
 		}
-		/*
-			if _, err := gr.Worktree.Add(worktreeFilePath); err != nil {
-				logging.Error(log, err, "could not add file to worktree")
-				return "", err
-			}
-		*/
 	}
 
 	action := "Delete"
 	if len(workloadsToCreate) > 0 {
 		action = "Update"
 	}
-	return g.commitAndPush(gr.Repo, action, workPlacementName, logger)
+	return g.commitAndPush(localDir, action, workPlacementName, logger)
 }
 
 // deleteExistingFiles removes all files in dir when removeDirectory is set to true
 // else it removes files listed in workloadsToDelete
-func (g *GitWriter) deleteExistingFiles(removeDirectory bool, dir string, workloadsToDelete []string, worktree *git.Worktree, logger logr.Logger) error {
+func (g *GitWriter) deleteExistingFiles(removeDirectory bool, dir string, workloadsToDelete []string, logger logr.Logger) error {
 	if removeDirectory {
-		if _, err := worktree.Filesystem.Lstat(dir); err == nil {
+		if _, err := os.Lstat(dir); err == nil {
 			logging.Info(logger, "deleting existing content")
-			if _, err := worktree.Remove(dir); err != nil {
+			if err := g.nativeGitClient.RemoveDirectory(dir); err != nil {
 				logging.Error(logger, err, "could not add directory deletion to worktree", "dir", dir)
 				return err
 			}
 		}
 	} else {
 		for _, file := range workloadsToDelete {
-			worktreeFilePath := filepath.Join(dir, file)
+			filePath := filepath.Join(dir, file)
 			log := logger.WithValues(
-				"filepath", worktreeFilePath,
+				"filepath", filePath,
 			)
-			if _, err := worktree.Filesystem.Lstat(worktreeFilePath); err != nil {
+			if _, err := os.Lstat(filePath); err != nil {
 				logging.Debug(log, "file requested to be deleted from worktree but does not exist")
 				continue
 			}
-			///////////////////////////////////////////// REPLACE
-			if _, err := worktree.Remove(worktreeFilePath); err != nil {
+			if err := g.nativeGitClient.RemoveFile(file); err != nil {
 				logging.Error(logger, err, "could not remove file from worktree")
 				return err
 			}
@@ -215,49 +212,37 @@ func (g *GitWriter) ReadFile(filePath string) ([]byte, error) {
 		"branch", g.GitServer.Branch,
 	)
 
-	gr, err := g.setupLocalDirectoryWithRepo(logger)
+	localDir, err := g.setupLocalDirectoryWithRepo()
 	if err != nil {
 		return nil, err
 	}
-	defer os.RemoveAll(filepath.Dir(gr.LocalTmpDir)) //nolint:errcheck
+	defer os.RemoveAll(filepath.Dir(localDir)) //nolint:errcheck
 
-	if _, err := gr.Worktree.Filesystem.Lstat(fullPath); err != nil {
+	if _, err := os.Lstat(fullPath); err != nil {
 		logging.Debug(logger, "could not stat file", "error", err)
 		return nil, ErrFileNotFound
 	}
 
 	var content []byte
-	if content, err = os.ReadFile(filepath.Join(gr.LocalTmpDir, fullPath)); err != nil {
+	if content, err = os.ReadFile(filepath.Join(localDir, fullPath)); err != nil {
 		logging.Error(logger, err, "could not read file")
 		return nil, err
 	}
 	return content, nil
 }
 
-func (g *GitWriter) setupLocalDirectoryWithRepo(logger logr.Logger) (*GitRepo, error) {
-
-	var err error
-	gr := &GitRepo{}
-
-	gr.Repo, err = g.Clone()
-	if err != nil && !errors.Is(err, ErrAuthSucceededAfterTrim) {
-		return nil, fmt.Errorf("could not clone: %w", err)
-	}
-	if gr.Repo == nil {
-		return nil, fmt.Errorf("clone returned nil repository")
-	}
-
-	gr.Worktree, err = gr.Repo.Worktree()
+// Initialise a local directory with the Git repository and returns
+// localDir that should be cleaned up after use.
+func (g *GitWriter) setupLocalDirectoryWithRepo() (string, error) {
+	localDir, err := g.Clone(g.GitServer.Branch)
 	if err != nil {
-		return nil, fmt.Errorf("could not create worktree: %w", err)
+		return "", fmt.Errorf("could not clone: %w", err)
 	}
-	gr.LocalTmpDir = g.Root()
 
-	return gr, nil
+	return localDir, nil
 }
 
-func (g *GitWriter) push(repo *git.Repository, logger logr.Logger) error {
-
+func (g *GitWriter) push() error {
 	_, err := g.Push("main")
 	if err != nil {
 		return fmt.Errorf("could not push changes: %w", err)
@@ -283,13 +268,13 @@ func (g *GitWriter) validatePush(repo *git.Repository, logger logr.Logger) error
 // It performs a dry run validation to check authentication and branch existence without making changes.
 func (g *GitWriter) ValidatePermissions() error {
 	// Setup local directory with repo (this already checks if we can clone - read access)
-	gr, cloneErr := g.setupLocalDirectoryWithRepo(g.Log)
+	localDir, cloneErr := g.setupLocalDirectoryWithRepo()
 	if cloneErr != nil && !errors.Is(cloneErr, ErrAuthSucceededAfterTrim) {
 		return fmt.Errorf("failed to set up local directory with repo: %w", cloneErr)
 	}
-	defer os.RemoveAll(gr.LocalTmpDir) //nolint:errcheck
+	defer os.RemoveAll(localDir) //nolint:errcheck
 
-	if err := g.validatePush(gr.Repo, g.Log); err != nil {
+	if err := g.validatePush(localDir, g.Log); err != nil {
 		return err
 	}
 
@@ -332,78 +317,51 @@ func (g *GitWriter) cloneRepo(localRepoFilePath string, logger logr.Logger) (*gi
 	return repo, err
 }
 
-// GetStatus returns a list of files changed
-func (m *nativeGitClient) GetStatus() ([]string, error) {
-
+// HasChanges returns whether there are pending changes
+// on the repository.
+func (m *nativeGitClient) HasChanges() (bool, error) {
 	out, err := m.runCmd(context.Background(), "status")
 	if err != nil {
-		return nil, fmt.Errorf("failed to diff: %w", err)
+		return false, fmt.Errorf("failed to diff: %w", err)
 	}
 	if out == "" {
-		return []string{}, nil
+		return false, nil
 	}
 
-	files := strings.Split(out, "\n")
-	return files, nil
+	return strings.Contains(out, "working tree clean"), nil
 }
 
 func (g *GitWriter) commitAndPush(repo *git.Repository, action, workPlacementName string, logger logr.Logger) (string, error) {
 	var sha string
-	fmt.Println("WWWWWWWWWWWWWWWWWWWWWW CCCCCCCCCCCCCCCCCCCCCC 1111111111111111")
 
-	//	fmt.Println("SSSSSSSSSSSSSSSSSSSSSSSS: " + worktree.Filesystem.Root())
-
-	//func (m *nativeGitClient) ChangedFiles(revision string, targetRevision string) ([]string, error) {
-	hasChanged, err := g.nativeGitClient.GetStatus()
+	hasChanged, err := g.nativeGitClient.HasChanges()
 	if err != nil {
 		logging.Error(logger, err, "could not get check local changes")
 		return "", err
 	}
-	fmt.Printf("SSSSSSSSSSSSSSSSSSSSSSSS CCCCCCCCCC::::::::: %v\n", hasChanged)
-
-	/*
-		status, err := worktree.Status()
-		if err != nil {
-			fmt.Println("WWWWWWWWWWWWWWWWWWWWWW CCCCCCCCCCCCCCCCCCCCCC 6666666666666666")
-			logging.Error(logger, err, "could not get worktree status")
-			return "", err
-		}
-		_ = status
-	*/
-
-	cmd := exec.CommandContext(context.TODO(), "tree")
-	out, err := g.runCmdOutput(cmd, runOpts{})
-	if err != nil {
-		fmt.Printf("aaaaaaaaaaaaaaaaaaaaaaaaaaaaaa: %w\n", err)
-		return "", err // No changes
+	if !hasChanged {
+		logging.Info(logger, "no changes to be committed")
+		return "", err
 	}
-	fmt.Printf("aaaaaaaaaaaaaaaaaaaaaaaaaaaaaa oooooooooooooo: %w\n", string(out))
 
-	/*
-		if status.IsClean() {
-			fmt.Println("WWWWWWWWWWWWWWWWWWWWWW CCCCCCCCCCCCCCCCCCCCCC 777777777777")
-			logging.Info(logger, "no changes to be committed")
-			return "", err
-		}
-	*/
-
-	///////////////////////////// REPLACE
-	/*
-		commitHash, err := worktree.Commit(fmt.Sprintf("%s from:::::::: %s", action, workPlacementName), &git.CommitOptions{
-			Author: &object.Signature{
-				Name:  g.Author.Name,
-				Email: g.Author.Email,
-				When:  time.Now(),
-			},
-		})
-		if err != nil {
-			fmt.Printf("WWWWWWWWWWWWWWWWWWWWWW CCCCCCCCCCCCCCCCCCCCCC 777777777777777: %v\n", err)
-			return "", err
-		}
-		if !commitHash.IsZero() {
-			sha = commitHash.String()
-		}
-	*/
+	// Run a commit with author and message
+	commitMsg := fmt.Sprintf("%s from:::::::: %s", action, workPlacementName)
+	sha, err = g.CommitAndPush(g.GitServer.Branch, commitMsg)
+	commitHash, err := worktree.Commit(), &git.CommitOptions{
+		Author: &object.Signature{
+			Name:  g.Author.Name,
+			Email: g.Author.Email,
+			When:  time.Now(),
+		},
+	})
+	if err != nil {
+		fmt.Printf("WWWWWWWWWWWWWWWWWWWWWW CCCCCCCCCCCCCCCCCCCCCC 777777777777777: %v\n", err)
+		return "", err
+	}
+	// Save the SHA
+	if !commitHash.IsZero() {
+		sha = commitHash.String()
+	}
 
 	fmt.Println("WWWWWWWWWWWWWWWWWWWWWW CCCCCCCCCCCCCCCCCCCCCC 888888888888")
 
@@ -411,7 +369,6 @@ func (g *GitWriter) commitAndPush(repo *git.Repository, action, workPlacementNam
 
 	_, err = g.CommitAndPush("main", "test")
 	if err != nil {
-		fmt.Println("WWWWWWWWWWWWWWWWWWWWWW CCCCCCCCCCCCCCCCCCCCCC 444444444444444")
 		logging.Error(logger, err, "could not push changes")
 		return "", err
 	}
@@ -424,7 +381,6 @@ func (g *GitWriter) commitAndPush(repo *git.Repository, action, workPlacementNam
 		}
 	*/
 
-	fmt.Println("WWWWWWWWWWWWWWWWWWWWWW CCCCCCCCCCCCCCCCCCCCCC 55555555555555")
 	return sha, nil
 }
 
@@ -449,7 +405,7 @@ func trimRightWhitespace(s string) (string, bool) {
 //
 // Parameters:
 //
-//	revision: Specific branch/tag/commit to fetch (empty string fetches all)
+//	revision: Specific branch/tag/commit to 	fetch (empty string fetches all)
 //	depth: Number of commits to fetch (0 for full history)
 //
 // Flags used:
@@ -458,6 +414,7 @@ func trimRightWhitespace(s string) (string, bool) {
 //	--prune: Remove remote-tracking branches that no longer exist on remote
 //	--tags: Fetch all tags (only when depth == 0, as tags don't work well with shallow clones)
 func (m *nativeGitClient) Fetch(revision string, depth int64) error {
+	// TODO: revisit handlers
 	if m.OnFetch != nil {
 		done := m.OnFetch(m.repoURL)
 		defer done()
@@ -505,41 +462,35 @@ func (m *nativeGitClient) Checkout(revision string) (string, error) {
 	// `git clean` to delete untracked files and directories, and the second “f”
 	// tells it to clean untracked nested Git repositories (for example a
 	// submodule which has since been removed).
-	//	if out, err := m.runCmd(ctx, "clean", "-ffdx"); err != nil {
-	//		return out, fmt.Errorf("failed to clean: %w", err)
-	//	}
+	if out, err := m.runCmd(ctx, "clean", "-ffdx"); err != nil {
+		return out, fmt.Errorf("failed to clean: %w", err)
+	}
 	return "", nil
 }
 
 // Clone creates a new Git repository by downloading the entire repository
 // from a remote URL. Creates the .git directory, downloads all commits, branches,
-// and tags, sets up remote tracking, and checks out the default branch. This is
+// and tags, sets up remote tracking, and checks out a desired branch. This is
 // a one-time setup operation for getting a repository for the first time.
-//
-// Common flags:
-//
-//	--depth N: Create shallow clone with only N commits of history
-//	--branch: Clone specific branch instead of default
-//	--single-branch: Only clone one branch
-func (m *nativeGitClient) Clone() (*git.Repository, error) {
+func (m *nativeGitClient) Clone(branch string) (string, error) {
 
 	logging.Debug(m.log, "cloning repo")
 
-	repo, err := m.Init()
+	localDir, err := m.Init()
 	if err != nil {
-		return nil, fmt.Errorf("could not run init: %w", err)
+		return "", fmt.Errorf("could not run init: %w", err)
 	}
-	err = m.Fetch("main", 0)
+	err = m.Fetch(branch, 0)
 	if err != nil {
-		return nil, fmt.Errorf("could not run fetch: %w", err)
+		return "", fmt.Errorf("could not run fetch: %w", err)
 	}
-	out, err := m.Checkout("main")
+	out, err := m.Checkout(branch)
 	if err != nil {
 		logging.Error(m.log, err, "could not clone repo: %v", out)
-		return nil, fmt.Errorf("could not run checkout: %w", err)
+		return "", fmt.Errorf("could not run checkout: %w", err)
 	}
 
-	return repo, nil
+	return localDir, nil
 }
 
 // Add...

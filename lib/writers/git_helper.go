@@ -1,7 +1,6 @@
 package writers
 
 import (
-	"bufio"
 	"bytes"
 	"context"
 	"crypto/fips140"
@@ -10,7 +9,6 @@ import (
 	"crypto/tls"
 	"crypto/x509"
 	"encoding/hex"
-	"encoding/json"
 	"encoding/pem"
 	"errors"
 	"fmt"
@@ -28,8 +26,6 @@ import (
 	"unicode"
 	"unicode/utf8"
 
-	"github.com/go-git/go-git/v5"
-	"github.com/go-git/go-git/v5/config"
 	"github.com/go-git/go-git/v5/plumbing"
 	gitssh "github.com/go-git/go-git/v5/plumbing/transport/ssh"
 	"github.com/go-logr/logr"
@@ -100,15 +96,15 @@ func initTimeout() {
 }
 
 // GitClient is a generic git client interface
-type GitClient interface {
-	Clone() (*git.Repository, error)
-	Checkout(revision string) (string, error)
-	CommitAndPush(branch, message string) (string, error)
-	Push(branch string) (string, error)
-	Fetch(revision string, depth int64) error
-	Init() (*git.Repository, error)
-	Root() string
-}
+//type GitClient interface {
+//	Clone() (*git.Repository, error)
+//	Checkout(revision string) (string, error)
+//	CommitAndPush(branch, message string) (string, error)
+//	Push(branch string) (string, error)
+//	Fetch(revision string, depth int64) error
+//	Init() (*git.Repository, error)
+//	Root() string
+//}
 
 type GitClientRequest struct {
 	RawRepoURL string
@@ -684,43 +680,63 @@ func (m *nativeGitClient) Root() string {
 }
 
 // Init initializes a local git repository and sets the remote origin
-func (m *nativeGitClient) Init() (*git.Repository, error) {
+func (m *nativeGitClient) Init() (string, error) {
+	ctx := context.Background()
 
 	var err error
 	m.root, err = createLocalDirectory(m.log)
 	if err != nil {
 		logging.Error(m.log, err, "could not create temporary repository directory")
-		return nil, err
+		return "", err
 	}
 
-	repo, err := git.PlainOpen(m.root)
-	// repo already exists
-	if err == nil {
-		return repo, nil
-	}
-	if !errors.Is(err, git.ErrRepositoryNotExists) {
-		return nil, err
-	}
-
-	// create repo locally
 	logging.Debug(m.log, "initialising repo %s to %s", m.repoURL, m.root)
 	err = os.RemoveAll(m.root)
 	if err != nil {
-		return nil, fmt.Errorf("unable to clean repo at %s: %w", m.root, err)
+		return "", fmt.Errorf("unable to clean repo at %s: %w", m.root, err)
 	}
 	err = os.MkdirAll(m.root, 0o755)
 	if err != nil {
-		return nil, err
+		return "", err
 	}
-	repo, err = git.PlainInit(m.root, false)
+
+	args := []string{"init", "."}
+	err = m.runCredentialedCmd(ctx, args...)
 	if err != nil {
-		return nil, err
+		logging.Error(m.log, err, "could not initialise temporary repository directory")
+		return "", err
 	}
-	_, err = repo.CreateRemote(&config.RemoteConfig{
-		Name: git.DefaultRemoteName,
-		URLs: []string{m.repoURL}, ////////////////////// SET here token
-	})
-	return repo, err
+
+	args = []string{"remote", "add", "origin", m.repoURL}
+	err = m.runCredentialedCmd(ctx, args...)
+	if err != nil {
+		logging.Error(m.log, err, "could not add remote origin")
+		return "", err
+	}
+
+	return m.root, nil
+}
+
+func (m *nativeGitClient) RemoveDirectory(dir string) error {
+	args := []string{"rm", "-r", dir}
+	ctx := context.Background()
+	err := m.runCredentialedCmd(ctx, args...)
+	if err != nil {
+		logging.Error(m.log, err, "could not remove directory")
+		return err
+	}
+	return nil
+}
+
+func (m *nativeGitClient) RemoveFile(file string) error {
+	args := []string{"rm", file}
+	ctx := context.Background()
+	err := m.runCredentialedCmd(ctx, args...)
+	if err != nil {
+		logging.Error(m.log, err, "could not remove file")
+		return err
+	}
+	return nil
 }
 
 func (m *nativeGitClient) fetch(ctx context.Context, revision string, depth int64) error {
@@ -738,108 +754,11 @@ func (m *nativeGitClient) fetch(ctx context.Context, revision string, depth int6
 	return m.runCredentialedCmd(ctx, args...)
 }
 
-func getGitTags(refs []*plumbing.Reference) []string {
-	var tags []string
-	for _, ref := range refs {
-		if ref.Name().IsTag() {
-			tags = append(tags, ref.Name().Short())
-		}
-	}
-	return tags
-}
-
 func truncate(str string) string {
 	if utf8.RuneCountInString(str) > 100 {
 		return string([]rune(str)[0:97]) + "..."
 	}
 	return str
-}
-
-var shaRegex = regexp.MustCompile(`^[0-9a-f]{5,40}$`)
-
-// GetReferences extracts related commit metadata from the commit message trailers. If referenced commit
-// metadata is present, we return a slice containing a single metadata object. If no related commit metadata is found,
-// we return a nil slice.
-//
-// If a trailer fails validation, we log an error and skip that trailer. We truncate the trailer values to 100
-// characters to avoid excessively long log messages.
-//
-// We also return the commit message body with all valid Argocd-reference-commit-* trailers removed.
-func GetReferences(logCtx *log.Entry, commitMessageBody string) ([]RevisionReference, string) {
-	unrelatedLines := strings.Builder{}
-	var relatedCommit CommitMetadata
-	scanner := bufio.NewScanner(strings.NewReader(commitMessageBody))
-	for scanner.Scan() {
-		line := scanner.Text()
-		updated := updateCommitMetadata(logCtx, &relatedCommit, line)
-		if !updated {
-			unrelatedLines.WriteString(line + "\n")
-		}
-	}
-	var relatedCommits []RevisionReference
-	if relatedCommit != (CommitMetadata{}) {
-		relatedCommits = append(relatedCommits, RevisionReference{
-			Commit: &relatedCommit,
-		})
-	}
-	return relatedCommits, unrelatedLines.String()
-}
-
-// updateCommitMetadata checks if the line is a valid Argocd-reference-commit-* trailer. If so, it updates
-// the relatedCommit object and returns true. If the line is not a valid trailer, it returns false.
-func updateCommitMetadata(logCtx *log.Entry, relatedCommit *CommitMetadata, line string) bool {
-	if !strings.HasPrefix(line, "Argocd-reference-commit-") {
-		return false
-	}
-	parts := strings.SplitN(line, ": ", 2)
-	if len(parts) != 2 {
-		return false
-	}
-	trailerKey := parts[0]
-	trailerValue := parts[1]
-	switch trailerKey {
-	case "Argocd-reference-commit-repourl":
-		_, err := url.Parse(trailerValue)
-		if err != nil {
-			logCtx.Errorf("failed to parse repo URL %q: %v", truncate(trailerValue), err)
-			return false
-		}
-		relatedCommit.RepoURL = trailerValue
-	case "Argocd-reference-commit-author":
-		address, err := mail.ParseAddress(trailerValue)
-		if err != nil || address == nil {
-			logCtx.Errorf("failed to parse author email %q: %v", truncate(trailerValue), err)
-			return false
-		}
-		relatedCommit.Author = *address
-	case "Argocd-reference-commit-date":
-		// Validate that it's the correct date format.
-		t, err := time.Parse(time.RFC3339, trailerValue)
-		if err != nil {
-			logCtx.Errorf("failed to parse date %q with RFC3339 format: %v", truncate(trailerValue), err)
-			return false
-		}
-		relatedCommit.Date = t.Format(time.RFC3339)
-	case "Argocd-reference-commit-subject":
-		relatedCommit.Subject = trailerValue
-	case "Argocd-reference-commit-body":
-		body := ""
-		err := json.Unmarshal([]byte(trailerValue), &body)
-		if err != nil {
-			logCtx.Errorf("failed to parse body %q as JSON: %v", truncate(trailerValue), err)
-			return false
-		}
-		relatedCommit.Body = body
-	case "Argocd-reference-commit-sha":
-		if !shaRegex.MatchString(trailerValue) {
-			logCtx.Errorf("invalid commit SHA %q in trailer %s: must be a lowercase hex string 5-40 characters long", truncate(trailerValue), trailerKey)
-			return false
-		}
-		relatedCommit.SHA = trailerValue
-	default:
-		return false
-	}
-	return true
 }
 
 // config runs a git config command.
@@ -874,36 +793,33 @@ func (m *nativeGitClient) CommitAndPush(branch, message string) (string, error) 
 	ctx := context.Background()
 	out, err := m.runCmd(ctx, "add", ".")
 	if err != nil {
-		fmt.Println("tttttttttttttttttttttttttttttttttttttttttttttttT 11111111111111")
 		return out, fmt.Errorf("failed to add files: %w", err)
 	}
 
 	out, err = m.runCmd(ctx, "commit", "-m", message)
 	if err != nil {
-		fmt.Println("tttttttttttttttttttttttttttttttttttttttttttttttT 2222222222222222222")
 		if strings.Contains(out, ErrNothingToCommit.Error()) {
-			fmt.Println("tttttttttttttttttttttttttttttttttttttttttttttttT 33333333333333333333333")
 			return out, ErrNothingToCommit
 		}
-		fmt.Println("tttttttttttttttttttttttttttttttttttttttttttttttT 4444444444444444444444444")
 		return out, fmt.Errorf("failed to commit: %w", err)
 	}
 
 	if m.OnPush != nil {
-		fmt.Println("tttttttttttttttttttttttttttttttttttttttttttttttT 55555555555555555555")
 		done := m.OnPush(m.repoURL)
 		defer done()
 	}
 
-	fmt.Println("tttttttttttttttttttttttttttttttttttttttttttttttT 55555555555555555555 xxxxxxxxxx")
 	err = m.runCredentialedCmd(ctx, "push", "origin", branch)
 	if err != nil {
-		fmt.Println("tttttttttttttttttttttttttttttttttttttttttttttttT 6666666666666666")
 		return "", fmt.Errorf("failed to push: %w", err)
 	}
 
-	fmt.Println("tttttttttttttttttttttttttttttttttttttttttttttttT")
-	return "", nil
+	commitSha, err := m.runCmd(ctx, "rev-parse", "HEAD")
+	if err != nil {
+		return "", fmt.Errorf("failed to push: %w", err)
+	}
+
+	return commitSha, nil
 }
 
 // runCmd is a convenience function to run a command in a given directory and return its output
@@ -1018,73 +934,6 @@ const (
 	EnvGitRetryDuration = "ARGOCD_GIT_RETRY_DURATION"
 	// EnvGitRetryFactor specifies factor of git remote operation retry
 	EnvGitRetryFactor = "ARGOCD_GIT_RETRY_FACTOR"
-	// EnvGnuPGHome is the path to ArgoCD's GnuPG keyring for signature verification
-	EnvGnuPGHome = "ARGOCD_GNUPGHOME"
-	// EnvWatchAPIBufferSize is the buffer size used to transfer K8S watch events to watch API consumer
-	EnvWatchAPIBufferSize = "ARGOCD_WATCH_API_BUFFER_SIZE"
-	// EnvPauseGenerationAfterFailedAttempts will pause manifest generation after the specified number of failed generation attempts
-	EnvPauseGenerationAfterFailedAttempts = "ARGOCD_PAUSE_GEN_AFTER_FAILED_ATTEMPTS"
-	// EnvPauseGenerationMinutes pauses manifest generation for the specified number of minutes, after sufficient manifest generation failures
-	EnvPauseGenerationMinutes = "ARGOCD_PAUSE_GEN_MINUTES"
-	// EnvPauseGenerationRequests pauses manifest generation for the specified number of requests, after sufficient manifest generation failures
-	EnvPauseGenerationRequests = "ARGOCD_PAUSE_GEN_REQUESTS"
-	// EnvControllerReplicas is the number of controller replicas
-	EnvControllerReplicas = "ARGOCD_CONTROLLER_REPLICAS"
-	// EnvControllerHeartbeatTime will update the heartbeat for application controller to claim shard
-	EnvControllerHeartbeatTime = "ARGOCD_CONTROLLER_HEARTBEAT_TIME"
-	// EnvControllerShard is the shard number that should be handled by controller
-	EnvControllerShard = "ARGOCD_CONTROLLER_SHARD"
-	// EnvControllerShardingAlgorithm is the distribution sharding algorithm to be used: legacy or round-robin
-	EnvControllerShardingAlgorithm = "ARGOCD_CONTROLLER_SHARDING_ALGORITHM"
-	// EnvEnableDynamicClusterDistribution enables dynamic sharding (ALPHA)
-	EnvEnableDynamicClusterDistribution = "ARGOCD_ENABLE_DYNAMIC_CLUSTER_DISTRIBUTION"
-	// EnvEnableGRPCTimeHistogramEnv enables gRPC metrics collection
-	EnvEnableGRPCTimeHistogramEnv = "ARGOCD_ENABLE_GRPC_TIME_HISTOGRAM"
-	// EnvGithubAppCredsExpirationDuration controls the caching of Github app credentials. This value is in minutes (default: 60)
-	EnvGithubAppCredsExpirationDuration = "ARGOCD_GITHUB_APP_CREDS_EXPIRATION_DURATION"
-	// EnvHelmIndexCacheDuration controls how the helm repository index file is cached for (default: 0)
-	EnvHelmIndexCacheDuration = "ARGOCD_HELM_INDEX_CACHE_DURATION"
-	// EnvAppConfigPath allows to override the configuration path for repo server
-	EnvAppConfigPath = "ARGOCD_APP_CONF_PATH"
-	// EnvAuthToken is the environment variable name for the auth token used by the CLI
-	EnvAuthToken = "ARGOCD_AUTH_TOKEN"
-	// EnvLogFormat log format that is defined by `--logformat` option
-	EnvLogFormat = "ARGOCD_LOG_FORMAT"
-	// EnvLogLevel log level that is defined by `--loglevel` option
-	EnvLogLevel = "ARGOCD_LOG_LEVEL"
-	// EnvLogFormatEnableFullTimestamp enables the FullTimestamp option in logs
-	EnvLogFormatEnableFullTimestamp = "ARGOCD_LOG_FORMAT_ENABLE_FULL_TIMESTAMP"
-	// EnvLogFormatTimestamp is the timestamp format used in logs
-	EnvLogFormatTimestamp = "ARGOCD_LOG_FORMAT_TIMESTAMP"
-	// EnvMaxCookieNumber max number of chunks a cookie can be broken into
-	EnvMaxCookieNumber = "ARGOCD_MAX_COOKIE_NUMBER"
-	// EnvPluginSockFilePath allows to override the pluginSockFilePath for repo server and cmp server
-	EnvPluginSockFilePath = "ARGOCD_PLUGINSOCKFILEPATH"
-	// EnvCMPChunkSize defines the chunk size in bytes used when sending files to the cmp server
-	EnvCMPChunkSize = "ARGOCD_CMP_CHUNK_SIZE"
-	// EnvCMPWorkDir defines the full path of the work directory used by the CMP server
-	EnvCMPWorkDir = "ARGOCD_CMP_WORKDIR"
-	// EnvGPGDataPath overrides the location where GPG keyring for signature verification is stored
-	EnvGPGDataPath = "ARGOCD_GPG_DATA_PATH"
-	// EnvServer is the server address of the Argo CD API server.
-	EnvServer = "ARGOCD_SERVER"
-	// EnvServerName is the name of the Argo CD server component, as specified by the value under the LabelKeyAppName label key.
-	EnvServerName = "ARGOCD_SERVER_NAME"
-	// EnvRepoServerName is the name of the Argo CD repo server component, as specified by the value under the LabelKeyAppName label key.
-	EnvRepoServerName = "ARGOCD_REPO_SERVER_NAME"
-	// EnvAppControllerName is the name of the Argo CD application controller component, as specified by the value under the LabelKeyAppName label key.
-	EnvAppControllerName = "ARGOCD_APPLICATION_CONTROLLER_NAME"
-	// EnvRedisName is the name of the Argo CD redis component, as specified by the value under the LabelKeyAppName label key.
-	EnvRedisName = "ARGOCD_REDIS_NAME"
-	// EnvRedisHaProxyName is the name of the Argo CD Redis HA proxy component, as specified by the value under the LabelKeyAppName label key.
-	EnvRedisHaProxyName = "ARGOCD_REDIS_HAPROXY_NAME"
-	// EnvGRPCKeepAliveMin defines the GRPCKeepAliveEnforcementMinimum, used in the grpc.KeepaliveEnforcementPolicy. Expects a "Duration" format (e.g. 10s).
-	EnvGRPCKeepAliveMin = "ARGOCD_GRPC_KEEP_ALIVE_MIN"
-	// EnvServerSideDiff defines the env var used to enable ServerSide Diff feature.
-	// If defined, value must be "true" or "false".
-	EnvServerSideDiff = "ARGOCD_APPLICATION_CONTROLLER_SERVER_SIDE_DIFF"
-	// EnvGRPCMaxSizeMB is the environment variable to look for a max GRPC message size
-	EnvGRPCMaxSizeMB = "ARGOCD_GRPC_MAX_SIZE_MB"
 
 	DefaultGitRetryMaxDuration time.Duration = time.Second * 5        // 5s
 	DefaultGitRetryDuration    time.Duration = time.Millisecond * 250 // 0.25s
