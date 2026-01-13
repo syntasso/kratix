@@ -135,7 +135,7 @@ var _ = FDescribe("Git tests", func() {
 					err    error
 				)
 
-				It("checks out the repository", func() {
+				It("successfully clones the repository", func() {
 					By("initialising a new client", func() {
 
 						client, err = writers.NewGitClient(
@@ -192,7 +192,7 @@ var _ = FDescribe("Git tests", func() {
 					)
 				})
 
-				It("successfully clones a repository", func() {
+				It("successfully clones the repository", func() {
 
 					if !runHttpBasicAuthTests {
 						Skip("HTTP basic auth tests not enabled")
@@ -230,7 +230,7 @@ var _ = FDescribe("Git tests", func() {
 						client writers.GitClient
 						err    error
 					)
-					It("initialises a new client", func() {
+					It("does not clone the repository", func() {
 
 						client, err = writers.NewGitClient(writers.GitClientRequest{
 							RawRepoURL: httpPrivateRepo,
@@ -258,7 +258,7 @@ var _ = FDescribe("Git tests", func() {
 						client writers.GitClient
 						err    error
 					)
-					It("does not clone a repository", func() {
+					It("does not clone the repository", func() {
 
 						wrongHttpCreds := writers.NewHTTPSCreds(
 							"x-access-token",         // username
@@ -302,7 +302,7 @@ var _ = FDescribe("Git tests", func() {
 					sshCreds = writers.NewSSHCreds(string(sshPrivateKey), "", false, "")
 				})
 
-				It("successfully clones a repository", func() {
+				It("successfully clones the repository", func() {
 
 					if !runSshTests {
 						Skip("SSH tests not enabled")
@@ -338,14 +338,13 @@ var _ = FDescribe("Git tests", func() {
 		})
 	})
 
-	////////////////////////////////////////////////////////
 	Describe("Git writer tests", func() {
 
 		Describe("using SSH auth", func() {
 
 			stateStoreSpec, dest := newStateStoreAndDest("ssh", sshPrivateRepo)
 
-			It("clones a protected git repository and fetches the branches", func() {
+			It("validates the permissions if the credentials are correct", func() {
 				if !runSshTests {
 					Skip("SSH tests not enabled")
 				}
@@ -367,7 +366,8 @@ var _ = FDescribe("Git tests", func() {
 				Expect(err).ToNot(HaveOccurred())
 			})
 
-			It("does not clone a protected git repository and fetches the branches using SSH auth", func() {
+			// TODO: it looks like the test above
+			It("does not clone a protected git repository if the credentials are incorrect", func() {
 
 				if !runSshTests {
 					Skip("SSH tests not enabled")
@@ -390,7 +390,7 @@ var _ = FDescribe("Git tests", func() {
 
 			stateStoreSpec, dest := newStateStoreAndDest("githubApp", httpPrivateRepo)
 
-			It("clones a protected git repository and fetches the branches", func() {
+			It("validates permissions to the repository when credentials are correct", func() {
 				if !runGitHubAppAuthTests {
 					Skip("GitHub App auth tests not enabled")
 				}
@@ -407,7 +407,8 @@ var _ = FDescribe("Git tests", func() {
 				Expect(err).ToNot(HaveOccurred())
 			})
 
-			It("does not clone a protected git repository due to invalid app ID", func() {
+			// TODO: should we test the behaviour for when installationID or private key are incorrect as well?
+			It("does not instantiate the writer when appID is incorrect", func() {
 				if !runGitHubAppAuthTests {
 					Skip("GitHub App auth tests not enabled")
 				}
@@ -424,7 +425,7 @@ var _ = FDescribe("Git tests", func() {
 		})
 
 		Describe("using HTTP basic auth", func() {
-			It("pushes a file to a protected git repository and fetches the branches using HTTP basic auth", func() {
+			It("successfully adds a new file to a private Git repository", func() {
 				if !runHttpBasicAuthTests {
 					Skip("HTTP basic auth tests not enabled")
 				}
@@ -448,7 +449,7 @@ var _ = FDescribe("Git tests", func() {
 				Expect(err).ToNot(HaveOccurred())
 			})
 
-			It("does not push a file that has already been modified and pushed to a protected git repository and fetches the branches using HTTP basic auth", func() {
+			It("does not add the file and push the branch if the file content is not modified", func() {
 				if !runHttpBasicAuthTests {
 					Skip("HTTP basic auth tests not enabled")
 				}
