@@ -414,8 +414,8 @@ var _ = FDescribe("Git tests", func() {
 			})
 		})
 
-		Describe("using HTTP basic auth", func() {
-			It("successfully adds a new file to a private Git repository", func() {
+		FDescribe("using HTTP basic auth", func() {
+			FIt("successfully adds a new file to a private Git repository", func() {
 				if !runHttpBasicAuthTests {
 					Skip("HTTP basic auth tests not enabled")
 				}

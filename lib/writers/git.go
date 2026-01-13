@@ -461,7 +461,7 @@ func (m *nativeGitClient) Clone(branch string) (string, error) {
 	return localDir, nil
 }
 
-// Add...
+// Add files to the repository
 func (m *nativeGitClient) Add(files ...string) (string, error) {
 	ctx := context.Background()
 	args := append([]string{"add"}, files...)

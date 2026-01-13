@@ -26,7 +26,6 @@ import (
 	"unicode"
 	"unicode/utf8"
 
-	"github.com/go-git/go-git/v5"
 	"github.com/go-git/go-git/v5/plumbing"
 	gitssh "github.com/go-git/go-git/v5/plumbing/transport/ssh"
 	"github.com/go-logr/logr"
@@ -98,12 +97,12 @@ func initTimeout() {
 
 // GitClient is a generic git client interface
 type GitClient interface {
-	Clone() (*git.Repository, error)
+	Clone(string) (string, error)
 	Checkout(revision string) (string, error)
-	CommitAndPush(branch, message string) (string, error)
+	CommitAndPush(branch, message, author string) (string, error)
 	Push(branch string) (string, error)
 	Fetch(revision string, depth int64) error
-	Init() (*git.Repository, error)
+	Init() (string, error)
 	Root() string
 }
 
@@ -1071,24 +1070,13 @@ func (m *nativeGitClient) HasFileChanged(filePath string) (bool, error) {
 		return true, nil
 	}
 
-	cmd := exec.CommandContext(context.TODO(), "pwd")
-	out, err := m.runCmdOutput(cmd, runOpts{})
-	if err != nil {
-		fmt.Printf("aaaaaaaaaaaaaaaaaaaaaaaaaaaaaa: %w\n", err)
-		return false, nil // No changes
-	}
-	fmt.Printf("aaaaaaaaaaaaaaaaaaaaaaaaaaaaaa oooooooooooooo: %w\n", string(out))
-
 	// use git diff --quiet and check exit code .. --cached is to consider files staged for deletion
 	_, err = m.runCmd(context.Background(), "diff", "--quiet", "--", filePath)
 	if err == nil {
-		fmt.Println("aaaaaaaaaaaaaaaaaaaaaaaaaaaaaa")
 		return false, nil // No changes
 	}
-	fmt.Printf("EEEEEEEEEEEEEEEEEEEEE 111111111: %v\n", err)
 	// Exit code 1 indicates: changes found
 	if strings.Contains(err.Error(), "exit status 1") {
-		fmt.Println("aaaaaaaaaaaaaaaaaaaaaaaaaaaaaa---------------")
 		return true, nil
 	}
 	// always return the actual wrapped error
