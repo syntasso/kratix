@@ -179,6 +179,7 @@ var _ = FDescribe("Git tests", func() {
 				)
 
 				It("sets up authentication", func() {
+					// TODO: adapt for Gitlab
 					httpCreds = writers.NewHTTPSCreds(
 						"x-access-token",         // username
 						ghPat,                    // password
@@ -215,10 +216,6 @@ var _ = FDescribe("Git tests", func() {
 					Expect(err).ToNot(HaveOccurred())
 
 					out, err := client.Checkout("main")
-					Expect(err).ToNot(HaveOccurred())
-					Expect(out).To(BeEmpty())
-
-					out, err = client.Checkout("main")
 					Expect(err).ToNot(HaveOccurred())
 					Expect(out).To(BeEmpty())
 				})
@@ -324,10 +321,6 @@ var _ = FDescribe("Git tests", func() {
 					Expect(err).ToNot(HaveOccurred())
 
 					out, err := client.Checkout("main")
-					Expect(err).ToNot(HaveOccurred())
-					Expect(out).To(BeEmpty())
-
-					out, err = client.Checkout("main")
 					Expect(err).ToNot(HaveOccurred())
 					Expect(out).To(BeEmpty())
 				})
@@ -438,7 +431,7 @@ var _ = FDescribe("Git tests", func() {
 				gitWriter, ok := writer.(*writers.GitWriter)
 				Expect(ok).To(BeTrue())
 
-				resource, err := getResourcePathWithExample(gitWriter, "")
+				resource, err := getTestDataToSave(gitWriter, "")
 				Expect(err).ToNot(HaveOccurred())
 
 				_, err = writer.UpdateFiles("", canaryWorkload, []v1alpha1.Workload{resource}, nil)
@@ -465,31 +458,33 @@ var _ = FDescribe("Git tests", func() {
 				err = gitWriter.ValidatePermissions()
 				Expect(err).ToNot(HaveOccurred())
 
+				// Create initial unique resources to save
 				desc := fmt.Sprintf("test %d", rand.Int())
-				resource, err := getResourcePathWithExample(gitWriter, desc)
+				resource, err := getTestDataToSave(gitWriter, desc)
 				Expect(err).ToNot(HaveOccurred())
 				_, err = writer.UpdateFiles("", canaryWorkload, []v1alpha1.Workload{resource}, nil)
 				Expect(err).ToNot(HaveOccurred())
 
-				resource, err = getResourcePathWithExample(gitWriter, desc)
+				// Ensure there are no updates for unchanged data
+				resource, err = getTestDataToSave(gitWriter, desc)
 				Expect(err).ToNot(HaveOccurred())
-				fmt.Println("kkkkkkkkkkkkkkkkkkkkkkkkkkkkkkkkk")
-				out, err := writer.UpdateFiles("", canaryWorkload, []v1alpha1.Workload{resource}, nil)
-				fmt.Printf("OOOOOOOOOOOOOUUUUUUU: %v\n", out)
+				_, err = writer.UpdateFiles("", canaryWorkload, []v1alpha1.Workload{resource}, nil)
 				Expect(err).To(HaveOccurred())
 
-				// restore
-				resource, err = getResourcePathWithExample(gitWriter, "")
+				// Ensure it can save new data
+				resource, err = getTestDataToSave(gitWriter, "")
 				Expect(err).ToNot(HaveOccurred())
 				_, err = writer.UpdateFiles("", canaryWorkload, []v1alpha1.Workload{resource}, nil)
 				Expect(err).ToNot(HaveOccurred())
+
+				// TODO: Ensure it removes data successfully
 			})
 		})
 
 	})
 })
 
-func getResourcePathWithExample(writer writers.StateStoreWriter, content string) (v1alpha1.Workload, error) {
+func getTestDataToSave(writer writers.StateStoreWriter, content string) (v1alpha1.Workload, error) {
 
 	if content == "" {
 		content = fmt.Sprintf("this confirms your infrastructure is reading from Kratix state stores (%d)", rand.Int())

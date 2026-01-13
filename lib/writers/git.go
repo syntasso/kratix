@@ -119,7 +119,7 @@ func (g *GitWriter) update(subDir, workPlacementName string, workloadsToCreate [
 	if err != nil {
 		return "", err
 	}
-	fmt.Println("RRRRRRRRRRRRRRRRRRRRRRRRRRRRRRRRRRRR")
+
 	defer os.RemoveAll(filepath.Dir(gr.LocalTmpDir)) //nolint:errcheck
 
 	err = g.deleteExistingFiles(subDir != "", dirInGitRepo, workloadsToDelete, gr.Worktree, logger)
@@ -157,8 +157,6 @@ func (g *GitWriter) update(subDir, workPlacementName string, workloadsToCreate [
 			return "", err
 		}
 
-		// REPLACE
-		fmt.Printf("WWWWWWWWWWWWWWWW  PPPPPPPPPP AAAAAAAAAAAAAA: %s\n", worktreeFilePath)
 		if _, err := g.Add(worktreeFilePath); err != nil {
 			logging.Error(log, err, "could not add file to worktree")
 			return "", err
@@ -175,7 +173,6 @@ func (g *GitWriter) update(subDir, workPlacementName string, workloadsToCreate [
 	if len(workloadsToCreate) > 0 {
 		action = "Update"
 	}
-	fmt.Println("CCCCCCCCCCCCCCCCCCCCCC PPPPPPPPPPPPPPPPPPPPP")
 	return g.commitAndPush(gr.Repo, action, workPlacementName, logger)
 }
 
