@@ -25,7 +25,6 @@ const (
 	httpPublicRepo  = "https://github.com/syntasso/testing-git-writer-public.git"
 	httpPrivateRepo = "https://github.com/syntasso/testing-git-writer-private.git"
 
-	sshPublicRepo  = "ssh://git@github.com/syntasso/testing-git-writer-public.git"
 	sshPrivateRepo = "ssh://git@github.com/syntasso/testing-git-writer-private.git"
 )
 
