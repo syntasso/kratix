@@ -5,11 +5,8 @@ import (
 	"context"
 	"crypto/fips140"
 	"crypto/rand"
-	"crypto/rsa"
 	"crypto/tls"
-	"crypto/x509"
 	"encoding/hex"
-	"encoding/pem"
 	"errors"
 	"fmt"
 	"math"
@@ -23,7 +20,6 @@ import (
 	"strings"
 	"syscall"
 	"time"
-	"unicode"
 	"unicode/utf8"
 
 	"github.com/go-git/go-git/v5/plumbing"
@@ -146,7 +142,6 @@ func injectGitHubAppCredentials(gitURL, token string) (string, error) {
 	return u.String(), nil
 }
 
-// func NewGitClient(req GitClientRequest) (GitClient, error) {
 func NewGitClient(req GitClientRequest) (*nativeGitClient, error) {
 
 	var accessToken string
@@ -220,33 +215,6 @@ func RunWithExecRunOpts(cmd *exec.Cmd, opts ExecRunOpts) (string, error) {
 		SkipErrorLogging: opts.SkipErrorLogging,
 		CaptureStderr:    opts.CaptureStderr}
 	return RunCommandExt(cmd, cmdOpts)
-}
-
-// GetCommandArgsToLog represents the given command in a way that we can copy-and-paste into a terminal
-func GetCommandArgsToLog(cmd *exec.Cmd) string {
-	var argsToLog []string
-	for _, arg := range cmd.Args {
-		if arg == "" {
-			argsToLog = append(argsToLog, `""`)
-			continue
-		}
-
-		containsSpace := false
-		for _, r := range arg {
-			if unicode.IsSpace(r) {
-				containsSpace = true
-				break
-			}
-		}
-		if containsSpace {
-			// add quotes and escape any internal quotes
-			argsToLog = append(argsToLog, strconv.Quote(arg))
-		} else {
-			argsToLog = append(argsToLog, arg)
-		}
-	}
-	args := strings.Join(argsToLog, " ")
-	return args
 }
 
 type CmdError struct {
@@ -486,13 +454,6 @@ type CommitMetadata struct {
 	RepoURL string
 }
 
-// RevisionReference contains a reference to a some information that is related in some way to another commit. For now,
-// it supports only references to a commit. In the future, it may support other types of references.
-type RevisionReference struct {
-	// Commit contains metadata about the commit that is related in some way to another commit.
-	Commit *CommitMetadata
-}
-
 // this should match reposerver/repository/repository.proto/RefsList
 type Refs struct {
 	Branches []string
@@ -544,27 +505,8 @@ type runOpts struct {
 	CaptureStderr    bool
 }
 
-var (
-	maxAttemptsCount = 1
-	maxRetryDuration time.Duration
-	retryDuration    time.Duration
-	factor           int64
-)
-
 // TODO: move it to constructor
 func init() {
-	if countStr := os.Getenv(EnvGitAttemptsCount); countStr != "" {
-		cnt, err := strconv.Atoi(countStr)
-		if err != nil {
-			panic(fmt.Sprintf("Invalid value in %s env variable: %v", EnvGitAttemptsCount, err))
-		}
-		maxAttemptsCount = int(math.Max(float64(cnt), 1))
-	}
-
-	maxRetryDuration = env.ParseDurationFromEnv(EnvGitRetryMaxDuration, DefaultGitRetryMaxDuration, 0, math.MaxInt64)
-	retryDuration = env.ParseDurationFromEnv(EnvGitRetryDuration, DefaultGitRetryDuration, 0, math.MaxInt64)
-	factor = env.ParseInt64FromEnv(EnvGitRetryFactor, DefaultGitRetryFactor, 0, math.MaxInt64)
-
 	BuiltinGitConfigEnv = append(BuiltinGitConfigEnv, fmt.Sprintf("GIT_CONFIG_COUNT=%d", len(builtinGitConfig)))
 	idx := 0
 	for k, v := range builtinGitConfig {
@@ -575,31 +517,6 @@ func init() {
 }
 
 type ClientOpts func(c *nativeGitClient)
-
-// WithCache sets git revisions cacher as well as specifies if client should tries to use cached resolved revision
-func WithCache(cache gitRefCache, loadRefFromCache bool) ClientOpts {
-	return func(c *nativeGitClient) {
-		c.gitRefCache = cache
-		c.loadRefFromCache = loadRefFromCache
-	}
-}
-
-func WithBuiltinGitConfig(enable bool) ClientOpts {
-	return func(c *nativeGitClient) {
-		if enable {
-			c.gitConfigEnv = BuiltinGitConfigEnv
-		} else {
-			c.gitConfigEnv = nil
-		}
-	}
-}
-
-// WithEventHandlers sets the git client event handlers
-func WithEventHandlers(handlers EventHandlers) ClientOpts {
-	return func(c *nativeGitClient) {
-		c.EventHandlers = handlers
-	}
-}
 
 var gitClientTimeout = env.ParseDurationFromEnv("ARGOCD_GIT_REQUEST_TIMEOUT", 15*time.Second, 0, math.MaxInt64)
 
@@ -921,26 +838,8 @@ func (m *nativeGitClient) runCmdOutput(cmd *exec.Cmd, ropts runOpts) (string, er
 const (
 	EnvVarGitSshInsecure = "KRATIX_GIT_SSH_INSECURE"
 
-	// EnvVarSSODebug is an environment variable to enable additional OAuth debugging in the API server
-	EnvVarSSODebug = "ARGOCD_SSO_DEBUG"
-	// EnvVarRBACDebug is an environment variable to enable additional RBAC debugging in the API server
-	EnvVarRBACDebug = "ARGOCD_RBAC_DEBUG"
 	// EnvVarSSHDataPath overrides the location where SSH known hosts for repo access data is stored
 	EnvVarSSHDataPath = "KRATIX_SSH_DATA_PATH"
-	// EnvVarTLSDataPath overrides the location where TLS certificate for repo access data is stored
-	EnvVarTLSDataPath = "ARGOCD_TLS_DATA_PATH"
-	// EnvGitAttemptsCount specifies number of git remote operations attempts count
-	EnvGitAttemptsCount = "ARGOCD_GIT_ATTEMPTS_COUNT"
-	// EnvGitRetryMaxDuration specifies max duration of git remote operation retry
-	EnvGitRetryMaxDuration = "ARGOCD_GIT_RETRY_MAX_DURATION"
-	// EnvGitRetryDuration specifies duration of git remote operation retry
-	EnvGitRetryDuration = "ARGOCD_GIT_RETRY_DURATION"
-	// EnvGitRetryFactor specifies factor of git remote operation retry
-	EnvGitRetryFactor = "ARGOCD_GIT_RETRY_FACTOR"
-
-	DefaultGitRetryMaxDuration time.Duration = time.Second * 5        // 5s
-	DefaultGitRetryDuration    time.Duration = time.Millisecond * 250 // 0.25s
-	DefaultGitRetryFactor                    = int64(2)
 )
 
 // EnsurePrefix idempotently ensures that a base string has a given prefix.
@@ -1044,29 +943,12 @@ func getDefaultSSHKeyExchangeAlgorithms() []string {
 	return SupportedSSHKeyExchangeAlgorithms
 }
 
-func GenerateSSHCreds(key *rsa.PrivateKey) map[string][]byte {
-	privateKeyPEM := pem.Block{
-		Type:  "RSA PRIVATE KEY",
-		Bytes: x509.MarshalPKCS1PrivateKey(key),
-	}
-	var b bytes.Buffer
-	if err := pem.Encode(&b, &privateKeyPEM); err != nil {
-		log.Fatalf("Failed to write private key to buffer: %v", err)
-	}
-
-	return map[string][]byte{
-		"sshPrivateKey": b.Bytes(),
-		"knownHosts":    []byte("github.com ssh-ed25519 AAAAC3NzaC1lZDI1NTE5AAAAIOMqqnkVzrm0SdG6UOoqKLsabgH5C9okWi0dh2l9GKJl"),
-	}
-}
-
 // HasFileChanged returns the outout of git diff considering whether it is tracked or un-tracked
 func (m *nativeGitClient) HasFileChanged(filePath string) (bool, error) {
 	// Step 1: Is it UNTRACKED? (file is new to git)
 	_, err := m.runCmd(context.Background(), "ls-files", "--error-unmatch", filePath)
 	if err != nil {
 		// File is NOT tracked by git → means it's new/unadded
-		fmt.Printf("EEEEEEEEEEEEEEEEEEEEE: %v\n", err)
 		return true, nil
 	}
 

@@ -1,7 +1,13 @@
 package system_test
 
 import (
+	"bytes"
+	cryptorand "crypto/rand"
+	"crypto/rsa"
+	"crypto/x509"
+	"encoding/pem"
 	"fmt"
+	"log"
 	"math/rand"
 	"os"
 	"path/filepath"
@@ -363,6 +369,7 @@ var _ = FDescribe("Git tests", func() {
 					Skip("SSH tests not enabled")
 				}
 
+				sshCreds := generateInvalidSSHCreds()
 				writer, err := writers.NewGitWriter(logger, *stateStoreSpec, dest.Spec.Path, sshCreds)
 				Expect(err).ToNot(HaveOccurred())
 				Expect(writer).ToNot(BeNil())
@@ -415,7 +422,7 @@ var _ = FDescribe("Git tests", func() {
 		})
 
 		FDescribe("using HTTP basic auth", func() {
-			FIt("successfully adds a new file to a private Git repository", func() {
+			It("successfully adds a new file to a private Git repository", func() {
 				if !runHttpBasicAuthTests {
 					Skip("HTTP basic auth tests not enabled")
 				}
@@ -509,4 +516,23 @@ func getTestDataToSave(writer writers.StateStoreWriter, content string) (v1alpha
 	}
 
 	return resource, err
+}
+
+func generateInvalidSSHCreds() map[string][]byte {
+	key, err := rsa.GenerateKey(cryptorand.Reader, 1024)
+	Expect(err).NotTo(HaveOccurred())
+
+	privateKeyPEM := pem.Block{
+		Type:  "RSA PRIVATE KEY",
+		Bytes: x509.MarshalPKCS1PrivateKey(key),
+	}
+	var b bytes.Buffer
+	if err := pem.Encode(&b, &privateKeyPEM); err != nil {
+		log.Fatalf("Failed to write private key to buffer: %v", err)
+	}
+
+	return map[string][]byte{
+		"sshPrivateKey": b.Bytes(),
+		"knownHosts":    []byte("github.com ssh-ed25519 AAAAC3NzaC1lZDI1NTE5AAAAIOMqqnkVzrm0SdG6UOoqKLsabgH5C9okWi0dh2l9GKJl"),
+	}
 }
