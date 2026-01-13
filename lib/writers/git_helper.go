@@ -26,6 +26,7 @@ import (
 	"unicode"
 	"unicode/utf8"
 
+	"github.com/go-git/go-git/v5"
 	"github.com/go-git/go-git/v5/plumbing"
 	gitssh "github.com/go-git/go-git/v5/plumbing/transport/ssh"
 	"github.com/go-logr/logr"
@@ -96,15 +97,15 @@ func initTimeout() {
 }
 
 // GitClient is a generic git client interface
-//type GitClient interface {
-//	Clone() (*git.Repository, error)
-//	Checkout(revision string) (string, error)
-//	CommitAndPush(branch, message string) (string, error)
-//	Push(branch string) (string, error)
-//	Fetch(revision string, depth int64) error
-//	Init() (*git.Repository, error)
-//	Root() string
-//}
+type GitClient interface {
+	Clone() (*git.Repository, error)
+	Checkout(revision string) (string, error)
+	CommitAndPush(branch, message string) (string, error)
+	Push(branch string) (string, error)
+	Fetch(revision string, depth int64) error
+	Init() (*git.Repository, error)
+	Root() string
+}
 
 type GitClientRequest struct {
 	RawRepoURL string
@@ -789,14 +790,16 @@ func (m *nativeGitClient) Push(branch string) (string, error) {
 }
 
 // CommitAndPush commits and pushes changes to the target branch.
-func (m *nativeGitClient) CommitAndPush(branch, message string) (string, error) {
+func (m *nativeGitClient) CommitAndPush(branch, message, author string) (string, error) {
 	ctx := context.Background()
 	out, err := m.runCmd(ctx, "add", ".")
 	if err != nil {
 		return out, fmt.Errorf("failed to add files: %w", err)
 	}
 
-	out, err = m.runCmd(ctx, "commit", "-m", message)
+	// TODO; handle author input, need to make sure it looks like this
+	// --author="Tom Riddle <bleh@bleh.com>"
+	out, err = m.runCmd(ctx, "commit", "-m", message, "--author", author)
 	if err != nil {
 		if strings.Contains(out, ErrNothingToCommit.Error()) {
 			return out, ErrNothingToCommit
@@ -875,9 +878,10 @@ func (m *nativeGitClient) runCmdOutput(cmd *exec.Cmd, ropts runOpts) (string, er
 	cmd.Env = append(cmd.Env, m.gitConfigEnv...)
 
 	cmd.Env = append(cmd.Env,
-		"GIT_TERMINAL_PROMPT=0", // Disable terminal prompts
-		"GIT_ASKPASS=true",      // Disable password prompts
-		"GIT_CONFIG_COUNT=1",    // Number of config settings
+		// TODO; revisit as we have GIT_TERMINAL_PROMPT above
+		// "GIT_TERMINAL_PROMPT=0", // Disable terminal prompts
+		"GIT_ASKPASS=true",   // Disable password prompts by setting it to the binary `true``
+		"GIT_CONFIG_COUNT=1", // Number of config settings
 		"GIT_CONFIG_KEY_0=credential.helper",
 		"GIT_CONFIG_VALUE_0=", // Disable credential helper
 	)

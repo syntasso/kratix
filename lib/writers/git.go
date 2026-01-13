@@ -5,14 +5,12 @@ import (
 	"errors"
 	"fmt"
 	"os"
-	"os/exec"
 	"path"
 	"path/filepath"
 	"strings"
 	"unicode"
 
 	"github.com/go-git/go-git/v5"
-	"github.com/go-git/go-git/v5/plumbing/object"
 	"github.com/go-git/go-git/v5/plumbing/transport"
 	"github.com/go-logr/logr"
 	"github.com/syntasso/kratix/api/v1alpha1"
@@ -171,7 +169,7 @@ func (g *GitWriter) update(subDir, workPlacementName string, workloadsToCreate [
 	if len(workloadsToCreate) > 0 {
 		action = "Update"
 	}
-	return g.commitAndPush(localDir, action, workPlacementName, logger)
+	return g.commitAndPush(action, workPlacementName, logger)
 }
 
 // deleteExistingFiles removes all files in dir when removeDirectory is set to true
@@ -252,9 +250,8 @@ func (g *GitWriter) push() error {
 }
 
 // validatePush attempts to validate write permissions by pushing no changes to the remote
-// If the push errors with "NoErrAlreadyUpToDate", it means we can write.
-func (g *GitWriter) validatePush(repo *git.Repository, logger logr.Logger) error {
-
+// If the push doesn't return an error, it means we can write.
+func (g *GitWriter) validatePush(logger logr.Logger) error {
 	_, err := g.Push(g.GitServer.Branch)
 	if err != nil {
 		return fmt.Errorf("write permission validation failed: %w", err)
@@ -274,7 +271,7 @@ func (g *GitWriter) ValidatePermissions() error {
 	}
 	defer os.RemoveAll(localDir) //nolint:errcheck
 
-	if err := g.validatePush(localDir, g.Log); err != nil {
+	if err := g.validatePush(g.Log); err != nil {
 		return err
 	}
 
@@ -331,9 +328,7 @@ func (m *nativeGitClient) HasChanges() (bool, error) {
 	return strings.Contains(out, "working tree clean"), nil
 }
 
-func (g *GitWriter) commitAndPush(repo *git.Repository, action, workPlacementName string, logger logr.Logger) (string, error) {
-	var sha string
-
+func (g *GitWriter) commitAndPush(action, workPlacementName string, logger logr.Logger) (string, error) {
 	hasChanged, err := g.nativeGitClient.HasChanges()
 	if err != nil {
 		logging.Error(logger, err, "could not get check local changes")
@@ -344,44 +339,17 @@ func (g *GitWriter) commitAndPush(repo *git.Repository, action, workPlacementNam
 		return "", err
 	}
 
-	// Run a commit with author and message
-	commitMsg := fmt.Sprintf("%s from:::::::: %s", action, workPlacementName)
-	sha, err = g.CommitAndPush(g.GitServer.Branch, commitMsg)
-	commitHash, err := worktree.Commit(), &git.CommitOptions{
-		Author: &object.Signature{
-			Name:  g.Author.Name,
-			Email: g.Author.Email,
-			When:  time.Now(),
-		},
-	})
-	if err != nil {
-		fmt.Printf("WWWWWWWWWWWWWWWWWWWWWW CCCCCCCCCCCCCCCCCCCCCC 777777777777777: %v\n", err)
-		return "", err
-	}
-	// Save the SHA
-	if !commitHash.IsZero() {
-		sha = commitHash.String()
-	}
-
-	fmt.Println("WWWWWWWWWWWWWWWWWWWWWW CCCCCCCCCCCCCCCCCCCCCC 888888888888")
-
 	logging.Info(logger, "pushing changes")
 
-	_, err = g.CommitAndPush("main", "test")
+	// Run a commit with author and message
+	commitMsg := fmt.Sprintf("%s from:::::::: %s", action, workPlacementName)
+	author := fmt.Sprintf("%s <%s>", g.Author.Name, g.Author.Email)
+	commitSha, err := g.CommitAndPush(g.GitServer.Branch, commitMsg, author)
 	if err != nil {
 		logging.Error(logger, err, "could not push changes")
 		return "", err
 	}
-
-	/*
-		if err := g.push(repo, logger); err != nil {
-			fmt.Println("WWWWWWWWWWWWWWWWWWWWWW CCCCCCCCCCCCCCCCCCCCCC 444444444444444")
-			logging.Error(logger, err, "could not push changes")
-			return "", err
-		}
-	*/
-
-	return sha, nil
+	return commitSha, nil
 }
 
 func createLocalDirectory(logger logr.Logger) (string, error) {

@@ -49,8 +49,6 @@ var (
 func setGitTestsEnv() {
 
 	logger = ctrl.Log.WithName("setup")
-	os.Setenv("GIT_TERMINAL_PROMPT", "0")
-	os.Setenv("GIT_ASKPASS", "echo")
 
 	sshDataPath := os.Getenv("KRATIX_SSH_DATA_PATH")
 	if sshDataPath != "" {
