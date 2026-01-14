@@ -402,7 +402,7 @@ var _ = FDescribe("Git tests", func() {
 
 func getGithubAppCreds() map[string][]byte {
 	envGithubAppAppID := os.Getenv("TEST_GIT_WRITER_SSH_GITHUB_APP_APPID")
-	envGithubAppInstallationId := os.Getenv("TEST_GIT_WRITER_SSH_GITHUB_INSTALLATIONID")
+	envGithubAppInstallationId := os.Getenv("TEST_GIT_WRITER_SSH_GITHUB_APP_INSTALLATIONID")
 	return map[string][]byte{
 
 		"appID":          []byte(envGithubAppAppID),
