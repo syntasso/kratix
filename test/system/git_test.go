@@ -33,32 +33,15 @@ var _ = FDescribe("Git tests", Ordered, func() {
 	sshPrivateRepo := "ssh://git@github.com/syntasso/testing-git-writer-private.git"
 
 	var (
-		ghPat                 string
-		githubAppPrivateKey   string
-		httpCreds             map[string][]byte
-		runGitHubAppAuthTests bool
-		runHttpBasicAuthTests bool
-
-		canaryWorkload = "kratix-canary"
-		githubAppCreds map[string][]byte
+		githubAppPrivateKey string
+		canaryWorkload      = "kratix-canary"
+		githubAppCreds      map[string][]byte
 	)
 
 	BeforeAll(func() {
-		ghPat = os.Getenv("TEST_GH_PAT")
-		if ghPat != "" {
-			runHttpBasicAuthTests = true
-		}
-		httpCreds = map[string][]byte{
-			"username": []byte("x-access-token"),
-			"password": []byte(ghPat),
-		}
-
 		githubAppPrivateKey = os.Getenv("KRATIX_GITHUB_APP_PRIVATE_KEY")
 		githubAppPrivateKeyData, err := os.ReadFile(githubAppPrivateKey)
 		Expect(err).ToNot(HaveOccurred())
-		if githubAppPrivateKey != "" {
-			runGitHubAppAuthTests = true
-		}
 
 		githubAppCreds = map[string][]byte{
 			// TODO: convert to env vars
@@ -124,6 +107,8 @@ var _ = FDescribe("Git tests", Ordered, func() {
 
 				It("sets up authentication", func() {
 					// TODO: adapt for Gitlab
+					creds := getGithubPATCreds()
+					ghPat := string(creds["password"])
 					httpCreds = writers.NewHTTPSCreds(
 						"x-access-token",         // username
 						ghPat,                    // password
@@ -137,11 +122,6 @@ var _ = FDescribe("Git tests", Ordered, func() {
 				})
 
 				It("successfully clones the repository", func() {
-
-					if !runHttpBasicAuthTests {
-						Skip("HTTP basic auth tests not enabled")
-					}
-
 					client, err = writers.NewGitClient(writers.GitClientRequest{
 						RawRepoURL: httpPrivateRepo,
 						Root:       "",
@@ -310,34 +290,34 @@ var _ = FDescribe("Git tests", Ordered, func() {
 		})
 
 		Describe("using GitHub App auth", func() {
+			var (
+				stateStoreSpec *v1alpha1.GitStateStoreSpec
+				dest           *v1alpha1.Destination
+				gitWriter      *writers.GitWriter
+			)
 
-			stateStoreSpec, dest := getStateStoreAndDest("githubApp", httpPrivateRepo)
-
-			It("validates permissions to the repository when credentials are correct", func() {
-				if !runGitHubAppAuthTests {
-					Skip("GitHub App auth tests not enabled")
-				}
+			BeforeEach(func() {
+				var err error
+				var ok bool
+				stateStoreSpec, dest = getStateStoreAndDest("githubApp", httpPrivateRepo)
 
 				writer, err := writers.NewGitWriter(logger, *stateStoreSpec, dest.Spec.Path, githubAppCreds)
 				Expect(err).ToNot(HaveOccurred())
 				Expect(writer).ToNot(BeNil())
 
 				Expect(writer).To(BeAssignableToTypeOf(&writers.GitWriter{}))
-				gitWriter, ok := writer.(*writers.GitWriter)
+				gitWriter, ok = writer.(*writers.GitWriter)
 				Expect(ok).To(BeTrue())
 
-				err = gitWriter.ValidatePermissions()
+			})
+
+			It("validates permissions to the repository when credentials are correct", func() {
+				err := gitWriter.ValidatePermissions()
 				Expect(err).ToNot(HaveOccurred())
 			})
 
 			// TODO: should we test the behaviour for when installationID or private key are incorrect as well?
 			It("does not instantiate the writer when appID is incorrect", func() {
-				if !runGitHubAppAuthTests {
-					Skip("GitHub App auth tests not enabled")
-				}
-
-				stateStoreSpec, dest := getStateStoreAndDest("githubApp", httpPrivateRepo)
-
 				creds := githubAppCreds
 				creds["appID"] = []byte("1111111")
 
@@ -348,70 +328,69 @@ var _ = FDescribe("Git tests", Ordered, func() {
 		})
 
 		Describe("using HTTP basic auth", func() {
-			It("successfully adds a new file to a private Git repository", func() {
-				if !runHttpBasicAuthTests {
-					Skip("HTTP basic auth tests not enabled")
-				}
-				stateStoreSpec, dest := getStateStoreAndDest("basicAuth", httpPrivateRepo)
+			var (
+				stateStoreSpec *v1alpha1.GitStateStoreSpec
+				dest           *v1alpha1.Destination
+				httpCreds      map[string][]byte
+				gitWriter      *writers.GitWriter
+			)
 
-				writer, err := writers.NewGitWriter(logger, *stateStoreSpec, dest.Spec.Path, httpCreds)
-				Expect(err).ToNot(HaveOccurred())
-				Expect(writer).ToNot(BeNil())
-
-				resource, err := getTestDataToSave("")
-				Expect(err).ToNot(HaveOccurred())
-
-				_, err = writer.UpdateFiles("", canaryWorkload, []v1alpha1.Workload{resource}, nil)
-				Expect(err).ToNot(HaveOccurred())
-
-				_, err = writer.ReadFile(resource.Filepath)
-				Expect(err).ToNot(HaveOccurred())
-			})
-
-			It("does not add the file and push the branch if the file content is not modified", func() {
-				if !runHttpBasicAuthTests {
-					Skip("HTTP basic auth tests not enabled")
-				}
-				stateStoreSpec, dest := getStateStoreAndDest("basicAuth", httpPrivateRepo)
+			BeforeEach(func() {
+				stateStoreSpec, dest = getStateStoreAndDest("basicAuth", httpPrivateRepo)
+				httpCreds = getGithubPATCreds()
 
 				writer, err := writers.NewGitWriter(logger, *stateStoreSpec, dest.Spec.Path, httpCreds)
 				Expect(err).ToNot(HaveOccurred())
 				Expect(writer).ToNot(BeNil())
 
 				Expect(writer).To(BeAssignableToTypeOf(&writers.GitWriter{}))
-				gitWriter, ok := writer.(*writers.GitWriter)
+				var ok bool
+				gitWriter, ok = writer.(*writers.GitWriter)
 				Expect(ok).To(BeTrue())
+			})
 
-				err = gitWriter.ValidatePermissions()
+			It("successfully adds a new file to a private Git repository", func() {
+				resource, err := getTestDataToSave("")
+				Expect(err).ToNot(HaveOccurred())
+
+				_, err = gitWriter.UpdateFiles("", canaryWorkload, []v1alpha1.Workload{resource}, nil)
+				Expect(err).ToNot(HaveOccurred())
+
+				_, err = gitWriter.ReadFile(resource.Filepath)
+				Expect(err).ToNot(HaveOccurred())
+			})
+
+			It("does not add the file and push the branch if the file content is not modified", func() {
+				err := gitWriter.ValidatePermissions()
 				Expect(err).ToNot(HaveOccurred())
 
 				// Create initial unique resources to save
 				desc := fmt.Sprintf("test %d", rand.Int())
 				resource, err := getTestDataToSave(desc)
 				Expect(err).ToNot(HaveOccurred())
-				_, err = writer.UpdateFiles("", canaryWorkload, []v1alpha1.Workload{resource}, nil)
+				_, err = gitWriter.UpdateFiles("", canaryWorkload, []v1alpha1.Workload{resource}, nil)
 				Expect(err).ToNot(HaveOccurred())
 
 				// Ensure there are no updates for unchanged data
 				resource, err = getTestDataToSave(desc)
 				Expect(err).ToNot(HaveOccurred())
-				_, err = writer.UpdateFiles("", canaryWorkload, []v1alpha1.Workload{resource}, nil)
+				_, err = gitWriter.UpdateFiles("", canaryWorkload, []v1alpha1.Workload{resource}, nil)
 				Expect(err).To(HaveOccurred())
 
 				// Ensure it can save new data
 				resource, err = getTestDataToSave("")
 				Expect(err).ToNot(HaveOccurred())
-				_, err = writer.UpdateFiles("", canaryWorkload, []v1alpha1.Workload{resource}, nil)
+				_, err = gitWriter.UpdateFiles("", canaryWorkload, []v1alpha1.Workload{resource}, nil)
 				Expect(err).ToNot(HaveOccurred())
 
 				// NOTE: when there's a single file in a dir,
 				// `git rm` removes the entire dir
 				baseDir := getStateStoreAndDestBaseDir(stateStoreSpec, dest)
 				path := filepath.Join(baseDir, resource.Filepath)
-				_, err = writer.UpdateFiles("", canaryWorkload, nil, []string{path})
+				_, err = gitWriter.UpdateFiles("", canaryWorkload, nil, []string{path})
 				Expect(err).ToNot(HaveOccurred())
 
-				_, err = writer.ReadFile(path)
+				_, err = gitWriter.ReadFile(path)
 				Expect(err).To(HaveOccurred())
 				Expect(errors.Is(err, writers.ErrFileNotFound)).To(BeTrue())
 			})
@@ -419,6 +398,14 @@ var _ = FDescribe("Git tests", Ordered, func() {
 
 	})
 })
+
+func getGithubPATCreds() map[string][]byte {
+	ghPat := os.Getenv("TEST_GIT_WRITER_HTTP_GITHUB_PAT")
+	return map[string][]byte{
+		"username": []byte("x-access-token"),
+		"password": []byte(ghPat),
+	}
+}
 
 func getGithubSSHCreds() map[string][]byte {
 	envGithubSSHPrivateKey := os.Getenv("TEST_GIT_WRITER_SSH_GITHUB_PRIVATE_KEY")
