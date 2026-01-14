@@ -201,8 +201,9 @@ var _ = FDescribe("Git tests", func() {
 
 				It("sets up authentication", func() {
 					githubCreds := getGithubSSHCreds()
-					sshPrivateKey := string(githubCreds["sshPrivateKey"])
-					sshNativeCreds = writers.NewSSHCreds(sshPrivateKey,
+					sshNativeCreds = writers.NewSSHCreds(
+						string(githubCreds["sshPrivateKey"]),
+						string(githubCreds["knownHosts"]),
 						"",
 						false,
 						"")

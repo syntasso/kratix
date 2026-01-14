@@ -17,7 +17,6 @@ import (
 	"net/http"
 	"net/url"
 	"os"
-	"path/filepath"
 	"strconv"
 	"strings"
 	"sync"
@@ -31,7 +30,6 @@ import (
 	"github.com/golang-jwt/jwt"
 	"github.com/google/go-github/v69/github"
 	"github.com/syntasso/kratix/api/v1alpha1"
-	"golang.org/x/crypto/ssh"
 
 	gocache "github.com/patrickmn/go-cache"
 
@@ -268,14 +266,22 @@ var _ Creds = SSHCreds{}
 // SSH implementation
 type SSHCreds struct {
 	sshPrivateKey string
+	knownHosts    string
 	caPath        string
 	insecure      bool
 	proxy         string
+
+	knownHostsFile string
 }
 
-// //////////////////////////////////////
-func NewSSHCreds(sshPrivateKey string, caPath string, insecureIgnoreHostKey bool, proxy string) SSHCreds {
-	return SSHCreds{sshPrivateKey, caPath, insecureIgnoreHostKey, proxy}
+func NewSSHCreds(sshPrivateKey string, knownHostFile string, caPath string, insecureIgnoreHostKey bool, proxy string) SSHCreds {
+	return SSHCreds{
+		sshPrivateKey: sshPrivateKey,
+		knownHosts:    knownHostFile,
+		caPath:        caPath,
+		insecure:      insecureIgnoreHostKey,
+		proxy:         proxy,
+	}
 }
 
 // GetUserInfo returns empty strings for user info.
@@ -285,13 +291,7 @@ func (c SSHCreds) GetUserInfo(_ context.Context) (string, string, error) {
 	return "", "", nil
 }
 
-type sshPrivateKeyFile string
-
 type authFilePaths []string
-
-func (f sshPrivateKeyFile) Close() error {
-	return os.Remove(string(f))
-}
 
 // Remove a list of files that have been created as temp files while creating
 // HTTPCreds object above.
@@ -307,14 +307,26 @@ func (f authFilePaths) Close() error {
 	return retErr
 }
 
+type sshPrivateFiles []string
+
+func (f sshPrivateFiles) Close() error {
+	var retErr error
+	for _, path := range f {
+		err := os.Remove(path)
+		if err != nil {
+			log.Errorf("SSHCreds.Close(): Could not remove temp file %s: %v", path, err)
+			retErr = err
+		}
+	}
+	return retErr
+}
+
 func (c SSHCreds) Environ() (io.Closer, []string, error) {
 	// use the SHM temp dir from util, more secure
 	file, err := os.CreateTemp(argoio.TempDir, "")
 	if err != nil {
 		return nil, nil, err
 	}
-
-	sshCloser := sshPrivateKeyFile(file.Name())
 
 	defer func() {
 		if err = file.Close(); err != nil {
@@ -324,6 +336,13 @@ func (c SSHCreds) Environ() (io.Closer, []string, error) {
 			}).Errorf("error closing file %q: %v", file.Name(), err)
 		}
 	}()
+
+	err = (&c).getSSHKnownHostsDataPath()
+	if err != nil {
+		return nil, nil, err
+	}
+
+	sshCloser := sshPrivateFiles{file.Name(), c.knownHostsFile}
 
 	_, err = file.WriteString(c.sshPrivateKey + "\n")
 	if err != nil {
@@ -337,8 +356,7 @@ func (c SSHCreds) Environ() (io.Closer, []string, error) {
 		env = append(env, "GIT_SSL_CAINFO="+c.caPath)
 	}
 
-	knownHostsFile := GetSSHKnownHostsDataPath()
-	args = append(args, "-F", "/dev/null", "-o", "StrictHostKeyChecking=yes", "-o", "IdentityAgent=none", "-o", "UserKnownHostsFile="+knownHostsFile)
+	args = append(args, "-F", "/dev/null", "-o", "StrictHostKeyChecking=yes", "-o", "IdentityAgent=none", "-o", "UserKnownHostsFile="+c.knownHostsFile)
 
 	// Handle SSH socks5 proxy settings
 	proxyEnv := []string{}
@@ -360,14 +378,24 @@ func (c SSHCreds) Environ() (io.Closer, []string, error) {
 	}
 	env = append(env, []string{"GIT_SSH_COMMAND=" + strings.Join(args, " ")}...)
 	env = append(env, proxyEnv...)
+
 	return sshCloser, env, nil
 }
 
-func GetSSHKnownHostsDataPath() string {
-	if envPath := os.Getenv(EnvVarSSHDataPath); envPath != "" {
-		return filepath.Join(envPath, DefaultSSHKnownHostsName)
+func (c *SSHCreds) getSSHKnownHostsDataPath() error {
+
+	knownHostsFile, err := os.CreateTemp("", "knownHosts")
+	if err != nil {
+		return fmt.Errorf("error creating knownHosts file: %w", err)
 	}
-	return filepath.Join(common.DefaultPathSSHConfig, DefaultSSHKnownHostsName)
+	_, err = knownHostsFile.Write([]byte(c.knownHosts))
+	if err != nil {
+		return fmt.Errorf("error writing knownHosts file: %w", err)
+	}
+
+	c.knownHostsFile = knownHostsFile.Name()
+
+	return nil
 }
 
 const (
@@ -854,41 +882,13 @@ func setAuth(stateStoreSpec v1alpha1.GitStateStoreSpec, destinationPath string, 
 			return nil, err
 		}
 
-		credsX = NewSSHCreds(string(sshCreds.SSHPrivateKey), "", false, "")
+		credsX = NewSSHCreds(string(sshCreds.SSHPrivateKey), string(sshCreds.KnownHosts), "", false, "")
 
 		sshKey, err := tx_ssh.NewPublicKeys(sshCreds.SSHUser, sshCreds.SSHPrivateKey, "")
 		if err != nil {
 			return nil, fmt.Errorf("error parsing sshKey: %w", err)
 		}
 
-		if gitSshInsecure := os.Getenv(EnvVarGitSshInsecure); gitSshInsecure == "true" {
-
-			sshKey.HostKeyCallback = ssh.InsecureIgnoreHostKey()
-
-		} else {
-			// Set up validation of SSH known hosts for using our ssh_known_hosts
-			// file.
-			knownHostsFile, err := os.CreateTemp("", "knownHosts")
-			if err != nil {
-				return nil, fmt.Errorf("error creating knownHosts file: %w", err)
-			}
-
-			_, err = knownHostsFile.Write(sshCreds.KnownHosts)
-			if err != nil {
-				return nil, fmt.Errorf("error writing knownHosts file: %w", err)
-			}
-
-			knownHostsCallback, err := tx_ssh.NewKnownHostsCallback(knownHostsFile.Name())
-			if err != nil {
-				return nil, fmt.Errorf("error parsing known hosts: %w", err)
-			}
-
-			sshKey.HostKeyCallback = knownHostsCallback
-			err = os.Remove(knownHostsFile.Name())
-			if err != nil {
-				return nil, fmt.Errorf("error removing knownHosts file: %w", err)
-			}
-		}
 
 		authMethod = sshKey
 
