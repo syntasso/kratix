@@ -5,6 +5,7 @@ import (
 	cryptorand "crypto/rand"
 	"crypto/rsa"
 	"crypto/x509"
+	"encoding/base64"
 	"encoding/pem"
 	"errors"
 	"fmt"
@@ -32,46 +33,28 @@ var _ = FDescribe("Git tests", Ordered, func() {
 	sshPrivateRepo := "ssh://git@github.com/syntasso/testing-git-writer-private.git"
 
 	var (
-		ghPat                   string
-		githubAppPrivateKey     string
-		githubAppPrivateKeyData []byte
-		httpCreds               map[string][]byte
-		runGitHubAppAuthTests   bool
-		runHttpBasicAuthTests   bool
-		runSshTests             bool
-		sshCreds                map[string][]byte
-		sshPrivateKey           []byte
+		ghPat                 string
+		githubAppPrivateKey   string
+		httpCreds             map[string][]byte
+		runGitHubAppAuthTests bool
+		runHttpBasicAuthTests bool
 
 		canaryWorkload = "kratix-canary"
 		githubAppCreds map[string][]byte
 	)
 
 	BeforeAll(func() {
-		sshDataPath := os.Getenv("KRATIX_SSH_DATA_PATH")
-		if sshDataPath != "" {
-			runSshTests = true
-		}
 		ghPat = os.Getenv("TEST_GH_PAT")
 		if ghPat != "" {
 			runHttpBasicAuthTests = true
 		}
-
-		var err error
-		sshPrivateKey, err = os.ReadFile(fmt.Sprintf("%s/private.key", sshDataPath))
-		Expect(err).ToNot(HaveOccurred())
-
 		httpCreds = map[string][]byte{
 			"username": []byte("x-access-token"),
 			"password": []byte(ghPat),
 		}
 
-		sshCreds = map[string][]byte{
-			"sshPrivateKey": sshPrivateKey,
-			"knownHosts":    []byte("github.com ssh-ed25519 AAAAC3NzaC1lZDI1NTE5AAAAIOMqqnkVzrm0SdG6UOoqKLsabgH5C9okWi0dh2l9GKJl"),
-		}
-
 		githubAppPrivateKey = os.Getenv("KRATIX_GITHUB_APP_PRIVATE_KEY")
-		githubAppPrivateKeyData, err = os.ReadFile(githubAppPrivateKey)
+		githubAppPrivateKeyData, err := os.ReadFile(githubAppPrivateKey)
 		Expect(err).ToNot(HaveOccurred())
 		if githubAppPrivateKey != "" {
 			runGitHubAppAuthTests = true
@@ -256,15 +239,15 @@ var _ = FDescribe("Git tests", Ordered, func() {
 				)
 
 				It("sets up authentication", func() {
-					sshNativeCreds = writers.NewSSHCreds(string(sshPrivateKey), "", false, "")
+					githubCreds := getGithubSSHCreds()
+					sshPrivateKey := string(githubCreds["sshPrivateKey"])
+					sshNativeCreds = writers.NewSSHCreds(sshPrivateKey,
+						"",
+						false,
+						"")
 				})
 
 				It("successfully clones the repository", func() {
-
-					if !runSshTests {
-						Skip("SSH tests not enabled")
-					}
-
 					client, err = writers.NewGitClient(writers.GitClientRequest{
 						RawRepoURL: sshPrivateRepo,
 						Auth:       &writers.Auth{Creds: sshNativeCreds},
@@ -298,10 +281,7 @@ var _ = FDescribe("Git tests", Ordered, func() {
 			stateStoreSpec, dest := getStateStoreAndDest("ssh", sshPrivateRepo)
 
 			It("validates the permissions if the credentials are correct", func() {
-				if !runSshTests {
-					Skip("SSH tests not enabled")
-				}
-
+				sshCreds := getGithubSSHCreds()
 				writer, err := writers.NewGitWriter(logger, *stateStoreSpec, dest.Spec.Path, sshCreds)
 				Expect(err).ToNot(HaveOccurred())
 				Expect(writer).ToNot(BeNil())
@@ -315,10 +295,6 @@ var _ = FDescribe("Git tests", Ordered, func() {
 			})
 
 			It("does not clone a protected git repository if the credentials are incorrect", func() {
-				if !runSshTests {
-					Skip("SSH tests not enabled")
-				}
-
 				sshCreds := getInvalidSSHCreds()
 				writer, err := writers.NewGitWriter(logger, *stateStoreSpec, dest.Spec.Path, sshCreds)
 				Expect(err).ToNot(HaveOccurred())
@@ -443,6 +419,16 @@ var _ = FDescribe("Git tests", Ordered, func() {
 
 	})
 })
+
+func getGithubSSHCreds() map[string][]byte {
+	envGithubSSHPrivateKey := os.Getenv("TEST_GIT_WRITER_SSH_GITHUB_PRIVATE_KEY")
+	githubSSHPrivateKey, err := base64.StdEncoding.DecodeString(envGithubSSHPrivateKey)
+	Expect(err).ToNot(HaveOccurred())
+	return map[string][]byte{
+		"sshPrivateKey": githubSSHPrivateKey,
+		"knownHosts":    []byte("github.com ssh-ed25519 AAAAC3NzaC1lZDI1NTE5AAAAIOMqqnkVzrm0SdG6UOoqKLsabgH5C9okWi0dh2l9GKJl"),
+	}
+}
 
 func getTestDataToSave(content string) (v1alpha1.Workload, error) {
 	resourcesDir := "resources"
