@@ -338,7 +338,7 @@ func (c SSHCreds) Environ() (io.Closer, []string, error) {
 	}
 
 	knownHostsFile := GetSSHKnownHostsDataPath()
-	args = append(args, "-o", "StrictHostKeyChecking=yes", "-o", "UserKnownHostsFile="+knownHostsFile)
+	args = append(args, "-F", "/dev/null", "-o", "StrictHostKeyChecking=yes", "-o", "IdentityAgent=none", "-o", "UserKnownHostsFile="+knownHostsFile)
 
 	// Handle SSH socks5 proxy settings
 	proxyEnv := []string{}
