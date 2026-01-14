@@ -12,121 +12,77 @@ import (
 	"os"
 	"path/filepath"
 
-	"github.com/go-logr/logr"
 	. "github.com/onsi/ginkgo/v2"
 	. "github.com/onsi/gomega"
+	"github.com/syntasso/kratix/api/v1alpha1"
+	"github.com/syntasso/kratix/lib/writers"
 	"gopkg.in/yaml.v2"
 	corev1 "k8s.io/api/core/v1"
 	v1 "k8s.io/api/core/v1"
 	metav1 "k8s.io/apimachinery/pkg/apis/meta/v1"
-	ctrl "sigs.k8s.io/controller-runtime"
-
-	"github.com/syntasso/kratix/api/v1alpha1"
-	"github.com/syntasso/kratix/lib/writers"
 )
 
-//GitHub supports Authorization: Bearer for api.github.com (REST/GraphQL). The git endpoints on github.com for git fetch/clone typically require Basic (or credential helper / askpass).
+// TODO: add tests for root location, when it's defined
+var _ = FDescribe("Git tests", Ordered, func() {
 
-const (
-	httpPublicRepo  = "https://github.com/syntasso/testing-git-writer-public.git"
-	httpPrivateRepo = "https://github.com/syntasso/testing-git-writer-private.git"
+	logger := GinkgoLogr
+	httpPublicRepo := "https://github.com/syntasso/testing-git-writer-public.git"
+	httpPrivateRepo := "https://github.com/syntasso/testing-git-writer-private.git"
+	sshPrivateRepo := "ssh://git@github.com/syntasso/testing-git-writer-private.git"
 
-	sshPrivateRepo = "ssh://git@github.com/syntasso/testing-git-writer-private.git"
-)
+	var (
+		ghPat                   string
+		githubAppPrivateKey     string
+		githubAppPrivateKeyData []byte
+		httpCreds               map[string][]byte
+		runGitHubAppAuthTests   bool
+		runHttpBasicAuthTests   bool
+		runSshTests             bool
+		sshCreds                map[string][]byte
+		sshPrivateKey           []byte
 
-var (
-	ghPat                   string
-	githubAppPrivateKey     string
-	githubAppPrivateKeyData []byte
-	httpCreds               map[string][]byte
-	logger                  logr.Logger
-	runGitHubAppAuthTests   bool
-	runHttpBasicAuthTests   bool
-	runSshTests             bool
-	sshCreds                map[string][]byte
-	sshPrivateKey           []byte
+		canaryWorkload = "kratix-canary"
+		githubAppCreds map[string][]byte
+	)
 
-	canaryWorkload      = "kratix-canary"
-	resourcesDir        = "resources"
-	canaryConfigMapPath = "kratix-canary-configmap.yaml"
-	githubAppCreds      map[string][]byte
-)
-
-func setGitTestsEnv() {
-
-	logger = ctrl.Log.WithName("setup")
-
-	sshDataPath := os.Getenv("KRATIX_SSH_DATA_PATH")
-	if sshDataPath != "" {
-		runSshTests = true
-	}
-	ghPat = os.Getenv("TEST_GH_PAT")
-	if ghPat != "" {
-		runHttpBasicAuthTests = true
-	}
-
-	var err error
-	sshPrivateKey, err = os.ReadFile(fmt.Sprintf("%s/private.key", sshDataPath))
-	Expect(err).ToNot(HaveOccurred())
-
-	httpCreds = map[string][]byte{
-		"username": []byte("x-access-token"),
-		"password": []byte(ghPat),
-	}
-
-	sshCreds = map[string][]byte{
-		"sshPrivateKey": sshPrivateKey,
-		"knownHosts":    []byte("github.com ssh-ed25519 AAAAC3NzaC1lZDI1NTE5AAAAIOMqqnkVzrm0SdG6UOoqKLsabgH5C9okWi0dh2l9GKJl"),
-	}
-
-	githubAppPrivateKey = os.Getenv("KRATIX_GITHUB_APP_PRIVATE_KEY")
-	githubAppPrivateKeyData, err = os.ReadFile(githubAppPrivateKey)
-	Expect(err).ToNot(HaveOccurred())
-	if githubAppPrivateKey != "" {
-		runGitHubAppAuthTests = true
-	}
-
-	githubAppCreds = map[string][]byte{
-		// TODO: convert to env vars
-		"appID":          []byte("2625348"),
-		"installationID": []byte("103412574"),
-		"privateKey":     githubAppPrivateKeyData,
-	}
-}
-
-func newStateStoreAndDest(authType, repo string) (*v1alpha1.GitStateStoreSpec, *v1alpha1.Destination) {
-
-	return &v1alpha1.GitStateStoreSpec{
-			StateStoreCoreFields: v1alpha1.StateStoreCoreFields{
-				Path: "state-store-path",
-				SecretRef: &corev1.SecretReference{
-					Namespace: "default",
-					Name:      "dummy-secret",
-				},
-			},
-			AuthMethod: authType,
-			URL:        repo,
-			Branch:     "main",
-			GitAuthor: v1alpha1.GitAuthor{
-				Email: "test@example.com",
-				Name:  "a-user",
-			},
-		}, &v1alpha1.Destination{
-			ObjectMeta: metav1.ObjectMeta{
-				Namespace: "default",
-				Name:      "test",
-			},
-			Spec: v1alpha1.DestinationSpec{
-				Path: fmt.Sprintf("%s-dst-path/", authType),
-			},
+	BeforeAll(func() {
+		sshDataPath := os.Getenv("KRATIX_SSH_DATA_PATH")
+		if sshDataPath != "" {
+			runSshTests = true
 		}
-}
+		ghPat = os.Getenv("TEST_GH_PAT")
+		if ghPat != "" {
+			runHttpBasicAuthTests = true
+		}
 
-// TODO: add test for root, when it's defined
+		var err error
+		sshPrivateKey, err = os.ReadFile(fmt.Sprintf("%s/private.key", sshDataPath))
+		Expect(err).ToNot(HaveOccurred())
 
-var _ = FDescribe("Git tests", func() {
+		httpCreds = map[string][]byte{
+			"username": []byte("x-access-token"),
+			"password": []byte(ghPat),
+		}
 
-	setGitTestsEnv()
+		sshCreds = map[string][]byte{
+			"sshPrivateKey": sshPrivateKey,
+			"knownHosts":    []byte("github.com ssh-ed25519 AAAAC3NzaC1lZDI1NTE5AAAAIOMqqnkVzrm0SdG6UOoqKLsabgH5C9okWi0dh2l9GKJl"),
+		}
+
+		githubAppPrivateKey = os.Getenv("KRATIX_GITHUB_APP_PRIVATE_KEY")
+		githubAppPrivateKeyData, err = os.ReadFile(githubAppPrivateKey)
+		Expect(err).ToNot(HaveOccurred())
+		if githubAppPrivateKey != "" {
+			runGitHubAppAuthTests = true
+		}
+
+		githubAppCreds = map[string][]byte{
+			// TODO: convert to env vars
+			"appID":          []byte("2625348"),
+			"installationID": []byte("103412574"),
+			"privateKey":     githubAppPrivateKeyData,
+		}
+	})
 
 	Describe("Git native client tests", func() {
 
@@ -293,13 +249,13 @@ var _ = FDescribe("Git tests", func() {
 
 			When("using SSH auth", func() {
 				var (
-					client   writers.GitClient
-					err      error
-					sshCreds writers.SSHCreds
+					client         writers.GitClient
+					err            error
+					sshNativeCreds writers.SSHCreds
 				)
 
 				It("sets up authentication", func() {
-					sshCreds = writers.NewSSHCreds(string(sshPrivateKey), "", false, "")
+					sshNativeCreds = writers.NewSSHCreds(string(sshPrivateKey), "", false, "")
 				})
 
 				It("successfully clones the repository", func() {
@@ -310,7 +266,7 @@ var _ = FDescribe("Git tests", func() {
 
 					client, err = writers.NewGitClient(writers.GitClientRequest{
 						RawRepoURL: sshPrivateRepo,
-						Auth:       &writers.Auth{Creds: sshCreds},
+						Auth:       &writers.Auth{Creds: sshNativeCreds},
 						Insecure:   false,
 						Proxy:      "",
 						NoProxy:    "",
@@ -338,16 +294,11 @@ var _ = FDescribe("Git tests", func() {
 
 		Describe("using SSH auth", func() {
 
-			stateStoreSpec, dest := newStateStoreAndDest("ssh", sshPrivateRepo)
+			stateStoreSpec, dest := getStateStoreAndDest("ssh", sshPrivateRepo)
 
 			It("validates the permissions if the credentials are correct", func() {
 				if !runSshTests {
 					Skip("SSH tests not enabled")
-				}
-
-				sshCreds := map[string][]byte{
-					"sshPrivateKey": sshPrivateKey,
-					"knownHosts":    []byte("github.com ssh-ed25519 AAAAC3NzaC1lZDI1NTE5AAAAIOMqqnkVzrm0SdG6UOoqKLsabgH5C9okWi0dh2l9GKJl"),
 				}
 
 				writer, err := writers.NewGitWriter(logger, *stateStoreSpec, dest.Spec.Path, sshCreds)
@@ -367,7 +318,7 @@ var _ = FDescribe("Git tests", func() {
 					Skip("SSH tests not enabled")
 				}
 
-				sshCreds := generateInvalidSSHCreds()
+				sshCreds := getInvalidSSHCreds()
 				writer, err := writers.NewGitWriter(logger, *stateStoreSpec, dest.Spec.Path, sshCreds)
 				Expect(err).ToNot(HaveOccurred())
 				Expect(writer).ToNot(BeNil())
@@ -383,7 +334,7 @@ var _ = FDescribe("Git tests", func() {
 
 		Describe("using GitHub App auth", func() {
 
-			stateStoreSpec, dest := newStateStoreAndDest("githubApp", httpPrivateRepo)
+			stateStoreSpec, dest := getStateStoreAndDest("githubApp", httpPrivateRepo)
 
 			It("validates permissions to the repository when credentials are correct", func() {
 				if !runGitHubAppAuthTests {
@@ -408,7 +359,7 @@ var _ = FDescribe("Git tests", func() {
 					Skip("GitHub App auth tests not enabled")
 				}
 
-				stateStoreSpec, dest := newStateStoreAndDest("githubApp", httpPrivateRepo)
+				stateStoreSpec, dest := getStateStoreAndDest("githubApp", httpPrivateRepo)
 
 				creds := githubAppCreds
 				creds["appID"] = []byte("1111111")
@@ -424,17 +375,13 @@ var _ = FDescribe("Git tests", func() {
 				if !runHttpBasicAuthTests {
 					Skip("HTTP basic auth tests not enabled")
 				}
-				stateStoreSpec, dest := newStateStoreAndDest("basicAuth", httpPrivateRepo)
+				stateStoreSpec, dest := getStateStoreAndDest("basicAuth", httpPrivateRepo)
 
 				writer, err := writers.NewGitWriter(logger, *stateStoreSpec, dest.Spec.Path, httpCreds)
 				Expect(err).ToNot(HaveOccurred())
 				Expect(writer).ToNot(BeNil())
 
-				Expect(writer).To(BeAssignableToTypeOf(&writers.GitWriter{}))
-				gitWriter, ok := writer.(*writers.GitWriter)
-				Expect(ok).To(BeTrue())
-
-				resource, err := getTestDataToSave(gitWriter, "")
+				resource, err := getTestDataToSave("")
 				Expect(err).ToNot(HaveOccurred())
 
 				_, err = writer.UpdateFiles("", canaryWorkload, []v1alpha1.Workload{resource}, nil)
@@ -448,7 +395,7 @@ var _ = FDescribe("Git tests", func() {
 				if !runHttpBasicAuthTests {
 					Skip("HTTP basic auth tests not enabled")
 				}
-				stateStoreSpec, dest := newStateStoreAndDest("basicAuth", httpPrivateRepo)
+				stateStoreSpec, dest := getStateStoreAndDest("basicAuth", httpPrivateRepo)
 
 				writer, err := writers.NewGitWriter(logger, *stateStoreSpec, dest.Spec.Path, httpCreds)
 				Expect(err).ToNot(HaveOccurred())
@@ -463,19 +410,19 @@ var _ = FDescribe("Git tests", func() {
 
 				// Create initial unique resources to save
 				desc := fmt.Sprintf("test %d", rand.Int())
-				resource, err := getTestDataToSave(gitWriter, desc)
+				resource, err := getTestDataToSave(desc)
 				Expect(err).ToNot(HaveOccurred())
 				_, err = writer.UpdateFiles("", canaryWorkload, []v1alpha1.Workload{resource}, nil)
 				Expect(err).ToNot(HaveOccurred())
 
 				// Ensure there are no updates for unchanged data
-				resource, err = getTestDataToSave(gitWriter, desc)
+				resource, err = getTestDataToSave(desc)
 				Expect(err).ToNot(HaveOccurred())
 				_, err = writer.UpdateFiles("", canaryWorkload, []v1alpha1.Workload{resource}, nil)
 				Expect(err).To(HaveOccurred())
 
 				// Ensure it can save new data
-				resource, err = getTestDataToSave(gitWriter, "")
+				resource, err = getTestDataToSave("")
 				Expect(err).ToNot(HaveOccurred())
 				_, err = writer.UpdateFiles("", canaryWorkload, []v1alpha1.Workload{resource}, nil)
 				Expect(err).ToNot(HaveOccurred())
@@ -487,8 +434,9 @@ var _ = FDescribe("Git tests", func() {
 	})
 })
 
-func getTestDataToSave(writer writers.StateStoreWriter, content string) (v1alpha1.Workload, error) {
-
+func getTestDataToSave(content string) (v1alpha1.Workload, error) {
+	resourcesDir := "resources"
+	canaryConfigMapPath := "kratix-canary-configmap.yaml"
 	if content == "" {
 		content = fmt.Sprintf("this confirms your infrastructure is reading from Kratix state stores (%d)", rand.Int())
 	}
@@ -516,7 +464,7 @@ func getTestDataToSave(writer writers.StateStoreWriter, content string) (v1alpha
 	return resource, err
 }
 
-func generateInvalidSSHCreds() map[string][]byte {
+func getInvalidSSHCreds() map[string][]byte {
 	key, err := rsa.GenerateKey(cryptorand.Reader, 1024)
 	Expect(err).NotTo(HaveOccurred())
 
@@ -533,4 +481,32 @@ func generateInvalidSSHCreds() map[string][]byte {
 		"sshPrivateKey": b.Bytes(),
 		"knownHosts":    []byte("github.com ssh-ed25519 AAAAC3NzaC1lZDI1NTE5AAAAIOMqqnkVzrm0SdG6UOoqKLsabgH5C9okWi0dh2l9GKJl"),
 	}
+}
+
+func getStateStoreAndDest(authType, repo string) (*v1alpha1.GitStateStoreSpec, *v1alpha1.Destination) {
+
+	return &v1alpha1.GitStateStoreSpec{
+			StateStoreCoreFields: v1alpha1.StateStoreCoreFields{
+				Path: "state-store-path",
+				SecretRef: &corev1.SecretReference{
+					Namespace: "default",
+					Name:      "dummy-secret",
+				},
+			},
+			AuthMethod: authType,
+			URL:        repo,
+			Branch:     "main",
+			GitAuthor: v1alpha1.GitAuthor{
+				Email: "test@example.com",
+				Name:  "a-user",
+			},
+		}, &v1alpha1.Destination{
+			ObjectMeta: metav1.ObjectMeta{
+				Namespace: "default",
+				Name:      "test",
+			},
+			Spec: v1alpha1.DestinationSpec{
+				Path: fmt.Sprintf("%s-dst-path/", authType),
+			},
+		}
 }
