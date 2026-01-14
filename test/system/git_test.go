@@ -32,25 +32,6 @@ var _ = FDescribe("Git tests", Ordered, func() {
 	httpPrivateRepo := "https://github.com/syntasso/testing-git-writer-private.git"
 	sshPrivateRepo := "ssh://git@github.com/syntasso/testing-git-writer-private.git"
 
-	var (
-		githubAppPrivateKey string
-		canaryWorkload      = "kratix-canary"
-		githubAppCreds      map[string][]byte
-	)
-
-	BeforeAll(func() {
-		githubAppPrivateKey = os.Getenv("KRATIX_GITHUB_APP_PRIVATE_KEY")
-		githubAppPrivateKeyData, err := os.ReadFile(githubAppPrivateKey)
-		Expect(err).ToNot(HaveOccurred())
-
-		githubAppCreds = map[string][]byte{
-			// TODO: convert to env vars
-			"appID":          []byte("2625348"),
-			"installationID": []byte("103412574"),
-			"privateKey":     githubAppPrivateKeyData,
-		}
-	})
-
 	Describe("Git native client tests", func() {
 
 		When("targeting a public repository", func() {
@@ -255,6 +236,11 @@ var _ = FDescribe("Git tests", Ordered, func() {
 	})
 
 	Describe("Git writer tests", func() {
+		var workloadName string
+
+		BeforeEach(func() {
+			workloadName = "kratix-canary"
+		})
 
 		Describe("using SSH auth", func() {
 
@@ -301,6 +287,7 @@ var _ = FDescribe("Git tests", Ordered, func() {
 				var ok bool
 				stateStoreSpec, dest = getStateStoreAndDest("githubApp", httpPrivateRepo)
 
+				githubAppCreds := getGithubAppCreds()
 				writer, err := writers.NewGitWriter(logger, *stateStoreSpec, dest.Spec.Path, githubAppCreds)
 				Expect(err).ToNot(HaveOccurred())
 				Expect(writer).ToNot(BeNil())
@@ -318,10 +305,10 @@ var _ = FDescribe("Git tests", Ordered, func() {
 
 			// TODO: should we test the behaviour for when installationID or private key are incorrect as well?
 			It("does not instantiate the writer when appID is incorrect", func() {
-				creds := githubAppCreds
+				creds := getGithubAppCreds()
 				creds["appID"] = []byte("1111111")
 
-				writer, err := writers.NewGitWriter(logger, *stateStoreSpec, dest.Spec.Path, githubAppCreds)
+				writer, err := writers.NewGitWriter(logger, *stateStoreSpec, dest.Spec.Path, creds)
 				Expect(err).To(HaveOccurred())
 				Expect(writer).To(BeNil())
 			})
@@ -353,7 +340,7 @@ var _ = FDescribe("Git tests", Ordered, func() {
 				resource, err := getTestDataToSave("")
 				Expect(err).ToNot(HaveOccurred())
 
-				_, err = gitWriter.UpdateFiles("", canaryWorkload, []v1alpha1.Workload{resource}, nil)
+				_, err = gitWriter.UpdateFiles("", workloadName, []v1alpha1.Workload{resource}, nil)
 				Expect(err).ToNot(HaveOccurred())
 
 				_, err = gitWriter.ReadFile(resource.Filepath)
@@ -368,26 +355,26 @@ var _ = FDescribe("Git tests", Ordered, func() {
 				desc := fmt.Sprintf("test %d", rand.Int())
 				resource, err := getTestDataToSave(desc)
 				Expect(err).ToNot(HaveOccurred())
-				_, err = gitWriter.UpdateFiles("", canaryWorkload, []v1alpha1.Workload{resource}, nil)
+				_, err = gitWriter.UpdateFiles("", workloadName, []v1alpha1.Workload{resource}, nil)
 				Expect(err).ToNot(HaveOccurred())
 
 				// Ensure there are no updates for unchanged data
 				resource, err = getTestDataToSave(desc)
 				Expect(err).ToNot(HaveOccurred())
-				_, err = gitWriter.UpdateFiles("", canaryWorkload, []v1alpha1.Workload{resource}, nil)
+				_, err = gitWriter.UpdateFiles("", workloadName, []v1alpha1.Workload{resource}, nil)
 				Expect(err).To(HaveOccurred())
 
 				// Ensure it can save new data
 				resource, err = getTestDataToSave("")
 				Expect(err).ToNot(HaveOccurred())
-				_, err = gitWriter.UpdateFiles("", canaryWorkload, []v1alpha1.Workload{resource}, nil)
+				_, err = gitWriter.UpdateFiles("", workloadName, []v1alpha1.Workload{resource}, nil)
 				Expect(err).ToNot(HaveOccurred())
 
 				// NOTE: when there's a single file in a dir,
 				// `git rm` removes the entire dir
 				baseDir := getStateStoreAndDestBaseDir(stateStoreSpec, dest)
 				path := filepath.Join(baseDir, resource.Filepath)
-				_, err = gitWriter.UpdateFiles("", canaryWorkload, nil, []string{path})
+				_, err = gitWriter.UpdateFiles("", workloadName, nil, []string{path})
 				Expect(err).ToNot(HaveOccurred())
 
 				_, err = gitWriter.ReadFile(path)
@@ -398,6 +385,24 @@ var _ = FDescribe("Git tests", Ordered, func() {
 
 	})
 })
+
+func getGithubAppCreds() map[string][]byte {
+	envGithubAppAppID := os.Getenv("TEST_GIT_WRITER_SSH_GITHUB_APP_APPID")
+	envGithubAppInstallationId := os.Getenv("TEST_GIT_WRITER_SSH_GITHUB_INSTALLATIONID")
+	return map[string][]byte{
+
+		"appID":          []byte(envGithubAppAppID),
+		"installationID": []byte(envGithubAppInstallationId),
+		"privateKey":     getGithubAppPrivateKey(),
+	}
+}
+
+func getGithubAppPrivateKey() []byte {
+	envGithubAppPrivateKey := os.Getenv("TEST_GIT_WRITER_SSH_GITHUB_APP_PRIVATE_KEY")
+	githubAppPrivateKey, err := base64.StdEncoding.DecodeString(envGithubAppPrivateKey)
+	Expect(err).ToNot(HaveOccurred())
+	return githubAppPrivateKey
+}
 
 func getGithubPATCreds() map[string][]byte {
 	ghPat := os.Getenv("TEST_GIT_WRITER_HTTP_GITHUB_PAT")
