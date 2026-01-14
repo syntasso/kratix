@@ -42,7 +42,10 @@ import (
 type GitClientError error
 
 var (
-	ErrNothingToCommit GitClientError = errors.New("nothing to commit, working tree clean")
+	ErrAuthSucceededAfterTrim GitClientError = errors.New("trailing whitespace in secret")
+	ErrFileNotFound           GitClientError = errors.New("file not found")
+	ErrNoFilesChanged         GitClientError = errors.New("no files changed")
+	ErrNothingToCommit        GitClientError = errors.New("nothing to commit, working tree clean")
 )
 
 var (

@@ -6,6 +6,7 @@ import (
 	"crypto/rsa"
 	"crypto/x509"
 	"encoding/pem"
+	"errors"
 	"fmt"
 	"log"
 	"math/rand"
@@ -427,7 +428,16 @@ var _ = FDescribe("Git tests", Ordered, func() {
 				_, err = writer.UpdateFiles("", canaryWorkload, []v1alpha1.Workload{resource}, nil)
 				Expect(err).ToNot(HaveOccurred())
 
-				// TODO: Ensure it removes data successfully
+				// NOTE: when there's a single file in a dir,
+				// `git rm` removes the entire dir
+				baseDir := getStateStoreAndDestBaseDir(stateStoreSpec, dest)
+				path := filepath.Join(baseDir, resource.Filepath)
+				_, err = writer.UpdateFiles("", canaryWorkload, nil, []string{path})
+				Expect(err).ToNot(HaveOccurred())
+
+				_, err = writer.ReadFile(path)
+				Expect(err).To(HaveOccurred())
+				Expect(errors.Is(err, writers.ErrFileNotFound)).To(BeTrue())
 			})
 		})
 
@@ -481,6 +491,10 @@ func getInvalidSSHCreds() map[string][]byte {
 		"sshPrivateKey": b.Bytes(),
 		"knownHosts":    []byte("github.com ssh-ed25519 AAAAC3NzaC1lZDI1NTE5AAAAIOMqqnkVzrm0SdG6UOoqKLsabgH5C9okWi0dh2l9GKJl"),
 	}
+}
+
+func getStateStoreAndDestBaseDir(store *v1alpha1.GitStateStoreSpec, dest *v1alpha1.Destination) string {
+	return fmt.Sprintf("%s/%s", store.Path, dest.Spec.Path)
 }
 
 func getStateStoreAndDest(authType, repo string) (*v1alpha1.GitStateStoreSpec, *v1alpha1.Destination) {

@@ -185,7 +185,7 @@ func (g *GitWriter) deleteExistingFiles(removeDirectory bool, dir string, worklo
 		}
 	} else {
 		for _, file := range workloadsToDelete {
-			filePath := filepath.Join(dir, file)
+			filePath := filepath.Join(g.Root(), file)
 			log := logger.WithValues(
 				"filepath", filePath,
 			)
@@ -328,7 +328,7 @@ func (m *nativeGitClient) HasChanges() (bool, error) {
 		return false, nil
 	}
 
-	return strings.Contains(out, "working tree clean"), nil
+	return strings.Contains(out, "Changes to be committed"), nil
 }
 
 func (g *GitWriter) commitAndPush(action, workPlacementName string, logger logr.Logger) (string, error) {
@@ -339,13 +339,13 @@ func (g *GitWriter) commitAndPush(action, workPlacementName string, logger logr.
 	}
 	if !hasChanged {
 		logging.Info(logger, "no changes to be committed")
-		return "", err
+		return "", ErrNoFilesChanged
 	}
 
 	logging.Info(logger, "pushing changes")
 
 	// Run a commit with author and message
-	commitMsg := fmt.Sprintf("%s from:::::::: %s", action, workPlacementName)
+	commitMsg := fmt.Sprintf("%s from: %s", action, workPlacementName)
 	author := fmt.Sprintf("%s <%s>", g.Author.Name, g.Author.Email)
 	commitSha, err := g.CommitAndPush(g.GitServer.Branch, commitMsg, author)
 	if err != nil {
