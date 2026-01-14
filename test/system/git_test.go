@@ -279,34 +279,47 @@ var _ = FDescribe("Git tests", func() {
 			var (
 				stateStoreSpec *v1alpha1.GitStateStoreSpec
 				dest           *v1alpha1.Destination
-				gitWriter      *writers.GitWriter
 			)
 
 			BeforeEach(func() {
-				var err error
-				var ok bool
 				stateStoreSpec, dest = getStateStoreAndDest("githubApp", httpPrivateRepo)
+			})
 
+			It("validates permissions to the repository when credentials are correct", func() {
 				githubAppCreds := getGithubAppCreds()
 				writer, err := writers.NewGitWriter(logger, *stateStoreSpec, dest.Spec.Path, githubAppCreds)
 				Expect(err).ToNot(HaveOccurred())
 				Expect(writer).ToNot(BeNil())
 
 				Expect(writer).To(BeAssignableToTypeOf(&writers.GitWriter{}))
-				gitWriter, ok = writer.(*writers.GitWriter)
+				gitWriter, ok := writer.(*writers.GitWriter)
 				Expect(ok).To(BeTrue())
 
-			})
-
-			It("validates permissions to the repository when credentials are correct", func() {
-				err := gitWriter.ValidatePermissions()
+				err = gitWriter.ValidatePermissions()
 				Expect(err).ToNot(HaveOccurred())
 			})
 
-			// TODO: should we test the behaviour for when installationID or private key are incorrect as well?
 			It("does not instantiate the writer when appID is incorrect", func() {
 				creds := getGithubAppCreds()
 				creds["appID"] = []byte("1111111")
+
+				writer, err := writers.NewGitWriter(logger, *stateStoreSpec, dest.Spec.Path, creds)
+				Expect(err).To(HaveOccurred())
+				Expect(writer).To(BeNil())
+			})
+
+			It("does not instantiate the writer when installationID is incorrect", func() {
+				creds := getGithubAppCreds()
+				creds["installationID"] = []byte("1111111")
+
+				writer, err := writers.NewGitWriter(logger, *stateStoreSpec, dest.Spec.Path, creds)
+				Expect(err).To(HaveOccurred())
+				Expect(writer).To(BeNil())
+			})
+
+			It("does not instantiate the writer when privateKey is missing", func() {
+				creds := getGithubAppCreds()
+				delete(creds, "privateKey")
 
 				writer, err := writers.NewGitWriter(logger, *stateStoreSpec, dest.Spec.Path, creds)
 				Expect(err).To(HaveOccurred())
