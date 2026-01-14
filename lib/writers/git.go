@@ -204,11 +204,6 @@ func (g *GitWriter) deleteExistingFiles(removeDirectory bool, dir string, worklo
 }
 
 func (g *GitWriter) ReadFile(filePath string) ([]byte, error) {
-	fullPath := filepath.Join(g.Path, filePath)
-	logger := g.Log.WithValues(
-		"Path", fullPath,
-		"branch", g.GitServer.Branch,
-	)
 
 	localDir, err := g.setupLocalDirectoryWithRepo()
 	if err != nil {
@@ -216,13 +211,21 @@ func (g *GitWriter) ReadFile(filePath string) ([]byte, error) {
 	}
 	defer os.RemoveAll(filepath.Dir(localDir)) //nolint:errcheck
 
-	if _, err := os.Lstat(fullPath); err != nil {
+	fullPath := filepath.Join(g.Path, filePath)
+	logger := g.Log.WithValues(
+		"Path", fullPath,
+		"branch", g.GitServer.Branch,
+	)
+
+	path := filepath.Join(localDir, fullPath)
+
+	if _, err := os.Lstat(path); err != nil {
 		logging.Debug(logger, "could not stat file", "error", err)
 		return nil, ErrFileNotFound
 	}
 
 	var content []byte
-	if content, err = os.ReadFile(filepath.Join(localDir, fullPath)); err != nil {
+	if content, err = os.ReadFile(path); err != nil {
 		logging.Error(logger, err, "could not read file")
 		return nil, err
 	}
@@ -441,9 +444,7 @@ func (m *nativeGitClient) Checkout(revision string) (string, error) {
 // and tags, sets up remote tracking, and checks out a desired branch. This is
 // a one-time setup operation for getting a repository for the first time.
 func (m *nativeGitClient) Clone(branch string) (string, error) {
-
 	logging.Debug(m.log, "cloning repo")
-
 	localDir, err := m.Init()
 	if err != nil {
 		return "", fmt.Errorf("could not run init: %w", err)
