@@ -346,8 +346,7 @@ func (g *GitWriter) commitAndPush(action, workPlacementName string, logger logr.
 
 	// Run a commit with author and message
 	commitMsg := fmt.Sprintf("%s from: %s", action, workPlacementName)
-	author := fmt.Sprintf("%s <%s>", g.Author.Name, g.Author.Email)
-	commitSha, err := g.CommitAndPush(g.GitServer.Branch, commitMsg, author)
+	commitSha, err := g.CommitAndPush(g.GitServer.Branch, commitMsg, g.Author.Name, g.Author.Email)
 	if err != nil {
 		logging.Error(logger, err, "could not push changes")
 		return "", err

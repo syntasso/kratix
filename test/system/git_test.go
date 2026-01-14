@@ -25,7 +25,7 @@ import (
 )
 
 // TODO: add tests for root location, when it's defined
-var _ = FDescribe("Git tests", Ordered, func() {
+var _ = FDescribe("Git tests", func() {
 
 	logger := GinkgoLogr
 	httpPublicRepo := "https://github.com/syntasso/testing-git-writer-public.git"

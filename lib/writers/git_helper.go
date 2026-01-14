@@ -98,7 +98,7 @@ func initTimeout() {
 type GitClient interface {
 	Clone(string) (string, error)
 	Checkout(revision string) (string, error)
-	CommitAndPush(branch, message, author string) (string, error)
+	CommitAndPush(branch, message, author, email string) (string, error)
 	Push(branch string) (string, error)
 	Fetch(revision string, depth int64) error
 	Init() (string, error)
@@ -709,16 +709,21 @@ func (m *nativeGitClient) Push(branch string) (string, error) {
 }
 
 // CommitAndPush commits and pushes changes to the target branch.
-func (m *nativeGitClient) CommitAndPush(branch, message, author string) (string, error) {
+func (m *nativeGitClient) CommitAndPush(branch, message, author string, email string) (string, error) {
 	ctx := context.Background()
 	out, err := m.runCmd(ctx, "add", ".")
 	if err != nil {
 		return out, fmt.Errorf("failed to add files: %w", err)
 	}
 
-	// TODO; handle author input, need to make sure it looks like this
-	// --author="Tom Riddle <bleh@bleh.com>"
-	out, err = m.runCmd(ctx, "commit", "-m", message, "--author", author)
+	authorId := fmt.Sprintf("%s <%s>", author, email)
+	out, err = m.runCmd(ctx,
+		"-c", fmt.Sprintf("user.name=%s", author),
+		"-c", fmt.Sprintf("user.email=%s", email),
+		"commit",
+		"-m", message,
+		fmt.Sprintf("--author=%s", authorId),
+	)
 	if err != nil {
 		if strings.Contains(out, ErrNothingToCommit.Error()) {
 			return out, ErrNothingToCommit
