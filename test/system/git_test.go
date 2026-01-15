@@ -14,6 +14,8 @@ import (
 	"os"
 	"path/filepath"
 
+	"sigs.k8s.io/controller-runtime/pkg/log/zap"
+
 	. "github.com/onsi/ginkgo/v2"
 	. "github.com/onsi/gomega"
 	"github.com/syntasso/kratix/api/v1alpha1"
@@ -27,7 +29,7 @@ import (
 // TODO: add tests for root location, when it's defined
 var _ = FDescribe("Git tests", func() {
 
-	logger := GinkgoLogr
+	logger := zap.New(zap.WriteTo(GinkgoWriter), zap.UseDevMode(true)).WithName("git-writer")
 	httpPublicRepo := "https://github.com/syntasso/testing-git-writer-public.git"
 	httpPrivateRepo := "https://github.com/syntasso/testing-git-writer-private.git"
 	sshPrivateRepo := "ssh://git@github.com/syntasso/testing-git-writer-private.git"

@@ -26,16 +26,13 @@ import (
 	gitssh "github.com/go-git/go-git/v5/plumbing/transport/ssh"
 	"github.com/go-logr/logr"
 	gocache "github.com/patrickmn/go-cache"
-	"github.com/sirupsen/logrus"
-	log "github.com/sirupsen/logrus"
 	"github.com/syntasso/kratix/internal/logging"
 	"golang.org/x/crypto/ssh"
 
-	///////////////////////////////////////////////////////////
+	// TODO: review these imports
 	"github.com/argoproj/argo-cd/v3/common"
 	certutil "github.com/argoproj/argo-cd/v3/util/cert"
 	"github.com/argoproj/argo-cd/v3/util/env"
-	executil "github.com/argoproj/argo-cd/v3/util/exec"
 	"github.com/argoproj/argo-cd/v3/util/proxy"
 )
 
@@ -153,6 +150,7 @@ func NewGitClient(req GitClientRequest) (*nativeGitClient, error) {
 			return nil, fmt.Errorf("invalid URL for SSH auth method: %s", req.RawRepoURL)
 		}
 
+	// TODO: do we still need this?
 	case GitHubAppCreds:
 		/*
 			tokenAuth, ok := req.Auth.AuthMethod.(*githttp.TokenAuth)
@@ -198,16 +196,16 @@ func NewGitClient(req GitClientRequest) (*nativeGitClient, error) {
 	return client, nil
 }
 
-func Run(cmd *exec.Cmd) (string, error) {
-	return RunWithRedactor(cmd, nil)
+func Run(cmd *exec.Cmd, logger logr.Logger) (string, error) {
+	return RunWithRedactor(cmd, nil, logger)
 }
 
-func RunWithRedactor(cmd *exec.Cmd, redactor func(text string) string) (string, error) {
+func RunWithRedactor(cmd *exec.Cmd, redactor func(text string) string, logger logr.Logger) (string, error) {
 	opts := ExecRunOpts{Redactor: redactor}
-	return RunWithExecRunOpts(cmd, opts)
+	return RunWithExecRunOpts(cmd, opts, logger)
 }
 
-func RunWithExecRunOpts(cmd *exec.Cmd, opts ExecRunOpts) (string, error) {
+func RunWithExecRunOpts(cmd *exec.Cmd, opts ExecRunOpts, logger logr.Logger) (string, error) {
 	cmdOpts := CmdOpts{
 		Timeout:          timeout,
 		FatalTimeout:     fatalTimeout,
@@ -215,7 +213,7 @@ func RunWithExecRunOpts(cmd *exec.Cmd, opts ExecRunOpts) (string, error) {
 		TimeoutBehavior:  opts.TimeoutBehavior,
 		SkipErrorLogging: opts.SkipErrorLogging,
 		CaptureStderr:    opts.CaptureStderr}
-	return RunCommandExt(cmd, cmdOpts)
+	return RunCommandExt(cmd, cmdOpts, logger)
 }
 
 type CmdError struct {
@@ -292,12 +290,12 @@ func RandHex(n int) (string, error) {
 
 // RunCommandExt is a convenience function to run/log a command and return/log stderr in an error upon
 // failure.
-func RunCommandExt(cmd *exec.Cmd, opts CmdOpts) (string, error) {
+func RunCommandExt(cmd *exec.Cmd, opts CmdOpts, logger logr.Logger) (string, error) {
 	execId, err := RandHex(5)
 	if err != nil {
 		return "", err
 	}
-	logCtx := logrus.WithFields(logrus.Fields{"execID": execId})
+	logCtx := logger.WithValues("execID", execId, "dir", cmd.Dir)
 
 	redactor := DefaultCmdOpts.Redactor
 	if opts.Redactor != nil {
@@ -306,7 +304,7 @@ func RunCommandExt(cmd *exec.Cmd, opts CmdOpts) (string, error) {
 
 	// log in a way we can copy-and-paste into a terminal
 	args := strings.Join(cmd.Args, " ")
-	logCtx.WithFields(logrus.Fields{"dir": cmd.Dir}).Info(redactor(args))
+	logging.Debug(logCtx, "running command", "args", redactor(args))
 
 	var stdout bytes.Buffer
 	var stderr bytes.Buffer
@@ -369,9 +367,9 @@ func RunCommandExt(cmd *exec.Cmd, opts CmdOpts) (string, error) {
 				if opts.CaptureStderr {
 					output += stderr.String()
 				}
-				logCtx.WithFields(logrus.Fields{"duration": time.Since(start)}).Debug(redactor(output))
+				logging.Debug(logCtx, "command output", "duration", time.Since(start), "output", redactor(output))
 				err = newCmdError(redactor(args), fmt.Errorf("fatal timeout after %v", timeout+fatalTimeout), "")
-				logCtx.Error(err.Error())
+				logging.Error(logCtx, err, "command failed", "args", redactor(args), "duration", time.Since(start))
 				return strings.TrimSuffix(output, "\n"), err
 			}
 		}
@@ -380,9 +378,9 @@ func RunCommandExt(cmd *exec.Cmd, opts CmdOpts) (string, error) {
 		if opts.CaptureStderr {
 			output += stderr.String()
 		}
-		logCtx.WithFields(logrus.Fields{"duration": time.Since(start)}).Debug(redactor(output))
+		logging.Debug(logCtx, "command output", "duration", time.Since(start), "output", redactor(output))
 		err = newCmdError(redactor(args), fmt.Errorf("timeout after %v", timeout), "")
-		logCtx.Error(err.Error())
+		logging.Error(logCtx, err, "command failed", "args", redactor(args), "duration", time.Since(start))
 		return strings.TrimSuffix(output, "\n"), err
 	case err := <-done:
 		if err != nil {
@@ -390,10 +388,10 @@ func RunCommandExt(cmd *exec.Cmd, opts CmdOpts) (string, error) {
 			if opts.CaptureStderr {
 				output += stderr.String()
 			}
-			logCtx.WithFields(logrus.Fields{"duration": time.Since(start)}).Debug(redactor(output))
+			logging.Debug(logCtx, "command output", "duration", time.Since(start), "output", redactor(output))
 			err := newCmdError(redactor(args), errors.New(redactor(err.Error())), strings.TrimSpace(redactor(stderr.String())))
 			if !opts.SkipErrorLogging {
-				logCtx.Error(err.Error())
+				logging.Error(logCtx, err, "command failed", "args", redactor(args), "duration", time.Since(start))
 			}
 			return strings.TrimSuffix(output, "\n"), err
 		}
@@ -402,13 +400,13 @@ func RunCommandExt(cmd *exec.Cmd, opts CmdOpts) (string, error) {
 	if opts.CaptureStderr {
 		output += stderr.String()
 	}
-	logCtx.WithFields(logrus.Fields{"duration": time.Since(start)}).Debug(redactor(output))
+	logging.Debug(logCtx, "command output", "duration", time.Since(start), "output", redactor(output))
 
 	return strings.TrimSuffix(output, "\n"), nil
 }
 
-func RunCommand(name string, opts CmdOpts, arg ...string) (string, error) {
-	return RunCommandExt(exec.CommandContext(context.Background(), name, arg...), opts)
+func RunCommand(name string, opts CmdOpts, logger logr.Logger, arg ...string) (string, error) {
+	return RunCommandExt(exec.CommandContext(context.Background(), name, arg...), opts, logger)
 }
 
 /////////////////////
@@ -559,7 +557,7 @@ func GetRepoHTTPClient(repoURL string, insecure bool, creds Creds, proxyURL stri
 		if httpsCreds.HasClientCert() {
 			cert, err = tls.X509KeyPair([]byte(httpsCreds.GetClientCertData()), []byte(httpsCreds.GetClientCertKey()))
 			if err != nil {
-				log.Errorf("Could not load Client Certificate: %v", err)
+				logging.Error(logr.Discard(), err, "could not load client certificate")
 				return &cert, nil
 			}
 		}
@@ -818,7 +816,7 @@ func (m *nativeGitClient) runCmdOutput(cmd *exec.Cmd, ropts runOpts) (string, er
 			// We don't fail if we cannot parse the URL, but log a warning in that
 			// case. And we execute the command in a verbatim way.
 			if err != nil {
-				log.Warnf("runCmdOutput: Could not parse repo URL '%s'", m.repoURL)
+				logging.Warn(m.log, "could not parse repo URL", "repoURL", m.repoURL)
 			} else {
 				caPath, err := certutil.GetCertBundlePathForRepository(parsedURL.Host)
 				if err == nil && caPath != "" {
@@ -828,8 +826,8 @@ func (m *nativeGitClient) runCmdOutput(cmd *exec.Cmd, ropts runOpts) (string, er
 		}
 	}
 	cmd.Env = proxy.UpsertEnv(cmd, m.proxy, m.noProxy)
-	opts := executil.ExecRunOpts{
-		TimeoutBehavior: executil.TimeoutBehavior{
+	opts := ExecRunOpts{
+		TimeoutBehavior: TimeoutBehavior{
 			Signal:     syscall.SIGTERM,
 			ShouldWait: true,
 		},
@@ -838,7 +836,7 @@ func (m *nativeGitClient) runCmdOutput(cmd *exec.Cmd, ropts runOpts) (string, er
 		// TODO: restore to above
 		CaptureStderr: true,
 	}
-	return executil.RunWithExecRunOpts(cmd, opts)
+	return RunWithExecRunOpts(cmd, opts, m.log)
 }
 
 const (
