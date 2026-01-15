@@ -119,6 +119,7 @@ var _ = Describe("NewGitWriter", func() {
 	Context("authenticate with SSH", func() {
 		It("returns a valid GitWriter", func() {
 			stateStoreSpec.AuthMethod = "ssh"
+			stateStoreSpec.URL = "test-user@test.ghe.com:test-org/test-state-store.git"
 			key, err := rsa.GenerateKey(rand.Reader, 1024)
 			Expect(err).NotTo(HaveOccurred())
 
@@ -127,8 +128,8 @@ var _ = Describe("NewGitWriter", func() {
 			Expect(writer).To(BeAssignableToTypeOf(&writers.GitWriter{}))
 			gitWriter, ok := writer.(*writers.GitWriter)
 			Expect(ok).To(BeTrue())
-			Expect(gitWriter.GitServer.URL).To(Equal("https://github.com/syntasso/kratix"))
-			Expect(gitWriter.GitServer.Auth.(*ssh.PublicKeys).User).To(Equal("git"))
+			Expect(gitWriter.GitServer.URL).To(Equal("test-user@test.ghe.com:test-org/test-state-store.git"))
+			Expect(gitWriter.GitServer.Auth.(*ssh.PublicKeys).User).To(Equal("test-user"))
 			publicKey, ok := gitWriter.GitServer.Auth.(*ssh.PublicKeys)
 			Expect(ok).To(BeTrue())
 			Expect(publicKey).NotTo(BeNil())
