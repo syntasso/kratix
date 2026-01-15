@@ -112,9 +112,9 @@ type GitClientRequest struct {
 }
 
 var (
-	sshURLRegex    = regexp.MustCompile("^(ssh://)?([^/:]*?)@[^@]+$")
-	httpsURLRegex  = regexp.MustCompile("^(https://).*")
-	httpURLRegex   = regexp.MustCompile("^(http://).*")
+	sshURLRegex   = regexp.MustCompile("^(ssh://)?([^/:]*?)@[^@]+$")
+	httpsURLRegex = regexp.MustCompile("^(https://).*")
+	httpURLRegex  = regexp.MustCompile("^(http://).*")
 )
 
 // IsSSHURL returns true if supplied URL is SSH URL

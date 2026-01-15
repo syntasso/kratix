@@ -849,21 +849,6 @@ type githubAppCreds struct {
 	ApiUrl         string
 }
 
-/*
-// COPIED FROM ARGOCD: merge with existing function
-	case GitHubAppCreds:
-		token, err := creds.getAccessToken()
-		if err != nil {
-			return nil, err
-		}
-		auth := githttp.BasicAuth{Username: "x-access-token", Password: token}
-		return &auth, nil
-	}
-
-	return nil, nil
-}
-*/
-
 func setAuth(stateStoreSpec v1alpha1.GitStateStoreSpec, destinationPath string, creds map[string][]byte) (*Auth, error) {
 
 	var (
@@ -901,14 +886,14 @@ func setAuth(stateStoreSpec v1alpha1.GitStateStoreSpec, destinationPath string, 
 		}
 
 		credsX = NewHTTPSCreds(
-			basicCreds.Username, // username
-			basicCreds.Password, // password
-			"",                  // bearer token
-			"",                  // clientCertData
-			"",                  // clientCertKey
-			false,               // insecure
-			NoopCredsStore{},    // CredsStore,
-			true,                // forceBasicAuth
+			basicCreds.Username,
+			basicCreds.Password,
+			"",
+			"",
+			"",
+			false,
+			NoopCredsStore{},
+			true,
 		)
 
 	case v1alpha1.GitHubAppAuthMethod:
@@ -949,12 +934,12 @@ func setAuth(stateStoreSpec v1alpha1.GitStateStoreSpec, destinationPath string, 
 			int64(appID),
 			int64(installationID),
 			appCreds.PrivateKey,
-			"https://api.github.com", // baseURL
-			"",                       // clientCertData
-			"",                       // clientCertKey
-			false,                    // insecure
-			"",                       // proxy
-			"",                       // noProxy
+			"https://api.github.com",
+			"",
+			"",
+			false,
+			"",
+			"",
 			NoopCredsStore{})
 	}
 
@@ -990,10 +975,10 @@ func newBasicAuthCreds(stateStoreSpec v1alpha1.GitStateStoreSpec, creds map[stri
 	namespace := stateStoreSpec.SecretRef.Namespace
 	name := stateStoreSpec.SecretRef.Name
 	username, ok := creds["username"]
-	// when using a GihHub PAT token with Git cli, username is ignored,
-	// but it cannot be empty as Git cli uses basic auth:
-	// e.g.: username:password
-	if !ok || string(username) == "" {
+	// When using a GitHub PAT token with git cli, username is ignored,
+	// but it cannot be empty as git cli uses basic auth: username:password.
+	// Only default to the GitHub username when the repo looks like GitHub.
+	if (!ok || string(username) == "") && strings.Contains(strings.ToLower(stateStoreSpec.URL), "github") {
 		username = []byte(githubAccessTokenUsername)
 	}
 	password, ok := creds["password"]
