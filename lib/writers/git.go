@@ -43,8 +43,7 @@ type GitRepo struct {
 	Worktree    *git.Worktree
 }
 
-// TODO: rename
-type Auth struct {
+type GitAuth struct {
 	transport.AuthMethod
 	Creds
 }
@@ -287,7 +286,7 @@ func (g *GitWriter) cloneRepo(localRepoFilePath string, logger logr.Logger) (*gi
 	logging.Debug(logger, "cloning repo")
 	/* TODO: make sure we have the same settings in the new client
 	cloneOpts := &git.CloneOptions{
-		Auth:            g.GitServer.Auth,
+		GitAuth:            g.GitServer.GitAuth,
 		URL:             g.GitServer.URL,
 		ReferenceName:   plumbing.NewBranchReferenceName(g.GitServer.Branch),
 		SingleBranch:    true,
@@ -301,13 +300,13 @@ func (g *GitWriter) cloneRepo(localRepoFilePath string, logger logr.Logger) (*gi
 
 	if isAuthError(err) && g.BasicAuth {
 		/* TODO: convert this
-		if trimmed, changed := trimmedBasicAuthCopy(g.GitServer.Auth); changed {
+		if trimmed, changed := trimmedBasicAuthCopy(g.GitServer.GitAuth); changed {
 			logging.Info(logger, "auth failed there are trailing spaces in credentials; will retry again with trimmed credentials")
-			cloneOpts.Auth = &trimmed
+			cloneOpts.GitAuth = &trimmed
 			_ = os.RemoveAll(localRepoFilePath)
 			if retryRepo, retryErr := git.PlainClone(localRepoFilePath, false, cloneOpts); retryErr == nil {
 				logging.Warn(logger, "authentication succeeded after trimming trailing whitespace; please fix your GitStateStore Secret")
-				g.GitServer.Auth = &trimmed
+				g.GitServer.GitAuth = &trimmed
 				return retryRepo, ErrAuthSucceededAfterTrim
 			}
 		}

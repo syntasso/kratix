@@ -103,7 +103,7 @@ type GitClient interface {
 type GitClientRequest struct {
 	RawRepoURL string
 	Root       string
-	Auth       *Auth
+	Auth       *GitAuth
 	Insecure   bool
 	Proxy      string
 	NoProxy    string
@@ -152,7 +152,7 @@ func NewGitClient(req GitClientRequest) (*nativeGitClient, error) {
 	// TODO: do we still need this?
 	case GitHubAppCreds:
 		/*
-			tokenAuth, ok := req.Auth.AuthMethod.(*githttp.TokenAuth)
+			tokenAuth, ok := req.GitAuth.AuthMethod.(*githttp.TokenAuth)
 			if !ok {
 				return nil, fmt.Errorf("GitHub app auth method is not *githttp.TokenAuth")
 			}

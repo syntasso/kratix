@@ -851,7 +851,7 @@ type githubAppCreds struct {
 	ApiUrl         string
 }
 
-func setAuth(stateStoreSpec v1alpha1.GitStateStoreSpec, destinationPath string, creds map[string][]byte) (*Auth, error) {
+func setAuth(stateStoreSpec v1alpha1.GitStateStoreSpec, destinationPath string, creds map[string][]byte) (*GitAuth, error) {
 
 	var (
 		credsX     Creds
@@ -945,7 +945,7 @@ func setAuth(stateStoreSpec v1alpha1.GitStateStoreSpec, destinationPath string, 
 			NoopCredsStore{})
 	}
 
-	return &Auth{
+	return &GitAuth{
 		AuthMethod: authMethod,
 		Creds:      credsX,
 	}, nil

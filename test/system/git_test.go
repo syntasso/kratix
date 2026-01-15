@@ -47,7 +47,7 @@ var _ = FDescribe("Git tests", func() {
 						client, err = writers.NewGitClient(
 							writers.GitClientRequest{
 								RawRepoURL: httpPublicRepo,
-								Auth:       &writers.Auth{Creds: writers.NopCreds{}},
+								Auth:       &writers.GitAuth{Creds: writers.NopCreds{}},
 								Insecure:   false,
 							})
 						Expect(err).ToNot(HaveOccurred())
@@ -94,7 +94,7 @@ var _ = FDescribe("Git tests", func() {
 					client, err := writers.NewGitClient(writers.GitClientRequest{
 						RawRepoURL: httpPrivateRepo,
 						Root:       "",
-						Auth:       &writers.Auth{Creds: httpCreds},
+						Auth:       &writers.GitAuth{Creds: httpCreds},
 						Insecure:   true,
 						Proxy:      "",
 						NoProxy:    "",
@@ -117,7 +117,7 @@ var _ = FDescribe("Git tests", func() {
 					client, err := writers.NewGitClient(writers.GitClientRequest{
 						RawRepoURL: httpPrivateRepo,
 						Root:       "",
-						Auth:       &writers.Auth{Creds: httpCreds},
+						Auth:       &writers.GitAuth{Creds: httpCreds},
 						Insecure:   true,
 						Proxy:      "",
 						NoProxy:    "",
@@ -160,7 +160,7 @@ var _ = FDescribe("Git tests", func() {
 					clientOne, err := writers.NewGitClient(writers.GitClientRequest{
 						RawRepoURL: httpPrivateRepo,
 						Root:       "client-1",
-						Auth:       &writers.Auth{Creds: httpCreds},
+						Auth:       &writers.GitAuth{Creds: httpCreds},
 						Insecure:   true,
 						Proxy:      "",
 						NoProxy:    "",
@@ -188,7 +188,7 @@ var _ = FDescribe("Git tests", func() {
 					clientTwo, err := writers.NewGitClient(writers.GitClientRequest{
 						RawRepoURL: httpPrivateRepo,
 						Root:       "client-2",
-						Auth:       &writers.Auth{Creds: httpCreds},
+						Auth:       &writers.GitAuth{Creds: httpCreds},
 						Insecure:   true,
 						Proxy:      "",
 						NoProxy:    "",
@@ -243,7 +243,7 @@ var _ = FDescribe("Git tests", func() {
 						client, err := writers.NewGitClient(writers.GitClientRequest{
 							RawRepoURL: httpPrivateRepo,
 							Root:       "",
-							Auth:       &writers.Auth{Creds: writers.NopCreds{}},
+							Auth:       &writers.GitAuth{Creds: writers.NopCreds{}},
 							Insecure:   true,
 							Proxy:      "",
 							NoProxy:    "",
@@ -277,7 +277,7 @@ var _ = FDescribe("Git tests", func() {
 						client, err := writers.NewGitClient(writers.GitClientRequest{
 							RawRepoURL: httpPrivateRepo,
 							Root:       "",
-							Auth:       &writers.Auth{Creds: wrongHttpCreds},
+							Auth:       &writers.GitAuth{Creds: wrongHttpCreds},
 							Insecure:   true,
 							Proxy:      "",
 							NoProxy:    "",
@@ -313,7 +313,7 @@ var _ = FDescribe("Git tests", func() {
 				It("successfully clones the repository", func() {
 					client, err = writers.NewGitClient(writers.GitClientRequest{
 						RawRepoURL: sshPrivateRepo,
-						Auth:       &writers.Auth{Creds: sshNativeCreds},
+						Auth:       &writers.GitAuth{Creds: sshNativeCreds},
 						Insecure:   false,
 						Proxy:      "",
 						NoProxy:    "",
