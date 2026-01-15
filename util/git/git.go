@@ -21,7 +21,6 @@ import (
 	"syscall"
 	"time"
 	"unicode"
-	"unicode/utf8"
 
 	"github.com/go-git/go-git/v5/plumbing"
 	gitssh "github.com/go-git/go-git/v5/plumbing/transport/ssh"
@@ -119,7 +118,6 @@ type GitClientRequest struct {
 var (
 	sshURLRegex   = regexp.MustCompile("^(ssh://)?([^/:]*?)@[^@]+$")
 	httpsURLRegex = regexp.MustCompile("^(https://).*")
-	httpURLRegex  = regexp.MustCompile("^(http://).*")
 )
 
 // IsSSHURL returns true if supplied URL is SSH URL
@@ -198,15 +196,6 @@ func NewGitClient(req GitClientRequest) (Client, error) {
 	}
 
 	return client, nil
-}
-
-func Run(cmd *exec.Cmd, logger logr.Logger) (string, error) {
-	return RunWithRedactor(cmd, nil, logger)
-}
-
-func RunWithRedactor(cmd *exec.Cmd, redactor func(text string) string, logger logr.Logger) (string, error) {
-	opts := ExecRunOpts{Redactor: redactor}
-	return RunWithExecRunOpts(cmd, opts, logger)
 }
 
 func RunWithExecRunOpts(cmd *exec.Cmd, opts ExecRunOpts, logger logr.Logger) (string, error) {
@@ -409,17 +398,6 @@ func RunCommandExt(cmd *exec.Cmd, opts CmdOpts, logger logr.Logger) (string, err
 	return strings.TrimSuffix(output, "\n"), nil
 }
 
-func RunCommand(name string, opts CmdOpts, logger logr.Logger, arg ...string) (string, error) {
-	return RunCommandExt(exec.CommandContext(context.Background(), name, arg...), opts, logger)
-}
-
-/////////////////////
-
-var (
-	ErrInvalidRepoURL = errors.New("repo URL is invalid")
-	ErrNoNoteFound    = errors.New("no note found")
-)
-
 // builtinGitConfig configuration contains statements that are needed
 // for correct ArgoCD operation. These settings will override any
 // user-provided configuration of same options.
@@ -521,8 +499,6 @@ func init() {
 
 type ClientOpts func(c *nativeGitClient)
 
-var gitClientTimeout = ParseDurationFromEnv( "ARGOCD_GIT_REQUEST_TIMEOUT", 15*time.Second, 0, math.MaxInt64)
-
 // Returns a HTTP client object suitable for go-git to use using the following
 // pattern:
 //   - If insecure is true, always returns a client with certificate verification
@@ -531,9 +507,9 @@ var gitClientTimeout = ParseDurationFromEnv( "ARGOCD_GIT_REQUEST_TIMEOUT", 15*ti
 //     a client with those certificates in the list of root CAs used to verify
 //     the server's certificate.
 //   - Otherwise (and on non-fatal errors), a default HTTP client is returned.
-func GetRepoHTTPClient(repoURL string, insecure bool, creds Creds, proxyURL string, noProxy string) *http.Client {
-	fmt.Println("GGGGGGGGGGGGGGGGGGGG HHHHHHHHHHHHHHHHHHHHHHHHHHHHHHHHHHHHHH")
+func GetRepoHTTPClient(logger logr.Logger, repoURL string, insecure bool, creds Creds, proxyURL string, noProxy string) *http.Client {
 	// Default HTTP client
+	gitClientTimeout := ParseDurationFromEnv(logger, "KRATIX_GIT_REQUEST_TIMEOUT", 15*time.Second, 0, math.MaxInt64)
 	customHTTPClient := &http.Client{
 		// 15 second timeout by default
 		Timeout: gitClientTimeout,
@@ -611,8 +587,8 @@ func (m *nativeGitClient) Init() (string, error) {
 		return "", err
 	}
 
-	logging.Debug(m.log, "initialising repo %s to %s", m.repoURL, m.root)
-	//	err = os.RemoveAll(m.root)
+	logging.Debug(m.log, fmt.Sprintf("initialising repo %s to %s", m.repoURL, m.root))
+	err = os.RemoveAll(m.root)
 	if err != nil {
 		return "", fmt.Errorf("unable to clean repo at %s: %w", m.root, err)
 	}
@@ -673,13 +649,6 @@ func (m *nativeGitClient) fetch(ctx context.Context, revision string, depth int6
 	}
 	args = append(args, "--force", "--prune")
 	return m.runCredentialedCmd(ctx, args...)
-}
-
-func truncate(str string) string {
-	if utf8.RuneCountInString(str) > 100 {
-		return string([]rune(str)[0:97]) + "..."
-	}
-	return str
 }
 
 // config runs a git config command.
@@ -763,7 +732,7 @@ func (m *nativeGitClient) runCmd(ctx context.Context, args ...string) (string, e
 
 // runCredentialedCmd is a convenience function to run a git command with username/password credentials
 func (m *nativeGitClient) runCredentialedCmd(ctx context.Context, args ...string) error {
-	closer, environ, err := m.creds.Environ()
+	closer, environ, err := m.creds.Environ(m.log)
 	if err != nil {
 		return err
 	}
@@ -849,48 +818,9 @@ func (m *nativeGitClient) runCmdOutput(cmd *exec.Cmd, ropts runOpts) (string, er
 	return RunWithExecRunOpts(cmd, opts, m.log)
 }
 
-const (
-	EnvVarGitSshInsecure = "KRATIX_GIT_SSH_INSECURE"
-
-	// EnvVarSSHDataPath overrides the location where SSH known hosts for repo access data is stored
-	EnvVarSSHDataPath = "KRATIX_SSH_DATA_PATH"
-)
-
-// EnsurePrefix idempotently ensures that a base string has a given prefix.
-func ensurePrefix(s, prefix string) string {
-	if !strings.HasPrefix(s, prefix) {
-		s = prefix + s
-	}
-	return s
-}
-
-func NormalizeGitURL(repo string) string {
-	repo = strings.ToLower(strings.TrimSpace(repo))
-	if yes, _ := IsSSHURL(repo); yes {
-		if !strings.HasPrefix(repo, "ssh://") {
-			// We need to replace the first colon in git@server... style SSH URLs with a slash, otherwise
-			// net/url.Parse will interpret it incorrectly as the port.
-			repo = strings.Replace(repo, ":", "/", 1)
-			repo = ensurePrefix(repo, "ssh://")
-		}
-	}
-	repo = strings.TrimSuffix(repo, ".git")
-	repoURL, err := url.Parse(repo)
-	if err != nil {
-		return ""
-	}
-	normalized := repoURL.String()
-	return strings.TrimPrefix(normalized, "ssh://")
-}
-
 // IsHTTPSURL returns true if supplied URL is HTTPS URL
 func IsHTTPSURL(url string) bool {
 	return httpsURLRegex.MatchString(url)
-}
-
-// IsHTTPURL returns true if supplied URL is HTTP URL
-func IsHTTPURL(url string) bool {
-	return httpURLRegex.MatchString(url)
 }
 
 // SupportedSSHKeyExchangeAlgorithms is a list of all currently supported algorithms for SSH key exchange
@@ -1114,127 +1044,14 @@ func (m *nativeGitClient) HasChanges() (bool, error) {
 // Argo CD application related constants
 const (
 
-	// ArgoCDAdminUsername is the username of the 'admin' user
-	ArgoCDAdminUsername = "admin"
-	// ArgoCDUserAgentName is the default user-agent name used by the gRPC API client library and grpc-gateway
-	ArgoCDUserAgentName = "argocd-client"
-	// ArgoCDSSAManager is the default argocd manager name used by server-side apply syncs
-	ArgoCDSSAManager = "argocd-controller"
-	// AuthCookieName is the HTTP cookie name where we store our auth token
-	AuthCookieName = "argocd.token"
-	// StateCookieName is the HTTP cookie name that holds temporary nonce tokens for CSRF protection
-	StateCookieName = "argocd.oauthstate"
-	// StateCookieMaxAge is the maximum age of the oauth state cookie
-	StateCookieMaxAge = time.Minute * 5
-
-	// ChangePasswordSSOTokenMaxAge is the max token age for password change operation
-	ChangePasswordSSOTokenMaxAge = time.Minute * 5
 	// GithubAppCredsExpirationDuration is the default time used to cache the GitHub app credentials
 	GithubAppCredsExpirationDuration = time.Minute * 60
-
-	// PasswordPatten is the default password patten
-	PasswordPatten = `^.{8,32}$`
-
-	// LegacyShardingAlgorithm is the default value for Sharding Algorithm it uses an `uid` based distribution (non-uniform)
-	LegacyShardingAlgorithm = "legacy"
-	// RoundRobinShardingAlgorithm is a flag value that can be opted for Sharding Algorithm it uses an equal distribution across all shards
-	RoundRobinShardingAlgorithm = "round-robin"
-	// AppControllerHeartbeatUpdateRetryCount is the retry count for updating the Shard Mapping to the Shard Mapping ConfigMap used by Application Controller
-	AppControllerHeartbeatUpdateRetryCount = 3
-
-	// ConsistentHashingWithBoundedLoadsAlgorithm uses an algorithm that tries to use an equal distribution across
-	// all shards but is optimised to handle sharding and/or cluster addition or removal. In case of sharding or
-	// cluster changes, this algorithm minimises the changes between shard and clusters assignments.
-	ConsistentHashingWithBoundedLoadsAlgorithm = "consistent-hashing"
-
-	DefaultShardingAlgorithm = LegacyShardingAlgorithm
 )
 
 // Environment variables for tuning and debugging Argo CD
 const (
-	// EnvVarSSODebug is an environment variable to enable additional OAuth debugging in the API server
-	EnvVarSSODebug = "ARGOCD_SSO_DEBUG"
-	// EnvVarRBACDebug is an environment variable to enable additional RBAC debugging in the API server
-	EnvVarRBACDebug = "ARGOCD_RBAC_DEBUG"
-	// EnvVarTLSDataPath overrides the location where TLS certificate for repo access data is stored
-	EnvVarTLSDataPath = "ARGOCD_TLS_DATA_PATH"
-	// EnvGitAttemptsCount specifies number of git remote operations attempts count
-	EnvGitAttemptsCount = "ARGOCD_GIT_ATTEMPTS_COUNT"
-	// EnvGitRetryMaxDuration specifies max duration of git remote operation retry
-	EnvGitRetryMaxDuration = "ARGOCD_GIT_RETRY_MAX_DURATION"
-	// EnvGitRetryDuration specifies duration of git remote operation retry
-	EnvGitRetryDuration = "ARGOCD_GIT_RETRY_DURATION"
-	// EnvGitRetryFactor specifies factor of git remote operation retry
-	EnvGitRetryFactor = "ARGOCD_GIT_RETRY_FACTOR"
-	// EnvGitSubmoduleEnabled overrides git submodule support, true by default
-	EnvGitSubmoduleEnabled = "ARGOCD_GIT_MODULES_ENABLED"
-	// EnvGnuPGHome is the path to ArgoCD's GnuPG keyring for signature verification
-	EnvGnuPGHome = "ARGOCD_GNUPGHOME"
-	// EnvWatchAPIBufferSize is the buffer size used to transfer K8S watch events to watch API consumer
-	EnvWatchAPIBufferSize = "ARGOCD_WATCH_API_BUFFER_SIZE"
-	// EnvPauseGenerationAfterFailedAttempts will pause manifest generation after the specified number of failed generation attempts
-	EnvPauseGenerationAfterFailedAttempts = "ARGOCD_PAUSE_GEN_AFTER_FAILED_ATTEMPTS"
-	// EnvPauseGenerationMinutes pauses manifest generation for the specified number of minutes, after sufficient manifest generation failures
-	EnvPauseGenerationMinutes = "ARGOCD_PAUSE_GEN_MINUTES"
-	// EnvPauseGenerationRequests pauses manifest generation for the specified number of requests, after sufficient manifest generation failures
-	EnvPauseGenerationRequests = "ARGOCD_PAUSE_GEN_REQUESTS"
-	// EnvControllerReplicas is the number of controller replicas
-	EnvControllerReplicas = "ARGOCD_CONTROLLER_REPLICAS"
-	// EnvControllerHeartbeatTime will update the heartbeat for application controller to claim shard
-	EnvControllerHeartbeatTime = "ARGOCD_CONTROLLER_HEARTBEAT_TIME"
-	// EnvControllerShard is the shard number that should be handled by controller
-	EnvControllerShard = "ARGOCD_CONTROLLER_SHARD"
-	// EnvControllerShardingAlgorithm is the distribution sharding algorithm to be used: legacy or round-robin
-	EnvControllerShardingAlgorithm = "ARGOCD_CONTROLLER_SHARDING_ALGORITHM"
-	// EnvEnableDynamicClusterDistribution enables dynamic sharding (ALPHA)
-	EnvEnableDynamicClusterDistribution = "ARGOCD_ENABLE_DYNAMIC_CLUSTER_DISTRIBUTION"
-	// EnvEnableGRPCTimeHistogramEnv enables gRPC metrics collection
-	EnvEnableGRPCTimeHistogramEnv = "ARGOCD_ENABLE_GRPC_TIME_HISTOGRAM"
 	// EnvGithubAppCredsExpirationDuration controls the caching of Github app credentials. This value is in minutes (default: 60)
 	EnvGithubAppCredsExpirationDuration = "ARGOCD_GITHUB_APP_CREDS_EXPIRATION_DURATION"
-	// EnvHelmIndexCacheDuration controls how the helm repository index file is cached for (default: 0)
-	EnvHelmIndexCacheDuration = "ARGOCD_HELM_INDEX_CACHE_DURATION"
-	// EnvAppConfigPath allows to override the configuration path for repo server
-	EnvAppConfigPath = "ARGOCD_APP_CONF_PATH"
-	// EnvAuthToken is the environment variable name for the auth token used by the CLI
-	EnvAuthToken = "ARGOCD_AUTH_TOKEN"
-	// EnvLogFormat log format that is defined by `--logformat` option
-	EnvLogFormat = "ARGOCD_LOG_FORMAT"
-	// EnvLogLevel log level that is defined by `--loglevel` option
-	EnvLogLevel = "ARGOCD_LOG_LEVEL"
-	// EnvLogFormatEnableFullTimestamp enables the FullTimestamp option in logs
-	EnvLogFormatEnableFullTimestamp = "ARGOCD_LOG_FORMAT_ENABLE_FULL_TIMESTAMP"
-	// EnvLogFormatTimestamp is the timestamp format used in logs
-	EnvLogFormatTimestamp = "ARGOCD_LOG_FORMAT_TIMESTAMP"
-	// EnvMaxCookieNumber max number of chunks a cookie can be broken into
-	EnvMaxCookieNumber = "ARGOCD_MAX_COOKIE_NUMBER"
-	// EnvPluginSockFilePath allows to override the pluginSockFilePath for repo server and cmp server
-	EnvPluginSockFilePath = "ARGOCD_PLUGINSOCKFILEPATH"
-	// EnvCMPChunkSize defines the chunk size in bytes used when sending files to the cmp server
-	EnvCMPChunkSize = "ARGOCD_CMP_CHUNK_SIZE"
-	// EnvCMPWorkDir defines the full path of the work directory used by the CMP server
-	EnvCMPWorkDir = "ARGOCD_CMP_WORKDIR"
-	// EnvGPGDataPath overrides the location where GPG keyring for signature verification is stored
-	EnvGPGDataPath = "ARGOCD_GPG_DATA_PATH"
-	// EnvServer is the server address of the Argo CD API server.
-	EnvServer = "ARGOCD_SERVER"
-	// EnvServerName is the name of the Argo CD server component, as specified by the value under the LabelKeyAppName label key.
-	EnvServerName = "ARGOCD_SERVER_NAME"
-	// EnvRepoServerName is the name of the Argo CD repo server component, as specified by the value under the LabelKeyAppName label key.
-	EnvRepoServerName = "ARGOCD_REPO_SERVER_NAME"
-	// EnvAppControllerName is the name of the Argo CD application controller component, as specified by the value under the LabelKeyAppName label key.
-	EnvAppControllerName = "ARGOCD_APPLICATION_CONTROLLER_NAME"
-	// EnvRedisName is the name of the Argo CD redis component, as specified by the value under the LabelKeyAppName label key.
-	EnvRedisName = "ARGOCD_REDIS_NAME"
-	// EnvRedisHaProxyName is the name of the Argo CD Redis HA proxy component, as specified by the value under the LabelKeyAppName label key.
-	EnvRedisHaProxyName = "ARGOCD_REDIS_HAPROXY_NAME"
-	// EnvGRPCKeepAliveMin defines the GRPCKeepAliveEnforcementMinimum, used in the grpc.KeepaliveEnforcementPolicy. Expects a "Duration" format (e.g. 10s).
-	EnvGRPCKeepAliveMin = "ARGOCD_GRPC_KEEP_ALIVE_MIN"
-	// EnvServerSideDiff defines the env var used to enable ServerSide Diff feature.
-	// If defined, value must be "true" or "false".
-	EnvServerSideDiff = "ARGOCD_APPLICATION_CONTROLLER_SERVER_SIDE_DIFF"
-	// EnvGRPCMaxSizeMB is the environment variable to look for a max GRPC message size
-	EnvGRPCMaxSizeMB = "ARGOCD_GRPC_MAX_SIZE_MB"
 )
 
 // Helper function to parse a time duration from an environment variable. Returns a
@@ -1257,7 +1074,7 @@ func ParseDurationFromEnv(logger logr.Logger, env string, defaultValue, minimum,
 	}
 
 	if dur < minimum {
-	    logging.Debug(logCtx, "Value in %s is %s, which is less than minimum %s allowed", env, dur, minimum)
+		logging.Debug(logCtx, "Value in %s is %s, which is less than minimum %s allowed", env, dur, minimum)
 		return defaultValue
 	}
 	if dur > maximum {

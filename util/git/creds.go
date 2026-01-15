@@ -25,6 +25,7 @@ import (
 	giturls "github.com/chainguard-dev/git-urls"
 	"github.com/go-git/go-git/v5/plumbing/transport"
 	githttp "github.com/go-git/go-git/v5/plumbing/transport/http"
+	"github.com/go-logr/logr"
 
 	tx_ssh "github.com/go-git/go-git/v5/plumbing/transport/ssh"
 	"github.com/golang-jwt/jwt"
@@ -87,9 +88,9 @@ type CredsStore interface {
 }
 
 type Creds interface {
-	Environ() (io.Closer, []string, error)
+	Environ(logger logr.Logger) (io.Closer, []string, error)
 	// GetUserInfo gets the username and email address for the credentials, if they're available.
-	GetUserInfo(ctx context.Context) (string, string, error)
+	GetUserInfo(ctx context.Context, logger logr.Logger) (string, string, error)
 }
 
 // nop implementation
@@ -103,12 +104,12 @@ var _ Creds = NopCreds{}
 
 type NopCreds struct{}
 
-func (c NopCreds) Environ() (io.Closer, []string, error) {
+func (c NopCreds) Environ(_ logr.Logger) (io.Closer, []string, error) {
 	return NopCloser{}, nil, nil
 }
 
 // GetUserInfo returns empty strings for user info
-func (c NopCreds) GetUserInfo(_ context.Context) (name string, email string, err error) {
+func (c NopCreds) GetUserInfo(_ context.Context, _ logr.Logger) (name string, email string, err error) {
 	return "", "", nil
 }
 
@@ -160,7 +161,7 @@ func NewHTTPSCreds(username string, password string, bearerToken string, clientC
 }
 
 // GetUserInfo returns the username and email address for the credentials, if they're available.
-func (creds HTTPSCreds) GetUserInfo(_ context.Context) (string, string, error) {
+func (creds HTTPSCreds) GetUserInfo(_ context.Context, _ logr.Logger) (string, string, error) {
 	// Email not implemented for HTTPS creds.
 	return creds.username, "", nil
 }
@@ -179,7 +180,7 @@ func (creds HTTPSCreds) BearerAuthHeader() string {
 
 // Get additional required environment variables for executing git client to
 // access specific repository via HTTPS.
-func (creds HTTPSCreds) Environ() (io.Closer, []string, error) {
+func (creds HTTPSCreds) Environ(_ logr.Logger) (io.Closer, []string, error) {
 	var env []string
 
 	httpCloser := authFilePaths(make([]string, 0))
@@ -290,7 +291,7 @@ func NewSSHCreds(sshPrivateKey string, knownHostFile string, caPath string, inse
 
 // GetUserInfo returns empty strings for user info.
 // TODO: Implement this method to return the username and email address for the credentials, if they're available.
-func (c SSHCreds) GetUserInfo(_ context.Context) (string, string, error) {
+func (c SSHCreds) GetUserInfo(_ context.Context, _ logr.Logger) (string, string, error) {
 	// User info not implemented for SSH creds.
 	return "", "", nil
 }
@@ -325,7 +326,7 @@ func (f sshPrivateFiles) Close() error {
 	return retErr
 }
 
-func (c SSHCreds) Environ() (io.Closer, []string, error) {
+func (c SSHCreds) Environ(_ logr.Logger) (io.Closer, []string, error) {
 	// use the SHM temp dir from util, more secure
 	file, err := os.CreateTemp(argoio.TempDir, "")
 	if err != nil {
@@ -442,8 +443,8 @@ func NewGitHubAppCreds(appID int64, appInstallId int64, privateKey string, baseU
 	return GitHubAppCreds{appID: appID, appInstallId: appInstallId, privateKey: privateKey, baseURL: baseURL, clientCertData: clientCertData, clientCertKey: clientCertKey, insecure: insecure, proxy: proxy, noProxy: noProxy, store: store}
 }
 
-func (g GitHubAppCreds) Environ() (io.Closer, []string, error) {
-	token, err := g.getAccessToken()
+func (g GitHubAppCreds) Environ(logger logr.Logger) (io.Closer, []string, error) {
+	token, err := g.getAccessToken(logger)
 	if err != nil {
 		return NopCloser{}, nil, err
 	}
@@ -518,9 +519,9 @@ func (g GitHubAppCreds) BasicAuthHeader(token string) string {
 }
 
 // GetUserInfo returns the username and email address for the credentials, if they're available.
-func (g GitHubAppCreds) GetUserInfo(ctx context.Context) (string, string, error) {
+func (g GitHubAppCreds) GetUserInfo(ctx context.Context, logger logr.Logger) (string, string, error) {
 	// We use the apps transport to get the app slug.
-	appTransport, err := g.getAppTransport()
+	appTransport, err := g.getAppTransport(logger)
 	if err != nil {
 		return "", "", fmt.Errorf("failed to create GitHub app transport: %w", err)
 	}
@@ -531,7 +532,7 @@ func (g GitHubAppCreds) GetUserInfo(ctx context.Context) (string, string, error)
 	}
 
 	// Then we use the installation transport to get the installation info.
-	appInstallTransport, err := g.getInstallationTransport()
+	appInstallTransport, err := g.getInstallationTransport(logger)
 	if err != nil {
 		return "", "", fmt.Errorf("failed to get app installation: %w", err)
 	}
@@ -550,12 +551,12 @@ func (g GitHubAppCreds) GetUserInfo(ctx context.Context) (string, string, error)
 
 // getAccessToken fetches GitHub token using the app id, install id, and private key.
 // the token is then cached for re-use.
-func (g GitHubAppCreds) getAccessToken() (string, error) {
+func (g GitHubAppCreds) getAccessToken(logger logr.Logger) (string, error) {
 	// Timeout
 	ctx, cancel := context.WithTimeout(context.Background(), 15*time.Second)
 	defer cancel()
 
-	itr, err := g.getInstallationTransport()
+	itr, err := g.getInstallationTransport(logger)
 	if err != nil {
 		return "", fmt.Errorf("failed to create GitHub app installation transport: %w", err)
 	}
@@ -564,7 +565,7 @@ func (g GitHubAppCreds) getAccessToken() (string, error) {
 }
 
 // getAppTransport creates a new GitHub transport for the app
-func (g GitHubAppCreds) getAppTransport() (*ghinstallation.AppsTransport, error) {
+func (g GitHubAppCreds) getAppTransport(logger logr.Logger) (*ghinstallation.AppsTransport, error) {
 	// GitHub API url
 	baseURL := "https://api.github.com"
 	if g.baseURL != "" {
@@ -572,7 +573,7 @@ func (g GitHubAppCreds) getAppTransport() (*ghinstallation.AppsTransport, error)
 	}
 
 	// Create a new GitHub transport
-	c := GetRepoHTTPClient(baseURL, g.insecure, g, g.proxy, g.noProxy)
+	c := GetRepoHTTPClient(logger, baseURL, g.insecure, g, g.proxy, g.noProxy)
 	itr, err := ghinstallation.NewAppsTransport(c.Transport,
 		g.appID,
 		[]byte(g.privateKey),
@@ -587,7 +588,7 @@ func (g GitHubAppCreds) getAppTransport() (*ghinstallation.AppsTransport, error)
 }
 
 // getInstallationTransport creates a new GitHub transport for the app installation
-func (g GitHubAppCreds) getInstallationTransport() (*ghinstallation.Transport, error) {
+func (g GitHubAppCreds) getInstallationTransport(logger logr.Logger) (*ghinstallation.Transport, error) {
 	// Compute hash of creds for lookup in cache
 	h := sha256.New()
 	_, err := fmt.Fprintf(h, "%s %d %d %s", g.privateKey, g.appID, g.appInstallId, g.baseURL)
@@ -611,7 +612,7 @@ func (g GitHubAppCreds) getInstallationTransport() (*ghinstallation.Transport, e
 	}
 
 	// Create a new GitHub transport
-	c := GetRepoHTTPClient(baseURL, g.insecure, g, g.proxy, g.noProxy)
+	c := GetRepoHTTPClient(logger, baseURL, g.insecure, g, g.proxy, g.noProxy)
 	itr, err := ghinstallation.New(c.Transport,
 		g.appID,
 		g.appInstallId,
