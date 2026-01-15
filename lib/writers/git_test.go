@@ -13,6 +13,10 @@ import (
 	"net/http"
 	"net/http/httptest"
 
+	corev1 "k8s.io/api/core/v1"
+	metav1 "k8s.io/apimachinery/pkg/apis/meta/v1"
+	ctrl "sigs.k8s.io/controller-runtime"
+
 	transporthttp "github.com/go-git/go-git/v5/plumbing/transport/http"
 	"github.com/go-git/go-git/v5/plumbing/transport/ssh"
 	"github.com/go-logr/logr"
@@ -20,9 +24,7 @@ import (
 	. "github.com/onsi/gomega"
 	"github.com/syntasso/kratix/api/v1alpha1"
 	"github.com/syntasso/kratix/lib/writers"
-	corev1 "k8s.io/api/core/v1"
-	metav1 "k8s.io/apimachinery/pkg/apis/meta/v1"
-	ctrl "sigs.k8s.io/controller-runtime"
+	"github.com/syntasso/kratix/util/git"
 )
 
 var _ = Describe("NewGitWriter", func() {
@@ -166,20 +168,20 @@ var _ = Describe("NewGitWriter", func() {
 		BeforeEach(func() {
 			jwtCalled = false
 			tokenCalled = false
-			origGenerateGitHubAppJWT = writers.GenerateGitHubAppJWT
-			origGetGitHubInstallationToken = writers.GetGitHubInstallationToken
-			writers.GenerateGitHubAppJWT = func(appID, pk string) (string, error) {
+			origGenerateGitHubAppJWT = git.GenerateGitHubAppJWT
+			origGetGitHubInstallationToken = git.GetGitHubInstallationToken
+			git.GenerateGitHubAppJWT = func(appID, pk string) (string, error) {
 				jwtCalled = true
 				return "jwt", nil
 			}
-			writers.GetGitHubInstallationToken = func(apiURL, installationID, jwt string) (string, error) {
+			git.GetGitHubInstallationToken = func(apiURL, installationID, jwt string) (string, error) {
 				tokenCalled = true
 				return "token", nil
 			}
 		})
 		AfterEach(func() {
-			writers.GenerateGitHubAppJWT = origGenerateGitHubAppJWT
-			writers.GetGitHubInstallationToken = origGetGitHubInstallationToken
+			git.GenerateGitHubAppJWT = origGenerateGitHubAppJWT
+			git.GetGitHubInstallationToken = origGetGitHubInstallationToken
 		})
 		It("returns a valid GitWriter", func() {
 			stateStoreSpec.AuthMethod = "githubApp"
@@ -240,20 +242,20 @@ var _ = Describe("NewGitWriter", func() {
 	Describe("generateGitHubAppJWT", func() {
 		It("returns a signed JWT with valid RSA key and appID", func() {
 			pemStr := generatePEMFromPKCS1RSAKey()
-			jwt, err := writers.GenerateGitHubAppJWT("12345", pemStr)
+			jwt, err := git.GenerateGitHubAppJWT("12345", pemStr)
 			Expect(err).NotTo(HaveOccurred())
 			Expect(jwt).NotTo(BeEmpty())
 		})
 
 		It("parses RSA private key in PKCS#8 format", func() {
 			pemStr := generatePEMFromPKCS8RSAKey()
-			jwt, err := writers.GenerateGitHubAppJWT("12345", pemStr)
+			jwt, err := git.GenerateGitHubAppJWT("12345", pemStr)
 			Expect(err).NotTo(HaveOccurred())
 			Expect(jwt).NotTo(BeEmpty())
 		})
 
 		It("returns error for invalid PEM", func() {
-			jwt, err := writers.GenerateGitHubAppJWT("12345", "not-a-pem")
+			jwt, err := git.GenerateGitHubAppJWT("12345", "not-a-pem")
 			Expect(err).To(HaveOccurred())
 			Expect(jwt).To(BeEmpty())
 		})
@@ -261,14 +263,14 @@ var _ = Describe("NewGitWriter", func() {
 		It("returns error for non-RSA PEM", func() {
 			block := pem.Block{Type: "EC PRIVATE KEY", Bytes: []byte("bad")}
 			pemBytes := pem.EncodeToMemory(&block)
-			jwt, err := writers.GenerateGitHubAppJWT("12345", string(pemBytes))
+			jwt, err := git.GenerateGitHubAppJWT("12345", string(pemBytes))
 			Expect(err).To(HaveOccurred())
 			Expect(jwt).To(BeEmpty())
 		})
 
 		It("returns error for non-RSA PKCS#8 key", func() {
 			pemStr := generatePEMFromPKCS8ECKey()
-			jwt, err := writers.GenerateGitHubAppJWT("12345", pemStr)
+			jwt, err := git.GenerateGitHubAppJWT("12345", pemStr)
 			Expect(err).To(HaveOccurred())
 			Expect(jwt).To(BeEmpty())
 		})
@@ -293,7 +295,7 @@ var _ = Describe("NewGitWriter", func() {
 				_ = json.NewEncoder(w).Encode(map[string]string{"token": "abc123"})
 			}))
 
-			tok, err := writers.GetGitHubInstallationToken(server.URL, "123", "jwt")
+			tok, err := git.GetGitHubInstallationToken(server.URL, "123", "jwt")
 			Expect(err).NotTo(HaveOccurred())
 			Expect(tok).To(Equal("abc123"))
 		})
@@ -304,7 +306,7 @@ var _ = Describe("NewGitWriter", func() {
 				_ = json.NewEncoder(w).Encode(map[string]string{"message": "bad creds"})
 			}))
 
-			tok, err := writers.GetGitHubInstallationToken(server.URL, "123", "jwt")
+			tok, err := git.GetGitHubInstallationToken(server.URL, "123", "jwt")
 			Expect(err).To(HaveOccurred())
 			Expect(tok).To(BeEmpty())
 			Expect(err.Error()).To(ContainSubstring("bad creds"))
@@ -316,7 +318,7 @@ var _ = Describe("NewGitWriter", func() {
 				_ = json.NewEncoder(w).Encode(map[string]string{"token": ""})
 			}))
 
-			tok, err := writers.GetGitHubInstallationToken(server.URL, "123", "jwt")
+			tok, err := git.GetGitHubInstallationToken(server.URL, "123", "jwt")
 			Expect(err).To(HaveOccurred())
 			Expect(tok).To(BeEmpty())
 		})

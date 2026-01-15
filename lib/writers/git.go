@@ -1,20 +1,19 @@
 package writers
 
 import (
-	"context"
 	"errors"
 	"fmt"
 	"os"
 	"path"
 	"path/filepath"
 	"strings"
-	"unicode"
 
-	"github.com/go-git/go-git/v5"
+	gogit "github.com/go-git/go-git/v5"
 	"github.com/go-git/go-git/v5/plumbing/transport"
 	"github.com/go-logr/logr"
 	"github.com/syntasso/kratix/api/v1alpha1"
 	"github.com/syntasso/kratix/internal/logging"
+	"github.com/syntasso/kratix/util/git"
 )
 
 type GitWriter struct {
@@ -23,7 +22,8 @@ type GitWriter struct {
 	Path      string
 	Log       logr.Logger
 	BasicAuth bool
-	*nativeGitClient
+	// *nativeGitClient
+	git.Client
 }
 
 type gitServer struct {
@@ -39,13 +39,7 @@ type gitAuthor struct {
 
 type GitRepo struct {
 	LocalTmpDir string
-	Repo        *git.Repository
-	Worktree    *git.Worktree
-}
-
-type GitAuth struct {
-	transport.AuthMethod
-	Creds
+	Repo        *gogit.Repository
 }
 
 func NewGitWriter(logger logr.Logger, stateStoreSpec v1alpha1.GitStateStoreSpec, destinationPath string, creds map[string][]byte) (StateStoreWriter, error) {
@@ -55,13 +49,13 @@ func NewGitWriter(logger logr.Logger, stateStoreSpec v1alpha1.GitStateStoreSpec,
 		destinationPath,
 	), "/")
 
-	auth, err := setAuth(stateStoreSpec, destinationPath, creds)
+	auth, err := git.SetAuth(stateStoreSpec, destinationPath, creds)
 	if err != nil {
 		return nil, fmt.Errorf("could not create auth method: %w", err)
 	}
 
-	nativeGitClient, err := NewGitClient(
-		GitClientRequest{
+	nativeGitClient, err := git.NewGitClient(
+		git.GitClientRequest{
 			RawRepoURL: stateStoreSpec.URL,
 			Root:       repoPath,
 			Auth:       auth,
@@ -69,7 +63,7 @@ func NewGitWriter(logger logr.Logger, stateStoreSpec v1alpha1.GitStateStoreSpec,
 			Insecure: false,
 			Proxy:    "",
 			NoProxy:  "",
-			log:      logger,
+			Log:      logger,
 		})
 	if err != nil {
 		return nil, fmt.Errorf("could not create git native client: %w", err)
@@ -91,8 +85,8 @@ func NewGitWriter(logger logr.Logger, stateStoreSpec v1alpha1.GitStateStoreSpec,
 			"repo", stateStoreSpec.URL,
 			"branch", stateStoreSpec.Branch,
 		),
-		Path:            repoPath,
-		nativeGitClient: nativeGitClient,
+		Path:   repoPath,
+		Client: nativeGitClient,
 	}
 
 	return m, nil
@@ -178,7 +172,7 @@ func (g *GitWriter) deleteExistingFiles(removeDirectory bool, dir string, worklo
 	if removeDirectory {
 		if _, err := os.Lstat(dir); err == nil {
 			logging.Info(logger, "deleting existing content")
-			if err := g.nativeGitClient.RemoveDirectory(dir); err != nil {
+			if err := g.RemoveDirectory(dir); err != nil {
 				logging.Error(logger, err, "could not add directory deletion to worktree", "dir", dir)
 				return err
 			}
@@ -193,7 +187,7 @@ func (g *GitWriter) deleteExistingFiles(removeDirectory bool, dir string, worklo
 				logging.Debug(log, "file requested to be deleted from worktree but does not exist")
 				continue
 			}
-			if err := g.nativeGitClient.RemoveFile(file); err != nil {
+			if err := g.RemoveFile(file); err != nil {
 				logging.Error(logger, err, "could not remove file from worktree")
 				return err
 			}
@@ -281,7 +275,7 @@ func (g *GitWriter) ValidatePermissions() error {
 	return cloneErr
 }
 
-func (g *GitWriter) cloneRepo(localRepoFilePath string, logger logr.Logger) (*git.Repository, error) {
+func (g *GitWriter) cloneRepo(localRepoFilePath string, logger logr.Logger) (*gogit.Repository, error) {
 
 	logging.Debug(logger, "cloning repo")
 	/* TODO: make sure we have the same settings in the new client
@@ -296,9 +290,9 @@ func (g *GitWriter) cloneRepo(localRepoFilePath string, logger logr.Logger) (*gi
 	}
 	*/
 
-	repo, err := git.PlainOpen(localRepoFilePath)
+	repo, err := gogit.PlainOpen(localRepoFilePath)
 
-	if isAuthError(err) && g.BasicAuth {
+	if git.IsAuthError(err) && g.BasicAuth {
 		/* TODO: convert this
 		if trimmed, changed := trimmedBasicAuthCopy(g.GitServer.GitAuth); changed {
 			logging.Info(logger, "auth failed there are trailing spaces in credentials; will retry again with trimmed credentials")
@@ -316,29 +310,15 @@ func (g *GitWriter) cloneRepo(localRepoFilePath string, logger logr.Logger) (*gi
 	return repo, err
 }
 
-// HasChanges returns whether there are pending changes
-// on the repository.
-func (m *nativeGitClient) HasChanges() (bool, error) {
-	out, err := m.runCmd(context.Background(), "status")
-	if err != nil {
-		return false, fmt.Errorf("failed to diff: %w", err)
-	}
-	if out == "" {
-		return false, nil
-	}
-
-	return strings.Contains(out, "Changes to be committed"), nil
-}
-
 func (g *GitWriter) commitAndPush(action, workPlacementName string, logger logr.Logger) (string, error) {
-	hasChanged, err := g.nativeGitClient.HasChanges()
+	hasChanged, err := g.HasChanges()
 	if err != nil {
 		logging.Error(logger, err, "could not get check local changes")
 		return "", err
 	}
 	if action != "Delete" && !hasChanged {
 		logging.Info(logger, "no changes to be committed")
-		return "", ErrNoFilesChanged
+		return "", git.ErrNoFilesChanged
 	}
 
 	logging.Info(logger, "pushing changes")
@@ -351,122 +331,4 @@ func (g *GitWriter) commitAndPush(action, workPlacementName string, logger logr.
 		return "", err
 	}
 	return commitSha, nil
-}
-
-func createLocalDirectory(logger logr.Logger) (string, error) {
-	logging.Debug(logger, "creating local directory")
-	dir, err := os.MkdirTemp("", "kratix-repo")
-	if err != nil {
-		return "", err
-	}
-
-	return dir, nil
-}
-
-func trimRightWhitespace(s string) (string, bool) {
-	trimmed := strings.TrimRightFunc(s, unicode.IsSpace)
-	return trimmed, trimmed != s
-}
-
-// Fetch downloads commits, branches, and tags from the remote repository
-// without modifying the working directory or current branch. Updates remote-tracking
-// branches (e.g., origin/main) to reflect the current state of the remote.
-//
-// Parameters:
-//
-//	revision: Specific branch/tag/commit to 	fetch (empty string fetches all)
-//	depth: Number of commits to fetch (0 for full history)
-//
-// Flags used:
-//
-//	--force: Allow non-fast-forward updates (handles force pushes)
-//	--prune: Remove remote-tracking branches that no longer exist on remote
-//	--tags: Fetch all tags (only when depth == 0, as tags don't work well with shallow clones)
-func (m *nativeGitClient) Fetch(revision string, depth int64) error {
-	// TODO: revisit handlers
-	if m.OnFetch != nil {
-		done := m.OnFetch(m.repoURL)
-		defer done()
-	}
-	ctx := context.Background()
-
-	err := m.fetch(ctx, revision, depth)
-	if err != nil {
-		return err
-	}
-
-	return err
-}
-
-// Checkout switches the working directory to the specified revision (branch, tag, or commit),
-// updating all files to match that revision's state. Changes the current branch (updates
-// .git/HEAD) and modifies working directory files. After checkout, performs aggressive
-// cleanup to remove all untracked files, directories, and nested repositories.
-//
-// Parameters:
-//
-//	revision: Branch, tag, or commit to checkout (empty string or "HEAD" defaults to "origin/HEAD")
-//
-// Behavior:
-//   - Uses --force flag to discard any local modifications
-//   - Runs git clean -ffdx after checkout to remove:
-//   - Untracked files and directories (first "f")
-//   - Untracked nested Git repositories like submodules (second "f")
-//   - Ignored files from .gitignore ("x")
-//   - All untracked directories ("d")
-//
-// Returns:
-//   - Empty string on success
-//   - Command output on error, along with the error itself
-func (m *nativeGitClient) Checkout(revision string) (string, error) {
-	if revision == "" || revision == "HEAD" {
-		revision = "origin/HEAD"
-	}
-	ctx := context.Background()
-	if out, err := m.runCmd(ctx, "checkout", "--force", revision); err != nil {
-		return out, fmt.Errorf("failed to checkout %s: %w", revision, err)
-	}
-	// NOTE
-	// The double “f” in the arguments is not a typo: the first “f” tells
-	// `git clean` to delete untracked files and directories, and the second “f”
-	// tells it to clean untracked nested Git repositories (for example a
-	// submodule which has since been removed).
-	if out, err := m.runCmd(ctx, "clean", "-ffdx"); err != nil {
-		return out, fmt.Errorf("failed to clean: %w", err)
-	}
-	return "", nil
-}
-
-// Clone creates a new Git repository by downloading the entire repository
-// from a remote URL. Creates the .git directory, downloads all commits, branches,
-// and tags, sets up remote tracking, and checks out a desired branch. This is
-// a one-time setup operation for getting a repository for the first time.
-func (m *nativeGitClient) Clone(branch string) (string, error) {
-	logging.Debug(m.log, "cloning repo")
-	localDir, err := m.Init()
-	if err != nil {
-		return "", fmt.Errorf("could not run init: %w", err)
-	}
-	err = m.Fetch(branch, 0)
-	if err != nil {
-		return "", fmt.Errorf("could not run fetch: %w", err)
-	}
-	out, err := m.Checkout(branch)
-	if err != nil {
-		logging.Error(m.log, err, "could not clone repo: %v", out)
-		return "", fmt.Errorf("could not run checkout: %w", err)
-	}
-
-	return localDir, nil
-}
-
-// Add files to the repository
-func (m *nativeGitClient) Add(files ...string) (string, error) {
-	ctx := context.Background()
-	args := append([]string{"add"}, files...)
-	out, err := m.runCmd(ctx, args...)
-	if err != nil {
-		return out, fmt.Errorf("failed to add files: %w", err)
-	}
-	return out, nil
 }

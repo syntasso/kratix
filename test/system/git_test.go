@@ -24,6 +24,7 @@ import (
 
 	"github.com/syntasso/kratix/api/v1alpha1"
 	"github.com/syntasso/kratix/lib/writers"
+	"github.com/syntasso/kratix/util/git"
 )
 
 var _ = FDescribe("Git tests", func() {
@@ -38,16 +39,16 @@ var _ = FDescribe("Git tests", func() {
 		When("targeting a public repository", func() {
 
 			When("using no auth", func() {
-				var client writers.GitClient
+				var client git.Client
 
 				It("successfully clones the repository", func() {
 					By("initialising a new client", func() {
 
 						var err error
-						client, err = writers.NewGitClient(
-							writers.GitClientRequest{
+						client, err = git.NewGitClient(
+							git.GitClientRequest{
 								RawRepoURL: httpPublicRepo,
-								Auth:       &writers.GitAuth{Creds: writers.NopCreds{}},
+								Auth:       &git.Auth{Creds: git.NopCreds{}},
 								Insecure:   false,
 							})
 						Expect(err).ToNot(HaveOccurred())
@@ -79,22 +80,22 @@ var _ = FDescribe("Git tests", func() {
 
 			When("using HTTP basic auth", func() {
 
-				httpCreds := writers.NewHTTPSCreds(
+				httpCreds := git.NewHTTPSCreds(
 					"x-access-token",                        // username
 					string(getGithubPATCreds()["password"]), // password
 					"",                                      // bearer token
 					"",                                      // clientCertData
 					"",                                      // clientCertKey
 					false,                                   // insecure
-					writers.NoopCredsStore{},                // CredsStore,
+					git.NoopCredsStore{},                    // CredsStore,
 					true,                                    // forceBasicAuth
 				)
 
 				It("successfully clones the repository", func() {
-					client, err := writers.NewGitClient(writers.GitClientRequest{
+					client, err := git.NewGitClient(git.GitClientRequest{
 						RawRepoURL: httpPrivateRepo,
 						Root:       "",
-						Auth:       &writers.GitAuth{Creds: httpCreds},
+						Auth:       &git.Auth{Creds: httpCreds},
 						Insecure:   true,
 						Proxy:      "",
 						NoProxy:    "",
@@ -114,10 +115,10 @@ var _ = FDescribe("Git tests", func() {
 				})
 
 				It("successfully pushes to repository", func() {
-					client, err := writers.NewGitClient(writers.GitClientRequest{
+					client, err := git.NewGitClient(git.GitClientRequest{
 						RawRepoURL: httpPrivateRepo,
 						Root:       "",
-						Auth:       &writers.GitAuth{Creds: httpCreds},
+						Auth:       &git.Auth{Creds: httpCreds},
 						Insecure:   true,
 						Proxy:      "",
 						NoProxy:    "",
@@ -157,10 +158,10 @@ var _ = FDescribe("Git tests", func() {
 				})
 
 				It("successfully pushes to repository after a new change is pushed by another client - conflict avoidance", func() {
-					clientOne, err := writers.NewGitClient(writers.GitClientRequest{
+					clientOne, err := git.NewGitClient(git.GitClientRequest{
 						RawRepoURL: httpPrivateRepo,
 						Root:       "client-1",
-						Auth:       &writers.GitAuth{Creds: httpCreds},
+						Auth:       &git.Auth{Creds: httpCreds},
 						Insecure:   true,
 						Proxy:      "",
 						NoProxy:    "",
@@ -185,10 +186,10 @@ var _ = FDescribe("Git tests", func() {
 					Expect(err).ToNot(HaveOccurred())
 
 					// a second client clones, modifies and pushes to the same repo
-					clientTwo, err := writers.NewGitClient(writers.GitClientRequest{
+					clientTwo, err := git.NewGitClient(git.GitClientRequest{
 						RawRepoURL: httpPrivateRepo,
 						Root:       "client-2",
-						Auth:       &writers.GitAuth{Creds: httpCreds},
+						Auth:       &git.Auth{Creds: httpCreds},
 						Insecure:   true,
 						Proxy:      "",
 						NoProxy:    "",
@@ -240,10 +241,10 @@ var _ = FDescribe("Git tests", func() {
 
 					It("does not clone the repository", func() {
 
-						client, err := writers.NewGitClient(writers.GitClientRequest{
+						client, err := git.NewGitClient(git.GitClientRequest{
 							RawRepoURL: httpPrivateRepo,
 							Root:       "",
-							Auth:       &writers.GitAuth{Creds: writers.NopCreds{}},
+							Auth:       &git.Auth{Creds: git.NopCreds{}},
 							Insecure:   true,
 							Proxy:      "",
 							NoProxy:    "",
@@ -264,20 +265,20 @@ var _ = FDescribe("Git tests", func() {
 
 					It("does not clone the repository", func() {
 
-						wrongHttpCreds := writers.NewHTTPSCreds(
-							"x-access-token",         // username
-							"invalid",                // password
-							"",                       // bearer token
-							"",                       // clientCertData
-							"",                       // clientCertKey
-							false,                    // insecure
-							writers.NoopCredsStore{}, // CredsStore,
-							true,                     // forceBasicAuth
+						wrongHttpCreds := git.NewHTTPSCreds(
+							"x-access-token",     // username
+							"invalid",            // password
+							"",                   // bearer token
+							"",                   // clientCertData
+							"",                   // clientCertKey
+							false,                // insecure
+							git.NoopCredsStore{}, // CredsStore,
+							true,                 // forceBasicAuth
 						)
-						client, err := writers.NewGitClient(writers.GitClientRequest{
+						client, err := git.NewGitClient(git.GitClientRequest{
 							RawRepoURL: httpPrivateRepo,
 							Root:       "",
-							Auth:       &writers.GitAuth{Creds: wrongHttpCreds},
+							Auth:       &git.Auth{Creds: wrongHttpCreds},
 							Insecure:   true,
 							Proxy:      "",
 							NoProxy:    "",
@@ -297,13 +298,13 @@ var _ = FDescribe("Git tests", func() {
 
 			When("using SSH auth", func() {
 				var (
-					client         writers.GitClient
+					client         git.Client
 					err            error
-					sshNativeCreds writers.SSHCreds
+					sshNativeCreds git.SSHCreds
 				)
 
 				githubCreds := getGithubSSHCreds()
-				sshNativeCreds = writers.NewSSHCreds(
+				sshNativeCreds = git.NewSSHCreds(
 					string(githubCreds["sshPrivateKey"]),
 					string(githubCreds["knownHosts"]),
 					"",
@@ -311,9 +312,9 @@ var _ = FDescribe("Git tests", func() {
 					"")
 
 				It("successfully clones the repository", func() {
-					client, err = writers.NewGitClient(writers.GitClientRequest{
+					client, err = git.NewGitClient(git.GitClientRequest{
 						RawRepoURL: sshPrivateRepo,
-						Auth:       &writers.GitAuth{Creds: sshNativeCreds},
+						Auth:       &git.Auth{Creds: sshNativeCreds},
 						Insecure:   false,
 						Proxy:      "",
 						NoProxy:    "",
