@@ -889,7 +889,6 @@ func setAuth(stateStoreSpec v1alpha1.GitStateStoreSpec, destinationPath string, 
 			return nil, fmt.Errorf("error parsing sshKey: %w", err)
 		}
 
-
 		authMethod = sshKey
 
 	case v1alpha1.BasicAuthMethod:

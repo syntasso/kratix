@@ -9,6 +9,7 @@ import (
 	"crypto/x509"
 	"encoding/json"
 	"encoding/pem"
+	"log"
 	"net/http"
 	"net/http/httptest"
 
@@ -17,7 +18,6 @@ import (
 	"github.com/go-logr/logr"
 	. "github.com/onsi/ginkgo/v2"
 	. "github.com/onsi/gomega"
-	log "github.com/sirupsen/logrus"
 	"github.com/syntasso/kratix/api/v1alpha1"
 	"github.com/syntasso/kratix/lib/writers"
 	corev1 "k8s.io/api/core/v1"
@@ -322,6 +322,22 @@ var _ = Describe("NewGitWriter", func() {
 	})
 })
 
+func generateSSHCreds(key *rsa.PrivateKey) map[string][]byte {
+	privateKeyPEM := pem.Block{
+		Type:  "RSA PRIVATE KEY",
+		Bytes: x509.MarshalPKCS1PrivateKey(key),
+	}
+	var b bytes.Buffer
+	if err := pem.Encode(&b, &privateKeyPEM); err != nil {
+		log.Fatalf("Failed to write private key to buffer: %v", err)
+	}
+
+	return map[string][]byte{
+		"sshPrivateKey": b.Bytes(),
+		"knownHosts":    []byte("github.com ssh-ed25519 AAAAC3NzaC1lZDI1NTE5AAAAIOMqqnkVzrm0SdG6UOoqKLsabgH5C9okWi0dh2l9GKJl"),
+	}
+}
+
 func generatePEMFromPKCS1RSAKey() string {
 	key, _ := rsa.GenerateKey(rand.Reader, 2048)
 	privDER := x509.MarshalPKCS1PrivateKey(key)
@@ -341,20 +357,4 @@ func generatePEMFromPKCS8ECKey() string {
 	privDER, _ := x509.MarshalPKCS8PrivateKey(ecKey)
 	block := pem.Block{Type: "PRIVATE KEY", Bytes: privDER}
 	return string(pem.EncodeToMemory(&block))
-}
-
-func generateSSHCreds(key *rsa.PrivateKey) map[string][]byte {
-	privateKeyPEM := pem.Block{
-		Type:  "RSA PRIVATE KEY",
-		Bytes: x509.MarshalPKCS1PrivateKey(key),
-	}
-	var b bytes.Buffer
-	if err := pem.Encode(&b, &privateKeyPEM); err != nil {
-		log.Fatalf("Failed to write private key to buffer: %v", err)
-	}
-
-	return map[string][]byte{
-		"sshPrivateKey": b.Bytes(),
-		"knownHosts":    []byte("github.com ssh-ed25519 AAAAC3NzaC1lZDI1NTE5AAAAIOMqqnkVzrm0SdG6UOoqKLsabgH5C9okWi0dh2l9GKJl"),
-	}
 }

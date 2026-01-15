@@ -3,6 +3,8 @@ package writers
 //go:generate go run github.com/maxbrunsfeld/counterfeiter/v6 -generate
 
 import (
+	"fmt"
+
 	"github.com/syntasso/kratix/api/v1alpha1"
 )
 
@@ -12,3 +14,6 @@ type StateStoreWriter interface {
 	ReadFile(filename string) ([]byte, error)
 	ValidatePermissions() error
 }
+
+var ErrFileNotFound = fmt.Errorf("file not found")
+var ErrAuthSucceededAfterTrim = fmt.Errorf("trailing whitespace in secret")
