@@ -132,6 +132,8 @@ type DestinationStatus struct {
 // +kubebuilder:object:root=true
 // +kubebuilder:subresource:status
 // +kubebuilder:resource:scope=Cluster,path=destinations,categories=kratix,shortName=dest;dests
+// +kubebuilder:printcolumn:name="StateStoreKind",type=string,JSONPath=`.spec.stateStoreRef.kind`,description="State store kind."
+// +kubebuilder:printcolumn:name="StateStoreName",type=string,JSONPath=`.spec.stateStoreRef.name`,description="State store name."
 // +kubebuilder:printcolumn:name="Ready",type=string,JSONPath=`.status.conditions[?(@.type=="Ready")].status`,description="Indicates the destination is ready to use."
 
 // Destination is the Schema for the Destinations API
