@@ -212,14 +212,14 @@ var _ = FDescribe("Git tests", func() {
 						Expect(err).ToNot(HaveOccurred())
 						Expect(out).To(BeEmpty())
 
-						pathOne = filepath.Join((*clientTwo).Root(), "test-client-1.txt")
+						pathOne = filepath.Join((*clientOne).Root(), "test-client-1.txt")
 						pathTwo = filepath.Join((*clientTwo).Root(), "test-client-2.txt")
 					})
 
 					AfterEach(func() {
 						var err error
 
-						_, err = (*clientTwo).Checkout("main")
+						_, err = (*clientOne).Checkout("main")
 						Expect(err).ToNot(HaveOccurred())
 
 						_, err = (*clientTwo).Checkout("main")
@@ -231,7 +231,7 @@ var _ = FDescribe("Git tests", func() {
 						err = os.Remove(pathTwo)
 						Expect(err).ToNot(HaveOccurred())
 
-						_, err = (*clientTwo).CommitAndPush(
+						_, err = (*clientOne).CommitAndPush(
 							"main", "TEST: remove test file test-client-1.txt", "test-user", "test-user@syntasso.io")
 
 						_, err = (*clientTwo).CommitAndPush(
@@ -264,7 +264,6 @@ var _ = FDescribe("Git tests", func() {
 								"main", "TEST: add test-client-1.txt", "test-user", "test-user@syntasso.io")
 							Expect(err).ToNot(HaveOccurred())
 						})
-
 					})
 				})
 

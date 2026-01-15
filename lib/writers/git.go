@@ -22,7 +22,6 @@ type GitWriter struct {
 	Path      string
 	Log       logr.Logger
 	BasicAuth bool
-	// *nativeGitClient
 	git.Client
 }
 
