@@ -112,7 +112,6 @@ type GitClientRequest struct {
 }
 
 var (
-	commitSHARegex = regexp.MustCompile("^[0-9A-Fa-f]{40}$")
 	sshURLRegex    = regexp.MustCompile("^(ssh://)?([^/:]*?)@[^@]+$")
 	httpsURLRegex  = regexp.MustCompile("^(https://).*")
 	httpURLRegex   = regexp.MustCompile("^(http://).*")

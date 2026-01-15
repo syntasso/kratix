@@ -59,8 +59,6 @@ const (
 	githubAccessTokenUsername = "x-access-token"
 	forceBasicAuthHeaderEnv   = "ARGOCD_GIT_AUTH_HEADER"
 	bearerAuthHeaderEnv       = "ARGOCD_GIT_BEARER_AUTH_HEADER"
-	// This is the resource id of the OAuth application of Azure Devops.
-	azureDevopsEntraResourceId = "499b84ac-1321-427f-aa17-267ca6975798/.default"
 )
 
 type NoopCredsStore struct{}
