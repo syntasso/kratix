@@ -18,15 +18,14 @@ import (
 
 	. "github.com/onsi/ginkgo/v2"
 	. "github.com/onsi/gomega"
-	"github.com/syntasso/kratix/api/v1alpha1"
-	"github.com/syntasso/kratix/lib/writers"
 	"gopkg.in/yaml.v2"
-	corev1 "k8s.io/api/core/v1"
 	v1 "k8s.io/api/core/v1"
 	metav1 "k8s.io/apimachinery/pkg/apis/meta/v1"
+
+	"github.com/syntasso/kratix/api/v1alpha1"
+	"github.com/syntasso/kratix/lib/writers"
 )
 
-// TODO: add tests for root location, when it's defined
 var _ = FDescribe("Git tests", func() {
 
 	logger := zap.New(zap.WriteTo(GinkgoWriter), zap.UseDevMode(true)).WithName("git-writer")
@@ -39,14 +38,12 @@ var _ = FDescribe("Git tests", func() {
 		When("targeting a public repository", func() {
 
 			When("using no auth", func() {
-				var (
-					client writers.GitClient
-					err    error
-				)
+				var client writers.GitClient
 
 				It("successfully clones the repository", func() {
 					By("initialising a new client", func() {
 
+						var err error
 						client, err = writers.NewGitClient(
 							writers.GitClientRequest{
 								RawRepoURL: httpPublicRepo,
@@ -61,7 +58,7 @@ var _ = FDescribe("Git tests", func() {
 					})
 
 					By("fetching branches", func() {
-						err = client.Fetch("main", 0)
+						err := client.Fetch("main", 0)
 						Expect(err).ToNot(HaveOccurred())
 
 						out, err := client.Checkout("main")
@@ -82,30 +79,19 @@ var _ = FDescribe("Git tests", func() {
 
 			When("using HTTP basic auth", func() {
 
-				var (
-					client    writers.GitClient
-					err       error
-					httpCreds writers.GenericHTTPSCreds
+				httpCreds := writers.NewHTTPSCreds(
+					"x-access-token",                        // username
+					string(getGithubPATCreds()["password"]), // password
+					"",                                      // bearer token
+					"",                                      // clientCertData
+					"",                                      // clientCertKey
+					false,                                   // insecure
+					writers.NoopCredsStore{},                // CredsStore,
+					true,                                    // forceBasicAuth
 				)
 
-				It("sets up authentication", func() {
-					// TODO: adapt for Gitlab
-					creds := getGithubPATCreds()
-					ghPat := string(creds["password"])
-					httpCreds = writers.NewHTTPSCreds(
-						"x-access-token",         // username
-						ghPat,                    // password
-						"",                       // bearer token
-						"",                       // clientCertData
-						"",                       // clientCertKey
-						false,                    // insecure
-						writers.NoopCredsStore{}, // CredsStore,
-						true,                     // forceBasicAuth
-					)
-				})
-
 				It("successfully clones the repository", func() {
-					client, err = writers.NewGitClient(writers.GitClientRequest{
+					client, err := writers.NewGitClient(writers.GitClientRequest{
 						RawRepoURL: httpPrivateRepo,
 						Root:       "",
 						Auth:       &writers.Auth{Creds: httpCreds},
@@ -127,15 +113,134 @@ var _ = FDescribe("Git tests", func() {
 					Expect(out).To(BeEmpty())
 				})
 
+				It("successfully pushes to repository", func() {
+					client, err := writers.NewGitClient(writers.GitClientRequest{
+						RawRepoURL: httpPrivateRepo,
+						Root:       "",
+						Auth:       &writers.Auth{Creds: httpCreds},
+						Insecure:   true,
+						Proxy:      "",
+						NoProxy:    "",
+					})
+					Expect(err).ToNot(HaveOccurred())
+
+					repo, err := client.Init()
+					Expect(err).ToNot(HaveOccurred())
+					Expect(repo).ToNot(BeNil())
+
+					err = client.Fetch("main", 0)
+					Expect(err).ToNot(HaveOccurred())
+
+					out, err := client.Checkout("main")
+					Expect(err).ToNot(HaveOccurred())
+					Expect(out).To(BeEmpty())
+
+					path := filepath.Join(client.Root(), "test.txt")
+					file, err := os.Create(path)
+					Expect(err).ToNot(HaveOccurred())
+					err = file.Close()
+					Expect(err).ToNot(HaveOccurred())
+
+					_, err = client.CommitAndPush(
+						"main", "TEST: test", "test-user", "test-user@syntasso.io")
+					Expect(err).ToNot(HaveOccurred())
+					Expect(out).To(BeEmpty())
+
+					// remove the test file
+					err = os.Remove(path)
+					Expect(err).ToNot(HaveOccurred())
+
+					_, err = client.CommitAndPush(
+						"main", "TEST: test", "test-user", "test-user@syntasso.io")
+					Expect(err).ToNot(HaveOccurred())
+					Expect(out).To(BeEmpty())
+				})
+
+				It("successfully pushes to repository after a new change is pushed by another client - conflict avoidance", func() {
+					clientOne, err := writers.NewGitClient(writers.GitClientRequest{
+						RawRepoURL: httpPrivateRepo,
+						Root:       "client-1",
+						Auth:       &writers.Auth{Creds: httpCreds},
+						Insecure:   true,
+						Proxy:      "",
+						NoProxy:    "",
+					})
+					Expect(err).ToNot(HaveOccurred())
+
+					repoOne, err := clientOne.Init()
+					Expect(err).ToNot(HaveOccurred())
+					Expect(repoOne).ToNot(BeNil())
+
+					err = clientOne.Fetch("main", 0)
+					Expect(err).ToNot(HaveOccurred())
+
+					out, err := clientOne.Checkout("main")
+					Expect(err).ToNot(HaveOccurred())
+					Expect(out).To(BeEmpty())
+
+					pathOne := filepath.Join(clientOne.Root(), "test-client-1.txt")
+					fileOne, err := os.Create(pathOne)
+					Expect(err).ToNot(HaveOccurred())
+					err = fileOne.Close()
+					Expect(err).ToNot(HaveOccurred())
+
+					// a second client clones, modifies and pushes to the same repo
+					clientTwo, err := writers.NewGitClient(writers.GitClientRequest{
+						RawRepoURL: httpPrivateRepo,
+						Root:       "client-2",
+						Auth:       &writers.Auth{Creds: httpCreds},
+						Insecure:   true,
+						Proxy:      "",
+						NoProxy:    "",
+					})
+					Expect(err).ToNot(HaveOccurred())
+
+					repoTwo, err := clientTwo.Init()
+					Expect(err).ToNot(HaveOccurred())
+					Expect(repoTwo).ToNot(BeNil())
+
+					err = clientTwo.Fetch("main", 0)
+					Expect(err).ToNot(HaveOccurred())
+
+					out, err = clientTwo.Checkout("main")
+					Expect(err).ToNot(HaveOccurred())
+					Expect(out).To(BeEmpty())
+
+					pathTwo := filepath.Join(clientTwo.Root(), "test-client-2.txt")
+					fileTwo, err := os.Create(pathTwo)
+					Expect(err).ToNot(HaveOccurred())
+					err = fileTwo.Close()
+					Expect(err).ToNot(HaveOccurred())
+
+					_, err = clientTwo.CommitAndPush(
+						"main", "TEST: add test-client-2.txt", "test-user", "test-user@syntasso.io")
+					Expect(err).ToNot(HaveOccurred())
+
+					// first client is now ready to commit and push
+					_, err = clientOne.CommitAndPush(
+						"main", "TEST: add test-client-1.txt", "test-user", "test-user@syntasso.io")
+					Expect(err).ToNot(HaveOccurred())
+
+					// remove the test files
+					err = os.Remove(pathOne)
+					Expect(err).ToNot(HaveOccurred())
+					err = os.Remove(pathTwo)
+					Expect(err).ToNot(HaveOccurred())
+
+					_, err = clientOne.CommitAndPush(
+						"main", "TEST: remove test file test-client-1.txt", "test-user", "test-user@syntasso.io")
+					Expect(err).ToNot(HaveOccurred())
+
+					_, err = clientTwo.CommitAndPush(
+						"main", "TEST: remove test file test-client-2.txt", "test-user", "test-user@syntasso.io")
+					Expect(err).ToNot(HaveOccurred())
+				})
+
 				When("no HTTP credentials provided", func() {
 
-					var (
-						client writers.GitClient
-						err    error
-					)
 					It("does not clone the repository", func() {
 
-						client, err = writers.NewGitClient(writers.GitClientRequest{
+						client, err := writers.NewGitClient(writers.GitClientRequest{
 							RawRepoURL: httpPrivateRepo,
 							Root:       "",
 							Auth:       &writers.Auth{Creds: writers.NopCreds{}},
@@ -157,10 +262,6 @@ var _ = FDescribe("Git tests", func() {
 
 				When("wrong HTTP credentials are provided", func() {
 
-					var (
-						client writers.GitClient
-						err    error
-					)
 					It("does not clone the repository", func() {
 
 						wrongHttpCreds := writers.NewHTTPSCreds(
@@ -173,7 +274,7 @@ var _ = FDescribe("Git tests", func() {
 							writers.NoopCredsStore{}, // CredsStore,
 							true,                     // forceBasicAuth
 						)
-						client, err = writers.NewGitClient(writers.GitClientRequest{
+						client, err := writers.NewGitClient(writers.GitClientRequest{
 							RawRepoURL: httpPrivateRepo,
 							Root:       "",
 							Auth:       &writers.Auth{Creds: wrongHttpCreds},
@@ -201,15 +302,13 @@ var _ = FDescribe("Git tests", func() {
 					sshNativeCreds writers.SSHCreds
 				)
 
-				It("sets up authentication", func() {
-					githubCreds := getGithubSSHCreds()
-					sshNativeCreds = writers.NewSSHCreds(
-						string(githubCreds["sshPrivateKey"]),
-						string(githubCreds["knownHosts"]),
-						"",
-						false,
-						"")
-				})
+				githubCreds := getGithubSSHCreds()
+				sshNativeCreds = writers.NewSSHCreds(
+					string(githubCreds["sshPrivateKey"]),
+					string(githubCreds["knownHosts"]),
+					"",
+					false,
+					"")
 
 				It("successfully clones the repository", func() {
 					client, err = writers.NewGitClient(writers.GitClientRequest{
@@ -232,9 +331,7 @@ var _ = FDescribe("Git tests", func() {
 					Expect(err).ToNot(HaveOccurred())
 					Expect(out).To(BeEmpty())
 				})
-
 			})
-
 		})
 	})
 
@@ -359,19 +456,32 @@ var _ = FDescribe("Git tests", func() {
 				_, err = gitWriter.UpdateFiles("", workloadName, []v1alpha1.Workload{resource}, nil)
 				Expect(err).ToNot(HaveOccurred())
 
-				_, err = gitWriter.ReadFile(resource.Filepath)
+				baseDir := getStateStoreAndDestBaseDir(stateStoreSpec, dest)
+				path := filepath.Join(baseDir, resource.Filepath)
+				_, err = gitWriter.ReadFile(path)
 				Expect(err).ToNot(HaveOccurred())
 			})
 
 			It("does not add the file and push the branch if the file content is not modified", func() {
-				err := gitWriter.ValidatePermissions()
-				Expect(err).ToNot(HaveOccurred())
 
-				// Create initial unique resources to save
 				desc := fmt.Sprintf("test %d", rand.Int())
 				resource, err := getTestDataToSave(desc)
 				Expect(err).ToNot(HaveOccurred())
+
+				// NOTE: when there's a single file in a dir,
+				// `git rm` removes the entire dir
+				baseDir := getStateStoreAndDestBaseDir(stateStoreSpec, dest)
+				path := filepath.Join(baseDir, resource.Filepath)
+
+				err = gitWriter.ValidatePermissions()
+				Expect(err).ToNot(HaveOccurred())
+
+				// Create initial unique resources to save
+				Expect(err).ToNot(HaveOccurred())
 				_, err = gitWriter.UpdateFiles("", workloadName, []v1alpha1.Workload{resource}, nil)
+				Expect(err).ToNot(HaveOccurred())
+
+				_, err = gitWriter.ReadFile(path)
 				Expect(err).ToNot(HaveOccurred())
 
 				// Ensure there are no updates for unchanged data
@@ -386,19 +496,65 @@ var _ = FDescribe("Git tests", func() {
 				_, err = gitWriter.UpdateFiles("", workloadName, []v1alpha1.Workload{resource}, nil)
 				Expect(err).ToNot(HaveOccurred())
 
-				// NOTE: when there's a single file in a dir,
-				// `git rm` removes the entire dir
-				baseDir := getStateStoreAndDestBaseDir(stateStoreSpec, dest)
-				path := filepath.Join(baseDir, resource.Filepath)
 				_, err = gitWriter.UpdateFiles("", workloadName, nil, []string{path})
 				Expect(err).ToNot(HaveOccurred())
 
 				_, err = gitWriter.ReadFile(path)
 				Expect(err).To(HaveOccurred())
 				Expect(errors.Is(err, writers.ErrFileNotFound)).To(BeTrue())
+
+				// restore deleted files
+				resource, err = getTestDataToSave("")
+				Expect(err).ToNot(HaveOccurred())
+
+				_, err = gitWriter.UpdateFiles("", workloadName, []v1alpha1.Workload{resource}, nil)
+				Expect(err).ToNot(HaveOccurred())
+
+				_, err = gitWriter.ReadFile(path)
+				Expect(err).ToNot(HaveOccurred())
+			})
+
+			It("successfully adds a new file to a private Git repository in a subdir", func() {
+				resource, err := getTestDataToSave("")
+				Expect(err).ToNot(HaveOccurred())
+
+				baseDir := getStateStoreAndDestBaseDir(stateStoreSpec, dest)
+				path := filepath.Join(baseDir, "test-subdir", resource.Filepath)
+
+				_, err = gitWriter.UpdateFiles("test-subdir", workloadName, []v1alpha1.Workload{resource}, nil)
+				Expect(err).ToNot(HaveOccurred())
+
+				_, err = gitWriter.ReadFile(path)
+				Expect(err).ToNot(HaveOccurred())
+			})
+
+			It("successfully adds and deletes a new file to a private Git repository in a subdir", func() {
+				resource, err := getTestDataToSave("")
+				Expect(err).ToNot(HaveOccurred())
+
+				baseDir := getStateStoreAndDestBaseDir(stateStoreSpec, dest)
+				path := filepath.Join(baseDir, "test-subdir", resource.Filepath)
+
+				_, err = gitWriter.UpdateFiles("test-subdir", workloadName, []v1alpha1.Workload{resource}, nil)
+				Expect(err).ToNot(HaveOccurred())
+
+				_, err = gitWriter.ReadFile(path)
+				Expect(err).ToNot(HaveOccurred())
+
+				_, err = gitWriter.UpdateFiles("test-subdir", workloadName, nil, []string{path})
+				Expect(err).ToNot(HaveOccurred())
+
+				_, err = gitWriter.ReadFile(path)
+				Expect(err).To(HaveOccurred())
+
+				// restore the file
+				_, err = gitWriter.UpdateFiles("test-subdir", workloadName, []v1alpha1.Workload{resource}, nil)
+				Expect(err).ToNot(HaveOccurred())
+
+				_, err = gitWriter.ReadFile(path)
+				Expect(err).ToNot(HaveOccurred())
 			})
 		})
-
 	})
 })
 
@@ -496,7 +652,7 @@ func getStateStoreAndDest(authType, repo string) (*v1alpha1.GitStateStoreSpec, *
 	return &v1alpha1.GitStateStoreSpec{
 			StateStoreCoreFields: v1alpha1.StateStoreCoreFields{
 				Path: "state-store-path",
-				SecretRef: &corev1.SecretReference{
+				SecretRef: &v1.SecretReference{
 					Namespace: "default",
 					Name:      "dummy-secret",
 				},

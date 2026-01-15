@@ -108,16 +108,16 @@ func (g *GitWriter) update(subDir, workPlacementName string, workloadsToCreate [
 		return "", nil
 	}
 
-	dirInGitRepo := filepath.Join(g.Path, subDir)
-	logger := g.Log.WithValues(
-		"dir", dirInGitRepo,
-		"branch", g.GitServer.Branch,
-	)
-
 	localDir, err := g.setupLocalDirectoryWithRepo()
 	if err != nil {
 		return "", err
 	}
+
+	dirInGitRepo := filepath.Join(g.Root(), g.Path, subDir)
+	logger := g.Log.WithValues(
+		"dir", dirInGitRepo,
+		"branch", g.GitServer.Branch,
+	)
 
 	defer os.RemoveAll(filepath.Dir(localDir)) //nolint:errcheck
 
@@ -128,13 +128,12 @@ func (g *GitWriter) update(subDir, workPlacementName string, workloadsToCreate [
 
 	for _, file := range workloadsToCreate {
 		//worker-cluster/resources/<rr-namespace>/<promise-name>/<rr-name>/foo/bar/baz.yaml
-		worktreeFilePath := filepath.Join(dirInGitRepo, file.Filepath)
 		log := logger.WithValues(
-			"filepath", worktreeFilePath,
+			"filepath", file.Filepath,
 		)
 
 		///tmp/git-dir/worker-cluster/resources/<rr-namespace>/<promise-name>/<rr-name>/foo/bar/baz.yaml
-		absoluteFilePath := filepath.Join(localDir, worktreeFilePath)
+		absoluteFilePath := filepath.Join(dirInGitRepo, file.Filepath)
 
 		//We need to protect against paths containing `..`
 		//filepath.Join expands any '../' in the Path to the actual, e.g. /tmp/foo/../ resolves to /tmp/
@@ -159,12 +158,13 @@ func (g *GitWriter) update(subDir, workPlacementName string, workloadsToCreate [
 			return "", err
 		}
 
-		if _, err := g.Add(worktreeFilePath); err != nil {
+		if _, err := g.Add(absoluteFilePath); err != nil {
 			logging.Error(log, err, "could not add file to worktree")
 			return "", err
 		}
 	}
 
+	// TODO: make it a type
 	action := "Delete"
 	if len(workloadsToCreate) > 0 {
 		action = "Update"
@@ -175,6 +175,7 @@ func (g *GitWriter) update(subDir, workPlacementName string, workloadsToCreate [
 // deleteExistingFiles removes all files in dir when removeDirectory is set to true
 // else it removes files listed in workloadsToDelete
 func (g *GitWriter) deleteExistingFiles(removeDirectory bool, dir string, workloadsToDelete []string, logger logr.Logger) error {
+
 	if removeDirectory {
 		if _, err := os.Lstat(dir); err == nil {
 			logging.Info(logger, "deleting existing content")
@@ -211,21 +212,19 @@ func (g *GitWriter) ReadFile(filePath string) ([]byte, error) {
 	}
 	defer os.RemoveAll(filepath.Dir(localDir)) //nolint:errcheck
 
-	fullPath := filepath.Join(g.Path, filePath)
+	fullPath := filepath.Join(g.Root(), filePath)
 	logger := g.Log.WithValues(
 		"Path", fullPath,
 		"branch", g.GitServer.Branch,
 	)
 
-	path := filepath.Join(localDir, fullPath)
-
-	if _, err := os.Lstat(path); err != nil {
+	if _, err := os.Lstat(fullPath); err != nil {
 		logging.Debug(logger, "could not stat file", "error", err)
 		return nil, ErrFileNotFound
 	}
 
 	var content []byte
-	if content, err = os.ReadFile(path); err != nil {
+	if content, err = os.ReadFile(fullPath); err != nil {
 		logging.Error(logger, err, "could not read file")
 		return nil, err
 	}
@@ -272,7 +271,8 @@ func (g *GitWriter) ValidatePermissions() error {
 	if cloneErr != nil && !errors.Is(cloneErr, ErrAuthSucceededAfterTrim) {
 		return fmt.Errorf("failed to set up local directory with repo: %w", cloneErr)
 	}
-	defer os.RemoveAll(localDir) //nolint:errcheck
+	_ = localDir
+	//	defer os.RemoveAll(localDir) //nolint:errcheck
 
 	if err := g.validatePush(g.Log); err != nil {
 		return err
@@ -337,7 +337,7 @@ func (g *GitWriter) commitAndPush(action, workPlacementName string, logger logr.
 		logging.Error(logger, err, "could not get check local changes")
 		return "", err
 	}
-	if !hasChanged {
+	if action != "Delete" && !hasChanged {
 		logging.Info(logger, "no changes to be committed")
 		return "", ErrNoFilesChanged
 	}

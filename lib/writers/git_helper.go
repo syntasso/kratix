@@ -606,7 +606,7 @@ func (m *nativeGitClient) Init() (string, error) {
 	}
 
 	logging.Debug(m.log, "initialising repo %s to %s", m.repoURL, m.root)
-	err = os.RemoveAll(m.root)
+	//	err = os.RemoveAll(m.root)
 	if err != nil {
 		return "", fmt.Errorf("unable to clean repo at %s: %w", m.root, err)
 	}
@@ -729,6 +729,11 @@ func (m *nativeGitClient) CommitAndPush(branch, message, author string, email st
 	if m.OnPush != nil {
 		done := m.OnPush(m.repoURL)
 		defer done()
+	}
+	///////////////////////////////
+	err = m.runCredentialedCmd(ctx, "pull", "origin", "--rebase")
+	if err != nil {
+		return "", fmt.Errorf("failed to pull from origin (rebase): %w", err)
 	}
 
 	err = m.runCredentialedCmd(ctx, "push", "origin", branch)

@@ -275,10 +275,11 @@ type SSHCreds struct {
 func NewSSHCreds(sshPrivateKey string, knownHostFile string, caPath string, insecureIgnoreHostKey bool, proxy string) SSHCreds {
 	return SSHCreds{
 		sshPrivateKey: sshPrivateKey,
-		knownHosts:    knownHostFile,
-		caPath:        caPath,
-		insecure:      insecureIgnoreHostKey,
-		proxy:         proxy,
+		//////////////////////////////////////////////////
+		knownHosts: knownHostFile,
+		caPath:     caPath,
+		insecure:   insecureIgnoreHostKey,
+		proxy:      proxy,
 	}
 }
 
@@ -309,13 +310,13 @@ type sshPrivateFiles []string
 
 func (f sshPrivateFiles) Close() error {
 	var retErr error
-	for _, path := range f {
-		err := os.Remove(path)
-		if err != nil {
-			log.Errorf("SSHCreds.Close(): Could not remove temp file %s: %v", path, err)
-			retErr = err
-		}
-	}
+	//	for _, path := range f {
+	//		err := os.Remove(path)
+	//		if err != nil {
+	//			log.Errorf("SSHCreds.Close(): Could not remove temp file %s: %v", path, err)
+	//			retErr = err
+	//		}
+	//	}
 	return retErr
 }
 
@@ -386,6 +387,7 @@ func (c *SSHCreds) getSSHKnownHostsDataPath() error {
 	if err != nil {
 		return fmt.Errorf("error creating knownHosts file: %w", err)
 	}
+
 	_, err = knownHostsFile.Write([]byte(c.knownHosts))
 	if err != nil {
 		return fmt.Errorf("error writing knownHosts file: %w", err)
@@ -1033,6 +1035,7 @@ var GetGitHubInstallationToken = getGitHubInstallationToken
 
 // generateGitHubAppJWT creates a signed JWT for GitHub App authentication
 func generateGitHubAppJWT(appID string, privateKey string) (string, error) {
+
 	block, _ := pem.Decode([]byte(privateKey))
 	if block == nil {
 		return "", errors.New("invalid private key: failed to parse PEM block")
@@ -1065,7 +1068,7 @@ func parseRSAPrivateKeyFromPEM(block *pem.Block) (*rsa.PrivateKey, error) {
 
 	k, err := x509.ParsePKCS8PrivateKey(block.Bytes)
 	if err != nil {
-		return nil, errors.New("failed to parse RSA private key")
+		return nil, fmt.Errorf("failed to parse RSA private key: %w", err)
 	}
 	if rsaKey, ok := k.(*rsa.PrivateKey); ok {
 		return rsaKey, nil
