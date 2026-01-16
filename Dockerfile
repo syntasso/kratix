@@ -9,14 +9,19 @@ ENV CGO_ENABLED=0
 ENV GOOS=${TARGETOS}
 ENV GOARCH=${TARGETARCH}
 
+# Download deps first for better cache reuse.
+COPY go.mod go.sum ./
+RUN --mount=type=cache,target=/go/pkg/mod \
+    go mod download
+
+COPY . .
+
 # Build
-RUN --mount=target=. \
-    --mount=type=cache,target=/root/.cache/go-build \
+RUN --mount=type=cache,target=/root/.cache/go-build \
     --mount=type=cache,target=/go/pkg/mod \
     go build -o /out/manager cmd/main.go
 
-RUN --mount=target=. \
-    --mount=type=cache,target=/root/.cache/go-build \
+RUN --mount=type=cache,target=/root/.cache/go-build \
     --mount=type=cache,target=/go/pkg/mod \
     go build -o /out/pipeline-adapter work-creator/*.go
 
