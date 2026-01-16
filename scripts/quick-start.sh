@@ -11,7 +11,7 @@ THIRD_DESTINATION=false
 
 CI=${CI:-false}
 
-INSTALL_AND_CREATE_MINIO_BUCKET=true
+INSTALL_AND_CREATE_RUSTFS_BUCKET=true
 INSTALL_AND_CREATE_GITEA_REPO=false
 WORKER_STATESTORE_TYPE=BucketStateStore
 
@@ -36,15 +36,15 @@ KIND_PLATFORM_CONFIG="${KIND_PLATFORM_CONFIG:-"${ROOT}/hack/platform/kind-platfo
 KIND_WORKER_CONFIG="${KIND_WORKER_CONFIG:-"${ROOT}/hack/destination/kind-worker-config.yaml"}"
 
 usage() {
-    echo -e "Usage: quick-start.sh [--help] [--recreate] [--local] [--git] [--git-and-minio] [--local-images <location>]"
+    echo -e "Usage: quick-start.sh [--help] [--recreate] [--local] [--git] [--git-and-rustfs] [--local-images <location>]"
     echo -e "\t--help, -h               Prints this message"
     echo -e "\t--recreate, -r           Deletes pre-existing KinD clusters"
     echo -e "\t--local, -l              Build and load Kratix images to KinD cache"
     echo -e "\t--local-images, -i       Load container images from a local directory into the KinD clusters"
-    echo -e "\t--git, -g                Use Gitea as local repository in place of default local MinIO"
+    echo -e "\t--git, -g                Use Gitea as local repository in place of default local RustFS"
     echo -e "\t--single-cluster, -s     Deploy Kratix on a Single cluster setup"
     echo -e "\t--third-cluster, -t      Deploy Kratix with a three cluster setup"
-    echo -e "\t--git-and-minio, -d      Install Gitea alongside the minio installation. Destinations still uses minio as statestore. Can't be used alongside --git"
+    echo -e "\t--git-and-rustfs, -d     Install Gitea alongside the RustFS installation. Destinations still use RustFS as statestore. Can't be used alongside --git"
     echo -e "\t--no-cert-manager        Don't install cert-manager"
     echo -e "\t--no-labels, -n          Don't apply any labels to the KinD clusters"
     exit "${1:-0}"
@@ -59,6 +59,7 @@ load_options() {
         '--local')             set -- "$@" '-l'   ;;
         '--git')               set -- "$@" '-g'   ;;
         '--git-and-minio')     set -- "$@" '-d'   ;;
+        '--git-and-rustfs')    set -- "$@" '-d'   ;;
         '--local-images')      set -- "$@" '-i'   ;;
         '--no-labels')         set -- "$@" '-n'   ;;
         '--single-cluster')    set -- "$@" '-s'   ;;
@@ -79,8 +80,8 @@ load_options() {
         'l') BUILD_KRATIX_IMAGES=true ;;
         'n') LABELS=false ;;
         'i') LOCAL_IMAGES_DIR=${OPTARG} ;;
-        'd') INSTALL_AND_CREATE_GITEA_REPO=true INSTALL_AND_CREATE_MINIO_BUCKET=true WORKER_STATESTORE_TYPE=BucketStateStore ;;
-        'g') INSTALL_AND_CREATE_GITEA_REPO=true INSTALL_AND_CREATE_MINIO_BUCKET=false WORKER_STATESTORE_TYPE=GitStateStore ;;
+        'd') INSTALL_AND_CREATE_GITEA_REPO=true INSTALL_AND_CREATE_RUSTFS_BUCKET=true WORKER_STATESTORE_TYPE=BucketStateStore ;;
+        'g') INSTALL_AND_CREATE_GITEA_REPO=true INSTALL_AND_CREATE_RUSTFS_BUCKET=false WORKER_STATESTORE_TYPE=GitStateStore ;;
         *) usage 1 ;;
       esac
     done
@@ -228,8 +229,8 @@ setup_platform_destination() {
         kubectl --context kind-${PLATFORM_CLUSTER_NAME} apply --filename "${ROOT}/hack/platform/gitea-install.yaml"
     fi
 
-    if ${INSTALL_AND_CREATE_MINIO_BUCKET}; then
-        make minio-cli
+    if ${INSTALL_AND_CREATE_RUSTFS_BUCKET}; then
+        make rustfs-cli
         kubectl --context kind-${PLATFORM_CLUSTER_NAME} apply --filename "${ROOT}/hack/platform/minio-install.yaml"
     fi
 
@@ -242,7 +243,7 @@ setup_worker_destination() {
         cat "${ROOT}/config/samples/platform_v1alpha1_gitstatestore.yaml" | sed "s/172.18.0.2/$(platform_destination_ip)/g" | kubectl --context kind-${PLATFORM_CLUSTER_NAME} apply -f -
     fi
 
-    if ${INSTALL_AND_CREATE_MINIO_BUCKET}; then
+    if ${INSTALL_AND_CREATE_RUSTFS_BUCKET}; then
        kubectl --context kind-${PLATFORM_CLUSTER_NAME} apply --filename "${ROOT}/config/samples/platform_v1alpha1_bucketstatestore.yaml"
        kubectl wait bucketstatestore default --for=condition=Ready
     fi
@@ -283,21 +284,21 @@ wait_for_gitea() {
     kubectl wait job --context kind-${PLATFORM_CLUSTER_NAME} -n gitea gitea-create-repository --for condition=Complete ${wait_opts}
 }
 
-wait_for_minio() {
+wait_for_rustfs() {
     wait_opts=$1
-    while ! kubectl get pods --context kind-${PLATFORM_CLUSTER_NAME} -n kratix-platform-system | grep minio; do
+    while ! kubectl get pods --context kind-${PLATFORM_CLUSTER_NAME} -n kratix-platform-system | grep rustfs; do
         sleep 1
     done
-    kubectl wait pod --context kind-${PLATFORM_CLUSTER_NAME} -n kratix-platform-system --selector run=minio --for=condition=ready ${wait_opts}
+    kubectl wait pod --context kind-${PLATFORM_CLUSTER_NAME} -n kratix-platform-system --selector run=rustfs --for=condition=ready ${wait_opts}
 
-    while ! kubectl get job --context kind-${PLATFORM_CLUSTER_NAME} -n default | grep minio-create-bucket; do
+    while ! kubectl get job --context kind-${PLATFORM_CLUSTER_NAME} -n kratix-platform-system | grep rustfs-create-bucket; do
         sleep 1
     done
-    kubectl --context kind-${PLATFORM_CLUSTER_NAME} wait job minio-create-bucket --for condition=Complete ${wait_opts}
+    kubectl --context kind-${PLATFORM_CLUSTER_NAME} -n kratix-platform-system wait job rustfs-create-bucket --for condition=Complete ${wait_opts}
 
-    minio_user=$(kubectl --context kind-${PLATFORM_CLUSTER_NAME} get secret minio-credentials -n default -o jsonpath="{.data.accessKeyID}" | base64 --decode)
-    minio_password=$(kubectl --context kind-${PLATFORM_CLUSTER_NAME} get secret minio-credentials -n default -o jsonpath="{.data.secretAccessKey}" | base64 --decode)
-    ${ROOT}/bin/mc alias set kind http://localhost:31337 ${minio_user} ${minio_password}
+    rustfs_user=$(kubectl --context kind-${PLATFORM_CLUSTER_NAME} -n kratix-platform-system get secret rustfs-credentials -o jsonpath="{.data.accessKeyID}" | base64 --decode)
+    rustfs_password=$(kubectl --context kind-${PLATFORM_CLUSTER_NAME} -n kratix-platform-system get secret rustfs-credentials -o jsonpath="{.data.secretAccessKey}" | base64 --decode)
+    ${ROOT}/bin/mc alias set kind http://localhost:31337 ${rustfs_user} ${rustfs_password}
 }
 
 wait_for_local_repository() {
@@ -311,8 +312,8 @@ wait_for_local_repository() {
         wait_for_gitea ${wait_opts}
     fi
 
-    if ${INSTALL_AND_CREATE_MINIO_BUCKET}; then
-        wait_for_minio ${wait_opts}
+    if ${INSTALL_AND_CREATE_RUSTFS_BUCKET}; then
+        wait_for_rustfs ${wait_opts}
     fi
 }
 
@@ -541,8 +542,8 @@ install_kratix() {
 
     kubectl config use-context kind-${PLATFORM_CLUSTER_NAME} >/dev/null
 
-    if ${INSTALL_AND_CREATE_MINIO_BUCKET}; then
-        kubectl delete job minio-create-bucket -n default --context kind-${PLATFORM_CLUSTER_NAME} >/dev/null
+    if ${INSTALL_AND_CREATE_RUSTFS_BUCKET}; then
+        kubectl delete job rustfs-create-bucket -n kratix-platform-system --context kind-${PLATFORM_CLUSTER_NAME} >/dev/null
     fi
 
     if ${INSTALL_AND_CREATE_GITEA_REPO}; then

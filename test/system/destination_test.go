@@ -40,7 +40,7 @@ var _ = Describe("Destinations", Label("destination"), Serial, func() {
 				platform.Kubectl("patch", "bucketstatestore", "destination-test-store", "--type=merge", "-p", `{"spec":{"secretRef":{"name":"aws-s3-credentials"}}}`)
 			} else {
 				// update the state store secret with the valid credentials when running in KinD
-				platform.Kubectl("patch", "secret", "minio-credentials", "--type=merge", "-p", `{"stringData":{"accessKeyID":"minioadmin"}}`)
+				platform.Kubectl("patch", "secret", "rustfs-credentials", "--type=merge", "-p", `{"stringData":{"accessKeyID":"minioadmin"}}`, "-n", "kratix-platform-system")
 			}
 			platform.Kubectl("delete", "-f", "assets/destination/destination-worker-3.yaml")
 			platform.Kubectl("delete", "secret", "new-state-store-secret", "--ignore-not-found")
@@ -121,7 +121,7 @@ var _ = Describe("Destinations", Label("destination"), Serial, func() {
 				Eventually(func() string {
 					describeOutput := strings.Split(platform.Kubectl("describe", "bucketstatestores", "destination-test-store"), "\n")
 					return describeOutput[len(describeOutput)-2]
-				}).Should(ContainSubstring("Error initialising writer: secret \"non-existent-secret\" not found in namespace \"default\""))
+				}).Should(ContainSubstring("Error initialising writer: secret \"non-existent-secret\" not found in namespace \"kratix-platform-system\""))
 			})
 
 			By("showing `Ready` as False in the Destination when the State Store secret does not exist", func() {
@@ -172,7 +172,7 @@ var _ = Describe("Destinations", Label("destination"), Serial, func() {
 
 			if os.Getenv("LRE") != "true" {
 				// update the underlying state store secret with invalid credentials (non-LRE only)
-				platform.Kubectl("patch", "secret", "minio-credentials", "--type=merge", "-p", `{"stringData":{"accessKeyID":"invalid"}}`)
+				platform.Kubectl("patch", "secret", "rustfs-credentials", "--type=merge", "-p", `{"stringData":{"accessKeyID":"invalid"}}`, "-n", "kratix-platform-system")
 
 				By("showing `Ready` as False in the State Store", func() {
 					Eventually(func() string {

@@ -2,7 +2,7 @@ config:
   path: worker-1
   namespace: kratix-worker-config
   secretRef:
-    name: minio-credentials
+    name: rustfs-credentials
     values:
       accesskey: bWluaW9hZG1pbg==
       secretkey: bWluaW9hZG1pbg==

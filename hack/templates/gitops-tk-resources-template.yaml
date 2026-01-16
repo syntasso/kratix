@@ -11,7 +11,7 @@ spec:
   endpoint: ENDPOINT
   insecure: true
   secretRef:
-    name: minio-credentials
+    name: rustfs-credentials
 ---
 apiVersion: source.toolkit.fluxcd.io/v1beta2
 kind: Bucket
@@ -25,12 +25,12 @@ spec:
   endpoint: ENDPOINT
   insecure: true
   secretRef:
-    name: minio-credentials
+    name: rustfs-credentials
 ---
 apiVersion: v1
 kind: Secret
 metadata:
-  name: minio-credentials
+  name: rustfs-credentials
   namespace: flux-system
 type: Opaque
 data:

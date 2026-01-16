@@ -1,12 +1,12 @@
 stateStores:
 - kind: BucketStateStore
   name: default
-  namespace: default
+  namespace: kratix-platform-system
   secretRef:
-    name: minio-credentials
+    name: rustfs-credentials
     values:
       accesskey: bWluaW9hZG1pbg==
       secretkey: bWluaW9hZG1pbg==
   insecure: true
-  endpoint: minio.kratix-platform-system.svc.cluster.local
+  endpoint: rustfs.kratix-platform-system.svc.cluster.local
   bucket: kratix
