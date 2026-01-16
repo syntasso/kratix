@@ -5,8 +5,8 @@ metadata:
 spec:
   authMethod: accessKey
   bucketName: kratix
-  endpoint: minio.kratix-platform-system.svc.cluster.local
+  endpoint: rustfs.kratix-platform-system.svc.cluster.local
   insecure: true
   secretRef:
-    name: minio-credentials
-    namespace: default
+    name: rustfs-credentials
+    namespace: kratix-platform-system
