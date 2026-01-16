@@ -196,6 +196,9 @@ func (b *S3Writer) deleteObjects(ctx context.Context, oldObjectsToDelete map[str
 	for objectName, objectInfo := range oldObjectsToDelete {
 		err := b.RepoClient.RemoveObject(ctx, b.BucketName, objectInfo.Key, minio.RemoveObjectOptions{})
 		if err != nil {
+			if minio.ToErrorResponse(err).Code == "NoSuchKey" {
+				continue
+			}
 			logging.Error(logger, err, "failed to remove object", "objectName", objectName)
 			errCount++
 		}
@@ -266,6 +269,9 @@ func (b *S3Writer) RemoveObject(objectName string) error {
 			minio.RemoveObjectOptions{},
 		)
 		if err != nil {
+			if minio.ToErrorResponse(err).Code == "NoSuchKey" {
+				return nil
+			}
 			logging.Error(b.Log, err, "could not delete object", "bucketName", b.BucketName, "objectName", objectName)
 			return err
 		}
