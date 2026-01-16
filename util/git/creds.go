@@ -34,12 +34,8 @@ import (
 
 	gocache "github.com/patrickmn/go-cache"
 
-	argoio "github.com/argoproj/gitops-engine/pkg/utils/io"
-	"github.com/argoproj/gitops-engine/pkg/utils/text"
 	"github.com/bradleyfalzon/ghinstallation/v2"
 	log "github.com/sirupsen/logrus"
-
-	utilio "github.com/argoproj/argo-cd/v3/util/io"
 )
 
 var (
@@ -57,9 +53,11 @@ const (
 	// You could use any string (or even empty string) as the username, but x-access-token
 	// is recommended for clarity.
 	githubAccessTokenUsername = "x-access-token"
-	forceBasicAuthHeaderEnv   = "ARGOCD_GIT_AUTH_HEADER"
-	bearerAuthHeaderEnv       = "ARGOCD_GIT_BEARER_AUTH_HEADER"
+	forceBasicAuthHeaderEnv   = "KRATIX_GIT_AUTH_HEADER"
+	bearerAuthHeaderEnv       = "KRATIX_GIT_BEARER_AUTH_HEADER"
 )
+
+var tempDir = defaultTempDir()
 
 // TODO: rename
 type Auth struct {
@@ -200,12 +198,12 @@ func (creds HTTPSCreds) Environ(_ logr.Logger) (io.Closer, []string, error) {
 		// We need to actually create two temp files, one for storing cert data and
 		// another for storing the key. If we fail to create second fail, the first
 		// must be removed.
-		certFile, err := os.CreateTemp(argoio.TempDir, "")
+		certFile, err := os.CreateTemp(tempDir, "")
 		if err != nil {
 			return NopCloser{}, nil, err
 		}
 		defer certFile.Close()
-		keyFile, err = os.CreateTemp(argoio.TempDir, "")
+		keyFile, err = os.CreateTemp(tempDir, "")
 		if err != nil {
 			removeErr := os.Remove(certFile.Name())
 			if removeErr != nil {
@@ -234,20 +232,20 @@ func (creds HTTPSCreds) Environ(_ logr.Logger) (io.Closer, []string, error) {
 		// GIT_SSL_KEY is the full path to a client certificate's key to be used
 		env = append(env, "GIT_SSL_KEY="+keyFile.Name())
 	}
-	// If at least password is set, we will set ARGOCD_BASIC_AUTH_HEADER to
+	// If at least password is set, we will set KRATIX_GIT_AUTH_HEADER to
 	// hold the HTTP authorization header, so auth mechanism negotiation is
 	// skipped. This is insecure, but some environments may need it.
 	if creds.password != "" && creds.forceBasicAuth {
 		env = append(env, fmt.Sprintf("%s=%s", forceBasicAuthHeaderEnv, creds.BasicAuthHeader()))
 	} else if creds.bearerToken != "" {
-		// If bearer token is set, we will set ARGOCD_BEARER_AUTH_HEADER to	hold the HTTP authorization header
+		// If bearer token is set, we will set KRATIX_GIT_BEARER_AUTH_HEADER to hold the HTTP authorization header
 		env = append(env, fmt.Sprintf("%s=%s", bearerAuthHeaderEnv, creds.BearerAuthHeader()))
 	}
 	nonce := creds.store.Add(
-		text.FirstNonEmpty(creds.username, githubAccessTokenUsername), creds.password)
+		firstNonEmpty(creds.username, githubAccessTokenUsername), creds.password)
 	env = append(env, creds.store.Environ(nonce)...)
 
-	return utilio.NewCloser(func() error {
+	return newCloser(func() error {
 		creds.store.Remove(nonce)
 		return httpCloser.Close()
 	}), env, nil
@@ -263,6 +261,35 @@ func (creds HTTPSCreds) GetClientCertData() string {
 
 func (creds HTTPSCreds) GetClientCertKey() string {
 	return creds.clientCertKey
+}
+
+func defaultTempDir() string {
+	fileInfo, err := os.Stat("/dev/shm")
+	if err == nil && fileInfo.IsDir() {
+		return "/dev/shm"
+	}
+	return ""
+}
+
+func firstNonEmpty(args ...string) string {
+	for _, value := range args {
+		if len(value) > 0 {
+			return value
+		}
+	}
+	return ""
+}
+
+type closerFunc struct {
+	closeFn func() error
+}
+
+func (c closerFunc) Close() error {
+	return c.closeFn()
+}
+
+func newCloser(closeFn func() error) io.Closer {
+	return closerFunc{closeFn: closeFn}
 }
 
 var _ Creds = SSHCreds{}
@@ -328,7 +355,7 @@ func (f sshPrivateFiles) Close() error {
 
 func (c SSHCreds) Environ(_ logr.Logger) (io.Closer, []string, error) {
 	// use the SHM temp dir from util, more secure
-	file, err := os.CreateTemp(argoio.TempDir, "")
+	file, err := os.CreateTemp(tempDir, "")
 	if err != nil {
 		return nil, nil, err
 	}
@@ -466,12 +493,12 @@ func (g GitHubAppCreds) Environ(logger logr.Logger) (io.Closer, []string, error)
 		// We need to actually create two temp files, one for storing cert data and
 		// another for storing the key. If we fail to create second fail, the first
 		// must be removed.
-		certFile, err := os.CreateTemp(argoio.TempDir, "")
+		certFile, err := os.CreateTemp(tempDir, "")
 		if err != nil {
 			return NopCloser{}, nil, err
 		}
 		defer certFile.Close()
-		keyFile, err = os.CreateTemp(argoio.TempDir, "")
+		keyFile, err = os.CreateTemp(tempDir, "")
 		if err != nil {
 			removeErr := os.Remove(certFile.Name())
 			if removeErr != nil {
@@ -505,7 +532,7 @@ func (g GitHubAppCreds) Environ(logger logr.Logger) (io.Closer, []string, error)
 
 	nonce := g.store.Add(githubAccessTokenUsername, token)
 	env = append(env, g.store.Environ(nonce)...)
-	return utilio.NewCloser(func() error {
+	return newCloser(func() error {
 		g.store.Remove(nonce)
 		return httpCloser.Close()
 	}), env, nil
@@ -834,10 +861,6 @@ func ExtractOrgFromRepoURL(repoURL string) (string, error) {
 	// This would fail validation later, but let's return it
 	return "", fmt.Errorf("could not extract organization from repository URL %q: path %q does not contain org/repo format", repoURL, path)
 }
-
-/////////////////////////////////////////
-
-// OURS
 
 type sshAuthCreds struct {
 	SSHPrivateKey []byte

@@ -6,7 +6,9 @@ import (
 	"crypto/fips140"
 	"crypto/rand"
 	"crypto/tls"
+	"crypto/x509"
 	"encoding/hex"
+	"encoding/pem"
 	"errors"
 	"fmt"
 	"math"
@@ -15,6 +17,7 @@ import (
 	"net/url"
 	"os"
 	"os/exec"
+	"path/filepath"
 	"regexp"
 	"strconv"
 	"strings"
@@ -28,10 +31,7 @@ import (
 	gocache "github.com/patrickmn/go-cache"
 	"github.com/syntasso/kratix/internal/logging"
 	"golang.org/x/crypto/ssh"
-
-	// TODO: review these imports
-	certutil "github.com/argoproj/argo-cd/v3/util/cert"
-	"github.com/argoproj/argo-cd/v3/util/proxy"
+	"golang.org/x/net/http/httpproxy"
 )
 
 type GitClientError error
@@ -151,33 +151,10 @@ func NewGitClient(req GitClientRequest) (Client, error) {
 		if ok, _ := IsSSHURL(req.RawRepoURL); !ok {
 			return nil, fmt.Errorf("invalid URL for SSH auth method: %s", req.RawRepoURL)
 		}
-
-	// TODO: do we still need this?
-	case GitHubAppCreds:
-		/*
-			tokenAuth, ok := req.Auth.AuthMethod.(*githttp.TokenAuth)
-			if !ok {
-				return nil, fmt.Errorf("GitHub app auth method is not *githttp.TokenAuth")
-			}
-			if tokenAuth == nil {
-				return nil, fmt.Errorf("auth token not set")
-			}
-			accessToken = tokenAuth.Token
-		*/
-		/*
-			// THIS makes the last githubapp auth test pass
-			// but we need to not store the token on a local file,
-			// let's try to fix change the url temporarily or use extra auth
-			// headers
-			// i've tried using insteadOf in git cli, but it's not running fine in
-			// go, while it works when run manually, maybe a difference in the
-			// env???? try to check the git env vars and their differences between
-			// the two methods
-				req.RawRepoURL, err = injectCredentials(req.RawRepoURL, "x-access-token", tokenAuth.Token)
-				if !ok {
-					return nil, fmt.Errorf("failed to inject credentials into repository URL: %w", err)
-				}
-		*/
+	default:
+		if !IsHTTPSURL(req.RawRepoURL) {
+			return nil, fmt.Errorf("invalid URL for HTTPS auth method: %s", req.RawRepoURL)
+		}
 	}
 
 	client := &nativeGitClient{
@@ -519,7 +496,7 @@ func GetRepoHTTPClient(logger logr.Logger, repoURL string, insecure bool, creds 
 		},
 	}
 
-	proxyFunc := proxy.GetCallback(proxyURL, noProxy)
+	proxyFunc := getProxyCallback(proxyURL, noProxy)
 
 	// Callback function to return any configured client certificate
 	// We never return err, but an empty cert instead.
@@ -561,15 +538,128 @@ func GetRepoHTTPClient(logger logr.Logger, repoURL string, insecure bool, creds 
 	if err != nil {
 		return customHTTPClient
 	}
-	serverCertificatePem, err := certutil.GetCertificateForConnect(parsedURL.Host)
+	serverCertificatePem, err := getCertificateForConnect(parsedURL.Host)
 	if err != nil {
 		return customHTTPClient
 	}
 	if len(serverCertificatePem) > 0 {
-		certPool := certutil.GetCertPoolFromPEMData(serverCertificatePem)
+		certPool := getCertPoolFromPEMData(serverCertificatePem)
 		transport.TLSClientConfig.RootCAs = certPool
 	}
 	return customHTTPClient
+}
+
+const envVarTLSDataPath = "KRATIX_TLS_DATA_PATH"
+
+func getTLSCertificateDataPath() string {
+	if envPath := os.Getenv(envVarTLSDataPath); envPath != "" {
+		return envPath
+	}
+	return DefaultPathTLSConfig
+}
+
+func serverNameWithoutPort(serverName string) string {
+	return strings.Split(serverName, ":")[0]
+}
+
+func parseTLSCertificatesFromPath(sourceFile string) ([]string, error) {
+	data, err := os.ReadFile(sourceFile)
+	if err != nil {
+		return nil, err
+	}
+	return parseTLSCertificatesFromPEM(data)
+}
+
+func parseTLSCertificatesFromPEM(pemData []byte) ([]string, error) {
+	var certs []string
+	for {
+		var block *pem.Block
+		block, pemData = pem.Decode(pemData)
+		if block == nil {
+			break
+		}
+		if block.Type != "CERTIFICATE" {
+			continue
+		}
+		certs = append(certs, string(pem.EncodeToMemory(block)))
+	}
+	return certs, nil
+}
+
+func getCertificateForConnect(serverName string) ([]string, error) {
+	dataPath := getTLSCertificateDataPath()
+	certPath, err := filepath.Abs(filepath.Join(dataPath, serverNameWithoutPort(serverName)))
+	if err != nil {
+		return nil, err
+	}
+	if !strings.HasPrefix(certPath, dataPath) {
+		return nil, fmt.Errorf("could not get certificate for host %s", serverName)
+	}
+	certificates, err := parseTLSCertificatesFromPath(certPath)
+	if err != nil {
+		if os.IsNotExist(err) {
+			return nil, nil
+		}
+		return nil, err
+	}
+	if len(certificates) == 0 {
+		return nil, errors.New("no certificates found in existing file")
+	}
+	return certificates, nil
+}
+
+func getCertBundlePathForRepository(serverName string) (string, error) {
+	certPath := filepath.Join(getTLSCertificateDataPath(), serverNameWithoutPort(serverName))
+	certs, err := getCertificateForConnect(serverName)
+	if err != nil {
+		return "", nil
+	}
+	if len(certs) == 0 {
+		return "", nil
+	}
+	return certPath, nil
+}
+
+func getCertPoolFromPEMData(pemData []string) *x509.CertPool {
+	certPool := x509.NewCertPool()
+	for _, pemEntry := range pemData {
+		certPool.AppendCertsFromPEM([]byte(pemEntry))
+	}
+	return certPool
+}
+
+func upsertProxyEnv(cmd *exec.Cmd, proxyURL string, noProxy string) []string {
+	envs := []string{}
+	if proxyURL == "" {
+		return cmd.Env
+	}
+	for _, env := range cmd.Env {
+		proxyEnv := strings.ToLower(env)
+		if strings.HasPrefix(proxyEnv, "http_proxy") ||
+			strings.HasPrefix(proxyEnv, "https_proxy") ||
+			strings.HasPrefix(proxyEnv, "no_proxy") {
+			continue
+		}
+		envs = append(envs, env)
+	}
+	return append(envs, "http_proxy="+proxyURL, "https_proxy="+proxyURL, "no_proxy="+noProxy)
+}
+
+func getProxyCallback(proxyURL string, noProxy string) func(*http.Request) (*url.URL, error) {
+	if proxyURL != "" {
+		c := httpproxy.Config{
+			HTTPProxy:  proxyURL,
+			HTTPSProxy: proxyURL,
+			NoProxy:    noProxy,
+		}
+		return func(r *http.Request) (*url.URL, error) {
+			if r != nil {
+				return c.ProxyFunc()(r.URL)
+			}
+			return url.Parse(c.HTTPProxy)
+		}
+	}
+	return http.ProxyFromEnvironment
 }
 
 func (m *nativeGitClient) Root() string {
@@ -776,13 +866,11 @@ func (m *nativeGitClient) runCmdOutput(cmd *exec.Cmd, ropts runOpts) (string, er
 	cmd.Env = append(cmd.Env, "GIT_LFS_SKIP_SMUDGE=1")
 	// Disable Git terminal prompts in case we're running with a tty
 	cmd.Env = append(cmd.Env, "GIT_TERMINAL_PROMPT=false")
-	// Add Git configuration options that are essential for ArgoCD operation
+	// Add Git configuration options that are essential for the command to work
 	cmd.Env = append(cmd.Env, m.gitConfigEnv...)
 
 	cmd.Env = append(cmd.Env,
-		// TODO; revisit as we have GIT_TERMINAL_PROMPT above
-		// "GIT_TERMINAL_PROMPT=0", // Disable terminal prompts
-		"GIT_ASKPASS=true",   // Disable password prompts by setting it to the binary `true``
+		"GIT_ASKPASS=true",   // Disable password prompts by setting it to the binary `/bin/true`
 		"GIT_CONFIG_COUNT=1", // Number of config settings
 		"GIT_CONFIG_KEY_0=credential.helper",
 		"GIT_CONFIG_VALUE_0=", // Disable credential helper
@@ -800,14 +888,14 @@ func (m *nativeGitClient) runCmdOutput(cmd *exec.Cmd, ropts runOpts) (string, er
 			if err != nil {
 				logging.Warn(m.log, "could not parse repo URL", "repoURL", m.repoURL)
 			} else {
-				caPath, err := certutil.GetCertBundlePathForRepository(parsedURL.Host)
+				caPath, err := getCertBundlePathForRepository(parsedURL.Host)
 				if err == nil && caPath != "" {
 					cmd.Env = append(cmd.Env, "GIT_SSL_CAINFO="+caPath)
 				}
 			}
 		}
 	}
-	cmd.Env = proxy.UpsertEnv(cmd, m.proxy, m.noProxy)
+	cmd.Env = upsertProxyEnv(cmd, m.proxy, m.noProxy)
 	opts := ExecRunOpts{
 		TimeoutBehavior: TimeoutBehavior{
 			Signal:     syscall.SIGTERM,
@@ -1054,7 +1142,7 @@ const (
 // Environment variables for tuning and debugging Argo CD
 const (
 	// EnvGithubAppCredsExpirationDuration controls the caching of Github app credentials. This value is in minutes (default: 60)
-	EnvGithubAppCredsExpirationDuration = "ARGOCD_GITHUB_APP_CREDS_EXPIRATION_DURATION"
+	EnvGithubAppCredsExpirationDuration = "KRATIX_GITHUB_APP_CREDS_EXPIRATION_DURATION"
 )
 
 // Helper function to parse a time duration from an environment variable. Returns a
