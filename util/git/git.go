@@ -705,8 +705,11 @@ func (m *nativeGitClient) CommitAndPush(branch, message, author string, email st
 		done := m.OnPush(m.repoURL)
 		defer done()
 	}
-	///////////////////////////////
-	err = m.runCredentialedCmd(ctx, "pull", "origin", "--rebase")
+
+	err = m.runCredentialedCmd(ctx,
+		"-c", fmt.Sprintf("user.name=%s", author),
+		"-c", fmt.Sprintf("user.email=%s", email),
+		"pull", "origin", "--rebase")
 	if err != nil {
 		return "", fmt.Errorf("failed to pull from origin (rebase): %w", err)
 	}
