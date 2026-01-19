@@ -13,6 +13,7 @@ import (
 	"math/rand"
 	"os"
 	"path/filepath"
+	"strings"
 
 	"sigs.k8s.io/controller-runtime/pkg/log/zap"
 
@@ -92,6 +93,9 @@ var _ = Describe("Git tests", func() {
 		When("targeting a private repository", func() {
 
 			When("using HTTP basic auth", func() {
+
+				appID := os.Getenv("TEST_GIT_WRITER_GITHUB_APP_ID")
+				fmt.Printf("SSSSSSSSSSSSSSSSSSSS: %v\n", AddSpaces(appID))
 
 				fmt.Printf("TEST::::::::: %v - %v - %v\n",
 					os.Getenv("TEST_GIT_WRITER_GITHUB_APP_ID"),
@@ -722,4 +726,8 @@ func getStateStoreAndDest(authType, repo string) (*v1alpha1.GitStateStoreSpec, *
 				Path: fmt.Sprintf("%s-dst-path/", authType),
 			},
 		}
+}
+
+func AddSpaces(s string) string {
+	return strings.Join(strings.Split(s, ""), " ")
 }
