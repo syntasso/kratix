@@ -28,7 +28,7 @@ import (
 	"github.com/go-logr/logr"
 
 	tx_ssh "github.com/go-git/go-git/v5/plumbing/transport/ssh"
-	"github.com/golang-jwt/jwt"
+	"github.com/golang-jwt/jwt/v5"
 	"github.com/google/go-github/v69/github"
 	"github.com/syntasso/kratix/api/v1alpha1"
 
