@@ -240,7 +240,7 @@ run-system-test: fmt vet
 	echo ${TEST_GIT_WRITER_GITHUB_APP_ID}
 	echo $(TEST_GIT_WRITER_GITHUB_APP_ID)
 	echo "++++++++----------------------------------"
-	PATH="$(PROJECT_DIR)/bin:${PATH}" PLATFORM_DESTINATION_IP=`docker inspect ${PLATFORM_CLUSTER_NAME}-control-plane | grep '"IPAddress": "172' | awk -F '"' '{print $$4}'` go run ${GINKGO} ${GINKGO_FLAGS} -p --output-interceptor-mode=none ./test/system/  --coverprofile cover.out
+	PATH="$(PROJECT_DIR)/bin:${PATH}" PLATFORM_DESTINATION_IP=`docker inspect ${PLATFORM_CLUSTER_NAME}-control-plane | grep '"IPAddress": "172' | awk -F '"' '{print $$4}'` go run ${GINKGO} -v ${GINKGO_FLAGS} -p --output-interceptor-mode=none ./test/system/  --coverprofile cover.out
 
 fmt: ## Run go fmt against code.
 	go fmt ./...
