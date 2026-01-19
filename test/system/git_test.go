@@ -93,6 +93,11 @@ var _ = Describe("Git tests", func() {
 
 			When("using HTTP basic auth", func() {
 
+				fmt.Printf("TEST::::::::: %v - %v - %v\n",
+					os.Getenv("TEST_GIT_WRITER_GITHUB_APP_ID"),
+					os.Getenv("DOCKER_BUILDKIT"),
+					os.Getenv("ACK_GINKGO_RC"))
+
 				httpCreds := git.NewHTTPSCreds(
 					"x-access-token",                        // username
 					string(getGithubPATCreds()["password"]), // password
