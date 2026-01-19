@@ -203,6 +203,8 @@ func (creds HTTPSCreds) Environ(_ logr.Logger) (io.Closer, []string, error) {
 		if err != nil {
 			return NopCloser{}, nil, err
 		}
+		// TODO: reevaluate this
+		//nolint:errcheck
 		defer certFile.Close()
 		keyFile, err = os.CreateTemp(tempDir, "")
 		if err != nil {
@@ -212,6 +214,8 @@ func (creds HTTPSCreds) Environ(_ logr.Logger) (io.Closer, []string, error) {
 			}
 			return NopCloser{}, nil, err
 		}
+		// TODO: reevaluate this
+		//nolint:errcheck
 		defer keyFile.Close()
 
 		// We should have both temp files by now
@@ -219,6 +223,8 @@ func (creds HTTPSCreds) Environ(_ logr.Logger) (io.Closer, []string, error) {
 
 		_, err = certFile.WriteString(creds.clientCertData)
 		if err != nil {
+			// TODO: reevaluate this
+			//nolint:errcheck,gosec
 			httpCloser.Close()
 			return NopCloser{}, nil, err
 		}
@@ -227,6 +233,8 @@ func (creds HTTPSCreds) Environ(_ logr.Logger) (io.Closer, []string, error) {
 
 		_, err = keyFile.WriteString(creds.clientCertKey)
 		if err != nil {
+			// TODO: reevaluate this
+			//nolint:errcheck,gosec
 			httpCloser.Close()
 			return NopCloser{}, nil, err
 		}
@@ -379,6 +387,8 @@ func (c SSHCreds) Environ(_ logr.Logger) (io.Closer, []string, error) {
 
 	_, err = file.WriteString(c.sshPrivateKey + "\n")
 	if err != nil {
+		// TODO: reevaluate this
+		//nolint:errcheck,gosec
 		sshCloser.Close()
 		return nil, nil, err
 	}
@@ -396,6 +406,8 @@ func (c SSHCreds) Environ(_ logr.Logger) (io.Closer, []string, error) {
 	if c.proxy != "" {
 		parsedProxyURL, err := url.Parse(c.proxy)
 		if err != nil {
+			// TODO: revisit
+			//nolint:errcheck,gosec
 			sshCloser.Close()
 			return nil, nil, fmt.Errorf("failed to set environment variables related to socks5 proxy, could not parse proxy URL '%s': %w", c.proxy, err)
 		}
@@ -498,6 +510,8 @@ func (g GitHubAppCreds) Environ(logger logr.Logger) (io.Closer, []string, error)
 		if err != nil {
 			return NopCloser{}, nil, err
 		}
+		// TODO: revisit
+		//nolint:errcheck
 		defer certFile.Close()
 		keyFile, err = os.CreateTemp(tempDir, "")
 		if err != nil {
@@ -507,6 +521,8 @@ func (g GitHubAppCreds) Environ(logger logr.Logger) (io.Closer, []string, error)
 			}
 			return NopCloser{}, nil, err
 		}
+		// TODO: revisit
+		//nolint:errcheck
 		defer keyFile.Close()
 
 		// We should have both temp files by now
@@ -514,6 +530,8 @@ func (g GitHubAppCreds) Environ(logger logr.Logger) (io.Closer, []string, error)
 
 		_, err = certFile.WriteString(g.clientCertData)
 		if err != nil {
+			// TODO: revisit
+			//nolint:errcheck,gosec
 			httpCloser.Close()
 			return NopCloser{}, nil, err
 		}
@@ -522,6 +540,8 @@ func (g GitHubAppCreds) Environ(logger logr.Logger) (io.Closer, []string, error)
 
 		_, err = keyFile.WriteString(g.clientCertKey)
 		if err != nil {
+			// TODO: revisit
+			//nolint:errcheck,gosec
 			httpCloser.Close()
 			return NopCloser{}, nil, err
 		}
