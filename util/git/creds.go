@@ -54,7 +54,8 @@ const (
 	// is recommended for clarity.
 	githubAccessTokenUsername = "x-access-token"
 	forceBasicAuthHeaderEnv   = "KRATIX_GIT_AUTH_HEADER"
-	bearerAuthHeaderEnv       = "KRATIX_GIT_BEARER_AUTH_HEADER"
+	// #nosec G101
+	bearerAuthHeaderEnv = "KRATIX_GIT_BEARER_AUTH_HEADER"
 )
 
 var tempDir = defaultTempDir()
@@ -853,7 +854,7 @@ func ExtractOrgFromRepoURL(repoURL string) (string, error) {
 	// Path format is typically "org/repo" or "org/repo/subpath"
 	if idx := strings.Index(path, "/"); idx > 0 {
 		org := path[:idx]
-		// Normalize to lowercase for case-insensitive comparison
+		// Normalise to lowercase for case-insensitive comparison
 		return strings.ToLower(org), nil
 	}
 
@@ -1151,43 +1152,11 @@ func getGitHubInstallationToken(apiURL, installationID, jwtToken string) (string
 	return result.Token, nil
 }
 
-func IsAuthError(err error) bool {
-	if err == nil {
-		return false
-	}
-	if errors.Is(err, transport.ErrAuthenticationRequired) || errors.Is(err, transport.ErrAuthorizationFailed) {
-		return true
-	}
-	s := strings.ToLower(err.Error())
-	return strings.Contains(s, "authentication required") ||
-		strings.Contains(s, "authorization failed") ||
-		strings.Contains(s, "401") || strings.Contains(s, "403")
-}
-
-func trimmedBasicAuthCopy(auth transport.AuthMethod) (githttp.BasicAuth, bool) {
-	basicAuth, ok := auth.(*githttp.BasicAuth)
-	if !ok {
-		return githttp.BasicAuth{}, false
-	}
-
-	u, uChanged := trimRightWhitespace(basicAuth.Username)
-	p, pChanged := trimRightWhitespace(basicAuth.Password)
-	if !uChanged && !pChanged {
-		return githttp.BasicAuth{}, false
-	}
-	return githttp.BasicAuth{Username: u, Password: p}, true
-}
-
 // Security severity logging
 const (
 	SecurityField = "security"
 	// SecurityCWEField is the logs field for the CWE associated with a log line. CWE stands for Common Weakness Enumeration. See https://cwe.mitre.org/
 	SecurityCWEField                          = "CWE"
-	SecurityCWEIncompleteCleanup              = 459
 	SecurityCWEMissingReleaseOfFileDescriptor = 775
-	SecurityEmergency                         = 5 // Indicates unmistakably malicious events that should NEVER occur accidentally and indicates an active attack (i.e. brute forcing, DoS)
-	SecurityCritical                          = 4 // Indicates any malicious or exploitable event that had a side effect (i.e. secrets being left behind on the filesystem)
-	SecurityHigh                              = 3 // Indicates likely malicious events but one that had no side effects or was blocked (i.e. out of bounds symlinks in repos)
 	SecurityMedium                            = 2 // Could indicate malicious events, but has a high likelihood of being user/system error (i.e. access denied)
-	SecurityLow                               = 1 // Unexceptional entries (i.e. successful access logs)
 )

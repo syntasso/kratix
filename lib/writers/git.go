@@ -274,41 +274,6 @@ func (g *GitWriter) ValidatePermissions() error {
 	return cloneErr
 }
 
-func (g *GitWriter) cloneRepo(localRepoFilePath string, logger logr.Logger) (*gogit.Repository, error) {
-
-	logging.Debug(logger, "cloning repo")
-	/* TODO: make sure we have the same settings in the new client
-	cloneOpts := &git.CloneOptions{
-		GitAuth:            g.GitServer.GitAuth,
-		URL:             g.GitServer.URL,
-		ReferenceName:   plumbing.NewBranchReferenceName(g.GitServer.Branch),
-		SingleBranch:    true,
-		Depth:           1,
-		NoCheckout:      false,
-		InsecureSkipTLS: true,
-	}
-	*/
-
-	repo, err := gogit.PlainOpen(localRepoFilePath)
-
-	if git.IsAuthError(err) && g.BasicAuth {
-		/* TODO: convert this
-		if trimmed, changed := trimmedBasicAuthCopy(g.GitServer.GitAuth); changed {
-			logging.Info(logger, "auth failed there are trailing spaces in credentials; will retry again with trimmed credentials")
-			cloneOpts.GitAuth = &trimmed
-			_ = os.RemoveAll(localRepoFilePath)
-			if retryRepo, retryErr := git.PlainClone(localRepoFilePath, false, cloneOpts); retryErr == nil {
-				logging.Warn(logger, "authentication succeeded after trimming trailing whitespace; please fix your GitStateStore Secret")
-				g.GitServer.GitAuth = &trimmed
-				return retryRepo, ErrAuthSucceededAfterTrim
-			}
-		}
-		*/
-	}
-
-	return repo, err
-}
-
 func (g *GitWriter) commitAndPush(action, workPlacementName string, logger logr.Logger) (string, error) {
 	hasChanged, err := g.HasChanges()
 	if err != nil {

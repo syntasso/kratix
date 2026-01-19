@@ -23,7 +23,6 @@ import (
 	"strings"
 	"syscall"
 	"time"
-	"unicode"
 
 	gitssh "github.com/go-git/go-git/v5/plumbing/transport/ssh"
 	"github.com/go-logr/logr"
@@ -207,7 +206,7 @@ func newCmdError(args string, cause error, stderr string) *CmdError {
 	return &CmdError{Args: args, Stderr: stderr, Cause: cause}
 }
 
-// TimeoutBehavior defines behavior for when the command takes longer than the passed in timeout to exit
+// TimeoutBehavior defines behaviour for when the command takes longer than the passed in timeout to exit
 // By default, SIGKILL is sent to the process and it is not waited upon
 type TimeoutBehavior struct {
 	// Signal determines the signal to send to the process
@@ -407,7 +406,7 @@ type CommitMetadata struct {
 	// RepoURL is the URL of the repository where the commit is located.
 	// Comes from the Argocd-reference-commit-repourl trailer.
 	// This value is not validated beyond confirming that it's a URL, and it should not be used to construct UI links
-	// unless it is properly validated and/or sanitized first.
+	// unless it is properly validated and/or sanitised first.
 	RepoURL string
 }
 
@@ -437,8 +436,6 @@ type nativeGitClient struct {
 	creds Creds
 	// Whether to connect insecurely to repository, e.g. don't verify certificate
 	insecure bool
-	// indicates if client allowed to load refs from cache
-	loadRefFromCache bool
 	// HTTP/HTTPS proxy used to access repository
 	proxy string
 	// list of targets that shouldn't use the proxy, applies only if the proxy is set
@@ -599,16 +596,16 @@ func getCertificateForConnect(serverName string) ([]string, error) {
 	return certificates, nil
 }
 
-func getCertBundlePathForRepository(serverName string) (string, error) {
+func getCertBundlePathForRepository(serverName string) string {
 	certPath := filepath.Join(getTLSCertificateDataPath(), serverNameWithoutPort(serverName))
 	certs, err := getCertificateForConnect(serverName)
 	if err != nil {
-		return "", nil
+		return ""
 	}
 	if len(certs) == 0 {
-		return "", nil
+		return ""
 	}
-	return certPath, nil
+	return certPath
 }
 
 func getCertPoolFromPEMData(pemData []string) *x509.CertPool {
@@ -657,7 +654,7 @@ func (m *nativeGitClient) Root() string {
 	return m.root
 }
 
-// Init initializes a local git repository and sets the remote origin
+// Init initialises a local git repository and sets the remote origin
 func (m *nativeGitClient) Init() (string, error) {
 	ctx := context.Background()
 
@@ -673,7 +670,7 @@ func (m *nativeGitClient) Init() (string, error) {
 	if err != nil {
 		return "", fmt.Errorf("unable to clean repo at %s: %w", m.root, err)
 	}
-	err = os.MkdirAll(m.root, 0o755)
+	err = os.MkdirAll(m.root, 0o750)
 	if err != nil {
 		return "", err
 	}
@@ -879,7 +876,7 @@ func (m *nativeGitClient) runCmdOutput(cmd *exec.Cmd, ropts runOpts) (string, er
 			if err != nil {
 				logging.Warn(m.log, "could not parse repo URL", "repoURL", m.repoURL)
 			} else {
-				caPath, err := getCertBundlePathForRepository(parsedURL.Host)
+				caPath := getCertBundlePathForRepository(parsedURL.Host)
 				if err == nil && caPath != "" {
 					cmd.Env = append(cmd.Env, "GIT_SSL_CAINFO="+caPath)
 				}
@@ -991,11 +988,6 @@ func (m *nativeGitClient) HasFileChanged(filePath string) (bool, error) {
 	return false, fmt.Errorf("git diff failed: %w", err)
 }
 
-func trimRightWhitespace(s string) (string, bool) {
-	trimmed := strings.TrimRightFunc(s, unicode.IsSpace)
-	return trimmed, trimmed != s
-}
-
 // Fetch downloads commits, branches, and tags from the remote repository
 // without modifying the working directory or current branch. Updates remote-tracking
 // branches (e.g., origin/main) to reflect the current state of the remote.
@@ -1035,7 +1027,7 @@ func (m *nativeGitClient) Fetch(revision string, depth int64) error {
 //
 //	revision: Branch, tag, or commit to checkout (empty string or "HEAD" defaults to "origin/HEAD")
 //
-// Behavior:
+// Behaviour:
 //   - Uses --force flag to discard any local modifications
 //   - Runs git clean -ffdx after checkout to remove:
 //   - Untracked files and directories (first "f")
@@ -1139,8 +1131,6 @@ const (
 // Helper function to parse a time duration from an environment variable. Returns a
 // default if env is not set, is not parseable to a duration, exceeds maximum (if
 // maximum is greater than 0) or is less than minimum.
-//
-//nolint:unparam
 func ParseDurationFromEnv(logger logr.Logger, env string, defaultValue, minimum, maximum time.Duration) time.Duration {
 
 	logCtx := logger.WithValues()
