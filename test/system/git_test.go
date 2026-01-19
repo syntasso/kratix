@@ -158,16 +158,17 @@ var _ = FDescribe("Git tests", func() {
 				})
 
 				When("multiple clients are pushing to the same repo", func() {
-					var clientOne *git.Client
-					var clientTwo *git.Client
-					var pathOne string
-					var pathTwo string
-
+					var (
+						clientOne git.Client
+						clientTwo git.Client
+						pathOne   string
+						pathTwo   string
+						err       error
+					)
 					BeforeEach(func() {
 						clientRoot1 := fmt.Sprintf("client-1-%d", rand.Int())
 						clientRoot2 := fmt.Sprintf("client-2-%d", rand.Int())
-						var err error
-						cOne, err := git.NewGitClient(git.GitClientRequest{
+						clientOne, err = git.NewGitClient(git.GitClientRequest{
 							RawRepoURL: httpPrivateRepo,
 							Root:       clientRoot1,
 							Auth:       &git.Auth{Creds: httpCreds},
@@ -176,21 +177,20 @@ var _ = FDescribe("Git tests", func() {
 							NoProxy:    "",
 						})
 						Expect(err).ToNot(HaveOccurred())
-						clientOne = &cOne
 
-						repoOne, err := (*clientOne).Init()
+						repoOne, err := clientOne.Init()
 						Expect(err).ToNot(HaveOccurred())
 						Expect(repoOne).ToNot(BeNil())
 
-						err = (*clientOne).Fetch("main", 0)
+						err = clientOne.Fetch("main", 0)
 						Expect(err).ToNot(HaveOccurred())
 
-						out, err := (*clientOne).Checkout("main")
+						out, err := clientOne.Checkout("main")
 						Expect(err).ToNot(HaveOccurred())
 						Expect(out).To(BeEmpty())
 
 						// a second client clones, modifies and pushes to the same repo
-						cTwo, err := git.NewGitClient(git.GitClientRequest{
+						clientTwo, err = git.NewGitClient(git.GitClientRequest{
 							RawRepoURL: httpPrivateRepo,
 							Root:       clientRoot2,
 							Auth:       &git.Auth{Creds: httpCreds},
@@ -199,30 +199,29 @@ var _ = FDescribe("Git tests", func() {
 							NoProxy:    "",
 						})
 						Expect(err).ToNot(HaveOccurred())
-						clientTwo = &cTwo
 
-						repoTwo, err := (*clientTwo).Init()
+						repoTwo, err := clientTwo.Init()
 						Expect(err).ToNot(HaveOccurred())
 						Expect(repoTwo).ToNot(BeNil())
 
-						err = (*clientTwo).Fetch("main", 0)
+						err = clientTwo.Fetch("main", 0)
 						Expect(err).ToNot(HaveOccurred())
 
-						out, err = (*clientTwo).Checkout("main")
+						out, err = clientTwo.Checkout("main")
 						Expect(err).ToNot(HaveOccurred())
 						Expect(out).To(BeEmpty())
 
-						pathOne = filepath.Join((*clientOne).Root(), "test-client-1.txt")
-						pathTwo = filepath.Join((*clientTwo).Root(), "test-client-2.txt")
+						pathOne = filepath.Join(clientOne.Root(), "test-client-1.txt")
+						pathTwo = filepath.Join(clientTwo.Root(), "test-client-2.txt")
 					})
 
 					AfterEach(func() {
 						var err error
 
-						_, err = (*clientOne).Checkout("main")
+						_, err = clientOne.Checkout("main")
 						Expect(err).ToNot(HaveOccurred())
 
-						_, err = (*clientTwo).Checkout("main")
+						_, err = clientTwo.Checkout("main")
 						Expect(err).ToNot(HaveOccurred())
 
 						// remove the test files
@@ -231,10 +230,10 @@ var _ = FDescribe("Git tests", func() {
 						err = os.Remove(pathTwo)
 						Expect(err).ToNot(HaveOccurred())
 
-						_, err = (*clientOne).CommitAndPush(
+						_, err = clientOne.CommitAndPush(
 							"main", "TEST: remove test file test-client-1.txt", "test-user", "test-user@syntasso.io")
 
-						_, err = (*clientTwo).CommitAndPush(
+						_, err = clientTwo.CommitAndPush(
 							"main", "TEST: remove test file test-client-2.txt", "test-user", "test-user@syntasso.io")
 					})
 
@@ -254,13 +253,13 @@ var _ = FDescribe("Git tests", func() {
 						})
 
 						By("adding a non-conflicting file through the second client to bump the tip of the repository", func() {
-							_, err := (*clientTwo).CommitAndPush(
+							_, err := clientTwo.CommitAndPush(
 								"main", "TEST: add test-client-2.txt", "test-user", "test-user@syntasso.io")
 							Expect(err).ToNot(HaveOccurred())
 						})
 
 						By("being able to add another non-conflicting file through the first client even tough it was behind in git history", func() {
-							_, err := (*clientOne).CommitAndPush(
+							_, err := clientOne.CommitAndPush(
 								"main", "TEST: add test-client-1.txt", "test-user", "test-user@syntasso.io")
 							Expect(err).ToNot(HaveOccurred())
 						})
