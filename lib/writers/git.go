@@ -234,15 +234,6 @@ func (g *GitWriter) setupLocalDirectoryWithRepo() (string, error) {
 	return localDir, nil
 }
 
-func (g *GitWriter) push() error {
-	_, err := g.Push("main")
-	if err != nil {
-		return fmt.Errorf("could not push changes: %w", err)
-	}
-
-	return nil
-}
-
 // validatePush attempts to validate write permissions by pushing no changes to the remote
 // If the push doesn't return an error, it means we can write.
 func (g *GitWriter) validatePush(logger logr.Logger) error {

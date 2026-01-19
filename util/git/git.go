@@ -730,16 +730,6 @@ func (m *nativeGitClient) fetch(ctx context.Context, revision string, depth int6
 	return m.runCredentialedCmd(ctx, args...)
 }
 
-// config runs a git config command.
-func (m *nativeGitClient) config(ctx context.Context, args ...string) (string, error) {
-	args = append([]string{"config"}, args...)
-	out, err := m.runCmd(ctx, args...)
-	if err != nil {
-		return out, fmt.Errorf("failed to run git config: %w", err)
-	}
-	return out, nil
-}
-
 // Push pushes changes to the target branch.
 func (m *nativeGitClient) Push(branch string) (string, error) {
 	ctx := context.Background()
