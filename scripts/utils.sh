@@ -86,7 +86,9 @@ copy_gitea_credentials() {
     local toCtx="${2:-kind-worker}"
     local targetNamespace="${3:-default}"
 
+    set +e
     kubectl create namespace ${targetNamespace} --context ${toCtx} || true
+    set -e
     kubectl get secret gitea-credentials --context ${fromCtx} -n gitea -o yaml | \
         yq 'del(.metadata["namespace","creationTimestamp","resourceVersion","selfLink","uid"])' | \
         kubectl apply --namespace ${targetNamespace} --context ${toCtx} -f -
