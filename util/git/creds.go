@@ -42,7 +42,7 @@ var (
 	// In memory cache for storing github APP api token credentials
 	githubAppTokenCache *gocache.Cache
 
-	// installationIdCache caches installation IDs for organizations to avoid redundant API calls.
+	// installationIdCache caches installation IDs for organisations to avoid redundant API calls.
 	githubInstallationIdCache      *gocache.Cache
 	githubInstallationIdCacheMutex sync.RWMutex // For bulk API call coordination
 )
@@ -606,7 +606,7 @@ func (g GitHubAppCreds) getAppTransport(logger logr.Logger) (*ghinstallation.App
 		[]byte(g.privateKey),
 	)
 	if err != nil {
-		return nil, fmt.Errorf("failed to initialize GitHub installation transport: %w", err)
+		return nil, fmt.Errorf("failed to initialise GitHub installation transport: %w", err)
 	}
 
 	itr.BaseURL = baseURL
@@ -646,7 +646,7 @@ func (g GitHubAppCreds) getInstallationTransport(logger logr.Logger) (*ghinstall
 		[]byte(g.privateKey),
 	)
 	if err != nil {
-		return nil, fmt.Errorf("failed to initialize GitHub installation transport: %w", err)
+		return nil, fmt.Errorf("failed to initialise GitHub installation transport: %w", err)
 	}
 
 	itr.BaseURL = baseURL
@@ -671,9 +671,9 @@ func (g GitHubAppCreds) GetClientCertKey() string {
 
 // GitHub App installation discovery cache and helper
 
-// DiscoverGitHubAppInstallationID discovers the GitHub App installation ID for a given organization.
+// DiscoverGitHubAppInstallationID discovers the GitHub App installation ID for a given organisation.
 // It queries the GitHub API to list all installations for the app and returns the installation ID
-// for the matching organization. Results are cached to avoid redundant API calls.
+// for the matching organisation. Results are cached to avoid redundant API calls.
 // An optional HTTP client can be provided for custom transport (e.g., for metrics tracking).
 func DiscoverGitHubAppInstallationID(ctx context.Context, appId int64, privateKey, enterpriseBaseURL, org string, httpClient ...*http.Client) (int64, error) {
 	domain, err := domainFromBaseURL(enterpriseBaseURL)
@@ -800,7 +800,7 @@ func domainFromBaseURL(baseURL string) (string, error) {
 	return host, nil
 }
 
-// ExtractOrgFromRepoURL extracts the organization/owner name from a GitHub repository URL.
+// ExtractOrgFromRepoURL extracts the organisation/owner name from a GitHub repository URL.
 // Supports formats:
 //   - HTTPS: https://github.com/org/repo.git
 //   - SSH: git@github.com:org/repo.git
@@ -849,7 +849,7 @@ func ExtractOrgFromRepoURL(repoURL string) (string, error) {
 		return "", fmt.Errorf("repository URL %q does not contain a path", repoURL)
 	}
 
-	// Extract the first path component (organization/owner)
+	// Extract the first path component (organisation/owner)
 	// Path format is typically "org/repo" or "org/repo/subpath"
 	if idx := strings.Index(path, "/"); idx > 0 {
 		org := path[:idx]
@@ -859,7 +859,7 @@ func ExtractOrgFromRepoURL(repoURL string) (string, error) {
 
 	// If there's no slash, the entire path might be just the org (unusual but handle it)
 	// This would fail validation later, but let's return it
-	return "", fmt.Errorf("could not extract organization from repository URL %q: path %q does not contain org/repo format", repoURL, path)
+	return "", fmt.Errorf("could not extract organisation from repository URL %q: path %q does not contain org/repo format", repoURL, path)
 }
 
 type sshAuthCreds struct {
