@@ -193,6 +193,8 @@ func (creds HTTPSCreds) Environ(_ logr.Logger) (io.Closer, []string, error) {
 	// In case the repo is configured for using a TLS client cert, we need to make
 	// sure git client will use it. The certificate's key must not be password
 	// protected.
+	// TODO: extract the common code here to a helper
+	//nolint:dupl
 	if creds.HasClientCert() {
 		var certFile, keyFile *os.File
 
@@ -499,7 +501,9 @@ func (g GitHubAppCreds) Environ(logger logr.Logger) (io.Closer, []string, error)
 
 	// In case the repo is configured for using a TLS client cert, we need to make
 	// sure git client will use it. The certificate's key must not be password
-	// protected.
+	// protected
+	// TODO: extract the common code here to a helper
+	//nolint:dupl
 	if g.HasClientCert() {
 		var certFile, keyFile *os.File
 

@@ -28,7 +28,7 @@ import (
 )
 
 /*
-To run these tests configure the following envrionment variables:
+NOTE: To run these tests configure the following environment variables:
 
 TEST_GIT_WRITER_GITHUB_APP_ID
 TEST_GIT_WRITER_GITHUB_APP_INSTALLATION_ID
@@ -242,10 +242,11 @@ var _ = FDescribe("Git tests", func() {
 						err = os.Remove(pathTwo)
 						Expect(err).ToNot(HaveOccurred())
 
-						_, err = clientOne.CommitAndPush(
+						// Intentionally ignoring the errors as we are forcing the contents in the remote repo to be
+						// reset
+						clientOne.CommitAndPush(
 							"main", "TEST: remove test file test-client-1.txt", "test-user", "test-user@syntasso.io")
-
-						_, err = clientTwo.CommitAndPush(
+						clientTwo.CommitAndPush(
 							"main", "TEST: remove test file test-client-2.txt", "test-user", "test-user@syntasso.io")
 					})
 
