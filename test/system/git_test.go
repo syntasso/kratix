@@ -41,7 +41,7 @@ TEST_GIT_WRITER_GITHUB_SSH_PRIVATE_KEY
 var _ = Describe("Git tests", func() {
 
 	//logger := zap.New(zap.WriteTo(GinkgoWriter), zap.UseDevMode(true)).WithName("git-writer")
-	httpPublicRepo := "https://github.com/syntasso/testing-git-writer-public.git"
+	//	httpPublicRepo := "https://github.com/syntasso/testing-git-writer-public.git"
 	httpPrivateRepo := "https://github.com/syntasso/testing-git-writer-private.git"
 	//sshPrivateRepo := "ssh://git@github.com/syntasso/testing-git-writer-private.git"
 
