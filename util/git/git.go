@@ -25,7 +25,6 @@ import (
 	"time"
 	"unicode"
 
-	"github.com/go-git/go-git/v5/plumbing"
 	gitssh "github.com/go-git/go-git/v5/plumbing/transport/ssh"
 	"github.com/go-logr/logr"
 	gocache "github.com/patrickmn/go-cache"
@@ -419,12 +418,6 @@ type Refs struct {
 	// heads and remotes are also refs, but are not needed at this time.
 }
 
-type gitRefCache interface {
-	SetGitReferences(repo string, references []*plumbing.Reference) error
-	GetOrLockGitReferences(repo string, lockId string, references *[]*plumbing.Reference) (string, error)
-	UnlockGitReferences(repo string, lockId string) error
-}
-
 type EventHandlers struct {
 	OnLsRemote func(repo string) func()
 	OnFetch    func(repo string) func()
@@ -444,8 +437,6 @@ type nativeGitClient struct {
 	creds Creds
 	// Whether to connect insecurely to repository, e.g. don't verify certificate
 	insecure bool
-	// gitRefCache knows how to cache git refs
-	gitRefCache gitRefCache
 	// indicates if client allowed to load refs from cache
 	loadRefFromCache bool
 	// HTTP/HTTPS proxy used to access repository
@@ -1149,7 +1140,7 @@ const (
 // default if env is not set, is not parseable to a duration, exceeds maximum (if
 // maximum is greater than 0) or is less than minimum.
 //
-// nolint:unparam
+//nolint:unparam
 func ParseDurationFromEnv(logger logr.Logger, env string, defaultValue, minimum, maximum time.Duration) time.Duration {
 
 	logCtx := logger.WithValues()
