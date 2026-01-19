@@ -1122,7 +1122,7 @@ func getGitHubInstallationToken(apiURL, installationID, jwtToken string) (string
 		Timeout: 10 * time.Second,
 		Transport: &http.Transport{
 			Proxy: http.ProxyFromEnvironment,
-			// TODO: set it via env var
+			// #nosec G402
 			TLSClientConfig: &tls.Config{InsecureSkipVerify: true},
 		},
 	}

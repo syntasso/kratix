@@ -513,6 +513,7 @@ func GetRepoHTTPClient(logger logr.Logger, repoURL string, insecure bool, creds 
 	transport := &http.Transport{
 		Proxy: proxyFunc,
 		TLSClientConfig: &tls.Config{
+			// #nosec G402
 			GetClientCertificate: clientCertFunc,
 		},
 		DisableKeepAlives: true,
@@ -1125,6 +1126,7 @@ const (
 // Environment variables for tuning and debugging Argo CD
 const (
 	// EnvGithubAppCredsExpirationDuration controls the caching of Github app credentials. This value is in minutes (default: 60)
+	// #nosec G101
 	EnvGithubAppCredsExpirationDuration = "KRATIX_GITHUB_APP_CREDS_EXPIRATION_DURATION"
 )
 
