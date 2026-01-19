@@ -27,6 +27,18 @@ import (
 	"github.com/syntasso/kratix/util/git"
 )
 
+/*
+To run these tests configure the following envrionment variables:
+
+TEST_GIT_WRITER_GITHUB_APP_ID
+TEST_GIT_WRITER_GITHUB_APP_INSTALLATION_ID
+# base64 encoded
+TEST_GIT_WRITER_GITHUB_APP_PRIVATE_KEY
+TEST_GIT_WRITER_GITHUB_HTTP_PAT
+# base64 encoded
+TEST_GIT_WRITER_GITHUB_SSH_PRIVATE_KEY
+*/
+
 var _ = FDescribe("Git tests", func() {
 
 	logger := zap.New(zap.WriteTo(GinkgoWriter), zap.UseDevMode(true)).WithName("git-writer")
@@ -589,8 +601,8 @@ var _ = FDescribe("Git tests", func() {
 })
 
 func getGithubAppCreds() map[string][]byte {
-	envGithubAppAppID := os.Getenv("TEST_GIT_WRITER_SSH_GITHUB_APP_APPID")
-	envGithubAppInstallationId := os.Getenv("TEST_GIT_WRITER_SSH_GITHUB_APP_INSTALLATIONID")
+	envGithubAppAppID := os.Getenv("TEST_GIT_WRITER_GITHUB_APP_ID")
+	envGithubAppInstallationId := os.Getenv("TEST_GIT_WRITER_GITHUB_APP_INSTALLATION_ID")
 	return map[string][]byte{
 
 		"appID":          []byte(envGithubAppAppID),
@@ -600,14 +612,14 @@ func getGithubAppCreds() map[string][]byte {
 }
 
 func getGithubAppPrivateKey() []byte {
-	envGithubAppPrivateKey := os.Getenv("TEST_GIT_WRITER_SSH_GITHUB_APP_PRIVATE_KEY")
+	envGithubAppPrivateKey := os.Getenv("TEST_GIT_WRITER_GITHUB_APP_PRIVATE_KEY")
 	githubAppPrivateKey, err := base64.StdEncoding.DecodeString(envGithubAppPrivateKey)
 	Expect(err).ToNot(HaveOccurred())
 	return githubAppPrivateKey
 }
 
 func getGithubPATCreds() map[string][]byte {
-	ghPat := os.Getenv("TEST_GIT_WRITER_HTTP_GITHUB_PAT")
+	ghPat := os.Getenv("TEST_GIT_WRITER_GITHUB_HTTP_PAT")
 	return map[string][]byte{
 		"username": []byte("x-access-token"),
 		"password": []byte(ghPat),
@@ -615,7 +627,7 @@ func getGithubPATCreds() map[string][]byte {
 }
 
 func getGithubSSHCreds() map[string][]byte {
-	envGithubSSHPrivateKey := os.Getenv("TEST_GIT_WRITER_SSH_GITHUB_PRIVATE_KEY")
+	envGithubSSHPrivateKey := os.Getenv("TEST_GIT_WRITER_GITHUB_SSH_PRIVATE_KEY")
 	githubSSHPrivateKey, err := base64.StdEncoding.DecodeString(envGithubSSHPrivateKey)
 	Expect(err).ToNot(HaveOccurred())
 	return map[string][]byte{
