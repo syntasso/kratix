@@ -14,6 +14,7 @@ import (
 	"path/filepath"
 	"strings"
 
+	"github.com/davecgh/go-spew/spew"
 	. "github.com/onsi/ginkgo/v2"
 	. "github.com/onsi/gomega"
 	"gopkg.in/yaml.v2"
@@ -52,6 +53,8 @@ var _ = Describe("Git tests", func() {
 
 				appID := os.Getenv("TEST_GIT_WRITER_GITHUB_APP_ID")
 				fmt.Printf("SSSSSSSSSSSSSSSSSSSS: %v\n", AddSpaces(appID))
+
+				fmt.Printf("Eeeeeeeeeeennnnnnn: %v\n", spew.Sdump(os.Environ()))
 
 				fmt.Printf("TEST::::::::: %v - %v - %v\n",
 					os.Getenv("TEST_GIT_WRITER_GITHUB_APP_ID"),
