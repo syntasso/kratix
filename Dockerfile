@@ -20,18 +20,19 @@ RUN --mount=target=. \
     --mount=type=cache,target=/go/pkg/mod \
     go build -o /out/pipeline-adapter work-creator/*.go
 
-FROM busybox AS busybox
+#FROM busybox AS busybox
 
 # Use distroless as minimal base image to package the manager binary
 # Refer to https://github.com/GoogleContainerTools/distroless for more details
-FROM gcr.io/distroless/cc:nonroot
+#FROM gcr.io/distroless/cc:nonroot
+FROM alpine/git
 WORKDIR /
 COPY --from=builder /out/manager .
-COPY --from=alpine/git /usr/bin/git /usr/bin/git
 
 COPY --from=builder /out/pipeline-adapter /bin/pipeline-adapter
-COPY --chown=nonroot:nonroot --from=busybox /usr/bin/env /usr/bin/env
-COPY --chown=nonroot:nonroot --from=busybox /bin/sh /bin/sh
+#COPY --chown=nonroot:nonroot --from=busybox /usr/bin/env /usr/bin/env
+#COPY --chown=nonroot:nonroot --from=busybox /bin/sh /bin/sh
+
 
 USER 65532:65532
 

@@ -947,7 +947,7 @@ func SetAuth(stateStoreSpec v1alpha1.GitStateStoreSpec, destinationPath string, 
 			"",
 			"",
 			"",
-			false,
+			true,
 			NoopCredsStore{},
 			true,
 		)
