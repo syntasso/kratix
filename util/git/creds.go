@@ -378,7 +378,7 @@ func (c SSHCreds) Environ(_ logr.Logger) (io.Closer, []string, error) {
 		}
 	}()
 
-	err = (&c).getSSHKnownHostsDataPath()
+	err = getSSHKnownHostsDataPath(&c)
 	if err != nil {
 		return nil, nil, err
 	}
@@ -427,7 +427,7 @@ func (c SSHCreds) Environ(_ logr.Logger) (io.Closer, []string, error) {
 	return sshCloser, env, nil
 }
 
-func (c *SSHCreds) getSSHKnownHostsDataPath() error {
+func getSSHKnownHostsDataPath(c *SSHCreds) error {
 
 	knownHostsFile, err := os.CreateTemp("", "knownHosts")
 	if err != nil {

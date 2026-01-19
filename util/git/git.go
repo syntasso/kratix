@@ -823,7 +823,7 @@ func (m *nativeGitClient) runCredentialedCmd(ctx context.Context, args ...string
 	if m.accessToken != "" {
 		urlWithCreds, err := injectGitHubAppCredentials(m.repoURL, m.accessToken)
 		if err != nil {
-
+			return err
 		}
 		args = append([]string{"-c", fmt.Sprintf("url.'%s'.insteadOf='%s'", urlWithCreds, m.repoURL)}, args...)
 	}
@@ -957,18 +957,20 @@ func getDefaultSSHKeyExchangeAlgorithms() []string {
 	return SupportedSSHKeyExchangeAlgorithms
 }
 
-// HasFileChanged returns the outout of git diff considering whether it is tracked or un-tracked
+// HasFileChanged returns the output of git diff considering whether it is tracked or un-tracked
 func (m *nativeGitClient) HasFileChanged(filePath string) (bool, error) {
-	// Step 1: Is it UNTRACKED? (file is new to git)
+	// Is it UNTRACKED? (file is new to git)
 	_, err := m.runCmd(context.Background(), "ls-files", "--error-unmatch", filePath)
 	if err != nil {
 		// File is NOT tracked by git → means it's new/unadded
+		logging.Debug(m.log, "ls-files error", "error", err)
 		return true, nil
 	}
 
 	// use git diff --quiet and check exit code .. --cached is to consider files staged for deletion
 	_, err = m.runCmd(context.Background(), "diff", "--quiet", "--", filePath)
 	if err == nil {
+		logging.Debug(m.log, "ls-files changed", "path", filePath)
 		return false, nil // No changes
 	}
 	// Exit code 1 indicates: changes found
