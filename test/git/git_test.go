@@ -727,95 +727,148 @@ var _ = Describe("Git tests", Serial, func() {
 
 			It("does not add the file and push the branch if the file content is not modified", func() {
 
+				var resource v1alpha1.Workload
+				var err error
 				desc := fmt.Sprintf("test %d", rand.Int())
-				resource, err := getTestDataToSave(desc)
-				Expect(err).ToNot(HaveOccurred())
 
-				// NOTE: when there's a single file in a dir,
-				// `git rm` removes the entire dir
-				baseDir := getStateStoreAndDestBaseDir(stateStoreSpec, dest)
-				path := filepath.Join(baseDir, resource.Filepath)
+				By("generating the workload", func() {
+					resource, err = getTestDataToSave(desc)
+					Expect(err).ToNot(HaveOccurred())
 
-				err = gitWriter.ValidatePermissions()
-				Expect(err).ToNot(HaveOccurred())
+				})
 
-				// Create initial unique resources to save
-				Expect(err).ToNot(HaveOccurred())
-				_, err = gitWriter.UpdateFiles("", workloadName, []v1alpha1.Workload{resource}, nil)
-				Expect(err).ToNot(HaveOccurred())
+				var path string
+				By("getting the state store and location where the workload needs to saved", func() {
+					// NOTE: when there's a single file in a dir,
+					// `git rm` removes the entire dir
+					baseDir := getStateStoreAndDestBaseDir(stateStoreSpec, dest)
+					path = filepath.Join(baseDir, resource.Filepath)
+				})
 
-				_, err = gitWriter.ReadFile(path)
-				Expect(err).ToNot(HaveOccurred())
+				By("ensuring it has permissions to write", func() {
+					err = gitWriter.ValidatePermissions()
+					Expect(err).ToNot(HaveOccurred())
+				})
 
-				// Ensure there are no updates for unchanged data
-				resource, err = getTestDataToSave(desc)
-				Expect(err).ToNot(HaveOccurred())
-				_, err = gitWriter.UpdateFiles("", workloadName, []v1alpha1.Workload{resource}, nil)
-				Expect(err).To(HaveOccurred())
+				By("saving the workload definitions to the Git server", func() {
+					Expect(err).ToNot(HaveOccurred())
+					_, err = gitWriter.UpdateFiles("", workloadName, []v1alpha1.Workload{resource}, nil)
+					Expect(err).ToNot(HaveOccurred())
+				})
 
-				// Ensure it can save new data
-				resource, err = getTestDataToSave("")
-				Expect(err).ToNot(HaveOccurred())
-				_, err = gitWriter.UpdateFiles("", workloadName, []v1alpha1.Workload{resource}, nil)
-				Expect(err).ToNot(HaveOccurred())
+				By("verifying that the workload definitions can be read from the remote server", func() {
+					_, err = gitWriter.ReadFile(path)
+					Expect(err).ToNot(HaveOccurred())
+				})
 
-				_, err = gitWriter.UpdateFiles("", workloadName, nil, []string{path})
-				Expect(err).ToNot(HaveOccurred())
+				By("ensuring no updates are done if the data is unchanged", func() {
+					resource, err = getTestDataToSave(desc)
+					Expect(err).ToNot(HaveOccurred())
+					_, err = gitWriter.UpdateFiles("", workloadName, []v1alpha1.Workload{resource}, nil)
+					Expect(err).To(HaveOccurred())
+				})
 
-				_, err = gitWriter.ReadFile(path)
-				Expect(err).To(HaveOccurred())
-				Expect(errors.Is(err, writers.ErrFileNotFound)).To(BeTrue())
+				By("ensuring it can save new data", func() {
+					resource, err = getTestDataToSave("")
+					Expect(err).ToNot(HaveOccurred())
+					_, err = gitWriter.UpdateFiles("", workloadName, []v1alpha1.Workload{resource}, nil)
+					Expect(err).ToNot(HaveOccurred())
+				})
 
-				// restore deleted files
-				resource, err = getTestDataToSave("")
-				Expect(err).ToNot(HaveOccurred())
+				By("ensuring it can delete saved data", func() {
+					_, err = gitWriter.UpdateFiles("", workloadName, nil, []string{path})
+					Expect(err).ToNot(HaveOccurred())
 
-				_, err = gitWriter.UpdateFiles("", workloadName, []v1alpha1.Workload{resource}, nil)
-				Expect(err).ToNot(HaveOccurred())
+					_, err = gitWriter.ReadFile(path)
+					Expect(err).To(HaveOccurred())
+					Expect(errors.Is(err, writers.ErrFileNotFound)).To(BeTrue())
 
-				_, err = gitWriter.ReadFile(path)
-				Expect(err).ToNot(HaveOccurred())
+				})
+
+				By("recreating the workload definitions", func() {
+					resource, err = getTestDataToSave("")
+					Expect(err).ToNot(HaveOccurred())
+				})
+
+				By("verifying that it can place the workload again in the server", func() {
+					_, err = gitWriter.UpdateFiles("", workloadName, []v1alpha1.Workload{resource}, nil)
+					Expect(err).ToNot(HaveOccurred())
+
+					_, err = gitWriter.ReadFile(path)
+					Expect(err).ToNot(HaveOccurred())
+				})
 			})
 
 			It("successfully adds a new file to a private Git repository in a subdir", func() {
-				resource, err := getTestDataToSave("")
-				Expect(err).ToNot(HaveOccurred())
+				var resource v1alpha1.Workload
+				var err error
 
-				baseDir := getStateStoreAndDestBaseDir(stateStoreSpec, dest)
-				path := filepath.Join(baseDir, "test-subdir", resource.Filepath)
+				By("creating a new resource", func() {
+					resource, err = getTestDataToSave("")
+					Expect(err).ToNot(HaveOccurred())
+				})
 
-				_, err = gitWriter.UpdateFiles("test-subdir", workloadName, []v1alpha1.Workload{resource}, nil)
-				Expect(err).ToNot(HaveOccurred())
+				var path string
+				By("placing the resource inside a subdirectory", func() {
+					baseDir := getStateStoreAndDestBaseDir(stateStoreSpec, dest)
+					path = filepath.Join(baseDir, "test-subdir", resource.Filepath)
+				})
 
-				_, err = gitWriter.ReadFile(path)
-				Expect(err).ToNot(HaveOccurred())
+				By("saving the file in the remote server", func() {
+					_, err = gitWriter.UpdateFiles("test-subdir", workloadName, []v1alpha1.Workload{resource}, nil)
+					Expect(err).ToNot(HaveOccurred())
+				})
+
+				By("ensuring it can read the file from the remote server", func() {
+					_, err = gitWriter.ReadFile(path)
+					Expect(err).ToNot(HaveOccurred())
+				})
 			})
 
 			It("successfully adds and deletes a new file to a private Git repository in a subdir", func() {
-				resource, err := getTestDataToSave("")
-				Expect(err).ToNot(HaveOccurred())
+				var resource v1alpha1.Workload
+				var err error
 
-				baseDir := getStateStoreAndDestBaseDir(stateStoreSpec, dest)
-				path := filepath.Join(baseDir, "test-subdir", resource.Filepath)
+				By("creating a new resource", func() {
+					resource, err = getTestDataToSave("")
+					Expect(err).ToNot(HaveOccurred())
+				})
 
-				_, err = gitWriter.UpdateFiles("test-subdir", workloadName, []v1alpha1.Workload{resource}, nil)
-				Expect(err).ToNot(HaveOccurred())
+				var path string
+				By("placing the resource inside a subdirectory", func() {
+					baseDir := getStateStoreAndDestBaseDir(stateStoreSpec, dest)
+					path = filepath.Join(baseDir, "test-subdir", resource.Filepath)
+				})
 
-				_, err = gitWriter.ReadFile(path)
-				Expect(err).ToNot(HaveOccurred())
+				By("saving the file in the remote server", func() {
+					_, err = gitWriter.UpdateFiles("test-subdir", workloadName, []v1alpha1.Workload{resource}, nil)
+					Expect(err).ToNot(HaveOccurred())
+				})
 
-				_, err = gitWriter.UpdateFiles("test-subdir", workloadName, nil, []string{path})
-				Expect(err).ToNot(HaveOccurred())
+				By("ensuring it can read the file from the remote server", func() {
+					_, err = gitWriter.ReadFile(path)
+					Expect(err).ToNot(HaveOccurred())
+				})
 
-				_, err = gitWriter.ReadFile(path)
-				Expect(err).To(HaveOccurred())
+				By("deleting the entire subdir", func() {
+					_, err = gitWriter.UpdateFiles("test-subdir", workloadName, nil, []string{path})
+					Expect(err).ToNot(HaveOccurred())
+				})
 
-				// restore the file
-				_, err = gitWriter.UpdateFiles("test-subdir", workloadName, []v1alpha1.Workload{resource}, nil)
-				Expect(err).ToNot(HaveOccurred())
+				By("ensuring the file was deleted", func() {
+					_, err = gitWriter.ReadFile(path)
+					Expect(err).To(HaveOccurred())
+				})
 
-				_, err = gitWriter.ReadFile(path)
-				Expect(err).ToNot(HaveOccurred())
+				By("ensuring it can write the file again to the same location", func() {
+					_, err = gitWriter.UpdateFiles("test-subdir", workloadName, []v1alpha1.Workload{resource}, nil)
+					Expect(err).ToNot(HaveOccurred())
+				})
+
+				By("verifying the file was saved", func() {
+					_, err = gitWriter.ReadFile(path)
+					Expect(err).ToNot(HaveOccurred())
+				})
 			})
 		})
 	})
