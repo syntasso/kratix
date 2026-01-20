@@ -153,6 +153,10 @@ var _ = Describe("Git tests", Serial, func() {
 					path := filepath.Join(client.Root(), "test.txt")
 					file, err := os.Create(path)
 					Expect(err).ToNot(HaveOccurred())
+					// Defensive: if the file exists as a leftover from a previous test, the commit will still go
+					randomContent := fmt.Sprintf("random-%d\n", rand.Int())
+					_, err = file.WriteString(randomContent)
+					Expect(err).ToNot(HaveOccurred())
 					err = file.Close()
 					Expect(err).ToNot(HaveOccurred())
 
