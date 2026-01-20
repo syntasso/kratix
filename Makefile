@@ -234,6 +234,11 @@ build-and-push-core-test-image: # for non-kind environment where images cannot b
 run-system-test: fmt vet
 	PATH="$(PROJECT_DIR)/bin:${PATH}" PLATFORM_DESTINATION_IP=`docker inspect ${PLATFORM_CLUSTER_NAME}-control-plane | grep '"IPAddress": "172' | awk -F '"' '{print $$4}'` go run ${GINKGO} -v ${GINKGO_FLAGS} -p --output-interceptor-mode=none ./test/system/  --coverprofile cover.out
 
+.PHONY: run-git-integration-test
+run-git-integration-test: fmt vet ## Runs the integration test suite for the Git client
+	go run ${GINKGO} ${GINKGO_FLAGS} ./test/git/  --coverprofile cover.out
+
+
 fmt: ## Run go fmt against code.
 	go fmt ./...
 
