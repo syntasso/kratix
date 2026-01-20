@@ -19,7 +19,7 @@ import (
 
 	"github.com/bradleyfalzon/ghinstallation/v2"
 	"github.com/go-logr/logr"
-	"github.com/golang-jwt/jwt"
+	"github.com/golang-jwt/jwt/v5"
 	"github.com/google/go-github/v69/github"
 	gocache "github.com/patrickmn/go-cache"
 	log "github.com/sirupsen/logrus"
