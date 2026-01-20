@@ -106,6 +106,26 @@ var _ = Describe("Git tests", Serial, func() {
 					true,                                    // forceBasicAuth
 				)
 
+				It("returns an error when the branch does not exist", func() {
+					client, err := git.NewGitClient(git.GitClientRequest{
+						RawRepoURL: httpPrivateRepo,
+						Root:       "",
+						Auth:       &git.Auth{Creds: httpCreds},
+						Insecure:   true,
+						Proxy:      "",
+						NoProxy:    "",
+					})
+					Expect(err).ToNot(HaveOccurred())
+
+					repo, err := client.Init()
+					Expect(err).ToNot(HaveOccurred())
+					Expect(repo).ToNot(BeNil())
+
+					err = client.Fetch("invalid", 0)
+					Expect(err).To(HaveOccurred())
+					Expect(err.Error()).To(ContainSubstring("couldn't find remote ref invalid"))
+				})
+
 				It("successfully clones the repository", func() {
 					client, err := git.NewGitClient(git.GitClientRequest{
 						RawRepoURL: httpPrivateRepo,
@@ -174,6 +194,99 @@ var _ = Describe("Git tests", Serial, func() {
 						"main", "TEST: test", "test-user", "test-user@syntasso.io")
 					Expect(err).ToNot(HaveOccurred())
 					Expect(out).To(BeEmpty())
+				})
+
+				It("fails to push to repository due to incosistent branch name", func() {
+					client, err := git.NewGitClient(git.GitClientRequest{
+						RawRepoURL: httpPrivateRepo,
+						Root:       "",
+						Auth:       &git.Auth{Creds: httpCreds},
+						Insecure:   true,
+						Proxy:      "",
+						NoProxy:    "",
+					})
+					Expect(err).ToNot(HaveOccurred())
+
+					repo, err := client.Init()
+					Expect(err).ToNot(HaveOccurred())
+					Expect(repo).ToNot(BeNil())
+
+					err = client.Fetch("main", 0)
+					Expect(err).ToNot(HaveOccurred())
+
+					out, err := client.Checkout("main")
+					Expect(err).ToNot(HaveOccurred())
+					Expect(out).To(BeEmpty())
+
+					path := filepath.Join(client.Root(), "test.txt")
+					file, err := os.Create(path)
+					Expect(err).ToNot(HaveOccurred())
+					// Defensive: if the file exists as a leftover from a previous test, the commit will still go
+					randomContent := fmt.Sprintf("random-%d\n", rand.Int())
+					_, err = file.WriteString(randomContent)
+					Expect(err).ToNot(HaveOccurred())
+					err = file.Close()
+					Expect(err).ToNot(HaveOccurred())
+
+					_, err = client.CommitAndPush(
+						"invalid", "TEST: test", "test-user", "test-user@syntasso.io")
+					Expect(err).To(HaveOccurred())
+					Expect(err.Error()).To(ContainSubstring("src refspec invalid does not match any"))
+
+					// remove the test file
+					err = os.Remove(path)
+					Expect(err).ToNot(HaveOccurred())
+				})
+
+				/*
+					steps:
+					- fetch and checkout main
+					- create a file and make changes on main
+					- call CommitAndPush("another-branch", ...)
+
+					The CommitAndPush method tries to push a branch called another-branch,
+					but local branch is still main and another-branch doesn't exist locally.
+				*/
+				It("fails to push to repository due to missig branch locally", func() {
+					client, err := git.NewGitClient(git.GitClientRequest{
+						RawRepoURL: httpPrivateRepo,
+						Root:       "",
+						Auth:       &git.Auth{Creds: httpCreds},
+						Insecure:   true,
+						Proxy:      "",
+						NoProxy:    "",
+					})
+					Expect(err).ToNot(HaveOccurred())
+
+					repo, err := client.Init()
+					Expect(err).ToNot(HaveOccurred())
+					Expect(repo).ToNot(BeNil())
+
+					err = client.Fetch("main", 0)
+					Expect(err).ToNot(HaveOccurred())
+
+					out, err := client.Checkout("main")
+					Expect(err).ToNot(HaveOccurred())
+					Expect(out).To(BeEmpty())
+
+					path := filepath.Join(client.Root(), "test.txt")
+					file, err := os.Create(path)
+					Expect(err).ToNot(HaveOccurred())
+					// Defensive: if the file exists as a leftover from a previous test, the commit will still go
+					randomContent := fmt.Sprintf("random-%d\n", rand.Int())
+					_, err = file.WriteString(randomContent)
+					Expect(err).ToNot(HaveOccurred())
+					err = file.Close()
+					Expect(err).ToNot(HaveOccurred())
+
+					_, err = client.CommitAndPush(
+						"another-branch", "TEST: test", "test-user", "test-user@syntasso.io")
+					Expect(err).To(HaveOccurred())
+					Expect(err.Error()).To(ContainSubstring("src refspec another-branch does not match any"))
+
+					// remove the test file
+					err = os.Remove(path)
+					Expect(err).ToNot(HaveOccurred())
 				})
 
 				When("multiple clients are pushing to the same repo", func() {
@@ -360,6 +473,24 @@ var _ = Describe("Git tests", Serial, func() {
 					false,
 					"")
 
+				It("returns an error when the branch does not exist", func() {
+					client, err = git.NewGitClient(git.GitClientRequest{
+						RawRepoURL: sshPrivateRepo,
+						Auth:       &git.Auth{Creds: sshNativeCreds},
+						Insecure:   false,
+						Proxy:      "",
+						NoProxy:    "",
+					})
+					Expect(err).ToNot(HaveOccurred())
+
+					repo, err := client.Init()
+					Expect(err).ToNot(HaveOccurred())
+					Expect(repo).ToNot(BeNil())
+
+					err = client.Fetch("invalid", 0)
+					Expect(err).To(HaveOccurred())
+				})
+
 				It("successfully clones the repository", func() {
 					client, err = git.NewGitClient(git.GitClientRequest{
 						RawRepoURL: sshPrivateRepo,
@@ -394,10 +525,10 @@ var _ = Describe("Git tests", Serial, func() {
 
 		Describe("using SSH auth", func() {
 
+			sshCreds := getGithubSSHCreds()
 			stateStoreSpec, dest := getStateStoreAndDest("ssh", sshPrivateRepo)
 
 			It("validates the permissions if the credentials are correct", func() {
-				sshCreds := getGithubSSHCreds()
 				writer, err := writers.NewGitWriter(logger, *stateStoreSpec, dest.Spec.Path, sshCreds)
 				Expect(err).ToNot(HaveOccurred())
 				Expect(writer).ToNot(BeNil())
@@ -423,12 +554,28 @@ var _ = Describe("Git tests", Serial, func() {
 				err = gitWriter.ValidatePermissions()
 				Expect(err).To(HaveOccurred())
 			})
+
+			It("returns an error when the branch does not exist", func() {
+				wrongStateStoreSpec := *stateStoreSpec
+				wrongStateStoreSpec.Branch = "invalid"
+				writer, err := writers.NewGitWriter(logger, wrongStateStoreSpec, dest.Spec.Path, sshCreds)
+				Expect(err).ToNot(HaveOccurred())
+				Expect(writer).ToNot(BeNil())
+
+				resource, err := getTestDataToSave("")
+				Expect(err).ToNot(HaveOccurred())
+
+				_, err = writer.UpdateFiles("", workloadName, []v1alpha1.Workload{resource}, nil)
+				Expect(err).To(HaveOccurred())
+				Expect(err.Error()).To(ContainSubstring("couldn't find remote ref invalid"))
+			})
 		})
 
 		Describe("using GitHub App auth", func() {
 			var (
 				stateStoreSpec *v1alpha1.GitStateStoreSpec
 				dest           *v1alpha1.Destination
+				githubAppCreds = getGithubAppCreds()
 			)
 
 			BeforeEach(func() {
@@ -436,7 +583,6 @@ var _ = Describe("Git tests", Serial, func() {
 			})
 
 			It("validates permissions to the repository when credentials are correct", func() {
-				githubAppCreds := getGithubAppCreds()
 				writer, err := writers.NewGitWriter(logger, *stateStoreSpec, dest.Spec.Path, githubAppCreds)
 				Expect(err).ToNot(HaveOccurred())
 				Expect(writer).ToNot(BeNil())
@@ -447,6 +593,21 @@ var _ = Describe("Git tests", Serial, func() {
 
 				err = gitWriter.ValidatePermissions()
 				Expect(err).ToNot(HaveOccurred())
+			})
+
+			It("returns an error when the branch does not exist", func() {
+				wrongStateStoreSpec := *stateStoreSpec
+				wrongStateStoreSpec.Branch = "invalid"
+				writer, err := writers.NewGitWriter(logger, wrongStateStoreSpec, dest.Spec.Path, githubAppCreds)
+				Expect(err).ToNot(HaveOccurred())
+				Expect(writer).ToNot(BeNil())
+
+				resource, err := getTestDataToSave("")
+				Expect(err).ToNot(HaveOccurred())
+
+				_, err = writer.UpdateFiles("", workloadName, []v1alpha1.Workload{resource}, nil)
+				Expect(err).To(HaveOccurred())
+				Expect(err.Error()).To(ContainSubstring("couldn't find remote ref invalid"))
 			})
 
 			It("does not instantiate the writer when appID is incorrect", func() {
@@ -509,6 +670,42 @@ var _ = Describe("Git tests", Serial, func() {
 				baseDir := getStateStoreAndDestBaseDir(stateStoreSpec, dest)
 				path := filepath.Join(baseDir, resource.Filepath)
 				_, err = gitWriter.ReadFile(path)
+				Expect(err).ToNot(HaveOccurred())
+			})
+
+			It("returns an error when the branch does not exist", func() {
+				wrongStateStoreSpec := *stateStoreSpec
+				wrongStateStoreSpec.Branch = "invalid"
+				writer, err := writers.NewGitWriter(logger, wrongStateStoreSpec, dest.Spec.Path, httpCreds)
+				Expect(err).ToNot(HaveOccurred())
+				Expect(writer).ToNot(BeNil())
+
+				resource, err := getTestDataToSave("")
+				Expect(err).ToNot(HaveOccurred())
+
+				_, err = writer.UpdateFiles("", workloadName, []v1alpha1.Workload{resource}, nil)
+				Expect(err).To(HaveOccurred())
+				Expect(err.Error()).To(ContainSubstring("couldn't find remote ref invalid"))
+			})
+
+			It("successfully close a repo using main branch, then it pushes to a different branch", func() {
+				spec := *stateStoreSpec
+				writerOne, err := writers.NewGitWriter(logger, spec, dest.Spec.Path, httpCreds)
+				Expect(err).ToNot(HaveOccurred())
+				Expect(writerOne).ToNot(BeNil())
+
+				resource, err := getTestDataToSave("")
+				Expect(err).ToNot(HaveOccurred())
+
+				err = writerOne.ValidatePermissions()
+				Expect(err).ToNot(HaveOccurred())
+
+				spec.Branch = "another-branch"
+				writerTwo, err := writers.NewGitWriter(logger, spec, dest.Spec.Path, httpCreds)
+				Expect(err).ToNot(HaveOccurred())
+				Expect(writerTwo).ToNot(BeNil())
+
+				_, err = writerTwo.UpdateFiles("", workloadName, []v1alpha1.Workload{resource}, nil)
 				Expect(err).ToNot(HaveOccurred())
 			})
 

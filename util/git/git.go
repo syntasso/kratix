@@ -94,7 +94,7 @@ func initTimeout() {
 type Client interface {
 	Add(files ...string) (string, error)
 	Checkout(revision string) (string, error)
-	Clone(string) (string, error)
+	Clone(branch string) (string, error)
 	CommitAndPush(branch, message, author, email string) (string, error)
 	Fetch(revision string, depth int64) error
 	HasFileChanged(filePath string) (bool, error)
@@ -849,9 +849,7 @@ func (m *nativeGitClient) runCmdOutput(cmd *exec.Cmd, ropts runOpts) (string, er
 			ShouldWait: true,
 		},
 		SkipErrorLogging: ropts.SkipErrorLogging,
-		//CaptureStderr:    ropts.CaptureStderr,
-		// TODO: restore to above
-		CaptureStderr: true,
+		CaptureStderr:    ropts.CaptureStderr,
 	}
 	return RunWithExecRunOpts(cmd, opts, m.log)
 }
@@ -955,7 +953,7 @@ func (m *nativeGitClient) HasFileChanged(filePath string) (bool, error) {
 //
 // Parameters:
 //
-//	revision: Specific branch/tag/commit to 	fetch (empty string fetches all)
+//	revision: Specific branch/tag/commit to fetch (empty string fetches all)
 //	depth: Number of commits to fetch (0 for full history)
 //
 // Flags used:

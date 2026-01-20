@@ -68,7 +68,7 @@ func NewGitWriter(logger logr.Logger, stateStoreSpec v1alpha1.GitStateStoreSpec,
 		return nil, fmt.Errorf("could not create git native client: %w", err)
 	}
 
-	m := &GitWriter{
+	gw := &GitWriter{
 		// TODO: use this value for forceBasicAuth in git native client
 		BasicAuth: stateStoreSpec.AuthMethod == v1alpha1.BasicAuthMethod,
 		GitServer: gitServer{
@@ -88,7 +88,7 @@ func NewGitWriter(logger logr.Logger, stateStoreSpec v1alpha1.GitStateStoreSpec,
 		Client: nativeGitClient,
 	}
 
-	return m, nil
+	return gw, nil
 }
 
 func (g *GitWriter) UpdateFiles(subDir string, workPlacementName string, workloadsToCreate []v1alpha1.Workload, workloadsToDelete []string) (string, error) {
@@ -254,8 +254,7 @@ func (g *GitWriter) ValidatePermissions() error {
 	if cloneErr != nil && !errors.Is(cloneErr, ErrAuthSucceededAfterTrim) {
 		return fmt.Errorf("failed to set up local directory with repo: %w", cloneErr)
 	}
-	_ = localDir
-	//	defer os.RemoveAll(localDir) //nolint:errcheck
+	defer os.RemoveAll(localDir) //nolint:errcheck
 
 	if err := g.validatePush(g.Log); err != nil {
 		return err
