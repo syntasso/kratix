@@ -1,6 +1,7 @@
 #!/usr/bin/env bash
 
-set -eux
+#set -eux
+set -ux
 
 kind delete clusters --all
 
@@ -55,6 +56,16 @@ if [ "$STATE_STORE" == "git" ]; then
 else
     kubectl --context kind-platform apply --filename config/samples/platform_v1alpha1_worker.yaml
 fi
+
+for i in {1..30}; do
+    sleep 2
+    kubectl --context kind-worker get -n flux-system kustomization kratix-worker-resources
+done
+
+echo "Events:"
+echo "-------------"
+kubectl --context kind-worker get -n flux-system events
+echo "-------------"
 
 kubectl --context kind-worker wait --for=condition=Ready --timeout=300s -n flux-system kustomization kratix-worker-resources
 
