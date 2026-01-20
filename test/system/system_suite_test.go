@@ -23,27 +23,24 @@ func TestSystem(t *testing.T) {
 }
 
 var _ = SynchronizedBeforeSuite(func() {
-	skipK8sSetup := os.Getenv("TEST_SKIP_K8S_SETUP")
-	if skipK8sSetup != "true" {
-		//this runs once for the whole suite
-		platform = &kubeutils.Cluster{
-			Context: getEnvOrDefault("PLATFORM_CONTEXT", "kind-platform"),
-			Name:    getEnvOrDefault("PLATFORM_NAME", "platform-cluster")}
-		worker = &kubeutils.Cluster{
-			Context: getEnvOrDefault("WORKER_CONTEXT", "kind-worker"),
-			Name:    getEnvOrDefault("WORKER_NAME", "worker-1")}
 
-		kubeutils.SetTimeoutAndInterval(30*time.Second, 2*time.Second)
-		kratixConfigPath = "./assets/kratix-config.yaml"
-		if getEnvOrDefault("UPGRADE_ENABLED", "false") == "true" {
-			kratixConfigPath = "./assets/kratix-config-upgrade.yaml"
-		}
+	//this runs once for the whole suite
+	platform = &kubeutils.Cluster{
+		Context: getEnvOrDefault("PLATFORM_CONTEXT", "kind-platform"),
+		Name:    getEnvOrDefault("PLATFORM_NAME", "platform-cluster")}
+	worker = &kubeutils.Cluster{
+		Context: getEnvOrDefault("WORKER_CONTEXT", "kind-worker"),
+		Name:    getEnvOrDefault("WORKER_NAME", "worker-1")}
 
-		platform.Kubectl("apply", "-f", kratixConfigPath)
-		platform.Kubectl("delete", "pod", "-l", "control-plane=controller-manager", "-n", "kratix-platform-system")
-		platform.Kubectl("wait", "-n", "kratix-platform-system", "deployments", "-l", "control-plane=controller-manager", "--for=condition=Available")
-
+	kubeutils.SetTimeoutAndInterval(30*time.Second, 2*time.Second)
+	kratixConfigPath = "./assets/kratix-config.yaml"
+	if getEnvOrDefault("UPGRADE_ENABLED", "false") == "true" {
+		kratixConfigPath = "./assets/kratix-config-upgrade.yaml"
 	}
+
+	platform.Kubectl("apply", "-f", kratixConfigPath)
+	platform.Kubectl("delete", "pod", "-l", "control-plane=controller-manager", "-n", "kratix-platform-system")
+	platform.Kubectl("wait", "-n", "kratix-platform-system", "deployments", "-l", "control-plane=controller-manager", "--for=condition=Available")
 
 }, func() {
 	//this runs before each test

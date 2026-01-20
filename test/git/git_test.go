@@ -41,6 +41,7 @@ TEST_GIT_WRITER_GITHUB_SSH_PRIVATE_KEY
 
 */
 
+// NOTE: These tests need to run in Serial mode as they use the same Git repository to store and verify data
 var _ = Describe("Git tests", Serial, func() {
 
 	logger := zap.New(zap.WriteTo(GinkgoWriter), zap.UseDevMode(true)).WithName("git-writer")
