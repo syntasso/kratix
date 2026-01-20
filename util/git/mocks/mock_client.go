@@ -163,18 +163,18 @@ func (mr *MockClientMockRecorder) Init() *gomock.Call {
 }
 
 // Push mocks base method.
-func (m *MockClient) Push(branch string) (string, error) {
+func (m *MockClient) Push(branch string, force bool) (string, error) {
 	m.ctrl.T.Helper()
-	ret := m.ctrl.Call(m, "Push", branch)
+	ret := m.ctrl.Call(m, "Push", branch, force)
 	ret0, _ := ret[0].(string)
 	ret1, _ := ret[1].(error)
 	return ret0, ret1
 }
 
 // Push indicates an expected call of Push.
-func (mr *MockClientMockRecorder) Push(branch any) *gomock.Call {
+func (mr *MockClientMockRecorder) Push(branch, force any) *gomock.Call {
 	mr.mock.ctrl.T.Helper()
-	return mr.mock.ctrl.RecordCallWithMethodType(mr.mock, "Push", reflect.TypeOf((*MockClient)(nil).Push), branch)
+	return mr.mock.ctrl.RecordCallWithMethodType(mr.mock, "Push", reflect.TypeOf((*MockClient)(nil).Push), branch, force)
 }
 
 // RemoveDirectory mocks base method.

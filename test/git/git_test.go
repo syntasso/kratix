@@ -339,16 +339,14 @@ var _ = Describe("Git tests", Serial, func() {
 						Expect(err).ToNot(HaveOccurred())
 
 						// TODO: investigate why it does not valid creds in CI
-						/*
-							err := resetRemoteRepoToRevision(
-								httpPrivateRepo,
-								"main",
-								// restore to this version, so that
-								// all test files are present
-								"8a6e99e86a087dba2d29235de19d4952173b0d03",
-								&git.Auth{Creds: httpCreds}, true)
-							Expect(err).ToNot(HaveOccurred())
-						*/
+						err := resetRemoteRepoToRevision(
+							httpPrivateRepo,
+							"main",
+							// restore to this version, so that
+							// all test files are present
+							"8a6e99e86a087dba2d29235de19d4952173b0d03",
+							&git.Auth{Creds: httpCreds}, true)
+						Expect(err).ToNot(HaveOccurred())
 
 						rootOne, err := clientOne.Init()
 						Expect(err).ToNot(HaveOccurred())
@@ -1061,19 +1059,10 @@ func resetRemoteRepoToRevision(repoURL, branch, commitSHA string, auth *git.Auth
 		return fmt.Errorf("failed to reset to commit %s: %w\nOutput: %s", commitSHA, err, output)
 	}
 
-	_, err = client.Push(branch)
+	_, err = client.Push(branch, true)
 	if err != nil {
 		return fmt.Errorf("failed to push branch %s: %w", branch, err)
 	}
-
-	// Force push to remote
-	/*
-		cmd = exec.Command("git", "push", "origin", branch, "--force")
-		cmd.Dir = client.Root()
-		if output, err := cmd.CombinedOutput(); err != nil {
-			return fmt.Errorf("failed to force push: %w\nOutput: %s", err, output)
-		}
-	*/
 
 	return nil
 }

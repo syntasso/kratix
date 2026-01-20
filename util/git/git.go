@@ -46,7 +46,7 @@ type Client interface {
 	Fetch(revision string, depth int64) error
 	HasFileChanged(filePath string) (bool, error)
 	Init() (string, error)
-	Push(branch string) (string, error)
+	Push(branch string, force bool) (string, error)
 	Root() string
 
 	RemoveDirectory(dir string) error
@@ -424,7 +424,7 @@ func (m *nativeGitClient) fetch(ctx context.Context, revision string, depth int6
 }
 
 // Push pushes changes to the target branch.
-func (m *nativeGitClient) Push(branch string) (string, error) {
+func (m *nativeGitClient) Push(branch string, force bool) (string, error) {
 	ctx := context.Background()
 
 	if m.OnPush != nil {
@@ -432,7 +432,12 @@ func (m *nativeGitClient) Push(branch string) (string, error) {
 		defer done()
 	}
 
-	err := m.runCredentialedCmd(ctx, "push", "origin", branch)
+	args := []string{"push", "origin", branch}
+	if force {
+		args = append(args, "--force")
+	}
+
+	err := m.runCredentialedCmd(ctx, args...)
 	if err != nil {
 		return "", fmt.Errorf("failed to push: %w", err)
 	}

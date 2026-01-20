@@ -237,7 +237,7 @@ func (g *GitWriter) setupLocalDirectoryWithRepo() (string, error) {
 // validatePush attempts to validate write permissions by pushing no changes to the remote
 // If the push doesn't return an error, it means we can write.
 func (g *GitWriter) validatePush(logger logr.Logger) error {
-	_, err := g.Push(g.GitServer.Branch)
+	_, err := g.Push(g.GitServer.Branch, false)
 	if err != nil {
 		return fmt.Errorf("write permission validation failed: %w", err)
 	}
