@@ -13,8 +13,6 @@ import (
 	"strings"
 	"time"
 
-	utilio "github.com/argoproj/argo-cd/v3/util/io"
-	"github.com/argoproj/gitops-engine/pkg/utils/text"
 	"github.com/go-logr/logr"
 	log "github.com/sirupsen/logrus"
 
@@ -123,13 +121,22 @@ func (creds HTTPSCreds) Environ(_ logr.Logger) (io.Closer, []string, error) {
 		env = append(env, fmt.Sprintf("%s=%s", bearerAuthHeaderEnv, creds.BearerAuthHeader()))
 	}
 	nonce := creds.store.Add(
-		text.FirstNonEmpty(creds.username, githubAccessTokenUsername), creds.password)
+		FirstNonEmpty(creds.username, githubAccessTokenUsername), creds.password)
 	env = append(env, creds.store.Environ(nonce)...)
 
-	return utilio.NewCloser(func() error {
+	return NewCloser(func() error {
 		creds.store.Remove(nonce)
 		return httpCloser.Close()
 	}), env, nil
+}
+
+func FirstNonEmpty(args ...string) string {
+	for _, value := range args {
+		if len(value) > 0 {
+			return value
+		}
+	}
+	return ""
 }
 
 func (creds HTTPSCreds) HasClientCert() bool {

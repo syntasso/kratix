@@ -13,7 +13,6 @@ import (
 	"os"
 	"strings"
 
-	argoio "github.com/argoproj/gitops-engine/pkg/utils/io"
 	"github.com/go-git/go-git/v5/plumbing/transport"
 	gitssh "github.com/go-git/go-git/v5/plumbing/transport/ssh"
 	"github.com/go-logr/logr"
@@ -74,7 +73,7 @@ func (f sshPrivateFiles) Close() error {
 
 func (c SSHCreds) Environ(_ logr.Logger) (io.Closer, []string, error) {
 	// use the SHM temp dir from util, more secure
-	file, err := os.CreateTemp(argoio.TempDir, "")
+	file, err := os.CreateTemp(TempDir, "")
 	if err != nil {
 		return nil, nil, err
 	}
@@ -265,4 +264,23 @@ func getDefaultSSHKeyExchangeAlgorithms() []string {
 		return SupportedFIPSCompliantSSHKeyExchangeAlgorithms
 	}
 	return SupportedSSHKeyExchangeAlgorithms
+}
+
+var (
+	TempDir string
+)
+
+func init() {
+	fileInfo, err := os.Stat("/dev/shm")
+	if err == nil && fileInfo.IsDir() {
+		TempDir = "/dev/shm"
+	}
+}
+
+// DeleteFile is best effort deletion of a file
+func DeleteFile(path string) {
+	if _, err := os.Stat(path); os.IsNotExist(err) {
+		return
+	}
+	_ = os.Remove(path)
 }

@@ -1,10 +1,10 @@
 module github.com/syntasso/kratix
 
-go 1.25.5
+go 1.24.0
+
+toolchain go1.24.6
 
 require (
-	github.com/argoproj/argo-cd/v3 v3.2.5
-	github.com/argoproj/gitops-engine v0.7.3
 	github.com/bradleyfalzon/ghinstallation/v2 v2.17.0
 	github.com/chainguard-dev/git-urls v1.0.2
 	github.com/go-git/go-git/v5 v5.16.2

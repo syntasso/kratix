@@ -17,8 +17,6 @@ import (
 	"sync"
 	"time"
 
-	utilio "github.com/argoproj/argo-cd/v3/util/io"
-	argoio "github.com/argoproj/gitops-engine/pkg/utils/io"
 	"github.com/bradleyfalzon/ghinstallation/v2"
 	"github.com/go-logr/logr"
 	"github.com/golang-jwt/jwt"
@@ -69,7 +67,7 @@ func NewGitHubAppCreds(appID int64, appInstallId int64, privateKey string, baseU
 func processClientCert[T ClientCertProvider](creds T, env *[]string, httpCloser *authFilePaths) error {
 	var certFile, keyFile *os.File
 
-	certFile, err := os.CreateTemp(argoio.TempDir, "")
+	certFile, err := os.CreateTemp(TempDir, "")
 	if err != nil {
 		return fmt.Errorf("could not create temporary dir: %w", err)
 	}
@@ -79,7 +77,7 @@ func processClientCert[T ClientCertProvider](creds T, env *[]string, httpCloser 
 		}
 	}()
 
-	keyFile, err = os.CreateTemp(argoio.TempDir, "")
+	keyFile, err = os.CreateTemp(TempDir, "")
 	if err != nil {
 		removeErr := os.Remove(certFile.Name())
 		if removeErr != nil {
@@ -145,7 +143,7 @@ func (g GitHubAppCreds) Environ(logger logr.Logger) (io.Closer, []string, error)
 
 	nonce := g.store.Add(githubAccessTokenUsername, token)
 	env = append(env, g.store.Environ(nonce)...)
-	return utilio.NewCloser(func() error {
+	return NewCloser(func() error {
 		g.store.Remove(nonce)
 		return httpCloser.Close()
 	}), env, nil
@@ -473,4 +471,28 @@ func getGitHubInstallationToken(apiURL, installationID, jwtToken string) (string
 		return "", errors.New("empty installation token received")
 	}
 	return result.Token, nil
+}
+
+type Closer interface {
+	Close() error
+}
+
+type inlineCloser struct {
+	close func() error
+}
+
+func (c *inlineCloser) Close() error {
+	return c.close()
+}
+
+func NewCloser(closeFn func() error) Closer {
+	return &inlineCloser{close: closeFn}
+}
+
+// Close is a convenience function to close a object that has a Close() method, ignoring any errors
+// Used to satisfy errcheck lint
+func Close(c Closer) {
+	if err := c.Close(); err != nil {
+		log.Warnf("failed to close %v: %v", c, err)
+	}
 }
