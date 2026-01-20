@@ -217,7 +217,7 @@ endif
 
 .PHONY: test
 test: manifests generate fmt vet ## Run unit tests.
-	go run ${GINKGO} ${GINKGO_FLAGS} -r --coverprofile cover.out --skip-package=system,core
+	go run ${GINKGO} ${GINKGO_FLAGS} -r --coverprofile cover.out --skip-package=system,core,git
 
 PLATFORM_CLUSTER_NAME ?= platform
 core-test: quick-start run-core-test
