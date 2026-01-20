@@ -13,16 +13,13 @@ import (
 	"errors"
 	"fmt"
 	"io"
-	"net"
 	"net/http"
 	"net/url"
 	"os"
 	"strconv"
 	"strings"
-	"sync"
 	"time"
 
-	giturls "github.com/chainguard-dev/git-urls"
 	"github.com/go-git/go-git/v5/plumbing/transport"
 	githttp "github.com/go-git/go-git/v5/plumbing/transport/http"
 	"github.com/go-logr/logr"
@@ -41,10 +38,11 @@ import (
 var (
 	// In memory cache for storing github APP api token credentials
 	githubAppTokenCache *gocache.Cache
-
-	// installationIdCache caches installation IDs for organisations to avoid redundant API calls.
-	githubInstallationIdCache      *gocache.Cache
-	githubInstallationIdCacheMutex sync.RWMutex // For bulk API call coordination
+	tempDir                               = defaultTempDir()
+	_                   GenericHTTPSCreds = HTTPSCreds{}
+	_                   Creds             = HTTPSCreds{}
+	_                   Creds             = NopCreds{}
+	_                   io.Closer         = NopCloser{}
 )
 
 const (
@@ -56,11 +54,18 @@ const (
 	forceBasicAuthHeaderEnv   = "KRATIX_GIT_AUTH_HEADER"
 	// #nosec G101
 	bearerAuthHeaderEnv = "KRATIX_GIT_BEARER_AUTH_HEADER"
+
+	// Security severity logging
+	SecurityField = "security"
+	// SecurityCWEField is the logs field for the CWE associated with a log line. CWE stands for Common Weakness Enumeration. See https://cwe.mitre.org/
+	SecurityCWEField                          = "CWE"
+	SecurityCWEMissingReleaseOfFileDescriptor = 775
+	SecurityMedium                            = 2 // Could indicate malicious events, but has a high likelihood of being user/system error (i.e. access denied)
+
+	// DefaultPathTLSConfig is the default path where TLS certificates for repositories are located
+	DefaultPathTLSConfig = "/app/config/tls"
 )
 
-var tempDir = defaultTempDir()
-
-// TODO: rename
 type Auth struct {
 	transport.AuthMethod
 	Creds
@@ -99,8 +104,6 @@ func (c NopCloser) Close() error {
 	return nil
 }
 
-var _ Creds = NopCreds{}
-
 type NopCreds struct{}
 
 func (c NopCreds) Environ(_ logr.Logger) (io.Closer, []string, error) {
@@ -112,19 +115,12 @@ func (c NopCreds) GetUserInfo(_ context.Context, _ logr.Logger) (name string, em
 	return "", "", nil
 }
 
-var _ io.Closer = NopCloser{}
-
 type GenericHTTPSCreds interface {
 	HasClientCert() bool
 	GetClientCertData() string
 	GetClientCertKey() string
 	Creds
 }
-
-var (
-	_ GenericHTTPSCreds = HTTPSCreds{}
-	_ Creds             = HTTPSCreds{}
-)
 
 // HTTPS creds implementation
 type HTTPSCreds struct {
@@ -319,11 +315,10 @@ type SSHCreds struct {
 func NewSSHCreds(sshPrivateKey string, knownHostFile string, caPath string, insecureIgnoreHostKey bool, proxy string) SSHCreds {
 	return SSHCreds{
 		sshPrivateKey: sshPrivateKey,
-		//////////////////////////////////////////////////
-		knownHosts: knownHostFile,
-		caPath:     caPath,
-		insecure:   insecureIgnoreHostKey,
-		proxy:      proxy,
+		knownHosts:    knownHostFile,
+		caPath:        caPath,
+		insecure:      insecureIgnoreHostKey,
+		proxy:         proxy,
 	}
 }
 
@@ -354,13 +349,13 @@ type sshPrivateFiles []string
 
 func (f sshPrivateFiles) Close() error {
 	var retErr error
-	//	for _, path := range f {
-	//		err := os.Remove(path)
-	//		if err != nil {
-	//			log.Errorf("SSHCreds.Close(): Could not remove temp file %s: %v", path, err)
-	//			retErr = err
-	//		}
-	//	}
+	for _, path := range f {
+		err := os.Remove(path)
+		if err != nil {
+			log.Errorf("SSHCreds.Close(): Could not remove temp file %s: %v", path, err)
+			retErr = err
+		}
+	}
 	return retErr
 }
 
@@ -445,26 +440,6 @@ func getSSHKnownHostsDataPath(c *SSHCreds) error {
 
 	return nil
 }
-
-const (
-	// DefaultPathTLSConfig is the default path where TLS certificates for repositories are located
-	DefaultPathTLSConfig = "/app/config/tls"
-	// DefaultPathSSHConfig is the default path where SSH known hosts are stored
-	DefaultPathSSHConfig = "/app/config/ssh"
-	// DefaultSSHKnownHostsName is the Default name for the SSH known hosts file
-	// TODO: do we really need this?
-	DefaultSSHKnownHostsName = "ssh_known_hosts"
-	// DefaultGnuPgHomePath is the Default path to GnuPG home directory
-	DefaultGnuPgHomePath = "/app/config/gpg/keys"
-	// DefaultAppConfigPath is the Default path to repo server TLS endpoint config
-	DefaultAppConfigPath = "/app/config"
-	// DefaultPluginSockFilePath is the Default path to cmp server plugin socket file
-	DefaultPluginSockFilePath = "/home/argocd/cmp-server/plugins"
-	// DefaultPluginConfigFilePath is the Default path to cmp server plugin configuration file
-	DefaultPluginConfigFilePath = "/home/argocd/cmp-server/config"
-	// PluginConfigFileName is the Plugin Config File is a ConfigManagementPlugin manifest located inside the plugin container
-	PluginConfigFileName = "plugin.yaml"
-)
 
 // GitHubAppCreds to authenticate as GitHub application
 type GitHubAppCreds struct {
@@ -692,199 +667,6 @@ func (g GitHubAppCreds) GetClientCertData() string {
 
 func (g GitHubAppCreds) GetClientCertKey() string {
 	return g.clientCertKey
-}
-
-// GitHub App installation discovery cache and helper
-
-// DiscoverGitHubAppInstallationID discovers the GitHub App installation ID for a given organisation.
-// It queries the GitHub API to list all installations for the app and returns the installation ID
-// for the matching organisation. Results are cached to avoid redundant API calls.
-// An optional HTTP client can be provided for custom transport (e.g., for metrics tracking).
-func DiscoverGitHubAppInstallationID(ctx context.Context, appId int64, privateKey, enterpriseBaseURL, org string, httpClient ...*http.Client) (int64, error) {
-	domain, err := domainFromBaseURL(enterpriseBaseURL)
-	if err != nil {
-		return 0, fmt.Errorf("failed to get domain from base URL: %w", err)
-	}
-	org = strings.ToLower(org)
-	// Check cache first
-	cacheKey := fmt.Sprintf("%s:%s:%d", strings.ToLower(org), domain, appId)
-	if id, found := githubInstallationIdCache.Get(cacheKey); found {
-		return id.(int64), nil
-	}
-
-	// Use provided HTTP client or default
-	var transport http.RoundTripper
-	if len(httpClient) > 0 && httpClient[0] != nil && httpClient[0].Transport != nil {
-		transport = httpClient[0].Transport
-	} else {
-		transport = http.DefaultTransport
-	}
-
-	// Create GitHub App transport
-	rt, err := ghinstallation.NewAppsTransport(transport, appId, []byte(privateKey))
-	if err != nil {
-		return 0, fmt.Errorf("failed to create GitHub app transport: %w", err)
-	}
-
-	if enterpriseBaseURL != "" {
-		rt.BaseURL = enterpriseBaseURL
-	}
-
-	// Create GitHub client
-	var client *github.Client
-	clientTransport := &http.Client{Transport: rt}
-	if enterpriseBaseURL == "" {
-		client = github.NewClient(clientTransport)
-	} else {
-		client, err = github.NewClient(clientTransport).WithEnterpriseURLs(enterpriseBaseURL, enterpriseBaseURL)
-		if err != nil {
-			return 0, fmt.Errorf("failed to create GitHub enterprise client: %w", err)
-		}
-	}
-
-	// List all installations and cache them
-	var allInstallations []*github.Installation
-	opts := &github.ListOptions{PerPage: 100}
-
-	// Lock for the entire loop to avoid multiple concurrent API calls on startup
-	githubInstallationIdCacheMutex.Lock()
-	defer githubInstallationIdCacheMutex.Unlock()
-
-	// Check cache again inside the write lock in case another goroutine already fetched it
-	if id, found := githubInstallationIdCache.Get(cacheKey); found {
-		return id.(int64), nil
-	}
-
-	for {
-		installations, resp, err := client.Apps.ListInstallations(ctx, opts)
-		if err != nil {
-			return 0, fmt.Errorf("failed to list installations: %w", err)
-		}
-
-		allInstallations = append(allInstallations, installations...)
-
-		if resp.NextPage == 0 {
-			break
-		}
-		opts.Page = resp.NextPage
-	}
-
-	// Cache all installation IDs
-	for _, installation := range allInstallations {
-		if installation.Account != nil && installation.Account.Login != nil && installation.ID != nil {
-			githubInstallationIdCache.Set(cacheKey, *installation.ID, gocache.DefaultExpiration)
-		}
-	}
-
-	// Return the installation ID for the requested org
-	if id, found := githubInstallationIdCache.Get(cacheKey); found {
-		return id.(int64), nil
-	}
-	return 0, fmt.Errorf("installation not found for org: %s", org)
-}
-
-// domainFromBaseURL extracts the host (domain) from the given GitHub base URL.
-// Supports HTTP(S), SSH URLs, and git@host:org/repo forms.
-// Returns an error if a domain cannot be extracted.
-func domainFromBaseURL(baseURL string) (string, error) {
-	if baseURL == "" {
-		return "github.com", nil
-	}
-
-	// --- 1. SSH-style Git URL: git@github.com:org/repo.git ---
-	if strings.Contains(baseURL, "@") && strings.Contains(baseURL, ":") && !strings.Contains(baseURL, "://") {
-		parts := strings.SplitN(baseURL, "@", 2)
-		right := parts[len(parts)-1]             // github.com:org/repo
-		host := strings.SplitN(right, ":", 2)[0] // github.com
-		if host != "" {
-			return host, nil
-		}
-		return "", fmt.Errorf("failed to extract host from SSH-style URL: %q", baseURL)
-	}
-
-	// --- 2. Ensure scheme so url.Parse works ---
-	if !strings.HasPrefix(baseURL, "http://") &&
-		!strings.HasPrefix(baseURL, "https://") &&
-		!strings.HasPrefix(baseURL, "ssh://") {
-		baseURL = "https://" + baseURL
-	}
-
-	// --- 3. Standard URL parse ---
-	parsed, err := url.Parse(baseURL)
-	if err != nil {
-		return "", fmt.Errorf("failed to parse URL %q: %w", baseURL, err)
-	}
-	if parsed.Host == "" {
-		return "", fmt.Errorf("URL %q parsed but host is empty", baseURL)
-	}
-
-	host := parsed.Host
-	if h, _, err := net.SplitHostPort(host); err == nil {
-		host = h
-	}
-	return host, nil
-}
-
-// ExtractOrgFromRepoURL extracts the organisation/owner name from a GitHub repository URL.
-// Supports formats:
-//   - HTTPS: https://github.com/org/repo.git
-//   - SSH: git@github.com:org/repo.git
-//   - SSH with port: git@github.com:22/org/repo.git or ssh://git@github.com:22/org/repo.git
-func ExtractOrgFromRepoURL(repoURL string) (string, error) {
-	if repoURL == "" {
-		return "", errors.New("repo URL is empty")
-	}
-
-	// Handle edge case: ssh://git@host:org/repo (malformed but used in practice)
-	// This format mixes ssh:// prefix with colon notation instead of using a slash.
-	// Convert it to git@host:org/repo which git-urls can parse correctly.
-	// We distinguish this from the valid ssh://git@host:22/org/repo (with port number).
-	if strings.HasPrefix(repoURL, "ssh://git@") {
-		remainder := strings.TrimPrefix(repoURL, "ssh://")
-		if colonIdx := strings.Index(remainder, ":"); colonIdx != -1 {
-			afterColon := remainder[colonIdx+1:]
-			slashIdx := strings.Index(afterColon, "/")
-
-			// Check if what follows the colon is a port number
-			isPort := false
-			if slashIdx > 0 {
-				if _, err := strconv.Atoi(afterColon[:slashIdx]); err == nil {
-					isPort = true
-				}
-			}
-
-			// If not a port, it's the malformed format - strip ssh:// prefix
-			if !isPort && slashIdx != 0 {
-				repoURL = remainder
-			}
-		}
-	}
-
-	// Use git-urls library to parse all Git URL formats
-	parsed, err := giturls.Parse(repoURL)
-	if err != nil {
-		return "", fmt.Errorf("failed to parse repository URL %q: %w", repoURL, err)
-	}
-
-	// Clean the path: remove leading/trailing slashes and .git suffix
-	path := strings.Trim(parsed.Path, "/")
-	path = strings.TrimSuffix(path, ".git")
-
-	if path == "" {
-		return "", fmt.Errorf("repository URL %q does not contain a path", repoURL)
-	}
-
-	// Extract the first path component (organisation/owner)
-	// Path format is typically "org/repo" or "org/repo/subpath"
-	if idx := strings.Index(path, "/"); idx > 0 {
-		org := path[:idx]
-		// Normalise to lowercase for case-insensitive comparison
-		return strings.ToLower(org), nil
-	}
-
-	// If there's no slash, the entire path might be just the org (unusual but handle it)
-	// This would fail validation later, but let's return it
-	return "", fmt.Errorf("could not extract organisation from repository URL %q: path %q does not contain org/repo format", repoURL, path)
 }
 
 type sshAuthCreds struct {
@@ -1175,12 +957,3 @@ func getGitHubInstallationToken(apiURL, installationID, jwtToken string) (string
 	}
 	return result.Token, nil
 }
-
-// Security severity logging
-const (
-	SecurityField = "security"
-	// SecurityCWEField is the logs field for the CWE associated with a log line. CWE stands for Common Weakness Enumeration. See https://cwe.mitre.org/
-	SecurityCWEField                          = "CWE"
-	SecurityCWEMissingReleaseOfFileDescriptor = 775
-	SecurityMedium                            = 2 // Could indicate malicious events, but has a high likelihood of being user/system error (i.e. access denied)
-)

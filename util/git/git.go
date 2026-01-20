@@ -13,7 +13,6 @@ import (
 	"fmt"
 	"math"
 	"net/http"
-	"net/mail"
 	"net/url"
 	"os"
 	"os/exec"
@@ -37,12 +36,21 @@ type GitClientError error
 var (
 	ErrNoFilesChanged  GitClientError = errors.New("no files changed")
 	ErrNothingToCommit GitClientError = errors.New("nothing to commit, working tree clean")
-)
 
-var (
 	timeout      time.Duration
 	fatalTimeout time.Duration
 	Unredacted   = Redact(nil)
+
+	sshURLRegex   = regexp.MustCompile("^(ssh://)?([^/:]*?)@[^@]+$")
+	httpsURLRegex = regexp.MustCompile("^(https://).*")
+)
+
+const (
+	// GithubAppCredsExpirationDuration is the default time used to cache the GitHub app credentials
+	GithubAppCredsExpirationDuration = time.Minute * 60
+	// EnvGithubAppCredsExpirationDuration controls the caching of Github app credentials. This value is in minutes (default: 60)
+	// #nosec G101
+	EnvGithubAppCredsExpirationDuration = "KRATIX_GITHUB_APP_CREDS_EXPIRATION_DURATION"
 )
 
 type ExecRunOpts struct {
@@ -68,9 +76,6 @@ func init() {
 	}
 
 	githubAppTokenCache = gocache.New(githubAppCredsExp, 1*time.Minute)
-	// TODO: inspect whether this is needed for Azure
-	//azureTokenCache = gocache.New(gocache.NoExpiration, 0)
-	githubInstallationIdCache = gocache.New(60*time.Minute, 60*time.Minute)
 }
 
 func initTimeout() {
@@ -112,11 +117,6 @@ type GitClientRequest struct {
 	Opts       []ClientOpts
 	Log        logr.Logger
 }
-
-var (
-	sshURLRegex   = regexp.MustCompile("^(ssh://)?([^/:]*?)@[^@]+$")
-	httpsURLRegex = regexp.MustCompile("^(https://).*")
-)
 
 // IsSSHURL returns true if supplied URL is SSH URL
 func IsSSHURL(url string) (bool, string) {
@@ -384,38 +384,6 @@ var builtinGitConfig = map[string]string{
 // BuiltinGitConfigEnv contains builtin git configuration in the
 // format acceptable by Git.
 var BuiltinGitConfigEnv []string
-
-// CommitMetadata contains metadata about a commit that is related in some way to another commit.
-type CommitMetadata struct {
-	// Author is the author of the commit.
-	// Comes from the Argocd-reference-commit-author trailer.
-	Author mail.Address
-	// Date is the date of the commit, formatted as by `git show -s --format=%aI`.
-	// May be an empty string if the date is unknown.
-	// Comes from the Argocd-reference-commit-date trailer.
-	Date string
-	// Subject is the commit message subject, i.e. `git show -s --format=%s`.
-	// Comes from the Argocd-reference-commit-subject trailer.
-	Subject string
-	// Body is the commit message body, excluding the subject, i.e. `git show -s --format=%b`.
-	// Comes from the Argocd-reference-commit-body trailer.
-	Body string
-	// SHA is the commit hash.
-	// Comes from the Argocd-reference-commit-sha trailer.
-	SHA string
-	// RepoURL is the URL of the repository where the commit is located.
-	// Comes from the Argocd-reference-commit-repourl trailer.
-	// This value is not validated beyond confirming that it's a URL, and it should not be used to construct UI links
-	// unless it is properly validated and/or sanitised first.
-	RepoURL string
-}
-
-// this should match reposerver/repository/repository.proto/RefsList
-type Refs struct {
-	Branches []string
-	Tags     []string
-	// heads and remotes are also refs, but are not needed at this time.
-}
 
 type EventHandlers struct {
 	OnLsRemote func(repo string) func()
@@ -1107,20 +1075,6 @@ func (m *nativeGitClient) HasChanges() (bool, error) {
 
 	return strings.Contains(out, "Changes to be committed"), nil
 }
-
-// Argo CD application related constants
-const (
-
-	// GithubAppCredsExpirationDuration is the default time used to cache the GitHub app credentials
-	GithubAppCredsExpirationDuration = time.Minute * 60
-)
-
-// Environment variables for tuning and debugging Argo CD
-const (
-	// EnvGithubAppCredsExpirationDuration controls the caching of Github app credentials. This value is in minutes (default: 60)
-	// #nosec G101
-	EnvGithubAppCredsExpirationDuration = "KRATIX_GITHUB_APP_CREDS_EXPIRATION_DURATION"
-)
 
 // Helper function to parse a time duration from an environment variable. Returns a
 // default if env is not set, is not parseable to a duration, exceeds maximum (if
