@@ -9,7 +9,7 @@ jobs:
     #uses: syntasso/ci/.github/workflows/test-kratix.yaml@main
     # working
     #uses: syntasso/ci/.github/workflows/test-kratix.yaml@c8b59b0ea6df886f26bcb48c641376d3cdb9336b
-    uses: syntasso/ci/.github/workflows/test-kratix.yaml@c9defea87619771efa8b79aca43ea1a960b1d4a2
+    uses: syntasso/ci/.github/workflows/test-kratix.yaml@47a0e08c7d0fcc474effc111ab12fe1c9b9a2ae2
     secrets: inherit
     with:
       sha: ${{ github.event.pull_request.head.sha }}
