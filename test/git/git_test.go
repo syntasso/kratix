@@ -313,8 +313,19 @@ var _ = Describe("Git tests", Serial, func() {
 						pathOne   string
 						pathTwo   string
 						err       error
+						httpCreds git.GenericHTTPSCreds
 					)
 					BeforeEach(func() {
+						httpCreds = git.NewHTTPSCreds(
+							"x-access-token",                        // username
+							string(getGithubPATCreds()["password"]), // password
+							"",                                      // bearer token
+							"",                                      // clientCertData
+							"",                                      // clientCertKey
+							false,                                   // insecure
+							git.NoopCredsStore{},                    // CredsStore,
+							true,                                    // forceBasicAuth
+						)
 						clientRoot1 := fmt.Sprintf("client-1-%d", rand.Int())
 						clientRoot2 := fmt.Sprintf("client-2-%d", rand.Int())
 						clientOne, err = git.NewGitClient(git.GitClientRequest{
