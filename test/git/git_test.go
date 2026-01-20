@@ -12,6 +12,7 @@ import (
 	"log"
 	"math/rand"
 	"os"
+	"os/exec"
 	"path/filepath"
 
 	"sigs.k8s.io/controller-runtime/pkg/log/zap"
@@ -125,7 +126,7 @@ var _ = Describe("Git tests", Serial, func() {
 					Expect(err.Error()).To(ContainSubstring("couldn't find remote ref invalid"))
 				})
 
-				It("successfully clones the repository", func() {
+				It("successfully pushes to repository", func() {
 					client, err := git.NewGitClient(git.GitClientRequest{
 						RawRepoURL: httpPrivateRepo,
 						Root:       "",
@@ -326,9 +327,16 @@ var _ = Describe("Git tests", Serial, func() {
 						})
 						Expect(err).ToNot(HaveOccurred())
 
-						repoOne, err := clientOne.Init()
+						err := resetRemoteRepoToRevision(
+							httpPrivateRepo,
+							"main",
+							"8a6e99e86a087dba2d29235de19d4952173b0d03",
+							&git.Auth{Creds: httpCreds}, true)
 						Expect(err).ToNot(HaveOccurred())
-						Expect(repoOne).ToNot(BeNil())
+
+						rootOne, err := clientOne.Init()
+						Expect(err).ToNot(HaveOccurred())
+						Expect(rootOne).ToNot(BeEmpty())
 
 						err = clientOne.Fetch("main", 0)
 						Expect(err).ToNot(HaveOccurred())
@@ -348,9 +356,9 @@ var _ = Describe("Git tests", Serial, func() {
 						})
 						Expect(err).ToNot(HaveOccurred())
 
-						repoTwo, err := clientTwo.Init()
+						rootTwo, err := clientTwo.Init()
 						Expect(err).ToNot(HaveOccurred())
-						Expect(repoTwo).ToNot(BeNil())
+						Expect(rootTwo).ToNot(BeEmpty())
 
 						err = clientTwo.Fetch("main", 0)
 						Expect(err).ToNot(HaveOccurred())
@@ -382,8 +390,10 @@ var _ = Describe("Git tests", Serial, func() {
 						// reset
 						clientOne.CommitAndPush(
 							"main", "TEST: remove test file test-client-1.txt", "test-user", "test-user@syntasso.io")
+						Expect(err).ToNot(HaveOccurred())
 						clientTwo.CommitAndPush(
 							"main", "TEST: remove test file test-client-2.txt", "test-user", "test-user@syntasso.io")
+						Expect(err).ToNot(HaveOccurred())
 					})
 
 					It("has both clients able to commit to the repo without conflict", func() {
@@ -989,4 +999,58 @@ func getStateStoreAndDest(authType, repo string) (*v1alpha1.GitStateStoreSpec, *
 				Path: fmt.Sprintf("%s-dst-path/", authType),
 			},
 		}
+}
+
+// resetRemoteRepoToRevision clones a repository, resets it to
+// a specific revision, and force pushes to the remote branch
+func resetRemoteRepoToRevision(repoURL, branch, commitSHA string, auth *git.Auth, insecure bool) error {
+	clientRoot := fmt.Sprintf("reset-client-%d", rand.Int())
+	defer os.RemoveAll(clientRoot) // Clean up after we're done
+
+	client, err := git.NewGitClient(git.GitClientRequest{
+		RawRepoURL: repoURL,
+		Root:       clientRoot,
+		Auth:       auth,
+		Insecure:   insecure,
+		Proxy:      "",
+		NoProxy:    "",
+	})
+	if err != nil {
+		return fmt.Errorf("failed to create git client: %w", err)
+	}
+
+	root, err := client.Init()
+	if err != nil {
+		return fmt.Errorf("failed to initialise repo: %w", err)
+	}
+	Expect(root).ToNot(BeEmpty())
+
+	err = client.Fetch(branch, 0)
+	if err != nil {
+		return fmt.Errorf("failed to fetch branch %s: %w", branch, err)
+	}
+
+	out, err := client.Checkout(branch)
+	if err != nil {
+		return fmt.Errorf("failed to checkout branch %s: %w", branch, err)
+	}
+	if out != "" {
+		return fmt.Errorf("unexpected output during checkout: %s", out)
+	}
+
+	// Reset to specific commit
+	cmd := exec.Command("git", "reset", "--hard", commitSHA)
+	cmd.Dir = client.Root()
+	if output, err := cmd.CombinedOutput(); err != nil {
+		return fmt.Errorf("failed to reset to commit %s: %w\nOutput: %s", commitSHA, err, output)
+	}
+
+	// Force push to remote
+	cmd = exec.Command("git", "push", "origin", branch, "--force")
+	cmd.Dir = client.Root()
+	if output, err := cmd.CombinedOutput(); err != nil {
+		return fmt.Errorf("failed to force push: %w\nOutput: %s", err, output)
+	}
+
+	return nil
 }

@@ -130,6 +130,16 @@ docker-build-and-push: ## Push multi-arch docker image with the manager.
 build-worker-resource-builder-binary: ## Uses the goreleaser config to generate binaries
 	WRB_VERSION=${WRB_VERSION} WRB_ON_BRANCH=${WRB_ON_BRANCH} ./scripts/release-worker-resource-builder
 
+.PHONY: install-mockgen
+install-mockgen:
+	@which mockgen > /dev/null || go install go.uber.org/mock/mockgen@latest
+
+.PHONY: generate-mocks
+generate-mocks: install-mockgen ## Generate mocks for testing
+	go generate ./...
+
+
+
 ##@ Deployment
 
 install: manifests kustomize ## Install CRDs into the K8s cluster specified in ~/.kube/config.
@@ -316,6 +326,7 @@ $(KUSTOMIZE): $(LOCALBIN)
 golangci-lint: $(GOLANGCI_LINT) ## Download golangci-lint locally if necessary.
 $(GOLANGCI_LINT): $(LOCALBIN)
 	$(call go-install-tool,$(GOLANGCI_LINT),github.com/golangci/golangci-lint/cmd/golangci-lint,$(GOLANGCI_LINT_VERSION))
+
 
 # go-install-tool will 'go install' any package with custom target and name of binary, if it doesn't exist
 # $1 - target path with name of binary

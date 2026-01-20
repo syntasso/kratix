@@ -1,18 +1,16 @@
+//go:generate mockgen -source=git.go -destination=mocks/mock_client.go -package=mocks
 package git
 
 import (
-	"bytes"
 	"context"
-	"crypto/fips140"
 	"crypto/rand"
-	"crypto/tls"
 	"crypto/x509"
 	"encoding/hex"
 	"encoding/pem"
 	"errors"
 	"fmt"
-	"math"
 	"net/http"
+	"net/mail"
 	"net/url"
 	"os"
 	"os/exec"
@@ -20,81 +18,30 @@ import (
 	"regexp"
 	"strconv"
 	"strings"
-	"syscall"
 	"time"
 
-	gitssh "github.com/go-git/go-git/v5/plumbing/transport/ssh"
 	"github.com/go-logr/logr"
+	"github.com/kelseyhightower/envconfig"
 	gocache "github.com/patrickmn/go-cache"
-	"github.com/syntasso/kratix/internal/logging"
-	"golang.org/x/crypto/ssh"
 	"golang.org/x/net/http/httpproxy"
+
+	"github.com/syntasso/kratix/internal/logging"
 )
 
-type GitClientError error
-
 var (
-	ErrNoFilesChanged  GitClientError = errors.New("no files changed")
-	ErrNothingToCommit GitClientError = errors.New("nothing to commit, working tree clean")
-
 	timeout      time.Duration
 	fatalTimeout time.Duration
-	Unredacted   = Redact(nil)
 
+	Unredacted    = Redact(nil)
 	sshURLRegex   = regexp.MustCompile("^(ssh://)?([^/:]*?)@[^@]+$")
 	httpsURLRegex = regexp.MustCompile("^(https://).*")
 )
-
-const (
-	// GithubAppCredsExpirationDuration is the default time used to cache the GitHub app credentials
-	GithubAppCredsExpirationDuration = time.Minute * 60
-	// EnvGithubAppCredsExpirationDuration controls the caching of Github app credentials. This value is in minutes (default: 60)
-	// #nosec G101
-	EnvGithubAppCredsExpirationDuration = "KRATIX_GITHUB_APP_CREDS_EXPIRATION_DURATION"
-)
-
-type ExecRunOpts struct {
-	// Redactor redacts tokens from the output
-	Redactor func(text string) string
-	// TimeoutBehavior configures what to do in case of timeout
-	TimeoutBehavior TimeoutBehavior
-	// SkipErrorLogging determines whether to skip logging of execution errors (rc > 0)
-	SkipErrorLogging bool
-	// CaptureStderr determines whether to capture stderr in addition to stdout
-	CaptureStderr bool
-}
-
-// TODO: remove init
-func init() {
-	initTimeout()
-
-	githubAppCredsExp := GithubAppCredsExpirationDuration
-	if exp := os.Getenv(EnvGithubAppCredsExpirationDuration); exp != "" {
-		if qps, err := strconv.Atoi(exp); err != nil {
-			githubAppCredsExp = time.Duration(qps) * time.Minute
-		}
-	}
-
-	githubAppTokenCache = gocache.New(githubAppCredsExp, 1*time.Minute)
-}
-
-func initTimeout() {
-	var err error
-	timeout, err = time.ParseDuration(os.Getenv("KRATIX_EXEC_TIMEOUT"))
-	if err != nil {
-		timeout = 90 * time.Second
-	}
-	fatalTimeout, err = time.ParseDuration(os.Getenv("KRATIX_EXEC_FATAL_TIMEOUT"))
-	if err != nil {
-		fatalTimeout = 10 * time.Second
-	}
-}
 
 // Client is a generic git client interface
 type Client interface {
 	Add(files ...string) (string, error)
 	Checkout(revision string) (string, error)
-	Clone(branch string) (string, error)
+	Clone(string) (string, error)
 	CommitAndPush(branch, message, author, email string) (string, error)
 	Fetch(revision string, depth int64) error
 	HasFileChanged(filePath string) (bool, error)
@@ -116,6 +63,48 @@ type GitClientRequest struct {
 	NoProxy    string
 	Opts       []ClientOpts
 	Log        logr.Logger
+}
+
+func NewGitClient(req GitClientRequest) (Client, error) {
+
+	var accessToken string
+
+	switch req.Auth.Creds.(type) {
+	case SSHCreds:
+		if ok, _ := IsSSHURL(req.RawRepoURL); !ok {
+			return nil, fmt.Errorf("invalid URL for SSH auth method: %s", req.RawRepoURL)
+		}
+	default:
+		if !IsHTTPSURL(req.RawRepoURL) {
+			return nil, fmt.Errorf("invalid URL for HTTPS auth method: %s", req.RawRepoURL)
+		}
+	}
+
+	config := Config{}
+	err := envconfig.Process("", &config)
+	if err != nil {
+		return nil, fmt.Errorf("could not load config: %w", err)
+	}
+
+	client := &nativeGitClient{
+		accessToken:  accessToken,
+		repoURL:      req.RawRepoURL,
+		root:         req.Root,
+		creds:        req.Auth.Creds,
+		insecure:     req.Insecure,
+		proxy:        req.Proxy,
+		noProxy:      req.NoProxy,
+		gitConfigEnv: BuiltinGitConfigEnv,
+		log:          req.Log,
+		config:       config,
+	}
+	for i := range req.Opts {
+		req.Opts[i](client)
+	}
+
+	client.setConfig()
+
+	return client, nil
 }
 
 // IsSSHURL returns true if supplied URL is SSH URL
@@ -140,103 +129,21 @@ func injectGitHubAppCredentials(gitURL, token string) (string, error) {
 	return u.String(), nil
 }
 
-func NewGitClient(req GitClientRequest) (Client, error) {
+func (m *nativeGitClient) setConfig() {
 
-	var accessToken string
+	timeout = m.config.Timeout
+	fatalTimeout = m.config.FatalTimeout
 
-	switch req.Auth.Creds.(type) {
-	case SSHCreds:
-		if ok, _ := IsSSHURL(req.RawRepoURL); !ok {
-			return nil, fmt.Errorf("invalid URL for SSH auth method: %s", req.RawRepoURL)
-		}
-	default:
-		if !IsHTTPSURL(req.RawRepoURL) {
-			return nil, fmt.Errorf("invalid URL for HTTPS auth method: %s", req.RawRepoURL)
-		}
+	githubAppTokenCache = gocache.New(m.config.GithubAppCredsExpirationDuration, 1*time.Minute)
+
+	BuiltinGitConfigEnv = append(
+		BuiltinGitConfigEnv, fmt.Sprintf("GIT_CONFIG_COUNT=%d", len(builtinGitConfig)))
+	idx := 0
+	for k, v := range builtinGitConfig {
+		BuiltinGitConfigEnv = append(BuiltinGitConfigEnv, fmt.Sprintf("GIT_CONFIG_KEY_%d=%s", idx, k))
+		BuiltinGitConfigEnv = append(BuiltinGitConfigEnv, fmt.Sprintf("GIT_CONFIG_VALUE_%d=%s", idx, v))
+		idx++
 	}
-
-	client := &nativeGitClient{
-		accessToken:  accessToken,
-		repoURL:      req.RawRepoURL,
-		root:         req.Root,
-		creds:        req.Auth.Creds,
-		insecure:     req.Insecure,
-		proxy:        req.Proxy,
-		noProxy:      req.NoProxy,
-		gitConfigEnv: BuiltinGitConfigEnv,
-		log:          req.Log,
-	}
-	for i := range req.Opts {
-		req.Opts[i](client)
-	}
-
-	return client, nil
-}
-
-func RunWithExecRunOpts(cmd *exec.Cmd, opts ExecRunOpts, logger logr.Logger) (string, error) {
-	cmdOpts := CmdOpts{
-		Timeout:          timeout,
-		FatalTimeout:     fatalTimeout,
-		Redactor:         opts.Redactor,
-		TimeoutBehavior:  opts.TimeoutBehavior,
-		SkipErrorLogging: opts.SkipErrorLogging,
-		CaptureStderr:    opts.CaptureStderr}
-	return RunCommandExt(cmd, cmdOpts, logger)
-}
-
-type CmdError struct {
-	Args   string
-	Stderr string
-	Cause  error
-}
-
-func (ce *CmdError) Error() string {
-	res := fmt.Sprintf("`%v` failed %v", ce.Args, ce.Cause)
-	if ce.Stderr != "" {
-		res = fmt.Sprintf("%s: %s", res, ce.Stderr)
-	}
-	return res
-}
-
-func (ce *CmdError) String() string {
-	return ce.Error()
-}
-
-func newCmdError(args string, cause error, stderr string) *CmdError {
-	return &CmdError{Args: args, Stderr: stderr, Cause: cause}
-}
-
-// TimeoutBehavior defines behaviour for when the command takes longer than the passed in timeout to exit
-// By default, SIGKILL is sent to the process and it is not waited upon
-type TimeoutBehavior struct {
-	// Signal determines the signal to send to the process
-	Signal syscall.Signal
-	// ShouldWait determines whether to wait for the command to exit once timeout is reached
-	ShouldWait bool
-}
-
-type CmdOpts struct {
-	// Timeout determines how long to wait for the command to exit
-	Timeout time.Duration
-	// FatalTimeout is the amount of additional time to wait after Timeout before fatal SIGKILL
-	FatalTimeout time.Duration
-	// Redactor redacts tokens from the output
-	Redactor func(text string) string
-	// TimeoutBehavior configures what to do in case of timeout
-	TimeoutBehavior TimeoutBehavior
-	// SkipErrorLogging defines whether to skip logging of execution errors (rc > 0)
-	SkipErrorLogging bool
-	// CaptureStderr defines whether to capture stderr in addition to stdout
-	CaptureStderr bool
-}
-
-var DefaultCmdOpts = CmdOpts{
-	Timeout:          time.Duration(0),
-	FatalTimeout:     time.Duration(0),
-	Redactor:         Unredacted,
-	TimeoutBehavior:  TimeoutBehavior{syscall.SIGKILL, false},
-	SkipErrorLogging: false,
-	CaptureStderr:    false,
 }
 
 func Redact(items []string) func(text string) string {
@@ -256,123 +163,6 @@ func RandHex(n int) (string, error) {
 	return hex.EncodeToString(bytes)[0:n], nil
 }
 
-// RunCommandExt is a convenience function to run/log a command and return/log stderr in an error upon
-// failure.
-func RunCommandExt(cmd *exec.Cmd, opts CmdOpts, logger logr.Logger) (string, error) {
-	execId, err := RandHex(5)
-	if err != nil {
-		return "", err
-	}
-	logCtx := logger.WithValues("execID", execId, "dir", cmd.Dir)
-
-	redactor := DefaultCmdOpts.Redactor
-	if opts.Redactor != nil {
-		redactor = opts.Redactor
-	}
-
-	// log in a way we can copy-and-paste into a terminal
-	args := strings.Join(cmd.Args, " ")
-	logging.Debug(logCtx, "running command", "args", redactor(args))
-
-	var stdout bytes.Buffer
-	var stderr bytes.Buffer
-	cmd.Stdout = &stdout
-	cmd.Stderr = &stderr
-
-	start := time.Now()
-	err = cmd.Start()
-	if err != nil {
-		return "", err
-	}
-
-	done := make(chan error)
-	go func() { done <- cmd.Wait() }()
-
-	// Start timers for timeout
-	timeout := DefaultCmdOpts.Timeout
-	fatalTimeout := DefaultCmdOpts.FatalTimeout
-
-	if opts.Timeout != time.Duration(0) {
-		timeout = opts.Timeout
-	}
-
-	if opts.FatalTimeout != time.Duration(0) {
-		fatalTimeout = opts.FatalTimeout
-	}
-
-	var timoutCh <-chan time.Time
-	if timeout != 0 {
-		timoutCh = time.NewTimer(timeout).C
-	}
-
-	var fatalTimeoutCh <-chan time.Time
-	if fatalTimeout != 0 {
-		fatalTimeoutCh = time.NewTimer(timeout + fatalTimeout).C
-	}
-
-	timeoutBehavior := DefaultCmdOpts.TimeoutBehavior
-	fatalTimeoutBehaviour := syscall.SIGKILL
-	if opts.TimeoutBehavior.Signal != syscall.Signal(0) {
-		timeoutBehavior = opts.TimeoutBehavior
-	}
-
-	select {
-	// noinspection ALL
-	case <-timoutCh:
-		// send timeout signal
-		_ = cmd.Process.Signal(timeoutBehavior.Signal)
-		// wait on timeout signal and fallback to fatal timeout signal
-		if timeoutBehavior.ShouldWait {
-			select {
-			case <-done:
-			case <-fatalTimeoutCh:
-				// upgrades to SIGKILL if cmd does not respect SIGTERM
-				_ = cmd.Process.Signal(fatalTimeoutBehaviour)
-				// now original cmd should exit immediately after SIGKILL
-				<-done
-				// return error with a marker indicating that cmd exited only after fatal SIGKILL
-				output := stdout.String()
-				if opts.CaptureStderr {
-					output += stderr.String()
-				}
-				logging.Debug(logCtx, "command output", "duration", time.Since(start), "output", redactor(output))
-				err = newCmdError(redactor(args), fmt.Errorf("fatal timeout after %v", timeout+fatalTimeout), "")
-				logging.Error(logCtx, err, "command failed", "args", redactor(args), "duration", time.Since(start))
-				return strings.TrimSuffix(output, "\n"), err
-			}
-		}
-		// either did not wait for timeout or cmd did respect SIGTERM
-		output := stdout.String()
-		if opts.CaptureStderr {
-			output += stderr.String()
-		}
-		logging.Debug(logCtx, "command output", "duration", time.Since(start), "output", redactor(output))
-		err = newCmdError(redactor(args), fmt.Errorf("timeout after %v", timeout), "")
-		logging.Error(logCtx, err, "command failed", "args", redactor(args), "duration", time.Since(start))
-		return strings.TrimSuffix(output, "\n"), err
-	case err := <-done:
-		if err != nil {
-			output := stdout.String()
-			if opts.CaptureStderr {
-				output += stderr.String()
-			}
-			logging.Debug(logCtx, "command output", "duration", time.Since(start), "output", redactor(output))
-			err := newCmdError(redactor(args), errors.New(redactor(err.Error())), strings.TrimSpace(redactor(stderr.String())))
-			if !opts.SkipErrorLogging {
-				logging.Error(logCtx, err, "command failed", "args", redactor(args), "duration", time.Since(start))
-			}
-			return strings.TrimSuffix(output, "\n"), err
-		}
-	}
-	output := stdout.String()
-	if opts.CaptureStderr {
-		output += stderr.String()
-	}
-	logging.Debug(logCtx, "command output", "duration", time.Since(start), "output", redactor(output))
-
-	return strings.TrimSuffix(output, "\n"), nil
-}
-
 // builtinGitConfig configuration contains statements that are needed
 // for correct ArgoCD operation. These settings will override any
 // user-provided configuration of same options.
@@ -385,6 +175,38 @@ var builtinGitConfig = map[string]string{
 // format acceptable by Git.
 var BuiltinGitConfigEnv []string
 
+// CommitMetadata contains metadata about a commit that is related in some way to another commit.
+type CommitMetadata struct {
+	// Author is the author of the commit.
+	// Comes from the Argocd-reference-commit-author trailer.
+	Author mail.Address
+	// Date is the date of the commit, formatted as by `git show -s --format=%aI`.
+	// May be an empty string if the date is unknown.
+	// Comes from the Argocd-reference-commit-date trailer.
+	Date string
+	// Subject is the commit message subject, i.e. `git show -s --format=%s`.
+	// Comes from the Argocd-reference-commit-subject trailer.
+	Subject string
+	// Body is the commit message body, excluding the subject, i.e. `git show -s --format=%b`.
+	// Comes from the Argocd-reference-commit-body trailer.
+	Body string
+	// SHA is the commit hash.
+	// Comes from the Argocd-reference-commit-sha trailer.
+	SHA string
+	// RepoURL is the URL of the repository where the commit is located.
+	// Comes from the Argocd-reference-commit-repourl trailer.
+	// This value is not validated beyond confirming that it's a URL, and it should not be used to construct UI links
+	// unless it is properly validated and/or sanitised first.
+	RepoURL string
+}
+
+// this should match reposerver/repository/repository.proto/RefsList
+type Refs struct {
+	Branches []string
+	Tags     []string
+	// heads and remotes are also refs, but are not needed at this time.
+}
+
 type EventHandlers struct {
 	OnLsRemote func(repo string) func()
 	OnFetch    func(repo string) func()
@@ -394,7 +216,8 @@ type EventHandlers struct {
 // nativeGitClient implements Client interface using git CLI
 type nativeGitClient struct {
 	EventHandlers
-	log logr.Logger
+	log    logr.Logger
+	config Config
 
 	// URL of the repository
 	repoURL string
@@ -402,7 +225,7 @@ type nativeGitClient struct {
 	root string
 	// Authenticator credentials for private repositories
 	creds Creds
-	// Whether to connect insecurely to repository, e.g. don't verify certificate
+	// Whether to connect insecurely to repository, e.g. don't verifyccertificate
 	insecure bool
 	// HTTP/HTTPS proxy used to access repository
 	proxy string
@@ -414,106 +237,7 @@ type nativeGitClient struct {
 	accessToken string
 }
 
-type runOpts struct {
-	SkipErrorLogging bool
-	CaptureStderr    bool
-}
-
-// TODO: move it to constructor
-func init() {
-	BuiltinGitConfigEnv = append(BuiltinGitConfigEnv, fmt.Sprintf("GIT_CONFIG_COUNT=%d", len(builtinGitConfig)))
-	idx := 0
-	for k, v := range builtinGitConfig {
-		BuiltinGitConfigEnv = append(BuiltinGitConfigEnv, fmt.Sprintf("GIT_CONFIG_KEY_%d=%s", idx, k))
-		BuiltinGitConfigEnv = append(BuiltinGitConfigEnv, fmt.Sprintf("GIT_CONFIG_VALUE_%d=%s", idx, v))
-		idx++
-	}
-}
-
 type ClientOpts func(c *nativeGitClient)
-
-// Returns a HTTP client object suitable for go-git to use using the following
-// pattern:
-//   - If insecure is true, always returns a client with certificate verification
-//     turned off.
-//   - If one or more custom certificates are stored for the repository, returns
-//     a client with those certificates in the list of root CAs used to verify
-//     the server's certificate.
-//   - Otherwise (and on non-fatal errors), a default HTTP client is returned.
-func GetRepoHTTPClient(logger logr.Logger, repoURL string, insecure bool, creds Creds, proxyURL string, noProxy string) *http.Client {
-	// Default HTTP client
-	gitClientTimeout := ParseDurationFromEnv(logger, "KRATIX_GIT_REQUEST_TIMEOUT", 15*time.Second, 0, math.MaxInt64)
-	customHTTPClient := &http.Client{
-		// 15 second timeout by default
-		Timeout: gitClientTimeout,
-		// don't follow redirect
-		CheckRedirect: func(_ *http.Request, _ []*http.Request) error {
-			return http.ErrUseLastResponse
-		},
-	}
-
-	proxyFunc := getProxyCallback(proxyURL, noProxy)
-
-	// Callback function to return any configured client certificate
-	// We never return err, but an empty cert instead.
-	clientCertFunc := func(_ *tls.CertificateRequestInfo) (*tls.Certificate, error) {
-		var err error
-		cert := tls.Certificate{}
-
-		// If we aren't called with GenericHTTPSCreds, then we just return an empty cert
-		httpsCreds, ok := creds.(GenericHTTPSCreds)
-		if !ok {
-			return &cert, nil
-		}
-
-		// If the creds contain client certificate data, we return a TLS.Certificate
-		// populated with the cert and its key.
-		if httpsCreds.HasClientCert() {
-			cert, err = tls.X509KeyPair([]byte(httpsCreds.GetClientCertData()), []byte(httpsCreds.GetClientCertKey()))
-			if err != nil {
-				logging.Error(logr.Discard(), err, "could not load client certificate")
-				return &cert, nil
-			}
-		}
-
-		return &cert, nil
-	}
-	transport := &http.Transport{
-		Proxy: proxyFunc,
-		TLSClientConfig: &tls.Config{
-			// #nosec G402
-			GetClientCertificate: clientCertFunc,
-		},
-		DisableKeepAlives: true,
-	}
-	customHTTPClient.Transport = transport
-	if insecure {
-		transport.TLSClientConfig.InsecureSkipVerify = true
-		return customHTTPClient
-	}
-	parsedURL, err := url.Parse(repoURL)
-	if err != nil {
-		return customHTTPClient
-	}
-	serverCertificatePem, err := getCertificateForConnect(parsedURL.Host)
-	if err != nil {
-		return customHTTPClient
-	}
-	if len(serverCertificatePem) > 0 {
-		certPool := getCertPoolFromPEMData(serverCertificatePem)
-		transport.TLSClientConfig.RootCAs = certPool
-	}
-	return customHTTPClient
-}
-
-const envVarTLSDataPath = "KRATIX_TLS_DATA_PATH"
-
-func getTLSCertificateDataPath() string {
-	if envPath := os.Getenv(envVarTLSDataPath); envPath != "" {
-		return envPath
-	}
-	return DefaultPathTLSConfig
-}
 
 func serverNameWithoutPort(serverName string) string {
 	return strings.Split(serverName, ":")[0]
@@ -544,7 +268,7 @@ func parseTLSCertificatesFromPEM(pemData []byte) ([]string, error) {
 }
 
 func getCertificateForConnect(serverName string) ([]string, error) {
-	dataPath := getTLSCertificateDataPath()
+	dataPath := os.Getenv("KRATIX_TLS_DATA_PATH")
 	certPath, err := filepath.Abs(filepath.Join(dataPath, serverNameWithoutPort(serverName)))
 	if err != nil {
 		return nil, err
@@ -566,7 +290,7 @@ func getCertificateForConnect(serverName string) ([]string, error) {
 }
 
 func getCertBundlePathForRepository(serverName string) string {
-	certPath := filepath.Join(getTLSCertificateDataPath(), serverNameWithoutPort(serverName))
+	certPath := filepath.Join(os.Getenv("KRATIX_TLS_DATA_PATH"), serverNameWithoutPort(serverName))
 	certs, err := getCertificateForConnect(serverName)
 	if err != nil {
 		return ""
@@ -585,6 +309,7 @@ func getCertPoolFromPEMData(pemData []string) *x509.CertPool {
 	return certPool
 }
 
+// TODO: this needs to be documented
 func upsertProxyEnv(cmd *exec.Cmd, proxyURL string, noProxy string) []string {
 	envs := []string{}
 	if proxyURL == "" {
@@ -764,163 +489,9 @@ func (m *nativeGitClient) CommitAndPush(branch, message, author string, email st
 	return commitSha, nil
 }
 
-// runCmd is a convenience function to run a command in a given directory and return its output
-func (m *nativeGitClient) runCmd(ctx context.Context, args ...string) (string, error) {
-	cmd := exec.CommandContext(ctx, "git", args...)
-	return m.runCmdOutput(cmd, runOpts{})
-}
-
-// runCredentialedCmd is a convenience function to run a git command with username/password credentials
-func (m *nativeGitClient) runCredentialedCmd(ctx context.Context, args ...string) error {
-	closer, environ, err := m.creds.Environ(m.log)
-	if err != nil {
-		return err
-	}
-	defer func() { _ = closer.Close() }()
-
-	// If a basic auth header is explicitly set, tell Git to send it to the
-	// server to force use of basic auth instead of negotiating the auth scheme
-	for _, e := range environ {
-		if strings.HasPrefix(e, forceBasicAuthHeaderEnv+"=") {
-			args = append([]string{"--config-env", "http.extraHeader=" + forceBasicAuthHeaderEnv}, args...)
-		} else if strings.HasPrefix(e, bearerAuthHeaderEnv+"=") {
-			args = append([]string{"--config-env", "http.extraHeader=" + bearerAuthHeaderEnv}, args...)
-		}
-	}
-
-	if m.accessToken != "" {
-		urlWithCreds, err := injectGitHubAppCredentials(m.repoURL, m.accessToken)
-		if err != nil {
-			return err
-		}
-		args = append([]string{"-c", fmt.Sprintf("url.'%s'.insteadOf='%s'", urlWithCreds, m.repoURL)}, args...)
-	}
-
-	cmd := exec.CommandContext(ctx, "git", args...)
-	cmd.Env = append(cmd.Env, environ...)
-	_, err = m.runCmdOutput(cmd, runOpts{})
-	return err
-}
-
-func (m *nativeGitClient) runCmdOutput(cmd *exec.Cmd, ropts runOpts) (string, error) {
-	cmd.Dir = m.root
-	cmd.Env = append(os.Environ(), cmd.Env...)
-	// Set $HOME to nowhere, so we can execute Git regardless of any external
-	// authentication keys (e.g. in ~/.ssh) -- this is especially important for
-	// running tests on local machines and/or CircleCI.
-	cmd.Env = append(cmd.Env, "HOME=/dev/null")
-	// Skip LFS for most Git operations except when explicitly requested
-	cmd.Env = append(cmd.Env, "GIT_LFS_SKIP_SMUDGE=1")
-	// Disable Git terminal prompts in case we're running with a tty
-	cmd.Env = append(cmd.Env, "GIT_TERMINAL_PROMPT=false")
-	// Add Git configuration options that are essential for the command to work
-	cmd.Env = append(cmd.Env, m.gitConfigEnv...)
-
-	cmd.Env = append(cmd.Env,
-		"GIT_ASKPASS=true",   // Disable password prompts by setting it to the binary `/bin/true`
-		"GIT_CONFIG_COUNT=1", // Number of config settings
-		"GIT_CONFIG_KEY_0=credential.helper",
-		"GIT_CONFIG_VALUE_0=", // Disable credential helper
-	)
-
-	// For HTTPS repositories, we need to consider insecure repositories as well
-	// as custom CA bundles from the cert database.
-	if IsHTTPSURL(m.repoURL) {
-		if m.insecure {
-			cmd.Env = append(cmd.Env, "GIT_SSL_NO_VERIFY=true")
-		} else {
-			parsedURL, err := url.Parse(m.repoURL)
-			// We don't fail if we cannot parse the URL, but log a warning in that
-			// case. And we execute the command in a verbatim way.
-			if err != nil {
-				logging.Warn(m.log, "could not parse repo URL", "repoURL", m.repoURL)
-			} else {
-				caPath := getCertBundlePathForRepository(parsedURL.Host)
-				if err == nil && caPath != "" {
-					cmd.Env = append(cmd.Env, "GIT_SSL_CAINFO="+caPath)
-				}
-			}
-		}
-	}
-	cmd.Env = upsertProxyEnv(cmd, m.proxy, m.noProxy)
-	opts := ExecRunOpts{
-		TimeoutBehavior: TimeoutBehavior{
-			Signal:     syscall.SIGTERM,
-			ShouldWait: true,
-		},
-		SkipErrorLogging: ropts.SkipErrorLogging,
-		CaptureStderr:    ropts.CaptureStderr,
-	}
-	return RunWithExecRunOpts(cmd, opts, m.log)
-}
-
 // IsHTTPSURL returns true if supplied URL is HTTPS URL
 func IsHTTPSURL(url string) bool {
 	return httpsURLRegex.MatchString(url)
-}
-
-// SupportedSSHKeyExchangeAlgorithms is a list of all currently supported algorithms for SSH key exchange
-// Unfortunately, crypto/ssh does not offer public constants or list for
-// this.
-var SupportedSSHKeyExchangeAlgorithms = []string{
-	"curve25519-sha256",
-	"curve25519-sha256@libssh.org",
-	"ecdh-sha2-nistp256",
-	"ecdh-sha2-nistp384",
-	"ecdh-sha2-nistp521",
-	"diffie-hellman-group-exchange-sha256",
-	"diffie-hellman-group14-sha256",
-	"diffie-hellman-group14-sha1",
-}
-
-// SupportedFIPSCompliantSSHKeyExchangeAlgorithms is a list of all currently supported algorithms for SSH key exchange
-// that are FIPS compliant
-var SupportedFIPSCompliantSSHKeyExchangeAlgorithms = []string{
-	"ecdh-sha2-nistp256",
-	"ecdh-sha2-nistp384",
-	"ecdh-sha2-nistp521",
-	"diffie-hellman-group-exchange-sha256",
-	"diffie-hellman-group14-sha256",
-}
-
-// PublicKeysWithOptions is an auth method for go-git's SSH client that
-// inherits from PublicKeys, but provides the possibility to override
-// some client options.
-type PublicKeysWithOptions struct {
-	KexAlgorithms []string
-	gitssh.PublicKeys
-}
-
-// Name returns the name of the auth method
-func (a *PublicKeysWithOptions) Name() string {
-	return gitssh.PublicKeysName
-}
-
-// String returns the configured user and auth method name as string
-func (a *PublicKeysWithOptions) String() string {
-	return fmt.Sprintf("user: %s, name: %s", a.User, a.Name())
-}
-
-// ClientConfig returns a custom SSH client configuration
-func (a *PublicKeysWithOptions) ClientConfig() (*ssh.ClientConfig, error) {
-	// Algorithms used for kex can be configured
-	var kexAlgos []string
-	if len(a.KexAlgorithms) > 0 {
-		kexAlgos = a.KexAlgorithms
-	} else {
-		kexAlgos = getDefaultSSHKeyExchangeAlgorithms()
-	}
-	config := ssh.Config{KeyExchanges: kexAlgos}
-	opts := &ssh.ClientConfig{Config: config, User: a.User, Auth: []ssh.AuthMethod{ssh.PublicKeys(a.Signer)}}
-	return a.SetHostKeyCallback(opts)
-}
-
-// getDefaultSSHKeyExchangeAlgorithms returns the default key exchange algorithms to be used
-func getDefaultSSHKeyExchangeAlgorithms() []string {
-	if fips140.Enabled() {
-		return SupportedFIPSCompliantSSHKeyExchangeAlgorithms
-	}
-	return SupportedSSHKeyExchangeAlgorithms
 }
 
 // HasFileChanged returns the output of git diff considering whether it is tracked or un-tracked
@@ -953,7 +524,7 @@ func (m *nativeGitClient) HasFileChanged(filePath string) (bool, error) {
 //
 // Parameters:
 //
-//	revision: Specific branch/tag/commit to fetch (empty string fetches all)
+//	revision: Specific branch/tag/commit to 	fetch (empty string fetches all)
 //	depth: Number of commits to fetch (0 for full history)
 //
 // Flags used:
@@ -1078,7 +649,6 @@ func (m *nativeGitClient) HasChanges() (bool, error) {
 // default if env is not set, is not parseable to a duration, exceeds maximum (if
 // maximum is greater than 0) or is less than minimum.
 func ParseDurationFromEnv(logger logr.Logger, env string, defaultValue, minimum, maximum time.Duration) time.Duration {
-
 	logCtx := logger.WithValues()
 
 	str := os.Getenv(env)
