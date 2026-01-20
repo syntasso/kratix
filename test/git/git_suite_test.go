@@ -1,4 +1,4 @@
-package system_test
+package git_writer_test
 
 import (
 	"testing"

@@ -1,4 +1,4 @@
-package system_test
+package git_writer_test
 
 import (
 	"bytes"
@@ -13,7 +13,6 @@ import (
 	"math/rand"
 	"os"
 	"path/filepath"
-	"strings"
 
 	"sigs.k8s.io/controller-runtime/pkg/log/zap"
 
@@ -149,7 +148,7 @@ var _ = Describe("Git tests", Serial, func() {
 					Expect(out).To(BeEmpty())
 				})
 
-				It("successfully pushes to repository", func() {
+				It("successfully pushes to the repository", func() {
 					client, err := git.NewGitClient(git.GitClientRequest{
 						RawRepoURL: httpPrivateRepo,
 						Root:       "",
@@ -160,43 +159,51 @@ var _ = Describe("Git tests", Serial, func() {
 					})
 					Expect(err).ToNot(HaveOccurred())
 
-					repo, err := client.Init()
-					Expect(err).ToNot(HaveOccurred())
-					Expect(repo).ToNot(BeNil())
+					By("checking out the repository", func() {
+						repo, err := client.Init()
+						Expect(err).ToNot(HaveOccurred())
+						Expect(repo).ToNot(BeNil())
 
-					err = client.Fetch("main", 0)
-					Expect(err).ToNot(HaveOccurred())
+						err = client.Fetch("main", 0)
+						Expect(err).ToNot(HaveOccurred())
 
-					out, err := client.Checkout("main")
-					Expect(err).ToNot(HaveOccurred())
-					Expect(out).To(BeEmpty())
+						out, err := client.Checkout("main")
+						Expect(err).ToNot(HaveOccurred())
+						Expect(out).To(BeEmpty())
+					})
 
 					path := filepath.Join(client.Root(), "test.txt")
-					file, err := os.Create(path)
-					Expect(err).ToNot(HaveOccurred())
-					// Defensive: if the file exists as a leftover from a previous test, the commit will still go
-					randomContent := fmt.Sprintf("random-%d\n", rand.Int())
-					_, err = file.WriteString(randomContent)
-					Expect(err).ToNot(HaveOccurred())
-					err = file.Close()
-					Expect(err).ToNot(HaveOccurred())
+					By("creating a new file", func() {
+						file, err := os.Create(path)
+						Expect(err).ToNot(HaveOccurred())
+						// Defensive: if the file exists as a leftover from a previous test, the commit will still go
+						randomContent := fmt.Sprintf("random-%d\n", rand.Int())
+						_, err = file.WriteString(randomContent)
+						Expect(err).ToNot(HaveOccurred())
+						err = file.Close()
+						Expect(err).ToNot(HaveOccurred())
+					})
 
-					_, err = client.CommitAndPush(
-						"main", "TEST: test", "test-user", "test-user@syntasso.io")
-					Expect(err).ToNot(HaveOccurred())
-					Expect(out).To(BeEmpty())
+					By("adding the new file to the repository", func() {
+						_, err = client.CommitAndPush(
+							"main", "TEST: test", "test-user", "test-user@syntasso.io")
+						Expect(err).ToNot(HaveOccurred())
+					})
 
-					// remove the test file
-					err = os.Remove(path)
-					Expect(err).ToNot(HaveOccurred())
+					By("removing the test file", func() {
+						err = os.Remove(path)
+						Expect(err).ToNot(HaveOccurred())
 
-					_, err = client.CommitAndPush(
-						"main", "TEST: test", "test-user", "test-user@syntasso.io")
-					Expect(err).ToNot(HaveOccurred())
-					Expect(out).To(BeEmpty())
+					})
+
+					By("removing the test file from the repository", func() {
+						_, err = client.CommitAndPush(
+							"main", "TEST: test", "test-user", "test-user@syntasso.io")
+						Expect(err).ToNot(HaveOccurred())
+					})
 				})
 
-				It("fails to push to repository due to incosistent branch name", func() {
+				It("fails to push to a remote branch that does not exist", func() {
 					client, err := git.NewGitClient(git.GitClientRequest{
 						RawRepoURL: httpPrivateRepo,
 						Root:       "",
@@ -207,47 +214,47 @@ var _ = Describe("Git tests", Serial, func() {
 					})
 					Expect(err).ToNot(HaveOccurred())
 
-					repo, err := client.Init()
-					Expect(err).ToNot(HaveOccurred())
-					Expect(repo).ToNot(BeNil())
+					By("checking out the repository", func() {
+						repo, err := client.Init()
+						Expect(err).ToNot(HaveOccurred())
+						Expect(repo).ToNot(BeNil())
+					})
 
-					err = client.Fetch("main", 0)
-					Expect(err).ToNot(HaveOccurred())
+					By("checking out the main branch", func() {
+						err = client.Fetch("main", 0)
+						Expect(err).ToNot(HaveOccurred())
 
-					out, err := client.Checkout("main")
-					Expect(err).ToNot(HaveOccurred())
-					Expect(out).To(BeEmpty())
+						out, err := client.Checkout("main")
+						Expect(err).ToNot(HaveOccurred())
+						Expect(out).To(BeEmpty())
+					})
 
 					path := filepath.Join(client.Root(), "test.txt")
-					file, err := os.Create(path)
-					Expect(err).ToNot(HaveOccurred())
-					// Defensive: if the file exists as a leftover from a previous test, the commit will still go
-					randomContent := fmt.Sprintf("random-%d\n", rand.Int())
-					_, err = file.WriteString(randomContent)
-					Expect(err).ToNot(HaveOccurred())
-					err = file.Close()
-					Expect(err).ToNot(HaveOccurred())
+					By("creating a new file", func() {
+						file, err := os.Create(path)
+						Expect(err).ToNot(HaveOccurred())
+						// Defensive: if the file exists as a leftover from a previous test, the commit will still go
+						randomContent := fmt.Sprintf("random-%d\n", rand.Int())
+						_, err = file.WriteString(randomContent)
+						Expect(err).ToNot(HaveOccurred())
+						err = file.Close()
+						Expect(err).ToNot(HaveOccurred())
+					})
 
-					_, err = client.CommitAndPush(
-						"invalid", "TEST: test", "test-user", "test-user@syntasso.io")
-					Expect(err).To(HaveOccurred())
-					Expect(err.Error()).To(ContainSubstring("src refspec invalid does not match any"))
+					By("failing to push the commit to the branch", func() {
+						_, err = client.CommitAndPush(
+							"invalid", "TEST: test", "test-user", "test-user@syntasso.io")
+						Expect(err).To(HaveOccurred())
+						Expect(err.Error()).To(ContainSubstring("src refspec invalid does not match any"))
+					})
 
-					// remove the test file
-					err = os.Remove(path)
-					Expect(err).ToNot(HaveOccurred())
+					By("cleaning out the test file", func() {
+						err = os.Remove(path)
+						Expect(err).ToNot(HaveOccurred())
+					})
 				})
 
-				/*
-					steps:
-					- fetch and checkout main
-					- create a file and make changes on main
-					- call CommitAndPush("another-branch", ...)
-
-					The CommitAndPush method tries to push a branch called another-branch,
-					but local branch is still main and another-branch doesn't exist locally.
-				*/
-				It("fails to push to repository due to missig branch locally", func() {
+				It("fails to push to an existing remote branch it did not check out", func() {
 					client, err := git.NewGitClient(git.GitClientRequest{
 						RawRepoURL: httpPrivateRepo,
 						Root:       "",
@@ -258,35 +265,44 @@ var _ = Describe("Git tests", Serial, func() {
 					})
 					Expect(err).ToNot(HaveOccurred())
 
-					repo, err := client.Init()
-					Expect(err).ToNot(HaveOccurred())
-					Expect(repo).ToNot(BeNil())
+					By("checking out the repository", func() {
+						repo, err := client.Init()
+						Expect(err).ToNot(HaveOccurred())
+						Expect(repo).ToNot(BeNil())
+					})
 
-					err = client.Fetch("main", 0)
-					Expect(err).ToNot(HaveOccurred())
+					By("checking out the main branch", func() {
+						err = client.Fetch("main", 0)
+						Expect(err).ToNot(HaveOccurred())
 
-					out, err := client.Checkout("main")
-					Expect(err).ToNot(HaveOccurred())
-					Expect(out).To(BeEmpty())
+						out, err := client.Checkout("main")
+						Expect(err).ToNot(HaveOccurred())
+						Expect(out).To(BeEmpty())
+					})
 
 					path := filepath.Join(client.Root(), "test.txt")
-					file, err := os.Create(path)
-					Expect(err).ToNot(HaveOccurred())
-					// Defensive: if the file exists as a leftover from a previous test, the commit will still go
-					randomContent := fmt.Sprintf("random-%d\n", rand.Int())
-					_, err = file.WriteString(randomContent)
-					Expect(err).ToNot(HaveOccurred())
-					err = file.Close()
-					Expect(err).ToNot(HaveOccurred())
+					By("creating a new file", func() {
+						file, err := os.Create(path)
+						Expect(err).ToNot(HaveOccurred())
+						// Defensive: if the file exists as a leftover from a previous test, the commit will still go
+						randomContent := fmt.Sprintf("random-%d\n", rand.Int())
+						_, err = file.WriteString(randomContent)
+						Expect(err).ToNot(HaveOccurred())
+						err = file.Close()
+						Expect(err).ToNot(HaveOccurred())
+					})
 
-					_, err = client.CommitAndPush(
-						"another-branch", "TEST: test", "test-user", "test-user@syntasso.io")
-					Expect(err).To(HaveOccurred())
-					Expect(err.Error()).To(ContainSubstring("src refspec another-branch does not match any"))
+					By("failing to push the commit to the branch", func() {
+						_, err = client.CommitAndPush(
+							"another-branch", "TEST: test", "test-user", "test-user@syntasso.io")
+						Expect(err).To(HaveOccurred())
+						Expect(err.Error()).To(ContainSubstring("src refspec another-branch does not match any"))
+					})
 
-					// remove the test file
-					err = os.Remove(path)
-					Expect(err).ToNot(HaveOccurred())
+					By("cleaning out the test file", func() {
+						err = os.Remove(path)
+						Expect(err).ToNot(HaveOccurred())
+					})
 				})
 
 				When("multiple clients are pushing to the same repo", func() {
@@ -610,7 +626,7 @@ var _ = Describe("Git tests", Serial, func() {
 				Expect(err.Error()).To(ContainSubstring("couldn't find remote ref invalid"))
 			})
 
-			It("does not instantiate the writer when appID is incorrect", func() {
+			It("does not instantiate the writer when the appID is incorrect", func() {
 				creds := getGithubAppCreds()
 				creds["appID"] = []byte("1111111")
 
@@ -619,7 +635,7 @@ var _ = Describe("Git tests", Serial, func() {
 				Expect(writer).To(BeNil())
 			})
 
-			It("does not instantiate the writer when installationID is incorrect", func() {
+			It("does not instantiate the writer when the installationID is incorrect", func() {
 				creds := getGithubAppCreds()
 				creds["installationID"] = []byte("1111111")
 
@@ -628,7 +644,7 @@ var _ = Describe("Git tests", Serial, func() {
 				Expect(writer).To(BeNil())
 			})
 
-			It("does not instantiate the writer when privateKey is missing", func() {
+			It("does not instantiate the writer when the privateKey is missing", func() {
 				creds := getGithubAppCreds()
 				delete(creds, "privateKey")
 
@@ -688,7 +704,7 @@ var _ = Describe("Git tests", Serial, func() {
 				Expect(err.Error()).To(ContainSubstring("couldn't find remote ref invalid"))
 			})
 
-			It("successfully close a repo using main branch, then it pushes to a different branch", func() {
+			It("successfully clones a repo using main branch, then pushes to a different branch", func() {
 				spec := *stateStoreSpec
 				writerOne, err := writers.NewGitWriter(logger, spec, dest.Spec.Path, httpCreds)
 				Expect(err).ToNot(HaveOccurred())
@@ -920,8 +936,4 @@ func getStateStoreAndDest(authType, repo string) (*v1alpha1.GitStateStoreSpec, *
 				Path: fmt.Sprintf("%s-dst-path/", authType),
 			},
 		}
-}
-
-func AddSpaces(s string) string {
-	return strings.Join(strings.Split(s, ""), " ")
 }
