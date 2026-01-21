@@ -488,11 +488,3 @@ func (c *inlineCloser) Close() error {
 func NewCloser(closeFn func() error) Closer {
 	return &inlineCloser{close: closeFn}
 }
-
-// Close is a convenience function to close a object that has a Close() method, ignoring any errors
-// Used to satisfy errcheck lint
-func Close(c Closer) {
-	if err := c.Close(); err != nil {
-		log.Warnf("failed to close %v: %v", c, err)
-	}
-}
