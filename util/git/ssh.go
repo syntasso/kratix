@@ -276,11 +276,3 @@ func init() {
 		TempDir = "/dev/shm"
 	}
 }
-
-// DeleteFile is best effort deletion of a file
-func DeleteFile(path string) {
-	if _, err := os.Stat(path); os.IsNotExist(err) {
-		return
-	}
-	_ = os.Remove(path)
-}

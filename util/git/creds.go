@@ -2,7 +2,6 @@ package git
 
 import (
 	"context"
-	"errors"
 	"fmt"
 	"io"
 	"net"
@@ -10,7 +9,6 @@ import (
 	"strconv"
 	"strings"
 
-	giturls "github.com/chainguard-dev/git-urls"
 	"github.com/go-git/go-git/v5/plumbing/transport"
 	githttp "github.com/go-git/go-git/v5/plumbing/transport/http"
 	tx_ssh "github.com/go-git/go-git/v5/plumbing/transport/ssh"
@@ -141,68 +139,6 @@ func domainFromBaseURL(baseURL string) (string, error) {
 	host = h
 
 	return host, nil
-}
-
-// ExtractOrgFromRepoURL extracts the organisation/owner name from a GitHub repository URL.
-// Supports formats:
-//   - HTTPS: https://github.com/org/repo.git
-//   - SSH: git@github.com:org/repo.git
-//   - SSH with port: git@github.com:22/org/repo.git or ssh://git@github.com:22/org/repo.git
-func ExtractOrgFromRepoURL(repoURL string) (string, error) {
-	if repoURL == "" {
-		return "", errors.New("repo URL is empty")
-	}
-
-	// Handle edge case: ssh://git@host:org/repo (malformed but used in practice)
-	// This format mixes ssh:// prefix with colon notation instead of using a slash.
-	// Convert it to git@host:org/repo which git-urls can parse correctly.
-	// We distinguish this from the valid ssh://git@host:22/org/repo (with port number).
-	if strings.HasPrefix(repoURL, "ssh://git@") {
-		remainder := strings.TrimPrefix(repoURL, "ssh://")
-		if colonIdx := strings.Index(remainder, ":"); colonIdx != -1 {
-			afterColon := remainder[colonIdx+1:]
-			slashIdx := strings.Index(afterColon, "/")
-
-			// Check if what follows the colon is a port number
-			isPort := false
-			if slashIdx > 0 {
-				if _, err := strconv.Atoi(afterColon[:slashIdx]); err == nil {
-					isPort = true
-				}
-			}
-
-			// If not a port, it's the malformed format - strip ssh:// prefix
-			if !isPort && slashIdx != 0 {
-				repoURL = remainder
-			}
-		}
-	}
-
-	// Use git-urls library to parse all Git URL formats
-	parsed, err := giturls.Parse(repoURL)
-	if err != nil {
-		return "", fmt.Errorf("failed to parse repository URL %q: %w", repoURL, err)
-	}
-
-	// Clean the path: remove leading/trailing slashes and .git suffix
-	path := strings.Trim(parsed.Path, "/")
-	path = strings.TrimSuffix(path, ".git")
-
-	if path == "" {
-		return "", fmt.Errorf("repository URL %q does not contain a path", repoURL)
-	}
-
-	// Extract the first path component (organisation/owner)
-	// Path format is typically "org/repo" or "org/repo/subpath"
-	if idx := strings.Index(path, "/"); idx > 0 {
-		org := path[:idx]
-		// Normalise to lowercase for case-insensitive comparison
-		return strings.ToLower(org), nil
-	}
-
-	// If there's no slash, the entire path might be just the org (unusual but handle it)
-	// This would fail validation later, but let's return it
-	return "", fmt.Errorf("could not extract organisation from repository URL %q: path %q does not contain org/repo format", repoURL, path)
 }
 
 func SetAuth(stateStoreSpec v1alpha1.GitStateStoreSpec, destinationPath string, creds map[string][]byte) (*Auth, error) {
