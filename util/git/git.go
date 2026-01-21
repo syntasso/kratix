@@ -10,7 +10,6 @@ import (
 	"errors"
 	"fmt"
 	"net/http"
-	"net/mail"
 	"net/url"
 	"os"
 	"os/exec"
@@ -164,7 +163,7 @@ func RandHex(n int) (string, error) {
 }
 
 // builtinGitConfig configuration contains statements that are needed
-// for correct ArgoCD operation. These settings will override any
+// for correct Git-client operation. These settings will override any
 // user-provided configuration of same options.
 var builtinGitConfig = map[string]string{
 	"maintenance.autoDetach": "false",
@@ -175,47 +174,8 @@ var builtinGitConfig = map[string]string{
 // format acceptable by Git.
 var BuiltinGitConfigEnv []string
 
-// CommitMetadata contains metadata about a commit that is related in some way to another commit.
-type CommitMetadata struct {
-	// Author is the author of the commit.
-	// Comes from the Argocd-reference-commit-author trailer.
-	Author mail.Address
-	// Date is the date of the commit, formatted as by `git show -s --format=%aI`.
-	// May be an empty string if the date is unknown.
-	// Comes from the Argocd-reference-commit-date trailer.
-	Date string
-	// Subject is the commit message subject, i.e. `git show -s --format=%s`.
-	// Comes from the Argocd-reference-commit-subject trailer.
-	Subject string
-	// Body is the commit message body, excluding the subject, i.e. `git show -s --format=%b`.
-	// Comes from the Argocd-reference-commit-body trailer.
-	Body string
-	// SHA is the commit hash.
-	// Comes from the Argocd-reference-commit-sha trailer.
-	SHA string
-	// RepoURL is the URL of the repository where the commit is located.
-	// Comes from the Argocd-reference-commit-repourl trailer.
-	// This value is not validated beyond confirming that it's a URL, and it should not be used to construct UI links
-	// unless it is properly validated and/or sanitised first.
-	RepoURL string
-}
-
-// this should match reposerver/repository/repository.proto/RefsList
-type Refs struct {
-	Branches []string
-	Tags     []string
-	// heads and remotes are also refs, but are not needed at this time.
-}
-
-type EventHandlers struct {
-	OnLsRemote func(repo string) func()
-	OnFetch    func(repo string) func()
-	OnPush     func(repo string) func()
-}
-
 // nativeGitClient implements Client interface using git CLI
 type nativeGitClient struct {
-	EventHandlers
 	log    logr.Logger
 	config Config
 
@@ -427,11 +387,6 @@ func (m *nativeGitClient) fetch(ctx context.Context, revision string, depth int6
 func (m *nativeGitClient) Push(branch string, force bool) (string, error) {
 	ctx := context.Background()
 
-	if m.OnPush != nil {
-		done := m.OnPush(m.repoURL)
-		defer done()
-	}
-
 	args := []string{"push", "origin", branch}
 	if force {
 		args = append(args, "--force")
@@ -466,11 +421,6 @@ func (m *nativeGitClient) CommitAndPush(branch, message, author string, email st
 			return out, ErrNothingToCommit
 		}
 		return out, fmt.Errorf("failed to commit: %w", err)
-	}
-
-	if m.OnPush != nil {
-		done := m.OnPush(m.repoURL)
-		defer done()
 	}
 
 	err = m.runCredentialedCmd(ctx,
@@ -538,11 +488,6 @@ func (m *nativeGitClient) HasFileChanged(filePath string) (bool, error) {
 //	--prune: Remove remote-tracking branches that no longer exist on remote
 //	--tags: Fetch all tags (only when depth == 0, as tags don't work well with shallow clones)
 func (m *nativeGitClient) Fetch(revision string, depth int64) error {
-	// TODO: revisit handlers
-	if m.OnFetch != nil {
-		done := m.OnFetch(m.repoURL)
-		defer done()
-	}
 	ctx := context.Background()
 
 	err := m.fetch(ctx, revision, depth)
