@@ -191,7 +191,7 @@ func newBasicAuthCreds(stateStoreSpec v1alpha1.GitStateStoreSpec, creds map[stri
 	}, nil
 }
 
-// Returns a HTTP client object suitable for go-git to use using the following
+// Returns a HTTP client object suitable for git operations using the following
 // pattern:
 //   - If insecure is true, always returns a client with certificate verification
 //     turned off.

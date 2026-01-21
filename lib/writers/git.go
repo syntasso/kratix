@@ -8,8 +8,6 @@ import (
 	"path/filepath"
 	"strings"
 
-	gogit "github.com/go-git/go-git/v5"
-	"github.com/go-git/go-git/v5/plumbing/transport"
 	"github.com/go-logr/logr"
 	"github.com/syntasso/kratix/api/v1alpha1"
 	"github.com/syntasso/kratix/internal/logging"
@@ -28,17 +26,11 @@ type GitWriter struct {
 type gitServer struct {
 	URL    string
 	Branch string
-	Auth   transport.AuthMethod
 }
 
 type gitAuthor struct {
 	Name  string
 	Email string
-}
-
-type GitRepo struct {
-	LocalTmpDir string
-	Repo        *gogit.Repository
 }
 
 func NewGitWriter(logger logr.Logger, stateStoreSpec v1alpha1.GitStateStoreSpec, destinationPath string, creds map[string][]byte) (StateStoreWriter, error) {
@@ -76,7 +68,6 @@ func NewGitWriter(logger logr.Logger, stateStoreSpec v1alpha1.GitStateStoreSpec,
 		GitServer: gitServer{
 			URL:    stateStoreSpec.URL,
 			Branch: stateStoreSpec.Branch,
-			Auth:   auth.AuthMethod,
 		},
 		Author: gitAuthor{
 			Name:  stateStoreSpec.GitAuthor.Name,

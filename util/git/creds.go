@@ -9,10 +9,8 @@ import (
 	"strconv"
 	"strings"
 
-	"github.com/go-git/go-git/v5/plumbing/transport"
-	githttp "github.com/go-git/go-git/v5/plumbing/transport/http"
-	gitssh "github.com/go-git/go-git/v5/plumbing/transport/ssh"
 	"github.com/go-logr/logr"
+	"golang.org/x/crypto/ssh"
 
 	"github.com/syntasso/kratix/api/v1alpha1"
 )
@@ -36,7 +34,6 @@ const (
 )
 
 type Auth struct {
-	transport.AuthMethod
 	Creds
 }
 
@@ -144,8 +141,7 @@ func domainFromBaseURL(baseURL string) (string, error) {
 func SetAuth(stateStoreSpec v1alpha1.GitStateStoreSpec, creds map[string][]byte) (*Auth, error) {
 
 	var (
-		authCreds  Creds
-		authMethod transport.AuthMethod
+		authCreds Creds
 	)
 
 	switch stateStoreSpec.AuthMethod {
@@ -157,23 +153,14 @@ func SetAuth(stateStoreSpec v1alpha1.GitStateStoreSpec, creds map[string][]byte)
 		}
 
 		authCreds = NewSSHCreds(string(sshCreds.SSHPrivateKey), string(sshCreds.KnownHosts), "", false, "")
-
-		sshKey, err := gitssh.NewPublicKeys(sshCreds.SSHUser, sshCreds.SSHPrivateKey, "")
-		if err != nil {
-			return nil, fmt.Errorf("error parsing sshKey: %w", err)
+		if _, err := ssh.ParsePrivateKey(sshCreds.SSHPrivateKey); err != nil {
+			return nil, fmt.Errorf("error parsing ssh private key: %w", err)
 		}
-
-		authMethod = sshKey
 
 	case v1alpha1.BasicAuthMethod:
 		basicCreds, err := newBasicAuthCreds(stateStoreSpec, creds)
 		if err != nil {
 			return nil, err
-		}
-
-		authMethod = &githttp.BasicAuth{
-			Username: basicCreds.Username,
-			Password: basicCreds.Password,
 		}
 
 		authCreds = NewHTTPSCreds(
@@ -198,7 +185,7 @@ func SetAuth(stateStoreSpec v1alpha1.GitStateStoreSpec, creds map[string][]byte)
 			return nil, fmt.Errorf("failed to generate GitHub App JWT: %w", err)
 		}
 
-		token, err := GetGitHubInstallationToken(appCreds.ApiUrl, appCreds.InstallationID, j)
+		_, err = GetGitHubInstallationToken(appCreds.ApiUrl, appCreds.InstallationID, j)
 		if err != nil {
 			return nil, fmt.Errorf("failed to get GitHub installation token: %w", err)
 		}
@@ -206,11 +193,6 @@ func SetAuth(stateStoreSpec v1alpha1.GitStateStoreSpec, creds map[string][]byte)
 		// Git DOES automatically extract the credentials from the URL and
 		// convert them to Authorization: Basic header. But in this scenario
 		// we need to force basic auth, as Git credentials helpers are disabled
-		authMethod = &githttp.BasicAuth{
-			Username: githubAccessTokenUsername,
-			Password: token,
-		}
-
 		appID, err := strconv.Atoi(appCreds.AppID)
 		if err != nil {
 			return nil, fmt.Errorf("could not convert installation ID to int: %w", err)
@@ -235,7 +217,6 @@ func SetAuth(stateStoreSpec v1alpha1.GitStateStoreSpec, creds map[string][]byte)
 	}
 
 	return &Auth{
-		AuthMethod: authMethod,
-		Creds:      authCreds,
+		Creds: authCreds,
 	}, nil
 }

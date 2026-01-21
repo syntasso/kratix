@@ -9,14 +9,11 @@ import (
 	"errors"
 	"fmt"
 	"io"
-	"net/url"
+	urlpkg "net/url"
 	"os"
 	"strings"
 
-	"github.com/go-git/go-git/v5/plumbing/transport"
-	gitssh "github.com/go-git/go-git/v5/plumbing/transport/ssh"
 	"github.com/go-logr/logr"
-	"golang.org/x/crypto/ssh"
 
 	"github.com/syntasso/kratix/api/v1alpha1"
 	"github.com/syntasso/kratix/internal/logging"
@@ -124,7 +121,7 @@ func (c SSHCreds) Environ(logger logr.Logger) (io.Closer, []string, error) {
 	// Handle SSH socks5 proxy settings
 	proxyEnv := []string{}
 	if c.proxy != "" {
-		parsedProxyURL, err := url.Parse(c.proxy)
+		parsedProxyURL, err := urlpkg.Parse(c.proxy)
 		if err != nil {
 			if closeErr := sshCloser.Close(); closeErr != nil {
 				logging.Error(logger, closeErr, "could not close SSH closer")
@@ -191,15 +188,36 @@ func newSSHAuthCreds(stateStoreSpec v1alpha1.GitStateStoreSpec, creds map[string
 	}, nil
 }
 
-func sshUsernameFromURL(url string) (string, error) {
-	ep, err := transport.NewEndpoint(url)
-	if err != nil {
-		return "", fmt.Errorf("failed to parse Git URL: %w", err)
+func sshUsernameFromURL(rawURL string) (string, error) {
+	if strings.Contains(rawURL, "://") {
+		parsed, err := urlpkg.Parse(rawURL)
+		if err != nil {
+			return "", fmt.Errorf("failed to parse Git URL: %w", err)
+		}
+		if parsed.Host == "" {
+			return "", fmt.Errorf("failed to parse Git URL: missing host")
+		}
+		if parsed.User == nil || parsed.User.Username() == "" {
+			return "git", nil
+		}
+		return parsed.User.Username(), nil
 	}
-	if ep.User == "" {
-		return "git", nil
+
+	if strings.Contains(rawURL, "@") && strings.Contains(rawURL, ":") {
+		parts := strings.SplitN(rawURL, "@", 2)
+		user := parts[0]
+		hostAndPath := parts[1]
+		host := strings.SplitN(hostAndPath, ":", 2)[0]
+		if host == "" {
+			return "", fmt.Errorf("failed to parse Git URL: missing host")
+		}
+		if user == "" {
+			return "git", nil
+		}
+		return user, nil
 	}
-	return ep.User, nil
+
+	return "git", nil
 }
 
 func parseRSAPrivateKeyFromPEM(block *pem.Block) (*rsa.PrivateKey, error) {
@@ -239,38 +257,6 @@ var SupportedFIPSCompliantSSHKeyExchangeAlgorithms = []string{
 	"ecdh-sha2-nistp521",
 	"diffie-hellman-group-exchange-sha256",
 	"diffie-hellman-group14-sha256",
-}
-
-// PublicKeysWithOptions is an auth method for go-git's SSH client that
-// inherits from PublicKeys, but provides the possibility to override
-// some client options.
-type PublicKeysWithOptions struct {
-	KexAlgorithms []string
-	gitssh.PublicKeys
-}
-
-// Name returns the name of the auth method
-func (a *PublicKeysWithOptions) Name() string {
-	return gitssh.PublicKeysName
-}
-
-// String returns the configured user and auth method name as string
-func (a *PublicKeysWithOptions) String() string {
-	return fmt.Sprintf("user: %s, name: %s", a.User, a.Name())
-}
-
-// ClientConfig returns a custom SSH client configuration
-func (a *PublicKeysWithOptions) ClientConfig() (*ssh.ClientConfig, error) {
-	// Algorithms used for kex can be configured
-	var kexAlgos []string
-	if len(a.KexAlgorithms) > 0 {
-		kexAlgos = a.KexAlgorithms
-	} else {
-		kexAlgos = getDefaultSSHKeyExchangeAlgorithms()
-	}
-	config := ssh.Config{KeyExchanges: kexAlgos}
-	opts := &ssh.ClientConfig{Config: config, User: a.User, Auth: []ssh.AuthMethod{ssh.PublicKeys(a.Signer)}}
-	return a.SetHostKeyCallback(opts)
 }
 
 // getDefaultSSHKeyExchangeAlgorithms returns the default key exchange algorithms to be used

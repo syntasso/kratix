@@ -17,8 +17,6 @@ import (
 	metav1 "k8s.io/apimachinery/pkg/apis/meta/v1"
 	ctrl "sigs.k8s.io/controller-runtime"
 
-	transporthttp "github.com/go-git/go-git/v5/plumbing/transport/http"
-	"github.com/go-git/go-git/v5/plumbing/transport/ssh"
 	"github.com/go-logr/logr"
 	. "github.com/onsi/ginkgo/v2"
 	. "github.com/onsi/gomega"
@@ -80,10 +78,6 @@ var _ = Describe("NewGitWriter", func() {
 		gitWriter, ok := writer.(*writers.GitWriter)
 		Expect(ok).To(BeTrue())
 		Expect(gitWriter.GitServer.URL).To(Equal("https://github.com/syntasso/kratix"))
-		Expect(gitWriter.GitServer.Auth).To(Equal(&transporthttp.BasicAuth{
-			Username: "user1",
-			Password: "pw1",
-		}))
 		Expect(gitWriter.GitServer.Branch).To(Equal("test"))
 		Expect(gitWriter.Author.Email).To(Equal("test@example.com"))
 		Expect(gitWriter.Author.Name).To(Equal("a-user"))
@@ -131,10 +125,6 @@ var _ = Describe("NewGitWriter", func() {
 			gitWriter, ok := writer.(*writers.GitWriter)
 			Expect(ok).To(BeTrue())
 			Expect(gitWriter.GitServer.URL).To(Equal("test-user@test.ghe.com:test-org/test-state-store.git"))
-			Expect(gitWriter.GitServer.Auth.(*ssh.PublicKeys).User).To(Equal("test-user"))
-			publicKey, ok := gitWriter.GitServer.Auth.(*ssh.PublicKeys)
-			Expect(ok).To(BeTrue())
-			Expect(publicKey).NotTo(BeNil())
 			Expect(gitWriter.GitServer.Branch).To(Equal("test"))
 			Expect(gitWriter.Author.Email).To(Equal("test@example.com"))
 			Expect(gitWriter.Author.Name).To(Equal("a-user"))
@@ -152,10 +142,6 @@ var _ = Describe("NewGitWriter", func() {
 			gitWriter, ok := writer.(*writers.GitWriter)
 			Expect(ok).To(BeTrue())
 			Expect(gitWriter.GitServer.URL).To(Equal("test-user@test.ghe.com:test-org/test-state-store.git"))
-			Expect(gitWriter.GitServer.Auth.(*ssh.PublicKeys).User).To(Equal("test-user"))
-			publicKey, ok := gitWriter.GitServer.Auth.(*ssh.PublicKeys)
-			Expect(ok).To(BeTrue())
-			Expect(publicKey).NotTo(BeNil())
 		})
 	})
 
@@ -193,9 +179,6 @@ var _ = Describe("NewGitWriter", func() {
 			writer, err := writers.NewGitWriter(logger, stateStoreSpec, dest.Spec.Path, creds)
 			Expect(err).NotTo(HaveOccurred())
 			Expect(writer).To(BeAssignableToTypeOf(&writers.GitWriter{}))
-			gitWriter := writer.(*writers.GitWriter)
-			Expect(gitWriter.GitServer.Auth.(*transporthttp.BasicAuth).Username).To(Equal("x-access-token"))
-			Expect(gitWriter.GitServer.Auth.(*transporthttp.BasicAuth).Password).To(Equal("token"))
 			Expect(jwtCalled).To(BeTrue())
 			Expect(tokenCalled).To(BeTrue())
 		})
@@ -222,13 +205,17 @@ var _ = Describe("NewGitWriter", func() {
 		})
 
 		It("returns an error when authentication fails", func() {
-			// Set invalid credentials
-			gitWriter.GitServer.Auth = &transporthttp.BasicAuth{
-				Username: "invalid",
-				Password: "invalid",
+			invalidCreds := map[string][]byte{
+				"username": []byte("invalid"),
+				"password": []byte("invalid"),
 			}
+			writer, err := writers.NewGitWriter(logger, stateStoreSpec, dest.Spec.Path, invalidCreds)
+			Expect(err).NotTo(HaveOccurred())
+			var ok bool
+			gitWriter, ok = writer.(*writers.GitWriter)
+			Expect(ok).To(BeTrue())
 
-			err := gitWriter.ValidatePermissions()
+			err = gitWriter.ValidatePermissions()
 			Expect(err).To(HaveOccurred())
 			Expect(err.Error()).To(Or(
 				ContainSubstring("failed to set up local directory with repo"),
