@@ -2,7 +2,6 @@ package git
 
 import (
 	"context"
-	"crypto/fips140"
 	"crypto/rsa"
 	"crypto/x509"
 	"encoding/pem"
@@ -35,6 +34,17 @@ type sshAuthCreds struct {
 	SSHPrivateKey []byte
 	KnownHosts    []byte
 	SSHUser       string
+}
+
+var (
+	TempDir string
+)
+
+func init() {
+	fileInfo, err := os.Stat("/dev/shm")
+	if err == nil && fileInfo.IsDir() {
+		TempDir = "/dev/shm"
+	}
 }
 
 func NewSSHCreds(sshPrivateKey string, knownHostFile string, caPath string, insecureIgnoreHostKey bool, proxy string) SSHCreds {
@@ -233,47 +243,4 @@ func parseRSAPrivateKeyFromPEM(block *pem.Block) (*rsa.PrivateKey, error) {
 		return rsaKey, nil
 	}
 	return nil, errors.New("private key is not RSA")
-}
-
-// SupportedSSHKeyExchangeAlgorithms is a list of all currently supported algorithms for SSH key exchange
-// Unfortunately, crypto/ssh does not offer public constants or list for
-// this.
-var SupportedSSHKeyExchangeAlgorithms = []string{
-	"curve25519-sha256",
-	"curve25519-sha256@libssh.org",
-	"ecdh-sha2-nistp256",
-	"ecdh-sha2-nistp384",
-	"ecdh-sha2-nistp521",
-	"diffie-hellman-group-exchange-sha256",
-	"diffie-hellman-group14-sha256",
-	"diffie-hellman-group14-sha1",
-}
-
-// SupportedFIPSCompliantSSHKeyExchangeAlgorithms is a list of all currently supported algorithms for SSH key exchange
-// that are FIPS compliant
-var SupportedFIPSCompliantSSHKeyExchangeAlgorithms = []string{
-	"ecdh-sha2-nistp256",
-	"ecdh-sha2-nistp384",
-	"ecdh-sha2-nistp521",
-	"diffie-hellman-group-exchange-sha256",
-	"diffie-hellman-group14-sha256",
-}
-
-// getDefaultSSHKeyExchangeAlgorithms returns the default key exchange algorithms to be used
-func getDefaultSSHKeyExchangeAlgorithms() []string {
-	if fips140.Enabled() {
-		return SupportedFIPSCompliantSSHKeyExchangeAlgorithms
-	}
-	return SupportedSSHKeyExchangeAlgorithms
-}
-
-var (
-	TempDir string
-)
-
-func init() {
-	fileInfo, err := os.Stat("/dev/shm")
-	if err == nil && fileInfo.IsDir() {
-		TempDir = "/dev/shm"
-	}
 }
