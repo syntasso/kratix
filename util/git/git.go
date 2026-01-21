@@ -43,11 +43,9 @@ type Client interface {
 	Clone(string) (string, error)
 	CommitAndPush(branch, message, author, email string) (string, error)
 	Fetch(revision string, depth int64) error
-	HasFileChanged(filePath string) (bool, error)
 	Init() (string, error)
 	Push(branch string, force bool) (string, error)
 	Root() string
-
 	RemoveDirectory(dir string) error
 	RemoveFile(file string) error
 	HasChanges() (bool, error)
@@ -447,30 +445,6 @@ func (m *nativeGitClient) CommitAndPush(branch, message, author string, email st
 // IsHTTPSURL returns true if supplied URL is HTTPS URL
 func IsHTTPSURL(url string) bool {
 	return httpsURLRegex.MatchString(url)
-}
-
-// HasFileChanged returns the output of git diff considering whether it is tracked or un-tracked
-func (m *nativeGitClient) HasFileChanged(filePath string) (bool, error) {
-	// Is it UNTRACKED? (file is new to git)
-	_, err := m.runCmd(context.Background(), "ls-files", "--error-unmatch", filePath)
-	if err != nil {
-		// File is NOT tracked by git → means it's new/unadded
-		logging.Debug(m.log, "ls-files error", "error", err)
-		return true, nil
-	}
-
-	// use git diff --quiet and check exit code .. --cached is to consider files staged for deletion
-	_, err = m.runCmd(context.Background(), "diff", "--quiet", "--", filePath)
-	if err == nil {
-		logging.Debug(m.log, "ls-files changed", "path", filePath)
-		return false, nil // No changes
-	}
-	// Exit code 1 indicates: changes found
-	if strings.Contains(err.Error(), "exit status 1") {
-		return true, nil
-	}
-	// always return the actual wrapped error
-	return false, fmt.Errorf("git diff failed: %w", err)
 }
 
 // Fetch downloads commits, branches, and tags from the remote repository
