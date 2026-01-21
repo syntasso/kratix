@@ -14,7 +14,6 @@ import (
 	"time"
 
 	"github.com/go-logr/logr"
-	log "github.com/sirupsen/logrus"
 
 	"github.com/syntasso/kratix/api/v1alpha1"
 	"github.com/syntasso/kratix/internal/logging"
@@ -90,10 +89,10 @@ func (creds HTTPSCreds) BearerAuthHeader() string {
 
 // Get additional required environment variables for executing git client to
 // access specific repository via HTTPS.
-func (creds HTTPSCreds) Environ(_ logr.Logger) (io.Closer, []string, error) {
+func (creds HTTPSCreds) Environ(logger logr.Logger) (io.Closer, []string, error) {
 	var env []string
 
-	httpCloser := authFilePaths(make([]string, 0))
+	httpCloser := authFilePaths{paths: make([]string, 0)}
 
 	// GIT_SSL_NO_VERIFY is used to tell git not to validate the server's cert at
 	// all.
@@ -105,7 +104,7 @@ func (creds HTTPSCreds) Environ(_ logr.Logger) (io.Closer, []string, error) {
 	// sure git client will use it. The certificate's key must not be password
 	// protected.
 	if creds.HasClientCert() {
-		err := processClientCert(creds, &env, &httpCloser)
+		err := processClientCert(creds, &env, &httpCloser, logger)
 		if err != nil {
 			return NopCloser{}, nil, fmt.Errorf("could not process client certificate: %w", err)
 		}
@@ -126,7 +125,11 @@ func (creds HTTPSCreds) Environ(_ logr.Logger) (io.Closer, []string, error) {
 
 	return NewCloser(func() error {
 		creds.store.Remove(nonce)
-		return httpCloser.Close()
+		if err := httpCloser.Close(); err != nil {
+			logging.Error(logger, err, "could not remove temp file")
+			return err
+		}
+		return nil
 	}), env, nil
 }
 
@@ -151,17 +154,18 @@ func (creds HTTPSCreds) GetClientCertKey() string {
 	return creds.clientCertKey
 }
 
-type authFilePaths []string
+type authFilePaths struct {
+	paths []string
+}
 
 // Remove a list of files that have been created as temp files while creating
 // HTTPCreds object above.
 func (f authFilePaths) Close() error {
 	var retErr error
-	for _, path := range f {
+	for _, path := range f.paths {
 		err := os.Remove(path)
 		if err != nil {
-			log.Errorf("HTTPSCreds.Close(): Could not remove temp file %s: %v", path, err)
-			retErr = err
+			retErr = fmt.Errorf("could not remove temp file %s: %w", path, err)
 		}
 	}
 	return retErr

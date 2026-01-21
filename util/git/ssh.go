@@ -16,10 +16,10 @@ import (
 	"github.com/go-git/go-git/v5/plumbing/transport"
 	gitssh "github.com/go-git/go-git/v5/plumbing/transport/ssh"
 	"github.com/go-logr/logr"
-	log "github.com/sirupsen/logrus"
 	"golang.org/x/crypto/ssh"
 
 	"github.com/syntasso/kratix/api/v1alpha1"
+	"github.com/syntasso/kratix/internal/logging"
 )
 
 var _ Creds = SSHCreds{}
@@ -57,21 +57,22 @@ func (c SSHCreds) GetUserInfo(_ context.Context, _ logr.Logger) (string, string,
 	return "", "", nil
 }
 
-type sshPrivateFiles []string
+type sshPrivateFiles struct {
+	paths []string
+}
 
 func (f sshPrivateFiles) Close() error {
 	var retErr error
-	for _, path := range f {
+	for _, path := range f.paths {
 		err := os.Remove(path)
 		if err != nil {
-			log.Errorf("SSHCreds.Close(): Could not remove temp file %s: %v", path, err)
-			retErr = err
+			retErr = fmt.Errorf("could not remove temp file %s: %w", path, err)
 		}
 	}
 	return retErr
 }
 
-func (c SSHCreds) Environ(_ logr.Logger) (io.Closer, []string, error) {
+func (c SSHCreds) Environ(logger logr.Logger) (io.Closer, []string, error) {
 	// use the SHM temp dir from util, more secure
 	file, err := os.CreateTemp(TempDir, "")
 	if err != nil {
@@ -80,10 +81,17 @@ func (c SSHCreds) Environ(_ logr.Logger) (io.Closer, []string, error) {
 
 	defer func() {
 		if err = file.Close(); err != nil {
-			log.WithFields(log.Fields{
-				SecurityField:    SecurityMedium,
-				SecurityCWEField: SecurityCWEMissingReleaseOfFileDescriptor,
-			}).Errorf("error closing file %q: %v", file.Name(), err)
+			logging.Error(
+				logger,
+				err,
+				"error closing file",
+				"file",
+				file.Name(),
+				SecurityField,
+				SecurityMedium,
+				SecurityCWEField,
+				SecurityCWEMissingReleaseOfFileDescriptor,
+			)
 		}
 	}()
 
@@ -92,13 +100,15 @@ func (c SSHCreds) Environ(_ logr.Logger) (io.Closer, []string, error) {
 		return nil, nil, err
 	}
 
-	sshCloser := sshPrivateFiles{file.Name(), c.knownHostsFile}
+	sshCloser := sshPrivateFiles{
+		paths: []string{file.Name(), c.knownHostsFile},
+	}
 
 	_, err = file.WriteString(c.sshPrivateKey + "\n")
 	if err != nil {
 		closeErr := sshCloser.Close()
 		if closeErr != nil {
-			log.Errorf("could not close SSH private key file: %v", closeErr)
+			logging.Error(logger, closeErr, "could not close SSH private key file")
 		}
 		return nil, nil, fmt.Errorf("could not write SSH private key: %w", err)
 	}
@@ -116,9 +126,8 @@ func (c SSHCreds) Environ(_ logr.Logger) (io.Closer, []string, error) {
 	if c.proxy != "" {
 		parsedProxyURL, err := url.Parse(c.proxy)
 		if err != nil {
-			closeErr := sshCloser.Close()
-			if closeErr != nil {
-				log.Errorf("could not close SSH closer: %v", err)
+			if closeErr := sshCloser.Close(); closeErr != nil {
+				logging.Error(logger, closeErr, "could not close SSH closer")
 			}
 			return nil, nil, fmt.Errorf("failed to set environment variables related to socks5 proxy, could not parse proxy URL '%s': %w", c.proxy, err)
 		}
@@ -135,7 +144,13 @@ func (c SSHCreds) Environ(_ logr.Logger) (io.Closer, []string, error) {
 	env = append(env, []string{"GIT_SSH_COMMAND=" + strings.Join(args, " ")}...)
 	env = append(env, proxyEnv...)
 
-	return sshCloser, env, nil
+	return NewCloser(func() error {
+		if err := sshCloser.Close(); err != nil {
+			logging.Error(logger, err, "could not remove temp file")
+			return err
+		}
+		return nil
+	}), env, nil
 }
 
 func getSSHKnownHostsDataPath(c *SSHCreds) error {

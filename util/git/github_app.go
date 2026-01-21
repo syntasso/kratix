@@ -22,9 +22,9 @@ import (
 	"github.com/golang-jwt/jwt/v5"
 	"github.com/google/go-github/v69/github"
 	gocache "github.com/patrickmn/go-cache"
-	log "github.com/sirupsen/logrus"
 
 	"github.com/syntasso/kratix/api/v1alpha1"
+	"github.com/syntasso/kratix/internal/logging"
 )
 
 var (
@@ -64,7 +64,7 @@ func NewGitHubAppCreds(appID int64, appInstallId int64, privateKey string, baseU
 }
 
 // Now make the function generic
-func processClientCert[T ClientCertProvider](creds T, env *[]string, httpCloser *authFilePaths) error {
+func processClientCert[T ClientCertProvider](creds T, env *[]string, httpCloser *authFilePaths, logger logr.Logger) error {
 	var certFile, keyFile *os.File
 
 	certFile, err := os.CreateTemp(TempDir, "")
@@ -73,7 +73,7 @@ func processClientCert[T ClientCertProvider](creds T, env *[]string, httpCloser 
 	}
 	defer func() {
 		if err := certFile.Close(); err != nil {
-			log.Errorf("Could not close certFile: %v", err)
+			logging.Error(logger, err, "could not close cert file", "path", certFile.Name())
 		}
 	}()
 
@@ -81,23 +81,22 @@ func processClientCert[T ClientCertProvider](creds T, env *[]string, httpCloser 
 	if err != nil {
 		removeErr := os.Remove(certFile.Name())
 		if removeErr != nil {
-			log.Errorf("could not remove previously created tempfile %s: %v", certFile.Name(), removeErr)
+			logging.Error(logger, removeErr, "could not remove previously created temp file", "path", certFile.Name())
 		}
 		return err
 	}
 	defer func() {
 		if err := keyFile.Close(); err != nil {
-			log.Errorf("could not close keyFile: %v", err)
+			logging.Error(logger, err, "could not close key file", "path", keyFile.Name())
 		}
 	}()
 
-	*httpCloser = authFilePaths([]string{certFile.Name(), keyFile.Name()})
+	httpCloser.paths = []string{certFile.Name(), keyFile.Name()}
 
 	_, err = certFile.WriteString(creds.GetClientCertData())
 	if err != nil {
-		closeErr := httpCloser.Close()
-		if closeErr != nil {
-			log.Errorf("could not close httpCloser: %v", err)
+		if closeErr := httpCloser.Close(); closeErr != nil {
+			logging.Error(logger, closeErr, "could not close http closer")
 		}
 		return err
 	}
@@ -105,9 +104,8 @@ func processClientCert[T ClientCertProvider](creds T, env *[]string, httpCloser 
 
 	_, err = keyFile.WriteString(creds.GetClientCertKey())
 	if err != nil {
-		closeErr := httpCloser.Close()
-		if closeErr != nil {
-			log.Errorf("could not close httpCloser: %v", err)
+		if closeErr := httpCloser.Close(); closeErr != nil {
+			logging.Error(logger, closeErr, "could not close http closer")
 		}
 		return err
 	}
@@ -122,7 +120,7 @@ func (g GitHubAppCreds) Environ(logger logr.Logger) (io.Closer, []string, error)
 		return NopCloser{}, nil, err
 	}
 	var env []string
-	httpCloser := authFilePaths(make([]string, 0))
+	httpCloser := authFilePaths{paths: make([]string, 0)}
 
 	// GIT_SSL_NO_VERIFY is used to tell git not to validate the server's cert at all.
 	if g.insecure {
@@ -133,7 +131,7 @@ func (g GitHubAppCreds) Environ(logger logr.Logger) (io.Closer, []string, error)
 	// sure git client will use it. The certificate's key must not be password
 	// protected.
 	if g.HasClientCert() {
-		err := processClientCert(g, &env, &httpCloser)
+		err := processClientCert(g, &env, &httpCloser, logger)
 		if err != nil {
 			return NopCloser{}, nil, fmt.Errorf("could not process client certificate: %w", err)
 		}
@@ -145,7 +143,11 @@ func (g GitHubAppCreds) Environ(logger logr.Logger) (io.Closer, []string, error)
 	env = append(env, g.store.Environ(nonce)...)
 	return NewCloser(func() error {
 		g.store.Remove(nonce)
-		return httpCloser.Close()
+		if err := httpCloser.Close(); err != nil {
+			logging.Error(logger, err, "could not remove temp file")
+			return err
+		}
+		return nil
 	}), env, nil
 }
 
