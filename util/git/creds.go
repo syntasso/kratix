@@ -11,7 +11,7 @@ import (
 
 	"github.com/go-git/go-git/v5/plumbing/transport"
 	githttp "github.com/go-git/go-git/v5/plumbing/transport/http"
-	tx_ssh "github.com/go-git/go-git/v5/plumbing/transport/ssh"
+	gitssh "github.com/go-git/go-git/v5/plumbing/transport/ssh"
 	"github.com/go-logr/logr"
 
 	"github.com/syntasso/kratix/api/v1alpha1"
@@ -141,7 +141,7 @@ func domainFromBaseURL(baseURL string) (string, error) {
 	return host, nil
 }
 
-func SetAuth(stateStoreSpec v1alpha1.GitStateStoreSpec, destinationPath string, creds map[string][]byte) (*Auth, error) {
+func SetAuth(stateStoreSpec v1alpha1.GitStateStoreSpec, creds map[string][]byte) (*Auth, error) {
 
 	var (
 		authCreds  Creds
@@ -158,7 +158,7 @@ func SetAuth(stateStoreSpec v1alpha1.GitStateStoreSpec, destinationPath string, 
 
 		authCreds = NewSSHCreds(string(sshCreds.SSHPrivateKey), string(sshCreds.KnownHosts), "", false, "")
 
-		sshKey, err := tx_ssh.NewPublicKeys(sshCreds.SSHUser, sshCreds.SSHPrivateKey, "")
+		sshKey, err := gitssh.NewPublicKeys(sshCreds.SSHUser, sshCreds.SSHPrivateKey, "")
 		if err != nil {
 			return nil, fmt.Errorf("error parsing sshKey: %w", err)
 		}
