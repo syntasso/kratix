@@ -1,4 +1,4 @@
-// Derived from Argo CD (https://github.com/argoproj/argo-cd/commit/559dc16e7216dc8e250eeb69f78f749396a74e9f),
+// Derived from Argo CD (https://github.com/argoproj/argo-cd/commit/c56f4400f22c7e9fe9c5c12b85576b74369fb6b8),
 // licensed under the Apache License, Version 2.0.
 //
 // Modifications Copyright 2026 Syntasso
