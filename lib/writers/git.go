@@ -54,8 +54,6 @@ func NewGitWriter(logger logr.Logger, stateStoreSpec v1alpha1.GitStateStoreSpec,
 			// due to pre-existing setting:
 			// https://github.com/syntasso/kratix/blob/59231e70b0a4a428067e3b909fd2e9dc07110997/lib/writers/git.go#L373
 			Insecure: true,
-			Proxy:    "",
-			NoProxy:  "",
 			Log:      logger,
 		})
 	if err != nil {
