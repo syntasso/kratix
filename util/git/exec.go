@@ -143,9 +143,9 @@ func RunCommandExt(cmd *exec.Cmd, opts CmdOpts, logger logr.Logger) (string, err
 		fatalTimeout = opts.FatalTimeout
 	}
 
-	var timoutCh <-chan time.Time
+	var timeoutCh <-chan time.Time
 	if timeout != 0 {
-		timoutCh = time.NewTimer(timeout).C
+		timeoutCh = time.NewTimer(timeout).C
 	}
 
 	var fatalTimeoutCh <-chan time.Time
