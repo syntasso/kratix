@@ -214,18 +214,6 @@ func (g *GitWriter) ReadFile(filePath string) ([]byte, error) {
 	return content, nil
 }
 
-// validatePush attempts to validate write permissions by pushing no changes to the remote
-// If the push doesn't return an error, it means we can write.
-func (g *GitWriter) validatePush(logger logr.Logger) error {
-	_, err := g.Push(g.GitServer.Branch, false)
-	if err != nil {
-		return fmt.Errorf("write permission validation failed: %w", err)
-	}
-	logging.Info(logger, "push validation successful - repository is up-to-date")
-
-	return nil
-}
-
 // ValidatePermissions checks if the GitWriter has the necessary permissions to write to the repository.
 // It performs a dry run validation to check authentication and branch existence without making changes.
 func (g *GitWriter) ValidatePermissions() error {
@@ -236,8 +224,9 @@ func (g *GitWriter) ValidatePermissions() error {
 	}
 	defer os.RemoveAll(localDir) //nolint:errcheck
 
-	if err := g.validatePush(g.Log); err != nil {
-		return err
+	_, err := g.Push(g.GitServer.Branch, false)
+	if err != nil {
+		return fmt.Errorf("write permission validation failed: %w", err)
 	}
 
 	logging.Info(g.Log, "successfully validated git repository permissions")
