@@ -183,7 +183,7 @@ type nativeGitClient struct {
 	root string
 	// Authenticator credentials for private repositories
 	creds Creds
-	// Whether to connect insecurely to repository, e.g. don't verifyccertificate
+	// Whether to connect insecurely to repository, e.g. don't verify certificate
 	insecure bool
 	// HTTP/HTTPS proxy used to access repository
 	proxy string
