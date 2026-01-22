@@ -161,7 +161,7 @@ func RunCommandExt(cmd *exec.Cmd, opts CmdOpts, logger logr.Logger) (string, err
 
 	select {
 	// noinspection ALL
-	case <-timoutCh:
+	case <-timeoutCh:
 		// send timeout signal
 		_ = cmd.Process.Signal(timeoutBehavior.Signal)
 		// wait on timeout signal and fallback to fatal timeout signal
