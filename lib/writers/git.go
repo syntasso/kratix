@@ -20,7 +20,8 @@ type GitWriter struct {
 	Path      string
 	Log       logr.Logger
 	BasicAuth bool
-	git.Client
+
+	Runner GitExecutor
 }
 
 type gitServer struct {
@@ -33,8 +34,19 @@ type gitAuthor struct {
 	Email string
 }
 
-func NewGitWriter(logger logr.Logger, stateStoreSpec v1alpha1.GitStateStoreSpec, destinationPath string, creds map[string][]byte) (StateStoreWriter, error) {
+type GitExecutor interface {
+	Add(files ...string) (string, error)
+	Clone(branch string) (repoDir string, err error)
+	CommitAndPush(branch, message, author, email string) (string, error)
+	Push(branch string, force bool) (string, error)
+	Root() string
+	HasChanges() (bool, error)
+	// TODO: merge these two methods
+	RemoveDirectory(dir string) error
+	RemoveFile(file string) error
+}
 
+func NewGitWriter(logger logr.Logger, stateStoreSpec v1alpha1.GitStateStoreSpec, destinationPath string, creds map[string][]byte) (StateStoreWriter, error) {
 	repoPath := strings.TrimPrefix(path.Join(
 		stateStoreSpec.Path,
 		destinationPath,
@@ -76,7 +88,7 @@ func NewGitWriter(logger logr.Logger, stateStoreSpec v1alpha1.GitStateStoreSpec,
 			"branch", stateStoreSpec.Branch,
 		),
 		Path:   repoPath,
-		Client: nativeGitClient,
+		Runner: nativeGitClient,
 	}
 
 	return gw, nil
@@ -91,12 +103,12 @@ func (g *GitWriter) update(subDir, workPlacementName string, workloadsToCreate [
 		return "", nil
 	}
 
-	localDir, err := g.Clone(g.GitServer.Branch)
+	localDir, err := g.Runner.Clone(g.GitServer.Branch)
 	if err != nil {
 		return "", err
 	}
 
-	dirInGitRepo := filepath.Join(g.Root(), g.Path, subDir)
+	dirInGitRepo := filepath.Join(g.Runner.Root(), g.Path, subDir)
 	logger := g.Log.WithValues(
 		"dir", dirInGitRepo,
 		"branch", g.GitServer.Branch,
@@ -141,7 +153,7 @@ func (g *GitWriter) update(subDir, workPlacementName string, workloadsToCreate [
 			return "", err
 		}
 
-		if _, err := g.Add(absoluteFilePath); err != nil {
+		if _, err := g.Runner.Add(absoluteFilePath); err != nil {
 			logging.Error(log, err, "could not add file to worktree")
 			return "", err
 		}
@@ -162,14 +174,14 @@ func (g *GitWriter) deleteExistingFiles(removeDirectory bool, dir string, worklo
 	if removeDirectory {
 		if _, err := os.Lstat(dir); err == nil {
 			logging.Info(logger, "deleting existing content")
-			if err := g.RemoveDirectory(dir); err != nil {
+			if err := g.Runner.RemoveDirectory(dir); err != nil {
 				logging.Error(logger, err, "could not add directory deletion to worktree", "dir", dir)
 				return err
 			}
 		}
 	} else {
 		for _, file := range workloadsToDelete {
-			filePath := filepath.Join(g.Root(), file)
+			filePath := filepath.Join(g.Runner.Root(), file)
 			log := logger.WithValues(
 				"filepath", filePath,
 			)
@@ -177,7 +189,7 @@ func (g *GitWriter) deleteExistingFiles(removeDirectory bool, dir string, worklo
 				logging.Debug(log, "file requested to be deleted from worktree but does not exist")
 				continue
 			}
-			if err := g.RemoveFile(file); err != nil {
+			if err := g.Runner.RemoveFile(file); err != nil {
 				logging.Error(logger, err, "could not remove file from worktree")
 				return err
 			}
@@ -189,13 +201,13 @@ func (g *GitWriter) deleteExistingFiles(removeDirectory bool, dir string, worklo
 
 func (g *GitWriter) ReadFile(filePath string) ([]byte, error) {
 
-	localDir, err := g.Clone(g.GitServer.Branch)
+	localDir, err := g.Runner.Clone(g.GitServer.Branch)
 	if err != nil {
 		return nil, err
 	}
 	defer os.RemoveAll(filepath.Dir(localDir)) //nolint:errcheck
 
-	fullPath := filepath.Join(g.Root(), filePath)
+	fullPath := filepath.Join(g.Runner.Root(), filePath)
 	logger := g.Log.WithValues(
 		"Path", fullPath,
 		"branch", g.GitServer.Branch,
@@ -218,13 +230,13 @@ func (g *GitWriter) ReadFile(filePath string) ([]byte, error) {
 // It performs a dry run validation to check authentication and branch existence without making changes.
 func (g *GitWriter) ValidatePermissions() error {
 	// Setup local directory with repo (this already checks if we can clone - read access)
-	localDir, cloneErr := g.Clone(g.GitServer.Branch)
+	localDir, cloneErr := g.Runner.Clone(g.GitServer.Branch)
 	if cloneErr != nil && !errors.Is(cloneErr, ErrAuthSucceededAfterTrim) {
 		return fmt.Errorf("failed to set up local directory with repo: %w", cloneErr)
 	}
 	defer os.RemoveAll(localDir) //nolint:errcheck
 
-	_, err := g.Push(g.GitServer.Branch, false)
+	_, err := g.Runner.Push(g.GitServer.Branch, false)
 	if err != nil {
 		return fmt.Errorf("write permission validation failed: %w", err)
 	}
@@ -234,7 +246,7 @@ func (g *GitWriter) ValidatePermissions() error {
 }
 
 func (g *GitWriter) commitAndPush(action, workPlacementName string, logger logr.Logger) (string, error) {
-	hasChanged, err := g.HasChanges()
+	hasChanged, err := g.Runner.HasChanges()
 	if err != nil {
 		logging.Error(logger, err, "could not get check local changes")
 		return "", err
@@ -248,7 +260,7 @@ func (g *GitWriter) commitAndPush(action, workPlacementName string, logger logr.
 
 	// Run a commit with author and message
 	commitMsg := fmt.Sprintf("%s from: %s", action, workPlacementName)
-	commitSha, err := g.CommitAndPush(g.GitServer.Branch, commitMsg, g.Author.Name, g.Author.Email)
+	commitSha, err := g.Runner.CommitAndPush(g.GitServer.Branch, commitMsg, g.Author.Name, g.Author.Email)
 	if err != nil {
 		logging.Error(logger, err, "could not push changes")
 		return "", err

@@ -38,6 +38,7 @@ const (
 	SecurityMedium                            = 2 // Could indicate malicious events, but has a high likelihood of being user/system error (i.e. access denied)
 )
 
+// TODO: simplify this type to just be a Creds interface
 type Auth struct {
 	Creds
 }
@@ -143,6 +144,7 @@ func domainFromBaseURL(baseURL string) (string, error) {
 	return host, nil
 }
 
+// TODO: migrate the test from the writers/git to a package level test
 func SetAuth(stateStoreSpec v1alpha1.GitStateStoreSpec, creds map[string][]byte) (*Auth, error) {
 
 	var (

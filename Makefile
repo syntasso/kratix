@@ -246,8 +246,14 @@ run-system-test: fmt vet
 
 .PHONY: run-git-integration-test
 run-git-integration-test: fmt vet ## Runs the integration test suite for the Git client
+	@if [ "$${CI:-false}" != "true" ]; then \
+		export TEST_GIT_WRITER_GITHUB_SSH_PRIVATE_KEY="$${TEST_GIT_WRITER_GITHUB_SSH_PRIVATE_KEY:-$$(lpass show 'Shared-Product Development /git-writer-test-rsa-rw' --field='Private Key' | base64)}"; \
+		export TEST_GIT_WRITER_GITHUB_HTTP_PAT="$${TEST_GIT_WRITER_GITHUB_HTTP_PAT:-$$(lpass show 'Shared-Product Development /syntassodev ghcr read/write' --notes)}"; \
+		export TEST_GIT_WRITER_GITHUB_APP_PRIVATE_KEY="$${TEST_GIT_WRITER_GITHUB_APP_PRIVATE_KEY:-$$(lpass show 'Shared-Product Development /GitHub App testing-git-writer' --notes | tail -n +6 | base64)}"; \
+		export TEST_GIT_WRITER_GITHUB_APP_ID="$${TEST_GIT_WRITER_GITHUB_APP_ID:-2625348}"; \
+		export TEST_GIT_WRITER_GITHUB_APP_INSTALLATION_ID="$${TEST_GIT_WRITER_GITHUB_APP_INSTALLATION_ID:-103412574}"; \
+	fi; \
 	go run ${GINKGO} ${GINKGO_FLAGS} ./test/git/  --coverprofile cover.out
-
 
 fmt: ## Run go fmt against code.
 	go fmt ./...

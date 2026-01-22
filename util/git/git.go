@@ -41,21 +41,6 @@ var (
 	httpsURLRegex = regexp.MustCompile("^(https://).*")
 )
 
-// Client is a generic git client interface
-type Client interface {
-	Add(files ...string) (string, error)
-	Checkout(revision string) (string, error)
-	Clone(string) (string, error)
-	CommitAndPush(branch, message, author, email string) (string, error)
-	Fetch(revision string, depth int64) error
-	Init() (string, error)
-	Push(branch string, force bool) (string, error)
-	Root() string
-	RemoveDirectory(dir string) error
-	RemoveFile(file string) error
-	HasChanges() (bool, error)
-}
-
 type GitClientRequest struct {
 	RawRepoURL string
 	Root       string
@@ -67,8 +52,7 @@ type GitClientRequest struct {
 	Log        logr.Logger
 }
 
-func NewGitClient(req GitClientRequest) (Client, error) {
-
+func NewGitClient(req GitClientRequest) (*nativeGitClient, error) {
 	var accessToken string
 
 	switch req.Auth.Creds.(type) {
@@ -132,7 +116,6 @@ func injectGitHubAppCredentials(gitURL, token string) (string, error) {
 }
 
 func (m *nativeGitClient) setConfig() {
-
 	timeout = m.config.Timeout
 	fatalTimeout = m.config.FatalTimeout
 
@@ -272,7 +255,6 @@ func getCertPoolFromPEMData(pemData []string) *x509.CertPool {
 	return certPool
 }
 
-// TODO: this needs to be documented
 func upsertProxyEnv(cmd *exec.Cmd, proxyURL string, noProxy string) []string {
 	envs := []string{}
 	if proxyURL == "" {
@@ -406,13 +388,13 @@ func (m *nativeGitClient) Push(branch string, force bool) (string, error) {
 // CommitAndPush commits and pushes changes to the target branch.
 func (m *nativeGitClient) CommitAndPush(branch, message, author string, email string) (string, error) {
 	ctx := context.Background()
-	out, err := m.runCmd(ctx, "add", ".")
-	if err != nil {
-		return out, fmt.Errorf("failed to add files: %w", err)
-	}
+	// out, err := m.runCmd(ctx, "add", ".")
+	// if err != nil {
+	// 	return out, fmt.Errorf("failed to add files: %w", err)
+	// }
 
 	authorId := fmt.Sprintf("%s <%s>", author, email)
-	out, err = m.runCmd(ctx,
+	out, err := m.runCmd(ctx,
 		"-c", fmt.Sprintf("user.name=%s", author),
 		"-c", fmt.Sprintf("user.email=%s", email),
 		"commit",
@@ -529,7 +511,7 @@ func (m *nativeGitClient) Clone(branch string) (string, error) {
 		return "", fmt.Errorf("could not run init: %w", err)
 	}
 
-	err = m.Fetch(branch, 0)
+	err = m.Fetch(branch, 1)
 	if err != nil {
 		return "", fmt.Errorf("could not run fetch: %w", err)
 	}
