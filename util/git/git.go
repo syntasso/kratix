@@ -520,16 +520,20 @@ func (m *nativeGitClient) Checkout(revision string) (string, error) {
 // from a remote URL. Creates the .git directory, downloads all commits, branches,
 // and tags, sets up remote tracking, and checks out a desired branch. This is
 // a one-time setup operation for getting a repository for the first time.
+// It will return the temporary location where the repository was checked out.
 func (m *nativeGitClient) Clone(branch string) (string, error) {
 	logging.Debug(m.log, "cloning repo")
+
 	localDir, err := m.Init()
 	if err != nil {
 		return "", fmt.Errorf("could not run init: %w", err)
 	}
+
 	err = m.Fetch(branch, 0)
 	if err != nil {
 		return "", fmt.Errorf("could not run fetch: %w", err)
 	}
+
 	out, err := m.Checkout(branch)
 	if err != nil {
 		logging.Error(m.log, err, "could not clone repo: %v", out)

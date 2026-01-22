@@ -91,7 +91,7 @@ func (g *GitWriter) update(subDir, workPlacementName string, workloadsToCreate [
 		return "", nil
 	}
 
-	localDir, err := g.setupLocalDirectoryWithRepo()
+	localDir, err := g.Clone(g.GitServer.Branch)
 	if err != nil {
 		return "", err
 	}
@@ -189,7 +189,7 @@ func (g *GitWriter) deleteExistingFiles(removeDirectory bool, dir string, worklo
 
 func (g *GitWriter) ReadFile(filePath string) ([]byte, error) {
 
-	localDir, err := g.setupLocalDirectoryWithRepo()
+	localDir, err := g.Clone(g.GitServer.Branch)
 	if err != nil {
 		return nil, err
 	}
@@ -214,17 +214,6 @@ func (g *GitWriter) ReadFile(filePath string) ([]byte, error) {
 	return content, nil
 }
 
-// Initialise a local directory with the Git repository and returns
-// localDir that should be cleaned up after use.
-func (g *GitWriter) setupLocalDirectoryWithRepo() (string, error) {
-	localDir, err := g.Clone(g.GitServer.Branch)
-	if err != nil {
-		return "", fmt.Errorf("could not clone: %w", err)
-	}
-
-	return localDir, nil
-}
-
 // validatePush attempts to validate write permissions by pushing no changes to the remote
 // If the push doesn't return an error, it means we can write.
 func (g *GitWriter) validatePush(logger logr.Logger) error {
@@ -241,7 +230,7 @@ func (g *GitWriter) validatePush(logger logr.Logger) error {
 // It performs a dry run validation to check authentication and branch existence without making changes.
 func (g *GitWriter) ValidatePermissions() error {
 	// Setup local directory with repo (this already checks if we can clone - read access)
-	localDir, cloneErr := g.setupLocalDirectoryWithRepo()
+	localDir, cloneErr := g.Clone(g.GitServer.Branch)
 	if cloneErr != nil && !errors.Is(cloneErr, ErrAuthSucceededAfterTrim) {
 		return fmt.Errorf("failed to set up local directory with repo: %w", cloneErr)
 	}
