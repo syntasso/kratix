@@ -13,16 +13,16 @@ import (
 	"net/http"
 	"net/http/httptest"
 
-	transporthttp "github.com/go-git/go-git/v5/plumbing/transport/http"
-	"github.com/go-git/go-git/v5/plumbing/transport/ssh"
+	corev1 "k8s.io/api/core/v1"
+	metav1 "k8s.io/apimachinery/pkg/apis/meta/v1"
+	ctrl "sigs.k8s.io/controller-runtime"
+
 	"github.com/go-logr/logr"
 	. "github.com/onsi/ginkgo/v2"
 	. "github.com/onsi/gomega"
 	"github.com/syntasso/kratix/api/v1alpha1"
 	"github.com/syntasso/kratix/lib/writers"
-	corev1 "k8s.io/api/core/v1"
-	metav1 "k8s.io/apimachinery/pkg/apis/meta/v1"
-	ctrl "sigs.k8s.io/controller-runtime"
+	"github.com/syntasso/kratix/util/git"
 )
 
 var _ = Describe("NewGitWriter", func() {
@@ -78,10 +78,6 @@ var _ = Describe("NewGitWriter", func() {
 		gitWriter, ok := writer.(*writers.GitWriter)
 		Expect(ok).To(BeTrue())
 		Expect(gitWriter.GitServer.URL).To(Equal("https://github.com/syntasso/kratix"))
-		Expect(gitWriter.GitServer.Auth).To(Equal(&transporthttp.BasicAuth{
-			Username: "user1",
-			Password: "pw1",
-		}))
 		Expect(gitWriter.GitServer.Branch).To(Equal("test"))
 		Expect(gitWriter.Author.Email).To(Equal("test@example.com"))
 		Expect(gitWriter.Author.Name).To(Equal("a-user"))
@@ -119,6 +115,7 @@ var _ = Describe("NewGitWriter", func() {
 	Context("authenticate with SSH", func() {
 		It("returns a valid GitWriter", func() {
 			stateStoreSpec.AuthMethod = "ssh"
+			stateStoreSpec.URL = "test-user@test.ghe.com:test-org/test-state-store.git"
 			key, err := rsa.GenerateKey(rand.Reader, 1024)
 			Expect(err).NotTo(HaveOccurred())
 
@@ -127,11 +124,7 @@ var _ = Describe("NewGitWriter", func() {
 			Expect(writer).To(BeAssignableToTypeOf(&writers.GitWriter{}))
 			gitWriter, ok := writer.(*writers.GitWriter)
 			Expect(ok).To(BeTrue())
-			Expect(gitWriter.GitServer.URL).To(Equal("https://github.com/syntasso/kratix"))
-			Expect(gitWriter.GitServer.Auth.(*ssh.PublicKeys).User).To(Equal("git"))
-			publicKey, ok := gitWriter.GitServer.Auth.(*ssh.PublicKeys)
-			Expect(ok).To(BeTrue())
-			Expect(publicKey).NotTo(BeNil())
+			Expect(gitWriter.GitServer.URL).To(Equal("test-user@test.ghe.com:test-org/test-state-store.git"))
 			Expect(gitWriter.GitServer.Branch).To(Equal("test"))
 			Expect(gitWriter.Author.Email).To(Equal("test@example.com"))
 			Expect(gitWriter.Author.Name).To(Equal("a-user"))
@@ -149,10 +142,6 @@ var _ = Describe("NewGitWriter", func() {
 			gitWriter, ok := writer.(*writers.GitWriter)
 			Expect(ok).To(BeTrue())
 			Expect(gitWriter.GitServer.URL).To(Equal("test-user@test.ghe.com:test-org/test-state-store.git"))
-			Expect(gitWriter.GitServer.Auth.(*ssh.PublicKeys).User).To(Equal("test-user"))
-			publicKey, ok := gitWriter.GitServer.Auth.(*ssh.PublicKeys)
-			Expect(ok).To(BeTrue())
-			Expect(publicKey).NotTo(BeNil())
 		})
 	})
 
@@ -165,20 +154,20 @@ var _ = Describe("NewGitWriter", func() {
 		BeforeEach(func() {
 			jwtCalled = false
 			tokenCalled = false
-			origGenerateGitHubAppJWT = writers.GenerateGitHubAppJWT
-			origGetGitHubInstallationToken = writers.GetGitHubInstallationToken
-			writers.GenerateGitHubAppJWT = func(appID, pk string) (string, error) {
+			origGenerateGitHubAppJWT = git.GenerateGitHubAppJWT
+			origGetGitHubInstallationToken = git.GetGitHubInstallationToken
+			git.GenerateGitHubAppJWT = func(appID, pk string) (string, error) {
 				jwtCalled = true
 				return "jwt", nil
 			}
-			writers.GetGitHubInstallationToken = func(apiURL, installationID, jwt string) (string, error) {
+			git.GetGitHubInstallationToken = func(apiURL, installationID, jwt string) (string, error) {
 				tokenCalled = true
 				return "token", nil
 			}
 		})
 		AfterEach(func() {
-			writers.GenerateGitHubAppJWT = origGenerateGitHubAppJWT
-			writers.GetGitHubInstallationToken = origGetGitHubInstallationToken
+			git.GenerateGitHubAppJWT = origGenerateGitHubAppJWT
+			git.GetGitHubInstallationToken = origGetGitHubInstallationToken
 		})
 		It("returns a valid GitWriter", func() {
 			stateStoreSpec.AuthMethod = "githubApp"
@@ -190,9 +179,6 @@ var _ = Describe("NewGitWriter", func() {
 			writer, err := writers.NewGitWriter(logger, stateStoreSpec, dest.Spec.Path, creds)
 			Expect(err).NotTo(HaveOccurred())
 			Expect(writer).To(BeAssignableToTypeOf(&writers.GitWriter{}))
-			gitWriter := writer.(*writers.GitWriter)
-			Expect(gitWriter.GitServer.Auth.(*transporthttp.BasicAuth).Username).To(Equal("x-access-token"))
-			Expect(gitWriter.GitServer.Auth.(*transporthttp.BasicAuth).Password).To(Equal("token"))
 			Expect(jwtCalled).To(BeTrue())
 			Expect(tokenCalled).To(BeTrue())
 		})
@@ -219,13 +205,17 @@ var _ = Describe("NewGitWriter", func() {
 		})
 
 		It("returns an error when authentication fails", func() {
-			// Set invalid credentials
-			gitWriter.GitServer.Auth = &transporthttp.BasicAuth{
-				Username: "invalid",
-				Password: "invalid",
+			invalidCreds := map[string][]byte{
+				"username": []byte("invalid"),
+				"password": []byte("invalid"),
 			}
+			writer, err := writers.NewGitWriter(logger, stateStoreSpec, dest.Spec.Path, invalidCreds)
+			Expect(err).NotTo(HaveOccurred())
+			var ok bool
+			gitWriter, ok = writer.(*writers.GitWriter)
+			Expect(ok).To(BeTrue())
 
-			err := gitWriter.ValidatePermissions()
+			err = gitWriter.ValidatePermissions()
 			Expect(err).To(HaveOccurred())
 			Expect(err.Error()).To(Or(
 				ContainSubstring("failed to set up local directory with repo"),
@@ -239,20 +229,20 @@ var _ = Describe("NewGitWriter", func() {
 	Describe("generateGitHubAppJWT", func() {
 		It("returns a signed JWT with valid RSA key and appID", func() {
 			pemStr := generatePEMFromPKCS1RSAKey()
-			jwt, err := writers.GenerateGitHubAppJWT("12345", pemStr)
+			jwt, err := git.GenerateGitHubAppJWT("12345", pemStr)
 			Expect(err).NotTo(HaveOccurred())
 			Expect(jwt).NotTo(BeEmpty())
 		})
 
 		It("parses RSA private key in PKCS#8 format", func() {
 			pemStr := generatePEMFromPKCS8RSAKey()
-			jwt, err := writers.GenerateGitHubAppJWT("12345", pemStr)
+			jwt, err := git.GenerateGitHubAppJWT("12345", pemStr)
 			Expect(err).NotTo(HaveOccurred())
 			Expect(jwt).NotTo(BeEmpty())
 		})
 
 		It("returns error for invalid PEM", func() {
-			jwt, err := writers.GenerateGitHubAppJWT("12345", "not-a-pem")
+			jwt, err := git.GenerateGitHubAppJWT("12345", "not-a-pem")
 			Expect(err).To(HaveOccurred())
 			Expect(jwt).To(BeEmpty())
 		})
@@ -260,14 +250,14 @@ var _ = Describe("NewGitWriter", func() {
 		It("returns error for non-RSA PEM", func() {
 			block := pem.Block{Type: "EC PRIVATE KEY", Bytes: []byte("bad")}
 			pemBytes := pem.EncodeToMemory(&block)
-			jwt, err := writers.GenerateGitHubAppJWT("12345", string(pemBytes))
+			jwt, err := git.GenerateGitHubAppJWT("12345", string(pemBytes))
 			Expect(err).To(HaveOccurred())
 			Expect(jwt).To(BeEmpty())
 		})
 
 		It("returns error for non-RSA PKCS#8 key", func() {
 			pemStr := generatePEMFromPKCS8ECKey()
-			jwt, err := writers.GenerateGitHubAppJWT("12345", pemStr)
+			jwt, err := git.GenerateGitHubAppJWT("12345", pemStr)
 			Expect(err).To(HaveOccurred())
 			Expect(jwt).To(BeEmpty())
 		})
@@ -292,7 +282,7 @@ var _ = Describe("NewGitWriter", func() {
 				_ = json.NewEncoder(w).Encode(map[string]string{"token": "abc123"})
 			}))
 
-			tok, err := writers.GetGitHubInstallationToken(server.URL, "123", "jwt")
+			tok, err := git.GetGitHubInstallationToken(server.URL, "123", "jwt")
 			Expect(err).NotTo(HaveOccurred())
 			Expect(tok).To(Equal("abc123"))
 		})
@@ -303,7 +293,7 @@ var _ = Describe("NewGitWriter", func() {
 				_ = json.NewEncoder(w).Encode(map[string]string{"message": "bad creds"})
 			}))
 
-			tok, err := writers.GetGitHubInstallationToken(server.URL, "123", "jwt")
+			tok, err := git.GetGitHubInstallationToken(server.URL, "123", "jwt")
 			Expect(err).To(HaveOccurred())
 			Expect(tok).To(BeEmpty())
 			Expect(err.Error()).To(ContainSubstring("bad creds"))
@@ -315,7 +305,7 @@ var _ = Describe("NewGitWriter", func() {
 				_ = json.NewEncoder(w).Encode(map[string]string{"token": ""})
 			}))
 
-			tok, err := writers.GetGitHubInstallationToken(server.URL, "123", "jwt")
+			tok, err := git.GetGitHubInstallationToken(server.URL, "123", "jwt")
 			Expect(err).To(HaveOccurred())
 			Expect(tok).To(BeEmpty())
 		})

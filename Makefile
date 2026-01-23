@@ -130,6 +130,16 @@ docker-build-and-push: ## Push multi-arch docker image with the manager.
 build-worker-resource-builder-binary: ## Uses the goreleaser config to generate binaries
 	WRB_VERSION=${WRB_VERSION} WRB_ON_BRANCH=${WRB_ON_BRANCH} ./scripts/release-worker-resource-builder
 
+.PHONY: install-mockgen
+install-mockgen:
+	@which mockgen > /dev/null || go install go.uber.org/mock/mockgen@latest
+
+.PHONY: generate-mocks
+generate-mocks: install-mockgen ## Generate mocks for testing
+	go generate ./...
+
+
+
 ##@ Deployment
 
 install: manifests kustomize ## Install CRDs into the K8s cluster specified in ~/.kube/config.
@@ -217,7 +227,7 @@ endif
 
 .PHONY: test
 test: manifests generate fmt vet ## Run unit tests.
-	go run ${GINKGO} ${GINKGO_FLAGS} -r --coverprofile cover.out --skip-package=system,core
+	go run ${GINKGO} ${GINKGO_FLAGS} -r --coverprofile cover.out --skip-package=system,core,git
 
 PLATFORM_CLUSTER_NAME ?= platform
 core-test: quick-start run-core-test
@@ -232,7 +242,18 @@ build-and-push-core-test-image: # for non-kind environment where images cannot b
 
 .PHONY: run-system-test
 run-system-test: fmt vet
-	PATH="$(PROJECT_DIR)/bin:${PATH}" PLATFORM_DESTINATION_IP=`docker inspect ${PLATFORM_CLUSTER_NAME}-control-plane | grep '"IPAddress": "172' | awk -F '"' '{print $$4}'` go run ${GINKGO} ${GINKGO_FLAGS} -p --output-interceptor-mode=none ./test/system/  --coverprofile cover.out
+	PATH="$(PROJECT_DIR)/bin:${PATH}" PLATFORM_DESTINATION_IP=`docker inspect ${PLATFORM_CLUSTER_NAME}-control-plane | grep '"IPAddress": "172' | awk -F '"' '{print $$4}'` go run ${GINKGO} -v ${GINKGO_FLAGS} -p --output-interceptor-mode=none ./test/system/  --coverprofile cover.out
+
+.PHONY: run-git-integration-test
+run-git-integration-test: fmt vet ## Runs the integration test suite for the Git client
+	@if [ "$${CI:-false}" != "true" ]; then \
+		export TEST_GIT_WRITER_GITHUB_SSH_PRIVATE_KEY="$${TEST_GIT_WRITER_GITHUB_SSH_PRIVATE_KEY:-$$(lpass show 'Shared-Product Development /git-writer-test-rsa-rw' --field='Private Key' | base64)}"; \
+		export TEST_GIT_WRITER_GITHUB_HTTP_PAT="$${TEST_GIT_WRITER_GITHUB_HTTP_PAT:-$$(lpass show 'Shared-Product Development /syntassodev ghcr read/write' --notes)}"; \
+		export TEST_GIT_WRITER_GITHUB_APP_PRIVATE_KEY="$${TEST_GIT_WRITER_GITHUB_APP_PRIVATE_KEY:-$$(lpass show 'Shared-Product Development /GitHub App testing-git-writer' --notes | tail -n +6 | base64)}"; \
+		export TEST_GIT_WRITER_GITHUB_APP_ID="$${TEST_GIT_WRITER_GITHUB_APP_ID:-2625348}"; \
+		export TEST_GIT_WRITER_GITHUB_APP_INSTALLATION_ID="$${TEST_GIT_WRITER_GITHUB_APP_INSTALLATION_ID:-103412574}"; \
+	fi; \
+	go run ${GINKGO} ${GINKGO_FLAGS} ./test/git/  --coverprofile cover.out
 
 fmt: ## Run go fmt against code.
 	go fmt ./...
@@ -311,6 +332,7 @@ $(KUSTOMIZE): $(LOCALBIN)
 golangci-lint: $(GOLANGCI_LINT) ## Download golangci-lint locally if necessary.
 $(GOLANGCI_LINT): $(LOCALBIN)
 	$(call go-install-tool,$(GOLANGCI_LINT),github.com/golangci/golangci-lint/cmd/golangci-lint,$(GOLANGCI_LINT_VERSION))
+
 
 # go-install-tool will 'go install' any package with custom target and name of binary, if it doesn't exist
 # $1 - target path with name of binary
