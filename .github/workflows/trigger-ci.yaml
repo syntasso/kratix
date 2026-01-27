@@ -7,7 +7,6 @@ on:
       - 'docs/**'
       - '.github/**'
       - '.circleci/**'
-      - 'demo/**'
       - '*.md'
       - 'LICENSE.txt'
       - 'PROJECT'
