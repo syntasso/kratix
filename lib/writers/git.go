@@ -253,7 +253,7 @@ func (g *GitWriter) commitAndPush(action, workPlacementName string, logger logr.
 	}
 	if action != "Delete" && !hasChanged {
 		logging.Info(logger, "no changes to be committed")
-		return "", git.ErrNoFilesChanged
+		return "", nil
 	}
 
 	logging.Info(logger, "pushing changes")
