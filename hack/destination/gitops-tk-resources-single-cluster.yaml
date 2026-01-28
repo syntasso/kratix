@@ -8,15 +8,15 @@ spec:
   interval: 10s
   provider: generic
   bucketName: kratix
-  endpoint: minio.kratix-platform-system.svc.cluster.local
+  endpoint: rustfs.kratix-platform-system.svc.cluster.local
   insecure: true
   secretRef:
-    name: minio-credentials
+    name: rustfs-credentials
 ---
 apiVersion: v1
 kind: Secret
 metadata:
-  name: minio-credentials
+  name: rustfs-credentials
   namespace: flux-system
 type: Opaque
 data:

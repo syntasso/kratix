@@ -8,7 +8,7 @@ apiVersion: v1
 kind: Service
 metadata:
   creationTimestamp: null
-  name: minio
+  name: rustfs
   namespace: kratix-platform-system
 spec:
   ports:
@@ -17,7 +17,7 @@ spec:
       targetPort: 9000
       nodePort: 31337
   selector:
-    run: minio
+    run: rustfs
   type: NodePort
 ---
 apiVersion: apps/v1
@@ -25,31 +25,62 @@ kind: Deployment
 metadata:
   creationTimestamp: null
   labels:
-    run: minio
-  name: minio
+    run: rustfs
+  name: rustfs
   namespace: kratix-platform-system
 spec:
   replicas: 1
   selector:
     matchLabels:
-      run: minio
+      run: rustfs
   template:
     metadata:
       labels:
-        run: minio
+        run: rustfs
     spec:
+      securityContext:
+        runAsUser: 10001
+        runAsGroup: 10001
+        fsGroup: 10001
       initContainers:
-        - name: make-buckets
-          image: docker.io/minio/minio:RELEASE.2022-06-30T20-58-09Z
+        - name: init-rustfs-data
+          image: busybox:1.36
+          securityContext:
+            runAsUser: 0
+            runAsGroup: 0
+          command:
+            [
+              "sh",
+              "-c",
+              "mkdir -p /data/rustfs0 /data/rustfs1 /data/rustfs2 /data/rustfs3 && chown -R 10001:10001 /data",
+            ]
           volumeMounts:
             - mountPath: /data
               name: data-volume
       containers:
-        - image: docker.io/minio/minio:RELEASE.2022-06-30T20-58-09Z
-          name: minio
-          args: ["server", "/data"]
+        - image: rustfs/rustfs:latest
+          name: rustfs
           ports:
             - containerPort: 9000
+          env:
+            - name: RUSTFS_VOLUMES
+              value: /data/rustfs{0..3}
+            - name: RUSTFS_ADDRESS
+              value: 0.0.0.0:9000
+            - name: RUSTFS_CONSOLE_ADDRESS
+              value: 0.0.0.0:9001
+            - name: RUSTFS_CONSOLE_ENABLE
+              value: "true"
+            - name: RUSTFS_ACCESS_KEY
+              valueFrom:
+                secretKeyRef:
+                  name: rustfs-credentials
+                  key: accessKeyID
+            - name: RUSTFS_SECRET_KEY
+              valueFrom:
+                secretKeyRef:
+                  name: rustfs-credentials
+                  key: secretAccessKey
           volumeMounts:
             - mountPath: /data
               name: data-volume
@@ -60,8 +91,8 @@ spec:
 apiVersion: v1
 kind: Secret
 metadata:
-  name: minio-credentials
-  namespace: default
+  name: rustfs-credentials
+  namespace: kratix-platform-system
 stringData:
   accessKeyID: minioadmin
   secretAccessKey: minioadmin
@@ -69,39 +100,39 @@ stringData:
 apiVersion: batch/v1
 kind: Job
 metadata:
-  name: minio-create-bucket
-  namespace: default
+  name: rustfs-create-bucket
+  namespace: kratix-platform-system
 spec:
   template:
     spec:
-      serviceAccountName: minio-create-bucket
+      serviceAccountName: rustfs-create-bucket
       initContainers:
-        - name: wait-for-minio
+        - name: wait-for-rustfs
           image: ghcr.io/syntasso/kratix-pipeline-utility:v0.0.1
           command:
             [
               "sh",
               "-c",
-              "kubectl wait --for=condition=Ready --timeout=120s -n kratix-platform-system pod -l run=minio",
+              "kubectl wait --for=condition=Ready --timeout=120s -n kratix-platform-system pod -l run=rustfs",
             ]
       containers:
-        - name: minio-event-configuration
+        - name: rustfs-bucket-configuration
           image: docker.io/minio/mc:RELEASE.2023-06-06T13-48-56Z
-          command: ["mc", "mb", "--ignore-existing", "minio/kratix"]
+          command: ["mc", "mb", "--ignore-existing", "rustfs/kratix"]
           env:
             - name: MC_ACCESS_KEY
               valueFrom:
                 secretKeyRef:
-                  name: minio-credentials
+                  name: rustfs-credentials
                   key: accessKeyID
             - name: MC_SECRET_KEY
               valueFrom:
                 secretKeyRef:
-                  name: minio-credentials
+                  name: rustfs-credentials
                   key: secretAccessKey
             - name: MC_ENDPOINT
-              value: minio.kratix-platform-system.svc.cluster.local
-            - name: MC_HOST_minio
+              value: rustfs.kratix-platform-system.svc.cluster.local
+            - name: MC_HOST_rustfs
               value: "http://$(MC_ACCESS_KEY):$(MC_SECRET_KEY)@$(MC_ENDPOINT)"
       restartPolicy: Never
   backoffLimit: 4
@@ -109,7 +140,7 @@ spec:
 apiVersion: rbac.authorization.k8s.io/v1
 kind: ClusterRole
 metadata:
-  name: minio-create-bucket
+  name: rustfs-create-bucket
 rules:
   - apiGroups:
       - ""
@@ -123,18 +154,18 @@ rules:
 apiVersion: rbac.authorization.k8s.io/v1
 kind: ClusterRoleBinding
 metadata:
-  name: minio-create-bucket
+  name: rustfs-create-bucket
 roleRef:
   apiGroup: rbac.authorization.k8s.io
   kind: ClusterRole
-  name: minio-create-bucket
+  name: rustfs-create-bucket
 subjects:
   - kind: ServiceAccount
-    name: minio-create-bucket
-    namespace: default
+    name: rustfs-create-bucket
+    namespace: kratix-platform-system
 ---
 apiVersion: v1
 kind: ServiceAccount
 metadata:
-  name: minio-create-bucket
-  namespace: default
+  name: rustfs-create-bucket
+  namespace: kratix-platform-system

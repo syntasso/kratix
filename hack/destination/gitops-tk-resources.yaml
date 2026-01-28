@@ -11,12 +11,12 @@ spec:
   endpoint: 172.18.0.2:31337
   insecure: true
   secretRef:
-    name: minio-credentials
+    name: rustfs-credentials
 ---
 apiVersion: v1
 kind: Secret
 metadata:
-  name: minio-credentials
+  name: rustfs-credentials
   namespace: flux-system
 type: Opaque
 data:
