@@ -52,7 +52,7 @@ var _ = Describe("Destinations", Label("destination"), Serial, func() {
 			platform.Kubectl("delete", "-f", "assets/destination/destination-worker-git.yaml")
 		})
 
-		FIt("properly set the conditions and events", func() {
+		It("properly set the conditions and events", func() {
 			WaitReady("gitstatestore", stateStoreName)
 			WaitReady("destination", destinationName)
 			ExpectEvent("destination", destinationName, `Destination "test-worker-git" is ready`)
@@ -70,7 +70,7 @@ var _ = Describe("Destinations", Label("destination"), Serial, func() {
 
 			// update the underlying state store with a non-existent secret
 			By("failing when the state store secret does not exist", func() {
-				platform.Kubectl("patch", "gitstatetore", stateStoreName, "--type=merge", "-p", `{"spec":{"secretRef":{"name":"non-existent-secret"}}}`)
+				platform.Kubectl("patch", "gitstatestore", stateStoreName, "--type=merge", "-p", `{"spec":{"secretRef":{"name":"non-existent-secret"}}}`)
 
 				ExpectNotReady("gitstatestore", stateStoreName)
 				ExpectEvent(
