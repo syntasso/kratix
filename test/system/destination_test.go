@@ -95,10 +95,10 @@ var _ = Describe("Destinations", Label("destination"), Serial, func() {
 				platform.Kubectl("patch", "secret", "gitea-credentials", "--type=merge", "-p", `{"stringData":{"username":"invalid"}}`)
 
 				ExpectNotReady("gitstatestore", stateStoreName)
-				ExpectEvent("gitstatestore", stateStoreName, "write permission validation failed")
+				ExpectEvent("gitstatestore", stateStoreName, "Authentication failed")
 
 				ExpectNotReady("destination", destinationName)
-				ExpectEvent("destination", destinationName, "Failed to write test documents")
+				ExpectEvent("destination", destinationName, "Authentication failed")
 			}
 		})
 	})
@@ -355,18 +355,21 @@ func mc(args ...string) string {
 }
 
 func WaitReady(kind, name string) {
+	GinkgoHelper()
 	Eventually(func() string {
 		return platform.Kubectl("get", kind, name)
 	}).Should(ContainSubstring("True"))
 }
 
 func ExpectNotReady(kind, name string) {
+	GinkgoHelper()
 	Eventually(func() string {
 		return platform.Kubectl("get", kind, name)
 	}, "30s").Should(ContainSubstring("False"))
 }
 
 func ExpectEvent(kind, name, event string) {
+	GinkgoHelper()
 	Eventually(func() string {
 		describeOutput := strings.Split(platform.Kubectl("describe", kind, name), "\n")
 		return describeOutput[len(describeOutput)-2]

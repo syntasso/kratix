@@ -33,6 +33,7 @@ func (c Cluster) KubectlAllowFail(args ...string) string {
 }
 
 func (c Cluster) kubectlInternal(checkExitCode bool, args ...string) string {
+	GinkgoHelper()
 	args = append(args, "--context="+c.Context)
 
 	command := exec.Command("kubectl", args...)
