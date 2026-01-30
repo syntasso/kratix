@@ -10,4 +10,4 @@ spec:
   secretRef:
     name: gitea-credentials
     namespace: default
-  url: https://172.18.0.3:31333/gitea_admin/kratix
+  url: https://gitea-http.gitea.svc.cluster.local/gitea_admin/kratix
