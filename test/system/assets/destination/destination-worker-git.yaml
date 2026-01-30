@@ -1,0 +1,11 @@
+apiVersion: platform.kratix.io/v1alpha1
+kind: Destination
+metadata:
+  name: test-worker-git
+  labels:
+    environment: dev
+spec:
+  path: worker-git
+  stateStoreRef:
+    name: destination-git-test-store
+    kind: GitStateStore
