@@ -95,10 +95,10 @@ var _ = Describe("Destinations", Label("destination"), Serial, func() {
 				platform.Kubectl("patch", "secret", "gitea-credentials", "--type=merge", "-p", `{"stringData":{"username":"invalid"}}`)
 
 				ExpectNotReady("gitstatestore", stateStoreName)
-				ExpectEvent("gitstatestore", stateStoreName, "Authentication failed")
+				ExpectEvent("gitstatestore", stateStoreName, "Authentication failed", "fatal: could not read Username")
 
 				ExpectNotReady("destination", destinationName)
-				ExpectEvent("destination", destinationName, "Authentication failed")
+				ExpectEvent("destination", destinationName, "Authentication failed", "fatal: could not read Username")
 			}
 		})
 	})
@@ -368,10 +368,16 @@ func ExpectNotReady(kind, name string) {
 	}, "30s").Should(ContainSubstring("False"))
 }
 
-func ExpectEvent(kind, name, event string) {
+func ExpectEvent(kind, name string, events ...string) {
 	GinkgoHelper()
-	Eventually(func() string {
+	Eventually(func() bool {
 		describeOutput := strings.Split(platform.Kubectl("describe", kind, name), "\n")
-		return describeOutput[len(describeOutput)-2]
-	}).Should(ContainSubstring(event))
+		eventOutput := describeOutput[len(describeOutput)-2]
+		for _, e := range events {
+			if strings.Contains(eventOutput, e) {
+				return true
+			}
+		}
+		return false
+	}).Should(BeTrue())
 }
