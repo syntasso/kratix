@@ -17,7 +17,6 @@ import (
 	batchv1 "k8s.io/api/batch/v1"
 	v1 "k8s.io/api/core/v1"
 	"k8s.io/apimachinery/pkg/api/errors"
-	metav1 "k8s.io/apimachinery/pkg/apis/meta/v1"
 	"k8s.io/apimachinery/pkg/apis/meta/v1/unstructured"
 	"k8s.io/apimachinery/pkg/labels"
 	"sigs.k8s.io/controller-runtime/pkg/client"
@@ -418,22 +417,34 @@ func cleanup(opts Opts, namespace string) error {
 
 func cleanupJobs(opts Opts, pipelineJobsAtCurrentSpec []batchv1.Job) error {
 	if len(pipelineJobsAtCurrentSpec) <= opts.numberOfJobsToKeep {
+		opts.logger.Info("DEBUG: cleanupJobs called with 0 jobs",
+			"opts.numberOfJobsToKeep", opts.numberOfJobsToKeep)
 		return nil
 	}
 
 	// Sort jobs by creation time
 	pipelineJobsAtCurrentSpec = resourceutil.SortJobsByCreationDateTime(pipelineJobsAtCurrentSpec, true)
 
+	for _, job := range pipelineJobsAtCurrentSpec {
+		opts.logger.Info(
+			"DEBUG: cleanupJobs - job matching current spec",
+			"job", job.GetName(),
+			"labels", job.GetLabels(),
+		)
+	}
+
 	// Delete all but the last n jobs; n defaults to 5 and can be configured by env var for the operator
 	for i := 0; i < len(pipelineJobsAtCurrentSpec)-opts.numberOfJobsToKeep; i++ {
 		job := pipelineJobsAtCurrentSpec[i]
-		opts.logger.Info("Deleting old job", "job", job.GetName())
-		if err := opts.client.Delete(opts.ctx, &job, client.PropagationPolicy(metav1.DeletePropagationBackground)); err != nil {
-			if !errors.IsNotFound(err) {
-				opts.logger.Info("failed to delete job", "job", job.GetName(), "error", err)
-				return nil
-			}
-		}
+		opts.logger.Info("DEBUG: would Deleting old job",
+			"job", job.GetName(),
+			"labels", job.GetLabels())
+		//if err := opts.client.Delete(opts.ctx, &job, client.PropagationPolicy(metav1.DeletePropagationBackground)); err != nil {
+		//	if !errors.IsNotFound(err) {
+		//		opts.logger.Info("failed to delete job", "job", job.GetName(), "error", err)
+		//		return nil
+		//	}
+		//}
 	}
 
 	return nil
