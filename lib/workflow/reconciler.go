@@ -142,9 +142,14 @@ func ReconcileConfigure(opts Opts) (abort bool, err error) {
 	allJobs = append(allJobs, allLegacyJobs...)
 
 	if len(allJobs) != 0 {
-		logging.Debug(opts.logger, "found existing jobs; checking pipeline match for most recent job")
 		resourceutil.SortJobsByCreationDateTime(allJobs, false)
 		mostRecentJob = &allJobs[0]
+		logging.Debug(opts.logger, "found existing jobs; most recent job is",
+			"name", mostRecentJob.GetName(),
+			"labels", mostRecentJob.Labels,
+			"createdTimestamp", mostRecentJob.GetCreationTimestamp().Time,
+			"status", overAllJobStatus(mostRecentJob))
+
 		pipelineIndex = nextPipelineIndex(opts, mostRecentJob)
 	}
 
@@ -172,10 +177,8 @@ func ReconcileConfigure(opts Opts) (abort bool, err error) {
 		pipelineIndex = len(opts.Resources) - 1
 	}
 
-	logging.Trace(opts.logger, "calculated pipeline index", "index", pipelineIndex)
-
 	if pipelineIndex < 0 {
-		logging.Debug(opts.logger, "no pipeline to reconcile")
+		logging.Debug(opts.logger, "no pipeline to reconcile", "index", pipelineIndex)
 		return false, nil
 	}
 
@@ -184,7 +187,8 @@ func ReconcileConfigure(opts Opts) (abort bool, err error) {
 		mostRecentJobName = mostRecentJob.Name
 	}
 
-	logging.Info(opts.logger, "reconciling configure workflow", "pipelineIndex", pipelineIndex, "mostRecentJob", mostRecentJobName)
+	logging.Info(opts.logger, "reconciling configure workflow",
+		"pipelineIndex", pipelineIndex, "mostRecentJob", mostRecentJobName)
 
 	pipeline := opts.Resources[pipelineIndex]
 	isManualReconciliation := isManualReconciliation(opts.parentObject.GetLabels())
@@ -211,6 +215,7 @@ func ReconcileConfigure(opts Opts) (abort bool, err error) {
 		}
 
 		if isFailed(mostRecentJob) {
+			logging.Debug(opts.logger, "job failed", "job", mostRecentJob.Name, "pipeline", pipeline.Name)
 			return setFailedConditionAndEvents(opts, mostRecentJob, pipeline)
 		}
 
@@ -417,6 +422,10 @@ func cleanup(opts Opts, namespace string) error {
 
 func cleanupJobs(opts Opts, pipelineJobsAtCurrentSpec []batchv1.Job) error {
 	if len(pipelineJobsAtCurrentSpec) <= opts.numberOfJobsToKeep {
+		logging.Debug(opts.logger,
+			"pipeline jobs at current spec do not exceed number of jobs to keep",
+			"numberOfJobsToKeep", opts.numberOfJobsToKeep,
+			"number of pipeline jobs at current spec", len(pipelineJobsAtCurrentSpec))
 		return nil
 	}
 
@@ -426,7 +435,12 @@ func cleanupJobs(opts Opts, pipelineJobsAtCurrentSpec []batchv1.Job) error {
 	// Delete all but the last n jobs; n defaults to 5 and can be configured by env var for the operator
 	for i := 0; i < len(pipelineJobsAtCurrentSpec)-opts.numberOfJobsToKeep; i++ {
 		job := pipelineJobsAtCurrentSpec[i]
-		logging.Debug(opts.logger, "deleting old job", "job", job.GetName())
+		logging.Debug(opts.logger,
+			"deleting old job",
+			"name", job.GetName(),
+			"labels", job.GetLabels(),
+			"createdTimestamp", job.GetCreationTimestamp().Time,
+			"status", overAllJobStatus(&job))
 		if err := opts.client.Delete(opts.ctx, &job, client.PropagationPolicy(metav1.DeletePropagationBackground)); err != nil {
 			if !errors.IsNotFound(err) {
 				logging.Warn(opts.logger, "failed to delete job; will retry", "job", job.GetName(), "error", err)
@@ -607,4 +621,22 @@ func deleteResources(opts Opts, resources ...client.Object) {
 			logging.Debug(logger, "resource deleted")
 		}
 	}
+}
+
+// overAllJobStatus returns job status as 'Running', 'Completed', 'Suspended', or 'Failed'
+func overAllJobStatus(job *batchv1.Job) string {
+	for _, condition := range job.Status.Conditions {
+		if condition.Type == batchv1.JobComplete && condition.Status == v1.ConditionTrue {
+			return string(condition.Type)
+		}
+
+		if condition.Type == batchv1.JobSuspended && condition.Status == v1.ConditionTrue {
+			return string(condition.Type)
+		}
+
+		if condition.Type == batchv1.JobFailed && condition.Status == v1.ConditionTrue {
+			return string(condition.Type)
+		}
+	}
+	return "Running"
 }
