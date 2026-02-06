@@ -131,11 +131,33 @@ func ReconcileConfigure(opts Opts) (abort bool, err error) {
 		return false, err
 	}
 
+	for _, job := range allJobs {
+		opts.logger.Info(
+			"DEBUGJOBCLEANUP: allJobs - job matching labels without hash",
+			"job", job.GetName(),
+			"labels", job.GetLabels(),
+			"creationTimestamp", job.GetCreationTimestamp().Time,
+			".spec.suspend", job.Spec.Suspend,
+			".status.conditions", job.Status.Conditions,
+		)
+	}
+
 	// TODO: this part will be deprecated when we stop using the legacy labels
 	allLegacyJobs, err := getJobsWithLabels(opts, legacyLabelsForJobs(opts), opts.namespace)
 	if err != nil {
 		opts.logger.Error(err, "failed to list jobs")
 		return false, err
+	}
+
+	for _, job := range allLegacyJobs {
+		opts.logger.Info(
+			"DEBUGJOBCLEANUP: allLegacyJobs - job matching legacy labels without hash",
+			"job", job.GetName(),
+			"labels", job.GetLabels(),
+			"creationTimestamp", job.GetCreationTimestamp().Time,
+			".spec.suspend", job.Spec.Suspend,
+			".status.conditions", job.Status.Conditions,
+		)
 	}
 	allJobs = append(allJobs, allLegacyJobs...)
 
@@ -416,29 +438,37 @@ func cleanup(opts Opts, namespace string) error {
 }
 
 func cleanupJobs(opts Opts, pipelineJobsAtCurrentSpec []batchv1.Job) error {
+	opts.logger.Info("DEBUGJOBCLEANUP: begin cleanup jobs",
+		"number of pipelineJobsAtCurrentSpec", len(pipelineJobsAtCurrentSpec),
+		"opts.numberOfJobsToKeep", opts.numberOfJobsToKeep)
+	for _, job := range pipelineJobsAtCurrentSpec {
+		opts.logger.Info(
+			"DEBUGJOBCLEANUP: cleanupJobs - job matching current spec",
+			"job", job.GetName(),
+			"labels", job.GetLabels(),
+			"creationTimestamp", job.GetCreationTimestamp().Time,
+			".spec.suspend", job.Spec.Suspend,
+			".status.conditions", job.Status.Conditions,
+		)
+	}
+
 	if len(pipelineJobsAtCurrentSpec) <= opts.numberOfJobsToKeep {
-		opts.logger.Info("DEBUG: cleanupJobs called with 0 jobs",
-			"opts.numberOfJobsToKeep", opts.numberOfJobsToKeep)
+		opts.logger.Info("DEBUGJOBCLEANUP: no job to clean up")
 		return nil
 	}
 
 	// Sort jobs by creation time
 	pipelineJobsAtCurrentSpec = resourceutil.SortJobsByCreationDateTime(pipelineJobsAtCurrentSpec, true)
 
-	for _, job := range pipelineJobsAtCurrentSpec {
-		opts.logger.Info(
-			"DEBUG: cleanupJobs - job matching current spec",
-			"job", job.GetName(),
-			"labels", job.GetLabels(),
-		)
-	}
-
 	// Delete all but the last n jobs; n defaults to 5 and can be configured by env var for the operator
 	for i := 0; i < len(pipelineJobsAtCurrentSpec)-opts.numberOfJobsToKeep; i++ {
 		job := pipelineJobsAtCurrentSpec[i]
-		opts.logger.Info("DEBUG: would Deleting old job",
+		opts.logger.Info("DEBUGJOBCLEANUP: would Deleting old job",
 			"job", job.GetName(),
-			"labels", job.GetLabels())
+			"labels", job.GetLabels(),
+			"creationTimestamp", job.GetCreationTimestamp().Time,
+			".spec.suspend", job.Spec.Suspend,
+			".status.conditions", job.Status.Conditions)
 		//if err := opts.client.Delete(opts.ctx, &job, client.PropagationPolicy(metav1.DeletePropagationBackground)); err != nil {
 		//	if !errors.IsNotFound(err) {
 		//		opts.logger.Info("failed to delete job", "job", job.GetName(), "error", err)

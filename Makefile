@@ -3,7 +3,7 @@ VERSION ?= dev
 # Image URL to use all building/pushing image targets
 IMG_NAME ?= docker.io/syntasso/kratix-platform
 QUICKSTART_TAG ?= docker.io/syntasso/kratix-platform-quickstart:latest
-IMG_VERSION ?= ${VERSION}
+IMG_VERSION ?= 0.36.0.job-debug-image
 IMG_TAG ?= ${IMG_NAME}:${IMG_VERSION}
 IMG_MIRROR ?= syntassodev/kratix-platform:${VERSION}
 # Image URL to use for work creator image in promise_controller.go
@@ -121,8 +121,7 @@ docker-build-and-push: ## Push multi-arch docker image with the manager.
 	if ! docker buildx ls | grep -q "kratix-image-builder"; then \
 		docker buildx create --name kratix-image-builder; \
 	fi;
-	docker buildx build --builder kratix-image-builder --push --platform linux/arm64,linux/amd64 -t ${QUICKSTART_TAG} -t ${IMG_TAG} -t ${IMG_NAME}:latest .
-	docker buildx build --builder kratix-image-builder --push --platform linux/arm64,linux/amd64 -t ${IMG_MIRROR} .
+	docker buildx build --builder kratix-image-builder --push --platform linux/arm64,linux/amd64 -t ${IMG_TAG} .
 
 build-and-push-work-creator: ## Build and push the Work Creator image
 	PIPELINE_ADAPTER_IMG_VERSION=${PIPELINE_ADAPTER_IMG_VERSION} PIPELINE_ADAPTER_IMG_MIRROR=${PIPELINE_ADAPTER_IMG_MIRROR} $(MAKE) -C work-creator docker-build-and-push
