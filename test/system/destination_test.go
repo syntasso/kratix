@@ -250,6 +250,42 @@ var _ = Describe("Destinations", Label("destination"), Serial, func() {
 					})
 				})
 			})
+			Describe("none", func() {
+				BeforeEach(func() {
+					platform.Kubectl("apply", "-f", "assets/destination/destination-git-filepathmode-none.yaml")
+					platform.Kubectl("apply", "-f", "assets/destination/promise-filepathmode-none.yaml")
+
+					Eventually(func() string {
+						return platform.Kubectl("get", "crds")
+					}).Should(ContainSubstring("modenone.test.kratix.io"))
+
+					platform.Kubectl("apply", "-f", "assets/destination/resource-filepathmode-none.yaml")
+				})
+
+				AfterEach(func() {
+					platform.Kubectl("delete", "promises", "filepathmode-none", "--ignore-not-found")
+					platform.Kubectl("delete", "-f", "assets/destination/destination-git-filepathmode-none.yaml")
+				})
+
+				It("can write and delete from statestore", func() {
+					rrName := "modenone-request-1"
+					Eventually(func() string {
+						return platform.Kubectl("get", "modenone", rrName)
+					}, time.Second*30).Should(ContainSubstring("Reconciled"))
+
+					platform.Kubectl("delete", "-f", "assets/destination/resource-filepathmode-none.yaml")
+					Eventually(func() string {
+						return platform.Kubectl("-n", "default", "get", "workplacements",
+							"-l", "kratix.io/targetDestinationName=test-worker-git-filepathmode-none")
+					}).ShouldNot(ContainSubstring(rrName))
+
+					platform.Kubectl("delete", "promises", "filepathmode-none")
+					Eventually(func() string {
+						return platform.Kubectl("get", "workplacements", "--all-namespaces",
+							"-l", "kratix.io/targetDestinationName=test-worker-git-filepathmode-none")
+					}).Should(ContainSubstring("No resources found"))
+				})
+			})
 		}
 	})
 

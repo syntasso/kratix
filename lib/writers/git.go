@@ -181,7 +181,7 @@ func (g *GitWriter) deleteExistingFiles(removeDirectory bool, dir string, worklo
 		}
 	} else {
 		for _, file := range workloadsToDelete {
-			filePath := filepath.Join(g.Runner.Root(), file)
+			filePath := filepath.Join(g.Runner.Root(), g.Path, file)
 			log := logger.WithValues(
 				"filepath", filePath,
 			)
@@ -189,7 +189,7 @@ func (g *GitWriter) deleteExistingFiles(removeDirectory bool, dir string, worklo
 				logging.Debug(log, "file requested to be deleted from worktree but does not exist")
 				continue
 			}
-			if err := g.Runner.RemoveFile(file); err != nil {
+			if err := g.Runner.RemoveFile(filePath); err != nil {
 				logging.Error(logger, err, "could not remove file from worktree")
 				return err
 			}
@@ -207,7 +207,7 @@ func (g *GitWriter) ReadFile(filePath string) ([]byte, error) {
 	}
 	defer os.RemoveAll(filepath.Dir(localDir)) //nolint:errcheck
 
-	fullPath := filepath.Join(g.Runner.Root(), filePath)
+	fullPath := filepath.Join(g.Runner.Root(), g.Path, filePath)
 	logger := g.Log.WithValues(
 		"Path", fullPath,
 		"branch", g.GitServer.Branch,
