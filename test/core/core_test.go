@@ -280,11 +280,11 @@ var _ = Describe("Core Tests", Ordered, func() {
 
 				cmArgs := []string{"-n", "testbundle-ns", "get", "cm"}
 				By("scheduling works to the right destination", func() {
-					// Increased timeout to prevent test failures caused by flux waits
+
 					Eventually(func(g Gomega) {
 						g.Expect(worker.Kubectl("get", "namespaces")).To(ContainSubstring(rrNsName))
-						g.Expect(worker.Kubectl(append(cmArgs, rrConfigMapName+"-1")...)).To(ContainSubstring(rrConfigMapName))
-						g.Expect(worker.Kubectl(append(cmArgs, rrConfigMapName+"-2")...)).To(ContainSubstring(rrConfigMapName))
+						g.Expect(worker.KubectlAllowFail(append(cmArgs, rrConfigMapName+"-1")...)).To(ContainSubstring(rrConfigMapName))
+						g.Expect(worker.KubectlAllowFail(append(cmArgs, rrConfigMapName+"-2")...)).To(ContainSubstring(rrConfigMapName))
 					}, longerTimeout, interval).Should(Succeed())
 				})
 
@@ -295,7 +295,6 @@ var _ = Describe("Core Tests", Ordered, func() {
 						platform.Kubectl("apply", "-f", "assets/example-resource-v2.yaml"),
 					).To(ContainSubstring("kratix-test configured"))
 
-					// Increased timeout to prevent test failures caused by flux waits
 					Eventually(func(g Gomega) {
 						g.Expect(worker.Kubectl("get", "namespaces")).To(ContainSubstring(rrNsNameUpdated))
 						g.Expect(
@@ -327,7 +326,6 @@ var _ = Describe("Core Tests", Ordered, func() {
 					getCMEnvValue := []string{"-n", "testbundle-ns",
 						"get", "configmap", "testbundle-cm", "-o=jsonpath={.data.promiseEnv}"}
 
-					// Increased timeout to prevent test failures caused by flux waits
 					Eventually(func(g Gomega) {
 						g.Expect(worker.Kubectl(getCMTimestamp...)).ToNot(Equal(originalPromiseConfigMapTimestamp1))
 						g.Expect(worker.Kubectl(getCMEnvValue...)).To(ContainSubstring("second"))
@@ -335,7 +333,6 @@ var _ = Describe("Core Tests", Ordered, func() {
 				})
 
 				By("rerunning the resource configure pipeline", func() {
-					// Increased timeout to prevent test failures caused by flux waits
 					Eventually(func(g Gomega) {
 						g.Expect(worker.Kubectl("get", "namespaces")).To(ContainSubstring(rrNsNameUpdated))
 						g.Expect(worker.Kubectl(append(cmArgs, rrConfigMapName+"-1", "-o=jsonpath={.data.timestamp}")...)).ToNot(Equal(originalTimeStampW1))
