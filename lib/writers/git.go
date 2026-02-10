@@ -114,7 +114,7 @@ func (g *GitWriter) update(subDir, workPlacementName string, workloadsToCreate [
 		"branch", g.GitServer.Branch,
 	)
 
-	defer os.RemoveAll(filepath.Dir(localDir)) //nolint:errcheck
+	defer os.RemoveAll(localDir) //nolint:errcheck
 
 	err = g.deleteExistingFiles(subDir != "", dirInGitRepo, workloadsToDelete, logger)
 	if err != nil {
@@ -205,7 +205,7 @@ func (g *GitWriter) ReadFile(filePath string) ([]byte, error) {
 	if err != nil {
 		return nil, err
 	}
-	defer os.RemoveAll(filepath.Dir(localDir)) //nolint:errcheck
+	defer os.RemoveAll(localDir) //nolint:errcheck
 
 	fullPath := filepath.Join(g.Runner.Root(), g.Path, filePath)
 	logger := g.Log.WithValues(
