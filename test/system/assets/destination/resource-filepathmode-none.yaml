@@ -1,0 +1,5 @@
+apiVersion: test.kratix.io/v1alpha1
+kind: ModeNone
+metadata:
+  name: modenone-request-1
+  namespace: default

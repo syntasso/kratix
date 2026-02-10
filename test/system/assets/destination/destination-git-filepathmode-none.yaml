@@ -1,0 +1,13 @@
+apiVersion: platform.kratix.io/v1alpha1
+kind: Destination
+metadata:
+  name: test-worker-git-filepathmode-none
+  labels:
+    target: filepathmode-none
+spec:
+  filepath:
+    mode: none
+  path: filepathmode-none
+  stateStoreRef:
+    name: destination-git-test-store
+    kind: GitStateStore
