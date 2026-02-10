@@ -251,7 +251,7 @@ func (g *GitWriter) commitAndPush(action, workPlacementName string, logger logr.
 		logging.Error(logger, err, "could not get check local changes")
 		return "", err
 	}
-	if action != "Delete" && !hasChanged {
+	if !hasChanged {
 		logging.Info(logger, "no changes to be committed")
 		return "", nil
 	}

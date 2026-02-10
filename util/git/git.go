@@ -388,13 +388,9 @@ func (m *nativeGitClient) Push(branch string, force bool) (string, error) {
 // CommitAndPush commits and pushes changes to the target branch.
 func (m *nativeGitClient) CommitAndPush(branch, message, author string, email string) (string, error) {
 	ctx := context.Background()
-	out, err := m.runCmd(ctx, "add", ".")
-	if err != nil {
-		return out, fmt.Errorf("failed to add files: %w", err)
-	}
 
 	authorId := fmt.Sprintf("%s <%s>", author, email)
-	out, err = m.runCmd(ctx,
+	out, err := m.runCmd(ctx,
 		"-c", fmt.Sprintf("user.name=%s", author),
 		"-c", fmt.Sprintf("user.email=%s", email),
 		"commit",
@@ -556,6 +552,8 @@ func (m *nativeGitClient) HasChanges() (bool, error) {
 	if out == "" {
 		return false, nil
 	}
+
+	logging.Trace(m.log, "output from git status", "output", out)
 
 	return strings.Contains(out, "Changes to be committed"), nil
 }
