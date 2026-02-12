@@ -214,7 +214,7 @@ var _ = Describe("Workflow Reconciler", func() {
 						setParentWorkflowCountersStatus(uPromise, 2, 0)
 					})
 
-					It("returns true (representing all pipelines completed)", func() {
+					It("returns false (representing all pipelines completed)", func() {
 						opts := workflow.NewOpts(ctx, fakeK8sClient, eventRecorder, logger, uPromise, workflowPipelines, "promise", 5, namespace)
 						passiveRequeue, err := workflow.ReconcileConfigure(opts)
 						Expect(err).NotTo(HaveOccurred())
@@ -247,7 +247,7 @@ var _ = Describe("Workflow Reconciler", func() {
 						Expect(job.Labels["kratix.io/pipeline-name"]).To(Equal(workflowPipelines[0].Job.Labels["kratix.io/pipeline-name"]))
 					})
 
-					It("halts the workflow by not requeuing", func() {
+					It("halts workflow progression and passively requeues", func() {
 						Expect(passiveRequeue).To(BeTrue())
 						Expect(err).NotTo(HaveOccurred())
 					})
