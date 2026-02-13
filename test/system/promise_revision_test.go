@@ -23,6 +23,10 @@ var _ = Describe("Upgrade", func() {
 	})
 
 	AfterEach(func() {
+		if getEnvOrDefault("UPGRADE_ENABLED", "false") != "true" {
+			return
+		}
+
 		platform.EventuallyKubectlDelete("upgrades", rrTwoName)
 		platform.EventuallyKubectlDelete("promise", promiseName)
 	})
