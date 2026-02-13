@@ -98,6 +98,26 @@ var _ = Describe("Workflow Reconciler", func() {
 			})
 		})
 
+		When("workflow counter statuses are stale", func() {
+			BeforeEach(func() {
+				resourceutil.SetStatus(uPromise, logger, "workflowsSucceeded", int64(1), "workflowsFailed", int64(1))
+				Expect(fakeK8sClient.Status().Update(ctx, uPromise)).To(Succeed())
+			})
+
+			It("resets workflow counters to match the current pipeline state", func() {
+				opts := workflow.NewOpts(ctx, fakeK8sClient, eventRecorder, logger, uPromise, workflowPipelines, "promise", 5, namespace)
+				passiveRequeue, err := workflow.ReconcileConfigure(opts)
+				Expect(err).NotTo(HaveOccurred())
+				Expect(passiveRequeue).To(BeTrue())
+				Expect(listJobs(namespace)).To(HaveLen(0))
+
+				updatedPromise := &v1alpha1.Promise{}
+				Expect(fakeK8sClient.Get(ctx, types.NamespacedName{Name: promise.Name}, updatedPromise)).To(Succeed())
+				Expect(updatedPromise.Status.WorkflowsSucceeded).To(Equal(int64(0)))
+				Expect(updatedPromise.Status.WorkflowsFailed).To(Equal(int64(0)))
+			})
+		})
+
 		When("the service account does exist", func() {
 			When("the service account does not have the kratix promise label", func() {
 				It("should not add the kratix label to the service account", func() {
