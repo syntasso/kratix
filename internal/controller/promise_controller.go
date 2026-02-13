@@ -261,14 +261,14 @@ func (r *PromiseReconciler) Reconcile(ctx context.Context, req ctrl.Request) (re
 		return ctrl.Result{}, fmt.Errorf("Error converting Promise to Unstructured: %w", err)
 	}
 
-	ctrlResult, err := r.reconcileDependenciesAndPromiseWorkflows(opts, promise, usPromise)
+	passiveRequeue, err := r.reconcileDependenciesAndPromiseWorkflows(opts, promise, usPromise)
 	if err != nil {
 		return ctrl.Result{}, err
 	}
 
-	if ctrlResult != nil {
-		logging.Debug(logger, "reconciliation paused while dependencies reconcile")
-		return *ctrlResult, nil
+	if passiveRequeue {
+		logging.Debug(logger, "reconciliation paused awaiting watched resource updates")
+		return ctrl.Result{}, nil
 	}
 
 	if promise.ContainsAPI() {
@@ -809,30 +809,30 @@ func (r *PromiseReconciler) evaluateRequirement(ctx context.Context, promise *v1
 	}
 }
 
-func (r *PromiseReconciler) reconcileDependenciesAndPromiseWorkflows(o opts, promise *v1alpha1.Promise, unstructuredPromise *unstructured.Unstructured) (*ctrl.Result, error) {
+func (r *PromiseReconciler) reconcileDependenciesAndPromiseWorkflows(o opts, promise *v1alpha1.Promise, unstructuredPromise *unstructured.Unstructured) (passiveRequeue bool, err error) {
 	if len(promise.Spec.Dependencies) > 0 {
 		logging.Debug(o.logger, "applying static dependencies", "promise", promise.GetName())
 		if err := r.applyWorkForStaticDependencies(o, promise); err != nil {
 			logging.Error(o.logger, err, "error creating Works")
-			return nil, err
+			return false, err
 		}
 	}
 
 	if len(promise.Spec.Dependencies) == 0 {
 		err := r.deleteWorkForStaticDependencies(o, promise)
 		if err != nil {
-			return nil, err
+			return false, err
 		}
 	}
 
 	pipelineCount := r.getWorkflowsCount(promise)
 	if pipelineCount == 0 {
-		return nil, r.updateWorkflowStatusCountersToZero(o.ctx, promise)
+		return false, r.updateWorkflowStatusCountersToZero(o.ctx, promise)
 	}
 
 	if promise.Status.Workflows != pipelineCount {
 		promise.Status.Workflows = pipelineCount
-		return nil, r.Client.Update(o.ctx, promise)
+		return false, r.Client.Update(o.ctx, promise)
 	}
 
 	if promise.Labels == nil {
@@ -845,7 +845,7 @@ func (r *PromiseReconciler) reconcileDependenciesAndPromiseWorkflows(o opts, pro
 	if forcePipelineRun && promise.Labels[resourceutil.ManualReconciliationLabel] != "true" {
 		logging.Trace(o.logger, "pipeline completed too long ago; forcing reconciliation", "lastTransitionTime", completedCond.LastTransitionTime.Time.String())
 		promise.Labels[resourceutil.ManualReconciliationLabel] = "true"
-		return &ctrl.Result{}, r.Client.Update(o.ctx, promise)
+		return true, r.Client.Update(o.ctx, promise)
 	}
 
 	reconciledCond := promise.GetCondition(string(resourceutil.ReconciledCondition))
@@ -857,7 +857,7 @@ func (r *PromiseReconciler) reconcileDependenciesAndPromiseWorkflows(o opts, pro
 
 	pipelineResources, err := promise.GeneratePromisePipelines(v1alpha1.WorkflowActionConfigure, o.logger)
 	if err != nil {
-		return nil, err
+		return false, err
 	}
 
 	namespace := promise.GetNamespace()
@@ -867,16 +867,16 @@ func (r *PromiseReconciler) reconcileDependenciesAndPromiseWorkflows(o opts, pro
 
 	jobOpts := workflow.NewOpts(o.ctx, o.client, r.EventRecorder, o.logger, unstructuredPromise, pipelineResources, "promise", r.NumberOfJobsToKeep, namespace)
 
-	abort, err := reconcileConfigure(jobOpts)
+	passiveRequeue, err = reconcileConfigure(jobOpts)
 	if err != nil {
-		return nil, err
+		return false, err
 	}
 
-	if abort {
-		return &ctrl.Result{}, nil
+	if passiveRequeue {
+		return true, nil
 	}
 
-	return nil, nil
+	return false, nil
 }
 
 func (r *PromiseReconciler) reconcileAllRRs(ctx context.Context, rrGVK *schema.GroupVersionKind) error {
