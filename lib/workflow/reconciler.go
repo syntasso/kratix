@@ -180,7 +180,7 @@ func ReconcileConfigure(opts Opts) (passiveRequeue bool, err error) {
 				return false, err
 			}
 
-			// Since we are updating the parent resource, we should follow k8s controller best practises and requeue
+			// Since we are updating the parent resource, we should follow k8s controller best practices and requeue
 			return true, nil
 		}
 	}

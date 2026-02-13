@@ -267,7 +267,7 @@ func (r *PromiseReconciler) Reconcile(ctx context.Context, req ctrl.Request) (re
 	}
 
 	if passiveRequeue {
-		logging.Debug(logger, "reconciliation paused while dependencies reconcile")
+		logging.Debug(logger, "reconciliation paused awaiting watched resource updates")
 		return ctrl.Result{}, nil
 	}
 
