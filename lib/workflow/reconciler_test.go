@@ -678,11 +678,11 @@ var _ = Describe("Workflow Reconciler", func() {
 					opts := workflow.NewOpts(ctx, fakeK8sClient, eventRecorder, logger, uPromise, workflowPipelines, "promise", 5, namespace)
 					passiveRequeue, err := workflow.ReconcileConfigure(opts)
 					Expect(err).NotTo(HaveOccurred())
-					if passiveRequeue {
-						assertPromiseWorkflowCountersStatus("redis", 2)
-						passiveRequeue, err = workflow.ReconcileConfigure(opts)
-						Expect(err).NotTo(HaveOccurred())
-					}
+					Expect(passiveRequeue).To(BeTrue())
+					assertPromiseWorkflowCountersStatus("redis", 2)
+
+					passiveRequeue, err = workflow.ReconcileConfigure(opts)
+					Expect(err).NotTo(HaveOccurred())
 					Expect(passiveRequeue).To(BeFalse())
 
 					Expect(listJobs(namespace)).To(HaveLen(2))
@@ -798,11 +798,11 @@ var _ = Describe("Workflow Reconciler", func() {
 						markJobAsComplete(jobs[4].Name)
 						passiveRequeue, err := workflow.ReconcileConfigure(opts)
 						Expect(err).NotTo(HaveOccurred())
-						if passiveRequeue {
-							assertPromiseWorkflowCountersStatus("redis", 2)
-							passiveRequeue, err = workflow.ReconcileConfigure(opts)
-							Expect(err).NotTo(HaveOccurred())
-						}
+						Expect(passiveRequeue).To(BeTrue())
+						assertPromiseWorkflowCountersStatus("redis", 2)
+
+						passiveRequeue, err = workflow.ReconcileConfigure(opts)
+						Expect(err).NotTo(HaveOccurred())
 						Expect(passiveRequeue).To(BeFalse())
 
 						jobs = resourceutil.SortJobsByCreationDateTime(listJobs(namespace), true)
