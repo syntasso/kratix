@@ -109,7 +109,7 @@ var _ = Describe("Workflow Reconciler", func() {
 				passiveRequeue, err := workflow.ReconcileConfigure(opts)
 				Expect(err).NotTo(HaveOccurred())
 				Expect(passiveRequeue).To(BeTrue())
-				Expect(listJobs(namespace)).To(HaveLen(0))
+				Expect(listJobs(namespace)).To(BeEmpty())
 
 				updatedPromise := &v1alpha1.Promise{}
 				Expect(fakeK8sClient.Get(ctx, types.NamespacedName{Name: promise.Name}, updatedPromise)).To(Succeed())
