@@ -253,9 +253,13 @@ func (r *DynamicResourceRequestController) Reconcile(ctx context.Context, req ct
 		namespace,
 	)
 
-	abort, err := reconcileConfigure(jobOpts)
-	if err != nil || abort {
+	passiveRequeue, err := reconcileConfigure(jobOpts)
+	if err != nil {
 		return ctrl.Result{}, err
+	}
+
+	if passiveRequeue {
+		return ctrl.Result{}, nil
 	}
 
 	if rr.GetGeneration() != resourceutil.GetObservedGeneration(rr) {

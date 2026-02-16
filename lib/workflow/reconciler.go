@@ -56,6 +56,10 @@ func NewOpts(ctx context.Context, client client.Client, eventRecorder record.Eve
 }
 
 // ReconcileDelete deletes Workflows.
+// The returned bool is passiveRequeue:
+// true means reconcile should happen again, passively, when watched external
+// resources are updated (for example a workflow Job changing state), rather
+// than by issuing an explicit direct requeue from this function.
 func ReconcileDelete(opts Opts) (bool, error) {
 	logging.Debug(opts.logger, "reconciling delete pipeline")
 
@@ -109,7 +113,7 @@ func ReconcileDelete(opts Opts) (bool, error) {
 	return true, nil
 }
 
-func createDeletePipeline(opts Opts, pipeline v1alpha1.PipelineJobResources) (abort bool, err error) {
+func createDeletePipeline(opts Opts, pipeline v1alpha1.PipelineJobResources) (passiveRequeue bool, err error) {
 	logging.Debug(opts.logger, "creating delete pipeline; execution will commence")
 	if isManualReconciliation(opts.parentObject.GetLabels()) {
 		if err := removeManualReconciliationLabel(opts); err != nil {
@@ -122,7 +126,12 @@ func createDeletePipeline(opts Opts, pipeline v1alpha1.PipelineJobResources) (ab
 	return true, nil
 }
 
-func ReconcileConfigure(opts Opts) (abort bool, err error) {
+// ReconcileConfigure reconciles configure workflows.
+// The returned bool is passiveRequeue:
+// true means reconcile should happen again, passively, when watched external
+// resources are updated (for example workflow Jobs or the parent object status),
+// rather than by issuing an explicit direct requeue from this function.
+func ReconcileConfigure(opts Opts) (passiveRequeue bool, err error) {
 	var pipelineIndex = 0
 	var mostRecentJob *batchv1.Job
 
@@ -170,6 +179,9 @@ func ReconcileConfigure(opts Opts) (abort bool, err error) {
 				logging.Error(opts.logger, err, "failed to update parent object status")
 				return false, err
 			}
+
+			// Since we are updating the parent resource, we should follow k8s controller best practices and requeue
+			return true, nil
 		}
 	}
 
@@ -452,7 +464,7 @@ func cleanupJobs(opts Opts, pipelineJobsAtCurrentSpec []batchv1.Job) error {
 	return nil
 }
 
-func createConfigurePipeline(opts Opts, pipelineIndex int, resources v1alpha1.PipelineJobResources) (abort bool, err error) {
+func createConfigurePipeline(opts Opts, pipelineIndex int, resources v1alpha1.PipelineJobResources) (passiveRequeue bool, err error) {
 	updated, err := setConfigureWorkflowCompletedConditionStatus(opts, pipelineIndex == 0, opts.parentObject)
 	if err != nil || updated {
 		return updated, err
