@@ -13,7 +13,7 @@ CI=${CI:-false}
 
 INSTALL_AND_CREATE_MINIO_BUCKET=true
 INSTALL_AND_CREATE_GITEA_REPO=false
-WORKER_STATESTORE_TYPE=BucketStateStore
+WORKER_STATESTORE_TYPE=${WORKER_STATESTORE_TYPE:-"BucketStateStore"}
 
 LOCAL_IMAGES_DIR=""
 VERSION=${VERSION:-"$(cd $ROOT; git branch --show-current)"}
@@ -79,7 +79,7 @@ load_options() {
         'l') BUILD_KRATIX_IMAGES=true ;;
         'n') LABELS=false ;;
         'i') LOCAL_IMAGES_DIR=${OPTARG} ;;
-        'd') INSTALL_AND_CREATE_GITEA_REPO=true INSTALL_AND_CREATE_MINIO_BUCKET=true WORKER_STATESTORE_TYPE=BucketStateStore ;;
+        'd') INSTALL_AND_CREATE_GITEA_REPO=true INSTALL_AND_CREATE_MINIO_BUCKET=true ;;
         'g') INSTALL_AND_CREATE_GITEA_REPO=true INSTALL_AND_CREATE_MINIO_BUCKET=false WORKER_STATESTORE_TYPE=GitStateStore ;;
         *) usage 1 ;;
       esac
