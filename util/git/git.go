@@ -395,6 +395,20 @@ func (m *nativeGitClient) Pull(branch string) error {
 	return m.runCredentialedCmd(ctx, args...)
 }
 
+func (m *nativeGitClient) ResetToOrigin(branch string) error {
+	ctx := context.Background()
+	if err := m.fetch(ctx, branch, 0); err != nil {
+		return fmt.Errorf("fetch before reset: %w", err)
+	}
+	if _, err := m.runCmd(ctx, "reset", "--hard", "origin/"+branch); err != nil {
+		return fmt.Errorf("reset to origin: %w", err)
+	}
+	if _, err := m.runCmd(ctx, "clean", "-ffdx"); err != nil {
+		return fmt.Errorf("clean working tree: %w", err)
+	}
+	return nil
+}
+
 // CommitAndPush commits and pushes changes to the target branch.
 func (m *nativeGitClient) CommitAndPush(branch, message, author string, email string) (string, error) {
 	ctx := context.Background()
