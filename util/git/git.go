@@ -293,10 +293,6 @@ func (m *nativeGitClient) Root() string {
 	return m.root
 }
 
-func (m *nativeGitClient) SetRoot(root string) {
-	m.root = root
-}
-
 // Init initialises a local git repository and sets the remote origin
 func (m *nativeGitClient) Init() (string, error) {
 	ctx := context.Background()
@@ -387,12 +383,6 @@ func (m *nativeGitClient) Push(branch string, force bool) (string, error) {
 	}
 
 	return "", nil
-}
-
-func (m *nativeGitClient) Pull(branch string) error {
-	ctx := context.Background()
-	args := []string{"pull", "origin", branch}
-	return m.runCredentialedCmd(ctx, args...)
 }
 
 // CommitAndPush commits and pushes changes to the target branch.
