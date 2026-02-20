@@ -41,7 +41,6 @@ type GitExecutor interface {
 	CommitAndPush(branch, message, author, email string) (string, error)
 	Push(branch string, force bool) (string, error)
 	Pull(branch string) error
-	ResetToOrigin(branch string) error
 	Root() string
 	SetRoot(root string)
 	HasChanges() (bool, error)
@@ -116,21 +115,6 @@ func (g *GitWriter) UpdateFiles(subDir string, workPlacementName string, workloa
 	return g.update(subDir, workPlacementName, workloadsToCreate, workloadsToDelete)
 }
 
-func (g *GitWriter) pullWithRecovery(branch string) error {
-	err := g.Runner.Pull(branch)
-	if err == nil {
-		return nil
-	}
-	if !strings.Contains(err.Error(), "uncommitted") && !strings.Contains(err.Error(), "Please commit or stash") {
-		return err
-	}
-	logging.Info(g.Log, "recovering from dirty repo state", "error", err.Error())
-	if resetErr := g.Runner.ResetToOrigin(branch); resetErr != nil {
-		return fmt.Errorf("failed to reset dirty repo before retry: %w", resetErr)
-	}
-	return g.Runner.Pull(branch)
-}
-
 func (g *GitWriter) update(subDir, workPlacementName string, workloadsToCreate []v1alpha1.Workload, workloadsToDelete []string) (string, error) {
 	if len(workloadsToCreate) == 0 && len(workloadsToDelete) == 0 && subDir == "" {
 		return "", nil
@@ -143,7 +127,7 @@ func (g *GitWriter) update(subDir, workPlacementName string, workloadsToCreate [
 	ref.Mutex.Lock()
 	defer ref.Mutex.Unlock()
 
-	if err := g.pullWithRecovery(g.GitServer.Branch); err != nil {
+	if err := g.Runner.Pull(g.GitServer.Branch); err != nil {
 		return "", err
 	}
 
@@ -241,10 +225,10 @@ func (g *GitWriter) ReadFile(filePath string) ([]byte, error) {
 	if err != nil {
 		return nil, err
 	}
-	ref.Mutex.Lock()
-	defer ref.Mutex.Unlock()
+	ref.Mutex.RLock()
+	defer ref.Mutex.RUnlock()
 
-	if err := g.pullWithRecovery(g.GitServer.Branch); err != nil {
+	if err := g.Runner.Pull(g.GitServer.Branch); err != nil {
 		return nil, err
 	}
 
