@@ -391,7 +391,7 @@ func (m *nativeGitClient) Push(branch string, force bool) (string, error) {
 
 func (m *nativeGitClient) Pull(branch string) error {
 	ctx := context.Background()
-	args := []string{"pull", "origin", branch, "--rebase"}
+	args := []string{"pull", "origin", branch}
 	return m.runCredentialedCmd(ctx, args...)
 }
 
