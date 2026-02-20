@@ -19,6 +19,7 @@ package controller
 import (
 	"context"
 	"encoding/json"
+	"fmt"
 	"time"
 
 	"github.com/go-logr/logr"
@@ -75,8 +76,13 @@ func (r *HealthRecordReconciler) Reconcile(ctx context.Context, req ctrl.Request
 
 	promise := &platformv1alpha1.Promise{}
 	promiseName := client.ObjectKey{Name: healthRecord.Data.PromiseRef.Name}
+	healthRecordIsBeingDeleted := !healthRecord.DeletionTimestamp.IsZero()
 	if err := r.Get(ctx, promiseName, promise); err != nil {
-		return r.ignoreNotFound(logger, err, "failed getting promise"), nil
+		if errors.IsNotFound(err) && healthRecordIsBeingDeleted {
+			logging.Debug(logger, "promise not found during deletion; removing finalizer", "healthRecord", req.Name)
+			return ctrl.Result{}, r.removeFinalizer(ctx, healthRecord)
+		}
+		return ctrl.Result{}, fmt.Errorf("failed getting promise: %w", err)
 	}
 
 	promiseGVK, _, err := promise.GetAPI()
@@ -86,8 +92,6 @@ func (r *HealthRecordReconciler) Reconcile(ctx context.Context, req ctrl.Request
 	}
 
 	resReq := &unstructured.Unstructured{}
-
-	healthRecordIsBeingDeleted := !healthRecord.DeletionTimestamp.IsZero()
 
 	if err = r.getResourceRequest(ctx, promiseGVK, healthRecord, resReq); err != nil {
 		if errors.IsNotFound(err) && healthRecordIsBeingDeleted {
