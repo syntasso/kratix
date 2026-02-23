@@ -7,7 +7,6 @@ import (
 	"path"
 	"path/filepath"
 	"strings"
-	"sync"
 
 	"github.com/go-logr/logr"
 	"github.com/syntasso/kratix/api/v1alpha1"
@@ -40,28 +39,11 @@ type GitExecutor interface {
 	Clone(branch string) (repoDir string, err error)
 	CommitAndPush(branch, message, author, email string) (string, error)
 	Push(branch string, force bool) (string, error)
-	Pull(branch string) error
-	ResetToOrigin(branch string) error
 	Root() string
-	SetRoot(root string)
 	HasChanges() (bool, error)
 	// TODO: merge these two methods
 	RemoveDirectory(dir string) error
 	RemoveFile(file string) error
-}
-
-var (
-	clonedRepos   map[string]*gitRef
-	clonedReposMu sync.RWMutex
-)
-
-type gitRef struct {
-	Root  string
-	Mutex sync.RWMutex
-}
-
-func init() {
-	clonedRepos = make(map[string]*gitRef)
 }
 
 func NewGitWriter(logger logr.Logger, stateStoreSpec v1alpha1.GitStateStoreSpec, destinationPath string, creds map[string][]byte) (StateStoreWriter, error) {
@@ -116,42 +98,23 @@ func (g *GitWriter) UpdateFiles(subDir string, workPlacementName string, workloa
 	return g.update(subDir, workPlacementName, workloadsToCreate, workloadsToDelete)
 }
 
-func (g *GitWriter) pullWithRecovery(branch string) error {
-	err := g.Runner.Pull(branch)
-	if err == nil {
-		return nil
-	}
-	if !strings.Contains(err.Error(), "uncommitted") && !strings.Contains(err.Error(), "Please commit or stash") {
-		return err
-	}
-	logging.Info(g.Log, "recovering from dirty repo state", "error", err.Error())
-	if resetErr := g.Runner.ResetToOrigin(branch); resetErr != nil {
-		return fmt.Errorf("failed to reset dirty repo before retry: %w", resetErr)
-	}
-	return g.Runner.Pull(branch)
-}
-
 func (g *GitWriter) update(subDir, workPlacementName string, workloadsToCreate []v1alpha1.Workload, workloadsToDelete []string) (string, error) {
 	if len(workloadsToCreate) == 0 && len(workloadsToDelete) == 0 && subDir == "" {
 		return "", nil
 	}
 
-	ref, err := g.fetchOrClone(g.GitServer.URL, g.GitServer.Branch)
+	localDir, err := g.Runner.Clone(g.GitServer.Branch)
 	if err != nil {
 		return "", err
 	}
-	ref.Mutex.Lock()
-	defer ref.Mutex.Unlock()
 
-	if err := g.pullWithRecovery(g.GitServer.Branch); err != nil {
-		return "", err
-	}
-
-	dirInGitRepo := filepath.Join(ref.Root, g.Path, subDir)
+	dirInGitRepo := filepath.Join(g.Runner.Root(), g.Path, subDir)
 	logger := g.Log.WithValues(
 		"dir", dirInGitRepo,
 		"branch", g.GitServer.Branch,
 	)
+
+	defer os.RemoveAll(localDir) //nolint:errcheck
 
 	err = g.deleteExistingFiles(subDir != "", dirInGitRepo, workloadsToDelete, logger)
 	if err != nil {
@@ -172,11 +135,11 @@ func (g *GitWriter) update(subDir, workPlacementName string, workloadsToCreate [
 		//To ensure they can't write to files on disk outside the tmp git repository we check the absolute Path
 		//returned by `filepath.Join` is still contained with the git repository:
 		// Note: This means `../` can still be used, but only if the end result is still contained within the git repository
-		if !strings.HasPrefix(absoluteFilePath, ref.Root) {
+		if !strings.HasPrefix(absoluteFilePath, localDir) {
 			logging.Warn(log,
 				"path of file to write is not located within the git repository",
 				"absolutePath",
-				absoluteFilePath, "tmpDir", ref.Root)
+				absoluteFilePath, "tmpDir", localDir)
 			return "", nil //We don't want to retry as this isn't a recoverable error. Log error and return nil.
 		}
 
@@ -237,18 +200,14 @@ func (g *GitWriter) deleteExistingFiles(removeDirectory bool, dir string, worklo
 }
 
 func (g *GitWriter) ReadFile(filePath string) ([]byte, error) {
-	ref, err := g.fetchOrClone(g.GitServer.URL, g.GitServer.Branch)
+
+	localDir, err := g.Runner.Clone(g.GitServer.Branch)
 	if err != nil {
 		return nil, err
 	}
-	ref.Mutex.Lock()
-	defer ref.Mutex.Unlock()
+	defer os.RemoveAll(localDir) //nolint:errcheck
 
-	if err := g.pullWithRecovery(g.GitServer.Branch); err != nil {
-		return nil, err
-	}
-
-	fullPath := filepath.Join(ref.Root, g.Path, filePath)
+	fullPath := filepath.Join(g.Runner.Root(), g.Path, filePath)
 	logger := g.Log.WithValues(
 		"Path", fullPath,
 		"branch", g.GitServer.Branch,
@@ -271,14 +230,12 @@ func (g *GitWriter) ReadFile(filePath string) ([]byte, error) {
 // It performs a dry run validation to check authentication and branch existence without making changes.
 func (g *GitWriter) ValidatePermissions() error {
 	// Setup local directory with repo (this already checks if we can clone - read access)
-	ref, cloneErr := g.fetchOrClone(g.GitServer.URL, g.GitServer.Branch)
+	localDir, cloneErr := g.Runner.Clone(g.GitServer.Branch)
 	if cloneErr != nil && !errors.Is(cloneErr, ErrAuthSucceededAfterTrim) {
 		return fmt.Errorf("failed to set up local directory with repo: %w", cloneErr)
 	}
-	ref.Mutex.Lock()
-	defer ref.Mutex.Unlock()
+	defer os.RemoveAll(localDir) //nolint:errcheck
 
-	g.Runner.SetRoot(ref.Root)
 	_, err := g.Runner.Push(g.GitServer.Branch, false)
 	if err != nil {
 		return fmt.Errorf("write permission validation failed: %w", err)
@@ -309,42 +266,4 @@ func (g *GitWriter) commitAndPush(action, workPlacementName string, logger logr.
 		return "", err
 	}
 	return commitSha, nil
-}
-
-func (g *GitWriter) fetchOrClone(url string, branch string) (*gitRef, error) {
-	id := fmt.Sprintf("%s-%s", url, branch)
-
-	clonedReposMu.RLock()
-	if r, ok := clonedRepos[id]; ok {
-		ref := r
-		clonedReposMu.RUnlock()
-		if _, err := os.Lstat(ref.Root); err != nil {
-			if !os.IsNotExist(err) {
-				return nil, err
-			}
-			clonedReposMu.Lock()
-			delete(clonedRepos, id)
-			clonedReposMu.Unlock()
-		} else {
-			g.Runner.SetRoot(ref.Root)
-			return ref, nil
-		}
-	} else {
-		clonedReposMu.RUnlock()
-	}
-
-	localDir, err := g.Runner.Clone(branch)
-	if err != nil {
-		return nil, err
-	}
-	ref := &gitRef{
-		Root:  localDir,
-		Mutex: sync.RWMutex{},
-	}
-	g.Runner.SetRoot(ref.Root)
-
-	clonedReposMu.Lock()
-	clonedRepos[id] = ref
-	clonedReposMu.Unlock()
-	return ref, nil
 }
