@@ -47,46 +47,61 @@ spec:
             description: WorkSpec defines the desired state of Work
             properties:
               promiseName:
+                description: Name of the Promise that generated this Work
                 type: string
               resourceName:
+                description: Name of the Resource Request that generated this Work.
+                  Empty for Promise-level dependencies
                 type: string
               workloadGroups:
-                description: Workload represents the manifest workload to be deployed
-                  on destination
+                description: Groups of workloads to be scheduled to Destinations.
+                  Each group can target different Destinations via label selectors
                 items:
                   description: |-
-                    WorkloadGroup represents the workloads in a particular directory that should
-                    be scheduled to a Destination
+                    WorkloadGroup represents a set of workloads in a particular directory that should
+                    be scheduled to a Destination.
                   properties:
                     destinationSelectors:
+                      description: Label selectors used to determine which Destinations
+                        should receive this workload group
                       items:
+                        description: WorkloadGroupScheduling defines label-based scheduling
+                          for a workload group
                         properties:
                           matchLabels:
                             additionalProperties:
                               type: string
+                            description: Labels that a Destination must match to receive
+                              this workload group
                             type: object
                           source:
+                            description: Origin of these selectors (e.g. "promise"
+                              or "resource")
                             type: string
                         type: object
                       type: array
                     directory:
+                      description: Directory within the pipeline output where these
+                        workloads originated
                       type: string
                     id:
+                      description: Unique identifier for this workload group, derived
+                        from a hash of the directory
                       type: string
                     workloads:
-                      description: |-
-                        List of Workloads scheduled to target Destination;
-                        Each Workload details name of the filepath on Destination,
-                        and the compressed content of the workload.
+                      description: List of workloads to be written to the Destination
+                        StateStore
                       items:
-                        description: Workload represents the manifest workload to
-                          be deployed on destination
+                        description: Workload represents a single manifest file to
+                          be written to a Destination StateStore
                         properties:
                           content:
-                            description: Content of the workload, which is base64
-                              encoded and compressed with gzip.
+                            description: Content of the workload manifest, base64
+                              encoded and gzip compressed
                             type: string
                           filepath:
+                            description: Path of the file relative to the workload
+                              group directory
                             type: string
                         type: object
                       type: array
@@ -97,6 +112,8 @@ spec:
             description: WorkStatus defines the observed state of Work
             properties:
               conditions:
+                description: Current conditions of the Work. Includes a Ready condition
+                  indicating all WorkPlacements are written successfully
                 items:
                   description: Condition contains details for one aspect of the current
                     state of this API Resource.
@@ -153,8 +170,12 @@ spec:
                   type: object
                 type: array
               workPlacements:
+                description: Number of WorkPlacements currently scheduled for this
+                  Work
                 type: integer
               workPlacementsCreated:
+                description: Total number of WorkPlacements that have been created
+                  for this Work
                 type: integer
             type: object
         type: object

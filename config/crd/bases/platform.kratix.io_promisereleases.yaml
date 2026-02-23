@@ -51,6 +51,8 @@ spec:
               sourceRef:
                 default:
                   type: http
+                description: Reference to the source from which the Promise will be
+                  fetched
                 properties:
                   secretRef:
                     description: |-
@@ -69,15 +71,18 @@ spec:
                     type: object
                     x-kubernetes-map-type: atomic
                   type:
+                    description: Type of the source; currently only "http" is supported
                     enum:
                     - http
                     type: string
                   url:
+                    description: URL from which to fetch the Promise definition
                     type: string
                 required:
                 - type
                 type: object
               version:
+                description: Semantic version of the Promise to install
                 type: string
             required:
             - sourceRef
@@ -86,6 +91,7 @@ spec:
             description: PromiseReleaseStatus defines the observed state of PromiseRelease
             properties:
               conditions:
+                description: Current conditions of the PromiseRelease
                 items:
                   description: Condition contains details for one aspect of the current
                     state of this API Resource.
@@ -142,6 +148,8 @@ spec:
                   type: object
                 type: array
               status:
+                description: Overall status of the PromiseRelease (e.g. Installed,
+                  Failed)
                 type: string
             type: object
         type: object

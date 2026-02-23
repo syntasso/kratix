@@ -50,9 +50,12 @@ const (
 
 // WorkStatus defines the observed state of Work
 type WorkStatus struct {
-	Conditions            []metav1.Condition `json:"conditions,omitempty"`
-	WorkPlacements        int                `json:"workPlacements,omitempty"`
-	WorkPlacementsCreated int                `json:"workPlacementsCreated,omitempty"`
+	// Current conditions of the Work. Includes a Ready condition indicating all WorkPlacements are written successfully
+	Conditions []metav1.Condition `json:"conditions,omitempty"`
+	// Number of WorkPlacements currently scheduled for this Work
+	WorkPlacements int `json:"workPlacements,omitempty"`
+	// Total number of WorkPlacements that have been created for this Work
+	WorkPlacementsCreated int `json:"workPlacementsCreated,omitempty"`
 }
 
 //+kubebuilder:object:root=true
@@ -71,10 +74,11 @@ type Work struct {
 
 // WorkSpec defines the desired state of Work
 type WorkSpec struct {
-	// Workload represents the manifest workload to be deployed on destination
+	// Groups of workloads to be scheduled to Destinations. Each group can target different Destinations via label selectors
 	WorkloadGroups []WorkloadGroup `json:"workloadGroups,omitempty"`
-
+	// Name of the Promise that generated this Work
 	PromiseName string `json:"promiseName,omitempty"`
+	// Name of the Resource Request that generated this Work. Empty for Promise-level dependencies
 	// +optional
 	ResourceName string `json:"resourceName,omitempty"`
 }
@@ -134,29 +138,34 @@ func (w *Work) IsDependency() bool {
 	return w.Spec.ResourceName == ""
 }
 
-// WorkloadGroup represents the workloads in a particular directory that should
-// be scheduled to a Destination
+// WorkloadGroup represents a set of workloads in a particular directory that should
+// be scheduled to a Destination.
 type WorkloadGroup struct {
+	// List of workloads to be written to the Destination StateStore
 	// +optional
-	// List of Workloads scheduled to target Destination;
-	// Each Workload details name of the filepath on Destination,
-	// and the compressed content of the workload.
-	Workloads            []Workload                `json:"workloads,omitempty"`
-	Directory            string                    `json:"directory,omitempty"`
-	ID                   string                    `json:"id,omitempty"`
+	Workloads []Workload `json:"workloads,omitempty"`
+	// Directory within the pipeline output where these workloads originated
+	Directory string `json:"directory,omitempty"`
+	// Unique identifier for this workload group, derived from a hash of the directory
+	ID string `json:"id,omitempty"`
+	// Label selectors used to determine which Destinations should receive this workload group
 	DestinationSelectors []WorkloadGroupScheduling `json:"destinationSelectors,omitempty"`
 }
 
+// WorkloadGroupScheduling defines label-based scheduling for a workload group
 type WorkloadGroupScheduling struct {
+	// Labels that a Destination must match to receive this workload group
 	MatchLabels map[string]string `json:"matchLabels,omitempty"`
-	Source      string            `json:"source,omitempty"`
+	// Origin of these selectors (e.g. "promise" or "resource")
+	Source string `json:"source,omitempty"`
 }
 
-// Workload represents the manifest workload to be deployed on destination
+// Workload represents a single manifest file to be written to a Destination StateStore
 type Workload struct {
+	// Path of the file relative to the workload group directory
 	// +optional
 	Filepath string `json:"filepath,omitempty"`
-	// Content of the workload, which is base64 encoded and compressed with gzip.
+	// Content of the workload manifest, base64 encoded and gzip compressed
 	Content string `json:"content,omitempty"`
 }
 

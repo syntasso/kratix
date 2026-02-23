@@ -49,14 +49,19 @@ type GitStateStoreSpec struct {
 	GitAuthor GitAuthor `json:"gitAuthor,omitempty"`
 }
 
+// GitAuthor defines the author identity used for commits to the Git StateStore
 type GitAuthor struct {
-	Name  string `json:"name,omitempty"`
+	// Name of the Git commit author
+	Name string `json:"name,omitempty"`
+	// Email of the Git commit author
 	Email string `json:"email,omitempty"`
 }
 
 // StateStoreStatus defines the observed state of a state store
 type StateStoreStatus struct {
-	Status     string             `json:"status"`
+	// Overall status of the StateStore
+	Status string `json:"status"`
+	// Current conditions of the StateStore. Includes a Ready condition indicating whether Kratix can access the store
 	Conditions []metav1.Condition `json:"conditions,omitempty"`
 }
 

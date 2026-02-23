@@ -21,33 +21,39 @@ import (
 	"k8s.io/apimachinery/pkg/runtime"
 )
 
+// PromiseRef is a reference to a Promise by name
 type PromiseRef struct {
+	// Name of the referenced Promise
 	Name string `json:"name"`
 }
 
+// ResourceRef is a reference to a specific Resource Request
 type ResourceRef struct {
-	// Name the resource name
+	// Name of the Resource Request
 	Name string `json:"name"`
-	// Namespace the resource namespace
+	// Namespace of the Resource Request
 	Namespace string `json:"namespace"`
-	// Generation the generation of the resource
+	// Generation of the Resource Request at the time of recording
 	Generation int `json:"generation,omitempty"`
 }
 
 // HealthRecordData defines the desired state of HealthRecord
 type HealthRecordData struct {
+	// Reference to the Promise this health record belongs to
 	PromiseRef PromiseRef `json:"promiseRef"`
 
-	// ResourceRef represents the resource request; required value if HealthRecord is for a resource request
+	// Reference to the Resource Request this health record belongs to. Required when the HealthRecord is for a resource request
 	ResourceRef ResourceRef `json:"resourceRef,omitempty"`
 
+	// Health state of the resource; one of unknown, ready, unhealthy, healthy, or degraded
 	// +kubebuilder:validation:Enum=unknown;ready;unhealthy;healthy;degraded
 	// +kubebuilder:default=unknown
 	State string `json:"state"`
 
-	// Timestamp of the last healthcheck run
+	// Unix timestamp of the last healthcheck run
 	LastRun int64 `json:"lastRun,omitempty"`
 
+	// Arbitrary JSON details from the healthcheck pipeline
 	// +kubebuilder:pruning:PreserveUnknownFields
 	// +kubebuilder:validation:Optional
 	Details *runtime.RawExtension `json:"details,omitempty"`

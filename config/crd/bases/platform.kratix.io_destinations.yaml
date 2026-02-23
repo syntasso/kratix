@@ -96,9 +96,13 @@ spec:
                 type: object
               initWorkloads:
                 default: {}
+                description: InitWorkloads controls whether Kratix writes initial
+                  placeholder files to the StateStore for this Destination
                 properties:
                   enabled:
                     default: true
+                    description: When true, Kratix will write initial directory structure
+                      to the StateStore on Destination creation
                     type: boolean
                 type: object
               path:
@@ -112,14 +116,18 @@ spec:
                   Defaults to the Destination name
                 type: string
               stateStoreRef:
-                description: StateStoreReference is a reference to a StateStore
+                description: Reference to the StateStore (GitStateStore or BucketStateStore)
+                  used to persist resources for this Destination
                 properties:
                   kind:
+                    description: Kind of the StateStore resource. Must be either BucketStateStore
+                      or GitStateStore
                     enum:
                     - BucketStateStore
                     - GitStateStore
                     type: string
                   name:
+                    description: Name of the StateStore resource
                     type: string
                 required:
                 - kind
@@ -141,6 +149,8 @@ spec:
             description: DestinationStatus defines the observed state of Destination
             properties:
               conditions:
+                description: Current conditions of the Destination. Includes a Ready
+                  condition indicating whether the StateStore is accessible
                 items:
                   description: Condition contains details for one aspect of the current
                     state of this API Resource.

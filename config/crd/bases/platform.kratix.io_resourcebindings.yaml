@@ -53,22 +53,26 @@ spec:
             description: spec defines the desired state of ResourceBinding
             properties:
               promiseRef:
+                description: Reference to the Promise that this binding tracks
                 properties:
                   name:
+                    description: Name of the referenced Promise
                     type: string
                 required:
                 - name
                 type: object
               resourceRef:
+                description: Reference to the Resource Request that this binding tracks
                 properties:
                   generation:
-                    description: Generation the generation of the resource
+                    description: Generation of the Resource Request at the time of
+                      recording
                     type: integer
                   name:
-                    description: Name the resource name
+                    description: Name of the Resource Request
                     type: string
                   namespace:
-                    description: Namespace the resource namespace
+                    description: Namespace of the Resource Request
                     type: string
                 required:
                 - name

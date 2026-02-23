@@ -29,15 +29,20 @@ const TypeHTTP = "http"
 
 // PromiseReleaseSpec defines the desired state of PromiseRelease
 type PromiseReleaseSpec struct {
+	// Semantic version of the Promise to install
 	Version string `json:"version,omitempty"`
+	// Reference to the source from which the Promise will be fetched
 	// +kubebuilder:default:={type: "http"}
 	SourceRef SourceRef `json:"sourceRef"`
 }
 
+// SourceRef defines where and how to fetch the Promise definition
 type SourceRef struct {
+	// Type of the source; currently only "http" is supported
 	// +kubebuilder:validation:Enum:={http}
 	Type string `json:"type"`
-	URL  string `json:"url,omitempty"`
+	// URL from which to fetch the Promise definition
+	URL string `json:"url,omitempty"`
 	// Reference a secret with credentials to access the source.
 	// For more details on the secret format, see the documentation:
 	//   https://docs.kratix.io/main/reference/promises/releases#promise-release
@@ -46,7 +51,9 @@ type SourceRef struct {
 
 // PromiseReleaseStatus defines the observed state of PromiseRelease
 type PromiseReleaseStatus struct {
-	Status     string             `json:"status,omitempty"`
+	// Overall status of the PromiseRelease (e.g. Installed, Failed)
+	Status string `json:"status,omitempty"`
+	// Current conditions of the PromiseRelease
 	Conditions []metav1.Condition `json:"conditions,omitempty"`
 }
 

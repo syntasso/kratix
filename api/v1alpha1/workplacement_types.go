@@ -24,19 +24,22 @@ import (
 
 // WorkPlacementSpec defines the desired state of WorkPlacement
 type WorkPlacementSpec struct {
+	// Name of the Destination this WorkPlacement is assigned to
 	TargetDestinationName string `json:"targetDestinationName,omitempty"`
-	// List of Workloads scheduled to target Destination;
-	// Each Workload details name of the filepath on Destination,
-	// and the compressed content of the workload.
-	Workloads   []Workload `json:"workloads,omitempty"`
-	PromiseName string     `json:"promiseName,omitempty"`
+	// List of workloads to be written to the target Destination's StateStore
+	Workloads []Workload `json:"workloads,omitempty"`
+	// Name of the Promise that generated the parent Work
+	PromiseName string `json:"promiseName,omitempty"`
+	// Name of the Resource Request that generated the parent Work. Empty for Promise-level dependencies
 	// +optional
 	ResourceName string `json:"resourceName,omitempty"`
-	ID           string `json:"id,omitempty"`
+	// Unique identifier for the workload group this WorkPlacement represents
+	ID string `json:"id,omitempty"`
 }
 
 // WorkPlacementStatus defines the observed state of WorkPlacement
 type WorkPlacementStatus struct {
+	// Current conditions of the WorkPlacement. Includes a Ready condition indicating all workloads are written to the StateStore
 	Conditions []metav1.Condition `json:"conditions,omitempty"`
 
 	// +optional
