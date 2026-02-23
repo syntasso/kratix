@@ -317,6 +317,56 @@ var _ = Describe("HealthRecordController", func() {
 			Expect(err.Error()).To(ContainSubstring("not found"))
 		})
 	})
+
+	When("the promise has already been deleted", func() {
+		var healthRecordName types.NamespacedName
+
+		BeforeEach(func() {
+			_ = reconcile()
+			Expect(fakeK8sClient.Delete(ctx, promise)).To(Succeed())
+
+			healthRecordName = types.NamespacedName{
+				Name:      healthRecord.GetName(),
+				Namespace: healthRecord.GetNamespace(),
+			}
+			Expect(fakeK8sClient.Get(ctx, healthRecordName, healthRecord)).To(Succeed())
+			Expect(fakeK8sClient.Delete(ctx, healthRecord)).To(Succeed())
+		})
+
+		It("removes the finalizer so the healthRecord can be deleted", func() {
+			_, err := t.reconcileUntilCompletion(reconciler, healthRecord)
+			Expect(err).NotTo(HaveOccurred())
+
+			record := &v1alpha1.HealthRecord{}
+			err = fakeK8sClient.Get(ctx, healthRecordName, record)
+			Expect(err).To(HaveOccurred())
+			Expect(err.Error()).To(ContainSubstring("not found"))
+		})
+	})
+
+	When("the promise has already been deleted but the healthRecord is not being deleted", func() {
+		var healthRecordName types.NamespacedName
+
+		BeforeEach(func() {
+			_ = reconcile()
+			Expect(fakeK8sClient.Delete(ctx, promise)).To(Succeed())
+
+			healthRecordName = types.NamespacedName{
+				Name:      healthRecord.GetName(),
+				Namespace: healthRecord.GetNamespace(),
+			}
+		})
+
+		It("leaves the healthRecord and finalizer unchanged", func() {
+			result, err := t.reconcileUntilCompletion(reconciler, healthRecord)
+			Expect(err).NotTo(HaveOccurred())
+			Expect(result).To(Equal(ctrl.Result{}))
+
+			record := &v1alpha1.HealthRecord{}
+			Expect(fakeK8sClient.Get(ctx, healthRecordName, record)).To(Succeed())
+			Expect(record.GetFinalizers()).To(ContainElement("kratix.io/health-record-cleanup"))
+		})
+	})
 })
 
 func getResourceStatus(r *unstructured.Unstructured) map[string]interface{} {

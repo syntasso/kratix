@@ -75,7 +75,12 @@ func (r *HealthRecordReconciler) Reconcile(ctx context.Context, req ctrl.Request
 
 	promise := &platformv1alpha1.Promise{}
 	promiseName := client.ObjectKey{Name: healthRecord.Data.PromiseRef.Name}
+	healthRecordIsBeingDeleted := !healthRecord.DeletionTimestamp.IsZero()
 	if err := r.Get(ctx, promiseName, promise); err != nil {
+		if errors.IsNotFound(err) && healthRecordIsBeingDeleted {
+			logging.Debug(logger, "promise not found during deletion; removing finalizer", "healthRecord", req.Name)
+			return ctrl.Result{}, r.removeFinalizer(ctx, healthRecord)
+		}
 		return r.ignoreNotFound(logger, err, "failed getting promise"), nil
 	}
 
@@ -86,8 +91,6 @@ func (r *HealthRecordReconciler) Reconcile(ctx context.Context, req ctrl.Request
 	}
 
 	resReq := &unstructured.Unstructured{}
-
-	healthRecordIsBeingDeleted := !healthRecord.DeletionTimestamp.IsZero()
 
 	if err = r.getResourceRequest(ctx, promiseGVK, healthRecord, resReq); err != nil {
 		if errors.IsNotFound(err) && healthRecordIsBeingDeleted {
