@@ -19,7 +19,6 @@ package controller
 import (
 	"context"
 	"encoding/json"
-	"fmt"
 	"time"
 
 	"github.com/go-logr/logr"
@@ -82,7 +81,7 @@ func (r *HealthRecordReconciler) Reconcile(ctx context.Context, req ctrl.Request
 			logging.Debug(logger, "promise not found during deletion; removing finalizer", "healthRecord", req.Name)
 			return ctrl.Result{}, r.removeFinalizer(ctx, healthRecord)
 		}
-		return ctrl.Result{}, fmt.Errorf("failed getting promise: %w", err)
+		return r.ignoreNotFound(logger, err, "failed getting promise"), nil
 	}
 
 	promiseGVK, _, err := promise.GetAPI()
