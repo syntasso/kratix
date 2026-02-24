@@ -266,7 +266,7 @@ spec:
                       type: string
                     state:
                       description: Current state of the required Promise (e.g. "Available",
-                        "Unavailable", "NotFound")
+                        "Unavailable")
                       type: string
                     version:
                       description: Installed version of the required Promise

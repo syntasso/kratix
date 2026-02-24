@@ -185,7 +185,7 @@ type RequiredPromiseStatus struct {
 	Name string `json:"name,omitempty"`
 	// Installed version of the required Promise
 	Version string `json:"version,omitempty"`
-	// Current state of the required Promise (e.g. "Available", "Unavailable", "NotFound")
+	// Current state of the required Promise (e.g. "Available", "Unavailable")
 	State string `json:"state,omitempty"`
 }
 

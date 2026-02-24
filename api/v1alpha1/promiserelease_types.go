@@ -29,7 +29,7 @@ const TypeHTTP = "http"
 
 // PromiseReleaseSpec defines the desired state of PromiseRelease
 type PromiseReleaseSpec struct {
-	// Semantic version of the Promise to install
+	// Version of the Promise to install
 	Version string `json:"version,omitempty"`
 	// Reference to the source from which the Promise will be fetched
 	// +kubebuilder:default:={type: "http"}

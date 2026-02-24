@@ -82,7 +82,7 @@ spec:
                 - type
                 type: object
               version:
-                description: Semantic version of the Promise to install
+                description: Version of the Promise to install
                 type: string
             required:
             - sourceRef
