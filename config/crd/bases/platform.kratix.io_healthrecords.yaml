@@ -39,31 +39,35 @@ spec:
             description: HealthRecordData defines the desired state of HealthRecord
             properties:
               details:
+                description: Arbitrary JSON details from the healthcheck pipeline
                 type: object
                 x-kubernetes-preserve-unknown-fields: true
               lastRun:
-                description: Timestamp of the last healthcheck run
+                description: Unix timestamp of the last healthcheck run
                 format: int64
                 type: integer
               promiseRef:
+                description: Reference to the Promise this health record belongs to
                 properties:
                   name:
+                    description: Name of the referenced Promise
                     type: string
                 required:
                 - name
                 type: object
               resourceRef:
-                description: ResourceRef represents the resource request; required
-                  value if HealthRecord is for a resource request
+                description: Reference to the Resource Request this health record
+                  belongs to. Required when the HealthRecord is for a resource request
                 properties:
                   generation:
-                    description: Generation the generation of the resource
+                    description: Generation of the Resource Request at the time of
+                      recording
                     type: integer
                   name:
-                    description: Name the resource name
+                    description: Name of the Resource Request
                     type: string
                   namespace:
-                    description: Namespace the resource namespace
+                    description: Namespace of the Resource Request
                     type: string
                 required:
                 - name
@@ -71,6 +75,8 @@ spec:
                 type: object
               state:
                 default: unknown
+                description: Health state of the resource; one of unknown, ready,
+                  unhealthy, healthy, or degraded
                 enum:
                 - unknown
                 - ready

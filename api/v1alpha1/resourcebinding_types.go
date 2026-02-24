@@ -25,8 +25,10 @@ type ResourceBindingSpec struct {
 	// Version is the version of the Promise that this ResourceRequest was last reconciled with.
 	// +required
 	Version string `json:"version"`
+	// Reference to the Promise that this binding tracks
 	// +required
 	PromiseRef PromiseRef `json:"promiseRef"`
+	// Reference to the Resource Request that this binding tracks
 	// +required
 	ResourceRef ResourceRef `json:"resourceRef"`
 }

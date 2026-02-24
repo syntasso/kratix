@@ -48,6 +48,7 @@ type DestinationSpec struct {
 	// +kubebuilder:validation:Required
 	Path string `json:"path,omitempty"`
 
+	// Reference to the StateStore (GitStateStore or BucketStateStore) used to persist resources for this Destination
 	StateStoreRef *StateStoreReference `json:"stateStoreRef,omitempty"`
 
 	// By default, Kratix will schedule works without labels to all destinations
@@ -75,7 +76,9 @@ type DestinationSpec struct {
 	InitWorkloads InitWorkloads `json:"initWorkloads"`
 }
 
+// InitWorkloads controls whether Kratix writes initial placeholder files to the StateStore for this Destination
 type InitWorkloads struct {
+	// When true, Kratix will write initial directory structure to the StateStore on Destination creation
 	// +kubebuilder:validation:Optional
 	// +kubebuilder:default:=true
 	Enabled bool `json:"enabled"`
@@ -126,6 +129,7 @@ func (d *Destination) GetCleanup() string {
 
 // DestinationStatus defines the observed state of Destination
 type DestinationStatus struct {
+	// Current conditions of the Destination. Includes a Ready condition indicating whether the StateStore is accessible
 	Conditions []metav1.Condition `json:"conditions,omitempty"`
 }
 
@@ -154,10 +158,12 @@ type DestinationList struct {
 	Items           []Destination `json:"items"`
 }
 
-// StateStoreReference is a reference to a StateStore
+// StateStoreReference is a reference to a StateStore used by a Destination
 type StateStoreReference struct {
+	// Kind of the StateStore resource. Must be either BucketStateStore or GitStateStore
 	// +kubebuilder:validation:Enum=BucketStateStore;GitStateStore
 	Kind string `json:"kind"`
+	// Name of the StateStore resource
 	Name string `json:"name"`
 }
 

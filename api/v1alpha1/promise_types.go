@@ -76,17 +76,22 @@ type PromiseSpec struct {
 	DestinationSelectors []PromiseScheduling `json:"destinationSelectors,omitempty"`
 }
 
+// RequiredPromise defines a dependency on another Promise that must be installed and available
 type RequiredPromise struct {
-	// Name of Promise
+	// Name of the required Promise
 	Name string `json:"name,omitempty"`
-	// Version of Promise
+	// Version of the required Promise. If empty, any version is accepted
 	Version string `json:"version,omitempty"`
 }
 
+// Workflows defines the pipelines that are executed at different stages of the Promise and Resource lifecycle
 type Workflows struct {
-	Config   WorkflowConfig   `json:"config,omitempty"`
+	// Configuration options that apply to all workflows defined in this Promise
+	Config WorkflowConfig `json:"config,omitempty"`
+	// Pipelines triggered when a Resource Request (instance of the Promise API) is created, updated, or deleted
 	Resource WorkflowTriggers `json:"resource,omitempty"`
-	Promise  WorkflowTriggers `json:"promise,omitempty"`
+	// Pipelines triggered when the Promise itself is created, updated, or deleted
+	Promise WorkflowTriggers `json:"promise,omitempty"`
 }
 
 type WorkflowConfig struct {
@@ -94,9 +99,12 @@ type WorkflowConfig struct {
 	PipelineNamespace string `json:"pipelineNamespace,omitempty"`
 }
 
+// WorkflowTriggers defines the pipelines that run during configure and delete lifecycle events
 type WorkflowTriggers struct {
+	// Pipelines to execute when the resource or Promise is created or updated
 	// +kubebuilder:pruning:PreserveUnknownFields
 	Configure []unstructured.Unstructured `json:"configure,omitempty"`
+	// Pipelines to execute when the resource or Promise is deleted
 	// +kubebuilder:pruning:PreserveUnknownFields
 	Delete []unstructured.Unstructured `json:"delete,omitempty"`
 }
@@ -111,47 +119,74 @@ type Dependency struct {
 	unstructured.Unstructured `json:",inline"`
 }
 
+// PromiseScheduling defines label selectors for matching Destinations where Resources should be scheduled
 type PromiseScheduling struct {
+	// Labels that a Destination must match for Resources from this Promise to be scheduled to it
 	MatchLabels map[string]string `json:"matchLabels,omitempty"`
 }
 
+// WorkflowDestinationSelectors allows pipelines to override the default destination scheduling
 // For /kratix/metadata/destination-selectors.yaml
 type WorkflowDestinationSelectors struct {
+	// Labels that a Destination must match
 	MatchLabels map[string]string `json:"matchLabels,omitempty"`
+	// Directory within the pipeline output to apply these selectors to
 	// +optional
 	Directory string `json:"directory,omitempty"`
 }
 
 // PromiseStatus defines the observed state of Promise
 type PromiseStatus struct {
-	Conditions         []metav1.Condition      `json:"conditions,omitempty"`
-	Version            string                  `json:"version,omitempty"`
-	ObservedGeneration int64                   `json:"observedGeneration,omitempty"`
-	Kind               string                  `json:"kind,omitempty"`
-	APIVersion         string                  `json:"apiVersion,omitempty"`
-	Status             string                  `json:"status,omitempty"`
-	Workflows          int64                   `json:"workflows"`
-	WorkflowsSucceeded int64                   `json:"workflowsSucceeded"`
-	WorkflowsFailed    int64                   `json:"workflowsFailed"`
-	RequiredPromises   []RequiredPromiseStatus `json:"requiredPromises,omitempty"`
-	RequiredBy         []RequiredBy            `json:"requiredBy,omitempty"`
-	LastAvailableTime  *metav1.Time            `json:"lastAvailableTime,omitempty"`
+	// Current conditions of the Promise. Includes Available, WorksSucceeded, and Reconciled conditions
+	Conditions []metav1.Condition `json:"conditions,omitempty"`
+	// Version of the Promise, derived from the PromiseRelease if installed via one
+	Version string `json:"version,omitempty"`
+	// The generation last observed by the controller
+	ObservedGeneration int64 `json:"observedGeneration,omitempty"`
+	// The Kind of the Resource API defined by this Promise (e.g. "Database")
+	Kind string `json:"kind,omitempty"`
+	// The API version of the Resource API defined by this Promise (e.g. "marketplace.kratix.io/v1alpha1")
+	APIVersion string `json:"apiVersion,omitempty"`
+	// Overall status of the Promise: Available or Unavailable
+	Status string `json:"status,omitempty"`
+	// Total number of Promise-level workflow pipelines
+	Workflows int64 `json:"workflows"`
+	// Number of Promise-level workflow pipelines that have completed successfully
+	WorkflowsSucceeded int64 `json:"workflowsSucceeded"`
+	// Number of Promise-level workflow pipelines that have failed
+	WorkflowsFailed int64 `json:"workflowsFailed"`
+	// Status of each required Promise dependency
+	RequiredPromises []RequiredPromiseStatus `json:"requiredPromises,omitempty"`
+	// List of other Promises that depend on this Promise
+	RequiredBy []RequiredBy `json:"requiredBy,omitempty"`
+	// Timestamp of when this Promise was last in an Available state
+	LastAvailableTime *metav1.Time `json:"lastAvailableTime,omitempty"`
 }
 
+// PromiseSummary provides a brief reference to a Promise by name and version
 type PromiseSummary struct {
-	Name    string `json:"name,omitempty"`
+	// Name of the Promise
+	Name string `json:"name,omitempty"`
+	// Version of the Promise
 	Version string `json:"version,omitempty"`
 }
 
+// RequiredBy indicates another Promise depends on this one
 type RequiredBy struct {
-	Promise         PromiseSummary `json:"promise,omitempty"`
-	RequiredVersion string         `json:"requiredVersion,omitempty"`
+	// The Promise that requires this Promise
+	Promise PromiseSummary `json:"promise,omitempty"`
+	// The specific version required by the dependent Promise
+	RequiredVersion string `json:"requiredVersion,omitempty"`
 }
 
+// RequiredPromiseStatus tracks the availability of a required Promise dependency
 type RequiredPromiseStatus struct {
-	Name    string `json:"name,omitempty"`
+	// Name of the required Promise
+	Name string `json:"name,omitempty"`
+	// Installed version of the required Promise
 	Version string `json:"version,omitempty"`
-	State   string `json:"state,omitempty"`
+	// Current state of the required Promise (e.g. "Available", "Unavailable")
+	State string `json:"state,omitempty"`
 }
 
 //+kubebuilder:object:root=true

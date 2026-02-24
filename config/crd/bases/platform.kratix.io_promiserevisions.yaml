@@ -51,6 +51,7 @@ spec:
                   is based on.
                 properties:
                   name:
+                    description: Name of the referenced Promise
                     type: string
                 required:
                 - name
@@ -78,10 +79,14 @@ spec:
                   destinationSelectors:
                     description: A list of key and value pairs (labels) used for scheduling.
                     items:
+                      description: PromiseScheduling defines label selectors for matching
+                        Destinations where Resources should be scheduled
                       properties:
                         matchLabels:
                           additionalProperties:
                             type: string
+                          description: Labels that a Destination must match for Resources
+                            from this Promise to be scheduled to it
                           type: object
                       type: object
                     type: array
@@ -90,12 +95,15 @@ spec:
                       A list of Promises that are required by this Promise.
                       All required Promises must be present and available for this promise to be made available.
                     items:
+                      description: RequiredPromise defines a dependency on another
+                        Promise that must be installed and available
                       properties:
                         name:
-                          description: Name of Promise
+                          description: Name of the required Promise
                           type: string
                         version:
-                          description: Version of Promise
+                          description: Version of the required Promise. If empty,
+                            any version is accepted
                           type: string
                       type: object
                     type: array
@@ -104,6 +112,8 @@ spec:
                       of the Promise lifecycle.
                     properties:
                       config:
+                        description: Configuration options that apply to all workflows
+                          defined in this Promise
                         properties:
                           pipelineNamespace:
                             description: Namespace for all workflow jobs (promise
@@ -112,26 +122,38 @@ spec:
                             type: string
                         type: object
                       promise:
+                        description: Pipelines triggered when the Promise itself is
+                          created, updated, or deleted
                         properties:
                           configure:
+                            description: Pipelines to execute when the resource or
+                              Promise is created or updated
                             items:
                               type: object
                             type: array
                             x-kubernetes-preserve-unknown-fields: true
                           delete:
+                            description: Pipelines to execute when the resource or
+                              Promise is deleted
                             items:
                               type: object
                             type: array
                             x-kubernetes-preserve-unknown-fields: true
                         type: object
                       resource:
+                        description: Pipelines triggered when a Resource Request (instance
+                          of the Promise API) is created, updated, or deleted
                         properties:
                           configure:
+                            description: Pipelines to execute when the resource or
+                              Promise is created or updated
                             items:
                               type: object
                             type: array
                             x-kubernetes-preserve-unknown-fields: true
                           delete:
+                            description: Pipelines to execute when the resource or
+                              Promise is deleted
                             items:
                               type: object
                             type: array

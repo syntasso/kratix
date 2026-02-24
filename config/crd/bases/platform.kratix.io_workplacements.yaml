@@ -54,27 +54,34 @@ spec:
             description: WorkPlacementSpec defines the desired state of WorkPlacement
             properties:
               id:
+                description: Unique identifier for the workload group this WorkPlacement
+                  represents
                 type: string
               promiseName:
+                description: Name of the Promise that generated the parent Work
                 type: string
               resourceName:
+                description: Name of the Resource Request that generated the parent
+                  Work. Empty for Promise-level dependencies
                 type: string
               targetDestinationName:
+                description: Name of the Destination this WorkPlacement is assigned
+                  to
                 type: string
               workloads:
-                description: |-
-                  List of Workloads scheduled to target Destination;
-                  Each Workload details name of the filepath on Destination,
-                  and the compressed content of the workload.
+                description: List of workloads to be written to the target Destination's
+                  StateStore
                 items:
-                  description: Workload represents the manifest workload to be deployed
-                    on destination
+                  description: Workload represents a single manifest file to be written
+                    to a Destination StateStore
                   properties:
                     content:
-                      description: Content of the workload, which is base64 encoded
-                        and compressed with gzip.
+                      description: Content of the workload manifest, base64 encoded
+                        and gzip compressed
                       type: string
                     filepath:
+                      description: Path of the file relative to the workload group
+                        directory
                       type: string
                   type: object
                 type: array
@@ -83,6 +90,8 @@ spec:
             description: WorkPlacementStatus defines the observed state of WorkPlacement
             properties:
               conditions:
+                description: Current conditions of the WorkPlacement. Includes a Ready
+                  condition indicating all workloads are written to the StateStore
                 items:
                   description: Condition contains details for one aspect of the current
                     state of this API Resource.

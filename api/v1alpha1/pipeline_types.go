@@ -99,40 +99,65 @@ var (
 
 // PipelineSpec defines the desired state of Pipeline.
 type PipelineSpec struct {
-	Containers       []Container                   `json:"containers,omitempty"`
-	Volumes          []corev1.Volume               `json:"volumes,omitempty"`
+	// Ordered list of OCI containers to execute as part of this pipeline
+	Containers []Container `json:"containers,omitempty"`
+	// Additional volumes to mount into pipeline containers
+	Volumes []corev1.Volume `json:"volumes,omitempty"`
+	// References to Secrets in the same namespace used for pulling container images
 	ImagePullSecrets []corev1.LocalObjectReference `json:"imagePullSecrets,omitempty"`
-	RBAC             RBAC                          `json:"rbac,omitempty"`
-	JobOptions       JobOptions                    `json:"jobOptions,omitempty"`
-	NodeSelector     map[string]string             `json:"nodeSelector,omitempty"`
-	Tolerations      []corev1.Toleration           `json:"tolerations,omitempty"`
+	// RBAC configuration for the pipeline ServiceAccount and additional permissions
+	RBAC RBAC `json:"rbac,omitempty"`
+	// Options for the Kubernetes Job that runs this pipeline
+	JobOptions JobOptions `json:"jobOptions,omitempty"`
+	// Node selector labels for scheduling the pipeline Job Pod
+	NodeSelector map[string]string `json:"nodeSelector,omitempty"`
+	// Tolerations applied to the pipeline Job Pod for scheduling on tainted nodes
+	Tolerations []corev1.Toleration `json:"tolerations,omitempty"`
 }
 
+// RBAC defines the ServiceAccount and additional permissions for the pipeline
 type RBAC struct {
-	ServiceAccount string       `json:"serviceAccount,omitempty"`
-	Permissions    []Permission `json:"permissions,omitempty"`
+	// Name of an existing ServiceAccount to use for the pipeline Job. If empty, Kratix creates one automatically
+	ServiceAccount string `json:"serviceAccount,omitempty"`
+	// Additional RBAC permissions to grant to the pipeline ServiceAccount
+	Permissions []Permission `json:"permissions,omitempty"`
 }
 
+// Permission defines an additional RBAC PolicyRule scoped to an optional namespace
 type Permission struct {
+	// Namespace in which this permission applies. Use "*" for all namespaces
 	ResourceNamespace string `json:"resourceNamespace,omitempty"`
 	rbacv1.PolicyRule `json:",inline"`
 }
 
+// JobOptions defines configuration for the Kubernetes Job that runs the pipeline
 type JobOptions struct {
+	// Number of retries before marking the pipeline Job as failed
 	BackoffLimit *int32 `json:"backoffLimit,omitempty"`
 }
 
+// Container defines a single pipeline step container
 type Container struct {
-	Name            string                       `json:"name,omitempty"`
-	Image           string                       `json:"image,omitempty"`
-	Args            []string                     `json:"args,omitempty"`
-	Command         []string                     `json:"command,omitempty"`
-	Env             []corev1.EnvVar              `json:"env,omitempty"`
-	EnvFrom         []corev1.EnvFromSource       `json:"envFrom,omitempty"`
-	VolumeMounts    []corev1.VolumeMount         `json:"volumeMounts,omitempty"`
-	ImagePullPolicy corev1.PullPolicy            `json:"imagePullPolicy,omitempty"`
-	SecurityContext *corev1.SecurityContext      `json:"securityContext,omitempty"`
-	Resources       *corev1.ResourceRequirements `json:"resources,omitempty"`
+	// Name of the container; must be unique within the pipeline
+	Name string `json:"name,omitempty"`
+	// OCI image reference for this container
+	Image string `json:"image,omitempty"`
+	// Arguments passed to the container entrypoint
+	Args []string `json:"args,omitempty"`
+	// Entrypoint command; replaces the image's default ENTRYPOINT
+	Command []string `json:"command,omitempty"`
+	// Environment variables to set in the container
+	Env []corev1.EnvVar `json:"env,omitempty"`
+	// Sources from which to populate environment variables in the container
+	EnvFrom []corev1.EnvFromSource `json:"envFrom,omitempty"`
+	// Volumes to mount into the container's filesystem
+	VolumeMounts []corev1.VolumeMount `json:"volumeMounts,omitempty"`
+	// Policy for pulling the container image; defaults to IfNotPresent
+	ImagePullPolicy corev1.PullPolicy `json:"imagePullPolicy,omitempty"`
+	// Security context for this container, overriding pod-level defaults
+	SecurityContext *corev1.SecurityContext `json:"securityContext,omitempty"`
+	// CPU and memory resource requests and limits for this container
+	Resources *corev1.ResourceRequirements `json:"resources,omitempty"`
 }
 
 // Pipeline is the Schema for the pipelines API.
