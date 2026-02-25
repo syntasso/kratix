@@ -4,6 +4,7 @@ import (
 	"context"
 	"os"
 	"path/filepath"
+	"time"
 
 	. "github.com/onsi/ginkgo/v2"
 	. "github.com/onsi/gomega"
@@ -105,8 +106,15 @@ var _ = Describe("WorkCreator", func() {
 					Expect(included).To(BeTrue())
 				}
 			})
+			It("has non zero LastExecutionTimestamp", func() {
+				Expect(workResource.Spec.LastExecutionTimestamp).ToNot(BeZero())
+			})
 
 			When("it runs for a second time", func() {
+				BeforeEach(func() {
+					workResource.Spec.LastExecutionTimestamp = metav1.NewTime(time.Now().Add(-time.Hour))
+				})
+
 				It("Should update the previously created work", func() {
 					mockPipelineDirectory = filepath.Join(getRootDirectory(), "complete-updated")
 					err := workCreator.Execute(mockPipelineDirectory, "promise-name", "default", "resource-name", "", "resource", pipelineName)
@@ -127,6 +135,7 @@ var _ = Describe("WorkCreator", func() {
 						Expect(err).NotTo(HaveOccurred())
 						Expect(included).To(BeTrue())
 					}
+					Expect(workResource.Spec.LastExecutionTimestamp.Time).To(BeTemporally("<", newWorkResource.Spec.LastExecutionTimestamp.Time))
 				})
 			})
 
