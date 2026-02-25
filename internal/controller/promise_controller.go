@@ -292,7 +292,7 @@ func (r *PromiseReconciler) Reconcile(ctx context.Context, req ctrl.Request) (re
 
 		logging.Info(logger, "requirements fulfilled", "requirementsStatus", promise.Status.RequiredPromises)
 		if shouldReconcileResources(promise) {
-			return r.reconcileResources(ctx, logger, promise, rrGVK)
+			return r.reconcileResources(ctx, logger, promise, rrGVK, originalStatus)
 		}
 	} else {
 		logging.Debug(logger, "Promise only contains dependencies; skipping API and dynamic controller creation")
@@ -561,7 +561,7 @@ func (r *PromiseReconciler) updateWorksSucceededCondition(
 }
 
 func (r *PromiseReconciler) reconcileResources(ctx context.Context, logger logr.Logger, promise *v1alpha1.Promise,
-	rrGVK *schema.GroupVersionKind) (ctrl.Result, error) {
+	rrGVK *schema.GroupVersionKind, originalPromiseAvailability string) (ctrl.Result, error) {
 	logging.Debug(logger, "reconciling resource requests", "promiseName", promise.Name)
 	if err := r.reconcileAllRRs(ctx, rrGVK); err != nil {
 		return ctrl.Result{}, err
@@ -575,6 +575,15 @@ func (r *PromiseReconciler) reconcileResources(ctx context.Context, logger logr.
 
 	logging.Debug(logger, "updating observed generation", "from", promise.Status.ObservedGeneration, "to", promise.GetGeneration())
 	promise.Status.ObservedGeneration = promise.GetGeneration()
+
+	// at the beginning of Promise reconciliation, we set promise availability to unavailable so
+	// if reconciliation exits at an earlier point, promise is marked as unavailable
+	// here we check if the previous promise.status.status is available
+	// and set it back to available before we update the promise status to avoid flickering promise availability
+	if originalPromiseAvailability == v1alpha1.PromiseStatusAvailable {
+		promise.Status.Status = v1alpha1.PromiseStatusAvailable
+	}
+
 	return r.updatePromiseStatus(ctx, promise)
 }
 
