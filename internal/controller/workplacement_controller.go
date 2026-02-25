@@ -120,10 +120,9 @@ func (r *WorkPlacementReconciler) Reconcile(ctx context.Context, req ctrl.Reques
 		if k8sErrors.IsNotFound(err) {
 			logging.Warn(logger, "destination not found", "workPlacement", workPlacement.Spec.TargetDestinationName)
 			return ctrl.Result{}, nil
-		} else {
-			logging.Error(logger, err, "failed to retrieve Destination", "workPlacement", workPlacement.Spec.TargetDestinationName)
-			return ctrl.Result{}, err
 		}
+		logging.Error(logger, err, "failed to retrieve Destination", "workPlacement", workPlacement.Spec.TargetDestinationName)
+		return ctrl.Result{}, err
 	}
 
 	if !workPlacement.DeletionTimestamp.IsZero() {
@@ -147,17 +146,13 @@ func (r *WorkPlacementReconciler) Reconcile(ctx context.Context, req ctrl.Reques
 		return requeue, err
 	}
 
-	logging.Debug(logger, "updating workplacement status to ready")
 	if err := r.updateResourceStatus(ctx, workPlacement, versionID); err != nil {
 		if kerrors.IsConflict(err) {
-			logging.Debug(logger, "error: conflict")
 			return fastRequeue, nil
 		}
-		logging.Error(logger, err, "error updating WorkPlacement status")
 		return defaultRequeue, nil
 	}
 
-	logging.Debug(logger, "all done")
 	return ctrl.Result{}, nil
 }
 
@@ -168,8 +163,11 @@ func (r *WorkPlacementReconciler) updateResourceStatus(ctx context.Context, work
 	if versionChanged {
 		workPlacement.Status.VersionID = versionID
 	}
+	writeSucceededCondChanged := r.setWriteSucceededCondition(workPlacement)
 	condChanged := r.setWorkplacementReady(workPlacement)
-	if versionChanged || condChanged {
+
+	if versionChanged || condChanged || writeSucceededCondChanged {
+		logging.Debug(r.Log, "updating workplacement status", "versionChanged", versionChanged, "condChanged", condChanged, "writeSucceededCondChanged", writeSucceededCondChanged)
 		if err := r.Client.Status().Update(ctx, workPlacement); err != nil {
 			return err
 		}
@@ -190,26 +188,14 @@ func (r *WorkPlacementReconciler) getDestination(ctx context.Context, wp *v1alph
 	return dest, nil
 }
 
-func (r *WorkPlacementReconciler) updateStatus(ctx context.Context, logger logr.Logger, wp *v1alpha1.WorkPlacement, versionID string) (ctrl.Result, error) {
-	versionID = r.getCachedVersionID(wp, versionID)
-
-	if versionID != "" && wp.Status.VersionID != versionID {
-		wp.Status.VersionID = versionID
-		logging.Info(logger, "updating version status", "versionID", versionID)
-		err := r.Client.Status().Update(ctx, wp)
-		if kerrors.IsConflict(err) {
-			logging.Debug(r.Log, "failed to update WorkPlacement status due to update conflict; requeueing")
-			return fastRequeue, nil
-		} else if err != nil {
-			logging.Error(logger, err, "error updating WorkPlacement status")
-			return ctrl.Result{}, err
-		}
-	}
-
-	r.removeVersionIDFromCache(wp)
-	return ctrl.Result{}, nil
+func (r *WorkPlacementReconciler) setWriteSucceededCondition(workPlacement *v1alpha1.WorkPlacement) bool {
+	return apiMeta.SetStatusCondition(&workPlacement.Status.Conditions, metav1.Condition{
+		Type:    writeSucceededConditionType,
+		Status:  metav1.ConditionTrue,
+		Reason:  "WorkloadsWrittenToStateStore",
+		Message: "Workloads written to State Store",
+	})
 }
-
 func (r *WorkPlacementReconciler) setWriteFailStatusConditions(ctx context.Context, workPlacement *v1alpha1.WorkPlacement, err error) error {
 	writeSucceededUpdated := apiMeta.SetStatusCondition(&workPlacement.Status.Conditions, metav1.Condition{
 		Type:    writeSucceededConditionType,
@@ -423,23 +409,6 @@ func (r *WorkPlacementReconciler) writeToStateStore(wp *v1alpha1.WorkPlacement, 
 	r.setVersionID(wp, versionID)
 	r.publishWriteEvent(wp, "WorkloadsWrittenToStateStore", versionID, nil)
 
-	cond := metav1.Condition{
-		Type:    writeSucceededConditionType,
-		Status:  metav1.ConditionTrue,
-		Reason:  "WorkloadsWrittenToStateStore",
-		Message: "",
-	}
-
-	if apiMeta.SetStatusCondition(&wp.Status.Conditions, cond) {
-		logging.Debug(opts.logger, "updating workplacement status...")
-		if statusUpdateErr := r.Client.Status().Update(opts.ctx, wp); statusUpdateErr != nil {
-			if !kerrors.IsConflict(statusUpdateErr) {
-				logging.Error(opts.logger, statusUpdateErr, "failed to update status condition")
-			}
-			logging.Debug(opts.logger, "faled to update workplacement; requeuing")
-			return versionID, defaultRequeue, nil
-		}
-	}
 	return versionID, ctrl.Result{}, nil
 }
 

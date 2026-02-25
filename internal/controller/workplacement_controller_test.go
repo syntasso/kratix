@@ -665,9 +665,10 @@ files:
 
 					Expect(workPlacement.Status.Conditions).To(ConsistOf(
 						metav1.Condition{
-							Type:   "WriteSucceeded",
-							Status: metav1.ConditionTrue,
-							Reason: "WorkloadsWrittenToStateStore"},
+							Type:    "WriteSucceeded",
+							Status:  metav1.ConditionTrue,
+							Message: "Workloads written to State Store",
+							Reason:  "WorkloadsWrittenToStateStore"},
 						metav1.Condition{
 							Type:    "Ready",
 							Status:  metav1.ConditionTrue,
