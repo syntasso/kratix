@@ -214,9 +214,10 @@ func (r *PromiseReconciler) Reconcile(ctx context.Context, req ctrl.Request) (re
 			return result, statusUpdateErr
 		}
 		if originalStatus == v1alpha1.PromiseStatusAvailable {
+			msg := "Promise no longer available: Requirements have changed"
 			r.EventRecorder.Eventf(
-				promise, "Warning", "Unavailable", "Promise no longer available: %s",
-				"Requirements have changed")
+				promise, "Warning", "Unavailable", msg)
+			logging.Info(r.Log, msg)
 		}
 
 		logging.Warn(logger, "promise requirements changed; requeueing")
@@ -267,7 +268,7 @@ func (r *PromiseReconciler) Reconcile(ctx context.Context, req ctrl.Request) (re
 	}
 
 	if passiveRequeue {
-		logging.Debug(logger, "reconciliation paused awaiting watched resource updates")
+		logging.Debug(logger, "reconciliation paused awaiting Promise configure workflow updates")
 		return ctrl.Result{}, nil
 	}
 

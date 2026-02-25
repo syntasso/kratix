@@ -446,7 +446,7 @@ func (r *DynamicResourceRequestController) updateWorksSucceededCondition(rr *uns
 func (r *DynamicResourceRequestController) updatePromiseVersionStatus(rr *unstructured.Unstructured, bindingVersion string, promiseRevision *v1alpha1.PromiseRevision) bool {
 	logging.Trace(r.Log, "Checking if we need to update the promise version in the status")
 	if !r.PromiseUpgrade || promiseRevision == nil {
-		logging.Trace(r.Log, "Feature flag disabled or no PromiseRevision: we don't")
+		logging.Trace(r.Log, "Feature flag disabled or no PromiseRevision: no update promise version required")
 		return false
 	}
 
