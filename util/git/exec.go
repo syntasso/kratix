@@ -306,7 +306,14 @@ func (m *nativeGitClient) runCredentialedCmd(ctx context.Context, args ...string
 	}
 
 	cmd := exec.CommandContext(ctx, "git", args...)
+
 	cmd.Env = append(cmd.Env, environ...)
+	if os.Getenv("KRATIX_GIT_TRACE") == "1" {
+		cmd.Env = append(cmd.Env, "GIT_TRACE=1")
+	}
+	if os.Getenv("KRATIX_GIT_TRACE_PACKET") == "1" {
+		cmd.Env = append(cmd.Env, "GIT_TRACE_PACKET=1")
+	}
 	_, err = m.runCmdOutput(cmd, runOpts{})
 	return err
 }

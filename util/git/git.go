@@ -41,6 +41,8 @@ var (
 	httpsURLRegex = regexp.MustCompile("^(https://).*")
 )
 
+const maxPushAttempts = 3
+
 type GitClientRequest struct {
 	RawRepoURL string
 	Root       string
@@ -293,10 +295,8 @@ func (m *nativeGitClient) Root() string {
 	return m.root
 }
 
-// Init initialises a local git repository and sets the remote origin
+// Init creates a clean local directory used for git operations.
 func (m *nativeGitClient) Init() (string, error) {
-	ctx := context.Background()
-
 	var err error
 	m.root, err = createLocalDirectory(m.log)
 	if err != nil {
@@ -314,27 +314,13 @@ func (m *nativeGitClient) Init() (string, error) {
 		return "", err
 	}
 
-	args := []string{"init", "."}
-	err = m.runCredentialedCmd(ctx, args...)
-	if err != nil {
-		logging.Error(m.log, err, "could not initialise temporary repository directory")
-		return "", err
-	}
-
-	args = []string{"remote", "add", "origin", m.repoURL}
-	err = m.runCredentialedCmd(ctx, args...)
-	if err != nil {
-		logging.Error(m.log, err, "could not add remote origin")
-		return "", err
-	}
-
 	return m.root, nil
 }
 
 func (m *nativeGitClient) RemoveDirectory(dir string) error {
-	args := []string{"rm", "-r", dir}
+	args := []string{"rm", "-r", "--", dir}
 	ctx := context.Background()
-	err := m.runCredentialedCmd(ctx, args...)
+	_, err := m.runCmd(ctx, args...)
 	if err != nil {
 		logging.Error(m.log, err, "could not remove directory")
 		return err
@@ -343,11 +329,26 @@ func (m *nativeGitClient) RemoveDirectory(dir string) error {
 }
 
 func (m *nativeGitClient) RemoveFile(file string) error {
-	args := []string{"rm", file}
+	args := []string{"rm", "--", file}
 	ctx := context.Background()
-	err := m.runCredentialedCmd(ctx, args...)
+	_, err := m.runCmd(ctx, args...)
 	if err != nil {
 		logging.Error(m.log, err, "could not remove file")
+		return err
+	}
+	return nil
+}
+
+func (m *nativeGitClient) RemoveFiles(files ...string) error {
+	if len(files) == 0 {
+		return nil
+	}
+
+	ctx := context.Background()
+	args := append([]string{"rm", "--"}, files...)
+	_, err := m.runCmd(ctx, args...)
+	if err != nil {
+		logging.Error(m.log, err, "could not remove files")
 		return err
 	}
 	return nil
@@ -360,7 +361,7 @@ func (m *nativeGitClient) fetch(ctx context.Context, revision string, depth int6
 	}
 
 	if depth > 0 {
-		args = append(args, "--depth", strconv.FormatInt(depth, 10))
+		args = append(args, "--depth", strconv.FormatInt(depth, 10), "--no-tags")
 	} else {
 		args = append(args, "--tags")
 	}
@@ -372,7 +373,12 @@ func (m *nativeGitClient) fetch(ctx context.Context, revision string, depth int6
 func (m *nativeGitClient) Push(branch string, force bool) (string, error) {
 	ctx := context.Background()
 
-	args := []string{"push", "origin", branch}
+	args := []string{"push", "origin"}
+	if branch == "" {
+		args = append(args, "HEAD")
+	} else {
+		args = append(args, branch)
+	}
 	if force {
 		args = append(args, "--force")
 	}
@@ -404,17 +410,38 @@ func (m *nativeGitClient) CommitAndPush(branch, message, author string, email st
 		return out, fmt.Errorf("failed to commit: %w", err)
 	}
 
-	err = m.runCredentialedCmd(ctx,
-		"-c", fmt.Sprintf("user.name=%s", author),
-		"-c", fmt.Sprintf("user.email=%s", email),
-		"pull", "origin", "--rebase")
-	if err != nil {
-		return "", fmt.Errorf("failed to pull from origin (rebase): %w", err)
+	pushArgs := []string{"push", "origin"}
+	if branch == "" {
+		pushArgs = append(pushArgs, "HEAD")
+	} else {
+		pushArgs = append(pushArgs, branch)
 	}
 
-	err = m.runCredentialedCmd(ctx, "push", "origin", branch)
-	if err != nil {
-		return "", fmt.Errorf("failed to push: %w", err)
+	for attempt := 1; attempt <= maxPushAttempts; attempt++ {
+		err = m.runCredentialedCmd(ctx, pushArgs...)
+		if err == nil {
+			break
+		}
+		if !isNonFastForwardPushError(err) {
+			return "", fmt.Errorf("failed to push: %w", err)
+		}
+		if attempt == maxPushAttempts {
+			return "", fmt.Errorf("failed to push after %d attempts due to concurrent updates: %w", maxPushAttempts, err)
+		}
+
+		rebaseArgs := []string{
+			"-c", fmt.Sprintf("user.name=%s", author),
+			"-c", fmt.Sprintf("user.email=%s", email),
+			"pull", "--rebase", "origin",
+		}
+		if branch != "" {
+			rebaseArgs = append(rebaseArgs, branch)
+		}
+
+		err = m.runCredentialedCmd(ctx, rebaseArgs...)
+		if err != nil {
+			return "", fmt.Errorf("failed to rebase local changes onto latest remote state: %w", err)
+		}
 	}
 
 	commitSha, err := m.runCmd(ctx, "rev-parse", "HEAD")
@@ -494,11 +521,8 @@ func (m *nativeGitClient) Checkout(revision string) (string, error) {
 	return "", nil
 }
 
-// Clone creates a new Git repository by downloading the entire repository
-// from a remote URL. Creates the .git directory, downloads all commits, branches,
-// and tags, sets up remote tracking, and checks out a desired branch. This is
-// a one-time setup operation for getting a repository for the first time.
-// It will return the temporary location where the repository was checked out.
+// Clone performs a shallow single-branch clone and returns the temporary
+// location where the repository was checked out.
 func (m *nativeGitClient) Clone(branch string) (string, error) {
 	logging.Debug(m.log, "cloning repo")
 
@@ -507,15 +531,15 @@ func (m *nativeGitClient) Clone(branch string) (string, error) {
 		return "", fmt.Errorf("could not run init: %w", err)
 	}
 
-	err = m.Fetch(branch, 1)
-	if err != nil {
-		return "", fmt.Errorf("could not run fetch: %w", err)
+	args := []string{"clone", "--depth=1", "--single-branch", "--no-tags"}
+	if branch != "" {
+		args = append(args, "--branch", branch)
 	}
+	args = append(args, m.repoURL, ".")
 
-	out, err := m.Checkout(branch)
+	err = m.runCredentialedCmd(context.Background(), args...)
 	if err != nil {
-		logging.Error(m.log, err, "could not clone repo: %v", out)
-		return "", fmt.Errorf("could not run checkout: %w", err)
+		return "", fmt.Errorf("could not clone repository: %w", err)
 	}
 
 	return localDir, nil
@@ -545,17 +569,34 @@ func createLocalDirectory(logger logr.Logger) (string, error) {
 // HasChanges returns whether there are pending changes
 // on the repository.
 func (m *nativeGitClient) HasChanges() (bool, error) {
-	out, err := m.runCmd(context.Background(), "status")
-	if err != nil {
-		return false, fmt.Errorf("failed to diff: %w", err)
-	}
-	if out == "" {
+	cmd := exec.CommandContext(context.Background(), "git", "diff", "--cached", "--quiet", "--exit-code")
+	_, err := m.runCmdOutput(cmd, runOpts{SkipErrorLogging: true})
+	if err == nil {
 		return false, nil
 	}
 
-	logging.Trace(m.log, "output from git status", "output", out)
+	var cmdErr *CmdError
+	if errors.As(err, &cmdErr) && strings.Contains(cmdErr.Cause.Error(), "exit status 1") {
+		return true, nil
+	}
 
-	return strings.Contains(out, "Changes to be committed"), nil
+	return false, fmt.Errorf("failed to check staged changes: %w", err)
+}
+
+func isNonFastForwardPushError(err error) bool {
+	msg := strings.ToLower(err.Error())
+	needles := []string{
+		"non-fast-forward",
+		"fetch first",
+		"failed to push some refs",
+		"[rejected]",
+	}
+	for _, needle := range needles {
+		if strings.Contains(msg, needle) {
+			return true
+		}
+	}
+	return false
 }
 
 // Helper function to parse a time duration from an environment variable. Returns a

@@ -53,6 +53,10 @@ spec:
           spec:
             description: WorkPlacementSpec defines the desired state of WorkPlacement
             properties:
+              generation:
+                description: Generation of the parent Work
+                format: int64
+                type: integer
               id:
                 description: Unique identifier for the workload group this WorkPlacement
                   represents

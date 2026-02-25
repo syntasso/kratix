@@ -203,7 +203,7 @@ func (s *Scheduler) reconcileWorkloadGroup(ctx context.Context, workloadGroup v1
 			var errored int
 			for _, existingWorkplacement := range existingWorkplacements {
 				logging.Debug(s.Log, "found existing workplacement; will update")
-				misplaced, err := s.updateWorkPlacement(ctx, workloadGroup, &existingWorkplacement)
+				misplaced, err := s.updateWorkPlacement(ctx, workloadGroup, &existingWorkplacement, work.GetGeneration())
 				if err != nil {
 					logging.Error(s.Log, err, "error updating workplacement for work", "workplacement", existingWorkplacement.Name, "work", work.Name, "workloadGroupID", workloadGroup.ID)
 					errored++
@@ -280,7 +280,7 @@ func (s *Scheduler) reconcileWorkloadGroup(ctx context.Context, workloadGroup v1
 	return status, nil
 }
 
-func (s *Scheduler) updateWorkPlacement(ctx context.Context, workloadGroup v1alpha1.WorkloadGroup, workPlacement *v1alpha1.WorkPlacement) (bool, error) {
+func (s *Scheduler) updateWorkPlacement(ctx context.Context, workloadGroup v1alpha1.WorkloadGroup, workPlacement *v1alpha1.WorkPlacement, workGeneration int64) (bool, error) {
 	misplaced := true
 	destinationSelectors := resolveDestinationSelectorsForWorkloadGroup(workloadGroup)
 	destinations, err := s.getDestinationsForWorkloadGroup(ctx, destinationSelectors)
@@ -298,6 +298,7 @@ func (s *Scheduler) updateWorkPlacement(ctx context.Context, workloadGroup v1alp
 		s.labelWorkplacementAsMisplaced(workPlacement)
 	}
 
+	workPlacement.Spec.WorkGeneration = workGeneration
 	workPlacement.Spec.Workloads = workloadGroup.Workloads
 	if err := s.Client.Update(ctx, workPlacement); err != nil {
 		logging.Error(s.Log, err, "error updating WorkPlacement", "workplacement", workPlacement.Name)
@@ -367,6 +368,7 @@ func (s *Scheduler) applyWorkplacementsForTargetDestinations(ctx context.Context
 		workPlacement.Name = work.Name + "." + targetDestinationName + "-" + shortID(workloadGroup.ID)
 
 		op, err := controllerutil.CreateOrUpdate(ctx, s.Client, workPlacement, func() error {
+			workPlacement.Spec.WorkGeneration = work.GetGeneration()
 			workPlacement.Spec.Workloads = workloadGroup.Workloads
 			workPlacement.Labels = map[string]string{
 				workLabelKey:               work.Name,

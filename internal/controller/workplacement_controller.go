@@ -39,9 +39,11 @@ import (
 	"k8s.io/apimachinery/pkg/labels"
 	"k8s.io/client-go/tools/record"
 	ctrl "sigs.k8s.io/controller-runtime"
+	"sigs.k8s.io/controller-runtime/pkg/builder"
 	"sigs.k8s.io/controller-runtime/pkg/client"
 	"sigs.k8s.io/controller-runtime/pkg/controller"
 	"sigs.k8s.io/controller-runtime/pkg/controller/controllerutil"
+	"sigs.k8s.io/controller-runtime/pkg/predicate"
 
 	"go.opentelemetry.io/otel/attribute"
 )
@@ -128,15 +130,6 @@ func (r *WorkPlacementReconciler) Reconcile(ctx context.Context, req ctrl.Reques
 		return r.handleDeletion(ctx, workPlacement, destination, opts, err, logger)
 	}
 
-	versionID, requeue, err := r.writeToStateStore(workPlacement, destination, opts)
-	if err != nil || requeue.RequeueAfter > 0 {
-		return requeue, err
-	}
-
-	if statusRequeue, statusErr := r.updateStatus(ctx, logger, workPlacement, versionID); statusErr != nil || statusRequeue.RequeueAfter > 0 {
-		return statusRequeue, statusErr
-	}
-
 	filepathMode := destination.GetFilepathMode()
 	if missingFinalizers := checkWorkPlacementFinalizers(workPlacement, filepathMode); len(missingFinalizers) > 0 {
 		err := addFinalizers(opts, workPlacement, missingFinalizers)
@@ -148,14 +141,42 @@ func (r *WorkPlacementReconciler) Reconcile(ctx context.Context, req ctrl.Reques
 		return ctrl.Result{}, err
 	}
 
-	var readyErr error
-	if readyErr = r.setWorkplacementReady(ctx, workPlacement); readyErr != nil {
-		if kerrors.IsConflict(readyErr) {
+	versionID, requeue, err := r.writeToStateStore(workPlacement, destination, opts)
+	if err != nil || requeue.RequeueAfter > 0 {
+		logging.Debug(logger, "write to state store resulted in requeue", "requeueAfter", requeue.RequeueAfter, "error", err)
+		return requeue, err
+	}
+
+	logging.Debug(logger, "updating workplacement status to ready")
+	if err := r.updateResourceStatus(ctx, workPlacement, versionID); err != nil {
+		if kerrors.IsConflict(err) {
+			logging.Debug(logger, "error: conflict")
 			return fastRequeue, nil
+		}
+		logging.Error(logger, err, "error updating WorkPlacement status")
+		return defaultRequeue, nil
+	}
+
+	logging.Debug(logger, "all done")
+	return ctrl.Result{}, nil
+}
+
+func (r *WorkPlacementReconciler) updateResourceStatus(ctx context.Context, workPlacement *v1alpha1.WorkPlacement, versionID string) error {
+	versionID = r.getCachedVersionID(workPlacement, versionID)
+
+	versionChanged := versionID != "" && workPlacement.Status.VersionID != versionID
+	if versionChanged {
+		workPlacement.Status.VersionID = versionID
+	}
+	condChanged := r.setWorkplacementReady(workPlacement)
+	if versionChanged || condChanged {
+		if err := r.Client.Status().Update(ctx, workPlacement); err != nil {
+			return err
 		}
 	}
 
-	return ctrl.Result{}, readyErr
+	r.removeVersionIDFromCache(workPlacement)
+	return nil
 }
 
 func (r *WorkPlacementReconciler) getDestination(ctx context.Context, wp *v1alpha1.WorkPlacement) (*v1alpha1.Destination, error) {
@@ -170,7 +191,7 @@ func (r *WorkPlacementReconciler) getDestination(ctx context.Context, wp *v1alph
 }
 
 func (r *WorkPlacementReconciler) updateStatus(ctx context.Context, logger logr.Logger, wp *v1alpha1.WorkPlacement, versionID string) (ctrl.Result, error) {
-	versionID = r.getVersionID(wp, versionID)
+	versionID = r.getCachedVersionID(wp, versionID)
 
 	if versionID != "" && wp.Status.VersionID != versionID {
 		wp.Status.VersionID = versionID
@@ -185,7 +206,7 @@ func (r *WorkPlacementReconciler) updateStatus(ctx context.Context, logger logr.
 		}
 	}
 
-	r.removeVersionID(wp)
+	r.removeVersionIDFromCache(wp)
 	return ctrl.Result{}, nil
 }
 
@@ -208,7 +229,7 @@ func (r *WorkPlacementReconciler) setWriteFailStatusConditions(ctx context.Conte
 	return nil
 }
 
-func (r *WorkPlacementReconciler) setWorkplacementReady(ctx context.Context, workPlacement *v1alpha1.WorkPlacement) error {
+func (r *WorkPlacementReconciler) setWorkplacementReady(workPlacement *v1alpha1.WorkPlacement) bool {
 	var writeSucceeded, misplaced bool
 	for _, cond := range workPlacement.Status.Conditions {
 		if cond.Type == scheduleSucceededConditionType && cond.Status == metav1.ConditionFalse {
@@ -219,17 +240,16 @@ func (r *WorkPlacementReconciler) setWorkplacementReady(ctx context.Context, wor
 		}
 	}
 	if writeSucceeded && !misplaced {
-		if apiMeta.SetStatusCondition(&workPlacement.Status.Conditions,
+		return apiMeta.SetStatusCondition(&workPlacement.Status.Conditions,
 			metav1.Condition{
 				Type:    "Ready",
 				Status:  metav1.ConditionTrue,
 				Reason:  "WorkloadsWrittenToTargetDestination",
 				Message: "Ready",
-			}) {
-			return r.Client.Status().Update(ctx, workPlacement)
-		}
+			},
+		)
 	}
-	return nil
+	return false
 }
 
 func (r *WorkPlacementReconciler) publishWriteEvent(workPlacement *v1alpha1.WorkPlacement, reason, versionID string, err error) {
@@ -379,29 +399,29 @@ func (r *WorkPlacementReconciler) writeToStateStore(wp *v1alpha1.WorkPlacement, 
 		wp.PipelineName(),
 	)
 
-	writer, err := newWriter(opts, destination.Spec.StateStoreRef.Name, destination.Spec.StateStoreRef.Kind, destination.Spec.Path)
-	if err != nil {
+	writer, writeErr := newWriter(opts, destination.Spec.StateStoreRef.Name, destination.Spec.StateStoreRef.Kind, destination.Spec.Path)
+	if writeErr != nil {
 		telemetry.RecordWorkPlacementWrite(opts.ctx, telemetry.WorkPlacementWriteResultFailure, metricAttrs...)
-		if k8sErrors.IsNotFound(err) {
+		if k8sErrors.IsNotFound(writeErr) {
 			return "", defaultRequeue, nil
 		}
-		return "", ctrl.Result{}, err
+		return "", ctrl.Result{}, writeErr
 	}
 
 	logging.Debug(opts.logger, "updating files in statestore if required")
-	versionID, err := r.writeWorkloadsToStateStore(opts, writer, *wp, *destination)
-	if err != nil {
+	versionID, workloadErr := r.writeWorkloadsToStateStore(opts, writer, *wp, *destination)
+	if workloadErr != nil {
 		telemetry.RecordWorkPlacementWrite(opts.ctx, telemetry.WorkPlacementWriteResultFailure, metricAttrs...)
-		logging.Error(opts.logger, err, "error writing to repository; will retry", "destination", wp.Spec.TargetDestinationName)
-		r.publishWriteEvent(wp, "WorkloadsFailedWrite", versionID, err)
-		if statusUpdateErr := r.setWriteFailStatusConditions(opts.ctx, wp, err); statusUpdateErr != nil {
+		logging.Error(opts.logger, workloadErr, "error writing to repository; will retry", "destination", wp.Spec.TargetDestinationName)
+		r.publishWriteEvent(wp, "WorkloadsFailedWrite", versionID, workloadErr)
+		if statusUpdateErr := r.setWriteFailStatusConditions(opts.ctx, wp, workloadErr); statusUpdateErr != nil {
 			logging.Error(opts.logger, statusUpdateErr, "failed to update status condition")
 		}
 		return "", defaultRequeue, nil
 	}
 	telemetry.RecordWorkPlacementWrite(opts.ctx, telemetry.WorkPlacementWriteResultSuccess, metricAttrs...)
 	r.setVersionID(wp, versionID)
-	r.publishWriteEvent(wp, "WorkloadsWrittenToStateStore", versionID, err)
+	r.publishWriteEvent(wp, "WorkloadsWrittenToStateStore", versionID, nil)
 
 	cond := metav1.Condition{
 		Type:    writeSucceededConditionType,
@@ -411,6 +431,7 @@ func (r *WorkPlacementReconciler) writeToStateStore(wp *v1alpha1.WorkPlacement, 
 	}
 
 	if apiMeta.SetStatusCondition(&wp.Status.Conditions, cond) {
+		logging.Debug(opts.logger, "updating workplacement status...")
 		if statusUpdateErr := r.Client.Status().Update(opts.ctx, wp); statusUpdateErr != nil {
 			if !kerrors.IsConflict(statusUpdateErr) {
 				logging.Error(opts.logger, statusUpdateErr, "failed to update status condition")
@@ -418,7 +439,7 @@ func (r *WorkPlacementReconciler) writeToStateStore(wp *v1alpha1.WorkPlacement, 
 			return versionID, defaultRequeue, nil
 		}
 	}
-	return versionID, ctrl.Result{}, err
+	return versionID, ctrl.Result{}, nil
 }
 
 func (r *WorkPlacementReconciler) writeWorkloadsToStateStore(o opts, writer writers.StateStoreWriter, workPlacement v1alpha1.WorkPlacement, destination v1alpha1.Destination) (string, error) {
@@ -508,9 +529,9 @@ func getDir(workPlacement v1alpha1.WorkPlacement) string {
 func (r *WorkPlacementReconciler) SetupWithManager(mgr ctrl.Manager) error {
 	return ctrl.NewControllerManagedBy(mgr).
 		WithOptions(controller.Options{
-			MaxConcurrentReconciles: 2,
+			MaxConcurrentReconciles: 1,
 		}).
-		For(&v1alpha1.WorkPlacement{}).
+		For(&v1alpha1.WorkPlacement{}, builder.WithPredicates(predicate.GenerationChangedPredicate{})).
 		Complete(r)
 }
 
@@ -669,14 +690,14 @@ func (r *WorkPlacementReconciler) setVersionID(workPlacement *v1alpha1.WorkPlace
 	r.VersionCache[workPlacement.GetUniqueID()] = versionID
 }
 
-func (r *WorkPlacementReconciler) getVersionID(workPlacement *v1alpha1.WorkPlacement, versionID string) string {
+func (r *WorkPlacementReconciler) getCachedVersionID(workPlacement *v1alpha1.WorkPlacement, versionID string) string {
 	if versionID != "" {
 		return versionID
 	}
 	return r.VersionCache[workPlacement.GetUniqueID()]
 }
 
-func (r *WorkPlacementReconciler) removeVersionID(workPlacement *v1alpha1.WorkPlacement) {
+func (r *WorkPlacementReconciler) removeVersionIDFromCache(workPlacement *v1alpha1.WorkPlacement) {
 	delete(r.VersionCache, workPlacement.GetUniqueID())
 }
 
