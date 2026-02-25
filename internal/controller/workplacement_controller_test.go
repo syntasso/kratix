@@ -204,7 +204,7 @@ var _ = Describe("WorkPlacementReconciler", func() {
 				Expect(result).To(Equal(ctrl.Result{}))
 
 				By("calling UpdateFiles()")
-				Expect(fakeWriter.UpdateFilesCallCount()).To(Equal(3))
+				Expect(fakeWriter.UpdateFilesCallCount()).To(Equal(2))
 				dir, workPlacementName, workloadsToCreate, workloadsToDelete := fakeWriter.UpdateFilesArgsForCall(0)
 				Expect(workPlacementName).To(Equal(workPlacement.Name))
 				Expect(dir).To(Equal(""))
@@ -244,18 +244,12 @@ var _ = Describe("WorkPlacementReconciler", func() {
 			It("records a failure metric when the state store write fails", func() {
 				fakeWriter.UpdateFilesReturns("", fmt.Errorf("boom"))
 
-				result, err := reconciler.Reconcile(ctx, ctrl.Request{
-					NamespacedName: types.NamespacedName{
-						Name:      workPlacement.Name,
-						Namespace: workPlacement.Namespace,
-					},
-				})
-				Expect(err).NotTo(HaveOccurred())
+				result, err := t.reconcileUntilCompletion(reconciler, &workPlacement)
+				Expect(err).To(MatchError("reconcile loop detected"))
 				Expect(result.RequeueAfter).To(Equal(15 * time.Second))
-				Expect(fakeWriter.UpdateFilesCallCount()).To(Equal(1))
 
 				counts := collectWorkPlacementWriteMetrics(ctx, metricsReader)
-				Expect(counts).To(HaveKeyWithValue(telemetry.WorkPlacementWriteResultFailure, int64(1)))
+				Expect(counts).To(HaveKeyWithValue(telemetry.WorkPlacementWriteResultFailure, int64(30)))
 				Expect(counts).NotTo(HaveKey(telemetry.WorkPlacementWriteResultSuccess))
 			})
 
@@ -276,17 +270,17 @@ files:
 					Expect(result).To(Equal(ctrl.Result{}))
 
 					kratixStateFile := fmt.Sprintf(".kratix/%s-%s.yaml", workPlacement.Namespace, workPlacement.Name)
-					Expect(fakeWriter.UpdateFilesCallCount()).To(Equal(5))
-					Expect(fakeWriter.ReadFileCallCount()).To(Equal(4))
-					Expect(fakeWriter.ReadFileArgsForCall(1)).To(Equal(kratixStateFile))
+					Expect(fakeWriter.UpdateFilesCallCount()).To(Equal(4))
+					Expect(fakeWriter.ReadFileCallCount()).To(Equal(3))
+					Expect(fakeWriter.ReadFileArgsForCall(0)).To(Equal(kratixStateFile))
 
-					dir, workPlacementName, workloadsToCreate, workloadsToDelete := fakeWriter.UpdateFilesArgsForCall(3)
+					dir, workPlacementName, workloadsToCreate, workloadsToDelete := fakeWriter.UpdateFilesArgsForCall(2)
 					Expect(workPlacementName).To(Equal(workPlacement.Name))
 					Expect(workloadsToCreate).To(BeNil())
 					Expect(workloadsToDelete).To(ConsistOf("fruit.yaml"))
 					Expect(dir).To(Equal(""))
 
-					dir, workPlacementName, workloadsToCreate, workloadsToDelete = fakeWriter.UpdateFilesArgsForCall(4)
+					dir, workPlacementName, workloadsToCreate, workloadsToDelete = fakeWriter.UpdateFilesArgsForCall(3)
 					Expect(workPlacementName).To(Equal(workPlacement.Name))
 					Expect(workloadsToCreate).To(BeNil())
 					Expect(workloadsToDelete).To(ConsistOf(kratixStateFile))
@@ -328,10 +322,10 @@ files:
 					Expect(err).NotTo(HaveOccurred())
 					Expect(result).To(Equal(ctrl.Result{}))
 
-					Expect(fakeWriter.ReadFileCallCount()).To(Equal(3))
+					Expect(fakeWriter.ReadFileCallCount()).To(Equal(2))
 					Expect(fakeWriter.ReadFileArgsForCall(0)).To(Equal(fmt.Sprintf(".kratix/%s-%s.yaml", workPlacement.Namespace, workPlacement.Name)))
 
-					Expect(fakeWriter.UpdateFilesCallCount()).To(Equal(3))
+					Expect(fakeWriter.UpdateFilesCallCount()).To(Equal(2))
 					dir, workPlacementName, workloadsToCreate, workloadsToDelete := fakeWriter.UpdateFilesArgsForCall(0)
 					Expect(workPlacementName).To(Equal(workPlacement.Name))
 					Expect(workloadsToCreate).To(ConsistOf(append(decompressedWorkloads, v1alpha1.Workload{
@@ -370,7 +364,7 @@ files:
 				Expect(err).NotTo(HaveOccurred())
 				Expect(result).To(Equal(ctrl.Result{}))
 
-				Expect(fakeWriter.UpdateFilesCallCount()).To(Equal(3))
+				Expect(fakeWriter.UpdateFilesCallCount()).To(Equal(2))
 				dir, workPlacementName, workloadsToCreate, workloadsToDelete := fakeWriter.UpdateFilesArgsForCall(0)
 				Expect(dir).To(Equal("resources/default/test-promise/test-resource/5058f"))
 				Expect(workPlacementName).To(Equal(workPlacement.Name))
@@ -399,7 +393,7 @@ files:
 					Expect(err).NotTo(HaveOccurred())
 					Expect(result).To(Equal(ctrl.Result{}))
 
-					Expect(fakeWriter.UpdateFilesCallCount()).To(Equal(3))
+					Expect(fakeWriter.UpdateFilesCallCount()).To(Equal(2))
 					dir, workPlacementName, workloadsToCreate, workloadsToDelete := fakeWriter.UpdateFilesArgsForCall(0)
 					Expect(dir).To(Equal("dependencies/test-promise/5058f"))
 					Expect(workPlacementName).To(Equal(workPlacement.Name))
@@ -452,7 +446,7 @@ files:
 					},
 				}
 
-				Expect(fakeWriter.UpdateFilesCallCount()).To(Equal(3))
+				Expect(fakeWriter.UpdateFilesCallCount()).To(Equal(2))
 				dir, workPlacementName, workloadsToCreate, workloadsToDelete := fakeWriter.UpdateFilesArgsForCall(0)
 				Expect(dir).To(Equal(""))
 				Expect(workPlacementName).To(Equal(workPlacement.Name))
@@ -477,8 +471,8 @@ files:
 						},
 					}
 
-					Expect(fakeWriter.UpdateFilesCallCount()).To(Equal(4))
-					dir, workPlacementName, workloadsToCreate, workloadsToDelete := fakeWriter.UpdateFilesArgsForCall(3)
+					Expect(fakeWriter.UpdateFilesCallCount()).To(Equal(3))
+					dir, workPlacementName, workloadsToCreate, workloadsToDelete := fakeWriter.UpdateFilesArgsForCall(2)
 					Expect(dir).To(Equal(""))
 					Expect(workPlacementName).To(Equal(workPlacement.Name))
 					Expect(workloadsToCreate).To(Equal(mergedWorkloads))
@@ -506,8 +500,8 @@ files:
 				})
 
 				It("removes the workloads of the deleted workplacement from the file", func() {
-					Expect(fakeWriter.UpdateFilesCallCount()).To(Equal(4))
-					dir, workPlacementName, workloadsToCreate, workloadsToDelete := fakeWriter.UpdateFilesArgsForCall(3)
+					Expect(fakeWriter.UpdateFilesCallCount()).To(Equal(3))
+					dir, workPlacementName, workloadsToCreate, workloadsToDelete := fakeWriter.UpdateFilesArgsForCall(2)
 					Expect(dir).To(Equal(""))
 					Expect(workPlacementName).To(Equal(workPlacement.Name))
 					Expect(workloadsToCreate).To(BeEmpty())
@@ -568,7 +562,7 @@ files:
 			})
 
 			When("updating the status fails on updating the versionID", func() {
-				It("applies the Version ID on the next reconcile", func() {
+				It("applies the Version ID on the next X reconciliations", func() {
 					Expect(fakeK8sClient.Get(ctx, types.NamespacedName{
 						Name:      workPlacement.Name,
 						Namespace: workPlacement.Namespace,
@@ -587,16 +581,13 @@ files:
 					fakeWriter.UpdateFilesReturnsOnCall(0, "an-amazing-version-id", nil)
 
 					result, err := t.reconcileUntilCompletion(reconciler, &workPlacement)
-					Expect(err).To(HaveOccurred())
-					Expect(result).To(Equal(ctrl.Result{}))
-					Expect(fakeWriter.UpdateFilesCallCount()).To(Equal(1))
+					Expect(err).To(MatchError("reconcile loop detected"))
+					Expect(result).To(Equal(ctrl.Result{RequeueAfter: 15 * time.Second}))
 
 					errSubResourceUpdate = nil
-
 					result, err = t.reconcileUntilCompletion(reconciler, &workPlacement)
 					Expect(err).ToNot(HaveOccurred())
 					Expect(result).To(Equal(ctrl.Result{}))
-					Expect(fakeWriter.UpdateFilesCallCount()).To(Equal(4))
 
 					latestWP := v1alpha1.WorkPlacement{}
 					Expect(fakeK8sClient.Get(ctx, types.NamespacedName{

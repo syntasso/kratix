@@ -436,6 +436,7 @@ func (r *WorkPlacementReconciler) writeToStateStore(wp *v1alpha1.WorkPlacement, 
 			if !kerrors.IsConflict(statusUpdateErr) {
 				logging.Error(opts.logger, statusUpdateErr, "failed to update status condition")
 			}
+			logging.Debug(opts.logger, "faled to update workplacement; requeuing")
 			return versionID, defaultRequeue, nil
 		}
 	}
