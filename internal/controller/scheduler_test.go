@@ -109,6 +109,12 @@ var _ = Describe("Controllers/Scheduler", func() {
 						HaveKeyWithValue("kratix.io/pipeline-name", resourceWork.Labels["kratix.io/pipeline-name"]),
 					))
 					Expect(workPlacement.GetAnnotations()).To(Equal(resourceWork.GetAnnotations()))
+
+					Expect(workPlacement.Status.Conditions).To(HaveLen(2))
+					for i := range workPlacement.Status.Conditions {
+						workPlacement.Status.Conditions[i].LastTransitionTime = metav1.Time{}
+					}
+					Expect(workPlacement.Status.Conditions).To(ConsistOf(scheduledWorkPlacementPendingConditions()))
 				})
 
 				It("records a scheduled outcome metric", func() {
@@ -1073,6 +1079,23 @@ func misplacedWorkPlacementConditions() []metav1.Condition {
 			Reason:  "Misplaced",
 			Type:    "Ready",
 			Status:  metav1.ConditionFalse},
+	}
+}
+
+func scheduledWorkPlacementPendingConditions() []metav1.Condition {
+	return []metav1.Condition{
+		{
+			Type:    "ScheduleSucceeded",
+			Status:  metav1.ConditionTrue,
+			Reason:  "ScheduledToDestination",
+			Message: "Scheduled to correct Destination",
+		},
+		{
+			Type:    "Ready",
+			Status:  metav1.ConditionFalse,
+			Reason:  "ScheduledToDestination",
+			Message: "Pending",
+		},
 	}
 }
 
