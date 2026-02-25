@@ -429,7 +429,7 @@ func (s *Scheduler) updateWorkPlacementStatus(ctx context.Context, workPlacement
 		return err
 	}
 
-	var desiredScheduleCond, desiredReadyCond v1.Condition
+	var desiredScheduleCond v1.Condition
 	if misplaced {
 		desiredScheduleCond = v1.Condition{
 			Message:            scheduleSucceededConditionMismatchMsg,
@@ -438,32 +438,41 @@ func (s *Scheduler) updateWorkPlacementStatus(ctx context.Context, workPlacement
 			Status:             v1.ConditionFalse,
 			LastTransitionTime: v1.NewTime(time.Now()),
 		}
-		desiredReadyCond = metav1.Condition{
+		readyUpdated := apimeta.SetStatusCondition(&updatedwp.Status.Conditions, metav1.Condition{
 			Type:    "Ready",
 			Status:  v1.ConditionFalse,
 			Reason:  "Misplaced",
 			Message: "Misplaced",
-		}
+		})
+		scheduleUpdated := apimeta.SetStatusCondition(&updatedwp.Status.Conditions, desiredScheduleCond)
 		s.EventRecorder.Eventf(updatedwp, corev1.EventTypeWarning, scheduleSucceededConditionMismatchReason,
 			"labels for destination: %s no longer match the expected labels, marking this workplacement as misplaced", updatedwp.Spec.TargetDestinationName)
-	} else {
-		desiredScheduleCond = v1.Condition{
-			Message:            "Scheduled to correct Destination",
-			Reason:             "ScheduledToDestination",
-			Type:               scheduleSucceededConditionType,
-			Status:             v1.ConditionTrue,
-			LastTransitionTime: v1.NewTime(time.Now()),
+		if scheduleUpdated || readyUpdated {
+			return s.Client.Status().Update(ctx, updatedwp)
 		}
-		desiredReadyCond = metav1.Condition{
-			Type:    "Ready",
-			Status:  v1.ConditionTrue,
-			Reason:  "Ready",
-			Message: "Ready",
-		}
+		return nil
 	}
 
-	if apimeta.SetStatusCondition(&updatedwp.Status.Conditions, desiredScheduleCond) {
-		apimeta.SetStatusCondition(&updatedwp.Status.Conditions, desiredReadyCond)
+	desiredScheduleCond = v1.Condition{
+		Message:            "Scheduled to correct Destination",
+		Reason:             "ScheduledToDestination",
+		Type:               scheduleSucceededConditionType,
+		Status:             v1.ConditionTrue,
+		LastTransitionTime: v1.NewTime(time.Now()),
+	}
+	scheduleUpdated := apimeta.SetStatusCondition(&updatedwp.Status.Conditions, desiredScheduleCond)
+
+	readyUpdated := false
+	if scheduleUpdated {
+		readyUpdated = apimeta.SetStatusCondition(&updatedwp.Status.Conditions, metav1.Condition{
+			Type:    "Ready",
+			Status:  v1.ConditionFalse,
+			Reason:  "ScheduledToDestination",
+			Message: "Pending",
+		})
+	}
+
+	if scheduleUpdated || readyUpdated {
 		return s.Client.Status().Update(ctx, updatedwp)
 	}
 	return nil
