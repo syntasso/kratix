@@ -133,11 +133,11 @@ func (r *WorkPlacementReconciler) Reconcile(ctx context.Context, req ctrl.Reques
 	if missingFinalizers := checkWorkPlacementFinalizers(workPlacement, filepathMode); len(missingFinalizers) > 0 {
 		err := addFinalizers(opts, workPlacement, missingFinalizers)
 		if err != nil {
-			if kerrors.IsConflict(err) {
-				return fastRequeue, nil
+			if !kerrors.IsConflict(err) {
+				return ctrl.Result{}, err
 			}
 		}
-		return ctrl.Result{}, err
+		return fastRequeue, nil
 	}
 
 	versionID, requeue, err := r.writeToStateStore(workPlacement, destination, opts)
