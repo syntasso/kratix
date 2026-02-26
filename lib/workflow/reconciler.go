@@ -305,7 +305,7 @@ func legacyLabelsForJobs(opts Opts) map[string]string {
 	return l
 }
 
-func labelsForAllPipelineJobs(pipeline v1alpha1.PipelineJobResources) map[string]string {
+func labelsForAllWorkflowJobs(pipeline v1alpha1.PipelineJobResources) map[string]string {
 	pipelineLabels := pipeline.Job.GetLabels()
 	labels := map[string]string{
 		v1alpha1.PromiseNameLabel: pipelineLabels[v1alpha1.PromiseNameLabel],
@@ -315,6 +315,12 @@ func labelsForAllPipelineJobs(pipeline v1alpha1.PipelineJobResources) map[string
 	}
 	if pipelineLabels[v1alpha1.ResourceNamespaceLabel] != "" {
 		labels[v1alpha1.ResourceNamespaceLabel] = pipelineLabels[v1alpha1.ResourceNamespaceLabel]
+	}
+	if pipelineLabels[v1alpha1.WorkflowActionLabel] != "" {
+		labels[v1alpha1.WorkflowActionLabel] = pipelineLabels[v1alpha1.WorkflowActionLabel]
+	}
+	if pipelineLabels[v1alpha1.WorkflowTypeLabel] != "" {
+		labels[v1alpha1.WorkflowTypeLabel] = pipelineLabels[v1alpha1.WorkflowTypeLabel]
 	}
 	return labels
 }
@@ -402,7 +408,7 @@ func isRunning(job *batchv1.Job) bool {
 func cleanup(opts Opts, namespace string) error {
 	pipelineNames := map[string]bool{}
 	for _, pipeline := range opts.Resources {
-		l := labelsForAllPipelineJobs(pipeline)
+		l := labelsForAllWorkflowJobs(pipeline)
 		l[v1alpha1.PipelineNameLabel] = pipeline.Name
 		pipelineNames[pipeline.Name] = true
 		jobsForPipeline, _ := getJobsWithLabels(opts, l, namespace)
