@@ -242,7 +242,7 @@ build-and-push-core-test-image: # for non-kind environment where images cannot b
 
 .PHONY: run-system-test
 run-system-test: fmt vet
-	PATH="$(PROJECT_DIR)/bin:${PATH}" PLATFORM_DESTINATION_IP=`docker inspect ${PLATFORM_CLUSTER_NAME}-control-plane | grep '"IPAddress": "172' | awk -F '"' '{print $$4}'` go run ${GINKGO} -v ${GINKGO_FLAGS} -p --output-interceptor-mode=none ./test/system/  --coverprofile cover.out
+	PATH="$(PROJECT_DIR)/bin:${PATH}" PLATFORM_DESTINATION_IP=`docker inspect ${PLATFORM_CLUSTER_NAME}-control-plane | grep '"IPAddress": "172' | awk -F '"' '{print $$4}'` go run ${GINKGO} -v ${GINKGO_FLAGS} -r --coverprofile cover.out -p --output-interceptor-mode=none ./test/system/
 
 .PHONY: run-git-integration-test
 run-git-integration-test: fmt vet ## Runs the integration test suite for the Git client
@@ -253,7 +253,7 @@ run-git-integration-test: fmt vet ## Runs the integration test suite for the Git
 		export TEST_GIT_WRITER_GITHUB_APP_ID="$${TEST_GIT_WRITER_GITHUB_APP_ID:-2625348}"; \
 		export TEST_GIT_WRITER_GITHUB_APP_INSTALLATION_ID="$${TEST_GIT_WRITER_GITHUB_APP_INSTALLATION_ID:-103412574}"; \
 	fi; \
-	go run ${GINKGO} ${GINKGO_FLAGS} ./test/git/  --coverprofile cover.out
+	go run ${GINKGO} ${GINKGO_FLAGS} -r --coverprofile cover.out ./test/git/
 
 fmt: ## Run go fmt against code.
 	go fmt ./...
