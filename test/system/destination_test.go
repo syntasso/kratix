@@ -18,39 +18,40 @@ import (
 )
 
 var _ = Describe("Destinations", Label("destination"), Serial, func() {
+	var (
+		destinationName string
+		stateStoreName  string
+		destinationYAML string
+		stateStoreYAML  string
+	)
+
 	BeforeEach(func() {
 		SetDefaultEventuallyTimeout(2 * time.Minute)
 		SetDefaultEventuallyPollingInterval(2 * time.Second)
 		kubeutils.SetTimeoutAndInterval(2*time.Minute, 2*time.Second)
+
+		destinationYAML = "assets/destination/destination-worker-git.yaml"
+		stateStoreYAML = "assets/destination/destination-git-test-store.yaml"
+		destinationName = "test-worker-git"
+		stateStoreName = "destination-git-test-store"
+		if os.Getenv("LRE") != "true" {
+			platform.Kubectl("apply", "-f", stateStoreYAML)
+		}
+		platform.Kubectl("apply", "-f", destinationYAML)
+	})
+
+	AfterEach(func() {
+		if os.Getenv("LRE") == "true" {
+			// update the underlying state store with the valid secret
+			platform.Kubectl("patch", "gitstatestore", stateStoreName, "--type=merge", "-p", `{"spec":{"secretRef":{"name":"github-credentials"}}}`)
+		} else {
+			// update the state store secret with the valid credentials when running in KinD
+			platform.Kubectl("patch", "secret", "gitea-credentials", "--type=merge", "-p", `{"stringData":{"username":"gitea_admin"}}`)
+		}
+		platform.Kubectl("delete", "-f", "assets/destination/destination-worker-git.yaml")
 	})
 
 	Describe("Git-backed destination status and events", func() {
-		var destinationName string
-		var stateStoreName string
-		var destinationYAML string
-		var stateStoreYAML string
-
-		BeforeEach(func() {
-			destinationYAML = "assets/destination/destination-worker-git.yaml"
-			stateStoreYAML = "assets/destination/destination-git-test-store.yaml"
-			destinationName = "test-worker-git"
-			stateStoreName = "destination-git-test-store"
-			if os.Getenv("LRE") != "true" {
-				platform.Kubectl("apply", "-f", stateStoreYAML)
-			}
-			platform.Kubectl("apply", "-f", destinationYAML)
-		})
-
-		AfterEach(func() {
-			if os.Getenv("LRE") == "true" {
-				// update the underlying state store with the valid secret
-				platform.Kubectl("patch", "gitstatestore", stateStoreName, "--type=merge", "-p", `{"spec":{"secretRef":{"name":"github-credentials"}}}`)
-			} else {
-				// update the state store secret with the valid credentials when running in KinD
-				platform.Kubectl("patch", "secret", "gitea-credentials", "--type=merge", "-p", `{"stringData":{"username":"gitea_admin"}}`)
-			}
-			platform.Kubectl("delete", "-f", "assets/destination/destination-worker-git.yaml")
-		})
 
 		It("properly set the conditions and events", func() {
 			WaitReady("gitstatestore", stateStoreName)
@@ -262,16 +263,16 @@ var _ = Describe("Destinations", Label("destination"), Serial, func() {
 					platform.Kubectl("apply", "-f", "assets/destination/resource-filepathmode-none.yaml")
 				})
 
-				AfterEach(func() {
-					platform.Kubectl("delete", "promises", "filepathmode-none", "--ignore-not-found")
-					platform.Kubectl("delete", "-f", "assets/destination/destination-git-filepathmode-none.yaml")
-				})
+				// AfterEach(func() {
+				// 	platform.Kubectl("delete", "promises", "filepathmode-none", "--ignore-not-found")
+				// 	platform.Kubectl("delete", "-f", "assets/destination/destination-git-filepathmode-none.yaml")
+				// })
 
 				It("can write and delete from statestore", func() {
 					rrName := "modenone-request-1"
 					Eventually(func() string {
 						return platform.Kubectl("get", "modenone", rrName)
-					}, time.Second*30).Should(ContainSubstring("Reconciled"))
+					}).Should(ContainSubstring("Reconciled"))
 
 					platform.Kubectl("delete", "-f", "assets/destination/resource-filepathmode-none.yaml")
 					Eventually(func() string {
@@ -283,7 +284,7 @@ var _ = Describe("Destinations", Label("destination"), Serial, func() {
 					Eventually(func() string {
 						return platform.Kubectl("get", "workplacements", "--all-namespaces",
 							"-l", "kratix.io/targetDestinationName=test-worker-git-filepathmode-none")
-					}).Should(ContainSubstring("No resources found"))
+					}, 3*time.Minute).Should(ContainSubstring("No resources found"))
 				})
 			})
 		}

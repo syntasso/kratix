@@ -18,6 +18,9 @@ export DOCKER_BUILDKIT
 RECREATE ?= true
 export RECREATE
 
+# Only pass --recreate when RECREATE=true
+RECREATE_FLAG := $(if $(filter true,$(RECREATE)),--recreate,)
+
 # Get the currently used golang install path (in GOPATH/bin, unless GOBIN is set)
 ifeq (,$(shell go env GOBIN))
 GOBIN=$(shell go env GOPATH)/bin
@@ -70,13 +73,13 @@ fast-quick-start: teardown ## Install Kratix without recreating the local cluste
 	RECREATE=false make quick-start
 
 quick-start: generate distribution ## Recreates the clusters and install Kratix
-	VERSION=dev DOCKER_BUILDKIT=1 ./scripts/quick-start.sh --recreate --local --git-and-minio
+	VERSION=dev DOCKER_BUILDKIT=1 ./scripts/quick-start.sh $(RECREATE_FLAG)  --local --git-and-minio
 
 prepare-platform-as-destination: ## Installs flux onto platform cluster and registers as a destination
 	./scripts/register-destination --with-label environment=platform --context kind-platform --name platform-cluster
 
 single-cluster: distribution ## Deploys Kratix on a single cluster
-	VERSION=dev DOCKER_BUILDKIT=1 ./scripts/quick-start.sh --recreate --local --single-cluster
+	VERSION=dev DOCKER_BUILDKIT=1 ./scripts/quick-start.sh $(RECREATE_FLAG)  --local --single-cluster
 
 dev-env: quick-start prepare-platform-as-destination ## Quick-start + prepare-platform-as-destination
 
