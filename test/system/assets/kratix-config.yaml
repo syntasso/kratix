@@ -5,6 +5,8 @@ metadata:
   namespace: kratix-platform-system
 data:
   config: |
+    logging:
+      level: debug
     workflows:
       jobOptions:
         defaultBackoffLimit: 4
