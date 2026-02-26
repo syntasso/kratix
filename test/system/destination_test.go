@@ -251,6 +251,7 @@ var _ = Describe("Destinations", Label("destination"), Serial, func() {
 					})
 				})
 			})
+
 			Describe("none", func() {
 				BeforeEach(func() {
 					platform.Kubectl("apply", "-f", "assets/destination/destination-git-filepathmode-none.yaml")
@@ -263,16 +264,20 @@ var _ = Describe("Destinations", Label("destination"), Serial, func() {
 					platform.Kubectl("apply", "-f", "assets/destination/resource-filepathmode-none.yaml")
 				})
 
-				// AfterEach(func() {
-				// 	platform.Kubectl("delete", "promises", "filepathmode-none", "--ignore-not-found")
-				// 	platform.Kubectl("delete", "-f", "assets/destination/destination-git-filepathmode-none.yaml")
-				// })
+				AfterEach(func() {
+					platform.Kubectl("delete", "promises", "filepathmode-none", "--ignore-not-found")
+					platform.Kubectl("delete", "-f", "assets/destination/destination-git-filepathmode-none.yaml")
+				})
 
 				It("can write and delete from statestore", func() {
 					rrName := "modenone-request-1"
 					Eventually(func() string {
 						return platform.Kubectl("get", "modenone", rrName)
 					}).Should(ContainSubstring("Reconciled"))
+
+					Eventually(func() string {
+						return platform.Kubectl("get", "workplacement")
+					}).Should(ContainSubstring("Ready"))
 
 					platform.Kubectl("delete", "-f", "assets/destination/resource-filepathmode-none.yaml")
 					Eventually(func() string {
