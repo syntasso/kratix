@@ -93,10 +93,11 @@ func (r *WorkPlacementReconciler) Reconcile(ctx context.Context, req ctrl.Reques
 
 	promiseName := workPlacement.Spec.PromiseName
 	resourceName := workPlacement.Spec.ResourceName
+	resourceNamespace := workPlacement.GetNamespace()
 	baseLogger := logger.WithValues(
-		"promise", promiseName,
 		"generation", workPlacement.GetGeneration(),
 	)
+	baseLogger = withPromiseAndResourceRequest(baseLogger, promiseName, resourceNamespace, resourceName)
 	spanName := fmt.Sprintf("%s/WorkPlacementReconcile", promiseName)
 	if resourceName != "" {
 		spanName = fmt.Sprintf("%s/%s", resourceName, spanName)
@@ -146,7 +147,7 @@ func (r *WorkPlacementReconciler) Reconcile(ctx context.Context, req ctrl.Reques
 		return requeue, err
 	}
 
-	if err := r.updateResourceStatus(ctx, workPlacement, versionID); err != nil {
+	if err := r.updateResourceStatus(ctx, logger, workPlacement, versionID); err != nil {
 		if kerrors.IsConflict(err) {
 			return fastRequeue, nil
 		}
@@ -156,7 +157,7 @@ func (r *WorkPlacementReconciler) Reconcile(ctx context.Context, req ctrl.Reques
 	return ctrl.Result{}, nil
 }
 
-func (r *WorkPlacementReconciler) updateResourceStatus(ctx context.Context, workPlacement *v1alpha1.WorkPlacement, versionID string) error {
+func (r *WorkPlacementReconciler) updateResourceStatus(ctx context.Context, logger logr.Logger, workPlacement *v1alpha1.WorkPlacement, versionID string) error {
 	versionID = r.getCachedVersionID(workPlacement, versionID)
 
 	versionChanged := versionID != "" && workPlacement.Status.VersionID != versionID
@@ -167,7 +168,7 @@ func (r *WorkPlacementReconciler) updateResourceStatus(ctx context.Context, work
 	condChanged := r.setWorkplacementReady(workPlacement)
 
 	if versionChanged || condChanged || writeSucceededCondChanged {
-		logging.Debug(r.Log, "updating workplacement status", "versionChanged", versionChanged, "condChanged", condChanged, "writeSucceededCondChanged", writeSucceededCondChanged)
+		logging.Debug(logger, "updating workplacement status", "versionChanged", versionChanged, "condChanged", condChanged, "writeSucceededCondChanged", writeSucceededCondChanged)
 		if err := r.Client.Status().Update(ctx, workPlacement); err != nil {
 			return err
 		}

@@ -94,10 +94,10 @@ func (r *DynamicResourceRequestController) Reconcile(ctx context.Context, req ct
 	baseLogger := r.Log.WithValues(
 		"controller", "dynamicResourceRequest",
 		"uid", r.UID,
-		"promise", r.PromiseIdentifier,
 		"name", req.Name,
 		"namespace", req.Namespace,
 	)
+	baseLogger = withPromiseAndResourceRequest(baseLogger, r.PromiseIdentifier, req.Namespace, req.Name)
 
 	rr := &unstructured.Unstructured{}
 	rr.SetGroupVersionKind(*r.GVK)
@@ -267,7 +267,7 @@ func (r *DynamicResourceRequestController) Reconcile(ctx context.Context, req ct
 	}
 
 	if !promise.HasPipeline(v1alpha1.WorkflowTypeResource, v1alpha1.WorkflowActionConfigure) {
-		return r.nextReconciliation(logger), r.updateWorkflowStatusCountersToZero(rr, ctx)
+		return r.nextReconciliation(logger), r.updateWorkflowStatusCountersToZero(logger, rr, ctx)
 	}
 
 	rrNamespace := ""
@@ -276,7 +276,7 @@ func (r *DynamicResourceRequestController) Reconcile(ctx context.Context, req ct
 	}
 	workLabels := resourceutil.GetWorkLabels(r.PromiseIdentifier, rr.GetName(), rrNamespace, "", v1alpha1.WorkTypeResource)
 
-	statusUpdate, err := r.generateResourceStatus(ctx, rr, int64(len(pipelineResources)), workLabels, bindingVersion, promiseRevisionUsed)
+	statusUpdate, err := r.generateResourceStatus(ctx, logger, rr, int64(len(pipelineResources)), workLabels, bindingVersion, promiseRevisionUsed)
 	if err != nil {
 		return ctrl.Result{}, err
 	}
@@ -297,7 +297,7 @@ func (r *DynamicResourceRequestController) Reconcile(ctx context.Context, req ct
 	}
 
 	if r.PromiseUpgrade {
-		if r.updatePromiseVersionStatus(rr, bindingVersion, promiseRevisionUsed) {
+		if r.updatePromiseVersionStatus(logger, rr, bindingVersion, promiseRevisionUsed) {
 			return ctrl.Result{}, r.Client.Status().Update(ctx, rr)
 		}
 	}
@@ -353,16 +353,16 @@ func (r *DynamicResourceRequestController) updateResourceBinding(ctx context.Con
 	return nil
 }
 
-func (r *DynamicResourceRequestController) generateResourceStatus(ctx context.Context, rr *unstructured.Unstructured,
+func (r *DynamicResourceRequestController) generateResourceStatus(ctx context.Context, logger logr.Logger, rr *unstructured.Unstructured,
 	numberOfPipelines int64, workLabels map[string]string, bindingVersion string, promiseRevision *v1alpha1.PromiseRevision) (bool, error) {
-	failed, misplaced, pending, ready, err := r.getWorksStatus(ctx, rr, workLabels)
+	failed, misplaced, pending, ready, err := r.getWorksStatus(ctx, logger, rr, workLabels)
 	if err != nil {
 		return false, err
 	}
 	worksSucceededUpdate := r.updateWorksSucceededCondition(rr, failed, pending, ready, misplaced)
 	reconciledUpdate := r.updateReconciledCondition(rr)
-	workflowsCounterStatusUpdate := r.generateWorkflowsCounterStatus(rr, numberOfPipelines)
-	promiseVersionUpdate := r.updatePromiseVersionStatus(rr, bindingVersion, promiseRevision)
+	workflowsCounterStatusUpdate := r.generateWorkflowsCounterStatus(logger, rr, numberOfPipelines)
+	promiseVersionUpdate := r.updatePromiseVersionStatus(logger, rr, bindingVersion, promiseRevision)
 
 	return worksSucceededUpdate || reconciledUpdate || workflowsCounterStatusUpdate || promiseVersionUpdate, nil
 }
@@ -443,17 +443,17 @@ func (r *DynamicResourceRequestController) updateWorksSucceededCondition(rr *uns
 	return false
 }
 
-func (r *DynamicResourceRequestController) updatePromiseVersionStatus(rr *unstructured.Unstructured, bindingVersion string, promiseRevision *v1alpha1.PromiseRevision) bool {
-	logging.Trace(r.Log, "Checking if we need to update the promise version in the status")
+func (r *DynamicResourceRequestController) updatePromiseVersionStatus(logger logr.Logger, rr *unstructured.Unstructured, bindingVersion string, promiseRevision *v1alpha1.PromiseRevision) bool {
+	logging.Trace(logger, "Checking if we need to update the promise version in the status")
 	if !r.PromiseUpgrade || promiseRevision == nil {
-		logging.Trace(r.Log, "Feature flag disabled or no PromiseRevision: we don't")
+		logging.Trace(logger, "Feature flag disabled or no PromiseRevision: we don't")
 		return false
 	}
 
 	versionUpdated := false
 	currentVersion := resourceutil.GetStatus(rr, resourcePromiseVersionStatus)
 	if currentVersion != promiseRevision.Spec.Version {
-		resourceutil.SetStatus(rr, r.Log, resourcePromiseVersionStatus, promiseRevision.Spec.Version)
+		resourceutil.SetStatus(rr, logger, resourcePromiseVersionStatus, promiseRevision.Spec.Version)
 		r.EventRecorder.Eventf(rr, v1.EventTypeNormal, "ReconcileSucceeded",
 			"Resource request reconciled with promise %s version %s",
 			promiseRevision.Spec.PromiseRef.Name,
@@ -463,7 +463,7 @@ func (r *DynamicResourceRequestController) updatePromiseVersionStatus(rr *unstru
 
 	currentBindingVersion := resourceutil.GetStatus(rr, resourceBindingVersionStatus)
 	if currentBindingVersion != bindingVersion {
-		resourceutil.SetStatus(rr, r.Log, resourceBindingVersionStatus, bindingVersion)
+		resourceutil.SetStatus(rr, logger, resourceBindingVersionStatus, bindingVersion)
 		r.EventRecorder.Eventf(rr, v1.EventTypeNormal, "ResourceBindingVersionUpdated",
 			"Resource binding version updated to %s", bindingVersion)
 		versionUpdated = true
@@ -482,11 +482,11 @@ func (r *DynamicResourceRequestController) setPausedReconciliationStatusConditio
 	return nil
 }
 
-func (r *DynamicResourceRequestController) getWorksStatus(ctx context.Context, rr *unstructured.Unstructured, workLabels map[string]string) ([]string, []string, []string, []string, error) {
+func (r *DynamicResourceRequestController) getWorksStatus(ctx context.Context, logger logr.Logger, rr *unstructured.Unstructured, workLabels map[string]string) ([]string, []string, []string, []string, error) {
 	workSelectorLabel := labels.FormatLabels(workLabels)
 	selector, err := labels.Parse(workSelectorLabel)
 	if err != nil {
-		logging.Debug(r.Log, "failed parsing works selector label", "labels", workSelectorLabel)
+		logging.Debug(logger, "failed parsing works selector label", "labels", workSelectorLabel)
 		return nil, nil, nil, nil, err
 	}
 
@@ -497,7 +497,7 @@ func (r *DynamicResourceRequestController) getWorksStatus(ctx context.Context, r
 	})
 
 	if err != nil {
-		logging.Error(r.Log, err, "failed listing works", "namespace", rr.GetNamespace(), "labelSelector", workSelectorLabel)
+		logging.Error(logger, err, "failed listing works", "namespace", rr.GetNamespace(), "labelSelector", workSelectorLabel)
 		return nil, nil, nil, nil, err
 	}
 
@@ -522,7 +522,7 @@ func (r *DynamicResourceRequestController) getWorksStatus(ctx context.Context, r
 	return failed, misplaced, pending, ready, nil
 }
 
-func (r *DynamicResourceRequestController) generateWorkflowsCounterStatus(rr *unstructured.Unstructured, numOfPipelines int64) bool {
+func (r *DynamicResourceRequestController) generateWorkflowsCounterStatus(logger logr.Logger, rr *unstructured.Unstructured, numOfPipelines int64) bool {
 	completedCond := resourceutil.GetCondition(rr, resourceutil.ConfigureWorkflowCompletedCondition)
 
 	desiredWorkflows := numOfPipelines
@@ -535,7 +535,7 @@ func (r *DynamicResourceRequestController) generateWorkflowsCounterStatus(rr *un
 	if resourceutil.GetWorkflowsCounterStatus(rr, "workflows") != desiredWorkflows ||
 		resourceutil.GetWorkflowsCounterStatus(rr, "workflowsSucceeded") != desiredWorkflowsSucceeded {
 
-		resourceutil.SetStatus(rr, r.Log,
+		resourceutil.SetStatus(rr, logger,
 			"workflows", desiredWorkflows,
 			"workflowsSucceeded", desiredWorkflowsSucceeded,
 			"workflowsFailed", int64(0),
@@ -546,12 +546,12 @@ func (r *DynamicResourceRequestController) generateWorkflowsCounterStatus(rr *un
 	return false
 }
 
-func (r *DynamicResourceRequestController) updateWorkflowStatusCountersToZero(rr *unstructured.Unstructured, ctx context.Context) error {
+func (r *DynamicResourceRequestController) updateWorkflowStatusCountersToZero(logger logr.Logger, rr *unstructured.Unstructured, ctx context.Context) error {
 	if resourceutil.GetWorkflowsCounterStatus(rr, "workflows") != 0 ||
 		resourceutil.GetWorkflowsCounterStatus(rr, "workflowsSucceeded") != 0 ||
 		resourceutil.GetWorkflowsCounterStatus(rr, "workflowsFailed") != 0 {
 
-		resourceutil.SetStatus(rr, r.Log, "workflows", int64(0), "workflowsSucceeded", int64(0), "workflowsFailed", int64(0))
+		resourceutil.SetStatus(rr, logger, "workflows", int64(0), "workflowsSucceeded", int64(0), "workflowsFailed", int64(0))
 		return r.Client.Status().Update(ctx, rr)
 	}
 	return nil
@@ -639,7 +639,7 @@ func (r *DynamicResourceRequestController) deleteResourceBinding(o opts, rr *uns
 		if apierrors.IsNotFound(err) {
 			controllerutil.RemoveFinalizer(rr, finalizer)
 			if err := r.Client.Update(o.ctx, rr); err != nil {
-				r.Log.Info(err.Error())
+				logging.Error(o.logger, err, "failed updating resource request while removing finalizer")
 				return err
 			}
 			return nil

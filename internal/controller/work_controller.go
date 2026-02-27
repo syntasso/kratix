@@ -84,12 +84,13 @@ func (r *WorkReconciler) Reconcile(ctx context.Context, req ctrl.Request) (resul
 	}
 
 	promiseName := work.Spec.PromiseName
+	resourceName := work.Spec.ResourceName
+	resourceNamespace := work.GetNamespace()
 	baseLogger := logger.WithValues(
-		"promise", promiseName,
 		"generation", work.GetGeneration(),
 	)
+	baseLogger = withPromiseAndResourceRequest(baseLogger, promiseName, resourceNamespace, resourceName)
 	spanName := fmt.Sprintf("%s/WorkReconcile", promiseName)
-	resourceName := work.Spec.ResourceName
 	if resourceName != "" {
 		spanName = fmt.Sprintf("%s/%s", resourceName, spanName)
 	}
@@ -107,7 +108,7 @@ func (r *WorkReconciler) Reconcile(ctx context.Context, req ctrl.Request) (resul
 	}
 
 	if !work.DeletionTimestamp.IsZero() {
-		if err := r.deleteWork(ctx, work); err != nil {
+		if err := r.deleteWork(ctx, logger, work); err != nil {
 			return ctrl.Result{}, err
 		}
 		return ctrl.Result{}, nil
@@ -204,14 +205,14 @@ func (r *WorkReconciler) updateWorkStatus(ctx context.Context, logger logr.Logge
 	return nil
 }
 
-func (r *WorkReconciler) deleteWork(ctx context.Context, work *v1alpha1.Work) error {
+func (r *WorkReconciler) deleteWork(ctx context.Context, logger logr.Logger, work *v1alpha1.Work) error {
 	workplacementGVK := schema.GroupVersionKind{
 		Group:   v1alpha1.GroupVersion.Group,
 		Version: v1alpha1.GroupVersion.Version,
 		Kind:    "WorkPlacement",
 	}
 
-	logging.Debug(r.Log, "deleting workplacements")
+	logging.Debug(logger, "deleting workplacements")
 
 	wpList := &unstructured.UnstructuredList{}
 	wpList.SetGroupVersionKind(workplacementGVK)
@@ -227,7 +228,7 @@ func (r *WorkReconciler) deleteWork(ctx context.Context, work *v1alpha1.Work) er
 	for i := range wpList.Items {
 		wp := &wpList.Items[i]
 		if err := ensureTraceAnnotations(ctx, r.Client, wp, parentAnnotations); err != nil {
-			logging.Debug(r.Log, "Failed to ensure trace annotations are propagated, ignoring the error...", "error", err)
+			logging.Debug(logger, "Failed to ensure trace annotations are propagated, ignoring the error...", "error", err)
 		}
 		if err := r.Client.Delete(ctx, wp, client.PropagationPolicy(metav1.DeletePropagationBackground)); err != nil {
 			if errors.IsNotFound(err) {
@@ -245,12 +246,12 @@ func (r *WorkReconciler) deleteWork(ctx context.Context, work *v1alpha1.Work) er
 
 	if controllerutil.RemoveFinalizer(work, workCleanUpFinalizer) {
 		if err := r.Client.Update(ctx, work); err != nil {
-			logging.Debug(r.Log, "Failed to remove finalizer, requeuing...", "error", err)
+			logging.Debug(logger, "Failed to remove finalizer, requeuing...", "error", err)
 			return err
 		}
 	}
 
-	logging.Debug(r.Log, "workplacements deleted")
+	logging.Debug(logger, "workplacements deleted")
 	return nil
 }
 
