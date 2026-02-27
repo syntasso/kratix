@@ -141,7 +141,8 @@ var _ = Describe("Git tests", func() {
 				defer os.RemoveAll(client.Root())
 				Expect(err).To(HaveOccurred())
 				Expect(err).To(MatchError(
-					ContainSubstring("couldn't find remote ref fake-invalid-branch")))
+					ContainSubstring("branch fake-invalid-branch not"),
+				))
 			})
 
 			It("fails to clone the repository", func() {
@@ -163,7 +164,8 @@ var _ = Describe("Git tests", func() {
 				_, err = client.CommitAndPush("invalid-fake-branch", "TEST: test", "test-user", "test-user@syntasso.io")
 				Expect(err).To(HaveOccurred())
 				Expect(err).To(MatchError(
-					ContainSubstring("src refspec invalid-fake-branch does not match any")))
+					ContainSubstring("fatal: couldn't find remote ref invalid-fake-branch")),
+				)
 			})
 		})
 

@@ -123,6 +123,7 @@ var _ = Describe("Core Tests", Ordered, func() {
 										Type:   "WriteSucceeded",
 										Status: metav1.ConditionTrue,
 										Reason: "WorkloadsWrittenToStateStore",
+										Message: "Workloads written to State Store",
 									}))
 							}
 						}, 60*time.Second, interval).Should(Succeed())
