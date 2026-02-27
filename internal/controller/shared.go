@@ -27,6 +27,8 @@ const (
 	promiseReleaseNameLabel        = v1alpha1.KratixPrefix + "promise-release-name"
 	removeAllWorkflowJobsFinalizer = v1alpha1.KratixPrefix + "workflows-cleanup"
 	runDeleteWorkflowsFinalizer    = v1alpha1.KratixPrefix + "delete-workflows"
+	promiseLogKey                  = "promise"
+	resourceRequestLogKey          = "resourceRequest"
 	// DefaultReconciliationInterval is the interval on which the workflows will be re-run.
 	DefaultReconciliationInterval                       = time.Hour * 10
 	secretRefFieldName                                  = "secretRef"
@@ -53,6 +55,10 @@ type opts struct {
 	ctx    context.Context
 	client client.Client
 	logger logr.Logger
+}
+
+func withPromiseAndResourceRequest(logger logr.Logger, promiseName, resourceNamespace, resourceName string) logr.Logger {
+	return logger.WithValues(promiseLogKey, promiseName, resourceRequestLogKey, fmt.Sprintf("%s/%s/%s", promiseName, resourceNamespace, resourceName))
 }
 
 // pass in nil resourceLabels to delete all resources of the GVK
