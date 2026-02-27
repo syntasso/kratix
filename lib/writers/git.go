@@ -46,6 +46,10 @@ type GitExecutor interface {
 	RemoveFile(file string) error
 }
 
+type batchFileRemover interface {
+	RemoveFiles(files ...string) error
+}
+
 func NewGitWriter(logger logr.Logger, stateStoreSpec v1alpha1.GitStateStoreSpec, destinationPath string, creds map[string][]byte) (StateStoreWriter, error) {
 	repoPath := strings.TrimPrefix(path.Join(
 		stateStoreSpec.Path,
@@ -121,6 +125,7 @@ func (g *GitWriter) update(subDir, workPlacementName string, workloadsToCreate [
 		return "", err
 	}
 
+	filesToAdd := make([]string, 0, len(workloadsToCreate))
 	for _, file := range workloadsToCreate {
 		//worker-cluster/resources/<rr-namespace>/<promise-name>/<rr-name>/foo/bar/baz.yaml
 		log := logger.WithValues(
@@ -152,9 +157,12 @@ func (g *GitWriter) update(subDir, workPlacementName string, workloadsToCreate [
 			logging.Error(log, err, "could not write to file")
 			return "", err
 		}
+		filesToAdd = append(filesToAdd, absoluteFilePath)
+	}
 
-		if _, err := g.Runner.Add(absoluteFilePath); err != nil {
-			logging.Error(log, err, "could not add file to worktree")
+	if len(filesToAdd) > 0 {
+		if _, err := g.Runner.Add(filesToAdd...); err != nil {
+			logging.Error(logger, err, "could not add files to worktree")
 			return "", err
 		}
 	}
@@ -180,6 +188,7 @@ func (g *GitWriter) deleteExistingFiles(removeDirectory bool, dir string, worklo
 			}
 		}
 	} else {
+		filesToRemove := make([]string, 0, len(workloadsToDelete))
 		for _, file := range workloadsToDelete {
 			filePath := filepath.Join(g.Runner.Root(), g.Path, file)
 			log := logger.WithValues(
@@ -189,12 +198,29 @@ func (g *GitWriter) deleteExistingFiles(removeDirectory bool, dir string, worklo
 				logging.Debug(log, "file requested to be deleted from worktree but does not exist")
 				continue
 			}
+			filesToRemove = append(filesToRemove, filePath)
+		}
+
+		if len(filesToRemove) == 0 {
+			return nil
+		}
+
+		if remover, ok := g.Runner.(batchFileRemover); ok {
+			if err := remover.RemoveFiles(filesToRemove...); err != nil {
+				logging.Error(logger, err, "could not remove files from worktree")
+				return err
+			}
+			logging.Debug(logger, "successfully deleted files from worktree")
+			return nil
+		}
+
+		for _, filePath := range filesToRemove {
 			if err := g.Runner.RemoveFile(filePath); err != nil {
 				logging.Error(logger, err, "could not remove file from worktree")
 				return err
 			}
-			logging.Debug(logger, "successfully deleted file from worktree")
 		}
+		logging.Debug(logger, "successfully deleted files from worktree")
 	}
 	return nil
 }

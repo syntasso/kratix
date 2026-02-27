@@ -29,6 +29,8 @@ import (
 	ctrl "sigs.k8s.io/controller-runtime"
 	"sigs.k8s.io/controller-runtime/pkg/client"
 	"sigs.k8s.io/controller-runtime/pkg/log/zap"
+
+	metav1 "k8s.io/apimachinery/pkg/apis/meta/v1"
 )
 
 type WorkCreator struct {
@@ -194,6 +196,7 @@ func (w *WorkCreator) Execute(rootDirectory, promiseName, namespace, resourceNam
 	work := &v1alpha1.Work{}
 
 	work.Name = objectutil.GenerateObjectName(identifier)
+	work.Spec.LastExecutionTimestamp = metav1.Now()
 	work.Namespace = namespace
 	work.Spec.WorkloadGroups = workloadGroups
 	work.Spec.PromiseName = promiseName

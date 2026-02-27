@@ -115,6 +115,7 @@ var _ = Describe("Controllers/Scheduler", func() {
 						workPlacement.Status.Conditions[i].LastTransitionTime = metav1.Time{}
 					}
 					Expect(workPlacement.Status.Conditions).To(ConsistOf(scheduledWorkPlacementPendingConditions()))
+					Expect(workPlacement.Spec.WorkGeneration).To(Equal(resourceWork.GetGeneration()))
 				})
 
 				It("records a scheduled outcome metric", func() {
@@ -228,13 +229,19 @@ var _ = Describe("Controllers/Scheduler", func() {
 					Expect(newWorkPlacement.Spec.PromiseName).To(Equal(workPlacement.Spec.PromiseName))
 					Expect(newWorkPlacement.Spec.ResourceName).To(Equal(workPlacement.Spec.ResourceName))
 					Expect(newWorkPlacement.GetAnnotations()).To(Equal(workPlacement.GetAnnotations()))
+					Expect(newWorkPlacement.Spec.WorkGeneration).To(Equal(resourceWork.GetGeneration()))
 				})
 			})
 
 			When("a resource Work with scheduling is reconciled with an updated WorkloadGroup", func() {
+				var previousWorkGeneration int64
+
 				BeforeEach(func() {
 					_, err := scheduler.ReconcileWork(context.Background(), &resourceWork)
 					Expect(err).ToNot(HaveOccurred())
+					Expect(fakeK8sClient.Get(context.Background(), client.ObjectKeyFromObject(&resourceWork), &resourceWork)).To(Succeed())
+					previousWorkGeneration = resourceWork.GetGeneration()
+
 				})
 
 				It("updates the WorkPlacement", func() {
@@ -252,6 +259,7 @@ var _ = Describe("Controllers/Scheduler", func() {
 					resourceWork.Spec.WorkloadGroups[0].Workloads = append(resourceWork.Spec.WorkloadGroups[0].Workloads, v1alpha1.Workload{
 						Content: string(fakeCompressedContent),
 					})
+					resourceWork.SetGeneration(int64(2))
 
 					_, err = scheduler.ReconcileWork(context.Background(), &resourceWork)
 					Expect(err).ToNot(HaveOccurred())
@@ -269,6 +277,7 @@ var _ = Describe("Controllers/Scheduler", func() {
 					newResourceVersion, err := strconv.Atoi(workPlacement.ResourceVersion)
 					Expect(err).ToNot(HaveOccurred())
 					Expect(newResourceVersion).To(BeNumerically(">", previousResourceVersion))
+					Expect(workPlacement.Spec.WorkGeneration).To(BeNumerically(">", previousWorkGeneration))
 				})
 			})
 
@@ -1125,6 +1134,7 @@ func newWork(name string, isResource bool, scheduling ...v1alpha1.WorkloadGroupS
 			Annotations: map[string]string{
 				"kratix.io/some-annotation": "some-value",
 			},
+			Generation: int64(1),
 		},
 		Spec: v1alpha1.WorkSpec{
 			PromiseName: "promise",

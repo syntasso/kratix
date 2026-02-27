@@ -35,6 +35,9 @@ type WorkPlacementSpec struct {
 	ResourceName string `json:"resourceName,omitempty"`
 	// Unique identifier for the workload group this WorkPlacement represents
 	ID string `json:"id,omitempty"`
+
+	// Generation of the parent Work
+	WorkGeneration int64 `json:"generation,omitempty"`
 }
 
 // WorkPlacementStatus defines the observed state of WorkPlacement

@@ -203,13 +203,13 @@ func ReconcileConfigure(opts Opts) (passiveRequeue bool, err error) {
 		"pipelineIndex", pipelineIndex, "mostRecentJob", mostRecentJobName)
 
 	pipeline := opts.Resources[pipelineIndex]
-	isManualReconciliation := isManualReconciliation(opts.parentObject.GetLabels())
-	opts.logger = originalLogger.WithName(pipeline.Name).WithValues("isManualReconciliation", isManualReconciliation)
+	manualReconciliationRequested := isManualReconciliation(opts.parentObject.GetLabels())
+	opts.logger = originalLogger.WithName(pipeline.Name).WithValues("isManualReconciliation", manualReconciliationRequested)
 
 	if jobIsForPipeline(pipeline, mostRecentJob) {
 		logging.Trace(opts.logger, "checking if job is for pipeline", "job", mostRecentJob.Name, "pipeline", pipeline.Name)
 		if isRunning(mostRecentJob) {
-			if isManualReconciliation {
+			if manualReconciliationRequested {
 				logging.Info(opts.logger, "suspending job for manual reconciliation", "job", mostRecentJob.Name, "pipeline", pipeline.Name)
 				if err = suspendJob(opts.ctx, opts.client, mostRecentJob); err != nil {
 					logging.Error(opts.logger, err, "failed to suspend job", "job", mostRecentJob.GetName())
@@ -221,7 +221,7 @@ func ReconcileConfigure(opts Opts) (passiveRequeue bool, err error) {
 			return true, nil
 		}
 
-		if isManualReconciliation {
+		if manualReconciliationRequested {
 			logging.Info(opts.logger, "pipeline running due to manual reconciliation", "pipeline", pipeline.Name, "parentLabels", opts.parentObject.GetLabels())
 			return createConfigurePipeline(opts, pipelineIndex, pipeline)
 		}

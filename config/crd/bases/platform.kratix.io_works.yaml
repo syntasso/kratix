@@ -46,6 +46,10 @@ spec:
           spec:
             description: WorkSpec defines the desired state of Work
             properties:
+              lastExecutionTimestamp:
+                description: Timestamp of the creation of this work
+                format: date-time
+                type: string
               promiseName:
                 description: Name of the Promise that generated this Work
                 type: string

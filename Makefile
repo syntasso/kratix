@@ -18,6 +18,9 @@ export DOCKER_BUILDKIT
 RECREATE ?= true
 export RECREATE
 
+# Only pass --recreate when RECREATE=true
+RECREATE_FLAG := $(if $(filter true,$(RECREATE)),--recreate,)
+
 # Get the currently used golang install path (in GOPATH/bin, unless GOBIN is set)
 ifeq (,$(shell go env GOBIN))
 GOBIN=$(shell go env GOPATH)/bin
@@ -70,13 +73,13 @@ fast-quick-start: teardown ## Install Kratix without recreating the local cluste
 	RECREATE=false make quick-start
 
 quick-start: generate distribution ## Recreates the clusters and install Kratix
-	VERSION=dev DOCKER_BUILDKIT=1 ./scripts/quick-start.sh --recreate --local --git-and-minio
+	VERSION=dev DOCKER_BUILDKIT=1 ./scripts/quick-start.sh $(RECREATE_FLAG)  --local --git-and-minio
 
 prepare-platform-as-destination: ## Installs flux onto platform cluster and registers as a destination
 	./scripts/register-destination --with-label environment=platform --context kind-platform --name platform-cluster
 
 single-cluster: distribution ## Deploys Kratix on a single cluster
-	VERSION=dev DOCKER_BUILDKIT=1 ./scripts/quick-start.sh --recreate --local --single-cluster
+	VERSION=dev DOCKER_BUILDKIT=1 ./scripts/quick-start.sh $(RECREATE_FLAG)  --local --single-cluster
 
 dev-env: quick-start prepare-platform-as-destination ## Quick-start + prepare-platform-as-destination
 
@@ -242,7 +245,7 @@ build-and-push-core-test-image: # for non-kind environment where images cannot b
 
 .PHONY: run-system-test
 run-system-test: fmt vet
-	PATH="$(PROJECT_DIR)/bin:${PATH}" PLATFORM_DESTINATION_IP=`docker inspect ${PLATFORM_CLUSTER_NAME}-control-plane | grep '"IPAddress": "172' | awk -F '"' '{print $$4}'` go run ${GINKGO} -v ${GINKGO_FLAGS} -p --output-interceptor-mode=none ./test/system/  --coverprofile cover.out
+	PATH="$(PROJECT_DIR)/bin:${PATH}" PLATFORM_DESTINATION_IP=`docker inspect ${PLATFORM_CLUSTER_NAME}-control-plane | grep '"IPAddress": "172' | awk -F '"' '{print $$4}'` go run ${GINKGO} -v ${GINKGO_FLAGS} -r --coverprofile cover.out -p --output-interceptor-mode=none ./test/system/
 
 .PHONY: run-git-integration-test
 run-git-integration-test: fmt vet ## Runs the integration test suite for the Git client
@@ -253,7 +256,7 @@ run-git-integration-test: fmt vet ## Runs the integration test suite for the Git
 		export TEST_GIT_WRITER_GITHUB_APP_ID="$${TEST_GIT_WRITER_GITHUB_APP_ID:-2625348}"; \
 		export TEST_GIT_WRITER_GITHUB_APP_INSTALLATION_ID="$${TEST_GIT_WRITER_GITHUB_APP_INSTALLATION_ID:-103412574}"; \
 	fi; \
-	go run ${GINKGO} ${GINKGO_FLAGS} ./test/git/  --coverprofile cover.out
+	go run ${GINKGO} ${GINKGO_FLAGS} -r --coverprofile cover.out ./test/git/
 
 fmt: ## Run go fmt against code.
 	go fmt ./...

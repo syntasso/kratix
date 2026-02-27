@@ -74,6 +74,8 @@ type Work struct {
 
 // WorkSpec defines the desired state of Work
 type WorkSpec struct {
+	// Timestamp of the creation of this work
+	LastExecutionTimestamp metav1.Time `json:"lastExecutionTimestamp,omitempty"`
 	// Groups of workloads to be scheduled to Destinations. Each group can target different Destinations via label selectors
 	WorkloadGroups []WorkloadGroup `json:"workloadGroups,omitempty"`
 	// Name of the Promise that generated this Work
