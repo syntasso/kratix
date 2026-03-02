@@ -19,6 +19,7 @@ package v1alpha1
 import (
 	"fmt"
 
+	"k8s.io/apimachinery/pkg/api/meta"
 	metav1 "k8s.io/apimachinery/pkg/apis/meta/v1"
 )
 
@@ -90,4 +91,57 @@ func (w *WorkPlacement) PipelineName() string {
 
 func (w *WorkPlacement) GetUniqueID() string {
 	return fmt.Sprintf("%s-%s", w.Namespace, w.Name)
+}
+
+const (
+	WriteSucceededConditionType    = "WriteSucceeded"
+	ScheduleSucceededConditionType = "ScheduleSucceeded"
+)
+
+func (w *WorkPlacement) SetWriteSucceededCondition() bool {
+	return meta.SetStatusCondition(&w.Status.Conditions, metav1.Condition{
+		Type:    WriteSucceededConditionType,
+		Status:  metav1.ConditionTrue,
+		Reason:  "WorkloadsWrittenToStateStore",
+		Message: "Workloads written to State Store",
+	})
+}
+
+func (w *WorkPlacement) SetWorkplacementReadyStatus() bool {
+	var writeSucceeded, misplaced bool
+	for _, cond := range w.Status.Conditions {
+		if cond.Type == ScheduleSucceededConditionType && cond.Status == metav1.ConditionFalse {
+			misplaced = true
+		}
+		if cond.Type == WriteSucceededConditionType && cond.Status == metav1.ConditionTrue {
+			writeSucceeded = true
+		}
+	}
+	if writeSucceeded && !misplaced {
+		return meta.SetStatusCondition(&w.Status.Conditions,
+			metav1.Condition{
+				Type:    "Ready",
+				Status:  metav1.ConditionTrue,
+				Reason:  "WorkloadsWrittenToTargetDestination",
+				Message: "Ready",
+			},
+		)
+	}
+	return false
+}
+
+func (w *WorkPlacement) SetWriteFailedCondition(err error) bool {
+	writeSucceededUpdated := meta.SetStatusCondition(&w.Status.Conditions, metav1.Condition{
+		Type:    WriteSucceededConditionType,
+		Status:  metav1.ConditionFalse,
+		Reason:  "WorkloadsFailedWrite",
+		Message: err.Error(),
+	})
+	readyUpdated := meta.SetStatusCondition(&w.Status.Conditions, metav1.Condition{
+		Status:  metav1.ConditionFalse,
+		Type:    "Ready",
+		Reason:  "WorkloadsFailedWrite",
+		Message: "Failing",
+	})
+	return writeSucceededUpdated || readyUpdated
 }

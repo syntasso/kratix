@@ -1,0 +1,28 @@
+apiVersion: platform.kratix.io/v1alpha1
+kind: GitStateStore
+metadata:
+  annotations:
+    kubectl.kubernetes.io/last-applied-configuration: |
+      {"apiVersion":"platform.kratix.io/v1alpha1","kind":"GitStateStore","metadata":{"annotations":{},"name":"default"},"spec":{"branch":"main","secretRef":{"name":"gitea-credentials","namespace":"default"},"url":"https://172.18.0.2:31333/gitea_admin/kratix"}}
+  creationTimestamp: "2026-02-27T10:29:57Z"
+  generation: 1
+  name: cache-test
+  resourceVersion: "1127"
+  uid: 4dc1e962-b40d-4874-8392-f36d083a33aa
+spec:
+  authMethod: basicAuth
+  branch: main
+  gitAuthor:
+    name: kratix
+  secretRef:
+    name: gitea-credentials
+    namespace: default
+  url: https://172.18.0.2:31333/gitea_admin/kratix
+status:
+  conditions:
+  - lastTransitionTime: "2026-02-27T10:30:13Z"
+    message: State store is ready
+    reason: StateStoreReady
+    status: "True"
+    type: Ready
+  status: Ready

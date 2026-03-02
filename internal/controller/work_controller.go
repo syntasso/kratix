@@ -174,7 +174,7 @@ func (r *WorkReconciler) updateWorkStatus(ctx context.Context, logger logr.Logge
 
 	var failedWorkPlacements []string
 	for _, wp := range workplacements {
-		if apiMeta.IsStatusConditionFalse(wp.Status.Conditions, writeSucceededConditionType) {
+		if apiMeta.IsStatusConditionFalse(wp.Status.Conditions, v1alpha1.WriteSucceededConditionType) {
 			failedWorkPlacements = append(failedWorkPlacements, wp.GetName())
 		}
 	}
@@ -187,7 +187,7 @@ func (r *WorkReconciler) updateWorkStatus(ctx context.Context, logger logr.Logge
 			Reason:  "WorkplacementsFailing",
 		}
 		scheduleCond := metav1.Condition{
-			Type:   scheduleSucceededConditionType,
+			Type:   v1alpha1.ScheduleSucceededConditionType,
 			Status: metav1.ConditionFalse,
 			Message: fmt.Sprintf(
 				"Workplacements failed to write: [%s]",
@@ -365,8 +365,8 @@ type workPlacementConditionSnapshot struct {
 
 func summarizeWorkPlacementConditions(wp *v1alpha1.WorkPlacement) workPlacementConditionSnapshot {
 	ready := apiMeta.FindStatusCondition(wp.Status.Conditions, "Ready")
-	write := apiMeta.FindStatusCondition(wp.Status.Conditions, writeSucceededConditionType)
-	schedule := apiMeta.FindStatusCondition(wp.Status.Conditions, scheduleSucceededConditionType)
+	write := apiMeta.FindStatusCondition(wp.Status.Conditions, v1alpha1.WriteSucceededConditionType)
+	schedule := apiMeta.FindStatusCondition(wp.Status.Conditions, v1alpha1.ScheduleSucceededConditionType)
 
 	return workPlacementConditionSnapshot{
 		readyStatus:    conditionStatus(ready),

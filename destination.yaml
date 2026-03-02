@@ -1,0 +1,21 @@
+apiVersion: platform.kratix.io/v1alpha1
+kind: Destination
+metadata:
+  creationTimestamp: "2026-02-27T10:30:01Z"
+  generation: 1
+  labels:
+    environment: dev
+  name: worker-git
+  resourceVersion: "1074"
+  uid: 00c50cc2-6027-444b-bcf0-a74136aea8db
+spec:
+  cleanup: none
+  filepath:
+    mode: nestedByMetadata
+  initWorkloads:
+    enabled: true
+  path: worker-git
+  stateStoreRef:
+    kind: GitStateStore
+    name: cache-test
+  strictMatchLabels: false
