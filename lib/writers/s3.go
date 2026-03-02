@@ -305,3 +305,7 @@ func (b *S3Writer) ValidatePermissions() error {
 func (b *S3Writer) Init(branch string) (string, error) {
 	return "", nil
 }
+
+func (b *S3Writer) DeleteFiles(files []string) error {
+	return errors.New("not implemented")
+}

@@ -107,10 +107,7 @@ func (g *GitWriter) update(subDir, workPlacementName string, workloadsToCreate [
 		return "", nil
 	}
 
-	localDir, err := g.Runner.Clone(g.GitServer.Branch)
-	if err != nil {
-		return "", err
-	}
+	localDir := g.Runner.Root()
 
 	dirInGitRepo := filepath.Join(g.Runner.Root(), g.Path, subDir)
 	logger := g.Log.WithValues(
@@ -118,9 +115,7 @@ func (g *GitWriter) update(subDir, workPlacementName string, workloadsToCreate [
 		"branch", g.GitServer.Branch,
 	)
 
-	defer os.RemoveAll(localDir) //nolint:errcheck
-
-	err = g.deleteExistingFiles(subDir != "", dirInGitRepo, workloadsToDelete, logger)
+	err := g.deleteExistingFiles(subDir != "", dirInGitRepo, workloadsToDelete, logger)
 	if err != nil {
 		return "", err
 	}
@@ -296,4 +291,29 @@ func (g *GitWriter) commitAndPush(action, workPlacementName string, logger logr.
 
 func (g *GitWriter) Init(branch string) (string, error) {
 	return g.Runner.Clone(branch)
+}
+
+func (g *GitWriter) DeleteFiles(files []string) error {
+	for _, file := range files {
+		fullPath := filepath.Join(g.Runner.Root(), g.Path, file)
+		fileInfo, err := os.Lstat(fullPath)
+		if err != nil {
+			if !os.IsNotExist(err) {
+				return err
+			}
+			continue
+		}
+		if fileInfo.IsDir() {
+			if err := g.Runner.RemoveDirectory(fullPath); err != nil {
+				return err
+			}
+			continue
+		}
+
+		if err := g.Runner.RemoveFile(fullPath); err != nil {
+			return err
+		}
+	}
+
+	return nil
 }

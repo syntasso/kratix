@@ -53,19 +53,6 @@ type GitStateStoreReconciler struct {
 	RepositoryCache *RepositoryCache
 }
 
-type Repository struct {
-	sync.Mutex
-	Path   string
-	Branch string
-
-	Writer writers.StateStoreWriter
-}
-
-type RepositoryCache struct {
-	sync.Mutex
-	cache map[string]*Repository
-}
-
 type stateStoreReconcileContext struct {
 	ctx        context.Context
 	controller string
@@ -80,49 +67,29 @@ type stateStoreReconcileContext struct {
 	repositoryCache  *RepositoryCache
 }
 
-type ReconcileContext interface {
-	Logger() logr.Logger
-	Client() client.Client
-}
+//+kubebuilder:rbac:groups=platform.kratix.io,resources=gitstatestores,verbs=get;list;watch;create;update;patch;delete
+//+kubebuilder:rbac:groups=platform.kratix.io,resources=gitstatestores/status,verbs=get;update;patch
+//+kubebuilder:rbac:groups=platform.kratix.io,resources=gitstatestores/finalizers,verbs=update
 
-func NewRepositoryCache() *RepositoryCache {
-	return &RepositoryCache{
-		cache: map[string]*Repository{},
-	}
-}
-
-func (c *RepositoryCache) GetRepository(ctx *stateStoreReconcileContext) (*Repository, *StateStoreError) {
-	c.Lock()
-	defer c.Unlock()
-
-	if repository, ok := c.cache[ctx.stateStore.GetName()]; ok {
-		return repository, nil
-	}
-
-	gitWriter, err := writers.NewGitWriter(
-		ctx.logger.WithName("writers").WithName("GitStateStoreWriter"),
-		ctx.stateStore.Spec,
-		"",
-		ctx.stateStoreSecret.Data,
+// Reconcile reconciles a GitStateStore object.
+func (r *GitStateStoreReconciler) Reconcile(ctx context.Context, req ctrl.Request) (result ctrl.Result, retErr error) {
+	logger := r.Log.WithValues(
+		"controller", "gitStateStore",
+		"name", req.Name,
 	)
-	if err != nil {
-		return nil, NewInitialiseWriterError(fmt.Errorf("unable to create git writer: %w", err))
-	}
 
-	repoDir, err := gitWriter.Init(ctx.stateStore.Spec.Branch)
-	if err != nil {
-		return nil, NewInitialiseWriterError(fmt.Errorf("unable to clone repository: %w", err))
-	}
+	return withTrace(logger, func() (ctrl.Result, error) {
+		stateStoreCtx, err := r.newReconcileContext(ctx, logger, req, r.RepositoryCache)
+		if err != nil {
+			logging.Error(logger, err, "unable to setup resources for reconciliation")
+			return ctrl.Result{}, err
+		}
+		if stateStoreCtx == nil {
+			return ctrl.Result{}, nil
+		}
 
-	repo := &Repository{
-		Path:   repoDir,
-		Branch: ctx.stateStore.Spec.Branch,
-		Writer: gitWriter,
-	}
-
-	c.cache[ctx.stateStore.GetName()] = repo
-
-	return repo, nil
+		return stateStoreCtx.Reconcile()
+	})
 }
 
 func NewGitStateStoreController(client client.Client, scheme *runtime.Scheme, eventRecorder record.EventRecorder, cache *RepositoryCache) *GitStateStoreReconciler {
@@ -172,31 +139,6 @@ func (r *GitStateStoreReconciler) newReconcileContext(ctx context.Context, logge
 		repositoryCache:  cache,
 		eventRecorder:    r.EventRecorder,
 	}, nil
-}
-
-//+kubebuilder:rbac:groups=platform.kratix.io,resources=gitstatestores,verbs=get;list;watch;create;update;patch;delete
-//+kubebuilder:rbac:groups=platform.kratix.io,resources=gitstatestores/status,verbs=get;update;patch
-//+kubebuilder:rbac:groups=platform.kratix.io,resources=gitstatestores/finalizers,verbs=update
-
-// Reconcile reconciles a GitStateStore object.
-func (r *GitStateStoreReconciler) Reconcile(ctx context.Context, req ctrl.Request) (result ctrl.Result, retErr error) {
-	logger := r.Log.WithValues(
-		"controller", "gitStateStore",
-		"name", req.Name,
-	)
-
-	return withTrace(logger, func() (ctrl.Result, error) {
-		stateStoreCtx, err := r.newReconcileContext(ctx, logger, req, r.RepositoryCache)
-		if err != nil {
-			logging.Error(logger, err, "unable to setup resources for reconciliation")
-			return ctrl.Result{}, err
-		}
-		if stateStoreCtx == nil {
-			return ctrl.Result{}, nil
-		}
-
-		return stateStoreCtx.Reconcile()
-	})
 }
 
 func (reconcileCtx *stateStoreReconcileContext) Reconcile() (ctrl.Result, error) {
@@ -333,4 +275,69 @@ func NewValidatePermissionsError(err error) *StateStoreError {
 		Reason:  StateStoreNotReadyErrorValidatingPermissionsReason,
 		Message: StateStoreNotReadyErrorValidatingPermissionsMessage,
 	}
+}
+
+/* Repository Cache */
+
+type Repository struct {
+	sync.Mutex
+	Path   string
+	Branch string
+
+	Writer writers.StateStoreWriter
+}
+
+type RepositoryCache struct {
+	sync.Mutex
+	cache map[string]*Repository
+}
+
+func NewRepositoryCache() *RepositoryCache {
+	return &RepositoryCache{
+		cache: map[string]*Repository{},
+	}
+}
+
+func (c *RepositoryCache) GetRepository(ctx *stateStoreReconcileContext) (*Repository, *StateStoreError) {
+	if repository, ok := c.cache[ctx.stateStore.GetName()]; ok {
+		return repository, nil
+	}
+
+	gitWriter, err := writers.NewGitWriter(
+		ctx.logger.WithName("writers").WithName("GitStateStoreWriter"),
+		ctx.stateStore.Spec,
+		"",
+		ctx.stateStoreSecret.Data,
+	)
+	if err != nil {
+		return nil, NewInitialiseWriterError(fmt.Errorf("unable to create git writer: %w", err))
+	}
+
+	repoDir, err := gitWriter.Init(ctx.stateStore.Spec.Branch)
+	if err != nil {
+		return nil, NewInitialiseWriterError(fmt.Errorf("unable to clone repository: %w", err))
+	}
+
+	repo := &Repository{
+		Path:   repoDir,
+		Branch: ctx.stateStore.Spec.Branch,
+		Writer: gitWriter,
+	}
+
+	c.cache[ctx.stateStore.GetName()] = repo
+
+	return repo, nil
+}
+
+var CacheMissError = fmt.Errorf("cache miss")
+
+func (c *RepositoryCache) GetRepositoryByName(name string) (*Repository, error) {
+	c.Lock()
+	defer c.Unlock()
+
+	if repository, ok := c.cache[name]; ok {
+		return repository, nil
+	}
+
+	return nil, CacheMissError
 }
