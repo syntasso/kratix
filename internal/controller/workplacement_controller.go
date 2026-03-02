@@ -70,6 +70,8 @@ type WorkPlacementReconciler struct {
 	Log           logr.Logger
 	VersionCache  map[string]string
 	EventRecorder record.EventRecorder
+
+	RepositoryCache *RepositoryCache
 }
 
 //+kubebuilder:rbac:groups=platform.kratix.io,resources=workplacements,verbs=get;list;watch;create;update;patch;delete

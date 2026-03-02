@@ -316,15 +316,6 @@ func main() {
 			setupLog.Error(err, "unable to create controller", "controller", "Destination")
 			os.Exit(1)
 		}
-		if err = (&controller.WorkPlacementReconciler{
-			Client:        mgr.GetClient(),
-			Log:           ctrl.Log.WithName("controllers").WithName("WorkPlacementController"),
-			VersionCache:  make(map[string]string),
-			EventRecorder: mgr.GetEventRecorderFor("WorkPlacementController"),
-		}).SetupWithManager(mgr); err != nil {
-			setupLog.Error(err, "unable to create controller", "controller", "WorkPlacement")
-			os.Exit(1)
-		}
 		if err = kratixWebhook.SetupPromiseWebhookWithManager(mgr, apiextensionsClient, mgr.GetClient()); err != nil {
 			setupLog.Error(err, "unable to create webhook", "webhook", "Promise")
 			os.Exit(1)
@@ -365,13 +356,26 @@ func main() {
 			setupLog.Error(err, "unable to create controller", "controller", "BucketStateStore")
 			os.Exit(1)
 		}
-		if err = (&controller.GitStateStoreReconciler{
-			Client:        mgr.GetClient(),
-			Scheme:        mgr.GetScheme(),
-			Log:           ctrl.Log.WithName("controllers").WithName("GitStateStoreController"),
-			EventRecorder: mgr.GetEventRecorderFor("GitStateStoreController"),
-		}).SetupWithManager(mgr); err != nil {
+
+		repositoryCache := controller.NewRepositoryCache()
+		gitStateStoreController := controller.NewGitStateStoreController(
+			mgr.GetClient(),
+			mgr.GetScheme(),
+			mgr.GetEventRecorderFor("GitStateStoreController"),
+			repositoryCache,
+		)
+		if err = gitStateStoreController.SetupWithManager(mgr); err != nil {
 			setupLog.Error(err, "unable to create controller", "controller", "GitStateStore")
+			os.Exit(1)
+		}
+		if err = (&controller.WorkPlacementReconciler{
+			Client:          mgr.GetClient(),
+			Log:             ctrl.Log.WithName("controllers").WithName("WorkPlacementController"),
+			VersionCache:    make(map[string]string),
+			RepositoryCache: repositoryCache,
+			EventRecorder:   mgr.GetEventRecorderFor("WorkPlacementController"),
+		}).SetupWithManager(mgr); err != nil {
+			setupLog.Error(err, "unable to create controller", "controller", "WorkPlacement")
 			os.Exit(1)
 		}
 		if err = kratixWebhook.SetupBucketStateStoreWebhookWithManager(mgr); err != nil {

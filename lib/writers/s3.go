@@ -301,3 +301,7 @@ func (b *S3Writer) ValidatePermissions() error {
 	logging.Info(logger, "successfully validated bucket write permissions via multipart upload")
 	return nil
 }
+
+func (b *S3Writer) Init(branch string) (string, error) {
+	return "", nil
+}
