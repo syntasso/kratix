@@ -268,7 +268,7 @@ func (g *GitWriter) ValidatePermissions() error {
 	}
 
 	logging.Info(g.Log, "successfully validated git repository permissions")
-	return cloneErr
+	return nil
 }
 
 func (g *GitWriter) commitAndPush(action, workPlacementName string, logger logr.Logger) (string, error) {
@@ -292,4 +292,8 @@ func (g *GitWriter) commitAndPush(action, workPlacementName string, logger logr.
 		return "", err
 	}
 	return commitSha, nil
+}
+
+func (g *GitWriter) Init(branch string) (string, error) {
+	return g.Runner.Clone(branch)
 }

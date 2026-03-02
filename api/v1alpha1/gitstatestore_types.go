@@ -80,7 +80,19 @@ type GitStateStore struct {
 }
 
 func (g *GitStateStore) GetSecretRef() *corev1.SecretReference {
-	return g.Spec.SecretRef
+	if g.Spec.SecretRef == nil {
+		return nil
+	}
+
+	namespace := g.Spec.SecretRef.Namespace
+	if namespace == "" {
+		namespace = "default"
+	}
+
+	return &corev1.SecretReference{
+		Name:      g.Spec.SecretRef.Name,
+		Namespace: namespace,
+	}
 }
 
 func (g *GitStateStore) GetStatus() *StateStoreStatus {
