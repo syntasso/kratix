@@ -76,12 +76,14 @@ type DynamicResourceRequestController struct {
 	PromiseDestinationSelectors []v1alpha1.PromiseScheduling
 	CanCreateResources          *bool
 	NumberOfJobsToKeep          int
+	PodTTLSecondsAfterFinished  *time.Duration
 	ReconciliationInterval      time.Duration
 	EventRecorder               record.EventRecorder
 	PromiseUpgrade              bool
 }
 
 //+kubebuilder:rbac:groups="batch",resources=jobs,verbs=get;list;watch;create;update;patch;delete
+//+kubebuilder:rbac:groups="",resources=pods,verbs=get;list;watch;delete
 
 // Reconcile reconciles a Dynamically Generated Resource object.
 func (r *DynamicResourceRequestController) Reconcile(ctx context.Context, req ctrl.Request) (result ctrl.Result, retErr error) {
@@ -241,7 +243,7 @@ func (r *DynamicResourceRequestController) Reconcile(ctx context.Context, req ct
 	if promise.WorkflowPipelineNamespaceSet() {
 		namespace = promise.Spec.Workflows.Config.PipelineNamespace
 	}
-	jobOpts := workflow.NewOpts(
+	jobOpts := workflow.NewOptsWithPodTTL(
 		ctx,
 		r.Client,
 		r.EventRecorder,
@@ -251,6 +253,7 @@ func (r *DynamicResourceRequestController) Reconcile(ctx context.Context, req ct
 		"resource",
 		r.NumberOfJobsToKeep,
 		namespace,
+		r.PodTTLSecondsAfterFinished,
 	)
 
 	passiveRequeue, err := reconcileConfigure(jobOpts)
@@ -573,7 +576,18 @@ func (r *DynamicResourceRequestController) deleteResources(o opts, promise *v1al
 			return ctrl.Result{}, err
 		}
 
-		jobOpts := workflow.NewOpts(o.ctx, o.client, r.EventRecorder, o.logger, resourceRequest, pipelineResources, "resource", r.NumberOfJobsToKeep, namespace)
+		jobOpts := workflow.NewOptsWithPodTTL(
+			o.ctx,
+			o.client,
+			r.EventRecorder,
+			o.logger,
+			resourceRequest,
+			pipelineResources,
+			"resource",
+			r.NumberOfJobsToKeep,
+			namespace,
+			r.PodTTLSecondsAfterFinished,
+		)
 		requeue, err := reconcileDelete(jobOpts)
 		if err != nil {
 			if errors.Is(err, workflow.ErrDeletePipelineFailed) {
@@ -736,8 +750,12 @@ func workflowsCompletedSuccessfully(workflowCompletedCondition *clusterv1.Condit
 }
 
 func (r *DynamicResourceRequestController) nextReconciliation(logger logr.Logger) ctrl.Result {
-	logging.Info(logger, "scheduling next reconciliation", "reconciliationInterval", r.ReconciliationInterval)
-	return ctrl.Result{RequeueAfter: r.ReconciliationInterval}
+	nextRequeueAfter := clampRequeueAfterByPodTTL(r.ReconciliationInterval, r.PodTTLSecondsAfterFinished)
+	logging.Info(logger, "scheduling next reconciliation",
+		"reconciliationInterval", r.ReconciliationInterval,
+		"podTTLSecondsAfterFinished", r.PodTTLSecondsAfterFinished,
+		"requeueAfter", nextRequeueAfter)
+	return ctrl.Result{RequeueAfter: nextRequeueAfter}
 }
 
 func (r *DynamicResourceRequestController) manualReconciliationLabelSet(rr *unstructured.Unstructured) bool {

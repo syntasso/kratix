@@ -30,28 +30,34 @@ type Opts struct {
 	logger       logr.Logger
 	parentObject *unstructured.Unstructured
 	//TODO make this field private too? or everything public and no constructor func
-	Resources          []v1alpha1.PipelineJobResources
-	workflowType       string
-	numberOfJobsToKeep int
-	eventRecorder      record.EventRecorder
-	namespace          string
-	SkipConditions     bool
+	Resources           []v1alpha1.PipelineJobResources
+	workflowType        string
+	numberOfJobsToKeep  int
+	podTTLAfterFinished *time.Duration
+	eventRecorder       record.EventRecorder
+	namespace           string
+	SkipConditions      bool
 }
 
 var minimumPeriodBetweenCreatingPipelineResources = 1100 * time.Millisecond
 var ErrDeletePipelineFailed = fmt.Errorf("Delete Pipeline Failed")
 
 func NewOpts(ctx context.Context, client client.Client, eventRecorder record.EventRecorder, logger logr.Logger, parentObj *unstructured.Unstructured, resources []v1alpha1.PipelineJobResources, workflowType string, numberOfJobsToKeep int, namespace string) Opts {
+	return NewOptsWithPodTTL(ctx, client, eventRecorder, logger, parentObj, resources, workflowType, numberOfJobsToKeep, namespace, nil)
+}
+
+func NewOptsWithPodTTL(ctx context.Context, client client.Client, eventRecorder record.EventRecorder, logger logr.Logger, parentObj *unstructured.Unstructured, resources []v1alpha1.PipelineJobResources, workflowType string, numberOfJobsToKeep int, namespace string, podTTLAfterFinished *time.Duration) Opts {
 	return Opts{
-		ctx:                ctx,
-		client:             client,
-		logger:             logger,
-		parentObject:       parentObj,
-		workflowType:       workflowType,
-		numberOfJobsToKeep: numberOfJobsToKeep,
-		Resources:          resources,
-		eventRecorder:      eventRecorder,
-		namespace:          namespace,
+		ctx:                 ctx,
+		client:              client,
+		logger:              logger,
+		parentObject:        parentObj,
+		workflowType:        workflowType,
+		numberOfJobsToKeep:  numberOfJobsToKeep,
+		podTTLAfterFinished: podTTLAfterFinished,
+		Resources:           resources,
+		eventRecorder:       eventRecorder,
+		namespace:           namespace,
 	}
 }
 
@@ -410,10 +416,21 @@ func cleanup(opts Opts, namespace string) error {
 	for _, pipeline := range opts.Resources {
 		l := labelsForAllWorkflowJobs(pipeline)
 		l[v1alpha1.PipelineNameLabel] = pipeline.Name
+		l[v1alpha1.ManagedByLabel] = v1alpha1.ManagedByLabelValue
 		pipelineNames[pipeline.Name] = true
 		jobsForPipeline, _ := getJobsWithLabels(opts, l, namespace)
 		if err := cleanupJobs(opts, jobsForPipeline); err != nil {
 			logging.Error(opts.logger, err, "failed to delete old jobs")
+			return err
+		}
+
+		podsForPipeline, err := getPodsWithLabels(opts, l, namespace)
+		if err != nil {
+			logging.Error(opts.logger, err, "failed to list workflow pods")
+			return err
+		}
+		if err := cleanupPods(opts, podsForPipeline); err != nil {
+			logging.Error(opts.logger, err, "failed to delete old workflow pods")
 			return err
 		}
 	}
@@ -468,6 +485,85 @@ func cleanupJobs(opts Opts, pipelineJobsAtCurrentSpec []batchv1.Job) error {
 	}
 
 	return nil
+}
+
+func cleanupPods(opts Opts, workflowPods []v1.Pod) error {
+	if opts.podTTLAfterFinished == nil {
+		return nil
+	}
+
+	podTTLAfterFinished := *opts.podTTLAfterFinished
+	if podTTLAfterFinished <= 0 {
+		return nil
+	}
+
+	now := time.Now()
+	for i := range workflowPods {
+		pod := workflowPods[i]
+		if pod.Status.Phase != v1.PodSucceeded && pod.Status.Phase != v1.PodFailed {
+			continue
+		}
+
+		completedAt, ok := getPodCompletionTime(pod)
+		if !ok {
+			logging.Debug(opts.logger, "skipping terminal pod cleanup with no completion timestamp", "pod", pod.GetName(), "phase", pod.Status.Phase)
+			continue
+		}
+
+		if now.Before(completedAt.Add(podTTLAfterFinished)) {
+			continue
+		}
+
+		logging.Debug(opts.logger,
+			"deleting workflow pod after TTL",
+			"pod", pod.GetName(),
+			"phase", pod.Status.Phase,
+			"completedAt", completedAt,
+			"podTTLAfterFinished", podTTLAfterFinished,
+		)
+		if err := opts.client.Delete(opts.ctx, &pod, client.PropagationPolicy(metav1.DeletePropagationBackground)); err != nil {
+			if !errors.IsNotFound(err) {
+				logging.Warn(opts.logger, "failed to delete workflow pod; will retry", "pod", pod.GetName(), "error", err)
+				return nil
+			}
+		}
+	}
+
+	return nil
+}
+
+func getPodCompletionTime(pod v1.Pod) (time.Time, bool) {
+	var latestFinishedAt time.Time
+	foundFinishedAt := false
+
+	findLatestFinishedAt := func(containerStatuses []v1.ContainerStatus) {
+		for _, containerStatus := range containerStatuses {
+			if containerStatus.State.Terminated == nil {
+				continue
+			}
+			finishedAt := containerStatus.State.Terminated.FinishedAt.Time
+			if finishedAt.IsZero() {
+				continue
+			}
+			if !foundFinishedAt || finishedAt.After(latestFinishedAt) {
+				latestFinishedAt = finishedAt
+				foundFinishedAt = true
+			}
+		}
+	}
+
+	findLatestFinishedAt(pod.Status.InitContainerStatuses)
+	findLatestFinishedAt(pod.Status.ContainerStatuses)
+
+	if foundFinishedAt {
+		return latestFinishedAt, true
+	}
+
+	if !pod.CreationTimestamp.Time.IsZero() {
+		return pod.CreationTimestamp.Time, true
+	}
+
+	return time.Time{}, false
 }
 
 func createConfigurePipeline(opts Opts, pipelineIndex int, resources v1alpha1.PipelineJobResources) (passiveRequeue bool, err error) {
@@ -569,6 +665,28 @@ func getJobsWithLabels(opts Opts, jobLabels map[string]string, namespace string)
 		return nil, err
 	}
 	return jobs.Items, nil
+}
+
+func getPodsWithLabels(opts Opts, podLabels map[string]string, namespace string) ([]v1.Pod, error) {
+	selectorLabels := labels.FormatLabels(podLabels)
+	selector, err := labels.Parse(selectorLabels)
+	if err != nil {
+		return nil, fmt.Errorf("error parsing labels %v: %w", podLabels, err)
+	}
+
+	listOps := &client.ListOptions{
+		LabelSelector: selector,
+		Namespace:     namespace,
+	}
+
+	pods := &v1.PodList{}
+	err = opts.client.List(opts.ctx, pods, listOps)
+	if err != nil {
+		logging.Error(opts.logger, err, "error listing pods", "selectors", selector.String())
+		return nil, err
+	}
+
+	return pods.Items, nil
 }
 
 func isManualReconciliation(labels map[string]string) bool {

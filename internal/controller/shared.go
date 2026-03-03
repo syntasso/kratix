@@ -166,6 +166,22 @@ func shortID(id string) string {
 	return id[0:5]
 }
 
+func clampRequeueAfterByPodTTL(reconciliationInterval time.Duration, podTTLSecondsAfterFinished *time.Duration) time.Duration {
+	if podTTLSecondsAfterFinished == nil {
+		return reconciliationInterval
+	}
+
+	if *podTTLSecondsAfterFinished <= 0 {
+		return reconciliationInterval
+	}
+
+	if *podTTLSecondsAfterFinished < reconciliationInterval {
+		return *podTTLSecondsAfterFinished
+	}
+
+	return reconciliationInterval
+}
+
 func logReconcileDuration(logger logr.Logger, start time.Time, result ctrl.Result, retErr error) func() {
 	return func() {
 		duration := time.Since(start)

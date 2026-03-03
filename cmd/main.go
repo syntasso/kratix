@@ -101,7 +101,8 @@ type Workflows struct {
 }
 
 type JobOptions struct {
-	DefaultBackoffLimit *int32 `json:"defaultBackoffLimit,omitempty"`
+	DefaultBackoffLimit        *int32           `json:"defaultBackoffLimit,omitempty"`
+	PodTTLSecondsAfterFinished *metav1.Duration `json:"podTTLSecondsAfterFinished,omitempty"`
 }
 
 // LeaderElectionConfig duration default can be found in:
@@ -201,6 +202,8 @@ func main() {
 		}()
 	}
 
+	podTTLSecondsAfterFinished := getPodTTLSecondsAfterFinished(kratixConfig)
+
 	for {
 		config := wrapConfigWithOTel(ctrl.GetConfigOrDie())
 		apiextensionsClient := clientset.NewForConfigOrDie(config)
@@ -269,15 +272,16 @@ func main() {
 		restartManager := false
 		restartManagerInProgress := false
 		if err = (&controller.PromiseReconciler{
-			ApiextensionsClient:    apiextensionsClient.ApiextensionsV1(),
-			Client:                 mgr.GetClient(),
-			Log:                    ctrl.Log.WithName("controllers").WithName("Promise"),
-			Manager:                mgr,
-			Scheme:                 mgr.GetScheme(),
-			NumberOfJobsToKeep:     getNumJobsToKeep(kratixConfig),
-			ReconciliationInterval: getRegularReconciliationInterval(kratixConfig),
-			EventRecorder:          mgr.GetEventRecorderFor("PromiseController"),
-			PromiseUpgrade:         promiseUpgradeEnabled(kratixConfig),
+			ApiextensionsClient:        apiextensionsClient.ApiextensionsV1(),
+			Client:                     mgr.GetClient(),
+			Log:                        ctrl.Log.WithName("controllers").WithName("Promise"),
+			Manager:                    mgr,
+			Scheme:                     mgr.GetScheme(),
+			NumberOfJobsToKeep:         getNumJobsToKeep(kratixConfig),
+			PodTTLSecondsAfterFinished: podTTLSecondsAfterFinished,
+			ReconciliationInterval:     getRegularReconciliationInterval(kratixConfig),
+			EventRecorder:              mgr.GetEventRecorderFor("PromiseController"),
+			PromiseUpgrade:             promiseUpgradeEnabled(kratixConfig),
 			RestartManager: func() {
 				// This function gets called multiple times
 				// First call: restartInProgress get set to true, sleeps starts
@@ -473,6 +477,24 @@ func getNumJobsToKeep(kratixConfig *KratixConfig) int {
 		return numJobsToKeepDefault
 	}
 	return kratixConfig.NumberOfJobsToKeep
+}
+
+func getPodTTLSecondsAfterFinished(kratixConfig *KratixConfig) *time.Duration {
+	if kratixConfig == nil || kratixConfig.Workflows.JobOptions.PodTTLSecondsAfterFinished == nil {
+		return nil
+	}
+
+	podTTLSecondsAfterFinished := kratixConfig.Workflows.JobOptions.PodTTLSecondsAfterFinished.Duration
+	if podTTLSecondsAfterFinished <= 0 {
+		setupLog.Error(
+			fmt.Errorf("invalid Kratix Config"),
+			"workflows.jobOptions.podTTLSecondsAfterFinished must be greater than zero; TTL cleanup disabled",
+			"podTTLSecondsAfterFinished", podTTLSecondsAfterFinished.String(),
+		)
+		return nil
+	}
+
+	return &podTTLSecondsAfterFinished
 }
 
 func getRegularReconciliationInterval(kratixConfig *KratixConfig) time.Duration {

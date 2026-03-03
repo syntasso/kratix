@@ -614,6 +614,46 @@ var _ = Describe("Workflow Reconciler", func() {
 			})
 		})
 
+		When("pod ttl after finished is configured", func() {
+			It("deletes terminal workflow pods older than the configured ttl regardless of terminal phase", func() {
+				Expect(fakeK8sClient.Create(ctx, workflowPipelines[0].Job)).To(Succeed())
+				Expect(fakeK8sClient.Create(ctx, workflowPipelines[1].Job)).To(Succeed())
+				markJobAsComplete(workflowPipelines[0].Job.Name)
+				markJobAsComplete(workflowPipelines[1].Job.Name)
+				setParentWorkflowCountersStatus(uPromise, 2)
+
+				createCompletedWorkflowPod(workflowPipelines[0].Job, v1.PodSucceeded, time.Now().Add(-2*time.Minute))
+				createCompletedWorkflowPod(workflowPipelines[1].Job, v1.PodFailed, time.Now().Add(-2*time.Minute))
+
+				podTTLAfterFinished := time.Minute
+				opts := workflow.NewOptsWithPodTTL(
+					ctx, fakeK8sClient, eventRecorder, logger, uPromise, workflowPipelines, "promise", 5, namespace, &podTTLAfterFinished)
+				passiveRequeue, err := workflow.ReconcileConfigure(opts)
+				Expect(err).NotTo(HaveOccurred())
+				Expect(passiveRequeue).To(BeFalse())
+
+				Expect(listPods(namespace)).To(BeEmpty())
+			})
+
+			It("does not delete terminal workflow pods when the ttl is not configured", func() {
+				Expect(fakeK8sClient.Create(ctx, workflowPipelines[0].Job)).To(Succeed())
+				Expect(fakeK8sClient.Create(ctx, workflowPipelines[1].Job)).To(Succeed())
+				markJobAsComplete(workflowPipelines[0].Job.Name)
+				markJobAsComplete(workflowPipelines[1].Job.Name)
+				setParentWorkflowCountersStatus(uPromise, 2)
+
+				createCompletedWorkflowPod(workflowPipelines[0].Job, v1.PodSucceeded, time.Now().Add(-2*time.Minute))
+				createCompletedWorkflowPod(workflowPipelines[1].Job, v1.PodFailed, time.Now().Add(-2*time.Minute))
+
+				opts := workflow.NewOpts(ctx, fakeK8sClient, eventRecorder, logger, uPromise, workflowPipelines, "promise", 5, namespace)
+				passiveRequeue, err := workflow.ReconcileConfigure(opts)
+				Expect(err).NotTo(HaveOccurred())
+				Expect(passiveRequeue).To(BeFalse())
+
+				Expect(listPods(namespace)).To(HaveLen(2))
+			})
+		})
+
 		When("all pipelines have executed", func() {
 			var updatedWorkflows []v1alpha1.PipelineJobResources
 
@@ -2154,6 +2194,37 @@ func listJobs(namespace string) []batchv1.Job {
 	err := fakeK8sClient.List(ctx, jobList, client.InNamespace(namespace))
 	Expect(err).NotTo(HaveOccurred())
 	return jobList.Items
+}
+
+func listPods(namespace string) []v1.Pod {
+	podList := &v1.PodList{}
+	err := fakeK8sClient.List(ctx, podList, client.InNamespace(namespace))
+	Expect(err).NotTo(HaveOccurred())
+	return podList.Items
+}
+
+func createCompletedWorkflowPod(job *batchv1.Job, phase v1.PodPhase, finishedAt time.Time) {
+	pod := &v1.Pod{
+		ObjectMeta: metav1.ObjectMeta{
+			Name:      fmt.Sprintf("%s-pod-%s", job.GetName(), uuid.New().String()[0:5]),
+			Namespace: job.GetNamespace(),
+			Labels:    job.GetLabels(),
+		},
+		Status: v1.PodStatus{
+			Phase: phase,
+			InitContainerStatuses: []v1.ContainerStatus{
+				{
+					Name: "step-1",
+					State: v1.ContainerState{
+						Terminated: &v1.ContainerStateTerminated{
+							FinishedAt: metav1.NewTime(finishedAt),
+						},
+					},
+				},
+			},
+		},
+	}
+	Expect(fakeK8sClient.Create(ctx, pod)).To(Succeed())
 }
 
 func findByName(jobs []batchv1.Job, name string) bool {

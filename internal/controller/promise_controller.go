@@ -71,17 +71,18 @@ type Manager interface {
 
 // PromiseReconciler reconciles a Promise object.
 type PromiseReconciler struct {
-	Scheme                    *runtime.Scheme
-	Client                    client.Client
-	ApiextensionsClient       apiextensionsv1cs.CustomResourceDefinitionsGetter
-	Log                       logr.Logger
-	Manager                   ctrl.Manager
-	StartedDynamicControllers map[string]*DynamicResourceRequestController
-	RestartManager            func()
-	NumberOfJobsToKeep        int
-	ReconciliationInterval    time.Duration
-	EventRecorder             record.EventRecorder
-	PromiseUpgrade            bool
+	Scheme                     *runtime.Scheme
+	Client                     client.Client
+	ApiextensionsClient        apiextensionsv1cs.CustomResourceDefinitionsGetter
+	Log                        logr.Logger
+	Manager                    ctrl.Manager
+	StartedDynamicControllers  map[string]*DynamicResourceRequestController
+	RestartManager             func()
+	NumberOfJobsToKeep         int
+	PodTTLSecondsAfterFinished *time.Duration
+	ReconciliationInterval     time.Duration
+	EventRecorder              record.EventRecorder
+	PromiseUpgrade             bool
 }
 
 const (
@@ -578,8 +579,12 @@ func (r *PromiseReconciler) reconcileResources(ctx context.Context, logger logr.
 }
 
 func (r *PromiseReconciler) nextReconciliation(logger logr.Logger) ctrl.Result {
-	logging.Info(logger, "scheduling next reconciliation", "reconciliationInterval", r.ReconciliationInterval)
-	return ctrl.Result{RequeueAfter: r.ReconciliationInterval}
+	nextRequeueAfter := clampRequeueAfterByPodTTL(r.ReconciliationInterval, r.PodTTLSecondsAfterFinished)
+	logging.Info(logger, "scheduling next reconciliation",
+		"reconciliationInterval", r.ReconciliationInterval,
+		"podTTLSecondsAfterFinished", r.PodTTLSecondsAfterFinished,
+		"requeueAfter", nextRequeueAfter)
+	return ctrl.Result{RequeueAfter: nextRequeueAfter}
 }
 
 func promiseAvailableStatusCondition(lastTransitionTime metav1.Time) metav1.Condition {
@@ -865,7 +870,18 @@ func (r *PromiseReconciler) reconcileDependenciesAndPromiseWorkflows(o opts, pro
 		namespace = promise.Spec.Workflows.Config.PipelineNamespace
 	}
 
-	jobOpts := workflow.NewOpts(o.ctx, o.client, r.EventRecorder, o.logger, unstructuredPromise, pipelineResources, "promise", r.NumberOfJobsToKeep, namespace)
+	jobOpts := workflow.NewOptsWithPodTTL(
+		o.ctx,
+		o.client,
+		r.EventRecorder,
+		o.logger,
+		unstructuredPromise,
+		pipelineResources,
+		"promise",
+		r.NumberOfJobsToKeep,
+		namespace,
+		r.PodTTLSecondsAfterFinished,
+	)
 
 	passiveRequeue, err = reconcileConfigure(jobOpts)
 	if err != nil {
@@ -915,6 +931,7 @@ func (r *PromiseReconciler) ensureDynamicControllerIsStarted(promise *v1alpha1.P
 		dynamicController.CanCreateResources = canCreateResources
 
 		dynamicController.PromiseDestinationSelectors = promise.Spec.DestinationSelectors
+		dynamicController.PodTTLSecondsAfterFinished = r.PodTTLSecondsAfterFinished
 
 		return nil
 	}
@@ -935,6 +952,7 @@ func (r *PromiseReconciler) ensureDynamicControllerIsStarted(promise *v1alpha1.P
 		Enabled:                     &enabled,
 		CanCreateResources:          canCreateResources,
 		NumberOfJobsToKeep:          r.NumberOfJobsToKeep,
+		PodTTLSecondsAfterFinished:  r.PodTTLSecondsAfterFinished,
 		ReconciliationInterval:      r.ReconciliationInterval,
 		EventRecorder:               r.Manager.GetEventRecorderFor("ResourceRequestController"),
 		PromiseUpgrade:              r.PromiseUpgrade,
@@ -1186,7 +1204,18 @@ func (r *PromiseReconciler) deletePromise(o opts, promise *v1alpha1.Promise) (ct
 		if promise.Spec.Workflows.Config.PipelineNamespace != "" {
 			namespace = promise.Spec.Workflows.Config.PipelineNamespace
 		}
-		jobOpts := workflow.NewOpts(o.ctx, o.client, r.EventRecorder, o.logger, unstructuredPromise, pipelines, "promise", r.NumberOfJobsToKeep, namespace)
+		jobOpts := workflow.NewOptsWithPodTTL(
+			o.ctx,
+			o.client,
+			r.EventRecorder,
+			o.logger,
+			unstructuredPromise,
+			pipelines,
+			"promise",
+			r.NumberOfJobsToKeep,
+			namespace,
+			r.PodTTLSecondsAfterFinished,
+		)
 
 		requeue, err := reconcileDelete(jobOpts)
 		if err != nil {
