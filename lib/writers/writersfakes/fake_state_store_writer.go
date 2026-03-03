@@ -9,6 +9,31 @@ import (
 )
 
 type FakeStateStoreWriter struct {
+	DeleteFilesStub        func(string, []string) error
+	deleteFilesMutex       sync.RWMutex
+	deleteFilesArgsForCall []struct {
+		arg1 string
+		arg2 []string
+	}
+	deleteFilesReturns struct {
+		result1 error
+	}
+	deleteFilesReturnsOnCall map[int]struct {
+		result1 error
+	}
+	InitStub        func(string) (string, error)
+	initMutex       sync.RWMutex
+	initArgsForCall []struct {
+		arg1 string
+	}
+	initReturns struct {
+		result1 string
+		result2 error
+	}
+	initReturnsOnCall map[int]struct {
+		result1 string
+		result2 error
+	}
 	ReadFileStub        func(string) ([]byte, error)
 	readFileMutex       sync.RWMutex
 	readFileArgsForCall []struct {
@@ -21,6 +46,16 @@ type FakeStateStoreWriter struct {
 	readFileReturnsOnCall map[int]struct {
 		result1 []byte
 		result2 error
+	}
+	ResetStub        func() error
+	resetMutex       sync.RWMutex
+	resetArgsForCall []struct {
+	}
+	resetReturns struct {
+		result1 error
+	}
+	resetReturnsOnCall map[int]struct {
+		result1 error
 	}
 	UpdateFilesStub        func(string, string, []v1alpha1.Workload, []string) (string, error)
 	updateFilesMutex       sync.RWMutex
@@ -50,6 +85,137 @@ type FakeStateStoreWriter struct {
 	}
 	invocations      map[string][][]interface{}
 	invocationsMutex sync.RWMutex
+}
+
+func (fake *FakeStateStoreWriter) DeleteFiles(arg1 string, arg2 []string) error {
+	var arg2Copy []string
+	if arg2 != nil {
+		arg2Copy = make([]string, len(arg2))
+		copy(arg2Copy, arg2)
+	}
+	fake.deleteFilesMutex.Lock()
+	ret, specificReturn := fake.deleteFilesReturnsOnCall[len(fake.deleteFilesArgsForCall)]
+	fake.deleteFilesArgsForCall = append(fake.deleteFilesArgsForCall, struct {
+		arg1 string
+		arg2 []string
+	}{arg1, arg2Copy})
+	stub := fake.DeleteFilesStub
+	fakeReturns := fake.deleteFilesReturns
+	fake.recordInvocation("DeleteFiles", []interface{}{arg1, arg2Copy})
+	fake.deleteFilesMutex.Unlock()
+	if stub != nil {
+		return stub(arg1, arg2)
+	}
+	if specificReturn {
+		return ret.result1
+	}
+	return fakeReturns.result1
+}
+
+func (fake *FakeStateStoreWriter) DeleteFilesCallCount() int {
+	fake.deleteFilesMutex.RLock()
+	defer fake.deleteFilesMutex.RUnlock()
+	return len(fake.deleteFilesArgsForCall)
+}
+
+func (fake *FakeStateStoreWriter) DeleteFilesCalls(stub func(string, []string) error) {
+	fake.deleteFilesMutex.Lock()
+	defer fake.deleteFilesMutex.Unlock()
+	fake.DeleteFilesStub = stub
+}
+
+func (fake *FakeStateStoreWriter) DeleteFilesArgsForCall(i int) (string, []string) {
+	fake.deleteFilesMutex.RLock()
+	defer fake.deleteFilesMutex.RUnlock()
+	argsForCall := fake.deleteFilesArgsForCall[i]
+	return argsForCall.arg1, argsForCall.arg2
+}
+
+func (fake *FakeStateStoreWriter) DeleteFilesReturns(result1 error) {
+	fake.deleteFilesMutex.Lock()
+	defer fake.deleteFilesMutex.Unlock()
+	fake.DeleteFilesStub = nil
+	fake.deleteFilesReturns = struct {
+		result1 error
+	}{result1}
+}
+
+func (fake *FakeStateStoreWriter) DeleteFilesReturnsOnCall(i int, result1 error) {
+	fake.deleteFilesMutex.Lock()
+	defer fake.deleteFilesMutex.Unlock()
+	fake.DeleteFilesStub = nil
+	if fake.deleteFilesReturnsOnCall == nil {
+		fake.deleteFilesReturnsOnCall = make(map[int]struct {
+			result1 error
+		})
+	}
+	fake.deleteFilesReturnsOnCall[i] = struct {
+		result1 error
+	}{result1}
+}
+
+func (fake *FakeStateStoreWriter) Init(arg1 string) (string, error) {
+	fake.initMutex.Lock()
+	ret, specificReturn := fake.initReturnsOnCall[len(fake.initArgsForCall)]
+	fake.initArgsForCall = append(fake.initArgsForCall, struct {
+		arg1 string
+	}{arg1})
+	stub := fake.InitStub
+	fakeReturns := fake.initReturns
+	fake.recordInvocation("Init", []interface{}{arg1})
+	fake.initMutex.Unlock()
+	if stub != nil {
+		return stub(arg1)
+	}
+	if specificReturn {
+		return ret.result1, ret.result2
+	}
+	return fakeReturns.result1, fakeReturns.result2
+}
+
+func (fake *FakeStateStoreWriter) InitCallCount() int {
+	fake.initMutex.RLock()
+	defer fake.initMutex.RUnlock()
+	return len(fake.initArgsForCall)
+}
+
+func (fake *FakeStateStoreWriter) InitCalls(stub func(string) (string, error)) {
+	fake.initMutex.Lock()
+	defer fake.initMutex.Unlock()
+	fake.InitStub = stub
+}
+
+func (fake *FakeStateStoreWriter) InitArgsForCall(i int) string {
+	fake.initMutex.RLock()
+	defer fake.initMutex.RUnlock()
+	argsForCall := fake.initArgsForCall[i]
+	return argsForCall.arg1
+}
+
+func (fake *FakeStateStoreWriter) InitReturns(result1 string, result2 error) {
+	fake.initMutex.Lock()
+	defer fake.initMutex.Unlock()
+	fake.InitStub = nil
+	fake.initReturns = struct {
+		result1 string
+		result2 error
+	}{result1, result2}
+}
+
+func (fake *FakeStateStoreWriter) InitReturnsOnCall(i int, result1 string, result2 error) {
+	fake.initMutex.Lock()
+	defer fake.initMutex.Unlock()
+	fake.InitStub = nil
+	if fake.initReturnsOnCall == nil {
+		fake.initReturnsOnCall = make(map[int]struct {
+			result1 string
+			result2 error
+		})
+	}
+	fake.initReturnsOnCall[i] = struct {
+		result1 string
+		result2 error
+	}{result1, result2}
 }
 
 func (fake *FakeStateStoreWriter) ReadFile(arg1 string) ([]byte, error) {
@@ -114,6 +280,59 @@ func (fake *FakeStateStoreWriter) ReadFileReturnsOnCall(i int, result1 []byte, r
 		result1 []byte
 		result2 error
 	}{result1, result2}
+}
+
+func (fake *FakeStateStoreWriter) Reset() error {
+	fake.resetMutex.Lock()
+	ret, specificReturn := fake.resetReturnsOnCall[len(fake.resetArgsForCall)]
+	fake.resetArgsForCall = append(fake.resetArgsForCall, struct {
+	}{})
+	stub := fake.ResetStub
+	fakeReturns := fake.resetReturns
+	fake.recordInvocation("Reset", []interface{}{})
+	fake.resetMutex.Unlock()
+	if stub != nil {
+		return stub()
+	}
+	if specificReturn {
+		return ret.result1
+	}
+	return fakeReturns.result1
+}
+
+func (fake *FakeStateStoreWriter) ResetCallCount() int {
+	fake.resetMutex.RLock()
+	defer fake.resetMutex.RUnlock()
+	return len(fake.resetArgsForCall)
+}
+
+func (fake *FakeStateStoreWriter) ResetCalls(stub func() error) {
+	fake.resetMutex.Lock()
+	defer fake.resetMutex.Unlock()
+	fake.ResetStub = stub
+}
+
+func (fake *FakeStateStoreWriter) ResetReturns(result1 error) {
+	fake.resetMutex.Lock()
+	defer fake.resetMutex.Unlock()
+	fake.ResetStub = nil
+	fake.resetReturns = struct {
+		result1 error
+	}{result1}
+}
+
+func (fake *FakeStateStoreWriter) ResetReturnsOnCall(i int, result1 error) {
+	fake.resetMutex.Lock()
+	defer fake.resetMutex.Unlock()
+	fake.ResetStub = nil
+	if fake.resetReturnsOnCall == nil {
+		fake.resetReturnsOnCall = make(map[int]struct {
+			result1 error
+		})
+	}
+	fake.resetReturnsOnCall[i] = struct {
+		result1 error
+	}{result1}
 }
 
 func (fake *FakeStateStoreWriter) UpdateFiles(arg1 string, arg2 string, arg3 []v1alpha1.Workload, arg4 []string) (string, error) {
@@ -249,8 +468,14 @@ func (fake *FakeStateStoreWriter) ValidatePermissionsReturnsOnCall(i int, result
 func (fake *FakeStateStoreWriter) Invocations() map[string][][]interface{} {
 	fake.invocationsMutex.RLock()
 	defer fake.invocationsMutex.RUnlock()
+	fake.deleteFilesMutex.RLock()
+	defer fake.deleteFilesMutex.RUnlock()
+	fake.initMutex.RLock()
+	defer fake.initMutex.RUnlock()
 	fake.readFileMutex.RLock()
 	defer fake.readFileMutex.RUnlock()
+	fake.resetMutex.RLock()
+	defer fake.resetMutex.RUnlock()
 	fake.updateFilesMutex.RLock()
 	defer fake.updateFilesMutex.RUnlock()
 	fake.validatePermissionsMutex.RLock()

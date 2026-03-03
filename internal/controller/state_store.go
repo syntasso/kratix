@@ -2,13 +2,11 @@ package controller
 
 import (
 	"context"
-	"errors"
 	"fmt"
 
 	"github.com/go-logr/logr"
 	"github.com/syntasso/kratix/api/v1alpha1"
 	"github.com/syntasso/kratix/internal/logging"
-	"github.com/syntasso/kratix/lib/writers"
 	v1 "k8s.io/api/core/v1"
 	kerrors "k8s.io/apimachinery/pkg/api/errors"
 	"k8s.io/apimachinery/pkg/api/meta"
@@ -28,117 +26,27 @@ type StateStore interface {
 	GetSecretRef() *v1.SecretReference
 }
 
-func fetchObjectAndSecret(o opts, stateStoreRef client.ObjectKey, stateStore StateStore) (*v1.Secret, error) {
-	if err := o.client.Get(o.ctx, stateStoreRef, stateStore); err != nil {
-		logging.Error(o.logger, err, "unable to fetch resource", "resourceKind", stateStore.GetObjectKind(), "stateStoreRef", stateStoreRef)
-		return nil, err
-	}
-
-	if stateStore.GetSecretRef() == nil {
-		return nil, nil
-	}
-
-	namespace := stateStore.GetSecretRef().Namespace
-	if namespace == "" {
-		namespace = "default"
-	}
-
+func fetchSecret(ctx context.Context, client client.Client, eventRecorder record.EventRecorder, stateStore StateStore) *v1.Secret {
 	secret := &v1.Secret{}
-	secretRef := types.NamespacedName{
-		Name:      stateStore.GetSecretRef().Name,
-		Namespace: namespace,
+	secretRef := stateStore.GetSecretRef()
+	secretName := types.NamespacedName{
+		Name:      secretRef.Name,
+		Namespace: secretRef.Namespace,
 	}
 
-	if err := o.client.Get(o.ctx, secretRef, secret); err != nil {
-		logging.Error(o.logger, err, "unable to fetch resource", "resourceKind", stateStore.GetObjectKind(), "secretRef", secretRef)
+	if err := client.Get(ctx, secretName, secret); err != nil {
 		if kerrors.IsNotFound(err) {
-			err = fmt.Errorf("secret %q not found in namespace %q", secretRef.Name, namespace)
-		}
-		return nil, err
-	}
+			eventRecorder.Event(stateStore, v1.EventTypeWarning, "SecretNotFound",
+				fmt.Sprintf("Secret %s not found in namespace %s", secretRef.Name, secretRef.Namespace))
 
-	return secret, nil
+			return nil
+		}
+	}
+	return secret
 }
 
 func secretRefIndexKey(secretName, secretNamespace string) string {
 	return fmt.Sprintf("%s.%s", secretNamespace, secretName)
-}
-
-// reconcileStateStoreCommon contains the common logic for state store reconciliation.
-func reconcileStateStoreCommon(
-	o opts,
-	stateStore StateStore,
-	resourceType string,
-	eventRecorder record.EventRecorder,
-) (ctrl.Result, error) {
-	writer, err := newWriter(o, stateStore.GetName(), resourceType, "")
-	if err != nil {
-		logging.Error(o.logger, err, "unable to create writer")
-		if statusError := updateStateStoreReadyStatusAndCondition(o, eventRecorder, stateStore, StateStoreNotReadyErrorInitialisingWriterReason, StateStoreNotReadyErrorInitialisingWriterMessage, err); statusError != nil {
-			logging.Error(o.logger, statusError, "error updating state store status")
-		}
-		return ctrl.Result{}, err
-	}
-
-	if err = writer.ValidatePermissions(); err != nil && !errors.Is(err, writers.ErrAuthSucceededAfterTrim) {
-		logging.Error(o.logger, err, "error validating state store permissions")
-		if err = updateStateStoreReadyStatusAndCondition(o, eventRecorder, stateStore, StateStoreNotReadyErrorValidatingPermissionsReason, StateStoreNotReadyErrorValidatingPermissionsMessage, err); err != nil {
-			if kerrors.IsConflict(err) {
-				return fastRequeue, nil
-			}
-			logging.Error(o.logger, err, "error updating state store status")
-		}
-		return defaultRequeue, nil
-	} else if errors.Is(err, writers.ErrAuthSucceededAfterTrim) {
-		eventRecorder.Eventf(stateStore, v1.EventTypeWarning, "InvalidCredentials",
-			"authentication to GitStateStore succeeded after trimming trailing whitespace; "+
-				"please fix your GitStateStore Secret")
-	}
-
-	return ctrl.Result{}, updateStateStoreReadyStatusAndCondition(o, eventRecorder, stateStore, "", "", nil)
-}
-
-func updateStateStoreReadyStatusAndCondition(o opts, eventRecorder record.EventRecorder, stateStore StateStore, failureReason, failureMessage string, err error) error {
-	stateStoreKind := stateStore.GetObjectKind().GroupVersionKind().Kind
-
-	eventType := v1.EventTypeNormal
-	eventReason := "Ready"
-	eventMessage := fmt.Sprintf("%s %q is ready", stateStoreKind, stateStore.GetName())
-
-	condition := metav1.Condition{
-		Type:    StateStoreReadyConditionType,
-		Reason:  StateStoreReadyConditionReason,
-		Message: StateStoreReadyConditionMessage,
-		Status:  metav1.ConditionTrue,
-	}
-
-	originalStatus := stateStore.GetStatus()
-	stateStoreStatus := originalStatus.DeepCopy()
-	stateStoreStatus.Status = StatusReady
-
-	if failureReason != "" {
-		stateStoreStatus.Status = StatusNotReady
-
-		condition.Status = metav1.ConditionFalse
-		condition.Reason = failureReason
-		condition.Message = fmt.Sprintf("%s: %s", failureMessage, err)
-
-		// Update event parameters for failure
-		eventType = v1.EventTypeWarning
-		eventReason = "NotReady"
-		eventMessage = fmt.Sprintf("%s %q is not ready: %s: %s", stateStoreKind, stateStore.GetName(), failureMessage, err)
-	}
-
-	changed := meta.SetStatusCondition(&stateStoreStatus.Conditions, condition)
-	if !changed {
-		return nil
-	}
-
-	eventRecorder.Eventf(stateStore, eventType, eventReason, eventMessage)
-
-	stateStore.SetStatus(*stateStoreStatus)
-
-	return o.client.Status().Update(o.ctx, stateStore)
 }
 
 func constructRequestsForStateStoresReferencingSecret(ctx context.Context, k8sclient client.Client, logger logr.Logger, secret client.Object, stateStoreList client.ObjectList) []reconcile.Request {
@@ -166,4 +74,90 @@ func constructRequestsForStateStoresReferencingSecret(ctx context.Context, k8scl
 		})
 	}
 	return requests
+}
+
+type stateStoreReconcileContext struct {
+	ctx        context.Context
+	controller string
+
+	logger        logr.Logger
+	trace         *reconcileTrace
+	client        client.Client
+	eventRecorder record.EventRecorder
+
+	stateStore       StateStore
+	stateStoreSecret *v1.Secret
+	repositoryCache  *RepositoryCache
+}
+
+func (reconcileCtx *stateStoreReconcileContext) Reconcile() (ctrl.Result, error) {
+	repository, err := reconcileCtx.repositoryCache.InitRepository(reconcileCtx)
+	if err != nil {
+		logging.Error(reconcileCtx.logger, err, "unable to get repository")
+		return reconcileCtx.setNotReadyStatus(err)
+	}
+	repository.Lock()
+	defer repository.Unlock()
+
+	if err := repository.Writer.ValidatePermissions(); err != nil {
+		logging.Error(reconcileCtx.logger, err, "unable to validate permissions")
+		return reconcileCtx.setNotReadyStatus(NewValidatePermissionsError(err))
+	}
+
+	return reconcileCtx.setReadyStatus()
+}
+
+func (reconcileCtx *stateStoreReconcileContext) setNotReadyStatus(err *StateStoreError) (ctrl.Result, error) {
+	return reconcileCtx.setStatus(StatusNotReady, metav1.Condition{
+		Type:    StateStoreReadyConditionType,
+		Reason:  err.Reason,
+		Message: fmt.Sprintf("%s: %s", err.Message, err.Error()),
+		Status:  metav1.ConditionFalse,
+	}, func() { reconcileCtx.recordNotReadyEvent(err) })
+}
+
+func (reconcileCtx *stateStoreReconcileContext) setReadyStatus() (ctrl.Result, error) {
+	return reconcileCtx.setStatus(StatusReady, metav1.Condition{
+		Type:    StateStoreReadyConditionType,
+		Reason:  StateStoreReadyConditionReason,
+		Message: StateStoreReadyConditionMessage,
+		Status:  metav1.ConditionTrue,
+	}, reconcileCtx.recordReadyEvent)
+}
+
+func (reconcileCtx *stateStoreReconcileContext) setStatus(status string, condition metav1.Condition, recordEvent func()) (ctrl.Result, error) {
+	stateStoreStatus := reconcileCtx.stateStore.GetStatus().DeepCopy()
+	stateStoreStatus.Status = status
+
+	if !meta.SetStatusCondition(&stateStoreStatus.Conditions, condition) {
+		return ctrl.Result{}, nil
+	}
+
+	reconcileCtx.stateStore.SetStatus(*stateStoreStatus)
+	recordEvent()
+	if err := reconcileCtx.client.Status().Update(reconcileCtx.ctx, reconcileCtx.stateStore); err != nil {
+		if kerrors.IsConflict(err) {
+			return fastRequeue, nil
+		}
+		logging.Error(reconcileCtx.logger, err, "error updating state store status")
+		return defaultRequeue, nil
+	}
+	return ctrl.Result{}, nil
+}
+
+func (reconcileCtx *stateStoreReconcileContext) recordReadyEvent() {
+	eventMessage := fmt.Sprintf("%s %q is ready",
+		reconcileCtx.stateStore.GetObjectKind().GroupVersionKind().Kind,
+		reconcileCtx.stateStore.GetName(),
+	)
+	reconcileCtx.eventRecorder.Eventf(reconcileCtx.stateStore, v1.EventTypeNormal, "Ready", eventMessage)
+}
+
+func (reconcileCtx *stateStoreReconcileContext) recordNotReadyEvent(err *StateStoreError) {
+	eventMessage := fmt.Sprintf("%s %q is not ready: %s: %s",
+		reconcileCtx.stateStore.GetObjectKind().GroupVersionKind().Kind,
+		reconcileCtx.stateStore.GetName(), err.Message,
+		err.Error(),
+	)
+	reconcileCtx.eventRecorder.Eventf(reconcileCtx.stateStore, v1.EventTypeWarning, "NotReady", eventMessage)
 }

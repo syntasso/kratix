@@ -4,7 +4,6 @@ package controller
 
 import (
 	"context"
-	"fmt"
 	"time"
 
 	"github.com/go-logr/logr"
@@ -135,45 +134,6 @@ func addFinalizers(o opts, resource client.Object, finalizers []string) error {
 		controllerutil.AddFinalizer(resource, finalizer)
 	}
 	return o.client.Update(o.ctx, resource)
-}
-
-func newWriter(o opts, stateStoreName, stateStoreKind, destinationPath string) (writers.StateStoreWriter, error) {
-	stateStoreRef := client.ObjectKey{
-		Name: stateStoreName,
-	}
-
-	var writer writers.StateStoreWriter
-	var err error
-	switch stateStoreKind {
-	case "BucketStateStore":
-		stateStore := &v1alpha1.BucketStateStore{}
-		secret, fetchErr := fetchObjectAndSecret(o, stateStoreRef, stateStore)
-		if fetchErr != nil {
-			return nil, fetchErr
-		}
-		var data map[string][]byte = nil
-		if secret != nil {
-			data = secret.Data
-		}
-
-		writer, err = newS3Writer(o.logger.WithName("writers").WithName("BucketStateStoreWriter"), stateStore.Spec, destinationPath, data)
-	case "GitStateStore":
-		stateStore := &v1alpha1.GitStateStore{}
-		secret, fetchErr := fetchObjectAndSecret(o, stateStoreRef, stateStore)
-		if fetchErr != nil {
-			return nil, fetchErr
-		}
-
-		writer, err = newGitWriter(o.logger.WithName("writers").WithName("GitStateStoreWriter"), stateStore.Spec, destinationPath, secret.Data)
-	default:
-		return nil, fmt.Errorf("unsupported kind %s", stateStoreKind)
-	}
-
-	if err != nil {
-		logging.Error(o.logger, err, "unable to create StateStoreWriter")
-		return nil, err
-	}
-	return writer, nil
 }
 
 func shortID(id string) string {
