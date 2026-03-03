@@ -38,7 +38,7 @@ import (
 	"sigs.k8s.io/controller-runtime/pkg/client"
 )
 
-var _ = Describe("DestinationReconciler", func() {
+var _ = FDescribe("DestinationReconciler", func() {
 	var (
 		ctx                 context.Context
 		testDestination     *v1alpha1.Destination

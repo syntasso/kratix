@@ -1,7 +1,6 @@
 package writers
 
 import (
-	"errors"
 	"fmt"
 	"os"
 	"path"
@@ -41,6 +40,7 @@ type GitExecutor interface {
 	Push(branch string, force bool) (string, error)
 	Root() string
 	HasChanges() (bool, error)
+	Checkout(revision string) (string, error)
 	// TODO: merge these two methods
 	RemoveDirectory(dir string) error
 	RemoveFile(file string) error
@@ -221,13 +221,6 @@ func (g *GitWriter) deleteExistingFiles(removeDirectory bool, dir string, worklo
 }
 
 func (g *GitWriter) ReadFile(filePath string) ([]byte, error) {
-
-	localDir, err := g.Runner.Clone(g.GitServer.Branch)
-	if err != nil {
-		return nil, err
-	}
-	defer os.RemoveAll(localDir) //nolint:errcheck
-
 	fullPath := filepath.Join(g.Runner.Root(), g.Path, filePath)
 	logger := g.Log.WithValues(
 		"Path", fullPath,
@@ -239,8 +232,8 @@ func (g *GitWriter) ReadFile(filePath string) ([]byte, error) {
 		return nil, ErrFileNotFound
 	}
 
-	var content []byte
-	if content, err = os.ReadFile(fullPath); err != nil {
+	content, err := os.ReadFile(fullPath)
+	if err != nil {
 		logging.Error(logger, err, "could not read file")
 		return nil, err
 	}
@@ -250,13 +243,6 @@ func (g *GitWriter) ReadFile(filePath string) ([]byte, error) {
 // ValidatePermissions checks if the GitWriter has the necessary permissions to write to the repository.
 // It performs a dry run validation to check authentication and branch existence without making changes.
 func (g *GitWriter) ValidatePermissions() error {
-	// Setup local directory with repo (this already checks if we can clone - read access)
-	localDir, cloneErr := g.Runner.Clone(g.GitServer.Branch)
-	if cloneErr != nil && !errors.Is(cloneErr, ErrAuthSucceededAfterTrim) {
-		return fmt.Errorf("failed to set up local directory with repo: %w", cloneErr)
-	}
-	defer os.RemoveAll(localDir) //nolint:errcheck
-
 	_, err := g.Runner.Push(g.GitServer.Branch, false)
 	if err != nil {
 		return fmt.Errorf("write permission validation failed: %w", err)
@@ -293,7 +279,12 @@ func (g *GitWriter) Init(branch string) (string, error) {
 	return g.Runner.Clone(branch)
 }
 
-func (g *GitWriter) DeleteFiles(files []string) error {
+func (g *GitWriter) Reset() error {
+	_, err := g.Runner.Checkout(g.GitServer.Branch)
+	return err
+}
+
+func (g *GitWriter) DeleteFiles(workplacementName string, files []string) error {
 	for _, file := range files {
 		fullPath := filepath.Join(g.Runner.Root(), g.Path, file)
 		fileInfo, err := os.Lstat(fullPath)
@@ -315,5 +306,6 @@ func (g *GitWriter) DeleteFiles(files []string) error {
 		}
 	}
 
-	return nil
+	_, err := g.commitAndPush("Delete", workplacementName, g.Log)
+	return err
 }
