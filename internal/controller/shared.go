@@ -58,7 +58,15 @@ type opts struct {
 }
 
 func withPromiseAndResourceRequest(logger logr.Logger, promiseName, resourceNamespace, resourceName string) logr.Logger {
-	return logger.WithValues(promiseLogKey, promiseName, resourceRequestLogKey, fmt.Sprintf("%s/%s/%s", promiseName, resourceNamespace, resourceName))
+	if promiseName != "" {
+		logger = logger.WithValues(promiseLogKey, promiseName)
+	}
+
+	if promiseName == "" || resourceNamespace == "" || resourceName == "" {
+		return logger
+	}
+
+	return logger.WithValues(resourceRequestLogKey, fmt.Sprintf("%s/%s/%s", promiseName, resourceNamespace, resourceName))
 }
 
 // pass in nil resourceLabels to delete all resources of the GVK
