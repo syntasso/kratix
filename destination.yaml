@@ -1,6 +1,24 @@
 apiVersion: platform.kratix.io/v1alpha1
 kind: Destination
 metadata:
+  labels:
+    environment: dev
+  name: worker-bucket
+spec:
+  cleanup: all
+  filepath:
+    mode: nestedByMetadata
+  initWorkloads:
+    enabled: true
+  path: worker-bucket
+  stateStoreRef:
+    kind: BucketStateStore
+    name: default
+  strictMatchLabels: false
+---
+apiVersion: platform.kratix.io/v1alpha1
+kind: Destination
+metadata:
   creationTimestamp: "2026-02-27T10:30:01Z"
   generation: 1
   labels:
@@ -9,7 +27,7 @@ metadata:
   resourceVersion: "1074"
   uid: 00c50cc2-6027-444b-bcf0-a74136aea8db
 spec:
-  cleanup: none
+  cleanup: all
   filepath:
     mode: nestedByMetadata
   initWorkloads:
