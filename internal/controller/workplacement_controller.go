@@ -147,7 +147,10 @@ func (w *workPlacementReconcileContext) reconcileWithSpanAttributes() (result ct
 }
 
 func (w *workPlacementReconcileContext) Reconcile() (result ctrl.Result, retErr error) {
-	repo, err := w.repositoryCache.GetRepositoryByName(w.destination.Spec.StateStoreRef.Name)
+	repo, err := w.repositoryCache.GetRepositoryByTypeAndName(
+		w.destination.Spec.StateStoreRef.Kind,
+		w.destination.Spec.StateStoreRef.Name,
+	)
 	if err != nil {
 		if errors.Is(err, CacheMissError) {
 			logging.Debug(w.logger, "repository not initialised, requeuing")
@@ -158,6 +161,8 @@ func (w *workPlacementReconcileContext) Reconcile() (result ctrl.Result, retErr 
 
 	repo.Lock()
 	defer repo.Unlock()
+
+	repo.Writer.Reset()
 
 	if !w.workPlacement.DeletionTimestamp.IsZero() {
 		return w.handleDeletion(repo)
@@ -363,7 +368,7 @@ func (w *workPlacementReconcileContext) generateKratixStateFile(repo *Repository
 }
 
 func (w *workPlacementReconcileContext) kratixStateFilePath() string {
-	return fmt.Sprintf(".kratix/%s-%s.yaml", w.workPlacement.Namespace, w.workPlacement.Name)
+	return filepath.Join(w.destination.Spec.Path, fmt.Sprintf(".kratix/%s-%s.yaml", w.workPlacement.Namespace, w.workPlacement.Name))
 }
 
 func (w *workPlacementReconcileContext) readKratixStateFile(repo *Repository, ignoreNotFound bool) (StateFile, error) {
@@ -386,7 +391,7 @@ func (w *workPlacementReconcileContext) readKratixStateFile(repo *Repository, ig
 	return stateFile, nil
 }
 
-func (w *workPlacementReconcileContext) getAggregatedWorkload(repo *Repository) (v1alpha1.Workload, error) {
+func (w *workPlacementReconcileContext) getAggregatedWorkload() (v1alpha1.Workload, error) {
 	activeWorkplacements, err := w.getAllWorkplacementsForDestination()
 	if err != nil {
 		w.logAndRecordError(err, "failed to get all workplacements for destination")
@@ -404,7 +409,7 @@ func (w *workPlacementReconcileContext) getAggregatedWorkload(repo *Repository) 
 	}
 
 	workload := v1alpha1.Workload{
-		Filepath: w.destination.Spec.Filepath.Filename,
+		Filepath: filepath.Join(w.destination.Spec.Path, w.destination.Spec.Filepath.Filename),
 		Content:  combinedWorkloads,
 	}
 
@@ -459,7 +464,7 @@ func (w *workPlacementReconcileContext) combineAllWorkloads(workPlacements []v1a
 }
 
 func (w *workPlacementReconcileContext) delete(repo *Repository, workloadsToDelete []string) (ctrl.Result, error) {
-	if err := repo.Writer.DeleteFiles(workloadsToDelete); err != nil {
+	if err := repo.Writer.DeleteFiles(w.workPlacement.Name, workloadsToDelete); err != nil {
 		w.logAndRecordError(err, "failed to delete files from repository")
 		return defaultRequeue, nil
 	}
@@ -508,7 +513,7 @@ func (w *workPlacementReconcileContext) writeWorkloadsToStateStore(repo *Reposit
 	switch w.destination.GetFilepathMode() {
 
 	case v1alpha1.FilepathModeAggregatedYAML:
-		workload, err := w.getAggregatedWorkload(repo)
+		workload, err := w.getAggregatedWorkload()
 		if err != nil {
 			return "", err
 		}
@@ -525,7 +530,7 @@ func (w *workPlacementReconcileContext) writeWorkloadsToStateStore(repo *Reposit
 
 	case v1alpha1.FilepathModeNestedByMetadata:
 		logging.Trace(w.logger, "handling file path mode nestedByMetadata")
-		dir = getDir(*w.workPlacement) + "/"
+		dir = getDir(w.destination.Spec.Path, *w.workPlacement) + "/"
 
 		for _, workload := range w.workPlacement.Spec.Workloads {
 			decompressedContent, err := compression.DecompressContent([]byte(workload.Content))
@@ -566,7 +571,7 @@ func (w *workPlacementReconcileContext) deleteWorkPlacement(repo *Repository) (c
 
 		case v1alpha1.FilepathModeNestedByMetadata:
 			logging.Trace(w.logger, "handling file path mode nestedByMetadata")
-			dir = getDir(*w.workPlacement) + "/"
+			dir = getDir(w.destination.Spec.Path, *w.workPlacement) + "/"
 			workloadsToDelete = append(workloadsToDelete, dir)
 
 		case v1alpha1.FilepathModeNone:
@@ -579,7 +584,7 @@ func (w *workPlacementReconcileContext) deleteWorkPlacement(repo *Repository) (c
 
 		case v1alpha1.FilepathModeAggregatedYAML:
 			logging.Trace(w.logger, "handling file path mode aggregatedYAML")
-			workload, err := w.getAggregatedWorkload(repo)
+			workload, err := w.getAggregatedWorkload()
 			if err != nil {
 				return defaultRequeue, nil
 			}
@@ -620,12 +625,12 @@ func cleanupWorkloads(oldWorkloads []string, newWorkloads []v1alpha1.Workload) [
 	return result
 }
 
-func getDir(workPlacement v1alpha1.WorkPlacement) string {
+func getDir(destinationPath string, workPlacement v1alpha1.WorkPlacement) string {
 	if workPlacement.Spec.ResourceName == "" {
-		// dependencies/<promise-name>/<pipeline-name>/<dir-sha>/
-		return filepath.Join(dependenciesDir, workPlacement.Spec.PromiseName, workPlacement.PipelineName(), shortID(workPlacement.Spec.ID))
+		// destinationPath/dependencies/<promise-name>/<pipeline-name>/<dir-sha>/
+		return filepath.Join(destinationPath, dependenciesDir, workPlacement.Spec.PromiseName, workPlacement.PipelineName(), shortID(workPlacement.Spec.ID))
 	} else {
-		// resources/<rr-namespace>/<promise-name>/<rr-name>/<pipeline-name>/<dir-sha>/
-		return filepath.Join(resourcesDir, workPlacement.GetNamespace(), workPlacement.Spec.PromiseName, workPlacement.Spec.ResourceName, workPlacement.PipelineName(), shortID(workPlacement.Spec.ID))
+		// destinationPath/resources/<rr-namespace>/<promise-name>/<rr-name>/<pipeline-name>/<dir-sha>/
+		return filepath.Join(destinationPath, resourcesDir, workPlacement.GetNamespace(), workPlacement.Spec.PromiseName, workPlacement.Spec.ResourceName, workPlacement.PipelineName(), shortID(workPlacement.Spec.ID))
 	}
 }

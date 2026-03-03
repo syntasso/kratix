@@ -260,6 +260,8 @@ func main() {
 			os.Exit(1)
 		}
 
+		repositoryCache := controller.NewRepositoryCache()
+
 		scheduler := controller.Scheduler{
 			Client:        mgr.GetClient(),
 			Log:           ctrl.Log.WithName("controllers").WithName("Scheduler"),
@@ -307,15 +309,18 @@ func main() {
 			setupLog.Error(err, "unable to create controller", "controller", "Work")
 			os.Exit(1)
 		}
+
 		if err = (&controller.DestinationReconciler{
-			Client:        mgr.GetClient(),
-			Scheduler:     &scheduler,
-			Log:           ctrl.Log.WithName("controllers").WithName("DestinationController"),
-			EventRecorder: mgr.GetEventRecorderFor("DestinationController"),
+			Client:          mgr.GetClient(),
+			Scheduler:       &scheduler,
+			Log:             ctrl.Log.WithName("controllers").WithName("DestinationController"),
+			EventRecorder:   mgr.GetEventRecorderFor("DestinationController"),
+			RepositoryCache: repositoryCache,
 		}).SetupWithManager(mgr); err != nil {
 			setupLog.Error(err, "unable to create controller", "controller", "Destination")
 			os.Exit(1)
 		}
+
 		if err = kratixWebhook.SetupPromiseWebhookWithManager(mgr, apiextensionsClient, mgr.GetClient()); err != nil {
 			setupLog.Error(err, "unable to create webhook", "webhook", "Promise")
 			os.Exit(1)
@@ -348,23 +353,23 @@ func main() {
 			os.Exit(1)
 		}
 		if err = (&controller.BucketStateStoreReconciler{
-			Client:        mgr.GetClient(),
-			Scheme:        mgr.GetScheme(),
-			Log:           ctrl.Log.WithName("controllers").WithName("BucketStateStoreController"),
-			EventRecorder: mgr.GetEventRecorderFor("BucketStateStoreController"),
+			Client:          mgr.GetClient(),
+			Scheme:          mgr.GetScheme(),
+			Log:             ctrl.Log.WithName("controllers").WithName("BucketStateStoreController"),
+			EventRecorder:   mgr.GetEventRecorderFor("BucketStateStoreController"),
+			RepositoryCache: repositoryCache,
 		}).SetupWithManager(mgr); err != nil {
 			setupLog.Error(err, "unable to create controller", "controller", "BucketStateStore")
 			os.Exit(1)
 		}
 
-		repositoryCache := controller.NewRepositoryCache()
-		gitStateStoreController := controller.NewGitStateStoreController(
-			mgr.GetClient(),
-			mgr.GetScheme(),
-			mgr.GetEventRecorderFor("GitStateStoreController"),
-			repositoryCache,
-		)
-		if err = gitStateStoreController.SetupWithManager(mgr); err != nil {
+		if err := (&controller.GitStateStoreReconciler{
+			Client:          mgr.GetClient(),
+			Scheme:          mgr.GetScheme(),
+			Log:             ctrl.Log.WithName("controllers").WithName("GitStateStore"),
+			EventRecorder:   mgr.GetEventRecorderFor("GitStateStoreController"),
+			RepositoryCache: repositoryCache,
+		}).SetupWithManager(mgr); err != nil {
 			setupLog.Error(err, "unable to create controller", "controller", "GitStateStore")
 			os.Exit(1)
 		}

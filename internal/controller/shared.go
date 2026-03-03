@@ -183,3 +183,14 @@ func logReconcileDuration(logger logr.Logger, start time.Time, result ctrl.Resul
 		logging.Info(logger, "reconciliation finished", fields...)
 	}
 }
+
+func withTrace(logger logr.Logger, reconcileFunc func() (ctrl.Result, error)) (ctrl.Result, error) {
+	logging.Info(logger, "reconciliation started")
+	var result ctrl.Result
+	var err error
+	defer logReconcileDuration(logger, time.Now(), result, err)()
+
+	result, err = reconcileFunc()
+
+	return result, err
+}

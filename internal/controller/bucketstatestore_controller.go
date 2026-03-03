@@ -19,7 +19,6 @@ package controller
 
 import (
 	"context"
-	"time"
 
 	"github.com/go-logr/logr"
 	"github.com/syntasso/kratix/api/v1alpha1"
@@ -39,9 +38,10 @@ import (
 // BucketStateStoreReconciler reconciles a BucketStateStore object
 type BucketStateStoreReconciler struct {
 	client.Client
-	Scheme        *runtime.Scheme
-	Log           logr.Logger
-	EventRecorder record.EventRecorder
+	Scheme          *runtime.Scheme
+	Log             logr.Logger
+	EventRecorder   record.EventRecorder
+	RepositoryCache *RepositoryCache
 }
 
 //+kubebuilder:rbac:groups=platform.kratix.io,resources=bucketstatestores,verbs=get;list;watch;create;update;patch;delete
@@ -50,33 +50,78 @@ type BucketStateStoreReconciler struct {
 
 // Reconcile reconciles a BucketStateStore object.
 func (r *BucketStateStoreReconciler) Reconcile(ctx context.Context, req ctrl.Request) (result ctrl.Result, retErr error) {
-	bucketStateStore := &v1alpha1.BucketStateStore{}
-	if err := r.Client.Get(ctx, client.ObjectKey{Name: req.Name}, bucketStateStore); err != nil {
-		if errors.IsNotFound(err) {
-			return ctrl.Result{}, nil
-		}
-		return ctrl.Result{}, err
-	}
+	// bucketStateStore := &v1alpha1.BucketStateStore{}
+	// if err := r.Client.Get(ctx, client.ObjectKey{Name: req.Name}, bucketStateStore); err != nil {
+	// 	if errors.IsNotFound(err) {
+	// 		return ctrl.Result{}, nil
+	// 	}
+	// 	return ctrl.Result{}, err
+	// }
+	// logger := r.Log.WithValues(
+	// 	"controller", "bucketStateStore",
+	// 	"name", req.Name,
+	// 	"generation", bucketStateStore.GetGeneration(),
+	// )
+	// logging.Info(logger, "reconciliation started")
+	// defer logReconcileDuration(logger, time.Now(), result, retErr)()
+
+	// o := opts{
+	// 	client: r.Client,
+	// 	ctx:    ctx,
+	// 	logger: logger,
+	// }
+
+	// return reconcileStateStoreCommon(
+	// 	o,
+	// 	bucketStateStore,
+	// 	"BucketStateStore",
+	// 	r.EventRecorder,
+	// )
+
 	logger := r.Log.WithValues(
 		"controller", "bucketStateStore",
 		"name", req.Name,
-		"generation", bucketStateStore.GetGeneration(),
 	)
-	logging.Info(logger, "reconciliation started")
-	defer logReconcileDuration(logger, time.Now(), result, retErr)()
 
-	o := opts{
-		client: r.Client,
-		ctx:    ctx,
-		logger: logger,
+	return withTrace(logger, func() (ctrl.Result, error) {
+		bucketStateStoreCtx, err := r.newReconcileContext(ctx, logger, req)
+		if err != nil {
+			logging.Error(logger, err, "unable to setup resources for reconciliation")
+			return ctrl.Result{}, err
+		}
+		if bucketStateStoreCtx == nil {
+			return ctrl.Result{}, nil
+		}
+
+		return bucketStateStoreCtx.Reconcile()
+	})
+
+}
+
+func (r *BucketStateStoreReconciler) newReconcileContext(ctx context.Context, logger logr.Logger, req ctrl.Request) (*stateStoreReconcileContext, error) {
+	bucketStateStore := &v1alpha1.BucketStateStore{}
+	if err := r.Client.Get(ctx, client.ObjectKey{Name: req.Name}, bucketStateStore); err != nil {
+		if errors.IsNotFound(err) {
+			return nil, nil
+		}
+		return nil, NewInitialiseWriterError(err)
 	}
 
-	return reconcileStateStoreCommon(
-		o,
-		bucketStateStore,
-		"BucketStateStore",
-		r.EventRecorder,
-	)
+	secret := fetchSecret(ctx, r.Client, r.EventRecorder, bucketStateStore)
+	if secret == nil {
+		return nil, nil
+	}
+
+	return &stateStoreReconcileContext{
+		ctx:              ctx,
+		controller:       "BucketStateStore",
+		logger:           logger,
+		client:           r.Client,
+		stateStore:       bucketStateStore,
+		stateStoreSecret: secret,
+		repositoryCache:  r.RepositoryCache,
+		eventRecorder:    r.EventRecorder,
+	}, nil
 }
 
 func (r *BucketStateStoreReconciler) findStateStoresReferencingSecret() handler.MapFunc {

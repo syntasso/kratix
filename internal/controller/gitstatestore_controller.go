@@ -21,7 +21,6 @@ import (
 	"context"
 	"fmt"
 	"sync"
-	"time"
 
 	"github.com/go-logr/logr"
 	"github.com/syntasso/kratix/api/v1alpha1"
@@ -62,7 +61,7 @@ type stateStoreReconcileContext struct {
 	client        client.Client
 	eventRecorder record.EventRecorder
 
-	stateStore       *v1alpha1.GitStateStore
+	stateStore       StateStore
 	stateStoreSecret *v1.Secret
 	repositoryCache  *RepositoryCache
 }
@@ -92,16 +91,6 @@ func (r *GitStateStoreReconciler) Reconcile(ctx context.Context, req ctrl.Reques
 	})
 }
 
-func NewGitStateStoreController(client client.Client, scheme *runtime.Scheme, eventRecorder record.EventRecorder, cache *RepositoryCache) *GitStateStoreReconciler {
-	return &GitStateStoreReconciler{
-		Client:          client,
-		Scheme:          scheme,
-		Log:             ctrl.Log.WithName("controllers").WithName("GitStateStore"),
-		EventRecorder:   eventRecorder,
-		RepositoryCache: cache,
-	}
-}
-
 func (r *GitStateStoreReconciler) newReconcileContext(ctx context.Context, logger logr.Logger, req ctrl.Request, cache *RepositoryCache) (*stateStoreReconcileContext, error) {
 	gitStateStore := &v1alpha1.GitStateStore{}
 	if err := r.Client.Get(ctx, client.ObjectKey{Name: req.Name}, gitStateStore); err != nil {
@@ -111,22 +100,9 @@ func (r *GitStateStoreReconciler) newReconcileContext(ctx context.Context, logge
 		return nil, NewInitialiseWriterError(err)
 	}
 
-	secret := &v1.Secret{}
-	secretRef := gitStateStore.GetSecretRef()
-	secretName := types.NamespacedName{
-		Name:      secretRef.Name,
-		Namespace: secretRef.Namespace,
-	}
-
-	if err := r.Client.Get(ctx, secretName, secret); err != nil {
-		if kerrors.IsNotFound(err) {
-			r.EventRecorder.Event(gitStateStore, v1.EventTypeWarning, "SecretNotFound",
-				fmt.Sprintf("Secret %s not found in namespace %s", secretRef.Name, secretRef.Namespace))
-
-			return nil, nil
-		}
-
-		return nil, NewInitialiseWriterError(fmt.Errorf("unable to fetch secret: %w", err))
+	secret := fetchSecret(ctx, r.Client, r.EventRecorder, gitStateStore)
+	if secret == nil {
+		return nil, nil
 	}
 
 	return &stateStoreReconcileContext{
@@ -141,8 +117,27 @@ func (r *GitStateStoreReconciler) newReconcileContext(ctx context.Context, logge
 	}, nil
 }
 
+func fetchSecret(ctx context.Context, client client.Client, eventRecorder record.EventRecorder, stateStore StateStore) *v1.Secret {
+	secret := &v1.Secret{}
+	secretRef := stateStore.GetSecretRef()
+	secretName := types.NamespacedName{
+		Name:      secretRef.Name,
+		Namespace: secretRef.Namespace,
+	}
+
+	if err := client.Get(ctx, secretName, secret); err != nil {
+		if kerrors.IsNotFound(err) {
+			eventRecorder.Event(stateStore, v1.EventTypeWarning, "SecretNotFound",
+				fmt.Sprintf("Secret %s not found in namespace %s", secretRef.Name, secretRef.Namespace))
+
+			return nil
+		}
+	}
+	return secret
+}
+
 func (reconcileCtx *stateStoreReconcileContext) Reconcile() (ctrl.Result, error) {
-	repository, err := reconcileCtx.repositoryCache.GetRepository(reconcileCtx)
+	repository, err := reconcileCtx.repositoryCache.InitRepository(reconcileCtx)
 	if err != nil {
 		logging.Error(reconcileCtx.logger, err, "unable to get repository")
 		return reconcileCtx.setNotReadyStatus(err)
@@ -156,15 +151,6 @@ func (reconcileCtx *stateStoreReconcileContext) Reconcile() (ctrl.Result, error)
 	}
 
 	return reconcileCtx.setReadyStatus()
-}
-
-func withTrace(logger logr.Logger, reconcileFunc func() (ctrl.Result, error)) (ctrl.Result, error) {
-	logging.Info(logger, "reconciliation started")
-
-	result, err := reconcileFunc()
-	defer logReconcileDuration(logger, time.Now(), result, err)()
-
-	return result, err
 }
 
 func (r *GitStateStoreReconciler) findStateStoresReferencingSecret() handler.MapFunc {
@@ -289,23 +275,57 @@ type Repository struct {
 
 type RepositoryCache struct {
 	sync.Mutex
-	cache map[string]*Repository
+	gitRepositoryCache map[string]*Repository
+	s3RepositoryCache  map[string]*Repository
 }
 
 func NewRepositoryCache() *RepositoryCache {
 	return &RepositoryCache{
-		cache: map[string]*Repository{},
+		gitRepositoryCache: map[string]*Repository{},
+		s3RepositoryCache:  map[string]*Repository{},
 	}
 }
 
-func (c *RepositoryCache) GetRepository(ctx *stateStoreReconcileContext) (*Repository, *StateStoreError) {
-	if repository, ok := c.cache[ctx.stateStore.GetName()]; ok {
+func (c *RepositoryCache) InitRepository(ctx *stateStoreReconcileContext) (*Repository, *StateStoreError) {
+	c.Lock()
+	defer c.Unlock()
+
+	if repository, ok := c.gitRepositoryCache[ctx.stateStore.GetName()]; ok {
 		return repository, nil
 	}
+	var repo *Repository
 
-	gitWriter, err := writers.NewGitWriter(
+	kind := ctx.stateStore.GetObjectKind().GroupVersionKind().Kind
+	var err *StateStoreError
+	switch kind {
+
+	case "GitStateStore":
+		repo, err = c.initGitRepository(ctx)
+		if err != nil {
+			return nil, err
+		}
+
+		c.gitRepositoryCache[ctx.stateStore.GetName()] = repo
+
+	case "BucketStateStore":
+		repo, err = c.initBucketRepository(ctx)
+		if err != nil {
+			return nil, err
+		}
+
+		c.s3RepositoryCache[ctx.stateStore.GetName()] = repo
+
+	default:
+		return nil, NewInitialiseWriterError(fmt.Errorf("unknown state store type: %s", kind))
+	}
+	return repo, nil
+}
+
+func (c *RepositoryCache) initGitRepository(ctx *stateStoreReconcileContext) (*Repository, *StateStoreError) {
+	stateStore := ctx.stateStore.(*v1alpha1.GitStateStore)
+	gitWriter, err := newGitWriter(
 		ctx.logger.WithName("writers").WithName("GitStateStoreWriter"),
-		ctx.stateStore.Spec,
+		stateStore.Spec,
 		"",
 		ctx.stateStoreSecret.Data,
 	)
@@ -313,31 +333,58 @@ func (c *RepositoryCache) GetRepository(ctx *stateStoreReconcileContext) (*Repos
 		return nil, NewInitialiseWriterError(fmt.Errorf("unable to create git writer: %w", err))
 	}
 
-	repoDir, err := gitWriter.Init(ctx.stateStore.Spec.Branch)
+	repoDir, err := gitWriter.Init(stateStore.Spec.Branch)
 	if err != nil {
 		return nil, NewInitialiseWriterError(fmt.Errorf("unable to clone repository: %w", err))
 	}
 
 	repo := &Repository{
 		Path:   repoDir,
-		Branch: ctx.stateStore.Spec.Branch,
+		Branch: stateStore.Spec.Branch,
 		Writer: gitWriter,
 	}
+	return repo, nil
+}
 
-	c.cache[ctx.stateStore.GetName()] = repo
+func (c *RepositoryCache) initBucketRepository(ctx *stateStoreReconcileContext) (*Repository, *StateStoreError) {
+	stateStore := ctx.stateStore.(*v1alpha1.BucketStateStore)
+	s3Writer, err := newS3Writer(
+		ctx.logger.WithName("writers").WithName("S3StateStoreWriter"),
+		stateStore.Spec,
+		"",
+		ctx.stateStoreSecret.Data,
+	)
 
+	if err != nil {
+		return nil, NewInitialiseWriterError(fmt.Errorf("unable to create bucket writer: %w", err))
+	}
+
+	repo := &Repository{
+		Writer: s3Writer,
+	}
 	return repo, nil
 }
 
 var CacheMissError = fmt.Errorf("cache miss")
 
-func (c *RepositoryCache) GetRepositoryByName(name string) (*Repository, error) {
+func (c *RepositoryCache) GetRepositoryByTypeAndName(stateStoreType string, name string) (*Repository, error) {
 	c.Lock()
 	defer c.Unlock()
+	switch stateStoreType {
+	case "GitStateStore":
+		if repository, ok := c.gitRepositoryCache[name]; ok {
+			return repository, nil
+		}
 
-	if repository, ok := c.cache[name]; ok {
-		return repository, nil
+		return nil, CacheMissError
+	case "BucketStateStore":
+		if repository, ok := c.s3RepositoryCache[name]; ok {
+			return repository, nil
+		}
+
+		return nil, CacheMissError
+	default:
+		return nil, NewInitialiseWriterError(fmt.Errorf("unknown state store type: %s", stateStoreType))
 	}
 
-	return nil, CacheMissError
 }
