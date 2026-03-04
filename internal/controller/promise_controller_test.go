@@ -85,7 +85,7 @@ var _ = Describe("PromiseController", func() {
 
 	Describe("Promise Reconciliation", func() {
 		When("the promise is being created", func() {
-			When("it contains everything except for promise workflows", func() {
+			When("the Promise has an API and no Workflows", func() {
 				BeforeEach(func() {
 					promise = createPromise(promisePath)
 				})
@@ -113,20 +113,26 @@ var _ = Describe("PromiseController", func() {
 						Expect(ok).To(BeTrue(), ".status.message did not exist. Spec %v", status)
 						Expect(message.Type).To(Equal("string"))
 
-						workflows, ok := status.Properties["workflows"]
-						Expect(ok).To(BeTrue(), ".status.workflows did not exist. Spec %v", status)
-						Expect(workflows.Type).To(Equal("integer"))
-						Expect(workflows.Format).To(Equal("int64"))
+						kratixStatus, ok := status.Properties["kratix"]
+						Expect(ok).To(BeTrue(), ".status.kratix did not exist. Spec %v", status)
+						Expect(kratixStatus.Type).To(Equal("object"))
 
-						workflowsSucceeded, ok := status.Properties["workflowsSucceeded"]
-						Expect(ok).To(BeTrue(), ".status.workflowsSucceeded did not exist. Spec %v", status)
-						Expect(workflowsSucceeded.Type).To(Equal("integer"))
-						Expect(workflowsSucceeded.Format).To(Equal("int64"))
+						kratixStatusProperties := kratixStatus.Items.Schema.Properties
+						kind, ok := kratixStatusProperties["kind"]
+						Expect(ok).To(BeTrue(), ".status.kratix.kind did not exist. Spec %v", status)
+						Expect(kind.Type).To(Equal("string"))
 
-						workflowsFailed, ok := status.Properties["workflowsFailed"]
-						Expect(ok).To(BeTrue(), ".status.workflowsFailed did not exist. Spec %v", status)
-						Expect(workflowsFailed.Type).To(Equal("integer"))
-						Expect(workflowsFailed.Format).To(Equal("int64"))
+						version, ok := kratixStatusProperties["version"]
+						Expect(ok).To(BeTrue(), ".status.kratix.version did not exist. Spec %v", status)
+						Expect(version.Type).To(Equal("string"))
+
+						kratixNestedStatus, ok := kratixStatusProperties["status"]
+						Expect(ok).To(BeTrue(), ".status.kratix.status did not exist. Spec %v", status)
+						Expect(kratixNestedStatus.Type).To(Equal("string"))
+
+						lastAvailableTime, ok := kratixStatusProperties["lastAvailableTime"]
+						Expect(ok).To(BeTrue(), ".status.kratix.lastAvailableTime did not exist. Spec %v", status)
+						Expect(lastAvailableTime.Type).To(Equal("string"))
 
 						observedGeneration, ok := status.Properties["observedGeneration"]
 						Expect(ok).To(BeTrue(), ".status.observedGeneration did not exist. Spec %v", status)
