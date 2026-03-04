@@ -120,9 +120,9 @@ var _ = Describe("Core Tests", Ordered, func() {
 										Message: "Ready",
 									},
 									metav1.Condition{
-										Type:   "WriteSucceeded",
-										Status: metav1.ConditionTrue,
-										Reason: "WorkloadsWrittenToStateStore",
+										Type:    "WriteSucceeded",
+										Status:  metav1.ConditionTrue,
+										Reason:  "WorkloadsWrittenToStateStore",
 										Message: "Workloads written to State Store",
 									}))
 							}

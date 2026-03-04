@@ -306,7 +306,6 @@ func main() {
 				Client:              mgr.GetClient(),
 				Log:                 ctrl.Log.WithName("controllers").WithName("WorkflowJobPodCleanup"),
 				PodTTLAfterFinished: *podTTLAfterFinished,
-				CurrentTime:         time.Now,
 			}).SetupWithManager(mgr); err != nil {
 				setupLog.Error(err, "unable to create controller", "controller", "WorkflowJobPodCleanup")
 				os.Exit(1)

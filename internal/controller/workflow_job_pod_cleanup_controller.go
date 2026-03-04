@@ -18,6 +18,7 @@ package controller
 
 import (
 	"context"
+	"fmt"
 	"time"
 
 	"github.com/go-logr/logr"
@@ -39,7 +40,6 @@ type WorkflowJobPodCleanupReconciler struct {
 	Client              client.Client
 	Log                 logr.Logger
 	PodTTLAfterFinished time.Duration
-	CurrentTime         func() time.Time
 }
 
 // +kubebuilder:rbac:groups=batch,resources=jobs,verbs=get;list;watch
@@ -70,7 +70,7 @@ func (r *WorkflowJobPodCleanupReconciler) Reconcile(ctx context.Context, req ctr
 	}
 
 	expirationTime := terminalTime.Add(r.PodTTLAfterFinished)
-	now := r.now()
+	now := time.Now()
 	if now.Before(expirationTime) {
 		return ctrl.Result{RequeueAfter: expirationTime.Sub(now)}, nil
 	}
@@ -101,49 +101,31 @@ func (r *WorkflowJobPodCleanupReconciler) Reconcile(ctx context.Context, req ctr
 }
 
 func (r *WorkflowJobPodCleanupReconciler) SetupWithManager(mgr ctrl.Manager) error {
-	if r.CurrentTime == nil {
-		r.CurrentTime = time.Now
+	managedByKratixPredicate, err := predicate.LabelSelectorPredicate(metav1.LabelSelector{
+		MatchLabels: map[string]string{
+			v1alpha1.ManagedByLabel: v1alpha1.ManagedByLabelValue,
+		},
+	})
+	if err != nil {
+		return fmt.Errorf("failed to build managed-by label selector predicate: %w", err)
 	}
 
 	return ctrl.NewControllerManagedBy(mgr).
-		For(&batchv1.Job{}, builder.WithPredicates(terminalWorkflowJobPredicate())).
+		For(&batchv1.Job{}, builder.WithPredicates(
+			terminalWorkflowJobPredicate(),
+			managedByKratixPredicate,
+		)).
 		Complete(r)
-}
-
-func (r *WorkflowJobPodCleanupReconciler) now() time.Time {
-	if r.CurrentTime == nil {
-		return time.Now()
-	}
-	return r.CurrentTime()
 }
 
 func terminalWorkflowJobPredicate() predicate.Funcs {
 	return predicate.Funcs{
 		CreateFunc: func(e event.CreateEvent) bool {
-			job, ok := e.Object.(*batchv1.Job)
-			return ok && shouldReconcileWorkflowJob(job)
+			return false
 		},
 		UpdateFunc: func(e event.UpdateEvent) bool {
 			newJob, ok := e.ObjectNew.(*batchv1.Job)
-			if !ok || !shouldReconcileWorkflowJob(newJob) {
-				return false
-			}
-
-			oldJob, ok := e.ObjectOld.(*batchv1.Job)
-			if !ok || !isJobTerminal(oldJob) {
-				return true
-			}
-
-			oldTerminalTime, oldHasTime := getJobTerminalTime(oldJob)
-			newTerminalTime, newHasTime := getJobTerminalTime(newJob)
-			if oldHasTime != newHasTime {
-				return true
-			}
-			if !oldHasTime {
-				return false
-			}
-
-			return !oldTerminalTime.Equal(newTerminalTime)
+			return ok && shouldReconcileWorkflowJob(newJob)
 		},
 		DeleteFunc: func(event.DeleteEvent) bool {
 			return false
@@ -155,19 +137,10 @@ func terminalWorkflowJobPredicate() predicate.Funcs {
 }
 
 func shouldReconcileWorkflowJob(job *batchv1.Job) bool {
-	if job == nil || !hasKratixPromiseLabel(job) {
+	if job == nil {
 		return false
 	}
 	return isJobTerminal(job)
-}
-
-func hasKratixPromiseLabel(job *batchv1.Job) bool {
-	labels := job.GetLabels()
-	if labels == nil {
-		return false
-	}
-	_, hasPromiseLabel := labels[v1alpha1.PromiseNameLabel]
-	return hasPromiseLabel
 }
 
 func isJobTerminal(job *batchv1.Job) bool {
