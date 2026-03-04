@@ -101,7 +101,8 @@ type Workflows struct {
 }
 
 type JobOptions struct {
-	DefaultBackoffLimit *int32 `json:"defaultBackoffLimit,omitempty"`
+	DefaultBackoffLimit        *int32 `json:"defaultBackoffLimit,omitempty"`
+	PodTTLSecondsAfterFinished *int32 `json:"podTTLSecondsAfterFinished,omitempty"`
 }
 
 // LeaderElectionConfig duration default can be found in:
@@ -186,6 +187,8 @@ func main() {
 			v1alpha1.DefaultJobBackoffLimit = kratixConfig.Workflows.JobOptions.DefaultBackoffLimit
 		}
 	}
+
+	podTTLAfterFinished := getPodTTLAfterFinished(kratixConfig)
 
 	telemetryShutdown := func(context.Context) error { return nil }
 	if shutdown, err := telemetry.SetupTracerProvider(context.Background(), ctrl.Log.WithName("telemetry"), "kratix-controller-manager", telemetryConfigFromKratixConfig(kratixConfig)); err != nil {
@@ -297,6 +300,17 @@ func main() {
 		}).SetupWithManager(mgr); err != nil {
 			setupLog.Error(err, "unable to create controller", "controller", "Promise")
 			os.Exit(1)
+		}
+		if podTTLAfterFinished != nil {
+			if err = (&controller.WorkflowJobPodCleanupReconciler{
+				Client:              mgr.GetClient(),
+				Log:                 ctrl.Log.WithName("controllers").WithName("WorkflowJobPodCleanup"),
+				PodTTLAfterFinished: *podTTLAfterFinished,
+				CurrentTime:         time.Now,
+			}).SetupWithManager(mgr); err != nil {
+				setupLog.Error(err, "unable to create controller", "controller", "WorkflowJobPodCleanup")
+				os.Exit(1)
+			}
 		}
 		if err = (&controller.WorkReconciler{
 			Client:        mgr.GetClient(),
@@ -473,6 +487,23 @@ func getNumJobsToKeep(kratixConfig *KratixConfig) int {
 		return numJobsToKeepDefault
 	}
 	return kratixConfig.NumberOfJobsToKeep
+}
+
+func getPodTTLAfterFinished(kratixConfig *KratixConfig) *time.Duration {
+	if kratixConfig == nil || kratixConfig.Workflows.JobOptions.PodTTLSecondsAfterFinished == nil {
+		return nil
+	}
+
+	podTTLSecondsAfterFinished := *kratixConfig.Workflows.JobOptions.PodTTLSecondsAfterFinished
+	if podTTLSecondsAfterFinished <= 0 {
+		setupLog.Error(fmt.Errorf("invalid Kratix Config"),
+			"workflows.jobOptions.podTTLSecondsAfterFinished must be greater than zero; value ignored",
+			"podTTLSecondsAfterFinished", podTTLSecondsAfterFinished)
+		return nil
+	}
+
+	ttl := time.Duration(podTTLSecondsAfterFinished) * time.Second
+	return &ttl
 }
 
 func getRegularReconciliationInterval(kratixConfig *KratixConfig) time.Duration {
