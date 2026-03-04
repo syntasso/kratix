@@ -44,6 +44,7 @@ type WorkflowJobPodCleanupReconciler struct {
 
 // +kubebuilder:rbac:groups=batch,resources=jobs,verbs=get;list;watch
 // +kubebuilder:rbac:groups="",resources=pods,verbs=get;list;watch;delete
+
 func (r *WorkflowJobPodCleanupReconciler) Reconcile(ctx context.Context, req ctrl.Request) (result ctrl.Result, retErr error) {
 	logger := r.Log.WithValues(
 		"controller", "workflow-job-pod-cleanup",
