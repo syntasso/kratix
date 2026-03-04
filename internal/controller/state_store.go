@@ -26,7 +26,7 @@ type StateStore interface {
 	GetSecretRef() *v1.SecretReference
 }
 
-func fetchSecret(ctx context.Context, client client.Client, eventRecorder record.EventRecorder, stateStore StateStore) *v1.Secret {
+func fetchSecret(ctx context.Context, logger logr.Logger, client client.Client, eventRecorder record.EventRecorder, stateStore StateStore) *v1.Secret {
 	secret := &v1.Secret{}
 	secretRef := stateStore.GetSecretRef()
 	secretName := types.NamespacedName{
@@ -39,6 +39,11 @@ func fetchSecret(ctx context.Context, client client.Client, eventRecorder record
 			eventRecorder.Event(stateStore, v1.EventTypeWarning, "SecretNotFound",
 				fmt.Sprintf("Secret %s not found in namespace %s", secretRef.Name, secretRef.Namespace))
 
+			logging.Error(
+				logger, err, "secret not found",
+				"secretName", secretRef.Name,
+				"secretNamespace", secretRef.Namespace,
+			)
 			return nil
 		}
 	}
@@ -111,7 +116,7 @@ func (reconcileCtx *stateStoreReconcileContext) setNotReadyStatus(err *StateStor
 	return reconcileCtx.setStatus(StatusNotReady, metav1.Condition{
 		Type:    StateStoreReadyConditionType,
 		Reason:  err.Reason,
-		Message: fmt.Sprintf("%s: %s", err.Message, err.Error()),
+		Message: fmt.Sprintf("%s", err.Error()),
 		Status:  metav1.ConditionFalse,
 	}, func() { reconcileCtx.recordNotReadyEvent(err) })
 }

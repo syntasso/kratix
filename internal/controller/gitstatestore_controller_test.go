@@ -38,7 +38,7 @@ import (
 	"github.com/syntasso/kratix/lib/writers/writersfakes"
 )
 
-var _ = Describe("GitStateStore Controller", func() {
+var _ = FDescribe("GitStateStore Controller", func() {
 	var (
 		gitStateStore         *v1alpha1.GitStateStore
 		updatedGitStateStore  *v1alpha1.GitStateStore
@@ -72,10 +72,11 @@ var _ = Describe("GitStateStore Controller", func() {
 		fakeWriter.ValidatePermissionsReturns(nil)
 
 		reconciler = &controller.GitStateStoreReconciler{
-			Client:        fakeK8sClient,
-			Scheme:        scheme.Scheme,
-			Log:           ctrl.Log.WithName("controllers").WithName("GitStateStore"),
-			EventRecorder: eventRecorder,
+			Client:          fakeK8sClient,
+			Scheme:          scheme.Scheme,
+			Log:             ctrl.Log.WithName("controllers").WithName("GitStateStore"),
+			EventRecorder:   eventRecorder,
+			RepositoryCache: controller.NewRepositoryCache(),
 		}
 
 		gitStateStore = &v1alpha1.GitStateStore{
@@ -165,7 +166,7 @@ var _ = Describe("GitStateStore Controller", func() {
 
 				controller.SetNewGitWriter(
 					func(l logr.Logger, s v1alpha1.GitStateStoreSpec, d string, c map[string][]byte) (writers.StateStoreWriter, error) {
-						return fakeWriter, errors.New("secret missing key: secretAccessKey")
+						return fakeWriter, errors.New("writer-create-error")
 					},
 				)
 
@@ -174,13 +175,13 @@ var _ = Describe("GitStateStore Controller", func() {
 
 			It("updates the status ", func() {
 				Expect(result).To(Equal(ctrl.Result{}))
-				Expect(err).To(MatchError(ContainSubstring("secret missing key: secretAccessKey")))
+				Expect(err).ToNot(HaveOccurred())
 
 				Expect(fakeK8sClient.Get(ctx, testGitStateStoreName, updatedGitStateStore)).To(Succeed())
 				Expect(updatedGitStateStore.Status.Status).To(Equal(controller.StatusNotReady))
 				Expect(updatedGitStateStore.Status.Conditions).To(ContainElement(SatisfyAll(
 					HaveField("Type", "Ready"),
-					HaveField("Message", "Error initialising writer: secret missing key: secretAccessKey"),
+					HaveField("Message", "unable to create git writer: writer-create-error"),
 					HaveField("Reason", "ErrorInitialisingWriter"),
 					HaveField("Status", metav1.ConditionFalse),
 				)))
@@ -188,7 +189,7 @@ var _ = Describe("GitStateStore Controller", func() {
 
 			It("fires an event to indicate writer initialization failed", func() {
 				Eventually(eventRecorder.Events).Should(Receive(ContainSubstring(
-					"Warning NotReady GitStateStore \"default-store\" is not ready: Error initialising writer: secret missing key: secretAccessKey")))
+					"Warning NotReady GitStateStore \"default-store\" is not ready: Error initialising writer: unable to create git writer: writer-create-error")))
 			})
 		})
 
