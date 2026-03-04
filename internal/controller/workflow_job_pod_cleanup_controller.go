@@ -63,8 +63,8 @@ func (r *WorkflowJobPodCleanupReconciler) Reconcile(ctx context.Context, req ctr
 		return ctrl.Result{}, nil
 	}
 
-	terminalTime, hasTerminalTime := getJobTerminalTime(job)
-	if !hasTerminalTime {
+	terminalTime, ok := getJobTerminalTime(job)
+	if !ok {
 		logging.Debug(logger, "job is terminal but no terminal timestamp is available; skipping pod cleanup")
 		return ctrl.Result{}, nil
 	}
@@ -76,25 +76,25 @@ func (r *WorkflowJobPodCleanupReconciler) Reconcile(ctx context.Context, req ctr
 	}
 
 	podList := &corev1.PodList{}
-	if err := r.Client.List(ctx, podList, client.InNamespace(job.GetNamespace())); err != nil {
+	if err := r.Client.List(
+		ctx,
+		podList,
+		client.InNamespace(job.GetNamespace()),
+		client.MatchingLabels{batchv1.JobNameLabel: job.GetName()},
+	); err != nil {
 		return ctrl.Result{}, err
 	}
 
-	deletedPodCount := 0
 	for i := range podList.Items {
 		pod := &podList.Items[i]
-		if !isTerminalPod(pod) || !isPodOwnedByJob(pod, job) {
-			continue
-		}
-
-		if err := r.Client.Delete(ctx, pod); err != nil && !kerrors.IsNotFound(err) {
+		err := r.Client.Delete(ctx, pod)
+		if err != nil {
+			if kerrors.IsNotFound(err) {
+				continue
+			}
 			return ctrl.Result{}, err
 		}
-		deletedPodCount++
-	}
-
-	if deletedPodCount > 0 {
-		logging.Info(logger, "deleted terminal workflow pods", "pods", deletedPodCount, "job", job.GetName())
+		logging.Info(logger, "deleted terminal workflow pod", "pod", pod.GetName(), "job", job.GetName())
 	}
 
 	return ctrl.Result{}, nil
@@ -161,29 +161,28 @@ func getJobTerminalTime(job *batchv1.Job) (time.Time, bool) {
 		return job.Status.CompletionTime.Time, true
 	}
 
-	var latestTerminalConditionTime metav1.Time
-	hasTerminalConditionTime := false
+	var latestFailedConditionTime metav1.Time
+	hasFailedConditionTime := false
 	for _, condition := range job.Status.Conditions {
-		if condition.Status != corev1.ConditionTrue {
-			continue
-		}
-		if condition.Type != batchv1.JobComplete && condition.Type != batchv1.JobFailed {
+		// Successful Jobs should always have completionTime set.
+		// If completionTime is absent, only failed Jobs can provide a terminal time via status conditions.
+		if condition.Type != batchv1.JobFailed || condition.Status != corev1.ConditionTrue {
 			continue
 		}
 		if condition.LastTransitionTime.IsZero() {
 			continue
 		}
 
-		if !hasTerminalConditionTime || condition.LastTransitionTime.After(latestTerminalConditionTime.Time) {
-			latestTerminalConditionTime = condition.LastTransitionTime
-			hasTerminalConditionTime = true
+		if !hasFailedConditionTime || condition.LastTransitionTime.After(latestFailedConditionTime.Time) {
+			latestFailedConditionTime = condition.LastTransitionTime
+			hasFailedConditionTime = true
 		}
 	}
 
-	if !hasTerminalConditionTime {
+	if !hasFailedConditionTime {
 		return time.Time{}, false
 	}
-	return latestTerminalConditionTime.Time, true
+	return latestFailedConditionTime.Time, true
 }
 
 func isTerminalPod(pod *corev1.Pod) bool {

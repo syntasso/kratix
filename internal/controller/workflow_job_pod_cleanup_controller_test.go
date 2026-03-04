@@ -49,22 +49,20 @@ var _ = Describe("WorkflowJobPodCleanupReconciler", func() {
 	})
 
 	When("the job has been terminal for at least the configured ttl", func() {
-		It("deletes only terminal pods owned by the job", func() {
+		It("deletes pods owned by the job", func() {
 			completedAt := time.Now().Add(-2 * time.Minute)
 			job := terminalJob("example-job", "default", types.UID("example-job-uid"), completedAt)
 			Expect(fakeK8sClient.Create(ctx, job)).To(Succeed())
 
-			succeededPod := jobOwnedPod("example-pod-succeeded", job, corev1.PodSucceeded)
-			failedPod := jobOwnedPod("example-pod-failed", job, corev1.PodFailed)
-			runningPod := jobOwnedPod("example-pod-running", job, corev1.PodRunning)
+			succeededPod := jobOwnedPod("example-pod-succeeded", job)
+			failedPod := jobOwnedPod("example-pod-failed", job)
 
 			anotherJob := terminalJob("another-job", "default", types.UID("another-job-uid"), completedAt)
 			Expect(fakeK8sClient.Create(ctx, anotherJob)).To(Succeed())
-			anotherJobPod := jobOwnedPod("another-job-pod", anotherJob, corev1.PodSucceeded)
+			anotherJobPod := jobOwnedPod("another-job-pod", anotherJob)
 
 			Expect(fakeK8sClient.Create(ctx, succeededPod)).To(Succeed())
 			Expect(fakeK8sClient.Create(ctx, failedPod)).To(Succeed())
-			Expect(fakeK8sClient.Create(ctx, runningPod)).To(Succeed())
 			Expect(fakeK8sClient.Create(ctx, anotherJobPod)).To(Succeed())
 
 			result, err := reconciler.Reconcile(ctx, ctrl.Request{NamespacedName: client.ObjectKeyFromObject(job)})
@@ -73,7 +71,6 @@ var _ = Describe("WorkflowJobPodCleanupReconciler", func() {
 
 			Expect(isNotFound(ctx, client.ObjectKeyFromObject(succeededPod), &corev1.Pod{})).To(BeTrue())
 			Expect(isNotFound(ctx, client.ObjectKeyFromObject(failedPod), &corev1.Pod{})).To(BeTrue())
-			Expect(fakeK8sClient.Get(ctx, client.ObjectKeyFromObject(runningPod), &corev1.Pod{})).To(Succeed())
 			Expect(fakeK8sClient.Get(ctx, client.ObjectKeyFromObject(anotherJobPod), &corev1.Pod{})).To(Succeed())
 		})
 	})
@@ -83,7 +80,7 @@ var _ = Describe("WorkflowJobPodCleanupReconciler", func() {
 			job := terminalJob("example-job", "default", types.UID("example-job-uid"), time.Now().Add(-30*time.Second))
 			Expect(fakeK8sClient.Create(ctx, job)).To(Succeed())
 
-			succeededPod := jobOwnedPod("example-pod-succeeded", job, corev1.PodSucceeded)
+			succeededPod := jobOwnedPod("example-pod-succeeded", job)
 			Expect(fakeK8sClient.Create(ctx, succeededPod)).To(Succeed())
 
 			result, err := reconciler.Reconcile(ctx, ctrl.Request{NamespacedName: client.ObjectKeyFromObject(job)})
@@ -99,7 +96,7 @@ var _ = Describe("WorkflowJobPodCleanupReconciler", func() {
 			job := nonTerminalJob("example-job", "default", types.UID("example-job-uid"))
 			Expect(fakeK8sClient.Create(ctx, job)).To(Succeed())
 
-			succeededPod := jobOwnedPod("example-pod-succeeded", job, corev1.PodSucceeded)
+			succeededPod := jobOwnedPod("example-pod-succeeded", job)
 			Expect(fakeK8sClient.Create(ctx, succeededPod)).To(Succeed())
 
 			result, err := reconciler.Reconcile(ctx, ctrl.Request{NamespacedName: client.ObjectKeyFromObject(job)})
@@ -109,12 +106,12 @@ var _ = Describe("WorkflowJobPodCleanupReconciler", func() {
 		})
 	})
 
-	When("the job completion time is not set but terminal condition exists", func() {
-		It("uses terminal condition time to evaluate ttl", func() {
+	When("the job completion time is not set and the job is failed", func() {
+		It("uses failed condition transition time to evaluate ttl", func() {
 			job := terminalJobWithoutCompletionTime("example-job", "default", types.UID("example-job-uid"), time.Now().Add(-2*time.Minute))
 			Expect(fakeK8sClient.Create(ctx, job)).To(Succeed())
 
-			succeededPod := jobOwnedPod("example-pod-succeeded", job, corev1.PodSucceeded)
+			succeededPod := jobOwnedPod("example-pod-succeeded", job)
 			Expect(fakeK8sClient.Create(ctx, succeededPod)).To(Succeed())
 
 			result, err := reconciler.Reconcile(ctx, ctrl.Request{NamespacedName: client.ObjectKeyFromObject(job)})
@@ -191,12 +188,15 @@ func nonTerminalJob(name, namespace string, uid types.UID) *batchv1.Job {
 	}
 }
 
-func jobOwnedPod(name string, job *batchv1.Job, phase corev1.PodPhase) *corev1.Pod {
+func jobOwnedPod(name string, job *batchv1.Job) *corev1.Pod {
 	controllerValue := true
 	return &corev1.Pod{
 		ObjectMeta: metav1.ObjectMeta{
 			Name:      name,
 			Namespace: job.GetNamespace(),
+			Labels: map[string]string{
+				batchv1.JobNameLabel: job.GetName(),
+			},
 			OwnerReferences: []metav1.OwnerReference{
 				{
 					APIVersion: batchv1.SchemeGroupVersion.String(),
@@ -206,9 +206,6 @@ func jobOwnedPod(name string, job *batchv1.Job, phase corev1.PodPhase) *corev1.P
 					Controller: &controllerValue,
 				},
 			},
-		},
-		Status: corev1.PodStatus{
-			Phase: phase,
 		},
 	}
 }
