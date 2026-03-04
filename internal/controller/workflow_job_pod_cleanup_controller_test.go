@@ -35,12 +35,11 @@ import (
 
 var _ = Describe("WorkflowJobPodCleanupReconciler", func() {
 	var (
-		ctx        context.Context
+		ctx        = context.Background()
 		reconciler *controller.WorkflowJobPodCleanupReconciler
 	)
 
 	BeforeEach(func() {
-		ctx = context.Background()
 		reconciler = &controller.WorkflowJobPodCleanupReconciler{
 			Client:              fakeK8sClient,
 			Log:                 ctrl.Log.WithName("controllers").WithName("WorkflowJobPodCleanup"),
@@ -51,13 +50,13 @@ var _ = Describe("WorkflowJobPodCleanupReconciler", func() {
 	When("the job has been terminal for at least the configured ttl", func() {
 		It("deletes pods owned by the job", func() {
 			completedAt := time.Now().Add(-2 * time.Minute)
-			job := terminalJob("example-job", "default", types.UID("example-job-uid"), completedAt)
+			job := terminalJob("example-job", "default", "example-job-uid", completedAt)
 			Expect(fakeK8sClient.Create(ctx, job)).To(Succeed())
 
 			succeededPod := jobOwnedPod("example-pod-succeeded", job)
 			failedPod := jobOwnedPod("example-pod-failed", job)
 
-			anotherJob := terminalJob("another-job", "default", types.UID("another-job-uid"), completedAt)
+			anotherJob := terminalJob("another-job", "default", "another-job-uid", completedAt)
 			Expect(fakeK8sClient.Create(ctx, anotherJob)).To(Succeed())
 			anotherJobPod := jobOwnedPod("another-job-pod", anotherJob)
 
@@ -77,7 +76,7 @@ var _ = Describe("WorkflowJobPodCleanupReconciler", func() {
 
 	When("the job ttl has not elapsed", func() {
 		It("requeues after the remaining ttl and does not delete pods", func() {
-			job := terminalJob("example-job", "default", types.UID("example-job-uid"), time.Now().Add(-30*time.Second))
+			job := terminalJob("example-job", "default", "example-job-uid", time.Now().Add(-30*time.Second))
 			Expect(fakeK8sClient.Create(ctx, job)).To(Succeed())
 
 			succeededPod := jobOwnedPod("example-pod-succeeded", job)
@@ -93,7 +92,7 @@ var _ = Describe("WorkflowJobPodCleanupReconciler", func() {
 
 	When("the job is not terminal", func() {
 		It("does not requeue and does not delete pods", func() {
-			job := nonTerminalJob("example-job", "default", types.UID("example-job-uid"))
+			job := nonTerminalJob("example-job", "default", "example-job-uid")
 			Expect(fakeK8sClient.Create(ctx, job)).To(Succeed())
 
 			succeededPod := jobOwnedPod("example-pod-succeeded", job)
@@ -106,9 +105,9 @@ var _ = Describe("WorkflowJobPodCleanupReconciler", func() {
 		})
 	})
 
-	When("the job completion time is not set and the job is failed", func() {
+	When("the job has failed and therefore is no status.completionTime set on the job", func() {
 		It("uses failed condition transition time to evaluate ttl", func() {
-			job := terminalJobWithoutCompletionTime("example-job", "default", types.UID("example-job-uid"), time.Now().Add(-2*time.Minute))
+			job := failedJobWithoutCompletionTime("example-job", "default", "example-job-uid", time.Now().Add(-2*time.Minute))
 			Expect(fakeK8sClient.Create(ctx, job)).To(Succeed())
 
 			succeededPod := jobOwnedPod("example-pod-succeeded", job)
@@ -145,7 +144,7 @@ func terminalJob(name, namespace string, uid types.UID, completedAt time.Time) *
 	}
 }
 
-func terminalJobWithoutCompletionTime(name, namespace string, uid types.UID, terminalAt time.Time) *batchv1.Job {
+func failedJobWithoutCompletionTime(name, namespace string, uid types.UID, terminalAt time.Time) *batchv1.Job {
 	return &batchv1.Job{
 		ObjectMeta: metav1.ObjectMeta{
 			Name:      name,
