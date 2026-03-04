@@ -106,9 +106,12 @@ func (reconcileCtx *stateStoreReconcileContext) Reconcile() (ctrl.Result, error)
 
 	if err := repository.Writer.ValidatePermissions(); err != nil {
 		logging.Error(reconcileCtx.logger, err, "unable to validate permissions")
-		return reconcileCtx.setNotReadyStatus(NewValidatePermissionsError(err))
+		_, err := reconcileCtx.setNotReadyStatus(NewValidatePermissionsError(err))
+		if err != nil {
+			return ctrl.Result{}, err
+		}
+		return defaultRequeue, nil
 	}
-
 	return reconcileCtx.setReadyStatus()
 }
 
@@ -116,7 +119,7 @@ func (reconcileCtx *stateStoreReconcileContext) setNotReadyStatus(err *StateStor
 	return reconcileCtx.setStatus(StatusNotReady, metav1.Condition{
 		Type:    StateStoreReadyConditionType,
 		Reason:  err.Reason,
-		Message: fmt.Sprintf("%s", err.Error()),
+		Message: err.Message,
 		Status:  metav1.ConditionFalse,
 	}, func() { reconcileCtx.recordNotReadyEvent(err) })
 }
@@ -159,10 +162,10 @@ func (reconcileCtx *stateStoreReconcileContext) recordReadyEvent() {
 }
 
 func (reconcileCtx *stateStoreReconcileContext) recordNotReadyEvent(err *StateStoreError) {
-	eventMessage := fmt.Sprintf("%s %q is not ready: %s: %s",
-		reconcileCtx.stateStore.GetObjectKind().GroupVersionKind().Kind,
-		reconcileCtx.stateStore.GetName(), err.Message,
-		err.Error(),
+	reconcileCtx.eventRecorder.Eventf(
+		reconcileCtx.stateStore,
+		v1.EventTypeWarning,
+		"NotReady",
+		err.Message,
 	)
-	reconcileCtx.eventRecorder.Eventf(reconcileCtx.stateStore, v1.EventTypeWarning, "NotReady", eventMessage)
 }

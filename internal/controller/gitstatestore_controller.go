@@ -66,7 +66,11 @@ func (r *GitStateStoreReconciler) Reconcile(ctx context.Context, req ctrl.Reques
 			return ctrl.Result{}, nil
 		}
 
-		return stateStoreCtx.Reconcile()
+		result, err := stateStoreCtx.Reconcile()
+		if err != nil {
+			return ctrl.Result{}, err
+		}
+		return result, nil
 	})
 }
 
@@ -139,7 +143,7 @@ func NewInitialiseWriterError(err error) *StateStoreError {
 	return &StateStoreError{
 		error:   err,
 		Reason:  StateStoreNotReadyErrorInitialisingWriterReason,
-		Message: StateStoreNotReadyErrorInitialisingWriterMessage,
+		Message: err.Error(),
 	}
 }
 
@@ -147,6 +151,6 @@ func NewValidatePermissionsError(err error) *StateStoreError {
 	return &StateStoreError{
 		error:   err,
 		Reason:  StateStoreNotReadyErrorValidatingPermissionsReason,
-		Message: StateStoreNotReadyErrorValidatingPermissionsMessage,
+		Message: fmt.Sprintf("%s: %s", StateStoreNotReadyErrorValidatingPermissionsMessage, err.Error()),
 	}
 }
