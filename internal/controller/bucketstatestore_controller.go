@@ -50,34 +50,6 @@ type BucketStateStoreReconciler struct {
 
 // Reconcile reconciles a BucketStateStore object.
 func (r *BucketStateStoreReconciler) Reconcile(ctx context.Context, req ctrl.Request) (result ctrl.Result, retErr error) {
-	// bucketStateStore := &v1alpha1.BucketStateStore{}
-	// if err := r.Client.Get(ctx, client.ObjectKey{Name: req.Name}, bucketStateStore); err != nil {
-	// 	if errors.IsNotFound(err) {
-	// 		return ctrl.Result{}, nil
-	// 	}
-	// 	return ctrl.Result{}, err
-	// }
-	// logger := r.Log.WithValues(
-	// 	"controller", "bucketStateStore",
-	// 	"name", req.Name,
-	// 	"generation", bucketStateStore.GetGeneration(),
-	// )
-	// logging.Info(logger, "reconciliation started")
-	// defer logReconcileDuration(logger, time.Now(), result, retErr)()
-
-	// o := opts{
-	// 	client: r.Client,
-	// 	ctx:    ctx,
-	// 	logger: logger,
-	// }
-
-	// return reconcileStateStoreCommon(
-	// 	o,
-	// 	bucketStateStore,
-	// 	"BucketStateStore",
-	// 	r.EventRecorder,
-	// )
-
 	logger := r.Log.WithValues(
 		"controller", "bucketStateStore",
 		"name", req.Name,
@@ -107,7 +79,7 @@ func (r *BucketStateStoreReconciler) newReconcileContext(ctx context.Context, lo
 		return nil, NewInitialiseWriterError(err)
 	}
 
-	secret := fetchSecret(ctx, r.Client, r.EventRecorder, bucketStateStore)
+	secret := fetchSecret(ctx, logger, r.Client, r.EventRecorder, bucketStateStore)
 	if secret == nil {
 		return nil, nil
 	}

@@ -79,7 +79,7 @@ func (r *GitStateStoreReconciler) newReconcileContext(ctx context.Context, logge
 		return nil, NewInitialiseWriterError(err)
 	}
 
-	secret := fetchSecret(ctx, r.Client, r.EventRecorder, gitStateStore)
+	secret := fetchSecret(ctx, logger, r.Client, r.EventRecorder, gitStateStore)
 	if secret == nil {
 		return nil, nil
 	}
@@ -132,7 +132,7 @@ type StateStoreError struct {
 }
 
 func (e *StateStoreError) Error() string {
-	return fmt.Sprintf("%s: %s", e.Message, e.error.Error())
+	return fmt.Sprintf("%s", e.error.Error())
 }
 
 func NewInitialiseWriterError(err error) *StateStoreError {
