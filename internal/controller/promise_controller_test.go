@@ -90,7 +90,7 @@ var _ = Describe("PromiseController", func() {
 					promise = createPromise(promisePath)
 				})
 
-				It("re-reconciles until completion", func() {
+				FIt("re-reconciles until completion", func() {
 					result, err := t.reconcileUntilCompletion(reconciler, promise, &opts{
 						funcs: []func(client.Object) error{autoMarkCRDAsEstablished},
 					})

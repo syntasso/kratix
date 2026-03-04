@@ -151,6 +151,8 @@ type PromiseStatus struct {
 	Status string `json:"status,omitempty"`
 	// Message set by Promise configure workflow
 	Message string `json:"message,omitempty"`
+	// Kratix status owned fields
+	Kratix Kratix `json:"kratix,omitempty"`
 	// Total number of Promise-level workflow pipelines
 	Workflows int64 `json:"workflows"`
 	// Number of Promise-level workflow pipelines that have completed successfully
@@ -161,6 +163,21 @@ type PromiseStatus struct {
 	RequiredPromises []RequiredPromiseStatus `json:"requiredPromises,omitempty"`
 	// List of other Promises that depend on this Promise
 	RequiredBy []RequiredBy `json:"requiredBy,omitempty"`
+	// Timestamp of when this Promise was last in an Available state
+	LastAvailableTime *metav1.Time `json:"lastAvailableTime,omitempty"`
+}
+
+// Kratix defines the status fields owned by kratix
+type Kratix struct {
+	// The Kind of the Resource API defined by this Promise (e.g. "Database")
+	Kind string `json:"kind,omitempty"`
+
+	// Version of the Promise, derived from the PromiseRelease if installed via one
+	Version string `json:"version,omitempty"`
+
+	// Overall status of the Promise: Available or Unavailable
+	Status string `json:"status,omitempty"`
+
 	// Timestamp of when this Promise was last in an Available state
 	LastAvailableTime *metav1.Time `json:"lastAvailableTime,omitempty"`
 }
