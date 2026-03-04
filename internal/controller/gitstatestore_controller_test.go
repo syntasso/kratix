@@ -38,7 +38,7 @@ import (
 	"github.com/syntasso/kratix/lib/writers/writersfakes"
 )
 
-var _ = FDescribe("GitStateStore Controller", func() {
+var _ = Describe("GitStateStore Controller", func() {
 	var (
 		gitStateStore         *v1alpha1.GitStateStore
 		updatedGitStateStore  *v1alpha1.GitStateStore
@@ -188,8 +188,8 @@ var _ = FDescribe("GitStateStore Controller", func() {
 			})
 
 			It("fires an event to indicate writer initialization failed", func() {
-				Eventually(eventRecorder.Events).Should(Receive(ContainSubstring(
-					"Warning NotReady GitStateStore \"default-store\" is not ready: Error initialising writer: unable to create git writer: writer-create-error")))
+				Expect(eventRecorder.Events).To(Receive(ContainSubstring(
+					"Warning NotReady unable to create git writer: writer-create-error")))
 			})
 		})
 
@@ -204,8 +204,8 @@ var _ = FDescribe("GitStateStore Controller", func() {
 			})
 
 			It("updates the status to say permissions validation failed", func() {
-				Expect(err).To(MatchError(ContainSubstring("reconcile loop detected")))
 				Expect(result).To(Equal(ctrl.Result{RequeueAfter: time.Second * 15}))
+				Expect(err).To(MatchError(ContainSubstring("reconcile loop detected")))
 
 				Expect(fakeK8sClient.Get(ctx, testGitStateStoreName, updatedGitStateStore)).To(Succeed())
 				Expect(updatedGitStateStore.Status.Status).To(Equal(controller.StatusNotReady))
@@ -219,7 +219,7 @@ var _ = FDescribe("GitStateStore Controller", func() {
 
 			It("fires an event to indicate permissions validation failed", func() {
 				Eventually(eventRecorder.Events).Should(Receive(ContainSubstring(
-					"Warning NotReady GitStateStore \"default-store\" is not ready: Error validating state store permissions: ARGH!")))
+					"Warning NotReady Error validating state store permissions: ARGH!")))
 			})
 		})
 	})
