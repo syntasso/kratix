@@ -493,9 +493,6 @@ func cleanupPods(opts Opts, workflowPods []v1.Pod) error {
 	}
 
 	podTTLAfterFinished := *opts.podTTLAfterFinished
-	if podTTLAfterFinished <= 0 {
-		return nil
-	}
 
 	now := time.Now()
 	for i := range workflowPods {
@@ -510,7 +507,8 @@ func cleanupPods(opts Opts, workflowPods []v1.Pod) error {
 			continue
 		}
 
-		if now.Before(completedAt.Add(podTTLAfterFinished)) {
+		podTTLExpiryTime := completedAt.Add(podTTLAfterFinished)
+		if now.Before(podTTLExpiryTime) {
 			continue
 		}
 

@@ -750,7 +750,7 @@ func workflowsCompletedSuccessfully(workflowCompletedCondition *clusterv1.Condit
 }
 
 func (r *DynamicResourceRequestController) nextReconciliation(logger logr.Logger) ctrl.Result {
-	nextRequeueAfter := clampRequeueAfterByPodTTL(r.ReconciliationInterval, r.PodTTLSecondsAfterFinished)
+	nextRequeueAfter := getRequeueAfterConsideringPodTTL(r.ReconciliationInterval, r.PodTTLSecondsAfterFinished)
 	logging.Info(logger, "scheduling next reconciliation",
 		"reconciliationInterval", r.ReconciliationInterval,
 		"podTTLSecondsAfterFinished", r.PodTTLSecondsAfterFinished,
