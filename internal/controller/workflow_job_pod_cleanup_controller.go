@@ -185,20 +185,3 @@ func getJobTerminalTime(job *batchv1.Job) (time.Time, bool) {
 	}
 	return latestFailedConditionTime.Time, true
 }
-
-func isTerminalPod(pod *corev1.Pod) bool {
-	return pod.Status.Phase == corev1.PodSucceeded || pod.Status.Phase == corev1.PodFailed
-}
-
-func isPodOwnedByJob(pod *corev1.Pod, job *batchv1.Job) bool {
-	for _, ownerReference := range pod.GetOwnerReferences() {
-		if ownerReference.Kind != "Job" || ownerReference.Name != job.GetName() {
-			continue
-		}
-
-		if len(ownerReference.UID) == 0 || len(job.GetUID()) == 0 || ownerReference.UID == job.GetUID() {
-			return true
-		}
-	}
-	return false
-}
