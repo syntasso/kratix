@@ -79,25 +79,6 @@ type destinationReconcileContext struct {
 //+kubebuilder:rbac:groups=platform.kratix.io,resources=destinations/status,verbs=get;update;patch
 //+kubebuilder:rbac:groups=platform.kratix.io,resources=destinations/finalizers,verbs=update
 
-func (r *DestinationReconciler) newReconcileContext(ctx context.Context, logger logr.Logger, req ctrl.Request) (*destinationReconcileContext, error) {
-	destination := &v1alpha1.Destination{}
-	if err := r.Client.Get(ctx, client.ObjectKey{Name: req.Name}, destination); err != nil {
-		if k8serrors.IsNotFound(err) {
-			return nil, nil
-		}
-		return nil, err
-	}
-	return &destinationReconcileContext{
-		ctx:             ctx,
-		controller:      "destination-controller",
-		logger:          logger,
-		client:          r.Client,
-		eventRecorder:   r.EventRecorder,
-		destination:     destination,
-		repositoryCache: r.RepositoryCache,
-	}, nil
-}
-
 func (r *DestinationReconciler) Reconcile(ctx context.Context, req ctrl.Request) (result ctrl.Result, retErr error) {
 	logger := r.Log.WithValues(
 		"controller", "destination",
@@ -118,6 +99,25 @@ func (r *DestinationReconciler) Reconcile(ctx context.Context, req ctrl.Request)
 
 		return destinationCtx.Reconcile()
 	})
+}
+
+func (r *DestinationReconciler) newReconcileContext(ctx context.Context, logger logr.Logger, req ctrl.Request) (*destinationReconcileContext, error) {
+	destination := &v1alpha1.Destination{}
+	if err := r.Client.Get(ctx, client.ObjectKey{Name: req.Name}, destination); err != nil {
+		if k8serrors.IsNotFound(err) {
+			return nil, nil
+		}
+		return nil, err
+	}
+	return &destinationReconcileContext{
+		ctx:             ctx,
+		controller:      "destination-controller",
+		logger:          logger,
+		client:          r.Client,
+		eventRecorder:   r.EventRecorder,
+		destination:     destination,
+		repositoryCache: r.RepositoryCache,
+	}, nil
 }
 
 func (d *destinationReconcileContext) Reconcile() (ctrl.Result, error) {
