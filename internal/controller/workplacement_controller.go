@@ -89,6 +89,27 @@ type workPlacementReconcileContext struct {
 //+kubebuilder:rbac:groups=platform.kratix.io,resources=workplacements/status,verbs=get;update;patch
 //+kubebuilder:rbac:groups=platform.kratix.io,resources=workplacements/finalizers,verbs=update
 
+func (r *WorkPlacementReconciler) Reconcile(ctx context.Context, req ctrl.Request) (result ctrl.Result, retErr error) {
+	logger := r.Log.WithValues(
+		"controller", "workPlacement",
+		"name", req.Name,
+		"namespace", req.Namespace,
+	)
+
+	return withTrace(logger, func() (ctrl.Result, error) {
+		workPlacementCtx, err := r.newReconcileContext(ctx, logger, req)
+		if err != nil {
+			logging.Error(logger, err, "error getting WorkPlacement")
+			return defaultRequeue, nil
+		}
+
+		if workPlacementCtx == nil {
+			return ctrl.Result{}, nil
+		}
+		return workPlacementCtx.reconcileWithSpanAttributes()
+	})
+}
+
 func (r *WorkPlacementReconciler) newReconcileContext(ctx context.Context, logger logr.Logger, req ctrl.Request) (*workPlacementReconcileContext, error) {
 	workPlacement := &v1alpha1.WorkPlacement{}
 	if err := r.Client.Get(ctx, req.NamespacedName, workPlacement); err != nil {
@@ -193,27 +214,6 @@ func (w *workPlacementReconcileContext) Reconcile() (result ctrl.Result, retErr 
 	}
 
 	return ctrl.Result{}, nil
-}
-
-func (r *WorkPlacementReconciler) Reconcile(ctx context.Context, req ctrl.Request) (result ctrl.Result, retErr error) {
-	logger := r.Log.WithValues(
-		"controller", "workPlacement",
-		"name", req.Name,
-		"namespace", req.Namespace,
-	)
-
-	return withTrace(logger, func() (ctrl.Result, error) {
-		workPlacementCtx, err := r.newReconcileContext(ctx, logger, req)
-		if err != nil {
-			logging.Error(logger, err, "error getting WorkPlacement")
-			return defaultRequeue, nil
-		}
-
-		if workPlacementCtx == nil {
-			return ctrl.Result{}, nil
-		}
-		return workPlacementCtx.reconcileWithSpanAttributes()
-	})
 }
 
 func (w *workPlacementReconcileContext) updateResourceStatus(versionID string, err error) error {
