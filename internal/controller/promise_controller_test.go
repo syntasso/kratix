@@ -90,7 +90,7 @@ var _ = Describe("PromiseController", func() {
 					promise = createPromise(promisePath)
 				})
 
-				FIt("re-reconciles until completion", func() {
+				It("re-reconciles until completion", func() {
 					result, err := t.reconcileUntilCompletion(reconciler, promise, &opts{
 						funcs: []func(client.Object) error{autoMarkCRDAsEstablished},
 					})
@@ -113,11 +113,27 @@ var _ = Describe("PromiseController", func() {
 						Expect(ok).To(BeTrue(), ".status.message did not exist. Spec %v", status)
 						Expect(message.Type).To(Equal("string"))
 
+						// This should be removed once we have a new version on Kratix
+						workflows, ok := status.Properties["workflows"]
+						Expect(ok).To(BeTrue(), ".status.workflows did not exist. Spec %v", status)
+						Expect(workflows.Type).To(Equal("integer"))
+						Expect(workflows.Format).To(Equal("int64"))
+
+						workflowsSucceeded, ok := status.Properties["workflowsSucceeded"]
+						Expect(ok).To(BeTrue(), ".status.workflowsSucceeded did not exist. Spec %v", status)
+						Expect(workflowsSucceeded.Type).To(Equal("integer"))
+						Expect(workflowsSucceeded.Format).To(Equal("int64"))
+
+						workflowsFailed, ok := status.Properties["workflowsFailed"]
+						Expect(ok).To(BeTrue(), ".status.workflowsFailed did not exist. Spec %v", status)
+						Expect(workflowsFailed.Type).To(Equal("integer"))
+						Expect(workflowsFailed.Format).To(Equal("int64"))
+
 						kratixStatus, ok := status.Properties["kratix"]
 						Expect(ok).To(BeTrue(), ".status.kratix did not exist. Spec %v", status)
 						Expect(kratixStatus.Type).To(Equal("object"))
 
-						kratixStatusProperties := kratixStatus.Items.Schema.Properties
+						kratixStatusProperties := kratixStatus.Properties
 						kind, ok := kratixStatusProperties["kind"]
 						Expect(ok).To(BeTrue(), ".status.kratix.kind did not exist. Spec %v", status)
 						Expect(kind.Type).To(Equal("string"))
@@ -129,10 +145,6 @@ var _ = Describe("PromiseController", func() {
 						kratixNestedStatus, ok := kratixStatusProperties["status"]
 						Expect(ok).To(BeTrue(), ".status.kratix.status did not exist. Spec %v", status)
 						Expect(kratixNestedStatus.Type).To(Equal("string"))
-
-						lastAvailableTime, ok := kratixStatusProperties["lastAvailableTime"]
-						Expect(ok).To(BeTrue(), ".status.kratix.lastAvailableTime did not exist. Spec %v", status)
-						Expect(lastAvailableTime.Type).To(Equal("string"))
 
 						observedGeneration, ok := status.Properties["observedGeneration"]
 						Expect(ok).To(BeTrue(), ".status.observedGeneration did not exist. Spec %v", status)
@@ -173,6 +185,7 @@ var _ = Describe("PromiseController", func() {
 						Expect(fakeK8sClient.Get(ctx, promiseName, promise)).To(Succeed())
 						Expect(promise.Status.APIVersion).To(Equal("marketplace.kratix.io/v1alpha1"))
 						Expect(promise.Status.Kind).To(Equal("redis"))
+						Expect(promise.Status.Kratix.Kind).To(Equal("redis"))
 					})
 
 					By("updating the status with workflow counters all to zero", func() {
