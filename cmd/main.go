@@ -95,9 +95,10 @@ type LoggingConfig struct {
 }
 
 type Workflows struct {
-	DefaultContainerSecurityContext corev1.SecurityContext `json:"defaultContainerSecurityContext"`
-	DefaultImagePullPolicy          corev1.PullPolicy      `json:"defaultImagePullPolicy,omitempty"`
-	JobOptions                      JobOptions             `json:"jobOptions,omitempty"`
+	DefaultContainerSecurityContext corev1.SecurityContext       `json:"defaultContainerSecurityContext"`
+	DefaultImagePullPolicy          corev1.PullPolicy            `json:"defaultImagePullPolicy,omitempty"`
+	DefaultContainerResources       *corev1.ResourceRequirements `json:"defaultContainerResources,omitempty"`
+	JobOptions                      JobOptions                   `json:"jobOptions,omitempty"`
 }
 
 type JobOptions struct {
@@ -180,13 +181,16 @@ func main() {
 	setupLog = ctrl.Log.WithName("setup")
 	setupLog.Info("logging configured from Kratix config", "structured", !opts.Development, "developmentMode", opts.Development, "level", opts.Level)
 
-	if kratixConfig != nil {
-		v1alpha1.DefaultUserProvidedContainersSecurityContext = &kratixConfig.Workflows.DefaultContainerSecurityContext
-		v1alpha1.DefaultImagePullPolicy = kratixConfig.Workflows.DefaultImagePullPolicy
-		if kratixConfig.Workflows.JobOptions.DefaultBackoffLimit != nil {
-			v1alpha1.DefaultJobBackoffLimit = kratixConfig.Workflows.JobOptions.DefaultBackoffLimit
-		}
-	}
+    if kratixConfig != nil {
+        v1alpha1.DefaultUserProvidedContainersSecurityContext = &kratixConfig.Workflows.DefaultContainerSecurityContext
+        v1alpha1.DefaultImagePullPolicy = kratixConfig.Workflows.DefaultImagePullPolicy
+        if kratixConfig.Workflows.JobOptions.DefaultBackoffLimit != nil {
+            v1alpha1.DefaultJobBackoffLimit = kratixConfig.Workflows.JobOptions.DefaultBackoffLimit
+        }
+        if kratixConfig.Workflows.DefaultContainerResources != nil {
+            v1alpha1.DefaultResourceRequirements = kratixConfig.Workflows.DefaultContainerResources
+        }
+    }
 
 	podTTLAfterFinished := getPodTTLAfterFinished(kratixConfig)
 

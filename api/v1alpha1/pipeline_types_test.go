@@ -84,6 +84,18 @@ var _ = Describe("Pipeline", func() {
 		}
 		v1alpha1.DefaultUserProvidedContainersSecurityContext = globalDefaultSecurityContext
 		v1alpha1.DefaultImagePullPolicy = ""
+		v1alpha1.DefaultResourceRequirements = &corev1.ResourceRequirements{
+			Requests: corev1.ResourceList{ //nolint:exhaustive
+				corev1.ResourceCPU:              resource.MustParse("100m"),
+				corev1.ResourceMemory:           resource.MustParse("128Mi"),
+				corev1.ResourceEphemeralStorage: resource.MustParse("128Mi"),
+			},
+			Limits: corev1.ResourceList{ //nolint:exhaustive
+				corev1.ResourceCPU:              resource.MustParse("200m"),
+				corev1.ResourceMemory:           resource.MustParse("256Mi"),
+				corev1.ResourceEphemeralStorage: resource.MustParse("256Mi"),
+			},
+		}
 		promiseCrd = &apiextensionsv1.CustomResourceDefinition{
 			Spec: apiextensionsv1.CustomResourceDefinitionSpec{
 				Group: "promise.crd.group",
@@ -1096,6 +1108,47 @@ var _ = Describe("Pipeline", func() {
 						Expect(err).ToNot(HaveOccurred())
 						statusContainer := resources.Job.Spec.Template.Spec.Containers[0]
 						Expect(string(statusContainer.ImagePullPolicy)).To(Equal("Never"))
+					})
+				})
+
+				When("DefaultResourceRequirements is overridden", func() {
+					BeforeEach(func() {
+						v1alpha1.DefaultResourceRequirements = &corev1.ResourceRequirements{
+							Requests: corev1.ResourceList{ //nolint:exhaustive
+								corev1.ResourceCPU:              resource.MustParse("100m"),
+								corev1.ResourceMemory:           resource.MustParse("128Mi"),
+								corev1.ResourceEphemeralStorage: resource.MustParse("512Mi"),
+							},
+							Limits: corev1.ResourceList{ //nolint:exhaustive
+								corev1.ResourceCPU:              resource.MustParse("200m"),
+								corev1.ResourceMemory:           resource.MustParse("256Mi"),
+								corev1.ResourceEphemeralStorage: resource.MustParse("512Mi"),
+							},
+						}
+					})
+
+					It("applies the overridden ephemeral-storage requests and limits to the status-writer container", func() {
+						resources, err := factory.Resources(nil)
+						Expect(err).ToNot(HaveOccurred())
+						container := resources.Job.Spec.Template.Spec.Containers[0]
+						Expect(container.Name).To(Equal("status-writer"))
+						Expect(container.Resources.Requests.StorageEphemeral().String()).To(Equal("512Mi"))
+						Expect(container.Resources.Limits.StorageEphemeral().String()).To(Equal("512Mi"))
+					})
+
+					It("does not affect the default ephemeral-storage values after reset", func() {
+						Expect(v1alpha1.DefaultResourceRequirements.Requests.StorageEphemeral().String()).To(Equal("512Mi"))
+					})
+				})
+
+				When("DefaultResourceRequirements is not overridden", func() {
+					It("uses the hardcoded default ephemeral-storage values on the status-writer container", func() {
+						resources, err := factory.Resources(nil)
+						Expect(err).ToNot(HaveOccurred())
+						container := resources.Job.Spec.Template.Spec.Containers[0]
+						Expect(container.Name).To(Equal("status-writer"))
+						Expect(container.Resources.Requests.StorageEphemeral().String()).To(Equal("128Mi"))
+						Expect(container.Resources.Limits.StorageEphemeral().String()).To(Equal("256Mi"))
 					})
 				})
 			})
