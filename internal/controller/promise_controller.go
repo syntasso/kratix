@@ -329,8 +329,6 @@ func (r *PromiseReconciler) Reconcile(ctx context.Context, req ctrl.Request) (re
 		return r.nextReconciliation(logger), nil
 	}
 
-	logging.Debug(logger, "finished reconcilation", "promise.status", promise.Status)
-
 	return ctrl.Result{}, nil
 }
 
@@ -1172,11 +1170,16 @@ func (r *PromiseReconciler) ensureCRDExists(ctx context.Context, promise *v1alph
 
 func (r *PromiseReconciler) updateStatus(promise *v1alpha1.Promise, kind, group, version string) (bool, error) {
 	apiVersion := strings.ToLower(group + "/" + version)
-	if promise.Status.Kind == kind && promise.Status.APIVersion == apiVersion {
+
+	// TODO: Remove check of promise.Status.Kind when the field has been deprecated
+	if (promise.Status.Kind == kind || promise.Status.Kratix.Kind == kind) && promise.Status.APIVersion == apiVersion {
 		return false, nil
 	}
 
+	// TODO: Remove update to promise.Status.Kind when the field has been deprecated
 	promise.Status.Kind = kind
+
+	promise.Status.Kratix.Kind = kind
 	promise.Status.APIVersion = apiVersion
 	return true, r.Client.Status().Update(context.TODO(), promise)
 }
