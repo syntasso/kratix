@@ -124,11 +124,12 @@ func (r *WorkflowJobPodCleanupReconciler) SetupWithManager(mgr ctrl.Manager) err
 func terminalWorkflowJobPredicate() predicate.Funcs {
 	return predicate.Funcs{
 		CreateFunc: func(e event.CreateEvent) bool {
-			return false
+			job, ok := e.Object.(*batchv1.Job)
+			return ok && shouldReconcileWorkflowJob(job)
 		},
 		UpdateFunc: func(e event.UpdateEvent) bool {
-			newJob, ok := e.ObjectNew.(*batchv1.Job)
-			return ok && shouldReconcileWorkflowJob(newJob)
+			job, ok := e.ObjectNew.(*batchv1.Job)
+			return ok && shouldReconcileWorkflowJob(job)
 		},
 		DeleteFunc: func(event.DeleteEvent) bool {
 			return false
