@@ -774,10 +774,13 @@ func (r *PromiseReconciler) generateStatusAndMarkRequirements(ctx context.Contex
 }
 
 func (r *PromiseReconciler) setPromiseStatusToAvailable(ctx context.Context, promise *v1alpha1.Promise, logger logr.Logger) (ctrl.Result, error) {
-	// promise.Status.Status = v1alpha1.PromiseStatusAvailable
+	// TODO: do not update the promise.Status.Status after the field has been deprecated
+	promise.Status.Status = v1alpha1.PromiseStatusAvailable
 	promise.Status.Kratix.Status = v1alpha1.PromiseStatusAvailable
 	timestamp := metav1.Time{Time: time.Now()}
-	// promise.Status.LastAvailableTime = &timestamp
+
+	// TODO: do not update the promise.Status.LastAvailableTime after the field has been deprecated
+	promise.Status.LastAvailableTime = &timestamp
 	promise.Status.Kratix.LastAvailableTime = &timestamp
 	logging.Info(logger, "promise status set to Available")
 	updateConditionOnPromise(promise, promiseAvailableStatusCondition(timestamp))
