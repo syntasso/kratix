@@ -42,7 +42,7 @@ type GitStateStoreReconciler struct {
 	Scheme          *runtime.Scheme
 	Log             logr.Logger
 	EventRecorder   record.EventRecorder
-	RepositoryCache *RepositoryCache
+	RepositoryCache RepositoryCache
 }
 
 //+kubebuilder:rbac:groups=platform.kratix.io,resources=gitstatestores,verbs=get;list;watch;create;update;patch;delete
@@ -74,7 +74,7 @@ func (r *GitStateStoreReconciler) Reconcile(ctx context.Context, req ctrl.Reques
 	})
 }
 
-func (r *GitStateStoreReconciler) newReconcileContext(ctx context.Context, logger logr.Logger, req ctrl.Request, cache *RepositoryCache) (*stateStoreReconcileContext, error) {
+func (r *GitStateStoreReconciler) newReconcileContext(ctx context.Context, logger logr.Logger, req ctrl.Request, cache RepositoryCache) (*stateStoreReconcileContext, error) {
 	gitStateStore := &v1alpha1.GitStateStore{}
 	if err := r.Client.Get(ctx, client.ObjectKey{Name: req.Name}, gitStateStore); err != nil {
 		if errors.IsNotFound(err) {
@@ -136,7 +136,7 @@ type StateStoreError struct {
 }
 
 func (e *StateStoreError) Error() string {
-	return fmt.Sprintf("%s", e.error.Error())
+	return e.error.Error()
 }
 
 func NewInitialiseWriterError(err error) *StateStoreError {

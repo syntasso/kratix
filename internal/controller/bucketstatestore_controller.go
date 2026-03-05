@@ -41,7 +41,7 @@ type BucketStateStoreReconciler struct {
 	Scheme          *runtime.Scheme
 	Log             logr.Logger
 	EventRecorder   record.EventRecorder
-	RepositoryCache *RepositoryCache
+	RepositoryCache RepositoryCache
 }
 
 //+kubebuilder:rbac:groups=platform.kratix.io,resources=bucketstatestores,verbs=get;list;watch;create;update;patch;delete

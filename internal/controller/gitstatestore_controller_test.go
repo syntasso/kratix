@@ -170,11 +170,11 @@ var _ = Describe("GitStateStore Controller", func() {
 					},
 				)
 
-				result, err = t.reconcileUntilCompletion(reconciler, gitStateStore)
+				result, err = t.reconcileUntilCompletion(reconciler, gitStateStore, &opts{requeueExpected: true})
 			})
 
 			It("updates the status ", func() {
-				Expect(result).To(Equal(ctrl.Result{}))
+				Expect(result).To(Equal(ctrl.Result{RequeueAfter: time.Second * 15}))
 				Expect(err).ToNot(HaveOccurred())
 
 				Expect(fakeK8sClient.Get(ctx, testGitStateStoreName, updatedGitStateStore)).To(Succeed())

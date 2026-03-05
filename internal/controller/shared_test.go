@@ -67,6 +67,8 @@ type opts struct {
 	funcs []func(client.Object) error
 	// Number of errors to tolerate before failing
 	errorBudget int
+	// Expecting requeues
+	requeueExpected bool
 }
 
 type testReconciler struct {
@@ -126,6 +128,9 @@ func (t *testReconciler) reconcileUntilCompletion(r kubebuilder.Reconciler, obj 
 		//reset so func can be run again
 		t.reconcileCount = 0
 		t.errorCount = 0
+		if len(opts) > 0 && opts[0].requeueExpected && result.RequeueAfter > 0 {
+			return result, nil
+		}
 		return result, fmt.Errorf("reconcile loop detected")
 	}
 
