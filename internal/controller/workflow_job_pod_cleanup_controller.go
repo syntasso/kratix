@@ -88,14 +88,16 @@ func (r *WorkflowJobPodCleanupReconciler) Reconcile(ctx context.Context, req ctr
 
 	for i := range podList.Items {
 		pod := &podList.Items[i]
-		err := r.Client.Delete(ctx, pod)
-		if err != nil {
-			if kerrors.IsNotFound(err) {
-				continue
+		if isPodOwnedByJob(pod, job) {
+			err := r.Client.Delete(ctx, pod)
+			if err != nil {
+				if kerrors.IsNotFound(err) {
+					continue
+				}
+				return ctrl.Result{}, err
 			}
-			return ctrl.Result{}, err
+			logging.Info(logger, "deleted terminal workflow pod", "pod", pod.GetName(), "job", job.GetName())
 		}
-		logging.Info(logger, "deleted terminal workflow pod", "pod", pod.GetName(), "job", job.GetName())
 	}
 
 	return ctrl.Result{}, nil
@@ -184,4 +186,16 @@ func getJobTerminalTime(job *batchv1.Job) (time.Time, bool) {
 		return time.Time{}, false
 	}
 	return latestFailedConditionTime.Time, true
+}
+
+func isPodOwnedByJob(pod *corev1.Pod, job *batchv1.Job) bool {
+	for _, ownerReference := range pod.GetOwnerReferences() {
+		if ownerReference.Kind != "Job" || ownerReference.Name != job.GetName() {
+			continue
+		}
+		if len(ownerReference.UID) == 0 || len(job.GetUID()) == 0 || ownerReference.UID == job.GetUID() {
+			return true
+		}
+	}
+	return false
 }
