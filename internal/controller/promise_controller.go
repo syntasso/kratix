@@ -169,11 +169,6 @@ func (r *PromiseReconciler) Reconcile(ctx context.Context, req ctrl.Request) (re
 		return ctrl.Result{}, err
 	}
 
-	// originalStatus := promise.Status.Status
-	originalStatus := promise.Status.Kratix.Status
-	// fmt.Println("originalStatus: ", originalStatus)
-	originalAvailableCondition := promise.GetCondition(v1alpha1.PromiseAvailableConditionType)
-
 	if v, ok := promise.Labels[pauseReconciliationLabel]; ok && v == "true" {
 		msg := fmt.Sprintf("'%s' label set to 'true' for promise; pausing reconciliation", pauseReconciliationLabel)
 		logging.Info(r.Log, msg)
@@ -202,21 +197,33 @@ func (r *PromiseReconciler) Reconcile(ctx context.Context, req ctrl.Request) (re
 		return result, err
 	}
 
+	// Gather Promise original information
+	deprecatedOriginalStatus := promise.Status.Status
+	originalStatus := promise.Status.Kratix.Status
+	originalAvailableCondition := promise.GetCondition(v1alpha1.PromiseAvailableConditionType)
+
 	// Set status to unavailable, at the end of this function we set it to
 	// available. If at any time we return early, it persisted as unavailable
-	// promise.Status.Status = v1alpha1.PromiseStatusUnavailable
+	promise.Status.Status = v1alpha1.PromiseStatusUnavailable
 	promise.Status.Kratix.Status = v1alpha1.PromiseStatusUnavailable
+
+	// Mark the Promise.Status.Conditions to Unavailable
 	updateConditionOnPromise(promise, promiseUnavailableStatusCondition())
+
 	requirementsChanged := r.hasPromiseRequirementsChanged(ctx, promise)
 	if requirementsChanged {
 		if apiMeta.IsStatusConditionFalse(promise.Status.Conditions, "RequirementsFulfilled") {
+			// Mark the Promise.Status.Conditions to `Message: "Pending"`
 			updateConditionOnPromise(promise, promiseReconciledPendingCondition("RequirementsNotFulfilled"))
 		}
 
 		if result, statusUpdateErr := r.updatePromiseStatus(ctx, promise); statusUpdateErr != nil || !result.IsZero() {
 			return result, statusUpdateErr
 		}
-		if originalStatus == v1alpha1.PromiseStatusAvailable {
+
+		// If the originalStatus was available, now we have transitioned to an Unavailable or Pending state
+		// therefore we need to produce an event to inform of this transition
+		if originalStatus == v1alpha1.PromiseStatusAvailable || deprecatedOriginalStatus == v1alpha1.PromiseStatusAvailable {
 			msg := "Promise no longer available: Requirements have changed"
 			r.EventRecorder.Eventf(
 				promise, "Warning", "Unavailable", msg)
@@ -301,11 +308,15 @@ func (r *PromiseReconciler) Reconcile(ctx context.Context, req ctrl.Request) (re
 		logging.Debug(logger, "Promise only contains dependencies; skipping API and dynamic controller creation")
 	}
 
-	if originalStatus != v1alpha1.PromiseStatusAvailable {
+	// If the originalStatus was not equal to `Available`` then set the PromiseStatus to Available and exit reconcilation loop
+	if originalStatus != v1alpha1.PromiseStatusAvailable || deprecatedOriginalStatus != v1alpha1.PromiseStatusAvailable {
 		return r.setPromiseStatusToAvailable(ctx, promise, logger)
 	}
-	promise.Status.Status = originalStatus
+
+	promise.Status.Status = deprecatedOriginalStatus
+	promise.Status.Kratix.Status = originalStatus
 	timeStamp := metav1.Time{Time: time.Now()}
+
 	if originalAvailableCondition != nil {
 		timeStamp = originalAvailableCondition.LastTransitionTime
 	}
@@ -336,8 +347,9 @@ func (r *PromiseReconciler) handlePromiseVersion(ctx context.Context, promise *v
 	var promiseVersion string
 	var found bool
 	if promiseVersion, found = promise.Labels[v1alpha1.PromiseVersionLabel]; found {
-		if promise.Status.Version != promiseVersion {
+		if promise.Status.Version != promiseVersion && promise.Status.Kratix.Version != promiseVersion {
 			promise.Status.Version = promiseVersion
+			promise.Status.Kratix.Version = promiseVersion
 			return r.updatePromiseStatus(ctx, promise)
 		}
 	}
@@ -382,7 +394,9 @@ func (r *PromiseReconciler) setPausedReconciliationStatusConditions(ctx context.
 	available := promise.GetCondition(v1alpha1.PromiseStatusAvailable)
 	if available == nil || available.Status == "True" {
 		updateConditionOnPromise(promise, promiseAvailablePausedStatusCondition())
+		// TODO: remove deprecated promise.Status.Status
 		promise.Status.Status = v1alpha1.PromiseStatusUnavailable
+		promise.Status.Kratix.Status = v1alpha1.PromiseStatusUnavailable
 		updated = true
 	}
 
@@ -420,6 +434,7 @@ func (r *PromiseReconciler) generateWorkflowsCounterStatus(promise *v1alpha1.Pro
 		desiredWorkflowsSucceeded = numOfPipelines
 	}
 
+	// TODO: remove deprecated promise.Status.Workflows, promise.Status.WorkflowsSucceeded, promise.Status.WorkflowsFailed
 	if promise.Status.Workflows != desiredWorkflows || promise.Status.WorkflowsSucceeded != desiredWorkflowsSucceeded {
 		promise.Status.Workflows = desiredWorkflows
 		promise.Status.WorkflowsSucceeded = desiredWorkflowsSucceeded
@@ -848,6 +863,7 @@ func (r *PromiseReconciler) reconcileDependenciesAndPromiseWorkflows(o opts, pro
 		return false, r.updateWorkflowStatusCountersToZero(o.ctx, promise)
 	}
 
+	// TODO: remove deprecated promise.Status.Workflows
 	if promise.Status.Workflows != pipelineCount {
 		promise.Status.Workflows = pipelineCount
 		return false, r.Client.Update(o.ctx, promise)

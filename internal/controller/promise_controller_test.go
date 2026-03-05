@@ -189,6 +189,7 @@ var _ = Describe("PromiseController", func() {
 					})
 
 					By("updating the status with workflow counters all to zero", func() {
+						// TODO: deprecated
 						Expect(promise.Status.Workflows).To(Equal(int64(0)))
 						Expect(promise.Status.WorkflowsSucceeded).To(Equal(int64(0)))
 						Expect(promise.Status.WorkflowsFailed).To(Equal(int64(0)))
@@ -318,7 +319,9 @@ var _ = Describe("PromiseController", func() {
 						Expect(reconciledCond.Reason).To(Equal("RequirementsNotFulfilled"))
 						Expect(reconciledCond.LastTransitionTime).ToNot(BeNil())
 
+						// TODO: promise.Status.Status deprecated
 						Expect(promise.Status.Status).To(Equal(v1alpha1.PromiseStatusUnavailable))
+						Expect(promise.Status.Kratix.Status).To(Equal(v1alpha1.PromiseStatusUnavailable))
 						cond, condErr := getCondition(promise, v1alpha1.PromiseAvailableConditionType)
 						Expect(condErr).NotTo(HaveOccurred())
 						assertPromiseUnavailableCondition(cond)
@@ -371,7 +374,9 @@ var _ = Describe("PromiseController", func() {
 							},
 						))
 
+						// TODO: promise.Status.Status deprecated
 						Expect(promise.Status.Status).To(Equal(v1alpha1.PromiseStatusUnavailable))
+						Expect(promise.Status.Kratix.Status).To(Equal(v1alpha1.PromiseStatusUnavailable))
 						cond, condErr := getCondition(promise, v1alpha1.PromiseAvailableConditionType)
 						Expect(condErr).NotTo(HaveOccurred())
 						assertPromiseUnavailableCondition(cond)
@@ -415,7 +420,9 @@ var _ = Describe("PromiseController", func() {
 								},
 							))
 
+							// TODO: promise.Status.Status deprecated
 							Expect(promise.Status.Status).To(Equal(v1alpha1.PromiseStatusUnavailable))
+							Expect(promise.Status.Kratix.Status).To(Equal(v1alpha1.PromiseStatusUnavailable))
 							cond, condErr := getCondition(promise, v1alpha1.PromiseAvailableConditionType)
 							Expect(condErr).NotTo(HaveOccurred())
 							assertPromiseUnavailableCondition(cond)
@@ -463,7 +470,9 @@ var _ = Describe("PromiseController", func() {
 							})
 
 							By("updating the status to indicate the promise is available", func() {
+								// TODO: promise.Status.Status deprecated
 								Expect(promise.Status.Status).To(Equal(v1alpha1.PromiseStatusAvailable))
+								Expect(promise.Status.Kratix.Status).To(Equal(v1alpha1.PromiseStatusAvailable))
 								cond, condErr := getCondition(promise, v1alpha1.PromiseAvailableConditionType)
 								Expect(condErr).NotTo(HaveOccurred())
 								assertPromiseAvailableCondition(cond)
@@ -501,14 +510,18 @@ var _ = Describe("PromiseController", func() {
 
 						Expect(err).NotTo(HaveOccurred())
 						Expect(fakeK8sClient.Get(ctx, promiseName, promise)).To(Succeed())
+						// TODO: promise.Status.Status deprecated
 						Expect(promise.Status.Status).To(Equal(v1alpha1.PromiseStatusAvailable))
+						Expect(promise.Status.Kratix.Status).To(Equal(v1alpha1.PromiseStatusAvailable))
 						cond, condErr := getCondition(promise, v1alpha1.PromiseAvailableConditionType)
 						Expect(condErr).NotTo(HaveOccurred())
 						assertPromiseAvailableCondition(cond)
 
 						// Make the required Promise unavailable
 						Expect(fakeK8sClient.Get(ctx, requiredKafkaPromiseName, requiredKafkaPromise)).To(Succeed())
+						// TODO: promise.Status.Status deprecated
 						requiredKafkaPromise.Status.Status = "Unavailable"
+						requiredKafkaPromise.Status.Kratix.Status = "Unavailabe"
 						Expect(fakeK8sClient.Status().Update(ctx, requiredKafkaPromise)).To(Succeed())
 
 						// Reconcile
@@ -541,7 +554,9 @@ var _ = Describe("PromiseController", func() {
 							},
 						))
 
+						// TODO: promise.Status.Status deprecated
 						Expect(promise.Status.Status).To(Equal(v1alpha1.PromiseStatusUnavailable))
+						Expect(promise.Status.Kratix.Status).To(Equal(v1alpha1.PromiseStatusUnavailable))
 						cond, condErr := getCondition(promise, v1alpha1.PromiseAvailableConditionType)
 						Expect(condErr).NotTo(HaveOccurred())
 						assertPromiseUnavailableCondition(cond)
@@ -625,6 +640,7 @@ var _ = Describe("PromiseController", func() {
 					})
 
 					By("setting the workflows counter to the number of pipelines", func() {
+						// TODO: deprecated
 						Expect(promise.Status.Workflows).To(Equal(int64(1)))
 					})
 
@@ -651,6 +667,7 @@ var _ = Describe("PromiseController", func() {
 						_, err = t.reconcileUntilCompletion(reconciler, promise)
 						Expect(err).NotTo(HaveOccurred())
 						Expect(fakeK8sClient.Get(ctx, promiseName, promise)).To(Succeed())
+						// TODO: deprecated
 						Expect(promise.Status.Workflows).To(Equal(int64(1)))
 					})
 
@@ -672,7 +689,7 @@ var _ = Describe("PromiseController", func() {
 
 					By("updating the status of the promise workflow", func() {
 						Expect(fakeK8sClient.Get(ctx, promiseName, promise)).To(Succeed())
-
+						// TODO: remove deprecated promise.Status.Workflows
 						Expect(promise.Status.Workflows).To(Equal(int64(1)))
 						Expect(promise.Status.WorkflowsFailed).To(Equal(int64(0)))
 						Expect(promise.Status.WorkflowsSucceeded).To(Equal(int64(1)))
@@ -1321,7 +1338,9 @@ var _ = Describe("PromiseController", func() {
 				Expect(fakeK8sClient.Get(ctx, promiseName, promise)).To(Succeed())
 
 				By("keeping promise as 'Available'", func() {
+					// TODO: promise.Status.Status deprecated
 					Expect(promise.Status.Status).To(Equal(v1alpha1.PromiseStatusAvailable))
+					Expect(promise.Status.Kratix.Status).To(Equal(v1alpha1.PromiseStatusAvailable))
 					cond, condErr := getCondition(promise, v1alpha1.PromiseAvailableConditionType)
 					Expect(condErr).NotTo(HaveOccurred())
 					assertPromiseAvailableCondition(cond)
@@ -1364,7 +1383,9 @@ var _ = Describe("PromiseController", func() {
 					Expect(fakeK8sClient.Status().Update(ctx, uPromise)).To(Succeed())
 
 					Expect(fakeK8sClient.Get(ctx, promiseName, promise)).To(Succeed())
+					// TODO: promise.Status.Status deprecated
 					Expect(promise.Status.Status).To(Equal(v1alpha1.PromiseStatusAvailable))
+					Expect(promise.Status.Kratix.Status).To(Equal(v1alpha1.PromiseStatusAvailable))
 					cond, condErr := getCondition(promise, v1alpha1.PromiseAvailableConditionType)
 					Expect(condErr).NotTo(HaveOccurred())
 					assertPromiseAvailableCondition(cond)
@@ -1508,7 +1529,9 @@ var _ = Describe("PromiseController", func() {
 
 				By("setting the promise to 'unavailable' and 'paused' for the reconciled status.condition")
 				Expect(fakeK8sClient.Get(ctx, promiseName, promise)).To(Succeed())
+				// TODO: promise.Status.Status deprecated
 				Expect(promise.Status.Status).To(Equal("Unavailable"))
+				Expect(promise.Status.Kratix.Status).To(Equal("Unavailable"))
 				availableCond := apimeta.FindStatusCondition(promise.Status.Conditions, "Available")
 				Expect(availableCond).NotTo(BeNil())
 				Expect(string(availableCond.Status)).To(Equal("False"))
@@ -1923,8 +1946,12 @@ func installRequiredPromise(name, version, status string) {
 
 	Expect(err).ToNot(HaveOccurred())
 	Expect(fakeK8sClient.Get(ctx, requiredPromiseName, requiredPromise)).To(Succeed())
+	// TODO: promise.Status.Status and requiredPromise.Status.Version deprecated
 	requiredPromise.Status.Status = status
 	requiredPromise.Status.Version = version
+
+	requiredPromise.Status.Kratix.Status = status
+	requiredPromise.Status.Kratix.Version = version
 	Expect(fakeK8sClient.Status().Update(ctx, requiredPromise)).To(Succeed())
 }
 
