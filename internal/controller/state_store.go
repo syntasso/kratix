@@ -86,36 +86,48 @@ type stateStoreReconcileContext struct {
 	controller string
 
 	logger        logr.Logger
-	trace         *reconcileTrace
 	client        client.Client
 	eventRecorder record.EventRecorder
 
 	stateStore       StateStore
 	stateStoreSecret *v1.Secret
-	repositoryCache  *RepositoryCache
+	repositoryCache  RepositoryCache
 }
 
 func (reconcileCtx *stateStoreReconcileContext) Reconcile() (ctrl.Result, error) {
-	repository, err := reconcileCtx.repositoryCache.InitRepository(reconcileCtx)
+	repository, err := reconcileCtx.repositoryCache.InitRepository(
+		reconcileCtx.logger,
+		reconcileCtx.stateStore,
+		reconcileCtx.stateStoreSecret,
+	)
 	if err != nil {
 		logging.Error(reconcileCtx.logger, err, "unable to get repository")
-		return reconcileCtx.setNotReadyStatus(err)
+		if err := reconcileCtx.setNotReadyStatus(err); err != nil {
+			return ctrl.Result{}, err
+		}
+		return defaultRequeue, nil
 	}
 	repository.Lock()
 	defer repository.Unlock()
 
 	if err := repository.Writer.ValidatePermissions(); err != nil {
 		logging.Error(reconcileCtx.logger, err, "unable to validate permissions")
-		_, err := reconcileCtx.setNotReadyStatus(NewValidatePermissionsError(err))
-		if err != nil {
+		if err := reconcileCtx.setNotReadyStatus(NewValidatePermissionsError(err)); err != nil {
 			return ctrl.Result{}, err
 		}
 		return defaultRequeue, nil
 	}
-	return reconcileCtx.setReadyStatus()
+
+	if err := reconcileCtx.setReadyStatus(); err != nil {
+		if kerrors.IsConflict(err) {
+			return fastRequeue, nil
+		}
+		return ctrl.Result{}, err
+	}
+	return ctrl.Result{}, nil
 }
 
-func (reconcileCtx *stateStoreReconcileContext) setNotReadyStatus(err *StateStoreError) (ctrl.Result, error) {
+func (reconcileCtx *stateStoreReconcileContext) setNotReadyStatus(err *StateStoreError) error {
 	return reconcileCtx.setStatus(StatusNotReady, metav1.Condition{
 		Type:    StateStoreReadyConditionType,
 		Reason:  err.Reason,
@@ -124,7 +136,7 @@ func (reconcileCtx *stateStoreReconcileContext) setNotReadyStatus(err *StateStor
 	}, func() { reconcileCtx.recordNotReadyEvent(err) })
 }
 
-func (reconcileCtx *stateStoreReconcileContext) setReadyStatus() (ctrl.Result, error) {
+func (reconcileCtx *stateStoreReconcileContext) setReadyStatus() error {
 	return reconcileCtx.setStatus(StatusReady, metav1.Condition{
 		Type:    StateStoreReadyConditionType,
 		Reason:  StateStoreReadyConditionReason,
@@ -133,24 +145,17 @@ func (reconcileCtx *stateStoreReconcileContext) setReadyStatus() (ctrl.Result, e
 	}, reconcileCtx.recordReadyEvent)
 }
 
-func (reconcileCtx *stateStoreReconcileContext) setStatus(status string, condition metav1.Condition, recordEvent func()) (ctrl.Result, error) {
+func (reconcileCtx *stateStoreReconcileContext) setStatus(status string, condition metav1.Condition, recordEvent func()) error {
 	stateStoreStatus := reconcileCtx.stateStore.GetStatus().DeepCopy()
 	stateStoreStatus.Status = status
 
 	if !meta.SetStatusCondition(&stateStoreStatus.Conditions, condition) {
-		return ctrl.Result{}, nil
+		return nil
 	}
 
 	reconcileCtx.stateStore.SetStatus(*stateStoreStatus)
 	recordEvent()
-	if err := reconcileCtx.client.Status().Update(reconcileCtx.ctx, reconcileCtx.stateStore); err != nil {
-		if kerrors.IsConflict(err) {
-			return fastRequeue, nil
-		}
-		logging.Error(reconcileCtx.logger, err, "error updating state store status")
-		return defaultRequeue, nil
-	}
-	return ctrl.Result{}, nil
+	return reconcileCtx.client.Status().Update(reconcileCtx.ctx, reconcileCtx.stateStore)
 }
 
 func (reconcileCtx *stateStoreReconcileContext) recordReadyEvent() {

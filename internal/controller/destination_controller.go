@@ -58,7 +58,7 @@ type DestinationReconciler struct {
 	Log             logr.Logger
 	Scheduler       *Scheduler
 	EventRecorder   record.EventRecorder
-	RepositoryCache *RepositoryCache
+	RepositoryCache RepositoryCache
 }
 
 type destinationReconcileContext struct {
@@ -66,12 +66,11 @@ type destinationReconcileContext struct {
 	controller string
 
 	logger        logr.Logger
-	trace         *reconcileTrace
 	client        client.Client
 	eventRecorder record.EventRecorder
 
 	destination     *v1alpha1.Destination
-	repositoryCache *RepositoryCache
+	repositoryCache RepositoryCache
 }
 
 //+kubebuilder:rbac:groups=platform.kratix.io,resources=destinations,verbs=get;list;watch;create;update;patch;delete
@@ -128,13 +127,13 @@ func (d *destinationReconcileContext) Reconcile() (ctrl.Result, error) {
 		logging.Debug(d.logger, "updating destination finalizers")
 		if err := d.client.Update(d.ctx, d.destination); err != nil {
 			logging.Error(d.logger, err, "error adding finalizers to destination")
-			return d.setNotReadyStatus("DestinationFinalizerUpdateFailed", err.Error())
+			return ctrl.Result{}, d.setNotReadyStatus("DestinationFinalizerUpdateFailed", err.Error())
 		}
 		return ctrl.Result{}, nil
 	}
 
 	if apiMeta.FindStatusCondition(d.destination.Status.Conditions, "Ready") == nil {
-		return d.setNotReadyStatus(v1alpha1.DestinationNotReadyReason, "Destination is not ready")
+		return ctrl.Result{}, d.setNotReadyStatus(v1alpha1.DestinationNotReadyReason, "Destination is not ready")
 	}
 
 	repo, err := d.repositoryCache.GetRepositoryByTypeAndName(
@@ -142,8 +141,11 @@ func (d *destinationReconcileContext) Reconcile() (ctrl.Result, error) {
 		d.destination.Spec.StateStoreRef.Name,
 	)
 	if err != nil {
-		if errors.Is(err, CacheMissError) {
-			logging.Debug(d.logger, "repository not initialised, requeuing")
+		if errors.Is(err, ErrCacheMiss) {
+			d.logAndRecordEvent(err, "State Store not ready")
+			if err := d.setNotReadyStatus("StateStoreNotReady", "State Store not ready"); err != nil {
+				return ctrl.Result{}, err
+			}
 			return defaultRequeue, nil
 		}
 		return ctrl.Result{}, err
@@ -152,7 +154,9 @@ func (d *destinationReconcileContext) Reconcile() (ctrl.Result, error) {
 	repo.Lock()
 	defer repo.Unlock()
 
-	repo.Writer.Reset()
+	if err := repo.Writer.Reset(); err != nil {
+		return defaultRequeue, nil
+	}
 
 	if !d.destination.DeletionTimestamp.IsZero() {
 		return d.handleDeletion(repo)
@@ -164,39 +168,42 @@ func (d *destinationReconcileContext) Reconcile() (ctrl.Result, error) {
 		}
 
 		d.logAndRecordEvent(nil, "Destination is Ready")
-		return d.setReadyStatus(v1alpha1.DestinationReadyReason, "Destination is ready")
+		return ctrl.Result{}, d.setReadyStatus(v1alpha1.DestinationReadyReason, "Destination is ready")
 	}
 
 	d.logger = d.logger.WithValues("path", d.destination.Spec.Path)
 
 	var writeErr error
 	if writeErr = d.writeTestFiles(repo); writeErr != nil {
-		d.logAndRecordEvent(writeErr, "unable to write test files to state store")
+		d.logAndRecordEvent(writeErr, "Failed to write test documents to State Store")
 	}
 
 	if writeErr != nil {
-		return d.setNotReadyStatus("StateStoreWriteFailed", writeErr.Error())
+		if err := d.setNotReadyStatus("StateStoreWriteFailed", fmt.Sprintf("Failed to write test documents to State Store: %s", writeErr.Error())); err != nil {
+			return ctrl.Result{}, err
+		}
+		return defaultRequeue, nil
 	}
-	d.logAndRecordEvent(nil, "test files written to state store")
-	return d.setReadyStatus("TestDocumentsWritten", "Test documents written to State Store")
+	d.logAndRecordEvent(nil, "Destination is Ready")
+	return ctrl.Result{}, d.setReadyStatus("TestDocumentsWritten", "Test documents written to State Store")
 }
 
-func (d *destinationReconcileContext) setReadyStatus(reason, message string) (ctrl.Result, error) {
+func (d *destinationReconcileContext) setReadyStatus(reason, message string) error {
 	if changed := d.destination.SetReadyStatus(reason, message); changed {
 		if err := d.client.Status().Update(d.ctx, d.destination); err != nil {
-			return ctrl.Result{}, err
+			return err
 		}
 	}
-	return ctrl.Result{}, nil
+	return nil
 }
 
-func (d *destinationReconcileContext) setNotReadyStatus(reason, message string) (ctrl.Result, error) {
+func (d *destinationReconcileContext) setNotReadyStatus(reason, message string) error {
 	if changed := d.destination.SetNotReadyStatus(reason, message); changed {
 		if err := d.client.Status().Update(d.ctx, d.destination); err != nil {
-			return ctrl.Result{}, err
+			return err
 		}
 	}
-	return ctrl.Result{}, nil
+	return nil
 }
 
 func (d *destinationReconcileContext) needsFinalizerUpdate() bool {
@@ -382,9 +389,19 @@ func (d *destinationReconcileContext) getCanaryWorkloads() []v1alpha1.Workload {
 func (d *destinationReconcileContext) logAndRecordEvent(err error, message string) {
 	if err != nil {
 		logging.Error(d.logger, err, message)
-		d.eventRecorder.Eventf(d.destination, v1.EventTypeWarning, v1alpha1.DestinationNotReadyReason, err.Error())
+		d.eventRecorder.Eventf(
+			d.destination,
+			v1.EventTypeWarning,
+			v1alpha1.DestinationNotReadyReason,
+			fmt.Sprintf("%s: %s", message, err.Error()),
+		)
 	} else {
 		logging.Info(d.logger, message)
-		d.eventRecorder.Eventf(d.destination, v1.EventTypeNormal, v1alpha1.DestinationReadyReason, message)
+		d.eventRecorder.Eventf(
+			d.destination,
+			v1.EventTypeNormal,
+			v1alpha1.DestinationReadyReason,
+			message,
+		)
 	}
 }

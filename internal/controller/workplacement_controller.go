@@ -21,6 +21,7 @@ import (
 	"errors"
 	"fmt"
 	"path/filepath"
+	"sort"
 	"strings"
 
 	"github.com/go-logr/logr"
@@ -66,7 +67,7 @@ type WorkPlacementReconciler struct {
 	VersionCache  map[string]string
 	EventRecorder record.EventRecorder
 
-	RepositoryCache *RepositoryCache
+	RepositoryCache RepositoryCache
 }
 
 type workPlacementReconcileContext struct {
@@ -80,7 +81,7 @@ type workPlacementReconcileContext struct {
 
 	workPlacement   *v1alpha1.WorkPlacement
 	destination     *v1alpha1.Destination
-	repositoryCache *RepositoryCache
+	repositoryCache RepositoryCache
 
 	versionCache map[string]string
 }
@@ -105,8 +106,9 @@ func (r *WorkPlacementReconciler) newReconcileContext(ctx context.Context, logge
 
 	if err := r.Client.Get(ctx, key, dest); err != nil {
 		if k8sErrors.IsNotFound(err) {
-			logging.Warn(logger, "destination not found")
-			return nil, nil
+			logging.Warn(logger, "destination not found, cleaning up deletion finalizers")
+			cleanupDeletionFinalizers(workPlacement)
+			return nil, r.Client.Update(ctx, workPlacement)
 		}
 		logging.Error(logger, err, "failed to retrieve Destination")
 		return nil, err
@@ -152,7 +154,7 @@ func (w *workPlacementReconcileContext) Reconcile() (result ctrl.Result, retErr 
 		w.destination.Spec.StateStoreRef.Name,
 	)
 	if err != nil {
-		if errors.Is(err, CacheMissError) {
+		if errors.Is(err, ErrCacheMiss) {
 			logging.Debug(w.logger, "repository not initialised, requeuing")
 			return defaultRequeue, nil
 		}
@@ -162,7 +164,9 @@ func (w *workPlacementReconcileContext) Reconcile() (result ctrl.Result, retErr 
 	repo.Lock()
 	defer repo.Unlock()
 
-	repo.Writer.Reset()
+	if err := repo.Writer.Reset(); err != nil {
+		return defaultRequeue, nil
+	}
 
 	if !w.workPlacement.DeletionTimestamp.IsZero() {
 		return w.handleDeletion(repo)
@@ -178,9 +182,11 @@ func (w *workPlacementReconcileContext) Reconcile() (result ctrl.Result, retErr 
 	}
 
 	versionID, requeue, err := w.writeToStateStore(repo)
-	if err != nil || requeue.RequeueAfter > 0 {
-		logging.Debug(w.logger, "write to state store resulted in requeue", "requeueAfter", requeue.RequeueAfter, "error", err)
-		return requeue, err
+	if err != nil {
+		return ctrl.Result{}, err
+	}
+	if requeue.RequeueAfter > 0 {
+		return requeue, nil
 	}
 
 	if err := w.updateResourceStatus(versionID, nil); err != nil {
@@ -392,6 +398,9 @@ func (w *workPlacementReconcileContext) readKratixStateFile(repo *Repository, ig
 }
 
 func (w *workPlacementReconcileContext) getAggregatedWorkload() (v1alpha1.Workload, error) {
+	workload := v1alpha1.Workload{
+		Filepath: filepath.Join(w.destination.Spec.Path, w.destination.Spec.Filepath.Filename),
+	}
 	activeWorkplacements, err := w.getAllWorkplacementsForDestination()
 	if err != nil {
 		w.logAndRecordError(err, "failed to get all workplacements for destination")
@@ -399,7 +408,7 @@ func (w *workPlacementReconcileContext) getAggregatedWorkload() (v1alpha1.Worklo
 	}
 
 	if len(activeWorkplacements) == 0 {
-		return v1alpha1.Workload{}, nil
+		return workload, nil
 	}
 
 	combinedWorkloads, err := w.combineAllWorkloads(activeWorkplacements)
@@ -408,11 +417,7 @@ func (w *workPlacementReconcileContext) getAggregatedWorkload() (v1alpha1.Worklo
 		return v1alpha1.Workload{}, err
 	}
 
-	workload := v1alpha1.Workload{
-		Filepath: filepath.Join(w.destination.Spec.Path, w.destination.Spec.Filepath.Filename),
-		Content:  combinedWorkloads,
-	}
-
+	workload.Content = combinedWorkloads
 	return workload, nil
 }
 
@@ -434,6 +439,10 @@ func (w *workPlacementReconcileContext) getAllWorkplacementsForDestination() ([]
 			active = append(active, wp)
 		}
 	}
+	// sort active workplacements by name
+	sort.Slice(active, func(i, j int) bool {
+		return active[i].Name < active[j].Name
+	})
 	return active, nil
 }
 
@@ -493,8 +502,8 @@ func (w *workPlacementReconcileContext) writeToStateStore(repo *Repository) (str
 	versionID, workloadErr := w.writeWorkloadsToStateStore(repo)
 	if workloadErr != nil {
 		telemetry.RecordWorkPlacementWrite(w.ctx, telemetry.WorkPlacementWriteResultFailure, metricAttrs...)
-		w.logAndRecordError(workloadErr, "error writing to repository; will retry")
-		return "", ctrl.Result{}, w.updateResourceStatus("", workloadErr)
+		w.logAndRecordError(workloadErr, "error writing to destination; check kubectl get destination for more info")
+		return "", defaultRequeue, w.updateResourceStatus("", workloadErr)
 	}
 
 	telemetry.RecordWorkPlacementWrite(w.ctx, telemetry.WorkPlacementWriteResultSuccess, metricAttrs...)
@@ -540,7 +549,6 @@ func (w *workPlacementReconcileContext) writeWorkloadsToStateStore(repo *Reposit
 
 			workload.Content = string(decompressedContent)
 			workloadsToCreate = append(workloadsToCreate, workload)
-			workloadsToDelete = append(workloadsToDelete, dir)
 		}
 
 	default:
@@ -550,9 +558,8 @@ func (w *workPlacementReconcileContext) writeWorkloadsToStateStore(repo *Reposit
 	versionID, err := repo.Writer.UpdateFiles(dir, w.workPlacement.Name, workloadsToCreate, workloadsToDelete)
 	if err != nil {
 		logging.Error(w.logger, err, "error writing resources to repository")
-		return "", err
 	}
-	return versionID, nil
+	return versionID, err
 }
 
 func (w *workPlacementReconcileContext) deleteWorkPlacement(repo *Repository) (ctrl.Result, error) {
@@ -578,6 +585,7 @@ func (w *workPlacementReconcileContext) deleteWorkPlacement(repo *Repository) (c
 			logging.Trace(w.logger, "handling file path mode none")
 			stateFile, err := w.readKratixStateFile(repo, false)
 			if err != nil {
+				logging.Debug(w.logger, "failed to read .kratix state file", "error", err)
 				return defaultRequeue, nil
 			}
 			workloadsToDelete = stateFile.Files
@@ -586,9 +594,19 @@ func (w *workPlacementReconcileContext) deleteWorkPlacement(repo *Repository) (c
 			logging.Trace(w.logger, "handling file path mode aggregatedYAML")
 			workload, err := w.getAggregatedWorkload()
 			if err != nil {
+				logging.Debug(w.logger, "failed to get aggregated workload", "error", err)
 				return defaultRequeue, nil
 			}
 			workloadsToDelete = []string{workload.Filepath}
+
+			if workload.Content != "" { // there are still other workplacements for this destination
+				_, err := repo.Writer.UpdateFiles(workload.Filepath, w.workPlacement.Name, []v1alpha1.Workload{workload}, []string{})
+				if err != nil {
+					logging.Debug(w.logger, "failed to update files in repository", "error", err)
+					return defaultRequeue, nil
+				}
+				workloadsToDelete = []string{}
+			}
 
 		default:
 			return ctrl.Result{}, fmt.Errorf("unsupported file path mode: %s", filePathMode)
