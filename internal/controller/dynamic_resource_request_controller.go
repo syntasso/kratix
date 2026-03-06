@@ -158,8 +158,10 @@ func (r *DynamicResourceRequestController) Reconcile(ctx context.Context, req ct
 
 	opts := opts{client: r.Client, ctx: ctx, logger: logger}
 
-	var promiseRevisionUsed *v1alpha1.PromiseRevision
-	var bindingVersion string
+	var (
+		promiseRevisionUsed *v1alpha1.PromiseRevision
+		bindingVersion      string
+	)
 	if r.PromiseUpgrade {
 		logging.Trace(baseLogger,
 			"PromiseUpgrade feature flag set to true; will reconcile with a PromiseRevision.")
@@ -367,46 +369,6 @@ func (r *DynamicResourceRequestController) generateResourceStatus(ctx context.Co
 	return worksSucceededUpdate || reconciledUpdate || workflowsCounterStatusUpdate || promiseVersionUpdate, nil
 }
 
-func (r *DynamicResourceRequestController) updateReconciledCondition(rr *unstructured.Unstructured) bool {
-	worksSucceeded := resourceutil.GetCondition(rr, resourceutil.WorksSucceededCondition)
-	workflowCompleted := resourceutil.GetCondition(rr, resourceutil.ConfigureWorkflowCompletedCondition)
-	reconciled := resourceutil.GetCondition(rr, resourceutil.ReconciledCondition)
-
-	var updated bool
-	if workflowCompleted != nil &&
-		workflowCompleted.Status == v1.ConditionFalse && workflowCompleted.Reason == "PipelinesInProgress" {
-		if reconciled == nil || reconciled.Status != v1.ConditionUnknown {
-			resourceutil.MarkReconciledPending(rr, "WorkflowPending")
-			updated = true
-		}
-	} else if workflowCompleted != nil && workflowCompleted.Status == v1.ConditionFalse {
-		if reconciled == nil || reconciled.Status != v1.ConditionFalse ||
-			reconciled.Reason != resourceutil.ConfigureWorkflowCompletedFailedReason {
-			resourceutil.MarkReconciledFailing(rr, resourceutil.ConfigureWorkflowCompletedFailedReason)
-			updated = true
-		}
-	} else if worksSucceeded != nil && worksSucceeded.Status == v1.ConditionUnknown {
-		if reconciled == nil || reconciled.Status != v1.ConditionUnknown {
-			resourceutil.MarkReconciledPending(rr, "WorksPending")
-			updated = true
-		}
-	} else if worksSucceeded != nil && worksSucceeded.Status == v1.ConditionFalse {
-		if reconciled == nil || reconciled.Status != v1.ConditionFalse {
-			resourceutil.MarkReconciledFailing(rr, "WorksFailing")
-			updated = true
-		}
-	} else if workflowCompleted != nil && worksSucceeded != nil &&
-		workflowCompleted.Status == v1.ConditionTrue && worksSucceeded.Status == v1.ConditionTrue {
-		if reconciled == nil || reconciled.Status != v1.ConditionTrue {
-			resourceutil.MarkReconciledTrue(rr)
-			updated = true
-			r.EventRecorder.Event(rr, v1.EventTypeNormal, "ReconcileSucceeded",
-				"Successfully reconciled")
-		}
-	}
-	return updated
-}
-
 func (r *DynamicResourceRequestController) updateWorksSucceededCondition(rr *unstructured.Unstructured, failed, pending, _, misplaced []string) bool {
 	cond := resourceutil.GetCondition(rr, resourceutil.WorksSucceededCondition)
 	if len(failed) > 0 {
@@ -441,6 +403,47 @@ func (r *DynamicResourceRequestController) updateWorksSucceededCondition(rr *uns
 		return true
 	}
 	return false
+}
+
+func (r *DynamicResourceRequestController) updateReconciledCondition(rr *unstructured.Unstructured) bool {
+	worksSucceeded := resourceutil.GetCondition(rr, resourceutil.WorksSucceededCondition)
+	workflowCompleted := resourceutil.GetCondition(rr, resourceutil.ConfigureWorkflowCompletedCondition)
+	reconciled := resourceutil.GetCondition(rr, resourceutil.ReconciledCondition)
+
+	var updated bool
+	if workflowCompleted != nil &&
+		workflowCompleted.Status == v1.ConditionFalse && workflowCompleted.Reason == "PipelinesInProgress" {
+		if reconciled == nil || reconciled.Status != v1.ConditionUnknown {
+			resourceutil.MarkReconciledPending(rr, "WorkflowPending")
+			updated = true
+		}
+	} else if workflowCompleted != nil && workflowCompleted.Status == v1.ConditionFalse {
+		if reconciled == nil || reconciled.Status != v1.ConditionFalse ||
+			reconciled.Reason != resourceutil.ConfigureWorkflowCompletedFailedReason {
+			resourceutil.MarkReconciledFailing(rr, resourceutil.ConfigureWorkflowCompletedFailedReason)
+			updated = true
+		}
+	} else if worksSucceeded != nil && worksSucceeded.Status == v1.ConditionUnknown {
+		if reconciled == nil || reconciled.Status != v1.ConditionUnknown {
+			resourceutil.MarkReconciledPending(rr, "WorksPending")
+			updated = true
+		}
+	} else if worksSucceeded != nil && worksSucceeded.Status == v1.ConditionFalse {
+		if reconciled == nil || reconciled.Status != v1.ConditionFalse {
+			resourceutil.MarkReconciledFailing(rr, "WorksFailing")
+			updated = true
+		}
+	} else if workflowCompleted != nil && worksSucceeded != nil &&
+		workflowCompleted.Status == v1.ConditionTrue && worksSucceeded.Status == v1.ConditionTrue {
+		// Update status.Kratix.lastSuccessfulConfigureWorkflowTime here?
+		if reconciled == nil || reconciled.Status != v1.ConditionTrue {
+			resourceutil.MarkReconciledTrue(rr)
+			updated = true
+			r.EventRecorder.Event(rr, v1.EventTypeNormal, "ReconcileSucceeded",
+				"Successfully reconciled")
+		}
+	}
+	return updated
 }
 
 func (r *DynamicResourceRequestController) updatePromiseVersionStatus(logger logr.Logger, rr *unstructured.Unstructured, bindingVersion string, promiseRevision *v1alpha1.PromiseRevision) bool {

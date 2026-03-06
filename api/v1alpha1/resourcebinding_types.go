@@ -64,20 +64,6 @@ type ResourceBindingStatus struct {
 	// +listMapKey=type
 	// +optional
 	Conditions []metav1.Condition `json:"conditions,omitempty"`
-
-	// Kratix owned fields
-	Kratix ResourceBindingKratix `json:"kratix,omitempty"`
-}
-
-// ResourceBindingKratix defines the status fields owned by kratix
-type ResourceBindingKratix struct {
-	// Workflows defines the resource binding's workflows
-	Workflows ResourceBindingWorkflows `json:"workflows,omitempty"`
-}
-
-// ResourceBindingWorkflows defines
-type ResourceBindingWorkflows struct {
-	LastSuccessfulConfigureWorkflowTime *metav1.Time `json:"lastSuccessfulConfigureWorkflowTime,omitempty"`
 }
 
 // +kubebuilder:object:root=true

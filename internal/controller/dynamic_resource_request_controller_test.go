@@ -132,6 +132,7 @@ var _ = Describe("DynamicResourceRequestController", func() {
 				Expect(strings.TrimSpace(destinationSelectors)).To(Equal(`- matchlabels: environment: dev source: promise`))
 			})
 
+			// TODO: remove deprecated workflows counter in the next release
 			By("setting the workflows counter to the number of pipelines", func() {
 				Expect(fakeK8sClient.Get(ctx, resReqNameNamespace, resReq)).To(Succeed())
 				Expect(resourceutil.GetWorkflowsCounterStatus(resReq, "workflows")).To(Equal(int64(1)))
@@ -185,11 +186,14 @@ var _ = Describe("DynamicResourceRequestController", func() {
 			})
 
 			By("setting the lastSuccessfulConfigureWorkflowTime in the resource status", func() {
+				// this test should be updated
 				Expect(fakeK8sClient.Get(ctx, resReqNameNamespace, resReq)).To(Succeed())
 				status := resReq.Object["status"]
 				Expect(status).NotTo(BeNil())
 				statusMap := status.(map[string]interface{})
+				// kratixObj := statusMap["kratix"].(map[string]interface{})
 				lastSuccessfulConfigureWorkflowTime, err := time.Parse(time.RFC3339, statusMap["lastSuccessfulConfigureWorkflowTime"].(string))
+				// lastSuccessfulConfigureWorkflowTime, err := time.Parse(time.RFC3339, kratixObj["lastSuccessfulConfigureWorkflowTime"].(string))
 				Expect(err).NotTo(HaveOccurred())
 				Expect(lastSuccessfulConfigureWorkflowTime).To(BeTemporally(">", startTime))
 			})

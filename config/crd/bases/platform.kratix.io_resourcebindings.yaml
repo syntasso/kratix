@@ -151,17 +151,6 @@ spec:
                 x-kubernetes-list-map-keys:
                 - type
                 x-kubernetes-list-type: map
-              kratix:
-                description: Kratix owned fields
-                properties:
-                  workflows:
-                    description: Workflows defines the resource binding's workflows
-                    properties:
-                      lastSuccessfulConfigureWorkflowTime:
-                        format: date-time
-                        type: string
-                    type: object
-                type: object
             type: object
         required:
         - spec
