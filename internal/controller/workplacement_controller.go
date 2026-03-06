@@ -348,22 +348,26 @@ func (w *workPlacementReconcileContext) logAndRecordError(err error, message str
 	)
 }
 
-func (w *workPlacementReconcileContext) generateKratixStateFile(repo *Repository) (v1alpha1.Workload, StateFile, error) {
+func (w *workPlacementReconcileContext) generateKratixStateFile(repo *Repository, pathPrefix string) (v1alpha1.Workload, StateFile, error) {
 	oldStateFile, err := w.readKratixStateFile(repo, true)
 	if err != nil {
 		return v1alpha1.Workload{}, StateFile{}, err
 	}
 
-	newStateFile := StateFile{
-		Files: workloadsFilenames(w.workPlacement.Spec.Workloads),
+	filenames := workloadsFilenames(w.workPlacement.Spec.Workloads)
+	var files []string
+	for _, f := range filenames {
+		files = append(files, pathPrefix+f)
 	}
+	newStateFile := StateFile{Files: files}
 	stateFileContent, marshalErr := yaml.Marshal(newStateFile)
 	if marshalErr != nil {
 		return v1alpha1.Workload{}, StateFile{}, fmt.Errorf("failed to marshal new .kratix state file: %w", err)
 	}
 
+	kratixRelativePath := fmt.Sprintf(".kratix/%s-%s.yaml", w.workPlacement.Namespace, w.workPlacement.Name)
 	stateFileWorkload := v1alpha1.Workload{
-		Filepath: w.kratixStateFilePath(),
+		Filepath: kratixRelativePath,
 		Content:  string(stateFileContent),
 	}
 	return stateFileWorkload, oldStateFile, nil
@@ -394,8 +398,12 @@ func (w *workPlacementReconcileContext) readKratixStateFile(repo *Repository, ig
 }
 
 func (w *workPlacementReconcileContext) getAggregatedWorkload() (v1alpha1.Workload, error) {
+	filename := w.destination.Spec.Filepath.Filename
+	if filename == "" {
+		filename = "aggregated.yaml"
+	}
 	workload := v1alpha1.Workload{
-		Filepath: filepath.Join(w.destination.Spec.Path, w.destination.Spec.Filepath.Filename),
+		Filepath: filepath.Join(w.destination.Spec.Path, filename),
 	}
 	activeWorkplacements, err := w.getAllWorkplacementsForDestination()
 	if err != nil {
@@ -513,11 +521,12 @@ func (w *workPlacementReconcileContext) writeWorkloadsToStateStore(repo *Reposit
 	var err error
 	var workloadsToDelete []string
 	var workloadsToCreate []v1alpha1.Workload
-	var dir string
+	dir := getDir(w.destination.Spec.Path, *w.workPlacement) + "/"
 
 	switch w.destination.GetFilepathMode() {
 
 	case v1alpha1.FilepathModeAggregatedYAML:
+		dir = ""
 		workload, err := w.getAggregatedWorkload()
 		if err != nil {
 			return "", err
@@ -525,17 +534,18 @@ func (w *workPlacementReconcileContext) writeWorkloadsToStateStore(repo *Reposit
 		workloadsToCreate = []v1alpha1.Workload{workload}
 
 	case v1alpha1.FilepathModeNone:
-		newWorkload, oldStateFile, err := w.generateKratixStateFile(repo)
+		pathPrefix := w.destination.Spec.Path + "/"
+		dir = pathPrefix
+		newWorkload, oldStateFile, err := w.generateKratixStateFile(repo, pathPrefix)
 		if err != nil {
 			return "", err
 		}
 		workloadsToCreate = append(workloadsToCreate, newWorkload)
-		workloadsToDelete = cleanupWorkloads(oldStateFile.Files, w.workPlacement.Spec.Workloads)
+		workloadsToDelete = cleanupWorkloadsWithPrefix(oldStateFile.Files, w.workPlacement.Spec.Workloads, pathPrefix)
 		fallthrough
 
 	case v1alpha1.FilepathModeNestedByMetadata:
 		logging.Trace(w.logger, "handling file path mode nestedByMetadata")
-		dir = getDir(w.destination.Spec.Path, *w.workPlacement) + "/"
 
 		for _, workload := range w.workPlacement.Spec.Workloads {
 			decompressedContent, err := compression.DecompressContent([]byte(workload.Content))
@@ -596,7 +606,7 @@ func (w *workPlacementReconcileContext) deleteWorkPlacement(repo *Repository) (c
 			workloadsToDelete = []string{workload.Filepath}
 
 			if workload.Content != "" { // there are still other workplacements for this destination
-				_, err := repo.Writer.UpdateFiles(workload.Filepath, w.workPlacement.Name, []v1alpha1.Workload{workload}, []string{})
+				_, err := repo.Writer.UpdateFiles("", w.workPlacement.Name, []v1alpha1.Workload{workload}, []string{})
 				if err != nil {
 					logging.Debug(w.logger, "failed to update files in repository", "error", err)
 					return defaultRequeue, nil
@@ -626,14 +636,22 @@ func workloadsFilenames(works []v1alpha1.Workload) []string {
 }
 
 func cleanupWorkloads(oldWorkloads []string, newWorkloads []v1alpha1.Workload) []string {
+	return cleanupWorkloadsWithPrefix(oldWorkloads, newWorkloads, "")
+}
+
+func cleanupWorkloadsWithPrefix(oldWorkloads []string, newWorkloads []v1alpha1.Workload, pathPrefix string) []string {
 	works := make(map[string]bool)
 	for _, w := range newWorkloads {
-		works[w.Filepath] = true
+		works[pathPrefix+w.Filepath] = true
 	}
 	var result []string
-	for _, w := range oldWorkloads {
-		if _, ok := works[w]; !ok {
-			result = append(result, w)
+	for _, old := range oldWorkloads {
+		canonicalOld := old
+		if pathPrefix != "" && !strings.HasPrefix(old, pathPrefix) {
+			canonicalOld = pathPrefix + old
+		}
+		if _, ok := works[canonicalOld]; !ok {
+			result = append(result, canonicalOld)
 		}
 	}
 	return result

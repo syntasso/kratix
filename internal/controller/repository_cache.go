@@ -2,6 +2,7 @@ package controller
 
 import (
 	"fmt"
+	"os"
 	"sync"
 
 	"github.com/go-logr/logr"
@@ -12,14 +13,15 @@ import (
 
 type Repository struct {
 	sync.Mutex
-	Path   string
-	Branch string
-
-	Writer writers.StateStoreWriter
+	Path          string
+	Branch        string
+	SecretVersion string
+	Writer        writers.StateStoreWriter
 }
 
 //counterfeiter:generate . RepositoryCache
 type RepositoryCache interface {
+	Cleanup(stateStore StateStore) error
 	InitRepository(logger logr.Logger, stateStore StateStore, secret *corev1.Secret) (*Repository, *StateStoreError)
 	GetRepositoryByTypeAndName(stateStoreType string, name string) (*Repository, error)
 }
@@ -41,36 +43,53 @@ func (c *repositoryCache) InitRepository(logger logr.Logger, stateStore StateSto
 	c.Lock()
 	defer c.Unlock()
 
-	if repository, ok := c.gitRepositoryCache[stateStore.GetName()]; ok {
-		return repository, nil
-	}
 	var repo *Repository
 
 	kind := stateStore.GetObjectKind().GroupVersionKind().Kind
+	name := stateStore.GetName()
+	secretVersion := ""
+	if secret != nil {
+		secretVersion = secret.ResourceVersion
+	}
 	var err *StateStoreError
 	switch kind {
 
 	case "GitStateStore":
+		if repository, ok := c.gitRepositoryCache[name]; ok {
+			if repository.SecretVersion == secretVersion {
+				return repository, nil
+			}
+			delete(c.gitRepositoryCache, name)
+			_ = os.RemoveAll(repository.Path)
+		}
+
 		repo, err = c.initGitRepository(logger, stateStore, secret)
 		if err != nil {
 			return nil, err
 		}
-
-		c.gitRepositoryCache[stateStore.GetName()] = repo
+		c.gitRepositoryCache[name] = repo
 
 	case "BucketStateStore":
+		if repository, ok := c.s3RepositoryCache[name]; ok {
+			if repository.SecretVersion == secretVersion {
+				return repository, nil
+			}
+			delete(c.s3RepositoryCache, name)
+		}
+
 		repo, err = c.initBucketRepository(logger, stateStore, secret)
 		if err != nil {
 			return nil, err
 		}
-
-		c.s3RepositoryCache[stateStore.GetName()] = repo
+		c.s3RepositoryCache[name] = repo
 
 	default:
 		return nil, NewInitialiseWriterError(fmt.Errorf("unknown state store type: %s", kind))
 	}
 	return repo, nil
 }
+
+var ErrCacheMiss = fmt.Errorf("not ready")
 
 func (c *repositoryCache) GetRepositoryByTypeAndName(stateStoreType string, name string) (*Repository, error) {
 	c.Lock()
@@ -112,9 +131,10 @@ func (c *repositoryCache) initGitRepository(logger logr.Logger, store StateStore
 	}
 
 	repo := &Repository{
-		Path:   repoDir,
-		Branch: stateStore.Spec.Branch,
-		Writer: gitWriter,
+		Path:          repoDir,
+		Branch:        stateStore.Spec.Branch,
+		SecretVersion: secret.ResourceVersion,
+		Writer:        gitWriter,
 	}
 	return repo, nil
 }
@@ -133,9 +153,36 @@ func (c *repositoryCache) initBucketRepository(logger logr.Logger, store StateSt
 	}
 
 	repo := &Repository{
-		Writer: s3Writer,
+		Writer:        s3Writer,
+		SecretVersion: secret.ResourceVersion,
 	}
 	return repo, nil
 }
 
-var ErrCacheMiss = fmt.Errorf("cache miss")
+func (c *repositoryCache) Cleanup(stateStore StateStore) error {
+	c.Lock()
+	defer c.Unlock()
+
+	kind := stateStore.GetObjectKind().GroupVersionKind().Kind
+	name := stateStore.GetName()
+
+	var repo *Repository
+	var found bool
+
+	switch kind {
+	case "GitStateStore":
+		if repo, found = c.gitRepositoryCache[name]; !found {
+			return nil
+		}
+		delete(c.gitRepositoryCache, name)
+		return os.RemoveAll(repo.Path)
+	case "BucketStateStore":
+		if repo, found = c.s3RepositoryCache[name]; !found {
+			return nil
+		}
+		delete(c.s3RepositoryCache, name)
+		return nil
+	default:
+		return fmt.Errorf("unknown state store type: %s", kind)
+	}
+}

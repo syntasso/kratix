@@ -10,6 +10,17 @@ import (
 )
 
 type FakeRepositoryCache struct {
+	CleanupStub        func(controller.StateStore) error
+	cleanupMutex       sync.RWMutex
+	cleanupArgsForCall []struct {
+		arg1 controller.StateStore
+	}
+	cleanupReturns struct {
+		result1 error
+	}
+	cleanupReturnsOnCall map[int]struct {
+		result1 error
+	}
 	GetRepositoryByTypeAndNameStub        func(string, string) (*controller.Repository, error)
 	getRepositoryByTypeAndNameMutex       sync.RWMutex
 	getRepositoryByTypeAndNameArgsForCall []struct {
@@ -41,6 +52,67 @@ type FakeRepositoryCache struct {
 	}
 	invocations      map[string][][]interface{}
 	invocationsMutex sync.RWMutex
+}
+
+func (fake *FakeRepositoryCache) Cleanup(arg1 controller.StateStore) error {
+	fake.cleanupMutex.Lock()
+	ret, specificReturn := fake.cleanupReturnsOnCall[len(fake.cleanupArgsForCall)]
+	fake.cleanupArgsForCall = append(fake.cleanupArgsForCall, struct {
+		arg1 controller.StateStore
+	}{arg1})
+	stub := fake.CleanupStub
+	fakeReturns := fake.cleanupReturns
+	fake.recordInvocation("Cleanup", []interface{}{arg1})
+	fake.cleanupMutex.Unlock()
+	if stub != nil {
+		return stub(arg1)
+	}
+	if specificReturn {
+		return ret.result1
+	}
+	return fakeReturns.result1
+}
+
+func (fake *FakeRepositoryCache) CleanupCallCount() int {
+	fake.cleanupMutex.RLock()
+	defer fake.cleanupMutex.RUnlock()
+	return len(fake.cleanupArgsForCall)
+}
+
+func (fake *FakeRepositoryCache) CleanupCalls(stub func(controller.StateStore) error) {
+	fake.cleanupMutex.Lock()
+	defer fake.cleanupMutex.Unlock()
+	fake.CleanupStub = stub
+}
+
+func (fake *FakeRepositoryCache) CleanupArgsForCall(i int) controller.StateStore {
+	fake.cleanupMutex.RLock()
+	defer fake.cleanupMutex.RUnlock()
+	argsForCall := fake.cleanupArgsForCall[i]
+	return argsForCall.arg1
+}
+
+func (fake *FakeRepositoryCache) CleanupReturns(result1 error) {
+	fake.cleanupMutex.Lock()
+	defer fake.cleanupMutex.Unlock()
+	fake.CleanupStub = nil
+	fake.cleanupReturns = struct {
+		result1 error
+	}{result1}
+}
+
+func (fake *FakeRepositoryCache) CleanupReturnsOnCall(i int, result1 error) {
+	fake.cleanupMutex.Lock()
+	defer fake.cleanupMutex.Unlock()
+	fake.CleanupStub = nil
+	if fake.cleanupReturnsOnCall == nil {
+		fake.cleanupReturnsOnCall = make(map[int]struct {
+			result1 error
+		})
+	}
+	fake.cleanupReturnsOnCall[i] = struct {
+		result1 error
+	}{result1}
 }
 
 func (fake *FakeRepositoryCache) GetRepositoryByTypeAndName(arg1 string, arg2 string) (*controller.Repository, error) {
@@ -177,6 +249,8 @@ func (fake *FakeRepositoryCache) InitRepositoryReturnsOnCall(i int, result1 *con
 func (fake *FakeRepositoryCache) Invocations() map[string][][]interface{} {
 	fake.invocationsMutex.RLock()
 	defer fake.invocationsMutex.RUnlock()
+	fake.cleanupMutex.RLock()
+	defer fake.cleanupMutex.RUnlock()
 	fake.getRepositoryByTypeAndNameMutex.RLock()
 	defer fake.getRepositoryByTypeAndNameMutex.RUnlock()
 	fake.initRepositoryMutex.RLock()

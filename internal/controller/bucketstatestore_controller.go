@@ -79,21 +79,25 @@ func (r *BucketStateStoreReconciler) newReconcileContext(ctx context.Context, lo
 		return nil, NewInitialiseWriterError(err)
 	}
 
-	secret := fetchSecret(ctx, logger, r.Client, r.EventRecorder, bucketStateStore)
-	if secret == nil {
-		return nil, nil
+	stateStoreCtx := &stateStoreReconcileContext{
+		ctx:             ctx,
+		controller:      "BucketStateStore",
+		logger:          logger.WithValues("generation", bucketStateStore.GetGeneration()),
+		client:          r.Client,
+		stateStore:      bucketStateStore,
+		repositoryCache: r.RepositoryCache,
+		eventRecorder:   r.EventRecorder,
 	}
 
-	return &stateStoreReconcileContext{
-		ctx:              ctx,
-		controller:       "BucketStateStore",
-		logger:           logger,
-		client:           r.Client,
-		stateStore:       bucketStateStore,
-		stateStoreSecret: secret,
-		repositoryCache:  r.RepositoryCache,
-		eventRecorder:    r.EventRecorder,
-	}, nil
+	secret, err := fetchSecret(ctx, logger, r.Client, bucketStateStore)
+	if err != nil {
+		r.RepositoryCache.Cleanup(bucketStateStore)
+		return nil, stateStoreCtx.setNotReadyStatus(err)
+	}
+
+	stateStoreCtx.stateStoreSecret = secret
+
+	return stateStoreCtx, nil
 }
 
 func (r *BucketStateStoreReconciler) findStateStoresReferencingSecret() handler.MapFunc {

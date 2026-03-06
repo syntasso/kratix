@@ -2,6 +2,7 @@ package controller
 
 import (
 	"context"
+	"errors"
 	"fmt"
 
 	"github.com/go-logr/logr"
@@ -24,9 +25,13 @@ type StateStore interface {
 	GetStatus() *v1alpha1.StateStoreStatus
 	SetStatus(status v1alpha1.StateStoreStatus)
 	GetSecretRef() *v1.SecretReference
+	GetGeneration() int64
+	GetObservedGeneration() int64
+	SetObservedGeneration(generation int64)
+	Ready() bool
 }
 
-func fetchSecret(ctx context.Context, logger logr.Logger, client client.Client, eventRecorder record.EventRecorder, stateStore StateStore) *v1.Secret {
+func fetchSecret(ctx context.Context, logger logr.Logger, client client.Client, stateStore StateStore) (*v1.Secret, *StateStoreError) {
 	secret := &v1.Secret{}
 	secretRef := stateStore.GetSecretRef()
 	secretName := types.NamespacedName{
@@ -36,18 +41,16 @@ func fetchSecret(ctx context.Context, logger logr.Logger, client client.Client, 
 
 	if err := client.Get(ctx, secretName, secret); err != nil {
 		if kerrors.IsNotFound(err) {
-			eventRecorder.Event(stateStore, v1.EventTypeWarning, "SecretNotFound",
-				fmt.Sprintf("Secret %s not found in namespace %s", secretRef.Name, secretRef.Namespace))
-
 			logging.Error(
 				logger, err, "secret not found",
 				"secretName", secretRef.Name,
 				"secretNamespace", secretRef.Namespace,
 			)
-			return nil
+			return nil, NewSecretNotFoundError(secretRef)
 		}
+		return nil, NewStateStoreError(err)
 	}
-	return secret
+	return secret, nil
 }
 
 func secretRefIndexKey(secretName, secretNamespace string) string {
@@ -95,6 +98,12 @@ type stateStoreReconcileContext struct {
 }
 
 func (reconcileCtx *stateStoreReconcileContext) Reconcile() (ctrl.Result, error) {
+	if reconcileCtx.stateStore.GetGeneration() != reconcileCtx.stateStore.GetObservedGeneration() {
+		if err := reconcileCtx.repositoryCache.Cleanup(reconcileCtx.stateStore); err != nil {
+			return ctrl.Result{}, err
+		}
+	}
+
 	repository, err := reconcileCtx.repositoryCache.InitRepository(
 		reconcileCtx.logger,
 		reconcileCtx.stateStore,
@@ -112,6 +121,7 @@ func (reconcileCtx *stateStoreReconcileContext) Reconcile() (ctrl.Result, error)
 
 	if err := repository.Writer.ValidatePermissions(); err != nil {
 		logging.Error(reconcileCtx.logger, err, "unable to validate permissions")
+		_ = reconcileCtx.repositoryCache.Cleanup(reconcileCtx.stateStore)
 		if err := reconcileCtx.setNotReadyStatus(NewValidatePermissionsError(err)); err != nil {
 			return ctrl.Result{}, err
 		}
@@ -146,6 +156,7 @@ func (reconcileCtx *stateStoreReconcileContext) setReadyStatus() error {
 }
 
 func (reconcileCtx *stateStoreReconcileContext) setStatus(status string, condition metav1.Condition, recordEvent func()) error {
+	reconcileCtx.stateStore.SetObservedGeneration(reconcileCtx.stateStore.GetGeneration())
 	stateStoreStatus := reconcileCtx.stateStore.GetStatus().DeepCopy()
 	stateStoreStatus.Status = status
 
@@ -173,4 +184,47 @@ func (reconcileCtx *stateStoreReconcileContext) recordNotReadyEvent(err *StateSt
 		"NotReady",
 		err.Message,
 	)
+}
+
+type StateStoreError struct {
+	error
+	Reason  string
+	Message string
+}
+
+func (e *StateStoreError) Error() string {
+	return e.error.Error()
+}
+
+func NewInitialiseWriterError(err error) *StateStoreError {
+	return &StateStoreError{
+		error:   err,
+		Reason:  StateStoreNotReadyErrorInitialisingWriterReason,
+		Message: err.Error(),
+	}
+}
+
+func NewValidatePermissionsError(err error) *StateStoreError {
+	return &StateStoreError{
+		error:   err,
+		Reason:  StateStoreNotReadyErrorValidatingPermissionsReason,
+		Message: fmt.Sprintf("%s: %s", StateStoreNotReadyErrorValidatingPermissionsMessage, err.Error()),
+	}
+}
+
+func NewSecretNotFoundError(secretRef *v1.SecretReference) *StateStoreError {
+	message := fmt.Sprintf("Secret %s not found in namespace %s", secretRef.Name, secretRef.Namespace)
+	return &StateStoreError{
+		error:   errors.New(message),
+		Reason:  "SecretNotFound",
+		Message: message,
+	}
+}
+
+func NewStateStoreError(err error) *StateStoreError {
+	return &StateStoreError{
+		error:   err,
+		Reason:  "StateStoreError",
+		Message: err.Error(),
+	}
 }

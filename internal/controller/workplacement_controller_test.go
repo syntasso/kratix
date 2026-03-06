@@ -19,7 +19,6 @@ package controller_test
 import (
 	"context"
 	"fmt"
-	"path/filepath"
 	"time"
 
 	"github.com/syntasso/kratix/internal/controller"
@@ -197,24 +196,14 @@ var _ = Describe("WorkPlacementReconciler", func() {
 				Expect(fakeWriter.UpdateFilesCallCount()).To(Equal(2))
 				dir, workPlacementName, workloadsToCreate, workloadsToDelete := fakeWriter.UpdateFilesArgsForCall(0)
 				Expect(workPlacementName).To(Equal(workPlacement.Name))
-				Expect(dir).To(Equal(
-					filepath.Join(
-						destination.Spec.Path,
-						"resources",
-						workPlacement.GetNamespace(),
-						workPlacement.Spec.PromiseName,
-						workPlacement.Spec.ResourceName,
-						workPlacement.PipelineName(),
-						workPlacement.Spec.ID[0:5],
-					) + "/",
-				))
+				Expect(dir).To(Equal(destination.Spec.Path + "/"))
 
-				By("writing workloads files and kratix state file")
+				By("writing workloads files and kratix state file in destination path with no extra dir")
 				Expect(workloadsToCreate).To(ConsistOf(append(decompressedWorkloads, v1alpha1.Workload{
-					Filepath: fmt.Sprintf("test-path/.kratix/%s-%s.yaml", workPlacement.Namespace, workPlacement.Name),
+					Filepath: fmt.Sprintf(".kratix/%s-%s.yaml", workPlacement.Namespace, workPlacement.Name),
 					Content: `files:
-- fruit.yaml
-- file2.yaml
+- test-path/fruit.yaml
+- test-path/file2.yaml
 `,
 				})))
 				Expect(workloadsToDelete).To(BeNil())
@@ -260,9 +249,10 @@ var _ = Describe("WorkPlacementReconciler", func() {
 				})
 
 				It("calls UpdateFiles()", func() {
-					fakeWriter.ReadFileReturns([]byte(`
+					fakeWriter.ReadFileReturns([]byte(fmt.Sprintf(`
 files:
-  - fruit.yaml`), nil)
+  - %s/fruit.yaml
+  - %s/file2.yaml`, destination.Spec.Path, destination.Spec.Path)), nil)
 					Expect(fakeK8sClient.Delete(ctx, &workPlacement)).To(Succeed())
 					result, err := t.reconcileUntilCompletion(reconciler, &workPlacement)
 					Expect(err).NotTo(HaveOccurred())
@@ -273,7 +263,11 @@ files:
 
 					workPlacementName, workloadsToDelete := fakeWriter.DeleteFilesArgsForCall(0)
 					Expect(workPlacementName).To(Equal(workPlacement.Name))
-					Expect(workloadsToDelete).To(ConsistOf("fruit.yaml", kratixStateFile))
+					Expect(workloadsToDelete).To(ConsistOf(
+						fmt.Sprintf("%s/fruit.yaml", destination.Spec.Path),
+						fmt.Sprintf("%s/file2.yaml", destination.Spec.Path),
+						kratixStateFile,
+					))
 				})
 
 				When("the Destination does not exists", func() {
@@ -319,14 +313,17 @@ files:
 					dir, workPlacementName, workloadsToCreate, workloadsToDelete := fakeWriter.UpdateFilesArgsForCall(0)
 					Expect(workPlacementName).To(Equal(workPlacement.Name))
 					Expect(workloadsToCreate).To(ConsistOf(append(decompressedWorkloads, v1alpha1.Workload{
-						Filepath: fmt.Sprintf("%s/.kratix/%s-%s.yaml", destination.Spec.Path, workPlacement.Namespace, workPlacement.Name),
+						Filepath: fmt.Sprintf(".kratix/%s-%s.yaml", workPlacement.Namespace, workPlacement.Name),
 						Content: `files:
-- fruit.yaml
-- file2.yaml
+- test-path/fruit.yaml
+- test-path/file2.yaml
 `,
 					})))
-					Expect(workloadsToDelete).To(ConsistOf("banana.yaml", "apple.yaml"))
-					Expect(dir).To(Equal("test-path/resources/default/test-promise/test-resource/5058f/"))
+					Expect(workloadsToDelete).To(ConsistOf(
+						fmt.Sprintf("%s/banana.yaml", destination.Spec.Path),
+						fmt.Sprintf("%s/apple.yaml", destination.Spec.Path),
+					))
+					Expect(dir).To(Equal(destination.Spec.Path + "/"))
 				})
 			})
 		})
@@ -342,14 +339,15 @@ files:
 				}, nil)
 			})
 
-			It("calls the writer with a directory nested by metadata", func() {
+			It("creates files with directory nesting to make each workplacement unique", func() {
 				result, err := t.reconcileUntilCompletion(reconciler, &workPlacement)
 				Expect(err).NotTo(HaveOccurred())
 				Expect(result).To(Equal(ctrl.Result{}))
 
 				Expect(fakeWriter.UpdateFilesCallCount()).To(Equal(2))
 				dir, workPlacementName, workloadsToCreate, workloadsToDelete := fakeWriter.UpdateFilesArgsForCall(0)
-				Expect(dir).To(Equal("test-path/resources/default/test-promise/test-resource/5058f/"))
+				Expect(dir).To(ContainSubstring("test-path/resources/default/test-promise/test-resource"))
+				Expect(dir).To(HaveSuffix("/"))
 				Expect(workPlacementName).To(Equal(workPlacement.Name))
 				Expect(workloadsToCreate).To(Equal(decompressedWorkloads))
 				Expect(workloadsToDelete).To(BeEmpty())
@@ -409,7 +407,7 @@ files:
 				Expect(result).To(Equal(ctrl.Result{}))
 			})
 
-			It("concatenates the workloads of all workplacements into a single file", func() {
+			It("creates a single file in destination.Spec.Path with the user-provided filename", func() {
 				mergedWorkloads := []v1alpha1.Workload{
 					{
 						Filepath: "test-path/workloads.yaml",
@@ -423,6 +421,24 @@ files:
 				Expect(workPlacementName).To(Equal(workPlacement.Name))
 				Expect(workloadsToCreate).To(Equal(mergedWorkloads))
 				Expect(workloadsToDelete).To(BeEmpty())
+			})
+
+			When("the user does not provide a filename", func() {
+				BeforeEach(func() {
+					Expect(fakeK8sClient.Get(ctx, client.ObjectKeyFromObject(&destination), &destination)).To(Succeed())
+					destination.Spec.Filepath.Filename = ""
+					Expect(fakeK8sClient.Update(ctx, &destination)).To(Succeed())
+					_, err := t.reconcileUntilCompletion(reconciler, &workPlacement)
+					Expect(err).NotTo(HaveOccurred())
+				})
+
+				It("uses the default filename aggregated.yaml", func() {
+					callCount := fakeWriter.UpdateFilesCallCount()
+					Expect(callCount).To(BeNumerically(">=", 1))
+					_, _, workloadsToCreate, _ := fakeWriter.UpdateFilesArgsForCall(callCount - 1)
+					Expect(workloadsToCreate).To(HaveLen(1))
+					Expect(workloadsToCreate[0].Filepath).To(Equal("test-path/aggregated.yaml"))
+				})
 			})
 
 			When("one of the workplacements is deleted", func() {
@@ -444,7 +460,7 @@ files:
 
 					Expect(fakeWriter.UpdateFilesCallCount()).To(Equal(3))
 					dir, workPlacementName, workloadsToCreate, workloadsToDelete := fakeWriter.UpdateFilesArgsForCall(2)
-					Expect(dir).To(Equal("test-path/workloads.yaml"))
+					Expect(dir).To(Equal(""))
 					Expect(workPlacementName).To(Equal(workPlacement.Name))
 					Expect(workloadsToCreate).To(Equal(mergedWorkloads))
 					Expect(workloadsToDelete).To(BeEmpty())

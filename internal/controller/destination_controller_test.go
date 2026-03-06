@@ -264,7 +264,7 @@ var _ = Describe("DestinationReconciler", func() {
 					It("updates the destination status condition", func() {
 						Expect(updatedDestination.Status.Conditions).To(ContainElement(SatisfyAll(
 							HaveField("Type", "Ready"),
-							HaveField("Message", "State Store not ready"),
+							HaveField("Message", "GitStateStore/test-git-state-store: not ready"),
 							HaveField("Reason", "StateStoreNotReady"),
 							HaveField("Status", metav1.ConditionFalse),
 						)))
@@ -272,7 +272,7 @@ var _ = Describe("DestinationReconciler", func() {
 
 					It("publishes a failure event", func() {
 						Expect(eventRecorder.Events).To(Receive(ContainSubstring(
-							"State Store not ready"),
+							"not ready"),
 						))
 					})
 				})

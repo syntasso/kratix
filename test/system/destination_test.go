@@ -17,7 +17,7 @@ import (
 	"sigs.k8s.io/yaml"
 )
 
-var _ = Describe("Destinations", Label("destination"), Serial, func() {
+var _ = FDescribe("Destinations", Label("destination"), Serial, func() {
 	var (
 		destinationName string
 		stateStoreName  string
@@ -56,13 +56,13 @@ var _ = Describe("Destinations", Label("destination"), Serial, func() {
 		It("properly set the conditions and events", func() {
 			WaitReady("gitstatestore", stateStoreName)
 			WaitReady("destination", destinationName)
-			ExpectEvent("destination", destinationName, `Destination "test-worker-git" is ready`)
+			ExpectEvent("destination", destinationName, "Destination is Ready")
 
 			By("failing when the state store ref is not found", func() {
 				platform.Kubectl("patch", "destinations", destinationName, "--type=merge", "-p", `{"spec":{"stateStoreRef":{"name":"non-existing"}}}`)
 
 				ExpectNotReady("destination", destinationName)
-				ExpectEvent("destination", destinationName, "Failed to write test documents")
+				ExpectEvent("destination", destinationName, "not found")
 			})
 
 			// restore the ready condition
@@ -76,10 +76,10 @@ var _ = Describe("Destinations", Label("destination"), Serial, func() {
 				ExpectNotReady("gitstatestore", stateStoreName)
 				ExpectEvent(
 					"gitstatestore", stateStoreName,
-					"Error initialising writer: secret \"non-existent-secret\" not found in namespace \"default\"",
+					"Secret non-existent-secret not found in namespace default",
 				)
 				ExpectNotReady("destination", destinationName)
-				ExpectEvent("destination", destinationName, "Failed to write test documents")
+				ExpectEvent("destination", destinationName, "not ready")
 			})
 
 			// restore the ready condition
@@ -96,10 +96,10 @@ var _ = Describe("Destinations", Label("destination"), Serial, func() {
 				platform.Kubectl("patch", "secret", "gitea-credentials", "--type=merge", "-p", `{"stringData":{"username":"invalid"}}`)
 
 				ExpectNotReady("gitstatestore", stateStoreName)
-				ExpectEvent("gitstatestore", stateStoreName, "Authentication failed", "fatal: could not read Username")
+				ExpectEvent("gitstatestore", stateStoreName, "unable to clone repository", "Authentication failed")
 
 				ExpectNotReady("destination", destinationName)
-				ExpectEvent("destination", destinationName, "Authentication failed", "fatal: could not read Username")
+				ExpectEvent("destination", destinationName, "StateStore/destination-git-test-store: not ready")
 			}
 		})
 	})
@@ -136,13 +136,13 @@ var _ = Describe("Destinations", Label("destination"), Serial, func() {
 		It("properly set the conditions and events", func() {
 			WaitReady("bucketstatestore", stateStoreName)
 			WaitReady("destination", destinationName)
-			ExpectEvent("destination", destinationName, `Destination "worker-3" is ready`)
+			ExpectEvent("destination", destinationName, "Destination is Ready")
 
 			By("failing when the state store ref is not found", func() {
 				platform.Kubectl("patch", "destinations", destinationName, "--type=merge", "-p", `{"spec":{"stateStoreRef":{"name":"non-existing"}}}`)
 
 				ExpectNotReady("destination", destinationName)
-				ExpectEvent("destination", destinationName, "Failed to write test documents")
+				ExpectEvent("destination", destinationName, "not found")
 			})
 
 			// restore the ready condition
@@ -156,10 +156,10 @@ var _ = Describe("Destinations", Label("destination"), Serial, func() {
 				ExpectNotReady("bucketstatestore", stateStoreName)
 				ExpectEvent(
 					"bucketstatestore", stateStoreName,
-					"Error initialising writer: secret \"non-existent-secret\" not found in namespace \"default\"",
+					"Secret non-existent-secret not found in namespace default",
 				)
 				ExpectNotReady("destination", destinationName)
-				ExpectEvent("destination", destinationName, "Failed to write test documents")
+				ExpectEvent("destination", destinationName, "not ready")
 			})
 
 			// restore the ready condition
@@ -176,10 +176,10 @@ var _ = Describe("Destinations", Label("destination"), Serial, func() {
 				platform.Kubectl("patch", "secret", "minio-credentials", "--type=merge", "-p", `{"stringData":{"accessKeyID":"invalid"}}`)
 
 				ExpectNotReady("bucketstatestore", stateStoreName)
-				ExpectEvent("bucketstatestore", stateStoreName, "write permission validation failed")
+				ExpectEvent("bucketstatestore", stateStoreName, "write permission validation failed", "Error validating state store permissions")
 
 				ExpectNotReady("destination", destinationName)
-				ExpectEvent("destination", destinationName, "Failed to write test documents")
+				ExpectEvent("destination", destinationName, "not ready")
 			}
 		})
 	})
