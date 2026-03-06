@@ -158,8 +158,10 @@ func (r *DynamicResourceRequestController) Reconcile(ctx context.Context, req ct
 
 	opts := opts{client: r.Client, ctx: ctx, logger: logger}
 
-	var promiseRevisionUsed *v1alpha1.PromiseRevision
-	var bindingVersion string
+	var (
+		promiseRevisionUsed *v1alpha1.PromiseRevision
+		bindingVersion      string
+	)
 	if r.PromiseUpgrade {
 		logging.Trace(baseLogger,
 			"PromiseUpgrade feature flag set to true; will reconcile with a PromiseRevision.")
@@ -288,7 +290,7 @@ func (r *DynamicResourceRequestController) Reconcile(ctx context.Context, req ct
 	workflowCompletedCondition := resourceutil.GetCondition(rr, resourceutil.ConfigureWorkflowCompletedCondition)
 	if workflowsCompletedSuccessfully(workflowCompletedCondition) {
 		if shouldUpdateLastSuccessfulConfigureWorkflowTime(workflowCompletedCondition, rr) {
-			if err := updateLastSuccessfulConfigureWorkflowTime(workflowCompletedCondition, rr, opts, logger); err != nil {
+			if err := updateLastSuccessfulConfigureWorkflowTime(workflowCompletedCondition, rr, opts); err != nil {
 				return ctrl.Result{}, err
 			}
 			return ctrl.Result{}, nil
@@ -367,6 +369,42 @@ func (r *DynamicResourceRequestController) generateResourceStatus(ctx context.Co
 	return worksSucceededUpdate || reconciledUpdate || workflowsCounterStatusUpdate || promiseVersionUpdate, nil
 }
 
+func (r *DynamicResourceRequestController) updateWorksSucceededCondition(rr *unstructured.Unstructured, failed, pending, _, misplaced []string) bool {
+	cond := resourceutil.GetCondition(rr, resourceutil.WorksSucceededCondition)
+	if len(failed) > 0 {
+		if cond == nil || cond.Status == v1.ConditionTrue {
+			resourceutil.MarkResourceRequestAsWorksFailed(rr, failed)
+			r.EventRecorder.Event(rr, v1.EventTypeWarning, "WorksFailing",
+				fmt.Sprintf("Some works associated with this resource failed: [%s]", strings.Join(failed, ",")))
+			return true
+		}
+		return false
+	}
+	if len(pending) > 0 {
+		if cond == nil || cond.Status != v1.ConditionUnknown {
+			resourceutil.MarkResourceRequestAsWorksPending(rr, pending)
+			return true
+		}
+		return false
+	}
+	if len(misplaced) > 0 {
+		if cond == nil || cond.Status != v1.ConditionFalse || cond.Reason != "WorksMisplaced" {
+			resourceutil.MarkResourceRequestAsWorksMisplaced(rr, misplaced)
+			r.EventRecorder.Event(rr, v1.EventTypeWarning, "WorksMisplaced",
+				fmt.Sprintf("Some works associated with this resource are misplaced: [%s]", strings.Join(misplaced, ",")))
+			return true
+		}
+		return false
+	}
+	if cond == nil || cond.Status != v1.ConditionTrue {
+		resourceutil.MarkResourceRequestAsWorksSucceeded(rr)
+		r.EventRecorder.Event(rr, v1.EventTypeNormal, "WorksSucceeded",
+			"All works associated with this resource are ready")
+		return true
+	}
+	return false
+}
+
 func (r *DynamicResourceRequestController) updateReconciledCondition(rr *unstructured.Unstructured) bool {
 	worksSucceeded := resourceutil.GetCondition(rr, resourceutil.WorksSucceededCondition)
 	workflowCompleted := resourceutil.GetCondition(rr, resourceutil.ConfigureWorkflowCompletedCondition)
@@ -405,42 +443,6 @@ func (r *DynamicResourceRequestController) updateReconciledCondition(rr *unstruc
 		}
 	}
 	return updated
-}
-
-func (r *DynamicResourceRequestController) updateWorksSucceededCondition(rr *unstructured.Unstructured, failed, pending, _, misplaced []string) bool {
-	cond := resourceutil.GetCondition(rr, resourceutil.WorksSucceededCondition)
-	if len(failed) > 0 {
-		if cond == nil || cond.Status == v1.ConditionTrue {
-			resourceutil.MarkResourceRequestAsWorksFailed(rr, failed)
-			r.EventRecorder.Event(rr, v1.EventTypeWarning, "WorksFailing",
-				fmt.Sprintf("Some works associated with this resource failed: [%s]", strings.Join(failed, ",")))
-			return true
-		}
-		return false
-	}
-	if len(pending) > 0 {
-		if cond == nil || cond.Status != v1.ConditionUnknown {
-			resourceutil.MarkResourceRequestAsWorksPending(rr, pending)
-			return true
-		}
-		return false
-	}
-	if len(misplaced) > 0 {
-		if cond == nil || cond.Status != v1.ConditionFalse || cond.Reason != "WorksMisplaced" {
-			resourceutil.MarkResourceRequestAsWorksMisplaced(rr, misplaced)
-			r.EventRecorder.Event(rr, v1.EventTypeWarning, "WorksMisplaced",
-				fmt.Sprintf("Some works associated with this resource are misplaced: [%s]", strings.Join(misplaced, ",")))
-			return true
-		}
-		return false
-	}
-	if cond == nil || cond.Status != v1.ConditionTrue {
-		resourceutil.MarkResourceRequestAsWorksSucceeded(rr)
-		r.EventRecorder.Event(rr, v1.EventTypeNormal, "WorksSucceeded",
-			"All works associated with this resource are ready")
-		return true
-	}
-	return false
 }
 
 func (r *DynamicResourceRequestController) updatePromiseVersionStatus(logger logr.Logger, rr *unstructured.Unstructured, bindingVersion string, promiseRevision *v1alpha1.PromiseRevision) bool {
@@ -928,12 +930,18 @@ func shouldUpdateLastSuccessfulConfigureWorkflowTime(
 	rr *unstructured.Unstructured,
 ) bool {
 	lastTransitionTime := workflowCompletedCondition.LastTransitionTime.Format(time.RFC3339)
-	lastSuccessfulTime := resourceutil.GetStatus(rr, "lastSuccessfulConfigureWorkflowTime")
-	return lastTransitionTime != lastSuccessfulTime
+	lastSuccessfulLegacy := resourceutil.GetStatus(rr, "lastSuccessfulConfigureWorkflowTime")
+	lastSuccessfulKratix := resourceutil.GetKratixWorkflowsStatus(rr, "lastSuccessfulConfigureWorkflowTime")
+
+	return lastTransitionTime != lastSuccessfulLegacy || lastTransitionTime != lastSuccessfulKratix
 }
 
-func updateLastSuccessfulConfigureWorkflowTime(workflowCompletedCondition *clusterv1.Condition, rr *unstructured.Unstructured, opts opts, logger logr.Logger) error {
-	resourceutil.SetStatus(rr, logger, "lastSuccessfulConfigureWorkflowTime", workflowCompletedCondition.LastTransitionTime.Format(time.RFC3339))
+func updateLastSuccessfulConfigureWorkflowTime(workflowCompletedCondition *clusterv1.Condition, rr *unstructured.Unstructured, opts opts) error {
+	lastTransitionTime := workflowCompletedCondition.LastTransitionTime.Format(time.RFC3339)
+	resourceutil.SetStatus(rr, opts.logger, "lastSuccessfulConfigureWorkflowTime", lastTransitionTime)
+	if err := resourceutil.SetKratixWorkflowsStatus(rr, "lastSuccessfulConfigureWorkflowTime", lastTransitionTime); err != nil {
+		return err
+	}
 	return opts.client.Status().Update(opts.ctx, rr)
 }
 

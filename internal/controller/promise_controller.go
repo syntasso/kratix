@@ -169,9 +169,6 @@ func (r *PromiseReconciler) Reconcile(ctx context.Context, req ctrl.Request) (re
 		return ctrl.Result{}, err
 	}
 
-	originalStatus := promise.Status.Status
-	originalAvailableCondition := promise.GetCondition(v1alpha1.PromiseAvailableConditionType)
-
 	if v, ok := promise.Labels[pauseReconciliationLabel]; ok && v == "true" {
 		msg := fmt.Sprintf("'%s' label set to 'true' for promise; pausing reconciliation", pauseReconciliationLabel)
 		logging.Info(r.Log, msg)
@@ -200,19 +197,31 @@ func (r *PromiseReconciler) Reconcile(ctx context.Context, req ctrl.Request) (re
 		return result, err
 	}
 
+	// Gather Promise original information
+	originalStatus := promise.Status.Kratix.Status
+	originalAvailableCondition := promise.GetCondition(v1alpha1.PromiseAvailableConditionType)
+
 	// Set status to unavailable, at the end of this function we set it to
 	// available. If at any time we return early, it persisted as unavailable
 	promise.Status.Status = v1alpha1.PromiseStatusUnavailable
+	promise.Status.Kratix.Status = v1alpha1.PromiseStatusUnavailable
+
+	// Mark the Promise.Status.Conditions to Unavailable
 	updateConditionOnPromise(promise, promiseUnavailableStatusCondition())
+
 	requirementsChanged := r.hasPromiseRequirementsChanged(ctx, promise)
 	if requirementsChanged {
 		if apiMeta.IsStatusConditionFalse(promise.Status.Conditions, "RequirementsFulfilled") {
+			// Mark the Promise.Status.Conditions to `Message: "Pending"`
 			updateConditionOnPromise(promise, promiseReconciledPendingCondition("RequirementsNotFulfilled"))
 		}
 
 		if result, statusUpdateErr := r.updatePromiseStatus(ctx, promise); statusUpdateErr != nil || !result.IsZero() {
 			return result, statusUpdateErr
 		}
+
+		// If the originalStatus was available, now we have transitioned to an Unavailable or Pending state
+		// therefore we need to produce an event to inform of this transition
 		if originalStatus == v1alpha1.PromiseStatusAvailable {
 			msg := "Promise no longer available: Requirements have changed"
 			r.EventRecorder.Eventf(
@@ -259,7 +268,7 @@ func (r *PromiseReconciler) Reconcile(ctx context.Context, req ctrl.Request) (re
 
 	usPromise, err := promise.ToUnstructured()
 	if err != nil {
-		return ctrl.Result{}, fmt.Errorf("Error converting Promise to Unstructured: %w", err)
+		return ctrl.Result{}, fmt.Errorf("error converting Promise to Unstructured: %w", err)
 	}
 
 	passiveRequeue, err := r.reconcileDependenciesAndPromiseWorkflows(opts, promise, usPromise)
@@ -298,11 +307,15 @@ func (r *PromiseReconciler) Reconcile(ctx context.Context, req ctrl.Request) (re
 		logging.Debug(logger, "Promise only contains dependencies; skipping API and dynamic controller creation")
 	}
 
+	// If the originalStatus was not equal to `Available` then set the PromiseStatus to Available and exit reconciliation loop
 	if originalStatus != v1alpha1.PromiseStatusAvailable {
 		return r.setPromiseStatusToAvailable(ctx, promise, logger)
 	}
+
 	promise.Status.Status = originalStatus
+	promise.Status.Kratix.Status = originalStatus
 	timeStamp := metav1.Time{Time: time.Now()}
+
 	if originalAvailableCondition != nil {
 		timeStamp = originalAvailableCondition.LastTransitionTime
 	}
@@ -333,8 +346,9 @@ func (r *PromiseReconciler) handlePromiseVersion(ctx context.Context, promise *v
 	var promiseVersion string
 	var found bool
 	if promiseVersion, found = promise.Labels[v1alpha1.PromiseVersionLabel]; found {
-		if promise.Status.Version != promiseVersion {
+		if promise.Status.Version != promiseVersion && promise.Status.Kratix.Version != promiseVersion {
 			promise.Status.Version = promiseVersion
+			promise.Status.Kratix.Version = promiseVersion
 			return r.updatePromiseStatus(ctx, promise)
 		}
 	}
@@ -380,6 +394,7 @@ func (r *PromiseReconciler) setPausedReconciliationStatusConditions(ctx context.
 	if available == nil || available.Status == "True" {
 		updateConditionOnPromise(promise, promiseAvailablePausedStatusCondition())
 		promise.Status.Status = v1alpha1.PromiseStatusUnavailable
+		promise.Status.Kratix.Status = v1alpha1.PromiseStatusUnavailable
 		updated = true
 	}
 
@@ -417,6 +432,7 @@ func (r *PromiseReconciler) generateWorkflowsCounterStatus(promise *v1alpha1.Pro
 		desiredWorkflowsSucceeded = numOfPipelines
 	}
 
+	// TODO: remove deprecated promise.Status.Workflows, promise.Status.WorkflowsSucceeded, promise.Status.WorkflowsFailed
 	if promise.Status.Workflows != desiredWorkflows || promise.Status.WorkflowsSucceeded != desiredWorkflowsSucceeded {
 		promise.Status.Workflows = desiredWorkflows
 		promise.Status.WorkflowsSucceeded = desiredWorkflowsSucceeded
@@ -771,10 +787,13 @@ func (r *PromiseReconciler) generateStatusAndMarkRequirements(ctx context.Contex
 }
 
 func (r *PromiseReconciler) setPromiseStatusToAvailable(ctx context.Context, promise *v1alpha1.Promise, logger logr.Logger) (ctrl.Result, error) {
-	logging.Info(logger, "promise status set to Available")
 	promise.Status.Status = v1alpha1.PromiseStatusAvailable
+	promise.Status.Kratix.Status = v1alpha1.PromiseStatusAvailable
 	timestamp := metav1.Time{Time: time.Now()}
+
 	promise.Status.LastAvailableTime = &timestamp
+	promise.Status.Kratix.LastAvailableTime = &timestamp
+	logging.Info(logger, "promise status set to Available")
 	updateConditionOnPromise(promise, promiseAvailableStatusCondition(timestamp))
 
 	r.EventRecorder.Eventf(promise, "Normal", "Available", "Promise is available")
@@ -1165,12 +1184,18 @@ func (r *PromiseReconciler) ensureCRDExists(ctx context.Context, promise *v1alph
 
 func (r *PromiseReconciler) updateStatus(promise *v1alpha1.Promise, kind, group, version string) (bool, error) {
 	apiVersion := strings.ToLower(group + "/" + version)
-	if promise.Status.Kind == kind && promise.Status.APIVersion == apiVersion {
+
+	if promise.Status.Kind == kind &&
+		promise.Status.Kratix.Kind == kind &&
+		promise.Status.APIVersion == apiVersion &&
+		promise.Status.Kratix.APIVersion == apiVersion {
 		return false, nil
 	}
 
 	promise.Status.Kind = kind
+	promise.Status.Kratix.Kind = kind
 	promise.Status.APIVersion = apiVersion
+	promise.Status.Kratix.APIVersion = apiVersion
 	return true, r.Client.Status().Update(context.TODO(), promise)
 }
 
@@ -1621,6 +1646,19 @@ func setStatusFieldsOnCRD(rrCRD *apiextensionsv1.CustomResourceDefinition) {
 						},
 					},
 				},
+				"kratix": {
+					Type: "object",
+					Properties: map[string]apiextensionsv1.JSONSchemaProps{
+						"workflows": {
+							Type: "object",
+							Properties: map[string]apiextensionsv1.JSONSchemaProps{
+								"lastSuccessfulConfigureWorkflowTime": {
+									Type: "string",
+								},
+							},
+						},
+					},
+				},
 			},
 		}
 	}
@@ -1714,7 +1752,7 @@ func (r *PromiseReconciler) markRequiredPromiseAsRequired(ctx context.Context, v
 }
 
 func (r *PromiseReconciler) updatePromiseStatus(ctx context.Context, promise *v1alpha1.Promise) (ctrl.Result, error) {
-	logging.Debug(r.Log, "updating Promise status", "promise", promise.Name, "status", promise.Status.Status)
+	logging.Debug(r.Log, "updating Promise status", "promise", promise.Name, "status", promise.Status.Kratix.Status)
 	err := r.Client.Status().Update(ctx, promise)
 	if errors.IsConflict(err) {
 		logging.Debug(r.Log, "failed to update Promise status due to update conflict; requeueing")

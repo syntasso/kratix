@@ -33,15 +33,6 @@ type ResourceBindingSpec struct {
 	ResourceRef ResourceRef `json:"resourceRef"`
 }
 
-// ResourceBindingStatus defines the observed state of ResourceBinding.
-type ResourceBindingStatus struct {
-	// The status of each condition is one of True, False, or Unknown.
-	// +listType=map
-	// +listMapKey=type
-	// +optional
-	Conditions []metav1.Condition `json:"conditions,omitempty"`
-}
-
 // +kubebuilder:object:root=true
 // +kubebuilder:subresource:status
 // +kubebuilder:selectablefield:JSONPath=".spec.version"
@@ -64,6 +55,15 @@ type ResourceBinding struct {
 	// status defines the observed state of ResourceBinding
 	// +optional
 	Status ResourceBindingStatus `json:"status,omitempty,omitzero"`
+}
+
+// ResourceBindingStatus defines the observed state of ResourceBinding.
+type ResourceBindingStatus struct {
+	// The status of each condition is one of True, False, or Unknown.
+	// +listType=map
+	// +listMapKey=type
+	// +optional
+	Conditions []metav1.Condition `json:"conditions,omitempty"`
 }
 
 // +kubebuilder:object:root=true

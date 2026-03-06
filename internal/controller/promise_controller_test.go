@@ -85,7 +85,7 @@ var _ = Describe("PromiseController", func() {
 
 	Describe("Promise Reconciliation", func() {
 		When("the promise is being created", func() {
-			When("it contains everything except for promise workflows", func() {
+			When("the Promise has an API and no Workflows", func() {
 				BeforeEach(func() {
 					promise = createPromise(promisePath)
 				})
@@ -128,6 +128,18 @@ var _ = Describe("PromiseController", func() {
 						Expect(workflowsFailed.Type).To(Equal("integer"))
 						Expect(workflowsFailed.Format).To(Equal("int64"))
 
+						kratixStatus, ok := status.Properties["kratix"]
+						Expect(ok).To(BeTrue(), ".status.kratix did not exist. Spec %v", status)
+						Expect(kratixStatus.Type).To(Equal("object"))
+
+						kratixStatusProperties := kratixStatus.Properties
+						kratixWorkflows, ok := kratixStatusProperties["workflows"]
+						Expect(ok).To(BeTrue(), ".status.kratix.workflows did not exist. Spec %v", status)
+						Expect(kratixWorkflows.Type).To(Equal("object"))
+						lastSuccessfulConfigureWorkflowTime, ok := kratixWorkflows.Properties["lastSuccessfulConfigureWorkflowTime"]
+						Expect(ok).To(BeTrue(), ".status.kratix.workflows.lastSuccessfulConfigureWorkflowTime did not exist. Spec %v", kratixWorkflows)
+						Expect(lastSuccessfulConfigureWorkflowTime.Type).To(Equal("string"))
+
 						observedGeneration, ok := status.Properties["observedGeneration"]
 						Expect(ok).To(BeTrue(), ".status.observedGeneration did not exist. Spec %v", status)
 						Expect(observedGeneration.Type).To(Equal("integer"))
@@ -166,7 +178,10 @@ var _ = Describe("PromiseController", func() {
 					By("updating the status with the CRD values", func() {
 						Expect(fakeK8sClient.Get(ctx, promiseName, promise)).To(Succeed())
 						Expect(promise.Status.APIVersion).To(Equal("marketplace.kratix.io/v1alpha1"))
+						Expect(promise.Status.Kratix.APIVersion).To(Equal("marketplace.kratix.io/v1alpha1"))
 						Expect(promise.Status.Kind).To(Equal("redis"))
+						Expect(promise.Status.Kratix.Kind).To(Equal("redis"))
+						Expect(promise.Status.Kratix.Version).To(Equal("v1.1.0"))
 					})
 
 					By("updating the status with workflow counters all to zero", func() {
@@ -300,6 +315,7 @@ var _ = Describe("PromiseController", func() {
 						Expect(reconciledCond.LastTransitionTime).ToNot(BeNil())
 
 						Expect(promise.Status.Status).To(Equal(v1alpha1.PromiseStatusUnavailable))
+						Expect(promise.Status.Kratix.Status).To(Equal(v1alpha1.PromiseStatusUnavailable))
 						cond, condErr := getCondition(promise, v1alpha1.PromiseAvailableConditionType)
 						Expect(condErr).NotTo(HaveOccurred())
 						assertPromiseUnavailableCondition(cond)
@@ -353,6 +369,7 @@ var _ = Describe("PromiseController", func() {
 						))
 
 						Expect(promise.Status.Status).To(Equal(v1alpha1.PromiseStatusUnavailable))
+						Expect(promise.Status.Kratix.Status).To(Equal(v1alpha1.PromiseStatusUnavailable))
 						cond, condErr := getCondition(promise, v1alpha1.PromiseAvailableConditionType)
 						Expect(condErr).NotTo(HaveOccurred())
 						assertPromiseUnavailableCondition(cond)
@@ -397,6 +414,7 @@ var _ = Describe("PromiseController", func() {
 							))
 
 							Expect(promise.Status.Status).To(Equal(v1alpha1.PromiseStatusUnavailable))
+							Expect(promise.Status.Kratix.Status).To(Equal(v1alpha1.PromiseStatusUnavailable))
 							cond, condErr := getCondition(promise, v1alpha1.PromiseAvailableConditionType)
 							Expect(condErr).NotTo(HaveOccurred())
 							assertPromiseUnavailableCondition(cond)
@@ -444,7 +462,9 @@ var _ = Describe("PromiseController", func() {
 							})
 
 							By("updating the status to indicate the promise is available", func() {
+
 								Expect(promise.Status.Status).To(Equal(v1alpha1.PromiseStatusAvailable))
+								Expect(promise.Status.Kratix.Status).To(Equal(v1alpha1.PromiseStatusAvailable))
 								cond, condErr := getCondition(promise, v1alpha1.PromiseAvailableConditionType)
 								Expect(condErr).NotTo(HaveOccurred())
 								assertPromiseAvailableCondition(cond)
@@ -482,14 +502,18 @@ var _ = Describe("PromiseController", func() {
 
 						Expect(err).NotTo(HaveOccurred())
 						Expect(fakeK8sClient.Get(ctx, promiseName, promise)).To(Succeed())
+
 						Expect(promise.Status.Status).To(Equal(v1alpha1.PromiseStatusAvailable))
+						Expect(promise.Status.Kratix.Status).To(Equal(v1alpha1.PromiseStatusAvailable))
 						cond, condErr := getCondition(promise, v1alpha1.PromiseAvailableConditionType)
 						Expect(condErr).NotTo(HaveOccurred())
 						assertPromiseAvailableCondition(cond)
 
 						// Make the required Promise unavailable
 						Expect(fakeK8sClient.Get(ctx, requiredKafkaPromiseName, requiredKafkaPromise)).To(Succeed())
+
 						requiredKafkaPromise.Status.Status = "Unavailable"
+						requiredKafkaPromise.Status.Kratix.Status = "Unavailable"
 						Expect(fakeK8sClient.Status().Update(ctx, requiredKafkaPromise)).To(Succeed())
 
 						// Reconcile
@@ -523,6 +547,7 @@ var _ = Describe("PromiseController", func() {
 						))
 
 						Expect(promise.Status.Status).To(Equal(v1alpha1.PromiseStatusUnavailable))
+						Expect(promise.Status.Kratix.Status).To(Equal(v1alpha1.PromiseStatusUnavailable))
 						cond, condErr := getCondition(promise, v1alpha1.PromiseAvailableConditionType)
 						Expect(condErr).NotTo(HaveOccurred())
 						assertPromiseUnavailableCondition(cond)
@@ -632,6 +657,7 @@ var _ = Describe("PromiseController", func() {
 						_, err = t.reconcileUntilCompletion(reconciler, promise)
 						Expect(err).NotTo(HaveOccurred())
 						Expect(fakeK8sClient.Get(ctx, promiseName, promise)).To(Succeed())
+
 						Expect(promise.Status.Workflows).To(Equal(int64(1)))
 					})
 
@@ -639,7 +665,6 @@ var _ = Describe("PromiseController", func() {
 						setReconcileConfigureWorkflowToReturnFinished()
 						markPromiseWorkflowAsCompleted(fakeK8sClient, promise)
 						result, err = t.reconcileUntilCompletion(reconciler, promise)
-
 						Expect(err).NotTo(HaveOccurred())
 						Expect(result).To(Equal(ctrl.Result{RequeueAfter: reconciler.ReconciliationInterval}))
 
@@ -653,7 +678,6 @@ var _ = Describe("PromiseController", func() {
 
 					By("updating the status of the promise workflow", func() {
 						Expect(fakeK8sClient.Get(ctx, promiseName, promise)).To(Succeed())
-
 						Expect(promise.Status.Workflows).To(Equal(int64(1)))
 						Expect(promise.Status.WorkflowsFailed).To(Equal(int64(0)))
 						Expect(promise.Status.WorkflowsSucceeded).To(Equal(int64(1)))
@@ -1302,7 +1326,9 @@ var _ = Describe("PromiseController", func() {
 				Expect(fakeK8sClient.Get(ctx, promiseName, promise)).To(Succeed())
 
 				By("keeping promise as 'Available'", func() {
+
 					Expect(promise.Status.Status).To(Equal(v1alpha1.PromiseStatusAvailable))
+					Expect(promise.Status.Kratix.Status).To(Equal(v1alpha1.PromiseStatusAvailable))
 					cond, condErr := getCondition(promise, v1alpha1.PromiseAvailableConditionType)
 					Expect(condErr).NotTo(HaveOccurred())
 					assertPromiseAvailableCondition(cond)
@@ -1345,7 +1371,9 @@ var _ = Describe("PromiseController", func() {
 					Expect(fakeK8sClient.Status().Update(ctx, uPromise)).To(Succeed())
 
 					Expect(fakeK8sClient.Get(ctx, promiseName, promise)).To(Succeed())
+
 					Expect(promise.Status.Status).To(Equal(v1alpha1.PromiseStatusAvailable))
+					Expect(promise.Status.Kratix.Status).To(Equal(v1alpha1.PromiseStatusAvailable))
 					cond, condErr := getCondition(promise, v1alpha1.PromiseAvailableConditionType)
 					Expect(condErr).NotTo(HaveOccurred())
 					assertPromiseAvailableCondition(cond)
@@ -1489,7 +1517,9 @@ var _ = Describe("PromiseController", func() {
 
 				By("setting the promise to 'unavailable' and 'paused' for the reconciled status.condition")
 				Expect(fakeK8sClient.Get(ctx, promiseName, promise)).To(Succeed())
+
 				Expect(promise.Status.Status).To(Equal("Unavailable"))
+				Expect(promise.Status.Kratix.Status).To(Equal("Unavailable"))
 				availableCond := apimeta.FindStatusCondition(promise.Status.Conditions, "Available")
 				Expect(availableCond).NotTo(BeNil())
 				Expect(string(availableCond.Status)).To(Equal("False"))
@@ -1906,6 +1936,9 @@ func installRequiredPromise(name, version, status string) {
 	Expect(fakeK8sClient.Get(ctx, requiredPromiseName, requiredPromise)).To(Succeed())
 	requiredPromise.Status.Status = status
 	requiredPromise.Status.Version = version
+
+	requiredPromise.Status.Kratix.Status = status
+	requiredPromise.Status.Kratix.Version = version
 	Expect(fakeK8sClient.Status().Update(ctx, requiredPromise)).To(Succeed())
 }
 

@@ -385,6 +385,30 @@ var _ = Describe("Conditions", func() {
 		})
 	})
 
+	Describe("Kratix workflow status", func() {
+		var rr *unstructured.Unstructured
+
+		BeforeEach(func() {
+			rr = &unstructured.Unstructured{
+				Object: map[string]interface{}{},
+			}
+		})
+
+		It("can set and get status.kratix.workflows fields correctly", func() {
+			err := resourceutil.SetKratixWorkflowsStatus(rr, "lastSuccessfulConfigureWorkflowTime", "2026-10-14T16:16:00Z")
+			Expect(err).NotTo(HaveOccurred())
+			Expect(resourceutil.GetKratixWorkflowsStatus(rr, "lastSuccessfulConfigureWorkflowTime")).
+				To(Equal("2026-10-14T16:16:00Z"))
+		})
+
+		Context("GetKratixWorkflowsStatus", func() {
+			It("returns empty string for missing keys", func() {
+				Expect(resourceutil.GetKratixWorkflowsStatus(rr, "lastSuccessfulConfigureWorkflowTime")).To(BeEmpty())
+			})
+		})
+
+	})
+
 	Describe("GetObservedGeneration", func() {
 		var rr *unstructured.Unstructured
 

@@ -227,6 +227,31 @@ spec:
                 description: The Kind of the Resource API defined by this Promise
                   (e.g. "Database")
                 type: string
+              kratix:
+                description: Kratix-managed status for this Promise. This field contains
+                  fields set by Kratix controllers.
+                properties:
+                  apiVersion:
+                    description: The API version of the Resource API defined by this
+                      Promise (e.g. "marketplace.kratix.io/v1alpha1")
+                    type: string
+                  kind:
+                    description: The Kind of the Resource API defined by this Promise
+                      (e.g. "Database")
+                    type: string
+                  lastAvailableTime:
+                    description: Timestamp of when this Promise was last in an Available
+                      state
+                    format: date-time
+                    type: string
+                  status:
+                    description: 'Overall status of the Promise: Available or Unavailable'
+                    type: string
+                  version:
+                    description: Version of the Promise, derived from the PromiseRelease
+                      if installed via one
+                    type: string
+                type: object
               lastAvailableTime:
                 description: Timestamp of when this Promise was last in an Available
                   state

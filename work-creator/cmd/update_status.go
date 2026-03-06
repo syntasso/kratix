@@ -56,6 +56,11 @@ func runUpdateStatus(ctx context.Context) error {
 		return fmt.Errorf("failed to load incoming status: %w", err)
 	}
 
+	if _, ok := incomingStatus["kratix"]; ok {
+		return fmt.Errorf("'kratix' is a kratix managed status field that cannot be updated via workflows; " +
+			"remove update to 'kratix' from the '/kratix/metadata/status.yaml' file")
+	}
+
 	mergedStatus := lib.MergeStatuses(existingStatus, incomingStatus)
 
 	if params.WorkflowType == "promise" {
