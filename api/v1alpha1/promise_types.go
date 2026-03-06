@@ -152,7 +152,7 @@ type PromiseStatus struct {
 	// Message set by Promise configure workflow
 	Message string `json:"message,omitempty"`
 	// Kratix-managed status for this Promise. This field contains fields set by Kratix controllers.
-	Kratix KratixStatus `json:"kratix,omitempty"`
+	Kratix KratixPromiseStatus `json:"kratix,omitempty"`
 	// Total number of Promise-level workflow pipelines
 	Workflows int64 `json:"workflows"`
 	// Number of Promise-level workflow pipelines that have completed successfully
@@ -167,8 +167,8 @@ type PromiseStatus struct {
 	LastAvailableTime *metav1.Time `json:"lastAvailableTime,omitempty"`
 }
 
-// KratixStatus defines the status fields owned by kratix
-type KratixStatus struct {
+// KratixPromiseStatus defines the status fields owned by kratix
+type KratixPromiseStatus struct {
 	// The Kind of the Resource API defined by this Promise (e.g. "Database")
 	Kind string `json:"kind,omitempty"`
 
