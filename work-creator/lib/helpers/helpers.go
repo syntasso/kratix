@@ -22,6 +22,7 @@ type Parameters struct {
 	ObjectVersion   string
 	ObjectNamespace string
 	PromiseName     string
+	WorkflowType    string
 
 	CRDPlural      string
 	ClusterScoped  bool
@@ -40,6 +41,7 @@ func getParametersFromEnv() *Parameters {
 		CRDPlural:       os.Getenv(v1alpha1.KratixCrdPluralEnvVar),
 		ClusterScoped:   os.Getenv(v1alpha1.KratixClusterScopedEnvVar) == "true",
 		PromiseName:     os.Getenv(v1alpha1.KratixPromiseNameEnvVar),
+		WorkflowType:    os.Getenv(v1alpha1.KratixTypeEnvVar),
 		IsLastPipeline:  os.Getenv("IS_LAST_PIPELINE") == "true",
 		InputDir:        os.Getenv("INPUT_DIR"),
 		OutputDir:       os.Getenv("OUTPUT_DIR"),

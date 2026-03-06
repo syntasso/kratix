@@ -5,6 +5,7 @@ import (
 	"fmt"
 	"os"
 	"path/filepath"
+	"strings"
 
 	"github.com/spf13/cobra"
 	"github.com/syntasso/kratix/work-creator/lib"
@@ -56,6 +57,17 @@ func runUpdateStatus(ctx context.Context) error {
 	}
 
 	mergedStatus := lib.MergeStatuses(existingStatus, incomingStatus)
+
+	if params.WorkflowType == "promise" {
+		if nonMessageKeys := lib.NonMessageStatusKeys(incomingStatus); len(nonMessageKeys) > 0 {
+			fmt.Fprintf(
+				os.Stdout,
+				"Warning: promise workflow status has unsupported keys: %s in status.yaml; only 'message' can be updated in Promise status.\n",
+				strings.Join(nonMessageKeys, ", "),
+			)
+		}
+	}
+
 	if params.IsLastPipeline {
 		mergedStatus = lib.MarkAsCompleted(mergedStatus)
 	}

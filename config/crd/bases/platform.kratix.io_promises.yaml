@@ -29,6 +29,9 @@ spec:
     - jsonPath: .status.version
       name: Version
       type: string
+    - jsonPath: .status.message
+      name: Message
+      type: string
     name: v1alpha1
     schema:
       openAPIV3Schema:
@@ -228,6 +231,9 @@ spec:
                 description: Timestamp of when this Promise was last in an Available
                   state
                 format: date-time
+                type: string
+              message:
+                description: Message set by Promise configure workflow
                 type: string
               observedGeneration:
                 description: The generation last observed by the controller
