@@ -308,7 +308,7 @@ func (r *PromiseReconciler) Reconcile(ctx context.Context, req ctrl.Request) (re
 		logging.Debug(logger, "Promise only contains dependencies; skipping API and dynamic controller creation")
 	}
 
-	// If the originalStatus was not equal to `Available`` then set the PromiseStatus to Available and exit reconcilation loop
+	// If the originalStatus was not equal to `Available` then set the PromiseStatus to Available and exit reconcilation loop
 	if originalStatus != v1alpha1.PromiseStatusAvailable || deprecatedOriginalStatus != v1alpha1.PromiseStatusAvailable {
 		return r.setPromiseStatusToAvailable(ctx, promise, logger)
 	}
