@@ -149,6 +149,8 @@ type PromiseStatus struct {
 	APIVersion string `json:"apiVersion,omitempty"`
 	// Overall status of the Promise: Available or Unavailable
 	Status string `json:"status,omitempty"`
+	// Message set by Promise configure workflow
+	Message string `json:"message,omitempty"`
 	// Total number of Promise-level workflow pipelines
 	Workflows int64 `json:"workflows"`
 	// Number of Promise-level workflow pipelines that have completed successfully
@@ -196,6 +198,7 @@ type RequiredPromiseStatus struct {
 //+kubebuilder:printcolumn:JSONPath=".status.kind",name=Kind,type=string
 //+kubebuilder:printcolumn:JSONPath=".status.apiVersion",name="API Version",type=string
 //+kubebuilder:printcolumn:JSONPath=".status.version",name="Version",type=string
+//+kubebuilder:printcolumn:JSONPath=".status.message",name="Message",type=string
 
 // Promise is the Schema for the promises API
 type Promise struct {
