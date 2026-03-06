@@ -231,9 +231,9 @@ var _ = Describe("Core Tests", Ordered, func() {
 						transitionTime := platform.Kubectl(
 							append(rrArgs, fmt.Sprintf(`-o=jsonpath={%s.lastTransitionTime}`, workflowCompletedCondition))...,
 						)
-						lastSuccessful := platform.Kubectl(append(rrArgs, `-o=jsonpath={.status.lastSuccessfulConfigureWorkflowTime}`)...)
+						lastSuccessful := platform.Kubectl(append(rrArgs, `-o=jsonpath={.status.kratix.workflows.lastSuccessfulConfigureWorkflowTime}`)...)
 						return transitionTime == lastSuccessful
-					}, timeout, interval).Should(BeTrue(), "lastTransitionTime should be equal to lastSuccessfulConfigureWorkflowTime")
+					}, timeout, interval).Should(BeTrue(), "lastTransitionTime should be equal to kratix.workflows.lastSuccessfulConfigureWorkflowTime")
 
 					worksSucceededCondition := `.status.conditions[?(@.type=="WorksSucceeded")]`
 					reconciledCondition := `.status.conditions[?(@.type=="Reconciled")]`

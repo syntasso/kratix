@@ -931,13 +931,18 @@ func shouldUpdateLastSuccessfulConfigureWorkflowTime(
 	rr *unstructured.Unstructured,
 ) bool {
 	lastTransitionTime := workflowCompletedCondition.LastTransitionTime.Format(time.RFC3339)
-	lastSuccessfulTime := resourceutil.GetStatus(rr, "lastSuccessfulConfigureWorkflowTime")
-	return lastTransitionTime != lastSuccessfulTime
+	lastSuccessfulLegacy := resourceutil.GetStatus(rr, "lastSuccessfulConfigureWorkflowTime")
+	lastSuccessfulKratix := resourceutil.GetKratixWorkflowsStatus(rr, "lastSuccessfulConfigureWorkflowTime")
+
+	return lastTransitionTime != lastSuccessfulLegacy || lastTransitionTime != lastSuccessfulKratix
 }
 
 func updateLastSuccessfulConfigureWorkflowTime(workflowCompletedCondition *clusterv1.Condition, rr *unstructured.Unstructured, opts opts) error {
-	// use SetKratixWorkflowsStatus instead of SetStatus
-	resourceutil.SetStatus(rr, opts.logger, "lastSuccessfulConfigureWorkflowTime", workflowCompletedCondition.LastTransitionTime.Format(time.RFC3339))
+	lastTransitionTime := workflowCompletedCondition.LastTransitionTime.Format(time.RFC3339)
+	resourceutil.SetStatus(rr, opts.logger, "lastSuccessfulConfigureWorkflowTime", lastTransitionTime)
+	if err := resourceutil.SetKratixWorkflowsStatus(rr, "lastSuccessfulConfigureWorkflowTime", lastTransitionTime); err != nil {
+		return err
+	}
 	return opts.client.Status().Update(opts.ctx, rr)
 }
 

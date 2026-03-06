@@ -388,3 +388,11 @@ func IsPromiseMarkedAsUnavailable(obj *unstructured.Unstructured) bool {
 func SetKratixWorkflowsStatus(rr *unstructured.Unstructured, key, value string) error {
 	return unstructured.SetNestedField(rr.Object, value, "status", "kratix", "workflows", key)
 }
+
+func GetKratixWorkflowsStatus(rr *unstructured.Unstructured, key string) string {
+	value, found, err := unstructured.NestedString(rr.Object, "status", "kratix", "workflows", key)
+	if err != nil || !found {
+		return ""
+	}
+	return value
+}

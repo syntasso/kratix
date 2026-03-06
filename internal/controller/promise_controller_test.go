@@ -134,17 +134,12 @@ var _ = Describe("PromiseController", func() {
 						Expect(kratixStatus.Type).To(Equal("object"))
 
 						kratixStatusProperties := kratixStatus.Properties
-						kind, ok := kratixStatusProperties["kind"]
-						Expect(ok).To(BeTrue(), ".status.kratix.kind did not exist. Spec %v", status)
-						Expect(kind.Type).To(Equal("string"))
-
-						version, ok := kratixStatusProperties["version"]
-						Expect(ok).To(BeTrue(), ".status.kratix.version did not exist. Spec %v", status)
-						Expect(version.Type).To(Equal("string"))
-
-						kratixNestedStatus, ok := kratixStatusProperties["status"]
-						Expect(ok).To(BeTrue(), ".status.kratix.status did not exist. Spec %v", status)
-						Expect(kratixNestedStatus.Type).To(Equal("string"))
+						kratixWorkflows, ok := kratixStatusProperties["workflows"]
+						Expect(ok).To(BeTrue(), ".status.kratix.workflows did not exist. Spec %v", status)
+						Expect(kratixWorkflows.Type).To(Equal("object"))
+						lastSuccessfulConfigureWorkflowTime, ok := kratixWorkflows.Properties["lastSuccessfulConfigureWorkflowTime"]
+						Expect(ok).To(BeTrue(), ".status.kratix.workflows.lastSuccessfulConfigureWorkflowTime did not exist. Spec %v", kratixWorkflows)
+						Expect(lastSuccessfulConfigureWorkflowTime.Type).To(Equal("string"))
 
 						observedGeneration, ok := status.Properties["observedGeneration"]
 						Expect(ok).To(BeTrue(), ".status.observedGeneration did not exist. Spec %v", status)

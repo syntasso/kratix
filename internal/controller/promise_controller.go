@@ -1643,17 +1643,15 @@ func setStatusFieldsOnCRD(rrCRD *apiextensionsv1.CustomResourceDefinition) {
 					},
 				},
 				"kratix": {
-					Type:                   "object",
-					XPreserveUnknownFields: &[]bool{true}[0], // pointer to bool
+					Type: "object",
 					Properties: map[string]apiextensionsv1.JSONSchemaProps{
-						"kind": {
-							Type: "string",
-						},
-						"status": {
-							Type: "string",
-						},
-						"version": {
-							Type: "string",
+						"workflows": {
+							Type: "object",
+							Properties: map[string]apiextensionsv1.JSONSchemaProps{
+								"lastSuccessfulConfigureWorkflowTime": {
+									Type: "string",
+								},
+							},
 						},
 					},
 				},

@@ -88,7 +88,7 @@ var _ = Describe("DynamicResourceRequestController", func() {
 				Expect(sa.GetLabels()).To(Equal(resourceLabels))
 			})
 
-			By("creates a role for the pipeline service account", func() {
+			By("creating a role for the pipeline service account", func() {
 				Expect(resources[2]).To(BeAssignableToTypeOf(&rbacv1.Role{}))
 				role := resources[2].(*rbacv1.Role)
 				Expect(role.GetLabels()).To(Equal(resourceLabels))
@@ -107,7 +107,7 @@ var _ = Describe("DynamicResourceRequestController", func() {
 				Expect(role.GetLabels()).To(Equal(resourceLabels))
 			})
 
-			By("associates the new role with the new service account", func() {
+			By("associating the new role with the new service account", func() {
 				Expect(resources[3]).To(BeAssignableToTypeOf(&rbacv1.RoleBinding{}))
 				binding := resources[3].(*rbacv1.RoleBinding)
 				Expect(binding.RoleRef.Name).To(Equal("redis-resource-configure-first-pipeline"))
@@ -120,7 +120,7 @@ var _ = Describe("DynamicResourceRequestController", func() {
 				Expect(binding.GetLabels()).To(Equal(resourceLabels))
 			})
 
-			By("creates a config map with the promise scheduling in it", func() {
+			By("creating a config map with the promise scheduling in it", func() {
 				Expect(resources[1]).To(BeAssignableToTypeOf(&v1.ConfigMap{}))
 				configMap := resources[1].(*v1.ConfigMap)
 				Expect(configMap.GetName()).To(Equal("destination-selectors-" + promise.GetName()))
@@ -186,14 +186,9 @@ var _ = Describe("DynamicResourceRequestController", func() {
 			})
 
 			By("setting the lastSuccessfulConfigureWorkflowTime in the resource status", func() {
-				// this test should be updated
 				Expect(fakeK8sClient.Get(ctx, resReqNameNamespace, resReq)).To(Succeed())
-				status := resReq.Object["status"]
-				Expect(status).NotTo(BeNil())
-				statusMap := status.(map[string]interface{})
-				// kratixObj := statusMap["kratix"].(map[string]interface{})
-				lastSuccessfulConfigureWorkflowTime, err := time.Parse(time.RFC3339, statusMap["lastSuccessfulConfigureWorkflowTime"].(string))
-				// lastSuccessfulConfigureWorkflowTime, err := time.Parse(time.RFC3339, kratixObj["lastSuccessfulConfigureWorkflowTime"].(string))
+				configuredWorkflowTime := resourceutil.GetKratixWorkflowsStatus(resReq, "lastSuccessfulConfigureWorkflowTime")
+				lastSuccessfulConfigureWorkflowTime, err := time.Parse(time.RFC3339, configuredWorkflowTime)
 				Expect(err).NotTo(HaveOccurred())
 				Expect(lastSuccessfulConfigureWorkflowTime).To(BeTemporally(">", startTime))
 			})
@@ -386,7 +381,7 @@ var _ = Describe("DynamicResourceRequestController", func() {
 					Expect(result).To(Equal(ctrl.Result{}))
 					Expect(fakeK8sClient.Get(ctx, resReqNameNamespace, resReq)).To(Succeed())
 
-					status := resourceutil.GetStatus(resReq, "lastSuccessfulConfigureWorkflowTime")
+					status := resourceutil.GetKratixWorkflowsStatus(resReq, "lastSuccessfulConfigureWorkflowTime")
 					Expect(status).To(BeEmpty())
 				})
 
@@ -399,7 +394,7 @@ var _ = Describe("DynamicResourceRequestController", func() {
 					Expect(result).To(Equal(ctrl.Result{RequeueAfter: reconciler.ReconciliationInterval}))
 					Expect(fakeK8sClient.Get(ctx, resReqNameNamespace, resReq)).To(Succeed())
 
-					lastSuccessfulConfigureWorkflowTime := resourceutil.GetStatus(resReq, "lastSuccessfulConfigureWorkflowTime")
+					lastSuccessfulConfigureWorkflowTime := resourceutil.GetKratixWorkflowsStatus(resReq, "lastSuccessfulConfigureWorkflowTime")
 					Expect(lastSuccessfulConfigureWorkflowTime).To(Equal(lastTransitionTime.Format(time.RFC3339)))
 				})
 			})
@@ -416,7 +411,7 @@ var _ = Describe("DynamicResourceRequestController", func() {
 				})
 
 				It("remains the same when the workflow fails", func() {
-					before := resourceutil.GetStatus(resReq, "lastSuccessfulConfigureWorkflowTime")
+					before := resourceutil.GetKratixWorkflowsStatus(resReq, "lastSuccessfulConfigureWorkflowTime")
 					Expect(before).NotTo(BeEmpty())
 
 					setConfigureWorkflowStatus(resReq, v1.ConditionFalse, time.Now())
@@ -426,13 +421,13 @@ var _ = Describe("DynamicResourceRequestController", func() {
 					Expect(result).To(Equal(ctrl.Result{}))
 
 					Expect(fakeK8sClient.Get(ctx, resReqNameNamespace, resReq)).To(Succeed())
-					after := resourceutil.GetStatus(resReq, "lastSuccessfulConfigureWorkflowTime")
+					after := resourceutil.GetKratixWorkflowsStatus(resReq, "lastSuccessfulConfigureWorkflowTime")
 					Expect(after).NotTo(BeEmpty())
 					Expect(before).To(Equal(after))
 				})
 
 				It("remains the same when the condition is True but not for the right Reason", func() {
-					before := resourceutil.GetStatus(resReq, "lastSuccessfulConfigureWorkflowTime")
+					before := resourceutil.GetKratixWorkflowsStatus(resReq, "lastSuccessfulConfigureWorkflowTime")
 					Expect(before).NotTo(BeEmpty())
 					resourceutil.SetCondition(resReq, &clusterv1.Condition{
 						Type:               resourceutil.ConfigureWorkflowCompletedCondition,
@@ -448,13 +443,13 @@ var _ = Describe("DynamicResourceRequestController", func() {
 					Expect(result).To(Equal(ctrl.Result{}))
 
 					Expect(fakeK8sClient.Get(ctx, resReqNameNamespace, resReq)).To(Succeed())
-					after := resourceutil.GetStatus(resReq, "lastSuccessfulConfigureWorkflowTime")
+					after := resourceutil.GetKratixWorkflowsStatus(resReq, "lastSuccessfulConfigureWorkflowTime")
 					Expect(after).NotTo(BeEmpty())
 					Expect(before).To(Equal(after))
 				})
 
 				It("is updated when the workflow finishes successfully at a later time", func() {
-					before := resourceutil.GetStatus(resReq, "lastSuccessfulConfigureWorkflowTime")
+					before := resourceutil.GetKratixWorkflowsStatus(resReq, "lastSuccessfulConfigureWorkflowTime")
 					Expect(before).NotTo(BeEmpty())
 
 					expectedAfter := time.Now()
@@ -465,7 +460,7 @@ var _ = Describe("DynamicResourceRequestController", func() {
 					Expect(result).To(Equal(ctrl.Result{RequeueAfter: reconciler.ReconciliationInterval}))
 					Expect(fakeK8sClient.Get(ctx, resReqNameNamespace, resReq)).To(Succeed())
 
-					actualAfter := resourceutil.GetStatus(resReq, "lastSuccessfulConfigureWorkflowTime")
+					actualAfter := resourceutil.GetKratixWorkflowsStatus(resReq, "lastSuccessfulConfigureWorkflowTime")
 					Expect(actualAfter).NotTo(BeEmpty())
 					Expect(actualAfter).To(Equal(expectedAfter.Format(time.RFC3339)))
 				})
