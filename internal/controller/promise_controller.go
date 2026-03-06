@@ -1752,7 +1752,6 @@ func (r *PromiseReconciler) markRequiredPromiseAsRequired(ctx context.Context, v
 }
 
 func (r *PromiseReconciler) updatePromiseStatus(ctx context.Context, promise *v1alpha1.Promise) (ctrl.Result, error) {
-	// logging.Debug(r.Log, "updating Promise status", "promise", promise.Name, "status", promise.Status.Status)
 	logging.Debug(r.Log, "updating Promise status", "promise", promise.Name, "status", promise.Status.Kratix.Status)
 	err := r.Client.Status().Update(ctx, promise)
 	if errors.IsConflict(err) {

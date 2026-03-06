@@ -435,7 +435,6 @@ func (r *DynamicResourceRequestController) updateReconciledCondition(rr *unstruc
 		}
 	} else if workflowCompleted != nil && worksSucceeded != nil &&
 		workflowCompleted.Status == v1.ConditionTrue && worksSucceeded.Status == v1.ConditionTrue {
-		// Update status.Kratix.lastSuccessfulConfigureWorkflowTime here?
 		if reconciled == nil || reconciled.Status != v1.ConditionTrue {
 			resourceutil.MarkReconciledTrue(rr)
 			updated = true

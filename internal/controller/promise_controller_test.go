@@ -113,7 +113,6 @@ var _ = Describe("PromiseController", func() {
 						Expect(ok).To(BeTrue(), ".status.message did not exist. Spec %v", status)
 						Expect(message.Type).To(Equal("string"))
 
-						// This should be removed once we have a new version on Kratix
 						workflows, ok := status.Properties["workflows"]
 						Expect(ok).To(BeTrue(), ".status.workflows did not exist. Spec %v", status)
 						Expect(workflows.Type).To(Equal("integer"))
