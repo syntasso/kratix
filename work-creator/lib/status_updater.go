@@ -19,6 +19,18 @@ func MergeStatuses(existing map[string]any, incoming map[string]any) map[string]
 	return mergeRecursive(existing, incoming)
 }
 
+// NonMessageStatusKeys finds keys from status.yaml that's not message
+// It's used in Promise workflow because Promise does not preserve unknown fields
+func NonMessageStatusKeys(status map[string]any) []string {
+	var keys []string
+	for key := range status {
+		if key != "message" {
+			keys = append(keys, key)
+		}
+	}
+	return keys
+}
+
 // MarkAsCompleted takes a status map and returns a new status map with the
 // "ConfigureWorkflowCompleted" condition set to true. It will also update the
 // "message" field to "Resource requested" if the message is currently

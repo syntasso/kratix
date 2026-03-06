@@ -70,6 +70,26 @@ var _ = Describe("StatusUpdater", func() {
 		})
 	})
 
+	Describe("NonMessageStatusKeys", func() {
+		It("returns non-message keys", func() {
+			keys := lib.NonMessageStatusKeys(map[string]any{
+				"message": "ok",
+				"bear":    "1",
+				"lizard":  "2",
+			})
+
+			Expect(keys).To(ConsistOf("lizard", "bear"))
+		})
+
+		It("returns an empty list when 'message' is the only key", func() {
+			keys := lib.NonMessageStatusKeys(map[string]any{
+				"message": "ok",
+			})
+
+			Expect(keys).To(BeEmpty())
+		})
+	})
+
 	Describe("MarkAsCompleted", func() {
 		Describe("The Message", func() {
 			It("updates to 'Resource requested' if it is 'Pending'", func() {

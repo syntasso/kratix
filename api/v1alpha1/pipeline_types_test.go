@@ -1071,6 +1071,7 @@ var _ = Describe("Pipeline", func() {
 					Expect(container.Command).To(Equal([]string{"/bin/pipeline-adapter"}))
 					Expect(container.Args).To(Equal([]string{"update-status"}))
 					Expect(container.Env).To(ConsistOf(
+						corev1.EnvVar{Name: "KRATIX_WORKFLOW_TYPE", Value: string(factory.WorkflowType)},
 						corev1.EnvVar{Name: "KRATIX_OBJECT_KIND", Value: resourceRequest.GroupVersionKind().Kind},
 						corev1.EnvVar{Name: "KRATIX_OBJECT_GROUP", Value: resourceRequest.GroupVersionKind().Group},
 						corev1.EnvVar{Name: "KRATIX_OBJECT_VERSION", Value: resourceRequest.GroupVersionKind().Version},
