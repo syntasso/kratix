@@ -198,7 +198,6 @@ func (r *PromiseReconciler) Reconcile(ctx context.Context, req ctrl.Request) (re
 	}
 
 	// Gather Promise original information
-	deprecatedOriginalStatus := promise.Status.Status
 	originalStatus := promise.Status.Kratix.Status
 	originalAvailableCondition := promise.GetCondition(v1alpha1.PromiseAvailableConditionType)
 
@@ -223,7 +222,7 @@ func (r *PromiseReconciler) Reconcile(ctx context.Context, req ctrl.Request) (re
 
 		// If the originalStatus was available, now we have transitioned to an Unavailable or Pending state
 		// therefore we need to produce an event to inform of this transition
-		if originalStatus == v1alpha1.PromiseStatusAvailable || deprecatedOriginalStatus == v1alpha1.PromiseStatusAvailable {
+		if originalStatus == v1alpha1.PromiseStatusAvailable {
 			msg := "Promise no longer available: Requirements have changed"
 			r.EventRecorder.Eventf(
 				promise, "Warning", "Unavailable", msg)
@@ -308,12 +307,12 @@ func (r *PromiseReconciler) Reconcile(ctx context.Context, req ctrl.Request) (re
 		logging.Debug(logger, "Promise only contains dependencies; skipping API and dynamic controller creation")
 	}
 
-	// If the originalStatus was not equal to `Available` then set the PromiseStatus to Available and exit reconcilation loop
-	if originalStatus != v1alpha1.PromiseStatusAvailable || deprecatedOriginalStatus != v1alpha1.PromiseStatusAvailable {
+	// If the originalStatus was not equal to `Available` then set the PromiseStatus to Available and exit reconciliation loop
+	if originalStatus != v1alpha1.PromiseStatusAvailable {
 		return r.setPromiseStatusToAvailable(ctx, promise, logger)
 	}
 
-	promise.Status.Status = deprecatedOriginalStatus
+	promise.Status.Status = originalStatus
 	promise.Status.Kratix.Status = originalStatus
 	timeStamp := metav1.Time{Time: time.Now()}
 
@@ -394,7 +393,6 @@ func (r *PromiseReconciler) setPausedReconciliationStatusConditions(ctx context.
 	available := promise.GetCondition(v1alpha1.PromiseStatusAvailable)
 	if available == nil || available.Status == "True" {
 		updateConditionOnPromise(promise, promiseAvailablePausedStatusCondition())
-		// TODO: remove deprecated promise.Status.Status
 		promise.Status.Status = v1alpha1.PromiseStatusUnavailable
 		promise.Status.Kratix.Status = v1alpha1.PromiseStatusUnavailable
 		updated = true
@@ -789,12 +787,10 @@ func (r *PromiseReconciler) generateStatusAndMarkRequirements(ctx context.Contex
 }
 
 func (r *PromiseReconciler) setPromiseStatusToAvailable(ctx context.Context, promise *v1alpha1.Promise, logger logr.Logger) (ctrl.Result, error) {
-	// TODO: do not update the promise.Status.Status after the field has been deprecated
 	promise.Status.Status = v1alpha1.PromiseStatusAvailable
 	promise.Status.Kratix.Status = v1alpha1.PromiseStatusAvailable
 	timestamp := metav1.Time{Time: time.Now()}
 
-	// TODO: do not update the promise.Status.LastAvailableTime after the field has been deprecated
 	promise.Status.LastAvailableTime = &timestamp
 	promise.Status.Kratix.LastAvailableTime = &timestamp
 	logging.Info(logger, "promise status set to Available")
@@ -863,7 +859,6 @@ func (r *PromiseReconciler) reconcileDependenciesAndPromiseWorkflows(o opts, pro
 		return false, r.updateWorkflowStatusCountersToZero(o.ctx, promise)
 	}
 
-	// TODO: remove deprecated promise.Status.Workflows
 	if promise.Status.Workflows != pipelineCount {
 		promise.Status.Workflows = pipelineCount
 		return false, r.Client.Update(o.ctx, promise)
@@ -1190,14 +1185,11 @@ func (r *PromiseReconciler) ensureCRDExists(ctx context.Context, promise *v1alph
 func (r *PromiseReconciler) updateStatus(promise *v1alpha1.Promise, kind, group, version string) (bool, error) {
 	apiVersion := strings.ToLower(group + "/" + version)
 
-	// TODO: Remove check of promise.Status.Kind when the field has been deprecated
 	if (promise.Status.Kind == kind || promise.Status.Kratix.Kind == kind) && promise.Status.APIVersion == apiVersion {
 		return false, nil
 	}
 
-	// TODO: Remove update to promise.Status.Kind when the field has been deprecated
 	promise.Status.Kind = kind
-
 	promise.Status.Kratix.Kind = kind
 	promise.Status.APIVersion = apiVersion
 	return true, r.Client.Status().Update(context.TODO(), promise)
@@ -1612,7 +1604,6 @@ func setStatusFieldsOnCRD(rrCRD *apiextensionsv1.CustomResourceDefinition) {
 					Type:   "integer",
 					Format: "int64",
 				},
-				// TODO; remove workflows, workflowsSucceeded, workflowsFailed once we have a new release of Kratix
 				"workflows": {
 					Type:   "integer",
 					Format: "int64",
