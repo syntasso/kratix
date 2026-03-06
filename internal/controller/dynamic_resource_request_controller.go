@@ -290,7 +290,7 @@ func (r *DynamicResourceRequestController) Reconcile(ctx context.Context, req ct
 	workflowCompletedCondition := resourceutil.GetCondition(rr, resourceutil.ConfigureWorkflowCompletedCondition)
 	if workflowsCompletedSuccessfully(workflowCompletedCondition) {
 		if shouldUpdateLastSuccessfulConfigureWorkflowTime(workflowCompletedCondition, rr) {
-			if err := updateLastSuccessfulConfigureWorkflowTime(workflowCompletedCondition, rr, opts, logger); err != nil {
+			if err := updateLastSuccessfulConfigureWorkflowTime(workflowCompletedCondition, rr, opts); err != nil {
 				return ctrl.Result{}, err
 			}
 			return ctrl.Result{}, nil
@@ -935,8 +935,9 @@ func shouldUpdateLastSuccessfulConfigureWorkflowTime(
 	return lastTransitionTime != lastSuccessfulTime
 }
 
-func updateLastSuccessfulConfigureWorkflowTime(workflowCompletedCondition *clusterv1.Condition, rr *unstructured.Unstructured, opts opts, logger logr.Logger) error {
-	resourceutil.SetStatus(rr, logger, "lastSuccessfulConfigureWorkflowTime", workflowCompletedCondition.LastTransitionTime.Format(time.RFC3339))
+func updateLastSuccessfulConfigureWorkflowTime(workflowCompletedCondition *clusterv1.Condition, rr *unstructured.Unstructured, opts opts) error {
+	// use SetKratixWorkflowsStatus instead of SetStatus
+	resourceutil.SetStatus(rr, opts.logger, "lastSuccessfulConfigureWorkflowTime", workflowCompletedCondition.LastTransitionTime.Format(time.RFC3339))
 	return opts.client.Status().Update(opts.ctx, rr)
 }
 
