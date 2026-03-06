@@ -19,7 +19,6 @@ package controller
 
 import (
 	"context"
-	"fmt"
 
 	"github.com/go-logr/logr"
 	"github.com/syntasso/kratix/api/v1alpha1"
@@ -57,7 +56,7 @@ func (r *GitStateStoreReconciler) Reconcile(ctx context.Context, req ctrl.Reques
 	)
 
 	return withTrace(logger, func() (ctrl.Result, error) {
-		stateStoreCtx, err := r.newReconcileContext(ctx, logger, req, r.RepositoryCache)
+		stateStoreCtx, err := r.newReconcileContext(ctx, logger, req)
 		if err != nil {
 			logging.Error(logger, err, "unable to setup resources for reconciliation")
 			return ctrl.Result{}, err
@@ -74,7 +73,7 @@ func (r *GitStateStoreReconciler) Reconcile(ctx context.Context, req ctrl.Reques
 	})
 }
 
-func (r *GitStateStoreReconciler) newReconcileContext(ctx context.Context, logger logr.Logger, req ctrl.Request, cache RepositoryCache) (*stateStoreReconcileContext, error) {
+func (r *GitStateStoreReconciler) newReconcileContext(ctx context.Context, logger logr.Logger, req ctrl.Request) (*stateStoreReconcileContext, error) {
 	gitStateStore := &v1alpha1.GitStateStore{}
 	if err := r.Client.Get(ctx, client.ObjectKey{Name: req.Name}, gitStateStore); err != nil {
 		if errors.IsNotFound(err) {
@@ -83,21 +82,25 @@ func (r *GitStateStoreReconciler) newReconcileContext(ctx context.Context, logge
 		return nil, NewInitialiseWriterError(err)
 	}
 
-	secret := fetchSecret(ctx, logger, r.Client, r.EventRecorder, gitStateStore)
-	if secret == nil {
-		return nil, nil
+	stateStoreCtx := &stateStoreReconcileContext{
+		ctx:             ctx,
+		controller:      "GitStateStore",
+		logger:          logger.WithValues("generation", gitStateStore.GetGeneration()),
+		client:          r.Client,
+		stateStore:      gitStateStore,
+		repositoryCache: r.RepositoryCache,
+		eventRecorder:   r.EventRecorder,
 	}
 
-	return &stateStoreReconcileContext{
-		ctx:              ctx,
-		controller:       "GitStateStore",
-		logger:           logger.WithValues("generation", gitStateStore.GetGeneration()),
-		client:           r.Client,
-		stateStore:       gitStateStore,
-		stateStoreSecret: secret,
-		repositoryCache:  cache,
-		eventRecorder:    r.EventRecorder,
-	}, nil
+	secret, err := fetchSecret(ctx, logger, r.Client, gitStateStore)
+	if err != nil {
+		r.RepositoryCache.Cleanup(gitStateStore)
+		return nil, stateStoreCtx.setNotReadyStatus(err)
+	}
+
+	stateStoreCtx.stateStoreSecret = secret
+
+	return stateStoreCtx, nil
 }
 
 func (r *GitStateStoreReconciler) findStateStoresReferencingSecret() handler.MapFunc {
@@ -127,30 +130,4 @@ func (r *GitStateStoreReconciler) SetupWithManager(mgr ctrl.Manager) error {
 			handler.EnqueueRequestsFromMapFunc(r.findStateStoresReferencingSecret()),
 		).
 		Complete(r)
-}
-
-type StateStoreError struct {
-	error
-	Reason  string
-	Message string
-}
-
-func (e *StateStoreError) Error() string {
-	return e.error.Error()
-}
-
-func NewInitialiseWriterError(err error) *StateStoreError {
-	return &StateStoreError{
-		error:   err,
-		Reason:  StateStoreNotReadyErrorInitialisingWriterReason,
-		Message: err.Error(),
-	}
-}
-
-func NewValidatePermissionsError(err error) *StateStoreError {
-	return &StateStoreError{
-		error:   err,
-		Reason:  StateStoreNotReadyErrorValidatingPermissionsReason,
-		Message: fmt.Sprintf("%s: %s", StateStoreNotReadyErrorValidatingPermissionsMessage, err.Error()),
-	}
 }

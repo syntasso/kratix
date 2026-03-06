@@ -85,7 +85,6 @@ func (r *DestinationReconciler) Reconcile(ctx context.Context, req ctrl.Request)
 		"name", req.Name,
 	)
 	return withTrace(logger, func() (ctrl.Result, error) {
-		logging.Info(logger, "reconcile func started")
 		destinationCtx, err := r.newReconcileContext(ctx, logger, req)
 		if err != nil {
 			logging.Error(logger, err, "unable to setup resources for reconciliation")
@@ -121,8 +120,6 @@ func (r *DestinationReconciler) newReconcileContext(ctx context.Context, logger 
 }
 
 func (d *destinationReconcileContext) Reconcile() (ctrl.Result, error) {
-	logging.Info(d.logger, "ctx reconcile started")
-
 	if d.needsFinalizerUpdate() {
 		logging.Debug(d.logger, "updating destination finalizers")
 		if err := d.client.Update(d.ctx, d.destination); err != nil {
@@ -142,8 +139,16 @@ func (d *destinationReconcileContext) Reconcile() (ctrl.Result, error) {
 	)
 	if err != nil {
 		if errors.Is(err, ErrCacheMiss) {
-			d.logAndRecordEvent(err, "State Store not ready")
-			if err := d.setNotReadyStatus("StateStoreNotReady", "State Store not ready"); err != nil {
+			// check if state store even exists
+			message := fmt.Sprintf("%s/%s", d.destination.Spec.StateStoreRef.Kind, d.destination.Spec.StateStoreRef.Name)
+			status := "StateStoreNotReady"
+			if !d.stateStoreExists() {
+				err = errors.New("not found")
+				status = "StateStoreNotFound"
+			}
+
+			d.logAndRecordEvent(err, message)
+			if err := d.setNotReadyStatus(status, fmt.Sprintf("%s: %s", message, err.Error())); err != nil {
 				return ctrl.Result{}, err
 			}
 			return defaultRequeue, nil
@@ -404,4 +409,26 @@ func (d *destinationReconcileContext) logAndRecordEvent(err error, message strin
 			message,
 		)
 	}
+}
+
+func (d *destinationReconcileContext) stateStoreExists() bool {
+	switch d.destination.Spec.StateStoreRef.Kind {
+	case "GitStateStore":
+		return !k8serrors.IsNotFound(
+			d.client.Get(
+				d.ctx,
+				client.ObjectKey{Name: d.destination.Spec.StateStoreRef.Name},
+				&v1alpha1.GitStateStore{},
+			),
+		)
+	case "BucketStateStore":
+		return !k8serrors.IsNotFound(
+			d.client.Get(
+				d.ctx,
+				client.ObjectKey{Name: d.destination.Spec.StateStoreRef.Name},
+				&v1alpha1.BucketStateStore{},
+			),
+		)
+	}
+	return false
 }

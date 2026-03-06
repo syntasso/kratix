@@ -20,6 +20,7 @@ import (
 	"fmt"
 
 	corev1 "k8s.io/api/core/v1"
+	"k8s.io/apimachinery/pkg/api/meta"
 	metav1 "k8s.io/apimachinery/pkg/apis/meta/v1"
 )
 
@@ -87,6 +88,23 @@ func (b *BucketStateStore) GetStatus() *StateStoreStatus {
 
 func (b *BucketStateStore) SetStatus(status StateStoreStatus) {
 	b.Status = status
+}
+
+func (b *BucketStateStore) GetGeneration() int64 {
+	return b.Generation
+}
+
+func (b *BucketStateStore) GetObservedGeneration() int64 {
+	return b.Status.ObservedGeneration
+}
+
+func (b *BucketStateStore) Ready() bool {
+	readyCond := meta.FindStatusCondition(b.Status.Conditions, "Ready")
+	return readyCond != nil && readyCond.Status == metav1.ConditionTrue
+}
+
+func (b *BucketStateStore) SetObservedGeneration(generation int64) {
+	b.Status.ObservedGeneration = generation
 }
 
 //+kubebuilder:object:root=true
