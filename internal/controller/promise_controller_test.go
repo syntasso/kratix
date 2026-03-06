@@ -179,12 +179,13 @@ var _ = Describe("PromiseController", func() {
 					By("updating the status with the CRD values", func() {
 						Expect(fakeK8sClient.Get(ctx, promiseName, promise)).To(Succeed())
 						Expect(promise.Status.APIVersion).To(Equal("marketplace.kratix.io/v1alpha1"))
+						Expect(promise.Status.Kratix.APIVersion).To(Equal("marketplace.kratix.io/v1alpha1"))
 						Expect(promise.Status.Kind).To(Equal("redis"))
 						Expect(promise.Status.Kratix.Kind).To(Equal("redis"))
+						Expect(promise.Status.Kratix.Version).To(Equal("v1.1.0"))
 					})
 
 					By("updating the status with workflow counters all to zero", func() {
-
 						Expect(promise.Status.Workflows).To(Equal(int64(0)))
 						Expect(promise.Status.WorkflowsSucceeded).To(Equal(int64(0)))
 						Expect(promise.Status.WorkflowsFailed).To(Equal(int64(0)))

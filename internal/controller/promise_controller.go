@@ -1185,13 +1185,17 @@ func (r *PromiseReconciler) ensureCRDExists(ctx context.Context, promise *v1alph
 func (r *PromiseReconciler) updateStatus(promise *v1alpha1.Promise, kind, group, version string) (bool, error) {
 	apiVersion := strings.ToLower(group + "/" + version)
 
-	if (promise.Status.Kind == kind || promise.Status.Kratix.Kind == kind) && promise.Status.APIVersion == apiVersion {
+	if promise.Status.Kind == kind &&
+		promise.Status.Kratix.Kind == kind &&
+		promise.Status.APIVersion == apiVersion &&
+		promise.Status.Kratix.APIVersion == apiVersion {
 		return false, nil
 	}
 
 	promise.Status.Kind = kind
 	promise.Status.Kratix.Kind = kind
 	promise.Status.APIVersion = apiVersion
+	promise.Status.Kratix.APIVersion = apiVersion
 	return true, r.Client.Status().Update(context.TODO(), promise)
 }
 

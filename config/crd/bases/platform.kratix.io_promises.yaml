@@ -231,6 +231,10 @@ spec:
                 description: Kratix-managed status for this Promise. This field contains
                   fields set by Kratix controllers.
                 properties:
+                  apiVersion:
+                    description: The API version of the Resource API defined by this
+                      Promise (e.g. "marketplace.kratix.io/v1alpha1")
+                    type: string
                   kind:
                     description: The Kind of the Resource API defined by this Promise
                       (e.g. "Database")

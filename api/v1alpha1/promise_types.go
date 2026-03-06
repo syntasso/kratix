@@ -175,6 +175,9 @@ type KratixPromiseStatus struct {
 	// Version of the Promise, derived from the PromiseRelease if installed via one
 	Version string `json:"version,omitempty"`
 
+	// The API version of the Resource API defined by this Promise (e.g. "marketplace.kratix.io/v1alpha1")
+	APIVersion string `json:"apiVersion,omitempty"`
+
 	// Overall status of the Promise: Available or Unavailable
 	Status string `json:"status,omitempty"`
 
