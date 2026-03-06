@@ -49,6 +49,7 @@ func (r *ResourceBindingReconciler) Reconcile(ctx context.Context, req ctrl.Requ
 	logger := r.Log.WithValues(
 		"controller", "resourceBinding",
 		"name", req.Name,
+		"namespace", req.Namespace,
 	)
 
 	resourceBinding := &v1alpha1.ResourceBinding{}
@@ -60,6 +61,13 @@ func (r *ResourceBindingReconciler) Reconcile(ctx context.Context, req ctrl.Requ
 		logging.Warn(logger, "failed to get resourceBinding; requeueing")
 		return defaultRequeue, nil
 	}
+
+	logger = withPromiseAndResourceRequest(
+		logger,
+		resourceBinding.Spec.PromiseRef.Name,
+		resourceBinding.Spec.ResourceRef.Namespace,
+		resourceBinding.Spec.ResourceRef.Name,
+	)
 
 	promiseNamespacedName := types.NamespacedName{
 		Name: resourceBinding.Spec.PromiseRef.Name,
