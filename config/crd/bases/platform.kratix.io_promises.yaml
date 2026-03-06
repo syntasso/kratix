@@ -228,7 +228,7 @@ spec:
                   (e.g. "Database")
                 type: string
               kratix:
-                description: Kratix status owned fields
+                description: The Kratix owned status fields by this Promise
                 properties:
                   kind:
                     description: The Kind of the Resource API defined by this Promise

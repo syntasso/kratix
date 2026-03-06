@@ -151,8 +151,8 @@ type PromiseStatus struct {
 	Status string `json:"status,omitempty"`
 	// Message set by Promise configure workflow
 	Message string `json:"message,omitempty"`
-	// Kratix status owned fields
-	Kratix Kratix `json:"kratix,omitempty"`
+	// The Kratix owned status fields by this Promise
+	Kratix PromiseKratix `json:"kratix,omitempty"`
 	// Total number of Promise-level workflow pipelines
 	Workflows int64 `json:"workflows"`
 	// Number of Promise-level workflow pipelines that have completed successfully
@@ -168,7 +168,7 @@ type PromiseStatus struct {
 }
 
 // Kratix defines the status fields owned by kratix
-type Kratix struct {
+type PromiseKratix struct {
 	// The Kind of the Resource API defined by this Promise (e.g. "Database")
 	Kind string `json:"kind,omitempty"`
 
