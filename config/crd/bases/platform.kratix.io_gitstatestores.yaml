@@ -159,6 +159,10 @@ spec:
                   - type
                   type: object
                 type: array
+              observedGeneration:
+                description: The generation last observed by the controller
+                format: int64
+                type: integer
               status:
                 description: Overall status of the StateStore
                 type: string

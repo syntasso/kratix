@@ -21,8 +21,8 @@ import (
 	"errors"
 	"fmt"
 	"path/filepath"
+	"sort"
 	"strings"
-	"time"
 
 	"github.com/go-logr/logr"
 	"github.com/syntasso/kratix/api/v1alpha1"
@@ -34,14 +34,11 @@ import (
 	v1 "k8s.io/api/core/v1"
 	k8sErrors "k8s.io/apimachinery/pkg/api/errors"
 	kerrors "k8s.io/apimachinery/pkg/api/errors"
-	apiMeta "k8s.io/apimachinery/pkg/api/meta"
-	metav1 "k8s.io/apimachinery/pkg/apis/meta/v1"
 	"k8s.io/apimachinery/pkg/labels"
 	"k8s.io/client-go/tools/record"
 	ctrl "sigs.k8s.io/controller-runtime"
 	"sigs.k8s.io/controller-runtime/pkg/builder"
 	"sigs.k8s.io/controller-runtime/pkg/client"
-	"sigs.k8s.io/controller-runtime/pkg/controller"
 	"sigs.k8s.io/controller-runtime/pkg/controller/controllerutil"
 	"sigs.k8s.io/controller-runtime/pkg/predicate"
 
@@ -53,10 +50,8 @@ const (
 	dependenciesDir                          = "dependencies"
 	repoCleanupWorkPlacementFinalizer        = "finalizers.workplacement.kratix.io/repo-cleanup"
 	kratixFileCleanupWorkPlacementFinalizer  = "finalizers.workplacement.kratix.io/kratix-dot-files-cleanup"
-	scheduleSucceededConditionType           = "ScheduleSucceeded"
 	scheduleSucceededConditionMismatchReason = "DestinationSelectorMismatch"
 	scheduleSucceededConditionMismatchMsg    = "Target destination no longer matches destinationSelectors"
-	writeSucceededConditionType              = "WriteSucceeded"
 	failedDeleteEventReason                  = "FailedDelete"
 )
 
@@ -70,6 +65,24 @@ type WorkPlacementReconciler struct {
 	Log           logr.Logger
 	VersionCache  map[string]string
 	EventRecorder record.EventRecorder
+
+	RepositoryCache RepositoryCache
+}
+
+type workPlacementReconcileContext struct {
+	ctx        context.Context
+	controller string
+
+	logger        logr.Logger
+	trace         *reconcileTrace
+	client        client.Client
+	eventRecorder record.EventRecorder
+
+	workPlacement   *v1alpha1.WorkPlacement
+	destination     *v1alpha1.Destination
+	repositoryCache RepositoryCache
+
+	versionCache map[string]string
 }
 
 //+kubebuilder:rbac:groups=platform.kratix.io,resources=workplacements,verbs=get;list;watch;create;update;patch;delete
@@ -82,58 +95,104 @@ func (r *WorkPlacementReconciler) Reconcile(ctx context.Context, req ctrl.Reques
 		"name", req.Name,
 		"namespace", req.Namespace,
 	)
+
+	return withTrace(logger, func() (ctrl.Result, error) {
+		workPlacementCtx, err := r.newReconcileContext(ctx, logger, req)
+		if err != nil {
+			logging.Error(logger, err, "error getting WorkPlacement")
+			return defaultRequeue, nil
+		}
+
+		if workPlacementCtx == nil {
+			return ctrl.Result{}, nil
+		}
+		return workPlacementCtx.reconcileWithSpanAttributes()
+	})
+}
+
+func (r *WorkPlacementReconciler) newReconcileContext(ctx context.Context, logger logr.Logger, req ctrl.Request) (*workPlacementReconcileContext, error) {
 	workPlacement := &v1alpha1.WorkPlacement{}
 	if err := r.Client.Get(ctx, req.NamespacedName, workPlacement); err != nil {
 		if k8sErrors.IsNotFound(err) {
-			return ctrl.Result{}, nil
+			return nil, nil
 		}
-		logging.Error(logger, err, "Error getting WorkPlacement")
-		return defaultRequeue, nil
+		return nil, err
 	}
 
-	promiseName := workPlacement.Spec.PromiseName
-	resourceName := workPlacement.Spec.ResourceName
-	resourceNamespace := workPlacement.GetNamespace()
-	baseLogger := logger.WithValues(
-		"generation", workPlacement.GetGeneration(),
-	)
-	baseLogger = withPromiseAndResourceRequest(baseLogger, promiseName, resourceNamespace, resourceName)
+	dest := &v1alpha1.Destination{}
+	targetDestination := workPlacement.Spec.TargetDestinationName
+	logger = logger.WithValues("destination", targetDestination)
+	key := client.ObjectKey{Name: targetDestination}
+
+	if err := r.Client.Get(ctx, key, dest); err != nil {
+		if k8sErrors.IsNotFound(err) {
+			logging.Warn(logger, "destination not found, cleaning up deletion finalizers")
+			cleanupDeletionFinalizers(workPlacement)
+			return nil, r.Client.Update(ctx, workPlacement)
+		}
+		logging.Error(logger, err, "failed to retrieve Destination")
+		return nil, err
+	}
+
+	return &workPlacementReconcileContext{
+		ctx:             ctx,
+		controller:      "workplacement-controller",
+		logger:          logger.WithValues("generation", workPlacement.GetGeneration()),
+		client:          r.Client,
+		eventRecorder:   r.EventRecorder,
+		workPlacement:   workPlacement,
+		destination:     dest,
+		repositoryCache: r.RepositoryCache,
+		versionCache:    r.VersionCache,
+	}, nil
+}
+
+func (w *workPlacementReconcileContext) reconcileWithSpanAttributes() (result ctrl.Result, retErr error) {
+	promiseName := w.workPlacement.Spec.PromiseName
+	resourceName := w.workPlacement.Spec.ResourceName
 	spanName := fmt.Sprintf("%s/WorkPlacementReconcile", promiseName)
 	if resourceName != "" {
 		spanName = fmt.Sprintf("%s/%s", resourceName, spanName)
 	}
-	ctx, logger, traceCtx := setupReconcileTrace(ctx, "workplacement-controller", spanName, workPlacement, baseLogger)
-	defer finishReconcileTrace(traceCtx, &retErr)()
+	w.ctx, w.logger, w.trace = setupReconcileTrace(w.ctx, "workplacement-controller", spanName, w.workPlacement, w.logger)
+	defer finishReconcileTrace(w.trace, &retErr)()
 
-	logging.Info(logger, "reconciliation started")
-	defer logReconcileDuration(logger, time.Now(), result, retErr)()
+	addWorkPlacementSpanAttributes(w.trace, promiseName, w.workPlacement)
 
-	addWorkPlacementSpanAttributes(traceCtx, promiseName, workPlacement)
-
-	if err := persistReconcileTrace(traceCtx, r.Client, logger); err != nil {
-		logging.Error(logger, err, "failed to persist trace annotations")
+	if err := persistReconcileTrace(w.trace, w.client, w.logger); err != nil {
+		logging.Error(w.logger, err, "failed to persist trace annotations")
 		return ctrl.Result{}, err
 	}
 
-	opts := opts{client: r.Client, ctx: ctx, logger: logger}
-	destination, err := r.getDestination(ctx, workPlacement)
-	if err != nil && workPlacement.DeletionTimestamp.IsZero() {
-		if k8sErrors.IsNotFound(err) {
-			logging.Warn(logger, "destination not found", "workPlacement", workPlacement.Spec.TargetDestinationName)
-			return ctrl.Result{}, nil
+	return w.Reconcile()
+}
+
+func (w *workPlacementReconcileContext) Reconcile() (result ctrl.Result, retErr error) {
+	repo, err := w.repositoryCache.GetRepositoryByTypeAndName(
+		w.destination.Spec.StateStoreRef.Kind,
+		w.destination.Spec.StateStoreRef.Name,
+	)
+	if err != nil {
+		if errors.Is(err, ErrCacheMiss) {
+			logging.Debug(w.logger, "repository not initialised, requeuing")
+			return defaultRequeue, nil
 		}
-		logging.Error(logger, err, "failed to retrieve Destination", "workPlacement", workPlacement.Spec.TargetDestinationName)
 		return ctrl.Result{}, err
 	}
 
-	if !workPlacement.DeletionTimestamp.IsZero() {
-		return r.handleDeletion(ctx, workPlacement, destination, opts, err, logger)
+	repo.Lock()
+	defer repo.Unlock()
+
+	if err := repo.Writer.Reset(); err != nil {
+		return defaultRequeue, nil
 	}
 
-	filepathMode := destination.GetFilepathMode()
-	if missingFinalizers := checkWorkPlacementFinalizers(workPlacement, filepathMode); len(missingFinalizers) > 0 {
-		err := addFinalizers(opts, workPlacement, missingFinalizers)
-		if err != nil {
+	if !w.workPlacement.DeletionTimestamp.IsZero() {
+		return w.handleDeletion(repo)
+	}
+
+	if missingFinalizers := w.checkWorkPlacementFinalizers(); len(missingFinalizers) > 0 {
+		if err := addFinalizers(opts{client: w.client, logger: w.logger, ctx: w.ctx}, w.workPlacement, missingFinalizers); err != nil {
 			if !kerrors.IsConflict(err) {
 				return ctrl.Result{}, err
 			}
@@ -141,13 +200,15 @@ func (r *WorkPlacementReconciler) Reconcile(ctx context.Context, req ctrl.Reques
 		return fastRequeue, nil
 	}
 
-	versionID, requeue, err := r.writeToStateStore(workPlacement, destination, opts)
-	if err != nil || requeue.RequeueAfter > 0 {
-		logging.Debug(logger, "write to state store resulted in requeue", "requeueAfter", requeue.RequeueAfter, "error", err)
-		return requeue, err
+	versionID, requeue, err := w.writeToStateStore(repo)
+	if err != nil {
+		return ctrl.Result{}, err
+	}
+	if requeue.RequeueAfter > 0 {
+		return requeue, nil
 	}
 
-	if err := r.updateResourceStatus(ctx, logger, workPlacement, versionID); err != nil {
+	if err := w.updateResourceStatus(versionID, nil); err != nil {
 		if kerrors.IsConflict(err) {
 			return fastRequeue, nil
 		}
@@ -157,361 +218,71 @@ func (r *WorkPlacementReconciler) Reconcile(ctx context.Context, req ctrl.Reques
 	return ctrl.Result{}, nil
 }
 
-func (r *WorkPlacementReconciler) updateResourceStatus(ctx context.Context, logger logr.Logger, workPlacement *v1alpha1.WorkPlacement, versionID string) error {
-	versionID = r.getCachedVersionID(workPlacement, versionID)
+func (w *workPlacementReconcileContext) updateResourceStatus(versionID string, err error) error {
+	var updated bool
+	var clearVersionCache bool
 
-	versionChanged := versionID != "" && workPlacement.Status.VersionID != versionID
-	if versionChanged {
-		workPlacement.Status.VersionID = versionID
+	if err != nil {
+		updated = w.workPlacement.SetWriteFailedCondition(err)
+	} else {
+		versionID = w.getCachedVersionID(versionID)
+
+		versionChanged := versionID != "" && w.workPlacement.Status.VersionID != versionID
+		if versionChanged {
+			w.workPlacement.Status.VersionID = versionID
+		}
+		writeSucceededCondChanged := w.workPlacement.SetWriteSucceededCondition()
+		condChanged := w.workPlacement.SetWorkplacementReadyStatus()
+
+		updated = versionChanged || writeSucceededCondChanged || condChanged
+		clearVersionCache = true
 	}
-	writeSucceededCondChanged := r.setWriteSucceededCondition(workPlacement)
-	condChanged := r.setWorkplacementReady(workPlacement)
 
-	if versionChanged || condChanged || writeSucceededCondChanged {
-		logging.Debug(logger, "updating workplacement status", "versionChanged", versionChanged, "condChanged", condChanged, "writeSucceededCondChanged", writeSucceededCondChanged)
-		if err := r.Client.Status().Update(ctx, workPlacement); err != nil {
+	if updated {
+		logging.Debug(w.logger, "updating workplacement status")
+		if err := w.client.Status().Update(w.ctx, w.workPlacement); err != nil {
 			return err
 		}
 	}
 
-	r.removeVersionIDFromCache(workPlacement)
+	if clearVersionCache {
+		w.removeVersionIDFromCache()
+	}
+
 	return nil
 }
 
-func (r *WorkPlacementReconciler) getDestination(ctx context.Context, wp *v1alpha1.WorkPlacement) (*v1alpha1.Destination, error) {
-	dest := &v1alpha1.Destination{}
-	key := client.ObjectKey{Name: wp.Spec.TargetDestinationName}
-
-	if err := r.Client.Get(ctx, key, dest); err != nil {
-		return nil, err
-	}
-
-	return dest, nil
-}
-
-func (r *WorkPlacementReconciler) setWriteSucceededCondition(workPlacement *v1alpha1.WorkPlacement) bool {
-	return apiMeta.SetStatusCondition(&workPlacement.Status.Conditions, metav1.Condition{
-		Type:    writeSucceededConditionType,
-		Status:  metav1.ConditionTrue,
-		Reason:  "WorkloadsWrittenToStateStore",
-		Message: "Workloads written to State Store",
-	})
-}
-func (r *WorkPlacementReconciler) setWriteFailStatusConditions(ctx context.Context, workPlacement *v1alpha1.WorkPlacement, err error) error {
-	writeSucceededUpdated := apiMeta.SetStatusCondition(&workPlacement.Status.Conditions, metav1.Condition{
-		Type:    writeSucceededConditionType,
-		Status:  metav1.ConditionFalse,
-		Reason:  "WorkloadsFailedWrite",
-		Message: err.Error(),
-	})
-	readyUpdated := apiMeta.SetStatusCondition(&workPlacement.Status.Conditions, metav1.Condition{
-		Status:  metav1.ConditionFalse,
-		Type:    "Ready",
-		Reason:  "WorkloadsFailedWrite",
-		Message: "Failing",
-	})
-	if writeSucceededUpdated || readyUpdated {
-		return r.Client.Status().Update(ctx, workPlacement)
-	}
-	return nil
-}
-
-func (r *WorkPlacementReconciler) setWorkplacementReady(workPlacement *v1alpha1.WorkPlacement) bool {
-	var writeSucceeded, misplaced bool
-	for _, cond := range workPlacement.Status.Conditions {
-		if cond.Type == scheduleSucceededConditionType && cond.Status == metav1.ConditionFalse {
-			misplaced = true
-		}
-		if cond.Type == writeSucceededConditionType && cond.Status == metav1.ConditionTrue {
-			writeSucceeded = true
-		}
-	}
-	if writeSucceeded && !misplaced {
-		return apiMeta.SetStatusCondition(&workPlacement.Status.Conditions,
-			metav1.Condition{
-				Type:    "Ready",
-				Status:  metav1.ConditionTrue,
-				Reason:  "WorkloadsWrittenToTargetDestination",
-				Message: "Ready",
-			},
-		)
-	}
-	return false
-}
-
-func (r *WorkPlacementReconciler) publishWriteEvent(workPlacement *v1alpha1.WorkPlacement, reason, versionID string, err error) {
-	if err == nil && versionID != "" {
-		r.EventRecorder.Eventf(workPlacement, v1.EventTypeNormal, reason,
-			"successfully written to Destination: %s with versionID: %s", workPlacement.Spec.TargetDestinationName, versionID)
-	} else if err == nil {
-		r.EventRecorder.Eventf(workPlacement, v1.EventTypeNormal, reason,
-			"successfully written to Destination: %s", workPlacement.Spec.TargetDestinationName)
-	} else {
-		r.EventRecorder.Eventf(workPlacement, v1.EventTypeWarning, reason,
-			fmt.Sprintf("failed writing to Destination: %s with error: %s; check kubectl get destination for more info", workPlacement.Spec.TargetDestinationName, err.Error()))
-	}
-}
-
-func (r *WorkPlacementReconciler) deleteWorkPlacement(
-	ctx context.Context,
-	destination *v1alpha1.Destination,
-	writer writers.StateStoreWriter,
-	workPlacement *v1alpha1.WorkPlacement,
-	filePathMode string,
-	logger logr.Logger,
-) (ctrl.Result, error) {
-	if destination == nil {
-		logging.Debug(logger, "cleaning up deletion finalizers")
-		cleanupDeletionFinalizers(workPlacement)
-		if err := r.Client.Update(ctx, workPlacement); err != nil {
-			return ctrl.Result{}, err
-		}
-	}
-
-	pendingRepoCleanup := controllerutil.ContainsFinalizer(workPlacement, repoCleanupWorkPlacementFinalizer)
-	pendingKratixFileCleanup := controllerutil.ContainsFinalizer(workPlacement, kratixFileCleanupWorkPlacementFinalizer)
-
-	var err error
-	kratixFilePath := fmt.Sprintf(".kratix/%s-%s.yaml", workPlacement.Namespace, workPlacement.Name)
-
-	var dir string
-
-	if filePathMode == v1alpha1.FilepathModeNestedByMetadata {
-		dir = getDir(*workPlacement) + "/"
-	}
-
-	if pendingRepoCleanup {
-		logging.Debug(logger, "cleaning up work on repository", "workplacement", workPlacement.Name)
-		var workloadsToDelete []string
-		if filePathMode == v1alpha1.FilepathModeNone {
-			var kratixFile []byte
-			if kratixFile, err = writer.ReadFile(kratixFilePath); err != nil {
-				logging.Error(logger, err, "failed to read .kratix state file", "filePath", kratixFilePath)
-				r.EventRecorder.Eventf(workPlacement, v1.EventTypeWarning,
-					failedDeleteEventReason, "failed to read .kratix state file: %s", err.Error())
-				return ctrl.Result{}, err
-			}
-			stateFile := StateFile{}
-			if err = yaml.Unmarshal(kratixFile, &stateFile); err != nil {
-				logging.Error(logger, err, "failed to unmarshal .kratix state file")
-				r.EventRecorder.Eventf(workPlacement, v1.EventTypeWarning,
-					failedDeleteEventReason, "failed to unmarshal .kratix state file: %s", err.Error())
-				return defaultRequeue, err
-			}
-			workloadsToDelete = stateFile.Files
-		}
-
-		if filePathMode == v1alpha1.FilepathModeAggregatedYAML {
-			logging.Trace(logger, "handling aggregated YAML file path mode")
-			_, requeue, err := r.handleAggregatedYAML(ctx, workPlacement, destination, dir, writer)
-			if err != nil {
-				r.EventRecorder.Eventf(workPlacement, v1.EventTypeWarning, failedDeleteEventReason,
-					"error removing work from Destination: %s with error: %s", workPlacement.Spec.TargetDestinationName, err.Error())
-				logging.Error(logger, err, "error removing work from destination")
-				return defaultRequeue, nil
-			}
-			if requeue {
-				return fastRequeue, nil
-			}
-			workloadsToDelete = []string{destination.Spec.Filepath.Filename}
-		}
-
-		return r.delete(ctx, writer, dir, workPlacement, workloadsToDelete, repoCleanupWorkPlacementFinalizer, logger)
-	}
-
-	if pendingKratixFileCleanup {
-		logging.Debug(logger, "cleaning up .kratix state file", "workplacement", workPlacement.Name)
-		return r.delete(ctx, writer, "", workPlacement, []string{kratixFilePath}, kratixFileCleanupWorkPlacementFinalizer, logger)
-	}
-	return ctrl.Result{}, nil
-}
-
-func (r *WorkPlacementReconciler) handleAggregatedYAML(ctx context.Context, workPlacement *v1alpha1.WorkPlacement, destination *v1alpha1.Destination, dir string, writer writers.StateStoreWriter) (v1alpha1.Workload, bool, error) {
-	activeWorkplacements, err := r.getAllWorkplacementsForDestination(ctx, workPlacement.Spec.TargetDestinationName)
+func (w *workPlacementReconcileContext) publishWriteEvent(reason, versionID string, err error) {
 	if err != nil {
-		return v1alpha1.Workload{}, false, err
+		w.eventRecorder.Eventf(w.workPlacement, v1.EventTypeWarning, reason,
+			fmt.Sprintf("failed writing to Destination: %s with error: %s; check kubectl get destination for more info", w.workPlacement.Spec.TargetDestinationName, err.Error()))
+		return
 	}
 
-	if len(activeWorkplacements) == 0 {
-		return v1alpha1.Workload{}, false, nil
+	if versionID != "" {
+		w.eventRecorder.Eventf(w.workPlacement, v1.EventTypeNormal, reason,
+			"successfully written to Destination: %s with versionID: %s", w.workPlacement.Spec.TargetDestinationName, versionID)
+		return
 	}
 
-	combinedWorkloads, err := r.combineWorkloads(activeWorkplacements)
-	if err != nil {
-		return v1alpha1.Workload{}, false, err
-	}
-
-	workload := v1alpha1.Workload{
-		Filepath: destination.Spec.Filepath.Filename,
-		Content:  concatenateYAMLs(combinedWorkloads),
-	}
-
-	// During deletion, we need to update the files and remove finalizer
-	if !workPlacement.DeletionTimestamp.IsZero() {
-		_, err = writer.UpdateFiles(dir, workPlacement.Name, []v1alpha1.Workload{workload}, nil)
-		if err != nil {
-			return v1alpha1.Workload{}, false, fmt.Errorf("error updating file: %w", err)
-		}
-
-		controllerutil.RemoveFinalizer(workPlacement, repoCleanupWorkPlacementFinalizer)
-		if err := r.Client.Update(ctx, workPlacement); err != nil {
-			return v1alpha1.Workload{}, false, err
-		}
-		return workload, true, nil
-	}
-
-	return workload, false, nil
-}
-
-func (r *WorkPlacementReconciler) delete(ctx context.Context, writer writers.StateStoreWriter, dir string, workPlacement *v1alpha1.WorkPlacement, workloadsToDelete []string, finalizerToRemove string, logger logr.Logger) (ctrl.Result, error) {
-	if _, err := writer.UpdateFiles(dir, workPlacement.Name, nil, workloadsToDelete); err != nil {
-		r.EventRecorder.Eventf(workPlacement, v1.EventTypeWarning, failedDeleteEventReason,
-			"error removing work from Destination: %s  with error: %s", workPlacement.Spec.TargetDestinationName, err.Error())
-		logging.Error(logger, err, "error removing work from repository; will retry", "destination", workPlacement.Spec.TargetDestinationName)
-		return defaultRequeue, nil
-	}
-
-	controllerutil.RemoveFinalizer(workPlacement, finalizerToRemove)
-	if err := r.Client.Update(ctx, workPlacement); err != nil {
-		return ctrl.Result{}, err
-	}
-	return fastRequeue, nil
-}
-
-func (r *WorkPlacementReconciler) writeToStateStore(wp *v1alpha1.WorkPlacement, destination *v1alpha1.Destination, opts opts) (string, ctrl.Result, error) {
-	metricAttrs := telemetry.WorkPlacementWriteAttributes(
-		wp.Spec.PromiseName,
-		wp.Spec.ResourceName,
-		wp.Spec.TargetDestinationName,
-		wp.PipelineName(),
-	)
-
-	writer, writeErr := newWriter(opts, destination.Spec.StateStoreRef.Name, destination.Spec.StateStoreRef.Kind, destination.Spec.Path)
-	if writeErr != nil {
-		telemetry.RecordWorkPlacementWrite(opts.ctx, telemetry.WorkPlacementWriteResultFailure, metricAttrs...)
-		if k8sErrors.IsNotFound(writeErr) {
-			return "", defaultRequeue, nil
-		}
-		return "", ctrl.Result{}, writeErr
-	}
-
-	logging.Debug(opts.logger, "updating files in statestore if required")
-	versionID, workloadErr := r.writeWorkloadsToStateStore(opts, writer, *wp, *destination)
-	if workloadErr != nil {
-		telemetry.RecordWorkPlacementWrite(opts.ctx, telemetry.WorkPlacementWriteResultFailure, metricAttrs...)
-		logging.Error(opts.logger, workloadErr, "error writing to repository; will retry", "destination", wp.Spec.TargetDestinationName)
-		r.publishWriteEvent(wp, "WorkloadsFailedWrite", versionID, workloadErr)
-		if statusUpdateErr := r.setWriteFailStatusConditions(opts.ctx, wp, workloadErr); statusUpdateErr != nil {
-			logging.Error(opts.logger, statusUpdateErr, "failed to update status condition")
-		}
-		return "", defaultRequeue, nil
-	}
-	telemetry.RecordWorkPlacementWrite(opts.ctx, telemetry.WorkPlacementWriteResultSuccess, metricAttrs...)
-	r.setVersionID(wp, versionID)
-	r.publishWriteEvent(wp, "WorkloadsWrittenToStateStore", versionID, nil)
-
-	return versionID, ctrl.Result{}, nil
-}
-
-func (r *WorkPlacementReconciler) writeWorkloadsToStateStore(o opts, writer writers.StateStoreWriter, workPlacement v1alpha1.WorkPlacement, destination v1alpha1.Destination) (string, error) {
-	var err error
-	var workloadsToDelete []string
-	var dir = getDir(workPlacement)
-	var workloadsToCreate []v1alpha1.Workload
-
-	switch destination.GetFilepathMode() {
-	case v1alpha1.FilepathModeAggregatedYAML:
-		dir = ""
-		workload, _, err := r.handleAggregatedYAML(o.ctx, &workPlacement, &destination, dir, writer)
-		if err != nil {
-			return "", err
-		}
-		workloadsToCreate = []v1alpha1.Workload{workload}
-	case v1alpha1.FilepathModeNone:
-		dir = ""
-		newWorkload, oldStateFile, err := r.generateKratixStateFile(workPlacement, writer)
-		if err != nil {
-			return "", err
-		}
-		workloadsToCreate = append(workloadsToCreate, newWorkload)
-		workloadsToDelete = cleanupWorkloads(oldStateFile.Files, workPlacement.Spec.Workloads)
-		fallthrough
-	default:
-		// loop through workloads and decompress them so the works written to the State Store are decompressed
-		for _, workload := range workPlacement.Spec.Workloads {
-			decompressedContent, err := compression.DecompressContent([]byte(workload.Content))
-			if err != nil {
-				return "", fmt.Errorf("unable to decompress file content: %w", err)
-			}
-
-			workload.Content = string(decompressedContent)
-			workloadsToCreate = append(workloadsToCreate, workload)
-		}
-	}
-
-	versionID, err := writer.UpdateFiles(dir, workPlacement.Name, workloadsToCreate, workloadsToDelete)
-	if err != nil {
-		logging.Error(o.logger, err, "error writing resources to repository")
-		return "", err
-	}
-	return versionID, nil
-}
-
-func ignoreNotFound(err error) error {
-	if errors.Is(err, writers.ErrFileNotFound) {
-		return nil
-	}
-	return err
-}
-
-func workloadsFilenames(works []v1alpha1.Workload) []string {
-	var result []string
-	for _, w := range works {
-		result = append(result, w.Filepath)
-	}
-	return result
-}
-
-func cleanupWorkloads(oldWorkloads []string, newWorkloads []v1alpha1.Workload) []string {
-	works := make(map[string]bool)
-	for _, w := range newWorkloads {
-		works[w.Filepath] = true
-	}
-	var result []string
-	for _, w := range oldWorkloads {
-		if _, ok := works[w]; !ok {
-			result = append(result, w)
-		}
-	}
-	return result
-}
-
-func getDir(workPlacement v1alpha1.WorkPlacement) string {
-	if workPlacement.Spec.ResourceName == "" {
-		// dependencies/<promise-name>/<pipeline-name>/<dir-sha>/
-		return filepath.Join(dependenciesDir, workPlacement.Spec.PromiseName, workPlacement.PipelineName(), shortID(workPlacement.Spec.ID))
-	} else {
-		// resources/<rr-namespace>/<promise-name>/<rr-name>/<pipeline-name>/<dir-sha>/
-		return filepath.Join(resourcesDir, workPlacement.GetNamespace(), workPlacement.Spec.PromiseName, workPlacement.Spec.ResourceName, workPlacement.PipelineName(), shortID(workPlacement.Spec.ID))
-	}
+	w.eventRecorder.Eventf(w.workPlacement, v1.EventTypeNormal, reason,
+		"successfully written to Destination: %s", w.workPlacement.Spec.TargetDestinationName)
 }
 
 // SetupWithManager sets up the controller with the Manager.
 func (r *WorkPlacementReconciler) SetupWithManager(mgr ctrl.Manager) error {
 	return ctrl.NewControllerManagedBy(mgr).
-		WithOptions(controller.Options{
-			MaxConcurrentReconciles: 1,
-		}).
 		For(&v1alpha1.WorkPlacement{}, builder.WithPredicates(predicate.GenerationChangedPredicate{})).
 		Complete(r)
 }
 
-func checkWorkPlacementFinalizers(workPlacement *v1alpha1.WorkPlacement, filepathMode string) []string {
+func (w *workPlacementReconcileContext) checkWorkPlacementFinalizers() []string {
+	filepathMode := w.destination.GetFilepathMode()
 	var missingFinalizers []string
-	if !controllerutil.ContainsFinalizer(workPlacement, repoCleanupWorkPlacementFinalizer) {
+	if !controllerutil.ContainsFinalizer(w.workPlacement, repoCleanupWorkPlacementFinalizer) {
 		missingFinalizers = append(missingFinalizers, repoCleanupWorkPlacementFinalizer)
 	}
-	if filepathMode == v1alpha1.FilepathModeNone && !controllerutil.ContainsFinalizer(workPlacement, kratixFileCleanupWorkPlacementFinalizer) {
+	if filepathMode == v1alpha1.FilepathModeNone && !controllerutil.ContainsFinalizer(w.workPlacement, kratixFileCleanupWorkPlacementFinalizer) {
 		missingFinalizers = append(missingFinalizers, kratixFileCleanupWorkPlacementFinalizer)
 	}
 	return missingFinalizers
@@ -526,150 +297,22 @@ func cleanupDeletionFinalizers(workPlacement *v1alpha1.WorkPlacement) {
 	}
 }
 
-func requeueIfNotFound(err error) (ctrl.Result, error) {
-	if k8sErrors.IsNotFound(err) {
-		return defaultRequeue, nil
-	}
-	return ctrl.Result{}, err
-}
-
-func (r *WorkPlacementReconciler) handleDeletion(
-	ctx context.Context,
-	workPlacement *v1alpha1.WorkPlacement,
-	destination *v1alpha1.Destination,
-	opts opts,
-	err error,
-	logger logr.Logger,
-) (ctrl.Result, error) {
-	var destinationExists = true
-	var filepathMode string
-
-	if err != nil {
-		if k8sErrors.IsNotFound(err) {
-			logging.Debug(
-				logger,
-				"destination not found; skipping destination file cleanup",
-				"destination",
-				workPlacement.Spec.TargetDestinationName,
-			)
-			destinationExists = false
-			destination = nil
-		} else {
-			logging.Error(logger, err, "error getting destination", "destination", workPlacement.Spec.TargetDestinationName)
-			return ctrl.Result{}, err
-		}
-	}
-
-	var writer writers.StateStoreWriter
-	if destinationExists {
-		filepathMode = destination.GetFilepathMode()
-		writer, err = newWriter(opts, destination.Spec.StateStoreRef.Name, destination.Spec.StateStoreRef.Kind, destination.Spec.Path)
-		if err != nil {
-			r.EventRecorder.Eventf(workPlacement, v1.EventTypeWarning, failedDeleteEventReason,
-				"error at creating a writer for Destination: %s with error: %s", destination.Name, err.Error())
-			return requeueIfNotFound(err)
-		}
-	}
-	return r.deleteWorkPlacement(ctx, destination, writer, workPlacement, filepathMode, logger)
-}
-
-func concatenateYAMLs(workloads []v1alpha1.Workload) string {
-	var sb strings.Builder
-
-	for i, workload := range workloads {
-		if i > 0 {
-			sb.WriteString("\n---\n")
-		}
-		sb.WriteString(workload.Content)
-	}
-
-	return sb.String()
-}
-
-func (r *WorkPlacementReconciler) getAllWorkplacementsForDestination(ctx context.Context, destinationName string) ([]v1alpha1.WorkPlacement, error) {
-	allWorkplacements := &v1alpha1.WorkPlacementList{}
-	opts := &client.ListOptions{
-		LabelSelector: labels.SelectorFromSet(labels.Set{
-			TargetDestinationNameLabel: destinationName,
-		}),
-	}
-
-	if err := r.Client.List(ctx, allWorkplacements, opts); err != nil {
-		return nil, fmt.Errorf("failed to list all WorkPlacements: %w", err)
-	}
-
-	active := func(wps []v1alpha1.WorkPlacement) []v1alpha1.WorkPlacement {
-		var activeWorkplacements []v1alpha1.WorkPlacement
-		for _, wp := range wps {
-			if wp.DeletionTimestamp.IsZero() {
-				activeWorkplacements = append(activeWorkplacements, wp)
-			}
-		}
-		return activeWorkplacements
-	}
-
-	return active(allWorkplacements.Items), nil
-}
-
-func (r *WorkPlacementReconciler) combineWorkloads(workPlacements []v1alpha1.WorkPlacement) ([]v1alpha1.Workload, error) {
-	combinedWorkloads := []v1alpha1.Workload{}
-	for _, wp := range workPlacements {
-		for _, workload := range wp.Spec.Workloads {
-			decompressedContent, err := compression.DecompressContent([]byte(workload.Content))
-			if err != nil {
-				return nil, fmt.Errorf("unable to decompress file content: %w", err)
-			}
-
-			workload.Content = string(decompressedContent)
-			combinedWorkloads = append(combinedWorkloads, workload)
-		}
-	}
-
-	return combinedWorkloads, nil
-}
-
-func (r *WorkPlacementReconciler) generateKratixStateFile(workPlacement v1alpha1.WorkPlacement, writer writers.StateStoreWriter) (v1alpha1.Workload, StateFile, error) {
-	var kratixFile []byte
-	var err error
-	if kratixFile, err = writer.ReadFile(fmt.Sprintf(".kratix/%s-%s.yaml", workPlacement.Namespace, workPlacement.Name)); ignoreNotFound(err) != nil {
-		return v1alpha1.Workload{}, StateFile{}, fmt.Errorf("failed to read .kratix state file: %w", err)
-	}
-	oldStateFile := StateFile{}
-	if err = yaml.Unmarshal(kratixFile, &oldStateFile); err != nil {
-		return v1alpha1.Workload{}, StateFile{}, fmt.Errorf("failed to unmarshal .kratix state file: %w", err)
-	}
-
-	newStateFile := StateFile{
-		Files: workloadsFilenames(workPlacement.Spec.Workloads),
-	}
-	stateFileContent, marshalErr := yaml.Marshal(newStateFile)
-	if marshalErr != nil {
-		return v1alpha1.Workload{}, StateFile{}, fmt.Errorf("failed to marshal new .kratix state file: %w", err)
-	}
-
-	stateFileWorkload := v1alpha1.Workload{
-		Filepath: fmt.Sprintf(".kratix/%s-%s.yaml", workPlacement.Namespace, workPlacement.Name),
-		Content:  string(stateFileContent),
-	}
-	return stateFileWorkload, oldStateFile, nil
-}
-
-func (r *WorkPlacementReconciler) setVersionID(workPlacement *v1alpha1.WorkPlacement, versionID string) {
+func (w *workPlacementReconcileContext) setVersionID(versionID string) {
 	if versionID == "" {
 		return
 	}
-	r.VersionCache[workPlacement.GetUniqueID()] = versionID
+	w.versionCache[w.workPlacement.GetUniqueID()] = versionID
 }
 
-func (r *WorkPlacementReconciler) getCachedVersionID(workPlacement *v1alpha1.WorkPlacement, versionID string) string {
+func (w *workPlacementReconcileContext) getCachedVersionID(versionID string) string {
 	if versionID != "" {
 		return versionID
 	}
-	return r.VersionCache[workPlacement.GetUniqueID()]
+	return w.versionCache[w.workPlacement.GetUniqueID()]
 }
 
-func (r *WorkPlacementReconciler) removeVersionIDFromCache(workPlacement *v1alpha1.WorkPlacement) {
-	delete(r.VersionCache, workPlacement.GetUniqueID())
+func (w *workPlacementReconcileContext) removeVersionIDFromCache() {
+	delete(w.versionCache, w.workPlacement.GetUniqueID())
 }
 
 func addWorkPlacementSpanAttributes(traceCtx *reconcileTrace, promiseName string, workPlacement *v1alpha1.WorkPlacement) {
@@ -680,4 +323,345 @@ func addWorkPlacementSpanAttributes(traceCtx *reconcileTrace, promiseName string
 		attribute.String("kratix.workplacement.target_destination", workPlacement.Spec.TargetDestinationName),
 		attribute.String("kratix.action", traceCtx.Action()),
 	)
+}
+
+func (w *workPlacementReconcileContext) handleDeletion(repo *Repository) (ctrl.Result, error) {
+	logging.Info(w.logger, "deleting workplacement")
+
+	if w.destination == nil {
+		logging.Debug(w.logger, "destination not found; cleaning up deletion finalizers")
+		cleanupDeletionFinalizers(w.workPlacement)
+		if err := w.client.Update(w.ctx, w.workPlacement); err != nil {
+			return ctrl.Result{}, err
+		}
+		return ctrl.Result{}, nil
+	}
+
+	return w.deleteWorkPlacement(repo)
+}
+
+func (w *workPlacementReconcileContext) logAndRecordError(err error, message string, args ...any) {
+	logging.Error(w.logger, err, message, args...)
+	w.eventRecorder.Eventf(
+		w.workPlacement,
+		v1.EventTypeWarning,
+		failedDeleteEventReason,
+		"%s: %s", message, err.Error(),
+	)
+}
+
+func (w *workPlacementReconcileContext) generateKratixStateFile(repo *Repository, pathPrefix string) (v1alpha1.Workload, StateFile, error) {
+	oldStateFile, err := w.readKratixStateFile(repo, true)
+	if err != nil {
+		return v1alpha1.Workload{}, StateFile{}, err
+	}
+
+	workloadPaths := make([]string, 0, len(w.workPlacement.Spec.Workloads))
+	for _, workload := range w.workPlacement.Spec.Workloads {
+		workloadPaths = append(workloadPaths, filepath.Join(pathPrefix, workload.Filepath))
+	}
+	newStateFile := StateFile{Files: workloadPaths}
+	stateFileContent, marshalErr := yaml.Marshal(newStateFile)
+	if marshalErr != nil {
+		return v1alpha1.Workload{}, StateFile{}, fmt.Errorf("failed to marshal new .kratix state file: %w", err)
+	}
+
+	kratixRelativePath := filepath.Join(pathPrefix, ".kratix", fmt.Sprintf("%s-%s.yaml", w.workPlacement.Namespace, w.workPlacement.Name))
+	stateFileWorkload := v1alpha1.Workload{
+		Filepath: kratixRelativePath,
+		Content:  string(stateFileContent),
+	}
+	return stateFileWorkload, oldStateFile, nil
+}
+
+func (w *workPlacementReconcileContext) kratixStateFilePath() string {
+	return filepath.Join(w.destination.Spec.Path, fmt.Sprintf(".kratix/%s-%s.yaml", w.workPlacement.Namespace, w.workPlacement.Name))
+}
+
+func (w *workPlacementReconcileContext) readKratixStateFile(repo *Repository, ignoreNotFound bool) (StateFile, error) {
+	kratixFilePath := w.kratixStateFilePath()
+	kratixFile, err := repo.Writer.ReadFile(kratixFilePath)
+	if err != nil {
+		if ignoreNotFound && errors.Is(err, writers.ErrFileNotFound) {
+			return StateFile{}, nil
+		}
+		w.logAndRecordError(err, "failed to read .kratix state file", "filePath", kratixFilePath)
+		return StateFile{}, err
+	}
+
+	stateFile := StateFile{}
+	if err = yaml.Unmarshal(kratixFile, &stateFile); err != nil {
+		w.logAndRecordError(err, "failed to unmarshal .kratix state file")
+		return StateFile{}, err
+	}
+
+	return stateFile, nil
+}
+
+func (w *workPlacementReconcileContext) getAggregatedWorkload() (v1alpha1.Workload, error) {
+	filename := w.destination.Spec.Filepath.Filename
+	if filename == "" {
+		filename = "aggregated.yaml"
+	}
+	workload := v1alpha1.Workload{
+		Filepath: filepath.Join(w.destination.Spec.Path, filename),
+	}
+	activeWorkplacements, err := w.getAllWorkplacementsForDestination()
+	if err != nil {
+		w.logAndRecordError(err, "failed to get all workplacements for destination")
+		return v1alpha1.Workload{}, err
+	}
+
+	if len(activeWorkplacements) == 0 {
+		return workload, nil
+	}
+
+	combinedWorkloads, err := w.combineAllWorkloads(activeWorkplacements)
+	if err != nil {
+		w.logAndRecordError(err, "failed to generate aggregated workload yaml")
+		return v1alpha1.Workload{}, err
+	}
+
+	workload.Content = combinedWorkloads
+	return workload, nil
+}
+
+func (w *workPlacementReconcileContext) getAllWorkplacementsForDestination() ([]v1alpha1.WorkPlacement, error) {
+	allWorkplacements := &v1alpha1.WorkPlacementList{}
+	opts := &client.ListOptions{
+		LabelSelector: labels.SelectorFromSet(labels.Set{
+			TargetDestinationNameLabel: w.destination.Name,
+		}),
+	}
+
+	if err := w.client.List(w.ctx, allWorkplacements, opts); err != nil {
+		return nil, fmt.Errorf("failed to list all WorkPlacements: %w", err)
+	}
+
+	var active []v1alpha1.WorkPlacement
+	for _, wp := range allWorkplacements.Items {
+		if wp.DeletionTimestamp.IsZero() {
+			active = append(active, wp)
+		}
+	}
+	// sort active workplacements by name
+	sort.Slice(active, func(i, j int) bool {
+		return active[i].Name < active[j].Name
+	})
+	return active, nil
+}
+
+func (w *workPlacementReconcileContext) combineAllWorkloads(workPlacements []v1alpha1.WorkPlacement) (string, error) {
+	combinedWorkloads := []v1alpha1.Workload{}
+	for _, wp := range workPlacements {
+		for _, workload := range wp.Spec.Workloads {
+			decompressedContent, err := compression.DecompressContent([]byte(workload.Content))
+			if err != nil {
+				return "", fmt.Errorf("unable to decompress file content: %w", err)
+			}
+
+			workload.Content = string(decompressedContent)
+			combinedWorkloads = append(combinedWorkloads, workload)
+		}
+	}
+
+	var sb strings.Builder
+
+	for i, workload := range combinedWorkloads {
+		if i > 0 {
+			sb.WriteString("\n---\n")
+		}
+		sb.WriteString(workload.Content)
+	}
+
+	return sb.String(), nil
+}
+
+func (w *workPlacementReconcileContext) delete(repo *Repository, workloadsToDelete []string) (ctrl.Result, error) {
+	if err := repo.Writer.DeleteFiles(w.workPlacement.Name, workloadsToDelete); err != nil {
+		w.logAndRecordError(err, "failed to delete files from repository")
+		return defaultRequeue, nil
+	}
+
+	controllerutil.RemoveFinalizer(w.workPlacement, repoCleanupWorkPlacementFinalizer)
+	controllerutil.RemoveFinalizer(w.workPlacement, kratixFileCleanupWorkPlacementFinalizer)
+
+	if err := w.client.Update(w.ctx, w.workPlacement); err != nil {
+		if k8sErrors.IsConflict(err) {
+			return defaultRequeue, nil
+		}
+		return ctrl.Result{}, err
+	}
+	return ctrl.Result{}, nil
+}
+
+func (w *workPlacementReconcileContext) writeToStateStore(repo *Repository) (string, ctrl.Result, error) {
+	metricAttrs := telemetry.WorkPlacementWriteAttributes(
+		w.workPlacement.Spec.PromiseName,
+		w.workPlacement.Spec.ResourceName,
+		w.workPlacement.Spec.TargetDestinationName,
+		w.workPlacement.PipelineName(),
+	)
+
+	logging.Debug(w.logger, "writing files to state store")
+	versionID, workloadErr := w.writeWorkloadsToStateStore(repo)
+	if workloadErr != nil {
+		telemetry.RecordWorkPlacementWrite(w.ctx, telemetry.WorkPlacementWriteResultFailure, metricAttrs...)
+		w.logAndRecordError(workloadErr, "error writing to destination; check kubectl get destination for more info")
+		return "", defaultRequeue, w.updateResourceStatus("", workloadErr)
+	}
+
+	telemetry.RecordWorkPlacementWrite(w.ctx, telemetry.WorkPlacementWriteResultSuccess, metricAttrs...)
+	w.setVersionID(versionID)
+	w.publishWriteEvent("WorkloadsWrittenToStateStore", versionID, nil)
+
+	return versionID, ctrl.Result{}, nil
+}
+
+func (w *workPlacementReconcileContext) writeWorkloadsToStateStore(repo *Repository) (string, error) {
+	var err error
+	var workloadsToDelete []string
+	var workloadsToCreate []v1alpha1.Workload
+	dir := getDir(w.destination.Spec.Path, *w.workPlacement) + "/"
+
+	switch w.destination.GetFilepathMode() {
+
+	case v1alpha1.FilepathModeAggregatedYAML:
+		dir = ""
+		workload, err := w.getAggregatedWorkload()
+		if err != nil {
+			return "", err
+		}
+		workloadsToCreate = []v1alpha1.Workload{workload}
+
+	case v1alpha1.FilepathModeNone:
+		pathPrefix := w.destination.Spec.Path + "/"
+		dir = ""
+		newWorkload, oldStateFile, err := w.generateKratixStateFile(repo, pathPrefix)
+		if err != nil {
+			return "", err
+		}
+		workloadsToCreate = append(workloadsToCreate, newWorkload)
+		workloadsToDelete = cleanupWorkloadsWithPrefix(oldStateFile.Files, w.workPlacement.Spec.Workloads, pathPrefix)
+
+		for _, workload := range w.workPlacement.Spec.Workloads {
+			decompressedContent, err := compression.DecompressContent([]byte(workload.Content))
+			if err != nil {
+				return "", fmt.Errorf("unable to decompress file content: %w", err)
+			}
+
+			workload.Content = string(decompressedContent)
+			workload.Filepath = filepath.Join(pathPrefix, workload.Filepath)
+			workloadsToCreate = append(workloadsToCreate, workload)
+		}
+
+	case v1alpha1.FilepathModeNestedByMetadata:
+		logging.Trace(w.logger, "handling file path mode nestedByMetadata")
+
+		for _, workload := range w.workPlacement.Spec.Workloads {
+			decompressedContent, err := compression.DecompressContent([]byte(workload.Content))
+			if err != nil {
+				return "", fmt.Errorf("unable to decompress file content: %w", err)
+			}
+
+			workload.Content = string(decompressedContent)
+			workloadsToCreate = append(workloadsToCreate, workload)
+		}
+
+	default:
+		return "", fmt.Errorf("unsupported file path mode: %s", w.destination.GetFilepathMode())
+	}
+
+	versionID, err := repo.Writer.UpdateFiles(dir, w.workPlacement.Name, workloadsToCreate, workloadsToDelete)
+	if err != nil {
+		logging.Error(w.logger, err, "error writing resources to repository")
+	}
+	return versionID, err
+}
+
+func (w *workPlacementReconcileContext) deleteWorkPlacement(repo *Repository) (ctrl.Result, error) {
+	pendingRepoCleanup := controllerutil.ContainsFinalizer(w.workPlacement, repoCleanupWorkPlacementFinalizer)
+	pendingKratixFileCleanup := controllerutil.ContainsFinalizer(w.workPlacement, kratixFileCleanupWorkPlacementFinalizer)
+
+	var dir string
+	workloadsToDelete := []string{}
+
+	if pendingRepoCleanup {
+		logging.Debug(w.logger, "deleting files from repository")
+
+		filePathMode := w.destination.GetFilepathMode()
+
+		switch filePathMode {
+
+		case v1alpha1.FilepathModeNestedByMetadata:
+			logging.Trace(w.logger, "handling file path mode nestedByMetadata")
+			dir = getDir(w.destination.Spec.Path, *w.workPlacement) + "/"
+			workloadsToDelete = append(workloadsToDelete, dir)
+
+		case v1alpha1.FilepathModeNone:
+			logging.Trace(w.logger, "handling file path mode none")
+			stateFile, err := w.readKratixStateFile(repo, false)
+			if err != nil {
+				logging.Debug(w.logger, "failed to read .kratix state file", "error", err)
+				return defaultRequeue, nil
+			}
+			workloadsToDelete = stateFile.Files
+
+		case v1alpha1.FilepathModeAggregatedYAML:
+			logging.Trace(w.logger, "handling file path mode aggregatedYAML")
+			workload, err := w.getAggregatedWorkload()
+			if err != nil {
+				logging.Debug(w.logger, "failed to get aggregated workload", "error", err)
+				return defaultRequeue, nil
+			}
+			workloadsToDelete = []string{workload.Filepath}
+
+			if workload.Content != "" { // there are still other workplacements for this destination
+				_, err := repo.Writer.UpdateFiles("", w.workPlacement.Name, []v1alpha1.Workload{workload}, []string{})
+				if err != nil {
+					logging.Debug(w.logger, "failed to update files in repository", "error", err)
+					return defaultRequeue, nil
+				}
+				workloadsToDelete = []string{}
+			}
+
+		default:
+			return ctrl.Result{}, fmt.Errorf("unsupported file path mode: %s", filePathMode)
+		}
+	}
+
+	if pendingKratixFileCleanup {
+		logging.Debug(w.logger, "cleaning up .kratix state file")
+		workloadsToDelete = append(workloadsToDelete, w.kratixStateFilePath())
+	}
+
+	return w.delete(repo, workloadsToDelete)
+}
+
+func cleanupWorkloadsWithPrefix(oldWorkloads []string, newWorkloads []v1alpha1.Workload, pathPrefix string) []string {
+	works := make(map[string]bool)
+	for _, w := range newWorkloads {
+		works[filepath.Join(pathPrefix, w.Filepath)] = true
+	}
+	var result []string
+	for _, old := range oldWorkloads {
+		oldFullPath := old
+		if !strings.HasPrefix(old, pathPrefix) {
+			oldFullPath = filepath.Join(pathPrefix, old)
+		}
+		if _, ok := works[oldFullPath]; !ok {
+			result = append(result, oldFullPath)
+		}
+	}
+	return result
+}
+
+func getDir(destinationPath string, workPlacement v1alpha1.WorkPlacement) string {
+	if workPlacement.Spec.ResourceName == "" {
+		// destinationPath/dependencies/<promise-name>/<pipeline-name>/<dir-sha>/
+		return filepath.Join(destinationPath, dependenciesDir, workPlacement.Spec.PromiseName, workPlacement.PipelineName(), shortID(workPlacement.Spec.ID))
+	} else {
+		// destinationPath/resources/<rr-namespace>/<promise-name>/<rr-name>/<pipeline-name>/<dir-sha>/
+		return filepath.Join(destinationPath, resourcesDir, workPlacement.GetNamespace(), workPlacement.Spec.PromiseName, workPlacement.Spec.ResourceName, workPlacement.PipelineName(), shortID(workPlacement.Spec.ID))
+	}
 }

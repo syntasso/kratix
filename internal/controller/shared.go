@@ -137,45 +137,6 @@ func addFinalizers(o opts, resource client.Object, finalizers []string) error {
 	return o.client.Update(o.ctx, resource)
 }
 
-func newWriter(o opts, stateStoreName, stateStoreKind, destinationPath string) (writers.StateStoreWriter, error) {
-	stateStoreRef := client.ObjectKey{
-		Name: stateStoreName,
-	}
-
-	var writer writers.StateStoreWriter
-	var err error
-	switch stateStoreKind {
-	case "BucketStateStore":
-		stateStore := &v1alpha1.BucketStateStore{}
-		secret, fetchErr := fetchObjectAndSecret(o, stateStoreRef, stateStore)
-		if fetchErr != nil {
-			return nil, fetchErr
-		}
-		var data map[string][]byte = nil
-		if secret != nil {
-			data = secret.Data
-		}
-
-		writer, err = newS3Writer(o.logger.WithName("writers").WithName("BucketStateStoreWriter"), stateStore.Spec, destinationPath, data)
-	case "GitStateStore":
-		stateStore := &v1alpha1.GitStateStore{}
-		secret, fetchErr := fetchObjectAndSecret(o, stateStoreRef, stateStore)
-		if fetchErr != nil {
-			return nil, fetchErr
-		}
-
-		writer, err = newGitWriter(o.logger.WithName("writers").WithName("GitStateStoreWriter"), stateStore.Spec, destinationPath, secret.Data)
-	default:
-		return nil, fmt.Errorf("unsupported kind %s", stateStoreKind)
-	}
-
-	if err != nil {
-		logging.Error(o.logger, err, "unable to create StateStoreWriter")
-		return nil, err
-	}
-	return writer, nil
-}
-
 func shortID(id string) string {
 	return id[0:5]
 }
@@ -196,4 +157,15 @@ func logReconcileDuration(logger logr.Logger, start time.Time, result ctrl.Resul
 		}
 		logging.Info(logger, "reconciliation finished", fields...)
 	}
+}
+
+func withTrace(logger logr.Logger, reconcileFunc func() (ctrl.Result, error)) (ctrl.Result, error) {
+	logging.Info(logger, "reconciliation started")
+	var result ctrl.Result
+	var err error
+	defer logReconcileDuration(logger, time.Now(), result, err)()
+
+	result, err = reconcileFunc()
+
+	return result, err
 }

@@ -18,6 +18,7 @@ package v1alpha1
 
 import (
 	corev1 "k8s.io/api/core/v1"
+	apimeta "k8s.io/apimachinery/pkg/api/meta"
 	metav1 "k8s.io/apimachinery/pkg/apis/meta/v1"
 )
 
@@ -147,6 +148,37 @@ type Destination struct {
 
 	Spec   DestinationSpec   `json:"spec,omitempty"`
 	Status DestinationStatus `json:"status,omitempty"`
+}
+
+const (
+	DestinationNotReadyReason = "DestinationNotReady"
+	DestinationReadyReason    = "DestinationReady"
+)
+
+func (d *Destination) SetReadyCondition(status metav1.ConditionStatus, reason, message string) bool {
+	return apimeta.SetStatusCondition(&d.Status.Conditions, metav1.Condition{
+		Type:               "Ready",
+		Status:             status,
+		Reason:             reason,
+		Message:            message,
+		LastTransitionTime: metav1.Now(),
+	})
+}
+
+func (d *Destination) SetNotReadyStatus(reason, message string) bool {
+	return d.SetReadyCondition(
+		metav1.ConditionFalse,
+		reason,
+		message,
+	)
+}
+
+func (d *Destination) SetReadyStatus(reason, message string) bool {
+	return d.SetReadyCondition(
+		metav1.ConditionTrue,
+		reason,
+		message,
+	)
 }
 
 //+kubebuilder:object:root=true

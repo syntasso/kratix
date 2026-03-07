@@ -49,6 +49,7 @@ var _ = Describe("BucketStateStore Controller", func() {
 		ctx                      context.Context
 		testBucketStateStoreName types.NamespacedName
 		secretName               string
+		repositoryCache          controller.RepositoryCache
 	)
 
 	BeforeEach(func() {
@@ -59,7 +60,7 @@ var _ = Describe("BucketStateStore Controller", func() {
 		}
 
 		secretName = "store-secret"
-
+		repositoryCache = controller.NewRepositoryCache()
 		eventRecorder = record.NewFakeRecorder(1024)
 
 		fakeWriter = &writersfakes.FakeStateStoreWriter{}
@@ -72,10 +73,11 @@ var _ = Describe("BucketStateStore Controller", func() {
 		fakeWriter.ValidatePermissionsReturns(nil)
 
 		reconciler = &controller.BucketStateStoreReconciler{
-			Client:        fakeK8sClient,
-			Scheme:        scheme.Scheme,
-			Log:           ctrl.Log.WithName("controllers").WithName("BucketStateStore"),
-			EventRecorder: eventRecorder,
+			Client:          fakeK8sClient,
+			Scheme:          scheme.Scheme,
+			Log:             ctrl.Log.WithName("controllers").WithName("BucketStateStore"),
+			EventRecorder:   eventRecorder,
+			RepositoryCache: repositoryCache,
 		}
 
 		bucketStateStore = &v1alpha1.BucketStateStore{
@@ -166,22 +168,22 @@ var _ = Describe("BucketStateStore Controller", func() {
 
 				controller.SetNewS3Writer(
 					func(l logr.Logger, s v1alpha1.BucketStateStoreSpec, d string, c map[string][]byte) (writers.StateStoreWriter, error) {
-						return fakeWriter, errors.New("secret missing key: secretAccessKey")
+						return fakeWriter, errors.New("writer-create-error")
 					},
 				)
 
-				result, err = t.reconcileUntilCompletion(reconciler, bucketStateStore)
+				result, err = t.reconcileUntilCompletion(reconciler, bucketStateStore, &opts{requeueExpected: true})
 			})
 
 			It("updates the status ", func() {
-				Expect(err).To(MatchError(ContainSubstring("secret missing key: secretAccessKey")))
-				Expect(result).To(Equal(ctrl.Result{}))
+				Expect(result).To(Equal(ctrl.Result{RequeueAfter: time.Second * 15}))
+				Expect(err).ToNot(HaveOccurred())
 
 				Expect(fakeK8sClient.Get(ctx, testBucketStateStoreName, updatedBucketStateStore)).To(Succeed())
 				Expect(updatedBucketStateStore.Status.Status).To(Equal(controller.StatusNotReady))
 				Expect(updatedBucketStateStore.Status.Conditions).To(ContainElement(SatisfyAll(
 					HaveField("Type", "Ready"),
-					HaveField("Message", "Error initialising writer: secret missing key: secretAccessKey"),
+					HaveField("Message", "unable to create bucket writer: writer-create-error"),
 					HaveField("Reason", "ErrorInitialisingWriter"),
 					HaveField("Status", metav1.ConditionFalse),
 				)))
@@ -189,7 +191,7 @@ var _ = Describe("BucketStateStore Controller", func() {
 
 			It("fires an event to indicate writer initialization failed", func() {
 				Eventually(eventRecorder.Events).Should(Receive(ContainSubstring(
-					"Warning NotReady BucketStateStore \"default-store\" is not ready: Error initialising writer: secret missing key: secretAccessKey")))
+					"Warning NotReady unable to create bucket writer: writer-create-error")))
 			})
 		})
 
@@ -219,7 +221,7 @@ var _ = Describe("BucketStateStore Controller", func() {
 
 			It("fires an event to indicate permissions validation failed", func() {
 				Eventually(eventRecorder.Events).Should(Receive(ContainSubstring(
-					"Warning NotReady BucketStateStore \"default-store\" is not ready: Error validating state store permissions: ARGH!")))
+					"Warning NotReady Error validating state store permissions: ARGH!")))
 			})
 		})
 	})

@@ -181,16 +181,16 @@ func main() {
 	setupLog = ctrl.Log.WithName("setup")
 	setupLog.Info("logging configured from Kratix config", "structured", !opts.Development, "developmentMode", opts.Development, "level", opts.Level)
 
-    if kratixConfig != nil {
-        v1alpha1.DefaultUserProvidedContainersSecurityContext = &kratixConfig.Workflows.DefaultContainerSecurityContext
-        v1alpha1.DefaultImagePullPolicy = kratixConfig.Workflows.DefaultImagePullPolicy
-        if kratixConfig.Workflows.JobOptions.DefaultBackoffLimit != nil {
-            v1alpha1.DefaultJobBackoffLimit = kratixConfig.Workflows.JobOptions.DefaultBackoffLimit
-        }
-        if kratixConfig.Workflows.DefaultContainerResources != nil {
-            v1alpha1.DefaultResourceRequirements = kratixConfig.Workflows.DefaultContainerResources
-        }
-    }
+	if kratixConfig != nil {
+		v1alpha1.DefaultUserProvidedContainersSecurityContext = &kratixConfig.Workflows.DefaultContainerSecurityContext
+		v1alpha1.DefaultImagePullPolicy = kratixConfig.Workflows.DefaultImagePullPolicy
+		if kratixConfig.Workflows.JobOptions.DefaultBackoffLimit != nil {
+			v1alpha1.DefaultJobBackoffLimit = kratixConfig.Workflows.JobOptions.DefaultBackoffLimit
+		}
+		if kratixConfig.Workflows.DefaultContainerResources != nil {
+			v1alpha1.DefaultResourceRequirements = kratixConfig.Workflows.DefaultContainerResources
+		}
+	}
 
 	podTTLAfterFinished := getPodTTLAfterFinished(kratixConfig)
 
@@ -267,6 +267,8 @@ func main() {
 			os.Exit(1)
 		}
 
+		repositoryCache := controller.NewRepositoryCache()
+
 		scheduler := controller.Scheduler{
 			Client:        mgr.GetClient(),
 			Log:           ctrl.Log.WithName("controllers").WithName("Scheduler"),
@@ -324,24 +326,18 @@ func main() {
 			setupLog.Error(err, "unable to create controller", "controller", "Work")
 			os.Exit(1)
 		}
+
 		if err = (&controller.DestinationReconciler{
-			Client:        mgr.GetClient(),
-			Scheduler:     &scheduler,
-			Log:           ctrl.Log.WithName("controllers").WithName("DestinationController"),
-			EventRecorder: mgr.GetEventRecorderFor("DestinationController"),
+			Client:          mgr.GetClient(),
+			Scheduler:       &scheduler,
+			Log:             ctrl.Log.WithName("controllers").WithName("DestinationController"),
+			EventRecorder:   mgr.GetEventRecorderFor("DestinationController"),
+			RepositoryCache: repositoryCache,
 		}).SetupWithManager(mgr); err != nil {
 			setupLog.Error(err, "unable to create controller", "controller", "Destination")
 			os.Exit(1)
 		}
-		if err = (&controller.WorkPlacementReconciler{
-			Client:        mgr.GetClient(),
-			Log:           ctrl.Log.WithName("controllers").WithName("WorkPlacementController"),
-			VersionCache:  make(map[string]string),
-			EventRecorder: mgr.GetEventRecorderFor("WorkPlacementController"),
-		}).SetupWithManager(mgr); err != nil {
-			setupLog.Error(err, "unable to create controller", "controller", "WorkPlacement")
-			os.Exit(1)
-		}
+
 		if err = kratixWebhook.SetupPromiseWebhookWithManager(mgr, apiextensionsClient, mgr.GetClient()); err != nil {
 			setupLog.Error(err, "unable to create webhook", "webhook", "Promise")
 			os.Exit(1)
@@ -374,21 +370,34 @@ func main() {
 			os.Exit(1)
 		}
 		if err = (&controller.BucketStateStoreReconciler{
-			Client:        mgr.GetClient(),
-			Scheme:        mgr.GetScheme(),
-			Log:           ctrl.Log.WithName("controllers").WithName("BucketStateStoreController"),
-			EventRecorder: mgr.GetEventRecorderFor("BucketStateStoreController"),
+			Client:          mgr.GetClient(),
+			Scheme:          mgr.GetScheme(),
+			Log:             ctrl.Log.WithName("controllers").WithName("BucketStateStoreController"),
+			EventRecorder:   mgr.GetEventRecorderFor("BucketStateStoreController"),
+			RepositoryCache: repositoryCache,
 		}).SetupWithManager(mgr); err != nil {
 			setupLog.Error(err, "unable to create controller", "controller", "BucketStateStore")
 			os.Exit(1)
 		}
-		if err = (&controller.GitStateStoreReconciler{
-			Client:        mgr.GetClient(),
-			Scheme:        mgr.GetScheme(),
-			Log:           ctrl.Log.WithName("controllers").WithName("GitStateStoreController"),
-			EventRecorder: mgr.GetEventRecorderFor("GitStateStoreController"),
+
+		if err := (&controller.GitStateStoreReconciler{
+			Client:          mgr.GetClient(),
+			Scheme:          mgr.GetScheme(),
+			Log:             ctrl.Log.WithName("controllers").WithName("GitStateStore"),
+			EventRecorder:   mgr.GetEventRecorderFor("GitStateStoreController"),
+			RepositoryCache: repositoryCache,
 		}).SetupWithManager(mgr); err != nil {
 			setupLog.Error(err, "unable to create controller", "controller", "GitStateStore")
+			os.Exit(1)
+		}
+		if err = (&controller.WorkPlacementReconciler{
+			Client:          mgr.GetClient(),
+			Log:             ctrl.Log.WithName("controllers").WithName("WorkPlacementController"),
+			VersionCache:    make(map[string]string),
+			RepositoryCache: repositoryCache,
+			EventRecorder:   mgr.GetEventRecorderFor("WorkPlacementController"),
+		}).SetupWithManager(mgr); err != nil {
+			setupLog.Error(err, "unable to create controller", "controller", "WorkPlacement")
 			os.Exit(1)
 		}
 		if err = kratixWebhook.SetupBucketStateStoreWebhookWithManager(mgr); err != nil {
