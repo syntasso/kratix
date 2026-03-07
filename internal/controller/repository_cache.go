@@ -177,7 +177,7 @@ func (c *repositoryCache) Cleanup(stateStore StateStore) error {
 		delete(c.gitRepositoryCache, name)
 		return os.RemoveAll(repo.Path)
 	case "BucketStateStore":
-		if repo, found = c.s3RepositoryCache[name]; !found {
+		if _, found = c.s3RepositoryCache[name]; !found {
 			return nil
 		}
 		delete(c.s3RepositoryCache, name)

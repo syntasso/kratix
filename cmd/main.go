@@ -181,16 +181,16 @@ func main() {
 	setupLog = ctrl.Log.WithName("setup")
 	setupLog.Info("logging configured from Kratix config", "structured", !opts.Development, "developmentMode", opts.Development, "level", opts.Level)
 
-    if kratixConfig != nil {
-        v1alpha1.DefaultUserProvidedContainersSecurityContext = &kratixConfig.Workflows.DefaultContainerSecurityContext
-        v1alpha1.DefaultImagePullPolicy = kratixConfig.Workflows.DefaultImagePullPolicy
-        if kratixConfig.Workflows.JobOptions.DefaultBackoffLimit != nil {
-            v1alpha1.DefaultJobBackoffLimit = kratixConfig.Workflows.JobOptions.DefaultBackoffLimit
-        }
-        if kratixConfig.Workflows.DefaultContainerResources != nil {
-            v1alpha1.DefaultResourceRequirements = kratixConfig.Workflows.DefaultContainerResources
-        }
-    }
+	if kratixConfig != nil {
+		v1alpha1.DefaultUserProvidedContainersSecurityContext = &kratixConfig.Workflows.DefaultContainerSecurityContext
+		v1alpha1.DefaultImagePullPolicy = kratixConfig.Workflows.DefaultImagePullPolicy
+		if kratixConfig.Workflows.JobOptions.DefaultBackoffLimit != nil {
+			v1alpha1.DefaultJobBackoffLimit = kratixConfig.Workflows.JobOptions.DefaultBackoffLimit
+		}
+		if kratixConfig.Workflows.DefaultContainerResources != nil {
+			v1alpha1.DefaultResourceRequirements = kratixConfig.Workflows.DefaultContainerResources
+		}
+	}
 
 	podTTLAfterFinished := getPodTTLAfterFinished(kratixConfig)
 

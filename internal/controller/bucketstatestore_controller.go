@@ -91,7 +91,9 @@ func (r *BucketStateStoreReconciler) newReconcileContext(ctx context.Context, lo
 
 	secret, err := fetchSecret(ctx, logger, r.Client, bucketStateStore)
 	if err != nil {
-		r.RepositoryCache.Cleanup(bucketStateStore)
+		if r.RepositoryCache.Cleanup(bucketStateStore) != nil {
+			logging.Debug(logger, "failed to clean up repository cache")
+		}
 		return nil, stateStoreCtx.setNotReadyStatus(err)
 	}
 

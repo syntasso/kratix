@@ -94,7 +94,9 @@ func (r *GitStateStoreReconciler) newReconcileContext(ctx context.Context, logge
 
 	secret, err := fetchSecret(ctx, logger, r.Client, gitStateStore)
 	if err != nil {
-		r.RepositoryCache.Cleanup(gitStateStore)
+		if r.RepositoryCache.Cleanup(gitStateStore) != nil {
+			logging.Debug(logger, "failed to clean up repository cache")
+		}
 		return nil, stateStoreCtx.setNotReadyStatus(err)
 	}
 

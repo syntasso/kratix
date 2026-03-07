@@ -638,14 +638,6 @@ func (w *workPlacementReconcileContext) deleteWorkPlacement(repo *Repository) (c
 	return w.delete(repo, workloadsToDelete)
 }
 
-func workloadsFilenames(works []v1alpha1.Workload) []string {
-	var result []string
-	for _, w := range works {
-		result = append(result, w.Filepath)
-	}
-	return result
-}
-
 func cleanupWorkloadsWithPrefix(oldWorkloads []string, newWorkloads []v1alpha1.Workload, pathPrefix string) []string {
 	works := make(map[string]bool)
 	for _, w := range newWorkloads {
