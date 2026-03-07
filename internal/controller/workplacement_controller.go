@@ -356,18 +356,17 @@ func (w *workPlacementReconcileContext) generateKratixStateFile(repo *Repository
 		return v1alpha1.Workload{}, StateFile{}, err
 	}
 
-	filenames := workloadsFilenames(w.workPlacement.Spec.Workloads)
-	var files []string
-	for _, f := range filenames {
-		files = append(files, pathPrefix+f)
+	workloadPaths := make([]string, 0, len(w.workPlacement.Spec.Workloads))
+	for _, workload := range w.workPlacement.Spec.Workloads {
+		workloadPaths = append(workloadPaths, filepath.Join(pathPrefix, workload.Filepath))
 	}
-	newStateFile := StateFile{Files: files}
+	newStateFile := StateFile{Files: workloadPaths}
 	stateFileContent, marshalErr := yaml.Marshal(newStateFile)
 	if marshalErr != nil {
 		return v1alpha1.Workload{}, StateFile{}, fmt.Errorf("failed to marshal new .kratix state file: %w", err)
 	}
 
-	kratixRelativePath := fmt.Sprintf(".kratix/%s-%s.yaml", w.workPlacement.Namespace, w.workPlacement.Name)
+	kratixRelativePath := filepath.Join(pathPrefix, ".kratix", fmt.Sprintf("%s-%s.yaml", w.workPlacement.Namespace, w.workPlacement.Name))
 	stateFileWorkload := v1alpha1.Workload{
 		Filepath: kratixRelativePath,
 		Content:  string(stateFileContent),
@@ -381,7 +380,7 @@ func (w *workPlacementReconcileContext) kratixStateFilePath() string {
 
 func (w *workPlacementReconcileContext) readKratixStateFile(repo *Repository, ignoreNotFound bool) (StateFile, error) {
 	kratixFilePath := w.kratixStateFilePath()
-	kratixFile, err := repo.Writer.ReadFile(w.kratixStateFilePath())
+	kratixFile, err := repo.Writer.ReadFile(kratixFilePath)
 	if err != nil {
 		if ignoreNotFound && errors.Is(err, writers.ErrFileNotFound) {
 			return StateFile{}, nil
@@ -537,14 +536,24 @@ func (w *workPlacementReconcileContext) writeWorkloadsToStateStore(repo *Reposit
 
 	case v1alpha1.FilepathModeNone:
 		pathPrefix := w.destination.Spec.Path + "/"
-		dir = pathPrefix
+		dir = ""
 		newWorkload, oldStateFile, err := w.generateKratixStateFile(repo, pathPrefix)
 		if err != nil {
 			return "", err
 		}
 		workloadsToCreate = append(workloadsToCreate, newWorkload)
 		workloadsToDelete = cleanupWorkloadsWithPrefix(oldStateFile.Files, w.workPlacement.Spec.Workloads, pathPrefix)
-		fallthrough
+
+		for _, workload := range w.workPlacement.Spec.Workloads {
+			decompressedContent, err := compression.DecompressContent([]byte(workload.Content))
+			if err != nil {
+				return "", fmt.Errorf("unable to decompress file content: %w", err)
+			}
+
+			workload.Content = string(decompressedContent)
+			workload.Filepath = filepath.Join(pathPrefix, workload.Filepath)
+			workloadsToCreate = append(workloadsToCreate, workload)
+		}
 
 	case v1alpha1.FilepathModeNestedByMetadata:
 		logging.Trace(w.logger, "handling file path mode nestedByMetadata")
@@ -637,23 +646,19 @@ func workloadsFilenames(works []v1alpha1.Workload) []string {
 	return result
 }
 
-func cleanupWorkloads(oldWorkloads []string, newWorkloads []v1alpha1.Workload) []string {
-	return cleanupWorkloadsWithPrefix(oldWorkloads, newWorkloads, "")
-}
-
 func cleanupWorkloadsWithPrefix(oldWorkloads []string, newWorkloads []v1alpha1.Workload, pathPrefix string) []string {
 	works := make(map[string]bool)
 	for _, w := range newWorkloads {
-		works[pathPrefix+w.Filepath] = true
+		works[filepath.Join(pathPrefix, w.Filepath)] = true
 	}
 	var result []string
 	for _, old := range oldWorkloads {
-		canonicalOld := old
-		if pathPrefix != "" && !strings.HasPrefix(old, pathPrefix) {
-			canonicalOld = pathPrefix + old
+		oldFullPath := old
+		if !strings.HasPrefix(old, pathPrefix) {
+			oldFullPath = filepath.Join(pathPrefix, old)
 		}
-		if _, ok := works[canonicalOld]; !ok {
-			result = append(result, canonicalOld)
+		if _, ok := works[oldFullPath]; !ok {
+			result = append(result, oldFullPath)
 		}
 	}
 	return result

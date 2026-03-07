@@ -17,7 +17,7 @@ import (
 	"sigs.k8s.io/yaml"
 )
 
-var _ = FDescribe("Destinations", Label("destination"), Serial, func() {
+var _ = Describe("Destinations", Label("destination"), Serial, func() {
 	var (
 		destinationName string
 		stateStoreName  string
