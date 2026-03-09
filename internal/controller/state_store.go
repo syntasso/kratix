@@ -27,28 +27,36 @@ type StateStore interface {
 	GetSecretRef() *v1.SecretReference
 	GetGeneration() int64
 	GetObservedGeneration() int64
-	SetObservedGeneration(generation int64)
+	SetObservedGeneration(generation int64) bool
 	Ready() bool
 }
 
-func fetchSecret(ctx context.Context, logger logr.Logger, client client.Client, stateStore StateStore) (*v1.Secret, *StateStoreError) {
-	secret := &v1.Secret{}
+func fetchSecret(ctx context.Context, logger logr.Logger, client client.Client, stateStore StateStore) (v1.Secret, *StateStoreError) {
 	secretRef := stateStore.GetSecretRef()
+
+	if secretRef == nil {
+		return v1.Secret{}, nil
+	}
+	secret := v1.Secret{}
+	if secretRef.Namespace == "" {
+		secretRef.Namespace = "default"
+	}
+
 	secretName := types.NamespacedName{
 		Name:      secretRef.Name,
 		Namespace: secretRef.Namespace,
 	}
 
-	if err := client.Get(ctx, secretName, secret); err != nil {
+	if err := client.Get(ctx, secretName, &secret); err != nil {
 		if kerrors.IsNotFound(err) {
 			logging.Error(
 				logger, err, "secret not found",
 				"secretName", secretRef.Name,
 				"secretNamespace", secretRef.Namespace,
 			)
-			return nil, NewSecretNotFoundError(secretRef)
+			return v1.Secret{}, NewSecretNotFoundError(secretRef)
 		}
-		return nil, NewStateStoreError(err)
+		return v1.Secret{}, NewStateStoreError(err)
 	}
 	return secret, nil
 }
@@ -93,7 +101,7 @@ type stateStoreReconcileContext struct {
 	eventRecorder record.EventRecorder
 
 	stateStore       StateStore
-	stateStoreSecret *v1.Secret
+	stateStoreSecret v1.Secret
 	repositoryCache  RepositoryCache
 }
 
@@ -156,11 +164,11 @@ func (reconcileCtx *stateStoreReconcileContext) setReadyStatus() error {
 }
 
 func (reconcileCtx *stateStoreReconcileContext) setStatus(status string, condition metav1.Condition, recordEvent func()) error {
-	reconcileCtx.stateStore.SetObservedGeneration(reconcileCtx.stateStore.GetGeneration())
+	genChanged := reconcileCtx.stateStore.SetObservedGeneration(reconcileCtx.stateStore.GetGeneration())
 	stateStoreStatus := reconcileCtx.stateStore.GetStatus().DeepCopy()
 	stateStoreStatus.Status = status
 
-	if !meta.SetStatusCondition(&stateStoreStatus.Conditions, condition) {
+	if !meta.SetStatusCondition(&stateStoreStatus.Conditions, condition) && !genChanged {
 		return nil
 	}
 

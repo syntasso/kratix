@@ -103,8 +103,12 @@ func (b *BucketStateStore) Ready() bool {
 	return readyCond != nil && readyCond.Status == metav1.ConditionTrue
 }
 
-func (b *BucketStateStore) SetObservedGeneration(generation int64) {
+func (b *BucketStateStore) SetObservedGeneration(generation int64) bool {
+	if b.Status.ObservedGeneration == generation {
+		return false
+	}
 	b.Status.ObservedGeneration = generation
+	return true
 }
 
 //+kubebuilder:object:root=true

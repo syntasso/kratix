@@ -119,8 +119,12 @@ func (g *GitStateStore) Ready() bool {
 	return readyCond != nil && readyCond.Status == metav1.ConditionTrue
 }
 
-func (g *GitStateStore) SetObservedGeneration(generation int64) {
+func (g *GitStateStore) SetObservedGeneration(generation int64) bool {
+	if g.Status.ObservedGeneration == generation {
+		return false
+	}
 	g.Status.ObservedGeneration = generation
+	return true
 }
 
 // +kubebuilder:object:root=true

@@ -35,12 +35,12 @@ type FakeRepositoryCache struct {
 		result1 *controller.Repository
 		result2 error
 	}
-	InitRepositoryStub        func(logr.Logger, controller.StateStore, *v1.Secret) (*controller.Repository, *controller.StateStoreError)
+	InitRepositoryStub        func(logr.Logger, controller.StateStore, v1.Secret) (*controller.Repository, *controller.StateStoreError)
 	initRepositoryMutex       sync.RWMutex
 	initRepositoryArgsForCall []struct {
 		arg1 logr.Logger
 		arg2 controller.StateStore
-		arg3 *v1.Secret
+		arg3 v1.Secret
 	}
 	initRepositoryReturns struct {
 		result1 *controller.Repository
@@ -180,13 +180,13 @@ func (fake *FakeRepositoryCache) GetRepositoryByTypeAndNameReturnsOnCall(i int, 
 	}{result1, result2}
 }
 
-func (fake *FakeRepositoryCache) InitRepository(arg1 logr.Logger, arg2 controller.StateStore, arg3 *v1.Secret) (*controller.Repository, *controller.StateStoreError) {
+func (fake *FakeRepositoryCache) InitRepository(arg1 logr.Logger, arg2 controller.StateStore, arg3 v1.Secret) (*controller.Repository, *controller.StateStoreError) {
 	fake.initRepositoryMutex.Lock()
 	ret, specificReturn := fake.initRepositoryReturnsOnCall[len(fake.initRepositoryArgsForCall)]
 	fake.initRepositoryArgsForCall = append(fake.initRepositoryArgsForCall, struct {
 		arg1 logr.Logger
 		arg2 controller.StateStore
-		arg3 *v1.Secret
+		arg3 v1.Secret
 	}{arg1, arg2, arg3})
 	stub := fake.InitRepositoryStub
 	fakeReturns := fake.initRepositoryReturns
@@ -207,13 +207,13 @@ func (fake *FakeRepositoryCache) InitRepositoryCallCount() int {
 	return len(fake.initRepositoryArgsForCall)
 }
 
-func (fake *FakeRepositoryCache) InitRepositoryCalls(stub func(logr.Logger, controller.StateStore, *v1.Secret) (*controller.Repository, *controller.StateStoreError)) {
+func (fake *FakeRepositoryCache) InitRepositoryCalls(stub func(logr.Logger, controller.StateStore, v1.Secret) (*controller.Repository, *controller.StateStoreError)) {
 	fake.initRepositoryMutex.Lock()
 	defer fake.initRepositoryMutex.Unlock()
 	fake.InitRepositoryStub = stub
 }
 
-func (fake *FakeRepositoryCache) InitRepositoryArgsForCall(i int) (logr.Logger, controller.StateStore, *v1.Secret) {
+func (fake *FakeRepositoryCache) InitRepositoryArgsForCall(i int) (logr.Logger, controller.StateStore, v1.Secret) {
 	fake.initRepositoryMutex.RLock()
 	defer fake.initRepositoryMutex.RUnlock()
 	argsForCall := fake.initRepositoryArgsForCall[i]

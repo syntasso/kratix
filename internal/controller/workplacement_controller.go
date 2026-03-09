@@ -340,12 +340,12 @@ func (w *workPlacementReconcileContext) handleDeletion(repo *Repository) (ctrl.R
 	return w.deleteWorkPlacement(repo)
 }
 
-func (w *workPlacementReconcileContext) logAndRecordError(err error, message string, args ...any) {
+func (w *workPlacementReconcileContext) logAndRecordError(err error, reason, message string, args ...any) {
 	logging.Error(w.logger, err, message, args...)
 	w.eventRecorder.Eventf(
 		w.workPlacement,
 		v1.EventTypeWarning,
-		failedDeleteEventReason,
+		reason,
 		"%s: %s", message, err.Error(),
 	)
 }
@@ -363,7 +363,7 @@ func (w *workPlacementReconcileContext) generateKratixStateFile(repo *Repository
 	newStateFile := StateFile{Files: workloadPaths}
 	stateFileContent, marshalErr := yaml.Marshal(newStateFile)
 	if marshalErr != nil {
-		return v1alpha1.Workload{}, StateFile{}, fmt.Errorf("failed to marshal new .kratix state file: %w", err)
+		return v1alpha1.Workload{}, StateFile{}, fmt.Errorf("failed to marshal new .kratix state file: %w", marshalErr)
 	}
 
 	kratixRelativePath := filepath.Join(pathPrefix, ".kratix", fmt.Sprintf("%s-%s.yaml", w.workPlacement.Namespace, w.workPlacement.Name))
@@ -385,13 +385,13 @@ func (w *workPlacementReconcileContext) readKratixStateFile(repo *Repository, ig
 		if ignoreNotFound && errors.Is(err, writers.ErrFileNotFound) {
 			return StateFile{}, nil
 		}
-		w.logAndRecordError(err, "failed to read .kratix state file", "filePath", kratixFilePath)
+		w.logAndRecordError(err, "FailedReadKratixStateFile", "failed to read .kratix state file", "filePath", kratixFilePath)
 		return StateFile{}, err
 	}
 
 	stateFile := StateFile{}
 	if err = yaml.Unmarshal(kratixFile, &stateFile); err != nil {
-		w.logAndRecordError(err, "failed to unmarshal .kratix state file")
+		w.logAndRecordError(err, "FailedUnmarshalKratixStateFile", "failed to unmarshal .kratix state file")
 		return StateFile{}, err
 	}
 
@@ -408,7 +408,7 @@ func (w *workPlacementReconcileContext) getAggregatedWorkload() (v1alpha1.Worklo
 	}
 	activeWorkplacements, err := w.getAllWorkplacementsForDestination()
 	if err != nil {
-		w.logAndRecordError(err, "failed to get all workplacements for destination")
+		w.logAndRecordError(err, "FailedGetAllWorkplacementsForDestination", "failed to get all workplacements for destination")
 		return v1alpha1.Workload{}, err
 	}
 
@@ -418,7 +418,7 @@ func (w *workPlacementReconcileContext) getAggregatedWorkload() (v1alpha1.Worklo
 
 	combinedWorkloads, err := w.combineAllWorkloads(activeWorkplacements)
 	if err != nil {
-		w.logAndRecordError(err, "failed to generate aggregated workload yaml")
+		w.logAndRecordError(err, "FailedGenerateAggregatedWorkloadYAML", "failed to generate aggregated workload yaml")
 		return v1alpha1.Workload{}, err
 	}
 
@@ -479,7 +479,7 @@ func (w *workPlacementReconcileContext) combineAllWorkloads(workPlacements []v1a
 
 func (w *workPlacementReconcileContext) delete(repo *Repository, workloadsToDelete []string) (ctrl.Result, error) {
 	if err := repo.Writer.DeleteFiles(w.workPlacement.Name, workloadsToDelete); err != nil {
-		w.logAndRecordError(err, "failed to delete files from repository")
+		w.logAndRecordError(err, "FailedDeleteFilesFromRepository", "failed to delete files from repository")
 		return defaultRequeue, nil
 	}
 
@@ -507,7 +507,7 @@ func (w *workPlacementReconcileContext) writeToStateStore(repo *Repository) (str
 	versionID, workloadErr := w.writeWorkloadsToStateStore(repo)
 	if workloadErr != nil {
 		telemetry.RecordWorkPlacementWrite(w.ctx, telemetry.WorkPlacementWriteResultFailure, metricAttrs...)
-		w.logAndRecordError(workloadErr, "error writing to destination; check kubectl get destination for more info")
+		w.logAndRecordError(workloadErr, "FailedWriteToDestination", "error writing to destination; check kubectl get destination for more info")
 		return "", defaultRequeue, w.updateResourceStatus("", workloadErr)
 	}
 
