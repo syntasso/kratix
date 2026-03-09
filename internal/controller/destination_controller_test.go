@@ -31,7 +31,6 @@ import (
 	"github.com/syntasso/kratix/lib/writers/writersfakes"
 	corev1 "k8s.io/api/core/v1"
 	metav1 "k8s.io/apimachinery/pkg/apis/meta/v1"
-	v1 "k8s.io/apimachinery/pkg/apis/meta/v1"
 	"k8s.io/apimachinery/pkg/types"
 	"k8s.io/client-go/tools/record"
 	ctrl "sigs.k8s.io/controller-runtime"
@@ -68,11 +67,11 @@ var _ = Describe("DestinationReconciler", func() {
 		}
 
 		testDestination = &v1alpha1.Destination{
-			TypeMeta: v1.TypeMeta{
+			TypeMeta: metav1.TypeMeta{
 				Kind:       "Destination",
 				APIVersion: "platform.kratix.io/v1alpha1",
 			},
-			ObjectMeta: v1.ObjectMeta{
+			ObjectMeta: metav1.ObjectMeta{
 				Name: name,
 			},
 			Spec: v1alpha1.DestinationSpec{
@@ -308,7 +307,7 @@ var _ = Describe("DestinationReconciler", func() {
 					var workPlacement v1alpha1.WorkPlacement
 					BeforeEach(func() {
 						workPlacement = v1alpha1.WorkPlacement{
-							ObjectMeta: v1.ObjectMeta{
+							ObjectMeta: metav1.ObjectMeta{
 								Name:      "test-workplacement",
 								Namespace: "default",
 								Labels:    map[string]string{v1alpha1.KratixPrefix + "targetDestinationName": testDestination.Name},
@@ -421,8 +420,8 @@ var stateStoreSetups = map[string]StateStoreSetup{
 	"BucketStateStore": {
 		CreateSecret: func() *corev1.Secret {
 			return &corev1.Secret{
-				TypeMeta:   v1.TypeMeta{Kind: "Secret", APIVersion: "v1"},
-				ObjectMeta: v1.ObjectMeta{Name: "test-secret", Namespace: "default"},
+				TypeMeta:   metav1.TypeMeta{Kind: "Secret", APIVersion: "v1"},
+				ObjectMeta: metav1.ObjectMeta{Name: "test-secret", Namespace: "default"},
 				Data: map[string][]byte{
 					"accessKeyID":     []byte("test-access"),
 					"secretAccessKey": []byte("test-secret"),
@@ -431,8 +430,8 @@ var stateStoreSetups = map[string]StateStoreSetup{
 		},
 		CreateStateStore: func() client.Object {
 			return &v1alpha1.BucketStateStore{
-				TypeMeta:   v1.TypeMeta{Kind: "BucketStateStore", APIVersion: "platform.kratix.io/v1alpha1"},
-				ObjectMeta: v1.ObjectMeta{Name: "test-state-store"},
+				TypeMeta:   metav1.TypeMeta{Kind: "BucketStateStore", APIVersion: "platform.kratix.io/v1alpha1"},
+				ObjectMeta: metav1.ObjectMeta{Name: "test-state-store"},
 				Spec: v1alpha1.BucketStateStoreSpec{
 					BucketName: "test-bucket",
 					StateStoreCoreFields: v1alpha1.StateStoreCoreFields{
@@ -457,8 +456,8 @@ var stateStoreSetups = map[string]StateStoreSetup{
 	"GitStateStore": {
 		CreateSecret: func() *corev1.Secret {
 			return &corev1.Secret{
-				TypeMeta:   v1.TypeMeta{Kind: "Secret", APIVersion: "v1"},
-				ObjectMeta: v1.ObjectMeta{Name: "test-git-secret", Namespace: "default"},
+				TypeMeta:   metav1.TypeMeta{Kind: "Secret", APIVersion: "v1"},
+				ObjectMeta: metav1.ObjectMeta{Name: "test-git-secret", Namespace: "default"},
 				Data: map[string][]byte{
 					"username": []byte("test-username"),
 					"password": []byte("test-password"),
@@ -467,8 +466,8 @@ var stateStoreSetups = map[string]StateStoreSetup{
 		},
 		CreateStateStore: func() client.Object {
 			return &v1alpha1.GitStateStore{
-				TypeMeta:   v1.TypeMeta{Kind: "GitStateStore", APIVersion: "platform.kratix.io/v1alpha1"},
-				ObjectMeta: v1.ObjectMeta{Name: "test-git-state-store"},
+				TypeMeta:   metav1.TypeMeta{Kind: "GitStateStore", APIVersion: "platform.kratix.io/v1alpha1"},
+				ObjectMeta: metav1.ObjectMeta{Name: "test-git-state-store"},
 				Spec: v1alpha1.GitStateStoreSpec{
 					URL:        "https://github.com/test/repo",
 					Branch:     "main",

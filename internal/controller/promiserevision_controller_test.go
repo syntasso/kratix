@@ -22,7 +22,6 @@ import (
 
 	"github.com/go-logr/logr"
 	"github.com/syntasso/kratix/api/v1alpha1"
-	platformv1alpha1 "github.com/syntasso/kratix/api/v1alpha1"
 	"github.com/syntasso/kratix/internal/controller"
 	metav1 "k8s.io/apimachinery/pkg/apis/meta/v1"
 	"k8s.io/apimachinery/pkg/apis/meta/v1/unstructured"
@@ -88,8 +87,8 @@ var _ = Describe("PromiseRevisionController", func() {
 				ObjectMeta: metav1.ObjectMeta{
 					Name: "previous-latest-revision",
 					Labels: map[string]string{
-						"kratix.io/latest-revision":       "true",
-						platformv1alpha1.PromiseNameLabel: "redis",
+						"kratix.io/latest-revision": "true",
+						v1alpha1.PromiseNameLabel:   "redis",
 					},
 				},
 				Spec: v1alpha1.PromiseRevisionSpec{
@@ -137,7 +136,7 @@ var _ = Describe("PromiseRevisionController", func() {
 					ObjectMeta: metav1.ObjectMeta{
 						Name: "non-latest-revision",
 						Labels: map[string]string{
-							platformv1alpha1.PromiseNameLabel: "non-latest-revision",
+							v1alpha1.PromiseNameLabel: "non-latest-revision",
 						},
 					},
 					Spec: v1alpha1.PromiseRevisionSpec{

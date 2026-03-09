@@ -248,7 +248,7 @@ func SuspendablePipelines(logger logr.Logger, jobs []batchv1.Job) []batchv1.Job 
 // SetStatus takes in key value pairs in the statuses argument.
 // Example: key1, value1, key2, value2, ...
 // All keys must be castable to string. Values can be any type.
-func SetStatus(rr *unstructured.Unstructured, logger logr.Logger, statuses ...interface{}) {
+func SetStatus(rr *unstructured.Unstructured, logger logr.Logger, statuses ...any) {
 	if len(statuses) == 0 {
 		return
 	}
@@ -259,10 +259,10 @@ func SetStatus(rr *unstructured.Unstructured, logger logr.Logger, statuses ...in
 	}
 
 	if rr.Object["status"] == nil {
-		rr.Object["status"] = map[string]interface{}{}
+		rr.Object["status"] = map[string]any{}
 	}
 
-	nestedMap := rr.Object["status"].(map[string]interface{})
+	nestedMap := rr.Object["status"].(map[string]any)
 	for i := 0; i < len(statuses); i += 2 {
 		key := statuses[i]
 		// convert key to string
@@ -271,7 +271,7 @@ func SetStatus(rr *unstructured.Unstructured, logger logr.Logger, statuses ...in
 			logging.Warn(logger, "invalid status key; expecting string", "key", key)
 			continue
 		}
-		value := statuses[i+1]
+		value := statuses[i+1] //nolint:gosec
 		nestedMap[keyStr] = value
 	}
 

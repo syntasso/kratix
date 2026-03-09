@@ -255,7 +255,7 @@ func (m *nativeGitClient) runCmdOutput(cmd *exec.Cmd, ropts runOpts) (string, er
 				logging.Warn(m.log, "could not parse repo URL", "repoURL", m.repoURL)
 			} else {
 				caPath := getCertBundlePathForRepository(parsedURL.Host)
-				if err == nil && caPath != "" {
+				if caPath != "" {
 					cmd.Env = append(cmd.Env, "GIT_SSL_CAINFO="+caPath)
 				}
 			}
@@ -275,7 +275,7 @@ func (m *nativeGitClient) runCmdOutput(cmd *exec.Cmd, ropts runOpts) (string, er
 
 // runCmd is a convenience function to run a command in a given directory and return its output
 func (m *nativeGitClient) runCmd(ctx context.Context, args ...string) (string, error) {
-	cmd := exec.CommandContext(ctx, "git", args...)
+	cmd := exec.CommandContext(ctx, "git", args...) //nolint:gosec
 	return m.runCmdOutput(cmd, runOpts{})
 }
 
@@ -305,7 +305,7 @@ func (m *nativeGitClient) runCredentialedCmd(ctx context.Context, args ...string
 		args = append([]string{"-c", fmt.Sprintf("url.'%s'.insteadOf='%s'", urlWithCreds, m.repoURL)}, args...)
 	}
 
-	cmd := exec.CommandContext(ctx, "git", args...)
+	cmd := exec.CommandContext(ctx, "git", args...) //nolint:gosec
 
 	cmd.Env = append(cmd.Env, environ...)
 	if os.Getenv("KRATIX_GIT_TRACE") == "1" {

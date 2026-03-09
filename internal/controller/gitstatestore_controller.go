@@ -14,7 +14,6 @@ See the License for the specific language governing permissions and
 limitations under the License.
 */
 
-//nolint:dupl
 package controller
 
 import (
@@ -49,10 +48,10 @@ type GitStateStoreReconciler struct {
 //+kubebuilder:rbac:groups=platform.kratix.io,resources=gitstatestores/finalizers,verbs=update
 
 // Reconcile reconciles a GitStateStore object.
-func (r *GitStateStoreReconciler) Reconcile(ctx context.Context, req ctrl.Request) (result ctrl.Result, retErr error) {
+func (r *GitStateStoreReconciler) Reconcile(ctx context.Context, req ctrl.Request) (result ctrl.Result, retErr error) { //nolint:dupl
 
 	gitStateStore := &v1alpha1.GitStateStore{}
-	if err := r.Client.Get(ctx, client.ObjectKey{Name: req.Name}, gitStateStore); err != nil {
+	if err := r.Get(ctx, client.ObjectKey{Name: req.Name}, gitStateStore); err != nil {
 		if errors.IsNotFound(err) {
 			return ctrl.Result{}, nil
 		}

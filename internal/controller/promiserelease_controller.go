@@ -21,8 +21,7 @@ import (
 	"fmt"
 	"time"
 
-	"k8s.io/apimachinery/pkg/api/errors"
-	kerrors "k8s.io/apimachinery/pkg/api/errors"
+	apierrors "k8s.io/apimachinery/pkg/api/errors"
 	"k8s.io/apimachinery/pkg/api/meta"
 	v1 "k8s.io/apimachinery/pkg/apis/meta/v1"
 	"k8s.io/apimachinery/pkg/labels"
@@ -73,7 +72,7 @@ func (r *PromiseReleaseReconciler) Reconcile(ctx context.Context, req ctrl.Reque
 	promiseRelease := &v1alpha1.PromiseRelease{}
 	err := r.Get(ctx, req.NamespacedName, promiseRelease)
 	if err != nil {
-		if errors.IsNotFound(err) {
+		if apierrors.IsNotFound(err) {
 			return ctrl.Result{}, nil
 		}
 		logging.Error(logger, err, "failed getting PromiseRelease", "namespacedName", req.NamespacedName)
@@ -99,7 +98,7 @@ func (r *PromiseReleaseReconciler) Reconcile(ctx context.Context, req ctrl.Reque
 
 	if resourceutil.DoesNotContainFinalizer(promiseRelease, promiseCleanupFinalizer) {
 		if err := addFinalizers(opts, promiseRelease, []string{promiseCleanupFinalizer}); err != nil {
-			if kerrors.IsConflict(err) {
+			if apierrors.IsConflict(err) {
 				return fastRequeue, nil
 			}
 			return ctrl.Result{}, err
@@ -192,7 +191,7 @@ func (r *PromiseReleaseReconciler) installPromise(o opts, promiseRelease *v1alph
 	if err != nil {
 		// Determine the reason for the failure to install the Promise
 		eventReason := "Failed"
-		if errors.IsInvalid(err) {
+		if apierrors.IsInvalid(err) {
 			eventReason = "Invalid Promise"
 		}
 

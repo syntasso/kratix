@@ -14,7 +14,6 @@ See the License for the specific language governing permissions and
 limitations under the License.
 */
 
-//nolint:dupl
 package controller
 
 import (
@@ -49,9 +48,9 @@ type BucketStateStoreReconciler struct {
 //+kubebuilder:rbac:groups=platform.kratix.io,resources=bucketstatestores/finalizers,verbs=update
 
 // Reconcile reconciles a BucketStateStore object.
-func (r *BucketStateStoreReconciler) Reconcile(ctx context.Context, req ctrl.Request) (result ctrl.Result, retErr error) {
+func (r *BucketStateStoreReconciler) Reconcile(ctx context.Context, req ctrl.Request) (result ctrl.Result, retErr error) { //nolint:dupl
 	bucketStateStore := &v1alpha1.BucketStateStore{}
-	if err := r.Client.Get(ctx, client.ObjectKey{Name: req.Name}, bucketStateStore); err != nil {
+	if err := r.Get(ctx, client.ObjectKey{Name: req.Name}, bucketStateStore); err != nil {
 		if errors.IsNotFound(err) {
 			return ctrl.Result{}, nil
 		}

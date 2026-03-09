@@ -29,7 +29,6 @@ import (
 
 	"github.com/go-logr/logr"
 	"github.com/syntasso/kratix/api/v1alpha1"
-	platformv1alpha1 "github.com/syntasso/kratix/api/v1alpha1"
 	"github.com/syntasso/kratix/internal/logging"
 	"github.com/syntasso/kratix/lib/resourceutil"
 )
@@ -123,7 +122,7 @@ func (r *ResourceBindingReconciler) Reconcile(ctx context.Context, req ctrl.Requ
 // SetupWithManager sets up the controller with the Manager.
 func (r *ResourceBindingReconciler) SetupWithManager(mgr ctrl.Manager) error {
 	return ctrl.NewControllerManagedBy(mgr).
-		For(&platformv1alpha1.ResourceBinding{}).
+		For(&v1alpha1.ResourceBinding{}).
 		Named("resourcebinding").
 		Complete(r)
 }

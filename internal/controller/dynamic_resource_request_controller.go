@@ -23,7 +23,6 @@ import (
 	"strings"
 
 	apiextensionsv1 "k8s.io/apiextensions-apiserver/pkg/apis/apiextensions/v1"
-	kerrors "k8s.io/apimachinery/pkg/api/errors"
 	apiMeta "k8s.io/apimachinery/pkg/api/meta"
 	metav1 "k8s.io/apimachinery/pkg/apis/meta/v1"
 	"k8s.io/apimachinery/pkg/labels"
@@ -199,7 +198,7 @@ func (r *DynamicResourceRequestController) Reconcile(ctx context.Context, req ct
 		rr, []string{workFinalizer, removeAllWorkflowJobsFinalizer, runDeleteWorkflowsFinalizer},
 	) {
 		if err := addFinalizers(opts, rr, r.getRRFinalizers()); err != nil {
-			if kerrors.IsConflict(err) {
+			if apierrors.IsConflict(err) {
 				return fastRequeue, nil
 			}
 			return ctrl.Result{}, err
@@ -221,7 +220,7 @@ func (r *DynamicResourceRequestController) Reconcile(ctx context.Context, req ct
 			logger,
 			"resource configure pipeline completed too long ago; forcing reconciliation",
 			"lastTransitionTime",
-			completedCond.LastTransitionTime.Time.String(),
+			completedCond.LastTransitionTime.String(),
 		)
 		if err := r.updateManualReconciliationLabel(opts.ctx, rr); err != nil {
 			return ctrl.Result{}, err
@@ -315,7 +314,7 @@ func (r *DynamicResourceRequestController) updateResourceBinding(ctx context.Con
 		},
 	}
 	op, err := controllerutil.CreateOrUpdate(ctx, r.Client, resourceBinding, func() error {
-		resourceBinding.ObjectMeta.Labels = resourceBindingLabels(rr, promise)
+		resourceBinding.SetLabels(resourceBindingLabels(rr, promise))
 		if resourceBinding.Spec.Version == "" {
 			resourceBinding.Spec.Version = "latest"
 			existingPromiseVersion := resourceutil.GetStatus(rr, resourceBindingVersionStatus)

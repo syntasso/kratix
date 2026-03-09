@@ -32,8 +32,7 @@ import (
 	"github.com/syntasso/kratix/lib/writers"
 	"gopkg.in/yaml.v2"
 	v1 "k8s.io/api/core/v1"
-	k8sErrors "k8s.io/apimachinery/pkg/api/errors"
-	kerrors "k8s.io/apimachinery/pkg/api/errors"
+	apierrors "k8s.io/apimachinery/pkg/api/errors"
 	apiMeta "k8s.io/apimachinery/pkg/api/meta"
 	metav1 "k8s.io/apimachinery/pkg/apis/meta/v1"
 	"k8s.io/apimachinery/pkg/labels"
@@ -84,7 +83,7 @@ func (r *WorkPlacementReconciler) Reconcile(ctx context.Context, req ctrl.Reques
 	)
 	workPlacement := &v1alpha1.WorkPlacement{}
 	if err := r.Client.Get(ctx, req.NamespacedName, workPlacement); err != nil {
-		if k8sErrors.IsNotFound(err) {
+		if apierrors.IsNotFound(err) {
 			return ctrl.Result{}, nil
 		}
 		logging.Error(logger, err, "Error getting WorkPlacement")
@@ -118,7 +117,7 @@ func (r *WorkPlacementReconciler) Reconcile(ctx context.Context, req ctrl.Reques
 	opts := opts{client: r.Client, ctx: ctx, logger: logger}
 	destination, err := r.getDestination(ctx, workPlacement)
 	if err != nil && workPlacement.DeletionTimestamp.IsZero() {
-		if k8sErrors.IsNotFound(err) {
+		if apierrors.IsNotFound(err) {
 			logging.Warn(logger, "destination not found", "workPlacement", workPlacement.Spec.TargetDestinationName)
 			return ctrl.Result{}, nil
 		}
@@ -134,7 +133,7 @@ func (r *WorkPlacementReconciler) Reconcile(ctx context.Context, req ctrl.Reques
 	if missingFinalizers := checkWorkPlacementFinalizers(workPlacement, filepathMode); len(missingFinalizers) > 0 {
 		err := addFinalizers(opts, workPlacement, missingFinalizers)
 		if err != nil {
-			if !kerrors.IsConflict(err) {
+			if !apierrors.IsConflict(err) {
 				return ctrl.Result{}, err
 			}
 		}
@@ -148,7 +147,7 @@ func (r *WorkPlacementReconciler) Reconcile(ctx context.Context, req ctrl.Reques
 	}
 
 	if err := r.updateResourceStatus(ctx, logger, workPlacement, versionID); err != nil {
-		if kerrors.IsConflict(err) {
+		if apierrors.IsConflict(err) {
 			return fastRequeue, nil
 		}
 		return defaultRequeue, nil
@@ -389,7 +388,7 @@ func (r *WorkPlacementReconciler) writeToStateStore(wp *v1alpha1.WorkPlacement, 
 	writer, writeErr := newWriter(opts, destination.Spec.StateStoreRef.Name, destination.Spec.StateStoreRef.Kind, destination.Spec.Path)
 	if writeErr != nil {
 		telemetry.RecordWorkPlacementWrite(opts.ctx, telemetry.WorkPlacementWriteResultFailure, metricAttrs...)
-		if k8sErrors.IsNotFound(writeErr) {
+		if apierrors.IsNotFound(writeErr) {
 			return "", defaultRequeue, nil
 		}
 		return "", ctrl.Result{}, writeErr
@@ -527,7 +526,7 @@ func cleanupDeletionFinalizers(workPlacement *v1alpha1.WorkPlacement) {
 }
 
 func requeueIfNotFound(err error) (ctrl.Result, error) {
-	if k8sErrors.IsNotFound(err) {
+	if apierrors.IsNotFound(err) {
 		return defaultRequeue, nil
 	}
 	return ctrl.Result{}, err
@@ -545,7 +544,7 @@ func (r *WorkPlacementReconciler) handleDeletion(
 	var filepathMode string
 
 	if err != nil {
-		if k8sErrors.IsNotFound(err) {
+		if apierrors.IsNotFound(err) {
 			logging.Debug(
 				logger,
 				"destination not found; skipping destination file cleanup",
@@ -644,7 +643,7 @@ func (r *WorkPlacementReconciler) generateKratixStateFile(workPlacement v1alpha1
 	}
 	stateFileContent, marshalErr := yaml.Marshal(newStateFile)
 	if marshalErr != nil {
-		return v1alpha1.Workload{}, StateFile{}, fmt.Errorf("failed to marshal new .kratix state file: %w", err)
+		return v1alpha1.Workload{}, StateFile{}, fmt.Errorf("failed to marshal new .kratix state file: %w", marshalErr)
 	}
 
 	stateFileWorkload := v1alpha1.Workload{

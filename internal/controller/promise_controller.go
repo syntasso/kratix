@@ -44,10 +44,8 @@ import (
 	"k8s.io/apiextensions-apiserver/pkg/apis/apiextensions"
 	apiextensionsv1 "k8s.io/apiextensions-apiserver/pkg/apis/apiextensions/v1"
 	apiextensionsv1cs "k8s.io/apiextensions-apiserver/pkg/client/clientset/clientset/typed/apiextensions/v1"
-	"k8s.io/apimachinery/pkg/api/errors"
-	kerrors "k8s.io/apimachinery/pkg/api/errors"
+	apierrors "k8s.io/apimachinery/pkg/api/errors"
 	"k8s.io/apimachinery/pkg/api/meta"
-	apiMeta "k8s.io/apimachinery/pkg/api/meta"
 	metav1 "k8s.io/apimachinery/pkg/apis/meta/v1"
 	"k8s.io/apimachinery/pkg/apis/meta/v1/unstructured"
 	"k8s.io/apimachinery/pkg/labels"
@@ -145,7 +143,7 @@ func (r *PromiseReconciler) Reconcile(ctx context.Context, req ctrl.Request) (re
 	}
 	promise := &v1alpha1.Promise{}
 	if err := r.Client.Get(ctx, req.NamespacedName, promise); err != nil {
-		if errors.IsNotFound(err) {
+		if apierrors.IsNotFound(err) {
 			return ctrl.Result{}, nil
 		}
 		logging.Warn(logger, "failed to get Promise; requeueing")
@@ -184,7 +182,7 @@ func (r *PromiseReconciler) Reconcile(ctx context.Context, req ctrl.Request) (re
 	desiredFinalizers := r.promiseFinalizers(promise)
 	if len(desiredFinalizers) > 0 && resourceutil.FinalizersAreMissing(promise, desiredFinalizers) {
 		if err := addFinalizers(opts, promise, desiredFinalizers); err != nil {
-			if kerrors.IsConflict(err) {
+			if apierrors.IsConflict(err) {
 				return fastRequeue, nil
 			}
 			return ctrl.Result{}, err
@@ -211,7 +209,7 @@ func (r *PromiseReconciler) Reconcile(ctx context.Context, req ctrl.Request) (re
 
 	requirementsChanged := r.hasPromiseRequirementsChanged(ctx, promise)
 	if requirementsChanged {
-		if apiMeta.IsStatusConditionFalse(promise.Status.Conditions, "RequirementsFulfilled") {
+		if meta.IsStatusConditionFalse(promise.Status.Conditions, "RequirementsFulfilled") {
 			// Mark the Promise.Status.Conditions to `Message: "Pending"`
 			updateConditionOnPromise(promise, promiseReconciledPendingCondition("RequirementsNotFulfilled"))
 		}
@@ -515,7 +513,7 @@ func (r *PromiseReconciler) getWorksStatus(ctx context.Context,
 
 	var failed, misplaced, ready, pending []string
 	for _, work := range works.Items {
-		readyCond := apiMeta.FindStatusCondition(work.Status.Conditions, "Ready")
+		readyCond := meta.FindStatusCondition(work.Status.Conditions, "Ready")
 		message := "Pending"
 		if readyCond != nil && readyCond.Message != "" {
 			message = readyCond.Message
@@ -806,7 +804,7 @@ func (r *PromiseReconciler) evaluateRequirement(ctx context.Context, promise *v1
 
 	var state string
 	switch {
-	case errors.IsNotFound(err):
+	case apierrors.IsNotFound(err):
 		state = requirementStateNotInstalled
 		updateConditionNotFulfilled(condition, "RequirementsNotInstalled", "Requirements not fulfilled")
 		r.EventRecorder.Eventf(promise, v1.EventTypeNormal,
@@ -872,7 +870,7 @@ func (r *PromiseReconciler) reconcileDependenciesAndPromiseWorkflows(o opts, pro
 	completedCond := promise.GetCondition(string(resourceutil.ConfigureWorkflowCompletedCondition))
 	forcePipelineRun := completedCond != nil && completedCond.Status == "True" && time.Since(completedCond.LastTransitionTime.Time) > r.ReconciliationInterval
 	if forcePipelineRun && promise.Labels[resourceutil.ManualReconciliationLabel] != "true" {
-		logging.Trace(o.logger, "pipeline completed too long ago; forcing reconciliation", "lastTransitionTime", completedCond.LastTransitionTime.Time.String())
+		logging.Trace(o.logger, "pipeline completed too long ago; forcing reconciliation", "lastTransitionTime", completedCond.LastTransitionTime.String())
 		promise.Labels[resourceutil.ManualReconciliationLabel] = "true"
 		return true, r.Client.Update(o.ctx, promise)
 	}
@@ -1084,7 +1082,7 @@ func (r *PromiseReconciler) createResourcesForDynamicControllerIfTheyDontExist(c
 	})
 
 	if err != nil {
-		return fmt.Errorf("Error creating/updating cluster role: %w", err)
+		return fmt.Errorf("error creating/updating cluster role: %w", err)
 	}
 
 	crb := &rbacv1.ClusterRoleBinding{
@@ -1112,7 +1110,7 @@ func (r *PromiseReconciler) createResourcesForDynamicControllerIfTheyDontExist(c
 	})
 
 	if err != nil {
-		return fmt.Errorf("Error creating/updating cluster role binding: %w", err)
+		return fmt.Errorf("error creating/updating cluster role binding: %w", err)
 	}
 
 	logging.Info(logger, "finished creating resources for dynamic controller")
@@ -1129,8 +1127,8 @@ func (r *PromiseReconciler) ensureCRDExists(ctx context.Context, promise *v1alph
 		return &fastRequeue, nil
 	}
 
-	if !errors.IsAlreadyExists(err) {
-		return nil, fmt.Errorf("Error creating crd: %w", err)
+	if !apierrors.IsAlreadyExists(err) {
+		return nil, fmt.Errorf("error creating crd: %w", err)
 	}
 
 	logging.Debug(logger, "CRD already exists", "crdName", rrCRD.Name)
@@ -1406,7 +1404,7 @@ func (r *PromiseReconciler) deleteResourceRequests(o opts, promise *v1alpha1.Pro
 		if err := ensureTraceAnnotations(o.ctx, o.client, rr, parentAnnotations); err != nil {
 			return err
 		}
-		if err := o.client.Delete(o.ctx, rr, client.PropagationPolicy(metav1.DeletePropagationBackground)); err != nil && !errors.IsNotFound(err) {
+		if err := o.client.Delete(o.ctx, rr, client.PropagationPolicy(metav1.DeletePropagationBackground)); err != nil && !apierrors.IsNotFound(err) {
 			return err
 		}
 	}
@@ -1433,7 +1431,7 @@ func (r *PromiseReconciler) deleteCRDs(o opts, promise *v1alpha1.Promise) error 
 
 	_, err = r.ApiextensionsClient.CustomResourceDefinitions().Get(o.ctx, rrCRD.GetName(), metav1.GetOptions{})
 
-	if errors.IsNotFound(err) {
+	if apierrors.IsNotFound(err) {
 		controllerutil.RemoveFinalizer(promise, crdCleanupFinalizer)
 		return r.Client.Update(o.ctx, promise)
 	}
@@ -1453,7 +1451,7 @@ func (r *PromiseReconciler) deleteRevisions(o opts, promise *v1alpha1.Promise) e
 
 	for i := range revisionList.Items {
 		revision := &revisionList.Items[i]
-		if err := o.client.Delete(o.ctx, revision, client.PropagationPolicy(metav1.DeletePropagationBackground)); err != nil && !errors.IsNotFound(err) {
+		if err := o.client.Delete(o.ctx, revision, client.PropagationPolicy(metav1.DeletePropagationBackground)); err != nil && !apierrors.IsNotFound(err) {
 			return err
 		}
 	}
@@ -1487,7 +1485,7 @@ func (r *PromiseReconciler) deleteWork(o opts, promise *v1alpha1.Promise) error 
 		if err := ensureTraceAnnotations(o.ctx, o.client, work, parentAnnotations); err != nil {
 			return err
 		}
-		if err := o.client.Delete(o.ctx, work, client.PropagationPolicy(metav1.DeletePropagationBackground)); err != nil && !errors.IsNotFound(err) {
+		if err := o.client.Delete(o.ctx, work, client.PropagationPolicy(metav1.DeletePropagationBackground)); err != nil && !apierrors.IsNotFound(err) {
 			return err
 		}
 	}
@@ -1754,7 +1752,7 @@ func (r *PromiseReconciler) markRequiredPromiseAsRequired(ctx context.Context, v
 func (r *PromiseReconciler) updatePromiseStatus(ctx context.Context, promise *v1alpha1.Promise) (ctrl.Result, error) {
 	logging.Debug(r.Log, "updating Promise status", "promise", promise.Name, "status", promise.Status.Kratix.Status)
 	err := r.Client.Status().Update(ctx, promise)
-	if errors.IsConflict(err) {
+	if apierrors.IsConflict(err) {
 		logging.Debug(r.Log, "failed to update Promise status due to update conflict; requeueing")
 		return fastRequeue, nil
 	}

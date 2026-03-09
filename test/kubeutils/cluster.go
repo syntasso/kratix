@@ -57,7 +57,7 @@ func (c Cluster) EventuallyKubectl(args ...string) string {
 	args = append(args, "--context="+c.Context)
 	var content string
 	EventuallyWithOffset(1, func(g Gomega) {
-		command := exec.Command("kubectl", args...)
+		command := exec.Command("kubectl", args...) //nolint:gosec
 		session, err := gexec.Start(command, GinkgoWriter, GinkgoWriter)
 		g.ExpectWithOffset(1, err).ShouldNot(HaveOccurred())
 		g.EventuallyWithOffset(1, session, timeout, interval).Should(gexec.Exit(0))
@@ -70,7 +70,7 @@ func (c Cluster) EventuallyKubectlDelete(args ...string) string {
 	commandArgs := []string{"get", "--context=" + c.Context}
 	commandArgs = append(commandArgs, args...)
 	// #nosec
-	command := exec.Command("kubectl", commandArgs...)
+	command := exec.Command("kubectl", commandArgs...) //nolint:gosec
 	session, err := gexec.Start(command, GinkgoWriter, GinkgoWriter)
 	ExpectWithOffset(1, err).ShouldNot(HaveOccurred())
 	EventuallyWithOffset(1, session, time.Second*20).Should(gexec.Exit())
@@ -84,7 +84,7 @@ func (c Cluster) EventuallyKubectlDelete(args ...string) string {
 		commandArgs = []string{"delete", "--context=" + c.Context}
 		commandArgs = append(commandArgs, args...)
 		// #nosec
-		cmd := exec.Command("kubectl", commandArgs...)
+		cmd := exec.Command("kubectl", commandArgs...) //nolint:gosec
 		session, err = gexec.Start(cmd, GinkgoWriter, GinkgoWriter)
 		g.ExpectWithOffset(1, err).ShouldNot(HaveOccurred())
 		g.EventuallyWithOffset(1, session, timeout, interval).Should(gexec.Exit(0))
