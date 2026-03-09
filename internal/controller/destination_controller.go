@@ -294,12 +294,12 @@ func (d *destinationReconcileContext) handleDeletion(repo *Repository) (ctrl.Res
 	if controllerutil.ContainsFinalizer(d.destination, destinationCleanupFinalizer) {
 		if success, err := d.deleteDestinationWorkplacements(); !success || err != nil {
 			logging.Error(d.logger, err, "error deleting destination workplacements")
-			return defaultRequeue, nil //nolint:nilerr // requeue rather than exponential backoff
+			return defaultRequeue, nil
 		}
 
 		if err := d.deleteCanaryFiles(repo); err != nil {
 			logging.Error(d.logger, err, "error deleting state store contents")
-			return defaultRequeue, nil //nolint:nilerr // requeue rather than exponential backoff
+			return defaultRequeue, nil
 		}
 
 		controllerutil.RemoveFinalizer(d.destination, destinationCleanupFinalizer)

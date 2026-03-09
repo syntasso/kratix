@@ -51,7 +51,6 @@ const (
 	kratixFileCleanupWorkPlacementFinalizer  = "finalizers.workplacement.kratix.io/kratix-dot-files-cleanup"
 	scheduleSucceededConditionMismatchReason = "DestinationSelectorMismatch"
 	scheduleSucceededConditionMismatchMsg    = "Target destination no longer matches destinationSelectors"
-	failedDeleteEventReason                  = "FailedDelete"
 )
 
 type StateFile struct {

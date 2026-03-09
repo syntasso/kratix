@@ -9,7 +9,6 @@ import (
 	"github.com/syntasso/kratix/api/v1alpha1"
 	"github.com/syntasso/kratix/lib/writers"
 	corev1 "k8s.io/api/core/v1"
-	v1 "k8s.io/api/core/v1"
 )
 
 type Repository struct {
@@ -23,7 +22,7 @@ type Repository struct {
 //counterfeiter:generate . RepositoryCache
 type RepositoryCache interface {
 	Cleanup(stateStore StateStore) error
-	InitRepository(logger logr.Logger, stateStore StateStore, secret v1.Secret) (*Repository, *StateStoreError)
+	InitRepository(logger logr.Logger, stateStore StateStore, secret corev1.Secret) (*Repository, *StateStoreError)
 	GetRepositoryByTypeAndName(stateStoreType string, name string) (*Repository, error)
 }
 
@@ -40,7 +39,7 @@ func NewRepositoryCache() RepositoryCache {
 	}
 }
 
-func (c *repositoryCache) InitRepository(logger logr.Logger, stateStore StateStore, secret v1.Secret) (*Repository, *StateStoreError) {
+func (c *repositoryCache) InitRepository(logger logr.Logger, stateStore StateStore, secret corev1.Secret) (*Repository, *StateStoreError) {
 	c.Lock()
 	defer c.Unlock()
 
