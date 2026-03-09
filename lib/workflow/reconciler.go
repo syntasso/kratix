@@ -39,7 +39,7 @@ type Opts struct {
 }
 
 var minimumPeriodBetweenCreatingPipelineResources = 1100 * time.Millisecond
-var ErrDeletePipelineFailed = fmt.Errorf("Delete Pipeline Failed")
+var ErrDeletePipelineFailed = fmt.Errorf("delete Pipeline Failed")
 
 func NewOpts(ctx context.Context, client client.Client, eventRecorder record.EventRecorder, logger logr.Logger, parentObj *unstructured.Unstructured, resources []v1alpha1.PipelineJobResources, workflowType string, numberOfJobsToKeep int, namespace string) Opts {
 	return Opts{

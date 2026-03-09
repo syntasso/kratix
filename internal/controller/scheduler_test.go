@@ -220,8 +220,8 @@ var _ = Describe("Controllers/Scheduler", func() {
 					// compare each field in the work placements to ensure they are the same
 					Expect(newWorkPlacement.Name).To(Equal(workPlacement.Name))
 					Expect(newWorkPlacement.Namespace).To(Equal(workPlacement.Namespace))
-					Expect(newWorkPlacement.ObjectMeta.Labels["kratix.io/work"]).To(Equal(workPlacement.ObjectMeta.Labels["kratix.io/work"]))
-					Expect(newWorkPlacement.ObjectMeta.Labels["kratix.io/workload-group-id"]).To(Equal(workPlacement.ObjectMeta.Labels["kratix.io/workload-group-id"]))
+					Expect(newWorkPlacement.ObjectMeta.Labels["kratix.io/work"]).To(Equal(workPlacement.Labels["kratix.io/work"]))
+					Expect(newWorkPlacement.ObjectMeta.Labels["kratix.io/workload-group-id"]).To(Equal(workPlacement.Labels["kratix.io/workload-group-id"]))
 					Expect(newWorkPlacement.Spec.Workloads).To(Equal(workPlacement.Spec.Workloads))
 					Expect(newWorkPlacement.Spec.ID).To(Equal(workPlacement.Spec.ID))
 					Expect(newWorkPlacement.Spec.TargetDestinationName).To(Equal(workPlacement.Spec.TargetDestinationName))

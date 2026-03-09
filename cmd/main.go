@@ -58,11 +58,9 @@ import (
 	"github.com/go-logr/logr"
 	corev1 "k8s.io/api/core/v1"
 
-	"github.com/syntasso/kratix/api/v1alpha1"
 	platformv1alpha1 "github.com/syntasso/kratix/api/v1alpha1"
 	"github.com/syntasso/kratix/internal/controller"
 	"github.com/syntasso/kratix/internal/telemetry"
-	webhookv1alpha1 "github.com/syntasso/kratix/internal/webhook/v1alpha1"
 	"github.com/syntasso/kratix/lib/fetchers"
 	//+kubebuilder:scaffold:imports
 )
@@ -152,6 +150,7 @@ func main() {
 	flag.Parse()
 
 	ctx, cancelManagerCtxFunc := context.WithCancel(context.Background())
+	defer cancelManagerCtxFunc()
 
 	prefix := os.Getenv("KRATIX_LOGGER_PREFIX")
 	if prefix != "" {
@@ -182,6 +181,7 @@ func main() {
 	setupLog.Info("logging configured from Kratix config", "structured", !opts.Development, "developmentMode", opts.Development, "level", opts.Level)
 
 	if kratixConfig != nil {
+<<<<<<< chore/refactor-git
 		v1alpha1.DefaultUserProvidedContainersSecurityContext = &kratixConfig.Workflows.DefaultContainerSecurityContext
 		v1alpha1.DefaultImagePullPolicy = kratixConfig.Workflows.DefaultImagePullPolicy
 		if kratixConfig.Workflows.JobOptions.DefaultBackoffLimit != nil {
@@ -189,6 +189,15 @@ func main() {
 		}
 		if kratixConfig.Workflows.DefaultContainerResources != nil {
 			v1alpha1.DefaultResourceRequirements = kratixConfig.Workflows.DefaultContainerResources
+=======
+		platformv1alpha1.DefaultUserProvidedContainersSecurityContext = &kratixConfig.Workflows.DefaultContainerSecurityContext
+		platformv1alpha1.DefaultImagePullPolicy = kratixConfig.Workflows.DefaultImagePullPolicy
+		if kratixConfig.Workflows.JobOptions.DefaultBackoffLimit != nil {
+			platformv1alpha1.DefaultJobBackoffLimit = kratixConfig.Workflows.JobOptions.DefaultBackoffLimit
+		}
+		if kratixConfig.Workflows.DefaultContainerResources != nil {
+			platformv1alpha1.DefaultResourceRequirements = kratixConfig.Workflows.DefaultContainerResources
+>>>>>>> main
 		}
 	}
 
@@ -420,7 +429,7 @@ func main() {
 			setupLog.Error(err, "unable to create controller", "controller", "ResourceBinding")
 			os.Exit(1)
 		}
-		if err := webhookv1alpha1.SetupPromiseRevisionWebhookWithManager(mgr); err != nil {
+		if err := kratixWebhook.SetupPromiseRevisionWebhookWithManager(mgr); err != nil {
 			setupLog.Error(err, "unable to create webhook", "webhook", "PromiseRevision")
 			os.Exit(1)
 		}

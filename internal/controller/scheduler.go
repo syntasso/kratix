@@ -15,7 +15,6 @@ import (
 	corev1 "k8s.io/api/core/v1"
 	apimeta "k8s.io/apimachinery/pkg/api/meta"
 	metav1 "k8s.io/apimachinery/pkg/apis/meta/v1"
-	v1 "k8s.io/apimachinery/pkg/apis/meta/v1"
 	"k8s.io/apimachinery/pkg/labels"
 	"k8s.io/client-go/kubernetes/scheme"
 	"k8s.io/client-go/tools/record"
@@ -115,18 +114,23 @@ func (s *Scheduler) updateWorkStatus(w *v1alpha1.Work, unscheduledWorkloadGroupI
 			),
 		}
 	} else if len(misplacedWorkloadGroupIDs) > 0 {
+<<<<<<< chore/refactor-git
 		scheduleSucceededCond = v1.Condition{
 			Type:               v1alpha1.ScheduleSucceededConditionType,
+=======
+		scheduleSucceededCond = metav1.Condition{
+			Type:               scheduleSucceededConditionType,
+>>>>>>> main
 			Reason:             scheduleSucceededConditionMismatchReason,
-			Status:             v1.ConditionFalse,
-			LastTransitionTime: v1.NewTime(time.Now()),
+			Status:             metav1.ConditionFalse,
+			LastTransitionTime: metav1.NewTime(time.Now()),
 			Message: fmt.Sprintf(
 				"Target destination no longer matches destinationSelectors for workloadGroups: [%s]",
 				strings.Join(misplacedWorkloadGroupIDs, ",")),
 		}
 		readyCond = metav1.Condition{
 			Type:    "Ready",
-			Status:  v1.ConditionFalse,
+			Status:  metav1.ConditionFalse,
 			Reason:  "Misplaced",
 			Message: "Misplaced",
 		}
@@ -431,18 +435,24 @@ func (s *Scheduler) updateWorkPlacementStatus(ctx context.Context, workPlacement
 		return err
 	}
 
-	var desiredScheduleCond v1.Condition
+	var desiredScheduleCond metav1.Condition
 	if misplaced {
-		desiredScheduleCond = v1.Condition{
+		desiredScheduleCond = metav1.Condition{
 			Message:            scheduleSucceededConditionMismatchMsg,
 			Reason:             scheduleSucceededConditionMismatchReason,
+<<<<<<< chore/refactor-git
 			Type:               v1alpha1.ScheduleSucceededConditionType,
 			Status:             v1.ConditionFalse,
 			LastTransitionTime: v1.NewTime(time.Now()),
+=======
+			Type:               scheduleSucceededConditionType,
+			Status:             metav1.ConditionFalse,
+			LastTransitionTime: metav1.NewTime(time.Now()),
+>>>>>>> main
 		}
 		readyUpdated := apimeta.SetStatusCondition(&updatedwp.Status.Conditions, metav1.Condition{
 			Type:    "Ready",
-			Status:  v1.ConditionFalse,
+			Status:  metav1.ConditionFalse,
 			Reason:  "Misplaced",
 			Message: "Misplaced",
 		})
@@ -455,12 +465,18 @@ func (s *Scheduler) updateWorkPlacementStatus(ctx context.Context, workPlacement
 		return nil
 	}
 
-	desiredScheduleCond = v1.Condition{
+	desiredScheduleCond = metav1.Condition{
 		Message:            "Scheduled to correct Destination",
 		Reason:             "ScheduledToDestination",
+<<<<<<< chore/refactor-git
 		Type:               v1alpha1.ScheduleSucceededConditionType,
 		Status:             v1.ConditionTrue,
 		LastTransitionTime: v1.NewTime(time.Now()),
+=======
+		Type:               scheduleSucceededConditionType,
+		Status:             metav1.ConditionTrue,
+		LastTransitionTime: metav1.NewTime(time.Now()),
+>>>>>>> main
 	}
 	scheduleUpdated := apimeta.SetStatusCondition(&updatedwp.Status.Conditions, desiredScheduleCond)
 
@@ -468,7 +484,7 @@ func (s *Scheduler) updateWorkPlacementStatus(ctx context.Context, workPlacement
 	if scheduleUpdated {
 		readyUpdated = apimeta.SetStatusCondition(&updatedwp.Status.Conditions, metav1.Condition{
 			Type:    "Ready",
-			Status:  v1.ConditionFalse,
+			Status:  metav1.ConditionFalse,
 			Reason:  "ScheduledToDestination",
 			Message: "Pending",
 		})

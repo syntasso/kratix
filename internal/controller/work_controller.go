@@ -28,8 +28,7 @@ import (
 	"github.com/syntasso/kratix/internal/logging"
 	"github.com/syntasso/kratix/internal/telemetry"
 	v1 "k8s.io/api/core/v1"
-	"k8s.io/apimachinery/pkg/api/errors"
-	kerrors "k8s.io/apimachinery/pkg/api/errors"
+	apierrors "k8s.io/apimachinery/pkg/api/errors"
 	apiMeta "k8s.io/apimachinery/pkg/api/meta"
 	metav1 "k8s.io/apimachinery/pkg/apis/meta/v1"
 	"k8s.io/apimachinery/pkg/apis/meta/v1/unstructured"
@@ -76,7 +75,7 @@ func (r *WorkReconciler) Reconcile(ctx context.Context, req ctrl.Request) (resul
 	work := &v1alpha1.Work{}
 	err := r.Client.Get(ctx, req.NamespacedName, work)
 	if err != nil {
-		if errors.IsNotFound(err) {
+		if apierrors.IsNotFound(err) {
 			return ctrl.Result{}, nil
 		}
 		logging.Error(logger, err, "error getting Work")
@@ -117,7 +116,7 @@ func (r *WorkReconciler) Reconcile(ctx context.Context, req ctrl.Request) (resul
 	if !controllerutil.ContainsFinalizer(work, workCleanUpFinalizer) {
 		o := opts{client: r.Client, logger: logger, ctx: ctx}
 		if err := addFinalizers(o, work, []string{workFinalizer}); err != nil {
-			if kerrors.IsConflict(err) {
+			if apierrors.IsConflict(err) {
 				return fastRequeue, nil
 			}
 			return ctrl.Result{}, err
@@ -137,7 +136,7 @@ func (r *WorkReconciler) Reconcile(ctx context.Context, req ctrl.Request) (resul
 
 	unscheduledWorkloadGroupIDs, err := r.Scheduler.ReconcileWork(ctx, work)
 	if err != nil {
-		if errors.IsConflict(err) {
+		if apierrors.IsConflict(err) {
 			logging.Debug(logger, "failed to schedule Work due to update conflict; requeueing")
 			return fastRequeue, nil
 		}
@@ -231,7 +230,7 @@ func (r *WorkReconciler) deleteWork(ctx context.Context, logger logr.Logger, wor
 			logging.Debug(logger, "Failed to ensure trace annotations are propagated, ignoring the error...", "error", err)
 		}
 		if err := r.Client.Delete(ctx, wp, client.PropagationPolicy(metav1.DeletePropagationBackground)); err != nil {
-			if errors.IsNotFound(err) {
+			if apierrors.IsNotFound(err) {
 				continue
 			}
 			deleteErrors = append(deleteErrors, err.Error())

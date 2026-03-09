@@ -32,8 +32,9 @@ import (
 	"github.com/syntasso/kratix/lib/writers"
 	"gopkg.in/yaml.v2"
 	v1 "k8s.io/api/core/v1"
-	k8sErrors "k8s.io/apimachinery/pkg/api/errors"
-	kerrors "k8s.io/apimachinery/pkg/api/errors"
+	apierrors "k8s.io/apimachinery/pkg/api/errors"
+	apiMeta "k8s.io/apimachinery/pkg/api/meta"
+	metav1 "k8s.io/apimachinery/pkg/apis/meta/v1"
 	"k8s.io/apimachinery/pkg/labels"
 	"k8s.io/client-go/tools/record"
 	ctrl "sigs.k8s.io/controller-runtime"
@@ -113,7 +114,7 @@ func (r *WorkPlacementReconciler) Reconcile(ctx context.Context, req ctrl.Reques
 func (r *WorkPlacementReconciler) newReconcileContext(ctx context.Context, logger logr.Logger, req ctrl.Request) (*workPlacementReconcileContext, error) {
 	workPlacement := &v1alpha1.WorkPlacement{}
 	if err := r.Client.Get(ctx, req.NamespacedName, workPlacement); err != nil {
-		if k8sErrors.IsNotFound(err) {
+		if apierrors.IsNotFound(err) {
 			return nil, nil
 		}
 		return nil, err
@@ -193,7 +194,7 @@ func (w *workPlacementReconcileContext) Reconcile() (result ctrl.Result, retErr 
 
 	if missingFinalizers := w.checkWorkPlacementFinalizers(); len(missingFinalizers) > 0 {
 		if err := addFinalizers(opts{client: w.client, logger: w.logger, ctx: w.ctx}, w.workPlacement, missingFinalizers); err != nil {
-			if !kerrors.IsConflict(err) {
+			if !apierrors.IsConflict(err) {
 				return ctrl.Result{}, err
 			}
 		}
@@ -209,7 +210,7 @@ func (w *workPlacementReconcileContext) Reconcile() (result ctrl.Result, retErr 
 	}
 
 	if err := w.updateResourceStatus(versionID, nil); err != nil {
-		if kerrors.IsConflict(err) {
+		if apierrors.IsConflict(err) {
 			return fastRequeue, nil
 		}
 		return defaultRequeue, nil

@@ -23,13 +23,10 @@ import (
 
 	"github.com/go-logr/logr"
 	"github.com/syntasso/kratix/api/v1alpha1"
-	platformv1alpha1 "github.com/syntasso/kratix/api/v1alpha1"
 	"github.com/syntasso/kratix/internal/logging"
 	"github.com/syntasso/kratix/lib/resourceutil"
 	"go.opentelemetry.io/otel/attribute"
-	"k8s.io/apimachinery/pkg/api/errors"
 	apierrors "k8s.io/apimachinery/pkg/api/errors"
-	kerrors "k8s.io/apimachinery/pkg/api/errors"
 	"k8s.io/apimachinery/pkg/apis/meta/v1/unstructured"
 	"k8s.io/apimachinery/pkg/labels"
 	"k8s.io/apimachinery/pkg/runtime"
@@ -64,9 +61,9 @@ func (r *PromiseRevisionReconciler) Reconcile(ctx context.Context, req ctrl.Requ
 	defer logReconcileDuration(logger, time.Now(), result, retErr)()
 
 	// get current revision
-	revision := &platformv1alpha1.PromiseRevision{}
+	revision := &v1alpha1.PromiseRevision{}
 	if err := r.Get(ctx, req.NamespacedName, revision); err != nil {
-		if errors.IsNotFound(err) {
+		if apierrors.IsNotFound(err) {
 			return ctrl.Result{}, nil
 		}
 		logging.Warn(logger, "failed to get PromiseRevision; requeueing")
@@ -79,8 +76,8 @@ func (r *PromiseRevisionReconciler) Reconcile(ctx context.Context, req ctrl.Requ
 
 	if resourceutil.FinalizersAreMissing(revision, []string{resourceRequestCleanupFinalizer}) {
 		controllerutil.AddFinalizer(revision, resourceRequestCleanupFinalizer)
-		if err := r.Client.Update(ctx, revision); err != nil {
-			if kerrors.IsConflict(err) {
+		if err := r.Update(ctx, revision); err != nil {
+			if apierrors.IsConflict(err) {
 				return fastRequeue, nil
 			}
 			return ctrl.Result{}, err
@@ -89,12 +86,12 @@ func (r *PromiseRevisionReconciler) Reconcile(ctx context.Context, req ctrl.Requ
 
 	var promiseName string
 	var ok bool
-	if promiseName, ok = revision.GetLabels()[platformv1alpha1.PromiseNameLabel]; !ok {
+	if promiseName, ok = revision.GetLabels()[v1alpha1.PromiseNameLabel]; !ok {
 		logging.Debug(logger, "promise name label not found, adding it", "promiseName", promiseName)
 		if revision.GetLabels() == nil {
 			revision.SetLabels(make(map[string]string))
 		}
-		revision.Labels[platformv1alpha1.PromiseNameLabel] = revision.GetPromiseName()
+		revision.Labels[v1alpha1.PromiseNameLabel] = revision.GetPromiseName()
 		return ctrl.Result{}, r.Update(ctx, revision)
 	}
 
@@ -153,27 +150,27 @@ func (r *PromiseRevisionReconciler) SetupWithManager(mgr ctrl.Manager) error {
 	}
 
 	return ctrl.NewControllerManagedBy(mgr).
-		For(&platformv1alpha1.PromiseRevision{}).
+		For(&v1alpha1.PromiseRevision{}).
 		Named("promiserevision").
 		Complete(r)
 }
 
-func addPromiseRevisionAttributes(traceCtx *reconcileTrace, revision *platformv1alpha1.PromiseRevision) {
+func addPromiseRevisionAttributes(traceCtx *reconcileTrace, revision *v1alpha1.PromiseRevision) {
 	traceCtx.AddAttributes(
 		attribute.String("kratix.promiserevision.name", revision.GetName()),
 		attribute.String("kratix.promise.version", revision.Spec.Version),
-		attribute.String("kratix.promise.name", revision.GetLabels()[platformv1alpha1.PromiseNameLabel]),
+		attribute.String("kratix.promise.name", revision.GetLabels()[v1alpha1.PromiseNameLabel]),
 		attribute.Bool("kratix.promiserevision.latest", revision.Status.Latest),
 	)
 }
 
 func (r *PromiseRevisionReconciler) UnsetPreviousLatestRevision(
-	ctx context.Context, logger logr.Logger, promiseName string, revision *platformv1alpha1.PromiseRevision) error {
+	ctx context.Context, logger logr.Logger, promiseName string, revision *v1alpha1.PromiseRevision) error {
 	logging.Debug(logger, "unsetting previous latest revision", "promiseName", promiseName)
-	revisionList := &platformv1alpha1.PromiseRevisionList{}
+	revisionList := &v1alpha1.PromiseRevisionList{}
 	if err := r.List(ctx, revisionList, &client.ListOptions{
 		LabelSelector: labels.SelectorFromSet(labels.Set{
-			platformv1alpha1.PromiseNameLabel: promiseName,
+			v1alpha1.PromiseNameLabel: promiseName,
 		}),
 	}); err != nil {
 		logging.Error(logger, err, "failed to list promise revisions")
@@ -197,7 +194,7 @@ func (r *PromiseRevisionReconciler) UnsetPreviousLatestRevision(
 
 func (r *PromiseRevisionReconciler) deleteResourceRequests(ctx context.Context, revision v1alpha1.PromiseRevision) (ctrl.Result, error) {
 	promise := &v1alpha1.Promise{}
-	if err := r.Client.Get(
+	if err := r.Get(
 		ctx,
 		types.NamespacedName{
 			Name: revision.Spec.PromiseRef.Name,
@@ -228,7 +225,7 @@ func (r *PromiseRevisionReconciler) deleteResourceRequests(ctx context.Context, 
 	if len(bindingsForPromiseRevision) == 0 {
 		controllerutil.RemoveFinalizer(&revision, resourceRequestCleanupFinalizer)
 
-		if err := r.Client.Update(ctx, &revision); err != nil {
+		if err := r.Update(ctx, &revision); err != nil {
 			return ctrl.Result{}, err
 		}
 		return ctrl.Result{}, nil
@@ -243,7 +240,7 @@ func (r *PromiseRevisionReconciler) ensureResourceRequestsAreDeleted(ctx context
 		rr := &unstructured.Unstructured{}
 		rr.SetGroupVersionKind(*gvk)
 
-		if err := r.Client.Get(ctx,
+		if err := r.Get(ctx,
 			types.NamespacedName{
 				Name:      binding.Spec.ResourceRef.Name,
 				Namespace: binding.Spec.ResourceRef.Namespace,
@@ -258,7 +255,7 @@ func (r *PromiseRevisionReconciler) ensureResourceRequestsAreDeleted(ctx context
 			return fastRequeue, err
 		}
 
-		if err := r.Client.Delete(ctx, rr); err != nil {
+		if err := r.Delete(ctx, rr); err != nil {
 			r.Log.Info("error deleting resource request", "error", err.Error())
 
 			return fastRequeue, err
@@ -276,7 +273,7 @@ func (r *PromiseRevisionReconciler) ensureResourceRequestsAreDeleted(ctx context
 func (r *PromiseRevisionReconciler) getResourceBindings(ctx context.Context, promiseRevision v1alpha1.PromiseRevision) ([]v1alpha1.ResourceBinding, error) {
 	bindingsForPromise := &v1alpha1.ResourceBindingList{}
 
-	err := r.Client.List(ctx, bindingsForPromise,
+	err := r.List(ctx, bindingsForPromise,
 		client.MatchingLabels{v1alpha1.PromiseNameLabel: promiseRevision.Spec.PromiseRef.Name},
 		client.MatchingFields{"spec.version": promiseRevision.Spec.Version},
 	)

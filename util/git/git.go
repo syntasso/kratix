@@ -192,7 +192,7 @@ func serverNameWithoutPort(serverName string) string {
 }
 
 func parseTLSCertificatesFromPath(sourceFile string) ([]string, error) {
-	data, err := os.ReadFile(sourceFile)
+	data, err := os.ReadFile(sourceFile) //nolint:gosec // G703: path validated in getCertificateForConnect
 	if err != nil {
 		return nil, err
 	}
@@ -217,11 +217,23 @@ func parseTLSCertificatesFromPEM(pemData []byte) ([]string, error) {
 
 func getCertificateForConnect(serverName string) ([]string, error) {
 	dataPath := os.Getenv("KRATIX_TLS_DATA_PATH")
-	certPath, err := filepath.Abs(filepath.Join(dataPath, serverNameWithoutPort(serverName)))
+	if dataPath == "" {
+		return nil, errors.New("KRATIX_TLS_DATA_PATH must be set")
+	}
+	absDataPath, err := filepath.Abs(dataPath)
 	if err != nil {
 		return nil, err
 	}
-	if !strings.HasPrefix(certPath, dataPath) {
+	host := serverNameWithoutPort(serverName)
+	if strings.Contains(host, "..") || strings.Contains(host, string(filepath.Separator)) {
+		return nil, fmt.Errorf("invalid host for certificate lookup: %s", serverName)
+	}
+	certPath, err := filepath.Abs(filepath.Join(absDataPath, host))
+	if err != nil {
+		return nil, err
+	}
+	relPath, err := filepath.Rel(absDataPath, certPath)
+	if err != nil || strings.HasPrefix(relPath, "..") {
 		return nil, fmt.Errorf("could not get certificate for host %s", serverName)
 	}
 	certificates, err := parseTLSCertificatesFromPath(certPath)

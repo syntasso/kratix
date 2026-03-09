@@ -22,11 +22,9 @@ import (
 	"time"
 
 	"github.com/go-logr/logr"
-	"github.com/syntasso/kratix/api/v1alpha1"
 	platformv1alpha1 "github.com/syntasso/kratix/api/v1alpha1"
 	"github.com/syntasso/kratix/internal/logging"
-	"k8s.io/apimachinery/pkg/api/errors"
-	kerrors "k8s.io/apimachinery/pkg/api/errors"
+	apierrors "k8s.io/apimachinery/pkg/api/errors"
 	"k8s.io/apimachinery/pkg/apis/meta/v1/unstructured"
 	"k8s.io/apimachinery/pkg/runtime"
 	"k8s.io/apimachinery/pkg/runtime/schema"
@@ -37,7 +35,7 @@ import (
 	"sigs.k8s.io/controller-runtime/pkg/controller/controllerutil"
 )
 
-const healthRecordCleanupFinalizer = v1alpha1.KratixPrefix + "health-record-cleanup"
+const healthRecordCleanupFinalizer = platformv1alpha1.KratixPrefix + "health-record-cleanup"
 
 // HealthRecordReconciler reconciles a HealthRecord object.
 type HealthRecordReconciler struct {
@@ -77,7 +75,7 @@ func (r *HealthRecordReconciler) Reconcile(ctx context.Context, req ctrl.Request
 	promiseName := client.ObjectKey{Name: healthRecord.Data.PromiseRef.Name}
 	healthRecordIsBeingDeleted := !healthRecord.DeletionTimestamp.IsZero()
 	if err := r.Get(ctx, promiseName, promise); err != nil {
-		if errors.IsNotFound(err) && healthRecordIsBeingDeleted {
+		if apierrors.IsNotFound(err) && healthRecordIsBeingDeleted {
 			logging.Debug(logger, "promise not found during deletion; removing finalizer", "healthRecord", req.Name)
 			return ctrl.Result{}, r.removeFinalizer(ctx, healthRecord)
 		}
@@ -93,7 +91,7 @@ func (r *HealthRecordReconciler) Reconcile(ctx context.Context, req ctrl.Request
 	resReq := &unstructured.Unstructured{}
 
 	if err = r.getResourceRequest(ctx, promiseGVK, healthRecord, resReq); err != nil {
-		if errors.IsNotFound(err) && healthRecordIsBeingDeleted {
+		if apierrors.IsNotFound(err) && healthRecordIsBeingDeleted {
 			logging.Debug(r.Log, "resource not found during deletion; removing finalizer", "healthRecord", req.Name)
 			return ctrl.Result{}, r.removeFinalizer(ctx, healthRecord)
 		}
@@ -108,7 +106,7 @@ func (r *HealthRecordReconciler) Reconcile(ctx context.Context, req ctrl.Request
 	if !controllerutil.ContainsFinalizer(healthRecord, healthRecordCleanupFinalizer) {
 		o := opts{client: r.Client, logger: logger, ctx: ctx}
 		if err := addFinalizers(o, healthRecord, []string{healthRecordCleanupFinalizer}); err != nil {
-			if kerrors.IsConflict(err) {
+			if apierrors.IsConflict(err) {
 				return fastRequeue, nil
 			}
 			return ctrl.Result{}, err
@@ -178,7 +176,7 @@ func (r *HealthRecordReconciler) updateResourceStatus(
 }
 
 func (r *HealthRecordReconciler) ignoreNotFound(logger logr.Logger, err error, msg string) ctrl.Result {
-	if errors.IsNotFound(err) {
+	if apierrors.IsNotFound(err) {
 		return ctrl.Result{}
 	}
 	logging.Error(logger, err, msg)
@@ -324,7 +322,7 @@ func (r *HealthRecordReconciler) deleteHealthRecord(
 
 func (r *HealthRecordReconciler) removeFinalizer(ctx context.Context, healthRecord *platformv1alpha1.HealthRecord) error {
 	controllerutil.RemoveFinalizer(healthRecord, healthRecordCleanupFinalizer)
-	return r.Client.Update(ctx, healthRecord)
+	return r.Update(ctx, healthRecord)
 }
 
 func (r *HealthRecordReconciler) getResourceHealthRecords(resReq *unstructured.Unstructured) []any {
