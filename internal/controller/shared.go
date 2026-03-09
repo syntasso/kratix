@@ -5,6 +5,7 @@ package controller
 import (
 	"context"
 	"fmt"
+	"slices"
 	"time"
 
 	"github.com/go-logr/logr"
@@ -135,6 +136,26 @@ func addFinalizers(o opts, resource client.Object, finalizers []string) error {
 		controllerutil.AddFinalizer(resource, finalizer)
 	}
 	return o.client.Update(o.ctx, resource)
+}
+
+func consolidateFinalizers(o opts, resource client.Object, desiredFinalizers []string) bool {
+	changed := false
+	existingFinalizers := resource.GetFinalizers()
+
+	for _, existingFinalizer := range existingFinalizers {
+		if !slices.Contains(desiredFinalizers, existingFinalizer) {
+			controllerutil.RemoveFinalizer(resource, existingFinalizer)
+			changed = true
+		}
+	}
+
+	for _, desiredFinalizer := range desiredFinalizers {
+		if !controllerutil.ContainsFinalizer(resource, desiredFinalizer) {
+			controllerutil.AddFinalizer(resource, desiredFinalizer)
+			changed = true
+		}
+	}
+	return changed
 }
 
 func newWriter(o opts, stateStoreName, stateStoreKind, destinationPath string) (writers.StateStoreWriter, error) {

@@ -180,14 +180,10 @@ func (r *PromiseReconciler) Reconcile(ctx context.Context, req ctrl.Request) (re
 		return r.deletePromise(opts, promise)
 	}
 	desiredFinalizers := r.promiseFinalizers(promise)
-	if len(desiredFinalizers) > 0 && resourceutil.FinalizersAreMissing(promise, desiredFinalizers) {
-		if err := addFinalizers(opts, promise, desiredFinalizers); err != nil {
-			if apierrors.IsConflict(err) {
-				return fastRequeue, nil
-			}
-			return ctrl.Result{}, err
+	if len(desiredFinalizers) > 0 {
+		if changed := consolidateFinalizers(opts, promise, desiredFinalizers); changed {
+			return ctrl.Result{}, r.Client.Update(opts.ctx, promise)
 		}
-		return ctrl.Result{}, nil
 	}
 
 	result, err := r.handlePromiseVersion(ctx, promise)
@@ -231,14 +227,14 @@ func (r *PromiseReconciler) Reconcile(ctx context.Context, req ctrl.Request) (re
 		return ctrl.Result{}, nil
 	}
 
-	// Add workflowFinalizer if delete pipelines exist
-	requeue, err := ensurePromiseDeleteWorkflowFinalizer(opts, promise, promise.HasPipeline(v1alpha1.WorkflowTypePromise, v1alpha1.WorkflowActionDelete))
-	if err != nil {
-		return ctrl.Result{}, err
-	}
-	if requeue != nil {
-		return *requeue, nil
-	}
+	// // Add workflowFinalizer if delete pipelines exist
+	// requeue, err := ensurePromiseDeleteWorkflowFinalizer(opts, promise, promise.HasPipeline(v1alpha1.WorkflowTypePromise, v1alpha1.WorkflowActionDelete))
+	// if err != nil {
+	// 	return ctrl.Result{}, err
+	// }
+	// if requeue != nil {
+	// 	return *requeue, nil
+	// }
 
 	var rrCRD *apiextensionsv1.CustomResourceDefinition
 	var rrGVK *schema.GroupVersionKind
@@ -1532,6 +1528,8 @@ func (r *PromiseReconciler) promiseFinalizers(promise *v1alpha1.Promise) []strin
 
 	desired := make(map[string]struct{}, len(promiseFinalizers))
 
+	desired[removeAllWorkflowJobsFinalizer] = struct{}{}
+
 	desired[dependenciesCleanupFinalizer] = struct{}{}
 	if r.PromiseUpgrade {
 		desired[revisionCleanupFinalizer] = struct{}{}
@@ -1543,13 +1541,8 @@ func (r *PromiseReconciler) promiseFinalizers(promise *v1alpha1.Promise) []strin
 		desired[crdCleanupFinalizer] = struct{}{}
 	}
 
-	if r.getWorkflowsCount(promise) > 0 {
-		desired[removeAllWorkflowJobsFinalizer] = struct{}{}
-	}
-
 	if promise.HasPipeline(v1alpha1.WorkflowTypePromise, v1alpha1.WorkflowActionDelete) {
 		desired[runDeleteWorkflowsFinalizer] = struct{}{}
-		desired[removeAllWorkflowJobsFinalizer] = struct{}{}
 	}
 
 	finalizers := make([]string, 0, len(desired))

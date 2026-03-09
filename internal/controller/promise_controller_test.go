@@ -231,6 +231,7 @@ var _ = Describe("PromiseController", func() {
 					By("setting the finalizers", func() {
 						Expect(fakeK8sClient.Get(ctx, promiseName, promise)).To(Succeed())
 						Expect(promise.Finalizers).To(ConsistOf(
+							"kratix.io/workflows-cleanup",
 							"kratix.io/dynamic-controller-dependant-resources-cleanup",
 							"kratix.io/dependencies-cleanup",
 							"kratix.io/resource-request-cleanup",
@@ -1643,6 +1644,7 @@ var _ = Describe("PromiseController", func() {
 					"kratix.io/resource-request-cleanup",
 					"kratix.io/api-crd-cleanup",
 					"kratix.io/revision-cleanup",
+					"kratix.io/workflows-cleanup",
 				))
 			})
 
