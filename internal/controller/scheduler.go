@@ -114,13 +114,8 @@ func (s *Scheduler) updateWorkStatus(w *v1alpha1.Work, unscheduledWorkloadGroupI
 			),
 		}
 	} else if len(misplacedWorkloadGroupIDs) > 0 {
-<<<<<<< chore/refactor-git
-		scheduleSucceededCond = v1.Condition{
-			Type:               v1alpha1.ScheduleSucceededConditionType,
-=======
 		scheduleSucceededCond = metav1.Condition{
-			Type:               scheduleSucceededConditionType,
->>>>>>> main
+			Type:               v1alpha1.ScheduleSucceededConditionType,
 			Reason:             scheduleSucceededConditionMismatchReason,
 			Status:             metav1.ConditionFalse,
 			LastTransitionTime: metav1.NewTime(time.Now()),
@@ -440,15 +435,9 @@ func (s *Scheduler) updateWorkPlacementStatus(ctx context.Context, workPlacement
 		desiredScheduleCond = metav1.Condition{
 			Message:            scheduleSucceededConditionMismatchMsg,
 			Reason:             scheduleSucceededConditionMismatchReason,
-<<<<<<< chore/refactor-git
 			Type:               v1alpha1.ScheduleSucceededConditionType,
-			Status:             v1.ConditionFalse,
-			LastTransitionTime: v1.NewTime(time.Now()),
-=======
-			Type:               scheduleSucceededConditionType,
 			Status:             metav1.ConditionFalse,
 			LastTransitionTime: metav1.NewTime(time.Now()),
->>>>>>> main
 		}
 		readyUpdated := apimeta.SetStatusCondition(&updatedwp.Status.Conditions, metav1.Condition{
 			Type:    "Ready",
@@ -468,15 +457,9 @@ func (s *Scheduler) updateWorkPlacementStatus(ctx context.Context, workPlacement
 	desiredScheduleCond = metav1.Condition{
 		Message:            "Scheduled to correct Destination",
 		Reason:             "ScheduledToDestination",
-<<<<<<< chore/refactor-git
 		Type:               v1alpha1.ScheduleSucceededConditionType,
-		Status:             v1.ConditionTrue,
-		LastTransitionTime: v1.NewTime(time.Now()),
-=======
-		Type:               scheduleSucceededConditionType,
 		Status:             metav1.ConditionTrue,
 		LastTransitionTime: metav1.NewTime(time.Now()),
->>>>>>> main
 	}
 	scheduleUpdated := apimeta.SetStatusCondition(&updatedwp.Status.Conditions, desiredScheduleCond)
 

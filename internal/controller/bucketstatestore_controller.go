@@ -48,8 +48,7 @@ type BucketStateStoreReconciler struct {
 //+kubebuilder:rbac:groups=platform.kratix.io,resources=bucketstatestores/finalizers,verbs=update
 
 // Reconcile reconciles a BucketStateStore object.
-<<<<<<< chore/refactor-git
-func (r *BucketStateStoreReconciler) Reconcile(ctx context.Context, req ctrl.Request) (result ctrl.Result, retErr error) {
+func (r *BucketStateStoreReconciler) Reconcile(ctx context.Context, req ctrl.Request) (result ctrl.Result, retErr error) { //nolint:dupl
 	logger := r.Log.WithValues(
 		"controller", "bucketStateStore",
 		"name", req.Name,
@@ -67,13 +66,9 @@ func (r *BucketStateStoreReconciler) Reconcile(ctx context.Context, req ctrl.Req
 
 		return bucketStateStoreCtx.Reconcile()
 	})
-
 }
 
 func (r *BucketStateStoreReconciler) newReconcileContext(ctx context.Context, logger logr.Logger, req ctrl.Request) (*stateStoreReconcileContext, error) {
-=======
-func (r *BucketStateStoreReconciler) Reconcile(ctx context.Context, req ctrl.Request) (result ctrl.Result, retErr error) { //nolint:dupl
->>>>>>> main
 	bucketStateStore := &v1alpha1.BucketStateStore{}
 	if err := r.Get(ctx, client.ObjectKey{Name: req.Name}, bucketStateStore); err != nil {
 		if errors.IsNotFound(err) {

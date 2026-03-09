@@ -33,8 +33,6 @@ import (
 	"gopkg.in/yaml.v2"
 	v1 "k8s.io/api/core/v1"
 	apierrors "k8s.io/apimachinery/pkg/api/errors"
-	apiMeta "k8s.io/apimachinery/pkg/api/meta"
-	metav1 "k8s.io/apimachinery/pkg/apis/meta/v1"
 	"k8s.io/apimachinery/pkg/labels"
 	"k8s.io/client-go/tools/record"
 	ctrl "sigs.k8s.io/controller-runtime"
@@ -126,7 +124,7 @@ func (r *WorkPlacementReconciler) newReconcileContext(ctx context.Context, logge
 	key := client.ObjectKey{Name: targetDestination}
 
 	if err := r.Client.Get(ctx, key, dest); err != nil {
-		if k8sErrors.IsNotFound(err) {
+		if apierrors.IsNotFound(err) {
 			logging.Warn(logger, "destination not found, cleaning up deletion finalizers")
 			cleanupDeletionFinalizers(workPlacement)
 			return nil, r.Client.Update(ctx, workPlacement)
@@ -488,7 +486,7 @@ func (w *workPlacementReconcileContext) delete(repo *Repository, workloadsToDele
 	controllerutil.RemoveFinalizer(w.workPlacement, kratixFileCleanupWorkPlacementFinalizer)
 
 	if err := w.client.Update(w.ctx, w.workPlacement); err != nil {
-		if k8sErrors.IsConflict(err) {
+		if apierrors.IsConflict(err) {
 			return defaultRequeue, nil
 		}
 		return ctrl.Result{}, err
