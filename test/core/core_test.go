@@ -231,6 +231,13 @@ var _ = Describe("Core Tests", Ordered, func() {
 						transitionTime := platform.Kubectl(
 							append(rrArgs, fmt.Sprintf(`-o=jsonpath={%s.lastTransitionTime}`, workflowCompletedCondition))...,
 						)
+
+						// For downgrade tests, we don't have the .status.kratix.workflows field, so we return true if it's not present.
+						if platform.Kubectl(append(rrArgs, `-o=jsonpath={.status.kratix.workflows}`)...) == "" {
+							return true
+						}
+
+						// If it is present, it should be set to the time the workflow finished with the right reason.
 						lastSuccessful := platform.Kubectl(append(rrArgs, `-o=jsonpath={.status.kratix.workflows.lastSuccessfulConfigureWorkflowTime}`)...)
 						return transitionTime == lastSuccessful
 					}, timeout, interval).Should(BeTrue(), "lastTransitionTime should be equal to kratix.workflows.lastSuccessfulConfigureWorkflowTime")
