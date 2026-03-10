@@ -60,6 +60,6 @@ spec:
                   - -c
                   - |
                     set -eux
-                    name=$(yq '.spec.name' /kratix/input/object.yaml)
+                    name=$(yq '.metadata.name' /kratix/input/object.yaml)
 
-                    kubectl create configmap ${name} --namespace=filepathmode-none --dry-run=client --output=yaml --from-literal=key=${name} > /kratix/output/filepathmode-none-cm.yaml
+                    kubectl create configmap ${name} --namespace=filepathmode-none --dry-run=client --output=yaml --from-literal=key=${name} > /kratix/output/filepathmode-none-cm-${name}.yaml

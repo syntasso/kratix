@@ -301,3 +301,21 @@ func (b *S3Writer) ValidatePermissions() error {
 	logging.Info(logger, "successfully validated bucket write permissions via multipart upload")
 	return nil
 }
+
+func (b *S3Writer) Init(branch string) (string, error) {
+	return "", nil
+}
+
+func (b *S3Writer) DeleteFiles(workplacementName string, files []string) error {
+	for _, file := range files {
+		err := b.RemoveObject(file)
+		if err != nil {
+			return err
+		}
+	}
+	return nil
+}
+
+func (b *S3Writer) Reset() error {
+	return nil
+}

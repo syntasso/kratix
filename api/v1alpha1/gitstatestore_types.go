@@ -18,6 +18,7 @@ package v1alpha1
 
 import (
 	corev1 "k8s.io/api/core/v1"
+	"k8s.io/apimachinery/pkg/api/meta"
 	metav1 "k8s.io/apimachinery/pkg/apis/meta/v1"
 )
 
@@ -63,6 +64,8 @@ type StateStoreStatus struct {
 	Status string `json:"status"`
 	// Current conditions of the StateStore. Includes a Ready condition indicating whether Kratix can access the store
 	Conditions []metav1.Condition `json:"conditions,omitempty"`
+	// The generation last observed by the controller
+	ObservedGeneration int64 `json:"observedGeneration,omitempty"`
 }
 
 // +kubebuilder:object:root=true
@@ -80,7 +83,19 @@ type GitStateStore struct {
 }
 
 func (g *GitStateStore) GetSecretRef() *corev1.SecretReference {
-	return g.Spec.SecretRef
+	if g.Spec.SecretRef == nil {
+		return nil
+	}
+
+	namespace := g.Spec.SecretRef.Namespace
+	if namespace == "" {
+		namespace = "default"
+	}
+
+	return &corev1.SecretReference{
+		Name:      g.Spec.SecretRef.Name,
+		Namespace: namespace,
+	}
 }
 
 func (g *GitStateStore) GetStatus() *StateStoreStatus {
@@ -89,6 +104,27 @@ func (g *GitStateStore) GetStatus() *StateStoreStatus {
 
 func (g *GitStateStore) SetStatus(status StateStoreStatus) {
 	g.Status = status
+}
+
+func (g *GitStateStore) GetGeneration() int64 {
+	return g.Generation
+}
+
+func (g *GitStateStore) GetObservedGeneration() int64 {
+	return g.Status.ObservedGeneration
+}
+
+func (g *GitStateStore) Ready() bool {
+	readyCond := meta.FindStatusCondition(g.Status.Conditions, "Ready")
+	return readyCond != nil && readyCond.Status == metav1.ConditionTrue
+}
+
+func (g *GitStateStore) SetObservedGeneration(generation int64) bool {
+	if g.Status.ObservedGeneration == generation {
+		return false
+	}
+	g.Status.ObservedGeneration = generation
+	return true
 }
 
 // +kubebuilder:object:root=true

@@ -115,7 +115,7 @@ func (s *Scheduler) updateWorkStatus(w *v1alpha1.Work, unscheduledWorkloadGroupI
 		}
 	} else if len(misplacedWorkloadGroupIDs) > 0 {
 		scheduleSucceededCond = metav1.Condition{
-			Type:               scheduleSucceededConditionType,
+			Type:               v1alpha1.ScheduleSucceededConditionType,
 			Reason:             scheduleSucceededConditionMismatchReason,
 			Status:             metav1.ConditionFalse,
 			LastTransitionTime: metav1.NewTime(time.Now()),
@@ -435,7 +435,7 @@ func (s *Scheduler) updateWorkPlacementStatus(ctx context.Context, workPlacement
 		desiredScheduleCond = metav1.Condition{
 			Message:            scheduleSucceededConditionMismatchMsg,
 			Reason:             scheduleSucceededConditionMismatchReason,
-			Type:               scheduleSucceededConditionType,
+			Type:               v1alpha1.ScheduleSucceededConditionType,
 			Status:             metav1.ConditionFalse,
 			LastTransitionTime: metav1.NewTime(time.Now()),
 		}
@@ -457,7 +457,7 @@ func (s *Scheduler) updateWorkPlacementStatus(ctx context.Context, workPlacement
 	desiredScheduleCond = metav1.Condition{
 		Message:            "Scheduled to correct Destination",
 		Reason:             "ScheduledToDestination",
-		Type:               scheduleSucceededConditionType,
+		Type:               v1alpha1.ScheduleSucceededConditionType,
 		Status:             metav1.ConditionTrue,
 		LastTransitionTime: metav1.NewTime(time.Now()),
 	}

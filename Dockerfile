@@ -26,8 +26,15 @@ RUN --mount=target=. \
 FROM alpine/git
 WORKDIR /
 
-COPY --from=builder /out/manager .
+COPY --from=builder /out/manager /manager
 COPY --from=builder /out/pipeline-adapter /bin/pipeline-adapter
+
+RUN addgroup -g 65532 app && \
+    adduser -D -H -u 65532 -G app appuser && \
+    mkdir -p /home/appuser/.ssh && \
+    chown -R 65532:65532 /home/appuser
+
+ENV HOME=/home/appuser
 
 USER 65532:65532
 
