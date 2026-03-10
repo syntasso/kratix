@@ -515,7 +515,7 @@ const (
 func (p *Promise) ClearPipelineExecutionStatus() bool {
 	changed := p.Status.Workflows != 0 ||
 		p.Status.WorkflowsSucceeded != 0 ||
-		// p.Status.WorkflowsFailed != 0 ||
+		p.Status.WorkflowsFailed != 0 ||
 		len(p.Status.Kratix.Workflows.Pipelines) != 0
 
 	p.Status.Workflows = 0
@@ -529,7 +529,6 @@ func (p *Promise) ResetPipelineExecutionStatus() {
 	workflows := []WorkflowPipelineStatus{}
 
 	for _, pipeline := range p.Spec.Workflows.Promise.Configure {
-		fmt.Printf("pipeline: %s\n", pipeline.GetName())
 		workflows = append(workflows, WorkflowPipelineStatus{
 			Name:               pipeline.GetName(),
 			Phase:              WorkflowPhasePending,

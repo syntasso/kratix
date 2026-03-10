@@ -138,7 +138,7 @@ func addFinalizers(o opts, resource client.Object, finalizers []string) error {
 	return o.client.Update(o.ctx, resource)
 }
 
-func consolidateFinalizers(o opts, resource client.Object, desiredFinalizers []string) bool {
+func consolidateFinalizers(resource client.Object, desiredFinalizers []string) bool {
 	changed := false
 	existingFinalizers := resource.GetFinalizers()
 

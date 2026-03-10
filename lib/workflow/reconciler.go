@@ -175,12 +175,12 @@ func ReconcileConfigure(opts Opts) (passiveRequeue bool, err error) {
 		workflowsSucceededCount := resourceutil.GetWorkflowsCounterStatus(opts.parentObject, "workflowsSucceeded")
 
 		if updateStatus || workflowsSucceededCount != int64(pipelineIndex) {
-			logging.Info(opts.logger, "updating status", "pipelineIndex", pipelineIndex, "workflowsSucceededCount", workflowsSucceededCount)
 			resourceutil.SetStatus(opts.parentObject, opts.logger, "workflowsSucceeded", int64(pipelineIndex))
 			if err = resourceutil.MarkCurrentPipelineAsSucceeded(opts.parentObject, opts.logger); err != nil {
 				logging.Error(opts.logger, err, "failed to mark current pipeline as succeeded")
 				return false, err
 			}
+
 			if err = opts.client.Status().Update(opts.ctx, opts.parentObject); err != nil {
 				logging.Error(opts.logger, err, "failed to update parent object status")
 				return false, err
@@ -546,12 +546,13 @@ func setConfigureWorkflowCompletedConditionStatus(opts Opts, pipelineIndex int, 
 		return false, err
 	}
 	if executionStatusUpdated || updated {
+		logging.Info(opts.logger, "setting pipeline execution status", "pipelineIndex", pipelineIndex, "phase", v1alpha1.WorkflowPhaseRunning)
 		if err = opts.client.Status().Update(opts.ctx, obj); err != nil {
 			logging.Error(opts.logger, err, "failed to update object status")
 			return false, err
 		}
 	}
-	return updated, nil
+	return updated || executionStatusUpdated, nil
 }
 
 func getMostRecentDeletePipelineJob(opts Opts, namespace string, pipeline v1alpha1.PipelineJobResources) (*batchv1.Job, error) {

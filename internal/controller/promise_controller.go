@@ -181,7 +181,7 @@ func (r *PromiseReconciler) Reconcile(ctx context.Context, req ctrl.Request) (re
 	}
 	desiredFinalizers := r.promiseFinalizers(promise)
 	if len(desiredFinalizers) > 0 {
-		if changed := consolidateFinalizers(opts, promise, desiredFinalizers); changed {
+		if changed := consolidateFinalizers(promise, desiredFinalizers); changed {
 			return ctrl.Result{}, r.Client.Update(opts.ctx, promise)
 		}
 	}
