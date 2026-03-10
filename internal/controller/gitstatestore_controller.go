@@ -117,7 +117,11 @@ func (r *GitStateStoreReconciler) SetupWithManager(mgr ctrl.Manager) error {
 	err := mgr.GetFieldIndexer().IndexField(context.Background(), &v1alpha1.GitStateStore{}, secretRefFieldName,
 		func(rawObj client.Object) []string {
 			stateStore := rawObj.(*v1alpha1.GitStateStore)
-			return []string{secretRefIndexKey(stateStore.Spec.SecretRef.Name, stateStore.Spec.SecretRef.Namespace)}
+			secretRef := stateStore.GetSecretRef()
+			if secretRef == nil {
+				return nil
+			}
+			return []string{secretRefIndexKey(secretRef.Name, secretRef.Namespace)}
 		},
 	)
 	if err != nil {
