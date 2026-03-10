@@ -342,39 +342,53 @@ func SetPipelineExecutionStatus(rr *unstructured.Unstructured, logger logr.Logge
 	return false, nil
 }
 
-func MarkCurrentPipelineAsSucceeded(rr *unstructured.Unstructured, logger logr.Logger) error {
-	return markCurrentPipelineAs(v1alpha1.WorkflowPhaseSucceeded, rr, logger)
+func MarkCurrentPipelineAsSucceeded(rr *unstructured.Unstructured, logger logr.Logger, job *batchv1.Job) error {
+	_, err := markCurrentPipelineAs(v1alpha1.WorkflowPhaseSucceeded, rr, logger, job)
+	return err
 }
 
-func MarkCurrentPipelineAsFailed(rr *unstructured.Unstructured, logger logr.Logger) error {
-	return markCurrentPipelineAs(v1alpha1.WorkflowPhaseFailed, rr, logger)
+func MarkCurrentPipelineAsFailed(rr *unstructured.Unstructured, logger logr.Logger, job *batchv1.Job) error {
+	_, err := markCurrentPipelineAs(v1alpha1.WorkflowPhaseFailed, rr, logger, job)
+	return err
 }
 
-func markCurrentPipelineAs(status string, rr *unstructured.Unstructured, logger logr.Logger) error {
+func MarkCurrentPipelineAsRunning(rr *unstructured.Unstructured, logger logr.Logger, job *batchv1.Job) (bool, error) {
+	return markCurrentPipelineAs(v1alpha1.WorkflowPhaseRunning, rr, logger, job)
+}
+
+func markCurrentPipelineAs(status string, rr *unstructured.Unstructured, logger logr.Logger, job *batchv1.Job) (bool, error) {
 	if rr.GetKind() == "Promise" {
 		promise := &v1alpha1.Promise{}
 		err := runtime.DefaultUnstructuredConverter.FromUnstructured(rr.Object, promise)
 		if err != nil {
 			logging.Warn(logger, "failed to convert to promise", "error", err)
-			return err
+			return false, err
 		}
 
-		var pipelineIndex int
+		pipelineIndex := -1
 		for i, pipeline := range promise.Status.Kratix.Workflows.Pipelines {
-			// does this always work?
-			if pipeline.Phase == v1alpha1.WorkflowPhaseRunning {
+			if pipeline.Name == job.GetLabels()[v1alpha1.PipelineNameLabel] {
 				pipelineIndex = i
 				break
 			}
 		}
 
-		promise.Status.Kratix.Workflows.Pipelines[pipelineIndex].Phase = status
+		if pipelineIndex == -1 {
+			return false, fmt.Errorf("no pipeline found for job %s", job.GetName())
+		}
+
+		previousPhase := promise.Status.Kratix.Workflows.Pipelines[pipelineIndex].Phase
+		changed := previousPhase != status
+		if changed {
+			promise.Status.Kratix.Workflows.Pipelines[pipelineIndex].Phase = status
+			promise.Status.Kratix.Workflows.Pipelines[pipelineIndex].LastTransitionTime = metav1.Now()
+		}
 
 		rr.Object, err = runtime.DefaultUnstructuredConverter.ToUnstructured(promise)
-		return err
+		return changed, err
 	}
 
-	return nil
+	return false, nil
 }
 
 // GetObservedGeneration returns 0 when either status or status.observedGeneration is nil

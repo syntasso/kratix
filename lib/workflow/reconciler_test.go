@@ -205,7 +205,7 @@ var _ = Describe("Workflow Reconciler", func() {
 
 			It("triggers one job after the other until all jobs completes", func() {
 				By("correctly updating the resource status", func() {
-					requeue := reconcile(opts, &promise, uPromise)
+					requeue := reconcile(opts, &promise)
 					Expect(requeue).To(BeTrue())
 					Expect(promise.Status.WorkflowsSucceeded).To(Equal(int64(0)))
 					Expect(promise.Status.WorkflowsFailed).To(Equal(int64(0)))
@@ -214,13 +214,13 @@ var _ = Describe("Workflow Reconciler", func() {
 				})
 
 				By("creating a new job for the pipeline", func() {
-					requeue := reconcile(opts, &promise, uPromise)
+					requeue := reconcile(opts, &promise)
 					Expect(requeue).To(BeTrue())
 					Expect(listJobs(namespace)).To(HaveLen(1))
 				})
 
 				By("not creating a new job if the previous job is not completed", func() {
-					requeue := reconcile(opts, &promise, uPromise)
+					requeue := reconcile(opts, &promise)
 					Expect(requeue).To(BeTrue())
 					Expect(listJobs(namespace)).To(HaveLen(1))
 				})
@@ -229,25 +229,27 @@ var _ = Describe("Workflow Reconciler", func() {
 				markJobAsComplete(job.Name)
 
 				By("updating the status once the job is completed", func() {
-					requeue := reconcile(opts, &promise, uPromise)
+					requeue := reconcile(opts, &promise)
 					Expect(requeue).To(BeTrue())
 					Expect(promise.Status.WorkflowsSucceeded).To(Equal(int64(1)))
 					Expect(promise.Status.WorkflowsFailed).To(Equal(int64(0)))
 					Expect(promise.Status.Kratix.Workflows.Pipelines[0].Phase).To(Equal("Succeeded"))
+					Expect(promise.Status.Kratix.Workflows.Pipelines[0].LastTransitionTime).NotTo(BeZero())
 					Expect(promise.Status.Kratix.Workflows.Pipelines[1].Phase).To(Equal("Pending"))
 				})
 
 				By("updating the next pipeline status to", func() {
-					requeue := reconcile(opts, &promise, uPromise)
+					requeue := reconcile(opts, &promise)
 					Expect(requeue).To(BeTrue())
 					Expect(promise.Status.WorkflowsSucceeded).To(Equal(int64(1)))
 					Expect(promise.Status.WorkflowsFailed).To(Equal(int64(0)))
 					Expect(promise.Status.Kratix.Workflows.Pipelines[0].Phase).To(Equal("Succeeded"))
+					Expect(promise.Status.Kratix.Workflows.Pipelines[0].LastTransitionTime).NotTo(BeZero())
 					Expect(promise.Status.Kratix.Workflows.Pipelines[1].Phase).To(Equal("Running"))
 				})
 
 				By("creating a job for the next pipeline", func() {
-					requeue := reconcile(opts, &promise, uPromise)
+					requeue := reconcile(opts, &promise)
 					Expect(requeue).To(BeTrue())
 					Expect(listJobs(namespace)).To(HaveLen(2))
 				})
@@ -256,16 +258,18 @@ var _ = Describe("Workflow Reconciler", func() {
 				markJobAsComplete(job.Name)
 
 				By("updating the status once the job is completed", func() {
-					requeue := reconcile(opts, &promise, uPromise)
+					requeue := reconcile(opts, &promise)
 					Expect(requeue).To(BeTrue())
 					Expect(promise.Status.WorkflowsSucceeded).To(Equal(int64(2)))
 					Expect(promise.Status.WorkflowsFailed).To(Equal(int64(0)))
 					Expect(promise.Status.Kratix.Workflows.Pipelines[0].Phase).To(Equal("Succeeded"))
+					Expect(promise.Status.Kratix.Workflows.Pipelines[0].LastTransitionTime).NotTo(BeZero())
 					Expect(promise.Status.Kratix.Workflows.Pipelines[1].Phase).To(Equal("Succeeded"))
+					Expect(promise.Status.Kratix.Workflows.Pipelines[1].LastTransitionTime).NotTo(BeZero())
 				})
 
 				By("not triggering more jobs once all pipelines are completed", func() {
-					requeue := reconcile(opts, &promise, uPromise)
+					requeue := reconcile(opts, &promise)
 					Expect(requeue).To(BeFalse())
 					Expect(listJobs(namespace)).To(HaveLen(2))
 				})
@@ -273,12 +277,13 @@ var _ = Describe("Workflow Reconciler", func() {
 
 			When("there's a job in flight", func() {
 				BeforeEach(func() {
-					requeue := reconcile(opts, &promise, uPromise)
+					requeue := reconcile(opts, &promise)
 					Expect(requeue).To(BeTrue())
 					Expect(promise.Status.Kratix.Workflows.Pipelines[0].Phase).To(Equal("Running"))
+					Expect(promise.Status.Kratix.Workflows.Pipelines[0].LastTransitionTime).NotTo(BeZero())
 					Expect(promise.Status.Kratix.Workflows.Pipelines[1].Phase).To(Equal("Pending"))
 
-					Expect(reconcile(opts, &promise, uPromise)).To(BeTrue())
+					Expect(reconcile(opts, &promise)).To(BeTrue())
 					Expect(listJobs(namespace)).To(HaveLen(1))
 				})
 
@@ -289,55 +294,92 @@ var _ = Describe("Workflow Reconciler", func() {
 						})
 
 						By("cancelling the current job", func() {
-							requeue := reconcile(opts, &promise, uPromise)
+							requeue := reconcile(opts, &promise)
 							Expect(requeue).To(BeTrue())
 
 							jobs := listJobs(namespace)
 							Expect(jobs).To(HaveLen(1))
 							Expect(*jobs[0].Spec.Suspend).To(BeTrue())
 						})
+
+						// set job condition to suspended
+						jobs := listJobs(namespace)
+						jobs[0].Status.Conditions = append(jobs[0].Status.Conditions, batchv1.JobCondition{
+							Type:   batchv1.JobSuspended,
+							Status: v1.ConditionTrue,
+						})
+						Expect(fakeK8sClient.Status().Update(ctx, &jobs[0])).To(Succeed())
+						resetWorkflowPipelineJobs(workflowPipelines)
+
+						By("creating a new job for the pipeline", func() {
+							Expect(reconcile(opts, &promise)).To(BeTrue())
+							jobs := listJobs(namespace)
+							Expect(jobs).To(HaveLen(2))
+
+							Expect(jobs[1].Spec.Suspend).To(BeNil())
+							// phase to be runnning
+							Expect(promise.Status.Kratix.Workflows.Pipelines[0].Phase).To(Equal("Running"))
+							Expect(promise.Status.Kratix.Workflows.Pipelines[0].LastTransitionTime).NotTo(BeZero())
+							Expect(promise.Status.Kratix.Workflows.Pipelines[1].Phase).To(Equal("Pending"))
+							Expect(promise.Status.Kratix.Workflows.Pipelines[0].LastTransitionTime).NotTo(BeZero())
+						})
 					})
 				})
 			})
 
-			FWhen("a job has failed", func() {
+			When("the running job has failed", func() {
 				BeforeEach(func() {
-					requeue := reconcile(opts, &promise, uPromise)
-					Expect(requeue).To(BeTrue())
-					Expect(promise.Status.Kratix.Workflows.Pipelines[0].Phase).To(Equal("Running"))
-					Expect(promise.Status.Kratix.Workflows.Pipelines[1].Phase).To(Equal("Pending"))
+					fakeK8sClient.Get(ctx, types.NamespacedName{Name: promise.Name}, &promise)
+					promise.Status.Kratix.Workflows.Pipelines[0].Phase = v1alpha1.WorkflowPhaseRunning
+					Expect(fakeK8sClient.Status().Update(ctx, &promise)).To(Succeed())
 
-					//create the first job on next reconciliation
-					Expect(reconcile(opts, &promise, uPromise)).To(BeTrue())
-					Expect(listJobs(namespace)).To(HaveLen(1))
-					// mark it as complete to trigger the next pipeline
-					markJobAsComplete(listJobs(namespace)[0].Name)
+					uPromise, err := promise.ToUnstructured()
+					Expect(err).NotTo(HaveOccurred())
+					opts.SetParentObject(uPromise)
 
-					//two more reconcilations to update status twice, then the next job is created
-					Expect(reconcile(opts, &promise, uPromise)).To(BeTrue())
-					Expect(reconcile(opts, &promise, uPromise)).To(BeTrue())
+					Expect(fakeK8sClient.Create(ctx, workflowPipelines[0].Job)).To(Succeed())
+					markJobAsFailed(workflowPipelines[0].Job.Name)
 
-					Expect(promise.Status.Kratix.Workflows.Pipelines[0].Phase).To(Equal("Succeeded"))
-					Expect(promise.Status.Kratix.Workflows.Pipelines[1].Phase).To(Equal("Running"))
-
-					// trigger next reconcile for 2nd job to be created
-					Expect(reconcile(opts, &promise, uPromise)).To(BeTrue())
-					Expect(listJobs(namespace)).To(HaveLen(2))
-					job := listJobs(namespace)[1]
-					markJobAsFailed(job.Name)
-					Expect(reconcile(opts, &promise, uPromise)).To(BeTrue())
+					Expect(reconcile(opts, &promise)).To(BeTrue())
 				})
 
 				It("marks the pipeline as failed", func() {
-					Expect(promise.Status.WorkflowsSucceeded).To(Equal(int64(1)))
+					Expect(promise.Status.WorkflowsSucceeded).To(Equal(int64(0)))
 					Expect(promise.Status.WorkflowsFailed).To(Equal(int64(1)))
-					Expect(promise.Status.Kratix.Workflows.Pipelines[0].Phase).To(Equal("Succeeded"))
-					Expect(promise.Status.Kratix.Workflows.Pipelines[1].Phase).To(Equal("Failed"))
+					Expect(promise.Status.Kratix.Workflows.Pipelines[0].Phase).To(Equal("Failed"))
+					Expect(promise.Status.Kratix.Workflows.Pipelines[0].LastTransitionTime).ToNot(BeZero())
+				})
+
+				It("updates the Promise status", func() {
+					Expect(promise.Status.Conditions).To(HaveLen(2))
+					configureWorkflowCond := apimeta.FindStatusCondition(promise.Status.Conditions, string(resourceutil.ConfigureWorkflowCompletedCondition))
+					Expect(configureWorkflowCond.Message).To(Equal("A Configure Pipeline has failed: pipeline-1"))
+					Expect(configureWorkflowCond.Reason).To(Equal("ConfigureWorkflowFailed"))
+					Expect(string(configureWorkflowCond.Status)).To(Equal("False"))
+
+					reconciledCond := apimeta.FindStatusCondition(promise.Status.Conditions, "Reconciled")
+					Expect(reconciledCond.Message).To(Equal("Failing"))
+					Expect(reconciledCond.Reason).To(Equal("ConfigureWorkflowFailed"))
+					Expect(string(reconciledCond.Status)).To(Equal("False"))
+				})
+
+				It("does not create any new Jobs on the next reconciliation", func() {
+					previousTransition := promise.Status.Kratix.Workflows.Pipelines[0].LastTransitionTime
+					Expect(reconcile(opts, &promise)).To(BeTrue())
+					jobList := listJobs(namespace)
+					Expect(jobList).To(HaveLen(1))
+
+					Expect(promise.Status.Kratix.Workflows.Pipelines[0].LastTransitionTime).To(Equal(previousTransition))
+				})
+
+				It("publishes an event", func() {
+					Eventually(eventRecorder.Events).Should(Receive(ContainSubstring(
+						"Warning ConfigureWorkflowFailed A promise/configure Pipeline has failed: pipeline-1")))
 				})
 			})
 		})
 
-		XWhen("there are jobs for this workflow", func() {
+		When("there are jobs for this workflow", func() {
 			Context("and the job has failed", func() {
 				var passiveRequeue bool
 				var err error
@@ -348,41 +390,6 @@ var _ = Describe("Workflow Reconciler", func() {
 						newWorkflowPipelines, uPromise := setupTest(promise, pipelines)
 						opts := workflow.NewOpts(ctx, fakeK8sClient, eventRecorder, logger, uPromise, newWorkflowPipelines, "promise", 5, namespace)
 						passiveRequeue, err = workflow.ReconcileConfigure(opts)
-					})
-
-					It("does not create any new Jobs on the next reconciliation", func() {
-						// Expect only the failed job to exist
-						jobList := listJobs(namespace)
-						Expect(jobList).To(HaveLen(1))
-						job := jobList[0]
-						Expect(job.Labels["kratix.io/pipeline-name"]).To(Equal(workflowPipelines[0].Job.Labels["kratix.io/pipeline-name"]))
-					})
-
-					It("halts workflow progression and passively requeues", func() {
-						Expect(passiveRequeue).To(BeTrue())
-						Expect(err).NotTo(HaveOccurred())
-					})
-
-					It("updates the Promise status", func() {
-						Expect(fakeK8sClient.Get(ctx, types.NamespacedName{Name: promise.Name}, &promise)).To(Succeed())
-						Expect(promise.Status.Conditions).To(HaveLen(2))
-						configureWorkflowCond := apimeta.FindStatusCondition(promise.Status.Conditions, string(resourceutil.ConfigureWorkflowCompletedCondition))
-						Expect(configureWorkflowCond.Message).To(Equal("A Configure Pipeline has failed: pipeline-1"))
-						Expect(configureWorkflowCond.Reason).To(Equal("ConfigureWorkflowFailed"))
-						Expect(string(configureWorkflowCond.Status)).To(Equal("False"))
-
-						reconciledCond := apimeta.FindStatusCondition(promise.Status.Conditions, "Reconciled")
-						Expect(reconciledCond.Message).To(Equal("Failing"))
-						Expect(reconciledCond.Reason).To(Equal("ConfigureWorkflowFailed"))
-						Expect(string(reconciledCond.Status)).To(Equal("False"))
-
-						Expect(promise.Status.WorkflowsFailed).To(Equal(int64(1)))
-						Expect(promise.Status.WorkflowsSucceeded).To(Equal(int64(0)))
-					})
-
-					It("publishes an event", func() {
-						Eventually(eventRecorder.Events).Should(Receive(ContainSubstring(
-							"Warning ConfigureWorkflowFailed A promise/configure Pipeline has failed: pipeline-1")))
 					})
 
 					When("the parent is later manually reconciled", func() {
@@ -2294,14 +2301,23 @@ func assertPromiseWorkflowCountersStatus(name string, workflowsSucceeded int) {
 	Expect(promise.Status.WorkflowsFailed).To(Equal(int64(0)))
 }
 
-func reconcile(opts workflow.Opts, promise *v1alpha1.Promise, uPromise *unstructured.Unstructured) bool {
+func reconcile(opts workflow.Opts, promise *v1alpha1.Promise) bool {
 	GinkgoHelper()
 
 	passiveRequeue, err := workflow.ReconcileConfigure(opts)
 	Expect(err).NotTo(HaveOccurred())
-	Expect(fakeK8sClient.Get(ctx, types.NamespacedName{Name: promise.GetName()}, promise)).To(Succeed())
 
-	uPromise, err = promise.ToUnstructured()
+	Expect(fakeK8sClient.Get(ctx, types.NamespacedName{Name: promise.GetName()}, promise)).To(Succeed())
+	uPromise, err := promise.ToUnstructured()
 	Expect(err).NotTo(HaveOccurred())
+	opts.SetParentObject(uPromise)
+
 	return passiveRequeue
+}
+
+func resetWorkflowPipelineJobs(workflowPipelines []v1alpha1.PipelineJobResources) {
+	for _, p := range workflowPipelines {
+		p.Job.SetName(p.Job.Name + uuid.New().String()[0:5])
+		p.Job.SetResourceVersion("")
+	}
 }
