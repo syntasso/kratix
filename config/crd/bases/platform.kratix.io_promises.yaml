@@ -235,6 +235,22 @@ spec:
                     description: The API version of the Resource API defined by this
                       Promise (e.g. "marketplace.kratix.io/v1alpha1")
                     type: string
+                  executions:
+                    description: Workflow executions
+                    items:
+                      properties:
+                        lastTransitionTime:
+                          description: Last transition time of the workflow
+                          format: date-time
+                          type: string
+                        name:
+                          description: Name of the workflow
+                          type: string
+                        phase:
+                          description: Phase of the workflow
+                          type: string
+                      type: object
+                    type: array
                   kind:
                     description: The Kind of the Resource API defined by this Promise
                       (e.g. "Database")

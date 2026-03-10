@@ -14,6 +14,7 @@ import (
 	v1 "k8s.io/api/core/v1"
 	metav1 "k8s.io/apimachinery/pkg/apis/meta/v1"
 	"k8s.io/apimachinery/pkg/apis/meta/v1/unstructured"
+	"k8s.io/apimachinery/pkg/runtime"
 	clusterv1 "sigs.k8s.io/cluster-api/api/v1beta1"
 )
 
@@ -320,6 +321,51 @@ func GetWorkflowsCounterStatus(rr *unstructured.Unstructured, key string) int64 
 	}
 
 	return -1
+}
+
+func SetPipelineExecutionStatus(rr *unstructured.Unstructured, logger logr.Logger, pipelineIndex int, phase string) (bool, error) {
+	if rr.GetKind() == "Promise" {
+		promise := &v1alpha1.Promise{}
+		err := runtime.DefaultUnstructuredConverter.FromUnstructured(rr.Object, promise)
+		if err != nil {
+			logging.Warn(logger, "failed to convert to promise", "error", err)
+			return false, err
+		}
+
+		changed := promise.Status.Kratix.Workflows.Pipelines[pipelineIndex].Phase != phase
+
+		promise.Status.Kratix.Workflows.Pipelines[pipelineIndex].Phase = phase
+		rr.Object, err = runtime.DefaultUnstructuredConverter.ToUnstructured(promise)
+		return changed, err
+	}
+
+	return false, nil
+}
+
+func MarkCurrentPipelineAsSucceeded(rr *unstructured.Unstructured, logger logr.Logger) error {
+	if rr.GetKind() == "Promise" {
+		promise := &v1alpha1.Promise{}
+		err := runtime.DefaultUnstructuredConverter.FromUnstructured(rr.Object, promise)
+		if err != nil {
+			logging.Warn(logger, "failed to convert to promise", "error", err)
+			return err
+		}
+
+		var pipelineIndex int
+		for i, pipeline := range promise.Status.Kratix.Workflows.Pipelines {
+			if pipeline.Phase == v1alpha1.WorkflowPhaseRunning {
+				pipelineIndex = i
+				break
+			}
+		}
+
+		promise.Status.Kratix.Workflows.Pipelines[pipelineIndex].Phase = v1alpha1.WorkflowPhaseSucceeded
+
+		rr.Object, err = runtime.DefaultUnstructuredConverter.ToUnstructured(promise)
+		return err
+	}
+
+	return nil
 }
 
 // GetObservedGeneration returns 0 when either status or status.observedGeneration is nil

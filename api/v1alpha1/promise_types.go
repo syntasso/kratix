@@ -183,6 +183,25 @@ type KratixPromiseStatus struct {
 
 	// Timestamp of when this Promise was last in an Available state
 	LastAvailableTime *metav1.Time `json:"lastAvailableTime,omitempty"`
+
+	// Status of the Workflow execution
+	Workflows WorkflowStatus `json:"workflows,omitempty"`
+}
+
+type WorkflowStatus struct {
+	// Status of the Pipeline execution
+	Pipelines []WorkflowPipelineStatus `json:"pipelines,omitempty"`
+}
+
+type WorkflowPipelineStatus struct {
+	// Name of the workflow
+	Name string `json:"name,omitempty"`
+
+	// Phase of the workflow
+	Phase string `json:"phase,omitempty"`
+
+	// Last transition time of the workflow
+	LastTransitionTime metav1.Time `json:"lastTransitionTime,omitempty"`
 }
 
 // PromiseSummary provides a brief reference to a Promise by name and version
@@ -484,6 +503,42 @@ func (p *Promise) HasPipeline(workflowType Type, workflowAction Action) bool {
 		}
 	}
 	return false
+}
+
+const (
+	WorkflowPhasePending   = "Pending"
+	WorkflowPhaseRunning   = "Running"
+	WorkflowPhaseSucceeded = "Succeeded"
+	WorkflowPhaseFailed    = "Failed"
+)
+
+func (p *Promise) ClearPipelineExecutionStatus() bool {
+	changed := p.Status.Workflows != 0 ||
+		p.Status.WorkflowsSucceeded != 0 ||
+		// p.Status.WorkflowsFailed != 0 ||
+		len(p.Status.Kratix.Workflows.Pipelines) != 0
+
+	p.Status.Workflows = 0
+	p.Status.WorkflowsSucceeded = 0
+	p.Status.WorkflowsFailed = 0
+	p.Status.Kratix.Workflows.Pipelines = nil
+	return changed
+}
+
+func (p *Promise) ResetPipelineExecutionStatus() {
+	workflows := []WorkflowPipelineStatus{}
+
+	for _, pipeline := range p.Spec.Workflows.Promise.Configure {
+		fmt.Printf("pipeline: %s\n", pipeline.GetName())
+		workflows = append(workflows, WorkflowPipelineStatus{
+			Name:               pipeline.GetName(),
+			Phase:              WorkflowPhasePending,
+			LastTransitionTime: metav1.Time{},
+		})
+	}
+
+	p.Status.Kratix.Workflows.Pipelines = workflows
+	p.Status.Workflows = int64(len(workflows))
 }
 
 type pipelineMap map[Type]map[Action][]Pipeline

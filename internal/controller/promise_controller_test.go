@@ -59,7 +59,7 @@ var (
 	eventRecorder       *record.FakeRecorder
 )
 
-var _ = Describe("PromiseController", func() {
+var _ = FDescribe("PromiseController", func() {
 	BeforeEach(func() {
 		promiseResourceName = "redis"
 		expectedCRDName = promiseResourceName + "." + promiseGroup
@@ -632,7 +632,7 @@ var _ = Describe("PromiseController", func() {
 					})
 
 					By("setting the workflows counter to the number of pipelines", func() {
-						Expect(promise.Status.Workflows).To(Equal(int64(1)))
+						Expect(promise.Status.Workflows).To(Equal(int64(2)))
 					})
 
 					By("associates the new role with the new service account", func() {
@@ -659,7 +659,7 @@ var _ = Describe("PromiseController", func() {
 						Expect(err).NotTo(HaveOccurred())
 						Expect(fakeK8sClient.Get(ctx, promiseName, promise)).To(Succeed())
 
-						Expect(promise.Status.Workflows).To(Equal(int64(1)))
+						Expect(promise.Status.Workflows).To(Equal(int64(2)))
 					})
 
 					By("finishing the creation once the job is finished and publishes event", func() {
@@ -679,9 +679,9 @@ var _ = Describe("PromiseController", func() {
 
 					By("updating the status of the promise workflow", func() {
 						Expect(fakeK8sClient.Get(ctx, promiseName, promise)).To(Succeed())
-						Expect(promise.Status.Workflows).To(Equal(int64(1)))
+						Expect(promise.Status.Workflows).To(Equal(int64(2)))
 						Expect(promise.Status.WorkflowsFailed).To(Equal(int64(0)))
-						Expect(promise.Status.WorkflowsSucceeded).To(Equal(int64(1)))
+						Expect(promise.Status.WorkflowsSucceeded).To(Equal(int64(2)))
 					})
 
 					By("not creating a Work for the empty static dependencies", func() {
@@ -1545,6 +1545,38 @@ var _ = Describe("PromiseController", func() {
 				}
 				Expect(fakeK8sClient.Get(ctx, resNameNamespacedName, requestedResource)).To(Succeed())
 			})
+		})
+	})
+
+	Describe(".status", func() {
+		Describe(".kratix.workflows.executions", func() {
+			BeforeEach(func() {
+				// create promise with multiple workflows
+				promise = createPromise(promiseWithWorkflowPath)
+			})
+
+			It("populates the executions field with the workflow executions", func() {
+				result, err := t.reconcileUntilCompletion(reconciler, promise, &opts{
+					funcs: []func(client.Object) error{autoMarkCRDAsEstablished},
+				})
+				Expect(err).NotTo(HaveOccurred())
+				Expect(result).To(Equal(ctrl.Result{}))
+
+				Expect(fakeK8sClient.Get(ctx, promiseName, promise)).To(Succeed())
+
+				Expect(promise.Status.Kratix.Workflows.Pipelines).To(HaveLen(2))
+
+				Expect(promise.Status.Kratix.Workflows.Pipelines[0].Name).To(Equal("first-pipeline"))
+				Expect(promise.Status.Kratix.Workflows.Pipelines[0].Phase).To(Equal("Pending"))
+				Expect(promise.Status.Kratix.Workflows.Pipelines[1].Name).To(Equal("second-pipeline"))
+				Expect(promise.Status.Kratix.Workflows.Pipelines[1].Phase).To(Equal("Pending"))
+			})
+
+			// Test: mark as failed when pipeline fails
+			// 	     mark promise as unavailable
+
+			// Test: if i remove the pipelines, set status execution to nil
+
 		})
 	})
 

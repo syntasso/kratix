@@ -65,3 +65,13 @@ spec:
             containers:
               - image: syntasso/promise-with-workflow:v0.1.0
                 name: promise-with-workflow
+        - apiVersion: platform.kratix.io/v1alpha1
+          kind: Pipeline
+          metadata:
+            name: second-pipeline
+            namespace: default
+          spec:
+            containers:
+              - image: syntasso/promise-with-workflow:v0.1.0
+                name: another-workflow
+

@@ -227,15 +227,6 @@ func (r *PromiseReconciler) Reconcile(ctx context.Context, req ctrl.Request) (re
 		return ctrl.Result{}, nil
 	}
 
-	// // Add workflowFinalizer if delete pipelines exist
-	// requeue, err := ensurePromiseDeleteWorkflowFinalizer(opts, promise, promise.HasPipeline(v1alpha1.WorkflowTypePromise, v1alpha1.WorkflowActionDelete))
-	// if err != nil {
-	// 	return ctrl.Result{}, err
-	// }
-	// if requeue != nil {
-	// 	return *requeue, nil
-	// }
-
 	var rrCRD *apiextensionsv1.CustomResourceDefinition
 	var rrGVK *schema.GroupVersionKind
 
@@ -849,13 +840,21 @@ func (r *PromiseReconciler) reconcileDependenciesAndPromiseWorkflows(o opts, pro
 	}
 
 	pipelineCount := r.getWorkflowsCount(promise)
+
 	if pipelineCount == 0 {
-		return false, r.updateWorkflowStatusCountersToZero(o.ctx, promise)
+		/* Promise Configure Workflows were removed, wipe any workflow statuses */
+		if changed := promise.ClearPipelineExecutionStatus(); changed {
+			return false, r.Client.Status().Update(o.ctx, promise)
+		}
+
+		// No workflow to run, abort
+		return false, nil
 	}
 
-	if promise.Status.Workflows != pipelineCount {
-		promise.Status.Workflows = pipelineCount
-		return false, r.Client.Update(o.ctx, promise)
+	if promise.Status.Workflows != pipelineCount || len(promise.Status.Kratix.Workflows.Pipelines) != int(pipelineCount) {
+		/* New pipelines have been added, regenerate the pipelines execution statuses */
+		promise.ResetPipelineExecutionStatus()
+		return false, r.Client.Status().Update(o.ctx, promise)
 	}
 
 	if promise.Labels == nil {
@@ -863,9 +862,15 @@ func (r *PromiseReconciler) reconcileDependenciesAndPromiseWorkflows(o opts, pro
 	}
 
 	logging.Debug(o.logger, "Promise contains workflows.promise.configure; reconciling workflows")
+
 	completedCond := promise.GetCondition(string(resourceutil.ConfigureWorkflowCompletedCondition))
-	forcePipelineRun := completedCond != nil && completedCond.Status == "True" && time.Since(completedCond.LastTransitionTime.Time) > r.ReconciliationInterval
-	if forcePipelineRun && promise.Labels[resourceutil.ManualReconciliationLabel] != "true" {
+
+	forcePipelineRun := completedCond != nil &&
+		completedCond.Status == "True" &&
+		time.Since(completedCond.LastTransitionTime.Time) > r.ReconciliationInterval &&
+		promise.Labels[resourceutil.ManualReconciliationLabel] != "true"
+
+	if forcePipelineRun {
 		logging.Trace(o.logger, "pipeline completed too long ago; forcing reconciliation", "lastTransitionTime", completedCond.LastTransitionTime.String())
 		promise.Labels[resourceutil.ManualReconciliationLabel] = "true"
 		return true, r.Client.Update(o.ctx, promise)
@@ -890,6 +895,7 @@ func (r *PromiseReconciler) reconcileDependenciesAndPromiseWorkflows(o opts, pro
 
 	jobOpts := workflow.NewOpts(o.ctx, o.client, r.EventRecorder, o.logger, unstructuredPromise, pipelineResources, "promise", r.NumberOfJobsToKeep, namespace)
 
+	logging.Debug(o.logger, "reconciling configure workflow")
 	passiveRequeue, err = reconcileConfigure(jobOpts)
 	if err != nil {
 		return false, err
@@ -1508,19 +1514,6 @@ func (r *PromiseReconciler) SetupWithManager(mgr ctrl.Manager) error {
 		Complete(r)
 }
 
-func ensurePromiseDeleteWorkflowFinalizer(o opts, promise *v1alpha1.Promise, promiseDeletePipelineExists bool) (*ctrl.Result, error) {
-	if promiseDeletePipelineExists {
-		return nil, nil
-	}
-
-	if controllerutil.ContainsFinalizer(promise, runDeleteWorkflowsFinalizer) {
-		controllerutil.RemoveFinalizer(promise, runDeleteWorkflowsFinalizer)
-		return &ctrl.Result{}, o.client.Update(o.ctx, promise)
-	}
-
-	return nil, nil
-}
-
 func (r *PromiseReconciler) promiseFinalizers(promise *v1alpha1.Promise) []string {
 	if promise == nil {
 		return nil
@@ -1750,14 +1743,6 @@ func (r *PromiseReconciler) updatePromiseStatus(ctx context.Context, promise *v1
 		return fastRequeue, nil
 	}
 	return ctrl.Result{}, err
-}
-
-func (r *PromiseReconciler) updateWorkflowStatusCountersToZero(ctx context.Context, p *v1alpha1.Promise) error {
-	if p.Status.Workflows != 0 || p.Status.WorkflowsSucceeded != 0 || p.Status.WorkflowsFailed != 0 {
-		p.Status.Workflows, p.Status.WorkflowsSucceeded, p.Status.WorkflowsFailed = int64(0), int64(0), int64(0)
-		return r.Client.Status().Update(ctx, p)
-	}
-	return nil
 }
 
 func (r *PromiseReconciler) getWorkflowsCount(promise *v1alpha1.Promise) int64 {
