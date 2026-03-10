@@ -254,6 +254,10 @@ func ReconcileConfigure(opts Opts) (passiveRequeue bool, err error) {
 
 func setFailedConditionAndEvents(opts Opts, mostRecentJob *batchv1.Job, pipeline v1alpha1.PipelineJobResources) (bool, error) {
 	if !opts.SkipConditions {
+		if err := resourceutil.MarkCurrentPipelineAsFailed(opts.parentObject, opts.logger); err != nil {
+			logging.Error(opts.logger, err, "failed to mark current pipeline as succeeded")
+			return false, err
+		}
 		resourceutil.MarkConfigureWorkflowAsFailed(opts.logger, opts.parentObject, pipeline.Name)
 		resourceutil.MarkReconciledFailing(opts.parentObject, resourceutil.ConfigureWorkflowCompletedFailedReason)
 		resourceutil.SetStatus(opts.parentObject, opts.logger, "workflowsFailed", int64(1))

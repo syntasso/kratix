@@ -343,6 +343,14 @@ func SetPipelineExecutionStatus(rr *unstructured.Unstructured, logger logr.Logge
 }
 
 func MarkCurrentPipelineAsSucceeded(rr *unstructured.Unstructured, logger logr.Logger) error {
+	return markCurrentPipelineAs(v1alpha1.WorkflowPhaseSucceeded, rr, logger)
+}
+
+func MarkCurrentPipelineAsFailed(rr *unstructured.Unstructured, logger logr.Logger) error {
+	return markCurrentPipelineAs(v1alpha1.WorkflowPhaseFailed, rr, logger)
+}
+
+func markCurrentPipelineAs(status string, rr *unstructured.Unstructured, logger logr.Logger) error {
 	if rr.GetKind() == "Promise" {
 		promise := &v1alpha1.Promise{}
 		err := runtime.DefaultUnstructuredConverter.FromUnstructured(rr.Object, promise)
@@ -353,13 +361,14 @@ func MarkCurrentPipelineAsSucceeded(rr *unstructured.Unstructured, logger logr.L
 
 		var pipelineIndex int
 		for i, pipeline := range promise.Status.Kratix.Workflows.Pipelines {
+			// does this always work?
 			if pipeline.Phase == v1alpha1.WorkflowPhaseRunning {
 				pipelineIndex = i
 				break
 			}
 		}
 
-		promise.Status.Kratix.Workflows.Pipelines[pipelineIndex].Phase = v1alpha1.WorkflowPhaseSucceeded
+		promise.Status.Kratix.Workflows.Pipelines[pipelineIndex].Phase = status
 
 		rr.Object, err = runtime.DefaultUnstructuredConverter.ToUnstructured(promise)
 		return err
