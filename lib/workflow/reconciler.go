@@ -203,8 +203,6 @@ func determineWorkflowState(opts Opts) (*workflowState, error) {
 		"status", overAllJobStatus(state.mostRecentJob))
 
 	pipelineIndex, jobIsForPipeline := jobToPipelineIndex(opts, state.mostRecentJob)
-	// what is the next pipeline to reconcile
-	// whether the most recent job is for pipelineIndex
 
 	state.completedCount = int64(pipelineIndex)
 

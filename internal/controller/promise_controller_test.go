@@ -59,7 +59,7 @@ var (
 	eventRecorder       *record.FakeRecorder
 )
 
-var _ = FDescribe("PromiseController", func() {
+var _ = Describe("PromiseController", func() {
 	BeforeEach(func() {
 		promiseResourceName = "redis"
 		expectedCRDName = promiseResourceName + "." + promiseGroup

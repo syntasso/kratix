@@ -1,6 +1,7 @@
 package core_test
 
 import (
+	"encoding/json"
 	"fmt"
 	"time"
 
@@ -170,6 +171,7 @@ var _ = Describe("Core Tests", Ordered, func() {
 						promiseWorkflows := ".status.workflows"
 						promiseWorkflowsSucceeded := ".status.workflowsSucceeded"
 						promiseWorkflowsFailed := ".status.workflowsFailed"
+						promiseWorkflowPipelines := `.status.kratix.workflows.pipelines`
 
 						Eventually(func(g Gomega) {
 							g.Expect(
@@ -193,6 +195,17 @@ var _ = Describe("Core Tests", Ordered, func() {
 							g.Expect(
 								platform.Kubectl(append(promiseArgs, fmt.Sprintf(`-o=jsonpath='{%s}'`, promiseWorkflowsSucceeded))...),
 							).To(ContainSubstring("1"))
+
+							var parsedOutput [][]v1alpha1.WorkflowPipelineStatus // jsonpath-as-json returns a nested array of the target objects
+							jsonOutput := platform.Kubectl(append(promiseArgs, fmt.Sprintf(`-o=jsonpath-as-json={%s}`, promiseWorkflowPipelines))...)
+							json.Unmarshal([]byte(jsonOutput), &parsedOutput)
+							Expect(parsedOutput).To(HaveLen(1))
+							workflowPipelines := parsedOutput[0]
+							g.Expect(workflowPipelines).To(HaveLen(1))
+							g.Expect(workflowPipelines[0].Name).To(Equal("setup-deps"))
+							g.Expect(workflowPipelines[0].Phase).To(Equal(v1alpha1.WorkflowPhaseSucceeded))
+							g.Expect(workflowPipelines[0].LastTransitionTime).To(Not(BeZero()))
+
 						}, timeout, interval).Should(Succeed())
 					})
 
