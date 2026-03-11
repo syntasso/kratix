@@ -384,7 +384,7 @@ func ResetPipelineStatusToPending(obj *unstructured.Unstructured) error {
 		workflows = append(workflows, v1alpha1.WorkflowPipelineStatus{
 			Name:               pipeline.GetName(),
 			Phase:              v1alpha1.WorkflowPhasePending,
-			LastTransitionTime: metav1.Time{},
+			LastTransitionTime: metav1.NewTime(time.Now()),
 		})
 	}
 
