@@ -357,38 +357,59 @@ func MarkCurrentPipelineAsRunning(rr *unstructured.Unstructured, logger logr.Log
 }
 
 func markCurrentPipelineAs(status string, rr *unstructured.Unstructured, logger logr.Logger, job *batchv1.Job) (bool, error) {
-	if rr.GetKind() == "Promise" {
-		promise := &v1alpha1.Promise{}
-		err := runtime.DefaultUnstructuredConverter.FromUnstructured(rr.Object, promise)
-		if err != nil {
-			logging.Warn(logger, "failed to convert to promise", "error", err)
-			return false, err
-		}
-
-		pipelineIndex := -1
-		for i, pipeline := range promise.Status.Kratix.Workflows.Pipelines {
-			if pipeline.Name == job.GetLabels()[v1alpha1.PipelineNameLabel] {
-				pipelineIndex = i
-				break
-			}
-		}
-
-		if pipelineIndex == -1 {
-			return false, fmt.Errorf("no pipeline found for job %s", job.GetName())
-		}
-
-		previousPhase := promise.Status.Kratix.Workflows.Pipelines[pipelineIndex].Phase
-		changed := previousPhase != status
-		if changed {
-			promise.Status.Kratix.Workflows.Pipelines[pipelineIndex].Phase = status
-			promise.Status.Kratix.Workflows.Pipelines[pipelineIndex].LastTransitionTime = metav1.Now()
-		}
-
-		rr.Object, err = runtime.DefaultUnstructuredConverter.ToUnstructured(promise)
-		return changed, err
+	if rr.GetKind() != "Promise" {
+		return false, nil
+	}
+	promise := &v1alpha1.Promise{}
+	err := runtime.DefaultUnstructuredConverter.FromUnstructured(rr.Object, promise)
+	if err != nil {
+		logging.Warn(logger, "failed to convert to promise", "error", err)
+		return false, err
 	}
 
-	return false, nil
+	pipelineIndex := -1
+	for i, pipeline := range promise.Status.Kratix.Workflows.Pipelines {
+		if pipeline.Name == job.GetLabels()[v1alpha1.PipelineNameLabel] {
+			pipelineIndex = i
+			break
+		}
+	}
+
+	if pipelineIndex == -1 {
+		return false, fmt.Errorf("no pipeline found for job %s", job.GetName())
+	}
+
+	previousPhase := promise.Status.Kratix.Workflows.Pipelines[pipelineIndex].Phase
+	changed := previousPhase != status
+	if changed {
+		promise.Status.Kratix.Workflows.Pipelines[pipelineIndex].Phase = status
+		promise.Status.Kratix.Workflows.Pipelines[pipelineIndex].LastTransitionTime = metav1.Now()
+	}
+
+	rr.Object, err = runtime.DefaultUnstructuredConverter.ToUnstructured(promise)
+	return changed, err
+}
+
+func ResetPipelineStatusToPending(obj *unstructured.Unstructured, logger logr.Logger, pipelineNames []string) error {
+	if obj.GetKind() != "Promise" || len(pipelineNames) == 0 {
+		return nil
+	}
+	promise := &v1alpha1.Promise{}
+	err := runtime.DefaultUnstructuredConverter.FromUnstructured(obj.Object, promise)
+	if err != nil {
+		return err
+	}
+	workflows := make([]v1alpha1.WorkflowPipelineStatus, len(pipelineNames))
+	for i, name := range pipelineNames {
+		workflows[i] = v1alpha1.WorkflowPipelineStatus{
+			Name:               name,
+			Phase:              v1alpha1.WorkflowPhasePending,
+			LastTransitionTime: metav1.Time{},
+		}
+	}
+	promise.Status.Kratix.Workflows.Pipelines = workflows
+	obj.Object, err = runtime.DefaultUnstructuredConverter.ToUnstructured(promise)
+	return err
 }
 
 // GetObservedGeneration returns 0 when either status or status.observedGeneration is nil

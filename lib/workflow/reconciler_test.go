@@ -196,7 +196,7 @@ var _ = Describe("Workflow Reconciler", func() {
 			})
 		})
 
-		FDescribe("the creation of pipeline jobs", func() {
+		Describe("the creation of pipeline jobs", func() {
 			var opts workflow.Opts
 
 			BeforeEach(func() {
@@ -302,7 +302,6 @@ var _ = Describe("Workflow Reconciler", func() {
 							Expect(*jobs[0].Spec.Suspend).To(BeTrue())
 						})
 
-						// set job condition to suspended
 						jobs := listJobs(namespace)
 						jobs[0].Status.Conditions = append(jobs[0].Status.Conditions, batchv1.JobCondition{
 							Type:   batchv1.JobSuspended,
@@ -317,7 +316,6 @@ var _ = Describe("Workflow Reconciler", func() {
 							Expect(jobs).To(HaveLen(2))
 
 							Expect(jobs[1].Spec.Suspend).To(BeNil())
-							// phase to be runnning
 							Expect(promise.Status.Kratix.Workflows.Pipelines[0].Phase).To(Equal("Running"))
 							Expect(promise.Status.Kratix.Workflows.Pipelines[0].LastTransitionTime).NotTo(BeZero())
 							Expect(promise.Status.Kratix.Workflows.Pipelines[1].Phase).To(Equal("Pending"))
@@ -380,13 +378,24 @@ var _ = Describe("Workflow Reconciler", func() {
 		})
 
 		When("there are jobs for this workflow", func() {
+			BeforeEach(func() {
+				opts := workflow.NewOpts(ctx, fakeK8sClient, eventRecorder, logger, uPromise, workflowPipelines, "promise", 5, namespace)
+				_, err := workflow.ReconcileConfigure(opts)
+				Expect(err).NotTo(HaveOccurred())
+				_, err = workflow.ReconcileConfigure(opts)
+				Expect(err).NotTo(HaveOccurred())
+				Expect(listJobs(namespace)).To(HaveLen(1))
+			})
+
 			Context("and the job has failed", func() {
 				var passiveRequeue bool
 				var err error
 
 				Context("and the SkipConditions flag is not set", func() {
 					BeforeEach(func() {
-						markJobAsFailed(workflowPipelines[0].Job.Name)
+						jobs := listJobs(namespace)
+						Expect(jobs).To(HaveLen(1))
+						markJobAsFailed(jobs[0].Name)
 						newWorkflowPipelines, uPromise := setupTest(promise, pipelines)
 						opts := workflow.NewOpts(ctx, fakeK8sClient, eventRecorder, logger, uPromise, newWorkflowPipelines, "promise", 5, namespace)
 						passiveRequeue, err = workflow.ReconcileConfigure(opts)
@@ -446,7 +455,9 @@ var _ = Describe("Workflow Reconciler", func() {
 					var existingConditions []metav1.Condition
 
 					BeforeEach(func() {
-						markJobAsFailed(workflowPipelines[0].Job.Name)
+						jobs := listJobs(namespace)
+						Expect(jobs).To(HaveLen(1))
+						markJobAsFailed(jobs[0].Name)
 						newWorkflowPipelines, uPromise := setupTest(promise, pipelines)
 						Expect(fakeK8sClient.Get(ctx, types.NamespacedName{Name: promise.Name}, &promise)).To(Succeed())
 						existingConditions = promise.Status.Conditions
@@ -518,7 +529,7 @@ var _ = Describe("Workflow Reconciler", func() {
 					originalWorkflowPipelines, uPromise = setupTest(promise, pipelines)
 				})
 
-				Context("but they are not the most recent", func() {
+				Context("but the most recent job does not match the current promise spec", func() {
 					It("re-runs all pipelines in the workflow", func() {
 						// Reconcile with the *original* pipelines and promise spec
 						opts := workflow.NewOpts(ctx, fakeK8sClient, eventRecorder, logger, uPromise, originalWorkflowPipelines, "promise", 5, namespace)
@@ -2281,6 +2292,7 @@ func userPermissionPipelineLabels(promise v1alpha1.Promise, pipeline v1alpha1.Pi
 }
 
 func forceManualReconciliation(promise v1alpha1.Promise, pipelines []v1alpha1.Pipeline, eventRecorder record.EventRecorder) {
+	GinkgoHelper()
 	labelPromiseForManualReconciliation(promise.GetName())
 	resources, uPromise := setupTest(promise, pipelines)
 	setParentWorkflowCountersStatus(uPromise, len(resources)-1)
@@ -2295,6 +2307,7 @@ func forceManualReconciliation(promise v1alpha1.Promise, pipelines []v1alpha1.Pi
 }
 
 func assertPromiseWorkflowCountersStatus(name string, workflowsSucceeded int) {
+	GinkgoHelper()
 	promise := &v1alpha1.Promise{}
 	Expect(fakeK8sClient.Get(ctx, types.NamespacedName{Name: name}, promise)).To(Succeed())
 	Expect(promise.Status.WorkflowsSucceeded).To(Equal(int64(workflowsSucceeded)))
