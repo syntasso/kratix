@@ -220,10 +220,17 @@ func determineWorkflowState(opts Opts) (*workflowState, error) {
 }
 
 func reconcileWorkflowStatus(opts Opts, state *workflowState) (passiveRequeue bool, err error) {
-	currentSucceededCount := max(resourceutil.GetWorkflowsCounterStatus(opts.parentObject, "workflowsSucceeded"), 0)
-	currentFailedCount := max(resourceutil.GetWorkflowsCounterStatus(opts.parentObject, "workflowsFailed"), 0)
-	succeededCountDrifted := currentSucceededCount != state.completedCount
+	//these are set to -1 if unset in the status
+	currentSucceededCount := resourceutil.GetWorkflowsCounterStatus(opts.parentObject, "workflowsSucceeded")
+	currentFailedCount := resourceutil.GetWorkflowsCounterStatus(opts.parentObject, "workflowsFailed")
 
+	if currentFailedCount == -1 && state.desiredFailedCount == nil {
+		// this means the failed count has never been set, so we should initialize it to 0 to avoid drift
+		state.desiredFailedCount = new(int64)
+		*state.desiredFailedCount = 0
+	}
+
+	succeededCountDrifted := currentSucceededCount != state.completedCount
 	shouldResetForManualRetry := state.manualReconcile && currentFailedCount != 0
 	failedCountDrifted := state.desiredFailedCount != nil && currentFailedCount != *state.desiredFailedCount
 	pipelinePhaseDrifted := state.desiredPipelineJob != nil && state.desiredPipelinePhase != ""

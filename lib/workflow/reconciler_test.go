@@ -649,16 +649,32 @@ var _ = Describe("Workflow Reconciler", func() {
 				Expect(fakeK8sClient.Create(ctx, resource)).To(Succeed())
 
 				opts = workflow.NewOpts(ctx, fakeK8sClient, eventRecorder, logger, resource, workflowPipelines, "resource", 5, namespace)
-				setParentWorkflowCountersStatus(resource, 0)
 				passiveRequeue, err := workflow.ReconcileConfigure(opts)
 				Expect(err).NotTo(HaveOccurred())
 				Expect(passiveRequeue).To(BeTrue())
 			})
 
 			It("sets the status of the resource when the pipelines are still in progress", func() {
+				passiveRequeue, err := workflow.ReconcileConfigure(opts)
+				Expect(err).NotTo(HaveOccurred())
+				Expect(passiveRequeue).To(BeTrue())
+
 				updatedResource := &unstructured.Unstructured{}
 				updatedResource.SetGroupVersionKind(resource.GroupVersionKind())
 				Expect(fakeK8sClient.Get(ctx, client.ObjectKeyFromObject(resource), updatedResource)).To(Succeed())
+				//first reconciliation sets the workflow counters to 0
+				Expect(resourceutil.GetWorkflowsCounterStatus(updatedResource, "workflowsSucceeded")).To(Equal(int64((0))))
+				Expect(resourceutil.GetWorkflowsCounterStatus(updatedResource, "workflowsFailed")).To(Equal(int64(0)))
+
+				//second reconciliation updates the status to pending with the correct conditions
+				passiveRequeue, err = workflow.ReconcileConfigure(opts)
+				Expect(err).NotTo(HaveOccurred())
+				Expect(passiveRequeue).To(BeTrue())
+
+				updatedResource = &unstructured.Unstructured{}
+				updatedResource.SetGroupVersionKind(resource.GroupVersionKind())
+				Expect(fakeK8sClient.Get(ctx, client.ObjectKeyFromObject(resource), updatedResource)).To(Succeed())
+				//first reconciliation sets the workflow counters to 0
 
 				Expect(updatedResource.Object["status"]).To(SatisfyAll(
 					HaveKeyWithValue("message", "Pending"),
@@ -675,9 +691,6 @@ var _ = Describe("Workflow Reconciler", func() {
 					HaveKeyWithValue("reason", "PipelinesInProgress"),
 					HaveKeyWithValue("lastTransitionTime", Not(BeEmpty())),
 				))
-
-				Expect(resourceutil.GetWorkflowsCounterStatus(updatedResource, "workflowsSucceeded")).To(Equal(int64((0))))
-				Expect(resourceutil.GetWorkflowsCounterStatus(updatedResource, "workflowsFailed")).To(Equal(int64(0)))
 			})
 
 			It("fires an event for the new pipeline", func() {
