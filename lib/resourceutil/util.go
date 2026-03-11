@@ -343,28 +343,26 @@ func SetPipelineExecutionStatus(rr *unstructured.Unstructured, logger logr.Logge
 }
 
 func MarkCurrentPipelineAsSucceeded(rr *unstructured.Unstructured, logger logr.Logger, job *batchv1.Job) error {
-	_, err := markCurrentPipelineAs(v1alpha1.WorkflowPhaseSucceeded, rr, logger, job)
-	return err
+	return MarkCurrentPipelineAs(v1alpha1.WorkflowPhaseSucceeded, rr, logger, job)
 }
 
 func MarkCurrentPipelineAsFailed(rr *unstructured.Unstructured, logger logr.Logger, job *batchv1.Job) error {
-	_, err := markCurrentPipelineAs(v1alpha1.WorkflowPhaseFailed, rr, logger, job)
-	return err
+	return MarkCurrentPipelineAs(v1alpha1.WorkflowPhaseFailed, rr, logger, job)
 }
 
-func MarkCurrentPipelineAsRunning(rr *unstructured.Unstructured, logger logr.Logger, job *batchv1.Job) (bool, error) {
-	return markCurrentPipelineAs(v1alpha1.WorkflowPhaseRunning, rr, logger, job)
+func MarkCurrentPipelineAsRunning(rr *unstructured.Unstructured, logger logr.Logger, job *batchv1.Job) error {
+	return MarkCurrentPipelineAs(v1alpha1.WorkflowPhaseRunning, rr, logger, job)
 }
 
-func markCurrentPipelineAs(status string, rr *unstructured.Unstructured, logger logr.Logger, job *batchv1.Job) (bool, error) {
+func MarkCurrentPipelineAs(status string, rr *unstructured.Unstructured, logger logr.Logger, job *batchv1.Job) error {
 	if rr.GetKind() != "Promise" {
-		return false, nil
+		return nil
 	}
 	promise := &v1alpha1.Promise{}
 	err := runtime.DefaultUnstructuredConverter.FromUnstructured(rr.Object, promise)
 	if err != nil {
 		logging.Warn(logger, "failed to convert to promise", "error", err)
-		return false, err
+		return err
 	}
 
 	pipelineIndex := -1
@@ -376,7 +374,7 @@ func markCurrentPipelineAs(status string, rr *unstructured.Unstructured, logger 
 	}
 
 	if pipelineIndex == -1 {
-		return false, fmt.Errorf("no pipeline found for job %s", job.GetName())
+		return fmt.Errorf("no pipeline found for job %s", job.GetName())
 	}
 
 	previousPhase := promise.Status.Kratix.Workflows.Pipelines[pipelineIndex].Phase
@@ -387,7 +385,7 @@ func markCurrentPipelineAs(status string, rr *unstructured.Unstructured, logger 
 	}
 
 	rr.Object, err = runtime.DefaultUnstructuredConverter.ToUnstructured(promise)
-	return changed, err
+	return err
 }
 
 func ResetPipelineStatusToPending(obj *unstructured.Unstructured, logger logr.Logger, pipelineNames []string) error {
