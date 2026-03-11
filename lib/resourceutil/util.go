@@ -323,25 +323,6 @@ func GetWorkflowsCounterStatus(rr *unstructured.Unstructured, key string) int64 
 	return -1
 }
 
-func SetPipelineExecutionStatus(rr *unstructured.Unstructured, logger logr.Logger, pipelineIndex int, phase string) (bool, error) {
-	if rr.GetKind() == "Promise" {
-		promise := &v1alpha1.Promise{}
-		err := runtime.DefaultUnstructuredConverter.FromUnstructured(rr.Object, promise)
-		if err != nil {
-			logging.Warn(logger, "failed to convert to promise", "error", err)
-			return false, err
-		}
-
-		changed := promise.Status.Kratix.Workflows.Pipelines[pipelineIndex].Phase != phase
-
-		promise.Status.Kratix.Workflows.Pipelines[pipelineIndex].Phase = phase
-		rr.Object, err = runtime.DefaultUnstructuredConverter.ToUnstructured(promise)
-		return changed, err
-	}
-
-	return false, nil
-}
-
 func MarkCurrentPipelineAsSucceeded(rr *unstructured.Unstructured, logger logr.Logger, job *batchv1.Job) error {
 	return MarkCurrentPipelineAs(v1alpha1.WorkflowPhaseSucceeded, rr, logger, job)
 }

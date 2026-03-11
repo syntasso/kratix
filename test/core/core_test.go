@@ -171,7 +171,7 @@ var _ = Describe("Core Tests", Ordered, func() {
 						promiseWorkflows := ".status.workflows"
 						promiseWorkflowsSucceeded := ".status.workflowsSucceeded"
 						promiseWorkflowsFailed := ".status.workflowsFailed"
-						promiseWorkflowPipelines := `.status.kratix.workflows.pipelines`
+						promiseWorkflowPipelines := ".status.kratix.workflows.pipelines"
 
 						Eventually(func(g Gomega) {
 							g.Expect(

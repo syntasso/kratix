@@ -327,7 +327,7 @@ func setFailedConditionAndEvents(opts Opts, state *workflowState, pipeline v1alp
 
 		failedCount := int64(1)
 		state.desiredFailedCount = &failedCount
-		state.desiredPipelinePhase = string(v1alpha1.WorkflowPhaseFailed)
+		state.desiredPipelinePhase = v1alpha1.WorkflowPhaseFailed
 		state.desiredPipelineJob = state.mostRecentJob
 
 		if _, err := reconcileWorkflowStatus(opts, state); err != nil {
@@ -348,8 +348,7 @@ func suspendJob(ctx context.Context, c client.Client, job *batchv1.Job) error {
 }
 
 func getLabelsForPipelineJob(pipeline v1alpha1.PipelineJobResources) map[string]string {
-	labels := pipeline.Job.DeepCopy().GetLabels()
-	return labels
+	return pipeline.Job.DeepCopy().GetLabels()
 }
 
 func labelsForJobs(opts Opts) map[string]string {
@@ -375,7 +374,7 @@ func legacyLabelsForJobs(opts Opts) map[string]string {
 		v1alpha1.WorkTypeLabel: opts.workflowType,
 	}
 	promiseName := opts.parentObject.GetName()
-	if opts.workflowType == string(v1alpha1.WorkTypeResource) {
+	if opts.workflowType == v1alpha1.WorkTypeResource {
 		promiseName = opts.parentObject.GetLabels()[v1alpha1.PromiseNameLabel]
 		l[v1alpha1.ResourceNameLabel] = opts.parentObject.GetName()
 	}
@@ -568,7 +567,7 @@ func createConfigurePipeline(opts Opts, state *workflowState, resources v1alpha1
 		return updated, err
 	}
 
-	state.desiredPipelinePhase = string(v1alpha1.WorkflowPhaseRunning)
+	state.desiredPipelinePhase = v1alpha1.WorkflowPhaseRunning
 	state.desiredPipelineJob = resources.Job
 	if updated, err = reconcileWorkflowStatus(opts, state); err != nil || updated {
 		return updated, err
