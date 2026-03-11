@@ -1549,34 +1549,31 @@ var _ = Describe("PromiseController", func() {
 	})
 
 	Describe(".status", func() {
-		Describe(".kratix.workflows.executions", func() {
+		Describe(".kratix.workflows.pipelines", func() {
 			BeforeEach(func() {
 				// create promise with multiple workflows
 				promise = createPromise(promiseWithWorkflowPath)
+				promise.Status.Kratix.Workflows.Pipelines = []v1alpha1.WorkflowPipelineStatus{
+					{
+						Name: "pipeline1",
+					},
+					{
+						Name: "pipeline2",
+					},
+				}
 			})
 
-			It("populates the executions field with the workflow executions", func() {
-				result, err := t.reconcileUntilCompletion(reconciler, promise, &opts{
-					funcs: []func(client.Object) error{autoMarkCRDAsEstablished},
+			When("promise used to have configure pipelines but no longer does 😭", func() {
+				It("removes .kratix.workflows.pipelines", func() {
+					result, err := t.reconcileUntilCompletion(reconciler, promise, &opts{
+						funcs: []func(client.Object) error{autoMarkCRDAsEstablished}})
+					Expect(err).NotTo(HaveOccurred())
+					Expect(result).To(Equal(ctrl.Result{}))
+
+					Expect(fakeK8sClient.Get(ctx, promiseName, promise)).To(Succeed())
+					Expect(promise.Status.Kratix.Workflows.Pipelines).To(BeEmpty())
 				})
-				Expect(err).NotTo(HaveOccurred())
-				Expect(result).To(Equal(ctrl.Result{}))
-
-				Expect(fakeK8sClient.Get(ctx, promiseName, promise)).To(Succeed())
-
-				Expect(promise.Status.Kratix.Workflows.Pipelines).To(HaveLen(2))
-
-				Expect(promise.Status.Kratix.Workflows.Pipelines[0].Name).To(Equal("first-pipeline"))
-				Expect(promise.Status.Kratix.Workflows.Pipelines[0].Phase).To(Equal("Pending"))
-				Expect(promise.Status.Kratix.Workflows.Pipelines[1].Name).To(Equal("second-pipeline"))
-				Expect(promise.Status.Kratix.Workflows.Pipelines[1].Phase).To(Equal("Pending"))
 			})
-
-			// Test: mark as failed when pipeline fails
-			// 	     mark promise as unavailable
-
-			// Test: if i remove the pipelines, set status execution to nil
-
 		})
 	})
 

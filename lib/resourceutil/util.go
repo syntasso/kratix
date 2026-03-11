@@ -369,8 +369,8 @@ func MarkCurrentPipelineAs(status string, rr *unstructured.Unstructured, logger 
 	return err
 }
 
-func ResetPipelineStatusToPending(obj *unstructured.Unstructured, logger logr.Logger, pipelineNames []string) error {
-	if obj.GetKind() != "Promise" || len(pipelineNames) == 0 {
+func ResetPipelineStatusToPending(obj *unstructured.Unstructured) error {
+	if obj.GetKind() != "Promise" {
 		return nil
 	}
 	promise := &v1alpha1.Promise{}
@@ -378,14 +378,16 @@ func ResetPipelineStatusToPending(obj *unstructured.Unstructured, logger logr.Lo
 	if err != nil {
 		return err
 	}
-	workflows := make([]v1alpha1.WorkflowPipelineStatus, len(pipelineNames))
-	for i, name := range pipelineNames {
-		workflows[i] = v1alpha1.WorkflowPipelineStatus{
-			Name:               name,
+	workflows := []v1alpha1.WorkflowPipelineStatus{}
+
+	for _, pipeline := range promise.Spec.Workflows.Promise.Configure {
+		workflows = append(workflows, v1alpha1.WorkflowPipelineStatus{
+			Name:               pipeline.GetName(),
 			Phase:              v1alpha1.WorkflowPhasePending,
 			LastTransitionTime: metav1.Time{},
-		}
+		})
 	}
+
 	promise.Status.Kratix.Workflows.Pipelines = workflows
 	obj.Object, err = runtime.DefaultUnstructuredConverter.ToUnstructured(promise)
 	return err

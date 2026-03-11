@@ -851,9 +851,9 @@ func (r *PromiseReconciler) reconcileDependenciesAndPromiseWorkflows(o opts, pro
 		return false, nil
 	}
 
-	if promise.Status.Workflows != pipelineCount || len(promise.Status.Kratix.Workflows.Pipelines) != int(pipelineCount) {
+	if promise.Status.Workflows != pipelineCount {
 		/* New pipelines have been added, regenerate the pipelines execution statuses */
-		promise.ResetPipelineExecutionStatus()
+		promise.Status.Workflows = pipelineCount
 		return false, r.Client.Status().Update(o.ctx, promise)
 	}
 

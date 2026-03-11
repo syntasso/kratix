@@ -251,7 +251,7 @@ func reconcileWorkflowStatus(opts Opts, state *workflowState) (passiveRequeue bo
 
 	if shouldResetForManualRetry || (succeededCountDrifted && state.completedCount == 0) {
 		resourceutil.SetStatus(opts.parentObject, opts.logger, "workflowsFailed", int64(0))
-		if err = resourceutil.ResetPipelineStatusToPending(opts.parentObject, opts.logger, pipelineNames(opts.Resources)); err != nil {
+		if err = resourceutil.ResetPipelineStatusToPending(opts.parentObject); err != nil {
 			return false, err
 		}
 	}

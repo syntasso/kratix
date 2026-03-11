@@ -525,21 +525,6 @@ func (p *Promise) ClearPipelineExecutionStatus() bool {
 	return changed
 }
 
-func (p *Promise) ResetPipelineExecutionStatus() {
-	workflows := []WorkflowPipelineStatus{}
-
-	for _, pipeline := range p.Spec.Workflows.Promise.Configure {
-		workflows = append(workflows, WorkflowPipelineStatus{
-			Name:               pipeline.GetName(),
-			Phase:              WorkflowPhasePending,
-			LastTransitionTime: metav1.Time{},
-		})
-	}
-
-	p.Status.Kratix.Workflows.Pipelines = workflows
-	p.Status.Workflows = int64(len(workflows))
-}
-
 type pipelineMap map[Type]map[Action][]Pipeline
 
 func NewPipelinesMap(promise *Promise, logger logr.Logger) (pipelineMap, error) {

@@ -18,6 +18,7 @@ import (
 	metav1 "k8s.io/apimachinery/pkg/apis/meta/v1"
 	"k8s.io/apimachinery/pkg/apis/meta/v1/unstructured"
 	"k8s.io/apimachinery/pkg/labels"
+	"k8s.io/apimachinery/pkg/runtime"
 	"k8s.io/apimachinery/pkg/runtime/schema"
 	"k8s.io/apimachinery/pkg/types"
 	"k8s.io/client-go/tools/record"
@@ -59,6 +60,8 @@ var _ = Describe("Workflow Reconciler", func() {
 		}
 
 		pipelines = []v1alpha1.Pipeline{{
+			Kind:       "Pipeline",
+			APIVersion: "kratix.io/v1alpha1",
 			ObjectMeta: metav1.ObjectMeta{
 				Name: "pipeline-1",
 			},
@@ -68,6 +71,8 @@ var _ = Describe("Workflow Reconciler", func() {
 				},
 			},
 		}, {
+			Kind:       "Pipeline",
+			APIVersion: "kratix.io/v1alpha1",
 			ObjectMeta: metav1.ObjectMeta{
 				Name: "pipeline-2",
 			},
@@ -77,6 +82,13 @@ var _ = Describe("Workflow Reconciler", func() {
 				},
 			},
 		}}
+
+		promise.Spec.Workflows.Promise.Configure = make([]unstructured.Unstructured, len(pipelines))
+		for i, p := range pipelines {
+			obj, err := runtime.DefaultUnstructuredConverter.ToUnstructured(&p)
+			Expect(err).NotTo(HaveOccurred())
+			promise.Spec.Workflows.Promise.Configure[i] = unstructured.Unstructured{Object: obj}
+		}
 
 		Expect(fakeK8sClient.Create(ctx, &promise)).To(Succeed())
 		Expect(fakeK8sClient.Status().Update(ctx, &promise)).To(Succeed())
