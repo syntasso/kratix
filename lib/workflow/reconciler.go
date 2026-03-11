@@ -153,6 +153,7 @@ func ReconcileConfigure(opts Opts) (passiveRequeue bool, err error) {
 	if err != nil {
 		return false, err
 	}
+
 	// TODO: do we need this check?
 	if state.pipelineIndex < 0 {
 		logging.Debug(opts.logger, "no pipeline to reconcile", "index", state.pipelineIndex)
@@ -215,22 +216,23 @@ func determineWorkflowState(opts Opts) (*workflowState, error) {
 
 	state.pipelineIndex = pipelineIndex
 	return state, nil
+
 }
 
 func reconcileWorkflowStatus(opts Opts, state *workflowState) (passiveRequeue bool, err error) {
-	currentCount := max(resourceutil.GetWorkflowsCounterStatus(opts.parentObject, "workflowsSucceeded"), 0)
+	currentSucceededCount := max(resourceutil.GetWorkflowsCounterStatus(opts.parentObject, "workflowsSucceeded"), 0)
 	currentFailedCount := max(resourceutil.GetWorkflowsCounterStatus(opts.parentObject, "workflowsFailed"), 0)
-	hasCountDrift := currentCount != state.completedCount
+	succeededCountDrifted := currentSucceededCount != state.completedCount
 
 	shouldResetForManualRetry := state.manualReconcile && currentFailedCount != 0
-	shouldSetFailedCount := state.desiredFailedCount != nil && currentFailedCount != *state.desiredFailedCount
-	shouldSetDesiredPipelinePhase := state.desiredPipelineJob != nil && state.desiredPipelinePhase != ""
+	failedCountDrifted := state.desiredFailedCount != nil && currentFailedCount != *state.desiredFailedCount
+	pipelinePhaseDrifted := state.desiredPipelineJob != nil && state.desiredPipelinePhase != ""
 
-	if !hasCountDrift && !shouldResetForManualRetry && !shouldSetFailedCount && !shouldSetDesiredPipelinePhase {
+	if !succeededCountDrifted && !shouldResetForManualRetry && !failedCountDrifted && !pipelinePhaseDrifted {
 		return false, nil
 	}
 
-	if hasCountDrift {
+	if succeededCountDrifted {
 		resourceutil.SetStatus(opts.parentObject, opts.logger, "workflowsSucceeded", state.completedCount)
 		if state.completedCount > 0 {
 			if err = resourceutil.MarkCurrentPipelineAsSucceeded(opts.parentObject, opts.logger, state.mostRecentJob); err != nil {
@@ -240,18 +242,18 @@ func reconcileWorkflowStatus(opts Opts, state *workflowState) (passiveRequeue bo
 		}
 	}
 
-	if shouldResetForManualRetry || (hasCountDrift && state.completedCount == 0) {
+	if shouldResetForManualRetry || (succeededCountDrifted && state.completedCount == 0) {
 		resourceutil.SetStatus(opts.parentObject, opts.logger, "workflowsFailed", int64(0))
 		if err = resourceutil.ResetPipelineStatusToPending(opts.parentObject, opts.logger, pipelineNames(opts.Resources)); err != nil {
 			return false, err
 		}
 	}
 
-	if shouldSetFailedCount {
+	if failedCountDrifted {
 		resourceutil.SetStatus(opts.parentObject, opts.logger, "workflowsFailed", *state.desiredFailedCount)
 	}
 
-	if shouldSetDesiredPipelinePhase {
+	if pipelinePhaseDrifted {
 		if err = resourceutil.MarkCurrentPipelineAs(state.desiredPipelinePhase, opts.parentObject, opts.logger, state.desiredPipelineJob); err != nil {
 			logging.Error(opts.logger, err, "failed to mark current pipeline as "+state.desiredPipelinePhase)
 			return false, err
@@ -428,6 +430,7 @@ func jobIsForPipeline(pipeline v1alpha1.PipelineJobResources, job *batchv1.Job) 
 	return jobLabels[v1alpha1.PipelineNameLabel] == pipelineLabels[v1alpha1.PipelineNameLabel]
 }
 
+// Bool indicates wether the job belongs to the pipeline, or is unrelated
 func jobToPipelineIndex(opts Opts, mostRecentJob *batchv1.Job) (int, bool) {
 	if mostRecentJob == nil || isManualReconciliation(opts.parentObject.GetLabels()) {
 		return 0, false
