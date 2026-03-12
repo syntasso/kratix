@@ -10,9 +10,12 @@ import (
 
 //counterfeiter:generate . StateStoreWriter
 type StateStoreWriter interface {
+	Init(branch string) (string, error)
+	Reset() error
 	UpdateFiles(subDir string, workPlacementName string, workloadsToCreate []v1alpha1.Workload, workloadsToDelete []string) (string, error)
 	ReadFile(filename string) ([]byte, error)
 	ValidatePermissions() error
+	DeleteFiles(workplacementName string, files []string) error
 }
 
 var ErrFileNotFound = fmt.Errorf("file not found")

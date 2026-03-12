@@ -18,7 +18,6 @@ package controller
 
 import (
 	"context"
-	"time"
 
 	"github.com/go-logr/logr"
 	"github.com/syntasso/kratix/api/v1alpha1"
@@ -38,9 +37,10 @@ import (
 // GitStateStoreReconciler reconciles a GitStateStore object
 type GitStateStoreReconciler struct {
 	client.Client
-	Scheme        *runtime.Scheme
-	Log           logr.Logger
-	EventRecorder record.EventRecorder
+	Scheme          *runtime.Scheme
+	Log             logr.Logger
+	EventRecorder   record.EventRecorder
+	RepositoryCache RepositoryCache
 }
 
 //+kubebuilder:rbac:groups=platform.kratix.io,resources=gitstatestores,verbs=get;list;watch;create;update;patch;delete
@@ -48,35 +48,60 @@ type GitStateStoreReconciler struct {
 //+kubebuilder:rbac:groups=platform.kratix.io,resources=gitstatestores/finalizers,verbs=update
 
 // Reconcile reconciles a GitStateStore object.
-func (r *GitStateStoreReconciler) Reconcile(ctx context.Context, req ctrl.Request) (result ctrl.Result, retErr error) { //nolint:dupl
-
-	gitStateStore := &v1alpha1.GitStateStore{}
-	if err := r.Get(ctx, client.ObjectKey{Name: req.Name}, gitStateStore); err != nil {
-		if errors.IsNotFound(err) {
-			return ctrl.Result{}, nil
-		}
-		return ctrl.Result{}, err
-	}
+func (r *GitStateStoreReconciler) Reconcile(ctx context.Context, req ctrl.Request) (result ctrl.Result, retErr error) {
 	logger := r.Log.WithValues(
 		"controller", "gitStateStore",
 		"name", req.Name,
-		"generation", gitStateStore.GetGeneration(),
 	)
-	logging.Info(logger, "reconciliation started")
-	defer logReconcileDuration(logger, time.Now(), result, retErr)()
 
-	o := opts{
-		client: r.Client,
-		ctx:    ctx,
-		logger: logger,
+	return withTrace(logger, func() (ctrl.Result, error) {
+		stateStoreCtx, err := r.newReconcileContext(ctx, logger, req)
+		if err != nil {
+			logging.Error(logger, err, "unable to setup resources for reconciliation")
+			return ctrl.Result{}, err
+		}
+		if stateStoreCtx == nil {
+			return ctrl.Result{}, nil
+		}
+
+		result, err := stateStoreCtx.Reconcile()
+		if err != nil {
+			return ctrl.Result{}, err
+		}
+		return result, nil
+	})
+}
+
+func (r *GitStateStoreReconciler) newReconcileContext(ctx context.Context, logger logr.Logger, req ctrl.Request) (*stateStoreReconcileContext, error) { //nolint:dupl
+	gitStateStore := &v1alpha1.GitStateStore{}
+	if err := r.Get(ctx, client.ObjectKey{Name: req.Name}, gitStateStore); err != nil {
+		if errors.IsNotFound(err) {
+			return nil, nil
+		}
+		return nil, NewInitialiseWriterError(err)
 	}
 
-	return reconcileStateStoreCommon(
-		o,
-		gitStateStore,
-		"GitStateStore",
-		r.EventRecorder,
-	)
+	stateStoreCtx := &stateStoreReconcileContext{
+		ctx:             ctx,
+		controller:      "GitStateStore",
+		logger:          logger.WithValues("generation", gitStateStore.GetGeneration()),
+		client:          r.Client,
+		stateStore:      gitStateStore,
+		repositoryCache: r.RepositoryCache,
+		eventRecorder:   r.EventRecorder,
+	}
+
+	secret, err := fetchSecret(ctx, logger, r.Client, gitStateStore)
+	if err != nil {
+		if r.RepositoryCache.Cleanup(gitStateStore) != nil {
+			logging.Debug(logger, "failed to clean up repository cache")
+		}
+		return nil, stateStoreCtx.setNotReadyStatus(err)
+	}
+
+	stateStoreCtx.stateStoreSecret = secret
+
+	return stateStoreCtx, nil
 }
 
 func (r *GitStateStoreReconciler) findStateStoresReferencingSecret() handler.MapFunc {
@@ -92,7 +117,11 @@ func (r *GitStateStoreReconciler) SetupWithManager(mgr ctrl.Manager) error {
 	err := mgr.GetFieldIndexer().IndexField(context.Background(), &v1alpha1.GitStateStore{}, secretRefFieldName,
 		func(rawObj client.Object) []string {
 			stateStore := rawObj.(*v1alpha1.GitStateStore)
-			return []string{secretRefIndexKey(stateStore.Spec.SecretRef.Name, stateStore.Spec.SecretRef.Namespace)}
+			secretRef := stateStore.GetSecretRef()
+			if secretRef == nil {
+				return nil
+			}
+			return []string{secretRefIndexKey(secretRef.Name, secretRef.Namespace)}
 		},
 	)
 	if err != nil {
