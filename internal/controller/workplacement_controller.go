@@ -39,6 +39,7 @@ import (
 	"sigs.k8s.io/controller-runtime/pkg/builder"
 	"sigs.k8s.io/controller-runtime/pkg/client"
 	"sigs.k8s.io/controller-runtime/pkg/controller/controllerutil"
+	"sigs.k8s.io/controller-runtime/pkg/event"
 	"sigs.k8s.io/controller-runtime/pkg/predicate"
 
 	"go.opentelemetry.io/otel/attribute"
@@ -270,8 +271,20 @@ func (w *workPlacementReconcileContext) publishWriteEvent(reason, versionID stri
 // SetupWithManager sets up the controller with the Manager.
 func (r *WorkPlacementReconciler) SetupWithManager(mgr ctrl.Manager) error {
 	return ctrl.NewControllerManagedBy(mgr).
-		For(&v1alpha1.WorkPlacement{}, builder.WithPredicates(predicate.GenerationChangedPredicate{})).
+		For(&v1alpha1.WorkPlacement{}, builder.WithPredicates(workPlacementReconcilePredicate())).
 		Complete(r)
+}
+
+func workPlacementReconcilePredicate() predicate.Funcs {
+	return predicate.Funcs{
+		UpdateFunc: func(e event.UpdateEvent) bool {
+			oldDeletionTimestamp := e.ObjectOld.GetDeletionTimestamp()
+			newDeletionTimestamp := e.ObjectNew.GetDeletionTimestamp()
+			deletionStarted := (oldDeletionTimestamp == nil) != (newDeletionTimestamp == nil)
+
+			return e.ObjectNew.GetGeneration() != e.ObjectOld.GetGeneration() || deletionStarted
+		},
+	}
 }
 
 func (w *workPlacementReconcileContext) checkWorkPlacementFinalizers() []string {

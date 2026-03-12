@@ -29,6 +29,10 @@ WORKDIR /
 COPY --from=builder /out/manager /manager
 COPY --from=builder /out/pipeline-adapter /bin/pipeline-adapter
 
+RUN echo '#!/bin/sh' > /usr/bin/git-askpass-noop && \
+    echo 'exit 0' >> /usr/bin/git-askpass-noop && \
+    chmod +x /usr/bin/git-askpass-noop
+
 RUN addgroup -g 65532 app && \
     adduser -D -H -u 65532 -G app appuser && \
     mkdir -p /home/appuser/.ssh && \

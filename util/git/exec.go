@@ -236,7 +236,7 @@ func (m *nativeGitClient) runCmdOutput(cmd *exec.Cmd, ropts runOpts) (string, er
 	cmd.Env = append(cmd.Env, m.gitConfigEnv...)
 
 	cmd.Env = append(cmd.Env,
-		"GIT_ASKPASS=/bin/true", // Disable password prompts; use absolute path for minimal CI containers where PATH may be unset
+		"GIT_ASKPASS=/usr/bin/git-askpass-noop", // Disable password prompts; script bundled in image (alpine/git may not have /bin/true)
 		"GIT_CONFIG_COUNT=1",    // Number of config settings
 		"GIT_CONFIG_KEY_0=credential.helper",
 		"GIT_CONFIG_VALUE_0=", // Disable credential helper
