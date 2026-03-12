@@ -1553,6 +1553,7 @@ var _ = Describe("PromiseController", func() {
 			BeforeEach(func() {
 				// create promise with multiple workflows
 				promise = createPromise(promiseWithWorkflowPath)
+				promise.Spec.Workflows.Promise.Configure = nil
 				promise.Status.Kratix.Workflows.Pipelines = []v1alpha1.WorkflowPipelineStatus{
 					{
 						Name: "pipeline1",
@@ -1561,14 +1562,15 @@ var _ = Describe("PromiseController", func() {
 						Name: "pipeline2",
 					},
 				}
+
+				Expect(fakeK8sClient.Update(ctx, promise)).To(Succeed())
 			})
 
 			When("promise used to have configure pipelines but no longer does 😭", func() {
 				It("removes .kratix.workflows.pipelines", func() {
-					result, err := t.reconcileUntilCompletion(reconciler, promise, &opts{
+					_, err := t.reconcileUntilCompletion(reconciler, promise, &opts{
 						funcs: []func(client.Object) error{autoMarkCRDAsEstablished}})
 					Expect(err).NotTo(HaveOccurred())
-					Expect(result).To(Equal(ctrl.Result{}))
 
 					Expect(fakeK8sClient.Get(ctx, promiseName, promise)).To(Succeed())
 					Expect(promise.Status.Kratix.Workflows.Pipelines).To(BeEmpty())

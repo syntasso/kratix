@@ -857,6 +857,10 @@ func (r *PromiseReconciler) reconcileDependenciesAndPromiseWorkflows(o opts, pro
 		return false, r.Client.Status().Update(o.ctx, promise)
 	}
 
+	if requeue, err := r.ensureKratixWorkflowStatusIsSetup(promise); err != nil || requeue {
+		return requeue, err
+	}
+
 	if promise.Labels == nil {
 		promise.Labels = make(map[string]string)
 	}
@@ -906,6 +910,35 @@ func (r *PromiseReconciler) reconcileDependenciesAndPromiseWorkflows(o opts, pro
 	}
 
 	return false, nil
+}
+
+// Eithers its not set, or its changed, either number of pipelines has changed, or names have changed
+func (r *PromiseReconciler) ensureKratixWorkflowStatusIsSetup(promise *v1alpha1.Promise) (bool, error) {
+	if len(promise.Status.Kratix.Workflows.Pipelines) != len(promise.Spec.Workflows.Promise.Configure) {
+		setNewPipelineStatus(promise, r.Log)
+		return true, r.Client.Status().Update(context.Background(), promise)
+	}
+
+	for i, pipelineStatus := range promise.Status.Kratix.Workflows.Pipelines {
+		if pipelineStatus.Name != promise.Spec.Workflows.Promise.Configure[i].GetName() {
+			setNewPipelineStatus(promise, r.Log)
+			return true, r.Client.Status().Update(context.Background(), promise)
+		}
+	}
+
+	return false, nil
+}
+
+func setNewPipelineStatus(promise *v1alpha1.Promise, logger logr.Logger) {
+	workflowPipelinesStatus := []v1alpha1.WorkflowPipelineStatus{}
+	for _, pipeline := range promise.Spec.Workflows.Promise.Configure {
+		workflowPipelinesStatus = append(workflowPipelinesStatus, v1alpha1.WorkflowPipelineStatus{
+			Name:               pipeline.GetName(),
+			Phase:              v1alpha1.WorkflowPhasePending,
+			LastTransitionTime: metav1.NewTime(time.Now()),
+		})
+	}
+	promise.Status.Kratix.Workflows.Pipelines = workflowPipelinesStatus
 }
 
 func (r *PromiseReconciler) reconcileAllRRs(ctx context.Context, rrGVK *schema.GroupVersionKind) error {
