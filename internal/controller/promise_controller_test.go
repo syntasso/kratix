@@ -1553,20 +1553,24 @@ var _ = Describe("PromiseController", func() {
 			BeforeEach(func() {
 				// create promise with multiple workflows
 				promise = createPromise(promiseWithWorkflowPath)
-				promise.Spec.Workflows.Promise.Configure = nil
 				promise.Status.Kratix.Workflows.Pipelines = []v1alpha1.WorkflowPipelineStatus{
 					{
-						Name: "pipeline1",
+						Name:  "first-pipeline",
+						Phase: "Running",
 					},
 					{
-						Name: "pipeline2",
+						Name:  "second-pipeline",
+						Phase: "Pending",
 					},
 				}
-
-				Expect(fakeK8sClient.Update(ctx, promise)).To(Succeed())
 			})
 
 			When("promise used to have configure pipelines but no longer does 😭", func() {
+				BeforeEach(func() {
+					promise.Spec.Workflows.Promise.Configure = nil
+					Expect(fakeK8sClient.Update(ctx, promise)).To(Succeed())
+				})
+
 				It("removes .kratix.workflows.pipelines", func() {
 					_, err := t.reconcileUntilCompletion(reconciler, promise, &opts{
 						funcs: []func(client.Object) error{autoMarkCRDAsEstablished}})
@@ -1576,6 +1580,48 @@ var _ = Describe("PromiseController", func() {
 					Expect(promise.Status.Kratix.Workflows.Pipelines).To(BeEmpty())
 				})
 			})
+
+			When("A pipeline name has changed", func() {
+				BeforeEach(func() {
+					promise.Spec.Workflows.Promise.Configure[0].SetName("new-pipeline-name")
+					Expect(fakeK8sClient.Update(ctx, promise)).To(Succeed())
+				})
+
+				It("resets the status", func() {
+					_, err := t.reconcileUntilCompletion(reconciler, promise, &opts{
+						funcs: []func(client.Object) error{autoMarkCRDAsEstablished}})
+					Expect(err).NotTo(HaveOccurred())
+
+					Expect(fakeK8sClient.Get(ctx, promiseName, promise)).To(Succeed())
+					Expect(promise.Status.Kratix.Workflows.Pipelines).To(HaveLen(2))
+					Expect(promise.Status.Kratix.Workflows.Pipelines[0].Name).To(Equal("new-pipeline-name"))
+					Expect(promise.Status.Kratix.Workflows.Pipelines[0].Phase).To(Equal("Pending"))
+					Expect(promise.Status.Kratix.Workflows.Pipelines[0].LastTransitionTime).NotTo(BeNil())
+					Expect(promise.Status.Kratix.Workflows.Pipelines[1].Name).To(Equal("second-pipeline"))
+					Expect(promise.Status.Kratix.Workflows.Pipelines[1].Phase).To(Equal("Pending"))
+					Expect(promise.Status.Kratix.Workflows.Pipelines[1].LastTransitionTime).NotTo(BeNil())
+				})
+			})
+
+			When("the number of pipelines has changed", func() {
+				BeforeEach(func() {
+					promise.Spec.Workflows.Promise.Configure = promise.Spec.Workflows.Promise.Configure[:1]
+					Expect(fakeK8sClient.Update(ctx, promise)).To(Succeed())
+				})
+
+				It("resets the status", func() {
+					_, err := t.reconcileUntilCompletion(reconciler, promise, &opts{
+						funcs: []func(client.Object) error{autoMarkCRDAsEstablished}})
+					Expect(err).NotTo(HaveOccurred())
+
+					Expect(fakeK8sClient.Get(ctx, promiseName, promise)).To(Succeed())
+					Expect(promise.Status.Kratix.Workflows.Pipelines).To(HaveLen(1))
+					Expect(promise.Status.Kratix.Workflows.Pipelines[0].Name).To(Equal("first-pipeline"))
+					Expect(promise.Status.Kratix.Workflows.Pipelines[0].Phase).To(Equal("Pending"))
+					Expect(promise.Status.Kratix.Workflows.Pipelines[0].LastTransitionTime).NotTo(BeNil())
+				})
+			})
+
 		})
 	})
 
