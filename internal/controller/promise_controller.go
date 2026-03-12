@@ -132,7 +132,6 @@ var (
 
 // +kubebuilder:rbac:groups=apiextensions.k8s.io,resources=customresourcedefinitions,verbs=get;list;watch;create;update;patch;delete
 
-//nolint:gocognit // Reconcile orchestrates many promise concerns; splitting would hide the control flow.
 func (r *PromiseReconciler) Reconcile(ctx context.Context, req ctrl.Request) (result ctrl.Result, retErr error) {
 	logger := r.Log.WithValues(
 		"controller", "promise",
@@ -915,13 +914,13 @@ func (r *PromiseReconciler) reconcileDependenciesAndPromiseWorkflows(o opts, pro
 // Eithers its not set, or its changed, either number of pipelines has changed, or names have changed
 func (r *PromiseReconciler) ensureKratixWorkflowStatusIsSetup(promise *v1alpha1.Promise) (bool, error) {
 	if len(promise.Status.Kratix.Workflows.Pipelines) != len(promise.Spec.Workflows.Promise.Configure) {
-		setNewPipelineStatus(promise, r.Log)
+		setNewPipelineStatus(promise)
 		return true, r.Client.Status().Update(context.Background(), promise)
 	}
 
 	for i, pipelineStatus := range promise.Status.Kratix.Workflows.Pipelines {
 		if pipelineStatus.Name != promise.Spec.Workflows.Promise.Configure[i].GetName() {
-			setNewPipelineStatus(promise, r.Log)
+			setNewPipelineStatus(promise)
 			return true, r.Client.Status().Update(context.Background(), promise)
 		}
 	}
@@ -929,7 +928,7 @@ func (r *PromiseReconciler) ensureKratixWorkflowStatusIsSetup(promise *v1alpha1.
 	return false, nil
 }
 
-func setNewPipelineStatus(promise *v1alpha1.Promise, logger logr.Logger) {
+func setNewPipelineStatus(promise *v1alpha1.Promise) {
 	workflowPipelinesStatus := []v1alpha1.WorkflowPipelineStatus{}
 	for _, pipeline := range promise.Spec.Workflows.Promise.Configure {
 		workflowPipelinesStatus = append(workflowPipelinesStatus, v1alpha1.WorkflowPipelineStatus{

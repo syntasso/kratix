@@ -225,7 +225,7 @@ func reconcileWorkflowStatus(opts Opts, state *workflowState) (passiveRequeue bo
 	currentFailedCount := resourceutil.GetWorkflowsCounterStatus(opts.parentObject, "workflowsFailed")
 
 	if currentFailedCount == -1 && state.desiredFailedCount == nil {
-		// this means the failed count has never been set, so we should initialize it to 0 to avoid drift
+		// this means the failed count has never been set, so we should initialise it to 0 to avoid drift
 		state.desiredFailedCount = new(int64)
 		*state.desiredFailedCount = 0
 	}
@@ -272,14 +272,6 @@ func reconcileWorkflowStatus(opts Opts, state *workflowState) (passiveRequeue bo
 		return false, err
 	}
 	return true, nil
-}
-
-func pipelineNames(resources []v1alpha1.PipelineJobResources) []string {
-	names := make([]string, len(resources))
-	for i, r := range resources {
-		names[i] = r.Name
-	}
-	return names
 }
 
 func executeReconcileAction(opts Opts, state *workflowState, pipeline v1alpha1.PipelineJobResources) (passiveRequeue bool, err error) {
