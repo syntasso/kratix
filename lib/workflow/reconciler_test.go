@@ -223,9 +223,6 @@ var _ = Describe("Workflow Reconciler", func() {
 					Expect(promise.Status.WorkflowsFailed).To(Equal(int64(0)))
 					Expect(promise.Status.Kratix.Workflows.Pipelines[0].Phase).To(Equal("Running"))
 					Expect(promise.Status.Kratix.Workflows.Pipelines[1].Phase).To(Equal("Pending"))
-					// Todo: to be decided where this logic and test should live
-					//Expect(promise.Status.Kratix.Workflows.Pipelines[0].LastTransitionTime).NotTo(BeZero())
-					//Expect(promise.Status.Kratix.Workflows.Pipelines[1].LastTransitionTime).NotTo(BeZero())
 				})
 
 				By("creating a new job for the pipeline", func() {

@@ -199,12 +199,15 @@ var _ = Describe("Core Tests", Ordered, func() {
 							var parsedOutput [][]v1alpha1.WorkflowPipelineStatus // jsonpath-as-json returns a nested array of the target objects
 							jsonOutput := platform.Kubectl(append(promiseArgs, fmt.Sprintf(`-o=jsonpath-as-json={%s}`, promiseWorkflowPipelines))...)
 							json.Unmarshal([]byte(jsonOutput), &parsedOutput)
-							Expect(parsedOutput).To(HaveLen(1))
-							workflowPipelines := parsedOutput[0]
-							g.Expect(workflowPipelines).To(HaveLen(1))
-							g.Expect(workflowPipelines[0].Name).To(Equal("setup-deps"))
-							g.Expect(workflowPipelines[0].Phase).To(Equal(v1alpha1.WorkflowPhaseSucceeded))
-							g.Expect(workflowPipelines[0].LastTransitionTime).To(Not(BeZero()))
+							// TODO: remove after releasing: only assert if '.kratix.workflows.pipelines' is set
+							if len(parsedOutput) != 0 {
+								Expect(parsedOutput).To(HaveLen(1))
+								workflowPipelines := parsedOutput[0]
+								g.Expect(workflowPipelines).To(HaveLen(1))
+								g.Expect(workflowPipelines[0].Name).To(Equal("setup-deps"))
+								g.Expect(workflowPipelines[0].Phase).To(Equal(v1alpha1.WorkflowPhaseSucceeded))
+								g.Expect(workflowPipelines[0].LastTransitionTime).To(Not(BeZero()))
+							}
 
 						}, timeout, interval).Should(Succeed())
 					})
@@ -245,7 +248,7 @@ var _ = Describe("Core Tests", Ordered, func() {
 							append(rrArgs, fmt.Sprintf(`-o=jsonpath={%s.lastTransitionTime}`, workflowCompletedCondition))...,
 						)
 
-						// For downgrade tests, we don't have the .status.kratix.workflows field, so we return true if it's not present.
+						// TODO: remove after releasing: for downgrade tests, we don't have the .status.kratix.workflows field, so we return true if it's not present.
 						if platform.Kubectl(append(rrArgs, `-o=jsonpath={.status.kratix.workflows}`)...) == "" {
 							return true
 						}
