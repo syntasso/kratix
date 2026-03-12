@@ -251,6 +251,26 @@ spec:
                     description: Version of the Promise, derived from the PromiseRelease
                       if installed via one
                     type: string
+                  workflows:
+                    description: Status of the Workflow execution
+                    properties:
+                      pipelines:
+                        description: Status of the Pipeline execution
+                        items:
+                          properties:
+                            lastTransitionTime:
+                              description: Last transition time of the workflow
+                              format: date-time
+                              type: string
+                            name:
+                              description: Name of the workflow
+                              type: string
+                            phase:
+                              description: Phase of the workflow
+                              type: string
+                          type: object
+                        type: array
+                    type: object
                 type: object
               lastAvailableTime:
                 description: Timestamp of when this Promise was last in an Available
