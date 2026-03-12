@@ -31,6 +31,13 @@ var _ = Describe("Core Tests", Ordered, func() {
 		platform.Kubectl("label", "destination", destinationName, "target="+workerOne)
 		platform.Kubectl("label", "destination", workerTwo, "target="+workerTwo)
 		worker.Kubectl("apply", "-f", "assets/flux.yaml")
+
+		Eventually(func() string {
+			return platform.Kubectl("get", "destination", destinationName, `-o=jsonpath='{.status.conditions[?(@.type=="Ready")].status}'`)
+		}, timeout, interval).Should(ContainSubstring("True"), "destination %s is not ready", destinationName)
+		Eventually(func() string {
+			return platform.Kubectl("get", "destination", workerTwo, `-o=jsonpath='{.status.conditions[?(@.type=="Ready")].status}'`)
+		}, timeout, interval).Should(ContainSubstring("True"), "destination %s is not ready", workerTwo)
 	})
 
 	AfterAll(func() {
@@ -127,7 +134,7 @@ var _ = Describe("Core Tests", Ordered, func() {
 										Message: "Workloads written to State Store",
 									}))
 							}
-						}, 60*time.Second, interval).Should(Succeed())
+						}, timeout, interval).Should(Succeed())
 					})
 
 					By("setting status.conditions in works", func() {

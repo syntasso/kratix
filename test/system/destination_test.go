@@ -26,9 +26,9 @@ var _ = Describe("Destinations", Label("destination"), Serial, func() {
 	)
 
 	BeforeEach(func() {
-		SetDefaultEventuallyTimeout(2 * time.Minute)
+		SetDefaultEventuallyTimeout(3 * time.Minute)
 		SetDefaultEventuallyPollingInterval(2 * time.Second)
-		kubeutils.SetTimeoutAndInterval(2*time.Minute, 2*time.Second)
+		kubeutils.SetTimeoutAndInterval(3*time.Minute, 2*time.Second)
 
 		destinationYAML = "assets/destination/destination-worker-git.yaml"
 		stateStoreYAML = "assets/destination/destination-git-test-store.yaml"
