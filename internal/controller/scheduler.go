@@ -465,12 +465,15 @@ func (s *Scheduler) updateWorkPlacementStatus(ctx context.Context, workPlacement
 
 	readyUpdated := false
 	if scheduleUpdated {
-		readyUpdated = apimeta.SetStatusCondition(&updatedwp.Status.Conditions, metav1.Condition{
-			Type:    "Ready",
-			Status:  metav1.ConditionFalse,
-			Reason:  "ScheduledToDestination",
-			Message: "Pending",
-		})
+		writeSucceededCond := apimeta.FindStatusCondition(updatedwp.Status.Conditions, v1alpha1.WriteSucceededConditionType)
+		if writeSucceededCond == nil || writeSucceededCond.Status != metav1.ConditionTrue {
+			readyUpdated = apimeta.SetStatusCondition(&updatedwp.Status.Conditions, metav1.Condition{
+				Type:    "Ready",
+				Status:  metav1.ConditionFalse,
+				Reason:  "ScheduledToDestination",
+				Message: "Pending",
+			})
+		}
 	}
 
 	if scheduleUpdated || readyUpdated {

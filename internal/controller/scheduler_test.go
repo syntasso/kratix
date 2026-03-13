@@ -233,6 +233,52 @@ var _ = Describe("Controllers/Scheduler", func() {
 				})
 			})
 
+			When("a resource Work with scheduling is reconciled after write succeeds", func() {
+				var workPlacement v1alpha1.WorkPlacement
+
+				BeforeEach(func() {
+					_, err := scheduler.ReconcileWork(context.Background(), &resourceWork)
+					Expect(err).ToNot(HaveOccurred())
+
+					Expect(fakeK8sClient.List(context.Background(), &workPlacements)).To(Succeed())
+					Expect(workPlacements.Items).To(HaveLen(1))
+					workPlacement = workPlacements.Items[0]
+
+					apimeta.SetStatusCondition(&workPlacement.Status.Conditions, metav1.Condition{
+						Type:    v1alpha1.WriteSucceededConditionType,
+						Status:  metav1.ConditionTrue,
+						Reason:  "WorkloadsWrittenToStateStore",
+						Message: "Workloads written to State Store",
+					})
+					apimeta.SetStatusCondition(&workPlacement.Status.Conditions, metav1.Condition{
+						Type:    "Ready",
+						Status:  metav1.ConditionTrue,
+						Reason:  "WorkloadsWrittenToTargetDestination",
+						Message: "Ready",
+					})
+					Expect(fakeK8sClient.Status().Update(context.Background(), &workPlacement)).To(Succeed())
+
+					latestWork := &v1alpha1.Work{}
+					Expect(fakeK8sClient.Get(context.Background(), client.ObjectKeyFromObject(&resourceWork), latestWork)).To(Succeed())
+					_, err = scheduler.ReconcileWork(context.Background(), latestWork)
+					Expect(err).ToNot(HaveOccurred())
+				})
+
+				It("does not reset ready status to pending", func() {
+					Expect(fakeK8sClient.Get(context.Background(), client.ObjectKeyFromObject(&workPlacement), &workPlacement)).To(Succeed())
+
+					readyCond := apimeta.FindStatusCondition(workPlacement.Status.Conditions, "Ready")
+					Expect(readyCond).ToNot(BeNil())
+					Expect(readyCond.Status).To(Equal(metav1.ConditionTrue))
+					Expect(readyCond.Reason).To(Equal("WorkloadsWrittenToTargetDestination"))
+					Expect(readyCond.Message).To(Equal("Ready"))
+
+					writeSucceededCond := apimeta.FindStatusCondition(workPlacement.Status.Conditions, v1alpha1.WriteSucceededConditionType)
+					Expect(writeSucceededCond).ToNot(BeNil())
+					Expect(writeSucceededCond.Status).To(Equal(metav1.ConditionTrue))
+				})
+			})
+
 			When("a resource Work with scheduling is reconciled with an updated WorkloadGroup", func() {
 				var previousWorkGeneration int64
 
