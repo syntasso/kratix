@@ -1115,7 +1115,7 @@ var _ = Describe("PromiseController", func() {
 					reinstalledPromise.UID = "5678efgh"
 					Expect(fakeK8sClient.Create(ctx, reinstalledPromise)).To(Succeed())
 
-					result, err = t.reconcileUntilCompletion(reconciler, reinstalledPromise, &opts{
+					_, err = t.reconcileUntilCompletion(reconciler, reinstalledPromise, &opts{
 						funcs: []func(client.Object) error{autoMarkCRDAsEstablished},
 					})
 					Expect(err).NotTo(HaveOccurred())

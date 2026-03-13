@@ -1095,10 +1095,10 @@ func (r *PromiseReconciler) stopDynamicControllerForDeletedPromise(ctx context.C
 	informerObject := &unstructured.Unstructured{}
 	informerObject.SetGroupVersionKind(*dynamicController.GVK)
 	if err := r.Manager.GetCache().RemoveInformer(ctx, informerObject); err != nil {
-		switch err.(type) {
-		case ctrlcache.ErrResourceNotCached, *ctrlcache.ErrResourceNotCached:
+		var errResourceNotCached *ctrlcache.ErrResourceNotCached
+		if stderrors.As(err, &errResourceNotCached) {
 			logging.Debug(logger, "dynamic controller informer already absent", "gvk", dynamicController.GVK.String())
-		default:
+		} else {
 			return err
 		}
 	}
@@ -1377,7 +1377,7 @@ func (r *PromiseReconciler) deletePromise(o opts, promise *v1alpha1.Promise) (ct
 
 	if err := r.stopDynamicControllerForDeletedPromise(o.ctx, promise, o.logger); err != nil {
 		logging.Error(o.logger, err, "failed to stop dynamic controller watch")
-		return defaultRequeue, nil //nolint:nilerr // requeue rather than exponential backoff
+		return defaultRequeue, nil
 	}
 
 	if controllerutil.ContainsFinalizer(promise, dynamicControllerDependantResourcesCleanupFinalizer) {
