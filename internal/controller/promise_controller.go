@@ -25,7 +25,6 @@ import (
 	"strings"
 	"time"
 
-	"github.com/syntasso/kratix/internal/ptr"
 	"github.com/syntasso/kratix/lib/objectutil"
 	"sigs.k8s.io/controller-runtime/pkg/builder"
 	ctrlcache "sigs.k8s.io/controller-runtime/pkg/cache"
@@ -981,7 +980,6 @@ func (r *PromiseReconciler) ensureDynamicControllerIsStarted(promise *v1alpha1.P
 		dynamicController.PromiseIdentifier = promise.GetName()
 		dynamicController.Log = r.Log.WithName(promise.GetName())
 		dynamicController.UID = string(promise.GetUID())[0:5]
-		dynamicController.Enabled = ptr.True()
 		dynamicController.CanCreateResources = canCreateResources
 		dynamicController.EventRecorder = r.Manager.GetEventRecorderFor("ResourceRequestController")
 		dynamicController.NumberOfJobsToKeep = r.NumberOfJobsToKeep
@@ -989,7 +987,7 @@ func (r *PromiseReconciler) ensureDynamicControllerIsStarted(promise *v1alpha1.P
 		dynamicController.PromiseUpgrade = r.PromiseUpgrade
 		dynamicController.PromiseDestinationSelectors = promise.Spec.DestinationSelectors
 
-		if dynamicController.watchStopped() {
+		if dynamicController.WatchStopped {
 			if err := r.restartDynamicControllerWatch(dynamicController); err != nil {
 				return err
 			}
@@ -1010,8 +1008,7 @@ func (r *PromiseReconciler) ensureDynamicControllerIsStarted(promise *v1alpha1.P
 		PromiseDestinationSelectors: promise.Spec.DestinationSelectors,
 		Log:                         r.Log.WithName(promise.GetName()),
 		UID:                         string(promise.GetUID())[0:5],
-		Enabled:                     ptr.True(),
-		WatchStopped:                ptr.False(),
+		WatchStopped:                false,
 		CanCreateResources:          canCreateResources,
 		NumberOfJobsToKeep:          r.NumberOfJobsToKeep,
 		ReconciliationInterval:      r.ReconciliationInterval,
@@ -1087,8 +1084,7 @@ func (r *PromiseReconciler) stopDynamicControllerForDeletedPromise(ctx context.C
 		return nil
 	}
 
-	dynamicController.Enabled = ptr.False()
-	if dynamicController.watchStopped() {
+	if dynamicController.WatchStopped {
 		return nil
 	}
 
@@ -1103,7 +1099,7 @@ func (r *PromiseReconciler) stopDynamicControllerForDeletedPromise(ctx context.C
 		}
 	}
 
-	dynamicController.WatchStopped = ptr.True()
+	dynamicController.WatchStopped = true
 	return nil
 }
 
@@ -1116,7 +1112,7 @@ func (r *PromiseReconciler) restartDynamicControllerWatch(dynamicController *Dyn
 		return err
 	}
 
-	dynamicController.WatchStopped = ptr.False()
+	dynamicController.WatchStopped = false
 	return nil
 }
 

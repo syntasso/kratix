@@ -1038,8 +1038,7 @@ var _ = Describe("PromiseController", func() {
 					result, err := t.reconcileUntilCompletion(reconciler, promise, &opts{errorBudget: 5})
 					Expect(err).NotTo(HaveOccurred())
 					Expect(result).To(Equal(ctrl.Result{}))
-					Expect(*reconciler.StartedDynamicControllers[promise.GetDynamicControllerName(logr.Logger{})].Enabled).To(BeFalse())
-					Expect(*reconciler.StartedDynamicControllers[promise.GetDynamicControllerName(logr.Logger{})].WatchStopped).To(BeTrue())
+					Expect(reconciler.StartedDynamicControllers[promise.GetDynamicControllerName(logr.Logger{})].WatchStopped).To(BeTrue())
 
 					//Check they are all gone
 					Expect(fakeK8sClient.List(ctx, jobs)).To(Succeed())
@@ -1079,8 +1078,7 @@ var _ = Describe("PromiseController", func() {
 						result, err := t.reconcileUntilCompletion(reconciler, promise, &opts{errorBudget: 5})
 						Expect(err).NotTo(HaveOccurred())
 						Expect(result).To(Equal(ctrl.Result{}))
-						Expect(*reconciler.StartedDynamicControllers[promise.GetDynamicControllerName(logr.Logger{})].Enabled).To(BeFalse())
-						Expect(*reconciler.StartedDynamicControllers[promise.GetDynamicControllerName(logr.Logger{})].WatchStopped).To(BeTrue())
+						Expect(reconciler.StartedDynamicControllers[promise.GetDynamicControllerName(logr.Logger{})].WatchStopped).To(BeTrue())
 						Expect(fakeK8sClient.Get(ctx, resNameNamespacedName, requestedResource)).To(MatchError(ContainSubstring("not found")))
 					})
 				})
@@ -1103,8 +1101,7 @@ var _ = Describe("PromiseController", func() {
 					result, err := t.reconcileUntilCompletion(reconciler, promise, &opts{errorBudget: 5})
 					Expect(err).NotTo(HaveOccurred())
 					Expect(result).To(Equal(ctrl.Result{}))
-					Expect(*existingController.Enabled).To(BeFalse())
-					Expect(*existingController.WatchStopped).To(BeTrue())
+					Expect(existingController.WatchStopped).To(BeTrue())
 					Expect(dynamicControllerCache.InformersByGVK).NotTo(HaveKey(*rrGVK))
 
 					reinstalledPromise := promiseFromFile(promiseWithWorkflowPath)
@@ -1122,8 +1119,7 @@ var _ = Describe("PromiseController", func() {
 
 					reusedController := reconciler.StartedDynamicControllers[controllerName]
 					Expect(reusedController).To(BeIdenticalTo(existingController))
-					Expect(*reusedController.Enabled).To(BeTrue())
-					Expect(*reusedController.WatchStopped).To(BeFalse())
+					Expect(reusedController.WatchStopped).To(BeFalse())
 					Expect(reusedController.UID).To(Equal(string(reinstalledPromise.GetUID())[:5]))
 					Expect(reconciler.StartedDynamicControllers).To(HaveLen(1))
 				})

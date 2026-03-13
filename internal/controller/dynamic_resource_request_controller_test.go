@@ -55,7 +55,6 @@ var _ = Describe("DynamicResourceRequestController", func() {
 
 		reconciler = &controller.DynamicResourceRequestController{
 			CanCreateResources:          ptr.True(),
-			Enabled:                     ptr.True(),
 			Client:                      fakeK8sClient,
 			Scheme:                      scheme.Scheme,
 			GVK:                         rrGVK,
