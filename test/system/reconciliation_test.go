@@ -49,10 +49,12 @@ var _ = Describe("Reconciliation", func() {
 
 			By("accepting create/update requests while paused")
 			Eventually(func() string {
-				return platform.Kubectl("get", "promises", promiseName)
-			}).Should(ContainSubstring("Paused"))
+				return platform.Kubectl("describe", "promises", promiseName)
+			}).Should(ContainSubstring("PausedReconciliation"))
+
 			platform.Kubectl("apply", "-f", "assets/reconciliation/pause-promise-rr-one-updated.yaml")
 			platform.Kubectl("apply", "-f", "assets/reconciliation/pause-promise-rr-two.yaml")
+
 			Eventually(func() string {
 				return platform.Kubectl("get", promiseName, "two")
 			}).Should(ContainSubstring("Paused"))
