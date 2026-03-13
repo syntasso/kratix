@@ -50,6 +50,7 @@ import (
 	"k8s.io/apimachinery/pkg/types"
 	ctrl "sigs.k8s.io/controller-runtime"
 	"sigs.k8s.io/controller-runtime/pkg/client"
+	crcontroller "sigs.k8s.io/controller-runtime/pkg/controller"
 
 	"go.opentelemetry.io/otel/attribute"
 )
@@ -70,8 +71,9 @@ type DynamicResourceRequestController struct {
 	PromiseIdentifier           string
 	Log                         logr.Logger
 	UID                         string
-	Enabled                     *bool
+	WatchStopped                bool
 	CRD                         *apiextensionsv1.CustomResourceDefinition
+	Controller                  crcontroller.Controller
 	PromiseDestinationSelectors []v1alpha1.PromiseScheduling
 	CanCreateResources          *bool
 	NumberOfJobsToKeep          int
@@ -84,9 +86,15 @@ type DynamicResourceRequestController struct {
 
 // Reconcile reconciles a Dynamically Generated Resource object.
 func (r *DynamicResourceRequestController) Reconcile(ctx context.Context, req ctrl.Request) (result ctrl.Result, retErr error) {
-	if !*r.Enabled {
-		// temporary fix until https://github.com/kubernetes-sigs/controller-runtime/issues/1884 is resolved
-		// once resolved, this won't be necessary since the dynamic controller will be deleted
+	if r.WatchStopped {
+		// WatchStopped means the controller's informer no longer watches the CRD.
+		// This effectively shuts down the controller because it is no longer
+		// watching the CRD.
+		//
+		// The one exception is that it still watches Jobs, Work, and
+		// ResourceBindings with the corresponding labels. In practice, none of
+		// those should exist when the Promise is deleted, so this should be
+		// harmless.
 		return ctrl.Result{}, nil
 	}
 

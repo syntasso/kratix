@@ -32,7 +32,9 @@ import (
 	"k8s.io/apimachinery/pkg/runtime"
 	"k8s.io/apimachinery/pkg/types"
 	"k8s.io/apimachinery/pkg/util/yaml"
+	"k8s.io/client-go/kubernetes/scheme"
 	ctrl "sigs.k8s.io/controller-runtime"
+	"sigs.k8s.io/controller-runtime/pkg/cache/informertest"
 	"sigs.k8s.io/controller-runtime/pkg/client"
 
 	"github.com/syntasso/kratix/api/v1alpha1"
@@ -50,13 +52,13 @@ var (
 	promiseName          types.NamespacedName
 	promiseResourcesName types.NamespacedName
 
-	promiseGroup        = "marketplace.kratix.io"
-	promiseResourceName string
-	expectedCRDName     string
-	promiseCommonLabels map[string]string
-	managerRestarted    bool
-	l                   logr.Logger
-	eventRecorder       *record.FakeRecorder
+	promiseGroup           = "marketplace.kratix.io"
+	promiseResourceName    string
+	expectedCRDName        string
+	promiseCommonLabels    map[string]string
+	dynamicControllerCache *informertest.FakeInformers
+	l                      logr.Logger
+	eventRecorder          *record.FakeRecorder
 )
 
 var _ = Describe("PromiseController", func() {
@@ -64,20 +66,18 @@ var _ = Describe("PromiseController", func() {
 		promiseResourceName = "redis"
 		expectedCRDName = promiseResourceName + "." + promiseGroup
 		ctx = context.Background()
-		managerRestarted = false
+		dynamicControllerCache = &informertest.FakeInformers{Scheme: scheme.Scheme}
 		l = ctrl.Log.WithName("controllers").WithName("Promise")
 		m := &controllerfakes.FakeManager{}
 		m.GetControllerOptionsReturns(controllerConfig.Controller{
 			SkipNameValidation: ptr.True()})
+		m.GetCacheReturns(dynamicControllerCache)
 		eventRecorder = record.NewFakeRecorder(1024)
 		reconciler = &controller.PromiseReconciler{
-			Client:              fakeK8sClient,
-			ApiextensionsClient: fakeApiExtensionsClient,
-			Log:                 l,
-			Manager:             m,
-			RestartManager: func() {
-				managerRestarted = true
-			},
+			Client:                 fakeK8sClient,
+			ApiextensionsClient:    fakeApiExtensionsClient,
+			Log:                    l,
+			Manager:                m,
 			ReconciliationInterval: controller.DefaultReconciliationInterval,
 			EventRecorder:          eventRecorder,
 		}
@@ -1038,7 +1038,7 @@ var _ = Describe("PromiseController", func() {
 					result, err := t.reconcileUntilCompletion(reconciler, promise, &opts{errorBudget: 5})
 					Expect(err).NotTo(HaveOccurred())
 					Expect(result).To(Equal(ctrl.Result{}))
-					Expect(managerRestarted).To(BeTrue())
+					Expect(reconciler.StartedDynamicControllers[promise.GetDynamicControllerName(logr.Logger{})].WatchStopped).To(BeTrue())
 
 					//Check they are all gone
 					Expect(fakeK8sClient.List(ctx, jobs)).To(Succeed())
@@ -1078,9 +1078,50 @@ var _ = Describe("PromiseController", func() {
 						result, err := t.reconcileUntilCompletion(reconciler, promise, &opts{errorBudget: 5})
 						Expect(err).NotTo(HaveOccurred())
 						Expect(result).To(Equal(ctrl.Result{}))
-						Expect(managerRestarted).To(BeTrue())
+						Expect(reconciler.StartedDynamicControllers[promise.GetDynamicControllerName(logr.Logger{})].WatchStopped).To(BeTrue())
 						Expect(fakeK8sClient.Get(ctx, resNameNamespacedName, requestedResource)).To(MatchError(ContainSubstring("not found")))
 					})
+				})
+
+				It("reuses a stopped dynamic controller when the Promise is reinstalled", func() {
+					controllerName := promise.GetDynamicControllerName(logr.Logger{})
+					existingController := reconciler.StartedDynamicControllers[controllerName]
+					Expect(existingController).NotTo(BeNil())
+
+					rrGVK, _, err := promise.GetAPI()
+					Expect(err).NotTo(HaveOccurred())
+
+					informerObject := &unstructured.Unstructured{}
+					informerObject.SetGroupVersionKind(*rrGVK)
+					_, err = dynamicControllerCache.GetInformer(ctx, informerObject)
+					Expect(err).NotTo(HaveOccurred())
+					Expect(dynamicControllerCache.InformersByGVK).To(HaveKey(*rrGVK))
+
+					Expect(fakeK8sClient.Delete(ctx, promise)).To(Succeed())
+					result, err := t.reconcileUntilCompletion(reconciler, promise, &opts{errorBudget: 5})
+					Expect(err).NotTo(HaveOccurred())
+					Expect(result).To(Equal(ctrl.Result{}))
+					Expect(existingController.WatchStopped).To(BeTrue())
+					Expect(dynamicControllerCache.InformersByGVK).NotTo(HaveKey(*rrGVK))
+
+					reinstalledPromise := promiseFromFile(promiseWithWorkflowPath)
+					promiseName = client.ObjectKeyFromObject(reinstalledPromise)
+					promiseCommonLabels = map[string]string{
+						"kratix.io/promise-name": reinstalledPromise.GetName(),
+					}
+					reinstalledPromise.UID = "5678efgh"
+					Expect(fakeK8sClient.Create(ctx, reinstalledPromise)).To(Succeed())
+
+					_, err = t.reconcileUntilCompletion(reconciler, reinstalledPromise, &opts{
+						funcs: []func(client.Object) error{autoMarkCRDAsEstablished},
+					})
+					Expect(err).NotTo(HaveOccurred())
+
+					reusedController := reconciler.StartedDynamicControllers[controllerName]
+					Expect(reusedController).To(BeIdenticalTo(existingController))
+					Expect(reusedController.WatchStopped).To(BeFalse())
+					Expect(reusedController.UID).To(Equal(string(reinstalledPromise.GetUID())[:5]))
+					Expect(reconciler.StartedDynamicControllers).To(HaveLen(1))
 				})
 			})
 
