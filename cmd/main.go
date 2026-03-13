@@ -135,7 +135,7 @@ func wrapConfigWithOTel(config *rest.Config) *rest.Config {
 	return config
 }
 
-//nolint:funlen,gocognit // main wires controllers and webhooks; splitting would obscure the startup flow.
+//nolint:funlen // main wires controllers and webhooks; splitting would obscure the startup flow.
 func main() {
 	flag.StringVar(&metricsAddr, "metrics-bind-address", ":8080", "The address the metric endpoint binds to.")
 	flag.StringVar(&probeAddr, "health-probe-bind-address", ":8081", "The address the probe endpoint binds to.")
