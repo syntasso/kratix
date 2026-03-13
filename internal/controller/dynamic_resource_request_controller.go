@@ -71,8 +71,7 @@ type DynamicResourceRequestController struct {
 	PromiseIdentifier           string
 	Log                         logr.Logger
 	UID                         string
-	Enabled                     *bool
-	WatchStopped                *bool
+	WatchStopped                bool
 	CRD                         *apiextensionsv1.CustomResourceDefinition
 	Controller                  crcontroller.Controller
 	PromiseDestinationSelectors []v1alpha1.PromiseScheduling
@@ -83,15 +82,11 @@ type DynamicResourceRequestController struct {
 	PromiseUpgrade              bool
 }
 
-func (r *DynamicResourceRequestController) watchStopped() bool {
-	return r.WatchStopped != nil && *r.WatchStopped
-}
-
 //+kubebuilder:rbac:groups="batch",resources=jobs,verbs=get;list;watch;create;update;patch;delete
 
 // Reconcile reconciles a Dynamically Generated Resource object.
 func (r *DynamicResourceRequestController) Reconcile(ctx context.Context, req ctrl.Request) (result ctrl.Result, retErr error) {
-	if !*r.Enabled {
+	if r.WatchStopped {
 		// temporary fix until https://github.com/kubernetes-sigs/controller-runtime/issues/1884 is resolved
 		// once resolved, this won't be necessary since the dynamic controller will be deleted
 		return ctrl.Result{}, nil
