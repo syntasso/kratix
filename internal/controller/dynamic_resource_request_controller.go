@@ -50,6 +50,7 @@ import (
 	"k8s.io/apimachinery/pkg/types"
 	ctrl "sigs.k8s.io/controller-runtime"
 	"sigs.k8s.io/controller-runtime/pkg/client"
+	crcontroller "sigs.k8s.io/controller-runtime/pkg/controller"
 
 	"go.opentelemetry.io/otel/attribute"
 )
@@ -71,13 +72,19 @@ type DynamicResourceRequestController struct {
 	Log                         logr.Logger
 	UID                         string
 	Enabled                     *bool
+	WatchStopped                *bool
 	CRD                         *apiextensionsv1.CustomResourceDefinition
+	Controller                  crcontroller.Controller
 	PromiseDestinationSelectors []v1alpha1.PromiseScheduling
 	CanCreateResources          *bool
 	NumberOfJobsToKeep          int
 	ReconciliationInterval      time.Duration
 	EventRecorder               record.EventRecorder
 	PromiseUpgrade              bool
+}
+
+func (r *DynamicResourceRequestController) watchStopped() bool {
+	return r.WatchStopped != nil && *r.WatchStopped
 }
 
 //+kubebuilder:rbac:groups="batch",resources=jobs,verbs=get;list;watch;create;update;patch;delete
