@@ -274,8 +274,6 @@ func main() {
 			EventRecorder: mgr.GetEventRecorderFor("Scheduler"),
 		}
 
-		restartManager := false
-		restartManagerInProgress := false
 		if err = (&controller.PromiseReconciler{
 			ApiextensionsClient:    apiextensionsClient.ApiextensionsV1(),
 			Client:                 mgr.GetClient(),
@@ -286,22 +284,6 @@ func main() {
 			ReconciliationInterval: getRegularReconciliationInterval(kratixConfig),
 			EventRecorder:          mgr.GetEventRecorderFor("PromiseController"),
 			PromiseUpgrade:         promiseUpgradeEnabled(kratixConfig),
-			RestartManager: func() {
-				// This function gets called multiple times
-				// First call: restartInProgress get set to true, sleeps starts
-				// Following calls: no-op
-				// Once sleep finishes: restartInProgress set to false.
-				restartManager = true
-				if !restartManagerInProgress {
-					// start in a go routine to avoid blocking the main thread
-					go func() {
-						restartManagerInProgress = true
-						time.Sleep(time.Minute * 2)
-						restartManagerInProgress = false
-						cancelManagerCtxFunc()
-					}()
-				}
-			},
 		}).SetupWithManager(mgr); err != nil {
 			setupLog.Error(err, "unable to create controller", "controller", "Promise")
 			os.Exit(1)
@@ -442,19 +424,12 @@ func main() {
 		setupLog.Info("starting manager")
 		err = mgr.Start(ctx)
 		setupLog.Info("manager stopped")
-
-		if !restartManager {
-			if err != nil {
-				setupLog.Error(err, "problem running manager")
-				os.Exit(1)
-			}
-			setupLog.Info("shutting down")
-			os.Exit(0)
+		if err != nil {
+			setupLog.Error(err, "problem running manager")
+			os.Exit(1)
 		}
-
-		setupLog.Info("restarting manager")
-		ctx, cancelManagerCtxFunc = context.WithCancel(context.Background())
-		restartManager = false
+		setupLog.Info("shutting down")
+		os.Exit(0)
 	}
 }
 
