@@ -139,6 +139,19 @@ var _ = Describe("PromiseController", func() {
 						lastSuccessfulConfigureWorkflowTime, ok := kratixWorkflows.Properties["lastSuccessfulConfigureWorkflowTime"]
 						Expect(ok).To(BeTrue(), ".status.kratix.workflows.lastSuccessfulConfigureWorkflowTime did not exist. Spec %v", kratixWorkflows)
 						Expect(lastSuccessfulConfigureWorkflowTime.Type).To(Equal("string"))
+						pipelines, ok := kratixWorkflows.Properties["pipelines"]
+						Expect(ok).To(BeTrue(), ".status.kratix.workflows.pipelines did not exist. Spec %v", kratixWorkflows)
+						Expect(pipelines.Type).To(Equal("array"))
+						Expect(pipelines.Items).NotTo(BeNil())
+						Expect(pipelines.Items.Schema).NotTo(BeNil())
+						Expect(pipelines.Items.Schema.Type).To(Equal("object"))
+						Expect(pipelines.Items.Schema.Properties).To(
+							SatisfyAll(HaveKey("name"),
+								HaveKey("phase"),
+								HaveKey("lastTransitionTime")))
+						Expect(pipelines.Items.Schema.Properties["name"].Type).To(Equal("string"))
+						Expect(pipelines.Items.Schema.Properties["phase"].Type).To(Equal("string"))
+						Expect(pipelines.Items.Schema.Properties["lastTransitionTime"].Type).To(Equal("string"))
 
 						observedGeneration, ok := status.Properties["observedGeneration"]
 						Expect(ok).To(BeTrue(), ".status.observedGeneration did not exist. Spec %v", status)

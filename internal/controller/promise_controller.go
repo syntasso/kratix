@@ -1671,6 +1671,26 @@ func setStatusFieldsOnCRD(rrCRD *apiextensionsv1.CustomResourceDefinition) {
 								"lastSuccessfulConfigureWorkflowTime": {
 									Type: "string",
 								},
+								"pipelines": {
+									Type: "array",
+									Items: &apiextensionsv1.JSONSchemaPropsOrArray{
+										Schema: &apiextensionsv1.JSONSchemaProps{
+											Type: "object",
+											Properties: map[string]apiextensionsv1.JSONSchemaProps{
+												"name": {
+													Type: "string",
+												},
+												"phase": {
+													Type: "string",
+												},
+												"lastTransitionTime": {
+													Type:   "string",
+													Format: "datetime",
+												},
+											},
+										},
+									},
+								},
 							},
 						},
 					},
