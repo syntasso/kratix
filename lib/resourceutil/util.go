@@ -14,7 +14,6 @@ import (
 	v1 "k8s.io/api/core/v1"
 	metav1 "k8s.io/apimachinery/pkg/apis/meta/v1"
 	"k8s.io/apimachinery/pkg/apis/meta/v1/unstructured"
-	"k8s.io/apimachinery/pkg/runtime"
 	clusterv1 "sigs.k8s.io/cluster-api/api/v1beta1"
 )
 
@@ -336,19 +335,22 @@ func MarkCurrentPipelineAsRunning(rr *unstructured.Unstructured, logger logr.Log
 }
 
 func MarkCurrentPipelineAs(status string, rr *unstructured.Unstructured, logger logr.Logger, job *batchv1.Job) error {
-	if rr.GetKind() != "Promise" {
-		return nil
-	}
-	promise := &v1alpha1.Promise{}
-	err := runtime.DefaultUnstructuredConverter.FromUnstructured(rr.Object, promise)
+	workflows, found, err := unstructured.NestedSlice(rr.Object, "status", "kratix", "workflows", "pipelines")
 	if err != nil {
-		logging.Warn(logger, "failed to convert to promise", "error", err)
+		logging.Warn(logger, "failed to get workflow pipeline status", "error", err)
 		return err
+	}
+	if !found {
+		return nil
 	}
 
 	pipelineIndex := -1
-	for i, pipeline := range promise.Status.Kratix.Workflows.Pipelines {
-		if pipeline.Name == job.GetLabels()[v1alpha1.PipelineNameLabel] {
+	for i, pipeline := range workflows {
+		pipelineMap, ok := pipeline.(map[string]any)
+		if !ok {
+			continue
+		}
+		if pipelineMap["name"] == job.GetLabels()[v1alpha1.PipelineNameLabel] {
 			pipelineIndex = i
 			break
 		}
@@ -358,39 +360,28 @@ func MarkCurrentPipelineAs(status string, rr *unstructured.Unstructured, logger 
 		return fmt.Errorf("no pipeline found for job %s", job.GetName())
 	}
 
-	previousPhase := promise.Status.Kratix.Workflows.Pipelines[pipelineIndex].Phase
-	changed := previousPhase != status
-	if changed {
-		promise.Status.Kratix.Workflows.Pipelines[pipelineIndex].Phase = status
-		promise.Status.Kratix.Workflows.Pipelines[pipelineIndex].LastTransitionTime = metav1.Now()
-	}
-
-	rr.Object, err = runtime.DefaultUnstructuredConverter.ToUnstructured(promise)
-	return err
-}
-
-func ResetPipelineStatusToPending(obj *unstructured.Unstructured) error {
-	if obj.GetKind() != "Promise" {
+	pipeline := workflows[pipelineIndex].(map[string]any)
+	if previousPhase, ok := pipeline["phase"].(string); ok && previousPhase == status {
 		return nil
 	}
-	promise := &v1alpha1.Promise{}
-	err := runtime.DefaultUnstructuredConverter.FromUnstructured(obj.Object, promise)
-	if err != nil {
-		return err
-	}
-	workflows := []v1alpha1.WorkflowPipelineStatus{}
 
-	for _, pipeline := range promise.Spec.Workflows.Promise.Configure {
-		workflows = append(workflows, v1alpha1.WorkflowPipelineStatus{
-			Name:               pipeline.GetName(),
-			Phase:              v1alpha1.WorkflowPhasePending,
-			LastTransitionTime: metav1.NewTime(time.Now()),
+	pipeline["phase"] = status
+	pipeline["lastTransitionTime"] = metav1.Now().Format(time.RFC3339)
+	workflows[pipelineIndex] = pipeline
+	return unstructured.SetNestedSlice(rr.Object, workflows, "status", "kratix", "workflows", "pipelines")
+}
+
+func ResetPipelineStatusToPending(obj *unstructured.Unstructured, pipelines []v1alpha1.PipelineJobResources) error {
+	workflows := make([]any, 0, len(pipelines))
+	for _, pipeline := range pipelines {
+		workflows = append(workflows, map[string]any{
+			"name":               pipeline.Name,
+			"phase":              v1alpha1.WorkflowPhasePending,
+			"lastTransitionTime": metav1.Now().Format(time.RFC3339),
 		})
 	}
 
-	promise.Status.Kratix.Workflows.Pipelines = workflows
-	obj.Object, err = runtime.DefaultUnstructuredConverter.ToUnstructured(promise)
-	return err
+	return unstructured.SetNestedSlice(obj.Object, workflows, "status", "kratix", "workflows", "pipelines")
 }
 
 // GetObservedGeneration returns 0 when either status or status.observedGeneration is nil

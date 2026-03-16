@@ -231,7 +231,7 @@ func reconcileWorkflowStatus(opts Opts, state *workflowState) (passiveRequeue bo
 	}
 
 	succeededCountDrifted := currentSucceededCount != state.completedCount
-	shouldResetForManualRetry := state.manualReconcile && currentFailedCount != 0
+	shouldResetForManualRetry := state.manualReconcile && (currentFailedCount != 0 || currentSucceededCount != 0)
 	failedCountDrifted := state.desiredFailedCount != nil && currentFailedCount != *state.desiredFailedCount
 	pipelinePhaseDrifted := state.desiredPipelineJob != nil && state.desiredPipelinePhase != ""
 
@@ -251,7 +251,7 @@ func reconcileWorkflowStatus(opts Opts, state *workflowState) (passiveRequeue bo
 
 	if shouldResetForManualRetry || (succeededCountDrifted && state.completedCount == 0) {
 		resourceutil.SetStatus(opts.parentObject, opts.logger, "workflowsFailed", int64(0))
-		if err = resourceutil.ResetPipelineStatusToPending(opts.parentObject); err != nil {
+		if err = resourceutil.ResetPipelineStatusToPending(opts.parentObject, opts.Resources); err != nil {
 			return false, err
 		}
 	}

@@ -233,8 +233,21 @@ func (r *DynamicResourceRequestController) Reconcile(ctx context.Context, req ct
 		return ctrl.Result{}, err
 	}
 
+	statusChanged := false
 	if resourceutil.GetWorkflowsCounterStatus(rr, "workflows") != int64(len(pipelineResources)) {
 		resourceutil.SetStatus(rr, logger, "workflows", int64(len(pipelineResources)))
+		statusChanged = true
+	}
+
+	workflowStatusChanged, err := ensureRRKratixWorkflowStatusIsSetup(rr, pipelineResources)
+	if err != nil {
+		return ctrl.Result{}, err
+	}
+	if workflowStatusChanged {
+		statusChanged = true
+	}
+
+	if statusChanged {
 		return ctrl.Result{}, r.Client.Status().Update(ctx, rr)
 	}
 
@@ -268,7 +281,7 @@ func (r *DynamicResourceRequestController) Reconcile(ctx context.Context, req ct
 	}
 
 	if !promise.HasPipeline(v1alpha1.WorkflowTypeResource, v1alpha1.WorkflowActionConfigure) {
-		return r.nextReconciliation(logger), r.updateWorkflowStatusCountersToZero(logger, rr, ctx)
+		return r.nextReconciliation(logger), r.cleanupWorkflowCountersAndExecution(ctx, logger, rr)
 	}
 
 	rrNamespace := ""
@@ -547,15 +560,37 @@ func (r *DynamicResourceRequestController) generateWorkflowsCounterStatus(logger
 	return false
 }
 
-func (r *DynamicResourceRequestController) updateWorkflowStatusCountersToZero(logger logr.Logger, rr *unstructured.Unstructured, ctx context.Context) error {
+func (r *DynamicResourceRequestController) cleanupWorkflowCountersAndExecution(ctx context.Context, logger logr.Logger,
+	rr *unstructured.Unstructured) error {
 	if resourceutil.GetWorkflowsCounterStatus(rr, "workflows") != 0 ||
 		resourceutil.GetWorkflowsCounterStatus(rr, "workflowsSucceeded") != 0 ||
 		resourceutil.GetWorkflowsCounterStatus(rr, "workflowsFailed") != 0 {
 
 		resourceutil.SetStatus(rr, logger, "workflows", int64(0), "workflowsSucceeded", int64(0), "workflowsFailed", int64(0))
+		unstructured.RemoveNestedField(rr.Object, "status", "kratix", "workflows", "pipelines")
 		return r.Client.Status().Update(ctx, rr)
 	}
 	return nil
+}
+
+func ensureRRKratixWorkflowStatusIsSetup(rr *unstructured.Unstructured, pipelines []v1alpha1.PipelineJobResources) (bool, error) {
+	existingPipelines, found, err := unstructured.NestedSlice(rr.Object, "status", "kratix", "workflows", "pipelines")
+	if err != nil {
+		return false, err
+	}
+
+	if !found || len(existingPipelines) != len(pipelines) {
+		return true, resourceutil.ResetPipelineStatusToPending(rr, pipelines)
+	}
+
+	for i, pipeline := range pipelines {
+		pipelineStatus, ok := existingPipelines[i].(map[string]any)
+		if !ok || pipelineStatus["name"] != pipeline.Name {
+			return true, resourceutil.ResetPipelineStatusToPending(rr, pipelines)
+		}
+	}
+
+	return false, nil
 }
 
 func (r *DynamicResourceRequestController) deleteResources(o opts, promise *v1alpha1.Promise, resourceRequest *unstructured.Unstructured) (ctrl.Result, error) {

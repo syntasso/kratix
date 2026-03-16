@@ -6,6 +6,7 @@ import (
 	"github.com/go-logr/logr"
 	. "github.com/onsi/ginkgo/v2"
 	. "github.com/onsi/gomega"
+	"github.com/syntasso/kratix/api/v1alpha1"
 	batchv1 "k8s.io/api/batch/v1"
 	v1 "k8s.io/api/core/v1"
 	metav1 "k8s.io/apimachinery/pkg/apis/meta/v1"
@@ -404,6 +405,90 @@ var _ = Describe("Conditions", func() {
 		Context("GetKratixWorkflowsStatus", func() {
 			It("returns empty string for missing keys", func() {
 				Expect(resourceutil.GetKratixWorkflowsStatus(rr, "lastSuccessfulConfigureWorkflowTime")).To(BeEmpty())
+			})
+		})
+
+		Describe("pipeline execution status", func() {
+			var job *batchv1.Job
+			var pipelines []v1alpha1.PipelineJobResources
+
+			BeforeEach(func() {
+				rr.SetAPIVersion("test.kratix.io/v1alpha1")
+				rr.SetKind("Redis")
+				rr.Object["status"] = map[string]interface{}{
+					"kratix": map[string]interface{}{
+						"workflows": map[string]interface{}{
+							"pipelines": []interface{}{
+								map[string]interface{}{
+									"name":  "first-pipeline",
+									"phase": v1alpha1.WorkflowPhasePending,
+								},
+							},
+						},
+					},
+				}
+
+				pipelines = []v1alpha1.PipelineJobResources{
+					{Name: "first-pipeline"},
+					{Name: "second-pipeline"},
+				}
+
+				job = &batchv1.Job{
+					ObjectMeta: metav1.ObjectMeta{
+						Name: "job-1",
+						Labels: map[string]string{
+							v1alpha1.PipelineNameLabel: "first-pipeline",
+						},
+					},
+				}
+			})
+
+			It("marks the current pipeline as succeeded for a resource request", func() {
+				err := resourceutil.MarkCurrentPipelineAsSucceeded(rr, logger, job)
+				Expect(err).NotTo(HaveOccurred())
+
+				workflows, found, err := unstructured.NestedSlice(rr.Object, "status", "kratix", "workflows", "pipelines")
+				Expect(err).NotTo(HaveOccurred())
+				Expect(found).To(BeTrue())
+				Expect(workflows).To(HaveLen(1))
+
+				pipeline := workflows[0].(map[string]interface{})
+				Expect(pipeline["phase"]).To(Equal(v1alpha1.WorkflowPhaseSucceeded))
+				Expect(pipeline["lastTransitionTime"]).NotTo(BeNil())
+			})
+
+			It("marks the current pipeline with an explicit phase for a resource request", func() {
+				err := resourceutil.MarkCurrentPipelineAs(v1alpha1.WorkflowPhaseFailed, rr, logger, job)
+				Expect(err).NotTo(HaveOccurred())
+
+				workflows, found, err := unstructured.NestedSlice(rr.Object, "status", "kratix", "workflows", "pipelines")
+				Expect(err).NotTo(HaveOccurred())
+				Expect(found).To(BeTrue())
+				Expect(workflows).To(HaveLen(1))
+
+				pipeline := workflows[0].(map[string]interface{})
+				Expect(pipeline["phase"]).To(Equal(v1alpha1.WorkflowPhaseFailed))
+				Expect(pipeline["lastTransitionTime"]).NotTo(BeNil())
+			})
+
+			It("resets resource request pipelines to pending", func() {
+				err := resourceutil.ResetPipelineStatusToPending(rr, pipelines)
+				Expect(err).NotTo(HaveOccurred())
+
+				workflows, found, err := unstructured.NestedSlice(rr.Object, "status", "kratix", "workflows", "pipelines")
+				Expect(err).NotTo(HaveOccurred())
+				Expect(found).To(BeTrue())
+				Expect(workflows).To(HaveLen(2))
+				Expect(workflows[0]).To(SatisfyAll(
+					HaveKeyWithValue("name", "first-pipeline"),
+					HaveKeyWithValue("phase", v1alpha1.WorkflowPhasePending),
+					HaveKeyWithValue("lastTransitionTime", Not(BeNil())),
+				))
+				Expect(workflows[1]).To(SatisfyAll(
+					HaveKeyWithValue("name", "second-pipeline"),
+					HaveKeyWithValue("phase", v1alpha1.WorkflowPhasePending),
+					HaveKeyWithValue("lastTransitionTime", Not(BeNil())),
+				))
 			})
 		})
 
