@@ -970,9 +970,8 @@ func (r *PromiseReconciler) ensureDynamicControllerIsStarted(promise *v1alpha1.P
 
 	// The Dynamic Controller needs to be started once and only once.
 	if r.dynamicControllerHasAlreadyStarted(promise, logger) {
-		logging.Debug(logger, "dynamic controller already started; ensuring configuration is current")
-
 		dynamicController := r.StartedDynamicControllers[controllerName]
+		logging.Debug(logger, "reusing existing dynamic controller", "controllerName", controllerName, "watchStopped", dynamicController.WatchStopped)
 		dynamicController.GVK = rrGVK
 		dynamicController.CRD = rrCRD
 		dynamicController.Client = r.Client
@@ -988,6 +987,7 @@ func (r *PromiseReconciler) ensureDynamicControllerIsStarted(promise *v1alpha1.P
 		dynamicController.PromiseDestinationSelectors = promise.Spec.DestinationSelectors
 
 		if dynamicController.WatchStopped {
+			logging.Debug(logger, "restarting dynamic controller watch", "controllerName", controllerName, "gvk", dynamicController.GVK.String())
 			if err := r.restartDynamicControllerWatch(dynamicController); err != nil {
 				return err
 			}
@@ -1079,12 +1079,14 @@ func (r *PromiseReconciler) dynamicControllerHasAlreadyStarted(promise *v1alpha1
 }
 
 func (r *PromiseReconciler) stopDynamicControllerForDeletedPromise(ctx context.Context, promise *v1alpha1.Promise, logger logr.Logger) error {
-	dynamicController, exists := r.StartedDynamicControllers[promise.GetDynamicControllerName(logger)]
+	controllerName := promise.GetDynamicControllerName(logger)
+	dynamicController, exists := r.StartedDynamicControllers[controllerName]
 	if !exists {
 		return nil
 	}
 
 	if dynamicController.WatchStopped {
+		logging.Debug(logger, "dynamic controller watch already stopped", "controllerName", controllerName, "gvk", dynamicController.GVK.String())
 		return nil
 	}
 
@@ -1100,6 +1102,7 @@ func (r *PromiseReconciler) stopDynamicControllerForDeletedPromise(ctx context.C
 	}
 
 	dynamicController.WatchStopped = true
+	logging.Debug(logger, "dynamic controller watch stopped", "controllerName", controllerName, "gvk", dynamicController.GVK.String())
 	return nil
 }
 
