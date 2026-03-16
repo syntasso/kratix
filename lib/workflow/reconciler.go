@@ -149,6 +149,11 @@ type workflowState struct {
 // resources are updated (for example workflow Jobs or the parent object status),
 // rather than by issuing an explicit direct requeue from this function.
 func ReconcileConfigure(opts Opts) (passiveRequeue bool, err error) {
+	if len(opts.Resources) == 0 {
+		logging.Debug(opts.logger, "no pipeline resources to reconcile")
+		return false, nil
+	}
+
 	state, err := determineWorkflowState(opts)
 	if err != nil {
 		return false, err
