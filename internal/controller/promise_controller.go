@@ -1770,6 +1770,9 @@ func setStatusFieldsOnCRD(rrCRD *apiextensionsv1.CustomResourceDefinition) {
 												"phase": {
 													Type: "string",
 												},
+												"message": {
+													Type: "string",
+												},
 												"lastTransitionTime": {
 													Type:   "string",
 													Format: "datetime",

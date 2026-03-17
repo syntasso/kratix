@@ -262,6 +262,9 @@ spec:
                               description: Last transition time of the workflow
                               format: date-time
                               type: string
+                            message:
+                              description: Message from the suspended pipeline
+                              type: string
                             name:
                               description: Name of the workflow
                               type: string

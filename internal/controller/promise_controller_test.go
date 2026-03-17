@@ -148,9 +148,11 @@ var _ = Describe("PromiseController", func() {
 						Expect(pipelines.Items.Schema.Properties).To(
 							SatisfyAll(HaveKey("name"),
 								HaveKey("phase"),
+								HaveKey("message"),
 								HaveKey("lastTransitionTime")))
 						Expect(pipelines.Items.Schema.Properties["name"].Type).To(Equal("string"))
 						Expect(pipelines.Items.Schema.Properties["phase"].Type).To(Equal("string"))
+						Expect(pipelines.Items.Schema.Properties["message"].Type).To(Equal("string"))
 						Expect(pipelines.Items.Schema.Properties["lastTransitionTime"].Type).To(Equal("string"))
 
 						observedGeneration, ok := status.Properties["observedGeneration"]
