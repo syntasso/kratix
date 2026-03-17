@@ -17,6 +17,14 @@ spec:
   scope: Cluster
   versions:
   - additionalPrinterColumns:
+    - description: URL of the git repository
+      jsonPath: .spec.url
+      name: URL
+      type: string
+    - description: Branch of the git repository
+      jsonPath: .spec.branch
+      name: Branch
+      type: string
     - description: Indicates the state store is ready to use
       jsonPath: .status.conditions[?(@.type=="Ready")].status
       name: Ready

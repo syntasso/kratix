@@ -17,6 +17,14 @@ spec:
   scope: Cluster
   versions:
   - additionalPrinterColumns:
+    - description: Name of the bucket
+      jsonPath: .spec.bucketName
+      name: Name
+      type: string
+    - description: Endpoint of the bucket
+      jsonPath: .spec.endpoint
+      name: Endpoint
+      type: string
     - description: Indicates the state store is ready to use
       jsonPath: .status.conditions[?(@.type=="Ready")].status
       name: Ready

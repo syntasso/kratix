@@ -52,6 +52,8 @@ type BucketStateStoreSpec struct {
 //+kubebuilder:object:root=true
 //+kubebuilder:subresource:status
 //+kubebuilder:resource:scope=Cluster,path=bucketstatestores,categories=kratix
+// +kubebuilder:printcolumn:name="Name",type=string,JSONPath=`.spec.bucketName`,description="Name of the bucket"
+// +kubebuilder:printcolumn:name="Endpoint",type=string,JSONPath=`.spec.endpoint`,description="Endpoint of the bucket"
 // +kubebuilder:printcolumn:name="Ready",type=string,JSONPath=`.status.conditions[?(@.type=="Ready")].status`,description="Indicates the state store is ready to use"
 
 // BucketStateStore is the Schema for the bucketstatestores API
