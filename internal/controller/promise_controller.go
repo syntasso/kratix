@@ -27,10 +27,12 @@ import (
 
 	"github.com/syntasso/kratix/lib/objectutil"
 	"sigs.k8s.io/controller-runtime/pkg/builder"
+	ctrlcache "sigs.k8s.io/controller-runtime/pkg/cache"
 	"sigs.k8s.io/controller-runtime/pkg/controller/controllerutil"
 	"sigs.k8s.io/controller-runtime/pkg/handler"
 	"sigs.k8s.io/controller-runtime/pkg/predicate"
 	"sigs.k8s.io/controller-runtime/pkg/reconcile"
+	"sigs.k8s.io/controller-runtime/pkg/source"
 
 	"github.com/go-logr/logr"
 	"github.com/syntasso/kratix/api/v1alpha1"
@@ -75,7 +77,6 @@ type PromiseReconciler struct {
 	Log                       logr.Logger
 	Manager                   ctrl.Manager
 	StartedDynamicControllers map[string]*DynamicResourceRequestController
-	RestartManager            func()
 	NumberOfJobsToKeep        int
 	ReconciliationInterval    time.Duration
 	EventRecorder             record.EventRecorder
@@ -965,17 +966,32 @@ func (r *PromiseReconciler) reconcileAllRRs(ctx context.Context, rrGVK *schema.G
 }
 
 func (r *PromiseReconciler) ensureDynamicControllerIsStarted(promise *v1alpha1.Promise, rrCRD *apiextensionsv1.CustomResourceDefinition, rrGVK *schema.GroupVersionKind, canCreateResources *bool, logger logr.Logger) error {
+	controllerName := promise.GetDynamicControllerName(logger)
+
 	// The Dynamic Controller needs to be started once and only once.
 	if r.dynamicControllerHasAlreadyStarted(promise, logger) {
-		logging.Debug(logger, "dynamic controller already started; ensuring configuration is current")
-
-		dynamicController := r.StartedDynamicControllers[promise.GetDynamicControllerName(logger)]
+		dynamicController := r.StartedDynamicControllers[controllerName]
+		logging.Debug(logger, "reusing existing dynamic controller", "controllerName", controllerName, "watchStopped", dynamicController.WatchStopped)
 		dynamicController.GVK = rrGVK
 		dynamicController.CRD = rrCRD
-
+		dynamicController.Client = r.Client
+		dynamicController.Scheme = r.Scheme
+		dynamicController.PromiseIdentifier = promise.GetName()
+		dynamicController.Log = r.Log.WithName(promise.GetName())
+		dynamicController.UID = string(promise.GetUID())[0:5]
 		dynamicController.CanCreateResources = canCreateResources
-
+		dynamicController.EventRecorder = r.Manager.GetEventRecorderFor("ResourceRequestController")
+		dynamicController.NumberOfJobsToKeep = r.NumberOfJobsToKeep
+		dynamicController.ReconciliationInterval = r.ReconciliationInterval
+		dynamicController.PromiseUpgrade = r.PromiseUpgrade
 		dynamicController.PromiseDestinationSelectors = promise.Spec.DestinationSelectors
+
+		if dynamicController.WatchStopped {
+			logging.Debug(logger, "restarting dynamic controller watch", "controllerName", controllerName, "gvk", dynamicController.GVK.String())
+			if err := r.restartDynamicControllerWatch(dynamicController); err != nil {
+				return err
+			}
+		}
 
 		return nil
 	}
@@ -983,7 +999,6 @@ func (r *PromiseReconciler) ensureDynamicControllerIsStarted(promise *v1alpha1.P
 
 	//temporary fix until https://github.com/kubernetes-sigs/controller-runtime/issues/1884 is resolved
 	//once resolved, delete dynamic controller rather than disable
-	enabled := true
 	dynamicResourceRequestController := &DynamicResourceRequestController{
 		Client:                      r.Client,
 		Scheme:                      r.Scheme,
@@ -993,19 +1008,18 @@ func (r *PromiseReconciler) ensureDynamicControllerIsStarted(promise *v1alpha1.P
 		PromiseDestinationSelectors: promise.Spec.DestinationSelectors,
 		Log:                         r.Log.WithName(promise.GetName()),
 		UID:                         string(promise.GetUID())[0:5],
-		Enabled:                     &enabled,
+		WatchStopped:                false,
 		CanCreateResources:          canCreateResources,
 		NumberOfJobsToKeep:          r.NumberOfJobsToKeep,
 		ReconciliationInterval:      r.ReconciliationInterval,
 		EventRecorder:               r.Manager.GetEventRecorderFor("ResourceRequestController"),
 		PromiseUpgrade:              r.PromiseUpgrade,
 	}
-	r.StartedDynamicControllers[promise.GetDynamicControllerName(logger)] = dynamicResourceRequestController
 
 	unstructuredCRD := &unstructured.Unstructured{}
 	unstructuredCRD.SetGroupVersionKind(*rrGVK)
 
-	return ctrl.NewControllerManagedBy(r.Manager).
+	dynamicController, err := ctrl.NewControllerManagedBy(r.Manager).
 		For(unstructuredCRD).
 		Watches(
 			&batchv1.Job{},
@@ -1049,12 +1063,60 @@ func (r *PromiseReconciler) ensureDynamicControllerIsStarted(promise *v1alpha1.P
 					},
 				}}
 			})).
-		Complete(dynamicResourceRequestController)
+		Build(dynamicResourceRequestController)
+	if err != nil {
+		return err
+	}
+
+	dynamicResourceRequestController.Controller = dynamicController
+	r.StartedDynamicControllers[controllerName] = dynamicResourceRequestController
+	return nil
 }
 
 func (r *PromiseReconciler) dynamicControllerHasAlreadyStarted(promise *v1alpha1.Promise, logger logr.Logger) bool {
 	_, ok := r.StartedDynamicControllers[promise.GetDynamicControllerName(logger)]
 	return ok
+}
+
+func (r *PromiseReconciler) stopDynamicControllerForDeletedPromise(ctx context.Context, promise *v1alpha1.Promise, logger logr.Logger) error {
+	controllerName := promise.GetDynamicControllerName(logger)
+	dynamicController, exists := r.StartedDynamicControllers[controllerName]
+	if !exists {
+		return nil
+	}
+
+	if dynamicController.WatchStopped {
+		logging.Debug(logger, "dynamic controller watch already stopped", "controllerName", controllerName, "gvk", dynamicController.GVK.String())
+		return nil
+	}
+
+	informerObject := &unstructured.Unstructured{}
+	informerObject.SetGroupVersionKind(*dynamicController.GVK)
+	if err := r.Manager.GetCache().RemoveInformer(ctx, informerObject); err != nil {
+		var errResourceNotCached *ctrlcache.ErrResourceNotCached
+		if stderrors.As(err, &errResourceNotCached) {
+			logging.Debug(logger, "dynamic controller informer already absent", "gvk", dynamicController.GVK.String())
+		} else {
+			return err
+		}
+	}
+
+	dynamicController.WatchStopped = true
+	logging.Debug(logger, "dynamic controller watch stopped", "controllerName", controllerName, "gvk", dynamicController.GVK.String())
+	return nil
+}
+
+func (r *PromiseReconciler) restartDynamicControllerWatch(dynamicController *DynamicResourceRequestController) error {
+	informerObject := &unstructured.Unstructured{}
+	informerObject.SetGroupVersionKind(*dynamicController.GVK)
+	if err := dynamicController.Controller.Watch(
+		source.Kind(r.Manager.GetCache(), informerObject, &handler.TypedEnqueueRequestForObject[*unstructured.Unstructured]{}),
+	); err != nil {
+		return err
+	}
+
+	dynamicController.WatchStopped = false
+	return nil
 }
 
 // jobEventHandler creates a handler that processes Job events and triggers reconciliation
@@ -1312,12 +1374,9 @@ func (r *PromiseReconciler) deletePromise(o opts, promise *v1alpha1.Promise) (ct
 		return fastRequeue, nil
 	}
 
-	//temporary fix until https://github.com/kubernetes-sigs/controller-runtime/issues/1884 is resolved
-	//once resolved, delete dynamic controller rather than disable
-	if d, exists := r.StartedDynamicControllers[promise.GetDynamicControllerName(o.logger)]; exists {
-		r.RestartManager()
-		enabled := false
-		d.Enabled = &enabled
+	if err := r.stopDynamicControllerForDeletedPromise(o.ctx, promise, o.logger); err != nil {
+		logging.Error(o.logger, err, "failed to stop dynamic controller watch")
+		return defaultRequeue, nil
 	}
 
 	if controllerutil.ContainsFinalizer(promise, dynamicControllerDependantResourcesCleanupFinalizer) {
