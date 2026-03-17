@@ -13,6 +13,7 @@ import (
 	"github.com/syntasso/kratix/work-creator/lib"
 	"github.com/syntasso/kratix/work-creator/lib/helpers"
 	metav1 "k8s.io/apimachinery/pkg/apis/meta/v1"
+	"k8s.io/apimachinery/pkg/apis/meta/v1/unstructured"
 	"k8s.io/client-go/dynamic"
 	"sigs.k8s.io/yaml"
 )
@@ -52,6 +53,7 @@ func runUpdateStatus(ctx context.Context) error {
 
 func updateStatus(ctx context.Context, baseDir string, params *helpers.Parameters, objectClient dynamic.ResourceInterface) error {
 	statusFile := filepath.Join(baseDir, "status.yaml")
+	controlFile := filepath.Join(baseDir, "workflow-control.yaml")
 
 	existingObj, err := objectClient.Get(ctx, params.ObjectName, metav1.GetOptions{})
 	if err != nil {
@@ -90,6 +92,23 @@ func updateStatus(ctx context.Context, baseDir string, params *helpers.Parameter
 		mergedStatus = lib.MarkAsCompleted(mergedStatus, params.WorkflowType)
 	}
 
+	control, err := readWorkflowControlFile(controlFile)
+	if err != nil {
+		return err
+	}
+
+	if control != nil && control.Suspend {
+		existingObj, err = addWorkflowSuspendLabel(ctx, objectClient, existingObj)
+		if err != nil {
+			return err
+		}
+
+		mergedStatus, err = lib.MarkPipelineAsSuspended(mergedStatus, params.PipelineName, control.Message)
+		if err != nil {
+			return err
+		}
+	}
+
 	// Apply merged status to the existing object
 	existingObj.Object["status"] = mergedStatus
 
@@ -100,19 +119,26 @@ func updateStatus(ctx context.Context, baseDir string, params *helpers.Parameter
 	return nil
 }
 
-func handleWorkflowControl() error {
-	workspaceDir := "/work-creator-files"
-	controlFile := filepath.Join(workspaceDir, "metadata", "workflow-control.yaml")
-	var control *WorkflowControl
-	var err error
-	if control, err = readWorkflowControlFile(controlFile); err != nil {
-		return err
+func addWorkflowSuspendLabel(ctx context.Context, objectClient dynamic.ResourceInterface, existingObj *unstructured.Unstructured) (*unstructured.Unstructured, error) {
+	metadata, ok := existingObj.Object["metadata"].(map[string]any)
+	if !ok {
+		return nil, fmt.Errorf("existing object is missing metadata")
 	}
 
-	if !control.Suspend {
-		return nil
+	labels, ok := metadata["labels"].(map[string]any)
+	if !ok {
+		labels = map[string]any{}
 	}
-	return nil
+	labels[v1alpha1.WorkflowSuspendLabel] = "true"
+	metadata["labels"] = labels
+	existingObj.Object["metadata"] = metadata
+
+	updatedObj, err := objectClient.Update(ctx, existingObj, metav1.UpdateOptions{})
+	if err != nil {
+		return nil, fmt.Errorf("failed to update object labels: %w", err)
+	}
+
+	return updatedObj, nil
 }
 
 func readStatusFile(statusFile string) (map[string]any, error) {
