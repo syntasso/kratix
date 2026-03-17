@@ -1622,6 +1622,38 @@ var _ = Describe("PromiseController", func() {
 				Expect(fakeK8sClient.Get(ctx, resNameNamespacedName, requestedResource)).To(Succeed())
 			})
 		})
+
+		When("promise workflow is suspended", func() {
+			It("stops reconciliation and set status correctly", func() {
+				promise = createPromise(promisePath)
+				promise.Labels["kratix.io/workflow-suspend"] = "true"
+				Expect(fakeK8sClient.Update(context.TODO(), promise)).To(Succeed())
+
+				result, err := t.reconcileUntilCompletion(reconciler, promise)
+				Expect(err).NotTo(HaveOccurred())
+				Expect(result).To(Equal(ctrl.Result{}))
+
+				By("publishes a warning event")
+				Expect(aggregateEvents(eventRecorder.Events)).To(ContainSubstring(
+					"Warning WorkflowSuspended 'kratix.io/workflow-suspend' label set to 'true' for promise; skipping reconciliation"))
+
+				By("setting the promise to 'unavailable' and 'suspended' for the reconciled status.condition")
+				Expect(fakeK8sClient.Get(ctx, promiseName, promise)).To(Succeed())
+
+				Expect(promise.Status.Status).To(Equal("Unavailable"))
+				Expect(promise.Status.Kratix.Status).To(Equal("Unavailable"))
+				availableCond := apimeta.FindStatusCondition(promise.Status.Conditions, "Available")
+				Expect(availableCond).NotTo(BeNil())
+				Expect(string(availableCond.Status)).To(Equal("False"))
+				Expect(availableCond.Reason).To(Equal("WorkflowSuspended"))
+
+				reconcileCond := apimeta.FindStatusCondition(promise.Status.Conditions, "Reconciled")
+				Expect(reconcileCond).NotTo(BeNil())
+				Expect(string(reconcileCond.Status)).To(Equal("Unknown"))
+				Expect(reconcileCond.Reason).To(Equal("WorkflowSuspended"))
+				Expect(reconcileCond.Message).To(Equal("Suspended"))
+			})
+		})
 	})
 
 	Describe(".status", func() {
