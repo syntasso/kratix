@@ -138,6 +138,7 @@ type workflowState struct {
 	pipelineIndex        int   // index of the pipeline to act on (capped to len-1)
 	completedCount       int64 // number of pipelines completed, for status sync
 	manualReconcile      bool
+	restartFromStart     bool
 	resumeFromSuspended  bool
 	suspendedPipelineIdx int
 	desiredFailedCount   *int64
@@ -196,6 +197,7 @@ func determineWorkflowState(opts Opts) (*workflowState, error) {
 		manualReconcile:      isManualReconciliation(opts.parentObject.GetLabels()),
 		suspendedPipelineIdx: -1,
 	}
+	state.restartFromStart = state.manualReconcile || isWorkflowRestart(opts.parentObject.GetLabels())
 
 	suspendedPipelineIdx, err := resourceutil.GetPipelineIndexWithPhase(opts.parentObject, v1alpha1.WorkflowPhaseSuspended)
 	if err != nil {
@@ -203,7 +205,7 @@ func determineWorkflowState(opts Opts) (*workflowState, error) {
 	}
 	state.suspendedPipelineIdx = suspendedPipelineIdx
 	isWorkflowSuspended := opts.parentObject.GetLabels()[v1alpha1.WorkflowSuspendLabel] == "true"
-	state.resumeFromSuspended = !isWorkflowSuspended && !state.manualReconcile && suspendedPipelineIdx >= 0
+	state.resumeFromSuspended = !isWorkflowSuspended && !state.restartFromStart && suspendedPipelineIdx >= 0
 
 	if len(allJobs) == 0 {
 		if state.resumeFromSuspended {
@@ -223,6 +225,12 @@ func determineWorkflowState(opts Opts) (*workflowState, error) {
 		"labels", state.mostRecentJob.Labels,
 		"createdTimestamp", state.mostRecentJob.GetCreationTimestamp().Time,
 		"status", overAllJobStatus(state.mostRecentJob))
+
+	if state.restartFromStart {
+		state.pipelineIndex = 0
+		state.completedCount = 0
+		return state, nil
+	}
 
 	pipelineIndex, jobIsForPipeline := jobToPipelineIndex(opts, state.mostRecentJob)
 
@@ -258,7 +266,7 @@ func reconcileWorkflowStatus(opts Opts, state *workflowState) (passiveRequeue bo
 	}
 
 	succeededCountDrifted := currentSucceededCount != state.completedCount
-	shouldResetForManualRetry := state.manualReconcile && (currentFailedCount != 0 || currentSucceededCount != 0)
+	shouldResetForManualRetry := state.restartFromStart && (currentFailedCount != 0 || currentSucceededCount != 0)
 	failedCountDrifted := state.desiredFailedCount != nil && currentFailedCount != *state.desiredFailedCount
 	pipelinePhaseDrifted := state.desiredPipelineJob != nil && state.desiredPipelinePhase != ""
 
@@ -322,7 +330,7 @@ func handleCurrentPipelineJob(opts Opts, state *workflowState, pipeline v1alpha1
 	logging.Debug(opts.logger, "job is for pipeline", "job", state.mostRecentJob.Name, "pipeline", pipeline.Name)
 
 	if isRunning(state.mostRecentJob) {
-		if state.manualReconcile {
+		if state.restartFromStart {
 			logging.Info(opts.logger, "suspending job for manual reconciliation", "job", state.mostRecentJob.Name, "pipeline", pipeline.Name)
 			if err = suspendJob(opts.ctx, opts.client, state.mostRecentJob); err != nil {
 				logging.Error(opts.logger, err, "failed to suspend job", "job", state.mostRecentJob.GetName())
@@ -333,8 +341,8 @@ func handleCurrentPipelineJob(opts Opts, state *workflowState, pipeline v1alpha1
 		return true, nil
 	}
 
-	if state.manualReconcile {
-		logging.Info(opts.logger, "pipeline running due to manual reconciliation", "pipeline", pipeline.Name, "parentLabels", opts.parentObject.GetLabels())
+	if state.restartFromStart {
+		logging.Info(opts.logger, "pipeline running due to workflow restart", "pipeline", pipeline.Name, "parentLabels", opts.parentObject.GetLabels())
 		return createConfigurePipeline(opts, state, pipeline)
 	}
 
@@ -587,6 +595,11 @@ func createConfigurePipeline(opts Opts, state *workflowState, resources v1alpha1
 			return false, err
 		}
 	}
+	if isWorkflowRestart(opts.parentObject.GetLabels()) {
+		if err := removeWorkflowRestartLabel(opts); err != nil {
+			return false, err
+		}
+	}
 
 	deleteResources(opts, objectToDelete...)
 	applyResources(opts, append(resources.GetObjects(), resources.Job)...)
@@ -610,6 +623,11 @@ func createConfigurePipeline(opts Opts, state *workflowState, resources v1alpha1
 func removeManualReconciliationLabel(opts Opts) error {
 	logging.Debug(opts.logger, "manual reconciliation label detected; removing it")
 	return removeLabel(opts, resourceutil.ManualReconciliationLabel)
+}
+
+func removeWorkflowRestartLabel(opts Opts) error {
+	logging.Debug(opts.logger, "workflow restart label detected; removing it")
+	return removeLabel(opts, resourceutil.WorkflowRestartLabel)
 }
 
 func removeLabel(opts Opts, labelKey string) error {
@@ -687,6 +705,10 @@ func getJobsWithLabels(opts Opts, jobLabels map[string]string, namespace string)
 
 func isManualReconciliation(labels map[string]string) bool {
 	return isLabelSetToTrue(labels, resourceutil.ManualReconciliationLabel)
+}
+
+func isWorkflowRestart(labels map[string]string) bool {
+	return isLabelSetToTrue(labels, resourceutil.WorkflowRestartLabel)
 }
 
 func isLabelSetToTrue(labels map[string]string, labelKey string) bool {

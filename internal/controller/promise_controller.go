@@ -964,7 +964,7 @@ func (r *PromiseReconciler) reconcileDependenciesAndPromiseWorkflows(o opts, pro
 	forcePipelineRun := completedCond != nil &&
 		completedCond.Status == metav1.ConditionTrue &&
 		time.Since(completedCond.LastTransitionTime.Time) > r.ReconciliationInterval &&
-		promise.Labels[resourceutil.ManualReconciliationLabel] != "true"
+		promise.Labels[resourceutil.WorkflowRestartLabel] != "true"
 
 	reconciledCond := promise.GetCondition(string(resourceutil.ReconciledCondition))
 	resumedFromPause := reconciledCond != nil && reconciledCond.Status == metav1.ConditionUnknown && reconciledCond.Reason == pausedReconciliationReason
@@ -972,14 +972,12 @@ func (r *PromiseReconciler) reconcileDependenciesAndPromiseWorkflows(o opts, pro
 	promiseSpecChanged := promise.Status.Kratix.Workflows.SuspendedGeneration != 0 && promise.GetGeneration() > promise.Status.Kratix.Workflows.SuspendedGeneration
 
 	if isWorkflowSuspended && (forcePipelineRun || promise.Labels[resourceutil.ManualReconciliationLabel] == "true" || resumedFromPause || promiseSpecChanged) {
-		resetPromiseWorkflowPipelinesToPending(promise)
+		promise.Labels[resourceutil.WorkflowRestartLabel] = "true"
 		if forcePipelineRun {
 			logging.Trace(o.logger, "pipeline completed too long ago while suspended; forcing reconciliation", "lastTransitionTime", completedCond.LastTransitionTime.String())
-			promise.Labels[resourceutil.ManualReconciliationLabel] = "true"
 		}
 		if resumedFromPause {
 			logging.Info(o.logger, "Promise unpaused while suspended; forcing reconciliation")
-			promise.Labels[resourceutil.ManualReconciliationLabel] = "true"
 			promise.Labels[resourceutil.ReconcileResourcesLabel] = "true"
 		}
 		if promiseSpecChanged {

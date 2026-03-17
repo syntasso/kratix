@@ -1065,6 +1065,54 @@ var _ = Describe("Workflow Reconciler", func() {
 				})
 			})
 		})
+
+		When("the workflow restart label exists in the parent resource", func() {
+			BeforeEach(func() {
+				Expect(fakeK8sClient.Create(ctx, workflowPipelines[0].Job)).To(Succeed())
+				Expect(fakeK8sClient.Create(ctx, workflowPipelines[1].Job)).To(Succeed())
+				markJobAsComplete(workflowPipelines[0].Job.Name)
+				markJobAsComplete(workflowPipelines[1].Job.Name)
+				setParentWorkflowCountersStatus(uPromise, 1)
+
+				opts := workflow.NewOpts(ctx, fakeK8sClient, eventRecorder, logger, uPromise, workflowPipelines, "promise", 5, namespace)
+				passiveRequeue, err := workflow.ReconcileConfigure(opts)
+				Expect(err).NotTo(HaveOccurred())
+				Expect(passiveRequeue).To(BeTrue())
+				assertPromiseWorkflowCountersStatus("redis", 2)
+
+				passiveRequeue, err = workflow.ReconcileConfigure(opts)
+				Expect(err).NotTo(HaveOccurred())
+				Expect(passiveRequeue).To(BeFalse())
+
+				Expect(listJobs(namespace)).To(HaveLen(2))
+
+				labelPromiseForWorkflowRestart("redis")
+
+				workflowPipelines, uPromise = setupTest(promise, pipelines)
+				setParentWorkflowCountersStatus(uPromise, 1)
+			})
+
+			It("restarts the workflow from the first pipeline and removes the label", func() {
+				opts := workflow.NewOpts(ctx, fakeK8sClient, eventRecorder, logger, uPromise, workflowPipelines, "promise", 5, namespace)
+
+				passiveRequeue, err := workflow.ReconcileConfigure(opts)
+				Expect(err).NotTo(HaveOccurred())
+				Expect(passiveRequeue).To(BeTrue())
+				assertPromiseWorkflowCountersStatus("redis", 0)
+
+				passiveRequeue, err = workflow.ReconcileConfigure(opts)
+				Expect(err).NotTo(HaveOccurred())
+				Expect(passiveRequeue).To(BeTrue())
+
+				jobs := resourceutil.SortJobsByCreationDateTime(listJobs(namespace), true)
+				Expect(jobs).To(HaveLen(3))
+				Expect(jobs[2].GetLabels()).To(HaveKeyWithValue("kratix.io/pipeline-name", workflowPipelines[0].Name))
+
+				updatedPromise := v1alpha1.Promise{}
+				Expect(fakeK8sClient.Get(ctx, types.NamespacedName{Name: "redis"}, &updatedPromise)).To(Succeed())
+				Expect(updatedPromise.GetLabels()).NotTo(HaveKey(resourceutil.WorkflowRestartLabel))
+			})
+		})
 	})
 
 	Describe("ReconcileConfigure with user-configured permissions", func() {
@@ -2297,6 +2345,15 @@ func labelPromiseForManualReconciliation(name string) {
 	Expect(fakeK8sClient.Get(ctx, types.NamespacedName{Name: name}, promise)).To(Succeed())
 	promise.SetLabels(labels.Merge(promise.GetLabels(), map[string]string{
 		"kratix.io/manual-reconciliation": "true",
+	}))
+	Expect(fakeK8sClient.Update(ctx, promise)).To(Succeed())
+}
+
+func labelPromiseForWorkflowRestart(name string) {
+	promise := &v1alpha1.Promise{}
+	Expect(fakeK8sClient.Get(ctx, types.NamespacedName{Name: name}, promise)).To(Succeed())
+	promise.SetLabels(labels.Merge(promise.GetLabels(), map[string]string{
+		resourceutil.WorkflowRestartLabel: "true",
 	}))
 	Expect(fakeK8sClient.Update(ctx, promise)).To(Succeed())
 }
