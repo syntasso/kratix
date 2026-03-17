@@ -8,6 +8,7 @@ import (
 	"strings"
 
 	"github.com/spf13/cobra"
+	"github.com/syntasso/kratix/api/v1alpha1"
 	"github.com/syntasso/kratix/work-creator/lib"
 	"github.com/syntasso/kratix/work-creator/lib/helpers"
 	metav1 "k8s.io/apimachinery/pkg/apis/meta/v1"
@@ -63,7 +64,7 @@ func runUpdateStatus(ctx context.Context) error {
 
 	mergedStatus := lib.MergeStatuses(existingStatus, incomingStatus)
 
-	if params.WorkflowType == "promise" {
+	if params.WorkflowType == v1alpha1.WorkflowTypePromise {
 		if nonMessageKeys := lib.NonMessageStatusKeys(incomingStatus); len(nonMessageKeys) > 0 {
 			fmt.Fprintf(
 				os.Stdout,
@@ -74,7 +75,7 @@ func runUpdateStatus(ctx context.Context) error {
 	}
 
 	if params.IsLastPipeline {
-		mergedStatus = lib.MarkAsCompleted(mergedStatus)
+		mergedStatus = lib.MarkAsCompleted(mergedStatus, params.WorkflowType)
 	}
 
 	// Apply merged status to the existing object

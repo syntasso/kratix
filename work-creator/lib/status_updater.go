@@ -6,6 +6,7 @@ import (
 	metav1 "k8s.io/apimachinery/pkg/apis/meta/v1"
 	"sigs.k8s.io/yaml"
 
+	"github.com/syntasso/kratix/api/v1alpha1"
 	"github.com/syntasso/kratix/lib/resourceutil"
 )
 
@@ -33,12 +34,17 @@ func NonMessageStatusKeys(status map[string]any) []string {
 
 // MarkAsCompleted takes a status map and returns a new status map with the
 // "ConfigureWorkflowCompleted" condition set to true. It will also update the
-// "message" field to "Resource requested" if the message is currently
-// "Pending".
-func MarkAsCompleted(status map[string]any) map[string]any {
+// "message" field to "Resource requested" or "Promise configured" if the
+// message is currently "Pending".
+func MarkAsCompleted(status map[string]any, workflowType v1alpha1.Type) map[string]any {
 	currentMessage, _ := status["message"].(string)
 	if currentMessage == "Pending" {
-		status["message"] = "Resource requested"
+		switch workflowType {
+		case v1alpha1.WorkflowTypeResource:
+			status["message"] = "Resource requested"
+		case v1alpha1.WorkflowTypePromise:
+			status["message"] = "Promise configured"
+		}
 	}
 
 	existingConditions, _ := status["conditions"].([]any)
