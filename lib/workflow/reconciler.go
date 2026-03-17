@@ -135,9 +135,11 @@ func createDeletePipeline(opts Opts, pipeline v1alpha1.PipelineJobResources) (pa
 // workflowState holds the resolved state for a configure reconciliation.
 type workflowState struct {
 	mostRecentJob        *batchv1.Job
-	pipelineIndex        int   // index of pipeline to act on (capped to len-1)
+	pipelineIndex        int   // index of the pipeline to act on (capped to len-1)
 	completedCount       int64 // number of pipelines completed, for status sync
 	manualReconcile      bool
+	resumeFromSuspended  bool
+	suspendedPipelineIdx int
 	desiredFailedCount   *int64
 	desiredPipelinePhase string
 	desiredPipelineJob   *batchv1.Job
@@ -191,12 +193,26 @@ func determineWorkflowState(opts Opts) (*workflowState, error) {
 	allJobs = append(allJobs, allLegacyJobs...)
 
 	state := &workflowState{
-		manualReconcile: isManualReconciliation(opts.parentObject.GetLabels()),
+		manualReconcile:      isManualReconciliation(opts.parentObject.GetLabels()),
+		suspendedPipelineIdx: -1,
 	}
 
+	suspendedPipelineIdx, err := resourceutil.GetPipelineIndexWithPhase(opts.parentObject, v1alpha1.WorkflowPhaseSuspended)
+	if err != nil {
+		return nil, err
+	}
+	state.suspendedPipelineIdx = suspendedPipelineIdx
+	isWorkflowSuspended := opts.parentObject.GetLabels()[v1alpha1.WorkflowSuspendLabel] == "true"
+	state.resumeFromSuspended = !isWorkflowSuspended && !state.manualReconcile && suspendedPipelineIdx >= 0
+
 	if len(allJobs) == 0 {
-		state.pipelineIndex = 0
-		state.completedCount = 0
+		if state.resumeFromSuspended {
+			state.pipelineIndex = state.suspendedPipelineIdx
+			state.completedCount = int64(state.suspendedPipelineIdx)
+		} else {
+			state.pipelineIndex = 0
+			state.completedCount = 0
+		}
 		return state, nil
 	}
 
@@ -211,6 +227,12 @@ func determineWorkflowState(opts Opts) (*workflowState, error) {
 	pipelineIndex, jobIsForPipeline := jobToPipelineIndex(opts, state.mostRecentJob)
 
 	state.completedCount = int64(pipelineIndex)
+
+	if state.resumeFromSuspended {
+		state.pipelineIndex = state.suspendedPipelineIdx
+		state.completedCount = int64(state.suspendedPipelineIdx)
+		return state, nil
+	}
 
 	if jobIsForPipeline && isCompleted(state.mostRecentJob) {
 		state.completedCount++
@@ -313,6 +335,11 @@ func handleCurrentPipelineJob(opts Opts, state *workflowState, pipeline v1alpha1
 
 	if state.manualReconcile {
 		logging.Info(opts.logger, "pipeline running due to manual reconciliation", "pipeline", pipeline.Name, "parentLabels", opts.parentObject.GetLabels())
+		return createConfigurePipeline(opts, state, pipeline)
+	}
+
+	if state.resumeFromSuspended {
+		logging.Info(opts.logger, "rerunning suspended pipeline after resume", "pipeline", pipeline.Name)
 		return createConfigurePipeline(opts, state, pipeline)
 	}
 

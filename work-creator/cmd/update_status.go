@@ -98,6 +98,9 @@ func updateStatus(ctx context.Context, baseDir string, params *helpers.Parameter
 	}
 
 	if control != nil && control.Suspend {
+		fmt.Fprintln(
+			os.Stdout,
+			"Info: workflow-control.yaml file found with suspend set to true; will label the object and update its pipeline execution status.")
 		existingObj, err = addWorkflowSuspendLabel(ctx, objectClient, existingObj)
 		if err != nil {
 			return err
@@ -138,6 +141,9 @@ func addWorkflowSuspendLabel(ctx context.Context, objectClient dynamic.ResourceI
 		return nil, fmt.Errorf("failed to update object labels: %w", err)
 	}
 
+	fmt.Fprintf(
+		os.Stdout,
+		"Info: labelled the object with %q label to 'true'.\n ", v1alpha1.WorkflowSuspendLabel)
 	return updatedObj, nil
 }
 

@@ -154,6 +154,10 @@ var _ = Describe("PromiseController", func() {
 						Expect(pipelines.Items.Schema.Properties["phase"].Type).To(Equal("string"))
 						Expect(pipelines.Items.Schema.Properties["message"].Type).To(Equal("string"))
 						Expect(pipelines.Items.Schema.Properties["lastTransitionTime"].Type).To(Equal("string"))
+						suspendedGeneration, ok := kratixWorkflows.Properties["suspendedGeneration"]
+						Expect(ok).To(BeTrue(), ".status.kratix.workflows.suspendedGeneration did not exist. Spec %v", kratixWorkflows)
+						Expect(suspendedGeneration.Type).To(Equal("integer"))
+						Expect(suspendedGeneration.Format).To(Equal("int64"))
 
 						observedGeneration, ok := status.Properties["observedGeneration"]
 						Expect(ok).To(BeTrue(), ".status.observedGeneration did not exist. Spec %v", status)
@@ -1625,11 +1629,20 @@ var _ = Describe("PromiseController", func() {
 
 		When("promise workflow is suspended", func() {
 			It("stops reconciliation and set status correctly", func() {
-				promise = createPromise(promisePath)
-				promise.Labels["kratix.io/workflow-suspend"] = "true"
-				Expect(fakeK8sClient.Update(context.TODO(), promise)).To(Succeed())
+				promise = createPromise(promiseWithWorkflowPath)
+				setReconcileConfigureWorkflowToReturnFinished()
 
-				result, err := t.reconcileUntilCompletion(reconciler, promise)
+				result, err := t.reconcileUntilCompletion(reconciler, promise, &opts{
+					funcs: []func(client.Object) error{autoMarkCRDAsEstablished},
+				})
+				Expect(err).NotTo(HaveOccurred())
+				Expect(result).To(Equal(ctrl.Result{}))
+
+				Expect(fakeK8sClient.Get(ctx, promiseName, promise)).To(Succeed())
+				promise.Labels[v1alpha1.WorkflowSuspendLabel] = "true"
+				Expect(fakeK8sClient.Update(ctx, promise)).To(Succeed())
+
+				result, err = reconciler.Reconcile(ctx, ctrl.Request{NamespacedName: promiseName})
 				Expect(err).NotTo(HaveOccurred())
 				Expect(result).To(Equal(ctrl.Result{}))
 
@@ -1652,6 +1665,79 @@ var _ = Describe("PromiseController", func() {
 				Expect(string(reconcileCond.Status)).To(Equal("Unknown"))
 				Expect(reconcileCond.Reason).To(Equal("WorkflowSuspended"))
 				Expect(reconcileCond.Message).To(Equal("Suspended"))
+				Expect(promise.Status.Kratix.Workflows.SuspendedGeneration).To(Equal(promise.GetGeneration()))
+			})
+
+			It("removes the suspend label and requests a restart when the reconciliation interval is reached", func() {
+				promise = createPromise(promiseWithWorkflowPath)
+				setReconcileConfigureWorkflowToReturnFinished()
+
+				result, err := t.reconcileUntilCompletion(reconciler, promise, &opts{
+					funcs: []func(client.Object) error{autoMarkCRDAsEstablished},
+				})
+				Expect(err).NotTo(HaveOccurred())
+				Expect(result).To(Equal(ctrl.Result{}))
+
+				Expect(fakeK8sClient.Get(ctx, promiseName, promise)).To(Succeed())
+				promise.Labels[v1alpha1.WorkflowSuspendLabel] = "true"
+				Expect(fakeK8sClient.Update(ctx, promise)).To(Succeed())
+				uPromise, err := promise.ToUnstructured()
+				Expect(err).NotTo(HaveOccurred())
+
+				resourceutil.SetCondition(uPromise, &clusterv1.Condition{
+					Type:               resourceutil.ConfigureWorkflowCompletedCondition,
+					Status:             v1.ConditionTrue,
+					Message:            "Pipelines completed",
+					Reason:             "PipelinesExecutedSuccessfully",
+					LastTransitionTime: metav1.NewTime(time.Now().Add(-reconciler.ReconciliationInterval).Add(-time.Minute)),
+				})
+				Expect(fakeK8sClient.Status().Update(ctx, uPromise)).To(Succeed())
+
+				result, err = reconciler.Reconcile(ctx, ctrl.Request{NamespacedName: types.NamespacedName{Name: promise.GetName(), Namespace: promise.GetNamespace()}})
+				Expect(err).NotTo(HaveOccurred())
+				Expect(result).To(Equal(ctrl.Result{}))
+
+				Expect(fakeK8sClient.Get(ctx, promiseName, promise)).To(Succeed())
+				Expect(promise.Labels[v1alpha1.WorkflowSuspendLabel]).To(BeEmpty())
+				Expect(promise.Labels[resourceutil.ManualReconciliationLabel]).To(Equal("true"))
+				Expect(promise.Status.Kratix.Workflows.Pipelines[0].Phase).To(Equal(v1alpha1.WorkflowPhasePending))
+				Expect(promise.Status.Kratix.Workflows.Pipelines[1].Phase).To(Equal(v1alpha1.WorkflowPhasePending))
+				Expect(promise.Status.Kratix.Workflows.SuspendedGeneration).To(BeZero())
+			})
+
+			It("removes the suspend label when the promise spec has changed", func() {
+				promise = createPromise(promiseWithWorkflowPath)
+				setReconcileConfigureWorkflowToReturnFinished()
+
+				result, err := t.reconcileUntilCompletion(reconciler, promise, &opts{
+					funcs: []func(client.Object) error{autoMarkCRDAsEstablished},
+				})
+				Expect(err).NotTo(HaveOccurred())
+				Expect(result).To(Equal(ctrl.Result{}))
+
+				Expect(fakeK8sClient.Get(ctx, promiseName, promise)).To(Succeed())
+				promise.Labels[v1alpha1.WorkflowSuspendLabel] = "true"
+				promise.Spec.Workflows.Config.PipelineNamespace = "new-namespace"
+				promise.SetGeneration(2)
+				Expect(fakeK8sClient.Update(ctx, promise)).To(Succeed())
+
+				Expect(fakeK8sClient.Get(ctx, promiseName, promise)).To(Succeed())
+				promise.Status.Kratix.Workflows.SuspendedGeneration = 1
+				Expect(fakeK8sClient.Status().Update(ctx, promise)).To(Succeed())
+
+				Expect(fakeK8sClient.Get(ctx, promiseName, promise)).To(Succeed())
+				Expect(promise.Status.Kratix.Workflows.SuspendedGeneration).To(Equal(int64(1)))
+				Expect(promise.GetGeneration()).To(Equal(int64(2)))
+
+				result, err = reconciler.Reconcile(ctx, ctrl.Request{NamespacedName: promiseName})
+				Expect(err).NotTo(HaveOccurred())
+				Expect(result).To(Equal(ctrl.Result{}))
+
+				Expect(fakeK8sClient.Get(ctx, promiseName, promise)).To(Succeed())
+				Expect(promise.Labels[v1alpha1.WorkflowSuspendLabel]).To(BeEmpty())
+				Expect(promise.Status.Kratix.Workflows.Pipelines[0].Phase).To(Equal(v1alpha1.WorkflowPhasePending))
+				Expect(promise.Status.Kratix.Workflows.Pipelines[1].Phase).To(Equal(v1alpha1.WorkflowPhasePending))
+				Expect(promise.Status.Kratix.Workflows.SuspendedGeneration).To(BeZero())
 			})
 		})
 	})

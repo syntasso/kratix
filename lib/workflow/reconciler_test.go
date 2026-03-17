@@ -174,6 +174,50 @@ var _ = Describe("Workflow Reconciler", func() {
 			})
 		})
 
+		When("a suspended pipeline is resumed by removing the suspend label", func() {
+			It("restarts the suspended pipeline instead of moving to the next one", func() {
+				Expect(fakeK8sClient.Get(ctx, types.NamespacedName{Name: promise.Name}, &promise)).To(Succeed())
+				promise.Labels = map[string]string{}
+				promise.Status.WorkflowsSucceeded = 0
+				promise.Status.Kratix.Workflows.Pipelines[0].Phase = v1alpha1.WorkflowPhaseSuspended
+				promise.Status.Kratix.Workflows.Pipelines[0].Message = "waiting"
+				promise.Status.Kratix.Workflows.Pipelines[1].Phase = v1alpha1.WorkflowPhasePending
+				Expect(fakeK8sClient.Update(ctx, &promise)).To(Succeed())
+				Expect(fakeK8sClient.Get(ctx, types.NamespacedName{Name: promise.Name}, &promise)).To(Succeed())
+				promise.Status.WorkflowsSucceeded = 0
+				promise.Status.Kratix.Workflows.Pipelines[0].Phase = v1alpha1.WorkflowPhaseSuspended
+				promise.Status.Kratix.Workflows.Pipelines[0].Message = "waiting"
+				promise.Status.Kratix.Workflows.Pipelines[1].Phase = v1alpha1.WorkflowPhasePending
+				Expect(fakeK8sClient.Status().Update(ctx, &promise)).To(Succeed())
+
+				completedJob := workflowPipelines[0].Job.DeepCopy()
+				completedJob.Status.Conditions = append(completedJob.Status.Conditions, batchv1.JobCondition{
+					Type:   batchv1.JobComplete,
+					Status: v1.ConditionTrue,
+				})
+				Expect(fakeK8sClient.Create(ctx, completedJob)).To(Succeed())
+
+				uPromise, err := promise.ToUnstructured()
+				Expect(err).NotTo(HaveOccurred())
+				opts := workflow.NewOpts(ctx, fakeK8sClient, eventRecorder, logger, uPromise, workflowPipelines, "promise", 5, namespace)
+
+				By("clearing the suspended message and resuming the suspended pipeline directly to running", func() {
+					passiveRequeue, err := workflow.ReconcileConfigure(opts)
+					Expect(err).NotTo(HaveOccurred())
+					Expect(passiveRequeue).To(BeTrue())
+
+					updatedPromise := &v1alpha1.Promise{}
+					Expect(fakeK8sClient.Get(ctx, types.NamespacedName{Name: promise.Name}, updatedPromise)).To(Succeed())
+					Expect(updatedPromise.Status.Kratix.Workflows.Pipelines[0].Phase).To(Equal(v1alpha1.WorkflowPhaseRunning))
+					Expect(updatedPromise.Status.Kratix.Workflows.Pipelines[0].Message).To(BeEmpty())
+					Expect(updatedPromise.Status.Kratix.Workflows.Pipelines[1].Phase).To(Equal(v1alpha1.WorkflowPhasePending))
+					jobs := listJobs(namespace)
+					Expect(jobs).To(HaveLen(1))
+					Expect(findByName(jobs, workflowPipelines[0].Job.GetName())).To(BeTrue())
+				})
+			})
+		})
+
 		When("the service account does exist", func() {
 			When("the service account does not have the kratix promise label", func() {
 				It("should not add the kratix label to the service account", func() {

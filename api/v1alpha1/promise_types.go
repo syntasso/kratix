@@ -191,6 +191,9 @@ type KratixPromiseStatus struct {
 type WorkflowStatus struct {
 	// Status of the Pipeline execution
 	Pipelines []WorkflowPipelineStatus `json:"pipelines,omitempty"`
+
+	// Generation at which the workflow was suspended
+	SuspendedGeneration int64 `json:"suspendedGeneration,omitempty"`
 }
 
 type WorkflowPipelineStatus struct {
@@ -513,6 +516,7 @@ const (
 	WorkflowPhaseRunning   = "Running"
 	WorkflowPhaseSucceeded = "Succeeded"
 	WorkflowPhaseFailed    = "Failed"
+	WorkflowPhaseSuspended = "Suspended"
 )
 
 func (p *Promise) ClearPipelineExecutionStatus() bool {

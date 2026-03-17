@@ -273,6 +273,10 @@ spec:
                               type: string
                           type: object
                         type: array
+                      suspendedGeneration:
+                        description: Generation at which the workflow was suspended
+                        format: int64
+                        type: integer
                     type: object
                 type: object
               lastAvailableTime:
