@@ -62,6 +62,7 @@ var _ = Describe("Core Tests", Ordered, func() {
 
 		It("should deliver xaas to users", func() {
 			var originalPromiseConfigMapTimestamp1 string
+			pipelinesExecutionStatusPath := ".status.kratix.workflows.pipelines"
 			By("successfully installing a Promise", func() {
 				Expect(platform.Kubectl("apply", "-f", "assets/promise.yaml")).To(ContainSubstring("testbundle created"))
 
@@ -178,7 +179,6 @@ var _ = Describe("Core Tests", Ordered, func() {
 						promiseWorkflows := ".status.workflows"
 						promiseWorkflowsSucceeded := ".status.workflowsSucceeded"
 						promiseWorkflowsFailed := ".status.workflowsFailed"
-						promiseWorkflowPipelines := ".status.kratix.workflows.pipelines"
 
 						Eventually(func(g Gomega) {
 							g.Expect(
@@ -204,7 +204,7 @@ var _ = Describe("Core Tests", Ordered, func() {
 							).To(ContainSubstring("1"))
 
 							var parsedOutput [][]v1alpha1.WorkflowPipelineStatus // jsonpath-as-json returns a nested array of the target objects
-							jsonOutput := platform.Kubectl(append(promiseArgs, fmt.Sprintf(`-o=jsonpath-as-json={%s}`, promiseWorkflowPipelines))...)
+							jsonOutput := platform.Kubectl(append(promiseArgs, fmt.Sprintf(`-o=jsonpath-as-json={%s}`, pipelinesExecutionStatusPath))...)
 							json.Unmarshal([]byte(jsonOutput), &parsedOutput)
 							// TODO: remove after releasing: only assert if '.kratix.workflows.pipelines' is set
 							if len(parsedOutput) != 0 {
@@ -248,6 +248,21 @@ var _ = Describe("Core Tests", Ordered, func() {
 						g.Expect(platform.Kubectl(append(rrArgs, "-o=jsonpath='{.status.workflows}'")...)).To(ContainSubstring("2"))
 						g.Expect(platform.Kubectl(append(rrArgs, "-o=jsonpath='{.status.workflowsSucceeded}'")...)).To(ContainSubstring("2"))
 						g.Expect(platform.Kubectl(append(rrArgs, "-o=jsonpath='{.status.workflowsFailed}'")...)).To(ContainSubstring("0"))
+
+						if platform.Kubectl(append(rrArgs, `-o=jsonpath={.status.kratix.workflows}`)...) != "" {
+							var parsedOutput [][]v1alpha1.WorkflowPipelineStatus
+							jsonOutput := platform.Kubectl(append(rrArgs, fmt.Sprintf(`-o=jsonpath-as-json={%s}`, pipelinesExecutionStatusPath))...)
+							json.Unmarshal([]byte(jsonOutput), &parsedOutput)
+							g.Expect(parsedOutput).To(HaveLen(1))
+							workflowPipelines := parsedOutput[0]
+							g.Expect(workflowPipelines).To(HaveLen(2))
+							g.Expect(workflowPipelines[0].Name).To(Equal("resource-pipeline0"))
+							g.Expect(workflowPipelines[0].Phase).To(Equal(v1alpha1.WorkflowPhaseSucceeded))
+							g.Expect(workflowPipelines[0].LastTransitionTime).To(Not(BeZero()))
+							g.Expect(workflowPipelines[1].Name).To(Equal("resource-pipeline1"))
+							g.Expect(workflowPipelines[1].Phase).To(Equal(v1alpha1.WorkflowPhaseSucceeded))
+							g.Expect(workflowPipelines[1].LastTransitionTime).To(Not(BeZero()))
+						}
 					}, timeout, interval).Should(Succeed())
 
 					Eventually(func() bool {
@@ -320,6 +335,7 @@ var _ = Describe("Core Tests", Ordered, func() {
 				})
 
 				By("rerunning pipelines when updating a resource request", func() {
+					rrArgs := []string{"-n", "default", "get", "testbundle", resourceRequestName}
 					originalTimeStampW1 := worker.Kubectl(append(cmArgs, rrConfigMapName+"-1", "-o=jsonpath={.data.timestamp}")...)
 					originalTimeStampW2 := worker.Kubectl(append(cmArgs, rrConfigMapName+"-2", "-o=jsonpath={.data.timestamp}")...)
 					Expect(
@@ -335,6 +351,36 @@ var _ = Describe("Core Tests", Ordered, func() {
 							worker.Kubectl(append(cmArgs, rrConfigMapName+"-2", "-o=jsonpath={.data.timestamp}")...),
 						).ToNot(Equal(originalTimeStampW2))
 					}, longerTimeout, interval).Should(Succeed())
+
+					if platform.Kubectl(append(rrArgs, `-o=jsonpath={.status.kratix.workflows}`)...) != "" {
+						Eventually(func(g Gomega) {
+							var parsedOutput [][]v1alpha1.WorkflowPipelineStatus
+							jsonOutput := platform.Kubectl(append(rrArgs, fmt.Sprintf(`-o=jsonpath-as-json={%s}`, pipelinesExecutionStatusPath))...)
+							json.Unmarshal([]byte(jsonOutput), &parsedOutput)
+							g.Expect(parsedOutput).To(HaveLen(1))
+							workflowPipelines := parsedOutput[0]
+							g.Expect(workflowPipelines).To(HaveLen(2))
+							for _, pipeline := range workflowPipelines {
+								g.Expect(pipeline.Phase).To(Or(
+									Equal(v1alpha1.WorkflowPhasePending),
+									Equal(v1alpha1.WorkflowPhaseRunning),
+									Equal(v1alpha1.WorkflowPhaseSucceeded),
+								))
+								g.Expect(pipeline.LastTransitionTime).To(Not(BeZero()))
+							}
+						}, timeout, interval).Should(Succeed())
+
+						Eventually(func(g Gomega) {
+							var parsedOutput [][]v1alpha1.WorkflowPipelineStatus
+							jsonOutput := platform.Kubectl(append(rrArgs, fmt.Sprintf(`-o=jsonpath-as-json={%s}`, pipelinesExecutionStatusPath))...)
+							json.Unmarshal([]byte(jsonOutput), &parsedOutput)
+							g.Expect(parsedOutput).To(HaveLen(1))
+							workflowPipelines := parsedOutput[0]
+							g.Expect(workflowPipelines).To(HaveLen(2))
+							g.Expect(workflowPipelines[0].Phase).To(Equal(v1alpha1.WorkflowPhaseSucceeded))
+							g.Expect(workflowPipelines[1].Phase).To(Equal(v1alpha1.WorkflowPhaseSucceeded))
+						}, longerTimeout, interval).Should(Succeed())
+					}
 				})
 			})
 

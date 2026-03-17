@@ -99,6 +99,18 @@ var _ = Describe("Workflow Reconciler", func() {
 			workflowPipelines, uPromise = setupTest(promise, pipelines)
 		})
 
+		When("list of pipeline resources are empty", func() {
+			It("does not panic", func() {
+				opts := workflow.NewOpts(ctx, fakeK8sClient, eventRecorder, logger, uPromise, nil, "promise", 5, namespace)
+
+				Expect(func() {
+					passiveRequeue, err := workflow.ReconcileConfigure(opts)
+					Expect(err).NotTo(HaveOccurred())
+					Expect(passiveRequeue).To(BeFalse())
+				}).NotTo(Panic())
+			})
+		})
+
 		When("no pipeline for the workflow was executed", func() {
 			var opts workflow.Opts
 			BeforeEach(func() {

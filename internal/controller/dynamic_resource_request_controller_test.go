@@ -55,7 +55,6 @@ var _ = Describe("DynamicResourceRequestController", func() {
 
 		reconciler = &controller.DynamicResourceRequestController{
 			CanCreateResources:          ptr.True(),
-			Enabled:                     ptr.True(),
 			Client:                      fakeK8sClient,
 			Scheme:                      scheme.Scheme,
 			GVK:                         rrGVK,
@@ -335,6 +334,11 @@ var _ = Describe("DynamicResourceRequestController", func() {
 				observedGeneration := resourceutil.GetObservedGeneration(resReq)
 				setConfigureWorkflowStatus(resReq, v1.ConditionTrue)
 				setReconcileConfigureWorkflowToReturnFinished()
+				// Reconcile until the reconciliation loop reaches observed generation update
+				// first reconcile will return at updating workflow execution phases to 'pending'
+				result, err = reconciler.Reconcile(ctx, request)
+				Expect(err).ToNot(HaveOccurred())
+				Expect(result).To(Equal(ctrl.Result{}))
 				result, err = reconciler.Reconcile(ctx, request)
 				Expect(err).ToNot(HaveOccurred())
 				Expect(result).To(Equal(ctrl.Result{}))
@@ -769,6 +773,24 @@ var _ = Describe("DynamicResourceRequestController", func() {
 					Expect(resourceutil.GetWorkflowsCounterStatus(resReq, "workflowsSucceeded")).To(Equal(int64(0)))
 					Expect(resourceutil.GetWorkflowsCounterStatus(resReq, "workflowsFailed")).To(Equal(int64(0)))
 				})
+			})
+
+			It("initialises kratix workflow pipelines to pending before workflow reconciliation", func() {
+				request := ctrl.Request{NamespacedName: resReqNameNamespace}
+				result, err := reconciler.Reconcile(ctx, request)
+				Expect(err).NotTo(HaveOccurred())
+				Expect(result).To(Equal(ctrl.Result{}))
+
+				Expect(fakeK8sClient.Get(ctx, resReqNameNamespace, resReq)).To(Succeed())
+				workflows, found, err := unstructured.NestedSlice(resReq.Object, "status", "kratix", "workflows", "pipelines")
+				Expect(err).NotTo(HaveOccurred())
+				Expect(found).To(BeTrue())
+				Expect(workflows).To(HaveLen(1))
+				Expect(workflows[0]).To(SatisfyAll(
+					HaveKeyWithValue("name", "first-pipeline"),
+					HaveKeyWithValue("phase", v1alpha1.WorkflowPhasePending),
+					HaveKeyWithValue("lastTransitionTime", Not(BeEmpty())),
+				))
 			})
 
 			When("all configure pipelines are successful", func() {

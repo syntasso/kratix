@@ -149,6 +149,11 @@ type workflowState struct {
 // resources are updated (for example workflow Jobs or the parent object status),
 // rather than by issuing an explicit direct requeue from this function.
 func ReconcileConfigure(opts Opts) (passiveRequeue bool, err error) {
+	if len(opts.Resources) == 0 {
+		logging.Debug(opts.logger, "no pipeline resources to reconcile")
+		return false, nil
+	}
+
 	state, err := determineWorkflowState(opts)
 	if err != nil {
 		return false, err
@@ -231,7 +236,7 @@ func reconcileWorkflowStatus(opts Opts, state *workflowState) (passiveRequeue bo
 	}
 
 	succeededCountDrifted := currentSucceededCount != state.completedCount
-	shouldResetForManualRetry := state.manualReconcile && currentFailedCount != 0
+	shouldResetForManualRetry := state.manualReconcile && (currentFailedCount != 0 || currentSucceededCount != 0)
 	failedCountDrifted := state.desiredFailedCount != nil && currentFailedCount != *state.desiredFailedCount
 	pipelinePhaseDrifted := state.desiredPipelineJob != nil && state.desiredPipelinePhase != ""
 
@@ -251,7 +256,7 @@ func reconcileWorkflowStatus(opts Opts, state *workflowState) (passiveRequeue bo
 
 	if shouldResetForManualRetry || (succeededCountDrifted && state.completedCount == 0) {
 		resourceutil.SetStatus(opts.parentObject, opts.logger, "workflowsFailed", int64(0))
-		if err = resourceutil.ResetPipelineStatusToPending(opts.parentObject); err != nil {
+		if err = resourceutil.ResetPipelineStatusToPending(opts.parentObject, opts.Resources); err != nil {
 			return false, err
 		}
 	}
