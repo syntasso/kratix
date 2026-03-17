@@ -4,7 +4,6 @@ import (
 	"fmt"
 	"os"
 	"strconv"
-	"strings"
 
 	"github.com/syntasso/kratix/internal/telemetry"
 	"github.com/syntasso/kratix/lib/hash"
@@ -317,7 +316,7 @@ func (p *PipelineFactory) pipelineJob(
 	readerContainer := p.readerContainer()
 	pipelineContainers, pipelineVolumes := p.pipelineContainers()
 	workCreatorContainer := p.workCreatorContainer()
-	statusWriterContainer := p.statusWriterContainer(obj, env)
+	statusWriterContainer := p.statusWriterContainer(env)
 
 	volumes := append(p.defaultVolumes(schedulingConfigMap), pipelineVolumes...)
 	nodeSelector := p.Pipeline.Spec.NodeSelector
@@ -388,22 +387,13 @@ func (p *PipelineFactory) pipelineJob(
 	return job, nil
 }
 
-func (p *PipelineFactory) statusWriterContainer(obj *unstructured.Unstructured, env []corev1.EnvVar) corev1.Container {
+func (p *PipelineFactory) statusWriterContainer(env []corev1.EnvVar) corev1.Container {
 	return corev1.Container{
 		Name:    "status-writer",
 		Image:   os.Getenv("PIPELINE_ADAPTER_IMG"),
 		Command: []string{"/bin/pipeline-adapter"},
 		Args:    []string{"update-status"},
-		Env: append(env,
-			corev1.EnvVar{Name: KratixTypeEnvVar, Value: string(p.WorkflowType)},
-			corev1.EnvVar{Name: KratixObjectKindEnvVar, Value: strings.ToLower(obj.GetKind())},
-			corev1.EnvVar{Name: KratixObjectGroupEnvVar, Value: obj.GroupVersionKind().Group},
-			corev1.EnvVar{Name: KratixObjectVersionEnvVar, Value: obj.GroupVersionKind().Version},
-			corev1.EnvVar{Name: KratixObjectNameEnvVar, Value: obj.GetName()},
-			corev1.EnvVar{Name: KratixObjectNamespaceEnvVar, Value: obj.GetNamespace()},
-			corev1.EnvVar{Name: KratixCrdPluralEnvVar, Value: p.CRDPlural},
-			corev1.EnvVar{Name: KratixClusterScopedEnvVar, Value: strconv.FormatBool(p.ClusterScoped)},
-		),
+		Env:     append(env, p.defaultEnvVars()...),
 		VolumeMounts: []corev1.VolumeMount{{
 			MountPath: "/work-creator-files/metadata",
 			Name:      "shared-metadata",
