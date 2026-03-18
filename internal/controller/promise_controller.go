@@ -179,11 +179,8 @@ func (r *PromiseReconciler) Reconcile(ctx context.Context, req ctrl.Request) (re
 	if !promise.DeletionTimestamp.IsZero() {
 		return r.deletePromise(opts, promise)
 	}
-	desiredFinalizers := r.promiseFinalizers(promise)
-	if len(desiredFinalizers) > 0 {
-		if changed := consolidateFinalizers(promise, desiredFinalizers); changed {
-			return ctrl.Result{}, r.Client.Update(opts.ctx, promise)
-		}
+	if changed := r.syncPromiseFinalizers(promise); changed {
+		return ctrl.Result{}, r.Client.Update(opts.ctx, promise)
 	}
 
 	result, err := r.handlePromiseVersion(ctx, promise)
@@ -325,6 +322,37 @@ func (r *PromiseReconciler) Reconcile(ctx context.Context, req ctrl.Request) (re
 	}
 
 	return ctrl.Result{}, nil
+}
+
+func (r *PromiseReconciler) syncPromiseFinalizers(promise *v1alpha1.Promise) bool {
+	finalizersChanged := addMissingFinalizersToResource(promise, r.promiseFinalizers(promise))
+
+	if shouldRemoveDeleteWorkflowsFinalizer(promise) {
+		controllerutil.RemoveFinalizer(promise, runDeleteWorkflowsFinalizer)
+		finalizersChanged = true
+	}
+
+	return finalizersChanged
+}
+
+func addMissingFinalizersToResource(resource client.Object, finalizers []string) bool {
+	finalizersChanged := false
+
+	for _, finalizer := range finalizers {
+		if controllerutil.ContainsFinalizer(resource, finalizer) {
+			continue
+		}
+
+		controllerutil.AddFinalizer(resource, finalizer)
+		finalizersChanged = true
+	}
+
+	return finalizersChanged
+}
+
+func shouldRemoveDeleteWorkflowsFinalizer(promise *v1alpha1.Promise) bool {
+	return !promise.HasPipeline(v1alpha1.WorkflowTypePromise, v1alpha1.WorkflowActionDelete) &&
+		controllerutil.ContainsFinalizer(promise, runDeleteWorkflowsFinalizer)
 }
 
 func (r *PromiseReconciler) handlePromiseVersion(ctx context.Context, promise *v1alpha1.Promise) (ctrl.Result, error) {
