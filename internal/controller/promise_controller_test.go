@@ -749,6 +749,26 @@ var _ = Describe("PromiseController", func() {
 						},
 					))
 				})
+
+				It("preserves third-party finalizers and does not prune existing Kratix finalizers", func() {
+					promise.SetFinalizers([]string{
+						"example.com/cleanup",
+						v1alpha1.KratixPrefix + "api-crd-cleanup",
+					})
+					Expect(fakeK8sClient.Update(ctx, promise)).To(Succeed())
+
+					result, err := t.reconcileUntilCompletion(reconciler, promise)
+					Expect(err).NotTo(HaveOccurred())
+					Expect(result).To(Equal(ctrl.Result{RequeueAfter: reconciler.ReconciliationInterval}))
+
+					Expect(fakeK8sClient.Get(ctx, promiseName, promise)).To(Succeed())
+					Expect(promise.Finalizers).To(ConsistOf(
+						"example.com/cleanup",
+						v1alpha1.KratixPrefix+"api-crd-cleanup",
+						v1alpha1.KratixPrefix+"dependencies-cleanup",
+						v1alpha1.KratixPrefix+"workflows-cleanup",
+					))
+				})
 			})
 		})
 
