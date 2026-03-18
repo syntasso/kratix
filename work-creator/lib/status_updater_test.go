@@ -3,6 +3,7 @@ package lib_test
 import (
 	. "github.com/onsi/ginkgo/v2"
 	. "github.com/onsi/gomega"
+	"github.com/syntasso/kratix/api/v1alpha1"
 	"github.com/syntasso/kratix/lib/resourceutil"
 	"github.com/syntasso/kratix/work-creator/lib"
 )
@@ -92,80 +93,93 @@ var _ = Describe("StatusUpdater", func() {
 
 	Describe("MarkAsCompleted", func() {
 		Describe("The Message", func() {
-			It("updates to 'Resource requested' if it is 'Pending'", func() {
+			It("updates to 'Resource requested' if it is 'Pending' and a Resource workflow", func() {
 				status := map[string]any{
 					"message": "Pending",
 				}
-				result := lib.MarkAsCompleted(status)
+				result := lib.MarkAsCompleted(status, v1alpha1.WorkflowTypeResource)
 				Expect(result).To(HaveKeyWithValue("message", "Resource requested"))
+			})
+
+			It("updates to 'Promise configured' if it is Pending and a Promise workflow", func() {
+				status := map[string]any{
+					"message": "Pending",
+				}
+				result := lib.MarkAsCompleted(status, v1alpha1.WorkflowTypePromise)
+				Expect(result).To(HaveKeyWithValue("message", "Promise configured"))
 			})
 
 			It("does not update if it is not 'Pending'", func() {
 				status := map[string]any{
 					"message": "Howdy",
 				}
-				result := lib.MarkAsCompleted(status)
+				result := lib.MarkAsCompleted(status, v1alpha1.WorkflowTypeResource)
+				Expect(result).To(HaveKeyWithValue("message", "Howdy"))
+
+				result = lib.MarkAsCompleted(status, v1alpha1.WorkflowTypePromise)
 				Expect(result).To(HaveKeyWithValue("message", "Howdy"))
 			})
 		})
 
 		Describe("The Conditions", func() {
-			It("sets the ConfigureWorkflowCompleted condition", func() {
-				result := lib.MarkAsCompleted(map[string]any{})
-				Expect(result).To(SatisfyAll(
-					HaveKeyWithValue("conditions", ConsistOf(
-						SatisfyAll(
-							HaveKeyWithValue("message", "Pipelines completed"),
-							HaveKeyWithValue("lastTransitionTime", Not(BeNil())),
-							HaveKeyWithValue("status", "True"),
-							HaveKeyWithValue("type", string(resourceutil.ConfigureWorkflowCompletedCondition)),
-							HaveKeyWithValue("reason", resourceutil.PipelinesExecutedSuccessfully),
-						),
-					)),
-				))
-			})
-
-			It("overrides any existing ConfigureWorkflowCompleted condition", func() {
-				result := lib.MarkAsCompleted(map[string]any{
-					"conditions": []any{
-						map[string]any{
-							"message": "Some other reason",
-							"type":    string(resourceutil.ConfigureWorkflowCompletedCondition),
-							"status":  "False",
-						},
-					},
+			for _, workflowType := range []v1alpha1.Type{v1alpha1.WorkflowTypeResource, v1alpha1.WorkflowTypePromise} {
+				It("sets the ConfigureWorkflowCompleted condition", func() {
+					result := lib.MarkAsCompleted(map[string]any{}, workflowType)
+					Expect(result).To(SatisfyAll(
+						HaveKeyWithValue("conditions", ConsistOf(
+							SatisfyAll(
+								HaveKeyWithValue("message", "Pipelines completed"),
+								HaveKeyWithValue("lastTransitionTime", Not(BeNil())),
+								HaveKeyWithValue("status", "True"),
+								HaveKeyWithValue("type", string(resourceutil.ConfigureWorkflowCompletedCondition)),
+								HaveKeyWithValue("reason", resourceutil.PipelinesExecutedSuccessfully),
+							),
+						)),
+					))
 				})
-				Expect(result).To(SatisfyAll(
-					HaveKeyWithValue("conditions", ConsistOf(
-						SatisfyAll(
-							HaveKeyWithValue("message", "Pipelines completed"),
-							HaveKeyWithValue("type", string(resourceutil.ConfigureWorkflowCompletedCondition)),
-							HaveKeyWithValue("status", "True"),
-						),
-					)),
-				))
-			})
 
-			It("preserves other conditions", func() {
-				result := lib.MarkAsCompleted(map[string]any{
-					"conditions": []any{
-						map[string]any{
-							"message": "Some other reason",
-							"type":    "SomeOtherCondition",
-							"status":  "False",
+				It("overrides any existing ConfigureWorkflowCompleted condition", func() {
+					result := lib.MarkAsCompleted(map[string]any{
+						"conditions": []any{
+							map[string]any{
+								"message": "Some other reason",
+								"type":    string(resourceutil.ConfigureWorkflowCompletedCondition),
+								"status":  "False",
+							},
 						},
-					},
+					}, workflowType)
+					Expect(result).To(SatisfyAll(
+						HaveKeyWithValue("conditions", ConsistOf(
+							SatisfyAll(
+								HaveKeyWithValue("message", "Pipelines completed"),
+								HaveKeyWithValue("type", string(resourceutil.ConfigureWorkflowCompletedCondition)),
+								HaveKeyWithValue("status", "True"),
+							),
+						)),
+					))
 				})
-				Expect(result).To(SatisfyAll(
-					HaveKeyWithValue("conditions", ContainElement(
-						SatisfyAll(
-							HaveKeyWithValue("message", "Some other reason"),
-							HaveKeyWithValue("type", "SomeOtherCondition"),
-							HaveKeyWithValue("status", "False"),
-						),
-					)),
-				))
-			})
+
+				It("preserves other conditions", func() {
+					result := lib.MarkAsCompleted(map[string]any{
+						"conditions": []any{
+							map[string]any{
+								"message": "Some other reason",
+								"type":    "SomeOtherCondition",
+								"status":  "False",
+							},
+						},
+					}, workflowType)
+					Expect(result).To(SatisfyAll(
+						HaveKeyWithValue("conditions", ContainElement(
+							SatisfyAll(
+								HaveKeyWithValue("message", "Some other reason"),
+								HaveKeyWithValue("type", "SomeOtherCondition"),
+								HaveKeyWithValue("status", "False"),
+							),
+						)),
+					))
+				})
+			}
 		})
 	})
 })
