@@ -101,7 +101,7 @@ var _ = Describe("StatusUpdater", func() {
 				Expect(result).To(HaveKeyWithValue("message", "Resource requested"))
 			})
 
-			It("updates to 'Promnise configured' if it is Pending and a Promise workflow", func() {
+			It("updates to 'Promise configured' if it is Pending and a Promise workflow", func() {
 				status := map[string]any{
 					"message": "Pending",
 				}
