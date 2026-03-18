@@ -71,6 +71,8 @@ type StateStoreStatus struct {
 // +kubebuilder:object:root=true
 // +kubebuilder:subresource:status
 // +kubebuilder:resource:scope=Cluster,path=gitstatestores,categories=kratix
+// +kubebuilder:printcolumn:name="URL",type=string,JSONPath=`.spec.url`,description="URL of the git repository"
+// +kubebuilder:printcolumn:name="Branch",type=string,JSONPath=`.spec.branch`,description="Branch of the git repository"
 // +kubebuilder:printcolumn:name="Ready",type=string,JSONPath=`.status.conditions[?(@.type=="Ready")].status`,description="Indicates the state store is ready to use"
 
 // GitStateStore is the Schema for the gitstatestores API
