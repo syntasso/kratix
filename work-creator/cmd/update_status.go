@@ -106,7 +106,7 @@ func updateStatus(ctx context.Context, baseDir string, params *helpers.Parameter
 			return err
 		}
 
-		mergedStatus, err = lib.MarkPipelineAsSuspended(mergedStatus, params.PipelineName, control.Message)
+		mergedStatus, err = lib.MarkPipelineAsSuspended(mergedStatus, params.PipelineName, control.Message, existingObj.GetGeneration())
 		if err != nil {
 			return err
 		}

@@ -48,6 +48,14 @@ func MarkAsCompleted(status map[string]any, workflowType v1alpha1.Type) map[stri
 		}
 	}
 
+	if kratix, ok := status["kratix"].(map[string]any); ok {
+		if workflows, ok := kratix["workflows"].(map[string]any); ok {
+			delete(workflows, "suspendedGeneration")
+			kratix["workflows"] = workflows
+			status["kratix"] = kratix
+		}
+	}
+
 	existingConditions, _ := status["conditions"].([]any)
 	newCondition := metav1.Condition{
 		Message:            "Pipelines completed",
@@ -61,7 +69,7 @@ func MarkAsCompleted(status map[string]any, workflowType v1alpha1.Type) map[stri
 	return status
 }
 
-func MarkPipelineAsSuspended(status map[string]any, pipelineName, msg string) (map[string]any, error) {
+func MarkPipelineAsSuspended(status map[string]any, pipelineName, msg string, generation int64) (map[string]any, error) {
 	kratix, ok := status["kratix"].(map[string]any)
 	if !ok {
 		return nil, fmt.Errorf("missing status.kratix while marking pipeline %q as suspended", pipelineName)
@@ -94,6 +102,7 @@ func MarkPipelineAsSuspended(status map[string]any, pipelineName, msg string) (m
 			pipelineMap["message"] = msg
 		}
 		pipelines[i] = pipelineMap
+		workflows["suspendedGeneration"] = generation
 		workflows["pipelines"] = pipelines
 		kratix["workflows"] = workflows
 		status["kratix"] = kratix

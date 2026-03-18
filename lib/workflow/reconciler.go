@@ -169,7 +169,9 @@ func ReconcileConfigure(opts Opts) (passiveRequeue bool, err error) {
 	}
 
 	if !opts.SkipConditions {
-		if requeue, err := reconcileWorkflowStatus(opts, state); err != nil || requeue {
+		if requeue, err := reconcileWorkflowStatus(opts, state); err != nil {
+			return requeue, err
+		} else if requeue && !state.restartFromStart {
 			return requeue, err
 		}
 	}

@@ -1665,7 +1665,7 @@ var _ = Describe("PromiseController", func() {
 				Expect(string(reconcileCond.Status)).To(Equal("Unknown"))
 				Expect(reconcileCond.Reason).To(Equal("WorkflowSuspended"))
 				Expect(reconcileCond.Message).To(Equal("Suspended"))
-				Expect(promise.Status.Kratix.Workflows.SuspendedGeneration).To(Equal(promise.GetGeneration()))
+				Expect(promise.Status.Kratix.Workflows.SuspendedGeneration).To(BeZero())
 			})
 
 			It("removes the suspend label and requests a restart when the reconciliation interval is reached", func() {

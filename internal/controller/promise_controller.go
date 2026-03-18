@@ -413,7 +413,6 @@ func (r *PromiseReconciler) setPausedReconciliationStatusConditions(ctx context.
 }
 
 func (r *PromiseReconciler) setWorkflowSuspendedStatusCondition(ctx context.Context, promise *v1alpha1.Promise) error {
-	promise.Status.Kratix.Workflows.SuspendedGeneration = promise.GetGeneration()
 	return r.setPromiseUnavailableStatusConditions(
 		ctx,
 		promise,
@@ -431,10 +430,6 @@ func (r *PromiseReconciler) setPromiseUnavailableStatusConditions(
 	expectedReconciledMessage string,
 ) error {
 	var updated bool
-	if expectedReconciledMessage == "Suspended" && promise.Status.Kratix.Workflows.SuspendedGeneration != promise.GetGeneration() {
-		promise.Status.Kratix.Workflows.SuspendedGeneration = promise.GetGeneration()
-		updated = true
-	}
 	available := promise.GetCondition(v1alpha1.PromiseStatusAvailable)
 	if available == nil ||
 		available.Status != availableCondition.Status ||

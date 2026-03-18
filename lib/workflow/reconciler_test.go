@@ -1100,17 +1100,13 @@ var _ = Describe("Workflow Reconciler", func() {
 				Expect(passiveRequeue).To(BeTrue())
 				assertPromiseWorkflowCountersStatus("redis", 0)
 
-				passiveRequeue, err = workflow.ReconcileConfigure(opts)
-				Expect(err).NotTo(HaveOccurred())
-				Expect(passiveRequeue).To(BeTrue())
+				updatedPromise := v1alpha1.Promise{}
+				Expect(fakeK8sClient.Get(ctx, types.NamespacedName{Name: "redis"}, &updatedPromise)).To(Succeed())
+				Expect(updatedPromise.GetLabels()).NotTo(HaveKey(resourceutil.WorkflowRestartLabel))
 
 				jobs := resourceutil.SortJobsByCreationDateTime(listJobs(namespace), true)
 				Expect(jobs).To(HaveLen(3))
 				Expect(jobs[2].GetLabels()).To(HaveKeyWithValue("kratix.io/pipeline-name", workflowPipelines[0].Name))
-
-				updatedPromise := v1alpha1.Promise{}
-				Expect(fakeK8sClient.Get(ctx, types.NamespacedName{Name: "redis"}, &updatedPromise)).To(Succeed())
-				Expect(updatedPromise.GetLabels()).NotTo(HaveKey(resourceutil.WorkflowRestartLabel))
 			})
 		})
 	})

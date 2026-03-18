@@ -179,11 +179,25 @@ var _ = Describe("StatusUpdater", func() {
 						)),
 					))
 				})
+
+				It("clears the suspended generation when workflows are completed", func() {
+					result := lib.MarkAsCompleted(map[string]any{
+						"kratix": map[string]any{
+							"workflows": map[string]any{
+								"suspendedGeneration": int64(2),
+							},
+						},
+					}, workflowType)
+
+					workflows := result["kratix"].(map[string]any)["workflows"].(map[string]any)
+					Expect(workflows).NotTo(HaveKey("suspendedGeneration"))
+				})
 			}
 		})
+
 	})
 
-	Describe("MarkPipelineAsSuspended", func() {
+	Context("MarkPipelineAsSuspended", func() {
 		It("marks the pipeline as suspended and sets the message", func() {
 			status := map[string]any{
 				"kratix": map[string]any{
@@ -203,7 +217,7 @@ var _ = Describe("StatusUpdater", func() {
 				"message": "leave me alone",
 			}
 
-			result, err := lib.MarkPipelineAsSuspended(status, "pipeline-b", "waiting for approval")
+			result, err := lib.MarkPipelineAsSuspended(status, "pipeline-b", "waiting for approval", 7)
 
 			Expect(err).NotTo(HaveOccurred())
 			workflows := result["kratix"].(map[string]any)["workflows"].(map[string]any)
@@ -218,6 +232,7 @@ var _ = Describe("StatusUpdater", func() {
 				HaveKeyWithValue("phase", "Suspended"),
 				HaveKeyWithValue("message", "waiting for approval"),
 			))
+			Expect(workflows).To(HaveKeyWithValue("suspendedGeneration", int64(7)))
 			Expect(result).To(HaveKeyWithValue("message", "leave me alone"))
 		})
 
@@ -236,7 +251,7 @@ var _ = Describe("StatusUpdater", func() {
 				},
 			}
 
-			result, err := lib.MarkPipelineAsSuspended(status, "pipeline-a", "")
+			result, err := lib.MarkPipelineAsSuspended(status, "pipeline-a", "", 3)
 
 			Expect(err).NotTo(HaveOccurred())
 			workflows := result["kratix"].(map[string]any)["workflows"].(map[string]any)
@@ -246,6 +261,7 @@ var _ = Describe("StatusUpdater", func() {
 				HaveKeyWithValue("phase", "Suspended"),
 				Not(HaveKey("message")),
 			))
+			Expect(workflows).To(HaveKeyWithValue("suspendedGeneration", int64(3)))
 		})
 
 		It("fails when the pipeline does not exist", func() {
@@ -262,7 +278,7 @@ var _ = Describe("StatusUpdater", func() {
 				},
 			}
 
-			_, err := lib.MarkPipelineAsSuspended(status, "pipeline-b", "")
+			_, err := lib.MarkPipelineAsSuspended(status, "pipeline-b", "", 1)
 
 			Expect(err).To(MatchError(ContainSubstring("\"pipeline-b\" not found in status.kratix.workflows.pipelines")))
 		})
@@ -270,7 +286,7 @@ var _ = Describe("StatusUpdater", func() {
 		It("fails when workflow pipeline status is missing", func() {
 			status := map[string]any{}
 
-			_, err := lib.MarkPipelineAsSuspended(status, "pipeline-a", "")
+			_, err := lib.MarkPipelineAsSuspended(status, "pipeline-a", "", 1)
 
 			Expect(err).To(MatchError(ContainSubstring("missing status.kratix")))
 		})
@@ -284,7 +300,7 @@ var _ = Describe("StatusUpdater", func() {
 				},
 			}
 
-			_, err := lib.MarkPipelineAsSuspended(status, "pipeline-a", "")
+			_, err := lib.MarkPipelineAsSuspended(status, "pipeline-a", "", 1)
 
 			Expect(err).To(MatchError(ContainSubstring("invalid pipeline status type")))
 		})
