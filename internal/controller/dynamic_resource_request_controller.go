@@ -231,17 +231,8 @@ func (r *DynamicResourceRequestController) Reconcile(ctx context.Context, req ct
 		reconciledCond.Reason == pausedReconciliationReason
 	isWorkflowSuspended := rr.GetLabels()[v1alpha1.WorkflowSuspendLabel] == "true"
 
-	if forcePipelineRun && !r.manualReconciliationLabelSet(rr) && !isWorkflowSuspended {
-		logging.Debug(
-			logger,
-			"resource configure pipeline completed too long ago; forcing reconciliation",
-			"lastTransitionTime",
-			completedCond.LastTransitionTime.String(),
-		)
-		if err := r.updateManualReconciliationLabel(opts.ctx, rr); err != nil {
-			return ctrl.Result{}, err
-		}
-		return ctrl.Result{}, nil
+	if updatedManualReconciliationLabel, err := r.forceManualReconcilationRun(opts.ctx, logger, rr, completedCond, forcePipelineRun, isWorkflowSuspended); updatedManualReconciliationLabel || err != nil {
+		return ctrl.Result{}, err
 	}
 
 	pipelineResources, err := promise.GenerateResourcePipelines(v1alpha1.WorkflowActionConfigure, rr, logger)
@@ -883,6 +874,29 @@ func workflowsCompletedSuccessfully(workflowCompletedCondition *clusterv1.Condit
 func (r *DynamicResourceRequestController) nextReconciliation(logger logr.Logger) ctrl.Result {
 	logging.Info(logger, "scheduling next reconciliation", "reconciliationInterval", r.ReconciliationInterval)
 	return ctrl.Result{RequeueAfter: r.ReconciliationInterval}
+}
+
+func (r *DynamicResourceRequestController) forceManualReconcilationRun(
+	ctx context.Context,
+	logger logr.Logger,
+	rr *unstructured.Unstructured,
+	completedCond *clusterv1.Condition,
+	forcePipelineRun bool,
+	isWorkflowSuspended bool,
+) (bool, error) {
+	if forcePipelineRun && !r.manualReconciliationLabelSet(rr) && !isWorkflowSuspended {
+		logging.Debug(
+			logger,
+			"resource configure pipeline completed too long ago; forcing reconciliation",
+			"lastTransitionTime",
+			completedCond.LastTransitionTime.String(),
+		)
+		if err := r.updateManualReconciliationLabel(ctx, rr); err != nil {
+			return false, err
+		}
+		return true, nil
+	}
+	return false, nil
 }
 
 func (r *DynamicResourceRequestController) manualReconciliationLabelSet(rr *unstructured.Unstructured) bool {
