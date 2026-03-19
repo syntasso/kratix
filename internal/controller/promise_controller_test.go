@@ -1628,7 +1628,7 @@ var _ = Describe("PromiseController", func() {
 		})
 
 		When("promise workflow is suspended", func() {
-			It("stops reconciliation and set status correctly", func() {
+			BeforeEach(func() {
 				promise = createPromise(promiseWithWorkflowPath)
 				setReconcileConfigureWorkflowToReturnFinished()
 
@@ -1641,8 +1641,10 @@ var _ = Describe("PromiseController", func() {
 				Expect(fakeK8sClient.Get(ctx, promiseName, promise)).To(Succeed())
 				promise.Labels[v1alpha1.WorkflowSuspendLabel] = "true"
 				Expect(fakeK8sClient.Update(ctx, promise)).To(Succeed())
+			})
 
-				result, err = reconciler.Reconcile(ctx, ctrl.Request{NamespacedName: promiseName})
+			It("stops reconciliation and set status correctly", func() {
+				result, err := reconciler.Reconcile(ctx, ctrl.Request{NamespacedName: promiseName})
 				Expect(err).NotTo(HaveOccurred())
 				Expect(result).To(Equal(ctrl.Result{}))
 
@@ -1668,18 +1670,6 @@ var _ = Describe("PromiseController", func() {
 			})
 
 			It("removes the suspend label and requests a restart when the reconciliation interval is reached", func() {
-				promise = createPromise(promiseWithWorkflowPath)
-				setReconcileConfigureWorkflowToReturnFinished()
-
-				result, err := t.reconcileUntilCompletion(reconciler, promise, &opts{
-					funcs: []func(client.Object) error{autoMarkCRDAsEstablished},
-				})
-				Expect(err).NotTo(HaveOccurred())
-				Expect(result).To(Equal(ctrl.Result{}))
-
-				Expect(fakeK8sClient.Get(ctx, promiseName, promise)).To(Succeed())
-				promise.Labels[v1alpha1.WorkflowSuspendLabel] = "true"
-				Expect(fakeK8sClient.Update(ctx, promise)).To(Succeed())
 				uPromise, err := promise.ToUnstructured()
 				Expect(err).NotTo(HaveOccurred())
 
@@ -1692,7 +1682,7 @@ var _ = Describe("PromiseController", func() {
 				})
 				Expect(fakeK8sClient.Status().Update(ctx, uPromise)).To(Succeed())
 
-				result, err = reconciler.Reconcile(ctx, ctrl.Request{NamespacedName: types.NamespacedName{Name: promise.GetName(), Namespace: promise.GetNamespace()}})
+				result, err := reconciler.Reconcile(ctx, ctrl.Request{NamespacedName: types.NamespacedName{Name: promise.GetName(), Namespace: promise.GetNamespace()}})
 				Expect(err).NotTo(HaveOccurred())
 				Expect(result).To(Equal(ctrl.Result{}))
 
@@ -1704,18 +1694,6 @@ var _ = Describe("PromiseController", func() {
 			})
 
 			It("removes the suspend label when the promise spec has changed", func() {
-				promise = createPromise(promiseWithWorkflowPath)
-				setReconcileConfigureWorkflowToReturnFinished()
-
-				result, err := t.reconcileUntilCompletion(reconciler, promise, &opts{
-					funcs: []func(client.Object) error{autoMarkCRDAsEstablished},
-				})
-				Expect(err).NotTo(HaveOccurred())
-				Expect(result).To(Equal(ctrl.Result{}))
-
-				Expect(fakeK8sClient.Get(ctx, promiseName, promise)).To(Succeed())
-				promise.Labels[v1alpha1.WorkflowSuspendLabel] = "true"
-				promise.Spec.Workflows.Config.PipelineNamespace = "new-namespace"
 				promise.SetGeneration(2)
 				Expect(fakeK8sClient.Update(ctx, promise)).To(Succeed())
 
@@ -1723,11 +1701,7 @@ var _ = Describe("PromiseController", func() {
 				promise.Status.Kratix.Workflows.SuspendedGeneration = 1
 				Expect(fakeK8sClient.Status().Update(ctx, promise)).To(Succeed())
 
-				Expect(fakeK8sClient.Get(ctx, promiseName, promise)).To(Succeed())
-				Expect(promise.Status.Kratix.Workflows.SuspendedGeneration).To(Equal(int64(1)))
-				Expect(promise.GetGeneration()).To(Equal(int64(2)))
-
-				result, err = reconciler.Reconcile(ctx, ctrl.Request{NamespacedName: promiseName})
+				result, err := reconciler.Reconcile(ctx, ctrl.Request{NamespacedName: promiseName})
 				Expect(err).NotTo(HaveOccurred())
 				Expect(result).To(Equal(ctrl.Result{}))
 

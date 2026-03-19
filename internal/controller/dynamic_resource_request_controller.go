@@ -225,13 +225,10 @@ func (r *DynamicResourceRequestController) Reconcile(ctx context.Context, req ct
 	completedCond := resourceutil.GetCondition(rr, resourceutil.ConfigureWorkflowCompletedCondition)
 	forcePipelineRun := shouldForcePipelineRun(completedCond, r.ReconciliationInterval) &&
 		rr.GetLabels()[resourceutil.WorkflowRestartLabel] != "true"
-	reconciledCond := resourceutil.GetCondition(rr, resourceutil.ReconciledCondition)
-	resumedFromPause := reconciledCond != nil &&
-		reconciledCond.Status == v1.ConditionUnknown &&
-		reconciledCond.Reason == pausedReconciliationReason
 	isWorkflowSuspended := rr.GetLabels()[v1alpha1.WorkflowSuspendLabel] == "true"
 
-	if updatedManualReconciliationLabel, err := r.forceManualReconcilationRun(opts.ctx, logger, rr, completedCond, forcePipelineRun, isWorkflowSuspended); updatedManualReconciliationLabel || err != nil {
+	if restarted, err := r.restartOnReconciliationInterval(opts.ctx, logger, rr,
+		completedCond, forcePipelineRun, isWorkflowSuspended); restarted || err != nil {
 		return ctrl.Result{}, err
 	}
 
@@ -244,16 +241,9 @@ func (r *DynamicResourceRequestController) Reconcile(ctx context.Context, req ct
 		return ctrl.Result{}, err
 	}
 
-	if shouldRequeue, err := r.reconcileSuspendedWorkflow(ctx, logger, rr, pipelineResources, completedCond, forcePipelineRun, resumedFromPause); shouldRequeue || err != nil {
+	if shouldRequeue, err := r.reconcileSuspendedWorkflow(ctx, logger, rr,
+		pipelineResources, completedCond, forcePipelineRun); shouldRequeue || err != nil {
 		return ctrl.Result{}, err
-	}
-
-	if resumedFromPause {
-		logging.Info(logger, "Resource request unpaused; forcing reconciliation")
-		if err := r.updateManualReconciliationLabel(opts.ctx, rr); err != nil {
-			return ctrl.Result{}, err
-		}
-		return ctrl.Result{}, nil
 	}
 
 	namespace := rr.GetNamespace()
@@ -406,19 +396,15 @@ func (r *DynamicResourceRequestController) reconcileSuspendedWorkflow(
 	pipelineResources []v1alpha1.PipelineJobResources,
 	completedCond *clusterv1.Condition,
 	forcePipelineRun bool,
-	resumedFromPause bool,
 ) (shouldRequeue bool, err error) {
 	isWorkflowSuspended := rr.GetLabels()[v1alpha1.WorkflowSuspendLabel] == "true"
 	resourceSpecChanged := resourceutil.GetKratixWorkflowsInt64Status(rr, "suspendedGeneration") != 0 &&
 		rr.GetGeneration() > resourceutil.GetKratixWorkflowsInt64Status(rr, "suspendedGeneration")
 
-	if isWorkflowSuspended && (forcePipelineRun || r.manualReconciliationLabelSet(rr) || resumedFromPause || resourceSpecChanged) {
+	if isWorkflowSuspended && (forcePipelineRun || r.manualReconciliationLabelSet(rr) || resourceSpecChanged) {
 		if forcePipelineRun {
 			logging.Trace(logger, "resource configure pipeline completed too long ago while suspended; forcing reconciliation",
 				"lastTransitionTime", completedCond.LastTransitionTime.String())
-		}
-		if resumedFromPause {
-			logging.Info(logger, "Resource request unpaused while suspended; forcing reconciliation")
 		}
 		if resourceSpecChanged {
 			logging.Info(logger, "Resource request spec changed while suspended; forcing reconciliation",
@@ -876,7 +862,7 @@ func (r *DynamicResourceRequestController) nextReconciliation(logger logr.Logger
 	return ctrl.Result{RequeueAfter: r.ReconciliationInterval}
 }
 
-func (r *DynamicResourceRequestController) forceManualReconcilationRun(
+func (r *DynamicResourceRequestController) restartOnReconciliationInterval(
 	ctx context.Context,
 	logger logr.Logger,
 	rr *unstructured.Unstructured,

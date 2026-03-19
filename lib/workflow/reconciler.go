@@ -171,7 +171,7 @@ func ReconcileConfigure(opts Opts) (passiveRequeue bool, err error) {
 	if !opts.SkipConditions {
 		if requeue, err := reconcileWorkflowStatus(opts, state); err != nil {
 			return requeue, err
-		} else if requeue && !state.restartFromStart {
+		} else if requeue && !state.restartFromStart && !state.manualReconcile {
 			return requeue, err
 		}
 	}
@@ -199,15 +199,14 @@ func determineWorkflowState(opts Opts) (*workflowState, error) {
 		manualReconcile:      isManualReconciliation(opts.parentObject.GetLabels()),
 		suspendedPipelineIdx: -1,
 	}
-	state.restartFromStart = state.manualReconcile || isWorkflowRestart(opts.parentObject.GetLabels())
+	state.restartFromStart = isWorkflowRestart(opts.parentObject.GetLabels())
 
-	suspendedPipelineIdx, err := resourceutil.GetPipelineIndexWithPhase(opts.parentObject, v1alpha1.WorkflowPhaseSuspended)
+	state.suspendedPipelineIdx, err = resourceutil.GetSuspendedPipelineIndex(opts.parentObject)
 	if err != nil {
 		return nil, err
 	}
-	state.suspendedPipelineIdx = suspendedPipelineIdx
 	isWorkflowSuspended := opts.parentObject.GetLabels()[v1alpha1.WorkflowSuspendLabel] == "true"
-	state.resumeFromSuspended = !isWorkflowSuspended && !state.restartFromStart && suspendedPipelineIdx >= 0
+	state.resumeFromSuspended = !isWorkflowSuspended && !state.restartFromStart && state.suspendedPipelineIdx >= 0
 
 	if len(allJobs) == 0 {
 		if state.resumeFromSuspended {
@@ -268,7 +267,8 @@ func reconcileWorkflowStatus(opts Opts, state *workflowState) (passiveRequeue bo
 	}
 
 	succeededCountDrifted := currentSucceededCount != state.completedCount
-	shouldResetForManualRetry := state.restartFromStart && (currentFailedCount != 0 || currentSucceededCount != 0)
+	shouldResetForManualRetry := (state.manualReconcile || state.restartFromStart) &&
+		(currentFailedCount != 0 || currentSucceededCount != 0)
 	failedCountDrifted := state.desiredFailedCount != nil && currentFailedCount != *state.desiredFailedCount
 	pipelinePhaseDrifted := state.desiredPipelineJob != nil && state.desiredPipelinePhase != ""
 
@@ -332,7 +332,7 @@ func handleCurrentPipelineJob(opts Opts, state *workflowState, pipeline v1alpha1
 	logging.Debug(opts.logger, "job is for pipeline", "job", state.mostRecentJob.Name, "pipeline", pipeline.Name)
 
 	if isRunning(state.mostRecentJob) {
-		if state.restartFromStart {
+		if state.manualReconcile {
 			logging.Info(opts.logger, "suspending job for manual reconciliation", "job", state.mostRecentJob.Name, "pipeline", pipeline.Name)
 			if err = suspendJob(opts.ctx, opts.client, state.mostRecentJob); err != nil {
 				logging.Error(opts.logger, err, "failed to suspend job", "job", state.mostRecentJob.GetName())
@@ -343,13 +343,19 @@ func handleCurrentPipelineJob(opts Opts, state *workflowState, pipeline v1alpha1
 		return true, nil
 	}
 
+	if state.manualReconcile {
+		logging.Info(opts.logger, "pipeline running due to manual reconciliation", "pipeline", pipeline.Name, "parentLabels", opts.parentObject.GetLabels())
+		return createConfigurePipeline(opts, state, pipeline)
+	}
+
 	if state.restartFromStart {
-		logging.Info(opts.logger, "pipeline running due to workflow restart", "pipeline", pipeline.Name, "parentLabels", opts.parentObject.GetLabels())
+		logging.Info(opts.logger, "pipeline running due to workflow restart label set to true", "pipeline", pipeline.Name, "parentLabels", opts.parentObject.GetLabels())
 		return createConfigurePipeline(opts, state, pipeline)
 	}
 
 	if state.resumeFromSuspended {
-		logging.Info(opts.logger, "rerunning suspended pipeline after resume", "pipeline", pipeline.Name)
+		logging.Info(opts.logger, fmt.Sprintf("rerunning suspended pipeline after %q is removed",
+			v1alpha1.WorkflowSuspendLabel), "pipeline", pipeline.Name)
 		return createConfigurePipeline(opts, state, pipeline)
 	}
 

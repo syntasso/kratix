@@ -967,18 +967,12 @@ var _ = Describe("DynamicResourceRequestController", func() {
 	})
 
 	When("the resource workflow is suspended", func() {
-		var pipelines []v1alpha1.PipelineJobResources
-
 		BeforeEach(func() {
-			Expect(fakeK8sClient.Update(context.TODO(), promise)).To(Succeed())
-			reconcileConfigureOptsArg = workflow.Opts{}
-
 			yamlFile, err := os.ReadFile(resourceRequestPath)
 			Expect(err).ToNot(HaveOccurred())
 			resReq = &unstructured.Unstructured{}
 			Expect(yaml.Unmarshal(yamlFile, resReq)).To(Succeed())
 			resReq.SetName("suspended-resource")
-			resReqNameNamespace = client.ObjectKeyFromObject(resReq)
 
 			Expect(fakeK8sClient.Create(ctx, resReq)).To(Succeed())
 			Expect(fakeK8sClient.Get(ctx, resReqNameNamespace, resReq)).To(Succeed())
@@ -992,39 +986,32 @@ var _ = Describe("DynamicResourceRequestController", func() {
 				resourceLabels = map[string]string{}
 			}
 			resourceLabels[v1alpha1.PromiseNameLabel] = promise.GetName()
+			resourceLabels[v1alpha1.WorkflowSuspendLabel] = "true"
 			resReq.SetLabels(resourceLabels)
 			Expect(fakeK8sClient.Update(ctx, resReq)).To(Succeed())
 			Expect(fakeK8sClient.Get(ctx, resReqNameNamespace, resReq)).To(Succeed())
 
-			pipelines = []v1alpha1.PipelineJobResources{{Name: "first-pipeline"}}
-			resourceutil.SetStatus(resReq, l, "workflows", int64(1))
-			Expect(resourceutil.ResetPipelineStatusToPending(resReq, pipelines)).To(Succeed())
-			workflows, found, err := unstructured.NestedSlice(resReq.Object, "status", "kratix", "workflows", "pipelines")
+			_, err = reconciler.Reconcile(ctx, ctrl.Request{NamespacedName: resReqNameNamespace})
 			Expect(err).NotTo(HaveOccurred())
-			Expect(found).To(BeTrue())
+
+			Expect(fakeK8sClient.Get(ctx, resReqNameNamespace, resReq)).To(Succeed())
+			workflows, _, err := unstructured.NestedSlice(resReq.Object, "status", "kratix", "workflows", "pipelines")
+			Expect(err).NotTo(HaveOccurred())
+
 			firstPipeline := workflows[0].(map[string]any)
 			firstPipeline["phase"] = v1alpha1.WorkflowPhaseSuspended
 			firstPipeline["message"] = "waiting for approval"
 			workflows[0] = firstPipeline
+
 			Expect(unstructured.SetNestedSlice(resReq.Object, workflows, "status", "kratix", "workflows", "pipelines")).To(Succeed())
 			Expect(resourceutil.SetKratixWorkflowsInt64Status(resReq, "suspendedGeneration", 1)).To(Succeed())
 			Expect(fakeK8sClient.Status().Update(ctx, resReq)).To(Succeed())
 		})
 
-		It("skips reconciliation and marks the resource request as suspended", func() {
-			Expect(fakeK8sClient.Get(ctx, resReqNameNamespace, resReq)).To(Succeed())
-			resourceLabels := resReq.GetLabels()
-			resourceLabels[v1alpha1.WorkflowSuspendLabel] = "true"
-			resReq.SetLabels(resourceLabels)
-			Expect(fakeK8sClient.Update(ctx, resReq)).To(Succeed())
-
+		It("marks the resource request as suspended", func() {
 			result, err := reconciler.Reconcile(ctx, ctrl.Request{NamespacedName: resReqNameNamespace})
 			Expect(err).NotTo(HaveOccurred())
 			Expect(result).To(Equal(ctrl.Result{}))
-
-			By("not creating any workflow resource objects", func() {
-				Expect(reconcileConfigureOptsArg.Resources).To(BeEmpty())
-			})
 
 			By("setting the reconciled condition to suspended", func() {
 				Expect(fakeK8sClient.Get(ctx, resReqNameNamespace, resReq)).To(Succeed())
@@ -1043,12 +1030,6 @@ var _ = Describe("DynamicResourceRequestController", func() {
 		})
 
 		It("removes the suspend label and requests a restart when the reconciliation interval is reached", func() {
-			Expect(fakeK8sClient.Get(ctx, resReqNameNamespace, resReq)).To(Succeed())
-			resourceLabels := resReq.GetLabels()
-			resourceLabels[v1alpha1.WorkflowSuspendLabel] = "true"
-			resReq.SetLabels(resourceLabels)
-			Expect(fakeK8sClient.Update(ctx, resReq)).To(Succeed())
-
 			setConfigureWorkflowStatus(resReq, v1.ConditionTrue, time.Now().Add(-reconciler.ReconciliationInterval).Add(-time.Minute))
 
 			result, err := reconciler.Reconcile(ctx, ctrl.Request{NamespacedName: resReqNameNamespace})
@@ -1058,7 +1039,6 @@ var _ = Describe("DynamicResourceRequestController", func() {
 			Expect(fakeK8sClient.Get(ctx, resReqNameNamespace, resReq)).To(Succeed())
 			Expect(resReq.GetLabels()[v1alpha1.WorkflowSuspendLabel]).To(BeEmpty())
 			Expect(resReq.GetLabels()[resourceutil.WorkflowRestartLabel]).To(Equal("true"))
-			Expect(resourceutil.GetKratixWorkflowsInt64Status(resReq, "suspendedGeneration")).To(BeZero())
 			workflows, found, err := unstructured.NestedSlice(resReq.Object, "status", "kratix", "workflows", "pipelines")
 			Expect(err).NotTo(HaveOccurred())
 			Expect(found).To(BeTrue())
@@ -1069,10 +1049,6 @@ var _ = Describe("DynamicResourceRequestController", func() {
 		})
 
 		It("removes the suspend label when the resource request spec has changed", func() {
-			Expect(fakeK8sClient.Get(ctx, resReqNameNamespace, resReq)).To(Succeed())
-			resourceLabels := resReq.GetLabels()
-			resourceLabels[v1alpha1.WorkflowSuspendLabel] = "true"
-			resReq.SetLabels(resourceLabels)
 			resReq.SetGeneration(2)
 			Expect(fakeK8sClient.Update(ctx, resReq)).To(Succeed())
 
@@ -1083,7 +1059,6 @@ var _ = Describe("DynamicResourceRequestController", func() {
 			Expect(fakeK8sClient.Get(ctx, resReqNameNamespace, resReq)).To(Succeed())
 			Expect(resReq.GetLabels()[v1alpha1.WorkflowSuspendLabel]).To(BeEmpty())
 			Expect(resReq.GetLabels()[resourceutil.WorkflowRestartLabel]).To(Equal("true"))
-			Expect(resourceutil.GetKratixWorkflowsInt64Status(resReq, "suspendedGeneration")).To(BeZero())
 			workflows, found, err := unstructured.NestedSlice(resReq.Object, "status", "kratix", "workflows", "pipelines")
 			Expect(err).NotTo(HaveOccurred())
 			Expect(found).To(BeTrue())

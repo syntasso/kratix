@@ -376,7 +376,8 @@ func MarkCurrentPipelineAs(status string, rr *unstructured.Unstructured, logger 
 	if previousPhase, ok := pipeline["phase"].(string); ok && previousPhase == status {
 		return nil
 	}
-	if previousPhase, ok := pipeline["phase"].(string); ok && previousPhase == v1alpha1.WorkflowPhaseSuspended && status != v1alpha1.WorkflowPhaseSuspended {
+	if previousPhase, ok := pipeline["phase"].(string); ok &&
+		previousPhase == v1alpha1.WorkflowPhaseSuspended && status != v1alpha1.WorkflowPhaseSuspended {
 		delete(pipeline, "message")
 	}
 
@@ -400,7 +401,7 @@ func ResetPipelineStatusToPending(obj *unstructured.Unstructured, pipelines []v1
 	return unstructured.SetNestedSlice(obj.Object, workflows, "status", "kratix", "workflows", "pipelines")
 }
 
-func GetPipelineIndexWithPhase(obj *unstructured.Unstructured, phase string) (int, error) {
+func GetSuspendedPipelineIndex(obj *unstructured.Unstructured) (int, error) {
 	workflows, found, err := unstructured.NestedSlice(obj.Object, "status", "kratix", "workflows", "pipelines")
 	if err != nil || !found {
 		return -1, err
@@ -411,38 +412,12 @@ func GetPipelineIndexWithPhase(obj *unstructured.Unstructured, phase string) (in
 		if !ok {
 			continue
 		}
-		if pipeline["phase"] == phase {
+		if pipeline["phase"] == v1alpha1.WorkflowPhaseSuspended {
 			return i, nil
 		}
 	}
 
 	return -1, nil
-}
-
-func ResetPipelineStatusAtIndexToPending(obj *unstructured.Unstructured, index int) (bool, error) {
-	workflows, found, err := unstructured.NestedSlice(obj.Object, "status", "kratix", "workflows", "pipelines")
-	if err != nil {
-		return false, err
-	}
-	if !found || index < 0 || index >= len(workflows) {
-		return false, nil
-	}
-
-	pipeline, ok := workflows[index].(map[string]any)
-	if !ok {
-		return false, fmt.Errorf("invalid pipeline status type at index %d", index)
-	}
-
-	if phase, _ := pipeline["phase"].(string); phase == v1alpha1.WorkflowPhasePending {
-		return false, nil
-	}
-
-	pipeline["phase"] = v1alpha1.WorkflowPhasePending
-	delete(pipeline, "message")
-	pipeline["lastTransitionTime"] = metav1.Now().Format(time.RFC3339)
-	workflows[index] = pipeline
-
-	return true, unstructured.SetNestedSlice(obj.Object, workflows, "status", "kratix", "workflows", "pipelines")
 }
 
 // GetObservedGeneration returns 0 when either status or status.observedGeneration is nil
