@@ -1,0 +1,7 @@
+apiVersion: test.kratix.io/v1alpha1
+kind: WorkflowSuspend
+metadata:
+  name: suspend-test
+  namespace: default
+spec:
+  data: banana

@@ -12,9 +12,11 @@ import (
 )
 
 const (
-	suspendPromiseName    = "workflow-suspend"
-	suspendPromise        = "assets/workflow-control/promise.yaml"
-	suspendPromiseUpdated = "assets/workflow-control/promise-updated.yaml"
+	suspendPromiseName  = "workflow-suspend"
+	suspendResource     = "assets/workflow-control/resource-request.yaml"
+	suspendResourceName = "suspend-test"
+	suspendCRDPlural    = "workflowsuspends"
+	suspendConfigMap    = "assets/workflow-control/configmap.yaml"
 )
 
 var _ = Describe("Workflow Control", Ordered, func() {
@@ -23,16 +25,19 @@ var _ = Describe("Workflow Control", Ordered, func() {
 		SetDefaultEventuallyTimeout(4 * time.Minute)
 		SetDefaultEventuallyPollingInterval(2 * time.Second)
 		kubeutils.SetTimeoutAndInterval(4*time.Minute, 2*time.Second)
+		platform.Kubectl("delete", "-f", suspendConfigMap, "--ignore-not-found")
 	})
 
 	AfterEach(func() {
+		platform.Kubectl("delete", "-f", suspendConfigMap, "--ignore-not-found")
+		platform.Kubectl("delete", "-f", suspendResource, "--ignore-not-found")
 		platform.EventuallyKubectlDelete("promise", suspendPromiseName, "--ignore-not-found")
 	})
 
 	When("pipelines are suspended by the workflow control file", func() {
 		It("works", func() {
 			By("suspending the correct pipeline", func() {
-				platform.Kubectl("apply", "-f", suspendPromise)
+				platform.Kubectl("apply", "-f", "assets/workflow-control/promise.yaml")
 
 				Eventually(func(g Gomega) {
 					g.Expect(platform.Kubectl("get", "promise", suspendPromiseName, phaseJSONPath("pipe-0"))).To(Equal("Succeeded"))
@@ -104,7 +109,7 @@ var _ = Describe("Workflow Control", Ordered, func() {
 				pipe1Count := jobCount("pipe-1")
 				pipe2Count := jobCount("pipe-2")
 
-				platform.Kubectl("apply", "-f", suspendPromiseUpdated)
+				platform.Kubectl("apply", "-f", "assets/workflow-control/promise-updated.yaml")
 
 				Eventually(func() int {
 					return jobCount("pipe-0")
@@ -126,6 +131,35 @@ var _ = Describe("Workflow Control", Ordered, func() {
 					g.Expect(platform.Kubectl("get", "promise", suspendPromiseName, "-o", "yaml")).NotTo(ContainSubstring("kratix.io/workflow-suspend"))
 				}).Should(Succeed())
 			})
+
+			By("suspending the resource pipeline", func() {
+				platform.Kubectl("apply", "-f", suspendResource)
+
+				Eventually(func(g Gomega) {
+					g.Expect(platform.Kubectl("get", suspendCRDPlural, suspendResourceName, phaseJSONPath("resource-pipe-0"))).To(Equal("Suspended"))
+					g.Expect(platform.Kubectl("get", suspendCRDPlural, suspendResourceName, messageJSONPath("resource-pipe-0"))).To(Equal("waiting for configmap"))
+					g.Expect(platform.Kubectl("get", suspendCRDPlural, suspendResourceName, `-o=jsonpath={.metadata.labels.kratix\.io/workflow-suspend}`)).To(Equal("true"))
+				}).Should(Succeed())
+			})
+
+			By("unsuspending the pipeline through the label", func() {
+				resourceJobCountBefore := jobCountForWorkflow("resource", "resource-pipe-0")
+
+				platform.Kubectl("apply", "-f", suspendConfigMap)
+				platform.Kubectl("label", suspendCRDPlural, suspendResourceName, "kratix.io/workflow-suspend-")
+
+				Eventually(func() int {
+					return jobCountForWorkflow("resource", "resource-pipe-0")
+				}).Should(Equal(resourceJobCountBefore + 1))
+
+				Eventually(func(g Gomega) {
+					g.Expect(platform.Kubectl("get", suspendCRDPlural, suspendResourceName, phaseJSONPath("resource-pipe-0"))).To(Equal("Succeeded"))
+					g.Expect(platform.Kubectl("get", suspendCRDPlural, suspendResourceName, messageJSONPath("resource-pipe-0"))).To(BeEmpty())
+					g.Expect(platform.Kubectl("get", suspendCRDPlural, suspendResourceName, `-o=jsonpath={.status.conditions[?(@.type=="ConfigureWorkflowCompleted")].status}`)).To(Equal("True"))
+					g.Expect(platform.Kubectl("get", suspendCRDPlural, suspendResourceName, `-o=jsonpath={.status.kratix.workflows.suspendedGeneration}`)).To(BeEmpty())
+					g.Expect(platform.Kubectl("get", suspendCRDPlural, suspendResourceName, `-o=jsonpath={.metadata.labels.kratix\.io/workflow-suspend}`)).To(BeEmpty())
+				}).Should(Succeed())
+			})
 		})
 	})
 
@@ -140,15 +174,23 @@ func messageJSONPath(pipelineName string) string {
 }
 
 func jobCount(pipelineName string) int {
+	return jobCountForWorkflow("promise", pipelineName)
+}
+
+func jobCountForWorkflow(workflowType, pipelineName string) int {
+	ns := "kratix-platform-system"
+	if workflowType == "resource" {
+		ns = "default"
+	}
 	selector := strings.Join([]string{
 		"kratix.io/promise-name=" + suspendPromiseName,
-		"kratix.io/workflow-type=promise",
+		"kratix.io/workflow-type=" + workflowType,
 		"kratix.io/workflow-action=configure",
 		"kratix.io/pipeline-name=" + pipelineName,
 	}, ",")
 	output := platform.Kubectl(
 		"get", "jobs",
-		"-n", "kratix-platform-system",
+		"-n", ns,
 		"-l", selector,
 		"-o=go-template={{len .items}}",
 	)
