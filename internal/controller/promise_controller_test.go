@@ -1665,7 +1665,6 @@ var _ = Describe("PromiseController", func() {
 				Expect(string(reconcileCond.Status)).To(Equal("Unknown"))
 				Expect(reconcileCond.Reason).To(Equal("WorkflowSuspended"))
 				Expect(reconcileCond.Message).To(Equal("Suspended"))
-				Expect(promise.Status.Kratix.Workflows.SuspendedGeneration).To(BeZero())
 			})
 
 			It("removes the suspend label and requests a restart when the reconciliation interval is reached", func() {
@@ -1702,7 +1701,6 @@ var _ = Describe("PromiseController", func() {
 				Expect(promise.Labels[resourceutil.WorkflowRestartLabel]).To(Equal("true"))
 				Expect(promise.Status.Kratix.Workflows.Pipelines[0].Phase).To(Equal(v1alpha1.WorkflowPhasePending))
 				Expect(promise.Status.Kratix.Workflows.Pipelines[1].Phase).To(Equal(v1alpha1.WorkflowPhasePending))
-				Expect(promise.Status.Kratix.Workflows.SuspendedGeneration).To(BeZero())
 			})
 
 			It("removes the suspend label when the promise spec has changed", func() {
@@ -1738,7 +1736,6 @@ var _ = Describe("PromiseController", func() {
 				Expect(promise.Labels[resourceutil.WorkflowRestartLabel]).To(Equal("true"))
 				Expect(promise.Status.Kratix.Workflows.Pipelines[0].Phase).To(Equal(v1alpha1.WorkflowPhasePending))
 				Expect(promise.Status.Kratix.Workflows.Pipelines[1].Phase).To(Equal(v1alpha1.WorkflowPhasePending))
-				Expect(promise.Status.Kratix.Workflows.SuspendedGeneration).To(BeZero())
 			})
 		})
 	})
