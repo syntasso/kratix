@@ -270,12 +270,6 @@ func (r *DynamicResourceRequestController) Reconcile(ctx context.Context, req ct
 	}
 
 	if isWorkflowSuspended && (forcePipelineRun || r.manualReconciliationLabelSet(rr) || resumedFromPause || resourceSpecChanged) {
-		resourceLabels := rr.GetLabels()
-		if resourceLabels == nil {
-			resourceLabels = map[string]string{}
-		}
-		resourceLabels[resourceutil.WorkflowRestartLabel] = "true"
-		rr.SetLabels(resourceLabels)
 		if forcePipelineRun {
 			logging.Trace(logger, "resource configure pipeline completed too long ago while suspended; forcing reconciliation",
 				"lastTransitionTime", completedCond.LastTransitionTime.String())
@@ -287,6 +281,11 @@ func (r *DynamicResourceRequestController) Reconcile(ctx context.Context, req ct
 			logging.Info(logger, "Resource request spec changed while suspended; forcing reconciliation",
 				"generation", rr.GetGeneration(), "observedGeneration", resourceutil.GetObservedGeneration(rr))
 		}
+		resourceLabels := rr.GetLabels()
+		if resourceLabels == nil {
+			resourceLabels = map[string]string{}
+		}
+		resourceLabels[resourceutil.WorkflowRestartLabel] = "true"
 		delete(resourceLabels, v1alpha1.WorkflowSuspendLabel)
 		rr.SetLabels(resourceLabels)
 		if err := r.Client.Update(ctx, rr); err != nil {
