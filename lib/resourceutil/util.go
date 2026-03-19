@@ -34,6 +34,7 @@ const (
 	WorksSucceededCondition                = clusterv1.ConditionType("WorksSucceeded")
 	ReconciledCondition                    = clusterv1.ConditionType("Reconciled")
 	pausedReconciliationReason             = "PausedReconciliation"
+	workflowSuspendedReason                = "WorkflowSuspended"
 )
 
 func GetConfigureWorkflowCompletedConditionStatus(obj *unstructured.Unstructured) v1.ConditionStatus {
@@ -142,6 +143,16 @@ func MarkReconciledPaused(obj *unstructured.Unstructured) {
 		Status:             v1.ConditionUnknown,
 		Message:            "Paused",
 		Reason:             pausedReconciliationReason,
+		LastTransitionTime: metav1.NewTime(time.Now()),
+	})
+}
+
+func MarkReconciledSuspended(obj *unstructured.Unstructured) {
+	SetCondition(obj, &clusterv1.Condition{
+		Type:               ReconciledCondition,
+		Status:             v1.ConditionUnknown,
+		Message:            "Suspended",
+		Reason:             workflowSuspendedReason,
 		LastTransitionTime: metav1.NewTime(time.Now()),
 	})
 }
@@ -385,6 +396,7 @@ func ResetPipelineStatusToPending(obj *unstructured.Unstructured, pipelines []v1
 		})
 	}
 
+	unstructured.RemoveNestedField(obj.Object, "status", "kratix", "workflows", "suspendedGeneration")
 	return unstructured.SetNestedSlice(obj.Object, workflows, "status", "kratix", "workflows", "pipelines")
 }
 
@@ -500,10 +512,22 @@ func SetKratixWorkflowsStatus(rr *unstructured.Unstructured, key, value string) 
 	return unstructured.SetNestedField(rr.Object, value, "status", "kratix", "workflows", key)
 }
 
+func SetKratixWorkflowsInt64Status(rr *unstructured.Unstructured, key string, value int64) error {
+	return unstructured.SetNestedField(rr.Object, value, "status", "kratix", "workflows", key)
+}
+
 func GetKratixWorkflowsStatus(rr *unstructured.Unstructured, key string) string {
 	value, found, err := unstructured.NestedString(rr.Object, "status", "kratix", "workflows", key)
 	if err != nil || !found {
 		return ""
+	}
+	return value
+}
+
+func GetKratixWorkflowsInt64Status(rr *unstructured.Unstructured, key string) int64 {
+	value, found, err := unstructured.NestedInt64(rr.Object, "status", "kratix", "workflows", key)
+	if err != nil || !found {
+		return 0
 	}
 	return value
 }

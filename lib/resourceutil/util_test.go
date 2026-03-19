@@ -498,6 +498,14 @@ var _ = Describe("Conditions", func() {
 			})
 
 			It("resets resource request pipelines to pending", func() {
+				rr.Object["status"] = map[string]any{
+					"kratix": map[string]any{
+						"workflows": map[string]any{
+							"suspendedGeneration": int64(2),
+						},
+					},
+				}
+
 				err := resourceutil.ResetPipelineStatusToPending(rr, pipelines)
 				Expect(err).NotTo(HaveOccurred())
 
@@ -515,6 +523,9 @@ var _ = Describe("Conditions", func() {
 					HaveKeyWithValue("phase", v1alpha1.WorkflowPhasePending),
 					HaveKeyWithValue("lastTransitionTime", Not(BeNil())),
 				))
+				_, found, err = unstructured.NestedInt64(rr.Object, "status", "kratix", "workflows", "suspendedGeneration")
+				Expect(err).NotTo(HaveOccurred())
+				Expect(found).To(BeFalse())
 			})
 
 			It("finds the index of a pipeline with the requested phase", func() {
@@ -611,6 +622,21 @@ var _ = Describe("Conditions", func() {
 			It("returns the observedGeneration", func() {
 				Expect(resourceutil.GetObservedGeneration(rr)).To(Equal(int64(1)))
 			})
+		})
+	})
+
+	Describe("Kratix workflows status", func() {
+		var rr *unstructured.Unstructured
+
+		BeforeEach(func() {
+			rr = &unstructured.Unstructured{Object: map[string]any{}}
+		})
+
+		It("can set and get int64 fields under status.kratix.workflows", func() {
+			err := resourceutil.SetKratixWorkflowsInt64Status(rr, "suspendedGeneration", 7)
+			Expect(err).NotTo(HaveOccurred())
+
+			Expect(resourceutil.GetKratixWorkflowsInt64Status(rr, "suspendedGeneration")).To(Equal(int64(7)))
 		})
 	})
 })

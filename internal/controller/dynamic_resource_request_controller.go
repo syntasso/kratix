@@ -223,7 +223,17 @@ func (r *DynamicResourceRequestController) Reconcile(ctx context.Context, req ct
 
 	logging.Info(logger, "resource contains configure workflow(s); reconciling workflows")
 	completedCond := resourceutil.GetCondition(rr, resourceutil.ConfigureWorkflowCompletedCondition)
-	if shouldForcePipelineRun(completedCond, r.ReconciliationInterval) && !r.manualReconciliationLabelSet(rr) {
+	forcePipelineRun := shouldForcePipelineRun(completedCond, r.ReconciliationInterval) &&
+		rr.GetLabels()[resourceutil.WorkflowRestartLabel] != "true"
+	reconciledCond := resourceutil.GetCondition(rr, resourceutil.ReconciledCondition)
+	resumedFromPause := reconciledCond != nil &&
+		reconciledCond.Status == v1.ConditionUnknown &&
+		reconciledCond.Reason == pausedReconciliationReason
+	isWorkflowSuspended := rr.GetLabels()[v1alpha1.WorkflowSuspendLabel] == "true"
+	resourceSpecChanged := resourceutil.GetKratixWorkflowsInt64Status(rr, "suspendedGeneration") != 0 &&
+		rr.GetGeneration() > resourceutil.GetKratixWorkflowsInt64Status(rr, "suspendedGeneration")
+
+	if forcePipelineRun && !r.manualReconciliationLabelSet(rr) && !isWorkflowSuspended {
 		logging.Debug(
 			logger,
 			"resource configure pipeline completed too long ago; forcing reconciliation",
@@ -257,6 +267,55 @@ func (r *DynamicResourceRequestController) Reconcile(ctx context.Context, req ct
 
 	if statusChanged {
 		return ctrl.Result{}, r.Client.Status().Update(ctx, rr)
+	}
+
+	if isWorkflowSuspended && (forcePipelineRun || r.manualReconciliationLabelSet(rr) || resumedFromPause || resourceSpecChanged) {
+		resourceLabels := rr.GetLabels()
+		if resourceLabels == nil {
+			resourceLabels = map[string]string{}
+		}
+		resourceLabels[resourceutil.WorkflowRestartLabel] = "true"
+		rr.SetLabels(resourceLabels)
+		if forcePipelineRun {
+			logging.Trace(logger, "resource configure pipeline completed too long ago while suspended; forcing reconciliation",
+				"lastTransitionTime", completedCond.LastTransitionTime.String())
+		}
+		if resumedFromPause {
+			logging.Info(logger, "Resource request unpaused while suspended; forcing reconciliation")
+		}
+		if resourceSpecChanged {
+			logging.Info(logger, "Resource request spec changed while suspended; forcing reconciliation",
+				"generation", rr.GetGeneration(), "observedGeneration", resourceutil.GetObservedGeneration(rr))
+		}
+		delete(resourceLabels, v1alpha1.WorkflowSuspendLabel)
+		rr.SetLabels(resourceLabels)
+		if err := r.Client.Update(ctx, rr); err != nil {
+			return ctrl.Result{}, err
+		}
+		updatedRR := &unstructured.Unstructured{}
+		updatedRR.SetGroupVersionKind(*r.GVK)
+		if err := r.Client.Get(ctx, client.ObjectKeyFromObject(rr), updatedRR); err != nil {
+			return ctrl.Result{}, err
+		}
+		if err := resourceutil.ResetPipelineStatusToPending(updatedRR, pipelineResources); err != nil {
+			return ctrl.Result{}, err
+		}
+		return ctrl.Result{}, r.Client.Status().Update(ctx, updatedRR)
+	}
+
+	if isWorkflowSuspended {
+		msg := fmt.Sprintf("'%s' label set to 'true' for resource request; skipping reconciliation", v1alpha1.WorkflowSuspendLabel)
+		logging.Info(logger, msg)
+		r.EventRecorder.Event(rr, v1.EventTypeWarning, workflowSuspendedReason, msg)
+		return ctrl.Result{}, r.setWorkflowSuspendedStatusCondition(ctx, rr)
+	}
+
+	if resumedFromPause {
+		logging.Info(logger, "Resource request unpaused; forcing reconciliation")
+		if err := r.updateManualReconciliationLabel(opts.ctx, rr); err != nil {
+			return ctrl.Result{}, err
+		}
+		return ctrl.Result{}, nil
 	}
 
 	namespace := rr.GetNamespace()
@@ -499,6 +558,18 @@ func (r *DynamicResourceRequestController) setPausedReconciliationStatusConditio
 	if reconciled == nil || reconciled.Status != "Unknown" || reconciled.Message != "Paused" {
 		resourceutil.MarkReconciledPaused(rr)
 		r.EventRecorder.Event(rr, v1.EventTypeWarning, pausedReconciliationReason, eventMsg)
+		return r.Client.Status().Update(ctx, rr)
+	}
+	return nil
+}
+
+func (r *DynamicResourceRequestController) setWorkflowSuspendedStatusCondition(ctx context.Context, rr *unstructured.Unstructured) error {
+	reconciled := resourceutil.GetCondition(rr, resourceutil.ReconciledCondition)
+	if reconciled == nil ||
+		reconciled.Status != v1.ConditionUnknown ||
+		reconciled.Reason != workflowSuspendedReason ||
+		reconciled.Message != "Suspended" {
+		resourceutil.MarkReconciledSuspended(rr)
 		return r.Client.Status().Update(ctx, rr)
 	}
 	return nil
