@@ -110,6 +110,11 @@ func updateStatus(ctx context.Context, baseDir string, params *helpers.Parameter
 		if err != nil {
 			return err
 		}
+	} else {
+		mergedStatus, err = lib.ClearPipelineSuspension(mergedStatus, params.PipelineName)
+		if err != nil {
+			return err
+		}
 	}
 
 	// Apply merged status to the existing object

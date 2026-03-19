@@ -112,6 +112,48 @@ func MarkPipelineAsSuspended(status map[string]any, pipelineName, msg string, ge
 	return nil, fmt.Errorf("pipeline %q not found in status.kratix.workflows.pipelines", pipelineName)
 }
 
+func ClearPipelineSuspension(status map[string]any, pipelineName string) (map[string]any, error) {
+	kratix, ok := status["kratix"].(map[string]any)
+	if !ok {
+		return nil, fmt.Errorf("missing status.kratix while clearing suspension for pipeline %q", pipelineName)
+	}
+
+	workflows, ok := kratix["workflows"].(map[string]any)
+	if !ok {
+		return nil, fmt.Errorf("missing status.kratix.workflows while clearing suspension for pipeline %q", pipelineName)
+	}
+
+	pipelines, ok := workflows["pipelines"].([]any)
+	if !ok {
+		return nil, fmt.Errorf("missing status.kratix.workflows.pipelines while clearing suspension for pipeline %q", pipelineName)
+	}
+
+	for i, pipeline := range pipelines {
+		pipelineMap, ok := pipeline.(map[string]any)
+		if !ok {
+			return nil, fmt.Errorf("invalid pipeline status type at index %d in status.kratix.workflows.pipelines", i)
+		}
+
+		if pipelineMap["name"] != pipelineName {
+			continue
+		}
+
+		if pipelineMap["phase"] != "Suspended" {
+			return status, nil
+		}
+
+		pipelineMap["phase"] = "Running"
+		delete(pipelineMap, "message")
+		pipelines[i] = pipelineMap
+		workflows["pipelines"] = pipelines
+		kratix["workflows"] = workflows
+		status["kratix"] = kratix
+		return status, nil
+	}
+
+	return nil, fmt.Errorf("pipeline %q not found in status.kratix.workflows.pipelines", pipelineName)
+}
+
 func updateConditions(conditions []any, newCondition metav1.Condition) []any {
 	newCondBytes, _ := yaml.Marshal(newCondition)
 	var newCondMap map[string]any
