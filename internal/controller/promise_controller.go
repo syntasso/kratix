@@ -963,38 +963,11 @@ func (r *PromiseReconciler) reconcileDependenciesAndPromiseWorkflows(o opts, pro
 
 	reconciledCond := promise.GetCondition(string(resourceutil.ReconciledCondition))
 	resumedFromPause := reconciledCond != nil && reconciledCond.Status == metav1.ConditionUnknown && reconciledCond.Reason == pausedReconciliationReason
-	isWorkflowSuspended := promise.Labels[v1alpha1.WorkflowSuspendLabel] == "true"
 	promiseSpecChanged := promise.Status.Kratix.Workflows.SuspendedGeneration != 0 && promise.GetGeneration() > promise.Status.Kratix.Workflows.SuspendedGeneration
 
-	if isWorkflowSuspended && (forcePipelineRun || promise.Labels[resourceutil.ManualReconciliationLabel] == "true" || resumedFromPause || promiseSpecChanged) {
-		promise.Labels[resourceutil.WorkflowRestartLabel] = "true"
-		if forcePipelineRun {
-			logging.Trace(o.logger, "pipeline completed too long ago while suspended; forcing reconciliation", "lastTransitionTime", completedCond.LastTransitionTime.String())
-		}
-		if resumedFromPause {
-			logging.Info(o.logger, "Promise unpaused while suspended; forcing reconciliation")
-			promise.Labels[resourceutil.ReconcileResourcesLabel] = "true"
-		}
-		if promiseSpecChanged {
-			logging.Info(o.logger, "Promise spec changed while suspended; forcing reconciliation", "generation", promise.GetGeneration(), "observedGeneration", promise.Status.ObservedGeneration)
-		}
-		delete(promise.Labels, v1alpha1.WorkflowSuspendLabel)
-		if err := r.Client.Update(o.ctx, promise); err != nil {
-			return true, err
-		}
-		updatedPromise := &v1alpha1.Promise{}
-		if err := r.Client.Get(o.ctx, client.ObjectKeyFromObject(promise), updatedPromise); err != nil {
-			return true, err
-		}
-		resetPromiseWorkflowPipelinesToPending(updatedPromise)
-		return true, r.Client.Status().Update(o.ctx, updatedPromise)
-	}
-
-	if isWorkflowSuspended {
-		msg := fmt.Sprintf("'%s' label set to 'true' for promise; skipping reconciliation", v1alpha1.WorkflowSuspendLabel)
-		logging.Info(r.Log, msg)
-		r.EventRecorder.Event(promise, v1.EventTypeWarning, workflowSuspendedReason, msg)
-		return true, r.setWorkflowSuspendedStatusCondition(o.ctx, promise)
+	if shouldRequeue, suspendErr := r.reconcileSuspendedWorkflow(o, promise, completedCond,
+		forcePipelineRun, resumedFromPause, promiseSpecChanged); shouldRequeue || suspendErr != nil {
+		return shouldRequeue, suspendErr
 	}
 
 	if forcePipelineRun {
@@ -1029,6 +1002,50 @@ func (r *PromiseReconciler) reconcileDependenciesAndPromiseWorkflows(o opts, pro
 
 	if passiveRequeue {
 		return true, nil
+	}
+
+	return false, nil
+}
+
+func (r *PromiseReconciler) reconcileSuspendedWorkflow(
+	o opts,
+	promise *v1alpha1.Promise,
+	completedCond *metav1.Condition,
+	forcePipelineRun bool,
+	resumedFromPause bool,
+	promiseSpecChanged bool,
+) (bool, error) {
+	isWorkflowSuspended := promise.Labels[v1alpha1.WorkflowSuspendLabel] == "true"
+
+	if isWorkflowSuspended && (forcePipelineRun || promise.Labels[resourceutil.ManualReconciliationLabel] == "true" || resumedFromPause || promiseSpecChanged) {
+		promise.Labels[resourceutil.WorkflowRestartLabel] = "true"
+		if forcePipelineRun {
+			logging.Trace(o.logger, "pipeline completed too long ago while suspended; forcing reconciliation", "lastTransitionTime", completedCond.LastTransitionTime.String())
+		}
+		if resumedFromPause {
+			logging.Info(o.logger, "Promise unpaused while suspended; forcing reconciliation")
+			promise.Labels[resourceutil.ReconcileResourcesLabel] = "true"
+		}
+		if promiseSpecChanged {
+			logging.Info(o.logger, "Promise spec changed while suspended; forcing reconciliation", "generation", promise.GetGeneration(), "observedGeneration", promise.Status.ObservedGeneration)
+		}
+		delete(promise.Labels, v1alpha1.WorkflowSuspendLabel)
+		if err := r.Client.Update(o.ctx, promise); err != nil {
+			return true, err
+		}
+		updatedPromise := &v1alpha1.Promise{}
+		if err := r.Client.Get(o.ctx, client.ObjectKeyFromObject(promise), updatedPromise); err != nil {
+			return true, err
+		}
+		resetPromiseWorkflowPipelinesToPending(updatedPromise)
+		return true, r.Client.Status().Update(o.ctx, updatedPromise)
+	}
+
+	if isWorkflowSuspended {
+		msg := fmt.Sprintf("'%s' label set to 'true' for promise; skipping reconciliation", v1alpha1.WorkflowSuspendLabel)
+		logging.Info(r.Log, msg)
+		r.EventRecorder.Event(promise, v1.EventTypeWarning, workflowSuspendedReason, msg)
+		return true, r.setWorkflowSuspendedStatusCondition(o.ctx, promise)
 	}
 
 	return false, nil

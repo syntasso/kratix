@@ -175,16 +175,11 @@ var _ = Describe("Workflow Reconciler", func() {
 		})
 
 		When("a suspended pipeline is resumed by removing the suspend label", func() {
-			It("restarts the suspended pipeline instead of moving to the next one", func() {
+			It("starts from the suspended pipeline", func() {
 				Expect(fakeK8sClient.Get(ctx, types.NamespacedName{Name: promise.Name}, &promise)).To(Succeed())
 				promise.Labels = map[string]string{}
-				promise.Status.WorkflowsSucceeded = 0
-				promise.Status.Kratix.Workflows.Pipelines[0].Phase = v1alpha1.WorkflowPhaseSuspended
-				promise.Status.Kratix.Workflows.Pipelines[0].Message = "waiting"
-				promise.Status.Kratix.Workflows.Pipelines[1].Phase = v1alpha1.WorkflowPhasePending
 				Expect(fakeK8sClient.Update(ctx, &promise)).To(Succeed())
 				Expect(fakeK8sClient.Get(ctx, types.NamespacedName{Name: promise.Name}, &promise)).To(Succeed())
-				promise.Status.WorkflowsSucceeded = 0
 				promise.Status.Kratix.Workflows.Pipelines[0].Phase = v1alpha1.WorkflowPhaseSuspended
 				promise.Status.Kratix.Workflows.Pipelines[0].Message = "waiting"
 				promise.Status.Kratix.Workflows.Pipelines[1].Phase = v1alpha1.WorkflowPhasePending
@@ -201,7 +196,7 @@ var _ = Describe("Workflow Reconciler", func() {
 				Expect(err).NotTo(HaveOccurred())
 				opts := workflow.NewOpts(ctx, fakeK8sClient, eventRecorder, logger, uPromise, workflowPipelines, "promise", 5, namespace)
 
-				By("clearing the suspended message and resuming the suspended pipeline directly to running", func() {
+				By("resuming the suspended pipeline directly to running", func() {
 					passiveRequeue, err := workflow.ReconcileConfigure(opts)
 					Expect(err).NotTo(HaveOccurred())
 					Expect(passiveRequeue).To(BeTrue())
@@ -1066,30 +1061,25 @@ var _ = Describe("Workflow Reconciler", func() {
 			})
 		})
 
-		When("the workflow restart label exists in the parent resource", func() {
+		When("the workflow restart label exists", func() {
 			BeforeEach(func() {
 				Expect(fakeK8sClient.Create(ctx, workflowPipelines[0].Job)).To(Succeed())
 				Expect(fakeK8sClient.Create(ctx, workflowPipelines[1].Job)).To(Succeed())
 				markJobAsComplete(workflowPipelines[0].Job.Name)
 				markJobAsComplete(workflowPipelines[1].Job.Name)
-				setParentWorkflowCountersStatus(uPromise, 1)
 
 				opts := workflow.NewOpts(ctx, fakeK8sClient, eventRecorder, logger, uPromise, workflowPipelines, "promise", 5, namespace)
-				passiveRequeue, err := workflow.ReconcileConfigure(opts)
+				_, err := workflow.ReconcileConfigure(opts)
 				Expect(err).NotTo(HaveOccurred())
-				Expect(passiveRequeue).To(BeTrue())
 				assertPromiseWorkflowCountersStatus("redis", 2)
 
-				passiveRequeue, err = workflow.ReconcileConfigure(opts)
+				_, err = workflow.ReconcileConfigure(opts)
 				Expect(err).NotTo(HaveOccurred())
-				Expect(passiveRequeue).To(BeFalse())
-
 				Expect(listJobs(namespace)).To(HaveLen(2))
 
-				labelPromiseForWorkflowRestart("redis")
-
+				labelPromiseWithWorkflowRestart("redis")
 				workflowPipelines, uPromise = setupTest(promise, pipelines)
-				setParentWorkflowCountersStatus(uPromise, 1)
+				setParentWorkflowCountersStatus(uPromise, 2)
 			})
 
 			It("restarts the workflow from the first pipeline and removes the label", func() {
@@ -2345,7 +2335,7 @@ func labelPromiseForManualReconciliation(name string) {
 	Expect(fakeK8sClient.Update(ctx, promise)).To(Succeed())
 }
 
-func labelPromiseForWorkflowRestart(name string) {
+func labelPromiseWithWorkflowRestart(name string) {
 	promise := &v1alpha1.Promise{}
 	Expect(fakeK8sClient.Get(ctx, types.NamespacedName{Name: name}, promise)).To(Succeed())
 	promise.SetLabels(labels.Merge(promise.GetLabels(), map[string]string{

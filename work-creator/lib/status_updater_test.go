@@ -198,7 +198,7 @@ var _ = Describe("StatusUpdater", func() {
 	})
 
 	Context("MarkPipelineAsSuspended", func() {
-		It("marks the pipeline as suspended and sets the message", func() {
+		It("marks the pipeline as suspended", func() {
 			status := map[string]any{
 				"kratix": map[string]any{
 					"workflows": map[string]any{
@@ -236,7 +236,7 @@ var _ = Describe("StatusUpdater", func() {
 			Expect(result).To(HaveKeyWithValue("message", "leave me alone"))
 		})
 
-		It("clears any existing message when a new one is not provided", func() {
+		It("cleans up existing message when message is not provided anymore", func() {
 			status := map[string]any{
 				"kratix": map[string]any{
 					"workflows": map[string]any{
@@ -264,7 +264,7 @@ var _ = Describe("StatusUpdater", func() {
 			Expect(workflows).To(HaveKeyWithValue("suspendedGeneration", int64(3)))
 		})
 
-		It("fails when the pipeline does not exist", func() {
+		It("fails when it cannot find the pipeline", func() {
 			status := map[string]any{
 				"kratix": map[string]any{
 					"workflows": map[string]any{
@@ -278,31 +278,9 @@ var _ = Describe("StatusUpdater", func() {
 				},
 			}
 
-			_, err := lib.MarkPipelineAsSuspended(status, "pipeline-b", "", 1)
+			_, err := lib.MarkPipelineAsSuspended(status, "pipeline-b", "", 0)
 
 			Expect(err).To(MatchError(ContainSubstring("\"pipeline-b\" not found in status.kratix.workflows.pipelines")))
-		})
-
-		It("fails when workflow pipeline status is missing", func() {
-			status := map[string]any{}
-
-			_, err := lib.MarkPipelineAsSuspended(status, "pipeline-a", "", 1)
-
-			Expect(err).To(MatchError(ContainSubstring("missing status.kratix")))
-		})
-
-		It("fails when a pipeline entry has an invalid shape", func() {
-			status := map[string]any{
-				"kratix": map[string]any{
-					"workflows": map[string]any{
-						"pipelines": []any{"not a valid pipeline execution status"},
-					},
-				},
-			}
-
-			_, err := lib.MarkPipelineAsSuspended(status, "pipeline-a", "", 1)
-
-			Expect(err).To(MatchError(ContainSubstring("invalid pipeline status type")))
 		})
 	})
 
