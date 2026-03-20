@@ -635,7 +635,7 @@ func removeManualReconciliationLabel(opts Opts) error {
 
 func removeWorkflowRestartLabel(opts Opts) error {
 	logging.Debug(opts.logger, "workflow restart label detected; removing it")
-	return removeLabel(opts, resourceutil.WorkflowRestartLabel)
+	return removeLabel(opts, resourceutil.WorkflowRunFromStartLabel)
 }
 
 func removeLabel(opts Opts, labelKey string) error {
@@ -716,7 +716,7 @@ func isManualReconciliation(labels map[string]string) bool {
 }
 
 func isWorkflowRestart(labels map[string]string) bool {
-	return isLabelSetToTrue(labels, resourceutil.WorkflowRestartLabel)
+	return isLabelSetToTrue(labels, resourceutil.WorkflowRunFromStartLabel)
 }
 
 func isLabelSetToTrue(labels map[string]string, labelKey string) bool {

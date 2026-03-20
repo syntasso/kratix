@@ -1037,8 +1037,15 @@ var _ = Describe("DynamicResourceRequestController", func() {
 			Expect(result).To(Equal(ctrl.Result{}))
 
 			Expect(fakeK8sClient.Get(ctx, resReqNameNamespace, resReq)).To(Succeed())
+			Expect(resReq.GetLabels()[resourceutil.ManualReconciliationLabel]).To(Equal("true"))
+
+			result, err = reconciler.Reconcile(ctx, ctrl.Request{NamespacedName: resReqNameNamespace})
+			Expect(err).NotTo(HaveOccurred())
+			Expect(result).To(Equal(ctrl.Result{}))
+
+			Expect(fakeK8sClient.Get(ctx, resReqNameNamespace, resReq)).To(Succeed())
 			Expect(resReq.GetLabels()[v1alpha1.WorkflowSuspendLabel]).To(BeEmpty())
-			Expect(resReq.GetLabels()[resourceutil.WorkflowRestartLabel]).To(Equal("true"))
+			Expect(resReq.GetLabels()[resourceutil.WorkflowRunFromStartLabel]).To(Equal("true"))
 			workflows, found, err := unstructured.NestedSlice(resReq.Object, "status", "kratix", "workflows", "pipelines")
 			Expect(err).NotTo(HaveOccurred())
 			Expect(found).To(BeTrue())
@@ -1058,7 +1065,7 @@ var _ = Describe("DynamicResourceRequestController", func() {
 
 			Expect(fakeK8sClient.Get(ctx, resReqNameNamespace, resReq)).To(Succeed())
 			Expect(resReq.GetLabels()[v1alpha1.WorkflowSuspendLabel]).To(BeEmpty())
-			Expect(resReq.GetLabels()[resourceutil.WorkflowRestartLabel]).To(Equal("true"))
+			Expect(resReq.GetLabels()[resourceutil.WorkflowRunFromStartLabel]).To(Equal("true"))
 			workflows, found, err := unstructured.NestedSlice(resReq.Object, "status", "kratix", "workflows", "pipelines")
 			Expect(err).NotTo(HaveOccurred())
 			Expect(found).To(BeTrue())

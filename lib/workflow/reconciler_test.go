@@ -1092,7 +1092,7 @@ var _ = Describe("Workflow Reconciler", func() {
 
 				updatedPromise := v1alpha1.Promise{}
 				Expect(fakeK8sClient.Get(ctx, types.NamespacedName{Name: "redis"}, &updatedPromise)).To(Succeed())
-				Expect(updatedPromise.GetLabels()).NotTo(HaveKey(resourceutil.WorkflowRestartLabel))
+				Expect(updatedPromise.GetLabels()).NotTo(HaveKey(resourceutil.WorkflowRunFromStartLabel))
 
 				jobs := resourceutil.SortJobsByCreationDateTime(listJobs(namespace), true)
 				Expect(jobs).To(HaveLen(3))
@@ -2339,7 +2339,7 @@ func labelPromiseWithWorkflowRestart(name string) {
 	promise := &v1alpha1.Promise{}
 	Expect(fakeK8sClient.Get(ctx, types.NamespacedName{Name: name}, promise)).To(Succeed())
 	promise.SetLabels(labels.Merge(promise.GetLabels(), map[string]string{
-		resourceutil.WorkflowRestartLabel: "true",
+		resourceutil.WorkflowRunFromStartLabel: "true",
 	}))
 	Expect(fakeK8sClient.Update(ctx, promise)).To(Succeed())
 }

@@ -1688,7 +1688,7 @@ var _ = Describe("PromiseController", func() {
 
 				Expect(fakeK8sClient.Get(ctx, promiseName, promise)).To(Succeed())
 				Expect(promise.Labels[v1alpha1.WorkflowSuspendLabel]).To(BeEmpty())
-				Expect(promise.Labels[resourceutil.WorkflowRestartLabel]).To(Equal("true"))
+				Expect(promise.Labels[resourceutil.WorkflowRunFromStartLabel]).To(Equal("true"))
 				Expect(promise.Status.Kratix.Workflows.Pipelines[0].Phase).To(Equal(v1alpha1.WorkflowPhasePending))
 				Expect(promise.Status.Kratix.Workflows.Pipelines[1].Phase).To(Equal(v1alpha1.WorkflowPhasePending))
 			})
@@ -1707,7 +1707,7 @@ var _ = Describe("PromiseController", func() {
 
 				Expect(fakeK8sClient.Get(ctx, promiseName, promise)).To(Succeed())
 				Expect(promise.Labels[v1alpha1.WorkflowSuspendLabel]).To(BeEmpty())
-				Expect(promise.Labels[resourceutil.WorkflowRestartLabel]).To(Equal("true"))
+				Expect(promise.Labels[resourceutil.WorkflowRunFromStartLabel]).To(Equal("true"))
 				Expect(promise.Status.Kratix.Workflows.Pipelines[0].Phase).To(Equal(v1alpha1.WorkflowPhasePending))
 				Expect(promise.Status.Kratix.Workflows.Pipelines[1].Phase).To(Equal(v1alpha1.WorkflowPhasePending))
 			})
