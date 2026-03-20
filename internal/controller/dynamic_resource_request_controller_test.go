@@ -986,7 +986,7 @@ var _ = Describe("DynamicResourceRequestController", func() {
 				resourceLabels = map[string]string{}
 			}
 			resourceLabels[v1alpha1.PromiseNameLabel] = promise.GetName()
-			resourceLabels[v1alpha1.WorkflowSuspendLabel] = "true"
+			resourceLabels[v1alpha1.WorkflowSuspendedLabel] = "true"
 			resReq.SetLabels(resourceLabels)
 			Expect(fakeK8sClient.Update(ctx, resReq)).To(Succeed())
 			Expect(fakeK8sClient.Get(ctx, resReqNameNamespace, resReq)).To(Succeed())
@@ -1024,7 +1024,7 @@ var _ = Describe("DynamicResourceRequestController", func() {
 
 			By("publishing an event", func() {
 				Expect(eventRecorder.Events).To(Receive(ContainSubstring(
-					"Warning WorkflowSuspended 'kratix.io/workflow-suspend' label set to 'true' for resource request; skipping reconciliation",
+					"Warning WorkflowSuspended 'kratix.io/workflow-suspended' label set to 'true' for resource request; skipping reconciliation",
 				)))
 			})
 		})
@@ -1044,7 +1044,7 @@ var _ = Describe("DynamicResourceRequestController", func() {
 			Expect(result).To(Equal(ctrl.Result{}))
 
 			Expect(fakeK8sClient.Get(ctx, resReqNameNamespace, resReq)).To(Succeed())
-			Expect(resReq.GetLabels()[v1alpha1.WorkflowSuspendLabel]).To(BeEmpty())
+			Expect(resReq.GetLabels()[v1alpha1.WorkflowSuspendedLabel]).To(BeEmpty())
 			Expect(resReq.GetLabels()[resourceutil.WorkflowRunFromStartLabel]).To(Equal("true"))
 			workflows, found, err := unstructured.NestedSlice(resReq.Object, "status", "kratix", "workflows", "pipelines")
 			Expect(err).NotTo(HaveOccurred())
@@ -1064,7 +1064,7 @@ var _ = Describe("DynamicResourceRequestController", func() {
 			Expect(result).To(Equal(ctrl.Result{}))
 
 			Expect(fakeK8sClient.Get(ctx, resReqNameNamespace, resReq)).To(Succeed())
-			Expect(resReq.GetLabels()[v1alpha1.WorkflowSuspendLabel]).To(BeEmpty())
+			Expect(resReq.GetLabels()[v1alpha1.WorkflowSuspendedLabel]).To(BeEmpty())
 			Expect(resReq.GetLabels()[resourceutil.WorkflowRunFromStartLabel]).To(Equal("true"))
 			workflows, found, err := unstructured.NestedSlice(resReq.Object, "status", "kratix", "workflows", "pipelines")
 			Expect(err).NotTo(HaveOccurred())

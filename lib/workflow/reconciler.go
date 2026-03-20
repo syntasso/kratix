@@ -205,7 +205,7 @@ func determineWorkflowState(opts Opts) (*workflowState, error) {
 	if err != nil {
 		return nil, err
 	}
-	isWorkflowSuspended := opts.parentObject.GetLabels()[v1alpha1.WorkflowSuspendLabel] == "true"
+	isWorkflowSuspended := opts.parentObject.GetLabels()[v1alpha1.WorkflowSuspendedLabel] == "true"
 	state.resumeFromSuspended = !isWorkflowSuspended && !state.restartFromStart && state.suspendedPipelineIdx >= 0
 
 	if len(allJobs) == 0 {
@@ -355,7 +355,7 @@ func handleCurrentPipelineJob(opts Opts, state *workflowState, pipeline v1alpha1
 
 	if state.resumeFromSuspended {
 		logging.Info(opts.logger, fmt.Sprintf("rerunning suspended pipeline after %q is removed",
-			v1alpha1.WorkflowSuspendLabel), "pipeline", pipeline.Name)
+			v1alpha1.WorkflowSuspendedLabel), "pipeline", pipeline.Name)
 		return createConfigurePipeline(opts, state, pipeline)
 	}
 

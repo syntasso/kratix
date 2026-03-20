@@ -44,7 +44,7 @@ var _ = Describe("Workflow Control", Ordered, func() {
 					g.Expect(platform.Kubectl("get", "promise", suspendPromiseName, phaseJSONPath("pipe-1"))).To(Equal("Suspended"))
 					g.Expect(platform.Kubectl("get", "promise", suspendPromiseName, messageJSONPath("pipe-1"))).To(Equal("waiting for approval"))
 					g.Expect(platform.Kubectl("get", "promise", suspendPromiseName, phaseJSONPath("pipe-2"))).To(Equal("Pending"))
-					g.Expect(platform.Kubectl("get", "promise", suspendPromiseName, `-o=jsonpath={.metadata.labels.kratix\.io/workflow-suspend}`)).To(Equal("true"))
+					g.Expect(platform.Kubectl("get", "promise", suspendPromiseName, `-o=jsonpath={.metadata.labels.kratix\.io/workflow-suspended}`)).To(Equal("true"))
 				}).Should(Succeed())
 
 				Consistently(func() int {
@@ -57,7 +57,7 @@ var _ = Describe("Workflow Control", Ordered, func() {
 				pipe1Count := jobCount("pipe-1")
 				pipe2Count := jobCount("pipe-2")
 
-				platform.Kubectl("label", "promise", suspendPromiseName, "kratix.io/workflow-suspend-")
+				platform.Kubectl("label", "promise", suspendPromiseName, "kratix.io/workflow-suspended-")
 
 				Eventually(func() int {
 					return jobCount("pipe-1")
@@ -74,7 +74,7 @@ var _ = Describe("Workflow Control", Ordered, func() {
 					g.Expect(platform.Kubectl("get", "promise", suspendPromiseName, phaseJSONPath("pipe-1"))).To(Equal("Suspended"))
 					g.Expect(platform.Kubectl("get", "promise", suspendPromiseName, messageJSONPath("pipe-1"))).To(Equal("waiting for approval"))
 					g.Expect(platform.Kubectl("get", "promise", suspendPromiseName, phaseJSONPath("pipe-2"))).To(Equal("Pending"))
-					g.Expect(platform.Kubectl("get", "promise", suspendPromiseName, `-o=jsonpath={.metadata.labels.kratix\.io/workflow-suspend}`)).To(Equal("true"))
+					g.Expect(platform.Kubectl("get", "promise", suspendPromiseName, `-o=jsonpath={.metadata.labels.kratix\.io/workflow-suspended}`)).To(Equal("true"))
 				}).Should(Succeed())
 			})
 
@@ -100,7 +100,7 @@ var _ = Describe("Workflow Control", Ordered, func() {
 					g.Expect(platform.Kubectl("get", "promise", suspendPromiseName, phaseJSONPath("pipe-1"))).To(Equal("Suspended"))
 					g.Expect(platform.Kubectl("get", "promise", suspendPromiseName, messageJSONPath("pipe-1"))).To(Equal("waiting for approval"))
 					g.Expect(platform.Kubectl("get", "promise", suspendPromiseName, phaseJSONPath("pipe-2"))).To(Equal("Pending"))
-					g.Expect(platform.Kubectl("get", "promise", suspendPromiseName, `-o=jsonpath={.metadata.labels.kratix\.io/workflow-suspend}`)).To(Equal("true"))
+					g.Expect(platform.Kubectl("get", "promise", suspendPromiseName, `-o=jsonpath={.metadata.labels.kratix\.io/workflow-suspended}`)).To(Equal("true"))
 				}).Should(Succeed())
 			})
 
@@ -128,7 +128,7 @@ var _ = Describe("Workflow Control", Ordered, func() {
 					g.Expect(platform.Kubectl("get", "promise", suspendPromiseName, messageJSONPath("pipe-1"))).To(BeEmpty())
 					g.Expect(platform.Kubectl("get", "promise", suspendPromiseName, `-o=jsonpath={.status.conditions[?(@.type=="ConfigureWorkflowCompleted")].status}`)).To(Equal("True"))
 					g.Expect(platform.Kubectl("get", "promise", suspendPromiseName, `-o=jsonpath={.status.kratix.workflows.suspendedGeneration}`)).To(BeEmpty())
-					g.Expect(platform.Kubectl("get", "promise", suspendPromiseName, "-o", "yaml")).NotTo(ContainSubstring("kratix.io/workflow-suspend"))
+					g.Expect(platform.Kubectl("get", "promise", suspendPromiseName, "-o", "yaml")).NotTo(ContainSubstring("kratix.io/workflow-suspended"))
 				}).Should(Succeed())
 			})
 
@@ -138,7 +138,7 @@ var _ = Describe("Workflow Control", Ordered, func() {
 				Eventually(func(g Gomega) {
 					g.Expect(platform.Kubectl("get", suspendCRDPlural, suspendResourceName, phaseJSONPath("resource-pipe-0"))).To(Equal("Suspended"))
 					g.Expect(platform.Kubectl("get", suspendCRDPlural, suspendResourceName, messageJSONPath("resource-pipe-0"))).To(Equal("waiting for configmap"))
-					g.Expect(platform.Kubectl("get", suspendCRDPlural, suspendResourceName, `-o=jsonpath={.metadata.labels.kratix\.io/workflow-suspend}`)).To(Equal("true"))
+					g.Expect(platform.Kubectl("get", suspendCRDPlural, suspendResourceName, `-o=jsonpath={.metadata.labels.kratix\.io/workflow-suspended}`)).To(Equal("true"))
 				}).Should(Succeed())
 			})
 
@@ -146,7 +146,7 @@ var _ = Describe("Workflow Control", Ordered, func() {
 				resourceJobCountBefore := jobCountForWorkflow("resource", "resource-pipe-0")
 
 				platform.Kubectl("apply", "-f", suspendConfigMap)
-				platform.Kubectl("label", suspendCRDPlural, suspendResourceName, "kratix.io/workflow-suspend-")
+				platform.Kubectl("label", suspendCRDPlural, suspendResourceName, "kratix.io/workflow-suspended-")
 
 				Eventually(func() int {
 					return jobCountForWorkflow("resource", "resource-pipe-0")
@@ -157,7 +157,7 @@ var _ = Describe("Workflow Control", Ordered, func() {
 					g.Expect(platform.Kubectl("get", suspendCRDPlural, suspendResourceName, messageJSONPath("resource-pipe-0"))).To(BeEmpty())
 					g.Expect(platform.Kubectl("get", suspendCRDPlural, suspendResourceName, `-o=jsonpath={.status.conditions[?(@.type=="ConfigureWorkflowCompleted")].status}`)).To(Equal("True"))
 					g.Expect(platform.Kubectl("get", suspendCRDPlural, suspendResourceName, `-o=jsonpath={.status.kratix.workflows.suspendedGeneration}`)).To(BeEmpty())
-					g.Expect(platform.Kubectl("get", suspendCRDPlural, suspendResourceName, `-o=jsonpath={.metadata.labels.kratix\.io/workflow-suspend}`)).To(BeEmpty())
+					g.Expect(platform.Kubectl("get", suspendCRDPlural, suspendResourceName, `-o=jsonpath={.metadata.labels.kratix\.io/workflow-suspended}`)).To(BeEmpty())
 				}).Should(Succeed())
 			})
 		})

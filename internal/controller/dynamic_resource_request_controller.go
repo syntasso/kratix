@@ -412,7 +412,7 @@ func (r *DynamicResourceRequestController) reconcileSuspendedWorkflow(
 			resourceLabels = map[string]string{}
 		}
 		resourceLabels[resourceutil.WorkflowRunFromStartLabel] = "true"
-		delete(resourceLabels, v1alpha1.WorkflowSuspendLabel)
+		delete(resourceLabels, v1alpha1.WorkflowSuspendedLabel)
 		rr.SetLabels(resourceLabels)
 		if err := r.Client.Update(ctx, rr); err != nil {
 			return true, err
@@ -428,7 +428,7 @@ func (r *DynamicResourceRequestController) reconcileSuspendedWorkflow(
 		return true, r.Client.Status().Update(ctx, updatedRR)
 	}
 
-	msg := fmt.Sprintf("'%s' label set to 'true' for resource request; skipping reconciliation", v1alpha1.WorkflowSuspendLabel)
+	msg := fmt.Sprintf("'%s' label set to 'true' for resource request; skipping reconciliation", v1alpha1.WorkflowSuspendedLabel)
 	logging.Info(logger, msg)
 	r.EventRecorder.Event(rr, v1.EventTypeWarning, workflowSuspendedReason, msg)
 	return true, r.setWorkflowSuspendedStatusCondition(ctx, rr)
@@ -941,7 +941,7 @@ func notManualReconcile(rr client.Object) bool {
 }
 
 func isWorkflowSuspended(rr client.Object) bool {
-	return rr.GetLabels()[v1alpha1.WorkflowSuspendLabel] == "true"
+	return rr.GetLabels()[v1alpha1.WorkflowSuspendedLabel] == "true"
 }
 
 func notWorkflowSuspended(rr client.Object) bool {

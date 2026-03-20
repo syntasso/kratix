@@ -1032,7 +1032,7 @@ func (r *PromiseReconciler) reconcileSuspendedWorkflow(
 		if promiseSpecChanged {
 			logging.Info(o.logger, "Promise spec changed while suspended; forcing reconciliation", "generation", promise.GetGeneration(), "observedGeneration", promise.Status.ObservedGeneration)
 		}
-		delete(promise.Labels, v1alpha1.WorkflowSuspendLabel)
+		delete(promise.Labels, v1alpha1.WorkflowSuspendedLabel)
 		if err := r.Client.Update(o.ctx, promise); err != nil {
 			return true, err
 		}
@@ -1044,7 +1044,7 @@ func (r *PromiseReconciler) reconcileSuspendedWorkflow(
 		return true, r.Client.Status().Update(o.ctx, updatedPromise)
 	}
 
-	msg := fmt.Sprintf("'%s' label set to 'true' for promise; skipping reconciliation", v1alpha1.WorkflowSuspendLabel)
+	msg := fmt.Sprintf("'%s' label set to 'true' for promise; skipping reconciliation", v1alpha1.WorkflowSuspendedLabel)
 	logging.Info(r.Log, msg)
 	r.EventRecorder.Event(promise, v1.EventTypeWarning, workflowSuspendedReason, msg)
 	return true, r.setWorkflowSuspendedStatusCondition(o.ctx, promise)

@@ -1639,7 +1639,7 @@ var _ = Describe("PromiseController", func() {
 				Expect(result).To(Equal(ctrl.Result{}))
 
 				Expect(fakeK8sClient.Get(ctx, promiseName, promise)).To(Succeed())
-				promise.Labels[v1alpha1.WorkflowSuspendLabel] = "true"
+				promise.Labels[v1alpha1.WorkflowSuspendedLabel] = "true"
 				Expect(fakeK8sClient.Update(ctx, promise)).To(Succeed())
 			})
 
@@ -1650,7 +1650,7 @@ var _ = Describe("PromiseController", func() {
 
 				By("publishes a warning event")
 				Expect(aggregateEvents(eventRecorder.Events)).To(ContainSubstring(
-					"Warning WorkflowSuspended 'kratix.io/workflow-suspend' label set to 'true' for promise; skipping reconciliation"))
+					"Warning WorkflowSuspended 'kratix.io/workflow-suspended' label set to 'true' for promise; skipping reconciliation"))
 
 				By("setting the promise to 'unavailable' and 'suspended' for the reconciled status.condition")
 				Expect(fakeK8sClient.Get(ctx, promiseName, promise)).To(Succeed())
@@ -1687,7 +1687,7 @@ var _ = Describe("PromiseController", func() {
 				Expect(result).To(Equal(ctrl.Result{}))
 
 				Expect(fakeK8sClient.Get(ctx, promiseName, promise)).To(Succeed())
-				Expect(promise.Labels[v1alpha1.WorkflowSuspendLabel]).To(BeEmpty())
+				Expect(promise.Labels[v1alpha1.WorkflowSuspendedLabel]).To(BeEmpty())
 				Expect(promise.Labels[resourceutil.WorkflowRunFromStartLabel]).To(Equal("true"))
 				Expect(promise.Status.Kratix.Workflows.Pipelines[0].Phase).To(Equal(v1alpha1.WorkflowPhasePending))
 				Expect(promise.Status.Kratix.Workflows.Pipelines[1].Phase).To(Equal(v1alpha1.WorkflowPhasePending))
@@ -1706,7 +1706,7 @@ var _ = Describe("PromiseController", func() {
 				Expect(result).To(Equal(ctrl.Result{}))
 
 				Expect(fakeK8sClient.Get(ctx, promiseName, promise)).To(Succeed())
-				Expect(promise.Labels[v1alpha1.WorkflowSuspendLabel]).To(BeEmpty())
+				Expect(promise.Labels[v1alpha1.WorkflowSuspendedLabel]).To(BeEmpty())
 				Expect(promise.Labels[resourceutil.WorkflowRunFromStartLabel]).To(Equal("true"))
 				Expect(promise.Status.Kratix.Workflows.Pipelines[0].Phase).To(Equal(v1alpha1.WorkflowPhasePending))
 				Expect(promise.Status.Kratix.Workflows.Pipelines[1].Phase).To(Equal(v1alpha1.WorkflowPhasePending))
