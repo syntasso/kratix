@@ -47,7 +47,7 @@ const (
 	PromiseAvailableConditionFalseReason = "PromiseUnavailable"
 	PromiseWorksSucceededCondition       = "WorksSucceeded"
 	PromiseReconciledCondition           = "Reconciled"
-
+	WorkflowSuspendLabel                 = KratixPrefix + "workflow-suspend"
 	// MaxResourceNameLength is the maximum length of a resource name
 	MaxResourceNameLength int64 = 63
 )
@@ -191,6 +191,9 @@ type KratixPromiseStatus struct {
 type WorkflowStatus struct {
 	// Status of the Pipeline execution
 	Pipelines []WorkflowPipelineStatus `json:"pipelines,omitempty"`
+
+	// Generation at which the workflow was suspended
+	SuspendedGeneration int64 `json:"suspendedGeneration,omitempty"`
 }
 
 type WorkflowPipelineStatus struct {
@@ -199,6 +202,9 @@ type WorkflowPipelineStatus struct {
 
 	// Phase of the workflow
 	Phase string `json:"phase,omitempty"`
+
+	// Message from the suspended pipeline
+	Message string `json:"message,omitempty"`
 
 	// Last transition time of the workflow
 	LastTransitionTime metav1.Time `json:"lastTransitionTime,omitempty"`
@@ -510,6 +516,7 @@ const (
 	WorkflowPhaseRunning   = "Running"
 	WorkflowPhaseSucceeded = "Succeeded"
 	WorkflowPhaseFailed    = "Failed"
+	WorkflowPhaseSuspended = "Suspended"
 )
 
 func (p *Promise) ClearPipelineExecutionStatus() bool {

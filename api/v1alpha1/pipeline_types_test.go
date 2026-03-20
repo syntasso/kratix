@@ -1084,6 +1084,9 @@ var _ = Describe("Pipeline", func() {
 					Expect(container.Args).To(Equal([]string{"update-status"}))
 					Expect(container.Env).To(ConsistOf(
 						corev1.EnvVar{Name: "KRATIX_WORKFLOW_TYPE", Value: string(factory.WorkflowType)},
+						corev1.EnvVar{Name: "KRATIX_WORKFLOW_ACTION", Value: string(factory.WorkflowAction)},
+						corev1.EnvVar{Name: "KRATIX_PROMISE_NAME", Value: factory.Promise.Name},
+						corev1.EnvVar{Name: "KRATIX_PIPELINE_NAME", Value: factory.Pipeline.Name},
 						corev1.EnvVar{Name: "KRATIX_OBJECT_KIND", Value: resourceRequest.GroupVersionKind().Kind},
 						corev1.EnvVar{Name: "KRATIX_OBJECT_GROUP", Value: resourceRequest.GroupVersionKind().Group},
 						corev1.EnvVar{Name: "KRATIX_OBJECT_VERSION", Value: resourceRequest.GroupVersionKind().Version},
@@ -1091,6 +1094,7 @@ var _ = Describe("Pipeline", func() {
 						corev1.EnvVar{Name: "KRATIX_OBJECT_NAME", Value: resourceRequest.GetName()},
 						corev1.EnvVar{Name: "KRATIX_OBJECT_NAMESPACE", Value: factory.Namespace},
 						corev1.EnvVar{Name: "KRATIX_CLUSTER_SCOPED", Value: "false"},
+
 						corev1.EnvVar{Name: "env1", Value: "value1"},
 						corev1.EnvVar{Name: "env2", Value: "value2"},
 					))

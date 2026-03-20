@@ -24,6 +24,7 @@ const (
 	DeleteWorkflowCompletedFailedReason    = "DeleteWorkflowFailed"
 	PipelinesExecutedSuccessfully          = "PipelinesExecutedSuccessfully"
 	ManualReconciliationLabel              = "kratix.io/manual-reconciliation"
+	WorkflowRestartLabel                   = "kratix.io/workflow-restart"
 	ReconcileResourcesLabel                = "kratix.io/reconcile-resources"
 	promiseAvailableCondition              = clusterv1.ConditionType("PromiseAvailable")
 	promiseRequirementsNotMetReason        = "PromiseRequirementsNotInstalled"
@@ -33,6 +34,7 @@ const (
 	WorksSucceededCondition                = clusterv1.ConditionType("WorksSucceeded")
 	ReconciledCondition                    = clusterv1.ConditionType("Reconciled")
 	pausedReconciliationReason             = "PausedReconciliation"
+	workflowSuspendedReason                = "WorkflowSuspended"
 )
 
 func GetConfigureWorkflowCompletedConditionStatus(obj *unstructured.Unstructured) v1.ConditionStatus {
@@ -141,6 +143,16 @@ func MarkReconciledPaused(obj *unstructured.Unstructured) {
 		Status:             v1.ConditionUnknown,
 		Message:            "Paused",
 		Reason:             pausedReconciliationReason,
+		LastTransitionTime: metav1.NewTime(time.Now()),
+	})
+}
+
+func MarkReconciledSuspended(obj *unstructured.Unstructured) {
+	SetCondition(obj, &clusterv1.Condition{
+		Type:               ReconciledCondition,
+		Status:             v1.ConditionUnknown,
+		Message:            "Suspended",
+		Reason:             workflowSuspendedReason,
 		LastTransitionTime: metav1.NewTime(time.Now()),
 	})
 }
@@ -364,6 +376,10 @@ func MarkCurrentPipelineAs(status string, rr *unstructured.Unstructured, logger 
 	if previousPhase, ok := pipeline["phase"].(string); ok && previousPhase == status {
 		return nil
 	}
+	if previousPhase, ok := pipeline["phase"].(string); ok &&
+		previousPhase == v1alpha1.WorkflowPhaseSuspended && status != v1alpha1.WorkflowPhaseSuspended {
+		delete(pipeline, "message")
+	}
 
 	pipeline["phase"] = status
 	pipeline["lastTransitionTime"] = metav1.Now().Format(time.RFC3339)
@@ -381,7 +397,27 @@ func ResetPipelineStatusToPending(obj *unstructured.Unstructured, pipelines []v1
 		})
 	}
 
+	unstructured.RemoveNestedField(obj.Object, "status", "kratix", "workflows", "suspendedGeneration")
 	return unstructured.SetNestedSlice(obj.Object, workflows, "status", "kratix", "workflows", "pipelines")
+}
+
+func GetSuspendedPipelineIndex(obj *unstructured.Unstructured) (int, error) {
+	workflows, found, err := unstructured.NestedSlice(obj.Object, "status", "kratix", "workflows", "pipelines")
+	if err != nil || !found {
+		return -1, err
+	}
+
+	for i, workflow := range workflows {
+		pipeline, ok := workflow.(map[string]any)
+		if !ok {
+			continue
+		}
+		if pipeline["phase"] == v1alpha1.WorkflowPhaseSuspended {
+			return i, nil
+		}
+	}
+
+	return -1, nil
 }
 
 // GetObservedGeneration returns 0 when either status or status.observedGeneration is nil
@@ -451,10 +487,22 @@ func SetKratixWorkflowsStatus(rr *unstructured.Unstructured, key, value string) 
 	return unstructured.SetNestedField(rr.Object, value, "status", "kratix", "workflows", key)
 }
 
+func SetKratixWorkflowsInt64Status(rr *unstructured.Unstructured, key string, value int64) error {
+	return unstructured.SetNestedField(rr.Object, value, "status", "kratix", "workflows", key)
+}
+
 func GetKratixWorkflowsStatus(rr *unstructured.Unstructured, key string) string {
 	value, found, err := unstructured.NestedString(rr.Object, "status", "kratix", "workflows", key)
 	if err != nil || !found {
 		return ""
+	}
+	return value
+}
+
+func GetKratixWorkflowsInt64Status(rr *unstructured.Unstructured, key string) int64 {
+	value, found, err := unstructured.NestedInt64(rr.Object, "status", "kratix", "workflows", key)
+	if err != nil || !found {
+		return 0
 	}
 	return value
 }

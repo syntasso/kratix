@@ -966,6 +966,109 @@ var _ = Describe("DynamicResourceRequestController", func() {
 		})
 	})
 
+	When("the resource workflow is suspended", func() {
+		BeforeEach(func() {
+			yamlFile, err := os.ReadFile(resourceRequestPath)
+			Expect(err).ToNot(HaveOccurred())
+			resReq = &unstructured.Unstructured{}
+			Expect(yaml.Unmarshal(yamlFile, resReq)).To(Succeed())
+			resReq.SetName("suspended-resource")
+
+			Expect(fakeK8sClient.Create(ctx, resReq)).To(Succeed())
+			Expect(fakeK8sClient.Get(ctx, resReqNameNamespace, resReq)).To(Succeed())
+			resReq.SetFinalizers([]string{
+				"kratix.io/work-cleanup",
+				"kratix.io/workflows-cleanup",
+				"kratix.io/delete-workflows",
+			})
+			resourceLabels := resReq.GetLabels()
+			if resourceLabels == nil {
+				resourceLabels = map[string]string{}
+			}
+			resourceLabels[v1alpha1.PromiseNameLabel] = promise.GetName()
+			resourceLabels[v1alpha1.WorkflowSuspendLabel] = "true"
+			resReq.SetLabels(resourceLabels)
+			Expect(fakeK8sClient.Update(ctx, resReq)).To(Succeed())
+			Expect(fakeK8sClient.Get(ctx, resReqNameNamespace, resReq)).To(Succeed())
+
+			_, err = reconciler.Reconcile(ctx, ctrl.Request{NamespacedName: resReqNameNamespace})
+			Expect(err).NotTo(HaveOccurred())
+
+			Expect(fakeK8sClient.Get(ctx, resReqNameNamespace, resReq)).To(Succeed())
+			workflows, _, err := unstructured.NestedSlice(resReq.Object, "status", "kratix", "workflows", "pipelines")
+			Expect(err).NotTo(HaveOccurred())
+
+			firstPipeline := workflows[0].(map[string]any)
+			firstPipeline["phase"] = v1alpha1.WorkflowPhaseSuspended
+			firstPipeline["message"] = "waiting for approval"
+			workflows[0] = firstPipeline
+
+			Expect(unstructured.SetNestedSlice(resReq.Object, workflows, "status", "kratix", "workflows", "pipelines")).To(Succeed())
+			Expect(resourceutil.SetKratixWorkflowsInt64Status(resReq, "suspendedGeneration", 1)).To(Succeed())
+			Expect(fakeK8sClient.Status().Update(ctx, resReq)).To(Succeed())
+		})
+
+		It("marks the resource request as suspended", func() {
+			result, err := reconciler.Reconcile(ctx, ctrl.Request{NamespacedName: resReqNameNamespace})
+			Expect(err).NotTo(HaveOccurred())
+			Expect(result).To(Equal(ctrl.Result{}))
+
+			By("setting the reconciled condition to suspended", func() {
+				Expect(fakeK8sClient.Get(ctx, resReqNameNamespace, resReq)).To(Succeed())
+				reconciled := resourceutil.GetCondition(resReq, resourceutil.ReconciledCondition)
+				Expect(reconciled).NotTo(BeNil())
+				Expect(reconciled.Status).To(Equal(v1.ConditionUnknown))
+				Expect(reconciled.Reason).To(Equal("WorkflowSuspended"))
+				Expect(reconciled.Message).To(Equal("Suspended"))
+			})
+
+			By("publishing an event", func() {
+				Expect(eventRecorder.Events).To(Receive(ContainSubstring(
+					"Warning WorkflowSuspended 'kratix.io/workflow-suspend' label set to 'true' for resource request; skipping reconciliation",
+				)))
+			})
+		})
+
+		It("removes the suspend label and requests a restart when the reconciliation interval is reached", func() {
+			setConfigureWorkflowStatus(resReq, v1.ConditionTrue, time.Now().Add(-reconciler.ReconciliationInterval).Add(-time.Minute))
+
+			result, err := reconciler.Reconcile(ctx, ctrl.Request{NamespacedName: resReqNameNamespace})
+			Expect(err).NotTo(HaveOccurred())
+			Expect(result).To(Equal(ctrl.Result{}))
+
+			Expect(fakeK8sClient.Get(ctx, resReqNameNamespace, resReq)).To(Succeed())
+			Expect(resReq.GetLabels()[v1alpha1.WorkflowSuspendLabel]).To(BeEmpty())
+			Expect(resReq.GetLabels()[resourceutil.WorkflowRestartLabel]).To(Equal("true"))
+			workflows, found, err := unstructured.NestedSlice(resReq.Object, "status", "kratix", "workflows", "pipelines")
+			Expect(err).NotTo(HaveOccurred())
+			Expect(found).To(BeTrue())
+			Expect(workflows[0]).To(SatisfyAll(
+				HaveKeyWithValue("name", "first-pipeline"),
+				HaveKeyWithValue("phase", v1alpha1.WorkflowPhasePending),
+			))
+		})
+
+		It("removes the suspend label when the resource request spec has changed", func() {
+			resReq.SetGeneration(2)
+			Expect(fakeK8sClient.Update(ctx, resReq)).To(Succeed())
+
+			result, err := reconciler.Reconcile(ctx, ctrl.Request{NamespacedName: resReqNameNamespace})
+			Expect(err).NotTo(HaveOccurred())
+			Expect(result).To(Equal(ctrl.Result{}))
+
+			Expect(fakeK8sClient.Get(ctx, resReqNameNamespace, resReq)).To(Succeed())
+			Expect(resReq.GetLabels()[v1alpha1.WorkflowSuspendLabel]).To(BeEmpty())
+			Expect(resReq.GetLabels()[resourceutil.WorkflowRestartLabel]).To(Equal("true"))
+			workflows, found, err := unstructured.NestedSlice(resReq.Object, "status", "kratix", "workflows", "pipelines")
+			Expect(err).NotTo(HaveOccurred())
+			Expect(found).To(BeTrue())
+			Expect(workflows[0]).To(SatisfyAll(
+				HaveKeyWithValue("name", "first-pipeline"),
+				HaveKeyWithValue("phase", v1alpha1.WorkflowPhasePending),
+			))
+		})
+	})
+
 	When("promise upgrade feature is on", func() {
 		BeforeEach(func() {
 			Expect(fakeK8sClient.Delete(ctx, resReq)).To(Succeed())

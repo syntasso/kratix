@@ -1,0 +1,7 @@
+apiVersion: v1
+kind: ConfigMap
+metadata:
+  name: workflow-suspend-test
+  namespace: default
+data:
+  value: ready

@@ -99,6 +99,7 @@ const (
 	requirementUnknownInstallationState            = "Requirement state unknown"
 	pauseReconciliationLabel                       = v1alpha1.KratixPrefix + "paused"
 	pausedReconciliationReason                     = "PausedReconciliation"
+	workflowSuspendedReason                        = "WorkflowSuspended"
 )
 
 var (
@@ -402,26 +403,64 @@ func (r *PromiseReconciler) handlePromiseVersion(ctx context.Context, promise *v
 }
 
 func (r *PromiseReconciler) setPausedReconciliationStatusConditions(ctx context.Context, promise *v1alpha1.Promise) error {
+	return r.setPromiseUnavailableStatusConditions(
+		ctx,
+		promise,
+		promiseAvailablePausedStatusCondition(),
+		promiseReconciledPausedCondition(),
+		"Paused",
+	)
+}
+
+func (r *PromiseReconciler) setWorkflowSuspendedStatusCondition(ctx context.Context, promise *v1alpha1.Promise) error {
+	return r.setPromiseUnavailableStatusConditions(
+		ctx,
+		promise,
+		promiseAvailableSuspendedStatusCondition(),
+		promiseReconciledSuspendedCondition(),
+		"Suspended",
+	)
+}
+
+func (r *PromiseReconciler) setPromiseUnavailableStatusConditions(
+	ctx context.Context,
+	promise *v1alpha1.Promise,
+	availableCondition metav1.Condition,
+	reconciledCondition metav1.Condition,
+	expectedReconciledMessage string,
+) error {
 	var updated bool
 	available := promise.GetCondition(v1alpha1.PromiseStatusAvailable)
-	if available == nil || available.Status == "True" {
-		updateConditionOnPromise(promise, promiseAvailablePausedStatusCondition())
+	if available == nil ||
+		available.Status != availableCondition.Status ||
+		available.Reason != availableCondition.Reason ||
+		available.Message != availableCondition.Message {
+		updateConditionOnPromise(promise, availableCondition)
 		promise.Status.Status = v1alpha1.PromiseStatusUnavailable
 		promise.Status.Kratix.Status = v1alpha1.PromiseStatusUnavailable
 		updated = true
 	}
 
-	reconciled := promise.GetCondition("Reconciled")
-	if reconciled == nil || reconciled.Status != "Unknown" || reconciled.Message != "Paused" {
-		updateConditionOnPromise(promise, promiseReconciledPausedCondition())
+	reconciled := promise.GetCondition(string(resourceutil.ReconciledCondition))
+	if reconciled == nil || reconciled.Status != metav1.ConditionUnknown || reconciled.Message != expectedReconciledMessage {
+		updateConditionOnPromise(promise, reconciledCondition)
 		updated = true
 	}
 
-	if updated {
-		return r.Client.Status().Update(ctx, promise)
+	if !updated {
+		return nil
 	}
 
-	return nil
+	return r.Client.Status().Update(ctx, promise)
+}
+
+func resetPromiseWorkflowPipelinesToPending(promise *v1alpha1.Promise) {
+	promise.Status.Kratix.Workflows.SuspendedGeneration = 0
+	for i := range promise.Status.Kratix.Workflows.Pipelines {
+		promise.Status.Kratix.Workflows.Pipelines[i].Phase = v1alpha1.WorkflowPhasePending
+		promise.Status.Kratix.Workflows.Pipelines[i].Message = ""
+		promise.Status.Kratix.Workflows.Pipelines[i].LastTransitionTime = metav1.Now()
+	}
 }
 
 func (r *PromiseReconciler) generateConditions(ctx context.Context, promise *v1alpha1.Promise, numberOfPipelines int64) (bool, error) {
@@ -651,6 +690,16 @@ func promiseAvailablePausedStatusCondition() metav1.Condition {
 	}
 }
 
+func promiseAvailableSuspendedStatusCondition() metav1.Condition {
+	return metav1.Condition{
+		Type:               v1alpha1.PromiseAvailableConditionType,
+		LastTransitionTime: metav1.Time{Time: time.Now()},
+		Status:             metav1.ConditionFalse,
+		Message:            "Suspended",
+		Reason:             workflowSuspendedReason,
+	}
+}
+
 func promiseWorksSucceededStatusCondition() metav1.Condition {
 	return metav1.Condition{
 		Type:               v1alpha1.PromiseWorksSucceededCondition,
@@ -718,6 +767,16 @@ func promiseReconciledPausedCondition() metav1.Condition {
 		Status:             metav1.ConditionUnknown,
 		Message:            "Paused",
 		Reason:             pausedReconciliationReason,
+	}
+}
+
+func promiseReconciledSuspendedCondition() metav1.Condition {
+	return metav1.Condition{
+		Type:               v1alpha1.PromiseReconciledCondition,
+		LastTransitionTime: metav1.Time{Time: time.Now()},
+		Status:             metav1.ConditionUnknown,
+		Message:            "Suspended",
+		Reason:             workflowSuspendedReason,
 	}
 }
 
@@ -898,9 +957,18 @@ func (r *PromiseReconciler) reconcileDependenciesAndPromiseWorkflows(o opts, pro
 	completedCond := promise.GetCondition(string(resourceutil.ConfigureWorkflowCompletedCondition))
 
 	forcePipelineRun := completedCond != nil &&
-		completedCond.Status == "True" &&
+		completedCond.Status == metav1.ConditionTrue &&
 		time.Since(completedCond.LastTransitionTime.Time) > r.ReconciliationInterval &&
-		promise.Labels[resourceutil.ManualReconciliationLabel] != "true"
+		promise.Labels[resourceutil.WorkflowRestartLabel] != "true"
+
+	reconciledCond := promise.GetCondition(string(resourceutil.ReconciledCondition))
+	resumedFromPause := reconciledCond != nil && reconciledCond.Status == metav1.ConditionUnknown && reconciledCond.Reason == pausedReconciliationReason
+	promiseSpecChanged := promise.Status.Kratix.Workflows.SuspendedGeneration != 0 && promise.GetGeneration() > promise.Status.Kratix.Workflows.SuspendedGeneration
+
+	if shouldRequeue, suspendErr := r.reconcileSuspendedWorkflow(o, promise, completedCond,
+		forcePipelineRun, resumedFromPause, promiseSpecChanged); shouldRequeue || suspendErr != nil {
+		return shouldRequeue, suspendErr
+	}
 
 	if forcePipelineRun {
 		logging.Trace(o.logger, "pipeline completed too long ago; forcing reconciliation", "lastTransitionTime", completedCond.LastTransitionTime.String())
@@ -908,8 +976,7 @@ func (r *PromiseReconciler) reconcileDependenciesAndPromiseWorkflows(o opts, pro
 		return true, r.Client.Update(o.ctx, promise)
 	}
 
-	reconciledCond := promise.GetCondition(string(resourceutil.ReconciledCondition))
-	if reconciledCond != nil && reconciledCond.Status == metav1.ConditionUnknown && reconciledCond.Reason == pausedReconciliationReason {
+	if resumedFromPause {
 		logging.Info(o.logger, "Promise unpaused; forcing reconciliation")
 		promise.Labels[resourceutil.ManualReconciliationLabel] = "true"
 		promise.Labels[resourceutil.ReconcileResourcesLabel] = "true"
@@ -935,6 +1002,50 @@ func (r *PromiseReconciler) reconcileDependenciesAndPromiseWorkflows(o opts, pro
 
 	if passiveRequeue {
 		return true, nil
+	}
+
+	return false, nil
+}
+
+func (r *PromiseReconciler) reconcileSuspendedWorkflow(
+	o opts,
+	promise *v1alpha1.Promise,
+	completedCond *metav1.Condition,
+	forcePipelineRun bool,
+	resumedFromPause bool,
+	promiseSpecChanged bool,
+) (bool, error) {
+	isWorkflowSuspended := promise.Labels[v1alpha1.WorkflowSuspendLabel] == "true"
+
+	if isWorkflowSuspended && (forcePipelineRun || promise.Labels[resourceutil.ManualReconciliationLabel] == "true" || resumedFromPause || promiseSpecChanged) {
+		promise.Labels[resourceutil.WorkflowRestartLabel] = "true"
+		if forcePipelineRun {
+			logging.Trace(o.logger, "pipeline completed too long ago while suspended; forcing reconciliation", "lastTransitionTime", completedCond.LastTransitionTime.String())
+		}
+		if resumedFromPause {
+			logging.Info(o.logger, "Promise unpaused while suspended; forcing reconciliation")
+			promise.Labels[resourceutil.ReconcileResourcesLabel] = "true"
+		}
+		if promiseSpecChanged {
+			logging.Info(o.logger, "Promise spec changed while suspended; forcing reconciliation", "generation", promise.GetGeneration(), "observedGeneration", promise.Status.ObservedGeneration)
+		}
+		delete(promise.Labels, v1alpha1.WorkflowSuspendLabel)
+		if err := r.Client.Update(o.ctx, promise); err != nil {
+			return true, err
+		}
+		updatedPromise := &v1alpha1.Promise{}
+		if err := r.Client.Get(o.ctx, client.ObjectKeyFromObject(promise), updatedPromise); err != nil {
+			return true, err
+		}
+		resetPromiseWorkflowPipelinesToPending(updatedPromise)
+		return true, r.Client.Status().Update(o.ctx, updatedPromise)
+	}
+
+	if isWorkflowSuspended {
+		msg := fmt.Sprintf("'%s' label set to 'true' for promise; skipping reconciliation", v1alpha1.WorkflowSuspendLabel)
+		logging.Info(r.Log, msg)
+		r.EventRecorder.Event(promise, v1.EventTypeWarning, workflowSuspendedReason, msg)
+		return true, r.setWorkflowSuspendedStatusCondition(o.ctx, promise)
 	}
 
 	return false, nil
@@ -1770,6 +1881,9 @@ func setStatusFieldsOnCRD(rrCRD *apiextensionsv1.CustomResourceDefinition) {
 												"phase": {
 													Type: "string",
 												},
+												"message": {
+													Type: "string",
+												},
 												"lastTransitionTime": {
 													Type:   "string",
 													Format: "datetime",
@@ -1777,6 +1891,10 @@ func setStatusFieldsOnCRD(rrCRD *apiextensionsv1.CustomResourceDefinition) {
 											},
 										},
 									},
+								},
+								"suspendedGeneration": {
+									Type:   "integer",
+									Format: "int64",
 								},
 							},
 						},
