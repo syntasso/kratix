@@ -224,11 +224,10 @@ func (r *DynamicResourceRequestController) Reconcile(ctx context.Context, req ct
 	logging.Info(logger, "resource contains configure workflow(s); reconciling workflows")
 	completedCond := resourceutil.GetCondition(rr, resourceutil.ConfigureWorkflowCompletedCondition)
 	forcePipelineRun := shouldForcePipelineRun(completedCond, r.ReconciliationInterval) &&
-		rr.GetLabels()[resourceutil.WorkflowRestartLabel] != "true"
-	isWorkflowSuspended := rr.GetLabels()[v1alpha1.WorkflowSuspendLabel] == "true"
+		rr.GetLabels()[resourceutil.WorkflowRunFromStartLabel] != "true"
 
 	if restarted, err := r.restartOnReconciliationInterval(opts.ctx, logger, rr,
-		completedCond, forcePipelineRun, isWorkflowSuspended); restarted || err != nil {
+		completedCond, forcePipelineRun); restarted || err != nil {
 		return ctrl.Result{}, err
 	}
 
@@ -241,8 +240,8 @@ func (r *DynamicResourceRequestController) Reconcile(ctx context.Context, req ct
 		return ctrl.Result{}, err
 	}
 
-	if shouldRequeue, err := r.reconcileSuspendedWorkflow(ctx, logger, rr,
-		pipelineResources, completedCond, forcePipelineRun); shouldRequeue || err != nil {
+	if passiveRequeue, err := r.reconcileSuspendedWorkflow(ctx, logger, rr,
+		pipelineResources); passiveRequeue || err != nil {
 		return ctrl.Result{}, err
 	}
 
@@ -394,18 +393,16 @@ func (r *DynamicResourceRequestController) reconcileSuspendedWorkflow(
 	logger logr.Logger,
 	rr *unstructured.Unstructured,
 	pipelineResources []v1alpha1.PipelineJobResources,
-	completedCond *clusterv1.Condition,
-	forcePipelineRun bool,
 ) (shouldRequeue bool, err error) {
-	isWorkflowSuspended := rr.GetLabels()[v1alpha1.WorkflowSuspendLabel] == "true"
+
+	if notWorkflowSuspended(rr) {
+		return false, nil
+	}
+
 	resourceSpecChanged := resourceutil.GetKratixWorkflowsInt64Status(rr, "suspendedGeneration") != 0 &&
 		rr.GetGeneration() > resourceutil.GetKratixWorkflowsInt64Status(rr, "suspendedGeneration")
 
-	if isWorkflowSuspended && (forcePipelineRun || r.manualReconciliationLabelSet(rr) || resourceSpecChanged) {
-		if forcePipelineRun {
-			logging.Trace(logger, "resource configure pipeline completed too long ago while suspended; forcing reconciliation",
-				"lastTransitionTime", completedCond.LastTransitionTime.String())
-		}
+	if isManualReconcile(rr) || resourceSpecChanged {
 		if resourceSpecChanged {
 			logging.Info(logger, "Resource request spec changed while suspended; forcing reconciliation",
 				"generation", rr.GetGeneration(), "observedGeneration", resourceutil.GetObservedGeneration(rr))
@@ -414,8 +411,8 @@ func (r *DynamicResourceRequestController) reconcileSuspendedWorkflow(
 		if resourceLabels == nil {
 			resourceLabels = map[string]string{}
 		}
-		resourceLabels[resourceutil.WorkflowRestartLabel] = "true"
-		delete(resourceLabels, v1alpha1.WorkflowSuspendLabel)
+		resourceLabels[resourceutil.WorkflowRunFromStartLabel] = "true"
+		delete(resourceLabels, v1alpha1.WorkflowSuspendedLabel)
 		rr.SetLabels(resourceLabels)
 		if err := r.Client.Update(ctx, rr); err != nil {
 			return true, err
@@ -431,14 +428,11 @@ func (r *DynamicResourceRequestController) reconcileSuspendedWorkflow(
 		return true, r.Client.Status().Update(ctx, updatedRR)
 	}
 
-	if isWorkflowSuspended {
-		msg := fmt.Sprintf("'%s' label set to 'true' for resource request; skipping reconciliation", v1alpha1.WorkflowSuspendLabel)
-		logging.Info(logger, msg)
-		r.EventRecorder.Event(rr, v1.EventTypeWarning, workflowSuspendedReason, msg)
-		return true, r.setWorkflowSuspendedStatusCondition(ctx, rr)
-	}
+	msg := fmt.Sprintf("'%s' label set to 'true' for resource request; skipping reconciliation", v1alpha1.WorkflowSuspendedLabel)
+	logging.Info(logger, msg)
+	r.EventRecorder.Event(rr, v1.EventTypeWarning, workflowSuspendedReason, msg)
+	return true, r.setWorkflowSuspendedStatusCondition(ctx, rr)
 
-	return false, nil
 }
 
 func (r *DynamicResourceRequestController) generateResourceStatus(ctx context.Context, logger logr.Logger, rr *unstructured.Unstructured,
@@ -867,17 +861,16 @@ func (r *DynamicResourceRequestController) restartOnReconciliationInterval(
 	logger logr.Logger,
 	rr *unstructured.Unstructured,
 	completedCond *clusterv1.Condition,
-	forcePipelineRun bool,
-	isWorkflowSuspended bool,
-) (bool, error) {
-	if forcePipelineRun && !r.manualReconciliationLabelSet(rr) && !isWorkflowSuspended {
+	forcePipelineRun bool) (bool, error) {
+
+	if forcePipelineRun && notManualReconcile(rr) {
 		logging.Debug(
 			logger,
 			"resource configure pipeline completed too long ago; forcing reconciliation",
 			"lastTransitionTime",
 			completedCond.LastTransitionTime.String(),
 		)
-		if err := r.updateManualReconciliationLabel(ctx, rr); err != nil {
+		if err := r.updateManualReconcileToTrue(ctx, rr); err != nil {
 			return false, err
 		}
 		return true, nil
@@ -885,12 +878,7 @@ func (r *DynamicResourceRequestController) restartOnReconciliationInterval(
 	return false, nil
 }
 
-func (r *DynamicResourceRequestController) manualReconciliationLabelSet(rr *unstructured.Unstructured) bool {
-	resourceLabels := rr.GetLabels()
-	return resourceLabels[resourceutil.ManualReconciliationLabel] == "true"
-}
-
-func (r *DynamicResourceRequestController) updateManualReconciliationLabel(ctx context.Context, rr *unstructured.Unstructured) error {
+func (r *DynamicResourceRequestController) updateManualReconcileToTrue(ctx context.Context, rr *unstructured.Unstructured) error {
 	resourceLabels := rr.GetLabels()
 	resourceLabels[resourceutil.ManualReconciliationLabel] = "true"
 	rr.SetLabels(resourceLabels)
@@ -942,6 +930,22 @@ func (r *DynamicResourceRequestController) fetchResourceBinding(
 	}
 
 	return &bindings.Items[0], nil
+}
+
+func isManualReconcile(rr client.Object) bool {
+	return rr.GetLabels()[resourceutil.ManualReconciliationLabel] == "true"
+}
+
+func notManualReconcile(rr client.Object) bool {
+	return !isManualReconcile(rr)
+}
+
+func isWorkflowSuspended(rr client.Object) bool {
+	return rr.GetLabels()[v1alpha1.WorkflowSuspendedLabel] == "true"
+}
+
+func notWorkflowSuspended(rr client.Object) bool {
+	return !isWorkflowSuspended(rr)
 }
 
 func getPromiseRevisionToUse(ctx context.Context, rr *unstructured.Unstructured, baseLogger logr.Logger, r *DynamicResourceRequestController, promise *v1alpha1.Promise) (*v1alpha1.PromiseRevision, string, error) {

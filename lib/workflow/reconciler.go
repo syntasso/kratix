@@ -205,7 +205,7 @@ func determineWorkflowState(opts Opts) (*workflowState, error) {
 	if err != nil {
 		return nil, err
 	}
-	isWorkflowSuspended := opts.parentObject.GetLabels()[v1alpha1.WorkflowSuspendLabel] == "true"
+	isWorkflowSuspended := opts.parentObject.GetLabels()[v1alpha1.WorkflowSuspendedLabel] == "true"
 	state.resumeFromSuspended = !isWorkflowSuspended && !state.restartFromStart && state.suspendedPipelineIdx >= 0
 
 	if len(allJobs) == 0 {
@@ -355,7 +355,7 @@ func handleCurrentPipelineJob(opts Opts, state *workflowState, pipeline v1alpha1
 
 	if state.resumeFromSuspended {
 		logging.Info(opts.logger, fmt.Sprintf("rerunning suspended pipeline after %q is removed",
-			v1alpha1.WorkflowSuspendLabel), "pipeline", pipeline.Name)
+			v1alpha1.WorkflowSuspendedLabel), "pipeline", pipeline.Name)
 		return createConfigurePipeline(opts, state, pipeline)
 	}
 
@@ -635,7 +635,7 @@ func removeManualReconciliationLabel(opts Opts) error {
 
 func removeWorkflowRestartLabel(opts Opts) error {
 	logging.Debug(opts.logger, "workflow restart label detected; removing it")
-	return removeLabel(opts, resourceutil.WorkflowRestartLabel)
+	return removeLabel(opts, resourceutil.WorkflowRunFromStartLabel)
 }
 
 func removeLabel(opts Opts, labelKey string) error {
@@ -716,7 +716,7 @@ func isManualReconciliation(labels map[string]string) bool {
 }
 
 func isWorkflowRestart(labels map[string]string) bool {
-	return isLabelSetToTrue(labels, resourceutil.WorkflowRestartLabel)
+	return isLabelSetToTrue(labels, resourceutil.WorkflowRunFromStartLabel)
 }
 
 func isLabelSetToTrue(labels map[string]string, labelKey string) bool {
