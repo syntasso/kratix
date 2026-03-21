@@ -1978,7 +1978,16 @@ var _ = Describe("PromiseController", func() {
 						}),
 					})).To(Succeed())
 					Expect(revisionList.Items).To(HaveLen(2))
-					revision := revisionList.Items[1]
+					var revision v1alpha1.PromiseRevision
+					found := false
+					for _, r := range revisionList.Items {
+						if r.Spec.Version == "v1.ALLCAPS" {
+							revision = r
+							found = true
+							break
+						}
+					}
+					Expect(found).To(BeTrue(), "expected to find revision with version v1.ALLCAPS")
 					Expect(revision.GetName()).To(HavePrefix(promise.GetName()))
 					Expect(revision.Spec.Version).To(Equal("v1.ALLCAPS"))
 					Expect(revision.Spec.PromiseSpec).To(Equal(promise.Spec))
