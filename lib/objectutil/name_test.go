@@ -75,5 +75,14 @@ var _ = Describe("Name Utils", func() {
 				Expect(name).To(Equal("kratix-promise-1-" + string(hashed_name[0:5])))
 			})
 		})
+
+		When("hashing inputs are provided", func() {
+			It("is appended with the hash of the inputs", func() {
+				resource_name := "a-short-name"
+				hashed_name := hash.ComputeHash("input1-input2")
+				name := objectutil.GenerateDeterministicObjectName(resource_name, "input1", "input2")
+				Expect(name).To(Equal(resource_name + "-" + string(hashed_name[0:5])))
+			})
+		})
 	})
 })

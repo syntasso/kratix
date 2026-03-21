@@ -375,11 +375,7 @@ func (r *PromiseReconciler) handlePromiseVersion(ctx context.Context, promise *v
 		promiseVersion = "not-set"
 	}
 
-	revision := &v1alpha1.PromiseRevision{
-		ObjectMeta: metav1.ObjectMeta{
-			Name: fmt.Sprintf("%s-%s", promise.GetName(), promiseVersion),
-		},
-	}
+	revision := v1alpha1.NewPromiseRevision(promise, promiseVersion)
 
 	op, err := controllerutil.CreateOrUpdate(ctx, r.Client, revision, func() error {
 		revision.Spec.PromiseRef = v1alpha1.PromiseRef{Name: promise.Name}
