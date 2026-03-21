@@ -17,6 +17,7 @@ limitations under the License.
 package v1alpha1
 
 import (
+	"github.com/syntasso/kratix/lib/objectutil"
 	metav1 "k8s.io/apimachinery/pkg/apis/meta/v1"
 )
 
@@ -47,6 +48,8 @@ type PromiseRevisionStatus struct {
 // +kubebuilder:object:root=true
 // +kubebuilder:resource:scope=Cluster,path=promiserevisions,categories=kratix
 // +kubebuilder:subresource:status
+// +kubebuilder:printcolumn:name="Promise",type=string,JSONPath=`.spec.promiseRef.name`,description="The name of the Promise this revision is based on."
+// +kubebuilder:printcolumn:name="Version",type=string,JSONPath=`.spec.version`,description="The version of the Promise this revision is based on."
 // +kubebuilder:printcolumn:name="Latest",type=boolean,JSONPath=`.status.latest`,description="Indicates if this PromiseRevision is the latest."
 
 // PromiseRevision is the Schema for the promiserevisions API
@@ -81,4 +84,20 @@ func init() {
 
 func (pr *PromiseRevision) GetPromiseName() string {
 	return pr.Spec.PromiseRef.Name
+}
+
+func NewPromiseRevision(promise *Promise, version string) *PromiseRevision {
+	return &PromiseRevision{
+		ObjectMeta: metav1.ObjectMeta{
+			Name:   objectutil.GenerateDeterministicObjectName(promise.GetName(), version),
+			Labels: promise.GenerateSharedLabels(),
+		},
+		Spec: PromiseRevisionSpec{
+			PromiseRef: PromiseRef{
+				Name: promise.GetName(),
+			},
+			PromiseSpec: promise.Spec,
+			Version:     version,
+		},
+	}
 }

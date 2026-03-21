@@ -3,6 +3,7 @@ package system_test
 import (
 	"encoding/json"
 	"fmt"
+	"path/filepath"
 	"strings"
 	"time"
 
@@ -11,7 +12,10 @@ import (
 	"github.com/syntasso/kratix/test/kubeutils"
 )
 
-var _ = Describe("Upgrade", func() {
+var _ = Describe("Promise Revisions", func() {
+
+	const assetsPath = "assets/promise-revision"
+
 	promiseName := "upgrade"
 	rrOneName := "upgrade-rr-one"
 	rrTwoName := "upgrade-rr-two"
@@ -31,21 +35,21 @@ var _ = Describe("Upgrade", func() {
 		platform.EventuallyKubectlDelete("promise", promiseName)
 	})
 
-	It("works", func() {
+	It("is used to manage the lifecycle of resources", func() {
 		if getEnvOrDefault("UPGRADE_ENABLED", "false") != "true" {
 			Skip("skipping upgrade test suite because UPGRADE_ENABLED is not set to true")
 		}
 
-		initialPromiseVersion := "v0.1.0"
-		updatedPromiseVersion := "v0.2.0"
+		initialPromiseVersion := "v0.1.0-BETA"
+		updatedPromiseVersion := "v0.2.0-NEXTVERSION"
 
 		rrOneBeforeUpgradeCMName := "before-upgrade-banana"
 		rrOneAfterUpgradeCMName := "after-upgrade-banana"
 		rrTwoBeforeUpgradeCMName := "before-upgrade-apple"
 		rrTwoAfterUpgradeCMName := "after-upgrade-apple"
 
-		By("creating a promise revision at promise installation", func() {
-			platform.Kubectl("apply", "-f", "assets/upgrades/promise.yaml")
+		By("creating a promise revision on promise installation time", func() {
+			platform.Kubectl("apply", "-f", filepath.Join(assetsPath, "promise.yaml"))
 			Eventually(func() string {
 				return platform.Kubectl("get", "promise", promiseName)
 			}).Should(SatisfyAll(
@@ -54,29 +58,32 @@ var _ = Describe("Upgrade", func() {
 
 			Eventually(func() string {
 				return platform.KubectlAllowFail("get", "promiserevisions",
-					fmt.Sprintf("%s-%s", promiseName, initialPromiseVersion),
-					"-o=jsonpath='{.status.latest}'")
-			}).Should(ContainSubstring("true"))
+					"-l", fmt.Sprintf("kratix.io/promise-name=%s,kratix.io/latest-revision=true", promiseName),
+				)
+			}).Should(SatisfyAll(
+				ContainSubstring("NAME"), ContainSubstring(promiseName),
+				ContainSubstring("PROMISE"), ContainSubstring(promiseName),
+				ContainSubstring("VERSION"), ContainSubstring(initialPromiseVersion),
+				ContainSubstring("LATEST"), ContainSubstring("true"),
+			))
 		})
 
 		By("creating two resources", func() {
-			platform.Kubectl("apply", "-f", "assets/upgrades/resource-request.yaml")
+			platform.Kubectl("apply", "-f", filepath.Join(assetsPath, "resource-request.yaml"))
 			Eventually(func() string {
 				return platform.Kubectl("get", "upgrades", rrOneName)
 			}).Should(ContainSubstring("Reconciled"))
 
-			platform.Kubectl("apply", "-f", "assets/upgrades/resource-request-2.yaml")
+			platform.Kubectl("apply", "-f", filepath.Join(assetsPath, "resource-request-2.yaml"))
 			Eventually(func() string {
 				return platform.Kubectl("get", "upgrades", rrTwoName)
 			}).Should(ContainSubstring("Reconciled"))
-
 		})
 
 		By("creating a resource binding when making a request", func() {
 			for _, resourceName := range []string{rrOneName, rrTwoName} {
 				Eventually(func(g Gomega) {
 					name := getBindingName(promiseName, resourceName)
-					g.Expect(name).To(ContainSubstring(fmt.Sprintf("%s-%s", resourceName, promiseName)))
 					g.Expect(platform.Kubectl("get", "--namespace=default", name, "-o=jsonpath='{.spec.version}'")).To(ContainSubstring("latest"))
 				}).Should(Succeed())
 			}
@@ -89,7 +96,7 @@ var _ = Describe("Upgrade", func() {
 				{
 					"op":    "replace",
 					"path":  "/spec/version",
-					"value": "v0.1.0",
+					"value": initialPromiseVersion,
 				},
 			}
 
@@ -113,18 +120,32 @@ var _ = Describe("Upgrade", func() {
 		})
 
 		By("creating a new promise revision when a new promise version is installed", func() {
-			platform.Kubectl("apply", "-f", "assets/upgrades/promise-new-version.yaml")
+			platform.Kubectl("apply", "-f", filepath.Join(assetsPath, "promise-new-version.yaml"))
 			Eventually(func() string {
 				return platform.Kubectl("get", "promise", promiseName)
 			}).Should(SatisfyAll(
 				ContainSubstring("Available"),
 				ContainSubstring(updatedPromiseVersion)))
+		})
+
+		By("moving the latest revision label to the new promise version", func() {
+			Eventually(func() string {
+				return platform.Kubectl("get", "promiserevisions",
+					"-l", fmt.Sprintf("kratix.io/promise-name=%s,kratix.io/latest-revision!=true", promiseName),
+				)
+			}).Should(SatisfyAll(
+				ContainSubstring(initialPromiseVersion),
+				Not(ContainSubstring(updatedPromiseVersion)),
+			))
 
 			Eventually(func() string {
-				return platform.Kubectl("get", "promiserevisions")
+				return platform.Kubectl("get", "promiserevisions",
+					"-l", fmt.Sprintf("kratix.io/promise-name=%s,kratix.io/latest-revision=true", promiseName),
+				)
 			}).Should(SatisfyAll(
-				ContainSubstring(fmt.Sprintf("%s-%s", promiseName, initialPromiseVersion)),
-				ContainSubstring(fmt.Sprintf("%s-%s", promiseName, updatedPromiseVersion))))
+				ContainSubstring(updatedPromiseVersion),
+				Not(ContainSubstring(initialPromiseVersion)),
+			))
 		})
 
 		By("updating the resource request pinned to latest", func() {
@@ -147,14 +168,14 @@ var _ = Describe("Upgrade", func() {
 			}, time.Second*5).Should(ContainSubstring(rrTwoBeforeUpgradeCMName))
 		})
 
-		By("updating the v0.1.0 resource binding to v0.2.0", func() {
+		By("updating the resource binding to the new promise version", func() {
 			bindingName := getBindingName(promiseName, rrTwoName)
 
 			patch := []map[string]any{
 				{
 					"op":    "replace",
 					"path":  "/spec/version",
-					"value": "v0.2.0",
+					"value": updatedPromiseVersion,
 				},
 			}
 
@@ -166,7 +187,7 @@ var _ = Describe("Upgrade", func() {
 			}).Should(ContainSubstring(updatedPromiseVersion))
 		})
 
-		By("upgrading the resource to v0.2.0", func() {
+		By("upgrading the resource to the new promise version", func() {
 			Eventually(func() string {
 				return worker.Kubectl("get", "configmap")
 			}).Should(SatisfyAll(
@@ -182,7 +203,7 @@ var _ = Describe("Upgrade", func() {
 				resourceTwoBindingName := getBindingName(promiseName, rrTwoName)
 
 				g.Expect(platform.Kubectl("get", "--namespace=default", resourceOneBindingName, "-o=jsonpath='{.spec.version}'")).To(ContainSubstring("latest"))
-				g.Expect(platform.Kubectl("get", "--namespace=default", resourceTwoBindingName, "-o=jsonpath='{.spec.version}'")).To(ContainSubstring("v0.2.0"))
+				g.Expect(platform.Kubectl("get", "--namespace=default", resourceTwoBindingName, "-o=jsonpath='{.spec.version}'")).To(ContainSubstring(updatedPromiseVersion))
 			}).Should(Succeed())
 		})
 

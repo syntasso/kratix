@@ -17,6 +17,14 @@ spec:
   scope: Cluster
   versions:
   - additionalPrinterColumns:
+    - description: The name of the Promise this revision is based on.
+      jsonPath: .spec.promiseRef.name
+      name: Promise
+      type: string
+    - description: The version of the Promise this revision is based on.
+      jsonPath: .spec.version
+      name: Version
+      type: string
     - description: Indicates if this PromiseRevision is the latest.
       jsonPath: .status.latest
       name: Latest
