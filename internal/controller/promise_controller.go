@@ -955,7 +955,7 @@ func (r *PromiseReconciler) reconcileDependenciesAndPromiseWorkflows(o opts, pro
 	forcePipelineRun := completedCond != nil &&
 		completedCond.Status == metav1.ConditionTrue &&
 		time.Since(completedCond.LastTransitionTime.Time) > r.ReconciliationInterval &&
-		promise.Labels[resourceutil.WorkflowRestartLabel] != "true"
+		promise.Labels[resourceutil.WorkflowRunFromStartLabel] != "true"
 
 	reconciledCond := promise.GetCondition(string(resourceutil.ReconciledCondition))
 	resumedFromPause := reconciledCond != nil && reconciledCond.Status == metav1.ConditionUnknown && reconciledCond.Reason == pausedReconciliationReason
@@ -1011,10 +1011,13 @@ func (r *PromiseReconciler) reconcileSuspendedWorkflow(
 	resumedFromPause bool,
 	promiseSpecChanged bool,
 ) (bool, error) {
-	isWorkflowSuspended := promise.Labels[v1alpha1.WorkflowSuspendLabel] == "true"
 
-	if isWorkflowSuspended && (forcePipelineRun || promise.Labels[resourceutil.ManualReconciliationLabel] == "true" || resumedFromPause || promiseSpecChanged) {
-		promise.Labels[resourceutil.WorkflowRestartLabel] = "true"
+	if notWorkflowSuspended(promise) {
+		return false, nil
+	}
+
+	if forcePipelineRun || isManualReconcile(promise) || resumedFromPause || promiseSpecChanged {
+		promise.Labels[resourceutil.WorkflowRunFromStartLabel] = "true"
 		if forcePipelineRun {
 			logging.Trace(o.logger, "pipeline completed too long ago while suspended; forcing reconciliation", "lastTransitionTime", completedCond.LastTransitionTime.String())
 		}
@@ -1025,7 +1028,7 @@ func (r *PromiseReconciler) reconcileSuspendedWorkflow(
 		if promiseSpecChanged {
 			logging.Info(o.logger, "Promise spec changed while suspended; forcing reconciliation", "generation", promise.GetGeneration(), "observedGeneration", promise.Status.ObservedGeneration)
 		}
-		delete(promise.Labels, v1alpha1.WorkflowSuspendLabel)
+		delete(promise.Labels, v1alpha1.WorkflowSuspendedLabel)
 		if err := r.Client.Update(o.ctx, promise); err != nil {
 			return true, err
 		}
@@ -1037,14 +1040,10 @@ func (r *PromiseReconciler) reconcileSuspendedWorkflow(
 		return true, r.Client.Status().Update(o.ctx, updatedPromise)
 	}
 
-	if isWorkflowSuspended {
-		msg := fmt.Sprintf("'%s' label set to 'true' for promise; skipping reconciliation", v1alpha1.WorkflowSuspendLabel)
-		logging.Info(r.Log, msg)
-		r.EventRecorder.Event(promise, v1.EventTypeWarning, workflowSuspendedReason, msg)
-		return true, r.setWorkflowSuspendedStatusCondition(o.ctx, promise)
-	}
-
-	return false, nil
+	msg := fmt.Sprintf("'%s' label set to 'true' for promise; skipping reconciliation", v1alpha1.WorkflowSuspendedLabel)
+	logging.Info(r.Log, msg)
+	r.EventRecorder.Event(promise, v1.EventTypeWarning, workflowSuspendedReason, msg)
+	return true, r.setWorkflowSuspendedStatusCondition(o.ctx, promise)
 }
 
 // Eithers its not set, or its changed, either number of pipelines has changed, or names have changed

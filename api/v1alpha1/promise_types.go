@@ -47,7 +47,7 @@ const (
 	PromiseAvailableConditionFalseReason = "PromiseUnavailable"
 	PromiseWorksSucceededCondition       = "WorksSucceeded"
 	PromiseReconciledCondition           = "Reconciled"
-	WorkflowSuspendLabel                 = KratixPrefix + "workflow-suspend"
+	WorkflowSuspendedLabel               = KratixPrefix + "workflow-suspended"
 	// MaxResourceNameLength is the maximum length of a resource name
 	MaxResourceNameLength int64 = 63
 )

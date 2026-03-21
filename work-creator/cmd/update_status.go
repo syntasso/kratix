@@ -137,7 +137,7 @@ func addWorkflowSuspendLabel(ctx context.Context, objectClient dynamic.ResourceI
 	if !ok {
 		labels = map[string]any{}
 	}
-	labels[v1alpha1.WorkflowSuspendLabel] = "true"
+	labels[v1alpha1.WorkflowSuspendedLabel] = "true"
 	metadata["labels"] = labels
 	existingObj.Object["metadata"] = metadata
 
@@ -148,7 +148,7 @@ func addWorkflowSuspendLabel(ctx context.Context, objectClient dynamic.ResourceI
 
 	fmt.Fprintf(
 		os.Stdout,
-		"Info: labelled the object with %q label to 'true'.\n ", v1alpha1.WorkflowSuspendLabel)
+		"Info: labelled the object with %q label to 'true'.\n ", v1alpha1.WorkflowSuspendedLabel)
 	return updatedObj, nil
 }
 
