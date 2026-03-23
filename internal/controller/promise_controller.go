@@ -952,30 +952,26 @@ func (r *PromiseReconciler) reconcileDependenciesAndPromiseWorkflows(o opts, pro
 
 	completedCond := promise.GetCondition(string(resourceutil.ConfigureWorkflowCompletedCondition))
 
-	forcePipelineRun := completedCond != nil &&
-		completedCond.Status == metav1.ConditionTrue &&
-		time.Since(completedCond.LastTransitionTime.Time) > r.ReconciliationInterval &&
+	forcePipelineRun := passedReconciliationInterval(completedCond, r.ReconciliationInterval) &&
 		promise.Labels[resourceutil.WorkflowRunFromStartLabel] != "true"
 
 	reconciledCond := promise.GetCondition(string(resourceutil.ReconciledCondition))
 	resumedFromPause := reconciledCond != nil && reconciledCond.Status == metav1.ConditionUnknown && reconciledCond.Reason == pausedReconciliationReason
 	promiseSpecChanged := promise.Status.Kratix.Workflows.SuspendedGeneration != 0 && promise.GetGeneration() > promise.Status.Kratix.Workflows.SuspendedGeneration
 
-	if shouldRequeue, suspendErr := r.reconcileSuspendedWorkflow(o, promise, completedCond,
-		forcePipelineRun, resumedFromPause, promiseSpecChanged); shouldRequeue || suspendErr != nil {
-		return shouldRequeue, suspendErr
-	}
-
-	if forcePipelineRun {
-		logging.Trace(o.logger, "pipeline completed too long ago; forcing reconciliation", "lastTransitionTime", completedCond.LastTransitionTime.String())
-		promise.Labels[resourceutil.ManualReconciliationLabel] = "true"
-		return true, r.Client.Update(o.ctx, promise)
+	if restarted, err := r.restartOnReconciliationInterval(o.ctx, o.logger, promise, completedCond, forcePipelineRun); restarted || err != nil {
+		return restarted, err
 	}
 
 	if resumedFromPause {
 		logging.Info(o.logger, "Promise unpaused; forcing reconciliation")
 		promise.Labels[resourceutil.ManualReconciliationLabel] = "true"
 		promise.Labels[resourceutil.ReconcileResourcesLabel] = "true"
+	}
+
+	if shouldRequeue, suspendErr := r.reconcileSuspendedWorkflow(o, promise,
+		promiseSpecChanged); shouldRequeue || suspendErr != nil {
+		return shouldRequeue, suspendErr
 	}
 
 	pipelineResources, err := promise.GeneratePromisePipelines(v1alpha1.WorkflowActionConfigure, o.logger)
@@ -1006,9 +1002,6 @@ func (r *PromiseReconciler) reconcileDependenciesAndPromiseWorkflows(o opts, pro
 func (r *PromiseReconciler) reconcileSuspendedWorkflow(
 	o opts,
 	promise *v1alpha1.Promise,
-	completedCond *metav1.Condition,
-	forcePipelineRun bool,
-	resumedFromPause bool,
 	promiseSpecChanged bool,
 ) (bool, error) {
 
@@ -1016,15 +1009,8 @@ func (r *PromiseReconciler) reconcileSuspendedWorkflow(
 		return false, nil
 	}
 
-	if forcePipelineRun || isManualReconcile(promise) || resumedFromPause || promiseSpecChanged {
+	if isManualReconcile(promise) || promiseSpecChanged {
 		promise.Labels[resourceutil.WorkflowRunFromStartLabel] = "true"
-		if forcePipelineRun {
-			logging.Trace(o.logger, "pipeline completed too long ago while suspended; forcing reconciliation", "lastTransitionTime", completedCond.LastTransitionTime.String())
-		}
-		if resumedFromPause {
-			logging.Info(o.logger, "Promise unpaused while suspended; forcing reconciliation")
-			promise.Labels[resourceutil.ReconcileResourcesLabel] = "true"
-		}
 		if promiseSpecChanged {
 			logging.Info(o.logger, "Promise spec changed while suspended; forcing reconciliation", "generation", promise.GetGeneration(), "observedGeneration", promise.Status.ObservedGeneration)
 		}
@@ -2028,4 +2014,26 @@ func addPromiseSpanAttributes(traceCtx *reconcileTrace, promise *v1alpha1.Promis
 		attribute.Int64("kratix.promise.generation", promise.GetGeneration()),
 		attribute.String("kratix.action", traceCtx.Action()),
 	)
+}
+
+func passedReconciliationInterval(completedCond *metav1.Condition, reconciliationInterval time.Duration) bool {
+	return completedCond != nil &&
+		completedCond.Status == metav1.ConditionTrue &&
+		time.Since(completedCond.LastTransitionTime.Time) > reconciliationInterval
+}
+
+func (r *PromiseReconciler) restartOnReconciliationInterval(
+	ctx context.Context,
+	logger logr.Logger,
+	promise *v1alpha1.Promise,
+	completedCond *metav1.Condition,
+	forcePipelineRun bool,
+) (bool, error) {
+	if forcePipelineRun && !isManualReconcile(promise) {
+		logging.Trace(logger, "pipeline completed too long ago; forcing reconciliation", "lastTransitionTime", completedCond.LastTransitionTime.String())
+		promise.Labels[resourceutil.ManualReconciliationLabel] = "true"
+		return true, r.Client.Update(ctx, promise)
+	}
+
+	return false, nil
 }
