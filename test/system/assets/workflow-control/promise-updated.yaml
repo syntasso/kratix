@@ -91,6 +91,15 @@ spec:
                 args:
                   - |
                     set -eu
+                    cat <<'EOF' > /kratix/output/resource-configmap.yaml
+                    apiVersion: v1
+                    kind: ConfigMap
+                    metadata:
+                      name: workflow-suspend-generated
+                      namespace: default
+                    data:
+                      source: suspended-resource-pipeline
+                    EOF
                     if kubectl get configmap workflow-suspend-test -n default >/dev/null 2>&1; then
                       echo "configmap exists; not suspending"
                       exit 0

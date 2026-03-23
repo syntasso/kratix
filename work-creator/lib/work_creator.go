@@ -99,6 +99,18 @@ func (w *WorkCreator) Execute(rootDirectory, promiseName, namespace, resourceNam
 		return err
 	}
 
+	workflowControl, err := ReadWorkflowControlFile(filepath.Join(rootDirectory, "metadata", "workflow-control.yaml"))
+	if err != nil {
+		return err
+	}
+	if workflowControl.IfSuspendOrRetry() {
+		logger.Info("workflow control requested suspension or retry; skipping Work creation or update",
+			"suspend", workflowControl.Suspend,
+			"retryAfter", workflowControl.RetryAfter,
+		)
+		return nil
+	}
+
 	var workloadGroups []v1alpha1.WorkloadGroup
 	var directoriesToIgnoreForTheBaseScheduling []string
 	var defaultDestinationSelectors map[string]string

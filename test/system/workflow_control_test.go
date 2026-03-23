@@ -140,6 +140,10 @@ var _ = Describe("Workflow Control", Ordered, func() {
 					g.Expect(platform.Kubectl("get", suspendCRDPlural, suspendResourceName, messageJSONPath("resource-pipe-0"))).To(Equal("waiting for configmap"))
 					g.Expect(platform.Kubectl("get", suspendCRDPlural, suspendResourceName, `-o=jsonpath={.metadata.labels.kratix\.io/workflow-suspended}`)).To(Equal("true"))
 				}).Should(Succeed())
+
+				Consistently(func() int {
+					return workCountForResourcePipeline()
+				}, 5*time.Second).Should(Equal(0))
 			})
 
 			By("unsuspending the pipeline through the label", func() {
@@ -151,7 +155,6 @@ var _ = Describe("Workflow Control", Ordered, func() {
 				Eventually(func() int {
 					return jobCountForWorkflow("resource", "resource-pipe-0")
 				}).Should(Equal(resourceJobCountBefore + 1))
-
 				Eventually(func(g Gomega) {
 					g.Expect(platform.Kubectl("get", suspendCRDPlural, suspendResourceName, phaseJSONPath("resource-pipe-0"))).To(Equal("Succeeded"))
 					g.Expect(platform.Kubectl("get", suspendCRDPlural, suspendResourceName, messageJSONPath("resource-pipe-0"))).To(BeEmpty())
@@ -159,6 +162,10 @@ var _ = Describe("Workflow Control", Ordered, func() {
 					g.Expect(platform.Kubectl("get", suspendCRDPlural, suspendResourceName, `-o=jsonpath={.status.kratix.workflows.suspendedGeneration}`)).To(BeEmpty())
 					g.Expect(platform.Kubectl("get", suspendCRDPlural, suspendResourceName, `-o=jsonpath={.metadata.labels.kratix\.io/workflow-suspended}`)).To(BeEmpty())
 				}).Should(Succeed())
+
+				Eventually(func() int {
+					return workCountForResourcePipeline()
+				}).Should(Equal(1))
 			})
 		})
 	})
@@ -191,6 +198,24 @@ func jobCountForWorkflow(workflowType, pipelineName string) int {
 	output := platform.Kubectl(
 		"get", "jobs",
 		"-n", ns,
+		"-l", selector,
+		"-o=go-template={{len .items}}",
+	)
+	count, err := strconv.Atoi(strings.TrimSpace(output))
+	ExpectWithOffset(1, err).NotTo(HaveOccurred())
+	return count
+}
+
+func workCountForResourcePipeline() int {
+	selector := strings.Join([]string{
+		"kratix.io/promise-name=" + suspendPromiseName,
+		"kratix.io/work-type=resource",
+		"kratix.io/resource-name=" + suspendResourceName,
+		"kratix.io/pipeline-name=resource-pipe-0",
+	}, ",")
+	output := platform.Kubectl(
+		"get", "works",
+		"-n", "default",
 		"-l", selector,
 		"-o=go-template={{len .items}}",
 	)
