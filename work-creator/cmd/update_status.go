@@ -52,7 +52,6 @@ func runUpdateStatus(ctx context.Context) error {
 
 func updateStatus(ctx context.Context, baseDir string, params *helpers.Parameters, objectClient dynamic.ResourceInterface) error {
 	statusFile := filepath.Join(baseDir, "status.yaml")
-	controlFile := filepath.Join(baseDir, "workflow-control.yaml")
 
 	existingObj, err := objectClient.Get(ctx, params.ObjectName, metav1.GetOptions{})
 	if err != nil {
@@ -91,41 +90,10 @@ func updateStatus(ctx context.Context, baseDir string, params *helpers.Parameter
 		mergedStatus = lib.MarkAsCompleted(mergedStatus, params.WorkflowType)
 	}
 
-	if params.WorkflowType == v1alpha1.WorkflowTypePromise || params.WorkflowType == v1alpha1.WorkflowTypeResource {
-		control, err := lib.ReadWorkflowControlFile(controlFile)
-		if err != nil {
-			return err
-		}
-
-		if control.IsSuspend() {
-			fmt.Fprintln(
-				os.Stdout,
-				"Info: workflow-control.yaml file found with suspend set to true; will label the object and update its pipeline execution status.")
-			existingObj, err = addWorkflowSuspendLabel(ctx, objectClient, existingObj)
-			if err != nil {
-				return err
-			}
-
-			if control != nil && control.Suspend {
-				fmt.Fprintln(
-					os.Stdout,
-					"Info: workflow-control.yaml file found with suspend set to true; will label the object and update its pipeline execution status.")
-				existingObj, err = addWorkflowSuspendLabel(ctx, objectClient, existingObj)
-				if err != nil {
-					return err
-				}
-
-				mergedStatus, err = lib.MarkPipelineAsSuspended(mergedStatus, params.PipelineName, control.Message, existingObj.GetGeneration())
-				if err != nil {
-					return err
-				}
-			} else {
-				mergedStatus, err = lib.ClearPipelineSuspension(mergedStatus, params.PipelineName)
-				if err != nil {
-					return err
-				}
-			}
-		}
+	existingObj, mergedStatus, err = handleWorkflowControlFile(ctx, params,
+		filepath.Join(baseDir, "workflow-control.yaml"), existingObj, objectClient, mergedStatus)
+	if err != nil {
+		return err
 	}
 
 	// Apply merged status to the existing object
@@ -136,6 +104,51 @@ func updateStatus(ctx context.Context, baseDir string, params *helpers.Parameter
 		return fmt.Errorf("failed to update status: %w", err)
 	}
 	return nil
+}
+
+func handleWorkflowControlFile(ctx context.Context, params *helpers.Parameters, controlFile string,
+	existingObj *unstructured.Unstructured, objectClient dynamic.ResourceInterface,
+	mergedStatus map[string]any) (*unstructured.Unstructured, map[string]any, error) {
+	if params.WorkflowType != v1alpha1.WorkflowTypePromise && params.WorkflowType != v1alpha1.WorkflowTypeResource {
+		return existingObj, mergedStatus, nil
+	}
+
+	control, err := lib.ReadWorkflowControlFile(controlFile)
+	if err != nil {
+		return nil, nil, err
+	}
+
+	if control.IsSuspend() {
+		fmt.Fprintln(
+			os.Stdout,
+			"Info: workflow-control.yaml file found with suspend set to true; will label the object and update its pipeline execution status.")
+		existingObj, err = addWorkflowSuspendLabel(ctx, objectClient, existingObj)
+		if err != nil {
+			return nil, nil, err
+		}
+
+		if control != nil && control.Suspend {
+			fmt.Fprintln(
+				os.Stdout,
+				"Info: workflow-control.yaml file found with suspend set to true; will label the object and update its pipeline execution status.")
+			existingObj, err = addWorkflowSuspendLabel(ctx, objectClient, existingObj)
+			if err != nil {
+				return nil, nil, err
+			}
+
+			mergedStatus, err = lib.MarkPipelineAsSuspended(mergedStatus, params.PipelineName, control.Message, existingObj.GetGeneration())
+			if err != nil {
+				return nil, nil, err
+			}
+		} else {
+			mergedStatus, err = lib.ClearPipelineSuspension(mergedStatus, params.PipelineName)
+			if err != nil {
+				return nil, nil, err
+			}
+		}
+	}
+
+	return existingObj, mergedStatus, nil
 }
 
 func addWorkflowSuspendLabel(ctx context.Context, objectClient dynamic.ResourceInterface, existingObj *unstructured.Unstructured) (*unstructured.Unstructured, error) {
