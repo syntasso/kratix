@@ -39,6 +39,7 @@ import (
 
 	"github.com/syntasso/kratix/api/v1alpha1"
 	"github.com/syntasso/kratix/lib/compression"
+	"github.com/syntasso/kratix/lib/objectutil"
 	"github.com/syntasso/kratix/lib/resourceutil"
 	"github.com/syntasso/kratix/lib/workflow"
 	clusterv1 "sigs.k8s.io/cluster-api/api/v1beta1"
@@ -1863,7 +1864,11 @@ var _ = Describe("PromiseController", func() {
 
 			BeforeEach(func() {
 				promise = createPromise(promisePath)
-				promise.Labels[v1alpha1.PromiseVersionLabel] = "v1.0.0"
+				version := "v1.0.0"
+
+				revisionName := objectutil.GenerateDeterministicObjectName(promise.GetName(), version)
+
+				promise.Labels[v1alpha1.PromiseVersionLabel] = version
 				Expect(fakeK8sClient.Update(context.TODO(), promise)).To(Succeed())
 
 				result, err := t.reconcileUntilCompletion(reconciler, promise, &opts{
@@ -1872,9 +1877,7 @@ var _ = Describe("PromiseController", func() {
 				Expect(err).NotTo(HaveOccurred())
 				Expect(result).To(Equal(ctrl.Result{RequeueAfter: reconciler.ReconciliationInterval}))
 				revision = &v1alpha1.PromiseRevision{}
-				revisionRef = types.NamespacedName{
-					Name: fmt.Sprintf("%s-v1.0.0", promise.GetName()),
-				}
+				revisionRef = types.NamespacedName{Name: revisionName}
 
 				Expect(fakeK8sClient.Get(ctx, promiseName, promise)).To(Succeed())
 			})
@@ -1953,6 +1956,44 @@ var _ = Describe("PromiseController", func() {
 					Expect(revisionList.Items[1].GetLabels()["kratix.io/latest-revision"]).To(Equal("true"))
 				})
 			})
+
+			When("the Promise Version is not a valid Object Name", func() {
+				BeforeEach(func() {
+					promise.Labels[v1alpha1.PromiseVersionLabel] = "v1.ALLCAPS"
+					Expect(fakeK8sClient.Update(context.TODO(), promise)).To(Succeed())
+					Expect(fakeK8sClient.Get(ctx, promiseName, promise)).To(Succeed())
+
+					result, err := t.reconcileUntilCompletion(reconciler, promise, &opts{
+						funcs: []func(client.Object) error{autoMarkCRDAsEstablished},
+					})
+					Expect(err).NotTo(HaveOccurred())
+					Expect(result).To(Equal(ctrl.Result{RequeueAfter: reconciler.ReconciliationInterval}))
+				})
+
+				It("generates a valid Revision anyways", func() {
+					revisionList := &v1alpha1.PromiseRevisionList{}
+					Expect(fakeK8sClient.List(ctx, revisionList, &client.ListOptions{
+						LabelSelector: labels.SelectorFromSet(map[string]string{
+							"kratix.io/promise-name": promise.GetName(),
+						}),
+					})).To(Succeed())
+					Expect(revisionList.Items).To(HaveLen(2))
+					var revision v1alpha1.PromiseRevision
+					found := false
+					for _, r := range revisionList.Items {
+						if r.Spec.Version == "v1.ALLCAPS" {
+							revision = r
+							found = true
+							break
+						}
+					}
+					Expect(found).To(BeTrue(), "expected to find revision with version v1.ALLCAPS")
+					Expect(revision.GetName()).To(HavePrefix(promise.GetName()))
+					Expect(revision.Spec.Version).To(Equal("v1.ALLCAPS"))
+					Expect(revision.Spec.PromiseSpec).To(Equal(promise.Spec))
+					Expect(revision.Spec.PromiseRef.Name).To(Equal(promise.GetName()))
+				})
+			})
 		})
 
 		When("the Promise does not have a version label", func() {
@@ -1984,22 +2025,7 @@ var _ = Describe("PromiseController", func() {
 
 				promiseVersion := promise.GetLabels()[v1alpha1.PromiseVersionLabel]
 
-				revision := &v1alpha1.PromiseRevision{
-					TypeMeta: metav1.TypeMeta{
-						Kind:       "PromiseRevision",
-						APIVersion: "platform.kratix.io/v1alpha1",
-					},
-					ObjectMeta: metav1.ObjectMeta{
-						Labels: promise.GenerateSharedLabels(),
-						Name:   fmt.Sprintf("%s-%s", promise.GetName(), promiseVersion),
-					},
-					Spec: v1alpha1.PromiseRevisionSpec{
-						Version: promiseVersion,
-						PromiseRef: v1alpha1.PromiseRef{
-							Name: promise.GetName(),
-						},
-					},
-				}
+				revision := v1alpha1.NewPromiseRevision(promise, promiseVersion)
 				Expect(fakeK8sClient.Create(ctx, revision)).To(Succeed())
 
 				result, err := t.reconcileUntilCompletion(reconciler, promise, &opts{

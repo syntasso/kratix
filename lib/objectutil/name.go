@@ -2,6 +2,7 @@ package objectutil
 
 import (
 	"regexp"
+	"strings"
 
 	"github.com/syntasso/kratix/lib/hash"
 	"k8s.io/apimachinery/pkg/util/uuid"
@@ -17,8 +18,13 @@ func GenerateObjectName(name string) string {
 	return name + "-" + string(id[0:5])
 }
 
-func GenerateDeterministicObjectName(name string) string {
-	id := hash.ComputeHash(name)
+func GenerateDeterministicObjectName(name string, hashingInputs ...string) string {
+	hashingInput := name
+	if len(hashingInputs) > 0 {
+		hashingInput = strings.Join(hashingInputs, "-")
+	}
+
+	id := hash.ComputeHash(hashingInput)
 
 	name = processName(name)
 
