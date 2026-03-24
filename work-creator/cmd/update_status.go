@@ -127,27 +127,16 @@ func handleWorkflowControlFile(ctx context.Context, params *helpers.Parameters, 
 			return nil, nil, err
 		}
 
-		if control != nil && control.Suspend {
-			fmt.Fprintln(
-				os.Stdout,
-				"Info: workflow-control.yaml file found with suspend set to true; will label the object and update its pipeline execution status.")
-			existingObj, err = addWorkflowSuspendLabel(ctx, objectClient, existingObj)
-			if err != nil {
-				return nil, nil, err
-			}
-
-			mergedStatus, err = lib.MarkPipelineAsSuspended(mergedStatus, params.PipelineName, control.Message, existingObj.GetGeneration())
-			if err != nil {
-				return nil, nil, err
-			}
-		} else {
-			mergedStatus, err = lib.ClearPipelineSuspension(mergedStatus, params.PipelineName)
-			if err != nil {
-				return nil, nil, err
-			}
+		mergedStatus, err = lib.MarkPipelineAsSuspended(mergedStatus, params.PipelineName, control.Message, existingObj.GetGeneration())
+		if err != nil {
+			return nil, nil, err
+		}
+	} else {
+		mergedStatus, err = lib.ClearPipelineSuspension(mergedStatus, params.PipelineName)
+		if err != nil {
+			return nil, nil, err
 		}
 	}
-
 	return existingObj, mergedStatus, nil
 }
 
