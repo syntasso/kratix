@@ -19,10 +19,12 @@ func ReadWorkflowControlFile(workflowControlFile string) (*WorkflowControl, erro
 	if _, err := os.Stat(workflowControlFile); err == nil {
 		bytes, err := os.ReadFile(workflowControlFile)
 		if err != nil {
-			return nil, fmt.Errorf("failed to workflow control file: %w", err)
+			return nil, fmt.Errorf("failed to read "+
+				"the workflow control file: %q with error: %w", workflowControlFile, err)
 		}
 		if err := yaml.Unmarshal(bytes, &workflowControl); err != nil {
-			return nil, fmt.Errorf("failed to unmarshal control file: %w", err)
+			return nil, fmt.Errorf("failed to unmarshal "+
+				"the workflow control file: %q with error: %w", workflowControlFile, err)
 		}
 	} else if errors.Is(err, os.ErrNotExist) {
 		return nil, nil
