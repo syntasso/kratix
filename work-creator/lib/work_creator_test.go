@@ -320,6 +320,39 @@ var _ = Describe("WorkCreator", func() {
 				))
 			})
 		})
+
+		Context("Workflow Control File", func() {
+			When("it suspends the pipeline", func() {
+				It("does not create a Work", func() {
+					err := workCreator.Execute(filepath.Join(getRootDirectory(), "complete-with-suspend"), "promise-name", "default", "resource-name", "", "resource", pipelineName)
+					Expect(err).NotTo(HaveOccurred())
+
+					works := &v1alpha1.WorkList{}
+					Expect(k8sClient.List(context.Background(), works, &client.ListOptions{Namespace: expectedNamespace})).To(Succeed())
+					Expect(works.Items).To(BeEmpty())
+				})
+			})
+
+			When("it requests retry", func() {
+				var initialWork v1alpha1.Work
+
+				BeforeEach(func() {
+					err := workCreator.Execute(filepath.Join(getRootDirectory(), "complete"), "promise-name", "default", "resource-name", "", "resource", pipelineName)
+					Expect(err).NotTo(HaveOccurred())
+					initialWork = getWork(expectedNamespace, promiseName, resourceName, pipelineName)
+				})
+
+				It("does not update an existing Work", func() {
+					err := workCreator.Execute(filepath.Join(getRootDirectory(), "complete-with-retry"), "promise-name", "default", "resource-name", "", "resource", pipelineName)
+					Expect(err).NotTo(HaveOccurred())
+
+					currentWork := getWork(expectedNamespace, promiseName, resourceName, pipelineName)
+					Expect(currentWork.Spec.LastExecutionTimestamp).To(Equal(initialWork.Spec.LastExecutionTimestamp))
+					Expect(currentWork.Spec.WorkloadGroups).To(Equal(initialWork.Spec.WorkloadGroups))
+				})
+			})
+		})
+
 	})
 
 	Describe("parse destination selectors", func() {
