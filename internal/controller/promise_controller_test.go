@@ -150,10 +150,15 @@ var _ = Describe("PromiseController", func() {
 							SatisfyAll(HaveKey("name"),
 								HaveKey("phase"),
 								HaveKey("message"),
+								HaveKey("nextRetryAt"),
+								HaveKey("attempts"),
 								HaveKey("lastTransitionTime")))
 						Expect(pipelines.Items.Schema.Properties["name"].Type).To(Equal("string"))
 						Expect(pipelines.Items.Schema.Properties["phase"].Type).To(Equal("string"))
 						Expect(pipelines.Items.Schema.Properties["message"].Type).To(Equal("string"))
+						Expect(pipelines.Items.Schema.Properties["nextRetryAt"].Type).To(Equal("string"))
+						Expect(pipelines.Items.Schema.Properties["attempts"].Type).To(Equal("integer"))
+						Expect(pipelines.Items.Schema.Properties["attempts"].Format).To(Equal("int64"))
 						Expect(pipelines.Items.Schema.Properties["lastTransitionTime"].Type).To(Equal("string"))
 						suspendedGeneration, ok := kratixWorkflows.Properties["suspendedGeneration"]
 						Expect(ok).To(BeTrue(), ".status.kratix.workflows.suspendedGeneration did not exist. Spec %v", kratixWorkflows)

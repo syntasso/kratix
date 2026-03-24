@@ -258,6 +258,9 @@ spec:
                         description: Status of the Pipeline execution
                         items:
                           properties:
+                            attempts:
+                              format: int64
+                              type: integer
                             lastTransitionTime:
                               description: Last transition time of the workflow
                               format: date-time
@@ -267,6 +270,8 @@ spec:
                               type: string
                             name:
                               description: Name of the workflow
+                              type: string
+                            nextRetryAt:
                               type: string
                             phase:
                               description: Phase of the workflow

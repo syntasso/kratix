@@ -1865,6 +1865,13 @@ func setStatusFieldsOnCRD(rrCRD *apiextensionsv1.CustomResourceDefinition) {
 												"message": {
 													Type: "string",
 												},
+												"nextRetryAt": {
+													Type: "string",
+												},
+												"attempts": {
+													Type:   "integer",
+													Format: "int64",
+												},
 												"lastTransitionTime": {
 													Type:   "string",
 													Format: "datetime",
