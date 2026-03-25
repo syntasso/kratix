@@ -69,7 +69,7 @@ func MarkAsCompleted(status map[string]any, workflowType v1alpha1.Type) map[stri
 	return status
 }
 
-func MarkPipelineAsSuspended(status map[string]any, pipelineName, msg string, generation int64) (map[string]any, error) {
+func MarkPipelineAsSuspended(status map[string]any, pipelineName, msg, retryAtTimeStamp string, generation int64) (map[string]any, error) {
 	kratix, ok := status["kratix"].(map[string]any)
 	if !ok {
 		return nil, fmt.Errorf("missing status.kratix while marking pipeline %q as suspended", pipelineName)
@@ -101,6 +101,19 @@ func MarkPipelineAsSuspended(status map[string]any, pipelineName, msg string, ge
 		} else {
 			pipelineMap["message"] = msg
 		}
+
+		if retryAtTimeStamp != "" {
+			pipelineMap["nextRetryAt"] = retryAtTimeStamp
+			var currentAttempts any
+			var found bool
+			if currentAttempts, found = pipelineMap["attempts"]; !found {
+				currentAttempts = int64(0) + 1
+			} else {
+				currentAttempts = pipelineMap["attempts"].(int64) + 1
+			}
+			pipelineMap["attempts"] = currentAttempts
+		}
+
 		pipelines[i] = pipelineMap
 		workflows["suspendedGeneration"] = generation
 		workflows["pipelines"] = pipelines

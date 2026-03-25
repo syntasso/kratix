@@ -217,7 +217,7 @@ var _ = Describe("StatusUpdater", func() {
 				"message": "leave me alone",
 			}
 
-			result, err := lib.MarkPipelineAsSuspended(status, "pipeline-b", "waiting for approval", 7)
+			result, err := lib.MarkPipelineAsSuspended(status, "pipeline-b", "waiting for approval", "", 7)
 
 			Expect(err).NotTo(HaveOccurred())
 			workflows := result["kratix"].(map[string]any)["workflows"].(map[string]any)
@@ -251,7 +251,7 @@ var _ = Describe("StatusUpdater", func() {
 				},
 			}
 
-			result, err := lib.MarkPipelineAsSuspended(status, "pipeline-a", "", 3)
+			result, err := lib.MarkPipelineAsSuspended(status, "pipeline-a", "", "", 3)
 
 			Expect(err).NotTo(HaveOccurred())
 			workflows := result["kratix"].(map[string]any)["workflows"].(map[string]any)
@@ -278,9 +278,95 @@ var _ = Describe("StatusUpdater", func() {
 				},
 			}
 
-			_, err := lib.MarkPipelineAsSuspended(status, "pipeline-b", "", 0)
+			_, err := lib.MarkPipelineAsSuspended(status, "pipeline-b", "", "", 0)
 
 			Expect(err).To(MatchError(ContainSubstring("\"pipeline-b\" not found in status.kratix.workflows.pipelines")))
+		})
+
+		When("retryAt is set", func() {
+			It("sets the timestamp and increments the attempts counter", func() {
+				status := map[string]any{
+					"kratix": map[string]any{
+						"workflows": map[string]any{
+							"pipelines": []any{
+								map[string]any{
+									"name":  "pipeline-a",
+									"phase": "Succeeded",
+								},
+								map[string]any{
+									"name":     "pipeline-b",
+									"phase":    "Running",
+									"attempts": int64(17),
+								},
+							},
+						},
+					},
+					"message": "leave me alone",
+				}
+
+				expectedTimestamp := "2026-03-25T14:22:00Z"
+
+				result, err := lib.MarkPipelineAsSuspended(status, "pipeline-b", "waiting for approval", expectedTimestamp, 7)
+
+				Expect(err).NotTo(HaveOccurred())
+				workflows := result["kratix"].(map[string]any)["workflows"].(map[string]any)
+				pipelines := workflows["pipelines"].([]any)
+				Expect(pipelines).To(HaveLen(2))
+				Expect(pipelines[0]).To(SatisfyAll(
+					HaveKeyWithValue("name", "pipeline-a"),
+					HaveKeyWithValue("phase", "Succeeded"),
+				))
+				Expect(pipelines[1]).To(SatisfyAll(
+					HaveKeyWithValue("name", "pipeline-b"),
+					HaveKeyWithValue("phase", "Suspended"),
+					HaveKeyWithValue("message", "waiting for approval"),
+					HaveKeyWithValue("nextRetryAt", expectedTimestamp),
+					HaveKeyWithValue("attempts", int64(18)),
+				))
+				Expect(workflows).To(HaveKeyWithValue("suspendedGeneration", int64(7)))
+				Expect(result).To(HaveKeyWithValue("message", "leave me alone"))
+			})
+			It("can increments the attempts counter when it wasn't set before", func() {
+				status := map[string]any{
+					"kratix": map[string]any{
+						"workflows": map[string]any{
+							"pipelines": []any{
+								map[string]any{
+									"name":  "pipeline-a",
+									"phase": "Succeeded",
+								},
+								map[string]any{
+									"name":  "pipeline-b",
+									"phase": "Running",
+								},
+							},
+						},
+					},
+					"message": "leave me alone",
+				}
+
+				expectedTimestamp := "2026-03-25T14:22:00Z"
+
+				result, err := lib.MarkPipelineAsSuspended(status, "pipeline-b", "waiting for approval", expectedTimestamp, 7)
+
+				Expect(err).NotTo(HaveOccurred())
+				workflows := result["kratix"].(map[string]any)["workflows"].(map[string]any)
+				pipelines := workflows["pipelines"].([]any)
+				Expect(pipelines).To(HaveLen(2))
+				Expect(pipelines[0]).To(SatisfyAll(
+					HaveKeyWithValue("name", "pipeline-a"),
+					HaveKeyWithValue("phase", "Succeeded"),
+				))
+				Expect(pipelines[1]).To(SatisfyAll(
+					HaveKeyWithValue("name", "pipeline-b"),
+					HaveKeyWithValue("phase", "Suspended"),
+					HaveKeyWithValue("message", "waiting for approval"),
+					HaveKeyWithValue("nextRetryAt", expectedTimestamp),
+					HaveKeyWithValue("attempts", int64(1)),
+				))
+				Expect(workflows).To(HaveKeyWithValue("suspendedGeneration", int64(7)))
+				Expect(result).To(HaveKeyWithValue("message", "leave me alone"))
+			})
 		})
 	})
 
