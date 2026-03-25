@@ -104,11 +104,9 @@ func MarkPipelineAsSuspended(status map[string]any, pipelineName, msg, retryAtTi
 
 		if retryAtTimeStamp != "" {
 			pipelineMap["nextRetryAt"] = retryAtTimeStamp
-			var currentAttempts any
+			currentAttempts := int64(1)
 			var found bool
-			if currentAttempts, found = pipelineMap["attempts"]; !found {
-				currentAttempts = int64(0) + 1
-			} else {
+			if _, found = pipelineMap["attempts"]; found {
 				currentAttempts = pipelineMap["attempts"].(int64) + 1
 			}
 			pipelineMap["attempts"] = currentAttempts

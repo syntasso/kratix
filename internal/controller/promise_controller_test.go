@@ -1675,6 +1675,24 @@ var _ = Describe("PromiseController", func() {
 				Expect(reconcileCond.Message).To(Equal("Suspended"))
 			})
 
+			It("schedules a reconciliation after the retryAt in the promise status", func() {
+				By("setting the 'retryAt' in a workflow")
+				_, err := reconciler.Reconcile(ctx, ctrl.Request{NamespacedName: types.NamespacedName{Name: promise.GetName(), Namespace: promise.GetNamespace()}})
+				Expect(err).NotTo(HaveOccurred())
+
+				retryAtTime := time.Now().UTC().Add(time.Hour).Format(time.RFC3339)
+
+				Expect(fakeK8sClient.Get(ctx, promiseName, promise)).To(Succeed())
+
+				promise.Status.Kratix.Workflows.Pipelines[0].Phase = v1alpha1.WorkflowPhaseSuspended
+				promise.Status.Kratix.Workflows.Pipelines[0].NextRetryAt = retryAtTime
+				Expect(fakeK8sClient.Status().Update(ctx, promise)).To(Succeed())
+
+				result, err := reconciler.Reconcile(ctx, ctrl.Request{NamespacedName: types.NamespacedName{Name: promise.GetName(), Namespace: promise.GetNamespace()}})
+				Expect(err).NotTo(HaveOccurred())
+				Expect(result.RequeueAfter).ToNot(BeZero())
+			})
+
 			It("removes the suspend label and requests a restart when the reconciliation interval is reached", func() {
 				uPromise, err := promise.ToUnstructured()
 				Expect(err).NotTo(HaveOccurred())
