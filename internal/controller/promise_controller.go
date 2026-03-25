@@ -1045,9 +1045,9 @@ func (r *PromiseReconciler) reconcileSuspendedWorkflow(
 
 	if !retryAtTime.IsZero() {
 		if retryAtTime.Before(time.Now()) {
-			logging.Info(o.logger, "retryAt time has been reached, requeuing", "retryAtTime", retryAtTime)
+			logging.Info(o.logger, "the recorded NextRetryAt time has been reached, "+
+				"removing the workflow-suspended label", "retryAtTime", retryAtTime)
 			delete(promise.Labels, v1alpha1.WorkflowSuspendedLabel)
-
 			return true, result, r.Client.Update(o.ctx, promise)
 		}
 

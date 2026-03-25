@@ -1076,34 +1076,44 @@ var _ = Describe("DynamicResourceRequestController", func() {
 		})
 
 		When("the workflow is being retried", func() {
-			It("schedules a reconciliation after the retryAt in the request status", func() {
-				_, err := reconciler.Reconcile(ctx, ctrl.Request{NamespacedName: resReqNameNamespace})
-				Expect(err).NotTo(HaveOccurred())
-
-				retryAtTime := time.Now().UTC().Add(time.Hour).Format(time.RFC3339)
-
+			It("schedules a reconciliation after the nextRetryAt in the request status", func() {
 				Expect(fakeK8sClient.Get(ctx, resReqNameNamespace, resReq)).To(Succeed())
-
 				workflows, found, err := unstructured.NestedSlice(resReq.Object, "status", "kratix", "workflows", "pipelines")
 				Expect(found).To(BeTrue())
 				Expect(err).ToNot(HaveOccurred())
 
-				workflow, ok := workflows[0].(map[string]any)
-				Expect(ok).To(BeTrue())
-				workflow["phase"] = v1alpha1.WorkflowPhasePending
-				workflow["retryAt"] = retryAtTime
+				workflow := workflows[0].(map[string]any)
+				workflow["phase"] = v1alpha1.WorkflowPhaseSuspended
+				workflow["nextRetryAt"] = time.Now().UTC().Add(time.Hour).Format(time.RFC3339)
+				workflows[0] = workflow
 
-				updatedWorkflows := make([]any, 0, 1)
-				updatedWorkflows = append(updatedWorkflows, workflow)
-
-				unstructured.SetNestedSlice(resReq.Object, updatedWorkflows, "status", "kratix", "workflows", "pipelines")
-				resourceutil.SetStatus(resReq, l)
-
+				Expect(unstructured.SetNestedSlice(resReq.Object, workflows, "status", "kratix", "workflows", "pipelines")).To(Succeed())
 				Expect(fakeK8sClient.Status().Update(ctx, resReq)).To(Succeed())
 
 				result, err := reconciler.Reconcile(ctx, ctrl.Request{NamespacedName: resReqNameNamespace})
 				Expect(err).NotTo(HaveOccurred())
 				Expect(result.RequeueAfter).ToNot(BeZero())
+			})
+
+			It("removes the workflow suspended label when the nextRetryAt time is reached", func() {
+				Expect(fakeK8sClient.Get(ctx, resReqNameNamespace, resReq)).To(Succeed())
+				workflows, found, err := unstructured.NestedSlice(resReq.Object, "status", "kratix", "workflows", "pipelines")
+				Expect(found).To(BeTrue())
+				Expect(err).ToNot(HaveOccurred())
+
+				workflow := workflows[0].(map[string]any)
+				workflow["nextRetryAt"] = time.Now().UTC().Add(-time.Hour).Format(time.RFC3339)
+				workflows[0] = workflow
+
+				Expect(unstructured.SetNestedSlice(resReq.Object, workflows, "status", "kratix", "workflows", "pipelines")).To(Succeed())
+				Expect(fakeK8sClient.Status().Update(ctx, resReq)).To(Succeed())
+
+				result, err := reconciler.Reconcile(ctx, ctrl.Request{NamespacedName: resReqNameNamespace})
+				Expect(err).NotTo(HaveOccurred())
+				Expect(result).To(Equal(ctrl.Result{}))
+
+				Expect(fakeK8sClient.Get(ctx, resReqNameNamespace, resReq)).To(Succeed())
+				Expect(resReq.GetLabels()).ToNot(HaveKey(v1alpha1.WorkflowSuspendedLabel))
 			})
 		})
 	})
