@@ -22,19 +22,20 @@ const (
 )
 
 var _ = Describe("Workflow Control", Ordered, func() {
+	dependentCM := "workflow-retry-test"
 
 	BeforeEach(func() {
 		SetDefaultEventuallyTimeout(4 * time.Minute)
 		SetDefaultEventuallyPollingInterval(2 * time.Second)
 		kubeutils.SetTimeoutAndInterval(4*time.Minute, 2*time.Second)
 		platform.Kubectl("delete", "-f", suspendConfigMap, "--ignore-not-found")
+		platform.EventuallyKubectlDelete("cm", dependentCM, "-n", "kratix-platform-system", "--ignore-not-found")
 	})
 
 	When("the file has 'retryAfter' set", func() {
-		dependentCM := "workflow-retry-test"
 
 		AfterEach(func() {
-			platform.EventuallyKubectlDelete("-n", "default", "cm", dependentCM, "--ignore-not-found")
+			platform.EventuallyKubectlDelete("cm", dependentCM, "-n", "kratix-platform-system", "--ignore-not-found")
 			platform.EventuallyKubectlDelete("promise", retryPromiseName, "--ignore-not-found")
 		})
 
@@ -42,12 +43,10 @@ var _ = Describe("Workflow Control", Ordered, func() {
 			By("retrying the pipeline after the interval", func() {
 				platform.Kubectl("apply", "-f", "assets/workflow-control/promise-retry.yaml")
 
-				pipeRetryCount := jobCountForPromisePipeline(retryPromiseName, "pipe-retry")
-
 				Eventually(func(g Gomega) {
 					g.Expect(platform.Kubectl("get", "promise", retryPromiseName, phaseJSONPath("pipe-0"))).To(Equal("Succeeded"))
 					g.Expect(platform.Kubectl("get", "promise", retryPromiseName, phaseJSONPath("pipe-retry"))).To(Equal("Suspended"))
-					g.Expect(platform.Kubectl("get", "promise", retryPromiseName, messageJSONPath("pipe-retry"))).To(Equal("from-system-test-retrying"))
+					g.Expect(platform.Kubectl("get", "promise", retryPromiseName, messageJSONPath("pipe-retry"))).To(Equal("configmap workflow-retry-test not found"))
 					g.Expect(platform.Kubectl("get", "promise", retryPromiseName, nextRetryAtJSONPath("pipe-retry"))).NotTo(BeEmpty())
 					g.Expect(platform.Kubectl("get", "promise", retryPromiseName, attemptsJSONPath())).To(Equal("1"))
 					g.Expect(platform.Kubectl("get", "promise", retryPromiseName, `-o=jsonpath={.metadata.labels.kratix\.io/workflow-suspended}`)).To(Equal("true"))
@@ -55,11 +54,11 @@ var _ = Describe("Workflow Control", Ordered, func() {
 
 				Consistently(func() int {
 					return jobCountForPromisePipeline(retryPromiseName, "pipe-retry")
-				}, 10*time.Second).Should(Equal(pipeRetryCount))
+				}, 5*time.Second).Should(Equal(1))
 
 				Eventually(func() int {
 					return jobCountForPromisePipeline(retryPromiseName, "pipe-retry")
-				}).Should(Equal(pipeRetryCount + 1))
+				}).Should(Equal(2))
 
 				Eventually(func(g Gomega) {
 					g.Expect(platform.Kubectl("get", "promise", retryPromiseName, phaseJSONPath("pipe-retry"))).To(Equal("Suspended"))
@@ -68,7 +67,7 @@ var _ = Describe("Workflow Control", Ordered, func() {
 
 				Eventually(func() int {
 					return jobCountForPromisePipeline(retryPromiseName, "pipe-retry")
-				}).Should(Equal(pipeRetryCount + 2))
+				}).Should(Equal(3))
 
 				Eventually(func(g Gomega) {
 					g.Expect(platform.Kubectl("get", "promise", retryPromiseName, phaseJSONPath("pipe-retry"))).To(Equal("Suspended"))
@@ -77,7 +76,7 @@ var _ = Describe("Workflow Control", Ordered, func() {
 			})
 
 			By("not retrying if retryAfter is not configured", func() {
-				platform.Kubectl("create", "-n", "default", "cm", dependentCM)
+				platform.Kubectl("create", "-n", "kratix-platform-system", "cm", dependentCM)
 
 				Eventually(func(g Gomega) {
 					g.Expect(platform.Kubectl("get", "promise", retryPromiseName, phaseJSONPath("pipe-0"))).To(Equal("Succeeded"))
@@ -85,7 +84,7 @@ var _ = Describe("Workflow Control", Ordered, func() {
 					g.Expect(platform.Kubectl("get", "promise", retryPromiseName, nextRetryAtJSONPath("pipe-retry"))).To(BeEmpty())
 					g.Expect(platform.Kubectl("get", "promise", retryPromiseName, attemptsJSONPath())).To(BeEmpty())
 					g.Expect(platform.Kubectl("get", "promise", retryPromiseName, `-o=jsonpath={.metadata.labels.kratix\.io/workflow-suspended}`)).To(BeEmpty())
-					g.Expect(platform.Kubectl("get", "promise", retryPromiseName)).To(ContainSubstring("Reconciled"))
+					g.Expect(platform.Kubectl("get", "promise", retryPromiseName)).To(ContainSubstring("Available"))
 				}).Should(Succeed())
 			})
 		})
