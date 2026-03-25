@@ -118,47 +118,32 @@ func handleWorkflowControlFile(ctx context.Context, params *helpers.Parameters, 
 	if err != nil {
 		return nil, nil, err
 	}
+
+	if !control.IfSuspendOrRetry() {
+		mergedStatus, err = lib.ClearPipelineSuspension(mergedStatus, params.PipelineName)
+		return existingObj, mergedStatus, err
+	}
+
+	retryAfterTimestamp := ""
 	if control.IsRetry() {
-		fmt.Fprintln(os.Stdout, "Info: workflow-control.yaml file found with retryAfter configured; "+
-			"will label the object and update its pipeline execution status.")
+		fmt.Fprintf(os.Stdout, "Info: workflow-control.yaml has retryAfter: %q \n", control.RetryAfter)
 		after, parseErr := control.RetryDuration()
 		if parseErr != nil {
 			fmt.Fprintf(os.Stdout, "Error: failed to parse retryAfter duration specified in "+
 				"the workflow-control.yaml file: %q \n", control.RetryAfter)
 			return nil, nil, parseErr
 		}
-		existingObj, err = addWorkflowSuspendLabel(ctx, objectClient, existingObj)
-		if err != nil {
-			return nil, nil, err
-		}
-
-		retryAfterTimeStamp := time.Now().UTC().Add(after).Format(time.RFC3339)
-
-		mergedStatus, err = lib.MarkPipelineAsSuspended(mergedStatus, params.PipelineName, control.Message, retryAfterTimeStamp, existingObj.GetGeneration())
-		if err != nil {
-			return nil, nil, err
-		}
-
-	} else if control.IsSuspend() {
-		fmt.Fprintln(
-			os.Stdout,
-			"Info: workflow-control.yaml file found with suspend set to true; will label the object and update its pipeline execution status.")
-		existingObj, err = addWorkflowSuspendLabel(ctx, objectClient, existingObj)
-		if err != nil {
-			return nil, nil, err
-		}
-
-		mergedStatus, err = lib.MarkPipelineAsSuspended(mergedStatus, params.PipelineName, control.Message, "", existingObj.GetGeneration())
-		if err != nil {
-			return nil, nil, err
-		}
-	} else {
-		mergedStatus, err = lib.ClearPipelineSuspension(mergedStatus, params.PipelineName)
-		if err != nil {
-			return nil, nil, err
-		}
+		retryAfterTimestamp = time.Now().UTC().Add(after).Format(time.RFC3339)
 	}
-	return existingObj, mergedStatus, nil
+
+	fmt.Fprintln(os.Stdout, "Info: workflow-control.yaml is suspending the pipeline execution; will label the object and update its pipeline execution status.")
+	existingObj, err = addWorkflowSuspendLabel(ctx, objectClient, existingObj)
+	if err != nil {
+		return nil, nil, err
+	}
+
+	mergedStatus, err = lib.MarkPipelineAsSuspended(mergedStatus, params.PipelineName, control.Message, retryAfterTimestamp, existingObj.GetGeneration())
+	return existingObj, mergedStatus, err
 }
 
 func addWorkflowSuspendLabel(ctx context.Context, objectClient dynamic.ResourceInterface, existingObj *unstructured.Unstructured) (*unstructured.Unstructured, error) {

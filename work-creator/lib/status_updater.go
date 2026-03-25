@@ -104,12 +104,11 @@ func MarkPipelineAsSuspended(status map[string]any, pipelineName, msg, retryAtTi
 
 		if retryAtTimeStamp != "" {
 			pipelineMap["nextRetryAt"] = retryAtTimeStamp
-			currentAttempts := int64(1)
-			var found bool
-			if _, found = pipelineMap["attempts"]; found {
-				currentAttempts = pipelineMap["attempts"].(int64) + 1
+			attempts := int64(1)
+			if existing, found := pipelineMap["attempts"]; found {
+				attempts = existing.(int64) + 1
 			}
-			pipelineMap["attempts"] = currentAttempts
+			pipelineMap["attempts"] = attempts
 		}
 
 		pipelines[i] = pipelineMap
@@ -155,6 +154,8 @@ func ClearPipelineSuspension(status map[string]any, pipelineName string) (map[st
 
 		pipelineMap["phase"] = "Running"
 		delete(pipelineMap, "message")
+		delete(pipelineMap, "attempts")
+		delete(pipelineMap, "nextRetryAt")
 		pipelines[i] = pipelineMap
 		workflows["pipelines"] = pipelines
 		kratix["workflows"] = workflows

@@ -1,6 +1,8 @@
 package lib_test
 
 import (
+	"time"
+
 	. "github.com/onsi/ginkgo/v2"
 	. "github.com/onsi/gomega"
 	"github.com/syntasso/kratix/api/v1alpha1"
@@ -403,6 +405,45 @@ var _ = Describe("StatusUpdater", func() {
 				HaveKeyWithValue("name", "pipeline-b"),
 				HaveKeyWithValue("phase", "Running"),
 				Not(HaveKey("message")),
+			))
+		})
+
+		It("resets a suspended pipeline to running and clears any retry status fields", func() {
+			status := map[string]any{
+				"kratix": map[string]any{
+					"workflows": map[string]any{
+						"pipelines": []any{
+							map[string]any{
+								"name":  "pipeline-a",
+								"phase": "Succeeded",
+							},
+							map[string]any{
+								"name":        "pipeline-b",
+								"phase":       "Suspended",
+								"message":     "waiting for approval",
+								"attempts":    int64(18),
+								"nextRetryAt": time.RFC3339,
+							},
+						},
+					},
+				},
+			}
+
+			result, err := lib.ClearPipelineSuspension(status, "pipeline-b")
+
+			Expect(err).NotTo(HaveOccurred())
+			workflows := result["kratix"].(map[string]any)["workflows"].(map[string]any)
+			pipelines := workflows["pipelines"].([]any)
+			Expect(pipelines[0]).To(SatisfyAll(
+				HaveKeyWithValue("name", "pipeline-a"),
+				HaveKeyWithValue("phase", "Succeeded"),
+			))
+			Expect(pipelines[1]).To(SatisfyAll(
+				HaveKeyWithValue("name", "pipeline-b"),
+				HaveKeyWithValue("phase", "Running"),
+				Not(HaveKey("message")),
+				Not(HaveKey("attempts")),
+				Not(HaveKey("nextRetryAt")),
 			))
 		})
 
