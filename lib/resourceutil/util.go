@@ -506,3 +506,20 @@ func GetKratixWorkflowsInt64Status(rr *unstructured.Unstructured, key string) in
 	}
 	return value
 }
+
+func GetResourceRequestStatusPipelines(rr *unstructured.Unstructured) (updatedPipelines []map[string]any, err error) {
+	pipelines, found, err := unstructured.NestedSlice(rr.Object, "status", "kratix", "workflows", "pipelines")
+	if !found || err != nil {
+		return updatedPipelines, fmt.Errorf("error fetching workflow pipelines for resource %s/%s from status", rr.GetName(), rr.GetKind())
+	}
+
+	for _, pipeline := range pipelines {
+		pipeline, ok := pipeline.(map[string]any)
+		if !ok {
+			return updatedPipelines, fmt.Errorf("error querying workflow pipeline %s for resource %s/%s from status", pipeline["name"], rr.GetName(), rr.GetKind())
+		}
+		updatedPipelines = append(updatedPipelines, pipeline)
+	}
+
+	return updatedPipelines, nil
+}
