@@ -150,10 +150,15 @@ var _ = Describe("PromiseController", func() {
 							SatisfyAll(HaveKey("name"),
 								HaveKey("phase"),
 								HaveKey("message"),
+								HaveKey("nextRetryAt"),
+								HaveKey("attempts"),
 								HaveKey("lastTransitionTime")))
 						Expect(pipelines.Items.Schema.Properties["name"].Type).To(Equal("string"))
 						Expect(pipelines.Items.Schema.Properties["phase"].Type).To(Equal("string"))
 						Expect(pipelines.Items.Schema.Properties["message"].Type).To(Equal("string"))
+						Expect(pipelines.Items.Schema.Properties["nextRetryAt"].Type).To(Equal("string"))
+						Expect(pipelines.Items.Schema.Properties["attempts"].Type).To(Equal("integer"))
+						Expect(pipelines.Items.Schema.Properties["attempts"].Format).To(Equal("int64"))
 						Expect(pipelines.Items.Schema.Properties["lastTransitionTime"].Type).To(Equal("string"))
 						suspendedGeneration, ok := kratixWorkflows.Properties["suspendedGeneration"]
 						Expect(ok).To(BeTrue(), ".status.kratix.workflows.suspendedGeneration did not exist. Spec %v", kratixWorkflows)
@@ -1718,6 +1723,42 @@ var _ = Describe("PromiseController", func() {
 				Expect(promise.Labels[resourceutil.WorkflowRunFromStartLabel]).To(Equal("true"))
 				Expect(promise.Status.Kratix.Workflows.Pipelines[0].Phase).To(Equal(v1alpha1.WorkflowPhasePending))
 				Expect(promise.Status.Kratix.Workflows.Pipelines[1].Phase).To(Equal(v1alpha1.WorkflowPhasePending))
+			})
+
+			When("the workflow is being retried", func() {
+				It("schedules a reconciliation after the retryAt in the promise status", func() {
+					By("setting the 'retryAt' in a workflow")
+					_, err := reconciler.Reconcile(ctx, ctrl.Request{NamespacedName: types.NamespacedName{Name: promise.GetName(), Namespace: promise.GetNamespace()}})
+					Expect(err).NotTo(HaveOccurred())
+
+					retryAtTime := time.Now().UTC().Add(time.Hour).Format(time.RFC3339)
+
+					Expect(fakeK8sClient.Get(ctx, promiseName, promise)).To(Succeed())
+
+					promise.Status.Kratix.Workflows.Pipelines[0].Phase = v1alpha1.WorkflowPhaseSuspended
+					promise.Status.Kratix.Workflows.Pipelines[0].NextRetryAt = retryAtTime
+					Expect(fakeK8sClient.Status().Update(ctx, promise)).To(Succeed())
+
+					result, err := reconciler.Reconcile(ctx, ctrl.Request{NamespacedName: types.NamespacedName{Name: promise.GetName(), Namespace: promise.GetNamespace()}})
+					Expect(err).NotTo(HaveOccurred())
+					Expect(result.RequeueAfter).ToNot(BeZero())
+				})
+
+				It("removes the workflow suspended label when the retryAt time is reached", func() {
+					retryAtTime := time.Now().UTC().Add(-time.Hour).Format(time.RFC3339)
+					Expect(fakeK8sClient.Get(ctx, promiseName, promise)).To(Succeed())
+
+					promise.Status.Kratix.Workflows.Pipelines[0].Phase = v1alpha1.WorkflowPhaseSuspended
+					promise.Status.Kratix.Workflows.Pipelines[0].NextRetryAt = retryAtTime
+					Expect(fakeK8sClient.Status().Update(ctx, promise)).To(Succeed())
+
+					result, err := reconciler.Reconcile(ctx, ctrl.Request{NamespacedName: types.NamespacedName{Name: promise.GetName(), Namespace: promise.GetNamespace()}})
+					Expect(err).NotTo(HaveOccurred())
+					Expect(result).To(Equal(ctrl.Result{}))
+
+					Expect(fakeK8sClient.Get(ctx, promiseName, promise)).To(Succeed())
+					Expect(promise.Labels).ToNot(HaveKey(v1alpha1.WorkflowSuspendedLabel))
+				})
 			})
 		})
 	})

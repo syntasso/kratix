@@ -1,6 +1,8 @@
 package lib_test
 
 import (
+	"time"
+
 	. "github.com/onsi/ginkgo/v2"
 	. "github.com/onsi/gomega"
 	"github.com/syntasso/kratix/api/v1alpha1"
@@ -217,7 +219,7 @@ var _ = Describe("StatusUpdater", func() {
 				"message": "leave me alone",
 			}
 
-			result, err := lib.MarkPipelineAsSuspended(status, "pipeline-b", "waiting for approval", 7)
+			result, err := lib.MarkPipelineAsSuspended(status, "pipeline-b", "waiting for approval", "", 7)
 
 			Expect(err).NotTo(HaveOccurred())
 			workflows := result["kratix"].(map[string]any)["workflows"].(map[string]any)
@@ -251,7 +253,7 @@ var _ = Describe("StatusUpdater", func() {
 				},
 			}
 
-			result, err := lib.MarkPipelineAsSuspended(status, "pipeline-a", "", 3)
+			result, err := lib.MarkPipelineAsSuspended(status, "pipeline-a", "", "", 3)
 
 			Expect(err).NotTo(HaveOccurred())
 			workflows := result["kratix"].(map[string]any)["workflows"].(map[string]any)
@@ -278,9 +280,125 @@ var _ = Describe("StatusUpdater", func() {
 				},
 			}
 
-			_, err := lib.MarkPipelineAsSuspended(status, "pipeline-b", "", 0)
+			_, err := lib.MarkPipelineAsSuspended(status, "pipeline-b", "", "", 0)
 
 			Expect(err).To(MatchError(ContainSubstring("\"pipeline-b\" not found in status.kratix.workflows.pipelines")))
+		})
+
+		When("retryAt is not set but the pipeline previously had retry related status fields", func() {
+			It("clears nextRetryAt and attempts", func() {
+				status := map[string]any{
+					"kratix": map[string]any{
+						"workflows": map[string]any{
+							"pipelines": []any{
+								map[string]any{
+									"name":        "pipeline-a",
+									"phase":       "Suspended",
+									"nextRetryAt": "2026-03-25T14:22:00Z",
+									"attempts":    int64(3),
+								},
+							},
+						},
+					},
+				}
+
+				result, err := lib.MarkPipelineAsSuspended(status, "pipeline-a", "waiting for a shooting star", "", 1)
+
+				Expect(err).NotTo(HaveOccurred())
+				pipeline := result["kratix"].(map[string]any)["workflows"].(map[string]any)["pipelines"].([]any)[0]
+				Expect(pipeline).To(SatisfyAll(
+					HaveKeyWithValue("phase", "Suspended"),
+					HaveKeyWithValue("message", "waiting for a shooting star"),
+					Not(HaveKey("nextRetryAt")),
+					Not(HaveKey("attempts")),
+				))
+			})
+		})
+
+		When("retryAt is set", func() {
+			It("sets the timestamp and increments the attempts counter", func() {
+				status := map[string]any{
+					"kratix": map[string]any{
+						"workflows": map[string]any{
+							"pipelines": []any{
+								map[string]any{
+									"name":  "pipeline-a",
+									"phase": "Succeeded",
+								},
+								map[string]any{
+									"name":     "pipeline-b",
+									"phase":    "Running",
+									"attempts": int64(17),
+								},
+							},
+						},
+					},
+					"message": "leave me alone",
+				}
+
+				expectedTimestamp := "2026-03-25T14:22:00Z"
+
+				result, err := lib.MarkPipelineAsSuspended(status, "pipeline-b", "waiting for approval", expectedTimestamp, 7)
+
+				Expect(err).NotTo(HaveOccurred())
+				workflows := result["kratix"].(map[string]any)["workflows"].(map[string]any)
+				pipelines := workflows["pipelines"].([]any)
+				Expect(pipelines).To(HaveLen(2))
+				Expect(pipelines[0]).To(SatisfyAll(
+					HaveKeyWithValue("name", "pipeline-a"),
+					HaveKeyWithValue("phase", "Succeeded"),
+				))
+				Expect(pipelines[1]).To(SatisfyAll(
+					HaveKeyWithValue("name", "pipeline-b"),
+					HaveKeyWithValue("phase", "Suspended"),
+					HaveKeyWithValue("message", "waiting for approval"),
+					HaveKeyWithValue("nextRetryAt", expectedTimestamp),
+					HaveKeyWithValue("attempts", int64(18)),
+				))
+				Expect(workflows).To(HaveKeyWithValue("suspendedGeneration", int64(7)))
+				Expect(result).To(HaveKeyWithValue("message", "leave me alone"))
+			})
+			It("can increments the attempts counter when it wasn't set before", func() {
+				status := map[string]any{
+					"kratix": map[string]any{
+						"workflows": map[string]any{
+							"pipelines": []any{
+								map[string]any{
+									"name":  "pipeline-a",
+									"phase": "Succeeded",
+								},
+								map[string]any{
+									"name":  "pipeline-b",
+									"phase": "Running",
+								},
+							},
+						},
+					},
+					"message": "leave me alone",
+				}
+
+				expectedTimestamp := "2026-03-25T14:22:00Z"
+
+				result, err := lib.MarkPipelineAsSuspended(status, "pipeline-b", "waiting for approval", expectedTimestamp, 7)
+
+				Expect(err).NotTo(HaveOccurred())
+				workflows := result["kratix"].(map[string]any)["workflows"].(map[string]any)
+				pipelines := workflows["pipelines"].([]any)
+				Expect(pipelines).To(HaveLen(2))
+				Expect(pipelines[0]).To(SatisfyAll(
+					HaveKeyWithValue("name", "pipeline-a"),
+					HaveKeyWithValue("phase", "Succeeded"),
+				))
+				Expect(pipelines[1]).To(SatisfyAll(
+					HaveKeyWithValue("name", "pipeline-b"),
+					HaveKeyWithValue("phase", "Suspended"),
+					HaveKeyWithValue("message", "waiting for approval"),
+					HaveKeyWithValue("nextRetryAt", expectedTimestamp),
+					HaveKeyWithValue("attempts", int64(1)),
+				))
+				Expect(workflows).To(HaveKeyWithValue("suspendedGeneration", int64(7)))
+				Expect(result).To(HaveKeyWithValue("message", "leave me alone"))
+			})
 		})
 	})
 
@@ -320,27 +438,42 @@ var _ = Describe("StatusUpdater", func() {
 			))
 		})
 
-		It("leaves non-suspended pipelines unchanged", func() {
+		It("resets a suspended pipeline to running and clears any retry status fields", func() {
 			status := map[string]any{
 				"kratix": map[string]any{
 					"workflows": map[string]any{
 						"pipelines": []any{
 							map[string]any{
 								"name":  "pipeline-a",
-								"phase": "Running",
+								"phase": "Succeeded",
+							},
+							map[string]any{
+								"name":        "pipeline-b",
+								"phase":       "Suspended",
+								"message":     "waiting for approval",
+								"attempts":    int64(18),
+								"nextRetryAt": time.RFC3339,
 							},
 						},
 					},
 				},
 			}
 
-			result, err := lib.ClearPipelineSuspension(status, "pipeline-a")
+			result, err := lib.ClearPipelineSuspension(status, "pipeline-b")
 
 			Expect(err).NotTo(HaveOccurred())
 			workflows := result["kratix"].(map[string]any)["workflows"].(map[string]any)
-			Expect(workflows["pipelines"].([]any)[0]).To(SatisfyAll(
+			pipelines := workflows["pipelines"].([]any)
+			Expect(pipelines[0]).To(SatisfyAll(
 				HaveKeyWithValue("name", "pipeline-a"),
+				HaveKeyWithValue("phase", "Succeeded"),
+			))
+			Expect(pipelines[1]).To(SatisfyAll(
+				HaveKeyWithValue("name", "pipeline-b"),
 				HaveKeyWithValue("phase", "Running"),
+				Not(HaveKey("message")),
+				Not(HaveKey("attempts")),
+				Not(HaveKey("nextRetryAt")),
 			))
 		})
 

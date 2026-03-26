@@ -69,7 +69,7 @@ func MarkAsCompleted(status map[string]any, workflowType v1alpha1.Type) map[stri
 	return status
 }
 
-func MarkPipelineAsSuspended(status map[string]any, pipelineName, msg string, generation int64) (map[string]any, error) {
+func MarkPipelineAsSuspended(status map[string]any, pipelineName, msg, retryAtTimeStamp string, generation int64) (map[string]any, error) {
 	kratix, ok := status["kratix"].(map[string]any)
 	if !ok {
 		return nil, fmt.Errorf("missing status.kratix while marking pipeline %q as suspended", pipelineName)
@@ -101,6 +101,19 @@ func MarkPipelineAsSuspended(status map[string]any, pipelineName, msg string, ge
 		} else {
 			pipelineMap["message"] = msg
 		}
+
+		if retryAtTimeStamp != "" {
+			pipelineMap["nextRetryAt"] = retryAtTimeStamp
+			attempts := int64(1)
+			if existing, found := pipelineMap["attempts"]; found {
+				attempts = existing.(int64) + 1
+			}
+			pipelineMap["attempts"] = attempts
+		} else {
+			delete(pipelineMap, "nextRetryAt")
+			delete(pipelineMap, "attempts")
+		}
+
 		pipelines[i] = pipelineMap
 		workflows["suspendedGeneration"] = generation
 		workflows["pipelines"] = pipelines
@@ -138,12 +151,10 @@ func ClearPipelineSuspension(status map[string]any, pipelineName string) (map[st
 			continue
 		}
 
-		if pipelineMap["phase"] != "Suspended" {
-			return status, nil
-		}
-
 		pipelineMap["phase"] = "Running"
 		delete(pipelineMap, "message")
+		delete(pipelineMap, "attempts")
+		delete(pipelineMap, "nextRetryAt")
 		pipelines[i] = pipelineMap
 		workflows["pipelines"] = pipelines
 		kratix["workflows"] = workflows

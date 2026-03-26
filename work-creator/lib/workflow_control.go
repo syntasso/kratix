@@ -4,6 +4,7 @@ import (
 	"errors"
 	"fmt"
 	"os"
+	"time"
 
 	"sigs.k8s.io/yaml"
 )
@@ -49,5 +50,22 @@ func (w *WorkflowControl) IsRetry() bool {
 	if w == nil {
 		return false
 	}
+
 	return w.RetryAfter != ""
+}
+
+func (w *WorkflowControl) RetryDuration() (time.Duration, error) {
+	if w == nil {
+		return -1, fmt.Errorf("workflow control is nil")
+	}
+
+	if !w.IsRetry() {
+		return -1, nil
+	}
+
+	d, err := time.ParseDuration(w.RetryAfter)
+	if err != nil {
+		return -1, fmt.Errorf("failed to parse retry duration: %q with error: %w", w.RetryAfter, err)
+	}
+	return d, nil
 }

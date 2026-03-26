@@ -206,6 +206,10 @@ type WorkflowPipelineStatus struct {
 	// Message from the suspended pipeline
 	Message string `json:"message,omitempty"`
 
+	NextRetryAt string `json:"nextRetryAt,omitempty"`
+
+	Attempts int64 `json:"attempts,omitempty"`
+
 	// Last transition time of the workflow
 	LastTransitionTime metav1.Time `json:"lastTransitionTime,omitempty"`
 }

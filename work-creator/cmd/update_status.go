@@ -6,6 +6,7 @@ import (
 	"os"
 	"path/filepath"
 	"strings"
+	"time"
 
 	"github.com/spf13/cobra"
 	"github.com/syntasso/kratix/api/v1alpha1"
@@ -86,12 +87,17 @@ func updateStatus(ctx context.Context, baseDir string, params *helpers.Parameter
 		}
 	}
 
-	if params.IsLastPipeline {
+	control, err := lib.ReadWorkflowControlFile(filepath.Join(baseDir, "workflow-control.yaml"))
+	if err != nil {
+		return err
+	}
+
+	if params.IsLastPipeline && !control.IfSuspendOrRetry() {
 		mergedStatus = lib.MarkAsCompleted(mergedStatus, params.WorkflowType)
 	}
 
 	existingObj, mergedStatus, err = handleWorkflowControlFile(ctx, params,
-		filepath.Join(baseDir, "workflow-control.yaml"), existingObj, objectClient, mergedStatus)
+		existingObj, objectClient, mergedStatus, control)
 	if err != nil {
 		return err
 	}
@@ -106,38 +112,40 @@ func updateStatus(ctx context.Context, baseDir string, params *helpers.Parameter
 	return nil
 }
 
-func handleWorkflowControlFile(ctx context.Context, params *helpers.Parameters, controlFile string,
+func handleWorkflowControlFile(ctx context.Context, params *helpers.Parameters,
 	existingObj *unstructured.Unstructured, objectClient dynamic.ResourceInterface,
-	mergedStatus map[string]any) (*unstructured.Unstructured, map[string]any, error) {
+	mergedStatus map[string]any, control *lib.WorkflowControl) (*unstructured.Unstructured, map[string]any, error) {
 	if params.WorkflowType != v1alpha1.WorkflowTypePromise && params.WorkflowType != v1alpha1.WorkflowTypeResource {
 		return existingObj, mergedStatus, nil
 	}
 
-	control, err := lib.ReadWorkflowControlFile(controlFile)
+	var err error
+
+	if !control.IfSuspendOrRetry() {
+		mergedStatus, err = lib.ClearPipelineSuspension(mergedStatus, params.PipelineName)
+		return existingObj, mergedStatus, err
+	}
+
+	retryAfterTimestamp := ""
+	if control.IsRetry() {
+		fmt.Fprintf(os.Stdout, "Info: workflow-control.yaml has retryAfter: %q \n", control.RetryAfter)
+		after, parseErr := control.RetryDuration()
+		if parseErr != nil {
+			fmt.Fprintf(os.Stdout, "Error: failed to parse retryAfter duration specified in "+
+				"the workflow-control.yaml file: %q \n", control.RetryAfter)
+			return nil, nil, parseErr
+		}
+		retryAfterTimestamp = time.Now().UTC().Add(after).Format(time.RFC3339)
+	}
+
+	fmt.Fprintln(os.Stdout, "Info: workflow-control.yaml is suspending the pipeline execution; will label the object and update its pipeline execution status.")
+	existingObj, err = addWorkflowSuspendLabel(ctx, objectClient, existingObj)
 	if err != nil {
 		return nil, nil, err
 	}
 
-	if control.IsSuspend() {
-		fmt.Fprintln(
-			os.Stdout,
-			"Info: workflow-control.yaml file found with suspend set to true; will label the object and update its pipeline execution status.")
-		existingObj, err = addWorkflowSuspendLabel(ctx, objectClient, existingObj)
-		if err != nil {
-			return nil, nil, err
-		}
-
-		mergedStatus, err = lib.MarkPipelineAsSuspended(mergedStatus, params.PipelineName, control.Message, existingObj.GetGeneration())
-		if err != nil {
-			return nil, nil, err
-		}
-	} else {
-		mergedStatus, err = lib.ClearPipelineSuspension(mergedStatus, params.PipelineName)
-		if err != nil {
-			return nil, nil, err
-		}
-	}
-	return existingObj, mergedStatus, nil
+	mergedStatus, err = lib.MarkPipelineAsSuspended(mergedStatus, params.PipelineName, control.Message, retryAfterTimestamp, existingObj.GetGeneration())
+	return existingObj, mergedStatus, err
 }
 
 func addWorkflowSuspendLabel(ctx context.Context, objectClient dynamic.ResourceInterface, existingObj *unstructured.Unstructured) (*unstructured.Unstructured, error) {

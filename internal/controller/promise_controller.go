@@ -254,7 +254,7 @@ func (r *PromiseReconciler) Reconcile(ctx context.Context, req ctrl.Request) (re
 		return ctrl.Result{}, fmt.Errorf("error converting Promise to Unstructured: %w", err)
 	}
 
-	passiveRequeue, err := r.reconcileDependenciesAndPromiseWorkflows(opts, promise, usPromise)
+	passiveRequeue, reconcileResult, err := r.reconcileDependenciesAndPromiseWorkflows(opts, promise, usPromise)
 	if err != nil {
 		return ctrl.Result{}, err
 	}
@@ -262,6 +262,10 @@ func (r *PromiseReconciler) Reconcile(ctx context.Context, req ctrl.Request) (re
 	if passiveRequeue {
 		logging.Debug(logger, "reconciliation paused awaiting Promise configure workflow updates")
 		return ctrl.Result{}, nil
+	}
+
+	if reconcileResult != nil {
+		return *reconcileResult, nil
 	}
 
 	if promise.ContainsAPI() {
@@ -906,19 +910,19 @@ func (r *PromiseReconciler) evaluateRequirement(ctx context.Context, promise *v1
 	}
 }
 
-func (r *PromiseReconciler) reconcileDependenciesAndPromiseWorkflows(o opts, promise *v1alpha1.Promise, unstructuredPromise *unstructured.Unstructured) (passiveRequeue bool, err error) {
+func (r *PromiseReconciler) reconcileDependenciesAndPromiseWorkflows(o opts, promise *v1alpha1.Promise, unstructuredPromise *unstructured.Unstructured) (passiveRequeue bool, result *ctrl.Result, err error) {
 	if len(promise.Spec.Dependencies) > 0 {
 		logging.Debug(o.logger, "applying static dependencies", "promise", promise.GetName())
 		if err := r.applyWorkForStaticDependencies(o, promise); err != nil {
 			logging.Error(o.logger, err, "error creating Works")
-			return false, err
+			return false, nil, err
 		}
 	}
 
 	if len(promise.Spec.Dependencies) == 0 {
 		err := r.deleteWorkForStaticDependencies(o, promise)
 		if err != nil {
-			return false, err
+			return false, nil, err
 		}
 	}
 
@@ -927,21 +931,21 @@ func (r *PromiseReconciler) reconcileDependenciesAndPromiseWorkflows(o opts, pro
 	if pipelineCount == 0 {
 		/* Promise Configure Workflows were removed, wipe any workflow statuses */
 		if changed := promise.ClearPipelineExecutionStatus(); changed {
-			return false, r.Client.Status().Update(o.ctx, promise)
+			return false, nil, r.Client.Status().Update(o.ctx, promise)
 		}
 
 		// No workflow to run, abort
-		return false, nil
+		return false, nil, nil
 	}
 
 	if promise.Status.Workflows != pipelineCount {
 		/* New pipelines have been added, regenerate the pipelines execution statuses */
 		promise.Status.Workflows = pipelineCount
-		return false, r.Client.Status().Update(o.ctx, promise)
+		return false, nil, r.Client.Status().Update(o.ctx, promise)
 	}
 
 	if requeue, err := r.ensureKratixWorkflowStatusIsSetup(promise); err != nil || requeue {
-		return requeue, err
+		return requeue, nil, err
 	}
 
 	if promise.Labels == nil {
@@ -960,7 +964,7 @@ func (r *PromiseReconciler) reconcileDependenciesAndPromiseWorkflows(o opts, pro
 	promiseSpecChanged := promise.Status.Kratix.Workflows.SuspendedGeneration != 0 && promise.GetGeneration() > promise.Status.Kratix.Workflows.SuspendedGeneration
 
 	if restarted, err := r.restartOnReconciliationInterval(o.ctx, o.logger, promise, completedCond, forcePipelineRun); restarted || err != nil {
-		return restarted, err
+		return restarted, nil, err
 	}
 
 	if resumedFromPause {
@@ -969,14 +973,15 @@ func (r *PromiseReconciler) reconcileDependenciesAndPromiseWorkflows(o opts, pro
 		promise.Labels[resourceutil.ReconcileResourcesLabel] = "true"
 	}
 
-	if shouldRequeue, suspendErr := r.reconcileSuspendedWorkflow(o, promise,
-		promiseSpecChanged); shouldRequeue || suspendErr != nil {
-		return shouldRequeue, suspendErr
+	if shouldRequeue, result, suspendErr := r.reconcileSuspendedWorkflow(o, promise,
+		promiseSpecChanged); shouldRequeue || result != nil || suspendErr != nil {
+
+		return shouldRequeue, result, suspendErr
 	}
 
 	pipelineResources, err := promise.GeneratePromisePipelines(v1alpha1.WorkflowActionConfigure, o.logger)
 	if err != nil {
-		return false, err
+		return false, nil, err
 	}
 
 	namespace := promise.GetNamespace()
@@ -989,24 +994,25 @@ func (r *PromiseReconciler) reconcileDependenciesAndPromiseWorkflows(o opts, pro
 	logging.Debug(o.logger, "reconciling configure workflow")
 	passiveRequeue, err = reconcileConfigure(jobOpts)
 	if err != nil {
-		return false, err
+		return false, nil, err
 	}
 
 	if passiveRequeue {
-		return true, nil
+		return true, nil, nil
 	}
 
-	return false, nil
+	return false, nil, nil
 }
 
 func (r *PromiseReconciler) reconcileSuspendedWorkflow(
 	o opts,
 	promise *v1alpha1.Promise,
 	promiseSpecChanged bool,
-) (bool, error) {
+) (bool, *ctrl.Result, error) {
+	var result *ctrl.Result
 
 	if notWorkflowSuspended(promise) {
-		return false, nil
+		return false, result, nil
 	}
 
 	if isManualReconcile(promise) || promiseSpecChanged {
@@ -1016,23 +1022,47 @@ func (r *PromiseReconciler) reconcileSuspendedWorkflow(
 		}
 		delete(promise.Labels, v1alpha1.WorkflowSuspendedLabel)
 		if err := r.Client.Update(o.ctx, promise); err != nil {
-			return true, err
+			return true, result, err
 		}
 		updatedPromise := &v1alpha1.Promise{}
 		if err := r.Client.Get(o.ctx, client.ObjectKeyFromObject(promise), updatedPromise); err != nil {
-			return true, err
+			return true, result, err
 		}
 		resetPromiseWorkflowPipelinesToPending(updatedPromise)
-		return true, r.Client.Status().Update(o.ctx, updatedPromise)
+		return true, result, r.Client.Status().Update(o.ctx, updatedPromise)
 	}
 
 	msg := fmt.Sprintf("'%s' label set to 'true' for promise; skipping reconciliation", v1alpha1.WorkflowSuspendedLabel)
 	logging.Info(r.Log, msg)
 	r.EventRecorder.Event(promise, v1.EventTypeWarning, workflowSuspendedReason, msg)
-	return true, r.setWorkflowSuspendedStatusCondition(o.ctx, promise)
+
+	retryAtTime, err := nextRetryAt(*promise)
+	if err != nil {
+		return true, result, err
+	}
+
+	var shouldRequeue = true
+
+	if !retryAtTime.IsZero() {
+		if retryAtTime.Before(time.Now()) {
+			logging.Info(o.logger, "the recorded NextRetryAt time has been reached, "+
+				"removing the workflow-suspended label", "retryAtTime", retryAtTime)
+			delete(promise.Labels, v1alpha1.WorkflowSuspendedLabel)
+			return true, result, r.Client.Update(o.ctx, promise)
+		}
+
+		shouldRequeue = false
+		requeueAfterDuration := time.Until(retryAtTime)
+
+		result = &ctrl.Result{RequeueAfter: requeueAfterDuration}
+
+		logging.Info(r.Log, "scheduling next reconciliation", "retryAfter", retryAtTime, "requeueAfter", requeueAfterDuration)
+	}
+
+	return shouldRequeue, result, r.setWorkflowSuspendedStatusCondition(o.ctx, promise)
 }
 
-// Eithers its not set, or its changed, either number of pipelines has changed, or names have changed
+// Either its not set, or its changed, either number of pipelines has changed, or names have changed
 func (r *PromiseReconciler) ensureKratixWorkflowStatusIsSetup(promise *v1alpha1.Promise) (bool, error) {
 	if len(promise.Status.Kratix.Workflows.Pipelines) != len(promise.Spec.Workflows.Promise.Configure) {
 		setNewPipelineStatus(promise)
@@ -1865,6 +1895,13 @@ func setStatusFieldsOnCRD(rrCRD *apiextensionsv1.CustomResourceDefinition) {
 												"message": {
 													Type: "string",
 												},
+												"nextRetryAt": {
+													Type: "string",
+												},
+												"attempts": {
+													Type:   "integer",
+													Format: "int64",
+												},
 												"lastTransitionTime": {
 													Type:   "string",
 													Format: "datetime",
@@ -2020,6 +2057,21 @@ func passedReconciliationInterval(completedCond *metav1.Condition, reconciliatio
 	return completedCond != nil &&
 		completedCond.Status == metav1.ConditionTrue &&
 		time.Since(completedCond.LastTransitionTime.Time) > reconciliationInterval
+}
+
+func nextRetryAt(promise v1alpha1.Promise) (time.Time, error) {
+	var retryTime time.Time
+	var err error
+	for _, pipeline := range promise.Status.Kratix.Workflows.Pipelines {
+		if pipeline.Phase == v1alpha1.WorkflowPhaseSuspended && pipeline.NextRetryAt != "" {
+			retryTime, err = time.Parse(time.RFC3339, pipeline.NextRetryAt)
+			if err != nil {
+				return time.Time{}, fmt.Errorf("unable to parse NextRetryAt for pipeline %s", pipeline.Name)
+			}
+		}
+	}
+
+	return retryTime, nil
 }
 
 func (r *PromiseReconciler) restartOnReconciliationInterval(
