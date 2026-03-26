@@ -240,10 +240,10 @@ func (r *DynamicResourceRequestController) Reconcile(ctx context.Context, req ct
 		return ctrl.Result{}, err
 	}
 
-	if passiveRequeue, result, err := r.reconcileSuspendedWorkflow(ctx, logger, rr,
-		pipelineResources); passiveRequeue || err != nil {
-		if result != nil {
-			return *result, err
+	if passiveRequeue, requeueResult, err := r.reconcileSuspendedWorkflow(ctx, logger, rr,
+		pipelineResources); passiveRequeue || requeueResult != nil || err != nil {
+		if requeueResult != nil {
+			return *requeueResult, err
 		}
 		return ctrl.Result{}, err
 	}
