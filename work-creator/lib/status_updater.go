@@ -151,10 +151,6 @@ func ClearPipelineSuspension(status map[string]any, pipelineName string) (map[st
 			continue
 		}
 
-		if pipelineMap["phase"] != "Suspended" {
-			return status, nil
-		}
-
 		pipelineMap["phase"] = "Running"
 		delete(pipelineMap, "message")
 		delete(pipelineMap, "attempts")

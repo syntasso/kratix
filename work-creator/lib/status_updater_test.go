@@ -477,30 +477,6 @@ var _ = Describe("StatusUpdater", func() {
 			))
 		})
 
-		It("leaves non-suspended pipelines unchanged", func() {
-			status := map[string]any{
-				"kratix": map[string]any{
-					"workflows": map[string]any{
-						"pipelines": []any{
-							map[string]any{
-								"name":  "pipeline-a",
-								"phase": "Running",
-							},
-						},
-					},
-				},
-			}
-
-			result, err := lib.ClearPipelineSuspension(status, "pipeline-a")
-
-			Expect(err).NotTo(HaveOccurred())
-			workflows := result["kratix"].(map[string]any)["workflows"].(map[string]any)
-			Expect(workflows["pipelines"].([]any)[0]).To(SatisfyAll(
-				HaveKeyWithValue("name", "pipeline-a"),
-				HaveKeyWithValue("phase", "Running"),
-			))
-		})
-
 		It("fails when the pipeline does not exist", func() {
 			status := map[string]any{
 				"kratix": map[string]any{
