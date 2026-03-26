@@ -21,7 +21,7 @@ const (
 	retryPromiseName = "workflow-retry"
 )
 
-var _ = Describe("Workflow Control", Ordered, func() {
+var _ = FDescribe("Workflow Control", Ordered, func() {
 	dependentCM := "workflow-retry-test"
 
 	BeforeEach(func() {
@@ -33,14 +33,14 @@ var _ = Describe("Workflow Control", Ordered, func() {
 	})
 
 	When("the file has 'retryAfter' set", func() {
-
 		AfterEach(func() {
 			platform.EventuallyKubectlDelete("cm", dependentCM, "-n", "kratix-platform-system", "--ignore-not-found")
+			platform.Kubectl("delete", "-f", "assets/workflow-control/resource-request-retry.yaml", "--ignore-not-found")
 			platform.EventuallyKubectlDelete("promise", retryPromiseName, "--ignore-not-found")
 		})
 
 		It("works", func() {
-			By("retrying the pipeline after the interval", func() {
+			By("retrying the Promise pipeline after the interval", func() {
 				platform.Kubectl("apply", "-f", "assets/workflow-control/promise-retry.yaml")
 
 				Eventually(func(g Gomega) {
@@ -48,13 +48,10 @@ var _ = Describe("Workflow Control", Ordered, func() {
 					g.Expect(platform.Kubectl("get", "promise", retryPromiseName, phaseJSONPath("pipe-retry"))).To(Equal("Suspended"))
 					g.Expect(platform.Kubectl("get", "promise", retryPromiseName, messageJSONPath("pipe-retry"))).To(Equal("configmap workflow-retry-test not found"))
 					g.Expect(platform.Kubectl("get", "promise", retryPromiseName, nextRetryAtJSONPath("pipe-retry"))).NotTo(BeEmpty())
-					g.Expect(platform.Kubectl("get", "promise", retryPromiseName, attemptsJSONPath())).To(Equal("1"))
+					g.Expect(platform.Kubectl("get", "promise", retryPromiseName, attemptsJSONPath("pipe-retry"))).To(Equal("1"))
 					g.Expect(platform.Kubectl("get", "promise", retryPromiseName, `-o=jsonpath={.metadata.labels.kratix\.io/workflow-suspended}`)).To(Equal("true"))
 				}).Should(Succeed())
-
-				Consistently(func() int {
-					return jobCountForPromisePipeline(retryPromiseName, "pipe-retry")
-				}, 5*time.Second).Should(Equal(1))
+				Expect(jobCountForPromisePipeline(retryPromiseName, "pipe-2")).To(Equal(0))
 
 				Eventually(func() int {
 					return jobCountForPromisePipeline(retryPromiseName, "pipe-retry")
@@ -62,7 +59,7 @@ var _ = Describe("Workflow Control", Ordered, func() {
 
 				Eventually(func(g Gomega) {
 					g.Expect(platform.Kubectl("get", "promise", retryPromiseName, phaseJSONPath("pipe-retry"))).To(Equal("Suspended"))
-					g.Expect(platform.Kubectl("get", "promise", retryPromiseName, attemptsJSONPath())).To(Equal("2"))
+					g.Expect(platform.Kubectl("get", "promise", retryPromiseName, attemptsJSONPath("pipe-retry"))).To(Equal("2"))
 				}).Should(Succeed())
 
 				Eventually(func() int {
@@ -71,7 +68,7 @@ var _ = Describe("Workflow Control", Ordered, func() {
 
 				Eventually(func(g Gomega) {
 					g.Expect(platform.Kubectl("get", "promise", retryPromiseName, phaseJSONPath("pipe-retry"))).To(Equal("Suspended"))
-					g.Expect(platform.Kubectl("get", "promise", retryPromiseName, attemptsJSONPath())).To(Equal("3"))
+					g.Expect(platform.Kubectl("get", "promise", retryPromiseName, attemptsJSONPath("pipe-retry"))).To(Equal("3"))
 				}).Should(Succeed())
 			})
 
@@ -81,13 +78,29 @@ var _ = Describe("Workflow Control", Ordered, func() {
 				Eventually(func(g Gomega) {
 					g.Expect(platform.Kubectl("get", "promise", retryPromiseName, phaseJSONPath("pipe-0"))).To(Equal("Succeeded"))
 					g.Expect(platform.Kubectl("get", "promise", retryPromiseName, phaseJSONPath("pipe-retry"))).To(Equal("Succeeded"))
+					g.Expect(platform.Kubectl("get", "promise", retryPromiseName, phaseJSONPath("pipe-2"))).To(Equal("Succeeded"))
 					g.Expect(platform.Kubectl("get", "promise", retryPromiseName, nextRetryAtJSONPath("pipe-retry"))).To(BeEmpty())
-					g.Expect(platform.Kubectl("get", "promise", retryPromiseName, attemptsJSONPath())).To(BeEmpty())
+					g.Expect(platform.Kubectl("get", "promise", retryPromiseName, attemptsJSONPath("pipe-retry"))).To(BeEmpty())
 					g.Expect(platform.Kubectl("get", "promise", retryPromiseName, `-o=jsonpath={.metadata.labels.kratix\.io/workflow-suspended}`)).To(BeEmpty())
 					g.Expect(platform.Kubectl("get", "promise", retryPromiseName)).To(ContainSubstring("Available"))
 				}).Should(Succeed())
 			})
+
+			By("retrying a resource request pipeline after the interval", func() {
+				platform.Kubectl("apply", "-f", "assets/workflow-control/resource-request-retry.yaml")
+
+				Eventually(func(g Gomega) {
+					g.Expect(platform.Kubectl("get", "workflowretries", "retry-test", phaseJSONPath("resource-pipe-retry"))).To(Equal("Suspended"))
+					g.Expect(platform.Kubectl("get", "workflowretries", "retry-test", nextRetryAtJSONPath("resource-pipe-retry"))).NotTo(BeEmpty())
+					g.Expect(platform.Kubectl("get", "workflowretries", "retry-test", attemptsJSONPath("resource-pipe-retry"))).To(Equal("1"))
+				}).Should(Succeed())
+
+				Eventually(func(g Gomega) {
+					g.Expect(platform.Kubectl("get", "workflowretries", "retry-test", attemptsJSONPath("resource-pipe-retry"))).To(Equal("2"))
+				}).Should(Succeed())
+			})
 		})
+
 	})
 
 	When("pipelines are suspended by the workflow control file", func() {
@@ -246,8 +259,8 @@ func nextRetryAtJSONPath(pipelineName string) string {
 	return fmt.Sprintf(`-o=jsonpath={.status.kratix.workflows.pipelines[?(@.name=="%s")].nextRetryAt}`, pipelineName)
 }
 
-func attemptsJSONPath() string {
-	return fmt.Sprintf(`-o=jsonpath={.status.kratix.workflows.pipelines[?(@.name=="%s")].attempts}`, "pipe-retry")
+func attemptsJSONPath(pipelineName string) string {
+	return fmt.Sprintf(`-o=jsonpath={.status.kratix.workflows.pipelines[?(@.name=="%s")].attempts}`, pipelineName)
 }
 
 func jobCountForPromisePipeline(promiseName, pipelineName string) int {

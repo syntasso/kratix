@@ -1,0 +1,6 @@
+apiVersion: test.kratix.io/v1alpha1
+kind: WorkflowRetry
+metadata:
+  name: retry-test
+  namespace: default
+spec: {}

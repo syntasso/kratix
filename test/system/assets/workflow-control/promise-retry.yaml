@@ -68,3 +68,34 @@ spec:
                     retryAfter: 20s
                     message: configmap workflow-retry-test not found
                     EOF
+        - apiVersion: platform.kratix.io/v1alpha1
+          kind: Pipeline
+          metadata:
+            name: pipe-2
+          spec:
+            containers:
+              - name: complete
+                image: ghcr.io/syntasso/kratix-pipeline-utility:v0.0.1
+                command: ["/bin/sh", "-c"]
+                args:
+                  - |
+                    set -eu
+                    echo "pipe-2 complete"
+    resource:
+      configure:
+        - apiVersion: platform.kratix.io/v1alpha1
+          kind: Pipeline
+          metadata:
+            name: resource-pipe-retry
+          spec:
+            containers:
+              - name: retry
+                image: ghcr.io/syntasso/kratix-pipeline-utility:v0.0.1
+                command: ["/bin/sh", "-c"]
+                args:
+                  - |
+                    set -eu
+                    cat <<'EOF' > /kratix/metadata/workflow-control.yaml
+                    retryAfter: 20s
+                    message: retrying resource pipeline
+                    EOF
