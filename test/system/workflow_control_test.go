@@ -21,7 +21,7 @@ const (
 	retryPromiseName = "workflow-retry"
 )
 
-var _ = FDescribe("Workflow Control", Ordered, func() {
+var _ = Describe("Workflow Control", Ordered, func() {
 	dependentCM := "workflow-retry-test"
 
 	BeforeEach(func() {
