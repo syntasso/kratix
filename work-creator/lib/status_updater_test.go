@@ -285,6 +285,36 @@ var _ = Describe("StatusUpdater", func() {
 			Expect(err).To(MatchError(ContainSubstring("\"pipeline-b\" not found in status.kratix.workflows.pipelines")))
 		})
 
+		When("retryAt is not set but the pipeline previously had retry related status fields", func() {
+			It("clears nextRetryAt and attempts", func() {
+				status := map[string]any{
+					"kratix": map[string]any{
+						"workflows": map[string]any{
+							"pipelines": []any{
+								map[string]any{
+									"name":        "pipeline-a",
+									"phase":       "Suspended",
+									"nextRetryAt": "2026-03-25T14:22:00Z",
+									"attempts":    int64(3),
+								},
+							},
+						},
+					},
+				}
+
+				result, err := lib.MarkPipelineAsSuspended(status, "pipeline-a", "waiting for a shooting star", "", 1)
+
+				Expect(err).NotTo(HaveOccurred())
+				pipeline := result["kratix"].(map[string]any)["workflows"].(map[string]any)["pipelines"].([]any)[0]
+				Expect(pipeline).To(SatisfyAll(
+					HaveKeyWithValue("phase", "Suspended"),
+					HaveKeyWithValue("message", "waiting for a shooting star"),
+					Not(HaveKey("nextRetryAt")),
+					Not(HaveKey("attempts")),
+				))
+			})
+		})
+
 		When("retryAt is set", func() {
 			It("sets the timestamp and increments the attempts counter", func() {
 				status := map[string]any{

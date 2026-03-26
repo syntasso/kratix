@@ -109,6 +109,9 @@ func MarkPipelineAsSuspended(status map[string]any, pipelineName, msg, retryAtTi
 				attempts = existing.(int64) + 1
 			}
 			pipelineMap["attempts"] = attempts
+		} else {
+			delete(pipelineMap, "nextRetryAt")
+			delete(pipelineMap, "attempts")
 		}
 
 		pipelines[i] = pipelineMap
