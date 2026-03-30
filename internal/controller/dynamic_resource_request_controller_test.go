@@ -1075,6 +1075,35 @@ var _ = Describe("DynamicResourceRequestController", func() {
 			))
 		})
 
+		When("the resource request is unpaused while suspended", func() {
+			BeforeEach(func() {
+				// Simulate the resource request having been paused: set the reconciled condition to paused
+				Expect(fakeK8sClient.Get(ctx, resReqNameNamespace, resReq)).To(Succeed())
+				resourceutil.MarkReconciledPaused(resReq)
+				Expect(fakeK8sClient.Status().Update(ctx, resReq)).To(Succeed())
+			})
+
+			It("clears the suspended label, sets workflow restart label, and updates condition to pending", func() {
+				result, err := reconciler.Reconcile(ctx, ctrl.Request{NamespacedName: resReqNameNamespace})
+				Expect(err).NotTo(HaveOccurred())
+				Expect(result).To(Equal(ctrl.Result{}))
+
+				Expect(fakeK8sClient.Get(ctx, resReqNameNamespace, resReq)).To(Succeed())
+
+				By("removing the workflow-suspended label")
+				Expect(resReq.GetLabels()).ToNot(HaveKey(v1alpha1.WorkflowSuspendedLabel))
+
+				By("setting the workflow-run-from-start label")
+				Expect(resReq.GetLabels()).To(HaveKeyWithValue(resourceutil.WorkflowRunFromStartLabel, "true"))
+
+				By("updating the reconciled condition to pending")
+				reconciled := resourceutil.GetCondition(resReq, resourceutil.ReconciledCondition)
+				Expect(reconciled).NotTo(BeNil())
+				Expect(reconciled.Status).To(Equal(v1.ConditionUnknown))
+				Expect(reconciled.Reason).To(Equal("Unpaused"))
+			})
+		})
+
 		When("the workflow is being retried", func() {
 			It("schedules a reconciliation after the nextRetryAt in the request status", func() {
 				Expect(fakeK8sClient.Get(ctx, resReqNameNamespace, resReq)).To(Succeed())

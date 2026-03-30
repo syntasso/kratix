@@ -231,6 +231,15 @@ func (r *DynamicResourceRequestController) Reconcile(ctx context.Context, req ct
 		return ctrl.Result{}, err
 	}
 
+	if resourceutil.IsReconciledPaused(rr) {
+		logging.Info(logger, "Resource request unpaused; forcing reconciliation")
+		if err := ensureWorkflowRunsFromStart(ctx, r.Client, rr); err != nil {
+			return ctrl.Result{}, err
+		}
+		resourceutil.MarkReconciledPending(rr, "Unpaused")
+		return ctrl.Result{}, r.Client.Status().Update(ctx, rr)
+	}
+
 	pipelineResources, err := promise.GenerateResourcePipelines(v1alpha1.WorkflowActionConfigure, rr, logger)
 	if err != nil {
 		return ctrl.Result{}, err
