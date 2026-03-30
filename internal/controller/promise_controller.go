@@ -910,7 +910,7 @@ func (r *PromiseReconciler) evaluateRequirement(ctx context.Context, promise *v1
 	}
 }
 
-func (r *PromiseReconciler) reconcileDependenciesAndPromiseWorkflows(o opts, promise *v1alpha1.Promise, unstructuredPromise *unstructured.Unstructured) (passiveRequeue bool, result *ctrl.Result, err error) {
+func (r *PromiseReconciler) reconcileDependenciesAndPromiseWorkflows(o opts, promise *v1alpha1.Promise, unstructuredPromise *unstructured.Unstructured) (bool, *ctrl.Result, error) {
 	if len(promise.Spec.Dependencies) > 0 {
 		logging.Debug(o.logger, "applying static dependencies", "promise", promise.GetName())
 		if err := r.applyWorkForStaticDependencies(o, promise); err != nil {
@@ -969,8 +969,15 @@ func (r *PromiseReconciler) reconcileDependenciesAndPromiseWorkflows(o opts, pro
 
 	if resumedFromPause {
 		logging.Info(o.logger, "Promise unpaused; forcing reconciliation")
-		promise.Labels[resourceutil.ManualReconciliationLabel] = "true"
+		promise.Labels[resourceutil.WorkflowRunFromStartLabel] = "true"
 		promise.Labels[resourceutil.ReconcileResourcesLabel] = "true"
+		delete(promise.Labels, v1alpha1.WorkflowSuspendedLabel)
+		if err := r.Client.Update(o.ctx, promise); err != nil {
+			return true, nil, err
+		}
+		updateConditionOnPromise(promise, promiseReconciledPendingCondition("Unpaused"))
+		result, err := r.updatePromiseStatus(o.ctx, promise)
+		return true, &result, err
 	}
 
 	if shouldRequeue, result, suspendErr := r.reconcileSuspendedWorkflow(o, promise,
@@ -992,7 +999,7 @@ func (r *PromiseReconciler) reconcileDependenciesAndPromiseWorkflows(o opts, pro
 	jobOpts := workflow.NewOpts(o.ctx, o.client, r.EventRecorder, o.logger, unstructuredPromise, pipelineResources, "promise", r.NumberOfJobsToKeep, namespace)
 
 	logging.Debug(o.logger, "reconciling configure workflow")
-	passiveRequeue, err = reconcileConfigure(jobOpts)
+	passiveRequeue, err := reconcileConfigure(jobOpts)
 	if err != nil {
 		return false, nil, err
 	}
