@@ -960,19 +960,17 @@ func (r *PromiseReconciler) reconcileDependenciesAndPromiseWorkflows(o opts, pro
 		promise.Labels[resourceutil.WorkflowRunFromStartLabel] != "true"
 
 	reconciledCond := promise.GetCondition(string(resourceutil.ReconciledCondition))
-	resumedFromPause := reconciledCond != nil && reconciledCond.Status == metav1.ConditionUnknown && reconciledCond.Reason == pausedReconciliationReason
 	promiseSpecChanged := promise.Status.Kratix.Workflows.SuspendedGeneration != 0 && promise.GetGeneration() > promise.Status.Kratix.Workflows.SuspendedGeneration
 
 	if restarted, err := r.restartOnReconciliationInterval(o.ctx, o.logger, promise, completedCond, forcePipelineRun); restarted || err != nil {
 		return restarted, nil, err
 	}
 
+	resumedFromPause := reconciledCond != nil && reconciledCond.Status == metav1.ConditionUnknown && reconciledCond.Reason == pausedReconciliationReason
 	if resumedFromPause {
 		logging.Info(o.logger, "Promise unpaused; forcing reconciliation")
-		promise.Labels[resourceutil.WorkflowRunFromStartLabel] = "true"
 		promise.Labels[resourceutil.ReconcileResourcesLabel] = "true"
-		delete(promise.Labels, v1alpha1.WorkflowSuspendedLabel)
-		if err := r.Client.Update(o.ctx, promise); err != nil {
+		if err := ensureWorkflowRunsFromStart(o.ctx, r.Client, promise); err != nil {
 			return true, nil, err
 		}
 		updateConditionOnPromise(promise, promiseReconciledPendingCondition("Unpaused"))

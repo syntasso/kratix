@@ -1725,6 +1725,43 @@ var _ = Describe("PromiseController", func() {
 				Expect(promise.Status.Kratix.Workflows.Pipelines[1].Phase).To(Equal(v1alpha1.WorkflowPhasePending))
 			})
 
+			When("the promise is unpaused while suspended", func() {
+				BeforeEach(func() {
+					Expect(fakeK8sClient.Get(ctx, promiseName, promise)).To(Succeed())
+					promise.Status.Conditions = append(promise.Status.Conditions, metav1.Condition{
+						Type:               "Reconciled",
+						Status:             metav1.ConditionUnknown,
+						Reason:             "PausedReconciliation",
+						Message:            "Paused",
+						LastTransitionTime: metav1.Now(),
+					})
+					Expect(fakeK8sClient.Status().Update(ctx, promise)).To(Succeed())
+				})
+
+				It("clears the suspended label, sets workflow restart and reconcile all resources label, and updates condition to pending", func() {
+					result, err := reconciler.Reconcile(ctx, ctrl.Request{NamespacedName: promiseName})
+					Expect(err).NotTo(HaveOccurred())
+					Expect(result).To(Equal(ctrl.Result{}))
+
+					Expect(fakeK8sClient.Get(ctx, promiseName, promise)).To(Succeed())
+
+					By("removing the workflow-suspended label")
+					Expect(promise.Labels).ToNot(HaveKey(v1alpha1.WorkflowSuspendedLabel))
+
+					By("setting the workflow-run-from-start label")
+					Expect(promise.Labels).To(HaveKeyWithValue(resourceutil.WorkflowRunFromStartLabel, "true"))
+
+					By("setting the reconcile-resources label")
+					Expect(promise.Labels).To(HaveKeyWithValue(resourceutil.ReconcileResourcesLabel, "true"))
+
+					By("updating the reconciled condition to pending")
+					reconcileCond := apimeta.FindStatusCondition(promise.Status.Conditions, "Reconciled")
+					Expect(reconcileCond).NotTo(BeNil())
+					Expect(string(reconcileCond.Status)).To(Equal("Unknown"))
+					Expect(reconcileCond.Reason).To(Equal("Unpaused"))
+				})
+			})
+
 			When("the workflow is being retried", func() {
 				It("schedules a reconciliation after the retryAt in the promise status", func() {
 					By("setting the 'retryAt' in a workflow")

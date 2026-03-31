@@ -125,6 +125,17 @@ func ensureTraceAnnotations(ctx context.Context, c client.Client, obj client.Obj
 	return nil
 }
 
+func ensureWorkflowRunsFromStart(ctx context.Context, c client.Client, obj client.Object) error {
+	labels := obj.GetLabels()
+	if labels == nil {
+		labels = map[string]string{}
+	}
+	labels[resourceutil.WorkflowRunFromStartLabel] = "true"
+	delete(labels, v1alpha1.WorkflowSuspendedLabel)
+	obj.SetLabels(labels)
+	return c.Update(ctx, obj)
+}
+
 // finalizers must be less than 64 characters
 func addFinalizers(o opts, resource client.Object, finalizers []string) error {
 	logging.Info(o.logger, "adding missing finalizers",
