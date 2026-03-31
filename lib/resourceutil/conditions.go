@@ -22,7 +22,7 @@ func SetCondition(obj *unstructured.Unstructured, condition *clusterv1.Condition
 	conditionsutil.Set(setter, condition)
 }
 
-func IsReconciledPaused(obj *unstructured.Unstructured) bool {
+func HasReconcilePausedCondition(obj *unstructured.Unstructured) bool {
 	cond := GetCondition(obj, ReconciledCondition)
 	return cond != nil && cond.Status == v1.ConditionUnknown && cond.Reason == pausedReconciliationReason
 }
