@@ -356,7 +356,12 @@ func handleCurrentPipelineJob(opts Opts, state *workflowState, pipeline v1alpha1
 	if state.resumeFromSuspended {
 		logging.Info(opts.logger, fmt.Sprintf("rerunning suspended pipeline after %q is removed",
 			v1alpha1.WorkflowSuspendedLabel), "pipeline", pipeline.Name)
-		return createConfigurePipeline(opts, state, pipeline)
+		requeue, err := createConfigurePipeline(opts, state, pipeline)
+		if err != nil {
+			return false, err
+		}
+		// we need to call clean up here because suspended workflows never reach the end of reconcileConfigure()
+		return requeue, cleanup(opts, opts.namespace)
 	}
 
 	if isFailed(state.mostRecentJob) {
