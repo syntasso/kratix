@@ -58,6 +58,14 @@ IsConfigureAction returns true if the KRATIX_WORKFLOW_ACTION environment variabl
 
 IsDeleteAction returns true if the KRATIX_WORKFLOW_ACTION environment variable is set to "delete"
 
+**`WriteSuspend(message string) error`**
+
+WriteSuspend suspends the Workflow by writing workflow-control.yaml with suspend: true. Kratix will stop any further pipeline execution and set the current pipeline execution phase to Suspended. If a message is provided, it will be surfaced in the object's status (status.kratix.workflows.pipelines[PIPELINE_NAME].message).
+
+**`WriteRetryAfter(duration string, message string) error`**
+
+WriteRetryAfter configures the current pipeline to be retried after the given duration. The duration must be a valid Go duration string (e.g. "5m", "1h30m", "300ms"). Kratix will requeue this pipeline after the specified duration and increment the attempt counter in the object's status (status.kratix.workflows.pipelines[PIPELINE_NAME].attempts). If a message is provided, it will be surfaced in the object's status (status.kratix.workflows.pipelines[PIPELINE_NAME].message).
+
 **`PipelineName() string`**
 
 PipelineName returns the value of the KRATIX_PIPELINE_NAME environment variable
@@ -82,7 +90,7 @@ The Resource interface implements the core functions for getting attributes of a
 
 GetValue queries the resource and returns the value at the specified path e.g. spec.dbConfig.size
 
-**`GetStatus(string) (Status, error)`**
+**`GetStatus() (Status, error)`**
 
 GetStatus queries the resource and returns the resource.status
 
