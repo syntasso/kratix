@@ -14,9 +14,11 @@ import (
 )
 
 const (
-	timeout, longerTimeout, interval = 2 * time.Minute, 3 * time.Minute, 2 * time.Second
-	workerOne                        = "worker-1"
-	workerTwo                        = "worker-2"
+	timeout       = 2 * time.Minute
+	longerTimeout = 3 * time.Minute
+	interval      = 2 * time.Second
+	workerOne     = "worker-1"
+	workerTwo     = "worker-2"
 )
 
 var destinationName = getEnvOrDefault("DESTINATION_NAME", "worker-1")
@@ -166,7 +168,7 @@ var _ = Describe("Core Tests", Ordered, func() {
 					By("applying the documents", func() {
 						Eventually(func(g Gomega) {
 							g.Expect(worker.Kubectl("get", "namespaces")).To(ContainSubstring("testbundle-ns"))
-							g.Expect(worker.Kubectl("-n", "testbundle-ns", "get", "configmap")).To(ContainSubstring("testbundle-cm"))
+							g.Expect(worker.KubectlG(g, "-n", "testbundle-ns", "get", "configmap")).To(ContainSubstring("testbundle-cm"))
 						}, timeout, interval).Should(Succeed())
 					})
 
@@ -208,7 +210,7 @@ var _ = Describe("Core Tests", Ordered, func() {
 							json.Unmarshal([]byte(jsonOutput), &parsedOutput)
 							// TODO: remove after releasing: only assert if '.kratix.workflows.pipelines' is set
 							if len(parsedOutput) != 0 {
-								Expect(parsedOutput).To(HaveLen(1))
+								g.Expect(parsedOutput).To(HaveLen(1))
 								workflowPipelines := parsedOutput[0]
 								g.Expect(workflowPipelines).To(HaveLen(1))
 								g.Expect(workflowPipelines[0].Name).To(Equal("setup-deps"))
@@ -329,8 +331,8 @@ var _ = Describe("Core Tests", Ordered, func() {
 
 					Eventually(func(g Gomega) {
 						g.Expect(worker.Kubectl("get", "namespaces")).To(ContainSubstring(rrNsName))
-						g.Expect(worker.KubectlAllowFail(append(cmArgs, rrConfigMapName+"-1")...)).To(ContainSubstring(rrConfigMapName))
-						g.Expect(worker.KubectlAllowFail(append(cmArgs, rrConfigMapName+"-2")...)).To(ContainSubstring(rrConfigMapName))
+						g.Expect(worker.KubectlG(g, append(cmArgs, rrConfigMapName+"-1")...)).To(ContainSubstring(rrConfigMapName))
+						g.Expect(worker.KubectlG(g, append(cmArgs, rrConfigMapName+"-2")...)).To(ContainSubstring(rrConfigMapName))
 					}, longerTimeout, interval).Should(Succeed())
 				})
 
@@ -345,10 +347,10 @@ var _ = Describe("Core Tests", Ordered, func() {
 					Eventually(func(g Gomega) {
 						g.Expect(worker.Kubectl("get", "namespaces")).To(ContainSubstring(rrNsNameUpdated))
 						g.Expect(
-							worker.Kubectl(append(cmArgs, rrConfigMapName+"-1", "-o=jsonpath={.data.timestamp}")...),
+							worker.KubectlG(g, append(cmArgs, rrConfigMapName+"-1", "-o=jsonpath={.data.timestamp}")...),
 						).ToNot(Equal(originalTimeStampW1))
 						g.Expect(
-							worker.Kubectl(append(cmArgs, rrConfigMapName+"-2", "-o=jsonpath={.data.timestamp}")...),
+							worker.KubectlG(g, append(cmArgs, rrConfigMapName+"-2", "-o=jsonpath={.data.timestamp}")...),
 						).ToNot(Equal(originalTimeStampW2))
 					}, longerTimeout, interval).Should(Succeed())
 
@@ -404,16 +406,16 @@ var _ = Describe("Core Tests", Ordered, func() {
 						"get", "configmap", "testbundle-cm", "-o=jsonpath={.data.promiseEnv}"}
 
 					Eventually(func(g Gomega) {
-						g.Expect(worker.Kubectl(getCMTimestamp...)).ToNot(Equal(originalPromiseConfigMapTimestamp1))
-						g.Expect(worker.Kubectl(getCMEnvValue...)).To(ContainSubstring("second"))
+						g.Expect(worker.KubectlG(g, getCMTimestamp...)).ToNot(Equal(originalPromiseConfigMapTimestamp1))
+						g.Expect(worker.KubectlG(g, getCMEnvValue...)).To(ContainSubstring("second"))
 					}, longerTimeout, interval).Should(Succeed())
 				})
 
 				By("rerunning the resource configure pipeline", func() {
 					Eventually(func(g Gomega) {
 						g.Expect(worker.Kubectl("get", "namespaces")).To(ContainSubstring(rrNsNameUpdated))
-						g.Expect(worker.Kubectl(append(cmArgs, rrConfigMapName+"-1", "-o=jsonpath={.data.timestamp}")...)).ToNot(Equal(originalTimeStampW1))
-						g.Expect(worker.Kubectl(append(cmArgs, rrConfigMapName+"-2", "-o=jsonpath={.data.timestamp}")...)).ToNot(Equal(originalTimeStampW2))
+						g.Expect(worker.KubectlG(g, append(cmArgs, rrConfigMapName+"-1", "-o=jsonpath={.data.timestamp}")...)).ToNot(Equal(originalTimeStampW1))
+						g.Expect(worker.KubectlG(g, append(cmArgs, rrConfigMapName+"-2", "-o=jsonpath={.data.timestamp}")...)).ToNot(Equal(originalTimeStampW2))
 					}, longerTimeout, interval).Should(Succeed())
 				})
 			})
@@ -424,7 +426,7 @@ var _ = Describe("Core Tests", Ordered, func() {
 					g.Expect(platform.Kubectl("-n", "default", "get", "workplacements")).NotTo(ContainSubstring(resourceRequestName))
 					g.Expect(platform.Kubectl("-n", "default", "get", "works")).NotTo(ContainSubstring(resourceRequestName))
 					g.Expect(worker.Kubectl("get", "namespaces")).NotTo(ContainSubstring(rrNsNameUpdated))
-					g.Expect(worker.Kubectl("-n", "testbundle-ns", "get", "cm")).NotTo(ContainSubstring(rrConfigMapName))
+					g.Expect(worker.KubectlG(g, "-n", "testbundle-ns", "get", "cm")).NotTo(ContainSubstring(rrConfigMapName))
 				}, timeout, interval).Should(Succeed())
 			})
 
