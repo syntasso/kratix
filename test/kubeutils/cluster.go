@@ -24,15 +24,19 @@ func SetTimeoutAndInterval(t, i time.Duration) {
 	interval = i
 }
 
+func (c Cluster) KubectlG(g Gomega, args ...string) string {
+	return c.kubectlInternalG(g, true, args...)
+}
+
 func (c Cluster) Kubectl(args ...string) string {
-	return c.kubectlInternal(true, args...)
+	return c.kubectlInternalG(Default, true, args...)
 }
 
 func (c Cluster) KubectlAllowFail(args ...string) string {
-	return c.kubectlInternal(false, args...)
+	return c.kubectlInternalG(Default, false, args...)
 }
 
-func (c Cluster) kubectlInternal(checkExitCode bool, args ...string) string {
+func (c Cluster) kubectlInternalG(g Gomega, checkExitCode bool, args ...string) string {
 	GinkgoHelper()
 	args = append(args, "--context="+c.Context)
 
@@ -41,12 +45,12 @@ func (c Cluster) kubectlInternal(checkExitCode bool, args ...string) string {
 
 	fmt.Fprintf(GinkgoWriter, "Running: kubectl %s\n", strings.Join(args, " "))
 
-	ExpectWithOffset(1, err).ShouldNot(HaveOccurred())
+	g.ExpectWithOffset(1, err).ShouldNot(HaveOccurred())
 
 	if checkExitCode {
-		EventuallyWithOffset(1, session, timeout, interval).Should(gexec.Exit(0))
+		g.EventuallyWithOffset(1, session, timeout, interval).Should(gexec.Exit(0))
 	} else {
-		EventuallyWithOffset(1, session, timeout, interval).Should(gexec.Exit())
+		g.EventuallyWithOffset(1, session, timeout, interval).Should(gexec.Exit())
 	}
 
 	return string(session.Out.Contents()) + string(session.Err.Contents())
