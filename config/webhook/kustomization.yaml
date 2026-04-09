@@ -2,5 +2,12 @@ resources:
 - manifests.yaml
 - service.yaml
 
+labels:
+- includeSelectors: true
+  pairs:
+    app.kubernetes.io/component: kratix-manager
+    app.kubernetes.io/instance: kratix-platform
+    app.kubernetes.io/part-of: kratix
+
 configurations:
 - kustomizeconfig.yaml
