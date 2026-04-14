@@ -619,17 +619,9 @@ func createConfigurePipeline(opts Opts, state *workflowState, resources v1alpha1
 
 	opts.eventRecorder.Eventf(opts.parentObject, "Normal", "PipelineStarted", "Configure Pipeline started: %s", resources.Name)
 
-	updated, err := setConfigureWorkflowCompletedConditionStatus(opts, state.pipelineIndex, opts.parentObject)
-	if err != nil || updated {
-		return updated, err
+	if err = setPipelineStartingStatus(opts, state.pipelineIndex, opts.parentObject, resources.Job); err != nil {
+		return false, err
 	}
-
-	state.desiredPipelinePhase = v1alpha1.WorkflowPhaseRunning
-	state.desiredPipelineJob = resources.Job
-	if updated, err = reconcileWorkflowStatus(opts, state); err != nil || updated {
-		return updated, err
-	}
-
 	return true, nil
 }
 
@@ -654,34 +646,53 @@ func removeLabel(opts Opts, labelKey string) error {
 	return nil
 }
 
-func setConfigureWorkflowCompletedConditionStatus(opts Opts, pipelineIndex int, obj *unstructured.Unstructured) (bool, error) {
+func setPipelineStartingStatus(opts Opts, pipelineIndex int, obj *unstructured.Unstructured, job *batchv1.Job) error {
 	if opts.SkipConditions {
-		return false, nil
+		return nil
 	}
+
 	var updated bool
+
+	currentMessage := resourceutil.GetStatus(obj, "message")
+	if currentMessage != "Pending" {
+		logging.Debug(opts.logger, "updating status message to Pending", "previousMessage", currentMessage)
+		resourceutil.SetStatus(obj, opts.logger, "message", "Pending")
+		updated = true
+	}
+
+	reconciled := resourceutil.GetCondition(obj, resourceutil.ReconciledCondition)
+	if reconciled == nil || reconciled.Status != v1.ConditionUnknown || reconciled.Reason != "WorkflowPending" {
+		logging.Debug(opts.logger, "updating Reconciled condition to WorkflowPending")
+		resourceutil.MarkReconciledPending(obj, "WorkflowPending")
+		updated = true
+	}
+
 	switch resourceutil.GetConfigureWorkflowCompletedConditionStatus(obj) {
 	case v1.ConditionTrue:
 		fallthrough
 	case v1.ConditionUnknown:
-		currentMessage := resourceutil.GetStatus(obj, "message")
-		if pipelineIndex == 0 || currentMessage == "" || currentMessage == "Resource requested" {
-			resourceutil.SetStatus(obj, opts.logger, "message", "Pending")
-		}
+		logging.Debug(opts.logger, "marking ConfigureWorkflowCompleted as running")
 		resourceutil.MarkConfigureWorkflowAsRunning(opts.logger, obj)
-		resourceutil.MarkReconciledPending(obj, "WorkflowPending")
 		updated = true
 	default:
-		updated = false
+		// The Condition is false (running); no need to update anything
+	}
+
+	if resourceutil.GetCurrentPipelinePhase(obj, job) != v1alpha1.WorkflowPhaseRunning {
+		logging.Debug(opts.logger, "marking pipeline phase as Running", "pipelineIndex", pipelineIndex)
+		if err := resourceutil.MarkCurrentPipelineAs(v1alpha1.WorkflowPhaseRunning, obj, opts.logger, job); err != nil {
+			return err
+		}
+		updated = true
 	}
 
 	if updated {
-		logging.Info(opts.logger, "setting pipeline execution status", "pipelineIndex", pipelineIndex, "phase", v1alpha1.WorkflowPhaseRunning)
 		if err := opts.client.Status().Update(opts.ctx, obj); err != nil {
 			logging.Error(opts.logger, err, "failed to update object status")
-			return false, err
+			return err
 		}
 	}
-	return updated, nil
+	return nil
 }
 
 func getMostRecentDeletePipelineJob(opts Opts, namespace string, pipeline v1alpha1.PipelineJobResources) (*batchv1.Job, error) {

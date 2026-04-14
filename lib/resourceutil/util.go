@@ -346,6 +346,25 @@ func MarkCurrentPipelineAsRunning(rr *unstructured.Unstructured, logger logr.Log
 	return MarkCurrentPipelineAs(v1alpha1.WorkflowPhaseRunning, rr, logger, job)
 }
 
+func GetCurrentPipelinePhase(rr *unstructured.Unstructured, job *batchv1.Job) string {
+	workflows, found, err := unstructured.NestedSlice(rr.Object, "status", "kratix", "workflows", "pipelines")
+	if err != nil || !found {
+		return ""
+	}
+	pipelineName := job.GetLabels()[v1alpha1.PipelineNameLabel]
+	for _, pipeline := range workflows {
+		pipelineMap, ok := pipeline.(map[string]any)
+		if !ok {
+			continue
+		}
+		if pipelineMap["name"] == pipelineName {
+			phase, _ := pipelineMap["phase"].(string)
+			return phase
+		}
+	}
+	return ""
+}
+
 func MarkCurrentPipelineAs(status string, rr *unstructured.Unstructured, logger logr.Logger, job *batchv1.Job) error {
 	workflows, found, err := unstructured.NestedSlice(rr.Object, "status", "kratix", "workflows", "pipelines")
 	if err != nil {
