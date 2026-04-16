@@ -1326,9 +1326,12 @@ func (r *PromiseReconciler) createResourcesForDynamicControllerIfTheyDontExist(c
 	}
 
 	logging.Debug(logger, "creating/updating cluster role", "clusterRoleName", cr.GetName())
+
 	_, err := controllerutil.CreateOrUpdate(ctx, r.Client, &cr, func() error {
 		cr.Rules = promise.GenerateFullAccessForRR(rrGVK.Group, rrCRD.Spec.Names.Plural)
 		cr.Labels = labels.Merge(cr.Labels, promise.GenerateSharedLabels())
+		// If spec.clusterRolesLabels is set, cascade those labels to the generated ClusterRole.
+		cr.Labels = labels.Merge(cr.Labels, map[string]string(promise.GenerateLabelsForClusterRole()))
 		return nil
 	})
 
