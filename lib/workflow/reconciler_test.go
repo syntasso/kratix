@@ -729,7 +729,7 @@ var _ = Describe("Workflow Reconciler", func() {
 				Expect(resourceutil.GetWorkflowsCounterStatus(updatedResource, "workflowsSucceeded")).To(Equal(int64((0))))
 				Expect(resourceutil.GetWorkflowsCounterStatus(updatedResource, "workflowsFailed")).To(Equal(int64(0)))
 
-				//second reconciliation updates the status to pending with the correct conditions
+				//second reconciliation creates the pipeline and updates the status to pending with the correct conditions
 				passiveRequeue, err = workflow.ReconcileConfigure(opts)
 				Expect(err).NotTo(HaveOccurred())
 				Expect(passiveRequeue).To(BeTrue())
@@ -737,7 +737,6 @@ var _ = Describe("Workflow Reconciler", func() {
 				updatedResource = &unstructured.Unstructured{}
 				updatedResource.SetGroupVersionKind(resource.GroupVersionKind())
 				Expect(fakeK8sClient.Get(ctx, client.ObjectKeyFromObject(resource), updatedResource)).To(Succeed())
-				//first reconciliation sets the workflow counters to 0
 
 				Expect(updatedResource.Object["status"]).To(SatisfyAll(
 					HaveKeyWithValue("message", "Pending"),
@@ -765,6 +764,32 @@ var _ = Describe("Workflow Reconciler", func() {
 
 				Eventually(eventRecorder.Events).Should(Receive(ContainSubstring(
 					"Normal PipelineStarted Configure Pipeline started: pipeline-1")))
+			})
+
+			When("a suspended resource pipeline is resumed", func() {
+				It("resets status.message and Reconciled condition", func() {
+					updatedResource := &unstructured.Unstructured{}
+					updatedResource.SetGroupVersionKind(resource.GroupVersionKind())
+					Expect(fakeK8sClient.Get(ctx, client.ObjectKeyFromObject(resource), updatedResource)).To(Succeed())
+
+					resourceutil.MarkConfigureWorkflowAsRunning(logger, updatedResource)
+					resourceutil.MarkReconciledSuspended(updatedResource)
+					resourceutil.SetStatus(updatedResource, logger, "message", "To-be-updated")
+					Expect(fakeK8sClient.Status().Update(ctx, updatedResource)).To(Succeed())
+
+					Expect(fakeK8sClient.Get(ctx, client.ObjectKeyFromObject(resource), updatedResource)).To(Succeed())
+					opts = workflow.NewOpts(ctx, fakeK8sClient, eventRecorder, logger, updatedResource, workflowPipelines, "resource", 5, namespace)
+					passiveRequeue, err := workflow.ReconcileConfigure(opts)
+					Expect(err).NotTo(HaveOccurred())
+					Expect(passiveRequeue).To(BeTrue())
+
+					Expect(fakeK8sClient.Get(ctx, client.ObjectKeyFromObject(resource), updatedResource)).To(Succeed())
+					Expect(resourceutil.GetStatus(updatedResource, "message")).To(Equal("Pending"))
+					reconciled := resourceutil.GetCondition(updatedResource, resourceutil.ReconciledCondition)
+					Expect(reconciled).NotTo(BeNil())
+					Expect(reconciled.Message).To(Equal("Pending"))
+					Expect(reconciled.Reason).To(Equal("WorkflowPending"))
+				})
 			})
 		})
 
