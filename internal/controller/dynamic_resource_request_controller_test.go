@@ -250,19 +250,16 @@ var _ = Describe("DynamicResourceRequestController", func() {
 				_, err := t.reconcileUntilCompletion(reconciler, resReq)
 				Expect(err).To(MatchError("reconcile loop detected"))
 				Expect(fakeK8sClient.Get(ctx, resReqNameNamespace, resReq)).To(Succeed())
-				status := resReq.Object["status"]
-				statusMap := status.(map[string]interface{})
-				Expect(statusMap["message"].(string)).To(Equal("Pending"))
-
-				By("not triggering any configure workflows", func() {
-					Expect(reconcileConfigureOptsArg.Resources).To(BeEmpty())
-				})
+				Expect(resourceutil.IsPromiseMarkedAsUnavailable(resReq)).To(BeTrue())
+				Expect(reconcileConfigureOptsArg.Resources).To(BeEmpty())
 			})
 
 			When("the promise becomes available again", func() {
 				BeforeEach(func() {
 					_, err := t.reconcileUntilCompletion(reconciler, resReq)
 					Expect(err).To(MatchError("reconcile loop detected"))
+
+					reconcileConfigureOptsArg = workflow.Opts{}
 
 					Expect(fakeK8sClient.Get(ctx, client.ObjectKeyFromObject(promise), promise)).To(Succeed())
 					promise.Status.Conditions = []metav1.Condition{
@@ -278,17 +275,12 @@ var _ = Describe("DynamicResourceRequestController", func() {
 				})
 
 				It("clears the pending status on the resource request and triggers the configure workflow", func() {
-					reconcileConfigureOptsArg = workflow.Opts{}
-
 					_, err := t.reconcileUntilCompletion(reconciler, resReq)
 					Expect(err).NotTo(HaveOccurred())
 
 					Expect(fakeK8sClient.Get(ctx, resReqNameNamespace, resReq)).To(Succeed())
 					Expect(resourceutil.IsPromiseMarkedAsUnavailable(resReq)).To(BeFalse())
-
-					By("triggering the configure workflow", func() {
-						Expect(reconcileConfigureOptsArg.Resources).NotTo(BeEmpty())
-					})
+					Expect(reconcileConfigureOptsArg.Resources).NotTo(BeEmpty())
 				})
 			})
 		})
