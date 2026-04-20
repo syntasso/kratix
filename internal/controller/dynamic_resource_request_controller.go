@@ -920,10 +920,7 @@ func (r *DynamicResourceRequestController) updateManualReconcileToTrue(ctx conte
 
 func promiseAvailableConditionIsFalse(promise *v1alpha1.Promise) bool {
 	condition := promise.GetCondition(v1alpha1.PromiseAvailableConditionType)
-	if condition == nil {
-		return false
-	}
-	return condition.Status == metav1.ConditionFalse
+	return condition != nil && condition.Status == metav1.ConditionFalse
 }
 
 func (r *DynamicResourceRequestController) ensurePromiseIsUnavailable(ctx context.Context,
