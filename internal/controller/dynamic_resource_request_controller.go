@@ -191,7 +191,7 @@ func (r *DynamicResourceRequestController) Reconcile(ctx context.Context, req ct
 		return r.deleteResources(opts, promise, rr)
 	}
 
-	if !*r.CanCreateResources {
+	if r.promiseCannotFulfilResourceRequests(promise) {
 		return r.ensurePromiseIsUnavailable(ctx, rr, logger)
 	}
 
@@ -916,6 +916,14 @@ func (r *DynamicResourceRequestController) updateManualReconcileToTrue(ctx conte
 	rr.SetLabels(resourceLabels)
 
 	return r.Client.Update(ctx, rr)
+}
+
+func (r *DynamicResourceRequestController) promiseCannotFulfilResourceRequests(promise *v1alpha1.Promise) bool {
+	if !*r.CanCreateResources {
+		return true
+	}
+	condition := promise.GetCondition(v1alpha1.PromiseAvailableConditionType)
+	return condition != nil && condition.Status == metav1.ConditionFalse
 }
 
 func (r *DynamicResourceRequestController) ensurePromiseIsUnavailable(ctx context.Context,

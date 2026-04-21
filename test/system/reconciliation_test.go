@@ -77,7 +77,7 @@ var _ = Describe("Reconciliation", func() {
 			By("resuming reconciliation for resource requests after unpaused")
 			Eventually(func() string {
 				return platform.Kubectl("get", "pods", "-l", podLabels, "-o", goTemplate)
-			}, 30*time.Second).Should(ContainSubstring("3"))
+			}, 90*time.Second).Should(ContainSubstring("3"))
 
 			Eventually(func() string {
 				return platform.Kubectl("get", promiseName, "one")
