@@ -305,6 +305,30 @@ func (r *DynamicResourceRequestController) Reconcile(ctx context.Context, req ct
 		return ctrl.Result{}, r.Client.Status().Update(ctx, rr)
 	}
 
+	if r.PromiseUpgrade {
+		resourceBinding := &v1alpha1.ResourceBinding{}
+		if err := r.Client.Get(ctx, types.NamespacedName{
+			Name:      objectutil.GenerateDeterministicObjectName(fmt.Sprintf("%s-%s", rr.GetName(), promise.GetName())),
+			Namespace: rr.GetNamespace(),
+		}, resourceBinding); err != nil {
+			if !apierrors.IsNotFound(err) {
+				logging.Warn(logger, "failed to get resourceBinding, requeueing..")
+				return ctrl.Result{}, err
+			}
+			logging.Warn(logger, "resourceBinding not found; skipping status update")
+		} else {
+			desiredVersion := resourceutil.GetStatus(rr, resourcePromiseVersionStatus)
+			if resourceBinding.Status.ResourceRequestVersion != desiredVersion {
+				logging.Info(logger, "attempting to update the resource binding status.ResourceRequestVersion")
+				resourceBinding.Status.ResourceRequestVersion = desiredVersion
+				if err := r.Client.Status().Update(ctx, resourceBinding); err != nil {
+					logging.Error(logger, err, "failed to update resource binding status.ResourceRequestVersion")
+					return ctrl.Result{}, err
+				}
+			}
+		}
+	}
+
 	workflowCompletedCondition := resourceutil.GetCondition(rr, resourceutil.ConfigureWorkflowCompletedCondition)
 	if workflowsCompletedSuccessfully(workflowCompletedCondition) {
 		if shouldUpdateLastSuccessfulConfigureWorkflowTime(workflowCompletedCondition, rr) {
@@ -333,9 +357,18 @@ func (r *DynamicResourceRequestController) updateResourceBinding(ctx context.Con
 		},
 	}
 	op, err := controllerutil.CreateOrUpdate(ctx, r.Client, resourceBinding, func() error {
-		resourceBinding.SetLabels(resourceBindingLabels(rr, promise))
+		mergedLabels := make(map[string]string)
+		for k, v := range rr.GetLabels() {
+			mergedLabels[k] = v
+		}
+		for k, v := range resourceBindingLabels(rr, promise) {
+			mergedLabels[k] = v
+		}
+		resourceBinding.SetLabels(mergedLabels)
 		if resourceBinding.Spec.Version == "" {
 			resourceBinding.Spec.Version = "latest"
+			// if the resource binding got deleted, when we recreate the resource binding we infer what the resource binding
+			// version used to be from the resource request `status.resourceBindingVersion`
 			existingPromiseVersion := resourceutil.GetStatus(rr, resourceBindingVersionStatus)
 			if existingPromiseVersion != "" {
 				resourceBinding.Spec.Version = existingPromiseVersion
@@ -1041,6 +1074,11 @@ func latestRevision(ctx context.Context, c client.Client, promise *v1alpha1.Prom
 func fetchRevision(ctx context.Context, c client.Client, promise *v1alpha1.Promise,
 	binding *v1alpha1.ResourceBinding, promiseVersionFromRRStatus string) (*v1alpha1.PromiseRevision, error) {
 
+	// there is a scenario where the PromiseVersion from resource request status
+	//  is set, but no resource binding exists, which means the resource binding was
+	// deleted at some point.
+	//
+	// We infer what the resource binding version used to be from the resource request `status.resourceBindingVersion`
 	desiredVersion := promiseVersionFromRRStatus
 
 	if binding != nil {
