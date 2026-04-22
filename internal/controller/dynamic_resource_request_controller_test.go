@@ -1476,6 +1476,67 @@ var _ = Describe("DynamicResourceRequestController", func() {
 			})
 		})
 
+		When("updating the resource binding version status", func() {
+			const promiseVersion = "v1.1.0"
+
+			BeforeEach(func() {
+				createPromiseRevision(fakeK8sClient, promise, promiseVersion)
+			})
+
+			When("the resource binding Spec.Version differs from the resource request's current promise version", func() {
+				It("updates Status.ResourceRequestVersion to reflect the current promise version", func() {
+					setReconcileConfigureWorkflowToReturnFinished()
+					result, err := t.reconcileUntilCompletion(reconciler, resReq)
+					Expect(err).NotTo(HaveOccurred())
+					Expect(result).To(Equal(ctrl.Result{}))
+
+					// The binding Spec.Version is "latest" but the RR is running on "v1.1.0",
+					// so Status.ResourceRequestVersion should be updated to track the actual version
+					binding := getResourceBinding(promise.GetName(), resReqNameNamespace)
+					Expect(binding.Spec.Version).To(Equal("latest"))
+					Expect(binding.Status.ResourceRequestVersion).To(Equal(promiseVersion))
+				})
+			})
+
+			When("the resource binding Spec.Version matches the resource request's current promise version", func() {
+				BeforeEach(func() {
+					createResourceBinding(fakeK8sClient, promise, resReq, promiseVersion)
+				})
+
+				It("does not update Status.ResourceRequestVersion", func() {
+					setReconcileConfigureWorkflowToReturnFinished()
+					result, err := t.reconcileUntilCompletion(reconciler, resReq)
+					Expect(err).NotTo(HaveOccurred())
+					Expect(result).To(Equal(ctrl.Result{}))
+
+					// Spec.Version matches the actual running version, so no update is needed
+					binding := getResourceBinding(promise.GetName(), resReqNameNamespace)
+					Expect(binding.Spec.Version).To(Equal(promiseVersion))
+					Expect(binding.Status.ResourceRequestVersion).To(BeEmpty())
+				})
+			})
+		})
+
+		When("creating the resource binding", func() {
+			BeforeEach(func() {
+				createPromiseRevision(fakeK8sClient, promise, "v1.1.0")
+			})
+
+			It("merges the resource request's labels with the binding-specific labels", func() {
+				setReconcileConfigureWorkflowToReturnFinished()
+				result, err := t.reconcileUntilCompletion(reconciler, resReq)
+				Expect(err).NotTo(HaveOccurred())
+				Expect(result).To(Equal(ctrl.Result{}))
+
+				binding := getResourceBinding(promise.GetName(), resReqNameNamespace)
+				// Labels originating from the resource request itself
+				Expect(binding.GetLabels()).To(HaveKeyWithValue("non-kratix-label", "true"))
+				// Binding-specific labels added by resourceBindingLabels
+				Expect(binding.GetLabels()).To(HaveKeyWithValue("kratix.io/promise-name", promise.GetName()))
+				Expect(binding.GetLabels()).To(HaveKeyWithValue("kratix.io/resource-name", resReq.GetName()))
+			})
+		})
+
 	})
 })
 
