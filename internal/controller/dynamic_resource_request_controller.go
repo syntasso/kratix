@@ -217,6 +217,7 @@ func (r *DynamicResourceRequestController) Reconcile(ctx context.Context, req ct
 	if r.PromiseUpgrade {
 		err := r.updateResourceBinding(ctx, logger, rr, promise)
 		if err != nil {
+			logging.Error(logger, err, "failed to update resource binding for resource request")
 			return ctrl.Result{}, err
 		}
 	}
@@ -306,26 +307,9 @@ func (r *DynamicResourceRequestController) Reconcile(ctx context.Context, req ct
 	}
 
 	if r.PromiseUpgrade {
-		resourceBinding := &v1alpha1.ResourceBinding{}
-		if err := r.Client.Get(ctx, types.NamespacedName{
-			Name:      objectutil.GenerateDeterministicObjectName(fmt.Sprintf("%s-%s", rr.GetName(), promise.GetName())),
-			Namespace: rr.GetNamespace(),
-		}, resourceBinding); err != nil {
-			if !apierrors.IsNotFound(err) {
-				logging.Warn(logger, "failed to get resourceBinding, requeueing..")
-				return ctrl.Result{}, err
-			}
-			logging.Warn(logger, "resourceBinding not found; skipping status update")
-		} else {
-			desiredVersion := resourceutil.GetStatus(rr, resourcePromiseVersionStatus)
-			if resourceBinding.Status.ResourceRequestVersion != desiredVersion {
-				logging.Info(logger, "attempting to update the resource binding status.ResourceRequestVersion")
-				resourceBinding.Status.ResourceRequestVersion = desiredVersion
-				if err := r.Client.Status().Update(ctx, resourceBinding); err != nil {
-					logging.Error(logger, err, "failed to update resource binding status.ResourceRequestVersion")
-					return ctrl.Result{}, err
-				}
-			}
+		if err := r.updateResourceBindingVersionStatus(ctx, logger, promise.GetName(), rr, bindingVersion); err != nil {
+			logging.Error(logger, err, "failed to update resource binding version status")
+			return ctrl.Result{}, err
 		}
 	}
 
@@ -349,6 +333,27 @@ func (r *DynamicResourceRequestController) Reconcile(ctx context.Context, req ct
 	return ctrl.Result{}, nil
 }
 
+func (r *DynamicResourceRequestController) updateResourceBindingVersionStatus(ctx context.Context, logger logr.Logger, promiseName string, rr *unstructured.Unstructured, bindingVersion string) error {
+	resourceBindingName := objectutil.GenerateDeterministicObjectName(fmt.Sprintf("%s-%s", rr.GetName(), promiseName))
+	resourceBinding := &v1alpha1.ResourceBinding{}
+	err := r.Client.Get(ctx, types.NamespacedName{Name: resourceBindingName, Namespace: rr.GetNamespace()}, resourceBinding)
+	if err != nil {
+		return fmt.Errorf("failed to get resourceBinding: %w", err)
+	}
+
+	desiredVersion := resourceutil.GetStatus(rr, resourcePromiseVersionStatus)
+	if resourceBinding.Spec.Version == desiredVersion {
+		return nil
+	}
+
+	logging.Info(logger, "updating the resource binding status.ResourceRequestVersion", "oldVersion", resourceBinding.Spec.Version, "newVersion", desiredVersion)
+	resourceBinding.Status.ResourceRequestVersion = desiredVersion
+	if err := r.Client.Status().Update(ctx, resourceBinding); err != nil {
+		return fmt.Errorf("failed to update resource binding status: %w", err)
+	}
+	return nil
+}
+
 func (r *DynamicResourceRequestController) updateResourceBinding(ctx context.Context, logger logr.Logger, rr *unstructured.Unstructured, promise *v1alpha1.Promise) error {
 	resourceBinding := &v1alpha1.ResourceBinding{
 		ObjectMeta: metav1.ObjectMeta{
@@ -357,14 +362,10 @@ func (r *DynamicResourceRequestController) updateResourceBinding(ctx context.Con
 		},
 	}
 	op, err := controllerutil.CreateOrUpdate(ctx, r.Client, resourceBinding, func() error {
-		mergedLabels := make(map[string]string)
-		for k, v := range rr.GetLabels() {
-			mergedLabels[k] = v
-		}
+		resourceBinding.SetLabels(rr.GetLabels())
 		for k, v := range resourceBindingLabels(rr, promise) {
-			mergedLabels[k] = v
+			resourceBinding.Labels[k] = v
 		}
-		resourceBinding.SetLabels(mergedLabels)
 		if resourceBinding.Spec.Version == "" {
 			resourceBinding.Spec.Version = "latest"
 			// if the resource binding got deleted, when we recreate the resource binding we infer what the resource binding
@@ -388,6 +389,7 @@ func (r *DynamicResourceRequestController) updateResourceBinding(ctx context.Con
 	}
 
 	logging.Debug(logger, "ResourceBinding reconciled for Resource",
+		"resourceBindingName", resourceBinding.GetName(),
 		"operation", op,
 		"promiseName", resourceBinding.Spec.PromiseRef.Name,
 		"promiseVersion", resourceBinding.Spec.Version,
