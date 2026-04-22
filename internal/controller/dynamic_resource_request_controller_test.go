@@ -1585,7 +1585,7 @@ func createPromiseRevision(fakeK8sClient client.Client, promise *v1alpha1.Promis
 	Expect(fakeK8sClient.Status().Update(ctx, promiseRevision)).To(Succeed())
 }
 
-func createResourceBinding(client client.Client, promise *v1alpha1.Promise, rr *unstructured.Unstructured, version string) *v1alpha1.ResourceBinding {
+func createResourceBinding(client client.Client, promise *v1alpha1.Promise, rr *unstructured.Unstructured, version string) {
 	resourceBinding := &v1alpha1.ResourceBinding{
 		ObjectMeta: metav1.ObjectMeta{
 			Name:      objectutil.GenerateDeterministicObjectName(fmt.Sprintf("%s-%s", rr.GetName(), promise.GetName())),
@@ -1607,7 +1607,6 @@ func createResourceBinding(client client.Client, promise *v1alpha1.Promise, rr *
 		},
 	}
 	ExpectWithOffset(1, client.Create(ctx, resourceBinding)).To(Succeed())
-	return resourceBinding
 }
 
 func setConfigureWorkflowStatus(resReq *unstructured.Unstructured, status v1.ConditionStatus, lastTransitionTime ...time.Time) {
