@@ -85,6 +85,7 @@ var _ = Describe("Promise Revisions", func() {
 				Eventually(func(g Gomega) {
 					name := getBindingName(promiseName, resourceName)
 					g.Expect(platform.Kubectl("get", "--namespace=default", name, "-o=jsonpath='{.spec.version}'")).To(ContainSubstring("latest"))
+					g.Expect(platform.Kubectl("get", "--namespace=default", name, "-o=jsonpath='{.status.resourceRequestVersion}'")).To(ContainSubstring(initialPromiseVersion))
 				}).Should(Succeed())
 			}
 		})
@@ -156,6 +157,11 @@ var _ = Describe("Promise Revisions", func() {
 			Eventually(func() string {
 				return worker.Kubectl("get", "configmap")
 			}).Should(ContainSubstring(rrOneAfterUpgradeCMName))
+
+			Eventually(func(g Gomega) {
+				name := getBindingName(promiseName, rrOneName)
+				g.Expect(platform.Kubectl("get", "--namespace=default", name, "-o=jsonpath='{.status.resourceRequestVersion}'")).To(ContainSubstring(updatedPromiseVersion))
+			}).Should(Succeed())
 		})
 
 		By("not updating the resource request pinned to a specific version", func() {
@@ -166,6 +172,11 @@ var _ = Describe("Promise Revisions", func() {
 			Consistently(func() string {
 				return worker.Kubectl("get", "configmap")
 			}, time.Second*5).Should(ContainSubstring(rrTwoBeforeUpgradeCMName))
+
+			Eventually(func(g Gomega) {
+				name := getBindingName(promiseName, rrTwoName)
+				g.Expect(platform.Kubectl("get", "--namespace=default", name, "-o=jsonpath='{.status.resourceRequestVersion}'")).To(ContainSubstring(initialPromiseVersion))
+			}).Should(Succeed())
 		})
 
 		By("updating the resource binding to the new promise version", func() {
@@ -193,6 +204,11 @@ var _ = Describe("Promise Revisions", func() {
 			}).Should(SatisfyAll(
 				ContainSubstring(rrTwoAfterUpgradeCMName),
 				Not(ContainSubstring(rrTwoBeforeUpgradeCMName))))
+
+			Eventually(func(g Gomega) {
+				name := getBindingName(promiseName, rrTwoName)
+				g.Expect(platform.Kubectl("get", "--namespace=default", name, "-o=jsonpath='{.status.resourceRequestVersion}'")).To(ContainSubstring(updatedPromiseVersion))
+			}).Should(Succeed())
 		})
 
 		By("restoring the bindings correctly when they are deleted", func() {

@@ -342,7 +342,7 @@ func (r *DynamicResourceRequestController) updateResourceBindingVersionStatus(ct
 	}
 
 	desiredVersion := resourceutil.GetStatus(rr, resourcePromiseVersionStatus)
-	if resourceBinding.Spec.Version == desiredVersion {
+	if resourceBinding.Status.ResourceRequestVersion == desiredVersion {
 		return nil
 	}
 

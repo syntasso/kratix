@@ -1483,36 +1483,37 @@ var _ = Describe("DynamicResourceRequestController", func() {
 				createPromiseRevision(fakeK8sClient, promise, promiseVersion)
 			})
 
-			When("the resource binding Spec.Version differs from the resource request's current promise version", func() {
-				It("updates Status.ResourceRequestVersion to reflect the current promise version", func() {
+			When("the resource binding Status.ResourceRequestVersion does not yet reflect the current promise version", func() {
+				It("updates Status.ResourceRequestVersion to track the current promise version", func() {
 					setReconcileConfigureWorkflowToReturnFinished()
 					result, err := t.reconcileUntilCompletion(reconciler, resReq)
 					Expect(err).NotTo(HaveOccurred())
 					Expect(result).To(Equal(ctrl.Result{}))
 
-					// The binding Spec.Version is "latest" but the RR is running on "v1.1.0",
-					// so Status.ResourceRequestVersion should be updated to track the actual version
+					// The binding starts with Status.ResourceRequestVersion="" (unset),
+					// so it should be updated to the actual running promise version
 					binding := getResourceBinding(promise.GetName(), resReqNameNamespace)
 					Expect(binding.Spec.Version).To(Equal("latest"))
 					Expect(binding.Status.ResourceRequestVersion).To(Equal(promiseVersion))
 				})
 			})
 
-			When("the resource binding Spec.Version matches the resource request's current promise version", func() {
+			When("the resource binding is pinned to a specific promise version", func() {
 				BeforeEach(func() {
 					createResourceBinding(fakeK8sClient, promise, resReq, promiseVersion)
 				})
 
-				It("does not update Status.ResourceRequestVersion", func() {
+				It("still updates Status.ResourceRequestVersion to reflect the current promise version", func() {
 					setReconcileConfigureWorkflowToReturnFinished()
 					result, err := t.reconcileUntilCompletion(reconciler, resReq)
 					Expect(err).NotTo(HaveOccurred())
 					Expect(result).To(Equal(ctrl.Result{}))
 
-					// Spec.Version matches the actual running version, so no update is needed
+					// Even when Spec.Version matches the running version, Status.ResourceRequestVersion
+					// should be set — the skip condition checks Status, not Spec
 					binding := getResourceBinding(promise.GetName(), resReqNameNamespace)
 					Expect(binding.Spec.Version).To(Equal(promiseVersion))
-					Expect(binding.Status.ResourceRequestVersion).To(BeEmpty())
+					Expect(binding.Status.ResourceRequestVersion).To(Equal(promiseVersion))
 				})
 			})
 		})
