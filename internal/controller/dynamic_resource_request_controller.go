@@ -291,26 +291,13 @@ func (r *DynamicResourceRequestController) Reconcile(ctx context.Context, req ct
 		return r.nextReconciliation(logger), r.cleanupWorkflowCountersAndExecution(ctx, logger, rr)
 	}
 
-	rrNamespace := ""
-	if promise.WorkflowPipelineNamespaceSet() {
-		rrNamespace = rr.GetNamespace()
-	}
-	workLabels := resourceutil.GetWorkLabels(r.PromiseIdentifier, rr.GetName(), rrNamespace, "", v1alpha1.WorkTypeResource)
-
-	statusUpdate, err := r.generateResourceStatus(ctx, logger, rr, int64(len(pipelineResources)), workLabels, bindingVersion, promiseRevisionUsed)
-	if err != nil {
+	if updated, err := r.ensureResourceStatus(ctx, logger, rr, promise, pipelineResources, bindingVersion, promiseRevisionUsed); updated || err != nil {
 		return ctrl.Result{}, err
 	}
 
-	if statusUpdate {
-		return ctrl.Result{}, r.Client.Status().Update(ctx, rr)
-	}
-
-	if r.PromiseUpgrade {
-		if err := r.updateResourceBindingVersionStatus(ctx, logger, promise.GetName(), rr, bindingVersion); err != nil {
-			logging.Error(logger, err, "failed to update resource binding version status")
-			return ctrl.Result{}, err
-		}
+	if err := r.updateResourceBindingVersionStatus(ctx, logger, promise.GetName(), rr); err != nil {
+		logging.Error(logger, err, "failed to update resource binding version status")
+		return ctrl.Result{}, err
 	}
 
 	workflowCompletedCondition := resourceutil.GetCondition(rr, resourceutil.ConfigureWorkflowCompletedCondition)
@@ -333,7 +320,38 @@ func (r *DynamicResourceRequestController) Reconcile(ctx context.Context, req ct
 	return ctrl.Result{}, nil
 }
 
-func (r *DynamicResourceRequestController) updateResourceBindingVersionStatus(ctx context.Context, logger logr.Logger, promiseName string, rr *unstructured.Unstructured, bindingVersion string) error {
+func (r *DynamicResourceRequestController) ensureResourceStatus(
+	ctx context.Context,
+	logger logr.Logger,
+	rr *unstructured.Unstructured,
+	promise *v1alpha1.Promise,
+	pipelineResources []v1alpha1.PipelineJobResources,
+	bindingVersion string,
+	promiseRevisionUsed *v1alpha1.PromiseRevision,
+) (bool, error) {
+	rrNamespace := ""
+	if promise.WorkflowPipelineNamespaceSet() {
+		rrNamespace = rr.GetNamespace()
+	}
+	workLabels := resourceutil.GetWorkLabels(r.PromiseIdentifier, rr.GetName(), rrNamespace, "", v1alpha1.WorkTypeResource)
+
+	statusUpdate, err := r.generateResourceStatus(ctx, logger, rr, int64(len(pipelineResources)), workLabels, bindingVersion, promiseRevisionUsed)
+	if err != nil {
+		return false, err
+	}
+
+	if statusUpdate {
+		return true, r.Client.Status().Update(ctx, rr)
+	}
+	return false, nil
+
+}
+
+func (r *DynamicResourceRequestController) updateResourceBindingVersionStatus(ctx context.Context, logger logr.Logger, promiseName string, rr *unstructured.Unstructured) error {
+	if !r.PromiseUpgrade {
+		return nil
+	}
+
 	resourceBindingName := objectutil.GenerateDeterministicObjectName(fmt.Sprintf("%s-%s", rr.GetName(), promiseName))
 	resourceBinding := &v1alpha1.ResourceBinding{}
 	err := r.Client.Get(ctx, types.NamespacedName{Name: resourceBindingName, Namespace: rr.GetNamespace()}, resourceBinding)
