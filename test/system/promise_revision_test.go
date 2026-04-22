@@ -93,7 +93,7 @@ var _ = Describe("Promise Revisions", func() {
 		By("propagating resource request labels to the resource binding", func() {
 			Eventually(func(g Gomega) {
 				g.Expect(getBindingLabels(promiseName, rrOneName)).To(Equal(map[string]string{
-					"environment":              "staging",
+					"environment":             "staging",
 					"kratix.io/promise-name":  promiseName,
 					"kratix.io/resource-name": rrOneName,
 				}))
@@ -109,7 +109,7 @@ var _ = Describe("Promise Revisions", func() {
 			platform.Kubectl("label", "--overwrite", "upgrades", rrOneName, "environment=production")
 			Eventually(func(g Gomega) {
 				g.Expect(getBindingLabels(promiseName, rrOneName)).To(Equal(map[string]string{
-					"environment":              "production",
+					"environment":             "production",
 					"kratix.io/promise-name":  promiseName,
 					"kratix.io/resource-name": rrOneName,
 				}))

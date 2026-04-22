@@ -109,7 +109,7 @@ func (r *ResourceBindingReconciler) Reconcile(ctx context.Context, req ctrl.Requ
 
 	logging.Info(
 		logger,
-		"resource request version mismatch to the resource binding desired version, triggering manual reconcilation",
+		"resource request version mismatch to the resource binding desired version, triggering manual reconciliation",
 		"resource request version", rrPromiseVersion,
 		"resource binding version", resourceBinding.Spec.Version,
 	)
