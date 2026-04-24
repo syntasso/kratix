@@ -93,6 +93,7 @@ var _ = BeforeEach(func() {
 			&v1alpha1.GitStateStore{},
 			&v1alpha1.BucketStateStore{},
 			&v1alpha1.PromiseRevision{},
+			&v1alpha1.ResourceBinding{},
 			//Add redis.marketplace.kratix.io/v1alpha1 so we can update its status
 			resReq,
 		).

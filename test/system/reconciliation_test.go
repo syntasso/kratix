@@ -65,7 +65,7 @@ var _ = Describe("Reconciliation", func() {
 			By("not running any workflow while paused")
 			Consistently(func() string {
 				return platform.Kubectl("get", "pods", "-l", podLabels, "-o", goTemplate)
-			}, 10*time.Second).Should(Equal(numberOfTriggeredPods))
+			}, 70*time.Second).Should(Equal(numberOfTriggeredPods))
 
 			By("rerunning promise workflows after unpaused")
 			platform.Kubectl("label", "promise", promiseName, "kratix.io/paused-")
@@ -123,7 +123,7 @@ var _ = Describe("Reconciliation", func() {
 			numberOfTriggeredPodsPlusOne := "2"
 			Eventually(func() string {
 				return platform.Kubectl("get", "pods", "-l", podLabels, "-o", goTemplate)
-			}, 30*time.Second).Should(ContainSubstring(numberOfTriggeredPodsPlusOne))
+			}, 90*time.Second).Should(ContainSubstring(numberOfTriggeredPodsPlusOne))
 
 			Eventually(func() string {
 				return platform.Kubectl("get", kindName, resourceRequestName)

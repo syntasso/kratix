@@ -3,5 +3,7 @@ kind: Upgrade
 metadata:
   name: upgrade-rr-one
   namespace: default
+  labels:
+    environment: staging
 spec:
   configMapName: banana

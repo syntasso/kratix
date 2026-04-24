@@ -85,8 +85,45 @@ var _ = Describe("Promise Revisions", func() {
 				Eventually(func(g Gomega) {
 					name := getBindingName(promiseName, resourceName)
 					g.Expect(platform.Kubectl("get", "--namespace=default", name, "-o=jsonpath='{.spec.version}'")).To(ContainSubstring("latest"))
+					g.Expect(platform.Kubectl("get", "--namespace=default", name, "-o=jsonpath='{.status.lastAppiedVersion}'")).To(ContainSubstring(initialPromiseVersion))
 				}).Should(Succeed())
 			}
+		})
+
+		By("propagating resource request labels to the resource binding", func() {
+			Eventually(func(g Gomega) {
+				g.Expect(getBindingLabels(promiseName, rrOneName)).To(Equal(map[string]string{
+					"environment":             "staging",
+					"kratix.io/promise-name":  promiseName,
+					"kratix.io/resource-name": rrOneName,
+				}))
+				// rrTwo has no custom labels, so only the binding-specific labels should be present
+				g.Expect(getBindingLabels(promiseName, rrTwoName)).To(Equal(map[string]string{
+					"kratix.io/promise-name":  promiseName,
+					"kratix.io/resource-name": rrTwoName,
+				}))
+			}).Should(Succeed())
+		})
+
+		By("updating a label on the resource request updates the resource binding", func() {
+			platform.Kubectl("label", "--overwrite", "upgrades", rrOneName, "environment=production")
+			Eventually(func(g Gomega) {
+				g.Expect(getBindingLabels(promiseName, rrOneName)).To(Equal(map[string]string{
+					"environment":             "production",
+					"kratix.io/promise-name":  promiseName,
+					"kratix.io/resource-name": rrOneName,
+				}))
+			}).Should(Succeed())
+		})
+
+		By("removing a label from the resource request removes it from the resource binding", func() {
+			platform.Kubectl("label", "upgrades", rrOneName, "environment-")
+			Eventually(func(g Gomega) {
+				g.Expect(getBindingLabels(promiseName, rrOneName)).To(Equal(map[string]string{
+					"kratix.io/promise-name":  promiseName,
+					"kratix.io/resource-name": rrOneName,
+				}))
+			}).Should(Succeed())
 		})
 
 		By("pinning resource two to the current version", func() {
@@ -156,6 +193,11 @@ var _ = Describe("Promise Revisions", func() {
 			Eventually(func() string {
 				return worker.Kubectl("get", "configmap")
 			}).Should(ContainSubstring(rrOneAfterUpgradeCMName))
+
+			Eventually(func(g Gomega) {
+				name := getBindingName(promiseName, rrOneName)
+				g.Expect(platform.Kubectl("get", "--namespace=default", name, "-o=jsonpath='{.status.lastAppiedVersion}'")).To(ContainSubstring(updatedPromiseVersion))
+			}).Should(Succeed())
 		})
 
 		By("not updating the resource request pinned to a specific version", func() {
@@ -166,6 +208,11 @@ var _ = Describe("Promise Revisions", func() {
 			Consistently(func() string {
 				return worker.Kubectl("get", "configmap")
 			}, time.Second*5).Should(ContainSubstring(rrTwoBeforeUpgradeCMName))
+
+			Eventually(func(g Gomega) {
+				name := getBindingName(promiseName, rrTwoName)
+				g.Expect(platform.Kubectl("get", "--namespace=default", name, "-o=jsonpath='{.status.lastAppiedVersion}'")).To(ContainSubstring(initialPromiseVersion))
+			}).Should(Succeed())
 		})
 
 		By("updating the resource binding to the new promise version", func() {
@@ -193,6 +240,11 @@ var _ = Describe("Promise Revisions", func() {
 			}).Should(SatisfyAll(
 				ContainSubstring(rrTwoAfterUpgradeCMName),
 				Not(ContainSubstring(rrTwoBeforeUpgradeCMName))))
+
+			Eventually(func(g Gomega) {
+				name := getBindingName(promiseName, rrTwoName)
+				g.Expect(platform.Kubectl("get", "--namespace=default", name, "-o=jsonpath='{.status.lastAppiedVersion}'")).To(ContainSubstring(updatedPromiseVersion))
+			}).Should(Succeed())
 		})
 
 		By("restoring the bindings correctly when they are deleted", func() {
@@ -233,4 +285,17 @@ func getBindingName(promiseName, resourceName string) string {
 	return strings.TrimSpace(
 		platform.Kubectl("get", "--namespace=default", "resourcebindings", "-l", resourceBindingLabels, "-o=name"),
 	)
+}
+
+func getBindingLabels(promiseName, resourceName string) map[string]string {
+	GinkgoHelper()
+	name := getBindingName(promiseName, resourceName)
+	output := platform.Kubectl("get", "--namespace=default", name, "-o=json")
+	var obj struct {
+		Metadata struct {
+			Labels map[string]string `json:"labels"`
+		} `json:"metadata"`
+	}
+	Expect(json.Unmarshal([]byte(output), &obj)).To(Succeed())
+	return obj.Metadata.Labels
 }

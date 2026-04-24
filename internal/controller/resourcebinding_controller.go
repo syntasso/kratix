@@ -103,8 +103,16 @@ func (r *ResourceBindingReconciler) Reconcile(ctx context.Context, req ctrl.Requ
 
 	rrPromiseVersion := resourceutil.GetStatus(rr, "promiseVersion")
 	if rrPromiseVersion == "" || rrPromiseVersion == resourceBinding.Spec.Version {
+		logging.Info(logger, "resource request version is equal to the resource binding desired version", "resource binding version", resourceBinding.Spec.Version)
 		return ctrl.Result{}, nil
 	}
+
+	logging.Info(
+		logger,
+		"resource request version mismatch to the resource binding desired version, triggering manual reconciliation",
+		"resource request version", rrPromiseVersion,
+		"resource binding version", resourceBinding.Spec.Version,
+	)
 
 	labels := rr.GetLabels()
 	if labels == nil {
@@ -115,7 +123,6 @@ func (r *ResourceBindingReconciler) Reconcile(ctx context.Context, req ctrl.Requ
 	if err := r.Client.Update(ctx, rr); err != nil {
 		return ctrl.Result{}, err
 	}
-
 	return ctrl.Result{}, nil
 }
 
