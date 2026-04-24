@@ -183,6 +183,7 @@ func main() {
 	applyWorkflowDefaults(kratixConfig)
 	controller.SetNumberOfJobsToKeep(getNumJobsToKeep(kratixConfig))
 	controller.SetReconciliationInterval(getRegularReconciliationInterval(kratixConfig))
+	controller.SetPromiseUpgrade(promiseUpgradeEnabled(kratixConfig))
 
 	podTTLAfterFinished := getPodTTLAfterFinished(kratixConfig)
 
@@ -282,7 +283,6 @@ func main() {
 		Manager:                mgr,
 		Scheme:                 mgr.GetScheme(),
 		EventRecorder:          mgr.GetEventRecorderFor("PromiseController"),
-		PromiseUpgrade:         promiseUpgradeEnabled(kratixConfig),
 	}).SetupWithManager(mgr); err != nil {
 		setupLog.Error(err, "unable to create controller", "controller", "Promise")
 		os.Exit(1)
@@ -385,9 +385,8 @@ func main() {
 		os.Exit(1)
 	}
 	if err := (&controller.PromiseRevisionReconciler{
-		Client:         mgr.GetClient(),
-		Scheme:         mgr.GetScheme(),
-		PromiseUpgrade: promiseUpgradeEnabled(kratixConfig),
+		Client: mgr.GetClient(),
+		Scheme: mgr.GetScheme(),
 	}).SetupWithManager(mgr); err != nil {
 		setupLog.Error(err, "unable to create controller", "controller", "PromiseRevision")
 		os.Exit(1)
@@ -488,7 +487,8 @@ func makeConfigChangeHandler(logger logr.Logger) func(data map[string]string) er
 		applyWorkflowDefaults(cfg)
 		controller.SetNumberOfJobsToKeep(getNumJobsToKeep(cfg))
 		controller.SetReconciliationInterval(getRegularReconciliationInterval(cfg))
-		logger.Info("workflow defaults, numberOfJobsToKeep, and reconciliationInterval updated from ConfigMap")
+		controller.SetPromiseUpgrade(promiseUpgradeEnabled(cfg))
+		logger.Info("config updated from ConfigMap")
 		return nil
 	}
 }

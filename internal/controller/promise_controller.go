@@ -78,7 +78,6 @@ type PromiseReconciler struct {
 	Manager                   ctrl.Manager
 	StartedDynamicControllers map[string]*DynamicResourceRequestController
 	EventRecorder             record.EventRecorder
-	PromiseUpgrade            bool
 }
 
 const (
@@ -369,7 +368,7 @@ func (r *PromiseReconciler) handlePromiseVersion(ctx context.Context, promise *v
 		}
 	}
 
-	if !r.PromiseUpgrade {
+	if !getPromiseUpgrade() {
 		return ctrl.Result{}, nil
 	}
 
@@ -1134,7 +1133,6 @@ func (r *PromiseReconciler) ensureDynamicControllerIsStarted(promise *v1alpha1.P
 		dynamicController.UID = string(promise.GetUID())[0:5]
 		dynamicController.CanCreateResources = canCreateResources
 		dynamicController.EventRecorder = r.Manager.GetEventRecorderFor("ResourceRequestController")
-		dynamicController.PromiseUpgrade = r.PromiseUpgrade
 		dynamicController.PromiseDestinationSelectors = promise.Spec.DestinationSelectors
 
 		if dynamicController.WatchStopped {
@@ -1162,7 +1160,6 @@ func (r *PromiseReconciler) ensureDynamicControllerIsStarted(promise *v1alpha1.P
 		WatchStopped:                false,
 		CanCreateResources:          canCreateResources,
 		EventRecorder:               r.Manager.GetEventRecorderFor("ResourceRequestController"),
-		PromiseUpgrade:              r.PromiseUpgrade,
 	}
 
 	unstructuredCRD := &unstructured.Unstructured{}
@@ -1764,7 +1761,7 @@ func (r *PromiseReconciler) promiseFinalizers(promise *v1alpha1.Promise) []strin
 	desired[removeAllWorkflowJobsFinalizer] = struct{}{}
 
 	desired[dependenciesCleanupFinalizer] = struct{}{}
-	if r.PromiseUpgrade {
+	if getPromiseUpgrade() {
 		desired[revisionCleanupFinalizer] = struct{}{}
 	}
 

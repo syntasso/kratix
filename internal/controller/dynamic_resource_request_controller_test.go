@@ -42,6 +42,7 @@ var _ = Describe("DynamicResourceRequestController", func() {
 	)
 
 	BeforeEach(func() {
+		controller.SetPromiseUpgrade(false)
 		startTime = time.Now().Add(-time.Minute)
 		ctx = context.Background()
 		promise = createPromise(promisePath)
@@ -1202,7 +1203,7 @@ var _ = Describe("DynamicResourceRequestController", func() {
 	When("promise upgrade feature is on", func() {
 		BeforeEach(func() {
 			Expect(fakeK8sClient.Delete(ctx, resReq)).To(Succeed())
-			reconciler.PromiseUpgrade = true
+			controller.SetPromiseUpgrade(true)
 			resReq = createResourceRequest(resourceRequestPath)
 			resReqNameNamespace = client.ObjectKeyFromObject(resReq)
 		})

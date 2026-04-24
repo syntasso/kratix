@@ -56,6 +56,9 @@ var (
 
 	reconciliationIntervalMu     sync.RWMutex
 	reconciliationIntervalGlobal = DefaultReconciliationInterval
+
+	promiseUpgradeMu     sync.RWMutex
+	promiseUpgradeGlobal bool
 )
 
 func SetNumberOfJobsToKeep(n int) {
@@ -80,6 +83,18 @@ func getReconciliationInterval() time.Duration {
 	reconciliationIntervalMu.RLock()
 	defer reconciliationIntervalMu.RUnlock()
 	return reconciliationIntervalGlobal
+}
+
+func SetPromiseUpgrade(enabled bool) {
+	promiseUpgradeMu.Lock()
+	defer promiseUpgradeMu.Unlock()
+	promiseUpgradeGlobal = enabled
+}
+
+func getPromiseUpgrade() bool {
+	promiseUpgradeMu.RLock()
+	defer promiseUpgradeMu.RUnlock()
+	return promiseUpgradeGlobal
 }
 
 type opts struct {

@@ -64,6 +64,7 @@ var (
 
 var _ = Describe("PromiseController", func() {
 	BeforeEach(func() {
+		controller.SetPromiseUpgrade(false)
 		promiseResourceName = "redis"
 		expectedCRDName = promiseResourceName + "." + promiseGroup
 		ctx = context.Background()
@@ -1940,7 +1941,7 @@ var _ = Describe("PromiseController", func() {
 
 	Describe("Promise Revisions", func() {
 		BeforeEach(func() {
-			reconciler.PromiseUpgrade = true
+			controller.SetPromiseUpgrade(true)
 		})
 		When("the Promise has a version label", func() {
 			var revision *v1alpha1.PromiseRevision

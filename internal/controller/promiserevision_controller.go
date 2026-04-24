@@ -44,7 +44,6 @@ type PromiseRevisionReconciler struct {
 	Scheme         *runtime.Scheme
 	Log            logr.Logger
 	EventRecorder  record.EventRecorder
-	PromiseUpgrade bool
 }
 
 // +kubebuilder:rbac:groups=platform.kratix.io,resources=promiserevisions,verbs=get;list;watch;create;update;patch;delete
