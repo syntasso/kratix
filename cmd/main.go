@@ -182,6 +182,7 @@ func main() {
 
 	applyWorkflowDefaults(kratixConfig)
 	controller.SetNumberOfJobsToKeep(getNumJobsToKeep(kratixConfig))
+	controller.SetReconciliationInterval(getRegularReconciliationInterval(kratixConfig))
 
 	podTTLAfterFinished := getPodTTLAfterFinished(kratixConfig)
 
@@ -280,7 +281,6 @@ func main() {
 		Log:                    ctrl.Log.WithName("controllers").WithName("Promise"),
 		Manager:                mgr,
 		Scheme:                 mgr.GetScheme(),
-		ReconciliationInterval: getRegularReconciliationInterval(kratixConfig),
 		EventRecorder:          mgr.GetEventRecorderFor("PromiseController"),
 		PromiseUpgrade:         promiseUpgradeEnabled(kratixConfig),
 	}).SetupWithManager(mgr); err != nil {
@@ -487,7 +487,8 @@ func makeConfigChangeHandler(logger logr.Logger) func(data map[string]string) er
 		}
 		applyWorkflowDefaults(cfg)
 		controller.SetNumberOfJobsToKeep(getNumJobsToKeep(cfg))
-		logger.Info("workflow defaults and numberOfJobsToKeep updated from ConfigMap")
+		controller.SetReconciliationInterval(getRegularReconciliationInterval(cfg))
+		logger.Info("workflow defaults, numberOfJobsToKeep, and reconciliationInterval updated from ConfigMap")
 		return nil
 	}
 }

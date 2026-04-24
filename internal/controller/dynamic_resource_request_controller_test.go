@@ -63,7 +63,6 @@ var _ = Describe("DynamicResourceRequestController", func() {
 			PromiseDestinationSelectors: promise.Spec.DestinationSelectors,
 			Log:                         l,
 			UID:                         "1234abcd",
-			ReconciliationInterval:      controller.DefaultReconciliationInterval,
 			EventRecorder:               eventRecorder,
 		}
 
@@ -156,7 +155,7 @@ var _ = Describe("DynamicResourceRequestController", func() {
 				result, err = t.reconcileUntilCompletion(reconciler, resReq)
 
 				Expect(err).NotTo(HaveOccurred())
-				Expect(result).To(Equal(ctrl.Result{RequeueAfter: reconciler.ReconciliationInterval}))
+				Expect(result).To(Equal(ctrl.Result{RequeueAfter: controller.DefaultReconciliationInterval}))
 			})
 
 			By("setting the finalizers on the resource", func() {
@@ -355,7 +354,7 @@ var _ = Describe("DynamicResourceRequestController", func() {
 		BeforeEach(func() {
 			Expect(fakeK8sClient.Get(ctx, resReqNameNamespace, resReq)).To(Succeed())
 
-			lastTransitionTime := time.Now().Add(-reconciler.ReconciliationInterval).Add(-time.Hour * 1)
+			lastTransitionTime := time.Now().Add(-controller.DefaultReconciliationInterval).Add(-time.Hour * 1)
 			setConfigureWorkflowStatus(resReq, v1.ConditionTrue, lastTransitionTime)
 			setWorksSucceeded(resReq)
 			setReconciled(resReq)
@@ -409,7 +408,7 @@ var _ = Describe("DynamicResourceRequestController", func() {
 			By("requeuing on the Default Reconciliation Schedule", func() {
 				result, err = reconciler.Reconcile(ctx, request)
 				Expect(err).ToNot(HaveOccurred())
-				Expect(result).To(Equal(ctrl.Result{RequeueAfter: reconciler.ReconciliationInterval}))
+				Expect(result).To(Equal(ctrl.Result{RequeueAfter: controller.DefaultReconciliationInterval}))
 			})
 
 			By("updating the last successful workflow configure time", func() {
@@ -448,7 +447,7 @@ var _ = Describe("DynamicResourceRequestController", func() {
 
 					result, err := t.reconcileUntilCompletion(reconciler, resReq)
 					Expect(err).NotTo(HaveOccurred())
-					Expect(result).To(Equal(ctrl.Result{RequeueAfter: reconciler.ReconciliationInterval}))
+					Expect(result).To(Equal(ctrl.Result{RequeueAfter: controller.DefaultReconciliationInterval}))
 					Expect(fakeK8sClient.Get(ctx, resReqNameNamespace, resReq)).To(Succeed())
 
 					lastSuccessfulConfigureWorkflowTime := resourceutil.GetKratixWorkflowsStatus(resReq, "lastSuccessfulConfigureWorkflowTime")
@@ -463,7 +462,7 @@ var _ = Describe("DynamicResourceRequestController", func() {
 
 					result, err := t.reconcileUntilCompletion(reconciler, resReq)
 					Expect(err).NotTo(HaveOccurred())
-					Expect(result).To(Equal(ctrl.Result{RequeueAfter: reconciler.ReconciliationInterval}))
+					Expect(result).To(Equal(ctrl.Result{RequeueAfter: controller.DefaultReconciliationInterval}))
 					Expect(fakeK8sClient.Get(ctx, resReqNameNamespace, resReq)).To(Succeed())
 				})
 
@@ -514,7 +513,7 @@ var _ = Describe("DynamicResourceRequestController", func() {
 
 					result, err := t.reconcileUntilCompletion(reconciler, resReq)
 					Expect(err).NotTo(HaveOccurred())
-					Expect(result).To(Equal(ctrl.Result{RequeueAfter: reconciler.ReconciliationInterval}))
+					Expect(result).To(Equal(ctrl.Result{RequeueAfter: controller.DefaultReconciliationInterval}))
 					Expect(fakeK8sClient.Get(ctx, resReqNameNamespace, resReq)).To(Succeed())
 
 					actualAfter := resourceutil.GetKratixWorkflowsStatus(resReq, "lastSuccessfulConfigureWorkflowTime")
@@ -1083,7 +1082,7 @@ var _ = Describe("DynamicResourceRequestController", func() {
 		})
 
 		It("removes the suspend label and requests a restart when the reconciliation interval is reached", func() {
-			setConfigureWorkflowStatus(resReq, v1.ConditionTrue, time.Now().Add(-reconciler.ReconciliationInterval).Add(-time.Minute))
+			setConfigureWorkflowStatus(resReq, v1.ConditionTrue, time.Now().Add(-controller.DefaultReconciliationInterval).Add(-time.Minute))
 
 			result, err := reconciler.Reconcile(ctx, ctrl.Request{NamespacedName: resReqNameNamespace})
 			Expect(err).NotTo(HaveOccurred())

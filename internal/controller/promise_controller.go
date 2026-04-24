@@ -77,7 +77,6 @@ type PromiseReconciler struct {
 	Log                       logr.Logger
 	Manager                   ctrl.Manager
 	StartedDynamicControllers map[string]*DynamicResourceRequestController
-	ReconciliationInterval    time.Duration
 	EventRecorder             record.EventRecorder
 	PromiseUpgrade            bool
 }
@@ -655,8 +654,8 @@ func (r *PromiseReconciler) reconcileResources(ctx context.Context, logger logr.
 }
 
 func (r *PromiseReconciler) nextReconciliation(logger logr.Logger) ctrl.Result {
-	logging.Info(logger, "scheduling next reconciliation", "reconciliationInterval", r.ReconciliationInterval)
-	return ctrl.Result{RequeueAfter: r.ReconciliationInterval}
+	logging.Info(logger, "scheduling next reconciliation", "reconciliationInterval", getReconciliationInterval())
+	return ctrl.Result{RequeueAfter: getReconciliationInterval()}
 }
 
 func promiseAvailableStatusCondition(lastTransitionTime metav1.Time) metav1.Condition {
@@ -955,7 +954,7 @@ func (r *PromiseReconciler) reconcileDependenciesAndPromiseWorkflows(o opts, pro
 
 	completedCond := promise.GetCondition(string(resourceutil.ConfigureWorkflowCompletedCondition))
 
-	forcePipelineRun := passedReconciliationInterval(completedCond, r.ReconciliationInterval) &&
+	forcePipelineRun := passedReconciliationInterval(completedCond, getReconciliationInterval()) &&
 		promise.Labels[resourceutil.WorkflowRunFromStartLabel] != "true"
 
 	reconciledCond := promise.GetCondition(string(resourceutil.ReconciledCondition))
@@ -1135,7 +1134,6 @@ func (r *PromiseReconciler) ensureDynamicControllerIsStarted(promise *v1alpha1.P
 		dynamicController.UID = string(promise.GetUID())[0:5]
 		dynamicController.CanCreateResources = canCreateResources
 		dynamicController.EventRecorder = r.Manager.GetEventRecorderFor("ResourceRequestController")
-		dynamicController.ReconciliationInterval = r.ReconciliationInterval
 		dynamicController.PromiseUpgrade = r.PromiseUpgrade
 		dynamicController.PromiseDestinationSelectors = promise.Spec.DestinationSelectors
 
@@ -1163,7 +1161,6 @@ func (r *PromiseReconciler) ensureDynamicControllerIsStarted(promise *v1alpha1.P
 		UID:                         string(promise.GetUID())[0:5],
 		WatchStopped:                false,
 		CanCreateResources:          canCreateResources,
-		ReconciliationInterval:      r.ReconciliationInterval,
 		EventRecorder:               r.Manager.GetEventRecorderFor("ResourceRequestController"),
 		PromiseUpgrade:              r.PromiseUpgrade,
 	}

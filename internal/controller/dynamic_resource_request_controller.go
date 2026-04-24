@@ -76,7 +76,6 @@ type DynamicResourceRequestController struct {
 	Controller                  crcontroller.Controller
 	PromiseDestinationSelectors []v1alpha1.PromiseScheduling
 	CanCreateResources          *bool
-	ReconciliationInterval      time.Duration
 	EventRecorder               record.EventRecorder
 	PromiseUpgrade              bool
 }
@@ -222,7 +221,7 @@ func (r *DynamicResourceRequestController) Reconcile(ctx context.Context, req ct
 
 	logging.Info(logger, "resource contains configure workflow(s); reconciling workflows")
 	completedCond := resourceutil.GetCondition(rr, resourceutil.ConfigureWorkflowCompletedCondition)
-	forcePipelineRun := shouldForcePipelineRun(completedCond, r.ReconciliationInterval) &&
+	forcePipelineRun := shouldForcePipelineRun(completedCond, getReconciliationInterval()) &&
 		rr.GetLabels()[resourceutil.WorkflowRunFromStartLabel] != "true"
 
 	if restarted, err := r.restartOnReconciliationInterval(opts.ctx, logger, rr,
@@ -883,8 +882,8 @@ func workflowsCompletedSuccessfully(workflowCompletedCondition *clusterv1.Condit
 }
 
 func (r *DynamicResourceRequestController) nextReconciliation(logger logr.Logger) ctrl.Result {
-	logging.Info(logger, "scheduling next reconciliation", "reconciliationInterval", r.ReconciliationInterval)
-	return ctrl.Result{RequeueAfter: r.ReconciliationInterval}
+	logging.Info(logger, "scheduling next reconciliation", "reconciliationInterval", getReconciliationInterval())
+	return ctrl.Result{RequeueAfter: getReconciliationInterval()}
 }
 
 func (r *DynamicResourceRequestController) restartOnReconciliationInterval(

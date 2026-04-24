@@ -53,6 +53,9 @@ var (
 
 	numJobsToKeepMu      sync.RWMutex
 	numJobsToKeepGlobal  = 5
+
+	reconciliationIntervalMu     sync.RWMutex
+	reconciliationIntervalGlobal = DefaultReconciliationInterval
 )
 
 func SetNumberOfJobsToKeep(n int) {
@@ -65,6 +68,18 @@ func getNumberOfJobsToKeep() int {
 	numJobsToKeepMu.RLock()
 	defer numJobsToKeepMu.RUnlock()
 	return numJobsToKeepGlobal
+}
+
+func SetReconciliationInterval(d time.Duration) {
+	reconciliationIntervalMu.Lock()
+	defer reconciliationIntervalMu.Unlock()
+	reconciliationIntervalGlobal = d
+}
+
+func getReconciliationInterval() time.Duration {
+	reconciliationIntervalMu.RLock()
+	defer reconciliationIntervalMu.RUnlock()
+	return reconciliationIntervalGlobal
 }
 
 type opts struct {
