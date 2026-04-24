@@ -132,6 +132,8 @@ var (
 // +kubebuilder:rbac:groups=apiextensions.k8s.io,resources=customresourcedefinitions,verbs=get;list;watch;create;update;patch;delete
 
 func (r *PromiseReconciler) Reconcile(ctx context.Context, req ctrl.Request) (result ctrl.Result, retErr error) {
+	cfg := snapshotControllerConfig()
+
 	logger := r.Log.WithValues(
 		"controller", "promise",
 		"name", req.Name,
@@ -172,16 +174,16 @@ func (r *PromiseReconciler) Reconcile(ctx context.Context, req ctrl.Request) (re
 		return ctrl.Result{}, r.setPausedReconciliationStatusConditions(ctx, promise)
 	}
 
-	opts := opts{client: r.Client, ctx: ctx, logger: logger}
+	opts := opts{client: r.Client, ctx: ctx, logger: logger, cfg: cfg}
 
 	if !promise.DeletionTimestamp.IsZero() {
 		return r.deletePromise(opts, promise)
 	}
-	if changed := r.syncPromiseFinalizers(promise); changed {
+	if changed := r.syncPromiseFinalizers(promise, cfg.promiseUpgrade); changed {
 		return ctrl.Result{}, r.Client.Update(opts.ctx, promise)
 	}
 
-	result, err := r.handlePromiseVersion(ctx, promise)
+	result, err := r.handlePromiseVersion(ctx, promise, cfg.promiseUpgrade)
 	if err != nil || !result.IsZero() {
 		return result, err
 	}
@@ -320,14 +322,14 @@ func (r *PromiseReconciler) Reconcile(ctx context.Context, req ctrl.Request) (re
 		if completedCond != nil {
 			r.EventRecorder.Eventf(promise, v1.EventTypeNormal, "ConfigureWorkflowCompleted", "All workflows completed")
 		}
-		return r.nextReconciliation(logger), nil
+		return r.nextReconciliation(logger, cfg.reconciliationInterval), nil
 	}
 
 	return ctrl.Result{}, nil
 }
 
-func (r *PromiseReconciler) syncPromiseFinalizers(promise *v1alpha1.Promise) bool {
-	finalizersChanged := addMissingFinalizersToResource(promise, r.promiseFinalizers(promise))
+func (r *PromiseReconciler) syncPromiseFinalizers(promise *v1alpha1.Promise, promiseUpgrade bool) bool {
+	finalizersChanged := addMissingFinalizersToResource(promise, r.promiseFinalizers(promise, promiseUpgrade))
 
 	if shouldRemoveDeleteWorkflowsFinalizer(promise) {
 		controllerutil.RemoveFinalizer(promise, runDeleteWorkflowsFinalizer)
@@ -357,7 +359,7 @@ func shouldRemoveDeleteWorkflowsFinalizer(promise *v1alpha1.Promise) bool {
 		controllerutil.ContainsFinalizer(promise, runDeleteWorkflowsFinalizer)
 }
 
-func (r *PromiseReconciler) handlePromiseVersion(ctx context.Context, promise *v1alpha1.Promise) (ctrl.Result, error) {
+func (r *PromiseReconciler) handlePromiseVersion(ctx context.Context, promise *v1alpha1.Promise, promiseUpgrade bool) (ctrl.Result, error) {
 	var promiseVersion string
 	var found bool
 	if promiseVersion, found = promise.Labels[v1alpha1.PromiseVersionLabel]; found {
@@ -368,7 +370,7 @@ func (r *PromiseReconciler) handlePromiseVersion(ctx context.Context, promise *v
 		}
 	}
 
-	if !getPromiseUpgrade() {
+	if !promiseUpgrade {
 		return ctrl.Result{}, nil
 	}
 
@@ -652,9 +654,9 @@ func (r *PromiseReconciler) reconcileResources(ctx context.Context, logger logr.
 	return r.updatePromiseStatus(ctx, promise)
 }
 
-func (r *PromiseReconciler) nextReconciliation(logger logr.Logger) ctrl.Result {
-	logging.Info(logger, "scheduling next reconciliation", "reconciliationInterval", getReconciliationInterval())
-	return ctrl.Result{RequeueAfter: getReconciliationInterval()}
+func (r *PromiseReconciler) nextReconciliation(logger logr.Logger, interval time.Duration) ctrl.Result {
+	logging.Info(logger, "scheduling next reconciliation", "reconciliationInterval", interval)
+	return ctrl.Result{RequeueAfter: interval}
 }
 
 func promiseAvailableStatusCondition(lastTransitionTime metav1.Time) metav1.Condition {
@@ -953,7 +955,7 @@ func (r *PromiseReconciler) reconcileDependenciesAndPromiseWorkflows(o opts, pro
 
 	completedCond := promise.GetCondition(string(resourceutil.ConfigureWorkflowCompletedCondition))
 
-	forcePipelineRun := passedReconciliationInterval(completedCond, getReconciliationInterval()) &&
+	forcePipelineRun := passedReconciliationInterval(completedCond, o.cfg.reconciliationInterval) &&
 		promise.Labels[resourceutil.WorkflowRunFromStartLabel] != "true"
 
 	reconciledCond := promise.GetCondition(string(resourceutil.ReconciledCondition))
@@ -991,7 +993,7 @@ func (r *PromiseReconciler) reconcileDependenciesAndPromiseWorkflows(o opts, pro
 		namespace = promise.Spec.Workflows.Config.PipelineNamespace
 	}
 
-	jobOpts := workflow.NewOpts(o.ctx, o.client, r.EventRecorder, o.logger, unstructuredPromise, pipelineResources, "promise", getNumberOfJobsToKeep(), namespace)
+	jobOpts := workflow.NewOpts(o.ctx, o.client, r.EventRecorder, o.logger, unstructuredPromise, pipelineResources, "promise", o.cfg.numberOfJobsToKeep, namespace)
 
 	logging.Debug(o.logger, "reconciling configure workflow")
 	passiveRequeue, err := reconcileConfigure(jobOpts)
@@ -1461,7 +1463,7 @@ func (r *PromiseReconciler) deletePromise(o opts, promise *v1alpha1.Promise) (ct
 		if promise.Spec.Workflows.Config.PipelineNamespace != "" {
 			namespace = promise.Spec.Workflows.Config.PipelineNamespace
 		}
-		jobOpts := workflow.NewOpts(o.ctx, o.client, r.EventRecorder, o.logger, unstructuredPromise, pipelines, "promise", getNumberOfJobsToKeep(), namespace)
+		jobOpts := workflow.NewOpts(o.ctx, o.client, r.EventRecorder, o.logger, unstructuredPromise, pipelines, "promise", o.cfg.numberOfJobsToKeep, namespace)
 
 		requeue, err := reconcileDelete(jobOpts)
 		if err != nil {
@@ -1751,7 +1753,7 @@ func (r *PromiseReconciler) SetupWithManager(mgr ctrl.Manager) error {
 		Complete(r)
 }
 
-func (r *PromiseReconciler) promiseFinalizers(promise *v1alpha1.Promise) []string {
+func (r *PromiseReconciler) promiseFinalizers(promise *v1alpha1.Promise, promiseUpgrade bool) []string {
 	if promise == nil {
 		return nil
 	}
@@ -1761,7 +1763,7 @@ func (r *PromiseReconciler) promiseFinalizers(promise *v1alpha1.Promise) []strin
 	desired[removeAllWorkflowJobsFinalizer] = struct{}{}
 
 	desired[dependenciesCleanupFinalizer] = struct{}{}
-	if getPromiseUpgrade() {
+	if promiseUpgrade {
 		desired[revisionCleanupFinalizer] = struct{}{}
 	}
 

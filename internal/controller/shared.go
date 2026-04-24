@@ -97,10 +97,29 @@ func getPromiseUpgrade() bool {
 	return promiseUpgradeGlobal
 }
 
+// controllerConfigSnapshot holds a point-in-time copy of live-reloadable
+// config values, captured once at the start of each Reconcile call so that
+// all branches within a single reconcile observe the same values even if the
+// kratix ConfigMap is updated concurrently.
+type controllerConfigSnapshot struct {
+	numberOfJobsToKeep     int
+	reconciliationInterval time.Duration
+	promiseUpgrade         bool
+}
+
+func snapshotControllerConfig() controllerConfigSnapshot {
+	return controllerConfigSnapshot{
+		numberOfJobsToKeep:     getNumberOfJobsToKeep(),
+		reconciliationInterval: getReconciliationInterval(),
+		promiseUpgrade:         getPromiseUpgrade(),
+	}
+}
+
 type opts struct {
 	ctx    context.Context
 	client client.Client
 	logger logr.Logger
+	cfg    controllerConfigSnapshot
 }
 
 func withPromiseAndResourceRequest(logger logr.Logger, promiseName, resourceNamespace, resourceName string) logr.Logger {

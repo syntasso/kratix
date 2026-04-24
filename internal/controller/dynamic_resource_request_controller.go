@@ -83,6 +83,8 @@ type DynamicResourceRequestController struct {
 
 // Reconcile reconciles a Dynamically Generated Resource object.
 func (r *DynamicResourceRequestController) Reconcile(ctx context.Context, req ctrl.Request) (result ctrl.Result, retErr error) {
+	cfg := snapshotControllerConfig()
+
 	if r.WatchStopped {
 		// WatchStopped means the controller's informer no longer watches the CRD.
 		// This effectively shuts down the controller because it is no longer
@@ -160,13 +162,13 @@ func (r *DynamicResourceRequestController) Reconcile(ctx context.Context, req ct
 		return ctrl.Result{}, nil
 	}
 
-	opts := opts{client: r.Client, ctx: ctx, logger: logger}
+	opts := opts{client: r.Client, ctx: ctx, logger: logger, cfg: cfg}
 
 	var (
 		promiseRevisionUsed *v1alpha1.PromiseRevision
 		bindingVersion      string
 	)
-	if getPromiseUpgrade() {
+	if cfg.promiseUpgrade {
 		logging.Trace(baseLogger,
 			"PromiseUpgrade feature flag set to true; will reconcile with a PromiseRevision.")
 
@@ -202,7 +204,7 @@ func (r *DynamicResourceRequestController) Reconcile(ctx context.Context, req ct
 	if resourceutil.FinalizersAreMissing(
 		rr, []string{workFinalizer, removeAllWorkflowJobsFinalizer, runDeleteWorkflowsFinalizer},
 	) {
-		if err := addFinalizers(opts, rr, r.getRRFinalizers()); err != nil {
+		if err := addFinalizers(opts, rr, r.getRRFinalizers(cfg.promiseUpgrade)); err != nil {
 			if apierrors.IsConflict(err) {
 				return fastRequeue, nil
 			}
@@ -211,7 +213,7 @@ func (r *DynamicResourceRequestController) Reconcile(ctx context.Context, req ct
 		return ctrl.Result{}, nil
 	}
 
-	if getPromiseUpgrade() {
+	if cfg.promiseUpgrade {
 		err := r.updateResourceBinding(ctx, logger, rr, promise)
 		if err != nil {
 			return ctrl.Result{}, err
@@ -220,7 +222,7 @@ func (r *DynamicResourceRequestController) Reconcile(ctx context.Context, req ct
 
 	logging.Info(logger, "resource contains configure workflow(s); reconciling workflows")
 	completedCond := resourceutil.GetCondition(rr, resourceutil.ConfigureWorkflowCompletedCondition)
-	forcePipelineRun := shouldForcePipelineRun(completedCond, getReconciliationInterval()) &&
+	forcePipelineRun := shouldForcePipelineRun(completedCond, cfg.reconciliationInterval) &&
 		rr.GetLabels()[resourceutil.WorkflowRunFromStartLabel] != "true"
 
 	if restarted, err := r.restartOnReconciliationInterval(opts.ctx, logger, rr,
@@ -266,7 +268,7 @@ func (r *DynamicResourceRequestController) Reconcile(ctx context.Context, req ct
 		rr,
 		pipelineResources,
 		"resource",
-		getNumberOfJobsToKeep(),
+		cfg.numberOfJobsToKeep,
 		namespace,
 	)
 
@@ -284,7 +286,7 @@ func (r *DynamicResourceRequestController) Reconcile(ctx context.Context, req ct
 	}
 
 	if !promise.HasPipeline(v1alpha1.WorkflowTypeResource, v1alpha1.WorkflowActionConfigure) {
-		return r.nextReconciliation(logger), r.cleanupWorkflowCountersAndExecution(ctx, logger, rr)
+		return r.nextReconciliation(logger, cfg.reconciliationInterval), r.cleanupWorkflowCountersAndExecution(ctx, logger, rr)
 	}
 
 	rrNamespace := ""
@@ -293,7 +295,7 @@ func (r *DynamicResourceRequestController) Reconcile(ctx context.Context, req ct
 	}
 	workLabels := resourceutil.GetWorkLabels(r.PromiseIdentifier, rr.GetName(), rrNamespace, "", v1alpha1.WorkTypeResource)
 
-	statusUpdate, err := r.generateResourceStatus(ctx, logger, rr, int64(len(pipelineResources)), workLabels, bindingVersion, promiseRevisionUsed)
+	statusUpdate, err := r.generateResourceStatus(ctx, logger, rr, int64(len(pipelineResources)), workLabels, bindingVersion, promiseRevisionUsed, cfg.promiseUpgrade)
 	if err != nil {
 		return ctrl.Result{}, err
 	}
@@ -310,11 +312,11 @@ func (r *DynamicResourceRequestController) Reconcile(ctx context.Context, req ct
 			}
 			return ctrl.Result{}, nil
 		}
-		return r.nextReconciliation(logger), nil
+		return r.nextReconciliation(logger, cfg.reconciliationInterval), nil
 	}
 
-	if getPromiseUpgrade() {
-		if r.updatePromiseVersionStatus(logger, rr, bindingVersion, promiseRevisionUsed) {
+	if cfg.promiseUpgrade {
+		if r.updatePromiseVersionStatus(logger, rr, bindingVersion, promiseRevisionUsed, cfg.promiseUpgrade) {
 			return ctrl.Result{}, r.Client.Status().Update(ctx, rr)
 		}
 	}
@@ -465,7 +467,7 @@ func (r *DynamicResourceRequestController) reconcileSuspendedWorkflow(
 }
 
 func (r *DynamicResourceRequestController) generateResourceStatus(ctx context.Context, logger logr.Logger, rr *unstructured.Unstructured,
-	numberOfPipelines int64, workLabels map[string]string, bindingVersion string, promiseRevision *v1alpha1.PromiseRevision) (bool, error) {
+	numberOfPipelines int64, workLabels map[string]string, bindingVersion string, promiseRevision *v1alpha1.PromiseRevision, promiseUpgrade bool) (bool, error) {
 	failed, misplaced, pending, ready, err := r.getWorksStatus(ctx, logger, rr, workLabels)
 	if err != nil {
 		return false, err
@@ -473,7 +475,7 @@ func (r *DynamicResourceRequestController) generateResourceStatus(ctx context.Co
 	worksSucceededUpdate := r.updateWorksSucceededCondition(rr, failed, pending, ready, misplaced)
 	reconciledUpdate := r.updateReconciledCondition(rr)
 	workflowsCounterStatusUpdate := r.generateWorkflowsCounterStatus(logger, rr, numberOfPipelines)
-	promiseVersionUpdate := r.updatePromiseVersionStatus(logger, rr, bindingVersion, promiseRevision)
+	promiseVersionUpdate := r.updatePromiseVersionStatus(logger, rr, bindingVersion, promiseRevision, promiseUpgrade)
 
 	return worksSucceededUpdate || reconciledUpdate || workflowsCounterStatusUpdate || promiseVersionUpdate, nil
 }
@@ -554,9 +556,9 @@ func (r *DynamicResourceRequestController) updateReconciledCondition(rr *unstruc
 	return updated
 }
 
-func (r *DynamicResourceRequestController) updatePromiseVersionStatus(logger logr.Logger, rr *unstructured.Unstructured, bindingVersion string, promiseRevision *v1alpha1.PromiseRevision) bool {
+func (r *DynamicResourceRequestController) updatePromiseVersionStatus(logger logr.Logger, rr *unstructured.Unstructured, bindingVersion string, promiseRevision *v1alpha1.PromiseRevision, promiseUpgrade bool) bool {
 	logging.Trace(logger, "Checking if we need to update the promise version in the status")
-	if !getPromiseUpgrade() || promiseRevision == nil {
+	if !promiseUpgrade || promiseRevision == nil {
 		logging.Trace(logger, "Feature flag disabled or no PromiseRevision: no update promise version required")
 		return false
 	}
@@ -703,7 +705,7 @@ func ensureRRKratixWorkflowStatusIsSetup(rr *unstructured.Unstructured, pipeline
 }
 
 func (r *DynamicResourceRequestController) deleteResources(o opts, promise *v1alpha1.Promise, resourceRequest *unstructured.Unstructured) (ctrl.Result, error) {
-	if resourceutil.FinalizersAreDeleted(resourceRequest, r.getRRFinalizers()) {
+	if resourceutil.FinalizersAreDeleted(resourceRequest, r.getRRFinalizers(o.cfg.promiseUpgrade)) {
 		return ctrl.Result{}, nil
 	}
 
@@ -718,7 +720,7 @@ func (r *DynamicResourceRequestController) deleteResources(o opts, promise *v1al
 			return ctrl.Result{}, err
 		}
 
-		jobOpts := workflow.NewOpts(o.ctx, o.client, r.EventRecorder, o.logger, resourceRequest, pipelineResources, "resource", getNumberOfJobsToKeep(), namespace)
+		jobOpts := workflow.NewOpts(o.ctx, o.client, r.EventRecorder, o.logger, resourceRequest, pipelineResources, "resource", o.cfg.numberOfJobsToKeep, namespace)
 		requeue, err := reconcileDelete(jobOpts)
 		if err != nil {
 			if errors.Is(err, workflow.ErrDeletePipelineFailed) {
@@ -758,7 +760,7 @@ func (r *DynamicResourceRequestController) deleteResources(o opts, promise *v1al
 		return fastRequeue, nil
 	}
 
-	if getPromiseUpgrade() {
+	if o.cfg.promiseUpgrade {
 		if controllerutil.ContainsFinalizer(resourceRequest, resourceBindingFinalizer) {
 			err := r.deleteResourceBinding(o, resourceRequest, promise, resourceBindingFinalizer)
 			if err != nil {
@@ -880,9 +882,9 @@ func workflowsCompletedSuccessfully(workflowCompletedCondition *clusterv1.Condit
 		workflowCompletedCondition.Reason == resourceutil.PipelinesExecutedSuccessfully
 }
 
-func (r *DynamicResourceRequestController) nextReconciliation(logger logr.Logger) ctrl.Result {
-	logging.Info(logger, "scheduling next reconciliation", "reconciliationInterval", getReconciliationInterval())
-	return ctrl.Result{RequeueAfter: getReconciliationInterval()}
+func (r *DynamicResourceRequestController) nextReconciliation(logger logr.Logger, interval time.Duration) ctrl.Result {
+	logging.Info(logger, "scheduling next reconciliation", "reconciliationInterval", interval)
+	return ctrl.Result{RequeueAfter: interval}
 }
 
 func (r *DynamicResourceRequestController) restartOnReconciliationInterval(
@@ -1093,9 +1095,9 @@ func (r *DynamicResourceRequestController) setPromiseLabels(ctx context.Context,
 	return nil
 }
 
-func (r *DynamicResourceRequestController) getRRFinalizers() []string {
+func (r *DynamicResourceRequestController) getRRFinalizers(promiseUpgrade bool) []string {
 	rrFinalizers := []string{workFinalizer, removeAllWorkflowJobsFinalizer, runDeleteWorkflowsFinalizer}
-	if getPromiseUpgrade() {
+	if promiseUpgrade {
 		rrFinalizers = append(rrFinalizers, resourceBindingFinalizer)
 	}
 	return rrFinalizers
