@@ -5,6 +5,7 @@ package controller
 import (
 	"context"
 	"fmt"
+	"sync"
 	"time"
 
 	"github.com/go-logr/logr"
@@ -49,7 +50,22 @@ var (
 
 	newGitWriter func(logger logr.Logger, stateStoreSpec v1alpha1.GitStateStoreSpec, destinationPath string,
 		creds map[string][]byte) (writers.StateStoreWriter, error) = writers.NewGitWriter
+
+	numJobsToKeepMu      sync.RWMutex
+	numJobsToKeepGlobal  = 5
 )
+
+func SetNumberOfJobsToKeep(n int) {
+	numJobsToKeepMu.Lock()
+	defer numJobsToKeepMu.Unlock()
+	numJobsToKeepGlobal = n
+}
+
+func getNumberOfJobsToKeep() int {
+	numJobsToKeepMu.RLock()
+	defer numJobsToKeepMu.RUnlock()
+	return numJobsToKeepGlobal
+}
 
 type opts struct {
 	ctx    context.Context

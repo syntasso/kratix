@@ -76,7 +76,6 @@ type DynamicResourceRequestController struct {
 	Controller                  crcontroller.Controller
 	PromiseDestinationSelectors []v1alpha1.PromiseScheduling
 	CanCreateResources          *bool
-	NumberOfJobsToKeep          int
 	ReconciliationInterval      time.Duration
 	EventRecorder               record.EventRecorder
 	PromiseUpgrade              bool
@@ -269,7 +268,7 @@ func (r *DynamicResourceRequestController) Reconcile(ctx context.Context, req ct
 		rr,
 		pipelineResources,
 		"resource",
-		r.NumberOfJobsToKeep,
+		getNumberOfJobsToKeep(),
 		namespace,
 	)
 
@@ -721,7 +720,7 @@ func (r *DynamicResourceRequestController) deleteResources(o opts, promise *v1al
 			return ctrl.Result{}, err
 		}
 
-		jobOpts := workflow.NewOpts(o.ctx, o.client, r.EventRecorder, o.logger, resourceRequest, pipelineResources, "resource", r.NumberOfJobsToKeep, namespace)
+		jobOpts := workflow.NewOpts(o.ctx, o.client, r.EventRecorder, o.logger, resourceRequest, pipelineResources, "resource", getNumberOfJobsToKeep(), namespace)
 		requeue, err := reconcileDelete(jobOpts)
 		if err != nil {
 			if errors.Is(err, workflow.ErrDeletePipelineFailed) {

@@ -77,7 +77,6 @@ type PromiseReconciler struct {
 	Log                       logr.Logger
 	Manager                   ctrl.Manager
 	StartedDynamicControllers map[string]*DynamicResourceRequestController
-	NumberOfJobsToKeep        int
 	ReconciliationInterval    time.Duration
 	EventRecorder             record.EventRecorder
 	PromiseUpgrade            bool
@@ -994,7 +993,7 @@ func (r *PromiseReconciler) reconcileDependenciesAndPromiseWorkflows(o opts, pro
 		namespace = promise.Spec.Workflows.Config.PipelineNamespace
 	}
 
-	jobOpts := workflow.NewOpts(o.ctx, o.client, r.EventRecorder, o.logger, unstructuredPromise, pipelineResources, "promise", r.NumberOfJobsToKeep, namespace)
+	jobOpts := workflow.NewOpts(o.ctx, o.client, r.EventRecorder, o.logger, unstructuredPromise, pipelineResources, "promise", getNumberOfJobsToKeep(), namespace)
 
 	logging.Debug(o.logger, "reconciling configure workflow")
 	passiveRequeue, err := reconcileConfigure(jobOpts)
@@ -1136,7 +1135,6 @@ func (r *PromiseReconciler) ensureDynamicControllerIsStarted(promise *v1alpha1.P
 		dynamicController.UID = string(promise.GetUID())[0:5]
 		dynamicController.CanCreateResources = canCreateResources
 		dynamicController.EventRecorder = r.Manager.GetEventRecorderFor("ResourceRequestController")
-		dynamicController.NumberOfJobsToKeep = r.NumberOfJobsToKeep
 		dynamicController.ReconciliationInterval = r.ReconciliationInterval
 		dynamicController.PromiseUpgrade = r.PromiseUpgrade
 		dynamicController.PromiseDestinationSelectors = promise.Spec.DestinationSelectors
@@ -1165,7 +1163,6 @@ func (r *PromiseReconciler) ensureDynamicControllerIsStarted(promise *v1alpha1.P
 		UID:                         string(promise.GetUID())[0:5],
 		WatchStopped:                false,
 		CanCreateResources:          canCreateResources,
-		NumberOfJobsToKeep:          r.NumberOfJobsToKeep,
 		ReconciliationInterval:      r.ReconciliationInterval,
 		EventRecorder:               r.Manager.GetEventRecorderFor("ResourceRequestController"),
 		PromiseUpgrade:              r.PromiseUpgrade,
@@ -1470,7 +1467,7 @@ func (r *PromiseReconciler) deletePromise(o opts, promise *v1alpha1.Promise) (ct
 		if promise.Spec.Workflows.Config.PipelineNamespace != "" {
 			namespace = promise.Spec.Workflows.Config.PipelineNamespace
 		}
-		jobOpts := workflow.NewOpts(o.ctx, o.client, r.EventRecorder, o.logger, unstructuredPromise, pipelines, "promise", r.NumberOfJobsToKeep, namespace)
+		jobOpts := workflow.NewOpts(o.ctx, o.client, r.EventRecorder, o.logger, unstructuredPromise, pipelines, "promise", getNumberOfJobsToKeep(), namespace)
 
 		requeue, err := reconcileDelete(jobOpts)
 		if err != nil {

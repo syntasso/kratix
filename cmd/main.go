@@ -181,6 +181,7 @@ func main() {
 	setupLog.Info("logging configured from Kratix config", "structured", !opts.Development, "developmentMode", opts.Development, "level", opts.Level)
 
 	applyWorkflowDefaults(kratixConfig)
+	controller.SetNumberOfJobsToKeep(getNumJobsToKeep(kratixConfig))
 
 	podTTLAfterFinished := getPodTTLAfterFinished(kratixConfig)
 
@@ -279,7 +280,6 @@ func main() {
 		Log:                    ctrl.Log.WithName("controllers").WithName("Promise"),
 		Manager:                mgr,
 		Scheme:                 mgr.GetScheme(),
-		NumberOfJobsToKeep:     getNumJobsToKeep(kratixConfig),
 		ReconciliationInterval: getRegularReconciliationInterval(kratixConfig),
 		EventRecorder:          mgr.GetEventRecorderFor("PromiseController"),
 		PromiseUpgrade:         promiseUpgradeEnabled(kratixConfig),
@@ -486,7 +486,8 @@ func makeConfigChangeHandler(logger logr.Logger) func(data map[string]string) er
 			return err
 		}
 		applyWorkflowDefaults(cfg)
-		logger.Info("workflow defaults updated from ConfigMap")
+		controller.SetNumberOfJobsToKeep(getNumJobsToKeep(cfg))
+		logger.Info("workflow defaults and numberOfJobsToKeep updated from ConfigMap")
 		return nil
 	}
 }
