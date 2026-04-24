@@ -51,50 +51,29 @@ var (
 	newGitWriter func(logger logr.Logger, stateStoreSpec v1alpha1.GitStateStoreSpec, destinationPath string,
 		creds map[string][]byte) (writers.StateStoreWriter, error) = writers.NewGitWriter
 
-	numJobsToKeepMu      sync.RWMutex
-	numJobsToKeepGlobal  = 5
-
-	reconciliationIntervalMu     sync.RWMutex
-	reconciliationIntervalGlobal = DefaultReconciliationInterval
-
-	promiseUpgradeMu     sync.RWMutex
-	promiseUpgradeGlobal bool
+	controllerConfigMu sync.RWMutex
+	controllerConfig   = controllerConfigSnapshot{
+		numberOfJobsToKeep:     5,
+		reconciliationInterval: DefaultReconciliationInterval,
+	}
 )
 
 func SetNumberOfJobsToKeep(n int) {
-	numJobsToKeepMu.Lock()
-	defer numJobsToKeepMu.Unlock()
-	numJobsToKeepGlobal = n
-}
-
-func getNumberOfJobsToKeep() int {
-	numJobsToKeepMu.RLock()
-	defer numJobsToKeepMu.RUnlock()
-	return numJobsToKeepGlobal
+	controllerConfigMu.Lock()
+	defer controllerConfigMu.Unlock()
+	controllerConfig.numberOfJobsToKeep = n
 }
 
 func SetReconciliationInterval(d time.Duration) {
-	reconciliationIntervalMu.Lock()
-	defer reconciliationIntervalMu.Unlock()
-	reconciliationIntervalGlobal = d
-}
-
-func getReconciliationInterval() time.Duration {
-	reconciliationIntervalMu.RLock()
-	defer reconciliationIntervalMu.RUnlock()
-	return reconciliationIntervalGlobal
+	controllerConfigMu.Lock()
+	defer controllerConfigMu.Unlock()
+	controllerConfig.reconciliationInterval = d
 }
 
 func SetPromiseUpgrade(enabled bool) {
-	promiseUpgradeMu.Lock()
-	defer promiseUpgradeMu.Unlock()
-	promiseUpgradeGlobal = enabled
-}
-
-func getPromiseUpgrade() bool {
-	promiseUpgradeMu.RLock()
-	defer promiseUpgradeMu.RUnlock()
-	return promiseUpgradeGlobal
+	controllerConfigMu.Lock()
+	defer controllerConfigMu.Unlock()
+	controllerConfig.promiseUpgrade = enabled
 }
 
 // controllerConfigSnapshot holds a point-in-time copy of live-reloadable
@@ -108,11 +87,9 @@ type controllerConfigSnapshot struct {
 }
 
 func snapshotControllerConfig() controllerConfigSnapshot {
-	return controllerConfigSnapshot{
-		numberOfJobsToKeep:     getNumberOfJobsToKeep(),
-		reconciliationInterval: getReconciliationInterval(),
-		promiseUpgrade:         getPromiseUpgrade(),
-	}
+	controllerConfigMu.RLock()
+	defer controllerConfigMu.RUnlock()
+	return controllerConfig
 }
 
 type opts struct {
