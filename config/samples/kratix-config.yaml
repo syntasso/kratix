@@ -3,14 +3,24 @@ kind: ConfigMap
 metadata:
   name: kratix
   namespace: kratix-platform-system
+# Changes to this ConfigMap are applied live by Kratix without a pod restart.
 data:
   config: |
     workflows:
       jobOptions:
         defaultBackoffLimit: 4
+        # podTTLSecondsAfterFinished: 120
+      # defaultImagePullPolicy: IfNotPresent
       defaultContainerSecurityContext:
         windowsOptions:
           runAsUserName: "setInKratixConfig"
+      # defaultContainerResources:
+      #   requests:
+      #     cpu: "100m"
+      #     memory: "128Mi"
+      #   limits:
+      #     cpu: "500m"
+      #     memory: "256Mi"
     telemetry:
       traces:
         enabled: true
