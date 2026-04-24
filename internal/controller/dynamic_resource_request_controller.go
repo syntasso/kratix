@@ -360,12 +360,12 @@ func (r *DynamicResourceRequestController) updateResourceBindingVersionStatus(ct
 	}
 
 	desiredVersion := resourceutil.GetStatus(rr, resourcePromiseVersionStatus)
-	if resourceBinding.Status.ResourceRequestVersion == desiredVersion {
+	if resourceBinding.Status.LastAppiedVersion == desiredVersion {
 		return nil
 	}
 
 	logging.Info(logger, "updating the resource binding status.ResourceRequestVersion", "oldVersion", resourceBinding.Spec.Version, "newVersion", desiredVersion)
-	resourceBinding.Status.ResourceRequestVersion = desiredVersion
+	resourceBinding.Status.LastAppiedVersion = desiredVersion
 	if err := r.Client.Status().Update(ctx, resourceBinding); err != nil {
 		return fmt.Errorf("failed to update resource binding status: %w", err)
 	}

@@ -85,7 +85,7 @@ var _ = Describe("Promise Revisions", func() {
 				Eventually(func(g Gomega) {
 					name := getBindingName(promiseName, resourceName)
 					g.Expect(platform.Kubectl("get", "--namespace=default", name, "-o=jsonpath='{.spec.version}'")).To(ContainSubstring("latest"))
-					g.Expect(platform.Kubectl("get", "--namespace=default", name, "-o=jsonpath='{.status.resourceRequestVersion}'")).To(ContainSubstring(initialPromiseVersion))
+					g.Expect(platform.Kubectl("get", "--namespace=default", name, "-o=jsonpath='{.status.lastAppiedVersion}'")).To(ContainSubstring(initialPromiseVersion))
 				}).Should(Succeed())
 			}
 		})
@@ -196,7 +196,7 @@ var _ = Describe("Promise Revisions", func() {
 
 			Eventually(func(g Gomega) {
 				name := getBindingName(promiseName, rrOneName)
-				g.Expect(platform.Kubectl("get", "--namespace=default", name, "-o=jsonpath='{.status.resourceRequestVersion}'")).To(ContainSubstring(updatedPromiseVersion))
+				g.Expect(platform.Kubectl("get", "--namespace=default", name, "-o=jsonpath='{.status.lastAppiedVersion}'")).To(ContainSubstring(updatedPromiseVersion))
 			}).Should(Succeed())
 		})
 
@@ -211,7 +211,7 @@ var _ = Describe("Promise Revisions", func() {
 
 			Eventually(func(g Gomega) {
 				name := getBindingName(promiseName, rrTwoName)
-				g.Expect(platform.Kubectl("get", "--namespace=default", name, "-o=jsonpath='{.status.resourceRequestVersion}'")).To(ContainSubstring(initialPromiseVersion))
+				g.Expect(platform.Kubectl("get", "--namespace=default", name, "-o=jsonpath='{.status.lastAppiedVersion}'")).To(ContainSubstring(initialPromiseVersion))
 			}).Should(Succeed())
 		})
 
@@ -243,7 +243,7 @@ var _ = Describe("Promise Revisions", func() {
 
 			Eventually(func(g Gomega) {
 				name := getBindingName(promiseName, rrTwoName)
-				g.Expect(platform.Kubectl("get", "--namespace=default", name, "-o=jsonpath='{.status.resourceRequestVersion}'")).To(ContainSubstring(updatedPromiseVersion))
+				g.Expect(platform.Kubectl("get", "--namespace=default", name, "-o=jsonpath='{.status.lastAppiedVersion}'")).To(ContainSubstring(updatedPromiseVersion))
 			}).Should(Succeed())
 		})
 

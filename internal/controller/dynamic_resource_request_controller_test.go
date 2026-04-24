@@ -1494,7 +1494,7 @@ var _ = Describe("DynamicResourceRequestController", func() {
 					// so it should be updated to the actual running promise version
 					binding := getResourceBinding(promise.GetName(), resReqNameNamespace)
 					Expect(binding.Spec.Version).To(Equal("latest"))
-					Expect(binding.Status.ResourceRequestVersion).To(Equal(promiseVersion))
+					Expect(binding.Status.LastAppiedVersion).To(Equal(promiseVersion))
 				})
 			})
 
@@ -1513,7 +1513,7 @@ var _ = Describe("DynamicResourceRequestController", func() {
 					// should be set — the skip condition checks Status, not Spec
 					binding := getResourceBinding(promise.GetName(), resReqNameNamespace)
 					Expect(binding.Spec.Version).To(Equal(promiseVersion))
-					Expect(binding.Status.ResourceRequestVersion).To(Equal(promiseVersion))
+					Expect(binding.Status.LastAppiedVersion).To(Equal(promiseVersion))
 				})
 			})
 		})
