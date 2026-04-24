@@ -187,6 +187,7 @@ func (p *PipelineFactory) defaultEnvVars() []corev1.EnvVar {
 }
 
 func (p *PipelineFactory) readerContainer() corev1.Container {
+	d := getWorkflowDefaults()
 	return corev1.Container{
 		Name:    "reader",
 		Image:   os.Getenv("PIPELINE_ADAPTER_IMG"),
@@ -198,12 +199,13 @@ func (p *PipelineFactory) readerContainer() corev1.Container {
 			{MountPath: "/kratix/output", Name: "shared-output"},
 		},
 		SecurityContext: kratixSecurityContext,
-		ImagePullPolicy: DefaultImagePullPolicy,
-		Resources:       *DefaultResourceRequirements,
+		ImagePullPolicy: d.imagePullPolicy,
+		Resources:       *d.resources,
 	}
 }
 
 func (p *PipelineFactory) workCreatorContainer() corev1.Container {
+	d := getWorkflowDefaults()
 	args := []string{
 		"work-creator",
 		"--input-directory", "/work-creator-files",
@@ -250,12 +252,13 @@ func (p *PipelineFactory) workCreatorContainer() corev1.Container {
 			{MountPath: "/work-creator-files/kratix-system", Name: "promise-scheduling"}, // this volumemount is a configmap
 		},
 		SecurityContext: kratixSecurityContext,
-		ImagePullPolicy: DefaultImagePullPolicy,
-		Resources:       *DefaultResourceRequirements,
+		ImagePullPolicy: d.imagePullPolicy,
+		Resources:       *d.resources,
 	}
 }
 
 func (p *PipelineFactory) pipelineContainers() ([]corev1.Container, []corev1.Volume) {
+	d := getWorkflowDefaults()
 	volumes, defaultVolumeMounts := p.defaultPipelineVolumes()
 	pipeline := p.Pipeline
 	if len(pipeline.Spec.Volumes) > 0 {
@@ -269,15 +272,15 @@ func (p *PipelineFactory) pipelineContainers() ([]corev1.Container, []corev1.Vol
 		containerVolumeMounts := append(defaultVolumeMounts, c.VolumeMounts...)
 
 		if c.SecurityContext == nil {
-			c.SecurityContext = DefaultUserProvidedContainersSecurityContext
+			c.SecurityContext = d.securityContext
 		}
 
 		if c.ImagePullPolicy == "" {
-			c.ImagePullPolicy = DefaultImagePullPolicy
+			c.ImagePullPolicy = d.imagePullPolicy
 		}
 
 		if c.Resources == nil {
-			c.Resources = DefaultResourceRequirements
+			c.Resources = d.resources
 		}
 
 		containers = append(containers, corev1.Container{
@@ -322,9 +325,10 @@ func (p *PipelineFactory) pipelineJob(
 	nodeSelector := p.Pipeline.Spec.NodeSelector
 	tolerations := p.Pipeline.Spec.Tolerations
 
+	d := getWorkflowDefaults()
 	backoffLimit := p.Pipeline.Spec.JobOptions.BackoffLimit
 	if backoffLimit == nil {
-		backoffLimit = DefaultJobBackoffLimit
+		backoffLimit = d.backoffLimit
 	}
 
 	var initContainers []corev1.Container
@@ -388,6 +392,7 @@ func (p *PipelineFactory) pipelineJob(
 }
 
 func (p *PipelineFactory) statusWriterContainer(env []corev1.EnvVar) corev1.Container {
+	d := getWorkflowDefaults()
 	return corev1.Container{
 		Name:    "status-writer",
 		Image:   os.Getenv("PIPELINE_ADAPTER_IMG"),
@@ -399,8 +404,8 @@ func (p *PipelineFactory) statusWriterContainer(env []corev1.EnvVar) corev1.Cont
 			Name:      "shared-metadata",
 		}},
 		SecurityContext: kratixSecurityContext,
-		ImagePullPolicy: DefaultImagePullPolicy,
-		Resources:       *DefaultResourceRequirements,
+		ImagePullPolicy: d.imagePullPolicy,
+		Resources:       *d.resources,
 	}
 }
 

@@ -20,6 +20,7 @@ import (
 	"bytes"
 	"encoding/json"
 	"fmt"
+	"sync"
 
 	"sigs.k8s.io/controller-runtime/pkg/client"
 
@@ -96,6 +97,39 @@ var (
 	DefaultImagePullPolicy                       corev1.PullPolicy
 	DefaultJobBackoffLimit                       *int32
 )
+
+var workflowDefaultsMu sync.RWMutex
+
+type workflowDefaultsSnapshot struct {
+	securityContext *corev1.SecurityContext
+	imagePullPolicy corev1.PullPolicy
+	backoffLimit    *int32
+	resources       *corev1.ResourceRequirements
+}
+
+// SetWorkflowDefaults atomically updates the workflow defaults applied to new pipeline jobs.
+// Pass nil resources to leave DefaultResourceRequirements unchanged.
+func SetWorkflowDefaults(secCtx *corev1.SecurityContext, pullPolicy corev1.PullPolicy, backoffLimit *int32, resources *corev1.ResourceRequirements) {
+	workflowDefaultsMu.Lock()
+	defer workflowDefaultsMu.Unlock()
+	DefaultUserProvidedContainersSecurityContext = secCtx
+	DefaultImagePullPolicy = pullPolicy
+	DefaultJobBackoffLimit = backoffLimit
+	if resources != nil {
+		DefaultResourceRequirements = resources
+	}
+}
+
+func getWorkflowDefaults() workflowDefaultsSnapshot {
+	workflowDefaultsMu.RLock()
+	defer workflowDefaultsMu.RUnlock()
+	return workflowDefaultsSnapshot{
+		securityContext: DefaultUserProvidedContainersSecurityContext,
+		imagePullPolicy: DefaultImagePullPolicy,
+		backoffLimit:    DefaultJobBackoffLimit,
+		resources:       DefaultResourceRequirements,
+	}
+}
 
 // PipelineSpec defines the desired state of Pipeline.
 type PipelineSpec struct {

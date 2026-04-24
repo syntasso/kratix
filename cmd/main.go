@@ -180,16 +180,7 @@ func main() {
 	setupLog = ctrl.Log.WithName("setup")
 	setupLog.Info("logging configured from Kratix config", "structured", !opts.Development, "developmentMode", opts.Development, "level", opts.Level)
 
-	if kratixConfig != nil {
-		platformv1alpha1.DefaultUserProvidedContainersSecurityContext = &kratixConfig.Workflows.DefaultContainerSecurityContext
-		platformv1alpha1.DefaultImagePullPolicy = kratixConfig.Workflows.DefaultImagePullPolicy
-		if kratixConfig.Workflows.JobOptions.DefaultBackoffLimit != nil {
-			platformv1alpha1.DefaultJobBackoffLimit = kratixConfig.Workflows.JobOptions.DefaultBackoffLimit
-		}
-		if kratixConfig.Workflows.DefaultContainerResources != nil {
-			platformv1alpha1.DefaultResourceRequirements = kratixConfig.Workflows.DefaultContainerResources
-		}
-	}
+	applyWorkflowDefaults(kratixConfig)
 
 	podTTLAfterFinished := getPodTTLAfterFinished(kratixConfig)
 
@@ -271,6 +262,15 @@ func main() {
 		Client:        mgr.GetClient(),
 		Log:           ctrl.Log.WithName("controllers").WithName("Scheduler"),
 		EventRecorder: mgr.GetEventRecorderFor("Scheduler"),
+	}
+
+	if err := (&controller.KratixConfigReconciler{
+		Client:         mgr.GetClient(),
+		Log:            ctrl.Log.WithName("controllers").WithName("KratixConfig"),
+		OnConfigChange: makeConfigChangeHandler(setupLog),
+	}).SetupWithManager(mgr); err != nil {
+		setupLog.Error(err, "unable to create controller", "controller", "KratixConfig")
+		os.Exit(1)
 	}
 
 	if err = (&controller.PromiseReconciler{
@@ -445,20 +445,50 @@ func readKratixConfig(logger logr.Logger, kClient client.Client) (*KratixConfig,
 	}
 
 	logger.Info("kratix-platform-system/kratix ConfigMap found")
-	config, exists := cm.Data["config"]
-	if !exists {
-		return nil, fmt.Errorf("configmap kratix-platform-system/kratix does not contain a 'config' key")
-	}
-
-	kratixConfig := &KratixConfig{}
-	err = yaml.Unmarshal([]byte(config), kratixConfig)
+	kratixConfig, err := parseKratixConfigData(cm.Data)
 	if err != nil {
-		return nil, fmt.Errorf("failed to unmarshal ConfigMap kratix-platform-system/kratix into Kratix config: %w", err)
+		return nil, err
 	}
 
 	logger.Info("Kratix config loaded", "config", kratixConfig)
-
 	return kratixConfig, nil
+}
+
+func parseKratixConfigData(data map[string]string) (*KratixConfig, error) {
+	configStr, exists := data["config"]
+	if !exists {
+		return nil, fmt.Errorf("configmap kratix-platform-system/kratix does not contain a 'config' key")
+	}
+	kratixConfig := &KratixConfig{}
+	if err := yaml.Unmarshal([]byte(configStr), kratixConfig); err != nil {
+		return nil, fmt.Errorf("failed to unmarshal ConfigMap kratix-platform-system/kratix into Kratix config: %w", err)
+	}
+	return kratixConfig, nil
+}
+
+func applyWorkflowDefaults(cfg *KratixConfig) {
+	if cfg == nil {
+		return
+	}
+	platformv1alpha1.SetWorkflowDefaults(
+		&cfg.Workflows.DefaultContainerSecurityContext,
+		cfg.Workflows.DefaultImagePullPolicy,
+		cfg.Workflows.JobOptions.DefaultBackoffLimit,
+		cfg.Workflows.DefaultContainerResources,
+	)
+}
+
+func makeConfigChangeHandler(logger logr.Logger) func(data map[string]string) error {
+	return func(data map[string]string) error {
+		cfg, err := parseKratixConfigData(data)
+		if err != nil {
+			logger.Error(err, "failed to parse Kratix config from ConfigMap; workflow defaults unchanged")
+			return err
+		}
+		applyWorkflowDefaults(cfg)
+		logger.Info("workflow defaults updated from ConfigMap")
+		return nil
+	}
 }
 
 func getNumJobsToKeep(kratixConfig *KratixConfig) int {
