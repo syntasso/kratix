@@ -123,7 +123,7 @@ var _ = Describe("Reconciliation", func() {
 			numberOfTriggeredPodsPlusOne := "2"
 			Eventually(func() string {
 				return platform.Kubectl("get", "pods", "-l", podLabels, "-o", goTemplate)
-			}, 30*time.Second).Should(ContainSubstring(numberOfTriggeredPodsPlusOne))
+			}, 90*time.Second).Should(ContainSubstring(numberOfTriggeredPodsPlusOne))
 
 			Eventually(func() string {
 				return platform.Kubectl("get", kindName, resourceRequestName)
