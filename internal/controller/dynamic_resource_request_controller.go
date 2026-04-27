@@ -20,6 +20,7 @@ import (
 	"context"
 	"errors"
 	"fmt"
+	"maps"
 	"strings"
 
 	apiextensionsv1 "k8s.io/apiextensions-apiserver/pkg/apis/apiextensions/v1"
@@ -62,6 +63,7 @@ const (
 	resourceBindingVersionStatus      = "resourceBindingVersion"
 	promiseRevisionLookupFailedReason = "FailedPromiseRevisionLookup"
 	UnversionedPromiseVersion         = "not-set"
+	LatestVersion                     = "latest"
 )
 
 type DynamicResourceRequestController struct {
@@ -380,12 +382,18 @@ func (r *DynamicResourceRequestController) updateResourceBinding(ctx context.Con
 		},
 	}
 	op, err := controllerutil.CreateOrUpdate(ctx, r.Client, resourceBinding, func() error {
-		resourceBinding.SetLabels(rrLabelsWithoutEphemeralTriggers(rr.GetLabels()))
-		for k, v := range resourceBindingLabels(rr, promise) {
-			resourceBinding.Labels[k] = v
+		// Exclude one-shot trigger labels — propagating them would cause the
+		// ResourceBinding controller to re-trigger reconciliation in an infinite loop.
+		mergedLabels := rr.GetLabels()
+		delete(mergedLabels, resourceutil.ManualReconciliationLabel)
+		delete(mergedLabels, resourceutil.WorkflowRunFromStartLabel)
+		if mergedLabels == nil {
+			mergedLabels = make(map[string]string)
 		}
+		maps.Copy(mergedLabels, resourceBindingLabels(rr, promise))
+		resourceBinding.SetLabels(mergedLabels)
 		if resourceBinding.Spec.Version == "" {
-			resourceBinding.Spec.Version = "latest"
+			resourceBinding.Spec.Version = LatestVersion
 			// if the resource binding got deleted, when we recreate the resource binding we infer what the resource binding
 			// version used to be from the resource request `status.resourceBindingVersion`
 			existingPromiseVersion := resourceutil.GetStatus(rr, resourceBindingVersionStatus)
@@ -1064,19 +1072,6 @@ func getPromiseRevisionToUse(ctx context.Context, rr *unstructured.Unstructured,
 	}
 
 	return promiseRevisionToUse, bindingVersion, nil
-}
-
-// rrLabelsWithoutEphemeralTriggers returns the RR labels without one-shot trigger
-// labels. Propagating these to the ResourceBinding would cause the ResourceBinding
-// controller to re-trigger reconciliation in an infinite loop.
-func rrLabelsWithoutEphemeralTriggers(rrLabels map[string]string) map[string]string {
-	result := make(map[string]string, len(rrLabels))
-	for k, v := range rrLabels {
-		result[k] = v
-	}
-	delete(result, resourceutil.ManualReconciliationLabel)
-	delete(result, resourceutil.WorkflowRunFromStartLabel)
-	return result
 }
 
 func resourceBindingLabels(rr *unstructured.Unstructured, promise *v1alpha1.Promise) map[string]string {

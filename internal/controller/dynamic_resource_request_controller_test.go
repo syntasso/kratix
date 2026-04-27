@@ -1556,6 +1556,48 @@ var _ = Describe("DynamicResourceRequestController", func() {
 			})
 		})
 
+		When("updating the labels on an existing resource binding", func() {
+			BeforeEach(func() {
+				createPromiseRevision(fakeK8sClient, promise, "v1.1.0")
+				setReconcileConfigureWorkflowToReturnFinished()
+				_, err := t.reconcileUntilCompletion(reconciler, resReq)
+				Expect(err).NotTo(HaveOccurred())
+			})
+
+			It("reflects a changed label from the resource request on the binding", func() {
+				Expect(fakeK8sClient.Get(ctx, resReqNameNamespace, resReq)).To(Succeed())
+				updatedLabels := resReq.GetLabels()
+				updatedLabels["non-kratix-label"] = "updated-value"
+				resReq.SetLabels(updatedLabels)
+				Expect(fakeK8sClient.Update(ctx, resReq)).To(Succeed())
+
+				result, err := t.reconcileUntilCompletion(reconciler, resReq)
+				Expect(err).NotTo(HaveOccurred())
+				Expect(result).To(Equal(ctrl.Result{}))
+
+				binding := getResourceBinding(promise.GetName(), resReqNameNamespace)
+				Expect(binding.GetLabels()).To(HaveKeyWithValue("non-kratix-label", "updated-value"))
+			})
+
+			It("removes a label from the binding when it is removed from the resource request", func() {
+				Expect(fakeK8sClient.Get(ctx, resReqNameNamespace, resReq)).To(Succeed())
+				updatedLabels := resReq.GetLabels()
+				delete(updatedLabels, "non-kratix-label")
+				resReq.SetLabels(updatedLabels)
+				Expect(fakeK8sClient.Update(ctx, resReq)).To(Succeed())
+
+				result, err := t.reconcileUntilCompletion(reconciler, resReq)
+				Expect(err).NotTo(HaveOccurred())
+				Expect(result).To(Equal(ctrl.Result{}))
+
+				binding := getResourceBinding(promise.GetName(), resReqNameNamespace)
+				Expect(binding.GetLabels()).NotTo(HaveKey("non-kratix-label"))
+				// Binding-specific labels should remain untouched
+				Expect(binding.GetLabels()).To(HaveKeyWithValue("kratix.io/promise-name", promise.GetName()))
+				Expect(binding.GetLabels()).To(HaveKeyWithValue("kratix.io/resource-name", resReq.GetName()))
+			})
+		})
+
 	})
 })
 
