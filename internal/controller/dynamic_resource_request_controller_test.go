@@ -1203,7 +1203,7 @@ var _ = Describe("DynamicResourceRequestController", func() {
 	When("promise upgrade feature is on", func() {
 		BeforeEach(func() {
 			Expect(fakeK8sClient.Delete(ctx, resReq)).To(Succeed())
-			reconciler.PromiseUpgrade = true
+			reconciler.PromiseUpgradeFeatFlag = true
 			resReq = createResourceRequest(resourceRequestPath)
 			resReqNameNamespace = client.ObjectKeyFromObject(resReq)
 		})
@@ -1490,8 +1490,6 @@ var _ = Describe("DynamicResourceRequestController", func() {
 					Expect(err).NotTo(HaveOccurred())
 					Expect(result).To(Equal(ctrl.Result{}))
 
-					// The binding starts with Status.LastAppliedVersion="" (unset),
-					// so it should be updated to the actual running promise version
 					binding := getResourceBinding(promise.GetName(), resReqNameNamespace)
 					Expect(binding.Spec.Version).To(Equal("latest"))
 					Expect(binding.Status.LastAppliedVersion).To(Equal(promiseVersion))
@@ -1503,14 +1501,12 @@ var _ = Describe("DynamicResourceRequestController", func() {
 					createResourceBinding(fakeK8sClient, promise, resReq, promiseVersion)
 				})
 
-				It("still updates Status.LastAppliedVersion to reflect the current promise version", func() {
+				It("updates Status.LastAppliedVersion to reflect the current promise version", func() {
 					setReconcileConfigureWorkflowToReturnFinished()
 					result, err := t.reconcileUntilCompletion(reconciler, resReq)
 					Expect(err).NotTo(HaveOccurred())
 					Expect(result).To(Equal(ctrl.Result{}))
 
-					// Even when Spec.Version matches the running version, Status.LastAppliedVersion
-					// should be set — the ResourceBinding controller checks this to avoid re-triggering
 					binding := getResourceBinding(promise.GetName(), resReqNameNamespace)
 					Expect(binding.Spec.Version).To(Equal(promiseVersion))
 					Expect(binding.Status.LastAppliedVersion).To(Equal(promiseVersion))

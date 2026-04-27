@@ -82,7 +82,7 @@ type DynamicResourceRequestController struct {
 	NumberOfJobsToKeep          int
 	ReconciliationInterval      time.Duration
 	EventRecorder               record.EventRecorder
-	PromiseUpgrade              bool
+	PromiseUpgradeFeatFlag      bool
 }
 
 //+kubebuilder:rbac:groups="batch",resources=jobs,verbs=get;list;watch;create;update;patch;delete
@@ -172,7 +172,7 @@ func (r *DynamicResourceRequestController) Reconcile(ctx context.Context, req ct
 		promiseRevisionUsed *v1alpha1.PromiseRevision
 		bindingVersion      string
 	)
-	if r.PromiseUpgrade {
+	if r.PromiseUpgradeFeatFlag {
 		logging.Trace(baseLogger,
 			"PromiseUpgrade feature flag set to true; will reconcile with a PromiseRevision.")
 
@@ -215,7 +215,7 @@ func (r *DynamicResourceRequestController) Reconcile(ctx context.Context, req ct
 		return ctrl.Result{}, err
 	}
 
-	if r.PromiseUpgrade {
+	if r.PromiseUpgradeFeatFlag {
 		err := r.updateResourceBinding(ctx, logger, rr, promise)
 		if err != nil {
 			logging.Error(logger, err, "failed to update resource binding for resource request")
@@ -300,7 +300,7 @@ func (r *DynamicResourceRequestController) Reconcile(ctx context.Context, req ct
 		return ctrl.Result{}, nil
 	}
 
-	if r.PromiseUpgrade {
+	if r.PromiseUpgradeFeatFlag {
 		if err := r.updateResourceBindingVersionStatus(ctx, logger, promise.GetName(), rr); err != nil {
 			logging.Error(logger, err, "failed to update resource binding version status")
 			return ctrl.Result{}, err
@@ -318,7 +318,7 @@ func (r *DynamicResourceRequestController) Reconcile(ctx context.Context, req ct
 		return r.nextReconciliation(logger), nil
 	}
 
-	if r.PromiseUpgrade {
+	if r.PromiseUpgradeFeatFlag {
 		if r.updatePromiseVersionStatus(logger, rr, bindingVersion, promiseRevisionUsed) {
 			return ctrl.Result{}, r.Client.Status().Update(ctx, rr)
 		}
@@ -620,7 +620,7 @@ func (r *DynamicResourceRequestController) updateReconciledCondition(rr *unstruc
 
 func (r *DynamicResourceRequestController) updatePromiseVersionStatus(logger logr.Logger, rr *unstructured.Unstructured, bindingVersion string, promiseRevision *v1alpha1.PromiseRevision) bool {
 	logging.Trace(logger, "Checking if we need to update the promise version in the status")
-	if !r.PromiseUpgrade || promiseRevision == nil {
+	if !r.PromiseUpgradeFeatFlag || promiseRevision == nil {
 		logging.Trace(logger, "Feature flag disabled or no PromiseRevision: no update promise version required")
 		return false
 	}
@@ -822,7 +822,7 @@ func (r *DynamicResourceRequestController) deleteResources(o opts, promise *v1al
 		return fastRequeue, nil
 	}
 
-	if r.PromiseUpgrade {
+	if r.PromiseUpgradeFeatFlag {
 		if controllerutil.ContainsFinalizer(resourceRequest, resourceBindingFinalizer) {
 			err := r.deleteResourceBinding(o, resourceRequest, promise, resourceBindingFinalizer)
 			if err != nil {
@@ -1164,7 +1164,7 @@ func (r *DynamicResourceRequestController) setPromiseLabels(ctx context.Context,
 
 func (r *DynamicResourceRequestController) getRRFinalizers() []string {
 	rrFinalizers := []string{workFinalizer, removeAllWorkflowJobsFinalizer, runDeleteWorkflowsFinalizer}
-	if r.PromiseUpgrade {
+	if r.PromiseUpgradeFeatFlag {
 		rrFinalizers = append(rrFinalizers, resourceBindingFinalizer)
 	}
 	return rrFinalizers

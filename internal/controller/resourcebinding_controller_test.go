@@ -172,8 +172,6 @@ var _ = Describe("ResourceBinding Controller", func() {
 			})
 
 			It("does not apply the manual reconciliation label when the binding tracks latest", func() {
-				// "latest" bindings are handled by the DRRC's periodic reconciliation,
-				// not by this controller — it must not interfere
 				Expect(fakeK8sClient.Get(ctx, types.NamespacedName{Name: resourceBindingName, Namespace: resourceBindingNamespace}, &resourceBinding)).To(Succeed())
 				resourceBinding.Spec.Version = "latest"
 				Expect(fakeK8sClient.Update(ctx, &resourceBinding)).To(Succeed())

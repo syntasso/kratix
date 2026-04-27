@@ -1138,7 +1138,7 @@ func (r *PromiseReconciler) ensureDynamicControllerIsStarted(promise *v1alpha1.P
 		dynamicController.EventRecorder = r.Manager.GetEventRecorderFor("ResourceRequestController")
 		dynamicController.NumberOfJobsToKeep = r.NumberOfJobsToKeep
 		dynamicController.ReconciliationInterval = r.ReconciliationInterval
-		dynamicController.PromiseUpgrade = r.PromiseUpgrade
+		dynamicController.PromiseUpgradeFeatFlag = r.PromiseUpgrade
 		dynamicController.PromiseDestinationSelectors = promise.Spec.DestinationSelectors
 
 		if dynamicController.WatchStopped {
@@ -1168,7 +1168,7 @@ func (r *PromiseReconciler) ensureDynamicControllerIsStarted(promise *v1alpha1.P
 		NumberOfJobsToKeep:          r.NumberOfJobsToKeep,
 		ReconciliationInterval:      r.ReconciliationInterval,
 		EventRecorder:               r.Manager.GetEventRecorderFor("ResourceRequestController"),
-		PromiseUpgrade:              r.PromiseUpgrade,
+		PromiseUpgradeFeatFlag:      r.PromiseUpgrade,
 	}
 
 	unstructuredCRD := &unstructured.Unstructured{}

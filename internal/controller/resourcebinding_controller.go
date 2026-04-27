@@ -101,8 +101,9 @@ func (r *ResourceBindingReconciler) Reconcile(ctx context.Context, req ctrl.Requ
 		return defaultRequeue, nil
 	}
 
-	// The PromiseController will trigger a manual reconciliation of all requests every time a new
-	// Promise version is installed, so we don't need to trigger manual reconciliations here.
+	// The PromiseController will trigger a reconciliation of all requests every time a new
+	// Promise version is installed, so this controller doesn't need to trigger a reconciliation
+	// when the ResourceBinding version is set to "latest"
 	if resourceBinding.Spec.Version == LatestVersion {
 		return ctrl.Result{}, nil
 	}
