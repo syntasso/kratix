@@ -101,9 +101,8 @@ func (r *ResourceBindingReconciler) Reconcile(ctx context.Context, req ctrl.Requ
 		return defaultRequeue, nil
 	}
 
-	// "latest" bindings are upgraded via the DRRC's periodic reconciliation, which
-	// re-reads the current PromiseRevision on every tick. There is nothing for this
-	// controller to do for them.
+	// The PromiseController will trigger a manual reconciliation of all requests every time a new
+	// Promise version is installed, so we don't need to trigger manual reconciliations here.
 	if resourceBinding.Spec.Version == "latest" {
 		return ctrl.Result{}, nil
 	}
