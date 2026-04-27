@@ -1070,17 +1070,12 @@ func getPromiseRevisionToUse(ctx context.Context, rr *unstructured.Unstructured,
 // labels. Propagating these to the ResourceBinding would cause the ResourceBinding
 // controller to re-trigger reconciliation in an infinite loop.
 func rrLabelsWithoutEphemeralTriggers(rrLabels map[string]string) map[string]string {
-	ephemeralLabels := []string{
-		resourceutil.ManualReconciliationLabel,
-		resourceutil.WorkflowRunFromStartLabel,
-	}
 	result := make(map[string]string, len(rrLabels))
 	for k, v := range rrLabels {
 		result[k] = v
 	}
-	for _, key := range ephemeralLabels {
-		delete(result, key)
-	}
+	delete(result, resourceutil.ManualReconciliationLabel)
+	delete(result, resourceutil.WorkflowRunFromStartLabel)
 	return result
 }
 
