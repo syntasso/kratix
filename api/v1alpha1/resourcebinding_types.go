@@ -66,7 +66,7 @@ type ResourceBindingStatus struct {
 	Conditions []metav1.Condition `json:"conditions,omitempty"`
 	// Reference to the Resource Request version
 	// +optional
-	LastAppiedVersion string `json:"lastAppiedVersion,omitempty"`
+	LastAppliedVersion string `json:"lastAppliedVersion,omitempty"`
 }
 
 // +kubebuilder:object:root=true

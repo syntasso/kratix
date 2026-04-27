@@ -61,7 +61,7 @@ const (
 	resourcePromiseVersionStatus      = "promiseVersion"
 	resourceBindingVersionStatus      = "resourceBindingVersion"
 	promiseRevisionLookupFailedReason = "FailedPromiseRevisionLookup"
-	unversionedPromiseVersion         = "not-set"
+	UnversionedPromiseVersion         = "not-set"
 )
 
 type DynamicResourceRequestController struct {
@@ -292,13 +292,19 @@ func (r *DynamicResourceRequestController) Reconcile(ctx context.Context, req ct
 		return r.nextReconciliation(logger), r.cleanupWorkflowCountersAndExecution(ctx, logger, rr)
 	}
 
-	if updated, err := r.ensureResourceStatus(ctx, logger, rr, promise, pipelineResources, bindingVersion, promiseRevisionUsed); updated || err != nil {
+	statusUpdated, err := r.ensureResourceStatus(ctx, logger, rr, promise, pipelineResources, bindingVersion, promiseRevisionUsed)
+	if err != nil {
 		return ctrl.Result{}, err
 	}
+	if statusUpdated {
+		return ctrl.Result{}, nil
+	}
 
-	if err := r.updateResourceBindingVersionStatus(ctx, logger, promise.GetName(), rr); err != nil {
-		logging.Error(logger, err, "failed to update resource binding version status")
-		return ctrl.Result{}, err
+	if r.PromiseUpgrade {
+		if err := r.updateResourceBindingVersionStatus(ctx, logger, promise.GetName(), rr); err != nil {
+			logging.Error(logger, err, "failed to update resource binding version status")
+			return ctrl.Result{}, err
+		}
 	}
 
 	workflowCompletedCondition := resourceutil.GetCondition(rr, resourceutil.ConfigureWorkflowCompletedCondition)
@@ -345,14 +351,9 @@ func (r *DynamicResourceRequestController) ensureResourceStatus(
 		return true, r.Client.Status().Update(ctx, rr)
 	}
 	return false, nil
-
 }
 
 func (r *DynamicResourceRequestController) updateResourceBindingVersionStatus(ctx context.Context, logger logr.Logger, promiseName string, rr *unstructured.Unstructured) error {
-	if !r.PromiseUpgrade {
-		return nil
-	}
-
 	resourceBindingName := objectutil.GenerateDeterministicObjectName(fmt.Sprintf("%s-%s", rr.GetName(), promiseName))
 	resourceBinding := &v1alpha1.ResourceBinding{}
 	err := r.Client.Get(ctx, types.NamespacedName{Name: resourceBindingName, Namespace: rr.GetNamespace()}, resourceBinding)
@@ -361,12 +362,12 @@ func (r *DynamicResourceRequestController) updateResourceBindingVersionStatus(ct
 	}
 
 	desiredVersion := resourceutil.GetStatus(rr, resourcePromiseVersionStatus)
-	if resourceBinding.Status.LastAppiedVersion == desiredVersion {
+	if resourceBinding.Status.LastAppliedVersion == desiredVersion {
 		return nil
 	}
 
-	logging.Info(logger, "updating the resource binding status.ResourceRequestVersion", "oldVersion", resourceBinding.Spec.Version, "newVersion", desiredVersion)
-	resourceBinding.Status.LastAppiedVersion = desiredVersion
+	logging.Info(logger, "updating resource binding Status.LastAppliedVersion", "oldVersion", resourceBinding.Status.LastAppliedVersion, "newVersion", desiredVersion)
+	resourceBinding.Status.LastAppliedVersion = desiredVersion
 	if err := r.Client.Status().Update(ctx, resourceBinding); err != nil {
 		return fmt.Errorf("failed to update resource binding status: %w", err)
 	}
