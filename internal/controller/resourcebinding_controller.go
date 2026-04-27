@@ -101,6 +101,13 @@ func (r *ResourceBindingReconciler) Reconcile(ctx context.Context, req ctrl.Requ
 		return defaultRequeue, nil
 	}
 
+	// "latest" bindings are upgraded via the DRRC's periodic reconciliation, which
+	// re-reads the current PromiseRevision on every tick. There is nothing for this
+	// controller to do for them.
+	if resourceBinding.Spec.Version == "latest" {
+		return ctrl.Result{}, nil
+	}
+
 	rrPromiseVersion := resourceutil.GetStatus(rr, "promiseVersion")
 	if rrPromiseVersion == "" || rrPromiseVersion == UnversionedPromiseVersion {
 		logging.Info(logger, "promise has no version; skipping version check")
@@ -109,14 +116,6 @@ func (r *ResourceBindingReconciler) Reconcile(ctx context.Context, req ctrl.Requ
 
 	if rrPromiseVersion == resourceBinding.Spec.Version {
 		logging.Debug(logger, "resource request version is equal to the resource binding desired version", "resource binding version", resourceBinding.Spec.Version)
-		return ctrl.Result{}, nil
-	}
-
-	// For "latest" bindings Spec.Version is never equal to a concrete version string,
-	// so the check above can never match. We use LastAppliedVersion to detect that
-	// the RR has already been reconciled at its current version, breaking the loop.
-	if resourceBinding.Spec.Version == "latest" && rrPromiseVersion == resourceBinding.Status.LastAppliedVersion {
-		logging.Debug(logger, "resource request version has already been applied; skipping reconciliation", "version", rrPromiseVersion)
 		return ctrl.Result{}, nil
 	}
 

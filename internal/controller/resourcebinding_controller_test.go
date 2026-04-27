@@ -171,35 +171,12 @@ var _ = Describe("ResourceBinding Controller", func() {
 				Expect(rr.GetLabels()[resourceutil.ManualReconciliationLabel]).To(Equal(""))
 			})
 
-			It("still applies the manual reconciliation label when Spec.Version differs and LastAppliedVersion matches rrPromiseVersion", func() {
-				// Spec.Version="v0.0.2" (desired), rrPromiseVersion="v0.0.1" (current), LastAppliedVersion="v0.0.1"
-				// LastAppliedVersion matching rrPromiseVersion does NOT mean we are done —
-				// the RR still needs upgrading to Spec.Version="v0.0.2"
-				resourceBinding.Status.LastAppliedVersion = "v0.0.1"
-				Expect(fakeK8sClient.Status().Update(ctx, &resourceBinding)).To(Succeed())
-
-				request := ctrl.Request{NamespacedName: types.NamespacedName{Name: resourceBindingName, Namespace: resourceBindingNamespace}}
-
-				result, err := reconciler.Reconcile(ctx, request)
-				Expect(err).NotTo(HaveOccurred())
-				Expect(result).To(Equal(ctrl.Result{}))
-
-				fakeK8sClient.Get(ctx,
-					types.NamespacedName{Name: rr.GetName(), Namespace: rr.GetNamespace()},
-					rr,
-				)
-				Expect(rr.GetLabels()[resourceutil.ManualReconciliationLabel]).To(Equal("true"))
-			})
-
-			It("does not apply the manual reconciliation label when the binding tracks latest and the version has already been applied", func() {
-				// Spec.Version="latest" will never equal a concrete version like "v0.0.1",
-				// so we rely on LastAppliedVersion to detect the RR is already up to date
+			It("does not apply the manual reconciliation label when the binding tracks latest", func() {
+				// "latest" bindings are handled by the DRRC's periodic reconciliation,
+				// not by this controller — it must not interfere
 				Expect(fakeK8sClient.Get(ctx, types.NamespacedName{Name: resourceBindingName, Namespace: resourceBindingNamespace}, &resourceBinding)).To(Succeed())
 				resourceBinding.Spec.Version = "latest"
 				Expect(fakeK8sClient.Update(ctx, &resourceBinding)).To(Succeed())
-
-				resourceBinding.Status.LastAppliedVersion = "v0.0.1"
-				Expect(fakeK8sClient.Status().Update(ctx, &resourceBinding)).To(Succeed())
 
 				request := ctrl.Request{NamespacedName: types.NamespacedName{Name: resourceBindingName, Namespace: resourceBindingNamespace}}
 

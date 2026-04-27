@@ -206,13 +206,11 @@ func (r *DynamicResourceRequestController) Reconcile(ctx context.Context, req ct
 	if resourceutil.FinalizersAreMissing(
 		rr, []string{workFinalizer, removeAllWorkflowJobsFinalizer, runDeleteWorkflowsFinalizer},
 	) {
-		if err := addFinalizers(opts, rr, r.getRRFinalizers()); err != nil {
-			if apierrors.IsConflict(err) {
-				return fastRequeue, nil
-			}
-			return ctrl.Result{}, err
+		err := addFinalizers(opts, rr, r.getRRFinalizers())
+		if apierrors.IsConflict(err) {
+			return fastRequeue, nil
 		}
-		return ctrl.Result{}, nil
+		return ctrl.Result{}, err
 	}
 
 	if r.PromiseUpgrade {
